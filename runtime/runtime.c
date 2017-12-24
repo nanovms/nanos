@@ -1,6 +1,6 @@
 #include <runtime.h>
 
-char hex[]="0123456789abcdef";
+static char hex[]="0123456789abcdef";
 
 void print_u64(u64 s)
 {

@@ -8,7 +8,7 @@ include libc/Makefile
 %.o: %.c
 	cc -Ilibc -I../runtime $< -c
 
-app: $(LIB)
+app: $(LIB) app.c
 	cc app.c -Wl,"-e_start" -nostdinc -nostdlib -Ilibc $(LIB) -o app
 
 clean:
