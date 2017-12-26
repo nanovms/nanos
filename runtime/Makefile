@@ -1,0 +1,9 @@
+VPATH += $(ROOT)/runtime
+
+crt0.o: crt0.s
+	nasm -felf64 $< -o $@
+
+RUNTIME = crt0.o lib.o serial.o pci.o runtime.o
+
+INCLUDES += -I$(ROOT)/runtime
+

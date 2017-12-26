@@ -5,6 +5,10 @@ typedef unsigned long long u64;
 typedef long long s64;
 typedef u8 boolean;
 
+typedef u64 bytes;
+
+typedef char *string;
+
 extern void console(char *x);
 
 extern void serial_out(char c);
@@ -21,3 +25,10 @@ void print_u64(u64 s);
 #define pad(__x, __s) ((((__x) - 1) & (~((__s) - 1))) + (__s))
 
 #include <io.h>
+#include <heap/heap.h>
+
+extern heap general;
+extern heap contiguous;
+
+// inline bsf
+#define log2(__x) ( __x)

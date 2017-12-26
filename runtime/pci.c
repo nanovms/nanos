@@ -72,6 +72,11 @@ static u32 pci_cfgread(int bus, int slot, int func, int reg, int bytes)
 #define PCIR_MEMLIMIT0_2 0x20
 #define PCIR_MEMBASE1_2 0x24
 #define PCIR_MEMLIMIT1_2 0x28
+#define PCIR_IOBASEL_1  0x1c
+#define PCIR_IOLIMITL_1 0x1d
+#define PCIR_IOBASEH_1  0x30
+#define PCIR_IOLIMITH_1 0x32
+
 
 void pci_checko()
 {
@@ -83,9 +88,15 @@ void pci_checko()
             console("found virtio net\n");
             u32 base = pci_cfgread(0, i, 0, PCIR_MEMBASE1_2, 2);
             u32 limit = pci_cfgread(0, i, 0, PCIR_MEMLIMIT1_2, 2);
+            u32 iobasel = pci_cfgread(0, i, 0, PCIR_IOBASEL_1, 2);
+            u32 iolimitl = pci_cfgread(0, i, 0, PCIR_IOLIMITL_1, 2);            
             print_u64(base);
             console("\n");
             print_u64(limit);
+            console("\n");
+            print_u64(iobasel);
+            console("\n");
+            print_u64(iolimitl);
             console("\n");
         }
     }

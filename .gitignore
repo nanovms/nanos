@@ -4,6 +4,7 @@ boot/b32*
 boot/boot
 boot/stage1
 musl
+lwip
 *~
 image
 

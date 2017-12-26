@@ -15,8 +15,8 @@ musl:
 	git clone git://git.musl-libc.org/musl
 	cd musl ; git checkout v1.1.18
 
-lwip-2.0.3:
-	git clone http://git.savannah.nongnu.org/cgit/lwip.git 
+lwip:
+	git clone http://git.savannah.nongnu.org/git/lwip.git 
 	cd lwip ; git checkout -t STABLE-2_0_3_RELEASE
 
 clean:
