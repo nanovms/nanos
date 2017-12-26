@@ -74,6 +74,7 @@ struct vtpci {
     struct vtpci_interrupt		 vtpci_device_interrupt;
     struct vtpci_interrupt		*vtpci_msix_vq_interrupts;
     int				 vtpci_nmsix_resources;
+    void *vtpci_msix_res; // not a res
 };
 
 typedef struct vtpci *vtpci;
@@ -122,7 +123,7 @@ static status vtpci_attach(vtpci dev)
         return allocate_status("cannot map I/O space\n");
 
 
-    rid = PCIR_BAR(1);
+    //    rid = PCIR_BAR(1);
     sc->vtpci_msix_res = 0;/*bus_alloc_resource_any(dev,
                              SYS_RES_MEMORY, &rid, RF_ACTIVE);*/
 
@@ -161,7 +162,7 @@ static int vtpci_with_feature(vtpci dev, uint64_t feature)
     return ((dev->vtpci_features & feature) != 0);
 }
 
-static status vtpci_alloc_virtqueues(vtpci dev, int flags, int nvqs)
+static status vtpci_alloc_virtqueues(vtpci dev, int flags, int nvqs, struct vq_alloc_info *vq_info)
 {
     struct virtqueue *vq;
     struct vtpci_virtqueue *vqx;
@@ -174,12 +175,12 @@ static status vtpci_alloc_virtqueues(vtpci dev, int flags, int nvqs)
 
     for (idx = 0; idx < nvqs; idx++) {
         vqx = &dev->vtpci_vqs[idx];
-        info = &vq_info[idx];
+        struct vq_alloc_info *info = &vq_info[idx];
 
         vtpci_select_virtqueue(dev, idx);
         size = in16(dev->base + VIRTIO_PCI_QUEUE_NUM);
 
-        status s = virtqueue_alloc(dev, idx, size, VIRTIO_PCI_VRING_ALIGN,
+        status s = virtqueue_alloc(dev, "foo", idx, size, VIRTIO_PCI_VRING_ALIGN,
                                 0xFFFFFFFFUL, info, &vq);
         if (!is_ok(s)) return s;
 
@@ -221,7 +222,7 @@ static status vtpci_alloc_interrupt(vtpci dev,
                                  struct vtpci_interrupt *intr)
 {
 
-    void *irq = 0 // bus_alloc_resource_any(dev, SYS_RES_IRQ, &rid, flags);
+    void *irq = 0; // bus_alloc_resource_any(dev, SYS_RES_IRQ, &rid, flags);
 
     intr->vti_irq = irq;
     intr->vti_rid = rid;
@@ -350,3 +351,10 @@ static void vtpci_vq_intr(void *xvq)
     vq = xvq;
     virtqueue_intr(vq);
 }
+
+
+void vtpci_notify_virtqueue(struct vtpci *sc, uint16_t queue)
+{
+    out16(sc->base + VIRTIO_PCI_QUEUE_NOTIFY, queue);
+}
+

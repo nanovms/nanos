@@ -61,15 +61,7 @@ static inline u64 buffer_length(buffer b)
 }
 
 typedef u64 address;
-status virtqueue_alloc(void *dev,
-                       char *name, 
-                       uint16_t queue,
-                       uint16_t size,
-                       int align,
-                       address highaddr,
-                       handler interrupt,
-                       int maxindirsz, 
-                       struct virtqueue **vqp);
+
 
 #include <virtqueue.h>
 #include <virtio_ring.h>
@@ -87,3 +79,5 @@ static inline physical vtophys(void *v)
 #define cprintf(...)
 #define apply(...)
 
+struct vtpci;
+void vtpci_notify_virtqueue(struct vtpci *sc, uint16_t queue);

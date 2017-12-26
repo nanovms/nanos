@@ -162,7 +162,7 @@ vq_ring_must_notify_host(struct virtqueue *vq)
 
 static void vq_ring_notify_host(struct virtqueue *vq)
 {
-    VIRTIO_BUS_NOTIFY_VQ(vq->vq_dev, vq->vq_queue_index);
+    vtpci_notify_virtqueue(vq->vq_dev, vq->vq_queue_index);
 }
 
 static void vq_ring_free_chain(struct virtqueue *vq, uint16_t desc_idx)
@@ -253,8 +253,7 @@ status virtqueue_alloc(void *dev,
                        uint16_t size,
                        int align,
                        address highaddr,
-                       handler interrupt,
-                       int maxindirsz, 
+                       struct vq_alloc_info *info,
                        struct virtqueue **vqp)
 {
     status s;
@@ -282,13 +281,13 @@ status virtqueue_alloc(void *dev,
     vq->vq_alignment = align;
     vq->vq_nentries = size;
     vq->vq_free_cnt = size;
-    vq->interrupt = interrupt;
+    vq->interrupt = info->vqai_intr;
 
     //    if (VIRTIO_BUS_WITH_FEATURE(dev, VIRTIO_RING_F_EVENT_IDX) != 0)
     vq->vq_flags |= VIRTQUEUE_FLAG_EVENT_IDX;
 
-    if (maxindirsz > 1)
-        if (!is_ok(s = virtqueue_init_indirect(vq, maxindirsz))) goto fail;
+    if (info->maxindirsz > 1)
+        if (!is_ok(s = virtqueue_init_indirect(vq, info->maxindirsz))) goto fail;
 
     vq->vq_ring_size = pad(vring_size(size, align), PAGESIZE);
     vq->vq_ring_mem = allocate(contiguous, vq->vq_ring_size);
@@ -569,19 +568,6 @@ void *virtqueue_dequeue(struct virtqueue *vq, uint32_t *len)
 
     cookie = vq->vq_descx[desc_idx].cookie;
     vq->vq_descx[desc_idx].cookie = NULL;
-
-    return (cookie);
-}
-
-void *virtqueue_poll(struct virtqueue *vq, uint32_t *len)
-{
-    void *cookie;
-
-    VIRTIO_BUS_POLL(vq->vq_dev);
-    while ((cookie = virtqueue_dequeue(vq, len)) == NULL) {
-        cpu_spinwait();
-        VIRTIO_BUS_POLL(vq->vq_dev);
-    }
 
     return (cookie);
 }

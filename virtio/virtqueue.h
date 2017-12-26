@@ -31,6 +31,24 @@
 
 struct virtqueue;
 
+/* One for each virtqueue the device wishes to allocate. */
+struct vq_alloc_info {
+    string             name;
+    int                maxindirsz;
+    handler vqai_intr;
+    void              *vqai_intr_arg;
+    struct virtqueue **vqai_vq;
+};
+
+status virtqueue_alloc(void *dev,
+                       char *name, 
+                       uint16_t queue,
+                       uint16_t size,
+                       int align,
+                       address highaddr,
+                       struct vq_alloc_info *info,
+                       struct virtqueue **vqp);
+
 /* Device callback for a virtqueue interrupt. */
 typedef void virtqueue_intr_t(void *);
 
@@ -71,5 +89,4 @@ void	 virtqueue_dump(struct virtqueue *vq);
 status	 virtqueue_enqueue(struct virtqueue *vq, void *cookie, buffer b,
                            int readable, int writable);
 void	*virtqueue_dequeue(struct virtqueue *vq, uint32_t *len);
-void	*virtqueue_poll(struct virtqueue *vq, uint32_t *len);
 
