@@ -1,4 +1,6 @@
 #include <runtime.h>
+#include <virtio.h>
+#include <pci.h>
 
 #define CONF1_ADDR_PORT    0x0cf8
 #define CONF1_DATA_PORT    0x0cfc
@@ -29,8 +31,7 @@
 #define PCIR_DEVICE     0x02
 
 /* enable configuration space accesses and return data port address */
-static int
-pci_cfgenable(unsigned bus, unsigned slot, unsigned func, int reg, int bytes)
+static int pci_cfgenable(unsigned bus, unsigned slot, unsigned func, int reg, int bytes)
 {
 	int dataport = 0;
 
@@ -44,7 +45,7 @@ pci_cfgenable(unsigned bus, unsigned slot, unsigned func, int reg, int bytes)
 	return (dataport);
 }
 
-static u32 pci_cfgread(int bus, int slot, int func, int reg, int bytes)
+u32 pci_cfgread(int bus, int slot, int func, int reg, int bytes)
 {
     u32 data = -1;
     int port;
@@ -66,17 +67,26 @@ static u32 pci_cfgread(int bus, int slot, int func, int reg, int bytes)
     return (data);
 }
 
-#define VIRTIO 0x1af4
-#define VIRTIO_NET 0x1000
-#define PCIR_MEMBASE0_2 0x1c
-#define PCIR_MEMLIMIT0_2 0x20
-#define PCIR_MEMBASE1_2 0x24
-#define PCIR_MEMLIMIT1_2 0x28
-#define PCIR_IOBASEL_1  0x1c
-#define PCIR_IOLIMITL_1 0x1d
-#define PCIR_IOBASEH_1  0x30
-#define PCIR_IOLIMITH_1 0x32
-
+void pci_cfgwrite(int bus, int slot, int func, int reg, int bytes, u32 source)
+{
+    u32 data = -1;
+    int port;
+    
+    port = pci_cfgenable(bus, slot, func, reg, bytes);
+    if (port != 0) {
+        switch (bytes) {
+        case 1:
+            out8(port, source);
+            break;
+        case 2:
+            out16(port, source);
+            break;
+        case 4:
+            out32(port, source);
+            break;
+        }
+    }
+}
 
 void pci_checko()
 {
@@ -84,20 +94,8 @@ void pci_checko()
     for (int i = 0; i < 16; i++) {
         u32 vid = pci_cfgread(0, i, 0, PCIR_VENDOR, 2);
         u32 did = pci_cfgread(0, i, 0, PCIR_DEVICE, 2);
-        if ((vid ==  VIRTIO) &&  (did == VIRTIO_NET)) {
-            console("found virtio net\n");
-            u32 base = pci_cfgread(0, i, 0, PCIR_MEMBASE1_2, 2);
-            u32 limit = pci_cfgread(0, i, 0, PCIR_MEMLIMIT1_2, 2);
-            u32 iobasel = pci_cfgread(0, i, 0, PCIR_IOBASEL_1, 2);
-            u32 iolimitl = pci_cfgread(0, i, 0, PCIR_IOLIMITL_1, 2);            
-            print_u64(base);
-            console("\n");
-            print_u64(limit);
-            console("\n");
-            print_u64(iobasel);
-            console("\n");
-            print_u64(iolimitl);
-            console("\n");
+        if ((vid ==  VIRTIO_PCI_VENDORID) &&  (did == VIRTIO_PCI_DEVICEID_MIN)) {
+            attach_vtpci(0, i, 0);
         }
     }
 }

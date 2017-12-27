@@ -138,7 +138,7 @@ readsector:
 	mov es, ax 
         mov bx, 0    ; target address completely in the segment
         mov ah, 0x2  ; command code
-        mov al, 0x18 ;sector count - three pages right now, one for stages 2 and 2 for 3 - fix
+        mov al, 0x30 ;sector count - three pages right now, one for stages 2 and 3 for 3 - fix
         mov dl, 0x80 ; drive is hd0
         mov dh, 0x0  ; head number what the hell
         mov ch, 0x0  ; cyl/track?

@@ -51,47 +51,6 @@
  * simply an optimization.  */
 #define VRING_AVAIL_F_NO_INTERRUPT      1
 
-/* VirtIO ring descriptors: 16 bytes.
- * These can chain together via "next". */
-struct vring_desc {
-        /* Address (guest-physical). */
-        uint64_t addr;
-        /* Length. */
-        uint32_t len;
-        /* The flags as indicated above. */
-        uint16_t flags;
-        /* We chain unused descriptors via this, too. */
-        uint16_t next;
-};
-
-struct vring_avail {
-        uint16_t flags;
-        uint16_t idx;
-        uint16_t ring[0];
-};
-
-/* uint32_t is used here for ids for padding reasons. */
-struct vring_used_elem {
-        /* Index of start of used descriptor chain. */
-        uint32_t id;
-        /* Total length of the descriptor chain which was written to. */
-        uint32_t len;
-};
-
-struct vring_used {
-        uint16_t flags;
-        uint16_t idx;
-        struct vring_used_elem ring[0];
-};
-
-struct vring {
-	unsigned int num;
-
-	struct vring_desc *desc;
-	struct vring_avail *avail;
-	struct vring_used *used;
-};
-
 /* The standard layout for the ring is a continuous chunk of memory which
  * looks like this.  We assume num is a power of 2.
  *

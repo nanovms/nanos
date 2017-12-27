@@ -32,3 +32,24 @@ extern heap contiguous;
 
 // inline bsf
 #define log2(__x) ( __x)
+
+
+#define NULL ((void *)0)
+
+typedef void *status;
+status allocate_status(char *format, ...);
+
+extern heap general;
+typedef unsigned long size_t;
+extern void *memset(void *a, int val, unsigned long length);
+
+typedef u64 physical;
+
+static inline physical vtophys(void *v)
+{
+    return (unsigned long)v;
+}
+
+#define cprintf(...)
+#define apply(...)
+

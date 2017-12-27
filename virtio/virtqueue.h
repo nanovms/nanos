@@ -28,25 +28,16 @@
  * $FreeBSD$
  */
 
-
 struct virtqueue;
 
-/* One for each virtqueue the device wishes to allocate. */
-struct vq_alloc_info {
-    string             name;
-    int                maxindirsz;
-    handler vqai_intr;
-    void              *vqai_intr_arg;
-    struct virtqueue **vqai_vq;
-};
-
 status virtqueue_alloc(void *dev,
-                       char *name, 
+                       string name, 
                        uint16_t queue,
                        uint16_t size,
                        int align,
-                       address highaddr,
-                       struct vq_alloc_info *info,
+                       physical highaddr,
+                       handler interrupt,
+                       int maxindrsize,
                        struct virtqueue **vqp);
 
 /* Device callback for a virtqueue interrupt. */
@@ -74,10 +65,7 @@ void	 virtqueue_intr(struct virtqueue *vq);
 int	 virtqueue_enable_intr(struct virtqueue *vq);
 int	 virtqueue_postpone_intr(struct virtqueue *vq, vq_postpone_t hint);
 void	 virtqueue_disable_intr(struct virtqueue *vq);
-
-/* Get physical address of the virtqueue ring. */
-address virtqueue_paddr(struct virtqueue *vq);
-
+physical virtqueue_paddr(struct virtqueue *vq);
 int	 virtqueue_full(struct virtqueue *vq);
 int	 virtqueue_empty(struct virtqueue *vq);
 int	 virtqueue_size(struct virtqueue *vq);

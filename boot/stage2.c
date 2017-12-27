@@ -8,7 +8,7 @@ typedef u64 address;
 
 static address base = 0;
 // better allocation?
-static address region = 0xb000;
+static address region = 0xe000;
 
 
 #define PAGELOG 12
@@ -18,7 +18,7 @@ static address region = 0xb000;
 #define pointer(__a) ((u64 *)(void *)(u32)__a)
 
 
-address allocate()
+address pt_allocate()
 {
     address result= region;
     for (int i=0; i < 4906>>6; i++) 
@@ -39,7 +39,7 @@ static inline address force_entry(address base, u32 offset)
     if (b[offset] &1) {
         return b[offset] & ~PAGEMASK;
     } else {
-        u64 n = allocate();
+        u64 n = pt_allocate();
         write_pte(base + offset * 8, n);
         return n;
     }
@@ -48,7 +48,7 @@ static inline address force_entry(address base, u32 offset)
 static void map_page(address virtual, address physical)
 {
     if (base == 0) {
-        base = allocate();
+        base = pt_allocate();
         mov_to_cr("cr3", base);
     }
     u64 x = base;
@@ -72,10 +72,9 @@ void centry()
     u32 ph = elfh->e_phentsize;
     u32 po = elfh->e_phoff + startelf;
     int pn = elfh->e_phnum;
-    // identity map stage2
-    map(0x8000, 0x8000, PAGESIZE);
-    // stack
-    map(0x0000, 0x0000, PAGESIZE);    
+
+    // xxx - assume application is loaded at 0x40000
+    map(0x0000, 0x0000, 0x40000);    
     for (int i = 0; i< pn; i++){
         Elf64_Phdr *p = (void *)po + i * ph;        
         if (p->p_type == PT_LOAD) 
@@ -83,8 +82,4 @@ void centry()
     }
     run64(elfh->e_entry);
 }
-
-
-
-
 

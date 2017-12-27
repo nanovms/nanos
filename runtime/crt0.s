@@ -1,8 +1,9 @@
         global _start
-        extern main
+        extern init_service
         
 _start:
-        call main
+        call init_service
+;; can we shut down qemu from here?
         hlt
 
 

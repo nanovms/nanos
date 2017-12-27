@@ -32,45 +32,6 @@
  */
 
 #include <virtio_internal.h>
-
-struct virtqueue {
-    void *		 vq_dev;
-    string name;
-    uint16_t		 vq_queue_index;
-    uint16_t		 vq_nentries;
-    uint32_t		 vq_flags;
-#define	VIRTQUEUE_FLAG_INDIRECT	 0x0001
-#define	VIRTQUEUE_FLAG_EVENT_IDX 0x0002
-
-    int			 vq_alignment;
-    int			 vq_ring_size;
-    void			*vq_ring_mem;
-    int			 vq_max_indirect_size;
-    int			 vq_indirect_mem_size;
-    handler interrupt;
-    struct vring		 vq_ring;
-    uint16_t		 vq_free_cnt;
-    uint16_t		 vq_queued_cnt;
-    /*
-     * Head of the free chain in the descriptor table. If
-     * there are no free descriptors, this will be set to
-     * VQ_RING_DESC_CHAIN_END.
-     */
-    uint16_t		 vq_desc_head_idx;
-    /*
-     * Last consumed descriptor in the used table,
-     * trails vq_ring.used->idx.
-     */
-    uint16_t		 vq_used_cons_idx;
-
-    struct vq_desc_extra {
-        void		  *cookie;
-        struct vring_desc *indirect;
-        address		   indirect_paddr;
-        uint16_t	   ndescs;
-    } vq_descx[0];
-};
-
 /*
  * The maximum virtqueue size is 2^15. Use that value as the end of
  * descriptor chain terminator since it will never be a valid index
@@ -252,8 +213,9 @@ status virtqueue_alloc(void *dev,
                        uint16_t queue,
                        uint16_t size,
                        int align,
-                       address highaddr,
-                       struct vq_alloc_info *info,
+                       physical highaddr,
+                       handler interrupt,
+                       int maxindirsz,
                        struct virtqueue **vqp)
 {
     status s;
@@ -281,13 +243,13 @@ status virtqueue_alloc(void *dev,
     vq->vq_alignment = align;
     vq->vq_nentries = size;
     vq->vq_free_cnt = size;
-    vq->interrupt = info->vqai_intr;
+    vq->interrupt = interrupt;
 
     //    if (VIRTIO_BUS_WITH_FEATURE(dev, VIRTIO_RING_F_EVENT_IDX) != 0)
     vq->vq_flags |= VIRTQUEUE_FLAG_EVENT_IDX;
 
-    if (info->maxindirsz > 1)
-        if (!is_ok(s = virtqueue_init_indirect(vq, info->maxindirsz))) goto fail;
+    if (maxindirsz > 1)
+        if (!is_ok(s = virtqueue_init_indirect(vq, maxindirsz))) goto fail;
 
     vq->vq_ring_size = pad(vring_size(size, align), PAGESIZE);
     vq->vq_ring_mem = allocate(contiguous, vq->vq_ring_size);

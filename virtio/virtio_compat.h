@@ -11,8 +11,6 @@ typedef u32 uint32_t;
 typedef u16 uint16_t;
 typedef u8 uint8_t;
 
-typedef u64 address;
-
 #define NULL ((void *)0)
 
 typedef void *status;

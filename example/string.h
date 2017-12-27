@@ -30,3 +30,10 @@ static inline void *memmove(void *i, const void *j, size_t len){
         ((u8_t *)j)[off] = ((u8_t *)i)[off];
     return i;
 }
+
+static inline int memcmp(const void *i, const void *j, size_t len){
+    int x;
+    for(x = 0; x< len ; x++) 
+        if (((unsigned char *)i)[x] != ((unsigned char *)j)[x]) return -1;
+    return 0;
+}

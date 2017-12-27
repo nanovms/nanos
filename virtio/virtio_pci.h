@@ -38,11 +38,6 @@
 #ifndef _VIRTIO_PCI_H
 #define _VIRTIO_PCI_H
 
-/* VirtIO PCI vendor/device ID. */
-#define VIRTIO_PCI_VENDORID	0x1AF4
-#define VIRTIO_PCI_DEVICEID_MIN	0x1000
-#define VIRTIO_PCI_DEVICEID_MAX	0x103F
-
 /* VirtIO ABI version, this must match exactly. */
 #define VIRTIO_PCI_ABI_VERSION	0
 
@@ -84,5 +79,12 @@
 
 /* The alignment to use between consumer and producer parts of vring. */
 #define VIRTIO_PCI_VRING_ALIGN	4096
+
+status vtpci_alloc_virtqueue(vtpci dev,
+                             int idx,
+                             handler intr,
+                             int maxindirsz,
+                             struct virtqueue **result);
+vtpci attach_vtpci();
 
 #endif /* _VIRTIO_PCI_H */

@@ -29,55 +29,7 @@
 /* Driver for the VirtIO PCI interface. */
 
 #include <virtio_internal.h>
-
-struct vtpci_interrupt {
-    struct resource		*vti_irq;
-    int			 vti_rid;
-    void			*vti_handler;
-};
-
-struct vtpci_virtqueue {
-    struct virtqueue	*vtv_vq;
-    int			 vtv_no_intr;
-};
-
-struct vtpci {
-    u64 base; //io region base
-    uint64_t			 vtpci_features;
-    uint32_t			 vtpci_flags;
-
-    // remove
-#define VTPCI_FLAG_NO_MSI		0x0001
-#define VTPCI_FLAG_NO_MSIX		0x0002
-#define VTPCI_FLAG_LEGACY		0x1000
-#define VTPCI_FLAG_MSI			0x2000
-#define VTPCI_FLAG_MSIX			0x4000
-#define VTPCI_FLAG_SHARED_MSIX		0x8000
-#define VTPCI_FLAG_ITYPE_MASK		0xF000
-
-
-    struct virtio_feature_desc	*vtpci_child_feat_desc;
-
-    int				 vtpci_nvqs;
-    struct vtpci_virtqueue		*vtpci_vqs;
-
-    /*
-     * Ideally, each virtqueue that the driver provides a callback for will
-     * receive its own MSIX vector. If there are not sufficient vectors
-     * available, then attempt to have all the VQs share one vector. For
-     * MSIX, the configuration changed notifications must be on their own
-     * vector.
-     *
-     * If MSIX is not available, we will attempt to have the whole device
-     * share one MSI vector, and then, finally, one legacy interrupt.
-     */
-    struct vtpci_interrupt		 vtpci_device_interrupt;
-    struct vtpci_interrupt		*vtpci_msix_vq_interrupts;
-    int				 vtpci_nmsix_resources;
-    void *vtpci_msix_res; // not a res
-};
-
-typedef struct vtpci *vtpci;
+#include <pci.h>
 
 #define vtpci_setup_msi_interrupt vtpci_setup_legacy_interrupt
 
@@ -90,8 +42,7 @@ static void vtpci_select_virtqueue(struct vtpci *sc, int idx)
     out16(sc->base + VIRTIO_PCI_QUEUE_SEL, idx);
 }
 
-static uint8_t
-vtpci_get_status(vtpci dev)
+static uint8_t vtpci_get_status(vtpci dev)
 {
     return (in8(dev->base+ VIRTIO_PCI_STATUS));
 }
@@ -106,92 +57,27 @@ static void vtpci_set_status(vtpci dev, uint8_t status)
 }
 
 
-static status vtpci_attach(vtpci dev)
-{
-    struct vtpci *sc;
-    vtpci child;
-    int rid;
-
-    // xxx - this looks like we set a bit in the pci configuration space? freebsd is pretty
-    // coy about it
-    //   pci_enable_busmaster(dev);
-
-    //    rid = PCIR_BAR(0);
-    sc->base = 0; /*bus_alloc_resource_any(dev, SYS_RES_IOPORT, &rid,
-                         RF_ACTIVE);*/
-    if (sc->base == 0) 
-        return allocate_status("cannot map I/O space\n");
-
-
-    //    rid = PCIR_BAR(1);
-    sc->vtpci_msix_res = 0;/*bus_alloc_resource_any(dev,
-                             SYS_RES_MEMORY, &rid, RF_ACTIVE);*/
-
-    vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_RESET);
-    
-    /* Tell the host we've noticed this device. */
-
-    vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_ACK);
-    vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER);
-    vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER_OK);
-
-    return (0);
-}
-
-static uint64_t vtpci_negotiate_features(vtpci dev, uint64_t child_features)
-{
-    uint64_t host_features, features;
-
-    host_features = in32(dev->base + VIRTIO_PCI_HOST_FEATURES);
-
-    /*
-     * Limit negotiated features to what the driver, virtqueue, and
-     * host all support.
-     */
-    features = host_features & child_features;
-    features = virtqueue_filter_features(features);
-    dev->vtpci_features = features;
-
-    out32(dev->base + VIRTIO_PCI_GUEST_FEATURES, features);
-
-    return (features);
-}
-
 static int vtpci_with_feature(vtpci dev, uint64_t feature)
 {
     return ((dev->vtpci_features & feature) != 0);
 }
 
-static status vtpci_alloc_virtqueues(vtpci dev, int flags, int nvqs, struct vq_alloc_info *vq_info)
+status vtpci_alloc_virtqueue(vtpci dev,
+                             int idx,
+                             handler intr,
+                             int maxindirsz,
+                             struct virtqueue **result)
 {
-    struct virtqueue *vq;
-    struct vtpci_virtqueue *vqx;
-    int idx;
     uint16_t size;
-
-    dev->vtpci_vqs = allocate_zero(general, nvqs * sizeof(struct vtpci_virtqueue));
-
-    if (dev->vtpci_vqs == NULL) return status_nomem();
-
-    for (idx = 0; idx < nvqs; idx++) {
-        vqx = &dev->vtpci_vqs[idx];
-        struct vq_alloc_info *info = &vq_info[idx];
-
-        vtpci_select_virtqueue(dev, idx);
-        size = in16(dev->base + VIRTIO_PCI_QUEUE_NUM);
-
-        status s = virtqueue_alloc(dev, "foo", idx, size, VIRTIO_PCI_VRING_ALIGN,
-                                0xFFFFFFFFUL, info, &vq);
-        if (!is_ok(s)) return s;
-
-        out32(dev->base + VIRTIO_PCI_QUEUE_PFN,
-              virtqueue_paddr(vq) >> VIRTIO_PCI_QUEUE_ADDR_SHIFT);
-
-        vqx->vtv_vq = *info->vqai_vq = vq;
-        vqx->vtv_no_intr = info->vqai_intr == NULL;
-
-        dev->vtpci_nvqs++;
-    }
+    vtpci_select_virtqueue(dev, idx);
+    size = in16(dev->base + VIRTIO_PCI_QUEUE_NUM);
+    
+    status s = virtqueue_alloc(dev, "foo", idx, size, VIRTIO_PCI_VRING_ALIGN,
+                               0xFFFFFFFFUL,  intr, maxindirsz, result);
+    if (!is_ok(s)) return s;
+    
+    out32(dev->base + VIRTIO_PCI_QUEUE_PFN,
+          virtqueue_paddr(*result) >> VIRTIO_PCI_QUEUE_ADDR_SHIFT);
 
     return STATUS_OK;
 }
@@ -200,13 +86,7 @@ static status vtpci_register_msix_vector(struct vtpci *dev,
                                       int offset,
                                       struct vtpci_interrupt *intr)
 {
-    uint16_t vector;
-    
-    if (intr != NULL) {
-        /* Map from guest rid to host vector. */
-        vector = intr->vti_rid - 1;
-    } else
-        vector = VIRTIO_MSI_NO_VECTOR;
+    uint16_t vector = VIRTIO_MSI_NO_VECTOR;
 
     out16(dev->base + offset, vector);
     
@@ -218,15 +98,12 @@ static status vtpci_register_msix_vector(struct vtpci *dev,
 }
 
 static status vtpci_alloc_interrupt(vtpci dev,
-                                 int rid,
-                                 struct vtpci_interrupt *intr)
+                                    int rid,
+                                    struct vtpci_interrupt *intr)
 {
 
-    void *irq = 0; // bus_alloc_resource_any(dev, SYS_RES_IRQ, &rid, flags);
-
-    intr->vti_irq = irq;
-    intr->vti_rid = rid;
-
+    int irq = 10; // bus_alloc_resource_any(dev, SYS_RES_IRQ, &rid, flags);
+    intr->irq = irq;
     return STATUS_OK;
 }
 
@@ -238,8 +115,7 @@ static status vtpci_setup_intr(vtpci dev)
     int i, nvectors;
 
     for (nvectors = 0, i = 0; i < dev->vtpci_nvqs; i++) {
-        if (dev->vtpci_vqs[i].vtv_no_intr == 0)
-            nvectors++;
+        nvectors++;
     }
 
     int nmsix, cnt, required;
@@ -259,12 +135,11 @@ static status vtpci_setup_intr(vtpci dev)
     rid = 1;
 
     intr = &dev->vtpci_device_interrupt;
-    intr->vti_irq = 0; // 
-    intr->vti_rid = rid;
+    //    intr->vti_irq = 0; // 
+    //    intr->vti_rid = rid;
 
     s = vtpci_alloc_interrupt(dev, rid, intr);
-    if (!is_ok(s) || dev->vtpci_flags & (VTPCI_FLAG_LEGACY | VTPCI_FLAG_MSI))
-        return s;
+    if (!is_ok(s)) return s;
 
     /* Subtract one for the configuration changed interrupt. */
     nvq_intrs = dev->vtpci_nmsix_resources - 1;
@@ -287,14 +162,11 @@ static status vtpci_setup_intr(vtpci dev)
     
     if (!is_ok(s))  return (s);
 
-    struct vtpci_virtqueue *vqx;
+    struct virtqueue *vqx;
     intr = dev->vtpci_msix_vq_interrupts;
 
     for (int i = 0; i < dev->vtpci_nvqs; i++) {
         vqx = &dev->vtpci_vqs[i];
-
-        if (vqx->vtv_no_intr)
-            continue;
 
         /*        error = bus_setup_intr(dev->vtpci_dev, intr->vti_irq, type,
                                vtpci_vq_intr_filter, vtpci_vq_intr, vqx->vtv_vq,
@@ -318,19 +190,8 @@ static status vtpci_setup_intr(vtpci dev)
 
     for (idx = 0; idx < dev->vtpci_nvqs; idx++) {
         vtpci_select_virtqueue(dev, idx);
-
-        if (dev->vtpci_vqs[idx].vtv_no_intr)
-            tintr = NULL;
-        else
-            tintr = intr;
-
-        uint16_t vector;
-
-        if (intr != NULL) {
-            /* Map from guest rid to host vector. */
-            vector = intr->vti_rid - 1;
-        } else
-            vector = VIRTIO_MSI_NO_VECTOR;
+        tintr = intr;
+        uint16_t vector = VIRTIO_MSI_NO_VECTOR;
         
         out16(dev->base + offset, vector);
         
@@ -352,9 +213,65 @@ static void vtpci_vq_intr(void *xvq)
     virtqueue_intr(vq);
 }
 
-
 void vtpci_notify_virtqueue(struct vtpci *sc, uint16_t queue)
 {
     out16(sc->base + VIRTIO_PCI_QUEUE_NOTIFY, queue);
 }
 
+vtpci attach_vtpci(int bus, int slot, int func)
+{
+    struct vtpci *dev = allocate(general, sizeof(struct vtpci));
+    int rid;
+
+    // io base was configured
+    u32 base = pci_cfgread(bus, slot, func, 0x10, 4);
+    print_u64(base);
+    console("\n");    
+    dev->base = base & ~1;
+
+    //    rid = PCIR_BAR(1);
+    //    sc->vtpci_msix_res = 0;/*bus_alloc_resource_any(dev,
+    //                             SYS_RES_MEMORY, &rid, RF_ACTIVE);*/
+
+    vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_RESET);
+    
+    /* Tell the host we've noticed this device. */
+
+    vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_ACK);
+    vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER);
+    vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER_OK);
+
+    u32 k;
+    k = in32(dev->base + VIRTIO_PCI_STATUS);
+    console("biggy:\n");
+    print_u64(k);
+    console("\n");
+    
+    k = in32(dev->base + VIRTIO_PCI_HOST_FEATURES);
+    console("biggy:\n");
+    print_u64(k);
+    console("\n");
+    
+    k = in32(dev->base + 1);
+    console("biggy:\n");
+    print_u64(k);
+    console("\n");
+    k = in16(dev->base + VIRTIO_PCI_QUEUE_NUM);
+    console("queueis:\n");
+    print_u64(k);
+    console("\n");
+    int nvqs = 16;
+    dev->vtpci_vqs = allocate_zero(general, nvqs * sizeof(struct virtqueue));
+
+    vnet v = init_vnet(dev);
+    unsigned char x[] = {0x45};
+    struct buffer b;
+    b.contents = x;
+    b.start = 0;
+    b.end = sizeof(x);
+    b.next = NULL;
+    
+    vnet_transmit(v, b);
+    
+    return dev;
+}

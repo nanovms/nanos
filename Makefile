@@ -2,14 +2,14 @@ all: image
 
 force:
 
-image: boot/boot 64/app
-	cat boot/boot 64/app > image
+image: boot/boot example/app
+	cat boot/boot example/app > image
 
 boot/boot: force
 	cd boot ; make
 
-64/app: force
-	cd 64 ; make 
+example/app: force
+	cd example ; make 
 
 musl:
 	git clone git://git.musl-libc.org/musl
@@ -21,7 +21,7 @@ lwip:
 
 clean:
 	cd boot ; make clean
-	cd 64 ; make clean
+	cd example ; make clean
 	rm -f bootable
 
 dist-clean: clean

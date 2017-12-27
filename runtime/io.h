@@ -32,7 +32,6 @@ static inline u16 in16(u32 port)
 static inline u32 in32(u32 port)
 {
     u32  data;
-
     __asm __volatile("inl %w1, %0" : "=a" (data) : "Nd" (port));
     return (data);
 }
