@@ -33,9 +33,6 @@ extern heap contiguous;
 // inline bsf
 #define log2(__x) ( __x)
 
-
-#define NULL ((void *)0)
-
 typedef void *status;
 status allocate_status(char *format, ...);
 

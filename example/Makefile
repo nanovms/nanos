@@ -12,6 +12,9 @@ VPATH +=$(LWIPDIR)/core
 VPATH +=$(LWIPDIR)/core/ipv4
 VPATH +=$(LWIPDIR)/netif
 
+INCLUDES += -I$(ROOT)/musl/include
+INCLUDES += -I$(ROOT)/musl/obj/include
+
 COREOBJ := $(addsuffix .o, $(basename $(notdir $(COREFILES))))
 CORE4OBJ := $(addsuffix .o, $(basename $(notdir $(CORE4FILES))))
 

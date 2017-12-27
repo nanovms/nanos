@@ -1,5 +1,5 @@
 *.o
-64/app
+example/app
 boot/b32*
 boot/boot
 boot/stage1

@@ -17,6 +17,8 @@ typedef short s16_t;
 typedef char s8_t;
 typedef u16_t uint16_t;
 
+// otherwise all sorts of terrible things about the definition of NULL
+#include <string.h>
 
 typedef void *sys_prot_t;
 
