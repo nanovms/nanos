@@ -172,5 +172,5 @@ struct virtqueue {
 
 void vtpci_notify_virtqueue(vtpci sc, uint16_t queue);
 typedef struct vnet *vnet;
-
-
+vnet init_vnet(vtpci dev);
+status vnet_transmit(vnet v, buffer b);

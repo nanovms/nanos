@@ -12,8 +12,7 @@ VPATH +=$(LWIPDIR)/core
 VPATH +=$(LWIPDIR)/core/ipv4
 VPATH +=$(LWIPDIR)/netif
 
-INCLUDES += -I$(ROOT)/musl/include
-INCLUDES += -I$(ROOT)/musl/obj/include
+INCLUDES += -I$(ROOT)/libc/musl/include -I$(ROOT)/libc
 
 COREOBJ := $(addsuffix .o, $(basename $(notdir $(COREFILES))))
 CORE4OBJ := $(addsuffix .o, $(basename $(notdir $(CORE4FILES))))
@@ -23,10 +22,13 @@ CORE4OBJ := $(addsuffix .o, $(basename $(notdir $(CORE4FILES))))
 .c.o:
 	cc $(INCLUDES) -nostdinc -fno-stack-protector $< -c
 
-OBJS = $(RUNTIME) $(VIRTIO) $(COREOBJ) $(CORE4OBJ) ethernet.o
+OBJS = $(RUNTIME) $(VIRTIO) $(COREOBJ) $(CORE4OBJ) ethernet.o virtioif.o
 
-app: $(OBJS) app.c
-	cc app.c -Wl,"-e_start"  -nostdlib -L$(ROOT)/musl/lib -lc $(INCLUDES) $(OBJS) -o app
+$(ROOT)/libc/libc.a:
+	cd $(ROOT)/libc; make ROOT=$(ROOT)
+
+app: $(OBJS) app.c $(ROOT)/libc/libc.a
+	cc app.c -static -Wl,"-e_start"  -nostdlib $(INCLUDES) $(OBJS) $(ROOT)/libc/libc.a -o app
 
 clean:
 	rm -f app *.o *~

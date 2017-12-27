@@ -11,10 +11,6 @@ boot/boot: force
 example/app: force
 	cd example ; make 
 
-musl:
-	git clone git://git.musl-libc.org/musl
-	cd musl ; git checkout v1.1.18
-
 lwip:
 	git clone http://git.savannah.nongnu.org/git/lwip.git 
 	cd lwip ; git checkout -t STABLE-2_0_3_RELEASE

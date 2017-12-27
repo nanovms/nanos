@@ -271,7 +271,7 @@ vtpci attach_vtpci(int bus, int slot, int func)
     b.end = sizeof(x);
     b.next = NULL;
     
-    vnet_transmit(v, b);
+    vnet_transmit(v, &b);
     
     return dev;
 }

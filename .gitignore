@@ -3,7 +3,9 @@ example/app
 boot/b32*
 boot/boot
 boot/stage1
-musl
+libc/musl
+libc/bits
+libc/libc.a
 lwip
 *~
 image
