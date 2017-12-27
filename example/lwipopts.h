@@ -1,0 +1,50 @@
+#define NO_SYS 2
+#define LWIP_PLATFORM_DIAG(x)
+#define LWIP_PLATFORM_ASSERT(x)
+#define LWIP_NO_STDDEF_H 1
+#define LWIP_NO_STDINT_H 1
+#define LWIP_NO_INTTYPES_H 1
+#define LWIP_NO_LIMITS_H 1
+#define LWIP_NO_CTYPE_H 1
+typedef unsigned long size_t;
+
+typedef unsigned long u64_t;
+typedef unsigned u32_t;
+typedef int s32_t;
+typedef unsigned char u8_t;
+typedef unsigned short u16_t;
+typedef short s16_t;
+typedef char s8_t;
+typedef u16_t uint16_t;
+
+
+typedef void *sys_prot_t;
+
+typedef u64_t ptrdiff_t;
+
+typedef unsigned long mem_ptr_t;
+
+// some ifdef rot
+#define API_MSG_M_DEF(m)                m
+#define API_MSG_M_DEF_C(t, m)           t m
+
+// and wtf
+struct tcpip_api_call_data
+{
+};
+
+static inline sys_prot_t sys_arch_protect(void)
+{
+}
+
+static inline void sys_arch_unprotect(sys_prot_t x)
+{
+}
+
+
+static inline u32_t sys_now(void)
+{
+    // aw man
+    return 0;
+}
+
