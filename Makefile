@@ -8,12 +8,12 @@ image: boot/boot example/app
 boot/boot: force
 	cd boot ; make
 
-example/app: force
+example/app: lwip 
 	cd example ; make 
 
 lwip:
 	git clone http://git.savannah.nongnu.org/git/lwip.git 
-	cd lwip ; git checkout -t STABLE-2_0_3_RELEASE
+	cd lwip ; git checkout STABLE-2_0_3_RELEASE
 
 clean:
 	cd boot ; make clean
@@ -21,7 +21,7 @@ clean:
 	cd libc ; make clean
 	rm -f bootable
 
-dist-clean: clean
+distclean: clean
 	rm -rf lwip libc/musl
 
 run: image

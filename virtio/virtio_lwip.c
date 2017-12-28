@@ -51,6 +51,7 @@
 #include "netif/ethernet.h"
 
 #include "virtio_internal.h"
+#include <stdio.h>
 
 /* Define those to better describe your network interface. */
 #define IFNAME0 'e'
@@ -156,6 +157,7 @@ static void ethernetif_input(struct netif *netif)
 
 static err_t virtioif_init(struct netif *netif)
 {
+    vnet vn = netif->state;
     /* Initialize interface hostname */
     //    netif->hostname = "virtiosomethingsomething";
 
@@ -171,18 +173,15 @@ static err_t virtioif_init(struct netif *netif)
 
     //    ethernetif->ethaddr = (struct eth_addr *) & (netif->hwaddr[0]);
 
-
-    /* set MAC hardware address length */
     netif->hwaddr_len = ETHARP_HWADDR_LEN;
-
-    /* 
-       netif->hwaddr[0] = ;
-       ...
-       netif->hwaddr[5] = ;
-
-    */
-  
-    /* maximum transfer unit */
+    vnet_hardware_address(vn, netif->hwaddr);
+    printf ("hardware address: %02x%02x%02x%02x%02x%02x%02x",
+            netif->hwaddr[0],
+            netif->hwaddr[1],
+            netif->hwaddr[2],
+            netif->hwaddr[3],
+            netif->hwaddr[4],
+            netif->hwaddr[5]);
     netif->mtu = 1500;
 
     /* device capabilities */
@@ -197,7 +196,6 @@ void poll_interface(vnet vn)
 
 void register_lwip_interface(vnet vn)
 {
-    //   static struct ipaddr x;
     struct netif *n = allocate(general, sizeof(struct netif));
     
     n->state = vn;

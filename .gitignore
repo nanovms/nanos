@@ -4,7 +4,7 @@ boot/b32*
 boot/boot
 boot/stage1
 libc/musl
-libc/bits
+libc/bits/alltypes.h
 libc/libc.a
 lwip
 *~

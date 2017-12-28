@@ -159,3 +159,4 @@ typedef struct vnet *vnet;
 vnet init_vnet(vtpci dev);
 status vnet_transmit(vnet v, struct pbuf *b);
 void register_lwip_interface(vnet);
+void vnet_hardware_address(vnet, u8 *);
