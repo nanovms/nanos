@@ -262,16 +262,6 @@ vtpci attach_vtpci(int bus, int slot, int func)
     console("\n");
     int nvqs = 16;
     dev->vtpci_vqs = allocate_zero(general, nvqs * sizeof(struct virtqueue));
-
-    vnet v = init_vnet(dev);
-    unsigned char x[] = {0x45};
-    struct buffer b;
-    b.contents = x;
-    b.start = 0;
-    b.end = sizeof(x);
-    b.next = NULL;
-    
-    vnet_transmit(v, &b);
     
     return dev;
 }

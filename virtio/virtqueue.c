@@ -421,7 +421,7 @@ void virtqueue_disable_intr(struct virtqueue *vq)
 static uint16_t vq_ring_enqueue_buffer(struct virtqueue *vq,
                                        struct vring_desc *desc,
                                        uint16_t head_idx,
-                                       buffer b,
+                                       struct pbuf *b,
                                        int readable,
                                        int writable)
 {
@@ -433,8 +433,8 @@ static uint16_t vq_ring_enqueue_buffer(struct virtqueue *vq,
 
     for (;i < needed; b = b->next) {
         dp = &desc[idx];
-        dp->addr = vtophys(b->contents);
-        dp->len = buffer_length(b);
+        //        dp->addr = vtophys(b->contents);
+        //        dp->len = buffer_length(b);
         dp->flags = 0;
         
         if (i < needed - 1)
@@ -448,7 +448,7 @@ static uint16_t vq_ring_enqueue_buffer(struct virtqueue *vq,
 
 static void vq_ring_enqueue_indirect(struct virtqueue *vq,
                                      void *cookie,
-                                     buffer b,
+                                     struct pbuf *b,
                                      int readable,
                                      int writable)
 {
@@ -474,7 +474,7 @@ static void vq_ring_enqueue_indirect(struct virtqueue *vq,
 }
 
 
-status virtqueue_enqueue(struct virtqueue *vq, void *cookie, buffer b,int readable, int writable)
+status virtqueue_enqueue(struct virtqueue *vq, void *cookie, struct pbuf *b,int readable, int writable)
 {
     struct vq_desc_extra *dxp;
     int needed;

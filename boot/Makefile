@@ -1,16 +1,17 @@
 all: boot
 
-STAGE2SIZE = 2048
+STAGE2SIZE = 4096
+STAGE3SIZE = 124016
 
 b32.pad: b32
 	dd if=$< of=$@ bs=$(STAGE2SIZE) conv=sync
 
 stage1: stage1.s
-	nasm $< -o $@
+	nasm -l boxxy -dSTAGE3SIZE=$(STAGE3SIZE) -dSTAGE2SIZE=$(STAGE2SIZE) $< -o $@
 
 boot: stage1 b32.pad
 	cat stage1 b32.pad > boot
-	
+
 OBJ = serial.o bottom.o runtime.o stage2.o 
 
 VPATH = ../runtime
@@ -27,7 +28,7 @@ bottom.o: bottom.s
 	nasm -felf $<
 
 %.o: %.c
-	cc -m32 -I. -I../runtime $< -c
+	cc -m32 -DSTAGE3SIZE=$(STAGE3SIZE) -DSTAGE2SIZE=$(STAGE2SIZE) -I. -I../runtime $< -c
 
 clean:
 	rm -f *.o *~ b32.elf b32 bottom.list stage1

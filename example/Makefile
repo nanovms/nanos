@@ -22,7 +22,7 @@ CORE4OBJ := $(addsuffix .o, $(basename $(notdir $(CORE4FILES))))
 .c.o:
 	cc $(INCLUDES) -nostdinc -fno-stack-protector $< -c
 
-OBJS = $(RUNTIME) $(VIRTIO) $(COREOBJ) $(CORE4OBJ) ethernet.o virtioif.o
+OBJS = $(RUNTIME) $(VIRTIO) $(COREOBJ) $(CORE4OBJ) ethernet.o 
 
 $(ROOT)/libc/libc.a:
 	cd $(ROOT)/libc; make ROOT=$(ROOT)

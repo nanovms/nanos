@@ -1,5 +1,7 @@
 #include <runtime.h>
 
+#include <lwip/pbuf.h>
+
 // closures
 typedef struct handler {
     void (*f)(void *);
@@ -18,8 +20,6 @@ typedef u64 virtual;
 
 #define ETHER_ADDR_LEN 6
 
-#define NULL ((void *)0)
-
 typedef void *status;
 status allocate_status(char *format, ...);
 static inline status status_nomem() {return (void *)1;}
@@ -29,10 +29,6 @@ static inline boolean is_ok(status s)
 {
     return s == NULL;
 }
-
-#define NULL ((void *)0)
-
-
 
 // probably important
 static inline void write_barrier()
@@ -48,18 +44,6 @@ static inline void memory_barrier()
 struct virtqueue;
 
 #define STATUS_OK NULL
-
-typedef struct buffer {
-    u32 start, end, fill;
-    void *contents;
-    struct buffer *next;
-} *buffer;
-
-static inline u64 buffer_length(buffer b)
-{
-    return b->end - b->start;
-}
-
 
 struct vtpci_interrupt {
     int   irq;
@@ -173,4 +157,4 @@ struct virtqueue {
 void vtpci_notify_virtqueue(vtpci sc, uint16_t queue);
 typedef struct vnet *vnet;
 vnet init_vnet(vtpci dev);
-status vnet_transmit(vnet v, buffer b);
+status vnet_transmit(vnet v, struct pbuf *b);

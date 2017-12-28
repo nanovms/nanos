@@ -6,6 +6,7 @@
 #define LWIP_NO_INTTYPES_H 1
 #define LWIP_NO_LIMITS_H 1
 #define LWIP_NO_CTYPE_H 1
+#define LWIP_DHCP 1
 typedef unsigned long size_t;
 
 typedef unsigned long u64_t;

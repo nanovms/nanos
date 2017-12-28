@@ -74,7 +74,8 @@ int	 virtqueue_nused(struct virtqueue *vq);
 void	 virtqueue_notify(struct virtqueue *vq);
 void	 virtqueue_dump(struct virtqueue *vq);
 
-status	 virtqueue_enqueue(struct virtqueue *vq, void *cookie, buffer b,
+// one element?
+status	 virtqueue_enqueue(struct virtqueue *vq, void *cookie, struct pbuf *b,
                            int readable, int writable);
 void	*virtqueue_dequeue(struct virtqueue *vq, uint32_t *len);
 

@@ -51,6 +51,7 @@ static void map_page(address virtual, address physical)
         base = pt_allocate();
         mov_to_cr("cr3", base);
     }
+
     u64 x = base;
     x = force_entry(x, (virtual >> 39) & ((1<<9)-1));
     x = force_entry(x, (virtual >> 30) & ((1<<9)-1));
@@ -62,23 +63,31 @@ static void map_page(address virtual, address physical)
 void map(address virtual, address physical, int length)
 {
     int len = pad(length, PAGESIZE)>>12;
+    
     for (int i = 0; i < len; i++) 
         map_page(virtual + i *PAGESIZE, physical + i *PAGESIZE); 
 }
 
+#define SECTOR_LOG 12
+
+// pass the memory parameters (end of load, end of mem)
 void centry()
 {
+    region = ((startelf + STAGE2SIZE + STAGE3SIZE + ((1<<SECTOR_LOG) -1)) >>SECTOR_LOG) << SECTOR_LOG;
+    
     Elf64_Ehdr *elfh = (void *)startelf;
     u32 ph = elfh->e_phentsize;
     u32 po = elfh->e_phoff + startelf;
     int pn = elfh->e_phnum;
-
-    // xxx - assume application is loaded at 0x40000
-    map(0x0000, 0x0000, 0x40000);    
+    
+    // xxx - assume application is loaded at 0x400000
+    // you're in a position to check that
+    map(0x0000, 0x0000, 0x400000);    
     for (int i = 0; i< pn; i++){
-        Elf64_Phdr *p = (void *)po + i * ph;        
-        if (p->p_type == PT_LOAD) 
+        Elf64_Phdr *p = (void *)po + i * ph;
+        if (p->p_type == PT_LOAD) {
             map(p->p_vaddr, startelf + p->p_offset, pad(p->p_memsz, PAGESIZE));
+        }
     }
     run64(elfh->e_entry);
 }

@@ -33,10 +33,16 @@ init:
 	call e820
 	add eax,0x100000
 	mov [entries.memorymax], eax
+        call readsectors
 
-        mov ax, stage2 >> 4
-        mov cl, 2
-        call readsector
+        mov cx, [dap.segment]
+        add cx, 4096
+        mov [dap.segment], cx
+        mov cx, [dap.sector]
+        add cx, 128
+        mov [dap.sector], cx        
+        call readsectors        
+
 	jmp ascend
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -128,31 +134,39 @@ ascend:
 	mov eax, cr0
         or eax, 1
 	mov cr0, eax
+;;;  push e820 and end of loaded application
 	jmp code32:stage2
 	
 
 ;; mov cl, 0x0  ;; sector number ((x-1)/512)
 ;; target address is ax << 4
-        
-readsector:
-	mov es, ax 
-        mov bx, 0    ; target address completely in the segment
-        mov ah, 0x2  ; command code
-        mov al, 0x30 ;sector count - three pages right now, one for stages 2 and 3 for 3 - fix
-        mov dl, 0x80 ; drive is hd0
-        mov dh, 0x0  ; head number what the hell
-        mov ch, 0x0  ; cyl/track?
+
+sectorsize equ 512
+
+
+readsectors:
+        mov si, dap
+        mov ah, 0x42   
+        mov dl, 0x80   
         int 0x13
         ret
 
+
 serial_out:   
-       	mov ah,0xe
 	mov dx,0
 	mov ah,1
 	int 0x14
         ret
         
-
+dap:
+        db 0x10
+        db 0
+        .sectors:    dw 128 ;(STAGE3SIZE + STAGE2SIZE + sectorsize -1)/ sectorsize
+        .offset:     dw 0
+        .segment:    dw 0x0800
+        .sector      dd 1
+        .sectorm     dd 0
+        
 ;;  would be nice to derive this
         times 512-2-4 - ($-$$) db 0           
 ;;;  entries start

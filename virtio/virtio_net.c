@@ -6,7 +6,7 @@ struct vnet {
     struct virtqueue *txq;
 };
 
-status vnet_transmit(vnet v, buffer b)
+status vnet_transmit(vnet v, struct pbuf *b)
 {
     // this is all checksum offload
     struct virtio_net_hdr *hdr;
