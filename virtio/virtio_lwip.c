@@ -175,7 +175,8 @@ static err_t virtioif_init(struct netif *netif)
 
     netif->hwaddr_len = ETHARP_HWADDR_LEN;
     vnet_hardware_address(vn, netif->hwaddr);
-    printf ("hardware address: %02x%02x%02x%02x%02x%02x%02x",
+    console("calling printf\n");
+    printf ("hardware address: %02x%02x%02x%02x%02x%02x%02x\n",
             netif->hwaddr[0],
             netif->hwaddr[1],
             netif->hwaddr[2],

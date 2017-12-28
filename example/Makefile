@@ -29,7 +29,7 @@ $(ROOT)/libc/libc.a:
 
 # libcs headers need to be set up before lwip can compile
 app: $(ROOT)/libc/libc.a $(OBJS) app.c  $(RUNTIME)
-	cc app.c -static -Wl,"-e_start"  -nostdlib $(INCLUDES) $(OBJS) $(ROOT)/libc/libc.a $(RUNTIME) -o app
+	cc app.c -static -Wl,"-e_start"  -nostdlib $(INCLUDES) $(OBJS) $(ROOT)/libc/libc.a $(RUNTIME) $(ROOT)/libc/libc.a -o app
 
 clean:
 	rm -f app *.o *~

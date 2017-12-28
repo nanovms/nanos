@@ -21,7 +21,7 @@ void __stdio_seek()
 {
 }
 
-extern serial_out(char x);
+extern void serial_out(char x);
 
 void __stdout_write(void *nothing, unsigned char *body, unsigned long length)
 {
@@ -29,8 +29,10 @@ void __stdout_write(void *nothing, unsigned char *body, unsigned long length)
         serial_out(body[i]);
 }
 
-void __towrite()
+// wtf is this? - its shortcutting buffered output
+int __towrite()
 {
+    return 0;
 }
 
 static int errno;
@@ -40,20 +42,29 @@ int *__errno_location()
     return &errno;
 }
 
-char *sterror(int k)
+char *strerror(int k)
 {
     return ("error");
 }
 
-void __signbitl();
+void __signbitl()
 {
 }
 
-void __fpclassifyl();
+void __fpclassifyl()
 {
 }
 
-void frexpl();
+long double frexpl(long double x, int *exp)
 {
 }
 
+void __set_thread_area()
+{
+}
+
+
+void exit(int k)
+{
+    while(1);
+}

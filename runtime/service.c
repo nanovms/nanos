@@ -24,6 +24,8 @@ static void *leak(heap h, bytes b)
     return r;
 }
 
+extern void __libc_start_main(int (*)(int, char **, char**), int, char **);;
+
 extern int main(int argc, char **argv);
 void init_service(u64 passed_base)
 {
@@ -36,6 +38,8 @@ void init_service(u64 passed_base)
     base = (void *)(u64)start;
     gh.allocate = leak;
     pci_checko();
+    char *program = "program";
+    __libc_start_main(main, 1, &program);
     main(0, 0);
 }
 

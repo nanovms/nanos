@@ -3,7 +3,7 @@ MUSL = $(ROOT)/libc/musl
 ARCH = x86_64
 
 INCLUDES += -I$(MUSL)/src/internal -I$(MUSL)/include -I$(MUSL)/arch/$(ARCH) -I$(MUSL)/arch/generic
-SRC_DIRS = $(MUSL)/src/string $(MUSL)/src/stdlib $(MUSL)/src/stdio $(MUSL)/src/multibyte
+SRC_DIRS = $(MUSL)/src/string $(MUSL)/src/stdlib $(MUSL)/src/stdio $(MUSL)/src/multibyte $(MUSL)/src/env $(MUSL)/src/internal
 VPATH += $(SRC_DIRS)
 
 EXCLUDE = strsignal.o __fdopen.o __fopen_rb_ca.o __lockfile.o __stdio_close.o __stdio_read.o __fclose_ca.o __overflow.o __stdio_exit.o __stdio_seek.o __stdout_write.o __stdio_write.o __string_read.o __toread.o __towrite.o __uflow.o pclose.o
@@ -22,7 +22,12 @@ ALL_OBJS = $(filter-out $(EXCLUDE), $(MOST_OBJS))
 ALLTYPES_IN = $(MUSL)/arch/$(ARCH)/bits/alltypes.h.in
 GENERIC_IN = $(MUSL)/include/alltypes.h.in
 bits/alltypes.h: $(ALLTYPES_IN) $(GENERIC_IN) $(MUSL)/tools/mkalltypes.sed
+	mkidr -p bits
 	sed -f $(MUSL)/tools/mkalltypes.sed $(ALLTYPES_IN) $(GENERIC_IN) > $@
+
+bits/syscall.h: internal/syscall.h
+	mkidr -p bits
+	cp $^ $@
 
 musl: 
 	git clone git://git.musl-libc.org/musl
@@ -31,7 +36,7 @@ musl:
 %.o: %.s
 	cc $< -c
 
-%.o: %.c bits/alltypes.h 
+%.o: %.c bits/alltypes.h bits/syscall.h
 	cc $< -fno-stack-protector -nostdinc -I. $(INCLUDES) -c
 
 libc.a: musl $(ALL_OBJS)

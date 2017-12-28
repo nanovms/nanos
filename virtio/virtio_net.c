@@ -14,7 +14,7 @@ status vnet_transmit(vnet vn, struct pbuf *b)
     return virtqueue_enqueue(vn->txq, hdr, b, 0, 1);
 }
 
-static void vnet_hwaddr(vnet vn, u8 *dest)
+void vnet_hardware_address(vnet vn, u8 *dest)
 {
     // fix, this per-device offset is variable
     for (int i = 0; i < ETHER_ADDR_LEN; i++)
