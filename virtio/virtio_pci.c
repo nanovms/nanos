@@ -223,11 +223,8 @@ vtpci attach_vtpci(int bus, int slot, int func)
     struct vtpci *dev = allocate(general, sizeof(struct vtpci));
     int rid;
 
-    // io base was configured
     u32 base = pci_cfgread(bus, slot, func, 0x10, 4);
-    print_u64(base);
-    console("\n");    
-    dev->base = base & ~1;
+    dev->base = base & ~1; // io bars have the bottom bit set
 
     //    rid = PCIR_BAR(1);
     //    sc->vtpci_msix_res = 0;/*bus_alloc_resource_any(dev,
@@ -241,27 +238,12 @@ vtpci attach_vtpci(int bus, int slot, int func)
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER);
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER_OK);
 
-    u32 k;
-    k = in32(dev->base + VIRTIO_PCI_STATUS);
-    console("biggy:\n");
-    print_u64(k);
-    console("\n");
-    
-    k = in32(dev->base + VIRTIO_PCI_HOST_FEATURES);
-    console("biggy:\n");
-    print_u64(k);
-    console("\n");
-    
-    k = in32(dev->base + 1);
-    console("biggy:\n");
-    print_u64(k);
-    console("\n");
-    k = in16(dev->base + VIRTIO_PCI_QUEUE_NUM);
-    console("queueis:\n");
-    print_u64(k);
-    console("\n");
     int nvqs = 16;
     dev->vtpci_vqs = allocate_zero(general, nvqs * sizeof(struct virtqueue));
+    console ("init vnet\n");
+    vnet vn = init_vnet(dev);
+    console ("register lwip\n");
+    register_lwip_interface(vn);
     
     return dev;
 }

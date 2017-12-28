@@ -3,10 +3,10 @@ MUSL = $(ROOT)/libc/musl
 ARCH = x86_64
 
 INCLUDES += -I$(MUSL)/src/internal -I$(MUSL)/include -I. -I$(MUSL)/arch/$(ARCH) -I$(MUSL)/arch/generic
-SRC_DIRS = $(MUSL)/src/string $(MUSL)/src/stdlib
+SRC_DIRS = $(MUSL)/src/string $(MUSL)/src/stdlib $(MUSL)/src/stdio
 VPATH += $(SRC_DIRS)
 
-EXCLUDE = strsignal.o
+EXCLUDE = strsignal.o __fdopen.o __fopen_rb_ca.o __lockfile.o __stdio_close.o __stdio_read.o __fclose_ca.o __overflow.o __stdio_exit.o __stdio_seek.o __stdout_write.o __stdio_write.o __string_read.o __toread.o __towrite.o __uflow.o fgetwc.o flockfile.o fopen.o fputwc.o fputws.o freopen.o ftrylockfile.o funlockfile.o fwide.o pclose.o popen.o remove.o rename.o tempnam.o tmpfile.o tmpnam.o ungetwc.o
 
 # copied from the musl root build
 BASE_GLOBS = $(addsuffix /*.c,$(SRC_DIRS))
@@ -22,7 +22,7 @@ ALL_OBJS = $(filter-out $(EXCLUDE), $(MOST_OBJS))
 ALLTYPES_IN = $(MUSL)/arch/$(ARCH)/bits/alltypes.h.in
 GENERIC_IN = $(MUSL)/include/alltypes.h.in
 bits/alltypes.h: $(ALLTYPES_IN) $(GENERIC_IN) $(MUSL)/tools/mkalltypes.sed
-	mkdir bits
+	mkdir -p bits
 	sed -f $(MUSL)/tools/mkalltypes.sed $(ALLTYPES_IN) $(GENERIC_IN) > $@
 
 musl: force
@@ -32,7 +32,11 @@ musl: force
 %.o: %.s
 	cc $< -c
 
-%.o: %.c bits/alltypes.h
+bits/syscall.h:
+	mkdir -p bits
+	touch bits/syscall.h
+
+%.o: %.c bits/alltypes.h bits/syscall.h
 	cc $< -nostdinc $(INCLUDES) -c
 
 libc.a: $(ALL_OBJS)

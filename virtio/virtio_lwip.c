@@ -72,6 +72,11 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
     vnet *vn = netif->state;
     struct pbuf *q;
 
+    console("outputy\n");
+    print_u64(p->tot_len);
+    console("\n");
+    print_u64(p->len);
+    console("\n");
     // initiate transfer();
 
 
@@ -154,12 +159,6 @@ static err_t virtioif_init(struct netif *netif)
     /* Initialize interface hostname */
     //    netif->hostname = "virtiosomethingsomething";
 
-    /*
-     * Initialize the snmp variables and counters inside the struct netif.
-     * The last argument should be replaced with your link speed, in units
-     * of bits per second.
-     */
-    MIB2_INIT_NETIF(netif, snmp_ifType_ethernet_csmacd, LINK_SPEED_OF_YOUR_NETIF_IN_BPS);
 
     netif->name[0] = IFNAME0;
     netif->name[1] = IFNAME1;
@@ -188,8 +187,7 @@ static err_t virtioif_init(struct netif *netif)
 
     /* device capabilities */
     /* don't set NETIF_FLAG_ETHARP if this device is not an ethernet one */
-    netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_LINK_UP;
-
+    netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_LINK_UP | NETIF_FLAG_UP;
     return ERR_OK;
 }
 
@@ -204,12 +202,16 @@ void register_lwip_interface(vnet vn)
     
     n->state = vn;
 
+    console("allocated\n");
+    print_u64((u64)n);
+    
     netif_add(n,
               0, 0, 0, //&x, &x, &x,
               vn, // i dont understand why this is getting passed
               virtioif_init,
               ethernet_input);
-    
+
+    console("starting dhcp\n");
     dhcp_start(n);
     
     while(1) {

@@ -2,13 +2,11 @@
 #include <elf64.h>
 
 u32 startelf = 0x9000;
-extern void run64(u32 entry);
+extern void run64(u32 entry, u64 heap_start);
 
-typedef u64 address;
-
-static address base = 0;
+static physical base = 0;
 // better allocation?
-static address region = 0xe000;
+static physical region = 0xe000;
 
 
 #define PAGELOG 12
@@ -18,22 +16,22 @@ static address region = 0xe000;
 #define pointer(__a) ((u64 *)(void *)(u32)__a)
 
 
-address pt_allocate()
+physical pt_allocate()
 {
-    address result= region;
+    physical result= region;
     for (int i=0; i < 4906>>6; i++) 
         (pointer(result))[i] = 0;
     region += 0x1000;
     return result;
 }
 
-static inline void write_pte(address target, address to)
+static inline void write_pte(physical target, physical to)
 {
     // present and writable
     *(pointer(target)) = to | 3;
 }
 
-static inline address force_entry(address base, u32 offset)
+static inline physical force_entry(physical base, u32 offset)
 {
     u64 *b = pointer(base);
     if (b[offset] &1) {
@@ -45,7 +43,7 @@ static inline address force_entry(address base, u32 offset)
     }
 }
 
-static void map_page(address virtual, address physical)
+static void map_page(void *virtual, physical p)
 {
     if (base == 0) {
         base = pt_allocate();
@@ -53,19 +51,23 @@ static void map_page(address virtual, address physical)
     }
 
     u64 x = base;
-    x = force_entry(x, (virtual >> 39) & ((1<<9)-1));
-    x = force_entry(x, (virtual >> 30) & ((1<<9)-1));
-    x = force_entry(x, (virtual >> 21) & ((1<<9)-1));
-    u64 off = (virtual >> 12) & ((1<<9)-1);
-    write_pte(x + off * 8, physical);
+    u64 k = (u32)virtual;
+    x = force_entry(x, (k >> 39) & ((1<<9)-1));
+    x = force_entry(x, (k >> 30) & ((1<<9)-1));
+    x = force_entry(x, (k >> 21) & ((1<<9)-1));
+    u64 off = (k >> 12) & ((1<<9)-1);
+    write_pte(x + off * 8, p);
 }
 
-void map(address virtual, address physical, int length)
+void map(void *virtual, physical p, int length)
 {
     int len = pad(length, PAGESIZE)>>12;
-    
+
+    // if any portion of this is physically aligned on a 2M boundary
+    // and is of a 2M size, can do a 2M mapping..inline map page
+    // and conditionalize
     for (int i = 0; i < len; i++) 
-        map_page(virtual + i *PAGESIZE, physical + i *PAGESIZE); 
+        map_page(virtual + i *PAGESIZE, p + i *PAGESIZE); 
 }
 
 #define SECTOR_LOG 12
@@ -74,7 +76,7 @@ void map(address virtual, address physical, int length)
 void centry()
 {
     region = ((startelf + STAGE2SIZE + STAGE3SIZE + ((1<<SECTOR_LOG) -1)) >>SECTOR_LOG) << SECTOR_LOG;
-    
+
     Elf64_Ehdr *elfh = (void *)startelf;
     u32 ph = elfh->e_phentsize;
     u32 po = elfh->e_phoff + startelf;
@@ -86,9 +88,15 @@ void centry()
     for (int i = 0; i< pn; i++){
         Elf64_Phdr *p = (void *)po + i * ph;
         if (p->p_type == PT_LOAD) {
-            map(p->p_vaddr, startelf + p->p_offset, pad(p->p_memsz, PAGESIZE));
+            // void * is the wrong type, since here its 32 bits
+            map((void *)(u32)p->p_vaddr, startelf + p->p_offset, pad(p->p_memsz, PAGESIZE));
+            // clean the bss - destroys the rest of the bss - what about exceeding elf?
+            void *start = (void *)startelf + p->p_offset;
+            for (u8 *x =  start + p->p_filesz; x < (u8 *)start + p->p_memsz; x++)
+                *x = 0;
         }
     }
-    run64(elfh->e_entry);
+    *START_ADDRESS = region;
+    run64(elfh->e_entry, region);
 }
 

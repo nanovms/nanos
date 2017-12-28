@@ -47,6 +47,7 @@ static inline physical vtophys(void *v)
     return (unsigned long)v;
 }
 
+#define START_ADDRESS  ((u32 *)0x7df6) 
 #define cprintf(...)
 #define apply(...)
 

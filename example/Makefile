@@ -1,6 +1,6 @@
 
 all:app
-ROOT=..
+ROOT=$(PWD)/..
 
 include $(ROOT)/runtime/Makefile
 include $(ROOT)/virtio/Makefile
@@ -22,13 +22,14 @@ CORE4OBJ := $(addsuffix .o, $(basename $(notdir $(CORE4FILES))))
 .c.o:
 	cc $(INCLUDES) -nostdinc -fno-stack-protector $< -c
 
-OBJS = $(RUNTIME) $(VIRTIO) $(COREOBJ) $(CORE4OBJ) ethernet.o 
+OBJS = $(VIRTIO) $(COREOBJ) $(CORE4OBJ) ethernet.o 
 
 $(ROOT)/libc/libc.a:
 	cd $(ROOT)/libc; make ROOT=$(ROOT)
 
-app: $(OBJS) app.c $(ROOT)/libc/libc.a
-	cc app.c -static -Wl,"-e_start"  -nostdlib $(INCLUDES) $(OBJS) $(ROOT)/libc/libc.a -o app
+# libcs headers need to be set up before lwip can compile
+app: $(ROOT)/libc/libc.a $(OBJS) app.c  $(RUNTIME)
+	cc app.c -static -Wl,"-e_start"  -nostdlib $(INCLUDES) $(OBJS) $(ROOT)/libc/libc.a $(RUNTIME) -o app
 
 clean:
 	rm -f app *.o *~

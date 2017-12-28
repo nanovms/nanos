@@ -7,6 +7,7 @@
 #define LWIP_NO_LIMITS_H 1
 #define LWIP_NO_CTYPE_H 1
 #define LWIP_DHCP 1
+#define MEMP_MEM_MALLOC 1
 typedef unsigned long size_t;
 
 typedef unsigned long u64_t;
@@ -51,3 +52,23 @@ static inline u32_t sys_now(void)
     return 0;
 }
 
+#define MEM_LIBC_MALLOC 1
+
+extern void *gallocate();
+
+static inline void *lwip_malloc(size_t b)
+{
+    return gallocate(b);
+}
+
+#define mem_clib_malloc lwip_malloc
+
+static inline void free(void *x)
+{
+}
+
+//static inline void *calloc(size_t b)
+//{
+//    void *x =     gallocate(b);
+//    memset(x, 0, b);
+//}

@@ -18,10 +18,11 @@ lwip:
 clean:
 	cd boot ; make clean
 	cd example ; make clean
+	cd libc ; make clean
 	rm -f bootable
 
 dist-clean: clean
-	rm -rf musl lwip
+	rm -rf lwip libc/musl
 
 run: image
 	(sleep 2 ; echo "x") | qemu-system-x86_64 -device virtio-net -nographic  -drive file=image,format=raw

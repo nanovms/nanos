@@ -158,3 +158,4 @@ void vtpci_notify_virtqueue(vtpci sc, uint16_t queue);
 typedef struct vnet *vnet;
 vnet init_vnet(vtpci dev);
 status vnet_transmit(vnet v, struct pbuf *b);
+void register_lwip_interface(vnet);

@@ -31,13 +31,15 @@ run64:
         or eax, 1 << 8      ; Set the LM-bit which is the 9th bit (bit 8).
         wrmsr
 
-        pop edx
-        pop edx
+        pop edx                 ; return
+        pop edx                 ; entry
 
+        push eax
+        push eax
+        
         mov eax, cr0    
         or eax, 1 << 31 | 1 ; Set the PG-bit and the PM bit
         mov cr0, eax
-        
         
         ;; 64 bit compatibility into the proper long mode
         lgdt [GDT64.Pointer]    ; Load the 64-bit global descriptor table.
