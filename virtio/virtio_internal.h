@@ -1,7 +1,5 @@
 #include <runtime.h>
 
-#include <lwip/pbuf.h>
-
 // closures
 typedef struct handler {
     void (*f)(void *);
@@ -27,7 +25,7 @@ static inline status status_nomem() {return (void *)1;}
 
 static inline boolean is_ok(status s)
 {
-    return s == NULL;
+    return s == ((void *)0);
 }
 
 // probably important
@@ -43,7 +41,7 @@ static inline void memory_barrier()
 
 struct virtqueue;
 
-#define STATUS_OK NULL
+#define STATUS_OK ((void *)0)
 
 struct vtpci_interrupt {
     int   irq;
@@ -118,7 +116,7 @@ struct virtqueue {
 
     int			 vq_alignment;
     int			 vq_ring_size;
-    void			*vq_ring_mem;
+    void		*vq_ring_mem;
     int			 vq_max_indirect_size;
     int			 vq_indirect_mem_size;
     handler interrupt;
@@ -150,13 +148,7 @@ struct virtqueue {
 #include <virtio.h>
 #include <virtio_pci.h>
 #include <virtqueue.h>
-#include <virtio_ring.h>
-#include <virtio_config.h>
-
+#include <virtio_net.h>
 
 void vtpci_notify_virtqueue(vtpci sc, uint16_t queue);
-typedef struct vnet *vnet;
-vnet init_vnet(vtpci dev);
-status vnet_transmit(vnet v, struct pbuf *b);
-void register_lwip_interface(vnet);
-void vnet_hardware_address(vnet, u8 *);
+void init_vnet(vtpci dev);

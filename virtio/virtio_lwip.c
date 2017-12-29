@@ -50,12 +50,30 @@
 #include "lwip/timeouts.h"
 #include "netif/ethernet.h"
 
-#include "virtio_internal.h"
-#include <stdio.h>
-
 /* Define those to better describe your network interface. */
 #define IFNAME0 'e'
 #define IFNAME1 'n'
+
+#include <virtio_internal.h>
+#include <virtio_net.h>
+
+typedef struct vnet {
+    vtpci dev;
+    u16 port;
+    struct virtqueue *txq;
+    struct virtqueue *rxq;
+    struct virtqueue *ctl;
+    void *empty;
+} *vnet;
+
+void vnet_hardware_address(vnet vn, u8 *dest)
+{
+    // fix, this per-device offset is variable - 24 with msi
+    for (int i = 0; i < ETHER_ADDR_LEN; i++){
+        dest[i] =  in8(vn->dev->base+20+i);
+    }
+}
+
 
 /**
  * Helper struct to hold private data used to operate your ethernet interface.
@@ -70,7 +88,7 @@
 
 static err_t low_level_output(struct netif *netif, struct pbuf *p)
 {
-    vnet *vn = netif->state;
+    vnet vn = netif->state;
     struct pbuf *q;
 
     console("outputy\n");
@@ -80,15 +98,25 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
     console("\n");
     // initiate transfer();
 
+    void *address[3];
+    boolean writables[3];
+    bytes lengths[3];
+    int index = 0;
 
-    for (q = p; q != NULL; q = q->next) {
-        /* Send the data from the pbuf to the interface, one pbuf at a
-           time. The size of the data in each pbuf is kept in the ->len
-           variable. */
-        // send data from(q->payload, q->len);
+    address[index] = vn->empty;
+    writables[index] = false;
+    lengths[index] = NET_HEADER_LENGTH;
+
+    
+    for (q = p; index++, q != NULL; q = q->next) {
+        address[index] = q->payload;
+        writables[index] = false;
+        lengths[index] = q->len;
     }
 
-    // signal that packet should be sent();
+    // second argument correlator
+    virtqueue_enqueue(vn->txq, 0, address, lengths, writables, index);
+    virtqueue_notify(vn->txq);     
 
     MIB2_STATS_NETIF_ADD(netif, ifoutoctets, p->tot_len);
     if (((u8_t *)p->payload)[0] & 1) {
@@ -175,14 +203,6 @@ static err_t virtioif_init(struct netif *netif)
 
     netif->hwaddr_len = ETHARP_HWADDR_LEN;
     vnet_hardware_address(vn, netif->hwaddr);
-    console("calling printf\n");
-    printf ("hardware address: %02x%02x%02x%02x%02x%02x%02x\n",
-            netif->hwaddr[0],
-            netif->hwaddr[1],
-            netif->hwaddr[2],
-            netif->hwaddr[3],
-            netif->hwaddr[4],
-            netif->hwaddr[5]);
     netif->mtu = 1500;
 
     /* device capabilities */
@@ -198,12 +218,7 @@ void poll_interface(vnet vn)
 void register_lwip_interface(vnet vn)
 {
     struct netif *n = allocate(general, sizeof(struct netif));
-    
     n->state = vn;
-
-    console("allocated\n");
-    print_u64((u64)n);
-    
     netif_add(n,
               0, 0, 0, //&x, &x, &x,
               vn, // i dont understand why this is getting passed
@@ -218,3 +233,18 @@ void register_lwip_interface(vnet vn)
         sys_check_timeouts();
     }
 }
+
+void init_vnet(vtpci dev)
+{
+    vnet vn = allocate(general, sizeof(struct vnet));
+    /* rx = 0, tx = 1, ctl = 2 by page 53 of http://docs.oasis-open.org/virtio/virtio/v1.0/cs01/virtio-v1.0-cs01.pdf */
+    // where is config in port space? -
+    // #define VIRTIO_PCI_CONFIG_OFF(msix_enabled)     ((msix_enabled) ? 24 : 20)
+    vn->dev = dev;
+    vtpci_alloc_virtqueue(dev, "tx", 1, 0, &vn->txq);
+    // just need 10 contig bytes really
+    vn->empty = allocate(contiguous, contiguous->pagesize);
+    for (int i = 0; i < NET_HEADER_LENGTH ; i++)  ((u8 *)vn->empty)[i] = 0;
+    register_lwip_interface(vn);
+}
+

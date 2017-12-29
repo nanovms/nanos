@@ -77,10 +77,20 @@ void centry()
 {
     region = ((startelf + STAGE2SIZE + STAGE3SIZE + ((1<<SECTOR_LOG) -1)) >>SECTOR_LOG) << SECTOR_LOG;
 
+
     Elf64_Ehdr *elfh = (void *)startelf;
     u32 ph = elfh->e_phentsize;
     u32 po = elfh->e_phoff + startelf;
     int pn = elfh->e_phnum;
+
+    // start allocating after all the load regions
+    for (int i = 0; i< pn; i++){
+        Elf64_Phdr *p = (void *)po + i * ph;
+        if (p->p_type == PT_LOAD) {
+            u32 end =  pad(startelf + p->p_offset + p->p_memsz, PAGESIZE);
+            if (end > region) region = end;
+        }
+     }
     
     // xxx - assume application is loaded at 0x400000
     // you're in a position to check that
@@ -90,7 +100,9 @@ void centry()
         if (p->p_type == PT_LOAD) {
             // void * is the wrong type, since here its 32 bits
             map((void *)(u32)p->p_vaddr, startelf + p->p_offset, pad(p->p_memsz, PAGESIZE));
-            // clean the bss - destroys the rest of the bss - what about exceeding elf?
+            // clean the bss - this will fail dramatically if the bss isn't
+            // the last logical part of the elf file. so, copy out if necessary,
+            // - could use physically unrelated zero pages to build it
             void *start = (void *)startelf + p->p_offset;
             for (u8 *x =  start + p->p_filesz; x < (u8 *)start + p->p_memsz; x++)
                 *x = 0;

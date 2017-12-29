@@ -63,17 +63,17 @@ static int vtpci_with_feature(vtpci dev, uint64_t feature)
 }
 
 status vtpci_alloc_virtqueue(vtpci dev,
+                             char *name, 
                              int idx,
                              handler intr,
-                             int maxindirsz,
                              struct virtqueue **result)
 {
-    uint16_t size;
+
     vtpci_select_virtqueue(dev, idx);
-    size = in16(dev->base + VIRTIO_PCI_QUEUE_NUM);
+    uint16_t size = in16(dev->base + VIRTIO_PCI_QUEUE_NUM);
     
-    status s = virtqueue_alloc(dev, "foo", idx, size, VIRTIO_PCI_VRING_ALIGN,
-                               0xFFFFFFFFUL,  intr, maxindirsz, result);
+    status s = virtqueue_alloc(dev, name, idx, size, VIRTIO_PCI_VRING_ALIGN,
+                               intr, result);
     if (!is_ok(s)) return s;
     
     out32(dev->base + VIRTIO_PCI_QUEUE_PFN,
@@ -146,7 +146,7 @@ static status vtpci_setup_intr(vtpci dev)
 
     intr = dev->vtpci_msix_vq_interrupts = allocate_zero(general, nvq_intrs *
                                                          sizeof(struct vtpci_interrupt));
-    if (dev->vtpci_msix_vq_interrupts == NULL)
+    if (dev->vtpci_msix_vq_interrupts)
         return status_nomem();
     
     for (int i = 0; rid ++, i < nvq_intrs; i++, intr++) {
@@ -231,19 +231,27 @@ vtpci attach_vtpci(int bus, int slot, int func)
     //                             SYS_RES_MEMORY, &rid, RF_ACTIVE);*/
 
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_RESET);
-    
-    /* Tell the host we've noticed this device. */
-
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_ACK);
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER);
-    vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER_OK);
+
+    u32 features = in32(dev->base + 0);
+    console("features ");
+    print_u64(features);
+    console("\n ");
+    u32 badness = VIRTIO_F_BAD_FEATURE | VIRTIO_NET_F_CSUM | VIRTIO_NET_F_GUEST_CSUM |
+        VIRTIO_NET_F_GUEST_TSO4 | VIRTIO_NET_F_GUEST_TSO6 |  VIRTIO_NET_F_GUEST_ECN|
+        VIRTIO_NET_F_GUEST_UFO | VIRTIO_NET_F_CTRL_VLAN | VIRTIO_NET_F_MQ;
+
+    out32(dev->base+4, features & ~badness);
+    vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_FEATURE); //huh?
 
     int nvqs = 16;
     dev->vtpci_vqs = allocate_zero(general, nvqs * sizeof(struct virtqueue));
-    console ("init vnet\n");
-    vnet vn = init_vnet(dev);
+    
+    vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER_OK);
+
     console ("register lwip\n");
-    register_lwip_interface(vn);
+    init_vnet(dev);
     
     return dev;
 }

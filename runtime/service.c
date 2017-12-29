@@ -3,8 +3,10 @@
 
 struct heap gh;
 heap general = &gh;
-heap contiguous = &gh;
+struct heap ch;
+heap contiguous = &ch;
 static void *base;
+static void *top;
 
 status allocate_status(char *x, ...)
 {
@@ -17,6 +19,13 @@ status allocate_status(char *x, ...)
 //    for (int i = 0 ; i < length; i++) ((u8*)a)[i]=val;
 //}
 
+static void *getpage(heap h, bytes b)
+{
+    void *r  = top - h->pagesize;
+    top = r;
+    return r;
+}
+
 static void *leak(heap h, bytes b)
 {
     void *r  = base;
@@ -26,21 +35,19 @@ static void *leak(heap h, bytes b)
 
 extern void __libc_start_main(int (*)(int, char **, char**), int, char **);;
 
-extern int main(int argc, char **argv);
+extern int main(int argc, char **argv, char **envp);
 void init_service(u64 passed_base)
 {
     u32 start = *START_ADDRESS;
-    console("whoot\n");
-    print_u64(start);
-    console("\n");
-    print_u64(passed_base);
-    console("\n");    
     base = (void *)(u64)start;
     gh.allocate = leak;
+    ch.allocate = getpage;
+    ch.pagesize = 4096;
+    // fix
+    top = (void *)0x400000;
     pci_checko();
     char *program = "program";
     __libc_start_main(main, 1, &program);
-    main(0, 0);
 }
 
 extern void *gallocate(unsigned long a);

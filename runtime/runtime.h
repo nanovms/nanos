@@ -5,6 +5,9 @@ typedef unsigned long long u64;
 typedef long long s64;
 typedef u8 boolean;
 
+#define true (1)
+#define false (0)
+
 typedef u64 bytes;
 
 typedef char *string;

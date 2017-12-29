@@ -22,11 +22,11 @@ ALL_OBJS = $(filter-out $(EXCLUDE), $(MOST_OBJS))
 ALLTYPES_IN = $(MUSL)/arch/$(ARCH)/bits/alltypes.h.in
 GENERIC_IN = $(MUSL)/include/alltypes.h.in
 bits/alltypes.h: $(ALLTYPES_IN) $(GENERIC_IN) $(MUSL)/tools/mkalltypes.sed
-	mkidr -p bits
+	mkdir -p bits
 	sed -f $(MUSL)/tools/mkalltypes.sed $(ALLTYPES_IN) $(GENERIC_IN) > $@
 
 bits/syscall.h: internal/syscall.h
-	mkidr -p bits
+	mkdir -p bits
 	cp $^ $@
 
 musl: 

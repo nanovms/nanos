@@ -90,6 +90,8 @@ struct virtio_net_hdr {
 	uint16_t csum_offset;	/* Offset after that to place checksum */
 };
 
+#define NET_HEADER_LENGTH 10
+
 /*
  * This is the version of the header to use when the MRG_RXBUF
  * feature has been negotiated.
@@ -99,8 +101,6 @@ struct virtio_net_hdr_mrg_rxbuf {
 	uint16_t num_buffers;	/* Number of merged rx buffers */
 };
 
-// not particularily useful to have these packed
-#define __packed
 
 /*
  * Control virtqueue data structures
@@ -112,7 +112,7 @@ struct virtio_net_hdr_mrg_rxbuf {
 struct virtio_net_ctrl_hdr {
 	uint8_t class;
 	uint8_t cmd;
-} __packed;
+};
 
 #define VIRTIO_NET_OK	0
 #define VIRTIO_NET_ERR	1
@@ -154,7 +154,7 @@ struct virtio_net_ctrl_hdr {
 struct virtio_net_ctrl_mac {
 	uint32_t	entries;
 	uint8_t		macs[][ETHER_ADDR_LEN];
-} __packed;
+};
 
 #define VIRTIO_NET_CTRL_MAC	1
 #define VIRTIO_NET_CTRL_MAC_TABLE_SET	0
@@ -197,7 +197,7 @@ struct virtio_net_ctrl_mac {
  */
 struct virtio_net_ctrl_mq {
 	uint16_t	virtqueue_pairs;
-} __packed;
+} ;
 
 #define VIRTIO_NET_CTRL_MQ	4
 #define VIRTIO_NET_CTRL_MQ_VQ_PAIRS_SET		0
