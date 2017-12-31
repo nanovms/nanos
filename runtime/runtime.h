@@ -27,6 +27,9 @@ void print_u64(u64 s);
 
 #define pad(__x, __s) ((((__x) - 1) & (~((__s) - 1))) + (__s))
 
+#define MASK(x) ((1<<x)-1)
+
+
 #include <io.h>
 #include <heap/heap.h>
 
@@ -45,12 +48,29 @@ extern void *memset(void *a, int val, unsigned long length);
 
 typedef u64 physical;
 
+physical vtop(void *x);
+
 static inline physical vtophys(void *v)
 {
     return (unsigned long)v;
 }
 
-#define START_ADDRESS  ((u32 *)0x7df6) 
+static inline void enable_interrupts()
+{
+    asm ("sti");
+}
+
+static inline void disable_interrupts()
+{
+    asm ("cli");
+}
+
+// defined in stage1...pass this through entry stack
+#define MEMORY_MAX  ((u32 *)0x7df2) 
+#define START_ADDRESS  ((u32 *)0x7df6)
+#define IDT_ADDRESS  ((u32 *)0x7dfa)
+
+// fc is boot sig
 #define cprintf(...)
 #define apply(...)
 

@@ -2,6 +2,7 @@
 #include <elf64.h>
 
 u32 startelf = 0x9000;
+
 extern void run64(u32 entry, u64 heap_start);
 
 static physical base = 0;
@@ -71,6 +72,7 @@ void map(void *virtual, physical p, int length)
 }
 
 #define SECTOR_LOG 12
+extern void *IDT64;
 
 // pass the memory parameters (end of load, end of mem)
 void centry()
@@ -94,7 +96,9 @@ void centry()
     
     // xxx - assume application is loaded at 0x400000
     // you're in a position to check that
-    map(0x0000, 0x0000, 0x400000);    
+    map(0x0000, 0x0000, 0x400000);
+    // lapic identity mapped
+    map((void *)0xfee00000, 0xfee00000, 0x1000);
     for (int i = 0; i< pn; i++){
         Elf64_Phdr *p = (void *)po + i * ph;
         if (p->p_type == PT_LOAD) {
@@ -109,6 +113,7 @@ void centry()
         }
     }
     *START_ADDRESS = region;
+    *IDT_ADDRESS = (u32) &IDT64;
     run64(elfh->e_entry, region);
 }
 

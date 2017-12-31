@@ -142,7 +142,8 @@ status virtqueue_alloc(void *dev,
     vq->vq_flags |= VIRTQUEUE_FLAG_EVENT_IDX;
 
     vq->vq_ring_size = pad(vring_size(size, align), PAGESIZE);
-    vq->vq_ring_mem = allocate(contiguous, vq->vq_ring_size);
+    vq->vq_ring_mem = allocate_zero(contiguous, vq->vq_ring_size);
+
     if (!vq->vq_ring_mem) {
         s = allocate_status("cannot allocate memory for virtqueue ring\n");
         goto fail;
@@ -159,7 +160,6 @@ status virtqueue_alloc(void *dev,
 
     vring_init(vr, rsize, ring_mem, vq->vq_alignment);
 
-    //    for (i = 0; i < rsize - 1; i++)
     //        vr->desc[i].next = i + 1;
     //    vr->desc[i].next = VQ_RING_DESC_CHAIN_END;
 
@@ -270,10 +270,18 @@ status virtqueue_enqueue(struct virtqueue *vq,
     for (int i = 0; i < segments; i++) {
         struct vring_desc *dp =  vq->vq_ring.desc + idx;
         u16 flags =0;
+        console("Desc: ");
+        print_u64((u64)dp);
+        console(" ");
+        print_u64(vtophys(as[i]));
+        console(" ");
+        print_u64(lengths[i]);            
+        console("\n");        
+        
         dp->addr = vtophys(as[i]);
         dp->len = lengths[i];
         idx = (idx +1) % vq->vq_ring_size;
-        if (i == (segments -1)) {
+        if (i != (segments -1)) {
             flags |= VRING_DESC_F_NEXT;
             // free preloaded this
             dp->next = idx;
@@ -284,7 +292,11 @@ status virtqueue_enqueue(struct virtqueue *vq,
 
     vq->vq_desc_head_idx = idx;
     vq->vq_free_cnt -= needed;
-    vq_ring_update_avail(vq, head_idx);
+    console("update avail ");
+    print_u64(idx);
+    console("\n");
+        
+    vq_ring_update_avail(vq, idx);
 
     return STATUS_OK;
 }

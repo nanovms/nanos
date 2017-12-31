@@ -45,17 +45,20 @@ run64:
         lgdt [GDT64.Pointer]    ; Load the 64-bit global descriptor table.
         jmp GDT64.Code:setup64
 
-setup64:
-        mov ax, GDT64.Data 
-        mov ds, ax     
-        mov es, ax 
-        mov fs, ax     
-        mov gs, ax    
-        mov ss, ax 
-        jmp edx
 
+        interrupts equ 0x30
+align 16        
+global IDT64
+IDT64:
+        %rep interrupts
+        dd 0, 0, 0, 0
+        %endrep
+       .pointer:    
+        dw $ - IDT64 - 1    ; Limit.
+        dw IDT64, 0
         
 GDT64:  ; Global Descriptor Table (64-bit).
+        ;;  xxx - clean this up with a macro
         .Null: equ $ - GDT64 ; The null descriptor.
         dw 0  ; Limit (low).
         dw 0  ; Base (low).
@@ -80,3 +83,12 @@ GDT64:  ; Global Descriptor Table (64-bit).
         .Pointer:    ; The GDT-pointer.
         dw $ - GDT64 - 1    ; Limit.
         dw GDT64, 0         ; 64 bit Base.
+
+setup64:
+        mov ax, GDT64.Data 
+        mov ds, ax     
+        mov es, ax 
+        mov fs, ax     
+        mov gs, ax    
+        mov ss, ax 
+        jmp edx

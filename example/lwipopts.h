@@ -48,8 +48,8 @@ static inline void sys_arch_unprotect(sys_prot_t x)
 
 static inline u32_t sys_now(void)
 {
-    // aw man
-    return 0;
+    static int t = 0;
+    return t++;
 }
 
 #define MEM_LIBC_MALLOC 1

@@ -91,12 +91,9 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
     vnet vn = netif->state;
     struct pbuf *q;
 
-    console("outputy\n");
+    console("output frame\n");
     print_u64(p->tot_len);
     console("\n");
-    print_u64(p->len);
-    console("\n");
-    // initiate transfer();
 
     void *address[3];
     boolean writables[3];
