@@ -9,6 +9,7 @@
 
 void pci_cfgwrite(int bus, int slot, int func, int reg, int bytes, u32 source);
 u32 pci_cfgread(int bus, int slot, int func, int reg, int bytes);
-
+u32 pci_readbar(unsigned bus, unsigned slot, unsigned func, int bid);
+    
 void pci_checko();
     

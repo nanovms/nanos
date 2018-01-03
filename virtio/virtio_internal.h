@@ -1,11 +1,5 @@
 #include <runtime.h>
 
-// closures
-typedef struct handler {
-    void (*f)(void *);
-    void *a;
-} *handler;
-    
 typedef u64 uint64_t;
 typedef u32 uint32_t;
 typedef u16 uint16_t;
@@ -13,8 +7,6 @@ typedef u8 uint8_t;
 
 typedef u64 physical;
 typedef u64 virtual;
-
-#define PAGESIZE 4096
 
 #define ETHER_ADDR_LEN 6
 
@@ -31,12 +23,17 @@ static inline boolean is_ok(status s)
 // probably important
 static inline void write_barrier()
 {
+    asm ("sfence");
 }
 static inline void read_barrier()
 {
+        asm ("lfence");
 }
 static inline void memory_barrier()
 {
+    // waa
+    asm ("lfence");
+    asm ("sfence");
 }
 
 struct virtqueue;
@@ -120,7 +117,7 @@ struct virtqueue {
     int			 vq_max_indirect_size;
     int			 vq_indirect_mem_size;
     handler interrupt;
-    struct vring		 vq_ring;
+    struct vring         vq_ring;
     uint16_t		 vq_free_cnt;
     uint16_t		 vq_queued_cnt;
     /*

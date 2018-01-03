@@ -65,19 +65,23 @@ static int vtpci_with_feature(vtpci dev, uint64_t feature)
 status vtpci_alloc_virtqueue(vtpci dev,
                              char *name, 
                              int idx,
-                             handler intr,
+                             handler h,
                              struct virtqueue **result)
 {
 
     vtpci_select_virtqueue(dev, idx);
     uint16_t size = in16(dev->base + VIRTIO_PCI_QUEUE_NUM);
-    
+
+    int i = allocate_msi(h); 
     status s = virtqueue_alloc(dev, name, idx, size, VIRTIO_PCI_VRING_ALIGN,
-                               intr, result);
+                               h, result);
     if (!is_ok(s)) return s;
-    
+
     out32(dev->base + VIRTIO_PCI_QUEUE_PFN,
           virtqueue_paddr(*result) >> VIRTIO_PCI_QUEUE_ADDR_SHIFT);
+
+    // xxx - this is relative to the base of the pci msi bar
+    out16(dev->base + VIRTIO_MSI_QUEUE_VECTOR, i);
 
     return STATUS_OK;
 }
@@ -218,14 +222,22 @@ void vtpci_notify_virtqueue(struct vtpci *sc, uint16_t queue)
     out16(sc->base + VIRTIO_PCI_QUEUE_NOTIFY, queue);
 }
 
+#define PCI_COMMAND_REGISTER 6
+
 vtpci attach_vtpci(int bus, int slot, int func)
 {
     struct vtpci *dev = allocate(general, sizeof(struct vtpci));
     int rid;
 
-    u32 base = pci_cfgread(bus, slot, func, 0x10, 4);
+    u32 base = pci_readbar(bus, slot, func, 0);
     dev->base = base & ~1; // io bars have the bottom bit set
 
+
+    // set bus master
+    u16 command = pci_cfgread(bus, slot, func, PCI_COMMAND_REGISTER, 2);
+    command |= 4; // bus master
+    pci_cfgwrite(bus, slot, func, PCI_COMMAND_REGISTER, 2, command);
+    
     //    rid = PCIR_BAR(1);
     //    sc->vtpci_msix_res = 0;/*bus_alloc_resource_any(dev,
     //                             SYS_RES_MEMORY, &rid, RF_ACTIVE);*/
@@ -235,23 +247,18 @@ vtpci attach_vtpci(int bus, int slot, int func)
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER);
 
     u32 features = in32(dev->base + 0);
-    console("features ");
-    print_u64(features);
-    console("\n ");
+    
     u32 badness = VIRTIO_F_BAD_FEATURE | VIRTIO_NET_F_CSUM | VIRTIO_NET_F_GUEST_CSUM |
         VIRTIO_NET_F_GUEST_TSO4 | VIRTIO_NET_F_GUEST_TSO6 |  VIRTIO_NET_F_GUEST_ECN|
         VIRTIO_NET_F_GUEST_UFO | VIRTIO_NET_F_CTRL_VLAN | VIRTIO_NET_F_MQ;
 
-    out32(dev->base+4, features & ~badness);
+    out32(dev->base+4, features & VIRTIO_NET_F_MAC);
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_FEATURE); //huh?
 
     int nvqs = 16;
     dev->vtpci_vqs = allocate_zero(general, nvqs * sizeof(struct virtqueue));
     
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER_OK);
-
-    console ("register lwip\n");
     init_vnet(dev);
-    
     return dev;
 }

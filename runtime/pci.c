@@ -29,20 +29,22 @@
 
 #define PCIR_VENDOR     0x00
 #define PCIR_DEVICE     0x02
+#define PCIR_CAPABILITIES_POINTER   0x34
+
 
 /* enable configuration space accesses and return data port address */
 static int pci_cfgenable(unsigned bus, unsigned slot, unsigned func, int reg, int bytes)
 {
-	int dataport = 0;
-
-	if (bus <= PCI_BUSMAX && slot <= PCI_SLOTMAX && func <= PCI_FUNCMAX &&
-	    (unsigned)reg <= PCI_REGMAX && bytes != 3 &&
-	    (unsigned)bytes <= 4 && (reg & (bytes - 1)) == 0) {
-		out32(CONF1_ADDR_PORT, (1U << 31) | (bus << 16) | (slot << 11) 
-		    | (func << 8) | (reg & ~0x03));
-		dataport = CONF1_DATA_PORT + (reg & 0x03);
-	}
-	return (dataport);
+    int dataport = 0;
+    
+    if (bus <= PCI_BUSMAX && slot <= PCI_SLOTMAX && func <= PCI_FUNCMAX &&
+        (unsigned)reg <= PCI_REGMAX && bytes != 3 &&
+        (unsigned)bytes <= 4 && (reg & (bytes - 1)) == 0) {
+        out32(CONF1_ADDR_PORT, (1U << 31) | (bus << 16) | (slot << 11) 
+              | (func << 8) | (reg & ~0x03));
+        dataport = CONF1_DATA_PORT + (reg & 0x03);
+    }
+    return (dataport);
 }
 
 u32 pci_cfgread(int bus, int slot, int func, int reg, int bytes)
@@ -67,6 +69,11 @@ u32 pci_cfgread(int bus, int slot, int func, int reg, int bytes)
     return (data);
 }
 
+u32 pci_readbar(unsigned bus, unsigned slot, unsigned func, int bid)
+{
+    return pci_cfgread(bus, slot, func, 0x10 + 4 *bid, 4);
+}
+
 void pci_cfgwrite(int bus, int slot, int func, int reg, int bytes, u32 source)
 {
     u32 data = -1;
@@ -88,13 +95,62 @@ void pci_cfgwrite(int bus, int slot, int func, int reg, int bytes, u32 source)
     }
 }
 
+void msi_format(u32 *address, u32 *data, int vector)
+{
+    u32 destination = 0;
+    u32 rh = 0;
+    u32 dm = 0;     // what is dm?
+    u32 trigger = 1; // edge, level = 1
+    u32 mode = 000; // 000 fixed, 001 lowest, 010 dmi, 100 nmi, 101 init, 111 extint
+    u32 level = 0;
+    
+    *address = (0xfee << 20) | (destination << 12) | (rh << 3) | (dm << 2);
+    *data = (trigger << 15) | (level << 14) | (mode << 8) | vector;
+}
+
+static u32 *msi_map;
+
+
+void msi_map_vector(int slot, int vector)
+{
+    u32 a, d;
+    u32 vector_control = 0;
+    msi_format(&a, &d, vector);
+    msi_map[slot*4] = a;
+    msi_map[slot*4 + 1] = 0;
+    msi_map[slot*4 + 2] = d;
+    msi_map[slot*4 + 3] = vector_control;
+}
+
+    
+#define MSI_MESSAGE_ENABLE 1
+#define PCI_CAPABILITY_MSIX 0x11
+extern void *pagebase;
+extern physical ptalloc();
+
 void pci_checko()
 {
     // we dont actually need to do recursive discovery, qemu leaves it all on bus0 for us
     for (int i = 0; i < 16; i++) {
         u32 vid = pci_cfgread(0, i, 0, PCIR_VENDOR, 2);
         u32 did = pci_cfgread(0, i, 0, PCIR_DEVICE, 2);
+     
         if ((vid ==  VIRTIO_PCI_VENDORID) &&  (did == VIRTIO_PCI_DEVICEID_MIN)) {
+            u32 cp = pci_cfgread(0, i, 0, PCIR_CAPABILITIES_POINTER, 1);
+            while (cp) {
+                u32 cp0 = pci_cfgread(0, i, 0, cp, 1);
+                if (cp0 == PCI_CAPABILITY_MSIX) {
+                    u32 vector_table = pci_cfgread(0, i, 0, cp+4, 4);
+                    u32 pba_table = pci_cfgread(0, i, 0, cp+8, 4);                    
+                    u32 vector_base = pci_readbar(0, i, 0, vector_table & 0xff);
+                    msi_map = (void *)0xe0000000;
+                    map(pagebase, (u64)msi_map, vector_base, 0x1000, ptalloc);
+                    // qemu gets really* mad if you do this a 16 bit write
+                    pci_cfgwrite(0, i, 0, cp+3, 1, 0x80);
+                    break;
+                }
+                cp = pci_cfgread(0, i, 0, cp + 1, 1);
+            }
             attach_vtpci(0, i, 0);
         }
     }

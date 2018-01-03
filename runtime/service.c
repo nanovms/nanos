@@ -5,6 +5,7 @@ struct heap gh;
 heap general = &gh;
 struct heap ch;
 heap contiguous = &ch;
+void *pagebase;
 static void *base;
 static void *top;
 
@@ -21,7 +22,8 @@ status allocate_status(char *x, ...)
 
 static void *getpage(heap h, bytes b)
 {
-    void *r  = top - h->pagesize;
+    u64 p = pad(b, h->pagesize);
+    void *r  = top - p;
     top = r;
     return r;
 }
@@ -31,6 +33,11 @@ static void *leak(heap h, bytes b)
     void *r  = base;
     base += b;
     return r;
+}
+
+void *ptalloc()
+{
+    return allocate(contiguous, PAGESIZE);
 }
 
 extern void __libc_start_main(int (*)(int, char **, char**), int, char **);;
@@ -49,9 +56,8 @@ static inline u64 *grabby(u64 *table, u64 t, unsigned int x)
 physical vtop(void *x)
 {
     u64 xt = (u64)x;
-    u64 *pages;
-    mov_from_cr("cr3", pages);
-    u64 *l3 = grabby(pages, xt, 39);
+
+    u64 *l3 = grabby(pagebase, xt, 39);
     u64 *l2 = grabby(l3, xt, 30);
     u64 *l1 = grabby(l2, xt, 21); // 2m pages
     u64 *l0 = grabby(l1, xt, 12);
@@ -65,11 +71,22 @@ void init_service(u64 passed_base)
     base = (void *)(u64)start;
     gh.allocate = leak;
     ch.allocate = getpage;
-    ch.pagesize = 4096;
+    ch.pagesize = PAGESIZE;
     // fix
     top = (void *)0x400000;
-    start_interrupts();
+
+    u64 *pages;
+    mov_from_cr("cr3", pages);
+    pagebase = pages;
     
+    start_interrupts();
+
+    // lets get out of the bios area
+    // should translate into constructing a frame and an iret call (thread create)
+    u64 stacksize = 16384;
+    void *stack = allocate(contiguous, stacksize) + stacksize;
+    asm ("mov %0, %%rsp": :"m"(stack));  
+
     pci_checko();
     char *program = "program";
 

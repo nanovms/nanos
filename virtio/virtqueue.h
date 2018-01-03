@@ -115,17 +115,6 @@ vring_size(unsigned int num, unsigned long align)
 	return (size);
 }
 
-static inline void
-vring_init(struct vring *vr, unsigned int num, uint8_t *p,
-    unsigned long align)
-{
-        vr->num = num;
-        vr->desc = (struct vring_desc *) p;
-        vr->avail = (struct vring_avail *) (p +
-	    num * sizeof(struct vring_desc));
-        vr->used = (void *)
-	    (((unsigned long) &vr->avail->ring[num] + align-1) & ~(align-1));
-}
 
 /*
  * The following is used with VIRTIO_RING_F_EVENT_IDX.
@@ -137,7 +126,6 @@ vring_init(struct vring *vr, unsigned int num, uint8_t *p,
 static inline int
 vring_need_event(uint16_t event_idx, uint16_t new_idx, uint16_t old)
 {
-
 	return (uint16_t)(new_idx - event_idx - 1) < (uint16_t)(new_idx - old);
 }
 

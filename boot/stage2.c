@@ -1,21 +1,16 @@
+#define pointer(__a) ((u64 *)(void *)(u32)__a)
 #include <runtime.h>
 #include <elf64.h>
+
+#define BASE 0x3f8
 
 u32 startelf = 0x9000;
 
 extern void run64(u32 entry, u64 heap_start);
 
-static physical base = 0;
-// better allocation?
-static physical region = 0xe000;
+static physical region;
 
-
-#define PAGELOG 12
-#define PAGESIZE (1<<PAGELOG)
-#define PAGEMASK ((1ull<<PAGELOG)-1)
-
-#define pointer(__a) ((u64 *)(void *)(u32)__a)
-
+#define SECTOR_LOG 12
 
 physical pt_allocate()
 {
@@ -26,58 +21,23 @@ physical pt_allocate()
     return result;
 }
 
-static inline void write_pte(physical target, physical to)
-{
-    // present and writable
-    *(pointer(target)) = to | 3;
+static boolean is_transmit_empty() {
+    return in8(BASE + 5) & 0x20;
 }
 
-static inline physical force_entry(physical base, u32 offset)
+void serial_out(char a)
 {
-    u64 *b = pointer(base);
-    if (b[offset] &1) {
-        return b[offset] & ~PAGEMASK;
-    } else {
-        u64 n = pt_allocate();
-        write_pte(base + offset * 8, n);
-        return n;
-    }
+    while (!is_transmit_empty());
+    out8(BASE, a);
 }
 
-static void map_page(void *virtual, physical p)
-{
-    if (base == 0) {
-        base = pt_allocate();
-        mov_to_cr("cr3", base);
-    }
-
-    u64 x = base;
-    u64 k = (u32)virtual;
-    x = force_entry(x, (k >> 39) & ((1<<9)-1));
-    x = force_entry(x, (k >> 30) & ((1<<9)-1));
-    x = force_entry(x, (k >> 21) & ((1<<9)-1));
-    u64 off = (k >> 12) & ((1<<9)-1);
-    write_pte(x + off * 8, p);
-}
-
-void map(void *virtual, physical p, int length)
-{
-    int len = pad(length, PAGESIZE)>>12;
-
-    // if any portion of this is physically aligned on a 2M boundary
-    // and is of a 2M size, can do a 2M mapping..inline map page
-    // and conditionalize
-    for (int i = 0; i < len; i++) 
-        map_page(virtual + i *PAGESIZE, p + i *PAGESIZE); 
-}
-
-#define SECTOR_LOG 12
-extern void *IDT64;
 
 // pass the memory parameters (end of load, end of mem)
 void centry()
 {
     region = ((startelf + STAGE2SIZE + STAGE3SIZE + ((1<<SECTOR_LOG) -1)) >>SECTOR_LOG) << SECTOR_LOG;
+    void *base = (void *)(u32)pt_allocate();
+    mov_to_cr("cr3", base);
 
 
     Elf64_Ehdr *elfh = (void *)startelf;
@@ -95,15 +55,15 @@ void centry()
      }
     
     // xxx - assume application is loaded at 0x400000
-    // you're in a position to check that
-    map(0x0000, 0x0000, 0x400000);
-    // lapic identity mapped
-    map((void *)0xfee00000, 0xfee00000, 0x1000);
+    // you're in a position to check that...maybe just fix up the
+    // stage3 virtual allocation and stop running in this little identity
+    // region2
+    map(base, 0x0000, 0x0000, 0x400000, pt_allocate);
     for (int i = 0; i< pn; i++){
         Elf64_Phdr *p = (void *)po + i * ph;
         if (p->p_type == PT_LOAD) {
             // void * is the wrong type, since here its 32 bits
-            map((void *)(u32)p->p_vaddr, startelf + p->p_offset, pad(p->p_memsz, PAGESIZE));
+            map(base, p->p_vaddr, startelf + p->p_offset, pad(p->p_memsz, PAGESIZE), pt_allocate);
             // clean the bss - this will fail dramatically if the bss isn't
             // the last logical part of the elf file. so, copy out if necessary,
             // - could use physically unrelated zero pages to build it
@@ -113,7 +73,6 @@ void centry()
         }
     }
     *START_ADDRESS = region;
-    *IDT_ADDRESS = (u32) &IDT64;
     run64(elfh->e_entry, region);
 }
 

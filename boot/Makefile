@@ -12,7 +12,7 @@ stage1: stage1.s
 boot: stage1 b32.pad
 	cat stage1 b32.pad > boot
 
-OBJ = serial.o bottom.o runtime.o stage2.o 
+OBJ = bottom.o stage2.o 
 
 VPATH = ../runtime
 LD = ld
@@ -31,6 +31,6 @@ bottom.o: bottom.s
 	cc -m32 -DSTAGE3SIZE=$(STAGE3SIZE) -DSTAGE2SIZE=$(STAGE2SIZE) -I. -I../runtime $< -c
 
 clean:
-	rm -f *.o *~ b32.elf b32 bottom.list stage1
+	rm -f *.o *~ b32.elf b32 bottom.list stage1 boxxy b32.pad boot
 
 

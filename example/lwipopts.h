@@ -45,10 +45,12 @@ static inline void sys_arch_unprotect(sys_prot_t x)
 {
 }
 
+extern void console(char *);
 
 static inline u32_t sys_now(void)
 {
     static int t = 0;
+    console("now\n");
     return t++;
 }
 

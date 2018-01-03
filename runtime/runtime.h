@@ -68,9 +68,28 @@ static inline void disable_interrupts()
 // defined in stage1...pass this through entry stack
 #define MEMORY_MAX  ((u32 *)0x7df2) 
 #define START_ADDRESS  ((u32 *)0x7df6)
+// not really used
 #define IDT_ADDRESS  ((u32 *)0x7dfa)
 
 // fc is boot sig
 #define cprintf(...)
-#define apply(...)
+#define apply(__h, ...) ((__h->f)(__h->a))
 
+#include <page.h>
+
+typedef struct handler {
+    void (*f)(void *);
+    void *a;
+} *handler;
+    
+static inline handler allocate_handler(heap h, void (*f)(void *), void *a)
+{
+    handler r = allocate(h, sizeof(struct handler));
+    r->f = f;
+    r->a = a;
+    return(r);
+}
+
+void register_interrupt(int vector, handler h);
+void msi_map_vector(int slot, int vector);
+u8 allocate_msi(handler h);

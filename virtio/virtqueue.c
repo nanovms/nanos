@@ -115,25 +115,20 @@ status virtqueue_alloc(void *dev,
                        handler interrupt,
                        struct virtqueue **vqp)
 {
-    status s;
+    status s = STATUS_OK;
     struct virtqueue *vq;
 
-    if (size == 0) {
-        return allocate_status("virtqueue %d (%s) does not exist (size is zero)\n",
-                               queue, name);
-    } else if (log2(size) != size) {
+    if (log2(size) != size) {
         return allocate_status("virtqueue %d (%s) size is not a power of 2: %d\n",
                                queue, name, size);
     } 
-
     vq = allocate(general, sizeof(struct virtqueue) +  size * sizeof(struct vq_desc_extra));
-        
+
     if (!vq) 
         return allocate_status("cannot allocate virtqueue\n");
-
+    vq->vq_dev = dev;
     vq->name = name;
     vq->vq_queue_index = queue;
-    vq->vq_alignment = align;
     vq->vq_nentries = size;
     vq->vq_free_cnt = size;
     vq->interrupt = interrupt;
@@ -149,19 +144,12 @@ status virtqueue_alloc(void *dev,
         goto fail;
     }
 
-
-    struct vring *vr;
-    char *ring_mem;
-    int i, rsize;
-
-    ring_mem = vq->vq_ring_mem;
-    rsize = vq->vq_nentries;
-    vr = &vq->vq_ring;
-
-    vring_init(vr, rsize, ring_mem, vq->vq_alignment);
-
-    //        vr->desc[i].next = i + 1;
-    //    vr->desc[i].next = VQ_RING_DESC_CHAIN_END;
+    vq->vq_ring.num = vq->vq_nentries;
+    vq->vq_ring.desc = (struct vring_desc *) vq->vq_ring_mem;
+    vq->vq_ring.avail = (struct vring_avail *) (vq->vq_ring_mem +
+                                                vq->vq_nentries * sizeof(struct vring_desc));
+    vq->vq_ring.used = (void *)
+        (((unsigned long) &vq->vq_ring.avail->ring[vq->vq_nentries] + align-1) & ~(align-1));
 
     *vqp = vq;
 
@@ -259,28 +247,20 @@ status virtqueue_enqueue(struct virtqueue *vq,
     struct vq_desc_extra *dxp;
     int needed;
     uint16_t head_idx, idx;
+    head_idx = idx = vq->vq_desc_head_idx;
 
     if (vq->vq_free_cnt < segments)
         return allocate_status("no room in queue");
 
-    idx = head_idx = vq->vq_desc_head_idx;
-    dxp = &vq->vq_descx[head_idx];
+    dxp = &vq->vq_descx[idx];
     dxp->cookie = cookie;
     dxp->ndescs = segments;
     for (int i = 0; i < segments; i++) {
         struct vring_desc *dp =  vq->vq_ring.desc + idx;
         u16 flags =0;
-        console("Desc: ");
-        print_u64((u64)dp);
-        console(" ");
-        print_u64(vtophys(as[i]));
-        console(" ");
-        print_u64(lengths[i]);            
-        console("\n");        
-        
         dp->addr = vtophys(as[i]);
         dp->len = lengths[i];
-        idx = (idx +1) % vq->vq_ring_size;
+        idx = (idx +1);
         if (i != (segments -1)) {
             flags |= VRING_DESC_F_NEXT;
             // free preloaded this
@@ -292,11 +272,8 @@ status virtqueue_enqueue(struct virtqueue *vq,
 
     vq->vq_desc_head_idx = idx;
     vq->vq_free_cnt -= needed;
-    console("update avail ");
-    print_u64(idx);
-    console("\n");
         
-    vq_ring_update_avail(vq, idx);
+    vq_ring_update_avail(vq, head_idx);
 
     return STATUS_OK;
 }

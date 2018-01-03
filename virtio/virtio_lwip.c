@@ -66,25 +66,16 @@ typedef struct vnet {
     void *empty;
 } *vnet;
 
+// fix, this per-device offset is variable - 24 with msi
+#define DEVICE_CONFIG_OFFSET 24
+
 void vnet_hardware_address(vnet vn, u8 *dest)
 {
-    // fix, this per-device offset is variable - 24 with msi
-    for (int i = 0; i < ETHER_ADDR_LEN; i++){
-        dest[i] =  in8(vn->dev->base+20+i);
+
+    for (int i = 0; i < ETHER_ADDR_LEN; i++) {
+        dest[i] =  in8(vn->dev->base+DEVICE_CONFIG_OFFSET+i);
     }
 }
-
-
-/**
- * Helper struct to hold private data used to operate your ethernet interface.
- * Keeping the ethernet address of the MAC in this struct is not necessary
- * as it is already kept in the struct netif.
- * But this is only an example, anyway...
- */
- struct ethernetif {
-     struct eth_addr *ethaddr;
-     /* Add whatever per-interface state that is needed here. */
- };
 
 static err_t low_level_output(struct netif *netif, struct pbuf *p)
 {
@@ -104,7 +95,7 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
     writables[index] = false;
     lengths[index] = NET_HEADER_LENGTH;
 
-    
+
     for (q = p; index++, q != NULL; q = q->next) {
         address[index] = q->payload;
         writables[index] = false;
@@ -113,7 +104,7 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
 
     // second argument correlator
     virtqueue_enqueue(vn->txq, 0, address, lengths, writables, index);
-    virtqueue_notify(vn->txq);     
+    virtqueue_notify(vn->txq);
 
     MIB2_STATS_NETIF_ADD(netif, ifoutoctets, p->tot_len);
     if (((u8_t *)p->payload)[0] & 1) {
@@ -130,10 +121,15 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
     return ERR_OK;
 }
 
-
-static void ethernetif_input(struct netif *netif)
+static void tx_complete(void *z)
 {
-    struct ethernetif *ethernetif;
+    vnet vn = z;
+}
+
+
+static void input(void *z)
+{
+    struct netif *netif = z;
     struct eth_hdr *ethhdr;
     /* move received packet into a new pbuf */
     vnet vn= netif->state;
@@ -182,10 +178,10 @@ static void ethernetif_input(struct netif *netif)
 
 static err_t virtioif_init(struct netif *netif)
 {
+
     vnet vn = netif->state;
     /* Initialize interface hostname */
     //    netif->hostname = "virtiosomethingsomething";
-
 
     netif->name[0] = IFNAME0;
     netif->name[1] = IFNAME1;
@@ -208,40 +204,29 @@ static err_t virtioif_init(struct netif *netif)
     return ERR_OK;
 }
 
-void poll_interface(vnet vn)
+void init_vnet(vtpci dev)
 {
-}
-
-void register_lwip_interface(vnet vn)
-{
-    struct netif *n = allocate(general, sizeof(struct netif));
+    vnet vn = allocate(general, sizeof(struct vnet));
+        struct netif *n = allocate(general, sizeof(struct netif));
+    /* rx = 0, tx = 1, ctl = 2 by page 53 of http://docs.oasis-open.org/virtio/virtio/v1.0/cs01/virtio-v1.0-cs01.pdf */
+    // where is config in port space? -
+    // #define VIRTIO_PCI_CONFIG_OFF(msix_enabled)     ((msix_enabled) ? 24 : 20)
+    vn->dev = dev;
+    vtpci_alloc_virtqueue(dev, "tx", 1, allocate_handler(general, tx_complete, vn), &vn->txq);
+    vtpci_alloc_virtqueue(dev, "tx", 1, allocate_handler(general, input, vn), &vn->txq);
+    // just need 10 contig bytes really
+    vn->empty = allocate(contiguous, contiguous->pagesize);
+    for (int i = 0; i < NET_HEADER_LENGTH ; i++)  ((u8 *)vn->empty)[i] = 0;
     n->state = vn;
     netif_add(n,
               0, 0, 0, //&x, &x, &x,
               vn, // i dont understand why this is getting passed
               virtioif_init,
               ethernet_input);
-
-    console("starting dhcp\n");
-    dhcp_start(n);
     
-    while(1) {
-        poll_interface(vn);
-        sys_check_timeouts();
-    }
-}
+    dhcp_start(n);
+    enable_interrupts();
+    // setup sys_check_timeouts() timer
 
-void init_vnet(vtpci dev)
-{
-    vnet vn = allocate(general, sizeof(struct vnet));
-    /* rx = 0, tx = 1, ctl = 2 by page 53 of http://docs.oasis-open.org/virtio/virtio/v1.0/cs01/virtio-v1.0-cs01.pdf */
-    // where is config in port space? -
-    // #define VIRTIO_PCI_CONFIG_OFF(msix_enabled)     ((msix_enabled) ? 24 : 20)
-    vn->dev = dev;
-    vtpci_alloc_virtqueue(dev, "tx", 1, 0, &vn->txq);
-    // just need 10 contig bytes really
-    vn->empty = allocate(contiguous, contiguous->pagesize);
-    for (int i = 0; i < NET_HEADER_LENGTH ; i++)  ((u8 *)vn->empty)[i] = 0;
-    register_lwip_interface(vn);
 }
 
