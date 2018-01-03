@@ -89,6 +89,8 @@ void init_service(u64 passed_base)
     void *stack = allocate(contiguous, stacksize) + stacksize;
     asm ("mov %0, %%rsp": :"m"(stack));  
     pci_checko();
+    enable_interrupts();
+    
     char *program = "program";
 
     __libc_start_main(main, 1, &program);

@@ -35,6 +35,11 @@ init:
 	mov [entries.memorymax], eax
         call readsectors
 
+        ;;;  disable 8259
+        mov al, 0xff
+        out 0xa1, al
+        out 0x21, al
+        
         mov cx, [dap.segment]
         add cx, 4096
         mov [dap.segment], cx

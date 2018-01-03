@@ -12,4 +12,7 @@ u32 pci_cfgread(int bus, int slot, int func, int reg, int bytes);
 u32 pci_readbar(unsigned bus, unsigned slot, unsigned func, int bid);
     
 void pci_checko();
+void pci_set_bus_master(int bus, int slot, int func);
+#define PCI_COMMAND_REGISTER 6
+
     

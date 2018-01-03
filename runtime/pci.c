@@ -95,6 +95,16 @@ void pci_cfgwrite(int bus, int slot, int func, int reg, int bytes, u32 source)
     }
 }
 
+void pci_set_bus_master(int bus, int slot, int func)
+{
+    
+    // set bus master
+    u16 command = pci_cfgread(bus, slot, func, PCI_COMMAND_REGISTER, 2);
+    command |= 4; // bus master
+    pci_cfgwrite(bus, slot, func, PCI_COMMAND_REGISTER, 2, command);
+
+}
+
 void msi_format(u32 *address, u32 *data, int vector)
 {
     u32 destination = 0;

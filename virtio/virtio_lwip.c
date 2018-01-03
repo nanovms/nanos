@@ -69,14 +69,6 @@ typedef struct vnet {
 // fix, this per-device offset is variable - 24 with msi
 #define DEVICE_CONFIG_OFFSET 24
 
-void vnet_hardware_address(vnet vn, u8 *dest)
-{
-
-    for (int i = 0; i < ETHER_ADDR_LEN; i++) {
-        dest[i] =  in8(vn->dev->base+DEVICE_CONFIG_OFFSET+i);
-    }
-}
-
 static err_t low_level_output(struct netif *netif, struct pbuf *p)
 {
     vnet vn = netif->state;
@@ -123,6 +115,7 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
 
 static void tx_complete(void *z)
 {
+    console("tx complete\n");
     vnet vn = z;
 }
 
@@ -130,6 +123,10 @@ static void tx_complete(void *z)
 static void post_recv(vnet vn)
 {
     void *x = allocate(contiguous, contiguous->pagesize);
+    void *address[1] = {x};
+    u64 lengths[1] = {contiguous->pagesize};
+    boolean writables[1] = {true};
+    virtqueue_enqueue(vn->rxq, 0, address, lengths, writables, 1);    
 }
 
 static void input(void *z)
@@ -192,17 +189,11 @@ static err_t virtioif_init(struct netif *netif)
 
     netif->name[0] = IFNAME0;
     netif->name[1] = IFNAME1;
-    /* We directly use etharp_output() here to save a function call.
-     * You can instead declare your own function an call etharp_output()
-     * from it if you have to do some checks before sending (e.g. if link
-     * is available...) */
     netif->output = etharp_output;
     netif->linkoutput = low_level_output;
-
-    //    ethernetif->ethaddr = (struct eth_addr *) & (netif->hwaddr[0]);
-
     netif->hwaddr_len = ETHARP_HWADDR_LEN;
-    vnet_hardware_address(vn, netif->hwaddr);
+    for (int i = 0; i < ETHER_ADDR_LEN; i++) 
+        netif->hwaddr[i] =  in8(vn->dev->base+DEVICE_CONFIG_OFFSET+i);
     netif->mtu = 1500;
 
     /* device capabilities */
@@ -215,11 +206,14 @@ static err_t virtioif_init(struct netif *netif)
 void init_vnet(vtpci dev)
 {
     vnet vn = allocate(general, sizeof(struct vnet));
-        struct netif *n = allocate(general, sizeof(struct netif));
+    struct netif *n = allocate(general, sizeof(struct netif));
     /* rx = 0, tx = 1, ctl = 2 by page 53 of http://docs.oasis-open.org/virtio/virtio/v1.0/cs01/virtio-v1.0-cs01.pdf */
     // where is config in port space? -
     // #define VIRTIO_PCI_CONFIG_OFF(msix_enabled)     ((msix_enabled) ? 24 : 20)
     vn->dev = dev;
+    // causes qemu to handle on exit?
+    //     vtpci_alloc_virtqueue(dev, "ctrl", 0, 0, &vn->txq);
+    
     vtpci_alloc_virtqueue(dev, "tx", 1, allocate_handler(general, tx_complete, vn), &vn->txq);
     vtpci_alloc_virtqueue(dev, "rx", 2, allocate_handler(general, input, vn), &vn->rxq);
     // just need 10 contig bytes really
@@ -231,11 +225,9 @@ void init_vnet(vtpci dev)
               vn, // i dont understand why this is getting passed
               virtioif_init,
               ethernet_input);
-    
+
+    post_recv(vn);
     dhcp_start(n);
-    enable_interrupts();
-
     // setup sys_check_timeouts() timer
-
 }
 

@@ -31,7 +31,6 @@
 #include <virtio_internal.h>
 #include <pci.h>
 
-#define vtpci_setup_msi_interrupt vtpci_setup_legacy_interrupt
 
 #define VIRTIO_PCI_CONFIG(_sc)                                          \
     VIRTIO_PCI_CONFIG_OFF((((_sc)->vtpci_flags & VTPCI_FLAG_MSIX)) != 0)
@@ -56,12 +55,6 @@ static void vtpci_set_status(vtpci dev, uint8_t status)
     out8(dev->base + VIRTIO_PCI_STATUS, status);
 }
 
-
-static int vtpci_with_feature(vtpci dev, uint64_t feature)
-{
-    return ((dev->vtpci_features & feature) != 0);
-}
-
 status vtpci_alloc_virtqueue(vtpci dev,
                              char *name, 
                              int idx,
@@ -80,141 +73,9 @@ status vtpci_alloc_virtqueue(vtpci dev,
     out32(dev->base + VIRTIO_PCI_QUEUE_PFN,
           virtqueue_paddr(*result) >> VIRTIO_PCI_QUEUE_ADDR_SHIFT);
 
-    // xxx - this is relative to the base of the pci msi bar
     out16(dev->base + VIRTIO_MSI_QUEUE_VECTOR, i);
 
     return STATUS_OK;
-}
-
-static status vtpci_register_msix_vector(struct vtpci *dev,
-                                      int offset,
-                                      struct vtpci_interrupt *intr)
-{
-    uint16_t vector = VIRTIO_MSI_NO_VECTOR;
-
-    out16(dev->base + offset, vector);
-    
-    /* Read vector to determine if the host had sufficient resources. */
-    if (in16(dev->base + offset) != vector) 
-        return allocate_status("insufficient host resources for MSIX interrupts\n");
-
-    return STATUS_OK;
-}
-
-static status vtpci_alloc_interrupt(vtpci dev,
-                                    int rid,
-                                    struct vtpci_interrupt *intr)
-{
-
-    int irq = 10; // bus_alloc_resource_any(dev, SYS_RES_IRQ, &rid, flags);
-    intr->irq = irq;
-    return STATUS_OK;
-}
-
-
-static status vtpci_setup_intr(vtpci dev)
-{
-    status s;
-    struct vtpci_interrupt *intr;
-    int i, nvectors;
-
-    for (nvectors = 0, i = 0; i < dev->vtpci_nvqs; i++) {
-        nvectors++;
-    }
-
-    int nmsix, cnt, required;
-
-    /* Allocate an additional vector for the config changes. */
-    required = nvectors + 1;
-
-    cnt = required;
-    //    if (pci_alloc_msix(dev, &cnt) == 0 && cnt >= required) {
-    //        dev->vtpci_nmsix_resources = required;
-    //        return STATUS_OK;
-    //    }
-
-    int rid, nvq_intrs, error;
-
-    rid = 0;
-    rid = 1;
-
-    intr = &dev->vtpci_device_interrupt;
-    //    intr->vti_irq = 0; // 
-    //    intr->vti_rid = rid;
-
-    s = vtpci_alloc_interrupt(dev, rid, intr);
-    if (!is_ok(s)) return s;
-
-    /* Subtract one for the configuration changed interrupt. */
-    nvq_intrs = dev->vtpci_nmsix_resources - 1;
-
-    intr = dev->vtpci_msix_vq_interrupts = allocate_zero(general, nvq_intrs *
-                                                         sizeof(struct vtpci_interrupt));
-    if (dev->vtpci_msix_vq_interrupts)
-        return status_nomem();
-    
-    for (int i = 0; rid ++, i < nvq_intrs; i++, intr++) {
-        status s = vtpci_alloc_interrupt(dev, rid, intr);
-        if (!is_ok(s))
-            return (s);
-    }
-
-    intr = &dev->vtpci_device_interrupt;
-
-    //    s = bus_setup_intr(intr->vti_irq, NULL,
-    //                           vtpci_config_intr, sc, &intr->vti_handler);
-    
-    if (!is_ok(s))  return (s);
-
-    struct virtqueue *vqx;
-    intr = dev->vtpci_msix_vq_interrupts;
-
-    for (int i = 0; i < dev->vtpci_nvqs; i++) {
-        vqx = &dev->vtpci_vqs[i];
-
-        /*        error = bus_setup_intr(dev->vtpci_dev, intr->vti_irq, type,
-                               vtpci_vq_intr_filter, vtpci_vq_intr, vqx->vtv_vq,
-                               &intr->vti_handler);*/
-
-        intr++;
-    }
-
-    if (!is_ok(s))  return (s);
-    struct vtpci_interrupt *tintr;
-    int idx, offset;
-
-    intr = &dev->vtpci_device_interrupt;
-    offset = VIRTIO_MSI_CONFIG_VECTOR;
-
-    s = vtpci_register_msix_vector(dev, offset, intr);
-    if (!is_ok(s)) return s;
-
-    intr = dev->vtpci_msix_vq_interrupts;
-    offset = VIRTIO_MSI_QUEUE_VECTOR;
-
-    for (idx = 0; idx < dev->vtpci_nvqs; idx++) {
-        vtpci_select_virtqueue(dev, idx);
-        tintr = intr;
-        uint16_t vector = VIRTIO_MSI_NO_VECTOR;
-        
-        out16(dev->base + offset, vector);
-        
-        /* Read vector to determine if the host had sufficient resources. */
-        if (in16(dev->base + offset) != vector) 
-            return allocate_status("insufficient host resources for MSIX interrupts\n");
-        
-        if (!is_ok(s)) return s;
-    }
-    
-    return STATUS_OK;
-}
-
-static void vtpci_vq_intr(void *xvq)
-{
-    struct virtqueue *vq;
-
-    vq = xvq;
-    virtqueue_intr(vq);
 }
 
 void vtpci_notify_virtqueue(struct vtpci *sc, uint16_t queue)
@@ -222,7 +83,6 @@ void vtpci_notify_virtqueue(struct vtpci *sc, uint16_t queue)
     out16(sc->base + VIRTIO_PCI_QUEUE_NOTIFY, queue);
 }
 
-#define PCI_COMMAND_REGISTER 6
 
 vtpci attach_vtpci(int bus, int slot, int func)
 {
@@ -231,16 +91,7 @@ vtpci attach_vtpci(int bus, int slot, int func)
 
     u32 base = pci_readbar(bus, slot, func, 0);
     dev->base = base & ~1; // io bars have the bottom bit set
-
-
-    // set bus master
-    u16 command = pci_cfgread(bus, slot, func, PCI_COMMAND_REGISTER, 2);
-    command |= 4; // bus master
-    pci_cfgwrite(bus, slot, func, PCI_COMMAND_REGISTER, 2, command);
-    
-    //    rid = PCIR_BAR(1);
-    //    sc->vtpci_msix_res = 0;/*bus_alloc_resource_any(dev,
-    //                             SYS_RES_MEMORY, &rid, RF_ACTIVE);*/
+    pci_set_bus_master(bus, slot, func);
 
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_RESET);
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_ACK);
@@ -253,7 +104,7 @@ vtpci attach_vtpci(int bus, int slot, int func)
         VIRTIO_NET_F_GUEST_UFO | VIRTIO_NET_F_CTRL_VLAN | VIRTIO_NET_F_MQ;
 
     out32(dev->base+4, features & VIRTIO_NET_F_MAC);
-    vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_FEATURE); //huh?
+    vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_FEATURE); 
 
     int nvqs = 16;
     dev->vtpci_vqs = allocate_zero(general, nvqs * sizeof(struct virtqueue));
