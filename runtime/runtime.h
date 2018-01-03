@@ -68,8 +68,6 @@ static inline void disable_interrupts()
 // defined in stage1...pass this through entry stack
 #define MEMORY_MAX  ((u32 *)0x7df2) 
 #define START_ADDRESS  ((u32 *)0x7df6)
-// not really used
-#define IDT_ADDRESS  ((u32 *)0x7dfa)
 
 // fc is boot sig
 #define cprintf(...)

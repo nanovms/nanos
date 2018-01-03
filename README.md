@@ -26,4 +26,10 @@ invoke qemu:
 the learning bridge should be happy to deal with any random mac, but it really only
 works if the guest mac matches the host-assigned tap0 mac
 
+to address the tap0 cdev, need to run as root, have to figure that out
+
+this could all be wrapped up in make or a script or a c program, but its
+pretty involved
+
+
 

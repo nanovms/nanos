@@ -3,8 +3,6 @@
 
 int main()
 {
-    char hello_world[] = "Hello World!\n";
-    write (1, hello_world, sizeof(hello_world)-1);
-    printf ("me too!\n");
+    printf ("Hello World!\n");
     return 0;
 }

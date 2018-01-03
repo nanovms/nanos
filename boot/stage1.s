@@ -168,12 +168,14 @@ dap:
         .sectorm     dd 0
         
 ;;  would be nice to derive this
-        times 512-2-12 - ($-$$) db 0           
+        times 512-24 - ($-$$) db 0           
 ;;;  entries start
 entries:
-.memorymax:         dd 0
-.memorystart:       dd 0
-.idt:               dd 0                
+.absolution         dq 0        ; 7de8
+.nothing            dd 0        ; 7df0
+.memorymax:         dd 0        ; 7df2
+.memorystart:       dd 0        ; 7df6
+.idt:               dw 0        ; 7dfa
         
 .end:        
 ;;  mbr signature        

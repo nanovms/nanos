@@ -127,6 +127,11 @@ static void tx_complete(void *z)
 }
 
 
+static void post_recv(vnet vn)
+{
+    void *x = allocate(contiguous, contiguous->pagesize);
+}
+
 static void input(void *z)
 {
     struct netif *netif = z;
@@ -136,6 +141,7 @@ static void input(void *z)
     struct pbuf *p, *q;
     u16_t len = 0x1e; // bytes
 
+    console("in input hadnelr\n");
     /* We allocate a pbuf chain of pbufs from the pool. */
     /* do this on prepost */
     p = pbuf_alloc(PBUF_RAW, len, PBUF_POOL);
@@ -168,6 +174,7 @@ static void input(void *z)
     /* if no packet could be read, silently ignore this */
     if (p != NULL) {
         /* pass all packets to ethernet_input, which decides what packets it supports */
+        console("calling netif input\n");
         if (netif->input(p, netif) != ERR_OK) {
             LWIP_DEBUGF(NETIF_DEBUG, ("ethernetif_input: IP input error\n"));
             pbuf_free(p);
@@ -204,6 +211,7 @@ static err_t virtioif_init(struct netif *netif)
     return ERR_OK;
 }
 
+
 void init_vnet(vtpci dev)
 {
     vnet vn = allocate(general, sizeof(struct vnet));
@@ -213,7 +221,7 @@ void init_vnet(vtpci dev)
     // #define VIRTIO_PCI_CONFIG_OFF(msix_enabled)     ((msix_enabled) ? 24 : 20)
     vn->dev = dev;
     vtpci_alloc_virtqueue(dev, "tx", 1, allocate_handler(general, tx_complete, vn), &vn->txq);
-    vtpci_alloc_virtqueue(dev, "tx", 1, allocate_handler(general, input, vn), &vn->txq);
+    vtpci_alloc_virtqueue(dev, "rx", 2, allocate_handler(general, input, vn), &vn->rxq);
     // just need 10 contig bytes really
     vn->empty = allocate(contiguous, contiguous->pagesize);
     for (int i = 0; i < NET_HEADER_LENGTH ; i++)  ((u8 *)vn->empty)[i] = 0;
@@ -226,6 +234,7 @@ void init_vnet(vtpci dev)
     
     dhcp_start(n);
     enable_interrupts();
+
     // setup sys_check_timeouts() timer
 
 }

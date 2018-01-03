@@ -1,15 +1,20 @@
         global _start
         extern init_service
-global frame
-
+        
         ;; frame size is 136..? 
-frame:  dq 0
+extern frame
+
+
+;;;  correlation to allow us to get back in the relative, virtual, addresses
+;;;  of data after the interrupt has tracked us onto physical
+;;;  there should be a better place to stash this
+;;;  frame might be stashable in a segment register
+absolution equ 0x7de8
         
 extern common_handler
 interrupt_common:
         push rax
-        mov rax, frame
-        mov rax, [rax]
+        mov rax, [frame]
         mov [rax+8], rbx
         mov [rax+16], rcx
         mov [rax+24], rdx
@@ -35,37 +40,34 @@ interrupt_common:
         pop rbx            ; discard cs
         pop rbx            ; rflags
         mov [rax+144], rbx
-        pop rbx            ; rflags
-        mov [rax+40], rbx  ; rsp
+        pop rbx            ; rsp?
+        mov [rax+40], rbx  ; 
                            ; ss plus padding at the top  
         call common_handler
-;;;  rflags
-;;;  rip
+
 
 frame_return:
         mov rax, [frame]
-        mov rbx, [frame+8]
-        mov rcx, [frame+16]
-        mov rdx, [frame+24]
-        mov rbp, [frame+32]
-        mov rsp, [frame+40]
-        mov rsi, [frame+48]
-        mov rdi, [frame+56]
-        mov r8, [frame+64]
-        mov r9, [frame+72]
-        mov r10, [frame+80]
-        mov r11, [frame+88]
-        mov r12, [frame+96]
-        mov r13, [frame+104]
-        mov r14, [frame+112]
-        mov r15, [frame+120]
-        iretq
-        ;;  intr in 128
-;;;  rflags
-;;;  rip
-
-;;;  use fs or gs to point to context?
-        call common_handler
+        mov rbx, [rax+8]
+        mov rcx, [rax+16]
+        mov rdx, [rax+24]
+        mov rbp, [rax+32]
+        mov rsi, [rax+48]
+        mov rdi, [rax+56]
+        mov r8, [rax+64]
+        mov r9, [rax+72]
+        mov r10, [rax+80]
+        mov r11, [rax+88]
+        mov r12, [rax+96]
+        mov r13, [rax+104]
+        mov r14, [rax+112]
+        mov r15, [rax+120]
+        push qword 0x10     ; ss
+        push qword [rax+40]      ; rsp
+        push qword [rax+144]   ; rflags
+        push qword 0x08   ; cs        
+        push qword [rax+136]   ; rip
+        mov rax, [rax]
         iretq
         
         interrupts equ 0x30
@@ -81,11 +83,13 @@ vectors:
         %rep interrupts
         interrupt %+ i:
         push dword i
-        jmp interrupt_common
+        jmp [absolution]
         %assign i i+1        
         %endrep
 
 _start:
+        mov rax, qword absolution 
+        mov qword [rax], interrupt_common
         call init_service
 ;; can we shut down qemu from here?
         hlt

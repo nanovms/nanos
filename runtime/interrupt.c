@@ -89,10 +89,9 @@ static char* textoreg[] = {
     "flags", //18
 };
 
-extern u64 * frame;
+u64 * frame;
 
-handler *handlers;
-
+extern handler *handlers;
 void *apic_base = (void *)0xfee00000;
 extern void *pagebase;
 extern physical ptalloc();
@@ -102,23 +101,22 @@ void lapic_eoi()
     *(unsigned int *)(apic_base +0xb0) = 0;
 }
 
+extern physical vtopnobss(void *);
 
-void common_handler(unsigned long x, unsigned long y, unsigned long z, unsigned long a)
+void common_handler()
 {
     int i = frame[16];
-    if (i < interrupt_size && handlers[i]) {
+    u64 z;
+    
+    if ((i < interrupt_size) && handlers[i]) {
         apply(handlers[i]);
         lapic_eoi();
     } else {
         if (i < 25) {
             console(interrupts[frame[16]]);
             console("\n");        
-        } else {
-            console ("biggie interrupt: ");
-            print_u64(frame[16]);
-            console("\n");
-        }
-        for (int j = 0; j< 18; i++) {
+        } 
+        for (int j = 0; j< 18; j++) {
             console(textoreg[j]);
             console(": ");
             print_u64(frame[j]);
@@ -142,7 +140,6 @@ u8 allocate_msi(handler h)
 
 void enable_lapic()
 {
-
     map(pagebase, (u64)apic_base, 0xfee00000, 0x1000, ptalloc);
     
     // turn on the svr, then enable three lines
@@ -166,11 +163,14 @@ void start_interrupts()
     void *start = &interrupt0;
 
     handlers = allocate_zero(general, interrupt_size * sizeof(handler));
+    
     // assuming contig gives us a page aligned, page padded identity map
     idt = allocate(contiguous, contiguous->pagesize);
     frame = allocate(contiguous, contiguous->pagesize);
+
     for (int i = 0; i < interrupt_size; i++) 
         write_idt(idt, i, start + i * delta);
+    
     u16 *dest = (u16 *)(idt + 2*interrupt_size);
     dest[0] = 16*interrupt_size -1;
     *(u32 *)(dest + 1) = (u64)idt;

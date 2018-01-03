@@ -20,6 +20,8 @@ status allocate_status(char *x, ...)
 //    for (int i = 0 ; i < length; i++) ((u8*)a)[i]=val;
 //}
 
+handler *handlers;
+
 static void *getpage(heap h, bytes b)
 {
     u64 p = pad(b, h->pagesize);
@@ -86,7 +88,6 @@ void init_service(u64 passed_base)
     u64 stacksize = 16384;
     void *stack = allocate(contiguous, stacksize) + stacksize;
     asm ("mov %0, %%rsp": :"m"(stack));  
-
     pci_checko();
     char *program = "program";
 
