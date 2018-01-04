@@ -25,5 +25,5 @@ distclean: clean
 	rm -rf lwip libc/musl
 
 run: image
-	(sleep 2 ; echo "x") | qemu-system-x86_64 -device virtio-net,netdev=n0,mac=ef:ef:01:02:03:04 -netdev tap,id=n0,ifname=tap0,script=no -nographic  -drive file=image,format=raw
+	(sleep 4 ; echo "x") | qemu-system-x86_64 -device virtio-net,netdev=n0,mac=4a:a4:e1:21:01:9c -netdev tap,id=n0,ifname=tap0,script=no -nographic  -drive file=image,format=raw
 

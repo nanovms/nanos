@@ -150,7 +150,6 @@ status virtqueue_alloc(void *dev,
                                                 vq->vq_nentries * sizeof(struct vring_desc));
     vq->vq_ring.used = (void *)
         (((unsigned long) &vq->vq_ring.avail->ring[vq->vq_nentries] + align-1) & ~(align-1));
-
     *vqp = vq;
 
  fail:
@@ -213,28 +212,6 @@ int virtqueue_enable_intr(struct virtqueue *vq)
 {
     return (vq_ring_enable_interrupt(vq, 0));
 }
-
-int virtqueue_postpone_intr(struct virtqueue *vq, vq_postpone_t hint)
-{
-    uint16_t ndesc, avail_idx;
-
-    avail_idx = vq->vq_ring.avail->idx;
-    ndesc = (uint16_t)(avail_idx - vq->vq_used_cons_idx);
-
-    switch (hint) {
-    case VQ_POSTPONE_SHORT:
-        ndesc = ndesc / 4;
-        break;
-    case VQ_POSTPONE_LONG:
-        ndesc = (ndesc * 3) / 4;
-        break;
-    case VQ_POSTPONE_EMPTIED:
-        break;
-    }
-
-    return (vq_ring_enable_interrupt(vq, ndesc));
-}
-
 
 status virtqueue_enqueue(struct virtqueue *vq,
                          void *cookie,

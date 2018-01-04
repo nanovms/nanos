@@ -74,7 +74,7 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
     vnet vn = netif->state;
     struct pbuf *q;
 
-    console("output frame\n");
+    console("output frame ");
     print_u64(p->tot_len);
     console("\n");
 
@@ -122,11 +122,12 @@ static void tx_complete(void *z)
 
 static void post_recv(vnet vn)
 {
-    void *x = allocate(contiguous, contiguous->pagesize);
-    void *address[1] = {x};
-    u64 lengths[1] = {contiguous->pagesize};
-    boolean writables[1] = {true};
-    virtqueue_enqueue(vn->rxq, 0, address, lengths, writables, 1);    
+    struct pbuf *p = pbuf_alloc(PBUF_RAW, 1500, PBUF_RAM);
+    void *x = p->payload;
+    void *address[] = {x};
+    u64 lengths[] = {contiguous->pagesize};
+    boolean writables[] = {true};
+    virtqueue_enqueue(vn->rxq, p, address, lengths, writables, 1);    
 }
 
 static void input(void *z)
@@ -135,43 +136,13 @@ static void input(void *z)
     struct eth_hdr *ethhdr;
     /* move received packet into a new pbuf */
     vnet vn= netif->state;
-    struct pbuf *p, *q;
-    u16_t len = 0x1e; // bytes
-
-    console("in input hadnelr\n");
-    /* We allocate a pbuf chain of pbufs from the pool. */
-    /* do this on prepost */
-    p = pbuf_alloc(PBUF_RAW, len, PBUF_POOL);
-
+    u32 len;
+    struct pbuf *p = virtqueue_dequeue(vn->rxq, &len);
+    console("rx packet: ");
+    print_u64(len);
+    console("\n");
     if (p != NULL) {
-        /* We iterate over the pbuf chain until we have read the entire
-         * packet into the pbuf. */
-        for (q = p; q != NULL; q = q->next) {
-            /* In this case, ensure the tot_len member of the
-             * pbuf is the sum of the chained pbuf len members.
-             */
-            // read data into(q->payload, q->len);
-        }
-        MIB2_STATS_NETIF_ADD(netif, ifinoctets, p->tot_len);
-        if (((u8_t *)p->payload)[0] & 1) {
-            /* broadcast or multicast packet*/
-            MIB2_STATS_NETIF_INC(netif, ifinnucastpkts);
-        } else {
-            /* unicast packet*/
-            MIB2_STATS_NETIF_INC(netif, ifinucastpkts);
-        }
-        LINK_STATS_INC(link.recv);
-    } else {
-        // drop packet();
-        LINK_STATS_INC(link.memerr);
-        LINK_STATS_INC(link.drop);
-        MIB2_STATS_NETIF_INC(netif, ifindiscards);
-    }
-
-    /* if no packet could be read, silently ignore this */
-    if (p != NULL) {
-        /* pass all packets to ethernet_input, which decides what packets it supports */
-        console("calling netif input\n");
+        p->len = len;
         if (netif->input(p, netif) != ERR_OK) {
             LWIP_DEBUGF(NETIF_DEBUG, ("ethernetif_input: IP input error\n"));
             pbuf_free(p);
@@ -208,14 +179,12 @@ void init_vnet(vtpci dev)
     vnet vn = allocate(general, sizeof(struct vnet));
     struct netif *n = allocate(general, sizeof(struct netif));
     /* rx = 0, tx = 1, ctl = 2 by page 53 of http://docs.oasis-open.org/virtio/virtio/v1.0/cs01/virtio-v1.0-cs01.pdf */
-    // where is config in port space? -
-    // #define VIRTIO_PCI_CONFIG_OFF(msix_enabled)     ((msix_enabled) ? 24 : 20)
     vn->dev = dev;
     // causes qemu to handle on exit?
     //     vtpci_alloc_virtqueue(dev, "ctrl", 0, 0, &vn->txq);
     
     vtpci_alloc_virtqueue(dev, "tx", 1, allocate_handler(general, tx_complete, vn), &vn->txq);
-    vtpci_alloc_virtqueue(dev, "rx", 2, allocate_handler(general, input, vn), &vn->rxq);
+    vtpci_alloc_virtqueue(dev, "rx", 0, allocate_handler(general, input, n), &vn->rxq);
     // just need 10 contig bytes really
     vn->empty = allocate(contiguous, contiguous->pagesize);
     for (int i = 0; i < NET_HEADER_LENGTH ; i++)  ((u8 *)vn->empty)[i] = 0;
@@ -226,6 +195,8 @@ void init_vnet(vtpci dev)
               virtioif_init,
               ethernet_input);
 
+    post_recv(vn);
+    post_recv(vn);
     post_recv(vn);
     dhcp_start(n);
     // setup sys_check_timeouts() timer
