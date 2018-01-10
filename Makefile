@@ -2,8 +2,8 @@ all: image
 
 force:
 
-image: boot/boot example/app
-	cat boot/boot example/app > image
+image: boot/boot #example/app
+	cat boot/boot exmaple/app > image
 
 boot/boot: force
 	cd boot ; make
@@ -25,5 +25,5 @@ distclean: clean
 	rm -rf lwip libc/musl
 
 run: image
-	(sleep 4 ; echo "x") | qemu-system-x86_64 -device virtio-net,netdev=n0,mac=4a:a4:e1:21:01:9c -netdev tap,id=n0,ifname=tap0,script=no -nographic  -drive file=image,format=raw
+	(sleep 4 ; echo "x") | qemu-system-x86_64 -d int -D foo -device virtio-net,netdev=n0,mac=4a:a4:e1:21:01:9c -netdev tap,id=n0,ifname=tap0,script=no -nographic  -drive file=image,format=raw
 

@@ -33,21 +33,15 @@ init:
 	call e820
 	add eax,0x100000
 	mov [entries.memorymax], eax
-        call readsectors
+
 
         ;;;  disable 8259
         mov al, 0xff
         out 0xa1, al
         out 0x21, al
-        
-        mov cx, [dap.segment]
-        add cx, 4096
-        mov [dap.segment], cx
-        mov cx, [dap.sector]
-        add cx, 128
-        mov [dap.sector], cx        
-        call readsectors        
 
+        call readsectors
+        
 	jmp ascend
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -166,7 +160,7 @@ serial_out:
 dap:
         db 0x10
         db 0
-        .sectors:    dw 128 ;(STAGE3SIZE + STAGE2SIZE + sectorsize -1)/ sectorsize
+        .sectors:    dw 8 ; just the 4k stage2 right now
         .offset:     dw 0
         .segment:    dw 0x0800
         .sector      dd 1

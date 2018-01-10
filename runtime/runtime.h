@@ -91,3 +91,6 @@ static inline handler allocate_handler(heap h, void (*f)(void *), void *a)
 void register_interrupt(int vector, handler h);
 void msi_map_vector(int slot, int vector);
 u8 allocate_msi(handler h);
+
+#include <disk.h>
+#include <elf64.h>

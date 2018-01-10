@@ -108,8 +108,9 @@ vtpci attach_vtpci(int bus, int slot, int func)
 
     int nvqs = 16;
     dev->vtpci_vqs = allocate_zero(general, nvqs * sizeof(struct virtqueue));
-    
-    vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER_OK);
+    enable_interrupts();    
     init_vnet(dev);
+    vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER_OK);
+
     return dev;
 }

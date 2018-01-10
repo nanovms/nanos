@@ -31,8 +31,9 @@ static inline int subdivide(int quantum, int per, int s, int o)
 #define allocate(__h, __b) (__h->allocate(__h, __b))
 #define deallocate(__h, __b, __s) (__h->deallocate(__h, __b, __s))
 
+// something more efficient would be nice, but no is no memset reference
 #define allocate_zero(__h, __b) ({\
         void *x = allocate(__h, __b);\
-        memset(x, 0, __b);\
+        for (int i =0; i < (__b); i++) *(u8 *)(x + i) = 0;      \
         x; })
 

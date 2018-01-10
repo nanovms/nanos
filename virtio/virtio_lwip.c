@@ -141,6 +141,7 @@ static void input(void *z)
     console("rx packet: ");
     print_u64(len);
     console("\n");
+    post_recv(vn);
     if (p != NULL) {
         p->len = len;
         if (netif->input(p, netif) != ERR_OK) {
@@ -195,8 +196,6 @@ void init_vnet(vtpci dev)
               virtioif_init,
               ethernet_input);
 
-    post_recv(vn);
-    post_recv(vn);
     post_recv(vn);
     dhcp_start(n);
     // setup sys_check_timeouts() timer

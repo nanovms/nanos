@@ -2,6 +2,7 @@
         stack equ 0x700
         extern centry
         section .start
+        
 
 ;; move the 32 bit segment setup to stage1
 global _start
@@ -17,7 +18,23 @@ _start:
         mov esp, stack
         mov ebp, stack        
         jmp centry
-        
+
+# try to fix the asm inline for this        
+global disktarget
+disktarget:     dd 0 
+global diskcopy
+diskcopy:
+        push edi
+        mov edi, [disktarget]
+        mov dx, 0x1f0
+        mov ecx, 256
+        cld
+        ;; there looks like a 32 bit version in qemu
+        rep insw
+        mov [disktarget], edi
+        pop edi
+        ret
+
 global run64        
 run64:
 
@@ -45,18 +62,6 @@ run64:
         lgdt [GDT64.Pointer]    ; Load the 64-bit global descriptor table.
         jmp GDT64.Code:setup64
 
-
-        interrupts equ 0x30
-align 16        
-global IDT64
-IDT64:
-        %rep interrupts
-        dd 0, 0, 0, 0
-        %endrep
-       .pointer:    
-        dw $ - IDT64 - 1    ; Limit.
-        dw IDT64, 0
-        
 GDT64:  ; Global Descriptor Table (64-bit).
         ;;  xxx - clean this up with a macro
         .Null: equ $ - GDT64 ; The null descriptor.
@@ -84,6 +89,7 @@ GDT64:  ; Global Descriptor Table (64-bit).
         dw $ - GDT64 - 1    ; Limit.
         dw GDT64, 0         ; 64 bit Base.
 
+        
 setup64:
         mov ax, GDT64.Data 
         mov ds, ax     

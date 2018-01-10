@@ -10,6 +10,11 @@
 
 static inline void write_pte(u64 *target, physical to)
 {
+    console("pte ");
+    print_u64(target);
+    console(" ");
+    print_u64(to);
+    console("\n");
     // present and writable - add size bit for 2M pages
     *target = to | 3;
 }
@@ -42,6 +47,14 @@ static void map(void *table, u64 virtual, physical p, int length, physical (*all
 {
     int len = pad(length, PAGESIZE)>>12;
 
+    console("map ");
+    print_u64(virtual);
+    console(" ");
+    print_u64(p);
+    console(" ");
+    print_u64(length);
+    console("\n");
+    
     // if any portion of this is physically aligned on a 2M boundary
     // and is of a 2M size, can do a 2M mapping..inline map page
     // and conditionalize

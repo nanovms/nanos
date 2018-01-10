@@ -42,10 +42,6 @@ void *ptalloc()
     return allocate(contiguous, PAGESIZE);
 }
 
-extern void __libc_start_main(int (*)(int, char **, char**), int, char **);;
-
-extern int main(int argc, char **argv, char **envp);
-
 extern void enable_lapic();
 
 extern void start_interrupts();
@@ -67,8 +63,11 @@ physical vtop(void *x)
 
 }
 
+extern void startup();
+
 void init_service(u64 passed_base)
 {
+    console("64!\n");
     u32 start = *START_ADDRESS;
     base = (void *)(u64)start;
     gh.allocate = leak;
@@ -89,19 +88,19 @@ void init_service(u64 passed_base)
     void *stack = allocate(contiguous, stacksize) + stacksize;
     asm ("mov %0, %%rsp": :"m"(stack));  
     pci_checko();
-    enable_interrupts();
+    startup();
     
-    char *program = "program";
-
-    __libc_start_main(main, 1, &program);
+    //  this is the musl start - move somewhere else
+    //        char *program = "program";
+    // extern void __libc_start_main(int (*)(int, char **, char**), int, char **);;
+    // __libc_start_main(main, 1, &program);
 }
 
 extern void *gallocate(unsigned long a);
 // for lwip
 void *calloc(size_t nmemb, size_t b)
 {
-    void *x = gallocate(nmemb * b);
-    memset(x, 0, b);
+    allocate_zero(general, (unsigned long)b);
 }
 
 void *gallocate(unsigned long b)
