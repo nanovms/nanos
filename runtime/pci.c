@@ -135,7 +135,7 @@ void msi_map_vector(int slot, int vector)
 #define MSI_MESSAGE_ENABLE 1
 #define PCI_CAPABILITY_MSIX 0x11
 extern void *pagebase;
-extern physical ptalloc();
+extern u64 *ptalloc();
 
 void pci_checko()
 {
@@ -143,7 +143,14 @@ void pci_checko()
     for (int i = 0; i < 16; i++) {
         u32 vid = pci_cfgread(0, i, 0, PCIR_VENDOR, 2);
         u32 did = pci_cfgread(0, i, 0, PCIR_DEVICE, 2);
-     
+
+        console("pci: ");
+
+        print_u64(vid);
+        console(" ");
+        print_u64(did);
+        console("\n");        
+
         u32 cp = pci_cfgread(0, i, 0, PCIR_CAPABILITIES_POINTER, 1);
         while (cp) {
             u32 cp0 = pci_cfgread(0, i, 0, cp, 1);

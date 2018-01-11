@@ -1,4 +1,3 @@
-#define pointer(__a) ((u64 *)(void *)(u32)__a)
 #include <runtime.h>
 #include <elf64.h>
 
@@ -16,6 +15,13 @@ void print_u64(u64 s)
         serial_out(hex[(s >> x)&0xf]);
 }
 
+static void print_block(void *addr, int length)
+{
+    for (int i = 0; i< length; i+=8){
+        print_u64(*(u64 *)(addr+i));
+        console ("\n");
+    }
+}
 void console(char *x)
 {
     for (char *i = x; *i; i++) 
@@ -28,14 +34,11 @@ u32 alloc = 0x8000 + STAGE2_LENGTH;
 
 #define SECTOR_LOG 12
 
-physical pt_allocate()
+page pt_allocate()
 {
-    physical result= alloc;
-    console("pagey ");
-    print_u64(alloc);
-    console("\n");
-    for (int i=0; i < 4906>>6; i++) 
-        (pointer(result))[i] = 0;
+    void *result = pointer_from_u64(alloc);
+    for (int i=0; i < 4096>>6; i++) 
+        ((u64 *)result)[i] = 0;
     alloc += 0x1000;
     return result;
 }
@@ -57,7 +60,6 @@ void centry()
     void *vmbase = (void *)(u32)pt_allocate();
     mov_to_cr("cr3", vmbase);
 
-    console("spanky\n");
     read_sectors((void *)alloc, sector_offset, PAGESIZE);
     
     // check signature
@@ -67,42 +69,26 @@ void centry()
     int pn = elfh->e_phnum;
     alloc += 4096;
     
-    // xxx - assume application is loaded at 0x400000
-    // you're in a position to check that...maybe just fix up the
-    // stage3 virtual allocation and stop running in this little identity
-    // region2
+    // xxx - assume application is loaded at 0x400000.. need to
+    // at least identity map 0x8000-0x9000 identity for the
+    // page flip
     map(vmbase, 0x0000, 0x0000, 0x400000, pt_allocate);
     for (int i = 0; i< pn; i++){
         Elf64_Phdr *p = (void *)po + i * ph;
         if (p->p_type == PT_LOAD) {
-            console("section ");
-            print_u64(p->p_offset);
-            console(" ");
-            print_u64(p->p_filesz);
-            console(" ");
-            print_u64(p->p_vaddr);
-            console(" ");
-            print_u64(alloc);
-            console("\n");
-            read_sectors((void *)alloc, (p->p_offset>>sector_log) + sector_offset, p->p_filesz);
-            // void * is the wrong type, since here its 32 bits
             int ssize = pad(p->p_memsz, PAGESIZE);
             u32 load = alloc;
             alloc += ssize;
+            
+            read_sectors((void *)load, (p->p_offset>>sector_log) + sector_offset, pad(p->p_filesz, 1<<sector_log));
+            // void * is the wrong type, since here its 32 bits
             map(vmbase, p->p_vaddr, load, ssize, pt_allocate);
-            void *start = (void *)alloc + p->p_offset;
+            void *start = (void *)load + p->p_offset;
             for (u8 *x =  start + p->p_filesz; x < (u8 *)start + p->p_memsz; x++)
                 *x = 0;
-            alloc += pad(p->p_memsz, PAGESIZE);
         }
     }
     *START_ADDRESS = alloc;
-
-    print_u64(elfh->e_entry);
-    console(" ");
-    print_u64(*(u64 *)(0xf000+(elfh->e_entry&0xfff)));
-    console("\n");
-    // 64 bit entries
     run64((u32)elfh->e_entry, alloc);
 }
 

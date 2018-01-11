@@ -55,7 +55,7 @@ static char *interrupts[] = {
 
 void write_idt(u64 *idt, int interrupt, void *hv)
 {
-    u64 h = vtop(hv);
+    u64 h = virtual_to_physical(hv);
     u64 selector = 0x08;
     u64 ist = 0; // this is a stask switch through the tss
     u64 type_attr = 0x8e;
@@ -93,18 +93,15 @@ u64 * frame;
 
 extern handler *handlers;
 void *apic_base = (void *)0xfee00000;
-extern void *pagebase;
-extern physical ptalloc();
 
 void lapic_eoi()
 {
     *(unsigned int *)(apic_base +0xb0) = 0;
 }
 
-extern physical vtopnobss(void *);
-
 void common_handler()
 {
+    console ("handlo!\n");
     int i = frame[16];
     u64 z;
     
@@ -162,11 +159,16 @@ void start_interrupts()
     int delta = (u64)&interrupt1 - (u64)&interrupt0;
     void *start = &interrupt0;
 
+    console("here\n");    
     handlers = allocate_zero(general, interrupt_size * sizeof(handler));
-    
+    console("tehere\n");        
+
     // assuming contig gives us a page aligned, page padded identity map
     idt = allocate(contiguous, contiguous->pagesize);
     frame = allocate(contiguous, contiguous->pagesize);
+    console("frame: ");
+    print_u64(u64_from_pointer(frame));
+    console("\n");
 
     for (int i = 0; i < interrupt_size; i++) 
         write_idt(idt, i, start + i * delta);

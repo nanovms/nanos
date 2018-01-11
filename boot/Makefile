@@ -28,7 +28,7 @@ service32.o: service32.s
 	nasm -felf -l boxxy $<
 
 %.o: %.c
-	cc -m32  -DSTAGE1SIZE=$(STAGE1SIZE) -DSTAGE2SIZE=$(STAGE2SIZE) -I. -I../runtime $< -c
+	cc -m32 -include def32.h -DSTAGE1SIZE=$(STAGE1SIZE) -DSTAGE2SIZE=$(STAGE2SIZE) -I. -I../runtime $< -c
 
 clean:
 	rm -f *.o *~ b32.elf b32 bottom.list stage1 boxxy b32.pad boot

@@ -37,7 +37,7 @@ static void *leak(heap h, bytes b)
     return r;
 }
 
-void *ptalloc()
+u64 *ptalloc()
 {
     return allocate(contiguous, PAGESIZE);
 }
@@ -46,28 +46,10 @@ extern void enable_lapic();
 
 extern void start_interrupts();
 
-static inline u64 *grabby(u64 *table, u64 t, unsigned int x)
-{
-    return (u64 *)(table[(t>>x)&MASK(9)] & ~MASK(12));
-}
-
-physical vtop(void *x)
-{
-    u64 xt = (u64)x;
-
-    u64 *l3 = grabby(pagebase, xt, 39);
-    u64 *l2 = grabby(l3, xt, 30);
-    u64 *l1 = grabby(l2, xt, 21); // 2m pages
-    u64 *l0 = grabby(l1, xt, 12);
-    return (u64)l0 | xt & MASK(12);
-
-}
-
 extern void startup();
 
 void init_service(u64 passed_base)
 {
-    console("64!\n");
     u32 start = *START_ADDRESS;
     base = (void *)(u64)start;
     gh.allocate = leak;
@@ -79,15 +61,16 @@ void init_service(u64 passed_base)
     u64 *pages;
     mov_from_cr("cr3", pages);
     pagebase = pages;
-    
-    start_interrupts();
 
-    // lets get out of the bios area
-    // should translate into constructing a frame and an iret call (thread create)
     u64 stacksize = 16384;
     void *stack = allocate(contiguous, stacksize) + stacksize;
-    asm ("mov %0, %%rsp": :"m"(stack));  
-    pci_checko();
+    asm ("mov %0, %%rsp": :"m"(stack));
+    
+    start_interrupts();
+    // lets get out of the bios area
+    // should translate into constructing a frame and an iret call (thread create)
+
+    //pci_checko();
     startup();
     
     //  this is the musl start - move somewhere else

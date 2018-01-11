@@ -50,11 +50,6 @@ typedef u64 physical;
 
 physical vtop(void *x);
 
-static inline physical vtophys(void *v)
-{
-    return (unsigned long)v;
-}
-
 static inline void enable_interrupts()
 {
     asm ("sti");
@@ -73,7 +68,6 @@ static inline void disable_interrupts()
 #define cprintf(...)
 #define apply(__h, ...) ((__h->f)(__h->a))
 
-#include <page.h>
 
 typedef struct handler {
     void (*f)(void *);
@@ -92,5 +86,17 @@ void register_interrupt(int vector, handler h);
 void msi_map_vector(int slot, int vector);
 u8 allocate_msi(handler h);
 
+extern void *pagebase;
+extern u64 *ptalloc();
+
 #include <disk.h>
 #include <elf64.h>
+
+#ifndef pointer_from_u64
+#define pointer_from_u64(__a) ((void *)(__a))
+#endif
+#ifndef u64_from_pointer
+#define u64_from_pointer(__a) ((u64)(__a))
+#endif
+
+#include <page.h>
