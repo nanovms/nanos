@@ -135,9 +135,8 @@ void msi_map_vector(int slot, int vector)
 #define MSI_MESSAGE_ENABLE 1
 #define PCI_CAPABILITY_MSIX 0x11
 extern void *pagebase;
-extern u64 *ptalloc();
 
-void pci_checko()
+void pci_checko(heap pages)
 {
     // we dont actually need to do recursive discovery, qemu leaves it all on bus0 for us
     for (int i = 0; i < 16; i++) {
@@ -159,7 +158,7 @@ void pci_checko()
                 u32 pba_table = pci_cfgread(0, i, 0, cp+8, 4);                    
                 u32 vector_base = pci_readbar(0, i, 0, vector_table & 0xff);
                 msi_map = (void *)0xe0000000;
-                map(pagebase, (u64)msi_map, vector_base, 0x1000, ptalloc);
+                map((u64)msi_map, vector_base, 0x1000, pages);
                 // qemu gets really* mad if you do this a 16 bit write
                 pci_cfgwrite(0, i, 0, cp+3, 1, 0x80);
                 break;

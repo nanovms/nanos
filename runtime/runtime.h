@@ -61,6 +61,7 @@ static inline void disable_interrupts()
 }
 
 // defined in stage1...pass this through entry stack
+#define ABSOLUTION ((u32 *)0x7de8)
 #define MEMORY_MAX  ((u32 *)0x7df2) 
 #define START_ADDRESS  ((u32 *)0x7df6)
 
@@ -99,4 +100,11 @@ extern u64 *ptalloc();
 #define u64_from_pointer(__a) ((u64)(__a))
 #endif
 
-#include <page.h>
+#include <region.h>
+
+#define PAGELOG 12
+#define PAGESIZE (1<<PAGELOG)
+#ifndef physical_from_virtual
+physical physical_from_virtual(void *x);
+#endif    
+void map(u64 virtual, physical p, int length, heap h);

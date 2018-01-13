@@ -55,7 +55,7 @@ static char *interrupts[] = {
 
 void write_idt(u64 *idt, int interrupt, void *hv)
 {
-    u64 h = virtual_to_physical(hv);
+    u64 h = physical_from_virtual(hv);
     u64 selector = 0x08;
     u64 ist = 0; // this is a stask switch through the tss
     u64 type_attr = 0x8e;
@@ -135,9 +135,9 @@ u8 allocate_msi(handler h)
     return m; 
 }
 
-void enable_lapic()
+void enable_lapic(heap pages)
 {
-    map(pagebase, (u64)apic_base, 0xfee00000, 0x1000, ptalloc);
+    map((u64)apic_base, 0xfee00000, 0x1000, pages);
     
     // turn on the svr, then enable three lines
     // - this could be a little more symbolic
@@ -154,14 +154,11 @@ void register_interrupt(int vector, handler h)
     handlers[vector] = h;
 }
 
-void start_interrupts()
+void start_interrupts(heap pages, heap general, heap contiguous)
 {
     int delta = (u64)&interrupt1 - (u64)&interrupt0;
     void *start = &interrupt0;
-
-    console("here\n");    
     handlers = allocate_zero(general, interrupt_size * sizeof(handler));
-    console("tehere\n");        
 
     // assuming contig gives us a page aligned, page padded identity map
     idt = allocate(contiguous, contiguous->pagesize);
@@ -177,5 +174,5 @@ void start_interrupts()
     dest[0] = 16*interrupt_size -1;
     *(u32 *)(dest + 1) = (u64)idt;
     asm("lidt %0": : "m"(*dest));
-    enable_lapic();
+    enable_lapic(pages);
 }

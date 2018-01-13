@@ -1,36 +1,36 @@
 all: boot
 
 STAGE1SIZE = 512
-STAGE2SIZE = 4096
+STAGE2SIZE = 8192
 
-b32.pad: b32
+stage2.pad: stage2
 	dd if=$< of=$@ bs=$(STAGE2SIZE) conv=sync
 
 stage1: stage1.s
 	nasm  -dSTAGE1SIZE=$(STAGE3SIZE) -dSTAGE2SIZE=$(STAGE2SIZE) $< -o $@
 
-boot: stage1 b32.pad
-	cat stage1 b32.pad > boot
+boot: stage1 stage2.pad
+	cat stage1 stage2.pad > boot
 
-OBJ = service32.o stage2.o 
+OBJ = service32.o stage2.o serial.o page.o
 
 VPATH = ../runtime
 LD = ld
 OD = objdump
 
-b32.elf: $(OBJ) linker_script
+stage2.elf: $(OBJ) linker_script
 	$(LD) -T linker_script -e _start $(OBJ) $(LIBC) -o $@
 
-b32: b32.elf
+stage2: stage2.elf
 	 objcopy -S -O binary $< $@
 
 service32.o: service32.s
-	nasm -felf -l boxxy $<
+	nasm -felf $<
 
 %.o: %.c
 	cc -m32 -include def32.h -DSTAGE1SIZE=$(STAGE1SIZE) -DSTAGE2SIZE=$(STAGE2SIZE) -I. -I../runtime $< -c
 
 clean:
-	rm -f *.o *~ b32.elf b32 bottom.list stage1 boxxy b32.pad boot
+	rm -f *.o *~ stage2.elf stage2 bottom.list stage1 boxxy stage2.pad boot
 
 

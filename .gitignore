@@ -1,6 +1,11 @@
 *.o
 example/app
-boot/b32*
+stage3/stage3
+stage3/test.bin
+stage3/input.bin
+boot/stage2
+boot/stage2.elf
+boot/stage2.pad
 boot/boot
 boot/stage1
 libc/musl

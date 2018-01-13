@@ -31,9 +31,6 @@ init:
 	int 0x14
 
 	call e820
-	add eax,0x100000
-	mov [entries.memorymax], eax
-
 
         ;;;  disable 8259
         mov al, 0xff
@@ -44,42 +41,24 @@ init:
         
 	jmp ascend
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; memory detection code:                 ;;;
-;;;  this uses the e820 gate to get a set  ;;;
-;;;  of regions from the bios. older probe ;;;
-;;;  methods are not supported. we only    ;;;
-;;;  look for the single region starting   ;;;
-;;;  at 0x100000.                          ;;;
-;;;  this code derived from a C version    ;;;
-;;;  in BSD. no specification is available.;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-	
 	smapsig equ 0x534D4150
 ;;; e820 - return the amount of total memory
 e820:	zero ebx
+        mov edi, entries - (desc.end - desc)
 .each:	
 	mov edx,smapsig
 	mov ax,bseg
 	mov es,ax
 	mov eax,0xe820
-	mov edi,.desc
-	mov ecx,.end-.desc
+	mov ecx, desc.end-desc
 	int 0x15
-	;; should check that the high bits are zero
-	mov ecx,[.base]
-	cmp ecx,0x100000
-	je .done
-	
-	cmp ebx,0
-	jne .each
-	mov eax,0
+	sub edi, desc.end-desc
+        test ebx, ebx
+        jne .each
 	ret
-	;; fails to account for more than 4GB
-.done:	mov eax,[.length]
-	ret
-	
-.desc:	
+        
+;;;  this doesn't actually need to live here anymore
+desc:	
 	.base dd 0,0
 	.length dd 0,0
 	.type dd 0
@@ -160,7 +139,7 @@ serial_out:
 dap:
         db 0x10
         db 0
-        .sectors:    dw 8 ; just the 4k stage2 right now
+        .sectors:    dw STAGE2SIZE/sectorsize
         .offset:     dw 0
         .segment:    dw 0x0800
         .sector      dd 1
@@ -172,9 +151,9 @@ dap:
 entries:
 .absolution         dq 0        ; 7de8
 .nothing            dd 0        ; 7df0
-.memorymax:         dd 0        ; 7df2
+.memorymax:         dd 0        ; 7df2 ;; unused
 .memorystart:       dd 0        ; 7df6
-.idt:               dw 0        ; 7dfa
+.idt:               dw 0        ; 7dfa ;; unused
         
 .end:        
 ;;  mbr signature        

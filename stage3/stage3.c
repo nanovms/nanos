@@ -2,7 +2,7 @@
 
 extern void *_binary_test_bin_start;
 
-void startup()
+void startup(heap pages)
 {
     console("stage3\n");
     void *base = &_binary_test_bin_start;
@@ -17,11 +17,11 @@ void startup()
             console(" ");
             print_u64(u64_from_pointer(base)+p->p_offset);
             console(" ");
-            print_u64(virtual_to_physical(base+p->p_offset));
+            print_u64(physical_from_virtual(base+p->p_offset));
             console(" ");
             print_u64(ssize);
             console("\n");
-            map(pagebase, p->p_vaddr, virtual_to_physical(base+p->p_offset), ssize, ptalloc);
+            map(p->p_vaddr, physical_from_virtual(base+p->p_offset), ssize, pages);
             // need to allocate the bss here
             //            for (u8 *x =  start + p->p_filesz; x < (u8 *)start + p->p_memsz; x++)
             //                *x = 0;

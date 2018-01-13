@@ -1,13 +1,9 @@
 #include <runtime.h>
 #include <pci.h>
 
-struct heap gh;
-heap general = &gh;
-struct heap ch;
-heap contiguous = &ch;
-void *pagebase;
-static void *base;
-static void *top;
+static struct region_heap generalh;
+static struct region_heap pagesh;
+static struct region_heap contiguoush;
 
 status allocate_status(char *x, ...)
 {
@@ -22,57 +18,60 @@ status allocate_status(char *x, ...)
 
 handler *handlers;
 
-static void *getpage(heap h, bytes b)
-{
-    u64 p = pad(b, h->pagesize);
-    void *r  = top - p;
-    top = r;
-    return r;
-}
-
-static void *leak(heap h, bytes b)
-{
-    void *r  = base;
-    base += b;
-    return r;
-}
-
-u64 *ptalloc()
-{
-    return allocate(contiguous, PAGESIZE);
-}
-
 extern void enable_lapic();
-
 extern void start_interrupts();
-
 extern void startup();
+
+u64 virtual_region_base = 0x100000000;
+u64 virtual_region_offset = 0x100000000;
+
+region create_virtual_region(region r)
+{
+    u64 m2 = 1<<21;
+    u64 pb = pad(region_base(r), m2);
+    u64 pl = (region_length(r) - pb - region_base(r)) & MASK(21);
+    
+    region v = create_region(virtual_region_base, pl, REGION_VIRTUAL);
+    map(region_base(v) , pb, pl, (heap)&pagesh);
+    virtual_region_base += virtual_region_offset;
+    return v;
+}
 
 void init_service(u64 passed_base)
 {
-    u32 start = *START_ADDRESS;
-    base = (void *)(u64)start;
-    gh.allocate = leak;
-    ch.allocate = getpage;
-    ch.pagesize = PAGESIZE;
-    // fix
-    top = (void *)0x400000;
+    console("service\n");
+    region c, g;
 
-    u64 *pages;
-    mov_from_cr("cr3", pages);
-    pagebase = pages;
+    for (region e = regions; region_type(e); e--) {
+        if (region_type(e) == 1) {
+            // ahem
+            if  ((region_base(e) +  region_length(e)) == 0x90000) {
+                region_allocator(&pagesh, e);
+                // this is already identity mapped by stage2
+            } else{
+                g = e;
+            }
+        }
+    }
+    console("mapping regions\n");
+
+    u64 split = region_length(g)/2;
+    c = create_region(region_base(g) + split, split, REGION_PHYSICAL);
+    region_length(g) = split;
+    region_allocator(&generalh, create_virtual_region(g));
+    region_allocator(&contiguoush, create_virtual_region(c));
 
     u64 stacksize = 16384;
-    void *stack = allocate(contiguous, stacksize) + stacksize;
+    void *stack = allocate((heap)&contiguoush, stacksize) + stacksize - 8;
     asm ("mov %0, %%rsp": :"m"(stack));
-    
-    start_interrupts();
-    // lets get out of the bios area
-    // should translate into constructing a frame and an iret call (thread create)
 
-    //pci_checko();
-    startup();
-    
+    // general needs to wrapped with an allocated that maps too..or just map the damn region
+    // map the damn region
+    console("Start interrupts\n");
+    start_interrupts((heap)&pagesh, (heap)&generalh, (heap)&contiguoush);
+    // should translate into constructing a frame and an iret call (thread create)
+    // pci_checko();
+    startup((heap)&pagesh);
     //  this is the musl start - move somewhere else
     //        char *program = "program";
     // extern void __libc_start_main(int (*)(int, char **, char**), int, char **);;
@@ -83,10 +82,10 @@ extern void *gallocate(unsigned long a);
 // for lwip
 void *calloc(size_t nmemb, size_t b)
 {
-    allocate_zero(general, (unsigned long)b);
+    allocate_zero((heap)&generalh, (unsigned long)b);
 }
 
 void *gallocate(unsigned long b)
 {
-    return(allocate(general, (unsigned long)b));
+    return(allocate((heap)&generalh, (unsigned long)b));
 }

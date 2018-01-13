@@ -61,7 +61,7 @@ run64:
         ;; 64 bit compatibility into the proper long mode
         lgdt [GDT64.Pointer]    ; Load the 64-bit global descriptor table.
         jmp GDT64.Code:setup64
-
+align 16                        ; necessary?
 GDT64:  ; Global Descriptor Table (64-bit).
         ;;  xxx - clean this up with a macro
         .Null: equ $ - GDT64 ; The null descriptor.
