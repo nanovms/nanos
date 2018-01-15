@@ -39,7 +39,8 @@ global run64
 run64:
 
         mov eax, cr4     
-        or eax, 1 << 5     ; Set the PAE-bit, which is the 6th bit (bit 5).
+        or eax, 1 << 5     ;  PAE
+        or eax, 1 << 18    ;  OSXSAVE
         mov cr4, eax  
         
         mov ecx, 0xC0000080 ; EFER MSR.
@@ -85,6 +86,14 @@ GDT64:  ; Global Descriptor Table (64-bit).
         db 10010010b ; Access (read/write).
         db 00000000b ; Granularity.
         db 0         ; Base (high).
+        .DataAgain: equ $ - GDT64 ; The data descriptor, a copy for sysret
+        dw 0         ; Limit (low).
+        dw 0         ; Base (low).
+        db 0         ; Base (middle)
+        db 10010010b ; Access (read/write).
+        db 00000000b ; Granularity.
+        db 0         ; Base (high).
+        
         .Pointer:    ; The GDT-pointer.
         dw $ - GDT64 - 1    ; Limit.
         dw GDT64, 0         ; 64 bit Base.

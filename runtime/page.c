@@ -4,6 +4,7 @@
 #define PAGE_2M_SIZE (1<<7)
 #define PAGE_PRESENT (1<<0)
 #define PAGE_WRITABLE (1<<1)
+#define PAGE_USER (1<<2)
 typedef u64 *page;
 
 static page pt_lookup(page table, u64 t, unsigned int x)
@@ -34,7 +35,11 @@ physical physical_from_virtual(void *x)
 
 static void write_pte(page target, physical to, boolean fat)
 {
-    *target = to | PAGE_WRITABLE | PAGE_PRESENT | (fat?PAGE_2M_SIZE:0);
+    // really set user?
+    if (to == PHYSICAL_INVALID)
+        *target = 0;
+    else 
+        *target = to | PAGE_WRITABLE | PAGE_PRESENT | PAGE_USER | (fat?PAGE_2M_SIZE:0);
 }
 
 static page force_entry(page b, u32 offset, heap h)
@@ -89,7 +94,8 @@ void map(u64 virtual, physical p, int length, heap h)
             off = 1<<21;
         } else map_page_4k(base, vo, po, h);
         vo += off;
-        po += off;
+        if (po != PHYSICAL_INVALID)
+            po += off;
         i += off;
     }
 }

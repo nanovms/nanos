@@ -14,9 +14,9 @@ image: $(ROOT)/boot/boot stage3
 $(ROOT)/boot/boot: force
 	cd $(ROOT)/boot ; make
 
-# linker set if we need to move it around..and runtime right?
-stage3: test.o stage3.o input.o $(RUNTIME) 
-	cc  -static -Wl,"-e_start" -nostdlib $^ -o stage3
+
+stage3: test.o stage3.o $(RUNTIME) 
+	ld -e_start -T linker_script -nostdlib $^ -o stage3
 
 .c.o:
 	cc $(INCLUDES) -nostdinc -fno-stack-protector $< -c

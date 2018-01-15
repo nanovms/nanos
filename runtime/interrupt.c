@@ -55,7 +55,8 @@ static char *interrupts[] = {
 
 void write_idt(u64 *idt, int interrupt, void *hv)
 {
-    u64 h = physical_from_virtual(hv);
+    // huh, idt entries are virtual 
+    u64 h = u64_from_pointer(hv); 
     u64 selector = 0x08;
     u64 ist = 0; // this is a stask switch through the tss
     u64 type_attr = 0x8e;
@@ -101,7 +102,6 @@ void lapic_eoi()
 
 void common_handler()
 {
-    console ("handlo!\n");
     int i = frame[16];
     u64 z;
     
@@ -117,6 +117,12 @@ void common_handler()
             console(textoreg[j]);
             console(": ");
             print_u64(frame[j]);
+            console("\n");        
+        }
+
+        u64 *stack = pointer_from_u64(frame[FRAME_RSP]);        
+        for (int j = 0; j< 20; j++) {
+            print_u64(stack[j]);
             console("\n");        
         }
         asm("hlt");
@@ -163,16 +169,17 @@ void start_interrupts(heap pages, heap general, heap contiguous)
     // assuming contig gives us a page aligned, page padded identity map
     idt = allocate(contiguous, contiguous->pagesize);
     frame = allocate(contiguous, contiguous->pagesize);
-    console("frame: ");
-    print_u64(u64_from_pointer(frame));
-    console("\n");
 
     for (int i = 0; i < interrupt_size; i++) 
         write_idt(idt, i, start + i * delta);
     
     u16 *dest = (u16 *)(idt + 2*interrupt_size);
     dest[0] = 16*interrupt_size -1;
-    *(u32 *)(dest + 1) = (u64)idt;
+    console("setup: ");
+    print_u64(physical_from_virtual(idt));
+    console ("\n");
+    
+    *(u64 *)(dest + 1) = (u64)idt;// physical_from_virtual(idt);
     asm("lidt %0": : "m"(*dest));
     enable_lapic(pages);
 }

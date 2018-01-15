@@ -39,7 +39,6 @@ region create_virtual_region(region r)
 
 void init_service(u64 passed_base)
 {
-    console("service\n");
     region c, g;
 
     for (region e = regions; region_type(e); e--) {
@@ -53,7 +52,6 @@ void init_service(u64 passed_base)
             }
         }
     }
-    console("mapping regions\n");
 
     u64 split = region_length(g)/2;
     c = create_region(region_base(g) + split, split, REGION_PHYSICAL);
@@ -64,14 +62,10 @@ void init_service(u64 passed_base)
     u64 stacksize = 16384;
     void *stack = allocate((heap)&contiguoush, stacksize) + stacksize - 8;
     asm ("mov %0, %%rsp": :"m"(stack));
-
-    // general needs to wrapped with an allocated that maps too..or just map the damn region
-    // map the damn region
-    console("Start interrupts\n");
     start_interrupts((heap)&pagesh, (heap)&generalh, (heap)&contiguoush);
     // should translate into constructing a frame and an iret call (thread create)
     // pci_checko();
-    startup((heap)&pagesh);
+    startup((heap)&pagesh, (heap)&generalh);
     //  this is the musl start - move somewhere else
     //        char *program = "program";
     // extern void __libc_start_main(int (*)(int, char **, char**), int, char **);;

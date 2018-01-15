@@ -10,6 +10,31 @@ extern frame
 ;;;  there should be a better place to stash this
 ;;;  frame might be stashable in a segment register
 absolution equ 0x7de8
+
+extern syscall
+global syscall_enter
+syscall_enter:   
+        push rax
+        mov rax, [frame]
+        mov [rax+8], rbx
+        pop rbx
+        mov [rax+128], rbx ; put this in vector
+        mov [rax+136], rcx ; put this is rip
+        mov [rax+24], rdx
+        mov [rax+48], rsi
+        mov [rax+56], rdi        
+        call syscall
+        mov rbx, [frame]
+        mov rcx, [rbx+136]
+        ; rax is rax
+        ; r11 contains return flaggies
+        ; rcx contains return address
+        ; unfortunately the architecture sets cpl=3 here and there
+        ; is nothing we can do about it...except rewrite the vdso
+        ; thing..or...just use a different widget to get back  
+        ; sysret
+        push rcx
+        ret
         
 extern common_handler
 interrupt_common:
@@ -34,7 +59,13 @@ interrupt_common:
         mov [rax], rbx
         pop rbx            ; vector
         mov [rax+128], rbx
-        ;; assuming no error code
+        
+        ;;  could avoid this branch with a different inter layout - write 0xe as a special handler
+        cmp rbx, 0xe
+        jne .getrip
+        pop rbx            ; error code
+        
+.getrip:
         pop rbx            ; eip
         mov [rax+136], rbx
         pop rbx            ; discard cs
@@ -86,6 +117,52 @@ vectors:
         jmp [absolution]
         %assign i i+1        
         %endrep
+
+global read_msr
+read_msr:
+        mov rcx, rdi
+        mov rax, 0
+        rdmsr
+        shl rdx, 0x20
+        or rax, rdx
+        ret
+
+global write_msr
+write_msr:
+        mov rcx, rdi
+        mov rax, rsi
+        mov rdx, rsi
+        shr rdx, 0x20
+        wrmsr
+        ret
+        
+global cpuid
+cpuid:
+        mov eax, 1
+        cpuid
+        mov rax, rcx
+        shl rax, 0x20
+        and rdx, 0xffffffff
+        or rax, rdx
+        ret
+        
+global read_xmsr
+read_xmsr:
+        mov rcx, rdi
+        mov rax, 0
+        xgetbv
+        shl rdx, 0x20
+        or rax, rdx
+        ret
+
+global write_xmsr
+write_xmsr:
+        mov rcx, rdi
+        mov rax, rsi
+        mov rdx, rsi
+        shr rdx, 0x20
+        xsetbv        
+        ret
 
 _start:
         mov rax, qword absolution 
