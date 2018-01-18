@@ -1,0 +1,16 @@
+
+all:mkfs
+
+ROOT=$(PWD)/..
+
+include $(ROOT)/runtime/Makefile
+
+%.o: %.c
+	cc -g -c $(INCLUDES) $<
+
+mkfs: main.o $(RUNTIME)
+	cc $^ -g -o mkfs
+
+clean:
+	rm *.o
+
