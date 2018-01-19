@@ -2,9 +2,6 @@ all: image
 
 force:
 
-image: boot/boot #example/app
-	cat boot/boot exmaple/app > image
-
 boot/boot: force
 	cd boot ; make
 

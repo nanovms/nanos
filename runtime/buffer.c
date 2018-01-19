@@ -41,7 +41,7 @@ void buffer_write(buffer b, void *source, bytes length)
 boolean buffer_read(buffer b, void *dest, bytes length)
 {
     if (buffer_length(b) < length) return(false);
-    memcpy(dest, bref(b, 0), length);
+    runtime_memcpy(dest, bref(b, 0), length);
     buffer_consume(b, length);
     return(true);
 }
@@ -50,7 +50,7 @@ void buffer_copy(buffer dest, bytes doff,
                  buffer source, bytes soff,
                  bytes length)
 { 
-    __builtin_memcpy((void *)dest->contents+((dest->start + doff)),
+    runtime_memcpy((void *)dest->contents+((dest->start + doff)),
            (void *)source->contents+((soff+source->start)),
            length);
 }
@@ -64,11 +64,6 @@ buffer buffer_concat(heap h, buffer a, buffer b)
     runtime_memcpy(c->contents + la, b->contents, lb);
     c->end = la + lb;
     return(c);
-}
-
-void buffer_zero(buffer b)
-{
-    memset(b->contents+b->start, 0, pad(b->end-b->start, 8));
 }
 
 buffer allocate_buffer(heap h, bytes s)
@@ -95,7 +90,7 @@ void buffer_prepend(buffer b,
         buffer_write(new, bref(b, 0), buffer_length(b));
     } else {
         b->start -= length;
-        memcpy(bref(b, b->start), body, length);
+        runtime_memcpy(bref(b, b->start), body, length);
     }
 }
 

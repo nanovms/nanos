@@ -17,16 +17,39 @@ syscall_enter:
         push rax
         mov rax, [frame]
         mov [rax+8], rbx
+        mov [rax+24], rdx
+        mov [rax+32], rbp
+        mov [rax+40], rsp   ;ehh, off by 16 plus the stack frame
+        mov [rax+48], rsi
+        mov [rax+56], rdi
+        mov [rax+64], r8
+        mov [rax+72], r9
+        mov [rax+80], r10
+        mov [rax+144], r11      ; flags
+        mov [rax+96], r12
+        mov [rax+104], r13
+        mov [rax+112], r14
+        mov [rax+120], r15        
         pop rbx
         mov [rax+128], rbx ; put this in vector
         mov [rax+136], rcx ; put this is rip
-        mov [rax+24], rdx
-        mov [rax+48], rsi
-        mov [rax+56], rdi        
         call syscall
-        mov rbx, [frame]
-        mov rcx, [rbx+136]
+        mov rax, [frame]
+        mov rbx, [rax+8]
+        mov rdx, [rax+24]
+        mov rbp, [rax+32]
+        mov rsi, [rax+48]
+        mov rdi, [rax+56]
+        mov r8,  [rax+64]
+        mov r9,  [rax+72]
+        mov r10, [rax+80]
+        mov r12, [rax+96]
+        mov r13, [rax+104]
+        mov r14, [rax+112]
+        mov r15, [rax+120]
+        mov rcx, [rax+136]
         ; rax is rax
+        ; flaggies!  
         ; r11 contains return flaggies
         ; rcx contains return address
         ; unfortunately the architecture sets cpl=3 here and there
@@ -34,6 +57,9 @@ syscall_enter:
         ; thing..or...just use a different widget to get back  
         ; sysret
         push rcx
+        mov rcx, [rax+144]
+        push rcx
+        popf
         ret
         
 extern common_handler
@@ -60,10 +86,11 @@ interrupt_common:
         pop rbx            ; vector
         mov [rax+128], rbx
         
-        ;;  could avoid this branch with a different inter layout - write 0xe as a special handler
+        ;;  could avoid this branch with a different inter layout - write as different handler
         cmp rbx, 0xe
-        jne .getrip
-        pop rbx            ; error code
+        je .geterr
+        cmp rbx, 0xd
+        je .geterr
         
 .getrip:
         pop rbx            ; eip
@@ -75,7 +102,10 @@ interrupt_common:
         mov [rax+40], rbx  ; 
                            ; ss plus padding at the top  
         call common_handler
-
+        
+.geterr:
+        pop rbx            ; error code - put this in the frame
+        jmp .getrip
 
 frame_return:
         mov rax, [frame]
@@ -142,7 +172,9 @@ cpuid:
         cpuid
         mov rax, rcx
         shl rax, 0x20
-        and rdx, 0xffffffff
+        ;;  its not clear how to clear the top bits of rdx in a more direct fashion
+        shl rdx, 0x20
+        shr rdx, 0x20                
         or rax, rdx
         ret
         

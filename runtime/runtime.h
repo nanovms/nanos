@@ -18,6 +18,23 @@ extern void serial_out(char c);
 
 void print_u64(u64 s);
 
+typedef u8 character;
+
+
+// worst possible
+static inline void runtime_memcpy(void *a, void *b, bytes len)
+{
+    for (int i = 0; i < len; i++) ((u8 *)a)[i] = ((u8 *)b)[i];
+}
+
+static inline int runtime_strlen(char *a)
+{
+    int i = 0;
+    for (char *z = a; *a; a, i++);
+    return i;
+}
+
+
 /*
  * WARNING: these inserts seem to be very fragile wrt actually
  *          referring to the correct value by the right register
@@ -133,3 +150,18 @@ void map(u64 virtual, physical p, int length, heap h);
 #define FRAME_FLAGS 18
 
 #define PHYSICAL_INVALID ((u64)0xffffffffffffffff)
+
+//#define runtime_memcpy __builtin_memcpy
+//#define runtime_memset __builtin_memset
+
+static inline void runtime_memset(void *x, u8 val, bytes length)
+{
+    for (int i =0; i < length; i++) *(u8 *)(x + i) = val;  
+}
+
+typedef struct buffer *buffer;
+#include <buffer.h>
+#include <table.h>
+
+
+

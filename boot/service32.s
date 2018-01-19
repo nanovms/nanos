@@ -40,6 +40,8 @@ run64:
 
         mov eax, cr4     
         or eax, 1 << 5     ;  PAE
+        or eax, 1 << 9     ;  osfxsr
+        or eax, 1 << 10    ;  osxmmexcpt
         or eax, 1 << 18    ;  OSXSAVE
         mov cr4, eax  
         
@@ -56,7 +58,8 @@ run64:
         push eax
         
         mov eax, cr0    
-        or eax, 1 << 31 | 1 ; Set the PG-bit and the PM bit
+        or eax, 1 << 31 | 1 ; Set the PG-bit and the PM bit 
+        and eax, ~4 ; clear the EM bit
         mov cr0, eax
         
         ;; 64 bit compatibility into the proper long mode

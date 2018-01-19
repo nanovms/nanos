@@ -6,8 +6,7 @@
 
 static void allocate_buckets(table t)
 {
-    t->entries = allocate(t->h, t->buckets * sizeof(void *));
-    memset(t->entries, 0, t->buckets * sizeof(void *));
+    t->entries = allocate_zero(t->h, t->buckets * sizeof(void *));
 }
 
 table allocate_table(heap h, u64 (*key_function)(void *x), boolean (*equals_function)(void *x, void *y))

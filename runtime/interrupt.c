@@ -162,6 +162,8 @@ void register_interrupt(int vector, handler h)
 
 void start_interrupts(heap pages, heap general, heap contiguous)
 {
+    // these are simple enough it would be better to just
+    // synthesize them
     int delta = (u64)&interrupt1 - (u64)&interrupt0;
     void *start = &interrupt0;
     handlers = allocate_zero(general, interrupt_size * sizeof(handler));
@@ -175,9 +177,6 @@ void start_interrupts(heap pages, heap general, heap contiguous)
     
     u16 *dest = (u16 *)(idt + 2*interrupt_size);
     dest[0] = 16*interrupt_size -1;
-    console("setup: ");
-    print_u64(physical_from_virtual(idt));
-    console ("\n");
     
     *(u64 *)(dest + 1) = (u64)idt;// physical_from_virtual(idt);
     asm("lidt %0": : "m"(*dest));

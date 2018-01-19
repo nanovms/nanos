@@ -4,18 +4,34 @@ ROOT = ..
 force:
 include $(ROOT)/runtime/Makefile
 include $(ROOT)/virtio/Makefile
+## move
+INCLUDES += -I$(ROOT)/libc
+
+#LDSO =/home/yuri/gb/elf/ld.so
+LDSO =  /lib/x86_64-linux-gnu/ld-linux-x86-64.so.2
+PROGRAM = /home/yuri/hw
 
 image: $(ROOT)/boot/boot stage3
 	cat $(ROOT)/boot/boot stage3 > image
 
-%.o: %.bin
-	objcopy -I binary -O elf64-x86-64 -B i386:x86-64 $< $@
+#seems like it would be easier to just use nasm to get these into aligned sections
+
+LDNAME = $(subst -,_,$(subst .,_,$(subst /,_,$(LDSO))))
+PROGRAMNAME = $(subst -,_,$(subst .,_,$(subst /,_,$(PROGRAM))))
+
+ldso.o: $(LDSO)
+	objcopy -I binary -O elf64-x86-64 -B i386:x86-64 --redefine-sym _binary_$(LDNAME)_end=_ldso_end --redefine-sym _binary_$(LDNAME)_start=_ldso_start $< $@
+	objcopy --rename-section .data=.ldso ldso.o ldso.o
+
+program.o: $(PROGRAM)
+	objcopy -I binary -O elf64-x86-64 -B i386:x86-64 --redefine-sym _binary_$(PROGRAMNAME)_end=_program_end --redefine-sym _binary_$(PROGRAMNAME)_start=_program_start $< $@
+	objcopy --rename-section .data=.program program.o program.o
 
 $(ROOT)/boot/boot: force
 	cd $(ROOT)/boot ; make
 
 
-stage3: test.o stage3.o $(RUNTIME) 
+stage3: ldso.o program.o stage3.o $(STANDALONE) 
 	ld -e_start -T linker_script -nostdlib $^ -o stage3
 
 .c.o:

@@ -1,0 +1,13 @@
+OUTPUT_FORMAT("elf64-x86-64")
+
+SECTIONS
+{
+  . = 0x1000000;
+  .start : { *(.start)}  
+  .text : { *(.text)}
+  .rodata : { *(.rodata)}
+  .data ALIGN(4096) : { *(.data) }
+  .ldso ALIGN(4096) : { *(.data) }
+  .program ALIGN(4096) : { *(.program) }  
+  .bss  ALIGN(32): { *(.bss) }
+}
