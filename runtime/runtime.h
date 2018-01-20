@@ -162,6 +162,8 @@ static inline void runtime_memset(void *x, u8 val, bytes length)
 typedef struct buffer *buffer;
 #include <buffer.h>
 #include <table.h>
+#include <vector.h>
 
 
-
+buffer create_index(heap h, int buckets);
+void index_set(buffer index, buffer key, buffer value);

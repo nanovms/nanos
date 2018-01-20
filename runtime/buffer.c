@@ -6,7 +6,7 @@ void print_byte(buffer s, u8 f)
     push_character(s, hex_digit[f >> 4]);
     push_character(s, hex_digit[f & 15]);
 }
-#if 0
+
 void print_hex_buffer(buffer s, buffer b)
 {
     int len = buffer_length(b);
@@ -16,54 +16,19 @@ void print_hex_buffer(buffer s, buffer b)
 
     for (int i = 0 ; i<len ; i+= 8) {
         if (!(i % rowlen)) {
-            if (!first) bprintf(s, "\n");
+            if (!first) push_character(s, '\n');
             first = false;
             print_byte(s, i>>24);
             print_byte(s, i>>16);
             print_byte(s, i>>8);
             print_byte(s, i);
-            bprintf(s, ":");
+            push_character(s, ':');
         }
-        if (!(i % wlen)) bprintf (s, " ");
-        print_byte(s, *(u8 *)bref(b, i));
+        if (!(i % wlen)) push_character (s, ' ');
+        print_byte(s, *(u8 *)buffer_ref(b, i));
     }
     // better handling of empty buffer
-    bprintf(s, "\n");
-}
-#endif
-
-void buffer_write(buffer b, void *source, bytes length)
-{
-    runtime_memcpy(bref(b, b->end-b->start), source, length);
-    buffer_produce(b, length);
-}
-
-boolean buffer_read(buffer b, void *dest, bytes length)
-{
-    if (buffer_length(b) < length) return(false);
-    runtime_memcpy(dest, bref(b, 0), length);
-    buffer_consume(b, length);
-    return(true);
-}
-                              
-void buffer_copy(buffer dest, bytes doff,
-                 buffer source, bytes soff,
-                 bytes length)
-{ 
-    runtime_memcpy((void *)dest->contents+((dest->start + doff)),
-           (void *)source->contents+((soff+source->start)),
-           length);
-}
-
-buffer buffer_concat(heap h, buffer a, buffer b)
-{
-    bytes la = buffer_length(a);
-    bytes lb = buffer_length(b);
-    buffer c = allocate_buffer(h, la + lb);
-    runtime_memcpy(c->contents, a->contents, la);
-    runtime_memcpy(c->contents + la, b->contents, lb);
-    c->end = la + lb;
-    return(c);
+    push_character(s, '\n');
 }
 
 buffer allocate_buffer(heap h, bytes s)
@@ -87,10 +52,10 @@ void buffer_prepend(buffer b,
     if (b->start < length) {
         buffer new = allocate_buffer(b->h, buffer_length(b) + length);
         buffer_write(new, body, length);
-        buffer_write(new, bref(b, 0), buffer_length(b));
+        buffer_write(new, buffer_ref(b, 0), buffer_length(b));
     } else {
         b->start -= length;
-        runtime_memcpy(bref(b, b->start), body, length);
+        runtime_memcpy(buffer_ref(b, b->start), body, length);
     }
 }
 

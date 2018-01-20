@@ -17,24 +17,25 @@ struct buffer {
   b;\
   })
 
+
 #define byte(__b, __i) *(u8 *)((__b)->contents + (__b)->start + (__i))
 
-static inline buffer wrap_buffer(heap h,
-                                 void *body,
-                                 bytes length)
+static inline void buffer_consume(buffer b, bytes s)
 {
-    buffer new = allocate(h, sizeof(struct buffer));
-    new->contents = body;
-    new->start = 0;
-    new->end = length;
-    new->length = length;
-    return(new);
+    b->start += s; 
 }
 
-buffer allocate_buffer(heap h, bytes length);
+static inline void buffer_produce(buffer b, bytes s)
+{
+    b->end += s; 
+}
 
+static inline bytes buffer_length(buffer b)
+{
+    return(b->end - b->start);
+} 
 
-static inline void *bref(buffer b, bytes offset)
+static inline void *buffer_ref(buffer b, bytes offset)
 {
     // alignment?
     return((void *)b->contents + (b->start + offset));
@@ -55,25 +56,52 @@ static inline void buffer_extend(buffer b, bytes len)
     }
 }
 
-static inline bytes buffer_length(buffer b)
+static inline void extend_total(buffer b, int offset)
 {
-    return(b->end - b->start);
-} 
-
-
-buffer buffer_concat(heap, buffer, buffer);
-
-static inline void buffer_consume(buffer b, bytes s)
-{
-    b->start += s; 
+    if (offset > b->end) {
+        buffer_extend(b, offset - b->end);
+        memset(b->contents + b->end, 0, offset - b->end);
+        b->end = offset;
+    }
 }
 
-static inline void buffer_produce(buffer b, bytes s)
+
+static inline buffer wrap_buffer(heap h,
+                                 void *body,
+                                 bytes length)
 {
-    b->end += s; 
+    buffer new = allocate(h, sizeof(struct buffer));
+    new->contents = body;
+    new->start = 0;
+    new->end = length;
+    new->length = length;
+    return(new);
 }
 
-void buffer_extend(buffer b, bytes len);
+buffer allocate_buffer(heap h, bytes length);
+
+
+static inline void buffer_write(buffer b, void *source, bytes length)
+{
+    buffer_extend(b, length);
+    runtime_memcpy(buffer_ref(b, b->end-b->start), source, length);
+    buffer_produce(b, length);
+}
+
+static inline boolean buffer_read(buffer b, void *dest, bytes length)
+{
+    if (buffer_length(b) < length) return(false);
+    runtime_memcpy(dest, buffer_ref(b, 0), length);
+    buffer_consume(b, length);
+    return(true);
+}
+
+
+static inline buffer push_buffer(buffer d, buffer s)
+{
+    buffer_write(d, buffer_ref(s, 0), buffer_length(s));
+}
+
 
 void buffer_copy(buffer dest, bytes doff,
                  buffer source, bytes soff,
@@ -101,7 +129,7 @@ void buffer_read_field(buffer b,
       u64 k = x;                                               \
       int len = bits>>3;                                       \
       buffer_extend(b, len);                                   \
-      u8 *n = bref(b, b->end);                                 \
+      u8 *n = buffer_ref(b, b->end);                                 \
       for (int i = len-1; i >= 0; i--) {                       \
           n[i] = k & 0xff;                                     \
           k >>= 8;                                             \
@@ -114,7 +142,7 @@ void buffer_read_field(buffer b,
     {                                                            \
         u64 k = 0;                                               \
         int len = bits>>3;                                       \
-        u8 *n = bref(b, 0);                                      \
+        u8 *n = buffer_ref(b, 0);                                      \
         for (int i = 0; i < len; i++) {                          \
             k = (k << 8) | (*n++);                               \
         }                                                        \
@@ -131,7 +159,7 @@ READ_BE(16)
 
 static inline u64 buffer_read_byte(buffer b)
 {
-    u64 r = *(u8 *)bref(b, 0);
+    u64 r = *(u8 *)buffer_ref(b, 0);
     b->start += 1;
     return(r);
 }
@@ -139,7 +167,7 @@ static inline u64 buffer_read_byte(buffer b)
 static inline void buffer_write_byte(buffer b, u8 x)
 {
     buffer_extend(b, 1);                                  
-    *(u8 *)bref(b, buffer_length(b)) = x;
+    *(u8 *)buffer_ref(b, buffer_length(b)) = x;
     b->end += 1;
 }
 
@@ -191,8 +219,8 @@ static inline boolean buffer_compare(void *za, void *zb)
 
 
 // the ascii subset..utf8 me
-#define foreach_character(__s, __i)                          \
+#define foreach_character(__i, __s)                          \
     for (u32 __x = 0, __i, __limit = buffer_length(__s);   \
-         __i = *(u8 *)bref(__s, __x), __x<__limit;    \
+         __i = *(u8 *)buffer_ref(__s, __x), __x<__limit;    \
          __x++)
              

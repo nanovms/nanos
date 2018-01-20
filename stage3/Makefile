@@ -4,8 +4,7 @@ ROOT = ..
 force:
 include $(ROOT)/runtime/Makefile
 include $(ROOT)/virtio/Makefile
-## move
-INCLUDES += -I$(ROOT)/libc
+INCLUDES += -I.
 
 #LDSO =/home/yuri/gb/elf/ld.so
 LDSO =  /lib/x86_64-linux-gnu/ld-linux-x86-64.so.2
@@ -15,6 +14,7 @@ image: $(ROOT)/boot/boot stage3
 	cat $(ROOT)/boot/boot stage3 > image
 
 #seems like it would be easier to just use nasm to get these into aligned sections
+#or...just put it in the filesystem...be cool if that had an align option too
 
 LDNAME = $(subst -,_,$(subst .,_,$(subst /,_,$(LDSO))))
 PROGRAMNAME = $(subst -,_,$(subst .,_,$(subst /,_,$(PROGRAM))))
@@ -27,11 +27,21 @@ program.o: $(PROGRAM)
 	objcopy -I binary -O elf64-x86-64 -B i386:x86-64 --redefine-sym _binary_$(PROGRAMNAME)_end=_program_end --redefine-sym _binary_$(PROGRAMNAME)_start=_program_start $< $@
 	objcopy --rename-section .data=.program program.o program.o
 
+FSNAME = fs_o
+fs.o: fs
+	objcopy -I binary -O elf64-x86-64 -B i386:x86-64 --redefine-sym _binary_$(FSNAME)_end=_ldso_end --redefine-sym _binary_$(FSNAME)_start=_ldso_start $< $@
+	objcopy --rename-section .data=.fs fs.o fs.o
+
 $(ROOT)/boot/boot: force
 	cd $(ROOT)/boot ; make
 
+$(ROOT)/mkfs/mkfs: force
+	cd $(ROOT)/mkfs ; make
 
-stage3: ldso.o program.o stage3.o $(STANDALONE) 
+fs: $(ROOT)/mkfs/mkfs filesystem_layout
+	$(ROOT)/mkfs/mkfs < filesystem_layout > fs
+
+stage3: ldso.o program.o fs.o stage3.o system.o $(STANDALONE) 
 	ld -e_start -T linker_script -nostdlib $^ -o stage3
 
 .c.o:

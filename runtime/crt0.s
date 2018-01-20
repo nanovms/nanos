@@ -34,31 +34,29 @@ syscall_enter:
         mov [rax+128], rbx ; put this in vector
         mov [rax+136], rcx ; put this is rip
         call syscall
-        mov rax, [frame]
-        mov rbx, [rax+8]
-        mov rdx, [rax+24]
-        mov rbp, [rax+32]
-        mov rsi, [rax+48]
-        mov rdi, [rax+56]
-        mov r8,  [rax+64]
-        mov r9,  [rax+72]
-        mov r10, [rax+80]
-        mov r12, [rax+96]
-        mov r13, [rax+104]
-        mov r14, [rax+112]
-        mov r15, [rax+120]
-        mov rcx, [rax+136]
-        ; rax is rax
-        ; flaggies!  
+        mov rcx, [frame]
+        mov rbx, [rcx+8]
+        mov rdx, [rcx+24]
+        mov rbp, [rcx+32]
+        mov rsi, [rcx+48]
+        mov rdi, [rcx+56]
+        mov r8,  [rcx+64]
+        mov r9,  [rcx+72]
+        mov r10, [rcx+80]
+        mov r12, [rcx+96]
+        mov r13, [rcx+104]
+        mov r14, [rcx+112]
+        mov r15, [rcx+120]
+        mov r11, [rcx+136]
         ; r11 contains return flaggies
         ; rcx contains return address
         ; unfortunately the architecture sets cpl=3 here and there
         ; is nothing we can do about it...except rewrite the vdso
         ; thing..or...just use a different widget to get back  
         ; sysret
-        push rcx
-        mov rcx, [rax+144]
-        push rcx
+        push r11
+        mov r11, [rcx+144]
+        push r11
         popf
         ret
         

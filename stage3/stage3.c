@@ -1,5 +1,4 @@
 #include <runtime.h>
-#include <syscall_arch.h>
 
 extern u64 cpuid();
 extern u64 read_msr(u64);
@@ -18,47 +17,6 @@ extern u64 *frame;
 extern void *_ldso_start;
 extern void *_program_start;
 
-// could really take the args directly off the function..maybe dispatch in
-// asm
-u64 syscall()
-{
-    int call = frame[FRAME_VECTOR];
-    switch (call) {
-    case SYS_write:
-        {
-            char *x = pointer_from_u64(frame[FRAME_RSI]);
-            for (int i = 0; i< frame[FRAME_RDX]; i++)
-                serial_out(x[i]);
-        }
-        break;
-    case SYS_open:
-        {
-            char *x = pointer_from_u64(frame[FRAME_RDI]);
-            console("open ");
-            console(x);
-            console("\n");
-            return 3;
-        }
-    case SYS_fstat:
-        console("fstat ");
-        print_u64(frame[FRAME_RDI]);
-        console("\n");
-        return 0;
-        
-        
-    default:
-        console("syscall ");
-        print_u64(frame[FRAME_VECTOR]);
-        console(" ");
-        print_u64(frame[FRAME_RDI]);
-        console(" ");
-        print_u64(frame[FRAME_RSI]);        
-        console(" ");
-        print_u64(frame[FRAME_RDX]);        
-        console("\n");
-        return (0);
-    }
-}
 
 void set_syscall_handler(void *syscall_entry)
 {

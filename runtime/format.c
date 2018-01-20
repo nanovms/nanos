@@ -29,7 +29,7 @@ void vbprintf(buffer s, buffer fmt, vlist ap)
     int pad;
     int count = 0;
 
-    foreach_character(fmt, i) {
+    foreach_character(i, fmt) {
         switch (state){
         case 2:
             for (int j = 0; j < count; j++)
@@ -130,7 +130,7 @@ void vbprintf(buffer s, buffer fmt, vlist ap)
                 // xxx - utf8 will break this
                  {
                   buffer xx = varg(ap, buffer);
-                  foreach_character(xx, i){
+                  foreach_character(i, xx){
                      print_byte(s, i);
                   }
                  }
