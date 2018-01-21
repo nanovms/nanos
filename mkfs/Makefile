@@ -8,7 +8,7 @@ include $(ROOT)/runtime/Makefile
 %.o: %.c
 	cc -g -c $(INCLUDES) $<
 
-mkfs: main.o $(RUNTIME)
+mkfs: main.o $(UNIXRUNTIME)
 	cc $^ -g -o mkfs
 
 clean:

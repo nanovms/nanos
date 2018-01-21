@@ -1,10 +1,5 @@
 #include <runtime.h>
 
-#define varg __builtin_va_arg
-#define vlist __builtin_va_list
-#define vstart __builtin_va_start
-#define vend __builtin_va_end
-
 typedef u8 character;
 char *hex_digits="0123456789abcdef";
 
@@ -67,11 +62,8 @@ void vbprintf(buffer s, buffer fmt, vlist ap)
                 //                break;
 
             case 'b':
-                {
-                    buffer p = varg(ap, buffer);
-                    buffer_write(s, p->contents + p->start, buffer_length(p));
-                    break;
-                }
+                push_buffer(s, varg(ap, buffer));
+                break;
 
             case 'n':
                 count = varg(ap, unsigned int);
@@ -102,6 +94,26 @@ void vbprintf(buffer s, buffer fmt, vlist ap)
                     break;
                 }
 
+            // vector of strings
+            case 'v':
+                {
+                    vector v = varg(ap, buffer);
+                    buffer i;
+                    boolean start=true;
+                    push_character(s, '[');
+                    vector_foreach(i, v) {
+                        if (start) {
+                            start = false;
+                        } else {
+                            push_character(s, ',');
+                            push_character(s, ' ');
+                        }
+                        push_buffer(s, i);
+                    }
+                    push_character(s, ']');
+                    break;
+                }
+                
             case 'p':
                 pad = 16;
                 unsigned long x = varg(ap, unsigned long);
@@ -127,13 +139,7 @@ void vbprintf(buffer s, buffer fmt, vlist ap)
                 }
 
             case 'X':
-                // xxx - utf8 will break this
-                 {
-                  buffer xx = varg(ap, buffer);
-                  foreach_character(i, xx){
-                     print_byte(s, i);
-                  }
-                 }
+                print_hex_buffer(s, varg(ap, buffer));
                 break;
 
             case 'd': case 'i':
@@ -171,8 +177,8 @@ buffer aprintf(heap h, char *fmt, ...)
 
 void bbprintf(buffer b, buffer fmt, ...)
 {
-    __builtin_va_list ap;
-    __builtin_va_start(ap, fmt);
+    vlist ap;
+    vstart(ap, fmt);
     vbprintf(b, fmt, ap);
-    __builtin_va_end(ap);
+    vend(ap);
 }

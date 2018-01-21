@@ -35,3 +35,9 @@ void console(char *x)
     for (char *i = x; *i; i++) 
         serial_out(*i);
 }
+
+void debug(buffer b)
+{
+    foreach_character(i, b) serial_out(i);
+}
+

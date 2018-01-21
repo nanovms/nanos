@@ -23,7 +23,7 @@ static inline int vector_length(vector v)
     return buffer_length(v)/sizeof(void *);
 }
 
-static vector allocate_vector(heap h, int length)
+static inline vector allocate_vector(heap h, int length)
 {
     return allocate_buffer(h, length * sizeof (void *));
 }
@@ -46,7 +46,7 @@ static void *vector_pop(vector v)
     return res;
 }
 
-static vector split(heap h, buffer source, char divider)
+static inline vector split(heap h, buffer source, char divider)
 {
     vector result = allocate_vector(h, 10);
     buffer each = allocate_buffer(h, 10);
@@ -62,7 +62,7 @@ static vector split(heap h, buffer source, char divider)
     return result;
 }
 
-static buffer join(heap h, vector source, char between)
+static inline buffer join(heap h, vector source, char between)
 {
     buffer out = allocate_buffer(h, 100);
     for (int i = 0; i < vector_length(source); i++){

@@ -8,7 +8,7 @@ INCLUDES += -I.
 
 #LDSO =/home/yuri/gb/elf/ld.so
 LDSO =  /lib/x86_64-linux-gnu/ld-linux-x86-64.so.2
-PROGRAM = /home/yuri/hw
+PROGRAM = /usr/bin/mono-sgen
 
 image: $(ROOT)/boot/boot stage3
 	cat $(ROOT)/boot/boot stage3 > image
@@ -27,9 +27,9 @@ program.o: $(PROGRAM)
 	objcopy -I binary -O elf64-x86-64 -B i386:x86-64 --redefine-sym _binary_$(PROGRAMNAME)_end=_program_end --redefine-sym _binary_$(PROGRAMNAME)_start=_program_start $< $@
 	objcopy --rename-section .data=.program program.o program.o
 
-FSNAME = fs_o
+FSNAME = fs
 fs.o: fs
-	objcopy -I binary -O elf64-x86-64 -B i386:x86-64 --redefine-sym _binary_$(FSNAME)_end=_ldso_end --redefine-sym _binary_$(FSNAME)_start=_ldso_start $< $@
+	objcopy -I binary -O elf64-x86-64 -B i386:x86-64 --redefine-sym _binary_$(FSNAME)_end=_fs_end --redefine-sym _binary_$(FSNAME)_start=_fs_start $< $@
 	objcopy --rename-section .data=.fs fs.o fs.o
 
 $(ROOT)/boot/boot: force
@@ -38,8 +38,8 @@ $(ROOT)/boot/boot: force
 $(ROOT)/mkfs/mkfs: force
 	cd $(ROOT)/mkfs ; make
 
-fs: $(ROOT)/mkfs/mkfs filesystem_layout
-	$(ROOT)/mkfs/mkfs < filesystem_layout > fs
+fs: $(ROOT)/mkfs/mkfs filesystem
+	$(ROOT)/mkfs/mkfs < filesystem > fs
 
 stage3: ldso.o program.o fs.o stage3.o system.o $(STANDALONE) 
 	ld -e_start -T linker_script -nostdlib $^ -o stage3

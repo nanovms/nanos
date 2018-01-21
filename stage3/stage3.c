@@ -16,7 +16,11 @@ extern u64 *frame;
 
 extern void *_ldso_start;
 extern void *_program_start;
+extern void *_fs_start;
+extern void *_fs_end;
 
+storage root;
+heap general;
 
 void set_syscall_handler(void *syscall_entry)
 {
@@ -52,12 +56,8 @@ void *load_elf(void *base, u64 offset, heap pages)
             map(vbase, physical_from_virtual((void *)(base+p->p_offset)), ssize, pages);            
             void *start = (void *)vbase + p->p_filesz + (p->p_vaddr & MASK(PAGELOG));
             int bss_size = p->p_memsz-p->p_filesz;
-            // xxx - need to allocate the bss here
-            console("bss: ");
-            print_u64(start);
-            console(" ");
-            print_u64(bss_size);
-            console("\n");
+            // xxx - need to allocate the bss past the first page boundary here
+            // do this
             runtime_memset(start, 0, bss_size);
         }
     }
@@ -66,9 +66,12 @@ void *load_elf(void *base, u64 offset, heap pages)
     return pointer_from_u64(entry);
 }
 
-void startup(heap pages, heap general)
+void startup(heap pages, heap g2)
 {
     console("stage3\n");
+    
+    // baah, globals..this is just here because of a buffer required by system
+    general = g2;
  
     u64 c = cpuid();
     console("cpuid: ");
@@ -102,6 +105,8 @@ void startup(heap pages, heap general)
     char *cargv[] = {"program", "arg1"};
     int cargc = 2;
 
+    root = wrap_storage(general, &_fs_start, &_fs_end - &_fs_start);
+    
     __asm__("push %0"::"m"(auxp));
     for (int i = 0; envp[i]; i++)
         __asm__("push %0"::"m"(envp[i]));

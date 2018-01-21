@@ -224,3 +224,14 @@ static inline boolean buffer_compare(void *za, void *zb)
          __i = *(u8 *)buffer_ref(__s, __x), __x<__limit;    \
          __x++)
              
+
+#define little_stack_buffer(__name, __length)    \
+    unsigned char __name##__contents[__length];\
+    struct buffer __name_##_buffer;\
+    buffer __name = &__name_##_buffer;\
+    __name->contents = __name##__contents;\
+    __name->start = 0;\
+    __name->end = 0;\
+    __name->length = __length;\
+
+    

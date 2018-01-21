@@ -30,7 +30,7 @@ static inline void runtime_memcpy(void *a, void *b, bytes len)
 static inline int runtime_strlen(char *a)
 {
     int i = 0;
-    for (char *z = a; *a; a, i++);
+    for (char *z = a; *a; a++, i++);
     return i;
 }
 
@@ -159,11 +159,46 @@ static inline void runtime_memset(void *x, u8 val, bytes length)
     for (int i =0; i < length; i++) *(u8 *)(x + i) = val;  
 }
 
+#define varg __builtin_va_arg
+#define vlist __builtin_va_list
+#define vstart __builtin_va_start
+#define vend __builtin_va_end
+
 typedef struct buffer *buffer;
 #include <buffer.h>
 #include <table.h>
 #include <vector.h>
 
 
-buffer create_index(heap h, int buckets);
-void index_set(buffer index, buffer key, buffer value);
+typedef struct storage *storage;
+storage create_storage(heap h, int buckets, buffer b, u64 *off);
+void storage_set(storage, buffer key, u64 offset, u64 length);
+
+void debug(buffer);
+    
+extern void vbprintf(buffer s, buffer fmt, vlist ap);
+static inline void rprintf(char *format, ...)
+{
+    // fix alloca buffer support
+    char t[1024];
+    vlist a;
+    struct buffer b;
+    b.start = 0;
+    b.end = 0;    
+    b.contents = t;
+    b.length = sizeof(t);
+    
+    struct buffer f;
+    f.start = 0;
+    f.contents = format;
+    f.end = runtime_strlen(format);
+    
+    vstart(a, format);
+    vbprintf(&b, &f, a);
+    debug(&b);
+}
+
+storage wrap_storage(heap h, void *base, u64 length);
+
+boolean storage_lookup(storage s, buffer key, void **base, bytes *length);
+

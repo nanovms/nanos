@@ -12,7 +12,7 @@ stage1: stage1.s
 boot: stage1 stage2.pad
 	cat stage1 stage2.pad > boot
 
-OBJ = service32.o stage2.o serial.o page.o
+OBJ = service32.o stage2.o serial.o page.o 
 
 VPATH = ../runtime
 LD = ld
@@ -28,7 +28,7 @@ service32.o: service32.s
 	nasm -felf $<
 
 %.o: %.c
-	cc -m32 -include def32.h -DSTAGE1SIZE=$(STAGE1SIZE) -DSTAGE2SIZE=$(STAGE2SIZE) -I. -I../runtime $< -c
+	cc -m32 -fno-stack-protector -include def32.h -DSTAGE1SIZE=$(STAGE1SIZE) -DSTAGE2SIZE=$(STAGE2SIZE) -I. -I../runtime $< -c
 
 clean:
 	rm -f *.o *~ stage2.elf stage2 bottom.list stage1 boxxy stage2.pad boot
