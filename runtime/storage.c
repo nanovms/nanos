@@ -31,6 +31,8 @@ static inline u32 *buckets(buffer b, u64 start)
 
 boolean storage_lookup(buffer b, u64 start, buffer key, u64 *off, bytes *length)
 {
+    rprintf("lookup %b %x\n", key, start);
+
     u32 count = *bucket_count(b, start);
     offset where = buckets(b, start)[fnv64(key) % count];
 

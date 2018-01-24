@@ -8,7 +8,7 @@ INCLUDES += -I.
 
 LDSO =/home/yuri/gb/elf/ld.so
 #LDSO =  /lib/x86_64-linux-gnu/ld-linux-x86-64.so.2
-PROGRAM = /usr/bin/mono-sgen
+PROGRAM = /home/yuri/hw
 
 image: $(ROOT)/boot/boot stage3
 	cat $(ROOT)/boot/boot stage3 > image

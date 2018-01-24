@@ -22,7 +22,6 @@ extern void *_fs_start;
 extern void *_fs_end;
 
 buffer filesystem;
-heap general;
 
 void set_syscall_handler(void *syscall_entry)
 {
@@ -53,13 +52,13 @@ void *load_elf(void *base, u64 offset, heap pages, heap bss)
     for (int i = 0; i< elfh->e_phnum; i++){
         Elf64_Phdr *p = elfh->e_phoff + base + i * elfh->e_phentsize;
         if (p->p_type == PT_LOAD) {
-            //            map(p->p_vaddr, physical_from_virtual(base+p->p_offset), ssize, pages);
             // unaligned segment? uncool bro
             u64 vbase = (p->p_vaddr & ~MASK(PAGELOG)) + offset;
             int ssize = pad(p->p_memsz + (p->p_vaddr & MASK(PAGELOG)), PAGESIZE);
             map(vbase, physical_from_virtual((void *)(base+p->p_offset)), ssize, pages);            
             void *bss_start = (void *)vbase + p->p_filesz + (p->p_vaddr & MASK(PAGELOG));
             u32 bss_size = p->p_memsz-p->p_filesz;
+            rprintf("bss: %x %x\n", bss_start, bss_start + bss_size);
             u32 already_pad = PAGESIZE - bss_size & MASK(PAGELOG);
             if ((bss_size > already_pad)) {
                 u32 new_pages = pad(bss_size, PAGESIZE);
@@ -74,31 +73,39 @@ void *load_elf(void *base, u64 offset, heap pages, heap bss)
     return pointer_from_u64(entry);
 }
 
-void startup(heap pages, heap g2, heap contiguous)
+void startup(heap pages, heap general, heap contiguous)
 {
-    // baah, globals..this is just here because of a buffer required by unix emulation - system
-    process p = create_process(g2);
-    thread t = create_thread(p);
+
     u64 c = cpuid();
     
     set_syscall_handler(syscall_enter);
 
-    filesystem = allocate(g2, sizeof(struct buffer));
+    filesystem = allocate(general, sizeof(struct buffer));
     filesystem->contents = &_fs_start;
     filesystem->length = filesystem->end = &_fs_end - &_fs_start;
     filesystem->start = 0;
 
+    process p = create_process(general, filesystem);
+    thread t = create_thread(p);
     
     // vm space allocation
+        
     void *ldso = load_elf(&_ldso_start,0x400000000, pages, contiguous);
     void *user_entry = load_elf(&_program_start,0, pages, contiguous);
-    
+
+    // get virtual load address - passing the backing confuses ld.so
     Elf64_Ehdr *elfh = (Elf64_Ehdr *)&_program_start;
-
-
+    void *va;
+    for (int i = 0; i< elfh->e_phnum; i++){
+        Elf64_Phdr *p = elfh->e_phoff + ((void *)&_program_start) + i * elfh->e_phentsize;
+        if ((p->p_type == PT_LOAD)  && (p->p_offset == 0))
+            va = pointer_from_u64(p->p_vaddr);
+    }
+    
+        
     // extract this stuff (args, env, auxp) from the 'filesystem'    
     struct {u64 tag; u64 val;} auxp[] = {
-        {AT_PHDR, elfh->e_phoff + u64_from_pointer(elfh)},
+        {AT_PHDR, elfh->e_phoff + u64_from_pointer(va)},
         {AT_PHENT, elfh->e_phentsize},
         {AT_PHNUM, elfh->e_phnum},
         {AT_PAGESZ, PAGESIZE},
@@ -111,9 +118,6 @@ void startup(heap pages, heap g2, heap contiguous)
     // this should actually effect the exec...set this
     // up on the threads stack
     run(t);
-    
-    rprintf("envp: %d\n", sizeof(envp)/sizeof(void *));
-    rprintf("eauxnvp: %d\n", sizeof(auxp)/(2*sizeof(u64)));
 
     __asm__("push $0"); // end of auxp
     __asm__("push $0");

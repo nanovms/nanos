@@ -33,7 +33,7 @@ typedef struct region_heap {
     
 static inline void *allocate_region(heap h, bytes size)
 {
-    region_heap rh = (region_heap)h;
+    region_heap rh = (region_heap)h;    
     if (region_length(rh->r) < size) return INVALID_ADDRESS;
     void *result = pointer_from_u64(region_base(rh->r));
     region_base(rh->r) += size;
@@ -50,13 +50,16 @@ static inline void *allocate_region_top(heap h, bytes size)
     return result;
 }
 
-static inline heap region_allocator(region_heap h, region e) {
+static inline heap region_allocator(region_heap h, region e, u64 pagesize)
+{
     h->h.allocate = allocate_region;
+    h->h.pagesize = pagesize;
     h->r = e;
     return (heap)h;
 }
 
-static inline heap region_allocator_top(region_heap h, region e) {
+static inline heap region_allocator_top(region_heap h, region e)
+{
     h->h.allocate = allocate_region_top;
     h->r = e;
     return (heap)h;

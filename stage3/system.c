@@ -21,6 +21,7 @@ typedef struct process {
     struct file files[32];
     int filecount;
     void *brk;
+    // cwd here
 } *process;
 
 typedef struct thread {
@@ -55,25 +56,21 @@ static int writev(int fd, iovec v, int count)
         write(fd, v[i].address, v[i].length);
 }
 
-#define staticbuffer(__n) ({ \
-    static struct buffer _ssym##__n;\
-    static char _cont##__n[] = #__n; \
-    if (_ssym##__n.contents == 0) {\
-        _ssym##__n.contents = _cont##__n;\
-        _ssym##__n.start = 0;\
-        _ssym##__n.end = sizeof(_cont##__n) -1;\
-    } &_ssym##__n;})
-    
+#define staticbuffer(__x, __n) \
+    (__x)->contents = __n;                     \
+    (__x)->start = 0;                          \
+    (__x)->end = sizeof(__n) -1;               
+
+
 static int open(char *name, int flags, int mode)
 {
-    buffer filesym = staticbuffer(files);
-    buffer contents = staticbuffer(contents);
+    static struct buffer filesym;
+    static struct buffer contents;
 
+    staticbuffer(&filesym, "files");
+    staticbuffer(&contents, "contents");
     // oh right, we're supposed to keep track of cwd...alot of
-    // of this could have been handled completely in userspace
-    console("open ");
-    console(name);
-    console("\n");
+
     // breakout name resolution
     little_stack_buffer(element, 1024);
 
@@ -85,22 +82,21 @@ static int open(char *name, int flags, int mode)
     // vector split....xxx - chuck the mandatory leading slash..        
     for (char *i = name + 1; *i; i++) {
         if (*i == '/') {
-            if (!storage_lookup(fs, where, filesym, &where, &length)) 
+            if (!storage_lookup(fs, where, &filesym, &where, &length)) 
                 return -ENOENT;
-            rprintf ("where %x\n", where);
             if (!storage_lookup(fs, where, element, &where, &length)) 
                 return -ENOENT;
             element->start = element->end = 0;
         } else push_character(element, *i);
     }
-    if (!storage_lookup(fs, where, filesym, &where, &length)) 
+    if (!storage_lookup(fs, where, &filesym, &where, &length)) 
         return -ENOENT;
     if (!storage_lookup(fs, where, element, &where, &length)) 
         return -ENOENT;
-    if (!storage_lookup(fs, where, contents, &where, &length)) 
+    if (!storage_lookup(fs, where, &contents, &where, &length)) 
         return -ENOENT;    
 
-    buffer  b = allocate(general, sizeof(struct buffer));
+    buffer  b = allocate(current->p->h, sizeof(struct buffer));
     b->contents = fs->contents + where;
     b->end = length;
     b->start = 0; 
@@ -120,9 +116,17 @@ static u64 mmap(void *target, u64 *size, int prot, int flags, int fd, u64 offset
 static int fstat(int fd, stat s)
 {
     buffer b = (buffer)current->p->files[fd].state;
-    rprintf  ("fstat %d %d %x\n", fd, buffer_length(b), (void *)&s->st_size - (void *)s);
     // return is broken?
     s->st_size = buffer_length(b);
+    return 0;
+}
+
+static int uname(struct utsname *v)
+{
+    char rel[]= "4.4.0-87";
+    char sys[] = "pugnix";
+    runtime_memcpy(v->sysname,sys, sizeof(sys));
+    runtime_memcpy(v->release, rel, sizeof(rel));
     return 0;
 }
 
@@ -150,6 +154,7 @@ u64 syscall()
     case SYS_fstat: return fstat(a[0], pointer_from_u64(a[1]));
     case SYS_writev: return writev(a[0], pointer_from_u64(a[1]), a[2]);
     case SYS_brk: return u64_from_pointer(brk(pointer_from_u64(a[0])));
+    case SYS_uname: return uname(pointer_from_u64(a[0]));
     case SYS_mmap: return mmap(pointer_from_u64(a[0]),
                                pointer_from_u64(a[1]),
                                a[2],
@@ -182,9 +187,10 @@ thread create_thread(process p)
     return t;
 }
 
-process create_process(heap h)
+process create_process(heap h, buffer filesystem)
 {
     process p = allocate(h, sizeof(struct process));
+    p->filesystem = filesystem;
     p->h = h;
     p->brk = pointer_from_u64(0x50000000);
     p->filecount = 3;

@@ -143,13 +143,6 @@ void pci_checko(heap pages)
         u32 vid = pci_cfgread(0, i, 0, PCIR_VENDOR, 2);
         u32 did = pci_cfgread(0, i, 0, PCIR_DEVICE, 2);
 
-        console("pci: ");
-
-        print_u64(vid);
-        console(" ");
-        print_u64(did);
-        console("\n");        
-
         u32 cp = pci_cfgread(0, i, 0, PCIR_CAPABILITIES_POINTER, 1);
         while (cp) {
             u32 cp0 = pci_cfgread(0, i, 0, cp, 1);

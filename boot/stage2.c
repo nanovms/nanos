@@ -22,12 +22,12 @@ void centry()
 
     for (region e = regions; region_type(e); e--) {
         if (region_type(e) == 1) {
-            region_allocator(&working, e);
+            region_allocator(&working, e, 1);
             break;
         }
     }
     // maybe there is another 256k at the top here
-    region_allocator(&pages, create_region(0x10000, 0x80000, REGION_PHYSICAL));
+    region_allocator(&pages, create_region(0x10000, 0x80000, REGION_PHYSICAL), PAGESIZE);
     void *vmbase = (void *)(u32)allocate_zero((heap)&pages, PAGESIZE);
     mov_to_cr("cr3", vmbase);
     
@@ -45,11 +45,6 @@ void centry()
         if (p->p_type == PT_LOAD) {
             int ssize = pad(p->p_memsz, PAGESIZE);
             void *load = allocate((heap)&working, ssize);
-            console("loading stage3: ");
-            print_u64(load);
-            console(" ");
-            print_u64(ssize);
-            console("\n");            
 
             read_sectors(load,
                          (p->p_offset>>sector_log) + sector_offset,

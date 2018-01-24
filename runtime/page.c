@@ -35,11 +35,6 @@ physical physical_from_virtual(void *x)
 
 static void write_pte(page target, physical to, boolean fat)
 {
-    //    console("pte: ");
-    //    print_u64(u64_from_pointer(target));
-    //    console("  ");
-    //    print_u64( to | PAGE_WRITABLE | PAGE_PRESENT | PAGE_USER | (fat?PAGE_2M_SIZE:0));
-    //    console("\n");
     // really set user?
     if (to == PHYSICAL_INVALID)
         *target = 0;
