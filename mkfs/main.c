@@ -12,20 +12,6 @@ static void *malloc_allocator(heap h, bytes s)
 
 static buffer files, contents;
 
-// translate whole directories!
-static void file(heap h, buffer name, buffer dest)
-{
-    push_character(name, 0);
-    int fd = open((char *)name->contents, O_RDONLY);
-    struct stat st;
-    fstat(fd, &st);
-    buffer_extend(dest, st.st_size);
-    read(fd, dest->contents + dest->end, st.st_size);
-    dest->end += st.st_size;
-}
-
-
-
 static buffer read_stdin(heap h)
 {
     buffer in = allocate_buffer(h, 1024);
@@ -73,48 +59,33 @@ static table parse_mappings(heap h, buffer desc)
     return root;
 }
 
-void print_stuff(buffer b, table x)
-{
-    int start = b->end;
-    table f;
-    table_foreach(x, k, v){
-        buffer key = k;
-        table file = v;
-        b->end = start;
-        buffer_append(b, key->contents, key->end);
-        if ((f = table_find(file, files))) {
-            push_character(b, '/');
-            print_stuff(b, f);
-        } else {
-            write(2, b->contents, b->end);
-            write(2, "\n", 1);
-        }
-        b->end = start;
-    }
-}
-
 void notreally(heap h, void *z, bytes length)
 {
 }
 
-// stop copying all that stuff..dont necessarily need to stage this
-u64 serialize(heap h, table t, buffer out)
+// merge this into storage somehow
+u64 serialize(buffer out, table t)
 {
     // could perfect hash here
-    u64 off;
-    storage ind = create_storage(h, t->count, out, &off);
-    table_foreach(t, k, v)  {
-        u64 off, sz;
+    u64 off = init_storage(out, t->count);
 
+    table_foreach(t, k, v)  {
         if (k == contents) {
-            off = out->end;
-            file(h, v, out);
-            sz = out->end - sz;
+            buffer name = (buffer)v;
+            struct stat st;
+            push_character(name, 0);
+            int fd = open((char *)name->contents, O_RDONLY);
+
+            u64 foff = out->end;
+            fstat(fd, &st);
+            u64 psz = pad(st.st_size, 4);
+            buffer_extend(out, psz);
+            read(fd, out->contents + out->end, st.st_size);
+            out->end += psz;
+            storage_set(out, off, k, foff, st.st_size);        
         } else {
-            u64 b = serialize (h, v, out);
-            sz = 0;  // not used here
+            storage_set(out, off, k, serialize (out, (table)v), 0);
         }
-        storage_set(ind, k, off, sz);        
     }
     return off;
 }
@@ -125,21 +96,13 @@ int main(int argc, char **argv)
     struct heap h;
     h.allocate = malloc_allocator;
     h.deallocate = notreally;
-    
-    // xx - symbol table
+
     files = allocate_buffer(&h, 5);  buffer_append(files, "files", 5);
     contents = allocate_buffer(&h, 8);  buffer_append(contents, "contents", 8);
-
     buffer desc = read_stdin(&h);
-    
     table root = parse_mappings(&h,desc);
-    
-    buffer x = allocate_buffer(&h, 10);
-    print_stuff(x, root);
-    write(2, x->contents, x->end);
-
     buffer out = allocate_buffer(&h, 10000);
-    serialize(&h, root, out);
+    serialize(out, root);
 
     write(1, out->contents, out->end);
 }

@@ -117,7 +117,6 @@ extern u64 *ptalloc();
 #define u64_from_pointer(__a) ((u64)(__a))
 #endif
 
-#include <region.h>
 
 #define PAGELOG 12
 #define PAGESIZE (1<<PAGELOG)
@@ -168,14 +167,9 @@ typedef struct buffer *buffer;
 #include <buffer.h>
 #include <table.h>
 #include <vector.h>
-
-
-typedef struct storage *storage;
-storage create_storage(heap h, int buckets, buffer b, u64 *off);
-void storage_set(storage, buffer key, u64 offset, u64 length);
-
-void debug(buffer);
     
+void debug(buffer);
+
 extern void vbprintf(buffer s, buffer fmt, vlist ap);
 static inline void rprintf(char *format, ...)
 {
@@ -198,7 +192,10 @@ static inline void rprintf(char *format, ...)
     debug(&b);
 }
 
-storage wrap_storage(heap h, void *base, u64 length);
 
-boolean storage_lookup(storage s, buffer key, void **base, bytes *length);
+#include <region.h>
+
+u64 init_storage(buffer b, int buckets);
+void storage_set(buffer b, u64 start, buffer key, u64 offset, u64 length);
+boolean storage_lookup(buffer b, u64 start, buffer key, u64 *offset, bytes *length);
 

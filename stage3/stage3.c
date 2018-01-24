@@ -1,4 +1,6 @@
 #include <runtime.h>
+#include <system.h>
+#include <system_structs.h>
 
 extern u64 cpuid();
 extern u64 read_msr(u64);
@@ -19,7 +21,7 @@ extern void *_program_start;
 extern void *_fs_start;
 extern void *_fs_end;
 
-storage root;
+buffer filesystem;
 heap general;
 
 void set_syscall_handler(void *syscall_entry)
@@ -36,8 +38,10 @@ void set_syscall_handler(void *syscall_entry)
     write_msr(EFER_MSR, read_msr(EFER_MSR) | EFER_SCE);
 }
 
-// returns entry address.. need the base of the elf also
-void *load_elf(void *base, u64 offset, heap pages)
+// returns entry address.. need the base of the elf also for ld.so
+// bss is allocated virtual and double mapped. should pass
+// a physical allocator
+void *load_elf(void *base, u64 offset, heap pages, heap bss)
 {
     Elf64_Ehdr *elfh = base;
 
@@ -54,11 +58,15 @@ void *load_elf(void *base, u64 offset, heap pages)
             u64 vbase = (p->p_vaddr & ~MASK(PAGELOG)) + offset;
             int ssize = pad(p->p_memsz + (p->p_vaddr & MASK(PAGELOG)), PAGESIZE);
             map(vbase, physical_from_virtual((void *)(base+p->p_offset)), ssize, pages);            
-            void *start = (void *)vbase + p->p_filesz + (p->p_vaddr & MASK(PAGELOG));
-            int bss_size = p->p_memsz-p->p_filesz;
-            // xxx - need to allocate the bss past the first page boundary here
-            // do this
-            runtime_memset(start, 0, bss_size);
+            void *bss_start = (void *)vbase + p->p_filesz + (p->p_vaddr & MASK(PAGELOG));
+            u32 bss_size = p->p_memsz-p->p_filesz;
+            u32 already_pad = PAGESIZE - bss_size & MASK(PAGELOG);
+            if ((bss_size > already_pad)) {
+                u32 new_pages = pad(bss_size, PAGESIZE);
+                u64 phy = physical_from_virtual(allocate(bss, new_pages));
+                map(u64_from_pointer(bss_start), phy, new_pages, pages);
+            }            
+            runtime_memset(bss_start, 0, bss_size);
         }
     }
     u64 entry = elfh->e_entry;
@@ -66,54 +74,68 @@ void *load_elf(void *base, u64 offset, heap pages)
     return pointer_from_u64(entry);
 }
 
-void startup(heap pages, heap g2)
+void startup(heap pages, heap g2, heap contiguous)
 {
-    console("stage3\n");
-    
-    // baah, globals..this is just here because of a buffer required by system
-    general = g2;
- 
+    // baah, globals..this is just here because of a buffer required by unix emulation - system
+    process p = create_process(g2);
+    thread t = create_thread(p);
     u64 c = cpuid();
-    console("cpuid: ");
-    print_u64(c);
-    console("\n");
     
     set_syscall_handler(syscall_enter);
 
-    // vm space allocation
-    void *ldso = load_elf(&_ldso_start,0x400000000, pages);
-    void *user_entry = load_elf(&_program_start,0, pages);    
+    filesystem = allocate(g2, sizeof(struct buffer));
+    filesystem->contents = &_fs_start;
+    filesystem->length = filesystem->end = &_fs_end - &_fs_start;
+    filesystem->start = 0;
 
-    // only if cpuid & 1<<60
-    //    u64 k = read_xmsr(0);
-    //    k |= 7; // avx, sse, x87...x87?
-    //    write_xmsr(0, k);    
-    // not really - but this should work, it currently
-    // goes off into nowhere
-    //   map (0x10000, PHYSICAL_INVALID, 2*4096, pages);
-    // push pointers to X=Y environment thingies
-
-    Elf64_Ehdr *elfh = (Elf64_Ehdr *)&_program_start;
-    console("starting loader\n");
-    void (*dl_main)(void *, u64, void*, void *) = ldso;
-    // idk why dl cant do this..but ok
-    Elf64_Phdr *p = elfh->e_phoff + (void *)elfh;
-    // where does that go
-
-    void *auxp = 0;
-    char *envp[]= {"foo=1", "bar=2", 0};
-    char *cargv[] = {"program", "arg1"};
-    int cargc = 2;
-
-    root = wrap_storage(general, &_fs_start, &_fs_end - &_fs_start);
     
-    __asm__("push %0"::"m"(auxp));
-    for (int i = 0; envp[i]; i++)
+    // vm space allocation
+    void *ldso = load_elf(&_ldso_start,0x400000000, pages, contiguous);
+    void *user_entry = load_elf(&_program_start,0, pages, contiguous);
+    
+    Elf64_Ehdr *elfh = (Elf64_Ehdr *)&_program_start;
+
+
+    // extract this stuff (args, env, auxp) from the 'filesystem'    
+    struct {u64 tag; u64 val;} auxp[] = {
+        {AT_PHDR, elfh->e_phoff + u64_from_pointer(elfh)},
+        {AT_PHENT, elfh->e_phentsize},
+        {AT_PHNUM, elfh->e_phnum},
+        {AT_PAGESZ, PAGESIZE},
+        {AT_ENTRY, u64_from_pointer(user_entry)}};
+    char *envp[]= {"foo=1", "bar=2"};
+    char *cargv[] = {"program", "arg1"};
+    int cargc = sizeof(cargv)/sizeof(void *);
+    int i;
+
+    // this should actually effect the exec...set this
+    // up on the threads stack
+    run(t);
+    
+    rprintf("envp: %d\n", sizeof(envp)/sizeof(void *));
+    rprintf("eauxnvp: %d\n", sizeof(auxp)/(2*sizeof(u64)));
+
+    __asm__("push $0"); // end of auxp
+    __asm__("push $0");
+
+    for (int i = 0; i< sizeof(auxp)/(2*sizeof(u64)); i++) {
+        __asm__("push %0"::"m"(auxp[i].val));
+        __asm__("push %0"::"m"(auxp[i].tag));
+    } 
+    
+    __asm__("push $0"); // end of envp
+
+    for (int i = 0; i< sizeof(envp)/sizeof(void *); i++)
         __asm__("push %0"::"m"(envp[i]));
-    __asm__("push 0");
-    __asm__("push %0"::"m"(envp));
-    __asm__("push %0"::"m"(cargv));
+
+    __asm__("push $0"); // end of argv
+        
+    for (int i = 0; i < cargc; i++)
+        __asm__("push %0"::"m"(cargv[i]));
+
     __asm__("push %0"::"m"(cargc));
-    __asm__("jmp %0"::"m"(ldso));
+    __asm__("jmp *%0"::"m"(ldso));
+    // intead of jump
+    run(t); // 
 }
 

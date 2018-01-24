@@ -29,7 +29,6 @@
 #ifndef _SYS_ELF64_H_
 #define _SYS_ELF64_H_ 1
 
-
 /*
  * ELF definitions common to all 64-bit architectures.
  */
@@ -109,6 +108,5 @@ typedef struct {
 	Elf64_Xword	p_memsz;	/* Size of contents in memory. */
 	Elf64_Xword	p_align;	/* Alignment in memory and file. */
 } Elf64_Phdr;
-
 
 #endif /* !_SYS_ELF64_H_ */

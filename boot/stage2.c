@@ -45,6 +45,11 @@ void centry()
         if (p->p_type == PT_LOAD) {
             int ssize = pad(p->p_memsz, PAGESIZE);
             void *load = allocate((heap)&working, ssize);
+            console("loading stage3: ");
+            print_u64(load);
+            console(" ");
+            print_u64(ssize);
+            console("\n");            
 
             read_sectors(load,
                          (p->p_offset>>sector_log) + sector_offset,

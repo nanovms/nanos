@@ -8,7 +8,8 @@ typedef struct stat
     u32 st_mode;	
     u32 st_uid;		
     u32 st_gid;		
-    u64 st_rdev;	
+    u64 st_rdev;
+      u64 pad; // size is off by 8  in this layout - double mode and link?
     u64 st_size;	
     u64 st_blksize;	
     u64 st_blocks;	
@@ -20,7 +21,6 @@ typedef struct iovec {
     u64 length;
 } *iovec;
 
-// from freebsd - are these posix?
 #define EPERM           1               /* Operation not permitted */
 #define ENOENT          2               /* No such file or directory */
 #define ESRCH           3               /* No such process */
@@ -52,7 +52,6 @@ typedef struct iovec {
 #define EMLINK          31              /* Too many links */
 #define EPIPE           32              /* Broken pipe */
 
-// why.. are .. oh, octal...and are these posix too?
 #define O_RDONLY	00000000
 #define O_WRONLY	00000001
 #define O_RDWR		00000002
@@ -60,3 +59,21 @@ typedef struct iovec {
 #define O_TRUNC		00001000
 #define O_APPEND	00002000
 #define O_NONBLOCK	00004000
+
+#define AT_NULL         0               /* End of vector */
+#define AT_IGNORE       1               /* Entry should be ignored */
+#define AT_EXECFD       2               /* File descriptor of program */
+#define AT_PHDR         3               /* Program headers for program */
+#define AT_PHENT        4               /* Size of program header entry */
+#define AT_PHNUM        5               /* Number of program headers */
+#define AT_PAGESZ       6               /* System page size */
+#define AT_BASE         7               /* Base address of interpreter */
+#define AT_FLAGS        8               /* Flags */
+#define AT_ENTRY        9               /* Entry point of program */
+#define AT_NOTELF       10              /* Program is not ELF */
+#define AT_UID          11              /* Real uid */
+#define AT_EUID         12              /* Effective uid */
+#define AT_GID          13              /* Real gid */
+#define AT_EGID         14              /* Effective gid */
+#define AT_CLKTCK       17              /* Frequency of times() */
+

@@ -65,7 +65,7 @@ void init_service(u64 passed_base)
     start_interrupts((heap)&pagesh, (heap)&generalh, (heap)&contiguoush);
     // should translate into constructing a frame and an iret call (thread create)
     // pci_checko();
-    startup((heap)&pagesh, (heap)&generalh);
+    startup((heap)&pagesh, (heap)&generalh, (heap)&contiguoush);
     //  this is the musl start - move somewhere else
     //        char *program = "program";
     // extern void __libc_start_main(int (*)(int, char **, char**), int, char **);;

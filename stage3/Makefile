@@ -6,15 +6,15 @@ include $(ROOT)/runtime/Makefile
 include $(ROOT)/virtio/Makefile
 INCLUDES += -I.
 
-#LDSO =/home/yuri/gb/elf/ld.so
-LDSO =  /lib/x86_64-linux-gnu/ld-linux-x86-64.so.2
+LDSO =/home/yuri/gb/elf/ld.so
+#LDSO =  /lib/x86_64-linux-gnu/ld-linux-x86-64.so.2
 PROGRAM = /usr/bin/mono-sgen
 
 image: $(ROOT)/boot/boot stage3
 	cat $(ROOT)/boot/boot stage3 > image
 
 #seems like it would be easier to just use nasm to get these into aligned sections
-#or...just put it in the filesystem...be cool if that had an align option too
+#or...move these into the filesystem by alignment
 
 LDNAME = $(subst -,_,$(subst .,_,$(subst /,_,$(LDSO))))
 PROGRAMNAME = $(subst -,_,$(subst .,_,$(subst /,_,$(PROGRAM))))

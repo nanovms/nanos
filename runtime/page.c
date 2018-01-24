@@ -13,7 +13,7 @@ static page pt_lookup(page table, u64 t, unsigned int x)
     return (page)pointer_from_u64(a);
 }
 
-// allow protect mode override
+// allow stage2 to override - not so important since this is still identity
 #ifndef physical_from_virtual
 physical physical_from_virtual(void *x)
 {
@@ -35,6 +35,11 @@ physical physical_from_virtual(void *x)
 
 static void write_pte(page target, physical to, boolean fat)
 {
+    //    console("pte: ");
+    //    print_u64(u64_from_pointer(target));
+    //    console("  ");
+    //    print_u64( to | PAGE_WRITABLE | PAGE_PRESENT | PAGE_USER | (fat?PAGE_2M_SIZE:0));
+    //    console("\n");
     // really set user?
     if (to == PHYSICAL_INVALID)
         *target = 0;
@@ -67,12 +72,12 @@ static void map_page_4k(page base, u64 virtual, physical p, heap h)
 
 static void map_page_2m(page base, u64 virtual, physical p, heap h)
 {
-    // this code is rn in 32 bit and 64 bit right now
     void *x = base;
     u64 k = (u32)virtual;
     x = force_entry(x, (k >> 39) & MASK(9), h);
     x = force_entry(x, (k >> 30) & MASK(9), h);
     u64 off = (k >> 21) & MASK(9);
+    console ("2m page pte\n");
     write_pte(x+off, p, true);
 }
 
@@ -97,11 +102,13 @@ void map(u64 virtual, physical p, int length, heap h)
 
     for (int i = 0; i < len;) {
         int off = 1<<12;
-        
-        if (!(vo & MASK(21)) && !(po & MASK(21)) && ((len - i) >= (1<<21))) {
-            map_page_2m(base, vo, po, h);
-            off = 1<<21;
-        } else map_page_4k(base, vo, po, h);
+        // two meg pages dont seem to be working
+        //        if (!(vo & MASK(21)) && !(po & MASK(21)) && ((len - i) >= (1<<21)))
+        // {
+        //            map_page_2m(base, vo, po, h);
+        // off = 1<<21;
+        // else
+        map_page_4k(base, vo, po, h);
         vo += off;
         if (po != PHYSICAL_INVALID)
             po += off;

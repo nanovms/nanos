@@ -1,16 +1,8 @@
 #include <runtime.h>
 
-
 typedef u32 offset;
-
-typedef struct storage  {
-    offset bucket_count;
-    offset *buckets;
-    buffer b;
-} *storage;
     
-#define ENTRY_ALIGNMENT_LOG 5
-
+#define ENTRY_ALIGNMENT_LOG 2
 
 void buffer_write_le32(buffer b, u32 x)
 {
@@ -18,33 +10,38 @@ void buffer_write_le32(buffer b, u32 x)
     b->end += sizeof(u32);
 }
 
-/*
- * entry layout
- *   u32 next
- *   u32 keylen
- *   ..key.. 
- *   u32 vlen
- *   ..val.. (not aligned)
- *   aligned
- */
-
 static boolean compare_bytes(void *a, void *b, bytes len)
 {
-    for (int i = 0; i < len ; i++)
+    for (int i = 0; i < len ; i++) {
         if (((u8 *)a)[i] != ((u8 *)b)[i])
             return false;
+    }
     return true;
 }
 
-boolean storage_lookup(storage s, buffer key, void **base, bytes *length)
+static inline u32 *bucket_count(buffer b, u64 start)
 {
-    offset where = s->buckets[fnv64(key) % s->bucket_count];
-    
+    return (u32 *)(b->contents+start);
+}
+
+static inline u32 *buckets(buffer b, u64 start)
+{
+    return bucket_count(b, start) + 1;
+}
+
+boolean storage_lookup(buffer b, u64 start, buffer key, u64 *off, bytes *length)
+{
+    u32 count = *bucket_count(b, start);
+    offset where = buckets(b, start)[fnv64(key) % count];
+
     while (where) {
-        offset *e = key->contents + (where<<ENTRY_ALIGNMENT_LOG);
-        if ((e[1] == buffer_length(key)) &&
-            compare_bytes(key->contents, (void *)(e+3), e[1])) 
+        offset *e = b->contents + (where<<ENTRY_ALIGNMENT_LOG);
+        if ((e[3] == buffer_length(key)) &&
+            compare_bytes(key->contents, (void *)(e+4), e[3])) {
+            *off = (e[1] << ENTRY_ALIGNMENT_LOG);
+            *length = e[2];
             return true;
+        }
         where = e[0];
     }
     return false;
@@ -53,29 +50,30 @@ boolean storage_lookup(storage s, buffer key, void **base, bytes *length)
 // for some reason I think we can dedup bodies here easily, idk why
 // alignment, empty space.. elminate this indirect?  or add indirection
 // for keys?
-void storage_set(storage s, buffer key, u64 voff, u64 vlen)
+void storage_set(buffer b, u64 start, buffer key, u64 voff, u64 vlen)
 {
-    u64 b = fnv64(key) % s->bucket_count;
-    int nlen = pad(buffer_length(key), ENTRY_ALIGNMENT_LOG) + 5 * sizeof(offset);
-    offset loc = s->b->end >> ENTRY_ALIGNMENT_LOG;
-    offset *n = s->b->contents + s->b->end;
-    buffer_extend(s->b, nlen);
-
-    buffer_write_le32(s->b, s->buckets[b]);
-    buffer_write_le32(s->b, voff);
-    buffer_write_le32(s->b, vlen);
-    buffer_write_le32(s->b, buffer_length(key));
-    s->buckets[b] = loc;
-    push_buffer(s->b, key);
-    s->b->end += nlen;
+    offset *slot = buckets(b, start) + fnv64(key) % *bucket_count(b, start);
+    int pk = pad(buffer_length(key), (1<<ENTRY_ALIGNMENT_LOG));
+    int nlen = pk + 4 * sizeof(offset);
+    offset loc = b->end >> ENTRY_ALIGNMENT_LOG;
+    buffer_extend(b, nlen);
+    u32 next = *slot;
+    buffer_write_le32(b, next);
+    buffer_write_le32(b, voff >> ENTRY_ALIGNMENT_LOG);
+    buffer_write_le32(b, vlen);
+    buffer_write_le32(b, buffer_length(key));
+    *slot = loc;
+    push_buffer(b, key);
+    b->end += pk - buffer_length(key);
 }
 
 
 // key and value and length + offset
-void iterate(storage s, void (*f)(void *key, void *value))
+void iterate(buffer b, u64 start, void (*f)(void *key, void *value))
 {
-    offset *k = s->buckets;
-    for (offset i; i < s->bucket_count; i++) {
+    u32 count = *bucket_count(b, start);
+    offset *k = buckets(b, start);
+    for (offset i; i < count; i++) {
         offset where = k[i];
         while (where) {
             void *key = k+where;
@@ -86,29 +84,14 @@ void iterate(storage s, void (*f)(void *key, void *value))
     }
 }
  
-storage create_storage(heap h, int buckets, buffer b, u64 *off)
+u64 init_storage(buffer b, int buckets)
 {
-    storage s = allocate(h, sizeof(struct storage));
-    s->b = b;
-    s->bucket_count = buckets;
-    buffer_write_be32(b, buckets);
-    s->buckets = b->contents + b->end;
-    b->end += buckets * sizeof(offset);
-    runtime_memset(s->buckets, 0, buckets * sizeof(offset));
-    return s;
-}
-
-storage wrap_storage(heap h, void *base, u64 length)
-{
-    storage s = allocate(h, sizeof(struct storage));
-    s->b = allocate(h, sizeof(struct buffer));
-    s->b->contents = base;
-    s->b->start = 0;
-    s->b->end = length;
-    s->b->length = length;        
-
-    s->bucket_count = *(u32 *)(s->b->contents);
-    s->buckets = s->b->contents + sizeof(u32);
-    return s;
+    u64 off = b->end;
+    buffer_write_le32(b, buckets);
+    int blen = buckets * sizeof(offset);
+    buffer_extend(b, blen);
+    runtime_memset(b->contents + b->end, 0, blen);
+    b->end += blen;
+    return off;
 }
 
