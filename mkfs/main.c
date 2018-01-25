@@ -27,7 +27,7 @@ static table parse_mappings(heap h, buffer desc)
     table root = allocate_table(h, fnv64, buffer_compare);
     table rf = allocate_table(h, fnv64, buffer_compare);
     table_set(root, files, rf);
-
+    
     vector lines = split(h, desc, '\n');
     buffer line;
     vector_foreach(line, lines) {
@@ -44,12 +44,14 @@ static table parse_mappings(heap h, buffer desc)
             table y;
             if (!(y = table_find(dir, p))) {
                 y = allocate_table(h, fnv64, buffer_compare);
-                ((u8 *)p->contents)[p->end] = 0;
+                // ((u8 *)p->contents)[p->end] = 0;
                 table f = allocate_table(h, fnv64, buffer_compare);
                 table_set(dir, p, f);
                 table_set(f, files, y);
+                dir = y;
+            }  else {
+                dir = table_find(y, files);
             }
-            dir = y;
         }
         buffer filename = vector_pop(path);
         table f = allocate_table(h, fnv64, buffer_compare);

@@ -10,7 +10,7 @@ void buffer_write_le32(buffer b, u32 x)
     b->end += sizeof(u32);
 }
 
-static boolean compare_bytes(void *a, void *b, bytes len)
+boolean compare_bytes(void *a, void *b, bytes len)
 {
     for (int i = 0; i < len ; i++) {
         if (((u8 *)a)[i] != ((u8 *)b)[i])
@@ -31,8 +31,6 @@ static inline u32 *buckets(buffer b, u64 start)
 
 boolean storage_lookup(buffer b, u64 start, buffer key, u64 *off, bytes *length)
 {
-    rprintf("lookup %b %x\n", key, start);
-
     u32 count = *bucket_count(b, start);
     offset where = buckets(b, start)[fnv64(key) % count];
 
@@ -71,17 +69,19 @@ void storage_set(buffer b, u64 start, buffer key, u64 voff, u64 vlen)
 
 
 // key and value and length + offset
-void iterate(buffer b, u64 start, void (*f)(void *key, void *value))
+void iterate(buffer b, u64 start, void (*f)(buffer b, u64 klen, void *key, u64 vlen, u64 voff))
 {
     u32 count = *bucket_count(b, start);
     offset *k = buckets(b, start);
     for (offset i; i < count; i++) {
         offset where = k[i];
         while (where) {
+            offset *e = b->contents + (where<<ENTRY_ALIGNMENT_LOG);
+            u32 klen = e[3];
+            u32 vlen = e[2];
             void *key = k+where;
-            void *value = (void *)(k +where + 1) + *(u32 *)key;
-            f(key, value);
-            where = k[where];
+            f(b, klen, key, vlen, (e[1]<<ENTRY_ALIGNMENT_LOG));
+            where = e[0];
         }   
     }
 }

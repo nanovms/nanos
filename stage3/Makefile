@@ -49,7 +49,7 @@ stage3: ldso.o program.o fs.o stage3.o system.o $(STANDALONE)
 
 clean:
 	cd $(ROOT)/boot ; make clean
-	rm -f image *.o
+	rm -f image *.o fs
 
 distclean: clean
 	rm -rf lwip libc/musl

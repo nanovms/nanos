@@ -1,19 +1,32 @@
 // structs that live on the user-kernel boundary
 
-typedef struct stat
+struct stat
   {
     u64 st_dev;		
     u64 st_ino;		
-    u32 st_nlink;	
+    u32 st_nlink;
+            u32 pad; // size is off by 8  in this layout - double mode and link?
     u32 st_mode;	
     u32 st_uid;		
     u32 st_gid;		
     u64 st_rdev;
-      u64 pad; // size is off by 8  in this layout - double mode and link?
+      u32 pad2; // size is off by 8  in this layout - double mode and link?
     u64 st_size;	
     u64 st_blksize;	
     u64 st_blocks;	
-} *stat;
+};
+
+#define S_IFMT  00170000
+#define S_IFSOCK 0140000
+#define S_IFLNK	 0120000
+#define S_IFREG  0100000
+#define S_IFBLK  0060000
+#define S_IFDIR  0040000
+#define S_IFCHR  0020000
+#define S_IFIFO  0010000
+#define S_ISUID  0004000
+#define S_ISGID  0002000
+#define S_ISVTX  0001000
 
 // take this from filesystem
 struct utsname {

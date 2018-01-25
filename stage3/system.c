@@ -52,8 +52,12 @@ static int write(int fd, u8 *body, bytes length)
 
 static int writev(int fd, iovec v, int count)
 {
-    for (int i = 0; i < count; i++)
+    int res;
+    for (int i = 0; i < count; i++) {
+        res += v[i].length;
         write(fd, v[i].address, v[i].length);
+    }
+    return res;
 }
 
 #define staticbuffer(__x, __n) \
@@ -62,42 +66,57 @@ static int writev(int fd, iovec v, int count)
     (__x)->end = sizeof(__n) -1;               
 
 
-static int open(char *name, int flags, int mode)
+static boolean lookup(buffer fs, char *file, u64 *storage, u64 *slength)
 {
-    static struct buffer filesym;
-    static struct buffer contents;
-
-    staticbuffer(&filesym, "files");
-    staticbuffer(&contents, "contents");
-    // oh right, we're supposed to keep track of cwd...alot of
-
-    // breakout name resolution
-    little_stack_buffer(element, 1024);
-
-    // make a namei
+    // oh right, we're supposed to keep track of cwd
     u64 where = 0;
     bytes length;
-
-    buffer fs = current->p->filesystem;
-    // vector split....xxx - chuck the mandatory leading slash..        
-    for (char *i = name + 1; *i; i++) {
+    static struct buffer filesym;
+    little_stack_buffer(element, 1024);
+    
+    staticbuffer(&filesym, "files");
+    for (char *i =file + 1; *i; i++) {
         if (*i == '/') {
-            if (!storage_lookup(fs, where, &filesym, &where, &length)) 
-                return -ENOENT;
-            if (!storage_lookup(fs, where, element, &where, &length)) 
-                return -ENOENT;
+            if (!storage_lookup(fs, where, &filesym, &where, &length)) return false;
+            if (!storage_lookup(fs, where, element, &where, &length)) return false;
             element->start = element->end = 0;
         } else push_character(element, *i);
     }
-    if (!storage_lookup(fs, where, &filesym, &where, &length)) 
+    if (!storage_lookup(fs, where, &filesym, &where, &length)) return false;
+    if (!storage_lookup(fs, where, element, &where, &length)) return false;
+    *storage =  where;
+    *slength = length;
+    return true;
+}
+
+
+static int access(char *name, int mode)
+{
+    rprintf("access %s\n", name);
+    u64 where = 0;
+    bytes length;
+    if (!lookup(current->p->filesystem, name, &where, &length)) 
         return -ENOENT;
-    if (!storage_lookup(fs, where, element, &where, &length)) 
+    return 0;
+}
+
+static int open(char *name, int flags, int mode)
+{
+    u64 where = 0, w2;
+    bytes length;
+    static struct buffer contents;
+    staticbuffer(&contents, "contents");
+    
+    if (!lookup(current->p->filesystem, name, &where, &length)) {
         return -ENOENT;
-    if (!storage_lookup(fs, where, &contents, &where, &length)) 
-        return -ENOENT;    
+    }
+    // policy on opening directories?
+    if (!storage_lookup(current->p->filesystem, where, &contents, &w2, &length)) return -ENOENT;
+
+    // vector split....xxx - chuck the mandatory leading slash..        
 
     buffer  b = allocate(current->p->h, sizeof(struct buffer));
-    b->contents = fs->contents + where;
+    b->contents = current->p->filesystem->contents + where;
     b->end = length;
     b->start = 0; 
     current->p->files[current->p->filecount].state = b;
@@ -113,11 +132,26 @@ static u64 mmap(void *target, u64 *size, int prot, int flags, int fd, u64 offset
     return u64_from_pointer(b->contents);
 }
 
-static int fstat(int fd, stat s)
+static int fstat(int fd, struct stat *s)
 {
     buffer b = (buffer)current->p->files[fd].state;
     // return is broken?
     s->st_size = buffer_length(b);
+    return 0;
+}
+
+static int stat(char *name, struct stat *s)
+{
+    u64 where = 0;
+    bytes length;
+
+    rprintf("stat: %s %d\n", name, (void *)&s->st_mode - (void *)s);
+    if (!lookup(current->p->filesystem, name, &where, &length)) {
+        rprintf("no dice\n");
+        return -ENOENT;
+    }
+    s->st_mode = S_IFDIR | 0777;
+    s->st_size = length;
     return 0;
 }
 
@@ -141,6 +175,7 @@ static void *brk(void *x)
 // because the conventions mostly line up, and because the lower level
 // handler doesn't touch these, using the arglist here should be
 // a bit faster than digging them out of frame
+// need to change to deal with errno conventions
 u64 syscall()
 {
     u64 *f = current->frame;
@@ -152,15 +187,12 @@ u64 syscall()
     case SYS_write: return write(a[0], pointer_from_u64(a[1]), a[2]);
     case SYS_open: return open(pointer_from_u64(a[0]), a[1], a[2]);
     case SYS_fstat: return fstat(a[0], pointer_from_u64(a[1]));
+    case SYS_stat: return stat(pointer_from_u64(a[0]), pointer_from_u64(a[1]));        
     case SYS_writev: return writev(a[0], pointer_from_u64(a[1]), a[2]);
     case SYS_brk: return u64_from_pointer(brk(pointer_from_u64(a[0])));
     case SYS_uname: return uname(pointer_from_u64(a[0]));
-    case SYS_mmap: return mmap(pointer_from_u64(a[0]),
-                               pointer_from_u64(a[1]),
-                               a[2],
-                               a[3],
-                               a[4],
-                               a[5]);
+    case SYS_mmap: return mmap(pointer_from_u64(a[0]), pointer_from_u64(a[1]), a[2], a[3], a[4], a[5]);
+    case SYS_access: return access(pointer_from_u64(a[0]), a[1]);
     case SYS_getpid: return current->p->pid;
 
     default:

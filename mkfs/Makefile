@@ -11,6 +11,9 @@ include $(ROOT)/runtime/Makefile
 mkfs: main.o $(UNIXRUNTIME)
 	cc $^ -g -o mkfs
 
+dump: dump.o $(UNIXRUNTIME)
+	cc $^ -g -o mkfs
+
 clean:
 	rm *.o
 

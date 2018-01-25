@@ -1,1 +1,2 @@
 /foo/etc/ld.so.cache /etc/ld.so.cache
+/foo/lib/libc.so.6 /lib/x86_64-linux-gnu/libc.so.6
