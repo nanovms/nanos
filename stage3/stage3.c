@@ -55,7 +55,9 @@ void *load_elf(void *base, u64 offset, heap pages, heap bss)
             // unaligned segment? uncool bro
             u64 vbase = (p->p_vaddr & ~MASK(PAGELOG)) + offset;
             int ssize = pad(p->p_memsz + (p->p_vaddr & MASK(PAGELOG)), PAGESIZE);
-            map(vbase, physical_from_virtual((void *)(base+p->p_offset)), ssize, pages);            
+            map(vbase, physical_from_virtual((void *)(base+p->p_offset)), ssize, pages);
+            // ok, its too late.. this seems wrong..or at least incomprehensible
+            // damn pagey stuff
             void *bss_start = (void *)vbase + p->p_filesz + (p->p_vaddr & MASK(PAGELOG));
             u32 bss_size = p->p_memsz-p->p_filesz;
             rprintf("bss: %x %x\n", bss_start, bss_start + bss_size);
@@ -85,7 +87,7 @@ void startup(heap pages, heap general, heap contiguous)
     filesystem->length = filesystem->end = &_fs_end - &_fs_start;
     filesystem->start = 0;
 
-    process p = create_process(general, filesystem);
+    process p = create_process(general, pages, contiguous, filesystem);
     thread t = create_thread(p);
     
     // vm space allocation

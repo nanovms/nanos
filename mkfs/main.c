@@ -76,14 +76,19 @@ u64 serialize(buffer out, table t)
             buffer name = (buffer)v;
             struct stat st;
             push_character(name, 0);
+            // xxx -- all files are page aligned and padded, because
+            // we might be doing linky things. that isn't necessary
+            // for many files, and we should also be able to
+            // allocate more tightly around them
             int fd = open((char *)name->contents, O_RDONLY);
 
-            u64 foff = out->end;
+            u64 foff = pad(out->end, 4096);
             fstat(fd, &st);
-            u64 psz = pad(st.st_size, 4);
-            buffer_extend(out, psz);
-            read(fd, out->contents + out->end, st.st_size);
-            out->end += psz;
+            u64 psz = pad(st.st_size, 4096);
+            u64 total = foff-out->end + psz;
+            buffer_extend(out, foff-out->end + psz);
+            read(fd, out->contents + foff, st.st_size);
+            out->end += total;
             storage_set(out, off, k, foff, st.st_size);        
         } else {
             storage_set(out, off, k, serialize (out, (table)v), 0);

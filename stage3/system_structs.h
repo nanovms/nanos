@@ -3,18 +3,19 @@
 struct stat
   {
     u64 st_dev;		
-    u64 st_ino;		
-    u32 st_nlink;
-            u32 pad; // size is off by 8  in this layout - double mode and link?
-    u32 st_mode;	
-    u32 st_uid;		
-    u32 st_gid;		
-    u64 st_rdev;
+      u64 st_ino;		//16
+      u32 st_nlink; //20
+      u32 pad; // size is off by 8  in this layout - double mode and link?
+      u32 st_mode;	//28
+      u32 st_uid;		 //32
+      u32 st_gid;		//36
+      u64 st_rdev; //44
       u32 pad2; // size is off by 8  in this layout - double mode and link?
-    u64 st_size;	
-    u64 st_blksize;	
-    u64 st_blocks;	
-};
+      u64 st_size; //48	
+      u64 st_blksize;	
+      u64 st_blocks;	
+} __attribute__((packed));
+// better to just do this by offset
 
 #define S_IFMT  00170000
 #define S_IFSOCK 0140000
@@ -97,4 +98,8 @@ typedef struct iovec {
 #define AT_GID          13              /* Real gid */
 #define AT_EGID         14              /* Effective gid */
 #define AT_CLKTCK       17              /* Frequency of times() */
+
+#define MAP_FIXED 0x10
+#define MAP_ANONYMOUS 0x20
+#define MAP_PRIVATE	0x02
 
