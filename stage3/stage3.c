@@ -60,7 +60,9 @@ void *load_elf(void *base, u64 offset, heap pages, heap bss)
             // damn pagey stuff
             void *bss_start = (void *)vbase + p->p_filesz + (p->p_vaddr & MASK(PAGELOG));
             u32 bss_size = p->p_memsz-p->p_filesz;
+            // omfg, bss is a mess
             rprintf("bss: %x %x\n", bss_start, bss_start + bss_size);
+
             u32 already_pad = PAGESIZE - bss_size & MASK(PAGELOG);
             if ((bss_size > already_pad)) {
                 u32 new_pages = pad(bss_size, PAGESIZE);
@@ -104,7 +106,8 @@ void startup(heap pages, heap general, heap contiguous)
             va = pointer_from_u64(p->p_vaddr);
     }
     
-        
+    map(0, PHYSICAL_INVALID, PAGESIZE, pages);
+    
     // extract this stuff (args, env, auxp) from the 'filesystem'    
     struct {u64 tag; u64 val;} auxp[] = {
         {AT_PHDR, elfh->e_phoff + u64_from_pointer(va)},
