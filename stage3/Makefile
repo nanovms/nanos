@@ -8,7 +8,7 @@ INCLUDES += -I.
 
 LDSO =/home/yuri/gb/elf/ld.so
 #LDSO =  /lib/x86_64-linux-gnu/ld-linux-x86-64.so.2
-PROGRAM = /home/yuri/hw
+PROGRAM =/usr/bin/mono
 
 image: $(ROOT)/boot/boot stage3
 	cat $(ROOT)/boot/boot stage3 > image
@@ -55,5 +55,5 @@ distclean: clean
 	rm -rf lwip libc/musl
 
 run: image
-	(sleep 4 ; echo "x") | qemu-system-x86_64 -d int -D foo  -nographic -drive file=image,format=raw
+	(sleep 8 ; echo "x") | qemu-system-x86_64 -d int -D foo  -nographic -drive file=image,format=raw
 

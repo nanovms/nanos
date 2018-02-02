@@ -92,7 +92,7 @@ u64 init_storage(buffer b, int buckets)
     buffer_write_le32(b, buckets);
     int blen = buckets * sizeof(offset);
     buffer_extend(b, blen);
-    runtime_memset(b->contents + b->end, 0, blen);
+    zero(b->contents + b->end, blen);
     b->end += blen;
     return off;
 }

@@ -153,9 +153,10 @@ void map(u64 virtual, physical p, int length, heap h);
 //#define runtime_memcpy __builtin_memcpy
 //#define runtime_memset __builtin_memset
 
-static inline void runtime_memset(void *x, u8 val, bytes length)
+// something more efficient would be nice
+static inline void zero(void *x, bytes length)
 {
-    for (int i =0; i < length; i++) *(u8 *)(x + i) = val;  
+    for (int i =0; i < length; i++) *(u8 *)(x + i) = 0;  
 }
 
 #define varg __builtin_va_arg
@@ -199,3 +200,4 @@ u64 init_storage(buffer b, int buckets);
 void storage_set(buffer b, u64 start, buffer key, u64 offset, u64 length);
 boolean storage_lookup(buffer b, u64 start, buffer key, u64 *offset, bytes *length);
 
+void *load_elf(void *base, u64 offset, heap pages, heap bss);

@@ -86,6 +86,7 @@ void map(u64 virtual, physical p, int length, heap h)
     u64 vo = virtual;
     u64 po = p;
 
+
     console("map: ");
     print_u64(virtual);
     console(" ");
@@ -93,7 +94,7 @@ void map(u64 virtual, physical p, int length, heap h)
     console(" ");
     print_u64(length);              
     console("\n");
-    
+
 
     for (int i = 0; i < len;) {
         int off = 1<<12;

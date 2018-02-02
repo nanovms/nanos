@@ -1,2 +1,11 @@
-/foo/etc/ld.so.cache /etc/ld.so.cache
-/foo/lib/libc.so.6 /lib/x86_64-linux-gnu/libc.so.6
+/foo/etc/ld.so.cache @/etc/ld.so.cache
+/foo/lib/libc.so.6 @/home/yuri/gb/libc.so
+/args/0 mono
+/args/1 /hw.bytes
+/hw.bytes @/home/yuri/host/uniboot/stage3/input.bin
+/foo/lib/libm.so.6 @/lib/x86_64-linux-gnu/libm.so.6
+/foo/lib/librt.so.1 @/lib/x86_64-linux-gnu/librt.so.1
+/foo/lib/libdl.so.2 @/lib/x86_64-linux-gnu/libdl.so.2
+/foo/lib/libpthread.so.0 @/home/yuri/gb/nptl/libpthread.so.0
+/etc/mono/config @/etc/mono/config
+/etc/nsswitch.conf @/etc/nsswitch.conf

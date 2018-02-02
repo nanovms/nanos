@@ -98,10 +98,13 @@ typedef struct iovec {
 #define AT_GID          13              /* Real gid */
 #define AT_EGID         14              /* Effective gid */
 #define AT_CLKTCK       17              /* Frequency of times() */
+#define AT_RANDOM       25   
 
 #define MAP_FIXED 0x10
 #define MAP_ANONYMOUS 0x20
 #define MAP_PRIVATE	0x02
+#define MREMAP_MAYMOVE	1
+#define MREMAP_FIXED	2
 
 // straight from linux
 #define ARCH_SET_GS 0x1001

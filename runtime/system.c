@@ -114,17 +114,20 @@ static int open(char *name, int flags, int mode)
     bytes length;
     static struct buffer contents;
     staticbuffer(&contents, "contents");
-    
+    rprintf("open %s\n", name);
     if (!lookup(current->p->filesystem, name, &where, &length)) {
         return -ENOENT;
     }
     // policy on opening directories?
     if (!storage_lookup(current->p->filesystem, where, &contents, &w2, &length)) return -ENOENT;
+    
 
     // vector split....xxx - chuck the mandatory leading slash..        
 
     buffer  b = allocate(current->p->h, sizeof(struct buffer));
     b->contents = current->p->filesystem->contents + w2;
+    rprintf("open %s %p %x %d\n", name, physical_from_virtual(b->contents), length, current->p->filecount);
+    
     b->end = length;
     b->start = 0;
     file f = current->p->files +current->p->filecount;
@@ -139,28 +142,31 @@ static int open(char *name, int flags, int mode)
 #define MIN(x, y) ((x) < (y)? (x):(y))
 #endif
 
+void *mremap(void *old_address, u64 old_size,  u64 new_size, int flags,  void *new_address )
+{
+    rprintf ("mremap %p %x %x %x %p\n", old_address, old_size, new_size, flags, new_address);
+}
+
+
 static void *mmap(void *target, u64 size, int prot, int flags, int fd, u64 offset)
 {
+    rprintf("mmap %p %x %x %d %p\n", target, size, flags, fd, offset);
     process p = current->p;
-
-    rprintf("mmap target: %p %x %x %d %x\n", target, size, flags, fd, offset);
+    u64 len = pad(size, PAGESIZE);
+    u64 where = u64_from_pointer(target);
     
+    if (!(flags &MAP_FIXED)) {
+        // use an allocator
+        where = u64_from_pointer(current->p->valloc);
+        current->p->valloc += len;
+    }
+        
     // merge these two cases to the extent possible
     if (flags & MAP_ANONYMOUS) {
-        u64 len = pad(size, PAGESIZE);
-        rprintf("anoanny\n");
-        u64 where = u64_from_pointer(target);
-        if (!(flags &MAP_FIXED)) {
-            // use an allocator
-            where = u64_from_pointer(current->p->valloc);
-            current->p->valloc += len;
-        }
-
-        // alloc phys
         void *r = allocate(p->contig, len);
         map(where, physical_from_virtual(r), len, p->pages);
-        rprintf("memset %p %x\n", where, len);
-        runtime_memset(pointer_from_u64(where), 0, len); // seems like people assume?
+        rprintf("zero %p %x\n", where, len);
+        zero(pointer_from_u64(where), len); // seems like people assume?
         return pointer_from_u64(where);
     }
     
@@ -171,26 +177,19 @@ static void *mmap(void *target, u64 size, int prot, int flags, int fd, u64 offse
     u64 psize = buffer_length(b);
     if (size < psize) psize = size;
     psize = pad(psize, PAGESIZE);
-    
-    void *vwhere = target;
-    if (!vwhere) {
-        // use an allocator
-        vwhere = current->p->valloc;
-        current->p->valloc += psize;
-    }
         
-    map(u64_from_pointer(vwhere), physical_from_virtual(b->contents + offset), psize, p->pages);
+    map(u64_from_pointer(where), physical_from_virtual(b->contents + offset), psize, p->pages);
 
     if (size > psize) {
         u64 bss = pad(size, PAGESIZE) - psize;
         void *empty = allocate(p->contig, bss);
         map(u64_from_pointer(p->valloc), physical_from_virtual(empty), bss, p->pages);
-        rprintf("memset %p %x\n", p->valloc, bss);
-        runtime_memset(p->valloc,0, bss);        
+        rprintf("zero %p %x\n", where, len);        
+        zero(p->valloc, bss);        
         p->valloc += bss;
     }
 
-    return vwhere;
+    return pointer_from_u64(where);
 }
 
 static void fill_stat(u64 where, u64 len, struct stat *s)
@@ -211,7 +210,6 @@ static int fstat(int fd, struct stat *s)
         return 0;
     }
     
-    rprintf("fstat %d\n", fd);
     buffer b = (buffer)current->p->files[fd].state;
     fill_stat(u64_from_pointer(b->contents) - u64_from_pointer(current->p->filesystem->contents),
               buffer_length(b), s);
@@ -328,6 +326,7 @@ u64 syscall()
     case SYS_access: return access(pointer_from_u64(a[0]), a[1]);
     case SYS_getpid: return current->p->pid;
     case SYS_arch_prctl: return arch_prctl(a[0], a[1]);
+    case SYS_mremap: return u64_from_pointer(mremap(pointer_from_u64(a[0]), a[1], a[2], a[3], pointer_from_u64(a[4])));        
     case SYS_futex: return futex(pointer_from_u64(a[0]), a[1], a[2], pointer_from_u64(a[3]),
                                  pointer_from_u64(a[4]),a[5]);
 

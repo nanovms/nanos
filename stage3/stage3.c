@@ -37,45 +37,8 @@ void set_syscall_handler(void *syscall_entry)
     write_msr(EFER_MSR, read_msr(EFER_MSR) | EFER_SCE);
 }
 
-// returns entry address.. need the base of the elf also for ld.so
-// bss is allocated virtual and double mapped. should pass
-// a physical allocator
-void *load_elf(void *base, u64 offset, heap pages, heap bss)
-{
-    Elf64_Ehdr *elfh = base;
 
-    // ld.so cant be loaded at its ph location, 0
-    // also - write a virtual address space allocator that
-    // maximizes sparsity
-    // xxx looks like a page table setup problem?
-
-    for (int i = 0; i< elfh->e_phnum; i++){
-        Elf64_Phdr *p = elfh->e_phoff + base + i * elfh->e_phentsize;
-        if (p->p_type == PT_LOAD) {
-            // unaligned segment? uncool bro
-            u64 vbase = (p->p_vaddr & ~MASK(PAGELOG)) + offset;
-            int ssize = pad(p->p_memsz + (p->p_vaddr & MASK(PAGELOG)), PAGESIZE);
-            map(vbase, physical_from_virtual((void *)(base+p->p_offset)), ssize, pages);
-            // ok, its too late.. this seems wrong..or at least incomprehensible
-            // damn pagey stuff
-            void *bss_start = (void *)vbase + p->p_filesz + (p->p_vaddr & MASK(PAGELOG));
-            u32 bss_size = p->p_memsz-p->p_filesz;
-            // omfg, bss is a mess
-            rprintf("bss: %x %x\n", bss_start, bss_start + bss_size);
-
-            u32 already_pad = PAGESIZE - bss_size & MASK(PAGELOG);
-            if ((bss_size > already_pad)) {
-                u32 new_pages = pad(bss_size, PAGESIZE);
-                u64 phy = physical_from_virtual(allocate(bss, new_pages));
-                map(u64_from_pointer(bss_start), phy, new_pages, pages);
-            }            
-            runtime_memset(bss_start, 0, bss_size);
-        }
-    }
-    u64 entry = elfh->e_entry;
-    entry += offset; // see above
-    return pointer_from_u64(entry);
-}
+u8 userspace_random_seed[16];
 
 void startup(heap pages, heap general, heap contiguous)
 {
@@ -93,10 +56,12 @@ void startup(heap pages, heap general, heap contiguous)
     thread t = create_thread(p);
     
     // vm space allocation
-        
+    // take these from the filesystem
+    // look up the interpreter from the program header like we're supposed to
     void *ldso = load_elf(&_ldso_start,0x400000000, pages, contiguous);
     void *user_entry = load_elf(&_program_start,0, pages, contiguous);
 
+    rprintf("ldso start: %p\n", ldso);
     // get virtual load address - passing the backing confuses ld.so
     Elf64_Ehdr *elfh = (Elf64_Ehdr *)&_program_start;
     void *va;
@@ -107,6 +72,10 @@ void startup(heap pages, heap general, heap contiguous)
     }
     
     map(0, PHYSICAL_INVALID, PAGESIZE, pages);
+
+    u8 seed = 0x3e;
+    for (int i = 0; i< sizeof(userspace_random_seed); i++)
+        userspace_random_seed[i] = (seed<<3) ^ 0x9e;
     
     // extract this stuff (args, env, auxp) from the 'filesystem'    
     struct {u64 tag; u64 val;} auxp[] = {
@@ -114,6 +83,7 @@ void startup(heap pages, heap general, heap contiguous)
         {AT_PHENT, elfh->e_phentsize},
         {AT_PHNUM, elfh->e_phnum},
         {AT_PAGESZ, PAGESIZE},
+        {AT_RANDOM, u64_from_pointer(userspace_random_seed)},        
         {AT_ENTRY, u64_from_pointer(user_entry)}};
     char *envp[]= {"foo=1", "bar=2"};
     char *cargv[] = {"program", "arg1"};

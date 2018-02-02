@@ -65,6 +65,37 @@ void notreally(heap h, void *z, bytes length)
 {
 }
 
+u64 read_file(buffer out, buffer name, u64 *length)
+{
+    struct stat st;
+    push_character(name, 0);
+    // xxx -- all files are page aligned and padded, because
+    // we might be doing linky things. that isn't necessary
+    // for many files, and we should also be able to
+    // allocate more tightly around them..in particular
+    // by keeping a single small region in the pad to fill
+    char *fn = (char *)(name->contents+name->start);
+    int fd = open(fn, O_RDONLY);
+    if (fd < 0) {
+        write(2, "couldn't open file ", 19);
+        write(2, name->contents + name->start, buffer_length(name) -1);
+        write(2, "\n", 1);        
+        exit(-1);
+    }
+    u64 foff = pad(out->end, 4096);
+    fstat(fd, &st);
+    u64 psz = pad(st.st_size, 4096);
+    u64 total = foff-out->end + psz;
+    buffer_extend(out, foff-out->end + psz);
+    read(fd, out->contents + foff, st.st_size);
+    *length = st.st_size;
+    // trying to paint in parts of the bss :(
+    zero(out->contents + foff + st.st_size, psz-st.st_size);
+    out->end += total;
+    return foff;
+}
+
+    
 // merge this into storage somehow
 u64 serialize(buffer out, table t)
 {
@@ -72,24 +103,19 @@ u64 serialize(buffer out, table t)
     u64 off = init_storage(out, t->count);
 
     table_foreach(t, k, v)  {
-        if (k == contents) {
-            buffer name = (buffer)v;
-            struct stat st;
-            push_character(name, 0);
-            // xxx -- all files are page aligned and padded, because
-            // we might be doing linky things. that isn't necessary
-            // for many files, and we should also be able to
-            // allocate more tightly around them
-            int fd = open((char *)name->contents, O_RDONLY);
 
-            u64 foff = pad(out->end, 4096);
-            fstat(fd, &st);
-            u64 psz = pad(st.st_size, 4096);
-            u64 total = foff-out->end + psz;
-            buffer_extend(out, foff-out->end + psz);
-            read(fd, out->contents + foff, st.st_size);
-            out->end += total;
-            storage_set(out, off, k, foff, st.st_size);        
+        if (k == contents) {
+            buffer b = v;
+            if (*(u8 *)buffer_ref(v, 0) == '@') {
+                b->start += 1; 
+                u64 length;
+                u64 foff = read_file(out, (buffer)v, &length);
+                storage_set(out, off, k, foff, length);
+            } else {
+                u64 foff = out->end;
+                buffer_write(out, b->contents + b->start, buffer_length(b));
+                storage_set(out, off, k, foff,  buffer_length(b));
+            }
         } else {
             storage_set(out, off, k, serialize (out, (table)v), 0);
         }

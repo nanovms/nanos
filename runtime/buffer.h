@@ -60,7 +60,8 @@ static inline void extend_total(buffer b, int offset)
 {
     if (offset > b->end) {
         buffer_extend(b, offset - b->end);
-        memset(b->contents + b->end, 0, offset - b->end);
+        // shouldn't need to 
+        zero(b->contents + b->end, offset - b->end);
         b->end = offset;
     }
 }
