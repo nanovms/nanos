@@ -5,9 +5,9 @@
 #include <fcntl.h>
 #include <stdio.h>
 
-static void *malloc_allocator(heap h, bytes s)
+static u64 malloc_allocator(heap h, bytes s)
 {
-    return malloc(s);
+    return (u64)malloc(s);
 }
 
 static buffer files, contents;
@@ -61,7 +61,7 @@ static table parse_mappings(heap h, buffer desc)
     return root;
 }
 
-void notreally(heap h, void *z, bytes length)
+void notreally(heap h, u64 z, bytes length)
 {
 }
 

@@ -1,74 +1,58 @@
-#include <runtime.h>
+#include <sruntime.h>
 #include <system.h>
 #include <system_structs.h>
 
-extern u64 cpuid();
-extern u64 read_msr(u64);
-extern void write_msr(u64, u64);
-extern u64 read_xmsr(u64);
-extern void write_xmsr(u64, u64);
-extern void syscall_enter();
-extern u64 *frame;
-
-#define EFER_MSR 0xc0000080
-#define EFER_SCE 1
-#define STAR_MSR 0xc0000081
-#define LSTAR_MSR 0xc0000082
-#define SFMASK_MSR 0xc0000084
-
-extern void *_ldso_start;
-extern void *_program_start;
-extern void *_fs_start;
-extern void *_fs_end;
-
-buffer filesystem;
-
-void set_syscall_handler(void *syscall_entry)
-{
-    u64 cs  = 0x08;
-    u64 ss  = 0x10;
-
-    // ooh baby, virtual
-    write_msr(LSTAR_MSR, u64_from_pointer(syscall_entry));
-    // 48 is sysret cs, and ds is cs + 16...so fix the gdt for return
-    // 32 is syscall cs, and ds is cs + 8
-    write_msr(STAR_MSR, (cs<<48) | (cs<<32));
-    write_msr(SFMASK_MSR, 0);
-    write_msr(EFER_MSR, read_msr(EFER_MSR) | EFER_SCE);
-}
-
-
 u8 userspace_random_seed[16];
 
-void startup(heap pages, heap general, heap contiguous)
+typedef struct virtual_address_allocator {
+    heap h;
+    u64 offset;
+} *virtual_address_allocator; 
+    
+static u64 virtual_address_allocate(heap h)
+{
+    virtual_address_allocator v = (virtual_address_allocator) h;
+    u64 result = v->offset;
+    v->offset += (1ull<<32ull);
+    return result;
+}
+
+void startup(heap pages, heap general, heap physical, buffer filesystem)
 {
 
     u64 c = cpuid();
     
     set_syscall_handler(syscall_enter);
 
-    filesystem = allocate(general, sizeof(struct buffer));
-    filesystem->contents = &_fs_start;
-    filesystem->length = filesystem->end = &_fs_end - &_fs_start;
-    filesystem->start = 0;
-
-    process p = create_process(general, pages, contiguous, filesystem);
+    process p = create_process(general, pages, physical, filesystem);
     thread t = create_thread(p);
-    
-    // vm space allocation
-    // take these from the filesystem
-    // look up the interpreter from the program header like we're supposed to
-    void *ldso = load_elf(&_ldso_start,0x400000000, pages, contiguous);
-    void *user_entry = load_elf(&_program_start,0, pages, contiguous);
 
-    rprintf("ldso start: %p\n", ldso);
-    // get virtual load address - passing the backing confuses ld.so
-    Elf64_Ehdr *elfh = (Elf64_Ehdr *)&_program_start;
+
+    buffer program_name = storage_buffer(general, filesystem, staticvector(staticbuffer("program")));
+    void *pstart;
+    u64 plength;
+    if (!storage_resolve(filesystem, split(general, program_name, '/'), &pstart, &plength ))
+        halt("no program entry %b\n", program_name);
+
+    void *user_entry = load_elf(pstart,0, pages, physical);        
+    void *ldso;
+    vector elf_interpreter;
+    
+    Elf64_Ehdr *elfh = (Elf64_Ehdr *)pstart;
     void *va;
     for (int i = 0; i< elfh->e_phnum; i++){
-        Elf64_Phdr *p = elfh->e_phoff + ((void *)&_program_start) + i * elfh->e_phentsize;
+        Elf64_Phdr *p = pstart + elfh->e_phoff + (i * elfh->e_phentsize);
         if ((p->p_type == PT_LOAD)  && (p->p_offset == 0))
             va = pointer_from_u64(p->p_vaddr);
+        if (p->p_type == PT_INTERP) {
+        }
+    }
+    
+    if (storage_resolve(filesystem, elf_interpreter, &ldso, &plength)){
+        // use virtual allocator
+        ldso = load_elf(ldso, 0x400000000, pages, physical);
+    } else {
+        halt("no such elf interpreter %b\n", elf_interpreter);
     }
     
     map(0, PHYSICAL_INVALID, PAGESIZE, pages);
@@ -85,14 +69,6 @@ void startup(heap pages, heap general, heap contiguous)
         {AT_PAGESZ, PAGESIZE},
         {AT_RANDOM, u64_from_pointer(userspace_random_seed)},        
         {AT_ENTRY, u64_from_pointer(user_entry)}};
-    char *envp[]= {"foo=1", "bar=2"};
-    char *cargv[] = {"program", "arg1"};
-    int cargc = sizeof(cargv)/sizeof(void *);
-    int i;
-
-    // this should actually effect the exec...set this
-    // up on the threads stack
-    run(t);
 
     __asm__("push $0"); // end of auxp
     __asm__("push $0");
@@ -103,18 +79,29 @@ void startup(heap pages, heap general, heap contiguous)
     } 
     
     __asm__("push $0"); // end of envp
-
-    for (int i = 0; i< sizeof(envp)/sizeof(void *); i++)
-        __asm__("push %0"::"m"(envp[i]));
+    storage_foreach(filesystem, staticvector(staticbuffer("environment")), name, value) {
+        buffer b = allocate_buffer(general, buffer_length(name)+buffer_length(value)+2);        
+        buffer_write(b, name->contents, buffer_length(name));
+        push_character(b, '=');
+        buffer_write(b, value->contents, buffer_length(value));
+        push_character(b, 0);
+        void *z = b->contents;
+        __asm__("push %0"::"m"(z));
+    }
 
     __asm__("push $0"); // end of argv
-        
-    for (int i = 0; i < cargc; i++)
-        __asm__("push %0"::"m"(cargv[i]));
-
-    __asm__("push %0"::"m"(cargc));
-    __asm__("jmp *%0"::"m"(ldso));
-    // intead of jump
-    run(t); // 
+    int argc=0;
+    storage_vector_foreach(filesystem, "/args", i, v) {
+        buffer b = allocate_buffer(general, buffer_length(v) + 1);
+        buffer_write(b, b->contents, b->length);
+        push_character(b, 0);
+        argc++;
+        void *z = b->contents;
+        __asm__("push %0"::"m"(z));
+    }
+    __asm__("push %0"::"m"(argc));
+    
+    t->frame[FRAME_RIP] = u64_from_pointer(ldso);
+    run(t);
 }
 

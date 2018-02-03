@@ -2,8 +2,6 @@
 typedef u8 regionbody[20];
 typedef regionbody *region;
 
-#define INVALID_ADDRESS ((void *)0xffffffffffffffffull)
-
 #define region_base(__r) (((u64 *)__r)[0])
 #define region_length(__r) (((u64 *)__r)[1])
 #define region_type(__r) (((u32 *)__r)[4])
@@ -12,6 +10,8 @@ typedef regionbody *region;
 #define REGION_PHYSICAL 1
 #define REGION_DEVICE 2
 #define REGION_VIRTUAL 3
+#define REGION_IDENTITY 4
+#define REGION_VERBOTEN 5 // identity but allocated
 
 static inline region create_region(u64 base, u64 length, int type)
 {
@@ -27,40 +27,33 @@ static inline region create_region(u64 base, u64 length, int type)
 
 typedef struct region_heap {
     struct heap h;
-    region r;
+    int type;
 } *region_heap;
 
-    
-static inline void *allocate_region(heap h, bytes size)
-{
-    region_heap rh = (region_heap)h;    
-    if (region_length(rh->r) < size) return INVALID_ADDRESS;
-    void *result = pointer_from_u64(region_base(rh->r));
-    region_base(rh->r) += size;
-    region_length(rh->r) -= size;
-    return result;
-}
 
-static inline void *allocate_region_top(heap h, bytes size)
+// fix complexity
+static inline u64 allocate_region(heap h, bytes size)
 {
     region_heap rh = (region_heap)h;
-    if (region_length(rh->r) < size) return INVALID_ADDRESS;    
-    void *result = pointer_from_u64(region_base(rh->r) + region_length(rh->r) - size);
-    region_length(rh->r) -= size;
-    return result;
+    u64 len = pad(size, h->pagesize);
+    
+    for (region e = regions; region_type(e);e -= 1) {
+        if ((region_type(e) == rh->type) && (region_length(e) >= len)){
+            u64 result = region_base(e);
+            region_base(e) += size;
+            region_length(e) -= size;
+            return result;
+        }
+    }
+    return u64_from_pointer(INVALID_ADDRESS);
 }
 
-static inline heap region_allocator(region_heap h, region e, u64 pagesize)
+static inline heap region_allocator(heap h, u64 pagesize, int type)
 {
-    h->h.allocate = allocate_region;
-    h->h.pagesize = pagesize;
-    h->r = e;
+    region_heap rh = allocate(h, sizeof(struct region_heap));
+    rh->h.allocate = allocate_region;
+    rh->h.pagesize = pagesize;
+    rh->type = type;
     return (heap)h;
 }
 
-static inline heap region_allocator_top(region_heap h, region e)
-{
-    h->h.allocate = allocate_region_top;
-    h->r = e;
-    return (heap)h;
-}

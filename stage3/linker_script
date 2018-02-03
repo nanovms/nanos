@@ -7,8 +7,6 @@ SECTIONS
   .text : { *(.text)}
   .rodata : { *(.rodata)}
   .data ALIGN(4096) : { *(.data) }
-  .ldso ALIGN(4096) : { *(.data) }
   .fs ALIGN(4096) : { *(.data) }  
-  .program ALIGN(4096) : { *(.program) }  
   .bss  ALIGN(32): { *(.bss) }
 }

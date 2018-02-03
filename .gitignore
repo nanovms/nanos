@@ -17,3 +17,5 @@ image
 boot/boxxy
 stage3/fs
 mkfs/mkfs
+runtime/contgen
+runtime/continuation_templates.h

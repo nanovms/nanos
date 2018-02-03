@@ -1,4 +1,5 @@
 #include <runtime.h>
+#include <x86_64.h>
 
 #define PAGEMASK MASK(PAGELOG)
 #define PAGE_2M_SIZE (1<<7)

@@ -236,3 +236,9 @@ static inline boolean buffer_compare(void *za, void *zb)
     __name->length = __length;\
 
     
+#define staticbuffer(__x, __n) \
+    (__x)->contents = __n;                     \
+    (__x)->start = 0;                          \
+    (__x)->end = sizeof(__n) -1;               
+
+

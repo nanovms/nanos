@@ -1,8 +1,8 @@
 
 // should consider a drain function
 typedef struct heap {
-    void *(*allocate)(struct heap *h, bytes b);
-    void (*deallocate)(struct heap *h, void *a, bytes b);
+    u64 (*allocate)(struct heap *h, bytes b);
+    void (*deallocate)(struct heap *h, u64 a, bytes b);
     void (*destroy)();
     bytes pagesize;
     bytes allocated;
@@ -28,8 +28,10 @@ static inline int subdivide(int quantum, int per, int s, int o)
     return (pad(o + base, quantum));
 }
 
-#define allocate(__h, __b) ((__h)->allocate(__h, __b))
-#define deallocate(__h, __b, __s) ((__h)->deallocate(__h, __b, __s))
+#define allocate_u64(__h, __b) (__h)->allocate(__h, __b)
+#define allocate(__h, __b) pointer_from_u64(allocate_u64(__h, __b))
+
+#define deallocate(__h, __b, __s) ((__h)->deallocate(__h, u64_from_pointer(__b), __s))
 
 #define allocate_zero(__h, __b) ({\
         void *x = allocate(__h, __b);\

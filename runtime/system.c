@@ -1,7 +1,7 @@
-#include <runtime.h>
-#include <syscalls.h>
-#include <system_structs.h>
+#include <sruntime.h>
+#include <system.h>
 
+// allocator
 unsigned int process_count = 110;
 
 typedef struct file {
@@ -25,11 +25,6 @@ typedef struct process {
     // cwd here
 } *process;
 
-typedef struct thread {
-    process p;
-    u64 frame[19];
-} *thread;
-    
 thread current;
 
 // could really take the args directly off the function..maybe dispatch in
@@ -69,36 +64,6 @@ static int writev(int fd, iovec v, int count)
     return res;
 }
 
-#define staticbuffer(__x, __n) \
-    (__x)->contents = __n;                     \
-    (__x)->start = 0;                          \
-    (__x)->end = sizeof(__n) -1;               
-
-
-static boolean lookup(buffer fs, char *file, u64 *storage, u64 *slength)
-{
-    // oh right, we're supposed to keep track of cwd
-    u64 where = 0;
-    bytes length;
-    static struct buffer filesym;
-    little_stack_buffer(element, 1024);
-    
-    staticbuffer(&filesym, "files");
-    for (char *i =file + 1; *i; i++) {
-        if (*i == '/') {
-            if (!storage_lookup(fs, where, &filesym, &where, &length)) return false;
-            if (!storage_lookup(fs, where, element, &where, &length)) return false;
-            element->start = element->end = 0;
-        } else push_character(element, *i);
-    }
-    if (!storage_lookup(fs, where, &filesym, &where, &length)) return false;
-    if (!storage_lookup(fs, where, element, &where, &length)) return false;
-    *storage =  where;
-    *slength = length;
-    return true;
-}
-
-
 static int access(char *name, int mode)
 {
     u64 where = 0;
@@ -115,11 +80,12 @@ static int open(char *name, int flags, int mode)
     static struct buffer contents;
     staticbuffer(&contents, "contents");
     rprintf("open %s\n", name);
-    if (!lookup(current->p->filesystem, name, &where, &length)) {
+    if (!storage_resolve(current->p->filesystem, name, &where, &length)) 
         return -ENOENT;
-    }
+
     // policy on opening directories?
-    if (!storage_lookup(current->p->filesystem, where, &contents, &w2, &length)) return -ENOENT;
+    if (!storage_lookup(current->p->filesystem, where, &contents, &w2, &length))
+        return -ENOENT;
     
 
     // vector split....xxx - chuck the mandatory leading slash..        
@@ -144,7 +110,26 @@ static int open(char *name, int flags, int mode)
 
 void *mremap(void *old_address, u64 old_size,  u64 new_size, int flags,  void *new_address )
 {
+    // this seems poorly thought out - what if there is a backing file?
+    // and if its anonymous why do we care where it is..i guess this
+    // is just for large realloc operations? if these aren't aligned
+    // its completely unclear what to do
     rprintf ("mremap %p %x %x %x %p\n", old_address, old_size, new_size, flags, new_address);
+    u64 align =  ~MASK(PAGELOG);
+    if (new_size > old_size) {
+        u64 diff = pad(new_size - old_size, PAGESIZE);
+        u64 base = u64_from_pointer(old_address + old_size) & align;
+        void *r = allocate(current->p->contig, diff);
+        if (u64_from_pointer(r) == PHYSICAL_INVALID) {
+            // MAP_FAILED
+            return r;
+        }
+        rprintf ("new alloc %p %x\n", r, diff);
+        map(base, physical_from_virtual(r), diff, current->p->pages);
+        zero(pointer_from_u64(base), diff); 
+    }
+    //    map(u64_from_pointer(new_address)&align, physical_from_virtual(old_address), old_size, current->p->pages);
+    return old_address;
 }
 
 
@@ -162,6 +147,7 @@ static void *mmap(void *target, u64 size, int prot, int flags, int fd, u64 offse
     }
         
     // merge these two cases to the extent possible
+    // make a generic zero page function
     if (flags & MAP_ANONYMOUS) {
         void *r = allocate(p->contig, len);
         map(where, physical_from_virtual(r), len, p->pages);
@@ -263,9 +249,6 @@ static int stat(char *name, struct stat *s)
     return 0;
 }
 
-#define FS_MSR 0xc0000100
-#define GS_MSR 0xc0000101
-
 extern void write_msr(u64 a, u64 b);
 static int arch_prctl(int code, unsigned long a)
 {
@@ -336,7 +319,7 @@ u64 syscall()
     }
 }
 
-extern void *frame;
+extern u64 *frame;
 void run(thread t)
 {
     // should be the same, fix the interrupt and syscall handlers...or leave them

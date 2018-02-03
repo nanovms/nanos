@@ -89,6 +89,7 @@ typedef struct {
  */
 
 #define PT_LOAD 1
+#define PT_INTERP 3
 
 
 /* Values for p_flags. */

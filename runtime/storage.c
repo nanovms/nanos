@@ -68,24 +68,28 @@ void storage_set(buffer b, u64 start, buffer key, u64 voff, u64 vlen)
 }
 
 
-// key and value and length + offset
-void iterate(buffer b, u64 start, void (*f)(buffer b, u64 klen, void *key, u64 vlen, u64 voff))
+boolean storage_resolve(buffer fs, vector path, void **storage, u64 *slength)
 {
-    u32 count = *bucket_count(b, start);
-    offset *k = buckets(b, start);
-    for (offset i; i < count; i++) {
-        offset where = k[i];
-        while (where) {
-            offset *e = b->contents + (where<<ENTRY_ALIGNMENT_LOG);
-            u32 klen = e[3];
-            u32 vlen = e[2];
-            void *key = k+where;
-            f(b, klen, key, vlen, (e[1]<<ENTRY_ALIGNMENT_LOG));
-            where = e[0];
-        }   
+    // oh right, we're supposed to keep track of cwd
+    u64 where = 0;
+    bytes length;
+    static struct buffer filesym;
+    little_stack_buffer(element, 1024);
+    
+    staticbuffer(&filesym, "files");
+    buffer i;
+    vector_foreach(i, path) {
+        if (!storage_lookup(fs, where, &filesym, &where, &length)) return false;
+        if (!storage_lookup(fs, where, element, &where, &length)) return false;
+        element->start = element->end = 0;
     }
+    if (!storage_lookup(fs, where, &filesym, &where, &length)) return false;
+    if (!storage_lookup(fs, where, element, &where, &length)) return false;
+    *storage =  fs->contents + where;
+    *slength = length;
+    return true;
 }
- 
+
 u64 init_storage(buffer b, int buckets)
 {
     u64 off = b->end;

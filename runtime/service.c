@@ -1,4 +1,4 @@
-#include <runtime.h>
+#include <sruntime.h>
 #include <pci.h>
 
 static struct region_heap generalh;
@@ -10,11 +10,38 @@ status allocate_status(char *x, ...)
     console(x);
 }
 
+typedef struct virtual_heap {
+    heap physical;
+    heap pages;
+    u64 offset;
+    u64 length;
+} *virtual_heap;
 
-//void *memset(void *a, int val, unsigned long length)
-//{
-//    for (int i = 0 ; i < length; i++) ((u8*)a)[i]=val;
-//}
+
+u64 allocate_virtual(heap h, bytes size)
+{
+    virtual_heap v = (void *)h;
+    int len = pad(size, v->physical->pagesize);
+    u64 phy = allocate_u64(v->physical, len);
+    map(v->offset, phy, size, v->pages);
+    u64 result = v->offset;
+    v->offset += len;
+    v->length -= len;
+    return result;
+}
+
+
+heap virtual_allocator(heap physical, heap metadata, heap pages, u64 start_address, u64 length)
+{
+    // need to mark off virtual regions that are pre-allocated, or do it
+    // constructively
+    virtual_heap v = allocate(metadata, sizeof(struct virtual_heap));
+    v->physical = physical;
+    v->pages = pages;
+    v->length = length;
+    v->offset = start_address;
+    return (heap)v;
+}
 
 handler *handlers;
 
@@ -22,83 +49,36 @@ extern void enable_lapic();
 extern void start_interrupts();
 extern void startup();
 
-u64 virtual_region_base = 0x100000000;
-u64 virtual_region_offset = 0x100000000;
-
-region create_virtual_region(region r)
-{
-    // try to pad to 2m..right now its a distraction
-    //    u64 m2 = 1<<21;
-    //    u64 pb = pad(region_base(r), m2);
-    //    u64 pl = (region_length(r) - pb - region_base(r)) & MASK(21);
-    
-    u64 pb = region_base(r);
-    u64 pl = region_length(r);
-    region v = create_region(virtual_region_base, pl, REGION_VIRTUAL);
-    map(region_base(v) , pb, pl, (heap)&pagesh);
-    virtual_region_base += virtual_region_offset;
-    // it would be .. nice? if the virtual region could
-    // deplete the physical region? 
-    region_length(v) = region_length(r);
-    return v;
-}
+extern void *_fs_start;
+extern void *_fs_end;
 
 void init_service(u64 passed_base)
 {
+    heap working;
     region k[2]={0};
 
     // gonna assume there are two regions. we'reagonna take the little
     // one for pages, and the big one for stuff
 
+    // make a 2m physical, and then a feeder 4k that breaks those up
     for (region e = regions; region_type(e); e--) {
-        if (region_type(e) == 1) {
-            if (k[0] == 0) {
-                k[0] = e;
-            } else {
-                if (region_length(k[0]) < region_length(e)) {
-                    k[1] = k[0];
-                    k[0] = e;
-                } else {
-                    if (k[1] == 0) {
-                        k[1] = e;
-                    } else {
-                        if (region_length(k[1]) < region_length(e)) {
-                            k[1] = e;
-                        }
-                    }
-                }
-            }
-        }
+        rprintf("%p %x", region_base(e), region_length(e));
     }
-    region_allocator(&pagesh, k[1], PAGESIZE);
-    u64 split = region_length(k[0])/2;
-    region c = create_region(region_base(k[0]) + split, split, REGION_PHYSICAL);
-    
-    region_length(k[0]) = split;
-    region_allocator(&generalh, create_virtual_region(k[0]), 1);
-    region_allocator(&contiguoush, create_virtual_region(c), PAGESIZE);
 
-    u64 stacksize = 16384;
+    heap pages = region_allocator(working, REGION_IDENTITY, PAGESIZE);
+    // a little leaky fed off a virtual
+    heap general;
+    
+    buffer filesystem = allocate(general, sizeof(struct buffer));
+    filesystem->contents = &_fs_start;
+    filesystem->length = filesystem->end = &_fs_end - &_fs_start;
+    filesystem->start = 0;
+    
+    u64 stacksize = 4*PAGESIZE;
+    // some virtual with blocks?
     void *stack = allocate((heap)&contiguoush, stacksize) + stacksize - 8;
     asm ("mov %0, %%rsp": :"m"(stack));
     start_interrupts((heap)&pagesh, (heap)&generalh, (heap)&contiguoush);
-    // should translate into constructing a frame and an iret call (thread create)
-    // pci_checko();
-    startup((heap)&pagesh, (heap)&generalh, (heap)&contiguoush);
-    //  this is the musl start - move somewhere else
-    //        char *program = "program";
-    // extern void __libc_start_main(int (*)(int, char **, char**), int, char **);;
-    // __libc_start_main(main, 1, &program);
-}
-
-extern void *gallocate(unsigned long a);
-// for lwip
-void *calloc(size_t nmemb, size_t b)
-{
-    allocate_zero((heap)&generalh, (unsigned long)b);
-}
-
-void *gallocate(unsigned long b)
-{
-    return(allocate((heap)&generalh, (unsigned long)b));
+     // pci_checko(); - fix driver registration
+    startup((heap)&pagesh, (heap)&generalh, (heap)&contiguoush, filesystem);
 }
