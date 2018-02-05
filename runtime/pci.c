@@ -1,4 +1,4 @@
-#include <runtime.h>
+#include <sruntime.h>
 #include <pci.h>
 
 #define CONF1_ADDR_PORT    0x0cf8

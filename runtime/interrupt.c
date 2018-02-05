@@ -92,7 +92,8 @@ static char* textoreg[] = {
 
 u64 * frame;
 
-extern handler *handlers;
+static thunk *handlers;
+
 void *apic_base = (void *)0xfee00000;
 
 void lapic_eoi()
@@ -132,8 +133,9 @@ void common_handler()
 static u8 unused_msi = 0x1;
 static u8 unused_vector = 34;
 
-u8 allocate_msi(handler h)
+u8 allocate_msi(thunk h)
 {
+    // allocators
     int v = unused_vector++;
     int m = unused_msi++;
     handlers[v] = h;
@@ -155,9 +157,9 @@ void enable_lapic(heap pages)
 }
 
 
-void register_interrupt(int vector, handler h)
+void register_interrupt(int vector, thunk t)
 {
-    handlers[vector] = h;
+    handlers[vector] = t;
 }
 
 void start_interrupts(heap pages, heap general, heap contiguous)
@@ -166,11 +168,11 @@ void start_interrupts(heap pages, heap general, heap contiguous)
     // synthesize them
     int delta = (u64)&interrupt1 - (u64)&interrupt0;
     void *start = &interrupt0;
-    handlers = allocate_zero(general, interrupt_size * sizeof(handler));
+    handlers = allocate_zero(general, interrupt_size * sizeof(thunk));
 
     // assuming contig gives us a page aligned, page padded identity map
-    idt = allocate(contiguous, contiguous->pagesize);
-    frame = allocate(contiguous, contiguous->pagesize);
+    idt = allocate(pages, pages->pagesize);
+    frame = allocate(pages, pages->pagesize);
 
     for (int i = 0; i < interrupt_size; i++) 
         write_idt(idt, i, start + i * delta);

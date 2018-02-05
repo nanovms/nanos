@@ -14,6 +14,9 @@ fs.o: fs
 	objcopy -I binary -O elf64-x86-64 -B i386:x86-64 --redefine-sym _binary_$(FSNAME)_end=_fs_end --redefine-sym _binary_$(FSNAME)_start=_fs_start $< $@
 	objcopy --rename-section .data=.fs fs.o fs.o
 
+$(ROOT)/runtime/closure_templates.h:
+	cd $(ROOT)/runtime ; make $(ROOT)/runtime/closure_templates.h
+
 $(ROOT)/boot/boot: force
 	cd $(ROOT)/boot ; make
 
@@ -23,7 +26,7 @@ $(ROOT)/mkfs/mkfs: force
 fs: $(ROOT)/mkfs/mkfs filesystem
 	$(ROOT)/mkfs/mkfs < filesystem > fs
 
-stage3: fs.o stage3.o system.o $(STANDALONE) 
+stage3: fs.o stage3.o $(STANDALONE) 
 	ld -e_start -T linker_script -nostdlib $^ -o stage3
 
 .c.o:

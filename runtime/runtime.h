@@ -63,23 +63,6 @@ physical vtop(void *x);
 
 // fc is boot sig
 #define cprintf(...)
-#define apply(__h, ...) ((__h->f)(__h->a))
-
-
-// continuations
-typedef struct handler {
-    void (*f)(void *);
-    void *a;
-} *handler;
-    
-static inline handler allocate_handler(heap h, void (*f)(void *), void *a)
-{
-    handler r = allocate(h, sizeof(struct handler));
-    r->f = f;
-    r->a = a;
-    return(r);
-}
-
 
 #include <elf64.h>
 
@@ -94,15 +77,17 @@ void map(u64 virtual, physical p, int length, heap h);
 
 static inline void zero(void *x, bytes length)
 {
-    u64 *start = pointer_from_u64(pad(u64_from_pointer(x) , 8));
-    u64 aligned = (u64_from_pointer(start) + length)>>3;
-    u8 *end = (u8 *)(start + aligned);
-    u64 final = u64_from_pointer(start +length - aligned * 8);
+    u64 *start = pointer_from_u64(pad(u64_from_pointer(x), 8));
+    u64 first = u64_from_pointer((void *)start - x);
+    if (first > length) first = length;
+    u64 aligned = (length - first) >>3;
+    u8 *end = (u8 *)(start + first+aligned);
+    u64 final = length - aligned*8 - first;
 
-    for (int i =0; i < ((void *)start - x); i++) *(u8 *)(x + i) = 0;
+    for (int i =0; i < first; i++) *(u8 *)(x + i) = 0;
     // rep, movent
     for (int i =0; i < aligned; i++) start[i] = 0;
-    for (int i =0; i < final; i++) *(u8 *)(end + i) = 0;    
+    for (int i =0; i < final; i++) end[i] = 0;        
 }
 
 #define varg __builtin_va_arg
@@ -143,3 +128,5 @@ static inline void rprintf(char *format, ...)
 
 void *load_elf(void *base, u64 offset, heap pages, heap bss);
 #include <storage.h>
+#include <closure.h>
+#include <closure_templates.h>

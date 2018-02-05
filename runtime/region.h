@@ -51,7 +51,7 @@ static inline u64 allocate_region(heap h, bytes size)
 static inline heap region_allocator(heap h, u64 pagesize, int type)
 {
     region_heap rh = allocate(h, sizeof(struct region_heap));
-    rh->h.allocate = allocate_region;
+    rh->h.alloc = allocate_region;
     rh->h.pagesize = pagesize;
     rh->type = type;
     return (heap)h;

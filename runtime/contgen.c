@@ -67,45 +67,26 @@ void pi(char *fmt, ...)
 
 void cblock()
 {
-    p("#define CONTINUATION_%_%(_name^~)|", nleft, nright, ", _l%", ", _r%");
+    p("#define CLOSURE_%_%(_name, _rettype^~)|", nleft, nright, ", _l%", ", _r%");
     
-    p("void _name(^~);|", "@_l%", "@_r%");
+    p("_rettype _name(^~);|", "@_l%", "@_r%");
     
-    p("struct _continuation_##_name{|");
-    p("  void (*_apply)(void *~);|", ", _r%");
-    p("  void (*_rclose)(heap, void *~);|", ", _r%");
+    p("struct _closure_##_name{|");
+    p("  _rettype (*_apply)(void *~);|", ", _r%");
     p("  char *name;|");
     for (int i = 0; i < nleft ; i++)  p("  _l% l%;|", i, i);
     p("};|");
     
-    p("static void _apply_##_name(void *z~){|", ", _r% r%");
-    p("  struct _continuation_##_name *n = z;|");
-    p("  _name(^~);|", "@n->l%", "@r%");
+    p("static _rettype _apply_##_name(void *z~){|", ", _r% r%");
+    p("  struct _closure_##_name *n = z;|");
+    p("  return _name(^~);|", "@n->l%", "@r%");
     p("}|");
 
-    p("struct _rcontinuation_##_name{|");
-    p("  void (*rapply)(void *);|");
-    p("  struct _continuation_##_name *close;|");
-    for (int i = 0; i < nright ; i++) p("  _r% r%;|", i, i);
-    p("};|");
-
-    p("static void _runwrap_##_name(void *z){|");
-    p("  struct _rcontinuation_##_name *n = z;|");
-    p("  _name(^~);|", "@n->close->l%", "@n->r%");
-    p("}|");
-
-    p("static void _rclose_##_name(heap h, void *z~){|", ", _r% r%");
-    p("  struct _rcontinuation_##_name *n = allocate(h, sizeof(struct _rcontinuation_##_name));|");
-    p("  n->rapply = _runwrap_##_name;|");
-    for (int i = 0; i < nright ; i++)  p("  n->r% = r%;|", i, i);    
-    p("}|");
-
-    p("static void (**_fill_##_name(struct _continuation_##_name* n, heap h^))(void *~){|", ", _l% l%", ", _r%");
+    p("static _rettype (**_fill_##_name(struct _closure_##_name* n, heap h^))(void *~){|", ", _l% l%", ", _r%");
     p("  n->_apply = _apply_##_name;|");
-    p("  n->_rclose = _rclose_##_name;|");
     p("  n->name = #_name;|");
     for (int i = 0; i < nleft ; i++)  p("  n->l% = l%;|", i, i);
-    p("  return (void (**)(void *~))n;|", ", _r%");
+    p("  return (_rettype (**)(void *~))n;|", ", _r%");
     p("}\n\n");
 }
 

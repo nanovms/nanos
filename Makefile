@@ -15,6 +15,7 @@ lwip:
 clean:
 	cd boot ; make clean
 	cd example ; make clean
+	cd mkfs ; make clean
 	cd libc ; make clean
 	rm -f bootable
 

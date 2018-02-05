@@ -3,9 +3,9 @@
 #include <x86_64.h>
 #include <elf64.h>
 
-void register_interrupt(int vector, handler h);
+void register_interrupt(int vector, thunk t);
 void msi_map_vector(int slot, int vector);
-u8 allocate_msi(handler h);
+u8 allocate_msi(thunk h);
 
 extern void *pagebase;
 extern u64 *ptalloc();

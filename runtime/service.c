@@ -43,8 +43,6 @@ heap virtual_allocator(heap physical, heap metadata, heap pages, u64 start_addre
     return (heap)v;
 }
 
-handler *handlers;
-
 extern void enable_lapic();
 extern void start_interrupts();
 extern void startup();
@@ -69,10 +67,7 @@ void init_service(u64 passed_base)
     // a little leaky fed off a virtual
     heap general;
     
-    buffer filesystem = allocate(general, sizeof(struct buffer));
-    filesystem->contents = &_fs_start;
-    filesystem->length = filesystem->end = &_fs_end - &_fs_start;
-    filesystem->start = 0;
+    node filesystem = {&_fs_start,  &_fs_end - &_fs_start};
     
     u64 stacksize = 4*PAGESIZE;
     // some virtual with blocks?

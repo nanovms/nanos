@@ -1,6 +1,5 @@
 #include <sruntime.h>
 #include <system.h>
-#include <system_structs.h>
 
 u8 userspace_random_seed[16];
 
@@ -17,7 +16,7 @@ static u64 virtual_address_allocate(heap h)
     return result;
 }
 
-void startup(heap pages, heap general, heap physical, buffer filesystem)
+void startup(heap pages, heap general, heap physical, node filesystem)
 {
 
     u64 c = cpuid();
@@ -26,7 +25,6 @@ void startup(heap pages, heap general, heap physical, buffer filesystem)
 
     process p = create_process(general, pages, physical, filesystem);
     thread t = create_thread(p);
-
 
     buffer program_name = storage_buffer(general, filesystem, staticvector(staticbuffer("program")));
     void *pstart;

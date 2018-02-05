@@ -4,7 +4,7 @@
 typedef struct process *process;
 typedef struct thread *thread;
 
-process create_process(heap h, heap pages, heap contig, buffer filesystem);
+process create_process(heap h, heap pages, heap contig, node filesystem);
 thread create_thread(process);
 void run(thread);
 
@@ -15,3 +15,6 @@ typedef struct thread {
 } *thread;
 
 typedef struct process *process;
+
+typedef closure_type(io, int, void *, u64 length, u64 offset);
+typedef closure_type(fill_stat, void,  struct stat *);

@@ -18,4 +18,4 @@ boot/boxxy
 stage3/fs
 mkfs/mkfs
 runtime/contgen
-runtime/continuation_templates.h
+runtime/closure_templates.h

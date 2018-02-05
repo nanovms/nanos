@@ -26,25 +26,41 @@ static u64 stage2_allocator(heap h, bytes b)
 void centry()
 {
     struct heap workings;
-    workings.allocate = stage2_allocator;
+    workings.alloc = stage2_allocator;
     heap working = &workings;
     int sector_offset = (STAGE2SIZE>>sector_log) + (STAGE1SIZE>>sector_log);
 
-    for (region e = regions; ;e -= 1) {
+    // xxx - we can derive this from the physical region and the start of stage3    
+    for (region e = regions; region_type(e); e -= 1) {
+        if (IDENTITY_START == region_base(e)) 
+            region_base(e) = IDENTITY_END;
+    }
+    
+    for (region e = regions; region_type(e); e -= 1) {    
         console("region ");
         print_u64(region_base(e));
+        console(" ");
+        print_u64(region_type(e));
         console(" ");
         print_u64(region_length(e));
         console("\n");
     }
+        
 
     create_region(IDENTITY_START, IDENTITY_END-IDENTITY_START, REGION_IDENTITY);
+
     heap pages = region_allocator(working, REGION_IDENTITY, PAGESIZE);
+    
     // remove identity page region from phy
     heap physical = region_allocator(working, REGION_PHYSICAL, PAGESIZE);    
     void *vmbase = allocate_zero(pages, PAGESIZE);
+    console("vmbase ");
+    print_u64(u64_from_pointer(vmbase));
+    console("\n");
+        
     mov_to_cr("cr3", vmbase);
 
+    console("pagey\n");
     // lose a page, and assume ph is in the first page
     void *header = allocate(physical, PAGESIZE);
     read_sectors(header, sector_offset, PAGESIZE);
@@ -74,6 +90,7 @@ void centry()
                 *x = 0;
         }
     }
+    console("run\n");
     run64((u32)elfh->e_entry);
 }
 
