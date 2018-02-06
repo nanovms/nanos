@@ -14,9 +14,6 @@ fs.o: fs
 	objcopy -I binary -O elf64-x86-64 -B i386:x86-64 --redefine-sym _binary_$(FSNAME)_end=_fs_end --redefine-sym _binary_$(FSNAME)_start=_fs_start $< $@
 	objcopy --rename-section .data=.fs fs.o fs.o
 
-$(ROOT)/runtime/closure_templates.h:
-	cd $(ROOT)/runtime ; make $(ROOT)/runtime/closure_templates.h
-
 $(ROOT)/boot/boot: force
 	cd $(ROOT)/boot ; make
 
@@ -37,5 +34,5 @@ clean:
 	rm -f image *.o fs
 
 run: image
-	(sleep 8 ; echo "x") | qemu-system-x86_64 -d int -D foo  -nographic -drive file=image,format=raw
+	(sleep 8 ; echo "x") | qemu-system-x86_64 -d int -D foo  -nographic -drive file=image,format=raw -m 2G
 

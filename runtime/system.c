@@ -104,8 +104,6 @@ static int open(char *name, int flags, int mode)
 {
     struct node n;
     bytes length;
-    static struct buffer contents;
-    staticbuffer(&contents, "contents");
     rprintf("open %s\n", name);
     if (is_empty(n = lookup(current->p, name)))
         return -ENOENT;

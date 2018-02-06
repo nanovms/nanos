@@ -22,8 +22,17 @@ boolean storage_resolve(node n, vector path, void **storage, u64 *slength);
     for (struct buffer __x, __y;__first;)\
     for (buffer __v = &__x ; __first;)            
 
-#define  storage_buffer(__h, __b, __n) ((void *)0)
-
+static inline buffer storage_buffer(heap h, node n, vector path)
+{
+    void *base;
+    u64 length;
+    buffer b = allocate(h, sizeof(struct buffer));
+    b->start = 0;
+    if (!storage_resolve(n, path, &b->contents, &b->end)) {
+        return 0;
+    }
+    return b;
+}
 
 #define is_empty(__n) ((__n).base == INVALID_ADDRESS)
 

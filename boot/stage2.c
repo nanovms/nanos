@@ -1,4 +1,7 @@
-#include <pruntime.h>
+#include <basic_runtime.h>
+#include <x86_64.h>
+#include <booto.h>
+
 
 static void print_block(void *addr, int length)
 {
@@ -10,6 +13,7 @@ static void print_block(void *addr, int length)
 
 extern void run64(u32 entry);
 
+// there are a few of these little allocators
 u64 offset = 0x1000;
 
 static u64 stage2_allocator(heap h, bytes b)
@@ -19,9 +23,6 @@ static u64 stage2_allocator(heap h, bytes b)
     return offset;
 }
 
-#define IDENTITY_START 0x100000
-#define IDENTITY_END 0x1000000
-
 // pass the memory parameters (end of load, end of mem)
 void centry()
 {
@@ -29,68 +30,60 @@ void centry()
     workings.alloc = stage2_allocator;
     heap working = &workings;
     int sector_offset = (STAGE2SIZE>>sector_log) + (STAGE1SIZE>>sector_log);
-
+    
     // xxx - we can derive this from the physical region and the start of stage3    
+    u64 identity_start = 0x100000;
+    u64 identity_length = 0x1000000-identity_start;
+
     for (region e = regions; region_type(e); e -= 1) {
-        if (IDENTITY_START == region_base(e)) 
-            region_base(e) = IDENTITY_END;
+        if (identity_start == region_base(e)) 
+            region_base(e) = identity_start + identity_length;
     }
-    
-    for (region e = regions; region_type(e); e -= 1) {    
-        console("region ");
-        print_u64(region_base(e));
-        console(" ");
-        print_u64(region_type(e));
-        console(" ");
-        print_u64(region_length(e));
-        console("\n");
-    }
+
+    create_region(identity_start, identity_length, REGION_IDENTITY);
         
-
-    create_region(IDENTITY_START, IDENTITY_END-IDENTITY_START, REGION_IDENTITY);
-
-    heap pages = region_allocator(working, REGION_IDENTITY, PAGESIZE);
-    
-    // remove identity page region from phy
-    heap physical = region_allocator(working, REGION_PHYSICAL, PAGESIZE);    
+    heap pages = region_allocator(working, PAGESIZE, REGION_IDENTITY);
+    heap physical = region_allocator(working, PAGESIZE, REGION_PHYSICAL);
     void *vmbase = allocate_zero(pages, PAGESIZE);
-    console("vmbase ");
-    print_u64(u64_from_pointer(vmbase));
-    console("\n");
-        
     mov_to_cr("cr3", vmbase);
+    map(identity_start, identity_start, identity_length, pages);
 
-    console("pagey\n");
     // lose a page, and assume ph is in the first page
-    void *header = allocate(physical, PAGESIZE);
+    void *header = allocate(working, PAGESIZE);
     read_sectors(header, sector_offset, PAGESIZE);
+    
     // check signature
     Elf64_Ehdr *elfh = header;
     u32 ph = elfh->e_phentsize;
     u32 po = elfh->e_phoff + u64_from_pointer(header);
     int pn = elfh->e_phnum;
 
-    // should drop this in stage3? 
-    map(PAGESIZE, PAGESIZE, 0xa0000-PAGESIZE, pages);
-    create_region(0, 0xa0000, REGION_VERBOTEN);
-    
+    // should drop this in stage3? ... i think we just need
+    // service32 and the stack.. this doesn't show up in the e820 regions
+    // stack is currently in the first page, so lets leave it mapped
+    // and take it out later...ideally move the stack here
+    map(0, 0, 0xa000, pages);
+    create_region(0, 0xa0000, REGION_VIRTUAL);
+
+    // this can be generic read_elf, but we'd need to parameterize
+    // out the load function. this happens* to be identity mapped
+    // because of the page alloc and stage3 setup.
+    // which makes it convenient for debugging, but may
+    // introduce some bad implicit assumptions. debug then
+    // move it around
     for (int i = 0; i< pn; i++){
         Elf64_Phdr *p = (void *)po + i * ph;
         if (p->p_type == PT_LOAD) {
             int ssize = pad(p->p_memsz, PAGESIZE);
             void *load = allocate(physical, ssize);
-
             read_sectors(load,
                          (p->p_offset>>sector_log) + sector_offset,
                          pad(p->p_filesz, 1<<sector_log));
             create_region(p->p_vaddr, ssize, REGION_VIRTUAL);            
-            map(p->p_vaddr, u64_from_pointer(load), ssize, (heap)&pages);
-            void *start = load + p->p_offset;
-            for (u8 *x =  start + p->p_filesz; x < (u8 *)start + p->p_memsz; x++)
-                *x = 0;
+            map(p->p_vaddr, u64_from_pointer(load), ssize, pages);
+            zero(load + p->p_offset + p->p_filesz,  p->p_memsz - p->p_filesz);
         }
     }
-    console("run\n");
     run64((u32)elfh->e_entry);
 }
 

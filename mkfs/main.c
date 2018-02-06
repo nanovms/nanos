@@ -101,9 +101,8 @@ u64 serialize(buffer out, table t)
 {
     // could perfect hash here
     u64 off = init_storage(out, t->count);
-
+    if (out->end & 3) rprintf("liggo! %x\n", out->end);                
     table_foreach(t, k, v)  {
-
         if (k == contents) {
             buffer b = v;
             if (*(u8 *)buffer_ref(v, 0) == '@') {
@@ -112,9 +111,10 @@ u64 serialize(buffer out, table t)
                 u64 foff = read_file(out, (buffer)v, &length);
                 storage_set(out, off, k, foff, length);
             } else {
-                u64 foff = out->end;
+                u64 start = out->end; 
                 buffer_write(out, b->contents + b->start, buffer_length(b));
-                storage_set(out, off, k, foff,  buffer_length(b));
+                out->end += pad(out->end, 4) - out->end;
+                storage_set(out, off, k, start, buffer_length(b));
             }
         } else {
             storage_set(out, off, k, serialize (out, (table)v), 0);
@@ -127,8 +127,8 @@ u64 serialize(buffer out, table t)
 int main(int argc, char **argv)
 {
     struct heap h;
-    h.allocate = malloc_allocator;
-    h.deallocate = notreally;
+    h.alloc = malloc_allocator;
+    h.dealloc = notreally;
 
     files = allocate_buffer(&h, 5);  buffer_append(files, "files", 5);
     contents = allocate_buffer(&h, 8);  buffer_append(contents, "contents", 8);

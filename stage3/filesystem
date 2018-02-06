@@ -8,7 +8,7 @@
 /etc/mono/config @/etc/mono/config
 /etc/nsswitch.conf @/etc/nsswitch.conf
 /usr/bin/mono @/usr/bin/mono
-/lib/ld.so @/home/yuri/gb/elf/ld.so
+/lib64/ld-linux-x86-64.so.2 @/home/yuri/gb/elf/ld.so
 /args/0 mono
 /args/1 /hw.bytes
 /program /usr/bin/mono

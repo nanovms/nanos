@@ -68,12 +68,10 @@ static void map_page_4k(page base, u64 virtual, physical p, heap h)
 
 static void map_page_2m(page base, u64 virtual, physical p, heap h)
 {
-    void *x = base;
-    u64 k = (u32)virtual;
-    x = force_entry(x, (k >> 39) & MASK(9), h);
-    x = force_entry(x, (k >> 30) & MASK(9), h);
-    u64 off = (k >> 21) & MASK(9);
-    console ("2m page pte\n");
+    page x = base;
+    x = force_entry(x, (virtual >> 39) & MASK(9), h);
+    x = force_entry(x, (virtual >> 30) & MASK(9), h);
+    u64 off = (virtual >> 21) & MASK(9);
     write_pte(x+off, p, true);
 }
 
@@ -87,7 +85,6 @@ void map(u64 virtual, physical p, int length, heap h)
     u64 vo = virtual;
     u64 po = p;
 
-
     console("map: ");
     print_u64(virtual);
     console(" ");
@@ -100,12 +97,12 @@ void map(u64 virtual, physical p, int length, heap h)
     for (int i = 0; i < len;) {
         int off = 1<<12;
         // two meg pages dont seem to be working
-        //        if (!(vo & MASK(21)) && !(po & MASK(21)) && ((len - i) >= (1<<21)))
-        // {
-        //            map_page_2m(base, vo, po, h);
-        // off = 1<<21;
-        // else
-        map_page_4k(base, vo, po, h);
+        if (!(vo & MASK(21)) && !(po & MASK(21)) && ((len - i) >= (1<<21))) {
+            map_page_2m(base, vo, po, h);
+            off = 1<<21;
+        } else {
+            map_page_4k(base, vo, po, h);
+        }
         vo += off;
         if (po != PHYSICAL_INVALID)
             po += off;

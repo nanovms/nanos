@@ -18,18 +18,21 @@ static u64 virtual_address_allocate(heap h)
 
 void startup(heap pages, heap general, heap physical, node filesystem)
 {
-
+    console("startup\n");
     u64 c = cpuid();
     
     set_syscall_handler(syscall_enter);
 
     process p = create_process(general, pages, physical, filesystem);
     thread t = create_thread(p);
-
-    buffer program_name = storage_buffer(general, filesystem, staticvector(staticbuffer("program")));
+    
+    buffer program_name = storage_buffer(general, filesystem, build_vector(general, staticbuffer("program")));
+    rprintf("program name: %b\n", program_name);
+    vector pnv = split(general, program_name, '/');
+    vector_pop(pnv);
     void *pstart;
     u64 plength;
-    if (!storage_resolve(filesystem, split(general, program_name, '/'), &pstart, &plength ))
+    if (!storage_resolve(filesystem, pnv, &pstart, &plength ))
         halt("no program entry %b\n", program_name);
 
     void *user_entry = load_elf(pstart,0, pages, physical);        
@@ -43,11 +46,18 @@ void startup(heap pages, heap general, heap physical, node filesystem)
         if ((p->p_type == PT_LOAD)  && (p->p_offset == 0))
             va = pointer_from_u64(p->p_vaddr);
         if (p->p_type == PT_INTERP) {
+            buffer interp_name = allocate(general, sizeof(struct buffer));
+            interp_name->contents = pstart + p->p_offset;
+            interp_name->end = runtime_strlen(interp_name->contents);
+            interp_name->start = 0;
+            elf_interpreter = split(general, interp_name, '/');
+            vector_pop(elf_interpreter);
         }
     }
-    
+
+    rprintf("interp: %v\n", elf_interpreter);
     if (storage_resolve(filesystem, elf_interpreter, &ldso, &plength)){
-        // use virtual allocator
+        rprintf("resolvo: %p %x\n", ldso, plength);
         ldso = load_elf(ldso, 0x400000000, pages, physical);
     } else {
         halt("no such elf interpreter %b\n", elf_interpreter);

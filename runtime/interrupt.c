@@ -145,7 +145,12 @@ u8 allocate_msi(thunk h)
 
 void enable_lapic(heap pages)
 {
-    map((u64)apic_base, 0xfee00000, 0x1000, pages);
+    // there is an msr that moves the physical
+    u64 lapic = 0xfee00000;
+    
+    // actually allocate the virtual 
+    map(u64_from_pointer(apic_base), lapic, PAGESIZE, pages);
+    create_region(u64_from_pointer(apic_base), PAGESIZE, REGION_VIRTUAL);
     
     // turn on the svr, then enable three lines
     // - this could be a little more symbolic

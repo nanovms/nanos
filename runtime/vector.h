@@ -79,3 +79,17 @@ static inline void bitvector_set(buffer b, int position)
     extend_total(b, pad(position, 8)>>3);
     ((u8 *)b->contents)[position>>3] |= (1<<(position & 7));
 }
+
+static inline vector build_vector_internal(heap h, ...)
+{
+    vlist ap;
+    vstart(ap, h);
+    u64 x;
+    vector v = allocate_vector(h, 10);
+    while (x = varg(ap, u64), x != PHYSICAL_INVALID) {
+        vector_push(v, pointer_from_u64(x));
+    }
+    return v;
+}
+
+#define build_vector(_h, ...) build_vector_internal(_h, __VA_ARGS__, PHYSICAL_INVALID)                       

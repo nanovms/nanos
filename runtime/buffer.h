@@ -233,12 +233,14 @@ static inline boolean buffer_compare(void *za, void *zb)
     __name->contents = __name##__contents;\
     __name->start = 0;\
     __name->end = 0;\
-    __name->length = __length;\
+    __name->length = __length;
 
     
-#define staticbuffer(__x, __n) \
-    (__x)->contents = __n;                     \
-    (__x)->start = 0;                          \
-    (__x)->end = sizeof(__n) -1;               
+#define staticbuffer(__n) ({ \
+    static struct buffer b;\
+    b.contents = __n;\
+    b.start = 0;\
+    b.end = sizeof(__n) -1;\
+    &b;})
 
 
