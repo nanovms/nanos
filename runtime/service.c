@@ -80,9 +80,8 @@ void init_service(u64 passed_base)
     general_length = 2*1024*1024;
     map(general_base, allocate_u64(physical, general_length), general_length, pages);        
 
-    
     for (region e = regions; region_type(e); e--) {
-        rprintf("region: %p %x %d\n", region_base(e), region_length(e), region_type(e));
+        rprintf("region: %p %p %x %d\n", e, region_base(e), region_length(e), region_type(e));
     }
 
     start_interrupts(pages, &generalh, physical);

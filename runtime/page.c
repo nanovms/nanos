@@ -27,8 +27,7 @@ physical physical_from_virtual(void *x)
     u64 *l3 = pt_lookup(base, xt, 39);
     u64 *l2 = pt_lookup(l3, xt, 30);
     u64 *l1 = pt_lookup(l2, xt, 21); // 2m pages
-    if (l2[xt>>21] & PAGE_2M_SIZE)
-        return ((u64)l1);
+    if (l2[xt>>21] & PAGE_2M_SIZE) return ((u64)l1 | (xt & MASK(21)));
     u64 *l0 = pt_lookup(l1, xt, 12);
     return (u64)l0 | (xt & MASK(12));
 }
@@ -36,6 +35,13 @@ physical physical_from_virtual(void *x)
 
 static void write_pte(page target, physical to, boolean fat)
 {
+    //    console("pte: ");
+    //    print_u64(target);
+    //    console(" ");
+    //    print_u64(to | PAGE_WRITABLE | PAGE_PRESENT | PAGE_USER | (fat?PAGE_2M_SIZE:0));
+    //    console("\n");    
+    
+    
     // really set user?
     if (to == PHYSICAL_INVALID)
         *target = 0;
@@ -96,11 +102,11 @@ void map(u64 virtual, physical p, int length, heap h)
 
     for (int i = 0; i < len;) {
         int off = 1<<12;
-        // two meg pages dont seem to be working
-        if (!(vo & MASK(21)) && !(po & MASK(21)) && ((len - i) >= (1<<21))) {
-            map_page_2m(base, vo, po, h);
-            off = 1<<21;
-        } else {
+                if (!(vo & MASK(21)) && !(po & MASK(21)) && ((len - i) >= (1<<21))) {
+                    map_page_2m(base, vo, po, h);
+                    off = 1<<21;
+                } else
+            {
             map_page_4k(base, vo, po, h);
         }
         vo += off;

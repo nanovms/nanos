@@ -16,6 +16,26 @@ static u64 virtual_address_allocate(heap h)
     return result;
 }
 
+void *load_file(node filesystem, heap general, buffer name)
+{
+    void *pstart;
+    name->start = 0;
+    vector pnv = split(general, name, '/');
+    vector_pop(pnv);
+    u64 plength;
+    node n = storage_resolve(filesystem, pnv);
+    if (!node_contents(n, &pstart, &plength)) {
+        rprintf("couldn't load file %b\n", name);
+    }
+    return pstart;
+}
+
+static void push(buffer b, u64 w)
+{
+    *(u64 *)(b->contents+b->start+b->end - sizeof(u64)) = w;
+    b->end -= sizeof(u64);
+}
+
 void startup(heap pages, heap general, heap physical, node filesystem)
 {
     console("startup\n");
@@ -25,44 +45,30 @@ void startup(heap pages, heap general, heap physical, node filesystem)
 
     process p = create_process(general, pages, physical, filesystem);
     thread t = create_thread(p);
-    
-    buffer program_name = storage_buffer(general, filesystem, build_vector(general, staticbuffer("program")));
-    rprintf("program name: %b\n", program_name);
-    vector pnv = split(general, program_name, '/');
-    vector_pop(pnv);
-    void *pstart;
-    u64 plength;
-    if (!storage_resolve(filesystem, pnv, &pstart, &plength ))
-        halt("no program entry %b\n", program_name);
 
-    void *user_entry = load_elf(pstart,0, pages, physical);        
-    void *ldso;
-    vector elf_interpreter;
-    
-    Elf64_Ehdr *elfh = (Elf64_Ehdr *)pstart;
+    // wrap this in exec()
+    struct buffer program_name, interp_name;
+    node n = storage_resolve(filesystem, build_vector(general, staticbuffer("program")));
+    if (!node_contents(n, &program_name.contents, &program_name.end)) halt("bad program file\n");
+    void *pstart = load_file(filesystem, general, &program_name);
+    void *user_entry = load_elf(pstart, 0, pages, physical);        
     void *va;
+
+    Elf64_Ehdr *elfh = (Elf64_Ehdr *)pstart;
     for (int i = 0; i< elfh->e_phnum; i++){
         Elf64_Phdr *p = pstart + elfh->e_phoff + (i * elfh->e_phentsize);
         if ((p->p_type == PT_LOAD)  && (p->p_offset == 0))
             va = pointer_from_u64(p->p_vaddr);
         if (p->p_type == PT_INTERP) {
-            buffer interp_name = allocate(general, sizeof(struct buffer));
-            interp_name->contents = pstart + p->p_offset;
-            interp_name->end = runtime_strlen(interp_name->contents);
-            interp_name->start = 0;
-            elf_interpreter = split(general, interp_name, '/');
-            vector_pop(elf_interpreter);
+            interp_name.contents = pstart + p->p_offset;
+            interp_name.end = runtime_strlen(interp_name.contents);
+            interp_name.start = 0;
         }
     }
 
-    rprintf("interp: %v\n", elf_interpreter);
-    if (storage_resolve(filesystem, elf_interpreter, &ldso, &plength)){
-        rprintf("resolvo: %p %x\n", ldso, plength);
-        ldso = load_elf(ldso, 0x400000000, pages, physical);
-    } else {
-        halt("no such elf interpreter %b\n", elf_interpreter);
-    }
-    
+    void *ldso = load_file(filesystem, general, &interp_name);
+    t->frame[FRAME_RIP] = u64_from_pointer(load_elf(ldso, 0x400000000, pages, physical));
+        
     map(0, PHYSICAL_INVALID, PAGESIZE, pages);
 
     u8 seed = 0x3e;
@@ -78,38 +84,51 @@ void startup(heap pages, heap general, heap physical, node filesystem)
         {AT_RANDOM, u64_from_pointer(userspace_random_seed)},        
         {AT_ENTRY, u64_from_pointer(user_entry)}};
 
-    __asm__("push $0"); // end of auxp
-    __asm__("push $0");
+    struct buffer s;
+    s.start = 0;
+    s.contents = pointer_from_u64(0xa00000000);
+    s.end = s.length = 2*1024*1024;
+    map(u64_from_pointer(s.contents), allocate_u64(physical, s.length), s.length, pages);
 
-    for (int i = 0; i< sizeof(auxp)/(2*sizeof(u64)); i++) {
-        __asm__("push %0"::"m"(auxp[i].val));
-        __asm__("push %0"::"m"(auxp[i].tag));
-    } 
+    push(&s, 0); // end of auxp
+    push(&s, 0);    
     
-    __asm__("push $0"); // end of envp
-    storage_foreach(filesystem, staticvector(staticbuffer("environment")), name, value) {
-        buffer b = allocate_buffer(general, buffer_length(name)+buffer_length(value)+2);        
-        buffer_write(b, name->contents, buffer_length(name));
-        push_character(b, '=');
-        buffer_write(b, value->contents, buffer_length(value));
-        push_character(b, 0);
-        void *z = b->contents;
-        __asm__("push %0"::"m"(z));
+    for (int i = 0; i< sizeof(auxp)/(2*sizeof(u64)); i++) {
+        rprintf("aux: %p %x %x\n", s.contents + s.end, auxp[i].val, auxp[i].tag);
+        push(&s, auxp[i].val);
+        push(&s, auxp[i].tag);
+    } 
+
+    push(&s, 0); // end of envp
+    node env = storage_resolve(filesystem, build_vector(general, staticbuffer("environment")));
+    if (!is_empty(env)) {
+        env = storage_lookup_node(env, staticbuffer("files"));
+        storage_foreach(env, name, value) {
+            rprintf("environment %b %b\n", name, value);
+            buffer b = allocate_buffer(general, buffer_length(name)+buffer_length(value)+2);        
+            buffer_write(b, name->contents, buffer_length(name));
+            push_character(b, '=');
+            buffer_write(b, value->contents, buffer_length(value));
+            push_character(b, 0);
+            push(&s, u64_from_pointer(b->contents)); 
+        }
+    } else {
+        rprintf("no environment\n");
     }
 
-    __asm__("push $0"); // end of argv
-    int argc=0;
-    storage_vector_foreach(filesystem, "/args", i, v) {
+    push(&s, 0); // end of envp
+    u64 argc=0;
+    node args = storage_resolve(filesystem, build_vector(general, staticbuffer("args")));
+    args = storage_lookup_node(args, staticbuffer("files"));
+    storage_vector_foreach(args, i, v) {
         buffer b = allocate_buffer(general, buffer_length(v) + 1);
         buffer_write(b, b->contents, b->length);
         push_character(b, 0);
         argc++;
-        void *z = b->contents;
-        __asm__("push %0"::"m"(z));
+        push(&s, u64_from_pointer(b->contents));         
     }
-    __asm__("push %0"::"m"(argc));
-    
-    t->frame[FRAME_RIP] = u64_from_pointer(ldso);
+    push(&s, u64_from_pointer(argc));
+    t->frame[FRAME_RSP] = u64_from_pointer(s.contents + s.end);
     run(t);
 }
 

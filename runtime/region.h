@@ -36,19 +36,14 @@ static inline u64 allocate_region(heap h, bytes size)
     region_heap rh = (region_heap)h;
     u64 len = pad(size, h->pagesize);
     for (region e = regions; region_type(e);e -= 1) {
-        if ((region_type(e) == rh->type) && (region_length(e) >= len)){
+        if ((region_type(e) == rh->type) &&       
+            (region_length(e) >= len)) {
             u64 result = region_base(e);
             region_base(e) += size;
             region_length(e) -= size;
             return result;
         }
     }
-    console("outo ");
-    print_u64(size);
-    console(" ");
-    print_u64(rh->type);
-    console("\n");            
-
     return u64_from_pointer(INVALID_ADDRESS);
 }
 

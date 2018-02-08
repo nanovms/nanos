@@ -1,8 +1,6 @@
 #include <runtime.h>
 
-typedef u32 offset;
-    
-#define ENTRY_ALIGNMENT_LOG 2
+struct node node_invalid = {INVALID_ADDRESS, 0};
 
 void buffer_write_le32(buffer b, u32 x)
 {
@@ -38,9 +36,8 @@ boolean storage_lookup(node n, buffer key, u64 *off, bytes *length)
 {
     u32 count = *(u32 *)(n.base + n.offset);
     offset where = (node_bucket_count(n)+1)[fnv64(key) % count];
-
     while (where) {
-        offset *e = n.base + (where<<ENTRY_ALIGNMENT_LOG);
+        offset *e = naddr(n, where);
         if ((e[3] == buffer_length(key)) &&
             compare_bytes(key->contents, (void *)(e+4), e[3])) {
             *off = (e[1] << ENTRY_ALIGNMENT_LOG);
@@ -50,6 +47,14 @@ boolean storage_lookup(node n, buffer key, u64 *off, bytes *length)
         where = e[0];
     }
     return false;
+}
+
+node storage_lookup_node(node n, buffer key)
+{
+    node p = n;
+    u64 length;
+    if (storage_lookup(n, key, &p.offset, &length)) return p;
+    return node_invalid;
 }
 
 // for some reason I think we can dedup bodies here easily, idk why
@@ -72,18 +77,23 @@ void storage_set(buffer b, u64 start, buffer key, u64 voff, u64 vlen)
     b->end += pk - buffer_length(key);
 }
 
-
-boolean storage_resolve(node n, vector path, void **storage, u64 *slength)
+node storage_resolve(node n, vector path)
 {
     node p = n;
     bytes length;
     buffer i;
     vector_foreach(i, path) {
-        if (!storage_lookup(p, staticbuffer("files"), &p.offset, &length)) return false;
-        if (!storage_lookup(p, i, &p.offset, &length)) return false;
+        if (is_empty(p = storage_lookup_node(p, staticbuffer("files"))))  return p;
+        if (is_empty(p = storage_lookup_node(p, i))) return p;                     
     }
-    if (!storage_lookup(p, staticbuffer("contents"), &p.offset, slength)) return false;
-    *storage = p.base + p.offset;
+    return p;
+}
+
+boolean node_contents(node n, void **storage, u64 *slength)
+{
+    u64 offset;
+    if (!storage_lookup(n, staticbuffer("contents"), &offset, slength)) return false;
+    *storage = n.base + offset;
     return true;
 }
 

@@ -1,7 +1,7 @@
 #include <runtime.h>
 
 typedef u8 character;
-char *hex_digits="0123456789abcdef";
+static char *hex_digits="0123456789abcdef";
 
 #define MAX(a, b) ((a)>(b)?(a):(b))
 

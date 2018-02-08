@@ -1,47 +1,23 @@
 #include <sruntime.h>
 #include <system.h>
 
-typedef struct id_heap {
-    heap h;
-    u64 base;
-} *id_heap;
-
-static u64 idalloc(heap h, bytes count)
-{
-    id_heap i = (id_heap)h;
-    u64 result = i->base;
-    i->base += count;
-    return result;
-}
-
-heap create_id_heap(heap h, u64 base)
-{
-    id_heap i = allocate(h, sizeof(struct id_heap));
-    i->base = base;
-    return((heap)i);
-}
-
 // allocator
 unsigned int process_count = 110;
 
 typedef struct file {
     u64 offset; 
     io read, write;
-    fill_stat st;
-    // maybe a load function?
-    u64 physical_base;
-    u64 length;
+    node n;
 } *file;
 
 typedef struct process {
-    heap h, pages, contig;
+    heap h, pages, physical;
     int pid;
     node filesystem;
     struct file files[32];
     void *brk;
     heap virtual;
     heap fdallocator;
-    heap physical;
     node cwd;
 } *process;
 
@@ -53,14 +29,21 @@ thread current;
 
 static node lookup(process p, char *name)
 {
-    // can apply cwd here!
+    struct buffer b;
+    b.start = 0;
+    b.end = runtime_strlen(name);
+    b.contents = name;
+    // transient
+    vector vn = split(p->h, &b, '/');
+    vector_pop(vn);
+    return storage_resolve(p->filesystem, vn);
 }
 
 static int readbufferv(void *z, void *dest, u64 length, u64 offset)
 {
     // um, truncate read past boundary
     buffer b = z;
-    runtime_memcpy(b->contents + b->start + offset, dest, length);
+
     return length;
 }
 
@@ -68,9 +51,6 @@ int read(int fd, u8 *dest, bytes length)
 {
     file f = current->p->files + fd;
     return apply(f->read, dest, length, f->offset);
-    //    buffer b = f->state;
-    //    runtime_memcpy(dest, b->contents + b->start + f->offset, length);
-    // truncate copy
 }
 
 // mux
@@ -95,10 +75,23 @@ static int access(char *name, int mode)
 {
     void *where;
     bytes length;
+    rprintf("access %s\n", name);    
     if (is_empty(lookup(current->p, name)))
         return -ENOENT;
     return 0;
 }
+
+static CLOSURE_1_3(contents_read, int, node, void *, u64, u64);
+static int contents_read(node n, void *dest, u64 length, u64 offset)
+{
+    void *base;
+    u64 flength;
+    if (!node_contents(n, &base, &flength)) return -EINVAL;
+
+    runtime_memcpy(dest, base + offset, length);
+    return length;
+}
+
 
 static int open(char *name, int flags, int mode)
 {
@@ -109,12 +102,11 @@ static int open(char *name, int flags, int mode)
         return -ENOENT;
 
     buffer b = allocate(current->p->h, sizeof(struct buffer));
-    // policy on opening directories?
-    if (!node_property(b, n, "storage"))
-        return -ENOENT;
-
+    // might be functional, or be a directory
     int fd = allocate_u64(current->p->fdallocator, 1);
     file f = current->p->files+fd;
+    f->n = n;
+    f->read = closure(current->p->h, contents_read, n);
     f->offset = 0;
     return fd;
 }
@@ -134,7 +126,7 @@ void *mremap(void *old_address, u64 old_size,  u64 new_size, int flags,  void *n
     if (new_size > old_size) {
         u64 diff = pad(new_size - old_size, PAGESIZE);
         u64 base = u64_from_pointer(old_address + old_size) & align;
-        void *r = allocate(current->p->contig, diff);
+        void *r = allocate(current->p->physical,diff);
         if (u64_from_pointer(r) == PHYSICAL_INVALID) {
             // MAP_FAILED
             return r;
@@ -150,47 +142,64 @@ void *mremap(void *old_address, u64 old_size,  u64 new_size, int flags,  void *n
 
 static void *mmap(void *target, u64 size, int prot, int flags, int fd, u64 offset)
 {
-    rprintf("mmap %p %x %x %d %p\n", target, size, flags, fd, offset);
+    rprintf("mmap %p %p %x %d %p\n", target, size, flags, fd, offset);
     process p = current->p;
+    // its really unclear whether this should be extended or truncated
     u64 len = pad(size, PAGESIZE);
     u64 where = u64_from_pointer(target);
-    
+
     if (!(flags &MAP_FIXED)) 
         where = allocate_u64(current->p->virtual, len);
         
-    // merge these two cases to the extent possible
     // make a generic zero page function
     if (flags & MAP_ANONYMOUS) {
-        void *r = allocate(p->contig, len);
-        map(where, physical_from_virtual(r), len, p->pages);
-        rprintf("zero %p %x\n", where, len);
-        zero(pointer_from_u64(where), len); // seems like people assume?
+        u64  m = allocate_u64(p->physical, len);
+        if (m == PHYSICAL_INVALID) return pointer_from_u64(m);
+        map(where, m, len, p->pages);
+        zero(pointer_from_u64(where), len);
         return pointer_from_u64(where);
     }
     
 
+    // check that fd is valid
     file f = p->files + fd;
-    u64 msize = pad(size, PAGESIZE);
-    if (size > f->length) msize = pad(f->length, PAGESIZE);
+    void *fbase;
+    u64 flen;
+    if (!node_contents(f->n, &fbase, &flen)) return pointer_from_u64(PHYSICAL_INVALID);
 
-    // mutal misalignment?
-    map(where, f->physical_base + offset, msize, p->pages);
+    rprintf("contents: %p %x %p %p\n", fbase, flen, *(u64 *)fbase, physical_from_virtual(fbase));
+    u64 msize = 0;
+    if (flen > offset) msize = pad(flen-offset, PAGESIZE);
+    if (msize > len) msize = len;
+    
+    // mutal misalignment?...discontiguous backing?
+    map(where, physical_from_virtual(fbase + offset), msize, p->pages);
 
-    if (size > msize) {
-        u64 bss = pad(size, PAGESIZE) - msize;
-        void *empty = allocate(p->contig, bss);
+    if (len > msize) {
+        u64 bss = pad(len, PAGESIZE) - msize;
         map(where + msize, allocate_u64(p->physical, bss), bss, p->pages);
         zero(pointer_from_u64(where+msize), bss);
     }
+    // ok, if we change pages entries we need to flush the tlb...dont need
+    // to do this every time
+    u64 x;
+    mov_from_cr("cr3", x);
+    mov_to_cr("cr3", x);    
     return pointer_from_u64(where);
 }
 
-static void file_fill_stat(node n, u64 length, struct stat *s)
+static boolean fill_stat(node n, struct stat *s)
 {
+    void *fbase;
+    u64 flen;
+    
     s->st_dev = 0;
     s->st_ino = u64_from_pointer(n.offset);
-    s->st_size = length;
-    if (length == 0) {
+    // dir doesn't have contents
+    if (!node_contents(n, &fbase, &flen)) return false;    
+    s->st_size = flen;
+
+    if (flen == 0) {
         // fix dir demux
         s->st_mode = S_IFDIR | 0777;
     }
@@ -198,13 +207,12 @@ static void file_fill_stat(node n, u64 length, struct stat *s)
 
 static int fstat(int fd, struct stat *s)
 {
-    // closure for specials
+    // take this from tuple space
     if (fd == 1) {
         s->st_mode = S_IFIFO;
         return 0;
     }
-    
-    apply(current->p->files[fd].st, s);
+    fill_stat(current->p->files[fd].n, s);
     return 0;
 }
 
@@ -249,11 +257,11 @@ static int stat(char *name, struct stat *s)
     bytes length;
     node n;
 
+    rprintf("stat %s\n", name);
     if (is_empty(n = lookup(current->p, name)))
         return -ENOENT;
 
-    // it may not be a file
-    file_fill_stat(n, 100, s);
+    fill_stat(n, s);
     return 0;
 }
 
@@ -302,7 +310,7 @@ u64 syscall()
     u64 *f = current->frame;
     int call = f[FRAME_VECTOR];
     u64 a[6] = {f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]};
-        
+    
     // vector dispatch with things like fd decoding and general error processing
     switch (call) {
     case SYS_read: return read(a[0],pointer_from_u64(a[1]), a[2]);
@@ -330,11 +338,13 @@ u64 syscall()
 extern u64 *frame;
 void run(thread t)
 {
-    // should be the same, fix the interrupt and syscall handlers...or leave them
-    // independent of whether we are runing unix
     current = t;
     frame = t->frame;
-    // actually go to thread
+    void *entry = pointer_from_u64(frame[FRAME_RIP]);
+    void *stack = pointer_from_u64(frame[FRAME_RSP]);    
+    //  need to use frame_return (full context), but it faults. make a jmp based frame return?
+    __asm__("mov %0, %%rsp"::"g"(stack));
+    __asm__("jmp *%0"::"g"(entry));
 }
 
 thread create_thread(process p)
@@ -352,7 +362,7 @@ static int stdout(void *d, u64 length, u64 offset)
     for (int i = 0; i< length; i++) serial_out(z[i]);
 }
 
-process create_process(heap h, heap pages, heap contig, node filesystem)
+process create_process(heap h, heap pages, heap physical, node filesystem)
 {
     process p = allocate(h, sizeof(struct process));
     p->filesystem = filesystem;
@@ -361,10 +371,11 @@ process create_process(heap h, heap pages, heap contig, node filesystem)
     p->pid = process_count++;
     // allocate main thread, setup context, run main thread
     // this should be a heap
-    p->virtual = create_id_heap(h, 0x7000000000ull);
+    p->virtual = create_id_heap(h, 0x7000000000ull, 0x100000000);
     p->pages = pages;
-    p->fdallocator = create_id_heap(h, 3);
-    p->contig = contig;
+    p->fdallocator = create_id_heap(h, 3, 1);
+    p->physical = physical;
+    p->files[1].write = closure(h, stdout);    
     p->files[2].write = closure(h, stdout);
     return p;
 }

@@ -12,7 +12,7 @@ typedef struct buffer *buffer;
 #include <vector.h>
     
 void debug(buffer);
-
+void format_number(buffer s, u64 x, int base, int pad);
 extern void vbprintf(buffer s, buffer fmt, vlist ap);
 static inline void rprintf(char *format, ...)
 {

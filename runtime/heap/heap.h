@@ -8,10 +8,10 @@ typedef struct heap {
     bytes allocated;
 } *heap;
 
-heap allocate_leaky_heap(heap parent);
 heap allocate_pagechunk(heap h, bytes s);
 heap allocate_pagecache(heap h);
 heap allocate_rolling_heap(heap h);
+heap create_id_heap(heap h, u64 base, u64 pagesize);
 
 // really internals
 

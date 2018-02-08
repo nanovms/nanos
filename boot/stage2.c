@@ -31,9 +31,12 @@ void centry()
     heap working = &workings;
     int sector_offset = (STAGE2SIZE>>sector_log) + (STAGE1SIZE>>sector_log);
     
-    // xxx - we can derive this from the physical region and the start of stage3    
+    // xxx - we can derive this from the physical region and the start of stage3
+    // except the child wants to start at 0x400000..maye we should throw
+    // this at the .. end of the pci gap? or use a simple offset and make v and p
+    // mututally aligned?
     u64 identity_start = 0x100000;
-    u64 identity_length = 0x1000000-identity_start;
+    u64 identity_length = 0x300000;
 
     for (region e = regions; region_type(e); e -= 1) {
         if (identity_start == region_base(e)) 

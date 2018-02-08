@@ -17,4 +17,5 @@ typedef struct thread {
 typedef struct process *process;
 
 typedef closure_type(io, int, void *, u64 length, u64 offset);
-typedef closure_type(fill_stat, void,  struct stat *);
+
+

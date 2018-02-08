@@ -10,7 +10,7 @@ u8 allocate_msi(thunk h);
 extern void *pagebase;
 extern u64 *ptalloc();
 
-// belong here?
+// belong here? share with nasm
 #define FRAME_RAX 0
 #define FRAME_SYSCALL 0
 #define FRAME_RBX 1

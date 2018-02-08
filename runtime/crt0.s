@@ -105,6 +105,7 @@ interrupt_common:
         pop rbx            ; error code - put this in the frame
         jmp .getrip
 
+global frame_return
 frame_return:
         mov rax, [frame]
         mov rbx, [rax+8]
@@ -121,7 +122,7 @@ frame_return:
         mov r13, [rax+104]
         mov r14, [rax+112]
         mov r15, [rax+120]
-        push qword 0x10     ; ss
+        push qword 0x10     ; ss - should be 0x10? pp 293
         push qword [rax+40]      ; rsp
         push qword [rax+144]   ; rflags
         push qword 0x08   ; cs        

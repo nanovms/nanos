@@ -122,7 +122,7 @@ void common_handler()
         }
 
         u64 *stack = pointer_from_u64(frame[FRAME_RSP]);        
-        for (int j = 0; j< 20; j++) {
+        for (int j = 0; j< 30; j++) {
             print_u64(stack[j]);
             console("\n");        
         }
