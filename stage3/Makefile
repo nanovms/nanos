@@ -34,5 +34,5 @@ clean:
 	rm -f image *.o fs
 
 run: image
-	(sleep 8 ; echo "x") | qemu-system-x86_64 -d int -D foo  -nographic -drive file=image,format=raw -m 2G
+	(sleep 20 ; echo "x") | qemu-system-x86_64 -d int -D foo  -nographic -drive file=image,format=raw -m 2G
 

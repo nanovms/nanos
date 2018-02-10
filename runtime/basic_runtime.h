@@ -35,7 +35,7 @@ static inline int runtime_strlen(char *a)
 
 #define pad(__x, __s) ((((__x) - 1) & (~((__s) - 1))) + (__s))
 
-#define MASK(x) ((1<<x)-1)
+#define MASK(x) ((1ull<<x)-1)
 
 
 #ifndef pointer_from_u64

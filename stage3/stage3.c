@@ -94,7 +94,6 @@ void startup(heap pages, heap general, heap physical, node filesystem)
     push(&s, 0);    
     
     for (int i = 0; i< sizeof(auxp)/(2*sizeof(u64)); i++) {
-        rprintf("aux: %p %x %x\n", s.contents + s.end, auxp[i].val, auxp[i].tag);
         push(&s, auxp[i].val);
         push(&s, auxp[i].tag);
     } 

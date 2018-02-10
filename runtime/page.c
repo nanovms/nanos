@@ -55,6 +55,8 @@ static page force_entry(page b, u32 offset, heap h)
         return pointer_from_u64(b[offset] & ~PAGEMASK);
     } else {
         page n = allocate_zero(h, PAGESIZE);
+        if (n == pointer_from_u64(PHYSICAL_INVALID))
+            console("ran out of page memory\n");
         // virtual from physical of n required if we
         // move off the identity map for pages
         write_pte(b + offset, u64_from_pointer(n), false);

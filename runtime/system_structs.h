@@ -105,6 +105,8 @@ typedef struct iovec {
 #define MAP_PRIVATE	0x02
 #define MREMAP_MAYMOVE	1
 #define MREMAP_FIXED	2
+#define MAP_STACK	0x20000
+#define MAP_32BIT	0x40	
 
 // straight from linux
 #define ARCH_SET_GS 0x1001
@@ -131,3 +133,124 @@ struct timespec {
 #define FUTEX_WAKE_BITSET	10
 #define FUTEX_WAIT_REQUEUE_PI	11
 #define FUTEX_CMP_REQUEUE_PI	12
+
+#define SEEK_SET 0
+#define SEEK_CUR 1
+#define SEEK_END 2
+
+struct rlimit {
+    u64 rlim_cur;  /* Soft limit */
+    u64 rlim_max;  /* Hard limit (ceiling for rlim_cur) */
+};
+
+
+#define RLIMIT_CPU		0	/* CPU time in sec */
+#define RLIMIT_FSIZE		1	/* Maximum filesize */
+#define RLIMIT_DATA		2	/* max data size */
+#define RLIMIT_STACK		3	/* max stack size */
+#define RLIMIT_CORE		4	/* max core file size */
+#define RLIMIT_RSS		5	/* max resident set size */
+#define RLIMIT_NPROC		6	/* max number of processes */
+#define RLIMIT_NOFILE		7	/* max number of open files */
+#define RLIMIT_MEMLOCK		8	/* max locked-in-memory address space */
+#define RLIMIT_AS		9	/* address space limit */
+#define RLIMIT_LOCKS		10	/* maximum file locks held */
+#define RLIMIT_SIGPENDING	11	/* max number of pending signals */
+#define RLIMIT_MSGQUEUE		12	/* maximum bytes in POSIX mqueues */
+#define RLIMIT_NICE		13	/* max nice prio allowed to raise to
+#define RLIMIT_RTPRIO		14	/* maximum realtime priority */
+#define RLIMIT_RTTIME		15	/* timeout for RT tasks in us */
+
+#define SIGHUP		 1
+#define SIGINT		 2
+#define SIGQUIT		 3
+#define SIGILL		 4
+#define SIGTRAP		 5
+#define SIGABRT		 6
+#define SIGIOT		 6
+#define SIGBUS		 7
+#define SIGFPE		 8
+#define SIGKILL		 9
+#define SIGUSR1		10
+#define SIGSEGV		11
+#define SIGUSR2		12
+#define SIGPIPE		13
+#define SIGALRM		14
+#define SIGTERM		15
+#define SIGSTKFLT	16
+#define SIGCHLD		17
+#define SIGCONT		18
+#define SIGSTOP		19
+#define SIGTSTP		20
+#define SIGTTIN		21
+#define SIGTTOU		22
+#define SIGURG		23
+#define SIGXCPU		24
+#define SIGXFSZ		25
+#define SIGVTALRM	26
+#define SIGPROF		27
+#define SIGWINCH	28
+#define SIGIO		29
+
+
+typedef void __signalfn_t(int);
+typedef __signalfn_t *__sighandler_t;
+
+#define SIG_DFL	((__sighandler_t)0)	/* default signal handling */
+#define SIG_IGN	((__sighandler_t)1)	/* ignore signal */
+#define SIG_ERR	((__sighandler_t)-1)	/* error return from signal */
+
+struct siginfo {
+    int si_signo;
+    int si_errno;
+    int si_code;
+    // plus big hairy union...we dont plan on delivering any of these at the moment
+};
+
+#define NSIG 64
+typedef struct {
+    unsigned long sig[NSIG/sizeof(unsigned long)];
+} sigset_t;
+
+struct sigaction {
+	union {
+	  __sighandler_t _sa_handler;
+	  void (*_sa_sigaction)(int, struct siginfo *, void *);
+	} _u;
+	sigset_t sa_mask;
+	unsigned long sa_flags;
+	void (*sa_restorer)(void);
+};
+
+
+
+struct timeval {
+    u64 tv_sec;     /* seconds */
+    u64 tv_usec;    /* microseconds */
+};
+
+
+#define CSIGNAL		0x000000ff	/* signal mask to be sent at exit */
+#define CLONE_VM	0x00000100	/* set if VM shared between processes */
+#define CLONE_FS	0x00000200	/* set if fs info shared between processes */
+#define CLONE_FILES	0x00000400	/* set if open files shared between processes */
+#define CLONE_SIGHAND	0x00000800	/* set if signal handlers and blocked signals shared */
+#define CLONE_PTRACE	0x00002000	/* set if we want to let tracing continue on the child too */
+#define CLONE_VFORK	0x00004000	/* set if the parent wants the child to wake it up on mm_release */
+#define CLONE_PARENT	0x00008000	/* set if we want to have the same parent as the cloner */
+#define CLONE_THREAD	0x00010000	/* Same thread group? */
+#define CLONE_NEWNS	0x00020000	/* New mount namespace group */
+#define CLONE_SYSVSEM	0x00040000	/* share system V SEM_UNDO semantics */
+#define CLONE_SETTLS	0x00080000	/* create a new TLS for the child */
+#define CLONE_PARENT_SETTID	0x00100000	/* set the TID in the parent */
+#define CLONE_CHILD_CLEARTID	0x00200000	/* clear the TID in the child */
+#define CLONE_DETACHED		0x00400000	/* Unused, ignored */
+#define CLONE_UNTRACED		0x00800000	/* set if the tracing process can't force CLONE_PTRACE on this clone */
+#define CLONE_CHILD_SETTID	0x01000000	/* set the TID in the child */
+#define CLONE_NEWCGROUP		0x02000000	/* New cgroup namespace */
+#define CLONE_NEWUTS		0x04000000	/* New utsname namespace */
+#define CLONE_NEWIPC		0x08000000	/* New ipc namespace */
+#define CLONE_NEWUSER		0x10000000	/* New user namespace */
+#define CLONE_NEWPID		0x20000000	/* New pid namespace */
+#define CLONE_NEWNET		0x40000000	/* New network namespace */
+#define CLONE_IO		0x80000000	/* Clone io context */

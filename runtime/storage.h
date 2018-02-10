@@ -39,3 +39,4 @@ boolean node_contents(node n, void **storage, u64 *slength);
 #define is_empty(__n) ((__n).base == INVALID_ADDRESS)
 
 node storage_lookup_node(node n, buffer key);
+extern struct node node_invalid;

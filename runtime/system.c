@@ -10,13 +10,16 @@ typedef struct file {
     node n;
 } *file;
 
+#define NUMBER_OF_FDS 32
 typedef struct process {
     heap h, pages, physical;
     int pid;
     node filesystem;
-    struct file files[32];
+    // could resize
+    struct file files[NUMBER_OF_FDS];
     void *brk;
     heap virtual;
+    heap virtual32;    
     heap fdallocator;
     node cwd;
 } *process;
@@ -36,16 +39,23 @@ static node lookup(process p, char *name)
     // transient
     vector vn = split(p->h, &b, '/');
     vector_pop(vn);
+    // relative
+    if (vector_length(vn) == 0) {
+        return node_invalid;
+    }
+    
     return storage_resolve(p->filesystem, vn);
 }
 
-static int readbufferv(void *z, void *dest, u64 length, u64 offset)
+int sigaction(int signum, const struct sigaction *act,
+              struct sigaction *oldact)
 {
-    // um, truncate read past boundary
-    buffer b = z;
-
-    return length;
+    rprintf("sigacts %d\n", signum);
+    if (oldact) oldact->_u._sa_handler = SIG_DFL;
+    return 0;
 }
+
+
 
 int read(int fd, u8 *dest, bytes length)
 {
@@ -53,21 +63,29 @@ int read(int fd, u8 *dest, bytes length)
     return apply(f->read, dest, length, f->offset);
 }
 
-// mux
+// callibration is an issue
+int gettimeofday(struct timeval *tv, void *tz)
+{
+    static u64 seconds;
+    static u64 microseconds;
+    tv->tv_sec = seconds;
+    tv->tv_usec = microseconds++;
+    return 0;
+}
+
 int write(int fd, u8 *body, bytes length)
 {
     file f = current->p->files +fd;
     int res = apply(f->write, body, length, f->offset);
-    f->offset += length;    
+    f->offset += length;
+    return res;
 }
 
 static int writev(int fd, iovec v, int count)
 {
     int res;
-    for (int i = 0; i < count; i++) {
-        res += v[i].length;
-        write(fd, v[i].address, v[i].length);
-    }
+    file f = current->p->files +fd;    
+    for (int i = 0; i < count; i++) res += write(fd, v[i].address, v[i].length);
     return res;
 }
 
@@ -86,18 +104,42 @@ static int contents_read(node n, void *dest, u64 length, u64 offset)
 {
     void *base;
     u64 flength;
+    rprintf("contents read %p %p %p %p\n", base, length, offset, flength);
     if (!node_contents(n, &base, &flength)) return -EINVAL;
+    rprintf("contents read %p %p %p %p\n", base, length, offset, flength);
+    if (length < flength) {
+        flength = length;
+    }
+    rprintf("contents read %p %p %p %p %p\n", base, length, offset, flength, *(u64 *)(base + offset));
+    runtime_memcpy(dest, base + offset, flength);
+    return flength;
+}
 
-    runtime_memcpy(dest, base + offset, length);
-    return length;
+long clone(unsigned long flags, void *child_stack, void *ptid, void *ctid, void *x)
+{
+    static int tid= 2;
+    rprintf("clone! %p %p %p %p %p\n", flags, child_stack, ptid, ctid, x);
+    thread t = create_thread(current->p);
+    runtime_memcpy(t->frame, current->frame, sizeof(t->frame));
+    t->frame[FRAME_RSP]= u64_from_pointer(child_stack);
+    t->frame[FRAME_RAX]= *(u32 *)ctid;
+    // run should do this!
+    write_msr(FS_MSR, u64_from_pointer(x));
+    rprintf("fs: %p\n", read_msr(FS_MSR));
+    return 0;
+    //    run(t);
 }
 
 
-static int open(char *name, int flags, int mode)
+int open(char *name, int flags, int mode)
 {
     struct node n;
     bytes length;
     rprintf("open %s\n", name);
+    
+    // fix - lookup should be robust
+    if (name == 0) return -EINVAL;
+    
     if (is_empty(n = lookup(current->p, name)))
         return -ENOENT;
 
@@ -108,6 +150,7 @@ static int open(char *name, int flags, int mode)
     f->n = n;
     f->read = closure(current->p->h, contents_read, n);
     f->offset = 0;
+    rprintf("open return %x\n", fd);
     return fd;
 }
 
@@ -146,10 +189,16 @@ static void *mmap(void *target, u64 size, int prot, int flags, int fd, u64 offse
     process p = current->p;
     // its really unclear whether this should be extended or truncated
     u64 len = pad(size, PAGESIZE);
+    //gack
+    len = len & MASK(32);
     u64 where = u64_from_pointer(target);
 
-    if (!(flags &MAP_FIXED)) 
-        where = allocate_u64(current->p->virtual, len);
+    if (!(flags &MAP_FIXED)){
+        if (flags & MAP_32BIT)
+            where = allocate_u64(current->p->virtual32, len);
+        else
+            where = allocate_u64(current->p->virtual, len);
+    }
         
     // make a generic zero page function
     if (flags & MAP_ANONYMOUS) {
@@ -167,7 +216,6 @@ static void *mmap(void *target, u64 size, int prot, int flags, int fd, u64 offse
     u64 flen;
     if (!node_contents(f->n, &fbase, &flen)) return pointer_from_u64(PHYSICAL_INVALID);
 
-    rprintf("contents: %p %x %p %p\n", fbase, flen, *(u64 *)fbase, physical_from_virtual(fbase));
     u64 msize = 0;
     if (flen > offset) msize = pad(flen-offset, PAGESIZE);
     if (msize > len) msize = len;
@@ -178,6 +226,7 @@ static void *mmap(void *target, u64 size, int prot, int flags, int fd, u64 offse
     if (len > msize) {
         u64 bss = pad(len, PAGESIZE) - msize;
         map(where + msize, allocate_u64(p->physical, bss), bss, p->pages);
+        rprintf("zero: %p %x\n", pointer_from_u64(where+msize), bss);
         zero(pointer_from_u64(where+msize), bss);
     }
     // ok, if we change pages entries we need to flush the tlb...dont need
@@ -265,6 +314,13 @@ static int stat(char *name, struct stat *s)
     return 0;
 }
 
+static u64 lseek(int fd, u64 offset, int whence)
+{
+    rprintf("lseek %d %p %d\n", fd, offset, whence);
+    return current->p->files[fd].offset;
+}
+
+
 extern void write_msr(u64 a, u64 b);
 static int arch_prctl(int code, unsigned long a)
 {
@@ -274,15 +330,15 @@ static int arch_prctl(int code, unsigned long a)
         break;
     case ARCH_SET_FS:
         write_msr(FS_MSR, a);
+        return 0;
         break;
     case ARCH_GET_FS:
         break;
     case ARCH_GET_GS:
         break;
     default:
-        return -1;
+        return -EINVAL;
     }
-    return 0;
 }
 
 static int uname(struct utsname *v)
@@ -294,12 +350,46 @@ static int uname(struct utsname *v)
     return 0;
 }
 
+int getrlimit(int resource, struct rlimit *rlim)
+{
+    switch (resource) {
+    case RLIMIT_STACK:
+        rlim->rlim_cur = 2*1024*1024;
+        rlim->rlim_max = 2*1024*1024;
+        return 0;
+    case RLIMIT_NOFILE:
+        rlim->rlim_cur = NUMBER_OF_FDS;
+        rlim->rlim_max = NUMBER_OF_FDS;
+        return 0;
+    }
+    return -1;
+}
+
 static void *brk(void *x)
 {
-    u64 alloc = u64_from_pointer(x) - u64_from_pointer(current->p->brk);
-    current->p->brk += alloc; 
-    return current->p->brk;
+    process p = current->p;
+    // stash end of bss?
+    if (p->brk) {
+        if (p->brk > x) {
+            p->brk = x;
+            // free
+        } else {
+            u64 alloc = u64_from_pointer(x) - u64_from_pointer(p->brk);
+            map(u64_from_pointer(p->brk), allocate_u64(p->physical, alloc), alloc, p->pages);
+            zero(p->brk, alloc);
+            p->brk += alloc;         
+        }
+    }
+    return p->brk;
 }
+
+u64 readlink(const char *pathname, char *buf, size_t bufsiz)
+{
+    rprintf("readlink %s\n", pathname);
+    return -EINVAL;
+
+}
+
 
 // because the conventions mostly line up, and because the lower level
 // handler doesn't touch these, using the arglist here should be
@@ -310,8 +400,9 @@ u64 syscall()
     u64 *f = current->frame;
     int call = f[FRAME_VECTOR];
     u64 a[6] = {f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]};
-    
     // vector dispatch with things like fd decoding and general error processing
+    if ((call != SYS_write) && (call != SYS_gettimeofday) && (call != SYS_writev) && (call != SYS_getpid))
+        rprintf("syscall %d %p %p %p\n", call, a[0], a[1], a[2]);
     switch (call) {
     case SYS_read: return read(a[0],pointer_from_u64(a[1]), a[2]);
     case SYS_write: return write(a[0], pointer_from_u64(a[1]), a[2]);
@@ -323,14 +414,20 @@ u64 syscall()
     case SYS_uname: return uname(pointer_from_u64(a[0]));
     case SYS_mmap: return u64_from_pointer(mmap(pointer_from_u64(a[0]), a[1], a[2], a[3], a[4], a[5]));
     case SYS_access: return access(pointer_from_u64(a[0]), a[1]);
+    case SYS_getrlimit: return getrlimit(a[0], pointer_from_u64(a[1]));
     case SYS_getpid: return current->p->pid;
     case SYS_arch_prctl: return arch_prctl(a[0], a[1]);
+    case SYS_rt_sigaction: return sigaction(a[0], pointer_from_u64(a[1]), pointer_from_u64(a[2]));        
+    case SYS_lseek: return lseek(a[0], a[1], a[2]);        
     case SYS_mremap: return u64_from_pointer(mremap(pointer_from_u64(a[0]), a[1], a[2], a[3], pointer_from_u64(a[4])));        
     case SYS_futex: return futex(pointer_from_u64(a[0]), a[1], a[2], pointer_from_u64(a[3]),
                                  pointer_from_u64(a[4]),a[5]);
+    case SYS_readlink: return readlink(pointer_from_u64(a[0]), pointer_from_u64(a[2]), a[3]);
+    case SYS_gettimeofday: return gettimeofday(pointer_from_u64(a[0]), pointer_from_u64(a[2]));
+    case SYS_clone: return clone(a[0], pointer_from_u64(a[1]), pointer_from_u64(a[2]), pointer_from_u64(a[3]), pointer_from_u64(a[4]));
 
     default:
-        rprintf("syscall %d %x %x %x\n", call, a[0], a[1], a[2]);
+        rprintf("syscall %d %p %p %p\n", call, a[0], a[1], a[2]);
         return (0);
     }
 }
@@ -343,6 +440,13 @@ void run(thread t)
     void *entry = pointer_from_u64(frame[FRAME_RIP]);
     void *stack = pointer_from_u64(frame[FRAME_RSP]);    
     //  need to use frame_return (full context), but it faults. make a jmp based frame return?
+    __asm__("mov %0, %%rax"::"g"(frame[FRAME_RAX]));    
+    __asm__("mov %0, %%rsi"::"g"(frame[FRAME_RSI]));
+    __asm__("mov %0, %%rdi"::"g"(frame[FRAME_RDI]));
+    __asm__("mov %0, %%rdx"::"g"(frame[FRAME_RDX]));
+    __asm__("mov %0, %%rcx"::"g"(frame[FRAME_RCX]));
+    __asm__("mov %0, %%r8"::"g"(frame[FRAME_R8]));
+    __asm__("mov %0, %%r9"::"g"(frame[FRAME_R9]));                        
     __asm__("mov %0, %%rsp"::"g"(stack));
     __asm__("jmp *%0"::"g"(entry));
 }
@@ -359,7 +463,9 @@ static CLOSURE_0_3(stdout, int, void*, u64, u64);
 static int stdout(void *d, u64 length, u64 offset)
 {
     character *z = d;
-    for (int i = 0; i< length; i++) serial_out(z[i]);
+    for (int i = 0; i< length; i++) {
+        serial_out(z[i]);
+    }
 }
 
 process create_process(heap h, heap pages, heap physical, node filesystem)
@@ -370,8 +476,8 @@ process create_process(heap h, heap pages, heap physical, node filesystem)
     p->brk = pointer_from_u64(0x8000000);
     p->pid = process_count++;
     // allocate main thread, setup context, run main thread
-    // this should be a heap
     p->virtual = create_id_heap(h, 0x7000000000ull, 0x100000000);
+    p->virtual32 = create_id_heap(h, 0xd0000000, PAGESIZE);
     p->pages = pages;
     p->fdallocator = create_id_heap(h, 3, 1);
     p->physical = physical;
