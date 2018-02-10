@@ -1,14 +1,16 @@
 #include <sruntime.h>
 #include <system.h>
 
-// allocator
-unsigned int process_count = 110;
+static heap processes;
 
 typedef struct file {
     u64 offset; 
     io read, write;
     node n;
 } *file;
+
+typedef vector runqueue;
+static runqueue runnable;
 
 #define NUMBER_OF_FDS 32
 typedef struct process {
@@ -22,13 +24,10 @@ typedef struct process {
     heap virtual32;    
     heap fdallocator;
     node cwd;
+    table futices;
 } *process;
 
 thread current;
-
-// could really take the args directly off the function..maybe dispatch in
-// asm
-// packed?
 
 static node lookup(process p, char *name)
 {
@@ -39,23 +38,19 @@ static node lookup(process p, char *name)
     // transient
     vector vn = split(p->h, &b, '/');
     vector_pop(vn);
-    // relative
+    // relative path resolution with cwd
     if (vector_length(vn) == 0) {
         return node_invalid;
     }
-    
     return storage_resolve(p->filesystem, vn);
 }
 
 int sigaction(int signum, const struct sigaction *act,
               struct sigaction *oldact)
 {
-    rprintf("sigacts %d\n", signum);
     if (oldact) oldact->_u._sa_handler = SIG_DFL;
     return 0;
 }
-
-
 
 int read(int fd, u8 *dest, bytes length)
 {
@@ -117,19 +112,15 @@ static int contents_read(node n, void *dest, u64 length, u64 offset)
 
 long clone(unsigned long flags, void *child_stack, void *ptid, void *ctid, void *x)
 {
-    static int tid= 2;
-    rprintf("clone! %p %p %p %p %p\n", flags, child_stack, ptid, ctid, x);
     thread t = create_thread(current->p);
+    rprintf("clone! %d->%d\n", current->tid, t->tid);
     runtime_memcpy(t->frame, current->frame, sizeof(t->frame));
     t->frame[FRAME_RSP]= u64_from_pointer(child_stack);
     t->frame[FRAME_RAX]= *(u32 *)ctid;
-    // run should do this!
-    write_msr(FS_MSR, u64_from_pointer(x));
-    rprintf("fs: %p\n", read_msr(FS_MSR));
-    return 0;
-    //    run(t);
+    t->frame[FRAME_FS] = u64_from_pointer(x);
+    vector_push(runnable, t);
+    return t->tid;
 }
-
 
 int open(char *name, int flags, int mode)
 {
@@ -265,31 +256,75 @@ static int fstat(int fd, struct stat *s)
     return 0;
 }
 
+static runqueue allocate_runqueue(heap h)
+{
+    return allocate_vector(h, 5);
+}
+
+static void run_enqueue(vector v, thread t)
+{
+    vector_push(v, t);
+}
+
+typedef struct fut {
+    runqueue waiters;
+    u64 value;
+} *fut;
+    
+static fut soft_create_futex(process p, u64 key)
+{
+    fut f;
+    // of course this is supossed to be serialized
+    if (!(f = table_find(p->futices, pointer_from_u64(key)))) {
+        f = allocate(p->h, sizeof(struct fut));
+        f->waiters = allocate_runqueue(p->h);
+        f->value = 0; // unable to find a reference for this, but it seems like the only option
+        table_set(p->futices, pointer_from_u64(key), f);
+    }
+    return f;
+}
+
+void run_queue(runqueue r)
+{
+    thread t =vector_pop(r);
+    if (t) run(t);
+}
+
 static int futex(int *uaddr, int futex_op, int val,
                  const struct timespec *timeout,   
                  int *uaddr2, int val3)
 {
-    rprintf("futex op %d %x %d %p %p\n", futex_op, uaddr, val, current->frame[FRAME_RDX], timeout);
-#if 0
-    u64 *stack = pointer_from_u64(current->frame[FRAME_RSP]);        
-    for (int j = 0; j< 20; j++) {
-        print_u64(stack[j]);
-        console("\n");        
-    }
-    asm("hlt");
-#endif        
+    fut f = soft_create_futex(current->p, u64_from_pointer(uaddr));
     int op = futex_op & 127; // chuck the private bit
     switch(op) {
-    case FUTEX_WAIT: rprintf("futex_wait\n"); {
-            //       *uaddr = val;
-            return 0;
+    case FUTEX_WAIT:
+        rprintf("futex_wait %d %p %p\n", current->tid, uaddr, f->value, val);
+        if (f->value == val) {
+            // if we resume we are woken up, no timeout support
+            current->frame[FRAME_RAX] = 0;
+            run_enqueue(f->waiters, current);
+            run_queue(runnable);
+            // so now we need to schedule some other poor sucker
         }
-    case FUTEX_WAKE: rprintf("futex_wake\n"); break;
+        return -EAGAIN;
+            
+    case FUTEX_WAKE:
+        // return the number of waiters that were woken up
+        rprintf("futex_wake %d %d\n", current->tid, vector_length(f->waiters));
+        return 0;
+        
     case FUTEX_FD: rprintf("futex_fd\n"); break;
     case FUTEX_REQUEUE: rprintf("futex_requeue\n"); break;
     case FUTEX_CMP_REQUEUE: rprintf("FUTEX_cmp_requeue\n"); break;
     case FUTEX_WAKE_OP: rprintf("FUTEX_wake_op\n"); break;
-    case FUTEX_WAIT_BITSET: rprintf("FUTEX_wait_bitset\n"); break;
+    case FUTEX_WAIT_BITSET: 
+        rprintf("FUTEX_wait_bitset %d %p %p %p\n", current->tid, uaddr, val3, f->value);
+        if (f->value == val) {
+            current->frame[FRAME_RAX] = 0;
+            run_enqueue(f->waiters, current);
+            run_queue(runnable);
+        }
+        break;
     case FUTEX_WAKE_BITSET: rprintf("FUTEX_wake_bitset\n"); break;
     case FUTEX_LOCK_PI: rprintf("FUTEX_lock_pi\n"); break;
     case FUTEX_TRYLOCK_PI: rprintf("FUTEX_trylock_pi\n"); break;
@@ -297,6 +332,7 @@ static int futex(int *uaddr, int futex_op, int val,
     case FUTEX_CMP_REQUEUE_PI: rprintf("FUTEX_CMP_requeue_pi\n"); break;
     case FUTEX_WAIT_REQUEUE_PI: rprintf("FUTEX_WAIT_requeue_pi\n"); break;
     }
+    return 0;
 }
 
 
@@ -329,9 +365,8 @@ static int arch_prctl(int code, unsigned long a)
     case ARCH_SET_GS:
         break;
     case ARCH_SET_FS:
-        write_msr(FS_MSR, a);
+        current->frame[FRAME_FS] = a;
         return 0;
-        break;
     case ARCH_GET_FS:
         break;
     case ARCH_GET_GS:
@@ -368,7 +403,6 @@ int getrlimit(int resource, struct rlimit *rlim)
 static void *brk(void *x)
 {
     process p = current->p;
-    // stash end of bss?
     if (p->brk) {
         if (p->brk > x) {
             p->brk = x;
@@ -391,6 +425,12 @@ u64 readlink(const char *pathname, char *buf, size_t bufsiz)
 }
 
 
+u64 set_tid_address(void *a)
+{
+    current->set_child_tid = a;
+    return current->tid;
+}
+
 // because the conventions mostly line up, and because the lower level
 // handler doesn't touch these, using the arglist here should be
 // a bit faster than digging them out of frame
@@ -400,9 +440,6 @@ u64 syscall()
     u64 *f = current->frame;
     int call = f[FRAME_VECTOR];
     u64 a[6] = {f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]};
-    // vector dispatch with things like fd decoding and general error processing
-    if ((call != SYS_write) && (call != SYS_gettimeofday) && (call != SYS_writev) && (call != SYS_getpid))
-        rprintf("syscall %d %p %p %p\n", call, a[0], a[1], a[2]);
     switch (call) {
     case SYS_read: return read(a[0],pointer_from_u64(a[1]), a[2]);
     case SYS_write: return write(a[0], pointer_from_u64(a[1]), a[2]);
@@ -423,6 +460,7 @@ u64 syscall()
     case SYS_futex: return futex(pointer_from_u64(a[0]), a[1], a[2], pointer_from_u64(a[3]),
                                  pointer_from_u64(a[4]),a[5]);
     case SYS_readlink: return readlink(pointer_from_u64(a[0]), pointer_from_u64(a[2]), a[3]);
+    case SYS_set_tid_address: return set_tid_address(pointer_from_u64(a[0]));
     case SYS_gettimeofday: return gettimeofday(pointer_from_u64(a[0]), pointer_from_u64(a[2]));
     case SYS_clone: return clone(a[0], pointer_from_u64(a[1]), pointer_from_u64(a[2]), pointer_from_u64(a[3]), pointer_from_u64(a[4]));
 
@@ -435,27 +473,20 @@ u64 syscall()
 extern u64 *frame;
 void run(thread t)
 {
+    rprintf("run %d\n", t->tid);
     current = t;
     frame = t->frame;
-    void *entry = pointer_from_u64(frame[FRAME_RIP]);
-    void *stack = pointer_from_u64(frame[FRAME_RSP]);    
-    //  need to use frame_return (full context), but it faults. make a jmp based frame return?
-    __asm__("mov %0, %%rax"::"g"(frame[FRAME_RAX]));    
-    __asm__("mov %0, %%rsi"::"g"(frame[FRAME_RSI]));
-    __asm__("mov %0, %%rdi"::"g"(frame[FRAME_RDI]));
-    __asm__("mov %0, %%rdx"::"g"(frame[FRAME_RDX]));
-    __asm__("mov %0, %%rcx"::"g"(frame[FRAME_RCX]));
-    __asm__("mov %0, %%r8"::"g"(frame[FRAME_R8]));
-    __asm__("mov %0, %%r9"::"g"(frame[FRAME_R9]));                        
-    __asm__("mov %0, %%rsp"::"g"(stack));
-    __asm__("jmp *%0"::"g"(entry));
+    ENTER(frame);
 }
+
+static int tidcount = 0;
 
 thread create_thread(process p)
 {
     thread t = allocate(p->h, sizeof(struct thread));
     t->p = p;
-    // stack goes here
+    t->tid = tidcount++;
+    t->set_child_tid = t->clear_child_tid = 0;
     return t;
 }
 
@@ -468,13 +499,25 @@ static int stdout(void *d, u64 length, u64 offset)
     }
 }
 
+static u64 futex_key_function(void *x)
+{
+    return u64_from_pointer(x);
+}
+
+static boolean futex_key_equal(void *a, void *b)
+{
+    return a == b;
+}
+
+
 process create_process(heap h, heap pages, heap physical, node filesystem)
 {
     process p = allocate(h, sizeof(struct process));
     p->filesystem = filesystem;
     p->h = h;
+    // stash end of bss? collisions?
     p->brk = pointer_from_u64(0x8000000);
-    p->pid = process_count++;
+    p->pid = allocate_u64(processes, 1);
     // allocate main thread, setup context, run main thread
     p->virtual = create_id_heap(h, 0x7000000000ull, 0x100000000);
     p->virtual32 = create_id_heap(h, 0xd0000000, PAGESIZE);
@@ -483,5 +526,14 @@ process create_process(heap h, heap pages, heap physical, node filesystem)
     p->physical = physical;
     p->files[1].write = closure(h, stdout);    
     p->files[2].write = closure(h, stdout);
+    p->futices = allocate_table(h, futex_key_function, futex_key_equal);
     return p;
+}
+
+void init_system(heap h)
+{
+    set_syscall_handler(syscall_enter);
+    // could wrap this in a 'system'
+    processes = create_id_heap(h, 110, 1);
+    runnable = allocate_runqueue(h);
 }

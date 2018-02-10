@@ -4,61 +4,93 @@
         ;; frame size is 136..? 
 extern frame
 
-
+        ;; xxx - share this with C
+%define FRAME_RAX 0
+%define FRAME_RBX 1
+%define FRAME_RCX 2
+%define FRAME_RDX 3
+%define FRAME_RBP 4
+%define FRAME_RSP 5
+%define FRAME_RSI 6
+%define FRAME_RDI 7
+%define FRAME_R8 8
+%define FRAME_R9 9 
+%define FRAME_R10 10
+%define FRAME_R11 11
+%define FRAME_R12 12
+%define FRAME_R13 13
+%define FRAME_R14 14
+%define FRAME_R15 15
+%define FRAME_VECTOR 16
+%define FRAME_RIP 17
+%define FRAME_FLAGS 18
+%define FRAME_FS 19
+%define FS_MSR 0xc0000100
+        
 ;;;  correlation to allow us to get back in the relative, virtual, addresses
 ;;;  of data after the interrupt has tracked us onto physical
 ;;;  there should be a better place to stash this
 ;;;  frame might be stashable in a segment register
 absolution equ 0x7de8
 
+;;; optimize and merge - frame is loaded into rbx
+global frame_enter
+frame_enter:
+        mov rax, [rbx+FRAME_FS*8]
+        mov rcx, FS_MSR
+        mov rdx, rax
+        shr rdx, 0x20
+        wrmsr ;; move fs, consider macro
+        mov rdx, [rbx+FRAME_RDX*8]        
+        mov rbp, [rbx+FRAME_RBP*8]
+        mov rsi, [rbx+FRAME_RSI*8]
+        mov rdi, [rbx+FRAME_RDI*8]
+        mov r8,  [rbx+FRAME_R8*8]
+        mov r9,  [rbx+FRAME_R9*8]
+        mov r10, [rbx+FRAME_R10*8]
+        mov r11, [rbx+FRAME_R11*8]
+        mov r12, [rbx+FRAME_R12*8]
+        mov r13, [rbx+FRAME_R13*8]
+        mov r14, [rbx+FRAME_R14*8]
+        mov r15, [rbx+FRAME_R15*8]
+        mov rax, [rbx+FRAME_RIP*8]
+        mov rsp, [rbx+FRAME_RSP*8]                
+        push rax
+        mov rax, [rbx+FRAME_FLAGS*8]        
+        push rax        
+        mov rax, [rbx+FRAME_RAX*8]
+        mov rbx, [rbx+FRAME_RBX*8]                
+        popf
+        ret
+
+;; syscall save and restore doesn't always have to be a full frame        
 extern syscall
 global syscall_enter
 syscall_enter:   
         push rax
         mov rax, [frame]
-        mov [rax+8], rbx
-        mov [rax+24], rdx
-        mov [rax+32], rbp
-        mov [rax+40], rsp   ;ehh, off by 16 plus the stack frame
-        mov [rax+48], rsi
-        mov [rax+56], rdi
-        mov [rax+64], r8
-        mov [rax+72], r9
-        mov [rax+80], r10
-        mov [rax+144], r11      ; flags
-        mov [rax+96], r12
-        mov [rax+104], r13
-        mov [rax+112], r14
-        mov [rax+120], r15        
+        mov [rax+FRAME_RBX*8], rbx
         pop rbx
-        mov [rax+128], rbx ; put this in vector
-        mov [rax+136], rcx ; put this is rip
+        mov [rax+FRAME_VECTOR*8], rbx
+        mov [rax+FRAME_RDX*8], rdx
+        mov [rax+FRAME_RBP*8], rbp
+        mov [rax+FRAME_RSP*8], rsp
+        mov [rax+FRAME_RSI*8], rsi
+        mov [rax+FRAME_RDI*8], rdi
+        mov [rax+FRAME_R8*8], r8
+        mov [rax+FRAME_R9*8], r9
+        mov [rax+FRAME_R10*8], r10
+        mov [rax+FRAME_FLAGS*8], r11
+        mov [rax+FRAME_R12*8], r12
+        mov [rax+FRAME_R13*8], r13
+        mov [rax+FRAME_R14*8], r14
+        mov [rax+FRAME_R15*8], r15                               
+        mov [rax+FRAME_RIP*8], rcx
         call syscall
-        mov rcx, [frame]
-        mov rbx, [rcx+8]
-        mov rdx, [rcx+24]
-        mov rbp, [rcx+32]
-        mov rsi, [rcx+48]
-        mov rdi, [rcx+56]
-        mov r8,  [rcx+64]
-        mov r9,  [rcx+72]
-        mov r10, [rcx+80]
-        mov r12, [rcx+96]
-        mov r13, [rcx+104]
-        mov r14, [rcx+112]
-        mov r15, [rcx+120]
-        mov r11, [rcx+136]
-        ; r11 contains return flaggies
-        ; rcx contains return address
-        ; unfortunately the architecture sets cpl=3 here and there
-        ; is nothing we can do about it...except rewrite the vdso
-        ; thing..or...just use a different widget to get back  
-        ; sysret
-        push r11
-        mov r11, [rcx+144]
-        push r11
-        popf
-        ret
+        mov rbx, [frame]
+        mov [rbx + FRAME_RAX], rax
+        jmp frame_enter
+
         
 extern common_handler
 interrupt_common:
@@ -105,6 +137,7 @@ interrupt_common:
         pop rbx            ; error code - put this in the frame
         jmp .getrip
 
+;; use run_frame
 global frame_return
 frame_return:
         mov rax, [frame]

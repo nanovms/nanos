@@ -40,9 +40,8 @@ void startup(heap pages, heap general, heap physical, node filesystem)
 {
     console("startup\n");
     u64 c = cpuid();
-    
-    set_syscall_handler(syscall_enter);
 
+    init_system(general);
     process p = create_process(general, pages, physical, filesystem);
     thread t = create_thread(p);
 
@@ -65,10 +64,12 @@ void startup(heap pages, heap general, heap physical, node filesystem)
             interp_name.start = 0;
         }
     }
-
+    console("frame\n");
+    rprintf("frame %p\n", t->frame);
     void *ldso = load_file(filesystem, general, &interp_name);
     t->frame[FRAME_RIP] = u64_from_pointer(load_elf(ldso, 0x400000000, pages, physical));
-        
+    console("constructing arglist\n");
+    
     map(0, PHYSICAL_INVALID, PAGESIZE, pages);
 
     u8 seed = 0x3e;
@@ -127,7 +128,9 @@ void startup(heap pages, heap general, heap physical, node filesystem)
         push(&s, u64_from_pointer(b->contents));         
     }
     push(&s, u64_from_pointer(argc));
+    console("what?\n");
     t->frame[FRAME_RSP] = u64_from_pointer(s.contents + s.end);
+    rprintf("Entry: %p %p\n", t->frame[FRAME_RIP], t->frame[FRAME_RSP]);
     run(t);
 }
 
