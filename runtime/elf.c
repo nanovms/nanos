@@ -28,7 +28,6 @@ void *load_elf(void *base, u64 offset, heap pages, heap bss)
                     len += new_pages;
                     map(pstart, allocate_u64(bss, new_pages), new_pages, pages);
                 }
-                rprintf("bss %p %x (%p) %d %x %d\n", bss_start, len, base, bss_size, pstart);
                 zero(bss_start, len);
             }
         }

@@ -128,7 +128,7 @@ void common_handler()
             print_u64(stack[j]);
             console("\n");        
         }
-        asm("hlt");
+        QEMU_HALT();
     }
 }
 

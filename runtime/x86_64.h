@@ -63,3 +63,6 @@ static inline void disable_interrupts()
 // gs, and xmm
 
 #define ENTER(frame) __asm__("mov %0, %%rbx"::"g"(frame)); __asm__("jmp frame_enter")
+
+#define QEMU_HALT()  out8(0x501, 0);
+

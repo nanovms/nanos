@@ -38,7 +38,6 @@ static void push(buffer b, u64 w)
 
 void startup(heap pages, heap general, heap physical, node filesystem)
 {
-    console("startup\n");
     u64 c = cpuid();
 
     init_system(general);
@@ -67,7 +66,6 @@ void startup(heap pages, heap general, heap physical, node filesystem)
 
     void *ldso = load_file(filesystem, general, &interp_name);
     t->frame[FRAME_RIP] = u64_from_pointer(load_elf(ldso, 0x400000000, pages, physical));
-    console("constructing arglist\n");
     
     map(0, PHYSICAL_INVALID, PAGESIZE, pages);
 

@@ -134,6 +134,20 @@ struct timespec {
 #define FUTEX_WAIT_REQUEUE_PI	11
 #define FUTEX_CMP_REQUEUE_PI	12
 
+#define  FUTEX_OP_SET        0  /* uaddr2 = oparg; */
+#define  FUTEX_OP_ADD        1  /* uaddr2 += oparg; */
+#define  FUTEX_OP_OR         2  /* uaddr2 |= oparg; */
+#define  FUTEX_OP_ANDN       3  /* uaddr2 &= ~oparg; */
+#define  FUTEX_OP_XOR        4  /* uaddr2 ^= oparg; */
+
+#define FUTEX_OP_CMP_EQ     0  /* if (oldval == cmparg) wake */
+#define FUTEX_OP_CMP_NE     1  /* if (oldval != cmparg) wake */
+#define FUTEX_OP_CMP_LT     2  /* if (oldval < cmparg) wake */
+#define FUTEX_OP_CMP_LE     3  /* if (oldval <= cmparg) wake */
+#define FUTEX_OP_CMP_GT     4  /* if (oldval > cmparg) wake */
+#define FUTEX_OP_CMP_GE     5  /* if (oldval >= cmparg) wake */
+
+
 #define SEEK_SET 0
 #define SEEK_CUR 1
 #define SEEK_END 2
