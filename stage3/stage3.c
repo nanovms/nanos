@@ -64,8 +64,7 @@ void startup(heap pages, heap general, heap physical, node filesystem)
             interp_name.start = 0;
         }
     }
-    console("frame\n");
-    rprintf("frame %p\n", t->frame);
+
     void *ldso = load_file(filesystem, general, &interp_name);
     t->frame[FRAME_RIP] = u64_from_pointer(load_elf(ldso, 0x400000000, pages, physical));
     console("constructing arglist\n");
@@ -122,15 +121,13 @@ void startup(heap pages, heap general, heap physical, node filesystem)
     args = storage_lookup_node(args, staticbuffer("files"));
     storage_vector_foreach(args, i, v) {
         buffer b = allocate_buffer(general, buffer_length(v) + 1);
-        buffer_write(b, b->contents, b->length);
+        buffer_write(b, v->contents, buffer_length(v));
         push_character(b, 0);
         argc++;
-        push(&s, u64_from_pointer(b->contents));         
+        push(&s, u64_from_pointer(b->contents));
     }
     push(&s, u64_from_pointer(argc));
-    console("what?\n");
     t->frame[FRAME_RSP] = u64_from_pointer(s.contents + s.end);
-    rprintf("Entry: %p %p\n", t->frame[FRAME_RIP], t->frame[FRAME_RSP]);
     run(t);
 }
 

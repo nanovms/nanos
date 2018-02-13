@@ -126,13 +126,14 @@ int open(char *name, int flags, int mode)
 {
     struct node n;
     bytes length;
-    rprintf("open %s\n", name);
     
     // fix - lookup should be robust
     if (name == 0) return -EINVAL;
     
-    if (is_empty(n = lookup(current->p, name)))
+    if (is_empty(n = lookup(current->p, name))) {
+        rprintf("open %s - not found\n", name);
         return -ENOENT;
+    }
 
     buffer b = allocate(current->p->h, sizeof(struct buffer));
     // might be functional, or be a directory
@@ -141,7 +142,7 @@ int open(char *name, int flags, int mode)
     f->n = n;
     f->read = closure(current->p->h, contents_read, n);
     f->offset = 0;
-    rprintf("open return %x\n", fd);
+    rprintf("open %s return %x\n", name, fd);
     return fd;
 }
 
@@ -333,7 +334,7 @@ static int futex(int *uaddr, int futex_op, int val,
         return -EAGAIN;
     case FUTEX_WAKE_OP: rprintf("FUTEX_wake_op\n"); break;
     case FUTEX_WAIT_BITSET: 
-        rprintf("FUTEX_wait_bitset [%d %p %d] %p %p\n", current->tid, uaddr, *uaddr, val3);
+        rprintf("futex_wait_bitset [%d %p %d] %p %p\n", current->tid, uaddr, *uaddr, val3);
         if (*uaddr == val) {
             current->frame[FRAME_RAX] = 0;
             run_enqueue(f->waiters, current);
@@ -415,6 +416,12 @@ int getrlimit(int resource, struct rlimit *rlim)
     return -1;
 }
 
+static char *getcwd(char *buf, u64 length)
+{
+    runtime_memcpy(buf, "/", 2);
+    return buf;
+}
+
 static void *brk(void *x)
 {
     process p = current->p;
@@ -439,6 +446,10 @@ u64 readlink(const char *pathname, char *buf, size_t bufsiz)
 
 }
 
+u64 fcntl(int fd, int cmd)
+{
+    return O_RDWR;
+}
 
 u64 set_tid_address(void *a)
 {
@@ -470,7 +481,9 @@ u64 syscall()
     case SYS_getpid: return current->p->pid;
     case SYS_arch_prctl: return arch_prctl(a[0], a[1]);
     case SYS_rt_sigaction: return sigaction(a[0], pointer_from_u64(a[1]), pointer_from_u64(a[2]));        
-    case SYS_lseek: return lseek(a[0], a[1], a[2]);        
+    case SYS_lseek: return lseek(a[0], a[1], a[2]);
+    case SYS_fcntl: return fcntl(a[0], a[2]);
+    case SYS_getcwd: return u64_from_pointer(getcwd(pointer_from_u64(a[0]), a[1]));
     case SYS_mremap: return u64_from_pointer(mremap(pointer_from_u64(a[0]), a[1], a[2], a[3], pointer_from_u64(a[4])));        
     case SYS_futex: return futex(pointer_from_u64(a[0]), a[1], a[2], pointer_from_u64(a[3]),
                                  pointer_from_u64(a[4]),a[5]);
@@ -535,7 +548,7 @@ process create_process(heap h, heap pages, heap physical, node filesystem)
     p->pid = allocate_u64(processes, 1);
     // allocate main thread, setup context, run main thread
     p->virtual = create_id_heap(h, 0x7000000000ull, 0x100000000);
-    p->virtual32 = create_id_heap(h, 0xd0000000, PAGESIZE);
+    p->virtual32 = create_id_heap(h, 0x10000000, PAGESIZE);
     p->pages = pages;
     p->fdallocator = create_id_heap(h, 3, 1);
     p->physical = physical;
