@@ -18,5 +18,5 @@
 /program /usr/bin/mono
 /args/0 /hw.bytes
 /args/1 /hw.bytes
-/hw.bytes @/home/yuri/host/uniboot/stage3/input.bin
+/hw.bytes @input.bin
 /usr/lib/mono/4.5/mscorlib.dll @/usr/lib/mono/4.5/mscorlib.dll
