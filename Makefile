@@ -1,27 +1,15 @@
-all: image
 
-force:
 
-boot/boot: force
-	cd boot ; make
-
-example/app: lwip force
-	cd example ; make 
-
-lwip:
-	git clone http://git.savannah.nongnu.org/git/lwip.git 
-	cd lwip ; git checkout STABLE-2_0_3_RELEASE
+stage3/image:
+	cd stage3 ; make image
 
 clean:
 	cd boot ; make clean
-	cd example ; make clean
+	cd stage3 ; make clean
 	cd mkfs ; make clean
-	cd libc ; make clean
-	rm -f bootable
+	cd net ; make clean
+	rm -f runtime/closure_templates.h runtime/contgen
 
-distclean: clean
-	rm -rf lwip libc/musl
-
-run: image
-	(sleep 4 ; echo "x") | qemu-system-x86_64 -d int -D foo -device virtio-net,netdev=n0,mac=4a:a4:e1:21:01:9c -netdev tap,id=n0,ifname=tap0,script=no -nographic  -drive file=image,format=raw
+run: stage3/image
+	- qemu-system-x86_64  -nographic -drive file=stage3/image,format=raw -m 2G -device isa-debug-exit
 

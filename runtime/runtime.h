@@ -37,6 +37,4 @@ static inline void rprintf(char *format, ...)
 
 void *load_elf(void *base, u64 offset, heap pages, heap bss);
 #include <storage.h>
-#include <closure.h>
-#include <closure_templates.h>
 

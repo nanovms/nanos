@@ -2,6 +2,9 @@
 #include <booto.h>
 #include <x86_64.h>
 #include <elf64.h>
+#include <closure.h>
+#include <closure_templates.h>
+
 
 void register_interrupt(int vector, thunk t);
 void msi_map_vector(int slot, int vector);
