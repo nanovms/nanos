@@ -34,5 +34,5 @@ clean:
 	rm -f image *.o fs
 
 run: image
-	- qemu-system-x86_64 -d int -D foo  -nographic -drive file=image,format=raw -m 2G -device isa-debug-exit
+	- qemu-system-x86_64  -nographic -drive file=image,format=raw -m 2G -device isa-debug-exit
 

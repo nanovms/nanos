@@ -5,7 +5,7 @@ ROOT=$(PWD)/..
 
 include $(ROOT)/runtime/Makefile
 
-%.o: %.c
+%.o: %.c $(ROOT)/runtime/closure_templates.h
 	cc -g -c $(INCLUDES) $<
 
 mkfs: main.o $(UNIXRUNTIME)
@@ -15,5 +15,5 @@ dump: dump.o $(UNIXRUNTIME)
 	cc $^ -g -o mkfs
 
 clean:
-	rm *.o
+	rm -f *.o mkfs
 
