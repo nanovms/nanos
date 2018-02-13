@@ -7,7 +7,6 @@ clean:
 	cd boot ; make clean
 	cd stage3 ; make clean
 	cd mkfs ; make clean
-	cd net ; make clean
 	rm -f runtime/closure_templates.h runtime/contgen
 
 run: stage3/image
