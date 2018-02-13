@@ -109,7 +109,7 @@ static int contents_read(node n, void *dest, u64 length, u64 offset)
 long clone(unsigned long flags, void *child_stack, void *ptid, void *ctid, void *x)
 {
     thread t = create_thread(current->p);
-    rprintf("clone! %d->%d\n", current->tid, t->tid);
+    //    rprintf("clone! %d->%d\n", current->tid, t->tid);
     runtime_memcpy(t->frame, current->frame, sizeof(t->frame));
     t->frame[FRAME_RSP]= u64_from_pointer(child_stack);
     t->frame[FRAME_RAX]= *(u32 *)ctid;
@@ -282,7 +282,7 @@ void run_queue(runqueue r)
     if (t) {
         run(t);
     } else {
-        rprintf("empty queue buddy\n");
+        //        rprintf("empty queue buddy\n");
         QEMU_HALT();
     }
 }
@@ -292,12 +292,14 @@ static int futex(int *uaddr, int futex_op, int val,
                  int *uaddr2, int val3)
 {
     struct timespec *timeout = pointer_from_u64(val2);
+    int verbose = false;
     
     fut f = soft_create_futex(current->p, u64_from_pointer(uaddr));
     int op = futex_op & 127; // chuck the private bit
     switch(op) {
     case FUTEX_WAIT:
-        rprintf("futex_wait [%d %p %d] %p\n", current->tid, uaddr, *uaddr, val);
+        if (verbose)
+            rprintf("futex_wait [%d %p %d] %p\n", current->tid, uaddr, *uaddr, val);
         if (*uaddr == val) {
             // if we resume we are woken up, no timeout support
             current->frame[FRAME_RAX] = 0;
@@ -309,7 +311,8 @@ static int futex(int *uaddr, int futex_op, int val,
             
     case FUTEX_WAKE:
         // return the number of waiters that were woken up
-        rprintf("futex_wake [%d %p %d] %d\n", current->tid, uaddr, *uaddr, vector_length(f->waiters));
+        if (verbose)
+            rprintf("futex_wake [%d %p %d] %d\n", current->tid, uaddr, *uaddr, vector_length(f->waiters));
         if (vector_length(f->waiters)) {
             current->frame[FRAME_RAX] = 1;
             vector_push(runnable, current);
@@ -320,7 +323,8 @@ static int futex(int *uaddr, int futex_op, int val,
     case FUTEX_FD: rprintf("futex_fd\n"); break;
     case FUTEX_REQUEUE: rprintf("futex_requeue\n"); break;
     case FUTEX_CMP_REQUEUE:
-        rprintf("futex_cmp_requeue [%d %p %d] %d\n", current->tid, uaddr, *uaddr, val3);
+        if (verbose)
+            rprintf("futex_cmp_requeue [%d %p %d] %d\n", current->tid, uaddr, *uaddr, val3);
         if (*uaddr == val3) {
             if (vector_length(f->waiters)) {
                 current->frame[FRAME_RAX] = 1;
@@ -337,7 +341,8 @@ static int futex(int *uaddr, int futex_op, int val,
             unsigned int cmp = (val3 >> 24) & MASK(4);
             unsigned int op = (val3 >> 28) & MASK(4);
 
-            rprintf("futex wake op: [%d %p %d] %p %d %d %d %d\n",  current->tid, uaddr, *uaddr, uaddr2, cmparg, oparg, cmp, op);
+            if (verbose)
+                rprintf("futex wake op: [%d %p %d] %p %d %d %d %d\n",  current->tid, uaddr, *uaddr, uaddr2, cmparg, oparg, cmp, op);
             int oldval = *(int *) uaddr2;
             
             switch (cmp) {
@@ -374,8 +379,9 @@ static int futex(int *uaddr, int futex_op, int val,
             return result;
         }
 
-    case FUTEX_WAIT_BITSET: 
-        rprintf("futex_wait_bitset [%d %p %d] %p %p\n", current->tid, uaddr, *uaddr, val3);
+    case FUTEX_WAIT_BITSET:
+        if (verbose)
+            rprintf("futex_wait_bitset [%d %p %d] %p %p\n", current->tid, uaddr, *uaddr, val3);
         if (*uaddr == val) {
             current->frame[FRAME_RAX] = 0;
             run_enqueue(f->waiters, current);
@@ -544,7 +550,7 @@ u64 syscall()
 extern u64 *frame;
 void run(thread t)
 {
-    rprintf("run %d\n", t->tid);
+    // rprintf("run %d\n", t->tid);
     current = t;
     frame = t->frame;
     ENTER(frame);
