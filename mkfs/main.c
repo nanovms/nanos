@@ -92,7 +92,6 @@ u64 read_file(buffer out, buffer name, u64 *length)
     // trying to paint in parts of the bss :(
     zero(out->contents + foff + st.st_size, psz-st.st_size);
     out->end += total;
-    rprintf("boo: %b %p %d\n", name, foff, *length);
     return foff;
 }
 

@@ -127,7 +127,7 @@ int open(char *name, int flags, int mode)
     if (name == 0) return -EINVAL;
     
     if (is_empty(n = lookup(current->p, name))) {
-        rprintf("open %s - not found\n", name);
+        //rprintf("open %s - not found\n", name);
         return -ENOENT;
     }
 
@@ -138,7 +138,7 @@ int open(char *name, int flags, int mode)
     f->n = n;
     f->read = closure(current->p->h, contents_read, n);
     f->offset = 0;
-    rprintf("open %s return %x\n", name, fd);
+    //    rprintf("open %s return %x\n", name, fd);
     return fd;
 }
 
@@ -279,8 +279,12 @@ static fut soft_create_futex(process p, u64 key)
 void run_queue(runqueue r)
 {
     thread t =vector_pop(r);
-    if (t) run(t);
-    else rprintf("empty queue buddy\n");
+    if (t) {
+        run(t);
+    } else {
+        rprintf("empty queue buddy\n");
+        QEMU_HALT();
+    }
 }
 
 static int futex(int *uaddr, int futex_op, int val,
@@ -333,7 +337,7 @@ static int futex(int *uaddr, int futex_op, int val,
             unsigned int cmp = (val3 >> 24) & MASK(4);
             unsigned int op = (val3 >> 28) & MASK(4);
 
-            rprintf("futex wake op: %d %d %d %d\n", cmparg, oparg, cmp, op);
+            rprintf("futex wake op: [%d %p %d] %p %d %d %d %d\n",  current->tid, uaddr, *uaddr, uaddr2, cmparg, oparg, cmp, op);
             int oldval = *(int *) uaddr2;
             
             switch (cmp) {
@@ -524,9 +528,15 @@ u64 syscall()
     case SYS_set_tid_address: return set_tid_address(pointer_from_u64(a[0]));
     case SYS_gettimeofday: return gettimeofday(pointer_from_u64(a[0]), pointer_from_u64(a[2]));
     case SYS_clone: return clone(a[0], pointer_from_u64(a[1]), pointer_from_u64(a[2]), pointer_from_u64(a[3]), pointer_from_u64(a[4]));
+    case SYS_close: return 0;
+    case SYS_munmap: return 0;
+    case SYS_mprotect: return 0;
+    case SYS_clock_gettime: return 0;
+    case SYS_clock_getres: return 0;
+    case SYS_exit: QEMU_HALT();
 
     default:
-        rprintf("syscall %d %p %p %p\n", call, a[0], a[1], a[2]);
+        //        rprintf("syscall %d %p %p %p\n", call, a[0], a[1], a[2]);
         return (0);
     }
 }
@@ -540,7 +550,7 @@ void run(thread t)
     ENTER(frame);
 }
 
-static int tidcount = 0;
+static int tidcount = 1;
 
 thread create_thread(process p)
 {
