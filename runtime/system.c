@@ -88,7 +88,6 @@ static int access(char *name, int mode)
 {
     void *where;
     bytes length;
-    rprintf("access %s\n", name);    
     if (is_empty(lookup(current->p, name)))
         return -ENOENT;
     return 0;
@@ -99,13 +98,10 @@ static int contents_read(node n, void *dest, u64 length, u64 offset)
 {
     void *base;
     u64 flength;
-    rprintf("contents read %p %p %p %p\n", base, length, offset, flength);
     if (!node_contents(n, &base, &flength)) return -EINVAL;
-    rprintf("contents read %p %p %p %p\n", base, length, offset, flength);
     if (length < flength) {
         flength = length;
     }
-    rprintf("contents read %p %p %p %p %p\n", base, length, offset, flength, *(u64 *)(base + offset));
     runtime_memcpy(dest, base + offset, flength);
     return flength;
 }
@@ -156,7 +152,6 @@ void *mremap(void *old_address, u64 old_size,  u64 new_size, int flags,  void *n
     // and if its anonymous why do we care where it is..i guess this
     // is just for large realloc operations? if these aren't aligned
     // its completely unclear what to do
-    rprintf ("mremap %p %x %x %x %p\n", old_address, old_size, new_size, flags, new_address);
     u64 align =  ~MASK(PAGELOG);
     if (new_size > old_size) {
         u64 diff = pad(new_size - old_size, PAGESIZE);
@@ -166,7 +161,6 @@ void *mremap(void *old_address, u64 old_size,  u64 new_size, int flags,  void *n
             // MAP_FAILED
             return r;
         }
-        rprintf ("new alloc %p %x\n", r, diff);
         map(base, physical_from_virtual(r), diff, current->p->pages);
         zero(pointer_from_u64(base), diff); 
     }
@@ -177,7 +171,7 @@ void *mremap(void *old_address, u64 old_size,  u64 new_size, int flags,  void *n
 
 static void *mmap(void *target, u64 size, int prot, int flags, int fd, u64 offset)
 {
-    rprintf("mmap %p %p %x %d %p\n", target, size, flags, fd, offset);
+    //    rprintf("mmap %p %p %x %d %p\n", target, size, flags, fd, offset);
     process p = current->p;
     // its really unclear whether this should be extended or truncated
     u64 len = pad(size, PAGESIZE);
@@ -218,7 +212,6 @@ static void *mmap(void *target, u64 size, int prot, int flags, int fd, u64 offse
     if (len > msize) {
         u64 bss = pad(len, PAGESIZE) - msize;
         map(where + msize, allocate_u64(p->physical, bss), bss, p->pages);
-        rprintf("zero: %p %x\n", pointer_from_u64(where+msize), bss);
         zero(pointer_from_u64(where+msize), bss);
     }
     // ok, if we change pages entries we need to flush the tlb...dont need
@@ -291,16 +284,17 @@ void run_queue(runqueue r)
 }
 
 static int futex(int *uaddr, int futex_op, int val,
-                 const struct timespec *timeout,   
+                 u64 val2,
                  int *uaddr2, int val3)
 {
+    struct timespec *timeout = pointer_from_u64(val2);
+    
     fut f = soft_create_futex(current->p, u64_from_pointer(uaddr));
     int op = futex_op & 127; // chuck the private bit
     switch(op) {
     case FUTEX_WAIT:
         rprintf("futex_wait [%d %p %d] %p\n", current->tid, uaddr, *uaddr, val);
         if (*uaddr == val) {
-            rprintf ("sleepo\n");
             // if we resume we are woken up, no timeout support
             current->frame[FRAME_RAX] = 0;
             run_enqueue(f->waiters, current);
@@ -332,7 +326,50 @@ static int futex(int *uaddr, int futex_op, int val,
             return 0;
         }
         return -EAGAIN;
-    case FUTEX_WAKE_OP: rprintf("FUTEX_wake_op\n"); break;
+    case FUTEX_WAKE_OP:
+        {
+            unsigned int cmparg = val3 & MASK(12);
+            unsigned int oparg = (val3 >> 12) & MASK(12);
+            unsigned int cmp = (val3 >> 24) & MASK(4);
+            unsigned int op = (val3 >> 28) & MASK(4);
+
+            rprintf("futex wake op: %d %d %d %d\n", cmparg, oparg, cmp, op);
+            int oldval = *(int *) uaddr2;
+            
+            switch (cmp) {
+            case FUTEX_OP_SET:   *uaddr  = oparg; break;
+            case FUTEX_OP_ADD:   *uaddr2 += oparg; break;
+            case FUTEX_OP_OR:    *uaddr2 |= oparg; break;
+            case FUTEX_OP_ANDN:  *uaddr2 &= ~oparg; break;
+            case FUTEX_OP_XOR:   *uaddr2 ^= oparg; break;
+            }
+
+            int result = 0;
+            while (vector_length(f->waiters)) {
+                result++;
+                run_enqueue(runnable, vector_pop(f->waiters));
+            }
+            
+            int c;
+            switch (cmp) {
+            case FUTEX_OP_CMP_EQ: c = (oldval == cmparg) ; break;
+            case FUTEX_OP_CMP_NE: c = (oldval != cmparg); break;
+            case FUTEX_OP_CMP_LT: c = (oldval < cmparg); break;
+            case FUTEX_OP_CMP_LE: c = (oldval <= cmparg); break;
+            case FUTEX_OP_CMP_GT: c = (oldval > cmparg) ; break;
+            case FUTEX_OP_CMP_GE: c = (oldval >= cmparg) ; break;
+            }
+            
+            if (c) {
+                fut f = soft_create_futex(current->p, u64_from_pointer(uaddr2));
+                while (vector_length(f->waiters)) {
+                    result++;
+                    run_enqueue(runnable, vector_pop(f->waiters));
+                }
+            }
+            return result;
+        }
+
     case FUTEX_WAIT_BITSET: 
         rprintf("futex_wait_bitset [%d %p %d] %p %p\n", current->tid, uaddr, *uaddr, val3);
         if (*uaddr == val) {
@@ -358,7 +395,6 @@ static int stat(char *name, struct stat *s)
     bytes length;
     node n;
 
-    rprintf("stat %s\n", name);
     if (is_empty(n = lookup(current->p, name)))
         return -ENOENT;
 
@@ -368,7 +404,6 @@ static int stat(char *name, struct stat *s)
 
 static u64 lseek(int fd, u64 offset, int whence)
 {
-    rprintf("lseek %d %p %d\n", fd, offset, whence);
     return current->p->files[fd].offset;
 }
 
@@ -376,7 +411,6 @@ static u64 lseek(int fd, u64 offset, int whence)
 extern void write_msr(u64 a, u64 b);
 static int arch_prctl(int code, unsigned long a)
 {
-    rprintf("arch prctl op %x\n", code);
     switch (code) {
     case ARCH_SET_GS:
         break;
@@ -441,7 +475,6 @@ static void *brk(void *x)
 
 u64 readlink(const char *pathname, char *buf, size_t bufsiz)
 {
-    rprintf("readlink %s\n", pathname);
     return -EINVAL;
 
 }
@@ -485,7 +518,7 @@ u64 syscall()
     case SYS_fcntl: return fcntl(a[0], a[2]);
     case SYS_getcwd: return u64_from_pointer(getcwd(pointer_from_u64(a[0]), a[1]));
     case SYS_mremap: return u64_from_pointer(mremap(pointer_from_u64(a[0]), a[1], a[2], a[3], pointer_from_u64(a[4])));        
-    case SYS_futex: return futex(pointer_from_u64(a[0]), a[1], a[2], pointer_from_u64(a[3]),
+    case SYS_futex: return futex(pointer_from_u64(a[0]), a[1], a[2], a[3],
                                  pointer_from_u64(a[4]),a[5]);
     case SYS_readlink: return readlink(pointer_from_u64(a[0]), pointer_from_u64(a[2]), a[3]);
     case SYS_set_tid_address: return set_tid_address(pointer_from_u64(a[0]));
