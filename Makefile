@@ -9,6 +9,9 @@ image: boot/boot mkfs/mkfs manifest stage3/stage3
 boot/boot:
 	cd boot ; make
 
+stage3/stage3:
+	cd stage3 ; make
+
 clean:
 	cd boot ; make clean
 	cd stage3 ; make clean

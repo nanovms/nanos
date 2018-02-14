@@ -11,5 +11,5 @@ stage3: stage3.o $(STANDALONE) $(VIRTIO)
 	cc $(INCLUDES) -nostdinc -fno-stack-protector $< -c
 
 clean:
-	rm -f *.o *~
+	rm -f *.o *~ stage3
 
