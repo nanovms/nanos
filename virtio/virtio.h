@@ -1,5 +1,5 @@
 typedef struct vtpci *vtpci;
-vtpci attach_vtpci(int bus, int slot, int func);
+vtpci attach_vtpci(heap h, int bus, int slot, int func);
 
 /* VirtIO PCI vendor/device ID. */
 #define VIRTIO_PCI_VENDORID	0x1AF4

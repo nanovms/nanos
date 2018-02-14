@@ -101,7 +101,7 @@ u64 serialize(buffer out, table t)
 {
     // could perfect hash here
     u64 off = init_storage(out, t->count);
-    if (out->end & 3) rprintf("liggo! %x\n", out->end);                
+
     table_foreach(t, k, v)  {
         if (k == contents) {
             buffer b = v;

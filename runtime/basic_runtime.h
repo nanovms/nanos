@@ -52,7 +52,19 @@ static inline int runtime_strlen(char *a)
 #define log2(__x) ( __x)
 
 typedef void *status;
-status allocate_status(char *format, ...);
+
+#define STATUS_OK ((void *)0)
+
+static inline status status_nomem() {return (void *)1;}
+
+static inline boolean is_ok(status s)
+{
+    return s == ((void *)0);
+}
+
+static inline status allocate_status(char *format, ...)
+{
+}
 
 extern heap general;
 typedef unsigned long size_t;

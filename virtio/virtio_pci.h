@@ -83,7 +83,7 @@
 status vtpci_alloc_virtqueue(vtpci dev,
                              char *name, 
                              int idx,
-                             handler intr,
+                             thunk intr,
                              struct virtqueue **result);
 vtpci attach_vtpci();
 

@@ -177,8 +177,8 @@ static err_t virtioif_init(struct netif *netif)
 
 void init_vnet(vtpci dev)
 {
-    vnet vn = allocate(general, sizeof(struct vnet));
-    struct netif *n = allocate(general, sizeof(struct netif));
+    vnet vn = allocate(dev->general, sizeof(struct vnet));
+    struct netif *n = allocate(dev->general, sizeof(struct netif));
     /* rx = 0, tx = 1, ctl = 2 by page 53 of http://docs.oasis-open.org/virtio/virtio/v1.0/cs01/virtio-v1.0-cs01.pdf */
     vn->dev = dev;
     // causes qemu to handle on exit?

@@ -66,3 +66,21 @@ static inline void disable_interrupts()
 
 #define QEMU_HALT()  out8(0x501, 0);
 
+// probably important
+static inline void write_barrier()
+{
+    asm ("sfence");
+}
+static inline void read_barrier()
+{
+        asm ("lfence");
+}
+
+static inline void memory_barrier()
+{
+    // waa
+    asm ("lfence");
+    asm ("sfence");
+}
+
+

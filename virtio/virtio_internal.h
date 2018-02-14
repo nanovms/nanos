@@ -1,4 +1,4 @@
-#include <runtime.h>
+#include <sruntime.h>
 
 typedef u64 uint64_t;
 typedef u32 uint32_t;
@@ -10,51 +10,21 @@ typedef u64 virtual;
 
 #define ETHER_ADDR_LEN 6
 
-typedef void *status;
-status allocate_status(char *format, ...);
-static inline status status_nomem() {return (void *)1;}
-
-
-static inline boolean is_ok(status s)
-{
-    return s == ((void *)0);
-}
-
-// probably important
-static inline void write_barrier()
-{
-    asm ("sfence");
-}
-static inline void read_barrier()
-{
-        asm ("lfence");
-}
-static inline void memory_barrier()
-{
-    // waa
-    asm ("lfence");
-    asm ("sfence");
-}
-
 struct virtqueue;
 
-#define STATUS_OK ((void *)0)
-
-struct vtpci_interrupt {
-    int   irq;
-    void  *vti_handler;
-};
 
 struct vtpci {
     u64 base; //io region base
     uint64_t			 vtpci_features;
 
+    heap physical;
+    heap general;    
     struct virtio_feature_desc	*vtpci_child_feat_desc;
 
     int				 vtpci_nvqs;
     struct virtqueue	 *vtpci_vqs;
-    struct vtpci_interrupt	 vtpci_device_interrupt;
-    struct vtpci_interrupt	 *vtpci_msix_vq_interrupts;
+    //struct vtpci_interrupt	 vtpci_device_interrupt;
+    //truct vtpci_interrupt	 *vtpci_msix_vq_interrupts;
     int				 vtpci_nmsix_resources;
     void *vtpci_msix_res; // not a res
 };
@@ -116,7 +86,7 @@ struct virtqueue {
     void		*vq_ring_mem;
     int			 vq_max_indirect_size;
     int			 vq_indirect_mem_size;
-    handler interrupt;
+    thunk interrupt;
     struct vring         vq_ring;
     uint16_t		 vq_free_cnt;
     uint16_t		 vq_queued_cnt;

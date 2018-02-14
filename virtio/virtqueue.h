@@ -29,12 +29,13 @@
  * $FreeBSD$
  */
 
-status virtqueue_alloc(void *dev,
+status virtqueue_alloc(heap physical,
+                       heap general,
                        string name, 
                        uint16_t queue,
-                       uint16_t size,
+                       uint16_t logsize,
                        int align,
-                       handler interrupt,
+                       thunk interrupt,
                        struct virtqueue **vqp);
 
 /* Device callback for a virtqueue interrupt. */

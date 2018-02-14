@@ -35,7 +35,7 @@ static inline u32 *buckets(buffer b, u64 start)
 boolean storage_lookup(node n, buffer key, u64 *off, bytes *length)
 {
     u32 count = *(u32 *)(n.base + n.offset);
-    offset where = (node_bucket_count(n)+1)[fnv64(key) % count];
+    offset where = (node_bucket_count(n)+1)[fnv64(key) & count];
     while (where) {
         offset *e = naddr(n, where);
         if ((e[3] == buffer_length(key)) &&
@@ -62,7 +62,7 @@ node storage_lookup_node(node n, buffer key)
 // for keys?
 void storage_set(buffer b, u64 start, buffer key, u64 voff, u64 vlen)
 {
-    offset *slot = buckets(b, start) + fnv64(key) % *bucket_count(b, start);
+    offset *slot = buckets(b, start) + (fnv64(key) & *bucket_count(b, start));
     int pk = pad(buffer_length(key), (1<<ENTRY_ALIGNMENT_LOG));
     int nlen = pk + 4 * sizeof(offset);
     offset loc = b->end >> ENTRY_ALIGNMENT_LOG;
@@ -100,7 +100,8 @@ boolean node_contents(node n, void **storage, u64 *slength)
 u64 init_storage(buffer b, int buckets)
 {
     u64 off = b->end;
-    buffer_write_le32(b, buckets);
+    u64 len = log2(buckets); // not yet a thing!
+    buffer_write_le32(b, (1<<len) -1);
     int blen = buckets * sizeof(offset);
     buffer_extend(b, blen);
     zero(b->contents + b->end, blen);

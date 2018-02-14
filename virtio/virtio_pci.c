@@ -58,7 +58,7 @@ static void vtpci_set_status(vtpci dev, uint8_t status)
 status vtpci_alloc_virtqueue(vtpci dev,
                              char *name, 
                              int idx,
-                             handler h,
+                             thunk h,
                              struct virtqueue **result)
 {
 
@@ -66,7 +66,7 @@ status vtpci_alloc_virtqueue(vtpci dev,
     uint16_t size = in16(dev->base + VIRTIO_PCI_QUEUE_NUM);
 
     int i = allocate_msi(h); 
-    status s = virtqueue_alloc(dev, name, idx, size, VIRTIO_PCI_VRING_ALIGN,
+    status s = virtqueue_alloc(dev->physical, dev->general, name, idx, size, VIRTIO_PCI_VRING_ALIGN,
                                h, result);
     if (!is_ok(s)) return s;
 
@@ -84,9 +84,9 @@ void vtpci_notify_virtqueue(struct vtpci *sc, uint16_t queue)
 }
 
 
-vtpci attach_vtpci(int bus, int slot, int func)
+vtpci attach_vtpci(heap h, int bus, int slot, int func)
 {
-    struct vtpci *dev = allocate(general, sizeof(struct vtpci));
+    struct vtpci *dev = allocate(h, sizeof(struct vtpci));
     int rid;
 
     u32 base = pci_readbar(bus, slot, func, 0);
@@ -107,9 +107,9 @@ vtpci attach_vtpci(int bus, int slot, int func)
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_FEATURE); 
 
     int nvqs = 16;
-    dev->vtpci_vqs = allocate_zero(general, nvqs * sizeof(struct virtqueue));
-    enable_interrupts();    
-    init_vnet(dev);
+    dev->vtpci_vqs = allocate_zero(h, nvqs * sizeof(struct virtqueue));
+
+    // init_vnet(dev);
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER_OK);
 
     return dev;

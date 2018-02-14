@@ -68,7 +68,8 @@ void init_service(u64 passed_base)
     general_length = sizeof(bootstrap);
     heap pages = region_allocator(&generalh, PAGESIZE, REGION_IDENTITY);
     heap physical = region_allocator(&generalh, PAGESIZE, REGION_PHYSICAL);    
-    node filesystem = {&_fs_start,  0};
+    //    node filesystem = {&_fs_start,  0};
+    void *filesystem = 0;
 
     u64 stack_location = 0x200000000;
     u64 stack_size = 4*PAGESIZE;

@@ -107,26 +107,23 @@ static void vq_ring_free_chain(struct virtqueue *vq, uint16_t desc_idx)
     vq->vq_desc_head_idx = desc_idx;
 }
 
-status virtqueue_alloc(void *dev,
+status virtqueue_alloc(heap physical,
+                       heap general,
                        string name, 
                        uint16_t queue,
-                       uint16_t size,
+                       uint16_t logsize,
                        int align,
-                       handler interrupt,
+                       thunk interrupt,
                        struct virtqueue **vqp)
 {
     status s = STATUS_OK;
     struct virtqueue *vq;
+    u64 size = 1<<logsize;
 
-    if (log2(size) != size) {
-        return allocate_status("virtqueue %d (%s) size is not a power of 2: %d\n",
-                               queue, name, size);
-    } 
-    vq = allocate(general, sizeof(struct virtqueue) +  size * sizeof(struct vq_desc_extra));
+    vq = allocate(general, sizeof(struct virtqueue) +  1<<logsize * sizeof(struct vq_desc_extra));
 
     if (!vq) 
         return allocate_status("cannot allocate virtqueue\n");
-    vq->vq_dev = dev;
     vq->name = name;
     vq->vq_queue_index = queue;
     vq->vq_nentries = size;
@@ -137,7 +134,7 @@ status virtqueue_alloc(void *dev,
     vq->vq_flags |= VIRTQUEUE_FLAG_EVENT_IDX;
 
     vq->vq_ring_size = pad(vring_size(size, align), PAGESIZE);
-    vq->vq_ring_mem = allocate_zero(contiguous, vq->vq_ring_size);
+    vq->vq_ring_mem = allocate_zero(physical, vq->vq_ring_size);
 
     if (!vq->vq_ring_mem) {
         s = allocate_status("cannot allocate memory for virtqueue ring\n");
@@ -158,7 +155,7 @@ status virtqueue_alloc(void *dev,
 
 physical virtqueue_paddr(struct virtqueue *vq)
 {
-    return (vtophys(vq->vq_ring_mem));
+    return (physical_from_virtual(vq->vq_ring_mem));
 }
 
 int virtqueue_size(struct virtqueue *vq)
@@ -187,7 +184,7 @@ void virtqueue_notify(struct virtqueue *vq)
     /* this was 'mb', i have read_barrier and write_barrier - they are both
     the same, cant be right*/
     read_barrier();
-    vtpci_notify_virtqueue(vq->vq_dev, vq->vq_queue_index);
+    //    vtpci_notify_virtqueue(vq->vq_dev, vq->vq_queue_index);
     vq->vq_queued_cnt = 0;
 }
 
@@ -235,7 +232,7 @@ status virtqueue_enqueue(struct virtqueue *vq,
     for (int i = 0; i < segments; i++) {
         struct vring_desc *dp =  vq->vq_ring.desc + idx;
         u16 flags =0;
-        dp->addr = vtophys(as[i]);
+        dp->addr = physical_from_virtual(as[i]);
         dp->len = lengths[i];
         idx = (idx +1);
         if (i != (segments -1)) {
