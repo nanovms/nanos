@@ -13,9 +13,9 @@ $(ROOT)/runtime/closure_templates.h: $(ROOT)/runtime/contgen
 	$(ROOT)/runtime/contgen 10 10 > $(ROOT)/runtime/closure_templates.h
 
 
-RUNTIME = table.o buffer.o format.o storage.o id.o
+RUNTIME = table.o buffer.o format.o storage.o id.o symbol.o
 system.o: $(ROOT)/runtime/closure_templates.h
-STANDALONE = $(RUNTIME) service.o interrupt.o page.o serial.o crt0.o pci.o elf.o system.o
+STANDALONE = $(RUNTIME) service.o interrupt.o page.o serial.o crt0.o pci.o elf.o system.o 
 UNIXRUNTIME = $(RUNTIME) unix_context.o
 
 INCLUDES += -I$(ROOT)/runtime

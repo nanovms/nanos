@@ -2,9 +2,7 @@
 
 #define trim(x) ((x) & ~MASK(PAGELOG))
 
-// returns entry address.. need the base of the elf also for ld.so
-// bss is allocated virtual and double mapped. should pass
-// a physical allocator
+// buffer would be better for range checking, but stage2 uses this
 void *load_elf(void *base, u64 offset, heap pages, heap bss)
 {
     Elf64_Ehdr *elfh = base;
@@ -15,9 +13,9 @@ void *load_elf(void *base, u64 offset, heap pages, heap bss)
             // unaligned segment? uncool bro
             u64 aligned = trim(p->p_vaddr);
             int ssize = pad(p->p_memsz + (p->p_vaddr - trim (p->p_vaddr)), PAGESIZE);
-            map(aligned+offset, physical_from_virtual((void *)trim(u64_from_pointer(base+p->p_offset))), ssize, pages);
+            map(aligned+offset, physical_from_virtual(base+p->p_offset), ssize, pages);
 
-            void *bss_start = (void *)p->p_vaddr + offset + p->p_filesz;
+            void *bss_start = pointer_from_u64(p->p_vaddr) + offset + p->p_filesz;
             u32 bss_size = p->p_memsz-p->p_filesz;
             if (bss_size) {
                 u64 st = u64_from_pointer(bss_start);

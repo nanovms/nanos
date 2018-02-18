@@ -12,7 +12,7 @@ stage1: stage1.s
 boot: stage1 stage2.pad
 	cat stage1 stage2.pad > boot
 
-OBJ = service32.o stage2.o serial.o page.o storage.o
+OBJ = service32.o stage2.o serial.o page.o elf.o
 
 VPATH = ../runtime
 LD = ld

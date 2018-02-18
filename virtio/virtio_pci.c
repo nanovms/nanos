@@ -56,7 +56,7 @@ static void vtpci_set_status(vtpci dev, uint8_t status)
 }
 
 status vtpci_alloc_virtqueue(vtpci dev,
-                             char *name, 
+                             string name, 
                              int idx,
                              thunk h,
                              struct virtqueue **result)

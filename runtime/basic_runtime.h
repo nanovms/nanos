@@ -10,8 +10,6 @@ typedef u8 boolean;
 
 typedef u64 bytes;
 
-typedef char *string;
-
 extern void console(char *x);
 
 extern void serial_out(char c);

@@ -23,7 +23,7 @@ typedef struct process {
     heap virtual;
     heap virtual32;    
     heap fdallocator;
-    node cwd;
+    node cwd; // need to generate the canonical unix path for a node
     table futices;
 } *process;
 
@@ -31,18 +31,6 @@ thread current;
 
 static node lookup(process p, char *name)
 {
-    struct buffer b;
-    b.start = 0;
-    b.end = runtime_strlen(name);
-    b.contents = name;
-    // transient
-    vector vn = split(p->h, &b, '/');
-    vector_pop(vn);
-    // relative path resolution with cwd
-    if (vector_length(vn) == 0) {
-        return node_invalid;
-    }
-    return storage_resolve(p->filesystem, vn);
 }
 
 int sigaction(int signum, const struct sigaction *act,
@@ -88,7 +76,7 @@ static int access(char *name, int mode)
 {
     void *where;
     bytes length;
-    if (is_empty(lookup(current->p, name)))
+    if (!lookup(current->p, name))
         return -ENOENT;
     return 0;
 }
@@ -96,20 +84,20 @@ static int access(char *name, int mode)
 static CLOSURE_1_3(contents_read, int, node, void *, u64, u64);
 static int contents_read(node n, void *dest, u64 length, u64 offset)
 {
-    void *base;
-    u64 flength;
-    if (!node_contents(n, &base, &flength)) return -EINVAL;
-    if (length < flength) {
-        flength = length;
+    struct buffer b;
+    if (!node_contents(n, &b)) return -EINVAL;
+    u64 len = buffer_length(&b);
+    if (length < len) {
+        len = length;
     }
-    runtime_memcpy(dest, base + offset, flength);
-    return flength;
+    runtime_memcpy(dest, b.contents, buffer_length(&b));
+    return len;
 }
 
 long clone(unsigned long flags, void *child_stack, void *ptid, void *ctid, void *x)
 {
     thread t = create_thread(current->p);
-    //    rprintf("clone! %d->%d\n", current->tid, t->tid);
+    rprintf("clone! %d->%d\n", current->tid, t->tid);
     runtime_memcpy(t->frame, current->frame, sizeof(t->frame));
     t->frame[FRAME_RSP]= u64_from_pointer(child_stack);
     t->frame[FRAME_RAX]= *(u32 *)ctid;
@@ -120,15 +108,15 @@ long clone(unsigned long flags, void *child_stack, void *ptid, void *ctid, void 
 
 int open(char *name, int flags, int mode)
 {
-    struct node n;
+    node n;
     bytes length;
     
     // fix - lookup should be robust
     if (name == 0) return -EINVAL;
     
-    if (is_empty(n = lookup(current->p, name))) {
-        //rprintf("open %s - not found\n", name);
-        return -ENOENT;
+    if ((n = lookup(current->p, name))) {
+            //rprintf("open %s - not found\n", name);
+            return -ENOENT;
     }
 
     buffer b = allocate(current->p->h, sizeof(struct buffer));
@@ -178,14 +166,14 @@ static void *mmap(void *target, u64 size, int prot, int flags, int fd, u64 offse
     //gack
     len = len & MASK(32);
     u64 where = u64_from_pointer(target);
-
+    
     if (!(flags &MAP_FIXED)){
         if (flags & MAP_32BIT)
             where = allocate_u64(current->p->virtual32, len);
         else
             where = allocate_u64(current->p->virtual, len);
     }
-        
+    
     // make a generic zero page function
     if (flags & MAP_ANONYMOUS) {
         u64  m = allocate_u64(p->physical, len);
@@ -195,19 +183,19 @@ static void *mmap(void *target, u64 size, int prot, int flags, int fd, u64 offse
         return pointer_from_u64(where);
     }
     
-
+    
     // check that fd is valid
     file f = p->files + fd;
-    void *fbase;
-    u64 flen;
-    if (!node_contents(f->n, &fbase, &flen)) return pointer_from_u64(PHYSICAL_INVALID);
-
+    struct buffer b;
+    if (!node_contents(f->n, &b)) return pointer_from_u64(-1ull);
+        
     u64 msize = 0;
-    if (flen > offset) msize = pad(flen-offset, PAGESIZE);
+    u64 blen = buffer_length(&b);
+    if (blen > offset) msize = pad(blen-offset, PAGESIZE);
     if (msize > len) msize = len;
     
     // mutal misalignment?...discontiguous backing?
-    map(where, physical_from_virtual(fbase + offset), msize, p->pages);
+    map(where, physical_from_virtual(buffer_ref(&b, offset)), msize, p->pages);
 
     if (len > msize) {
         u64 bss = pad(len, PAGESIZE) - msize;
@@ -215,27 +203,26 @@ static void *mmap(void *target, u64 size, int prot, int flags, int fd, u64 offse
         zero(pointer_from_u64(where+msize), bss);
     }
     // ok, if we change pages entries we need to flush the tlb...dont need
-    // to do this every time
+    // to do this every time.. there is also a per-page variant
     u64 x;
     mov_from_cr("cr3", x);
     mov_to_cr("cr3", x);    
     return pointer_from_u64(where);
 }
 
-static boolean fill_stat(node n, struct stat *s)
+static void fill_stat(node n, struct stat *s)
 {
-    void *fbase;
-    u64 flen;
-    
+    struct buffer b;
+    zero(s, sizeof(struct stat));
     s->st_dev = 0;
-    s->st_ino = u64_from_pointer(n.offset);
+    s->st_ino = u64_from_pointer(n);
     // dir doesn't have contents
-    if (!node_contents(n, &fbase, &flen)) return false;    
-    s->st_size = flen;
-
-    if (flen == 0) {
-        // fix dir demux
+    if (!node_contents(n, &b)) {
         s->st_mode = S_IFDIR | 0777;
+        return;
+    }  else {
+        s->st_mode = S_IFREG | 0644;
+        s->st_size = buffer_length(&b);
     }
 }
 
@@ -401,11 +388,9 @@ static int futex(int *uaddr, int futex_op, int val,
 
 static int stat(char *name, struct stat *s)
 {
-    u64 where = 0;
-    bytes length;
     node n;
 
-    if (is_empty(n = lookup(current->p, name)))
+    if (!(n = lookup(current->p, name)))
         return -ENOENT;
 
     fill_stat(n, s);

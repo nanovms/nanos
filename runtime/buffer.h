@@ -10,7 +10,7 @@ struct buffer {
 
 #define alloca_wrap_buffer(__b, __l) ({           \
   buffer b = alloca(sizeof(struct buffer));   \
-  b->contents = __b;\
+  b->contents =(void *) __b;                  \
   b->end = b->length = __l;\
   b->start  =0 ;\
   b->h = 0;\
@@ -19,6 +19,12 @@ struct buffer {
 
 
 #define byte(__b, __i) *(u8 *)((__b)->contents + (__b)->start + (__i))
+
+static inline void buffer_clear(buffer b)
+{
+    b->start = b->end = 0; 
+}
+
 
 static inline void buffer_consume(buffer b, bytes s)
 {
@@ -158,6 +164,13 @@ READ_BE(64)
 READ_BE(32)
 READ_BE(16)
 
+static inline void buffer_write_le64(buffer b, u64 v)
+{
+    buffer_extend(b, sizeof(u64));
+    *(u64 *)buffer_ref(b, b->end) = v;
+    b->end += sizeof(u64);
+}
+
 static inline u64 buffer_read_byte(buffer b)
 {
     u64 r = *(u8 *)buffer_ref(b, 0);
@@ -181,11 +194,6 @@ static inline buffer sub_buffer(heap h,
     return(wrap_buffer(h, b->contents+(b->start+start), length));
 }
 
-static inline void buffer_clear(buffer b)
-{
-    b->start = b->end = 0;
-}
-
 void print_hex_buffer(buffer s, buffer b);
 
 void print_byte(buffer b, u8 f);
@@ -196,8 +204,6 @@ static inline void deallocate_buffer(buffer b)
     deallocate(h, b->contents, b->length);
     deallocate(h, b, sizeof(struct buffer));
 }
-
-
 
 static void push_character(buffer b, character x)
 {

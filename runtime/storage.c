@@ -1,6 +1,6 @@
-#include <runtime.h>
+#include <sruntime.h>
 
-struct node node_invalid = {INVALID_ADDRESS, 0};
+struct snode snode_invalid = {INVALID_ADDRESS, 0};
 
 void buffer_write_le32(buffer b, u32 x)
 {
@@ -8,21 +8,12 @@ void buffer_write_le32(buffer b, u32 x)
     b->end += sizeof(u32);
 }
 
-boolean compare_bytes(void *a, void *b, bytes len)
-{
-    for (int i = 0; i < len ; i++) {
-        if (((u8 *)a)[i] != ((u8 *)b)[i])
-            return false;
-    }
-    return true;
-}
-
 static inline u32 *bucket_count(buffer b, u64 start)
 {
     return (u32 *)(b->contents+start);
 }
 
-static inline u32 *node_bucket_count(node n)
+static inline u32 *snode_bucket_count(snode n)
 {
     return (u32 *)(n.base+n.offset);
 }
@@ -32,35 +23,10 @@ static inline u32 *buckets(buffer b, u64 start)
     return bucket_count(b, start) + 1;
 }
 
-boolean storage_lookup(node n, buffer key, u64 *off, bytes *length)
-{
-    u32 count = *(u32 *)(n.base + n.offset);
-    offset where = (node_bucket_count(n)+1)[fnv64(key) & count];
-    while (where) {
-        offset *e = naddr(n, where);
-        if ((e[3] == buffer_length(key)) &&
-            compare_bytes(key->contents, (void *)(e+4), e[3])) {
-            *off = (e[1] << ENTRY_ALIGNMENT_LOG);
-            *length = e[2];
-            return true;
-        }
-        where = e[0];
-    }
-    return false;
-}
-
-node storage_lookup_node(node n, buffer key)
-{
-    node p = n;
-    u64 length;
-    if (storage_lookup(n, key, &p.offset, &length)) return p;
-    return node_invalid;
-}
-
 // for some reason I think we can dedup bodies here easily, idk why
 // alignment, empty space.. elminate this indirect?  or add indirection
 // for keys?
-void storage_set(buffer b, u64 start, buffer key, u64 voff, u64 vlen)
+void storage_set(buffer b, u32 start, buffer key, u32 voff, u32 vlen)
 {
     offset *slot = buckets(b, start) + (fnv64(key) & *bucket_count(b, start));
     int pk = pad(buffer_length(key), (1<<ENTRY_ALIGNMENT_LOG));
@@ -77,25 +43,7 @@ void storage_set(buffer b, u64 start, buffer key, u64 voff, u64 vlen)
     b->end += pk - buffer_length(key);
 }
 
-node storage_resolve(node n, vector path)
-{
-    node p = n;
-    bytes length;
-    buffer i;
-    vector_foreach(i, path) {
-        if (is_empty(p = storage_lookup_node(p, staticbuffer("files"))))  return p;
-        if (is_empty(p = storage_lookup_node(p, i))) return p;                     
-    }
-    return p;
-}
 
-boolean node_contents(node n, void **storage, u64 *slength)
-{
-    u64 offset;
-    if (!storage_lookup(n, staticbuffer("contents"), &offset, slength)) return false;
-    *storage = n.base + offset;
-    return true;
-}
 
 u64 init_storage(buffer b, int buckets)
 {
@@ -106,6 +54,26 @@ u64 init_storage(buffer b, int buckets)
     buffer_extend(b, blen);
     zero(b->contents + b->end, blen);
     b->end += blen;
+    return off;
+}
+
+
+u64 serialize(buffer out, table t)
+{
+    // could perfect hash here
+    u64 off = init_storage(out, 1<<log2(t->count));
+
+    table_foreach(t, k, v)  {
+        if (k == sym(contents)) {
+            buffer b = v;
+            u64 start = out->end; 
+            buffer_write(out, b->contents + b->start, buffer_length(b));
+            out->end += pad(out->end, 4) - out->end;
+            storage_set(out, off, k, start, buffer_length(b));
+        } else {
+            storage_set(out, off, k, serialize (out, (table)v), 0);
+        }
+    }
     return off;
 }
 

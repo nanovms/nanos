@@ -1,16 +1,20 @@
 #include <basic_runtime.h>
 
-
 #define varg __builtin_va_arg
 #define vlist __builtin_va_list
 #define vstart __builtin_va_start
 #define vend __builtin_va_end
 
+#define alloca __builtin_alloca
+
 typedef struct buffer *buffer;
 #include <buffer.h>
 #include <table.h>
 #include <vector.h>
-    
+
+typedef buffer string;
+
+buffer aprintf(heap h, char *fmt, ...);
 void debug(buffer);
 void format_number(buffer s, u64 x, int base, int pad);
 extern void vbprintf(buffer s, buffer fmt, vlist ap);
@@ -35,6 +39,7 @@ static inline void rprintf(char *format, ...)
     debug(&b);
 }
 
+typedef table node;
 void *load_elf(void *base, u64 offset, heap pages, heap bss);
 #include <storage.h>
-
+    

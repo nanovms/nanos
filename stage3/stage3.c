@@ -3,78 +3,48 @@
 
 u8 userspace_random_seed[16];
 
-typedef struct virtual_address_allocator {
-    heap h;
-    u64 offset;
-} *virtual_address_allocator; 
-    
-static u64 virtual_address_allocate(heap h)
-{
-    virtual_address_allocator v = (virtual_address_allocator) h;
-    u64 result = v->offset;
-    v->offset += (1ull<<32ull);
-    return result;
-}
+typedef struct aux {u64 tag; u64 val;} *aux;
 
-void *load_file(node filesystem, heap general, buffer name)
+static void build_exec_stack(buffer s, heap general, vector argv, node env, vector auxp)
 {
-    void *pstart;
-    name->start = 0;
-    vector pnv = split(general, name, '/');
-    vector_pop(pnv);
-    u64 plength;
-    node n = storage_resolve(filesystem, pnv);
-    if (!node_contents(n, &pstart, &plength)) {
-        rprintf("couldn't load file %b\n", name);
+    int length = vector_length(argv) + table_elements(env) +  2 * vector_length(auxp) + 4;
+    s->start = s->end = s->length - length *8;
+    buffer_write_le64(s, vector_length(argv));
+    buffer i;
+    vector_foreach(i, argv) {
+        push_character(i, 0); // destructive
+        buffer_write_le64(s, u64_from_pointer(i->contents));
     }
-    return pstart;
+    buffer_write_le64(s, 0);
+    
+    table_foreach(env, n, v) 
+        buffer_write_le64(s, u64_from_pointer(aprintf(general, "%b=%b\0\n", n, v)));
+    buffer_write_le64(s, 0);
+    
+    aux a;
+    vector_foreach(a, auxp) {
+        buffer_write_le64(s, a->val);
+        buffer_write_le64(s, a->tag);
+    }
+    buffer_write_le64(s, 0);
+    buffer_write_le64(s, 0);
 }
 
-static void push(buffer b, u64 w)
+thread exec_elf(node fs, buffer path, heap general, heap physical, heap pages)
 {
-    *(u64 *)(b->contents+b->start+b->end - sizeof(u64)) = w;
-    b->end -= sizeof(u64);
-}
-
-void startup(heap pages, heap general, heap physical, node filesystem)
-{
-    u64 c = cpuid();
-
-    init_system(general);
-    process p = create_process(general, pages, physical, filesystem);
+    // i guess this is part of fork if we're following the unix model
+    process p = create_process(general, pages, physical, fs);
     thread t = create_thread(p);
-
-    // wrap this in exec()
-    struct buffer program_name, interp_name;
-    node n = storage_resolve(filesystem, build_vector(general, staticbuffer("program")));
-    if (!node_contents(n, &program_name.contents, &program_name.end)) halt("bad program file\n");
-    void *pstart = load_file(filesystem, general, &program_name);
-    void *user_entry = load_elf(pstart, 0, pages, physical);        
+    // error handling
+    struct buffer ex;
+    node_contents(resolve(fs, path), &ex);    
+    void *user_entry = load_elf(&ex, 0, pages, physical);        
     void *va;
 
-    Elf64_Ehdr *elfh = (Elf64_Ehdr *)pstart;
-    for (int i = 0; i< elfh->e_phnum; i++){
-        Elf64_Phdr *p = pstart + elfh->e_phoff + (i * elfh->e_phentsize);
-        if ((p->p_type == PT_LOAD)  && (p->p_offset == 0))
-            va = pointer_from_u64(p->p_vaddr);
-        if (p->p_type == PT_INTERP) {
-            interp_name.contents = pstart + p->p_offset;
-            interp_name.end = runtime_strlen(interp_name.contents);
-            interp_name.start = 0;
-        }
-    }
+    // extra elf munging
+    Elf64_Ehdr *elfh = (Elf64_Ehdr *)buffer_ref(&ex, 0);
 
-    void *ldso = load_file(filesystem, general, &interp_name);
-    t->frame[FRAME_RIP] = u64_from_pointer(load_elf(ldso, 0x400000000, pages, physical));
-    
-    map(0, PHYSICAL_INVALID, PAGESIZE, pages);
-
-    u8 seed = 0x3e;
-    for (int i = 0; i< sizeof(userspace_random_seed); i++)
-        userspace_random_seed[i] = (seed<<3) ^ 0x9e;
-    
-    // extract this stuff (args, env, auxp) from the 'filesystem'    
-    struct {u64 tag; u64 val;} auxp[] = {
+    struct aux auxp[] = {
         {AT_PHDR, elfh->e_phoff + u64_from_pointer(va)},
         {AT_PHENT, elfh->e_phentsize},
         {AT_PHNUM, elfh->e_phnum},
@@ -82,50 +52,58 @@ void startup(heap pages, heap general, heap physical, node filesystem)
         {AT_RANDOM, u64_from_pointer(userspace_random_seed)},        
         {AT_ENTRY, u64_from_pointer(user_entry)}};
 
-    struct buffer s;
-    s.start = 0;
-    s.contents = pointer_from_u64(0xa00000000);
-    s.end = s.length = 2*1024*1024;
-    map(u64_from_pointer(s.contents), allocate_u64(physical, s.length), s.length, pages);
-
-    push(&s, 0); // end of auxp
-    push(&s, 0);    
-    
-    for (int i = 0; i< sizeof(auxp)/(2*sizeof(u64)); i++) {
-        push(&s, auxp[i].val);
-        push(&s, auxp[i].tag);
-    } 
-
-    push(&s, 0); // end of envp
-    node env = storage_resolve(filesystem, build_vector(general, staticbuffer("environment")));
-    if (!is_empty(env)) {
-        env = storage_lookup_node(env, staticbuffer("files"));
-        storage_foreach(env, name, value) {
-            rprintf("environment %b %b\n", name, value);
-            buffer b = allocate_buffer(general, buffer_length(name)+buffer_length(value)+2);        
-            buffer_write(b, name->contents, buffer_length(name));
-            push_character(b, '=');
-            buffer_write(b, value->contents, buffer_length(value));
-            push_character(b, 0);
-            push(&s, u64_from_pointer(b->contents)); 
+    // also pick up the maximum load address for the brk
+    for (int i = 0; i< elfh->e_phnum; i++){
+        Elf64_Phdr *p = (void *)elfh + elfh->e_phoff + (i * elfh->e_phentsize);
+        if ((p->p_type == PT_LOAD)  && (p->p_offset == 0))
+            va = pointer_from_u64(p->p_vaddr);
+        if (p->p_type == PT_INTERP) {
+            char *n = (void *)elfh + p->p_offset;
+            buffer nb = alloca_wrap_buffer(n, runtime_strlen(n));
+            // virtual allocator..file not found
+            struct buffer ldso;
+            node_contents(resolve(fs, nb), &ldso);
+            user_entry = load_elf(&ldso, 0x400000000, pages, physical);
         }
-    } else {
-        rprintf("no environment\n");
     }
+    
+    t->frame[FRAME_RIP] = u64_from_pointer(user_entry);
+    map(0, PHYSICAL_INVALID, PAGESIZE, pages);
+    
+    // use runtime random
+    u8 seed = 0x3e;
+    for (int i = 0; i< sizeof(userspace_random_seed); i++)
+        userspace_random_seed[i] = (seed<<3) ^ 0x9e;
+    
+    vector a = allocate_vector(general, 10);
+    for (int i = 0; i< sizeof(auxp)/(2*sizeof(u64)); i++) vector_push(a, auxp+i);
+    // general virtual address space allocation
+    buffer s = alloca_wrap_buffer(0xa00000000, 2*1024*1024);
+    map(u64_from_pointer(s->contents), allocate_u64(physical, s->length), s->length, pages);
+    
+    build_exec_stack(s, general, 
+                     node_vector(general, resolve(fs, build_vector(general, sym(argv)))),
+                     resolve(resolve(fs, sym(environment)), sym(files)),
+                     a);
+    
+    // build stack leaves buffer start at the base of the stack
+    t->frame[FRAME_RSP] = u64_from_pointer(buffer_ref(s, 0));
+    return t;
+}
 
-    push(&s, 0); // end of envp
-    u64 argc=0;
-    node args = storage_resolve(filesystem, build_vector(general, staticbuffer("args")));
-    args = storage_lookup_node(args, staticbuffer("files"));
-    storage_vector_foreach(args, i, v) {
-        buffer b = allocate_buffer(general, buffer_length(v) + 1);
-        buffer_write(b, v->contents, buffer_length(v));
-        push_character(b, 0);
-        argc++;
-        push(&s, u64_from_pointer(b->contents));
-    }
-    push(&s, u64_from_pointer(argc));
-    t->frame[FRAME_RSP] = u64_from_pointer(s.contents + s.end);
+
+        
+void startup(heap pages, heap general, heap physical, node filesystem)
+{
+    u64 c = cpuid();
+
+    init_system(general);
+    struct buffer program_name, interp_name;
+    node n = resolve(filesystem, build_vector(general, sym(program)));
+    struct buffer p;
+    node_contents(n, &p);
+    thread t = exec_elf(filesystem, &p, general, physical, pages);
     run(t);
+    halt("program exit");
 }
 

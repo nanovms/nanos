@@ -35,7 +35,7 @@ void table_set (table t, void *c, void *v);
              __j = __next)
                  
 
-static inline u64 fnv64(void *z)
+static inline key fnv64(void *z)
 {
     buffer b = z;
     u64 hash = 0xcbf29ce484222325;

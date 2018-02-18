@@ -84,3 +84,16 @@ static inline void memory_barrier()
 }
 
 
+static inline void set_syscall_handler(void *syscall_entry)
+{
+    u64 cs  = 0x08;
+    u64 ss  = 0x10;
+
+    write_msr(LSTAR_MSR, u64_from_pointer(syscall_entry));
+    // 48 is sysret cs, and ds is cs + 16...so fix the gdt for return
+    // 32 is syscall cs, and ds is cs + 8
+    write_msr(STAR_MSR, (cs<<48) | (cs<<32));
+    write_msr(SFMASK_MSR, 0);
+    write_msr(EFER_MSR, read_msr(EFER_MSR) | EFER_SCE);
+}
+

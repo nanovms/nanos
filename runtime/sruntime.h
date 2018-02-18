@@ -4,28 +4,52 @@
 #include <elf64.h>
 #include <closure.h>
 #include <closure_templates.h>
-
+#include <symbol.h>
 
 void register_interrupt(int vector, thunk t);
 void msi_map_vector(int slot, int vector);
 u8 allocate_msi(thunk h);
 
-extern void *pagebase;
-extern u64 *ptalloc();
-
-static inline void halt(char *x, ...)
+// metadata stuff
+static boolean node_contents(node n, buffer b)
 {
 }
 
-static void set_syscall_handler(void *syscall_entry)
-{
-    u64 cs  = 0x08;
-    u64 ss  = 0x10;
 
-    write_msr(LSTAR_MSR, u64_from_pointer(syscall_entry));
-    // 48 is sysret cs, and ds is cs + 16...so fix the gdt for return
-    // 32 is syscall cs, and ds is cs + 8
-    write_msr(STAR_MSR, (cs<<48) | (cs<<32));
-    write_msr(SFMASK_MSR, 0);
-    write_msr(EFER_MSR, read_msr(EFER_MSR) | EFER_SCE);
+static node resolve(node n, symbol s)
+{
 }
+
+static vector node_vector(heap h, node n)
+{
+    vector r = allocate_vector(h, table_elements(n));
+    little_stack_buffer (ind, 30);
+    void *x;
+    
+    for (int i = 0; format_number(ind, i, 10, 1), x = resolve(n, intern(ind)); buffer_clear(ind), i++) 
+        vector_push(r, x);
+    
+    return x;
+}
+
+static node resolve_path(node n, vector v)
+{
+    buffer i;
+    vector_foreach(i, v) {
+    }
+}
+
+static inline void halt(char *f, ...)
+{
+    buffer bf = alloca_wrap_buffer(f, runtime_strlen(f));
+    little_stack_buffer(b, 2048);
+    vlist ap;
+    vstart (ap, f);
+    vbprintf(b, bf,  ap);
+    debug(b->contents);
+    QEMU_HALT();
+}
+
+
+
+

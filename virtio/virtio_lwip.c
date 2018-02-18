@@ -184,8 +184,8 @@ void init_vnet(vtpci dev)
     // causes qemu to handle on exit?
     //     vtpci_alloc_virtqueue(dev, "ctrl", 0, 0, &vn->txq);
     
-    vtpci_alloc_virtqueue(dev, "tx", 1, allocate_handler(general, tx_complete, vn), &vn->txq);
-    vtpci_alloc_virtqueue(dev, "rx", 0, allocate_handler(general, input, n), &vn->rxq);
+    vtpci_alloc_virtqueue(dev, intern(tx)->s, 1, allocate_handler(general, tx_complete, vn), &vn->txq);
+    vtpci_alloc_virtqueue(dev, intern(rx)->s, 0, allocate_handler(general, input, n), &vn->rxq);
     // just need 10 contig bytes really
     vn->empty = allocate(contiguous, contiguous->pagesize);
     for (int i = 0; i < NET_HEADER_LENGTH ; i++)  ((u8 *)vn->empty)[i] = 0;

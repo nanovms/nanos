@@ -15,6 +15,7 @@ static page pt_lookup(page table, u64 t, unsigned int x)
 }
 
 // allow stage2 to override - not so important since this is still identity
+// should return PHYSICAL_INVALID
 #ifndef physical_from_virtual
 physical physical_from_virtual(void *x)
 {

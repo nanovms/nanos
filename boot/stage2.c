@@ -1,7 +1,10 @@
 #include <basic_runtime.h>
 #include <x86_64.h>
 #include <booto.h>
+#include <storage.h>
 
+// fix headers
+void *load_elf(void *base, u64 offset, heap pages, heap bss);
 
 static void print_block(void *addr, int length)
 {
@@ -14,27 +17,36 @@ static void print_block(void *addr, int length)
 extern void run64(u32 entry);
 
 // there are a few of these little allocators
-u64 offset = 0x1000;
+u64 working = 0x1000;
 
 static u64 stage2_allocator(heap h, bytes b)
 {
-    u64 result = offset;
-    offset += b;
-    return offset;
+    u64 result = working;
+    working += b;
+    return working;
+}
+
+// xxx - instead of pulling the thread on generic storage support,
+// we hardwire in the kernel resolution. revisit - it may be
+// better to start populating the node tree here.
+boolean lookup_kernel(snode metadata, u32 *offset, u32 *length)
+{
+    if (!storage_lookup(metadata, "files", offset, length)) return false;
+    if (!storage_lookup(metadata, "kernel", offset, length)) return false;
+    return true;
 }
 
 // pass the memory parameters (end of load, end of mem)
 void centry()
 {
+    console("stage2\n");
     struct heap workings;
     workings.alloc = stage2_allocator;
     heap working = &workings;
     int sector_offset = (STAGE2SIZE>>sector_log) + (STAGE1SIZE>>sector_log);
     
-    // xxx - we can derive this from the physical region and the start of stage3
-    // except the child wants to start at 0x400000..maye we should throw
-    // this at the .. end of the pci gap? or use a simple offset and make v and p
-    // mututally aligned?
+    // move this to the end of memory or the beginning of the pci gap
+    // (under the begining of the kernel)
     u64 identity_start = 0x100000;
     u64 identity_length = 0x300000;
 
@@ -54,12 +66,6 @@ void centry()
     // lose a page, and assume ph is in the first page
     void *header = allocate(working, PAGESIZE);
     read_sectors(header, sector_offset, PAGESIZE);
-    
-    // check signature
-    Elf64_Ehdr *elfh = header;
-    u32 ph = elfh->e_phentsize;
-    u32 po = elfh->e_phoff + u64_from_pointer(header);
-    int pn = elfh->e_phnum;
 
     // should drop this in stage3? ... i think we just need
     // service32 and the stack.. this doesn't show up in the e820 regions
@@ -68,25 +74,8 @@ void centry()
     map(0, 0, 0xa000, pages);
     create_region(0, 0xa0000, REGION_VIRTUAL);
 
-    // this can be generic read_elf, but we'd need to parameterize
-    // out the load function. this happens* to be identity mapped
-    // because of the page alloc and stage3 setup.
-    // which makes it convenient for debugging, but may
-    // introduce some bad implicit assumptions. debug then
-    // move it around
-    for (int i = 0; i< pn; i++){
-        Elf64_Phdr *p = (void *)po + i * ph;
-        if (p->p_type == PT_LOAD) {
-            int ssize = pad(p->p_memsz, PAGESIZE);
-            void *load = allocate(physical, ssize);
-            read_sectors(load,
-                         (p->p_offset>>sector_log) + sector_offset,
-                         pad(p->p_filesz, 1<<sector_log));
-            create_region(p->p_vaddr, ssize, REGION_VIRTUAL);            
-            map(p->p_vaddr, u64_from_pointer(load), ssize, pages);
-            zero(load + p->p_offset + p->p_filesz,  p->p_memsz - p->p_filesz);
-        }
-    }
-    run64((u32)elfh->e_entry);
+    // lookup in fileystem
+    void *kernel;
+    run64(u64_from_pointer(load_elf(kernel, 0, pages, physical)));
 }
 

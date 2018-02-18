@@ -22,6 +22,15 @@ static buffer read_stdin(heap h)
     return in;
 }
 
+static u64 count_metadata(table t)
+{
+}
+
+static u64 build_dictionary(table t)
+{
+    table symtab;
+}
+
 static table parse_mappings(heap h, buffer desc)
 {
     table root = allocate_table(h, fnv64, buffer_compare);
@@ -95,33 +104,6 @@ u64 read_file(buffer out, buffer name, u64 *length)
     return foff;
 }
 
-    
-// merge this into storage somehow
-u64 serialize(buffer out, table t)
-{
-    // could perfect hash here
-    u64 off = init_storage(out, t->count);
-
-    table_foreach(t, k, v)  {
-        if (k == contents) {
-            buffer b = v;
-            if (*(u8 *)buffer_ref(v, 0) == '@') {
-                b->start += 1; 
-                u64 length;
-                u64 foff = read_file(out, (buffer)v, &length);
-                storage_set(out, off, k, foff, length);
-            } else {
-                u64 start = out->end; 
-                buffer_write(out, b->contents + b->start, buffer_length(b));
-                out->end += pad(out->end, 4) - out->end;
-                storage_set(out, off, k, start, buffer_length(b));
-            }
-        } else {
-            storage_set(out, off, k, serialize (out, (table)v), 0);
-        }
-    }
-    return off;
-}
 
 
 int main(int argc, char **argv)

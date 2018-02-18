@@ -2,45 +2,75 @@
 
 static table symbols;
 static heap sheap;
-typedef buffer symbol;
+typedef struct symbol *symbol;
+
+// move prng out
+static u64 s[2];
+
+#define rol(__x, __b)\
+     ({\
+        __asm__("rol %1, %0": "=g"(__x): "i" (__b));\
+        __x;\
+     })\
+
+u64 rng_next(void) {
+    u64 s0 = s[0];
+    u64 s1 = s[1];
+    u64 result = s0 + s1;
+
+    s1 ^= s0;
+    s[0] = rol(s0, 55) ^ s1 ^ (s1 << 14); // a, b
+    s[1] = rol(s1, 36); // c
+
+    return result;
+}
 
 struct symbol {
-    key k;
+    key k; // this was going to be some kind of uniformly distributed random
+           // number
     string s;
 };
-
-static key key_from_symbol(symbol s)
-{
-    return(s->k);
-}
 
 symbol intern(string name)
 {
     symbol s;
 
-    if (!(s= get(symbols, name))){
-        s=allocate(sheap, t_symbol);
-        s->k = *genrand_u32(sheap);
-        s->s = copy(sheap, name);
-        set(symbols, s->s, s); 
+    if (!(s= table_find(symbols, name))){
+        buffer b = allocate_buffer(sheap, buffer_length(name));
+        push_buffer(b, name);
+        s = allocate(sheap, sizeof(struct symbol));
+        s->k = rng_next();
+        s->s = b;
+        table_set(symbols, s->s, s); 
     }
     return(s);
 }
-
-static void traverse_symbol(symbol s, void (*f)())
-{
-    (*f)(&s->s);
-}
-
 
 string symbol_string(symbol s)
 {
     return(s->s);
 }
 
-void init_symbols()
+// should make a heap that unmaps and returns pages to the heap on free
+// and one that picks a new virtual address - this guy doesn't need
+// and contiguity
+// and dont forget my 2M aligned heap
+
+
+static key key_from_symbol(void *z)
 {
-    sheap = allocate_leaky_heap(pages);
-    symbols = allocate_table(sheap);
+    symbol s = z;
+    return(s->k);
+}
+
+static boolean symbol_equal(void *a, void* b)
+{
+    return a == b;
+}
+
+
+void init_symbols(heap h)
+{
+    symbols = allocate_table(h, key_from_symbol, symbol_equal);
 }
 

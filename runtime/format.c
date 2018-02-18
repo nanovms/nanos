@@ -13,6 +13,11 @@ void format_number(buffer s, u64 x, int base, int pad)
     }
 }
 
+void empty_buffer(buffer b)
+{
+    b->start = b->end = 0;
+}
+
 // should entertain a registration method with a type and a character and a function pointer
 // or maybe just float this up to runtime
 
@@ -168,7 +173,7 @@ buffer aprintf(heap h, char *fmt, ...)
 {
     buffer b = allocate_buffer(h, 80);
     vlist ap;
-    buffer f = allocate_buffer(h, 10);
+    buffer f = alloca_wrap_buffer(fmt, runtime_strlen(fmt));
     vstart (ap, fmt);
     vbprintf(b, f, ap);
     vend(ap);
