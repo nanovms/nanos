@@ -130,6 +130,7 @@ void buffer_read_field(buffer b,
                        void *dest,
                        bytes length);
 
+// little endian variants
 #define WRITE_BE(bits)\
    static inline void buffer_write_be##bits(buffer b, u64 x)   \
   {                                                            \
@@ -205,6 +206,14 @@ static inline void deallocate_buffer(buffer b)
     deallocate(h, b, sizeof(struct buffer));
 }
 
+static inline void copy_descriptor(buffer d, buffer s)
+{
+    d->contents = s->contents;
+    d->start = s->start;
+    d->end = s->end;
+    d->length = s->length;                    
+}
+
 static void push_character(buffer b, character x)
 {
     buffer_extend(b, 1);
@@ -249,4 +258,56 @@ static inline boolean buffer_compare(void *za, void *zb)
     b.end = sizeof(__n) -1;\
     &b;})
 
+static u8 pop_u8(buffer b)
+{
+    // bounds
+    u8 x = *(u8 *)buffer_ref(b, 0);
+    b->start++;
+    return (x);
+}
+
+static void push_u8(buffer b, u8 x)
+{
+    buffer_extend(b, 1);
+    *(u8 *)buffer_ref(b, b->end) = x;
+    b->end++;
+}
+
+static u32 buffer_read_le32(buffer b)
+{
+    // bounds
+    u32 x = *(u32 *)buffer_ref(b, 0);
+    b->start+=sizeof(u32);
+    return (x);
+}
+
+static void buffer_write_le32(buffer b, u32 x)
+{
+    buffer_extend(b, sizeof(u32));
+    *(u32 *)buffer_ref(b, b->end) = x;
+    b->end+=sizeof(u32);
+}
+
+
+
+static void push_varint(buffer b, u64 p)
+{
+    u64 k = p;
+    while (k > 127) {
+        push_u8(b, 0x80 | (k&MASK(7)));
+        k >>= 7;
+    }
+    push_character(b, k);
+}
+
+static u64 pop_varint(buffer b)
+{
+    u64 out = 0;
+    u64 m;
+    do {
+        u8 m = pop_u8(b);
+        out = (out << 7) | (m & MASK(7));
+    } while (m & 0x80);
+    return out;
+}
 

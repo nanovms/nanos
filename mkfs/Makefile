@@ -8,7 +8,7 @@ include $(ROOT)/runtime/Makefile
 %.o: %.c $(ROOT)/runtime/closure_templates.h
 	cc -g -c $(INCLUDES) $<
 
-mkfs: main.o $(UNIXRUNTIME)
+mkfs: mkfs.o $(UNIXRUNTIME)
 	cc $^ -g -o mkfs
 
 dump: dump.o $(UNIXRUNTIME)

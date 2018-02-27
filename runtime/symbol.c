@@ -2,7 +2,6 @@
 
 static table symbols;
 static heap sheap;
-typedef struct symbol *symbol;
 
 // move prng out
 static u64 s[2];
@@ -26,9 +25,8 @@ u64 rng_next(void) {
 }
 
 struct symbol {
-    key k; // this was going to be some kind of uniformly distributed random
-           // number
     string s;
+    key k;
 };
 
 symbol intern(string name)
@@ -57,20 +55,27 @@ string symbol_string(symbol s)
 // and dont forget my 2M aligned heap
 
 
-static key key_from_symbol(void *z)
+key key_from_symbol(void *z)
 {
     symbol s = z;
     return(s->k);
 }
 
-static boolean symbol_equal(void *a, void* b)
+boolean symbol_equal(void *a, void* b)
 {
     return a == b;
+}
+
+// region?
+tuple allocate_tuple()
+{
+    return allocate_table(sheap, key_from_symbol, symbol_equal);
 }
 
 
 void init_symbols(heap h)
 {
-    symbols = allocate_table(h, key_from_symbol, symbol_equal);
+    sheap = h;
+    symbols = allocate_table(h, fnv64, buffer_compare);
 }
 

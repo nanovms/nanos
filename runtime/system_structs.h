@@ -1,5 +1,8 @@
 // structs that live on the user-kernel boundary
 
+// look this up
+#define FDMAX 256
+
 struct stat
   {
     u64 st_dev;		

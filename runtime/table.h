@@ -33,7 +33,6 @@ void table_set (table t, void *c, void *v);
         for (void *__k, *__v, *__j = ((__t)->entries[__i]), *__next;    \
              __j && (__next =  eZ((__j), next) , __k = eZ(__j, c), __v = eZ(__j, v)); \
              __j = __next)
-                 
 
 static inline key fnv64(void *z)
 {

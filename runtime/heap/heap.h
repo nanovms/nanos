@@ -11,7 +11,7 @@ typedef struct heap {
 heap allocate_pagechunk(heap h, bytes s);
 heap allocate_pagecache(heap h);
 heap allocate_rolling_heap(heap h);
-heap create_id_heap(heap h, u64 base, u64 pagesize);
+heap create_id_heap(heap h, u64 base, u64 length, u64 pagesize);
 
 // really internals
 

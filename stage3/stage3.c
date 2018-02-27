@@ -30,14 +30,14 @@ static void build_exec_stack(buffer s, heap general, vector argv, node env, vect
     buffer_write_le64(s, 0);
 }
 
-thread exec_elf(node fs, buffer path, heap general, heap physical, heap pages)
+thread exec_elf(node fs, vector path, heap general, heap physical, heap pages)
 {
     // i guess this is part of fork if we're following the unix model
     process p = create_process(general, pages, physical, fs);
     thread t = create_thread(p);
     // error handling
     struct buffer ex;
-    node_contents(resolve(fs, path), &ex);    
+    node_contents(resolve_path(fs, path), &ex);    
     void *user_entry = load_elf(&ex, 0, pages, physical);        
     void *va;
 
@@ -59,10 +59,12 @@ thread exec_elf(node fs, buffer path, heap general, heap physical, heap pages)
             va = pointer_from_u64(p->p_vaddr);
         if (p->p_type == PT_INTERP) {
             char *n = (void *)elfh + p->p_offset;
-            buffer nb = alloca_wrap_buffer(n, runtime_strlen(n));
+            // xxx - assuming leading slash
+            buffer nb = alloca_wrap_buffer(n+1, runtime_strlen(n)-1);
             // virtual allocator..file not found
             struct buffer ldso;
-            node_contents(resolve(fs, nb), &ldso);
+
+            node_contents(resolve_path(fs, split(general, nb, '/')), &ldso);
             user_entry = load_elf(&ldso, 0x400000000, pages, physical);
         }
     }
@@ -82,7 +84,7 @@ thread exec_elf(node fs, buffer path, heap general, heap physical, heap pages)
     map(u64_from_pointer(s->contents), allocate_u64(physical, s->length), s->length, pages);
     
     build_exec_stack(s, general, 
-                     node_vector(general, resolve(fs, build_vector(general, sym(argv)))),
+                     node_vector(general, resolve_path(fs, build_vector(general, sym(argv)))),
                      resolve(resolve(fs, sym(environment)), sym(files)),
                      a);
     
@@ -93,16 +95,17 @@ thread exec_elf(node fs, buffer path, heap general, heap physical, heap pages)
 
 
         
-void startup(heap pages, heap general, heap physical, node filesystem)
+void startup(heap pages, heap general, heap physical, node root)
 {
     u64 c = cpuid();
 
     init_system(general);
     struct buffer program_name, interp_name;
-    node n = resolve(filesystem, build_vector(general, sym(program)));
+    node n = resolve(root, sym(program));
     struct buffer p;
     node_contents(n, &p);
-    thread t = exec_elf(filesystem, &p, general, physical, pages);
+    // elem first 
+    thread t = exec_elf(root, build_vector(general, split(general, &p, '/')), general, physical, pages);
     run(t);
     halt("program exit");
 }

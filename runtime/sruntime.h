@@ -4,7 +4,6 @@
 #include <elf64.h>
 #include <closure.h>
 #include <closure_templates.h>
-#include <symbol.h>
 
 void register_interrupt(int vector, thunk t);
 void msi_map_vector(int slot, int vector);

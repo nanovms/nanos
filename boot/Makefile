@@ -1,7 +1,7 @@
 all: boot
 
 STAGE1SIZE = 512
-STAGE2SIZE = 12288
+STAGE2SIZE = 16384
 
 stage2.pad: stage2
 	dd if=$< of=$@ bs=$(STAGE2SIZE) conv=sync

@@ -11,7 +11,8 @@ static inline void read_sectors(void *dest, u32 sector, u32 count)
     u16 max, base = 0x1f0;
     u8  drive = 0x40;
     u32 total = pad(count, (1<<sector_log));
-    u32 ts = sector;
+    // xxx- put the low bits in the offset?
+    u32 ts = sector>>sector_log;
 
     disktarget = dest;
 

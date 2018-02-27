@@ -581,10 +581,10 @@ process create_process(heap h, heap pages, heap physical, node filesystem)
     p->brk = pointer_from_u64(0x8000000);
     p->pid = allocate_u64(processes, 1);
     // allocate main thread, setup context, run main thread
-    p->virtual = create_id_heap(h, 0x7000000000ull, 0x100000000);
-    p->virtual32 = create_id_heap(h, 0x10000000, PAGESIZE);
+    p->virtual = create_id_heap(h, 0x7000000000ull, 0x10000000000ull, 0x100000000);
+    p->virtual32 = create_id_heap(h, 0x10000000, 0xe0000000, PAGESIZE);
     p->pages = pages;
-    p->fdallocator = create_id_heap(h, 3, 1);
+    p->fdallocator = create_id_heap(h, 3, FDMAX - 3, 1);
     p->physical = physical;
     p->files[1].write = closure(h, stdout);    
     p->files[2].write = closure(h, stdout);
@@ -596,6 +596,6 @@ void init_system(heap h)
 {
     set_syscall_handler(syscall_enter);
     // could wrap this in a 'system'
-    processes = create_id_heap(h, 110, 1);
+    processes = create_id_heap(h, 1, 65535, 1);
     runnable = allocate_runqueue(h);
 }

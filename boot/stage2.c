@@ -29,10 +29,18 @@ static u64 stage2_allocator(heap h, bytes b)
 // xxx - instead of pulling the thread on generic storage support,
 // we hardwire in the kernel resolution. revisit - it may be
 // better to start populating the node tree here.
-boolean lookup_kernel(snode metadata, u32 *offset, u32 *length)
+boolean lookup_kernel(void *fs, u64 *offset, u64 *length)
 {
-    if (!storage_lookup(metadata, "files", offset, length)) return false;
-    if (!storage_lookup(metadata, "kernel", offset, length)) return false;
+    snode sn = {fs, 0};
+    u32 off, loff, coff;
+    if (!snode_lookup(sn, "children", &off)) return false;
+    sn.offset = off;
+    if (!snode_lookup(sn, "kernel", &off)) return false;
+    sn.offset = off;    
+    if (!snode_lookup(sn, "contents", &coff)) return false;
+    if (!snode_lookup(sn, "length", &loff)) return false;    
+    *offset = coff;
+    *length = loff; // this shouldn't be an immediate
     return true;
 }
 
@@ -43,7 +51,6 @@ void centry()
     struct heap workings;
     workings.alloc = stage2_allocator;
     heap working = &workings;
-    int sector_offset = (STAGE2SIZE>>sector_log) + (STAGE1SIZE>>sector_log);
     
     // move this to the end of memory or the beginning of the pci gap
     // (under the begining of the kernel)
@@ -63,19 +70,35 @@ void centry()
     mov_to_cr("cr3", vmbase);
     map(identity_start, identity_start, identity_length, pages);
 
-    // lose a page, and assume ph is in the first page
-    void *header = allocate(working, PAGESIZE);
-    read_sectors(header, sector_offset, PAGESIZE);
+    // leak a page, and assume ph is in the first page
+    void *header = allocate(physical, PAGESIZE);
+
+    unsigned int fs_start = STAGE1SIZE + STAGE2SIZE;
+    struct snode sn = {header, 0};
+    read_sectors(header, fs_start, PAGESIZE); // read in the head of the filesystem
+
+    u64 kernel_length, kernel_offset;
+    if (!lookup_kernel(header, &kernel_offset, &kernel_length)) {
+        console("unable to find kernel\n");
+        QEMU_HALT();
+    }
+
+    console("found kernel ");
+    print_u64(kernel_offset);
+    console(" ");
+    print_u64(kernel_length);
+    console("\n");    
+        
+    void *kernel = allocate(physical, pad(kernel_length, PAGESIZE));
+    read_sectors(kernel, fs_start + kernel_offset, kernel_length);
 
     // should drop this in stage3? ... i think we just need
     // service32 and the stack.. this doesn't show up in the e820 regions
     // stack is currently in the first page, so lets leave it mapped
     // and take it out later...ideally move the stack here
     map(0, 0, 0xa000, pages);
+    // tell stage3 that this is off limits..could actually move there
     create_region(0, 0xa0000, REGION_VIRTUAL);
 
-    // lookup in fileystem
-    void *kernel;
     run64(u64_from_pointer(load_elf(kernel, 0, pages, physical)));
 }
-

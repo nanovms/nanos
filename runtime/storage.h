@@ -5,10 +5,15 @@
 //   length - body length or -1 for snode
 
 
-static inline boolean compare_bytes(char *a, void *b, bytes len)
+#define storage_type_tuple 1
+#define storage_type_unaligned 2
+#define storage_type_aligned 3
+#define STORAGE_TYPE_OFFSET 30
+#define STORAGE_SLOT_SIZE 8
+
+static inline boolean compare_bytes(void *a, void *b, bytes len)
 {
     for (int i = 0; i < len ; i++) {
-        if (!a[i]) return false;
         if (((u8 *)a)[i] != ((u8 *)b)[i])
             return false;
     }
@@ -50,16 +55,22 @@ extern struct node node_invalid;
 #endif
 
 // really for stage2 looking up /kernel
-static inline boolean storage_lookup(snode n, char *key, u32 *off, u32 *length)
+static inline boolean snode_lookup(snode n, char *key, u32 *off)
 {
+    struct buffer b;
+    b.contents = n.base;
+    b.start = n.offset;
+
+    u64 count = pop_varint(&b);
+    u32 *entries = buffer_ref(&b, 0);
     int klen = runtime_strlen(key);
-    u32 *count = n.base + (u64_from_pointer(n.offset) << ENTRY_ALIGNMENT_LOG);
-    for (int i = 0; i < *count; i++) {
-        offset *e = naddr(n, count[i + 1]);
-        if ((e[3] == klen) &&
-            compare_bytes(key, (void *)(e+4), e[3])) {
-            *off = (e[1] << ENTRY_ALIGNMENT_LOG);
-            *length = e[2];
+
+    for (int i = 0; i < count; i++) {
+        // slots are two words long
+        b.start = entries[i*2];
+        u64 symlen = pop_varint(&b);
+        if ((symlen == klen) && compare_bytes(key, buffer_ref(&b, 0), klen)) {
+            *off = entries[i*2 + 1] & MASK(STORAGE_TYPE_OFFSET);
             return true;
         }
     }

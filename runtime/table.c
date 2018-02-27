@@ -2,8 +2,6 @@
 
 #define EMPTY ((void *)0)
 
-
-
 static void allocate_buckets(table t)
 {
     t->entries = allocate_zero(t->h, t->buckets * sizeof(void *));

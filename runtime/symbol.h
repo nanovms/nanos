@@ -1,8 +1,6 @@
-extern void init_symbols();
-typedef buffer symbol;
+extern void init_symbols(heap h);
+typedef struct symbol *symbol;
 symbol intern(buffer);
-
-extern key symbol_key(heap, symbol);
 
 string symbol_string(symbol s);
 
@@ -10,3 +8,9 @@ string symbol_string(symbol s);
     ({static symbol __s = 0;\
       if (!__s){char x[] = #name; __s = intern(alloca_wrap_buffer(x, sizeof(x)-1));} \
      __s;})              
+
+table symbol_table();
+typedef table tuple;
+tuple allocate_tuple();
+key key_from_symbol(void *z);
+boolean symbol_equal(void *a, void* b);

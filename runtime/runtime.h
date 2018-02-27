@@ -8,9 +8,10 @@
 #define alloca __builtin_alloca
 
 typedef struct buffer *buffer;
-#include <buffer.h>
+typedef struct buffer *string;
 #include <table.h>
 #include <vector.h>
+#include <symbol.h>
 
 typedef buffer string;
 
@@ -43,3 +44,4 @@ typedef table node;
 void *load_elf(void *base, u64 offset, heap pages, heap bss);
 #include <storage.h>
     
+typedef table tuple;
