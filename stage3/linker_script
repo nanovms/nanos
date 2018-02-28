@@ -3,8 +3,10 @@ OUTPUT_FORMAT("elf64-x86-64")
 SECTIONS
 {
   . = 0xf000000;
-  .start : { *(.start)}  
-  .text : { *(.text)}
+  .start ALIGN(4096): { *(.start)}
+  /* the default linker aligns the file and text without throwing
+     away a page..but for today...*/
+  .text : ALIGN(4096) { *(.text)}
   .rodata : { *(.rodata)}
   .data : { *(.data) }
   .bss  ALIGN(32): { *(.bss) }

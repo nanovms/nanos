@@ -229,8 +229,9 @@ write_xmsr:
         ret
 
 _start:
-        mov rax, qword absolution 
-        mov qword [rax], interrupt_common
+        ;;;  dont need abolution? running virtual
+;;        mov rax, qword absolution 
+;;        mov qword [rax], interrupt_common
         call init_service
 ;; can we shut down qemu from here?
         hlt

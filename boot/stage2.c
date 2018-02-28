@@ -82,13 +82,7 @@ void centry()
         console("unable to find kernel\n");
         QEMU_HALT();
     }
-
-    console("found kernel ");
-    print_u64(kernel_offset);
-    console(" ");
-    print_u64(kernel_length);
-    console("\n");    
-        
+    
     void *kernel = allocate(physical, pad(kernel_length, PAGESIZE));
     read_sectors(kernel, fs_start + kernel_offset, kernel_length);
 
@@ -99,6 +93,6 @@ void centry()
     map(0, 0, 0xa000, pages);
     // tell stage3 that this is off limits..could actually move there
     create_region(0, 0xa0000, REGION_VIRTUAL);
-
-    run64(u64_from_pointer(load_elf(kernel, 0, pages, physical)));
+    void *k = load_elf(kernel, 0, pages, physical);
+    run64(k);
 }

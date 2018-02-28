@@ -29,8 +29,7 @@ diskcopy:
         mov dx, 0x1f0
         mov ecx, 256
         cld
-        ;; there looks like a 32 bit version in qemu, but it isn't working?
-        rep insw
+        rep insd
         mov [disktarget], edi
         pop edi
         ret
