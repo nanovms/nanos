@@ -17,12 +17,6 @@ extern void write_xmsr(u64, u64);
 extern void syscall_enter();
 extern u64 *frame;
 
-/*
- * WARNING: these inserts seem to be very fragile wrt actually
- *          referring to the correct value by the right register
- */
-#define mov_to_cr(__x, __y) __asm__("mov %0,%%"__x: :"r"(__y):);
-#define mov_from_cr(__x, __y) __asm__("mov %%"__x", %0":"=r"(__y):);
 
 static inline void enable_interrupts()
 {
@@ -59,6 +53,11 @@ static inline void disable_interrupts()
 #define FRAME_FLAGS 18
 #define FRAME_FS 19
 // gs, and xmm
+
+typedef u64 context[20];
+
+boolean breakpoint_insert(u32 a);
+boolean breakpoint_remove(u32 a);
 
 #define ENTER(frame) __asm__("mov %0, %%rbx"::"g"(frame)); __asm__("jmp frame_enter")
 

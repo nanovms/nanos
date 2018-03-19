@@ -4,6 +4,7 @@
 #include <closure.h>
 #include <closure_templates.h>
 
+typedef closure_type(buffer_handler, void, buffer);
 void register_interrupt(int vector, thunk t);
 void msi_map_vector(int slot, int vector);
 u8 allocate_msi(thunk h);
@@ -39,6 +40,7 @@ static node resolve_path(node n, vector v)
     }
 }
 
+void bprintf(buffer b, char *fmt, ...);
 
 
 

@@ -101,8 +101,8 @@ void init_service(u64 passed_base)
     //node filesystem = {&_fs_start,  0};
     node filesystem;
 
-    heap virtual = create_id_heap(general, HUGE_PAGESIZE, 0, HUGE_PAGESIZE);
-    heap backed = physically_backed(general, virtual, physical, pages);
+    heap virtual = create_id_heap(&bootstrap, HUGE_PAGESIZE, 0, HUGE_PAGESIZE);
+    heap backed = physically_backed(&bootstrap, virtual, physical, pages);
     
     // on demand stack allocation
     u64 stack_size = 4*PAGESIZE;
@@ -117,6 +117,6 @@ void init_service(u64 passed_base)
     // can pass contiguous page allocator, I think this is assuming identity
     init_virtio_storage(misc, physical, pages);
     init_virtio_network(misc, physical, pages);        
-    pci_discover(general, filesystem);
+    pci_discover(&bootstrap, filesystem);
     startup(pages, backed, physical, filesystem);
 }

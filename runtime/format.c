@@ -187,3 +187,12 @@ void bbprintf(buffer b, buffer fmt, ...)
     vbprintf(b, fmt, ap);
     vend(ap);
 }
+
+void bprintf(buffer b, char *fmt, ...)
+{
+    vlist ap;
+    buffer f = alloca_wrap_buffer(fmt, runtime_strlen(fmt));
+    vstart (ap, fmt);
+    vbprintf(b, f, ap);
+    vend(ap);
+}

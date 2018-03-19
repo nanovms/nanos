@@ -1,33 +1,28 @@
 #include <sruntime.h>
 #include <gdbutil.h>
 
-static string output;
-static string send_buffer;
-static string out;
-static string in;
-static heap gh;
-static interface client;
-static context registers;
 
+
+// share
 enum regnames {EAX, ECX, EDX, EBX, ESP, EBP, ESI, EDI,
-	       PC /* also known as eip */,
-	       PS /* also known as eflags */,
+               RIP,
+               FLAGS,
 	       CS, SS, DS, ES, FS, GS};
 
 
-CONTINUATION_1_2(actually, buffer, buffer, thunk);
+
+static CLOSURE_1_2(actually, void, buffer, buffer, thunk);
 static void actually(buffer o, buffer d, thunk s)
 {
-    memcpy(buffer_reference(d, 0),
-           buffer_reference(o, 0),
-           buffer_length(o));
+    runtime_memcpy(buffer_ref(d, 0),
+                   buffer_ref(o, 0),
+                   buffer_length(o));
     apply(s);
 }
 
-void gdb_send(string s)
+void gdb_send(gdb g, string s)
 {
-    client->allocate_buffer(client, buffer_length(s), 
-                            closure(gh, actually, s));
+    apply(g->output_handler, s);
 }
 
 
@@ -42,140 +37,131 @@ int computeSignal (int exceptionVector)
 
 static int sigval;
 
-void gdb_handle_exception (int exceptionVector, context c)
+void gdb_handle_exception (gdb g, int exceptionVector, context c)
 {
     sigval = computeSignal (exceptionVector);
-    reset_buffer(output);
+    reset_buffer(g->output);
     /*
       byte swap
-    bprintf (output, "T%02x%x:%08x;%x:%08x;%x:%08x;",
-             sigval,
-             ESP, c->esp,
-             EBP, c->ebp,
-             PC, c->eip);
+      bprintf (output, "T%02x%x:%08x;%x:%08x;%x:%08x;",
+      sigval,
+      ESP, c->esp,
+      EBP, c->ebp,
+      PC, c->eip);
     */
-    bprintf (output, "T%02x",
-             sigval);
-
-
-    putpacket (send_buffer, output);
+    bprintf (g->output, "T%02x", sigval);
+    putpacket (g, g->output);
 }
 
-static void return_offsets(buffer in, string out)
+static void return_offsets(gdb g, buffer in, string out)
 {
-    putpacket(send_buffer, out);
+    putpacket(g, out);
 }
 
-static void return_supported(buffer in, string out)
+static void return_supported(gdb g, buffer in, string out)
 {
-    putpacket(send_buffer, out);
+    putpacket(g, out);
 }
 
-static void current_thread(buffer in, string out)
+static void current_thread(gdb g, buffer in, string out)
 {
     bprintf(out, "0");
-    putpacket(send_buffer, output);
+    putpacket(g, g->out);
 }
 
 
 static struct handler query_handler[] = {
-  {"Offset", return_offsets},
-  {"Supported", return_supported},
-  {"C", current_thread}, // return 0
-  {"Attached", current_thread}, // 0 for started anew
-  //  {"TStatus", 0}, // say T0
-  //  {"Symbol", 0}, //OK
-  //  {"J", get_debugger_current_thread},
-  //  {"fThreadInfo", start_thread_dump},
-  //  {"sThreadInfo", continue_thread_dump},
-  //  {"ThreadExtraInfo", extra},
-  {0,0}
+    {"Offset", return_offsets},
+    {"Supported", return_supported},
+    {"C", current_thread}, // return 0
+    {"Attached", current_thread}, // 0 for started anew
+    //  {"TStatus", 0}, // say T0
+    //  {"Symbol", 0}, //OK
+    //  {"J", get_debugger_current_thread},
+    //  {"fThreadInfo", start_thread_dump},
+    //  {"sThreadInfo", continue_thread_dump},
+    //  {"ThreadExtraInfo", extra},
+    {0,0}
 };
 
-static void start_slave(context r, boolean stepping)
+static void start_slave(gdb g, boolean stepping)
 {
-    
     if (stepping) {
-        r->eflags |= 0x100;
+        g->registers[FRAME_FLAGS] |= 0x100;
     } else {
-        r->eflags &= 0xfffffeff;
+        g->registers[FRAME_FLAGS] &= 0xfffffeff;
         // resume flag
-        r->eflags |= (1<<16);
+        g->registers[FRAME_FLAGS] |= (1<<16);
     }
-    trap_frame = r;
-    enter_user(r);
+    // trap_frame = r;
+    // run thread
 }
 
 
-static void apply_vcont(buffer in, buffer out)
+static void apply_vcont(gdb g, buffer in, buffer out)
 {
-  u32 trash;
+    u64 trash;
 
-  if (check(in, ';')) {
-    char kind = get_char(in);
-    switch(kind) {
-      case 'S':
-        // step with signal?
-        parse_int(in, 16, &trash);
-      case 's':
-        if (check(in,':')){
-          u32 t;
-          parse_int(in, 16, &t);
-          start_slave(registers, 1);
-        } else {
-          start_slave(registers, 1);
+    if (check(in, ';')) {
+        char kind = get_char(in);
+        switch(kind) {
+        case 'S':
+            // step with signal?
+            parse_int(in, 16, &trash);
+        case 's':
+            if (check(in,':')){
+                u64 t;
+                parse_int(in, 16, &t);
+                start_slave(g, true);
+            } else {
+                start_slave(g, false);
+            }
+            break;
+
+            break;
+        case 't':
+            break;
+        case 'T':
+            break;
+        case 'C':{
+            u64 sig;
+            parse_int(in, 16, &sig);
+            // what am i supposed to do with sig?
+            start_slave(g, false);
         }
-        break;
-
-        break;
-      case 't':
-        break;
-      case 'T':
-         break;
-      case 'C':{
-         u32 sig;
-         parse_int(in, 16, &sig);
-         // what am i supposed to do with sig?
-         start_slave(registers, 0);
-      }
-      case 'c':
-       if (check(in,':')) {
-          u32 t;
-          parse_int(in, 16, &t);
-          start_slave(registers, 0);
-       } else {
-          start_slave(registers, 0);
-       }
+        case 'c':
+            if (check(in,':')) {
+                u64 t;
+                parse_int(in, 16, &t);
+                start_slave(g, false);
+            } else {
+                start_slave(g, false);
+            }
+        }
+        apply_vcont(g, in, out);
     }
-    apply_vcont(in, out);
-  }
 }
 
 
-void return_support_conts(buffer in, string out)
+void return_support_conts(gdb g, buffer in, string out)
 {
-  bprintf(out, "vCont;c;C;s;S;t;T");
-  putpacket (send_buffer, out);
+    bprintf(out, "vCont;c;C;s;S;t;T");
+    putpacket (g, out);
 }
 
 static struct handler v_handler[] = {
-  {"Cont?", return_support_conts},
-  {"Cont", apply_vcont},
-  {0,0}
+    {"Cont?", return_support_conts},
+    {"Cont", apply_vcont},
+    {0,0}
 };
 
 
-void bad_mem()
-{
-    bprintf(output, "E03");
-    putpacket (send_buffer, output);
-}
 
-
-static void handle_request(buffer b)
+static void handle_request(gdb g, buffer b)
 {
-    int addr, length;
+    u64 addr, length;
     int stepping = 0;
+    buffer output = g->output;
 
     reset_buffer(output);
 
@@ -189,11 +175,11 @@ static void handle_request(buffer b)
         //remote_debug = !(remote_debug);	/* toggle debug flag */
         break;
     case 'g':		/* return the value of the CPU registers */
-        mem2hex (output, registers, sizeof(struct context));
+        mem2hex (output, g->registers, sizeof(context));
         break;
 
     case 'G':		/* set the value of the CPU registers - return OK */
-        hex2mem (b, (char *) registers, sizeof(struct context));
+        hex2mem (b, (char *) g->registers, sizeof(context));
         bprintf (output, "OK");
         break;
 
@@ -202,11 +188,11 @@ static void handle_request(buffer b)
         break;
         
     case 'q':
-        handle_query(b, output, query_handler);
+        handle_query(g, b, output, query_handler);
         break;
         
     case 'v':
-        handle_query(b, output, v_handler);
+        handle_query(g, b, output, v_handler);
         return;
 
     case 'p':
@@ -215,11 +201,10 @@ static void handle_request(buffer b)
 
     case 'P':		/* set the value of a single CPU register - return OK */
         {
-            int regno;
+            u64 regno;
             if (parse_int (b, 16, &regno) && (get_char(b) == '='))                
-                if (regno >= 0 && regno < (sizeof(struct context)/sizeof(u32))) {
-                    // xxx - eah - sleeze
-                    hex2mem (b, ((u32 *)registers) + regno, sizeof(u32));
+                if (regno >= 0 && regno < (sizeof(context)/sizeof(u64))) {
+                    hex2mem (b, g->registers + regno, 8);
                     bprintf (output, "OK");
                     break;
                 }
@@ -231,11 +216,9 @@ static void handle_request(buffer b)
         /* mAA..AA,LLLL  Read LLLL bytes at address AA..AA */
     case 'm':
         if (parse_hex_pair(b, &addr, &length)) {
-            page_fault_handler(bad_mem);
             if (!mem2hex (output, (char *) addr, length)) {
                 bprintf(output, "E03");
             }
-            page_fault_handler(0);    
             break;
         }
         bprintf(output, "E01");
@@ -246,15 +229,17 @@ static void handle_request(buffer b)
         /* TRY TO READ '%x,%x:'.  IF SUCCEED, SET PTR = 0 */
         if (parse_hex_pair(b, &addr, &length))
             if (get_char(b) == ':') {
-                page_fault_handler(bad_mem);
+                //                page_fault_handler(bad_mem);
+                // validate the PTEs, not really useful to
+                // try to rewire the handlers
                 if (!hex2mem (b, (char *) addr, length)) {
                     bprintf(output, "E03");
                 } else {
                     bprintf(output, "OK");
-                    page_fault_handler(0);
+                    //                    page_fault_handler(0);
                     break;
                 }
-                page_fault_handler(0);
+                //                page_fault_handler(0);
             }
         bprintf(output, "E02");
         break;
@@ -266,18 +251,15 @@ static void handle_request(buffer b)
     case 'c':
         /* try to read optional parameter, pc unchanged if no parm */
         if (parse_int (b, 16, &addr))
-            registers->eip = addr;
-        start_slave(registers, stepping);
+            g->registers[FRAME_RIP] = addr;
+        start_slave(g, stepping);
         break;
         
         /* kill the program */
-    case 'k':		/* do nothing */
-#if 0
-        /* Huh? This doesn't look like "nothing".
-           m68k-stub.c and sparc-stub.c don't have it.  */
-        BREAKPOINT ();
-#endif
+    case 'k':		
+        QEMU_HALT();
         break;
+        
     case 'z':
         {
             char type = get_char(b);
@@ -320,23 +302,24 @@ static void handle_request(buffer b)
     }			/* switch */
 
     /* reply to the request */
-    putpacket (send_buffer, output);
+    putpacket (g, output);
 }
 
 #define ASCII_CONTROL_C 0x03
-void gdbserver_input(buffer b)
+static CLOSURE_1_1(gdbserver_input, void, gdb, buffer);
+static void gdbserver_input(gdb g, buffer b)
 {
     unsigned char checksum;
     unsigned char xmitcsum;
     char ch = 0;
 
-    reset_buffer(out);
-    reset_buffer(in);
+    reset_buffer(g->out);
+    reset_buffer(g->in);
 
     /* wait around for the start character, ignore all other characters */
     while (buffer_length(b) && ((ch = get_char(b)) != '$')) {
         if (ch == ASCII_CONTROL_C) {
-            gdb_handle_exception(1, registers);
+            gdb_handle_exception(g, 1, g->registers);
             return;
         }
     }
@@ -345,17 +328,16 @@ void gdbserver_input(buffer b)
     xmitcsum = -1;
   
     /* now, read until a # or end of buffer is found */
-    while (buffer_length(b))
-        {
-            ch = get_char(b);
-            // xxx - eah - workaround from trace, not the document
-            if (ch == '$')
-                goto retry;
-            if (ch == '#')
-                break;
-            checksum = checksum + ch;
-            string_insert(in, ch);
-        }
+    while (buffer_length(b)) {
+        ch = get_char(b);
+        // xxx - eah - workaround from trace, not the document
+        if (ch == '$')
+            goto retry;
+        if (ch == '#')
+            break;
+        checksum = checksum + ch;
+        push_character(g->in, ch);
+    }
 
     if (ch == '#') {
         ch = get_char(b);
@@ -363,29 +345,27 @@ void gdbserver_input(buffer b)
         ch = get_char(b);
         xmitcsum += digit_of(ch);
     
-        if (checksum != xmitcsum)
-            {
-                string_insert(out, '-');	/* failed checksum */
-            }
-        else
-            {
-                string_insert(out, '+');	/* successful transfer */
-            }
-        gdb_send(out);
-        handle_request(in);
+        if (checksum != xmitcsum){
+            push_character(g->out, '-');	/* failed checksum */
+        } else {
+            push_character(g->out, '+');	/* successful transfer */
+        }
+        gdb_send(g, g->out);
+        handle_request(g, g->in);
         return;
     }
 }
 
-void init_gdb(heap h, 
-              interface i,
-              context r)
+buffer_handler init_gdb(heap h, 
+                        context *r,
+                        buffer_handler outh)
 {
-    output = allocate_string(h); 
-    send_buffer = allocate_string(h); 
-    out = allocate_string(h); 
-    in = allocate_string(h); 
-    gh = h;
-    client = i;
-    registers = r;
+    gdb g = allocate(h, sizeof(struct gdb));
+    g->output_handler = outh;
+    g->output = allocate_buffer(h, 256); 
+    g->send_buffer = allocate_buffer(h, 256); 
+    g->out = allocate_buffer(h, 256); 
+    g->in = allocate_buffer(h, 256);
+    g->h = h;
+    return closure(h, gdbserver_input, g);
 }

@@ -1,8 +1,8 @@
-#include <nk.h>
+#include <sruntime.h>
 #include <gdbutil.h>
 
 
-u32 parse_int(buffer b, u32 base, u32 *intValue)
+u64 parse_int(buffer b, u32 base, u64 *intValue)
 {
   int hexValue;
   int result = 0;
@@ -20,7 +20,7 @@ u32 parse_int(buffer b, u32 base, u32 *intValue)
 }
 
 
-boolean parse_hex_pair(buffer in, u32 *first, u32 *second)
+boolean parse_hex_pair(buffer in, u64 *first, u64 *second)
 {
     parse_int(in, 16, first);
     check(in, ',');
@@ -57,45 +57,44 @@ boolean hex2mem (buffer b, void *mem, int count)
     return (true);
 }
 
-void putpacket(string send_buffer, string b)
+void putpacket(gdb g, string b)
 {
     unsigned char checksum;
     char ch;
   
-    reset_buffer(send_buffer);
+    reset_buffer(g->send_buffer);
     /*  $<packet info>#<checksum>. */
 
-    string_insert(send_buffer, '$');
+    push_character(g->send_buffer, '$');
     checksum = 0;
 
-    // xxx - eah - fix
     while ((ch = get_char(b))) {
-        string_insert (send_buffer, ch);
+        push_character (g->send_buffer, ch);
         checksum += ch;
     }
     
-    bprintf (send_buffer, "#%02x", checksum);
-    gdb_send(send_buffer);
+    bprintf (g->send_buffer, "#%02x", checksum);
+    gdb_send(g, g->send_buffer);
 }
 
 
-void handle_query(buffer b, string out, handler h) 
+void handle_query(gdb g, buffer b, string out, handler h) 
 {
     int i;
 
     for (i = 0 ; h[i].name; i++) {
         int j;
         char *n = h[i].name;
-        char *m = buffer_reference(b, 0);
+        char *m = buffer_ref(b, 0);
 
         for (j = 0; 
              n[j] && (j < buffer_length(b)) && (n[j] == m[j]);
              j++);
 
         if (!(n[j])) {
-            void (*f)(buffer, string) = h[i].body;
+            void (*f)(gdb, buffer, string) = h[i].body;
             buffer_consume(b, j);
-            f(b, out);
+            f(g, b, out);
             return;
         }
     }
