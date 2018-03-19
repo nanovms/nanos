@@ -29,17 +29,12 @@
  * $FreeBSD$
  */
 
-status virtqueue_alloc(heap physical,
-                       heap general,
-                       string name, 
+status virtqueue_alloc(vtpci dev,
                        uint16_t queue,
                        uint16_t logsize,
                        int align,
                        thunk interrupt,
                        struct virtqueue **vqp);
-
-/* Device callback for a virtqueue interrupt. */
-typedef void virtqueue_intr_t(void *);
 
 /*
  * Hint on how long the next interrupt should be postponed. This is

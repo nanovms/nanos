@@ -1,3 +1,4 @@
+
 #define NO_SYS 2
 #define LWIP_PLATFORM_DIAG(x)
 #define LWIP_PLATFORM_ASSERT(x)
@@ -7,7 +8,7 @@
 #define LWIP_NO_LIMITS_H 1
 #define LWIP_NO_CTYPE_H 1
 #define LWIP_DHCP 1
-#define MEMP_MEM_MALLOC 1
+//#define MEMP_MEM_MALLOC 1
 typedef unsigned long size_t;
 
 typedef unsigned long u64_t;
@@ -20,7 +21,7 @@ typedef char s8_t;
 typedef u16_t uint16_t;
 
 // otherwise all sorts of terrible things about the definition of NULL
-#include <string.h>
+// #include <string.h>
 
 typedef void *sys_prot_t;
 
@@ -54,7 +55,7 @@ static inline u32_t sys_now(void)
     return t++;
 }
 
-#define MEM_LIBC_MALLOC 1
+// #define MEM_LIBC_MALLOC 1
 
 extern void *gallocate();
 
@@ -74,3 +75,47 @@ static inline void free(void *x)
 //    void *x =     gallocate(b);
 //    memset(x, 0, b);
 //}
+
+// sad duplication
+static inline void lwip_memcpy(void *a, const void *b, unsigned long len)
+{
+    for (int i = 0; i < len; i++) ((unsigned char *)a)[i] = ((unsigned char *)b)[i];
+}
+
+static inline int lwip_strlen(char *a)
+{
+    int i = 0;
+    for (char *z = a; *a; a++, i++);
+    return i;
+}
+
+static inline void lwip_memset(void *x, unsigned char v, unsigned long len)
+{
+    for (int i = 0; i < len; i++) ((unsigned char *)x)[i] = v;
+}
+
+// the #define isn't reaching ethernet.o
+static inline int lwip_memcmp(const void *x, const void *y, unsigned long len)
+{
+    for (int i = 0; i < len; i++) {
+        if (x < y) return -1;
+        if (x > y) return 1;        
+    }
+    return 0;
+}
+
+
+static inline int lwip_strncmp(const char *x, const char *y, unsigned long len)
+{
+    for (int i = 0; i < len; i++) {
+        if ((*x) != (*y)) return -1;
+        if ((!*x) || (!*y)) return -1;
+    }
+    return 0;
+}
+
+#define memcpy(__a, __b, __c) lwip_memcpy(__a, __b, __c)
+#define memcmp(__a, __b, __c) lwip_memcmp(__a, __b, __c)
+#define memset(__a, __b, __c) lwip_memset((void *)(__a), __b, __c)
+#define strlen(__a) lwip_strlen((void *)__a)
+#define strncmp(__a, __b, __c) lwip_strncmp(__a, __b, __c)

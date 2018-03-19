@@ -1,7 +1,11 @@
 all: boot
 
+ROOT ?= $(PWD)/..
+include $(ROOT)/x86_64/Makefile
+
+
 STAGE1SIZE = 512
-STAGE2SIZE = 16384
+STAGE2SIZE = 8192
 
 stage2.pad: stage2
 	dd if=$< of=$@ bs=$(STAGE2SIZE) conv=sync
@@ -14,7 +18,7 @@ boot: stage1 stage2.pad
 
 OBJ = service32.o stage2.o serial.o page.o elf.o
 
-VPATH = ../runtime
+VPATH += ../runtime
 LD = ld
 OD = objdump
 
@@ -28,7 +32,7 @@ service32.o: service32.s
 	nasm -felf $<
 
 %.o: %.c
-	cc -m32 -fno-stack-protector -include def32.h -DSTAGE1SIZE=$(STAGE1SIZE) -DSTAGE2SIZE=$(STAGE2SIZE) -I. -I../runtime $< -c
+	cc -m32 -O -fno-stack-protector -include def32.h $(INCLUDES) -DSTAGE1SIZE=$(STAGE1SIZE) -DSTAGE2SIZE=$(STAGE2SIZE) -I. -I../runtime $< -c
 
 clean:
 	rm -f *.o *~ stage2.elf stage2 bottom.list stage1 boxxy stage2.pad boot

@@ -34,6 +34,17 @@ void table_set (table t, void *c, void *v);
              __j && (__next =  eZ((__j), next) , __k = eZ(__j, c), __v = eZ(__j, v)); \
              __j = __next)
 
+static inline boolean pointer_equal(void *a, void* b)
+{
+    return a == b;
+}
+
+static inline key identity_key(void *a)
+{
+    return u64_from_pointer(a);
+}
+
+
 static inline key fnv64(void *z)
 {
     buffer b = z;

@@ -1,4 +1,5 @@
 typedef unsigned char u8;
+typedef char s8;
 typedef unsigned short u16;
 typedef unsigned int u32;
 typedef unsigned long long u64;
@@ -9,6 +10,8 @@ typedef u8 boolean;
 #define false (0)
 
 typedef u64 bytes;
+
+typedef u64 time;
 
 extern void console(char *x);
 
@@ -89,11 +92,9 @@ typedef u64 physical;
 
 physical vtop(void *x);
 
-// fc is boot sig
 #define cprintf(...)
 
-#include <elf64.h>
-
+// belongs in the kernel
 #define PAGELOG 12
 #define PAGESIZE (1<<PAGELOG)
 #ifndef physical_from_virtual
@@ -101,7 +102,7 @@ physical physical_from_virtual(void *x);
 #endif    
 void map(u64 virtual, physical p, int length, heap h);
 
-#define PHYSICAL_INVALID ((u64)0xffffffffffffffff)
+#define INVALID_PHYSICAL ((u64)0xffffffffffffffff)
 
 
 #define varg __builtin_va_arg

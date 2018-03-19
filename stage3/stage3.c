@@ -1,5 +1,7 @@
 #include <sruntime.h>
-#include <system.h>
+#include <unix.h>
+#include <pci.h>
+#include <virtio.h>
 
 u8 userspace_random_seed[16];
 
@@ -70,7 +72,7 @@ thread exec_elf(node fs, vector path, heap general, heap physical, heap pages)
     }
     
     t->frame[FRAME_RIP] = u64_from_pointer(user_entry);
-    map(0, PHYSICAL_INVALID, PAGESIZE, pages);
+    map(0, INVALID_PHYSICAL, PAGESIZE, pages);
     
     // use runtime random
     u8 seed = 0x3e;
@@ -98,8 +100,8 @@ thread exec_elf(node fs, vector path, heap general, heap physical, heap pages)
 void startup(heap pages, heap general, heap physical, node root)
 {
     u64 c = cpuid();
-
-    init_system(general);
+    console("stage3\n");
+    init_unix(general);
     struct buffer program_name, interp_name;
     node n = resolve(root, sym(program));
     struct buffer p;

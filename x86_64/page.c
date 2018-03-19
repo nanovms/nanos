@@ -44,7 +44,7 @@ static void write_pte(page target, physical to, boolean fat)
     
     
     // really set user?
-    if (to == PHYSICAL_INVALID)
+    if (to == INVALID_PHYSICAL)
         *target = 0;
     else 
         *target = to | PAGE_WRITABLE | PAGE_PRESENT | PAGE_USER | (fat?PAGE_2M_SIZE:0);
@@ -56,7 +56,7 @@ static page force_entry(page b, u32 offset, heap h)
         return pointer_from_u64(b[offset] & ~PAGEMASK);
     } else {
         page n = allocate_zero(h, PAGESIZE);
-        if (n == pointer_from_u64(PHYSICAL_INVALID))
+        if (n == pointer_from_u64(INVALID_PHYSICAL))
             console("ran out of page memory\n");
         // virtual from physical of n required if we
         // move off the identity map for pages
@@ -68,22 +68,32 @@ static page force_entry(page b, u32 offset, heap h)
 static void map_page_4k(page base, u64 virtual, physical p, heap h)
 {
     page x = base;
-    x = force_entry(x, (virtual >> 39) & MASK(9), h);
-    x = force_entry(x, (virtual >> 30) & MASK(9), h);
-    x = force_entry(x, (virtual >> 21) & MASK(9), h);
-    u64 off = (virtual >> 12) & MASK(9);
-    write_pte(x + off, p, false);
+    if ((x = force_entry(x, (virtual >> 39) & MASK(9), h)) != INVALID_ADDRESS) {
+        if ((x = force_entry(x, (virtual >> 30) & MASK(9), h)) != INVALID_ADDRESS) {
+            if ((x = force_entry(x, (virtual >> 21) & MASK(9), h)) != INVALID_ADDRESS) {
+                u64 off = (virtual >> 12) & MASK(9);
+                write_pte(x + off, p, false);
+                return; 
+            }
+        }
+    }
+    halt("ran out of page map memory");
 }
 
 static void map_page_2m(page base, u64 virtual, physical p, heap h)
 {
     page x = base;
-    x = force_entry(x, (virtual >> 39) & MASK(9), h);
-    x = force_entry(x, (virtual >> 30) & MASK(9), h);
-    u64 off = (virtual >> 21) & MASK(9);
-    write_pte(x+off, p, true);
+    if ((x = force_entry(x, (virtual >> 39) & MASK(9), h)) != INVALID_ADDRESS) {
+        if ((x = force_entry(x, (virtual >> 30) & MASK(9), h)) != INVALID_ADDRESS) {
+            u64 off = (virtual >> 21) & MASK(9);
+            write_pte(x+off, p, true);
+            return; 
+        }
+    }
+    halt("ran out of page map memory");
 }
 
+// error processing
 void map(u64 virtual, physical p, int length, heap h)
 {
     page base;
@@ -114,7 +124,7 @@ void map(u64 virtual, physical p, int length, heap h)
             map_page_4k(base, vo, po, h);
         }
         vo += off;
-        if (po != PHYSICAL_INVALID)
+        if (po != INVALID_PHYSICAL)
             po += off;
         i += off;
     }

@@ -24,6 +24,7 @@ static inline boolean compare_bytes(void *a, void *b, bytes len)
 #define ENTRY_ALIGNMENT_LOG 2
 typedef u32 offset;
 
+// this is a buffer actually
 // note that node is an immediate and not a pointer just
 // to cut down on trash
 typedef struct snode {

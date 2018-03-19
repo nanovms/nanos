@@ -81,7 +81,6 @@
 #define VIRTIO_PCI_VRING_ALIGN	4096
 
 status vtpci_alloc_virtqueue(vtpci dev,
-                             string name, 
                              int idx,
                              thunk intr,
                              struct virtqueue **result);

@@ -86,10 +86,10 @@ static inline vector build_vector_internal(heap h, ...)
     vstart(ap, h);
     u64 x;
     vector v = allocate_vector(h, 10);
-    while (x = varg(ap, u64), x != PHYSICAL_INVALID) {
+    while (x = varg(ap, u64), x != INVALID_PHYSICAL) {
         vector_push(v, pointer_from_u64(x));
     }
     return v;
 }
 
-#define build_vector(_h, ...) build_vector_internal(_h, __VA_ARGS__, PHYSICAL_INVALID)                       
+#define build_vector(_h, ...) build_vector_internal(_h, __VA_ARGS__, INVALID_PHYSICAL)                       

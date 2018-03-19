@@ -1,5 +1,9 @@
 all: image
 
+ROOT = $(PWD)
+
+include net/Makefile
+
 force:
 
 mkfs/mkfs:
@@ -21,9 +25,10 @@ clean:
 	rm -f runtime/closure_templates.h runtime/contgen image
 
 # file=image,if=none,id=virtio-disk0,format=raw,cache=none,aio=native
-STORAGE =  -device virtio-blk-pci,scsi=off,file=image
-NET =  -device virtio-net,netdev=n0,mac=4a:a4:e1:21:01:9c -netdev tap,id=n0,ifname=tap0
 
+STORAGE =  -device virtio-blk-pci,scsi=off,drive=foo -drive file=image,format=raw,id=foo,if=none
+NET =  -device virtio-net,mac=4a:a4:e1:21:01:9c # netdev=n0,
+TAP = -netdev tap,id=n0,ifname=tap0
 run: image
-	- qemu-system-x86_64  -nographic -drive file=image,format=raw -m 2G -device isa-debug-exit 
+	- qemu-system-x86_64  -nographic -drive file=image,format=raw -m 2G -device isa-debug-exit $(STORAGE) $(NET)
 

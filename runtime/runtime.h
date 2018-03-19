@@ -45,3 +45,5 @@ void *load_elf(void *base, u64 offset, heap pages, heap bss);
 #include <storage.h>
     
 typedef table tuple;
+
+typedef u64 ticks;

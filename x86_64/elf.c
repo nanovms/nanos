@@ -1,4 +1,8 @@
 #include <runtime.h>
+#include <elf64.h>
+
+// this doesn't really belong in x86_64, but it does belong
+// in the kernel runtime
 
 #define trim(x) ((x) & ~MASK(PAGELOG))
 

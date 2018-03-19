@@ -1,10 +1,6 @@
 #include <basic_runtime.h>
-#include <x86_64.h>
-#include <booto.h>
+#include <x86.h>
 #include <storage.h>
-
-// fix headers
-void *load_elf(void *base, u64 offset, heap pages, heap bss);
 
 static void print_block(void *addr, int length)
 {
@@ -94,5 +90,5 @@ void centry()
     // tell stage3 that this is off limits..could actually move there
     create_region(0, 0xa0000, REGION_VIRTUAL);
     void *k = load_elf(kernel, 0, pages, physical);
-    run64(k);
+    run64(u64_from_pointer(k));
 }

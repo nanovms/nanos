@@ -1,5 +1,5 @@
 #include <sruntime.h>
-#include <system.h>
+#include <unix.h>
 
 static heap processes;
 
@@ -145,7 +145,7 @@ void *mremap(void *old_address, u64 old_size,  u64 new_size, int flags,  void *n
         u64 diff = pad(new_size - old_size, PAGESIZE);
         u64 base = u64_from_pointer(old_address + old_size) & align;
         void *r = allocate(current->p->physical,diff);
-        if (u64_from_pointer(r) == PHYSICAL_INVALID) {
+        if (u64_from_pointer(r) == INVALID_PHYSICAL) {
             // MAP_FAILED
             return r;
         }
@@ -177,7 +177,7 @@ static void *mmap(void *target, u64 size, int prot, int flags, int fd, u64 offse
     // make a generic zero page function
     if (flags & MAP_ANONYMOUS) {
         u64  m = allocate_u64(p->physical, len);
-        if (m == PHYSICAL_INVALID) return pointer_from_u64(m);
+        if (m == INVALID_PHYSICAL) return pointer_from_u64(m);
         map(where, m, len, p->pages);
         zero(pointer_from_u64(where), len);
         return pointer_from_u64(where);
@@ -592,7 +592,7 @@ process create_process(heap h, heap pages, heap physical, node filesystem)
     return p;
 }
 
-void init_system(heap h)
+void init_unix(heap h)
 {
     set_syscall_handler(syscall_enter);
     // could wrap this in a 'system'

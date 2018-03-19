@@ -1,10 +1,14 @@
-typedef struct vtpci *vtpci;
-vtpci attach_vtpci(heap h, int bus, int slot, int func);
 
 /* VirtIO PCI vendor/device ID. */
 #define VIRTIO_PCI_VENDORID	0x1AF4
 #define VIRTIO_PCI_DEVICEID_MIN	0x1000
 #define VIRTIO_PCI_DEVICEID_MAX	0x103F
+#define VIRTIO_PCI_DEVICEID_NETWORK 0x1000
+#define VIRTIO_PCI_DEVICEID_STORAGE 0x1001
+#define VIRTIO_PCI_DEVICEID_BALLOON 0x1002
+#define VIRTIO_PCI_DEVICEID_CONSOLE 0x1003
+#define VIRTIO_PCI_DEVICEID_ENTROPY 0x1005
+#define VIRTIO_PCI_DEVICEID_FILESYSTEM_9P 0x1009
 
 /* Status byte for guest to report progress. */
 #define VIRTIO_CONFIG_STATUS_RESET	0x00
@@ -39,3 +43,6 @@ vtpci attach_vtpci(heap h, int bus, int slot, int func);
  */
 #define VIRTIO_TRANSPORT_F_START	28
 #define VIRTIO_TRANSPORT_F_END		32
+
+void init_virtio_storage(heap h, heap physical, heap pages);
+void init_virtio_network(heap h, heap physical, heap pages);

@@ -107,9 +107,7 @@ static void vq_ring_free_chain(struct virtqueue *vq, uint16_t desc_idx)
     vq->vq_desc_head_idx = desc_idx;
 }
 
-status virtqueue_alloc(heap physical,
-                       heap general,
-                       string name, 
+status virtqueue_alloc(vtpci dev,
                        uint16_t queue,
                        uint16_t logsize,
                        int align,
@@ -120,11 +118,10 @@ status virtqueue_alloc(heap physical,
     struct virtqueue *vq;
     u64 size = 1<<logsize;
 
-    vq = allocate(general, sizeof(struct virtqueue) +  1<<logsize * sizeof(struct vq_desc_extra));
+    vq = allocate(dev->general, sizeof(struct virtqueue) +  1<<logsize * sizeof(struct vq_desc_extra));
 
     if (!vq) 
         return allocate_status("cannot allocate virtqueue\n");
-    vq->name = name;
     vq->vq_queue_index = queue;
     vq->vq_nentries = size;
     vq->vq_free_cnt = size;
@@ -134,7 +131,7 @@ status virtqueue_alloc(heap physical,
     vq->vq_flags |= VIRTQUEUE_FLAG_EVENT_IDX;
 
     vq->vq_ring_size = pad(vring_size(size, align), PAGESIZE);
-    vq->vq_ring_mem = allocate_zero(physical, vq->vq_ring_size);
+    vq->vq_ring_mem = allocate_zero(dev->contiguous, vq->vq_ring_size);
 
     if (!vq->vq_ring_mem) {
         s = allocate_status("cannot allocate memory for virtqueue ring\n");

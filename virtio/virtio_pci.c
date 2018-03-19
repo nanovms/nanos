@@ -56,7 +56,6 @@ static void vtpci_set_status(vtpci dev, uint8_t status)
 }
 
 status vtpci_alloc_virtqueue(vtpci dev,
-                             string name, 
                              int idx,
                              thunk h,
                              struct virtqueue **result)
@@ -66,7 +65,7 @@ status vtpci_alloc_virtqueue(vtpci dev,
     uint16_t size = in16(dev->base + VIRTIO_PCI_QUEUE_NUM);
 
     int i = allocate_msi(h); 
-    status s = virtqueue_alloc(dev->physical, dev->general, name, idx, size, VIRTIO_PCI_VRING_ALIGN,
+    status s = virtqueue_alloc(dev, idx, size, VIRTIO_PCI_VRING_ALIGN,
                                h, result);
     if (!is_ok(s)) return s;
 
@@ -88,8 +87,9 @@ vtpci attach_vtpci(heap h, int bus, int slot, int func)
 {
     struct vtpci *dev = allocate(h, sizeof(struct vtpci));
     int rid;
+    u32 length;
 
-    u32 base = pci_readbar(bus, slot, func, 0);
+    u32 base = pci_readbar(bus, slot, func, 0, &length);
     dev->base = base & ~1; // io bars have the bottom bit set
     pci_set_bus_master(bus, slot, func);
 
@@ -108,6 +108,7 @@ vtpci attach_vtpci(heap h, int bus, int slot, int func)
 
     int nvqs = 16;
     dev->vtpci_vqs = allocate_zero(h, nvqs * sizeof(struct virtqueue));
+    dev->general = h;
 
     // init_vnet(dev);
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER_OK);

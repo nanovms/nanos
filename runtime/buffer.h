@@ -9,7 +9,7 @@ struct buffer {
 
 
 #define alloca_wrap_buffer(__b, __l) ({           \
-  buffer b = alloca(sizeof(struct buffer));   \
+  buffer b = __builtin_alloca(sizeof(struct buffer));   \
   b->contents =(void *) __b;                  \
   b->end = b->length = __l;\
   b->start  =0 ;\

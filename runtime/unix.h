@@ -22,4 +22,4 @@ typedef struct process *process;
 typedef closure_type(io, int, void *, u64 length, u64 offset);
 
 
-void init_system(heap);
+void init_unix(heap);

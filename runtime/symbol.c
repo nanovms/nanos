@@ -61,15 +61,11 @@ key key_from_symbol(void *z)
     return(s->k);
 }
 
-boolean symbol_equal(void *a, void* b)
-{
-    return a == b;
-}
 
 // region?
 tuple allocate_tuple()
 {
-    return allocate_table(sheap, key_from_symbol, symbol_equal);
+    return allocate_table(sheap, key_from_symbol, pointer_equal);
 }
 
 

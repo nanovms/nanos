@@ -39,6 +39,7 @@
 
 #include "lwip/opt.h"
 
+
 #include "lwip/def.h"
 #include "lwip/mem.h"
 #include "lwip/pbuf.h"
@@ -50,12 +51,10 @@
 #include "lwip/timeouts.h"
 #include "netif/ethernet.h"
 
-/* Define those to better describe your network interface. */
-#define IFNAME0 'e'
-#define IFNAME1 'n'
-
 #include <virtio_internal.h>
 #include <virtio_net.h>
+
+
 
 typedef struct vnet {
     vtpci dev;
@@ -87,7 +86,6 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
     writables[index] = false;
     lengths[index] = NET_HEADER_LENGTH;
 
-
     for (q = p; index++, q != NULL; q = q->next) {
         address[index] = q->payload;
         writables[index] = false;
@@ -113,6 +111,7 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
     return ERR_OK;
 }
 
+static CLOSURE_1_0(tx_complete, void, void *);
 static void tx_complete(void *z)
 {
     console("tx complete\n");
@@ -125,11 +124,12 @@ static void post_recv(vnet vn)
     struct pbuf *p = pbuf_alloc(PBUF_RAW, 1500, PBUF_RAM);
     void *x = p->payload;
     void *address[] = {x};
-    u64 lengths[] = {contiguous->pagesize};
+    u64 lengths[] = {vn->dev->contiguous->pagesize};
     boolean writables[] = {true};
     virtqueue_enqueue(vn->rxq, p, address, lengths, writables, 1);    
 }
 
+static CLOSURE_1_0(input, void, void *);
 static void input(void *z)
 {
     struct netif *netif = z;
@@ -159,8 +159,8 @@ static err_t virtioif_init(struct netif *netif)
     /* Initialize interface hostname */
     //    netif->hostname = "virtiosomethingsomething";
 
-    netif->name[0] = IFNAME0;
-    netif->name[1] = IFNAME1;
+    netif->name[0] = 'e';
+    netif->name[1] = 'n';
     netif->output = etharp_output;
     netif->linkoutput = low_level_output;
     netif->hwaddr_len = ETHARP_HWADDR_LEN;
@@ -175,19 +175,20 @@ static err_t virtioif_init(struct netif *netif)
 }
 
 
-void init_vnet(vtpci dev)
+static CLOSURE_1_3(init_vnet, void, heap, int, int, int);
+static void init_vnet(heap general, int bus, int slot, int function)
 {
+    vtpci dev = attach_vtpci(general, bus, slot, function);
     vnet vn = allocate(dev->general, sizeof(struct vnet));
     struct netif *n = allocate(dev->general, sizeof(struct netif));
     /* rx = 0, tx = 1, ctl = 2 by page 53 of http://docs.oasis-open.org/virtio/virtio/v1.0/cs01/virtio-v1.0-cs01.pdf */
     vn->dev = dev;
-    // causes qemu to handle on exit?
     //     vtpci_alloc_virtqueue(dev, "ctrl", 0, 0, &vn->txq);
     
-    vtpci_alloc_virtqueue(dev, intern(tx)->s, 1, allocate_handler(general, tx_complete, vn), &vn->txq);
-    vtpci_alloc_virtqueue(dev, intern(rx)->s, 0, allocate_handler(general, input, n), &vn->rxq);
+    vtpci_alloc_virtqueue(dev, 1, closure(dev->general, tx_complete, vn), &vn->txq);
+    vtpci_alloc_virtqueue(dev, 0, closure(dev->general, input, n), &vn->rxq);
     // just need 10 contig bytes really
-    vn->empty = allocate(contiguous, contiguous->pagesize);
+    vn->empty = allocate(dev->contiguous, dev->contiguous->pagesize);
     for (int i = 0; i < NET_HEADER_LENGTH ; i++)  ((u8 *)vn->empty)[i] = 0;
     n->state = vn;
     netif_add(n,
@@ -201,3 +202,8 @@ void init_vnet(vtpci dev)
     // setup sys_check_timeouts() timer
 }
 
+
+void init_virtio_network(heap h, heap physical, heap pages)
+{
+    register_pci_driver(VIRTIO_PCI_VENDORID, VIRTIO_PCI_DEVICEID_STORAGE, closure(h, init_vnet, h));
+}

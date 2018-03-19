@@ -1,5 +1,4 @@
 #include <runtime.h>
-#include <booto.h>
 #include <x86_64.h>
 #include <elf64.h>
 #include <closure.h>
@@ -8,6 +7,8 @@
 void register_interrupt(int vector, thunk t);
 void msi_map_vector(int slot, int vector);
 u8 allocate_msi(thunk h);
+
+#define HUGE_PAGESIZE 0x100000000ull
 
 // metadata stuff
 static boolean node_contents(node n, buffer b)
@@ -38,16 +39,6 @@ static node resolve_path(node n, vector v)
     }
 }
 
-static inline void halt(char *f, ...)
-{
-    buffer bf = alloca_wrap_buffer(f, runtime_strlen(f));
-    little_stack_buffer(b, 2048);
-    vlist ap;
-    vstart (ap, f);
-    vbprintf(b, bf,  ap);
-    debug(b->contents);
-    QEMU_HALT();
-}
 
 
 

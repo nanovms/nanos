@@ -1,3 +1,4 @@
+#include <x86.h>
 
 #define FS_MSR 0xc0000100
 #define GS_MSR 0xc0000101
@@ -15,9 +16,6 @@ extern u64 read_xmsr(u64);
 extern void write_xmsr(u64, u64);
 extern void syscall_enter();
 extern u64 *frame;
-
-#include <io.h>
-#include <disk.h>
 
 /*
  * WARNING: these inserts seem to be very fragile wrt actually
@@ -64,9 +62,7 @@ static inline void disable_interrupts()
 
 #define ENTER(frame) __asm__("mov %0, %%rbx"::"g"(frame)); __asm__("jmp frame_enter")
 
-#define QEMU_HALT()  out8(0x501, 0);
 
-// probably important
 static inline void write_barrier()
 {
     asm ("sfence");
@@ -97,3 +93,30 @@ static inline void set_syscall_handler(void *syscall_entry)
     write_msr(EFER_MSR, read_msr(EFER_MSR) | EFER_SCE);
 }
 
+static time rdtsc(void)
+{
+    unsigned a, d;
+    asm("cpuid");
+    asm volatile("rdtsc" : "=a" (a), "=d" (d));
+
+    // scale me
+    return (((time)a) | (((time)d) << 32));
+}
+
+void init_clock(heap backed_virtual);
+void serial_out(char a);
+
+static inline void haltf(char *f, ...)
+{
+    buffer bf = alloca_wrap_buffer(f, runtime_strlen(f));
+    little_stack_buffer(b, 2048);
+    vlist ap;
+    vstart (ap, f);
+    vbprintf(b, bf,  ap);
+    debug(b->contents);
+    QEMU_HALT();
+}
+
+#ifndef halt
+#define halt(_a) haltf(_a);
+#endif

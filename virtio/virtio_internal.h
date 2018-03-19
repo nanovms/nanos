@@ -1,5 +1,4 @@
 #include <sruntime.h>
-
 typedef u64 uint64_t;
 typedef u32 uint32_t;
 typedef u16 uint16_t;
@@ -8,16 +7,16 @@ typedef u8 uint8_t;
 typedef u64 physical;
 typedef u64 virtual;
 
-#define ETHER_ADDR_LEN 6
 
 struct virtqueue;
 
+typedef struct vtpci *vtpci;
 
 struct vtpci {
     u64 base; //io region base
     uint64_t			 vtpci_features;
 
-    heap physical;
+    heap contiguous;
     heap general;    
     struct virtio_feature_desc	*vtpci_child_feat_desc;
 
@@ -111,11 +110,10 @@ struct virtqueue {
 };
 
 
-
+#include <pci.h>
 #include <virtio.h>
 #include <virtio_pci.h>
 #include <virtqueue.h>
 #include <virtio_net.h>
 
 void vtpci_notify_virtqueue(vtpci sc, uint16_t queue);
-void init_vnet(vtpci dev);

@@ -200,7 +200,7 @@ int main(int argc, char **argv)
     
     buffer desc = read_stdin(&h);
     table root = parse_mappings(&h, desc);
-    table symbols = allocate_table(&h, key_from_symbol, symbol_equal);
+    table symbols = allocate_table(&h, key_from_symbol, pointer_equal);
     vector file_relocations = allocate_vector(&h, 10);
     serialize(out, &h, root, file_relocations, symbols);
     resolve_files(&h, out, file_relocations);

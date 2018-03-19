@@ -1,9 +1,10 @@
-#include <core/core.h>
+#include <runtime.h>
 
 typedef struct pageheader *pageheader;
 
 struct pageheader {
-    iu32 refcnt;
+    u32 references;
+    u32 length; // can shift by pagesize
     pageheader next;
 };
 
@@ -11,58 +12,62 @@ typedef struct rolling {
     struct heap h;
     heap   parent;
     int    offset;
-    int    length;
-    pageheader buffer;
-    iu32  refcount;
+    pageheader p;
 } *rolling;
 
 static void rolling_advance_page(rolling l, int len)
 {
-    l->length = l->parent->pagesize;
-    l->length = (((len-1)/l->length)+1)*l->length;
-
-    void *old = l->buffer;
-    l->buffer = l->parent->allocate(l->parent, l->length);
-    *((void **)l->buffer) = old;
-    l->offset = sizeof(void *);
+    u64 length = pad(len + sizeof(struct pageheader), l->parent->pagesize);
+    pageheader n = allocate(l->parent, length);
+    n->next = l->p;
+    n->length = length;
+    n->references = 0;
+    n->next = l->p;
+    l->p = n;
+    l->offset = sizeof(struct pageheader);
 }
 
-static void *rolling_alloc(rolling c, int bytes)
+static u64 rolling_alloc(heap h, bytes len)
 {
-    if ((c->offset + bytes) > c->length)
-        rolling_advance_page(c, bytes);
-    c->refcount++;
-    void *r = c->buffer + c->offset;
-    c->offset += bytes;
-    return(r);
+    rolling r = (void *)h;
+    if ((r->offset + len) > r->p->length) {
+        if (len > r->parent->pagesize) {
+            // cant allocate in the remainder of a multipage allocation, since we cant find the header
+            len = pad(len + sizeof(struct pageheader), r->parent->pagesize) - sizeof(struct pageheader);
+        }
+        rolling_advance_page(r, len);
+    }
+    void *a = r->p + r->offset;
+    r->p->references++;
+    r->offset += len;
+    return(u64_from_pointer(a));
 }
 
-static void rolling_free(rolling c, void *x)
+static void rolling_free(heap h, u64 x, u64 length)
 {
-    pageheader p = (pageheader)page_of(x, c->parent->pagesize);
-    if (!--p->refcnt) c->parent->deallocate(c->parent, p);
+    rolling r = (void *)h;
+    pageheader p = pointer_from_u64(x&(~MASK(r->parent->pagesize)));
+    if (!--p->references) deallocate(r->parent, p, p->length);
 }
 
 static void rolling_destroy(rolling c)
 {
-
-    for (pageheader i = c->buffer;
-         c->parent->deallocate(c->parent, i), ((rolling)i != c);
+    for (pageheader i = c->p;
+         deallocate(c->parent, i, i->length), ((rolling)i != c);
          i = i->next);
 }
 
 // where heap p must be aligned
 heap allocate_rolling_heap(heap p)
 {
-    rolling l = p->allocate(p, sizeof(struct rolling));
-    l->h.allocate = rolling_alloc;
-    l->h.deallocate = rolling_free;
+    rolling l = allocate(p, sizeof(struct rolling));
+    l->h.alloc = rolling_alloc;
+    l->h.dealloc = rolling_free;
     l->h.pagesize = 1; 
     l->h.destroy = rolling_destroy;
-    l->buffer = (void *)l;
+    l->p = (void *)l;
     l->parent = p;
     l->offset = sizeof(struct rolling);
-    l->length = p->pagesize;
     return(&l->h);
 }
 

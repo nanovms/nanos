@@ -68,9 +68,13 @@ u32 pci_cfgread(int bus, int slot, int func, int reg, int bytes)
     return (data);
 }
 
-u32 pci_readbar(unsigned bus, unsigned slot, unsigned func, int bid)
+u32 pci_readbar(unsigned bus, unsigned slot, unsigned func, int bid, u32 *length)
 {
-    return pci_cfgread(bus, slot, func, 0x10 + 4 *bid, 4);
+    u32 base = pci_cfgread(bus, slot, func, 0x10 + 4 *bid, 4);
+    pci_cfgwrite(bus, slot, func, 0x10 + 4 *bid, 4, 0xffffffff);
+    *length = ~pci_cfgread(bus, slot, func, 0x10 + 4 *bid, 4) + 1;
+    pci_cfgwrite(bus, slot, func, 0x10 + 4 *bid, 4, base);    
+    return base;
 }
 
 void pci_cfgwrite(int bus, int slot, int func, int reg, int bytes, u32 source)
@@ -136,35 +140,51 @@ void msi_map_vector(int slot, int vector)
 #define PCI_CAPABILITY_MSIX 0x11
 extern void *pagebase;
 
-void pci_checko(heap pages)
+// use the global nodespace
+static table drivers;
+
+void register_pci_driver(u16 vendor, u16 device, pci_probe p)
+{
+    table_set(drivers, pointer_from_u64((u64)(vendor<<16|device)), p);
+}
+
+
+void pci_discover(heap pages, node filesystem)
 {
     // we dont actually need to do recursive discovery, qemu leaves it all on bus0 for us
     for (int i = 0; i < 16; i++) {
         u32 vid = pci_cfgread(0, i, 0, PCIR_VENDOR, 2);
         u32 did = pci_cfgread(0, i, 0, PCIR_DEVICE, 2);
-
-        u32 cp = pci_cfgread(0, i, 0, PCIR_CAPABILITIES_POINTER, 1);
-        while (cp) {
-            u32 cp0 = pci_cfgread(0, i, 0, cp, 1);
-            if (cp0 == PCI_CAPABILITY_MSIX) {
-                u32 vector_table = pci_cfgread(0, i, 0, cp+4, 4);
-                u32 pba_table = pci_cfgread(0, i, 0, cp+8, 4);                    
-                u32 vector_base = pci_readbar(0, i, 0, vector_table & 0xff);
-                msi_map = (void *)0xe0000000;
-                map((u64)msi_map, vector_base, 0x1000, pages);
-                // qemu gets really* mad if you do this a 16 bit write
-                pci_cfgwrite(0, i, 0, cp+3, 1, 0x80);
-                break;
+        if (!((vid == 0xffff)  && (did == 0xffff))) {
+            rprintf("pci: %x %x\n", vid, did);
+            u32 cp = pci_cfgread(0, i, 0, PCIR_CAPABILITIES_POINTER, 1);
+            while (cp) {
+                u32 cp0 = pci_cfgread(0, i, 0, cp, 1);
+                rprintf("pci cap: %x\n", cp0);
+                if (cp0 == PCI_CAPABILITY_MSIX) {
+                    u32 vector_table = pci_cfgread(0, i, 0, cp+4, 4);
+                    u32 pba_table = pci_cfgread(0, i, 0, cp+8, 4);
+                    u32 len;
+                    u32 vector_base = pci_readbar(0, i, 0, vector_table & 0xff, &len);
+                    msi_map = (void *)0xe0000000;
+                    // xxx - use len from readbar
+                    map((u64)msi_map, vector_base, 0x1000, pages);
+                    // qemu gets really* mad if you do this a 16 bit write
+                    pci_cfgwrite(0, i, 0, cp+3, 1, 0x80);
+                    break;
+                }
+                cp = pci_cfgread(0, i, 0, cp + 1, 1);
             }
-            cp = pci_cfgread(0, i, 0, cp + 1, 1);
+            pci_probe p;
+            if ((p =  table_find(drivers, pointer_from_u64((u64)(vid<<16|did)))))
+                apply(p, 0, i, 0);
         }
-        // if ((vid ==  VIRTIO_PCI_VENDORID) &&  (did == VIRTIO_PCI_DEVICEID_MIN)) {
-        // scan registrations
-        // make this be a registration process rather than a hard link
-        // attach_vtpci(0, i, 0);
     }
 }
 
-void register_pci_device()
+
+void init_pci(heap g)
 {
+    // should use the global node space
+    drivers = allocate_table(g, identity_key, pointer_equal);
 }

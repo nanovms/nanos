@@ -58,6 +58,8 @@
 
 #define VIRTIO_NET_S_LINK_UP	1	/* Link is up */
 
+#define ETHER_ADDR_LEN 6
+
 struct virtio_net_config {
 	/* The config defining mac address (if VIRTIO_NET_F_MAC) */
 	uint8_t		mac[ETHER_ADDR_LEN];
