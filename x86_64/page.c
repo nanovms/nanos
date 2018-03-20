@@ -103,7 +103,6 @@ void map(u64 virtual, physical p, int length, heap h)
     int len = pad(length, PAGESIZE);
     u64 vo = virtual;
     u64 po = p;
-
 #if 0
     console("map: ");
     print_u64(virtual);
@@ -113,7 +112,6 @@ void map(u64 virtual, physical p, int length, heap h)
     print_u64(length);              
     console("\n");
 #endif
-
     for (int i = 0; i < len;) {
         int off = 1<<12;
                 if (!(vo & MASK(21)) && !(po & MASK(21)) && ((len - i) >= (1<<21))) {

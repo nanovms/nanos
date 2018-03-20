@@ -149,7 +149,7 @@ void register_pci_driver(u16 vendor, u16 device, pci_probe p)
 }
 
 
-void pci_discover(heap pages, node filesystem)
+void pci_discover(heap pages, heap virtual, node filesystem)
 {
     // we dont actually need to do recursive discovery, qemu leaves it all on bus0 for us
     for (int i = 0; i < 16; i++) {
@@ -166,11 +166,13 @@ void pci_discover(heap pages, node filesystem)
                     u32 pba_table = pci_cfgread(0, i, 0, cp+8, 4);
                     u32 len;
                     u32 vector_base = pci_readbar(0, i, 0, vector_table & 0xff, &len);
-                    msi_map = (void *)0xe0000000;
+                    msi_map = allocate_u64(virtual, PAGESIZE);
                     // xxx - use len from readbar
-                    map((u64)msi_map, vector_base, 0x1000, pages);
+                    map((u64)msi_map, vector_base, PAGESIZE, pages);
                     // qemu gets really* mad if you do this a 16 bit write
+                    console("cfg write\n");                    
                     pci_cfgwrite(0, i, 0, cp+3, 1, 0x80);
+                    console("finish\n");                    
                     break;
                 }
                 cp = pci_cfgread(0, i, 0, cp + 1, 1);

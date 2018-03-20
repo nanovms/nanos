@@ -10,7 +10,7 @@ stage3: stage3.o $(RUNTIME) $(VIRTIO) $(NETOBJ) $(VIRTIO_NET) $(X86_64_OBJ) $(SY
 	ld -n -e_start -T linker_script -nostdlib $^ -o stage3
 
 .c.o:
-	cc $(INCLUDES) -nostdinc -fno-stack-protector $< -c
+	cc $(INCLUDES) -O -nostdinc -fno-stack-protector $< -c
 
 clean:
 	rm -f *.o *~ stage3

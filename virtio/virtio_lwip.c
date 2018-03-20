@@ -121,7 +121,10 @@ static void tx_complete(void *z)
 
 static void post_recv(vnet vn)
 {
+    console("post recv ");
     struct pbuf *p = pbuf_alloc(PBUF_RAW, 1500, PBUF_RAM);
+    print_u64(p);
+    console("\n");
     void *x = p->payload;
     void *address[] = {x};
     u64 lengths[] = {vn->dev->contiguous->pagesize};
@@ -175,35 +178,40 @@ static err_t virtioif_init(struct netif *netif)
 }
 
 
-static CLOSURE_1_3(init_vnet, void, heap, int, int, int);
-static void init_vnet(heap general, int bus, int slot, int function)
+static CLOSURE_2_3(init_vnet, void, heap, heap, int, int, int);
+static void init_vnet(heap general, heap page_allocator, int bus, int slot, int function)
 {
-    vtpci dev = attach_vtpci(general, bus, slot, function);
+    console("vnet probe why\n");
+    vtpci dev = attach_vtpci(general, page_allocator, bus, slot, function);
     vnet vn = allocate(dev->general, sizeof(struct vnet));
     struct netif *n = allocate(dev->general, sizeof(struct netif));
     /* rx = 0, tx = 1, ctl = 2 by page 53 of http://docs.oasis-open.org/virtio/virtio/v1.0/cs01/virtio-v1.0-cs01.pdf */
     vn->dev = dev;
     //     vtpci_alloc_virtqueue(dev, "ctrl", 0, 0, &vn->txq);
-    
+
+    console("vnet queues\n");
     vtpci_alloc_virtqueue(dev, 1, closure(dev->general, tx_complete, vn), &vn->txq);
     vtpci_alloc_virtqueue(dev, 0, closure(dev->general, input, n), &vn->rxq);
     // just need 10 contig bytes really
     vn->empty = allocate(dev->contiguous, dev->contiguous->pagesize);
     for (int i = 0; i < NET_HEADER_LENGTH ; i++)  ((u8 *)vn->empty)[i] = 0;
     n->state = vn;
+    console("netif add\n");    
     netif_add(n,
               0, 0, 0, //&x, &x, &x,
               vn, // i dont understand why this is getting passed
               virtioif_init,
               ethernet_input);
-
+    console("zid\n");    
     post_recv(vn);
+    console("pid\n");        
     dhcp_start(n);
+    console("kid\n");            
     // setup sys_check_timeouts() timer
 }
 
 
-void init_virtio_network(heap h, heap physical, heap pages)
+void init_virtio_network(heap h, heap page_allocator, heap pages)
 {
-    register_pci_driver(VIRTIO_PCI_VENDORID, VIRTIO_PCI_DEVICEID_STORAGE, closure(h, init_vnet, h));
+    register_pci_driver(VIRTIO_PCI_VENDORID, VIRTIO_PCI_DEVICEID_NETWORK, closure(h, init_vnet, h, page_allocator));
 }

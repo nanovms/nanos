@@ -78,7 +78,7 @@ void centry()
         console("unable to find kernel\n");
         QEMU_HALT();
     }
-    
+
     void *kernel = allocate(physical, pad(kernel_length, PAGESIZE));
     read_sectors(kernel, fs_start + kernel_offset, kernel_length);
 

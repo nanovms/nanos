@@ -1,5 +1,7 @@
 #include <x86.h>
 
+#define VIRTUAL_ADDRESS_BITS 48
+
 #define FS_MSR 0xc0000100
 #define GS_MSR 0xc0000101
 #define LSTAR 0xC0000082
@@ -16,6 +18,8 @@ extern u64 read_xmsr(u64);
 extern void write_xmsr(u64, u64);
 extern void syscall_enter();
 extern u64 *frame;
+
+#define HUGE_PAGESIZE 0x100000000ull
 
 
 static inline void enable_interrupts()

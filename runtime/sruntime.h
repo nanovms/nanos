@@ -9,8 +9,6 @@ void register_interrupt(int vector, thunk t);
 void msi_map_vector(int slot, int vector);
 u8 allocate_msi(thunk h);
 
-#define HUGE_PAGESIZE 0x100000000ull
-
 // metadata stuff
 static boolean node_contents(node n, buffer b)
 {

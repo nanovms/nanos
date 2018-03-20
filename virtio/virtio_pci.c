@@ -83,7 +83,7 @@ void vtpci_notify_virtqueue(struct vtpci *sc, uint16_t queue)
 }
 
 
-vtpci attach_vtpci(heap h, int bus, int slot, int func)
+vtpci attach_vtpci(heap h, heap page_allocator, int bus, int slot, int func)
 {
     struct vtpci *dev = allocate(h, sizeof(struct vtpci));
     int rid;
@@ -109,6 +109,7 @@ vtpci attach_vtpci(heap h, int bus, int slot, int func)
     int nvqs = 16;
     dev->vtpci_vqs = allocate_zero(h, nvqs * sizeof(struct virtqueue));
     dev->general = h;
+    dev->contiguous = page_allocator;    
 
     // init_vnet(dev);
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER_OK);
