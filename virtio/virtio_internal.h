@@ -14,18 +14,14 @@ typedef struct vtpci *vtpci;
 
 struct vtpci {
     u64 base; //io region base
-    uint64_t			 vtpci_features;
+    uint64_t vtpci_features;
 
     heap contiguous;
     heap general;    
     struct virtio_feature_desc	*vtpci_child_feat_desc;
 
-    int				 vtpci_nvqs;
-    struct virtqueue	 *vtpci_vqs;
-    //struct vtpci_interrupt	 vtpci_device_interrupt;
-    //truct vtpci_interrupt	 *vtpci_msix_vq_interrupts;
-    int				 vtpci_nmsix_resources;
-    void *vtpci_msix_res; // not a res
+    int vtpci_nvqs;
+    struct virtqueue *vtpci_vqs;
 };
 
 
@@ -80,33 +76,12 @@ struct virtqueue {
 #define	VIRTQUEUE_FLAG_INDIRECT	 0x0001
 #define	VIRTQUEUE_FLAG_EVENT_IDX 0x0002
 
-    int			 vq_alignment;
-    int			 vq_ring_size;
     void		*vq_ring_mem;
-    int			 vq_max_indirect_size;
-    int			 vq_indirect_mem_size;
-    thunk interrupt;
     struct vring         vq_ring;
     uint16_t		 vq_free_cnt;
-    uint16_t		 vq_queued_cnt;
-    /*
-     * Head of the free chain in the descriptor table. If
-     * there are no free descriptors, this will be set to
-     * VQ_RING_DESC_CHAIN_END.
-     */
-    uint16_t		 vq_desc_head_idx;
-    /*
-     * Last consumed descriptor in the used table,
-     * trails vq_ring.used->idx.
-     */
-    uint16_t		 vq_used_cons_idx;
 
-    struct vq_desc_extra {
-        void		  *cookie;
-        struct vring_desc *indirect;
-        physical	   indirect_paddr;
-        uint16_t	   ndescs;
-    } vq_descx[0];
+    uint16_t		 vq_desc_head_idx;
+    uint16_t		 vq_used_cons_idx;
 };
 
 

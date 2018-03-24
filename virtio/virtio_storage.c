@@ -1,21 +1,93 @@
 #include <virtio_internal.h>
 
 static CLOSURE_4_3(attach, void, heap, heap, heap, heap, int, int, int);
+
+// this is not really a struct...fix the general encoding problem
+struct virtio_blk_req {
+    u32 type;
+    u32 reserved;
+    u64 sector;
+    u64 data; // phys? spec had u8 data[][512]
+    u8 status;
+};
+
+#define VIRTIO_BLK_T_IN           0
+#define VIRTIO_BLK_T_OUT          1
+#define VIRTIO_BLK_T_FLUSH        4
+
+#define VIRTIO_BLK_S_OK        0
+#define VIRTIO_BLK_S_IOERR     1
+#define VIRTIO_BLK_S_UNSUPP    2
+
+typedef struct storage {
+    vtpci v;
+    struct virtqueue *command;
+    u64 capacity;
+    u64 block_size;
+} *storage;
+
+// close
+static storage st;
+
+void storage_read(void *target, u64 offset, u64 size, thunk complete)
+{
+    console("storage read\n");
+    // what size is this really?
+    int status_size = 1;
+    struct virtio_blk_req *r = allocate(st->v->contiguous, sizeof(struct virtio_blk_req) + status_size);
+    r->type = VIRTIO_BLK_T_IN;
+    r->sector = 0;
+    
+    void *address[3];
+    boolean writables[3];
+    bytes lengths[3];
+    int index = 0;
+    
+    address[index] = r;
+    writables[index] = false;
+    lengths[index] = 16;
+    index++;
+
+    address[index] = target;
+    writables[index] = false;
+    lengths[index] = size;
+    index++;
+    
+    address[index] = (void *)r + 16;
+    writables[index] = true;
+    lengths[index] = status_size;
+    index++;
+
+    virtqueue_enqueue(st->command, complete, address, lengths, writables, index);
+    virtqueue_notify(st->command);
+    for(;;);
+    __asm__("hlt");
+}
+
+static CLOSURE_1_0(complete, void, storage);
+static void complete(storage s)
+{
+    console("storage complete interrupt\n");
+    s->command->vq_ring.avail->flags &= ~VRING_AVAIL_F_NO_INTERRUPT;
+    // used isn't valid?
+    //    rprintf("used: %d\n",  s->command->vq_ring.used->idx);    
+}
+
 static void attach(heap general, heap page_allocator, heap pages, heap virtual, int bus, int slot, int function)
 {
-    console("storage\n");
-    vtpci v = attach_vtpci(general, page_allocator, bus, slot, function);
+    storage s = allocate(general, sizeof(struct virtio_blk_req));
+    s->v = attach_vtpci(general, page_allocator, bus, slot, function);
     u32 len;
-    u32 base = pci_readbar(bus, slot, function, 0, &len);
+    // bar 1 is is a 4k memory region in the pci gap - to what end?
 
-    //    void *target = allocate(virtual);
-    //    map(u64_from_pointer(target), (u64)base, len, pages);
-    base &= ~1;
-    rprintf("base: %p %x\n", base, len);    
-    for (int i = 0; i < len ;i+=4)
-        rprintf ("%08x\n", in32(i + base));
+    u32 base = pci_readbar(bus, slot, function, 0, &len);
+    base &=~1;
+    s->block_size = in32(44 + base);
+    s->capacity = (in32(24 + base) | ((u64)in32(28 + base)  << 32)) * s->block_size;
     pci_set_bus_master(bus, slot, function);
-    //    QEMU_HALT();
+    vtpci_alloc_virtqueue(s->v, 0, closure(general, complete, s), &s->command);
+    st = s;
+
 }
 
 void init_virtio_storage(heap h, heap page_allocator, heap pages, heap virtual)

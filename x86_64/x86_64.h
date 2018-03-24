@@ -98,11 +98,10 @@ static inline void set_syscall_handler(void *syscall_entry)
 
 static time rdtsc(void)
 {
-    unsigned a, d;
+    u64 a, d;
     asm("cpuid");
     asm volatile("rdtsc" : "=a" (a), "=d" (d));
 
-    // scale me
     return (((time)a) | (((time)d) << 32));
 }
 
@@ -123,3 +122,5 @@ static inline void haltf(char *f, ...)
 #ifndef halt
 #define halt(_a) haltf(_a);
 #endif
+
+boolean valiate_virtual(void *base, u64 length);

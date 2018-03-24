@@ -112,7 +112,15 @@ void common_handler()
     } else {
         if (i < 25) {
             console(interrupts[frame[16]]);
-            console("\n");        
+            console("\n");
+            // page fault
+            if (i == 14)  {
+                u64 fault_address;
+                mov_from_cr("cr2", fault_address);
+                console("address: ");
+                print_u64(fault_address);
+                console("\n");
+            }
         } 
         for (int j = 0; j< 18; j++) {
             console(textoreg[j]);
@@ -150,7 +158,7 @@ void enable_lapic(heap pages)
     // there is an msr that moves the physical
     u64 lapic = 0xfee00000;
     
-    // actually allocate the virtual 
+    // actually allocate the virtual  - put in the tree
     map(u64_from_pointer(apic_base), lapic, PAGESIZE, pages);
     create_region(u64_from_pointer(apic_base), PAGESIZE, REGION_VIRTUAL);
     
@@ -166,6 +174,7 @@ void enable_lapic(heap pages)
 
 void register_interrupt(int vector, thunk t)
 {
+    rprintf ("register interrupt %d\n", vector);
     handlers[vector] = t;
 }
 

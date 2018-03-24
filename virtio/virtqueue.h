@@ -31,9 +31,8 @@
 
 status virtqueue_alloc(vtpci dev,
                        uint16_t queue,
-                       uint16_t logsize,
+                       uint16_t size,
                        int align,
-                       thunk interrupt,
                        struct virtqueue **vqp);
 
 /*
@@ -97,21 +96,6 @@ typedef enum {
 #define vring_used_event(vr)	((vr)->avail->ring[(vr)->num])
 #define vring_avail_event(vr)	(*(uint16_t *)&(vr)->used->ring[(vr)->num])
 
-static inline int
-vring_size(unsigned int num, unsigned long align)
-{
-	int size;
-
-	size = num * sizeof(struct vring_desc);
-	size += sizeof(struct vring_avail) + (num * sizeof(uint16_t)) +
-	    sizeof(uint16_t);
-	size = (size + align - 1) & ~(align - 1);
-	size += sizeof(struct vring_used) +
-	    (num * sizeof(struct vring_used_elem)) + sizeof(uint16_t);
-	return (size);
-}
-
-
 /*
  * The following is used with VIRTIO_RING_F_EVENT_IDX.
  *
@@ -128,7 +112,6 @@ vring_need_event(uint16_t event_idx, uint16_t new_idx, uint16_t old)
 uint64_t virtqueue_filter_features(uint64_t features);
 int	 virtqueue_intr_filter(struct virtqueue *vq);
 void	 virtqueue_intr(struct virtqueue *vq);
-int	 virtqueue_enable_intr(struct virtqueue *vq);
 int	 virtqueue_postpone_intr(struct virtqueue *vq, vq_postpone_t hint);
 void	 virtqueue_disable_intr(struct virtqueue *vq);
 physical virtqueue_paddr(struct virtqueue *vq);

@@ -229,17 +229,12 @@ static void handle_request(gdb g, buffer b)
         /* TRY TO READ '%x,%x:'.  IF SUCCEED, SET PTR = 0 */
         if (parse_hex_pair(b, &addr, &length))
             if (get_char(b) == ':') {
-                //                page_fault_handler(bad_mem);
-                // validate the PTEs, not really useful to
-                // try to rewire the handlers
                 if (!hex2mem (b, (char *) addr, length)) {
                     bprintf(output, "E03");
                 } else {
                     bprintf(output, "OK");
-                    //                    page_fault_handler(0);
                     break;
                 }
-                //                page_fault_handler(0);
             }
         bprintf(output, "E02");
         break;

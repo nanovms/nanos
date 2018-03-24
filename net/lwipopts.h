@@ -55,27 +55,23 @@ static inline u32_t sys_now(void)
     return t++;
 }
 
-// #define MEM_LIBC_MALLOC 1
+#define MEM_LIBC_MALLOC 1
 
-extern void *gallocate();
+extern void *lwip_allocate(unsigned long long size);
+extern void lwip_deallocate(void *z);
 
 static inline void *lwip_malloc(size_t b)
 {
-    console("lwip malloc\n");
-    return gallocate(b);
+    return lwip_allocate(b);
 }
 
-#define mem_clib_malloc lwip_malloc
+#define mem_clib_malloc lwip_allocate
 
 static inline void free(void *x)
 {
+    lwip_deallocate(x);
 }
 
-//static inline void *calloc(size_t b)
-//{
-//    void *x =     gallocate(b);
-//    memset(x, 0, b);
-//}
 
 // sad duplication
 static inline void lwip_memcpy(void *a, const void *b, unsigned long len)
@@ -120,3 +116,9 @@ static inline int lwip_strncmp(const char *x, const char *y, unsigned long len)
 #define memset(__a, __b, __c) lwip_memset((void *)(__a), __b, __c)
 #define strlen(__a) lwip_strlen((void *)__a)
 #define strncmp(__a, __b, __c) lwip_strncmp(__a, __b, __c)
+
+static inline void *calloc(size_t n, size_t s)
+{
+    void *x =  lwip_allocate(n*s);
+    lwip_memset(x, 0, n*s);
+}

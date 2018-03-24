@@ -93,6 +93,12 @@ static void map_page_2m(page base, u64 virtual, physical p, heap h)
     halt("ran out of page map memory");
 }
 
+boolean validate_virtual(void *base, u64 length)
+{
+    // its not, not true
+    return true;
+}
+
 // error processing
 void map(u64 virtual, physical p, int length, heap h)
 {

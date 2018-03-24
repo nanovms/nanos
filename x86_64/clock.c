@@ -32,5 +32,5 @@ void init_clock(heap backed_virtual)
 {
     vclock = allocate(backed_virtual, backed_virtual->pagesize);
     write_msr(MSR_KVM_SYSTEM_TIME, physical_from_virtual(vclock));
-    rprintf("time: %x %x %x\n", vclock->system_time, vclock->tsc_timestamp, rdtsc());
+    rprintf("clock:%p\n", vclock->system_time);
 }

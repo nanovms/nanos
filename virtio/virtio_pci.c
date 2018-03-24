@@ -35,12 +35,6 @@
 #define VIRTIO_PCI_CONFIG(_sc)                                          \
     VIRTIO_PCI_CONFIG_OFF((((_sc)->vtpci_flags & VTPCI_FLAG_MSIX)) != 0)
 
-
-static void vtpci_select_virtqueue(struct vtpci *sc, int idx)
-{
-    out16(sc->base + VIRTIO_PCI_QUEUE_SEL, idx);
-}
-
 static uint8_t vtpci_get_status(vtpci dev)
 {
     return (in8(dev->base+ VIRTIO_PCI_STATUS));
@@ -55,25 +49,23 @@ static void vtpci_set_status(vtpci dev, uint8_t status)
     out8(dev->base + VIRTIO_PCI_STATUS, status);
 }
 
+
 status vtpci_alloc_virtqueue(vtpci dev,
                              int idx,
-                             thunk h,
+                             thunk handler,
                              struct virtqueue **result)
 {
-
-    vtpci_select_virtqueue(dev, idx);
+    struct virtqueue *vq;
+    out16(dev->base + VIRTIO_PCI_QUEUE_SEL, idx);    
     uint16_t size = in16(dev->base + VIRTIO_PCI_QUEUE_NUM);
 
-    int i = allocate_msi(h); 
-    status s = virtqueue_alloc(dev, idx, size, VIRTIO_PCI_VRING_ALIGN,
-                               h, result);
+    int msi = allocate_msi(handler); 
+    status s = virtqueue_alloc(dev, idx, size, VIRTIO_PCI_VRING_ALIGN, &vq);
     if (!is_ok(s)) return s;
 
-    out32(dev->base + VIRTIO_PCI_QUEUE_PFN,
-          virtqueue_paddr(*result) >> VIRTIO_PCI_QUEUE_ADDR_SHIFT);
-
-    out16(dev->base + VIRTIO_MSI_QUEUE_VECTOR, i);
-
+    out32(dev->base + VIRTIO_PCI_QUEUE_PFN, virtqueue_paddr(vq) >> VIRTIO_PCI_QUEUE_ADDR_SHIFT);
+    out16(dev->base + VIRTIO_MSI_QUEUE_VECTOR, msi);
+    *result = vq;
     return STATUS_OK;
 }
 
@@ -83,7 +75,7 @@ void vtpci_notify_virtqueue(struct vtpci *sc, uint16_t queue)
 }
 
 
-vtpci attach_vtpci(heap h, heap page_allocator, int bus, int slot, int func)
+vtpci attach_vtpci(heap h, heap page_allocator, int bus, int slot, int func, u64 feature_mask)
 {
     struct vtpci *dev = allocate(h, sizeof(struct vtpci));
     int rid;
@@ -98,12 +90,8 @@ vtpci attach_vtpci(heap h, heap page_allocator, int bus, int slot, int func)
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER);
 
     u32 features = in32(dev->base + 0);
-    
-    u32 badness = VIRTIO_F_BAD_FEATURE | VIRTIO_NET_F_CSUM | VIRTIO_NET_F_GUEST_CSUM |
-        VIRTIO_NET_F_GUEST_TSO4 | VIRTIO_NET_F_GUEST_TSO6 |  VIRTIO_NET_F_GUEST_ECN|
-        VIRTIO_NET_F_GUEST_UFO | VIRTIO_NET_F_CTRL_VLAN | VIRTIO_NET_F_MQ;
 
-    out32(dev->base+4, features & VIRTIO_NET_F_MAC);
+    out32(dev->base+4, features & feature_mask);
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_FEATURE); 
 
     int nvqs = 16;

@@ -49,6 +49,9 @@ boolean hex2mem (buffer b, void *mem, int count)
     int i;
     unsigned char ch;
 
+    if (!validate_virtual(mem, count)) 
+        return false;
+    
     for (i = 0; i < count; i++) {
         ch = digit_of(get_char(b)) << 4;
         ch = ch + digit_of(get_char(b));

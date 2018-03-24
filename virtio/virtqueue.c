@@ -42,28 +42,6 @@
 
 
 
-static void vq_ring_update_avail(struct virtqueue *vq, uint16_t desc_idx)
-{
-    uint16_t avail_idx;
-
-    /*
-     * Place the head of the descriptor chain into the next slot and make
-     * it usable to the host. The chain is made available now rather than
-     * deferring to virtqueue_notify() in the hopes that if the host is
-     * currently running on another CPU, we can keep it processing the new
-     * descriptor.
-     */
-    avail_idx = vq->vq_ring.avail->idx & (vq->vq_nentries - 1);
-    vq->vq_ring.avail->ring[avail_idx] = desc_idx;
-
-    write_barrier();
-    vq->vq_ring.avail->idx++;
-
-    /* Keep pending count until virtqueue_notify(). */
-    vq->vq_queued_cnt++;
-}
-
-
 static int vq_ring_enable_interrupt(struct virtqueue *vq, uint16_t ndesc)
 {
     /*
@@ -92,56 +70,44 @@ static int vq_ring_enable_interrupt(struct virtqueue *vq, uint16_t ndesc)
 static void vq_ring_free_chain(struct virtqueue *vq, uint16_t desc_idx)
 {
     struct vring_desc *dp;
-    struct vq_desc_extra *dxp;
 
     dp = &vq->vq_ring.desc[desc_idx];
-    dxp = &vq->vq_descx[desc_idx];
-    vq->vq_free_cnt += dxp->ndescs;
-    dxp->ndescs--;
-    /*
-     * We must append the existing free chain, if any, to the end of
-     * newly freed chain. If the virtqueue was completely used, then
-     * head would be VQ_RING_DESC_CHAIN_END (ASSERTed above).
-     */
     dp->next = vq->vq_desc_head_idx;
     vq->vq_desc_head_idx = desc_idx;
 }
 
 status virtqueue_alloc(vtpci dev,
                        uint16_t queue,
-                       uint16_t logsize,
+                       uint16_t size,
                        int align,
-                       thunk interrupt,
                        struct virtqueue **vqp)
 {
     status s = STATUS_OK;
     struct virtqueue *vq;
-    u64 size = 1<<logsize;
+    u64 alloc = size * sizeof(struct vring_desc) + 6 + 2*size + 6 + 8*size;
 
-    vq = allocate(dev->general, sizeof(struct virtqueue) +  1<<logsize * sizeof(struct vq_desc_extra));
+    vq = allocate(dev->general, sizeof(struct virtqueue));
 
-    if (!vq) 
+    if (vq == INVALID_ADDRESS) 
         return allocate_status("cannot allocate virtqueue\n");
+
+    vq->vq_dev = dev;
     vq->vq_queue_index = queue;
     vq->vq_nentries = size;
     vq->vq_free_cnt = size;
-    vq->interrupt = interrupt;
 
     //    if (VIRTIO_BUS_WITH_FEATURE(dev, VIRTIO_RING_F_EVENT_IDX) != 0)
     vq->vq_flags |= VIRTQUEUE_FLAG_EVENT_IDX;
+    vq->vq_ring_mem = allocate_zero(dev->contiguous, alloc);
 
-    vq->vq_ring_size = pad(vring_size(size, align), PAGESIZE);
-    vq->vq_ring_mem = allocate_zero(dev->contiguous, vq->vq_ring_size);
-
-    if (!vq->vq_ring_mem) {
+    if (vq->vq_ring_mem == INVALID_ADDRESS) {
         s = allocate_status("cannot allocate memory for virtqueue ring\n");
         goto fail;
     }
 
     vq->vq_ring.num = vq->vq_nentries;
     vq->vq_ring.desc = (struct vring_desc *) vq->vq_ring_mem;
-    vq->vq_ring.avail = (struct vring_avail *) (vq->vq_ring_mem +
-                                                vq->vq_nentries * sizeof(struct vring_desc));
+    vq->vq_ring.avail = (struct vring_avail *) (vq->vq_ring_mem + size*sizeof(struct vring_desc));
     vq->vq_ring.used = (void *)
         (((unsigned long) &vq->vq_ring.avail->ring[vq->vq_nentries] + align-1) & ~(align-1));
     *vqp = vq;
@@ -181,8 +147,7 @@ void virtqueue_notify(struct virtqueue *vq)
     /* this was 'mb', i have read_barrier and write_barrier - they are both
     the same, cant be right*/
     read_barrier();
-    //    vtpci_notify_virtqueue(vq->vq_dev, vq->vq_queue_index);
-    vq->vq_queued_cnt = 0;
+    vtpci_notify_virtqueue(vq->vq_dev, vq->vq_queue_index);
 }
 
 int virtqueue_nused(struct virtqueue *vq)
@@ -197,16 +162,6 @@ int virtqueue_nused(struct virtqueue *vq)
 }
 
 
-void virtqueue_intr(struct virtqueue *vq)
-{
-    apply(vq->interrupt);
-}
-
-int virtqueue_enable_intr(struct virtqueue *vq)
-{
-    return (vq_ring_enable_interrupt(vq, 0));
-}
-
 status virtqueue_enqueue(struct virtqueue *vq,
                          void *cookie,
                          /* not an ideal writev, but good enough for  today */
@@ -215,27 +170,23 @@ status virtqueue_enqueue(struct virtqueue *vq,
                          boolean *writables,
                          int segments)
 {
-    struct vq_desc_extra *dxp;
     int needed;
-    uint16_t head_idx, idx;
-    head_idx = idx = vq->vq_desc_head_idx;
+    uint16_t idx = vq->vq_desc_head_idx;
+    uint16_t hidx = idx;
 
     if (vq->vq_free_cnt < segments)
         return allocate_status("no room in queue");
 
-    dxp = &vq->vq_descx[idx];
-    dxp->cookie = cookie;
-    dxp->ndescs = segments;
+    rprintf ("qneueue segs %d\n", segments);
     for (int i = 0; i < segments; i++) {
         struct vring_desc *dp =  vq->vq_ring.desc + idx;
         u16 flags =0;
         dp->addr = physical_from_virtual(as[i]);
         dp->len = lengths[i];
-        idx = (idx +1);
+        idx = (idx +1)&(vq->vq_nentries - 1);
         if (i != (segments -1)) {
             flags |= VRING_DESC_F_NEXT;
-            // free preloaded this
-            dp->next = idx;
+            dp->next = idx; //since this never changes, freebsd built it in advance
         } 
         if (writables[i]) flags |= VRING_DESC_F_WRITE;
         dp->flags = flags;
@@ -243,8 +194,11 @@ status virtqueue_enqueue(struct virtqueue *vq,
 
     vq->vq_desc_head_idx = idx;
     vq->vq_free_cnt -= needed;
-        
-    vq_ring_update_avail(vq, head_idx);
+
+    uint16_t avail_idx  = vq->vq_ring.avail->idx & (vq->vq_nentries - 1);
+    vq->vq_ring.avail->ring[avail_idx] = hidx;
+    write_barrier();
+    vq->vq_ring.avail->idx++;    
 
     return STATUS_OK;
 }
@@ -266,9 +220,6 @@ void *virtqueue_dequeue(struct virtqueue *vq, uint32_t *len)
     if (len) *len = uep->len;
 
     vq_ring_free_chain(vq, desc_idx);
-
-    cookie = vq->vq_descx[desc_idx].cookie;
-    vq->vq_descx[desc_idx].cookie = 0;
 
     return (cookie);
 }

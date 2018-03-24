@@ -76,27 +76,21 @@ void init_service(u64 passed_base)
     heap backed = physically_backed(&bootstrap, virtual, physical, pages);
     
     // on demand stack allocation
-    u64 stack_size = 4*PAGESIZE;
+    u64 stack_size = 32*PAGESIZE;
     u64 stack_location = allocate_u64(backed, stack_size);
     stack_location += stack_size -8;
     asm ("mov %0, %%rsp": :"m"(stack_location));
 
-    //    init_clock(backed);
+    // rdtsc is corrupting something oddly
+    init_clock(backed);
 
-    console("zal\n");
-     // leak
-    allocate_u64(backed, stack_size);
-    allocate_u64(backed, PAGESIZE);        
-
-    console("zin\n");
     heap misc = allocate_rolling_heap(backed);
-    console("zagin\n");    
     start_interrupts(pages, misc, physical);
 
-    console("zag\n");
     init_pci(misc);    
     init_virtio_storage(misc, backed, pages, virtual);
     init_virtio_network(misc, backed, pages);            
     pci_discover(pages, virtual, filesystem);
+    enable_interrupts();
     startup(pages, backed, physical, filesystem);
 }

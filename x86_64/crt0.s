@@ -27,12 +27,6 @@ extern frame
 %define FRAME_FS 19
 %define FS_MSR 0xc0000100
         
-;;;  correlation to allow us to get back in the relative, virtual, addresses
-;;;  of data after the interrupt has tracked us onto physical
-;;;  there should be a better place to stash this
-;;;  frame might be stashable in a segment register
-absolution equ 0x7de8
-
 ;;; optimize and merge - frame is loaded into rbx
 global frame_enter
 frame_enter:
@@ -118,11 +112,11 @@ interrupt_common:
         
         ;;  could avoid this branch with a different inter layout - write as different handler
         cmp rbx, 0xe
-        je .geterr
+        je geterr
         cmp rbx, 0xd
-        je .geterr
+        je geterr
         
-.getrip:
+getrip:
         pop rbx            ; eip
         mov [rax+136], rbx
         pop rbx            ; discard cs
@@ -132,10 +126,6 @@ interrupt_common:
         mov [rax+40], rbx  ; 
                            ; ss plus padding at the top  
         call common_handler
-        
-.geterr:
-        pop rbx            ; error code - put this in the frame
-        jmp .getrip
 
 ;; use run_frame
 global frame_return
@@ -163,6 +153,10 @@ frame_return:
         mov rax, [rax]
         iretq
         
+geterr:
+        pop rbx            ; error code - put this in the frame
+        jmp getrip
+        
         interrupts equ 0x30
 
 global interrupt_size
@@ -176,7 +170,7 @@ vectors:
         %rep interrupts
         interrupt %+ i:
         push dword i
-        jmp [absolution]
+        jmp interrupt_common
         %assign i i+1        
         %endrep
 
@@ -229,11 +223,7 @@ write_xmsr:
         ret
 
 _start:
-        ;;;  dont need abolution? running virtual
-;;        mov rax, qword absolution 
-;;        mov qword [rax], interrupt_common
         call init_service
-;; can we shut down qemu from here?
         hlt
 
 

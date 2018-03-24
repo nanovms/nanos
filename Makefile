@@ -30,5 +30,5 @@ STORAGE =  -device virtio-blk-pci,scsi=off,drive=foo -drive file=image,format=ra
 NET =  -device virtio-net,mac=62:5e:e0:2b:2e:4d # netdev=n0,
 TAP = -netdev tap,id=n0,ifname=tap0
 run: image
-	- qemu-system-x86_64  -nographic -drive file=image,format=raw -m 2G -device isa-debug-exit $(STORAGE) $(NET)
+	- qemu-system-x86_64  -hda image -nographic -m 2G -device isa-debug-exit $(STORAGE) $(NET)
 

@@ -156,23 +156,19 @@ void pci_discover(heap pages, heap virtual, node filesystem)
         u32 vid = pci_cfgread(0, i, 0, PCIR_VENDOR, 2);
         u32 did = pci_cfgread(0, i, 0, PCIR_DEVICE, 2);
         if (!((vid == 0xffff)  && (did == 0xffff))) {
-            rprintf("pci: %x %x\n", vid, did);
             u32 cp = pci_cfgread(0, i, 0, PCIR_CAPABILITIES_POINTER, 1);
             while (cp) {
                 u32 cp0 = pci_cfgread(0, i, 0, cp, 1);
-                rprintf("pci cap: %x\n", cp0);
                 if (cp0 == PCI_CAPABILITY_MSIX) {
                     u32 vector_table = pci_cfgread(0, i, 0, cp+4, 4);
                     u32 pba_table = pci_cfgread(0, i, 0, cp+8, 4);
                     u32 len;
                     u32 vector_base = pci_readbar(0, i, 0, vector_table & 0xff, &len);
-                    msi_map = allocate_u64(virtual, PAGESIZE);
-                    // xxx - use len from readbar
-                    map((u64)msi_map, vector_base, PAGESIZE, pages);
+                    len = pad(len, PAGESIZE);
+                    msi_map = allocate(virtual, len);
+                    map((u64)msi_map, vector_base, len, pages);
                     // qemu gets really* mad if you do this a 16 bit write
-                    console("cfg write\n");                    
                     pci_cfgwrite(0, i, 0, cp+3, 1, 0x80);
-                    console("finish\n");                    
                     break;
                 }
                 cp = pci_cfgread(0, i, 0, cp + 1, 1);

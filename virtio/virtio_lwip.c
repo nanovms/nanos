@@ -178,17 +178,35 @@ static err_t virtioif_init(struct netif *netif)
 }
 
 
+static heap lwip_heap;
+
+void *lwip_allocate(u64 size)
+{
+    return allocate(lwip_heap, size);
+}
+
+void lwip_deallocate(void *x)
+{
+}
+
+
 static CLOSURE_2_3(init_vnet, void, heap, heap, int, int, int);
 static void init_vnet(heap general, heap page_allocator, int bus, int slot, int function)
 {
-    console("vnet probe why\n");
-    vtpci dev = attach_vtpci(general, page_allocator, bus, slot, function);
+    console("net device start\n");
+    
+    u32 badness = VIRTIO_F_BAD_FEATURE | VIRTIO_NET_F_CSUM | VIRTIO_NET_F_GUEST_CSUM |
+        VIRTIO_NET_F_GUEST_TSO4 | VIRTIO_NET_F_GUEST_TSO6 |  VIRTIO_NET_F_GUEST_ECN|
+        VIRTIO_NET_F_GUEST_UFO | VIRTIO_NET_F_CTRL_VLAN | VIRTIO_NET_F_MQ;
+
+    vtpci dev = attach_vtpci(general, page_allocator, bus, slot, function, VIRTIO_NET_F_MAC);
     vnet vn = allocate(dev->general, sizeof(struct vnet));
     struct netif *n = allocate(dev->general, sizeof(struct netif));
     /* rx = 0, tx = 1, ctl = 2 by page 53 of http://docs.oasis-open.org/virtio/virtio/v1.0/cs01/virtio-v1.0-cs01.pdf */
     vn->dev = dev;
     //     vtpci_alloc_virtqueue(dev, "ctrl", 0, 0, &vn->txq);
 
+    lwip_heap = general;
     console("vnet queues\n");
     vtpci_alloc_virtqueue(dev, 1, closure(dev->general, tx_complete, vn), &vn->txq);
     vtpci_alloc_virtqueue(dev, 0, closure(dev->general, input, n), &vn->rxq);
@@ -202,11 +220,8 @@ static void init_vnet(heap general, heap page_allocator, int bus, int slot, int 
               vn, // i dont understand why this is getting passed
               virtioif_init,
               ethernet_input);
-    console("zid\n");    
     post_recv(vn);
-    console("pid\n");        
-    dhcp_start(n);
-    console("kid\n");            
+    // dhcp_start(n); - udp bind failure from dhcp
     // setup sys_check_timeouts() timer
 }
 

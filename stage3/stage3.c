@@ -106,6 +106,9 @@ void startup(heap pages, heap general, heap physical, node root)
     node n = resolve(root, sym(program));
     struct buffer p;
     node_contents(n, &p);
+    void *k = allocate(general, 512);
+    storage_read(k, 0, 512, 0);
+        
     // elem first 
     thread t = exec_elf(root, build_vector(general, split(general, &p, '/')), general, physical, pages);
     run(t);
