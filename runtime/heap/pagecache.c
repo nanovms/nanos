@@ -1,4 +1,4 @@
-#include <core/core.h>
+#include <runtime.h>
 
 typedef struct pagecache {
     struct heap h;

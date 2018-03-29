@@ -96,19 +96,28 @@ thread exec_elf(node fs, vector path, heap general, heap physical, heap pages)
 }
 
 
-        
+static CLOSURE_1_0(read_complete, void, void *);
+static void read_complete(void *target)
+{
+    rprintf("read complete %p %x\n", physical_from_virtual(target), *(u64 *)target);
+}
+
 void startup(heap pages, heap general, heap physical, node root)
 {
     u64 c = cpuid();
     console("stage3\n");
     init_unix(general);
+
+    void *k = allocate(general, 512);
+    storage_read(k, 0, 512, closure(general, read_complete, k));
+    __asm__("hlt");
+
     struct buffer program_name, interp_name;
     node n = resolve(root, sym(program));
     struct buffer p;
     node_contents(n, &p);
-    void *k = allocate(general, 512);
-    storage_read(k, 0, 512, 0);
-        
+
+
     // elem first 
     thread t = exec_elf(root, build_vector(general, split(general, &p, '/')), general, physical, pages);
     run(t);

@@ -9,5 +9,7 @@ SECTIONS
   .text : ALIGN(4096) { *(.text)}
   .rodata : { *(.rodata)}
   .data : { *(.data) }
+   PROVIDE(bss_start = .);
   .bss  ALIGN(32): { *(.bss) }
+   PROVIDE(bss_end = .);  
 }

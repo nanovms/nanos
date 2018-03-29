@@ -48,6 +48,7 @@ static inline int runtime_strlen(char *a)
 
 typedef struct buffer *buffer;
 
+
 static inline void zero(void *x, bytes length)
 {
     u64 *start = pointer_from_u64(pad(u64_from_pointer(x), 8));
@@ -62,7 +63,20 @@ static inline void zero(void *x, bytes length)
     for (int i =0; i < aligned; i++) start[i] = 0;
     for (int i =0; i < final; i++) end[i] = 0;        
 }
-
+#if 0
+static inline void zero(void *x, bytes length)
+{
+#ifdef STAGE2
+    console ("zero: ");
+    print_u64(u64_from_pointer(x));
+    console (" ");
+    print_u64(length);
+    console ("\n");
+#endif    
+    for (int i = 0; i < length; i++)
+        ((u8 *)x)[i] = 0;
+}
+#endif
 
 #include <heap/heap.h>
 #include <buffer.h>
@@ -113,3 +127,12 @@ void map(u64 virtual, physical p, int length, heap h);
 
 #define INVALID_ADDRESS ((void *)0xffffffffffffffffull)
 
+heap zero_wrap(heap meta, heap parent);
+
+boolean validate_virtual(void *base, u64 length);
+
+#ifndef vpzero
+// a super sad hack to allow us to write to the bss in elf.c as
+// phy instead of virt
+#define vpzero(__p, __v, __y) zero(__v, __y)
+#endif

@@ -29,9 +29,22 @@ typedef struct storage {
 // close
 static storage st;
 
+
+static CLOSURE_3_1(complete, void, storage, thunk, u8 *, u64);
+static void complete(storage s, thunk f, u8 *status, u64 len)
+{
+    console("storage complete interrupt\n");
+    rprintf("a %x %d\n", len, *status);
+    apply(f);
+    //    s->command->avail->flags &= ~VRING_AVAIL_F_NO_INTERRUPT;
+    // used isn't valid?
+    //    rprintf("used: %d\n",  s->command->vq_ring.used->idx);    
+}
+
 void storage_read(void *target, u64 offset, u64 size, thunk complete)
 {
     console("storage read\n");
+    rprintf("len: %x %x\n", offset, size);
     // what size is this really?
     int status_size = 1;
     struct virtio_blk_req *r = allocate(st->v->contiguous, sizeof(struct virtio_blk_req) + status_size);
@@ -49,7 +62,7 @@ void storage_read(void *target, u64 offset, u64 size, thunk complete)
     index++;
 
     address[index] = target;
-    writables[index] = false;
+    writables[index] = true;
     lengths[index] = size;
     index++;
     
@@ -58,19 +71,8 @@ void storage_read(void *target, u64 offset, u64 size, thunk complete)
     lengths[index] = status_size;
     index++;
 
-    virtqueue_enqueue(st->command, complete, address, lengths, writables, index);
-    virtqueue_notify(st->command);
-    for(;;);
-    __asm__("hlt");
-}
-
-static CLOSURE_1_0(complete, void, storage);
-static void complete(storage s)
-{
-    console("storage complete interrupt\n");
-    s->command->vq_ring.avail->flags &= ~VRING_AVAIL_F_NO_INTERRUPT;
-    // used isn't valid?
-    //    rprintf("used: %d\n",  s->command->vq_ring.used->idx);    
+    virtqueue_enqueue(st->command, address, lengths, writables, index,
+                      closure(st->v->general, complete, st,  complete, (u8 *)address[2]));
 }
 
 static void attach(heap general, heap page_allocator, heap pages, heap virtual, int bus, int slot, int function)
@@ -85,9 +87,8 @@ static void attach(heap general, heap page_allocator, heap pages, heap virtual, 
     s->block_size = in32(44 + base);
     s->capacity = (in32(24 + base) | ((u64)in32(28 + base)  << 32)) * s->block_size;
     pci_set_bus_master(bus, slot, function);
-    vtpci_alloc_virtqueue(s->v, 0, closure(general, complete, s), &s->command);
+    vtpci_alloc_virtqueue(s->v, 0, &s->command);
     st = s;
-
 }
 
 void init_virtio_storage(heap h, heap page_allocator, heap pages, heap virtual)

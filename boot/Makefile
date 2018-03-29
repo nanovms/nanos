@@ -2,6 +2,7 @@ all: boot
 
 ROOT ?= $(PWD)/..
 include $(ROOT)/x86_64/Makefile
+include $(ROOT)/runtime/Makefile
 
 
 STAGE1SIZE = 512
@@ -16,9 +17,8 @@ stage1: stage1.s
 boot: stage1 stage2.pad
 	cat stage1 stage2.pad > boot
 
-OBJ = service32.o stage2.o serial.o page.o elf.o
+OBJ = service32.o stage2.o serial.o page.o elf.o zero_wrap.o
 
-VPATH += ../runtime
 LD = ld
 OD = objdump
 

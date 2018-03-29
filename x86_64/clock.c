@@ -2,7 +2,10 @@
 
 static struct pvclock_vcpu_time_info *vclock;
 
-#define MSR_KVM_SYSTEM_TIME 0x4b564d01
+#define CPUID_LEAF_4 0x40000001
+
+// #define MSR_KVM_SYSTEM_TIME 0x4b564d01
+#define MSR_KVM_SYSTEM_TIME 0x12
 struct pvclock_vcpu_time_info {
     u32   version;
     u32   pad0;
@@ -32,5 +35,5 @@ void init_clock(heap backed_virtual)
 {
     vclock = allocate(backed_virtual, backed_virtual->pagesize);
     write_msr(MSR_KVM_SYSTEM_TIME, physical_from_virtual(vclock));
-    rprintf("clock:%p\n", vclock->system_time);
+    rprintf("clock:%p %p\n", vclock->system_time, vclock->version, vclock->tsc_to_system_mul);
 }

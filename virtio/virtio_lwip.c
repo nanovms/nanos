@@ -39,7 +39,6 @@
 
 #include "lwip/opt.h"
 
-
 #include "lwip/def.h"
 #include "lwip/mem.h"
 #include "lwip/pbuf.h"
@@ -54,19 +53,26 @@
 #include <virtio_internal.h>
 #include <virtio_net.h>
 
-
-
 typedef struct vnet {
     vtpci dev;
     u16 port;
+    struct netif *n;
     struct virtqueue *txq;
     struct virtqueue *rxq;
     struct virtqueue *ctl;
-    void *empty;
+    void *empty; // just a map
 } *vnet;
 
 // fix, this per-device offset is variable - 24 with msi
 #define DEVICE_CONFIG_OFFSET 24
+
+
+static CLOSURE_1_1(tx_complete, void, struct pbuf *, u64);
+static void tx_complete(struct pbuf *p, u64 len)
+{
+    console("tx complete\n");
+}
+
 
 static err_t low_level_output(struct netif *netif, struct pbuf *p)
 {
@@ -92,9 +98,7 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
         lengths[index] = q->len;
     }
 
-    // second argument correlator
-    virtqueue_enqueue(vn->txq, 0, address, lengths, writables, index);
-    virtqueue_notify(vn->txq);
+    virtqueue_enqueue(vn->txq, address, lengths, writables, index, closure(vn->dev->general, tx_complete, p));
 
     MIB2_STATS_NETIF_ADD(netif, ifoutoctets, p->tot_len);
     if (((u8_t *)p->payload)[0] & 1) {
@@ -111,43 +115,21 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
     return ERR_OK;
 }
 
-static CLOSURE_1_0(tx_complete, void, void *);
-static void tx_complete(void *z)
-{
-    console("tx complete\n");
-    vnet vn = z;
-}
 
+static void post_recv(vnet vn);
 
-static void post_recv(vnet vn)
+static CLOSURE_2_1(input, void, struct netif *, struct pbuf *, u64);
+static void input(struct netif *n, struct pbuf *p, u64 len)
 {
-    console("post recv ");
-    struct pbuf *p = pbuf_alloc(PBUF_RAW, 1500, PBUF_RAM);
-    print_u64(p);
-    console("\n");
-    void *x = p->payload;
-    void *address[] = {x};
-    u64 lengths[] = {vn->dev->contiguous->pagesize};
-    boolean writables[] = {true};
-    virtqueue_enqueue(vn->rxq, p, address, lengths, writables, 1);    
-}
-
-static CLOSURE_1_0(input, void, void *);
-static void input(void *z)
-{
-    struct netif *netif = z;
     struct eth_hdr *ethhdr;
-    /* move received packet into a new pbuf */
-    vnet vn= netif->state;
-    u32 len;
-    struct pbuf *p = virtqueue_dequeue(vn->rxq, &len);
+    vnet vn= n->state;
     console("rx packet: ");
     print_u64(len);
     console("\n");
     post_recv(vn);
     if (p != NULL) {
         p->len = len;
-        if (netif->input(p, netif) != ERR_OK) {
+        if (n->input(p, n) != ERR_OK) {
             LWIP_DEBUGF(NETIF_DEBUG, ("ethernetif_input: IP input error\n"));
             pbuf_free(p);
             p = NULL;
@@ -155,9 +137,21 @@ static void input(void *z)
     }
 }
 
+static void post_recv(vnet vn)
+{
+    u64 len = 1500;
+    console("post recv ");
+    struct pbuf *p = pbuf_alloc(PBUF_RAW, len, PBUF_RAM);
+    print_u64(p);
+    console("\n");
+    void *address[] = {p->payload};
+    u64 lengths[] = {len};
+    boolean writables[] = {true};
+    virtqueue_enqueue(vn->rxq, address, lengths, writables, 1, closure(vn->dev->general, input, vn->n, p));    
+}
+
 static err_t virtioif_init(struct netif *netif)
 {
-
     vnet vn = netif->state;
     /* Initialize interface hostname */
     //    netif->hostname = "virtiosomethingsomething";
@@ -174,6 +168,11 @@ static err_t virtioif_init(struct netif *netif)
     /* device capabilities */
     /* don't set NETIF_FLAG_ETHARP if this device is not an ethernet one */
     netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_LINK_UP | NETIF_FLAG_UP;
+
+    post_recv(vn);
+    dhcp_start(vn->n); // udp bind failure from dhcp
+    
+    // setup sys_check_timeouts() timer
     return ERR_OK;
 }
 
@@ -201,28 +200,25 @@ static void init_vnet(heap general, heap page_allocator, int bus, int slot, int 
 
     vtpci dev = attach_vtpci(general, page_allocator, bus, slot, function, VIRTIO_NET_F_MAC);
     vnet vn = allocate(dev->general, sizeof(struct vnet));
-    struct netif *n = allocate(dev->general, sizeof(struct netif));
+    vn->n = allocate(dev->general, sizeof(struct netif));
+
     /* rx = 0, tx = 1, ctl = 2 by page 53 of http://docs.oasis-open.org/virtio/virtio/v1.0/cs01/virtio-v1.0-cs01.pdf */
     vn->dev = dev;
-    //     vtpci_alloc_virtqueue(dev, "ctrl", 0, 0, &vn->txq);
-
     lwip_heap = general;
+    lwip_init();
     console("vnet queues\n");
-    vtpci_alloc_virtqueue(dev, 1, closure(dev->general, tx_complete, vn), &vn->txq);
-    vtpci_alloc_virtqueue(dev, 0, closure(dev->general, input, n), &vn->rxq);
+    vtpci_alloc_virtqueue(dev, 1, &vn->txq);
+    vtpci_alloc_virtqueue(dev, 0, &vn->rxq);
     // just need 10 contig bytes really
     vn->empty = allocate(dev->contiguous, dev->contiguous->pagesize);
     for (int i = 0; i < NET_HEADER_LENGTH ; i++)  ((u8 *)vn->empty)[i] = 0;
-    n->state = vn;
+    vn->n->state = vn;
     console("netif add\n");    
-    netif_add(n,
-              0, 0, 0, //&x, &x, &x,
-              vn, // i dont understand why this is getting passed
+    netif_add(vn->n,
+              0, 0, 0, 
+              vn,
               virtioif_init,
               ethernet_input);
-    post_recv(vn);
-    // dhcp_start(n); - udp bind failure from dhcp
-    // setup sys_check_timeouts() timer
 }
 
 

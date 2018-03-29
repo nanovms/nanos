@@ -35,9 +35,6 @@
  * $FreeBSD$
  */
 
-#ifndef _VIRTIO_PCI_H
-#define _VIRTIO_PCI_H
-
 /* VirtIO ABI version, this must match exactly. */
 #define VIRTIO_PCI_ABI_VERSION	0
 
@@ -70,20 +67,21 @@
  * configuration space.
  */
 #define VIRTIO_PCI_CONFIG_OFF(msix_enabled)     ((msix_enabled) ? 24 : 20)
-
-/*
- * How many bits to shift physical queue address written to QUEUE_PFN.
- * 12 is historical, and due to x86 page size.
- */
 #define VIRTIO_PCI_QUEUE_ADDR_SHIFT	12
-
-/* The alignment to use between consumer and producer parts of vring. */
 #define VIRTIO_PCI_VRING_ALIGN	4096
 
 status vtpci_alloc_virtqueue(vtpci dev,
                              int idx,
-                             thunk intr,
                              struct virtqueue **result);
 vtpci attach_vtpci();
 
-#endif /* _VIRTIO_PCI_H */
+/* VirtIO PCI vendor/device ID. */
+#define VIRTIO_PCI_VENDORID	0x1AF4
+#define VIRTIO_PCI_DEVICEID_MIN	0x1000
+#define VIRTIO_PCI_DEVICEID_MAX	0x103F
+#define VIRTIO_PCI_DEVICEID_NETWORK 0x1000
+#define VIRTIO_PCI_DEVICEID_STORAGE 0x1001
+#define VIRTIO_PCI_DEVICEID_BALLOON 0x1002
+#define VIRTIO_PCI_DEVICEID_CONSOLE 0x1003
+#define VIRTIO_PCI_DEVICEID_ENTROPY 0x1005
+#define VIRTIO_PCI_DEVICEID_FILESYSTEM_9P 0x1009

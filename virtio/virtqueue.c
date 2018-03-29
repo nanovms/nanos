@@ -26,119 +26,117 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/*
- * Implements the virtqueue interface as basically described
- * in the original VirtIO paper.
- */
-
 #include <virtio_internal.h>
-/*
- * The maximum virtqueue size is 2^15. Use that value as the end of
- * descriptor chain terminator since it will never be a valid index
- * in the descriptor table. This is used to verify we are correctly
- * handling vq_free_cnt.
- */
+
 #define VQ_RING_DESC_CHAIN_END 32768
 
+#define VRING_DESC_F_NEXT       1
+#define VRING_DESC_F_WRITE      2
+#define VRING_DESC_F_INDIRECT	4
+
+struct virtqueue {
+    void *dev;
+    u16 entries;
+    u16 queue_index;
+    void *ring_mem;
+    struct vring_desc *desc;
+    struct vring_avail *avail;
+    struct vring_used *used;    
+    u16	free_cnt;
+    u16	desc_idx;
+    u16 avail_idx;
+    u16 used_idx;
+    thunk completions[0];
+};
 
 
-static int vq_ring_enable_interrupt(struct virtqueue *vq, uint16_t ndesc)
+// start figuring out an encoding framework - these structs are fragile
+struct vring_desc {
+    u64 addr;    /* Address (guest-physical). */
+    u32 len;     /* Length. */
+    u16 flags;        /* The flags as indicated above. */
+    u16 next;         /* We chain unused descriptors via this, too. */
+};
+
+struct vring_avail {
+    u16 flags;
+    u16 idx;
+    u16 ring[0];
+};
+
+/* uint32_t is used here for ids for padding reasons. */
+struct vring_used_elem {
+    /* Index of start of used descriptor chain. */
+    u32 id;
+    /* Total length of the descriptor chain which was written to. */
+    u32 len;
+};
+
+struct vring_used {
+    u16 flags;
+    u16 idx;
+    struct vring_used_elem ring[0];
+};
+
+
+static CLOSURE_1_0(vq_interrupt, void, virtqueue);
+static void vq_interrupt(struct virtqueue *vq)
 {
-    /*
-     * Enable interrupts, making sure we get the latest index of
-     * what's already been consumed.
-     */
-    if (vq->vq_flags & VIRTQUEUE_FLAG_EVENT_IDX)
-        vring_used_event(&vq->vq_ring) = vq->vq_used_cons_idx + ndesc;
-    else
-        vq->vq_ring.avail->flags &= ~VRING_AVAIL_F_NO_INTERRUPT;
+    struct vring_used_elem *uep;
+    u16 used_idx, desc_idx;
+    vqfinish *vqf = (void *)(vq+1);
 
-    memory_barrier;
-
-    /*
-     * Enough items may have already been consumed to meet our threshold
-     * since we last checked. Let our caller know so it processes the new
-     * entries.
-     */
-    if (virtqueue_nused(vq) > ndesc)
-        return (1);
-
-    return (0);
+    rprintf ("interrupt %p %p\n", vq->used_idx, vq->used->idx);
+    read_barrier();
+    while (vq->used_idx != vq->used->idx) {
+        used_idx = vq->used_idx++ & (vq->entries - 1);
+        rprintf("used idx: %x %p\n", used_idx, vq->used->ring);
+        uep = &vq->used->ring[used_idx];
+        rprintf("used uep: %x %p %p\n", uep->id, vqf, uep->len);
+        // reclaim the desc space...with an allocator
+        apply(vqf[uep->id],  uep->len);
+    }
 }
 
-
-static void vq_ring_free_chain(struct virtqueue *vq, uint16_t desc_idx)
-{
-    struct vring_desc *dp;
-
-    dp = &vq->vq_ring.desc[desc_idx];
-    dp->next = vq->vq_desc_head_idx;
-    vq->vq_desc_head_idx = desc_idx;
-}
 
 status virtqueue_alloc(vtpci dev,
-                       uint16_t queue,
-                       uint16_t size,
+                       u16 queue,
+                       u16 size,
                        int align,
-                       struct virtqueue **vqp)
+                       struct virtqueue **vqp,
+                       thunk *t)
 {
     status s = STATUS_OK;
     struct virtqueue *vq;
-    u64 alloc = size * sizeof(struct vring_desc) + 6 + 2*size + 6 + 8*size;
-
-    vq = allocate(dev->general, sizeof(struct virtqueue));
-
+    u64 d = size * sizeof(struct vring_desc);
+    u64 avail_end =  pad(d + 6 + 2*size, align);
+    u64 alloc = avail_end + 8*size;
+    vq = allocate(dev->general, sizeof(struct virtqueue) + size * sizeof(vqfinish));
+    
     if (vq == INVALID_ADDRESS) 
         return allocate_status("cannot allocate virtqueue\n");
+    
+    vq->dev = dev;
+    vq->queue_index = queue;
+    vq->entries = size;
+    vq->free_cnt = size;
 
-    vq->vq_dev = dev;
-    vq->vq_queue_index = queue;
-    vq->vq_nentries = size;
-    vq->vq_free_cnt = size;
-
-    //    if (VIRTIO_BUS_WITH_FEATURE(dev, VIRTIO_RING_F_EVENT_IDX) != 0)
-    vq->vq_flags |= VIRTQUEUE_FLAG_EVENT_IDX;
-    vq->vq_ring_mem = allocate_zero(dev->contiguous, alloc);
-
-    if (vq->vq_ring_mem == INVALID_ADDRESS) {
-        s = allocate_status("cannot allocate memory for virtqueue ring\n");
-        goto fail;
+    if ((vq->ring_mem = allocate_zero(dev->contiguous, alloc)) != INVALID_ADDRESS) {
+        vq->desc = (struct vring_desc *) vq->ring_mem;
+        vq->avail = (struct vring_avail *) (vq->desc + size);
+        vq->used = (struct vring_used *) (vq->ring_mem  + avail_end);
+        *t = closure(dev->general, vq_interrupt, vq);
+        rprintf ("vq base %p %p %p %x %p control:%p\n", vq->desc, vq->avail, vq->used, align, *t, vq);
+        *vqp = vq;
+        return 0;
     }
-
-    vq->vq_ring.num = vq->vq_nentries;
-    vq->vq_ring.desc = (struct vring_desc *) vq->vq_ring_mem;
-    vq->vq_ring.avail = (struct vring_avail *) (vq->vq_ring_mem + size*sizeof(struct vring_desc));
-    vq->vq_ring.used = (void *)
-        (((unsigned long) &vq->vq_ring.avail->ring[vq->vq_nentries] + align-1) & ~(align-1));
-    *vqp = vq;
-
- fail:
-    return (s);
+    
+    return( allocate_status("cannot allocate memory for virtqueue ring\n"));
 }
 
 physical virtqueue_paddr(struct virtqueue *vq)
 {
-    return (physical_from_virtual(vq->vq_ring_mem));
-}
-
-int virtqueue_size(struct virtqueue *vq)
-{
-    return (vq->vq_nentries);
-}
-
-int virtqueue_nfree(struct virtqueue *vq)
-{
-    return (vq->vq_free_cnt);
-}
-
-int virtqueue_empty(struct virtqueue *vq)
-{
-    return (vq->vq_nentries == vq->vq_free_cnt);
-}
-
-int virtqueue_full(struct virtqueue *vq)
-{
-    return (vq->vq_free_cnt == 0);
+    return (physical_from_virtual(vq->ring_mem));
 }
 
 void virtqueue_notify(struct virtqueue *vq)
@@ -147,44 +145,39 @@ void virtqueue_notify(struct virtqueue *vq)
     /* this was 'mb', i have read_barrier and write_barrier - they are both
     the same, cant be right*/
     read_barrier();
-    vtpci_notify_virtqueue(vq->vq_dev, vq->vq_queue_index);
+    vtpci_notify_virtqueue(vq->dev, vq->queue_index);
 }
-
-int virtqueue_nused(struct virtqueue *vq)
-{
-    uint16_t used_idx, nused;
-
-    used_idx = vq->vq_ring.used->idx;
-
-    nused = (uint16_t)(used_idx - vq->vq_used_cons_idx);
-
-    return (nused);
-}
-
 
 status virtqueue_enqueue(struct virtqueue *vq,
-                         void *cookie,
                          /* not an ideal writev, but good enough for  today */
                          void **as,
                          bytes *lengths,
                          boolean *writables,
-                         int segments)
+                         int segments,
+                         vqfinish completion)
 {
     int needed;
-    uint16_t idx = vq->vq_desc_head_idx;
-    uint16_t hidx = idx;
+    u16 idx = vq->desc_idx;
+    u16 hidx = idx;
 
-    if (vq->vq_free_cnt < segments)
+    if (vq->free_cnt < segments)
         return allocate_status("no room in queue");
 
     rprintf ("qneueue segs %d\n", segments);
+    // allocate descs from a heap
     for (int i = 0; i < segments; i++) {
-        struct vring_desc *dp =  vq->vq_ring.desc + idx;
+        struct vring_desc *dp =  vq->desc + idx;
         u16 flags =0;
         dp->addr = physical_from_virtual(as[i]);
+        rprintf("seggo %p\n", dp->addr);
+        vqfinish *vqa = (void *)(vq + 1);
+        if (!i) {
+            rprintf ("register completion %p %p %p\n", vq, vqa+idx, completion);
+            vqa[idx] = completion;
+        }
         dp->len = lengths[i];
-        idx = (idx +1)&(vq->vq_nentries - 1);
-        if (i != (segments -1)) {
+        idx = (idx +1)&(vq->entries - 1);
+        if (i != (segments-1)) {
             flags |= VRING_DESC_F_NEXT;
             dp->next = idx; //since this never changes, freebsd built it in advance
         } 
@@ -192,34 +185,17 @@ status virtqueue_enqueue(struct virtqueue *vq,
         dp->flags = flags;
     }
 
-    vq->vq_desc_head_idx = idx;
-    vq->vq_free_cnt -= needed;
+    vq->desc_idx = idx;
+    vq->free_cnt -= needed;
 
-    uint16_t avail_idx  = vq->vq_ring.avail->idx & (vq->vq_nentries - 1);
-    vq->vq_ring.avail->ring[avail_idx] = hidx;
+    u16 avail_idx  = vq->avail->idx & (vq->entries - 1);
+    vq->avail->ring[avail_idx] = hidx;
     write_barrier();
-    vq->vq_ring.avail->idx++;    
+    vq->avail->idx++;    
+
+    virtqueue_notify(vq);
 
     return STATUS_OK;
 }
 
-void *virtqueue_dequeue(struct virtqueue *vq, uint32_t *len)
-{
-    struct vring_used_elem *uep;
-    void *cookie;
-    uint16_t used_idx, desc_idx;
 
-    if (vq->vq_used_cons_idx == vq->vq_ring.used->idx)
-        return ((void *)0);
-
-    used_idx = vq->vq_used_cons_idx++ & (vq->vq_nentries - 1);
-    uep = &vq->vq_ring.used->ring[used_idx];
-
-    read_barrier();
-    desc_idx = (uint16_t) uep->id;
-    if (len) *len = uep->len;
-
-    vq_ring_free_chain(vq, desc_idx);
-
-    return (cookie);
-}

@@ -35,13 +35,13 @@
 #define VIRTIO_PCI_CONFIG(_sc)                                          \
     VIRTIO_PCI_CONFIG_OFF((((_sc)->vtpci_flags & VTPCI_FLAG_MSIX)) != 0)
 
-static uint8_t vtpci_get_status(vtpci dev)
+static u8 vtpci_get_status(vtpci dev)
 {
     return (in8(dev->base+ VIRTIO_PCI_STATUS));
 }
 
 
-static void vtpci_set_status(vtpci dev, uint8_t status)
+static void vtpci_set_status(vtpci dev, u8 status)
 {
     if (status != VIRTIO_CONFIG_STATUS_RESET)
         status |= vtpci_get_status(dev);
@@ -52,24 +52,22 @@ static void vtpci_set_status(vtpci dev, uint8_t status)
 
 status vtpci_alloc_virtqueue(vtpci dev,
                              int idx,
-                             thunk handler,
                              struct virtqueue **result)
 {
     struct virtqueue *vq;
     out16(dev->base + VIRTIO_PCI_QUEUE_SEL, idx);    
-    uint16_t size = in16(dev->base + VIRTIO_PCI_QUEUE_NUM);
-
-    int msi = allocate_msi(handler); 
-    status s = virtqueue_alloc(dev, idx, size, VIRTIO_PCI_VRING_ALIGN, &vq);
+    u16 size = in16(dev->base + VIRTIO_PCI_QUEUE_NUM);
+    thunk handler;
+    status s = virtqueue_alloc(dev, idx, size, VIRTIO_PCI_VRING_ALIGN, &vq, &handler);
     if (!is_ok(s)) return s;
-
+    int msi = allocate_msi(handler);     
     out32(dev->base + VIRTIO_PCI_QUEUE_PFN, virtqueue_paddr(vq) >> VIRTIO_PCI_QUEUE_ADDR_SHIFT);
     out16(dev->base + VIRTIO_MSI_QUEUE_VECTOR, msi);
     *result = vq;
     return STATUS_OK;
 }
 
-void vtpci_notify_virtqueue(struct vtpci *sc, uint16_t queue)
+void vtpci_notify_virtqueue(struct vtpci *sc, u16 queue)
 {
     out16(sc->base + VIRTIO_PCI_QUEUE_NOTIFY, queue);
 }
@@ -95,7 +93,8 @@ vtpci attach_vtpci(heap h, heap page_allocator, int bus, int slot, int func, u64
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_FEATURE); 
 
     int nvqs = 16;
-    dev->vtpci_vqs = allocate_zero(h, nvqs * sizeof(struct virtqueue));
+    // dont need an inverse correlation
+    //dev->vtpci_vqs = allocate_zero(h, nvqs * sizeof(struct virtqueue));
     dev->general = h;
     dev->contiguous = page_allocator;    
 

@@ -40,6 +40,3 @@ static node resolve_path(node n, vector v)
 
 void bprintf(buffer b, char *fmt, ...);
 
-
-
-
