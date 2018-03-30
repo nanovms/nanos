@@ -1,7 +1,7 @@
 /kernel @stage3/stage3
 /lib64/ld-linux-x86-64.so.2 @/lib64/ld-linux-x86-64.so.2
 /lib/x86_64-linux-gnu/libc.so.6 @/lib/x86_64-linux-gnu/libc.so.6
-/hw @/home/yuri/hw
+/hw @hw/hw
 /environment/foo bar
 /environment/bar baz
 /program /hw

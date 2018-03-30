@@ -33,11 +33,9 @@ static inline int runtime_strlen(char *a)
     return i;
 }
 
-
 #define pad(__x, __s) ((((__x) - 1) & (~((__s) - 1))) + (__s))
 
 #define MASK(x) ((1ull<<x)-1)
-
 
 #ifndef pointer_from_u64
 #define pointer_from_u64(__a) ((void *)(__a))
@@ -47,7 +45,6 @@ static inline int runtime_strlen(char *a)
 #endif
 
 typedef struct buffer *buffer;
-
 
 static inline void zero(void *x, bytes length)
 {
@@ -134,5 +131,5 @@ boolean validate_virtual(void *base, u64 length);
 #ifndef vpzero
 // a super sad hack to allow us to write to the bss in elf.c as
 // phy instead of virt
-#define vpzero(__p, __v, __y) zero(__v, __y)
+#define vpzero(__p, __v, __y) zero(pointer_from_u64(__v), __y)
 #endif

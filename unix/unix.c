@@ -29,6 +29,11 @@ typedef struct process {
 
 thread current;
 
+static boolean node_contents(tuple t, buffer d)
+{
+    return false;
+}    
+
 static node lookup(process p, char *name)
 {
 }

@@ -9,6 +9,9 @@
 
 typedef struct buffer *buffer;
 typedef struct buffer *string;
+
+void format_number(buffer s, u64 x, int base, int pad);
+
 #include <table.h>
 #include <vector.h>
 #include <symbol.h>

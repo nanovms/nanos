@@ -19,3 +19,4 @@ stage3/fs
 mkfs/mkfs
 runtime/contgen
 runtime/closure_templates.h
+hw/hw

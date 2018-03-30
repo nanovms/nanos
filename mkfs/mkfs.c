@@ -1,5 +1,4 @@
 #include <runtime.h>
-#include <symbol.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -47,6 +46,7 @@ typedef struct relocation {
     buffer name;
 } *relocation;
 
+// move into runtime
 static u64 serialize(buffer b,
                      heap h,
                      table t,
@@ -129,6 +129,7 @@ static void resolve_files(heap h, buffer b, vector file_relocations)
     vector_foreach(i, file_relocations) {
         if (!table_find(locations, i)) {
             relocation r = allocate(h, sizeof(struct relocation));
+            // align?
             r->offset = read_file(b, i->name, &r->length)  | (storage_type_aligned<<STORAGE_TYPE_OFFSET);
             table_set(locations, i->name, r);
         }

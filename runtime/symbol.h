@@ -14,3 +14,14 @@ typedef table tuple;
 tuple allocate_tuple();
 key key_from_symbol(void *z);
 boolean symbol_equal(void *a, void* b);
+
+static inline vector tuple_vector(heap h, tuple t)
+{
+    void *x;
+    vector v = allocate_vector(h, table_elements(t));
+    little_stack_buffer(num, 50);
+    
+    for (int i = 0; format_number(num, i, 10, 1), x = table_find(t, sym(num)); i++)
+        vector_push(v, x);
+    return v;
+}

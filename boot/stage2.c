@@ -27,14 +27,14 @@ static u64 stage2_allocator(heap h, bytes b)
 // better to start populating the node tree here.
 boolean lookup_kernel(void *fs, u64 *offset, u64 *length)
 {
-    snode sn = {fs, 0};
-    u32 off, loff, coff;
-    if (!snode_lookup(sn, "children", &off)) return false;
-    sn.offset = off;
-    if (!snode_lookup(sn, "kernel", &off)) return false;
-    sn.offset = off;    
-    if (!snode_lookup(sn, "contents", &coff)) return false;
-    if (!snode_lookup(sn, "length", &loff)) return false;    
+    struct buffer b;
+    b.contents = fs;
+    b.start = 0;
+    u64 off, loff, coff;
+    if (!snode_lookup(&b, "children", &b.start)) return false;
+    if (!snode_lookup(&b, "kernel", &b.start)) return false;
+    if (!snode_lookup(&b, "contents", &coff)) return false;
+    if (!snode_lookup(&b, "length", &loff)) return false;    
     *offset = coff;
     *length = loff; // this shouldn't be an immediate
     return true;
@@ -70,7 +70,6 @@ void centry()
     void *header = allocate(physical, PAGESIZE);
 
     unsigned int fs_start = STAGE1SIZE + STAGE2SIZE;
-    struct snode sn = {header, 0};
     read_sectors(header, fs_start, PAGESIZE); // read in the head of the filesystem
 
     u64 kernel_length, kernel_offset;
@@ -90,5 +89,8 @@ void centry()
     // tell stage3 that this is off limits..could actually move there
     create_region(0, 0xa0000, REGION_VIRTUAL);
     void *k = load_elf(kernel, 0, pages, physical);
+    console("running: ");
+    print_u64(u64_from_pointer(k));
+    console("\n");    
     run64(u64_from_pointer(k));
 }

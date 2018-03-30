@@ -86,13 +86,10 @@ static void vq_interrupt(struct virtqueue *vq)
     u16 used_idx, desc_idx;
     vqfinish *vqf = (void *)(vq+1);
 
-    rprintf ("interrupt %p %p\n", vq->used_idx, vq->used->idx);
     read_barrier();
     while (vq->used_idx != vq->used->idx) {
         used_idx = vq->used_idx++ & (vq->entries - 1);
-        rprintf("used idx: %x %p\n", used_idx, vq->used->ring);
         uep = &vq->used->ring[used_idx];
-        rprintf("used uep: %x %p %p\n", uep->id, vqf, uep->len);
         // reclaim the desc space...with an allocator
         apply(vqf[uep->id],  uep->len);
     }
@@ -126,7 +123,6 @@ status virtqueue_alloc(vtpci dev,
         vq->avail = (struct vring_avail *) (vq->desc + size);
         vq->used = (struct vring_used *) (vq->ring_mem  + avail_end);
         *t = closure(dev->general, vq_interrupt, vq);
-        rprintf ("vq base %p %p %p %x %p control:%p\n", vq->desc, vq->avail, vq->used, align, *t, vq);
         *vqp = vq;
         return 0;
     }
@@ -163,18 +159,13 @@ status virtqueue_enqueue(struct virtqueue *vq,
     if (vq->free_cnt < segments)
         return allocate_status("no room in queue");
 
-    rprintf ("qneueue segs %d\n", segments);
     // allocate descs from a heap
     for (int i = 0; i < segments; i++) {
         struct vring_desc *dp =  vq->desc + idx;
         u16 flags =0;
         dp->addr = physical_from_virtual(as[i]);
-        rprintf("seggo %p\n", dp->addr);
         vqfinish *vqa = (void *)(vq + 1);
-        if (!i) {
-            rprintf ("register completion %p %p %p\n", vq, vqa+idx, completion);
-            vqa[idx] = completion;
-        }
+        if (!i)  vqa[idx] = completion;
         dp->len = lengths[i];
         idx = (idx +1)&(vq->entries - 1);
         if (i != (segments-1)) {

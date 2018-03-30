@@ -7,6 +7,49 @@ u8 userspace_random_seed[16];
 
 typedef struct aux {u64 tag; u64 val;} *aux;
 
+// would be nice to do this from a stream
+// currently tuples are bibop, so they leak
+// and use a reserved heap.
+tuple storage_to_tuple(buffer b)
+{
+    tuple t = allocate_tuple();
+    u32 entries = *(u32 *)buffer_ref(b, 0);
+    struct buffer stemp;
+    stemp.contents = b->contents;
+    u64 offset;
+        
+    for (int i; i < entries; i++) {
+        // functorize
+        stemp.start = *(u32 *)buffer_ref(b, offset+=4);
+        int slen = pop_varint(&stemp);
+        stemp.end = stemp.start + slen;
+        stemp.start += 4;
+        symbol s = intern(&stemp);
+        
+        u32 value = *(u32 *)buffer_ref(b, offset+=4);
+        u32 type = value >> STORAGE_TYPE_OFFSET;
+        value &= MASK(STORAGE_TYPE_OFFSET);
+        void *v;
+        stemp.start = value;        
+        switch(type) {
+        case storage_type_tuple:
+            v = storage_to_tuple(&stemp);
+            break;
+            // mkfs isn't shifting, so we wont
+        case storage_type_unaligned:
+        case storage_type_aligned:
+            v = &stemp;
+            slen = pop_varint(&stemp);
+            stemp.end = stemp.start + slen;
+            break;
+        default:
+            halt("fs metadata encoding error\n");
+        }
+        table_set(t, s, v);
+    }
+    return t;
+}
+                       
 static void build_exec_stack(buffer s, heap general, vector argv, node env, vector auxp)
 {
     int length = vector_length(argv) + table_elements(env) +  2 * vector_length(auxp) + 4;
@@ -32,19 +75,17 @@ static void build_exec_stack(buffer s, heap general, vector argv, node env, vect
     buffer_write_le64(s, 0);
 }
 
-thread exec_elf(node fs, vector path, heap general, heap physical, heap pages)
+// this should be a logical filesystem and not a physical one
+thread exec_elf(buffer ex, heap general, heap physical, heap pages, tuple fs)
 {
     // i guess this is part of fork if we're following the unix model
     process p = create_process(general, pages, physical, fs);
     thread t = create_thread(p);
-    // error handling
-    struct buffer ex;
-    node_contents(resolve_path(fs, path), &ex);    
     void *user_entry = load_elf(&ex, 0, pages, physical);        
     void *va;
 
     // extra elf munging
-    Elf64_Ehdr *elfh = (Elf64_Ehdr *)buffer_ref(&ex, 0);
+    Elf64_Ehdr *elfh = (Elf64_Ehdr *)buffer_ref(ex, 0);
 
     struct aux auxp[] = {
         {AT_PHDR, elfh->e_phoff + u64_from_pointer(va)},
@@ -63,11 +104,9 @@ thread exec_elf(node fs, vector path, heap general, heap physical, heap pages)
             char *n = (void *)elfh + p->p_offset;
             // xxx - assuming leading slash
             buffer nb = alloca_wrap_buffer(n+1, runtime_strlen(n)-1);
-            // virtual allocator..file not found
-            struct buffer ldso;
-
-            node_contents(resolve_path(fs, split(general, nb, '/')), &ldso);
-            user_entry = load_elf(&ldso, 0x400000000, pages, physical);
+            // file not found
+            tuple ldso = resolve_path(fs, split(general, nb, '/'));
+            user_entry = load_elf(table_find(ldso, sym(contents)), 0x400000000, pages, physical);
         }
     }
     
@@ -86,8 +125,8 @@ thread exec_elf(node fs, vector path, heap general, heap physical, heap pages)
     map(u64_from_pointer(s->contents), allocate_u64(physical, s->length), s->length, pages);
     
     build_exec_stack(s, general, 
-                     node_vector(general, resolve_path(fs, build_vector(general, sym(argv)))),
-                     resolve(resolve(fs, sym(environment)), sym(files)),
+                     tuple_vector(general, resolve_path(fs, build_vector(general, sym(argv)))),
+                     table_find(table_find(fs, sym(environment)), sym(files)),
                      a);
     
     // build stack leaves buffer start at the base of the stack
@@ -96,31 +135,23 @@ thread exec_elf(node fs, vector path, heap general, heap physical, heap pages)
 }
 
 
-static CLOSURE_1_0(read_complete, void, void *);
-static void read_complete(void *target)
-{
-    rprintf("read complete %p %x\n", physical_from_virtual(target), *(u64 *)target);
-}
-
-void startup(heap pages, heap general, heap physical, node root)
+void startup(heap pages, heap general, heap physical, buffer storage)
 {
     u64 c = cpuid();
     console("stage3\n");
     init_unix(general);
 
-    void *k = allocate(general, 512);
-    storage_read(k, 0, 512, closure(general, read_complete, k));
-    __asm__("hlt");
-
-    struct buffer program_name, interp_name;
-    node n = resolve(root, sym(program));
-    struct buffer p;
-    node_contents(n, &p);
-
-
-    // elem first 
-    thread t = exec_elf(root, build_vector(general, split(general, &p, '/')), general, physical, pages);
+    tuple fs = storage_to_tuple(storage);
+    tuple n = table_find(fs, sym(program));
+    // elem first
+    // error handling
+    buffer ex = table_find(resolve_path(fs,
+                                        build_vector(general, split(general,
+                                                                    table_find(n, sym("contents")),
+                                                                    '/'))),
+                           sym(contents));
+    thread t = exec_elf(ex, general, physical, pages, fs);
     run(t);
-    halt("program exit");
+    halt("program exit");    
 }
 

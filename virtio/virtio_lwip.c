@@ -140,10 +140,8 @@ static void input(struct netif *n, struct pbuf *p, u64 len)
 static void post_recv(vnet vn)
 {
     u64 len = 1500;
-    console("post recv ");
+    console("post recv\n");
     struct pbuf *p = pbuf_alloc(PBUF_RAW, len, PBUF_RAM);
-    print_u64(p);
-    console("\n");
     void *address[] = {p->payload};
     u64 lengths[] = {len};
     boolean writables[] = {true};
@@ -188,6 +186,8 @@ void lwip_deallocate(void *x)
 {
 }
 
+
+extern void lwip_init();
 
 static CLOSURE_2_3(init_vnet, void, heap, heap, int, int, int);
 static void init_vnet(heap general, heap page_allocator, int bus, int slot, int function)

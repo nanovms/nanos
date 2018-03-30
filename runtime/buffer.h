@@ -288,8 +288,6 @@ static void buffer_write_le32(buffer b, u32 x)
     b->end+=sizeof(u32);
 }
 
-
-
 static void push_varint(buffer b, u64 p)
 {
     u64 k = p;

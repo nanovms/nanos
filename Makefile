@@ -9,8 +9,16 @@ force:
 mkfs/mkfs:
 	cd mkfs ; make
 
-image: boot/boot mkfs/mkfs manifest stage3/stage3 
+
+net/lwip:
+	git clone http://git.savannah.nongnu.org/git/lwip.git 
+	cd lwip ; git checkout STABLE-2_0_3_RELEASE
+
+image: boot/boot mkfs/mkfs manifest stage3/stage3 hw/hw
 	mkfs/mkfs < manifest | cat boot/boot - > image
+
+hw/hw: force
+	cd hw  ; make
 
 boot/boot: force
 	cd boot ; make
@@ -34,8 +42,8 @@ image2: image
 
 STORAGE =  -device virtio-blk-pci,scsi=off,drive=foo -drive file=image2,format=raw,id=foo,if=none
 TAP = -netdev tap,id=n0,ifname=tap0
-NET = -device virtio-net,mac=62:89:7a:e4:7a:05,netdev=n0 $(TAP)
+NET = -device virtio-net,mac=7e:b8:7e:87:4a:ea,netdev=n0 $(TAP)
 KVM = -enable-kvm
 run: image image2
-	- qemu-system-x86_64 -hda image -nographic -m 2G -device isa-debug-exit $(STORAGE) 
+	- qemu-system-x86_64 -enable-kvm -hda image -nographic -m 2G -device isa-debug-exit $(STORAGE) $(NET)
 

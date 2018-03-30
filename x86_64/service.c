@@ -5,8 +5,6 @@
 extern void startup();
 extern void start_interrupts();
 
-extern void *_fs_start;
-extern void *_fs_end;
 
 static u8 bootstrap_region[1024];
 static u64 bootstrap_base = (unsigned long long)bootstrap_region;
@@ -58,6 +56,21 @@ static heap physically_backed(heap meta, heap virtual, heap physical, heap pages
 }
 
 
+static CLOSURE_5_0(read_complete, void, void *, u64, heap, heap, heap);
+static void read_complete(void *target, u64 length, heap pages, heap general, heap physical)
+{
+    buffer b = allocate_buffer(general, length);
+    b->contents = target;
+    b->start = 0;
+    b->end = length;
+    rprintf("read complete %p %x\n", physical_from_virtual(target), *(u64 *)target);
+    startup(pages, general, physical, b);
+}
+
+
+// bad global, put in the filesystem space
+extern u64 storage_length;
+
 // init linker set
 void init_service(u64 passed_base)
 {
@@ -69,8 +82,6 @@ void init_service(u64 passed_base)
     bootstrap.dealloc = null_dealloc;
     heap pages = region_allocator(&bootstrap, PAGESIZE, REGION_IDENTITY);
     heap physical = region_allocator(&bootstrap, PAGESIZE, REGION_PHYSICAL);    
-    //node filesystem = {&_fs_start,  0};
-    node filesystem;
 
     heap virtual = create_id_heap(&bootstrap, HUGE_PAGESIZE, (1ull<<VIRTUAL_ADDRESS_BITS)- HUGE_PAGESIZE, HUGE_PAGESIZE);
     heap backed = physically_backed(&bootstrap, virtual, physical, pages);
@@ -82,7 +93,7 @@ void init_service(u64 passed_base)
     asm ("mov %0, %%rsp": :"m"(stack_location));
 
     // rdtsc is corrupting something oddly
-    init_clock(backed);
+    //    init_clock(backed);
 
     heap misc = allocate_rolling_heap(backed);
     start_interrupts(pages, misc, physical);
@@ -90,7 +101,12 @@ void init_service(u64 passed_base)
     init_pci(misc);    
     init_virtio_storage(misc, backed, pages, virtual);
     init_virtio_network(misc, backed, pages);            
-    pci_discover(pages, virtual, filesystem);
+    pci_discover(pages, virtual);
     enable_interrupts();
-    startup(pages, backed, physical, filesystem);
+
+    u64 len = storage_length;
+    void *k = allocate(virtual, len);
+    map(u64_from_pointer(k), allocate_u64(physical, len), len, pages);
+    storage_read(k, 0, len, closure(backed, read_complete, k, len, pages, backed, physical));
+    while (1) __asm__("hlt");
 }

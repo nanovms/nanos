@@ -9,19 +9,13 @@ void register_interrupt(int vector, thunk t);
 void msi_map_vector(int slot, int vector);
 u8 allocate_msi(thunk h);
 
-// metadata stuff
-static boolean node_contents(node n, buffer b)
+static node resolve(buffer n, symbol s)
 {
 }
 
-
-static node resolve(node n, symbol s)
+static vector node_vector(heap h, buffer n)
 {
-}
-
-static vector node_vector(heap h, node n)
-{
-    vector r = allocate_vector(h, table_elements(n));
+    vector r = allocate_vector(h, 100); //table_elements(n));
     little_stack_buffer (ind, 30);
     void *x;
     
@@ -31,12 +25,28 @@ static vector node_vector(heap h, node n)
     return x;
 }
 
-static node resolve_path(node n, vector v)
+static tuple resolve_path(tuple n, vector v)
 {
     buffer i;
-    vector_foreach(i, v) {
-    }
+    // check if tuple
+    vector_foreach(i, v) 
+        n = (tuple)table_find(n, intern(i));
+    return n;
 }
 
 void bprintf(buffer b, char *fmt, ...);
+// belongs somewhere else?
+void storage_read(void *target, u64 offset, u64 size, thunk complete);
+
+
+static inline void haltf(char *f, ...)
+{
+    buffer bf = alloca_wrap_buffer(f, runtime_strlen(f));
+    little_stack_buffer(b, 2048);
+    vlist ap;
+    vstart (ap, f);
+    vbprintf(b, bf,  ap);
+    debug(b->contents);
+    QEMU_HALT();
+}
 

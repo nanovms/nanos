@@ -108,19 +108,6 @@ static time rdtsc(void)
 void init_clock(heap backed_virtual);
 void serial_out(char a);
 
-static inline void haltf(char *f, ...)
-{
-    buffer bf = alloca_wrap_buffer(f, runtime_strlen(f));
-    little_stack_buffer(b, 2048);
-    vlist ap;
-    vstart (ap, f);
-    vbprintf(b, bf,  ap);
-    debug(b->contents);
-    QEMU_HALT();
-}
-
-#ifndef halt
-#define halt(_a) haltf(_a);
-#endif
-
 boolean valiate_virtual(void *base, u64 length);
+
+#define halt(__m) console(__m); QEMU_HALT();

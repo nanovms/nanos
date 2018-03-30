@@ -43,8 +43,7 @@ static void complete(storage s, thunk f, u8 *status, u64 len)
 
 void storage_read(void *target, u64 offset, u64 size, thunk complete)
 {
-    console("storage read\n");
-    rprintf("len: %x %x\n", offset, size);
+    rprintf("len: %x %p\n", offset, size);
     // what size is this really?
     int status_size = 1;
     struct virtio_blk_req *r = allocate(st->v->contiguous, sizeof(struct virtio_blk_req) + status_size);
@@ -75,6 +74,9 @@ void storage_read(void *target, u64 offset, u64 size, thunk complete)
                       closure(st->v->general, complete, st,  complete, (u8 *)address[2]));
 }
 
+// bad global, put in the filesystem space
+u64 storage_length;
+
 static void attach(heap general, heap page_allocator, heap pages, heap virtual, int bus, int slot, int function)
 {
     storage s = allocate(general, sizeof(struct virtio_blk_req));
@@ -86,6 +88,7 @@ static void attach(heap general, heap page_allocator, heap pages, heap virtual, 
     base &=~1;
     s->block_size = in32(44 + base);
     s->capacity = (in32(24 + base) | ((u64)in32(28 + base)  << 32)) * s->block_size;
+    storage_length = s->capacity;
     pci_set_bus_master(bus, slot, function);
     vtpci_alloc_virtqueue(s->v, 0, &s->command);
     st = s;

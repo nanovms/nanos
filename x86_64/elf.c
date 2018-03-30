@@ -1,4 +1,4 @@
-#include <runtime.h>
+#include <basic_runtime.h>
 #include <elf64.h>
 
 // this doesn't really belong in x86_64, but it does belong
@@ -26,17 +26,6 @@ void *load_elf(void *base, u64 offset, heap pages, heap bss)
             u64 initial_len = pad(bss_start, PAGESIZE) - bss_start;
             vpzero(pointer_from_u64(bss_start), phy + p->p_filesz, initial_len);
 
-            console("bss: ");
-            print_u64(u64_from_pointer(bss_start));
-            console(" ");
-            print_u64(bss_size);
-            console(" ");            
-            print_u64(u64_from_pointer(base));
-            console(" ");            
-            print_u64(u64_from_pointer(initial_len));
-            console("\n");
-
-            // add as many zero pages as necesary to cover the rest of the bss
             if (bss_size > initial_len) {
                 u64 pstart = bss_start + initial_len;
                 u32 new_pages = pad((bss_size-initial_len), PAGESIZE);

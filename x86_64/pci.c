@@ -149,7 +149,7 @@ void register_pci_driver(u16 vendor, u16 device, pci_probe p)
 }
 
 
-void pci_discover(heap pages, heap virtual, node filesystem)
+void pci_discover(heap pages, heap virtual)
 {
     // we dont actually need to do recursive discovery, qemu leaves it all on bus0 for us
     for (int i = 0; i < 16; i++) {
