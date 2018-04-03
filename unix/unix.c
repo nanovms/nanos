@@ -560,7 +560,6 @@ void default_fault_handler(context frame)
 }
 
 
-extern u64 *frame;
 void run(thread t)
 {
     // rprintf("run %d\n", t->tid);
@@ -577,6 +576,7 @@ thread create_thread(process p)
     t->p = p;
     t->tid = tidcount++;
     t->set_child_tid = t->clear_child_tid = 0;
+    t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(p->handler);
     return t;
 }
 
@@ -620,12 +620,15 @@ process create_process(heap h, heap pages, heap physical, node filesystem)
     return p;
 }
 
-void init_unix(heap h)
+void init_unix(heap h, heap pages, heap physical, tuple filesystem)
 {
     set_syscall_handler(syscall_enter);
     // could wrap this in a 'system'
     processes = create_id_heap(h, 1, 65535, 1);
     runnable = allocate_runqueue(h);
+    process kernel = create_process(h, pages, physical, filesystem);
+    current = create_thread(kernel);
+    frame = current->frame;
 }
 
 void run_unix()

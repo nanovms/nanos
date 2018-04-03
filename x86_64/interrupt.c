@@ -97,9 +97,8 @@ char *register_name(u64 s)
     return(textoreg[s]);
 }
 
-u64 * frame;
 static thunk *handlers;
-fault_handler current_fh;
+u64 *frame;
 
 void *apic_base = (void *)0xfee00000;
 
@@ -110,15 +109,40 @@ void lapic_eoi()
 
 void common_handler()
 {
-    // current ->frame?
-    int i = frame[16];
+    console("bip ");
+    print_u64(frame);
+    console ("\n");
+    int i = frame[FRAME_VECTOR];
     u64 z;
+
+    console("bap ");
+    print_u64(i);
+    console (" ");
+    print_u64(frame[FRAME_RSP]);    
+    console("\n");
     
     if ((i < interrupt_size) && handlers[i]) {
+        // should we switch to the 'kernel process'?
         apply(handlers[i]);
         lapic_eoi();
     } else {
-        if (i < 25) apply(current_fh, frame);
+        console("zig ");
+        fault_handler f = pointer_from_u64(frame[FRAME_FAULT_HANDLER]);
+        print_u64(f);
+        u64 fault_address;
+        mov_from_cr("cr2", fault_address);
+        console(" ");        
+        print_u64(fault_address);
+        console(" ");
+        print_u64(frame[FRAME_RIP]);
+        console("\n");
+        
+        if (f == 0) {
+            rprintf ("no fault handler\n");
+            QEMU_HALT();
+        }
+        
+        if (i < 25) apply(f, frame);
     }
 }
 

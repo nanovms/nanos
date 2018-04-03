@@ -198,10 +198,8 @@ process exec_elf(buffer ex, heap general, heap physical, heap pages, heap virtua
 void startup(heap pages, heap general, heap physical, heap virtual, buffer storage)
 {
     console("stage3\n");
-    init_unix(general);
-    rprintf ("pig %p %p %p %p\n", pages, general, physical, storage);
-
     tuple fs = storage_to_tuple(general, storage);
+    init_unix(general, pages, physical, fs);    
     tuple n = table_find(fs, sym(children));
     n = table_find(n, sym(program));    
     buffer z = table_find(n, sym(contents));        

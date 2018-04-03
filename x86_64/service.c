@@ -78,7 +78,6 @@ void init_service()
     struct heap bootstrap;
 
     console("service\n");
-
     bootstrap.alloc = bootstrap_alloc;
     bootstrap.dealloc = null_dealloc;
     heap pages = region_allocator(&bootstrap, PAGESIZE, REGION_IDENTITY);
@@ -86,7 +85,8 @@ void init_service()
 
     heap virtual = create_id_heap(&bootstrap, HUGE_PAGESIZE, (1ull<<VIRTUAL_ADDRESS_BITS)- HUGE_PAGESIZE, HUGE_PAGESIZE);
     heap backed = physically_backed(&bootstrap, virtual, physical, pages);
-    
+
+    frame = allocate(&bootstrap, FRAME_MAX *8);
     // on demand stack allocation
     u64 stack_size = 32*PAGESIZE;
     u64 stack_location = allocate_u64(backed, stack_size);

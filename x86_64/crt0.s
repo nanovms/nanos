@@ -3,29 +3,8 @@
         
         ;; frame size is 136..? 
 extern frame
-
-        ;; xxx - share this with C
-%define FRAME_RAX 0
-%define FRAME_RBX 1
-%define FRAME_RCX 2
-%define FRAME_RDX 3
-%define FRAME_RSI 4
-%define FRAME_RDI 5
-%define FRAME_RBP 6
-%define FRAME_RSP 7
-%define FRAME_R8 8
-%define FRAME_R9 9 
-%define FRAME_R10 10
-%define FRAME_R11 11
-%define FRAME_R12 12
-%define FRAME_R13 13
-%define FRAME_R14 14
-%define FRAME_R15 15
-%define FRAME_VECTOR 16
-%define FRAME_RIP 17
-%define FRAME_FLAGS 18
-%define FRAME_FS 19
-%define FRAME_GS 20
+%include "frame_nasm.h"
+        
 %define FS_MSR 0xc0000100
         
 ;;; optimize and merge - frame is loaded into rbx
@@ -106,7 +85,7 @@ interrupt_common:
         mov [rax+FRAME_R13*8], r13
         mov [rax+FRAME_R14*8], r14
         mov [rax+FRAME_R15*8], r15
-        pop rbx            ; actually eax
+        pop rbx            ; eax
         mov [rax], rbx
         pop rbx            ; vector
         mov [rax+FRAME_VECTOR*8], rbx
@@ -124,9 +103,36 @@ getrip:
         pop rbx            ; rflags
         mov [rax+FRAME_FLAGS*8], rbx
         pop rbx            ; rsp?
-        mov [rax+FRAME_RSP*8], rbx  ; 
-                           ; ss plus padding at the top  
+        mov [rax+FRAME_RSP*8], rbx  
+        pop rbx            ; ss         
         call common_handler
+
+        ;; try to unify the interrupt and syscall paths
+        ;; could always use iret?
+global frame_return
+frame_return:
+        mov rax, [frame]        
+        mov rbx, [rax+FRAME_RBX*8]
+        mov rcx, [rax+FRAME_RCX*8]
+        mov rdx, [rax+FRAME_RDX*8]
+        mov rbp, [rax+FRAME_RBP*8]
+        mov rsi, [rax+FRAME_RSI*8]
+        mov rdi, [rax+FRAME_RDI*8]
+        mov r8, [rax+FRAME_R8*8]
+        mov r9, [rax+FRAME_R9*8]
+        mov r10, [rax+FRAME_R10*8]
+        mov r11, [rax+FRAME_R11*8]
+        mov r12, [rax+FRAME_R12*8]
+        mov r13, [rax+FRAME_R13*8]
+        mov r14, [rax+FRAME_R14*8]
+        mov r15, [rax+FRAME_R15*8]
+        push qword 0x10     ; ss - should be 0x10? pp 293
+        push qword [rax+FRAME_RSP*8]      ; rsp
+        push qword [rax+FRAME_FLAGS*8]   ; rflags
+        push qword 0x08   ; cs        
+        push qword [rax+FRAME_RIP*8]   ; rip
+        mov rax, [rax+FRAME_RAX*8]
+        iretq
 
 geterr:
         pop rbx            ; error code - put this in the frame
@@ -144,7 +150,7 @@ vectors:
         %assign i 0                
         %rep interrupts
         interrupt %+ i:
-        push dword i
+        push qword i
         jmp interrupt_common
         %assign i i+1        
         %endrep

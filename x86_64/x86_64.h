@@ -17,7 +17,6 @@ extern void write_msr(u64, u64);
 extern u64 read_xmsr(u64);
 extern void write_xmsr(u64, u64);
 extern void syscall_enter();
-extern u64 *frame;
 
 #define HUGE_PAGESIZE 0x100000000ull
 
@@ -34,33 +33,11 @@ static inline void disable_interrupts()
 
 // belong here? share with nasm
 // currently maps to the linux gdb frame layout for convenience
-// could use a map
-#define FRAME_RAX 0
-#define FRAME_SYSCALL 0
-#define FRAME_RBX 1
-#define FRAME_RCX 2
-#define FRAME_RDX 3
-#define FRAME_RSI 4
-#define FRAME_RDI 5
-#define FRAME_RBP 6
-#define FRAME_RSP 7
-#define FRAME_R8  8
-#define FRAME_R9  9 
-#define FRAME_R10 10
-#define FRAME_R11 11
-#define FRAME_R12 12
-#define FRAME_R13 13
-#define FRAME_R14 14
-#define FRAME_R15 15
-#define FRAME_RIP 17
-#define FRAME_FLAGS 18
-#define FRAME_VECTOR 19 
-#define FRAME_FS 20
-#define FRAME_GS 21
-//  xmm?
-#define REG_MAX 27
+#include <frame.h>
 
-typedef u64 context[REG_MAX];
+typedef u64 context[FRAME_MAX];
+
+extern u64 *frame;
 
 boolean breakpoint_insert(u32 a);
 boolean breakpoint_remove(u32 a);

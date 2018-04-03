@@ -15,6 +15,7 @@ stage3: stage3.o $(RUNTIME) $(VIRTIO) $(NETOBJ) $(VIRTIO_NET) $(X86_64_OBJ) $(SY
 .c.o:
 	cc $(INCLUDES) -O -nostdinc -fno-stack-protector $< -c
 
+# fix the frame nasm clean
 clean:
-	rm -f *.o *~ stage3
+	rm -f *.o *~ stage3 frame_nasm.h
 
