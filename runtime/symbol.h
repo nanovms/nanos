@@ -20,8 +20,9 @@ static inline vector tuple_vector(heap h, tuple t)
     void *x;
     vector v = allocate_vector(h, table_elements(t));
     little_stack_buffer(num, 50);
-    
-    for (int i = 0; format_number(num, i, 10, 1), x = table_find(t, sym(num)); i++)
+
+    for (int i = 0; buffer_clear(num), format_number(num, i, 10, 1), x = table_find(t, intern(num)); i++)
         vector_push(v, x);
+
     return v;
 }

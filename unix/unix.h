@@ -1,6 +1,9 @@
 #include <syscalls.h>
 #include <system_structs.h>
 
+// fix
+#define FDS 128
+
 typedef struct process *process;
 typedef struct thread *thread;
 
@@ -17,8 +20,32 @@ typedef struct thread {
     u64 tid;
 } *thread;
 
-typedef struct process *process;
 
 typedef closure_type(io, int, void *, u64 length, u64 offset);
 
+typedef struct file {
+    u64 offset; 
+    io read, write;
+    node n;
+} *file;
+
+typedef struct process {
+    heap h, pages, physical;
+    int pid;
+    node filesystem;
+    // could resize w/ a vector
+    struct file files[FDS];
+    void *brk;
+    heap virtual;
+    heap virtual32;    
+    heap fdallocator;
+    node cwd; // need to generate the canonical unix path for a node
+    table futices;
+    fault_handler handler;
+} *process;
+
+
+
 void init_unix(heap);
+extern thread current;
+void run_unix();

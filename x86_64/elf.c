@@ -7,16 +7,16 @@
 #define trim(x) ((x) & ~MASK(PAGELOG))
 
 // buffer would be better for range checking, but stage2 uses this
-void *load_elf(void *base, u64 offset, heap pages, heap bss)
+void *load_elf(buffer elf, u64 offset, heap pages, heap bss)
 {
-    Elf64_Ehdr *elfh = base;
+    Elf64_Ehdr *elfh = buffer_ref(elf, 0);
 
     for (int i = 0; i< elfh->e_phnum; i++){
-        Elf64_Phdr *p = elfh->e_phoff + base + i * elfh->e_phentsize;
+        Elf64_Phdr *p = buffer_ref(elf, elfh->e_phoff + i * elfh->e_phentsize);
         if (p->p_type == PT_LOAD) {
             // unaligned segment? uncool bro
             u64 aligned = trim(p->p_vaddr);
-            u64 phy = physical_from_virtual(base+p->p_offset);
+            u64 phy = physical_from_virtual(buffer_ref(elf, p->p_offset));
             int ssize = pad(p->p_memsz + (p->p_vaddr - trim (p->p_vaddr)), PAGESIZE);
             map(aligned+offset, phy, ssize, pages);
 
@@ -24,6 +24,7 @@ void *load_elf(void *base, u64 offset, heap pages, heap bss)
             u64 bss_start = p->p_vaddr + offset + p->p_filesz;
             u32 bss_size = p->p_memsz-p->p_filesz;            
             u64 initial_len = pad(bss_start, PAGESIZE) - bss_start;
+
             vpzero(pointer_from_u64(bss_start), phy + p->p_filesz, initial_len);
 
             if (bss_size > initial_len) {
@@ -31,7 +32,7 @@ void *load_elf(void *base, u64 offset, heap pages, heap bss)
                 u32 new_pages = pad((bss_size-initial_len), PAGESIZE);
                 u64 phys = allocate_u64(bss, new_pages);
                 map(pstart, phys, new_pages, pages);
-                vpzero(pstatr, phys, new_pages);
+                vpzero(pstart, phys, new_pages);
             }
         }
     }

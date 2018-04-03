@@ -1,31 +1,12 @@
 #include <sruntime.h>
 #include <unix.h>
+// fix config/build, remove this include to take off network
+#include <net.h>
 
 static heap processes;
 
-typedef struct file {
-    u64 offset; 
-    io read, write;
-    node n;
-} *file;
-
 typedef vector runqueue;
 static runqueue runnable;
-
-#define NUMBER_OF_FDS 32
-typedef struct process {
-    heap h, pages, physical;
-    int pid;
-    node filesystem;
-    // could resize
-    struct file files[NUMBER_OF_FDS];
-    void *brk;
-    heap virtual;
-    heap virtual32;    
-    heap fdallocator;
-    node cwd; // need to generate the canonical unix path for a node
-    table futices;
-} *process;
 
 thread current;
 
@@ -443,8 +424,8 @@ int getrlimit(int resource, struct rlimit *rlim)
         rlim->rlim_max = 2*1024*1024;
         return 0;
     case RLIMIT_NOFILE:
-        rlim->rlim_cur = NUMBER_OF_FDS;
-        rlim->rlim_max = NUMBER_OF_FDS;
+        rlim->rlim_cur = FDS;
+        rlim->rlim_max = FDS;
         return 0;
     }
     return -1;
@@ -498,6 +479,7 @@ u64 syscall()
 {
     u64 *f = current->frame;
     int call = f[FRAME_VECTOR];
+    rprintf ("syscall: %d\n", call);
     u64 a[6] = {f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]};
     switch (call) {
     case SYS_read: return read(a[0],pointer_from_u64(a[1]), a[2]);
@@ -532,10 +514,51 @@ u64 syscall()
     case SYS_exit: QEMU_HALT();
 
     default:
+#ifdef NET_SYSCALLS
+        return net_syscall(call, a);
+#endif        
         //        rprintf("syscall %d %p %p %p\n", call, a[0], a[1], a[2]);
-        return (0);
+        return (-ENOENT);
     }
 }
+
+CLOSURE_0_1(default_fault_handler, void, context);
+
+void default_fault_handler(context frame)
+{
+
+    u64 v = frame[FRAME_VECTOR];
+    console(interrupt_name(v));
+    console("\n");
+    
+    // page fault
+    if (v == 14)  {
+        u64 fault_address;
+        mov_from_cr("cr2", fault_address);
+        console("address: ");
+        print_u64(fault_address);
+        console("\n");
+    }
+
+    for (int j = 0; j< 18; j++) {
+        console(register_name(j));
+        console(": ");
+        print_u64(frame[j]);
+        console("\n");        
+    }
+
+#if 0        
+    u64 *stack = pointer_from_u64(frame[FRAME_RSP]);
+    for (int j = 0; (frame[FRAME_RSP] + 8*j)  & MASK(15); j++) {
+        print_u64(u64_from_pointer(stack + j));
+        console (" ");
+        print_u64(stack[j]);
+        console("\n");        
+    }
+#endif            
+    QEMU_HALT();
+}
+
 
 extern u64 *frame;
 void run(thread t)
@@ -576,7 +599,6 @@ static boolean futex_key_equal(void *a, void *b)
     return a == b;
 }
 
-
 process create_process(heap h, heap pages, heap physical, node filesystem)
 {
     process p = allocate(h, sizeof(struct process));
@@ -585,7 +607,7 @@ process create_process(heap h, heap pages, heap physical, node filesystem)
     // stash end of bss? collisions?
     p->brk = pointer_from_u64(0x8000000);
     p->pid = allocate_u64(processes, 1);
-    // allocate main thread, setup context, run main thread
+    // xxx - take from virtual allocator
     p->virtual = create_id_heap(h, 0x7000000000ull, 0x10000000000ull, 0x100000000);
     p->virtual32 = create_id_heap(h, 0x10000000, 0xe0000000, PAGESIZE);
     p->pages = pages;
@@ -594,6 +616,7 @@ process create_process(heap h, heap pages, heap physical, node filesystem)
     p->files[1].write = closure(h, stdout);    
     p->files[2].write = closure(h, stdout);
     p->futices = allocate_table(h, futex_key_function, futex_key_equal);
+    p->handler = closure(h, default_fault_handler);
     return p;
 }
 
@@ -603,4 +626,12 @@ void init_unix(heap h)
     // could wrap this in a 'system'
     processes = create_id_heap(h, 1, 65535, 1);
     runnable = allocate_runqueue(h);
+}
+
+void run_unix()
+{
+    while(1)  {
+        run_queue(runnable);
+        __asm__("hlt");
+    }
 }

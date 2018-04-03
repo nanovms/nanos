@@ -5,5 +5,5 @@
 /environment/foo bar
 /environment/bar baz
 /program /hw
-/args/0 /aggo
-/args/1 /hw.bytes
+/arguments/0 /aggo
+/arguments/1 /hw.bytes

@@ -1,3 +1,5 @@
+#include <sruntime.h>
+#include <unix.h>
 
 typedef struct handler {
     char *name;
@@ -13,6 +15,7 @@ typedef struct gdb {
     buffer_handler output_handler;
     // the suspended thread
     context registers;
+    process p;
 } *gdb;
 
 static inline s8 digit_of(character x)

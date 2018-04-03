@@ -168,7 +168,7 @@ READ_BE(16)
 static inline void buffer_write_le64(buffer b, u64 v)
 {
     buffer_extend(b, sizeof(u64));
-    *(u64 *)buffer_ref(b, b->end) = v;
+    *(u64 *)(b->contents + b->end) = v;
     b->end += sizeof(u64);
 }
 

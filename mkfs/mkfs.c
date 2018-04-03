@@ -54,7 +54,6 @@ static u64 serialize(buffer b,
                      table symbols)
 {
     int tlen = table_elements(t);
-    table_foreach (t, n, v) if (n == sym(file)) tlen+=1;
     u64 result = b->end;
     push_varint(b, tlen);
     struct buffer here;
@@ -66,14 +65,10 @@ static u64 serialize(buffer b,
 
     table_foreach (t, n, v) {
         buffer nb = *(buffer *)n;
-        
         if (n == sym(file)) {
             buffer_write_le32(&here, sintern(b, symbols, sym(contents)));
             relocation r = allocate(h, sizeof(struct relocation));
             r->offset = here.end; here.end += 4;
-            // push a an extra length property .. this needs to be
-            // an actual value and not encoded over the offset
-            buffer_write_le32(&here, sintern(b, symbols, sym(length)));
             r->length = here.end; here.end += 4;            
             r->name = v;
             vector_push(file_relocations, r);
@@ -83,9 +78,13 @@ static u64 serialize(buffer b,
                 // storage byte tuple could be 32 bit aligned.
                 buffer_write_le32(&here, serialize(b, h, v, file_relocations, symbols)|
                                   (storage_type_tuple << STORAGE_TYPE_OFFSET));
+                buffer_write_le32(&here, 0);
             } else {
-                u32 off =  sintern(b, symbols, intern(v));
-                buffer_write_le32(&here,off | (storage_type_unaligned << STORAGE_TYPE_OFFSET));
+                u32 len = buffer_length(v);
+                u32 off = b->end;
+                buffer_append(b, buffer_ref(v, 0), len);
+                buffer_write_le32(&here, off | (storage_type_unaligned << STORAGE_TYPE_OFFSET));
+                buffer_write_le32(&here, len);
             }
         }
     }
@@ -129,8 +128,10 @@ static void resolve_files(heap h, buffer b, vector file_relocations)
     vector_foreach(i, file_relocations) {
         if (!table_find(locations, i)) {
             relocation r = allocate(h, sizeof(struct relocation));
+            u64 len;
             // align?
-            r->offset = read_file(b, i->name, &r->length)  | (storage_type_aligned<<STORAGE_TYPE_OFFSET);
+            r->offset = read_file(b, i->name, &len)  | (storage_type_aligned<<STORAGE_TYPE_OFFSET);
+            r->length = len;
             table_set(locations, i->name, r);
         }
     }
@@ -163,7 +164,7 @@ static table parse_mappings(heap h, buffer desc)
             if (!(children = table_find(here, sym(children)))) 
                 table_set(here, sym(children), children = allocate_tuple());
             buffer p = vector_pop(path);
-            if (!(here = table_find(children, p))) {
+            if (!(here = table_find(children, intern(p)))) {
                 table_set(children, intern(p), here = allocate_tuple());
             }
         }

@@ -131,5 +131,5 @@ boolean validate_virtual(void *base, u64 length);
 #ifndef vpzero
 // a super sad hack to allow us to write to the bss in elf.c as
 // phy instead of virt
-#define vpzero(__p, __v, __y) zero(pointer_from_u64(__v), __y)
+#define vpzero(__v, __p, __y) zero(pointer_from_u64(__v), __y)
 #endif

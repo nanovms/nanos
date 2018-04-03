@@ -14,7 +14,6 @@ void format_number(buffer s, u64 x, int base, int pad);
 
 #include <table.h>
 #include <vector.h>
-#include <symbol.h>
 
 typedef buffer string;
 
@@ -43,12 +42,11 @@ static inline void rprintf(char *format, ...)
     debug(&b);
 }
 
-typedef table node;
-void *load_elf(void *base, u64 offset, heap pages, heap bss);
-#include <storage.h>
-    
-typedef table tuple;
+#include <symbol.h>
 
+typedef table node;
+#include <storage.h>
+typedef table tuple;
 typedef u64 ticks;
 
 

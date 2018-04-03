@@ -62,7 +62,7 @@ static void rolling_destroy(rolling c)
 heap allocate_rolling_heap(heap p)
 {
     rolling l = allocate(p, sizeof(struct rolling));
-    
+    rprintf("rolllo %p\n", l);
     l->h.alloc = rolling_alloc;
     l->h.dealloc = rolling_free;
     l->h.pagesize = 1; 

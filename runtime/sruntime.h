@@ -28,9 +28,12 @@ static vector node_vector(heap h, buffer n)
 static tuple resolve_path(tuple n, vector v)
 {
     buffer i;
-    // check if tuple
-    vector_foreach(i, v) 
-        n = (tuple)table_find(n, intern(i));
+    // xx destructive, relative
+    vector_pop(v);
+    vector_foreach(i, v) {
+        tuple c = table_find(n, sym(children));
+        n = table_find(c, intern(i));
+    }
     return n;
 }
 
@@ -50,3 +53,4 @@ static inline void haltf(char *f, ...)
     QEMU_HALT();
 }
 
+typedef closure_type(fault_handler, void, context);

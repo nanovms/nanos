@@ -9,10 +9,10 @@ extern frame
 %define FRAME_RBX 1
 %define FRAME_RCX 2
 %define FRAME_RDX 3
-%define FRAME_RBP 4
-%define FRAME_RSP 5
-%define FRAME_RSI 6
-%define FRAME_RDI 7
+%define FRAME_RSI 4
+%define FRAME_RDI 5
+%define FRAME_RBP 6
+%define FRAME_RSP 7
 %define FRAME_R8 8
 %define FRAME_R9 9 
 %define FRAME_R10 10
@@ -25,6 +25,7 @@ extern frame
 %define FRAME_RIP 17
 %define FRAME_FLAGS 18
 %define FRAME_FS 19
+%define FRAME_GS 20
 %define FS_MSR 0xc0000100
         
 ;;; optimize and merge - frame is loaded into rbx
@@ -90,25 +91,25 @@ extern common_handler
 interrupt_common:
         push rax
         mov rax, [frame]
-        mov [rax+8], rbx
-        mov [rax+16], rcx
-        mov [rax+24], rdx
-        mov [rax+32], rbp
-        mov [rax+40], rsp   ;ehh, off by 16 plus the stack frame
-        mov [rax+48], rsi
-        mov [rax+56], rdi
-        mov [rax+64], r8
-        mov [rax+72], r9
-        mov [rax+80], r10
-        mov [rax+88], r11
-        mov [rax+96], r12
-        mov [rax+104], r13
-        mov [rax+112], r14
-        mov [rax+120], r15
+        mov [rax+FRAME_RBX*8], rbx
+        mov [rax+FRAME_RCX*8], rcx
+        mov [rax+FRAME_RDX*8], rdx
+        mov [rax+FRAME_RSP*8], rsp   ;ehh, off by 16 plus the stack frame
+        mov [rax+FRAME_RSI*8], rsi
+        mov [rax+FRAME_RDI*8], rdi
+        mov [rax+FRAME_RBP*8], rbp
+        mov [rax+FRAME_R8*8], r8
+        mov [rax+FRAME_R9*8], r9
+        mov [rax+FRAME_R10*8], r10
+        mov [rax+FRAME_R11*8], r11
+        mov [rax+FRAME_R12*8], r12
+        mov [rax+FRAME_R13*8], r13
+        mov [rax+FRAME_R14*8], r14
+        mov [rax+FRAME_R15*8], r15
         pop rbx            ; actually eax
         mov [rax], rbx
         pop rbx            ; vector
-        mov [rax+128], rbx
+        mov [rax+FRAME_VECTOR*8], rbx
         
         ;;  could avoid this branch with a different inter layout - write as different handler
         cmp rbx, 0xe
@@ -118,41 +119,15 @@ interrupt_common:
         
 getrip:
         pop rbx            ; eip
-        mov [rax+136], rbx
+        mov [rax+FRAME_RIP*8], rbx
         pop rbx            ; discard cs
         pop rbx            ; rflags
-        mov [rax+144], rbx
+        mov [rax+FRAME_FLAGS*8], rbx
         pop rbx            ; rsp?
-        mov [rax+40], rbx  ; 
+        mov [rax+FRAME_RSP*8], rbx  ; 
                            ; ss plus padding at the top  
         call common_handler
 
-;; use run_frame
-global frame_return
-frame_return:
-        mov rax, [frame]
-        mov rbx, [rax+8]
-        mov rcx, [rax+16]
-        mov rdx, [rax+24]
-        mov rbp, [rax+32]
-        mov rsi, [rax+48]
-        mov rdi, [rax+56]
-        mov r8, [rax+64]
-        mov r9, [rax+72]
-        mov r10, [rax+80]
-        mov r11, [rax+88]
-        mov r12, [rax+96]
-        mov r13, [rax+104]
-        mov r14, [rax+112]
-        mov r15, [rax+120]
-        push qword 0x10     ; ss - should be 0x10? pp 293
-        push qword [rax+40]      ; rsp
-        push qword [rax+144]   ; rflags
-        push qword 0x08   ; cs        
-        push qword [rax+136]   ; rip
-        mov rax, [rax]
-        iretq
-        
 geterr:
         pop rbx            ; error code - put this in the frame
         jmp getrip

@@ -1,30 +1,9 @@
-#include <sruntime.h>
-#include <gdbutil.h>
-
-
-
-// share
-enum regnames {EAX, ECX, EDX, EBX, ESP, EBP, ESI, EDI,
-               RIP,
-               FLAGS,
-	       CS, SS, DS, ES, FS, GS};
-
-
-
-static CLOSURE_1_2(actually, void, buffer, buffer, thunk);
-static void actually(buffer o, buffer d, thunk s)
-{
-    runtime_memcpy(buffer_ref(d, 0),
-                   buffer_ref(o, 0),
-                   buffer_length(o));
-    apply(s);
-}
+#include <gdb_internal.h>
 
 void gdb_send(gdb g, string s)
 {
     apply(g->output_handler, s);
 }
-
 
 int signalmap[]={8, 5, 0, 5, 16, 16, 4, 8, 7, 11, 11, 11, 11, 11, 11, 0, 7};
 
@@ -37,9 +16,13 @@ int computeSignal (int exceptionVector)
 
 static int sigval;
 
-void gdb_handle_exception (gdb g, int exceptionVector, context c)
+CLOSURE_1_1(gdb_handle_exception, void, gdb, context);
+
+void gdb_handle_exception (gdb g, context frame)
 {
-    sigval = computeSignal (exceptionVector);
+    int exceptionVector = frame[FRAME_VECTOR];
+    
+    sigval = computeSignal(exceptionVector);
     reset_buffer(g->output);
     /*
       byte swap
@@ -313,8 +296,9 @@ static void gdbserver_input(gdb g, buffer b)
 
     /* wait around for the start character, ignore all other characters */
     while (buffer_length(b) && ((ch = get_char(b)) != '$')) {
-        if (ch == ASCII_CONTROL_C) {
-            gdb_handle_exception(g, 1, g->registers);
+        if (ch == ASCII_CONTROL_C) { //wth?
+        //        gdb_handle_exception(g, 1, g->registers);
+            rprintf ("control-c\n");
             return;
         }
     }
@@ -351,8 +335,8 @@ static void gdbserver_input(gdb g, buffer b)
     }
 }
 
-buffer_handler init_gdb(heap h, 
-                        context *r,
+buffer_handler init_gdb(heap h,
+                        process p,
                         buffer_handler outh)
 {
     gdb g = allocate(h, sizeof(struct gdb));
@@ -362,5 +346,6 @@ buffer_handler init_gdb(heap h,
     g->out = allocate_buffer(h, 256); 
     g->in = allocate_buffer(h, 256);
     g->h = h;
+    p->handler = closure(h, gdb_handle_exception, g);
     return closure(h, gdbserver_input, g);
 }

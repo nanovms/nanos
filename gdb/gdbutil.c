@@ -1,6 +1,4 @@
-#include <sruntime.h>
-#include <gdbutil.h>
-
+#include <gdb_internal.h>
 
 u64 parse_int(buffer b, u32 base, u64 *intValue)
 {

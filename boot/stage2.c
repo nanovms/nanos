@@ -27,16 +27,18 @@ static u64 stage2_allocator(heap h, bytes b)
 // better to start populating the node tree here.
 boolean lookup_kernel(void *fs, u64 *offset, u64 *length)
 {
+    u64 len;
     struct buffer b;
     b.contents = fs;
     b.start = 0;
     u64 off, loff, coff;
-    if (!snode_lookup(&b, "children", &b.start)) return false;
-    if (!snode_lookup(&b, "kernel", &b.start)) return false;
-    if (!snode_lookup(&b, "contents", &coff)) return false;
-    if (!snode_lookup(&b, "length", &loff)) return false;    
+    console("h: ");
+    print_u64(*(u64*)fs);
+    console("\n");
+    if (!snode_lookup(&b, "children", &b.start, length)) return false;
+    if (!snode_lookup(&b, "kernel", &b.start, length)) return false;
+    if (!snode_lookup(&b, "contents", &coff, length)) return false;
     *offset = coff;
-    *length = loff; // this shouldn't be an immediate
     return true;
 }
 
@@ -88,7 +90,14 @@ void centry()
     map(0, 0, 0xa000, pages);
     // tell stage3 that this is off limits..could actually move there
     create_region(0, 0xa0000, REGION_VIRTUAL);
-    void *k = load_elf(kernel, 0, pages, physical);
+    create_region(fs_start, 0, REGION_FILESYSTEM);
+    // wrap
+    struct buffer kb;
+    kb.contents = kernel;
+    kb.start = 0;
+    kb.end = kernel_length;
+    
+    void *k = load_elf(&kb, 0, pages, physical);
     console("running: ");
     print_u64(u64_from_pointer(k));
     console("\n");    

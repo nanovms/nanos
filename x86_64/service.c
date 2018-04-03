@@ -56,15 +56,16 @@ static heap physically_backed(heap meta, heap virtual, heap physical, heap pages
 }
 
 
-static CLOSURE_5_0(read_complete, void, void *, u64, heap, heap, heap);
-static void read_complete(void *target, u64 length, heap pages, heap general, heap physical)
+static CLOSURE_6_0(read_complete, void, void *, u64, heap, heap, heap, heap);
+static void read_complete(void *target, u64 length, heap pages, heap general, heap physical, heap virtual)
 {
+    rprintf("read complete %p %p %p\n", physical_from_virtual(target), target, *(u64 *)target);
     buffer b = allocate_buffer(general, length);
     b->contents = target;
     b->start = 0;
     b->end = length;
-    rprintf("read complete %p %x\n", physical_from_virtual(target), *(u64 *)target);
-    startup(pages, general, physical, b);
+    rprintf ("pog: %p\n", b);
+    startup(pages, general, physical, virtual, b);
 }
 
 
@@ -72,7 +73,7 @@ static void read_complete(void *target, u64 length, heap pages, heap general, he
 extern u64 storage_length;
 
 // init linker set
-void init_service(u64 passed_base)
+void init_service()
 {
     struct heap bootstrap;
 
@@ -89,24 +90,36 @@ void init_service(u64 passed_base)
     // on demand stack allocation
     u64 stack_size = 32*PAGESIZE;
     u64 stack_location = allocate_u64(backed, stack_size);
-    stack_location += stack_size -8;
+    stack_location += stack_size - 16;
     asm ("mov %0, %%rsp": :"m"(stack_location));
 
+    // stack was here, map this invalid so we get crashes
+    // in the appropriate place
+    map(0, INVALID_PHYSICAL, PAGESIZE, pages);
+    
     // rdtsc is corrupting something oddly
     //    init_clock(backed);
 
     heap misc = allocate_rolling_heap(backed);
     start_interrupts(pages, misc, physical);
-
+    init_symbols(misc);
     init_pci(misc);    
     init_virtio_storage(misc, backed, pages, virtual);
     init_virtio_network(misc, backed, pages);            
     pci_discover(pages, virtual);
     enable_interrupts();
 
-    u64 len = storage_length;
+    rprintf ("zig\n");
+    u64 fs_offset;
+    for (region e = regions; region_type(e); e -= 1) {
+        if (region_type(e) == REGION_FILESYSTEM)
+            fs_offset = region_base(e);
+    }
+    u64 len = storage_length - fs_offset;
     void *k = allocate(virtual, len);
     map(u64_from_pointer(k), allocate_u64(physical, len), len, pages);
-    storage_read(k, 0, len, closure(backed, read_complete, k, len, pages, backed, physical));
+    void *z = closure(misc, read_complete, k, len, pages, backed, physical, virtual);
+    rprintf ("what: %p\n", z);
+    storage_read(k, fs_offset, len, z);
     while (1) __asm__("hlt");
 }

@@ -3,7 +3,7 @@
 #include <booto.h>
 
 
-void *load_elf(void *base, u64 offset, heap pages, heap bss);
+void *load_elf(buffer, u64 offset, heap pages, heap bss);
 #define mov_to_cr(__x, __y) __asm__("mov %0,%%"__x: :"a"(__y):);
 #define mov_from_cr(__x, __y) __asm__("mov %%"__x", %0":"=a"(__y):);
 

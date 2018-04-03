@@ -1,11 +1,11 @@
 #include <sruntime.h>
 
-
 // coordinate with crt0
 extern u32 interrupt_size;
 extern void *interrupt0, *interrupt1;
 static u64 *idt;
 
+// tuplify these mapping
 static char *interrupts[] = {
     "Divide by 0",
     "Reserved",
@@ -38,11 +38,7 @@ static char *interrupts[] = {
     "reserved 1c",
     "reserved 1d",
     "reserved 1e",
-    "reserved 1f",
-    "timer", // 0x20
-    "vq0", // 0x21
-    "vq1", // 0x22
-    "vq2"};    // 0x23
+    "reserved 1f"};
 
 
 // we build the actual idt dynamically because the address
@@ -51,6 +47,11 @@ static char *interrupts[] = {
 // to fill it in (by aligning the handler base, assigning
 // it a section, etc)
 
+
+char *interrupt_name(u64 s)
+{
+    return(interrupts[s]);
+}
 
 
 void write_idt(u64 *idt, int interrupt, void *hv)
@@ -68,6 +69,7 @@ void write_idt(u64 *idt, int interrupt, void *hv)
     target[1] = h >> 32; // rest must be zero
 }
 
+// tuplify
 static char* textoreg[] = {
     "rax", //0 - if we could share an ennumeration with nasm
     "rbx", //1
@@ -90,9 +92,14 @@ static char* textoreg[] = {
     "flags", //18
 };
 
-u64 * frame;
+char *register_name(u64 s)
+{
+    return(textoreg[s]);
+}
 
+u64 * frame;
 static thunk *handlers;
+fault_handler current_fh;
 
 void *apic_base = (void *)0xfee00000;
 
@@ -103,6 +110,7 @@ void lapic_eoi()
 
 void common_handler()
 {
+    // current ->frame?
     int i = frame[16];
     u64 z;
     
@@ -110,33 +118,7 @@ void common_handler()
         apply(handlers[i]);
         lapic_eoi();
     } else {
-        if (i < 25) {
-            console(interrupts[frame[16]]);
-            console("\n");
-            // page fault
-            if (i == 14)  {
-                u64 fault_address;
-                mov_from_cr("cr2", fault_address);
-                console("address: ");
-                print_u64(fault_address);
-                console("\n");
-            }
-        } 
-        for (int j = 0; j< 18; j++) {
-            console(textoreg[j]);
-            console(": ");
-            print_u64(frame[j]);
-            console("\n");        
-        }
-
-        u64 *stack = pointer_from_u64(frame[FRAME_RSP]);
-        for (int j = 0; (frame[FRAME_RSP] + 8*j)  & MASK(15); j++) {
-            print_u64((frame[FRAME_RSP] + 8*j)  & MASK(15));
-            console (" ");
-            print_u64(stack[j]);
-            console("\n");        
-        }
-        QEMU_HALT();
+        if (i < 25) apply(current_fh, frame);
     }
 }
 

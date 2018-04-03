@@ -33,8 +33,10 @@ static storage st;
 static CLOSURE_3_1(complete, void, storage, thunk, u8 *, u64);
 static void complete(storage s, thunk f, u8 *status, u64 len)
 {
-    console("storage complete interrupt\n");
-    rprintf("a %x %d\n", len, *status);
+    console("storage complete interrupt ");
+    print_u64(u64_from_pointer(f));
+    console("\n");    
+    rprintf("a %x %d %p\n", len, *status, f);
     apply(f);
     //    s->command->avail->flags &= ~VRING_AVAIL_F_NO_INTERRUPT;
     // used isn't valid?
@@ -43,12 +45,15 @@ static void complete(storage s, thunk f, u8 *status, u64 len)
 
 void storage_read(void *target, u64 offset, u64 size, thunk complete)
 {
-    rprintf("len: %x %p\n", offset, size);
-    // what size is this really?
+    // this is actually in the config block if we can figure out how to read it    
+    u64 sector_size = 512;
+    rprintf("len: %x %x %x\n", offset, size, complete);
     int status_size = 1;
-    struct virtio_blk_req *r = allocate(st->v->contiguous, sizeof(struct virtio_blk_req) + status_size);
-    r->type = VIRTIO_BLK_T_IN;
-    r->sector = 0;
+    int header_size = 16;
+    void *r = allocate(st->v->contiguous, header_size + status_size);
+    *(u32 *)r = VIRTIO_BLK_T_IN;
+    *(u32 *)(r + 4) = 0;
+    *(u64 *)(r + 8) = offset/sector_size;
     
     void *address[3];
     boolean writables[3];
@@ -65,7 +70,7 @@ void storage_read(void *target, u64 offset, u64 size, thunk complete)
     lengths[index] = size;
     index++;
     
-    address[index] = (void *)r + 16;
+    address[index] = r + header_size;
     writables[index] = true;
     lengths[index] = status_size;
     index++;

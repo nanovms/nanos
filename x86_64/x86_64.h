@@ -32,33 +32,35 @@ static inline void disable_interrupts()
     asm ("cli");
 }
 
-
-
 // belong here? share with nasm
+// currently maps to the linux gdb frame layout for convenience
+// could use a map
 #define FRAME_RAX 0
 #define FRAME_SYSCALL 0
 #define FRAME_RBX 1
 #define FRAME_RCX 2
 #define FRAME_RDX 3
-#define FRAME_RBP 4
-#define FRAME_RSP 5
-#define FRAME_RSI 6
-#define FRAME_RDI 7
-#define FRAME_R8 8
-#define FRAME_R9 9 
+#define FRAME_RSI 4
+#define FRAME_RDI 5
+#define FRAME_RBP 6
+#define FRAME_RSP 7
+#define FRAME_R8  8
+#define FRAME_R9  9 
 #define FRAME_R10 10
 #define FRAME_R11 11
 #define FRAME_R12 12
 #define FRAME_R13 13
 #define FRAME_R14 14
 #define FRAME_R15 15
-#define FRAME_VECTOR 16
 #define FRAME_RIP 17
 #define FRAME_FLAGS 18
-#define FRAME_FS 19
-// gs, and xmm
+#define FRAME_VECTOR 19 
+#define FRAME_FS 20
+#define FRAME_GS 21
+//  xmm?
+#define REG_MAX 27
 
-typedef u64 context[20];
+typedef u64 context[REG_MAX];
 
 boolean breakpoint_insert(u32 a);
 boolean breakpoint_remove(u32 a);
@@ -111,3 +113,9 @@ void serial_out(char a);
 boolean valiate_virtual(void *base, u64 length);
 
 #define halt(__m) console(__m); QEMU_HALT();
+
+
+// tuples
+char *interrupt_name(u64 code);
+char *register_name(u64 code);
+
