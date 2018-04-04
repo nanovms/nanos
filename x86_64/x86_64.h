@@ -44,6 +44,7 @@ boolean breakpoint_remove(u32 a);
 
 #define ENTER(frame) __asm__("mov %0, %%rbx"::"g"(frame)); __asm__("jmp frame_enter")
 
+void msi_map_vector(int slot, int msislot, int vector);
 
 static inline void write_barrier()
 {
@@ -95,4 +96,3 @@ boolean valiate_virtual(void *base, u64 length);
 // tuples
 char *interrupt_name(u64 code);
 char *register_name(u64 code);
-

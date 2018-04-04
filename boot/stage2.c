@@ -32,9 +32,6 @@ boolean lookup_kernel(void *fs, u64 *offset, u64 *length)
     b.contents = fs;
     b.start = 0;
     u64 off, loff, coff;
-    console("h: ");
-    print_u64(*(u64*)fs);
-    console("\n");
     if (!snode_lookup(&b, "children", &b.start, length)) return false;
     if (!snode_lookup(&b, "kernel", &b.start, length)) return false;
     if (!snode_lookup(&b, "contents", &coff, length)) return false;
@@ -98,8 +95,5 @@ void centry()
     kb.end = kernel_length;
     
     void *k = load_elf(&kb, 0, pages, physical);
-    console("running: ");
-    print_u64(u64_from_pointer(k));
-    console("\n");    
     run64(u64_from_pointer(k));
 }

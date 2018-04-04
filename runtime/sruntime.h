@@ -5,9 +5,6 @@
 #include <closure_templates.h>
 
 typedef closure_type(buffer_handler, void, buffer);
-void register_interrupt(int vector, thunk t);
-void msi_map_vector(int slot, int vector);
-u8 allocate_msi(thunk h);
 
 static node resolve(buffer n, symbol s)
 {
@@ -53,4 +50,7 @@ static inline void haltf(char *f, ...)
     QEMU_HALT();
 }
 
+// xxx - platform features that use closures in stage3 that cant
+// be exposed to stage2
 typedef closure_type(fault_handler, void, context);
+void configure_timer(time rate, thunk t);

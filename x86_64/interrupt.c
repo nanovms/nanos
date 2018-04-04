@@ -5,6 +5,32 @@ extern u32 interrupt_size;
 extern void *interrupt0, *interrupt1;
 static u64 *idt;
 
+#define APIC_APICID 0x20
+#define APIC_APICVER 0x30
+#define APIC_TASKPRIOR 0x80
+#define APIC_EOI 0x0B0
+#define APIC_LDR 0x0D0
+#define APIC_DFR 0x0E0
+#define APIC_SPURIOUS 0x0F0
+#define APIC_ESR 0x280
+#define APIC_ICRL 0x300
+#define APIC_ICRH 0x310
+#define APIC_LVT_TMR 0x320
+#define APIC_LVT_PERF 0x340
+#define APIC_LVT_LINT0 0x350
+#define APIC_LVT_LINT1 0x360
+#define APIC_LVT_ERR 0x370
+#define APIC_TMRINITCNT 0x380
+#define APIC_TMRCURRCNT 0x390
+#define APIC_TMRDIV 0x3E0
+#define APIC_LAST 0x38F
+#define APIC_DISABLE 0x10000
+#define APIC_SW_ENABLE 0x100
+#define APIC_CPUFOCUS 0x200
+#define APIC_NMI 4<<8
+#define TMR_PERIODIC 0x20000
+#define TMR_BASEDIV (1<< 20)
+    
 // tuplify these mapping
 static char *interrupts[] = {
     "Divide by 0",
@@ -104,31 +130,24 @@ void *apic_base = (void *)0xfee00000;
 
 void lapic_eoi()
 {
+    write_barrier();
     *(unsigned int *)(apic_base +0xb0) = 0;
+    write_barrier();    
 }
 
 void common_handler()
 {
-    console("bip ");
-    print_u64(frame);
-    console ("\n");
     int i = frame[FRAME_VECTOR];
     u64 z;
 
-    console("bap ");
-    print_u64(i);
-    console (" ");
-    print_u64(frame[FRAME_RSP]);    
-    console("\n");
-    
     if ((i < interrupt_size) && handlers[i]) {
         // should we switch to the 'kernel process'?
         apply(handlers[i]);
         lapic_eoi();
     } else {
-        console("zig ");
+        console("fault ");
         fault_handler f = pointer_from_u64(frame[FRAME_FAULT_HANDLER]);
-        print_u64(f);
+        print_u64(u64_from_pointer(f));
         u64 fault_address;
         mov_from_cr("cr2", fault_address);
         console(" ");        
@@ -141,40 +160,34 @@ void common_handler()
             rprintf ("no fault handler\n");
             QEMU_HALT();
         }
-        
         if (i < 25) apply(f, frame);
     }
 }
 
-static u8 unused_msi = 0x1;
-static u8 unused_vector = 34;
+static heap interrupt_vectors;
 
-u8 allocate_msi(thunk h)
+void allocate_msi(int slot, int msi_slot, thunk h)
 {
-    // allocators
-    int v = unused_vector++;
-    int m = unused_msi++;
+    int v = allocate_u64(interrupt_vectors, 1);
     handlers[v] = h;
-    msi_map_vector(m, v);
-    return m; 
+    msi_map_vector(slot, msi_slot, v);
 }
 
+// actually allocate the virtual  - put in the tree
 void enable_lapic(heap pages)
 {
     // there is an msr that moves the physical
     u64 lapic = 0xfee00000;
     
-    // actually allocate the virtual  - put in the tree
     map(u64_from_pointer(apic_base), lapic, PAGESIZE, pages);
     create_region(u64_from_pointer(apic_base), PAGESIZE, REGION_VIRTUAL);
     
     // turn on the svr, then enable three lines
-    // - this could be a little more symbolic
-    *(unsigned int *)(apic_base +0xf0) = *(unsigned int *)(apic_base +0xf0) | 0x100;
+    *(unsigned int *)(apic_base + APIC_SPURIOUS) = *(unsigned int *)(apic_base + APIC_SPURIOUS) | APIC_SW_ENABLE;
 
-    *(unsigned int *)(apic_base + 0x350)= 0x020; //lint0 - int 32
-    *(unsigned int *)(apic_base + 0x360)= 0x400; //lint1 - nmi
-    *(unsigned int *)(apic_base + 0x370)= 0x022; //error - int 34
+    *(u32 *)(apic_base + APIC_LVT_LINT0)= APIC_DISABLE;
+    *(u32 *)(apic_base + APIC_LVT_LINT1)= APIC_DISABLE;
+    *(u32 *)(apic_base + APIC_LVT_ERR)= allocate_u64(interrupt_vectors, 1);
 }
 
 
@@ -184,6 +197,19 @@ void register_interrupt(int vector, thunk t)
     handlers[vector] = t;
 }
 
+void configure_timer(time rate, thunk t)
+{
+    *(u32 *)(apic_base+APIC_TMRDIV) = 3;
+    int v = allocate_u64(interrupt_vectors, 1);
+    *(u32 *)(apic_base+APIC_LVT_TMR) = v | TMR_PERIODIC;
+    *(u32 *)(apic_base + APIC_TMRINITCNT) = 10 * 1000*1000*2;
+    handlers[v] = t;
+    // 3 is 10 ms .. apparently, says who?
+
+}
+
+extern u32 interrupt_size;
+ 
 void start_interrupts(heap pages, heap general, heap contiguous)
 {
     // these are simple enough it would be better to just
@@ -191,7 +217,9 @@ void start_interrupts(heap pages, heap general, heap contiguous)
     int delta = (u64)&interrupt1 - (u64)&interrupt0;
     void *start = &interrupt0;
     handlers = allocate_zero(general, interrupt_size * sizeof(thunk));
-
+    // architectural - end of exceptions
+    u32 vector_start = 0x20;
+    interrupt_vectors = create_id_heap(general, vector_start, interrupt_size - vector_start, 1);
     // assuming contig gives us a page aligned, page padded identity map
     idt = allocate(pages, pages->pagesize);
     frame = allocate(pages, pages->pagesize);

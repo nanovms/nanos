@@ -1,5 +1,7 @@
 #include <sruntime.h>
 
+// maybe really part of x86_64
+
 typedef struct breakpoint {
     u32 address;
     boolean assigned;
@@ -7,7 +9,7 @@ typedef struct breakpoint {
 } *breakpoint;
 
 // there are 7 of these
-static void _b0(u64 z){__asm__("mov %0, %%dr0\n":: "a"(z));}
+static void _b0(u64 a){__asm__("mov %0, %%dr0\n":: "a"(a));}
 static void _b1(u64 a){__asm__("mov %0, %%dr1\n":: "a"(a));}
 static void _b2(u64 a){__asm__("mov %0, %%dr2":: "a"(a));}
 static void _b3(u64 a){__asm__("mov %0, %%dr3":: "a"(a));}

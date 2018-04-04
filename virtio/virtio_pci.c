@@ -49,6 +49,8 @@ static void vtpci_set_status(vtpci dev, u8 status)
     out8(dev->base + VIRTIO_PCI_STATUS, status);
 }
 
+// xxx 
+void allocate_msi(int slot, int msi_slot, thunk h);
 
 status vtpci_alloc_virtqueue(vtpci dev,
                              int idx,
@@ -60,9 +62,9 @@ status vtpci_alloc_virtqueue(vtpci dev,
     thunk handler;
     status s = virtqueue_alloc(dev, idx, size, VIRTIO_PCI_VRING_ALIGN, &vq, &handler);
     if (!is_ok(s)) return s;
-    int msi = allocate_msi(handler);     
+    allocate_msi(dev->slot, idx, handler);     
     out32(dev->base + VIRTIO_PCI_QUEUE_PFN, virtqueue_paddr(vq) >> VIRTIO_PCI_QUEUE_ADDR_SHIFT);
-    out16(dev->base + VIRTIO_MSI_QUEUE_VECTOR, msi);
+    out16(dev->base + VIRTIO_MSI_QUEUE_VECTOR, idx);
     *result = vq;
     return STATUS_OK;
 }
@@ -79,6 +81,7 @@ vtpci attach_vtpci(heap h, heap page_allocator, int bus, int slot, int func, u64
     int rid;
     u32 length;
 
+    dev->slot = slot;
     u32 base = pci_readbar(bus, slot, func, 0, &length);
     dev->base = base & ~1; // io bars have the bottom bit set
     pci_set_bus_master(bus, slot, func);

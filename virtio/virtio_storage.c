@@ -85,7 +85,7 @@ u64 storage_length;
 static void attach(heap general, heap page_allocator, heap pages, heap virtual, int bus, int slot, int function)
 {
     storage s = allocate(general, sizeof(struct virtio_blk_req));
-    s->v = attach_vtpci(general, page_allocator, bus, slot, function);
+    s->v = attach_vtpci(general, page_allocator, bus, slot, function, 0);
     u32 len;
     // bar 1 is is a 4k memory region in the pci gap - to what end?
 

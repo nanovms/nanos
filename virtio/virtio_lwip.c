@@ -81,6 +81,8 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
 
     console("output frame ");
     print_u64(p->tot_len);
+    console (" ");
+    print_u64(p->payload);    
     console("\n");
 
     void *address[3];
@@ -118,17 +120,27 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
 
 static void post_recv(vnet vn);
 
+static void print_block(void *addr, int length)
+{
+    for (int i = 0; i< length; i+=8){
+        print_u64(*(u64 *)(addr+i));
+        console ("\n");
+    }
+}
+
+
 static CLOSURE_2_1(input, void, struct netif *, struct pbuf *, u64);
 static void input(struct netif *n, struct pbuf *p, u64 len)
 {
     struct eth_hdr *ethhdr;
     vnet vn= n->state;
-    console("rx packet: ");
+    console("driver rx packet: ");
     print_u64(len);
     console("\n");
     post_recv(vn);
     if (p != NULL) {
         p->len = len;
+        p->payload += 10;
         if (n->input(p, n) != ERR_OK) {
             LWIP_DEBUGF(NETIF_DEBUG, ("ethernetif_input: IP input error\n"));
             pbuf_free(p);
@@ -140,12 +152,22 @@ static void input(struct netif *n, struct pbuf *p, u64 len)
 static void post_recv(vnet vn)
 {
     u64 len = 1500;
-    console("post recv\n");
     struct pbuf *p = pbuf_alloc(PBUF_RAW, len, PBUF_RAM);
     void *address[] = {p->payload};
     u64 lengths[] = {len};
     boolean writables[] = {true};
     virtqueue_enqueue(vn->rxq, address, lengths, writables, 1, closure(vn->dev->general, input, vn->n, p));    
+}
+
+static void status_callback(struct netif *netif)
+{
+    console("status callback!\n");
+}
+
+static CLOSURE_0_0(timeout, void);
+static void timeout()
+{
+    sys_check_timeouts();
 }
 
 static err_t virtioif_init(struct netif *netif)
@@ -159,6 +181,7 @@ static err_t virtioif_init(struct netif *netif)
     netif->output = etharp_output;
     netif->linkoutput = low_level_output;
     netif->hwaddr_len = ETHARP_HWADDR_LEN;
+    netif->status_callback = status_callback;
     for (int i = 0; i < ETHER_ADDR_LEN; i++) 
         netif->hwaddr[i] =  in8(vn->dev->base+DEVICE_CONFIG_OFFSET+i);
     netif->mtu = 1500;
@@ -167,10 +190,13 @@ static err_t virtioif_init(struct netif *netif)
     /* don't set NETIF_FLAG_ETHARP if this device is not an ethernet one */
     netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_LINK_UP | NETIF_FLAG_UP;
 
+    // fix
     post_recv(vn);
+    post_recv(vn);
+    post_recv(vn);
+    configure_timer(0, closure(vn->dev->general, timeout)); 
     dhcp_start(vn->n); // udp bind failure from dhcp
     
-    // setup sys_check_timeouts() timer
     return ERR_OK;
 }
 

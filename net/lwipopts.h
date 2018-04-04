@@ -10,7 +10,9 @@
 #define LWIP_DHCP 1
 #define MEMP_MEM_MALLOC 1
 typedef unsigned long size_t;
-
+#define LWIP_NETIF_STATUS_CALLBACK 1
+// ehh
+#define LWIP_DHCP_BOOTP_FILE 1
 typedef unsigned long u64_t;
 typedef unsigned u32_t;
 typedef int s32_t;
@@ -51,8 +53,7 @@ extern void console(char *);
 static inline u32_t sys_now(void)
 {
     static int t = 0;
-    console("now\n");
-    return t++;
+    return t+=200;
 }
 
 #define MEM_LIBC_MALLOC 1

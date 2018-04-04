@@ -100,12 +100,9 @@ void pci_cfgwrite(int bus, int slot, int func, int reg, int bytes, u32 source)
 
 void pci_set_bus_master(int bus, int slot, int func)
 {
-    
-    // set bus master
     u16 command = pci_cfgread(bus, slot, func, PCI_COMMAND_REGISTER, 2);
     command |= 4; // bus master
     pci_cfgwrite(bus, slot, func, PCI_COMMAND_REGISTER, 2, command);
-
 }
 
 void msi_format(u32 *address, u32 *data, int vector)
@@ -121,18 +118,18 @@ void msi_format(u32 *address, u32 *data, int vector)
     *data = (trigger << 15) | (level << 14) | (mode << 8) | vector;
 }
 
-static u32 *msi_map;
+// assume the singel bus layout
+static u32 *msi_map[PCI_SLOTMAX];
 
-
-void msi_map_vector(int slot, int vector)
+void msi_map_vector(int slot, int msislot, int vector)
 {
     u32 a, d;
     u32 vector_control = 0;
     msi_format(&a, &d, vector);
-    msi_map[slot*4] = a;
-    msi_map[slot*4 + 1] = 0;
-    msi_map[slot*4 + 2] = d;
-    msi_map[slot*4 + 3] = vector_control;
+    msi_map[slot][msislot*4] = a;
+    msi_map[slot][msislot*4 + 1] = 0;
+    msi_map[slot][msislot*4 + 2] = d;
+    msi_map[slot][msislot*4 + 3] = vector_control;
 }
 
     
@@ -165,8 +162,9 @@ void pci_discover(heap pages, heap virtual)
                     u32 len;
                     u32 vector_base = pci_readbar(0, i, 0, vector_table & 0xff, &len);
                     len = pad(len, PAGESIZE);
-                    msi_map = allocate(virtual, len);
-                    map((u64)msi_map, vector_base, len, pages);
+                    // ?? this is per device, so why is it global? - pass to probe?
+                    msi_map[i] = allocate(virtual, len);
+                    map((u64)msi_map[i], vector_base, len, pages);
                     // qemu gets really* mad if you do this a 16 bit write
                     pci_cfgwrite(0, i, 0, cp+3, 1, 0x80);
                     break;

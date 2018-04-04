@@ -2,6 +2,8 @@
 #include <unix.h>
 #include <pci.h>
 #include <virtio.h>
+#include <gdb.h>
+#include <net.h>
 
 u8 userspace_random_seed[16];
 
@@ -182,14 +184,21 @@ process exec_elf(buffer ex, heap general, heap physical, heap pages, heap virtua
 
     t->frame[FRAME_RSP] = u64_from_pointer(buffer_ref(s, 0));
     // move outside?
+#ifdef NET
+    console("net\n");
+#endif
+#ifdef GDB
+    console("gdb\n");
+#endif        
 #if NET && GDB
-    if (resolve_cstring(fs, "gdb")) {
-        init_tcp_gdb(p, 1234);
+    if (resolve_cstring(fs, "/gdb")) {
+        console ("gdb!\n");
+        init_tcp_gdb(general, p, 1234);
     } else
 #endif
         {
-            // really just put in the run queue
-            run(t);    
+            console ("not gdb!\n");
+            queue_runnable(t);
         }
     return p;    
 }
@@ -207,6 +216,9 @@ void startup(heap pages, heap general, heap physical, heap virtual, buffer stora
     tuple ex = resolve_path(fs, path);
     buffer exc = table_find(ex, sym(contents));
     exec_elf(exc, general, physical, pages, virtual, fs);
+    // xxx - we are running here from storage interrupt context,
+    // and unless we return...it wont get acknowledged.. and irq
+    // wont be set
     run_unix();
 }
 

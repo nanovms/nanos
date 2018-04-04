@@ -38,9 +38,6 @@ static inline boolean snode_lookup(buffer s, char *key, u64 *off, u64 *length)
     b.start = s->start;
 
     u64 count = pop_varint(&b);
-    console("scan ");
-    print_u64(count);
-    console("\n");
     u32 *entries = buffer_ref(&b, 0);
     int klen = runtime_strlen(key);
 

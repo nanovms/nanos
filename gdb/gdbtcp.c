@@ -1,23 +1,40 @@
-#include <sruntime.h>
-#include <gdbutil.h>
+#include <gdb_internal.h>
 
-void gdb_send(pcb *pcb, buffer b)
+typedef struct tcpgdb{
+    buffer_handler input;
+    struct tcp_pcb *p;
+} *tcpgdb;
+    
+static CLOSURE_1_1(gdb_send, void, tcpgdb, buffer);
+static void gdb_send(tcpgdb g, buffer b)
 {
-    lwip_tcp_send();
+    //    u64 len = tcp_sndbuf(g->pcb);
+    // flags can force a stack copy or toggle push
+    err_t err = tcp_write(g->p, buffer_ref(b, 0), buffer_length(b), 0);
 }
 
-void gdb_accept(gdb g, pcb *pcb, buffer b)
+err_t gdb_input(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 {
-    lwip_tcp_send();
+    tcpgdb g = z;
+    console("gdb recv\n");
 }
 
-void init_gdb_tcp(heap h, process p)
+static err_t gdb_accept(void *z, struct tcp_pcb *pcb, err_t b)
 {
-    gdb g = init_gdb();
-    int s = socket(0, 0, 0);
-    bind(s);
-    listen(s, 5);
-    fd = accept();
-    buffer_handler d = init_gdb(heap h, buffer_handler outh);
-        
+    tcpgdb g = z;
+    console("acceptron\n");
+    tcp_recv(pcb, gdb_input);
+    tcp_arg(pcb, g);    
+    return ERR_OK;
+}
+
+// should use unix api?
+void init_tcp_gdb(heap h, process p, u16 port)
+{
+    tcpgdb g = (tcpgdb) allocate(h, sizeof(struct tcpgdb));
+    g->p = tcp_new_ip_type(IPADDR_TYPE_ANY); 
+    g->input = init_gdb(h, p, closure(h, gdb_send, g));
+    err_t err = tcp_bind(g->p, IP_ANY_TYPE, htons(port));
+    g->p = tcp_listen(g->p);
+    tcp_accept(g->p, gdb_accept);    
 }

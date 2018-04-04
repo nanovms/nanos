@@ -49,3 +49,4 @@ typedef struct process {
 void init_unix(heap, heap, heap, tuple);
 extern thread current;
 void run_unix();
+void queue_runnable(thread t);

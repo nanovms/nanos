@@ -1,5 +1,6 @@
 #include <sruntime.h>
 #include <unix.h>
+#include <net.h>
 
 typedef struct handler {
     char *name;
@@ -61,6 +62,8 @@ boolean parse_hex_pair(buffer in, u64 *first, u64 *second);
 boolean mem2hex (string b, void *mem, int count);
 boolean hex2mem (buffer b, void *mem, int count);
 void putpacket(gdb, string b);
-void gdb_send(gdb, string);
 void handle_query(gdb g, buffer b, string out, handler h);
 
+buffer_handler init_gdb(heap h,
+                        process p,
+                        buffer_handler outh);

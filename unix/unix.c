@@ -80,6 +80,11 @@ static int contents_read(node n, void *dest, u64 length, u64 offset)
     return len;
 }
 
+void queue_runnable(thread t)
+{
+    vector_push(runnable, t);
+}
+
 long clone(unsigned long flags, void *child_stack, void *ptid, void *ctid, void *x)
 {
     thread t = create_thread(current->p);

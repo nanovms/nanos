@@ -7,6 +7,7 @@ typedef struct vtpci *vtpci;
 typedef closure_type(vqfinish, void, u64);
 
 struct vtpci {
+    int slot;
     u64 base; //io region base
     u64 vtpci_features;
 

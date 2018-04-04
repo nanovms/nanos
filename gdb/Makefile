@@ -1,5 +1,5 @@
 VPATH += $(ROOT)/gdb
 
-UNIX = breakpoint.o gdbutil.o gdbstub.o
+GDB = gdbutil.o gdbstub.o gdbtcp.o
 
 INCLUDES += -I$(ROOT)/gdb

@@ -75,7 +75,7 @@ void putpacket(gdb g, string b)
     }
     
     bprintf (g->send_buffer, "#%02x", checksum);
-    gdb_send(g, g->send_buffer);
+    apply(g->output_handler, g->send_buffer);
 }
 
 

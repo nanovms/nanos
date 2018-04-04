@@ -56,21 +56,63 @@ static heap physically_backed(heap meta, heap virtual, heap physical, heap pages
 }
 
 
-static CLOSURE_6_0(read_complete, void, void *, u64, heap, heap, heap, heap);
-static void read_complete(void *target, u64 length, heap pages, heap general, heap physical, heap virtual)
+static buffer drive;
+
+static CLOSURE_3_0(read_complete, void, void *, u64, heap);
+static void read_complete(void *target, u64 length, heap general)
 {
     rprintf("read complete %p %p %p\n", physical_from_virtual(target), target, *(u64 *)target);
-    buffer b = allocate_buffer(general, length);
-    b->contents = target;
-    b->start = 0;
-    b->end = length;
-    rprintf ("pog: %p\n", b);
-    startup(pages, general, physical, virtual, b);
+    drive = allocate_buffer(general, length);
+    drive->contents = target;
+    drive->start = 0;
+    drive->end = length;
 }
 
 
 // bad global, put in the filesystem space
 extern u64 storage_length;
+
+void init_service_new_stack(heap pages, heap physical, heap backed, heap virtual)
+{
+    u64 fs_offset;
+    
+    // stack was here, map this invalid so we get crashes
+    // in the appropriate place
+    map(0, INVALID_PHYSICAL, PAGESIZE, pages);
+    
+    // rdtsc is corrupting something oddly
+    //    init_clock(backed);
+
+    heap misc = allocate_rolling_heap(backed);
+    start_interrupts(pages, misc, physical);
+    init_symbols(misc);
+    init_pci(misc);    
+    init_virtio_storage(misc, backed, pages, virtual);
+    init_virtio_network(misc, backed, pages);            
+    pci_discover(pages, virtual);
+
+    rprintf ("zig\n");
+
+    for (region e = regions; region_type(e); e -= 1) {
+        if (region_type(e) == REGION_FILESYSTEM) {
+            fs_offset = region_base(e);
+        }
+    }
+    rprintf ("region done\n");
+    u64 len = storage_length - fs_offset;
+    rprintf ("allocatin\n");
+    void *k = allocate(virtual, len);
+    map(u64_from_pointer(k), allocate_u64(physical, len), len, pages);
+    void *z = closure(misc, read_complete, k, len, backed);
+    rprintf ("what: %p\n", z);
+    storage_read(k, fs_offset, len, z);
+    enable_interrupts();
+    
+    while (!drive) __asm__("hlt");
+    startup(pages, misc, physical, virtual, drive);
+    while (1) __asm__("hlt");    
+}
+
 
 // init linker set
 void init_service()
@@ -92,34 +134,7 @@ void init_service()
     u64 stack_location = allocate_u64(backed, stack_size);
     stack_location += stack_size - 16;
     asm ("mov %0, %%rsp": :"m"(stack_location));
+    init_service_new_stack(pages, physical, backed, virtual); 
+    // locals aren't really valid any more!
 
-    // stack was here, map this invalid so we get crashes
-    // in the appropriate place
-    map(0, INVALID_PHYSICAL, PAGESIZE, pages);
-    
-    // rdtsc is corrupting something oddly
-    //    init_clock(backed);
-
-    heap misc = allocate_rolling_heap(backed);
-    start_interrupts(pages, misc, physical);
-    init_symbols(misc);
-    init_pci(misc);    
-    init_virtio_storage(misc, backed, pages, virtual);
-    init_virtio_network(misc, backed, pages);            
-    pci_discover(pages, virtual);
-    enable_interrupts();
-
-    rprintf ("zig\n");
-    u64 fs_offset;
-    for (region e = regions; region_type(e); e -= 1) {
-        if (region_type(e) == REGION_FILESYSTEM)
-            fs_offset = region_base(e);
-    }
-    u64 len = storage_length - fs_offset;
-    void *k = allocate(virtual, len);
-    map(u64_from_pointer(k), allocate_u64(physical, len), len, pages);
-    void *z = closure(misc, read_complete, k, len, pages, backed, physical, virtual);
-    rprintf ("what: %p\n", z);
-    storage_read(k, fs_offset, len, z);
-    while (1) __asm__("hlt");
 }
