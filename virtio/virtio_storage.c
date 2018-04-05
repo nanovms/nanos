@@ -33,10 +33,6 @@ static storage st;
 static CLOSURE_3_1(complete, void, storage, thunk, u8 *, u64);
 static void complete(storage s, thunk f, u8 *status, u64 len)
 {
-    console("storage complete interrupt ");
-    print_u64(u64_from_pointer(f));
-    console("\n");    
-    rprintf("a %x %d %p\n", len, *status, f);
     apply(f);
     //    s->command->avail->flags &= ~VRING_AVAIL_F_NO_INTERRUPT;
     // used isn't valid?
@@ -47,7 +43,6 @@ void storage_read(void *target, u64 offset, u64 size, thunk complete)
 {
     // this is actually in the config block if we can figure out how to read it    
     u64 sector_size = 512;
-    rprintf("len: %x %x %x\n", offset, size, complete);
     int status_size = 1;
     int header_size = 16;
     void *r = allocate(st->v->contiguous, header_size + status_size);

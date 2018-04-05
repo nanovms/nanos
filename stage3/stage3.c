@@ -85,16 +85,13 @@ static void build_exec_stack(buffer s, heap general, vector argv, node env, vect
     s->start = s->end = s->length - length *8;
     buffer_write_le64(s, vector_length(argv));
     tuple i;
-    vector_foreach(i, argv) {
-        rprintf ("arg: %b\n", contents(i));
+    vector_foreach(i, argv) 
         buffer_write_le64(s, u64_from_pointer(aprintf(general, "%b\0\n", contents(i))->contents));
-    }
     
     buffer_write_le64(s, 0);
 
     table_foreach(env, n, v) {
         buffer binding = aprintf(general, "%b=%b\0\n", symbol_string(n), contents(v));
-        rprintf ("env binding: %b\n", binding);
         buffer_write_le64(s, u64_from_pointer(binding->contents));
     }
     buffer_write_le64(s, 0);
@@ -111,6 +108,7 @@ static void build_exec_stack(buffer s, heap general, vector argv, node env, vect
 // fused buffer wrap, split, and resolve
 static tuple resolve_cstring(tuple root, char *f)
 {
+    //    console("heffe\n");    
     little_stack_buffer(a, 50);
     char *x = f;
     tuple t = root;
@@ -118,16 +116,18 @@ static tuple resolve_cstring(tuple root, char *f)
         buffer_clear(a);
         a->start = a->end = 0;
         while (*x &&(*x != '/')) push_character(a, *x++);
-        if (buffer_length(a)) 
-            t = table_find(children(t), intern(a));
+        if (buffer_length(a)) {
+            void *c = children(t);
+            if (!c) return c;
+            t = table_find(c, intern(a));
+            if (!t) return t;            
+        }
     }
     return t;
 }
 
-// this should be a logical filesystem and not a physical one
 process exec_elf(buffer ex, heap general, heap physical, heap pages, heap virtual, tuple fs)
 {
-    // i guess this is part of fork if we're following the unix model
     process p = create_process(general, pages, physical, fs);
     thread t = create_thread(p);
     void *user_entry = load_elf(ex, 0, pages, physical);        
@@ -157,7 +157,6 @@ process exec_elf(buffer ex, heap general, heap physical, heap pages, heap virtua
             tuple ldso = resolve_path(fs, split(general, nb, '/'));
             u64 where = allocate_u64(virtual, HUGE_PAGESIZE);
             user_entry = load_elf(table_find(ldso, sym(contents)), where, pages, physical);
-            rprintf("interp entry %p\n", user_entry);
         }
     }
 
@@ -184,22 +183,20 @@ process exec_elf(buffer ex, heap general, heap physical, heap pages, heap virtua
 
     t->frame[FRAME_RSP] = u64_from_pointer(buffer_ref(s, 0));
     // move outside?
-#ifdef NET
-    console("net\n");
-#endif
-#ifdef GDB
-    console("gdb\n");
-#endif        
 #if NET && GDB
-    if (resolve_cstring(fs, "/gdb")) {
+    if (resolve_cstring(fs, "gdb")) {
         console ("gdb!\n");
         init_tcp_gdb(general, p, 1234);
+        console ("gdb bound!\n");
+        // stack is apparently corrupted .. figure out
+        while (1) __asm__("hlt");
     } else
 #endif
-        {
-            console ("not gdb!\n");
-            queue_runnable(t);
-        }
+    {
+        console ("not gdb!\n");
+        queue_runnable(t);
+    }
+    console ("pank!\n");    
     return p;    
 }
 

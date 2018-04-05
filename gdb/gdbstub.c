@@ -1,10 +1,5 @@
 #include <gdb_internal.h>
 
-void gdb_send(gdb g, string s)
-{
-    apply(g->output_handler, s);
-}
-
 int signalmap[]={8, 5, 0, 5, 16, 16, 4, 8, 7, 11, 11, 11, 11, 11, 11, 0, 7};
 
 int computeSignal (int exceptionVector)
@@ -43,7 +38,8 @@ static void return_offsets(gdb g, buffer in, string out)
 
 static void return_supported(gdb g, buffer in, string out)
 {
-    putpacket(g, out);
+    // we do this at the end, neh?
+    //    putpacket(g, out);
 }
 
 static void current_thread(gdb g, buffer in, string out)
@@ -293,6 +289,8 @@ static void gdbserver_input(gdb g, buffer b)
 
     reset_buffer(g->out);
     reset_buffer(g->in);
+    
+    rprintf ("gdb input %b\n", b);
 
     /* wait around for the start character, ignore all other characters */
     while (buffer_length(b) && ((ch = get_char(b)) != '$')) {
@@ -329,7 +327,7 @@ static void gdbserver_input(gdb g, buffer b)
         } else {
             push_character(g->out, '+');	/* successful transfer */
         }
-        gdb_send(g, g->out);
+        apply(g->output_handler, g->out);        
         handle_request(g, g->in);
         return;
     }

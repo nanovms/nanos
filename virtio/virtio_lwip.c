@@ -61,6 +61,7 @@ typedef struct vnet {
     struct virtqueue *rxq;
     struct virtqueue *ctl;
     void *empty; // just a map
+    
 } *vnet;
 
 // fix, this per-device offset is variable - 24 with msi
@@ -70,7 +71,7 @@ typedef struct vnet {
 static CLOSURE_1_1(tx_complete, void, struct pbuf *, u64);
 static void tx_complete(struct pbuf *p, u64 len)
 {
-    console("tx complete\n");
+    // free me!
 }
 
 
@@ -78,12 +79,6 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
 {
     vnet vn = netif->state;
     struct pbuf *q;
-
-    console("output frame ");
-    print_u64(p->tot_len);
-    console (" ");
-    print_u64(p->payload);    
-    console("\n");
 
     void *address[3];
     boolean writables[3];
@@ -120,23 +115,11 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
 
 static void post_recv(vnet vn);
 
-static void print_block(void *addr, int length)
-{
-    for (int i = 0; i< length; i+=8){
-        print_u64(*(u64 *)(addr+i));
-        console ("\n");
-    }
-}
-
-
 static CLOSURE_2_1(input, void, struct netif *, struct pbuf *, u64);
 static void input(struct netif *n, struct pbuf *p, u64 len)
 {
     struct eth_hdr *ethhdr;
     vnet vn= n->state;
-    console("driver rx packet: ");
-    print_u64(len);
-    console("\n");
     post_recv(vn);
     if (p != NULL) {
         p->len = len;
@@ -161,7 +144,8 @@ static void post_recv(vnet vn)
 
 static void status_callback(struct netif *netif)
 {
-    console("status callback!\n");
+    u8 *n = &netif->ip_addr;
+    rprintf("assigned: %d.%d.%d.%d\n", n[0], n[1], n[2], n[3]);
 }
 
 static CLOSURE_0_0(timeout, void);
@@ -218,8 +202,6 @@ extern void lwip_init();
 static CLOSURE_2_3(init_vnet, void, heap, heap, int, int, int);
 static void init_vnet(heap general, heap page_allocator, int bus, int slot, int function)
 {
-    console("net device start\n");
-    
     u32 badness = VIRTIO_F_BAD_FEATURE | VIRTIO_NET_F_CSUM | VIRTIO_NET_F_GUEST_CSUM |
         VIRTIO_NET_F_GUEST_TSO4 | VIRTIO_NET_F_GUEST_TSO6 |  VIRTIO_NET_F_GUEST_ECN|
         VIRTIO_NET_F_GUEST_UFO | VIRTIO_NET_F_CTRL_VLAN | VIRTIO_NET_F_MQ;
@@ -232,14 +214,12 @@ static void init_vnet(heap general, heap page_allocator, int bus, int slot, int 
     vn->dev = dev;
     lwip_heap = general;
     lwip_init();
-    console("vnet queues\n");
     vtpci_alloc_virtqueue(dev, 1, &vn->txq);
     vtpci_alloc_virtqueue(dev, 0, &vn->rxq);
     // just need 10 contig bytes really
     vn->empty = allocate(dev->contiguous, dev->contiguous->pagesize);
     for (int i = 0; i < NET_HEADER_LENGTH ; i++)  ((u8 *)vn->empty)[i] = 0;
     vn->n->state = vn;
-    console("netif add\n");    
     netif_add(vn->n,
               0, 0, 0, 
               vn,

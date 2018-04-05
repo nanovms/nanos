@@ -47,11 +47,6 @@ static inline boolean snode_lookup(buffer s, char *key, u64 *off, u64 *length)
         if ((symlen == klen) && compare_bytes(key, buffer_ref(&b, 0), klen)) {
             *off = entries[i*3 + 1] & MASK(STORAGE_TYPE_OFFSET);
             *length = entries[i*3 + 2];
-            console("entry: ");
-            print_u64(*off);
-            console(" ");
-            print_u64(*length);
-            console("\n");            
             return true;
         }
     }

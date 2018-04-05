@@ -61,7 +61,6 @@ static buffer drive;
 static CLOSURE_3_0(read_complete, void, void *, u64, heap);
 static void read_complete(void *target, u64 length, heap general)
 {
-    rprintf("read complete %p %p %p\n", physical_from_virtual(target), target, *(u64 *)target);
     drive = allocate_buffer(general, length);
     drive->contents = target;
     drive->start = 0;
@@ -91,25 +90,25 @@ void init_service_new_stack(heap pages, heap physical, heap backed, heap virtual
     init_virtio_network(misc, backed, pages);            
     pci_discover(pages, virtual);
 
-    rprintf ("zig\n");
-
     for (region e = regions; region_type(e); e -= 1) {
         if (region_type(e) == REGION_FILESYSTEM) {
             fs_offset = region_base(e);
         }
     }
-    rprintf ("region done\n");
     u64 len = storage_length - fs_offset;
-    rprintf ("allocatin\n");
     void *k = allocate(virtual, len);
     map(u64_from_pointer(k), allocate_u64(physical, len), len, pages);
     void *z = closure(misc, read_complete, k, len, backed);
-    rprintf ("what: %p\n", z);
     storage_read(k, fs_offset, len, z);
+    
     enable_interrupts();
     
-    while (!drive) __asm__("hlt");
+    while (!drive) {
+        __asm__("hlt");
+        rprintf("probe\n");
+    }
     startup(pages, misc, physical, virtual, drive);
+    console("should go halty\n");
     while (1) __asm__("hlt");    
 }
 
@@ -136,5 +135,4 @@ void init_service()
     asm ("mov %0, %%rsp": :"m"(stack_location));
     init_service_new_stack(pages, physical, backed, virtual); 
     // locals aren't really valid any more!
-
 }

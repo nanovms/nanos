@@ -99,5 +99,6 @@ void handle_query(gdb g, buffer b, string out, handler h)
             return;
         }
     }
-    // what to say if we dont understand?
+    bprintf(g->out,"$#00");
+    apply(g->output_handler, g->out);        
 }
