@@ -12,10 +12,9 @@ typedef struct gdb {
     string send_buffer;
     string out;
     string in;
-    heap h; // we shouldn't use this after initialization?
+    heap h;
     buffer_handler output_handler;
-    // the suspended thread
-    context registers;
+    thread t;
     process p;
 } *gdb;
 

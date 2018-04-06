@@ -121,10 +121,6 @@ int open(char *name, int flags, int mode)
     return fd;
 }
 
-#ifndef MIN
-#define MIN(x, y) ((x) < (y)? (x):(y))
-#endif
-
 void *mremap(void *old_address, u64 old_size,  u64 new_size, int flags,  void *new_address )
 {
     // this seems poorly thought out - what if there is a backing file?
@@ -582,6 +578,7 @@ thread create_thread(process p)
     t->tid = tidcount++;
     t->set_child_tid = t->clear_child_tid = 0;
     t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(p->handler);
+    vector_push(p->threads, t);
     return t;
 }
 
@@ -622,6 +619,7 @@ process create_process(heap h, heap pages, heap physical, node filesystem)
     p->files[2].write = closure(h, stdout);
     p->futices = allocate_table(h, futex_key_function, futex_key_equal);
     p->handler = closure(h, default_fault_handler);
+    p->threads = allocate_vector(h, 5);
     return p;
 }
 
@@ -639,7 +637,8 @@ void init_unix(heap h, heap pages, heap physical, tuple filesystem)
 void run_unix()
 {
     while(1)  {
-        run_queue(runnable);
+        while (vector_length(runnable))
+            run_queue(runnable);
         __asm__("hlt");
     }
 }

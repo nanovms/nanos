@@ -187,16 +187,12 @@ process exec_elf(buffer ex, heap general, heap physical, heap pages, heap virtua
     if (resolve_cstring(fs, "gdb")) {
         console ("gdb!\n");
         init_tcp_gdb(general, p, 1234);
-        console ("gdb bound!\n");
-        // stack is apparently corrupted .. figure out
-        while (1) __asm__("hlt");
     } else
 #endif
     {
         console ("not gdb!\n");
         queue_runnable(t);
     }
-    console ("pank!\n");    
     return p;    
 }
 
@@ -213,9 +209,8 @@ void startup(heap pages, heap general, heap physical, heap virtual, buffer stora
     tuple ex = resolve_path(fs, path);
     buffer exc = table_find(ex, sym(contents));
     exec_elf(exc, general, physical, pages, virtual, fs);
-    // xxx - we are running here from storage interrupt context,
-    // and unless we return...it wont get acknowledged.. and irq
-    // wont be set
+    // should be a continuation based run queue that threads
+    // sit on top of
     run_unix();
 }
 

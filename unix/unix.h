@@ -39,9 +39,10 @@ typedef struct process {
     heap virtual;
     heap virtual32;    
     heap fdallocator;
-    node cwd; // need to generate the canonical unix path for a node
+    node cwd; 
     table futices;
     fault_handler handler;
+    vector threads;
 } *process;
 
 

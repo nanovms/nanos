@@ -44,8 +44,12 @@ static inline int runtime_strlen(char *a)
 #define u64_from_pointer(__a) ((u64)(__a))
 #endif
 
+#ifndef MIN
+#define MIN(x, y) ((x) < (y)? (x):(y))
+#endif
+
 typedef struct buffer *buffer;
-#if 0
+
 static inline void zero(void *x, bytes length)
 {
     u64 *start = pointer_from_u64(pad(u64_from_pointer(x), 8));
@@ -60,13 +64,13 @@ static inline void zero(void *x, bytes length)
     for (int i =0; i < aligned; i++) start[i] = 0;
     for (int i =0; i < final; i++) end[i] = 0;        
 }
-#endif
+#if 0
 static inline void zero(void *x, bytes length)
 {
     for (int i = 0; i < length; i++)
         ((u8 *)x)[i] = 0;
 }
-
+#endif
 #include <heap/heap.h>
 #include <buffer.h>
 

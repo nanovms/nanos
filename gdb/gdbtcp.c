@@ -36,7 +36,6 @@ void init_tcp_gdb(heap h, process p, u16 port)
     tcpgdb g = (tcpgdb) allocate(h, sizeof(struct tcpgdb));
     g->p = tcp_new_ip_type(IPADDR_TYPE_ANY); 
     g->input = init_gdb(h, p, closure(h, gdb_send, g));
-    rprintf("gdb setup %p %p\n", g->input, g);
     err_t err = tcp_bind(g->p, IP_ANY_TYPE, port);
     g->p = tcp_listen(g->p);
     tcp_arg(g->p, g);    

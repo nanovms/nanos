@@ -8,27 +8,45 @@
 #define PAGE_USER (1<<2)
 typedef u64 *page;
 
-static page pt_lookup(page table, u64 t, unsigned int x)
+#define PT1 39
+#define PT2 30
+#define PT3 21
+#define PT4 12
+
+static inline u64 pindex(u64 x, u64 offset)
 {
-    u64 a = table[(t>>x)&MASK(9)] & ~PAGEMASK;
-    return (page)pointer_from_u64(a);
+    return ((x >> offset) & MASK(9));
+}
+
+
+static inline page pt_lookup(page table, u64 t, unsigned int x)
+{
+    u64 a = table[pindex(t, x)];
+    if (a & 1) 
+        return (page)pointer_from_u64(a & ~PAGEMASK);
+    return 0;
+}
+
+static inline page pagebase()
+{
+    page base;
+    // since cr3 never changes it seems a shame to pay for mov_from_cr
+    mov_from_cr("cr3", base);
+    return base;
 }
 
 // allow stage2 to override - not so important since this is still identity
+    
 // should return PHYSICAL_INVALID
 #ifndef physical_from_virtual
 physical physical_from_virtual(void *x)
 {
-    page base;
-    // this has to be in an identity region, we could cache this
-    mov_from_cr("cr3", base);
-    
     u64 xt = u64_from_pointer(x);
 
-    u64 *l3 = pt_lookup(base, xt, 39);
-    u64 *l2 = pt_lookup(l3, xt, 30);
-    u64 *l1 = pt_lookup(l2, xt, 21); // 2m pages
-    if (l2[xt>>21] & PAGE_2M_SIZE) return ((u64)l1 | (xt & MASK(21)));
+    u64 *l3 = pt_lookup(pagebase(), xt, PT1);
+    u64 *l2 = pt_lookup(l3, xt, PT2);
+    u64 *l1 = pt_lookup(l2, xt, PT3); // 2m pages
+    if (l2[xt>>PT3] & PAGE_2M_SIZE) return ((u64)l1 | (xt & MASK(PT3)));
     u64 *l0 = pt_lookup(l1, xt, 12);
     return (u64)l0 | (xt & MASK(12));
 }
@@ -36,13 +54,6 @@ physical physical_from_virtual(void *x)
 
 static void write_pte(page target, physical to, boolean fat)
 {
-    //    console("pte: ");
-    //    print_u64(target);
-    //    console(" ");
-    //    print_u64(to | PAGE_WRITABLE | PAGE_PRESENT | PAGE_USER | (fat?PAGE_2M_SIZE:0));
-    //    console("\n");    
-    
-    
     // really set user?
     if (to == INVALID_PHYSICAL)
         *target = 0;
@@ -68,11 +79,10 @@ static page force_entry(page b, u32 offset, heap h)
 static void map_page_4k(page base, u64 virtual, physical p, heap h)
 {
     page x = base;
-    if ((x = force_entry(x, (virtual >> 39) & MASK(9), h)) != INVALID_ADDRESS) {
-        if ((x = force_entry(x, (virtual >> 30) & MASK(9), h)) != INVALID_ADDRESS) {
-            if ((x = force_entry(x, (virtual >> 21) & MASK(9), h)) != INVALID_ADDRESS) {
-                u64 off = (virtual >> 12) & MASK(9);
-                write_pte(x + off, p, false);
+    if ((x = force_entry(x, pindex(virtual, PT1), h)) != INVALID_ADDRESS) {
+        if ((x = force_entry(x, pindex(virtual, PT2), h)) != INVALID_ADDRESS) {
+            if ((x = force_entry(x, pindex(virtual, PT3), h)) != INVALID_ADDRESS) {
+                write_pte(x + pindex(virtual, PT4), p, false);
                 return; 
             }
         }
@@ -83,9 +93,9 @@ static void map_page_4k(page base, u64 virtual, physical p, heap h)
 static void map_page_2m(page base, u64 virtual, physical p, heap h)
 {
     page x = base;
-    if ((x = force_entry(x, (virtual >> 39) & MASK(9), h)) != INVALID_ADDRESS) {
-        if ((x = force_entry(x, (virtual >> 30) & MASK(9), h)) != INVALID_ADDRESS) {
-            u64 off = (virtual >> 21) & MASK(9);
+    if ((x = force_entry(x, pindex(virtual, PT1), h)) != INVALID_ADDRESS) {
+        if ((x = force_entry(x, pindex(virtual, PT2), h)) != INVALID_ADDRESS) {
+            u64 off = pindex(virtual, PT3);
             write_pte(x+off, p, true);
             return; 
         }
@@ -95,21 +105,44 @@ static void map_page_2m(page base, u64 virtual, physical p, heap h)
 
 boolean validate_virtual(void *base, u64 length)
 {
-    // its not, not true
+    u64 e = u64_from_pointer(base) + length;    
+    u64 p  = u64_from_pointer(base);
+    page pb = pagebase(), l1, l2, l3;
+
+    while (p < e) {
+        if (!(l1 = pt_lookup(pb, p, PT1))) return false;
+        u64 e1 = MIN(p + (1ull<<PT1), e);
+        while(p < e1) {
+            if (!(l2 =  pt_lookup(l1, p, PT2))) return false;
+            u64 e2 = MIN(p + (1ull<<PT2), e);
+            while(p < e2) {
+                if (!(l3 =  pt_lookup(l2, p, PT3))) return false;
+                u64 e3 = MIN(p + (1ull<<PT3), e);
+                while(p < e3) {
+                    if (l3[pindex(p,PT3)] & PAGE_2M_SIZE) {
+                        p += 1<<PT3;
+                    } else {
+                        u64 e3 = MIN(p + (1ull<<PT3), e);
+                        while (p < e3) {
+                            if (!pt_lookup(l3, p, PT4)) return false;
+                            p += 1<<PAGELOG;
+                        }
+                    }
+                }
+            }
+        }
+    }
     return true;
 }
 
 // error processing
 void map(u64 virtual, physical p, int length, heap h)
 {
-    page base;
-    // this has to be in an identity region, we could cache this
-    mov_from_cr("cr3", base);
-
     int len = pad(length, PAGESIZE);
     u64 vo = virtual;
     u64 po = p;
-#if 0
+    page pb = pagebase();
+
     console("map: ");
     print_u64(virtual);
     console(" ");
@@ -117,15 +150,14 @@ void map(u64 virtual, physical p, int length, heap h)
     console(" ");
     print_u64(length);              
     console("\n");
-#endif
+
     for (int i = 0; i < len;) {
         int off = 1<<12;
-                if (!(vo & MASK(21)) && !(po & MASK(21)) && ((len - i) >= (1<<21))) {
-                    map_page_2m(base, vo, po, h);
-                    off = 1<<21;
-                } else
-            {
-            map_page_4k(base, vo, po, h);
+        if (!(vo & MASK(PT3)) && !(po & MASK(PT3)) && ((len - i) >= (1<<PT3))) {
+            map_page_2m(pb, vo, po, h);
+            off = 1<<PT3;
+        } else  {
+            map_page_4k(pb, vo, po, h);
         }
         vo += off;
         if (po != INVALID_PHYSICAL)

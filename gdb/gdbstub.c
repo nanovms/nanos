@@ -65,15 +65,18 @@ static struct handler query_handler[] = {
 
 static void start_slave(gdb g, boolean stepping)
 {
+    // a little more symbolic here please
     if (stepping) {
-        g->registers[FRAME_FLAGS] |= 0x100;
+        g->t->frame[FRAME_FLAGS] |= 0x100;
     } else {
-        g->registers[FRAME_FLAGS] &= 0xfffffeff;
+        g->t->frame[FRAME_FLAGS] &= 0xfffffeff;
         // resume flag
-        g->registers[FRAME_FLAGS] |= (1<<16);
+        g->t->frame[FRAME_FLAGS] |= (1<<16);
     }
+    
     // trap_frame = r;
-    // run thread
+    rprintf ("run %p\n", g->t->frame[FRAME_RIP]);
+    queue_runnable(g->t);    
 }
 
 
@@ -154,11 +157,11 @@ static void handle_request(gdb g, buffer b)
         //remote_debug = !(remote_debug);	/* toggle debug flag */
         break;
     case 'g':		/* return the value of the CPU registers */
-        mem2hex (output, g->registers, sizeof(context));
+        mem2hex (output, g->t->frame, 8*24);
         break;
 
     case 'G':		/* set the value of the CPU registers - return OK */
-        hex2mem (b, (char *) g->registers, sizeof(context));
+        hex2mem (b, (char *) g->t->frame, 8*24);
         bprintf (output, "OK");
         break;
 
@@ -183,7 +186,7 @@ static void handle_request(gdb g, buffer b)
             u64 regno;
             if (parse_int (b, 16, &regno) && (get_char(b) == '='))                
                 if (regno >= 0 && regno < (sizeof(context)/sizeof(u64))) {
-                    hex2mem (b, g->registers + regno, 8);
+                    hex2mem (b, g->t->frame + regno, 8);
                     bprintf (output, "OK");
                     break;
                 }
@@ -195,7 +198,8 @@ static void handle_request(gdb g, buffer b)
         /* mAA..AA,LLLL  Read LLLL bytes at address AA..AA */
     case 'm':
         if (parse_hex_pair(b, &addr, &length)) {
-            if (!mem2hex (output, (char *) addr, length)) {
+            if (!mem2hex (output, pointer_from_u64(addr), length)) {
+                rprintf ("memory error\n");
                 bprintf(output, "E03");
             }
             break;
@@ -225,7 +229,7 @@ static void handle_request(gdb g, buffer b)
     case 'c':
         /* try to read optional parameter, pc unchanged if no parm */
         if (parse_int (b, 16, &addr))
-            g->registers[FRAME_RIP] = addr;
+            g->t->frame[FRAME_RIP] = addr;
         start_slave(g, stepping);
         break;
         
@@ -344,6 +348,7 @@ buffer_handler init_gdb(heap h,
     g->out = allocate_buffer(h, 256); 
     g->in = allocate_buffer(h, 256);
     g->h = h;
-    p->handler = closure(h, gdb_handle_exception, g);
+    g->t = vector_get(p->threads, 0);
+    g->t->frame[FRAME_FAULT_HANDLER] = closure(h, gdb_handle_exception, g);
     return closure(h, gdbserver_input, g);
 }
