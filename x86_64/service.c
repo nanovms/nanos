@@ -55,17 +55,36 @@ static heap physically_backed(heap meta, heap virtual, heap physical, heap pages
     return (heap)b;
 }
 
+queue runqueue;
 
-static buffer drive;
-
-static CLOSURE_3_0(read_complete, void, void *, u64, heap);
-static void read_complete(void *target, u64 length, heap general)
+static CLOSURE_1_0(read_complete, void, thunk);
+static void read_complete(thunk target)
 {
-    drive = allocate_buffer(general, length);
-    drive->contents = target;
-    drive->start = 0;
-    drive->end = length;
+    enqueue(runqueue, target);
 }
+
+void runloop()
+{
+    thunk t;
+    console("runloop\n");
+    while(1) {
+    console("checking\n");        
+        while((t = dequeue(runqueue)))
+            apply(t);
+        console("empty\n");                
+        enable_interrupts();
+        __asm__("hlt");
+        disable_interrupts();
+    }
+}
+
+
+static CLOSURE_5_0(run_startup, void, heap, heap, heap, heap, buffer);
+static void run_startup(heap pages, heap misc, heap physical, heap virtual, buffer fs)
+{
+    startup(pages, misc, physical, virtual, fs);
+}
+
 
 
 // bad global, put in the filesystem space
@@ -83,6 +102,7 @@ void init_service_new_stack(heap pages, heap physical, heap backed, heap virtual
     //    init_clock(backed);
 
     heap misc = allocate_rolling_heap(backed);
+    runqueue = allocate_queue(misc, 32);
     start_interrupts(pages, misc, physical);
     init_symbols(misc);
     init_pci(misc);    
@@ -98,20 +118,19 @@ void init_service_new_stack(heap pages, heap physical, heap backed, heap virtual
     u64 len = storage_length - fs_offset;
     void *k = allocate(virtual, len);
     map(u64_from_pointer(k), allocate_u64(physical, len), len, pages);
-    void *z = closure(misc, read_complete, k, len, backed);
-    storage_read(k, fs_offset, len, z);
+    // wrap
+    buffer drive = allocate_buffer(misc, len);
+    drive->contents = k;
+    drive->start = 0;
+    drive->end = len;
     
-    enable_interrupts();
-    
-    while (!drive) {
-        __asm__("hlt");
-        rprintf("probe\n");
-    }
-    startup(pages, misc, physical, virtual, drive);
-    console("should go halty\n");
-    while (1) __asm__("hlt");    
-}
+    void *s = closure(misc, run_startup, pages, misc, physical, virtual, drive);
+    void *z = closure(misc, read_complete, s);
+    // dont really need to pass misc
 
+    storage_read(k, fs_offset, len, z);
+    runloop();
+}
 
 // init linker set
 void init_service()

@@ -27,8 +27,8 @@ frame_enter:
         mov r13, [rbx+FRAME_R13*8]
         mov r14, [rbx+FRAME_R14*8]
         mov r15, [rbx+FRAME_R15*8]
-        mov rax, [rbx+FRAME_RIP*8]
         mov rsp, [rbx+FRAME_RSP*8]                
+        mov rax, [rbx+FRAME_RIP*8]
         push rax
         mov rax, [rbx+FRAME_FLAGS*8]        
         push rax        
@@ -73,7 +73,6 @@ interrupt_common:
         mov [rax+FRAME_RBX*8], rbx
         mov [rax+FRAME_RCX*8], rcx
         mov [rax+FRAME_RDX*8], rdx
-        mov [rax+FRAME_RSP*8], rsp   ;ehh, off by 16 plus the stack frame
         mov [rax+FRAME_RSI*8], rsi
         mov [rax+FRAME_RDI*8], rdi
         mov [rax+FRAME_RBP*8], rbp

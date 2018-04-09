@@ -19,7 +19,6 @@ table contents(table x)
     return table_find(x, sym(contents));
 }
 
-
 symbol intern_buffer_symbol(void *x)
 {
     struct buffer stemp;
@@ -168,18 +167,19 @@ process exec_elf(buffer ex, heap general, heap physical, heap pages, heap virtua
     for (int i = 0; i< sizeof(userspace_random_seed); i++)
         userspace_random_seed[i] = (seed<<3) ^ 0x9e;
     
-    vector a = allocate_vector(general, 10);
-    for (int i = 0; i< sizeof(auxp)/(2*sizeof(u64)); i++) vector_push(a, auxp+i);
+    vector aux = allocate_vector(general, 10);
+    for (int i = 0; i< sizeof(auxp)/(2*sizeof(u64)); i++) vector_push(aux, auxp+i);
 
     u64 stack_size = 2*1024*1024;
     void *user_stack = allocate(virtual, stack_size);
-    buffer s = alloca_wrap_buffer(user_stack, stack_size);
-    map(u64_from_pointer(user_stack), allocate_u64(physical, s->length), s->length, pages);
-    *(u8 *)(s->contents + s->length -8)= 0;
-    vector argv = tuple_vector(general, children(resolve_cstring(fs, "arguments")));
-    tuple envp = children(resolve_cstring(fs, "environment"));
+    buffer s = alloca_wrap_buffer(user_stack, stack_size);       
+    map(u64_from_pointer(user_stack), allocate_u64(physical, stack_size), stack_size, pages);
 
-    build_exec_stack(s, general, argv, envp, a);
+    build_exec_stack(s,
+                     general,
+                     tuple_vector(general, children(resolve_cstring(fs, "arguments"))),
+                     children(resolve_cstring(fs, "environment")),
+                     aux);
 
     t->frame[FRAME_RSP] = u64_from_pointer(buffer_ref(s, 0));
     // move outside?
@@ -191,7 +191,7 @@ process exec_elf(buffer ex, heap general, heap physical, heap pages, heap virtua
 #endif
     {
         console ("not gdb!\n");
-        queue_runnable(t);
+        enqueue(runqueue, t->run);
     }
     return p;    
 }
@@ -209,8 +209,5 @@ void startup(heap pages, heap general, heap physical, heap virtual, buffer stora
     tuple ex = resolve_path(fs, path);
     buffer exc = table_find(ex, sym(contents));
     exec_elf(exc, general, physical, pages, virtual, fs);
-    // should be a continuation based run queue that threads
-    // sit on top of
-    run_unix();
 }
 

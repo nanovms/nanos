@@ -9,6 +9,4 @@
 
 #define continuation_name(__x) (*(char **)((void **)(__x) + 1))
   
-typedef void (**thunk)();
-
 #include <closure_templates.h>

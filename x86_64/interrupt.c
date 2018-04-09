@@ -95,16 +95,16 @@ void write_idt(u64 *idt, int interrupt, void *hv)
     target[1] = h >> 32; // rest must be zero
 }
 
-// tuplify
+// tuplify and synthesize
 static char* textoreg[] = {
-    "rax", //0 - if we could share an ennumeration with nasm
+    "rax", //0 
     "rbx", //1
     "rcx", //2
     "rdx", //3
-    "rbp", //4
-    "rsp", //5
-    "rsi", //6
-    "rdi", //7
+    "rsi", //4
+    "rdi", //5
+    "rbp", //6
+    "rsp", //7
     "r8",  //8
     "r9",  //9
     "r10", //10
@@ -113,9 +113,9 @@ static char* textoreg[] = {
     "r13", //13
     "r14", //14
     "r15", //15
-    "vector", //16
-    "rip", //17
-    "flags", //18
+    "rip", //16
+    "flags", //17        
+    "vector", //18
 };
 
 char *register_name(u64 s)
@@ -135,6 +135,31 @@ void lapic_eoi()
     write_barrier();    
 }
 
+void print_frame(context frame)
+{
+    u64 v = frame[FRAME_VECTOR];
+    //        console(interrupt_name(v));
+    console("interrupt: ");
+    print_u64(v);
+    console("\n");
+    
+    // page fault
+    if (v == 14)  {
+        u64 fault_address;
+        mov_from_cr("cr2", fault_address);
+        console("address: ");
+        print_u64(fault_address);
+        console("\n");
+    }
+    
+    for (int j = 0; j< 18; j++) {
+        console(register_name(j));
+        console(": ");
+        print_u64(frame[j]);
+        console("\n");        
+    }
+}
+
 void common_handler()
 {
     int i = frame[FRAME_VECTOR];
@@ -145,22 +170,18 @@ void common_handler()
         apply(handlers[i]);
         lapic_eoi();
     } else {
-        console("fault ");
         fault_handler f = pointer_from_u64(frame[FRAME_FAULT_HANDLER]);
-        print_u64(u64_from_pointer(f));
-        u64 fault_address;
-        mov_from_cr("cr2", fault_address);
-        console(" ");        
-        print_u64(fault_address);
-        console(" ");
-        print_u64(frame[FRAME_RIP]);
-        console("\n");
-        
+        print_frame(frame);
         if (f == 0) {
             rprintf ("no fault handler\n");
             QEMU_HALT();
         }
-        if (i < 25) apply(f, frame);
+        if (i < 25) frame = apply(f, frame);
+        console("interrupt return: ");
+        print_u64(frame);
+        console(" ");
+        print_u64(frame[FRAME_RIP]);
+        console("\n");        
     }
 }
 

@@ -38,7 +38,6 @@ boolean mem2hex (string b, void *mem, int count)
         rprintf ("validation failed\n");
         return false;
     }
-    rprintf ("validated\n");
     for (i = 0; i < count; i++) {
         ch = *(char *)(mem++);
         bprintf(b, "%02x", (u32)ch);

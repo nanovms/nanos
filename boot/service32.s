@@ -36,14 +36,14 @@ diskcopy:
 
 global run64        
 run64:
-
         mov eax, cr4     
         or eax, 1 << 5     ;  PAE
         or eax, 1 << 9     ;  osfxsr
         or eax, 1 << 10    ;  osxmmexcpt
-        or eax, 1 << 18    ;  OSXSAVE
-        mov cr4, eax  
+;        or eax, 1 << 18    ;  OSXSAVE - faults on kvm
         
+        mov cr4, eax  
+
         mov ecx, 0xC0000080 ; EFER MSR.
         
         rdmsr      
@@ -55,7 +55,7 @@ run64:
 
         push eax
         push eax
-        
+
         mov eax, cr0    
         or eax, 1 << 31 | 1 ; Set the PG-bit and the PM bit 
         and eax, ~4 ; clear the EM bit

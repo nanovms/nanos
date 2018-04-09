@@ -35,13 +35,14 @@ static inline void disable_interrupts()
 // currently maps to the linux gdb frame layout for convenience
 #include <frame.h>
 
-typedef u64 context[FRAME_MAX];
+typedef u64 *context;
 
 extern u64 *frame;
 
 boolean breakpoint_insert(u32 a);
 boolean breakpoint_remove(u32 a);
 
+#define IRETURN(frame) __asm__("mov %0, %%rbx"::"g"(frame)); __asm__("jmp frame_return")
 #define ENTER(frame) __asm__("mov %0, %%rbx"::"g"(frame)); __asm__("jmp frame_enter")
 
 void msi_map_vector(int slot, int msislot, int vector);
@@ -50,6 +51,7 @@ static inline void write_barrier()
 {
     asm ("sfence");
 }
+
 static inline void read_barrier()
 {
         asm ("lfence");
@@ -96,3 +98,29 @@ boolean valiate_virtual(void *base, u64 length);
 // tuples
 char *interrupt_name(u64 code);
 char *register_name(u64 code);
+
+static inline u64 fetch_and_add(u64* variable, u64 value)
+{
+    __asm__ volatile("lock; xaddq %0, %1"
+                     : "+r" (value), "+m" (*variable) // input+output
+                     : // No input-only
+                     : "memory"
+                     );
+    return value;
+}
+
+
+// tuples
+#define FLAG_INTERRUPT 9
+
+static inline u64 read_flags()
+{
+    u64 out;
+    __asm__("pushf");
+    __asm__("pop %0":"=g"(out));
+    return out;
+}
+
+typedef struct queue *queue;
+extern queue runqueue;
+

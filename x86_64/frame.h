@@ -1,5 +1,10 @@
+
+
+
+
+
+
 #define FRAME_RAX 0
-#define FRAME_SYSCALL 0
 #define FRAME_RBX 1
 #define FRAME_RCX 2
 #define FRAME_RDX 3
@@ -15,15 +20,18 @@
 #define FRAME_R13 13
 #define FRAME_R14 14
 #define FRAME_R15 15
+
 #define FRAME_RIP 16
 #define FRAME_FLAGS 17
-#define FRAME_VECTOR 18
+#define FRAME_SS 18
 #define FRAME_CS 19
-#define FRAME_SS 20
-#define FRAME_DS 21
-#define FRAME ES 22
-#define FRAME_FS 23
-#define FRAME_GS 24
+#define FRAME_DS 20
+#define FRAME ES 21
+#define FRAME_FS 22
+#define FRAME_GS 23
+
+#define FRAME_VECTOR 24
+
 #define FRAME_FAULT_CODE 25
 #define FRAME_FAULT_HANDLER 26
 #define FRAME_MAX 27

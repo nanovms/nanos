@@ -14,7 +14,7 @@ typedef struct gdb {
     string in;
     heap h;
     buffer_handler output_handler;
-    thread t;
+    thread t; // we can really get several 
     process p;
 } *gdb;
 
@@ -66,3 +66,4 @@ void handle_query(gdb g, buffer b, string out, handler h);
 buffer_handler init_gdb(heap h,
                         process p,
                         buffer_handler outh);
+

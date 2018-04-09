@@ -35,20 +35,21 @@ static inline page pagebase()
     return base;
 }
 
-// allow stage2 to override - not so important since this is still identity
-    
-// should return PHYSICAL_INVALID
+// xxx - stage2 has his own verison
 #ifndef physical_from_virtual
 physical physical_from_virtual(void *x)
 {
     u64 xt = u64_from_pointer(x);
 
     u64 *l3 = pt_lookup(pagebase(), xt, PT1);
+    if (!l3) return INVALID_PHYSICAL;
     u64 *l2 = pt_lookup(l3, xt, PT2);
+    if (!l2) return INVALID_PHYSICAL;    
     u64 *l1 = pt_lookup(l2, xt, PT3); // 2m pages
-    if (l2[xt>>PT3] & PAGE_2M_SIZE) return ((u64)l1 | (xt & MASK(PT3)));
-    u64 *l0 = pt_lookup(l1, xt, 12);
-    return (u64)l0 | (xt & MASK(12));
+    if (!l1) return INVALID_PHYSICAL;        
+    if (l2[pindex(xt, PT3)] & PAGE_2M_SIZE) return ((u64)l1 | (xt & MASK(PT3)));
+    u64 *l0 = pt_lookup(l1, xt, PT4);
+    return (u64)l0 | (xt & MASK(PT4));
 }
 #endif
 

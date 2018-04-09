@@ -1,8 +1,8 @@
+VPATH += $(ROOT)/unix
 
-VIRTIO = virtqueue.o virtio_storage.o virtio_pci.o 
+UNIX = unix.o syscall.o
 
-VIRTIO_NET = virtio_lwip.o
+INCLUDES += -I$(ROOT)/unix
 
-INCLUDES += -I$(ROOT)/virtio
-VPATH += $(ROOT)/virtio
+
 

@@ -13,11 +13,14 @@ void run(thread);
 
 
 typedef struct thread {
+    // if we use an array typedef its fragile
+    u64 frame[FRAME_MAX];
     process p;
-    context frame;
+
     void *set_child_tid;
     void *clear_child_tid;
     u64 tid;
+    thunk run;
 } *thread;
 
 
@@ -48,6 +51,6 @@ typedef struct process {
 
 
 void init_unix(heap, heap, heap, tuple);
-extern thread current;
 void run_unix();
-void queue_runnable(thread t);
+thread current;
+

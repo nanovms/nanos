@@ -11,12 +11,12 @@ int computeSignal (int exceptionVector)
 
 static int sigval;
 
-CLOSURE_1_1(gdb_handle_exception, void, gdb, context);
+static CLOSURE_1_1(gdb_handle_exception, context, gdb, context);
 
-void gdb_handle_exception (gdb g, context frame)
+static context gdb_handle_exception (gdb g, context frame)
 {
     int exceptionVector = frame[FRAME_VECTOR];
-    
+    rprintf ("gdb exception: %d %p %p %p\n", exceptionVector, frame, frame[FRAME_RIP], *(u64 *)frame[FRAME_RIP]);
     sigval = computeSignal(exceptionVector);
     reset_buffer(g->output);
     /*
@@ -29,6 +29,7 @@ void gdb_handle_exception (gdb g, context frame)
     */
     bprintf (g->output, "T%02x", sigval);
     putpacket (g, g->output);
+    runloop();
 }
 
 static void return_offsets(gdb g, buffer in, string out)
@@ -63,20 +64,21 @@ static struct handler query_handler[] = {
     {0,0}
 };
 
+#define TRAP_FLAG 0x100
+#define RESUME_FLAG (1<<16)
 static void start_slave(gdb g, boolean stepping)
 {
     // a little more symbolic here please
     if (stepping) {
-        g->t->frame[FRAME_FLAGS] |= 0x100;
+        g->t->frame[FRAME_FLAGS] |= TRAP_FLAG;
     } else {
-        g->t->frame[FRAME_FLAGS] &= 0xfffffeff;
-        // resume flag
-        g->t->frame[FRAME_FLAGS] |= (1<<16);
+        g->t->frame[FRAME_FLAGS] &= ~TRAP_FLAG;
+        g->t->frame[FRAME_FLAGS] |= RESUME_FLAG;
     }
     
     // trap_frame = r;
-    rprintf ("run %p\n", g->t->frame[FRAME_RIP]);
-    queue_runnable(g->t);    
+    rprintf ("slave run %p %p %p\n", g->t, g->t->frame, g->t->frame[FRAME_RIP]);
+    enqueue(runqueue, g->t->run);    
 }
 
 
@@ -349,6 +351,6 @@ buffer_handler init_gdb(heap h,
     g->in = allocate_buffer(h, 256);
     g->h = h;
     g->t = vector_get(p->threads, 0);
-    g->t->frame[FRAME_FAULT_HANDLER] = closure(h, gdb_handle_exception, g);
+    g->t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(closure(h, gdb_handle_exception, g));
     return closure(h, gdbserver_input, g);
 }

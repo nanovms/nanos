@@ -5,7 +5,9 @@
 #include <closure_templates.h>
 
 typedef closure_type(buffer_handler, void, buffer);
+typedef closure_type(thunk, void);
 
+#if 0
 static node resolve(buffer n, symbol s)
 {
 }
@@ -21,6 +23,7 @@ static vector node_vector(heap h, buffer n)
     
     return x;
 }
+#endif
 
 static tuple resolve_path(tuple n, vector v)
 {
@@ -51,6 +54,10 @@ static inline void haltf(char *f, ...)
 }
 
 // xxx - platform features that use closures in stage3 that cant
-// be exposed to stage2
-typedef closure_type(fault_handler, void, context);
+// be exposed to stage2...a middle layer
+typedef closure_type(fault_handler, u64 *, context);
 void configure_timer(time rate, thunk t);
+void enqueue(queue q, thunk n);
+thunk dequeue(queue q);
+queue allocate_queue(heap h, u64 size);
+void runloop();

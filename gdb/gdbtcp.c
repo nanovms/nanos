@@ -18,7 +18,10 @@ err_t gdb_input(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 {
     tcpgdb g = z;
     g->p = pcb;
-    apply(g->input, alloca_wrap_buffer(p->payload, p->len));
+    // i guess this is a close?
+    if (p) {
+        apply(g->input, alloca_wrap_buffer(p->payload, p->len));
+    }
     return ERR_OK;
 }
 

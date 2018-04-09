@@ -144,13 +144,15 @@ static void post_recv(vnet vn)
 
 static void status_callback(struct netif *netif)
 {
-    u8 *n = &netif->ip_addr;
+    u8 *n = (u8 *)&netif->ip_addr;
     rprintf("assigned: %d.%d.%d.%d\n", n[0], n[1], n[2], n[3]);
 }
 
 static CLOSURE_0_0(timeout, void);
 static void timeout()
 {
+    static int c;
+    if (!(++c%10)) console("tick 10\n");
     sys_check_timeouts();
 }
 

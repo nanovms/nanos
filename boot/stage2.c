@@ -93,7 +93,9 @@ void centry()
     kb.contents = kernel;
     kb.start = 0;
     kb.end = kernel_length;
-    
     void *k = load_elf(&kb, 0, pages, physical);
+    console("start ");
+    print_u64(k);
+    console("\n");
     run64(u64_from_pointer(k));
 }
