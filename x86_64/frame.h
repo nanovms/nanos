@@ -34,4 +34,6 @@
 
 #define FRAME_FAULT_CODE 25
 #define FRAME_FAULT_HANDLER 26
-#define FRAME_MAX 27
+#define FRAME_STACK_TOP 27
+#define FRAME_STACK_BOTTOM 28 // ??
+#define FRAME_MAX 29

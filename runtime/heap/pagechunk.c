@@ -1,4 +1,4 @@
-#include <core/core.h>
+#include <basic_runtime.h>
 
 /*
  * this is really a conflation of strategies and should
@@ -11,40 +11,25 @@ typedef struct pagealloc {
     struct heap h;
     heap parent;
     int pageheader_size;
-    pageheader freepages;
+    pageheader pages;
 } *pagealloc;
 
 // head of each parent page 
 struct pageheader {
+    u64 base;
     pageheader next;
-    bits sizes[];
+    int refcnt;
 };
-
-
-static bits sizeof_page(pagealloc p, void *x)
-{
-    pageheader z = page_of(x, p->parent->pagesize);
-    int offset = ((unsigned long)x - (unsigned long)z)/ p->h.pagesize;
-    return(z->sizes[offset]);
-}
-
-static void set_sizeof_page(pagealloc p, void *x, bits s)
-{
-    pageheader z = page_of(x, p->parent->pagesize);
-    int offset = ((unsigned long)x - (unsigned long)z)/ p->h.pagesize;
-    z->sizes[offset] = s;
-}
 
 
 static void free_page(pagealloc p, void *x)
 {
-    *(void **)x = p->freepages;
-    p->freepages = x;
+    
 }
 
-static void *allocate_pages(pagealloc p, bits len)
+static void *allocate_pages(pagealloc p, bytes len)
 {
-    bits s = pad(len, p->h.pagesize);
+    bytes s = pad(len, len);
     pageheader *i= &p->freepages;
     int count=1;
     
@@ -84,21 +69,14 @@ static void *allocate_pages(pagealloc p, bits len)
 }
 
 
-heap allocate_pagechunk(heap h, bits s)
+heap allocate_pagechunk(heap meta, heap h, bytes size)
 {
-    pagealloc p = (pagealloc)h->allocate(h, h->pagesize);
+    pagealloc p = allocate(meta, sizeof(struct pagealloc));
     p->h.allocate = allocate_pages;
     p->h.deallocate = free_page;
     p->h.pagesize = s;
     p->freepages = 0;
     p->parent = h;
-    
-    p->pageheader_size = 
-        subdivide(s, sizeof(bits), 
-                  p->parent->pagesize, sizeof(struct pagealloc));
 
-    void *empty = (void *)p + sizeof(pagealloc) + p->pageheader_size;
-    set_sizeof_page(p, empty, p->parent->pagesize - p->pageheader_size);
-    free_page(p, empty);
     return((heap)p);
 }

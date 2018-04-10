@@ -1,3 +1,4 @@
+// basically the same as freelist
 #include <runtime.h>
 
 typedef struct pagecache {

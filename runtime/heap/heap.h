@@ -38,6 +38,6 @@ static inline int subdivide(int quantum, int per, int s, int o)
         zero(x, __b); \
         x; })
 
-static inline void null_dealloc(heap h, u64 x, bytes length)
+static inline void leak(heap h, u64 x, bytes length)
 {
 }

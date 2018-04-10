@@ -2,21 +2,23 @@
 #include <unix.h>
 #include <net.h>
 
-typedef struct handler {
-    char *name;
-    void *body;
-} *handler;
-
 typedef struct gdb {
     string output;
     string send_buffer;
     string out;
     string in;
     heap h;
+    u8 checksum, sent_checksum;
     buffer_handler output_handler;
     thread t; // we can really get several 
     process p;
 } *gdb;
+
+typedef struct handler {
+    char *name;
+    // reply
+    boolean (*body)(gdb, buffer, string);
+} *handler;
 
 static inline s8 digit_of(character x)
 {
@@ -61,7 +63,7 @@ boolean parse_hex_pair(buffer in, u64 *first, u64 *second);
 boolean mem2hex (string b, void *mem, int count);
 boolean hex2mem (buffer b, void *mem, int count);
 void putpacket(gdb, string b);
-void handle_query(gdb g, buffer b, string out, handler h);
+boolean handle_query(gdb g, buffer b, string out, handler h);
 
 buffer_handler init_gdb(heap h,
                         process p,

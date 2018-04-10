@@ -52,6 +52,13 @@ static inline void write_barrier()
     asm ("sfence");
 }
 
+static inline u64 msb(u64 x)
+{
+    u64 r;
+    __asm__("bsr %0, %1":"=g"(r):"g"(x));
+    return r;
+}
+
 static inline void read_barrier()
 {
         asm ("lfence");
@@ -124,3 +131,4 @@ static inline u64 read_flags()
 typedef struct queue *queue;
 extern queue runqueue;
 
+heap physically_backed(heap meta, heap virtual, heap physical, heap pages);

@@ -47,6 +47,9 @@ static inline int runtime_strlen(char *a)
 #ifndef MIN
 #define MIN(x, y) ((x) < (y)? (x):(y))
 #endif
+#ifndef MAX
+#define MAX(x, y) ((x) > (y)? (x):(y))
+#endif
 
 typedef struct buffer *buffer;
 #if 0
@@ -94,16 +97,15 @@ static inline status allocate_status(char *format, ...)
 {
 }
 
-extern heap general;
+heap wrap_freelist(heap meta, heap parent, bytes size);
 typedef unsigned long size_t;
-
 typedef u64 physical;
 
 physical vtop(void *x);
 
 #define cprintf(...)
 
-// belongs in the kernel
+// used by stage2/stage3, not process
 #define PAGELOG 12
 #define PAGESIZE (1<<PAGELOG)
 #ifndef physical_from_virtual

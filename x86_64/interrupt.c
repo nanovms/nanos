@@ -135,13 +135,26 @@ void lapic_eoi()
     write_barrier();    
 }
 
-void print_frame(context frame)
+void print_stack(context c)
 {
-    u64 v = frame[FRAME_VECTOR];
+    u64 *x = c[FRAME_RSP];
+    console("stack \n");
+    for (u64 i= 0 ;i < 10; i++) {
+        print_u64(*x--);
+        console("\n");
+    }
+}
+
+void print_frame(context f)
+{
+    u64 v = f[FRAME_VECTOR];
     //        console(interrupt_name(v));
     console("interrupt: ");
     print_u64(v);
     console("\n");
+    console("frame: ");
+    print_u64(f);
+    console("\n");    
     
     // page fault
     if (v == 14)  {
@@ -155,9 +168,10 @@ void print_frame(context frame)
     for (int j = 0; j< 18; j++) {
         console(register_name(j));
         console(": ");
-        print_u64(frame[j]);
+        print_u64(f[j]);
         console("\n");        
     }
+    print_stack(f);
 }
 
 void common_handler()
@@ -171,9 +185,10 @@ void common_handler()
         lapic_eoi();
     } else {
         fault_handler f = pointer_from_u64(frame[FRAME_FAULT_HANDLER]);
-        print_frame(frame);
+
         if (f == 0) {
             rprintf ("no fault handler\n");
+            print_frame(frame);
             QEMU_HALT();
         }
         if (i < 25) frame = apply(f, frame);

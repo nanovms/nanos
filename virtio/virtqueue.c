@@ -85,7 +85,7 @@ static void vq_interrupt(struct virtqueue *vq)
     struct vring_used_elem *uep;
     u16 used_idx, desc_idx;
     vqfinish *vqf = (void *)(vq+1);
-
+    
     read_barrier();
     while (vq->used_idx != vq->used->idx) {
         used_idx = vq->used_idx++ & (vq->entries - 1);
@@ -165,7 +165,7 @@ status virtqueue_enqueue(struct virtqueue *vq,
         u16 flags =0;
         dp->addr = physical_from_virtual(as[i]);
         vqfinish *vqa = (void *)(vq + 1);
-        if (!i)  vqa[idx] = completion;
+        vqa[idx] = completion; // just the last guy?
         dp->len = lengths[i];
         idx = (idx +1)&(vq->entries - 1);
         if (i != (segments-1)) {

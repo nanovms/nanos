@@ -45,11 +45,17 @@ static u64 rolling_alloc(heap h, bytes len)
     return(u64_from_pointer(a));
 }
 
+// assumes parent->pagesize is a power of two
 static void rolling_free(heap h, u64 x, u64 length)
 {
     rolling r = (void *)h;
-    pageheader p = pointer_from_u64(x&(~MASK(r->parent->pagesize)));
-    if (!--p->references) deallocate(r->parent, p, p->length);
+    // allow passthrough larger allocations
+    pageheader p = pointer_from_u64(x&(~(r->parent->pagesize-1)));
+
+    if (!--p->references) {
+        console("rolling page free!\n");
+        deallocate(r->parent, p, h->pagesize);
+    }
 }
 
 static void rolling_destroy(rolling c)

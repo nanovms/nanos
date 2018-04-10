@@ -13,10 +13,19 @@ static int sigval;
 
 static CLOSURE_1_1(gdb_handle_exception, context, gdb, context);
 
+static void reset_parser(gdb g)
+{
+    g->checksum =0;
+    reset_buffer(g->out);
+    reset_buffer(g->in);
+    reset_buffer(g->output);
+    g->sent_checksum = -1;
+}
+
 static context gdb_handle_exception (gdb g, context frame)
 {
     int exceptionVector = frame[FRAME_VECTOR];
-    rprintf ("gdb exception: %d %p %p %p\n", exceptionVector, frame, frame[FRAME_RIP], *(u64 *)frame[FRAME_RIP]);
+    //     rprintf ("gdb exception: %d %p [%p %p] %p %p\n", exceptionVector, g, frame, g->t->frame, frame[FRAME_RIP], *(u64 *)frame[FRAME_RIP]);
     sigval = computeSignal(exceptionVector);
     reset_buffer(g->output);
     /*
@@ -27,26 +36,26 @@ static context gdb_handle_exception (gdb g, context frame)
       EBP, c->ebp,
       PC, c->eip);
     */
+    reset_buffer(g->output);
     bprintf (g->output, "T%02x", sigval);
     putpacket (g, g->output);
     runloop();
 }
 
-static void return_offsets(gdb g, buffer in, string out)
+static boolean return_offsets(gdb g, buffer in, string out)
 {
-    putpacket(g, out);
+    return true;
 }
 
-static void return_supported(gdb g, buffer in, string out)
+static boolean return_supported(gdb g, buffer in, string out)
 {
-    // we do this at the end, neh?
-    //    putpacket(g, out);
+    return true;
 }
 
-static void current_thread(gdb g, buffer in, string out)
+static boolean current_thread(gdb g, buffer in, string out)
 {
     bprintf(out, "0");
-    putpacket(g, g->out);
+    return true;
 }
 
 
@@ -75,14 +84,13 @@ static void start_slave(gdb g, boolean stepping)
         g->t->frame[FRAME_FLAGS] &= ~TRAP_FLAG;
         g->t->frame[FRAME_FLAGS] |= RESUME_FLAG;
     }
-    
-    // trap_frame = r;
-    rprintf ("slave run %p %p %p\n", g->t, g->t->frame, g->t->frame[FRAME_RIP]);
+
+    //    rprintf ("slave run %p %p %p %p\n", g, g->t, g->t->frame, g->t->frame[FRAME_RIP]);
     enqueue(runqueue, g->t->run);    
 }
 
 
-static void apply_vcont(gdb g, buffer in, buffer out)
+static boolean apply_vcont(gdb g, buffer in, buffer out)
 {
     u64 trash;
 
@@ -100,9 +108,8 @@ static void apply_vcont(gdb g, buffer in, buffer out)
             } else {
                 start_slave(g, false);
             }
-            break;
-
-            break;
+            // dont reply
+            return false;
         case 't':
             break;
         case 'T':
@@ -122,15 +129,15 @@ static void apply_vcont(gdb g, buffer in, buffer out)
                 start_slave(g, false);
             }
         }
-        apply_vcont(g, in, out);
     }
+    return true;
 }
 
 
-void return_support_conts(gdb g, buffer in, string out)
+boolean return_support_conts(gdb g, buffer in, string out)
 {
     bprintf(out, "vCont;c;C;s;S;t;T");
-    putpacket (g, out);
+    return true;
 }
 
 static struct handler v_handler[] = {
@@ -141,13 +148,10 @@ static struct handler v_handler[] = {
 
 
 
-static void handle_request(gdb g, buffer b)
+static boolean handle_request(gdb g, buffer b, buffer output)
 {
     u64 addr, length;
     int stepping = 0;
-    buffer output = g->output;
-
-    reset_buffer(output);
 
     char command = get_char(b);
 
@@ -158,11 +162,13 @@ static void handle_request(gdb g, buffer b)
     case 'd':
         //remote_debug = !(remote_debug);	/* toggle debug flag */
         break;
+        
     case 'g':		/* return the value of the CPU registers */
         mem2hex (output, g->t->frame, 8*24);
         break;
 
     case 'G':		/* set the value of the CPU registers - return OK */
+        // manifest constant
         hex2mem (b, (char *) g->t->frame, 8*24);
         bprintf (output, "OK");
         break;
@@ -176,8 +182,8 @@ static void handle_request(gdb g, buffer b)
         break;
         
     case 'v':
-        handle_query(g, b, output, v_handler);
-        return;
+        return handle_query(g, b, output, v_handler);
+        break;
 
     case 'p':
         bprintf(output, "00000000");
@@ -281,23 +287,15 @@ static void handle_request(gdb g, buffer b)
         bprintf(output, "E06");
     }			/* switch */
 
-    /* reply to the request */
-    putpacket (g, output);
+    return true;
 }
 
 #define ASCII_CONTROL_C 0x03
+// not completely reassembling
 static CLOSURE_1_1(gdbserver_input, void, gdb, buffer);
 static void gdbserver_input(gdb g, buffer b)
 {
-    unsigned char checksum;
-    unsigned char xmitcsum;
-    char ch = 0;
-
-    reset_buffer(g->out);
-    reset_buffer(g->in);
-    
-    rprintf ("gdb input %b\n", b);
-
+    char ch;
     /* wait around for the start character, ignore all other characters */
     while (buffer_length(b) && ((ch = get_char(b)) != '$')) {
         if (ch == ASCII_CONTROL_C) { //wth?
@@ -307,8 +305,7 @@ static void gdbserver_input(gdb g, buffer b)
         }
     }
  retry:
-    checksum = 0;
-    xmitcsum = -1;
+    g->sent_checksum = -1;
   
     /* now, read until a # or end of buffer is found */
     while (buffer_length(b)) {
@@ -318,23 +315,30 @@ static void gdbserver_input(gdb g, buffer b)
             goto retry;
         if (ch == '#')
             break;
-        checksum = checksum + ch;
+        g->checksum = g->checksum + ch;
         push_character(g->in, ch);
     }
 
     if (ch == '#') {
+        // xxx may be on a segmentation boundary
         ch = get_char(b);
-        xmitcsum = digit_of(ch) << 4;
+        g->sent_checksum = digit_of(ch) << 4;
         ch = get_char(b);
-        xmitcsum += digit_of(ch);
+        g->sent_checksum += digit_of(ch);
     
-        if (checksum != xmitcsum){
+        if (g->checksum != g->sent_checksum){
             push_character(g->out, '-');	/* failed checksum */
+            g->sent_checksum = -1;
+            g->checksum =0;
         } else {
             push_character(g->out, '+');	/* successful transfer */
+            apply(g->output_handler, g->out);
+            if (handle_request(g, g->in, g->output)) {
+                putpacket (g, g->output);
+            }
+
         }
-        apply(g->output_handler, g->out);        
-        handle_request(g, g->in);
+        reset_parser(g);            
         return;
     }
 }
@@ -345,6 +349,7 @@ buffer_handler init_gdb(heap h,
 {
     gdb g = allocate(h, sizeof(struct gdb));
     g->output_handler = outh;
+    // why do I need three here?
     g->output = allocate_buffer(h, 256); 
     g->send_buffer = allocate_buffer(h, 256); 
     g->out = allocate_buffer(h, 256); 
@@ -352,5 +357,6 @@ buffer_handler init_gdb(heap h,
     g->h = h;
     g->t = vector_get(p->threads, 0);
     g->t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(closure(h, gdb_handle_exception, g));
+    reset_parser(g);
     return closure(h, gdbserver_input, g);
 }

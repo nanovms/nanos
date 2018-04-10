@@ -1,5 +1,6 @@
 #include <gdb_internal.h>
 
+// there is one of these in runtime (?)
 u64 parse_int(buffer b, u32 base, u64 *intValue)
 {
   int hexValue;
@@ -72,6 +73,7 @@ void putpacket(gdb g, string b)
     push_character(g->send_buffer, '$');
     checksum = 0;
 
+    // if push_character was abstracted, this could happen without the copy
     while ((ch = get_char(b))) {
         push_character (g->send_buffer, ch);
         checksum += ch;
@@ -82,7 +84,7 @@ void putpacket(gdb g, string b)
 }
 
 
-void handle_query(gdb g, buffer b, string out, handler h) 
+boolean handle_query(gdb g, buffer b, string out, handler h) 
 {
     int i;
 
@@ -96,12 +98,10 @@ void handle_query(gdb g, buffer b, string out, handler h)
              j++);
 
         if (!(n[j])) {
-            void (*f)(gdb, buffer, string) = h[i].body;
             buffer_consume(b, j);
-            f(g, b, out);
-            return;
+            return h[i].body(g, b, out);
         }
     }
-    bprintf(g->out,"$#00");
-    apply(g->output_handler, g->out);        
+    // means send empty
+    return true;
 }

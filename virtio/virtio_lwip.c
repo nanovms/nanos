@@ -30,12 +30,6 @@
  *
  */
 
-/*
- * This file is a skeleton for developing Ethernet network interface
- * drivers for lwIP. Add code to the low_level functions and do a
- * search-and-replace for the word "ethernetif" to replace it with
- * something that better describes your network interface.
- */
 
 #include "lwip/opt.h"
 
@@ -53,16 +47,26 @@
 #include <virtio_internal.h>
 #include <virtio_net.h>
 
+
 typedef struct vnet {
     vtpci dev;
     u16 port;
+    heap rxbuffers;
+    int rxbuflen;
     struct netif *n;
     struct virtqueue *txq;
     struct virtqueue *rxq;
     struct virtqueue *ctl;
-    void *empty; // just a map
-    
+    void *empty; // just a mac..fix, from pre-heap days
 } *vnet;
+
+typedef struct xpbuf
+{
+    struct pbuf_custom p;
+    buffer b;
+    vnet vn;
+} *xpbuf;
+
 
 // fix, this per-device offset is variable - 24 with msi
 #define DEVICE_CONFIG_OFFSET 24
@@ -71,6 +75,8 @@ typedef struct vnet {
 static CLOSURE_1_1(tx_complete, void, struct pbuf *, u64);
 static void tx_complete(struct pbuf *p, u64 len)
 {
+    // unfortunately we dont have control over the allocation
+    // path (?)
     // free me!
 }
 
@@ -112,34 +118,50 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
     return ERR_OK;
 }
 
-
-static void post_recv(vnet vn);
-
-static CLOSURE_2_1(input, void, struct netif *, struct pbuf *, u64);
-static void input(struct netif *n, struct pbuf *p, u64 len)
+static void receive_buffer_release(struct pbuf *p)
 {
-    struct eth_hdr *ethhdr;
-    vnet vn= n->state;
-    post_recv(vn);
-    if (p != NULL) {
-        p->len = len;
-        p->payload += 10;
-        if (n->input(p, n) != ERR_OK) {
-            LWIP_DEBUGF(NETIF_DEBUG, ("ethernetif_input: IP input error\n"));
-            pbuf_free(p);
-            p = NULL;
-        }
-    }
+    xpbuf x  = (void *)p;
+    deallocate(x->vn->rxbuffers, x, x->vn->rxbuflen);
 }
 
-static void post_recv(vnet vn)
+static void post_receive(vnet vn);
+
+static CLOSURE_1_1(input, void, xpbuf, u64);
+static void input(xpbuf x, u64 len)
+{
+    struct eth_hdr *ethhdr;
+    vnet vn= x->vn;
+    if (x != NULL) {
+        x->p.pbuf.len = len;
+        x->p.pbuf.payload += 10;
+        if (vn->n->input(&x->p.pbuf, vn->n) != ERR_OK) {
+            receive_buffer_release(&x->p.pbuf);
+        }
+    }
+    post_receive(vn);
+    // i guess thats a close condition, propagate it...umm wait, this is the virtio driver,
+    // should never be zero
+}
+
+
+static void post_receive(vnet vn)
 {
     u64 len = 1500;
-    struct pbuf *p = pbuf_alloc(PBUF_RAW, len, PBUF_RAM);
-    void *address[] = {p->payload};
-    u64 lengths[] = {len};
+    // use aligned half pages just because
+    xpbuf x = allocate(vn->rxbuffers, sizeof(struct xpbuf) + vn->rxbuflen);
+    x->vn = vn;
+    x->p.custom_free_function = receive_buffer_release;
+    struct pbuf* p = pbuf_alloced_custom(PBUF_RAW,
+                                         vn->rxbuflen,
+                                         PBUF_REF,
+                                         &x->p,
+                                         x+1,
+                                         // this is fucked
+                                         vn->rxbuflen);
+    void *address[] = {x+1};
+    u64 lengths[] = {vn->rxbuflen};
     boolean writables[] = {true};
-    virtqueue_enqueue(vn->rxq, address, lengths, writables, 1, closure(vn->dev->general, input, vn->n, p));    
+    virtqueue_enqueue(vn->rxq, address, lengths, writables, 1, closure(vn->dev->general, input, x));    
 }
 
 static void status_callback(struct netif *netif)
@@ -177,9 +199,9 @@ static err_t virtioif_init(struct netif *netif)
     netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_LINK_UP | NETIF_FLAG_UP;
 
     // fix
-    post_recv(vn);
-    post_recv(vn);
-    post_recv(vn);
+    post_receive(vn);
+    post_receive(vn);
+    post_receive(vn);
     configure_timer(0, closure(vn->dev->general, timeout)); 
     dhcp_start(vn->n); // udp bind failure from dhcp
     
@@ -194,8 +216,14 @@ void *lwip_allocate(u64 size)
     return allocate(lwip_heap, size);
 }
 
+// this doesn't have the size, do we have to prepend it? put it in the
+// ignore bits?
 void lwip_deallocate(void *x)
 {
+    //    rprintf("lwip deallocate\n");
+    // well, sadly, we know that rolling doesn't care about the size - except
+    // potentially for multipage allocations
+    deallocate(lwip_heap, x, 0);
 }
 
 
@@ -211,10 +239,12 @@ static void init_vnet(heap general, heap page_allocator, int bus, int slot, int 
     vtpci dev = attach_vtpci(general, page_allocator, bus, slot, function, VIRTIO_NET_F_MAC);
     vnet vn = allocate(dev->general, sizeof(struct vnet));
     vn->n = allocate(dev->general, sizeof(struct netif));
-
-    /* rx = 0, tx = 1, ctl = 2 by page 53 of http://docs.oasis-open.org/virtio/virtio/v1.0/cs01/virtio-v1.0-cs01.pdf */
+    lwip_heap = allocate_rolling_heap(page_allocator);
+    vn->rxbuflen = 1500;
+    vn->rxbuffers = wrap_freelist(dev->general, dev->general, vn->rxbuflen);
+    /* rx = 0, tx = 1, ctl = 2 by 
+       page 53 of http://docs.oasis-open.org/virtio/virtio/v1.0/cs01/virtio-v1.0-cs01.pdf */
     vn->dev = dev;
-    lwip_heap = general;
     lwip_init();
     vtpci_alloc_virtqueue(dev, 1, &vn->txq);
     vtpci_alloc_virtqueue(dev, 0, &vn->rxq);

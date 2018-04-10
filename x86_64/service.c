@@ -17,44 +17,6 @@ static u64 bootstrap_alloc(heap h, bytes length)
     return result;
 }
 
-typedef struct backed {
-    struct heap h;
-    heap physical;
-    heap virtual;
-    heap pages;
-} *backed;
-    
-
-static u64 physically_backed_alloc(heap h, bytes length)
-{
-    backed b = (backed)h;
-    u64 len = pad(length, h->pagesize);
-    u64 p = allocate_u64(b->physical, len);
-
-    if (p != INVALID_PHYSICAL) {
-        u64 v = allocate_u64(b->virtual, len);
-        if (v != INVALID_PHYSICAL) {
-            // map should return allocation status
-            map(v, p, len, b->pages);
-            return v;
-        }
-    }
-    return INVALID_PHYSICAL; 
-}
-
-static heap physically_backed(heap meta, heap virtual, heap physical, heap pages)
-{
-    backed b = allocate(meta, sizeof(struct backed));
-    b->h.alloc = physically_backed_alloc;
-    // freelist
-    b->h.dealloc = null_dealloc;
-    b->physical = physical;
-    b->virtual = virtual;
-    b->pages = pages;
-    b->h.pagesize = PAGESIZE;
-    return (heap)b;
-}
-
 queue runqueue;
 
 static CLOSURE_1_0(read_complete, void, thunk);
@@ -63,15 +25,15 @@ static void read_complete(thunk target)
     enqueue(runqueue, target);
 }
 
+static context miscframe;
+
 void runloop()
 {
     thunk t;
-    console("runloop\n");
     while(1) {
-    console("checking\n");        
         while((t = dequeue(runqueue)))
             apply(t);
-        console("empty\n");                
+        frame = miscframe;
         enable_interrupts();
         __asm__("hlt");
         disable_interrupts();
@@ -102,12 +64,13 @@ void init_service_new_stack(heap pages, heap physical, heap backed, heap virtual
     //    init_clock(backed);
 
     heap misc = allocate_rolling_heap(backed);
-    runqueue = allocate_queue(misc, 32);
+    runqueue = allocate_queue(misc, 64);
     start_interrupts(pages, misc, physical);
     init_symbols(misc);
     init_pci(misc);    
     init_virtio_storage(misc, backed, pages, virtual);
-    init_virtio_network(misc, backed, pages);            
+    init_virtio_network(misc, backed, pages);
+    miscframe = allocate(misc, FRAME_MAX * sizeof(u64));
     pci_discover(pages, virtual);
 
     for (region e = regions; region_type(e); e -= 1) {
@@ -139,7 +102,7 @@ void init_service()
 
     console("service\n");
     bootstrap.alloc = bootstrap_alloc;
-    bootstrap.dealloc = null_dealloc;
+    bootstrap.dealloc = leak;
     heap pages = region_allocator(&bootstrap, PAGESIZE, REGION_IDENTITY);
     heap physical = region_allocator(&bootstrap, PAGESIZE, REGION_PHYSICAL);    
 

@@ -8,9 +8,9 @@ typedef struct tcpgdb{
 static CLOSURE_1_1(gdb_send, void, tcpgdb, buffer);
 static void gdb_send(tcpgdb g, buffer b)
 {
-    rprintf ("gdb send %b\n", b);
     //    u64 len = tcp_sndbuf(g->pcb);
     // flags can force a stack copy or toggle push
+    // pool?
     err_t err = tcp_write(g->p, buffer_ref(b, 0), buffer_length(b), TCP_WRITE_FLAG_COPY);
 }
 
@@ -21,6 +21,8 @@ err_t gdb_input(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
     // i guess this is a close?
     if (p) {
         apply(g->input, alloca_wrap_buffer(p->payload, p->len));
+        // not necessarily
+        tcp_recved(pcb, p->len);
     }
     return ERR_OK;
 }
