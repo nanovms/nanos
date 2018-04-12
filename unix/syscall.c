@@ -3,10 +3,6 @@
 
 
 
-static node lookup(process p, char *name)
-{
-}
-
 int sigaction(int signum, const struct sigaction *act,
               struct sigaction *oldact)
 {
@@ -16,6 +12,7 @@ int sigaction(int signum, const struct sigaction *act,
 
 int read(int fd, u8 *dest, bytes length)
 {
+    rprintf ("read : %d\n", fd);
     file f = current->p->files + fd;
     return apply(f->read, dest, length, f->offset);
 }
@@ -50,7 +47,8 @@ static int access(char *name, int mode)
 {
     void *where;
     bytes length;
-    if (!lookup(current->p, name))
+    rprintf("access %s\n", name);
+    if (!resolve_cstring(current->p->cwd, name))
         return -ENOENT;
     return 0;
 }
@@ -87,10 +85,10 @@ int open(char *name, int flags, int mode)
     
     // fix - lookup should be robust
     if (name == 0) return -EINVAL;
-    
-    if ((n = lookup(current->p, name))) {
-            //rprintf("open %s - not found\n", name);
-            return -ENOENT;
+    rprintf("open %s\n", name);
+    if (!(n = resolve_cstring(current->p->cwd, name))) {
+        rprintf("open %s - not found\n", name);
+        return -ENOENT;
     }
 
     buffer b = allocate(current->p->h, sizeof(struct buffer));
@@ -337,9 +335,9 @@ static int stat(char *name, struct stat *s)
 {
     node n;
 
-    if (!(n = lookup(current->p, name)))
+    if (!(n = resolve_cstring(current->p->cwd, name))) {    
         return -ENOENT;
-
+    }
     fill_stat(n, s);
     return 0;
 }

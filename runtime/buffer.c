@@ -14,7 +14,7 @@ void print_hex_buffer(buffer s, buffer b)
     int rowlen = wlen * 4;
     boolean first = true;
 
-    for (int i = 0 ; i<len ; i+= 8) {
+    for (int i = 0 ; i<len ; i+= 1) {
         if (!(i % rowlen)) {
             if (!first) push_character(s, '\n');
             first = false;

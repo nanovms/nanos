@@ -78,6 +78,7 @@ static void tx_complete(struct pbuf *p, u64 len)
     // unfortunately we dont have control over the allocation
     // path (?)
     // free me!
+    pbuf_free(p);
 }
 
 
@@ -213,14 +214,14 @@ static heap lwip_heap;
 
 void *lwip_allocate(u64 size)
 {
-    return allocate(lwip_heap, size);
+    ///xxxxxxx 
+    return allocate_zero(lwip_heap, size+4);
 }
 
 // this doesn't have the size, do we have to prepend it? put it in the
 // ignore bits?
 void lwip_deallocate(void *x)
 {
-    //    rprintf("lwip deallocate\n");
     // well, sadly, we know that rolling doesn't care about the size - except
     // potentially for multipage allocations
     deallocate(lwip_heap, x, 0);
@@ -239,9 +240,10 @@ static void init_vnet(heap general, heap page_allocator, int bus, int slot, int 
     vtpci dev = attach_vtpci(general, page_allocator, bus, slot, function, VIRTIO_NET_F_MAC);
     vnet vn = allocate(dev->general, sizeof(struct vnet));
     vn->n = allocate(dev->general, sizeof(struct netif));
+    heap lwip_rolling_page_cache = wrap_freelist(general, page_allocator, PAGESIZE);
     lwip_heap = allocate_rolling_heap(page_allocator);
     vn->rxbuflen = 1500;
-    vn->rxbuffers = wrap_freelist(dev->general, dev->general, vn->rxbuflen);
+    vn->rxbuffers = wrap_freelist(dev->general, dev->general, vn->rxbuflen + sizeof(struct xpbuf));
     /* rx = 0, tx = 1, ctl = 2 by 
        page 53 of http://docs.oasis-open.org/virtio/virtio/v1.0/cs01/virtio-v1.0-cs01.pdf */
     vn->dev = dev;

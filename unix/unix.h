@@ -2,7 +2,7 @@
 #include <system_structs.h>
 
 // fix
-#define FDS 128
+#define FDS 64
 
 typedef struct process *process;
 typedef struct thread *thread;

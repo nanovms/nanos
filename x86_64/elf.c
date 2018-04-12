@@ -4,8 +4,6 @@
 // this doesn't really belong in x86_64, but it does belong
 // in the kernel runtime
 
-#define trim(x) ((x) & ~MASK(PAGELOG))
-
 // buffer would be better for range checking, but stage2 uses this
 void *load_elf(buffer elf, u64 offset, heap pages, heap bss)
 {
@@ -14,16 +12,17 @@ void *load_elf(buffer elf, u64 offset, heap pages, heap bss)
     for (int i = 0; i< elfh->e_phnum; i++){
         Elf64_Phdr *p = buffer_ref(elf, elfh->e_phoff + i * elfh->e_phentsize);
         if (p->p_type == PT_LOAD) {
-            // unaligned segment? uncool bro
-            u64 aligned = trim(p->p_vaddr);
-            u64 phy = physical_from_virtual(buffer_ref(elf, p->p_offset));
-            int ssize = pad(p->p_memsz + (p->p_vaddr - trim (p->p_vaddr)), PAGESIZE);
-            map(aligned+offset, phy, ssize, pages);
+            // unaligned segment? doesn't seem useful
+            u64 aligned = p->p_vaddr & (~MASK(PAGELOG));
+            u64 trim_offset = p->p_vaddr & MASK(PAGELOG);
+            u64 phy = physical_from_virtual(u64_from_pointer(buffer_ref(elf, p->p_offset)) & ~MASK(PAGELOG));
+            int ssize = pad(p->p_memsz + trim_offset, PAGESIZE);
+            map(aligned + offset, phy, ssize, pages);
 
             // always zero up to the next aligned page start
             u64 bss_start = p->p_vaddr + offset + p->p_filesz;
             u32 bss_size = p->p_memsz-p->p_filesz;            
-            u64 initial_len = pad(bss_start, PAGESIZE) - bss_start;
+            u64 initial_len = MIN(bss_size, pad(bss_start, PAGESIZE) - bss_start);
 
             vpzero(pointer_from_u64(bss_start), phy + p->p_filesz, initial_len);
 

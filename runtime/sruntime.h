@@ -37,6 +37,48 @@ static tuple resolve_path(tuple n, vector v)
     return n;
 }
 
+static inline table children(table x)
+{
+    return table_find(x, sym(children));
+}
+
+static inline table contents(table x)
+{
+    return table_find(x, sym(contents));
+}
+
+static inline tuple lookup_step(tuple t, buffer a)
+{
+    void *c = children(t);
+    if (!c) return c;
+    return table_find(c, intern(a));
+}
+
+
+// fused buffer wrap, split, and resolve
+static inline tuple resolve_cstring(tuple root, char *f)
+{
+    little_stack_buffer(a, 50);
+    char *x = f;
+    tuple t = root;
+    char y;
+
+    while (y = *x++) {
+        if (y == '/') {
+            if (buffer_length(a)) {
+                t = lookup_step(t, a);
+                if (!t) return t;
+                buffer_clear(a);
+            }                
+        } else {
+            push_character(a, y);
+        }
+    }
+    if (buffer_length(a)) t = lookup_step(t, a);
+    return t;
+}
+
+
 void bprintf(buffer b, char *fmt, ...);
 // belongs somewhere else?
 void storage_read(void *target, u64 offset, u64 size, thunk complete);

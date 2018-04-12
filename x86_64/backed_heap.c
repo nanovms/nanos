@@ -27,12 +27,6 @@ static u64 physically_backed_alloc(heap h, bytes length)
     u64 len = pad(length, h->pagesize);
     u64 p = allocate_u64(b->physical, len);
 
-    console("pballoc ");
-    print_u64(u64_from_pointer(__builtin_return_address(0)));
-    //    console(" ");
-    //    print_u64( __builtin_return_address(1));
-    console("\n");    
-
     if (p != INVALID_PHYSICAL) {
         u64 v = allocate_u64(b->virtual, len);
         if (v != INVALID_PHYSICAL) {

@@ -67,8 +67,9 @@ static inline void *lwip_malloc(size_t b)
 }
 
 #define mem_clib_malloc lwip_allocate
+#define mem_clib_free lwip_free
 
-static inline void free(void *x)
+static inline void lwip_free(void *x)
 {
     lwip_deallocate(x);
 }

@@ -104,6 +104,7 @@ process create_process(heap h, heap pages, heap physical, node filesystem)
     p->virtual = create_id_heap(h, 0x7000000000ull, 0x10000000000ull, 0x100000000);
     p->virtual32 = create_id_heap(h, 0x10000000, 0xe0000000, PAGESIZE);
     p->pages = pages;
+    p->cwd = filesystem;
     p->fdallocator = create_id_heap(h, 3, FDMAX - 3, 1);
     p->physical = physical;
     p->files[1].write = closure(h, stdout);    

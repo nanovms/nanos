@@ -15,16 +15,21 @@ typedef struct rolling {
     pageheader p;
 } *rolling;
 
+// multipage allocations dont work!
 static void rolling_advance_page(rolling l, int len)
 {
     u64 length = pad(len + sizeof(struct pageheader), l->parent->pagesize);
+    l->offset = sizeof(struct pageheader);    
+    if (length > l->parent->pagesize) {
+        print_u64(len);
+        console("\n");
+        l->offset = length;
+    }
     pageheader n = allocate(l->parent, length);
     n->next = l->p;
     n->length = length;
     n->references = 0;
-    n->next = l->p;
     l->p = n;
-    l->offset = sizeof(struct pageheader);
 }
 
 static u64 rolling_alloc(heap h, bytes len)
@@ -39,7 +44,6 @@ static u64 rolling_alloc(heap h, bytes len)
         rolling_advance_page(r, len);
     }
     void *a = (void *)r->p + r->offset;
-
     r->p->references++;
     r->offset += len;
     return(u64_from_pointer(a));
@@ -53,7 +57,7 @@ static void rolling_free(heap h, u64 x, u64 length)
     pageheader p = pointer_from_u64(x&(~(r->parent->pagesize-1)));
 
     if (!--p->references) {
-        console("rolling page free!\n");
+        //        console("rolling page free!\n");
         deallocate(r->parent, p, h->pagesize);
     }
 }
@@ -68,7 +72,7 @@ static void rolling_destroy(rolling c)
 // where heap p must be aligned
 heap allocate_rolling_heap(heap p)
 {
-    rolling l = allocate(p, sizeof(struct rolling));
+    rolling l = allocate(p, pad(sizeof(struct rolling), p->pagesize));
     l->h.alloc = rolling_alloc;
     l->h.dealloc = rolling_free;
     l->h.pagesize = 1; 

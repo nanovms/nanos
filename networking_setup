@@ -1,0 +1,12 @@
+#!/bin/bash
+
+brctl addbr bridge
+tunctl
+brctl addif bridge tap0
+ip addr flush enp0s31f6
+brctl addif bridge enp0s31f6
+ifconfig bridge 192.168.42.66
+ip link set enp0s31f6 promisc on
+ip link set tap0 promisc on
+ip link set bridge promisc on
+route add default gw 192.168.42.1

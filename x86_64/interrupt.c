@@ -137,7 +137,7 @@ void lapic_eoi()
 
 void print_stack(context c)
 {
-    u64 *x = c[FRAME_RSP];
+    u64 *x = pointer_from_u64(c[FRAME_RSP]);
     console("stack \n");
     for (u64 i= 0 ;i < 10; i++) {
         print_u64(*x--);
@@ -238,7 +238,7 @@ void configure_timer(time rate, thunk t)
     *(u32 *)(apic_base+APIC_TMRDIV) = 3;
     int v = allocate_u64(interrupt_vectors, 1);
     *(u32 *)(apic_base+APIC_LVT_TMR) = v | TMR_PERIODIC;
-    *(u32 *)(apic_base + APIC_TMRINITCNT) = 10 * 1000*1000*2;
+    *(u32 *)(apic_base + APIC_TMRINITCNT) = 10 * 1000*1000*8;
     handlers[v] = t;
     // 3 is 10 ms .. apparently, says who?
 

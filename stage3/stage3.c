@@ -9,16 +9,6 @@ u8 userspace_random_seed[16];
 
 typedef struct aux {u64 tag; u64 val;} *aux;
 
-table children(table x)
-{
-    return table_find(x, sym(children));
-}
-
-table contents(table x)
-{
-    return table_find(x, sym(contents));
-}
-
 symbol intern_buffer_symbol(void *x)
 {
     struct buffer stemp;
@@ -79,7 +69,6 @@ tuple storage_to_tuple(heap h, buffer b)
                        
 static void build_exec_stack(buffer s, heap general, vector argv, node env, vector auxp)
 {
-    // shouldn't this be 5?
     int length = vector_length(argv) + table_elements(env) +  2 * vector_length(auxp) + 6;
     s->start = s->end = s->length - length *8;
     buffer_write_le64(s, vector_length(argv));
@@ -97,32 +86,11 @@ static void build_exec_stack(buffer s, heap general, vector argv, node env, vect
 
     aux a;
     vector_foreach(a, auxp) {
-        buffer_write_le64(s, a->val);
         buffer_write_le64(s, a->tag);
+        buffer_write_le64(s, a->val);
     }
     buffer_write_le64(s, 0);
     buffer_write_le64(s, 0);
-}
-
-// fused buffer wrap, split, and resolve
-static tuple resolve_cstring(tuple root, char *f)
-{
-    //    console("heffe\n");    
-    little_stack_buffer(a, 50);
-    char *x = f;
-    tuple t = root;
-    while (*x) {
-        buffer_clear(a);
-        a->start = a->end = 0;
-        while (*x &&(*x != '/')) push_character(a, *x++);
-        if (buffer_length(a)) {
-            void *c = children(t);
-            if (!c) return c;
-            t = table_find(c, intern(a));
-            if (!t) return t;            
-        }
-    }
-    return t;
 }
 
 process exec_elf(buffer ex, heap general, heap physical, heap pages, heap virtual, tuple fs)
@@ -135,13 +103,6 @@ process exec_elf(buffer ex, heap general, heap physical, heap pages, heap virtua
     // extra elf munging
     Elf64_Ehdr *elfh = (Elf64_Ehdr *)buffer_ref(ex, 0);
 
-    struct aux auxp[] = {
-        {AT_PHDR, elfh->e_phoff + u64_from_pointer(va)},
-        {AT_PHENT, elfh->e_phentsize},
-        {AT_PHNUM, elfh->e_phnum},
-        {AT_PAGESZ, PAGESIZE},
-        {AT_RANDOM, u64_from_pointer(userspace_random_seed)},        
-        {AT_ENTRY, u64_from_pointer(user_entry)}};
 
     // also pick up the maximum load address for the brk
     for (int i = 0; i< elfh->e_phnum; i++){
@@ -155,10 +116,20 @@ process exec_elf(buffer ex, heap general, heap physical, heap pages, heap virtua
             // file not found
             tuple ldso = resolve_path(fs, split(general, nb, '/'));
             u64 where = allocate_u64(virtual, HUGE_PAGESIZE);
-            user_entry = load_elf(table_find(ldso, sym(contents)), where, pages, physical);
+            buffer c = table_find(ldso, sym(contents));
+            user_entry = load_elf(c, where, pages, physical);
         }
     }
 
+
+    struct aux auxp[] = {
+        {AT_PHDR, elfh->e_phoff + u64_from_pointer(va)},
+        {AT_PHENT, elfh->e_phentsize},
+        {AT_PHNUM, elfh->e_phnum},
+        {AT_PAGESZ, PAGESIZE},
+        {AT_RANDOM, u64_from_pointer(userspace_random_seed)},        
+        {AT_ENTRY, u64_from_pointer(user_entry)}};
+    
     t->frame[FRAME_RIP] = u64_from_pointer(user_entry);
     map(0, INVALID_PHYSICAL, PAGESIZE, pages);
     
@@ -168,7 +139,8 @@ process exec_elf(buffer ex, heap general, heap physical, heap pages, heap virtua
         userspace_random_seed[i] = (seed<<3) ^ 0x9e;
     
     vector aux = allocate_vector(general, 10);
-    for (int i = 0; i< sizeof(auxp)/(2*sizeof(u64)); i++) vector_push(aux, auxp+i);
+    for (int i = 0; i< sizeof(auxp)/(2*sizeof(u64)); i++) 
+        vector_push(aux, auxp+i);
 
     u64 stack_size = 2*1024*1024;
     void *user_stack = allocate(virtual, stack_size);

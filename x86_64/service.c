@@ -81,8 +81,8 @@ void init_service_new_stack(heap pages, heap physical, heap backed, heap virtual
     u64 len = storage_length - fs_offset;
     void *k = allocate(virtual, len);
     map(u64_from_pointer(k), allocate_u64(physical, len), len, pages);
-    // wrap
-    buffer drive = allocate_buffer(misc, len);
+    // wrap.. this was misc, which isn't aligned
+    buffer drive = allocate_buffer(backed, len);
     drive->contents = k;
     drive->start = 0;
     drive->end = len;
@@ -107,7 +107,9 @@ void init_service()
     heap physical = region_allocator(&bootstrap, PAGESIZE, REGION_PHYSICAL);    
 
     heap virtual = create_id_heap(&bootstrap, HUGE_PAGESIZE, (1ull<<VIRTUAL_ADDRESS_BITS)- HUGE_PAGESIZE, HUGE_PAGESIZE);
-    heap backed = physically_backed(&bootstrap, virtual, physical, pages);
+    heap virtual_pagesize = allocate_fragmentor(&bootstrap, virtual, PAGESIZE);
+
+    heap backed = physically_backed(&bootstrap, virtual_pagesize, physical, pages);
 
     frame = allocate(&bootstrap, FRAME_MAX *8);
     // on demand stack allocation
