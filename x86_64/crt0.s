@@ -110,7 +110,16 @@ getrip:
         ;; could always use iret?
 global frame_return
 frame_return:
-        mov rax, [frame]        
+        mov rbx, [frame]
+
+        mov rax, [rbx+FRAME_FS*8]
+        mov rcx, FS_MSR
+        mov rdx, rax
+        shr rdx, 0x20
+        wrmsr ;; move fs, consider macro
+
+        mov rax, rbx
+        
         mov rbx, [rax+FRAME_RBX*8]
         mov rcx, [rax+FRAME_RCX*8]
         mov rdx, [rax+FRAME_RDX*8]

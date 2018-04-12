@@ -1,7 +1,10 @@
 #include <sruntime.h>
 #include <unix.h>
+
+// conditionalize
 // fix config/build, remove this include to take off network
 #include <net.h>
+#include <gdb.h>
 
 static heap processes;
 
@@ -11,9 +14,9 @@ static boolean node_contents(tuple t, buffer d)
     return false;
 }    
 
-CLOSURE_0_1(default_fault_handler, context, context);
+CLOSURE_1_1(default_fault_handler, void, thread, context);
 
-context default_fault_handler(context frame)
+void default_fault_handler(thread t, context frame)
 {
 
     u64 v = frame[FRAME_VECTOR];
@@ -44,9 +47,15 @@ context default_fault_handler(context frame)
         print_u64(stack[j]);
         console("\n");        
     }
-#endif            
+#endif
+
+    rprintf("checking fault: %p\n", table_find (children(t->p->filesystem), sym(fault)));
+    if (table_find (children(t->p->filesystem), sym(fault))) {
+        console("starting gdb\n");
+        init_tcp_gdb(t->p->h, t->p, 1234);
+        runloop();
+    }
     QEMU_HALT();
-    return 0;
 }
 
 
@@ -67,7 +76,7 @@ thread create_thread(process p)
     t->p = p;
     t->tid = tidcount++;
     t->set_child_tid = t->clear_child_tid = 0;
-    t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(p->handler);
+    t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(closure(p->h, default_fault_handler, t));
     t->run = closure(p->h, run_thread, t);
     vector_push(p->threads, t);
     return t;
@@ -110,7 +119,6 @@ process create_process(heap h, heap pages, heap physical, node filesystem)
     p->files[1].write = closure(h, stdout);    
     p->files[2].write = closure(h, stdout);
     p->futices = allocate_table(h, futex_key_function, futex_key_equal);
-    p->handler = closure(h, default_fault_handler);
     p->threads = allocate_vector(h, 5);
     return p;
 }

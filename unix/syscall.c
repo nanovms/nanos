@@ -1,6 +1,6 @@
 #include <sruntime.h>
 #include <unix.h>
-
+#include <gdb.h>
 
 
 int sigaction(int signum, const struct sigaction *act,
@@ -48,21 +48,22 @@ static int access(char *name, int mode)
     void *where;
     bytes length;
     rprintf("access %s\n", name);
-    if (!resolve_cstring(current->p->cwd, name))
+    if (!resolve_cstring(current->p->cwd, name)) {
+        rprintf("noent\n");
         return -ENOENT;
+    }
     return 0;
 }
 
 static CLOSURE_1_3(contents_read, int, tuple, void *, u64, u64);
 static int contents_read(tuple n, void *dest, u64 length, u64 offset)
 {
+    // offset?
     buffer b;
-    if (!(b = table_find(n, sym(contents)))) return -EINVAL;
-    u64 len = buffer_length(b);
-    if (length < len) {
-        len = length;
-    }
-    runtime_memcpy(dest, b->contents, buffer_length(b));
+    if (!(b = contents(n))) return -EINVAL;
+    u64 len = MIN(buffer_length(b), length);
+    rprintf("contents read: %p %p %d %d %d\n",dest, b->contents, buffer_length(b), len, offset);
+    runtime_memcpy(dest, buffer_ref(b, offset), len);
     return len;
 }
 
@@ -350,12 +351,16 @@ static u64 lseek(int fd, u64 offset, int whence)
 
 extern void write_msr(u64 a, u64 b);
 static int arch_prctl(int code, unsigned long a)
-{
+{    
     switch (code) {
     case ARCH_SET_GS:
         break;
     case ARCH_SET_FS:
+        rprintf("set fs: %p\n", a);
         current->frame[FRAME_FS] = a;
+        //        console("starting gdb\n");
+        //        init_tcp_gdb(current->p->h, current->p, 1234);
+        //        runloop();
         return 0;
     case ARCH_GET_FS:
         break;

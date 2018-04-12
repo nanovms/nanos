@@ -9,3 +9,5 @@
 /arguments/1 aggo
 /arguments/2 /hw.bytes
 /etc/ld.so.cache @/etc/ld.so.cache
+/usr/local/etc/ld.so.cache @/etc/ld.so.cache
+/fault gdb

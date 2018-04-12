@@ -42,7 +42,7 @@ static inline table children(table x)
     return table_find(x, sym(children));
 }
 
-static inline table contents(table x)
+static inline buffer contents(table x)
 {
     return table_find(x, sym(contents));
 }

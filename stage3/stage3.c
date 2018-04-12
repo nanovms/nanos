@@ -97,7 +97,8 @@ process exec_elf(buffer ex, heap general, heap physical, heap pages, heap virtua
 {
     process p = create_process(general, pages, physical, fs);
     thread t = create_thread(p);
-    void *user_entry = load_elf(ex, 0, pages, physical);        
+    void *user_entry = load_elf(ex, 0, pages, physical);
+    void *actual_entry = user_entry;
     void *va;
 
     // extra elf munging
@@ -128,7 +129,7 @@ process exec_elf(buffer ex, heap general, heap physical, heap pages, heap virtua
         {AT_PHNUM, elfh->e_phnum},
         {AT_PAGESZ, PAGESIZE},
         {AT_RANDOM, u64_from_pointer(userspace_random_seed)},        
-        {AT_ENTRY, u64_from_pointer(user_entry)}};
+        {AT_ENTRY, u64_from_pointer(actual_entry)}};
     
     t->frame[FRAME_RIP] = u64_from_pointer(user_entry);
     map(0, INVALID_PHYSICAL, PAGESIZE, pages);
