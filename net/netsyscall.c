@@ -115,13 +115,15 @@ int socket(int domain, int type, int protocol)
 static err_t input_lower (void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 {
     sock s = z;
-    enqueue(s->incoming, p);
-    
-    if (s->read_waiting) {
-        s->read_waiting->frame[FRAME_RAX] = read_dequeue(s);
-        enqueue(runqueue, s->read_waiting);                
-        s->read_waiting = 0;
-    } 
+    if (p) {
+        enqueue(s->incoming, p);
+        
+        if (s->read_waiting) {
+            s->read_waiting->frame[FRAME_RAX] = read_dequeue(s);
+            enqueue(runqueue, s->read_waiting->run);                
+            s->read_waiting = 0;
+        }
+    }
     return ERR_OK;
 }
 
