@@ -1,10 +1,10 @@
 /kernel @stage3/stage3
 /lib64/ld-linux-x86-64.so.2 @/lib64/ld-linux-x86-64.so.2
 /lib/x86_64-linux-gnu/libc.so.6 @/lib/x86_64-linux-gnu/libc.so.6
-/hw @hw/hw
+/web @examples/web
 /environment/foo bar
 /environment/bar baz
-/program /hw
+/program /web
 /arguments/0 hw
 /arguments/1 aggo
 /arguments/2 /hw.bytes

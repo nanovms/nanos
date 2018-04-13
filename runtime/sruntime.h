@@ -99,7 +99,9 @@ static inline void haltf(char *f, ...)
 // be exposed to stage2...a middle layer
 typedef closure_type(fault_handler, u64 *, context);
 void configure_timer(time rate, thunk t);
-void enqueue(queue q, thunk n);
-thunk dequeue(queue q);
+void enqueue(queue q, void *n);
+void *dequeue(queue q);
+void *queue_peek(queue q);
 queue allocate_queue(heap h, u64 size);
 void runloop();
+heap allocate_fragmentor(heap meta, heap parent, bytes size);

@@ -8,7 +8,7 @@ struct queue {
     void *body[];
 };
 
-void enqueue(queue q, thunk n)
+void enqueue(queue q, void *n)
 {
     u64 mask = q->length -1;
     if (((q->write + 1)  & mask)  == (q->read & mask)) {
@@ -20,11 +20,18 @@ void enqueue(queue q, thunk n)
     disable_interrupts();
     u64 slot = fetch_and_add(&q->write, 1);
     q->body[slot & mask]= n;
-    rprintf("enqueue %d %d\n", q->read, q->write);
     if (f & FLAG_INTERRUPT) enable_interrupts();    
 }
 
-thunk dequeue(queue q)
+void *queue_peek(queue q)
+{
+    u64 mask = q->length -1;
+    if ((q->read & mask) == (q->write & mask) )
+        return 0;
+    return q->body[q->read&mask];
+}
+
+void *dequeue(queue q)
 {
     u64 mask = q->length -1;
     if ((q->read & mask) == (q->write & mask) )

@@ -15,7 +15,7 @@ void *load_elf(buffer elf, u64 offset, heap pages, heap bss)
             // unaligned segment? doesn't seem useful
             u64 aligned = p->p_vaddr & (~MASK(PAGELOG));
             u64 trim_offset = p->p_vaddr & MASK(PAGELOG);
-            u64 phy = physical_from_virtual(u64_from_pointer(buffer_ref(elf, p->p_offset)) & ~MASK(PAGELOG));
+            u64 phy = physical_from_virtual(pointer_from_u64(u64_from_pointer(buffer_ref(elf, p->p_offset)) & ~MASK(PAGELOG)));
             int ssize = pad(p->p_memsz + trim_offset, PAGESIZE);
             map(aligned + offset, phy, ssize, pages);
 

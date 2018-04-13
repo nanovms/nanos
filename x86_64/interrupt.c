@@ -153,7 +153,7 @@ void print_frame(context f)
     print_u64(v);
     console("\n");
     console("frame: ");
-    print_u64(f);
+    print_u64(u64_from_pointer(f));
     console("\n");    
     
     // page fault
@@ -193,7 +193,7 @@ void common_handler()
         }
         if (i < 25) frame = apply(f, frame);
         console("interrupt return: ");
-        print_u64(frame);
+        print_u64(u64_from_pointer(frame));
         console(" ");
         print_u64(frame[FRAME_RIP]);
         console("\n");        

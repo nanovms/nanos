@@ -1,6 +1,8 @@
 #include <sruntime.h>
 #include <unix.h>
+// parameter
 #include <gdb.h>
+#include <net.h>
 
 
 int sigaction(int signum, const struct sigaction *act,
@@ -12,7 +14,6 @@ int sigaction(int signum, const struct sigaction *act,
 
 int read(int fd, u8 *dest, bytes length)
 {
-    rprintf ("read : %d\n", fd);
     file f = current->p->files + fd;
     return apply(f->read, dest, length, f->offset);
 }
@@ -47,9 +48,7 @@ static int access(char *name, int mode)
 {
     void *where;
     bytes length;
-    rprintf("access %s\n", name);
     if (!resolve_cstring(current->p->cwd, name)) {
-        rprintf("noent\n");
         return -ENOENT;
     }
     return 0;
@@ -62,7 +61,6 @@ static int contents_read(tuple n, void *dest, u64 length, u64 offset)
     buffer b;
     if (!(b = contents(n))) return -EINVAL;
     u64 len = MIN(buffer_length(b), length);
-    rprintf("contents read: %p %p %d %d %d\n",dest, b->contents, buffer_length(b), len, offset);
     runtime_memcpy(dest, buffer_ref(b, offset), len);
     return len;
 }
@@ -70,13 +68,22 @@ static int contents_read(tuple n, void *dest, u64 length, u64 offset)
 long clone(unsigned long flags, void *child_stack, void *ptid, void *ctid, void *x)
 {
     thread t = create_thread(current->p);
-    rprintf("clone! %d->%d\n", current->tid, t->tid);
     runtime_memcpy(t->frame, current->frame, sizeof(t->frame));
     t->frame[FRAME_RSP]= u64_from_pointer(child_stack);
     t->frame[FRAME_RAX]= *(u32 *)ctid;
     t->frame[FRAME_FS] = u64_from_pointer(x);
     enqueue(runqueue, t->run);
     return t->tid;
+}
+
+int allocate_fd(process p, io reader, io writer)
+{
+    // check err
+    int fd = allocate_u64(p->fdallocator, 1);
+    p->files[fd].offset = 0;
+    p->files[fd].read = reader;
+    p->files[fd].write = writer;
+    return fd;
 }
 
 int open(char *name, int flags, int mode)
@@ -86,7 +93,6 @@ int open(char *name, int flags, int mode)
     
     // fix - lookup should be robust
     if (name == 0) return -EINVAL;
-    rprintf("open %s\n", name);
     if (!(n = resolve_cstring(current->p->cwd, name))) {
         rprintf("open %s - not found\n", name);
         return -ENOENT;
@@ -99,7 +105,6 @@ int open(char *name, int flags, int mode)
     f->n = n;
     f->read = closure(current->p->h, contents_read, n);
     f->offset = 0;
-    //    rprintf("open %s return %x\n", name, fd);
     return fd;
 }
 
@@ -356,11 +361,7 @@ static int arch_prctl(int code, unsigned long a)
     case ARCH_SET_GS:
         break;
     case ARCH_SET_FS:
-        rprintf("set fs: %p\n", a);
         current->frame[FRAME_FS] = a;
-        //        console("starting gdb\n");
-        //        init_tcp_gdb(current->p->h, current->p, 1234);
-        //        runloop();
         return 0;
     case ARCH_GET_FS:
         break;
@@ -443,7 +444,7 @@ u64 syscall()
 {
     u64 *f = current->frame;
     int call = f[FRAME_VECTOR];
-    rprintf ("syscall: %d\n", call);
+
     u64 a[6] = {f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]};
     switch (call) {
     case SYS_read: return read(a[0],pointer_from_u64(a[1]), a[2]);
@@ -478,7 +479,7 @@ u64 syscall()
     case SYS_exit: QEMU_HALT();
 
     default:
-#ifdef NET_SYSCALLS
+#ifdef NET
         return net_syscall(call, a);
 #endif        
         //        rprintf("syscall %d %p %p %p\n", call, a[0], a[1], a[2]);

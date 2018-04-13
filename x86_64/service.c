@@ -100,7 +100,6 @@ void init_service()
 {
     struct heap bootstrap;
 
-    console("service\n");
     bootstrap.alloc = bootstrap_alloc;
     bootstrap.dealloc = leak;
     heap pages = region_allocator(&bootstrap, PAGESIZE, REGION_IDENTITY);

@@ -14,11 +14,11 @@ net/lwip:
 	git clone http://git.savannah.nongnu.org/git/lwip.git 
 	cd lwip ; git checkout STABLE-2_0_3_RELEASE
 
-image: boot/boot mkfs/mkfs manifest stage3/stage3 hw/hw
+image: boot/boot mkfs/mkfs manifest stage3/stage3 examples/web
 	mkfs/mkfs < manifest | cat boot/boot - > image
 
-hw/hw: force
-	cd hw  ; make
+examples/web: force
+	cd examples ; make
 
 boot/boot: force
 	cd boot ; make

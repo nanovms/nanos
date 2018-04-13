@@ -19,6 +19,7 @@ stage3/fs
 mkfs/mkfs
 runtime/contgen
 runtime/closure_templates.h
-hw/hw
+examples/hw
+examples/web
 stage3/frame_nasm.h
 image2

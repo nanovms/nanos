@@ -48,6 +48,7 @@ typedef struct process {
     vector threads;
 } *process;
 
+int allocate_fd(process p, io reader, io writer);
 
 
 void init_unix(heap, heap, heap, tuple);

@@ -42,7 +42,6 @@ boolean lookup_kernel(void *fs, u64 *offset, u64 *length)
 // pass the memory parameters (end of load, end of mem)
 void centry()
 {
-    console("stage2\n");
     struct heap workings;
     workings.alloc = stage2_allocator;
     heap working = &workings;

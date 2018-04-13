@@ -175,7 +175,7 @@ static CLOSURE_0_0(timeout, void);
 static void timeout()
 {
     static int c;
-    if (!(++c%10)) console("tick 10\n");
+    //    if (!(++c%10)) console("tick 10\n");
     sys_check_timeouts();
 }
 

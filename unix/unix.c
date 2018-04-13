@@ -62,7 +62,6 @@ void default_fault_handler(thread t, context frame)
 CLOSURE_1_0(run_thread, void, thread);
 void run_thread(thread t)
 {
-    rprintf("run thread\n");
     current = t;
     frame = t->frame;
     IRETURN(frame);    
@@ -89,6 +88,7 @@ static int stdout(void *d, u64 length, u64 offset)
     for (int i = 0; i< length; i++) {
         serial_out(z[i]);
     }
+    return length;
 }
 
 static u64 futex_key_function(void *x)

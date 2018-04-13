@@ -163,7 +163,6 @@ process exec_elf(buffer ex, heap general, heap physical, heap pages, heap virtua
     } else
 #endif
     {
-        console ("not gdb!\n");
         enqueue(runqueue, t->run);
     }
     return p;    
