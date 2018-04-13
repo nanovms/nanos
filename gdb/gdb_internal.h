@@ -1,6 +1,6 @@
 #include <sruntime.h>
 #include <unix.h>
-#include <net.h>
+#include <net_internal.h>
 
 typedef struct gdb {
     string output;
