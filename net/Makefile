@@ -5,7 +5,7 @@ lwip:
 	(cd $(ROOT)/net; git clone http://git.savannah.nongnu.org/git/lwip.git ; cd lwip ; git checkout STABLE-2_0_3_RELEASE)
 
 LWIPDIR=$(ROOT)/net/lwip/src
-include $(ROOT)/net/lwip_files.mk
+include $(LWIPDIR)/Filelists.mk
 
 INCLUDES += -I$(LWIPDIR)/include -I$(ROOT)/net
 VPATH +=$(LWIPDIR)/core

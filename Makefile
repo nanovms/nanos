@@ -1,32 +1,17 @@
 all: image
 
-ROOT = $(PWD)
-
-include net/Makefile
-
-force:
-
-mkfs/mkfs:
-	cd mkfs ; make
-
-
-image: boot/boot mkfs/mkfs manifest stage3/stage3 examples/web
-	mkfs/mkfs < manifest | cat boot/boot - > image
-
-examples/web: force
-	cd examples ; make
-
-boot/boot: force
-	cd boot ; make
-
-stage3/stage3: force
-	cd stage3 ; make
-
 clean:
-	cd boot ; make clean
-	cd stage3 ; make clean
-	cd mkfs ; make clean
-	rm -f runtime/closure_templates.h runtime/contgen image image2
+	make -f image.mk clean
+
+distclean: clean
+	rm -rf net/lwip
+
+image: net/lwip
+	make -f image.mk image
+
+ROOT = .
+net/lwip:
+	(cd $(ROOT)/net; git clone http://git.savannah.nongnu.org/git/lwip.git ; cd lwip ; git checkout STABLE-2_0_3_RELEASE)
 
 # need to get boot and virtio storage to use the same file without
 # contending on the write lock - cant set read only
