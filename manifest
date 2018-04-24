@@ -1,13 +1,12 @@
 /kernel @stage3/stage3
 /lib64/ld-linux-x86-64.so.2 @/lib64/ld-linux-x86-64.so.2
 /lib/x86_64-linux-gnu/libc.so.6 @/lib/x86_64-linux-gnu/libc.so.6
-/web @examples/web
+/hwg @examples/hwg
 /environment/foo bar
 /environment/bar baz
-/program /web
+/program /hwg
 /arguments/0 hw
 /arguments/1 aggo
 /arguments/2 /hw.bytes
 /etc/ld.so.cache @/etc/ld.so.cache
 /usr/local/etc/ld.so.cache @/etc/ld.so.cache
-/fault gdb

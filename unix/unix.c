@@ -18,38 +18,9 @@ CLOSURE_1_1(default_fault_handler, void, thread, context);
 
 void default_fault_handler(thread t, context frame)
 {
+    print_frame(t->frame);
+    print_stack(t->frame);    
 
-    u64 v = frame[FRAME_VECTOR];
-    console(interrupt_name(v));
-    console("\n");
-    
-    // page fault
-    if (v == 14)  {
-        u64 fault_address;
-        mov_from_cr("cr2", fault_address);
-        console("address: ");
-        print_u64(fault_address);
-        console("\n");
-    }
-
-    for (int j = 0; j< 18; j++) {
-        console(register_name(j));
-        console(": ");
-        print_u64(frame[j]);
-        console("\n");        
-    }
-
-#if 0        
-    u64 *stack = pointer_from_u64(frame[FRAME_RSP]);
-    for (int j = 0; (frame[FRAME_RSP] + 8*j)  & MASK(15); j++) {
-        print_u64(u64_from_pointer(stack + j));
-        console (" ");
-        print_u64(stack[j]);
-        console("\n");        
-    }
-#endif
-
-    rprintf("checking fault: %p\n", table_find (children(t->p->filesystem), sym(fault)));
     if (table_find (children(t->p->filesystem), sym(fault))) {
         console("starting gdb\n");
         init_tcp_gdb(t->p->h, t->p, 1234);
@@ -131,5 +102,6 @@ void init_unix(heap h, heap pages, heap physical, tuple filesystem)
     process kernel = create_process(h, pages, physical, filesystem);
     current = create_thread(kernel);
     frame = current->frame;
+    init_vdso(physical, pages);
 }
 

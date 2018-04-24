@@ -85,7 +85,7 @@ static void start_slave(gdb g, boolean stepping)
         g->t->frame[FRAME_FLAGS] |= RESUME_FLAG;
     }
 
-    //    rprintf ("slave run %p %p %p %p\n", g, g->t, g->t->frame, g->t->frame[FRAME_RIP]);
+    rprintf ("slave run %p %p %p %p %d\n", g, g->t, g->t->frame, g->t->frame[FRAME_RIP], stepping);
     enqueue(runqueue, g->t->run);    
 }
 
@@ -94,6 +94,7 @@ static boolean apply_vcont(gdb g, buffer in, buffer out)
 {
     u64 trash;
 
+    rprintf ("vcont %b\n", in);
     if (check(in, ';')) {
         char kind = get_char(in);
         switch(kind) {
@@ -101,13 +102,17 @@ static boolean apply_vcont(gdb g, buffer in, buffer out)
             // step with signal?
             parse_int(in, 16, &trash);
         case 's':
-            if (check(in,':')){
-                u64 t;
-                parse_int(in, 16, &t);
-                start_slave(g, true);
-            } else {
-                start_slave(g, false);
-            }
+            start_slave(g, true);
+            // thread may be specific
+            /*
+              if (check(in,':')){
+              u64 t;
+              parse_int(in, 16, &t);
+              
+              } else {
+              start_slave(g, false);
+              }
+            */
             // dont reply
             return false;
         case 't':

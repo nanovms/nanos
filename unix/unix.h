@@ -46,6 +46,7 @@ typedef struct process {
     table futices;
     fault_handler handler;
     vector threads;
+    u64 sigmask;
 } *process;
 
 int allocate_fd(process p, io reader, io writer);
@@ -54,4 +55,6 @@ int allocate_fd(process p, io reader, io writer);
 void init_unix(heap, heap, heap, tuple);
 void run_unix();
 thread current;
+
+void init_vdso(heap, heap);
 

@@ -171,7 +171,6 @@ void print_frame(context f)
         print_u64(f[j]);
         console("\n");        
     }
-    print_stack(f);
 }
 
 void common_handler()

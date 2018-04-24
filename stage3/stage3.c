@@ -173,7 +173,7 @@ void startup(heap pages, heap general, heap physical, heap virtual, buffer stora
 {
     console("stage3\n");
     tuple fs = storage_to_tuple(general, storage);
-    init_unix(general, pages, physical, fs);    
+    init_unix(general, pages, physical, fs);
     tuple n = table_find(fs, sym(children));
     n = table_find(n, sym(program));    
     buffer z = table_find(n, sym(contents));        

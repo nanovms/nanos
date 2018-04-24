@@ -5,7 +5,8 @@
 #include <net.h>
 
 
-int sigaction(int signum, const struct sigaction *act,
+int sigaction(int signum,
+              const struct sigaction *act,
               struct sigaction *oldact)
 {
     if (oldact) oldact->_u._sa_handler = SIG_DFL;
@@ -131,17 +132,31 @@ void *mremap(void *old_address, u64 old_size,  u64 new_size, int flags,  void *n
 }
 
 
+static int mincore(void *addr, u64 length, u8 *vec)
+{
+    if (validate_virtual(addr, length)) {
+        u32 vlen = pad(length, PAGESIZE) >> PAGELOG;
+        // presumably it wants the right valid bits set? - go doesn't seem to use it this way
+        for (int i = 0; i< vlen; i++) vec[i] = 1;
+        return 0;
+    }
+    return -ENOMEM;
+}
+
+
 static void *mmap(void *target, u64 size, int prot, int flags, int fd, u64 offset)
 {
-    //    rprintf("mmap %p %p %x %d %p\n", target, size, flags, fd, offset);
+    rprintf("mmap %p %p %x %d %p\n", target, size, flags, fd, offset);
     process p = current->p;
     // its really unclear whether this should be extended or truncated
     u64 len = pad(size, PAGESIZE);
     //gack
     len = len & MASK(32);
     u64 where = u64_from_pointer(target);
-    
-    if (!(flags &MAP_FIXED)){
+
+    // xx - go wants to specify target without map fixed, and has some strange
+    // retry logic around it
+    if (!(flags &MAP_FIXED) && !target) {
         if (flags & MAP_32BIT)
             where = allocate_u64(current->p->virtual32, len);
         else
@@ -361,6 +376,7 @@ static int arch_prctl(int code, unsigned long a)
     case ARCH_SET_GS:
         break;
     case ARCH_SET_FS:
+        rprintf("set fs: %p\n", a);
         current->frame[FRAME_FS] = a;
         return 0;
     case ARCH_GET_FS:
@@ -436,15 +452,37 @@ u64 set_tid_address(void *a)
     return current->tid;
 }
 
+int sigprocmask(int how, u64 *new, u64 *old)
+{
+    *old = 0;
+    return 0;
+}
+
+int pselect(int nfds,
+            u64 *readfds, u64 *writefds, u64 *exceptfds,
+            const struct timespec *timeout,
+            u64 *sigmask)
+{
+    return 0;
+}
+
+int gettid()
+{
+    return current->tid;
+}
+
 // because the conventions mostly line up, and because the lower level
-// handler doesn't touch these, using the arglist here should be
+// handler doesn't touch these, using the abi arguments registers here should be
 // a bit faster than digging them out of frame
-// need to change to deal with errno conventions
+// should break out the signal section like the socket section, or make
+// a more general registration
+
 u64 syscall()
 {
     u64 *f = current->frame;
     int call = f[FRAME_VECTOR];
-
+    if (call != SYS_write)
+        rprintf("syscall %d\n", call);
     u64 a[6] = {f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]};
     switch (call) {
     case SYS_read: return read(a[0],pointer_from_u64(a[1]), a[2]);
@@ -456,10 +494,12 @@ u64 syscall()
     case SYS_brk: return u64_from_pointer(brk(pointer_from_u64(a[0])));
     case SYS_uname: return uname(pointer_from_u64(a[0]));
     case SYS_mmap: return u64_from_pointer(mmap(pointer_from_u64(a[0]), a[1], a[2], a[3], a[4], a[5]));
+    case SYS_mincore: return mincore(pointer_from_u64(a[0]), a[1], pointer_from_u64(a[2]));
     case SYS_access: return access(pointer_from_u64(a[0]), a[1]);
     case SYS_getrlimit: return getrlimit(a[0], pointer_from_u64(a[1]));
     case SYS_getpid: return current->p->pid;
     case SYS_arch_prctl: return arch_prctl(a[0], a[1]);
+    case SYS_rt_sigprocmask: return sigprocmask(a[0], pointer_from_u64(a[1]), pointer_from_u64(a[2]));
     case SYS_rt_sigaction: return sigaction(a[0], pointer_from_u64(a[1]), pointer_from_u64(a[2]));        
     case SYS_lseek: return lseek(a[0], a[1], a[2]);
     case SYS_fcntl: return fcntl(a[0], a[2]);
@@ -476,10 +516,15 @@ u64 syscall()
     case SYS_mprotect: return 0;
     case SYS_clock_gettime: return 0;
     case SYS_clock_getres: return 0;
+    case SYS_gettid: return gettid();
     case SYS_exit: QEMU_HALT();
+    case SYS_pselect6: return pselect(a[0], pointer_from_u64(a[1]), pointer_from_u64(a[2]), pointer_from_u64(a[3]),
+                                     pointer_from_u64(a[4]), pointer_from_u64(a[5]));
+                                     
 
     default:
 #ifdef NET
+        // use dynamic registration
         return net_syscall(call, a);
 #endif        
         //        rprintf("syscall %d %p %p %p\n", call, a[0], a[1], a[2]);

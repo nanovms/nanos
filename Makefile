@@ -30,6 +30,7 @@ clean:
 	cd boot ; make clean
 	cd stage3 ; make clean
 	cd mkfs ; make clean
+	cd examples ; make clean
 	rm -f runtime/closure_templates.h runtime/contgen image image2
 
 # need to get boot and virtio storage to use the same file without

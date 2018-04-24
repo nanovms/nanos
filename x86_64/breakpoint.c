@@ -1,7 +1,5 @@
 #include <sruntime.h>
 
-// maybe really part of x86_64
-
 typedef struct breakpoint {
     u32 address;
     boolean assigned;
@@ -9,8 +7,8 @@ typedef struct breakpoint {
 } *breakpoint;
 
 // there are 7 of these
-static void _b0(u64 a){__asm__("mov %0, %%dr0\n":: "a"(a));}
-static void _b1(u64 a){__asm__("mov %0, %%dr1\n":: "a"(a));}
+static void _b0(u64 a){__asm__("mov %0, %%dr0":: "a"(a));}
+static void _b1(u64 a){__asm__("mov %0, %%dr1":: "a"(a));}
 static void _b2(u64 a){__asm__("mov %0, %%dr2":: "a"(a));}
 static void _b3(u64 a){__asm__("mov %0, %%dr3":: "a"(a));}
 
@@ -19,8 +17,22 @@ struct breakpoint breakpoints[4] = {{0, 0, _b0}, {0, 0, _b1}, {0, 0, _b2}, {0, 0
 #define mutate(__x, __offset, __len, __v)                           \
     (((__x) & ~ (((1<<__len) - 1) << (__offset))) | ((__v)<<(__offset)))
 
+static boolean enabled;
+
+#define DEBUG_BIT 3
+void enable_debug_registers()
+{
+    u64 cr4;
+    mov_from_cr("cr4", cr4);
+    cr4 |= 1<< DEBUG_BIT;
+    mov_to_cr("cr4", cr4);    
+}
+
+
 boolean breakpoint_insert(u32 a)
 {
+    if (!enabled) enable_debug_registers();
+    
     for (int i = 0; i< 4; i++) {
         if (!breakpoints[i].assigned) {
             register u64 dr7;
@@ -58,3 +70,4 @@ boolean breakpoint_remove(u32 a)
     }
     return(false);
 }
+
