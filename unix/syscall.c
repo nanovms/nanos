@@ -460,9 +460,16 @@ int sigprocmask(int how, u64 *new, u64 *old)
 
 int pselect(int nfds,
             u64 *readfds, u64 *writefds, u64 *exceptfds,
-            const struct timespec *timeout,
+            struct timespec *timeout,
             u64 *sigmask)
 {
+    if (timeout == 0) {
+        rprintf("select poll\n");
+    } else {
+        rprintf("select %d %d\n", timeout->tv_sec, timeout->tv_nsec);
+        //register_timer()
+        runloop(); // sleep
+    }
     return 0;
 }
 
@@ -504,7 +511,7 @@ u64 syscall()
     case SYS_lseek: return lseek(a[0], a[1], a[2]);
     case SYS_fcntl: return fcntl(a[0], a[2]);
     case SYS_getcwd: return u64_from_pointer(getcwd(pointer_from_u64(a[0]), a[1]));
-    case SYS_mremap: return u64_from_pointer(mremap(pointer_from_u64(a[0]), a[1], a[2], a[3], pointer_from_u64(a[4])));        
+    case SYS_mremap: return u64_from_pointer(mremap(pointer_from_u64(a[0]), a[1], a[2], a[3], pointer_from_u64(a[4])));
     case SYS_futex: return futex(pointer_from_u64(a[0]), a[1], a[2], a[3],
                                  pointer_from_u64(a[4]),a[5]);
     case SYS_readlink: return readlink(pointer_from_u64(a[0]), pointer_from_u64(a[2]), a[3]);

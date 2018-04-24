@@ -20,14 +20,6 @@ typedef struct handler {
     boolean (*body)(gdb, buffer, string);
 } *handler;
 
-static inline s8 digit_of(character x)
-{
-    if ((x <= 'f') && (x >= 'a')) return(x - 'a' + 10);
-    if ((x <= 'F') && (x >= 'A')) return(x - 'A' + 10);
-    if ((x <= '9') && (x >= '0')) return(x - '0');
-    return(-1);
-}
-
 static inline char peek_char(buffer b)
 {
     return(*(char *)buffer_ref(b, 0));

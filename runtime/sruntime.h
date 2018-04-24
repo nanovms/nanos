@@ -105,3 +105,5 @@ void *queue_peek(queue q);
 queue allocate_queue(heap h, u64 size);
 void runloop();
 heap allocate_fragmentor(heap meta, heap parent, bytes size);
+#include <pqueue.h>
+#include <timer.h>

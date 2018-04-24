@@ -135,3 +135,11 @@ boolean validate_virtual(void *base, u64 length);
 #endif
 
 void sha256(buffer dest, buffer source);
+
+static inline s8 digit_of(character x)
+{
+    if ((x <= 'f') && (x >= 'a')) return(x - 'a' + 10);
+    if ((x <= 'F') && (x >= 'A')) return(x - 'A' + 10);
+    if ((x <= '9') && (x >= '0')) return(x - '0');
+    return(-1);
+}

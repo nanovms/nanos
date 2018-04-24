@@ -49,4 +49,3 @@ typedef table node;
 typedef table tuple;
 typedef u64 ticks;
 
-

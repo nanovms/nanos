@@ -1,30 +1,15 @@
 all: image
 
-distclean: clean
-	rm -rf net/lwip
-
-force:
-
 ROOT = .
 
+image: net/lwip
+	make -f image.mk image
+
 net/lwip:
-	git clone http://git.savannah.nongnu.org/git/lwip.git 
-	cd lwip ; git checkout STABLE-2_0_3_RELEASE
+	(cd $(ROOT)/net; git clone http://git.savannah.nongnu.org/git/lwip.git ; cd lwip ; git checkout STABLE-2_0_3_RELEASE)
 
-image: boot/boot mkfs/mkfs manifest stage3/stage3 examples/web
-	mkfs/mkfs < manifest | cat boot/boot - > image
-
-mkfs/mkfs:
-	cd mkfs ; make
-
-examples/web: force
-	cd examples ; make
-
-boot/boot: force
-	cd boot ; make
-
-stage3/stage3: force
-	cd stage3 ; make
+distclean: clean
+	rm -rf net/lwip
 
 clean:
 	cd boot ; make clean

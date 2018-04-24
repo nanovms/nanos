@@ -8,9 +8,10 @@ include $(ROOT)/gdb/Makefile
 include $(ROOT)/unix/Makefile
 
 INCLUDES += -I.
-
+#refactor
+RUNTIME_EXTRA = rtrie.o pqueue.o timer.o
 # fix feature venn diagram - rtrie needs a piece from x86_64
-stage3: $(NETOBJ) stage3.o $(RUNTIME) rtrie.o $(VIRTIO) $(VIRTIO_NET) $(X86_64_OBJ) $(SYSCALL_INTERFACE) $(GDB) $(UNIX)
+stage3: $(NETOBJ) stage3.o $(RUNTIME) $(RUNTIME_EXTRA) $(VIRTIO) $(VIRTIO_NET) $(X86_64_OBJ) $(SYSCALL_INTERFACE) $(GDB) $(UNIX)
 	ld -n -e_start -T linker_script -nostdlib $^ -o stage3
 
 .c.o:

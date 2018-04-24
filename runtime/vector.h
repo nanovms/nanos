@@ -35,6 +35,13 @@ static void vector_push(vector v, void *i)
     v->end += sizeof(void *);
 }
 
+static void *vector_peek(vector v)
+{
+    if ((v->end - v->start) < sizeof(void *))
+        return 0;
+    return *(void **)(v->contents + v->start);
+}
+
 static void *vector_pop(vector v)
 {
     if ((v->end - v->start) < sizeof(void *))
