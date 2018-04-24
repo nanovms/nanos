@@ -1,14 +1,11 @@
 all: image
 
-ROOT = $(PWD)
-
-include net/Makefile
+distclean: clean
+	rm -rf net/lwip
 
 force:
 
-mkfs/mkfs:
-	cd mkfs ; make
-
+ROOT = .
 
 net/lwip:
 	git clone http://git.savannah.nongnu.org/git/lwip.git 
@@ -16,6 +13,9 @@ net/lwip:
 
 image: boot/boot mkfs/mkfs manifest stage3/stage3 examples/web
 	mkfs/mkfs < manifest | cat boot/boot - > image
+
+mkfs/mkfs:
+	cd mkfs ; make
 
 examples/web: force
 	cd examples ; make

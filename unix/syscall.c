@@ -514,6 +514,7 @@ u64 syscall()
     case SYS_close: return 0;
     case SYS_munmap: return 0;
     case SYS_mprotect: return 0;
+    case SYS_sigaltstack: return 0;        
     case SYS_clock_gettime: return 0;
     case SYS_clock_getres: return 0;
     case SYS_gettid: return gettid();
