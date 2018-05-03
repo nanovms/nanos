@@ -72,6 +72,10 @@ static boolean futex_key_equal(void *a, void *b)
     return a == b;
 }
 
+
+
+static void *linux_syscalls[SYS_MAX];
+
 process create_process(heap h, heap pages, heap physical, node filesystem)
 {
     process p = allocate(h, sizeof(struct process));
@@ -94,6 +98,22 @@ process create_process(heap h, heap pages, heap physical, node filesystem)
     return p;
 }
 
+void *syscall;
+
+#define offsetof(__t, __e) u64_from_pointer(&((__t)0)->__e)
+
+buffer install_syscall(heap h)
+{
+    buffer b = allocate_buffer(h, 100);
+    int working = REGISTER_A;
+    mov_64_imm(b, working, u64_from_pointer(current));
+    indirect_displacement(b, REGISTER_A, REGISTER_A, offsetof(thread, p));
+    indirect_displacement(b, REGISTER_A, REGISTER_A, offsetof(process, syscall_handlers));
+    indirect_scale(b, REGISTER_A, 3, REGISTER_B, REGISTER_A);
+    rprintf("generatron %X\n", b);
+    return b;
+}
+
 void init_unix(heap h, heap pages, heap physical, tuple filesystem)
 {
     set_syscall_handler(syscall_enter);
@@ -103,5 +123,16 @@ void init_unix(heap h, heap pages, heap physical, tuple filesystem)
     current = create_thread(kernel);
     frame = current->frame;
     init_vdso(physical, pages);
+    register_file_syscalls(linux_syscalls);
+#ifdef NET    
+    register_net_syscalls(linux_syscalls);
+#endif
+    register_signal_syscalls(linux_syscalls);
+    register_mmap_syscalls(linux_syscalls);
+    register_thread_syscalls(linux_syscalls);
+
+    buffer b = install_syscall(h);
+    syscall = b->contents;
 }
+
 

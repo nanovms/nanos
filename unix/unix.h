@@ -1,3 +1,4 @@
+// really unix internal?
 #include <syscalls.h>
 #include <system_structs.h>
 
@@ -14,6 +15,7 @@ void run(thread);
 
 typedef struct thread {
     // if we use an array typedef its fragile
+    // there are likley assumptions that frame sits at the base of thread
     u64 frame[FRAME_MAX];
     process p;
 
@@ -47,6 +49,7 @@ typedef struct process {
     fault_handler handler;
     vector threads;
     u64 sigmask;
+    void **syscall_handlers;
 } *process;
 
 int allocate_fd(process p, io reader, io writer);
@@ -58,3 +61,16 @@ thread current;
 
 void init_vdso(heap, heap);
 
+static inline void register_syscall(void **m, int i, void *f)
+{
+    m[i]= f;
+}
+
+void register_file_syscalls(void **);
+void register_net_syscalls(void **);
+void register_signal_syscalls(void **);
+void register_mmap_syscalls(void **);
+void register_thread_syscalls(void **);
+
+
+extern u64 syscall_ignore();

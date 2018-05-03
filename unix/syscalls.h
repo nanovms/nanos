@@ -331,3 +331,4 @@
 #define SYS_pkey_alloc				330
 #define SYS_pkey_free				331
 
+#define SYS_MAX 332

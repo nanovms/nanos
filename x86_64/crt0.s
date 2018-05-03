@@ -1,7 +1,8 @@
+        ;;  this isn't c runtime zero, just some assembly stuff
+        
         global _start
         extern init_service
         
-        ;; frame size is 136..? 
 extern frame
 %include "frame_nasm.h"
         
@@ -60,7 +61,9 @@ syscall_enter:
         mov [rax+FRAME_R14*8], r14
         mov [rax+FRAME_R15*8], r15                               
         mov [rax+FRAME_RIP*8], rcx
-        call syscall
+        mov rax, syscall
+        mov rax, [rax]
+        call rax
         mov rbx, [frame]
         mov [rbx + FRAME_RAX], rax
         jmp frame_enter

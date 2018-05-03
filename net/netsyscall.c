@@ -149,7 +149,9 @@ int bind(int sockfd, struct sockaddr *addr, socklen_t addrlen)
     sock s = sockfds[sockfd];
     // 0 success
     // xxx - extract address and port
-    return lwip_to_errno(tcp_bind(s->p, IP_ANY_TYPE, 8800));
+    // lwip_to_errno
+    tcp_bind(s->p, IP_ANY_TYPE, 8080);    
+    return 0;
 }
 
 int connect(int sockfd, struct sockaddr *addr, socklen_t addrlen)
@@ -177,27 +179,13 @@ int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 
 // sendmsg, send, recv, etc..
 
-
-int net_syscall(int f, u64 *a)
+void register_net_syscalls(void **map)
 {
-    switch(f) {
-    case SYS_socket:
-        return socket(a[0], a[1], a[2]);
-    case SYS_bind:
-        return bind(a[0], pointer_from_u64(a[1]), a[2]);
-    case SYS_listen:
-        return listen(a[0], a[1]);
-    case SYS_accept:
-        return accept(a[0], pointer_from_u64(a[1]), pointer_from_u64(a[2]));
-    case SYS_connect:
-        return(bind(a[0], pointer_from_u64(a[1]), a[2]));
-    case SYS_setsockopt:
-        return 0;
-    case SYS_sendto:
-    case SYS_sendmsg:
-    case SYS_recvmsg:
-    case SYS_recvfrom:
-    default:
-        return -ENOENT;
-    }
+    register_syscall(map, SYS_socket, socket);
+    register_syscall(map, SYS_bind, bind);
+    register_syscall(map, SYS_listen, listen);
+    register_syscall(map, SYS_accept, accept);
+    register_syscall(map, SYS_connect, connect);
+    register_syscall(map, SYS_setsockopt, syscall_ignore);
+    register_syscall(map, SYS_connect, connect);
 }

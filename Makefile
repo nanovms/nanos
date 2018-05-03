@@ -1,8 +1,10 @@
 all: image
 
+force:
+
 ROOT = .
 
-image: net/lwip
+image: net/lwip force
 	make -f image.mk image
 
 net/lwip:
