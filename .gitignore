@@ -22,5 +22,6 @@ runtime/closure_templates.h
 examples/hw
 examples/hwg
 examples/web
+examples/webg
 stage3/frame_nasm.h
 image2
