@@ -1,11 +1,3 @@
-	 
-	
-;;; apparently this is the preferred technique to zero
-;;; a register in x86
-%macro zero 1
-	xor %1,%1
-%endmacro	
-
 
 ;;;   we start up at 7c00 in 16 bit mode
 init:		
@@ -42,29 +34,22 @@ init:
 	jmp ascend
 
 	smapsig equ 0x534D4150
+regionlen equ 20        
 ;;; e820 - return the amount of total memory
-e820:	zero ebx
-        mov edi, entries - (desc.end - desc)
+e820:	xor ebx, ebx
+        mov edi, entries - regionlen
 .each:	
 	mov edx,smapsig
 	mov ax,bseg
 	mov es,ax
 	mov eax,0xe820
-	mov ecx, desc.end-desc
+	mov ecx, regionlen
 	int 0x15
-	sub edi, desc.end-desc
+	sub edi, regionlen
         test ebx, ebx
         jne .each
 	ret
         
-;;;  this doesn't actually need to live here anymore
-desc:	
-	.base dd 0,0
-	.length dd 0,0
-	.type dd 0
-.end:
-
-		
 ;;; seta20 - canned function to open up 'extended memory'
 seta20: 
 	in al,0x64			; Get status
