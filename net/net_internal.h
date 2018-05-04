@@ -9,6 +9,7 @@
 #include "lwip/ip.h"
 #include "lwip/tcp.h"
 
+#define AF_INET 10
 
 struct sockaddr_in {
     u16 family;

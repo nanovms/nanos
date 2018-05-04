@@ -95,6 +95,7 @@ process create_process(heap h, heap pages, heap physical, node filesystem)
     p->files[2].write = closure(h, stdout);
     p->futices = allocate_table(h, futex_key_function, futex_key_equal);
     p->threads = allocate_vector(h, 5);
+    p->syscall_handlers = linux_syscalls;
     return p;
 }
 
@@ -102,16 +103,36 @@ void *syscall;
 
 #define offsetof(__t, __e) u64_from_pointer(&((__t)0)->__e)
 
+
+// return value is fucked up and need ENOENT - enoent could be initialized
 buffer install_syscall(heap h)
 {
     buffer b = allocate_buffer(h, 100);
     int working = REGISTER_A;
+    rprintf ("current location: %p\n", current);
     mov_64_imm(b, working, u64_from_pointer(current));
     indirect_displacement(b, REGISTER_A, REGISTER_A, offsetof(thread, p));
     indirect_displacement(b, REGISTER_A, REGISTER_A, offsetof(process, syscall_handlers));
     indirect_scale(b, REGISTER_A, 3, REGISTER_B, REGISTER_A);
+    jump_indirect(b, REGISTER_A);
     rprintf("generatron %X\n", b);
     return b;
+}
+
+extern char *syscall_name(int);
+static u64 syscall_debug()
+{
+    u64 *f = current->frame;
+    int call = f[FRAME_VECTOR];
+    u64 (*h)(u64, u64, u64, u64, u64, u64) = current->p->syscall_handlers[call];
+    u64 res = -ENOENT;
+    if (h) {
+        res = h(f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]);
+        rprintf ("sys %s returns %d\n", syscall_name(call), res);
+    } else {
+        rprintf("nosyscall %s\n", syscall_name(call));
+    }
+    return res;
 }
 
 void init_unix(heap h, heap pages, heap physical, tuple filesystem)
@@ -130,9 +151,12 @@ void init_unix(heap h, heap pages, heap physical, tuple filesystem)
     register_signal_syscalls(linux_syscalls);
     register_mmap_syscalls(linux_syscalls);
     register_thread_syscalls(linux_syscalls);
-
+    register_poll_syscalls(linux_syscalls);
     buffer b = install_syscall(h);
+    //rprintf ("syscall handler: %p %p\n", b->contents , *(u64 *)b->contents);
     syscall = b->contents;
+    // debug the synthesized version later, at least we have the table dispatch
+    syscall = syscall_debug;
 }
 
 

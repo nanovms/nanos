@@ -271,3 +271,18 @@ struct timeval {
 #define CLONE_NEWPID		0x20000000	/* New pid namespace */
 #define CLONE_NEWNET		0x40000000	/* New network namespace */
 #define CLONE_IO		0x80000000	/* Clone io context */
+
+struct epoll_event {
+    u32     events;      /* Epoll events */
+    u64 data;
+};
+
+#define	EPOLL_CTL_ADD 0x1
+#define	EPOLL_CTL_DEL 0x2
+#define	EPOLL_CTL_MOD 0x3
+
+
+#define beu16 u16
+
+#define __SOCK_SIZE__	16		/* sizeof(struct sockaddr)	*/
+

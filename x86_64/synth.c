@@ -6,6 +6,11 @@ void sib(buffer b, u32 scale, u32 index, u32 base)
     push_character(b, scale<<6 | index<<3 | base);
 }
 
+void debug_trap(buffer b)
+{
+    push_character(b, 0xcc);
+}
+
 void modrm(buffer b, u32 mod, u32 reg, u32 rm)
 {
     push_character(b, mod<<6 | reg<<3 | rm);
@@ -23,11 +28,19 @@ void mov_64_imm(buffer b, reg r, u64 imm)
     buffer_write_le64(b, imm);
 }
 
+void indirect(buffer b, reg dest, reg source)
+{
+    rex(b, true, false, false, false);
+    push_character(b, 0x8b);
+    modrm(b, 0, dest, source);    
+}
+
 void jump_indirect(buffer b, reg r)
 {
     push_character(b, 0xff);
-    // was modrm 0xe0? 
-    push_character(b, 0x20 + r);    
+    // nasm synthesizes 0x20 for modrm at some point, and objdump
+    // dissembles it correctly, but doesn't execute..use modrm function
+    push_character(b, 0xe0 + r);    
 }
 
 void indirect_displacement(buffer b, reg dest, reg source, u32 d)

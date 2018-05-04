@@ -5,6 +5,9 @@ void mov_64_imm(buffer b, reg r, u64 imm);
 void jump_indirect(buffer b, reg r);
 void indirect_displacement(buffer b, reg dest, reg source, u32 d);
 void indirect_scale(buffer b, reg dest, u32 scale, reg index, reg base);
+void debug_trap(buffer b);
+void indirect(buffer b, reg dest, reg source);
+void jump_indirect(buffer b, reg r);
 
 // definitions in tuple space
 

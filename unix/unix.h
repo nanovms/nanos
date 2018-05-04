@@ -39,7 +39,6 @@ typedef struct process {
     int pid;
     node filesystem;
     // could resize w/ a vector
-    struct file files[FDS];
     void *brk;
     heap virtual;
     heap virtual32;    
@@ -50,6 +49,7 @@ typedef struct process {
     vector threads;
     u64 sigmask;
     void **syscall_handlers;
+    struct file files[FDS];
 } *process;
 
 int allocate_fd(process p, io reader, io writer);
@@ -71,6 +71,6 @@ void register_net_syscalls(void **);
 void register_signal_syscalls(void **);
 void register_mmap_syscalls(void **);
 void register_thread_syscalls(void **);
-
+void register_poll_syscalls(void **);
 
 extern u64 syscall_ignore();
