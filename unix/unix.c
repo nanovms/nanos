@@ -9,13 +9,24 @@
 static heap processes;
 
 
+file allocate_fd(process p, bytes size, int *fd)
+{
+    file f = allocate(p->h, size);
+    // check err
+    *fd = allocate_u64(p->fdallocator, 1);
+    f->offset = 0;
+    f->notify = allocate_queue(p->h, 32);
+    f->read = f->write = 0;
+    p->files[*fd] = f;    
+    return f;
+}
+
 static boolean node_contents(tuple t, buffer d)
 {
     return false;
 }    
 
 CLOSURE_1_1(default_fault_handler, void, thread, context);
-
 void default_fault_handler(thread t, context frame)
 {
     print_frame(t->frame);
@@ -72,8 +83,6 @@ static boolean futex_key_equal(void *a, void *b)
     return a == b;
 }
 
-
-
 static void *linux_syscalls[SYS_MAX];
 
 process create_process(heap h, heap pages, heap physical, node filesystem)
@@ -91,8 +100,9 @@ process create_process(heap h, heap pages, heap physical, node filesystem)
     p->cwd = filesystem;
     p->fdallocator = create_id_heap(h, 3, FDMAX - 3, 1);
     p->physical = physical;
-    p->files[1].write = closure(h, stdout);    
-    p->files[2].write = closure(h, stdout);
+    p->files[1] = allocate(p->h, sizeof(struct file));
+    p->files[1]->write = closure(p->h, stdout);
+    p->files[2] = p->files[1];
     p->futices = allocate_table(h, futex_key_function, futex_key_equal);
     p->threads = allocate_vector(h, 5);
     p->syscall_handlers = linux_syscalls;
@@ -124,6 +134,7 @@ static u64 syscall_debug()
 {
     u64 *f = current->frame;
     int call = f[FRAME_VECTOR];
+    rprintf ("sys %s\n", syscall_name(call));
     u64 (*h)(u64, u64, u64, u64, u64, u64) = current->p->syscall_handlers[call];
     u64 res = -ENOENT;
     if (h) {

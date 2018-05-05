@@ -96,12 +96,9 @@ vtpci attach_vtpci(heap h, heap page_allocator, int bus, int slot, int func, u64
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_FEATURE); 
 
     int nvqs = 16;
-    // dont need an inverse correlation
-    //dev->vtpci_vqs = allocate_zero(h, nvqs * sizeof(struct virtqueue));
     dev->general = h;
     dev->contiguous = page_allocator;    
 
-    // init_vnet(dev);
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER_OK);
 
     return dev;

@@ -352,13 +352,13 @@ char *syscall_name(int x)
 
 int read(int fd, u8 *dest, bytes length)
 {
-    file f = current->p->files + fd;
+    file f = current->p->files[fd];
     return apply(f->read, dest, length, f->offset);
 }
 
 int write(int fd, u8 *body, bytes length)
 {
-    file f = current->p->files +fd;
+    file f = current->p->files[fd];
     int res = apply(f->write, body, length, f->offset);
     f->offset += length;
     return res;
@@ -367,7 +367,7 @@ int write(int fd, u8 *body, bytes length)
 static int writev(int fd, iovec v, int count)
 {
     int res;
-    file f = current->p->files +fd;    
+    file f = current->p->files[fd];
     for (int i = 0; i < count; i++) res += write(fd, v[i].address, v[i].length);
     return res;
 }
@@ -393,16 +393,6 @@ static int contents_read(tuple n, void *dest, u64 length, u64 offset)
     return len;
 }
 
-int allocate_fd(process p, io reader, io writer)
-{
-    // check err
-    int fd = allocate_u64(p->fdallocator, 1);
-    p->files[fd].offset = 0;
-    p->files[fd].read = reader;
-    p->files[fd].write = writer;
-    return fd;
-}
-
 int openat(char *name, int flags, int mode)
 {
     rprintf("openat not supportted, should be cake thought\n");
@@ -423,8 +413,8 @@ int open(char *name, int flags, int mode)
 
     buffer b = allocate(current->p->h, sizeof(struct buffer));
     // might be functional, or be a directory
-    int fd = allocate_u64(current->p->fdallocator, 1);
-    file f = current->p->files+fd;
+    int fd;
+    file f = allocate_fd(current->p, sizeof(struct file), &fd);
     f->n = n;
     f->read = closure(current->p->h, contents_read, n);
     f->offset = 0;
@@ -454,7 +444,7 @@ static int fstat(int fd, struct stat *s)
         s->st_mode = S_IFIFO;
         return 0;
     }
-    fill_stat(current->p->files[fd].n, s);
+    fill_stat(current->p->files[fd]->n, s);
     return 0;
 }
 
@@ -472,7 +462,7 @@ static int stat(char *name, struct stat *s)
 
 static u64 lseek(int fd, u64 offset, int whence)
 {
-    return current->p->files[fd].offset;
+    return current->p->files[fd]->offset;
 }
 
 

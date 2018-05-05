@@ -34,4 +34,6 @@ NET = -device virtio-net,mac=7e:b8:7e:87:4a:ea,netdev=n0 $(TAP)
 KVM = -enable-kvm
 run: image image2
 	- qemu-system-x86_64 -hda image -nographic -m 2G -device isa-debug-exit $(STORAGE) $(NET) $(KVM)
+runnew: image image2
+	- ~/qemu/x86_64-softmmu/qemu-system-x86_64 -hda image -nographic -m 2G -device isa-debug-exit $(STORAGE) $(NET) $(KVM)
 

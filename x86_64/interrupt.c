@@ -188,6 +188,7 @@ void common_handler()
         if (f == 0) {
             rprintf ("no fault handler\n");
             print_frame(frame);
+            print_stack(frame);
             QEMU_HALT();
         }
         if (i < 25) frame = apply(f, frame);

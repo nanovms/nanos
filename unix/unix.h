@@ -31,6 +31,7 @@ typedef closure_type(io, int, void *, u64 length, u64 offset);
 typedef struct file {
     u64 offset; 
     io read, write;
+    queue notify;
     node n;
 } *file;
 
@@ -49,11 +50,10 @@ typedef struct process {
     vector threads;
     u64 sigmask;
     void **syscall_handlers;
-    struct file files[FDS];
+    file files[FDS];
 } *process;
 
-int allocate_fd(process p, io reader, io writer);
-
+file allocate_fd(process p, bytes size, int *);
 
 void init_unix(heap, heap, heap, tuple);
 void run_unix();

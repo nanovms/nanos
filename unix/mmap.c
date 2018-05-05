@@ -69,7 +69,7 @@ static void *mmap(void *target, u64 size, int prot, int flags, int fd, u64 offse
     }
     
     // check that fd is valid
-    file f = p->files + fd;
+    file f = p->files[fd];
     buffer b;
     if (!(b = table_find(f->n, sym(contents)))) return pointer_from_u64(-1ull);
         

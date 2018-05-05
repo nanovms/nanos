@@ -10,6 +10,10 @@ struct queue {
 
 void enqueue(queue q, void *n)
 {
+    console("enq ");
+    print_u64(u64_from_pointer(__builtin_return_address(0)));
+    console("\n");
+
     u64 mask = q->length -1;
     if (((q->write + 1)  & mask)  == (q->read & mask)) {
         halt("queue overrun");
