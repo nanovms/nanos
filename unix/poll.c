@@ -26,7 +26,7 @@ u64 epoll_create1(u64 flags)
 static CLOSURE_2_0(epoll_timeout, void, epoll, thread);
 static void epoll_timeout(epoll e, thread t)
 {
-    if (!e->fired) enqueue(runqueue, t);
+    if (!e->fired) enqueue(runqueue, t->run);
 }
 
 static CLOSURE_5_0(event, void, epoll, thread, epollfd, struct epoll_event *, int);
@@ -36,12 +36,11 @@ static void event(epoll e,
                   struct epoll_event *events,
                   int maxevents)
 {
-    rprintf("event signal\n");
     e->fired = 1;
     t->frame[FRAME_RAX] = 1;
     events[0].data = f->data;
     events[0].events = EPOLLIN;    
-    enqueue(runqueue, t);
+    enqueue(runqueue, t->run);
 }
 
 
@@ -50,7 +49,6 @@ int epoll_wait(int epfd, struct epoll_event *events,
 {
     epoll e = (epoll)current->p->files[epfd];
     epollfd f = vector_get(e->events, 0);
-    rprintf ("epoll wait: %d\n", timeout);
     enqueue(f->f->notify, closure(current->p->h, event, e, current, f, events, maxevents));
     if (timeout > 0){
         register_timer(milliseconds(timeout), closure(e->h, epoll_timeout, e, current));
@@ -90,7 +88,6 @@ u64 epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 static CLOSURE_2_0(select_timeout, void, thread, boolean *);
 static void select_timeout(thread f, boolean *dead)
 {
-    rprintf("select timeout\n");
     f->frame[FRAME_RAX] = 0;
     // xxx need to abort  if something happened
     enqueue(runqueue, f->run);

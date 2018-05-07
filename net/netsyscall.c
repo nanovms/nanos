@@ -127,14 +127,11 @@ int socket(int domain, int type, int protocol)
 static err_t input_lower (void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 {
     sock s = z;
-    rprintf ("data input\n");            
     if (p) {
         // dating app
         thunk z;
-        rprintf ("data input\n");        
         enqueue(s->incoming, p);
         if ((z = dequeue(s->f.notify))) {
-            rprintf ("apply handler %p\n", z);
             apply(z);
         }
     }
@@ -161,12 +158,10 @@ int connect(int sockfd, struct sockaddr *addr, socklen_t addrlen)
 
 static err_t accept_from_lwip(void *z, struct tcp_pcb *pcb, err_t b)
 {
-    rprintf ("accept from lwip %p\n", z);
     sock s = z;
     thunk p;
     enqueue(s->incoming, pcb);
     if ((p = dequeue(s->f.notify))) {
-        rprintf("accept notify handler %p\n", p);
         apply(p);
     }
     return ERR_OK;
@@ -193,7 +188,6 @@ static void accept_finish(sock s, thread target, struct sockaddr *addr, socklen_
     *addrlen = sizeof(struct sockaddr_in);
     target->frame[FRAME_RAX] = fd;
     enqueue(runqueue, target->run);
-    rprintf ("accept finish complete %d %d interrupted:%p\n", fd, current->frame[FRAME_RIP]);
 }
 
 int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
