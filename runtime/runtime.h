@@ -21,6 +21,8 @@ buffer aprintf(heap h, char *fmt, ...);
 void debug(buffer);
 void format_number(buffer s, u64 x, int base, int pad);
 extern void vbprintf(buffer s, buffer fmt, vlist ap);
+void bprintf(buffer b, char *fmt, ...);
+
 static inline void rprintf(char *format, ...)
 {
     // fix alloca buffer support
@@ -47,5 +49,10 @@ static inline void rprintf(char *format, ...)
 typedef table node;
 #include <storage.h>
 typedef table tuple;
-typedef u64 ticks;
+#include <closure.h>
+#include <closure_templates.h>
+typedef closure_type(buffer_handler, void, buffer);
+typedef closure_type(thunk, void);
+#include <pqueue.h>
+#include <timer.h>
 

@@ -1,14 +1,14 @@
 #include <sruntime.h>
+#include <unix.h>
 
 // from go/src/runtime/vdso_linux_amd64.go
 
 void *vdso_base = (void *)0xffffffffff600000ull;
 
-u64 vdso_gettimeofday()
+u64 vdso_gettimeofday(struct timeval *x, void *tz)
 {
-    rprintf("gettimeofday\n");
-    static u64 count;
-    return count++;
+    timeval_from_time(x, now());
+    return 0;
 }
 
 void init_vdso(heap physical_pages, heap pages)

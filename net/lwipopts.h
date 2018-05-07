@@ -8,6 +8,12 @@
 #define LWIP_NO_LIMITS_H 1
 #define LWIP_NO_CTYPE_H 1
 #define LWIP_DHCP 1
+// would prefer to set this dynamically...also,
+// seems better to allow some progress to be made
+// and then cede if there is a collison? or at least
+// some other policy
+#define DHCP_DOES_ARP_CHECK 0
+#define LWIP_NETIF_HOSTNAME 1
 #define MEMP_MEM_MALLOC 1
 typedef unsigned long size_t;
 #define LWIP_NETIF_STATUS_CALLBACK 1
@@ -21,14 +27,8 @@ typedef unsigned short u16_t;
 typedef short s16_t;
 typedef char s8_t;
 typedef u16_t uint16_t;
-
-// otherwise all sorts of terrible things about the definition of NULL
-// #include <string.h>
-
 typedef void *sys_prot_t;
-
 typedef u64_t ptrdiff_t;
-
 typedef unsigned long mem_ptr_t;
 
 // some ifdef rot
@@ -49,11 +49,13 @@ static inline void sys_arch_unprotect(sys_prot_t x)
 }
 
 extern void console(char *);
+typedef unsigned long long time; 
+extern time now();
 
 static inline u32_t sys_now(void)
 {
-    static int t = 0;
-    return t+=200;
+    u64_t t = now();
+    return (t * 1000) >> 32;
 }
 
 #define MEM_LIBC_MALLOC 1
@@ -102,7 +104,6 @@ static inline int lwip_memcmp(const void *x, const void *y, unsigned long len)
     }
     return 0;
 }
-
 
 static inline int lwip_strncmp(const char *x, const char *y, unsigned long len)
 {

@@ -80,7 +80,7 @@ u64 storage_length;
 
 static void attach(heap general, heap page_allocator, heap pages, heap virtual, int bus, int slot, int function)
 {
-    rprintf("storage attach!\n");
+
     storage s = allocate(general, sizeof(struct virtio_blk_req));
     s->v = attach_vtpci(general, page_allocator, bus, slot, function, 0);
     u32 len;
@@ -90,7 +90,6 @@ static void attach(heap general, heap page_allocator, heap pages, heap virtual, 
     base &=~1;
     s->block_size = in32(44 + base);
     s->capacity = (in32(24 + base) | ((u64)in32(28 + base)  << 32)) * s->block_size;
-    rprintf("storage attach! %d %d\n", s->block_size, s->capacity);
     storage_length = s->capacity;
     pci_set_bus_master(bus, slot, function);
     vtpci_alloc_virtqueue(s->v, 0, &s->command);

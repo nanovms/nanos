@@ -39,7 +39,6 @@ static int mincore(void *addr, u64 length, u8 *vec)
 
 static void *mmap(void *target, u64 size, int prot, int flags, int fd, u64 offset)
 {
-    rprintf("mmap %p %p %x %d %p\n", target, size, flags, fd, offset);
     process p = current->p;
     // its really unclear whether this should be extended or truncated
     u64 len = pad(size, PAGESIZE);
@@ -50,12 +49,10 @@ static void *mmap(void *target, u64 size, int prot, int flags, int fd, u64 offse
     // xx - go wants to specify target without map fixed, and has some strange
     // retry logic around it
     if (!(flags &MAP_FIXED) && !target) {
-        rprintf ("allocating virt %p\n", len);
         if (flags & MAP_32BIT)
             where = allocate_u64(current->p->virtual32, len);
         else
             where = allocate_u64(current->p->virtual, len);
-        rprintf ("allocated virt %p\n", where);        
     }
     
     // make a generic zero page function
@@ -64,7 +61,6 @@ static void *mmap(void *target, u64 size, int prot, int flags, int fd, u64 offse
         if (m == INVALID_PHYSICAL) return pointer_from_u64(m);
         map(where, m, len, p->pages);
         zero(pointer_from_u64(where), len);
-        rprintf ("returning aonn %p\n", where);
         return pointer_from_u64(where);
     }
     
@@ -91,7 +87,6 @@ static void *mmap(void *target, u64 size, int prot, int flags, int fd, u64 offse
     u64 x;
     mov_from_cr("cr3", x);
     mov_to_cr("cr3", x);    
-    rprintf ("returning non %p\n", where);                                
     return pointer_from_u64(where);
 }
 

@@ -14,3 +14,6 @@ void console(char *x)
 {
 }
 
+time now()
+{
+}

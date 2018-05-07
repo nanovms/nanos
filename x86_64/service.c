@@ -31,8 +31,13 @@ void runloop()
 {
     thunk t;
     while(1) {
-        while((t = dequeue(runqueue)))
+        // hopefully overall loop is being driven by the lapic periodic interrupt,
+        // which should limit the skew
+        timer_check();
+        
+        while((t = dequeue(runqueue))) {
             apply(t);
+        }
         frame = miscframe;
         enable_interrupts();
         __asm__("hlt");
@@ -40,14 +45,14 @@ void runloop()
     }
 }
 
+static CLOSURE_0_0(ignore, void);
+void ignore(){}
 
 static CLOSURE_5_0(run_startup, void, heap, heap, heap, heap, buffer);
 static void run_startup(heap pages, heap misc, heap physical, heap virtual, buffer fs)
 {
     startup(pages, misc, physical, virtual, fs);
 }
-
-
 
 // bad global, put in the filesystem space
 extern u64 storage_length;
@@ -66,10 +71,15 @@ void init_service_new_stack(heap pages, heap physical, heap backed, heap virtual
     heap misc = allocate_rolling_heap(backed);
     runqueue = allocate_queue(misc, 64);
     start_interrupts(pages, misc, physical);
+    
+    // general runtime startup
+    initialize_timers(misc);
+    
     init_symbols(misc);
     init_pci(misc);    
     init_virtio_storage(misc, backed, pages, virtual);
     init_virtio_network(misc, backed, pages);
+    init_clock(backed);
     miscframe = allocate(misc, FRAME_MAX * sizeof(u64));
     pci_discover(pages, virtual);
 
@@ -92,6 +102,12 @@ void init_service_new_stack(heap pages, heap physical, heap backed, heap virtual
     // dont really need to pass misc
 
     storage_read(k, fs_offset, len, z);
+
+    // just to get the hlt loop to wake up and service timers, we
+    // can adapt this to the front of the timer queue once we get
+    // our clocks calibrated
+    configure_timer(milliseconds(50), closure(misc, ignore)); 
+
     runloop();
 }
 

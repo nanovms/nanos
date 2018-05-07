@@ -1,4 +1,14 @@
-#include <sruntime.h>
+#include <runtime.h>
+
+
+// there should be a generic platform header for this
+static inline u64 msb(u64 x)
+{
+    u64 r;
+    __asm__("bsr %0, %1":"=g"(r):"g"(x));
+    return r;
+}
+
 
 typedef struct rtnode {
     u64 key;

@@ -68,7 +68,7 @@ static void read_complete(sock s, thread t, void *dest, u64 length)
     runtime_memcpy(dest, p->payload, xfer);
     pbuf_consume(p, xfer);
     t->frame[FRAME_RAX] = xfer;
-    enqueue(runqueue, t);
+    enqueue(runqueue, t->run);
     if (p->len == 0) {
         dequeue(s->incoming);
         pbuf_free(p);
@@ -127,12 +127,12 @@ int socket(int domain, int type, int protocol)
 static err_t input_lower (void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 {
     sock s = z;
+    rprintf ("data input\n");            
     if (p) {
         // dating app
         thunk z;
-        rprintf ("posty data input\n");        
+        rprintf ("data input\n");        
         enqueue(s->incoming, p);
-        rprintf ("postq data input %p \n", z);
         if ((z = dequeue(s->f.notify))) {
             rprintf ("apply handler %p\n", z);
             apply(z);
@@ -164,13 +164,10 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *pcb, err_t b)
     rprintf ("accept from lwip %p\n", z);
     sock s = z;
     thunk p;
-    rprintf ("posty\n");        
     enqueue(s->incoming, pcb);
-    rprintf ("post\n");        
     if ((p = dequeue(s->f.notify))) {
-        rprintf("calling notify handler %p\n", p);
+        rprintf("accept notify handler %p\n", p);
         apply(p);
-        rprintf("accept result: %p\n", pcb);
     }
     return ERR_OK;
 }
@@ -189,16 +186,14 @@ static CLOSURE_4_0(accept_finish, void, sock, thread, struct sockaddr *, socklen
 static void accept_finish(sock s, thread target, struct sockaddr *addr, socklen_t *addrlen)
 {
     struct tcp_pcb * p= dequeue(s->incoming);
-    int newfd;
     int fd = allocate_sock(target->p, p);
-    rprintf ("accept finish %p\n",target->p->files[fd]);
-
     tcp_arg(p, target->p->files[fd]);
     tcp_recv(p, input_lower);    
     remote_sockaddr_in(p, (struct sockaddr_in *)addr); 
     *addrlen = sizeof(struct sockaddr_in);
-    target->frame[FRAME_RAX] = newfd;
-    enqueue(runqueue, target);    
+    target->frame[FRAME_RAX] = fd;
+    enqueue(runqueue, target->run);
+    rprintf ("accept finish complete %d %d interrupted:%p\n", fd, current->frame[FRAME_RIP]);
 }
 
 int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)

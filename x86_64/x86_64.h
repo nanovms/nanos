@@ -88,7 +88,7 @@ static inline void set_syscall_handler(void *syscall_entry)
 static time rdtsc(void)
 {
     u64 a, d;
-    asm("cpuid");
+    asm("cpuid":::"%rax", "%rbx", "%rcx", "%rdx");
     asm volatile("rdtsc" : "=a" (a), "=d" (d));
 
     return (((time)a) | (((time)d) << 32));

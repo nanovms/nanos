@@ -192,11 +192,6 @@ void common_handler()
             QEMU_HALT();
         }
         if (i < 25) frame = apply(f, frame);
-        console("interrupt return: ");
-        print_u64(u64_from_pointer(frame));
-        console(" ");
-        print_u64(frame[FRAME_RIP]);
-        console("\n");        
     }
 }
 
@@ -229,7 +224,6 @@ void enable_lapic(heap pages)
 
 void register_interrupt(int vector, thunk t)
 {
-    rprintf ("register interrupt %d\n", vector);
     handlers[vector] = t;
 }
 

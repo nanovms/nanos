@@ -5,7 +5,8 @@ typedef struct code {
     int c;
     char *n;
 } *code;
-    
+
+// xxx - put in tuple space
 struct code syscall_codes[]= {
     {SYS_read, "read"},
     {SYS_write, "write"},
@@ -498,7 +499,6 @@ static char *getcwd(char *buf, u64 length)
 
 static void *brk(void *x)
 {
-    rprintf ("brk!\n");
     process p = current->p;
     if (p->brk) {
         if (p->brk > x) {
@@ -523,21 +523,6 @@ u64 readlink(const char *pathname, char *buf, size_t bufsiz)
 u64 fcntl(int fd, int cmd)
 {
     return O_RDWR;
-}
-
-int pselect(int nfds,
-            u64 *readfds, u64 *writefds, u64 *exceptfds,
-            struct timespec *timeout,
-            u64 *sigmask)
-{
-    if (timeout == 0) {
-        rprintf("select poll\n");
-    } else {
-        rprintf("select %d %d\n", timeout->tv_sec, timeout->tv_nsec);
-        //register_timer()
-        runloop(); // sleep
-    }
-    return 0;
 }
 
 u64 syscall_ignore()
@@ -576,6 +561,5 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_getrlimit, getrlimit);
     register_syscall(map, SYS_getpid, getpid);    
     register_syscall(map, SYS_exit, exit);
-    register_syscall(map, SYS_pselect6,pselect);
 }
 

@@ -61,6 +61,23 @@ thread current;
 
 void init_vdso(heap, heap);
 
+static inline time time_from_timeval(struct timeval *t)
+{
+    return (((u64)t->tv_sec)<<32) + ((((u64)t->tv_usec) * 1000000) / (1ull << 32));
+}
+
+static inline void timeval_from_time(struct timeval *d, time t)
+{
+    u64 micro  = 1000000;
+    d->tv_sec = t>>32;
+    d->tv_usec = ((t-(d->tv_sec<<32)) * micro) >> 32;
+}
+
+static inline time time_from_timespec(struct timespec *t)
+{
+    return (((u64)t->ts_sec)<<32) + time_from_nsec(t->ts_nsec);
+}
+
 static inline void register_syscall(void **m, int i, void *f)
 {
     m[i]= f;

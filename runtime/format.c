@@ -60,9 +60,9 @@ void vbprintf(buffer s, buffer fmt, vlist ap)
                 push_character(s, '\%');
                 break;
 
-                //            case 't':
-                //                print_time(s, varg(ap, ticks));
-                //                break;
+            case 't':
+                print_time(s, varg(ap, time));
+                break;
 
             case 'b':
                 push_buffer(s, varg(ap, buffer));

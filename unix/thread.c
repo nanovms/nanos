@@ -20,7 +20,6 @@ static int arch_prctl(int code, unsigned long a)
     case ARCH_SET_GS:
         break;
     case ARCH_SET_FS:
-        rprintf("set fs: %p\n", a);
         current->frame[FRAME_FS] = a;
         return 0;
     case ARCH_GET_FS:

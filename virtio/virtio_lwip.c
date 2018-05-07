@@ -132,16 +132,19 @@ static void input(xpbuf x, u64 len)
 {
     struct eth_hdr *ethhdr;
     vnet vn= x->vn;
+    // under what conditions does a virtio queue give us zero?
     if (x != NULL) {
         x->p.pbuf.len = len;
         x->p.pbuf.payload += 10;
         if (vn->n->input(&x->p.pbuf, vn->n) != ERR_OK) {
             receive_buffer_release(&x->p.pbuf);
         }
+    } else {
+        rprintf ("virtio null\n");
     }
+    // we need to get a signal from the device side that there was
+    // an underrun here to open up the window
     post_receive(vn);
-    // i guess thats a close condition, propagate it...umm wait, this is the virtio driver,
-    // should never be zero
 }
 
 
@@ -175,15 +178,13 @@ static CLOSURE_0_0(timeout, void);
 static void timeout()
 {
     static int c;
-    //    if (!(++c%10)) console("tick 10\n");
     sys_check_timeouts();
 }
 
 static err_t virtioif_init(struct netif *netif)
 {
     vnet vn = netif->state;
-    /* Initialize interface hostname */
-    //    netif->hostname = "virtiosomethingsomething";
+    netif->hostname = "uniboot"; // from config
 
     netif->name[0] = 'e';
     netif->name[1] = 'n';
@@ -203,8 +204,8 @@ static err_t virtioif_init(struct netif *netif)
     post_receive(vn);
     post_receive(vn);
     post_receive(vn);
-    configure_timer(0, closure(vn->dev->general, timeout)); 
-    dhcp_start(vn->n); // udp bind failure from dhcp
+    register_periodic_timer(milliseconds(500), closure(vn->dev->general, timeout));
+    dhcp_start(vn->n); 
     
     return ERR_OK;
 }

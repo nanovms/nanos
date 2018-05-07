@@ -118,8 +118,8 @@ typedef struct iovec {
 #define ARCH_GET_GS 0x1004
 
 struct timespec {
-	u64 tv_sec;
-	u64 tv_nsec;
+	u64 ts_sec;
+	u64 ts_nsec;
 };
 
 // straight from linux
@@ -282,7 +282,23 @@ struct epoll_event {
 #define	EPOLL_CTL_MOD 0x3
 
 
+#define EPOLLIN 0x001
+#define EPOLLPRI 0x002
+#define EPOLLOUT 0x004
+#define EPOLLRDNORM 0x040
+#define EPOLLRDBAND 0x080
+#define EPOLLWRNORM 0x100
+#define EPOLLWRBAND 0x200
+#define EPOLLMSG 0x400
+#define EPOLLERR 0x008
+#define EPOLLHUP 0x010
+#define EPOLLRDHUP 0x2000
+#define EPOLLWAKEUP 1u << 29
+#define EPOLLONESHOT 1u << 30
+#define EPOLLET 1u << 3
+
 #define beu16 u16
 
 #define __SOCK_SIZE__	16		/* sizeof(struct sockaddr)	*/
+
 

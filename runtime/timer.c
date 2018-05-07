@@ -1,5 +1,4 @@
-// not really sruntime, build a tower
-#include <sruntime.h>
+#include <runtime.h>
 
 struct timer {
     thunk t;
@@ -8,6 +7,7 @@ struct timer {
     boolean   disable;
 };
 
+// should pass a timer around
 static pqueue timers;
 static heap theap;
 
@@ -28,10 +28,9 @@ timer register_timer(time interval, thunk n)
     timer t=(timer)allocate(theap, sizeof(struct timer));
 
     t->t= n;
-    t->interval = interval;
+    t->interval = 0;
     t->disable = 0;
-    t->w = now();
-    t->w += interval;
+    t->w = now() + interval;
     pqueue_insert(timers, t);
     return(t);
 }
@@ -42,6 +41,7 @@ timer register_periodic_timer(time interval, thunk n)
 
     t->t = n;
     t->disable = 0;
+    t->interval = interval;    
     t->w = now(theap);
     pqueue_insert(timers, t);
     return(t);
@@ -58,6 +58,10 @@ time timer_check()
         if (!current->disable) {
             pqueue_pop(timers);
             apply(current->t);
+            if (current->interval) {
+                current->w += current->interval;
+                pqueue_insert(timers, current); 
+            }
         }
     }
     if (current) return(current->w - here);
@@ -91,7 +95,6 @@ void print_time(string b, time t)
     u64 s= t>>32;
     u64 f= t&MASK(32);
 
-    // assumes little endian
     bprintf(b, "%u", s);
     if (f) {
         int count=0;

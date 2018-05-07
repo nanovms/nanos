@@ -28,12 +28,14 @@ image2: image
 
 # file=image,if=none,id=virtio-disk0,format=raw,cache=none,aio=native
 
-STORAGE =  -device virtio-blk-pci,scsi=off,drive=foo -drive file=image2,format=raw,id=foo,if=none
+# could really be nice if BOOT and STORAGE could be the same disk
+BOOT = -boot c -drive file=image,format=raw,if=ide
+STORAGE = -drive file=image2,format=raw,if=virtio
 TAP = -netdev tap,id=n0,ifname=tap0
 NET = -device virtio-net,mac=7e:b8:7e:87:4a:ea,netdev=n0 $(TAP)
 KVM = -enable-kvm
 run: image image2
-	- qemu-system-x86_64 -hda image -nographic -m 2G -device isa-debug-exit $(STORAGE) $(NET) $(KVM)
+	- qemu-system-x86_64 $(BOOT) -nographic -m 2G -device isa-debug-exit $(STORAGE) $(NET) $(KVM)
 runnew: image image2
 	- ~/qemu/x86_64-softmmu/qemu-system-x86_64 -hda image -nographic -m 2G -device isa-debug-exit $(STORAGE) $(NET) $(KVM)
 

@@ -1,11 +1,7 @@
+// xxx - this is really stage3.h
 #include <runtime.h>
 #include <x86_64.h>
 #include <elf64.h>
-#include <closure.h>
-#include <closure_templates.h>
-
-typedef closure_type(buffer_handler, void, buffer);
-typedef closure_type(thunk, void);
 
 #if 0
 static node resolve(buffer n, symbol s)
@@ -79,7 +75,6 @@ static inline tuple resolve_cstring(tuple root, char *f)
 }
 
 
-void bprintf(buffer b, char *fmt, ...);
 // belongs somewhere else?
 void storage_read(void *target, u64 offset, u64 size, thunk complete);
 
@@ -105,5 +100,4 @@ void *queue_peek(queue q);
 queue allocate_queue(heap h, u64 size);
 void runloop();
 heap allocate_fragmentor(heap meta, heap parent, bytes size);
-#include <pqueue.h>
-#include <timer.h>
+
