@@ -1,4 +1,4 @@
-all: hw web hwg
+all: hw web hwg webg
 
 hwg: hwg.go
 	go build hwg.go
@@ -9,7 +9,10 @@ hw: hw.c
 web: web.c
 	cc web.c -g -o web
 
+webg: webg.go
+	go build webg.go
+
 clean:
-	rm hw web hwg
+	rm hw web hwg webg
 
 
