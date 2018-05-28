@@ -1,5 +1,4 @@
-#include <sruntime.h>
-#include <unix.h>
+#include <unix_internal.h>
 
 typedef struct code {
     int c;
@@ -535,6 +534,13 @@ u64 getpid()
     return current->p->pid;
 }
 
+u64 sched_yield()
+{
+    thread_wakeup(current);
+    set_syscall_return(current, 0);                                
+    thread_sleep(current);
+}
+
 void exit(int code)
 {
     QEMU_HALT();
@@ -555,7 +561,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_getcwd, getcwd);
     register_syscall(map, SYS_readlink, readlink);
     register_syscall(map, SYS_close, syscall_ignore);
-
+    register_syscall(map, SYS_sched_yield, sched_yield);
     register_syscall(map, SYS_brk, brk);
     register_syscall(map, SYS_uname, uname);
     register_syscall(map, SYS_getrlimit, getrlimit);

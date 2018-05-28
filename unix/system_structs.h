@@ -302,3 +302,6 @@ struct epoll_event {
 #define __SOCK_SIZE__	16		/* sizeof(struct sockaddr)	*/
 
 
+typedef struct aux {u64 tag; u64 val;} *aux;
+ 
+

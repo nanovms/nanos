@@ -1,4 +1,7 @@
 
+// consider -
+//   adding a stride
+//   going back to using bit offsets
 struct buffer {
     bytes start;
     bytes end;

@@ -138,8 +138,9 @@ void lapic_eoi()
 void print_stack(context c)
 {
     u64 *x = pointer_from_u64(c[FRAME_RSP]);
+    // really until page aligned?
     console("stack \n");
-    for (u64 i= 0 ;i < 10; i++) {
+    for (u64 i= 0 ;i < 20; i++) {
         print_u64(*x--);
         console("\n");
     }

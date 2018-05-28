@@ -1,5 +1,4 @@
-#include <sruntime.h>
-#include <unix.h>
+#include <unix_internal.h>
 
 // callibration is an issue
 int gettimeofday(struct timeval *tv, void *tz)

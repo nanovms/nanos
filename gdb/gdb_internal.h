@@ -1,6 +1,5 @@
-#include <sruntime.h>
-#include <unix.h>
-#include <net_internal.h>
+#include <unix_internal.h>
+#include <lwip.h>
 
 typedef struct gdb {
     string output;

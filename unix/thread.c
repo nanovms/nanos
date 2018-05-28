@@ -1,5 +1,4 @@
-#include <sruntime.h>
-#include <unix.h>
+#include <unix_internal.h>
 
 int gettid()
 {
@@ -38,7 +37,7 @@ long clone(unsigned long flags, void *child_stack, void *ptid, void *ctid, void 
     t->frame[FRAME_RSP]= u64_from_pointer(child_stack);
     t->frame[FRAME_RAX]= *(u32 *)ctid;
     t->frame[FRAME_FS] = u64_from_pointer(x);
-    enqueue(runqueue, t->run);
+    thread_wakeup(t);
     return t->tid;
 }
 
@@ -64,20 +63,18 @@ static int futex(int *uaddr, int futex_op, int val,
                  int *uaddr2, int val3)
 {
     struct timespec *timeout = pointer_from_u64(val2);
-    int verbose = false;
-    thunk w;
+    int verbose = true;
+    thread w;
     
     fut f = soft_create_futex(current->p, u64_from_pointer(uaddr));
     int op = futex_op & 127; // chuck the private bit
     switch(op) {
     case FUTEX_WAIT:
-        if (verbose)
-            rprintf("futex_wait [%d %p %d] %p\n", current->tid, uaddr, *uaddr, val);
         if (*uaddr == val) {
             // if we resume we are woken up, no timeout support
-            current->frame[FRAME_RAX] = 0;
-            enqueue(f->waiters, current->run);
-            runloop();
+            set_syscall_return(current, 0);
+            enqueue(f->waiters, current);
+            thread_sleep(current);
         }
         return -EAGAIN;
             
@@ -86,8 +83,8 @@ static int futex(int *uaddr, int futex_op, int val,
         if (verbose)
             rprintf("futex_wake [%d %p %d]\n", current->tid, uaddr, *uaddr);
         if ((w = dequeue(f->waiters))) {
-            current->frame[FRAME_RAX] = 1;
-            enqueue(runqueue, w);
+            set_syscall_return(current, 1);            
+            thread_wakeup(w);
         }
         return 0;
         
@@ -97,9 +94,9 @@ static int futex(int *uaddr, int futex_op, int val,
         if (verbose)
             rprintf("futex_cmp_requeue [%d %p %d] %d\n", current->tid, uaddr, *uaddr, val3);
         if (*uaddr == val3) {
-            if ((w = dequeue(f->waiters))) {            
-                current->frame[FRAME_RAX] = 1;
-                enqueue(runqueue, w);
+            if ((w = dequeue(f->waiters))) {
+                set_syscall_return(current, 1);                            
+                thread_wakeup(w);
             }
             return 0;
         }
@@ -126,7 +123,7 @@ static int futex(int *uaddr, int futex_op, int val,
             int result = 0;
             while ((w = dequeue(f->waiters))) {
                 result++;
-                enqueue(runqueue, w);
+                thread_wakeup(w);
             }
             
             int c;
@@ -143,7 +140,7 @@ static int futex(int *uaddr, int futex_op, int val,
                 fut f = soft_create_futex(current->p, u64_from_pointer(uaddr2));
                 if ((w = dequeue(f->waiters))) {                
                     result++;
-                    enqueue(runqueue, w);                    
+                    thread_wakeup(w);
                 }
             }
             return result;
@@ -153,9 +150,9 @@ static int futex(int *uaddr, int futex_op, int val,
         if (verbose)
             rprintf("futex_wait_bitset [%d %p %d] %p %p\n", current->tid, uaddr, *uaddr, val3);
         if (*uaddr == val) {
-            current->frame[FRAME_RAX] = 0;
-            enqueue(f->waiters, current->run);
-            // xxx - go back to sched
+            set_syscall_return(current, 0);                            
+            enqueue(f->waiters, current);
+            thread_sleep(current);
         }
         break;
     case FUTEX_WAKE_BITSET: rprintf("FUTEX_wake_bitset\n"); break;
@@ -175,5 +172,46 @@ void register_thread_syscalls(void **map)
     register_syscall(map, SYS_arch_prctl, arch_prctl);
     register_syscall(map, SYS_set_tid_address, set_tid_address);
     register_syscall(map, SYS_gettid, gettid);
+}
+
+// tuplify
+void thread_log_internal(thread t, char *desc, ...)
+{
+    rprintf ("%n%s\n", t->tid * 10, desc);
+}
+
+
+CLOSURE_1_0(run_thread, void, thread);
+void run_thread(thread t)
+{
+    current = t;
+    thread_log(t, "run",  t->frame[FRAME_RIP]);
+    IRETURN(frame);    
+}
+
+void thread_sleep(thread t)
+{
+    thread_log(t, "sleep",  t->frame[FRAME_RIP]);
+    runloop();
+}
+
+void thread_wakeup(thread t)
+{
+    thread_log(t, "wakeup",  t->frame[FRAME_RIP]);
+    enqueue(runqueue, t->run);
+}
+
+thread create_thread(process p)
+{
+    // heap I guess
+    static int tidcount = 1;
+    thread t = allocate(p->h, sizeof(struct thread));
+    t->p = p;
+    t->tid = tidcount++;
+    t->set_child_tid = t->clear_child_tid = 0;
+    t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(closure(p->h, default_fault_handler, t));
+    t->run = closure(p->h, run_thread, t);
+    vector_push(p->threads, t);
+    return t;
 }
 

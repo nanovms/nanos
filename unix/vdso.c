@@ -1,5 +1,4 @@
-#include <sruntime.h>
-#include <unix.h>
+#include <unix_internal.h>
 
 // from go/src/runtime/vdso_linux_amd64.go
 

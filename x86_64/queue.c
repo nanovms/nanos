@@ -2,11 +2,6 @@
 
 // there is a test-and-set atomic resize for the multiprocessor case?
 
-struct queue {
-    // these should be on cache lines in the mp case
-    u64 read, write, length;
-    void *body[];
-};
 
 void enqueue(queue q, void *n)
 {
@@ -23,6 +18,11 @@ void enqueue(queue q, void *n)
     if (f & FLAG_INTERRUPT) enable_interrupts();    
 }
 
+int queue_length(queue q)
+{
+    return q->write - q->read;
+}
+
 void *queue_peek(queue q)
 {
     u64 mask = q->length -1;
@@ -34,7 +34,7 @@ void *queue_peek(queue q)
 void *dequeue(queue q)
 {
     u64 mask = q->length -1;
-    if ((q->read & mask) == (q->write & mask) )
+    if ((q->write & mask) == (q->read & mask) )
         return 0;
     
     // this isn't necessary given single reader, but it also has

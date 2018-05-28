@@ -1,6 +1,4 @@
-#include <sruntime.h>
-#include <unix.h>
-
+#include <unix_internal.h>
 
 void *mremap(void *old_address, u64 old_size,  u64 new_size, int flags,  void *new_address )
 {

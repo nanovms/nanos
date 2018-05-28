@@ -1,6 +1,19 @@
-#include <sruntime.h>
-#include <unix.h>
-#include <net_internal.h>
+#include <unix_internal.h>
+#include <lwip.h>
+
+
+#define AF_INET 10
+
+struct sockaddr_in {
+    u16 family;
+    u16 port;
+    u32 address;
+} *sockaddr_in;
+    
+struct sockaddr {
+    u16 family;
+} *sockaddr;
+    
 
 typedef u32 socklen_t;
 
@@ -14,6 +27,8 @@ typedef struct sock {
     heap h;
     struct tcp_pcb *p;
     queue incoming;
+    queue notify;
+    queue waiting; // service waiting before notify, do we really need 2 queues here?
 } *sock;
 
 static void local_sockaddr_in(struct tcp_pcb *p, struct sockaddr_in *sin)
@@ -63,6 +78,7 @@ static inline void pbuf_consume(struct pbuf *p, u64 length)
 static CLOSURE_4_0(read_complete, void, sock, thread, void *, u64);
 static void read_complete(sock s, thread t, void *dest, u64 length)
 {
+    rprintf ("servicing read: %d\n", length);
     struct pbuf *p = queue_peek(s->incoming);
     u64 xfer = MIN(length, p->len);
     runtime_memcpy(dest, p->payload, xfer);
@@ -80,25 +96,30 @@ static void read_complete(sock s, thread t, void *dest, u64 length)
 static CLOSURE_1_3(socket_read, int, sock, void *, u64, u64);
 static int socket_read(sock s, void *dest, u64 length, u64 offset)
 {
-    buffer b;
-    struct pbuf *in;
-    // dating app
-    if ((in = queue_peek(s->incoming))) {
-        // we'd.. like to just return, but this collapses the hit case and the asynch
-        read_complete(s, current, dest, length);
-    } else {
-        // it doesn't make sense to enqueue multiple readers, but..
-        enqueue(s->f.notify, closure(s->h, read_complete, s, current, dest, length));
-    }
+    rprintf ("socket read\n");
+    apply(s->f.check, closure(s->h, read_complete, s, current, dest, length));    
     runloop();    
 }
 
 static CLOSURE_1_3(socket_write, int, sock, void *, u64, u64);
 static int socket_write(sock s, void *source, u64 length, u64 offset)
 {
+    rprintf ("socket write\n");
     // error code..backpressure
     tcp_write(s->p, source, length, TCP_WRITE_FLAG_COPY);
     return length;
+}
+
+static CLOSURE_1_1(socket_check, void, sock, thunk);
+static void socket_check(sock s, thunk t)
+{
+    rprintf("check %\n", s);
+    // safety
+    if (queue_length(s->incoming)) {
+        apply(t);
+    } else {
+        enqueue(s->notify, t);
+    }
 }
 
 static int allocate_sock(process p, struct tcp_pcb *pcb)
@@ -107,7 +128,10 @@ static int allocate_sock(process p, struct tcp_pcb *pcb)
     file f = allocate_fd(p, sizeof(struct sock), &fd);
     sock s = (sock)f;    
     f->read =  closure(p->h, socket_read, s);
-    f->write =  closure(p->h, socket_write, s);    
+    f->write =  closure(p->h, socket_write, s);
+    s->notify = allocate_queue(p->h, 32);
+    s->waiting = allocate_queue(p->h, 32);    
+    f->check = closure(p->h, socket_check, s);
     s->h = p->h;
     s->p = pcb;
     s->incoming = allocate_queue(p->h, 32);
@@ -127,11 +151,14 @@ int socket(int domain, int type, int protocol)
 static err_t input_lower (void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 {
     sock s = z;
+    
     if (p) {
+        rprintf("data from lwip %p\n", s);
         // dating app
         thunk z;
         enqueue(s->incoming, p);
-        if ((z = dequeue(s->f.notify))) {
+        if ((z = dequeue(s->notify))) {
+            rprintf("data notify %p\n", s);
             apply(z);
         }
     }
@@ -161,8 +188,13 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *pcb, err_t b)
     sock s = z;
     thunk p;
     enqueue(s->incoming, pcb);
-    if ((p = dequeue(s->f.notify))) {
+    rprintf("accept from lwip %d %d %d\n", queue_length(s->notify), s->notify->read, s->notify->write);
+    if ((p = dequeue(s->waiting))) {
         apply(p);
+    }  else {
+        if ((p = dequeue(s->notify))) {
+            apply(p);
+        }
     }
     return ERR_OK;
 }
@@ -180,6 +212,9 @@ int listen(int sockfd, int backlog)
 static CLOSURE_4_0(accept_finish, void, sock, thread, struct sockaddr *, socklen_t *);
 static void accept_finish(sock s, thread target, struct sockaddr *addr, socklen_t *addrlen)
 {
+    rprintf("likky\n");
+    rprintf("accept finish notify %d %d %d\n", queue_length(s->notify), s->notify->read, s->notify->write);
+    rprintf("              sockets  %d %d %d\n", queue_length(s->incoming), s->incoming->read, s->incoming->write);        
     struct tcp_pcb * p= dequeue(s->incoming);
     int fd = allocate_sock(target->p, p);
     tcp_arg(p, target->p->files[fd]);
@@ -193,8 +228,17 @@ static void accept_finish(sock s, thread target, struct sockaddr *addr, socklen_
 int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 {
     sock s = (sock)current->p->files[sockfd];
-    // ok, this is a reasonable interlock to build, the dating app
-    enqueue(s->f.notify, closure(s->h, accept_finish, s, current, addr, addrlen));
+    rprintf ("userspace accept %d\n", queue_length(s->incoming));
+
+    // ok, this is a reasonable interlock to build, the dating app    
+    if (queue_length(s->incoming)) {
+        rprintf("lykka\n");
+        accept_finish(s, current, addr, addrlen);
+    } else {
+        rprintf("bubby?\n");
+        enqueue(s->waiting, closure(s->h, accept_finish, s, current, addr, addrlen));
+        rprintf("babblo?\n");        
+    }
     runloop();
 }
 
@@ -217,6 +261,46 @@ int getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
     return 0;    
 }
 
+// tuplify
+#define SOCK_NONBLOCK 00004000
+#define TCP_NODELAY		1	/* Turn off Nagle's algorithm. */
+#define TCP_MAXSEG		2	/* Limit MSS */
+#define TCP_CORK		3	/* Never send partially complete segments */
+#define TCP_KEEPIDLE		4	/* Start keeplives after this period */
+#define TCP_KEEPINTVL		5	/* Interval between keepalives */
+#define TCP_KEEPCNT		6	/* Number of keepalives before death */
+#define TCP_SYNCNT		7	/* Number of SYN retransmits */
+#define TCP_LINGER2		8	/* Life time of orphaned FIN-WAIT-2 state */
+#define TCP_DEFER_ACCEPT	9	/* Wake up listener only when data arrive */
+#define TCP_WINDOW_CLAMP	10	/* Bound advertised window */
+#define TCP_INFO		11	/* Information about this connection. */
+#define TCP_QUICKACK		12	/* Block/reenable quick acks */
+#define TCP_CONGESTION		13	/* Congestion control algorithm */
+#define TCP_MD5SIG		14	/* TCP MD5 Signature (RFC2385) */
+#define TCP_THIN_LINEAR_TIMEOUTS 16      /* Use linear timeouts for thin streams*/
+#define TCP_THIN_DUPACK         17      /* Fast retrans. after 1 dupack */
+#define TCP_USER_TIMEOUT	18	/* How long for loss retry before timeout */
+#define TCP_REPAIR		19	/* TCP sock is under repair right now */
+#define TCP_REPAIR_QUEUE	20
+#define TCP_QUEUE_SEQ		21
+#define TCP_REPAIR_OPTIONS	22
+#define TCP_FASTOPEN		23	/* Enable FastOpen on listeners */
+#define TCP_TIMESTAMP		24
+#define TCP_NOTSENT_LOWAT	25	/* limit number of unsent bytes in write queue */
+#define TCP_CC_INFO		26	/* Get Congestion Control (optional) info */
+#define TCP_SAVE_SYN		27	/* Record SYN headers for new connections */
+#define TCP_SAVED_SYN		28	/* Get SYN headers recorded for connection */
+
+
+int setsockopt(int sockfd,
+               int level,
+               int optname,
+               void *optval,
+               socklen_t optlen)
+{
+    rprintf("sockopt %d %d\n", sockfd, optname);
+    return 0;
+}
 
 void register_net_syscalls(void **map)
 {
@@ -226,7 +310,7 @@ void register_net_syscalls(void **map)
     register_syscall(map, SYS_accept, accept);
     register_syscall(map, SYS_accept4, accept4);    
     register_syscall(map, SYS_connect, connect);
-    register_syscall(map, SYS_setsockopt, syscall_ignore);
+    register_syscall(map, SYS_setsockopt, setsockopt);
     register_syscall(map, SYS_connect, connect);
     register_syscall(map, SYS_getsockname, getsockname);
     register_syscall(map, SYS_getpeername, getpeername);    

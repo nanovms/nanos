@@ -1,6 +1,4 @@
-#include <sruntime.h>
-#include <unix.h>
-
+#include <unix_internal.h>
 
 int sigaction(int signum,
               const struct sigaction *act,

@@ -1,18 +1,25 @@
-#include <sruntime.h>
-#include <unix.h>
+#include <unix_internal.h>
 
 typedef struct epollfd {
+    int fd; //debuggin
     file f;
-    int events;
     u64 data;
 } *epollfd;
 
-typedef struct epoll {
+typedef struct epoll *epoll;
+typedef struct epoll_blocked {
+    epoll e;
+    u64 refcnt;
+    thread t;
+    vector user_events;
+} *epoll_blocked;
+
+struct epoll {
+    epoll_blocked w;
     struct file f;
     heap h;
-    boolean fired; // mediate timeout. more than one?
     vector events;
-} *epoll;
+};
     
 u64 epoll_create1(u64 flags)
 {
@@ -23,41 +30,59 @@ u64 epoll_create1(u64 flags)
     return fd;
 }
 
-static CLOSURE_2_0(epoll_timeout, void, epoll, thread);
-static void epoll_timeout(epoll e, thread t)
+static CLOSURE_1_0(epoll_blocked_finish, void, epoll_blocked);
+static void epoll_blocked_finish(epoll_blocked w)
 {
-    if (!e->fired) enqueue(runqueue, t->run);
+    if (w->e->w == w) {
+        u64 fds = buffer_length(w->user_events)/sizeof(struct epoll_event);
+        set_syscall_return(current, fds);                            
+        rprintf("waking up blocked epoll %d %p\n", fds, w);
+        w->e->w = 0;
+        thread_wakeup(w->t);
+    }
+    // eventually we should be able to free this thing
+    w->refcnt--;
 }
 
-static CLOSURE_5_0(event, void, epoll, thread, epollfd, struct epoll_event *, int);
-static void event(epoll e,
-                  thread t,
-                  epollfd f,
-                  struct epoll_event *events,
-                  int maxevents)
+// associated with the current blocking function
+static CLOSURE_2_0(epoll_wait_notify, void, epoll_blocked, epollfd)
+static void epoll_wait_notify(epoll_blocked w, epollfd f)
 {
-    e->fired = 1;
-    t->frame[FRAME_RAX] = 1;
-    events[0].data = f->data;
-    events[0].events = EPOLLIN;    
-    enqueue(runqueue, t->run);
+    thread_log(w->t, "notify", f->fd);
+    if (w->e->w == w) {
+        if (w->user_events->length - w->user_events->end) {
+            struct epoll_event *e = buffer_ref(w->user_events, 0);
+            e->data = f->data;
+            e->events = EPOLLIN;
+            w->user_events->end += sizeof(struct epoll_event);
+        }
+    }
+    epoll_blocked_finish(w);
 }
 
-
-int epoll_wait(int epfd, struct epoll_event *events,
-               int maxevents, int timeout)
+int epoll_wait(int epfd,
+               struct epoll_event *events,
+               int maxevents,
+               int timeout)
 {
     epoll e = (epoll)current->p->files[epfd];
-    epollfd f = vector_get(e->events, 0);
-    enqueue(f->f->notify, closure(current->p->h, event, e, current, f, events, maxevents));
-    if (timeout > 0){
-        register_timer(milliseconds(timeout), closure(e->h, epoll_timeout, e, current));
-        runloop();
-    }
-    if (timeout == -1)
-        runloop();
-    // polling needs to work
-    return 0;
+    epollfd i;
+    
+    epoll_blocked w = allocate(e->h, sizeof(struct epoll_blocked));
+    // kind of sad to allocate this all for the polling case, but bear with me
+    w->user_events = wrap_buffer(e->h, events, maxevents * sizeof(struct epoll_event));
+    w->user_events->end = 0;
+    w->t = current;
+    w->e = e;
+    // race
+    e->w = w;    
+    vector_foreach(i, e->events)
+        apply(i->f->check, closure(current->p->h, epoll_wait_notify, w, i));
+
+    if (timeout > 0)
+        register_timer(milliseconds(timeout), closure(e->h, epoll_blocked_finish, w));
+    
+    thread_sleep(current);
 }
 
 u64 epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
@@ -66,11 +91,16 @@ u64 epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
     switch(op) {
     case EPOLL_CTL_ADD:
         {
-            rprintf ("epoll add %p %d %p\n", e, fd, event);
+            rprintf ("epoll add epfd : %d %p %d %p\n", epfd, e, fd, event);
             epollfd f = allocate(e->h, sizeof(struct epollfd));
             f->f = current->p->files[fd];
+            f->fd = fd;
             f->data = event->data;
             vector_push(e->events, f);
+            // subscribe while waiting?
+            if (e->w)  {
+                apply(f->f->check, closure(current->p->h, epoll_wait_notify, e->w, f));
+            }
         }
         break;
 
@@ -86,11 +116,11 @@ u64 epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 
 
 static CLOSURE_2_0(select_timeout, void, thread, boolean *);
-static void select_timeout(thread f, boolean *dead)
+static void select_timeout(thread t, boolean *dead)
 {
-    f->frame[FRAME_RAX] = 0;
-    // xxx need to abort  if something happened
-    enqueue(runqueue, f->run);
+    set_syscall_return(current, 0);
+    thread_log(t, "select timeout", 0);
+    thread_wakeup(t);
 }
 
 int pselect(int nfds,
@@ -98,11 +128,12 @@ int pselect(int nfds,
             struct timespec *timeout,
             u64 *sigmask)
 {
+    rprintf ("pselect %d %p %p\n", nfds, readfds, time_from_timespec(timeout));
     if (timeout == 0) {
         rprintf("select poll\n");
     } else {
         register_timer(time_from_timespec(timeout), closure(current->p->h, select_timeout, current, 0));
-        runloop(); // sleep
+        thread_sleep(current);
     }
     return 0;
 }
