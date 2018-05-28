@@ -24,8 +24,10 @@ typedef closure_type(pcb_handler, void, struct tcp_pcb *);
 
 typedef struct sock {
     struct file f;
+    int fd;
+    process p;
     heap h;
-    struct tcp_pcb *p;
+    struct tcp_pcb *lw;
     queue incoming;
     queue notify;
     queue waiting; // service waiting before notify, do we really need 2 queues here?
@@ -96,7 +98,7 @@ static void read_complete(sock s, thread t, void *dest, u64 length)
 static CLOSURE_1_3(socket_read, int, sock, void *, u64, u64);
 static int socket_read(sock s, void *dest, u64 length, u64 offset)
 {
-    rprintf ("socket read\n");
+    rprintf ("socket read %p\n");
     apply(s->f.check, closure(s->h, read_complete, s, current, dest, length));    
     runloop();    
 }
@@ -106,14 +108,13 @@ static int socket_write(sock s, void *source, u64 length, u64 offset)
 {
     rprintf ("socket write\n");
     // error code..backpressure
-    tcp_write(s->p, source, length, TCP_WRITE_FLAG_COPY);
+    tcp_write(s->lw, source, length, TCP_WRITE_FLAG_COPY);
     return length;
 }
 
 static CLOSURE_1_1(socket_check, void, sock, thunk);
 static void socket_check(sock s, thunk t)
 {
-    rprintf("check %\n", s);
     // safety
     if (queue_length(s->incoming)) {
         apply(t);
@@ -132,8 +133,10 @@ static int allocate_sock(process p, struct tcp_pcb *pcb)
     s->notify = allocate_queue(p->h, 32);
     s->waiting = allocate_queue(p->h, 32);    
     f->check = closure(p->h, socket_check, s);
+    s->p = p;
     s->h = p->h;
-    s->p = pcb;
+    s->lw = pcb;
+    s->fd = fd;
     s->incoming = allocate_queue(p->h, 32);
     return fd;
 }
@@ -151,16 +154,20 @@ int socket(int domain, int type, int protocol)
 static err_t input_lower (void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 {
     sock s = z;
-    
+
     if (p) {
-        rprintf("data from lwip %p\n", s);
-        // dating app
-        thunk z;
+        rprintf("data from under %p %d\n", s, p->len);    
+        
         enqueue(s->incoming, p);
-        if ((z = dequeue(s->notify))) {
-            rprintf("data notify %p\n", s);
-            apply(z);
-        }
+        thunk n;
+        
+        if ((n = dequeue(s->waiting))) {
+            apply(n);
+        }  else {
+            if ((n = dequeue(s->notify))) {
+                apply(n);
+            }
+        }        
     }
     return ERR_OK;
 }
@@ -174,7 +181,7 @@ int bind(int sockfd, struct sockaddr *addr, socklen_t addrlen)
     // xxx - extract address and port
     //
     rprintf ("binding: %d\n", ntohs(sin->port));
-    return lwip_to_errno(tcp_bind(s->p, IP_ANY_TYPE, ntohs(sin->port)));
+    return lwip_to_errno(tcp_bind(s->lw, IP_ANY_TYPE, ntohs(sin->port)));
 }
 
 int connect(int sockfd, struct sockaddr *addr, socklen_t addrlen)
@@ -183,12 +190,18 @@ int connect(int sockfd, struct sockaddr *addr, socklen_t addrlen)
     return 0;
 }
 
-static err_t accept_from_lwip(void *z, struct tcp_pcb *pcb, err_t b)
+static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
 {
     sock s = z;
     thunk p;
-    enqueue(s->incoming, pcb);
-    rprintf("accept from lwip %d %d %d\n", queue_length(s->notify), s->notify->read, s->notify->write);
+    int fd = allocate_sock(s->p, lw);
+    sock sn = (sock)s->p->files[fd];
+    sn->fd = fd;
+    tcp_arg(lw, sn);
+    tcp_recv(lw, input_lower);
+    enqueue(s->incoming, sn);
+    rprintf ("lower accept %p yields %p\n", s, sn);
+    
     if ((p = dequeue(s->waiting))) {
         apply(p);
     }  else {
@@ -203,43 +216,36 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *pcb, err_t b)
 int listen(int sockfd, int backlog)
 {
     sock s = (sock)current->p->files[sockfd];        
-    s->p = tcp_listen_with_backlog(s->p, backlog);
-    tcp_arg(s->p, s);
-    tcp_accept(s->p, accept_from_lwip);
+    s->lw = tcp_listen_with_backlog(s->lw, backlog);
+    tcp_arg(s->lw, s);
+    tcp_accept(s->lw, accept_from_lwip);
     return 0;    
 }
 
 static CLOSURE_4_0(accept_finish, void, sock, thread, struct sockaddr *, socklen_t *);
 static void accept_finish(sock s, thread target, struct sockaddr *addr, socklen_t *addrlen)
 {
-    rprintf("likky\n");
-    rprintf("accept finish notify %d %d %d\n", queue_length(s->notify), s->notify->read, s->notify->write);
-    rprintf("              sockets  %d %d %d\n", queue_length(s->incoming), s->incoming->read, s->incoming->write);        
-    struct tcp_pcb * p= dequeue(s->incoming);
-    int fd = allocate_sock(target->p, p);
-    tcp_arg(p, target->p->files[fd]);
-    tcp_recv(p, input_lower);    
-    remote_sockaddr_in(p, (struct sockaddr_in *)addr); 
+    sock sn = dequeue(s->incoming);
+    remote_sockaddr_in(sn->lw, (struct sockaddr_in *)addr); 
     *addrlen = sizeof(struct sockaddr_in);
-    target->frame[FRAME_RAX] = fd;
-    enqueue(runqueue, target->run);
+    rprintf("accept finish %p\n", sn);
+    set_syscall_return(target, sn->fd);                                
+    thread_wakeup(target);
 }
 
 int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 {
     sock s = (sock)current->p->files[sockfd];
-    rprintf ("userspace accept %d\n", queue_length(s->incoming));
 
-    // ok, this is a reasonable interlock to build, the dating app    
+    // ok, this is a reasonable interlock to build, the dating app
+    // it would be nice if we didn't have to sleep and wakeup for the nonblocking case
     if (queue_length(s->incoming)) {
-        rprintf("lykka\n");
         accept_finish(s, current, addr, addrlen);
     } else {
-        rprintf("bubby?\n");
         enqueue(s->waiting, closure(s->h, accept_finish, s, current, addr, addrlen));
-        rprintf("babblo?\n");        
     }
-    runloop();
+    thread_sleep(current);
+    
 }
 
 int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
@@ -250,14 +256,14 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 int getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 {
     sock s = (sock)current->p->files[sockfd];    
-    local_sockaddr_in(s->p, (struct sockaddr_in *)addr);
+    local_sockaddr_in(s->lw, (struct sockaddr_in *)addr);
     return 0;
 }
 
 int getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 {
     sock s = (sock)current->p->files[sockfd];
-    remote_sockaddr_in(s->p, (struct sockaddr_in *)addr);
+    remote_sockaddr_in(s->lw, (struct sockaddr_in *)addr);
     return 0;    
 }
 
@@ -298,7 +304,7 @@ int setsockopt(int sockfd,
                void *optval,
                socklen_t optlen)
 {
-    rprintf("sockopt %d %d\n", sockfd, optname);
+    //    rprintf("sockopt %d %d\n", sockfd, optname);
     return 0;
 }
 

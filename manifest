@@ -1,11 +1,11 @@
 /kernel @stage3/stage3
 /lib64/ld-linux-x86-64.so.2 @/lib64/ld-linux-x86-64.so.2
 /lib/x86_64-linux-gnu/libc.so.6 @/lib/x86_64-linux-gnu/libc.so.6
-/webg @examples/webg
+/web @examples/web
 /environment/foo bar
 /environment/bar baz
-/program /webg
-/arguments/0 webg
+/program /web
+/arguments/0 web
 /etc/ld.so.cache @/etc/ld.so.cache
 /usr/local/etc/ld.so.cache @/etc/ld.so.cache
 /lib/x86_64-linux-gnu/libpthread.so.0 @/lib/x86_64-linux-gnu/libpthread.so.0

@@ -218,6 +218,7 @@ process exec_elf(buffer ex, heap general, heap physical, heap pages, heap virtua
     } else
 #endif
     {
+        rprintf ("user entry: %p\n", user_entry);
         enqueue(runqueue, t->run);
     }
     return p;    

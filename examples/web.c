@@ -4,17 +4,15 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/epoll.h>
 
 #define STATE_FIRST 1
 #define STATE_HEADER 2
 #define STATE_VALUE 3
 #define STATE_BODY 4
 
-static char head[] =""
-    "<html><title>shower controller</title><body>\n"
-    "<a href=\"water\">water</a><br/>"
-    "<a href=\"soap\">soap</a><br/>";
-static char tail[] =  "</body></html>\n";
+static char head[] ="<html><title>uniboot c server</title><body>unibooty\n";
+static char tail[] = "</body></html>\n";
 
 
 typedef int boolean;
@@ -198,13 +196,14 @@ parser allocate_parser()
 
 void main(int argc, char **argv)
 {
-    int service, conn;
+    int service;
     struct sockaddr_in where;
 
     service = socket(AF_INET, SOCK_STREAM, 0);
     memset(&where.sin_addr, 0, sizeof(unsigned int));
     where.sin_family = AF_INET;
-    where.sin_port = htons(8800);
+    where.sin_port = htons(8080);
+    printf ("service %d\n", service);    
     if (setsockopt(service, SOL_SOCKET, SO_REUSEADDR, &(int){ 1 }, sizeof(int)) < 0)
         perror("setsockopt(SO_REUSEADDR) failed");
     
@@ -217,14 +216,41 @@ void main(int argc, char **argv)
         exit(-1);
     }
 
-    unsigned int addrlen;
-    while (addrlen = sizeof(struct sockaddr_in), (conn = accept(service, (struct sockaddr *)&where, &addrlen))>=0) {
-        parser p = allocate_parser();
-        buffer b = allocate_buffer(512);
-        p->out = conn;
-        while ((b->end = read(conn, b->contents, 512)) > 0) {
-            http_recv(p, b);
-            reset_buffer(b);
+    int e = epoll_create(0);
+    struct epoll_event ev[10];
+    ev[0].events = EPOLLIN;
+    ev[0].data.ptr = 0;    
+    epoll_ctl(e, EPOLL_CTL_ADD, service, (struct epoll_event *)&ev);
+    buffer b = allocate_buffer(512);    
+    while (1) {
+        int res = epoll_wait(e, ev, sizeof(ev)/sizeof(struct epoll_event), 0);
+        for (int i = 0;i < res; i++) {
+            if (ev[i].data.ptr == 0) {
+                unsigned int addrlen;
+                int fd = accept(service, (struct sockaddr *)&where, &addrlen);
+                
+                parser p = allocate_parser();
+                p->out = fd;                
+                struct epoll_event ev;
+                ev.events = EPOLLIN;
+                ev.data.ptr = p;
+                
+                char k[20];
+                int kl = sprintf (k, "epoll registrin %p %d\n", p, p->out);
+                write(1, k, kl);
+                
+                epoll_ctl(e, EPOLL_CTL_ADD, fd, &ev);                                    
+            } else {
+                parser p = ev[i].data.ptr;
+                
+                char k[20];
+                int kl = sprintf (k, "epoll readin %p %d\n", p, p->out);
+                write(1, k, kl);
+                
+                b->end = read(p->out, b->contents, 512);
+                http_recv(p, b);
+                reset_buffer(b);
+            }
         }
     }
 }

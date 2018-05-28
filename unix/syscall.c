@@ -395,7 +395,7 @@ static int contents_read(tuple n, void *dest, u64 length, u64 offset)
 
 int openat(char *name, int flags, int mode)
 {
-    rprintf("openat not supportted, should be cake thought\n");
+    rprintf("openat not supportted, should be cake though\n");
     return -ENOENT;
 }
 
@@ -536,8 +536,8 @@ u64 getpid()
 
 u64 sched_yield()
 {
-    thread_wakeup(current);
     set_syscall_return(current, 0);                                
+    thread_wakeup(current);
     thread_sleep(current);
 }
 

@@ -275,7 +275,7 @@ struct timeval {
 struct epoll_event {
     u32     events;      /* Epoll events */
     u64 data;
-};
+}  __attribute__((packed));
 
 #define	EPOLL_CTL_ADD 0x1
 #define	EPOLL_CTL_DEL 0x2

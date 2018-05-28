@@ -21,7 +21,7 @@ struct epoll {
     vector events;
 };
     
-u64 epoll_create1(u64 flags)
+u64 epoll_create(u64 flags)
 {
     int fd;
     epoll e = (epoll)allocate_fd(current->p, sizeof(struct epoll), &fd);
@@ -35,8 +35,7 @@ static void epoll_blocked_finish(epoll_blocked w)
 {
     if (w->e->w == w) {
         u64 fds = buffer_length(w->user_events)/sizeof(struct epoll_event);
-        set_syscall_return(current, fds);                            
-        rprintf("waking up blocked epoll %d %p\n", fds, w);
+        set_syscall_return(w->t, fds);                            
         w->e->w = 0;
         thread_wakeup(w->t);
     }
@@ -52,6 +51,7 @@ static void epoll_wait_notify(epoll_blocked w, epollfd f)
     if (w->e->w == w) {
         if (w->user_events->length - w->user_events->end) {
             struct epoll_event *e = buffer_ref(w->user_events, 0);
+            rprintf ("epoll result: %d %p\n", f->fd, f->data);
             e->data = f->data;
             e->events = EPOLLIN;
             w->user_events->end += sizeof(struct epoll_event);
@@ -76,7 +76,7 @@ int epoll_wait(int epfd,
     w->e = e;
     // race
     e->w = w;    
-    vector_foreach(i, e->events)
+    vector_foreach(i, e->events) 
         apply(i->f->check, closure(current->p->h, epoll_wait_notify, w, i));
 
     if (timeout > 0)
@@ -91,7 +91,6 @@ u64 epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
     switch(op) {
     case EPOLL_CTL_ADD:
         {
-            rprintf ("epoll add epfd : %d %p %d %p\n", epfd, e, fd, event);
             epollfd f = allocate(e->h, sizeof(struct epollfd));
             f->f = current->p->files[fd];
             f->fd = fd;
@@ -118,7 +117,7 @@ u64 epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 static CLOSURE_2_0(select_timeout, void, thread, boolean *);
 static void select_timeout(thread t, boolean *dead)
 {
-    set_syscall_return(current, 0);
+    set_syscall_return(t, 0);
     thread_log(t, "select timeout", 0);
     thread_wakeup(t);
 }
@@ -128,7 +127,6 @@ int pselect(int nfds,
             struct timespec *timeout,
             u64 *sigmask)
 {
-    rprintf ("pselect %d %p %p\n", nfds, readfds, time_from_timespec(timeout));
     if (timeout == 0) {
         rprintf("select poll\n");
     } else {
@@ -141,7 +139,8 @@ int pselect(int nfds,
 
 void register_poll_syscalls(void **map)
 {
-    register_syscall(map, SYS_epoll_create1, epoll_create1);
+    register_syscall(map, SYS_epoll_create, epoll_create);    
+    register_syscall(map, SYS_epoll_create1, epoll_create);
     register_syscall(map, SYS_epoll_ctl, epoll_ctl);
     register_syscall(map, SYS_pselect6,pselect);
     register_syscall(map, SYS_epoll_wait,epoll_wait);

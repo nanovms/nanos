@@ -31,13 +31,11 @@ void runloop()
 {
     thunk t;
     while(1) {
-        rprintf("runq entry %d\n", queue_length(runqueue));
         // hopefully overall loop is being driven by the lapic periodic interrupt,
         // which should limit the skew
         timer_check();
         
         while((t = dequeue(runqueue))) {
-            rprintf("runq execute %p %p\n", t, *(void **)t);
             apply(t);
         }
         frame = miscframe;
