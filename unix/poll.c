@@ -51,7 +51,6 @@ static void epoll_wait_notify(epoll_blocked w, epollfd f)
     if (w->e->w == w) {
         if (w->user_events->length - w->user_events->end) {
             struct epoll_event *e = buffer_ref(w->user_events, 0);
-            rprintf ("epoll result: %d %p\n", f->fd, f->data);
             e->data = f->data;
             e->events = EPOLLIN;
             w->user_events->end += sizeof(struct epoll_event);
@@ -118,7 +117,6 @@ static CLOSURE_2_0(select_timeout, void, thread, boolean *);
 static void select_timeout(thread t, boolean *dead)
 {
     set_syscall_return(t, 0);
-    thread_log(t, "select timeout", 0);
     thread_wakeup(t);
 }
 

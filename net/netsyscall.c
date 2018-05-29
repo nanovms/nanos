@@ -80,7 +80,6 @@ static inline void pbuf_consume(struct pbuf *p, u64 length)
 static CLOSURE_4_0(read_complete, void, sock, thread, void *, u64);
 static void read_complete(sock s, thread t, void *dest, u64 length)
 {
-    rprintf ("servicing read: %d\n", length);
     struct pbuf *p = queue_peek(s->incoming);
     u64 xfer = MIN(length, p->len);
     runtime_memcpy(dest, p->payload, xfer);
@@ -98,7 +97,6 @@ static void read_complete(sock s, thread t, void *dest, u64 length)
 static CLOSURE_1_3(socket_read, int, sock, void *, u64, u64);
 static int socket_read(sock s, void *dest, u64 length, u64 offset)
 {
-    rprintf ("socket read %p\n");
     apply(s->f.check, closure(s->h, read_complete, s, current, dest, length));    
     runloop();    
 }
@@ -106,9 +104,9 @@ static int socket_read(sock s, void *dest, u64 length, u64 offset)
 static CLOSURE_1_3(socket_write, int, sock, void *, u64, u64);
 static int socket_write(sock s, void *source, u64 length, u64 offset)
 {
-    rprintf ("socket write\n");
     // error code..backpressure
     tcp_write(s->lw, source, length, TCP_WRITE_FLAG_COPY);
+    tcp_output(s->lw);
     return length;
 }
 
@@ -156,8 +154,6 @@ static err_t input_lower (void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t er
     sock s = z;
 
     if (p) {
-        rprintf("data from under %p %d\n", s, p->len);    
-        
         enqueue(s->incoming, p);
         thunk n;
         
@@ -200,7 +196,6 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
     tcp_arg(lw, sn);
     tcp_recv(lw, input_lower);
     enqueue(s->incoming, sn);
-    rprintf ("lower accept %p yields %p\n", s, sn);
     
     if ((p = dequeue(s->waiting))) {
         apply(p);
@@ -228,7 +223,6 @@ static void accept_finish(sock s, thread target, struct sockaddr *addr, socklen_
     sock sn = dequeue(s->incoming);
     remote_sockaddr_in(sn->lw, (struct sockaddr_in *)addr); 
     *addrlen = sizeof(struct sockaddr_in);
-    rprintf("accept finish %p\n", sn);
     set_syscall_return(target, sn->fd);                                
     thread_wakeup(target);
 }

@@ -63,7 +63,7 @@ static int futex(int *uaddr, int futex_op, int val,
                  int *uaddr2, int val3)
 {
     struct timespec *timeout = pointer_from_u64(val2);
-    int verbose = true;
+    int verbose = false;
     thread w;
     
     fut f = soft_create_futex(current->p, u64_from_pointer(uaddr));
@@ -177,7 +177,7 @@ void register_thread_syscalls(void **map)
 // tuplify
 void thread_log_internal(thread t, char *desc, ...)
 {
-    rprintf ("%n %s\n", t->tid * 15, desc);
+    //    rprintf ("%n %s\n", t->tid * 15, desc);
 }
 
 
@@ -187,7 +187,6 @@ void run_thread(thread t)
     current = t;
     thread_log(t, "run",  t->frame[FRAME_RIP]);
     frame  = t->frame;
-    rprintf ("wakeup return value2: %p\n", frame[FRAME_RAX]);    
     IRETURN(frame);    
 }
 
@@ -199,7 +198,6 @@ void thread_sleep(thread t)
 
 void thread_wakeup(thread t)
 {
-    rprintf ("wakeup return value: %p\n", t->frame[FRAME_RAX]);
     thread_log(t, "wakeup",  t->frame[FRAME_RIP]);
     enqueue(runqueue, t->run);
 }
