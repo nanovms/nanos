@@ -1,15 +1,5 @@
 #include <runtime.h>
 
-
-// there should be a generic platform header for this
-static inline u64 msb(u64 x)
-{
-    u64 r;
-    __asm__("bsr %0, %1":"=g"(r):"g"(x));
-    return r;
-}
-
-
 typedef struct rtnode {
     u64 key;
     void *value;
@@ -23,32 +13,55 @@ typedef struct rtrie {
     rtnode root;
 } *rtrie;
 
-rtnode *traverse(rtnode *w, u64 key)
+static void insert(rtnode *w, rtnode n)
 {
-    if (!*w) return w;
+    if (!*w) {
+        *w = n;
+        return;
+    }
     rtnode r = *w;
-    
-    u64 position = r->length >> 56;
-    if ((key >= r->key) && (key < (r->key + r->length & MASK(56))))
-        return w;
-    u64 intermediate = r->key ^ key;
+    u64 position = r->length >> 56;    
+    u64 intermediate = r->key ^ n->key;
     if (msb(intermediate) > position) {
-        if (key & (1<<position)) return r->children;
-        return r->children + 1;
+        if (n->key & (1<<position))
+            insert(r->children + 1, n);
+        else
+            insert(r->children, n);
+    } else {
+        *w = n;
+        insert(w, n);
     }
 }
+
+static rtnode lookup(rtnode r, u64 point)
+{
+    if (!r) return r;
+    if ((point > r->key) && (point < (r->key + r->length))) return r;
+    u64 position = r->length >> 56;
+    if (point & position) {
+        return lookup(r->children[1], point);
+    }
+    return lookup(r->children[0], point);
+}
+
 
 void *rtrie_lookup(rtrie r, u64 point)
 {
+    rtnode n = lookup(r->root, point);
+    if (!n) return n;
+    return n->value;
 }
 
-
-// nonzero value
 // non-overlapping regions
 void rtrie_insert(rtrie r, u64 start, u64 length, void *value)
 {
-    if (!r->root) {
-    }
+    rtnode n = allocate(r->h, sizeof(struct rtnode));
+    n->key = start;
+    n->value = value;
+    n->length = length;
+    n->children[0] = 0;
+    n->children[1] = 0;    
+    insert(&r->root, n);
 }
 
 

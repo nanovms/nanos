@@ -153,6 +153,7 @@ static err_t input_lower (void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t er
 {
     sock s = z;
 
+    rprintf ("data %d\n", p->len);
     if (p) {
         enqueue(s->incoming, p);
         thunk n;

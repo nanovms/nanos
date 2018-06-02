@@ -177,7 +177,7 @@ void register_thread_syscalls(void **map)
 // tuplify
 void thread_log_internal(thread t, char *desc, ...)
 {
-    //    rprintf ("%n %s\n", t->tid * 15, desc);
+    rprintf ("%n %s\n", t->tid * 15, desc);
 }
 
 
@@ -190,9 +190,13 @@ void run_thread(thread t)
     IRETURN(frame);    
 }
 
+// it might be easier, if a little skeezy, to use the return value
+// to genericize the handling of suspended threads. given that there
+// are already conventions (i.e. negative errors) on the interface
 void thread_sleep(thread t)
 {
-    thread_log(t, "sleep",  t->frame[FRAME_RIP]);
+    // config from the filesystem
+    thread_log(t, "sleep",  0);
     runloop();
 }
 

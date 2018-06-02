@@ -1,5 +1,5 @@
-#include <basic_runtime.h>
-#include <x86_64.h>
+#include <runtime.h>
+#include <io.h>
 
 #define BASE 0x3f8
 

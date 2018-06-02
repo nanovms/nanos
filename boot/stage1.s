@@ -39,10 +39,10 @@ regionlen equ 20
 e820:	xor ebx, ebx
         mov edi, entries - regionlen
 .each:	
-	mov edx,smapsig
-	mov ax,bseg
-	mov es,ax
-	mov eax,0xe820
+	mov edx, smapsig
+	mov ax, bseg
+	mov es, ax
+	mov eax, 0xe820
 	mov ecx, regionlen
 	int 0x15
 	sub edi, regionlen
@@ -130,17 +130,9 @@ dap:
         .sector      dd 1
         .sectorm     dd 0
         
-;;  would be nice to derive this
-        times 512-24 - ($-$$) db 0           
+        times 512-2 - ($-$$) db 0           
 ;;;  entries start
 entries:
-.absolution         dq 0        ; 7de8
-.nothing            dd 0        ; 7df0
-.memorymax:         dd 0        ; 7df2 ;; unused
-.memorystart:       dd 0        ; 7df6
-.idt:               dw 0        ; 7dfa ;; unused
-        
-.end:        
 ;;  mbr signature        
         dw 0xAA55             
 

@@ -1,5 +1,3 @@
-#include <x86.h>
-
 #define VIRTUAL_ADDRESS_BITS 48
 
 #define FS_MSR 0xc0000100
@@ -31,6 +29,11 @@ static inline void disable_interrupts()
     asm ("cli");
 }
 
+static inline u64 msb(u64 x)
+{
+    return __builtin_clz(x);
+}
+
 // belong here? share with nasm
 // currently maps to the linux gdb frame layout for convenience
 #include <frame.h>
@@ -52,13 +55,13 @@ static inline void write_barrier()
     asm ("sfence");
 }
 
-static inline u64 msb(u64 x)
+/*static inline u64 msb(u64 x)
 {
     u64 r;
     __asm__("bsr %0, %1":"=g"(r):"g"(x));
     return r;
 }
-
+*/
 static inline void read_barrier()
 {
         asm ("lfence");
@@ -99,9 +102,6 @@ void serial_out(char a);
 
 boolean valiate_virtual(void *base, u64 length);
 
-#define halt(__m) console(__m); QEMU_HALT();
-
-
 // tuples
 char *interrupt_name(u64 code);
 char *register_name(u64 code);
@@ -135,3 +135,8 @@ heap physically_backed(heap meta, heap virtual, heap physical, heap pages);
 void print_stack(context c);
 void print_frame(context f);
 #include <synth.h>
+void *load_elf(buffer elf, u64 offset, heap pages, heap bss);
+void elf_symbols(buffer elf, closure_type(each, void, char *, u64));
+
+#define mov_to_cr(__x, __y) __asm__("mov %0,%%"__x: :"a"(__y):);
+#define mov_from_cr(__x, __y) __asm__("mov %%"__x", %0":"=a"(__y):);

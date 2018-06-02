@@ -6,6 +6,7 @@ stage3/input.bin
 boot/stage2
 boot/stage2.elf
 boot/stage2.pad
+boot/stage2.strip
 boot/boot
 boot/stage1
 libc/musl

@@ -1,10 +1,38 @@
-#include <basic_runtime.h>
+#include <runtime.h>
 #include <elf64.h>
 
-// this doesn't really belong in x86_64, but it does belong
-// in the kernel runtime
 
-// buffer would be better for range checking, but stage2 uses this
+static inline char *elf_string(buffer elf, Elf64_Shdr *string_section, u64 offset)
+{
+    return (char *)(buffer_ref(elf, string_section->sh_offset + offset));
+}
+
+void elf_symbols(buffer elf, closure_type(each, void, char *, u64))
+{
+    char *symbol_string_name = ".strtab";
+    Elf64_Ehdr *elfh = buffer_ref(elf, 0);
+    Elf64_Shdr *section_names = buffer_ref(elf, elfh->e_shoff + elfh->e_shstrndx * elfh->e_shentsize);
+    Elf64_Shdr *symbols =0 , *symbol_strings =0;
+    Elf64_Shdr *s = buffer_ref(elf, elfh->e_shoff);
+
+    for (int i = 0; i< elfh->e_shnum; i++) {
+        if (s->sh_type == SHT_SYMTAB) symbols = s;
+        // elf is kinda broken wrt finding the right string table for the symbols
+        if ((s->sh_type == SHT_STRTAB) &&
+            (compare_bytes(elf_string(elf, section_names, s->sh_name), symbol_string_name, sizeof(symbol_string_name)-1)))
+            symbol_strings = s;
+        s++;
+    }
+
+    Elf64_Sym *sym = buffer_ref(elf, symbols->sh_offset);
+    for (int i = 0; i < symbols->sh_size; i+=symbols->sh_entsize) {
+        apply(each,
+              elf_string(elf, symbol_strings, sym->st_name),
+              sym->st_value);
+        sym++;
+    }
+}
+
 void *load_elf(buffer elf, u64 offset, heap pages, heap bss)
 {
     Elf64_Ehdr *elfh = buffer_ref(elf, 0);

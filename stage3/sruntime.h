@@ -1,6 +1,5 @@
-// xxx - this is really stage3.h
 #include <runtime.h>
-#include <x86_64.h>
+#include <kvm_platform.h>
 #include <elf64.h>
 
 #if 0

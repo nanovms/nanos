@@ -11,15 +11,6 @@
 #define STORAGE_TYPE_OFFSET 30
 #define STORAGE_SLOT_SIZE 12
 
-static inline boolean compare_bytes(void *a, void *b, bytes len)
-{
-    for (int i = 0; i < len ; i++) {
-        if (((u8 *)a)[i] != ((u8 *)b)[i])
-            return false;
-    }
-    return true;
-}
-
 
 #define ENTRY_ALIGNMENT_LOG 2
 #define ENTRY_LENGTH 12

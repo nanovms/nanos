@@ -48,13 +48,11 @@ static CLOSURE_2_0(epoll_wait_notify, void, epoll_blocked, epollfd)
 static void epoll_wait_notify(epoll_blocked w, epollfd f)
 {
     thread_log(w->t, "notify", f->fd);
-    if (w->e->w == w) {
-        if (w->user_events->length - w->user_events->end) {
-            struct epoll_event *e = buffer_ref(w->user_events, 0);
-            e->data = f->data;
-            e->events = EPOLLIN;
-            w->user_events->end += sizeof(struct epoll_event);
-        }
+    if (w->user_events->length - w->user_events->end) {
+        struct epoll_event *e = buffer_ref(w->user_events, w->user_events->end);
+        e->data = f->data;
+        e->events = EPOLLIN;
+        w->user_events->end += sizeof(struct epoll_event);
     }
     epoll_blocked_finish(w);
 }
@@ -73,11 +71,12 @@ int epoll_wait(int epfd,
     w->user_events->end = 0;
     w->t = current;
     w->e = e;
+
     // race
-    e->w = w;    
     vector_foreach(i, e->events) 
         apply(i->f->check, closure(current->p->h, epoll_wait_notify, w, i));
-
+    e->w = w;
+    
     if (timeout > 0)
         register_timer(milliseconds(timeout), closure(e->h, epoll_blocked_finish, w));
     

@@ -44,6 +44,16 @@ static inline void rprintf(char *format, ...)
     debug(&b);
 }
 
+static inline boolean compare_bytes(void *a, void *b, bytes len)
+{
+    for (int i = 0; i < len ; i++) {
+        if (((u8 *)a)[i] != ((u8 *)b)[i])
+            return false;
+    }
+    return true;
+}
+
+
 #include <symbol.h>
 
 typedef table node;
@@ -56,3 +66,7 @@ typedef closure_type(thunk, void);
 #include <pqueue.h>
 #include <timer.h>
 
+#include <x86_64.h>
+
+// just take a buffer or a tuple?
+extern void halt(char *format, ...);

@@ -79,9 +79,6 @@ static inline void zero(void *x, bytes length)
 #include <heap/heap.h>
 #include <buffer.h>
 
-// inline bsf
-#define log2(__x) ( __x)
-
 typedef void *status;
 
 #define STATUS_OK ((void *)0)
@@ -115,13 +112,11 @@ void map(u64 virtual, physical p, int length, heap h);
 
 #define INVALID_PHYSICAL ((u64)0xffffffffffffffff)
 
-
 #define varg __builtin_va_arg
 #define vlist __builtin_va_list
 #define vstart __builtin_va_start
 #define vend __builtin_va_end
     
-
 #define INVALID_ADDRESS ((void *)0xffffffffffffffffull)
 
 heap zero_wrap(heap meta, heap parent);

@@ -1,14 +1,5 @@
-#include <basic_runtime.h>
-#include <x86.h>
-#include <storage.h>
-
-static void print_block(void *addr, int length)
-{
-    for (int i = 0; i< length; i+=8){
-        print_u64(*(u64 *)(addr+i));
-        console ("\n");
-    }
-}
+#include <runtime.h>
+#include <kvm_platform.h>
 
 extern void run64(u32 entry);
 
@@ -45,35 +36,40 @@ void centry()
     struct heap workings;
     workings.alloc = stage2_allocator;
     heap working = &workings;
-    
+
+    console("stage2\n");
     // move this to the end of memory or the beginning of the pci gap
     // (under the begining of the kernel)
     u64 identity_start = 0x100000;
     u64 identity_length = 0x300000;
 
     for (region e = regions; region_type(e); e -= 1) {
-        if (identity_start == region_base(e)) 
-            region_base(e) = identity_start + identity_length;
+         print_u64(region_type(e));
+         console(" ");
+         print_u64(region_base(e));
+         console(" ");
+         print_u64(region_length(e));                  
+         console("\n");
+         if (region_base(e) < identity_start) region_type(e) =REGION_FREE; 
+         if (identity_start == region_base(e)) 
+             region_base(e) = identity_start + identity_length;
     }
 
     create_region(identity_start, identity_length, REGION_IDENTITY);
-        
+
     heap pages = region_allocator(working, PAGESIZE, REGION_IDENTITY);
     heap physical = region_allocator(working, PAGESIZE, REGION_PHYSICAL);
     void *vmbase = allocate_zero(pages, PAGESIZE);
     mov_to_cr("cr3", vmbase);
     map(identity_start, identity_start, identity_length, pages);
-
     // leak a page, and assume ph is in the first page
     void *header = allocate(physical, PAGESIZE);
 
     unsigned int fs_start = STAGE1SIZE + STAGE2SIZE;
     read_sectors(header, fs_start, PAGESIZE); // read in the head of the filesystem
-
     u64 kernel_length, kernel_offset;
     if (!lookup_kernel(header, &kernel_offset, &kernel_length)) {
-        console("unable to find kernel\n");
-        QEMU_HALT();
+        halt("unable to find kernel\n");
     }
 
     void *kernel = allocate(physical, pad(kernel_length, PAGESIZE));

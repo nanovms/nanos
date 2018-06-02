@@ -63,6 +63,13 @@ tuple storage_to_tuple(heap h, buffer b)
     return t;
 }
 
+// there is a type here
+CLOSURE_0_2(prinsym, void, char *, u64);
+void prinsym(char *name, u64 value)
+{
+    rprintf ("sym: %s %d\n", name, value);
+}
+
 void startup(heap pages, heap general, heap physical, heap virtual, buffer storage)
 {
     console("stage3\n");
@@ -74,6 +81,7 @@ void startup(heap pages, heap general, heap physical, heap virtual, buffer stora
     vector path = split(general, z, '/');
     tuple ex = resolve_path(fs, path);
     buffer exc = table_find(ex, sym(contents));
+    elf_symbols(exc, closure(general, prinsym)); 
     exec_elf(exc, general, physical, pages, virtual, fs);
 }
 

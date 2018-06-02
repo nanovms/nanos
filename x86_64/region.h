@@ -2,16 +2,20 @@
 typedef u8 regionbody[20];
 typedef regionbody *region;
 
+// see stage2.s - pass from Makefile? argument?
+#define region_start (0x7dfe)
+
 #define region_base(__r) (((u64 *)__r)[0])
 #define region_length(__r) (((u64 *)__r)[1])
 #define region_type(__r) (((u32 *)__r)[4])
-#define regions ((region)pointer_from_u64(ABSOLUTION - sizeof(regionbody)))
+#define regions ((region)pointer_from_u64(region_start - sizeof(regionbody)))
 
 #define REGION_PHYSICAL 1 // available physical memory
 #define REGION_DEVICE 2   // e820 physical region configured for i/o
 #define REGION_VIRTUAL 3  // marks allocated instead of available regions
 #define REGION_IDENTITY 4 // use for page tables
 #define REGION_FILESYSTEM 5 // offset on disk for the filesystem, see if we can get disk info from the bios
+#define REGION_FREE 6
 
 static inline region create_region(u64 base, u64 length, int type)
 {

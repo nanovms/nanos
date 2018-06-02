@@ -4,6 +4,7 @@ all:mkfs
 ROOT=$(PWD)/..
 
 include $(ROOT)/runtime/Makefile
+INCLUDES += -I$(ROOT)/x86_64
 
 %.o: %.c $(ROOT)/runtime/closure_templates.h
 	cc -g -c $(INCLUDES) $<
