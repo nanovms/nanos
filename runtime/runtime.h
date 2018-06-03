@@ -1,3 +1,4 @@
+// merge basic runtime - no one uses it anymore
 #include <basic_runtime.h>
 
 #define varg __builtin_va_arg
@@ -13,6 +14,7 @@ typedef struct buffer *string;
 void format_number(buffer s, u64 x, int base, int pad);
 
 #include <table.h>
+#include <text.h>
 #include <vector.h>
 
 typedef buffer string;
@@ -66,7 +68,18 @@ typedef closure_type(thunk, void);
 #include <pqueue.h>
 #include <timer.h>
 
+
+// break out platform
 #include <x86_64.h>
 
 // just take a buffer or a tuple?
 extern void halt(char *format, ...);
+
+// should be  (parser, parser, character)
+typedef closure_type(parser, void *, character);
+// textual? semantic
+typedef closure_type(parse_error, void, buffer);
+typedef closure_type(parse_finish, void, void *);
+parser tuple_parser(heap h, parse_finish c, parse_error err);
+parser parser_feed (parser p, buffer b);
+    

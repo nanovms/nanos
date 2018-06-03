@@ -217,13 +217,6 @@ static inline void copy_descriptor(buffer d, buffer s)
     d->length = s->length;                    
 }
 
-static void push_character(buffer b, character x)
-{
-    buffer_extend(b, 1);
-    *(u8 *)(b->contents + b->end) = x;
-    b->end ++ ;
-}
-
 static inline boolean buffer_compare(void *za, void *zb)
 {
     buffer a = za;
@@ -298,7 +291,7 @@ static void push_varint(buffer b, u64 p)
         push_u8(b, 0x80 | (k&MASK(7)));
         k >>= 7;
     }
-    push_character(b, k);
+    push_u8(b, k);
 }
 
 static u64 pop_varint(buffer b)

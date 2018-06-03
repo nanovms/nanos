@@ -1,6 +1,5 @@
 #include <runtime.h>
 
-typedef u8 character;
 static char *hex_digits="0123456789abcdef";
 
 void format_number(buffer s, u64 x, int base, int pad)

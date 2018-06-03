@@ -5,6 +5,7 @@ typedef unsigned int u32;
 typedef unsigned long long u64;
 typedef long long s64;
 typedef u8 boolean;
+typedef u32 character;
 
 #define true (1)
 #define false (0)
@@ -18,8 +19,6 @@ extern void console(char *x);
 extern void serial_out(char c);
 
 void print_u64(u64 s);
-
-typedef u8 character;
 
 static inline void runtime_memcpy(void *a, void *b, bytes len)
 {
@@ -131,10 +130,3 @@ boolean validate_virtual(void *base, u64 length);
 
 void sha256(buffer dest, buffer source);
 
-static inline s8 digit_of(character x)
-{
-    if ((x <= 'f') && (x >= 'a')) return(x - 'a' + 10);
-    if ((x <= 'F') && (x >= 'A')) return(x - 'A' + 10);
-    if ((x <= '9') && (x >= '0')) return(x - '0');
-    return(-1);
-}
