@@ -3,6 +3,7 @@ all:mkfs
 
 ROOT=$(PWD)/..
 
+INCLUDES = -include def64.h
 include $(ROOT)/runtime/Makefile
 INCLUDES += -I$(ROOT)/x86_64
 

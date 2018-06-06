@@ -75,6 +75,8 @@ void centry()
     void *kernel = allocate(physical, pad(kernel_length, PAGESIZE));
     read_sectors(kernel, fs_start + kernel_offset, kernel_length);
 
+    console("kernel: ");
+    print_u64(*(u64 *)((char *)kernel+0x22b18));
     // should drop this in stage3? ... i think we just need
     // service32 and the stack.. this doesn't show up in the e820 regions
     // stack is currently in the first page, so lets leave it mapped
@@ -88,6 +90,9 @@ void centry()
     kb.contents = kernel;
     kb.start = 0;
     kb.end = kernel_length;
+    console("kernel length: ");
+    print_u64(kernel_length);
+    console("\n");
     void *k = load_elf(&kb, 0, pages, physical);
     run64(u64_from_pointer(k));
 }

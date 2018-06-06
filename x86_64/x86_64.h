@@ -55,6 +55,12 @@ static inline void write_barrier()
     asm ("sfence");
 }
 
+#define rol(__x, __b)\
+     ({\
+        __asm__("rol %1, %0": "=g"(__x): "i" (__b));\
+        __x;\
+     })\
+
 /*static inline u64 msb(u64 x)
 {
     u64 r;
@@ -62,6 +68,7 @@ static inline void write_barrier()
     return r;
 }
 */
+
 static inline void read_barrier()
 {
         asm ("lfence");

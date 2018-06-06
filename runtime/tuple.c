@@ -7,6 +7,14 @@ typedef closure_type(err_internal, parser, buffer);
 typedef table charset;
 static charset name_terminal;
 static charset whitespace;
+buffer intermediate;
+heap theap;
+
+// region?
+tuple allocate_tuple()
+{
+    return tag(allocate_table(theap, key_from_symbol, pointer_equal), tag_tuple);
+}
 
 // find sequence combinator
 static boolean member(charset cs, character c)
@@ -26,22 +34,31 @@ static parser selfinate (heap h, selfparser p, character in)
 // this also has to be done on the return
 static parser combinate(heap h, selfparser p)
 {
-    void *x = closure(h, selfinate, h, p);    
-    return (parser)p;
+    return (parser)closure(h, selfinate, h, p);    
 }
 
 
-static CLOSURE_1_2(eat_whitespace, parser, parser, parser, character);
-static parser eat_whitespace(parser finish, parser self, character in)
+static CLOSURE_1_2(til_newline, parser, parser, parser, character);
+static parser til_newline(parser finish, parser self, character in)
 {
-    if (member(whitespace, in)) return self;
-    return finish;
+    if (in == '\n') return finish;
+    return self;
 }
 
+static CLOSURE_2_2(eat_whitespace, parser, heap, parser, parser, character);
+static parser eat_whitespace(heap h, parser finish, parser self, character in)
+{
+    if (in == '#') {
+        return combinate(h, closure(h, til_newline, self));
+    }
     
+    if (member(whitespace, in)) return self;
+    return apply(finish, in);
+}
+
 static parser ignore_whitespace(heap h, parser next)
 {
-    selfparser s = (void *)closure(h, eat_whitespace, next);
+    selfparser s = (void *)closure(h, eat_whitespace, h, next);
     return combinate(h, s);
 }
 
@@ -49,7 +66,9 @@ static CLOSURE_3_2(terminal, parser, completion, charset, buffer, parser, charac
 static parser terminal(completion c, charset final, buffer b, parser self, character in)
 {
     if (member(final, in)) {
-        return apply(c, b);
+        // apply(apply(x)) calls x twice
+        parser p = apply(c, b);
+        return apply(p, in);
     } else {
         push_character(b, in);
         return self;
@@ -60,41 +79,82 @@ CLOSURE_4_2(validate, parser, heap, parser, err_internal, buffer, parser, charac
 parser validate(heap h, parser next, err_internal err, buffer b, parser self, character in)
 {
     if (buffer_length(b) == 0)
-        return next;
+        return apply(next, in);
     // utf8
     character c = pop_character(b);
     if (c == in) return self;
     return apply(err, aprintf(h, "expected %c got %c\n", c, in));
 }
 
-static CLOSURE_3_1(value_complete, parser, tuple, symbol, completion, void *);
-static parser value_complete(tuple t, symbol name, completion c, void *v)
+
+static CLOSURE_3_1(value_complete, parser, tuple, symbol, parser, void *);
+static parser value_complete(tuple t, symbol name, parser check, void *v)
 {
     table_set(t, name, v);
-    return apply(c, t);
+    return check;
 }
 
 static CLOSURE_3_1(parse_value, parser, heap, completion, err_internal, character);
 
-static CLOSURE_4_1(name_complete, parser, heap, tuple, completion, err_internal, void *);
-static parser name_complete(heap h, tuple t, completion c, err_internal err, void *b)
+static CLOSURE_4_1(name_complete, parser, heap, tuple, parser, err_internal, void *);
+static parser name_complete(heap h, tuple t, parser check, err_internal err, void *b)
 {
-    completion vc = closure(h, value_complete, t, intern(b), c);
     buffer res = allocate_buffer(h, 20);
+    completion vc = closure(h, value_complete, t, intern(b), check);
     parser term = combinate(h, closure(h, terminal, vc, name_terminal, res));
     // not sure why we have to violate typing
-    return (void *)closure(h, parse_value, h, c, err);
+    parser pv = (void *)closure(h, parse_value, h, vc, err);
+    intermediate->start = 0; // hack
+    return ignore_whitespace(h, combinate(h, closure(h, validate, h, pv, err, intermediate)));
 }
+
+
+static CLOSURE_4_2(is_end_of_tuple, parser,
+                   heap, completion, tuple, err_internal,
+                   parser, character);
+static parser is_end_of_tuple(heap h, completion c, tuple t, err_internal e, parser self, character in)
+{
+    if (in != ')') {
+        parser *p = allocate(h, sizeof(parser));
+        parser cew = ignore_whitespace(h, self);
+        completion nc = closure(h, name_complete, h, t, cew, e);
+        *p = ignore_whitespace(h, combinate(h, closure(h, terminal, nc, name_terminal, allocate_buffer(h, 100))));
+        return apply(*p, in);
+    }
+    return apply(c, t);
+}
+
+static CLOSURE_5_2(is_end_of_vector, parser,
+                   heap, completion, tuple, err_internal, u64 *,
+                   parser, character);
+static parser is_end_of_vector(heap h, completion c, tuple t, err_internal e, u64 *index, parser self, character in)
+{
+    // keep index also
+    if (in != ']') {
+        buffer b = allocate_buffer(h, 10);
+        format_number(b, *index, 10, 1);
+        completion vc = closure(h, value_complete, t, intern(b), self);
+        (*index)++;
+        // doesnt handle whitespace before end 
+        return apply(ignore_whitespace(h, (void *)closure(h, parse_value, h, vc, e)), in);
+    }
+    return apply(c, t);
+}
+
 
 static parser parse_value(heap h, completion c, err_internal err, character in)
 {
-    if (in == '(') {
-        tuple t = allocate_tuple();
-        completion nc =  closure(h, name_complete, h, t, c, err);
-        return combinate(h, closure(h, terminal, nc, name_terminal, allocate_buffer(h, 100)));
-    } else {
-        buffer res = allocate_buffer(h, 8);
-        return combinate(h, closure(h, terminal, c, name_terminal, res));
+    switch(in) {
+    case '(':
+        return combinate(h, closure(h, is_end_of_tuple, h, c, allocate_tuple(), err));
+    case '[':
+        {
+            u64 *i= allocate(h, sizeof(u64));
+            *i = 0;
+            return combinate(h, closure(h, is_end_of_vector, h, c, allocate_tuple(), err, i));
+        }
+    default:
+        return apply(ignore_whitespace(h, combinate(h, closure(h, terminal, c, name_terminal, allocate_buffer(h, 8)))), in);
     }
 }
 
@@ -122,8 +182,20 @@ static parser bridge_completion(heap h, parse_finish c, err_internal err, void *
     return (void *)closure(h, parse_value, h, bc, err);    
 }
 
+static charset charset_from_string(heap h, char *elements)
+{
+    table t = allocate_table(h, identity_key, pointer_equal);
+    // utf8 me
+    for (char *i = elements; *i; i++) 
+        table_set(t, pointer_from_u64((u64)*i), (void *)1);
+    return t;
+}
+
 parser tuple_parser(heap h, parse_finish c, parse_error err)
 {
+    if (!whitespace) whitespace = charset_from_string(h, " \n\t");
+    if (!name_terminal) name_terminal = charset_from_string(h, "():[]  \n\t#");    
+    if (!intermediate) intermediate = aprintf(h, ":");
     // whitespace eat
     // error close over line number
     err_internal k = closure(h, bridge_err, h, err);
@@ -133,7 +205,7 @@ parser tuple_parser(heap h, parse_finish c, parse_error err)
 
 parser parser_feed (parser p, buffer b)
 {
-    string_foreach(i, b)  p = apply(p, i);
+    string_foreach(i, b) p = apply(p, i);
     return p;
 }
 
@@ -155,3 +227,29 @@ static void tuple_format_internal(u64 spaces, tuple t)
 void tuple_format(buffer dest, tuple t)
 {
 }
+
+void init_tuples(heap h)
+{
+    theap = h;
+}
+
+// parametric printf
+void print_tuple(buffer b, tuple t)
+{
+    boolean sub = false;
+    bprintf(b, "(");
+    table_foreach(t, n, v) {
+        if (sub) {
+            push_character(b, ' ');
+        }
+        bprintf(b, "%b:", symbol_string((symbol)n));
+        if (tagof(v) == tag_tuple) {
+            print_tuple(b, v);
+        } else {
+            bprintf(b, "%b", v);
+        }
+        sub = true;
+    }
+    bprintf(b, ")");
+}
+

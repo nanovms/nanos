@@ -1,5 +1,8 @@
 ROOT = ..
 all:stage3
+
+INCLUDES = -include def64.h
+
 include $(ROOT)/runtime/Makefile
 include $(ROOT)/x86_64/Makefile
 include $(ROOT)/virtio/Makefile

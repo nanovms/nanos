@@ -24,9 +24,10 @@ static inline key position(table t, key x)
     return(x%t->buckets);
 }
 
-// need an atomic find and create
-void *table_find (table t, void *c)
+
+void *table_find (table z, void *c)
 {
+    table t = valueof(z);
     key k = t->key_function(c);
 
     for (entry i = t->entries[position(t, k)];
@@ -75,8 +76,9 @@ static void resize_table(table t, int buckets)
 }
 
 
-void table_set (table t, void *c, void *v)
+void table_set (table z, void *c, void *v)
 {
+    table t = valueof(z);
     key k = t->key_function(c);
     key p = position(t, k);
     entry *e = t->entries + p;
@@ -105,7 +107,8 @@ void table_set (table t, void *c, void *v)
     }
 }
 
-int table_elements(table t)
+int table_elements(table z)
 {
+    table t = valueof(z);
     return(t->count);
 }

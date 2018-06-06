@@ -237,6 +237,7 @@ static inline boolean buffer_compare(void *za, void *zb)
          __x++)
              
 
+// alternate stack, real heap, say no to alloca
 #define little_stack_buffer(__name, __length)    \
     unsigned char __name##__contents[__length];\
     struct buffer __name_##_buffer;\

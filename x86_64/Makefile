@@ -1,4 +1,3 @@
-# need to tease apart arch which uses basic_runtime, and that which uses sruntime
 VPATH += $(ROOT)/x86_64
 
 FRAME := $(ROOT)/x86_64/frame.h

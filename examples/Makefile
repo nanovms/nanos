@@ -13,6 +13,6 @@ webg: webg.go
 	go build webg.go
 
 clean:
-	rm hw web hwg webg
+	rm -f hw web hwg webg
 
 

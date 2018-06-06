@@ -9,11 +9,6 @@
 void *tuple_region;
 u64 tuple_region_size;
 
-static u64 malloc_allocator(heap h, bytes s)
-{
-    return (u64)malloc(s);
-}
-
 #define is_tuple(x) ((x > tuple_region) && (u64_from_pointer(x-tuple_region) < tuple_region_size))
 
 static buffer read_stdin(heap h)
@@ -143,68 +138,40 @@ static void resolve_files(heap h, buffer b, vector file_relocations)
     }
 }
 
-static table parse_mappings(heap h, buffer desc)
+heap malloc_allocator();
+
+tuple root;
+CLOSURE_1_1(finish, void, heap, void*);
+void finish(heap h, void *v)
 {
-    tuple root = allocate_tuple();
-    vector lines = split(h, desc, '\n');
-    buffer line;
-    vector_foreach(line, lines) {
-        tuple children;
-
-        vector terms = split(h, line, ' ');
-        buffer dest = vector_pop(terms);
-        vector path = split(h, dest, '/');
-
-        // xxx - assume everyone starts with slash
-        vector_pop(path);
-        int len = vector_length(path);
-        tuple here = root;
-        
-        for (int i = 0; i <len; i++) {
-            if (!(children = table_find(here, sym(children)))) 
-                table_set(here, sym(children), children = allocate_tuple());
-            buffer p = vector_pop(path);
-            if (!(here = table_find(children, intern(p)))) {
-                table_set(children, intern(p), here = allocate_tuple());
-            }
-        }
-
-        buffer contents = vector_pop(terms);
-        if (*(u8 *) buffer_ref(contents, 0) == '@') {
-            contents->start++;
-            table_set(here, sym(file), contents);
-        } else {
-            table_set(here, sym(contents), contents);
-        }
+    if (tagof(v) == tag_tuple) {
+        buffer b = allocate_buffer(h, 100);
+        print_tuple(b, v);
+        rprintf ("tval %b\n", b);
+    } else {
+        rprintf ("val %b\n", v);
     }
-    return root;
+    root = v;
 }
 
-void notreally(heap h, u64 z, bytes length)
+CLOSURE_0_1(perr, void, string);
+void perr(string s)
 {
+    rprintf("parse error %b\n", s);
 }
 
 
-
+extern heap init_process_runtime();    
 int main(int argc, char **argv)
 {
-    struct heap h;
-    h.alloc = malloc_allocator;
-    h.dealloc = notreally;
-
-    buffer out = allocate_buffer(&h, 1024);
-    tuple_region_size = 4*1024*1024;
-    tuple_region = mmap(0, tuple_region_size, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
-    heap th = create_id_heap(&h, u64_from_pointer(tuple_region), tuple_region_size, 1);
-    // ok...since in stage3 the syscall interface is directly available, we can
-    // live on top of that with no restrictions
-    init_symbols(th);    
+    heap h=  init_process_runtime();    
+    buffer out = allocate_buffer(h, 1024);
+    parser p = tuple_parser(h, closure(h, finish, h), closure(h, perr));
+    // this can be streaming
+    parser_feed (p, read_stdin(h));
+    vector file_relocations = allocate_vector(h, 10);
     
-    buffer desc = read_stdin(&h);
-    table root = parse_mappings(&h, desc);
-    table symbols = allocate_table(&h, key_from_symbol, pointer_equal);
-    vector file_relocations = allocate_vector(&h, 10);
-    serialize(out, &h, root, file_relocations, symbols);
-    resolve_files(&h, out, file_relocations);
-    write(1, out->contents, out->end);
+    //    serialize(out, &h, root, file_relocations, symbols);
+    //    resolve_files(&h, out, file_relocations);
+    //    write(1, out->contents, out->end);
 }

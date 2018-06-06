@@ -111,9 +111,19 @@ void init_service_new_stack(heap pages, heap physical, heap backed, heap virtual
     runloop();
 }
 
+char *banner = "service_64";
 // init linker set
 void init_service()
 {
+    serial_out('!');
+    serial_out('\n');
+    print_u64(&banner);
+    serial_out('\n');        
+    print_u64(*(char *)&banner);    
+    serial_out('\n');    
+    console(banner);
+    serial_out('\n');        
+    serial_out('#');    
     struct heap bootstrap;
 
     bootstrap.alloc = bootstrap_alloc;

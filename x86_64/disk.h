@@ -16,9 +16,19 @@ static inline void read_sectors(void *dest, u32 sector, u32 count)
 
     disktarget = dest;
 
+    u64 k = in8(base + 7);
+    serial_out(':');        
+    print_u64(k);
+    serial_out('\n');
+        
     while (total) {
         u32 secs = total>>sector_log;
         u16 xfer = (secs > 256)?256:secs;
+
+        print_u64(ts);
+        console(" ");
+        print_u64(xfer);
+        console(" ");        
 
         out8(base + 2, xfer);
         out8(base + 3, ts);
@@ -32,6 +42,10 @@ static inline void read_sectors(void *dest, u32 sector, u32 count)
             while(in8(base + 7) & BSY_FLAG);
             diskcopy();
         }
+        u64 k = in8(base + 7);
+        serial_out(':');        
+        print_u64(k);
+        serial_out('\n');
         total -= xfer<<sector_log;
         ts += xfer;
     }

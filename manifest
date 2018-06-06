@@ -1,11 +1,16 @@
-/kernel @stage3/stage3
-/lib64/ld-linux-x86-64.so.2 @/lib64/ld-linux-x86-64.so.2
-/lib/x86_64-linux-gnu/libc.so.6 @/lib/x86_64-linux-gnu/libc.so.6
-/web @examples/web
-/environment/foo bar
-/environment/bar baz
-/program /web
-/arguments/0 web
-/etc/ld.so.cache @/etc/ld.so.cache
-/usr/local/etc/ld.so.cache @/etc/ld.so.cache
-/lib/x86_64-linux-gnu/libpthread.so.0 @/lib/x86_64-linux-gnu/libpthread.so.0
+(
+    #64 bit elf to boot from host
+    kernel:(host:stage3/stage3)
+
+    #copy the executable
+    webg:(host:examples/webg)
+
+    # filesystem path to elf for kernel to run
+    program:/webg
+
+    # arg
+    arguments:[webg poppy]
+
+    # key valued env
+    environment:(foo:bar bar:baz)
+) 
