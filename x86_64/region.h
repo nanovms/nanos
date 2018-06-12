@@ -17,6 +17,8 @@ typedef regionbody *region;
 #define REGION_FILESYSTEM 5 // offset on disk for the filesystem, see if we can get disk info from the bios
 #define REGION_FREE 6
 
+
+
 static inline region create_region(u64 base, u64 length, int type)
 {
     for (region e = regions; ;e -= 1) {
@@ -62,3 +64,15 @@ static inline heap region_allocator(heap h, u64 pagesize, int type)
     return (heap)rh;
 }
 
+
+static void print_regions()
+{
+    for (region e = regions; region_type(e); e -= 1) {
+         print_u64(region_type(e));
+         console(" ");
+         print_u64(region_base(e));
+         console(" ");
+         print_u64(region_length(e));                  
+         console("\n");
+    }
+}

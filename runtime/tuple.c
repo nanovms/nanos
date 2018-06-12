@@ -209,23 +209,98 @@ parser parser_feed (parser p, buffer b)
     return p;
 }
 
-// what about the common dictionaries..a two stage serializtiaon - can
-// dictionaryize in tuplespace
-void serialize_tuple(buffer dest, tuple t)
+
+// type bits 1
+// no error
+static u64 pop_header(buffer f, u8 *type)
 {
-    symbol s;
-    void *v;
-    // either an immediate string or a tuple
-    table_foreach(t, s, v) {
+    u8 a = pop_u8(f);
+    *type = a>>7;
+    u64 len = a & 0x3f;
+    if (a & (1<<6)) {
+        do {
+            u8 a = pop_u8(f);
+            len = (len<<7) + (a & 127);
+        } while(a & 0x80);
+    }
+    rprintf ("pop header %d %d\n", *type, len, a);
+    return len;
+}
+
+static void push_header(buffer b, u8 type, u64 length)
+{
+    int bits = msb(length);
+    int words = 0;
+    buffer_extend(b, words + 1);
+    if (bits > 6) words = (bits - 6)/7;
+    u8 first = (type << 7) | (((words)?1:0)<<6) | (length >> (words * 7));
+    push_u8(b, first);
+    for (int i = 0; i<words; i++) 
+        *((u8 *)b->contents + b->start + (words - i)) = (length >> (i * 7)) | (i?0x80:0);
+    b->end += words;
+    rprintf ("push header %d %d %x\n", type, length, first);
+}
+
+// dict is number to symbol
+// h is for buffer values, copy them out
+void *deserialize_tuple(heap h, tuple dictionary, buffer source)
+{
+    u8 type;
+    u64 len = pop_header(source, &type);
+    if (type) {
+        tuple t = allocate_tuple();
+        for (int i = 0; i < len ; i++) {
+            u8 nametype, valuetype;
+            u64 nlen = pop_header(source, &nametype);
+            symbol s;
+            if (nametype) {
+                s = table_find(dictionary, pointer_from_u64(nlen));
+                if (!s) rprintf("missing decode dictionary symbol %d\n", nlen);
+            } else {
+                buffer n = alloca_wrap_buffer(buffer_ref(source, 0), nlen);
+                void *index = pointer_from_u64((u64)dictionary->count);
+                rprintf("insert decode dictionary symbol %d %d %b\n", index, nlen, symbol_string(intern(n)));
+                table_set(dictionary, index, s = intern(n));
+                source->start += nlen;                
+            }
+            table_set(t,s, deserialize_tuple(h, dictionary,source));
+        }
+        return t;
+    } else {
+        buffer b = allocate_buffer(h, len);
+        rprintf("pop buffer: %d\n", len);
+        // doesn't seem like this should be neccessary in all cases
+        runtime_memcpy(buffer_ref(b, 0), source->contents + source->start, len);
+        source->start += len;
+        return b;
     }
 }
 
-static void tuple_format_internal(u64 spaces, tuple t)
+// dict is symbol to number
+void serialize_tuple(tuple dictionary, buffer dest, tuple t)
 {
-}
-
-void tuple_format(buffer dest, tuple t)
-{
+    push_header(dest, 1, t->count);
+    table_foreach (t, n, v) {
+        u64 sn;
+        rprintf("checking dict %p\n", n);
+        if ((sn = u64_from_pointer(table_find(dictionary, n)))) {
+            rprintf("reuse\n");
+            push_header(dest, 1, sn - 1);
+        } else {
+            sn = dictionary->count;
+            table_set(dictionary, n, pointer_from_u64(sn + 1));
+            rprintf("create sending dict %d %p %b\n", sn, n, symbol_string(n));
+            push_header(dest, 0, buffer_length(symbol_string(n)));
+            push_buffer(dest, symbol_string(n));
+        }
+        if (tagof(v) == tag_tuple) {
+            serialize_tuple(dictionary, dest, v);
+        } else {
+            push_header(dest, 0, buffer_length((buffer)v));
+            rprintf("push buffer: %d\n", buffer_length((buffer)v));
+            push_buffer(dest, (buffer)v);
+        }
+    }        
 }
 
 void init_tuples(heap h)
@@ -252,4 +327,3 @@ void print_tuple(buffer b, tuple t)
     }
     bprintf(b, ")");
 }
-

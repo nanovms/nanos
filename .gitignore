@@ -24,5 +24,6 @@ examples/hw
 examples/hwg
 examples/web
 examples/webg
+examples/fst
 stage3/frame_nasm.h
 image2

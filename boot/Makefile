@@ -3,12 +3,12 @@ all: boot
 ROOT ?= $(PWD)/..
 include $(ROOT)/x86_64/Makefile
 include $(ROOT)/runtime/Makefile
+include $(ROOT)/tfs/Makefile
 
 
 STAGE1SIZE = 512
 # make can figure this out if we just spend enough time convincing it to
 STAGE2SIZE = 8192
-
 
 stage2.pad: stage2
 	dd if=$< of=$@ bs=$(STAGE2SIZE) conv=sync
@@ -22,7 +22,7 @@ stage1: stage1.s
 boot: stage1 stage2.pad
 	cat stage1 stage2.pad > boot
 
-OBJ = service32.o stage2.o serial.o page.o elf.o zero_wrap.o kvm_platform.o
+OBJ = service32.o stage2.o serial.o page.o elf.o zero_wrap.o kvm_platform.o tfs.o vector.o tlog.o table.o
 
 LD = ld
 OD = objdump

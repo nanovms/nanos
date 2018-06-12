@@ -12,6 +12,9 @@ web: web.c
 webg: webg.go
 	go build webg.go
 
+fst: fst.go
+	go build fst.go
+
 clean:
 	rm -f hw web hwg webg
 

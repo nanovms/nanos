@@ -169,6 +169,6 @@ void sha256(buffer dest, buffer source)
     sha256_init(&c);
     sha256_update (&c, buffer_ref(source, 0), buffer_length(source));
     sha256_final(&c, (dest->contents + dest->end));
-    dest->end += 32;
+    dest->start += 32;
 }
 

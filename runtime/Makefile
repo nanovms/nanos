@@ -9,7 +9,8 @@ $(ROOT)/runtime/closure_templates.h: $(ROOT)/runtime/contgen
 	$(ROOT)/runtime/contgen 10 10 > $(ROOT)/runtime/closure_templates.h
 
 
-RUNTIME = table.o buffer.o format.o id.o symbol.o rolling.o freelist.o fragment.o sha256.o timer.o pqueue.o tuple.o random.o
+RUNTIME = table.o buffer.o format.o id.o symbol.o rolling.o freelist.o fragment.o sha256.o\
+          timer.o pqueue.o tuple.o random.o signature.o rtrie.o
 
 UNIXRUNTIME = $(RUNTIME) unix_process_runtime.o
 

@@ -5,11 +5,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <sys/mman.h>
-
-void *tuple_region;
-u64 tuple_region_size;
-
-#define is_tuple(x) ((x > tuple_region) && (u64_from_pointer(x-tuple_region) < tuple_region_size))
+#include <tfs.h>
 
 static buffer read_stdin(heap h)
 {
@@ -19,71 +15,6 @@ static buffer read_stdin(heap h)
            ((k = read(0, in->contents + in->end, r)), in->end += k, k == r)) 
         buffer_extend(in, 1024);
     return in;
-}
-
-static u64 sintern(buffer b, table symbols, symbol n)
-{
-    // consider padding
-    u64 offset;
-    if (!(offset = u64_from_pointer(table_find(symbols, n)))) {
-        string s = symbol_string(n);
-        offset = b->end;
-        push_varint(b, buffer_length(s));
-        push_buffer(b, s);
-        table_set(symbols, n, pointer_from_u64(offset));
-    }
-    return offset;
-}
-
-typedef struct relocation {
-    u64 offset;
-    u64 length;
-    buffer name;
-} *relocation;
-
-// move into runtime
-static u64 serialize(buffer b,
-                     heap h,
-                     table t,
-                     vector file_relocations,
-                     table symbols)
-{
-    int tlen = table_elements(t);
-    u64 result = b->end;
-    push_varint(b, tlen);
-    struct buffer here;
-    int len = tlen * STORAGE_SLOT_SIZE;
-    
-    buffer_extend(b, len);
-    copy_descriptor(&here, b);
-    b->end += len;
-
-    table_foreach (t, n, v) {
-        buffer nb = *(buffer *)n;
-        if (n == sym(file)) {
-            buffer_write_le32(&here, sintern(b, symbols, sym(contents)));
-            relocation r = allocate(h, sizeof(struct relocation));
-            r->offset = here.end; here.end += 4;
-            r->length = here.end; here.end += 4;            
-            r->name = v;
-            vector_push(file_relocations, r);
-        } else {
-            buffer_write_le32(&here, sintern(b, symbols, n));
-            if (is_tuple(v)) {
-                // storage byte tuple could be 32 bit aligned.
-                buffer_write_le32(&here, serialize(b, h, v, file_relocations, symbols)|
-                                  (storage_type_tuple << STORAGE_TYPE_OFFSET));
-                buffer_write_le32(&here, 0);
-            } else {
-                u32 len = buffer_length(v);
-                u32 off = b->end;
-                buffer_append(b, buffer_ref(v, 0), len);
-                buffer_write_le32(&here, off | (storage_type_unaligned << STORAGE_TYPE_OFFSET));
-                buffer_write_le32(&here, len);
-            }
-        }
-    }
-    return result;
 }
 
 u64 read_file(buffer out, buffer name, u64 *length)
@@ -116,28 +47,6 @@ u64 read_file(buffer out, buffer name, u64 *length)
     return foff;
 }
 
-static void resolve_files(heap h, buffer b, vector file_relocations)
-{
-    table locations = allocate_tuple();
-    relocation r, i;
-    vector_foreach(i, file_relocations) {
-        if (!table_find(locations, i)) {
-            relocation r = allocate(h, sizeof(struct relocation));
-            u64 len;
-            // align?
-            r->offset = read_file(b, i->name, &len)  | (storage_type_aligned<<STORAGE_TYPE_OFFSET);
-            r->length = len;
-            table_set(locations, i->name, r);
-        }
-    }
-                     
-    vector_foreach(i, file_relocations) {
-        r = table_find(locations, i->name);
-        *(u32 *)buffer_ref(b, i->offset) = r->offset;
-        *(u32 *)buffer_ref(b, i->length) = r->length;
-    }
-}
-
 heap malloc_allocator();
 
 tuple root;
@@ -161,17 +70,38 @@ void perr(string s)
 }
 
 
+static CLOSURE_1_4(bwrite, void, buffer, void *, u64, u64, thunk);
+static void bwrite(buffer b, void *source, u64 offset, u64 length, thunk completion)
+{
+}
+
+static CLOSURE_1_4(bread, void, buffer, void *, u64, u64, thunk);
+static void bread(buffer b, void *source, u64 offset, u64 length, thunk completion)
+{
+}
+
 extern heap init_process_runtime();    
 int main(int argc, char **argv)
 {
     heap h=  init_process_runtime();    
-    buffer out = allocate_buffer(h, 1024);
     parser p = tuple_parser(h, closure(h, finish, h), closure(h, perr));
     // this can be streaming
     parser_feed (p, read_stdin(h));
     vector file_relocations = allocate_vector(h, 10);
+
+    buffer b = allocate_buffer(h, 10);
+    table dout = allocate_table(h, key_from_symbol, pointer_equal);
+    table din = allocate_table(h, identity_key, pointer_equal);
+    serialize_tuple(dout, b, root);
+    // this cant be streaming
+    tuple t2 = deserialize_tuple(h, din, b);
+
+    buffer out = allocate_buffer(h, 1024);
+    // fixing the size doesn't make sense in this context?
+    filesystem fs = create_filesystem(h, 512, 10ull * 1024 * 1024 * 1024,
+                                    closure(h, bread, out),
+                                    closure(h, bwrite, out));
+
     
-    //    serialize(out, &h, root, file_relocations, symbols);
-    //    resolve_files(&h, out, file_relocations);
-    //    write(1, out->contents, out->end);
+    write(1, out->contents, out->end);
 }

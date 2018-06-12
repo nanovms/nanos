@@ -1,16 +1,12 @@
 (
-    #64 bit elf to boot from host
-    kernel:(host:stage3/stage3)
+    filesystem:(
+         #64 bit elf to boot from host
+         kernel:(host:stage3/stage3)
 
-    #copy the executable
-    webg:(host:examples/webg)
-
-    # filesystem path to elf for kernel to run
-    program:/webg
-
-    # arg
-    arguments:[webg poppy]
-
-    # key valued env
-    environment:(foo:bar bar:baz)
-) 
+         #copy the executable
+         fst:(host:examples/fst))
+         
+     # filesystem path to elf for kernel to run
+     program:/fst
+     arguments:[webg poppy]
+     environment:(USER:bobby PWD:/))

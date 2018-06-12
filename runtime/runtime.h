@@ -201,3 +201,10 @@ u64 random_u64();
 void init_tuples(heap theap);
 void print_tuple(buffer b, tuple t);
 
+typedef struct signature {
+    u64 s[4];
+} *signature;
+    
+void *deserialize_tuple(heap h, tuple dictionary, buffer source);
+void serialize_tuple(tuple dictionary, buffer dest, tuple t);
+#include <rtrie.h>

@@ -31,7 +31,8 @@ static inline void disable_interrupts()
 
 static inline u64 msb(u64 x)
 {
-    return __builtin_clz(x);
+    // 64 bit?
+    return 31-__builtin_clz(x);
 }
 
 // belong here? share with nasm
@@ -115,7 +116,7 @@ char *register_name(u64 code);
 
 static inline u64 fetch_and_add(u64* variable, u64 value)
 {
-    __asm__ volatile("lock; xaddq %0, %1"
+    __asm__ volatile("lock; xadd %0, %1"
                      : "+r" (value), "+m" (*variable) // input+output
                      : // No input-only
                      : "memory"
