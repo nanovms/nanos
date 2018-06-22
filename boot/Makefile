@@ -11,18 +11,19 @@ STAGE1SIZE = 512
 STAGE2SIZE = 8192
 
 stage2.pad: stage2
-	dd if=$< of=$@ bs=$(STAGE2SIZE) conv=sync
+	dd if=$< of=$@ bs=512 conv=sync
 
 stage2.strip: stage2.elf
 	strip stage2.elf -o stage2.strip
 
-stage1: stage1.s
-	nasm  -dSTAGE1SIZE=$(STAGE3SIZE) -dSTAGE2SIZE=$(STAGE2SIZE) $< -o $@
+stage1: stage1.s stage2
+	nasm  -dSTAGE1SIZE=$(STAGE1SIZE) -dSTAGE2SIZE=$(shell stat -c %s stage2) $< -o $@
 
 boot: stage1 stage2.pad
 	cat stage1 stage2.pad > boot
 
-OBJ = service32.o stage2.o serial.o page.o elf.o zero_wrap.o kvm_platform.o tfs.o vector.o tlog.o table.o
+SRUNTIME = table.o buffer.o id.o symbol.o rolling.o tuple.o random.o rtrie.o runtime_init.o
+OBJ = service32.o stage2.o serial.o page.o elf.o zero_wrap.o kvm_platform.o tfs.o tlog.o $(SRUNTIME)
 
 LD = ld
 OD = objdump
@@ -40,6 +41,6 @@ service32.o: service32.s
 	cc -m32 -O -fno-stack-protector -include def32.h $(INCLUDES) -DSTAGE1SIZE=$(STAGE1SIZE) -DSTAGE2SIZE=$(STAGE2SIZE) -I. -I../runtime $< -c
 
 clean:
-	rm -f *.o *~ stage2.elf stage2 bottom.list stage1 boxxy stage2.pad boot
+	rm -f *.o *~ stage2.elf stage2 bottom.list stage1 stage2.pad boot
 
 

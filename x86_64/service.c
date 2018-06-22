@@ -1,6 +1,8 @@
-#include <sruntime.h>
+#include <runtime.h>
+#include <kvm_platform.h>
 #include <pci.h>
 #include <virtio.h>
+#include <tfs.h>
 
 extern void startup();
 extern void start_interrupts();
@@ -45,17 +47,19 @@ void runloop()
     }
 }
 
-static CLOSURE_0_0(ignore, void);
-void ignore(){}
-
-static CLOSURE_5_0(run_startup, void, heap, heap, heap, heap, buffer);
-static void run_startup(heap pages, heap misc, heap physical, heap virtual, buffer fs)
+filesystem allocate_filesystem(tuple root, heap h, block_read in, block_write out)
 {
-    startup(pages, misc, physical, virtual, fs);
+    u64 fs_offset;
+    for (region e = regions; region_type(e); e -= 1) {
+        if (region_type(e) == REGION_FILESYSTEM) {
+            fs_offset = region_base(e);
+        }
+    }
+    return create_filesystem(h,
+                             512, 10ull * 1024 * 1024 * 1024,
+                             in, out,
+                             root);
 }
-
-// bad global, put in the filesystem space
-extern u64 storage_length;
 
 void init_service_new_stack(heap pages, heap physical, heap backed, heap virtual)
 {
@@ -64,66 +68,37 @@ void init_service_new_stack(heap pages, heap physical, heap backed, heap virtual
     // stack was here, map this invalid so we get crashes
     // in the appropriate place
     map(0, INVALID_PHYSICAL, PAGESIZE, pages);
-    
-    // rdtsc is corrupting something oddly
-    //    init_clock(backed);
 
     heap misc = allocate_rolling_heap(backed);
     runqueue = allocate_queue(misc, 64);
     start_interrupts(pages, misc, physical);
-    
+
+    tuple root = allocate_tuple();
     // general runtime startup
     initialize_timers(misc);
     
     init_symbols(misc);
-    init_pci(misc);    
-    init_virtio_storage(misc, backed, pages, virtual);
+    init_pci(misc);
+
+    block_read in;
+    block_write out;
+    init_virtio_storage(misc, backed, pages, virtual, &in, &out);
+    // if we have a storage? - its gets instantiated on a callback - fix, populate root after
+    // we also know the size then
+    allocate_filesystem(root, misc, in, out);
     init_virtio_network(misc, backed, pages);
     init_clock(backed);
     miscframe = allocate(misc, FRAME_MAX * sizeof(u64));
     pci_discover(pages, virtual);
-
-    for (region e = regions; region_type(e); e -= 1) {
-        if (region_type(e) == REGION_FILESYSTEM) {
-            fs_offset = region_base(e);
-        }
-    }
-    u64 len = storage_length - fs_offset;
-    void *k = allocate(virtual, len);
-    map(u64_from_pointer(k), allocate_u64(physical, len), len, pages);
-    // wrap.. this was misc, which isn't aligned
-    buffer drive = allocate_buffer(backed, len);
-    drive->contents = k;
-    drive->start = 0;
-    drive->end = len;
-    
-    void *s = closure(misc, run_startup, pages, misc, physical, virtual, drive);
-    void *z = closure(misc, read_complete, s);
-    // dont really need to pass misc
-
-    storage_read(k, fs_offset, len, z);
-
-    // just to get the hlt loop to wake up and service timers, we
-    // can adapt this to the front of the timer queue once we get
-    // our clocks calibrated
-    configure_timer(milliseconds(50), closure(misc, ignore)); 
-
-    runloop();
+    // just to get the hlt loop to wake up and service timers. 
+    // should change this to post the delta to the front of the queue each time
+    configure_timer(milliseconds(50), ignore);
+    startup(pages, misc, physical, virtual, root);    
 }
 
-char *banner = "service_64";
 // init linker set
 void init_service()
 {
-    serial_out('!');
-    serial_out('\n');
-    print_u64(&banner);
-    serial_out('\n');        
-    print_u64(*(char *)&banner);    
-    serial_out('\n');    
-    console(banner);
-    serial_out('\n');        
-    serial_out('#');    
     struct heap bootstrap;
 
     bootstrap.alloc = bootstrap_alloc;

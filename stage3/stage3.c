@@ -1,87 +1,39 @@
-#include <sruntime.h>
+#include <runtime.h>
+#include <kvm_platform.h>
 #include <unix.h>
-#include <pci.h>
-#include <virtio.h>
 #include <gdb.h>
-#include <net.h>
+#include <tfs.h>
 
-symbol intern_buffer_symbol(void *x)
+// shouldn't use unix, but the fact that this should work is cute
+heap allocate_tagged_region(heap h, u64 tag)
 {
-    struct buffer stemp;
-    stemp.contents = x;
-    stemp.start = stemp.end =0;
-    int slen = pop_varint(&stemp);
-    stemp.end = stemp.start + slen;
-    return(intern(&stemp));
+    u64 size = 4*1024*1024;
+    void *region;
+    //    void *region = mmap(pointer_from_u64(tag << va_tag_offset),
+    //                        size, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_ANON | MAP_PRIVATE, -1, 0);
+    // use a specific growable heap
+    return create_id_heap(h, u64_from_pointer(region), size, 1);
 }
 
-// would be nice to do this from a stream
-// currently tuples are bibop, so they leak
-// and use a reserved heap.
-tuple storage_to_tuple(heap h, buffer b)
-{
-    tuple t = allocate_tuple();
-    struct buffer etemp;
-    buffer e = &etemp;
-    copy_descriptor(e, b);
-    u32 entries = pop_varint(e);
 
-    for (int i; i < entries; i++) {
-        u32 name = buffer_read_le32(e);
-        u32 value = buffer_read_le32(e);
-        u32 length = buffer_read_le32(e);
-        u32 type = value >> STORAGE_TYPE_OFFSET;
-        value &= MASK(STORAGE_TYPE_OFFSET);        
-        symbol s = intern_buffer_symbol(b->contents + name);
-        void *v;
-        switch(type) {
-        case storage_type_tuple:
-            {
-                struct buffer ttemp;
-                copy_descriptor(&ttemp, e);
-                ttemp.start = value;
-                // length here is redundant, encode some header metadata
-                v = storage_to_tuple(h, &ttemp);
-            }
-            break;
-            // mkfs isn't shifting, so we wont
-        case storage_type_unaligned:
-        case storage_type_aligned:
-            {
-                buffer z = allocate(h, sizeof(struct buffer));
-                z->contents = b->contents;
-                z->start = value;
-                z->end = value + length;
-                v = z;
-            }
-            break;
-        default:
-            halt("fs metadata encoding error\n");
-        }
-        table_set(t, s, v);
-    }
-    return t;
+static CLOSURE_5_1(read_program_complete, void, tuple, heap, heap, heap, heap, buffer);
+static void read_program_complete(tuple root, heap pages, heap general, heap physical, heap virtual, buffer b)
+{
+    //    elf_symbols(exc, closure(general, prinsym)); 
+    exec_elf(b, general, physical, pages, virtual, root);
 }
 
-// there is a type here
-CLOSURE_0_2(prinsym, void, char *, u64);
-void prinsym(char *name, u64 value)
+static CLOSURE_3_1(program_name_complete, void, tuple, heap, buffer_handler, buffer); 
+static void program_name_complete(tuple root, heap h, buffer_handler next, buffer program)
 {
-    rprintf ("sym: %s %d\n", name, value);
+    contentsof(resolve_path(root, split(h, program, '/')), next);
 }
 
-void startup(heap pages, heap general, heap physical, heap virtual, buffer storage)
+void startup(heap pages, heap general, heap physical, heap virtual, tuple root)
 {
     console("stage3\n");
-    tuple fs = storage_to_tuple(general, storage);
-    init_unix(general, pages, physical, fs);
-    tuple n = table_find(fs, sym(children));
-    n = table_find(n, sym(program));    
-    buffer z = table_find(n, sym(contents));        
-    vector path = split(general, z, '/');
-    tuple ex = resolve_path(fs, path);
-    buffer exc = table_find(ex, sym(contents));
-    elf_symbols(exc, closure(general, prinsym)); 
-    exec_elf(exc, general, physical, pages, virtual, fs);
+    init_unix(general, pages, physical, root);
+    buffer_handler pg = closure(general, read_program_complete, root, pages, general, physical, virtual);  
+    contentsof(lookup(root, sym(program)), closure(general, program_name_complete, root, general, pg));
 }
 

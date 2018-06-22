@@ -1,4 +1,5 @@
-#include <sruntime.h>
+#include <runtime.h>
+#include <kvm_platform.h>
 
 typedef struct virtqueue *virtqueue;
 

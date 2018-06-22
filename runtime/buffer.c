@@ -3,8 +3,8 @@
 static char *hex_digit="0123456789abcdef";
 void print_byte(buffer s, u8 f)
 {
-    push_character(s, hex_digit[f >> 4]);
-    push_character(s, hex_digit[f & 15]);
+    push_u8(s, hex_digit[f >> 4]);
+    push_u8(s, hex_digit[f & 15]);
 }
 
 void print_hex_buffer(buffer s, buffer b)
@@ -16,19 +16,19 @@ void print_hex_buffer(buffer s, buffer b)
 
     for (int i = 0 ; i<len ; i+= 1) {
         if (!(i % rowlen)) {
-            if (!first) push_character(s, '\n');
+            if (!first) push_u8(s, '\n');
             first = false;
             print_byte(s, i>>24);
             print_byte(s, i>>16);
             print_byte(s, i>>8);
             print_byte(s, i);
-            push_character(s, ':');
+            push_u8(s, ':');
         }
-        if (!(i % wlen)) push_character (s, ' ');
+        if (!(i % wlen)) push_u8 (s, ' ');
         print_byte(s, *(u8 *)buffer_ref(b, i));
     }
     // better handling of empty buffer
-    push_character(s, '\n');
+    push_u8(s, '\n');
 }
 
 buffer allocate_buffer(heap h, bytes s)
@@ -66,4 +66,17 @@ void buffer_append(buffer b,
 {
     buffer_extend(b, length);
     buffer_write(b, body, length);
+}
+
+// doesn't really belong here
+static char *hex_digits="0123456789abcdef";
+
+void format_number(buffer s, u64 x, int base, int pad)
+{
+    if ((x > 0) || (pad > 0)) {
+        u64 q, r;
+        DIV(x, base, q, r);
+        format_number(s, q, base, pad - 1);
+        push_u8(s, hex_digits[r]);
+    }
 }

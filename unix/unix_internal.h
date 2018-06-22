@@ -1,5 +1,4 @@
-
-#include <sruntime.h>
+#include <runtime.h>
 #include <syscalls.h>
 #include <system_structs.h>
 
@@ -33,7 +32,7 @@ typedef closure_type(io, int, void *, u64 length, u64 offset);
 typedef struct file {
     u64 offset; 
     io read, write;
-    // only on the read path
+    // check if data on the read path
     closure_type(check, void, thunk);
     node n;
 } *file;

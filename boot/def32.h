@@ -1,3 +1,4 @@
+#define BITS32
 typedef unsigned char u8;
 typedef char s8;
 typedef unsigned short u16;
@@ -28,5 +29,15 @@ static inline void *valueof(void *v)
     return pointer_from_u64(u64_from_pointer(v)&0xfffffffc);
 }
 
-
-    
+#define DIV(__x, __by, __q, __r)\
+ {\
+     register int a asm("eax");\
+     register int d asm("edx");\
+     register int c asm("ecx");\
+     a = __x;\
+     c = __by;\
+     d = 0;\
+     asm("div %ecx");\
+     __q = a;\
+     __r = d;\
+ }

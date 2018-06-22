@@ -513,7 +513,7 @@ static void *brk(void *x)
     return p->brk;
 }
 
-u64 readlink(const char *pathname, char *buf, size_t bufsiz)
+u64 readlink(const char *pathname, char *buf, u64 bufsiz)
 {
     return -EINVAL;
 
@@ -543,7 +543,7 @@ u64 sched_yield()
 
 void exit(int code)
 {
-    QEMU_HALT();
+    halt("");
     while(1); //compiler put a noreturn on exit
 }
 

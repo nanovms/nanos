@@ -10,7 +10,7 @@ void indirect(buffer b, reg dest, reg source);
 void jump_indirect(buffer b, reg r);
 
 // definitions in tuple space
-
+//           is callee save        argo 
 #if 0
 REGISTER_A  false
 REGISTER_B  true

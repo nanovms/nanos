@@ -1,4 +1,5 @@
-#include <sruntime.h>
+#include <runtime.h>
+#include <kvm_platform.h>
 
 // coordinate with crt0
 extern u32 interrupt_size;
@@ -233,6 +234,7 @@ void configure_timer(time rate, thunk t)
     *(u32 *)(apic_base+APIC_TMRDIV) = 3;
     int v = allocate_u64(interrupt_vectors, 1);
     *(u32 *)(apic_base+APIC_LVT_TMR) = v | TMR_PERIODIC;
+    // calibrate rdtsc using kvm info
     *(u32 *)(apic_base + APIC_TMRINITCNT) = 10 * 1000*1000*8;
     handlers[v] = t;
     // 3 is 10 ms .. apparently, says who?

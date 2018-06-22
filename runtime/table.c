@@ -21,7 +21,7 @@ table allocate_table(heap h, u64 (*key_function)(void *x), boolean (*equals_func
 
 static inline key position(table t, key x)
 {
-    return(x%t->buckets);
+    return(x&(t->buckets-1));
 }
 
 
@@ -67,7 +67,7 @@ static void resize_table(table t, int buckets)
         
         while(j) {
             entry n = j->next;
-            km = j->k % t->buckets;
+            km = position(t, j->k);
             j->next = t->entries[km];
             t->entries[km] = j;
             j = n;

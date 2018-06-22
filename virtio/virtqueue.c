@@ -127,7 +127,7 @@ status virtqueue_alloc(vtpci dev,
         return 0;
     }
     
-    return( allocate_status("cannot allocate memory for virtqueue ring\n"));
+    return(allocate_status("cannot allocate memory for virtqueue ring\n"));
 }
 
 physical virtqueue_paddr(struct virtqueue *vq)

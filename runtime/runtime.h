@@ -1,4 +1,3 @@
-
 typedef u8 boolean;
 typedef u32 character;
 
@@ -6,13 +5,10 @@ typedef u32 character;
 #define false (0)
 
 typedef u64 bytes;
-
 typedef u64 time;
 
+
 extern void console(char *x);
-
-extern void serial_out(char c);
-
 void print_u64(u64 s);
 
 static inline void runtime_memcpy(void *a, void *b, bytes len)
@@ -39,6 +35,7 @@ static inline int runtime_strlen(char *a)
 #endif
 
 typedef struct buffer *buffer;
+
 #if 0
 // this...seems to have a fault (?).. it may be the interrupt
 // machinery
@@ -57,6 +54,7 @@ static inline void zero(void *x, bytes length)
     for (int i =0; i < final; i++) end[i] = 0;        
 }
 #endif
+
 static inline void zero(void *x, bytes length)
 {
     for (int i = 0; i < length; i++)
@@ -66,23 +64,8 @@ static inline void zero(void *x, bytes length)
 #include <heap/heap.h>
 #include <buffer.h>
 
-typedef void *status;
-
-#define STATUS_OK ((void *)0)
-
-static inline status status_nomem() {return (void *)1;}
-
-static inline boolean is_ok(status s)
-{
-    return s == ((void *)0);
-}
-
-static inline status allocate_status(char *format, ...)
-{
-}
-
 heap wrap_freelist(heap meta, heap parent, bytes size);
-typedef unsigned long size_t;
+
 typedef u64 physical;
 
 physical vtop(void *x);
@@ -94,8 +77,7 @@ physical vtop(void *x);
 #define PAGESIZE (1<<PAGELOG)
 #ifndef physical_from_virtual
 physical physical_from_virtual(void *x);
-#endif    
-void map(u64 virtual, physical p, int length, heap h);
+#endif
 
 #define INVALID_PHYSICAL ((u64)0xffffffffffffffff)
 
@@ -112,23 +94,15 @@ boolean validate_virtual(void *base, u64 length);
 
 void sha256(buffer dest, buffer source);
 
-#define varg __builtin_va_arg
-#define vlist __builtin_va_list
-#define vstart __builtin_va_start
-#define vend __builtin_va_end
-
 #define alloca __builtin_alloca
 
 typedef struct buffer *buffer;
-typedef struct buffer *string;
 
 void format_number(buffer s, u64 x, int base, int pad);
 
 #include <table.h>
 #include <text.h>
 #include <vector.h>
-
-typedef buffer string;
 
 buffer aprintf(heap h, char *fmt, ...);
 void debug(buffer);
@@ -166,28 +140,50 @@ static inline boolean compare_bytes(void *a, void *b, bytes len)
     return true;
 }
 
+// value is a pointer that we can meaningfully inquire about the type of 
+typedef void *value;
+
 // try not to go crazy here
+#define tag_unknown (0ull)
 #define tag_symbol (1ull)
 #define tag_tuple (2ull)
 #define tag_string (3ull)
+#define tag_buffer_promise (4ull) //?
 
 #include <symbol.h>
 
 typedef table node;
 #include <storage.h>
-typedef table tuple;
 #include <closure.h>
 #include <closure_templates.h>
+
+typedef tuple status;
+typedef closure_type(status_handler, void, status);
+// should probably be on transient 
+static inline status allocate_status(char *x, ...)
+{
+    return allocate_tuple();
+}
+#define STATUS_OK ((tuple)0)
+static inline boolean is_ok(status s)
+{
+    return (s == STATUS_OK);
+}
+
+
+
 typedef closure_type(buffer_handler, void, buffer);
 typedef closure_type(thunk, void);
+typedef closure_type(block_write, void, buffer, u64, status_handler);
+typedef closure_type(block_read, void, void *, u64, u64, status_handler);
+
 #include <pqueue.h>
 #include <timer.h>
-
+#include <tuple.h>
 
 // break out platform - move into the implicit include
 #include <x86_64.h>
 
-// just take a buffer or a tuple?
 extern void halt(char *format, ...);
 
 // should be  (parser, parser, character)
@@ -198,13 +194,24 @@ typedef closure_type(parse_finish, void, void *);
 parser tuple_parser(heap h, parse_finish c, parse_error err);
 parser parser_feed (parser p, buffer b);
 u64 random_u64();
-void init_tuples(heap theap);
-void print_tuple(buffer b, tuple t);
 
 typedef struct signature {
     u64 s[4];
 } *signature;
-    
-void *deserialize_tuple(heap h, tuple dictionary, buffer source);
-void serialize_tuple(tuple dictionary, buffer dest, tuple t);
+
 #include <rtrie.h>
+
+// indent?
+typedef void (*formatter)(buffer, buffer, vlist ap);
+void init_runtime(heap h);
+void register_format(character c, formatter f);
+heap allocate_tagged_region(heap h, u64 tag);
+typedef closure_type(buffer_promise, void, buffer_handler);
+
+extern thunk ignore;
+extern status_handler ignore_status;
+
+#include <metadata.h>
+
+
+    

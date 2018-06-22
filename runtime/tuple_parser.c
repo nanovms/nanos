@@ -127,9 +127,7 @@ static parser is_end_of_vector(heap h, completion c, tuple t, err_internal e, u6
 {
     // keep index also
     if (in != ']') {
-        buffer b = allocate_buffer(h, 10);
-        format_number(b, *index, 10, 1);
-        completion vc = closure(h, value_complete, t, intern(b), self);
+        completion vc = closure(h, value_complete, t, intern_u64(*index), self);
         (*index)++;
         // doesnt handle whitespace before end 
         return apply(ignore_whitespace(h, (void *)closure(h, parse_value, h, vc, e)), in);

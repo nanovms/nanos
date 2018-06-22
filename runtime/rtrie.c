@@ -70,21 +70,21 @@ void rtrie_remove(rtrie r, u64 start, u64 length)
     remove_internal(&r->root, start, length);
 }
 
-static rtnode lookup(rtnode r, u64 point)
+static rtnode rtlookup(rtnode r, u64 point)
 {
     if (!r) return r;
     if ((point > r->base) && (point < (r->base + r->length))) return r;
     u64 position = r->length >> 56;
     if (point & position) {
-        return lookup(r->children[1], point);
+        return rtlookup(r->children[1], point);
     }
-    return lookup(r->children[0], point);
+    return rtlookup(r->children[0], point);
 }
 
 
 void *rtrie_lookup(rtrie r, u64 point)
 {
-    rtnode n = lookup(r->root, point);
+    rtnode n = rtlookup(r->root, point);
     if (!n) return n;
     return n->value;
 }

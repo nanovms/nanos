@@ -1,5 +1,6 @@
 #include <unix_internal.h>
 #include <lwip.h>
+#include <kvm_platform.h>
 
 typedef struct gdb {
     string output;

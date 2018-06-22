@@ -39,6 +39,7 @@ static inline boolean pointer_equal(void *a, void* b)
     return a == b;
 }
 
+// should try to fold since the lower bits are driven to zero by alignment
 static inline key identity_key(void *a)
 {
     return u64_from_pointer(a);

@@ -128,11 +128,6 @@ void buffer_prepend(buffer b,
                       void *body,
                       bytes length);
 
-void buffer_read_field(buffer b,
-                       bytes offset, 
-                       void *dest,
-                       bytes length);
-
 // little endian variants
 #define WRITE_BE(bits)\
    static inline void buffer_write_be##bits(buffer b, u64 x)   \
@@ -238,7 +233,7 @@ static inline boolean buffer_compare(void *za, void *zb)
              
 
 // alternate stack, real heap, say no to alloca
-#define little_stack_buffer(__length)    \
+#define little_stack_buffer(__length)\
     ({\
     unsigned char __contents[__length];\
     struct buffer __b;\
@@ -258,7 +253,7 @@ static inline boolean buffer_compare(void *za, void *zb)
     b.end = sizeof(__n) -1;\
     &b;})
 
-static u8 pop_u8(buffer b)
+static inline u8 pop_u8(buffer b)
 {
     // bounds
     u8 x = *(u8 *)buffer_ref(b, 0);
@@ -266,14 +261,14 @@ static u8 pop_u8(buffer b)
     return (x);
 }
 
-static void push_u8(buffer b, u8 x)
+static inline void push_u8(buffer b, u8 x)
 {
     buffer_extend(b, 1);
     *(u8 *)buffer_ref(b, b->end) = x;
     b->end++;
 }
 
-static u32 buffer_read_le32(buffer b)
+static inline u32 buffer_read_le32(buffer b)
 {
     // bounds
     u32 x = *(u32 *)buffer_ref(b, 0);
@@ -281,14 +276,14 @@ static u32 buffer_read_le32(buffer b)
     return (x);
 }
 
-static void buffer_write_le32(buffer b, u32 x)
+static inline void buffer_write_le32(buffer b, u32 x)
 {
     buffer_extend(b, sizeof(u32));
     *(u32 *)buffer_ref(b, b->end) = x;
     b->end+=sizeof(u32);
 }
 
-static void push_varint(buffer b, u64 p)
+static inline void push_varint(buffer b, u64 p)
 {
     u64 k = p;
     while (k > 127) {
@@ -298,7 +293,7 @@ static void push_varint(buffer b, u64 p)
     push_u8(b, k);
 }
 
-static u64 pop_varint(buffer b)
+static inline u64 pop_varint(buffer b)
 {
     u64 out = 0;
     u64 m;

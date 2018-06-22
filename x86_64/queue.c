@@ -1,6 +1,7 @@
-#include <sruntime.h>
+#include <runtime.h>
 
 // there is a test-and-set atomic resize for the multiprocessor case?
+// this is not in x86_64
 
 
 void enqueue(queue q, void *n)

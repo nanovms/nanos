@@ -28,12 +28,7 @@ u64 read_file(buffer out, buffer name, u64 *length)
     // by keeping a single small region in the pad to fill
     char *fn = (char *)(name->contents+name->start);
     int fd = open(fn, O_RDONLY);
-    if (fd < 0) {
-        write(2, "couldn't open file ", 19);
-        write(2, name->contents + name->start, buffer_length(name) -1);
-        write(2, "\n", 1);        
-        exit(-1);
-    }
+    if (fd < 0) halt("couldn't open file %b\n", name);
     u64 foff = pad(out->end, PAGESIZE);
     fstat(fd, &st);
     u64 psz = pad(st.st_size, PAGESIZE);
@@ -70,13 +65,13 @@ void perr(string s)
 }
 
 
-static CLOSURE_1_4(bwrite, void, buffer, void *, u64, u64, thunk);
-static void bwrite(buffer b, void *source, u64 offset, u64 length, thunk completion)
+static CLOSURE_1_3(bwrite, void, buffer, buffer, u64, status_handler);
+static void bwrite(buffer d, buffer s, u64 offset, status_handler c)
 {
 }
 
-static CLOSURE_1_4(bread, void, buffer, void *, u64, u64, thunk);
-static void bread(buffer b, void *source, u64 offset, u64 length, thunk completion)
+static CLOSURE_1_4(bread, void, buffer, void *, u64, u64, status_handler);
+static void bread(buffer b, void *source, u64 offset, u64 length, status_handler completion)
 {
 }
 
@@ -92,16 +87,16 @@ int main(int argc, char **argv)
     buffer b = allocate_buffer(h, 10);
     table dout = allocate_table(h, key_from_symbol, pointer_equal);
     table din = allocate_table(h, identity_key, pointer_equal);
-    serialize_tuple(dout, b, root);
+    //    serialize_tuple(dout, b, root);
     // this cant be streaming
-    tuple t2 = deserialize_tuple(h, din, b);
-
+    //    tuple t2 = deserialize_tuple(h, din, b);
     buffer out = allocate_buffer(h, 1024);
     // fixing the size doesn't make sense in this context?
+    tuple root = allocate_tuple();
     filesystem fs = create_filesystem(h, 512, 10ull * 1024 * 1024 * 1024,
-                                    closure(h, bread, out),
-                                    closure(h, bwrite, out));
+                                      closure(h, bread, out),
+                                      closure(h, bwrite, out),
+                                      root);
 
-    
     write(1, out->contents, out->end);
 }

@@ -1,9 +1,3 @@
-
-
-
-
-
-
 #define FRAME_RAX 0
 #define FRAME_RBX 1
 #define FRAME_RCX 2

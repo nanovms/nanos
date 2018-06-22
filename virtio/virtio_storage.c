@@ -30,17 +30,23 @@ typedef struct storage {
 static storage st;
 
 
-static CLOSURE_3_1(complete, void, storage, thunk, u8 *, u64);
-static void complete(storage s, thunk f, u8 *status, u64 len)
+static CLOSURE_3_1(complete, void, storage, status_handler, u8 *, u64);
+static void complete(storage s, status_handler f, u8 *status, u64 len)
 {
     rprintf("storage complete %d %d\n", *status, len);
-    apply(f);
+    apply(f, 0);
     //    s->command->avail->flags &= ~VRING_AVAIL_F_NO_INTERRUPT;
     // used isn't valid?
     //    rprintf("used: %d\n",  s->command->vq_ring.used->idx);    
 }
 
-void storage_read(void *target, u64 offset, u64 size, thunk complete)
+static CLOSURE_0_3(storage_write, void, buffer, u64, status_handler);
+static void storage_write(buffer b, u64 offset, status_handler s)
+{
+}
+
+static CLOSURE_0_4(storage_read, void, void *, u64, u64, status_handler);
+static void storage_read(void *target, u64 length, u64 offset, status_handler complete)
 {
     // this is actually in the config block if we can figure out how to read it    
     u64 sector_size = 512;
@@ -63,14 +69,14 @@ void storage_read(void *target, u64 offset, u64 size, thunk complete)
 
     address[index] = target;
     writables[index] = true;
-    lengths[index] = size;
+    // check me.. this is number of blocks?
+    lengths[index] = length/sector_size;
     index++;
     
     address[index] = r + header_size;
     writables[index] = true;
     lengths[index] = status_size;
     index++;
-    rprintf("posting storage %d\n", size);
     virtqueue_enqueue(st->command, address, lengths, writables, index,
                       closure(st->v->general, complete, st,  complete, (u8 *)address[2]));
 }
@@ -96,7 +102,10 @@ static void attach(heap general, heap page_allocator, heap pages, heap virtual, 
     st = s;
 }
 
-void init_virtio_storage(heap h, heap page_allocator, heap pages, heap virtual)
+void init_virtio_storage(heap h, heap page_allocator, heap pages, heap virtual, block_read *in, block_write *out)
 {
-    register_pci_driver(VIRTIO_PCI_VENDORID, VIRTIO_PCI_DEVICEID_STORAGE, closure(h, attach, h, page_allocator, pages, virtual));
+    register_pci_driver(VIRTIO_PCI_VENDORID, VIRTIO_PCI_DEVICEID_STORAGE,
+                        closure(h, attach, h, page_allocator, pages, virtual));
+    *in = closure(h, storage_read);
+    *out = closure(h, storage_write);
 }

@@ -29,3 +29,15 @@ static inline void *valueof(void *v)
 {
     return v;
 }
+
+#define DIV(__x, __by, __q, __r){\
+     register int a asm("rax");\
+     register int d asm("rdx");\
+     register int c asm("rcx");\
+     a = __x;\
+     c = __by;\
+     d = 0;\
+     asm("div %rcx");\
+     __q = a;\
+     __r = d;\
+ }

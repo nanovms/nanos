@@ -102,6 +102,7 @@ static void map_page_2m(page base, u64 virtual, physical p, heap h)
     halt("ran out of page map memory");
 }
 
+#ifndef BITS32
 boolean validate_virtual(void *base, u64 length)
 {
     u64 e = u64_from_pointer(base) + length;    
@@ -133,6 +134,7 @@ boolean validate_virtual(void *base, u64 length)
     }
     return true;
 }
+#endif
 
 // error processing
 void map(u64 virtual, physical p, int length, heap h)

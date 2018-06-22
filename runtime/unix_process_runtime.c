@@ -38,6 +38,9 @@ heap malloc_allocator()
     return h;
 }
 
+void halt(char *format, ...)
+{
+}
 heap allocate_tagged_region(heap h, u64 tag)
 {
     u64 size = 4*1024*1024;
@@ -51,7 +54,6 @@ heap allocate_tagged_region(heap h, u64 tag)
 heap init_process_runtime()
 {
     heap h = malloc_allocator();
-    init_tuples(allocate_tagged_region(h, tag_tuple));
-    init_symbols(allocate_tagged_region(h, tag_symbol));
+    init_runtime(h);
     return h;
 }

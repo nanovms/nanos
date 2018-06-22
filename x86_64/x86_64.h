@@ -148,3 +148,22 @@ void elf_symbols(buffer elf, closure_type(each, void, char *, u64));
 
 #define mov_to_cr(__x, __y) __asm__("mov %0,%%"__x: :"a"(__y):);
 #define mov_from_cr(__x, __y) __asm__("mov %%"__x", %0":"=a"(__y):);
+
+typedef closure_type(fault_handler, u64 *, context);
+void configure_timer(time rate, thunk t);
+void enqueue(queue q, void *n);
+void *dequeue(queue q);
+void *queue_peek(queue q);
+int queue_length(queue q);
+queue allocate_queue(heap h, u64 size);
+void runloop();
+heap allocate_fragmentor(heap meta, heap parent, bytes size);
+void map(u64 virtual, physical p, int length, heap h);
+
+// xxx - hide
+struct queue {
+    // these should be on cache lines in the mp case
+    u64 read, write, length;
+    void *body[];
+};
+
