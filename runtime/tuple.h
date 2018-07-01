@@ -10,4 +10,5 @@ void encode_tuple(buffer dest, table dictionary, tuple t);
 
 
 // h is for the bodies, the space for symbols and tuples are both implicit
-void *deserialize_tuple(heap h, tuple dictionary, buffer source);
+void *decode_value(heap h, tuple dictionary, buffer source);
+void encode_eav(buffer dest, table dictionary, tuple e, symbol a, value v);

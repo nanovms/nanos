@@ -47,16 +47,30 @@ void runloop()
     }
 }
 
+static CLOSURE_2_3(offset_block_write, void, block_write, u64, buffer, u64, status_handler);
+static void offset_block_write(block_write w, u64 start, buffer b, u64 offset, status_handler h)
+{
+    apply(w, b, start + offset, h);
+}
+
+// ordering of length and offset
+static CLOSURE_2_4(offset_block_read, void, block_read, u64, void *, u64, u64, status_handler);
+static void offset_block_read(block_read r, u64 start, void *dest, u64 length, u64 offset, status_handler h)
+{
+    apply(r, dest, length, start + offset, h);
+}
+
 filesystem allocate_filesystem(tuple root, heap h, block_read in, block_write out)
 {
-    u64 fs_offset;
-    for (region e = regions; region_type(e); e -= 1) {
+    u64 fs_offset, fs_length;
+    for_regions(e)
         if (region_type(e) == REGION_FILESYSTEM) {
+            fs_length = region_length(e);
             fs_offset = region_base(e);
         }
-    }
     return create_filesystem(h,
-                             512, 10ull * 1024 * 1024 * 1024,
+                             512,
+                             fs_length,
                              in, out,
                              root);
 }

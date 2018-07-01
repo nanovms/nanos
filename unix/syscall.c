@@ -421,7 +421,7 @@ int open(char *name, int flags, int mode)
     return fd;
 }
 
-static void fill_stat(node n, struct stat *s)
+static void fill_stat(tuple n, struct stat *s)
 {
     buffer b;
     zero(s, sizeof(struct stat));
@@ -451,7 +451,7 @@ static int fstat(int fd, struct stat *s)
 
 static int stat(char *name, struct stat *s)
 {
-    node n;
+    tuple n;
 
     if (!(n = resolve_cstring(current->p->cwd, name))) {    
         return -ENOENT;

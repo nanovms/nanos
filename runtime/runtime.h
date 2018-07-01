@@ -34,7 +34,7 @@ static inline int runtime_strlen(char *a)
 #define MAX(x, y) ((x) > (y)? (x):(y))
 #endif
 
-typedef struct buffer *buffer;
+
 
 #if 0
 // this...seems to have a fault (?).. it may be the interrupt
@@ -81,11 +81,6 @@ physical physical_from_virtual(void *x);
 
 #define INVALID_PHYSICAL ((u64)0xffffffffffffffff)
 
-#define varg __builtin_va_arg
-#define vlist __builtin_va_list
-#define vstart __builtin_va_start
-#define vend __builtin_va_end
-    
 #define INVALID_ADDRESS ((void *)0xffffffffffffffffull)
 
 heap zero_wrap(heap meta, heap parent);
@@ -98,38 +93,14 @@ void sha256(buffer dest, buffer source);
 
 typedef struct buffer *buffer;
 
-void format_number(buffer s, u64 x, int base, int pad);
+void print_number(buffer s, u64 x, int base, int pad);
 
 #include <table.h>
 #include <text.h>
 #include <vector.h>
 
-buffer aprintf(heap h, char *fmt, ...);
 void debug(buffer);
-void format_number(buffer s, u64 x, int base, int pad);
-extern void vbprintf(buffer s, buffer fmt, vlist ap);
-void bprintf(buffer b, char *fmt, ...);
-
-static inline void rprintf(char *format, ...)
-{
-    // fix alloca buffer support
-    char t[1024];
-    vlist a;
-    struct buffer b;
-    b.start = 0;
-    b.end = 0;    
-    b.contents = t;
-    b.length = sizeof(t);
-    
-    struct buffer f;
-    f.start = 0;
-    f.contents = format;
-    f.end = runtime_strlen(format);
-    
-    vstart(a, format);
-    vbprintf(&b, &f, a);
-    debug(&b);
-}
+#include <format.h>
 
 static inline boolean compare_bytes(void *a, void *b, bytes len)
 {
@@ -152,25 +123,9 @@ typedef void *value;
 
 #include <symbol.h>
 
-typedef table node;
-#include <storage.h>
 #include <closure.h>
 #include <closure_templates.h>
-
-typedef tuple status;
-typedef closure_type(status_handler, void, status);
-// should probably be on transient 
-static inline status allocate_status(char *x, ...)
-{
-    return allocate_tuple();
-}
-#define STATUS_OK ((tuple)0)
-static inline boolean is_ok(status s)
-{
-    return (s == STATUS_OK);
-}
-
-
+#include <status.h>
 
 typedef closure_type(buffer_handler, void, buffer);
 typedef closure_type(thunk, void);
@@ -201,10 +156,7 @@ typedef struct signature {
 
 #include <rtrie.h>
 
-// indent?
-typedef void (*formatter)(buffer, buffer, vlist ap);
 void init_runtime(heap h);
-void register_format(character c, formatter f);
 heap allocate_tagged_region(heap h, u64 tag);
 typedef closure_type(buffer_promise, void, buffer_handler);
 
@@ -213,5 +165,6 @@ extern status_handler ignore_status;
 
 #include <metadata.h>
 
-
-    
+#define KB 1024
+#define MB (KB*KB)
+#define GB (KB*MB)

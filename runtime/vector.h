@@ -79,7 +79,7 @@ static inline buffer join(heap h, vector source, char between)
     return out;
 }
 
-#define vector_foreach(__i, __v) for(u32 _i = 0, _len = vector_length(__v); _i< _len && (__i = vector_get(__v, _i), 1); _i++)
+#define vector_foreach(__v, __i) for(u32 _i = 0, _len = vector_length(__v); _i< _len && (__i = vector_get(__v, _i), 1); _i++)
 
 static inline void bitvector_set(buffer b, int position)
 {

@@ -23,17 +23,12 @@ static void read_program_complete(tuple root, heap pages, heap general, heap phy
     exec_elf(b, general, physical, pages, virtual, root);
 }
 
-static CLOSURE_3_1(program_name_complete, void, tuple, heap, buffer_handler, buffer); 
-static void program_name_complete(tuple root, heap h, buffer_handler next, buffer program)
-{
-    contentsof(resolve_path(root, split(h, program, '/')), next);
-}
-
 void startup(heap pages, heap general, heap physical, heap virtual, tuple root)
 {
     console("stage3\n");
     init_unix(general, pages, physical, root);
-    buffer_handler pg = closure(general, read_program_complete, root, pages, general, physical, virtual);  
-    contentsof(lookup(root, sym(program)), closure(general, program_name_complete, root, general, pg));
+    buffer_handler pg = closure(general, read_program_complete, root, pages, general, physical, virtual);
+    value p = table_find(root, sym(program));
+    contentsof(resolve_path(root, split(general, p, '/')), pg);
 }
 

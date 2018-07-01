@@ -11,6 +11,7 @@ static inline s8 digit_of(character x)
     return(-1);
 }
 
+
 static inline bytes utf8_length(unsigned char x)
 {
     if (~x & 0x80) return 1;
@@ -107,3 +108,20 @@ static inline character pop_character(buffer b)
 }
 
 
+// status
+static inline boolean parse_int(buffer b, u32 base, u64 *result)
+{
+  int hexValue;
+  int st = false;
+  *result = 0;
+
+  while (buffer_length(b)) {
+      u8 v = digit_of(buffer_read_byte(b));
+      if (v >= 0) {
+          b->start += 1;
+          st = true;
+          *result = (*result * base) + v;
+      } else break;
+  }
+  return st;
+}

@@ -41,6 +41,7 @@ heap malloc_allocator()
 void halt(char *format, ...)
 {
 }
+
 heap allocate_tagged_region(heap h, u64 tag)
 {
     u64 size = 4*1024*1024;
@@ -50,10 +51,13 @@ heap allocate_tagged_region(heap h, u64 tag)
     return create_id_heap(h, u64_from_pointer(region), size, 1);
 }
 
+extern void init_extra_prints();
+    
 // 64 bit unix process                  
 heap init_process_runtime()
 {
     heap h = malloc_allocator();
     init_runtime(h);
+    init_extra_prints();
     return h;
 }

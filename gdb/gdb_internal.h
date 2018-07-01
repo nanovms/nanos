@@ -20,11 +20,6 @@ typedef struct handler {
     boolean (*body)(gdb, buffer, string);
 } *handler;
 
-static inline char peek_char(buffer b)
-{
-    return(*(char *)buffer_ref(b, 0));
-}
-
 static inline char get_char(buffer b)
 {
     if (buffer_length(b)) {
@@ -50,7 +45,6 @@ static inline void reset_buffer(string b)
     b->end = 0;
 }
 
-u64 parse_int (buffer b, u32 base, u64 *intValue);
 boolean parse_hex_pair(buffer in, u64 *first, u64 *second);
 boolean mem2hex (string b, void *mem, int count);
 boolean hex2mem (buffer b, void *mem, int count);

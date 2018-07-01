@@ -1,24 +1,5 @@
 #include <gdb_internal.h>
 
-// there is one of these in runtime (?)
-u64 parse_int(buffer b, u32 base, u64 *intValue)
-{
-  int hexValue;
-  int result = 0;
-  *intValue = 0;
-
-  while (buffer_length(b)) {
-    hexValue = digit_of(peek_char(b));
-    if (hexValue >= 0) {
-      get_char(b);
-      result = 1;
-      *intValue = (*intValue * base) + hexValue;
-    } else break;
-  }
-  return(result);
-}
-
-
 boolean parse_hex_pair(buffer in, u64 *first, u64 *second)
 {
     parse_int(in, 16, first);

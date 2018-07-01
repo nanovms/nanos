@@ -67,16 +67,3 @@ void buffer_append(buffer b,
     buffer_extend(b, length);
     buffer_write(b, body, length);
 }
-
-// doesn't really belong here
-static char *hex_digits="0123456789abcdef";
-
-void format_number(buffer s, u64 x, int base, int pad)
-{
-    if ((x > 0) || (pad > 0)) {
-        u64 q, r;
-        DIV(x, base, q, r);
-        format_number(s, q, base, pad - 1);
-        push_u8(s, hex_digits[r]);
-    }
-}

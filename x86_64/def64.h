@@ -1,3 +1,4 @@
+#include <predef.h>
 
 typedef unsigned char u8;
 typedef char s8;
@@ -41,3 +42,10 @@ static inline void *valueof(void *v)
      __q = a;\
      __r = d;\
  }
+
+void print_number(buffer s, u64 x, int base, int pad);
+static inline void format_pointer(buffer dest, buffer fmt, vlist a)
+{
+    u64 x = varg(a, u64);
+    print_number(dest, x, 10, 16);
+}

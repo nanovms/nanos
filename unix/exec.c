@@ -1,13 +1,13 @@
 #include <unix_internal.h>
 #include <elf64.h>
 
-static void build_exec_stack(buffer s, heap general, vector argv, node env, vector auxp)
+static void build_exec_stack(buffer s, heap general, vector argv, tuple env, vector auxp)
 {
     int length = vector_length(argv) + table_elements(env) +  2 * vector_length(auxp) + 6;
     s->start = s->end = s->length - length *8;
     buffer_write_le64(s, vector_length(argv));
     tuple i;
-    vector_foreach(i, argv) 
+    vector_foreach(argv, i) 
         buffer_write_le64(s, u64_from_pointer(aprintf(general, "%b\0\n", contents(i))->contents));
     
     buffer_write_le64(s, 0);
@@ -19,7 +19,7 @@ static void build_exec_stack(buffer s, heap general, vector argv, node env, vect
     buffer_write_le64(s, 0);
 
     aux a;
-    vector_foreach(a, auxp) {
+    vector_foreach(auxp, a) {
         buffer_write_le64(s, a->tag);
         buffer_write_le64(s, a->val);
     }

@@ -8,7 +8,7 @@
 typedef struct process *process;
 typedef struct thread *thread;
 
-process create_process(heap h, heap pages, heap contig, node filesystem);
+process create_process(heap h, heap pages, heap contig, tuple filesystem);
 thread create_thread(process);
 void run(thread);
 
@@ -34,19 +34,19 @@ typedef struct file {
     io read, write;
     // check if data on the read path
     closure_type(check, void, thunk);
-    node n;
+    tuple n;
 } *file;
 
 typedef struct process {
     heap h, pages, physical;
     int pid;
-    node filesystem;
+    tuple filesystem;
     // could resize w/ a vector
     void *brk;
     heap virtual;
     heap virtual32;    
     heap fdallocator;
-    node cwd; 
+    tuple cwd; 
     table futices;
     fault_handler handler;
     vector threads;

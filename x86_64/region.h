@@ -2,6 +2,8 @@
 typedef u8 regionbody[20];
 typedef regionbody *region;
 
+#define for_regions(__r) for (region __r = regions; region_type(__r);__r -= 1)
+
 // see stage2.s - pass from Makefile? argument?
 #define region_start (0x7dfe)
 
@@ -17,11 +19,9 @@ typedef regionbody *region;
 #define REGION_FILESYSTEM 5 // offset on disk for the filesystem, see if we can get disk info from the bios
 #define REGION_FREE 6
 
-
-
 static inline region create_region(u64 base, u64 length, int type)
 {
-    for (region e = regions; ;e -= 1) {
+    for_regions(e){
         if (!region_type(e)) {
             region_type(e) = type;
             region_base(e) = base;
@@ -42,7 +42,7 @@ static inline u64 allocate_region(heap h, bytes size)
 {
     region_heap rh = (region_heap)h;
     u64 len = pad(size, h->pagesize);
-    for (region e = regions; region_type(e);e -= 1) {
+    for_regions(e){    
         if ((region_type(e) == rh->type) &&       
             (region_length(e) >= len)) {
             u64 result = region_base(e);
@@ -67,7 +67,7 @@ static inline heap region_allocator(heap h, u64 pagesize, int type)
 
 static void print_regions()
 {
-    for (region e = regions; region_type(e); e -= 1) {
+    for_regions(e){    
          print_u64(region_type(e));
          console(" ");
          print_u64(region_base(e));
@@ -76,3 +76,5 @@ static void print_regions()
          console("\n");
     }
 }
+
+

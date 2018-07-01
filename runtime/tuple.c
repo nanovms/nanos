@@ -48,51 +48,53 @@ static void push_header(buffer b, boolean imm, u8 type, u64 length)
     b->end += words;
 }
 
-// dict is number to symbol
 // h is for buffer values, copy them out
-void *deserialize_tuple(heap h, tuple dictionary, buffer source)
+value decode_value(heap h, tuple dictionary, buffer source)
 {
     u8 type;
     boolean imm;
     u64 len = pop_header(source, &imm, &type);
-    if (type) {
-        tuple t = allocate_tuple();
+    
+    if (type == type_tuple) {
+        tuple t;
+        if (imm) {
+            t = allocate_tuple();
+            table_set(dictionary, pointer_from_u64((u64)dictionary->count), t);
+        } else {
+            t = table_find(dictionary, pointer_from_u64(pop_varint(source)));
+            // if !t err
+        }
+        
         for (int i = 0; i < len ; i++) {
             u8 nametype, valuetype;
+            // nametype is always buffer. can we use that bit?
             u64 nlen = pop_header(source, &imm, &nametype);
             symbol s;
-            if (nametype) {
-                s = table_find(dictionary, pointer_from_u64(nlen));
-                //                if (!s) rprintf("missing decode dictionary symbol %d\n", nlen);
-            } else {
+            if (imm) {
                 buffer n = alloca_wrap_buffer(buffer_ref(source, 0), nlen);
-                void *index = pointer_from_u64((u64)dictionary->count);
-                table_set(dictionary, index, s = intern(n));
-                source->start += nlen;                
+                table_set(dictionary, pointer_from_u64((u64)dictionary->count), s = intern(n));
+                source->start += nlen;                                
+            } else {
+                s = table_find(dictionary, pointer_from_u64(nlen));
+                //                if (!s) rprintf("missing decode dictionary symbol %d\n", nlen);                
             }
-            table_set(t,s, deserialize_tuple(h, dictionary,source));
+            table_set(t,s, decode_value(h, dictionary, source));
         }
         return t;
     } else {
-        buffer b = allocate_buffer(h, len);
-        // doesn't seem like this should be neccessary in all cases
-        runtime_memcpy(buffer_ref(b, 0), source->contents + source->start, len);
-        source->start += len;
-        return b;
+        if (imm) {
+            // doesn't seem like we should always need to take a copy in all cases
+            buffer b = allocate_buffer(h, len);
+            runtime_memcpy(buffer_ref(b, 0), source->contents + source->start, len);
+            source->start += len;
+        } else {
+            return table_find(dictionary, pointer_from_u64(len));
+        }
     }
 }
 
-// could close over encoder!
-// these are special cases of a slightly more general scheme
-void encode_eav(buffer dest, table dictionary, tuple e, symbol a, value v)
-{
 
-    
-    push_header(dest, reference, type_tuple, dictionary->count);
-    //    push_varint(dest, soft_map(t));
-
-}
-
+void encode_tuple(buffer dest, table dictionary, tuple t);
 void encode_value(buffer dest, table dictionary, value v)
 {
     if (tagof(v) == tag_tuple) {
@@ -102,6 +104,25 @@ void encode_value(buffer dest, table dictionary, value v)
         push_buffer(dest, (buffer)v);
     }
 
+}
+
+// could close over encoder!
+// these are special cases of a slightly more general scheme
+void encode_eav(buffer dest, table dictionary, tuple e, symbol a, value v)
+{
+    // this can be push value really..dont need to assume that its already
+    // been rooted - merge these two cases - maybe methodize the tuple interface
+    // (set/get/iterate)
+    u64 d = u64_from_pointer(table_find(dictionary, e));
+    if (!d) {
+        halt("shouldda implemented encode eav better or had a pre-existing tuple");
+    }
+    push_header(dest, reference, type_tuple, 1);
+    push_varint(dest, d);
+    // what happened to soft_create
+    push_header(dest, immediate, type_buffer, buffer_length((buffer)v));
+    push_buffer(dest, (buffer)v);    
+    encode_value(dest, dictionary, v);
 }
 
 // immediate only
@@ -115,7 +136,7 @@ void encode_tuple(buffer dest, table dictionary, tuple t)
         u64 sn;
         if ((sn = u64_from_pointer(table_find(dictionary, n)))) {
             // references dont necessarily need types
-            push_header(dest, reference, type_tuple, sn - 1);
+            push_header(dest, reference, type_tuple, sn);
         } else {
             sn = dictionary->count;
             table_set(dictionary, n, pointer_from_u64(sn + 1));
@@ -126,28 +147,10 @@ void encode_tuple(buffer dest, table dictionary, tuple t)
     }        
 }
 
+
+
 void init_tuples(heap h)
 {
     theap = h;
 }
 
-#ifndef BITS32
-void print_tuple(buffer b, tuple t)
-{
-    boolean sub = false;
-    bprintf(b, "(");
-    table_foreach(t, n, v) {
-        if (sub) {
-            push_character(b, ' ');
-        }
-        bprintf(b, "%b:", symbol_string((symbol)n));
-        if (tagof(v) == tag_tuple) {
-            print_tuple(b, v);
-        } else {
-            bprintf(b, "%b", v);
-        }
-        sub = true;
-    }
-    bprintf(b, ")");
-}
-#endif

@@ -33,7 +33,7 @@ static inline tuple resolve_path(tuple n, vector v)
     buffer i;
     // xx destructive, relative
     vector_pop(v);
-    vector_foreach(i, v) {
+    vector_foreach(v, i) {
         tuple c = table_find(n, sym(children));
         n = table_find(c, intern(i));
     }

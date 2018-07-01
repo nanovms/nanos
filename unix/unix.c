@@ -61,7 +61,7 @@ static boolean futex_key_equal(void *a, void *b)
 
 static void *linux_syscalls[SYS_MAX];
 
-process create_process(heap h, heap pages, heap physical, node filesystem)
+process create_process(heap h, heap pages, heap physical, tuple filesystem)
 {
     process p = allocate(h, sizeof(struct process));
     p->filesystem = filesystem;

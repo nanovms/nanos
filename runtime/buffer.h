@@ -10,6 +10,17 @@ struct buffer {
     void *contents;
 };
 
+static inline void *buffer_ref(buffer b, bytes offset)
+{
+    // alignment?
+    return((void *)b->contents + (b->start + offset));
+}
+
+// out of bounds
+static inline char peek_char(buffer b)
+{
+    return(*(char *)buffer_ref(b, 0));
+}
 
 #define alloca_wrap_buffer(__b, __l) ({           \
   buffer b = __builtin_alloca(sizeof(struct buffer));   \
@@ -20,14 +31,12 @@ struct buffer {
   b;\
   })
 
-
 #define byte(__b, __i) *(u8 *)((__b)->contents + (__b)->start + (__i))
 
 static inline void buffer_clear(buffer b)
 {
     b->start = b->end = 0; 
 }
-
 
 static inline void buffer_consume(buffer b, bytes s)
 {
@@ -43,12 +52,6 @@ static inline bytes buffer_length(buffer b)
 {
     return(b->end - b->start);
 } 
-
-static inline void *buffer_ref(buffer b, bytes offset)
-{
-    // alignment?
-    return((void *)b->contents + (b->start + offset));
-}
 
 static inline void buffer_extend(buffer b, bytes len)
 {
@@ -170,8 +173,10 @@ static inline void buffer_write_le64(buffer b, u64 v)
     b->end += sizeof(u64);
 }
 
+// end of buffer?
 static inline u64 buffer_read_byte(buffer b)
 {
+    if (!buffer_length(b)) return -1;
     u64 r = *(u8 *)buffer_ref(b, 0);
     b->start += 1;
     return(r);

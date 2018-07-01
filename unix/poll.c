@@ -73,7 +73,7 @@ int epoll_wait(int epfd,
     w->e = e;
 
     // race
-    vector_foreach(i, e->events) 
+    vector_foreach(e->events, i) 
         apply(i->f->check, closure(current->p->h, epoll_wait_notify, w, i));
     e->w = w;
     

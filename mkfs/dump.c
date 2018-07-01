@@ -5,9 +5,20 @@
 #include <fcntl.h>
 #include <stdio.h>
 
-static void *malloc_allocator(heap h, bytes s)
+typedef int descriptor;
+
+static CLOSURE_1_3(bwrite, void, buffer, buffer, u64, status_handler);
+static void bwrite(buffer d, buffer s, u64 offset, status_handler c)
 {
-    return malloc(s);
+
+}
+
+static CLOSURE_1_4(bread, void, descriptor d, void *, u64, u64, status_handler);
+static void bread(buffer b, void *dest, u64 offset, u64 length, status_handler c)
+{
+    rprintf("read! %p\n", offset);
+    pread(d, dest, offset, length);
+    apply(c, STATUS_OK);
 }
 
 static buffer files, contents;
@@ -47,7 +58,12 @@ void readdir(void *k buffer b, u64 where)
 
 int main(int argc, char **argv)
 {
-    buffer b = read_stdin();
-    unsigned int sp = 0;
-    readdir(&sp, b, 0);
+    heap h = init_process_runtime();
+    tuple root = allocate_tuple();
+    filesystem fs = create_filesystem(h,
+                                      SECTOR_SIZE,
+                                      10ull * 1024 * 1024 * 1024,
+                                      closure(h, bread, out),
+                                      closure(h, bwrite, out),
+                                      root));
 }

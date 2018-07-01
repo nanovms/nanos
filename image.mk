@@ -4,7 +4,7 @@ include net/Makefile
 
 force:
 
-mkfs/mkfs:
+mkfs/mkfs: force
 	cd mkfs ; make
 
 

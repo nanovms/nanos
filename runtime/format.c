@@ -1,13 +1,12 @@
 #include <runtime.h>
 
 
-static formatter formatters[96];
+static formatter formatters[96]={0};
 
 void register_format(character c, formatter f)
 {
     if ((c > 32) && (c < 128)) formatters[c-32] = f;
 }
-
 
 void vbprintf(buffer d, buffer fmt, vlist ap)
 {
@@ -16,7 +15,7 @@ void vbprintf(buffer d, buffer fmt, vlist ap)
 
     foreach_character(i, fmt) {
         if (state == 1)  {
-            if ((i > 32) && (i < 128) && formatters[i]) {
+            if ((i > 32) && (i < 128) && formatters[i-32]) {
                 formatters[i-32](d, fmt, ap);
             } else {
                 char header[] = "[invalid format %";
@@ -33,33 +32,4 @@ void vbprintf(buffer d, buffer fmt, vlist ap)
             }
         }
     }
-}
-
-
-buffer aprintf(heap h, char *fmt, ...)
-{
-    buffer b = allocate_buffer(h, 80);
-    vlist ap;
-    buffer f = alloca_wrap_buffer(fmt, runtime_strlen(fmt));
-    vstart (ap, fmt);
-    vbprintf(b, f, ap);
-    vend(ap);
-    return(b);
-}
-
-void bbprintf(buffer b, buffer fmt, ...)
-{
-    vlist ap;
-    vstart(ap, fmt);
-    vbprintf(b, fmt, ap);
-    vend(ap);
-}
-
-void bprintf(buffer b, char *fmt, ...)
-{
-    vlist ap;
-    buffer f = alloca_wrap_buffer(fmt, runtime_strlen(fmt));
-    vstart (ap, fmt);
-    vbprintf(b, f, ap);
-    vend(ap);
 }

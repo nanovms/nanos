@@ -6,4 +6,5 @@ void rtrie_insert(rtrie r, u64 start, u64 length, void *value);
 void rtrie_extents(rtrie r, u64 *min, u64 *max);
 rtrie rtrie_create(heap h);
 void rtrie_extent(rtrie r, u64 *min, u64 *max);
-
+void rtrie_remove(rtrie r, u64 start, u64 length);
+heap rtrie_allocator(heap h, rtrie r);

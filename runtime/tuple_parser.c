@@ -7,15 +7,34 @@ typedef closure_type(err_internal, parser, buffer);
 typedef table charset;
 
 static charset name_terminal;
+static charset value_terminal;
 static charset whitespace;
-
-buffer intermediate;
+static charset property_sigils;
 
 // find sequence combinator
 static boolean member(charset cs, character c)
 {
     return table_find(cs, pointer_from_u64((u64)c))?true:false; 
 }
+
+// could be variadic, later tables overwrite earlier
+static table charset_union(heap h, charset cs, charset c)
+{
+    table out = allocate_table(h, identity_key, pointer_equal);
+    table_foreach(cs, k, v) table_set(out, k, v);
+    table_foreach(c, k, v) table_set(out, k, v);
+    return out;
+}
+
+static charset charset_from_string(heap h, char *elements)
+{
+    table t = allocate_table(h, identity_key, pointer_equal);
+    // utf8 me
+    for (char *i = elements; *i; i++) 
+        table_set(t, pointer_from_u64((u64)*i), (void *)1);
+    return t;
+}
+
 
 
 // kind of a special case y combinator, try to fix the
@@ -71,23 +90,28 @@ static parser terminal(completion c, charset final, buffer b, parser self, chara
     }
 }
 
-CLOSURE_4_2(validate, parser, heap, parser, err_internal, buffer, parser, character);
-parser validate(heap h, parser next, err_internal err, buffer b, parser self, character in)
-{
-    if (buffer_length(b) == 0)
-        return apply(next, in);
-    // utf8
-    character c = pop_character(b);
-    if (c == in) return self;
-    return apply(err, aprintf(h, "expected %c got %c\n", c, in));
-}
-
-
 static CLOSURE_3_1(value_complete, parser, tuple, symbol, parser, void *);
 static parser value_complete(tuple t, symbol name, parser check, void *v)
 {
     table_set(t, name, v);
     return check;
+}
+
+static CLOSURE_3_1(dispatch_property, parser, heap, parser, err_internal, character);
+static parser dispatch_property(heap h, parser pv, err_internal e, character x)
+{
+    switch(x) {
+        //    case '|':
+        //    case '/':
+        //    case '.':        
+    case ':':
+        return pv;
+
+    default:
+        return apply(e, aprintf(h, "unknown property descriminator %c", x));
+        break;
+    }
+    
 }
 
 static CLOSURE_3_1(parse_value, parser, heap, completion, err_internal, character);
@@ -97,11 +121,10 @@ static parser name_complete(heap h, tuple t, parser check, err_internal err, voi
 {
     buffer res = allocate_buffer(h, 20);
     completion vc = closure(h, value_complete, t, intern(b), check);
-    parser term = combinate(h, closure(h, terminal, vc, name_terminal, res));
+    parser term = combinate(h, closure(h, terminal, vc, value_terminal, res));
     // not sure why we have to violate typing
     parser pv = (void *)closure(h, parse_value, h, vc, err);
-    intermediate->start = 0; // hack
-    return ignore_whitespace(h, combinate(h, closure(h, validate, h, pv, err, intermediate)));
+    return ignore_whitespace(h, (void *)closure(h, dispatch_property, h, pv, err));
 }
 
 
@@ -148,7 +171,7 @@ static parser parse_value(heap h, completion c, err_internal err, character in)
             return combinate(h, closure(h, is_end_of_vector, h, c, allocate_tuple(), err, i));
         }
     default:
-        return apply(ignore_whitespace(h, combinate(h, closure(h, terminal, c, name_terminal, allocate_buffer(h, 8)))), in);
+        return apply(ignore_whitespace(h, combinate(h, closure(h, terminal, c, value_terminal, allocate_buffer(h, 8)))), in);
     }
 }
 
@@ -176,21 +199,14 @@ static parser bridge_completion(heap h, parse_finish c, err_internal err, void *
     return (void *)closure(h, parse_value, h, bc, err);    
 }
 
-static charset charset_from_string(heap h, char *elements)
-{
-    table t = allocate_table(h, identity_key, pointer_equal);
-    // utf8 me
-    for (char *i = elements; *i; i++) 
-        table_set(t, pointer_from_u64((u64)*i), (void *)1);
-    return t;
-}
-
 parser tuple_parser(heap h, parse_finish c, parse_error err)
 {
     if (!whitespace) whitespace = charset_from_string(h, " \n\t");
-    if (!name_terminal) name_terminal = charset_from_string(h, "():[]  \n\t#");    
-    if (!intermediate) intermediate = aprintf(h, ":");
-    // whitespace eat
+    if (!name_terminal) name_terminal = charset_from_string(h, "()[]");
+    value_terminal = charset_union(h, name_terminal, whitespace);    
+    if (!property_sigils) property_sigils = charset_from_string(h, ":|./");
+    // variadic
+    name_terminal = charset_union(h, charset_union(h, name_terminal, property_sigils), whitespace);    
     // error close over line number
     err_internal k = closure(h, bridge_err, h, err);
     completion bc = closure(h, bridge_completion, h, c, k);    

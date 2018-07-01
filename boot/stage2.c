@@ -7,7 +7,6 @@ extern void run64(u32 entry);
 // there are a few of these little allocators
 u64 working = 0x1000;
 
-
 static u64 stage2_allocator(heap h, bytes b)
 {
     u64 result = working;
@@ -18,6 +17,7 @@ static u64 stage2_allocator(heap h, bytes b)
 static CLOSURE_0_4(stage2_read_disk, void, void *, u64, u64, status_handler);
 static void stage2_read_disk(void *dest, u64 offset, u64 length, status_handler completion)
 {
+    // add offset
     read_sectors(dest, offset, length);
     apply(completion, STATUS_OK);
 }
@@ -41,8 +41,8 @@ void kernel_read_complete(heap physical, heap working, buffer kb)
     create_region(identity_start, identity_length, REGION_IDENTITY);
 
     // just throw out the bios area up to 1M
-    for (region e = regions; region_type(e); e -= 1) {    
-        if (region_base(e) < identity_start) region_type(e) =REGION_FREE; 
+    for_regions(e) {
+        if (region_base(e) < identity_start) region_type(e) = REGION_FREE; 
         if (identity_start == region_base(e)) 
             region_base(e) = identity_start + identity_length;
     }
@@ -89,9 +89,14 @@ void centry()
     workings.alloc = stage2_allocator;
     tuple root;
 
+    // read from the filesystem?
+    u64 identity_start = 0x100000;
+    u64 identity_length = 0x300000;
+    
     console("stage2\n");
 
     heap physical = region_allocator(&workings, PAGESIZE, REGION_PHYSICAL);
+    create_region(identity_start, identity_length, REGION_FILESYSTEM);    
     filesystem fs = create_filesystem(&workings,
                                       512,
                                       2*1024*1024, // fix,

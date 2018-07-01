@@ -143,32 +143,31 @@ void rtrie_extent(rtrie r, u64 *min, u64 *max)
  } *rtalloc;
 
 // at least for this usage, we could really use multiple return values
-u64 rtrie_alloc_internal(rtnode *rn, u64 length)
+u64 rtrie_alloc_internal(rtrie root, rtnode *rn, u64 length)
  {
      rtnode r = *rn;
      u64 result;
-     if ((result = rtrie_alloc_internal(r->children, length))  != INVALID_PHYSICAL) return result;
-     if ((result = rtrie_alloc_internal(r->children +1, length)) != INVALID_PHYSICAL) return result;
+     if ((result = rtrie_alloc_internal(root, r->children, length))  != INVALID_PHYSICAL) return result;
+     if ((result = rtrie_alloc_internal(root, r->children +1, length)) != INVALID_PHYSICAL) return result;
      if (r->length  > length) {
          u64 result = r->base;
-         r->base += length;
-         r->length -= length;
+         rtrie_remove(root, result, length);
          // if length == 0 *rn = 0;
          return result;
      }
      return INVALID_PHYSICAL;
  }
      
- u64 rtrie_alloc(heap h, bytes length)
- {
-     rtrie r = (rtrie)h;
-     rtrie_alloc_internal(&r->root, length);
- }
- 
- heap rtrie_allocator(heap h, rtrie r)
- {
-     rtalloc ra = allocate(h, sizeof(struct rtalloc));
-     ra->h.alloc = rtrie_alloc;
-     return &ra->h;
- }
- 
+u64 rtrie_alloc(heap h, bytes length)
+{
+    rtrie r = (rtrie)h;
+    rtrie_alloc_internal(r, &r->root, length);
+}
+
+heap rtrie_allocator(heap h, rtrie r)
+{
+    rtalloc ra = allocate(h, sizeof(struct rtalloc));
+    ra->h.alloc = rtrie_alloc;
+    return &ra->h;
+}
+
