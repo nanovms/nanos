@@ -17,7 +17,7 @@ stage2.strip: stage2.elf
 	strip stage2.elf -o stage2.strip
 
 stage1: stage1.s stage2
-	nasm  -dSTAGE1SIZE=$(STAGE1SIZE) -dSTAGE2SIZE=$(shell stat -c %s stage2) $< -o $@
+	nasm  -l stage1.lst -dSTAGE1SIZE=$(STAGE1SIZE) -dSTAGE2SIZE=$(shell stat -c %s stage2) $< -o $@
 
 boot: stage1 stage2.pad
 	cat stage1 stage2.pad > boot

@@ -1,5 +1,5 @@
 
-all:mkfs
+all:mkfs dump
 
 ROOT=$(PWD)/..
 

@@ -111,7 +111,7 @@ status virtqueue_alloc(vtpci dev,
     vq = allocate(dev->general, sizeof(struct virtqueue) + size * sizeof(vqfinish));
     
     if (vq == INVALID_ADDRESS) 
-        return allocate_status("cannot allocate virtqueue\n");
+        return timm("status", "cannot allocate virtqueue");
     
     vq->dev = dev;
     vq->queue_index = queue;
@@ -127,7 +127,7 @@ status virtqueue_alloc(vtpci dev,
         return 0;
     }
     
-    return(allocate_status("cannot allocate memory for virtqueue ring\n"));
+    return(timm("status", "cannot allocate memory for virtqueue ring"));
 }
 
 physical virtqueue_paddr(struct virtqueue *vq)
@@ -157,7 +157,7 @@ status virtqueue_enqueue(struct virtqueue *vq,
     u16 hidx = idx;
 
     if (vq->free_cnt < segments)
-        return allocate_status("no room in queue");
+        return timm("status", "no room in queue");
 
     // allocate descs from a heap
     for (int i = 0; i < segments; i++) {

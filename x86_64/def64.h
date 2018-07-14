@@ -32,13 +32,13 @@ static inline void *valueof(void *v)
 }
 
 #define DIV(__x, __by, __q, __r){\
-     register int a asm("rax");\
-     register int d asm("rdx");\
-     register int c asm("rcx");\
+     register u64 a asm("rax");\
+     register u64 d asm("rdx");\
+     register u64 c asm("rcx");\
      a = __x;\
      c = __by;\
      d = 0;\
-     asm("div %rcx");\
+     asm("divq %rcx");\
      __q = a;\
      __r = d;\
  }
@@ -47,5 +47,6 @@ void print_number(buffer s, u64 x, int base, int pad);
 static inline void format_pointer(buffer dest, buffer fmt, vlist a)
 {
     u64 x = varg(a, u64);
-    print_number(dest, x, 10, 16);
+    // ?
+    print_number(dest, x, 16, 17);
 }

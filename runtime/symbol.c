@@ -24,9 +24,10 @@ symbol intern(string name)
         s = allocate(sheap, sizeof(struct symbol));
         s->k = random_u64();
         s->s = b;
-        table_set(symbols, s->s, s); 
+        table_set(symbols, s->s, s);
+        s = tag(s, tag_symbol);
     }
-    return(tag(s, tag_symbol));
+    return s;
 }
 
 string symbol_string(symbol s)

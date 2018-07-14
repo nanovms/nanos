@@ -17,15 +17,17 @@ typedef struct filesystem {
     closure_type(log, void, tuple);
     block_read r;
     block_write w;    
-    log l;
+    log tl;
     tuple root;
 } *filesystem;
+
+void extent_update(filesystem fs, tuple t, symbol a, tuple value);
 
 log log_create(heap h, filesystem fs);
 void log_write(log tl, tuple t, thunk complete);
 void log_write_eav(log tl, tuple e, symbol a, value v, thunk complete);
 
-#define INITIAL_LOG_SIZE (20 * MB)
+#define INITIAL_LOG_SIZE (MB)
 #define INITIAL_FS_SIZE (20 * MB)
 void read_log(log tl, u64 offset, u64 size);
 void log_flush(log tl);

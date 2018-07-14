@@ -31,20 +31,19 @@ void log_flush(log tl)
     thunk i;
     buffer b = tl->staging;
     buffer_clear(tl->completions);
-    *(u8 *)buffer_ref(b, 0) = TUPLE_AVAILABLE;
+    push_u8(b, END_OF_LOG);
     apply(tl->fs->w,
           b,
           tl->offset + b->start, 
           closure(tl->h, log_write_completion, tl->completions));
-    tl->offset += buffer_length(b)  -1;
-    b->start+= buffer_length(b)  -1;
-    push_u8 (b, 0);
+    b->end -= 1;
 }
 
 
 void log_write_eav(log tl, tuple e, symbol a, value v, thunk complete)
 {
     // out of space
+    push_u8(tl->staging, TUPLE_AVAILABLE);
     encode_eav(tl->staging, tl->dictionary, e, a, v);
     vector_push(tl->completions, complete);
     // flush!
@@ -53,53 +52,38 @@ void log_write_eav(log tl, tuple e, symbol a, value v, thunk complete)
 void log_write(log tl, tuple t, thunk complete)
 {
     // out of space
+    push_u8(tl->staging, TUPLE_AVAILABLE);
+    // this should be incremental on root!
     encode_tuple(tl->staging, tl->dictionary, t);
     vector_push(tl->completions, complete);
     // flush
 }
 
 
-static void extent_update(filesystem fs, tuple t, symbol a, tuple value)
-{
-    rtrie e = table_find(fs->extents, t);
-    buffer lengtht = table_find(value, sym(length));
-    buffer offsett = table_find(value, sym(offset));
-    u64 length, foffset, boffset;
-    parse_int(symbol_string(a), 10, &foffset);
-    parse_int(lengtht, 10, &length);
-    parse_int(offsett, 10, &boffset);
-    rtrie_insert(e, foffset, length, pointer_from_u64(boffset));
-    rtrie_remove(fs->free, boffset, length);
-    // update freemap
-}
-
-
+// tie initial entry to the filesystem root!
 CLOSURE_1_1(log_read_complete, void, log, status);
 void log_read_complete(log tl, status s)
 {
     buffer b = tl->staging;
-    u8 frame;
-    do {
-        frame = pop_u8(b);
-        if (frame == TUPLE_AVAILABLE) {
-            tuple t = decode_value(t->h, tl->dictionary, b);
-
-            table_foreach(t, k, v) {
-                if (k == sym(extents)) {
-                    fsfile f;                     
-                    if (!(f = table_find(tl->fs->extents, v))) {
-                        f = allocate_fsfile(tl->fs, t);
-                    }
-                    table_set(tl->fs->extents, v, f);
+    u8 frame = 0;
+    // something really strange is going on with the value of frame
+    for (; frame = pop_u8(b), frame == TUPLE_AVAILABLE;) {
+        tuple t = decode_value(tl->h, tl->dictionary, b);
+        
+        table_foreach(t, k, v) {
+            if (k == sym(extents)) {
+                fsfile f;
+                if (!(f = table_find(tl->fs->extents, v))) {
+                    f = allocate_fsfile(tl->fs, t);
                 }
+                // put in the fsfile extents tree! but why are they screwed up in the metadata?
             }
-            // insert files as inode
-            // if this is an extent, mark it out in the freemap
-            // if this is a reference to a file number, map it 
+            // oh, we did have to set things here, because indirect
         }
-    } while(frame != END_OF_LOG);
-    push_u8(b, 0);    
+    }
+    //    if (frame != END_OF_LOG) halt("bad log tag %p\n", frame);    
 }
+
 
 // deferring log extension -- should be a segment
 // by convention, the first tuple (which always
@@ -119,8 +103,13 @@ log log_create(heap h, filesystem fs)
     tl->fs = fs;
     tl->completions = allocate_vector(h, 10);
     tl->dictionary = allocate_table(h, identity_key, pointer_equal);
-    // allocate the dictionary
-    table_set(tl->dictionary, pointer_from_u64(0), fs->root);
-    read_log(tl, 0, 1024*1024);
+    read_log(tl, 0, INITIAL_LOG_SEGMENT);
+    
+    // not sure we should be passing the root.. anyways, splat the
+    // log root onto the given root
+    table logroot = (table)table_find(tl->dictionary, pointer_from_u64(1));
+    if (logroot)
+        table_foreach (logroot, k, v)
+            table_set(fs->root, k, v);
     return tl;
 }

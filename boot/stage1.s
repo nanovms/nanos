@@ -15,13 +15,17 @@ init:
 	;; setting a20 allows us to address all of 'extended' memory
 	call seta20
 
-        ;; xxx - can trim  
-	;; serial setup - [TUP]:page 568
+        ;;  serial setup?
 	mov ah,0
 	mov al,0xe3  		; 9600 baud, 8N1
+
+        mov al, 0x21
+        mov dx,  0x3f8
+        out dx, al        
+        
 	mov dx,0
 	int 0x14
-
+        
 	call e820
 
         ;;;  disable 8259
@@ -130,9 +134,17 @@ dap:
         .sector      dd 1
         .sectorm     dd 0
         
-        times 512-2 - ($-$$) db 0           
+        times 512-20 - ($-$$) db 0           
 ;;;  entries start
 entries:
+;; tell stage2 what its size on disk is so we can find the filesystem
+;;  xx - defined in x86_64/region.h
+	fsregion equ 0x5
+fsentry:
+        dq STAGE1SIZE + STAGE2SIZE
+        dq 0
+        dw fsregion
+        
 ;;  mbr signature        
         dw 0xAA55             
 

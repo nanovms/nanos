@@ -303,7 +303,7 @@ static inline u64 pop_varint(buffer b)
     u64 out = 0;
     u64 m;
     do {
-        u8 m = pop_u8(b);
+        m = pop_u8(b);
         out = (out << 7) | (m & MASK(7));
     } while (m & 0x80);
     return out;

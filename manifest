@@ -1,8 +1,8 @@
 (
     #64 bit elf to boot from host
-    kernel:(contents:(host:stage3/stage3))
-    #user program
-    fst:(contents:(host:examples/fst))
+    children:(kernel:(contents:(host:stage3/stage3))
+              #user program
+              fst:(contents:(host:examples/fst)))
           
     # filesystem path to elf for kernel to run
     program:/fst

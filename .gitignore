@@ -9,6 +9,7 @@ boot/stage2.pad
 boot/stage2.strip
 boot/boot
 boot/stage1
+boot/stage1.lst
 libc/musl
 libc/bits
 libc/libc.a

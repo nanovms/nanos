@@ -1,69 +1,73 @@
-#include <runtime.h>
+#include <unix_process_runtime.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <tfs.h>
 
-typedef int descriptor;
-
-static CLOSURE_1_3(bwrite, void, buffer, buffer, u64, status_handler);
-static void bwrite(buffer d, buffer s, u64 offset, status_handler c)
+static CLOSURE_1_3(bwrite, void, descriptor, buffer, u64, status_handler);
+static void bwrite(descriptor d, buffer s, u64 offset, status_handler c)
 {
 
 }
 
-static CLOSURE_1_4(bread, void, descriptor d, void *, u64, u64, status_handler);
-static void bread(buffer b, void *dest, u64 offset, u64 length, status_handler c)
+static CLOSURE_1_4(bread, void, descriptor, void *, u64, u64, status_handler);
+static void bread(descriptor d, void *dest, u64 offset, u64 length, status_handler c)
 {
     rprintf("read! %p\n", offset);
-    pread(d, dest, offset, length);
-    apply(c, STATUS_OK);
+    int err;
+    if ((err = pread(d, dest, length, offset)) == length)
+        apply(c, STATUS_OK);
+    apply(c, timm("read-error", "%d", err));
 }
 
-static buffer files, contents;
-
-static buffer read_stdin(heap h)
-{
-    buffer in = allocate_buffer(h, 1024);
-    int r, k;
-    while ((r = in->length - in->end) &&
-           ((k = read(0, in->contents + in->end, r)), in->end += k, k == r)) 
-        buffer_extend(in, 1024);
-    return in;
-}
 
 boolean compare_bytes(void *a, void *b, bytes len);
 
-void readdir(buffer b, u64 where);
-
-// closures
-void each(void *k, buffer b, u64 klen, void *k, u64 vlen, u64 voffset)
+CLOSURE_1_1(write_file, void, buffer, buffer);
+void write_file(buffer path, buffer b)
 {
-    char files = "files";
-    char contents = "contents";
-    char zed[32];
-    memcpy(zed, k, klen);
+    // openat would be nicer really
+    int fd = open(cstring(path), O_CREAT|O_WRONLY);
+    write(fd, buffer_ref(b, 0), buffer_length(b));
+    close(fd);
+}
 
-    rprintf("%S key %s", *(unsigned int *)zed);
-    if ((klen == sizeof(files)) && compare_bytes(files, k, klen)) {
-        readdir(b, voffset);
+// h just for extending path
+// isn't there an internal readdir?
+void readdir(filesystem fs, heap h, tuple w, buffer path)
+{
+    table_foreach(w, k, v) {
+        rprintf ("zee %b %p %v\n", symbol_string(k), w, v);
+        if (k == sym(children)) {
+            table_foreach((tuple)v, k, vc) {
+                readdir(fs, h, (tuple)vc, aprintf(h, "%b/%b", path, symbol_string((symbol)k)));
+            }
+        }
+        if (k == sym(extents)) filesystem_read_entire(fs, w, h, closure(h, write_file, path));
     }
 }
 
-void readdir(void *k buffer b, u64 where)
-{
-    iterate(b, where, each, k); 
-}
+#define SECTOR_SIZE 512
 
 int main(int argc, char **argv)
 {
     heap h = init_process_runtime();
     tuple root = allocate_tuple();
+    int fd = open(argv[1], O_RDONLY);
+
+    if (fd < 0) {
+        rprintf("couldn't open file %s\n", argv[1]);
+        exit(-1);
+    }
     filesystem fs = create_filesystem(h,
                                       SECTOR_SIZE,
                                       10ull * 1024 * 1024 * 1024,
-                                      closure(h, bread, out),
-                                      closure(h, bwrite, out),
-                                      root));
+                                      closure(h, bread, fd),
+                                      closure(h, bwrite, fd),
+                                      root);
+    buffer b = aprintf (h, "root: %v\n", root);
+    write(1, b->contents, buffer_length(b));
+    readdir(fs, h, root, alloca_wrap_buffer(argv[2], runtime_strlen(argv[2])));
 }

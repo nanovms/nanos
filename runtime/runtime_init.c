@@ -39,6 +39,14 @@ static void format_number(buffer dest, buffer fmt, vlist a)
     print_number(dest, x, 10, 1);
 }
 
+static void format_hex_buffer(buffer dest, buffer fmt, vlist a)
+{
+    buffer b= varg(a, buffer);
+    print_hex_buffer(dest, b);
+}
+
+
+heap errheap;
 
 // init linker sets would clean up the platform dependency, if you link
 // with it, it gets initialized
@@ -48,7 +56,7 @@ void init_runtime(heap h)
     init_symbols(allocate_tagged_region(h, tag_symbol));
     ignore = closure(h, ignore_body);
     ignore_status = (void*)ignore;
-
+    errheap = h;
     // fix
 #ifndef BITS32    
     initialize_timers(h);
@@ -57,6 +65,7 @@ void init_runtime(heap h)
     register_format('c', format_character);
     register_format('d', format_number);
     register_format('p', format_pointer);
+    register_format('X', format_hex_buffer);    
 #endif        
 }
 
