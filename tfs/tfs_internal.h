@@ -21,7 +21,7 @@ typedef struct filesystem {
     tuple root;
 } *filesystem;
 
-void extent_update(filesystem fs, tuple t, symbol a, tuple value);
+void extent_update(fsfile f, symbol foff, tuple value);
 
 log log_create(heap h, filesystem fs);
 void log_write(log tl, tuple t, thunk complete);

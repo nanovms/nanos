@@ -3,7 +3,7 @@
 #define pivot(r) (r).end
 #define child(__r, __v) ((__r)->children + (((1<<(__r)->pivot_bit) & (__v))?1:0))
 #define span(__r) (__r.end - __r.start)
-#define point_in_range(__r, __p) (__r.end - __r.start)
+#define point_in_range(__r, __p) ((__p >= __r.start) && (__p < __r.end))
 
 // two trees? start and end?
 // [start, end)
@@ -142,7 +142,7 @@ static void remove_internal(rtrie rt, rtnode *w, struct range k)
 
 void rtrie_remove(rtrie r, u64 start, u64 length)
 {
-    remove_internal(r, &r->root, (range){start, length});
+    remove_internal(r, &r->root, (range){start, start+length});
 }
 
 static rtnode rtlookup(rtnode r, u64 point)
@@ -163,8 +163,9 @@ void *rtrie_lookup(rtrie r, u64 point)
 static void range_lookup(rtnode r, u64 point, u64 length, subrange s)
 {
     if (r) {
-        if ((point >= r->r.start) && (point < (r->r.end)))
-            apply(s, r->r.start, r->r.end - r->r.start);
+        if (point_in_range(r->r, point))
+            apply(s, r->r.start, r->r.end - r->r.start, r->value);
+        // may be both
         range_lookup(*child(r, point), point, length, s);
     }
 }

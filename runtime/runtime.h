@@ -170,5 +170,5 @@ extern status_handler ignore_status;
 #define GB (KB*MB)
 
 // fix transient - also should be legit to use the space between end and length w/o penalty
-#define cstring(__b) ({buffer n = little_stack_buffer(512); bprintf(n, "%b\0", __b); n->contents;})
+#define cstring(__b) ({buffer n = little_stack_buffer(512); push_buffer(n, __b); push_u8(n, 0); n->contents;})
 

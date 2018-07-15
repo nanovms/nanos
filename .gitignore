@@ -28,3 +28,5 @@ examples/webg
 examples/fst
 stage3/frame_nasm.h
 image2
+mkfs/dump
+fs

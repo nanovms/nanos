@@ -60,27 +60,31 @@ void log_write(log tl, tuple t, thunk complete)
 }
 
 
-// tie initial entry to the filesystem root!
 CLOSURE_1_1(log_read_complete, void, log, status);
 void log_read_complete(log tl, status s)
 {
     buffer b = tl->staging;
     u8 frame = 0;
-    // something really strange is going on with the value of frame
+    // log extension
     for (; frame = pop_u8(b), frame == TUPLE_AVAILABLE;) {
         tuple t = decode_value(tl->h, tl->dictionary, b);
+        fsfile f;
         
+        // doesn't seem like all the incremental updates are handled here,
+        // nor the recursive case
         table_foreach(t, k, v) {
             if (k == sym(extents)) {
-                fsfile f;
                 if (!(f = table_find(tl->fs->extents, v))) {
                     f = allocate_fsfile(tl->fs, t);
                 }
-                // put in the fsfile extents tree! but why are they screwed up in the metadata?
+                table_set(tl->fs->extents, v, f);
             }
-            // oh, we did have to set things here, because indirect
         }
+
+        if ((f = table_find(tl->fs->extents, t))) 
+            table_foreach(t, off, e) extent_update(f, off, e);
     }
+    // something really strange is going on with the value of frame
     //    if (frame != END_OF_LOG) halt("bad log tag %p\n", frame);    
 }
 

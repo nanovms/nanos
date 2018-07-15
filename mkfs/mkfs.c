@@ -53,7 +53,7 @@ void perr(string s)
 // status
 void includedir(tuple dest, buffer path)
 {
-    DIR *d = opendir(cstring(dest));
+    DIR *d = opendir(cstring(path));
     struct dirent di, *dip;
     while (readdir_r(d, &di, &dip), dip) {
     }

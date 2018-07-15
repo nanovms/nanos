@@ -8,19 +8,24 @@ struct fsfile {
 
 
 // last is in file byte offset            
-static CLOSURE_4_2(fs_read_extent, void,
+static CLOSURE_4_3(fs_read_extent, void,
                    filesystem, buffer, u64 *, merge, 
-                   u64, u64);
+                   u64, u64, void *);
 static void fs_read_extent(filesystem fs,
                            buffer target,
                            u64 *last,
                            merge m,
                            u64 start,
-                           u64 length)
+                           u64 length,
+                           void *val)
 {
+    // offset within a block - these are just ranges
     status_handler f = apply(m);
+    // last != start
     if (*last != 0) zero(buffer_ref(target, *last), target->start - *last);
-    apply(fs->r, target, start, length, f);
+    *last = start + length;
+    target->end = *last;
+    apply(fs->r, buffer_ref(target, start), u64_from_pointer(val), length, f);
 }
 
 // actually need to return the length read?
@@ -46,10 +51,10 @@ void filesystem_read(filesystem fs, tuple t, void *dest, u64 offset, u64 length,
     rtrie_range_lookup(f->extents, offset, length, closure(h, fs_read_extent, f->fs, b, last, m));
 }
 
-static CLOSURE_3_2(fs_write_extent, void,
+static CLOSURE_3_3(fs_write_extent, void,
                    filesystem, buffer, merge, 
-                   u64, u64);
-static void fs_write_extent(filesystem fs, buffer target, merge m, u64 offset, u64 length)
+                   u64, u64, void *);
+static void fs_write_extent(filesystem fs, buffer target, merge m, u64 offset, u64 length, void *val)
 {
     buffer segment = target; // not really
     // if this doesn't lie on an alignment bonudary we may need to do a read-modify-write
@@ -115,7 +120,7 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, status_handl
         // presumably it would be possible to extend into multiple fragments
         u64 eoff = extend(f, *last, len);
         if (eoff != u64_from_pointer(INVALID_ADDRESS))
-            fs_write_extent(fs, b, m, eoff, elen);
+            fs_write_extent(fs, b, m, *last, elen, pointer_from_u64(eoff));
     }
 }
 
@@ -162,20 +167,20 @@ static void read_entire_complete(buffer_handler bh, buffer b, status s)
 }
 
 
-void extent_update(filesystem fs, tuple t, symbol a, tuple value)
+// translate symbolic to range trie
+void extent_update(fsfile f, symbol foff, tuple value)
 {
-    rtrie e = table_find(fs->extents, t);
-    buffer lengtht = table_find(value, sym(length));
-    buffer offsett = table_find(value, sym(offset));
+    buffer lengtht = alloca_wrap(table_find(value, sym(length)));
+    buffer offsett = alloca_wrap(table_find(value, sym(offset)));
     u64 length, foffset, boffset;
-    parse_int(symbol_string(a), 10, &foffset);
+    parse_int(alloca_wrap(symbol_string(foff)), 10, &foffset);
     parse_int(lengtht, 10, &length);
     parse_int(offsett, 10, &boffset);
-    rtrie_insert(e, foffset, length, pointer_from_u64(boffset));
-    rtrie_remove(fs->free, boffset, length);
+    rtrie_insert(f->extents, foffset, length, pointer_from_u64(boffset));
+    rtrie_remove(f->fs->free, boffset, length);
 }
 
-
+// cache goes on top
 void filesystem_read_entire(filesystem fs, tuple t, heap h, buffer_handler c)
 {
     fsfile f;
@@ -183,8 +188,7 @@ void filesystem_read_entire(filesystem fs, tuple t, heap h, buffer_handler c)
         apply(c, 0);
         return;
     }
-    // cache goes on top
-    buffer b = allocate(h, file_length(f));
+    buffer b = allocate_buffer(h, file_length(f));
     // that means a partial read, right?
     u64 *last = allocate_zero(f->fs->h, sizeof(u64));
     merge m = allocate_merge(h, closure(h, read_entire_complete, c, b));

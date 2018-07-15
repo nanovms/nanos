@@ -4,7 +4,7 @@ force:
 
 ROOT = .
 
-image: net/lwip force
+image: net/lwip force 
 	make -f image.mk image
 
 net/lwip:

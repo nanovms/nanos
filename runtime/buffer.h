@@ -31,6 +31,8 @@ static inline char peek_char(buffer b)
   b;\
   })
 
+#define alloca_wrap(__z) alloca_wrap_buffer(buffer_ref(__z, 0), buffer_length(__z))
+
 #define byte(__b, __i) *(u8 *)((__b)->contents + (__b)->start + (__i))
 
 static inline void buffer_clear(buffer b)
