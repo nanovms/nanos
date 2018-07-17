@@ -20,17 +20,14 @@ _start:
         jmp centry
 
 # try to fix the asm inline for this        
-global disktarget
-disktarget:     dd 0 
 global diskcopy
 diskcopy:
         push edi
-        mov edi, [disktarget]
+        mov edi, [esp + 8]
         mov dx, 0x1f0
-        mov ecx, 256
+        mov ecx, 0x80           ; 512 / 4
         cld
         rep insd
-        mov [disktarget], edi
         pop edi
         ret
 

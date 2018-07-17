@@ -17,7 +17,6 @@ symbol intern_u64(u64 u)
 symbol intern(string name)
 {
     symbol s;
-
     if (!(s= table_find(symbols, name))){
         buffer b = allocate_buffer(sheap, buffer_length(name));
         push_buffer(b, name);

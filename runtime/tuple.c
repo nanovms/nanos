@@ -1,6 +1,6 @@
 #include <runtime.h>
 
-heap theap;
+static heap theap;
 
 // use runtime tags directly?
 #define type_tuple 1
@@ -82,7 +82,7 @@ value decode_value(heap h, tuple dictionary, buffer source)
             t = table_find(dictionary, pointer_from_u64(e));
             if (!t) halt("indrect entry not found %d", e);
         }
-        
+
         for (int i = 0; i < len ; i++) {
             u8 nametype, valuetype;
             // nametype is always buffer. can we use that bit?

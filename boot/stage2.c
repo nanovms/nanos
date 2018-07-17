@@ -4,21 +4,26 @@
 
 extern void run64(u32 entry);
 
-// there are a few of these little allocators
-u64 working = 0x1000;
+//we think this is above the stack we're currently running on, and
+// that it runs right up to the boot block load address at 0x7c00,
+// so 27kB
+u64 working = 0x1000; 
+
 
 static u64 stage2_allocator(heap h, bytes b)
 {
+    // tag requires 4 byte aligned addresses
     u64 result = working;
-    working += b;
-    return working;
+    working += pad(b, 4);
+    return result;
 }
 
-static CLOSURE_0_4(stage2_read_disk, void, void *, u64, u64, status_handler);
-static void stage2_read_disk(void *dest, u64 offset, u64 length, status_handler completion)
+static CLOSURE_1_4(stage2_read_disk, void, u64, void *, u64, u64, status_handler);
+static void stage2_read_disk(u64 base, void *dest, u64 offset, u64 length, status_handler completion)
 {
-    // add offset
-    read_sectors(dest, offset, length);
+    u32 k, z;
+
+    read_sectors(dest, base+offset, length);
     apply(completion, STATUS_OK);
 }
 
@@ -30,15 +35,15 @@ static void stage2_empty_write(buffer b, u64 offset, status_handler completion)
 CLOSURE_2_1(kernel_read_complete, void, heap, heap, buffer);
 void kernel_read_complete(heap physical, heap working, buffer kb)
 {
+    console("kernel read complete\n");
     // move this to the end of memory or the beginning of the pci gap
     // (under the begining of the kernel)
     u64 identity_start = 0x100000;
     u64 identity_length = 0x300000;
 
     // move identity before kernel buffer?
+    create_region(identity_start, identity_length, REGION_IDENTITY);    
     heap pages = region_allocator(working, PAGESIZE, REGION_IDENTITY);
-
-    create_region(identity_start, identity_length, REGION_IDENTITY);
 
     // just throw out the bios area up to 1M
     for_regions(e) {
@@ -69,6 +74,7 @@ typedef struct tagged_allocator {
     
 static u64 tagged_allocate(heap h, bytes length)
 {
+    
     tagged_allocator ta = (void *)h;
     u64 base = allocate_u64(ta->parent, length);
     return base | ta->tag;
@@ -77,6 +83,7 @@ static u64 tagged_allocate(heap h, bytes length)
 heap allocate_tagged_region(heap h, u64 tag)
 {
     tagged_allocator ta = allocate(h, sizeof(struct tagged_allocator));
+    ta->h.alloc = tagged_allocate;
     ta->tag = tag;
     ta->parent = h;
     return (heap)ta;
@@ -85,26 +92,37 @@ heap allocate_tagged_region(heap h, u64 tag)
 // consider passing region area as argument to disperse magic
 void centry()
 {
+    // need to init runtime
     struct heap workings;
     workings.alloc = stage2_allocator;
-    tuple root;
+    init_runtime(&workings);
+    void *x = allocate(&workings, 10);
+    tuple root = allocate_tuple();
 
     // read from the filesystem?
     u64 identity_start = 0x100000;
     u64 identity_length = 0x300000;
     
-    console("stage2\n");
+    u64 fsbase = 0;
+    for_regions(r) 
+        if (region_type(r) == REGION_FILESYSTEM) fsbase = region_base(r);
 
     heap physical = region_allocator(&workings, PAGESIZE, REGION_PHYSICAL);
-    create_region(identity_start, identity_length, REGION_FILESYSTEM);    
+    create_region(identity_start, identity_length, REGION_IDENTITY);
+    if (fsbase == 0) {
+        halt("invalid filesystem offset\n");
+    }
+    
+
     filesystem fs = create_filesystem(&workings,
                                       512,
                                       2*1024*1024, // fix,
-                                      closure(&workings, stage2_read_disk),
+                                      closure(&workings, stage2_read_disk, fsbase),
                                       closure(&workings, stage2_empty_write),
                                       root);
 
     filesystem_read_entire(fs, lookup(root, sym(kernel)),
                            physical, 
                            closure(&workings, kernel_read_complete, physical, &workings));
+    rprintf("shouldn't arrive\n");
 }

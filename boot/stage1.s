@@ -19,10 +19,6 @@ init:
 	mov ah,0
 	mov al,0xe3  		; 9600 baud, 8N1
 
-        mov al, 0x21
-        mov dx,  0x3f8
-        out dx, al        
-        
 	mov dx,0
 	int 0x14
         
@@ -134,7 +130,7 @@ dap:
         .sector      dd 1
         .sectorm     dd 0
         
-        times 512-20 - ($-$$) db 0           
+        times 512-22 - ($-$$) db 0           
 ;;;  entries start
 entries:
 ;; tell stage2 what its size on disk is so we can find the filesystem
@@ -143,7 +139,7 @@ entries:
 fsentry:
         dq STAGE1SIZE + STAGE2SIZE
         dq 0
-        dw fsregion
+        dd fsregion
         
 ;;  mbr signature        
         dw 0xAA55             

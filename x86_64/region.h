@@ -5,7 +5,7 @@ typedef regionbody *region;
 #define for_regions(__r) for (region __r = regions; region_type(__r);__r -= 1)
 
 // see stage2.s - pass from Makefile? argument?
-#define region_start (0x7dfe)
+#define region_start 0x7dfe
 
 #define region_base(__r) (((u64 *)__r)[0])
 #define region_length(__r) (((u64 *)__r)[1])

@@ -20,5 +20,3 @@ fsfile allocate_fsfile(filesystem fs, tuple md);
 // per-file flush
 void flush(filesystem fs, status_handler s);
 
-// this should have an extension record
-#define INITIAL_LOG_SEGMENT 1024*1024

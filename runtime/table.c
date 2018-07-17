@@ -10,12 +10,13 @@ static void allocate_buckets(table t)
 table allocate_table(heap h, u64 (*key_function)(void *x), boolean (*equals_function)(void *x, void *y))
 {
     table new = allocate(h, sizeof(struct table));
-    new->h = h;
-    new->count = 0;
-    new->buckets = 4;
-    allocate_buckets(new);
-    new->key_function = key_function;
-    new->equals_function = equals_function;
+    table t = valueof(new);
+    t->h = h;
+    t->count = 0;
+    t->buckets = 4;
+    allocate_buckets(t);
+    t->key_function = key_function;
+    t->equals_function = equals_function;
     return(new);
 }
 
@@ -82,7 +83,7 @@ void table_set (table z, void *c, void *v)
     key k = t->key_function(c);
     key p = position(t, k);
     entry *e = t->entries + p;
-
+    
     for (; *e; e = &(*e)->next)
         if (((*e)->k == k) && t->equals_function((*e)->c, c)) {
             if (v == EMPTY) {
