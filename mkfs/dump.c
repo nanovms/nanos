@@ -19,6 +19,8 @@ static void bread(descriptor d, void *dest, u64 offset, u64 length, status_handl
     int xfer, total = 0;
     while (total < length) {
         xfer = pread(d, dest + total , length - total, offset + total);
+        if (xfer == 0) apply(c, timm("premature end of file"));
+        rprintf  ("pread %d %d %d %d %d\n", length-total, offset+total, xfer, total, length);
         if (xfer == -1) apply(c, timm("read-error", "%E", errno));
         total += xfer;
     }

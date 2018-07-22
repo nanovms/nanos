@@ -225,9 +225,10 @@ static inline boolean buffer_compare(void *za, void *zb)
     buffer b = zb;
     int len = buffer_length(a);
     if (len != buffer_length(b)) return false;
-    for (int i = 0 ; i < len; i++) 
+    for (int i = 0 ; i < len; i++) {
         if (byte(a, i) != byte(b, i))
             return false;
+    }
     return true;
 }
 

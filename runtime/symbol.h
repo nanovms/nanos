@@ -1,4 +1,4 @@
-extern void init_symbols(heap h);
+extern void init_symbols(heap h, heap init);
 typedef struct symbol *symbol;
 symbol intern(buffer);
 symbol intern_u64(u64);

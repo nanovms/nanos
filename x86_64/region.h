@@ -17,18 +17,15 @@ typedef regionbody *region;
 #define REGION_VIRTUAL 3  // marks allocated instead of available regions
 #define REGION_IDENTITY 4 // use for page tables
 #define REGION_FILESYSTEM 5 // offset on disk for the filesystem, see if we can get disk info from the bios
-#define REGION_FREE 6
 
 static inline region create_region(u64 base, u64 length, int type)
 {
-    for_regions(e){
-        if (!region_type(e)) {
-            region_type(e) = type;
-            region_base(e) = base;
-            region_length(e) = length;
-            return e;
-        }
-    }
+    region r = regions;
+    for (;region_type(r);r -= 1);
+    region_type(r) = type;
+    region_base(r) = base;
+    region_length(r) = length;
+    return r;
 }
 
 typedef struct region_heap {
@@ -37,15 +34,23 @@ typedef struct region_heap {
 } *region_heap;
 
 
-// fix complexity
+// fix complexity - rtrie
 static inline u64 allocate_region(heap h, bytes size)
 {
     region_heap rh = (region_heap)h;
     u64 len = pad(size, h->pagesize);
-    for_regions(e){    
+    for_regions(e){
         if ((region_type(e) == rh->type) &&       
             (region_length(e) >= len)) {
             u64 result = region_base(e);
+            console("region alloc ");
+            print_u64(u64_from_pointer(h));
+            console(" ");
+            print_u64(region_base(e));
+            console(" ");
+            print_u64(size);
+            console("\n");
+                        
             region_base(e) += size;
             region_length(e) -= size;
             return result;

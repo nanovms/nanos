@@ -88,10 +88,9 @@ void init_service_new_stack(heap pages, heap physical, heap backed, heap virtual
     start_interrupts(pages, misc, physical);
 
     tuple root = allocate_tuple();
-    // general runtime startup
+    init_runtime(backed);
     initialize_timers(misc);
     
-    init_symbols(misc);
     init_pci(misc);
 
     block_read in;

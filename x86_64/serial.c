@@ -17,7 +17,7 @@ static boolean is_transmit_empty() {
     return in8(BASE + 5) & 0x20;
 }
 
-void serial_out(char a)
+void serial_out(u8 a)
 {
     while (!is_transmit_empty());
     out8(BASE, a);

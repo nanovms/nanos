@@ -2,27 +2,22 @@
 
 #define EMPTY ((void *)0)
 
-static void allocate_buckets(table t)
-{
-    t->entries = allocate_zero(t->h, t->buckets * sizeof(void *));
-}
-
 table allocate_table(heap h, u64 (*key_function)(void *x), boolean (*equals_function)(void *x, void *y))
 {
     table new = allocate(h, sizeof(struct table));
     table t = valueof(new);
     t->h = h;
     t->count = 0;
-    t->buckets = 4;
-    allocate_buckets(t);
+    t->buckets = 64;
+    t->entries = allocate_zero(t->h, t->buckets * sizeof(void *));    
     t->key_function = key_function;
     t->equals_function = equals_function;
     return(new);
 }
 
-static inline key position(table t, key x)
+static inline key position(int buckets, key x)
 {
-    return(x&(t->buckets-1));
+    return(x&(buckets-1));
 }
 
 
@@ -31,49 +26,30 @@ void *table_find (table z, void *c)
     table t = valueof(z);
     key k = t->key_function(c);
 
-    for (entry i = t->entries[position(t, k)];
-         i; i = i->next)
+    for (entry i = t->entries[position(t->buckets, k)]; i; i = i->next){
         if ((i->k == k) && t->equals_function(i->c, c))
             return(i->v);
-
+    }
     return(EMPTY);
 }
 
-void *table_find_key (table t, void *c, void **kr)
+static void resize_table(table z, int buckets)
 {
-    key k = t->key_function(c);
+    table t = valueof(z);
+    entry *nentries = allocate_zero(t->h, buckets * sizeof(void *));        
 
-    for (entry i = t->entries[position(t, k)];
-         i; i = i->next)
-        if ((i->k == k) && t->equals_function(i->c, c)){
-            *kr = i->c;
-            return(i->v);
-        }
-
-    return(EMPTY);
-}
-
-
-static void resize_table(table t, int buckets)
-{
-    entry *old_entries = t->entries;
-    key km;
-    int old_buckets = t->buckets;
-
-    t->buckets = buckets;
-    allocate_buckets(t);
-
-    for(int i = 0; i<old_buckets; i++){
-        entry j = old_entries[i];
-        
+    for(int i = 0; i<t->buckets; i++){
+        entry j = t->entries[i];
         while(j) {
             entry n = j->next;
-            km = position(t, j->k);
-            j->next = t->entries[km];
-            t->entries[km] = j;
+            key km = position(buckets, j->k);
+            j->next = nentries[km];
+            nentries[km] = j;
             j = n;
         }
     }
+    t->entries = nentries;
+    t->buckets = buckets;
 }
 
 
@@ -81,7 +57,7 @@ void table_set (table z, void *c, void *v)
 {
     table t = valueof(z);
     key k = t->key_function(c);
-    key p = position(t, k);
+    key p = position(t->buckets, k);
     entry *e = t->entries + p;
     
     for (; *e; e = &(*e)->next)
@@ -97,6 +73,7 @@ void table_set (table z, void *c, void *v)
 
     if (v != EMPTY) {
         entry n = allocate(t->h, sizeof(struct entry));
+
         n->k = k;
         n->c = c; 
         n->v = v;

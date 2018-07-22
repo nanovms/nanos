@@ -1,8 +1,8 @@
 #include <runtime.h>
 
-#ifndef BITS32
-void print_tuple(buffer b, tuple t)
+void print_tuple(buffer b, tuple z)
 {
+    table t = valueof(z);
     boolean sub = false;
     bprintf(b, "(");
     table_foreach(t, n, v) {
@@ -10,6 +10,7 @@ void print_tuple(buffer b, tuple t)
             push_character(b, ' ');
         }
         bprintf(b, "%b:", symbol_string((symbol)n));
+        // xxx print value
         if (tagof(v) == tag_tuple) {
             print_tuple(b, v);
         } else {
@@ -20,14 +21,14 @@ void print_tuple(buffer b, tuple t)
     bprintf(b, ")");
 }
 
-static void format_tuple(buffer dest, buffer fmt, vlist v)
+static void format_tuple(buffer dest, buffer fmt, vlist *v)
 {
-    print_tuple(dest, varg(v, tuple));
+    print_tuple(dest, varg(*v, tuple));
 }
 
-static void format_value(buffer dest, buffer fmt, vlist v)
+static void format_value(buffer dest, buffer fmt, vlist *v)
 {
-    value x = varg(v, value);
+    value x = varg(*v, value);
     switch(tagof(x)) {
     case tag_tuple:
         print_tuple(dest, (tuple)x);
@@ -45,11 +46,21 @@ static void format_value(buffer dest, buffer fmt, vlist v)
         break;
     }
 }
-#endif
+
+
+static void format_cstring(buffer dest, buffer fmt, vlist *a)
+{
+    char *c = varg(*a, char *);
+    if (!c) c = (char *)"(null)";
+    int len = runtime_strlen(c);
+    buffer_write(dest, c, len);    
+}
+
 
 void init_extra_prints()
 {
     register_format('t', format_tuple);
     register_format('v', format_value);
+    register_format('s', format_cstring);    
 }
 

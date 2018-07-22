@@ -19,12 +19,14 @@ static void fs_read_extent(filesystem fs,
                            u64 length,
                            void *val)
 {
-    // offset within a block - these are just ranges
+    rprintf("fs read extent %p %p\n", start, length);
+    // offset within a block - these are just the extents, so might be a sub
     status_handler f = apply(m);
     // last != start
     if (*last != 0) zero(buffer_ref(target, *last), target->start - *last);
     *last = start + length;
     target->end = *last;
+    rprintf("reading\n");
     apply(fs->r, buffer_ref(target, start), u64_from_pointer(val), length, f);
 }
 
@@ -146,6 +148,7 @@ u64 file_length(fsfile f)
 
 fsfile allocate_fsfile(filesystem fs, tuple md)
 {
+    rprintf("allocate fsfile %p\n", md);
     fsfile f = allocate(fs->h, sizeof(struct fsfile));
     f->extents = rtrie_create(fs->h);
     f->fs = fs;
@@ -177,7 +180,7 @@ void extent_update(fsfile f, symbol foff, tuple value)
     parse_int(lengtht, 10, &length);
     parse_int(offsett, 10, &boffset);
     rtrie_insert(f->extents, foffset, length, pointer_from_u64(boffset));
-    rtrie_remove(f->fs->free, boffset, length);
+    //    rtrie_remove(f->fs->free, boffset, length); - stage2 removal
 }
 
 // cache goes on top
@@ -185,10 +188,13 @@ void filesystem_read_entire(filesystem fs, tuple t, heap h, buffer_handler c)
 {
     fsfile f;
     if (!(f = table_find(fs->files, t))) {
+        rprintf("no such file %p\n", t);
         apply(c, 0);
         return;
     }
     buffer b = allocate_buffer(h, file_length(f));
+    rprintf("read dest buffer %p\n", u64_from_pointer(b->contents));
+    rprintf("file length %d\n", file_length(f));
     // that means a partial read, right?
     u64 *last = allocate_zero(f->fs->h, sizeof(u64));
     merge m = allocate_merge(h, closure(h, read_entire_complete, c, b));

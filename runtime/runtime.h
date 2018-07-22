@@ -172,3 +172,4 @@ extern status_handler ignore_status;
 // fix transient - also should be legit to use the space between end and length w/o penalty
 #define cstring(__b) ({buffer n = little_stack_buffer(512); push_buffer(n, __b); push_u8(n, 0); n->contents;})
 
+extern heap transient;

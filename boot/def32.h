@@ -33,20 +33,32 @@ static inline void *valueof(void *v)
 
 #define DIV(__x, __by, __q, __r)\
  {\
-     register int a asm("eax");\
-     register int d asm("edx");\
-     register int c asm("ecx");\
-     a = __x;\
+     volatile register unsigned int a asm("eax");\
+     volatile register unsigned int b asm("ebx");\
+     volatile register unsigned int c asm("ecx");\
+     volatile register unsigned int d asm("edx");\
+     a = __x>>32;\
+     b = x;\
      c = __by;\
      d = 0;\
-     asm("div %ecx");\
-     __q = a;\
+     asm("div %%ecx":"=r"(a), "=r"(d): "r"(a),"r"(d),"r"(c));\
+     asm("xchg %%ebx, %%eax": "=r"(a),"=r"(b): "r"(a),"r"(b));\
+     asm("div %%ecx":"=r"(a), "=r"(d): "r"(a),"r"(d),"r"(c)); \
+     __q = a|(((u64)b)<<32);                                  \
      __r = d;\
  }
 
 void print_number(buffer s, u64 x, int base, int pad);
-static inline void format_pointer(buffer dest, buffer fmt, vlist a)
+static inline void format_pointer(buffer dest, buffer fmt, vlist *a)
 {
-    u64 x = varg(a, u64);
-    print_number(dest, x, 10, 8);
+    u64 x = varg(*a, u32);
+    print_number(dest, x, 16, 8);
 }
+
+static void format_number(buffer dest, buffer fmt, vlist *a)
+{
+    // ehh - move to def
+    u64 x = varg(*a, u32);
+    print_number(dest, x, 10, 1);
+}
+

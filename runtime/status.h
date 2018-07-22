@@ -5,7 +5,7 @@ typedef closure_type(status_handler, void, status);
 // initialize..transient?
 extern heap errheap;
 
-static inline void timm_term(table t, char *n, vlist a)
+static inline void timm_term(table t, char *n, vlist *a)
 {
     symbol k = intern(alloca_wrap_buffer(n, runtime_strlen(n)));
     char *f = varg(a, char *);
@@ -24,9 +24,9 @@ static inline tuple timm_internal(char *first, ...)
     // deal with the mandatory first argument
     if (first != INVALID_ADDRESS) {
         char *n; 
-        timm_term(t, first, e);
+        timm_term(t, first, &e);
         while((n = varg(e, char *)) != INVALID_ADDRESS)  
-            timm_term(t, n, e);
+            timm_term(t, n, &e);
     }
     return t;
 }

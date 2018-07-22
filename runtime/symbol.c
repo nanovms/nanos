@@ -1,6 +1,7 @@
 #include <runtime.h>
 static table symbols;
 static heap sheap;
+static heap iheap;
 
 struct symbol {
     string s;
@@ -17,16 +18,18 @@ symbol intern_u64(u64 u)
 symbol intern(string name)
 {
     symbol s;
-    if (!(s= table_find(symbols, name))){
-        buffer b = allocate_buffer(sheap, buffer_length(name));
+    table s2 = ((table)valueof(symbols));
+    if (!(s=table_find(symbols, name))){
+        // shouldnt really be on transient
+        buffer b = allocate_buffer(iheap, buffer_length(name));
         push_buffer(b, name);
         s = allocate(sheap, sizeof(struct symbol));
-        s->k = random_u64();
-        s->s = b;
-        table_set(symbols, s->s, s);
-        s = tag(s, tag_symbol);
+        symbol n = valueof(s);
+        n->k = random_u64();
+        n->s = b;
+        table_set(symbols, b, s);
     }
-    return s;
+    return valueof(s);
 }
 
 string symbol_string(symbol s)
@@ -47,9 +50,10 @@ key key_from_symbol(void *z)
 }
 
 
-void init_symbols(heap h)
+void init_symbols(heap h, heap init)
 {
     sheap = h;
-    symbols = allocate_table(h, fnv64, buffer_compare);
+    iheap = init;    
+    symbols = allocate_table(iheap, fnv64, buffer_compare);
 }
 

@@ -1,7 +1,7 @@
 
-extern void vbprintf(buffer s, buffer fmt, vlist ap);
+extern void vbprintf(buffer s, buffer fmt, vlist *ap);
 
-typedef void (*formatter)(buffer, buffer, vlist ap);
+typedef void (*formatter)(buffer, buffer, vlist *ap);
 void register_format(character c, formatter f);
 // indent?
 
@@ -11,7 +11,7 @@ static inline buffer aprintf(heap h, char *fmt, ...)
     vlist ap;
     buffer f = alloca_wrap_buffer(fmt, runtime_strlen(fmt));
     vstart (ap, fmt);
-    vbprintf(b, f, ap);
+    vbprintf(b, f, &ap);
     vend(ap);
     return(b);
 }
@@ -20,7 +20,7 @@ static inline void bbprintf(buffer b, buffer fmt, ...)
 {
     vlist ap;
     vstart(ap, fmt);
-    vbprintf(b, fmt, ap);
+    vbprintf(b, fmt, &ap);
     vend(ap);
 }
 
@@ -29,7 +29,7 @@ static inline void bprintf(buffer b, char *fmt, ...)
     vlist ap;
     buffer f = alloca_wrap_buffer(fmt, runtime_strlen(fmt));
     vstart (ap, fmt);
-    vbprintf(b, f, ap);
+    vbprintf(b, f, &ap);
     vend(ap);
 }
 
@@ -51,6 +51,6 @@ static inline void rprintf(char *format, ...)
     f.end = runtime_strlen(format);
     
     vstart(a, format);
-    vbprintf(&b, &f, a);
+    vbprintf(&b, &f, &a);
     debug(&b);
 }

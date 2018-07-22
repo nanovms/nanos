@@ -10,7 +10,7 @@ static inline void haltf(char *f, ...)
     buffer b = little_stack_buffer(2048);
     vlist ap;
     vstart (ap, f);
-    vbprintf(b, bf,  ap);
+    vbprintf(b, bf,  &ap);
     debug(b->contents);
     QEMU_HALT();
 }

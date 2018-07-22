@@ -71,9 +71,10 @@ value decode_value(heap h, tuple dictionary, buffer source)
     u8 type;
     boolean imm;
     u64 len = pop_header(source, &imm, &type);
-    
+
     if (type == type_tuple) {
         tuple t;
+    
         if (imm == immediate) {
             t = allocate_tuple();
             drecord(dictionary, t);
@@ -89,18 +90,20 @@ value decode_value(heap h, tuple dictionary, buffer source)
             u64 nlen = pop_header(source, &imm, &nametype);
             symbol s;
             if (imm) {
-                buffer n = alloca_wrap_buffer(buffer_ref(source, 0), nlen);
-                drecord(dictionary, s = intern(n));
+                buffer n = wrap_buffer(transient, buffer_ref(source, 0), nlen);
+                s = intern(n);
+                drecord(dictionary, s);
                 source->start += nlen;                                
             } else {
                 s = table_find(dictionary, pointer_from_u64(nlen));
                 if (!s) rprintf("missing decode dictionary symbol %d\n", nlen);                
             }
-            table_set(t,s, decode_value(h, dictionary, source));
+            value nv = decode_value(h, dictionary, source);
+            table_set(t, s, nv);
         }
         return t;
     } else {
-        if (imm) {
+        if (imm == immediate) {
             // doesn't seem like we should always need to take a copy in all cases
             buffer b = allocate_buffer(h, len);
             buffer_write(b, buffer_ref(source, 0), len);

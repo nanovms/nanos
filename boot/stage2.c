@@ -22,7 +22,6 @@ static CLOSURE_1_4(stage2_read_disk, void, u64, void *, u64, u64, status_handler
 static void stage2_read_disk(u64 base, void *dest, u64 offset, u64 length, status_handler completion)
 {
     u32 k, z;
-
     read_sectors(dest, base+offset, length);
     apply(completion, STATUS_OK);
 }
@@ -36,25 +35,20 @@ CLOSURE_2_1(kernel_read_complete, void, heap, heap, buffer);
 void kernel_read_complete(heap physical, heap working, buffer kb)
 {
     console("kernel read complete\n");
+
+    // read from the filesystem?
     // move this to the end of memory or the beginning of the pci gap
     // (under the begining of the kernel)
-    u64 identity_start = 0x100000;
     u64 identity_length = 0x300000;
-
-    // move identity before kernel buffer?
-    create_region(identity_start, identity_length, REGION_IDENTITY);    
+    u64 pmem = allocate_u64(physical, identity_length);
+    
     heap pages = region_allocator(working, PAGESIZE, REGION_IDENTITY);
 
-    // just throw out the bios area up to 1M
-    for_regions(e) {
-        if (region_base(e) < identity_start) region_type(e) = REGION_FREE; 
-        if (identity_start == region_base(e)) 
-            region_base(e) = identity_start + identity_length;
-    }
-
+    create_region(pmem, identity_length, REGION_IDENTITY);
+    
     void *vmbase = allocate_zero(pages, PAGESIZE);
     mov_to_cr("cr3", vmbase);
-    map(identity_start, identity_start, identity_length, pages);
+    map(pmem, pmem, identity_length, pages);
 
     // should drop this in stage3? ... i think we just need
     // service32 and the stack.. this doesn't show up in the e820 regions
@@ -63,6 +57,11 @@ void kernel_read_complete(heap physical, heap working, buffer kb)
     map(0, 0, 0xa000, pages);
 
     void *k = load_elf(kb, 0, pages, physical);
+
+    if (!k) {
+        halt("kernel elf parse failed\n");
+    }
+
     run64(u64_from_pointer(k));
 }
 
@@ -71,7 +70,7 @@ typedef struct tagged_allocator {
     u8 tag;
     heap parent;
 } *tagged_allocator;
-    
+
 static u64 tagged_allocate(heap h, bytes length)
 {
     
@@ -89,40 +88,68 @@ heap allocate_tagged_region(heap h, u64 tag)
     return (heap)ta;
 }
 
-// consider passing region area as argument to disperse magic
-void centry()
+void newstack(heap h, heap physical, u32 fsbase)
 {
-    // need to init runtime
-    struct heap workings;
-    workings.alloc = stage2_allocator;
-    init_runtime(&workings);
-    void *x = allocate(&workings, 10);
-    tuple root = allocate_tuple();
+    tuple root = allocate_tuple();    
 
-    // read from the filesystem?
-    u64 identity_start = 0x100000;
-    u64 identity_length = 0x300000;
+    filesystem fs = create_filesystem(h,
+                                      512,
+                                      2*1024*1024, // fix,
+                                      closure(h, stage2_read_disk, fsbase),
+                                      closure(h, stage2_empty_write),
+                                      root);
+
+    rprintf("filesystem read complete %v\n", root);
+    rprintf("filesystem read complete %v\n", lookup(root, sym(kernel)));    
     
-    u64 fsbase = 0;
+    filesystem_read_entire(fs, lookup(root, sym(kernel)),
+                           physical, 
+                           closure(h, kernel_read_complete, physical, h));
+    halt("shouldn't arrive\n");
+}
+
+u32 filesystem_base()
+{
+    u32 fsbase = 0;
     for_regions(r) 
         if (region_type(r) == REGION_FILESYSTEM) fsbase = region_base(r);
-
-    heap physical = region_allocator(&workings, PAGESIZE, REGION_PHYSICAL);
-    create_region(identity_start, identity_length, REGION_IDENTITY);
     if (fsbase == 0) {
         halt("invalid filesystem offset\n");
     }
+    return fsbase;
+}
+
+
+struct heap workings;
+
+extern void init_extra_prints();
+
+// consider passing region area as argument to disperse magic
+void centry()
+{
+    workings.alloc = stage2_allocator;
+    init_runtime(&workings);
+    void *x = allocate(&workings, 10);
+    u32 fsb = filesystem_base();
+
+        
+    // need to ignore the bios area and the area we're running in
+    // could reclaim stage2 before entering stage3
+    for_regions (r) {
+        if ((region_type(r) == REGION_PHYSICAL)  && (region_base(r) == 0)) {
+            region_base(r) = 0x7c00 + fsb;
+        }
+    }
     
-
-    filesystem fs = create_filesystem(&workings,
-                                      512,
-                                      2*1024*1024, // fix,
-                                      closure(&workings, stage2_read_disk, fsbase),
-                                      closure(&workings, stage2_empty_write),
-                                      root);
-
-    filesystem_read_entire(fs, lookup(root, sym(kernel)),
-                           physical, 
-                           closure(&workings, kernel_read_complete, physical, &workings));
-    rprintf("shouldn't arrive\n");
+    heap physical = region_allocator(&workings, PAGESIZE, REGION_PHYSICAL);
+    
+    // this can be trashed
+    u32 ss = 8192;
+    u32 s = allocate_u64(physical, ss);
+    s += ss - 4;
+    asm("mov %0, %%esp": :"g"(s));
+    rprintf ("stack: %p\n", s);
+    init_extra_prints(); //
+    
+    newstack(&workings, physical, fsb);
 }

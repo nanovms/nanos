@@ -106,7 +106,7 @@ static time rdtsc(void)
 }
 
 void init_clock(heap backed_virtual);
-void serial_out(char a);
+void serial_out(u8 a);
 
 boolean valiate_virtual(void *base, u64 length);
 
