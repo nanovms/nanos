@@ -7,27 +7,27 @@ struct fsfile {
 };
 
 
-// last is in file byte offset            
-static CLOSURE_4_3(fs_read_extent, void,
-                   filesystem, buffer, u64 *, merge, 
-                   u64, u64, void *);
+static CLOSURE_5_2(fs_read_extent, void,
+                   filesystem, buffer, u64 *, merge, range, 
+                   range, void *);
 static void fs_read_extent(filesystem fs,
                            buffer target,
                            u64 *last,
                            merge m,
-                           u64 start,
-                           u64 length,
+                           range q,
+                           range ex,
                            void *val)
 {
-    rprintf("fs read extent %p %p\n", start, length);
+    range i = range_intersection(q, ex);
+    rprintf("fs read extent (%p %p)\n", ex.start, ex.end);
     // offset within a block - these are just the extents, so might be a sub
     status_handler f = apply(m);
     // last != start
     if (*last != 0) zero(buffer_ref(target, *last), target->start - *last);
-    *last = start + length;
+    *last = q.end;
     target->end = *last;
-    rprintf("reading\n");
-    apply(fs->r, buffer_ref(target, start), u64_from_pointer(val), length, f);
+    rprintf("reading %p %p\n", f, *(void **)f);
+    apply(fs->r, buffer_ref(target, i.start), u64_from_pointer(val), range_span(i), f);
 }
 
 // actually need to return the length read?
@@ -39,29 +39,28 @@ void filesystem_read(filesystem fs, tuple t, void *dest, u64 offset, u64 length,
         apply(completion, e);
         return;
     }
-    // for temporary stuff we should have a freelist of pages and a trajectory
-    // policy
-    // cache
+
     heap h = fs->h;
     u64 min, max;
-    
     u64 *last = allocate_zero(f->fs->h, sizeof(u64));
     // b here is permanent - cache?
     buffer b = wrap_buffer(h, dest, length);
     merge m = allocate_merge(h, completion);
-    // wrap this in another ref so we dont vaccuously exit?
-    rtrie_range_lookup(f->extents, offset, length, closure(h, fs_read_extent, f->fs, b, last, m));
+
+    range total = irange(offset, offset+length);
+    rtrie_range_lookup(f->extents, total, closure(h, fs_read_extent, f->fs, b, last, m, total));
 }
 
-static CLOSURE_3_3(fs_write_extent, void,
-                   filesystem, buffer, merge, 
-                   u64, u64, void *);
-static void fs_write_extent(filesystem fs, buffer target, merge m, u64 offset, u64 length, void *val)
+// extend here
+static CLOSURE_4_2(fs_write_extent, void,
+                   filesystem, buffer, merge, u64 *, 
+                   range, void *);
+static void fs_write_extent(filesystem fs, buffer source, merge m, u64 *last, range x, void *val)
 {
-    buffer segment = target; // not really
+    buffer segment = source; // not really
     // if this doesn't lie on an alignment bonudary we may need to do a read-modify-write
     status_handler sh = apply(m);
-    apply(fs->w, segment, offset, sh);
+    apply(fs->w, segment, x.start, sh);
 }
 
 // wrap in an interface
@@ -114,15 +113,15 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, status_handl
         return;
     }
     merge m = allocate_merge(fs->h, completion);
-    rtrie_range_lookup(f->extents, offset, len, closure(h, fs_write_extent, f->fs, b, m));
-    // extend for last segment    .. this isn't enough, we may be filling in a hole
+    rtrie_range_lookup(f->extents, irange(offset, offset+len), closure(h, fs_write_extent, f->fs, b, m, last));
+    
     if (*last < (offset + len)) {
         u64 elen = (offset + len) - *last;
-        // out of space status
-        // presumably it would be possible to extend into multiple fragments
         u64 eoff = extend(f, *last, len);
-        if (eoff != u64_from_pointer(INVALID_ADDRESS))
-            fs_write_extent(fs, b, m, *last, elen, pointer_from_u64(eoff));
+        if (eoff != u64_from_pointer(INVALID_ADDRESS)) {
+            status_handler sh = apply(m);
+            apply(fs->w, wrap_buffer(transient, buffer_ref(b, *last), b->end - *last), eoff, sh);
+        }
     }
 }
 
@@ -163,6 +162,7 @@ void link(tuple dir, fsfile f, buffer name)
     log_write_eav(f->fs->tl, soft_create(f->fs, dir, sym(children)), intern(name), f->md, ignore);
 }
 
+// should be passing status to the client
 static CLOSURE_2_1(read_entire_complete, void, buffer_handler, buffer, status);
 static void read_entire_complete(buffer_handler bh, buffer b, status s)
 {
@@ -192,14 +192,18 @@ void filesystem_read_entire(filesystem fs, tuple t, heap h, buffer_handler c)
         apply(c, 0);
         return;
     }
-    buffer b = allocate_buffer(h, file_length(f));
-    rprintf("read dest buffer %p\n", u64_from_pointer(b->contents));
-    rprintf("file length %d\n", file_length(f));
+    // block read is aligning to the next sector
+    u64 len = pad(file_length(f), 512);
+    buffer b = allocate_buffer(h, len + 1024);
+
+    rprintf("read dest buffer %p cont %p\n", b->contents, c);
+    rprintf("file length %d\n", len);
     // that means a partial read, right?
+    status_handler c1 = closure(f->fs->h, read_entire_complete, c, b);
     u64 *last = allocate_zero(f->fs->h, sizeof(u64));
-    merge m = allocate_merge(h, closure(h, read_entire_complete, c, b));
+    merge m = allocate_merge(f->fs->h, c1);
     status_handler k = apply(m); // hold a reference until we're sure we've issued everything
-    rtrie_range_lookup(f->extents, 0, file_length(f), closure(h, fs_read_extent, fs, b, last, m));
+    rtrie_range_lookup(f->extents, irange(0, len), closure(h, fs_read_extent, fs, b, last, m, irange(0, len)));
     apply(k, STATUS_OK);
 }
 

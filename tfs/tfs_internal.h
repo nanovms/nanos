@@ -34,5 +34,6 @@ void log_flush(log tl);
 void flush(filesystem fs, status_handler);
     
 typedef closure_type(merge, status_handler);
+typedef closure_type(buffer_status, buffer, status);
 merge allocate_merge(heap h, status_handler completion);
 fsfile allocate_fsfile(filesystem fs, tuple md);

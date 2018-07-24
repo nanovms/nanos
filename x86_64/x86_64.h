@@ -114,7 +114,7 @@ boolean valiate_virtual(void *base, u64 length);
 char *interrupt_name(u64 code);
 char *register_name(u64 code);
 
-static inline u64 fetch_and_add(u64* variable, u64 value)
+static inline word fetch_and_add(word* variable, word value)
 {
     __asm__ volatile("lock; xadd %0, %1"
                      : "+r" (value), "+m" (*variable) // input+output

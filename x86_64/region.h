@@ -43,14 +43,6 @@ static inline u64 allocate_region(heap h, bytes size)
         if ((region_type(e) == rh->type) &&       
             (region_length(e) >= len)) {
             u64 result = region_base(e);
-            console("region alloc ");
-            print_u64(u64_from_pointer(h));
-            console(" ");
-            print_u64(region_base(e));
-            console(" ");
-            print_u64(size);
-            console("\n");
-                        
             region_base(e) += size;
             region_length(e) -= size;
             return result;

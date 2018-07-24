@@ -10,6 +10,7 @@ extern void run64(u32 entry);
 u64 working = 0x1000; 
 
 
+// xxx - should have a general wrapper/analysis thingly
 static u64 stage2_allocator(heap h, bytes b)
 {
     // tag requires 4 byte aligned addresses
@@ -34,18 +35,17 @@ static void stage2_empty_write(buffer b, u64 offset, status_handler completion)
 CLOSURE_2_1(kernel_read_complete, void, heap, heap, buffer);
 void kernel_read_complete(heap physical, heap working, buffer kb)
 {
-    console("kernel read complete\n");
+    rprintf ("kernel read complete %P\n", *(u64 *)buffer_ref(kb, 0));    
 
-    // read from the filesystem?
-    // move this to the end of memory or the beginning of the pci gap
-    // (under the begining of the kernel)
+    // should be the intersection of the empty physical and virtual
+    // up to some limit, 2M aligned
     u64 identity_length = 0x300000;
     u64 pmem = allocate_u64(physical, identity_length);
-    
+
     heap pages = region_allocator(working, PAGESIZE, REGION_IDENTITY);
 
     create_region(pmem, identity_length, REGION_IDENTITY);
-    
+
     void *vmbase = allocate_zero(pages, PAGESIZE);
     mov_to_cr("cr3", vmbase);
     map(pmem, pmem, identity_length, pages);
@@ -58,6 +58,7 @@ void kernel_read_complete(heap physical, heap working, buffer kb)
 
     void *k = load_elf(kb, 0, pages, physical);
 
+    rprintf("kernel loads %p\n", k);
     if (!k) {
         halt("kernel elf parse failed\n");
     }
@@ -99,7 +100,7 @@ void newstack(heap h, heap physical, u32 fsbase)
                                       closure(h, stage2_empty_write),
                                       root);
 
-    rprintf("filesystem read complete %v\n", root);
+    rprintf("filesystem read complete %v %v %v\n", root, h, physical);
     rprintf("filesystem read complete %v\n", lookup(root, sym(kernel)));    
     
     filesystem_read_entire(fs, lookup(root, sym(kernel)),

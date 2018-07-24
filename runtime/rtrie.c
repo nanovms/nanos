@@ -2,31 +2,9 @@
 
 #define pivot(r) (r).end
 #define child(__r, __v) ((__r)->children + (((1<<(__r)->pivot_bit) & (__v))?1:0))
-#define span(__r) (__r.end - __r.start)
 #define point_in_range(__r, __p) ((__p >= __r.start) && (__p < __r.end))
 
 // two trees? start and end?
-// [start, end)
-typedef struct range {
-    u64 start, end;
-} range;
-
-boolean empty(range a)
-{
-    return span(a) == 0;
-}
-
-boolean range_equal(range a, range b)
-{
-    return (a.start == b.start) && (a.end == b.end);
-}
-
-range intersect(range a, range b)
-{
-    range dest = {MAX(a.start, b.start), MIN(a.end, b.end)};
-    if (dest.end <= dest.start) dest = (range){0, 0};
-    return dest;
-}
 
 // (cut a b) -> (difference a (intersect a b))
 
@@ -36,8 +14,8 @@ static void cut(range from, range snip, range *d1, range *d2)
     *d1 = from; // empty intersection
     *d2 = (range){0, 0};
 
-    range i = intersect(from, snip);
-    if (!empty(i)) {
+    range i = range_intersection(from, snip);
+    if (!range_empty(i)) {
         if (i.start == from.start) {
             if (i.end == from.end) {
                 *d1 = (range){0, 0};
@@ -119,23 +97,23 @@ static void remove_internal(rtrie rt, rtnode *w, struct range k)
     range extra_k = (range){0, 0}, here, extra_here;    
     if (r) {
         range d1 = k, d2 = (range){0,0};        
-        range i = intersect(r->r, k);
-        if (!empty(i)) {
+        range i = range_intersection(r->r, k);
+        if (!range_empty(i)) {
             cut(k, i, &k, &extra_k);
             cut(r->r, i, &r->r, &extra_here);
 
             // dont always have to restructure
             if (pivot(here) != pivot(r->r)) {
                 delete_node(w);
-                if (!empty(here)) insert(&rt->root, r);
-                if (!empty(extra_here))
+                if (!range_empty(here)) insert(&rt->root, r);
+                if (!range_empty(extra_here))
                     rtrie_insert(rt, extra_here.start, extra_here.start - extra_here.end, r->value);
             }
         }
     }
-    if (!empty(k))
+    if (!range_empty(k))
         remove_internal(rt, child(*w, pivot(k)), k);
-    if (!empty(extra_k))
+    if (!range_empty(extra_k))
         remove_internal(rt, child(*w, pivot(extra_k)), extra_k);
 }
 
@@ -160,20 +138,20 @@ void *rtrie_lookup(rtrie r, u64 point)
     return n->value;
 }
 
-static void range_lookup(rtnode r, u64 point, u64 length, subrange s)
+static void range_lookup(rtnode r, range qrange, subrange s)
 {
     if (r) {
-        if (point_in_range(r->r, point))
-            apply(s, r->r.start, r->r.end - r->r.start, r->value);
-        // may be both
-        range_lookup(*child(r, point), point, length, s);
+        if (point_in_range(r->r, qrange.start))
+            apply(s, r->r, r->value);
+        // may be both end and start
+        range_lookup(*child(r, qrange.start), qrange, s);
     }
 }
 
 // ordered
-void rtrie_range_lookup(rtrie r, u64 start, u64 length, subrange s)
+void rtrie_range_lookup(rtrie r, range q, subrange s)
 {
-    range_lookup(r->root, start, length, s);
+    range_lookup(r->root, q, s);
 }
 
 
@@ -220,7 +198,7 @@ u64 rtrie_alloc_internal(rtrie root, rtnode *rn, u64 length)
          u64 result;
          if ((result = rtrie_alloc_internal(root, r->children, length))  != INVALID_PHYSICAL) return result;
          if ((result = rtrie_alloc_internal(root, r->children +1, length)) != INVALID_PHYSICAL) return result;
-         if (span(r->r)  > length) {
+         if (range_span(r->r)  > length) {
              u64 result = r->r.start;
              r->r.start += length;
              return result;
