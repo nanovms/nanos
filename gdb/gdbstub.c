@@ -296,7 +296,7 @@ static boolean handle_request(gdb g, buffer b, buffer output)
 }
 
 #define ASCII_CONTROL_C 0x03
-// not completely reassembling
+// not completely reassembling (meaning we dont handle fragments?)
 static CLOSURE_1_1(gdbserver_input, void, gdb, buffer);
 static void gdbserver_input(gdb g, buffer b)
 {

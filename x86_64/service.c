@@ -112,6 +112,7 @@ void init_service_new_stack(heap pages, heap physical, heap backed, heap virtual
 // init linker set
 void init_service()
 {
+    console("babby\n");
     struct heap bootstrap;
 
     bootstrap.alloc = bootstrap_alloc;
@@ -131,5 +132,4 @@ void init_service()
     stack_location += stack_size - 16;
     asm ("mov %0, %%rsp": :"m"(stack_location));
     init_service_new_stack(pages, physical, backed, virtual); 
-    // locals aren't really valid any more!
 }

@@ -19,6 +19,7 @@ static void contentsof(tuple n, buffer_handler bh)
         apply(bh, (buffer)v);
         return;
         break;
+    // should be gsi
     case tag_buffer_promise:
         apply((buffer_promise)v, bh);
         return;        

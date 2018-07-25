@@ -52,6 +52,7 @@ void *load_elf(buffer elf, u64 offset, heap pages, heap bss)
             u32 bss_size = p->p_memsz-p->p_filesz;            
             u64 initial_len = MIN(bss_size, pad(bss_start, PAGESIZE) - bss_start);
 
+            // there is a better approach now?
             vpzero(pointer_from_u64(bss_start), phy + p->p_filesz, initial_len);
 
             if (bss_size > initial_len) {

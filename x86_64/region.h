@@ -43,8 +43,8 @@ static inline u64 allocate_region(heap h, bytes size)
         if ((region_type(e) == rh->type) &&       
             (region_length(e) >= len)) {
             u64 result = region_base(e);
-            region_base(e) += size;
-            region_length(e) -= size;
+            region_base(e) += len;
+            region_length(e) -= len;
             return result;
         }
     }

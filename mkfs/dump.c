@@ -50,7 +50,8 @@ void readdir(filesystem fs, heap h, tuple w, buffer path)
                 readdir(fs, h, (tuple)vc, aprintf(h, "%b/%b", path, symbol_string((symbol)k)));
             }
         }
-        if (k == sym(extents)) filesystem_read_entire(fs, w, h, closure(h, write_file, path));
+        if (k == sym(extents))
+            filesystem_read_entire(fs, w, h, closure(h, write_file, path), (void *)ignore);
     }
 }
 

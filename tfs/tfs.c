@@ -19,14 +19,12 @@ static void fs_read_extent(filesystem fs,
                            void *val)
 {
     range i = range_intersection(q, ex);
-    rprintf("fs read extent (%p %p)\n", ex.start, ex.end);
     // offset within a block - these are just the extents, so might be a sub
     status_handler f = apply(m);
     // last != start
     if (*last != 0) zero(buffer_ref(target, *last), target->start - *last);
     *last = q.end;
     target->end = *last;
-    rprintf("reading %p %p\n", f, *(void **)f);
     apply(fs->r, buffer_ref(target, i.start), u64_from_pointer(val), range_span(i), f);
 }
 
@@ -77,24 +75,20 @@ static tuple soft_create(filesystem fs, tuple t, symbol a)
 
 static u64 extend(fsfile f, u64 foffset, u64 length)
 {
-    tuple e = allocate_tuple();
-    // timm!
-    table_set(e, sym(length), aprintf(f->fs->h, "%d", length));
+    tuple e = timm("length", "%d", length);
     
     u64 storage = allocate_u64(f->fs->storage, length);
     if (storage == u64_from_pointer(INVALID_ADDRESS)) {
         halt("out of storage");
     }
-    //    buffer off = allocate_buffer(f->fs->h, sizeof(u64));    
-    //    buffer_write_le64(off, storage);
-    //   we can(?) encode this as an immediate bitstring?
+    //  we should(?) encode this as an immediate bitstring?
     string off = aprintf(f->fs->h, "%d", storage);
     table_set(e, sym(offset), off);
 
     tuple exts = soft_create(f->fs, f->md, sym(extents));
     symbol offs = intern_u64(foffset);
     table_set(exts, offs, e);
-    log_write_eav(f->fs->tl, exts, offs, e, ignore); // merge
+    log_write_eav(f->fs->tl, exts, offs, e, ignore); 
     rtrie_insert(f->extents, foffset, length, pointer_from_u64(storage));
     return storage;
 }
@@ -147,7 +141,6 @@ u64 file_length(fsfile f)
 
 fsfile allocate_fsfile(filesystem fs, tuple md)
 {
-    rprintf("allocate fsfile %p\n", md);
     fsfile f = allocate(fs->h, sizeof(struct fsfile));
     f->extents = rtrie_create(fs->h);
     f->fs = fs;
@@ -173,38 +166,36 @@ static void read_entire_complete(buffer_handler bh, buffer b, status s)
 // translate symbolic to range trie
 void extent_update(fsfile f, symbol foff, tuple value)
 {
-    buffer lengtht = alloca_wrap(table_find(value, sym(length)));
-    buffer offsett = alloca_wrap(table_find(value, sym(offset)));
     u64 length, foffset, boffset;
     parse_int(alloca_wrap(symbol_string(foff)), 10, &foffset);
-    parse_int(lengtht, 10, &length);
-    parse_int(offsett, 10, &boffset);
+    parse_int(alloca_wrap(table_find(value, sym(length))), 10, &length);
+    parse_int(alloca_wrap(table_find(value, sym(offset))), 10, &boffset);
     rtrie_insert(f->extents, foffset, length, pointer_from_u64(boffset));
-    //    rtrie_remove(f->fs->free, boffset, length); - stage2 removal
+    // xxx - fix before write
+    //    rtrie_remove(f->fs->free, boffset, length);
 }
 
 // cache goes on top
-void filesystem_read_entire(filesystem fs, tuple t, heap h, buffer_handler c)
+// separate error continuation
+void filesystem_read_entire(filesystem fs, tuple t, heap h, buffer_handler c, status_handler e)
 {
     fsfile f;
-    if (!(f = table_find(fs->files, t))) {
-        rprintf("no such file %p\n", t);
+    if ((f = table_find(fs->files, t))) {
+        // block read is aligning to the next sector
+        u64 len = pad(file_length(f), 512);
+        buffer b = allocate_buffer(h, len + 1024);
+        
+        // that means a partial read, right?
+        status_handler c1 = closure(f->fs->h, read_entire_complete, c, b);
+        u64 *last = allocate_zero(f->fs->h, sizeof(u64));
+        merge m = allocate_merge(f->fs->h, c1);
+        status_handler k = apply(m); // hold a reference until we're sure we've issued everything
+        rtrie_range_lookup(f->extents, irange(0, len), closure(h, fs_read_extent, fs, b, last, m, irange(0, len)));
+        apply(k, STATUS_OK);
+    } else {
+        tuple e = timm("status", "no such file %v\n", t);
         apply(c, 0);
-        return;
     }
-    // block read is aligning to the next sector
-    u64 len = pad(file_length(f), 512);
-    buffer b = allocate_buffer(h, len + 1024);
-
-    rprintf("read dest buffer %p cont %p\n", b->contents, c);
-    rprintf("file length %d\n", len);
-    // that means a partial read, right?
-    status_handler c1 = closure(f->fs->h, read_entire_complete, c, b);
-    u64 *last = allocate_zero(f->fs->h, sizeof(u64));
-    merge m = allocate_merge(f->fs->h, c1);
-    status_handler k = apply(m); // hold a reference until we're sure we've issued everything
-    rtrie_range_lookup(f->extents, irange(0, len), closure(h, fs_read_extent, fs, b, last, m, irange(0, len)));
-    apply(k, STATUS_OK);
 }
 
 void flush(filesystem fs, status_handler s)

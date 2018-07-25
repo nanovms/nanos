@@ -56,7 +56,7 @@ void log_write(log tl, tuple t, thunk complete)
     // this should be incremental on root!
     encode_tuple(tl->staging, tl->dictionary, t);
     vector_push(tl->completions, complete);
-    // flush
+    // flush conditionally?
 }
 
 
@@ -66,7 +66,6 @@ void log_read_complete(log tl, status s)
     buffer b = tl->staging;
     u8 frame = 0;
     // log extension
-    rprintf ("log read complete\n");
     for (; frame = pop_u8(b), frame == TUPLE_AVAILABLE;) {
         tuple t = decode_value(tl->h, tl->dictionary, b);
         
@@ -89,10 +88,6 @@ void log_read_complete(log tl, status s)
     //    if (frame != END_OF_LOG) halt("bad log tag %p\n", frame);    
 }
 
-
-// deferring log extension -- should be a segment
-// by convention, the first tuple (which always
-// has a relative id 0) is the root
 void read_log(log tl, u64 offset, u64 size)
 {
     tl->staging = allocate_buffer(tl->h, size);
@@ -115,12 +110,9 @@ log log_create(heap h, filesystem fs)
     // log root onto the given root
     table logroot = (table)table_find(tl->dictionary, pointer_from_u64(1));
 
-    if (logroot){
-        rprintf ("logroot: %d\n", tagof(logroot));
-        table_foreach (logroot, k, v) {
+    if (logroot)
+        table_foreach (logroot, k, v) 
             table_set(fs->root, k, v);
-        }
-    }
     
     return tl;
 }

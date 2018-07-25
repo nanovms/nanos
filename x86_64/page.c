@@ -144,13 +144,13 @@ void map(u64 virtual, physical p, int length, heap h)
     u64 po = p;
     page pb = pagebase();
 
-    console("map: ");
+    /*   console("map: ");
     print_u64(virtual);
     console(" ");
     print_u64(p);
     console(" ");
     print_u64(length);              
-    console("\n");
+    console("\n");*/
 
     for (int i = 0; i < len;) {
         int off = 1<<12;

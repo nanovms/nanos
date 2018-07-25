@@ -32,11 +32,16 @@ static void stage2_empty_write(buffer b, u64 offset, status_handler completion)
 {
 }
 
-CLOSURE_2_1(kernel_read_complete, void, heap, heap, buffer);
-void kernel_read_complete(heap physical, heap working, buffer kb)
+CLOSURE_0_1(fail, void, status);
+void fail(status s)
 {
-    rprintf ("kernel read complete %P\n", *(u64 *)buffer_ref(kb, 0));    
+    halt("%v", s);
+}
 
+            
+CLOSURE_4_1(kernel_read_complete, void, heap, heap, u64, u32, buffer);
+void kernel_read_complete(heap physical, heap working, u64 stack, u32 stacklen, buffer kb)
+{
     // should be the intersection of the empty physical and virtual
     // up to some limit, 2M aligned
     u64 identity_length = 0x300000;
@@ -49,20 +54,22 @@ void kernel_read_complete(heap physical, heap working, buffer kb)
     void *vmbase = allocate_zero(pages, PAGESIZE);
     mov_to_cr("cr3", vmbase);
     map(pmem, pmem, identity_length, pages);
+    // going to some trouble to set this up here, but its barely
+    // used in stage3
+    map(stack, stack, (u64)stacklen, pages);
 
     // should drop this in stage3? ... i think we just need
     // service32 and the stack.. this doesn't show up in the e820 regions
     // stack is currently in the first page, so lets leave it mapped
     // and take it out later...ideally move the stack here
+    // could put the stack at the top of the page region?
     map(0, 0, 0xa000, pages);
 
     void *k = load_elf(kb, 0, pages, physical);
 
-    rprintf("kernel loads %p\n", k);
     if (!k) {
         halt("kernel elf parse failed\n");
     }
-
     run64(u64_from_pointer(k));
 }
 
@@ -89,10 +96,9 @@ heap allocate_tagged_region(heap h, u64 tag)
     return (heap)ta;
 }
 
-void newstack(heap h, heap physical, u32 fsbase)
+void newstack(heap h, heap physical, u32 fsbase, u64 stack, u32 stacklength)
 {
     tuple root = allocate_tuple();    
-
     filesystem fs = create_filesystem(h,
                                       512,
                                       2*1024*1024, // fix,
@@ -100,13 +106,12 @@ void newstack(heap h, heap physical, u32 fsbase)
                                       closure(h, stage2_empty_write),
                                       root);
 
-    rprintf("filesystem read complete %v %v %v\n", root, h, physical);
-    rprintf("filesystem read complete %v\n", lookup(root, sym(kernel)));    
-    
     filesystem_read_entire(fs, lookup(root, sym(kernel)),
                            physical, 
-                           closure(h, kernel_read_complete, physical, h));
-    halt("shouldn't arrive\n");
+                           closure(h, kernel_read_complete, physical, h, stack, stacklength),
+                           closure(h, fail));
+    
+    halt("kernel failed to execute\n");
 }
 
 u32 filesystem_base()
@@ -132,14 +137,12 @@ void centry()
     init_runtime(&workings);
     void *x = allocate(&workings, 10);
     u32 fsb = filesystem_base();
-
         
     // need to ignore the bios area and the area we're running in
     // could reclaim stage2 before entering stage3
     for_regions (r) {
-        if ((region_type(r) == REGION_PHYSICAL)  && (region_base(r) == 0)) {
-            region_base(r) = 0x7c00 + fsb;
-        }
+        if ((region_type(r) == REGION_PHYSICAL)  && (region_base(r) == 0)) 
+            region_base(r) = pad (0x7c00 + fsb, PAGESIZE);
     }
     
     heap physical = region_allocator(&workings, PAGESIZE, REGION_PHYSICAL);
@@ -149,8 +152,7 @@ void centry()
     u32 s = allocate_u64(physical, ss);
     s += ss - 4;
     asm("mov %0, %%esp": :"g"(s));
-    rprintf ("stack: %p\n", s);
-    init_extra_prints(); //
+    init_extra_prints(); 
     
-    newstack(&workings, physical, fsb);
+    newstack(&workings, physical, fsb, s, ss);
 }
