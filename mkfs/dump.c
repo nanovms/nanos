@@ -17,10 +17,8 @@ static CLOSURE_1_4(bread, void, descriptor, void *, u64, u64, status_handler);
 static void bread(descriptor d, void *dest, u64 length, u64 offset, status_handler c)
 {
     int xfer, total = 0;
-    rprintf ("lak: %p %p %p\n", dest, length, offset);
     while (total < length) {
         xfer = pread(d, dest + total , length - total, offset + total);
-        rprintf ("lik: %p\n", xfer);
         if (xfer == 0) apply(c, timm("premature end of file"));
         rprintf  ("pread %d %d %d %d %d\n", length-total, offset+total, xfer, total, length);
         if (xfer == -1) apply(c, timm("read-error", "%E", errno));
@@ -59,6 +57,12 @@ void readdir(filesystem fs, heap h, tuple w, buffer path)
 
 #define SECTOR_SIZE 512
 
+static CLOSURE_3_2(fsc, void, heap, buffer, tuple, filesystem, status);
+static void fsc(heap h, buffer b, tuple root, filesystem fs, status s)
+{
+    readdir(fs, h, root, b);
+}
+
 int main(int argc, char **argv)
 {
     heap h = init_process_runtime();
@@ -69,14 +73,11 @@ int main(int argc, char **argv)
         rprintf("couldn't open file %s\n", argv[1]);
         exit(-1);
     }
-    filesystem fs = create_filesystem(h,
-                                      SECTOR_SIZE,
-                                      10ull * 1024 * 1024 * 1024,
-                                      closure(h, bread, fd),
-                                      closure(h, bwrite, fd),
-                                      root,
-                                      (void *)ignore);
-    buffer b = aprintf (h, "root: %v\n", root);
-    write(1, b->contents, buffer_length(b));
-    readdir(fs, h, root, alloca_wrap_buffer(argv[2], runtime_strlen(argv[2])));
+    create_filesystem(h,
+                      SECTOR_SIZE,
+                      10ull * 1024 * 1024 * 1024,
+                      closure(h, bread, fd),
+                      closure(h, bwrite, fd),
+                      root,
+                      closure(h, fsc, h, alloca_wrap_buffer(argv[2], runtime_strlen(argv[2])), root));
 }

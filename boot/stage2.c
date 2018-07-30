@@ -123,13 +123,13 @@ void newstack(heap h, heap physical, u64 stack, u32 stacklength)
     tuple root = allocate_tuple();
     buffer_handler bh = closure(h, kernel_read_complete, physical, h, stack, stacklength);
     
-    filesystem fs = create_filesystem(h,
-                                      512,
-                                      2*1024*1024, // fix,
-                                      closure(h, stage2_read_disk, fsb),
-                                      closure(h, stage2_empty_write),
-                                      root,
-                                      closure(h, filesystem_initialized, h, physical, root, bh));
+    create_filesystem(h,
+                      512,
+                      2*1024*1024, // fix,
+                      closure(h, stage2_read_disk, fsb),
+                      closure(h, stage2_empty_write),
+                      root,
+                      closure(h, filesystem_initialized, h, physical, root, bh));
     
     halt("kernel failed to execute\n");
 }

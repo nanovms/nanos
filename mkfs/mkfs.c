@@ -121,6 +121,25 @@ static value translate(heap h, vector worklist, filesystem fs, value v, status_h
 extern heap init_process_runtime();
 #include <stdio.h>
 
+static CLOSURE_2_2(fsc, void, heap, descriptor, filesystem, status);
+static void fsc(heap h, descriptor out, filesystem fs, status s)
+{
+    
+    vector worklist = allocate_vector(h, 10);
+    tuple md = translate(h, worklist, fs, root, closure(h, err));
+    rprintf ("metadata %v\n", md);
+    filesystem_write_tuple(fs, md);
+    vector i;
+    vector_foreach(worklist, i) {
+        tuple f = vector_get(i, 0);        
+        buffer c = vector_get(i, 1);
+        allocate_fsfile(fs, f);
+        filesystem_write(fs, f, c, 0, ignore_status);
+    }
+    flush(fs, ignore_status);
+    close(out);
+}
+
 int main(int argc, char **argv)
 {
     heap h = init_process_runtime();
@@ -133,25 +152,11 @@ int main(int argc, char **argv)
     // this can be streaming
     parser_feed (p, read_stdin(h));
     // fixing the size doesn't make sense in this context?
-    filesystem fs = create_filesystem(h,
-                                      SECTOR_SIZE,
-                                      10ull * 1024 * 1024 * 1024,
-                                      closure(h, bread, out),
-                                      closure(h, bwrite, out),
-                                      allocate_tuple(),
-                                      (void*)ignore);
-    vector worklist = allocate_vector(h, 10);
-    tuple md = translate(h, worklist, fs, root, closure(h, err));
-    rprintf ("metadata %v\n", md);
-    filesystem_write_tuple(fs, md);
-    vector i;
-    vector_foreach(worklist, i) {
-        tuple f = vector_get(i, 0);        
-        buffer c = vector_get(i, 1);
-        allocate_fsfile(fs, f);
-        filesystem_write(fs, f, c, 0, ignore_status);
-    }
-
-    flush(fs, ignore_status);
-    close(out);
+    create_filesystem(h,
+                      SECTOR_SIZE,
+                      10ull * 1024 * 1024 * 1024,
+                      closure(h, bread, out),
+                      closure(h, bwrite, out),
+                      allocate_tuple(),
+                      closure(h, fsc, h, out));
 }

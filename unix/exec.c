@@ -35,9 +35,9 @@ process exec_elf(buffer ex, heap general, heap physical, heap pages, heap virtua
     void *actual_entry = user_entry;
     void *va;
 
+    rprintf ("exec elf\n");
     // extra elf munging
     Elf64_Ehdr *elfh = (Elf64_Ehdr *)buffer_ref(ex, 0);
-
 
     // also pick up the maximum load address for the brk
     for (int i = 0; i< elfh->e_phnum; i++){

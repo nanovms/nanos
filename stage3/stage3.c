@@ -15,6 +15,7 @@ static void read_program_complete(tuple root, heap pages, heap general, heap phy
 static CLOSURE_0_1(read_program_fail, void, status);
 static void read_program_fail(status s)
 {
+    console("fail\n");
     halt("read program failed %v\n", s);
 }
 
@@ -30,7 +31,6 @@ void startup(heap pages,
     //    elf_symbols(START, closure(general, prinsym)); stage3
     init_unix(general, pages, physical, root);
     buffer_handler pg = closure(general, read_program_complete, root, pages, general, physical, virtual);
-    rprintf("root: %v\n", root);
     value p = table_find(root, sym(program));
     rprintf("program %v\n", p);
 
