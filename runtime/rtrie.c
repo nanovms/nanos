@@ -94,7 +94,8 @@ static void delete_node(rtnode *w)
 static void remove_internal(rtrie rt, rtnode *w, struct range k)
 {
     rtnode r = *w;
-    range extra_k = (range){0, 0}, here, extra_here;    
+    range extra_k = (range){0, 0}, here, extra_here;
+
     if (r) {
         range d1 = k, d2 = (range){0,0};        
         range i = range_intersection(r->r, k);

@@ -36,7 +36,6 @@ void elf_symbols(buffer elf, closure_type(each, void, char *, u64))
 void *load_elf(buffer elf, u64 offset, heap pages, heap bss)
 {
     Elf64_Ehdr *elfh = buffer_ref(elf, 0);
-
     for (int i = 0; i< elfh->e_phnum; i++){
         Elf64_Phdr *p = buffer_ref(elf, elfh->e_phoff + i * elfh->e_phentsize);
         if (p->p_type == PT_LOAD) {

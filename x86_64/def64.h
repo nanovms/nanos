@@ -28,10 +28,7 @@ static inline u16 tagof(void *v)
     return (u64_from_pointer(v)>>va_tag_offset);
 }
 
-static inline void *valueof(void *v)
-{
-    return v;
-}
+#define valueof(__x) (__x)
 
 #define DIV(__x, __by, __q, __r){\
      register u64 a asm("rax");\
@@ -40,7 +37,7 @@ static inline void *valueof(void *v)
      a = __x;\
      c = __by;\
      d = 0;\
-     asm("divq %rcx");\
+     asm("divq %%rcx":"=r"(a), "=r"(d): "r"(a),"r"(d),"r"(c));\
      __q = a;\
      __r = d;\
  }

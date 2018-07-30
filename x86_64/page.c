@@ -34,6 +34,7 @@ static inline page pagebase()
     return base;
 }
 
+// there is a def64 and def32 now
 #ifndef physical_from_virtual
 physical physical_from_virtual(void *x)
 {

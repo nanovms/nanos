@@ -1,11 +1,14 @@
 typedef struct filesystem *filesystem;
 typedef struct fsfile *fsfile;
+
 filesystem create_filesystem(heap h,
                              u64 alignment,
                              u64 size,
                              block_read read,
                              block_write write,
-                             tuple root);
+                             tuple root,
+                             status_handler complete);
+
 // there is a question as to whether tuple->fs file should be mapped inside out outside the filesystem
 // status
 void filesystem_read(filesystem fs, tuple t, void *dest, u64 offset, u64 length, status_handler completion);

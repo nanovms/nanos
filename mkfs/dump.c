@@ -14,11 +14,13 @@ static void bwrite(descriptor d, buffer s, u64 offset, status_handler c)
 }
 
 static CLOSURE_1_4(bread, void, descriptor, void *, u64, u64, status_handler);
-static void bread(descriptor d, void *dest, u64 offset, u64 length, status_handler c)
+static void bread(descriptor d, void *dest, u64 length, u64 offset, status_handler c)
 {
     int xfer, total = 0;
+    rprintf ("lak: %p %p %p\n", dest, length, offset);
     while (total < length) {
         xfer = pread(d, dest + total , length - total, offset + total);
+        rprintf ("lik: %p\n", xfer);
         if (xfer == 0) apply(c, timm("premature end of file"));
         rprintf  ("pread %d %d %d %d %d\n", length-total, offset+total, xfer, total, length);
         if (xfer == -1) apply(c, timm("read-error", "%E", errno));
@@ -72,7 +74,8 @@ int main(int argc, char **argv)
                                       10ull * 1024 * 1024 * 1024,
                                       closure(h, bread, fd),
                                       closure(h, bwrite, fd),
-                                      root);
+                                      root,
+                                      (void *)ignore);
     buffer b = aprintf (h, "root: %v\n", root);
     write(1, b->contents, buffer_length(b));
     readdir(fs, h, root, alloca_wrap_buffer(argv[2], runtime_strlen(argv[2])));

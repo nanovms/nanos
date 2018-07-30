@@ -242,7 +242,7 @@ static void init_vnet(heap general, heap page_allocator, int bus, int slot, int 
     vnet vn = allocate(dev->general, sizeof(struct vnet));
     vn->n = allocate(dev->general, sizeof(struct netif));
     heap lwip_rolling_page_cache = wrap_freelist(general, page_allocator, PAGESIZE);
-    lwip_heap = allocate_rolling_heap(page_allocator);
+    lwip_heap = allocate_rolling_heap(page_allocator, 8);
     vn->rxbuflen = 1500;
     vn->rxbuffers = wrap_freelist(dev->general, dev->general, vn->rxbuflen + sizeof(struct xpbuf));
     /* rx = 0, tx = 1, ctl = 2 by 

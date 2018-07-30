@@ -21,7 +21,8 @@ stage1: stage1.s stage2.pad
 boot: stage1 stage2.pad
 	cat stage1 stage2.pad > boot
 
-SRUNTIME = table.o buffer.o format.o id.o symbol.o rolling.o tuple.o random.o rtrie.o runtime_init.o extra_prints.o
+# move out to runtime
+SRUNTIME = table.o buffer.o format.o id.o symbol.o rolling.o tuple.o random.o rtrie.o runtime_init.o extra_prints.o debug_heap.o
 OBJ = service32.o stage2.o serial.o page.o elf.o zero_wrap.o kvm_platform.o $(TFS) $(SRUNTIME)
 
 LD = ld

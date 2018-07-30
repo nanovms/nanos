@@ -9,8 +9,8 @@ int table_elements(table t);
 typedef struct entry {
     void *v;
     key k;
-    void *c; 
-    struct entry *next;
+    void *c;
+    struct entry *next;        
 } *entry;
 
 struct table {

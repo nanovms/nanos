@@ -10,7 +10,8 @@ typedef struct heap {
 
 heap allocate_pagechunk(heap h, bytes s);
 heap allocate_pagecache(heap h);
-heap allocate_rolling_heap(heap h);
+heap debug_heap(heap m, heap p);
+heap allocate_rolling_heap(heap h, u64 align);
 heap create_id_heap(heap h, u64 base, u64 length, u64 pagesize);
 
 // really internals
@@ -34,10 +35,12 @@ static inline int subdivide(int quantum, int per, int s, int o)
 #define deallocate(__h, __b, __s) ((__h)->dealloc(__h, u64_from_pointer(__b), __s))
 
 #define allocate_zero(__h, __b) ({\
-        void *x = allocate(__h, __b);\
-        zero(x, __b); \
-        x; })
+            u64 __len =  __b;\
+            void *x = allocate(__h, __len);       \
+            zero(x, __len);                       \
+            x; })
 
 static inline void leak(heap h, u64 x, bytes length)
 {
 }
+

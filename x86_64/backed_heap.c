@@ -30,7 +30,6 @@ static u64 physically_backed_alloc(heap h, bytes length)
     if (p != INVALID_PHYSICAL) {
         u64 v = allocate_u64(b->virtual, len);
         if (v != INVALID_PHYSICAL) {
-            // map should return allocation status
             map(v, p, len, b->pages);
             return v;
         }

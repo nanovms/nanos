@@ -54,22 +54,22 @@ heap transient;
 // with it, it gets initialized
 void init_runtime(heap h)
 {
+    // environment specific
+    transient = h;
+    register_format('p', format_pointer);
     init_tuples(allocate_tagged_region(h, tag_tuple));
     init_symbols(allocate_tagged_region(h, tag_symbol), h);
     ignore = closure(h, ignore_body);
     ignore_status = (void*)ignore;
     errheap = h;
-    register_format('p', format_pointer);
     register_format('P', format_u64);    // for 32 bit
     register_format('d', format_number);
     register_format('b', format_buffer);
-    // environment specific
-    transient = h;
     // fix
 #ifndef BITS32    
     initialize_timers(h);
     register_format('c', format_character);
     register_format('X', format_hex_buffer);    
-#endif        
+#endif
 }
 

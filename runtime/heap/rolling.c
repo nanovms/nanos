@@ -57,7 +57,6 @@ static void rolling_free(heap h, u64 x, u64 length)
     pageheader p = pointer_from_u64(x&(~(r->parent->pagesize-1)));
 
     if (!--p->references) {
-        //        console("rolling page free!\n");
         deallocate(r->parent, p, h->pagesize);
     }
 }
@@ -69,13 +68,16 @@ static void rolling_destroy(rolling c)
          i = i->next);
 }
 
-// where heap p must be aligned
-heap allocate_rolling_heap(heap p)
+
+// pass align
+heap allocate_rolling_heap(heap p, u64 align)
 {
     rolling l = allocate(p, pad(sizeof(struct rolling), p->pagesize));
+    // where heap p alignment must be >= 2* rolling alignment (to allow space for the headers),
+    if (align >= p->pagesize) return INVALID_ADDRESS;
     l->h.alloc = rolling_alloc;
     l->h.dealloc = rolling_free;
-    l->h.pagesize = 1; 
+    l->h.pagesize = align; 
     l->h.destroy = rolling_destroy;
     l->p = (void *)l;
     l->parent = p;

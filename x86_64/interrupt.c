@@ -138,11 +138,12 @@ void lapic_eoi()
 
 void print_stack(context c)
 {
+    u64 frames = 20;
     u64 *x = pointer_from_u64(c[FRAME_RSP]);
     // really until page aligned?
     console("stack \n");
-    for (u64 i= 0 ;i < 20; i++) {
-        print_u64(*x--);
+    for (u64 i= frames ;i > 0; i--) {
+        print_u64(*(x+i));
         console("\n");
     }
 }
@@ -213,6 +214,7 @@ void enable_lapic(heap pages)
     u64 lapic = 0xfee00000;
     
     map(u64_from_pointer(apic_base), lapic, PAGESIZE, pages);
+    // xxx - no one is listening
     create_region(u64_from_pointer(apic_base), PAGESIZE, REGION_VIRTUAL);
     
     // turn on the svr, then enable three lines

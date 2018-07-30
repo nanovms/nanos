@@ -162,8 +162,10 @@ status virtqueue_enqueue(struct virtqueue *vq,
     // allocate descs from a heap
     for (int i = 0; i < segments; i++) {
         struct vring_desc *dp =  vq->desc + idx;
+        u64 p = physical_from_virtual(as[i]);
         u16 flags =0;
-        dp->addr = physical_from_virtual(as[i]);
+        dp->addr = p;
+        
         vqfinish *vqa = (void *)(vq + 1);
         vqa[idx] = completion; // just the last guy?
         dp->len = lengths[i];
@@ -183,9 +185,7 @@ status virtqueue_enqueue(struct virtqueue *vq,
     vq->avail->ring[avail_idx] = hidx;
     write_barrier();
     vq->avail->idx++;    
-
     virtqueue_notify(vq);
-
     return STATUS_OK;
 }
 

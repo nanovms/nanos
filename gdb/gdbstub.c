@@ -278,7 +278,7 @@ static boolean handle_request(gdb g, buffer b, buffer output)
             switch(type) {
             case '0': 
                 {
-                    if (breakpoint_insert(addr))
+                    if (breakpoint_insert(addr, 0, 8))
                         bprintf(output, "OK");
                     else
                         bprintf(output, "E08");

@@ -60,15 +60,14 @@ void log_write(log tl, tuple t, thunk complete)
 }
 
 
-CLOSURE_1_1(log_read_complete, void, log, status);
-void log_read_complete(log tl, status s)
+CLOSURE_2_1(log_read_complete, void, log, status_handler, status);
+void log_read_complete(log tl, status_handler sh, status s)
 {
     buffer b = tl->staging;
     u8 frame = 0;
-    // log extension
+    // log extension - length at the beginnin and pointer at the end
     for (; frame = pop_u8(b), frame == TUPLE_AVAILABLE;) {
         tuple t = decode_value(tl->h, tl->dictionary, b);
-        
         fsfile f;
         // doesn't seem like all the incremental updates are handled here,
         // nor the recursive case
@@ -84,18 +83,20 @@ void log_read_complete(log tl, status s)
             table_foreach(t, off, e) extent_update(f, off, e);
         }
     }
+    apply(sh, 0);
     // something really strange is going on with the value of frame
     //    if (frame != END_OF_LOG) halt("bad log tag %p\n", frame);    
 }
 
-void read_log(log tl, u64 offset, u64 size)
+void read_log(log tl, u64 offset, u64 size, status_handler sh)
 {
     tl->staging = allocate_buffer(tl->h, size);
-    status_handler tlc = closure(tl->h, log_read_complete, tl);
-    apply(tl->fs->r, tl->staging->contents, 0, tl->staging->length, tlc);
+    //    tl->staging->end = size;
+    status_handler tlc = closure(tl->h, log_read_complete, tl, sh);
+    apply(tl->fs->r, tl->staging->contents, tl->staging->length, 0, tlc);
 }
 
-log log_create(heap h, filesystem fs)
+log log_create(heap h, filesystem fs, status_handler sh)
 {
     log tl = allocate(h, sizeof(struct log));
     tl->h = h;
@@ -103,7 +104,7 @@ log log_create(heap h, filesystem fs)
     tl->fs = fs;
     tl->completions = allocate_vector(h, 10);
     tl->dictionary = allocate_table(h, identity_key, pointer_equal);
-    read_log(tl, 0, INITIAL_LOG_SIZE);
+    read_log(tl, 0, INITIAL_LOG_SIZE, sh);
     // this is really asynch
     
     // not sure we should be passing the root.. anyways, splat the

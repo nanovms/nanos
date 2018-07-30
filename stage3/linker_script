@@ -3,6 +3,7 @@ OUTPUT_FORMAT("elf64-x86-64")
 SECTIONS
 {
   . = 0xf000000;
+  START = .;
   .start ALIGN(4096): { *(.start)}
   /* the default linker aligns the file and text without throwing
      away a page..but for today...*/

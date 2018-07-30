@@ -29,7 +29,8 @@ void enable_debug_registers()
 }
 
 
-boolean breakpoint_insert(u32 a)
+// address type
+boolean breakpoint_insert(u64 a, u8 type, u8 log_length)
 {
     if (!enabled) enable_debug_registers();
     
@@ -43,7 +44,7 @@ boolean breakpoint_insert(u32 a)
             
             mov_from_cr("dr7", dr7);
             // r/w bits
-            dr7 = mutate(dr7, 4 * i + 16, 2, 0); 
+            dr7 = mutate(dr7, 4 * i + 16, 2, type); 
             // len
             dr7 = mutate(dr7, 4 * i + 18, 2, 0);
             // both global and local

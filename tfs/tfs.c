@@ -25,7 +25,7 @@ static void fs_read_extent(filesystem fs,
     if (*last != 0) zero(buffer_ref(target, *last), target->start - *last);
     *last = q.end;
     target->end = *last;
-    apply(fs->r, buffer_ref(target, i.start), u64_from_pointer(val), range_span(i), f);
+    apply(fs->r, buffer_ref(target, i.start), range_span(i), u64_from_pointer(val), f);
 }
 
 // actually need to return the length read?
@@ -77,7 +77,7 @@ static u64 extend(fsfile f, u64 foffset, u64 length)
 {
     tuple e = timm("length", "%d", length);
     
-    u64 storage = allocate_u64(f->fs->storage, length);
+    u64 storage = allocate_u64(f->fs->storage, pad(length, f->fs->alignment));
     if (storage == u64_from_pointer(INVALID_ADDRESS)) {
         halt("out of storage");
     }
@@ -208,7 +208,8 @@ filesystem create_filesystem(heap h,
                              u64 size,
                              block_read read,
                              block_write write,
-                             tuple root)
+                             tuple root,
+                             status_handler complete)
 {
     filesystem fs = allocate(h, sizeof(struct filesystem));
     fs->files = allocate_table(h, identity_key, pointer_equal);
@@ -216,12 +217,14 @@ filesystem create_filesystem(heap h,
     fs->r = read;
     fs->h = h;
     fs->w = write;
-    fs->root = root;    
+    fs->root = root;
+    fs->alignment = alignment;
     fs->free = rtrie_create(h);
-    rtrie_insert(fs->free, 0, size, 0);
+    rtrie_insert(fs->free, 0, size, (void *)true); 
     rtrie_remove(fs->free, 0, INITIAL_LOG_SIZE);
     fs->storage = rtrie_allocator(h, fs->free);
-    fs->tl = log_create(h, fs);
+    fs->tl = log_create(h, fs, complete);
+    // fs goes in the continuation?
     return fs;
 }
 

@@ -69,9 +69,9 @@ status vtpci_alloc_virtqueue(vtpci dev,
     return STATUS_OK;
 }
 
-void vtpci_notify_virtqueue(struct vtpci *sc, u16 queue)
+void vtpci_notify_virtqueue(vtpci dev, u16 queue)
 {
-    out16(sc->base + VIRTIO_PCI_QUEUE_NOTIFY, queue);
+    out16(dev->base + VIRTIO_PCI_QUEUE_NOTIFY, queue);
 }
 
 

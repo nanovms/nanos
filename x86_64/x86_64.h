@@ -43,7 +43,12 @@ typedef u64 *context;
 
 extern u64 *frame;
 
-boolean breakpoint_insert(u32 a);
+#define BREAKPOINT_INSTRUCTION 00
+#define BREAKPOINT_WRITE 01
+#define BREAKPOINT_IO 10
+#define BREAKPOINT_READ_WRITE 11
+
+boolean breakpoint_insert(u64 a, u8 type, u8 length);
 boolean breakpoint_remove(u32 a);
 
 #define IRETURN(frame) __asm__("mov %0, %%rbx"::"g"(frame)); __asm__("jmp frame_return")

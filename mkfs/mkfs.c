@@ -68,7 +68,7 @@ static void bwrite(descriptor d, buffer s, u64 offset, status_handler c)
 }
 
 static CLOSURE_1_4(bread, void, descriptor, void *, u64, u64, status_handler);
-static void bread(descriptor d, void *source, u64 offset, u64 length, status_handler completion)
+static void bread(descriptor d, void *source, u64 length, u64 offset, status_handler completion)
 {
 }
 
@@ -128,7 +128,7 @@ int main(int argc, char **argv)
     if (out < 0) {
         halt("couldn't open output file %s\n", argv[1]);
     }
-    
+
     parser p = tuple_parser(h, closure(h, finish, h), closure(h, perr));
     // this can be streaming
     parser_feed (p, read_stdin(h));
@@ -138,9 +138,12 @@ int main(int argc, char **argv)
                                       10ull * 1024 * 1024 * 1024,
                                       closure(h, bread, out),
                                       closure(h, bwrite, out),
-                                      allocate_tuple());
+                                      allocate_tuple(),
+                                      (void*)ignore);
     vector worklist = allocate_vector(h, 10);
-    filesystem_write_tuple(fs, translate(h, worklist, fs, root, closure(h, err)));
+    tuple md = translate(h, worklist, fs, root, closure(h, err));
+    rprintf ("metadata %v\n", md);
+    filesystem_write_tuple(fs, md);
     vector i;
     vector_foreach(worklist, i) {
         tuple f = vector_get(i, 0);        

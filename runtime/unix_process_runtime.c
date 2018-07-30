@@ -82,3 +82,10 @@ void serial_out(u8 k)
 {
     write(1, &k, 1);
 }
+
+
+u64 physical_from_virtual(void *__x)
+{
+    return u64_from_pointer(__x);
+}
+

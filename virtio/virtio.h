@@ -33,5 +33,6 @@
 #define VIRTIO_TRANSPORT_F_START	28
 #define VIRTIO_TRANSPORT_F_END		32
 
-void init_virtio_storage(heap h, heap page_allocator, heap pages, heap virtual, block_read *in, block_write *out) ;
+typedef closure_type(storage_attach, void, block_read, block_write, u64);
+void init_virtio_storage(heap h, heap page_allocator, heap pages, heap virtual, storage_attach);
 void init_virtio_network(heap h, heap page_allocator, heap pages);
