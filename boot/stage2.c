@@ -48,6 +48,7 @@ void kernel_read_complete(heap physical, heap working, u64 stack, u32 stacklen, 
     // should be the intersection of the empty physical and virtual
     // up to some limit, 2M aligned
     u64 identity_length = 0x300000;
+    // could move this up
     u64 pmem = allocate_u64(physical, identity_length);
     heap pages = region_allocator(working, PAGESIZE, REGION_IDENTITY);
     create_region(pmem, identity_length, REGION_IDENTITY);
@@ -106,22 +107,29 @@ u32 filesystem_base()
 }
 
 
+static CLOSURE_4_2 (filesystem_initialized, void, heap, heap, tuple, buffer_handler, filesystem, status);
+static void filesystem_initialized(heap h, heap physical, tuple root, buffer_handler complete, filesystem fs, status s)
+{
+    filesystem_read_entire(fs, lookup(root, sym(kernel)),
+                           physical,
+                           complete, 
+                           closure(h, fail));
+}
+
+                            
 void newstack(heap h, heap physical, u64 stack, u32 stacklength)
 {
     u32 fsb = filesystem_base();
     tuple root = allocate_tuple();
+    buffer_handler bh = closure(h, kernel_read_complete, physical, h, stack, stacklength);
+    
     filesystem fs = create_filesystem(h,
                                       512,
                                       2*1024*1024, // fix,
                                       closure(h, stage2_read_disk, fsb),
                                       closure(h, stage2_empty_write),
                                       root,
-                                      (void *)ignore);
-
-    filesystem_read_entire(fs, lookup(root, sym(kernel)),
-                           physical, 
-                           closure(h, kernel_read_complete, physical, h, stack, stacklength),
-                           closure(h, fail));
+                                      closure(h, filesystem_initialized, h, physical, root, bh));
     
     halt("kernel failed to execute\n");
 }

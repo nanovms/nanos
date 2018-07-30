@@ -176,7 +176,6 @@ void extent_update(fsfile f, symbol foff, tuple value)
 }
 
 // cache goes on top
-// separate error continuation
 void filesystem_read_entire(filesystem fs, tuple t, heap h, buffer_handler c, status_handler e)
 {
     fsfile f;
@@ -203,13 +202,20 @@ void flush(filesystem fs, status_handler s)
     log_flush(fs->tl);
 }
 
-filesystem create_filesystem(heap h,
-                             u64 alignment,
-                             u64 size,
-                             block_read read,
-                             block_write write,
-                             tuple root,
-                             status_handler complete)
+static CLOSURE_2_1(log_complete, void, filesystem_complete, filesystem, status);
+static void log_complete(filesystem_complete fc, filesystem fs, status s)
+{
+    rprintf("log complete\n");
+    apply(fc, fs, s);
+}
+
+void create_filesystem(heap h,
+                       u64 alignment,
+                       u64 size,
+                       block_read read,
+                       block_write write,
+                       tuple root,
+                       filesystem_complete complete)
 {
     filesystem fs = allocate(h, sizeof(struct filesystem));
     fs->files = allocate_table(h, identity_key, pointer_equal);
@@ -223,8 +229,6 @@ filesystem create_filesystem(heap h,
     rtrie_insert(fs->free, 0, size, (void *)true); 
     rtrie_remove(fs->free, 0, INITIAL_LOG_SIZE);
     fs->storage = rtrie_allocator(h, fs->free);
-    fs->tl = log_create(h, fs, complete);
-    // fs goes in the continuation?
-    return fs;
+    fs->tl = log_create(h, fs, closure(h, log_complete, complete, fs));
 }
 

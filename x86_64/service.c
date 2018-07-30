@@ -73,11 +73,12 @@ static void offset_block_read(block_read r, u64 start, void *dest, u64 length, u
 
 void init_extra_prints(); 
 
-static CLOSURE_3_1(fsstarted, void, heap, heap, tuple, status);
-static void fsstarted(heap h, heap virtual, tuple root, status s)
+static CLOSURE_3_2(fsstarted, void, heap, heap, tuple, filesystem, status);
+static void fsstarted(heap h, heap virtual, tuple root, filesystem fs, status s)
 {
     // should post as a thread
-    startup(pages, h, physical_memory, virtual, root);    
+    startup(pages, h, physical_memory, virtual, root, fs);
+    runloop();    
 }
 
 CLOSURE_3_3(attach_storage, void, heap, heap, tuple, block_read, block_write, u64);
@@ -93,13 +94,13 @@ void attach_storage(heap h, heap virtual, tuple root, block_read r, block_write 
         }
 
     // with filesystem...should be hidden as functional handlers on the tuplespace    
-    filesystem fs = create_filesystem(h,
-                                      512, // from the device please
-                                      length,
-                                      closure(h, offset_block_read, r, fs_offset),
-                                      closure(h, offset_block_write, w, fs_offset),
-                                      root,
-                                      closure(h, fsstarted, h, virtual, root));
+    create_filesystem(h,
+                      512, // from the device please
+                      length,
+                      closure(h, offset_block_read, r, fs_offset),
+                      closure(h, offset_block_write, w, fs_offset),
+                      root,
+                      closure(h, fsstarted, h, virtual, root));
 
     runloop();
 }
@@ -143,9 +144,9 @@ void init_service()
     physical_memory = region_allocator(&bootstrap, PAGESIZE, REGION_PHYSICAL);    
 
     heap virtual = create_id_heap(&bootstrap, HUGE_PAGESIZE, (1ull<<VIRTUAL_ADDRESS_BITS)- HUGE_PAGESIZE, HUGE_PAGESIZE);
-    heap virtual_pagesize = allocate_fragmentor(&bootstrap, virtual, PAGESIZE);
+    heap virtual_pagesized = allocate_fragmentor(&bootstrap, virtual, PAGESIZE);
 
-    heap backed = physically_backed(&bootstrap, virtual_pagesize, physical_memory, pages);
+    heap backed = physically_backed(&bootstrap, virtual_pagesized, physical_memory, pages);
 
     u64 stack_size = 32*PAGESIZE;
     u64 stack_location = allocate_u64(backed, stack_size);
