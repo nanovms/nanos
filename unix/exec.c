@@ -51,6 +51,7 @@ process exec_elf(buffer ex, heap general, heap physical, heap pages, heap virtua
             // file not found
             tuple ldso = resolve_path(fs, split(general, nb, '/'));
             u64 where = allocate_u64(virtual, HUGE_PAGESIZE);
+            // load ldso
             buffer c = table_find(ldso, sym(contents));
             user_entry = load_elf(c, where, pages, physical);
         }

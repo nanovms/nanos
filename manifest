@@ -2,8 +2,9 @@
     #64 bit elf to boot from host
     children:(kernel:(contents:(host:stage3/stage3))
               #user program
-              hw:(contents:(host:examples/hw)))
-          
+              hw:(contents:(host:examples/hw))
+              lib64:(children:("ld-linux-x86-64.so.2":(contents:(host:/lib64/ld-linux-x86-64.so)))))
+
     # filesystem path to elf for kernel to run
     program:/hw
     arguments:[webg poppy]

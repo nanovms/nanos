@@ -205,7 +205,6 @@ void flush(filesystem fs, status_handler s)
 static CLOSURE_2_1(log_complete, void, filesystem_complete, filesystem, status);
 static void log_complete(filesystem_complete fc, filesystem fs, status s)
 {
-    rprintf("log complete\n");
     apply(fc, fs, s);
 }
 

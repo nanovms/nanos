@@ -60,38 +60,42 @@ void log_write(log tl, tuple t, thunk complete)
 }
 
 
-CLOSURE_2_1(log_read_complete, void, log, status_handler, status);
-void log_read_complete(log tl, status_handler sh, status s)
+// manage partial read! - otherwise that initial byte read is showing up
+// in staging and screwing up our empty log
+CLOSURE_2_2(log_read_complete, void, log, status_handler, u64, status);
+void log_read_complete(log tl, status_handler sh, u64 len, status s)
 {
     buffer b = tl->staging;
     u8 frame = 0;
 
-    // log extension - length at the beginnin and pointer at the end
-    for (; frame = pop_u8(b), frame == TUPLE_AVAILABLE;) {
-        tuple t = decode_value(tl->h, tl->dictionary, b);
-        fsfile f;
-        // doesn't seem like all the incremental updates are handled here,
-        // nor the recursive case
-        table_foreach(t, k, v) {
-            if (k == sym(extents)) {
-                if (!(f = table_find(tl->fs->extents, v))) {
-                    f = allocate_fsfile(tl->fs, t);
+    if (len > 0) {
+        // log extension - length at the beginnin and pointer at the end
+        for (; frame = pop_u8(b), frame == TUPLE_AVAILABLE;) {
+            tuple t = decode_value(tl->h, tl->dictionary, b);
+            fsfile f;
+            // doesn't seem like all the incremental updates are handled here,
+            // nor the recursive case
+            table_foreach(t, k, v) {
+                if (k == sym(extents)) {
+                    if (!(f = table_find(tl->fs->extents, v))) {
+                        f = allocate_fsfile(tl->fs, t);
+                    }
+                    table_set(tl->fs->extents, v, f);
                 }
-                table_set(tl->fs->extents, v, f);
+            }
+            if ((f = table_find(tl->fs->extents, t)))  {
+                table_foreach(t, off, e) extent_update(f, off, e);
             }
         }
-        if ((f = table_find(tl->fs->extents, t)))  {
-            table_foreach(t, off, e) extent_update(f, off, e);
-        }
+        
+        // not sure we should be passing the root.. anyways, splat the
+        // log root onto the given root
+        table logroot = (table)table_find(tl->dictionary, pointer_from_u64(1));
+        
+        if (logroot)
+            table_foreach (logroot, k, v) 
+                table_set(tl->fs->root, k, v);
     }
-    
-    // not sure we should be passing the root.. anyways, splat the
-    // log root onto the given root
-    table logroot = (table)table_find(tl->dictionary, pointer_from_u64(1));
-
-    if (logroot)
-        table_foreach (logroot, k, v) 
-            table_set(tl->fs->root, k, v);
     
     apply(sh, 0);
     // something really strange is going on with the value of frame
@@ -102,7 +106,7 @@ void read_log(log tl, u64 offset, u64 size, status_handler sh)
 {
     tl->staging = allocate_buffer(tl->h, size);
     //    tl->staging->end = size;
-    status_handler tlc = closure(tl->h, log_read_complete, tl, sh);
+    status_length_handler tlc = closure(tl->h, log_read_complete, tl, sh);
     apply(tl->fs->r, tl->staging->contents, tl->staging->length, 0, tlc);
 }
 
@@ -114,6 +118,7 @@ log log_create(heap h, filesystem fs, status_handler sh)
     tl->fs = fs;
     tl->completions = allocate_vector(h, 10);
     tl->dictionary = allocate_table(h, identity_key, pointer_equal);
+    fs->tl = tl;
     read_log(tl, 0, INITIAL_LOG_SIZE, sh);
     return tl;
 }

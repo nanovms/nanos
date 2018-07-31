@@ -184,7 +184,7 @@ status virtqueue_enqueue(struct virtqueue *vq,
     u16 avail_idx  = vq->avail->idx & (vq->entries - 1);
     vq->avail->ring[avail_idx] = hidx;
     write_barrier();
-    vq->avail->idx++;    
+    vq->avail->idx++;
     virtqueue_notify(vq);
     return STATUS_OK;
 }

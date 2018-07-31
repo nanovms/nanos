@@ -77,6 +77,18 @@ static parser ignore_whitespace(heap h, parser next)
     return combinate(h, s);
 }
 
+static CLOSURE_2_2(quoted_string, parser, completion, buffer, parser, character);
+static parser quoted_string(completion c, buffer b, parser self, character in)
+{
+    // backslash
+    if (in == '"') {
+        apply(c, b);
+        return self;
+    }
+    return(apply(c, b));
+}
+
+    
 static CLOSURE_3_2(terminal, parser, completion, charset, buffer, parser, character);
 static parser terminal(completion c, charset final, buffer b, parser self, character in)
 {
@@ -162,6 +174,8 @@ static parser is_end_of_vector(heap h, completion c, tuple t, err_internal e, u6
 static parser parse_value(heap h, completion c, err_internal err, character in)
 {
     switch(in) {
+    case '"':
+        return combinate(h, closure(h, quoted_string, c, allocate_buffer(h, 8)));
     case '(':
         return combinate(h, closure(h, is_end_of_tuple, h, c, allocate_tuple(), err));
     case '[':
@@ -204,7 +218,7 @@ parser tuple_parser(heap h, parse_finish c, parse_error err)
     if (!whitespace) whitespace = charset_from_string(h, " \n\t");
     if (!name_terminal) name_terminal = charset_from_string(h, "()[]");
     value_terminal = charset_union(h, name_terminal, whitespace);    
-    if (!property_sigils) property_sigils = charset_from_string(h, ":|./");
+    if (!property_sigils) property_sigils = charset_from_string(h, ":|/"); // dot should be here
     // variadic
     name_terminal = charset_union(h, charset_union(h, name_terminal, property_sigils), whitespace);    
     // error close over line number

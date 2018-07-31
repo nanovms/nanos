@@ -11,6 +11,14 @@ extern void start_interrupts();
 static heap physical_memory;
 static heap pages;
 
+// doesnt belong here
+void startup(heap pages,
+             heap general,
+             heap physical,
+             heap virtual,
+             tuple root,
+             filesystem fs);
+
 // xxx -this is handing out a page per object
 heap allocate_tagged_region(heap h, u64 tag)
 {
@@ -65,20 +73,20 @@ static void offset_block_write(block_write w, u64 start, buffer b, u64 offset, s
     apply(w, b, start + offset, h);
 }
 
-static CLOSURE_2_4(offset_block_read, void, block_read, u64, void *, u64, u64, status_handler);
-static void offset_block_read(block_read r, u64 start, void *dest, u64 length, u64 offset, status_handler h)
+static CLOSURE_2_4(offset_block_read, void, block_read, u64, void *, u64, u64, status_length_handler);
+static void offset_block_read(block_read r, u64 start, void *dest, u64 length, u64 offset, status_length_handler h)
 {
     apply(r, dest, length, start + offset, h);
 }
 
 void init_extra_prints(); 
 
+CLOSURE_6_0(startup, void, heap, heap, heap, heap, tuple, filesystem);
+
 static CLOSURE_3_2(fsstarted, void, heap, heap, tuple, filesystem, status);
 static void fsstarted(heap h, heap virtual, tuple root, filesystem fs, status s)
 {
-    // should post as a thread
-    startup(pages, h, physical_memory, virtual, root, fs);
-    runloop();    
+    enqueue(runqueue, closure(h, startup, pages, h, physical_memory, virtual, root, fs));
 }
 
 CLOSURE_3_3(attach_storage, void, heap, heap, tuple, block_read, block_write, u64);
@@ -135,7 +143,6 @@ void init_service_new_stack(heap pages, heap physical, heap backed, heap virtual
 // init linker set
 void init_service()
 {
-    console("64 bit service entry\n");
     struct heap bootstrap;
 
     bootstrap.alloc = bootstrap_alloc;

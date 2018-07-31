@@ -67,9 +67,10 @@ static void bwrite(descriptor d, buffer s, u64 offset, status_handler c)
     apply(c, STATUS_OK);
 }
 
-static CLOSURE_1_4(bread, void, descriptor, void *, u64, u64, status_handler);
-static void bread(descriptor d, void *source, u64 length, u64 offset, status_handler completion)
+static CLOSURE_1_4(bread, void, descriptor, void *, u64, u64, status_length_handler);
+static void bread(descriptor d, void *source, u64 length, u64 offset, status_length_handler completion)
 {
+    apply(completion, 0, 0);
 }
 
 static CLOSURE_0_1(err, void, status);

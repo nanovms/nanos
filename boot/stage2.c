@@ -19,12 +19,12 @@ static u64 stage2_allocator(heap h, bytes b)
     return result;
 }
 
-static CLOSURE_1_4(stage2_read_disk, void, u64, void *, u64, u64, status_handler);
-static void stage2_read_disk(u64 base, void *dest, u64 length, u64 offset, status_handler completion)
+static CLOSURE_1_4(stage2_read_disk, void, u64, void *, u64, u64, status_length_handler);
+static void stage2_read_disk(u64 base, void *dest, u64 length, u64 offset, status_length_handler completion)
 {
     u32 k, z;
     read_sectors(dest, base+offset, length);
-    apply(completion, STATUS_OK);
+    apply(completion, length, STATUS_OK);
 }
 
 static CLOSURE_0_3(stage2_empty_write, void, buffer, u64, status_handler);
@@ -142,7 +142,6 @@ void centry()
 {
     workings.alloc = stage2_allocator;
     init_runtime(&workings);
-    init_extra_prints();
     void *x = allocate(&workings, 10);
     u32 fsb = filesystem_base();
 

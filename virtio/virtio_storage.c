@@ -25,13 +25,13 @@ typedef struct storage {
     u64 block_size;
 } *storage;
 
-static CLOSURE_3_1(complete, void, storage, status_handler, u8 *, u64);
-static void complete(storage s, status_handler f, u8 *result, u64 len)
+static CLOSURE_3_1(complete, void, storage, status_length_handler, u8 *, u64);
+static void complete(storage s, status_length_handler f, u8 *result, u64 len)
 {
     status st = 0;
     // 1 is io error, 2 is unsupported operation
     if (*result) st = timm("result", "%d", *result);
-    apply(f, st);
+    apply(f, len, st);
     //    s->command->avail->flags &= ~VRING_AVAIL_F_NO_INTERRUPT;
     // used isn't valid?
     //    rprintf("used: %d\n",  s->command->vq_ring.used->idx);    
@@ -42,8 +42,8 @@ static void storage_write(storage st, buffer b, u64 offset, status_handler s)
 {
 }
 
-static CLOSURE_1_4(storage_read, void, storage, void *, u64, u64, status_handler);
-static void storage_read(storage st, void *target, u64 length, u64 offset, status_handler c)
+static CLOSURE_1_4(storage_read, void, storage, void *, u64, u64, status_length_handler);
+static void storage_read(storage st, void *target, u64 length, u64 offset, status_length_handler c)
 {
     u64 sector_size = 512; // get from fs, fix config block read
     int status_size = 1;
@@ -101,5 +101,4 @@ void init_virtio_storage(heap h, heap page_allocator, heap pages, heap virtual,
 {
     register_pci_driver(VIRTIO_PCI_VENDORID, VIRTIO_PCI_DEVICEID_STORAGE,
                         closure(h, attach, h, a, page_allocator, pages, virtual));
-
 }
