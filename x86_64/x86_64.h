@@ -173,3 +173,7 @@ struct queue {
 };
 
 
+#define foreach_phdr(__e, __p)\
+    for (int __i = 0; __i< __e->e_phnum; __i++)\
+        for (Elf64_Phdr *__p = (void *)__e + __e->e_phoff + (__i * __e->e_phentsize); p ; p = 0) \
+

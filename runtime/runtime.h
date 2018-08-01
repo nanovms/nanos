@@ -130,9 +130,7 @@ typedef void *value;
 typedef closure_type(buffer_handler, void, buffer);
 typedef closure_type(thunk, void);
 typedef closure_type(block_write, void, buffer, u64, status_handler);
-// we coudld try to wrap this in a buffer somehow
-typedef closure_type(status_length_handler, void, u64, status);
-typedef closure_type(block_read, void, void *, u64, u64, status_length_handler);
+typedef closure_type(block_read, void, void *, u64, u64, status_handler);
 
 #include <pqueue.h>
 #include <timer.h>

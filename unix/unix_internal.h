@@ -1,6 +1,7 @@
 #include <runtime.h>
 #include <syscalls.h>
 #include <system_structs.h>
+#include <tfs.h>
 
 // fix
 #define FDS 64

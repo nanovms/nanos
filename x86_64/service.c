@@ -73,8 +73,8 @@ static void offset_block_write(block_write w, u64 start, buffer b, u64 offset, s
     apply(w, b, start + offset, h);
 }
 
-static CLOSURE_2_4(offset_block_read, void, block_read, u64, void *, u64, u64, status_length_handler);
-static void offset_block_read(block_read r, u64 start, void *dest, u64 length, u64 offset, status_length_handler h)
+static CLOSURE_2_4(offset_block_read, void, block_read, u64, void *, u64, u64, status_handler);
+static void offset_block_read(block_read r, u64 start, void *dest, u64 length, u64 offset, status_handler h)
 {
     apply(r, dest, length, start + offset, h);
 }

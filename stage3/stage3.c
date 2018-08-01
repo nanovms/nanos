@@ -12,6 +12,7 @@ static void read_program_complete(tuple root, heap pages, heap general, heap phy
     rprintf ("read program complete: %p\n", buffer_ref(b, 0));
     exec_elf(b, general, physical, pages, virtual, root);
 }
+
 static CLOSURE_0_1(read_program_fail, void, status);
 static void read_program_fail(status s)
 {

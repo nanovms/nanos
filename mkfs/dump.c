@@ -13,18 +13,18 @@ static void bwrite(descriptor d, buffer s, u64 offset, status_handler c)
 
 }
 
-static CLOSURE_1_4(bread, void, descriptor, void *, u64, u64, status_length_handler);
-static void bread(descriptor d, void *dest, u64 length, u64 offset, status_length_handler c)
+static CLOSURE_1_4(bread, void, descriptor, void *, u64, u64, status_handler);
+static void bread(descriptor d, void *dest, u64 length, u64 offset, status_handler c)
 {
     int xfer, total = 0;
     while (total < length) {
         xfer = pread(d, dest + total , length - total, offset + total);
-        if (xfer == 0) apply(c, total, 0);
+        if (xfer == 0) apply(c, 0);
         rprintf  ("pread %d %d %d %d %d\n", length-total, offset+total, xfer, total, length);
-        if (xfer == -1) apply(c, 0, timm("read-error", "%E", errno));
+        if (xfer == -1) apply(c, timm("read-error", "%E", errno));
         total += xfer;
     }
-    apply(c, total, STATUS_OK);
+    apply(c, STATUS_OK);
 }
 
 

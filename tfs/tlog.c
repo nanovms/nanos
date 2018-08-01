@@ -60,15 +60,13 @@ void log_write(log tl, tuple t, thunk complete)
 }
 
 
-// manage partial read! - otherwise that initial byte read is showing up
-// in staging and screwing up our empty log
-CLOSURE_2_2(log_read_complete, void, log, status_handler, u64, status);
-void log_read_complete(log tl, status_handler sh, u64 len, status s)
+CLOSURE_2_1(log_read_complete, void, log, status_handler, status);
+void log_read_complete(log tl, status_handler sh, status s)
 {
     buffer b = tl->staging;
     u8 frame = 0;
 
-    if (len > 0) {
+    if (s == 0) {
         // log extension - length at the beginnin and pointer at the end
         for (; frame = pop_u8(b), frame == TUPLE_AVAILABLE;) {
             tuple t = decode_value(tl->h, tl->dictionary, b);
@@ -106,7 +104,7 @@ void read_log(log tl, u64 offset, u64 size, status_handler sh)
 {
     tl->staging = allocate_buffer(tl->h, size);
     //    tl->staging->end = size;
-    status_length_handler tlc = closure(tl->h, log_read_complete, tl, sh);
+    status_handler tlc = closure(tl->h, log_read_complete, tl, sh);
     apply(tl->fs->r, tl->staging->contents, tl->staging->length, 0, tlc);
 }
 

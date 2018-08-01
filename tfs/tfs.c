@@ -6,7 +6,6 @@ struct fsfile {
     tuple md;
 };
 
-
 static CLOSURE_5_2(fs_read_extent, void,
                    filesystem, buffer, u64 *, merge, range, 
                    range, void *);
@@ -28,7 +27,6 @@ static void fs_read_extent(filesystem fs,
     apply(fs->r, buffer_ref(target, i.start), range_span(i), u64_from_pointer(val), f);
 }
 
-// actually need to return the length read?
 void filesystem_read(filesystem fs, tuple t, void *dest, u64 offset, u64 length, status_handler completion)
 {
     fsfile f;
@@ -44,7 +42,6 @@ void filesystem_read(filesystem fs, tuple t, void *dest, u64 offset, u64 length,
     // b here is permanent - cache?
     buffer b = wrap_buffer(h, dest, length);
     merge m = allocate_merge(h, completion);
-
     range total = irange(offset, offset+length);
     rtrie_range_lookup(f->extents, total, closure(h, fs_read_extent, f->fs, b, last, m, total));
 }
