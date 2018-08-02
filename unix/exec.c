@@ -12,10 +12,10 @@
 
 static void build_exec_stack(heap sh, thread t, Elf64_Ehdr * e, void *start, u64 va, tuple process_root)
 {
+    rprintf ("build exec stack %p %v\n", process_root, transient);
     buffer b = allocate_buffer(transient, 128);
     vector arguments = tuple_vector(transient, table_find(process_root, sym(arguments)));
     tuple environment = table_find(process_root, sym(environment));
-    
     u64 stack_size = 2*MB;
     u64 pointer = stack_size;
     u64 *s = allocate(sh, stack_size);
@@ -23,7 +23,6 @@ static void build_exec_stack(heap sh, thread t, Elf64_Ehdr * e, void *start, u64
 
     spush(s, random_u64());
     spush(s, random_u64());
-    
     struct aux auxp[] = {
         {AT_PHDR, e->e_phoff + va},
         {AT_PHENT, e->e_phentsize},
@@ -40,7 +39,6 @@ static void build_exec_stack(heap sh, thread t, Elf64_Ehdr * e, void *start, u64
     buffer a;
     vector_foreach(arguments, a)  argv[argc++] = ppush(s, b, "%b\0", a);
     table_foreach(environment, n, v)  envp[envc++] = ppush(s, b, "%b=%b\0", symbol_string(n), v);
-        
     spush(s, 0);
     spush(s, 0);
     
@@ -48,7 +46,6 @@ static void build_exec_stack(heap sh, thread t, Elf64_Ehdr * e, void *start, u64
         spush(s, auxp[i].val);
         spush(s, auxp[i].tag);
     }
-
     spush(s, 0);
     for (int i = 0; i< envc; i++) spush(s, envp[i]);
     spush(s, 0);
@@ -70,6 +67,7 @@ void start_process(thread t, void *start)
     } else
 #endif
     {
+        rprintf ("enq\n");
         enqueue(runqueue, t->run);
     }
 }
@@ -106,7 +104,6 @@ process exec_elf(buffer ex,
     void *start = load_elf(ex, 0, pages, physical);
     u64 va;
     boolean interp = false;
-
     Elf64_Ehdr *e = (Elf64_Ehdr *)buffer_ref(ex, 0);
 
     // also pick up the maximum load address for the brk
@@ -118,12 +115,14 @@ process exec_elf(buffer ex,
     }
     
     build_exec_stack(backed, t, e, start, va, md);
-    
+
+        
     foreach_phdr(e, p) {
         if (p->p_type == PT_INTERP) {
             char *n = (void *)e + p->p_offset;
-            // error handlerin
             tuple interp = resolve_path(root, split(general, alloca_wrap_buffer(n, runtime_strlen(n)), '/'));
+            if (!interp) 
+                halt("couldn't find program interpreter %s\n", n);
             filesystem_read_entire(fs, interp, backed,
                                    closure(general, load_interp_complete, t, virtual, pages, physical),
                                    closure(general, load_interp_fail));

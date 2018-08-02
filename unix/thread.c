@@ -177,15 +177,18 @@ void register_thread_syscalls(void **map)
 // tuplify
 void thread_log_internal(thread t, char *desc, ...)
 {
-    rprintf ("%n %s\n", t->tid * 15, desc);
+    // why was this %n, why is this 15, and why is it faulting
+    rprintf ("%s\n", /*t->tid * 15, */desc);
 }
 
 
 CLOSURE_1_0(run_thread, void, thread);
 void run_thread(thread t)
 {
+    rprintf("run thread\n");
     current = t;
     thread_log(t, "run",  t->frame[FRAME_RIP]);
+    rprintf("psst\n");    
     frame  = t->frame;
     IRETURN(frame);    
 }

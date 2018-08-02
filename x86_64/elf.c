@@ -36,7 +36,7 @@ void elf_symbols(buffer elf, closure_type(each, void, char *, u64))
 void *load_elf(buffer elf, u64 offset, heap pages, heap bss)
 {
     Elf64_Ehdr *e = buffer_ref(elf, 0);
-    foreach_phdr(e, p) {    
+    foreach_phdr(e, p) {
         if (p->p_type == PT_LOAD) {
             // unaligned segment? doesn't seem useful
             u64 aligned = p->p_vaddr & (~MASK(PAGELOG));
