@@ -8,7 +8,7 @@ extern heap errheap;
 static inline void timm_term(table t, char *n, vlist *a)
 {
     symbol k = intern(alloca_wrap_buffer(n, runtime_strlen(n)));
-    char *f = varg(a, char *);
+    char *f = varg(*a, char *);
     buffer b = allocate_buffer(errheap, 100);
     vbprintf(b, alloca_wrap_buffer(f, runtime_strlen(f)), a);
     table_set(t, k, b);

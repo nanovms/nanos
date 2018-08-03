@@ -42,7 +42,7 @@ void default_fault_handler(thread t, context frame)
 static CLOSURE_0_3(stdout, int, void*, u64, u64);
 static int stdout(void *d, u64 length, u64 offset)
 {
-    character *z = d;
+    u8 *z = d;
     for (int i = 0; i< length; i++) {
         serial_out(z[i]);
     }

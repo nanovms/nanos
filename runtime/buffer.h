@@ -112,7 +112,7 @@ static inline boolean buffer_read(buffer b, void *dest, bytes length)
 }
 
 
-static inline buffer push_buffer(buffer d, buffer s)
+static inline void push_buffer(buffer d, buffer s)
 {
     buffer_write(d, buffer_ref(s, 0), buffer_length(s));
 }

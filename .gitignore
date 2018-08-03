@@ -26,6 +26,7 @@ examples/hwg
 examples/web
 examples/webg
 examples/fst
+examples/hws
 stage3/frame_nasm.h
 image2
 mkfs/dump

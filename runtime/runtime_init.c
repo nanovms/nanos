@@ -29,7 +29,7 @@ static void format_buffer(buffer dest, buffer fmt, vlist *ap)
 
 static void format_character(buffer dest, buffer fmt, vlist *a)
 {
-    character x = varg(a, character);
+    character x = varg(*a, character);
     push_character(dest, x);
 }
 
