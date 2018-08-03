@@ -35,8 +35,6 @@ static charset charset_from_string(heap h, char *elements)
     return t;
 }
 
-
-
 // kind of a special case y combinator, try to fix the
 // allocation issues
 static CLOSURE_2_1(selfinate, parser, heap, selfparser, character);

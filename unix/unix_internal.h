@@ -10,7 +10,7 @@
 typedef struct process *process;
 typedef struct thread *thread;
 
-process create_process(heap h, heap pages, heap contig, tuple filesystem);
+process create_process(heap h, heap pages, heap contig, tuple root, filesystem fs);
 thread create_thread(process);
 void run(thread);
 
@@ -42,8 +42,10 @@ typedef struct file {
 typedef struct process {
     heap h, pages, physical;
     int pid;
-    tuple filesystem;
-    // could resize w/ a vector
+    tuple root;
+    // xxx - filesystem should be folded underneath tuple operators
+    filesystem fs;
+    // i guess this should also be a heap, brk is so nasty
     void *brk;
     heap virtual;
     heap virtual32;    
@@ -54,13 +56,12 @@ typedef struct process {
     vector threads;
     u64 sigmask;
     void **syscall_handlers;
+    // vector - there is no reason this should be fixed
     file files[FDS];
 } *process;
 
 file allocate_fd(process p, bytes size, int *);
 
-void init_unix(heap, heap, heap, tuple);
-void run_unix();
 thread current;
 
 void init_vdso(heap, heap);

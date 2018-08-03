@@ -39,12 +39,6 @@ static void format_u64(buffer dest, buffer fmt, vlist *a)
     print_number(dest, x, 16, 1);
 }
 
-static void format_hex_buffer(buffer dest, buffer fmt, vlist *a)
-{
-    buffer b= varg(a, buffer);
-    print_hex_buffer(dest, b);
-}
-
 
 // maybe the same?
 heap errheap;
@@ -69,7 +63,6 @@ void init_runtime(heap h)
 #ifndef BITS32    
     initialize_timers(h);
     register_format('c', format_character);
-    register_format('X', format_hex_buffer);    
 #endif
 }
 

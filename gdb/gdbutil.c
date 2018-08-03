@@ -21,8 +21,8 @@ boolean mem2hex (string b, void *mem, int count)
         return false;
     }
     for (i = 0; i < count; i++) {
-        ch = *(char *)(mem++);
-        bprintf(b, "%02x", (u32)ch);
+        ch = *(unsigned char *)(mem++);
+        print_number(b, (u64)ch, 16, 2);
     }
     return (true);
 }
@@ -47,7 +47,8 @@ void putpacket(gdb g, string b)
 {
     unsigned char checksum;
     char ch;
-  
+
+    
     reset_buffer(g->send_buffer);
     /*  $<packet info>#<checksum>. */
 
@@ -60,7 +61,8 @@ void putpacket(gdb g, string b)
         checksum += ch;
     }
     
-    bprintf (g->send_buffer, "#%02x", checksum);
+    bprintf (g->send_buffer, "#");
+    print_number(g->send_buffer, (u64)checksum, 16, 2);
     apply(g->output_handler, g->send_buffer);
 }
 

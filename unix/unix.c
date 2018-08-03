@@ -30,7 +30,7 @@ void default_fault_handler(thread t, context frame)
     print_frame(t->frame);
     print_stack(t->frame);    
 
-    if (table_find (children(t->p->filesystem), sym(fault))) {
+    if (table_find (t->p->root, sym(fault))) {
         console("starting gdb\n");
         init_tcp_gdb(t->p->h, t->p, 1234);
         thread_sleep(current);
@@ -61,10 +61,9 @@ static boolean futex_key_equal(void *a, void *b)
 
 static void *linux_syscalls[SYS_MAX];
 
-process create_process(heap h, heap pages, heap physical, tuple filesystem)
+process create_process(heap h, heap pages, heap physical, tuple root, filesystem fs)
 {
     process p = allocate(h, sizeof(struct process));
-    p->filesystem = filesystem;
     p->h = h;
     // stash end of bss? collisions?
     p->brk = pointer_from_u64(0x8000000);
@@ -73,9 +72,12 @@ process create_process(heap h, heap pages, heap physical, tuple filesystem)
     p->virtual = create_id_heap(h, 0x7000000000ull, 0x10000000000ull, 0x100000000);
     p->virtual32 = create_id_heap(h, 0x10000000, 0xe0000000, PAGESIZE);
     p->pages = pages;
-    p->cwd = filesystem;
+    p->cwd = root;
+    p->root = root;
+    p->fs = fs;
     p->fdallocator = create_id_heap(h, 3, FDMAX - 3, 1);
     p->physical = physical;
+    zero(p->files, sizeof(p->files));
     p->files[1] = allocate(p->h, sizeof(struct file));
     p->files[1]->write = closure(p->h, stdout);
     p->files[2] = p->files[1];
@@ -121,12 +123,12 @@ static u64 syscall_debug()
     return res;
 }
 
-void init_unix(heap h, heap pages, heap physical, tuple filesystem)
+void init_unix(heap h, heap pages, heap physical, tuple root, filesystem fs)
 {
     set_syscall_handler(syscall_enter);
     // could wrap this in a 'system'
     processes = create_id_heap(h, 1, 65535, 1);
-    process kernel = create_process(h, pages, physical, filesystem);
+    process kernel = create_process(h, pages, physical, root, fs);
     current = create_thread(kernel);
     frame = current->frame;
     init_vdso(physical, pages);

@@ -31,7 +31,7 @@ void startup(heap pages,
 {
     // xxx - loader had us throw away the first 4k page
     //    elf_symbols(START, closure(general, prinsym)); stage3
-    init_unix(general, pages, physical, root);
+    init_unix(general, pages, physical, root, fs);
     value p = table_find(root, sym(program));
     // error on not program 
     // copied from service.c - how much should we pass?

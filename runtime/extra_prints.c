@@ -1,5 +1,37 @@
 #include <runtime.h>
 
+
+static char *hex_digit="0123456789abcdef";
+void print_byte(buffer s, u8 f)
+{
+    push_u8(s, hex_digit[f >> 4]);
+    push_u8(s, hex_digit[f & 15]);
+}
+
+void print_hex_buffer(buffer s, buffer b)
+{
+    int len = buffer_length(b);
+    int wlen = 4;
+    int rowlen = wlen * 4;
+    boolean first = true;
+
+    for (int i = 0 ; i<len ; i+= 1) {
+        if (!(i % rowlen)) {
+            if (!first) push_u8(s, '\n');
+            first = false;
+            print_byte(s, i>>24);
+            print_byte(s, i>>16);
+            print_byte(s, i>>8);
+            print_byte(s, i);
+            push_u8(s, ':');
+        }
+        if (!(i % wlen)) push_u8 (s, ' ');
+        print_byte(s, *(u8 *)buffer_ref(b, i));
+    }
+    // better handling of empty buffer
+    push_u8(s, '\n');
+}
+
 void print_tuple(buffer b, tuple z)
 {
     table t = valueof(z);
@@ -56,11 +88,18 @@ static void format_cstring(buffer dest, buffer fmt, vlist *a)
     buffer_write(dest, c, len);    
 }
 
+static void format_hex_buffer(buffer dest, buffer fmt, vlist *a)
+{
+    buffer b= varg(a, buffer);
+    print_hex_buffer(dest, b);
+}
+
 
 void init_extra_prints()
 {
     register_format('t', format_tuple);
     register_format('v', format_value);
-    register_format('s', format_cstring);    
+    register_format('s', format_cstring);
+    register_format('X', format_hex_buffer);    
 }
 

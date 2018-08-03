@@ -38,27 +38,43 @@ static u64 pop_header(buffer f, boolean *imm, u8 *type)
     *imm = a>>7;    
     *type = (a>>6) & 1;
     
-    u64 len = a & 0x3f;
+    u64 len = a & 0x1f;
     if (a & (1<<5)) {
         do {
             u8 a = pop_u8(f);
-            len = (len<<7) + (a & 127);
+            len = (len<<7) | (a & 0x7f);
         } while(a & 0x80);
     }
+    //    rprintf ("header: %s %s %P\n",
+    //             (*imm)?"immediate":"reference", 
+    //             (*type)?"tuple":"buffer",
+    //             len);
     return len;
 }
 
 static void push_header(buffer b, boolean imm, u8 type, u64 length)
 {
-    int bits = msb(length);
+    // is msb off by one?
+    int bits = msb(length) + 1;
     int words = 0;
     buffer_extend(b, words + 1);
     // (imm type ext) 
-    if (bits > 5) words = (bits - 5)/7;
+    if (bits > 5) words = pad((bits - 5), 7)/7;
+    //    rprintf ("push header: %s %s decimal length:%d bits:%d words:%d\n",
+    //             imm?"immediate":"reference",
+    //             type?"tuple":"buffer",
+    //             length,
+    //             bits,
+    //             words);    
     u8 first = (imm << 7) |  (type << 6) | (((words)?1:0)<<5) | (length >> (words * 7));
+    //    rprintf("push %p\n", first);
     push_u8(b, first);
-    for (int i = 0; i<words; i++) 
-        *((u8 *)b->contents + b->start + (words - i)) = (length >> (i * 7)) | (i?0x80:0);
+    
+    for (int i = 0; i<words; i++) {
+        u8 v =  (length >> (i * 7)) | (i?0x80:0);
+        //  rprintf ("push %p extra\n", v);
+        *((u8 *)b->contents + b->end + (words - i - 1)) = v;
+    }
 
     b->end += words;
 }

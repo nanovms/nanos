@@ -20,7 +20,6 @@ static void bread(descriptor d, void *dest, u64 length, u64 offset, status_handl
     while (total < length) {
         xfer = pread(d, dest + total , length - total, offset + total);
         if (xfer == 0) apply(c, 0);
-        rprintf  ("pread %d %d %d %d %d\n", length-total, offset+total, xfer, total, length);
         if (xfer == -1) apply(c, timm("read-error", "%E", errno));
         total += xfer;
     }
@@ -46,6 +45,7 @@ void readdir(filesystem fs, heap h, tuple w, buffer path)
 {
     table_foreach(w, k, v) {
         if (k == sym(children)) {
+            mkdir(cstring(path), 0777);
             table_foreach((tuple)v, k, vc) {
                 readdir(fs, h, (tuple)vc, aprintf(h, "%b/%b", path, symbol_string((symbol)k)));
             }
@@ -60,6 +60,7 @@ void readdir(filesystem fs, heap h, tuple w, buffer path)
 static CLOSURE_3_2(fsc, void, heap, buffer, tuple, filesystem, status);
 static void fsc(heap h, buffer b, tuple root, filesystem fs, status s)
 {
+    rprintf ("meta: %v\n", root);
     readdir(fs, h, root, b);
 }
 

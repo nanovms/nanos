@@ -36,21 +36,17 @@ static inline void bprintf(buffer b, char *fmt, ...)
 
 static inline void rprintf(char *format, ...)
 {
+    vlist a;    
+    buffer b = allocate_buffer(transient, 64);
     // fix alloca buffer support
-    char t[1024];
-    vlist a;
-    struct buffer b;
-    b.start = 0;
-    b.end = 0;    
-    b.contents = t;
-    b.length = sizeof(t);
+    // buffer b = little_stack_buffer(1024);
     
     struct buffer f;
     f.start = 0;
     f.contents = format;
     f.end = runtime_strlen(format);
-    
+
     vstart(a, format);
-    vbprintf(&b, &f, &a);
-    debug(&b);
+    vbprintf(b, &f, &a);
+    debug(b);
 }

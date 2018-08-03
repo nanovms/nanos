@@ -43,6 +43,7 @@ void fail(status s)
 CLOSURE_4_1(kernel_read_complete, void, heap, heap, u64, u32, buffer);
 void kernel_read_complete(heap physical, heap working, u64 stack, u32 stacklen, buffer kb)
 {
+    console("kernel complete\n");
     u32 *e = (u32 *)kb->contents;
 
     // should be the intersection of the empty physical and virtual
@@ -122,7 +123,7 @@ void newstack(heap h, heap physical, u64 stack, u32 stacklength)
     u32 fsb = filesystem_base();
     tuple root = allocate_tuple();
     buffer_handler bh = closure(h, kernel_read_complete, physical, h, stack, stacklength);
-    
+    console("create fs\n");
     create_filesystem(h,
                       512,
                       2*1024*1024, // fix,
@@ -142,6 +143,7 @@ void centry()
 {
     workings.alloc = stage2_allocator;
     init_runtime(&workings);
+    init_extra_prints(); // xxx 
     void *x = allocate(&workings, 10);
     u32 fsb = filesystem_base();
 

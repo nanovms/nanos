@@ -382,15 +382,18 @@ static int access(char *name, int mode)
     return 0;
 }
 
+static CLOSURE_2_1(readcomplete, void, thread, u64, status);
+static void readcomplete(thread t, u64 len, status s)
+{
+    t->frame[FRAME_RAX] = len;
+    thread_wakeup(t);
+}
+
 static CLOSURE_1_3(contents_read, int, tuple, void *, u64, u64);
 static int contents_read(tuple n, void *dest, u64 length, u64 offset)
 {
-    // offset?
-    buffer b;
-    if (!(b = contents(n))) return -EINVAL;
-    u64 len = MIN(buffer_length(b), length);
-    runtime_memcpy(dest, buffer_ref(b, offset), len);
-    return len;
+    filesystem_read(current->p->fs, n, dest, length, offset, closure(current->p->h, readcomplete, current, length));
+    runloop();
 }
 
 int openat(char *name, int flags, int mode)
@@ -399,7 +402,7 @@ int openat(char *name, int flags, int mode)
     return -ENOENT;
 }
 
-int open(char *name, int flags, int mode)
+s64 open(char *name, int flags, int mode)
 {
     tuple n;
     bytes length;
@@ -415,6 +418,7 @@ int open(char *name, int flags, int mode)
     // might be functional, or be a directory
     int fd;
     file f = allocate_fd(current->p, sizeof(struct file), &fd);
+    rprintf ("open %s %p\n", name, fd);
     f->n = n;
     f->read = closure(current->p->h, contents_read, n);
     f->offset = 0;

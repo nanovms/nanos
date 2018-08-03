@@ -62,6 +62,13 @@ static inline void zero(void *x, bytes length)
 }
 
 #include <heap/heap.h>
+
+// transient is supposed to be cleaned up when we can guarantee that
+// its out of scope - so we argue its ok to make it global. however
+// there isn't a very good definition of what the lifetime of it is.
+// transient objects shouldnt be shared.
+extern heap transient;
+
 #include <buffer.h>
 
 heap wrap_freelist(heap meta, heap parent, bytes size);
@@ -143,7 +150,7 @@ extern void halt(char *format, ...);
 
 // should be  (parser, parser, character)
 typedef closure_type(parser, void *, character);
-// textual? semantic
+// change to status_handler
 typedef closure_type(parse_error, void, buffer);
 typedef closure_type(parse_finish, void, void *);
 parser tuple_parser(heap h, parse_finish c, parse_error err);

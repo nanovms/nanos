@@ -1,36 +1,5 @@
 #include <runtime.h>
 
-static char *hex_digit="0123456789abcdef";
-void print_byte(buffer s, u8 f)
-{
-    push_u8(s, hex_digit[f >> 4]);
-    push_u8(s, hex_digit[f & 15]);
-}
-
-void print_hex_buffer(buffer s, buffer b)
-{
-    int len = buffer_length(b);
-    int wlen = 32;
-    int rowlen = wlen * 4;
-    boolean first = true;
-
-    for (int i = 0 ; i<len ; i+= 1) {
-        if (!(i % rowlen)) {
-            if (!first) push_u8(s, '\n');
-            first = false;
-            print_byte(s, i>>24);
-            print_byte(s, i>>16);
-            print_byte(s, i>>8);
-            print_byte(s, i);
-            push_u8(s, ':');
-        }
-        if (!(i % wlen)) push_u8 (s, ' ');
-        print_byte(s, *(u8 *)buffer_ref(b, i));
-    }
-    // better handling of empty buffer
-    push_u8(s, '\n');
-}
-
 buffer allocate_buffer(heap h, bytes s)
 {
     buffer b = allocate(h, sizeof(struct buffer));

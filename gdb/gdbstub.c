@@ -37,7 +37,8 @@ static context gdb_handle_exception (gdb g, context frame)
       PC, c->eip);
     */
     reset_buffer(g->output);
-    bprintf (g->output, "T%02x", sigval);
+    bprintf (g->output, "T");
+    print_number(g->output, (u64)sigval, 16, 2);
     putpacket (g, g->output);
     runloop();
 }
@@ -58,12 +59,19 @@ static boolean current_thread(gdb g, buffer in, string out)
     return true;
 }
 
+static boolean attached(gdb g, buffer in, string out)
+{
+    bprintf(out, "1");
+    return true;
+}
+
+
 
 static struct handler query_handler[] = {
     {"Offset", return_offsets},
     {"Supported", return_supported},
     {"C", current_thread}, // return 0
-    {"Attached", current_thread}, // 0 for started anew
+    {"Attached", attached}, // 0 for started anew
     //  {"TStatus", 0}, // say T0
     //  {"Symbol", 0}, //OK
     //  {"J", get_debugger_current_thread},
@@ -162,7 +170,8 @@ static boolean handle_request(gdb g, buffer b, buffer output)
 
     switch (command) {
     case '?':
-        bprintf(output, "S%02x", sigval);
+        bprintf(output, "S");
+        print_number(output, (u64)sigval, 16, 2);
         break;
     case 'd':
         //remote_debug = !(remote_debug);	/* toggle debug flag */

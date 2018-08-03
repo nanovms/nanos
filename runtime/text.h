@@ -116,7 +116,7 @@ static inline boolean parse_int(buffer b, u32 base, u64 *result)
   *result = 0;
 
   while (buffer_length(b)) {
-      u8 v = digit_of(buffer_read_byte(b));
+      s8 v = digit_of(buffer_read_byte(b));
       if (v >= 0) {
           st = true;
           *result = (*result * base) + v;

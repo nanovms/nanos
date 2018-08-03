@@ -27,7 +27,7 @@ static void fs_read_extent(filesystem fs,
     apply(fs->r, buffer_ref(target, i.start), range_span(i), u64_from_pointer(val), f);
 }
 
-void filesystem_read(filesystem fs, tuple t, void *dest, u64 offset, u64 length, status_handler completion)
+void filesystem_read(filesystem fs, tuple t, void *dest, u64 length, u64 offset, status_handler completion)
 {
     fsfile f;
     if (!(f = table_find(fs->files, t))) {

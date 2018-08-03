@@ -30,6 +30,7 @@ void log_flush(log tl)
 {
     thunk i;
     buffer b = tl->staging;
+
     buffer_clear(tl->completions);
     push_u8(b, END_OF_LOG);
     apply(tl->fs->w,
