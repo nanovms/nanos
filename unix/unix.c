@@ -65,8 +65,7 @@ process create_process(heap h, heap pages, heap physical, tuple root, filesystem
 {
     process p = allocate(h, sizeof(struct process));
     p->h = h;
-    // stash end of bss? collisions?
-    p->brk = pointer_from_u64(0x8000000);
+    p->brk = 0;
     p->pid = allocate_u64(processes, 1);
     // xxx - take from virtual allocator
     p->virtual = create_id_heap(h, 0x7000000000ull, 0x10000000000ull, 0x100000000);
@@ -126,7 +125,6 @@ static u64 syscall_debug()
 void init_unix(heap h, heap pages, heap physical, tuple root, filesystem fs)
 {
     set_syscall_handler(syscall_enter);
-    // could wrap this in a 'system'
     processes = create_id_heap(h, 1, 65535, 1);
     process kernel = create_process(h, pages, physical, root, fs);
     current = create_thread(kernel);

@@ -503,13 +503,16 @@ static char *getcwd(char *buf, u64 length)
 static void *brk(void *x)
 {
     process p = current->p;
-    if (p->brk) {
+
+    if (x) {
         if (p->brk > x) {
             p->brk = x;
             // free
         } else {
-            u64 alloc = u64_from_pointer(x) - u64_from_pointer(p->brk);
+            // I guess assuming we're aligned
+            u64 alloc = pad(u64_from_pointer(x), PAGESIZE) - pad(u64_from_pointer(p->brk), PAGESIZE);
             map(u64_from_pointer(p->brk), allocate_u64(p->physical, alloc), alloc, p->pages);
+            // people shouldn't depend on this
             zero(p->brk, alloc);
             p->brk += alloc;         
         }

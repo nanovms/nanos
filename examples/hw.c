@@ -3,7 +3,8 @@
 
 void main(int argc, char **argv)
 {
-    for (int i = 0; i < argc; i++)
-        printf("hello world! zin - %d p %s\n", argc, argv[i]);
+    printf("hello world!\n");
+    printf("args:\n"); 
+    for (int i = 0; i < argc; i++) printf ("   %s\n", argv[i]);
 }
 

@@ -107,17 +107,18 @@ process exec_elf(buffer ex,
     boolean interp = false;
     Elf64_Ehdr *e = (Elf64_Ehdr *)buffer_ref(ex, 0);
 
-    // also pick up the maximum load address for the brk
+    proc->brk = 0;
+
     foreach_phdr(e, p) {
         // umm, this is passed in aux but..there might be more than one, and p_offset
-        // isn't necessarily 0
+        // isn't necessarily 0...i guess this the the 'base' for dynamic
+        // and aslr objects i.e. load_elf offset
         if ((p->p_type == PT_LOAD)  && (p->p_offset == 0))
             va = p->p_vaddr;
+        proc->brk  = pointer_from_u64(MAX(u64_from_pointer(proc->brk), pad(p->p_vaddr + p->p_memsz, PAGESIZE)));
     }
-    
     build_exec_stack(backed, t, e, start, va, md);
-
-        
+            
     foreach_phdr(e, p) {
         if (p->p_type == PT_INTERP) {
             char *n = (void *)e + p->p_offset;

@@ -143,7 +143,6 @@ void centry()
 {
     workings.alloc = stage2_allocator;
     init_runtime(&workings);
-    init_extra_prints(); // xxx 
     void *x = allocate(&workings, 10);
     u32 fsb = filesystem_base();
 

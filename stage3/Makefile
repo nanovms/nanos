@@ -19,7 +19,7 @@ stage3: $(NETOBJ) stage3.o $(RUNTIME) $(RUNTIME_EXTRA) $(VIRTIO) $(VIRTIO_NET) $
 	ld -n -e_start -T linker_script -nostdlib $^ -o stage3
 
 .c.o:
-	cc $(INCLUDES) -O -nostdinc -fno-stack-protector $< -c
+	cc $(INCLUDES) -g -O -nostdinc -fno-stack-protector $< -c
 
 # fix the frame nasm clean
 clean:

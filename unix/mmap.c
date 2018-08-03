@@ -52,7 +52,7 @@ static void *mmap(void *target, u64 size, int prot, int flags, int fd, u64 offse
         else
             where = allocate_u64(current->p->virtual, len);
     }
-    
+
     // make a generic zero page function
     if (flags & MAP_ANONYMOUS) {
         u64  m = allocate_u64(p->physical, len);
