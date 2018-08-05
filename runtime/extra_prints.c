@@ -90,7 +90,7 @@ static void format_cstring(buffer dest, buffer fmt, vlist *a)
 
 static void format_hex_buffer(buffer dest, buffer fmt, vlist *a)
 {
-    buffer b= varg(a, buffer);
+    buffer b= varg(*a, buffer);
     print_hex_buffer(dest, b);
 }
 

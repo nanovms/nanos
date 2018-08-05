@@ -1,7 +1,9 @@
 
 extern void vbprintf(buffer s, buffer fmt, vlist *ap);
 
-typedef void (*formatter)(buffer, buffer, vlist *ap);
+// make sure its safe to read more than one format char ala %02x
+// if we parameterize newline we can do some nicer formatting tricks
+typedef void (*formatter)(buffer dest, buffer fmt, vlist *ap);
 void register_format(character c, formatter f);
 // indent?
 

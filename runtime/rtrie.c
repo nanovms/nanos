@@ -155,9 +155,17 @@ void rtrie_range_lookup(rtrie r, range q, subrange s)
     range_lookup(r->root, q, s);
 }
 
+static void format_range(buffer dest, buffer fmt, vlist *a)
+{
+    range r = varg(*a, range);
+    bprintf(dest, "(%P %P)", r.start, r.end);
+    
+}
 
 rtrie rtrie_create(heap h)
 {
+    // xxx move
+    register_format('R', format_range);
     rtrie r = allocate(h, sizeof(struct rtrie));
     r->h = h;
     r->root = 0;

@@ -45,7 +45,7 @@ static inline u16 tagof(void *v)
 void print_number(buffer s, u64 x, int base, int pad);
 static inline void format_pointer(buffer dest, buffer fmt, vlist *a)
 {
-    u64 x = varg(a, u64);
+    u64 x = varg(*a, u64);
     // ?
     print_number(dest, x, 16, 17);
 }

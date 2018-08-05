@@ -1,6 +1,5 @@
 #include <runtime.h>
 
-
 static formatter formatters[96]={0};
 
 void register_format(character c, formatter f)

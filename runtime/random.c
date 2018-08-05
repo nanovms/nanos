@@ -8,9 +8,11 @@ u64 random_u64(void) {
     u64 result = s0 + s1;
 
     s1 ^= s0;
+    // xxx - no 32 bits
+#ifndef BITS32    
     s[0] = rol(s0, 55) ^ s1 ^ (s1 << 14); // a, b
     s[1] = rol(s1, 36); // c
-
+#endif
     return result;
 }
 

@@ -146,6 +146,16 @@ void centry()
     void *x = allocate(&workings, 10);
     u32 fsb = filesystem_base();
 
+    u32 cr0, cr4;
+    mov_from_cr("cr0", cr0);
+    mov_from_cr("cr4", cr4);
+    cr0 &= ~(1<<2); // clear EM
+    cr0 |= 1<<1; // set MP EM
+    cr4 |= 1<<9; // set osfxsr
+    cr0 |= 1<<10; // set osxmmexcpt
+    mov_to_cr("cr0", cr0);
+    mov_to_cr("cr4", cr4);    
+
     // need to ignore the bios area and the area we're running in
     // could reclaim stage2 before entering stage3
     for_regions (r) {

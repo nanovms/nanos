@@ -6,6 +6,7 @@ include $(ROOT)/x86_64/Makefile
 include $(ROOT)/runtime/Makefile
 include $(ROOT)/tfs/Makefile
 
+CC = cc
 
 STAGE1SIZE = 512
 
@@ -38,7 +39,7 @@ service32.o: service32.s
 	nasm -felf $<
 
 %.o: %.c $(ROOT)/runtime/closure_templates.h
-	cc -m32 -O -fno-stack-protector -include def32.h $(INCLUDES) -I. -I../runtime $< -c
+	$(CC) -m32 -O -fno-stack-protector -include def32.h $(INCLUDES) -I. -I../runtime $< -c
 
 clean:
 	rm -f *.o *~ stage2.elf stage2 bottom.list stage1 stage2.pad boot
