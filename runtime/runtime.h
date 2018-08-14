@@ -34,7 +34,7 @@ static inline int runtime_strlen(char *a)
 #define MAX(x, y) ((x) > (y)? (x):(y))
 #endif
 
-
+#define offsetof(__t, __e) u64_from_pointer(&((__t)0)->__e)
 
 #if 0
 // this...seems to have a fault (?).. it may be the interrupt
