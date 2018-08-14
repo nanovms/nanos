@@ -70,18 +70,42 @@ boolean objcache_test(heap meta, heap parent)
     return true;
 }
 
+/* corny way to fake page alignment */
+typedef struct malign {
+    struct heap h;
+    heap parent;
+    u64 alignment;
+} *malign;
+
+u64 malign_alloc(heap h, bytes size)
+{
+    malign m = (malign)h;
+    u64 len = pad(size, m->h.pagesize) + m->alignment - 1;
+    u64 a = allocate_u64(m->parent, len);
+    a += m->alignment - 1;
+    return a - (a % m->alignment);
+}
+
+heap allocate_malign(heap meta, heap parent, bytes size, bytes alignment)
+{
+    malign m = allocate(meta, sizeof(struct malign));
+
+    m->parent = parent;
+    m->alignment = alignment;
+    m->h.alloc = malign_alloc;
+    m->h.dealloc = leak;
+    m->h.pagesize = size;
+}
+
 int main(int argc, char **argv)
 {
     heap h = init_process_runtime();
     bytes pagesize = PAGESIZE;
     bytes mallocsize = pagesize * 1024; /* arbitrary */
 
-    /* unix runtime doesn't set a pagesize, not sure if fragmentor
-       will work without it...malloc heap ignores it */
-    h->pagesize = mallocsize;
-
     /* make a parent heap for pages */
-    heap pageheap = allocate_fragmentor(h, h, pagesize);
+    heap m = allocate_malign(h, h, mallocsize, pagesize);
+    heap pageheap = allocate_fragmentor(h, m, pagesize);
 
     if (!objcache_test(h, pageheap))
 	return EXIT_FAILURE;

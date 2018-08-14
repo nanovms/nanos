@@ -56,7 +56,7 @@ typedef u64 page;
 #define object_size(o) (o->h.pagesize)
 #define page_size(o) (o->parent->pagesize)
 #define next_free_from_obj(o) (*(u64*)pointer_from_u64(o))
-#define is_valid_index(i) ((i) != -1)
+#define is_valid_index(i) ((i) != (u16)-1)
 #define invalid_index (-1)
 
 static inline page page_from_obj(objcache o, u64 a)
@@ -148,6 +148,8 @@ static footer objcache_addpage(objcache o)
 	return 0;
     }
 
+    msg_debug("heap %p, got page %P\n", o, p);
+
     footer f = footer_from_page(o, p);
     f->free = invalid_index;
     f->head = 0;
@@ -195,6 +197,8 @@ static u64 objcache_allocate(heap h, bytes size)
     assert(size == object_size(o));
 
     footer f = (footer)list_get_next(&o->free);
+
+    msg_debug("heap %p, size %d\n", h, size);
     
     if (!f) {
 	msg_debug("empty; calling objcache_addpage()\n", o->free);
@@ -208,6 +212,7 @@ static u64 objcache_allocate(heap h, bytes size)
 	
     /* first check page's free list */
     if (is_valid_index(f->free)) {
+	msg_debug("f->free %d\n", f->free);
 	obj = obj_from_index(o, p, f->free);
 	u64 n = next_free_from_obj(obj);
 	f->free = n ? index_from_obj(o, p, n) : invalid_index;
@@ -216,6 +221,8 @@ static u64 objcache_allocate(heap h, bytes size)
 	assert(is_valid_index(f->head));
 	assert(f->head < o->page_objs);
 
+	msg_debug("f->head %d\n", f->head);
+	
 	obj = obj_from_index(o, p, f->head);
 	f->head++;
     }
@@ -229,6 +236,8 @@ static u64 objcache_allocate(heap h, bytes size)
     
     assert(o->alloced_objs < o->total_objs);
     o->alloced_objs++;
+    
+    msg_debug("returning obj %P\n", obj);
     
     return obj;
 }
