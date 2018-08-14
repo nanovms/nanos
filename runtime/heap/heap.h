@@ -32,7 +32,8 @@ static inline int subdivide(int quantum, int per, int s, int o)
 #define allocate_u64(__h, __b) ((__h)->alloc(__h, __b))
 #define allocate(__h, __b) pointer_from_u64(allocate_u64(__h, __b))
 
-#define deallocate(__h, __b, __s) ((__h)->dealloc(__h, u64_from_pointer(__b), __s))
+#define deallocate_u64(__h, __b, __s) ((__h)->dealloc(__h, __b, __s))
+#define deallocate(__h, __b, __s) deallocate_u64(__h, u64_from_pointer(__b), __s)
 
 #define allocate_zero(__h, __b) ({\
             u64 __len =  __b;\

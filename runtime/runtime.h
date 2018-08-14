@@ -73,6 +73,8 @@ extern heap transient;
 
 heap wrap_freelist(heap meta, heap parent, bytes size);
 
+heap allocate_objcache(heap meta, heap parent, bytes objsize);
+
 typedef u64 physical;
 
 physical vtop(void *x);
@@ -147,6 +149,17 @@ typedef closure_type(block_read, void, void *, u64, u64, status_handler);
 #include <x86_64.h>
 
 extern void halt(char *format, ...);
+
+// guess we have to build a string in-place
+#if 0
+
+// make into no-op for production
+#define assert(x) do { if(!(x)) halt("assertion failure in " __FILE__ \
+				  ":" __func__ "() on line " __LINE__ \
+				     "; halt\n"); } while(0)
+#else
+#define assert(x) do { if((x)) { } } while(0)
+#endif
 
 // should be  (parser, parser, character)
 typedef closure_type(parser, void *, character);
