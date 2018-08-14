@@ -3,7 +3,7 @@
 typedef struct heap {
     u64 (*alloc)(struct heap *h, bytes b);
     void (*dealloc)(struct heap *h, u64 a, bytes b);
-    void (*destroy)();
+    void (*destroy)(struct heap *h);
     bytes pagesize;
     bytes allocated;
 } *heap;

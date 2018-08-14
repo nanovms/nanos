@@ -369,7 +369,14 @@ boolean objcache_validate(heap h)
 
 heap allocate_objcache(heap meta, heap parent, bytes objsize)
 {
-    u64 page_objs = (parent->pagesize - sizeof(struct footer)) / objsize;
+    u64 page_objs;
+
+    if (objsize < sizeof(u64)) {
+	msg_err("object size must be > %d\n", sizeof(u64));
+	return INVALID_ADDRESS;
+    }
+    
+    page_objs = (parent->pagesize - sizeof(struct footer)) / objsize;
     
     msg_debug("allocate_objcache(): meta %p, parent %p, objsize %d, "
 		   "parent pagesize %d, obj per page %d\n",
@@ -429,65 +436,3 @@ heap allocate_objcache(heap meta, heap parent, bytes objsize)
 
     return (heap)o;
 }
-
-
-#if 0
-
-void objcache_tb(heap meta, heap parent)
-{
-    /* just a cursory test */
-    int n = 1024;
-    int size = 32;
-    int opp = PAGESIZE / size;
-    int i;
-    heap h = allocate_objcache(meta, parent, size);
-    vector objs = allocate_vector(meta, n);
-
-    msg_debug("objs %p, heap %p\n", objs, h);
-    
-    if (h == INVALID_ADDRESS) {
-	msg_err("tb: failed to allocate objcache heap\n");
-	/* XXX free vector */
-	return;
-    }
-
-    /* allocate a page's worth */
-    i = opp - 1;
-    do {
-	void * p = allocate(h, size);
-	if (p == INVALID_ADDRESS) {
-	    msg_err("tb: failed to allocate object\n");
-	}
-	vector_set(objs, i, p);
-    } while (i--);
-
-    /* and return */
-    i = opp - 1;
-    do {
-	void * p = vector_get(objs, i);
-	msg_debug("dealloc %p\n", p);
-	deallocate(h, p, size);
-    } while (i--);
-
-    /* re-allocate a page's worth */
-    i = opp - 1;
-    do {
-	void * p = allocate(h, size);
-	if (p == INVALID_ADDRESS) {
-	    msg_err("tb: failed to allocate object\n");
-	}
-	vector_set(objs, i, p);
-    } while (i--);
-
-    /* and one more to trigger a new page */
-    void * p = allocate(h, size);
-
-    /* list pages */
-    objpage op = ((objcache)h)->pages;
-    do {
-	msg_debug("page %p\n", op->page);
-	op = op->next;
-    } while (op);
-}
-
-#endif
