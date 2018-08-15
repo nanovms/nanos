@@ -150,15 +150,13 @@ typedef closure_type(block_read, void, void *, u64, u64, status_handler);
 
 extern void halt(char *format, ...);
 
-// guess we have to build a string in-place
-#if 0
-
 // make into no-op for production
-#define assert(x) do { if(!(x)) halt("assertion failure in " __FILE__ \
-				  ":" __func__ "() on line " __LINE__ \
-				     "; halt\n"); } while(0)
-#else
+#ifdef NO_ASSERT
 #define assert(x) do { if((x)) { } } while(0)
+#else
+#define assert(x) \
+  do { if(!(x)) halt("assertion \"%s\" failed in %s:%s() on line %d; halt\n", \
+		     #x, __FILE__, __func__, __LINE__); } while(0)
 #endif
 
 // should be  (parser, parser, character)

@@ -10,22 +10,66 @@
 #define msg_err(fmt, ...) rprintf("%s error: " fmt, __func__, \
 				  ##__VA_ARGS__);
 
-#if 1
+#ifdef OBJCACHE_DEBUG
 #define msg_debug(fmt, ...) rprintf("%s debug: " fmt, __func__, \
 				    ##__VA_ARGS__);
 #else
 #define msg_debug(fmt, ...)
 #endif
 
-boolean objcache_test(heap meta, heap parent)
+boolean objcache_validate(heap h);
+
+static inline boolean validate(heap h)
+{
+    if (!objcache_validate(h)) {
+	msg_err("objcache_validate failed\n");
+	return false;
+    }
+
+    return true;
+}
+
+static boolean alloc_vec(heap h, int n, int s, vector v)
+{
+    int i = n - 1;
+    do {
+	if (!validate(h))
+	    return false;
+
+	void * p = allocate(h, s);
+	if (p == INVALID_ADDRESS) {
+	    msg_err("tb: failed to allocate object\n");
+	    return false;
+	}
+	
+	vector_set(v, i, p);
+    } while (i--);
+
+    return true;
+}
+
+static boolean dealloc_vec(heap h, int n, int s, vector v)
+{
+    int i = n - 1;
+    do {
+	if (!validate(h))
+	    return false;
+	
+	void * p = vector_get(v, i);
+	deallocate(h, p, s);
+    } while (i--);
+
+    return true;
+}
+    
+#define FOOTER_SIZE 24
+boolean objcache_test(heap meta, heap parent, int objsize, int n_objs)
 {
     /* just a cursory test */
-    int n = 1024;
-    int size = 32;
-    int opp = PAGESIZE / size;
+    int opp = (PAGESIZE - FOOTER_SIZE) / objsize;
     int i;
-    heap h = allocate_objcache(meta, parent, size);
-    vector objs = allocate_vector(meta, n);
+    heap h = allocate_objcache(meta, parent, objsize);
+    vector objs = allocate_vector(meta, n_objs);
 
     msg_debug("objs %p, heap %p\n", objs, h);
     
@@ -36,36 +80,21 @@ boolean objcache_test(heap meta, heap parent)
     }
 
     /* allocate a page's worth */
-    i = opp - 1;
-    do {
-	void * p = allocate(h, size);
-	if (p == INVALID_ADDRESS) {
-	    msg_err("tb: failed to allocate object\n");
-	}
-	vector_set(objs, i, p);
-    } while (i--);
+    if (!alloc_vec(h, opp, objsize, objs))
+	return false;
 
-    /* and return */
-    i = opp - 1;
-    do {
-	void * p = vector_get(objs, i);
-	msg_debug("dealloc %p\n", p);
-	deallocate(h, p, size);
-    } while (i--);
-
-    /* re-allocate a page's worth */
-    i = opp - 1;
-    do {
-	void * p = allocate(h, size);
-	if (p == INVALID_ADDRESS) {
-	    msg_err("tb: failed to allocate object\n");
-	}
-	vector_set(objs, i, p);
-    } while (i--);
-
-    /* and one more to trigger a new page */
-    void * p = allocate(h, size);
-
+    /* and return (cache) them */
+    if (!dealloc_vec(h, opp, objsize, objs))
+	return false;
+    
+    /* re-allocate a page's worth + 1 to trigger parent allocation */
+    if (!alloc_vec(h, opp + 1, objsize, objs))
+	return false;
+    
+    /* and return them */
+    if (!dealloc_vec(h, opp + 1, objsize, objs))
+	return false;
+    
     h->destroy(h);
     return true;
 }
@@ -107,8 +136,11 @@ int main(int argc, char **argv)
     heap m = allocate_malign(h, h, mallocsize, pagesize);
     heap pageheap = allocate_fragmentor(h, m, pagesize);
 
-    if (!objcache_test(h, pageheap))
-	return EXIT_FAILURE;
+    /* XXX test a range of sizes */
+    if (!objcache_test(h, pageheap, 32, 1024))
+	exit(EXIT_FAILURE);
 
-    return EXIT_SUCCESS;
+    msg_debug("test passed\n");
+    
+    exit(EXIT_SUCCESS);
 }

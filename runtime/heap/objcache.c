@@ -1,17 +1,20 @@
-/* like freelist, but operating on a page's worth of objects at time
+/* object cache heap
 
-   later this can expand into being a true slab-like object cache with
-   instantiators, cache aliasing protection, etc.
+   This allocates pages of objects at a time, recycling objects in a
+   per-page free list. This can later expand into being a true
+   slab-like object cache with object constructors, etc.
 
    issues / todo:
 
    - Do we bother with locking or leave it up to the caller to
      correctly synchronize accesses to the objcache instance?
 
+     - Per-page locks may reduce contention.
+
    - See notes in allocate_objcache() with regard to supporting
      multi-page parent head allocations.
 
-   - Round up cache occupancy and put in tuple space
+   - Round up cache occupancy and put in tuple space.
 
 */
 
@@ -20,33 +23,33 @@
 #define msg_err(fmt, ...) rprintf("%s error: " fmt, __func__, \
 				  ##__VA_ARGS__);
 
-#if 1
+#ifdef OBJCACHE_DEBUG
 #define msg_debug(fmt, ...) rprintf("%s debug: " fmt, __func__, \
 				    ##__VA_ARGS__);
 #else
 #define msg_debug(fmt, ...)
 #endif
 
-struct pagelist {
-    struct pagelist * prev;
-    struct pagelist * next;
+struct list {
+    struct list * prev;
+    struct list * next;
 };
 
-#define FOOTER_RESERVED_MAGIC	(u16)(0xcafe)
+#define FOOTER_MAGIC	(u16)(0xcafe)
 typedef struct footer {
-    struct pagelist list;	/* full list if avail == 0, free otherwise */
+    u16 magic;			/* try to detect corruption by overruns */
     u16 free;			/* next free (recycled) object in page */
     u16 head;			/* next uninitialized object in page */
     u16 avail;			/* # of free and uninit. objects in page */
-    u16 reserved;		/* unused */
+    struct list list;		/* full list if avail == 0, free otherwise */
 } *footer;
 
 typedef struct objcache {
     struct heap h;
     heap parent;
-    struct pagelist free;	/* pages with available objects */
-    struct pagelist full;	/* fully-occupied pages */
-    u64 page_objs;		/* objects per page */
+    struct list free;		/* pages with available objects */
+    struct list full;		/* fully-occupied pages */
+    u64 objs_per_page;		/* objects per page */
     u64 total_objs;		/* total objects in cache */
     u64 alloced_objs;		/* total cache occupancy (of total_objs) */
 } *objcache;
@@ -89,33 +92,33 @@ static inline u16 index_from_obj(objcache o, page p, u64 obj)
     return (u16)offset / object_size(o);
 }
 
-/* maybe move the list stuff to a generic header */
-static inline void list_init(struct pagelist * head)
+/* maybe move the list stuff to a generic header? */
+static inline void list_init(struct list * head)
 {
     head->prev = head->next = head;
 }
 
-static inline boolean list_empty(struct pagelist * head)
+static inline boolean list_empty(struct list * head)
 {
     assert((head->next == head) ^ (head->prev == head) == 0);
     return (head->next == head);
 }
 
-static inline struct pagelist * list_get_next(struct pagelist * head)
+static inline struct list * list_get_next(struct list * head)
 {
     return head->next == head ? 0 : head->next;
 }
 
-static inline void list_delete(struct pagelist * p)
+static inline void list_delete(struct list * p)
 {
     assert(p->prev && p->next);
     p->prev->next = p->next;
     p->next->prev = p->prev;
-    p->prev = p->next = 0;	/* or poison magic */
+    p->prev = p->next = 0;
 }
 
-static inline void list_insert_after(struct pagelist * pos,
-				     struct pagelist * new)
+static inline void list_insert_after(struct list * pos,
+				     struct list * new)
 {
     new->prev = pos;
     new->next = pos->next;
@@ -123,8 +126,8 @@ static inline void list_insert_after(struct pagelist * pos,
     pos->next = new;
 }
 
-static inline void list_insert_before(struct pagelist * pos,
-				      struct pagelist * new)
+static inline void list_insert_before(struct list * pos,
+				      struct list * new)
 {
     new->prev = pos->prev;
     new->next = pos;
@@ -153,11 +156,11 @@ static footer objcache_addpage(objcache o)
     footer f = footer_from_page(o, p);
     f->free = invalid_index;
     f->head = 0;
-    f->avail = o->page_objs;
-    f->reserved = FOOTER_RESERVED_MAGIC;
+    f->avail = o->objs_per_page;
+    f->magic = FOOTER_MAGIC;
 
     list_insert_after(&o->free, &f->list);
-    o->total_objs += o->page_objs;
+    o->total_objs += o->objs_per_page;
 
     return f;
 }
@@ -169,9 +172,17 @@ static void objcache_deallocate(heap h, u64 x, bytes size)
     footer f = footer_from_page(o, p);
     u64 lastfree;
 
-    msg_debug("heap %p, ptr %P, size: %d\n", o, x, size);
-    msg_debug(" - page %p, footer: free %d, head %d, avail %d\n",
-		   p, f->free, f->head, f->avail);
+    msg_debug("*** heap %p: objsize %d, per page %d, total %d, alloced %d\n",
+	      h, object_size(o), o->objs_per_page, o->total_objs,
+	      o->alloced_objs);
+    msg_debug(" -  obj %P, page %p, footer: free %d, head %d, avail %d\n",
+	      x, p, f->free, f->head, f->avail);
+
+    if (f->magic != FOOTER_MAGIC) {
+	msg_err("heap %p, object %P, size %d: bad magic!\n", h, x, size);
+	/* how do we recover from corruption? */
+	return;
+    }
 
     if (is_valid_index(f->free)) {
 	lastfree = obj_from_index(o, p, f->free);
@@ -187,8 +198,10 @@ static void objcache_deallocate(heap h, u64 x, bytes size)
     next_free_from_obj(x) = lastfree;
     f->free = index_from_obj(o, p, x);
     f->avail++;
+    assert(f->avail <= o->objs_per_page);
 
-    assert(f->avail < o->page_objs);
+    assert(o->alloced_objs > 0);
+    o->alloced_objs--;
 }
 
 static u64 objcache_allocate(heap h, bytes size)
@@ -196,11 +209,16 @@ static u64 objcache_allocate(heap h, bytes size)
     objcache o = (objcache)h;
     assert(size == object_size(o));
 
-    footer f = (footer)list_get_next(&o->free);
-
-    msg_debug("heap %p, size %d\n", h, size);
+    msg_debug("*** heap %p: objsize %d, per page %d, total %d, alloced %d\n",
+	      h, object_size(o), o->objs_per_page, o->total_objs,
+	      o->alloced_objs);
     
-    if (!f) {
+    footer f;
+    struct list * next_free = list_get_next(&o->free);
+
+    if (next_free) {
+	f = footer_from_list(next_free);
+    } else {
 	msg_debug("empty; calling objcache_addpage()\n", o->free);
 
 	if (!(f = objcache_addpage(o)))
@@ -210,6 +228,13 @@ static u64 objcache_allocate(heap h, bytes size)
     page p = page_from_footer(o, f);
     u64 obj;
 	
+    if (f->magic != FOOTER_MAGIC) {
+	msg_err("heap %p, page %P, size %d: bad magic!\n", h, p, size);
+	return INVALID_PHYSICAL;
+    }
+
+    msg_debug("allocating from page %P\n", p);
+    
     /* first check page's free list */
     if (is_valid_index(f->free)) {
 	msg_debug("f->free %d\n", f->free);
@@ -219,7 +244,7 @@ static u64 objcache_allocate(heap h, bytes size)
     } else {
 	/* we must have an uninitialized object */
 	assert(is_valid_index(f->head));
-	assert(f->head < o->page_objs);
+	assert(f->head < o->objs_per_page);
 
 	msg_debug("f->head %d\n", f->head);
 	
@@ -234,7 +259,7 @@ static u64 objcache_allocate(heap h, bytes size)
 	list_insert_before(&o->full, &f->list);
     }
     
-    assert(o->alloced_objs < o->total_objs);
+    assert(o->alloced_objs <= o->total_objs);
     o->alloced_objs++;
     
     msg_debug("returning obj %P\n", obj);
@@ -277,8 +302,8 @@ boolean objcache_validate(heap h)
        - reserved magic isn't clobbered
        - f->avail is nonzero and matches tally of free and uninit objs
        - full pages are indeed full
-       - total_objs = page tally * page_objs
-       - alloced_objs matches total page_objs minus f->avails
+       - total_objs = page tally * objs_per_page
+       - alloced_objs matches total objs_per_page minus f->avails
     */
 
     footer f;
@@ -289,7 +314,7 @@ boolean objcache_validate(heap h)
     /* check free list */
     foreach_page_footer(&o->free, f) {
 	page p = page_from_footer(o, f);
-	if (f->reserved != FOOTER_RESERVED_MAGIC) {
+	if (f->magic != FOOTER_MAGIC) {
 	    msg_err("page %P has wrong magic\n", p);
 	    return false;
 	}
@@ -299,33 +324,40 @@ boolean objcache_validate(heap h)
 	    return false;
 	}
 
-	if (!is_valid_index(f->free)) {
-	    msg_err("page %P on free list but object freelist empty\n", p);
+	if (!is_valid_index(f->free) && f->head == o->objs_per_page) {
+	    msg_err("page %P on free list but object freelist empty "
+		    "and no uninitialized objects\n", p);
 	    return false;
 	}
 
 	/* walk the chain of free objects and tally */
-	int free_tally = 1;
-	u64 obj = obj_from_index(o, p, f->free);
-	
-	while (obj != 0) {
-	    obj = next_free_from_obj(o);
-	    free_tally++;
+	int free_tally = 0;
+
+	if (is_valid_index(f->free)) {
+	    u64 obj = obj_from_index(o, p, f->free);
+
+	    do {
+		free_tally++;
+		obj = next_free_from_obj(obj);
+	    } while(obj != 0);
 	}
 
-	if (f->head >= o->page_objs) {
-	    msg_err("page %P on free list has f->head = %d > page_objs = %d\n",
-		    p, f->head, o->page_objs);
+	if (f->head > o->objs_per_page) {
+	    msg_err("page %P on free list has f->head = %d > objs_per_page = "
+		    "%d\n", p, f->head, o->objs_per_page);
 	    return false;
 	}
 	
-	int uninit_count = o->page_objs - f->head;
+	int uninit_count = o->objs_per_page - f->head;
 	if (free_tally + uninit_count != f->avail) {
 	    msg_err("page %P free (%d) and uninit (%d) counts do not equal "
 		    "f->avail (%d)\n", p, free_tally, uninit_count, f->avail);
 	    return false;
 	}
 
+	msg_debug("free page %P has %d free and %d uninit (%d avail)\n",
+		  p, free_tally, uninit_count, f->avail);
+		  
 	total_avail += f->avail;
 	total_pages++;
     }
@@ -333,7 +365,7 @@ boolean objcache_validate(heap h)
     /* check full list */
     foreach_page_footer(&o->full, f) {
 	page p = page_from_footer(o, f);
-	if (f->reserved != FOOTER_RESERVED_MAGIC) {
+	if (f->magic != FOOTER_MAGIC) {
 	    msg_err("page %P has wrong magic\n", p);
 	    return false;
 	}
@@ -350,9 +382,9 @@ boolean objcache_validate(heap h)
 	    return false;
 	}
 
-	if (f->head < o->page_objs) {
+	if (f->head < o->objs_per_page) {
 	    msg_err("page %P on full list but uninitialized objects remain "
-		    "(%d)\n", o->page_objs - f->head);
+		    "(%d)\n", o->objs_per_page - f->head);
 	    return false;
 	}
 
@@ -360,9 +392,10 @@ boolean objcache_validate(heap h)
     }
 
     /* validate counts */
-    if (total_pages * object_size(o) != o->total_objs) {
+    if (total_pages * o->objs_per_page != o->total_objs) {
 	msg_err("total_objs (%d) doesn't match tallied pages (%d) * "
-		"objsize (%d)\n", o->total_objs, total_pages, object_size(o));
+		"objs_per_page (%d)\n", o->total_objs, total_pages,
+		o->objs_per_page);
 	return false;
     }
 
@@ -378,20 +411,20 @@ boolean objcache_validate(heap h)
 
 heap allocate_objcache(heap meta, heap parent, bytes objsize)
 {
-    u64 page_objs;
+    u64 objs_per_page;
 
     if (objsize < sizeof(u64)) {
 	msg_err("object size must be > %d\n", sizeof(u64));
 	return INVALID_ADDRESS;
     }
     
-    page_objs = (parent->pagesize - sizeof(struct footer)) / objsize;
+    objs_per_page = (parent->pagesize - sizeof(struct footer)) / objsize;
     
     msg_debug("allocate_objcache(): meta %p, parent %p, objsize %d, "
 		   "parent pagesize %d, obj per page %d\n",
-		   meta, parent, objsize, parent->pagesize, page_objs);
+		   meta, parent, objsize, parent->pagesize, objs_per_page);
     
-    if (page_objs == 0) {
+    if (objs_per_page == 0) {
 	/* If we wish to expand the objcache to support multiple-page
 	   allocations, we have the following options:
 
@@ -417,10 +450,10 @@ heap allocate_objcache(heap meta, heap parent, bytes objsize)
 	return INVALID_ADDRESS;
     }
 
-    if (page_objs >= (1 << 16)) {
-	page_objs = (1 << 16) - 1;
+    if (objs_per_page >= (1 << 16)) {
+	objs_per_page = (1 << 16) - 1;
 	msg_err("too many objects per page (pagesize %d, objsize %d); "
-		"limiting to %d\n", parent->pagesize, objsize, page_objs);
+		"limiting to %d\n", parent->pagesize, objsize, objs_per_page);
     }
     
     objcache o = allocate(meta, sizeof(struct objcache));
@@ -433,7 +466,7 @@ heap allocate_objcache(heap meta, heap parent, bytes objsize)
     list_init(&o->free);
     list_init(&o->full);
 
-    o->page_objs = page_objs;
+    o->objs_per_page = objs_per_page;
     o->total_objs = 0;
     o->alloced_objs = 0;
 
