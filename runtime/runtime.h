@@ -111,6 +111,16 @@ void print_number(buffer s, u64 x, int base, int pad);
 void debug(buffer);
 #include <format.h>
 
+#define msg_err(fmt, ...) rprintf("%s error: " fmt, __func__, \
+				  ##__VA_ARGS__);
+
+#ifdef ENABLE_MSG_DEBUG
+#define msg_debug(fmt, ...) rprintf("%s debug: " fmt, __func__, \
+				    ##__VA_ARGS__);
+#else
+#define msg_debug(fmt, ...)
+#endif
+
 static inline boolean compare_bytes(void *a, void *b, bytes len)
 {
     for (int i = 0; i < len ; i++) {
@@ -191,3 +201,5 @@ extern status_handler ignore_status;
 #define cstring(__b) ({buffer n = little_stack_buffer(512); push_buffer(n, __b); push_u8(n, 0); n->contents;})
 
 extern heap transient;
+
+#include <list.h>

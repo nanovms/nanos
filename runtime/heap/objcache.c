@@ -20,21 +20,6 @@
 
 #include <runtime.h>
 
-#define msg_err(fmt, ...) rprintf("%s error: " fmt, __func__, \
-				  ##__VA_ARGS__);
-
-#ifdef OBJCACHE_DEBUG
-#define msg_debug(fmt, ...) rprintf("%s debug: " fmt, __func__, \
-				    ##__VA_ARGS__);
-#else
-#define msg_debug(fmt, ...)
-#endif
-
-struct list {
-    struct list * prev;
-    struct list * next;
-};
-
 #define FOOTER_MAGIC	(u16)(0xcafe)
 typedef struct footer {
     u16 magic;			/* try to detect corruption by overruns */
@@ -58,7 +43,7 @@ typedef u64 page;
 
 #define object_size(o) (o->h.pagesize)
 #define page_size(o) (o->parent->pagesize)
-#define next_free_from_obj(o) (*(u64*)pointer_from_u64(o))
+#define next_free_from_obj(o) (*(u16*)pointer_from_u64(o))
 #define is_valid_index(i) ((i) != (u16)-1)
 #define invalid_index (-1)
 
@@ -92,49 +77,6 @@ static inline u16 index_from_obj(objcache o, page p, u64 obj)
     return (u16)offset / object_size(o);
 }
 
-/* maybe move the list stuff to a generic header? */
-static inline void list_init(struct list * head)
-{
-    head->prev = head->next = head;
-}
-
-static inline boolean list_empty(struct list * head)
-{
-    assert((head->next == head) ^ (head->prev == head) == 0);
-    return (head->next == head);
-}
-
-static inline struct list * list_get_next(struct list * head)
-{
-    return head->next == head ? 0 : head->next;
-}
-
-static inline void list_delete(struct list * p)
-{
-    assert(p->prev && p->next);
-    p->prev->next = p->next;
-    p->next->prev = p->prev;
-    p->prev = p->next = 0;
-}
-
-static inline void list_insert_after(struct list * pos,
-				     struct list * new)
-{
-    new->prev = pos;
-    new->next = pos->next;
-    pos->next->prev = new;
-    pos->next = new;
-}
-
-static inline void list_insert_before(struct list * pos,
-				      struct list * new)
-{
-    new->prev = pos->prev;
-    new->next = pos;
-    pos->prev->next = new;
-    pos->prev = new;
-}
-
 #define footer_from_list(l)						\
     ((footer)pointer_from_u64((u64_from_pointer(l) -			\
 			       offsetof(footer, list))))
@@ -152,6 +94,7 @@ static footer objcache_addpage(objcache o)
     }
 
     msg_debug("heap %p, got page %P\n", o, p);
+    assert ((p & (page_size(o) - 1)) == 0);
 
     footer f = footer_from_page(o, p);
     f->free = invalid_index;
@@ -170,7 +113,6 @@ static void objcache_deallocate(heap h, u64 x, bytes size)
     objcache o = (objcache)h;
     page p = page_from_obj(o, x);
     footer f = footer_from_page(o, p);
-    u64 lastfree;
 
     msg_debug("*** heap %p: objsize %d, per page %d, total %d, alloced %d\n",
 	      h, object_size(o), o->objs_per_page, o->total_objs,
@@ -179,23 +121,17 @@ static void objcache_deallocate(heap h, u64 x, bytes size)
 	      x, p, f->free, f->head, f->avail);
 
     if (f->magic != FOOTER_MAGIC) {
-	msg_err("heap %p, object %P, size %d: bad magic!\n", h, x, size);
-	/* how do we recover from corruption? */
-	return;
+	halt("heap %p, object %P, size %d: bad magic!\n", h, x, size);
     }
 
-    if (is_valid_index(f->free)) {
-	lastfree = obj_from_index(o, p, f->free);
-    } else {
-	lastfree = 0;
-	if (f->avail == 0) {
-	    /* Move from full to free list */
-	    list_delete(&f->list);
-	    list_insert_after(&o->free, &f->list);
-	}
+    if (f->avail == 0) {
+	assert(!is_valid_index(f->free));
+	/* Move from full to free list */
+	list_delete(&f->list);
+	list_insert_after(&o->free, &f->list);
     }
 
-    next_free_from_obj(x) = lastfree;
+    next_free_from_obj(x) = f->free;
     f->free = index_from_obj(o, p, x);
     f->avail++;
     assert(f->avail <= o->objs_per_page);
@@ -207,7 +143,11 @@ static void objcache_deallocate(heap h, u64 x, bytes size)
 static u64 objcache_allocate(heap h, bytes size)
 {
     objcache o = (objcache)h;
-    assert(size == object_size(o));
+    if (size != object_size(o)) {
+	msg_err("on heap %p: alloc size (%d) doesn't match object size "
+		"(%d)\n", h, size, object_size(o));
+	return INVALID_PHYSICAL;
+    }
 
     msg_debug("*** heap %p: objsize %d, per page %d, total %d, alloced %d\n",
 	      h, object_size(o), o->objs_per_page, o->total_objs,
@@ -239,8 +179,7 @@ static u64 objcache_allocate(heap h, bytes size)
     if (is_valid_index(f->free)) {
 	msg_debug("f->free %d\n", f->free);
 	obj = obj_from_index(o, p, f->free);
-	u64 n = next_free_from_obj(obj);
-	f->free = n ? index_from_obj(o, p, n) : invalid_index;
+	f->free = next_free_from_obj(obj);
     } else {
 	/* we must have an uninitialized object */
 	assert(is_valid_index(f->head));
@@ -275,8 +214,8 @@ static void objcache_destroy(heap h)
        to release pages to parent heap anyway. */
 
     if (o->alloced_objs > 0) {
-	msg_err("%d objects still allocated in objcache %p; releasing "
-		"pages anyway\n", o->alloced_objs, o);
+	msg_debug("%d objects still allocated in objcache %p; releasing "
+		  "pages anyway\n", o->alloced_objs, o);
     }
 
     footer f;
@@ -334,12 +273,19 @@ boolean objcache_validate(heap h)
 	int free_tally = 0;
 
 	if (is_valid_index(f->free)) {
-	    u64 obj = obj_from_index(o, p, f->free);
+	    u16 next = f->free;
 
 	    do {
+		/* validate index */
+		if (next >= o->objs_per_page) {
+		    msg_err("page %P on free list has invalid object index "
+			    "%d, objs_per_page %d\n", next, o->objs_per_page);
+		    return false;
+		}
+		u64 obj = obj_from_index(o, p, next);
 		free_tally++;
-		obj = next_free_from_obj(obj);
-	    } while(obj != 0);
+		next = next_free_from_obj(obj);
+	    } while(is_valid_index(next));
 	}
 
 	if (f->head > o->objs_per_page) {
@@ -413,7 +359,7 @@ heap allocate_objcache(heap meta, heap parent, bytes objsize)
 {
     u64 objs_per_page;
 
-    if (objsize < sizeof(u64)) {
+    if (objsize < sizeof(u16)) {
 	msg_err("object size must be > %d\n", sizeof(u64));
 	return INVALID_ADDRESS;
     }

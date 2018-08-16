@@ -6,16 +6,7 @@
 #include <stdio.h>
 #include <sys/mman.h>
 #include <errno.h>
-
-#define msg_err(fmt, ...) rprintf("%s error: " fmt, __func__, \
-				  ##__VA_ARGS__);
-
-#ifdef OBJCACHE_DEBUG
-#define msg_debug(fmt, ...) rprintf("%s debug: " fmt, __func__, \
-				    ##__VA_ARGS__);
-#else
-#define msg_debug(fmt, ...)
-#endif
+#include <string.h>
 
 boolean objcache_validate(heap h);
 
@@ -31,8 +22,7 @@ static inline boolean validate(heap h)
 
 static boolean alloc_vec(heap h, int n, int s, vector v)
 {
-    int i = n - 1;
-    do {
+    for (int i=0; i < n; i++) {
 	if (!validate(h))
 	    return false;
 
@@ -43,33 +33,36 @@ static boolean alloc_vec(heap h, int n, int s, vector v)
 	}
 	
 	vector_set(v, i, p);
-    } while (i--);
+    }
 
     return true;
 }
 
-static boolean dealloc_vec(heap h, int n, int s, vector v)
+static boolean dealloc_vec(heap h, int s, vector v)
 {
-    int i = n - 1;
-    do {
+    void * p;
+    
+    vector_foreach(v, p) {
+	if (!p)
+	    continue;
+	
 	if (!validate(h))
 	    return false;
 	
-	void * p = vector_get(v, i);
 	deallocate(h, p, s);
-    } while (i--);
+    }
 
     return true;
 }
     
 #define FOOTER_SIZE 24
-boolean objcache_test(heap meta, heap parent, int objsize, int n_objs)
+boolean objcache_test(heap meta, heap parent, int objsize)
 {
     /* just a cursory test */
     int opp = (PAGESIZE - FOOTER_SIZE) / objsize;
     int i;
     heap h = allocate_objcache(meta, parent, objsize);
-    vector objs = allocate_vector(meta, n_objs);
+    vector objs = allocate_vector(meta, opp);
 
     msg_debug("objs %p, heap %p\n", objs, h);
     
@@ -84,7 +77,7 @@ boolean objcache_test(heap meta, heap parent, int objsize, int n_objs)
 	return false;
 
     /* and return (cache) them */
-    if (!dealloc_vec(h, opp, objsize, objs))
+    if (!dealloc_vec(h, objsize, objs))
 	return false;
     
     /* re-allocate a page's worth + 1 to trigger parent allocation */
@@ -92,52 +85,46 @@ boolean objcache_test(heap meta, heap parent, int objsize, int n_objs)
 	return false;
     
     /* and return them */
-    if (!dealloc_vec(h, opp + 1, objsize, objs))
+    if (!dealloc_vec(h, objsize, objs))
 	return false;
     
     h->destroy(h);
     return true;
 }
 
-/* corny way to fake page alignment */
-typedef struct malign {
-    struct heap h;
-    heap parent;
-    u64 alignment;
-} *malign;
-
-u64 malign_alloc(heap h, bytes size)
+u64 mmapheap_alloc(heap h, bytes size)
 {
-    malign m = (malign)h;
-    u64 len = pad(size, m->h.pagesize) + m->alignment - 1;
-    u64 a = allocate_u64(m->parent, len);
-    a += m->alignment - 1;
-    return a - (a % m->alignment);
+    void * rv = mmap(0, pad(size, h->pagesize), PROT_READ | PROT_WRITE,
+		     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (rv == MAP_FAILED) {
+	msg_err("mmap() failed: errno %d (%s)\n", errno, strerror(errno));
+	return INVALID_PHYSICAL;
+    } else {
+	return u64_from_pointer(rv);
+    }
 }
 
-heap allocate_malign(heap meta, heap parent, bytes size, bytes alignment)
+heap allocate_mmapheap(heap meta, bytes size, bytes alignment)
 {
-    malign m = allocate(meta, sizeof(struct malign));
-
-    m->parent = parent;
-    m->alignment = alignment;
-    m->h.alloc = malign_alloc;
-    m->h.dealloc = leak;
-    m->h.pagesize = size;
+    heap h = allocate(meta, sizeof(struct heap));
+    
+    h->alloc = mmapheap_alloc;
+    h->dealloc = leak;
+    h->pagesize = size;
 }
 
 int main(int argc, char **argv)
 {
     heap h = init_process_runtime();
     bytes pagesize = PAGESIZE;
-    bytes mallocsize = pagesize * 1024; /* arbitrary */
+    bytes mmapsize = pagesize * 1024; /* arbitrary */
 
     /* make a parent heap for pages */
-    heap m = allocate_malign(h, h, mallocsize, pagesize);
+    heap m = allocate_mmapheap(h, mmapsize, pagesize);
     heap pageheap = allocate_fragmentor(h, m, pagesize);
 
     /* XXX test a range of sizes */
-    if (!objcache_test(h, pageheap, 32, 1024))
+    if (!objcache_test(h, pageheap, 32))
 	exit(EXIT_FAILURE);
 
     msg_debug("test passed\n");

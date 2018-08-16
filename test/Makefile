@@ -4,7 +4,7 @@ all:objcache_test
 ROOT=$(PWD)/..
 
 CC=cc
-CFLAGS=-g -c -DOBJCACHE_DEBUG
+CFLAGS=-g -c -DENABLE_MSG_DEBUG
 
 INCLUDES = -include def64.h
 include $(ROOT)/runtime/Makefile
@@ -15,7 +15,7 @@ include $(ROOT)/tfs/Makefile
 	$(CC) $(CFLAGS) $(INCLUDES) $<
 
 objcache_test: objcache_test.o $(UNIXRUNTIME) $(TFS)
-	cc $^ -g -o objcache_test
+	$(CC) $^ -g -o objcache_test
 clean:
 	rm -f *.o test
 
