@@ -34,7 +34,7 @@ static inline int runtime_strlen(char *a)
 #define MAX(x, y) ((x) > (y)? (x):(y))
 #endif
 
-
+#define offsetof(__t, __e) u64_from_pointer(&((__t)0)->__e)
 
 #if 0
 // this...seems to have a fault (?).. it may be the interrupt
@@ -73,6 +73,8 @@ extern heap transient;
 
 heap wrap_freelist(heap meta, heap parent, bytes size);
 
+heap allocate_objcache(heap meta, heap parent, bytes objsize);
+
 typedef u64 physical;
 
 physical vtop(void *x);
@@ -108,6 +110,16 @@ void print_number(buffer s, u64 x, int base, int pad);
 
 void debug(buffer);
 #include <format.h>
+
+#define msg_err(fmt, ...) rprintf("%s error: " fmt, __func__, \
+				  ##__VA_ARGS__);
+
+#ifdef ENABLE_MSG_DEBUG
+#define msg_debug(fmt, ...) rprintf("%s debug: " fmt, __func__, \
+				    ##__VA_ARGS__);
+#else
+#define msg_debug(fmt, ...)
+#endif
 
 static inline boolean compare_bytes(void *a, void *b, bytes len)
 {
@@ -148,6 +160,15 @@ typedef closure_type(block_read, void, void *, u64, u64, status_handler);
 
 extern void halt(char *format, ...);
 
+// make into no-op for production
+#ifdef NO_ASSERT
+#define assert(x) do { if((x)) { } } while(0)
+#else
+#define assert(x) \
+  do { if(!(x)) halt("assertion \"%s\" failed in %s:%s() on line %d; halt\n", \
+		     #x, __FILE__, __func__, __LINE__); } while(0)
+#endif
+
 // should be  (parser, parser, character)
 typedef closure_type(parser, void *, character);
 // change to status_handler
@@ -180,3 +201,5 @@ extern status_handler ignore_status;
 #define cstring(__b) ({buffer n = little_stack_buffer(512); push_buffer(n, __b); push_u8(n, 0); n->contents;})
 
 extern heap transient;
+
+#include <list.h>
