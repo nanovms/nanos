@@ -1,0 +1,11 @@
+(
+    #64 bit elf to boot from host
+    children:(kernel:(contents:(host:stage3/stage3))
+              #user program
+              webs:(contents:(host:examples/webs)))
+    # filesystem path to elf for kernel to run
+    program:/webs
+    fault:t
+    arguments:[webg poppy]
+    environment:(USER:bobby PWD:/)
+)

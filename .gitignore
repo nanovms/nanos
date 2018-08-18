@@ -24,6 +24,7 @@ runtime/closure_templates.h
 examples/hw
 examples/hwg
 examples/web
+examples/webs
 examples/webg
 examples/fst
 examples/hws

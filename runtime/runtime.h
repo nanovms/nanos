@@ -98,7 +98,7 @@ boolean validate_virtual(void *base, u64 length);
 
 void sha256(buffer dest, buffer source);
 
-#define alloca __builtin_alloca
+#define stack_allocate __builtin_alloca
 
 typedef struct buffer *buffer;
 

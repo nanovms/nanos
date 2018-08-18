@@ -32,8 +32,8 @@ static void build_exec_stack(heap sh, thread t, Elf64_Ehdr * e, void *start, u64
         {AT_ENTRY, u64_from_pointer(start)}};
     
     int auxplen = sizeof(auxp)/(2*sizeof(u64));
-    int argc = vector_length(arguments);    
-    char **argv = alloca(argc * sizeof(u64));
+    int argc = 0;
+    char **argv = stack_allocate(vector_length(arguments) * sizeof(u64));
     int envc = table_elements(environment);
     char **envp = alloca(envc * sizeof(u64));
     buffer a;
