@@ -33,3 +33,4 @@ image2
 mkfs/dump
 fs
 test/objcache_test
+test/network_test
