@@ -22,7 +22,7 @@ static CLOSURE_1_2(each_header, void, buffer, symbol, value);
 static void each_header(buffer dest, symbol n, value v)
 {
     if (n != sym(url))
-        bprintf(dest, "%s: %v\r\n", symbol_string(n), v);
+        bprintf(dest, "%v: %v\r\n", n, v);
 }
 
 void http_header(buffer dest, tuple t)
@@ -41,20 +41,21 @@ void http_request(buffer_handler bh, tuple headers)
     apply(bh, b);
 }
 
+// extra headers
 void send_http_response(buffer d,
-                        symbol content_type, 
+                        tuple t,
                         buffer c)
 {
     bprintf (d, "HTTP/1.1 200 OK\r\n");
+    table_foreach(t, k, v) each_header(d, k, v);
     each_header(d, sym(Content-Length), aprintf(transient, "%d", c->end));
-    each_header(d, sym(Content-Type), symbol_string(content_type));
 }
 
 CLOSURE_1_1(http_recv, void, http_parser, buffer);
 void http_recv(http_parser p, buffer b)
 {
     int i;
-    
+    rprintf ("parser %b\n", b); 
     for (i = b->start ; i < b->end; i ++) {
         char x = ((unsigned char *)b->contents)[i];
         
@@ -118,7 +119,10 @@ buffer_handler allocate_parser(heap h, value_handler each)
     http_parser p = allocate(h, sizeof(struct http_parser));
     p->h = h;
     p->state = STATE_START_LINE;
+    p->header = allocate_tuple();
     p->word = allocate_buffer(h, 10);
+    p->start_line = allocate_vector(h, 3);
+    p->each = each;
     return closure(h, http_recv, p);
 }
 
