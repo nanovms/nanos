@@ -1,7 +1,25 @@
 #include <runtime.h>
 
 #define pivot(r) (r).end
+
+/*
+   The rtrie code was essentially acting as a big list of ranges due
+   to the pivot bit not being updated. Strangely enough, this was
+   working for existing cases in the kernel, while fixing the trie
+   implementation actually causes failures in certain corner cases
+   when looking up an address in a range.
+
+   So this is just a temporary hack to make sure we're not pivoting on
+   bit 0 (or an arbitrary bit) and bifurcating the search space. Until
+   we have a better solution for a range trie (or other structure)
+   implementation, this will have to do for now.
+*/
+
+#if 0 // XXX temporary hack, see above
 #define child(__r, __v) ((__r)->children + (((1<<(__r)->pivot_bit) & (__v))?1:0))
+#else
+#define child(__r, __v) ((__r)->children)
+#endif
 #define point_in_range(__r, __p) ((__p >= __r.start) && (__p < __r.end))
 
 // two trees? start and end?
@@ -58,7 +76,8 @@ static void insert(rtnode *w, rtnode n)
     }
     rtnode r = *w;
     u64 intermediate = pivot(r->r) ^ pivot(n->r);
-    if (msb(intermediate) > r->pivot_bit) {
+    // XXX temporary hack; see comment above
+    if (1 || msb(intermediate) > r->pivot_bit) {
         insert(child(r, pivot(n->r)), n);
     } else {
         *w = n;
@@ -73,6 +92,7 @@ void rtrie_insert(rtrie r, u64 start, u64 length, void *value)
     n->r.start = start;
     n->r.end = start + length;    
     n->value = value;
+    n->pivot_bit = 0;		/* XXX temp hack until rtrie fixed */
     n->children[0] = 0;
     n->children[1] = 0;    
     insert(&r->root, n);
@@ -132,10 +152,11 @@ static rtnode rtlookup(rtnode r, u64 point)
 }
 
 
-void *rtrie_lookup(rtrie r, u64 point)
+void *rtrie_lookup(rtrie r, u64 point, range * rrange)
 {
     rtnode n = rtlookup(r->root, point);
     if (!n) return n;
+    if (rrange) *rrange = n->r;
     return n->value;
 }
 

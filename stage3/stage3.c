@@ -4,13 +4,13 @@
 #include <unix.h>
 #include <gdb.h>
 
-
+void add_elf_syms(heap h, buffer b);
 
 static CLOSURE_7_1(read_program_complete, void, tuple, heap, heap, heap, heap, heap, filesystem, buffer);
 static void read_program_complete(tuple root, heap pages, heap general, heap physical, heap virtual, heap backed,
                                   filesystem fs, buffer b)
 {
-    //    elf_symbols(exc, closure(general, prinsym));
+    add_elf_syms(general, b);
     rprintf ("read program complete: %p\n", buffer_ref(b, 0));
     exec_elf(b, root, root, general, physical, pages, virtual, backed, fs);
 }

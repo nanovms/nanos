@@ -1,6 +1,13 @@
         ;;  this isn't c runtime zero, just some assembly stuff
+
+%macro global_func 1
+	global %1:function (%1.end - %1)
+%endmacro
+%macro global_data 1
+	global %1:data (%1.end - %1)
+%endmacro
         
-        global _start
+global_func _start
         extern init_service
         
 extern frame
@@ -9,7 +16,7 @@ extern frame
 %define FS_MSR 0xc0000100
         
 ;;; optimize and merge - frame is loaded into rbx
-global frame_enter
+global_func frame_enter
 frame_enter:
         mov rax, [rbx+FRAME_FS*8]
         mov rcx, FS_MSR
@@ -37,10 +44,11 @@ frame_enter:
         mov rbx, [rbx+FRAME_RBX*8]                
         popf
         ret
+.end:
 
 ;; syscall save and restore doesn't always have to be a full frame        
 extern syscall
-global syscall_enter
+global_func syscall_enter
 syscall_enter:   
         push rax
         mov rax, [frame]
@@ -67,7 +75,7 @@ syscall_enter:
         mov rbx, [frame]
         mov [rbx + FRAME_RAX], rax
         jmp frame_enter
-
+.end:
         
 extern common_handler
 interrupt_common:
@@ -111,7 +119,7 @@ getrip:
 
         ;; try to unify the interrupt and syscall paths
         ;; could always use iret?
-global frame_return
+global_func frame_return
 frame_return:
         mov rbx, [frame]
 
@@ -144,19 +152,23 @@ frame_return:
         push qword [rax+FRAME_RIP*8]   ; rip
         mov rax, [rax+FRAME_RAX*8]
         iretq
+.end:
 
+global_func geterr
 geterr:
         pop rbx            ; error code - put this in the frame
         jmp getrip
-        
+.end:
+
         interrupts equ 0x30
 
-global interrupt_size
+global_data interrupt_size
 interrupt_size:
         dd interrupts
-        
-        global interrupt0
-        global interrupt1
+.end:
+
+global interrupt0
+global interrupt1
 vectors:        
         %assign i 0                
         %rep interrupts
@@ -166,7 +178,7 @@ vectors:
         %assign i i+1        
         %endrep
 
-global read_msr
+global_func read_msr
 read_msr:
         mov rcx, rdi
         mov rax, 0
@@ -174,8 +186,9 @@ read_msr:
         shl rdx, 0x20
         or rax, rdx
         ret
+.end:
 
-global write_msr
+global_func write_msr
 write_msr:
         mov rcx, rdi
         mov rax, rsi
@@ -183,8 +196,9 @@ write_msr:
         shr rdx, 0x20
         wrmsr
         ret
-        
-global cpuid
+.end:
+
+global_func cpuid
 cpuid:
         mov eax, 1
         cpuid
@@ -195,8 +209,9 @@ cpuid:
         shr rdx, 0x20                
         or rax, rdx
         ret
-        
-global read_xmsr
+.end:
+
+global_func read_xmsr
 read_xmsr:
         mov rcx, rdi
         mov rax, 0
@@ -204,8 +219,9 @@ read_xmsr:
         shl rdx, 0x20
         or rax, rdx
         ret
+.end:
 
-global write_xmsr
+global_func write_xmsr
 write_xmsr:
         mov rcx, rdi
         mov rax, rsi
@@ -213,10 +229,12 @@ write_xmsr:
         shr rdx, 0x20
         xsetbv        
         ret
+.end:
 
 _start:
         call init_service
         hlt
+.end:
 
 
 
