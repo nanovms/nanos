@@ -36,6 +36,6 @@ fst: fst.go
 	$(GO) build fst.go
 
 clean:
-	rm -f hw web hwg webg webs
+	rm -f *.o *~ hw web hwg webg webs
 
 

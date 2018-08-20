@@ -188,6 +188,7 @@ int connect(int sockfd, struct sockaddr *addr, socklen_t addrlen)
 
 static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
 {
+    rprintf ("incoming\n");
     sock s = z;
     thunk p;
     int fd = allocate_sock(s->p, lw);

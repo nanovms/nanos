@@ -3,20 +3,26 @@
 #include <socket_user.h>
 #include <sys/epoll.h>
 
-static CLOSURE_0_1(value_in, void, value);
-static void value_in(value v)
+
+static void send_request(buffer_handler out)
+{
+    http_request(out, timm("url", "/", "fizz", "bun"));
+}
+
+static CLOSURE_2_1(value_in, void, heap, buffer_handler, value);
+static void value_in(heap h, buffer_handler out, value v)
 {
     rprintf ("value in %v\n", v);
+    send_request(out);
 }
+
 
 // asynch connection
 CLOSURE_1_1(conn, buffer_handler, heap, buffer_handler);
-buffer_handler conn(heap h, buffer_handler in)
+buffer_handler conn(heap h, buffer_handler out)
 {
-    return http_transact(h,
-                         timm("url", "/", "fizz", "bun"),
-                         in, 
-                         closure(h, value_in));
+    send_request(out);
+    return allocate_http_parser(h, closure(h, value_in, h, out));
 }
 
 void main(int argc, char **argv)

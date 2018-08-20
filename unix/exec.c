@@ -35,7 +35,7 @@ static void build_exec_stack(heap sh, thread t, Elf64_Ehdr * e, void *start, u64
     int argc = 0;
     char **argv = stack_allocate(vector_length(arguments) * sizeof(u64));
     int envc = table_elements(environment);
-    char **envp = alloca(envc * sizeof(u64));
+    char **envp = stack_allocate(envc * sizeof(u64));
     buffer a;
     vector_foreach(arguments, a)  argv[argc++] = ppush(s, b, "%b\0", a);
     table_foreach(environment, n, v)  envp[envc++] = ppush(s, b, "%b=%b\0", symbol_string(n), v);

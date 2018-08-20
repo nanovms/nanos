@@ -41,24 +41,43 @@ void http_request(buffer_handler bh, tuple headers)
     apply(bh, b);
 }
 
-// extra headers
-void send_http_response(buffer d,
+// xxx - other http streaming interfaces are less straightforward
+void send_http_response(buffer_handler out,
                         tuple t,
                         buffer c)
 {
+
+    // status from t
+    buffer d = allocate_buffer(transient, 1000);
     bprintf (d, "HTTP/1.1 200 OK\r\n");
     table_foreach(t, k, v) each_header(d, k, v);
     each_header(d, sym(Content-Length), aprintf(transient, "%d", c->end));
+    bprintf(d, "\r\n");
+    rprintf ("send http resp %b %b\n", d, c);
+    apply(out, d);
+    apply(out, c);
+    
 }
 
+static void reset_parser(http_parser p)
+{
+    p->state = STATE_START_LINE;
+    p->header = allocate_tuple();
+    p->word = allocate_buffer(p->h, 10);
+    p->start_line = allocate_vector(p->h, 3);
+    p->content_length = 0;
+}
+
+// we're going to patch the connection together by looking at the
+// leftover bits in buffer...defer until we need to actually
+// switch protocols
 CLOSURE_1_1(http_recv, void, http_parser, buffer);
 void http_recv(http_parser p, buffer b)
 {
     int i;
-    rprintf ("parser %b\n", b); 
+
     for (i = b->start ; i < b->end; i ++) {
         char x = ((unsigned char *)b->contents)[i];
-        
         switch (p->state) {
         case STATE_START_LINE:
             switch (x){
@@ -108,29 +127,20 @@ void http_recv(http_parser p, buffer b)
         if ((p->state == STATE_BODY) && (p->content_length == 0)) {
             table_set(p->header, sym(content), p->word);
             apply(p->each, p->header);
-            p->state = STATE_START_LINE;
+            reset_parser(p);
         }
     }
 }
 
 
-buffer_handler allocate_parser(heap h, value_handler each)
+buffer_handler allocate_http_parser(heap h, value_handler each)
 {
     http_parser p = allocate(h, sizeof(struct http_parser));
     p->h = h;
-    p->state = STATE_START_LINE;
-    p->header = allocate_tuple();
-    p->word = allocate_buffer(h, 10);
-    p->start_line = allocate_vector(h, 3);
     p->each = each;
+    reset_parser(p);
     return closure(h, http_recv, p);
 }
 
-// we're going to patch the connection together by looking at the
-// leftover bits in buffer
-buffer_handler http_transact(heap h, tuple req, buffer_handler send, value_handler v)
-{
-    http_request(send, req);
-    return allocate_parser(h, v);
-}
+
 

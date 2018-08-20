@@ -66,13 +66,12 @@ int epoll_wait(int epfd,
     epollfd i;
     
     epoll_blocked w = allocate(e->h, sizeof(struct epoll_blocked));
-    // kind of sad to allocate this all for the polling case, but bear with me
+
     w->user_events = wrap_buffer(e->h, events, maxevents * sizeof(struct epoll_event));
     w->user_events->end = 0;
     w->t = current;
     w->e = e;
 
-    // race
     vector_foreach(e->events, i) 
         apply(i->f->check, closure(current->p->h, epoll_wait_notify, w, i));
     e->w = w;
