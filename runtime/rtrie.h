@@ -8,7 +8,7 @@ typedef struct range {
 #define irange(__s, __e)  (range){__s, __e}        
 typedef closure_type(subrange, void, range r, void *);
 void rtrie_range_lookup(rtrie r, range q, subrange s);
-void *rtrie_lookup(rtrie r, u64 point);
+void *rtrie_lookup(rtrie r, u64 point, range * rrange);
 void rtrie_insert(rtrie r, u64 start, u64 length, void *value);
 void rtrie_extents(rtrie r, u64 *min, u64 *max);
 rtrie rtrie_create(heap h);

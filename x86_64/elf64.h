@@ -123,6 +123,23 @@ typedef struct {
     Elf64_Xword sh_entsize; /* Size of entries, if section has table */
 } Elf64_Shdr;
 
+/* Symbol type - ELFNN_ST_TYPE - st_info
+   from elf_common.h */
+#define STT_NOTYPE 0		/* Unspecified type. */
+#define STT_OBJECT 1		/* Data object. */
+#define STT_FUNC 2		/* Function. */
+#define STT_SECTION 3		/* Section. */
+#define STT_FILE 4		/* Source file. */
+#define STT_COMMON 5		/* Uninitialized common block. */
+#define STT_TLS 6		/* TLS object. */
+#define STT_NUM 7
+#define STT_LOOS 10	        /* Reserved range for operating system */
+#define STT_GNU_IFUNC 10
+#define STT_HIOS 12	        /*   specific semantics. */
+#define STT_LOPROC 13	        /* Start of processor reserved range. */
+#define STT_SPARC_REGISTER 13	/* SPARC register information. */
+#define STT_HIPROC 15		/* End of processor reserved range. */
+
 typedef struct {
     Elf64_Word st_name; /* Symbol name */
     unsigned char st_info; /* Type and Binding attributes */
@@ -131,6 +148,16 @@ typedef struct {
     Elf64_Addr st_value; /* Symbol value */
     Elf64_Xword st_size; /* Size of object (e.g., common) */
 } Elf64_Sym;
+
+/* Macros for accessing the fields of st_info. */
+#define ELF64_ST_BIND(info) ((info) >> 4)
+#define ELF64_ST_TYPE(info) ((info) & 0xf)
+
+/* Macro for constructing st_info from field values. */
+#define ELF64_ST_INFO(bind, type) (((bind) << 4) + ((type) & 0xf))
+
+/* Macro for accessing the fields of st_other. */
+#define ELF64_ST_VISIBILITY(oth) ((oth) & 0x3)
 
 #define SHT_SYMTAB 2/* symbol table section */
 #define SHT_STRTAB 3/* string table section */

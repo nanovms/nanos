@@ -67,6 +67,9 @@ void kernel_read_complete(heap physical, heap working, u64 stack, u32 stacklen, 
     // could put the stack at the top of the page region?
     map(0, 0, 0xa000, pages);
 
+    // stash away kernel elf image for use in stage3
+    create_region(u64_from_pointer(buffer_ref(kb, 0)), buffer_length(kb), REGION_KERNIMAGE);
+
     void *k = load_elf(kb, 0, pages, physical);
     if (!k) {
         halt("kernel elf parse failed\n");

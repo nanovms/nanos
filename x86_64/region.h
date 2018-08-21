@@ -17,6 +17,7 @@ typedef regionbody *region;
 #define REGION_VIRTUAL 3  // marks allocated instead of available regions
 #define REGION_IDENTITY 4 // use for page tables
 #define REGION_FILESYSTEM 5 // offset on disk for the filesystem, see if we can get disk info from the bios
+#define REGION_KERNIMAGE 6 // location of kernel elf image loaded by stage2
 
 static inline region create_region(u64 base, u64 length, int type)
 {

@@ -7,7 +7,7 @@ static inline char *elf_string(buffer elf, Elf64_Shdr *string_section, u64 offse
     return (char *)(buffer_ref(elf, string_section->sh_offset + offset));
 }
 
-void elf_symbols(buffer elf, closure_type(each, void, char *, u64))
+void elf_symbols(buffer elf, closure_type(each, void, char *, u64, u64, u8))
 {
     char *symbol_string_name = ".strtab";
     Elf64_Ehdr *elfh = buffer_ref(elf, 0);
@@ -28,7 +28,7 @@ void elf_symbols(buffer elf, closure_type(each, void, char *, u64))
     for (int i = 0; i < symbols->sh_size; i+=symbols->sh_entsize) {
         apply(each,
               elf_string(elf, symbol_strings, sym->st_name),
-              sym->st_value);
+              sym->st_value, sym->st_size, sym->st_info);
         sym++;
     }
 }

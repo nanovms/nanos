@@ -113,10 +113,33 @@ void attach_storage(heap h, heap virtual, tuple root, block_read r, block_write 
     runloop();
 }
 
+static void read_kernel_syms(heap h, heap virtual, heap pages)
+{
+    u64 kern_base = INVALID_PHYSICAL;
+    u64 kern_length;
+
+    /* add kernel symbols */
+    for_regions(e)
+	if (region_type(e) == REGION_KERNIMAGE) {
+	    kern_base = region_base(e);
+	    kern_length = region_length(e);
+
+	    u64 v = allocate_u64(virtual, kern_length);
+	    map(v, kern_base, kern_length, pages);
+#ifdef ELF_SYMTAB_DEBUG
+	    rprintf("kernel ELF image at %P, length %P, mapped at %P\n",
+		    kern_base, kern_length, v);
+#endif
+	    add_elf_syms(h, alloca_wrap_buffer(v, kern_length));
+	}
+    
+    if (kern_base == INVALID_PHYSICAL) {
+	console("kernel elf image region not found; no debugging symbols\n");
+    }
+}
+
 void init_service_new_stack(heap pages, heap physical, heap backed, heap virtual)
 {
-    u64 fs_offset;
-
     // just to find maintain the convention of faulting on zero references
     map(0, INVALID_PHYSICAL, PAGESIZE, pages);
 
@@ -126,6 +149,8 @@ void init_service_new_stack(heap pages, heap physical, heap backed, heap virtual
     start_interrupts(pages, misc, physical);
     init_extra_prints();
     init_runtime(misc);
+    init_symtab(misc);
+    read_kernel_syms(misc, virtual, pages);
     
     tuple root = allocate_tuple();
     initialize_timers(misc);
