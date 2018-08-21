@@ -10,6 +10,6 @@ crt0.o: crt0.s frame_nasm.h
 
 INCLUDES += -I$(ROOT)/x86_64
 X86_64_OBJ= pci.o serial.o page.o interrupt.o clock.o crt0.o service.o elf.o breakpoint.o\
-            queue.o backed_heap.o fragment.o synth.o
+            queue.o backed_heap.o fragment.o synth.o symtab.o
 
 
