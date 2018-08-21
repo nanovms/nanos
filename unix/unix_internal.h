@@ -36,6 +36,7 @@ typedef struct file {
     io read, write;
     // check if data on the read path
     closure_type(check, void, thunk);
+    closure_type(close, int);
     tuple n;
 } *file;
 

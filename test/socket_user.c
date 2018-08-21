@@ -57,13 +57,14 @@ static void register_descriptor(heap h, descriptor e, descriptor f, thunk each)
     epoll_ctl(e, EPOLL_CTL_ADD, f, &ev);
 }
 
-static CLOSURE_3_0(connection_input, void, heap, descriptor, buffer_handler)
-static void connection_input(heap h, descriptor f, buffer_handler p)
+static CLOSURE_4_0(connection_input, void, heap, descriptor, descriptor, buffer_handler);
+static void connection_input(heap h, descriptor f, descriptor e, buffer_handler p)
 {
     buffer b = allocate_buffer(h, 512);
     b->end = read(f, b->contents, b->length);
-    // if b->end is zero then we have a closed socket, there is another
-    // epoll event..epollrdup
+    // this should have been taken care of by EPOLLHUP, but the
+    // kernel doesn't support it
+    if (!b->end) epoll_ctl(e, EPOLL_CTL_DEL, f, 0);    
     apply(p, b);
 }
 
@@ -83,7 +84,7 @@ static void accepting(heap h, descriptor e, descriptor c, new_connection n )
     if (s < 0 ) halt("accept %E\n", errno);
     buffer_handler out = closure(h, connection_output, s);
     buffer_handler in = apply(n, out);
-    register_descriptor(h, e, s, closure(h, connection_input, h, s, in));
+    register_descriptor(h, e, s, closure(h, connection_input, h, s, e, in));
 }
 
 
@@ -101,7 +102,7 @@ void connection(heap h, descriptor e, buffer target, new_connection c)
     if (status < 0) halt("conection error %E", errno);
     buffer_handler out = closure(h, connection_output, s);    
     buffer_handler input = apply(c, out);
-    register_descriptor(h, e, s, closure(h, connection_input, h, s, input));
+    register_descriptor(h, e, s, closure(h, connection_input, h, s, e, input));
 }
 
 
@@ -133,6 +134,8 @@ void epoll_spin(descriptor e)
             registration r = ev[i].data.ptr;
             if (ev[i].events & EPOLLHUP)  {
                 epoll_ctl(e, EPOLL_CTL_DEL, r->fd, 0);
+                // always the right thing to do?
+                close(r->fd);
             } else {
                 apply(r->a);
             }

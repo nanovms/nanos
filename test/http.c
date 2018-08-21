@@ -53,7 +53,6 @@ void send_http_response(buffer_handler out,
     table_foreach(t, k, v) each_header(d, k, v);
     each_header(d, sym(Content-Length), aprintf(transient, "%d", c->end));
     bprintf(d, "\r\n");
-    rprintf ("send http resp %b %b\n", d, c);
     apply(out, d);
     apply(out, c);
     
