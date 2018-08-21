@@ -29,7 +29,7 @@ void main(int argc, char **argv)
 {
     heap h = init_process_runtime();
     descriptor e = epoll_create(1);
-    buffer target = alloca_wrap_buffer(argv[1], runtime_strlen(argv[1]));
+    buffer target = wrap_buffer(h, argv[1], runtime_strlen(argv[1]));
     connection(h, e, target, closure(h, conn, h, e, target));
     epoll_spin(e);
 }

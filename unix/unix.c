@@ -110,7 +110,8 @@ static u64 syscall_debug()
 {
     u64 *f = current->frame;
     int call = f[FRAME_VECTOR];
-    thread_log(current, syscall_name(call));
+    //    if (table_find(current->p->root, sym(debugsyscalls)))
+    //        thread_log(current, syscall_name(call));
 
     u64 (*h)(u64, u64, u64, u64, u64, u64) = current->p->syscall_handlers[call];
     u64 res = -ENOENT;

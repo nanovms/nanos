@@ -83,6 +83,7 @@ void http_recv(http_parser p, buffer b)
             case '\r':
                 p->state = STATE_HEADER;
                 vector_push(p->start_line, p->word);
+                p->word = allocate_buffer(p->h, 0);                
                 break;                
             case ' ':
                 vector_push(p->start_line, p->word);
@@ -98,6 +99,7 @@ void http_recv(http_parser p, buffer b)
             case ' ':
                 p->state = STATE_VALUE;
                 p->s = intern(p->word);
+                buffer_clear(p->word);
                 break;
             case '\r':
                 p->state = STATE_BODY;
@@ -112,6 +114,7 @@ void http_recv(http_parser p, buffer b)
                 if (p->s == sym(Content-Length))  
                     parse_int(p->word, 10, &p->content_length);
                 table_set(p->header, p->s, p->word);
+                p->word = allocate_buffer(p->h, 0);                
                 p->state = STATE_HEADER;
             } else {
                 push_u8(p->word, x);

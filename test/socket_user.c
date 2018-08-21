@@ -96,7 +96,8 @@ void connection(heap h, descriptor e, buffer target, new_connection c)
     int s = socket(AF_INET, SOCK_STREAM, 0);
     u32 v4;
     u16 port;
-    parse_v4_address(target, &v4, &port);
+    parse_v4_address(alloca_wrap_buffer(buffer_ref(target, 0), buffer_length(target)),
+                     &v4, &port);
     fill_v4_sockaddr(&where, v4, port);
     int status = connect(s, (struct sockaddr *)&where, sizeof(struct sockaddr_in));
     if (status < 0) halt("conection error %E", errno);
