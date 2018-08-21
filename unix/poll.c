@@ -1,24 +1,30 @@
 #include <unix_internal.h>
 
-typedef struct epollfd {
-    int fd; //debuggin
-    file f;
-    u64 data;
-} *epollfd;
-
 typedef struct epoll *epoll;
-typedef struct epoll_blocked {
+typedef struct epollfd {
+    int fd; //debugging only
+    file f;
+    u64 data; // may be multiple versions of data?
+    epoll e;
+    boolean registered;
+    // xxx bind fd to first blocked that cares
+} *epollfd;
+typedef struct epoll_blocked *epoll_blocked;
+struct epoll_blocked {
     epoll e;
     u64 refcnt;
     thread t;
+    boolean sleeping;
     vector user_events;
-} *epoll_blocked;
+    epoll_blocked next;
+};
 
 struct epoll {
+    // xxx - multiple threads can block on the same e with epoll_wait
     epoll_blocked w;
     struct file f;
     heap h;
-    vector events;
+    table events;
 };
     
 u64 epoll_create(u64 flags)
@@ -26,35 +32,38 @@ u64 epoll_create(u64 flags)
     int fd;
     epoll e = (epoll)allocate_fd(current->p, sizeof(struct epoll), &fd);
     e->h = current->p->h;
-    e->events = allocate_vector(current->p->h, 10);
+    e->events = allocate_table(current->p->h, identity_key, pointer_equal);
     return fd;
 }
+
+#define user_event_count(__w) (buffer_length(__w->user_events)/sizeof(struct epoll_event))
 
 static CLOSURE_1_0(epoll_blocked_finish, void, epoll_blocked);
 static void epoll_blocked_finish(epoll_blocked w)
 {
-    if (w->e->w == w) {
-        u64 fds = buffer_length(w->user_events)/sizeof(struct epoll_event);
-        set_syscall_return(w->t, fds);                            
-        w->e->w = 0;
+    if (w->sleeping) {
+        set_syscall_return(w->t, user_event_count(w));
+        w->sleeping = false;
         thread_wakeup(w->t);
     }
-    // eventually we should be able to free this thing
     w->refcnt--;
+    // eventually we should be able to free this thing..now actually?
 }
 
 // associated with the current blocking function
-static CLOSURE_2_0(epoll_wait_notify, void, epoll_blocked, epollfd)
-static void epoll_wait_notify(epoll_blocked w, epollfd f)
+static CLOSURE_1_0(epoll_wait_notify, void, epollfd)
+static void epoll_wait_notify(epollfd f)
 {
-    thread_log(w->t, "notify", f->fd);
-    if (w->user_events->length - w->user_events->end) {
-        struct epoll_event *e = buffer_ref(w->user_events, w->user_events->end);
+    f->registered = false;
+    epoll_blocked b = f->e->w; 
+    // strided vectors?
+    if (b && (b->user_events->length - b->user_events->end)) {
+        struct epoll_event *e = buffer_ref(b->user_events, b->user_events->end);
         e->data = f->data;
         e->events = EPOLLIN;
-        w->user_events->end += sizeof(struct epoll_event);
+        b->user_events->end += sizeof(struct epoll_event);
+        epoll_blocked_finish(b);
     }
-    epoll_blocked_finish(w);
 }
 
 int epoll_wait(int epfd,
@@ -66,38 +75,49 @@ int epoll_wait(int epfd,
     epollfd i;
     
     epoll_blocked w = allocate(e->h, sizeof(struct epoll_blocked));
-    // kind of sad to allocate this all for the polling case, but bear with me
+
     w->user_events = wrap_buffer(e->h, events, maxevents * sizeof(struct epoll_event));
     w->user_events->end = 0;
     w->t = current;
     w->e = e;
-
-    // race
-    vector_foreach(e->events, i) 
-        apply(i->f->check, closure(current->p->h, epoll_wait_notify, w, i));
+    w->sleeping = false;
     e->w = w;
+    
+    table_foreach(e->events, k, i) {
+        epollfd f = (epollfd)i;
+        if (!f->registered) {
+            f->registered = true;
+            apply(f->f->check, closure(current->p->h, epoll_wait_notify, f));
+        }
+    }
+    int eventcount = w->user_events->end/sizeof(struct epoll_event);
+    if (w->user_events->end) {
+        e->w = 0;        
+        return eventcount;
+    }
     
     if (timeout > 0)
         register_timer(milliseconds(timeout), closure(e->h, epoll_blocked_finish, w));
-    
+
+    w->sleeping = true;    
     thread_sleep(current);
 }
 
 u64 epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 {
+    value ekey = pointer_from_u64((u64)fd);
     epoll e = (epoll)current->p->files[epfd];
     switch(op) {
     case EPOLL_CTL_ADD:
         {
+            // EPOLLET means edge instead of level
             epollfd f = allocate(e->h, sizeof(struct epollfd));
             f->f = current->p->files[fd];
             f->fd = fd;
+            f->e = e;
             f->data = event->data;
-            vector_push(e->events, f);
-            // subscribe while waiting?
-            if (e->w)  {
-                apply(f->f->check, closure(current->p->h, epoll_wait_notify, e->w, f));
-            }
+            f->registered = 0;
+            table_set(e->events, ekey, f);            
         }
         break;
 
@@ -105,8 +125,9 @@ u64 epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
         rprintf ("epoll mod\n");
         break;
 
+    // what does this mean to a currently blocked epoll?
     case EPOLL_CTL_DEL:
-        rprintf ("epoll del\n");
+        table_set(e->events, ekey, 0);
     }
     return 0;
 }

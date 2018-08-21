@@ -31,7 +31,25 @@ typedef struct sock {
     queue incoming;
     queue notify;
     queue waiting; // service waiting before notify, do we really need 2 queues here?
+    // the notion is that 'waiters' should take priority    
+    boolean open; // half open?
 } *sock;
+
+static void wakeup(sock s)
+{
+    thunk n;
+
+    // return status if not handled so someone else can try?
+    // shouldnt a close event wake up everyone?
+    if ((n = dequeue(s->waiting))) {
+        apply(n);
+    }  else {
+        if ((n = dequeue(s->notify))) {
+            apply(n);
+        }
+    }
+
+}
 
 static void local_sockaddr_in(struct tcp_pcb *p, struct sockaddr_in *sin)
 {
@@ -97,6 +115,7 @@ static void read_complete(sock s, thread t, void *dest, u64 length)
 static CLOSURE_1_3(socket_read, int, sock, void *, u64, u64);
 static int socket_read(sock s, void *dest, u64 length, u64 offset)
 {
+    if (!s->open) return 0;
     apply(s->f.check, closure(s->h, read_complete, s, current, dest, length));    
     runloop();    
 }
@@ -113,12 +132,17 @@ static int socket_write(sock s, void *source, u64 length, u64 offset)
 static CLOSURE_1_1(socket_check, void, sock, thunk);
 static void socket_check(sock s, thunk t)
 {
-    // safety
+    // thread safety
     if (queue_length(s->incoming)) {
         apply(t);
     } else {
         enqueue(s->notify, t);
     }
+}
+
+static CLOSURE_1_0(socket_close, int, sock);
+static int socket_close(sock s)
+{
 }
 
 static int allocate_sock(process p, struct tcp_pcb *pcb)
@@ -128,6 +152,7 @@ static int allocate_sock(process p, struct tcp_pcb *pcb)
     sock s = (sock)f;    
     f->read =  closure(p->h, socket_read, s);
     f->write =  closure(p->h, socket_write, s);
+    f->close =  closure(p->h, socket_close, s);
     s->notify = allocate_queue(p->h, 32);
     s->waiting = allocate_queue(p->h, 32);    
     f->check = closure(p->h, socket_check, s);
@@ -135,6 +160,8 @@ static int allocate_sock(process p, struct tcp_pcb *pcb)
     s->h = p->h;
     s->lw = pcb;
     s->fd = fd;
+    // defer to lwip here?
+    s->open = true;
     s->incoming = allocate_queue(p->h, 32);
     return fd;
 }
@@ -155,16 +182,10 @@ static err_t input_lower (void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t er
 
     if (p) {
         enqueue(s->incoming, p);
-        thunk n;
-        
-        if ((n = dequeue(s->waiting))) {
-            apply(n);
-        }  else {
-            if ((n = dequeue(s->notify))) {
-                apply(n);
-            }
-        }        
+    } else {
+        s->open = false;
     }
+    wakeup(s);
     return ERR_OK;
 }
 
@@ -176,7 +197,6 @@ int bind(int sockfd, struct sockaddr *addr, socklen_t addrlen)
     // 0 success
     // xxx - extract address and port
     //
-    rprintf ("binding: %d\n", ntohs(sin->port));
     return lwip_to_errno(tcp_bind(s->lw, IP_ANY_TYPE, ntohs(sin->port)));
 }
 
@@ -239,7 +259,6 @@ int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
         enqueue(s->waiting, closure(s->h, accept_finish, s, current, addr, addrlen));
     }
     thread_sleep(current);
-    
 }
 
 int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)

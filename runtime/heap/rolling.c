@@ -61,8 +61,9 @@ static void rolling_free(heap h, u64 x, u64 length)
     }
 }
 
-static void rolling_destroy(rolling c)
+static void rolling_destroy(heap h)
 {
+    rolling c = (rolling)h;
     for (pageheader i = c->p;
          deallocate(c->parent, i, i->length), ((rolling)i != c);
          i = i->next);
