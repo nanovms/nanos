@@ -22,7 +22,7 @@ clean:
 	cd mkfs ; make clean
 	cd test ; make clean
 	cd examples ; make clean
-	rm -f runtime/closure_templates.h runtime/contgen image image2
+	rm -f runtime/closure_templates.h runtime/contgen image image2 fs
 
 # need to get boot and virtio storage to use the same file without
 # contending on the write lock - cant set read only
