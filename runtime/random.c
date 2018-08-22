@@ -1,6 +1,6 @@
 #include <runtime.h>
 
-static u64 s[2];
+static u64 s[2] = { 0xa5a5beefa5a5cafe, 0xbeef55aaface55aa };
 
 u64 random_u64(void) {
     u64 s0 = s[0];

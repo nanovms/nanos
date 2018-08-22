@@ -1,5 +1,5 @@
 
-all:objcache_test network_test
+all:objcache_test network_test id_heap_test
 
 ROOT=$(PWD)/..
 
@@ -19,6 +19,9 @@ objcache_test: objcache_test.o $(UNIXRUNTIME) $(TFS)
 
 network_test: network_test.o http.o socket_user.o $(UNIXRUNTIME)
 	$(CC) -I. $^ -g -o network_test
+
+id_heap_test: id_heap_test.o $(UNIXRUNTIME)
+	$(CC) $^ -g -o id_heap_test
 
 clean:
 	rm -f *.o test
