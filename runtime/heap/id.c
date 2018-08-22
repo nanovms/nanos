@@ -2,8 +2,8 @@
 
 typedef struct id_heap {
     struct heap h;
-    u64 length;
     u64 base;
+    u64 mapbits;
     buffer alloc_map;
 } *id_heap;
 
@@ -50,7 +50,6 @@ static u64 id_alloc(heap h, bytes count)
 
     int order = find_order(i, count);
     int bit = 0;
-    int total_bits = i->length >> page_order(i);
     int alloc_bits = 1 << order;
     u64 * mapbase = buffer_ref(i->alloc_map, 0);
 
@@ -79,13 +78,13 @@ static u64 id_alloc(heap h, bytes count)
 	    u64 offset = bit << page_order(i);
 #ifdef ID_HEAP_DEBUG
 	    msg_debug("heap %p, size %d: got offset (%d << %d = %P)\t>%P\n",
-		      h, 1 << order, bit, page_order(i), offset, i->base + offset);
+		      h, alloc_bits, bit, page_order(i), offset, i->base + offset);
 #endif
 	    return i->base + offset;
 	}
 
 	bit += alloc_bits;
-    } while(bit < total_bits);
+    } while(bit < i->mapbits);
 
     return INVALID_PHYSICAL;
 }
@@ -107,9 +106,9 @@ static void id_dealloc(heap h, u64 a, bytes count)
 
     int bit = (a - i->base) >> page_order(i);
 
-    if (bit + nbits > (i->length >> page_order(i))) {
+    if (bit + nbits > i->mapbits) {
 	msg_err("heap %p, offset %P, count %d: extends beyond length %P; leaking\n",
-		h, a - i->base, count, i->length);
+		h, a - i->base, count, i->mapbits << page_order(i));
 	return;
     }
 
@@ -142,12 +141,19 @@ heap create_id_heap(heap h, u64 base, u64 length, u64 pagesize)
     i->h.dealloc = id_dealloc;
     i->h.pagesize = pagesize;
     i->h.destroy = id_destroy;
-    i->length = length;
+    i->mapbits = length >> page_order(i);
     i->base = base;
 
-    u64 mapbits = (length + 63) & ~63;
+    u64 mapbits = (i->mapbits + 63) & ~63;
     u64 mapbytes = mapbits >> 3;
+
     i->alloc_map = allocate_buffer(h, mapbytes);
+    if (i->alloc_map == INVALID_ADDRESS) {
+	console("create_id_heap: failed to allocate map buffer of ");
+	print_u64(mapbytes);
+	console(" bytes!\n");
+	return INVALID_ADDRESS;
+    }
     zero(buffer_ref(i->alloc_map, 0), mapbytes);
     return((heap)i);
 }
