@@ -28,7 +28,7 @@ heap allocate_tagged_region(heap h, u64 tag)
 }
 
 
-static u8 bootstrap_region[4096];
+static u8 bootstrap_region[32768];
 static u64 bootstrap_base = (unsigned long long)bootstrap_region;
 static u64 bootstrap_alloc(heap h, bytes length)
 {
