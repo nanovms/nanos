@@ -49,37 +49,13 @@ void halt(char *format, ...)
     exit(-1);
 }
 
-typedef struct inc_heap {
-    struct heap h;
-    u64 length;
-    u64 base;
-} *inc_heap;
-
-static u64 inc_alloc(heap h, bytes count)
-{
-    inc_heap i = (inc_heap)h;
-    u64 result = i->base;
-    i->base += pad(count, h->pagesize);
-    return result;
-}
-
-heap create_inc_heap(heap h, u64 base, u64 length, u64 pagesize)
-{
-    inc_heap i = allocate(h, sizeof(struct inc_heap));
-    i->base = base;
-    i->h.alloc = inc_alloc;
-    i->h.dealloc = leak;
-    i->h.pagesize = pagesize;    
-    return((heap)i);
-}
-
 heap allocate_tagged_region(heap h, u64 tag)
 {
     u64 size = 4*1024*1024;
     void *region = mmap(pointer_from_u64(tag << va_tag_offset),
                         size, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_ANON | MAP_PRIVATE, -1, 0);
     // use a specific growable heap
-    return create_inc_heap(h, u64_from_pointer(region), size, 1);
+    return create_id_heap(h, u64_from_pointer(region), size, 1);
 }
 
 extern void init_extra_prints();
