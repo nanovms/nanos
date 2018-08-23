@@ -46,6 +46,17 @@ static void unreg(descriptor e, descriptor f)
     rprintf("remove\n");
 }
 
+static void register_descriptor_write(heap h, descriptor e, descriptor f, thunk each)
+{
+    registration r = allocate(h, sizeof(struct registration));
+    r->fd = f;
+    r->a = each;
+    struct epoll_event ev;
+    ev.events = EPOLLOUT;
+    ev.data.ptr = r;    
+    epoll_ctl(e, EPOLL_CTL_ADD, f, &ev);
+}
+
 static void register_descriptor(heap h, descriptor e, descriptor f, thunk each)
 {
     registration r = allocate(h, sizeof(struct registration));
@@ -88,6 +99,16 @@ static void accepting(heap h, descriptor e, descriptor c, new_connection n )
 }
 
 
+static CLOSURE_4_0(connection_start, void, heap, descriptor, descriptor, new_connection);
+void connection_start(heap h, descriptor s, descriptor e, new_connection c)
+{
+    buffer_handler out = closure(h, connection_output, s);
+    buffer_handler input = apply(c, out);
+    // dont stay for write
+    epoll_ctl(e, EPOLL_CTL_DEL, s, 0);        
+    register_descriptor(h, e, s, closure(h, connection_input, h, s, e, input));
+}
+
 // more general registration than epoll fd
 // asynch
 void connection(heap h, descriptor e, buffer target, new_connection c)
@@ -101,9 +122,8 @@ void connection(heap h, descriptor e, buffer target, new_connection c)
     fill_v4_sockaddr(&where, v4, port);
     int status = connect(s, (struct sockaddr *)&where, sizeof(struct sockaddr_in));
     if (status < 0) halt("conection error %E", errno);
-    buffer_handler out = closure(h, connection_output, s);    
-    buffer_handler input = apply(c, out);
-    register_descriptor(h, e, s, closure(h, connection_input, h, s, e, input));
+
+    register_descriptor_write(h, e, s, closure(h, connection_start, h, s, e, c));
 }
 
 
