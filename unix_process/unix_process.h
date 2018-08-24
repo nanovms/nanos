@@ -5,7 +5,9 @@ typedef int descriptor;
 heap init_process_runtime();
 
 // each type gets 1T
-#define va_tag_offset 45
+// this is to avoid colliding with the kernel when running on stage3.
+
+#define va_tag_offset 44
 
 static inline void *tag(void *v, u64 tval)
 {
