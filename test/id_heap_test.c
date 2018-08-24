@@ -1,4 +1,4 @@
-#include <unix_process_runtime.h>
+#include <runtime.h>
 #include <stdlib.h>
 
 #define MAX_PAGE_ORDER	12
