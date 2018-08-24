@@ -34,3 +34,4 @@ mkfs/dump
 fs
 test/objcache_test
 test/network_test
+test/id_heap_test
