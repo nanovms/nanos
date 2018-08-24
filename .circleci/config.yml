@@ -22,5 +22,5 @@ jobs:
       - checkout
 
       # specify any bash command here prefixed with `run: `
-      run make
-      run test/id_heap_test
+      - run: make
+      - run: test/id_heap_test
