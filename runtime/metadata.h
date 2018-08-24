@@ -9,26 +9,6 @@ static vector node_vector(heap h, tuple n)
     return r;
 }
 
-
-// do we want to overload 'contents' by value type .. or?
-static void contentsof(tuple n, buffer_handler bh)
-{
-    value v = table_find(n, sym(contents));
-    switch (tagof(v)) {
-    case tag_string:
-        apply(bh, (buffer)v);
-        return;
-        break;
-    // should be gsi
-    case tag_buffer_promise:
-        apply((buffer_promise)v, bh);
-        return;        
-        break;
-    }
-    // do we want to start multiplexing dynamic status objects?
-    apply(bh, 0);
-}
-
 static inline tuple resolve_path(tuple n, vector v)
 {
     buffer i;

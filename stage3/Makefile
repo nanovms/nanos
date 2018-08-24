@@ -1,7 +1,7 @@
 ROOT = ..
 all:stage3
 CC = cc
-INCLUDES = -include def64.h
+INCLUDES = -include stage3.h
 
 include $(ROOT)/runtime/Makefile
 include $(ROOT)/x86_64/Makefile

@@ -6,10 +6,8 @@ ROOT=$(PWD)/..
 CC=cc
 CFLAGS=-g -c -DENABLE_MSG_DEBUG -std=gnu99 
 
-INCLUDES = -include def64.h
-include $(ROOT)/runtime/Makefile
-INCLUDES += -I$(ROOT)/x86_64 -I.
-include $(ROOT)/tfs/Makefile
+include $(ROOT)/unix_process/Makefile
+INCLUDES += -I.
 
 %.o: %.c $(ROOT)/runtime/closure_templates.h
 	$(CC) $(CFLAGS) $(INCLUDES) $<

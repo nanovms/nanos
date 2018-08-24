@@ -1,12 +1,9 @@
 ROOT=$(PWD)/..
-
 CC=cc
 GO=go
 CFLAGS=-g -c -DENABLE_MSG_DEBUG -std=gnu99 
 
-INCLUDES = -include def64.h
-include $(ROOT)/runtime/Makefile
-INCLUDES += -I$(ROOT)/x86_64 -I. -I$(ROOT)/test
+include $(ROOT)/unix_process/Makefile
 VPATH += $(ROOT)/test
 
 %.o: %.c $(ROOT)/runtime/closure_templates.h
@@ -36,6 +33,6 @@ fst: fst.go
 	$(GO) build fst.go
 
 clean:
-	rm -f *.o *~ hw web hwg webg webs
+	rm -f *.o *~ hw web hwg webg webs hws
 
 

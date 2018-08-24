@@ -157,7 +157,7 @@ void print_u64_with_sym(u64 a)
 
 void print_stack(context c)
 {
-    u64 frames = 20;
+    u64 frames = 30;
     u64 *x = pointer_from_u64(c[FRAME_RSP]);
     // really until page aligned?
     console("stack \n");

@@ -1,4 +1,4 @@
-#include <tfs_internal.h>
+#include <runtime.h>
 
 // should combine status 
 static CLOSURE_2_1(finish, void, status_handler, word*, status);

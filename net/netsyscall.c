@@ -192,7 +192,7 @@ static err_t input_lower (void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t er
 int bind(int sockfd, struct sockaddr *addr, socklen_t addrlen)
 {
     struct sockaddr_in *sin = (struct sockaddr_in *)addr;
-    sock s = (sock)current->p->files[sockfd];
+    sock s = resolve_fd(current->p, sockfd);
     buffer b = alloca_wrap_buffer(addr, addrlen);
     // 0 success
     // xxx - extract address and port
@@ -202,7 +202,7 @@ int bind(int sockfd, struct sockaddr *addr, socklen_t addrlen)
 
 int connect(int sockfd, struct sockaddr *addr, socklen_t addrlen)
 {
-    sock s = (sock)current->p->files[sockfd];    
+    sock s = resolve_fd(current->p, sockfd);    
     return 0;
 }
 
@@ -211,12 +211,13 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
     sock s = z;
     thunk p;
     int fd = allocate_sock(s->p, lw);
-    sock sn = (sock)s->p->files[fd];
+    // XXX - what if this has been closed in the meantime?
+    sock sn = vector_get(s->p->files, fd);
     sn->fd = fd;
     tcp_arg(lw, sn);
     tcp_recv(lw, input_lower);
     enqueue(s->incoming, sn);
-    
+
     if ((p = dequeue(s->waiting))) {
         apply(p);
     }  else {
@@ -230,7 +231,7 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
 
 int listen(int sockfd, int backlog)
 {
-    sock s = (sock)current->p->files[sockfd];        
+    sock s = resolve_fd(current->p, sockfd);        
     s->lw = tcp_listen_with_backlog(s->lw, backlog);
     tcp_arg(s->lw, s);
     tcp_accept(s->lw, accept_from_lwip);
@@ -249,7 +250,7 @@ static void accept_finish(sock s, thread target, struct sockaddr *addr, socklen_
 
 int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 {
-    sock s = (sock)current->p->files[sockfd];
+    sock s = resolve_fd(current->p, sockfd);        
 
     // ok, this is a reasonable interlock to build, the dating app
     // it would be nice if we didn't have to sleep and wakeup for the nonblocking case
@@ -268,14 +269,14 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 
 int getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 {
-    sock s = (sock)current->p->files[sockfd];    
+    sock s = resolve_fd(current->p, sockfd);        
     local_sockaddr_in(s->lw, (struct sockaddr_in *)addr);
     return 0;
 }
 
 int getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 {
-    sock s = (sock)current->p->files[sockfd];
+    sock s = resolve_fd(current->p, sockfd);        
     remote_sockaddr_in(s->lw, (struct sockaddr_in *)addr);
     return 0;    
 }

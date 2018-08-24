@@ -3,8 +3,7 @@ all:mkfs dump
 
 ROOT=$(PWD)/..
 
-INCLUDES = -include def64.h
-include $(ROOT)/runtime/Makefile
+include $(ROOT)/unix_process/Makefile
 INCLUDES += -I$(ROOT)/x86_64
 include $(ROOT)/tfs/Makefile
 

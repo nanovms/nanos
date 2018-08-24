@@ -9,7 +9,7 @@ TARGET = hws
 mkfs/mkfs: force
 	cd mkfs ; make
 
-image: boot/boot mkfs/mkfs manifest stage3/stage3 examples/$(TARGET)
+image: boot/boot mkfs/mkfs examples/$(TARGET).manifest stage3/stage3 examples/$(TARGET)
 	mkfs/mkfs fs < examples/$(TARGET).manifest ; cat boot/boot fs > image
 
 examples/$(TARGET): force

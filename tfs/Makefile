@@ -1,5 +1,5 @@
 VPATH += $(ROOT)/tfs
 
-TFS = tlog.o tfs.o merge.o
+TFS = tlog.o tfs.o 
 
 INCLUDES += -I$(ROOT)/tfs

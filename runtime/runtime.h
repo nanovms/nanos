@@ -203,3 +203,6 @@ extern status_handler ignore_status;
 extern heap transient;
 
 #include <list.h>
+typedef closure_type(merge, status_handler);
+merge allocate_merge(heap h, status_handler completion);
+

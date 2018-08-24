@@ -9,7 +9,9 @@ typedef struct epollfd {
     boolean registered;
     // xxx bind fd to first blocked that cares
 } *epollfd;
+
 typedef struct epoll_blocked *epoll_blocked;
+
 struct epoll_blocked {
     epoll e;
     u64 refcnt;
@@ -71,7 +73,7 @@ int epoll_wait(int epfd,
                int maxevents,
                int timeout)
 {
-    epoll e = (epoll)current->p->files[epfd];
+    epoll e = resolve_fd(current->p, epfd);
     epollfd i;
     
     epoll_blocked w = allocate(e->h, sizeof(struct epoll_blocked));
@@ -106,18 +108,18 @@ int epoll_wait(int epfd,
 u64 epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 {
     value ekey = pointer_from_u64((u64)fd);
-    epoll e = (epoll)current->p->files[epfd];
+    epoll e = resolve_fd(current->p, epfd);    
     switch(op) {
     case EPOLL_CTL_ADD:
         {
             // EPOLLET means edge instead of level
             epollfd f = allocate(e->h, sizeof(struct epollfd));
-            f->f = current->p->files[fd];
+            f->f = resolve_fd(current->p, fd);
             f->fd = fd;
             f->e = e;
             f->data = event->data;
             f->registered = 0;
-            table_set(e->events, ekey, f);            
+            table_set(e->events, ekey, f);
         }
         break;
 

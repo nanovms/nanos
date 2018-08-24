@@ -1,3 +1,4 @@
+#include <runtime.h>
 #include <sys/socket.h>
 #include <stdlib.h>
 #include <netinet/in.h>
@@ -5,7 +6,6 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/epoll.h>
-#include <unix_process_runtime.h>
 #include <socket_user.h>
 #include <errno.h>
 
@@ -46,6 +46,17 @@ static void unreg(descriptor e, descriptor f)
     rprintf("remove\n");
 }
 
+static void register_descriptor_write(heap h, descriptor e, descriptor f, thunk each)
+{
+    registration r = allocate(h, sizeof(struct registration));
+    r->fd = f;
+    r->a = each;
+    struct epoll_event ev;
+    ev.events = EPOLLOUT;
+    ev.data.ptr = r;    
+    epoll_ctl(e, EPOLL_CTL_ADD, f, &ev);
+}
+
 static void register_descriptor(heap h, descriptor e, descriptor f, thunk each)
 {
     registration r = allocate(h, sizeof(struct registration));
@@ -64,7 +75,10 @@ static void connection_input(heap h, descriptor f, descriptor e, buffer_handler 
     b->end = read(f, b->contents, b->length);
     // this should have been taken care of by EPOLLHUP, but the
     // kernel doesn't support it
-    if (!b->end) epoll_ctl(e, EPOLL_CTL_DEL, f, 0);    
+    if (!b->end) {
+        epoll_ctl(e, EPOLL_CTL_DEL, f, 0);
+        close(f);
+    }
     apply(p, b);
 }
 
@@ -72,7 +86,11 @@ static void connection_input(heap h, descriptor f, descriptor e, buffer_handler 
 static CLOSURE_1_1(connection_output, void, descriptor, buffer);
 static void connection_output(descriptor c, buffer b)
 {
-    write(c, b->contents, buffer_length(b));
+    if (b)  {
+        write(c, b->contents, buffer_length(b));
+    } else {
+        close(c);
+    }
 }
 
 static CLOSURE_4_0(accepting, void, heap, descriptor, descriptor, new_connection);
@@ -88,6 +106,16 @@ static void accepting(heap h, descriptor e, descriptor c, new_connection n )
 }
 
 
+static CLOSURE_4_0(connection_start, void, heap, descriptor, descriptor, new_connection);
+void connection_start(heap h, descriptor s, descriptor e, new_connection c)
+{
+    buffer_handler out = closure(h, connection_output, s);
+    buffer_handler input = apply(c, out);
+    // dont stay for write
+    epoll_ctl(e, EPOLL_CTL_DEL, s, 0);        
+    register_descriptor(h, e, s, closure(h, connection_input, h, s, e, input));
+}
+
 // more general registration than epoll fd
 // asynch
 void connection(heap h, descriptor e, buffer target, new_connection c)
@@ -101,9 +129,8 @@ void connection(heap h, descriptor e, buffer target, new_connection c)
     fill_v4_sockaddr(&where, v4, port);
     int status = connect(s, (struct sockaddr *)&where, sizeof(struct sockaddr_in));
     if (status < 0) halt("conection error %E", errno);
-    buffer_handler out = closure(h, connection_output, s);    
-    buffer_handler input = apply(c, out);
-    register_descriptor(h, e, s, closure(h, connection_input, h, s, e, input));
+
+    register_descriptor_write(h, e, s, closure(h, connection_start, h, s, e, c));
 }
 
 
