@@ -25,5 +25,5 @@ jobs:
       - run: sudo apt-get update
       - run: sudo apt-get install nasm
       - run: make
+      - run: test/objcache_test
       - run: test/id_heap_test
-      - run: /bin/false
