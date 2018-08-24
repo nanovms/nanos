@@ -6,8 +6,7 @@
 #include <gdb.h>
 
 static heap processes;
-
-
+        
 file allocate_fd(process p, bytes size, int *fd)
 {
     file f = allocate(p->h, size);
@@ -16,7 +15,8 @@ file allocate_fd(process p, bytes size, int *fd)
     f->offset = 0;
     f->check = 0;
     f->read = f->write = 0;
-    p->files[*fd] = f;    
+    vector_set(p->files, *fd, f);
+    rprintf ("a: %p\n", f);    
     return f;
 }
 
@@ -30,6 +30,8 @@ void default_fault_handler(thread t, context frame)
     print_frame(t->frame);
     print_stack(t->frame);    
 
+    rprintf ("fault set? %p %p %p\n", t->p, t->p->root, table_find (t->p->root, sym(fault)));
+    table_foreach(t->p->root, k, v) rprintf("root key %b\n", symbol_string(k));
     if (table_find (t->p->root, sym(fault))) {
         console("starting gdb\n");
         init_tcp_gdb(t->p->h, t->p, 1234);
@@ -75,11 +77,12 @@ process create_process(heap h, heap pages, heap physical, tuple root, filesystem
     p->root = root;
     p->fs = fs;
     p->fdallocator = create_id_heap(h, 3, FDMAX - 3, 1);
+    p->files = allocate_vector(h, 64);
     p->physical = physical;
     zero(p->files, sizeof(p->files));
-    p->files[1] = allocate(p->h, sizeof(struct file));
-    p->files[1]->write = closure(p->h, stdout);
-    p->files[2] = p->files[1];
+    file stdout = allocate(p->h, sizeof(struct file));
+    vector_set(p->files, 1, stdout);
+    vector_set(p->files, 2, stdout);
     p->futices = allocate_table(h, futex_key_function, futex_key_equal);
     p->threads = allocate_vector(h, 5);
     p->syscall_handlers = linux_syscalls;

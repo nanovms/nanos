@@ -61,9 +61,12 @@ static void *mmap(void *target, u64 size, int prot, int flags, int fd, u64 offse
         zero(pointer_from_u64(where), len);
         return pointer_from_u64(where);
     }
+
+    file f;
+    // resolve_fd but with a void * return
+    if (!(f = vector_get(current->p->files, fd)))
+        return(pointer_from_u64(-EBADF));
     
-    // check that fd is valid
-    file f = p->files[fd];
     buffer b;
     if (!(b = table_find(f->n, sym(contents)))) return pointer_from_u64(-1ull);
         

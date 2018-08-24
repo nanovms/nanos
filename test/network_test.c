@@ -1,4 +1,4 @@
-#include <unix_process_runtime.h>
+#include <runtime.h>
 #include <http.h>
 #include <socket_user.h>
 #include <sys/epoll.h>
@@ -27,14 +27,15 @@ static void value_in(heap h,
                      status_handler completed, 
                      value v)
 {
-    rprintf ("value in %v %p\n", v, target, *count);
+    rprintf ("value in %p\n", *count);
     if (*count == 0)
         connection(h, e, target, closure(h, conn, h, e, target, m));
     *count = *count + 1;
-    if (!*count < LENGTH) {
+    if (*count < LENGTH) {
         send_request(out);
     } else {
         rprintf ("complete\n");
+        apply(out, 0);
         apply(completed, 0);
     }
 }
@@ -45,7 +46,6 @@ static buffer_handler conn(heap h, descriptor e, buffer target, merge m, buffer_
     *count = 0;
     status_handler c = apply(m);
     send_request(out);
-    rprintf ("new conn\n");
     return allocate_http_parser(h,closure(h, value_in, h, out, e, target, count, m, c));
 }
 

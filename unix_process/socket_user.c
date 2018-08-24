@@ -1,3 +1,4 @@
+#include <runtime.h>
 #include <sys/socket.h>
 #include <stdlib.h>
 #include <netinet/in.h>
@@ -5,7 +6,6 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/epoll.h>
-#include <unix_process_runtime.h>
 #include <socket_user.h>
 #include <errno.h>
 
@@ -75,7 +75,12 @@ static void connection_input(heap h, descriptor f, descriptor e, buffer_handler 
     b->end = read(f, b->contents, b->length);
     // this should have been taken care of by EPOLLHUP, but the
     // kernel doesn't support it
-    if (!b->end) epoll_ctl(e, EPOLL_CTL_DEL, f, 0);    
+    if (!b->end) {
+        rprintf("web close\n");        
+        epoll_ctl(e, EPOLL_CTL_DEL, f, 0);
+        rprintf("web close\n");
+        close(f);
+    }
     apply(p, b);
 }
 
@@ -83,7 +88,12 @@ static void connection_input(heap h, descriptor f, descriptor e, buffer_handler 
 static CLOSURE_1_1(connection_output, void, descriptor, buffer);
 static void connection_output(descriptor c, buffer b)
 {
-    write(c, b->contents, buffer_length(b));
+    if (b)  {
+        write(c, b->contents, buffer_length(b));
+    } else {
+        rprintf("closing\n");
+        close(c);
+    }
 }
 
 static CLOSURE_4_0(accepting, void, heap, descriptor, descriptor, new_connection);
@@ -156,6 +166,7 @@ void epoll_spin(descriptor e)
             if (ev[i].events & EPOLLHUP)  {
                 epoll_ctl(e, EPOLL_CTL_DEL, r->fd, 0);
                 // always the right thing to do?
+                rprintf("web close\n");
                 close(r->fd);
             } else {
                 apply(r->a);

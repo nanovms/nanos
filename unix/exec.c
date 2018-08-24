@@ -100,7 +100,8 @@ process exec_elf(buffer ex,
                  filesystem fs)
 {
     // is process md always root?
-    process proc = create_process(general, pages, physical, md, fs);
+    // set cwd
+    process proc = create_process(general, pages, physical, root, fs);
     thread t = create_thread(proc);
     void *start = load_elf(ex, 0, pages, physical);
     u64 va;

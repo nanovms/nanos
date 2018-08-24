@@ -1,4 +1,5 @@
 typedef struct buffer *buffer;
+typedef struct heap *heap;
 
 // does clang have these?
 #define varg  __builtin_va_arg

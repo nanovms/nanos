@@ -6,6 +6,7 @@ static inline void *vector_get(vector v, int offset)
     void *res;
     bytes base = v->start + offset * sizeof(void *);
     if ((base + sizeof(void *)) > v->end)
+        // should be INVALID_VIRTUAL (? )
         return 0;
     
     runtime_memcpy(&res, v->contents + base, sizeof(void *));

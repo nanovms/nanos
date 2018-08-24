@@ -11,7 +11,7 @@ static void read_program_complete(tuple root, heap pages, heap general, heap phy
                                   filesystem fs, buffer b)
 {
     add_elf_syms(general, b);
-    rprintf ("read program complete: %p\n", buffer_ref(b, 0));
+    rprintf ("read program complete: %p %v\n", root, root);
     exec_elf(b, root, root, general, physical, pages, virtual, backed, fs);
 }
 

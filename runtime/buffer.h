@@ -74,7 +74,9 @@ static inline void extend_total(buffer b, int offset)
 {
     if (offset > b->end) {
         buffer_extend(b, offset - b->end);
-        // shouldn't need to 
+        // shouldn't need to in all cases - this is to preserve
+        // the idea of the vector as a mapping - we need a reliable
+        // sigleton to denote an empty slot
         zero(b->contents + b->end, offset - b->end);
         b->end = offset;
     }

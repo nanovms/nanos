@@ -13,8 +13,6 @@ RUNTIME = table.o buffer.o format.o id.o symbol.o rolling.o freelist.o fragment.
           timer.o pqueue.o tuple.o random.o signature.o rtrie.o tuple_parser.o runtime_init.o \
 	  extra_prints.o debug_heap.o objcache.o merge.o
 
-UNIXRUNTIME = $(RUNTIME) unix_process_runtime.o
-
 INCLUDES += -I$(ROOT)/runtime
 
 CLEAN += $(ROOT)/runtime/contgen
