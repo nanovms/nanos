@@ -217,7 +217,6 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
     tcp_recv(lw, input_lower);
     enqueue(s->incoming, sn);
 
-    rprintf ("accept from lwip: %p %d\n", sn, fd);
     if ((p = dequeue(s->waiting))) {
         apply(p);
     }  else {
@@ -242,7 +241,6 @@ static CLOSURE_4_0(accept_finish, void, sock, thread, struct sockaddr *, socklen
 static void accept_finish(sock s, thread target, struct sockaddr *addr, socklen_t *addrlen)
 {
     sock sn = dequeue(s->incoming);
-    rprintf("accept finish %p %d %p\n", sn, sn->fd, vector_get(s->p->files, sn->fd));
     remote_sockaddr_in(sn->lw, (struct sockaddr_in *)addr); 
     *addrlen = sizeof(struct sockaddr_in);
     set_syscall_return(target, sn->fd);                                

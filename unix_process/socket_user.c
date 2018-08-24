@@ -76,9 +76,7 @@ static void connection_input(heap h, descriptor f, descriptor e, buffer_handler 
     // this should have been taken care of by EPOLLHUP, but the
     // kernel doesn't support it
     if (!b->end) {
-        rprintf("web close\n");        
         epoll_ctl(e, EPOLL_CTL_DEL, f, 0);
-        rprintf("web close\n");
         close(f);
     }
     apply(p, b);
@@ -91,7 +89,6 @@ static void connection_output(descriptor c, buffer b)
     if (b)  {
         write(c, b->contents, buffer_length(b));
     } else {
-        rprintf("closing\n");
         close(c);
     }
 }
@@ -166,7 +163,6 @@ void epoll_spin(descriptor e)
             if (ev[i].events & EPOLLHUP)  {
                 epoll_ctl(e, EPOLL_CTL_DEL, r->fd, 0);
                 // always the right thing to do?
-                rprintf("web close\n");
                 close(r->fd);
             } else {
                 apply(r->a);

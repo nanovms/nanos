@@ -115,12 +115,10 @@ u64 epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
             // EPOLLET means edge instead of level
             epollfd f = allocate(e->h, sizeof(struct epollfd));
             f->f = resolve_fd(current->p, fd);
-            rprintf ("f: %p %d %d\n", f->f, fd, e->events->count);
             f->fd = fd;
             f->e = e;
             f->data = event->data;
             f->registered = 0;
-            rprintf ("zig: %p %d %d\n", f->f, fd, e->events->count);            
             table_set(e->events, ekey, f);
         }
         break;

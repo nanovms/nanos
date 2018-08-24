@@ -27,14 +27,12 @@ static void value_in(heap h,
                      status_handler completed, 
                      value v)
 {
-    rprintf ("value in %p\n", *count);
     if (*count == 0)
         connection(h, e, target, closure(h, conn, h, e, target, m));
     *count = *count + 1;
     if (*count < LENGTH) {
         send_request(out);
     } else {
-        rprintf ("complete\n");
         apply(out, 0);
         apply(completed, 0);
     }
