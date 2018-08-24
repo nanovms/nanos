@@ -211,6 +211,7 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
     sock s = z;
     thunk p;
     int fd = allocate_sock(s->p, lw);
+    // XXX - what if this has been closed in the meantime?
     sock sn = vector_get(s->p->files, fd);
     sn->fd = fd;
     tcp_arg(lw, sn);
