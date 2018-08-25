@@ -408,7 +408,7 @@ static CLOSURE_1_0(file_close, int, file);
 static int file_close(file f)
 {
     kernel k = current->p->k;
-    deallocate(k->file_heap, f, sizeof(struct file));
+    deallocate(k->file_cache, f, sizeof(struct file));
     return 0;
 }
 
@@ -428,12 +428,16 @@ s64 open(char *name, int flags, int mode)
 
 //    buffer b = allocate(h, sizeof(struct buffer));
     // might be functional, or be a directory
-    file f = allocate(k->file_heap, sizeof(struct file));
+    file f = allocate(k->file_cache, sizeof(struct file));
     if (f == INVALID_ADDRESS) {
 	msg_err("failed to allocate struct file\n");
 	return -ENOMEM;
     }
     int fd = allocate_fd(current->p, f);
+    if (fd == INVALID_PHYSICAL) {
+	deallocate(k->file_cache, f, sizeof(struct file));
+	return -EMFILE;
+    }
     rprintf ("open %s %p\n", name, fd);
     f->n = n;
     f->read = closure(h, contents_read, n);

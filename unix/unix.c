@@ -147,8 +147,8 @@ kernel init_unix(heap h,
 
     /* a failure here means termination; just leak */
     k->processes = create_id_heap(h, 1, 65535, 1);
-    k->file_heap = allocate_objcache(h, backed, sizeof(struct file));
-    if (k->file_heap == INVALID_ADDRESS)
+    k->file_cache = allocate_objcache(h, backed, sizeof(struct file));
+    if (k->file_cache == INVALID_ADDRESS)
 	goto alloc_fail;
     if (!poll_init(k))
 	goto alloc_fail;

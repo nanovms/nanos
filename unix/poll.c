@@ -26,24 +26,32 @@ struct epoll {
     struct file f;
     // xxx - multiple threads can block on the same e with epoll_wait
     epoll_blocked w;
-    heap h;
     table events;
 };
     
+static CLOSURE_1_0(epoll_close, int, epoll);
+static int epoll_close(epoll e)
+{
+    kernel k = current->p->k;
+    // XXX need to dealloc epollfd and epoll_blocked structs too
+    deallocate(k->epoll_cache, e, sizeof(struct epoll));
+}
+
 u64 epoll_create(u64 flags)
 {
     kernel k = current->p->k;
-    file f = allocate(k->epoll_heap, sizeof(struct epoll));
+    heap h = k->general;
+    file f = allocate(k->epoll_cache, sizeof(struct epoll));
     if (f == INVALID_ADDRESS)
 	return -ENOMEM;
     u64 fd = allocate_fd(current->p, f);
     if (fd == INVALID_PHYSICAL) {
-	deallocate(k->epoll_heap, f, sizeof(struct epoll));
-	return -ENOMEM;
+	deallocate(k->epoll_cache, f, sizeof(struct epoll));
+	return -EMFILE;
     }
     epoll e = (epoll)f;
-    e->h = k->general;
-    e->events = allocate_table(e->h, identity_key, pointer_equal);
+    f->close = closure(h, epoll_close, e);
+    e->events = allocate_table(h, identity_key, pointer_equal);
     return fd;
 }
 
@@ -52,13 +60,14 @@ u64 epoll_create(u64 flags)
 static CLOSURE_1_0(epoll_blocked_finish, void, epoll_blocked);
 static void epoll_blocked_finish(epoll_blocked w)
 {
+    kernel k = current->p->k;
     if (w->sleeping) {
         set_syscall_return(w->t, user_event_count(w));
         w->sleeping = false;
         thread_wakeup(w->t);
     }
-    w->refcnt--;
-    // eventually we should be able to free this thing..now actually?
+    if (--w->refcnt == 0)
+	deallocate(k->epoll_blocked_cache, w, sizeof(struct epoll_blocked));
 }
 
 // associated with the current blocking function
@@ -82,12 +91,15 @@ int epoll_wait(int epfd,
                int maxevents,
                int timeout)
 {
+    kernel k = current->p->k;
+    heap h = k->general;
     epoll e = resolve_fd(current->p, epfd);
     epollfd i;
     
-    epoll_blocked w = allocate(e->h, sizeof(struct epoll_blocked));
+    epoll_blocked w = allocate(k->epoll_blocked_cache, sizeof(struct epoll_blocked));
 
-    w->user_events = wrap_buffer(e->h, events, maxevents * sizeof(struct epoll_event));
+    w->refcnt = 1;
+    w->user_events = wrap_buffer(h, events, maxevents * sizeof(struct epoll_event));
     w->user_events->end = 0;
     w->t = current;
     w->e = e;
@@ -98,7 +110,7 @@ int epoll_wait(int epfd,
         epollfd f = (epollfd)i;
         if (!f->registered) {
             f->registered = true;
-            apply(f->f->check, closure(e->h, epoll_wait_notify, f));
+            apply(f->f->check, closure(h, epoll_wait_notify, f));
         }
     }
     int eventcount = w->user_events->end/sizeof(struct epoll_event);
@@ -108,7 +120,7 @@ int epoll_wait(int epfd,
     }
     
     if (timeout > 0)
-        register_timer(milliseconds(timeout), closure(e->h, epoll_blocked_finish, w));
+        register_timer(milliseconds(timeout), closure(h, epoll_blocked_finish, w));
 
     w->sleeping = true;    
     thread_sleep(current);
@@ -116,13 +128,14 @@ int epoll_wait(int epfd,
 
 u64 epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 {
+    kernel k = current->p->k;
     value ekey = pointer_from_u64((u64)fd);
     epoll e = resolve_fd(current->p, epfd);    
     switch(op) {
     case EPOLL_CTL_ADD:
         {
             // EPOLLET means edge instead of level
-            epollfd f = allocate(e->h, sizeof(struct epollfd));
+            epollfd f = allocate(k->epollfd_cache, sizeof(struct epollfd));
             f->f = resolve_fd(current->p, fd);
             f->fd = fd;
             f->e = e;
@@ -138,7 +151,14 @@ u64 epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 
     // what does this mean to a currently blocked epoll?
     case EPOLL_CTL_DEL:
-        table_set(e->events, ekey, 0);
+        {
+	    epollfd f = table_find(e->events, ekey);
+	    if (f)
+		deallocate(k->epollfd_cache, f, sizeof(struct epollfd));
+	    else
+		msg_err("epollfd not found for fd %d\n", fd);
+	    table_set(e->events, ekey, 0);
+	}
     }
     return 0;
 }
@@ -179,14 +199,14 @@ void register_poll_syscalls(void **map)
 
 boolean poll_init(kernel k)
 {
-    k->epoll_heap = allocate_objcache(k->general, k->backed, sizeof(struct epoll));
-    if (k->epoll_heap == INVALID_ADDRESS)
+    k->epoll_cache = allocate_objcache(k->general, k->backed, sizeof(struct epoll));
+    if (k->epoll_cache == INVALID_ADDRESS)
 	return false;
-    k->epoll_blocked_heap = allocate_objcache(k->general, k->backed, sizeof(struct epoll_blocked));
-    if (k->epoll_blocked_heap == INVALID_ADDRESS)
+    k->epollfd_cache = allocate_objcache(k->general, k->backed, sizeof(struct epollfd));
+    if (k->epoll_blocked_cache == INVALID_ADDRESS)
 	return false;
-    k->epoll_event_heap = allocate_objcache(k->general, k->backed, sizeof(struct epoll_event));
-    if (k->epoll_event_heap == INVALID_ADDRESS)
+    k->epoll_blocked_cache = allocate_objcache(k->general, k->backed, sizeof(struct epoll_blocked));
+    if (k->epoll_blocked_cache == INVALID_ADDRESS)
 	return false;
 
     return true;

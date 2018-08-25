@@ -150,18 +150,22 @@ static int socket_close(sock s)
     deallocate_queue(h, s->notify, SOCK_QUEUE_LEN);
     deallocate_queue(h, s->waiting, SOCK_QUEUE_LEN);
     deallocate_queue(h, s->incoming, SOCK_QUEUE_LEN);
-    deallocate(k->socket_heap, s, sizeof(struct sock));
+    deallocate(k->socket_cache, s, sizeof(struct sock));
 }
 
 static int allocate_sock(process p, struct tcp_pcb *pcb)
 {
     kernel k = p->k;
-    file f = allocate(k->socket_heap, sizeof(struct sock));
+    file f = allocate(k->socket_cache, sizeof(struct sock));
     if (f == INVALID_ADDRESS) {
 	msg_err("failed to allocate struct sock\n");
 	return -ENOMEM;
     }
     int fd = allocate_fd(p, f);
+    if (fd == INVALID_PHYSICAL) {
+	deallocate(k->socket_cache, f, sizeof(struct sock));
+	return -EMFILE;
+    }
     sock s = (sock)f;
     heap h = k->general;
     f->read = closure(h, socket_read, s);
@@ -354,8 +358,8 @@ void register_net_syscalls(void **map)
 
 boolean netsyscall_init(kernel k)
 {
-    k->socket_heap = allocate_objcache(k->general, k->backed, sizeof(struct sock));
-    if (k->socket_heap == INVALID_ADDRESS)
+    k->socket_cache = allocate_objcache(k->general, k->backed, sizeof(struct sock));
+    if (k->socket_cache == INVALID_ADDRESS)
 	return false;
     return true;
 }

@@ -50,12 +50,12 @@ typedef struct kernel {
     heap backed;
 
     /* object caches */
-    heap file_heap;
-    heap epoll_heap;
-    heap epoll_blocked_heap;
-    heap epoll_event_heap;
+    heap file_cache;
+    heap epoll_cache;
+    heap epollfd_cache;
+    heap epoll_blocked_cache;
 #ifdef NET
-    heap socket_heap;
+    heap socket_cache;
 #endif
 
     /* id heaps */
