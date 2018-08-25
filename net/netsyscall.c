@@ -140,29 +140,43 @@ static void socket_check(sock s, thunk t)
     }
 }
 
+#define SOCK_QUEUE_LEN 32
+
 static CLOSURE_1_0(socket_close, int, sock);
 static int socket_close(sock s)
 {
+    kernel k = current->p->k;
+    heap h = k->general;
+    deallocate_queue(h, s->notify, SOCK_QUEUE_LEN);
+    deallocate_queue(h, s->waiting, SOCK_QUEUE_LEN);
+    deallocate_queue(h, s->incoming, SOCK_QUEUE_LEN);
+    deallocate(k->socket_heap, s, sizeof(struct sock));
 }
 
 static int allocate_sock(process p, struct tcp_pcb *pcb)
 {
-    int fd;
-    file f = allocate_fd(p, sizeof(struct sock), &fd);
-    sock s = (sock)f;    
-    f->read =  closure(p->h, socket_read, s);
-    f->write =  closure(p->h, socket_write, s);
-    f->close =  closure(p->h, socket_close, s);
-    s->notify = allocate_queue(p->h, 32);
-    s->waiting = allocate_queue(p->h, 32);    
-    f->check = closure(p->h, socket_check, s);
+    kernel k = p->k;
+    file f = allocate(k->socket_heap, sizeof(struct sock));
+    if (f == INVALID_ADDRESS) {
+	msg_err("failed to allocate struct sock\n");
+	return -ENOMEM;
+    }
+    int fd = allocate_fd(p, f);
+    sock s = (sock)f;
+    heap h = k->general;
+    f->read = closure(h, socket_read, s);
+    f->write = closure(h, socket_write, s);
+    f->close = closure(h, socket_close, s);
+    s->notify = allocate_queue(h, SOCK_QUEUE_LEN);
+    s->waiting = allocate_queue(h, SOCK_QUEUE_LEN);    
+    f->check = closure(h, socket_check, s);
     s->p = p;
-    s->h = p->h;
+    s->h = h;
     s->lw = pcb;
     s->fd = fd;
     // defer to lwip here?
     s->open = true;
-    s->incoming = allocate_queue(p->h, 32);
+    s->incoming = allocate_queue(h, SOCK_QUEUE_LEN);
     return fd;
 }
 
@@ -211,6 +225,8 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
     sock s = z;
     thunk p;
     int fd = allocate_sock(s->p, lw);
+    if (fd < 0)
+	return ERR_MEM;
     // XXX - what if this has been closed in the meantime?
     sock sn = vector_get(s->p->files, fd);
     sn->fd = fd;
@@ -334,4 +350,12 @@ void register_net_syscalls(void **map)
     register_syscall(map, SYS_connect, connect);
     register_syscall(map, SYS_getsockname, getsockname);
     register_syscall(map, SYS_getpeername, getpeername);    
+}
+
+boolean netsyscall_init(kernel k)
+{
+    k->socket_heap = allocate_objcache(k->general, k->backed, sizeof(struct sock));
+    if (k->socket_heap == INVALID_ADDRESS)
+	return false;
+    return true;
 }

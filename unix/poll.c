@@ -1,6 +1,7 @@
 #include <unix_internal.h>
 
 typedef struct epoll *epoll;
+
 typedef struct epollfd {
     int fd; //debugging only
     file f;
@@ -22,19 +23,27 @@ struct epoll_blocked {
 };
 
 struct epoll {
+    struct file f;
     // xxx - multiple threads can block on the same e with epoll_wait
     epoll_blocked w;
-    struct file f;
     heap h;
     table events;
 };
     
 u64 epoll_create(u64 flags)
 {
-    int fd;
-    epoll e = (epoll)allocate_fd(current->p, sizeof(struct epoll), &fd);
-    e->h = current->p->h;
-    e->events = allocate_table(current->p->h, identity_key, pointer_equal);
+    kernel k = current->p->k;
+    file f = allocate(k->epoll_heap, sizeof(struct epoll));
+    if (f == INVALID_ADDRESS)
+	return -ENOMEM;
+    u64 fd = allocate_fd(current->p, f);
+    if (fd == INVALID_PHYSICAL) {
+	deallocate(k->epoll_heap, f, sizeof(struct epoll));
+	return -ENOMEM;
+    }
+    epoll e = (epoll)f;
+    e->h = k->general;
+    e->events = allocate_table(e->h, identity_key, pointer_equal);
     return fd;
 }
 
@@ -89,7 +98,7 @@ int epoll_wait(int epfd,
         epollfd f = (epollfd)i;
         if (!f->registered) {
             f->registered = true;
-            apply(f->f->check, closure(current->p->h, epoll_wait_notify, f));
+            apply(f->f->check, closure(e->h, epoll_wait_notify, f));
         }
     }
     int eventcount = w->user_events->end/sizeof(struct epoll_event);
@@ -147,10 +156,12 @@ int pselect(int nfds,
             struct timespec *timeout,
             u64 *sigmask)
 {
+    kernel k = current->p->k;
+
     if (timeout == 0) {
         rprintf("select poll\n");
     } else {
-        register_timer(time_from_timespec(timeout), closure(current->p->h, select_timeout, current, 0));
+        register_timer(time_from_timespec(timeout), closure(k->general, select_timeout, current, 0));
         thread_sleep(current);
     }
     return 0;
@@ -164,4 +175,19 @@ void register_poll_syscalls(void **map)
     register_syscall(map, SYS_epoll_ctl, epoll_ctl);
     register_syscall(map, SYS_pselect6,pselect);
     register_syscall(map, SYS_epoll_wait,epoll_wait);
+}
+
+boolean poll_init(kernel k)
+{
+    k->epoll_heap = allocate_objcache(k->general, k->backed, sizeof(struct epoll));
+    if (k->epoll_heap == INVALID_ADDRESS)
+	return false;
+    k->epoll_blocked_heap = allocate_objcache(k->general, k->backed, sizeof(struct epoll_blocked));
+    if (k->epoll_blocked_heap == INVALID_ADDRESS)
+	return false;
+    k->epoll_event_heap = allocate_objcache(k->general, k->backed, sizeof(struct epoll_event));
+    if (k->epoll_event_heap == INVALID_ADDRESS)
+	return false;
+
+    return true;
 }
