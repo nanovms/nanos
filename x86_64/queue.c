@@ -54,3 +54,7 @@ queue allocate_queue(heap h, u64 size)
     return q;
 }
 
+void deallocate_queue(heap h, queue q, u64 size)
+{
+    deallocate(h, q, sizeof(struct queue) + size * sizeof(void *));
+}
