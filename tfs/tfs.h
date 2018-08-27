@@ -1,3 +1,4 @@
+#pragma once
 typedef struct filesystem *filesystem;
 typedef struct fsfile *fsfile;
 

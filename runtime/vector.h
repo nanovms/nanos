@@ -1,4 +1,4 @@
-
+#pragma once
 typedef buffer vector;
 
 static inline void *vector_get(vector v, int offset)

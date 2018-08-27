@@ -1,4 +1,4 @@
-
+#pragma once
 
 #define closure_type(__x, __ret, ...) __ret (**__x)(void *, ## __VA_ARGS__)
 

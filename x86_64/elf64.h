@@ -1,3 +1,4 @@
+#pragma once
 /*-
  * Copyright (c) 1996-1998 John D. Polstra.
  * All rights reserved.

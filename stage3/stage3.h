@@ -1,3 +1,4 @@
+#pragma once
 #include <def64.h>
 
 // each type gets 1T

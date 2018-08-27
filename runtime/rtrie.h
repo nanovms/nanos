@@ -1,3 +1,4 @@
+#pragma once
 typedef struct rtrie *rtrie;
 
 // [start, end)

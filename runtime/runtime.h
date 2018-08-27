@@ -1,3 +1,4 @@
+#pragma once
 typedef u8 boolean;
 typedef u32 character;
 

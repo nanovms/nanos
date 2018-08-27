@@ -1,3 +1,4 @@
+#pragma once
 typedef u64 time;
 typedef struct timer *timer;
 timer register_timer(time, thunk n);
