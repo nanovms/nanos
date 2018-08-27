@@ -557,7 +557,6 @@ int close(int fd)
     if (f == INVALID_ADDRESS)
 	return -EBADF;
     deallocate_fd(current->p, fd, f);
-    rprintf("dealloced fd %d\n", fd);
     if (f->close)
 	return apply(f->close);
     msg_err("no close handler for fd %d\n", fd);
