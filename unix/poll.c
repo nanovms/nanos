@@ -71,8 +71,8 @@ static void epoll_blocked_finish(epoll_blocked w)
 }
 
 // associated with the current blocking function
-static CLOSURE_1_0(epoll_wait_notify, void, epollfd)
-static void epoll_wait_notify(epollfd f)
+static CLOSURE_2_0(epoll_wait_notify, void, epollfd, u32);
+static void epoll_wait_notify(epollfd f, u32 events)
 {
     f->registered = false;
     epoll_blocked b = f->e->w; 
@@ -80,7 +80,7 @@ static void epoll_wait_notify(epollfd f)
     if (b && (b->user_events->length - b->user_events->end)) {
         struct epoll_event *e = buffer_ref(b->user_events, b->user_events->end);
         e->data = f->data;
-        e->events = EPOLLIN;
+        e->events = events;
         b->user_events->end += sizeof(struct epoll_event);
         epoll_blocked_finish(b);
     }
@@ -110,7 +110,9 @@ int epoll_wait(int epfd,
         epollfd f = (epollfd)i;
         if (!f->registered) {
             f->registered = true;
-            apply(f->f->check, closure(h, epoll_wait_notify, f));
+            apply(f->f->check,
+		  closure(h, epoll_wait_notify, f, EPOLLIN),
+		  closure(h, epoll_wait_notify, f, EPOLLHUP));
         }
     }
     int eventcount = w->user_events->end/sizeof(struct epoll_event);

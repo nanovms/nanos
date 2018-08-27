@@ -111,12 +111,19 @@ static void read_complete(sock s, thread t, void *dest, u64 length)
     // tcp_recved() to move the receive window
 }
 
+static CLOSURE_2_0(read_hup, void, sock, thread);
+static void read_hup(sock s, thread t)
+{
+    t->frame[FRAME_RAX] = 0;
+    enqueue(runqueue, t->run);
+}
 
 static CLOSURE_1_3(socket_read, int, sock, void *, u64, u64);
 static int socket_read(sock s, void *dest, u64 length, u64 offset)
 {
-    if (!s->open) return 0;
-    apply(s->f.check, closure(s->h, read_complete, s, current, dest, length));    
+    apply(s->f.check,
+	  closure(s->h, read_complete, s, current, dest, length),
+	  closure(s->h, read_hup, s, current));
     runloop();    
 }
 
@@ -124,19 +131,25 @@ static CLOSURE_1_3(socket_write, int, sock, void *, u64, u64);
 static int socket_write(sock s, void *source, u64 length, u64 offset)
 {
     // error code..backpressure
+    if (!s->open)
+	return -EPIPE;
     tcp_write(s->lw, source, length, TCP_WRITE_FLAG_COPY);
     tcp_output(s->lw);
     return length;
 }
 
-static CLOSURE_1_1(socket_check, void, sock, thunk);
-static void socket_check(sock s, thunk t)
+static CLOSURE_1_2(socket_check, void, sock, thunk, thunk);
+static void socket_check(sock s, thunk t_in, thunk t_hup)
 {
     // thread safety
     if (queue_length(s->incoming)) {
-        apply(t);
+        apply(t_in);
     } else {
-        enqueue(s->notify, t);
+	if (s->open) {
+	    enqueue(s->notify, t_in);
+	} else {
+	    apply(t_hup);
+	}
     }
 }
 
@@ -248,6 +261,21 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
     return ERR_OK;
 }
 
+static void err_from_lwip(void *z, err_t b)
+{
+    sock s = z;
+    switch (b) {
+    case ERR_ABRT:
+	msg_err("connection closed on fd %d due to tcp_abort or timer\n", s->fd);
+	break;
+    case ERR_RST:
+	msg_err("connection closed on fd %d due to remote reset\n", s->fd);
+	break;
+    default:
+	msg_err("fd %d: unknown error %d\n", s->fd, b);
+    }
+    s->open = false;
+}
 
 int listen(int sockfd, int backlog)
 {
@@ -255,6 +283,7 @@ int listen(int sockfd, int backlog)
     s->lw = tcp_listen_with_backlog(s->lw, backlog);
     tcp_arg(s->lw, s);
     tcp_accept(s->lw, accept_from_lwip);
+    tcp_err(s->lw, err_from_lwip);
     return 0;    
 }
 
