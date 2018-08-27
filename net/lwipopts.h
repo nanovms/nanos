@@ -1,4 +1,4 @@
-
+#pragma once
 #define NO_SYS 2
 #define LWIP_PLATFORM_DIAG(x)
 #define LWIP_PLATFORM_ASSERT(x)

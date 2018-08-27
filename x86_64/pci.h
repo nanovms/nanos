@@ -1,3 +1,4 @@
+#pragma once
 #define PCIR_MEMBASE0_2 0x1c
 #define PCIR_MEMLIMIT0_2 0x20
 #define PCIR_MEMBASE1_2 0x24

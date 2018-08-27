@@ -1,4 +1,4 @@
-
+#pragma once
 extern void vbprintf(buffer s, buffer fmt, vlist *ap);
 
 // make sure its safe to read more than one format char ala %02x

@@ -1,3 +1,4 @@
+#pragma once
 typedef struct buffer *buffer;
 typedef struct heap *heap;
 

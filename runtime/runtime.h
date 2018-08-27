@@ -1,3 +1,4 @@
+#pragma once
 #include <uniboot.h>
 typedef u8 boolean;
 typedef u32 character;
