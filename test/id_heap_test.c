@@ -43,7 +43,10 @@ static boolean basic_test(heap h)
 		deallocate_u64(id, a, pagesize * n);
 	    }
 	}
-
+	if (id->allocated > 0) {
+	    msg_err("heap allocated should be zero; fail\n");
+	    return false;
+	}
 	id->destroy(id);
     }
 
@@ -51,26 +54,27 @@ static boolean basic_test(heap h)
 }
 
 #define VEC_LEN 64
+#define MAX_NPAGES_ORDER 8	/* up to 256 pages (4 bitmap words) */
 static boolean random_test(heap h, u64 page_order, int churn)
 {
-    int max_order = page_order + 4; /* up to 16 pages; arbitrary */
-    int alloc_size_vec[VEC_LEN];
+    int max_order = page_order + MAX_NPAGES_ORDER;
+    u64 alloc_size_vec[VEC_LEN];
     u64 alloc_result_vec[VEC_LEN];
     u64 length = (1 << max_order) * VEC_LEN;
     u64 pagesize = 1 << page_order;
 
     for (int i=0; i < VEC_LEN; i++) {
-	alloc_size_vec[i] = random_u64() & (((1 << (max_order - page_order)) - 1) << page_order);
+	alloc_size_vec[i] = random_u64() & (((1 << MAX_NPAGES_ORDER) - 1) << page_order);
 	if (alloc_size_vec[i] == 0)
 	    alloc_size_vec[i] = pagesize;
     }
 
     zero(alloc_result_vec, VEC_LEN * sizeof(u64));
 
-    heap id = create_id_heap(h, 0, length, pagesize);
+    heap id = create_id_heap(h, 0x1000, length, pagesize);
 
     msg_debug("*** allocated id heap %p at length %d (%d pages), pagesize %d\n",
-	    id, length, length / pagesize, pagesize);
+	      id, length, length / pagesize, pagesize);
 
     do {
 	int start;
@@ -82,7 +86,7 @@ static boolean random_test(heap h, u64 page_order, int churn)
 		continue;
 
 	    alloc_result_vec[o] = allocate_u64(id, alloc_size_vec[o]);
-//	    msg_debug("alloc %d, size %d, result %P\n", o, alloc_size_vec[o], alloc_result_vec[o]);
+	    msg_debug("alloc %d, size %d, result %P\n", o, alloc_size_vec[o], alloc_result_vec[o]);
 	    if (alloc_result_vec[o] == INVALID_PHYSICAL) {
 		msg_err("alloc of size %d failed\n", alloc_size_vec[o]);
 		goto fail;
@@ -116,13 +120,17 @@ static boolean random_test(heap h, u64 page_order, int churn)
 		continue;
 	    int o = (i + start) % VEC_LEN;
 	    if (alloc_result_vec[o]) {
-//		msg_debug("dealloc %d, size %d\n", o, alloc_size_vec[o]);
+		msg_debug("dealloc %d, size %d\n", o, alloc_size_vec[o]);
 		deallocate_u64(id, alloc_result_vec[o], alloc_size_vec[o]);
 		alloc_result_vec[o] = 0;
 	    }
 	}
     } while(churn-- > 0);
 
+    if (id->allocated > 0) {
+	msg_err("heap allocated (%d) should be zero; fail\n", id->allocated);
+	return false;
+    }
     id->destroy(id);
 
     return true;
