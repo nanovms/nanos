@@ -1,5 +1,7 @@
 #include <unix_internal.h>
 
+thread current;
+
 int gettid()
 {
     return current->tid;
@@ -49,10 +51,11 @@ typedef struct fut {
 static fut soft_create_futex(process p, u64 key)
 {
     fut f;
+    heap h = p->k->general;
     // of course this is supossed to be serialized
     if (!(f = table_find(p->futices, pointer_from_u64(key)))) {
-        f = allocate(p->h, sizeof(struct fut));
-        f->waiters = allocate_queue(p->h, 32);
+        f = allocate(h, sizeof(struct fut));
+        f->waiters = allocate_queue(h, 32);
         table_set(p->futices, pointer_from_u64(key), f);
     }
     return f;
@@ -212,12 +215,13 @@ thread create_thread(process p)
 {
     // heap I guess
     static int tidcount = 1;
-    thread t = allocate(p->h, sizeof(struct thread));
+    heap h = p->k->general;
+    thread t = allocate(h, sizeof(struct thread));
     t->p = p;
     t->tid = tidcount++;
     t->set_child_tid = t->clear_child_tid = 0;
-    t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(closure(p->h, default_fault_handler, t));
-    t->run = closure(p->h, run_thread, t);
+    t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(closure(h, default_fault_handler, t));
+    t->run = closure(h, run_thread, t);
     vector_push(p->threads, t);
     return t;
 }

@@ -170,6 +170,7 @@ void *dequeue(queue q);
 void *queue_peek(queue q);
 int queue_length(queue q);
 queue allocate_queue(heap h, u64 size);
+void deallocate_queue(queue q, u64 size);
 void runloop();
 heap allocate_fragmentor(heap meta, heap parent, bytes size);
 void map(u64 virtual, physical p, int length, heap h);
@@ -178,6 +179,7 @@ void map(u64 virtual, physical p, int length, heap h);
 struct queue {
     // these should be on cache lines in the mp case
     u64 read, write, length;
+    heap h;
     void *body[];
 };
 

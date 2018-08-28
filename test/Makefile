@@ -21,6 +21,10 @@ network_test: network_test.o http.o socket_user.o $(UNIXRUNTIME)
 id_heap_test: id_heap_test.o $(UNIXRUNTIME)
 	$(CC) $^ -g -o id_heap_test
 
+unit-test: objcache_test id_heap_test
+	./objcache_test
+	./id_heap_test
+
 clean:
 	rm -f *.o test
 

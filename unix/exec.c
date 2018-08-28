@@ -80,30 +80,20 @@ static void load_interp_fail(status s)
 }
 
 
-CLOSURE_4_1(load_interp_complete, void, thread, heap, heap, heap, buffer);
-void load_interp_complete(thread t, heap virtual, heap pages, heap physical, buffer b)
+CLOSURE_2_1(load_interp_complete, void, thread, kernel, buffer);
+void load_interp_complete(thread t, kernel k, buffer b)
 {
-    u64 where = allocate_u64(virtual, HUGE_PAGESIZE);
-    start_process(t, load_elf(b, where, pages, physical));
+    u64 where = allocate_u64(k->virtual, HUGE_PAGESIZE);
+    start_process(t, load_elf(b, where, k->pages, k->physical));
 }
 
-
-// thats...alot of heaps
-process exec_elf(buffer ex,
-                 tuple md,
-                 tuple root,
-                 heap general,
-                 heap physical,
-                 heap pages,
-                 heap virtual,
-                 heap backed,
-                 filesystem fs)
+process exec_elf(buffer ex, kernel k)
 {
     // is process md always root?
     // set cwd
-    process proc = create_process(general, pages, physical, root, fs);
+    process proc = create_process(k);
     thread t = create_thread(proc);
-    void *start = load_elf(ex, 0, pages, physical);
+    void *start = load_elf(ex, 0, k->pages, k->physical);
     u64 va;
     boolean interp = false;
     Elf64_Ehdr *e = (Elf64_Ehdr *)buffer_ref(ex, 0);
@@ -118,21 +108,22 @@ process exec_elf(buffer ex,
             va = p->p_vaddr;
         proc->brk  = pointer_from_u64(MAX(u64_from_pointer(proc->brk), pad(p->p_vaddr + p->p_memsz, PAGESIZE)));
     }
-    build_exec_stack(backed, t, e, start, va, md);
+    build_exec_stack(k->backed, t, e, start, va, k->root);
             
     foreach_phdr(e, p) {
         if (p->p_type == PT_INTERP) {
             char *n = (void *)e + p->p_offset;
-            tuple interp = resolve_path(root, split(general, alloca_wrap_buffer(n, runtime_strlen(n)), '/'));
+            tuple interp = resolve_path(k->root, split(k->general, alloca_wrap_buffer(n, runtime_strlen(n)), '/'));
             if (!interp) 
                 halt("couldn't find program interpreter %s\n", n);
-            filesystem_read_entire(fs, interp, backed,
-                                   closure(general, load_interp_complete, t, virtual, pages, physical),
-                                   closure(general, load_interp_fail));
+            filesystem_read_entire(k->fs, interp, k->backed,
+                                   closure(k->general, load_interp_complete, t, k),
+                                   closure(k->general, load_interp_fail));
             return proc;
         }
     }
     start_process(t, start);
+    add_elf_syms(k->general, ex);
     return proc;    
 }
 

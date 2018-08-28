@@ -60,9 +60,9 @@ static u64 id_alloc(heap h, bytes count)
 
     do {
 	/* Check if we need to expand the map */
-	if (bit + order >= i->mapbits) {
+	if (bit + alloc_bits >= i->mapbits) {
 	    bytes old = i->mapbits >> 3;
-	    i->mapbits = pad(bit + order + 1, ALLOC_EXTEND_BITS);
+	    i->mapbits = pad(bit + alloc_bits + 1, ALLOC_EXTEND_BITS);
 	    bytes new = i->mapbits >> 3;
 	    extend_total(i->alloc_map, new);
 	    mapbase = buffer_ref(i->alloc_map, 0);
@@ -87,6 +87,9 @@ static u64 id_alloc(heap h, bytes count)
 	    check_skip(alloc_bits, nlz, 1, bit);
 	    check_skip(alloc_bits, nlz, 0, bit);
 	}
+
+	if (bit + alloc_bits > i->maxbits)
+	    break;
 
 	if (for_range_in_map(i, bit, order, false, false)) {
 	    for_range_in_map(i, bit, order, true, true);

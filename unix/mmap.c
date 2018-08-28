@@ -2,6 +2,8 @@
 
 void *mremap(void *old_address, u64 old_size,  u64 new_size, int flags,  void *new_address )
 {
+    kernel k = current->p->k;
+
     // this seems poorly thought out - what if there is a backing file?
     // and if its anonymous why do we care where it is..i guess this
     // is just for large realloc operations? if these aren't aligned
@@ -10,12 +12,12 @@ void *mremap(void *old_address, u64 old_size,  u64 new_size, int flags,  void *n
     if (new_size > old_size) {
         u64 diff = pad(new_size - old_size, PAGESIZE);
         u64 base = u64_from_pointer(old_address + old_size) & align;
-        void *r = allocate(current->p->physical,diff);
+        void *r = allocate(k->physical,diff);
         if (u64_from_pointer(r) == INVALID_PHYSICAL) {
             // MAP_FAILED
             return r;
         }
-        map(base, physical_from_virtual(r), diff, current->p->pages);
+        map(base, physical_from_virtual(r), diff, k->pages);
         zero(pointer_from_u64(base), diff); 
     }
     //    map(u64_from_pointer(new_address)&align, physical_from_virtual(old_address), old_size, current->p->pages);
@@ -38,6 +40,9 @@ static int mincore(void *addr, u64 length, u8 *vec)
 static void *mmap(void *target, u64 size, int prot, int flags, int fd, u64 offset)
 {
     process p = current->p;
+    kernel k = p->k;
+    heap pages = k->pages;
+    heap physical = k->physical;
     // its really unclear whether this should be extended or truncated
     u64 len = pad(size, PAGESIZE);
     //gack
@@ -55,9 +60,9 @@ static void *mmap(void *target, u64 size, int prot, int flags, int fd, u64 offse
 
     // make a generic zero page function
     if (flags & MAP_ANONYMOUS) {
-        u64  m = allocate_u64(p->physical, len);
+        u64 m = allocate_u64(physical, len);
         if (m == INVALID_PHYSICAL) return pointer_from_u64(m);
-        map(where, m, len, p->pages);
+        map(where, m, len, pages);
         zero(pointer_from_u64(where), len);
         return pointer_from_u64(where);
     }
@@ -76,11 +81,11 @@ static void *mmap(void *target, u64 size, int prot, int flags, int fd, u64 offse
     if (msize > len) msize = len;
     
     // mutal misalignment?...discontiguous backing?
-    map(where, physical_from_virtual(buffer_ref(b, offset)), msize, p->pages);
+    map(where, physical_from_virtual(buffer_ref(b, offset)), msize, pages);
 
     if (len > msize) {
         u64 bss = pad(len, PAGESIZE) - msize;
-        map(where + msize, allocate_u64(p->physical, bss), bss, p->pages);
+        map(where + msize, allocate_u64(physical, bss), bss, pages);
         zero(pointer_from_u64(where+msize), bss);
     }
     // ok, if we change pages entries we need to flush the tlb...dont need

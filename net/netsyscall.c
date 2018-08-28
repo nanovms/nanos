@@ -111,58 +111,93 @@ static void read_complete(sock s, thread t, void *dest, u64 length)
     // tcp_recved() to move the receive window
 }
 
+static CLOSURE_2_0(read_hup, void, sock, thread);
+static void read_hup(sock s, thread t)
+{
+    t->frame[FRAME_RAX] = 0;
+    enqueue(runqueue, t->run);
+}
 
 static CLOSURE_1_3(socket_read, int, sock, void *, u64, u64);
 static int socket_read(sock s, void *dest, u64 length, u64 offset)
 {
-    if (!s->open) return 0;
-    apply(s->f.check, closure(s->h, read_complete, s, current, dest, length));    
+    apply(s->f.check,
+	  closure(s->h, read_complete, s, current, dest, length),
+	  closure(s->h, read_hup, s, current));
     runloop();    
 }
 
 static CLOSURE_1_3(socket_write, int, sock, void *, u64, u64);
 static int socket_write(sock s, void *source, u64 length, u64 offset)
 {
-    // error code..backpressure
-    tcp_write(s->lw, source, length, TCP_WRITE_FLAG_COPY);
-    tcp_output(s->lw);
+    err_t err;
+    if (!s->open) 		/* XXX maybe defer to lwip for connect state */
+	return -EPIPE;
+    err = tcp_write(s->lw, source, length, TCP_WRITE_FLAG_COPY);
+    if (err != ERR_OK)
+	return lwip_to_errno(err);
+    err = tcp_output(s->lw);
+    if (err != ERR_OK)
+	return lwip_to_errno(err);
     return length;
 }
 
-static CLOSURE_1_1(socket_check, void, sock, thunk);
-static void socket_check(sock s, thunk t)
+static CLOSURE_1_2(socket_check, void, sock, thunk, thunk);
+static void socket_check(sock s, thunk t_in, thunk t_hup)
 {
     // thread safety
     if (queue_length(s->incoming)) {
-        apply(t);
+        apply(t_in);
     } else {
-        enqueue(s->notify, t);
+	if (s->open) {
+	    enqueue(s->notify, t_in);
+	} else {
+	    apply(t_hup);
+	}
     }
 }
+
+#define SOCK_QUEUE_LEN 32
 
 static CLOSURE_1_0(socket_close, int, sock);
 static int socket_close(sock s)
 {
+    kernel k = current->p->k;
+    heap h = k->general;
+    deallocate_queue(s->notify, SOCK_QUEUE_LEN);
+    deallocate_queue(s->waiting, SOCK_QUEUE_LEN);
+    deallocate_queue(s->incoming, SOCK_QUEUE_LEN);
+    deallocate(k->socket_cache, s, sizeof(struct sock));
 }
 
 static int allocate_sock(process p, struct tcp_pcb *pcb)
 {
-    int fd;
-    file f = allocate_fd(p, sizeof(struct sock), &fd);
-    sock s = (sock)f;    
-    f->read =  closure(p->h, socket_read, s);
-    f->write =  closure(p->h, socket_write, s);
-    f->close =  closure(p->h, socket_close, s);
-    s->notify = allocate_queue(p->h, 32);
-    s->waiting = allocate_queue(p->h, 32);    
-    f->check = closure(p->h, socket_check, s);
+    kernel k = p->k;
+    file f = allocate(k->socket_cache, sizeof(struct sock));
+    if (f == INVALID_ADDRESS) {
+	msg_err("failed to allocate struct sock\n");
+	return -ENOMEM;
+    }
+    int fd = allocate_fd(p, f);
+    if (fd == INVALID_PHYSICAL) {
+	deallocate(k->socket_cache, f, sizeof(struct sock));
+	return -EMFILE;
+    }
+    sock s = (sock)f;
+    heap h = k->general;
+    f->read = closure(h, socket_read, s);
+    f->write = closure(h, socket_write, s);
+    f->close = closure(h, socket_close, s);
+    s->notify = allocate_queue(h, SOCK_QUEUE_LEN);
+    s->waiting = allocate_queue(h, SOCK_QUEUE_LEN);    
+    f->check = closure(h, socket_check, s);
     s->p = p;
-    s->h = p->h;
+    s->h = h;
     s->lw = pcb;
     s->fd = fd;
     // defer to lwip here?
     s->open = true;
-    s->incoming = allocate_queue(p->h, 32);
+    s->incoming = allocate_queue(h, SOCK_QUEUE_LEN);
     return fd;
 }
 
@@ -206,16 +241,35 @@ int connect(int sockfd, struct sockaddr *addr, socklen_t addrlen)
     return 0;
 }
 
+static void lwip_conn_err(void *z, err_t b)
+{
+    sock s = z;
+    switch (b) {
+    case ERR_ABRT:
+	msg_err("connection closed on fd %d due to tcp_abort or timer\n", s->fd);
+	break;
+    case ERR_RST:
+	msg_err("connection closed on fd %d due to remote reset\n", s->fd);
+	break;
+    default:
+	msg_err("fd %d: unknown error %d\n", s->fd, b);
+    }
+    s->open = false;
+}
+
 static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
 {
     sock s = z;
     thunk p;
     int fd = allocate_sock(s->p, lw);
+    if (fd < 0)
+	return ERR_MEM;
     // XXX - what if this has been closed in the meantime?
     sock sn = vector_get(s->p->files, fd);
     sn->fd = fd;
     tcp_arg(lw, sn);
     tcp_recv(lw, input_lower);
+    tcp_err(lw, lwip_conn_err);
     enqueue(s->incoming, sn);
 
     if ((p = dequeue(s->waiting))) {
@@ -228,13 +282,13 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
     return ERR_OK;
 }
 
-
 int listen(int sockfd, int backlog)
 {
     sock s = resolve_fd(current->p, sockfd);        
     s->lw = tcp_listen_with_backlog(s->lw, backlog);
     tcp_arg(s->lw, s);
     tcp_accept(s->lw, accept_from_lwip);
+    tcp_err(s->lw, lwip_conn_err);
     return 0;    
 }
 
@@ -334,4 +388,12 @@ void register_net_syscalls(void **map)
     register_syscall(map, SYS_connect, connect);
     register_syscall(map, SYS_getsockname, getsockname);
     register_syscall(map, SYS_getpeername, getpeername);    
+}
+
+boolean netsyscall_init(kernel k)
+{
+    k->socket_cache = allocate_objcache(k->general, k->backed, sizeof(struct sock));
+    if (k->socket_cache == INVALID_ADDRESS)
+	return false;
+    return true;
 }

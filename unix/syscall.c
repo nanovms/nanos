@@ -392,7 +392,9 @@ static void readcomplete(thread t, u64 len, status s)
 static CLOSURE_1_3(contents_read, int, tuple, void *, u64, u64);
 static int contents_read(tuple n, void *dest, u64 length, u64 offset)
 {
-    filesystem_read(current->p->fs, n, dest, length, offset, closure(current->p->h, readcomplete, current, length));
+    kernel k = current->p->k;
+    filesystem_read(k->fs, n, dest, length, offset,
+		    closure(k->general, readcomplete, current, length));
     runloop();
 }
 
@@ -402,10 +404,20 @@ int openat(char *name, int flags, int mode)
     return -ENOENT;
 }
 
+static CLOSURE_1_0(file_close, int, file);
+static int file_close(file f)
+{
+    kernel k = current->p->k;
+    deallocate(k->file_cache, f, sizeof(struct file));
+    return 0;
+}
+
 s64 open(char *name, int flags, int mode)
 {
     tuple n;
     bytes length;
+    kernel k = current->p->k;
+    heap h = k->general;
     
     // fix - lookup should be robust
     if (name == 0) return -EINVAL;
@@ -414,13 +426,22 @@ s64 open(char *name, int flags, int mode)
         return -ENOENT;
     }
 
-    buffer b = allocate(current->p->h, sizeof(struct buffer));
+//    buffer b = allocate(h, sizeof(struct buffer));
     // might be functional, or be a directory
-    int fd;
-    file f = allocate_fd(current->p, sizeof(struct file), &fd);
+    file f = allocate(k->file_cache, sizeof(struct file));
+    if (f == INVALID_ADDRESS) {
+	msg_err("failed to allocate struct file\n");
+	return -ENOMEM;
+    }
+    int fd = allocate_fd(current->p, f);
+    if (fd == INVALID_PHYSICAL) {
+	deallocate(k->file_cache, f, sizeof(struct file));
+	return -EMFILE;
+    }
     rprintf ("open %s %p\n", name, fd);
     f->n = n;
-    f->read = closure(current->p->h, contents_read, n);
+    f->read = closure(h, contents_read, n);
+    f->close = closure(h, file_close, f);
     f->offset = 0;
     return fd;
 }
@@ -506,6 +527,7 @@ static char *getcwd(char *buf, u64 length)
 static void *brk(void *x)
 {
     process p = current->p;
+    kernel k = p->k;
 
     if (x) {
         if (p->brk > x) {
@@ -514,7 +536,7 @@ static void *brk(void *x)
         } else {
             // I guess assuming we're aligned
             u64 alloc = pad(u64_from_pointer(x), PAGESIZE) - pad(u64_from_pointer(p->brk), PAGESIZE);
-            map(u64_from_pointer(p->brk), allocate_u64(p->physical, alloc), alloc, p->pages);
+            map(u64_from_pointer(p->brk), allocate_u64(k->physical, alloc), alloc, k->pages);
             // people shouldn't depend on this
             zero(p->brk, alloc);
             p->brk += alloc;         
@@ -527,6 +549,18 @@ u64 readlink(const char *pathname, char *buf, u64 bufsiz)
 {
     return -EINVAL;
 
+}
+
+int close(int fd)
+{
+    file f = resolve_fd(current->p, fd);
+    if (f == INVALID_ADDRESS)
+	return -EBADF;
+    deallocate_fd(current->p, fd, f);
+    if (f->close)
+	return apply(f->close);
+    msg_err("no close handler for fd %d\n", fd);
+    return 0;
 }
 
 u64 fcntl(int fd, int cmd)
@@ -570,7 +604,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_fcntl, fcntl);
     register_syscall(map, SYS_getcwd, getcwd);
     register_syscall(map, SYS_readlink, readlink);
-    register_syscall(map, SYS_close, syscall_ignore);
+    register_syscall(map, SYS_close, close);
     register_syscall(map, SYS_sched_yield, sched_yield);
     register_syscall(map, SYS_brk, brk);
     register_syscall(map, SYS_uname, uname);

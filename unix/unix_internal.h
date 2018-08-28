@@ -4,13 +4,16 @@
 #include <tfs.h>
 #include <unix.h>
 
+// conditionalize
+// fix config/build, remove this include to take off network
+#include <net.h>
+
 typedef struct process *process;
 typedef struct thread *thread;
 
-process create_process(heap h, heap pages, heap contig, tuple root, filesystem fs);
 thread create_thread(process);
-void run(thread);
 
+void run(thread);
 
 typedef struct thread {
     // if we use an array typedef its fragile
@@ -25,24 +28,48 @@ typedef struct thread {
     queue log[64];
 } *thread;
 
-
 typedef closure_type(io, int, void *, u64 length, u64 offset);
 
 typedef struct file {
     u64 offset; 
     io read, write;
     // check if data on the read path
-    closure_type(check, void, thunk);
+    closure_type(check, void, thunk in, thunk hup);
     closure_type(close, int);
     tuple n;
 } *file;
 
-typedef struct process {
-    heap h, pages, physical;
-    int pid;
+/* kernel "instance", really just a collection of allocators, fs root, etc. */
+typedef struct kernel {
+    /* memory heaps */
+    heap general;
+    heap pages;
+    heap physical;
+    heap virtual;		/* these are for kernel-only mappings; */
+    heap virtual_pagesized;	/* not user space */
+    heap backed;
+
+    /* object caches */
+    heap file_cache;
+    heap epoll_cache;
+    heap epollfd_cache;
+    heap epoll_blocked_cache;
+#ifdef NET
+    heap socket_cache;
+#endif
+
+    /* id heaps */
+    heap processes;
+
+    /* filesystem */
     tuple root;
     // xxx - filesystem should be folded underneath tuple operators
     filesystem fs;
+} *kernel;
+
+typedef struct process {
+    kernel k;
+    int pid;
     // i guess this should also be a heap, brk is so nasty
     void *brk;
     heap virtual;
@@ -57,9 +84,11 @@ typedef struct process {
     vector files;
 } *process;
 
-file allocate_fd(process p, bytes size, int *);
+extern thread current;
 
-thread current;
+u64 allocate_fd(process p, file f);
+
+void deallocate_fd(process p, int fd, file f);
 
 void init_vdso(heap, heap);
 
@@ -91,6 +120,8 @@ void register_signal_syscalls(void **);
 void register_mmap_syscalls(void **);
 void register_thread_syscalls(void **);
 void register_poll_syscalls(void **);
+
+boolean poll_init(kernel k);
 
 extern u64 syscall_ignore();
 CLOSURE_1_1(default_fault_handler, void, thread, context);
