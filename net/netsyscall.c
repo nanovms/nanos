@@ -130,11 +130,15 @@ static int socket_read(sock s, void *dest, u64 length, u64 offset)
 static CLOSURE_1_3(socket_write, int, sock, void *, u64, u64);
 static int socket_write(sock s, void *source, u64 length, u64 offset)
 {
-    // error code..backpressure
-    if (!s->open)
+    err_t err;
+    if (!s->open) 		/* XXX maybe defer to lwip for connect state */
 	return -EPIPE;
-    tcp_write(s->lw, source, length, TCP_WRITE_FLAG_COPY);
-    tcp_output(s->lw);
+    err = tcp_write(s->lw, source, length, TCP_WRITE_FLAG_COPY);
+    if (err != ERR_OK)
+	return lwip_to_errno(err);
+    err = tcp_output(s->lw);
+    if (err != ERR_OK)
+	return lwip_to_errno(err);
     return length;
 }
 
@@ -160,9 +164,9 @@ static int socket_close(sock s)
 {
     kernel k = current->p->k;
     heap h = k->general;
-    deallocate_queue(h, s->notify, SOCK_QUEUE_LEN);
-    deallocate_queue(h, s->waiting, SOCK_QUEUE_LEN);
-    deallocate_queue(h, s->incoming, SOCK_QUEUE_LEN);
+    deallocate_queue(s->notify, SOCK_QUEUE_LEN);
+    deallocate_queue(s->waiting, SOCK_QUEUE_LEN);
+    deallocate_queue(s->incoming, SOCK_QUEUE_LEN);
     deallocate(k->socket_cache, s, sizeof(struct sock));
 }
 
@@ -237,31 +241,7 @@ int connect(int sockfd, struct sockaddr *addr, socklen_t addrlen)
     return 0;
 }
 
-static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
-{
-    sock s = z;
-    thunk p;
-    int fd = allocate_sock(s->p, lw);
-    if (fd < 0)
-	return ERR_MEM;
-    // XXX - what if this has been closed in the meantime?
-    sock sn = vector_get(s->p->files, fd);
-    sn->fd = fd;
-    tcp_arg(lw, sn);
-    tcp_recv(lw, input_lower);
-    enqueue(s->incoming, sn);
-
-    if ((p = dequeue(s->waiting))) {
-        apply(p);
-    }  else {
-        if ((p = dequeue(s->notify))) {
-            apply(p);
-        }
-    }
-    return ERR_OK;
-}
-
-static void err_from_lwip(void *z, err_t b)
+static void lwip_conn_err(void *z, err_t b)
 {
     sock s = z;
     switch (b) {
@@ -277,13 +257,38 @@ static void err_from_lwip(void *z, err_t b)
     s->open = false;
 }
 
+static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
+{
+    sock s = z;
+    thunk p;
+    int fd = allocate_sock(s->p, lw);
+    if (fd < 0)
+	return ERR_MEM;
+    // XXX - what if this has been closed in the meantime?
+    sock sn = vector_get(s->p->files, fd);
+    sn->fd = fd;
+    tcp_arg(lw, sn);
+    tcp_recv(lw, input_lower);
+    tcp_err(lw, lwip_conn_err);
+    enqueue(s->incoming, sn);
+
+    if ((p = dequeue(s->waiting))) {
+        apply(p);
+    }  else {
+        if ((p = dequeue(s->notify))) {
+            apply(p);
+        }
+    }
+    return ERR_OK;
+}
+
 int listen(int sockfd, int backlog)
 {
     sock s = resolve_fd(current->p, sockfd);        
     s->lw = tcp_listen_with_backlog(s->lw, backlog);
     tcp_arg(s->lw, s);
     tcp_accept(s->lw, accept_from_lwip);
-    tcp_err(s->lw, err_from_lwip);
+    tcp_err(s->lw, lwip_conn_err);
     return 0;    
 }
 
