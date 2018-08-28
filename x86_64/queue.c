@@ -51,10 +51,11 @@ queue allocate_queue(heap h, u64 size)
     queue q = allocate(h, sizeof(struct queue) + size * sizeof(void *));
     q->length = size; // log
     q->write = q->read = 0;
+    q->h = h;
     return q;
 }
 
-void deallocate_queue(heap h, queue q, u64 size)
+void deallocate_queue(queue q, u64 size)
 {
-    deallocate(h, q, sizeof(struct queue) + size * sizeof(void *));
+    deallocate(q->h, q, sizeof(struct queue) + size * sizeof(void *));
 }
