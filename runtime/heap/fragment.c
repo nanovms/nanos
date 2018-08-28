@@ -18,6 +18,7 @@ u64 frag_alloc(heap h, bytes size)
     }
     u64 result = f->base + f->offset;
     f->offset += len;
+    h->allocated += len;
     return result;
 }
 
@@ -28,6 +29,7 @@ heap allocate_fragmentor(heap meta, heap parent, bytes size)
     f->h.alloc = frag_alloc;
     f->h.dealloc = leak;
     f->h.pagesize = size;
+    f->h.allocated = 0;
     // trigger initial allocation
     f->offset = parent->pagesize;
     f->base = 0;

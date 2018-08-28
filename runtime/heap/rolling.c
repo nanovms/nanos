@@ -35,17 +35,19 @@ static void rolling_advance_page(rolling l, int len)
 static u64 rolling_alloc(heap h, bytes len)
 {
     rolling r = (void *)h;
+    bytes actual = len;
 
     if ((r->offset + len) > r->p->length) {
         if (len > r->parent->pagesize) {
             // cant allocate in the remainder of a multipage allocation, since we cant find the header
-            len = pad(len + sizeof(struct pageheader), r->parent->pagesize) - sizeof(struct pageheader);
+            actual = pad(len + sizeof(struct pageheader), r->parent->pagesize) - sizeof(struct pageheader);
         }
-        rolling_advance_page(r, len);
+        rolling_advance_page(r, actual);
     }
     void *a = (void *)r->p + r->offset;
     r->p->references++;
-    r->offset += len;
+    r->offset += actual;
+    h->allocated += len;
     return(u64_from_pointer(a));
 }
 
@@ -59,6 +61,8 @@ static void rolling_free(heap h, u64 x, u64 length)
     if (!--p->references) {
         deallocate(r->parent, p, h->pagesize);
     }
+    assert(h->allocated >= length);
+    h->allocated -= length;
 }
 
 static void rolling_destroy(heap h)
@@ -80,6 +84,7 @@ heap allocate_rolling_heap(heap p, u64 align)
     l->h.dealloc = rolling_free;
     l->h.pagesize = align; 
     l->h.destroy = rolling_destroy;
+    l->h.allocated = 0;
     l->p = (void *)l;
     l->parent = p;
     l->offset = sizeof(struct rolling);

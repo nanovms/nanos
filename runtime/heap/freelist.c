@@ -13,6 +13,9 @@ static void freelist_deallocate(heap h, u64 x, bytes size)
     *(void **)pointer_from_u64(x) = f->free;
     f->free = pointer_from_u64(x);
     //    rprintf("freelist deallocate %p\n", x);
+    size = MAX(size, sizeof(void *));
+    assert(h->allocated >= size);
+    h->allocated -= size;
 }
 
 static u64 freelist_allocate(heap h, bytes size)
@@ -25,12 +28,15 @@ static u64 freelist_allocate(heap h, bytes size)
         print_u64(f->size);
         console(" ");
         print_u64(u64_from_pointer(__builtin_return_address(0)));        
-        console("\n");        
+        console("\n");
+	return INVALID_PHYSICAL;
     }
-    
+
+    size = MAX(size, sizeof(void *));
+    h->allocated += size;
     if (!f->free) {
         //        console("freelist spill\n");
-        return allocate_u64(f->parent, MAX(size, sizeof(void *)));
+        return allocate_u64(f->parent, size);
     }
     //    console("freelist cached\n");
     void *result = f->free;
@@ -45,6 +51,7 @@ heap wrap_freelist(heap meta, heap parent, bytes size)
     f->h.dealloc = freelist_deallocate;
     f->parent = parent;
     f->h.pagesize = size; // not necessarily a power of two
+    f->h.allocated = 0;
     f->free = 0;
     f->size = size;
     return ((heap)f);
