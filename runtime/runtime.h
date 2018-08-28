@@ -112,11 +112,11 @@ void debug(buffer);
 #include <format.h>
 
 #define msg_err(fmt, ...) rprintf("%s error: " fmt, __func__, \
-				  ##__VA_ARGS__);
+				  ##__VA_ARGS__)
 
 #ifdef ENABLE_MSG_DEBUG
 #define msg_debug(fmt, ...) rprintf("%s debug: " fmt, __func__, \
-				    ##__VA_ARGS__);
+				    ##__VA_ARGS__)
 #else
 #define msg_debug(fmt, ...)
 #endif
