@@ -31,6 +31,7 @@ static u64 id_alloc(heap h, bytes count)
     msg_debug("heap %p, size %d: got offset (%d << %d = %P)\t>%P\n",
 	      h, alloc_bits, bit, page_order(i), offset, b->base + offset);
 #endif
+    h->allocated += 1 << order;
     return i->base + offset;
 }
 
@@ -54,6 +55,8 @@ static void id_dealloc(heap h, u64 a, bytes count)
     if (!bitmap_dealloc(i->b, bit, order)) {
 	msg_err("heap %p, offset %P, count %d: bitmap dealloc failed; leaking\n");
     }
+    assert(h->allocated >= 1 << order);
+    h->allocated -= 1 << order;
 }
 
 static void id_destroy(heap h)
@@ -74,6 +77,7 @@ heap create_id_heap(heap h, u64 base, u64 length, u64 pagesize)
     i->h.dealloc = id_dealloc;
     i->h.pagesize = pagesize;
     i->h.destroy = id_destroy;
+    i->h.allocated = 0;
     i->base = base;
 
     u64 bits = length >> page_order(i);
