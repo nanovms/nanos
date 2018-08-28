@@ -87,7 +87,11 @@ boolean objcache_test(heap meta, heap parent, int objsize)
     /* and return them */
     if (!dealloc_vec(h, objsize, objs))
 	return false;
-    
+
+    if (h->allocated > 0) {
+	msg_err("allocated (%d) should be 0; fail\n", h->allocated);
+	return false;
+    }
     h->destroy(h);
     return true;
 }
