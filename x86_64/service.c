@@ -155,7 +155,7 @@ void init_service_new_stack(heap pages, heap physical, heap backed, heap virtual
     tuple root = allocate_tuple();
     initialize_timers(misc);
     init_pci(misc);
-    init_virtio_storage(misc, backed, pages, virtual, closure(misc, attach_storage, misc, virtual, root));
+    init_virtio_storage(misc, backed, pages, closure(misc, attach_storage, misc, virtual, root));
     init_virtio_network(misc, backed, pages);
     init_clock(backed);
     miscframe = allocate(misc, FRAME_MAX * sizeof(u64));
