@@ -4,6 +4,21 @@
 
 #define AF_INET 10
 
+enum protocol_type {
+  UNDEFINED   = 0x00,
+  TCP         = 0x10,
+  UDP         = 0x20,
+  RAW         = 0x40
+};
+
+enum socket_state {
+  SOCK_UNDEFINED,
+  SOCK_CREATED,
+  SOCK_IN_CONNECTION,
+  SOCK_OPEN,
+  SOCK_CLOSE
+};
+
 struct sockaddr_in {
     u16 family;
     u16 port;
@@ -26,13 +41,14 @@ typedef struct sock {
     struct file f;
     int fd;
     process p;
+    thread t;//The thread which initiate syscall
     heap h;
     struct tcp_pcb *lw;
     queue incoming;
     queue notify;
     queue waiting; // service waiting before notify, do we really need 2 queues here?
     // the notion is that 'waiters' should take priority    
-    boolean open; // half open?
+    enum socket_state state; // half open?
 } *sock;
 
 static void wakeup(sock s)
@@ -49,6 +65,19 @@ static void wakeup(sock s)
         }
     }
 
+}
+
+static inline void error_message(sock s, err_t err) {
+    switch (err) {
+        case ERR_ABRT:
+            msg_err("connection closed on fd %d due to tcp_abort or timer\n", s->fd);
+            break;
+        case ERR_RST:
+            msg_err("connection closed on fd %d due to remote reset\n", s->fd);
+            break;
+        default:
+            msg_err("fd %d: unknown error %d\n", s->fd, err);
+    }
 }
 
 static void local_sockaddr_in(struct tcp_pcb *p, struct sockaddr_in *sin)
@@ -131,14 +160,14 @@ static CLOSURE_1_3(socket_write, int, sock, void *, u64, u64);
 static int socket_write(sock s, void *source, u64 length, u64 offset)
 {
     err_t err;
-    if (!s->open) 		/* XXX maybe defer to lwip for connect state */
-	return -EPIPE;
+    if (SOCK_OPEN != s->state) 		/* XXX maybe defer to lwip for connect state */
+        return -EPIPE;
     err = tcp_write(s->lw, source, length, TCP_WRITE_FLAG_COPY);
     if (err != ERR_OK)
-	return lwip_to_errno(err);
+        return lwip_to_errno(err);
     err = tcp_output(s->lw);
     if (err != ERR_OK)
-	return lwip_to_errno(err);
+      return lwip_to_errno(err);
     return length;
 }
 
@@ -149,7 +178,7 @@ static void socket_check(sock s, thunk t_in, thunk t_hup)
     if (queue_length(s->incoming)) {
         apply(t_in);
     } else {
-	if (s->open) {
+  if (SOCK_OPEN == s->state) {
 	    enqueue(s->notify, t_in);
 	} else {
 	    apply(t_hup);
@@ -195,8 +224,9 @@ static int allocate_sock(process p, struct tcp_pcb *pcb)
     s->h = h;
     s->lw = pcb;
     s->fd = fd;
+    s->t = NULL;
     // defer to lwip here?
-    s->open = true;
+    s->state = SOCK_CREATED;
     s->incoming = allocate_queue(h, SOCK_QUEUE_LEN);
     return fd;
 }
@@ -218,7 +248,7 @@ static err_t input_lower (void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t er
     if (p) {
         enqueue(s->incoming, p);
     } else {
-        s->open = false;
+        s->state = CLOSED;
     }
     wakeup(s);
     return ERR_OK;
@@ -232,29 +262,93 @@ int bind(int sockfd, struct sockaddr *addr, socklen_t addrlen)
     // 0 success
     // xxx - extract address and port
     //
-    return lwip_to_errno(tcp_bind(s->lw, IP_ANY_TYPE, ntohs(sin->port)));
-}
-
-int connect(int sockfd, struct sockaddr *addr, socklen_t addrlen)
-{
-    sock s = resolve_fd(current->p, sockfd);    
-    return 0;
-}
-
-static void lwip_conn_err(void *z, err_t b)
-{
-    sock s = z;
-    switch (b) {
-    case ERR_ABRT:
-	msg_err("connection closed on fd %d due to tcp_abort or timer\n", s->fd);
-	break;
-    case ERR_RST:
-	msg_err("connection closed on fd %d due to remote reset\n", s->fd);
-	break;
-    default:
-	msg_err("fd %d: unknown error %d\n", s->fd, b);
+    err_t err = tcp_bind(s->lw, IP_ANY_TYPE, ntohs(sin->port));
+    if(ERR_OK == err){
+      s->state = SOCK_OPEN;
     }
-    s->open = false;
+    return lwip_to_errno(err);
+}
+
+void error_handler_tcp(void* arg, err_t b) {
+    sock s = (sock)(arg);
+    if(!s)
+      return;
+    error_message(s, b);
+    if(ERR_OK != b)
+      s->state = SOCK_UNDEFINED;
+    if(!s->t)
+      return;
+    thread th = s->t;
+    s->t = NULL;
+    set_syscall_return(th, lwip_to_errno(b));
+    thread_wakeup(th);
+}
+
+static err_t connect_complete(void* arg, struct tcp_pcb* tpcb, err_t err) {
+    if (ERR_OK == err) {
+        sock s = (sock)(arg);
+        s->state = SOCK_OPEN;
+    }
+    error_handler_tcp(arg, err);
+}
+
+static int connect_tcp(sock socket, const ip_addr_t* address, unsigned short port) {
+    socket->t = current;
+    tcp_arg(socket->lw, socket);
+    tcp_err(socket->lw, error_handler_tcp);
+    socket->state = SOCK_IN_CONNECTION;
+    int err = tcp_connect(socket->lw, address, port, connect_complete);
+
+    if (ERR_OK != err) {
+        return err;
+    }
+
+    thread_sleep(socket->t);
+
+    return ERR_OK;
+}
+
+int connect(int sockfd, struct sockaddr* addr, socklen_t addrlen) {
+    int err = ERR_OK;
+    sock s = resolve_fd(current->p, sockfd);
+    struct sockaddr_in* sin = (struct sockaddr_in*)addr;
+    if (!s) {
+        return -EINVAL;
+    }
+
+    if (SOCK_IN_CONNECTION == s->state)
+    {
+        return lwip_to_errno(ERR_ALREADY);
+    } else if (SOCK_OPEN == s->state)
+    {
+        return lwip_to_errno(ERR_ISCONN);
+    }
+
+    if(ERR_OK == err){
+      enum protocol_type type = TCP;
+      switch (type) {
+          case UDP: {
+              // TODO: Uncomment when UDP socket support will have been added
+              // err = udp_connect(s->lw, (const ip_addr_t*)&sin->address, sin->port);
+          } break;
+          case RAW: {
+              // TODO: Uncomment when raw socket support will have been added
+              // err = raw_connect(s->lw, (const ip_addr_t*)&sin->address );
+          } break;
+          case TCP: {
+              err = connect_tcp(s, (const ip_addr_t*)&sin->address, sin->port);
+          } break;
+          default:
+              return -EINVAL;
+      }
+    }
+    return lwip_to_errno(err);
+}
+
+static void lwip_conn_err(void* z, err_t b) {
+    sock s = z;
+    error_message(s, b);
+    s->state = UNDEFINED;
 }
 
 static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
@@ -266,6 +360,7 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
 	return ERR_MEM;
     // XXX - what if this has been closed in the meantime?
     sock sn = vector_get(s->p->files, fd);
+    sn->state = SOCK_OPEN;
     sn->fd = fd;
     tcp_arg(lw, sn);
     tcp_recv(lw, input_lower);
