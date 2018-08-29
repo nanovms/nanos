@@ -53,8 +53,11 @@ void finished(status s)
     exit(0);
 }
 
-void main(int argc, char **argv)
+int main(int argc, char **argv)
 {
+    if(argc < 2) {
+      return 1;
+    }
     heap h = init_process_runtime();
     descriptor e = epoll_create(1);
     buffer target = wrap_buffer(h, argv[1], runtime_strlen(argv[1]));
@@ -62,5 +65,6 @@ void main(int argc, char **argv)
     // merge reference here
     connection(h, e, target, closure(h, conn, h, e, target, m));
     epoll_spin(e);
+    return 0;
 }
 

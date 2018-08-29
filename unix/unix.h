@@ -1,3 +1,4 @@
+#pragma once
 typedef struct kernel *kernel;
 typedef struct process *process;
 typedef struct thread *thread;

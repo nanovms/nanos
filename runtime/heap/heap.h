@@ -1,4 +1,4 @@
-
+#pragma once
 // should consider a drain function
 typedef struct heap {
     u64 (*alloc)(struct heap *h, bytes b);
