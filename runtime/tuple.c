@@ -1,6 +1,7 @@
 #include <runtime.h>
 
 static heap theap;
+static heap thheap;
 
 // use runtime tags directly?
 #define type_tuple 1
@@ -25,6 +26,18 @@ static inline void srecord(table dictionary, void *x)
 tuple allocate_tuple()
 {
     return tag(allocate_table(theap, key_from_symbol, pointer_equal), tag_tuple);
+}
+
+tuple_handler allocate_tuple_handler(bytes size,
+                                     void (*get)(void *, symbol, value_handler),
+                                     void (*set)(void *, symbol, value, status_handler),
+                                     void iterate(void *, iterate_each r))
+{
+    tuple_handler t = allocate(thheap, size);
+    t->get = get;
+    t->set = set;
+    t->iterate = iterate;
+    return tag(t, tag_tuple_handler);
 }
 
 // header: immediate(1)
@@ -187,8 +200,8 @@ void encode_tuple(buffer dest, table dictionary, tuple t)
     }        
 }
 
-void init_tuples(heap h)
+void init_tuples(heap h, heap th)
 {
     theap = h;
+    thheap = th;
 }
-

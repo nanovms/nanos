@@ -138,7 +138,7 @@ typedef void *value;
 #define tag_symbol (1ull)
 #define tag_tuple (2ull)
 #define tag_string (3ull)
-#define tag_buffer_promise (4ull) //?
+#define tag_tuple_handler (4ull) 
 
 #include <symbol.h>
 
@@ -150,6 +150,9 @@ typedef closure_type(buffer_handler, void, buffer);
 typedef closure_type(thunk, void);
 typedef closure_type(block_write, void, buffer, u64, status_handler);
 typedef closure_type(block_read, void, void *, u64, u64, status_handler);
+typedef closure_type(value_handler, void, value);
+
+extern void halt(char *format, ...);
 
 #include <pqueue.h>
 #include <timer.h>
@@ -157,8 +160,6 @@ typedef closure_type(block_read, void, void *, u64, u64, status_handler);
 
 // break out platform - move into the implicit include
 #include <x86_64.h>
-
-extern void halt(char *format, ...);
 
 // make into no-op for production
 #ifdef NO_ASSERT
@@ -186,7 +187,6 @@ typedef struct signature {
 
 void init_runtime(heap h);
 heap allocate_tagged_region(heap h, u64 tag);
-typedef closure_type(buffer_promise, void, buffer_handler);
 
 extern thunk ignore;
 extern status_handler ignore_status;
@@ -205,4 +205,7 @@ extern heap transient;
 #include <list.h>
 typedef closure_type(merge, status_handler);
 merge allocate_merge(heap h, status_handler completion);
+
+
+
 

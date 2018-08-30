@@ -51,7 +51,7 @@ void init_runtime(heap h)
     // environment specific
     transient = h;
     register_format('p', format_pointer);
-    init_tuples(allocate_tagged_region(h, tag_tuple));
+    init_tuples(allocate_tagged_region(h, tag_tuple), allocate_tagged_region(h, tag_tuple_handler));
     init_symbols(allocate_tagged_region(h, tag_symbol), h);
     ignore = closure(h, ignore_body);
     ignore_status = (void*)ignore;
