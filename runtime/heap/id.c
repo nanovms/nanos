@@ -1,12 +1,19 @@
 #include <runtime.h>
 
+typedef struct id_range {
+    u64 base;
+    u64 length;
+    bitmap b;
+} *id_range;
+
 typedef struct id_heap {
     struct heap h;
-    u64 base;
-    bitmap b;
+    heap meta;
+    vector ranges;
 } *id_heap;
 
 #define page_order(i) msb(i->h.pagesize)
+#define page_mask(i) (i->h.pagesize - 1)
 
 static inline int find_order(id_heap i, bytes alloc_size)
 {
@@ -22,17 +29,23 @@ static u64 id_alloc(heap h, bytes count)
 	return INVALID_PHYSICAL;
 
     int order = find_order(i, count);
-    u64 bit = bitmap_alloc(i->b, order);
-    if (bit == INVALID_PHYSICAL)
-	return bit;
 
-    u64 offset = (u64)bit << page_order(i);
+    id_range r;
+    vector_foreach(i->ranges, r) {
+	u64 bit = bitmap_alloc(r->b, order);
+	if (bit == INVALID_PHYSICAL)
+	    continue;
+
+	u64 offset = (u64)bit << page_order(i);
 #ifdef ID_HEAP_DEBUG
-    msg_debug("heap %p, size %d: got offset (%d << %d = %P)\t>%P\n",
-	      h, alloc_bits, bit, page_order(i), offset, b->base + offset);
+	msg_debug("heap %p, size %d: got offset (%d << %d = %P)\t>%P\n",
+		  h, alloc_bits, bit, page_order(i), offset, b->base + offset);
 #endif
-    h->allocated += 1 << order;
-    return i->base + offset;
+	h->allocated += 1 << order;
+	return r->base + offset;
+    }
+
+    return INVALID_PHYSICAL;
 }
 
 static void id_dealloc(heap h, u64 a, bytes count)
@@ -42,28 +55,41 @@ static void id_dealloc(heap h, u64 a, bytes count)
     if (count == 0)
 	return;
 
-    u64 offset = a - i->base;
-    u64 pagemask = h->pagesize - 1;
-    if (((offset & pagemask) | (count & pagemask))) {
-	msg_err("heap %p, offset %P, count %d: not aligned to pagesize; leaking\n");
+    id_range r;
+    char * s;
+    int order = find_order(i, count);
+
+    vector_foreach(i->ranges, r) {
+	if (a < r->base || (a + count) > r->base + r->length)
+	    continue;
+	u64 offset = a - r->base;
+	int bit = offset >> page_order(i);
+	if ((offset & page_mask(i)) != 0) {
+	    s = "allocation not aligned to pagesize";
+	    goto fail;
+	}
+	if (!bitmap_dealloc(r->b, bit, order)) {
+	    s = "bitmap dealloc failed";
+	    goto fail;
+	}
+	assert(h->allocated >= 1 << order);
+	h->allocated -= 1 << order;
 	return;
     }
-
-    int order = find_order(i, count);
-    int bit = offset >> page_order(i);
-
-    if (!bitmap_dealloc(i->b, bit, order)) {
-	msg_err("heap %p, offset %P, count %d: bitmap dealloc failed; leaking\n");
-    }
-    assert(h->allocated >= 1 << order);
-    h->allocated -= 1 << order;
+    s = "allocation doesn't match any range";
+  fail:
+    msg_err("heap %p, offset %P, count %d: %s; leaking\n", h, a, count, s);
 }
 
 static void id_destroy(heap h)
 {
     id_heap i = (id_heap)h;
-    if (i->b)
-	deallocate_bitmap(i->b);
+    id_range r;
+    vector_foreach(i->ranges, r) {
+	deallocate_bitmap(r->b);
+    }
+    deallocate_vector(i->ranges);
+    deallocate(i->meta, i, sizeof(struct id_heap));
 }
 
 heap create_id_heap(heap h, u64 base, u64 length, u64 pagesize)
@@ -73,21 +99,30 @@ heap create_id_heap(heap h, u64 base, u64 length, u64 pagesize)
     assert((length & (pagesize-1)) == 0); /* multiple of pagesize */
 
     id_heap i = allocate(h, sizeof(struct id_heap));
+    if (i == INVALID_ADDRESS)
+	goto fail;
     i->h.alloc = id_alloc;
     i->h.dealloc = id_dealloc;
     i->h.pagesize = pagesize;
     i->h.destroy = id_destroy;
     i->h.allocated = 0;
-    i->base = base;
+    i->meta = h;
+    i->ranges = allocate_vector(h, 1);
+
+    id_range r = allocate(h, sizeof(struct id_range));
+    if (r == INVALID_ADDRESS)
+	goto fail;
+    r->base = base;
+    r->length = length;
+    vector_set(i->ranges, 0, r);
 
     u64 bits = length >> page_order(i);
-    i->b = allocate_bitmap(h, bits);
-    if (i->b == INVALID_ADDRESS) {
-	/* use console() because this gets invoked in early startup */
-	console("create_id_heap: failed to allocate bitmap of length ");
-	print_u64(bits);
-	console("\n");
-	return INVALID_ADDRESS;
-    }
+    r->b = allocate_bitmap(h, bits);
+    if (r->b == INVALID_ADDRESS)
+	goto fail;
     return((heap)i);
+  fail:
+    /* use console() because this gets invoked in early startup */
+    console("create_id_heap: failed to allocate heap\n");
+    return INVALID_ADDRESS;
 }
