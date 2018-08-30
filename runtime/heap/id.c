@@ -12,12 +12,13 @@ typedef struct id_heap {
     vector ranges;
 } *id_heap;
 
-#define page_order(i) msb(i->h.pagesize)
-#define page_mask(i) (i->h.pagesize - 1)
+#define page_size(i) (i->h.pagesize)
+#define page_order(i) msb(page_size(i))
+#define page_mask(i) (page_size(i) - 1)
 
 static inline int find_order(id_heap i, bytes alloc_size)
 {
-    int order = pad(alloc_size, i->h.pagesize) >> page_order(i);
+    int order = pad(alloc_size, page_size(i)) >> page_order(i);
     return order > 1 ? msb(order - 1) + 1 : 0;	/* round up to next power of 2 */
 }
 
@@ -92,15 +93,13 @@ static void id_destroy(heap h)
     deallocate(i->meta, i, sizeof(struct id_heap));
 }
 
-heap create_id_heap(heap h, u64 base, u64 length, u64 pagesize)
+static id_heap id_alloc_heap(heap h, u64 pagesize)
 {
     assert((pagesize & (pagesize-1)) == 0); /* pagesize is power of 2 */
-    assert(length >= pagesize);
-    assert((length & (pagesize-1)) == 0); /* multiple of pagesize */
 
     id_heap i = allocate(h, sizeof(struct id_heap));
     if (i == INVALID_ADDRESS)
-	goto fail;
+	return i;
     i->h.alloc = id_alloc;
     i->h.dealloc = id_dealloc;
     i->h.pagesize = pagesize;
@@ -108,21 +107,40 @@ heap create_id_heap(heap h, u64 base, u64 length, u64 pagesize)
     i->h.allocated = 0;
     i->meta = h;
     i->ranges = allocate_vector(h, 1);
+    if (i->ranges == INVALID_ADDRESS) {
+	deallocate(h, i, sizeof(struct id_heap));
+	return INVALID_ADDRESS;
+    }
+    return i;
+}
 
-    id_range r = allocate(h, sizeof(struct id_range));
+static boolean id_add_range(id_heap i, u64 base, u64 length)
+{
+    assert(length >= page_size(i));
+    assert((length & page_mask(i)) == 0); /* multiple of pagesize */
+    id_range r = allocate(i->meta, sizeof(struct id_range));
     if (r == INVALID_ADDRESS)
-	goto fail;
+	return false;
     r->base = base;
     r->length = length;
-    vector_set(i->ranges, 0, r);
-
     u64 bits = length >> page_order(i);
-    r->b = allocate_bitmap(h, bits);
-    if (r->b == INVALID_ADDRESS)
-	goto fail;
+    r->b = allocate_bitmap(i->meta, bits);
+    if (r->b == INVALID_ADDRESS) {
+	deallocate(i->meta, r, sizeof(struct id_range));
+	return false;
+    }
+    vector_push(i->ranges, r);
+    return true;
+}
+
+heap create_id_heap(heap h, u64 base, u64 length, u64 pagesize)
+{
+    id_heap i = id_alloc_heap(h, pagesize);
+    if (i == INVALID_ADDRESS)
+	return INVALID_ADDRESS;
+    if (!id_add_range(i, base, length)) {
+	id_destroy((heap)i);
+	return INVALID_ADDRESS;
+    }
     return((heap)i);
-  fail:
-    /* use console() because this gets invoked in early startup */
-    console("create_id_heap: failed to allocate heap\n");
-    return INVALID_ADDRESS;
 }
