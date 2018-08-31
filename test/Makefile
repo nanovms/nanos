@@ -5,7 +5,7 @@ ROOT=$(PWD)/..
 
 CC=cc
 CFLAGS=-g -std=gnu99
-#CFLAGS+=-DENABLE_MSG_DEBUG
+#CFLAGS+=-DENABLE_MSG_DEBUG -DID_HEAP_DEBUG
 
 include $(ROOT)/unix_process/Makefile
 INCLUDES += -I.
