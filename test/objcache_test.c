@@ -125,7 +125,7 @@ int main(int argc, char **argv)
 
     /* make a parent heap for pages */
     heap m = allocate_mmapheap(h, mmapsize, pagesize);
-    heap pageheap = allocate_fragmentor(h, m, pagesize);
+    heap pageheap = create_id_heap_backed(h, m, pagesize);
 
     /* XXX test a range of sizes */
     if (!objcache_test(h, pageheap, 32))

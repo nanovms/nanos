@@ -230,8 +230,7 @@ void init_service()
     init_physical_id_heap(physical_memory);
 
     heap virtual = create_id_heap(&bootstrap, HUGE_PAGESIZE, (1ull<<VIRTUAL_ADDRESS_BITS)- HUGE_PAGESIZE, HUGE_PAGESIZE);
-    heap virtual_pagesized = allocate_fragmentor(&bootstrap, virtual, PAGESIZE);
-
+    heap virtual_pagesized = create_id_heap_backed(&bootstrap, virtual, PAGESIZE);
     heap backed = physically_backed(&bootstrap, virtual_pagesized, physical_memory, pages);
 
     u64 stack_size = 32*PAGESIZE;

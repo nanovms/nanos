@@ -172,7 +172,6 @@ int queue_length(queue q);
 queue allocate_queue(heap h, u64 size);
 void deallocate_queue(queue q, u64 size);
 void runloop();
-heap allocate_fragmentor(heap meta, heap parent, bytes size);
 void map(u64 virtual, physical p, int length, heap h);
 
 // xxx - hide
