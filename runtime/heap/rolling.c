@@ -59,7 +59,10 @@ static void rolling_free(heap h, u64 x, u64 length)
     pageheader p = pointer_from_u64(x&(~(r->parent->pagesize-1)));
 
     if (!--p->references) {
-        deallocate(r->parent, p, h->pagesize);
+#if 0
+	/* XXX - something is b0rked at the moment */
+        deallocate(r->parent, p, r->parent->pagesize);
+#endif
     }
     assert(h->allocated >= length);
     h->allocated -= length;
