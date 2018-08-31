@@ -27,14 +27,16 @@ heap allocate_tagged_region(heap h, u64 tag)
                              physical_memory, pages);    
 }
 
-
-static u8 bootstrap_region[32768];
+#define BOOTSTRAP_REGION_SIZE_KB	2048
+static u8 bootstrap_region[BOOTSTRAP_REGION_SIZE_KB << 10];
 static u64 bootstrap_base = (unsigned long long)bootstrap_region;
 static u64 bootstrap_alloc(heap h, bytes length)
 {
     u64 result = bootstrap_base;
-    if ((result + length) >=  (u64_from_pointer(bootstrap_region) + sizeof(bootstrap_region)))
+    if ((result + length) >=  (u64_from_pointer(bootstrap_region) + sizeof(bootstrap_region))) {
+	console("*** bootstrap heap overflow! ***\n");
         return INVALID_PHYSICAL;
+    }
     bootstrap_base += length;
     return result;
 }
@@ -131,6 +133,7 @@ static void read_kernel_syms(heap h, heap virtual, heap pages)
 		    kern_base, kern_length, v);
 #endif
 	    add_elf_syms(h, alloca_wrap_buffer(v, kern_length));
+	    break;
 	}
     
     if (kern_base == INVALID_PHYSICAL) {
@@ -155,7 +158,7 @@ void init_service_new_stack(heap pages, heap physical, heap backed, heap virtual
     tuple root = allocate_tuple();
     initialize_timers(misc);
     init_pci(misc);
-    init_virtio_storage(misc, backed, pages, virtual, closure(misc, attach_storage, misc, virtual, root));
+    init_virtio_storage(misc, backed, pages, closure(misc, attach_storage, misc, virtual, root));
     init_virtio_network(misc, backed, pages);
     init_clock(backed);
     miscframe = allocate(misc, FRAME_MAX * sizeof(u64));
@@ -165,6 +168,55 @@ void init_service_new_stack(heap pages, heap physical, heap backed, heap virtual
     configure_timer(milliseconds(50), ignore);
 }
 
+static void init_pages_id_heap(heap h)
+{
+    for_regions(e) {
+	if (region_type(e) == REGION_IDENTITY) {
+	    u64 base = region_base(e);
+	    u64 length = region_length(e);
+	    if ((base & (PAGESIZE-1)) | (length & (PAGESIZE-1))) {
+		console("identity region unaligned!\nbase: ");
+		print_u64(base);
+		console(", length: ");
+		print_u64(length);
+		halt("\nhalt");
+	    }
+	    console("pages heap: ");
+	    print_u64(base);
+	    console(", length ");
+	    print_u64(length);
+	    console("\n");
+	    if (!id_heap_add_range(h, base, length))
+		halt("    - id_heap_add_range failed\n");
+	}
+    }
+}
+
+static void init_physical_id_heap(heap h)
+{
+    console("physical memory:\n");
+    for_regions(e) {
+	if (region_type(e) == REGION_PHYSICAL) {
+	    /* Align for 2M pages */
+	    u64 base = region_base(e);
+	    u64 end = base + region_length(e) - 1;
+	    u64 page2m_mask = (2 << 20) - 1;
+	    base = (base + page2m_mask) & ~page2m_mask;
+	    end &= ~page2m_mask;
+	    if (base >= end)
+		continue;
+	    u64 length = end - base;
+	    console("   base ");
+	    print_u64(base);
+	    console(", length ");
+	    print_u64(length);
+	    console("\n");
+	    if (!id_heap_add_range(h, base, length))
+		halt("    - id_heap_add_range failed\n");
+	}
+    }
+}
+
 // init linker set
 void init_service()
 {
@@ -172,12 +224,13 @@ void init_service()
 
     bootstrap.alloc = bootstrap_alloc;
     bootstrap.dealloc = leak;
-    pages = region_allocator(&bootstrap, PAGESIZE, REGION_IDENTITY);
-    physical_memory = region_allocator(&bootstrap, PAGESIZE, REGION_PHYSICAL);    
+    pages = allocate_id_heap(&bootstrap, PAGESIZE);
+    init_pages_id_heap(pages);
+    physical_memory = allocate_id_heap(&bootstrap, PAGESIZE);
+    init_physical_id_heap(physical_memory);
 
     heap virtual = create_id_heap(&bootstrap, HUGE_PAGESIZE, (1ull<<VIRTUAL_ADDRESS_BITS)- HUGE_PAGESIZE, HUGE_PAGESIZE);
-    heap virtual_pagesized = allocate_fragmentor(&bootstrap, virtual, PAGESIZE);
-
+    heap virtual_pagesized = create_id_heap_backed(&bootstrap, virtual, PAGESIZE);
     heap backed = physically_backed(&bootstrap, virtual_pagesized, physical_memory, pages);
 
     u64 stack_size = 32*PAGESIZE;

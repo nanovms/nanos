@@ -29,6 +29,11 @@ static inline vector allocate_vector(heap h, int length)
     return allocate_buffer(h, length * sizeof (void *));
 }
 
+static inline void deallocate_vector(vector v)
+{
+    deallocate_buffer((buffer)v);
+}
+
 static void vector_push(vector v, void *i)
 {
     buffer_extend(v, sizeof(void *));

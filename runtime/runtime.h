@@ -71,10 +71,6 @@ extern heap transient;
 
 #include <buffer.h>
 
-heap wrap_freelist(heap meta, heap parent, bytes size);
-
-heap allocate_objcache(heap meta, heap parent, bytes objsize);
-
 typedef u64 physical;
 
 physical vtop(void *x);
@@ -112,11 +108,11 @@ void debug(buffer);
 #include <format.h>
 
 #define msg_err(fmt, ...) rprintf("%s error: " fmt, __func__, \
-				  ##__VA_ARGS__);
+				  ##__VA_ARGS__)
 
 #ifdef ENABLE_MSG_DEBUG
 #define msg_debug(fmt, ...) rprintf("%s debug: " fmt, __func__, \
-				    ##__VA_ARGS__);
+				    ##__VA_ARGS__)
 #else
 #define msg_debug(fmt, ...)
 #endif
@@ -203,6 +199,8 @@ extern status_handler ignore_status;
 extern heap transient;
 
 #include <list.h>
+#include <bitmap.h>
+
 typedef closure_type(merge, status_handler);
 merge allocate_merge(heap h, status_handler completion);
 

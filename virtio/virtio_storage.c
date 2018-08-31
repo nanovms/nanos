@@ -76,8 +76,8 @@ static void storage_read(storage st, void *target, u64 length, u64 offset, statu
     virtqueue_enqueue(st->command, address, lengths, writables, index, s);
 }
 
-static CLOSURE_5_3(attach, void, heap, storage_attach, heap, heap, heap, int, int, int);
-static void attach(heap general, storage_attach a, heap page_allocator, heap pages, heap virtual, int bus, int slot, int function)
+static CLOSURE_4_3(attach, void, heap, storage_attach, heap, heap, int, int, int);
+static void attach(heap general, storage_attach a, heap page_allocator, heap pages, int bus, int slot, int function)
 {
 
     storage s = allocate(general, sizeof(struct storage));
@@ -96,9 +96,8 @@ static void attach(heap general, storage_attach a, heap page_allocator, heap pag
     apply(a, in, out, s->capacity);
 }
 
-void init_virtio_storage(heap h, heap page_allocator, heap pages, heap virtual,
-                         storage_attach a)
+void init_virtio_storage(heap h, heap page_allocator, heap pages, storage_attach a)
 {
     register_pci_driver(VIRTIO_PCI_VENDORID, VIRTIO_PCI_DEVICEID_STORAGE,
-                        closure(h, attach, h, a, page_allocator, pages, virtual));
+                        closure(h, attach, h, a, page_allocator, pages));
 }
