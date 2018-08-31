@@ -111,10 +111,10 @@ u64 mmapheap_alloc(heap h, bytes size)
 heap allocate_mmapheap(heap meta, bytes size, bytes alignment)
 {
     heap h = allocate(meta, sizeof(struct heap));
-    
     h->alloc = mmapheap_alloc;
     h->dealloc = leak;
     h->pagesize = size;
+    return h;
 }
 
 int main(int argc, char **argv)
