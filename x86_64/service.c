@@ -131,6 +131,7 @@ static void read_kernel_syms(heap h, heap virtual, heap pages)
 		    kern_base, kern_length, v);
 #endif
 	    add_elf_syms(h, alloca_wrap_buffer(v, kern_length));
+	    break;
 	}
     
     if (kern_base == INVALID_PHYSICAL) {
