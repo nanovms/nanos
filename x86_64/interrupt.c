@@ -170,14 +170,21 @@ void print_stack(context c)
 void print_frame(context f)
 {
     u64 v = f[FRAME_VECTOR];
-    //        console(interrupt_name(v));
+    console(interrupt_name(v));
+    console("\n");
     console("interrupt: ");
-    print_u64_with_sym(v);
+    print_u64(v);
     console("\n");
     console("frame: ");
     print_u64_with_sym(u64_from_pointer(f));
     console("\n");    
-    
+
+    if (v == 13 || v == 14) {
+	console("error code: ");
+	print_u64(f[FRAME_ERROR_CODE]);
+	console("\n");
+    }
+
     // page fault
     if (v == 14)  {
         u64 fault_address;
