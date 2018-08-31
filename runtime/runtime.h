@@ -71,10 +71,6 @@ extern heap transient;
 
 #include <buffer.h>
 
-heap wrap_freelist(heap meta, heap parent, bytes size);
-
-heap allocate_objcache(heap meta, heap parent, bytes objsize);
-
 typedef u64 physical;
 
 physical vtop(void *x);

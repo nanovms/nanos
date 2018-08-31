@@ -14,7 +14,10 @@ heap debug_heap(heap m, heap p);
 heap allocate_rolling_heap(heap h, u64 align);
 heap create_id_heap(heap h, u64 base, u64 length, u64 pagesize);
 heap create_id_heap_backed(heap h, heap parent, u64 pagesize);
+heap allocate_id_heap(heap h, u64 pagesize); /* id heap with no ranges */
 boolean id_heap_add_range(heap h, u64 base, u64 length);
+heap wrap_freelist(heap meta, heap parent, bytes size);
+heap allocate_objcache(heap meta, heap parent, bytes objsize);
 
 // really internals
 

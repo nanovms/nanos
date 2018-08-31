@@ -136,13 +136,13 @@ static void id_destroy(heap h)
     deallocate(i->meta, i, sizeof(struct id_heap));
 }
 
-static id_heap id_alloc_heap(heap h, u64 pagesize)
+heap allocate_id_heap(heap h, u64 pagesize)
 {
     assert((pagesize & (pagesize-1)) == 0); /* pagesize is power of 2 */
 
     id_heap i = allocate(h, sizeof(struct id_heap));
     if (i == INVALID_ADDRESS)
-	return i;
+	return INVALID_ADDRESS;
     i->h.alloc = id_alloc;
     i->h.dealloc = id_dealloc;
     i->h.pagesize = pagesize;
@@ -155,7 +155,7 @@ static id_heap id_alloc_heap(heap h, u64 pagesize)
 	deallocate(h, i, sizeof(struct id_heap));
 	return INVALID_ADDRESS;
     }
-    return i;
+    return (heap)i;
 }
 
 /* external version */
@@ -166,7 +166,7 @@ boolean id_heap_add_range(heap h, u64 base, u64 length)
 
 heap create_id_heap(heap h, u64 base, u64 length, u64 pagesize)
 {
-    id_heap i = id_alloc_heap(h, pagesize);
+    id_heap i = (id_heap)allocate_id_heap(h, pagesize);
     if (i == INVALID_ADDRESS)
 	return INVALID_ADDRESS;
 
@@ -183,7 +183,7 @@ heap create_id_heap(heap h, u64 base, u64 length, u64 pagesize)
 
 heap create_id_heap_backed(heap h, heap parent, u64 pagesize)
 {
-    id_heap i = id_alloc_heap(h, pagesize);
+    id_heap i = (id_heap)allocate_id_heap(h, pagesize);
     if (i == INVALID_ADDRESS)
 	return INVALID_ADDRESS;
     i->parent = parent;
