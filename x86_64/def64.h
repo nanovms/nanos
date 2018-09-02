@@ -1,4 +1,3 @@
-#include <predef.h>
 
 typedef unsigned char u8;
 typedef char s8;

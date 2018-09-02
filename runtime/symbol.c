@@ -1,4 +1,5 @@
 #include <runtime.h>
+
 static table symbols;
 static heap sheap;
 static heap iheap;
