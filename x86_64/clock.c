@@ -56,6 +56,6 @@ void init_clock(heap backed_virtual)
     write_msr(MSR_KVM_SYSTEM_TIME, physical_from_virtual(vclock)| 1);
     if (0 == vclock->system_time)
     {
-        console("FATAL ERROR:system clock is inaccessible\n");
+        halt("FATAL ERROR:system clock is inaccessible\n");
     }
 }
