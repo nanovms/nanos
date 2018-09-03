@@ -4,20 +4,6 @@
 
 #define AF_INET 10
 
-enum protocol_type {
- SOCK_STREAM  = 1,		/* stream (connection) socket	*/
- SOCK_DGRAM   = 2,		/* datagram (conn.less) socket	*/
- SOCK_RAW     = 3     /* raw socket			*/
-};
-
-enum socket_state {
-  SOCK_UNDEFINED,
-  SOCK_CREATED,
-  SOCK_IN_CONNECTION,
-  SOCK_OPEN,
-  SOCK_CLOSE
-};
-
 struct sockaddr_in {
     u16 family;
     u16 port;
@@ -38,26 +24,25 @@ typedef closure_type(pcb_handler, void, struct tcp_pcb *);
 
 typedef struct sock {
     struct file f;
-    int fd;
     process p;
-    thread t;//The thread which initiate syscall
     heap h;
     struct tcp_pcb *lw;
     queue incoming;
     queue notify;
     queue waiting; // service waiting before notify, do we really need 2 queues here?
     // the notion is that 'waiters' should take priority    
+    int fd;
     enum socket_state state; // half open?
 } *sock;
 
 static void wakeup(sock s)
 {
     thunk n;
-
+    status_handler fstatus;
     // return status if not handled so someone else can try?
     // shouldnt a close event wake up everyone?
-    if ((n = dequeue(s->waiting))) {
-        apply(n);
+    if ((fstatus = dequeue(s->waiting))) {
+        apply(fstatus, NULL);
     }  else {
         if ((n = dequeue(s->notify))) {
             apply(n);
@@ -223,7 +208,6 @@ static int allocate_sock(process p, struct tcp_pcb *pcb)
     s->h = h;
     s->lw = pcb;
     s->fd = fd;
-    s->t = NULL;
     // defer to lwip here?
     s->state = SOCK_CREATED;
     s->incoming = allocate_queue(h, SOCK_QUEUE_LEN);
@@ -247,7 +231,7 @@ static err_t input_lower (void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t er
     if (p) {
         enqueue(s->incoming, p);
     } else {
-        s->state = CLOSED;
+        s->state = SOCK_CLOSED;
     }
     wakeup(s);
     return ERR_OK;
@@ -268,32 +252,42 @@ int bind(int sockfd, struct sockaddr *addr, socklen_t addrlen)
     return lwip_to_errno(err);
 }
 
-void error_handler_tcp(void* arg, err_t b)
+void error_handler_tcp(void* arg, err_t err)
 {
     sock s = (sock)(arg);
+    status_handler sp = NULL;
     if(!s)
       return;
-    error_message(s, b);
-    if(ERR_OK != b)
+    error_message(s, err);
+    if(ERR_OK != err)
       s->state = SOCK_UNDEFINED;
-    if(!s->t)
-      return;
-    thread th = s->t;
-    s->t = NULL;
-    set_syscall_return(th, lwip_to_errno(b));
-    thread_wakeup(th);
+    if ((sp = dequeue(s->waiting))) {
+        u64 code =  lwip_to_errno(err);
+        apply(sp, (status)&code);
+    }
 }
 
-static err_t connect_complete(void* arg, struct tcp_pcb* tpcb, err_t err) {
-    if (ERR_OK == err) {
-        sock s = (sock)(arg);
-        s->state = SOCK_OPEN;
-    }
-    error_handler_tcp(arg, err);
+static CLOSURE_1_1(set_complited_state,void,thread,u64*);
+static void set_complited_state( thread th, u64 *code)
+{
+  set_syscall_return(th, *code);
+  thread_wakeup(th);
+}
+
+static err_t connect_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
+{
+   status_handler sp = NULL;
+   sock s = (sock)(arg);
+   s->state = SOCK_OPEN;
+   if ((sp = dequeue(s->waiting))) {
+        u64 code =  lwip_to_errno(err);
+        apply(sp, (status)&code);
+   }
 }
 
 static int connect_tcp(sock socket, const ip_addr_t* address, unsigned short port) {
-    socket->t = current;
+
+    enqueue(socket->waiting, closure(socket->h, set_complited_state, current));
     tcp_arg(socket->lw, socket);
     tcp_err(socket->lw, error_handler_tcp);
     socket->state = SOCK_IN_CONNECTION;
@@ -302,9 +296,7 @@ static int connect_tcp(sock socket, const ip_addr_t* address, unsigned short por
     if (ERR_OK != err) {
         return err;
     }
-
-    thread_sleep(socket->t);
-
+    thread_sleep(current);
     return ERR_OK;
 }
 
@@ -355,6 +347,7 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
 {
     sock s = z;
     thunk p;
+    status_handler sp;
     int fd = allocate_sock(s->p, lw);
     if (fd < 0)
 	return ERR_MEM;
@@ -367,8 +360,9 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
     tcp_err(lw, lwip_conn_err);
     enqueue(s->incoming, sn);
 
-    if ((p = dequeue(s->waiting))) {
-        apply(p);
+    if ((sp = dequeue(s->waiting))) {
+        u64 errCode = lwip_to_errno(b);
+        apply(sp,(status)&errCode);
     }  else {
         if ((p = dequeue(s->notify))) {
             apply(p);
@@ -387,8 +381,8 @@ int listen(int sockfd, int backlog)
     return 0;    
 }
 
-static CLOSURE_4_0(accept_finish, void, sock, thread, struct sockaddr *, socklen_t *);
-static void accept_finish(sock s, thread target, struct sockaddr *addr, socklen_t *addrlen)
+static CLOSURE_4_1(accept_finish, void, sock, thread, struct sockaddr *, socklen_t *, u64);
+static void accept_finish(sock s, thread target, struct sockaddr *addr, socklen_t *addrlen, u64 status)
 {
     sock sn = dequeue(s->incoming);
     remote_sockaddr_in(sn->lw, (struct sockaddr_in *)addr); 
@@ -404,7 +398,7 @@ int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
     // ok, this is a reasonable interlock to build, the dating app
     // it would be nice if we didn't have to sleep and wakeup for the nonblocking case
     if (queue_length(s->incoming)) {
-        accept_finish(s, current, addr, addrlen);
+        accept_finish(s, current, addr, addrlen, ERR_OK);
     } else {
         enqueue(s->waiting, closure(s->h, accept_finish, s, current, addr, addrlen));
     }
