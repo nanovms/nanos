@@ -1,8 +1,9 @@
+#include <uniboot.h>
 typedef u8 boolean;
 typedef u32 character;
 
-#define true (1)
-#define false (0)
+#define true 1
+#define false 0
 
 typedef u64 bytes;
 typedef u64 time;
