@@ -1,6 +1,6 @@
 #include <runtime.h>
 
-static struct pvclock_vcpu_time_info *vclock;
+static struct pvclock_vcpu_time_info *vclock = 0;
 
 #define CPUID_LEAF_4 0x40000001
 
@@ -51,6 +51,11 @@ void init_clock(heap backed_virtual)
     // xxx - figure out how to deal with cpu id so we can
     // test for the presence of this feature
     vclock = allocate(backed_virtual, backed_virtual->pagesize);
+    zero(vclock,sizeof(struct pvclock_vcpu_time_info));
     // add the enable bit 1
     write_msr(MSR_KVM_SYSTEM_TIME, physical_from_virtual(vclock)| 1);
+    if (0 == vclock->system_time)
+    {
+        halt("FATAL ERROR:system clock is inaccessible\n");
+    }
 }
