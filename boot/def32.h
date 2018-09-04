@@ -1,5 +1,3 @@
-#include <predef.h>
-
 #define BITS32
 typedef unsigned char u8;
 typedef char s8;
