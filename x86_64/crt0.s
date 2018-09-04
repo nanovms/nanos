@@ -96,7 +96,7 @@ interrupt_common:
         mov [rax+FRAME_R14*8], r14
         mov [rax+FRAME_R15*8], r15
         pop rbx            ; eax
-        mov [rax], rbx
+        mov [rax+FRAME_RAX*8], rbx
         pop rbx            ; vector
         mov [rax+FRAME_VECTOR*8], rbx
         
@@ -156,7 +156,8 @@ frame_return:
 
 global_func geterr
 geterr:
-        pop rbx            ; error code - put this in the frame
+        pop rbx
+        mov [rax+FRAME_ERROR_CODE*8], rbx
         jmp getrip
 .end:
 

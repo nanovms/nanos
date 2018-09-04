@@ -96,6 +96,8 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
     writables[index] = false;
     lengths[index] = NET_HEADER_LENGTH;
 
+    pbuf_ref(p);
+
     for (q = p; index++, q != NULL; q = q->next) {
         address[index] = q->payload;
         writables[index] = false;
@@ -241,7 +243,6 @@ static void init_vnet(heap general, heap page_allocator, int bus, int slot, int 
     vtpci dev = attach_vtpci(general, page_allocator, bus, slot, function, VIRTIO_NET_F_MAC);
     vnet vn = allocate(dev->general, sizeof(struct vnet));
     vn->n = allocate(dev->general, sizeof(struct netif));
-    heap lwip_rolling_page_cache = wrap_freelist(general, page_allocator, PAGESIZE);
     lwip_heap = allocate_rolling_heap(page_allocator, 8);
     vn->rxbuflen = 1500;
     vn->rxbuffers = wrap_freelist(dev->general, dev->general, vn->rxbuflen + sizeof(struct xpbuf));
