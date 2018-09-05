@@ -21,7 +21,6 @@ static inline u64 pindex(u64 x, u64 offset)
     return ((x >> offset) & MASK(9));
 }
 
-
 static inline page pt_lookup(page table, u64 t, unsigned int x)
 {
     u64 a = table[pindex(t, x)];
@@ -57,17 +56,46 @@ physical physical_from_virtual(void *x)
 #endif
 
 /* virtual from physical of n required if we move off the identity map for pages */
-static void write_pte(page target, physical to, u64 flags)
+static void write_pte(page target, physical to, u64 flags, boolean * invalidate)
 {
+    u64 new = to | flags;
 #ifdef PAGE_DEBUG
     console(", write_pte: ");
     print_u64(u64_from_pointer(target));
     console(" = ");
-    print_u64(to | flags);
+    print_u64(new);
+#endif
+    if (*target == new) {
+#ifdef PAGE_DEBUG
+	console(", pte same; no op");
+#endif
+	return;
+    }
+    /* invalidate when changing any pte that was marked as present */
+    if (*target & PAGE_PRESENT) {
+#ifdef PAGE_DEBUG
+	console(", invalidate; prev ");
+	print_u64(*target);
+#endif
+	*invalidate = true;
+    }
+    *target = new;
+#ifdef PAGE_DEBUG
     console("\n");
 #endif
-    *target = to | flags;
 }
+
+#ifdef PAGE_DEBUG
+static void print_level(int level)
+{
+    int i;
+    for (i = 0; i < level - 1; i++)
+	serial_out(' ');
+    serial_out('0' + level);
+    for (i = 0; i < 5 - level; i++)
+	serial_out(' ');
+}
+#endif
 
 /* p == 0 && flags == 0 for unmap */
 static boolean force_entry(heap h, page b, u64 v, physical p, int level,
@@ -75,21 +103,20 @@ static boolean force_entry(heap h, page b, u64 v, physical p, int level,
 {
     u32 offset = pindex(v, level_shift[level]);
     page pte = b + offset;
-    boolean present = b[offset] & PAGE_PRESENT;
 
     if (level == (fat ? 3 : 4)) {
-	if (present)
-	    *invalidate = true;
 #ifdef PAGE_DEBUG
-	console(" ! level ");
-	print_u64(level);
+	console("! ");
+	print_level(level);
 	console(", offset ");
 	print_u64(offset);
 #endif
-	write_pte(pte, p, (fat && flags) ? (flags | PAGE_2M_SIZE) : flags);
+	if (fat)
+	    flags |= PAGE_2M_SIZE;
+	write_pte(pte, p, flags, invalidate);
 	return true;
     } else {
-	if (present) {
+	if (*pte & PAGE_PRESENT) {
 	    return force_entry(h, pointer_from_u64(b[offset] & ~PAGEMASK),
 			       v, p, level + 1, fat, flags, invalidate);
 	} else {
@@ -100,14 +127,13 @@ static boolean force_entry(heap h, page b, u64 v, physical p, int level,
 		return false;
 	    if (!force_entry(h, n, v, p, level + 1, fat, flags, invalidate))
 		return false;
-	    *invalidate = true;	/* XXX necessary when adding table entry? */
 #ifdef PAGE_DEBUG
-	    console(" - level ");
-	    print_u64(level);
+	    console("- ");
+	    print_level(level);
 	    console(", offset ");
 	    print_u64(offset);
 #endif
-	    write_pte(pte, u64_from_pointer(n), flags);
+	    write_pte(pte, u64_from_pointer(n), flags, invalidate);
 	    return true;
 	}
     }
