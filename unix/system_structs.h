@@ -224,6 +224,20 @@ struct siginfo {
     // plus big hairy union...we dont plan on delivering any of these at the moment
 };
 
+enum protocol_type {
+ SOCK_STREAM  = 1,    /* stream (connection) socket	*/
+ SOCK_DGRAM   = 2,    /* datagram (conn.less) socket	*/
+ SOCK_RAW     = 3     /* raw socket			*/
+};
+
+enum socket_state {
+  SOCK_UNDEFINED,
+  SOCK_CREATED,
+  SOCK_IN_CONNECTION,
+  SOCK_OPEN,
+  SOCK_CLOSED
+};
+
 #define NSIG 64
 typedef struct {
     unsigned long sig[NSIG/sizeof(unsigned long)];
