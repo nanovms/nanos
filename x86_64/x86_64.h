@@ -1,3 +1,4 @@
+#pragma once
 #define VIRTUAL_ADDRESS_BITS 48
 
 #define FS_MSR 0xc0000100

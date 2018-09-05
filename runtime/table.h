@@ -1,3 +1,4 @@
+#pragma once
 typedef struct table *table;
 
 typedef u64 key;

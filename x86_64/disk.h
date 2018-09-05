@@ -1,3 +1,4 @@
+#pragma once
 #define CMD_READ 0xc4 // 0xc4 0x20 read, 0x24 read ext, 0xc4 multiple
 #define BSY_FLAG 0x80
 

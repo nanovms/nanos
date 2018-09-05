@@ -1,3 +1,4 @@
+#pragma once
 #include <runtime.h>
 #include <syscalls.h>
 #include <system_structs.h>

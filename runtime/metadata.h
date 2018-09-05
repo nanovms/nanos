@@ -1,3 +1,4 @@
+#pragma once
 static vector node_vector(heap h, tuple n)
 {
     vector r = allocate_vector(h, 100); //table_elements(n));
