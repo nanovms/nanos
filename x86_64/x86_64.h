@@ -173,6 +173,7 @@ queue allocate_queue(heap h, u64 size);
 void deallocate_queue(queue q, u64 size);
 void runloop();
 void map(u64 virtual, physical p, int length, heap h);
+void unmap(u64 virtual, int length, heap h);
 
 // xxx - hide
 struct queue {
