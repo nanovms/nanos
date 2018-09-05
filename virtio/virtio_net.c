@@ -124,7 +124,7 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
 static void receive_buffer_release(struct pbuf *p)
 {
     xpbuf x  = (void *)p;
-    deallocate(x->vn->rxbuffers, x, x->vn->rxbuflen);
+    deallocate(x->vn->rxbuffers, x, x->vn->rxbuflen + sizeof(struct xpbuf));
 }
 
 static void post_receive(vnet vn);
@@ -230,11 +230,11 @@ void lwip_deallocate(void *x)
     deallocate(lwip_heap, x, 0);
 }
 
-
 extern void lwip_init();
 
-static CLOSURE_2_3(init_vnet, void, heap, heap, int, int, int);
-static void init_vnet(heap general, heap page_allocator, int bus, int slot, int function)
+static CLOSURE_3_3(init_vnet, void, heap, heap, heap, int, int, int);
+static void init_vnet(heap general, heap page_allocator, heap page_allocator_2M,
+		      int bus, int slot, int function)
 {
     u32 badness = VIRTIO_F_BAD_FEATURE | VIRTIO_NET_F_CSUM | VIRTIO_NET_F_GUEST_CSUM |
         VIRTIO_NET_F_GUEST_TSO4 | VIRTIO_NET_F_GUEST_TSO6 |  VIRTIO_NET_F_GUEST_ECN|
@@ -246,6 +246,8 @@ static void init_vnet(heap general, heap page_allocator, int bus, int slot, int 
     lwip_heap = allocate_rolling_heap(page_allocator, 8);
     vn->rxbuflen = 1500;
     vn->rxbuffers = wrap_freelist(dev->general, dev->general, vn->rxbuflen + sizeof(struct xpbuf));
+    vn->rxbuffers = allocate_objcache(dev->general, page_allocator_2M,
+				      vn->rxbuflen + sizeof(struct xpbuf));
     /* rx = 0, tx = 1, ctl = 2 by 
        page 53 of http://docs.oasis-open.org/virtio/virtio/v1.0/cs01/virtio-v1.0-cs01.pdf */
     vn->dev = dev;
@@ -264,7 +266,8 @@ static void init_vnet(heap general, heap page_allocator, int bus, int slot, int 
 }
 
 
-void init_virtio_network(heap h, heap page_allocator, heap pages)
+void init_virtio_network(heap h, heap page_allocator, heap page_allocator_2M, heap pages)
 {
-    register_pci_driver(VIRTIO_PCI_VENDORID, VIRTIO_PCI_DEVICEID_NETWORK, closure(h, init_vnet, h, page_allocator));
+    register_pci_driver(VIRTIO_PCI_VENDORID, VIRTIO_PCI_DEVICEID_NETWORK,
+			closure(h, init_vnet, h, page_allocator, page_allocator_2M));
 }
