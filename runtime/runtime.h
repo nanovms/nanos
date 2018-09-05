@@ -82,6 +82,8 @@ physical vtop(void *x);
 // used by stage2/stage3, not process
 #define PAGELOG 12
 #define PAGESIZE (1<<PAGELOG)
+#define PAGELOG_2M 21
+#define PAGESIZE_2M (1<<PAGELOG_2M)
 #ifndef physical_from_virtual
 physical physical_from_virtual(void *x);
 #endif

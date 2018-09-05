@@ -24,7 +24,7 @@ heap allocate_tagged_region(heap h, u64 tag)
 {
     return physically_backed(h,
                              create_id_heap(h, tag << va_tag_offset, 1ull<<va_tag_offset, physical_memory->pagesize),
-                             physical_memory, pages);    
+                             physical_memory, pages, physical_memory->pagesize);
 }
 
 #define BOOTSTRAP_REGION_SIZE_KB	2048
@@ -141,7 +141,7 @@ static void read_kernel_syms(heap h, heap virtual, heap pages)
     }
 }
 
-void init_service_new_stack(heap pages, heap physical, heap backed, heap virtual)
+static void init_service_new_stack(heap pages, heap physical, heap backed, heap backed_2M, heap virtual)
 {
     // just to find maintain the convention of faulting on zero references
     unmap(0, PAGESIZE, pages);
@@ -231,12 +231,13 @@ void init_service()
 
     heap virtual = create_id_heap(&bootstrap, HUGE_PAGESIZE, (1ull<<VIRTUAL_ADDRESS_BITS)- HUGE_PAGESIZE, HUGE_PAGESIZE);
     heap virtual_pagesized = create_id_heap_backed(&bootstrap, virtual, PAGESIZE);
-    heap backed = physically_backed(&bootstrap, virtual_pagesized, physical_memory, pages);
+    heap backed = physically_backed(&bootstrap, virtual_pagesized, physical_memory, pages, PAGESIZE);
+    heap backed_2M = physically_backed(&bootstrap, virtual_pagesized, physical_memory, pages, PAGESIZE_2M);
 
     u64 stack_size = 32*PAGESIZE;
     u64 stack_location = allocate_u64(backed, stack_size);
     
     stack_location += stack_size - 16;
     asm ("mov %0, %%rsp": :"m"(stack_location));
-    init_service_new_stack(pages, physical_memory, backed, virtual); 
+    init_service_new_stack(pages, physical_memory, backed, backed_2M, virtual);
 }
