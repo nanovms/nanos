@@ -166,6 +166,18 @@ static void map_range(u64 virtual, physical p, int length, u64 flags, heap h)
     u64 po = p;
     page pb = pagebase();
 
+    if ((virtual & PAGEMASK) || (p & PAGEMASK) || (length & PAGEMASK)) {
+	if (flags == 0)
+	    console("un");
+	console("map() called with unaligned paramters!\n v: ");
+	print_u64(virtual);
+	console(", p: ");
+	print_u64(p);
+	console(", length: ");
+	print_u64(length);
+	halt("\n");
+    }
+
 #ifdef PAGE_DEBUG
     console("map_range v: ");
     print_u64(virtual);
