@@ -159,7 +159,7 @@ static void init_service_new_stack(heap pages, heap physical, heap backed, heap 
     initialize_timers(misc);
     init_pci(misc);
     init_virtio_storage(misc, backed, pages, closure(misc, attach_storage, misc, virtual, root));
-    init_virtio_network(misc, backed, pages);
+    init_virtio_network(misc, backed, backed_2M, pages);
     init_clock(backed);
     miscframe = allocate(misc, FRAME_MAX * sizeof(u64));
     pci_discover(pages, virtual);
