@@ -55,6 +55,9 @@ void finished(status s)
 
 void main(int argc, char **argv)
 {
+    if(argc < 2) {
+      return;
+    }
     heap h = init_process_runtime();
     descriptor e = epoll_create(1);
     buffer target = wrap_buffer(h, argv[1], runtime_strlen(argv[1]));

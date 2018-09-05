@@ -1,3 +1,4 @@
+#pragma once
 #include <io.h>
 #include <disk.h>
 #include <booto.h>

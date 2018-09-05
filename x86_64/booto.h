@@ -1,4 +1,4 @@
-
+#pragma once
 // defined in stage1...pass this through entry stack
 #define ABSOLUTION ((u32 *)0x7de8)
 #define MEMORY_MAX  ((u32 *)0x7df2) 

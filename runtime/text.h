@@ -1,3 +1,4 @@
+#pragma once
 // would like to call this string.h, but unix programs
 // are pretty stubborn, in this case lwip
 

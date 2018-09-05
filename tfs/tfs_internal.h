@@ -1,3 +1,4 @@
+#pragma once
 #include <runtime.h>
 #include <tfs.h>
 

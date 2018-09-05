@@ -1,4 +1,4 @@
-
+#pragma once
 typedef u8 regionbody[20];
 typedef regionbody *region;
 
