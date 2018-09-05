@@ -88,11 +88,6 @@ static void *mmap(void *target, u64 size, int prot, int flags, int fd, u64 offse
         map(where + msize, allocate_u64(physical, bss), bss, pages);
         zero(pointer_from_u64(where+msize), bss);
     }
-    // ok, if we change pages entries we need to flush the tlb...dont need
-    // to do this every time.. there is also a per-page variant
-    u64 x;
-    mov_from_cr("cr3", x);
-    mov_to_cr("cr3", x);    
     return pointer_from_u64(where);
 }
 

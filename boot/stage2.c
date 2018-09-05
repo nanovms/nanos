@@ -58,6 +58,7 @@ void kernel_read_complete(heap physical, heap working, u64 stack, u32 stacklen, 
     map(pmem, pmem, identity_length, pages);
     // going to some trouble to set this up here, but its barely
     // used in stage3
+    stack -= (stacklen - 4);	/* XXX b0rk b0rk b0rk */
     map(stack, stack, (u64)stacklen, pages);
 
     // should drop this in stage3? ... i think we just need
@@ -68,7 +69,7 @@ void kernel_read_complete(heap physical, heap working, u64 stack, u32 stacklen, 
     map(0, 0, 0xa000, pages);
 
     // stash away kernel elf image for use in stage3
-    create_region(u64_from_pointer(buffer_ref(kb, 0)), buffer_length(kb), REGION_KERNIMAGE);
+    create_region(u64_from_pointer(buffer_ref(kb, 0)), pad(buffer_length(kb), PAGESIZE), REGION_KERNIMAGE);
 
     void *k = load_elf(kb, 0, pages, physical);
     if (!k) {
