@@ -144,7 +144,7 @@ static void read_kernel_syms(heap h, heap virtual, heap pages)
 void init_service_new_stack(heap pages, heap physical, heap backed, heap virtual)
 {
     // just to find maintain the convention of faulting on zero references
-    map(0, INVALID_PHYSICAL, PAGESIZE, pages);
+    unmap(0, PAGESIZE, pages);
 
     heap misc = allocate_rolling_heap(backed, 8);
     //    misc = debug_heap(misc, misc); 

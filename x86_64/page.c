@@ -208,16 +208,8 @@ static void map_range(u64 virtual, physical p, int length, u64 flags, heap h)
 
 void map(u64 virtual, physical p, int length, heap h)
 {
-    u64 flags;
-
-    /* Special case for zero page...? see init_service_new_task() */
-    if (virtual == 0 && p == INVALID_PHYSICAL) {
-	p = 0;
-	flags = 0;
-    } else {
-	// really set user?
-        flags = PAGE_WRITABLE | PAGE_PRESENT | PAGE_USER;
-    }
+    // really set user?
+    u64 flags = PAGE_WRITABLE | PAGE_PRESENT | PAGE_USER;
     map_range(virtual, p, length, flags, h);
 }
 
