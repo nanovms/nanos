@@ -1,4 +1,5 @@
 #include <runtime.h>
+#include "hpet.h"
 
 static struct pvclock_vcpu_time_info *vclock = 0;
 
@@ -18,7 +19,7 @@ struct pvclock_vcpu_time_info {
 } __attribute__((__packed__));
 
 
-#define MSR_KVM_WALL_CLOCK 0x4b564d00 
+#define MSR_KVM_WALL_CLOCK 0x4b564d00
 struct pvclock_wall_clock {
     u32   version;
     u32   sec;
@@ -26,8 +27,9 @@ struct pvclock_wall_clock {
 } __attribute__((__packed__));
 
 typedef __uint128_t u128;
+typedef time (*clock_now)(void);
 
-time now()
+time now_kvm()
 {
     u64 r = rdtsc();
     u64 nano = 1000000000ull;
@@ -46,6 +48,27 @@ time now()
     return out;
 }
 
+time now_hpet() {
+  u64 counter = hpet_counter();
+  /*
+INFO:
+      We haven't 128 bit arithmetic. We can't divide 128 bit number.
+      The default type  CLK_PERIOD is femtoseconds but we need nanoseconds.
+      There is potential problem if hpet multiplier less than 1000000 ul.
+      But qemu set it value to 10 000 000. Another problem  may there is rounding.
+      the prefer code will be (u64)((u128)counter*hpet_multiplier())/1000000ul;
+  */
+  u32 multiply = hpet_multiplier()/1000000ul;
+  u64 nsec = (u64)((u128)counter*multiply);
+  return nsec;
+}
+
+static clock_now clock_function = now_kvm;
+
+time now() {
+  return clock_function();
+}
+
 void init_clock(heap backed_virtual)
 {
     // xxx - figure out how to deal with cpu id so we can
@@ -56,6 +79,10 @@ void init_clock(heap backed_virtual)
     write_msr(MSR_KVM_SYSTEM_TIME, physical_from_virtual(vclock)| 1);
     if (0 == vclock->system_time)
     {
-        console("FATAL ERROR:system clock is inaccessible\n");
+        console("INFO: KVM clock is inaccessible\n");
+        if( !init_hpet(backed_virtual)) {
+          halt("ERROR: HPET clock is inaccessible\n");
+        }
+        clock_function = now_hpet;
     }
 }
