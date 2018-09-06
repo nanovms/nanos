@@ -1,8 +1,17 @@
 #include <unix_internal.h>
+#include <net_system_structs.h>
 #include <lwip.h>
 
+enum socket_state {
+  SOCK_UNDEFINED,
+  SOCK_CREATED,
+  SOCK_IN_CONNECTION,
+  SOCK_OPEN,
+  SOCK_CLOSED
+};
 
-#define AF_INET 10
+#define lwip_errno(__s, __e)\
+  errno_from_status(lwip_status(s->p->k->general, err))
 
 struct sockaddr_in {
     u16 family;
@@ -51,19 +60,6 @@ static void wakeup(sock s)
 
 }
 
-static inline void error_message(sock s, err_t err) {
-    switch (err) {
-        case ERR_ABRT:
-            msg_err("connection closed on fd %d due to tcp_abort or timer\n", s->fd);
-            break;
-        case ERR_RST:
-            msg_err("connection closed on fd %d due to remote reset\n", s->fd);
-            break;
-        default:
-            msg_err("fd %d: unknown error %d\n", s->fd, err);
-    }
-}
-
 static void local_sockaddr_in(struct tcp_pcb *p, struct sockaddr_in *sin)
 {
     sin->family = AF_INET;
@@ -78,27 +74,33 @@ static void remote_sockaddr_in(struct tcp_pcb *p, struct sockaddr_in *sin)
     sin->address = ntohl(*(u32 *)&p->remote_ip);
 }
 
-static inline s64 lwip_to_errno(s8 err)
+static inline status lwip_status(heap h, s8 err)
 {
+    u64 unix_errno;
+
+    // xxx - go over these again, its not entirely clear what
+    // the intent is inside lwip
     switch (err) {
-    case ERR_OK: return 0;
-    case ERR_MEM: return -ENOMEM;
-    case ERR_BUF: return -ENOMEM;
-    case ERR_TIMEOUT: return -ENOMEM;
-    case ERR_RTE: return -ENOMEM;
-    case ERR_INPROGRESS: return -EAGAIN;
-    case ERR_VAL: return -EINVAL;
-    case ERR_WOULDBLOCK: return -EAGAIN;
-    case ERR_USE: return -EBUSY;
-    case ERR_ALREADY: return -EBUSY;
-    case ERR_ISCONN: return -EINVAL;
-    case ERR_CONN: return -EINVAL;
-    case ERR_IF: return -EINVAL;
-    case ERR_ABRT: return -EINVAL;
-    case ERR_RST: return -EINVAL;
-    case ERR_CLSD: return -EPIPE;
-    case ERR_ARG: return -EINVAL;
+    case ERR_OK: return STATUS_OK;
+    case ERR_MEM: unix_errno =  ENOMEM; break;
+    case ERR_BUF: unix_errno =  ENOBUFS; break;
+    case ERR_TIMEOUT: unix_errno =  EBUSY; break;
+    case ERR_RTE: unix_errno = EHOSTUNREACH; break;
+    case ERR_INPROGRESS: unix_errno = EAGAIN; break;
+    case ERR_VAL: unix_errno = EINVAL; break;
+    case ERR_WOULDBLOCK: unix_errno = EAGAIN; break;
+    case ERR_USE: unix_errno = EADDRINUSE; break;
+    case ERR_ALREADY: unix_errno = EISCONN; break;
+    case ERR_ISCONN: unix_errno = EISCONN; break;
+    case ERR_CONN: unix_errno = ECONNREFUSED; break;
+    case ERR_IF: unix_errno = EINVAL; break;
+    case ERR_ABRT: unix_errno = EINVAL; break;
+    case ERR_RST: unix_errno = ECONNRESET; break;
+    case ERR_CLSD: unix_errno = EPIPE; break;
+    case ERR_ARG: unix_errno = EINVAL; break;
     }
+    // lwip error string? caller?
+    return timm("lwip_error", value_from_u64(h, err), "errno", value_from_u64(h, unix_errno));
 }
 
 static inline void pbuf_consume(struct pbuf *p, u64 length)
@@ -148,10 +150,10 @@ static int socket_write(sock s, void *source, u64 length, u64 offset)
         return -EPIPE;
     err = tcp_write(s->lw, source, length, TCP_WRITE_FLAG_COPY);
     if (err != ERR_OK)
-        return lwip_to_errno(err);
+        return lwip_errno(s, err);
     err = tcp_output(s->lw);
     if (err != ERR_OK)
-      return lwip_to_errno(err);
+        return lwip_errno(s, err);        
     return length;
 }
 
@@ -249,21 +251,19 @@ int bind(int sockfd, struct sockaddr *addr, socklen_t addrlen)
     if(ERR_OK == err){
       s->state = SOCK_OPEN;
     }
-    return lwip_to_errno(err);
+    return lwip_errno(s, err);
 }
 
 void error_handler_tcp(void* arg, err_t err)
 {
     sock s = (sock)(arg);
     status_handler sp = NULL;
-    if(!s)
-      return;
-    error_message(s, err);
+    // xxx - why would this ever be zero?
+    if(!s) return;
     if(ERR_OK != err)
-      s->state = SOCK_UNDEFINED;
+        s->state = SOCK_UNDEFINED;
     if ((sp = dequeue(s->waiting))) {
-        u64 code =  lwip_to_errno(err);
-        apply(sp, (status)&code);
+        apply(sp, lwip_status(s->p->k->general, err));
     }
 }
 
@@ -279,10 +279,8 @@ static err_t connect_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
    status_handler sp = NULL;
    sock s = (sock)(arg);
    s->state = SOCK_OPEN;
-   if ((sp = dequeue(s->waiting))) {
-        u64 code =  lwip_to_errno(err);
-        apply(sp, (status)&code);
-   }
+   if ((sp = dequeue(s->waiting))) 
+       apply(sp, lwip_status(s->p->k->general, err));
 }
 
 static int connect_tcp(sock socket, const ip_addr_t* address, unsigned short port) {
@@ -310,10 +308,11 @@ int connect(int sockfd, struct sockaddr* addr, socklen_t addrlen) {
 
     if (SOCK_IN_CONNECTION == s->state)
     {
-        return lwip_to_errno(ERR_ALREADY);
+        // which code?
+        return -EISCONN;
     } else if (SOCK_OPEN == s->state)
     {
-        return lwip_to_errno(ERR_ISCONN);
+        return -EISCONN;
     }
 
     if(ERR_OK == err){
@@ -334,12 +333,11 @@ int connect(int sockfd, struct sockaddr* addr, socklen_t addrlen) {
               return -EINVAL;
       }
     }
-    return lwip_to_errno(err);
+    return lwip_errno(s, err);
 }
 
 static void lwip_conn_err(void* z, err_t b) {
     sock s = z;
-    error_message(s, b);
     s->state = SOCK_UNDEFINED;
 }
 
@@ -360,9 +358,10 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
     tcp_err(lw, lwip_conn_err);
     enqueue(s->incoming, sn);
 
+    //  using an empty queue plus notify as the error signal
+    // isnt really the most robust
     if ((sp = dequeue(s->waiting))) {
-        u64 errCode = lwip_to_errno(b);
-        apply(sp,(status)&errCode);
+        apply(sp, lwip_status(s->p->k->general, b));
     }  else {
         if ((p = dequeue(s->notify))) {
             apply(p);
