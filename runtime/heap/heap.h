@@ -18,6 +18,8 @@ heap allocate_id_heap(heap h, u64 pagesize); /* id heap with no ranges */
 boolean id_heap_add_range(heap h, u64 base, u64 length);
 heap wrap_freelist(heap meta, heap parent, bytes size);
 heap allocate_objcache(heap meta, heap parent, bytes objsize);
+boolean objcache_validate(heap h);
+heap objcache_from_object(u64 obj, u64 parent_pagesize);
 
 // really internals
 
