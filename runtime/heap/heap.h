@@ -20,7 +20,7 @@ heap wrap_freelist(heap meta, heap parent, bytes size);
 heap allocate_objcache(heap meta, heap parent, bytes objsize);
 boolean objcache_validate(heap h);
 heap objcache_from_object(u64 obj, u64 parent_pagesize);
-heap allocate_mcache(heap meta, heap parent, bytes * sizes);
+heap allocate_mcache(heap meta, heap parent, int min_order, int max_order);
 
 // really internals
 

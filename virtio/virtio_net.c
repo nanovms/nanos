@@ -239,8 +239,7 @@ static void init_vnet(heap general, heap page_allocator, heap page_allocator_2M,
     vtpci dev = attach_vtpci(general, page_allocator, bus, slot, function, VIRTIO_NET_F_MAC);
     vnet vn = allocate(dev->general, sizeof(struct vnet));
     vn->n = allocate(dev->general, sizeof(struct netif));
-    bytes mcache_sizes[] = {8, 16, 32, 64, 128, 256, 512, 1024, -1};
-    lwip_heap = allocate_mcache(dev->general, page_allocator, mcache_sizes);
+    lwip_heap = allocate_mcache(dev->general, page_allocator, 5, 11);
     vn->rxbuflen = 1500;
     vn->rxbuffers = wrap_freelist(dev->general, dev->general, vn->rxbuflen + sizeof(struct xpbuf));
     vn->rxbuffers = allocate_objcache(dev->general, page_allocator_2M,

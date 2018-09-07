@@ -92,7 +92,7 @@ void destroy_mcache(heap h)
     deallocate(m->meta, m, sizeof(struct mcache));
 }
 
-heap allocate_mcache(heap meta, heap parent, bytes * sizes)
+heap allocate_mcache(heap meta, heap parent, int min_order, int max_order)
 {
     mcache m = allocate(meta, sizeof(struct mcache));
     if (m == INVALID_ADDRESS)
@@ -107,29 +107,28 @@ heap allocate_mcache(heap meta, heap parent, bytes * sizes)
     m->h.alloc = mcache_alloc;
     m->h.dealloc = mcache_dealloc;
     m->h.destroy = destroy_mcache;
-    m->h.pagesize = 0; 		/* XXX not clear what the meaning is here */
+    m->h.pagesize = 1 << min_order; /* default to smallest obj size */
     m->h.allocated = 0;
     m->meta = meta;
     m->parent = parent;
     m->caches = allocate_vector(meta, 1);
 
-    /* XXX sort sizes */
-    for(int i=0; sizes[i] != -1ull; i++) {
-	heap h = allocate_objcache(meta, parent, sizes[i]);
+    for(int i=0, order = min_order; order <= max_order; i++, order++) {
+	u64 obj_size = 1 << order;
+	heap h = allocate_objcache(meta, parent, obj_size);
 #ifdef MCACHE_DEBUG
 	console(" - cache size ");
-	print_u64(sizes[i]);
+	print_u64(obj_size);
 	console(": ");
 	print_u64(u64_from_pointer(h));
 	console("\n");
 #endif
 	if (h == INVALID_ADDRESS) {
-	    msg_err("failed to allocate cache\n");
+	    console("failed to allocate mcache\n");
 	    destroy_mcache((heap)m);
 	    return INVALID_ADDRESS;
 	}
 	vector_set(m->caches, i, h);
     }
-
     return (heap)m;
 }
