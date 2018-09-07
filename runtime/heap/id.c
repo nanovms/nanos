@@ -8,13 +8,14 @@ typedef struct id_range {
 
 typedef struct id_heap {
     struct heap h;
+    u64 page_order;
     heap meta;
     heap parent;
     vector ranges;
 } *id_heap;
 
 #define page_size(i) (i->h.pagesize)
-#define page_order(i) msb(page_size(i))
+#define page_order(i) (i->page_order)
 #define page_mask(i) (page_size(i) - 1)
 
 static inline int find_order(id_heap i, bytes alloc_size)
@@ -25,9 +26,28 @@ static inline int find_order(id_heap i, bytes alloc_size)
 
 static id_range id_add_range(id_heap i, u64 base, u64 length)
 {
+    /* -1 = unlimited; make maximum possible range */
+    if (length == -1ull) {
+	length -= base;
+	/* bitmap will round up to next 64 page boundary, don't wrap */
+	length &= ~((1 << (page_order(i) + 6)) - 1);
+    }
     assert(length >= page_size(i));
     assert((length & page_mask(i)) == 0); /* multiple of pagesize */
-    id_range r = allocate(i->meta, sizeof(struct id_range));
+
+    /* check that this won't overlap with an existing range */
+    id_range r;
+    u64 end = base + length - 1;
+    vector_foreach(i->ranges, r) {
+	u64 r_end = r->base + r->length - 1;
+	if ((base >= r->base && base <= r_end) ||
+	    (end >= r->base && end <= r_end)) {
+	    msg_err("range [%P, %P] overlaps range [%P, %P]; fail\n",
+		    base, end, r->base, r_end);
+	    return INVALID_ADDRESS;
+	}
+    }
+    r = allocate(i->meta, sizeof(struct id_range));
     if (r == INVALID_ADDRESS)
 	return r;
     r->base = base;
@@ -148,6 +168,7 @@ heap allocate_id_heap(heap h, u64 pagesize)
     i->h.pagesize = pagesize;
     i->h.destroy = id_destroy;
     i->h.allocated = 0;
+    i->page_order = msb(pagesize);
     i->meta = h;
     i->parent = 0;
     i->ranges = allocate_vector(h, 1);
