@@ -21,11 +21,14 @@
 #include <runtime.h>
 
 #define FOOTER_MAGIC	(u16)(0xcafe)
+
+typedef struct objcache *objcache;
 typedef struct footer {
     u16 magic;			/* try to detect corruption by overruns */
     u16 free;			/* next free (recycled) object in page */
     u16 head;			/* next uninitialized object in page */
     u16 avail;			/* # of free and uninit. objects in page */
+    objcache cache;		/* objcache to which this page belongs */
     struct list list;		/* full list if avail == 0, free otherwise */
 } *footer;
 
@@ -97,15 +100,30 @@ static footer objcache_addpage(objcache o)
     assert ((p & (page_size(o) - 1)) == 0);
 
     footer f = footer_from_page(o, p);
+    f->magic = FOOTER_MAGIC;
     f->free = invalid_index;
     f->head = 0;
     f->avail = o->objs_per_page;
-    f->magic = FOOTER_MAGIC;
-
+    f->cache = o;
     list_insert_after(&o->free, &f->list);
     o->total_objs += o->objs_per_page;
 
     return f;
+}
+
+static inline boolean validate_page(objcache o, footer f)
+{
+    if (f->magic != FOOTER_MAGIC) {
+	msg_err("objcache %p, footer %p, bad magic! (%P)\n", o, f, f->magic);
+	return false;
+    }
+
+    if (f->cache != o) {
+	msg_err("objcache %p, footer %p, f->cache mismatch (%p)\n", o, f, f->cache);
+	return false;
+    }
+
+    return true;
 }
 
 static void objcache_deallocate(heap h, u64 x, bytes size)
@@ -126,8 +144,9 @@ static void objcache_deallocate(heap h, u64 x, bytes size)
     msg_debug(" -  obj %P, page %p, footer: free %d, head %d, avail %d\n",
 	      x, p, f->free, f->head, f->avail);
 
-    if (f->magic != FOOTER_MAGIC) {
-	halt("heap %p, object %P, size %d: bad magic!\n", h, x, size);
+    if (!validate_page(o, f)) {
+	msg_err("leaking object\n");
+	return;
     }
 
     if (f->avail == 0) {
@@ -168,22 +187,21 @@ static u64 objcache_allocate(heap h, bytes size)
 	f = footer_from_list(next_free);
     } else {
 	msg_debug("empty; calling objcache_addpage()\n", o->free);
-
 	if (!(f = objcache_addpage(o)))
 	    return INVALID_PHYSICAL;
     }
 
-    page p = page_from_footer(o, f);
-    u64 obj;
-	
-    if (f->magic != FOOTER_MAGIC) {
-	msg_err("heap %p, page %P, size %d: bad magic!\n", h, p, size);
+    if (!validate_page(o, f)) {
+	msg_err("alloc failed\n");
 	return INVALID_PHYSICAL;
     }
 
+    page p = page_from_footer(o, f);
+
     msg_debug("allocating from page %P\n", p);
-    
+
     /* first check page's free list */
+    u64 obj;
     if (is_valid_index(f->free)) {
 	msg_debug("f->free %d\n", f->free);
 	obj = obj_from_index(o, p, f->free);
@@ -192,9 +210,7 @@ static u64 objcache_allocate(heap h, bytes size)
 	/* we must have an uninitialized object */
 	assert(is_valid_index(f->head));
 	assert(f->head < o->objs_per_page);
-
 	msg_debug("f->head %d\n", f->head);
-	
 	obj = obj_from_index(o, p, f->head);
 	f->head++;
     }
@@ -205,39 +221,39 @@ static u64 objcache_allocate(heap h, bytes size)
 	list_delete(&f->list);
 	list_insert_before(&o->full, &f->list);
     }
-    
+
     assert(o->alloced_objs <= o->total_objs);
     o->alloced_objs++;
     h->allocated += size;
-    
     msg_debug("returning obj %P\n", obj);
-    
     return obj;
 }
 
 static void objcache_destroy(heap h)
 {
     objcache o = (objcache)h;
-    
+
     /* Check and report if there are unreturned objects, but proceed
        to release pages to parent heap anyway. */
-
     if (o->alloced_objs > 0) {
 	msg_debug("%d objects still allocated in objcache %p; releasing "
 		  "pages anyway\n", o->alloced_objs, o);
     }
 
     footer f;
+    foreach_page_footer(&o->free, f)
+	deallocate_u64(o->parent, page_from_footer(o, f), page_size(o));
+    foreach_page_footer(&o->full, f)
+	deallocate_u64(o->parent, page_from_footer(o, f), page_size(o));
+}
 
-    foreach_page_footer(&o->free, f) {
-	page p = page_from_footer(o, f);
-	deallocate_u64(o->parent, p, page_size(o));
-    }
-    
-    foreach_page_footer(&o->full, f) {
-	page p = page_from_footer(o, f);
-	deallocate_u64(o->parent, p, page_size(o));
-    }
+heap objcache_from_object(u64 obj, u64 parent_pagesize)
+{
+    footer f = pointer_from_u64((obj & ~(parent_pagesize - 1)) +
+				(parent_pagesize - sizeof(struct footer)));
+    if (f->magic != FOOTER_MAGIC)
+	return INVALID_ADDRESS;
+    return (heap)f->cache;
 }
 
 /* Sanity-checks the object cache, returning true if no discrepancies
@@ -262,8 +278,9 @@ boolean objcache_validate(heap h)
     /* check free list */
     foreach_page_footer(&o->free, f) {
 	page p = page_from_footer(o, f);
-	if (f->magic != FOOTER_MAGIC) {
-	    msg_err("page %P has wrong magic\n", p);
+
+	if (!validate_page(o, f)) {
+	    msg_err("page %P on free list failed validate\n", p);
 	    return false;
 	}
 
@@ -320,8 +337,9 @@ boolean objcache_validate(heap h)
     /* check full list */
     foreach_page_footer(&o->full, f) {
 	page p = page_from_footer(o, f);
-	if (f->magic != FOOTER_MAGIC) {
-	    msg_err("page %P has wrong magic\n", p);
+
+	if (!validate_page(o, f)) {
+	    msg_err("page %P on full list failed validate\n", p);
 	    return false;
 	}
 
@@ -425,12 +443,6 @@ heap allocate_objcache(heap meta, heap parent, bytes objsize)
     o->objs_per_page = objs_per_page;
     o->total_objs = 0;
     o->alloced_objs = 0;
-
-    if (!objcache_addpage(o)) {
-	msg_err("failed to add initial page to objcache %p\n", o);
-	deallocate(meta, o, sizeof(struct objcache));
-	return INVALID_ADDRESS;
-    }
 
     return (heap)o;
 }

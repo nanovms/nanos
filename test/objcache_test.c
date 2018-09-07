@@ -8,8 +8,6 @@
 #include <errno.h>
 #include <string.h>
 
-boolean objcache_validate(heap h);
-
 static inline boolean validate(heap h)
 {
     if (!objcache_validate(h)) {
@@ -17,6 +15,16 @@ static inline boolean validate(heap h)
 	return false;
     }
 
+    return true;
+}
+
+static inline boolean validate_obj(heap h, void * obj)
+{
+    heap o = objcache_from_object(u64_from_pointer(obj), PAGESIZE);
+    if (o != h) {
+	msg_err("objcache_from_object returned %p, doesn't match heap %p\n", o, h);
+	return false;
+    }
     return true;
 }
 
@@ -31,6 +39,8 @@ static boolean alloc_vec(heap h, int n, int s, vector v)
 	    msg_err("tb: failed to allocate object\n");
 	    return false;
 	}
+	if (!validate_obj(h, p))
+	    return false;
 	
 	vector_set(v, i, p);
     }
@@ -48,7 +58,10 @@ static boolean dealloc_vec(heap h, int s, vector v)
 	
 	if (!validate(h))
 	    return false;
-	
+
+	if (!validate_obj(h, p))
+	    return false;
+
 	deallocate(h, p, s);
     }
 
