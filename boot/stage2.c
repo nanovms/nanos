@@ -11,6 +11,13 @@ extern void run64(u32 entry);
 // so 27kB
 u64 working = 0x1000;
 
+thunk storage_poll;
+
+void allocate_msi(int slot, int msi_slot, thunk t)
+{
+    storage_poll = t;
+}
+
 static CLOSURE_2_3(offset_block_write, void, block_write, u64, buffer, u64, status_handler);
 static void offset_block_write(block_write w, u64 start, buffer b, u64 offset, status_handler h)
 {
@@ -130,6 +137,7 @@ void attach_storage(heap h, heap physical, filesystem_complete fc, block_read r,
     tuple root = allocate_tuple();
     u64 fs_offset = 0;
 
+    rprintf("attach!\n");
     // with filesystem...should be hidden as functional handlers on the tuplespace
     create_filesystem(h,
                       512, // from the device please
@@ -138,15 +146,20 @@ void attach_storage(heap h, heap physical, filesystem_complete fc, block_read r,
                       closure(h, offset_block_write, w, fs_offset),
                       root,
                       fc);
-    while(1);
+    while(1) apply(storage_poll);
 }
 
 void newstack(heap h, heap physical, u64 stack, u32 stacklength)
 {
     buffer_handler bh = closure(h, kernel_read_complete, physical, h, stack, stacklength);
     filesystem_complete fc;
+    console("ew!\n");
+    rprintf("ew!\n");    
     init_pci(h);
     init_virtio_storage(h, h, physical, closure(h, attach_storage, h, physical, fc));
+    // heaps need to do something, this is just for mapping the msi area
+    rprintf("discover!\n");
+    pci_discover(0, 0);    
     while(1);
 }
 
@@ -156,6 +169,8 @@ struct heap workings;
 // consider passing region area as argument to disperse magic
 void centry()
 {
+    console("centry\n");
+    
     workings.alloc = stage2_allocator;
     init_runtime(&workings);
     void *x = allocate(&workings, 10);
