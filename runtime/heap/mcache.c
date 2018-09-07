@@ -123,14 +123,13 @@ heap allocate_mcache(heap meta, heap parent, bytes * sizes)
 	print_u64(u64_from_pointer(h));
 	console("\n");
 #endif
-	if (h == INVALID_ADDRESS)
-	    goto alloc_fail;
+	if (h == INVALID_ADDRESS) {
+	    msg_err("failed to allocate cache\n");
+	    destroy_mcache((heap)m);
+	    return INVALID_ADDRESS;
+	}
 	vector_set(m->caches, i, h);
     }
 
     return (heap)m;
-  alloc_fail:
-    msg_err("failed to allocate caches\n");
-    destroy_mcache((heap)m);
-    return INVALID_ADDRESS;
 }
