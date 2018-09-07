@@ -51,11 +51,17 @@ struct HPETMemoryMap {
     u64 reserved4;
 } __attribute__((__packed__));
 
-static struct HPETMemoryMap* hpet = 0;
+static volatile struct HPETMemoryMap* hpet;
 
-boolean init_hpet(heap backed_virtual) {
-    // Is it correct?
-    map((u64)hpet, HPET_TABLE_ADDRESS, backed_virtual->pagesize, backed_virtual);
+boolean init_hpet(heap virtual_pagesized, heap pages) {
+    u64 hpet_page = allocate_u64(virtual_pagesized, PAGESIZE);
+    if (hpet_page == INVALID_ADDRESS) {
+	console("ERROR: Can't allocate page to map HPET registers\n");
+	return false;
+    }
+
+    map(hpet_page, HPET_TABLE_ADDRESS, PAGESIZE, pages);
+    hpet = (struct HPETMemoryMap*)hpet_page;
 
     if (HPET_MAXIMUM_INCREMENT_PERIOD < hpet->capabilities.counterClkPeriod || !hpet->capabilities.counterClkPeriod) {
         console("ERROR: Can't initialize HPET\n");
