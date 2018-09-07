@@ -280,7 +280,7 @@ boolean objcache_validate(heap h)
 	page p = page_from_footer(o, f);
 
 	if (!validate_page(o, f)) {
-	    msg_err("validate_page failed\n");
+	    msg_err("page %P on free list failed validate\n", p);
 	    return false;
 	}
 
@@ -339,7 +339,7 @@ boolean objcache_validate(heap h)
 	page p = page_from_footer(o, f);
 
 	if (!validate_page(o, f)) {
-	    msg_err("validate_page failed\n");
+	    msg_err("page %P on full list failed validate\n", p);
 	    return false;
 	}
 
