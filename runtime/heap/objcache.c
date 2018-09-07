@@ -444,11 +444,5 @@ heap allocate_objcache(heap meta, heap parent, bytes objsize)
     o->total_objs = 0;
     o->alloced_objs = 0;
 
-    if (!objcache_addpage(o)) {
-	msg_err("failed to add initial page to objcache %p\n", o);
-	deallocate(meta, o, sizeof(struct objcache));
-	return INVALID_ADDRESS;
-    }
-
     return (heap)o;
 }
