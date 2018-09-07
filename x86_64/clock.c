@@ -69,7 +69,7 @@ time now() {
   return clock_function();
 }
 
-void init_clock(heap backed_virtual)
+void init_clock(heap backed_virtual, heap virtual_pagesized, heap pages)
 {
     // xxx - figure out how to deal with cpu id so we can
     // test for the presence of this feature
@@ -80,7 +80,7 @@ void init_clock(heap backed_virtual)
     if (0 == vclock->system_time)
     {
         console("INFO: KVM clock is inaccessible\n");
-        if( !init_hpet(backed_virtual)) {
+        if( !init_hpet(virtual_pagesized, pages)) {
           halt("ERROR: HPET clock is inaccessible\n");
         }
         clock_function = now_hpet;

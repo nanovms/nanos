@@ -158,7 +158,7 @@ init_service_new_stack()
     init_runtime(misc);
     init_symtab(misc);
     read_kernel_syms(misc, virtual, pages);
-    init_clock(backed);    
+    init_clock(backed, virtual_pagesized, pages);    
     init_net(misc, backed);
     tuple root = allocate_tuple();
     initialize_timers(misc);
