@@ -165,7 +165,7 @@ void pci_discover(heap pages, heap virtual)
                     len = pad(len, PAGESIZE);
                     // ?? this is per device, so why is it global? - pass to probe?
                     msi_map[i] = allocate(virtual, len);
-                    map((u64)msi_map[i], vector_base, len, pages);
+                    map(u64_from_pointer(msi_map[i]), vector_base, len, pages);
                     // qemu gets really* mad if you do this a 16 bit write
                     pci_cfgwrite(0, i, 0, cp+3, 1, 0x80);
                     break;

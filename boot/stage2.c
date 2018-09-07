@@ -1,13 +1,28 @@
 #include <runtime.h>
 #include <tfs.h>
 #include <kvm_platform.h>
+#include <pci.h>
+#include <virtio.h>
 
 extern void run64(u32 entry);
 
 //we think this is above the stack we're currently running on, and
 // that it runs right up to the boot block load address at 0x7c00,
 // so 27kB
-u64 working = 0x1000; 
+u64 working = 0x1000;
+
+static CLOSURE_2_3(offset_block_write, void, block_write, u64, buffer, u64, status_handler);
+static void offset_block_write(block_write w, u64 start, buffer b, u64 offset, status_handler h)
+{
+    apply(w, b, start + offset, h);
+}
+
+static CLOSURE_2_4(offset_block_read, void, block_read, u64, void *, u64, u64, status_handler);
+static void offset_block_read(block_read r, u64 start, void *dest, u64 length, u64 offset, status_handler h)
+{
+    apply(r, dest, length, start + offset, h);
+}
+
 
 
 // xxx - should have a general wrapper/analysis thingly
@@ -17,19 +32,6 @@ static u64 stage2_allocator(heap h, bytes b)
     u64 result = working;
     working += pad(b, 4);
     return result;
-}
-
-static CLOSURE_1_4(stage2_read_disk, void, u64, void *, u64, u64, status_handler);
-static void stage2_read_disk(u64 base, void *dest, u64 length, u64 offset, status_handler completion)
-{
-    u32 k, z;
-    read_sectors(dest, base+offset, length);
-    apply(completion, STATUS_OK);
-}
-
-static CLOSURE_0_3(stage2_empty_write, void, buffer, u64, status_handler);
-static void stage2_empty_write(buffer b, u64 offset, status_handler completion)
-{
 }
 
 CLOSURE_0_1(fail, void, status);
@@ -121,22 +123,31 @@ static void filesystem_initialized(heap h, heap physical, tuple root, buffer_han
                            closure(h, fail));
 }
 
-                            
+
+CLOSURE_3_3(attach_storage, void, heap, heap, filesystem_complete, block_read, block_write, u64);
+void attach_storage(heap h, heap physical, filesystem_complete fc, block_read r, block_write w, u64 length)
+{
+    tuple root = allocate_tuple();
+    u64 fs_offset = 0;
+
+    // with filesystem...should be hidden as functional handlers on the tuplespace
+    create_filesystem(h,
+                      512, // from the device please
+                      length,
+                      closure(h, offset_block_read, r, fs_offset),
+                      closure(h, offset_block_write, w, fs_offset),
+                      root,
+                      fc);
+    while(1);
+}
+
 void newstack(heap h, heap physical, u64 stack, u32 stacklength)
 {
-    u32 fsb = filesystem_base();
-    tuple root = allocate_tuple();
     buffer_handler bh = closure(h, kernel_read_complete, physical, h, stack, stacklength);
-    console("create fs\n");
-    create_filesystem(h,
-                      512,
-                      2*1024*1024, // fix,
-                      closure(h, stage2_read_disk, fsb),
-                      closure(h, stage2_empty_write),
-                      root,
-                      closure(h, filesystem_initialized, h, physical, root, bh));
-    
-    halt("kernel failed to execute\n");
+    filesystem_complete fc;
+    init_pci(h);
+    init_virtio_storage(h, h, physical, closure(h, attach_storage, h, physical, fc));
+    while(1);
 }
 
 

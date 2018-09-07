@@ -5,6 +5,7 @@ ROOT ?= $(PWD)/..
 include $(ROOT)/x86_64/Makefile
 include $(ROOT)/runtime/Makefile
 include $(ROOT)/tfs/Makefile
+include $(ROOT)/virtio/Makefile
 
 CC = cc
 
@@ -24,7 +25,7 @@ boot: stage1 stage2.pad
 
 # move out to runtime
 SRUNTIME = table.o buffer.o format.o id.o symbol.o rolling.o tuple.o random.o rtrie.o runtime_init.o extra_prints.o debug_heap.o bitmap.o
-OBJ = service32.o stage2.o serial.o page.o elf.o kvm_platform.o merge.o $(TFS) $(SRUNTIME)
+OBJ = service32.o stage2.o serial.o page.o elf.o kvm_platform.o merge.o $(TFS) $(SRUNTIME) $(VIRTIO) pci.o
 
 LD = ld
 OD = objdump
