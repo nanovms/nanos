@@ -29,7 +29,7 @@ void startup(heap pages,
 {
     // copied from service.c - how much should we pass?
     heap virtual_pagesized = create_id_heap_backed(general, virtual, PAGESIZE);
-    heap backed = physically_backed(general, virtual_pagesized, physical, pages);
+    heap backed = physically_backed(general, virtual_pagesized, physical, pages, PAGESIZE);
     
     kernel k = init_unix(general, pages, physical, virtual, virtual_pagesized, backed, root, fs);
     if (k == INVALID_ADDRESS) {

@@ -124,7 +124,7 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
 static void receive_buffer_release(struct pbuf *p)
 {
     xpbuf x  = (void *)p;
-    deallocate(x->vn->rxbuffers, x, x->vn->rxbuflen);
+    deallocate(x->vn->rxbuffers, x, x->vn->rxbuflen + sizeof(struct xpbuf));
 }
 
 static void post_receive(vnet vn);
@@ -217,24 +217,20 @@ static heap lwip_heap;
 
 void *lwip_allocate(u64 size)
 {
-    ///xxxxxxx 
-    return allocate_zero(lwip_heap, size+4);
+    return allocate_zero(lwip_heap, size);
 }
 
-// this doesn't have the size, do we have to prepend it? put it in the
-// ignore bits?
 void lwip_deallocate(void *x)
 {
-    // well, sadly, we know that rolling doesn't care about the size - except
-    // potentially for multipage allocations
-    deallocate(lwip_heap, x, 0);
+    /* no size info; mcache won't care */
+    deallocate(lwip_heap, x, -1ull);
 }
-
 
 extern void lwip_init();
 
-static CLOSURE_2_3(init_vnet, void, heap, heap, int, int, int);
-static void init_vnet(heap general, heap page_allocator, int bus, int slot, int function)
+static CLOSURE_3_3(init_vnet, void, heap, heap, heap, int, int, int);
+static void init_vnet(heap general, heap page_allocator, heap page_allocator_2M,
+		      int bus, int slot, int function)
 {
     u32 badness = VIRTIO_F_BAD_FEATURE | VIRTIO_NET_F_CSUM | VIRTIO_NET_F_GUEST_CSUM |
         VIRTIO_NET_F_GUEST_TSO4 | VIRTIO_NET_F_GUEST_TSO6 |  VIRTIO_NET_F_GUEST_ECN|
@@ -243,9 +239,11 @@ static void init_vnet(heap general, heap page_allocator, int bus, int slot, int 
     vtpci dev = attach_vtpci(general, page_allocator, bus, slot, function, VIRTIO_NET_F_MAC);
     vnet vn = allocate(dev->general, sizeof(struct vnet));
     vn->n = allocate(dev->general, sizeof(struct netif));
-    lwip_heap = allocate_rolling_heap(page_allocator, 8);
+    lwip_heap = allocate_mcache(dev->general, page_allocator, 5, 11);
     vn->rxbuflen = 1500;
     vn->rxbuffers = wrap_freelist(dev->general, dev->general, vn->rxbuflen + sizeof(struct xpbuf));
+    vn->rxbuffers = allocate_objcache(dev->general, page_allocator_2M,
+				      vn->rxbuflen + sizeof(struct xpbuf));
     /* rx = 0, tx = 1, ctl = 2 by 
        page 53 of http://docs.oasis-open.org/virtio/virtio/v1.0/cs01/virtio-v1.0-cs01.pdf */
     vn->dev = dev;
@@ -264,7 +262,8 @@ static void init_vnet(heap general, heap page_allocator, int bus, int slot, int 
 }
 
 
-void init_virtio_network(heap h, heap page_allocator, heap pages)
+void init_virtio_network(heap h, heap page_allocator, heap page_allocator_2M, heap pages)
 {
-    register_pci_driver(VIRTIO_PCI_VENDORID, VIRTIO_PCI_DEVICEID_NETWORK, closure(h, init_vnet, h, page_allocator));
+    register_pci_driver(VIRTIO_PCI_VENDORID, VIRTIO_PCI_DEVICEID_NETWORK,
+			closure(h, init_vnet, h, page_allocator, page_allocator_2M));
 }

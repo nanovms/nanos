@@ -152,7 +152,7 @@ static inline u64 read_flags()
 typedef struct queue *queue;
 extern queue runqueue;
 
-heap physically_backed(heap meta, heap virtual, heap physical, heap pages);
+heap physically_backed(heap meta, heap virtual, heap physical, heap pages, u64 pagesize);
 void print_stack(context c);
 void print_frame(context f);
 #include <synth.h>
@@ -174,6 +174,7 @@ queue allocate_queue(heap h, u64 size);
 void deallocate_queue(queue q, u64 size);
 void runloop();
 void map(u64 virtual, physical p, int length, heap h);
+void unmap(u64 virtual, int length, heap h);
 
 // xxx - hide
 struct queue {

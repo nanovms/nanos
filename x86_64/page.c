@@ -1,5 +1,7 @@
 #include <runtime.h>
 
+//#define PAGE_DEBUG
+
 #define PAGEMASK MASK(PAGELOG)
 #define PAGE_2M_SIZE (1<<7)
 #define PAGE_PRESENT (1<<0)
@@ -12,11 +14,12 @@ typedef u64 *page;
 #define PT3 21
 #define PT4 12
 
+static const int level_shift[5] = { -1, PT1, PT2, PT3, PT4 };
+
 static inline u64 pindex(u64 x, u64 offset)
 {
     return ((x >> offset) & MASK(9));
 }
-
 
 static inline page pt_lookup(page table, u64 t, unsigned int x)
 {
@@ -52,55 +55,99 @@ physical physical_from_virtual(void *x)
 }
 #endif
 
-static void write_pte(page target, physical to, boolean fat)
+/* virtual from physical of n required if we move off the identity map for pages */
+static void write_pte(page target, physical to, u64 flags, boolean * invalidate)
 {
-    // really set user?
-    if (to == INVALID_PHYSICAL)
-        *target = 0;
-    else 
-        *target = to | PAGE_WRITABLE | PAGE_PRESENT | PAGE_USER | (fat?PAGE_2M_SIZE:0);
+    u64 new = to | flags;
+#ifdef PAGE_DEBUG
+    console(", write_pte: ");
+    print_u64(u64_from_pointer(target));
+    console(" = ");
+    print_u64(new);
+#endif
+    if (*target == new) {
+#ifdef PAGE_DEBUG
+	console(", pte same; no op");
+#endif
+	return;
+    }
+    /* invalidate when changing any pte that was marked as present */
+    if (*target & PAGE_PRESENT) {
+#ifdef PAGE_DEBUG
+	console(", invalidate; prev ");
+	print_u64(*target);
+#endif
+	*invalidate = true;
+    }
+    *target = new;
+#ifdef PAGE_DEBUG
+    console("\n");
+#endif
 }
 
-static page force_entry(page b, u32 offset, heap h)
+#ifdef PAGE_DEBUG
+static void print_level(int level)
 {
-    if (b[offset] &1) {
-        return pointer_from_u64(b[offset] & ~PAGEMASK);
+    int i;
+    for (i = 0; i < level - 1; i++)
+	serial_out(' ');
+    serial_out('0' + level);
+    for (i = 0; i < 5 - level; i++)
+	serial_out(' ');
+}
+#endif
+
+/* p == 0 && flags == 0 for unmap */
+static boolean force_entry(heap h, page b, u64 v, physical p, int level,
+			   boolean fat, u64 flags, boolean * invalidate)
+{
+    u32 offset = pindex(v, level_shift[level]);
+    page pte = b + offset;
+
+    if (level == (fat ? 3 : 4)) {
+#ifdef PAGE_DEBUG
+	console("! ");
+	print_level(level);
+	console(", offset ");
+	print_u64(offset);
+#endif
+	if (fat)
+	    flags |= PAGE_2M_SIZE;
+	write_pte(pte, p, flags, invalidate);
+	return true;
     } else {
-        page n = allocate_zero(h, PAGESIZE);
-        if (n == pointer_from_u64(INVALID_PHYSICAL))
-            console("ran out of page memory\n");
-        // virtual from physical of n required if we
-        // move off the identity map for pages
-        write_pte(b + offset, u64_from_pointer(n), false);
-        return n;
+	if (*pte & PAGE_PRESENT) {
+	    return force_entry(h, pointer_from_u64(b[offset] & ~PAGEMASK),
+			       v, p, level + 1, fat, flags, invalidate);
+	} else {
+	    if (flags == 0)	/* only lookup for unmap */
+		return false;
+	    page n = allocate_zero(h, PAGESIZE);
+	    if (n == INVALID_ADDRESS)
+		return false;
+	    if (!force_entry(h, n, v, p, level + 1, fat, flags, invalidate))
+		return false;
+#ifdef PAGE_DEBUG
+	    console("- ");
+	    print_level(level);
+	    console(", offset ");
+	    print_u64(offset);
+#endif
+	    write_pte(pte, u64_from_pointer(n), flags, invalidate);
+	    return true;
+	}
     }
 }
 
-static void map_page_4k(page base, u64 virtual, physical p, heap h)
+static boolean map_page(page base, u64 v, physical p, heap h, boolean fat, boolean flags)
 {
-    page x = base;
-    if ((x = force_entry(x, pindex(virtual, PT1), h)) != INVALID_ADDRESS) {
-        if ((x = force_entry(x, pindex(virtual, PT2), h)) != INVALID_ADDRESS) {
-            if ((x = force_entry(x, pindex(virtual, PT3), h)) != INVALID_ADDRESS) {
-                write_pte(x + pindex(virtual, PT4), p, false);
-                return; 
-            }
-        }
+    boolean invalidate = false;
+    if (!force_entry(h, base, v, p, 1, fat, flags, &invalidate))
+	return false;
+    if (invalidate) {
+	asm volatile("invlpg %0"::"m"(v):);
     }
-    halt("ran out of page map memory");
-}
-
-static void map_page_2m(page base, u64 virtual, physical p, heap h)
-{
-    page x = base;
-    if ((x = force_entry(x, pindex(virtual, PT1), h)) != INVALID_ADDRESS) {
-        if ((x = force_entry(x, pindex(virtual, PT2), h)) != INVALID_ADDRESS) {
-            u64 off = pindex(virtual, PT3);
-            write_pte(x+off, p, true);
-            return; 
-        }
-    }
-    halt("ran out of page map memory");
+    return true;
 }
 
 #ifndef BITS32
@@ -138,32 +185,61 @@ boolean validate_virtual(void *base, u64 length)
 #endif
 
 // error processing
-void map(u64 virtual, physical p, int length, heap h)
+static void map_range(u64 virtual, physical p, int length, u64 flags, heap h)
 {
     int len = pad(length, PAGESIZE);
     u64 vo = virtual;
     u64 po = p;
     page pb = pagebase();
 
-    /*   console("map: ");
+    if ((virtual & PAGEMASK) || (p & PAGEMASK) || (length & PAGEMASK)) {
+	if (flags == 0)
+	    console("un");
+	console("map() called with unaligned paramters!\n v: ");
+	print_u64(virtual);
+	console(", p: ");
+	print_u64(p);
+	console(", length: ");
+	print_u64(length);
+	halt("\n");
+    }
+
+#ifdef PAGE_DEBUG
+    console("map_range v: ");
     print_u64(virtual);
-    console(" ");
+    console(", p: ");
     print_u64(p);
-    console(" ");
-    print_u64(length);              
-    console("\n");*/
+    console(", length: ");
+    print_u64(length);
+    console(", flags: ");
+    print_u64(flags);
+    console("\n");
+#endif
 
     for (int i = 0; i < len;) {
-        int off = 1<<12;
-        if (!(vo & MASK(PT3)) && !(po & MASK(PT3)) && ((len - i) >= (1<<PT3))) {
-            map_page_2m(pb, vo, po, h);
-            off = 1<<PT3;
-        } else  {
-            map_page_4k(pb, vo, po, h);
-        }
+	boolean fat = !(vo & MASK(PT3)) && !(po & MASK(PT3)) && ((len - i) >= (1<<PT3));
+	if (!map_page(pb, vo, po, h, fat, flags)) {
+	    if (flags == 0)
+		console("unmap: area missing page mappings\n");
+	    else
+		halt("map: ran out of page table memory");
+	}
+        int off = 1 << (fat ? PT3 : PT4);
         vo += off;
         if (po != INVALID_PHYSICAL)
             po += off;
         i += off;
     }
+}
+
+void map(u64 virtual, physical p, int length, heap h)
+{
+    // really set user?
+    u64 flags = PAGE_WRITABLE | PAGE_PRESENT | PAGE_USER;
+    map_range(virtual, p, length, flags, h);
+}
+
+void unmap(u64 virtual, int length, heap h)
+{
+    map_range(virtual, 0, length, 0, h);
 }
