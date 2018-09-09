@@ -8,6 +8,8 @@ typedef long long s64;
 
 // not sure if we keep word, sizeof(word) == sizeof(void **), so I guess its uintptr_t
 typedef u32 word;
+typedef u32 bytes;
+
 #define pointer_from_u64(__a) ((void *)(u32)(__a))
 #define u64_from_pointer(__a) ((u64)(u32)(__a))
 #define physical_from_virtual(__x) u64_from_pointer(__x)

@@ -8,27 +8,20 @@
 #include <sys/epoll.h>
 #include <socket_user.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <ip.h>
 
 typedef struct registration {
     descriptor fd;
     thunk a;
 }  *registration;
-    
-static boolean parse_v4_address(buffer b, u32 *u, u16 *port)
+
+void set_nonblocking(descriptor d)
 {
-    u64 a;
-    *u = 0;
-    parse_int(b, 10, &a);  *u = (*u<<8)|a;
-    if (pop_u8(b) != '.') return false;
-    parse_int(b, 10, &a);  *u = (*u<<8)|a;    
-    if (pop_u8(b) != '.') return false;
-    parse_int(b, 10, &a);  *u = (*u<<8)|a;        
-    if (pop_u8(b) != '.') return false;
-    parse_int(b, 10, &a);  *u = (*u<<8)|a;            
-    if (pop_u8(b) != ':') return false;    
-    parse_int(b, 10, &a);
-    *port = (u16)a;
-    return true;
+    int flags = fcntl(d, F_GETFL);
+    if (fcntl(d, F_SETFL, flags | O_NONBLOCK)) {
+        halt("fcntl %E\n", errno);
+    }
 }
 
 static void fill_v4_sockaddr(struct sockaddr_in *in, u32 address, u16 port)
@@ -124,9 +117,9 @@ void connection(heap h, descriptor e, buffer target, new_connection c)
     int s = socket(AF_INET, SOCK_STREAM, 0);
     u32 v4;
     u16 port;
-    parse_v4_address(alloca_wrap_buffer(buffer_ref(target, 0), buffer_length(target)),
-                     &v4, &port);
+    parse_v4_address_and_port(alloca_wrap(target), &v4, &port);
     fill_v4_sockaddr(&where, v4, port);
+    // this is still blocking!
     int status = connect(s, (struct sockaddr *)&where, sizeof(struct sockaddr_in));
     if (status < 0) halt("conection error %E", errno);
 
@@ -134,6 +127,7 @@ void connection(heap h, descriptor e, buffer target, new_connection c)
 }
 
 
+// should rety with asynch completion
 void listen_port(heap h, descriptor e, u16 port, new_connection n)
 {
     struct sockaddr_in where;
@@ -141,12 +135,15 @@ void listen_port(heap h, descriptor e, u16 port, new_connection n)
     descriptor service = socket(AF_INET, SOCK_STREAM, 0);
     memset(&where.sin_addr, 0, sizeof(unsigned int));
     where.sin_family = AF_INET;
-    where.sin_port = htons(8080);
+    where.sin_port = htons(port);
     if (setsockopt(service, SOL_SOCKET, SO_REUSEADDR, &(int){ 1 }, sizeof(int)) < 0)
         perror("setsockopt(SO_REUSEADDR) failed");
     
-    if (bind(service, (struct sockaddr *)&where, sizeof(struct sockaddr_in))) halt("bind %E", errno);
-    if (listen(service, 5)) halt("listen %E", errno);
+    if (bind(service, (struct sockaddr *)&where, sizeof(struct sockaddr_in)))
+        halt("bind %E", errno);
+
+    if (listen(service, 5))
+        halt("listen %E", errno);
 
     register_descriptor(h, e, service, closure(h, accepting, h, e, service, n));
 }

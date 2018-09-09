@@ -52,7 +52,7 @@ static u64 rolling_alloc(heap h, bytes len)
 }
 
 // assumes parent->pagesize is a power of two
-static void rolling_free(heap h, u64 x, u64 length)
+static void rolling_free(heap h, u64 x, bytes length)
 {
     rolling r = (void *)h;
     // allow passthrough larger allocations

@@ -8,6 +8,7 @@ typedef unsigned long long u64;
 typedef long long s64;
 
 typedef u64 word;
+typedef u64 bytes;
 
 #define pointer_from_u64(__a) ((void *)(__a))
 #define u64_from_pointer(__a) ((u64)(__a))

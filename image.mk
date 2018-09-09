@@ -4,7 +4,7 @@ include net/Makefile
 
 force:
 
-TARGET = hws
+TARGET = net_unit
 
 mkfs/mkfs: force
 	cd mkfs ; make

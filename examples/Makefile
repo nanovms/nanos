@@ -9,7 +9,7 @@ VPATH += $(ROOT)/test
 %.o: %.c $(ROOT)/runtime/closure_templates.h
 	$(CC) $(CFLAGS) $(INCLUDES) $<
 
-all: hw webs hwg webg hws webs
+all: hw webs hwg webg hws webs net_unit
 
 hwg: hwg.go
 	$(GO) build hwg.go
@@ -32,6 +32,8 @@ webg: webg.go
 fst: fst.go
 	$(GO) build fst.go
 
+net_unit: net_unit.o socket_user.o $(UNIXRUNTIME)
+	$(CC) $^ -static -g -o net_unit
 clean:
 	rm -f *.o *~ hw web hwg webg webs hws
 

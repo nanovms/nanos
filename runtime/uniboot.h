@@ -10,6 +10,7 @@
 #ifndef STAGE3
 typedef int descriptor;
 heap init_process_runtime();
+heap allocate_mmapheap(heap meta, bytes size);
 #define va_tag_offset 44
 #else
 #define va_tag_offset 40

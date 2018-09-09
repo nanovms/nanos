@@ -62,7 +62,6 @@ void main(int argc, char **argv)
     descriptor e = epoll_create(1);
     buffer target = wrap_buffer(h, argv[1], runtime_strlen(argv[1]));
     merge m = allocate_merge(h, closure(h, finished));
-    // merge reference here
     connection(h, e, target, closure(h, conn, h, e, target, m));
     epoll_spin(e);
 }

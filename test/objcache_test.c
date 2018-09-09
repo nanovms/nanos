@@ -96,27 +96,6 @@ boolean objcache_test(heap meta, heap parent, int objsize)
     return true;
 }
 
-u64 mmapheap_alloc(heap h, bytes size)
-{
-    void * rv = mmap(0, pad(size, h->pagesize), PROT_READ | PROT_WRITE,
-		     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (rv == MAP_FAILED) {
-	msg_err("mmap() failed: errno %d (%s)\n", errno, strerror(errno));
-	return INVALID_PHYSICAL;
-    } else {
-	return u64_from_pointer(rv);
-    }
-}
-
-heap allocate_mmapheap(heap meta, bytes size, bytes alignment)
-{
-    heap h = allocate(meta, sizeof(struct heap));
-    h->alloc = mmapheap_alloc;
-    h->dealloc = leak;
-    h->pagesize = size;
-    return h;
-}
-
 int main(int argc, char **argv)
 {
     heap h = init_process_runtime();
@@ -124,7 +103,7 @@ int main(int argc, char **argv)
     bytes mmapsize = pagesize * 1024; /* arbitrary */
 
     /* make a parent heap for pages */
-    heap m = allocate_mmapheap(h, mmapsize, pagesize);
+    heap m = allocate_mmapheap(h, mmapsize);
     heap pageheap = create_id_heap_backed(h, m, pagesize);
 
     /* XXX test a range of sizes */

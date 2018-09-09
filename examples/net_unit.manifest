@@ -1,0 +1,5 @@
+(
+    children:(kernel:(contents:(host:stage3/stage3))
+              net_unit:(contents:(host:examples/net_unit)))
+    program:/net_unit
+)
