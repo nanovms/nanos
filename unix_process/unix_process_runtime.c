@@ -58,7 +58,6 @@ heap allocate_tagged_region(heap h, u64 tag)
     return create_id_heap(h, u64_from_pointer(region), size, 1);
 }
 
-extern void init_extra_prints();
 
 static void format_errno(buffer dest, buffer fmt, vlist *a)
 {
@@ -72,7 +71,6 @@ heap init_process_runtime()
 {
     heap h = malloc_allocator();
     init_runtime(h);
-    init_extra_prints();
     // unix errno print formatter
     register_format('E', format_errno);       
     return h;

@@ -141,6 +141,14 @@ static void read_kernel_syms(heap h, heap virtual, heap pages)
     }
 }
 
+static void format_elf_symbol(buffer dest, buffer fmt, vlist *v)
+{
+    u64 x, offset = varg(*v, u64);
+    char *name = find_elf_sym(x, &offset);
+    bprintf(dest, "%s + %p", name, offset);
+}
+
+
 static void init_service_new_stack(heap pages, heap physical, heap backed, heap backed_2M, heap virtual)
 {
     // just to find maintain the convention of faulting on zero references
@@ -150,10 +158,11 @@ static void init_service_new_stack(heap pages, heap physical, heap backed, heap 
     //    misc = debug_heap(misc, misc); 
     runqueue = allocate_queue(misc, 64);
     start_interrupts(pages, misc, physical);
-    init_extra_prints();
     init_runtime(misc);
     init_symtab(misc);
     read_kernel_syms(misc, virtual, pages);
+    // k ?
+    register_format('k', format_elf_symbol);            
     
     tuple root = allocate_tuple();
     initialize_timers(misc);

@@ -28,6 +28,7 @@ examples/webs
 examples/webg
 examples/fst
 examples/hws
+examples/net_unit
 stage3/frame_nasm.h
 image2
 mkfs/dump

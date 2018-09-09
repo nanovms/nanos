@@ -20,17 +20,18 @@ typedef u32 bytes;
 
 static inline void *tag(void *v, u16 tval)
 {
-    return pointer_from_u64(tval|u64_from_pointer(v));
+    *((u8 *)v-1) = tval;
+    return v;
 }
 
 static inline u16 tagof(void *v)
 {
-    return u64_from_pointer(v)&3;
+    return *(u8 *)v-1;
 }
 
 static inline void *valueof(void *v)
 {
-    return pointer_from_u64(u64_from_pointer(v)&0xfffffffc);
+    return v;
 }
 
 #define DIV(__x, __by, __q, __r)\

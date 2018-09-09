@@ -83,6 +83,7 @@ typedef struct process {
     u64 sigmask;
     void **syscall_handlers;
     vector files;
+    tuple root;
 } *process;
 
 extern thread current;

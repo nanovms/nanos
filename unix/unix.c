@@ -76,6 +76,7 @@ process create_process(kernel k)
     p->virtual = create_id_heap(h, 0x7000000000ull, 0x10000000000ull, 0x100000000);
     p->virtual32 = create_id_heap(h, 0x10000000, 0xe0000000, PAGESIZE);
     p->cwd = k->root;
+    p->root = k->root;
     u64 infinity =  -1ull;
     p->fdallocator = create_id_heap(h, 3, infinity, 1);
     p->files = allocate_vector(h, 64);
@@ -114,8 +115,8 @@ static u64 syscall_debug()
 {
     u64 *f = current->frame;
     int call = f[FRAME_VECTOR];
-    //    if (table_find(current->p->root, sym(debugsyscalls)))
-    //        thread_log(current, syscall_name(call));
+    if (table_find(current->p->root, sym(debugsyscalls)))
+        thread_log(current, syscall_name(call));
 
     u64 (*h)(u64, u64, u64, u64, u64, u64) = current->p->syscall_handlers[call];
     u64 res = -ENOENT;
