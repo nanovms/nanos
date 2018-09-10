@@ -80,9 +80,7 @@ static inline u16 index_from_obj(objcache o, page p, u64 obj)
     return (u16)offset / object_size(o);
 }
 
-#define footer_from_list(l)						\
-    ((footer)pointer_from_u64((u64_from_pointer(l) -			\
-			       offsetof(footer, list))))
+#define footer_from_list(l) struct_from_list(l, footer, list)
 
 #define foreach_page_footer(l, f)				\
     for (f = footer_from_list((l)->next); &f->list != (l);	\

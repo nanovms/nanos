@@ -1,8 +1,10 @@
 #pragma once
-struct list {
+typedef struct list {
     struct list * prev;
     struct list * next;
-};
+} *list;
+
+#define struct_from_list(l, s, f) ((s)pointer_from_u64(u64_from_pointer(l) - offsetof(s, f)))
 
 static inline void list_init(struct list * head)
 {
