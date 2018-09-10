@@ -79,6 +79,7 @@ void init_clock(heap backed_virtual, heap virtual_pagesized, heap pages)
     write_msr(MSR_KVM_SYSTEM_TIME, physical_from_virtual(vclock)| 1);
     if (0 == vclock->system_time)
     {
+        deallocate(backed_virtual,vclock,backed_virtual->pagesize);
         console("INFO: KVM clock is inaccessible\n");
         if( !init_hpet(virtual_pagesized, pages)) {
           halt("ERROR: HPET clock is inaccessible\n");

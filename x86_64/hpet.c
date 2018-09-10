@@ -6,13 +6,13 @@
 #define HPET_MAXIMUM_INCREMENT_PERIOD 0x05F5E100ul
 
 struct HPETGCapabilitiesIDRegister {
-    u16 revID : 8;
-    u16 numTimCap : 5;
-    u16 countSizeCap : 1;
-    u16 reserved : 1;
-    u16 legRouteCap : 1;
-    u16 vendorID;
-    u32 counterClkPeriod;
+            u16 revID : 8;
+            u16 numTimCap : 5;
+            u16 countSizeCap : 1;
+            u16 reserved : 1;
+            u16 legRouteCap : 1;
+  volatile  u16 vendorID;
+  volatile  u32 counterClkPeriod;
 } __attribute__((__packed__));
 
 struct HPETGConfigurationRegister {
@@ -55,9 +55,9 @@ static volatile struct HPETMemoryMap* hpet;
 
 boolean init_hpet(heap virtual_pagesized, heap pages) {
     u64 hpet_page = allocate_u64(virtual_pagesized, PAGESIZE);
-    if (hpet_page == INVALID_ADDRESS) {
-	console("ERROR: Can't allocate page to map HPET registers\n");
-	return false;
+    if (INVALID_ADDRESS == (void*)hpet_page) {
+        console("ERROR: Can't allocate page to map HPET registers\n");
+        return false;
     }
 
     map(hpet_page, HPET_TABLE_ADDRESS, PAGESIZE, pages);
