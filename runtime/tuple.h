@@ -25,8 +25,5 @@ static inline u64 u64_from_value(value v)
 
 static inline value value_from_u64(heap h, u64 v)
 {
-    value result = allocate_buffer(h, 10);
-    
-    parse_int((buffer)pointer_from_u64(v), 10, result);
-    return result;
+    return aprintf(h, "%d", v);
 }

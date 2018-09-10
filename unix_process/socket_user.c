@@ -121,7 +121,7 @@ void connection(heap h, descriptor e, buffer target, new_connection c)
     fill_v4_sockaddr(&where, v4, port);
     // this is still blocking!
     int status = connect(s, (struct sockaddr *)&where, sizeof(struct sockaddr_in));
-    if (status < 0) halt("conection error %E", errno);
+    if (status < 0) halt("conection error %d %E %d\n", errno, errno, status);
 
     register_descriptor_write(h, e, s, closure(h, connection_start, h, s, e, c));
 }

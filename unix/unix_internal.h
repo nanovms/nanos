@@ -140,13 +140,13 @@ static inline void set_syscall_return(thread t, u64 val)
 
 #define resolve_fd(__p, __fd) ({void *f ; if (!(f = vector_get(__p->files, __fd))) return(-EBADF); f;})
 
-static inline int errno_from_status(status s)
+static inline s64 errno_from_status(status s)
 {
     if (s == 0) return 0;
     value v;
-    
     if (v = table_find(s, sym(errno))) {
-        return -u64_from_value(v);
+        s64 r = u64_from_value(v);
+        return -r;
     }
     rprintf("warning - status %v has no unix errno\n", s);
     return -EFAULT;

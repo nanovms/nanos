@@ -104,6 +104,7 @@ void table_set (table z, void *c, void *v)
         n->k = k;
         n->c = c; 
         n->v = v;
+        n->next = *e;
         *e = n;
         
         if (t->count++ > t->buckets) 

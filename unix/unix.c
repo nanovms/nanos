@@ -34,7 +34,7 @@ void default_fault_handler(thread t, context frame)
     print_frame(t->frame);
     print_stack(t->frame);
 
-    if (table_find (k->root, sym(fault))) {
+    if (table_find (k->root, sym(gdb_on_fault))) {
         console("starting gdb\n");
         init_tcp_gdb(k->general, t->p, 1234);
         thread_sleep(current);
@@ -115,7 +115,7 @@ static u64 syscall_debug()
 {
     u64 *f = current->frame;
     int call = f[FRAME_VECTOR];
-    if (table_find(current->p->root, sym(debugsyscalls)))
+    if (table_find(current->p->root, sym(debug_syscalls)))
         thread_log(current, syscall_name(call));
 
     u64 (*h)(u64, u64, u64, u64, u64, u64) = current->p->syscall_handlers[call];

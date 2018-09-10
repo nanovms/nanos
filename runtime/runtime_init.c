@@ -43,16 +43,10 @@ void print_tuple(buffer b, tuple z)
 {
     table t = valueof(z);
     boolean sub = false;
-    rprintf("printo tuplo %p %p %p\n",
-            t->count, t->buckets, t->entries);
     entry e = valueof(t->entries[0]);
-    rprintf("printo tuplo %p %p\n",
-            t->equals_function, t->key_function);
-    rprintf("enz %p %p\n", e, e?e->next:0);   
             
     bprintf(b, "(");
     table_foreach(t, n, v) {
-        rprintf("prino: %S %p\n", n, v);
         if (sub) {
             push_character(b, ' ');
         }
@@ -65,7 +59,6 @@ void print_tuple(buffer b, tuple z)
         }
         sub = true;
     }
-    rprintf("print completx %b\n", b);
     bprintf(b, ")");
 }
 

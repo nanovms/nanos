@@ -1,5 +1,11 @@
 (
     children:(kernel:(contents:(host:stage3/stage3))
               net_unit:(contents:(host:examples/net_unit)))
+    arguments:[webg poppy]
+    environment:(USER:bobby PWD:/)    
     program:/net_unit
+    # debugging variables...should be in a block
+    debug_syscalls:t
+    gdb_on_fault:t
+    thread_logging:t
 )

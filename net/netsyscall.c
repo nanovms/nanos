@@ -276,30 +276,30 @@ static void set_complited_state( thread th, u64 *code)
 
 static err_t connect_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
 {
-   status_handler sp = NULL;
-   sock s = (sock)(arg);
-   s->state = SOCK_OPEN;
-   if ((sp = dequeue(s->waiting))) 
-       apply(sp, lwip_status(s->p->k->general, err));
+    status_handler sp = NULL;
+    sock s = (sock)(arg);
+    s->state = SOCK_OPEN;
+    if ((sp = dequeue(s->waiting))) 
+        apply(sp, lwip_status(s->p->k->general, err));
 }
 
-static int connect_tcp(sock socket, const ip_addr_t* address, unsigned short port) {
+static status connect_tcp(sock socket, const ip_addr_t* address, unsigned short port) {
 
     enqueue(socket->waiting, closure(socket->h, set_complited_state, current));
     tcp_arg(socket->lw, socket);
     tcp_err(socket->lw, error_handler_tcp);
     socket->state = SOCK_IN_CONNECTION;
     int err = tcp_connect(socket->lw, address, port, connect_complete);
-
     if (ERR_OK != err) {
-        return err;
+        // xx syscall transient
+        return lwip_status(current->p->k->general, err);
     }
     thread_sleep(current);
-    return ERR_OK;
+    return STATUS_OK;
 }
 
 int connect(int sockfd, struct sockaddr* addr, socklen_t addrlen) {
-    int err = ERR_OK;
+    status st;
     sock s = resolve_fd(current->p, sockfd);
     struct sockaddr_in* sin = (struct sockaddr_in*)addr;
     if (!s) {
@@ -315,25 +315,23 @@ int connect(int sockfd, struct sockaddr* addr, socklen_t addrlen) {
         return -EISCONN;
     }
 
-    if(ERR_OK == err){
-      enum protocol_type type = SOCK_STREAM;
-      switch (type) {
-          case SOCK_DGRAM: {
-              // TODO: Uncomment when UDP socket support will have been added
-              // err = udp_connect(s->lw, (const ip_addr_t*)&sin->address, sin->port);
-          } break;
-          case SOCK_RAW: {
-              // TODO: Uncomment when raw socket support will have been added
-              // err = raw_connect(s->lw, (const ip_addr_t*)&sin->address );
-          } break;
-          case SOCK_STREAM: {
-              err = connect_tcp(s, (const ip_addr_t*)&sin->address, sin->port);
-          } break;
-          default:
-              return -EINVAL;
-      }
+    enum protocol_type type = SOCK_STREAM;
+    switch (type) {
+    case SOCK_DGRAM: {
+        // TODO: Uncomment when UDP socket support will have been added
+        // err = udp_connect(s->lw, (const ip_addr_t*)&sin->address, sin->port);
+    } break;
+    case SOCK_RAW: {
+        // TODO: Uncomment when raw socket support will have been added
+        // err = raw_connect(s->lw, (const ip_addr_t*)&sin->address );
+    } break;
+    case SOCK_STREAM: {
+        st = connect_tcp(s, (const ip_addr_t*)&sin->address, sin->port);
+    } break;
+    default:
+        return -EINVAL;
     }
-    return lwip_errno(s, err);
+    return errno_from_status(st);
 }
 
 static void lwip_conn_err(void* z, err_t b) {
