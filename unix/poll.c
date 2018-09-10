@@ -1,5 +1,7 @@
 #include <unix_internal.h>
 
+#define EPOLL_DEBUG
+
 typedef struct epoll *epoll;
 
 typedef struct epollfd {
@@ -18,14 +20,15 @@ struct epoll_blocked {
     u64 refcnt;
     thread t;
     boolean sleeping;
-    vector user_events;
-    epoll_blocked next;
+    timer timeout;
+    buffer user_events;
+    struct list blocked_list;
 };
 
 struct epoll {
     struct file f;
     // xxx - multiple threads can block on the same e with epoll_wait
-    epoll_blocked w;
+    struct list blocked_head;
     table events;
 };
     
@@ -51,39 +54,108 @@ u64 epoll_create(u64 flags)
     }
     epoll e = (epoll)f;
     f->close = closure(h, epoll_close, e);
+    list_init(&e->blocked_head);
     e->events = allocate_table(h, identity_key, pointer_equal);
     return fd;
 }
 
 #define user_event_count(__w) (buffer_length(__w->user_events)/sizeof(struct epoll_event))
 
+static void epoll_blocked_remove(epoll_blocked w)
+{
+    epoll e = w->e;
+    kernel k = current->p->k;
+#ifdef EPOLL_DEBUG
+    rprintf("epoll_blocked_remove: w %p", w);
+#endif
+    if (!list_empty(&w->blocked_list)) {
+	list_delete(&w->blocked_list);
+#ifdef EPOLL_DEBUG
+	rprintf(", removed from epoll list");
+#endif
+    }
+    if (--w->refcnt == 0) {
+	deallocate(k->epoll_blocked_cache, w, sizeof(struct epoll_blocked));
+#ifdef EPOLL_DEBUG
+	rprintf(", deallocated");
+#endif
+    }
+#ifdef EPOLL_DEBUG
+    rprintf("\n");
+#endif
+}
+
 static CLOSURE_1_0(epoll_blocked_finish, void, epoll_blocked);
 static void epoll_blocked_finish(epoll_blocked w)
 {
+#ifdef EPOLL_DEBUG
+    rprintf("epoll_blocked_finish: w %p, refcnt %d", w, w->refcnt);
+    if (w->sleeping)
+	rprintf(", sleeping");
+    if (w->timeout)
+	rprintf(", timeout %p", w->timeout);
+#endif
     kernel k = current->p->k;
+    heap h = k->general;
+
+    /* If we're not sleeping, we're in the middle of a (to be
+       non-blocking) epoll_wait(), so do nothing here and allow other
+       notifications, if any, to be applied. */
     if (w->sleeping) {
+#ifdef EPOLL_DEBUG
+	rprintf(", syscall return %d", user_event_count(w));
+#endif
         set_syscall_return(w->t, user_event_count(w));
         w->sleeping = false;
         thread_wakeup(w->t);
+	unwrap_buffer(h, w->user_events);
+	w->user_events = 0;
+	if (w->timeout) {
+	    /* We'll let the timeout run until expiry until we can be sure
+	       that we have a race-free way to disable the timer if waking
+	       on an event. Thus bump the refcnt to make sure this
+	       epoll_blocked is still around after syscall return.
+
+	       This will have to be revisited, for we'll accumulate a
+	       bunch of zombie epoll_blocked and timer objects until they
+	       start timing out.
+	    */
+	    w->refcnt++;
+	}
+	epoll_blocked_remove(w);
+    } else if (w->timeout) {
+	/* expiry after syscall return */
+	assert(w->refcnt == 1);
+	epoll_blocked_remove(w);
     }
-    if (--w->refcnt == 0)
-	deallocate(k->epoll_blocked_cache, w, sizeof(struct epoll_blocked));
+#ifdef EPOLL_DEBUG
+    rprintf("\n");
+#endif
 }
 
 // associated with the current blocking function
 static CLOSURE_2_0(epoll_wait_notify, void, epollfd, u32);
 static void epoll_wait_notify(epollfd f, u32 events)
 {
+    list l = list_get_next(&f->e->blocked_head);
+    epoll_blocked w = l ? struct_from_list(l, epoll_blocked, blocked_list) : 0;
+#ifdef EPOLL_DEBUG
+    rprintf("epoll_wait_notify: f->fd %d, events %P, blocked %p\n", f->fd, events, w);
+#endif
     f->registered = false;
-    epoll_blocked b = f->e->w; 
+    if (!w)
+	return;
     // strided vectors?
-    if (b && (b->user_events->length - b->user_events->end)) {
-        struct epoll_event *e = buffer_ref(b->user_events, b->user_events->end);
-        e->data = f->data;
-        e->events = events;
-        b->user_events->end += sizeof(struct epoll_event);
-        epoll_blocked_finish(b);
+    if (w->user_events && (w->user_events->length - w->user_events->end)) {
+	struct epoll_event *e = buffer_ref(w->user_events, w->user_events->end);
+	e->data = f->data;
+	e->events = events;
+	w->user_events->end += sizeof(struct epoll_event);
+#ifdef EPOLL_DEBUG
+	rprintf("   epoll_event %p, data %P, events %P\n", e, e->data, e->events);
+#endif
     }
+    epoll_blocked_finish(w);
 }
 
 int epoll_wait(int epfd,
@@ -97,19 +169,25 @@ int epoll_wait(int epfd,
     epollfd i;
     
     epoll_blocked w = allocate(k->epoll_blocked_cache, sizeof(struct epoll_blocked));
-
+#ifdef EPOLL_DEBUG
+    rprintf("epoll_wait: epoll fd %d, new blocked %p, timeout %d\n", epfd, w, timeout);
+#endif
     w->refcnt = 1;
     w->user_events = wrap_buffer(h, events, maxevents * sizeof(struct epoll_event));
     w->user_events->end = 0;
     w->t = current;
     w->e = e;
     w->sleeping = false;
-    e->w = w;
-    
-    table_foreach(e->events, k, i) {
+    w->timeout = 0;
+    list_insert_after(&e->blocked_head, &w->blocked_list); /* push */
+
+    table_foreach(e->events, ekey, i) {
         epollfd f = (epollfd)i;
         if (!f->registered) {
             f->registered = true;
+#ifdef EPOLL_DEBUG
+	    rprintf("   register epollfd %d, applying check\n", f->fd);
+#endif
             apply(f->f->check,
 		  closure(h, epoll_wait_notify, f, EPOLLIN),
 		  closure(h, epoll_wait_notify, f, EPOLLHUP));
@@ -117,13 +195,23 @@ int epoll_wait(int epfd,
     }
     int eventcount = w->user_events->end/sizeof(struct epoll_event);
     if (w->user_events->end) {
-        e->w = 0;        
+#ifdef EPOLL_DEBUG
+	rprintf("   immediate return; eventcount %d\n", eventcount);
+#endif
+	epoll_blocked_remove(w);
         return eventcount;
     }
     
-    if (timeout > 0)
-        register_timer(milliseconds(timeout), closure(h, epoll_blocked_finish, w));
+    if (timeout > 0) {
+	w->timeout = register_timer(milliseconds(timeout), closure(h, epoll_blocked_finish, w));
+#ifdef EPOLL_DEBUG
+	rprintf("   registered timer %p\n", w->timeout);
+#endif
+    }
 
+#ifdef EPOLL_DEBUG
+    rprintf("   sleeping...\n");
+#endif
     w->sleeping = true;    
     thread_sleep(current);
 }
