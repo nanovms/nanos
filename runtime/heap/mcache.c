@@ -31,15 +31,27 @@ u64 mcache_alloc(heap h, bytes b)
     /* Could become a binary search if search set is large... */
     vector_foreach(m->caches, o) {
 	if (o && b <= o->pagesize) {
+#ifdef MCACHE_DEBUG
+	    console("match cache ");
+	    print_u64(u64_from_pointer(o));
+	    console(" obj size ");
+	    print_u64(o->pagesize);
+	    console(", pre validate...");
+	    if (objcache_validate((heap)o))
+		console("pass, alloc ");
+	    else
+		halt("failed!\n");
+#endif
 	    u64 a = allocate_u64(o, o->pagesize);
 	    if (a != INVALID_PHYSICAL)
 		h->allocated += o->pagesize;
 #ifdef MCACHE_DEBUG
-	    console("obj size ");
-	    print_u64(o->pagesize);
-	    console(", addr ");
 	    print_u64(a);
-	    console("\n");
+	    console(", post validate...");
+	    if (objcache_validate((heap)o))
+		console("pass\n");
+	    else
+		halt("failed!\n");
 #endif
 	    return a;
 	}
@@ -59,30 +71,61 @@ void mcache_dealloc(heap h, u64 a, bytes b)
     print_u64(a);
     console(", size ");
     print_u64(b);
-    console("\n");
 #endif
+
     mcache m = (mcache)h;
     heap o = objcache_from_object(a, m->parent->pagesize);
     if (o == INVALID_ADDRESS) {
-	msg_err("mcache %p: can't find cache for object %P, size %d; leaking\n",
-		m, a, b);
+	console("mcache ");
+	print_u64(u64_from_pointer(m));
+	console(": can't find cache for object ");
+	print_u64(u64_from_pointer(a));
+	console(", size ");
+	print_u64(b);
+	console("; leaking\n");
 	return;
     }
 
     /* We don't really need the size, but if we're given a valid one,
        make some attempt to verify it. */
     if (b != -1ull && b > o->pagesize) {
-	msg_err("dealloc size (%d) exceeds found cache size (%d); leaking\n",
-		b, o->pagesize);
+	console("mcache ");
+	print_u64(u64_from_pointer(m));
+	console(": dealloc size (");
+	print_u64(b);
+	console(") exceeds found cache size (");
+	print_u64(o->pagesize);
+	console("); leaking\n");
 	return;
     }
+
+#ifdef MCACHE_DEBUG
+    console(", pre validate...");
+    if (objcache_validate((heap)o))
+	console("pass");
+    else
+	halt("fail!\n");
+#endif
+
     assert(h->allocated >= o->pagesize);
     h->allocated -= o->pagesize;
     deallocate(o, a, o->pagesize);
+#ifdef MCACHE_DEBUG
+    console(", post validate...");
+    if (objcache_validate((heap)o))
+	console("pass\n");
+    else
+	halt("fail!\n");
+#endif
 }
 
 void destroy_mcache(heap h)
 {
+#ifdef MCACHE_DEBUG
+    console("destroy_mcache: heap at ");
+    print_u64(u64_from_pointer(h));
+    console("\n");
+#endif
     mcache m = (mcache)h;
     heap o;
     vector_foreach(m->caches, o) {
