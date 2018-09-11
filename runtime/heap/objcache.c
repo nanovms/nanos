@@ -77,7 +77,7 @@ static inline u16 index_from_obj(objcache o, page p, u64 obj)
     assert(obj < p + o->parent->pagesize);
     u64 offset = obj - p;
     assert(offset % object_size(o) == 0); /* insure obj lands on object boundary */
-    return (u16)offset / object_size(o);
+    return (u16)(offset / object_size(o));
 }
 
 #define footer_from_list(l) struct_from_list(l, footer, list)
