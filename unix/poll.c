@@ -76,7 +76,7 @@ static void epoll_blocked_release(epoll_blocked w)
 	rprintf(", removed from epoll list");
 #endif
     }
-    if (--w->refcnt == 0) {
+    if (fetch_and_add(&w->refcnt, -1) == 0) {
 	deallocate(k->epoll_blocked_cache, w, sizeof(struct epoll_blocked));
 #ifdef EPOLL_DEBUG
 	rprintf(", deallocated");
@@ -122,7 +122,7 @@ static void epoll_blocked_finish(epoll_blocked w)
 	       bunch of zombie epoll_blocked and timer objects until they
 	       start timing out.
 	    */
-	    w->refcnt++;
+	    fetch_and_add(&w->refcnt, 1);
 	}
 	epoll_blocked_release(w);
     } else if (w->timeout) {
@@ -139,7 +139,7 @@ static void epollfd_release(epollfd f)
     rprintf("epollfd_release: f->fd %d, refcnt %d\n", f->fd, f->refcnt);
 #endif
     assert(f->refcnt > 0);
-    if (--f->refcnt == 0)
+    if (fetch_and_add(&f->refcnt, -1) == 0)
 	deallocate(k->epollfd_cache, f, sizeof(struct epollfd));
 }
 
@@ -197,7 +197,7 @@ int epoll_wait(int epfd,
         epollfd f = (epollfd)i;
         if (!f->registered) {
             f->registered = true;
-	    f->refcnt++;
+	    fetch_and_add(&f->refcnt, 1);
 #ifdef EPOLL_DEBUG
 	    rprintf("   register epollfd %d, applying check\n", f->fd);
 #endif
