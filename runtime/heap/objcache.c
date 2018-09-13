@@ -46,9 +46,9 @@ typedef u64 page;
 
 #define object_size(o) (o->h.pagesize)
 #define page_size(o) (o->parent->pagesize)
-#define next_free_from_obj(o) (*(u16*)pointer_from_u64(o))
-#define is_valid_index(i) ((i) != (u16)-1)
-#define invalid_index (-1)
+#define next_free_from_obj(obj) (*(u16*)pointer_from_u64(obj))
+#define invalid_index ((u16)-1)
+#define is_valid_index(i) (((u16)i) != invalid_index)
 
 static inline page page_from_obj(objcache o, u64 a)
 {
@@ -77,12 +77,10 @@ static inline u16 index_from_obj(objcache o, page p, u64 obj)
     assert(obj < p + o->parent->pagesize);
     u64 offset = obj - p;
     assert(offset % object_size(o) == 0); /* insure obj lands on object boundary */
-    return (u16)offset / object_size(o);
+    return (u16)(offset / object_size(o));
 }
 
-#define footer_from_list(l)						\
-    ((footer)pointer_from_u64((u64_from_pointer(l) -			\
-			       offsetof(footer, list))))
+#define footer_from_list(l) struct_from_list(l, footer, list)
 
 #define foreach_page_footer(l, f)				\
     for (f = footer_from_list((l)->next); &f->list != (l);	\
@@ -305,13 +303,19 @@ boolean objcache_validate(heap h)
 		/* validate index */
 		if (next >= o->objs_per_page) {
 		    msg_err("page %P on free list has invalid object index "
-			    "%d, objs_per_page %d\n", next, o->objs_per_page);
+			    "%d, objs_per_page %d\n", p, next, o->objs_per_page);
 		    return false;
 		}
 		u64 obj = obj_from_index(o, p, next);
 		free_tally++;
 		next = next_free_from_obj(obj);
-	    } while(is_valid_index(next));
+	    } while(is_valid_index(next) && free_tally <= invalid_index);
+
+	    if (free_tally > invalid_index) {
+		msg_err("page %P on free list overflow while walking free list; "
+			"corrupt from possible loop, free_tally %d\n", p, free_tally);
+		return false;
+	    }
 	}
 
 	if (f->head > o->objs_per_page) {

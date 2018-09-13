@@ -141,12 +141,13 @@ static void read_kernel_syms(heap h, heap virtual, heap pages)
     }
 }
 
-static void init_service_new_stack(heap pages, heap physical, heap backed, heap backed_2M, heap virtual)
+static void __attribute__((noinline))
+init_service_new_stack(heap bootstrap, heap pages, heap physical, heap backed, heap backed_2M, heap virtual)
 {
     // just to find maintain the convention of faulting on zero references
     unmap(0, PAGESIZE, pages);
 
-    heap misc = allocate_rolling_heap(backed, 8);
+    heap misc = allocate_mcache(bootstrap, backed_2M, 5, 20);
     //    misc = debug_heap(misc, misc); 
     runqueue = allocate_queue(misc, 64);
     start_interrupts(pages, misc, physical);
@@ -239,5 +240,5 @@ void init_service()
     
     stack_location += stack_size - 16;
     asm ("mov %0, %%rsp": :"m"(stack_location));
-    init_service_new_stack(pages, physical_memory, backed, backed_2M, virtual);
+    init_service_new_stack(&bootstrap, pages, physical_memory, backed, backed_2M, virtual);
 }
