@@ -47,7 +47,6 @@
 #include <virtio_internal.h>
 #include <virtio_net.h>
 
-
 typedef struct vnet {
     vtpci dev;
     u16 port;
@@ -212,22 +211,6 @@ static err_t virtioif_init(struct netif *netif)
     return ERR_OK;
 }
 
-
-static heap lwip_heap;
-
-void *lwip_allocate(u64 size)
-{
-    return allocate_zero(lwip_heap, size);
-}
-
-void lwip_deallocate(void *x)
-{
-    /* no size info; mcache won't care */
-    deallocate(lwip_heap, x, -1ull);
-}
-
-extern void lwip_init();
-
 static CLOSURE_3_3(init_vnet, void, heap, heap, heap, int, int, int);
 static void init_vnet(heap general, heap page_allocator, heap page_allocator_2M,
 		      int bus, int slot, int function)
@@ -239,7 +222,6 @@ static void init_vnet(heap general, heap page_allocator, heap page_allocator_2M,
     vtpci dev = attach_vtpci(general, page_allocator, bus, slot, function, VIRTIO_NET_F_MAC);
     vnet vn = allocate(dev->general, sizeof(struct vnet));
     vn->n = allocate(dev->general, sizeof(struct netif));
-    lwip_heap = allocate_mcache(dev->general, page_allocator, 5, 11);
     vn->rxbuflen = 1500;
     vn->rxbuffers = wrap_freelist(dev->general, dev->general, vn->rxbuflen + sizeof(struct xpbuf));
     vn->rxbuffers = allocate_objcache(dev->general, page_allocator_2M,
@@ -247,7 +229,6 @@ static void init_vnet(heap general, heap page_allocator, heap page_allocator_2M,
     /* rx = 0, tx = 1, ctl = 2 by 
        page 53 of http://docs.oasis-open.org/virtio/virtio/v1.0/cs01/virtio-v1.0-cs01.pdf */
     vn->dev = dev;
-    lwip_init();
     vtpci_alloc_virtqueue(dev, 1, &vn->txq);
     vtpci_alloc_virtqueue(dev, 0, &vn->rxq);
     // just need 10 contig bytes really
