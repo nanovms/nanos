@@ -37,7 +37,7 @@ long clone(unsigned long flags, void *child_stack, void *ptid, void *ctid, void 
     thread t = create_thread(current->p);
     runtime_memcpy(t->frame, current->frame, sizeof(t->frame));
     t->frame[FRAME_RSP]= u64_from_pointer(child_stack);
-    t->frame[FRAME_RAX]= *(u32 *)ctid;
+    //    t->frame[FRAME_RAX]= *(u32 *)ctid; 
     t->frame[FRAME_FS] = u64_from_pointer(x);
     thread_wakeup(t);
     return t->tid;
