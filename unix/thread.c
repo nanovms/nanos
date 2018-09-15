@@ -179,12 +179,10 @@ void register_thread_syscalls(void **map)
     register_syscall(map, SYS_gettid, gettid);
 }
 
-// tuplify
 void thread_log_internal(thread t, char *desc, ...)
 {
-    // why was this %n, why is this 15, and why is it faulting
-    // if enabled
-    //    rprintf ("%s\n", /*t->tid * 15, */desc);
+    if (table_find(t->p->process_root, sym(trace)))
+        rprintf ("%d %s\n", t->tid, desc);
 }
 
 
