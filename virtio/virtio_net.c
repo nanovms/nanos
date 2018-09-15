@@ -175,13 +175,6 @@ static void status_callback(struct netif *netif)
     rprintf("assigned: %d.%d.%d.%d\n", n[0], n[1], n[2], n[3]);
 }
 
-static CLOSURE_0_0(timeout, void);
-static void timeout()
-{
-    static int c;
-    sys_check_timeouts();
-}
-
 static err_t virtioif_init(struct netif *netif)
 {
     vnet vn = netif->state;

@@ -37,7 +37,9 @@ long clone(unsigned long flags, void *child_stack, void *ptid, void *ctid, void 
     thread t = create_thread(current->p);
     runtime_memcpy(t->frame, current->frame, sizeof(t->frame));
     t->frame[FRAME_RSP]= u64_from_pointer(child_stack);
-    //    t->frame[FRAME_RAX]= *(u32 *)ctid; 
+    // xxx - the interpretation of ctid is dependent on flags
+    // and it can be zero
+    // t->frame[FRAME_RAX]= *(u32 *)ctid; 
     t->frame[FRAME_FS] = u64_from_pointer(x);
     thread_wakeup(t);
     return t->tid;
@@ -66,7 +68,7 @@ static int futex(int *uaddr, int futex_op, int val,
                  int *uaddr2, int val3)
 {
     struct timespec *timeout = pointer_from_u64(val2);
-    int verbose = true;
+    int verbose = false;
     thread w;
     
     fut f = soft_create_futex(current->p, u64_from_pointer(uaddr));

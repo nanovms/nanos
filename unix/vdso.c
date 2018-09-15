@@ -4,11 +4,6 @@
 
 void *vdso_base = (void *)0xffffffffff600000ull;
 
-u64 vdso_time()
-{
-    rprintf("vdso time!\n");
-}
-
 u64 vdso_gettimeofday(struct timeval *x, void *tz)
 {
     timeval_from_time(x, now());

@@ -120,6 +120,8 @@ process exec_elf(buffer ex, kernel k)
         }
     }
     start_process(t, start);
+    // xxx - in some environments with some programs this causes
+    // rtrie insert to blow the stack. fix rtrie.
     //    add_elf_syms(k->general, ex);
     return proc;    
 }

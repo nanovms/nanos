@@ -4,7 +4,7 @@ include net/Makefile
 
 force:
 
-TARGET = webgs
+TARGET = hws
 
 mkfs/mkfs: force
 	cd mkfs ; make

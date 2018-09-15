@@ -293,7 +293,7 @@ int pselect(int nfds,
 {
     kernel k = current->p->k;
 
-    rprintf("select %p %p %p\n", readfds?*readfds:0, writefds?*writefds:0, exceptfds?*exceptfds:0);
+    // xxx - implement wait/notify
     if (timeout == 0) {
         rprintf("select poll\n");
     } else {

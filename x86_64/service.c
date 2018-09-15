@@ -96,7 +96,6 @@ static void fsstarted(heap h, heap virtual, tuple root, filesystem fs, status s)
 CLOSURE_3_3(attach_storage, void, heap, heap, tuple, block_read, block_write, u64);
 void attach_storage(heap h, heap virtual, tuple root, block_read r, block_write w, u64 length)
 {
-    console("attach storage!\n");
     u64 fs_offset;
     
     // bios couldn't probe length(?) .. so from the virtio driver...remember
