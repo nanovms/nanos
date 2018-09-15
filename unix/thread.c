@@ -66,13 +66,15 @@ static int futex(int *uaddr, int futex_op, int val,
                  int *uaddr2, int val3)
 {
     struct timespec *timeout = pointer_from_u64(val2);
-    int verbose = false;
+    int verbose = true;
     thread w;
     
     fut f = soft_create_futex(current->p, u64_from_pointer(uaddr));
     int op = futex_op & 127; // chuck the private bit
     switch(op) {
     case FUTEX_WAIT:
+        if (verbose)
+            rprintf("futex wait\n");
         if (*uaddr == val) {
             // if we resume we are woken up, no timeout support
             set_syscall_return(current, 0);

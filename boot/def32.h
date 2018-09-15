@@ -8,6 +8,7 @@ typedef long long s64;
 
 // not sure if we keep word, sizeof(word) == sizeof(void **), so I guess its uintptr_t
 typedef u32 word;
+
 #define pointer_from_u64(__a) ((void *)(u32)(__a))
 #define u64_from_pointer(__a) ((u64)(u32)(__a))
 #define physical_from_virtual(__x) u64_from_pointer(__x)
@@ -18,17 +19,18 @@ typedef u32 word;
 
 static inline void *tag(void *v, u16 tval)
 {
-    return pointer_from_u64(tval|u64_from_pointer(v));
+    *((u8 *)v-1) = tval;
+    return v;
 }
 
 static inline u16 tagof(void *v)
 {
-    return u64_from_pointer(v)&3;
+    return *(u8 *)v-1;
 }
 
 static inline void *valueof(void *v)
 {
-    return pointer_from_u64(u64_from_pointer(v)&0xfffffffc);
+    return v;
 }
 
 #define DIV(__x, __by, __q, __r)\

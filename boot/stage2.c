@@ -87,8 +87,8 @@ typedef struct tagged_allocator {
 static u64 tagged_allocate(heap h, bytes length)
 {
     tagged_allocator ta = (void *)h;
-    u64 base = allocate_u64(ta->parent, length);
-    return base | ta->tag;
+    u64 base = allocate_u64(ta->parent, length + 1);
+    return base + 1;    
 }
 
 heap allocate_tagged_region(heap h, u64 tag)
