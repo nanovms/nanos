@@ -214,17 +214,17 @@ int epoll_wait(int epfd,
 	epoll_blocked_release(w);
         return eventcount;
     }
-    
+
     if (timeout > 0) {
 	w->timeout = register_timer(milliseconds(timeout), closure(h, epoll_blocked_finish, w));
 #ifdef EPOLL_DEBUG
 	rprintf("   registered timer %p\n", w->timeout);
-        rprintf("   sleeping...\n");
 #endif
-        w->sleeping = true;    
-        thread_sleep(current);        
     }
-    return 0;
+
+    rprintf("   sleeping...\n");
+    w->sleeping = true;
+    thread_sleep(current);
 }
 
 u64 epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
