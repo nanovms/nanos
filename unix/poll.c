@@ -207,7 +207,7 @@ int epoll_wait(int epfd,
         }
     }
     int eventcount = w->user_events->end/sizeof(struct epoll_event);
-    if (w->user_events->end) {
+    if (timeout == 0 || w->user_events->end) {
 #ifdef EPOLL_DEBUG
 	rprintf("   immediate return; eventcount %d\n", eventcount);
 #endif
