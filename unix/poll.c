@@ -221,8 +221,9 @@ int epoll_wait(int epfd,
 	rprintf("   registered timer %p\n", w->timeout);
 #endif
     }
-
+#ifdef EPOLL_DEBUG
     rprintf("   sleeping...\n");
+#endif
     w->sleeping = true;
     thread_sleep(current);
 }
