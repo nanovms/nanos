@@ -76,6 +76,7 @@ process create_process(kernel k)
     p->virtual = create_id_heap(h, 0x7000000000ull, 0x10000000000ull, 0x100000000);
     p->virtual32 = create_id_heap(h, 0x10000000, 0xe0000000, PAGESIZE);
     p->cwd = k->root;
+    p->process_root = k->root;    
     p->fdallocator = create_id_heap(h, 3, FDMAX - 3, 1);
     p->files = allocate_vector(h, 64);
     zero(p->files, sizeof(p->files));
@@ -99,7 +100,6 @@ buffer install_syscall(heap h)
 {
     buffer b = allocate_buffer(h, 100);
     int working = REGISTER_A;
-    rprintf ("current location: %p\n", current);
     mov_64_imm(b, working, u64_from_pointer(current));
     indirect_displacement(b, REGISTER_A, REGISTER_A, offsetof(thread, p));
     indirect_displacement(b, REGISTER_A, REGISTER_A, offsetof(process, syscall_handlers));
@@ -113,9 +113,8 @@ static u64 syscall_debug()
 {
     u64 *f = current->frame;
     int call = f[FRAME_VECTOR];
-    //    if (table_find(current->p->root, sym(debugsyscalls)))
-    //        thread_log(current, syscall_name(call));
-
+    if (table_find(current->p->process_root, sym(debugsyscalls)))
+        thread_log(current, syscall_name(call));
     u64 (*h)(u64, u64, u64, u64, u64, u64) = current->p->syscall_handlers[call];
     u64 res = -ENOENT;
     if (h) {

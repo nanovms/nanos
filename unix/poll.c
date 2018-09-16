@@ -207,25 +207,24 @@ int epoll_wait(int epfd,
         }
     }
     int eventcount = w->user_events->end/sizeof(struct epoll_event);
-    if (w->user_events->end) {
+    if (timeout == 0 || w->user_events->end) {
 #ifdef EPOLL_DEBUG
 	rprintf("   immediate return; eventcount %d\n", eventcount);
 #endif
 	epoll_blocked_release(w);
         return eventcount;
     }
-    
+
     if (timeout > 0) {
 	w->timeout = register_timer(milliseconds(timeout), closure(h, epoll_blocked_finish, w));
 #ifdef EPOLL_DEBUG
 	rprintf("   registered timer %p\n", w->timeout);
 #endif
     }
-
 #ifdef EPOLL_DEBUG
     rprintf("   sleeping...\n");
 #endif
-    w->sleeping = true;    
+    w->sleeping = true;
     thread_sleep(current);
 }
 
@@ -295,6 +294,7 @@ int pselect(int nfds,
 {
     kernel k = current->p->k;
 
+    // xxx - implement wait/notify
     if (timeout == 0) {
         rprintf("select poll\n");
     } else {

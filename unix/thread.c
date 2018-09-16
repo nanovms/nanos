@@ -37,7 +37,9 @@ long clone(unsigned long flags, void *child_stack, void *ptid, void *ctid, void 
     thread t = create_thread(current->p);
     runtime_memcpy(t->frame, current->frame, sizeof(t->frame));
     t->frame[FRAME_RSP]= u64_from_pointer(child_stack);
-    t->frame[FRAME_RAX]= *(u32 *)ctid;
+    // xxx - the interpretation of ctid is dependent on flags
+    // and it can be zero
+    // t->frame[FRAME_RAX]= *(u32 *)ctid; 
     t->frame[FRAME_FS] = u64_from_pointer(x);
     thread_wakeup(t);
     return t->tid;
@@ -73,6 +75,8 @@ static int futex(int *uaddr, int futex_op, int val,
     int op = futex_op & 127; // chuck the private bit
     switch(op) {
     case FUTEX_WAIT:
+        if (verbose)
+            rprintf("futex wait\n");
         if (*uaddr == val) {
             // if we resume we are woken up, no timeout support
             set_syscall_return(current, 0);
@@ -177,12 +181,10 @@ void register_thread_syscalls(void **map)
     register_syscall(map, SYS_gettid, gettid);
 }
 
-// tuplify
 void thread_log_internal(thread t, char *desc, ...)
 {
-    // why was this %n, why is this 15, and why is it faulting
-    // if enabled
-    //    rprintf ("%s\n", /*t->tid * 15, */desc);
+    if (table_find(t->p->process_root, sym(trace)))
+        rprintf ("%d %s\n", t->tid, desc);
 }
 
 

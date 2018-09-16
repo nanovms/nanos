@@ -9,7 +9,7 @@ VPATH += $(ROOT)/test
 %.o: %.c $(ROOT)/runtime/closure_templates.h
 	$(CC) $(CFLAGS) $(INCLUDES) $<
 
-all: hw webs hwg webg hws webs
+all: hw webs hwg webg hws webs webgs
 
 hwg: hwg.go
 	$(GO) build hwg.go
@@ -28,6 +28,9 @@ webs: web.o http.o socket_user.o  $(UNIXRUNTIME)
 
 webg: webg.go
 	$(GO) build webg.go
+
+webgs: webg.go
+	CGO_ENABLED=0 $(GO) build -a -ldflags '-extldflags "-static"' -o webgs webg.go 
 
 fst: fst.go
 	$(GO) build fst.go

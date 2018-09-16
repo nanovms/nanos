@@ -18,7 +18,7 @@ COREOBJ := $(addsuffix .o, $(basename $(notdir $(COREFILES))))
 CORE4OBJ := $(addsuffix .o, $(basename $(notdir $(CORE4FILES))))
 NETIF:= ethernet.o ethernetif.o
 
-NETOBJ = $(COREOBJ) $(CORE4OBJ) $(NETIF) netsyscall.o
+NETOBJ = $(COREOBJ) $(CORE4OBJ) $(NETIF) netsyscall.o net.o
 
 $(NETOBJ): lwip
 
