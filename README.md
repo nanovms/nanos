@@ -6,21 +6,22 @@ setting up qemu networking
 
   first setup your bridge environment:
   
-    brctl addbr foo                         create the bridge
-    find your external interface [intr]     note the address/mask assigned to [intr], call it [intraddr]
-    
-    ip addr flush dev [intr]                remove its ip address!
-    ifconfig foo [intraddr]                   
-    brctl addif [intr]                      if you do these three lines as a batch, you can keep connectivity
-    
-    tunctl                                  set tap0 to persistent - this helps
-                                            note the ethernet address of tap0 [tapeth]
-    brctl addif foo tap0
-
-    ip link set [intr] promisc on           accept packets for the guest ether
-    route add default gw [gateway]                     
-    
-note - i have been 'brctl setfd 0' - its not supposed to be necessary in non-stp environments
+```
+# create bridge named br0.
+ip link add br0 type bridge
+# bring up the bridge.
+ip link set br0 up
+# add the ethernet adapter eth0 to bridge.
+ip link set $(ETH0) master br0
+# create a tap device named tap0.
+ip tuntap add tap0 mode tap user `whoami`
+# bring up the bridge.
+ip link set tap0 up
+# add tap0 to bridge.
+ip link set tap0 master br0
+# assign ip to bridge.
+dhclient -v br0
+```
 
 invoke qemu:
 ```

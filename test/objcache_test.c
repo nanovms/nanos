@@ -8,6 +8,8 @@
 #include <errno.h>
 #include <string.h>
 
+#define TEST_PAGESIZE  (1 << 21)
+
 static inline boolean validate(heap h)
 {
     if (!objcache_validate(h)) {
@@ -20,7 +22,7 @@ static inline boolean validate(heap h)
 
 static inline boolean validate_obj(heap h, void * obj)
 {
-    heap o = objcache_from_object(u64_from_pointer(obj), PAGESIZE);
+    heap o = objcache_from_object(u64_from_pointer(obj), TEST_PAGESIZE);
     if (o != h) {
 	msg_err("objcache_from_object returned %p, doesn't match heap %p\n", o, h);
 	return false;
@@ -30,10 +32,9 @@ static inline boolean validate_obj(heap h, void * obj)
 
 static boolean alloc_vec(heap h, int n, int s, vector v)
 {
+    if (!validate(h))
+	return false;
     for (int i=0; i < n; i++) {
-	if (!validate(h))
-	    return false;
-
 	void * p = allocate(h, s);
 	if (p == INVALID_ADDRESS) {
 	    msg_err("tb: failed to allocate object\n");
@@ -44,6 +45,8 @@ static boolean alloc_vec(heap h, int n, int s, vector v)
 	
 	vector_set(v, i, p);
     }
+    if (!validate(h))
+	return false;
 
     return true;
 }
@@ -51,20 +54,19 @@ static boolean alloc_vec(heap h, int n, int s, vector v)
 static boolean dealloc_vec(heap h, int s, vector v)
 {
     void * p;
-    
+    if (!validate(h))
+	return false;
     vector_foreach(v, p) {
 	if (!p)
 	    continue;
-	
-	if (!validate(h))
-	    return false;
 
 	if (!validate_obj(h, p))
 	    return false;
 
 	deallocate(h, p, s);
     }
-
+    if (!validate(h))
+	return false;
     return true;
 }
     
@@ -72,13 +74,13 @@ static boolean dealloc_vec(heap h, int s, vector v)
 boolean objcache_test(heap meta, heap parent, int objsize)
 {
     /* just a cursory test */
-    int opp = (PAGESIZE - FOOTER_SIZE) / objsize;
+    int opp = (TEST_PAGESIZE - FOOTER_SIZE) / objsize;
     int i;
     heap h = allocate_objcache(meta, parent, objsize);
     vector objs = allocate_vector(meta, opp);
 
     msg_debug("objs %p, heap %p\n", objs, h);
-    
+
     if (h == INVALID_ADDRESS) {
 	msg_err("tb: failed to allocate objcache heap\n");
 	/* XXX free vector */
@@ -112,12 +114,11 @@ boolean objcache_test(heap meta, heap parent, int objsize)
 int main(int argc, char **argv)
 {
     heap h = init_process_runtime();
-    bytes pagesize = PAGESIZE;
-    bytes mmapsize = pagesize * 1024; /* arbitrary */
+    bytes mmapsize = TEST_PAGESIZE * 4; /* arbitrary */
 
     /* make a parent heap for pages */
     heap m = allocate_mmapheap(h, mmapsize);
-    heap pageheap = create_id_heap_backed(h, m, pagesize);
+    heap pageheap = create_id_heap_backed(h, m, TEST_PAGESIZE);
 
     /* XXX test a range of sizes */
     if (!objcache_test(h, pageheap, 32))

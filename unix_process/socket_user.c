@@ -111,7 +111,11 @@ void connection_start(heap h, descriptor s, descriptor e, new_connection c)
 
 // more general registration than epoll fd
 // asynch
-void connection(heap h, descriptor e, buffer target, new_connection c)
+void connection(heap h,
+                descriptor e,
+                buffer target,
+                new_connection c,
+                errno_handler failure)
 {
     struct sockaddr_in where;
     int s = socket(AF_INET, SOCK_STREAM, 0);
@@ -120,10 +124,14 @@ void connection(heap h, descriptor e, buffer target, new_connection c)
     parse_v4_address_and_port(alloca_wrap(target), &v4, &port);
     fill_v4_sockaddr(&where, v4, port);
     // this is still blocking!
-    int status = connect(s, (struct sockaddr *)&where, sizeof(struct sockaddr_in));
-    if (status < 0) halt("conection error %d %E %d\n", errno, errno, status);
-
-    register_descriptor_write(h, e, s, closure(h, connection_start, h, s, e, c));
+    int res = connect(s, (struct sockaddr *)&where, sizeof(struct sockaddr_in));
+    rprintf("conncet return %d\n", res);
+    if (res) {
+        rprintf("zikkay %d %p\n", res, failure);        
+        apply(failure, res);
+    } else {
+        register_descriptor_write(h, e, s, closure(h, connection_start, h, s, e, c));
+    }
 }
 
 

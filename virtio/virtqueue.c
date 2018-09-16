@@ -41,7 +41,7 @@ struct virtqueue {
     void *ring_mem;
     struct vring_desc *desc;
     struct vring_avail *avail;
-    struct vring_used *used;    
+    volatile struct vring_used *used;    
     u16	free_cnt;
     u16	desc_idx;
     u16 avail_idx;
@@ -82,16 +82,15 @@ struct vring_used {
 static CLOSURE_1_0(vq_interrupt, void, virtqueue);
 static void vq_interrupt(struct virtqueue *vq)
 {
-    struct vring_used_elem *uep;
-    u16 used_idx, desc_idx;
+    volatile struct vring_used_elem *uep;
     vqfinish *vqf = (void *)(vq+1);
     
     read_barrier();
     while (vq->used_idx != vq->used->idx) {
-        used_idx = vq->used_idx++ & (vq->entries - 1);
-        uep = &vq->used->ring[used_idx];
-        // reclaim the desc space...with an allocator
+        uep = &vq->used->ring[vq->used_idx  & (vq->entries - 1)];
+        // reclaim the desc space
         apply(vqf[uep->id],  uep->len);
+        vq->used_idx++; 
     }
 }
 

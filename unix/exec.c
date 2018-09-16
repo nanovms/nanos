@@ -1,5 +1,6 @@
 #include <unix_internal.h>
 #include <elf64.h>
+#include <gdb.h>
 
 #define spush(__s, __w) *((--(__s))) = (u64)(__w)
 
@@ -58,14 +59,10 @@ void start_process(thread t, void *start)
 {
     t->frame[FRAME_RIP] = u64_from_pointer(start);
     
-    // move outside?
-#if NET && GDB
-    if (resolve_cstring(fs, "gdb")) {
+    if (table_find(t->p->process_root, sym(gdb))) {
         console ("gdb!\n");
-        init_tcp_gdb(general, p, 1234);
-    } else
-#endif
-    {
+        init_tcp_gdb(t->p->k->general, t->p, 1234);
+    } else {
         rprintf ("enq\n");
         enqueue(runqueue, t->run);
     }
@@ -122,7 +119,9 @@ process exec_elf(buffer ex, kernel k)
         }
     }
     start_process(t, start);
-    add_elf_syms(k->general, ex);
+    // xxx - in some environments with some programs this causes
+    // rtrie insert to blow the stack. fix rtrie.
+    //    add_elf_syms(k->general, ex);
     return proc;    
 }
 

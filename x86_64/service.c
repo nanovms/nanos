@@ -4,6 +4,7 @@
 #include <virtio.h>
 #include <tfs.h>
 
+extern void init_net(heap, heap);
 extern void startup();
 extern void start_interrupts();
 // to avoid passing through tagged
@@ -54,6 +55,7 @@ static context miscframe;
 void runloop()
 {
     thunk t;
+
     while(1) {
         // hopefully overall loop is being driven by the lapic periodic interrupt,
         // which should limit the skew
@@ -103,7 +105,8 @@ void attach_storage(heap h, heap virtual, tuple root, block_read r, block_write 
             fs_offset = region_base(e);
         }
 
-    // with filesystem...should be hidden as functional handlers on the tuplespace    
+    // with filesystem...should be hidden as functional handlers on the tuplespace
+
     create_filesystem(h,
                       512, // from the device please
                       length,
@@ -111,8 +114,6 @@ void attach_storage(heap h, heap virtual, tuple root, block_read r, block_write 
                       closure(h, offset_block_write, w, fs_offset),
                       root,
                       closure(h, fsstarted, h, virtual, root));
-
-    runloop();
 }
 
 static void read_kernel_syms(heap h, heap virtual, heap pages)
@@ -149,18 +150,24 @@ static void format_elf_symbol(buffer dest, buffer fmt, vlist *v)
 }
 
 
-static void init_service_new_stack(heap pages, heap physical, heap backed, heap backed_2M, heap virtual)
+static struct heap bootstrap;
+static heap pages, physical_memory, backed, backed_2M, virtual;
+
+static void __attribute__((noinline))
+init_service_new_stack()
 {
     // just to find maintain the convention of faulting on zero references
     unmap(0, PAGESIZE, pages);
 
-    heap misc = allocate_rolling_heap(backed, 8);
-    //    misc = debug_heap(misc, misc); 
+    heap misc = allocate_mcache(&bootstrap, backed_2M, 5, 20);
     runqueue = allocate_queue(misc, 64);
-    start_interrupts(pages, misc, physical);
+
+    start_interrupts(pages, misc, physical_memory);
     init_runtime(misc);
     init_symtab(misc);
     read_kernel_syms(misc, virtual, pages);
+    init_clock(backed);    
+    init_net(misc, backed);
     // k ?
     register_format('k', format_elf_symbol);            
     
@@ -169,12 +176,13 @@ static void init_service_new_stack(heap pages, heap physical, heap backed, heap 
     init_pci(misc);
     init_virtio_storage(misc, backed, pages, closure(misc, attach_storage, misc, virtual, root));
     init_virtio_network(misc, backed, backed_2M, pages);
-    init_clock(backed);
+
     miscframe = allocate(misc, FRAME_MAX * sizeof(u64));
     pci_discover(pages, virtual);
     // just to get the hlt loop to wake up and service timers. 
     // should change this to post the delta to the front of the queue each time
     configure_timer(milliseconds(50), ignore);
+    runloop();
 }
 
 static void init_pages_id_heap(heap h)
@@ -229,8 +237,6 @@ static void init_physical_id_heap(heap h)
 // init linker set
 void init_service()
 {
-    struct heap bootstrap;
-
     bootstrap.alloc = bootstrap_alloc;
     bootstrap.dealloc = leak;
     pages = allocate_id_heap(&bootstrap, PAGESIZE);
@@ -238,15 +244,14 @@ void init_service()
     physical_memory = allocate_id_heap(&bootstrap, PAGESIZE);
     init_physical_id_heap(physical_memory);
 
-    heap virtual = create_id_heap(&bootstrap, HUGE_PAGESIZE, (1ull<<VIRTUAL_ADDRESS_BITS)- HUGE_PAGESIZE, HUGE_PAGESIZE);
+    virtual = create_id_heap(&bootstrap, HUGE_PAGESIZE, (1ull<<VIRTUAL_ADDRESS_BITS)- HUGE_PAGESIZE, HUGE_PAGESIZE);
     heap virtual_pagesized = create_id_heap_backed(&bootstrap, virtual, PAGESIZE);
-    heap backed = physically_backed(&bootstrap, virtual_pagesized, physical_memory, pages, PAGESIZE);
-    heap backed_2M = physically_backed(&bootstrap, virtual_pagesized, physical_memory, pages, PAGESIZE_2M);
-
+    backed = physically_backed(&bootstrap, virtual_pagesized, physical_memory, pages, PAGESIZE);
+    backed_2M = physically_backed(&bootstrap, virtual_pagesized, physical_memory, pages, PAGESIZE_2M);
     u64 stack_size = 32*PAGESIZE;
     u64 stack_location = allocate_u64(backed, stack_size);
-    
     stack_location += stack_size - 16;
+    *(u64 *)stack_location = 0;
     asm ("mov %0, %%rsp": :"m"(stack_location));
-    init_service_new_stack(pages, physical_memory, backed, backed_2M, virtual);
+    init_service_new_stack();
 }

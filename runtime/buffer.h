@@ -95,6 +95,11 @@ static inline buffer wrap_buffer(heap h,
     return(new);
 }
 
+static inline void unwrap_buffer(heap h, buffer b)
+{
+    deallocate(h, b, sizeof(struct buffer));
+}
+
 buffer allocate_buffer(heap h, bytes length);
 
 

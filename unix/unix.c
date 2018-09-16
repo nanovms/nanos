@@ -76,7 +76,7 @@ process create_process(kernel k)
     p->virtual = create_id_heap(h, 0x7000000000ull, 0x10000000000ull, 0x100000000);
     p->virtual32 = create_id_heap(h, 0x10000000, 0xe0000000, PAGESIZE);
     p->cwd = k->root;
-    p->root = k->root;
+    p->process_root = k->root;
     u64 infinity =  -1ull;
     p->fdallocator = create_id_heap(h, 3, infinity, 1);
     p->files = allocate_vector(h, 64);
@@ -101,7 +101,6 @@ buffer install_syscall(heap h)
 {
     buffer b = allocate_buffer(h, 100);
     int working = REGISTER_A;
-    rprintf ("current location: %p\n", current);
     mov_64_imm(b, working, u64_from_pointer(current));
     indirect_displacement(b, REGISTER_A, REGISTER_A, offsetof(thread, p));
     indirect_displacement(b, REGISTER_A, REGISTER_A, offsetof(process, syscall_handlers));

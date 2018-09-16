@@ -76,6 +76,7 @@ typedef struct process {
     heap virtual;
     heap virtual32;    
     heap fdallocator;
+    tuple process_root;
     tuple cwd; 
     table futices;
     fault_handler handler;

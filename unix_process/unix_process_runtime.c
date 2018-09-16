@@ -15,6 +15,7 @@ void print_u64(u64 x)
 
 void console(char *x)
 {
+    write(2, x, runtime_strlen(x));
 }
 
 time now()
