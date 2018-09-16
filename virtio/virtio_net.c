@@ -198,7 +198,6 @@ static err_t virtioif_init(struct netif *netif)
     post_receive(vn);
     post_receive(vn);
     post_receive(vn);
-    register_periodic_timer(milliseconds(500), closure(vn->dev->general, timeout));
     dhcp_start(vn->n); 
     
     return ERR_OK;

@@ -2,6 +2,7 @@
 typedef u8 reg;
 
 void mov_64_imm(buffer b, reg r, u64 imm);
+void mov_32_imm(buffer b, reg r, u32 imm);
 void jump_indirect(buffer b, reg r);
 void indirect_displacement(buffer b, reg dest, reg source, u32 d);
 void indirect_scale(buffer b, reg dest, u32 scale, reg index, reg base);
