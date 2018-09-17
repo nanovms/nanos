@@ -1,8 +1,5 @@
 // structs that live on the user-kernel boundary
 
-// look this up
-#define FDMAX 256
-
 struct stat
   {
     u64 st_dev;		
@@ -224,20 +221,6 @@ struct siginfo {
     // plus big hairy union...we dont plan on delivering any of these at the moment
 };
 
-enum protocol_type {
- SOCK_STREAM  = 1,    /* stream (connection) socket	*/
- SOCK_DGRAM   = 2,    /* datagram (conn.less) socket	*/
- SOCK_RAW     = 3     /* raw socket			*/
-};
-
-enum socket_state {
-  SOCK_UNDEFINED,
-  SOCK_CREATED,
-  SOCK_IN_CONNECTION,
-  SOCK_OPEN,
-  SOCK_CLOSED
-};
-
 #define NSIG 64
 typedef struct {
     unsigned long sig[NSIG/sizeof(unsigned long)];
@@ -252,8 +235,6 @@ struct sigaction {
 	unsigned long sa_flags;
 	void (*sa_restorer)(void);
 };
-
-
 
 struct timeval {
     u64 tv_sec;     /* seconds */
@@ -311,11 +292,6 @@ struct epoll_event {
 #define EPOLLONESHOT 1u << 30
 #define EPOLLET 1u << 3
 
-#define beu16 u16
-
-#define __SOCK_SIZE__	16		/* sizeof(struct sockaddr)	*/
-
-
 typedef struct aux {u64 tag; u64 val;} *aux;
- 
+
 

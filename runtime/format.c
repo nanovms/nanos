@@ -15,8 +15,6 @@ void vbprintf(buffer d, buffer fmt, vlist *ap)
     foreach_character(i, fmt) {
         if (state == 1)  {
             if ((i > 32) && (i < 128) && formatters[i-32]) {
-                // on x86-32 this is pass by value rather than reference, so wa
-                // can only print one thing
                 formatters[i-32](d, fmt, ap);
             } else {
                 char header[] = "[invalid format %";

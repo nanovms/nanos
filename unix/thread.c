@@ -68,7 +68,7 @@ static int futex(int *uaddr, int futex_op, int val,
                  int *uaddr2, int val3)
 {
     struct timespec *timeout = pointer_from_u64(val2);
-    int verbose = false;
+    int verbose = true;
     thread w;
     
     fut f = soft_create_futex(current->p, u64_from_pointer(uaddr));
@@ -76,7 +76,7 @@ static int futex(int *uaddr, int futex_op, int val,
     switch(op) {
     case FUTEX_WAIT:
         if (verbose)
-            rprintf("futex wait\n");
+            thread_log(current, "futex wait %p\n", uaddr);
         if (*uaddr == val) {
             // if we resume we are woken up, no timeout support
             set_syscall_return(current, 0);
@@ -88,7 +88,7 @@ static int futex(int *uaddr, int futex_op, int val,
     case FUTEX_WAKE:
         // return the number of waiters that were woken up
         if (verbose)
-            rprintf("futex_wake [%d %p %d]\n", current->tid, uaddr, *uaddr);
+            thread_log(current, "futex_wake [%d %p %d]\n", current->tid, uaddr, *uaddr);
         if ((w = dequeue(f->waiters))) {
             set_syscall_return(current, 1);            
             thread_wakeup(w);
@@ -99,7 +99,7 @@ static int futex(int *uaddr, int futex_op, int val,
     case FUTEX_REQUEUE: rprintf("futex_requeue\n"); break;
     case FUTEX_CMP_REQUEUE:
         if (verbose)
-            rprintf("futex_cmp_requeue [%d %p %d] %d\n", current->tid, uaddr, *uaddr, val3);
+            thread_log(current, "futex_cmp_requeue [%d %p %d] %d\n", current->tid, uaddr, *uaddr, val3);
         if (*uaddr == val3) {
             if ((w = dequeue(f->waiters))) {
                 set_syscall_return(current, 1);                            
@@ -116,7 +116,7 @@ static int futex(int *uaddr, int futex_op, int val,
             unsigned int op = (val3 >> 28) & MASK(4);
 
             if (verbose)
-                rprintf("futex wake op: [%d %p %d] %p %d %d %d %d\n",  current->tid, uaddr, *uaddr, uaddr2, cmparg, oparg, cmp, op);
+                thread_log(current, "futex wake op: [%d %p %d] %p %d %d %d %d\n",  current->tid, uaddr, *uaddr, uaddr2, cmparg, oparg, cmp, op);
             int oldval = *(int *) uaddr2;
             
             switch (cmp) {
@@ -155,7 +155,7 @@ static int futex(int *uaddr, int futex_op, int val,
 
     case FUTEX_WAIT_BITSET:
         if (verbose)
-            rprintf("futex_wait_bitset [%d %p %d] %p %p\n", current->tid, uaddr, *uaddr, val3);
+            thread_log(current, "futex_wait_bitset [%d %p %d] %p %p\n", current->tid, uaddr, *uaddr, val3);
         if (*uaddr == val) {
             set_syscall_return(current, 0);                            
             enqueue(f->waiters, current);
@@ -183,8 +183,16 @@ void register_thread_syscalls(void **map)
 
 void thread_log_internal(thread t, char *desc, ...)
 {
-    if (table_find(t->p->process_root, sym(trace)))
-        rprintf ("%d %s\n", t->tid, desc);
+    if (table_find(t->p->process_root, sym(trace))) {
+        vlist ap;
+        vstart (ap, desc);        
+        buffer b = allocate_buffer(transient, 100);
+        bprintf (b, "%n %d ", (t->tid - 1)*8, t->tid, desc);
+        buffer f = alloca_wrap_buffer(desc, runtime_strlen(desc));
+        vbprintf(b, f, &ap);
+        push_u8(b, '\n');
+        debug(b);
+    }
 }
 
 
@@ -216,7 +224,7 @@ void thread_wakeup(thread t)
 thread create_thread(process p)
 {
     // heap I guess
-    static int tidcount = 1;
+    static int tidcount = 0;
     heap h = p->k->general;
     thread t = allocate(h, sizeof(struct thread));
     t->p = p;
