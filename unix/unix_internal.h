@@ -22,6 +22,15 @@ typedef struct thread {
     u64 frame[FRAME_MAX];
     process p;
 
+    /* Inherited from process but copied here because:
+       1) these are accessed a lot, so at least save a level of indirection, and
+
+       2) it becomes possible to vector heaps to favor per-CPU heaps
+          when switching to threads with affinity to the running CPU.
+    */
+    kernel_heaps kh;
+    unix_heaps uh;
+
     void *set_child_tid;
     void *clear_child_tid;
     u64 tid;
@@ -40,16 +49,8 @@ typedef struct file {
     tuple n;
 } *file;
 
-/* kernel "instance", really just a collection of allocators, fs root, etc. */
-typedef struct kernel {
-    /* memory heaps */
-    heap general;
-    heap pages;
-    heap physical;
-    heap virtual;		/* these are for kernel-only mappings; */
-    heap virtual_pagesized;	/* not user space */
-    heap backed;
-
+/* unix-specific memory objects and ids */
+typedef struct unix_heaps {
     /* object caches */
     heap file_cache;
     heap epoll_cache;
@@ -61,21 +62,18 @@ typedef struct kernel {
 
     /* id heaps */
     heap processes;
-
-    /* filesystem */
-    tuple root;
-    // xxx - filesystem should be folded underneath tuple operators
-    filesystem fs;
-} *kernel;
+} *unix_heaps;
 
 typedef struct process {
-    kernel k;
+    kernel_heaps kh;		/* non-thread-specific */
+    unix_heaps uh;
     int pid;
     // i guess this should also be a heap, brk is so nasty
     void *brk;
     heap virtual;
     heap virtual32;    
     heap fdallocator;
+    filesystem fs;	/* XXX should be underneath tuple operators */
     tuple process_root;
     tuple cwd; 
     table futices;
@@ -87,6 +85,19 @@ typedef struct process {
 } *process;
 
 extern thread current;
+
+static inline unix_heaps get_unix_heaps()
+{
+    return current->uh;
+}
+
+static inline kernel_heaps get_kernel_heaps()
+{
+    return current->kh;
+}
+
+#define unix_cache_alloc(uh, c) ({ heap __c = uh->c ## _cache; allocate(__c, __c->pagesize); })
+#define unix_cache_free(uh, c, p) ({ heap __c = uh->c ## _cache; deallocate(__c, p, __c->pagesize); })
 
 u64 allocate_fd(process p, file f);
 
@@ -124,7 +135,7 @@ void register_thread_syscalls(void **);
 void register_poll_syscalls(void **);
 void register_clock_syscalls(void **);
 
-boolean poll_init(kernel k);
+boolean poll_init(kernel_heaps kh, unix_heaps uh);
 
 extern u64 syscall_ignore();
 CLOSURE_1_1(default_fault_handler, void, thread, context);

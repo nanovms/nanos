@@ -392,9 +392,8 @@ static void readcomplete(thread t, u64 len, status s)
 static CLOSURE_1_3(contents_read, int, tuple, void *, u64, u64);
 static int contents_read(tuple n, void *dest, u64 length, u64 offset)
 {
-    kernel k = current->p->k;
-    filesystem_read(k->fs, n, dest, length, offset,
-		    closure(k->general, readcomplete, current, length));
+    filesystem_read(current->p->fs, n, dest, length, offset,
+		    closure(heap_general(get_kernel_heaps()), readcomplete, current, length));
     runloop();
 }
 
@@ -407,8 +406,7 @@ int openat(char *name, int flags, int mode)
 static CLOSURE_1_0(file_close, int, file);
 static int file_close(file f)
 {
-    kernel k = current->p->k;
-    deallocate(k->file_cache, f, sizeof(struct file));
+    unix_cache_free(get_unix_heaps(), file, f);
     return 0;
 }
 
@@ -416,8 +414,8 @@ s64 open(char *name, int flags, int mode)
 {
     tuple n;
     bytes length;
-    kernel k = current->p->k;
-    heap h = k->general;
+    heap h = heap_general(get_kernel_heaps());
+    unix_heaps uh = get_unix_heaps();
     
     // fix - lookup should be robust
     if (name == 0) return -EINVAL;
@@ -428,14 +426,14 @@ s64 open(char *name, int flags, int mode)
 
 //    buffer b = allocate(h, sizeof(struct buffer));
     // might be functional, or be a directory
-    file f = allocate(k->file_cache, sizeof(struct file));
+    file f = unix_cache_alloc(uh, file);
     if (f == INVALID_ADDRESS) {
 	msg_err("failed to allocate struct file\n");
 	return -ENOMEM;
     }
     int fd = allocate_fd(current->p, f);
     if (fd == INVALID_PHYSICAL) {
-	deallocate(k->file_cache, f, sizeof(struct file));
+	unix_cache_free(uh, file, f);
 	return -EMFILE;
     }
     rprintf ("open %s %p\n", name, fd);
@@ -527,7 +525,7 @@ static char *getcwd(char *buf, u64 length)
 static void *brk(void *x)
 {
     process p = current->p;
-    kernel k = p->k;
+    kernel_heaps kh = get_kernel_heaps();
 
     if (x) {
         if (p->brk > x) {
@@ -536,7 +534,7 @@ static void *brk(void *x)
         } else {
             // I guess assuming we're aligned
             u64 alloc = pad(u64_from_pointer(x), PAGESIZE) - pad(u64_from_pointer(p->brk), PAGESIZE);
-            map(u64_from_pointer(p->brk), allocate_u64(k->physical, alloc), alloc, k->pages);
+            map(u64_from_pointer(p->brk), allocate_u64(heap_physical(kh), alloc), alloc, heap_pages(kh));
             // people shouldn't depend on this
             zero(p->brk, alloc);
             p->brk += alloc;         

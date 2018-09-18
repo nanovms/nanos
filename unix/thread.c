@@ -53,7 +53,7 @@ typedef struct fut {
 static fut soft_create_futex(process p, u64 key)
 {
     fut f;
-    heap h = p->k->general;
+    heap h = heap_general(get_kernel_heaps());
     // of course this is supossed to be serialized
     if (!(f = table_find(p->futices, pointer_from_u64(key)))) {
         f = allocate(h, sizeof(struct fut));
@@ -225,9 +225,11 @@ thread create_thread(process p)
 {
     // heap I guess
     static int tidcount = 0;
-    heap h = p->k->general;
+    heap h = heap_general(p->kh);
     thread t = allocate(h, sizeof(struct thread));
     t->p = p;
+    t->kh = p->kh;
+    t->uh = p->uh;
     t->tid = tidcount++;
     t->set_child_tid = t->clear_child_tid = 0;
     t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(closure(h, default_fault_handler, t));

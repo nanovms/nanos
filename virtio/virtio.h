@@ -35,4 +35,4 @@
 
 typedef closure_type(storage_attach, void, block_read, block_write, u64);
 void init_virtio_storage(heap h, heap page_allocator, heap pages, storage_attach);
-void init_virtio_network(heap h, heap page_allocator, heap page_allocator_2M, heap pages);
+void init_virtio_network(heap h, heap page_allocator, heap pages);

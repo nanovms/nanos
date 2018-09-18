@@ -28,7 +28,7 @@ extern void lwip_init();
 void init_net(heap h, heap page_allocator)
 {
     rprintf("init net page alloc %p\n", page_allocator);
-    lwip_heap = allocate_mcache(h, page_allocator, 5, 11);
+    lwip_heap = allocate_mcache(h, page_allocator, 5, 11, PAGESIZE);
     lwip_init();
     register_periodic_timer(milliseconds(500), closure(h, timeout));
 }

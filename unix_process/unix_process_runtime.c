@@ -50,13 +50,13 @@ void halt(char *format, ...)
     exit(-1);
 }
 
-heap allocate_tagged_region(heap h, u64 tag)
+heap allocate_tagged_region(kernel_heaps kh, u64 tag)
 {
     u64 size = 4*1024*1024;
     void *region = mmap(pointer_from_u64(tag << va_tag_offset),
                         size, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_ANON | MAP_PRIVATE, -1, 0);
     // use a specific growable heap
-    return create_id_heap(h, u64_from_pointer(region), size, 1);
+    return create_id_heap(heap_general(kh), u64_from_pointer(region), size, 1);
 }
 
 extern void init_extra_prints();
@@ -68,15 +68,17 @@ static void format_errno(buffer dest, buffer fmt, vlist *a)
     buffer_write(dest, e, len);
 }
 
+static struct kernel_heaps heaps; /* really just for init_runtime() */
+
 // 64 bit unix process                  
 heap init_process_runtime()
 {
-    heap h = malloc_allocator();
-    init_runtime(h);
+    heaps.general = malloc_allocator();
+    init_runtime(&heaps);
     init_extra_prints();
     // unix errno print formatter
     register_format('E', format_errno);       
-    return h;
+    return heaps.general;
 }
 
 void serial_out(u8 k)

@@ -271,7 +271,7 @@ void configure_timer(time rate, thunk t)
 
 extern u32 interrupt_size;
  
-void start_interrupts(heap pages, heap general, heap contiguous)
+void start_interrupts(heap general, heap pages)
 {
     // these are simple enough it would be better to just
     // synthesize them

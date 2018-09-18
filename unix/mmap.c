@@ -2,7 +2,7 @@
 
 void *mremap(void *old_address, u64 old_size,  u64 new_size, int flags,  void *new_address )
 {
-    kernel k = current->p->k;
+    kernel_heaps kh = get_kernel_heaps();
 
     // this seems poorly thought out - what if there is a backing file?
     // and if its anonymous why do we care where it is..i guess this
@@ -12,12 +12,12 @@ void *mremap(void *old_address, u64 old_size,  u64 new_size, int flags,  void *n
     if (new_size > old_size) {
         u64 diff = pad(new_size - old_size, PAGESIZE);
         u64 base = u64_from_pointer(old_address + old_size) & align;
-        void *r = allocate(k->physical,diff);
+        void *r = allocate(heap_physical(kh),diff);
         if (u64_from_pointer(r) == INVALID_PHYSICAL) {
             // MAP_FAILED
             return r;
         }
-        map(base, physical_from_virtual(r), diff, k->pages);
+        map(base, physical_from_virtual(r), diff, heap_pages(kh));
         zero(pointer_from_u64(base), diff); 
     }
     //    map(u64_from_pointer(new_address)&align, physical_from_virtual(old_address), old_size, current->p->pages);
@@ -40,9 +40,9 @@ static int mincore(void *addr, u64 length, u8 *vec)
 static void *mmap(void *target, u64 size, int prot, int flags, int fd, u64 offset)
 {
     process p = current->p;
-    kernel k = p->k;
-    heap pages = k->pages;
-    heap physical = k->physical;
+    kernel_heaps kh = get_kernel_heaps();
+    heap pages = heap_pages(kh);
+    heap physical = heap_physical(kh);
     // its really unclear whether this should be extended or truncated
     u64 len = pad(size, PAGESIZE);
     //gack
