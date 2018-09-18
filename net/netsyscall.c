@@ -123,7 +123,6 @@ static void read_complete(sock s, thread t, void *dest, u64 length)
         set_syscall_return(t, -ENOTCONN);
         return;
     }
-    
     struct pbuf *p = queue_peek(s->incoming);
     u64 xfer = MIN(length, p->len);
     runtime_memcpy(dest, p->payload, xfer);
@@ -134,7 +133,7 @@ static void read_complete(sock s, thread t, void *dest, u64 length)
         dequeue(s->incoming);
         pbuf_free(p);
     }
-    // tcp_recved() to move the receive window
+    tcp_recved(s->lw, xfer);
 }
 
 static CLOSURE_2_0(read_hup, void, sock, thread);
@@ -195,6 +194,9 @@ static int socket_close(sock s)
 {
     kernel k = current->p->k;
     heap h = k->general;
+    if (s->state == SOCK_OPEN) {
+        tcp_close(s->lw);
+    }
     deallocate_queue(s->notify, SOCK_QUEUE_LEN);
     deallocate_queue(s->waiting, SOCK_QUEUE_LEN);
     deallocate_queue(s->incoming, SOCK_QUEUE_LEN);
