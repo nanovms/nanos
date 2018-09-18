@@ -37,12 +37,13 @@ NET = -device virtio-net,mac=7e:b8:7e:87:4a:ea,netdev=n0 $(TAP)
 KVM = -enable-kvm
 DISPLAY = -display none -serial stdio
 USERNET = -device virtio-net,netdev=n0 -netdev user,id=n0,hostfwd=tcp::8080-:8080
+QEMU ?= qemu-system-x86_64
 
 run-nokvm: image
-	- qemu-system-x86_64 $(BOOT) $(DISPLAY) -m 2G -device isa-debug-exit $(STORAGE) 
+	- $(QEMU) $(BOOT) $(DISPLAY) -m 2G -device isa-debug-exit $(STORAGE) 
 
 run: image
-	- qemu-system-x86_64 $(BOOT) $(DISPLAY) -m 2G -device isa-debug-exit $(STORAGE) $(USERNET) $(KVM)
+	- $(QEMU) $(BOOT) $(DISPLAY) -m 2G -device isa-debug-exit $(STORAGE) $(USERNET) $(KVM)
 
 runnew: image image2
 	- ~/qemu/x86_64-softmmu/qemu-system-x86_64 -hda image $(DISPLAY) -m 2G -device isa-debug-exit $(STORAGE) $(USERNET) $(KVM)
