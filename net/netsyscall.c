@@ -147,10 +147,15 @@ static void read_hup(sock s, thread t)
 static CLOSURE_1_3(socket_read, int, sock, void *, u64, u64);
 static int socket_read(sock s, void *dest, u64 length, u64 offset)
 {
-    apply(s->f.check,
-	  closure(s->h, read_complete, s, current, dest, length),
-	  closure(s->h, read_hup, s, current));
-    runloop();    
+    thunk complete = closure(s->h, read_complete, s, current, dest, length);
+    if (SOCK_OPEN != s->state) return -ENOTCONN;
+
+    if (queue_length(s->incoming)) {
+        apply(complete);
+    } else {
+        enqueue(s->waiting, complete);
+    }
+    runloop();                
 }
 
 static CLOSURE_1_3(socket_write, int, sock, void *, u64, u64);
