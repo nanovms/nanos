@@ -39,6 +39,12 @@ static void format_u64(buffer dest, buffer fmt, vlist *a)
     print_number(dest, x, 16, 1);
 }
 
+static void format_spaces(buffer dest, buffer fmt, vlist *a)
+{
+    u64 n = varg(*a, u64);
+    for (int i = 0; i < n; i++) push_u8(dest, ' ');
+}
+
 
 // maybe the same?
 heap errheap;
@@ -59,6 +65,7 @@ void init_runtime(heap h)
     register_format('P', format_u64);    // for 32 bit
     register_format('d', format_number);
     register_format('b', format_buffer);
+    register_format('n', format_spaces);    
     // fix
 #ifndef BITS32    
     initialize_timers(h);

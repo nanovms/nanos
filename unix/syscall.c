@@ -385,7 +385,7 @@ static int access(char *name, int mode)
 static CLOSURE_2_1(readcomplete, void, thread, u64, status);
 static void readcomplete(thread t, u64 len, status s)
 {
-    t->frame[FRAME_RAX] = len;
+    set_syscall_return(t, len);
     thread_wakeup(t);
 }
 
