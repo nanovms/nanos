@@ -4,12 +4,10 @@ include net/Makefile
 
 force:
 
-TARGET = net_unit
-
 mkfs/mkfs: force
 	cd mkfs ; make
 
-image: boot/boot mkfs/mkfs examples/$(TARGET).manifest stage3/stage3 examples/$(TARGET)
+%.image: % $(ROOT)boot/boot $(ROOT)/mkfs/mkfs $(ROOT)/stage3/stage3 %.manifest
 	mkfs/mkfs fs < examples/$(TARGET).manifest && cat boot/boot fs > image
 
 examples/$(TARGET): force

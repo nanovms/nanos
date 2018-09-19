@@ -77,7 +77,7 @@ process create_process(kernel k)
     p->virtual32 = create_id_heap(h, 0x10000000, 0xe0000000, PAGESIZE);
     p->cwd = k->root;
     p->process_root = k->root;
-    u64 infinity =  -1ull;
+    u64 infinity = -1ull;
     p->fdallocator = create_id_heap(h, 3, infinity, 1);
     p->files = allocate_vector(h, 64);
     zero(p->files, sizeof(p->files));

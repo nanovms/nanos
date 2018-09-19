@@ -29,7 +29,17 @@ typedef u32 socklen_t;
 typedef closure_type(pbuf_handler, void, struct pbuf *);
 typedef closure_type(pcb_handler, void, struct tcp_pcb *);
 
-// the network portion of the syscall interface on top of lwip
+
+// xxx - what is the difference between IN_CONNECTION and open
+// nothing seems to track whether the tcp state is actually
+// connected
+enum socket_state {
+  SOCK_UNDEFINED,
+  SOCK_CREATED,
+  SOCK_IN_CONNECTION,
+  SOCK_OPEN,
+  SOCK_CLOSED
+};
 
 typedef struct sock {
     struct file f;
@@ -113,33 +123,42 @@ static inline void pbuf_consume(struct pbuf *p, u64 length)
 static CLOSURE_4_0(read_complete, void, sock, thread, void *, u64);
 static void read_complete(sock s, thread t, void *dest, u64 length)
 {
+    if (s->state != SOCK_OPEN) {
+        set_syscall_return(t, -ENOTCONN);
+        return;
+    }
     struct pbuf *p = queue_peek(s->incoming);
     u64 xfer = MIN(length, p->len);
     runtime_memcpy(dest, p->payload, xfer);
     pbuf_consume(p, xfer);
-    t->frame[FRAME_RAX] = xfer;
+    set_syscall_return(t, xfer);
     enqueue(runqueue, t->run);
     if (p->len == 0) {
         dequeue(s->incoming);
         pbuf_free(p);
     }
-    // tcp_recved() to move the receive window
+    tcp_recved(s->lw, xfer);
 }
 
 static CLOSURE_2_0(read_hup, void, sock, thread);
 static void read_hup(sock s, thread t)
 {
-    t->frame[FRAME_RAX] = 0;
+    set_syscall_return(t, 0);
     enqueue(runqueue, t->run);
 }
 
 static CLOSURE_1_3(socket_read, int, sock, void *, u64, u64);
 static int socket_read(sock s, void *dest, u64 length, u64 offset)
 {
-    apply(s->f.check,
-	  closure(s->h, read_complete, s, current, dest, length),
-	  closure(s->h, read_hup, s, current));
-    runloop();    
+    thunk complete = closure(s->h, read_complete, s, current, dest, length);
+    if (SOCK_OPEN != s->state) return -ENOTCONN;
+
+    if (queue_length(s->incoming)) {
+        apply(complete);
+    } else {
+        enqueue(s->waiting, complete);
+    }
+    runloop();                
 }
 
 static CLOSURE_1_3(socket_write, int, sock, void *, u64, u64);
@@ -164,7 +183,7 @@ static void socket_check(sock s, thunk t_in, thunk t_hup)
     if (queue_length(s->incoming)) {
         apply(t_in);
     } else {
-  if (SOCK_OPEN == s->state) {
+        if (SOCK_OPEN == s->state) {
 	    enqueue(s->notify, t_in);
 	} else {
 	    apply(t_hup);
@@ -179,6 +198,9 @@ static int socket_close(sock s)
 {
     kernel k = current->p->k;
     heap h = k->general;
+    if (s->state == SOCK_OPEN) {
+        tcp_close(s->lw);
+    }
     deallocate_queue(s->notify, SOCK_QUEUE_LEN);
     deallocate_queue(s->waiting, SOCK_QUEUE_LEN);
     deallocate_queue(s->incoming, SOCK_QUEUE_LEN);
@@ -229,7 +251,6 @@ int socket(int domain, int type, int protocol)
 static err_t input_lower (void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 {
     sock s = z;
-
     if (p) {
         enqueue(s->incoming, p);
     } else {
@@ -347,7 +368,10 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
     int fd = allocate_sock(s->p, lw);
     if (fd < 0)
 	return ERR_MEM;
+
     // XXX - what if this has been closed in the meantime?
+    // refcnt
+
     sock sn = vector_get(s->p->files, fd);
     sn->state = SOCK_OPEN;
     sn->fd = fd;
