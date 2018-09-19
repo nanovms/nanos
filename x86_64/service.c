@@ -146,7 +146,7 @@ static struct heap bootstrap;
 static heap pages, physical_memory, backed, backed_2M, virtual;
 
 static void __attribute__((noinline))
-init_service_new_stack()
+init_service_new_stack(heap virtual_pagesized)
 {
     // just to find maintain the convention of faulting on zero references
     unmap(0, PAGESIZE, pages);
@@ -158,7 +158,7 @@ init_service_new_stack()
     init_runtime(misc);
     init_symtab(misc);
     read_kernel_syms(misc, virtual, pages);
-    init_clock(backed);    
+    init_clock(backed, virtual_pagesized, pages);    
     init_net(misc, backed);
     tuple root = allocate_tuple();
     initialize_timers(misc);
@@ -242,5 +242,5 @@ void init_service()
     stack_location += stack_size - 16;
     *(u64 *)stack_location = 0;
     asm ("mov %0, %%rsp": :"m"(stack_location));
-    init_service_new_stack();
+    init_service_new_stack(virtual_pagesized);
 }
