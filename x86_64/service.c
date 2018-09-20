@@ -266,5 +266,5 @@ void init_service()
     stack_location += stack_size - 16;
     *(u64 *)stack_location = 0;
     asm ("mov %0, %%rsp": :"m"(stack_location));
-    init_service_new_stack(virtual_pagesized);
+    init_service_new_stack();
 }
