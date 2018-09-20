@@ -1,0 +1,23 @@
+(
+    #64 bit elf to boot from host
+    children:(kernel:(contents:(host:stage3/stage3))
+              #user program
+              hw:(contents:(host:examples/hw))
+              lib:(children:(x86_64-linux-gnu:(children:(
+                                                            libc.so.6:(contents:(host:/lib/x86_64-linux-gnu/libc.so.6))
+                                                            )
+                                                        )
+                                      )
+                            )
+              lib64:(children:(
+                                ld-linux-x86-64.so.2:(contents:(host:/lib64/ld-linux-x86-64.so.2))
+                             )
+                    )              
+             )
+             
+    # filesystem path to elf for kernel to run
+    program:/hw
+    fault:t
+    arguments:[webg poppy]
+    environment:(USER:bobby PWD:/)
+)
