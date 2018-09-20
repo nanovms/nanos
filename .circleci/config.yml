@@ -4,10 +4,9 @@ jobs:
     docker:
       # specify the version
       - image: circleci/golang:1.9
-    working_directory: /go/src/github.com/{{ORG_NAME}}/{{REPO_NAME}}
+    working_directory: /go/src/github.com/nanovms/uniboot
     steps:
       - checkout
-
       # specify any bash command here prefixed with `run: `
       - run: sudo apt-get update
       - run: sudo apt-get install nasm
@@ -16,11 +15,22 @@ jobs:
   nightly-build:
     docker:
       - image: circleci/golang:1.9
-    working_directory: /go/src/github.com/{{ORG_NAME}}/nvm
+    working_directory: /go/src/github.com/nanovms/uniboot
     steps:
-      - run: git checkout https://github.com/nanovms/nvm 
-      - run: make deps
-      - run: make build
+      - checkout
+      - run: sudo apt-get update
+      - run: sudo apt-get install nasm
+      - run: make
+      - run: make unit-test
+      - run: cp .circleci/boto ~/.boto
+      - run: wget https://storage.googleapis.com/pub/gsutil.tar.gz
+      - run: tar xfz gsutil.tar.gz -C ~
+      - run: ~/gsutil/gsutil cp stage3/stage3 gs://uniboot
+      - run: ~/gsutil/gsutil cp boot/boot gs://uniboot
+      - run: ~/gsutil/gsutil cp mkfs/mkfs gs://uniboot
+      - run: ~/gsutil/gsutil acl ch -u AllUsers:R gs://uniboot/stage3
+      - run: ~/gsutil/gsutil acl ch -u AllUsers:R gs://uniboot/boot
+      - run: ~/gsutil/gsutil acl ch -u AllUsers:R gs://uniboot/mkfs
 workflows:
   version: 2
   commit-workflow:
@@ -29,11 +39,10 @@ workflows:
   nightly:
     triggers:
       - schedule:
-          cron: "0 0 * * *" # UTC midnight
+          cron: "0 2 * * *" # 7PM PST
           filters:
             branches:
               only:
                 - master
     jobs:
-      - build
       - nightly-build
