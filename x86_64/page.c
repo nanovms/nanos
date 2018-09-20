@@ -164,12 +164,12 @@ boolean validate_virtual(void *base, u64 length)
             if (!(l2 =  pt_lookup(l1, p, PT2))) return false;
             u64 e2 = MIN(p + (1ull<<PT2), e);
             while(p < e2) {
-                if (!(l3 =  pt_lookup(l2, p, PT3))) return false;
-                u64 e3 = MIN(p + (1ull<<PT3), e);
-                while(p < e3) {
-                    if (l3[pindex(p,PT3)] & PAGE_2M_SIZE) {
-                        p += 1<<PT3;
-                    } else {
+                if (!(l3 = pt_lookup(l2, p, PT3))) return false;
+                if (l2[pindex(p, PT3)] & PAGE_2M_SIZE) {
+                    p += 1<<PT3;
+                } else {
+                    u64 e3 = MIN(p + (1ull<<PT3), e);
+                    while(p < e3) {
                         u64 e3 = MIN(p + (1ull<<PT3), e);
                         while (p < e3) {
                             if (!pt_lookup(l3, p, PT4)) return false;
