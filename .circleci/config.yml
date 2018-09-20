@@ -13,6 +13,9 @@ jobs:
       - run: sudo apt-get install nasm
       - run: make
       - run: make unit-test
+      - store_artifacts:
+          path: ./stage3/stage3
+          path: ./boot/boot
   nightly-build:
     docker:
       - image: circleci/golang:1.9
