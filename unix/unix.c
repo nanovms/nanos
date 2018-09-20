@@ -169,6 +169,7 @@ kernel init_unix(heap h,
     register_mmap_syscalls(linux_syscalls);
     register_thread_syscalls(linux_syscalls);
     register_poll_syscalls(linux_syscalls);
+    register_clock_syscalls(linux_syscalls);
     //buffer b = install_syscall(h);
     //syscall = b->contents;
     // debug the synthesized version later, at least we have the table dispatch
