@@ -122,6 +122,7 @@ void register_signal_syscalls(void **);
 void register_mmap_syscalls(void **);
 void register_thread_syscalls(void **);
 void register_poll_syscalls(void **);
+void register_clock_syscalls(void **);
 
 boolean poll_init(kernel k);
 

@@ -3,7 +3,7 @@ jobs:
   build:
     docker:
       # specify the version
-      - image: circleci/golang:1.9
+      - image: google/cloud-sdk
     working_directory: /go/src/github.com/{{ORG_NAME}}/{{REPO_NAME}}
     steps:
       - checkout
@@ -15,7 +15,7 @@ jobs:
       - run: make unit-test
   nightly-build:
     docker:
-      - image: circleci/golang:1.9
+      - image: google/cloud-sdk
     working_directory: /go/src/github.com/{{ORG_NAME}}/nvm
     steps:
       - run: git checkout https://github.com/nanovms/nvm 
