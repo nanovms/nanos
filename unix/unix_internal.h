@@ -16,20 +16,35 @@ thread create_thread(process);
 
 void run(thread);
 
+/* unix-specific memory objects and ids */
+typedef struct unix_heaps {
+    /* object caches */
+    heap file_cache;
+    heap epoll_cache;
+    heap epollfd_cache;
+    heap epoll_blocked_cache;
+#ifdef NET
+    heap socket_cache;
+#endif
+
+    /* id heaps */
+    heap processes;
+} *unix_heaps;
+
 typedef struct thread {
     // if we use an array typedef its fragile
     // there are likley assumptions that frame sits at the base of thread
     u64 frame[FRAME_MAX];
     process p;
 
-    /* Inherited from process but copied here because:
-       1) these are accessed a lot, so at least save a level of indirection, and
-
-       2) it becomes possible to vector heaps to favor per-CPU heaps
-          when switching to threads with affinity to the running CPU.
+    /* Heaps in the unix world are typically found through
+       current. Copying them here means any heap is accessed through
+       one level of indirection. It also allows heaps to be
+       substituted on a per-thread basis (e.g. with a debug wrapper, a
+       CPU-bound object cache).
     */
-    kernel_heaps kh;
-    unix_heaps uh;
+    struct kernel_heaps kh;
+    struct unix_heaps uh;
 
     void *set_child_tid;
     void *clear_child_tid;
@@ -48,21 +63,6 @@ typedef struct file {
     closure_type(close, int);
     tuple n;
 } *file;
-
-/* unix-specific memory objects and ids */
-typedef struct unix_heaps {
-    /* object caches */
-    heap file_cache;
-    heap epoll_cache;
-    heap epollfd_cache;
-    heap epoll_blocked_cache;
-#ifdef NET
-    heap socket_cache;
-#endif
-
-    /* id heaps */
-    heap processes;
-} *unix_heaps;
 
 typedef struct process {
     kernel_heaps kh;		/* non-thread-specific */
@@ -88,12 +88,12 @@ extern thread current;
 
 static inline unix_heaps get_unix_heaps()
 {
-    return current->uh;
+    return &current->uh;
 }
 
 static inline kernel_heaps get_kernel_heaps()
 {
-    return current->kh;
+    return &current->kh;
 }
 
 #define unix_cache_alloc(uh, c) ({ heap __c = uh->c ## _cache; allocate(__c, __c->pagesize); })

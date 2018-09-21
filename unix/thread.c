@@ -228,8 +228,8 @@ thread create_thread(process p)
     heap h = heap_general(p->kh);
     thread t = allocate(h, sizeof(struct thread));
     t->p = p;
-    t->kh = p->kh;
-    t->uh = p->uh;
+    t->kh = *p->kh;
+    t->uh = *p->uh;
     t->tid = tidcount++;
     t->set_child_tid = t->clear_child_tid = 0;
     t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(closure(h, default_fault_handler, t));
