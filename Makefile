@@ -1,11 +1,8 @@
-all: image test
+all: examples/hws.image test
 
 force:
 
 ROOT = .
-
-image: net/lwip force 
-	make -f image.mk image
 
 net/lwip:
 	(cd $(ROOT)/net; git clone http://git.savannah.nongnu.org/git/lwip.git ; cd lwip ; git checkout STABLE-2_0_3_RELEASE)
@@ -37,10 +34,12 @@ NET = -device virtio-net,mac=7e:b8:7e:87:4a:ea,netdev=n0 $(TAP)
 KVM = -enable-kvm
 DISPLAY = -display none -serial stdio
 
+examples/%.image:
+	cd examples ; make 
 
-run-nokvm: image
+run-nokvm: examples/hws.image
 	- qemu-system-x86_64 $(BOOT) $(DISPLAY) -m 2G -device isa-debug-exit $(STORAGE) 
 
-run: image
+run: examples/hws.image
 	- qemu-system-x86_64 $(BOOT) $(DISPLAY) -m 2G -device isa-debug-exit $(STORAGE) $(NET) $(KVM)
 

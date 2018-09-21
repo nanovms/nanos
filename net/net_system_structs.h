@@ -56,3 +56,15 @@ enum protocol_type {
 #define TCP_SAVE_SYN		27	/* Record SYN headers for new connections */
 #define TCP_SAVED_SYN		28	/* Get SYN headers recorded for connection */
 
+
+struct sockaddr_in {
+    u16 family;
+    u16 port;
+    u32 address;
+} *sockaddr_in;
+    
+struct sockaddr {
+    u16 family;
+} *sockaddr;
+    
+typedef u32 socklen_t;

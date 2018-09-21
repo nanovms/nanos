@@ -1,26 +1,16 @@
-ROOT = $(PWD)
 
-include net/Makefile
 
-force:
+$(ROOT)/mkfs/mkfs: 
+	cd $(ROOT)/mkfs ; make
 
-mkfs/mkfs: force
-	cd mkfs ; make
+$(ROOT)/boot/boot: 
+	cd $(ROOT)/boot ; make
 
-%.image: % $(ROOT)boot/boot $(ROOT)/mkfs/mkfs $(ROOT)/stage3/stage3 %.manifest
-	mkfs/mkfs fs < examples/$(TARGET).manifest && cat boot/boot fs > image
+$(ROOT)/stage3/stage3: 
+	cd $(ROOT)/stage3 ; make
 
-examples/$(TARGET): force
-	cd examples ; make
+%.image: %.manifest $(ROOT)/mkfs/mkfs $(ROOT)/stage3/stage3 %
+	$(ROOT)/mkfs/mkfs - $(ROOT) < $< | cat $(ROOT)/boot/boot - > $@
 
-boot/boot: force
-	cd boot ; make
 
-stage3/stage3: force
-	cd stage3 ; make
 
-clean:
-	cd boot ; make clean
-	cd stage3 ; make clean
-	cd mkfs ; make clean
-	rm -f runtime/closure_templates.h runtime/contgen image image2

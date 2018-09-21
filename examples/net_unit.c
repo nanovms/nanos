@@ -3,11 +3,10 @@
 #include <sys/epoll.h>
 
 // status
-CLOSURE_0_1(connected_expect_fail, buffer_handler, buffer_handler);
-buffer_handler connected_expect_fail(buffer_handler out)
+static CLOSURE_0_1(connected_expect_fail, void, status);
+static void connected_expect_fail(status s)
 {
-    rprintf("connected!\n");
-    return 0;
+    rprintf("connection failed %v\n", s);
 }
 
 // status
@@ -35,7 +34,7 @@ void main()
     /// xxx port any - find bound port
     listen_port(h, e, 8079, closure(h, conn, h));
     connection(h, e, aprintf(h, "127.0.0.1:8079"),
-               closure(h, conn, h),
-               closure(h, dont_expect_fail));               
+               closure(h, dont_expect_fail),
+               closure(h, connected_expect_fail));
     epoll_spin(e);               
 }

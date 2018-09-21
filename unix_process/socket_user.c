@@ -121,7 +121,7 @@ void connection(heap h,
                 descriptor e,
                 buffer target,
                 new_connection c,
-                errno_handler failure)
+                status_handler failure)
 {
     struct sockaddr_in where;
     int s = socket(AF_INET, SOCK_STREAM, 0);
@@ -134,7 +134,8 @@ void connection(heap h,
     rprintf("conncet return %d\n", res);
     if (res) {
         rprintf("zikkay %d %p\n", res, failure);        
-        apply(failure, res);
+        apply(failure, timmf("errno", "%d", errno,
+                             "errstr", "%E", errno));
     } else {
         register_descriptor_write(h, e, s, closure(h, connection_start, h, s, e, c));
     }

@@ -13,33 +13,9 @@ enum socket_state {
 #define lwip_errno(__s, __e)\
   errno_from_status(lwip_status(s->p->k->general, err))
 
-struct sockaddr_in {
-    u16 family;
-    u16 port;
-    u32 address;
-} *sockaddr_in;
-    
-struct sockaddr {
-    u16 family;
-} *sockaddr;
-    
-
-typedef u32 socklen_t;
-
 typedef closure_type(pbuf_handler, void, struct pbuf *);
 typedef closure_type(pcb_handler, void, struct tcp_pcb *);
 
-
-// xxx - what is the difference between IN_CONNECTION and open
-// nothing seems to track whether the tcp state is actually
-// connected
-enum socket_state {
-  SOCK_UNDEFINED,
-  SOCK_CREATED,
-  SOCK_IN_CONNECTION,
-  SOCK_OPEN,
-  SOCK_CLOSED
-};
 
 typedef struct sock {
     struct file f;
