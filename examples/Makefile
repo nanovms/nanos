@@ -40,6 +40,6 @@ fst: fst.go
 net_unit: net_unit.o socket_user.o $(UNIXRUNTIME)
 	$(CC) $^ -static -g -o net_unit
 clean:
-	rm -f *.o *~ hw web hwg webg webs hws *.image fs
+	rm -f *.o *~ hw web hwg webg webs webgs hws *.image fs
 
 

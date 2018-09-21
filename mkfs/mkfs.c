@@ -171,7 +171,6 @@ CLOSURE_1_0(close_stdout, void, buffer);
 
 void close_stdout(buffer b)
 {
-    write(2, "asdf\n", 5);
     write(1, buffer_ref(b, 0), buffer_length(b));
     close(1);
     exit(0);

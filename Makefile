@@ -37,9 +37,9 @@ DISPLAY = -display none -serial stdio
 examples/%.image:
 	cd examples ; make 
 
-run-nokvm: examples/hws.image
+run-nokvm: examples/webgs.image
 	- qemu-system-x86_64 $(BOOT) $(DISPLAY) -m 2G -device isa-debug-exit $(STORAGE) 
 
-run: examples/hws.image
+run: examples/webgs.image
 	- qemu-system-x86_64 $(BOOT) $(DISPLAY) -m 2G -device isa-debug-exit $(STORAGE) $(NET) $(KVM)
 
