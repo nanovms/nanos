@@ -13,6 +13,8 @@ int gettimeofday(struct timeval *tv, void *tz)
 int nanosleep(const struct timespec* req, struct timespec* rem)
 {
     // TODO:
+    rem->ts_sec = 0;
+    rem->ts_nsec = 0;
     return 0;
 }
 
