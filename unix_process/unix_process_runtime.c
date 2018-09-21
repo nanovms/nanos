@@ -9,8 +9,12 @@ void debug(buffer b)
     write(2, b->contents, buffer_length(b));
 }
 
-void print_u64(u64 x)
+static char hex[]="0123456789abcdef";
+
+void print_u64(u64 s)
 {
+    for (int x = 60; x >= 0; x -= 4)
+        write(2, &hex[(s >> x)&0xf], 1);
 }
 
 void console(char *x)
