@@ -88,11 +88,11 @@ process exec_elf(buffer ex, process kp)
 {
     // is process md always root?
     // set cwd
-    kernel_heaps kh = kp->kh;
     unix_heaps uh = kp->uh;
+    kernel_heaps kh = (kernel_heaps)uh;
     tuple root = kp->process_root;
     filesystem fs = kp->fs;
-    process proc = create_process(kh, uh, root, fs);
+    process proc = create_process(uh, root, fs);
     thread t = create_thread(proc);
     void *start = load_elf(ex, 0, heap_pages(kh), heap_physical(kh));
     u64 va;

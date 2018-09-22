@@ -63,11 +63,10 @@ static boolean futex_key_equal(void *a, void *b)
 
 static void *linux_syscalls[SYS_MAX];
 
-process create_process(kernel_heaps kh, unix_heaps uh, tuple root, filesystem fs)
+process create_process(unix_heaps uh, tuple root, filesystem fs)
 {
-    heap h = heap_general(kh);
+    heap h = heap_general((kernel_heaps)uh);
     process p = allocate(h, sizeof(struct process));
-    p->kh = kh;
     p->uh = uh;
     p->brk = 0;
     p->pid = allocate_u64(uh->processes, 1);
@@ -130,24 +129,26 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
 {
     heap h = heap_general(kh);
     unix_heaps uh = allocate(h, sizeof(struct unix_heaps));
+
+    /* a failure here means termination; just leak */
     if (uh == INVALID_ADDRESS)
 	return INVALID_ADDRESS;
 
-    /* a failure here means termination; just leak */
+    uh->kh = *kh;
     uh->processes = create_id_heap(h, 1, 65535, 1);
     uh->file_cache = allocate_objcache(h, heap_backed(kh), sizeof(struct file), PAGESIZE);
     if (uh->file_cache == INVALID_ADDRESS)
 	goto alloc_fail;
-    if (!poll_init(kh, uh))
+    if (!poll_init(uh))
 	goto alloc_fail;
     set_syscall_handler(syscall_enter);
-    process kernel_process = create_process(kh, uh, root, fs);
+    process kernel_process = create_process(uh, root, fs);
     current = create_thread(kernel_process);
     frame = current->frame;
     init_vdso(heap_physical(kh), heap_pages(kh));
     register_file_syscalls(linux_syscalls);
 #ifdef NET
-    if (!netsyscall_init(kh, uh))
+    if (!netsyscall_init(uh))
 	goto alloc_fail;
     register_net_syscalls(linux_syscalls);
 #endif

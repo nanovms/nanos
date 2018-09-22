@@ -468,8 +468,9 @@ void register_net_syscalls(void **map)
     register_syscall(map, SYS_getpeername, getpeername);    
 }
 
-boolean netsyscall_init(kernel_heaps kh, unix_heaps uh)
+boolean netsyscall_init(unix_heaps uh)
 {
+    kernel_heaps kh = (kernel_heaps)uh;
     heap socket_cache = allocate_objcache(heap_general(kh), heap_backed(kh),
 					  sizeof(struct sock), PAGESIZE);
     if (socket_cache == INVALID_ADDRESS)

@@ -3,4 +3,4 @@
 #define NET_SYSCALLS 1
 
 void register_net_syscalls(void **map);
-boolean netsyscall_init(kernel_heaps kh, unix_heaps uh);
+boolean netsyscall_init(unix_heaps uh);

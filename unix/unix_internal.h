@@ -18,6 +18,8 @@ void run(thread);
 
 /* unix-specific memory objects and ids */
 typedef struct unix_heaps {
+    struct kernel_heaps kh;	/* must be first */
+
     /* object caches */
     heap file_cache;
     heap epoll_cache;
@@ -43,7 +45,6 @@ typedef struct thread {
        substituted on a per-thread basis (e.g. with a debug wrapper, a
        CPU-bound object cache).
     */
-    struct kernel_heaps kh;
     struct unix_heaps uh;
 
     void *set_child_tid;
@@ -65,8 +66,7 @@ typedef struct file {
 } *file;
 
 typedef struct process {
-    kernel_heaps kh;		/* non-thread-specific */
-    unix_heaps uh;
+    unix_heaps uh;		/* non-thread-specific */
     int pid;
     // i guess this should also be a heap, brk is so nasty
     void *brk;
@@ -93,7 +93,7 @@ static inline unix_heaps get_unix_heaps()
 
 static inline kernel_heaps get_kernel_heaps()
 {
-    return &current->kh;
+    return (kernel_heaps)&current->uh;
 }
 
 #define unix_cache_alloc(uh, c) ({ heap __c = uh->c ## _cache; allocate(__c, __c->pagesize); })
@@ -135,7 +135,7 @@ void register_thread_syscalls(void **);
 void register_poll_syscalls(void **);
 void register_clock_syscalls(void **);
 
-boolean poll_init(kernel_heaps kh, unix_heaps uh);
+boolean poll_init(unix_heaps uh);
 
 extern u64 syscall_ignore();
 CLOSURE_1_1(default_fault_handler, void, thread, context);

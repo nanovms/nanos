@@ -225,10 +225,9 @@ thread create_thread(process p)
 {
     // heap I guess
     static int tidcount = 0;
-    heap h = heap_general(p->kh);
+    heap h = heap_general((kernel_heaps)p->uh);
     thread t = allocate(h, sizeof(struct thread));
     t->p = p;
-    t->kh = *p->kh;
     t->uh = *p->uh;
     t->tid = tidcount++;
     t->set_child_tid = t->clear_child_tid = 0;

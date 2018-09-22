@@ -306,10 +306,10 @@ void register_poll_syscalls(void **map)
     register_syscall(map, SYS_epoll_wait,epoll_wait);
 }
 
-boolean poll_init(kernel_heaps kh, unix_heaps uh)
+boolean poll_init(unix_heaps uh)
 {
-    heap general = heap_general(kh);
-    heap backed = heap_backed(kh);
+    heap general = heap_general((kernel_heaps)uh);
+    heap backed = heap_backed((kernel_heaps)uh);
 
     if ((uh->epoll_cache = allocate_objcache(general, backed, sizeof(struct epoll), PAGESIZE))
 	== INVALID_ADDRESS)
