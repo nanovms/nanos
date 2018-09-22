@@ -144,8 +144,8 @@ static void read_hup(sock s, thread t)
     enqueue(runqueue, t->run);
 }
 
-static CLOSURE_1_3(socket_read, s64, sock, void *, u64, u64);
-static s64 socket_read(sock s, void *dest, u64 length, u64 offset)
+static CLOSURE_1_3(socket_read, sysreturn, sock, void *, u64, u64);
+static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
 {
     thunk complete = closure(s->h, read_complete, s, current, dest, length);
     if (SOCK_OPEN != s->state) 

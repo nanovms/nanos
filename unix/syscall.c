@@ -264,7 +264,6 @@ struct code syscall_codes[]= {
     {SYS_inotify_add_watch, "inotify_add_watch"},
     {SYS_inotify_rm_watch, "inotify_rm_watch"},
     {SYS_migrate_pages, "migrate_pages"},
-    {SYS_openat, "openat"},
     {SYS_mkdirat, "mkdirat"},
     {SYS_mknodat, "mknodat"},
     {SYS_fchownat, "fchownat"},
@@ -378,7 +377,7 @@ static sysreturn access(char *name, int mode)
     void *where;
     bytes length;
     if (!resolve_cstring(current->p->cwd, name)) {
-        return -ENOENT;
+        return set_syscall_error(current, ENOENT);
     }
     return 0;
 }
@@ -391,18 +390,12 @@ static void readcomplete(thread t, u64 len, status s)
 }
 
 static CLOSURE_1_3(contents_read, s64, tuple, void *, u64, u64);
-static s64 contents_read(tuple n, void *dest, u64 length, u64 offset)
+static sysreturn contents_read(tuple n, void *dest, u64 length, u64 offset)
 {
     kernel k = current->p->k;
     filesystem_read(k->fs, n, dest, length, offset,
 		    closure(k->general, readcomplete, current, length));
     runloop();
-}
-
-sysreturn openat(char *name, int flags, int mode)
-{
-    rprintf("openat not supportted, should be cake though\n");
-    return -ENOENT;
 }
 
 static CLOSURE_1_0(file_close, sysreturn, file);
@@ -421,10 +414,10 @@ sysreturn open(char *name, int flags, int mode)
     heap h = k->general;
     
     // fix - lookup should be robust
-    if (name == 0) return -EINVAL;
+    if (name == 0) return set_syscall_error (current, EINVAL);
     if (!(n = resolve_cstring(current->p->cwd, name))) {
         rprintf("open %s - not found\n", name);
-        return -ENOENT;
+        return set_syscall_error(current, ENOENT);
     }
 
 //    buffer b = allocate(h, sizeof(struct buffer));
@@ -432,12 +425,12 @@ sysreturn open(char *name, int flags, int mode)
     file f = allocate(k->file_cache, sizeof(struct file));
     if (f == INVALID_ADDRESS) {
 	msg_err("failed to allocate struct file\n");
-	return -ENOMEM;
+	return set_syscall_error(current, ENOMEM);
     }
     int fd = allocate_fd(current->p, f);
     if (fd == INVALID_PHYSICAL) {
 	deallocate(k->file_cache, f, sizeof(struct file));
-	return -EMFILE;
+	return set_syscall_error(current, EMFILE);        
     }
     f->n = n;
     f->read = closure(h, contents_read, n);
@@ -480,7 +473,7 @@ static sysreturn stat(char *name, struct stat *s)
     tuple n;
 
     if (!(n = resolve_cstring(current->p->cwd, name))) {    
-        return -ENOENT;
+        return set_syscall_error(current, ENOENT);
     }
     fill_stat(n, s);
     return 0;
@@ -554,7 +547,7 @@ sysreturn close(int fd)
 {
     file f = resolve_fd(current->p, fd);
     if (f == INVALID_ADDRESS)
-	return -EBADF;
+	return set_syscall_error(current, EBADF);
     deallocate_fd(current->p, fd, f);
     if (f->close)
 	return apply(f->close);
