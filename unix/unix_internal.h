@@ -5,6 +5,8 @@
 #include <tfs.h>
 #include <unix.h>
 
+typedef s64 sysreturn;
+
 // conditionalize
 // fix config/build, remove this include to take off network
 #include <net.h>
@@ -29,14 +31,14 @@ typedef struct thread {
     queue log[64];
 } *thread;
 
-typedef closure_type(io, int, void *, u64 length, u64 offset);
+typedef closure_type(io, sysreturn, void *, u64 length, u64 offset);
 
 typedef struct file {
     u64 offset; 
     io read, write;
     // check if data on the read path
     closure_type(check, void, thunk in, thunk hup);
-    closure_type(close, int);
+    closure_type(close, sysreturn);
     tuple n;
 } *file;
 
@@ -111,7 +113,7 @@ static inline time time_from_timespec(struct timespec *t)
     return (((u64)t->ts_sec)<<32) + time_from_nsec(t->ts_nsec);
 }
 
-static inline void register_syscall(void **m, int i, void *f)
+static inline void register_syscall(void **m, int i, sysreturn (*f)())
 {
     m[i]= f;
 }
@@ -125,8 +127,9 @@ void register_poll_syscalls(void **);
 void register_clock_syscalls(void **);
 
 boolean poll_init(kernel k);
+#define sysreturn_from_pointer(__x) ((s64)u64_from_pointer(__x));
 
-extern u64 syscall_ignore();
+extern sysreturn syscall_ignore();
 CLOSURE_1_1(default_fault_handler, void, thread, context);
 void default_fault_handler(thread t, context frame);
 void thread_log_internal(thread t, char *desc, ...);
@@ -134,10 +137,20 @@ void thread_log_internal(thread t, char *desc, ...);
 // this should always be current
 void thread_sleep(thread);
 void thread_wakeup(thread);
-static inline void set_syscall_return(thread t, u64 val)
+
+static inline sysreturn set_syscall_return(thread t, sysreturn val)
 {
     t->frame[FRAME_RAX] = val;
+    return val;
 }
 
-#define resolve_fd(__p, __fd) ({void *f ; if (!(f = vector_get(__p->files, __fd))) return(-EBADF); f;})
+static inline sysreturn set_syscall_error(thread t, s32 val)
+{
+    t->frame[FRAME_RAX] = (sysreturn)-val;
+    return (sysreturn)-val;
+}
 
+#define resolve_fd(__p, __fd) ({void *f ; if (!(f = vector_get(__p->files, __fd))) return set_syscall_error(current, EBADF); f;})
+
+void init_threads(process p);
+void init_syscalls();

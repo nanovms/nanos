@@ -1,7 +1,7 @@
 #include <unix_internal.h>
 
 // callibration is an issue
-int gettimeofday(struct timeval *tv, void *tz)
+sysreturn gettimeofday(struct timeval *tv, void *tz)
 {
     static u64 seconds;
     static u64 microseconds;
@@ -10,9 +10,9 @@ int gettimeofday(struct timeval *tv, void *tz)
     return 0;
 }
 
-int nanosleep(const struct timespec* req, struct timespec* rem)
+sysreturn nanosleep(const struct timespec* req, struct timespec* rem)
 {
-    // TODO:
+    // TODO: set timer to wakeup 
     rem->ts_sec = 0;
     rem->ts_nsec = 0;
     return 0;
