@@ -140,6 +140,8 @@ extern void *pagebase;
 
 // use the global nodespace
 static table drivers;
+static heap virtual_huge;
+static heap pages;
 
 void register_pci_driver(u16 vendor, u16 device, pci_probe p)
 {
@@ -147,7 +149,7 @@ void register_pci_driver(u16 vendor, u16 device, pci_probe p)
 }
 
 
-void pci_discover(heap pages, heap virtual)
+void pci_discover()
 {
     // we dont actually need to do recursive discovery, qemu leaves it all on bus0 for us
     for (int i = 0; i < 16; i++) {
@@ -164,7 +166,7 @@ void pci_discover(heap pages, heap virtual)
                     u32 vector_base = pci_readbar(0, i, 0, vector_table & 0xff, &len);
                     len = pad(len, PAGESIZE);
                     // ?? this is per device, so why is it global? - pass to probe?
-                    msi_map[i] = allocate(virtual, len);
+                    msi_map[i] = allocate(virtual_huge, len);
                     map((u64)msi_map[i], vector_base, len, pages);
                     // qemu gets really* mad if you do this a 16 bit write
                     pci_cfgwrite(0, i, 0, cp+3, 1, 0x80);
@@ -179,9 +181,10 @@ void pci_discover(heap pages, heap virtual)
     }
 }
 
-
-void init_pci(heap g)
+void init_pci(kernel_heaps kh)
 {
     // should use the global node space
-    drivers = allocate_table(g, identity_key, pointer_equal);
+    virtual_huge = heap_virtual_huge(kh);
+    pages = heap_pages(kh);
+    drivers = allocate_table(heap_general(kh), identity_key, pointer_equal);
 }

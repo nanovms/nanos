@@ -235,8 +235,9 @@ static void init_vnet(heap general, heap page_allocator,
 }
 
 
-void init_virtio_network(heap h, heap page_allocator, heap pages)
+void init_virtio_network(kernel_heaps kh)
 {
+    heap h = heap_general(kh);
     register_pci_driver(VIRTIO_PCI_VENDORID, VIRTIO_PCI_DEVICEID_NETWORK,
-			closure(h, init_vnet, h, page_allocator));
+			closure(h, init_vnet, h, heap_backed(kh)));
 }

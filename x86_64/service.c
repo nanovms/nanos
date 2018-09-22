@@ -4,9 +4,9 @@
 #include <virtio.h>
 #include <tfs.h>
 
-extern void init_net(heap, heap);
+extern void init_net(kernel_heaps kh);
 extern void startup();
-extern void start_interrupts(heap general, heap pages);
+extern void start_interrupts(kernel_heaps kh);
 
 static struct kernel_heaps heaps;
 
@@ -114,7 +114,7 @@ static void attach_storage(tuple root, block_read r, block_write w, u64 length)
                       closure(h, fsstarted, root));
 }
 
-static void read_kernel_syms(heap h, heap virtual, heap pages)
+static void read_kernel_syms()
 {
     u64 kern_base = INVALID_PHYSICAL;
     u64 kern_length;
@@ -125,13 +125,17 @@ static void read_kernel_syms(heap h, heap virtual, heap pages)
 	    kern_base = region_base(e);
 	    kern_length = region_length(e);
 
-	    u64 v = allocate_u64(virtual, kern_length);
-	    map(v, kern_base, kern_length, pages);
+	    /* XXX At present, this maps the kernel ELF image in order
+	     * to get to the symbols, then leaves it mapped to use its
+	     * strings. It should just copy the strings over and unmap
+	     * it. */
+	    u64 v = allocate_u64(heap_virtual_huge(&heaps), kern_length);
+	    map(v, kern_base, kern_length, heap_pages(&heaps));
 #ifdef ELF_SYMTAB_DEBUG
 	    rprintf("kernel ELF image at %P, length %P, mapped at %P\n",
 		    kern_base, kern_length, v);
 #endif
-	    add_elf_syms(h, alloca_wrap_buffer(v, kern_length));
+	    add_elf_syms(alloca_wrap_buffer(v, kern_length));
 	    break;
 	}
     
@@ -142,35 +146,34 @@ static void read_kernel_syms(heap h, heap virtual, heap pages)
 
 static void __attribute__((noinline)) init_service_new_stack()
 {
-    heap misc = heap_general(&heaps);
-    heap pages = heap_pages(&heaps);
-    heap virtual_huge = heap_virtual_huge(&heaps);
-    heap virtual_page = heap_virtual_page(&heaps);
-    heap physical = heap_physical(&heaps);
-    heap backed = heap_backed(&heaps);
+    kernel_heaps kh = &heaps;
+    heap misc = heap_general(kh);
+    heap pages = heap_pages(kh);
+    heap virtual_huge = heap_virtual_huge(kh);
+    heap virtual_page = heap_virtual_page(kh);
+    heap physical = heap_physical(kh);
+    heap backed = heap_backed(kh);
     // just to find maintain the convention of faulting on zero references
     unmap(0, PAGESIZE, pages);
-
     runqueue = allocate_queue(misc, 64);
-    start_interrupts(misc, pages);
+    start_interrupts(kh);
     init_extra_prints();
-    init_runtime(&heaps);
-    init_symtab(misc);
-    read_kernel_syms(misc, virtual_page, pages);
-    init_clock(backed, virtual_page, pages);    
-    init_net(misc, backed);
+    init_runtime(kh);
+    init_symtab(kh);
+    read_kernel_syms();
+    init_clock(kh);
+    init_net(kh);
     tuple root = allocate_tuple();
-    initialize_timers(misc);
-    init_pci(misc);
-    init_virtio_storage(misc, backed, pages, closure(misc, attach_storage, root));
-    init_virtio_network(misc, backed, pages);
+    initialize_timers(kh);
+    init_pci(kh);
+    init_virtio_storage(kh, closure(misc, attach_storage, root));
+    init_virtio_network(kh);
 
     miscframe = allocate(misc, FRAME_MAX * sizeof(u64));
-    pci_discover(pages, virtual_huge);
+    pci_discover();
     // just to get the hlt loop to wake up and service timers. 
     // should change this to post the delta to the front of the queue each time
     configure_timer(milliseconds(50), ignore);
-    console("g\n");
     runloop();
 }
 

@@ -69,19 +69,20 @@ time now() {
   return clock_function();
 }
 
-void init_clock(heap backed_virtual, heap virtual_pagesized, heap pages)
+void init_clock(kernel_heaps kh)
 {
+    heap backed = heap_backed(kh);
     // xxx - figure out how to deal with cpu id so we can
     // test for the presence of this feature
-    vclock = allocate(backed_virtual, backed_virtual->pagesize);
+    vclock = allocate(backed, backed->pagesize);
     zero(vclock,sizeof(struct pvclock_vcpu_time_info));
     // add the enable bit 1
     write_msr(MSR_KVM_SYSTEM_TIME, physical_from_virtual(vclock)| 1);
     if (0 == vclock->system_time)
     {
-        deallocate(backed_virtual,vclock,backed_virtual->pagesize);
+        deallocate(backed, vclock, backed->pagesize);
         console("INFO: KVM clock is inaccessible\n");
-        if( !init_hpet(virtual_pagesized, pages)) {
+        if( !init_hpet(heap_virtual_page(kh), heap_pages(kh))) {
           halt("ERROR: HPET clock is inaccessible\n");
         }
         clock_function = now_hpet;

@@ -68,7 +68,7 @@ void init_runtime(kernel_heaps kh)
     register_format('n', format_spaces);    
     // fix
 #ifndef BITS32    
-    initialize_timers(h);
+    initialize_timers(kh);
     register_format('c', format_character);
 #endif
 }

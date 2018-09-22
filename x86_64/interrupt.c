@@ -234,7 +234,7 @@ void allocate_msi(int slot, int msi_slot, thunk h)
 }
 
 // actually allocate the virtual  - put in the tree
-void enable_lapic(heap pages)
+static void enable_lapic(heap pages)
 {
     // there is an msr that moves the physical
     u64 lapic = 0xfee00000;
@@ -271,12 +271,14 @@ void configure_timer(time rate, thunk t)
 
 extern u32 interrupt_size;
  
-void start_interrupts(heap general, heap pages)
+void start_interrupts(kernel_heaps kh)
 {
     // these are simple enough it would be better to just
     // synthesize them
     int delta = (u64)&interrupt1 - (u64)&interrupt0;
     void *start = &interrupt0;
+    heap general = heap_general(kh);
+    heap pages = heap_pages(kh);
     handlers = allocate_zero(general, interrupt_size * sizeof(thunk));
     // architectural - end of exceptions
     u32 vector_start = 0x20;
