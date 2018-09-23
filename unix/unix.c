@@ -29,14 +29,12 @@ static boolean node_contents(tuple t, buffer d)
 
 void default_fault_handler(thread t, context frame)
 {
-    kernel k = t->p->k;
-
     print_frame(t->frame);
     print_stack(t->frame);
 
-    if (table_find (k->root, sym(fault))) {
+    if (table_find (t->p->process_root, sym(fault))) {
         console("starting gdb\n");
-        init_tcp_gdb(k->general, t->p, 1234);
+        init_tcp_gdb(heap_general(get_kernel_heaps()), t->p, 1234);
         thread_sleep(current);
     }
     halt("");
@@ -65,18 +63,19 @@ static boolean futex_key_equal(void *a, void *b)
 
 static void *linux_syscalls[SYS_MAX];
 
-process create_process(kernel k)
+process create_process(unix_heaps uh, tuple root, filesystem fs)
 {
-    process p = allocate(k->general, sizeof(struct process));
-    heap h = k->general;
-    p->k = k;
+    heap h = heap_general((kernel_heaps)uh);
+    process p = allocate(h, sizeof(struct process));
+    p->uh = uh;
     p->brk = 0;
-    p->pid = allocate_u64(k->processes, 1);
+    p->pid = allocate_u64(uh->processes, 1);
     // xxx - take from virtual allocator
     p->virtual = create_id_heap(h, 0x7000000000ull, 0x10000000000ull, 0x100000000);
     p->virtual32 = create_id_heap(h, 0x10000000, 0xe0000000, PAGESIZE);
-    p->cwd = k->root;
-    p->process_root = k->root;
+    p->fs = fs;
+    p->cwd = root;
+    p->process_root = root;
     u64 infinity = -1ull;
     p->fdallocator = create_id_heap(h, 3, infinity, 1);
     p->files = allocate_vector(h, 64);
@@ -126,42 +125,30 @@ static u64 syscall_debug()
     return res;
 }
 
-kernel init_unix(heap h,
-		 heap pages,
-		 heap physical,
-		 heap virtual,
-		 heap virtual_pagesized,
-		 heap backed,
-		 tuple root,
-		 filesystem fs)
+process init_unix(kernel_heaps kh, tuple root, filesystem fs)
 {
-    kernel k = allocate(h, sizeof(struct kernel));
-    if (k == INVALID_ADDRESS)
-	return INVALID_ADDRESS;
-    k->general = h;
-    k->pages = pages;
-    k->physical = physical;
-    k->virtual = virtual;
-    k->virtual_pagesized = virtual_pagesized;
-    k->backed = backed;
+    heap h = heap_general(kh);
+    unix_heaps uh = allocate(h, sizeof(struct unix_heaps));
 
     /* a failure here means termination; just leak */
-    k->processes = create_id_heap(h, 1, 65535, 1);
-    k->file_cache = allocate_objcache(h, backed, sizeof(struct file));
-    if (k->file_cache == INVALID_ADDRESS)
+    if (uh == INVALID_ADDRESS)
+	return INVALID_ADDRESS;
+
+    uh->kh = *kh;
+    uh->processes = create_id_heap(h, 1, 65535, 1);
+    uh->file_cache = allocate_objcache(h, heap_backed(kh), sizeof(struct file), PAGESIZE);
+    if (uh->file_cache == INVALID_ADDRESS)
 	goto alloc_fail;
-    if (!poll_init(k))
+    if (!poll_init(uh))
 	goto alloc_fail;
-    k->root = root;
-    k->fs = fs;
     set_syscall_handler(syscall_enter);
-    process kernel_process = create_process(k);
+    process kernel_process = create_process(uh, root, fs);
     current = create_thread(kernel_process);
     frame = current->frame;
-    init_vdso(physical, pages);
+    init_vdso(heap_physical(kh), heap_pages(kh));
     register_file_syscalls(linux_syscalls);
 #ifdef NET
-    if (!netsyscall_init(k))
+    if (!netsyscall_init(uh))
 	goto alloc_fail;
     register_net_syscalls(linux_syscalls);
 #endif
@@ -174,7 +161,7 @@ kernel init_unix(heap h,
     //syscall = b->contents;
     // debug the synthesized version later, at least we have the table dispatch
     syscall = syscall_debug;
-    return k;
+    return kernel_process;
   alloc_fail:
     msg_err("failed to allocate kernel objects\n");
     return INVALID_ADDRESS;

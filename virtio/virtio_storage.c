@@ -96,8 +96,9 @@ static void attach(heap general, storage_attach a, heap page_allocator, heap pag
     apply(a, in, out, s->capacity);
 }
 
-void init_virtio_storage(heap h, heap page_allocator, heap pages, storage_attach a)
+void init_virtio_storage(kernel_heaps kh, storage_attach a)
 {
+    heap h = heap_general(kh);
     register_pci_driver(VIRTIO_PCI_VENDORID, VIRTIO_PCI_DEVICEID_STORAGE,
-                        closure(h, attach, h, a, page_allocator, pages));
+                        closure(h, attach, h, a, heap_backed(kh), heap_pages(kh)));
 }

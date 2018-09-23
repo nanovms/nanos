@@ -52,13 +52,13 @@ heap transient;
 
 // init linker sets would clean up the platform dependency, if you link
 // with it, it gets initialized
-void init_runtime(heap h)
+void init_runtime(kernel_heaps kh)
 {
     // environment specific
-    transient = h;
+    heap h = transient = heap_general(kh);
     register_format('p', format_pointer);
-    init_tuples(allocate_tagged_region(h, tag_tuple));
-    init_symbols(allocate_tagged_region(h, tag_symbol), h);
+    init_tuples(allocate_tagged_region(kh, tag_tuple));
+    init_symbols(allocate_tagged_region(kh, tag_symbol), h);
     ignore = closure(h, ignore_body);
     ignore_status = (void*)ignore;
     errheap = h;
@@ -68,7 +68,7 @@ void init_runtime(heap h)
     register_format('n', format_spaces);    
     // fix
 #ifndef BITS32    
-    initialize_timers(h);
+    initialize_timers(kh);
     register_format('c', format_character);
 #endif
 }

@@ -37,6 +37,7 @@ typedef struct objcache {
     heap parent;
     struct list free;		/* pages with available objects */
     struct list full;		/* fully-occupied pages */
+    u64 pagesize;		/* allocation size for parent heap */
     u64 objs_per_page;		/* objects per page */
     u64 total_objs;		/* total objects in cache */
     u64 alloced_objs;		/* total cache occupancy (of total_objs) */
@@ -45,7 +46,7 @@ typedef struct objcache {
 typedef u64 page;
 
 #define object_size(o) (o->h.pagesize)
-#define page_size(o) (o->parent->pagesize)
+#define page_size(o) (o->pagesize)
 #define next_free_from_obj(obj) (*(u16*)pointer_from_u64(obj))
 #define invalid_index ((u16)-1)
 #define is_valid_index(i) (((u16)i) != invalid_index)
@@ -74,7 +75,7 @@ static inline u64 obj_from_index(objcache o, page p, u16 i)
 static inline u16 index_from_obj(objcache o, page p, u64 obj)
 {
     assert(obj >= p);
-    assert(obj < p + o->parent->pagesize);
+    assert(obj < p + page_size(o));
     u64 offset = obj - p;
     assert(offset % object_size(o) == 0); /* insure obj lands on object boundary */
     return (u16)(offset / object_size(o));
@@ -88,7 +89,7 @@ static inline u16 index_from_obj(objcache o, page p, u64 obj)
 
 static footer objcache_addpage(objcache o)
 {
-    page p = allocate_u64(o->parent, o->h.pagesize);
+    page p = allocate_u64(o->parent, page_size(o));
     if (p == INVALID_PHYSICAL) {
 	msg_err("unable to allocate page\n");
 	return 0;
@@ -386,7 +387,11 @@ boolean objcache_validate(heap h)
     return true;
 }
 
-heap allocate_objcache(heap meta, heap parent, bytes objsize)
+/* If the parent heap gives allocations that are aligned to size, the
+   caller may choose a power-of-2 pagesize that is larger than the
+   parent pagesize. Otherwise, pagesize must be equal to parent
+   pagesize. */
+heap allocate_objcache(heap meta, heap parent, bytes objsize, bytes pagesize)
 {
     u64 objs_per_page;
 
@@ -394,43 +399,30 @@ heap allocate_objcache(heap meta, heap parent, bytes objsize)
 	msg_err("object size must be > %d\n", sizeof(u64));
 	return INVALID_ADDRESS;
     }
+
+    if (pagesize < parent->pagesize ||
+	((pagesize - 1) & pagesize)) {
+	msg_err("pagesize (%d) must be a power-of-2 >= parent pagesize (%d)\n",
+		pagesize, parent->pagesize);
+	return INVALID_ADDRESS;
+    }
     
-    objs_per_page = (parent->pagesize - sizeof(struct footer)) / objsize;
+    objs_per_page = (pagesize - sizeof(struct footer)) / objsize;
     
     msg_debug("allocate_objcache(): meta %p, parent %p, objsize %d, "
-		   "parent pagesize %d, obj per page %d\n",
-		   meta, parent, objsize, parent->pagesize, objs_per_page);
+		   "pagesize %d, obj per page %d\n",
+		   meta, parent, objsize, pagesize, objs_per_page);
     
     if (objs_per_page == 0) {
-	/* If we wish to expand the objcache to support multiple-page
-	   allocations, we have the following options:
-
-	   1) Use an rtrie lookup on object addresses to find the
-	      allocation footer (or, better yet, store this
-	      per-allocation meta in the rtrie itself). This will add
-	      some cycles to each deallocation for the rtrie lookup.
-
-	   2) Make parent heap allocations with an alignment parameter
-	      equal to the allocation size. This requires any given
-	      objcache instance to have constant, 2^n-sized parent
-	      allocations where n > page order. The footer can then be
-	      found in the usual way by masking off the lowest 2^n - 1
-	      bits and adding in the footer offset.
-
-	   There is always the option of multiplexing the
-	   (de)allocation routines to use whatever strategy best fits
-	   the page-to-object size ratio.
-	*/
-
 	msg_err("page size %d cannot accomodate object size %d\n",
-		     parent->pagesize, objsize);
+		     pagesize, objsize);
 	return INVALID_ADDRESS;
     }
 
     if (objs_per_page >= (1 << 16)) {
 	objs_per_page = (1 << 16) - 1;
 	msg_err("too many objects per page (pagesize %d, objsize %d); "
-		"limiting to %d\n", parent->pagesize, objsize, objs_per_page);
+		"limiting to %d\n", pagesize, objsize, objs_per_page);
     }
     
     objcache o = allocate(meta, sizeof(struct objcache));
@@ -438,12 +430,13 @@ heap allocate_objcache(heap meta, heap parent, bytes objsize)
     o->h.dealloc = objcache_deallocate;
     o->h.destroy = objcache_destroy;
     o->h.allocated = 0;
-    object_size(o) = objsize;	/* o->h.pagesize */
+    o->h.pagesize = objsize;
     o->parent = parent;
 
     list_init(&o->free);
     list_init(&o->full);
 
+    o->pagesize = pagesize;
     o->objs_per_page = objs_per_page;
     o->total_objs = 0;
     o->alloced_objs = 0;
