@@ -2,6 +2,7 @@
 #include <region.h>
 #include <elf64.h>
 
+static heap general;
 static rtrie elf_symtable;
 
 CLOSURE_0_4(elf_symtable_add, void, char *, u64, u64, u8);
@@ -45,15 +46,16 @@ char * find_elf_sym(u64 a, u64 *offset)
     return m;
 }
 
-void add_elf_syms(heap h, buffer b)
+void add_elf_syms(buffer b)
 {
     if (elf_symtable)
-	elf_symbols(b, closure(h, elf_symtable_add));
+	elf_symbols(b, closure(general, elf_symtable_add));
     else
 	console("can't add ELF symbols; symtab not initialized\n");
 }
 
-void init_symtab(heap h)
+void init_symtab(kernel_heaps kh)
 {
-    elf_symtable = rtrie_create(h);
+    general = heap_general(kh);
+    elf_symtable = rtrie_create(general);
 }

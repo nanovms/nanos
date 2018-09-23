@@ -12,10 +12,10 @@ void pci_cfgwrite(int bus, int slot, int func, int reg, int bytes, u32 source);
 u32 pci_cfgread(int bus, int slot, int func, int reg, int bytes);
 u32 pci_readbar(unsigned bus, unsigned slot, unsigned func, int bid, u32 *length);
     
-void pci_discover(heap, heap);
+void pci_discover();
 void pci_set_bus_master(int bus, int slot, int func);
 #define PCI_COMMAND_REGISTER 6
 
-void init_pci(heap g);    
+void init_pci(kernel_heaps kh);
 typedef closure_type(pci_probe, void , int, int, int ); // bus slot func
 void register_pci_driver(u16 vendor, u16 device, pci_probe p);

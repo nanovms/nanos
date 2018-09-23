@@ -4,28 +4,26 @@
 #include <virtio.h>
 #include <tfs.h>
 
-extern void init_net(heap, heap);
+extern void init_net(kernel_heaps kh);
 extern void startup();
-extern void start_interrupts();
-// to avoid passing through tagged
-// use 2m physical and fragment
-static heap physical_memory;
-static heap pages;
+extern void start_interrupts(kernel_heaps kh);
+
+static struct kernel_heaps heaps;
 
 // doesnt belong here
-void startup(heap pages,
-             heap general,
-             heap physical,
-             heap virtual,
+void startup(kernel_heaps kh,
              tuple root,
              filesystem fs);
 
 // xxx -this is handing out a page per object
-heap allocate_tagged_region(heap h, u64 tag)
+heap allocate_tagged_region(kernel_heaps kh, u64 tag)
 {
+    heap h = heap_general(kh);
+    heap pages = heap_pages(kh);
+    heap physical = heap_physical(kh);
     return physically_backed(h,
-                             create_id_heap(h, tag << va_tag_offset, 1ull<<va_tag_offset, physical_memory->pagesize),
-                             physical_memory, pages, physical_memory->pagesize);
+                             create_id_heap(h, tag << va_tag_offset, 1ull<<va_tag_offset, physical->pagesize),
+                             physical, pages, physical->pagesize);
 }
 
 #define BOOTSTRAP_REGION_SIZE_KB	2048
@@ -85,16 +83,16 @@ static void offset_block_read(block_read r, u64 start, void *dest, u64 length, u
 
 void init_extra_prints(); 
 
-CLOSURE_6_0(startup, void, heap, heap, heap, heap, tuple, filesystem);
+CLOSURE_3_0(startup, void, kernel_heaps, tuple, filesystem);
 
-static CLOSURE_3_2(fsstarted, void, heap, heap, tuple, filesystem, status);
-static void fsstarted(heap h, heap virtual, tuple root, filesystem fs, status s)
+static CLOSURE_1_2(fsstarted, void, tuple, filesystem, status);
+static void fsstarted(tuple root, filesystem fs, status s)
 {
-    enqueue(runqueue, closure(h, startup, pages, h, physical_memory, virtual, root, fs));
+    enqueue(runqueue, closure(heap_general(&heaps), startup, &heaps, root, fs));
 }
 
-CLOSURE_3_3(attach_storage, void, heap, heap, tuple, block_read, block_write, u64);
-void attach_storage(heap h, heap virtual, tuple root, block_read r, block_write w, u64 length)
+static CLOSURE_1_3(attach_storage, void, tuple, block_read, block_write, u64);
+static void attach_storage(tuple root, block_read r, block_write w, u64 length)
 {
     u64 fs_offset;
     
@@ -106,17 +104,17 @@ void attach_storage(heap h, heap virtual, tuple root, block_read r, block_write 
         }
 
     // with filesystem...should be hidden as functional handlers on the tuplespace
-
+    heap h = heap_general(&heaps);
     create_filesystem(h,
                       512, // from the device please
                       length,
                       closure(h, offset_block_read, r, fs_offset),
                       closure(h, offset_block_write, w, fs_offset),
                       root,
-                      closure(h, fsstarted, h, virtual, root));
+                      closure(h, fsstarted, root));
 }
 
-static void read_kernel_syms(heap h, heap virtual, heap pages)
+static void read_kernel_syms()
 {
     u64 kern_base = INVALID_PHYSICAL;
     u64 kern_length;
@@ -127,13 +125,17 @@ static void read_kernel_syms(heap h, heap virtual, heap pages)
 	    kern_base = region_base(e);
 	    kern_length = region_length(e);
 
-	    u64 v = allocate_u64(virtual, kern_length);
-	    map(v, kern_base, kern_length, pages);
+	    /* XXX At present, this maps the kernel ELF image in order
+	     * to get to the symbols, then leaves it mapped to use its
+	     * strings. It should just copy the strings over and unmap
+	     * it. */
+	    u64 v = allocate_u64(heap_virtual_huge(&heaps), kern_length);
+	    map(v, kern_base, kern_length, heap_pages(&heaps));
 #ifdef ELF_SYMTAB_DEBUG
 	    rprintf("kernel ELF image at %P, length %P, mapped at %P\n",
 		    kern_base, kern_length, v);
 #endif
-	    add_elf_syms(h, alloca_wrap_buffer(v, kern_length));
+	    add_elf_syms(alloca_wrap_buffer(v, kern_length));
 	    break;
 	}
     
@@ -142,40 +144,42 @@ static void read_kernel_syms(heap h, heap virtual, heap pages)
     }
 }
 
-static struct heap bootstrap;
-static heap pages, physical_memory, backed, backed_2M, virtual;
-
-static void __attribute__((noinline))
-init_service_new_stack(heap virtual_pagesized)
+static void __attribute__((noinline)) init_service_new_stack()
 {
+    kernel_heaps kh = &heaps;
+    heap misc = heap_general(kh);
+    heap pages = heap_pages(kh);
+    heap virtual_huge = heap_virtual_huge(kh);
+    heap virtual_page = heap_virtual_page(kh);
+    heap physical = heap_physical(kh);
+    heap backed = heap_backed(kh);
     // just to find maintain the convention of faulting on zero references
     unmap(0, PAGESIZE, pages);
-
-    heap misc = allocate_mcache(&bootstrap, backed_2M, 5, 20);
     runqueue = allocate_queue(misc, 64);
-    start_interrupts(pages, misc, physical_memory);
+    start_interrupts(kh);
     init_extra_prints();
-    init_runtime(misc);
-    init_symtab(misc);
-    read_kernel_syms(misc, virtual, pages);
-    init_clock(backed, virtual_pagesized, pages);    
-    init_net(misc, backed);
+    init_runtime(kh);
+    init_symtab(kh);
+    read_kernel_syms();
+    init_clock(kh);
+    init_net(kh);
     tuple root = allocate_tuple();
-    initialize_timers(misc);
-    init_pci(misc);
-    init_virtio_storage(misc, backed, pages, closure(misc, attach_storage, misc, virtual, root));
-    init_virtio_network(misc, backed, backed_2M, pages);
+    initialize_timers(kh);
+    init_pci(kh);
+    init_virtio_storage(kh, closure(misc, attach_storage, root));
+    init_virtio_network(kh);
 
     miscframe = allocate(misc, FRAME_MAX * sizeof(u64));
-    pci_discover(pages, virtual);
+    pci_discover();
     // just to get the hlt loop to wake up and service timers. 
     // should change this to post the delta to the front of the queue each time
     configure_timer(milliseconds(50), ignore);
     runloop();
 }
 
-static void init_pages_id_heap(heap h)
+static heap init_pages_id_heap(heap h)
 {
+    heap pages = allocate_id_heap(h, PAGESIZE);
     for_regions(e) {
 	if (region_type(e) == REGION_IDENTITY) {
 	    u64 base = region_base(e);
@@ -192,14 +196,19 @@ static void init_pages_id_heap(heap h)
 	    console(", length ");
 	    print_u64(length);
 	    console("\n");
-	    if (!id_heap_add_range(h, base, length))
+	    if (!id_heap_add_range(pages, base, length))
 		halt("    - id_heap_add_range failed\n");
+	    return pages;
 	}
     }
+    halt("no identity region found; halt\n");
+    return INVALID_ADDRESS;	/* no warning */
 }
 
-static void init_physical_id_heap(heap h)
+static heap init_physical_id_heap(heap h)
 {
+    heap physical = allocate_id_heap(h, PAGESIZE);
+    boolean found = false;
     console("physical memory:\n");
     for_regions(e) {
 	if (region_type(e) == REGION_PHYSICAL) {
@@ -217,30 +226,48 @@ static void init_physical_id_heap(heap h)
 	    console(", length ");
 	    print_u64(length);
 	    console("\n");
-	    if (!id_heap_add_range(h, base, length))
+	    if (!id_heap_add_range(physical, base, length))
 		halt("    - id_heap_add_range failed\n");
+	    found = true;
 	}
     }
+    if (!found) {
+	halt("no valid physical regions found; halt\n");
+    }
+    return physical;
+}
+
+static void init_kernel_heaps()
+{
+    struct heap bootstrap;
+    bootstrap.alloc = bootstrap_alloc;
+    bootstrap.dealloc = leak;
+
+    heaps.pages = init_pages_id_heap(&bootstrap);
+    heaps.physical = init_physical_id_heap(&bootstrap);
+
+    heaps.virtual_huge = create_id_heap(&bootstrap, HUGE_PAGESIZE,
+				      (1ull<<VIRTUAL_ADDRESS_BITS)- HUGE_PAGESIZE, HUGE_PAGESIZE);
+    assert(heaps.virtual_huge != INVALID_ADDRESS);
+
+    heaps.virtual_page = create_id_heap_backed(&bootstrap, heaps.virtual_huge, PAGESIZE);
+    assert(heaps.virtual_page != INVALID_ADDRESS);
+
+    heaps.backed = physically_backed(&bootstrap, heaps.virtual_page, heaps.physical, heaps.pages, PAGESIZE);
+    assert(heaps.backed != INVALID_ADDRESS);
+
+    heaps.general = allocate_mcache(&bootstrap, heaps.backed, 5, 20, PAGESIZE_2M);
+    assert(heaps.general != INVALID_ADDRESS);
 }
 
 // init linker set
 void init_service()
 {
-    bootstrap.alloc = bootstrap_alloc;
-    bootstrap.dealloc = leak;
-    pages = allocate_id_heap(&bootstrap, PAGESIZE);
-    init_pages_id_heap(pages);
-    physical_memory = allocate_id_heap(&bootstrap, PAGESIZE);
-    init_physical_id_heap(physical_memory);
-
-    virtual = create_id_heap(&bootstrap, HUGE_PAGESIZE, (1ull<<VIRTUAL_ADDRESS_BITS)- HUGE_PAGESIZE, HUGE_PAGESIZE);
-    heap virtual_pagesized = create_id_heap_backed(&bootstrap, virtual, PAGESIZE);
-    backed = physically_backed(&bootstrap, virtual_pagesized, physical_memory, pages, PAGESIZE);
-    backed_2M = physically_backed(&bootstrap, virtual_pagesized, physical_memory, pages, PAGESIZE_2M);
+    init_kernel_heaps();
     u64 stack_size = 32*PAGESIZE;
-    u64 stack_location = allocate_u64(backed, stack_size);
+    u64 stack_location = allocate_u64(heap_backed(&heaps), stack_size);
     stack_location += stack_size - 16;
     *(u64 *)stack_location = 0;
     asm ("mov %0, %%rsp": :"m"(stack_location));
-    init_service_new_stack(virtual_pagesized);
+    init_service_new_stack();
 }

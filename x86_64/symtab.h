@@ -1,5 +1,5 @@
 #pragma once
-void init_symtab(heap h);
-void add_elf_syms(heap h, buffer b);
+void init_symtab(kernel_heaps kh);
+void add_elf_syms(buffer b);
 char * find_elf_sym(u64 a, u64 *offset);
 

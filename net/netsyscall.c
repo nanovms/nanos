@@ -194,32 +194,30 @@ static void socket_check(sock s, thunk t_in, thunk t_hup)
 static CLOSURE_1_0(socket_close, sysreturn, sock);
 static sysreturn socket_close(sock s)
 {
-    kernel k = current->p->k;
-    heap h = k->general;
+    heap h = heap_general(get_kernel_heaps());
     if (s->state == SOCK_OPEN) {
         tcp_close(s->lw);
     }
     deallocate_queue(s->notify, SOCK_QUEUE_LEN);
     deallocate_queue(s->waiting, SOCK_QUEUE_LEN);
     deallocate_queue(s->incoming, SOCK_QUEUE_LEN);
-    deallocate(k->socket_cache, s, sizeof(struct sock));
+    unix_cache_free(get_unix_heaps(), socket, s);
 }
 
 static int allocate_sock(process p, struct tcp_pcb *pcb)
 {
-    kernel k = p->k;
-    file f = allocate(k->socket_cache, sizeof(struct sock));
+    file f = unix_cache_alloc(get_unix_heaps(), socket);
     if (f == INVALID_ADDRESS) {
 	msg_err("failed to allocate struct sock\n");
 	return -ENOMEM;
     }
     int fd = allocate_fd(p, f);
     if (fd == INVALID_PHYSICAL) {
-	deallocate(k->socket_cache, f, sizeof(struct sock));
+	unix_cache_free(get_unix_heaps(), socket, f);
 	return -EMFILE;
     }
     sock s = (sock)f;
-    heap h = k->general;
+    heap h = heap_general(get_kernel_heaps());
     f->read = closure(h, socket_read, s);
     f->write = closure(h, socket_write, s);
     f->close = closure(h, socket_close, s);
@@ -480,10 +478,13 @@ void register_net_syscalls(void **map)
     register_syscall(map, SYS_getpeername, getpeername);    
 }
 
-boolean netsyscall_init(kernel k)
+boolean netsyscall_init(unix_heaps uh)
 {
-    k->socket_cache = allocate_objcache(k->general, k->backed, sizeof(struct sock));
-    if (k->socket_cache == INVALID_ADDRESS)
+    kernel_heaps kh = (kernel_heaps)uh;
+    heap socket_cache = allocate_objcache(heap_general(kh), heap_backed(kh),
+					  sizeof(struct sock), PAGESIZE);
+    if (socket_cache == INVALID_ADDRESS)
 	return false;
+    uh->socket_cache = socket_cache;
     return true;
 }

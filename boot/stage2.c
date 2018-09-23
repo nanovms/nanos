@@ -7,8 +7,12 @@ extern void run64(u32 entry);
 //we think this is above the stack we're currently running on, and
 // that it runs right up to the boot block load address at 0x7c00,
 // so 27kB
-u64 working = 0x1000; 
+static u64 working = 0x1000;
 
+#define STACKLEN 8192
+static struct heap workings;
+static struct kernel_heaps kh;
+static u32 stack;
 
 // xxx - should have a general wrapper/analysis thingly
 static u64 stage2_allocator(heap h, bytes b)
@@ -38,13 +42,13 @@ void fail(status s)
     halt("%v", s);
 }
 
-
-// could be a different stack
-CLOSURE_4_1(kernel_read_complete, void, heap, heap, u64, u32, buffer);
-void kernel_read_complete(heap physical, heap working, u64 stack, u32 stacklen, buffer kb)
+static CLOSURE_0_1(kernel_read_complete, void, buffer);
+static void __attribute__((noinline)) kernel_read_complete(buffer kb)
 {
     console("kernel complete\n");
     u32 *e = (u32 *)kb->contents;
+    heap physical = heap_physical(&kh);
+    heap working = heap_general(&kh);
 
     // should be the intersection of the empty physical and virtual
     // up to some limit, 2M aligned
@@ -52,14 +56,15 @@ void kernel_read_complete(heap physical, heap working, u64 stack, u32 stacklen, 
     // could move this up
     u64 pmem = allocate_u64(physical, identity_length);
     heap pages = region_allocator(working, PAGESIZE, REGION_IDENTITY);
+    kh.pages = pages;
     create_region(pmem, identity_length, REGION_IDENTITY);
     void *vmbase = allocate_zero(pages, PAGESIZE);
     mov_to_cr("cr3", vmbase);
     map(pmem, pmem, identity_length, pages);
     // going to some trouble to set this up here, but its barely
     // used in stage3
-    stack -= (stacklen - 4);	/* XXX b0rk b0rk b0rk */
-    map(stack, stack, (u64)stacklen, pages);
+    stack -= (STACKLEN - 4);	/* XXX b0rk b0rk b0rk */
+    map(stack, stack, (u64)STACKLEN, pages);
 
     // should drop this in stage3? ... i think we just need
     // service32 and the stack.. this doesn't show up in the e820 regions
@@ -91,8 +96,9 @@ static u64 tagged_allocate(heap h, bytes length)
     return base + 1;    
 }
 
-heap allocate_tagged_region(heap h, u64 tag)
+heap allocate_tagged_region(kernel_heaps kh, u64 tag)
 {
+    heap h = heap_general(kh);
     tagged_allocator ta = allocate(h, sizeof(struct tagged_allocator));
     ta->h.alloc = tagged_allocate;
     ta->tag = tag;
@@ -121,12 +127,13 @@ static void filesystem_initialized(heap h, heap physical, tuple root, buffer_han
                            closure(h, fail));
 }
 
-                            
-void newstack(heap h, heap physical, u64 stack, u32 stacklength)
+void newstack()
 {
     u32 fsb = filesystem_base();
     tuple root = allocate_tuple();
-    buffer_handler bh = closure(h, kernel_read_complete, physical, h, stack, stacklength);
+    heap h = heap_general(&kh);
+    heap physical = heap_physical(&kh);
+    buffer_handler bh = closure(h, kernel_read_complete);
     console("create fs\n");
     create_filesystem(h,
                       512,
@@ -139,14 +146,12 @@ void newstack(heap h, heap physical, u64 stack, u32 stacklength)
     halt("kernel failed to execute\n");
 }
 
-
-struct heap workings;
-
 // consider passing region area as argument to disperse magic
 void centry()
 {
     workings.alloc = stage2_allocator;
-    init_runtime(&workings);
+    kh.general = &workings;
+    init_runtime(&kh);		/* we know only general is used */
     void *x = allocate(&workings, 10);
     u32 fsb = filesystem_base();
 
@@ -171,14 +176,10 @@ void centry()
         }
     }
     
-    heap physical = region_allocator(&workings, PAGESIZE, REGION_PHYSICAL);
+    kh.physical = region_allocator(&workings, PAGESIZE, REGION_PHYSICAL);
+    assert(kh.physical);
     
-    // this can be trashed
-    u32 ss = 8192;
-    u32 s = allocate_u64(physical, ss);
-    s += ss - 4;
-    asm("mov %0, %%esp": :"g"(s));
-    // shouldn't really pass at all across this interface,
-    // values on the stack are trash
-    newstack(&workings, physical, s, ss);
+    stack = allocate_u64(kh.physical, STACKLEN) + STACKLEN - 4;
+    asm("mov %0, %%esp": :"g"(stack));
+    newstack();
 }

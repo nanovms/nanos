@@ -15,6 +15,7 @@ typedef struct mcache {
     heap parent;
     heap meta;
     vector caches;
+    u64 pagesize;
 } *mcache;
 
 u64 mcache_alloc(heap h, bytes b)
@@ -74,7 +75,7 @@ void mcache_dealloc(heap h, u64 a, bytes b)
 #endif
 
     mcache m = (mcache)h;
-    heap o = objcache_from_object(a, m->parent->pagesize);
+    heap o = objcache_from_object(a, m->pagesize);
     if (o == INVALID_ADDRESS) {
 	console("mcache ");
 	print_u64(u64_from_pointer(m));
@@ -135,8 +136,25 @@ void destroy_mcache(heap h)
     deallocate(m->meta, m, sizeof(struct mcache));
 }
 
-heap allocate_mcache(heap meta, heap parent, int min_order, int max_order)
+heap allocate_mcache(heap meta, heap parent, int min_order, int max_order, bytes pagesize)
 {
+    if (pagesize < parent->pagesize ||
+	((pagesize - 1) & pagesize)) {
+	msg_err("pagesize (%d) must be a power-of-2 >= parent pagesize (%d)\n",
+		pagesize, parent->pagesize);
+	return INVALID_ADDRESS;
+    }
+
+    if ((1 << max_order) >= pagesize) {
+	msg_err("max obj size (%d) must be less than pagesize %d\n", 1 << max_order, pagesize);
+	return INVALID_ADDRESS;
+    }
+
+    if (min_order > max_order) {
+	msg_err("min_order (%d) cannot exceed max_order (%d)\n", min_order, max_order);
+	return INVALID_ADDRESS;
+    }
+
     mcache m = allocate(meta, sizeof(struct mcache));
     if (m == INVALID_ADDRESS)
 	return INVALID_ADDRESS;
@@ -155,10 +173,11 @@ heap allocate_mcache(heap meta, heap parent, int min_order, int max_order)
     m->meta = meta;
     m->parent = parent;
     m->caches = allocate_vector(meta, 1);
+    m->pagesize = pagesize;
 
     for(int i=0, order = min_order; order <= max_order; i++, order++) {
 	u64 obj_size = 1 << order;
-	heap h = allocate_objcache(meta, parent, obj_size);
+	heap h = allocate_objcache(meta, parent, obj_size, pagesize);
 #ifdef MCACHE_DEBUG
 	console(" - cache size ");
 	print_u64(obj_size);
@@ -167,7 +186,9 @@ heap allocate_mcache(heap meta, heap parent, int min_order, int max_order)
 	console("\n");
 #endif
 	if (h == INVALID_ADDRESS) {
-	    console("failed to allocate mcache\n");
+	    console("allocate_mcache: failed to allocate objcache of size ");
+	    print_u64(obj_size);
+	    console("\n");
 	    destroy_mcache((heap)m);
 	    return INVALID_ADDRESS;
 	}
