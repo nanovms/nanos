@@ -247,7 +247,7 @@ thread create_thread(process p)
 
 void init_threads(process p)
 {
-    heap h = p->k->general;
+    heap h = heap_general((kernel_heaps)p->uh);
     p->threads = allocate_vector(h, 5);
     p->futices = allocate_table(h, futex_key_function, futex_key_equal);
 }

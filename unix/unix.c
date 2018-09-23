@@ -114,10 +114,6 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     register_thread_syscalls(linux_syscalls);
     register_poll_syscalls(linux_syscalls);
     register_clock_syscalls(linux_syscalls);
-    //buffer b = install_syscall(h);
-    //syscall = b->contents;
-    // debug the synthesized version later, at least we have the table dispatch
-    syscall = syscall_debug;
     return kernel_process;
   alloc_fail:
     msg_err("failed to allocate kernel objects\n");
