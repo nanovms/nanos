@@ -159,8 +159,8 @@ static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
     runloop();                
 }
 
-static CLOSURE_1_3(socket_write, s64, sock, void *, u64, u64);
-static s64 socket_write(sock s, void *source, u64 length, u64 offset)
+static CLOSURE_1_3(socket_write, sysreturn, sock, void *, u64, u64);
+static sysreturn socket_write(sock s, void *source, u64 length, u64 offset)
 {
     err_t err;
     if (SOCK_OPEN != s->state) 		/* XXX maybe defer to lwip for connect state */

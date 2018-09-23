@@ -389,7 +389,7 @@ static void readcomplete(thread t, u64 len, status s)
     thread_wakeup(t);
 }
 
-static CLOSURE_1_3(contents_read, s64, tuple, void *, u64, u64);
+static CLOSURE_1_3(contents_read, sysreturn, tuple, void *, u64, u64);
 static sysreturn contents_read(tuple n, void *dest, u64 length, u64 offset)
 {
     kernel k = current->p->k;

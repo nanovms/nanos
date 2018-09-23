@@ -43,8 +43,8 @@ void default_fault_handler(thread t, context frame)
 }
 
 
-static CLOSURE_0_3(stdout, s64, void*, u64, u64);
-static s64 stdout(void *d, u64 length, u64 offset)
+static CLOSURE_0_3(stdout, sysreturn, void*, u64, u64);
+static sysreturn stdout(void *d, u64 length, u64 offset)
 {
     u8 *z = d;
     for (int i = 0; i< length; i++) {
