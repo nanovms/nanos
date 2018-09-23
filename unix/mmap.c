@@ -1,6 +1,6 @@
 #include <unix_internal.h>
 
-void *mremap(void *old_address, u64 old_size,  u64 new_size, int flags,  void *new_address )
+sysreturn mremap(void *old_address, u64 old_size,  u64 new_size, int flags,  void *new_address )
 {
     kernel k = current->p->k;
 
@@ -15,17 +15,17 @@ void *mremap(void *old_address, u64 old_size,  u64 new_size, int flags,  void *n
         void *r = allocate(k->physical,diff);
         if (u64_from_pointer(r) == INVALID_PHYSICAL) {
             // MAP_FAILED
-            return r;
+            return sysreturn_from_pointer(r);
         }
         map(base, physical_from_virtual(r), diff, k->pages);
         zero(pointer_from_u64(base), diff); 
     }
     //    map(u64_from_pointer(new_address)&align, physical_from_virtual(old_address), old_size, current->p->pages);
-    return old_address;
+    return sysreturn_from_pointer(old_address);
 }
 
 
-static int mincore(void *addr, u64 length, u8 *vec)
+static sysreturn mincore(void *addr, u64 length, u8 *vec)
 {
     if (validate_virtual(addr, length)) {
         u32 vlen = pad(length, PAGESIZE) >> PAGELOG;
@@ -37,7 +37,7 @@ static int mincore(void *addr, u64 length, u8 *vec)
 }
 
 
-static void *mmap(void *target, u64 size, int prot, int flags, int fd, u64 offset)
+static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 offset)
 {
     process p = current->p;
     kernel k = p->k;
@@ -61,20 +61,17 @@ static void *mmap(void *target, u64 size, int prot, int flags, int fd, u64 offse
     // make a generic zero page function
     if (flags & MAP_ANONYMOUS) {
         u64 m = allocate_u64(physical, len);
-        if (m == INVALID_PHYSICAL) return pointer_from_u64(m);
+        if (m == INVALID_PHYSICAL) return m;
         map(where, m, len, pages);
         thread_log(current, "mmap anon target:%p size:%p\n", where, size);
         zero(pointer_from_u64(where), len);
-        return pointer_from_u64(where);
+        return where;
     }
 
-    file f;
-    // resolve_fd but with a void * return
-    if (!(f = vector_get(current->p->files, fd)))
-        return(pointer_from_u64(-EBADF));
+    file f = resolve_fd(current->p, fd);
     
     buffer b;
-    if (!(b = table_find(f->n, sym(contents)))) return pointer_from_u64(-1ull);
+    if (!(b = table_find(f->n, sym(contents)))) return -1;
         
     u64 msize = 0;
     u64 blen = buffer_length(b);
@@ -89,7 +86,7 @@ static void *mmap(void *target, u64 size, int prot, int flags, int fd, u64 offse
         map(where + msize, allocate_u64(physical, bss), bss, pages);
         zero(pointer_from_u64(where+msize), bss);
     }
-    return pointer_from_u64(where);
+    return where;
 }
 
 void register_mmap_syscalls(void **map)

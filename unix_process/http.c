@@ -74,8 +74,19 @@ void http_recv(http_parser p, buffer b)
 {
     int i;
 
+    if (!b) {
+        // its allowed(?) to not specify content length and
+        // frame the body with a close (seems wrong)
+        if (p->state == STATE_BODY) {
+            table_set(p->header, sym(content), p->word);
+            apply(p->each, p->header);
+        }
+        return;
+    }
+    
     for (i = b->start ; i < b->end; i ++) {
         char x = ((unsigned char *)b->contents)[i];
+
         switch (p->state) {
         case STATE_START_LINE:
             switch (x){

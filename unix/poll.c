@@ -34,15 +34,16 @@ struct epoll {
     table events;
 };
     
-static CLOSURE_1_0(epoll_close, int, epoll);
-static int epoll_close(epoll e)
+static CLOSURE_1_0(epoll_close, sysreturn, epoll);
+static sysreturn epoll_close(epoll e)
 {
     kernel k = current->p->k;
     // XXX need to dealloc epollfd and epoll_blocked structs too
     deallocate(k->epoll_cache, e, sizeof(struct epoll));
+    return 0;
 }
 
-u64 epoll_create(u64 flags)
+sysreturn epoll_create(u64 flags)
 {
     kernel k = current->p->k;
     heap h = k->general;
@@ -170,7 +171,7 @@ static void epoll_wait_notify(epollfd f, u32 events)
     epollfd_release(f);
 }
 
-int epoll_wait(int epfd,
+sysreturn epoll_wait(int epfd,
                struct epoll_event *events,
                int maxevents,
                int timeout)
@@ -228,7 +229,7 @@ int epoll_wait(int epfd,
     thread_sleep(current);
 }
 
-u64 epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
+sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 {
     kernel k = current->p->k;
     value ekey = pointer_from_u64((u64)fd);
@@ -287,7 +288,7 @@ static void select_timeout(thread t, boolean *dead)
     thread_wakeup(t);
 }
 
-int pselect(int nfds,
+sysreturn pselect(int nfds,
             u64 *readfds, u64 *writefds, u64 *exceptfds,
             struct timespec *timeout,
             u64 *sigmask)
@@ -310,7 +311,7 @@ void register_poll_syscalls(void **map)
     register_syscall(map, SYS_epoll_create, epoll_create);    
     register_syscall(map, SYS_epoll_create1, epoll_create);
     register_syscall(map, SYS_epoll_ctl, epoll_ctl);
-    register_syscall(map, SYS_pselect6,pselect);
+    register_syscall(map, SYS_pselect6, pselect);
     register_syscall(map, SYS_epoll_wait,epoll_wait);
 }
 

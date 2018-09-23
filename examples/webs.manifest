@@ -6,6 +6,6 @@
     # filesystem path to elf for kernel to run
     program:/webs
     fault:t
-    arguments:[webg poppy]
+    arguments:[webs]
     environment:(USER:bobby PWD:/)
 )

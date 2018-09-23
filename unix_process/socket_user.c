@@ -64,19 +64,24 @@ static void register_descriptor(heap h, descriptor e, descriptor f, thunk each)
 static CLOSURE_4_0(connection_input, void, heap, descriptor, descriptor, buffer_handler);
 static void connection_input(heap h, descriptor f, descriptor e, buffer_handler p)
 {
+    // can reuse?
     buffer b = allocate_buffer(h, 512);
-    b->end = read(f, b->contents, b->length);
+    int res = read(f, b->contents, b->length);
 
-    if (b->end == -1) {
-        rprintf("read err %E\n", errno);
+    if (res < 0) {
+        // should pass status
+        apply(p, 0);
+        return;
     }
+    
     // this should have been taken care of by EPOLLHUP, but the
     // kernel doesn't support it        
-    if (b->end == 0) {
+    if (res == 0) {
         epoll_ctl(e, EPOLL_CTL_DEL, f, 0);
         close(f);
         apply(p, 0);
     } else {
+        b->end = res;
         apply(p, b);
     }
 }

@@ -28,6 +28,7 @@ typedef struct sock {
     // the notion is that 'waiters' should take priority    
     int fd;
     enum socket_state state; // half open?
+    status s;
 } *sock;
 
 static void wakeup(sock s)
@@ -43,7 +44,6 @@ static void wakeup(sock s)
             apply(n);
         }
     }
-
 }
 
 static void local_sockaddr_in(struct tcp_pcb *p, struct sockaddr_in *sin)
@@ -100,9 +100,10 @@ static CLOSURE_4_0(read_complete, void, sock, thread, void *, u64);
 static void read_complete(sock s, thread t, void *dest, u64 length)
 {
     if (s->state != SOCK_OPEN) {
-        set_syscall_return(t, -ENOTCONN);
-        return;
+       set_syscall_error(t, ENOTCONN);
+       return;
     }
+    
     struct pbuf *p = queue_peek(s->incoming);
     u64 xfer = MIN(length, p->len);
     runtime_memcpy(dest, p->payload, xfer);
@@ -123,11 +124,12 @@ static void read_hup(sock s, thread t)
     enqueue(runqueue, t->run);
 }
 
-static CLOSURE_1_3(socket_read, int, sock, void *, u64, u64);
-static int socket_read(sock s, void *dest, u64 length, u64 offset)
+static CLOSURE_1_3(socket_read, sysreturn, sock, void *, u64, u64);
+static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
 {
     thunk complete = closure(s->h, read_complete, s, current, dest, length);
-    if (SOCK_OPEN != s->state) return -ENOTCONN;
+    if (SOCK_OPEN != s->state) 
+        return set_syscall_error(current, ENOTCONN);
 
     if (queue_length(s->incoming)) {
         apply(complete);
@@ -137,12 +139,12 @@ static int socket_read(sock s, void *dest, u64 length, u64 offset)
     runloop();                
 }
 
-static CLOSURE_1_3(socket_write, int, sock, void *, u64, u64);
-static int socket_write(sock s, void *source, u64 length, u64 offset)
+static CLOSURE_1_3(socket_write, s64, sock, void *, u64, u64);
+static s64 socket_write(sock s, void *source, u64 length, u64 offset)
 {
     err_t err;
     if (SOCK_OPEN != s->state) 		/* XXX maybe defer to lwip for connect state */
-        return -EPIPE;
+        return set_syscall_error(current, EPIPE);
     err = tcp_write(s->lw, source, length, TCP_WRITE_FLAG_COPY);
     if (err != ERR_OK)
         return lwip_errno(s, err);
@@ -169,8 +171,8 @@ static void socket_check(sock s, thunk t_in, thunk t_hup)
 
 #define SOCK_QUEUE_LEN 32
 
-static CLOSURE_1_0(socket_close, int, sock);
-static int socket_close(sock s)
+static CLOSURE_1_0(socket_close, sysreturn, sock);
+static sysreturn socket_close(sock s)
 {
     kernel k = current->p->k;
     heap h = k->general;
@@ -201,9 +203,11 @@ static int allocate_sock(process p, struct tcp_pcb *pcb)
     f->read = closure(h, socket_read, s);
     f->write = closure(h, socket_write, s);
     f->close = closure(h, socket_close, s);
+    f->check = closure(h, socket_check, s);
+    
     s->notify = allocate_queue(h, SOCK_QUEUE_LEN);
     s->waiting = allocate_queue(h, SOCK_QUEUE_LEN);    
-    f->check = closure(h, socket_check, s);
+    s->s = STATUS_OK;
     s->p = p;
     s->h = h;
     s->lw = pcb;
@@ -214,7 +218,7 @@ static int allocate_sock(process p, struct tcp_pcb *pcb)
     return fd;
 }
 
-int socket(int domain, int type, int protocol)
+sysreturn socket(int domain, int type, int protocol)
 {
     struct tcp_pcb *p;
     if (!(p = tcp_new_ip_type(IPADDR_TYPE_ANY)))
@@ -227,6 +231,12 @@ int socket(int domain, int type, int protocol)
 static err_t input_lower (void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 {
     sock s = z;
+    
+    if (err) {
+        // later timmf
+        s->s = timm("lwip error", "%d", err);
+    }
+    
     if (p) {
         enqueue(s->incoming, p);
     } else {
@@ -236,7 +246,7 @@ static err_t input_lower (void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t er
     return ERR_OK;
 }
 
-int bind(int sockfd, struct sockaddr *addr, socklen_t addrlen)
+sysreturn bind(int sockfd, struct sockaddr *addr, socklen_t addrlen)
 {
     struct sockaddr_in *sin = (struct sockaddr_in *)addr;
     sock s = resolve_fd(current->p, sockfd);
@@ -264,8 +274,8 @@ void error_handler_tcp(void* arg, err_t err)
     }
 }
 
-static CLOSURE_1_1(set_complited_state,void,thread,u64*);
-static void set_complited_state( thread th, u64 *code)
+static CLOSURE_1_1(set_completed_state,void,thread,u64*);
+static void set_completed_state( thread th, u64 *code)
 {
   set_syscall_return(th, *code);
   thread_wakeup(th);
@@ -282,7 +292,7 @@ static err_t connect_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
 
 static status connect_tcp(sock socket, const ip_addr_t* address, unsigned short port) {
 
-    enqueue(socket->waiting, closure(socket->h, set_complited_state, current));
+    enqueue(socket->waiting, closure(socket->h, set_completed_state, current));
     tcp_arg(socket->lw, socket);
     tcp_err(socket->lw, error_handler_tcp);
     socket->state = SOCK_IN_CONNECTION;
@@ -295,8 +305,9 @@ static status connect_tcp(sock socket, const ip_addr_t* address, unsigned short 
     return STATUS_OK;
 }
 
-int connect(int sockfd, struct sockaddr* addr, socklen_t addrlen) {
-    status st;
+sysreturn connect(int sockfd, struct sockaddr* addr, socklen_t addrlen) {
+    int err = ERR_OK;
+
     sock s = resolve_fd(current->p, sockfd);
     struct sockaddr_in* sin = (struct sockaddr_in*)addr;
     if (!s) {
@@ -368,7 +379,7 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
     return ERR_OK;
 }
 
-int listen(int sockfd, int backlog)
+sysreturn listen(int sockfd, int backlog)
 {
     sock s = resolve_fd(current->p, sockfd);        
     s->lw = tcp_listen_with_backlog(s->lw, backlog);
@@ -388,7 +399,7 @@ static void accept_finish(sock s, thread target, struct sockaddr *addr, socklen_
     thread_wakeup(target);
 }
 
-int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
+sysreturn accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 {
     sock s = resolve_fd(current->p, sockfd);        
 
@@ -402,30 +413,30 @@ int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
     thread_sleep(current);
 }
 
-int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
+sysreturn accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 {
     return(accept(sockfd, addr, addrlen));
 }
 
-int getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
+sysreturn getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 {
     sock s = resolve_fd(current->p, sockfd);        
     local_sockaddr_in(s->lw, (struct sockaddr_in *)addr);
     return 0;
 }
 
-int getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
+sysreturn getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 {
     sock s = resolve_fd(current->p, sockfd);        
     remote_sockaddr_in(s->lw, (struct sockaddr_in *)addr);
     return 0;    
 }
 
-int setsockopt(int sockfd,
-               int level,
-               int optname,
-               void *optval,
-               socklen_t optlen)
+sysreturn setsockopt(int sockfd,
+                     int level,
+                     int optname,
+                     void *optval,
+                     socklen_t optlen)
 {
     //    rprintf("sockopt %d %d\n", sockfd, optname);
     return 0;

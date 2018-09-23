@@ -2,20 +2,28 @@
 
 thread current;
 
-int gettid()
+static u64 futex_key_function(void *x)
+{
+    return u64_from_pointer(x);
+}
+
+static boolean futex_key_equal(void *a, void *b)
+{
+    return a == b;
+}
+
+sysreturn gettid()
 {
     return current->tid;
 }
 
-u64 set_tid_address(void *a)
+sysreturn set_tid_address(void *a)
 {
     current->set_child_tid = a;
     return current->tid;
 }
 
-
-extern void write_msr(u64 a, u64 b);
-static int arch_prctl(int code, unsigned long a)
+sysreturn arch_prctl(int code, unsigned long a)
 {    
     switch (code) {
     case ARCH_SET_GS:
@@ -28,11 +36,11 @@ static int arch_prctl(int code, unsigned long a)
     case ARCH_GET_GS:
         break;
     default:
-        return -EINVAL;
+        return set_syscall_error(current, EINVAL);
     }
 }
 
-long clone(unsigned long flags, void *child_stack, void *ptid, void *ctid, void *x)
+sysreturn clone(unsigned long flags, void *child_stack, void *ptid, void *ctid, void *x)
 {
     thread t = create_thread(current->p);
     runtime_memcpy(t->frame, current->frame, sizeof(t->frame));
@@ -63,7 +71,7 @@ static fut soft_create_futex(process p, u64 key)
     return f;
 }
 
-static int futex(int *uaddr, int futex_op, int val,
+static sysreturn futex(int *uaddr, int futex_op, int val,
                  u64 val2,
                  int *uaddr2, int val3)
 {
@@ -236,3 +244,9 @@ thread create_thread(process p)
     return t;
 }
 
+void init_threads(process p)
+{
+    heap h = p->k->general;
+    p->threads = allocate_vector(h, 5);
+    p->futices = allocate_table(h, futex_key_function, futex_key_equal);
+}
