@@ -61,7 +61,7 @@ void start_process(thread t, void *start)
     
     if (table_find(t->p->process_root, sym(gdb))) {
         console ("gdb!\n");
-        init_tcp_gdb(t->p->k->general, t->p, 1234);
+        init_tcp_gdb(heap_general(get_kernel_heaps()), t->p, 1234);
     } else {
         rprintf ("enq\n");
         enqueue(runqueue, t->run);
@@ -76,20 +76,24 @@ static void load_interp_fail(status s)
 }
 
 
-CLOSURE_2_1(load_interp_complete, void, thread, kernel, buffer);
-void load_interp_complete(thread t, kernel k, buffer b)
+CLOSURE_2_1(load_interp_complete, void, thread, kernel_heaps, buffer);
+void load_interp_complete(thread t, kernel_heaps kh, buffer b)
 {
-    u64 where = allocate_u64(k->virtual, HUGE_PAGESIZE);
-    start_process(t, load_elf(b, where, k->pages, k->physical));
+    u64 where = allocate_u64(heap_virtual_huge(kh), HUGE_PAGESIZE);
+    start_process(t, load_elf(b, where, heap_pages(kh), heap_physical(kh)));
 }
 
-process exec_elf(buffer ex, kernel k)
+process exec_elf(buffer ex, process kp)
 {
     // is process md always root?
     // set cwd
-    process proc = create_process(k);
+    unix_heaps uh = kp->uh;
+    kernel_heaps kh = (kernel_heaps)uh;
+    tuple root = kp->process_root;
+    filesystem fs = kp->fs;
+    process proc = create_process(uh, root, fs);
     thread t = create_thread(proc);
-    void *start = load_elf(ex, 0, k->pages, k->physical);
+    void *start = load_elf(ex, 0, heap_pages(kh), heap_physical(kh));
     u64 va;
     boolean interp = false;
     Elf64_Ehdr *e = (Elf64_Ehdr *)buffer_ref(ex, 0);
@@ -104,24 +108,24 @@ process exec_elf(buffer ex, kernel k)
             va = p->p_vaddr;
         proc->brk  = pointer_from_u64(MAX(u64_from_pointer(proc->brk), pad(p->p_vaddr + p->p_memsz, PAGESIZE)));
     }
-    build_exec_stack(k->backed, t, e, start, va, k->root);
+    build_exec_stack(heap_backed(kh), t, e, start, va, root);
             
     foreach_phdr(e, p) {
         if (p->p_type == PT_INTERP) {
             char *n = (void *)e + p->p_offset;
-            tuple interp = resolve_path(k->root, split(k->general, alloca_wrap_buffer(n, runtime_strlen(n)), '/'));
+            tuple interp = resolve_path(root, split(heap_general(kh), alloca_wrap_buffer(n, runtime_strlen(n)), '/'));
             if (!interp) 
                 halt("couldn't find program interpreter %s\n", n);
-            filesystem_read_entire(k->fs, interp, k->backed,
-                                   closure(k->general, load_interp_complete, t, k),
-                                   closure(k->general, load_interp_fail));
+            filesystem_read_entire(fs, interp, heap_backed(kh),
+                                   closure(heap_general(kh), load_interp_complete, t, kh),
+                                   closure(heap_general(kh), load_interp_fail));
             return proc;
         }
     }
     start_process(t, start);
     // xxx - in some environments with some programs this causes
     // rtrie insert to blow the stack. fix rtrie.
-    //    add_elf_syms(k->general, ex);
+    //    add_elf_syms(heap_general(kh), ex);
     return proc;    
 }
 

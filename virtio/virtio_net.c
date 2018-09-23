@@ -203,8 +203,8 @@ static err_t virtioif_init(struct netif *netif)
     return ERR_OK;
 }
 
-static CLOSURE_3_3(init_vnet, void, heap, heap, heap, int, int, int);
-static void init_vnet(heap general, heap page_allocator, heap page_allocator_2M,
+static CLOSURE_2_3(init_vnet, void, heap, heap, int, int, int);
+static void init_vnet(heap general, heap page_allocator,
 		      int bus, int slot, int function)
 {
     u32 badness = VIRTIO_F_BAD_FEATURE | VIRTIO_NET_F_CSUM | VIRTIO_NET_F_GUEST_CSUM |
@@ -216,8 +216,8 @@ static void init_vnet(heap general, heap page_allocator, heap page_allocator_2M,
     vn->n = allocate(dev->general, sizeof(struct netif));
     vn->rxbuflen = 1500;
     vn->rxbuffers = wrap_freelist(dev->general, dev->general, vn->rxbuflen + sizeof(struct xpbuf));
-    vn->rxbuffers = allocate_objcache(dev->general, page_allocator_2M,
-				      vn->rxbuflen + sizeof(struct xpbuf));
+    vn->rxbuffers = allocate_objcache(dev->general, page_allocator,
+				      vn->rxbuflen + sizeof(struct xpbuf), PAGESIZE_2M);
     /* rx = 0, tx = 1, ctl = 2 by 
        page 53 of http://docs.oasis-open.org/virtio/virtio/v1.0/cs01/virtio-v1.0-cs01.pdf */
     vn->dev = dev;
@@ -235,8 +235,9 @@ static void init_vnet(heap general, heap page_allocator, heap page_allocator_2M,
 }
 
 
-void init_virtio_network(heap h, heap page_allocator, heap page_allocator_2M, heap pages)
+void init_virtio_network(kernel_heaps kh)
 {
+    heap h = heap_general(kh);
     register_pci_driver(VIRTIO_PCI_VENDORID, VIRTIO_PCI_DEVICEID_NETWORK,
-			closure(h, init_vnet, h, page_allocator, page_allocator_2M));
+			closure(h, init_vnet, h, heap_backed(kh)));
 }

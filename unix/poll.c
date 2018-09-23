@@ -37,22 +37,20 @@ struct epoll {
 static CLOSURE_1_0(epoll_close, sysreturn, epoll);
 static sysreturn epoll_close(epoll e)
 {
-    kernel k = current->p->k;
     // XXX need to dealloc epollfd and epoll_blocked structs too
-    deallocate(k->epoll_cache, e, sizeof(struct epoll));
+    unix_cache_free(get_unix_heaps(), epoll, e);
     return 0;
 }
 
 sysreturn epoll_create(u64 flags)
 {
-    kernel k = current->p->k;
-    heap h = k->general;
-    file f = allocate(k->epoll_cache, sizeof(struct epoll));
+    heap h = heap_general(get_kernel_heaps());
+    file f = unix_cache_alloc(get_unix_heaps(), epoll);
     if (f == INVALID_ADDRESS)
 	return -ENOMEM;
     u64 fd = allocate_fd(current->p, f);
     if (fd == INVALID_PHYSICAL) {
-	deallocate(k->epoll_cache, f, sizeof(struct epoll));
+	unix_cache_free(get_unix_heaps(), epoll, f);
 	return -EMFILE;
     }
     epoll e = (epoll)f;
@@ -67,7 +65,6 @@ sysreturn epoll_create(u64 flags)
 static void epoll_blocked_release(epoll_blocked w)
 {
     epoll e = w->e;
-    kernel k = current->p->k;
 #ifdef EPOLL_DEBUG
     rprintf("epoll_blocked_release: w %p", w);
 #endif
@@ -78,7 +75,7 @@ static void epoll_blocked_release(epoll_blocked w)
 #endif
     }
     if (fetch_and_add(&w->refcnt, -1) == 0) {
-	deallocate(k->epoll_blocked_cache, w, sizeof(struct epoll_blocked));
+	unix_cache_free(get_unix_heaps(), epoll_blocked, w);
 #ifdef EPOLL_DEBUG
 	rprintf(", deallocated");
 #endif
@@ -98,8 +95,7 @@ static void epoll_blocked_finish(epoll_blocked w)
     if (w->timeout)
 	rprintf(", timeout %p\n", w->timeout);
 #endif
-    kernel k = current->p->k;
-    heap h = k->general;
+    heap h = heap_general(get_kernel_heaps());
 
     /* If we're not sleeping, we're in the middle of a (to be
        non-blocking) epoll_wait(), so do nothing here and allow other
@@ -135,13 +131,12 @@ static void epoll_blocked_finish(epoll_blocked w)
 
 static void epollfd_release(epollfd f)
 {
-    kernel k = current->p->k;
 #ifdef EPOLL_DEBUG
     rprintf("epollfd_release: f->fd %d, refcnt %d\n", f->fd, f->refcnt);
 #endif
     assert(f->refcnt > 0);
     if (fetch_and_add(&f->refcnt, -1) == 0)
-	deallocate(k->epollfd_cache, f, sizeof(struct epollfd));
+	unix_cache_free(get_unix_heaps(), epollfd, f);
 }
 
 // associated with the current blocking function
@@ -176,12 +171,11 @@ sysreturn epoll_wait(int epfd,
                int maxevents,
                int timeout)
 {
-    kernel k = current->p->k;
-    heap h = k->general;
+    heap h = heap_general(get_kernel_heaps());
     epoll e = resolve_fd(current->p, epfd);
     epollfd i;
-    
-    epoll_blocked w = allocate(k->epoll_blocked_cache, sizeof(struct epoll_blocked));
+
+    epoll_blocked w = unix_cache_alloc(get_unix_heaps(), epoll_blocked);
 #ifdef EPOLL_DEBUG
     rprintf("epoll_wait: epoll fd %d, new blocked %p, timeout %d\n", epfd, w, timeout);
 #endif
@@ -231,7 +225,6 @@ sysreturn epoll_wait(int epfd,
 
 sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 {
-    kernel k = current->p->k;
     value ekey = pointer_from_u64((u64)fd);
     epoll e = resolve_fd(current->p, epfd);    
 #ifdef EPOLL_DEBUG
@@ -241,7 +234,7 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
     case EPOLL_CTL_ADD:
         {
             // EPOLLET means edge instead of level
-            epollfd f = allocate(k->epollfd_cache, sizeof(struct epollfd));
+	    epollfd f = unix_cache_alloc(get_unix_heaps(), epollfd);
             f->f = resolve_fd(current->p, fd);
             f->fd = fd;
             f->e = e;
@@ -293,13 +286,12 @@ sysreturn pselect(int nfds,
             struct timespec *timeout,
             u64 *sigmask)
 {
-    kernel k = current->p->k;
-
     // xxx - implement wait/notify
     if (timeout == 0) {
         rprintf("select poll\n");
     } else {
-        register_timer(time_from_timespec(timeout), closure(k->general, select_timeout, current, 0));
+        register_timer(time_from_timespec(timeout),
+		       closure(heap_general(get_kernel_heaps()), select_timeout, current, 0));
         thread_sleep(current);
     }
     return 0;
@@ -315,16 +307,19 @@ void register_poll_syscalls(void **map)
     register_syscall(map, SYS_epoll_wait,epoll_wait);
 }
 
-boolean poll_init(kernel k)
+boolean poll_init(unix_heaps uh)
 {
-    k->epoll_cache = allocate_objcache(k->general, k->backed, sizeof(struct epoll));
-    if (k->epoll_cache == INVALID_ADDRESS)
+    heap general = heap_general((kernel_heaps)uh);
+    heap backed = heap_backed((kernel_heaps)uh);
+
+    if ((uh->epoll_cache = allocate_objcache(general, backed, sizeof(struct epoll), PAGESIZE))
+	== INVALID_ADDRESS)
 	return false;
-    k->epollfd_cache = allocate_objcache(k->general, k->backed, sizeof(struct epollfd));
-    if (k->epoll_blocked_cache == INVALID_ADDRESS)
+    if ((uh->epollfd_cache = allocate_objcache(general, backed, sizeof(struct epollfd), PAGESIZE))
+	== INVALID_ADDRESS)
 	return false;
-    k->epoll_blocked_cache = allocate_objcache(k->general, k->backed, sizeof(struct epoll_blocked));
-    if (k->epoll_blocked_cache == INVALID_ADDRESS)
+    if ((uh->epoll_blocked_cache = allocate_objcache(general, backed, sizeof(struct epoll_blocked), PAGESIZE))
+	== INVALID_ADDRESS)
 	return false;
 
     return true;

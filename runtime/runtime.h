@@ -62,6 +62,7 @@ static inline void zero(void *x, bytes length)
 }
 
 #include <heap/heap.h>
+#include <kernel_heaps.h>
 
 // transient is supposed to be cleaned up when we can guarantee that
 // its out of scope - so we argue its ok to make it global. however
@@ -163,8 +164,8 @@ extern void halt(char *format, ...);
 #define assert(x) do { if((x)) { } } while(0)
 #else
 #define assert(x) \
-  do { if(!(x)) halt("assertion \"%s\" failed in %s:%s() on line %d; halt\n", \
-		     #x, __FILE__, __func__, __LINE__); } while(0)
+    do { if(!(x)) halt("assertion " #x " failed in " __FILE__ ": %s() on line %d; halt\n", \
+		       __func__, __LINE__); } while(0)
 #endif
 
 // should be  (parser, parser, character)
@@ -182,8 +183,8 @@ typedef struct signature {
 
 #include <rtrie.h>
 
-void init_runtime(heap h);
-heap allocate_tagged_region(heap h, u64 tag);
+void init_runtime(kernel_heaps kh);
+heap allocate_tagged_region(kernel_heaps kh, u64 tag);
 typedef closure_type(buffer_promise, void, buffer_handler);
 
 extern thunk ignore;

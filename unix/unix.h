@@ -1,16 +1,10 @@
 #pragma once
-typedef struct kernel *kernel;
+typedef struct kernel_heaps *kernel_heaps;
+typedef struct unix_heaps *unix_heaps;
 typedef struct process *process;
 typedef struct thread *thread;
 
-kernel init_unix(heap h,
-		 heap pages,
-		 heap physical,
-		 heap virtual,
-		 heap virtual_pagesized,
-		 heap backed,
-		 tuple root,
-		 filesystem fs);
-process create_process(kernel k);
+process init_unix(kernel_heaps kh, tuple root, filesystem fs);
+process create_process(unix_heaps uh, tuple root, filesystem fs);
 thread create_thread(process p);
-process exec_elf(buffer ex, kernel k);
+process exec_elf(buffer ex, process kernel_process);

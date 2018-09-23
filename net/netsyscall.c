@@ -11,7 +11,7 @@ enum socket_state {
 };
 
 #define lwip_errno(__s, __e)\
-  errno_from_status(lwip_status(s->p->k->general, err))
+  errno_from_status(lwip_status(__s->h, err))
 
 typedef closure_type(pbuf_handler, void, struct pbuf *);
 typedef closure_type(pcb_handler, void, struct tcp_pcb *);
@@ -139,8 +139,8 @@ static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
     runloop();                
 }
 
-static CLOSURE_1_3(socket_write, s64, sock, void *, u64, u64);
-static s64 socket_write(sock s, void *source, u64 length, u64 offset)
+static CLOSURE_1_3(socket_write, sysreturn, sock, void *, u64, u64);
+static sysreturn socket_write(sock s, void *source, u64 length, u64 offset)
 {
     err_t err;
     if (SOCK_OPEN != s->state) 		/* XXX maybe defer to lwip for connect state */
@@ -174,32 +174,30 @@ static void socket_check(sock s, thunk t_in, thunk t_hup)
 static CLOSURE_1_0(socket_close, sysreturn, sock);
 static sysreturn socket_close(sock s)
 {
-    kernel k = current->p->k;
-    heap h = k->general;
+    heap h = heap_general(get_kernel_heaps());
     if (s->state == SOCK_OPEN) {
         tcp_close(s->lw);
     }
     deallocate_queue(s->notify, SOCK_QUEUE_LEN);
     deallocate_queue(s->waiting, SOCK_QUEUE_LEN);
     deallocate_queue(s->incoming, SOCK_QUEUE_LEN);
-    deallocate(k->socket_cache, s, sizeof(struct sock));
+    unix_cache_free(get_unix_heaps(), socket, s);
 }
 
 static int allocate_sock(process p, struct tcp_pcb *pcb)
 {
-    kernel k = p->k;
-    file f = allocate(k->socket_cache, sizeof(struct sock));
+    file f = unix_cache_alloc(get_unix_heaps(), socket);
     if (f == INVALID_ADDRESS) {
 	msg_err("failed to allocate struct sock\n");
 	return -ENOMEM;
     }
     int fd = allocate_fd(p, f);
     if (fd == INVALID_PHYSICAL) {
-	deallocate(k->socket_cache, f, sizeof(struct sock));
+	unix_cache_free(get_unix_heaps(), socket, f);
 	return -EMFILE;
     }
     sock s = (sock)f;
-    heap h = k->general;
+    heap h = heap_general(get_kernel_heaps());
     f->read = closure(h, socket_read, s);
     f->write = closure(h, socket_write, s);
     f->close = closure(h, socket_close, s);
@@ -270,7 +268,7 @@ void error_handler_tcp(void* arg, err_t err)
     if(ERR_OK != err)
         s->state = SOCK_UNDEFINED;
     if ((sp = dequeue(s->waiting))) {
-        apply(sp, lwip_status(s->p->k->general, err));
+        apply(sp, lwip_status(s->h, err));
     }
 }
 
@@ -287,27 +285,27 @@ static err_t connect_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
     sock s = (sock)(arg);
     s->state = SOCK_OPEN;
     if ((sp = dequeue(s->waiting))) 
-        apply(sp, lwip_status(s->p->k->general, err));
+        apply(sp, lwip_status(s->h, err));
 }
 
-static status connect_tcp(sock socket, const ip_addr_t* address, unsigned short port) {
-
-    enqueue(socket->waiting, closure(socket->h, set_completed_state, current));
-    tcp_arg(socket->lw, socket);
-    tcp_err(socket->lw, error_handler_tcp);
-    socket->state = SOCK_IN_CONNECTION;
-    int err = tcp_connect(socket->lw, address, port, connect_complete);
+static status connect_tcp(sock s, const ip_addr_t* address, unsigned short port)
+{
+    enqueue(s->waiting, closure(s->h, set_completed_state, current));
+    tcp_arg(s->lw, s);
+    tcp_err(s->lw, error_handler_tcp);
+    s->state = SOCK_IN_CONNECTION;
+    int err = tcp_connect(s->lw, address, port, connect_complete);
     if (ERR_OK != err) {
         // xx syscall transient
-        return lwip_status(current->p->k->general, err);
+        return lwip_status(s->h, err);
     }
     thread_sleep(current);
     return STATUS_OK;
 }
 
-sysreturn connect(int sockfd, struct sockaddr* addr, socklen_t addrlen) {
-    int err = ERR_OK;
-
+sysreturn connect(int sockfd, struct sockaddr* addr, socklen_t addrlen)
+{
+    status st = 0;
     sock s = resolve_fd(current->p, sockfd);
     struct sockaddr_in* sin = (struct sockaddr_in*)addr;
     if (!s) {
@@ -370,7 +368,7 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
     //  using an empty queue plus notify as the error signal
     // isnt really the most robust
     if ((sp = dequeue(s->waiting))) {
-        apply(sp, lwip_status(s->p->k->general, b));
+        apply(sp, lwip_status(s->h, b));
     }  else {
         if ((p = dequeue(s->notify))) {
             apply(p);
@@ -456,10 +454,13 @@ void register_net_syscalls(void **map)
     register_syscall(map, SYS_getpeername, getpeername);    
 }
 
-boolean netsyscall_init(kernel k)
+boolean netsyscall_init(unix_heaps uh)
 {
-    k->socket_cache = allocate_objcache(k->general, k->backed, sizeof(struct sock));
-    if (k->socket_cache == INVALID_ADDRESS)
+    kernel_heaps kh = (kernel_heaps)uh;
+    heap socket_cache = allocate_objcache(heap_general(kh), heap_backed(kh),
+					  sizeof(struct sock), PAGESIZE);
+    if (socket_cache == INVALID_ADDRESS)
 	return false;
+    uh->socket_cache = socket_cache;
     return true;
 }

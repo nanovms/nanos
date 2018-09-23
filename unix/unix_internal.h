@@ -18,11 +18,36 @@ thread create_thread(process);
 
 void run(thread);
 
+/* unix-specific memory objects and ids */
+typedef struct unix_heaps {
+    struct kernel_heaps kh;	/* must be first */
+
+    /* object caches */
+    heap file_cache;
+    heap epoll_cache;
+    heap epollfd_cache;
+    heap epoll_blocked_cache;
+#ifdef NET
+    heap socket_cache;
+#endif
+
+    /* id heaps */
+    heap processes;
+} *unix_heaps;
+
 typedef struct thread {
     // if we use an array typedef its fragile
     // there are likley assumptions that frame sits at the base of thread
     u64 frame[FRAME_MAX];
     process p;
+
+    /* Heaps in the unix world are typically found through
+       current. Copying them here means any heap is accessed through
+       one level of indirection. It also allows heaps to be
+       substituted on a per-thread basis (e.g. with a debug wrapper, a
+       CPU-bound object cache).
+    */
+    struct unix_heaps uh;
 
     void *set_child_tid;
     void *clear_child_tid;
@@ -42,42 +67,15 @@ typedef struct file {
     tuple n;
 } *file;
 
-/* kernel "instance", really just a collection of allocators, fs root, etc. */
-typedef struct kernel {
-    /* memory heaps */
-    heap general;
-    heap pages;
-    heap physical;
-    heap virtual;		/* these are for kernel-only mappings; */
-    heap virtual_pagesized;	/* not user space */
-    heap backed;
-
-    /* object caches */
-    heap file_cache;
-    heap epoll_cache;
-    heap epollfd_cache;
-    heap epoll_blocked_cache;
-#ifdef NET
-    heap socket_cache;
-#endif
-
-    /* id heaps */
-    heap processes;
-
-    /* filesystem */
-    tuple root;
-    // xxx - filesystem should be folded underneath tuple operators
-    filesystem fs;
-} *kernel;
-
 typedef struct process {
-    kernel k;
+    unix_heaps uh;		/* non-thread-specific */
     int pid;
     // i guess this should also be a heap, brk is so nasty
     void *brk;
     heap virtual;
     heap virtual32;    
     heap fdallocator;
+    filesystem fs;	/* XXX should be underneath tuple operators */
     tuple process_root;
     tuple cwd; 
     table futices;
@@ -90,6 +88,19 @@ typedef struct process {
 } *process;
 
 extern thread current;
+
+static inline unix_heaps get_unix_heaps()
+{
+    return &current->uh;
+}
+
+static inline kernel_heaps get_kernel_heaps()
+{
+    return (kernel_heaps)&current->uh;
+}
+
+#define unix_cache_alloc(uh, c) ({ heap __c = uh->c ## _cache; allocate(__c, __c->pagesize); })
+#define unix_cache_free(uh, c, p) ({ heap __c = uh->c ## _cache; deallocate(__c, p, __c->pagesize); })
 
 u64 allocate_fd(process p, file f);
 
@@ -127,7 +138,7 @@ void register_thread_syscalls(void **);
 void register_poll_syscalls(void **);
 void register_clock_syscalls(void **);
 
-boolean poll_init(kernel k);
+boolean poll_init(unix_heaps uh);
 #define sysreturn_from_pointer(__x) ((s64)u64_from_pointer(__x));
 
 extern sysreturn syscall_ignore();
