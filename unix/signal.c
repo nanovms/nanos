@@ -1,6 +1,6 @@
 #include <unix_internal.h>
 
-int sigaction(int signum,
+sysreturn sigaction(int signum,
               const struct sigaction *act,
               struct sigaction *oldact)
 {
@@ -9,7 +9,7 @@ int sigaction(int signum,
 }
 
 
-int sigprocmask(int how, u64 *new, u64 *old)
+sysreturn sigprocmask(int how, u64 *new, u64 *old)
 {
     if (old) *old = 0;
     return 0;

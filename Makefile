@@ -40,11 +40,12 @@ USERNET = -device virtio-net,netdev=n0 -netdev user,id=n0,hostfwd=tcp::8080-:808
 QEMU ?= qemu-system-x86_64
 
 run-nokvm: image
-	- $(QEMU) $(BOOT) $(DISPLAY) -m 2G -device isa-debug-exit $(STORAGE) 
+	- $(QEMU) $(BOOT) $(DISPLAY) -m 2G -device isa-debug-exit $(STORAGE) $(USERNET)
 
 run: image
-	- $(QEMU) $(BOOT) $(DISPLAY) -m 2G -device isa-debug-exit $(STORAGE) $(USERNET) $(KVM)
+	- $(QEMU) $(BOOT) $(DISPLAY) -m 2G -device isa-debug-exit $(STORAGE) $(NET) $(KVM)
 
 runnew: image
 	- ~/qemu/x86_64-softmmu/qemu-system-x86_64 -hda image $(DISPLAY) -m 2G -device isa-debug-exit $(STORAGE) $(USERNET) $(KVM)
+
 

@@ -73,7 +73,8 @@ syscall_enter:
         mov rax, [rax]
         call rax
         mov rbx, [frame]
-        mov [rbx + FRAME_RAX], rax
+# no more implicit syscall return here        
+#        mov [rbx + FRAME_RAX], rax
         jmp frame_enter
 .end:
         
