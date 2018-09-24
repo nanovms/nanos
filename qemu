@@ -1,18 +1,19 @@
 #!/bin/bash
 
-NET=""
+
 IMAGE=""
 ARGS=""
 TAP="-netdev tap,id=n0,ifname=tap0,script=no,downscript=no"
 BRIDGENET="-device virtio-net,mac=7e:b8:7e:87:4a:ea,netdev=n0 $TAP"
 USERNET="-device virtio-net,netdev=n0 -netdev user,id=n0,hostfwd=tcp::8080-:8080,hostfwd=tcp::1234-:1234" 
+NET="$USERNET"
 
 while [[ $# -gt 0 ]]
 do
     key="$1"
     case $key in
         -kvm)
-            ARGS += "--enable-kvm" $(NET)
+            ARGS+="--enable-kvm"
             NET="$BRIDGENET"
             shift # past argument
             ;;
@@ -22,9 +23,6 @@ do
     esac
 done
 
-if [ -z "$NET"]; then
-   NET="$USERNET"
-fi   
 
 QEMU="qemu-system-x86_64"
 BOOT="-boot c -drive file=$IMAGE,format=raw,if=ide"

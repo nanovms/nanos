@@ -4,51 +4,73 @@
 #include <sys/epoll.h>
 #include <stdlib.h>
 
-static CLOSURE_3_1(conn, buffer_handler,
-                   heap, merge, thunk, 
+typedef struct stats {
+    u32 connections;
+    u32 responses;
+    u32 requests;
+} *stats;
+
+static CLOSURE_4_1(conn, buffer_handler,
+                   heap, merge, thunk, stats, 
                    buffer_handler);
 
-static void send_request(buffer_handler out)
+static void send_request(stats s, buffer_handler out)
 {
-    http_request(out, timm("url", "/", "fizz", "bun"));
+    s->requests++;
+    tuple t = timmf("url", "/", "fizz", "bun", "Host", "tenny");
+    http_request(out, t);
 }
 
-#define LENGTH 3
-static CLOSURE_5_1(value_in, void,
-                   heap, buffer_handler, u64 *, status_handler, thunk,
+#define REQUESTS_PER_CONNECTION 50
+#define TOTAL_CONNECTIONS 1000
+static CLOSURE_6_1(value_in, void,
+                   heap, buffer_handler, u64 *, status_handler, thunk, stats, 
                    value);
 
 static void value_in(heap h,
                      buffer_handler out,
                      u64 *count,
                      status_handler completed,
-                     thunk newconn, 
+                     thunk newconn,
+                     stats s,
                      value v)
 {
-    if (*count == 0)
-        apply(newconn);
+    s->responses++;
+    
+    static int report = 1;
+    if (s->responses  > report) {
+        rprintf("c: %d req: %d resp: %d\n", s->connections, s->requests, s->responses);
+        report *= 2;
+    }
+    
+    if (*count == 0) {
+        if (s->connections < TOTAL_CONNECTIONS)
+            apply(newconn);
+    }
     *count = *count + 1;
-    if (*count < LENGTH) {
-        send_request(out);
+    if (*count < REQUESTS_PER_CONNECTION) {
+        send_request(s, out);
     } else {
         apply(out, 0);
         apply(completed, 0);
     }
 }
 
-static buffer_handler conn(heap h, merge m, thunk newconn, 
+static buffer_handler conn(heap h, merge m, thunk newconn, stats s, 
                            buffer_handler out)
 {
     u64 *count = allocate_zero(h, sizeof(u64));
+    s->connections++;
     status_handler c = apply(m);
-    send_request(out);
-    return allocate_http_parser(h, closure(h, value_in, h, out, count, c, newconn));
+    send_request(s, out);
+    return allocate_http_parser(h, closure(h, value_in, h, out, count, c, newconn, s));
+
 }
 
-static CLOSURE_6_0(startconn, void, heap, descriptor, merge, buffer, thunk *, status_handler);
-static void startconn(heap h, descriptor e, merge m, buffer target, thunk *self, status_handler err)
+static CLOSURE_7_0(startconn, void, heap, descriptor, merge, buffer, thunk *, stats, status_handler);
+static void startconn(heap h, descriptor e, merge m, buffer target, thunk *self, stats s, status_handler err)
 {
-    connection(h, e, target, closure(h, conn, h, m, *self), err);
+    connection(h, e, target, closure(h, conn, h, m, *self, s), err);
 }
 
 CLOSURE_0_1(connection_error, void, status);
@@ -75,7 +97,9 @@ void main(int argc, char **argv)
     merge m = allocate_merge(h, closure(h, finished));
     // there are other solutions for y
     status_handler err = closure(h, connection_error);
-    *newconn = (thunk)closure(h, startconn, h, e, m, target, newconn, err);
+    stats s = allocate_zero(h, sizeof(struct stats));
+    zero(s, sizeof(struct stats)); //?
+    *newconn = (thunk)closure(h, startconn, h, e, m, target, newconn, s, err);
     apply(*newconn);
     epoll_spin(e);
 }

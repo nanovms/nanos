@@ -86,7 +86,6 @@ void http_recv(http_parser p, buffer b)
     
     for (i = b->start ; i < b->end; i ++) {
         char x = ((unsigned char *)b->contents)[i];
-
         switch (p->state) {
         case STATE_START_LINE:
             switch (x){
@@ -137,7 +136,7 @@ void http_recv(http_parser p, buffer b)
         }
         
         if ((p->state == STATE_BODY) && (p->content_length == 0)) {
-            table_set(p->header, sym(content), p->word);
+            table_set(p->header, sym(content), wrap_buffer(p->h, buffer_ref(p->word, 0), buffer_length(p->word)));
             apply(p->each, p->header);
             reset_parser(p);
         }

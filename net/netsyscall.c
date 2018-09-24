@@ -3,11 +3,11 @@
 #include <lwip.h>
 
 enum socket_state {
-  SOCK_UNDEFINED,
-  SOCK_CREATED,
-  SOCK_IN_CONNECTION,
-  SOCK_OPEN,
-  SOCK_CLOSED
+  SOCK_UNDEFINED =0,
+  SOCK_CREATED=1,
+  SOCK_IN_CONNECTION=2,
+  SOCK_OPEN=3,
+  SOCK_CLOSED=4
 };
 
 #define lwip_errno(__s, __e)\
@@ -35,6 +35,7 @@ static void wakeup(sock s)
 {
     thunk n;
     status_handler fstatus;
+
     // return status if not handled so someone else can try?
     // shouldnt a close event wake up everyone?
     if ((fstatus = dequeue(s->waiting))) {
@@ -99,9 +100,12 @@ static inline void pbuf_consume(struct pbuf *p, u64 length)
 static CLOSURE_4_0(read_complete, void, sock, thread, void *, u64);
 static void read_complete(sock s, thread t, void *dest, u64 length)
 {
-    if (s->state != SOCK_OPEN) {
-       set_syscall_error(t, ENOTCONN);
-       return;
+    if (s->state != SOCK_OPEN)
+        s->s = timmf("errno", "%d", ENOTCONN);
+    if (s->s) {
+        set_syscall_error(t, errno_from_status(s->s));
+        thread_wakeup(t);
+        return;
     }
     
     struct pbuf *p = queue_peek(s->incoming);
@@ -210,7 +214,9 @@ static int allocate_sock(process p, struct tcp_pcb *pcb)
     s->h = h;
     s->lw = pcb;
     s->fd = fd;
-    // defer to lwip here?
+    // defer to lwip here? ideally, but its racy - it looks like
+    // pcb->state as defined in include/lwip/tcp.h is the right
+    // connection state variable
     s->state = SOCK_CREATED;
     s->incoming = allocate_queue(h, SOCK_QUEUE_LEN);
     return fd;
@@ -226,13 +232,12 @@ sysreturn socket(int domain, int type, int protocol)
     return fd;
 }
 
-static err_t input_lower (void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
+static err_t connection_data_from_lwip (void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 {
     sock s = z;
-    
+
     if (err) {
-        // later timmf
-        s->s = timm("lwip error", "%d", err);
+        s->s = timmf("lwip error", "%d", err);
     }
     
     if (p) {
@@ -354,14 +359,11 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
     if (fd < 0)
 	return ERR_MEM;
 
-    // XXX - what if this has been closed in the meantime?
-    // refcnt
-
     sock sn = vector_get(s->p->files, fd);
     sn->state = SOCK_OPEN;
     sn->fd = fd;
     tcp_arg(lw, sn);
-    tcp_recv(lw, input_lower);
+    tcp_recv(lw, connection_data_from_lwip);
     tcp_err(lw, lwip_conn_err);
     enqueue(s->incoming, sn);
 

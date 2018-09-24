@@ -136,7 +136,6 @@ void connection(heap h,
     fill_v4_sockaddr(&where, v4, port);
     // this is still blocking!
     int res = connect(s, (struct sockaddr *)&where, sizeof(struct sockaddr_in));
-    rprintf("conncet return %d\n", res);
     if (res) {
         rprintf("zikkay %d %p\n", res, failure);        
         apply(failure, timmf("errno", "%d", errno,

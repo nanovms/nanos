@@ -35,9 +35,10 @@ static inline tuple timm_internal(void (*f)(table, char *, vlist *), char *first
     // deal with the mandatory first argument
     if (first != INVALID_ADDRESS) {
         char *n; 
-        timm_term(t, first, &e);
-        while((n = varg(e, char *)) != INVALID_ADDRESS)  
-            timm_term(t, n, &e);
+        f(t, first, &e);
+        while((n = varg(e, char *)) != INVALID_ADDRESS)  {
+            f(t, n, &e);
+        }
     }
     return t;
 }

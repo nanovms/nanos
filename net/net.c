@@ -20,7 +20,7 @@ void *lwip_allocate(u64 size)
 void lwip_deallocate(void *x)
 {
     /* no size info; mcache won't care */
-    deallocate(lwip_heap, x, -1ull);
+    //    deallocate(lwip_heap, x, -1ull);
 }
 
 extern void lwip_init();

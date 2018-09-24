@@ -1,13 +1,12 @@
+force:
 
-
-$(ROOT)/mkfs/mkfs: 
+$(ROOT)/mkfs/mkfs: force
 	cd $(ROOT)/mkfs ; make
 
-$(ROOT)/boot/boot: 
+$(ROOT)/boot/boot: force
 	cd $(ROOT)/boot ; make
 
-# can be stripped 1/5 the size
-$(ROOT)/stage3/stage3: 
+$(ROOT)/stage3/stage3: force
 	cd $(ROOT)/stage3 ; make
 
 %.image: %.manifest $(ROOT)/mkfs/mkfs $(ROOT)/stage3/stage3 $(ROOT)/boot/boot %

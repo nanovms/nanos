@@ -337,7 +337,9 @@ struct code syscall_codes[]= {
     {SYS_pwritev2, "pwritev2"},
     {SYS_pkey_mprotect, "pkey_mprotect"},
     {SYS_pkey_alloc, "pkey_alloc"},
-    {SYS_pkey_free, "pkey_free"}};
+    {SYS_pkey_free, "pkey_free"},
+    {SYS_openat, "openat"}};    
+
 
 char *syscall_name(int x)
 {
@@ -345,7 +347,8 @@ char *syscall_name(int x)
         if (syscall_codes[i].c == x) 
             return syscall_codes[i].n;
     }
-    return ("invalidine syscall");
+    rprintf("invalid syscall: %d\n", x); 
+    return ("invalid syscall");
 }
 
 

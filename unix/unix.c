@@ -32,7 +32,7 @@ void default_fault_handler(thread t, context frame)
     print_frame(t->frame);
     print_stack(t->frame);
 
-    if (table_find (t->p->process_root, sym(gdb_on_fault))) {
+    if (table_find (t->p->process_root, sym(fault))) {
         console("starting gdb\n");
         init_tcp_gdb(heap_general(get_kernel_heaps()), t->p, 1234);
         thread_sleep(current);
