@@ -24,17 +24,13 @@ clean:
 	cd examples ; make clean
 	rm -f runtime/closure_templates.h runtime/contgen image fs
 
-# file=image,if=none,id=virtio-disk0,format=raw,cache=none,aio=native
+force:
 
-# could really be nice if BOOT and STORAGE could be the same disk
-BOOT = -boot c -drive file=image,format=raw,if=ide
-STORAGE = -drive file=image,format=raw,if=virtio
-TAP = -netdev tap,id=n0,ifname=tap0,script=no,downscript=no
-NET = -device virtio-net,mac=7e:b8:7e:87:4a:ea,netdev=n0 $(TAP)
-KVM = -enable-kvm
-DISPLAY = -display none -serial stdio
-USERNET = -device virtio-net,netdev=n0 -netdev user,id=n0,hostfwd=tcp::8080-:8080
-QEMU ?= qemu-system-x86_64
+examples/%.image: force
+	cd examples ; make $(notdir $@)
 
-examples/%.image:
-	cd examples ; make 
+run: qemu examples/webgs.image
+	./qemu -kvm examples/webgs.image
+
+run-nokvm: qemu examples/webgs.image
+	./qemu examples/webgs.image
