@@ -16,7 +16,7 @@ INCLUDES += -I.
 objcache_test: objcache_test.o $(UNIXRUNTIME) $(TFS)
 	$(CC) $(CFLAGS) $^ -g -o objcache_test
 
-network_test: network_test.o http.o socket_user.o $(UNIXRUNTIME)
+network_test: network_test.o http.o socket_user.o tiny_heap.o $(UNIXRUNTIME)
 	$(CC) $(CFLAGS) -I. $^ -g -o network_test
 
 id_heap_test: id_heap_test.o $(UNIXRUNTIME)
