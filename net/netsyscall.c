@@ -23,11 +23,11 @@ typedef closure_type(pcb_handler, void, struct tcp_pcb *);
 // nothing seems to track whether the tcp state is actually
 // connected
 enum socket_state {
-  SOCK_UNDEFINED,
-  SOCK_CREATED,
-  SOCK_IN_CONNECTION,
-  SOCK_OPEN,
-  SOCK_CLOSED
+  SOCK_UNDEFINED = 0,
+  SOCK_CREATED =1,
+  SOCK_IN_CONNECTION = 2,
+  SOCK_OPEN = 3,
+  SOCK_CLOSED = 4
 };
 
 typedef struct sock {
@@ -129,6 +129,7 @@ static void read_complete(sock s, thread t, void *dest, u64 length, boolean slee
     u64 xfer = MIN(length, p->len);
     runtime_memcpy(dest, p->payload, xfer);
     pbuf_consume(p, xfer);
+    set_syscall_return(t, xfer);    
     if (p->len == 0) {
         dequeue(s->incoming);
         pbuf_free(p);
@@ -147,7 +148,6 @@ static void read_hup(sock s, thread t)
 static CLOSURE_1_3(socket_read, sysreturn, sock, void *, u64, u64);
 static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
 {
-
     if (SOCK_OPEN != s->state) 
         return set_syscall_error(current, ENOTCONN);
 
@@ -200,10 +200,10 @@ static sysreturn socket_close(sock s)
     if (s->state == SOCK_OPEN) {
         tcp_close(s->lw);
     }
-    deallocate_queue(s->notify, SOCK_QUEUE_LEN);
-    deallocate_queue(s->waiting, SOCK_QUEUE_LEN);
-    deallocate_queue(s->incoming, SOCK_QUEUE_LEN);
-    unix_cache_free(get_unix_heaps(), socket, s);
+    //    deallocate_queue(s->notify, SOCK_QUEUE_LEN);
+    //    deallocate_queue(s->waiting, SOCK_QUEUE_LEN);
+    //    deallocate_queue(s->incoming, SOCK_QUEUE_LEN);
+    //    unix_cache_free(get_unix_heaps(), socket, s);
 }
 
 static int allocate_sock(process p, struct tcp_pcb *pcb)
@@ -226,7 +226,8 @@ static int allocate_sock(process p, struct tcp_pcb *pcb)
     f->check = closure(h, socket_check, s);
     
     s->notify = allocate_queue(h, SOCK_QUEUE_LEN);
-    s->waiting = allocate_queue(h, SOCK_QUEUE_LEN);    
+    s->waiting = allocate_queue(h, SOCK_QUEUE_LEN);
+
     s->s = STATUS_OK;
     s->p = p;
     s->h = h;

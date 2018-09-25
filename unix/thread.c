@@ -72,22 +72,23 @@ static fut soft_create_futex(process p, u64 key)
 }
 
 static sysreturn futex(int *uaddr, int futex_op, int val,
-                 u64 val2,
-                 int *uaddr2, int val3)
+                       u64 val2,
+                       int *uaddr2, int val3)
 {
     struct timespec *timeout = pointer_from_u64(val2);
-    int verbose = true;
+    boolean verbose = table_find(current->p->process_root, sym(futex_trace))?true:false;
     thread w;
     
     fut f = soft_create_futex(current->p, u64_from_pointer(uaddr));
     int op = futex_op & 127; // chuck the private bit
     switch(op) {
     case FUTEX_WAIT:
-        if (verbose)
-            thread_log(current, "futex wait %p\n", uaddr);
         if (*uaddr == val) {
+            if (verbose) 
+                thread_log(current, "futex wait %p %p %p\n", uaddr, val, current);
             // if we resume we are woken up, no timeout support
             set_syscall_return(current, 0);
+            // atomic 
             enqueue(f->waiters, current);
             thread_sleep(current);
         }
@@ -95,15 +96,14 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
             
     case FUTEX_WAKE:
         // return the number of waiters that were woken up
-        if (verbose)
-            thread_log(current, "futex_wake [%d %p %d]\n", current->tid, uaddr, *uaddr);
         if ((w = dequeue(f->waiters))) {
-            set_syscall_return(current, 1);            
+            if (verbose)
+                thread_log(current, "futex_wake [%d %p %d %p]\n", current->tid, uaddr, *uaddr, w);
             thread_wakeup(w);
+            set_syscall_return(current, 1);            
         }
         return 0;
         
-    case FUTEX_FD: rprintf("futex_fd\n"); break;
     case FUTEX_REQUEUE: rprintf("futex_requeue\n"); break;
     case FUTEX_CMP_REQUEUE:
         if (verbose)
@@ -170,12 +170,12 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
             thread_sleep(current);
         }
         break;
-    case FUTEX_WAKE_BITSET: rprintf("FUTEX_wake_bitset\n"); break;
-    case FUTEX_LOCK_PI: rprintf("FUTEX_lock_pi\n"); break;
-    case FUTEX_TRYLOCK_PI: rprintf("FUTEX_trylock_pi\n"); break;
-    case FUTEX_UNLOCK_PI: rprintf("FUTEX_unlock_pi\n"); break;
-    case FUTEX_CMP_REQUEUE_PI: rprintf("FUTEX_CMP_requeue_pi\n"); break;
-    case FUTEX_WAIT_REQUEUE_PI: rprintf("FUTEX_WAIT_requeue_pi\n"); break;
+    case FUTEX_WAKE_BITSET: rprintf("FUTEX_wake_bitset unimplemented\n"); break;
+    case FUTEX_LOCK_PI: rprintf("FUTEX_lock_pi unimplemented\n"); break;
+    case FUTEX_TRYLOCK_PI: rprintf("FUTEX_trylock_pi unimplemented\n"); break;
+    case FUTEX_UNLOCK_PI: rprintf("FUTEX_unlock_pi unimplemented\n"); break;
+    case FUTEX_CMP_REQUEUE_PI: rprintf("FUTEX_CMP_requeue_pi unimplemented\n"); break;
+    case FUTEX_WAIT_REQUEUE_PI: rprintf("FUTEX_WAIT_requeue_pi unimplemented\n"); break;
     }
     return 0;
 }
@@ -225,7 +225,7 @@ void thread_sleep(thread t)
 
 void thread_wakeup(thread t)
 {
-    thread_log(t, "wakeup",  t->frame[FRAME_RIP]);
+    thread_log(current, "wakeup %d->%d %p", current->tid, t->tid, t->frame[FRAME_RIP]);
     enqueue(runqueue, t->run);
 }
 
