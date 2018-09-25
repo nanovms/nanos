@@ -6,8 +6,11 @@ import (
 	"net/http"
 )
 
+var count int64
+
 func handler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "unibooty")
+	fmt.Fprintf(w, "unibooty %d", count)
+	count++   
 }
 
 func main() {

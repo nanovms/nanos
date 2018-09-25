@@ -22,8 +22,19 @@ void console(char *x)
     write(2, x, runtime_strlen(x));
 }
 
+
+time timeval_to_time(struct timeval *a)
+{
+    return((((unsigned long long)a->tv_sec)<<32)|
+           (((unsigned long long)a->tv_usec)<<32)/1000000);
+}
+
 time now()
 {
+    struct timeval result;
+    
+    gettimeofday(&result,0);
+    return(timeval_to_time(&result));
 }
 
 static void malloc_free(heap h, u64 z, bytes length)
