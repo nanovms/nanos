@@ -305,6 +305,7 @@ void register_poll_syscalls(void **map)
     register_syscall(map, SYS_epoll_ctl, epoll_ctl);
     register_syscall(map, SYS_pselect6, pselect);
     register_syscall(map, SYS_epoll_wait,epoll_wait);
+    register_syscall(map, SYS_epoll_pwait,epoll_wait); /* sigmask unused right now */
 }
 
 boolean poll_init(unix_heaps uh)
