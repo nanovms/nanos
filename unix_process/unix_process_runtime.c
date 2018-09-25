@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <sys/mman.h>
 #include <string.h>
+#include <signal.h>
 
 // xxx - can't use <time.h> because of redefinition of time
 
@@ -89,11 +90,15 @@ static void format_errno(buffer dest, buffer fmt, vlist *a)
 // xxx - not the kernel
 static struct kernel_heaps heaps; /* really just for init_runtime() */
 
+extern void init_extra_prints();
+
 // 64 bit unix process                  
 heap init_process_runtime()
 {
     heaps.general = malloc_allocator();
     init_runtime(&heaps);
+    init_extra_prints();
+    signal(SIGPIPE, SIG_IGN);
     // unix errno print formatter
     register_format('E', format_errno);       
     return heaps.general;
