@@ -116,25 +116,25 @@ static inline void pbuf_consume(struct pbuf *p, u64 length)
 }
 
 // racy
-static CLOSURE_4_0(read_complete, void, sock, thread, void *, u64);
-static void read_complete(sock s, thread t, void *dest, u64 length)
+static CLOSURE_5_0(read_complete, void, sock, thread, void *, u64, boolean);
+static void read_complete(sock s, thread t, void *dest, u64 length, boolean sleeping)
 {
     if (s->state != SOCK_OPEN) {
        set_syscall_error(t, ENOTCONN);
        return;
     }
-    
+
+    // could copy in multiple pbufs just to save them from coming back tomorrow
     struct pbuf *p = queue_peek(s->incoming);
     u64 xfer = MIN(length, p->len);
     runtime_memcpy(dest, p->payload, xfer);
     pbuf_consume(p, xfer);
-    set_syscall_return(t, xfer);
-    enqueue(runqueue, t->run);
     if (p->len == 0) {
         dequeue(s->incoming);
         pbuf_free(p);
     }
     tcp_recved(s->lw, xfer);
+    if (sleeping) thread_wakeup(t);
 }
 
 static CLOSURE_2_0(read_hup, void, sock, thread);
@@ -147,16 +147,18 @@ static void read_hup(sock s, thread t)
 static CLOSURE_1_3(socket_read, sysreturn, sock, void *, u64, u64);
 static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
 {
-    thunk complete = closure(s->h, read_complete, s, current, dest, length);
+
     if (SOCK_OPEN != s->state) 
         return set_syscall_error(current, ENOTCONN);
 
     if (queue_length(s->incoming)) {
-        apply(complete);
+        read_complete(s, current, dest, length, false);
+        return sysreturn_value(current);        
     } else {
-        enqueue(s->waiting, complete);
+        // should be an atomic operation
+        enqueue(s->waiting, closure(s->h, read_complete, s, current, dest, length, true));
+        thread_sleep(current);
     }
-    runloop();                
 }
 
 static CLOSURE_1_3(socket_write, sysreturn, sock, void *, u64, u64);
