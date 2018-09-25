@@ -6,9 +6,7 @@ typedef u32 character;
 #define true 1
 #define false 0
 
-typedef u64 bytes;
 typedef u64 time;
-
 
 extern void console(char *x);
 void print_u64(u64 s);
@@ -16,6 +14,17 @@ void print_u64(u64 s);
 static inline void runtime_memcpy(void *a, void *b, bytes len)
 {
     for (int i = 0; i < len; i++) ((u8 *)a)[i] = ((u8 *)b)[i];
+}
+
+static inline int scramble(void *a, u64 length)
+{
+    u8 *x = a;
+    // use a real lcsg
+    u64 seed = 0x876212393;
+    for (int i = 0; i < length ; i++) {
+        seed = seed * 6364136223846793005ull + 1;
+        x[i] = seed;
+    }
 }
 
 static inline int runtime_strlen(char *a)

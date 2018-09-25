@@ -93,7 +93,7 @@ static u64 tagged_allocate(heap h, bytes length)
 {
     tagged_allocator ta = (void *)h;
     u64 base = allocate_u64(ta->parent, length + 1);
-    return base + 1;    
+    return base + 1;
 }
 
 heap allocate_tagged_region(kernel_heaps kh, u64 tag)

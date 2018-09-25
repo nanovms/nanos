@@ -84,6 +84,7 @@ typedef struct process {
     u64 sigmask;
     void **syscall_handlers;
     vector files;
+    tuple root;
 } *process;
 
 extern thread current;
@@ -162,6 +163,18 @@ static inline sysreturn set_syscall_error(thread t, s32 val)
 }
 
 #define resolve_fd(__p, __fd) ({void *f ; if (!(f = vector_get(__p->files, __fd))) return set_syscall_error(current, EBADF); f;})
+
+static inline s64 errno_from_status(status s)
+{
+    if (s == 0) return 0;
+    value v;
+    if (v = table_find(s, sym(errno))) {
+        s64 r = u64_from_value(v);
+        return -r;
+    }
+    rprintf("warning - status %v has no unix errno\n", s);
+    return -EFAULT;
+}
 
 void init_threads(process p);
 void init_syscalls();

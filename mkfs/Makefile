@@ -17,5 +17,5 @@ dump: dump.o $(UNIXRUNTIME) $(TFS)
 	cc $^ -g -o dump
 
 clean:
-	rm -f *.o mkfs
+	rm -f *.o mkfs dump
 

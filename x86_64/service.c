@@ -144,6 +144,16 @@ static void read_kernel_syms()
     }
 }
 
+static void format_elf_symbol(buffer dest, buffer fmt, vlist *v)
+{
+    u64 x, offset = varg(*v, u64);
+    char *name = find_elf_sym(x, &offset);
+    bprintf(dest, "%s + %p", name, offset);
+}
+
+
+static struct heap bootstrap;
+static heap pages, physical_memory, backed, backed_2M, virtual;
 static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = &heaps;
@@ -156,8 +166,8 @@ static void __attribute__((noinline)) init_service_new_stack()
     // just to find maintain the convention of faulting on zero references
     unmap(0, PAGESIZE, pages);
     runqueue = allocate_queue(misc, 64);
+
     start_interrupts(kh);
-    init_extra_prints();
     init_runtime(kh);
     init_symtab(kh);
     read_kernel_syms();

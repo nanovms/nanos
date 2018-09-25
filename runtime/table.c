@@ -49,10 +49,6 @@ void *table_find (table z, void *c)
     table t = valueof(z);
     key k = t->key_function(c);
     for (entry i = t->entries[position(t->buckets, k)]; i; i = i->next){
-        if (i == INVALID_ADDRESS) {
-            rprintf("badness 10000 %p %p\n", z, z->h);
-            halt("zig why no format");
-        }
         if ((i->k == k) && t->equals_function(i->c, c))
             return(i->v);
     }
@@ -70,23 +66,18 @@ static void resize_table(table z, int buckets)
             entry n = j->next;
             key km = position(buckets, j->k);
             j->next = nentries[km];
-            if (j->next == INVALID_ADDRESS) {
-                rprintf("badness 9000 %p\n", z);
-                halt("zig why no format");
-            }
             nentries[km] = j;
             j = n;
         }
     }
     t->entries = nentries;
     t->buckets = buckets;
-    table_check(t, "resize");
+    //    table_check(t, "resize");
 }
 
 void table_set (table z, void *c, void *v)
 {
     table t = valueof(z);
-    //    rprintf("set: %p %p %p\n", z, t->entries, __builtin_return_address(0));
     key k = t->key_function(c);
     key p = position(t->buckets, k);
     entry *e = t->entries + p;
@@ -96,7 +87,7 @@ void table_set (table z, void *c, void *v)
                 t->count--;
                 entry z = *e;
                 *e = (*e)->next;
-                table_check(t, "remove");
+                //                table_check(t, "remove");
                 deallocate(t->h, z, sizeof(struct entry));
             } else (*e)->v = v;
             return;
@@ -104,8 +95,7 @@ void table_set (table z, void *c, void *v)
     }
 
     if (v != EMPTY) {
-        // xxx - shouldnt need to zero - messing about
-        entry n = valueof(allocate_zero(t->h, sizeof(struct entry)));
+        entry n = valueof(allocate(t->h, sizeof(struct entry)));
 
         if (n == INVALID_ADDRESS) {
             halt("couldn't allocate table entry\n");
@@ -114,6 +104,7 @@ void table_set (table z, void *c, void *v)
         n->k = k;
         n->c = c; 
         n->v = v;
+        n->next = *e;
         *e = n;
         
         if (t->count++ > t->buckets) 

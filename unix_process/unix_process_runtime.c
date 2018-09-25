@@ -63,7 +63,6 @@ heap allocate_tagged_region(kernel_heaps kh, u64 tag)
     return create_id_heap(heap_general(kh), u64_from_pointer(region), size, 1);
 }
 
-extern void init_extra_prints();
 
 static void format_errno(buffer dest, buffer fmt, vlist *a)
 {
@@ -72,6 +71,7 @@ static void format_errno(buffer dest, buffer fmt, vlist *a)
     buffer_write(dest, e, len);
 }
 
+// xxx - not the kernel
 static struct kernel_heaps heaps; /* really just for init_runtime() */
 
 // 64 bit unix process                  
@@ -79,7 +79,6 @@ heap init_process_runtime()
 {
     heaps.general = malloc_allocator();
     init_runtime(&heaps);
-    init_extra_prints();
     // unix errno print formatter
     register_format('E', format_errno);       
     return heaps.general;

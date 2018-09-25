@@ -31,7 +31,7 @@ void filesystem_read(filesystem fs, tuple t, void *dest, u64 length, u64 offset,
 {
     fsfile f;
     if (!(f = table_find(fs->files, t))) {
-        tuple e = timm("result", "no such file %t", t);
+        tuple e = timmf("result", "no such file %t", t);
         apply(completion, e);
         return;
     }
@@ -72,15 +72,13 @@ static tuple soft_create(filesystem fs, tuple t, symbol a)
 
 static u64 extend(fsfile f, u64 foffset, u64 length)
 {
-    tuple e = timm("length", "%d", length);
+    tuple e = timm("length", value_from_u64(f->fs->h, length));
     
     u64 storage = allocate_u64(f->fs->storage, pad(length, f->fs->alignment));
     if (storage == u64_from_pointer(INVALID_ADDRESS)) {
         halt("out of storage");
     }
-    //  we should(?) encode this as an immediate bitstring?
-    string off = aprintf(f->fs->h, "%d", storage);
-    table_set(e, sym(offset), off);
+    table_set(e, sym(offset), value_from_u64(f->fs->h, storage));
 
     tuple exts = soft_create(f->fs, f->md, sym(extents));
     symbol offs = intern_u64(foffset);
@@ -100,7 +98,7 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, status_handl
     *last = offset;
     fsfile f;
     if (!(f = table_find(fs->files, t))) {
-        apply(completion, timm("no such file"));
+        apply(completion, timmf("status", "no such file"));
         return;
     }
     merge m = allocate_merge(fs->h, completion);
@@ -189,7 +187,7 @@ void filesystem_read_entire(filesystem fs, tuple t, heap h, buffer_handler c, st
         rtrie_range_lookup(f->extents, irange(0, len), closure(h, fs_read_extent, fs, b, last, m, irange(0, len)));
         apply(k, STATUS_OK);
     } else {
-        tuple e = timm("status", "no such file %v\n", t);
+        tuple e = timmf("status", "no such file %v\n", t);
         apply(c, 0);
     }
 }

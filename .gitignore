@@ -28,6 +28,7 @@ examples/webs
 examples/webg
 examples/fst
 examples/hws
+examples/net_unit
 examples/webgs
 stage3/frame_nasm.h
 image2
@@ -36,3 +37,4 @@ fs
 test/objcache_test
 test/network_test
 test/id_heap_test
+*.image

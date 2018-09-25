@@ -6,6 +6,8 @@
     # filesystem path to elf for kernel to run
     program:/webgs
     fault:t
+#    trace:t
+#    debugsyscalls:t
     arguments:[webgs]
     environment:(USER:bobby PWD:/)
 )

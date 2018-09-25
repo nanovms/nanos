@@ -111,27 +111,6 @@ boolean objcache_test(heap meta, heap parent, int objsize)
     return true;
 }
 
-u64 mmapheap_alloc(heap h, bytes size)
-{
-    void * rv = mmap(0, size + TEST_PAGESIZE, PROT_READ | PROT_WRITE,
-		     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (rv == MAP_FAILED) {
-	msg_err("mmap() failed: errno %d (%s)\n", errno, strerror(errno));
-	return INVALID_PHYSICAL;
-    } else {
-	return (u64_from_pointer(rv) + TEST_PAGESIZE - 1) & ~(TEST_PAGESIZE - 1);
-    }
-}
-
-heap allocate_mmapheap(heap meta, bytes size)
-{
-    heap h = allocate(meta, sizeof(struct heap));
-    h->alloc = mmapheap_alloc;
-    h->dealloc = leak;
-    h->pagesize = size;
-    return h;
-}
-
 int main(int argc, char **argv)
 {
     heap h = init_process_runtime();

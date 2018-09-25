@@ -1,28 +1,16 @@
-ROOT = $(PWD)
-
-include net/Makefile
-
 force:
 
-TARGET = webgs
+$(ROOT)/mkfs/mkfs: force
+	cd $(ROOT)/mkfs ; make
 
-mkfs/mkfs: force
-	cd mkfs ; make
+$(ROOT)/boot/boot: force
+	cd $(ROOT)/boot ; make
 
-image: boot/boot mkfs/mkfs examples/$(TARGET).manifest stage3/stage3 examples/$(TARGET)
-	mkfs/mkfs fs < examples/$(TARGET).manifest && cat boot/boot fs > image
+$(ROOT)/stage3/stage3: force
+	cd $(ROOT)/stage3 ; make
 
-examples/$(TARGET): force
-	cd examples ; make
+%.image: %.manifest $(ROOT)/mkfs/mkfs $(ROOT)/stage3/stage3 $(ROOT)/boot/boot %
+	$(ROOT)/mkfs/mkfs - $(ROOT) < $< | cat $(ROOT)/boot/boot - > $@
 
-boot/boot: force
-	cd boot ; make
 
-stage3/stage3: force
-	cd stage3 ; make
 
-clean:
-	cd boot ; make clean
-	cd stage3 ; make clean
-	cd mkfs ; make clean
-	rm -f runtime/closure_templates.h runtime/contgen image image2

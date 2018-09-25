@@ -7,18 +7,18 @@
 #include <tfs.h>
 #include <errno.h>
 
-static CLOSURE_1_3(bwrite, void, descriptor, buffer, u64, status_handler);
-static void bwrite(descriptor d, buffer s, u64 offset, status_handler c)
+static CLOSURE_2_3(bwrite, void, descriptor, u64, buffer, u64, status_handler);
+static void bwrite(descriptor d, u64 base, buffer s, u64 offset, status_handler c)
 {
 
 }
 
-static CLOSURE_1_4(bread, void, descriptor, void *, u64, u64, status_handler);
-static void bread(descriptor d, void *dest, u64 length, u64 offset, status_handler c)
+static CLOSURE_2_4(bread, void, descriptor, u64, void *, u64, u64, status_handler);
+static void bread(descriptor d, u64 base, void *dest, u64 length, u64 offset, status_handler c)
 {
     int xfer, total = 0;
     while (total < length) {
-        xfer = pread(d, dest + total , length - total, offset + total);
+        xfer = pread(d, dest + total , length - total, offset + total + base);
         if (xfer == 0) apply(c, 0);
         if (xfer == -1) apply(c, timm("read-error", "%E", errno));
         total += xfer;
@@ -69,6 +69,14 @@ int main(int argc, char **argv)
     heap h = init_process_runtime();
     tuple root = allocate_tuple();
     int fd = open(argv[1], O_RDONLY);
+    u64 offset = 0;
+
+    if (argc > 3) {
+        char boot_block[512];
+        read(fd, boot_block, sizeof(boot_block));
+        offset = *(u64 *)(boot_block+512-22);
+        rprintf("offset %d\n", offset);
+    }
 
     if (fd < 0) {
         rprintf("couldn't open file %s\n", argv[1]);
@@ -77,8 +85,8 @@ int main(int argc, char **argv)
     create_filesystem(h,
                       SECTOR_SIZE,
                       10ull * 1024 * 1024 * 1024,
-                      closure(h, bread, fd),
-                      closure(h, bwrite, fd),
+                      closure(h, bread, fd, offset),
+                      closure(h, bwrite, fd, offset),
                       root,
                       closure(h, fsc, h, alloca_wrap_buffer(argv[2], runtime_strlen(argv[2])), root));
 }

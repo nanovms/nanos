@@ -43,6 +43,12 @@ string symbol_string(symbol s)
 // and contiguity
 // and dont forget my 2M aligned heap
 
+void format_symbol(buffer dest, buffer fmt, vlist *a)
+{
+    symbol s = varg(*a, symbol);
+    buffer_write(dest, buffer_ref(s->s, 0), buffer_length(s->s));
+}
+
 
 key key_from_symbol(void *z)
 {
