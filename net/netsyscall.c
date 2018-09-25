@@ -422,6 +422,7 @@ sysreturn getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 {
     sock s = resolve_fd(current->p, sockfd);        
     local_sockaddr_in(s->lw, (struct sockaddr_in *)addr);
+    *addrlen = sizeof(struct sockaddr_in);
     return 0;
 }
 
