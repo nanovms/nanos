@@ -151,6 +151,7 @@ static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
     if (SOCK_OPEN != s->state) 
         return set_syscall_error(current, ENOTCONN);
 
+    // xxx - there is a fat race here between checking queue length and posting on the waiting queue
     if (queue_length(s->incoming)) {
         read_complete(s, current, dest, length, false);
         return sysreturn_value(current);        
@@ -200,6 +201,9 @@ static sysreturn socket_close(sock s)
     if (s->state == SOCK_OPEN) {
         tcp_close(s->lw);
     }
+    // xxx - we should really be cleaning this up, but tcp_close apparently
+    // doesnt really stop everything synchronously, causing weird things to
+    // happen when the stale references to these objects get used. investigate.
     //    deallocate_queue(s->notify, SOCK_QUEUE_LEN);
     //    deallocate_queue(s->waiting, SOCK_QUEUE_LEN);
     //    deallocate_queue(s->incoming, SOCK_QUEUE_LEN);

@@ -40,7 +40,7 @@ static void value_in(heap h,
 
     if ((t - last) > (1ull<<32)){
         last = t;
-        rprintf("c: %d active: %d req: %d resp: %d\n", s->connections, s->active, s->requests, s->responses);
+        rprintf("c: %d active: %d req: %d resp: %d\r", s->connections, s->active, s->requests, s->responses);
     }
     
     if (*count == 0) {
@@ -74,6 +74,7 @@ static buffer_handler newconn(heap h, thunk newconn, stats s, tuple t, status_ha
     u64 *count = allocate_zero(c, sizeof(u64));
     s->connections++;
     s->active++;
+    send_request(c, s, out, t);
     send_request(c, s, out, t);
     send_request(c, s, out, t);
     return allocate_http_parser(c, closure(c, value_in, c, out, count, sth, newconn, s, t));
