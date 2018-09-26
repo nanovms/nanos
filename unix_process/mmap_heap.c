@@ -10,13 +10,13 @@ void mmapheap_dealloc(heap h, u64 x, bytes size)
 
 u64 mmapheap_alloc(heap h, bytes size)
 {
-    void * rv = mmap(0, pad(size, h->pagesize), PROT_READ | PROT_WRITE,
+    void * rv = mmap(0, size + h->pagesize, PROT_READ | PROT_WRITE,
 		     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (rv == MAP_FAILED) {
 	msg_err("mmap() failed: errno %E", errno);
 	return INVALID_PHYSICAL;
     } else {
-	return u64_from_pointer(rv);
+        return (u64_from_pointer(rv) + h->pagesize - 1) & ~(h->pagesize - 1);
     }
 }
 
