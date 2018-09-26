@@ -161,6 +161,12 @@ static inline sysreturn set_syscall_error(thread t, s32 val)
     return (sysreturn)-val;
 }
 
+static sysreturn sysreturn_value(thread t)
+{
+    return (sysreturn)t->frame[FRAME_RAX];
+}
+
+
 #define resolve_fd(__p, __fd) ({void *f ; if (!(f = vector_get(__p->files, __fd))) return set_syscall_error(current, EBADF); f;})
 
 void init_threads(process p);

@@ -31,9 +31,9 @@ void http_header(buffer dest, tuple t)
     bprintf(dest, "\r\n");    
 }
 
-void http_request(buffer_handler bh, tuple headers)
+void http_request(heap h, buffer_handler bh, tuple headers)
 {
-    buffer b = allocate_buffer(transient, 10);
+    buffer b = allocate_buffer(h, 100);
     buffer url = table_find(headers, sym(url));
     bprintf(b, "GET %b HTTP/1.1\r\n", url);
     http_header(b, headers);
@@ -60,7 +60,7 @@ void send_http_response(buffer_handler out,
 static void reset_parser(http_parser p)
 {
     p->state = STATE_START_LINE;
-    p->header = allocate_tuple();
+    p->header = allocate_table(p->h, key_from_symbol, pointer_equal);
     p->word = allocate_buffer(p->h, 10);
     p->start_line = allocate_vector(p->h, 3);
     p->content_length = 0;
@@ -86,7 +86,6 @@ void http_recv(http_parser p, buffer b)
     
     for (i = b->start ; i < b->end; i ++) {
         char x = ((unsigned char *)b->contents)[i];
-
         switch (p->state) {
         case STATE_START_LINE:
             switch (x){
@@ -137,7 +136,7 @@ void http_recv(http_parser p, buffer b)
         }
         
         if ((p->state == STATE_BODY) && (p->content_length == 0)) {
-            table_set(p->header, sym(content), p->word);
+            table_set(p->header, sym(content), wrap_buffer(p->h, buffer_ref(p->word, 0), buffer_length(p->word)));
             apply(p->each, p->header);
             reset_parser(p);
         }

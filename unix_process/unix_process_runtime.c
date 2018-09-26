@@ -3,6 +3,11 @@
 #include <stdlib.h>
 #include <sys/mman.h>
 #include <string.h>
+#include <signal.h>
+
+// xxx - can't use <time.h> because of redefinition of time
+
+extern int gettimeofday(struct timeval *tv, void *tz);
 
 void debug(buffer b)
 {
@@ -22,8 +27,19 @@ void console(char *x)
     write(2, x, runtime_strlen(x));
 }
 
+
+time timeval_to_time(struct timeval *a)
+{
+    return((((unsigned long long)a->tv_sec)<<32)|
+           (((unsigned long long)a->tv_usec)<<32)/1000000);
+}
+
 time now()
 {
+    struct timeval result;
+    
+    gettimeofday(&result,0);
+    return(timeval_to_time(&result));
 }
 
 static void malloc_free(heap h, u64 z, bytes length)
@@ -63,7 +79,6 @@ heap allocate_tagged_region(kernel_heaps kh, u64 tag)
     return create_id_heap(heap_general(kh), u64_from_pointer(region), size, 1);
 }
 
-extern void init_extra_prints();
 
 static void format_errno(buffer dest, buffer fmt, vlist *a)
 {
@@ -72,7 +87,10 @@ static void format_errno(buffer dest, buffer fmt, vlist *a)
     buffer_write(dest, e, len);
 }
 
+// xxx - not the kernel
 static struct kernel_heaps heaps; /* really just for init_runtime() */
+
+extern void init_extra_prints();
 
 // 64 bit unix process                  
 heap init_process_runtime()
@@ -80,6 +98,7 @@ heap init_process_runtime()
     heaps.general = malloc_allocator();
     init_runtime(&heaps);
     init_extra_prints();
+    signal(SIGPIPE, SIG_IGN);
     // unix errno print formatter
     register_format('E', format_errno);       
     return heaps.general;

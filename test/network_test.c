@@ -4,47 +4,95 @@
 #include <sys/epoll.h>
 #include <stdlib.h>
 
+typedef struct stats {
+    u32 connections;
+    u32 responses;
+    u32 active;    
+    u32 requests;
+} *stats;
 
-static CLOSURE_4_1(conn, buffer_handler,
-                   heap, descriptor, buffer, merge,
-                   buffer_handler);
 
-static void send_request(buffer_handler out)
+static void send_request(heap h, stats s, buffer_handler out, tuple t)
 {
-    http_request(out, timm("url", "/", "fizz", "bun"));
+    s->requests++;
+    http_request(h, out, t);
 }
 
-#define LENGTH 3
+#define REQUESTS_PER_CONNECTION 5000
+#define TOTAL_CONNECTIONS 2000
 static CLOSURE_7_1(value_in, void,
-                   heap, buffer_handler, descriptor, buffer, u64 *, merge, status_handler,
+                   heap, buffer_handler, u64 *, status_handler, thunk, stats, tuple, 
                    value);
+
 static void value_in(heap h,
                      buffer_handler out,
-                     descriptor e,
-                     buffer target,
                      u64 *count,
-                     merge m,
-                     status_handler completed, 
+                     status_handler completed,
+                     thunk newconn,
+                     stats s,
+                     tuple req, 
                      value v)
 {
-    if (*count == 0)
-        connection(h, e, target, closure(h, conn, h, e, target, m));
-    *count = *count + 1;
-    if (*count < LENGTH) {
-        send_request(out);
-    } else {
-        apply(out, 0);
-        apply(completed, 0);
+    s->responses++;
+
+    static time last;
+    time t = now();
+
+    if ((t - last) > (1ull<<32)){
+        last = t;
+        rprintf("c: %d active: %d req: %d resp: %d\r", s->connections, s->active, s->requests, s->responses);
+    }
+    
+    if (*count == 0) {
+        if (s->connections < TOTAL_CONNECTIONS) 
+            apply(newconn);
+    }
+    int window = 1;
+    for (int i = 0; i < window; i++) {
+        *count = *count + 1;
+        if (*count < REQUESTS_PER_CONNECTION) {
+            send_request(h, s, out, req);
+        } else {
+            s->active--;
+            apply(out, 0);
+            h->destroy(h); // wrapper?
+            apply(completed, 0);
+            return;
+        }
     }
 }
 
-static buffer_handler conn(heap h, descriptor e, buffer target, merge m, buffer_handler out)
+heap make_tiny_heap(heap parent);
+
+static CLOSURE_5_1(newconn, buffer_handler, heap, thunk, stats, tuple, status_handler,  
+                   buffer_handler);
+static buffer_handler newconn(heap h, thunk newconn, stats s, tuple t, status_handler sth,
+                           buffer_handler out)
 {
-    u64 *count = allocate(h, sizeof(u64));
-    *count = 0;
-    status_handler c = apply(m);
-    send_request(out);
-    return allocate_http_parser(h,closure(h, value_in, h, out, e, target, count, m, c));
+    heap pages = allocate_mmapheap(h, 4096);
+    heap c = make_tiny_heap(pages);
+    u64 *count = allocate_zero(c, sizeof(u64));
+    s->connections++;
+    s->active++;
+    send_request(c, s, out, t);
+    send_request(c, s, out, t);
+    send_request(c, s, out, t);
+    return allocate_http_parser(c, closure(c, value_in, c, out, count, sth, newconn, s, t));
+
+}
+
+static CLOSURE_8_0(startconn, void, heap, descriptor, merge, buffer, thunk *, stats, status_handler, tuple);
+static void startconn(heap h, descriptor e, merge m, buffer target, thunk *self, stats s, status_handler err, tuple req)
+{
+    status_handler sth = apply(m);
+    connection(h, e, target, closure(h, newconn, h, *self, s, req, sth), err);
+}
+
+CLOSURE_0_1(connection_error, void, status);
+void connection_error(status s)
+{
+    rprintf("connection error! %v\n", s);
+    exit(-1);
 }
 
 CLOSURE_0_1(finished, void, status);
@@ -61,9 +109,15 @@ void main(int argc, char **argv)
     heap h = init_process_runtime();
     descriptor e = epoll_create(1);
     buffer target = wrap_buffer(h, argv[1], runtime_strlen(argv[1]));
+    thunk *newconn = allocate(h, sizeof(thunk));
     merge m = allocate_merge(h, closure(h, finished));
-    // merge reference here
-    connection(h, e, target, closure(h, conn, h, e, target, m));
+    // there are other solutions for y
+    status_handler err = closure(h, connection_error);
+    stats s = allocate_zero(h, sizeof(struct stats));
+    zero(s, sizeof(struct stats)); //?
+    tuple t = timm("url", "/", "fizz", "bun", "Host", "tenny");
+    *newconn = (thunk)closure(h, startconn, h, e, m, target, newconn, s, err, t);
+    apply(*newconn);
     epoll_spin(e);
 }
 

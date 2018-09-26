@@ -23,11 +23,11 @@ typedef closure_type(pcb_handler, void, struct tcp_pcb *);
 // nothing seems to track whether the tcp state is actually
 // connected
 enum socket_state {
-  SOCK_UNDEFINED,
-  SOCK_CREATED,
-  SOCK_IN_CONNECTION,
-  SOCK_OPEN,
-  SOCK_CLOSED
+  SOCK_UNDEFINED = 0,
+  SOCK_CREATED =1,
+  SOCK_IN_CONNECTION = 2,
+  SOCK_OPEN = 3,
+  SOCK_CLOSED = 4
 };
 
 typedef struct sock {
@@ -116,25 +116,26 @@ static inline void pbuf_consume(struct pbuf *p, u64 length)
 }
 
 // racy
-static CLOSURE_4_0(read_complete, void, sock, thread, void *, u64);
-static void read_complete(sock s, thread t, void *dest, u64 length)
+static CLOSURE_5_0(read_complete, void, sock, thread, void *, u64, boolean);
+static void read_complete(sock s, thread t, void *dest, u64 length, boolean sleeping)
 {
     if (s->state != SOCK_OPEN) {
        set_syscall_error(t, ENOTCONN);
        return;
     }
-    
+
+    // could copy in multiple pbufs just to save them from coming back tomorrow
     struct pbuf *p = queue_peek(s->incoming);
     u64 xfer = MIN(length, p->len);
     runtime_memcpy(dest, p->payload, xfer);
     pbuf_consume(p, xfer);
-    set_syscall_return(t, xfer);
-    enqueue(runqueue, t->run);
+    set_syscall_return(t, xfer);    
     if (p->len == 0) {
         dequeue(s->incoming);
         pbuf_free(p);
     }
     tcp_recved(s->lw, xfer);
+    if (sleeping) thread_wakeup(t);
 }
 
 static CLOSURE_2_0(read_hup, void, sock, thread);
@@ -147,16 +148,18 @@ static void read_hup(sock s, thread t)
 static CLOSURE_1_3(socket_read, sysreturn, sock, void *, u64, u64);
 static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
 {
-    thunk complete = closure(s->h, read_complete, s, current, dest, length);
     if (SOCK_OPEN != s->state) 
         return set_syscall_error(current, ENOTCONN);
 
+    // xxx - there is a fat race here between checking queue length and posting on the waiting queue
     if (queue_length(s->incoming)) {
-        apply(complete);
+        read_complete(s, current, dest, length, false);
+        return sysreturn_value(current);        
     } else {
-        enqueue(s->waiting, complete);
+        // should be an atomic operation
+        enqueue(s->waiting, closure(s->h, read_complete, s, current, dest, length, true));
+        thread_sleep(current);
     }
-    runloop();                
 }
 
 static CLOSURE_1_3(socket_write, sysreturn, sock, void *, u64, u64);
@@ -198,10 +201,13 @@ static sysreturn socket_close(sock s)
     if (s->state == SOCK_OPEN) {
         tcp_close(s->lw);
     }
-    deallocate_queue(s->notify, SOCK_QUEUE_LEN);
-    deallocate_queue(s->waiting, SOCK_QUEUE_LEN);
-    deallocate_queue(s->incoming, SOCK_QUEUE_LEN);
-    unix_cache_free(get_unix_heaps(), socket, s);
+    // xxx - we should really be cleaning this up, but tcp_close apparently
+    // doesnt really stop everything synchronously, causing weird things to
+    // happen when the stale references to these objects get used. investigate.
+    //    deallocate_queue(s->notify, SOCK_QUEUE_LEN);
+    //    deallocate_queue(s->waiting, SOCK_QUEUE_LEN);
+    //    deallocate_queue(s->incoming, SOCK_QUEUE_LEN);
+    //    unix_cache_free(get_unix_heaps(), socket, s);
 }
 
 static int allocate_sock(process p, struct tcp_pcb *pcb)
@@ -224,7 +230,8 @@ static int allocate_sock(process p, struct tcp_pcb *pcb)
     f->check = closure(h, socket_check, s);
     
     s->notify = allocate_queue(h, SOCK_QUEUE_LEN);
-    s->waiting = allocate_queue(h, SOCK_QUEUE_LEN);    
+    s->waiting = allocate_queue(h, SOCK_QUEUE_LEN);
+
     s->s = STATUS_OK;
     s->p = p;
     s->h = h;
