@@ -544,8 +544,6 @@ sysreturn readlink(const char *pathname, char *buf, u64 bufsiz)
 sysreturn close(int fd)
 {
     file f = resolve_fd(current->p, fd);
-    if (f == INVALID_ADDRESS)
-	return set_syscall_error(current, EBADF);
     deallocate_fd(current->p, fd, f);
     if (f->close)
 	return apply(f->close);

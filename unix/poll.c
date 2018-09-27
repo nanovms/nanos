@@ -63,6 +63,7 @@ sysreturn epoll_create(u64 flags)
     f->close = closure(h, epoll_close, e);
     list_init(&e->blocked_head);
     e->events = allocate_vector(h, 8);
+    e->nfds = 0;
     e->fds = allocate_bitmap(h, infinity);
 #ifdef EPOLL_DEBUG
     rprintf("got fd %d\n", fd);
@@ -199,7 +200,9 @@ sysreturn epoll_wait(int epfd,
     list_insert_after(&e->blocked_head, &w->blocked_list); /* push */
 
     bitmap_foreach_set(e->fds, fd) {
+	assert(bitmap_get(e->fds, fd));
         epollfd f = vector_get(e->events, fd);
+	assert(f);
         if (!f->registered) {
             f->registered = true;
 	    fetch_and_add(&f->refcnt, 1);
@@ -239,48 +242,48 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 #ifdef EPOLL_DEBUG
     rprintf("epoll_ctl: epoll fd %d, op %d, fd %d\n", epfd, op, fd);
 #endif
-    switch(op) {
-    case EPOLL_CTL_ADD:
-        {
-            // EPOLLET means edge instead of level
-	    epollfd f = unix_cache_alloc(get_unix_heaps(), epollfd);
-            f->f = resolve_fd(current->p, fd);
-            f->fd = fd;
-            f->e = e;
-            f->data = event->data;
-	    f->refcnt = 1;
-            f->registered = false;
-	    f->zombie = false;
-	    vector_set(e->events, fd, f);
-	    bitmap_set(e->fds, fd, 1);
+    if (op == EPOLL_CTL_ADD) {
+	file fp = resolve_fd(current->p, fd);
+	// EPOLLET means edge instead of level
+	epollfd f = unix_cache_alloc(get_unix_heaps(), epollfd);
+	f->f = fp;
+	f->fd = fd;
+	f->e = e;
+	f->data = event->data;
+	f->refcnt = 1;
+	f->registered = false;
+	f->zombie = false;
+	vector_set(e->events, fd, f);
+	bitmap_set(e->fds, fd, 1);
+	if (fd >= e->nfds)
+	    e->nfds = fd + 1;
 #ifdef EPOLL_DEBUG
-	    rprintf("   added %d, epollfd %p\n", fd, f);
+	rprintf("   added %d, epollfd %p\n", fd, f);
 #endif
-        }
-        break;
+    } else if (op == EPOLL_CTL_DEL) {
+	epollfd f;
 
-    case EPOLL_CTL_MOD:
-        rprintf ("epoll mod\n");
-        break;
-
-    // what does this mean to a currently blocked epoll?
-    case EPOLL_CTL_DEL:
-        {
-	    epollfd f = vector_get(e->events, fd);
-	    if (!f) {
-		msg_err("epollfd not found for fd %d\n", fd);
-		return -EBADF;
-	    }
-	    vector_set(e->events, fd, 0);
-	    bitmap_set(e->fds, fd, 0);
-	    assert(f->refcnt > 0);
-	    f->zombie = true;
-	    epollfd_release(f);
-#ifdef EPOLL_DEBUG
-	    rprintf("   removed %d, epollfd %p, refcnt %d\n", fd, f, f->refcnt);
-#endif
+	if (fd >= e->nfds ||
+	    !(f = vector_get(e->events, fd))) {
+	    msg_err("epollfd not found for fd %d\n", fd);
+	    return -EBADF;
 	}
+	vector_set(e->events, fd, 0);
+	bitmap_set(e->fds, fd, 0);
+	assert(!bitmap_get(e->fds, fd));
+	assert(f->refcnt > 0);
+	f->zombie = true;
+	epollfd_release(f);
+#ifdef EPOLL_DEBUG
+	rprintf("   removed %d, epollfd %p, refcnt %d\n", fd, f, f->refcnt);
+#endif
+    } else if (op == EPOLL_CTL_MOD) {
+        msg_err("epoll mod\n");
+
+    } else {
+	msg_err("unknown op %d\n", op);
     }
+
     return 0;
 }
 
@@ -322,7 +325,8 @@ static sysreturn select_internal(int nfds,
 	return -ENOMEM;
     }
 
-    halt("NO SELECT\n");
+    console("NO SELECT\n");
+    return 0;
     
     int words = (nfds >> 6) + 1;
     u64 * rp = readfds;
