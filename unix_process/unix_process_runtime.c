@@ -115,3 +115,31 @@ u64 physical_from_virtual(void *__x)
     return u64_from_pointer(__x);
 }
 
+tuple parse_arguments(heap h, int argc, char **argv)
+{
+    tuple t = allocate_tuple();
+    vector unassociated = 0;
+    int i;
+    symbol tag = 0;
+    for (int i = 1; i<argc; i++) {
+        buffer b = wrap_buffer_cstring(h, argv[i]);
+        if (*argv[i] == '-') {
+            b->start++;
+            tag = intern(b);
+        } else {
+            if (tag) {
+                table_set(t, tag, b);
+                tag = 0;
+            } else {
+                if (!unassociated) {
+                    unassociated = allocate_vector(h, 10);
+                }
+                vector_push(unassociated, b);
+            }
+        }
+    }
+    if (unassociated) 
+        table_set(t, sym(unassociated), tuple_from_vector(unassociated));
+
+    return t;
+}

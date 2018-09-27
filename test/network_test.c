@@ -18,8 +18,9 @@ static void send_request(heap h, stats s, buffer_handler out, tuple t)
     http_request(h, out, t);
 }
 
-#define REQUESTS_PER_CONNECTION 5000
-#define TOTAL_CONNECTIONS 2000
+u64 requests_per_connection;
+u64 total_connections;
+
 static CLOSURE_7_1(value_in, void,
                    heap, buffer_handler, u64 *, status_handler, thunk, stats, tuple, 
                    value);
@@ -44,13 +45,13 @@ static void value_in(heap h,
     }
     
     if (*count == 0) {
-        if (s->connections < TOTAL_CONNECTIONS) 
+        if (s->connections < total_connections) 
             apply(newconn);
     }
     int window = 1;
     for (int i = 0; i < window; i++) {
         *count = *count + 1;
-        if (*count < REQUESTS_PER_CONNECTION) {
+        if (*count < requests_per_connection) {
             send_request(h, s, out, req);
         } else {
             s->active--;
@@ -101,22 +102,42 @@ void finished(status s)
     exit(0);
 }
 
+// no good place to put this
+table parse_arguments(heap h, int argc, char **argv);
+
+u64 extract_u64_with_default(tuple t, symbol n, u64 otherwise)
+{
+    value v = table_find(t, n);
+    if (v) {
+        return u64_from_value(v);
+    }
+    return otherwise;
+}
+
+
 void main(int argc, char **argv)
 {
-    if(argc < 2) {
-      return;
-    }
-    heap h = init_process_runtime();
+    heap h = init_process_runtime();    
+    tuple t = parse_arguments(h, argc, argv);
+    rprintf("arguments %v\n", t);
+    value unassoc = table_find(t, sym(unassociated));
     descriptor e = epoll_create(1);
-    buffer target = wrap_buffer(h, argv[1], runtime_strlen(argv[1]));
+    if (!unassoc) {
+        halt("must provide target\n");
+    }
+    buffer target = vector_pop(vector_from_tuple(h, unassoc));
     thunk *newconn = allocate(h, sizeof(thunk));
     merge m = allocate_merge(h, closure(h, finished));
     // there are other solutions for y
+
+    requests_per_connection = extract_u64_with_default(t, sym(requests), 10);
+    total_connections = extract_u64_with_default(t, sym(connections), 10);
+                                                   
     status_handler err = closure(h, connection_error);
     stats s = allocate_zero(h, sizeof(struct stats));
     zero(s, sizeof(struct stats)); //?
-    tuple t = timm("url", "/", "fizz", "bun", "Host", "tenny");
-    *newconn = (thunk)closure(h, startconn, h, e, m, target, newconn, s, err, t);
+    tuple req = timm("url", "/", "fizz", "bun", "Host", "tenny");
+    *newconn = (thunk)closure(h, startconn, h, e, m, target, newconn, s, err, req);
     apply(*newconn);
     epoll_spin(e);
 }
