@@ -14,7 +14,7 @@
 static void build_exec_stack(heap sh, thread t, Elf64_Ehdr * e, void *start, u64 va, tuple process_root)
 {
     buffer b = allocate_buffer(transient, 128);
-    vector arguments = tuple_vector(transient, table_find(process_root, sym(arguments)));
+    vector arguments = vector_from_tuple(transient, table_find(process_root, sym(arguments)));
     tuple environment = table_find(process_root, sym(environment));
     u64 stack_size = 2*MB;
     u64 pointer = stack_size;

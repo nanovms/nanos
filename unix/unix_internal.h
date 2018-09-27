@@ -150,7 +150,11 @@ void thread_log_internal(thread t, char *desc, ...);
 void thread_sleep(thread);
 void thread_wakeup(thread);
 
-#define resolve_fd(__p, __fd) ({void *f ; if (!(f = vector_get(__p->files, __fd))) return set_syscall_error(current, EBADF); f;})
+static inline sysreturn set_syscall_return(thread t, sysreturn val)
+{
+    t->frame[FRAME_RAX] = val;
+    return val;
+}
 
 static inline s64 errno_from_status(status s)
 {
@@ -163,6 +167,20 @@ static inline s64 errno_from_status(status s)
     rprintf("warning - status %v has no unix errno\n", s);
     return -EFAULT;
 }
+
+static inline sysreturn set_syscall_error(thread t, s32 val)
+{
+    t->frame[FRAME_RAX] = (sysreturn)-val;
+    return (sysreturn)-val;
+}
+
+static sysreturn sysreturn_value(thread t)
+{
+    return (sysreturn)t->frame[FRAME_RAX];
+}
+
+
+#define resolve_fd(__p, __fd) ({void *f ; if (!(f = vector_get(__p->files, __fd))) return set_syscall_error(current, EBADF); f;})
 
 void init_threads(process p);
 void init_syscalls();

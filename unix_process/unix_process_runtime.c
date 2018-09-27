@@ -3,6 +3,11 @@
 #include <stdlib.h>
 #include <sys/mman.h>
 #include <string.h>
+#include <signal.h>
+
+// xxx - can't use <time.h> because of redefinition of time
+
+extern int gettimeofday(struct timeval *tv, void *tz);
 
 void debug(buffer b)
 {
@@ -85,11 +90,14 @@ static void format_errno(buffer dest, buffer fmt, vlist *a)
 // xxx - not the kernel
 static struct kernel_heaps heaps; /* really just for init_runtime() */
 
+extern void init_extra_prints();
+
 // 64 bit unix process                  
 heap init_process_runtime()
 {
     heaps.general = malloc_allocator();
     init_runtime(&heaps);
+    signal(SIGPIPE, SIG_IGN);
     // unix errno print formatter
     register_format('E', format_errno);       
     return heaps.general;
@@ -106,3 +114,31 @@ u64 physical_from_virtual(void *__x)
     return u64_from_pointer(__x);
 }
 
+tuple parse_arguments(heap h, int argc, char **argv)
+{
+    tuple t = allocate_tuple();
+    vector unassociated = 0;
+    int i;
+    symbol tag = 0;
+    for (int i = 1; i<argc; i++) {
+        buffer b = wrap_buffer_cstring(h, argv[i]);
+        if (*argv[i] == '-') {
+            b->start++;
+            tag = intern(b);
+        } else {
+            if (tag) {
+                table_set(t, tag, b);
+                tag = 0;
+            } else {
+                if (!unassociated) {
+                    unassociated = allocate_vector(h, 10);
+                }
+                vector_push(unassociated, b);
+            }
+        }
+    }
+    if (unassociated) 
+        table_set(t, sym(unassociated), tuple_from_vector(unassociated));
+
+    return t;
+}

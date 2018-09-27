@@ -138,6 +138,7 @@ void connection(heap h,
     int res = connect(s, (struct sockaddr *)&where, sizeof(struct sockaddr_in));
     if (res) {
         rprintf("zikkay %d %p\n", res, failure);        
+
         apply(failure, timmf("errno", "%d", errno,
                              "errstr", "%E", errno));
     } else {

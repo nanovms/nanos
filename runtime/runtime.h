@@ -72,6 +72,8 @@ static inline void zero(void *x, bytes length)
         ((u8 *)x)[i] = 0;
 }
 
+typedef struct heap *heap;
+#include <table.h>
 #include <heap/heap.h>
 #include <kernel_heaps.h>
 
@@ -114,7 +116,6 @@ typedef struct buffer *buffer;
 
 void print_number(buffer s, u64 x, int base, int pad);
 
-#include <table.h>
 #include <text.h>
 #include <vector.h>
 

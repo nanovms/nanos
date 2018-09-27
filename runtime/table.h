@@ -51,14 +51,3 @@ static inline key identity_key(void *a)
 
 extern void serial_out(u8);
 
-static inline key fnv64(void *z)
-{
-    buffer b = z;
-    u64 hash = 0xcbf29ce484222325;
-    u64 fnv_prime = 1099511628211;
-    for (int i = 0; i < buffer_length(b); i++) {
-        hash ^= byte(b, i);
-        hash *= fnv_prime;
-    }
-    return hash;
-}
