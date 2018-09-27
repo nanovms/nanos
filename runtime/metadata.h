@@ -1,5 +1,5 @@
 #pragma once
-static vector node_vector(heap h, tuple n)
+static vector vector_from_tuple(heap h, tuple n)
 {
     vector r = allocate_vector(h, 100); //table_elements(n));
     void *x;
@@ -8,6 +8,20 @@ static vector node_vector(heap h, tuple n)
         vector_push(r, x);
     
     return r;
+}
+
+// destructive
+static inline tuple tuple_from_vector(vector v)
+{
+    tuple t = allocate_tuple();
+    void *p;
+    int i = 0;
+
+    // reversal?
+    while ((p = vector_pop(v))) 
+        table_set(t, intern_u64(i++), p);
+
+    return t;
 }
 
 static inline tuple resolve_path(tuple n, vector v)

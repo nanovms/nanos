@@ -100,6 +100,11 @@ static inline void unwrap_buffer(heap h, buffer b)
     deallocate(h, b, sizeof(struct buffer));
 }
 
+static buffer wrap_buffer_cstring(heap h, char *x)
+{
+    return wrap_buffer(h, x, runtime_strlen(x));
+}
+
 buffer allocate_buffer(heap h, bytes length);
 
 
@@ -317,3 +322,14 @@ static inline u64 pop_varint(buffer b)
     return out;
 }
 
+static inline key fnv64(void *z)
+{
+    buffer b = z;
+    u64 hash = 0xcbf29ce484222325;
+    u64 fnv_prime = 1099511628211;
+    for (int i = 0; i < buffer_length(b); i++) {
+        hash ^= byte(b, i);
+        hash *= fnv_prime;
+    }
+    return hash;
+}

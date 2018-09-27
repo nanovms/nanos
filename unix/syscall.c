@@ -427,7 +427,7 @@ sysreturn open(char *name, int flags, int mode)
     }
     int fd = allocate_fd(current->p, f);
     if (fd == INVALID_PHYSICAL) {
-  unix_cache_free(uh, file, f);
+        unix_cache_free(uh, file, f);
 	return set_syscall_error(current, EMFILE);        
     }
     f->n = n;
