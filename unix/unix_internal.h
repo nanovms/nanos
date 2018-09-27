@@ -35,6 +35,7 @@ typedef struct unix_heaps {
     heap processes;
 } *unix_heaps;
 
+typedef struct epoll *epoll;
 typedef struct thread {
     // if we use an array typedef its fragile
     // there are likley assumptions that frame sits at the base of thread
@@ -49,6 +50,7 @@ typedef struct thread {
     */
     struct unix_heaps uh;
 
+    epoll select_epoll;
     void *set_child_tid;
     void *clear_child_tid;
     u64 tid;

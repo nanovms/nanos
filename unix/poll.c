@@ -1,12 +1,13 @@
 #include <unix_internal.h>
 
-//#define EPOLL_DEBUG
+#define EPOLL_DEBUG
 
 typedef struct epoll *epoll;
 
 typedef struct epollfd {
-    int fd; //debugging only
+    int fd; //debugging only - XXX REMOVE
     file f;
+    u32 eventmask;		/* epoll events registered - XXX need lock */
     u64 data; // may be multiple versions of data?
     u64 refcnt;
     epoll e;
@@ -31,7 +32,9 @@ struct epoll {
     struct file f;
     // xxx - multiple threads can block on the same e with epoll_wait
     struct list blocked_head;
-    table events;
+    vector events;		/* epollfds indexed by fd */
+    int nfds;
+    bitmap fds;			/* fds being watched / epollfd registered */
 };
     
 static CLOSURE_1_0(epoll_close, sysreturn, epoll);
@@ -44,6 +47,9 @@ static sysreturn epoll_close(epoll e)
 
 sysreturn epoll_create(u64 flags)
 {
+#ifdef EPOLL_DEBUG
+    rprintf("epoll_create: flags %P, ", flags);
+#endif
     heap h = heap_general(get_kernel_heaps());
     file f = unix_cache_alloc(get_unix_heaps(), epoll);
     if (f == INVALID_ADDRESS)
@@ -56,7 +62,11 @@ sysreturn epoll_create(u64 flags)
     epoll e = (epoll)f;
     f->close = closure(h, epoll_close, e);
     list_init(&e->blocked_head);
-    e->events = allocate_table(h, identity_key, pointer_equal);
+    e->events = allocate_vector(h, 8);
+    e->fds = allocate_bitmap(h, infinity);
+#ifdef EPOLL_DEBUG
+    rprintf("got fd %d\n", fd);
+#endif
     return fd;
 }
 
@@ -188,8 +198,8 @@ sysreturn epoll_wait(int epfd,
     w->timeout = 0;
     list_insert_after(&e->blocked_head, &w->blocked_list); /* push */
 
-    table_foreach(e->events, ekey, i) {
-        epollfd f = (epollfd)i;
+    bitmap_foreach_set(e->fds, fd) {
+        epollfd f = vector_get(e->events, fd);
         if (!f->registered) {
             f->registered = true;
 	    fetch_and_add(&f->refcnt, 1);
@@ -211,7 +221,7 @@ sysreturn epoll_wait(int epfd,
     }
 
     if (timeout > 0) {
-	w->timeout = register_timer(milliseconds(timeout), closure(h, epoll_blocked_finish, w));
+	w->timeout = register_timer(/* looks wrong */milliseconds(timeout), closure(h, epoll_blocked_finish, w));
 #ifdef EPOLL_DEBUG
 	rprintf("   registered timer %p\n", w->timeout);
 #endif
@@ -225,7 +235,6 @@ sysreturn epoll_wait(int epfd,
 
 sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 {
-    value ekey = pointer_from_u64((u64)fd);
     epoll e = resolve_fd(current->p, epfd);    
 #ifdef EPOLL_DEBUG
     rprintf("epoll_ctl: epoll fd %d, op %d, fd %d\n", epfd, op, fd);
@@ -242,7 +251,8 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 	    f->refcnt = 1;
             f->registered = false;
 	    f->zombie = false;
-            table_set(e->events, ekey, f);
+	    vector_set(e->events, fd, f);
+	    bitmap_set(e->fds, fd, 1);
 #ifdef EPOLL_DEBUG
 	    rprintf("   added %d, epollfd %p\n", fd, f);
 #endif
@@ -256,12 +266,13 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
     // what does this mean to a currently blocked epoll?
     case EPOLL_CTL_DEL:
         {
-	    epollfd f = table_find(e->events, ekey);
+	    epollfd f = vector_get(e->events, fd);
 	    if (!f) {
 		msg_err("epollfd not found for fd %d\n", fd);
 		return -EBADF;
 	    }
-	    table_set(e->events, ekey, 0);
+	    vector_set(e->events, fd, 0);
+	    bitmap_set(e->fds, fd, 0);
 	    assert(f->refcnt > 0);
 	    f->zombie = true;
 	    epollfd_release(f);
@@ -281,28 +292,110 @@ static void select_timeout(thread t, boolean *dead)
     thread_wakeup(t);
 }
 
-sysreturn pselect(int nfds,
-            u64 *readfds, u64 *writefds, u64 *exceptfds,
-            struct timespec *timeout,
-            u64 *sigmask)
+
+static epoll select_get_epoll()
 {
+    epoll e = current->select_epoll;
+    if (!e) {
+	heap h = heap_general(get_kernel_heaps());
+	file f = unix_cache_alloc(get_unix_heaps(), epoll);
+	if (f == INVALID_ADDRESS)
+	    return INVALID_ADDRESS;
+	e = (epoll)f;
+	list_init(&e->blocked_head);
+	e->events = allocate_vector(h, 8);
+	e->fds = allocate_bitmap(h, infinity);
+	current->select_epoll = e;
+    }
+    return e;
+}
+
+static sysreturn select_internal(int nfds,
+				 fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
+				 time timeout,
+				 const sigset_t * sigmask)
+{
+    unix_heaps uh = get_unix_heaps();
+    heap h = heap_general((kernel_heaps)uh);
+    epoll e = select_get_epoll();
+    if (e == INVALID_ADDRESS) {
+	return -ENOMEM;
+    }
+
+    halt("NO SELECT\n");
+    
+    int words = (nfds >> 6) + 1;
+    u64 * rp = readfds;
+    u64 * wp = writefds;
+    u64 * ep = exceptfds;
+
+    bitmap_extend(e->fds, nfds - 1);
+    u64 * regp = bitmap_base(e->fds);
+
+    for (int i = 0; i < words; i++) {
+	/* update epollfds based on delta between registered fds and
+ 	   union of select fds */
+	u64 u = *rp | *wp | *ep;
+	u64 d = u ^ *regp;
+	u64 r_out = 0, w_out = 0, e_out = 0;
+
+	while (d) {
+	    int bit = msb(d);
+	    int mask = 1 << bit;
+	    int fd = (i << 6) + bit;
+	    /* either add or remove epollfd */
+	    if (*regp & mask) {
+		epollfd f = unix_cache_alloc(get_unix_heaps(), epollfd);
+		f->f = resolve_fd(current->p, fd);
+		f->fd = fd;
+		f->e = e;
+		f->data = 0;
+		f->refcnt = 1;
+	    } else {
+
+	    }
+	}
+
+	/* save any immediate events and advance */
+	*rp++ = r_out;
+	*wp++ = w_out;
+	*ep++ = e_out;
+	regp++;
+    }
+    
     // xxx - implement wait/notify
     if (timeout == 0) {
         rprintf("select poll\n");
     } else {
-        register_timer(time_from_timespec(timeout),
-		       closure(heap_general(get_kernel_heaps()), select_timeout, current, 0));
+        register_timer(timeout, closure(h, select_timeout, current, 0));
         thread_sleep(current);
     }
     return 0;
 }
 
 
+sysreturn pselect(int nfds,
+		  fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
+		  struct timespec *timeout,
+		  const sigset_t * sigmask)
+{
+    return select_internal(nfds, readfds, writefds, exceptfds, time_from_timespec(timeout), sigmask);
+}
+
+sysreturn select(int nfds,
+		 u64 *readfds, u64 *writefds, u64 *exceptfds,
+		 struct timeval *timeout)
+{
+    return select_internal(nfds, readfds, writefds, exceptfds, time_from_timeval(timeout), 0);
+
+}
+
 void register_poll_syscalls(void **map)
 {
     register_syscall(map, SYS_epoll_create, epoll_create);    
     register_syscall(map, SYS_epoll_create1, epoll_create);
     register_syscall(map, SYS_epoll_ctl, epoll_ctl);
+    register_syscall(map, SYS_select, select);
     register_syscall(map, SYS_pselect6, pselect);
     register_syscall(map, SYS_epoll_wait,epoll_wait);
     register_syscall(map, SYS_epoll_pwait,epoll_wait); /* sigmask unused right now */

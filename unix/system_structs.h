@@ -221,6 +221,8 @@ struct siginfo {
     // plus big hairy union...we dont plan on delivering any of these at the moment
 };
 
+typedef u64 fd_set;
+
 #define NSIG 64
 typedef struct {
     unsigned long sig[NSIG/sizeof(unsigned long)];

@@ -237,6 +237,7 @@ thread create_thread(process p)
     thread t = allocate(h, sizeof(struct thread));
     t->p = p;
     t->uh = *p->uh;
+    t->select_epoll = 0;
     t->tid = tidcount++;
     t->set_child_tid = t->clear_child_tid = 0;
     t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(closure(h, default_fault_handler, t));

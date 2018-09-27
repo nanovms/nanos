@@ -7,10 +7,6 @@
 
 #include <runtime.h>
 
-/* XXX keep allocs small for now; rolling heap allocations more than a
-   page are b0rked */
-#define ALLOC_EXTEND_BITS	(1 << 12)
-
 static inline u64 * pointer_from_bit(u64 * base, u64 bit)
 {
     return base + (bit >> 6);
@@ -41,17 +37,12 @@ u64 bitmap_alloc(bitmap b, int order)
 {
     u64 bit = 0;
     u64 alloc_bits = 1 << order;
-    u64 * mapbase = buffer_ref(b->alloc_map, 0);
+    u64 * mapbase = bitmap_base(b);
 
     do {
 	/* Check if we need to expand the map */
-	if (bit + alloc_bits >= b->mapbits) {
-	    bytes old = b->mapbits >> 3;
-	    b->mapbits = pad(bit + alloc_bits + 1, ALLOC_EXTEND_BITS);
-	    bytes new = b->mapbits >> 3;
-	    extend_total(b->alloc_map, new);
-	    mapbase = buffer_ref(b->alloc_map, 0);
-	}
+	if (bitmap_extend(b, bit + alloc_bits))
+	    mapbase = bitmap_base(b);
 
 	/* Avoid checking bitmap word multiple times for small allocations */
 	if (order < 6 && (bit & 63) == 0) {
@@ -92,7 +83,7 @@ u64 bitmap_alloc(bitmap b, int order)
 boolean bitmap_dealloc(bitmap b, u64 bit, u64 order)
 {
     u64 nbits = 1 << order;
-    u64 * mapbase = buffer_ref(b->alloc_map, 0);
+    u64 * mapbase = bitmap_base(b);
     assert(mapbase);
 
     /* XXX maybe error code instead of msg_err... */
@@ -123,6 +114,8 @@ bitmap allocate_bitmap(heap h, u64 length)
     assert(length > 0);
     bitmap b = allocate(h, sizeof(struct bitmap));
     b->h = h;
+    if (length == infinity)
+	length = -1ull << 6; /* don't pad to 0 */
     b->maxbits = length;
     b->mapbits = MIN(ALLOC_EXTEND_BITS, pad(b->maxbits, 64));
     u64 mapbytes = b->mapbits >> 3;
@@ -130,7 +123,7 @@ bitmap allocate_bitmap(heap h, u64 length)
     if (b->alloc_map == INVALID_ADDRESS) {
 	return INVALID_ADDRESS;
     }
-    zero(buffer_ref(b->alloc_map, 0), mapbytes);
+    zero(bitmap_base(b), mapbytes);
     buffer_produce(b->alloc_map, mapbytes);
     return b;
 }

@@ -89,6 +89,8 @@ physical vtop(void *x);
 physical physical_from_virtual(void *x);
 #endif
 
+#define infinity (-1ull)
+
 #define INVALID_PHYSICAL ((u64)0xffffffffffffffff)
 
 #define INVALID_ADDRESS ((void *)0xffffffffffffffffull)

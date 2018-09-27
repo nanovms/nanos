@@ -33,15 +33,26 @@ static inline void disable_interrupts()
 /* returns -1 if x == 0, caller must check */
 static inline u64 msb(u64 x)
 {
+#ifdef BOOT			/* 32 bit */
     /* gcc docs state __builtin_clz for 0 val is undefined, so check */
     unsigned int high = x >> 32;
     if (high) {
 	return 63 - __builtin_clz(high);
     } else {
 	unsigned int low = x & (((u64)1 << 32) - 1);
-	return low ? 31 - __builtin_clz(low) : -1;
+	return low ? 31 - __builtin_clz(low) : -1ull;
     }
+#else
+    return x ? 63 - __builtin_clzll(x) : -1ull;
+#endif
 }
+
+#ifndef BOOT
+static inline u64 lsb(u64 x)
+{
+    return ((s64)__builtin_ffsll(x)) - 1;
+}
+#endif
 
 // belong here? share with nasm
 // currently maps to the linux gdb frame layout for convenience
