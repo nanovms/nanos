@@ -27,7 +27,7 @@ clean:
 force:
 
 # boot/boot stage3/stage3 mkfs/mkfs
-examples/%.image: 
+examples/%.image: force
 	cd examples ; make $(notdir $@)
 
 run: qemu examples/webgs.image

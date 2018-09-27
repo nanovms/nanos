@@ -397,7 +397,7 @@ static sysreturn contents_read(tuple n, void *dest, u64 length, u64 offset)
 {
     filesystem_read(current->p->fs, n, dest, length, offset,
 		    closure(heap_general(get_kernel_heaps()), readcomplete, current, length));
-    runloop();
+    thread_sleep(current);
 }
 
 static CLOSURE_1_0(file_close, sysreturn, file);

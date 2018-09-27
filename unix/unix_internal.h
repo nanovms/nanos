@@ -53,7 +53,7 @@ typedef struct thread {
     void *clear_child_tid;
     u64 tid;
     thunk run;
-    queue log[64];
+    u64 sleep_by; //tracing
 } *thread;
 
 typedef closure_type(io, sysreturn, void *, u64 length, u64 offset);
@@ -149,18 +149,6 @@ void thread_log_internal(thread t, char *desc, ...);
 // this should always be current
 void thread_sleep(thread);
 void thread_wakeup(thread);
-
-static inline sysreturn set_syscall_return(thread t, sysreturn val)
-{
-    t->frame[FRAME_RAX] = val;
-    return val;
-}
-
-static inline sysreturn set_syscall_error(thread t, s32 val)
-{
-    t->frame[FRAME_RAX] = (sysreturn)-val;
-    return (sysreturn)-val;
-}
 
 #define resolve_fd(__p, __fd) ({void *f ; if (!(f = vector_get(__p->files, __fd))) return set_syscall_error(current, EBADF); f;})
 
