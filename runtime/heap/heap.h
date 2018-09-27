@@ -1,12 +1,13 @@
 #pragma once
 // should consider a drain function
-typedef struct heap {
+struct heap {
+    struct table metadata;
     u64 (*alloc)(struct heap *h, bytes b);
     void (*dealloc)(struct heap *h, u64 a, bytes b);
     void (*destroy)(struct heap *h);
     bytes pagesize;
     bytes allocated;
-} *heap;
+};
 
 heap debug_heap(heap m, heap p);
 heap create_id_heap(heap h, u64 base, u64 length, u64 pagesize);
