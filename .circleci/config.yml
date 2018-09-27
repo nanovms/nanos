@@ -12,6 +12,7 @@ jobs:
       - run: sudo apt-get install nasm
       - run: make
       - run: make unit-test
+      - run: cd test && ./functional.sh
   nightly-build:
     docker:
       - image: circleci/golang:1.9
