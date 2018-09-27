@@ -21,6 +21,11 @@ static void send_request(heap h, stats s, buffer_handler out, tuple t)
 u64 requests_per_connection;
 u64 total_connections;
 
+static void print_stats(stats s)
+{
+    rprintf("c: %d active: %d req: %d resp: %d\r", s->connections, s->active, s->requests, s->responses);
+}
+
 static CLOSURE_7_1(value_in, void,
                    heap, buffer_handler, u64 *, status_handler, thunk, stats, tuple, 
                    value);
@@ -41,7 +46,7 @@ static void value_in(heap h,
 
     if ((t - last) > (1ull<<32)){
         last = t;
-        rprintf("c: %d active: %d req: %d resp: %d\r", s->connections, s->active, s->requests, s->responses);
+        print_stats(s);
     }
     
     if (*count == 0) {
@@ -96,9 +101,11 @@ void connection_error(status s)
     exit(-1);
 }
 
-CLOSURE_0_1(finished, void, status);
-void finished(status s)
+CLOSURE_1_1(finished, void, stats, status);
+void finished(stats st, status s)
 {
+    print_stats(st);
+    rprintf("\n");
     exit(0);
 }
 
@@ -119,7 +126,6 @@ void main(int argc, char **argv)
 {
     heap h = init_process_runtime();    
     tuple t = parse_arguments(h, argc, argv);
-    rprintf("arguments %v\n", t);
     value unassoc = table_find(t, sym(unassociated));
     descriptor e = epoll_create(1);
     if (!unassoc) {
@@ -127,7 +133,6 @@ void main(int argc, char **argv)
     }
     buffer target = vector_pop(vector_from_tuple(h, unassoc));
     thunk *newconn = allocate(h, sizeof(thunk));
-    merge m = allocate_merge(h, closure(h, finished));
     // there are other solutions for y
 
     requests_per_connection = extract_u64_with_default(t, sym(requests), 10);
@@ -135,6 +140,8 @@ void main(int argc, char **argv)
                                                    
     status_handler err = closure(h, connection_error);
     stats s = allocate_zero(h, sizeof(struct stats));
+    merge m = allocate_merge(h, closure(h, finished, s));
+
     zero(s, sizeof(struct stats)); //?
     tuple req = timm("url", "/", "fizz", "bun", "Host", "tenny");
     *newconn = (thunk)closure(h, startconn, h, e, m, target, newconn, s, err, req);
