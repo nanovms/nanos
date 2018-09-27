@@ -10,6 +10,7 @@ jobs:
       # specify any bash command here prefixed with `run: `
       - run: sudo apt-get update
       - run: sudo apt-get install nasm
+      - run: sudo apt-get install qemu
       - run: make
       - run: make unit-test
       - run: cd test && ./functional.sh
