@@ -13,11 +13,19 @@ u64 bitmap_alloc(bitmap b, int order);
 boolean bitmap_dealloc(bitmap b, u64 bit, u64 order);
 bitmap allocate_bitmap(heap h, u64 length);
 void deallocate_bitmap(bitmap b);
+bitmap bitmap_wrap(heap h, u64 * map, u64 length);
+void bitmap_unwrap(bitmap b);
 
-#define bitmap_foreach_set(__b, __i)					\
-    for (u64 __wi = 0, * __wp = bitmap_base(__b); __wi < __b->mapbits; __wi += 64, __wp++) \
-	for (u64 __w = *__wp, __bit = lsb(__w), __i = __wi + __bit; __w; \
-	     __w &= ~(1ull << __bit), __bit = lsb(__w), __i = __wi + __bit)
+#define bitmap_foreach_word(b, w, offset)				\
+    for (u64 offset = 0, * __wp = bitmap_base(b), w = *__wp;		\
+	 offset < b->mapbits; offset += 64, w = *++__wp)
+
+#define bitmap_word_foreach_set(w, bit, i, offset)			\
+    for (u64 __w = w, bit = lsb(__w), i = offset + bit; __w;		\
+	 __w &= ~(1ull << bit), bit = lsb(__w), i = offset + bit)
+
+#define bitmap_foreach_set(b, i)					\
+    bitmap_foreach_word(b, w, s) bitmap_word_foreach_set(w, __bit, i, s)
 
 static inline u64 *bitmap_base(bitmap b)
 {
@@ -39,7 +47,7 @@ static inline boolean bitmap_get(bitmap b, u64 i)
 {
     if (i >= b->mapbits)
 	return false;
-    return (bitmap_base(b)[i >> 6] & (1 << (i & 63))) != 0;
+    return (bitmap_base(b)[i >> 6] & (1ull << (i & 63))) != 0;
 }
 
 static inline void bitmap_set(bitmap b, u64 i, int val)

@@ -14,9 +14,9 @@ static inline u64 * pointer_from_bit(u64 * base, u64 bit)
 
 static boolean for_range_in_map(u64 * base, u64 start, u64 order, boolean set, boolean val)
 {
-    u64 nbits = 1 << order;
+    u64 nbits = 1ull << order;
     u64 wlen = ((nbits - 1) >> 6) + 1;
-    u64 mask = nbits >= 64 ? -1 : (((u64)1 << nbits) - 1) << (64 - nbits - start);
+    u64 mask = nbits >= 64 ? -1 : ((1ull << nbits) - 1) << (64 - nbits - start);
     u64 * w = pointer_from_bit(base, start);
     u64 * wend = w + wlen;
     for (; w < wend; w++) {
@@ -36,7 +36,7 @@ static boolean for_range_in_map(u64 * base, u64 start, u64 order, boolean set, b
 u64 bitmap_alloc(bitmap b, int order)
 {
     u64 bit = 0;
-    u64 alloc_bits = 1 << order;
+    u64 alloc_bits = 1ull << order;
     u64 * mapbase = bitmap_base(b);
 
     do {
@@ -82,7 +82,7 @@ u64 bitmap_alloc(bitmap b, int order)
 
 boolean bitmap_dealloc(bitmap b, u64 bit, u64 order)
 {
-    u64 nbits = 1 << order;
+    u64 nbits = 1ull << order;
     u64 * mapbase = bitmap_base(b);
     assert(mapbase);
 
@@ -109,20 +109,29 @@ boolean bitmap_dealloc(bitmap b, u64 bit, u64 order)
     return true;
 }
 
-bitmap allocate_bitmap(heap h, u64 length)
+static inline bitmap allocate_bitmap_internal(heap h, u64 length)
 {
     assert(length > 0);
     bitmap b = allocate(h, sizeof(struct bitmap));
+    if (b == INVALID_ADDRESS)
+	return b;
     b->h = h;
     if (length == infinity)
 	length = -1ull << 6; /* don't pad to 0 */
     b->maxbits = length;
     b->mapbits = MIN(ALLOC_EXTEND_BITS, pad(b->maxbits, 64));
+    return b;
+}
+
+bitmap allocate_bitmap(heap h, u64 length)
+{
+    bitmap b = allocate_bitmap_internal(h, length);
+    if (b == INVALID_ADDRESS)
+	return b;
     u64 mapbytes = b->mapbits >> 3;
     b->alloc_map = allocate_buffer(h, mapbytes);
-    if (b->alloc_map == INVALID_ADDRESS) {
+    if (b->alloc_map == INVALID_ADDRESS)
 	return INVALID_ADDRESS;
-    }
     zero(bitmap_base(b), mapbytes);
     buffer_produce(b->alloc_map, mapbytes);
     return b;
@@ -132,5 +141,23 @@ void deallocate_bitmap(bitmap b)
 {
     if (b->alloc_map)
 	deallocate_buffer(b->alloc_map);
+    deallocate(b->h, b, sizeof(struct bitmap));
+}
+
+bitmap bitmap_wrap(heap h, u64 * map, u64 length)
+{
+    bitmap b = allocate_bitmap_internal(h, length);
+    if (b == INVALID_ADDRESS)
+	return b;
+    b->alloc_map = wrap_buffer(h, map, b->maxbits >> 3);
+    if (b->alloc_map == INVALID_ADDRESS)
+	return INVALID_ADDRESS;
+    return b;
+}
+
+void bitmap_unwrap(bitmap b)
+{
+    if (b->alloc_map)
+	unwrap_buffer(b->h, b->alloc_map);
     deallocate(b->h, b, sizeof(struct bitmap));
 }

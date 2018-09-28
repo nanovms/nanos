@@ -620,7 +620,7 @@ buffer install_syscall(heap h)
 }
 
 extern char *syscall_name(int);
-static u64 syscall_debug()
+static void syscall_debug()
 {
     u64 *f = current->frame;
     int call = f[FRAME_VECTOR];

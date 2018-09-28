@@ -15,7 +15,7 @@ static void _b3(u64 a){__asm__("mov %0, %%dr3":: "a"(a));}
 struct breakpoint breakpoints[4] = {{0, 0, _b0}, {0, 0, _b1}, {0, 0, _b2}, {0, 0, _b3}};
 
 #define mutate(__x, __offset, __len, __v)                           \
-    (((__x) & ~ (((1<<__len) - 1) << (__offset))) | ((__v)<<(__offset)))
+    (((__x) & ~ (((1ull<<__len) - 1) << (__offset))) | ((__v)<<(__offset)))
 
 static boolean enabled;
 

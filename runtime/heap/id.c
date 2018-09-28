@@ -30,7 +30,7 @@ static id_range id_add_range(id_heap i, u64 base, u64 length)
     if (length == -1ull) {
 	length -= base;
 	/* bitmap will round up to next 64 page boundary, don't wrap */
-	length &= ~((1 << (page_order(i) + 6)) - 1);
+	length &= ~((1ull << (page_order(i) + 6)) - 1);
     }
     assert(length >= page_size(i));
     assert((length & page_mask(i)) == 0); /* multiple of pagesize */
@@ -77,7 +77,7 @@ static id_range id_get_backed_page(id_heap i)
 static u64 id_alloc_from_range(id_heap i, id_range r, int order)
 {
     u64 bit = bitmap_alloc(r->b, order);
-    u64 alloc_bits = 1 << order;
+    u64 alloc_bits = 1ull << order;
     if (bit == INVALID_PHYSICAL)
 	return bit;
 
@@ -136,8 +136,9 @@ static void id_dealloc(heap h, u64 a, bytes count)
 	    s = "bitmap dealloc failed";
 	    goto fail;
 	}
-	assert(h->allocated >= 1 << order);
-	h->allocated -= 1 << order;
+	u64 deallocated = 1ull << order;
+	assert(h->allocated >= deallocated);
+	h->allocated -= deallocated;
 	return;
     }
     s = "allocation doesn't match any range";

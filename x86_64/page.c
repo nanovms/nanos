@@ -166,14 +166,14 @@ boolean validate_virtual(void *base, u64 length)
             while(p < e2) {
                 if (!(l3 = pt_lookup(l2, p, PT3))) return false;
                 if (l2[pindex(p, PT3)] & PAGE_2M_SIZE) {
-                    p += 1<<PT3;
+                    p += 1ull<<PT3;
                 } else {
                     u64 e3 = MIN(p + (1ull<<PT3), e);
                     while(p < e3) {
                         u64 e3 = MIN(p + (1ull<<PT3), e);
                         while (p < e3) {
                             if (!pt_lookup(l3, p, PT4)) return false;
-                            p += 1<<PAGELOG;
+                            p += 1ull<<PAGELOG;
                         }
                     }
                 }
@@ -217,14 +217,14 @@ static void map_range(u64 virtual, physical p, int length, u64 flags, heap h)
 #endif
 
     for (int i = 0; i < len;) {
-	boolean fat = !(vo & MASK(PT3)) && !(po & MASK(PT3)) && ((len - i) >= (1<<PT3));
+	boolean fat = !(vo & MASK(PT3)) && !(po & MASK(PT3)) && ((len - i) >= (1ull<<PT3));
 	if (!map_page(pb, vo, po, h, fat, flags)) {
 	    if (flags == 0)
 		console("unmap: area missing page mappings\n");
 	    else
 		halt("map: ran out of page table memory");
 	}
-        int off = 1 << (fat ? PT3 : PT4);
+        int off = 1ull << (fat ? PT3 : PT4);
         vo += off;
         if (po != INVALID_PHYSICAL)
             po += off;
