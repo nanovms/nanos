@@ -31,7 +31,7 @@ struct epoll_blocked {
 	    bitmap rset;
 	    bitmap wset;
 	    bitmap eset;
-	    int retcount;
+	    u64 retcount;
 	};
     };
     struct list blocked_list;
@@ -365,6 +365,7 @@ static boolean select_notify(epollfd f, u32 events)
 {
     list l = list_get_next(&f->e->blocked_head);
     epoll_blocked w = l ? struct_from_list(l, epoll_blocked, blocked_list) : 0;
+    assert(w->select);
 #ifdef EPOLL_DEBUG
     rprintf("select_notify: f->fd %d, events %P, blocked %p, zombie %d\n",
 	    f->fd, events, w, f->zombie);
@@ -372,7 +373,7 @@ static boolean select_notify(epollfd f, u32 events)
     f->registered = false;
     if (!f->zombie && w) {
 	int count = 0;
-	/* XXX need thread safe versions */
+	/* XXX need thread safe / cas bitmap ops */
 	/* trusting that notifier masked events */
 	if (events & POLLFDMASK_READ) {
 	    bitmap_set(w->rset, f->fd, 1);
@@ -387,7 +388,7 @@ static boolean select_notify(epollfd f, u32 events)
 	    count++;
 	}
 	assert(count);
-	w->retcount += count;
+	fetch_and_add(&w->retcount, count);
 #ifdef EPOLL_DEBUG
 	rprintf("   event on %d, events %P\n", f->fd, events);
 #endif
@@ -432,19 +433,27 @@ static sysreturn select_internal(int nfds,
     if (e == INVALID_ADDRESS) {
 	return -ENOMEM;
     }
-
     epoll_blocked w = alloc_epoll_blocked(e);
-    w->rset = bitmap_wrap(h, readfds, nfds);
-    w->wset = bitmap_wrap(h, writefds, nfds);
-    w->eset = bitmap_wrap(h, exceptfds, nfds);
+    u64 rv = 0;
+
+#ifdef EPOLL_DEBUG
+    rprintf("select_internal: nfds %d, readfds %p, writefds %p, exceptfds %p\n"
+	    "   epoll_blocked %p, timeout %d\n", nfds, readfds, writefds, exceptfds,
+	    w, timeout);
+#endif
+    if (nfds == 0)
+	goto timeout_only;
+    w->rset = readfds ? bitmap_wrap(h, readfds, nfds) : 0;
+    w->wset = writefds ? bitmap_wrap(h, writefds, nfds) : 0;
+    w->eset = exceptfds ? bitmap_wrap(h, exceptfds, nfds) : 0;
     w->retcount = 0;
-    u64 * rp = readfds;
-    u64 * wp = writefds;
-    u64 * ep = exceptfds;
 
     bitmap_extend(e->fds, nfds - 1);
     u64 * regp = bitmap_base(e->fds);
-
+    u64 dummy = 0;
+    u64 * rp = readfds ? readfds : &dummy;
+    u64 * wp = writefds ? writefds : &dummy;
+    u64 * ep = exceptfds ? exceptfds : &dummy;
     int words = (nfds >> 6) + 1;
     for (int i = 0; i < words; i++) {
 	/* update epollfds based on delta between registered fds and
@@ -456,39 +465,59 @@ static sysreturn select_internal(int nfds,
 	bitmap_word_foreach_set(d, bit, fd, (i << 6)) {
 	    /* either add or remove epollfd */
 	    if (*regp & (1 << bit)) {
+#ifdef EPOLL_DEBUG
+		rprintf("   + fd %d\n", fd);
+#endif
 		if (!alloc_epollfd(e, fd, 0, 0))
 		    return -EBADF; /* XXX should be out, dealloc */
 	    } else {
+#ifdef EPOLL_DEBUG
+		rprintf("   - fd %d\n", fd);
+#endif
 		free_epollfd(e, fd);
 	    }
 	}
 
 	/* now process all events */
 	bitmap_word_foreach_set(u, bit, fd, (i << 6)) {
-	    u32 events = 0;
+	    u32 eventmask = 0;
 	    u64 mask = 1 << bit;
 	    epollfd f = vector_get(e->events, fd);
 	    assert(f);
+
+	    /* XXX again these need to be thread/int-safe / cas access */
 	    if (*rp & mask) {
-		events |= POLLFDMASK_READ;
+		eventmask |= POLLFDMASK_READ;
 		*rp &= ~mask;
 	    }
 	    if (*wp & mask) {
-		events |= POLLFDMASK_WRITE;
+		eventmask |= POLLFDMASK_WRITE;
 		*wp &= ~mask;
 	    }
 	    if (*ep & mask) {
-		events |= POLLFDMASK_EXCEPT;
+		eventmask |= POLLFDMASK_EXCEPT;
 		*ep &= ~mask;
 	    }
-	    if (events != f->eventmask) {
+#ifdef EPOLL_DEBUG
+	    rprintf("   fd %d eventmask %P ", fd, eventmask);
+#endif
+	    if (eventmask != f->eventmask) {
+#ifdef EPOLL_DEBUG
+		rprintf("(was %P, ", f->eventmask);
+#endif
 		if (f->registered) {
+#ifdef EPOLL_DEBUG
+		    rprintf("replacing)\n");
+#endif
 		    /* make into zombie; kind of brutal...need removal */
 		    free_epollfd(e, fd);
-		    f = alloc_epollfd(e, fd, events, 0);
+		    f = alloc_epollfd(e, fd, eventmask, 0);
 		    assert(f);
 		} else {
-		    f->eventmask = events;
+#ifdef EPOLL_DEBUG
+		    rprintf("updating)\n");
+#endif
+		    f->eventmask = eventmask;
 		}
 	    }
 
@@ -496,27 +525,43 @@ static sysreturn select_internal(int nfds,
 		f->registered = true;
 		fetch_and_add(&f->refcnt, 1);
 #ifdef EPOLL_DEBUG
-		rprintf("   register epollfd %d, events %P, applying check\n",
+		rprintf("      register epollfd %d, eventmask %P, applying check\n",
 			f->fd, f->eventmask);
 #endif
 		apply(f->f->check, f->eventmask, closure(h, select_notify, f));
 	    }
 	}
 
-	rp++;
-	wp++;
-	ep++;
+	if (readfds)
+	    rp++;
+	if (writefds)
+	    wp++;
+	if (exceptfds)
+	    ep++;
 	regp++;
     }
-    
-    // xxx - implement wait/notify
-    if (timeout == 0) {
-        rprintf("select poll\n");
-    } else {
-        register_timer(timeout, closure(h, select_timeout, current, 0));
-        thread_sleep(current);
+    rv = w->retcount;
+  timeout_only:
+    if (timeout == 0 || rv > 0) {
+#ifdef EPOLL_DEBUG
+	rprintf("   immediate return; return %d\n", rv);
+#endif
+	epoll_blocked_release(w);
+	return rv;
     }
-    return 0;
+
+    if (timeout > 0) {
+	w->timeout = register_timer(timeout, closure(h, select_timeout, current, 0));
+#ifdef EPOLL_DEBUG
+	rprintf("   registered timer %p\n", w->timeout);
+#endif
+    }
+#ifdef EPOLL_DEBUG
+    rprintf("   sleeping...\n");
+#endif
+    w->sleeping = true;
+    thread_sleep(current);
+    return 0;			/* suppress warning */
 }
 
 
