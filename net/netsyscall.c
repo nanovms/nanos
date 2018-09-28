@@ -44,17 +44,31 @@ typedef struct sock {
     status s;
 } *sock;
 
+static inline u32 socket_poll_events(sock s)
+{
+    u32 events = 0;
+    if (queue_length(s->incoming))
+	events |= EPOLLIN;
+    if (s->state != SOCK_OPEN)
+	events |= EPOLLHUP;
+    return events;
+}
+
 static void wakeup(sock s)
 {
-    thunk n;
+    event_handler eh;
     status_handler fstatus;
     // return status if not handled so someone else can try?
     // shouldnt a close event wake up everyone?
     if ((fstatus = dequeue(s->waiting))) {
         apply(fstatus, NULL);
     }  else {
-        if ((n = dequeue(s->notify))) {
-            apply(n);
+        if ((eh = dequeue(s->notify))) {
+	    /* XXX again this is really broken, but just behave as
+	       before until next installment allows us to only wake up
+	       if a bit in eventsmask is active */
+            if (!apply(eh, socket_poll_events(s)))
+		enqueue(s->notify, eh);
         }
     }
 }
@@ -107,6 +121,7 @@ static inline s64 lwip_to_errno(s8 err)
     case ERR_CLSD: return -EPIPE;
     case ERR_ARG: return -EINVAL;
     }
+    return -EINVAL;		/* XXX unknown - check return value */
 }
 
 static inline void pbuf_consume(struct pbuf *p, u64 length)
@@ -160,6 +175,7 @@ static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
         enqueue(s->waiting, closure(s->h, read_complete, s, current, dest, length, true));
         thread_sleep(current);
     }
+    return 0;			/* suppress warning */
 }
 
 static CLOSURE_1_3(socket_write, sysreturn, sock, void *, u64, u64);
@@ -177,19 +193,20 @@ static sysreturn socket_write(sock s, void *source, u64 length, u64 offset)
     return length;
 }
 
-static CLOSURE_1_2(socket_check, void, sock, thunk, thunk);
-static void socket_check(sock s, thunk t_in, thunk t_hup)
+static CLOSURE_1_2(socket_check, boolean, sock, u32, event_handler);
+static boolean socket_check(sock s, u32 eventmask, event_handler eh)
 {
-    // thread safety
-    if (queue_length(s->incoming)) {
-        apply(t_in);
+    u32 events = socket_poll_events(s);
+    u32 match = events & eventmask;
+    if (match) {
+	return apply(eh, match);
     } else {
-        if (SOCK_OPEN == s->state) {
-	    enqueue(s->notify, t_in);
-	} else {
-	    apply(t_hup);
-	}
+	/* XXX still follows the broken read-only approach; next
+	   installment enqueues eventmask along with handler and uses
+	   a linked-list queue for trivial removal */
+	enqueue(s->notify, eh);
     }
+    return true;
 }
 
 #define SOCK_QUEUE_LEN 32
@@ -208,6 +225,7 @@ static sysreturn socket_close(sock s)
     //    deallocate_queue(s->waiting, SOCK_QUEUE_LEN);
     //    deallocate_queue(s->incoming, SOCK_QUEUE_LEN);
     //    unix_cache_free(get_unix_heaps(), socket, s);
+    return 0;
 }
 
 static int allocate_sock(process p, struct tcp_pcb *pcb)
@@ -317,6 +335,7 @@ static err_t connect_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
         u64 code =  lwip_to_errno(err);
         apply(sp, (status)&code);
    }
+   return ERR_OK;
 }
 
 static int connect_tcp(sock socket, const ip_addr_t* address, unsigned short port) {
@@ -380,7 +399,7 @@ static void lwip_conn_err(void* z, err_t b) {
 static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
 {
     sock s = z;
-    thunk p;
+    event_handler eh;
     status_handler sp;
     int fd = allocate_sock(s->p, lw);
     if (fd < 0)
@@ -397,12 +416,15 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
     tcp_err(lw, lwip_conn_err);
     enqueue(s->incoming, sn);
 
+    /* XXX should just call wakeup */
     if ((sp = dequeue(s->waiting))) {
         u64 errCode = lwip_to_errno(b);
         apply(sp,(status)&errCode);
     }  else {
-        if ((p = dequeue(s->notify))) {
-            apply(p);
+        if ((eh = dequeue(s->notify))) {
+	    /* bork */
+            if (!apply(eh, EPOLLIN))
+		enqueue(s->notify, eh);
         }
     }
     return ERR_OK;
@@ -440,6 +462,7 @@ sysreturn accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
         enqueue(s->waiting, closure(s->h, accept_finish, s, current, addr, addrlen));
     }
     thread_sleep(current);
+    return 0;			/* suppress warning */
 }
 
 sysreturn accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
