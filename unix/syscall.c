@@ -264,6 +264,7 @@ struct code syscall_codes[]= {
     {SYS_inotify_add_watch, "inotify_add_watch"},
     {SYS_inotify_rm_watch, "inotify_rm_watch"},
     {SYS_migrate_pages, "migrate_pages"},
+    {SYS_openat, "SYS_openat"},
     {SYS_mkdirat, "mkdirat"},
     {SYS_mknodat, "mknodat"},
     {SYS_fchownat, "fchownat"},
@@ -410,7 +411,6 @@ sysreturn open(char *name, int flags, int mode)
     bytes length;
     heap h = heap_general(get_kernel_heaps());
     unix_heaps uh = get_unix_heaps();
-    
     // fix - lookup should be robust
     if (name == 0) return set_syscall_error (current, EINVAL);
     if (!(n = resolve_cstring(current->p->cwd, name))) {
@@ -435,6 +435,11 @@ sysreturn open(char *name, int flags, int mode)
     f->close = closure(h, file_close, f);
     f->offset = 0;
     return fd;
+}
+
+// TODO: this is stub, should be updated
+sysreturn openat(int dirfd, char *name, int flags, int mode) {
+  return open(name,flags,mode);
 }
 
 static void fill_stat(tuple n, struct stat *s)
@@ -599,6 +604,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_getrlimit, getrlimit);
     register_syscall(map, SYS_getpid, getpid);    
     register_syscall(map, SYS_exit, (sysreturn (*)())exit);
+    register_syscall(map,SYS_openat,openat);
 }
 
 void *linux_syscalls[SYS_MAX];
