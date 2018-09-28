@@ -38,6 +38,7 @@ sysreturn arch_prctl(int code, unsigned long a)
     default:
         return set_syscall_error(current, EINVAL);
     }
+    return 0;
 }
 
 sysreturn clone(unsigned long flags, void *child_stack, void *ptid, void *ctid, void *x)
