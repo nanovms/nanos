@@ -177,7 +177,7 @@ void elf_symbols(buffer elf, closure_type(each, void, char *, u64, u64, u8));
 
 typedef closure_type(fault_handler, u64 *, context);
 void configure_timer(time rate, thunk t);
-void enqueue(queue q, void *n);
+boolean enqueue(queue q, void *n);
 void *dequeue(queue q);
 void *queue_peek(queue q);
 int queue_length(queue q);

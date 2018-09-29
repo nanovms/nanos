@@ -1,6 +1,6 @@
 #include <unix_internal.h>
 
-#define EPOLL_DEBUG
+//#define EPOLL_DEBUG
 
 typedef struct epoll *epoll;
 
@@ -105,34 +105,32 @@ static void epoll_blocked_release(epoll_blocked w)
 #endif
 }
 
-static CLOSURE_1_0(epoll_blocked_finish, void, epoll_blocked);
-static void epoll_blocked_finish(epoll_blocked w)
+/* XXX need to check for races as completions may come from timer and
+   other interrupts */
+static CLOSURE_2_0(epoll_blocked_finish, void, epoll_blocked, boolean);
+static void epoll_blocked_finish(epoll_blocked w, boolean timedout)
 {
 #ifdef EPOLL_DEBUG
     rprintf("epoll_blocked_finish: w %p, refcnt %d", w, w->refcnt);
     if (w->sleeping)
 	rprintf(", sleeping");
-    if (w->timeout)
-	rprintf(", timeout %p", w->timeout);
+    if (timedout)
+	rprintf(", timed out %p", w->timeout);
 #endif
     heap h = heap_general(get_kernel_heaps());
 
-    /* If we're not sleeping, we're either:
-
-       1) in the middle of a (to be non-blocking) epoll_wait(), so do
-          nothing here and allow other notifications, if any, to be
-          applied, or
-       2) called on a timer expiry after syscall return.
-    */
     if (w->sleeping) {
         w->sleeping = false;
         thread_wakeup(w->t);
 	sysreturn rv;
 
 	if (w->select) {
-	    bitmap_unwrap(w->rset);
-	    bitmap_unwrap(w->wset);
-	    bitmap_unwrap(w->eset);
+	    if (w->rset)
+		bitmap_unwrap(w->rset);
+	    if (w->wset)
+		bitmap_unwrap(w->wset);
+	    if (w->eset)
+		bitmap_unwrap(w->eset);
 	    w->rset = w->wset = w->eset = 0;
 	    rv = w->retcount;	/* XXX error check */
 	} else {
@@ -146,20 +144,20 @@ static void epoll_blocked_finish(epoll_blocked w)
 #endif
 	set_syscall_return(w->t, rv);
 
-	if (w->timeout) {
-	    /* We'll let the timeout run until expiry until we can be sure
-	       that we have a race-free way to disable the timer if waking
-	       on an event. Thus bump the refcnt to make sure this
-	       epoll_blocked is still around after syscall return.
+	/* We'll let the timeout run to expiry until we can be sure
+	   that we have a race-free way to disable the timer if waking
+	   on an event.
 
-	       This will have to be revisited, for we'll accumulate a
-	       bunch of zombie epoll_blocked and timer objects until they
-	       start timing out.
-	    */
-	    fetch_and_add(&w->refcnt, 1);
-	}
+	   This will have to be revisited, for we'll accumulate a
+	   bunch of zombie epoll_blocked and timer objects until they
+	   start timing out.
+	*/
+#ifdef EPOLL_DEBUG
+	if (w->timeout && !timedout)
+	    rprintf("      timer remains; refcount %d\n", w->refcnt);
+#endif
 	epoll_blocked_release(w);
-    } else if (w->timeout) {
+    } else if (timedout) {
 #ifdef EPOLL_DEBUG
 	rprintf("\n   timer expiry after syscall return; ignored\n");
 #endif
@@ -167,7 +165,7 @@ static void epoll_blocked_finish(epoll_blocked w)
 	epoll_blocked_release(w);
     } else {
 #ifdef EPOLL_DEBUG
-	rprintf("\n   in syscall; ignored\n");
+	rprintf("\n   ignored: in syscall or zombie event\n");
 #endif
     }
 }
@@ -207,7 +205,7 @@ static boolean epoll_wait_notify(epollfd f, u32 events)
 	    msg_err("user_events null or full\n");
 	    return false;
 	}
-	epoll_blocked_finish(w);
+	epoll_blocked_finish(w, false);
     }
     epollfd_release(f);
     return true;
@@ -240,11 +238,7 @@ sysreturn epoll_wait(int epfd,
     w->user_events->end = 0;
 
     bitmap_foreach_set(e->fds, fd) {
-	if (!bitmap_get(e->fds, fd)) {
-	    rprintf("XXX fd %d, __w = %P\n", fd, __w);
-	    rprintf("mapbits %d\n", e->fds->mapbits);
-	    halt("xxx");
-	}
+	assert(bitmap_get(e->fds, fd));
         epollfd f = vector_get(e->events, fd);
 	assert(f);
         if (!f->registered) {
@@ -269,7 +263,8 @@ sysreturn epoll_wait(int epfd,
     }
 
     if (timeout > 0) {
-	w->timeout = register_timer(/* looks wrong */milliseconds(timeout), closure(h, epoll_blocked_finish, w));
+	w->timeout = register_timer(/* looks wrong */milliseconds(timeout), closure(h, epoll_blocked_finish, w, true));
+	fetch_and_add(&w->refcnt, 1);
 #ifdef EPOLL_DEBUG
 	rprintf("   registered timer %p\n", w->timeout);
 #endif
@@ -392,17 +387,10 @@ static boolean select_notify(epollfd f, u32 events)
 #ifdef EPOLL_DEBUG
 	rprintf("   event on %d, events %P\n", f->fd, events);
 #endif
-	epoll_blocked_finish(w);
+	epoll_blocked_finish(w, false);
     }
     epollfd_release(f);
     return true;
-}
-
-static CLOSURE_2_0(select_timeout, void, thread, boolean *);
-static void select_timeout(thread t, boolean *dead)
-{
-    set_syscall_return(t, 0);
-    thread_wakeup(t);
 }
 
 static epoll select_get_epoll()
@@ -434,6 +422,7 @@ static sysreturn select_internal(int nfds,
 	return -ENOMEM;
     }
     epoll_blocked w = alloc_epoll_blocked(e);
+    w->select = true;
     u64 rv = 0;
 
 #ifdef EPOLL_DEBUG
@@ -551,7 +540,8 @@ static sysreturn select_internal(int nfds,
     }
 
     if (timeout > 0) {
-	w->timeout = register_timer(timeout, closure(h, select_timeout, current, 0));
+	w->timeout = register_timer(timeout, closure(h, epoll_blocked_finish, w, true));
+	fetch_and_add(&w->refcnt, 1);
 #ifdef EPOLL_DEBUG
 	rprintf("   registered timer %p\n", w->timeout);
 #endif

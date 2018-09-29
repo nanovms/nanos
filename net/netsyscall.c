@@ -68,7 +68,8 @@ static void wakeup(sock s)
 	       before until next installment allows us to only wake up
 	       if a bit in eventsmask is active */
             if (!apply(eh, socket_poll_events(s)))
-		enqueue(s->notify, eh);
+		if (!enqueue(s->notify, eh))
+		    msg_err("failed; queue full\n");
         }
     }
 }
@@ -157,7 +158,8 @@ static CLOSURE_2_0(read_hup, void, sock, thread);
 static void read_hup(sock s, thread t)
 {
     set_syscall_return(t, 0);
-    enqueue(runqueue, t->run);
+    if (!enqueue(runqueue, t->run))
+	msg_err("runqueue full\n");
 }
 
 static CLOSURE_1_3(socket_read, sysreturn, sock, void *, u64, u64);
@@ -172,7 +174,8 @@ static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
         return sysreturn_value(current);        
     } else {
         // should be an atomic operation
-        enqueue(s->waiting, closure(s->h, read_complete, s, current, dest, length, true));
+        if (!enqueue(s->waiting, closure(s->h, read_complete, s, current, dest, length, true)))
+	    msg_err("waiting queue full\n");
         thread_sleep(current);
     }
     return 0;			/* suppress warning */
@@ -204,7 +207,8 @@ static boolean socket_check(sock s, u32 eventmask, event_handler eh)
 	/* XXX still follows the broken read-only approach; next
 	   installment enqueues eventmask along with handler and uses
 	   a linked-list queue for trivial removal */
-	enqueue(s->notify, eh);
+	if (!enqueue(s->notify, eh))
+	    msg_err("notify queue full\n");
     }
     return true;
 }
@@ -281,7 +285,8 @@ static err_t input_lower (void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t er
     }
     
     if (p) {
-        enqueue(s->incoming, p);
+        if (!enqueue(s->incoming, p))
+	    msg_err("incoming queue full\n");
     } else {
         s->state = SOCK_CLOSED;
     }
@@ -340,7 +345,8 @@ static err_t connect_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
 
 static int connect_tcp(sock socket, const ip_addr_t* address, unsigned short port) {
 
-    enqueue(socket->waiting, closure(socket->h, set_completed_state, current));
+    if (!enqueue(socket->waiting, closure(socket->h, set_completed_state, current)))
+	msg_err("waiting queue full\n");
     tcp_arg(socket->lw, socket);
     tcp_err(socket->lw, error_handler_tcp);
     socket->state = SOCK_IN_CONNECTION;
@@ -414,7 +420,8 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
     tcp_arg(lw, sn);
     tcp_recv(lw, input_lower);
     tcp_err(lw, lwip_conn_err);
-    enqueue(s->incoming, sn);
+    if (!enqueue(s->incoming, sn))
+	msg_err("incoming queue full\n");
 
     /* XXX should just call wakeup */
     if ((sp = dequeue(s->waiting))) {
@@ -424,7 +431,8 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
         if ((eh = dequeue(s->notify))) {
 	    /* bork */
             if (!apply(eh, EPOLLIN))
-		enqueue(s->notify, eh);
+		if (!enqueue(s->notify, eh))
+		    msg_err("notify queue full\n");
         }
     }
     return ERR_OK;
@@ -459,7 +467,8 @@ sysreturn accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
     if (queue_length(s->incoming)) {
         accept_finish(s, current, addr, addrlen, ERR_OK);
     } else {
-        enqueue(s->waiting, closure(s->h, accept_finish, s, current, addr, addrlen));
+        if (!enqueue(s->waiting, closure(s->h, accept_finish, s, current, addr, addrlen)))
+	    msg_err("waiting queue full\n");
     }
     thread_sleep(current);
     return 0;			/* suppress warning */
