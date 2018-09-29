@@ -143,7 +143,8 @@ void main(int argc, char **argv)
     merge m = allocate_merge(h, closure(h, finished, s));
 
     zero(s, sizeof(struct stats)); //?
-    tuple req = timm("url", "/", "fizz", "bun", "Host", "tenny");
+    tuple req = timmf("url", "/", "fizz", "bun", "Host", "tenny");
+    rprintf("request %v\n", req);
     *newconn = (thunk)closure(h, startconn, h, e, m, target, newconn, s, err, req);
     apply(*newconn);
     epoll_spin(e);

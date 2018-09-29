@@ -7,6 +7,9 @@ static struct pvclock_vcpu_time_info *vclock = 0;
 
 #define MSR_KVM_SYSTEM_TIME 0x4b564d01
 
+static boolean lapic = false;
+static boolean hpet = false;
+
 struct pvclock_vcpu_time_info {
     u32   version;
     u32   pad0;
@@ -69,6 +72,23 @@ time now() {
   return clock_function();
 }
 
+void configure_hpet_timer(int timer, time rate, thunk t);
+void configure_lapic_timer(time rate, thunk t);
+
+void register_periodic_timer_interrupt(time interval, thunk handler)
+{
+    rprintf("register!\n");
+    if (lapic){
+        configure_lapic_timer(interval, handler);
+    } else {
+        if (hpet) {
+            configure_hpet_timer(0, interval, handler);
+        } else {
+            halt("no timer hardware!");
+        }
+    }
+}
+
 void init_clock(kernel_heaps kh)
 {
     heap backed = heap_backed(kh);
@@ -78,13 +98,15 @@ void init_clock(kernel_heaps kh)
     zero(vclock,sizeof(struct pvclock_vcpu_time_info));
     // add the enable bit 1
     write_msr(MSR_KVM_SYSTEM_TIME, physical_from_virtual(vclock)| 1);
+    // xxx - there is a bit somewhere in the furthest leaves of the cpuid tree
+    // that indicates kvm clock support
     if (0 == vclock->system_time)
     {
         deallocate(backed, vclock, backed->pagesize);
-        console("INFO: KVM clock is inaccessible\n");
         if( !init_hpet(heap_virtual_page(kh), heap_pages(kh))) {
-          halt("ERROR: HPET clock is inaccessible\n");
+            halt("ERROR: neihter KVM nor HPET clock available\n");
         }
+        hpet = true;
         clock_function = now_hpet;
-    }
+    } else lapic = true;
 }

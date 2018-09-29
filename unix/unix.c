@@ -12,6 +12,7 @@ u64 allocate_fd(process p, file f)
     f->check = 0;
     f->close = 0;
     f->read = f->write = 0;
+    f->blocking = true;
     vector_set(p->files, fd, f);
     return fd;
 }

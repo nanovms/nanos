@@ -207,6 +207,10 @@ void common_handler()
     int i = frame[FRAME_VECTOR];
     u64 z;
 
+    console("interrupt ");
+    print_u64(i);
+    console("\n");
+        
     if ((i < interrupt_size) && handlers[i]) {
         // should we switch to the 'kernel process'?
         apply(handlers[i]);
@@ -224,7 +228,7 @@ void common_handler()
     }
 }
 
-static heap interrupt_vectors;
+heap interrupt_vectors;
 
 void allocate_msi(int slot, int msi_slot, thunk h)
 {
@@ -257,7 +261,8 @@ void register_interrupt(int vector, thunk t)
     handlers[vector] = t;
 }
 
-void configure_timer(time rate, thunk t)
+// make one-shot
+void configure_lapic_timer(time rate, thunk t)
 {
     *(u32 *)(apic_base+APIC_TMRDIV) = 3;
     int v = allocate_u64(interrupt_vectors, 1);

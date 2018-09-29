@@ -19,3 +19,5 @@ void pci_set_bus_master(int bus, int slot, int func);
 void init_pci(kernel_heaps kh);
 typedef closure_type(pci_probe, void , int, int, int ); // bus slot func
 void register_pci_driver(u16 vendor, u16 device, pci_probe p);
+void msi_format(u32 *address, u32 *data, int vector);
+

@@ -8,6 +8,8 @@ static CLOSURE_0_0(timeout, void);
 static void timeout()
 {
     static int c;
+    rprintf("tim\n");
+    netif_poll_all();
     sys_check_timeouts();
 }
 

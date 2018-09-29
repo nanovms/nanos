@@ -5,7 +5,8 @@
     environment:(USER:bobby PWD:/)    
     program:/net_unit
     # debugging variables...should be in a block
-    debug_syscalls:t
+    trace:t
+    debugsyscalls:t
     gdb_on_fault:t
     thread_logging:t
 )

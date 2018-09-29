@@ -7,6 +7,7 @@
 #define LWIP_NO_INTTYPES_H 1
 #define LWIP_NO_LIMITS_H 1
 #define LWIP_NO_CTYPE_H 1
+#define LWIP_HAVE_LOOPIF 1
 #define LWIP_DHCP 1
 // would prefer to set this dynamically...also,
 // seems better to allow some progress to be made

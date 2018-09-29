@@ -64,6 +64,7 @@ typedef struct file {
     // check if data on the read path
     closure_type(check, void, thunk in, thunk hup);
     closure_type(close, sysreturn);
+    boolean blocking;
     tuple n;
 } *file;
 

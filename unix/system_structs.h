@@ -294,4 +294,9 @@ struct epoll_event {
 
 typedef struct aux {u64 tag; u64 val;} *aux;
 
-
+/* Values for the second argument to `fcntl'.  */
+#define F_DUPFD		0	/* Duplicate file descriptor.  */
+#define F_GETFD		1	/* Get file descriptor flags.  */
+#define F_SETFD		2	/* Set file descriptor flags.  */
+#define F_GETFL		3	/* Get file status flags.  */
+#define F_SETFL		4	/* Set file status flags.  */

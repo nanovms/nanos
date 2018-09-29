@@ -125,6 +125,7 @@ boolean valiate_virtual(void *base, u64 length);
 
 // tuples
 char *interrupt_name(u64 code);
+void register_interrupt(int vector, thunk t);
 char *register_name(u64 code);
 
 static inline word fetch_and_add(word* variable, word value)
@@ -188,4 +189,7 @@ struct queue {
 #define foreach_phdr(__e, __p)\
     for (int __i = 0; __i< __e->e_phnum; __i++)\
         for (Elf64_Phdr *__p = (void *)__e + __e->e_phoff + (__i * __e->e_phentsize); __p ; __p = 0) \
+
+
+void register_periodic_timer_interrupt(time interval, thunk handler);
 

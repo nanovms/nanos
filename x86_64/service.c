@@ -151,7 +151,6 @@ static void format_elf_symbol(buffer dest, buffer fmt, vlist *v)
     bprintf(dest, "%s + %p", name, offset);
 }
 
-
 static struct heap bootstrap;
 static heap pages, physical_memory, backed, backed_2M, virtual;
 static void __attribute__((noinline)) init_service_new_stack()
@@ -183,7 +182,7 @@ static void __attribute__((noinline)) init_service_new_stack()
     pci_discover();
     // just to get the hlt loop to wake up and service timers. 
     // should change this to post the delta to the front of the queue each time
-    configure_timer(milliseconds(50), ignore);
+    register_periodic_timer_interrupt(milliseconds(50), ignore);
     runloop();
 }
 

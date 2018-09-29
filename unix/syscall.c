@@ -556,9 +556,15 @@ sysreturn close(int fd)
     return 0;
 }
 
-sysreturn fcntl(int fd, int cmd)
+sysreturn fcntl(int fd, int cmd, int val)
 {
-    return O_RDWR;
+    rprintf("fcntl: %d\n", fd);
+    file f = resolve_fd(current->p, fd);    
+    if (cmd == F_SETFL) {
+        if (val & O_NONBLOCK) f->blocking = false;
+    }
+    // someone is depending on this being O_RDWR
+    return 0;
 }
 
 sysreturn syscall_ignore()

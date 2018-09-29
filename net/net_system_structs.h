@@ -13,6 +13,8 @@
 #define	ETIMEDOUT	110	/* Connection timed out */
 #define	ECONNREFUSED	111	/* Connection refused */
 #define	EHOSTUNREACH	113	/* No route to host */
+#define	EHOSTUNREACH	113	/* No route to host */
+#define	EINPROGRESS	115	/* Operation now in progress */
 
 
 enum protocol_type {

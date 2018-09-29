@@ -1,18 +1,21 @@
 #include <runtime.h>
-#include "hpet.h"
-#include "x86_64.h"
+#include <hpet.h>
+#include <x86_64.h>
+#include <pci.h>
+
+extern heap interrupt_vectors;
 
 #define HPET_TABLE_ADDRESS 0xfed00000ull
 #define HPET_MAXIMUM_INCREMENT_PERIOD 0x05F5E100ul
 
 struct HPETGCapabilitiesIDRegister {
-            u16 revID : 8;
-            u16 numTimCap : 5;
-            u16 countSizeCap : 1;
-            u16 reserved : 1;
-            u16 legRouteCap : 1;
-  volatile  u16 vendorID;
-  volatile  u32 counterClkPeriod;
+    u16 revID : 8;
+    u16 numTimCap : 5;
+    u16 countSizeCap : 1;
+    u16 reserved : 1;
+    u16 legRouteCap : 1;
+    volatile  u16 vendorID;
+    volatile  u32 counterClkPeriod;
 } __attribute__((__packed__));
 
 struct HPETGConfigurationRegister {
@@ -32,13 +35,13 @@ struct HPETInterruptStatusRegister {
     u32 reserved32;
 } __attribute__((__packed__));
 
-union HPETMainCounterRegister {
-    struct _bit32 {
-        volatile u32 lo;
-        volatile u32 hi;
-    } __attribute__((__packed__)) counters32bit;
-    volatile u64 couter64bit;
-} __attribute__((__packed__));
+struct HPETTimer {
+    u64 config;
+    u64 comparator;
+    u64 fsb_routing;
+    u64 reserved;        
+}  __attribute__((__packed__));
+    
 
 struct HPETMemoryMap {
     volatile struct HPETGCapabilitiesIDRegister capabilities;
@@ -46,12 +49,44 @@ struct HPETMemoryMap {
     volatile struct HPETGConfigurationRegister configuration;
     u64 reserved2;
     volatile struct HPETInterruptStatusRegister interruptStatus;
-    char reserved3[200];
-    volatile union HPETMainCounterRegister mainCounterRegister;
+    char reserved3[200]; 
+    u64 mainCounterRegister;
     u64 reserved4;
+    volatile struct HPETTimer timers[32];
 } __attribute__((__packed__));
 
 static volatile struct HPETMemoryMap* hpet;
+
+#define TN_INT_TYPE_CNF (1ull<<1)
+#define TN_INT_ENB_CNF (1ull<<2)
+#define TN_TYPE_CNF (1ull<<3)
+#define TN_PER_INT_CAP (1ull<<4)
+#define TN_SIZE_CAP (1ull<<5)
+#define TN_VAL_SET_CNF (1ull<<6)
+#define TN_32MODE_CNF (1ull<<8)
+#define TN_INT_ROUTE_CNF (1ull<<9)
+#define TN_FSB_EN_CNF (1ull<<14)
+#define TN_FSB_INT_DEL_CAP (1ull<<15)
+#define TN_INT_ROUTE_CAP (1ull<<32)
+
+static void hpet_timer()
+{
+}
+
+// make one-shot
+void configure_hpet_timer(int timer, time rate, thunk t)
+{
+    u32 a, d;
+
+    hpet->timers[timer].config = TN_FSB_EN_CNF | TN_INT_ENB_CNF | TN_VAL_SET_CNF;
+    int v =allocate_u64(interrupt_vectors, 1);
+    msi_format(&a, &d, v);
+    
+    register_interrupt(v, t);
+    hpet->timers[timer].fsb_routing = ((u64)a << 32) | d;
+    // normalize!
+    hpet->timers[timer].comparator = 100;
+}
 
 boolean init_hpet(heap virtual_pagesized, heap pages) {
     u64 hpet_page = allocate_u64(virtual_pagesized, PAGESIZE);
@@ -69,10 +104,9 @@ boolean init_hpet(heap virtual_pagesized, heap pages) {
     }
 
     hpet->configuration.enableCnf |= 1;
-    u64 prev = hpet->mainCounterRegister.couter64bit;
-    console("HPET counter started\n");
+    u64 prev = hpet->mainCounterRegister;
 
-    if (prev == hpet->mainCounterRegister.couter64bit) {
+    if (prev == hpet->mainCounterRegister) {
         console("Error: No increment HPET main counter\n");
         return false;
     }
@@ -84,5 +118,5 @@ u32 hpet_multiplier(void) {
 }
 
 u64 hpet_counter(void) {
-    return hpet->mainCounterRegister.couter64bit;
+    return hpet->mainCounterRegister;
 }
