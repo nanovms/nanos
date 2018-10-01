@@ -207,10 +207,6 @@ void common_handler()
     int i = frame[FRAME_VECTOR];
     u64 z;
 
-    console("interrupt ");
-    print_u64(i);
-    console("\n");
-        
     if ((i < interrupt_size) && handlers[i]) {
         // should we switch to the 'kernel process'?
         apply(handlers[i]);

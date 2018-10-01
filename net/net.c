@@ -1,14 +1,12 @@
 #include <runtime.h>
-#include "lwip/timeouts.h"
-
+#include <lwip.h>
 
 static heap lwip_heap;
 
+// xx this is getting hit twice?
 static CLOSURE_0_0(timeout, void);
 static void timeout()
 {
-    static int c;
-    rprintf("tim\n");
     netif_poll_all();
     sys_check_timeouts();
 }
@@ -31,7 +29,6 @@ void init_net(kernel_heaps kh)
 {
     heap h = heap_general(kh);
     heap backed = heap_backed(kh);
-    rprintf("init net page alloc %p\n", backed);
     lwip_heap = allocate_mcache(h, backed, 5, 11, PAGESIZE);
     lwip_init();
     register_periodic_timer(milliseconds(500), closure(h, timeout));

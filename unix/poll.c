@@ -259,7 +259,7 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 	    epollfd f = table_find(e->events, ekey);
 	    if (!f) {
 		msg_err("epollfd not found for fd %d\n", fd);
-		return -EBADF;
+		return set_syscall_error(current, EBADF);
 	    }
 	    table_set(e->events, ekey, 0);
 	    assert(f->refcnt > 0);

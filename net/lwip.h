@@ -6,3 +6,6 @@
 #include <lwip/def.h>
 #include <lwip/ip.h>
 #include <lwip/tcp.h>
+#include <lwip/netif.h>
+#include <lwip/timeouts.h>
+

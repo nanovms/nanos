@@ -91,8 +91,12 @@ vtpci attach_vtpci(heap h, heap page_allocator, int bus, int slot, int func, u64
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER);
 
     u32 features = in32(dev->base + 0);
-
-    out32(dev->base+4, features & feature_mask);
+    u64 f = features & feature_mask;
+    if (f != feature_mask) {
+        halt("missing feature %p", f^feature_mask);
+    }
+    
+    out32(dev->base+4, feature_mask);
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_FEATURE); 
 
     int nvqs = 16;

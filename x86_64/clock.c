@@ -7,9 +7,6 @@ static struct pvclock_vcpu_time_info *vclock = 0;
 
 #define MSR_KVM_SYSTEM_TIME 0x4b564d01
 
-static boolean lapic = false;
-static boolean hpet = false;
-
 struct pvclock_vcpu_time_info {
     u32   version;
     u32   pad0;
@@ -29,7 +26,6 @@ struct pvclock_wall_clock {
     u32   nsec;
 } __attribute__((__packed__));
 
-typedef __uint128_t u128;
 typedef time (*clock_now)(void);
 
 time now_kvm()
@@ -51,22 +47,8 @@ time now_kvm()
     return out;
 }
 
-time now_hpet() {
-  u64 counter = hpet_counter();
-  /*
-INFO:
-      We haven't 128 bit arithmetic. We can't divide 128 bit number.
-      The default type  CLK_PERIOD is femtoseconds but we need nanoseconds.
-      There is potential problem if hpet multiplier less than 1000000 ul.
-      But qemu set it value to 10 000 000. Another problem  may there is rounding.
-      the prefer code will be (u64)((u128)counter*hpet_multiplier())/1000000ul;
-  */
-  u32 multiply = hpet_multiplier()/1000000ul;
-  u64 nsec = (u64)((u128)counter*multiply);
-  return nsec;
-}
-
 static clock_now clock_function = now_kvm;
+extern time now_hpet();
 
 time now() {
   return clock_function();
@@ -75,6 +57,7 @@ time now() {
 void configure_hpet_timer(int timer, time rate, thunk t);
 void configure_lapic_timer(time rate, thunk t);
 
+#if 0
 void register_periodic_timer_interrupt(time interval, thunk handler)
 {
     rprintf("register!\n");
@@ -88,6 +71,7 @@ void register_periodic_timer_interrupt(time interval, thunk handler)
         }
     }
 }
+#endif
 
 void init_clock(kernel_heaps kh)
 {
@@ -100,13 +84,10 @@ void init_clock(kernel_heaps kh)
     write_msr(MSR_KVM_SYSTEM_TIME, physical_from_virtual(vclock)| 1);
     // xxx - there is a bit somewhere in the furthest leaves of the cpuid tree
     // that indicates kvm clock support
-    if (0 == vclock->system_time)
-    {
-        deallocate(backed, vclock, backed->pagesize);
-        if( !init_hpet(heap_virtual_page(kh), heap_pages(kh))) {
-            halt("ERROR: neihter KVM nor HPET clock available\n");
-        }
-        hpet = true;
-        clock_function = now_hpet;
-    } else lapic = true;
+    // we aren't using this calibrator right now, but leave it for
+    // rdtsc
+    if(!init_hpet(kh->general, heap_virtual_page(kh), heap_pages(kh))) {
+        halt("ERROR: HPET clock unvailable\n");
+    }
+    clock_function = now_hpet;
 }

@@ -50,8 +50,7 @@ timer register_periodic_timer(time interval, thunk n)
 time timer_check()
 {
     time here;
-    timer current = false;
-
+    timer current = 0;
     // thread safety, predication?
     while ((current = pqueue_peek(timers)) &&
            (here = now(), current->w < here)) {

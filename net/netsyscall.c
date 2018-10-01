@@ -10,6 +10,9 @@ enum socket_state {
   SOCK_CLOSED=4
 };
 
+#define interrupt_guard()\
+    for(u32 __set = read_flags()&FLAG_INTERRUPT, once = 1; disable_interrupts(), once; once = 0 , __set?enable_interrupts():0)
+
 typedef closure_type(pbuf_handler, void, struct pbuf *);
 typedef closure_type(pcb_handler, void, struct tcp_pcb *);
 
@@ -23,6 +26,7 @@ typedef struct sock {
     queue waiting; // service waiting before notify, do we really need 2 queues here?
     // the notion is that 'waiters' should take priority    
     int fd;
+    int protocol;
     enum socket_state state; // half open?
     status s;
 } *sock;
@@ -149,8 +153,10 @@ static sysreturn socket_write(sock s, void *source, u64 length, u64 offset)
     err_t err;
     if (SOCK_OPEN != s->state) 		/* XXX maybe defer to lwip for connect state */
         return set_syscall_error(current, EPIPE);
-    // blocking writes is a pretty important feature 
-    err = tcp_write(s->lw, source, length, TCP_WRITE_FLAG_COPY);
+    // blocking writes is a pretty important feature
+    interrupt_guard() {
+        err = tcp_write(s->lw, source, length, TCP_WRITE_FLAG_COPY);
+    }
     if (err != ERR_OK)
         return set_syscall_error(current, lwip_errno(err));
     err = tcp_output(s->lw);
@@ -162,7 +168,7 @@ static sysreturn socket_write(sock s, void *source, u64 length, u64 offset)
 static CLOSURE_1_2(socket_check, void, sock, thunk, thunk);
 static void socket_check(sock s, thunk t_in, thunk t_hup)
 {
-    // thread safety
+    // thread safety - should be atomic
     if (queue_length(s->incoming)) {
         apply(t_in);
     } else {
@@ -262,16 +268,17 @@ sysreturn bind(int sockfd, struct sockaddr *addr, socklen_t addrlen)
     // 0 success
     // xxx - extract address and port
     //
-    err_t err = tcp_bind(s->lw, IP_ANY_TYPE, ntohs(sin->port));
-    if(ERR_OK == err){
-      s->state = SOCK_OPEN;
+    err_t err;    
+    interrupt_guard() {
+        err = tcp_bind(s->lw, IP_ANY_TYPE, ntohs(sin->port));
     }
+    if(err == ERR_OK) s->state = SOCK_OPEN;
     return set_syscall_error(current, lwip_errno(err));
 }
 
 void error_handler_tcp(void* arg, err_t err)
 {
-    rprintf ("error handler tcp\n");
+    rprintf ("error handler tcp %p %d\n", lwip_errno(err));
     sock s = (sock)(arg);
     status_handler sp = NULL;
     // xxx - why would this ever be zero?
@@ -284,10 +291,10 @@ void error_handler_tcp(void* arg, err_t err)
     }
 }
 
-static CLOSURE_1_1(set_completed_state,void,thread,u64*);
-static void set_completed_state( thread th, u64 *code)
+static CLOSURE_1_1(set_completed_state, void, thread, sysreturn);
+static void set_completed_state( thread th, sysreturn code)
 {
-  set_syscall_return(th, *code);
+  set_syscall_return(th, code);
   thread_wakeup(th);
 }
 
@@ -304,11 +311,14 @@ static err_t connect_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
 static sysreturn connect_tcp(sock s, const ip_addr_t* address, unsigned short port)
 {
     enqueue(s->waiting, closure(s->h, set_completed_state, current));
-    tcp_arg(s->lw, s);
-    tcp_err(s->lw, error_handler_tcp);
-    rprintf ("connect %p %p\n", *address, port);
-    s->state = SOCK_IN_CONNECTION;
-    int err = tcp_connect(s->lw, address, port, connect_complete);
+    int err;
+    interrupt_guard() {    
+        tcp_arg(s->lw, s);
+        tcp_err(s->lw, error_handler_tcp);
+        rprintf ("connect %p %p\n", *address, port);
+        s->state = SOCK_IN_CONNECTION;
+        err = tcp_connect(s->lw, address, port, connect_complete);
+    }
     if (ERR_OK != err) 
         return set_syscall_error(current, lwip_errno(err));
 
@@ -337,15 +347,12 @@ sysreturn connect(int sockfd, struct sockaddr* addr, socklen_t addrlen)
     enum protocol_type type = SOCK_STREAM;
     switch (type) {
     case SOCK_DGRAM: {
-        // TODO: Uncomment when UDP socket support will have been added
         // err = udp_connect(s->lw, (const ip_addr_t*)&sin->address, sin->port);
     } break;
     case SOCK_RAW: {
-        // TODO: Uncomment when raw socket support will have been added
         // err = raw_connect(s->lw, (const ip_addr_t*)&sin->address );
     } break;
     case SOCK_STREAM: {
-        rprintf("sinad: %p\n", *(u32 *)&sin->address);
         return connect_tcp(s, (const ip_addr_t*)&sin->address, sin->port);
     } break;
     default:
@@ -389,11 +396,13 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t err)
 
 sysreturn listen(int sockfd, int backlog)
 {
-    sock s = resolve_fd(current->p, sockfd);        
-    s->lw = tcp_listen_with_backlog(s->lw, backlog);
-    tcp_arg(s->lw, s);
-    tcp_accept(s->lw, accept_from_lwip);
-    tcp_err(s->lw, lwip_conn_err);
+    sock s = resolve_fd(current->p, sockfd);
+    interrupt_guard() {
+        s->lw = tcp_listen_with_backlog(s->lw, backlog);
+        tcp_arg(s->lw, s);
+        tcp_accept(s->lw, accept_from_lwip);
+        tcp_err(s->lw, lwip_conn_err);
+    }
     return 0;    
 }
 

@@ -17,6 +17,10 @@ do
             NET="$BRIDGENET"
             shift # past argument
             ;;
+        -loopnet)
+            NET=""
+            shift # past argument
+            ;;
         *)    # unknown option
             IMAGE="$1"
             shift # past argument

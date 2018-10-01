@@ -81,6 +81,7 @@ static void attach(heap general, storage_attach a, heap page_allocator, heap pag
 {
 
     storage s = allocate(general, sizeof(struct storage));
+    // you dont want any features?
     s->v = attach_vtpci(general, page_allocator, bus, slot, function, 0);
     u32 len;
     // bar 1 is is a 4k memory region in the pci gap - to what end?

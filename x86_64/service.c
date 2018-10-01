@@ -55,13 +55,12 @@ void runloop()
     thunk t;
 
     while(1) {
-        // hopefully overall loop is being driven by the lapic periodic interrupt,
-        // which should limit the skew
-        timer_check();
-        
-        while((t = dequeue(runqueue))) {
+        u64 delta = timer_check();
+        // we're counting on the fact that there is only one of these :/
+        if (delta) hpet_timer(delta, ignore);
+        if ((t = dequeue(runqueue))) 
             apply(t);
-        }
+        
         frame = miscframe;
         enable_interrupts();
         __asm__("hlt");
@@ -171,18 +170,15 @@ static void __attribute__((noinline)) init_service_new_stack()
     init_symtab(kh);
     read_kernel_syms();
     init_clock(kh);
+    initialize_timers(kh);    
     init_net(kh);
     tuple root = allocate_tuple();
-    initialize_timers(kh);
     init_pci(kh);
     init_virtio_storage(kh, closure(misc, attach_storage, root));
     init_virtio_network(kh);
 
     miscframe = allocate(misc, FRAME_MAX * sizeof(u64));
     pci_discover();
-    // just to get the hlt loop to wake up and service timers. 
-    // should change this to post the delta to the front of the queue each time
-    register_periodic_timer_interrupt(milliseconds(50), ignore);
     runloop();
 }
 
@@ -218,7 +214,7 @@ static heap init_physical_id_heap(heap h)
 {
     heap physical = allocate_id_heap(h, PAGESIZE);
     boolean found = false;
-    console("physical memory:\n");
+    //    console("physical memory:\n");
     for_regions(e) {
 	if (region_type(e) == REGION_PHYSICAL) {
 	    /* Align for 2M pages */
@@ -230,11 +226,11 @@ static heap init_physical_id_heap(heap h)
 	    if (base >= end)
 		continue;
 	    u64 length = end - base;
-	    console("   base ");
-	    print_u64(base);
-	    console(", length ");
-	    print_u64(length);
-	    console("\n");
+            //	    console("   base ");
+            //	    print_u64(base);
+            //	    console(", length ");
+            //	    print_u64(length);
+            //	    console("\n");
 	    if (!id_heap_add_range(physical, base, length))
 		halt("    - id_heap_add_range failed\n");
 	    found = true;

@@ -4,7 +4,7 @@
 #include <pci.h>
 
 extern heap interrupt_vectors;
-
+static heap timers;
 #define HPET_TABLE_ADDRESS 0xfed00000ull
 #define HPET_MAXIMUM_INCREMENT_PERIOD 0x05F5E100ul
 
@@ -56,6 +56,7 @@ struct HPETMemoryMap {
 } __attribute__((__packed__));
 
 static volatile struct HPETMemoryMap* hpet;
+static u64 femtoperiod;
 
 #define TN_INT_TYPE_CNF (1ull<<1)
 #define TN_INT_ENB_CNF (1ull<<2)
@@ -69,26 +70,48 @@ static volatile struct HPETMemoryMap* hpet;
 #define TN_FSB_INT_DEL_CAP (1ull<<15)
 #define TN_INT_ROUTE_CAP (1ull<<32)
 
-static void hpet_timer()
+#define femto 1000000000000000ull
+static int hpet_interrupts[4];
+
+static void timer_config(int timer, time rate, thunk t, boolean periodic)
 {
+    hpet->timers[timer].config = TN_FSB_EN_CNF | TN_INT_ENB_CNF | TN_VAL_SET_CNF | periodic?TN_TYPE_CNF:0;
+    if (!hpet_interrupts[timer]) {
+        u32 a, d;
+        hpet_interrupts[timer] = allocate_u64(interrupt_vectors, 1);
+        hpet->timers[timer].fsb_routing = ((u64)a << 32) | d;
+        msi_format(&a, &d, hpet_interrupts[timer]);    
+    }
+    // assume that overwrite is ok
+    register_interrupt(hpet_interrupts[timer], t);
+
+    // overflow for large periods (> 1s)    
+    u64 femtorate = (u64)(((u128)rate * femto) >> 32)/femtoperiod;
+    hpet->timers[timer].comparator = femtorate;    
 }
 
-// make one-shot
-void configure_hpet_timer(int timer, time rate, thunk t)
+// allocate timers .. right now its at most 1 one-shot and periodic,
+// because we dont want to wire up the free
+void hpet_timer(time rate, thunk t)
 {
-    u32 a, d;
-
-    hpet->timers[timer].config = TN_FSB_EN_CNF | TN_INT_ENB_CNF | TN_VAL_SET_CNF;
-    int v =allocate_u64(interrupt_vectors, 1);
-    msi_format(&a, &d, v);
-    
-    register_interrupt(v, t);
-    hpet->timers[timer].fsb_routing = ((u64)a << 32) | d;
-    // normalize!
-    hpet->timers[timer].comparator = 100;
+    timer_config(0, rate, t, false);
 }
 
-boolean init_hpet(heap virtual_pagesized, heap pages) {
+void hpet_periodic_timer(time rate, thunk t)
+{
+    timer_config(1, rate, t, true);
+}
+
+
+time now_hpet()
+{
+    u64 counter = hpet->mainCounterRegister;
+    u64 multiply = femtoperiod*(1ull<<32)/femto;
+    u64 ticks = counter*multiply;
+    return ticks;
+}
+
+boolean init_hpet(heap misc, heap virtual_pagesized, heap pages) {
     u64 hpet_page = allocate_u64(virtual_pagesized, PAGESIZE);
     if (INVALID_ADDRESS == (void*)hpet_page) {
         console("ERROR: Can't allocate page to map HPET registers\n");
@@ -98,25 +121,20 @@ boolean init_hpet(heap virtual_pagesized, heap pages) {
     map(hpet_page, HPET_TABLE_ADDRESS, PAGESIZE, pages);
     hpet = (struct HPETMemoryMap*)hpet_page;
 
-    if (HPET_MAXIMUM_INCREMENT_PERIOD < hpet->capabilities.counterClkPeriod || !hpet->capabilities.counterClkPeriod) {
+    femtoperiod = hpet->capabilities.counterClkPeriod;
+    // this is like half the field size, we can do a better probe
+    if ((femtoperiod > HPET_MAXIMUM_INCREMENT_PERIOD) || !femtoperiod) {
         console("ERROR: Can't initialize HPET\n");
         return false;
     }
 
+    timers = create_id_heap(misc, 0, 4, 1);
     hpet->configuration.enableCnf |= 1;
     u64 prev = hpet->mainCounterRegister;
 
-    if (prev == hpet->mainCounterRegister) {
-        console("Error: No increment HPET main counter\n");
-        return false;
-    }
+    rprintf("tenno - %p %p %p\n", hpet, hpet->timers[0], hpet->timers[1]);
+    if (prev == hpet->mainCounterRegister) 
+        halt("Error: No increment HPET main counter\n");
+
     return true;
-}
-
-u32 hpet_multiplier(void) {
-    return hpet->capabilities.counterClkPeriod;
-}
-
-u64 hpet_counter(void) {
-    return hpet->mainCounterRegister;
 }

@@ -46,6 +46,7 @@ struct virtqueue {
     u16	desc_idx;
     u16 avail_idx;
     u16 used_idx;
+    volatile u16 *next_interrupt;
     thunk completions[0];
 };
 
@@ -86,6 +87,8 @@ static void vq_interrupt(struct virtqueue *vq)
     vqfinish *vqf = (void *)(vq+1);
     
     read_barrier();
+    // there is a better strategy, but this will roll out
+    *vq->next_interrupt = vq->used->idx;
     while (vq->used_idx != vq->used->idx) {
         uep = &vq->used->ring[vq->used_idx  & (vq->entries - 1)];
         // reclaim the desc space
@@ -106,7 +109,8 @@ status virtqueue_alloc(vtpci dev,
     struct virtqueue *vq;
     u64 d = size * sizeof(struct vring_desc);
     u64 avail_end =  pad(d + 6 + 2*size, align);
-    u64 alloc = avail_end + 8*size;
+    u64 used_end =  avail_end + 8*size;
+    u64 alloc = used_end + 2; //index
     vq = allocate(dev->general, sizeof(struct virtqueue) + size * sizeof(vqfinish));
     
     if (vq == INVALID_ADDRESS) 
@@ -121,6 +125,7 @@ status virtqueue_alloc(vtpci dev,
         vq->desc = (struct vring_desc *) vq->ring_mem;
         vq->avail = (struct vring_avail *) (vq->desc + size);
         vq->used = (struct vring_used *) (vq->ring_mem  + avail_end);
+        vq->next_interrupt = (u16 *) (vq->ring_mem  + used_end);        
         *t = closure(dev->general, vq_interrupt, vq);
         *vqp = vq;
         return 0;
@@ -185,6 +190,7 @@ status virtqueue_enqueue(struct virtqueue *vq,
     write_barrier();
     vq->avail->idx++;
     virtqueue_notify(vq);
+    *vq->next_interrupt = 0;
     return STATUS_OK;
 }
 

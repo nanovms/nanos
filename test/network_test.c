@@ -20,6 +20,7 @@ static void send_request(heap h, stats s, buffer_handler out, tuple t)
 
 u64 requests_per_connection;
 u64 total_connections;
+u64 window;
 
 static void print_stats(stats s)
 {
@@ -53,8 +54,8 @@ static void value_in(heap h,
         if (s->connections < total_connections) 
             apply(newconn);
     }
-    int window = 1;
-    for (int i = 0; i < window; i++) {
+    int window_growth = 1;
+    for (int i = 0; i < window_growth; i++) {
         *count = *count + 1;
         if (*count < requests_per_connection) {
             send_request(h, s, out, req);
@@ -80,9 +81,8 @@ static buffer_handler newconn(heap h, thunk newconn, stats s, tuple t, status_ha
     u64 *count = allocate_zero(c, sizeof(u64));
     s->connections++;
     s->active++;
-    send_request(c, s, out, t);
-    send_request(c, s, out, t);
-    send_request(c, s, out, t);
+    for (int i = 0; i < window; i++)
+        send_request(c, s, out, t);
     return allocate_http_parser(c, closure(c, value_in, c, out, count, sth, newconn, s, t));
 
 }
@@ -137,6 +137,7 @@ void main(int argc, char **argv)
 
     requests_per_connection = extract_u64_with_default(t, sym(requests), 10);
     total_connections = extract_u64_with_default(t, sym(connections), 10);
+    window = extract_u64_with_default(t, sym(connections), 3);    
                                                    
     status_handler err = closure(h, connection_error);
     stats s = allocate_zero(h, sizeof(struct stats));
