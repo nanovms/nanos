@@ -20,11 +20,9 @@ buffer_handler conn(heap h, buffer_handler out)
 
 void main(int argc, char **argv)
 {
-    int service;
     heap h = init_process_runtime();
-    
-    int e = epoll_create(1);
-    listen_port(h, e, 8080, closure(h, conn, h));
-    epoll_spin(e);
+    notifier n = create_epoll_notifier(h);
+    listen_port(h, n, 8080, closure(h, conn, h));
+    notifier_spin(n);
 }
 
