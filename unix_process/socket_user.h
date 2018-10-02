@@ -2,13 +2,13 @@
 
 typedef struct notifier {
     heap h;
-    boolean (*addfd)(struct notifier *n, descriptor f, u32 events, thunk a);
-    void (*delfd)(struct notifier *n, descriptor f);
+    boolean (*_register)(struct notifier *n, descriptor f, u32 events, thunk a);
+    void (*reset_fd)(struct notifier *n, descriptor f);
     void (*spin)(struct notifier *n);
 } *notifier;
 
-#define add_descriptor(n, f, e, a) ((n)->addfd(n, f, e, a))
-#define delete_descriptor(n, f) ((n)->delfd(n, f))
+#define notifier_register(n, f, e, a) ((n)->_register(n, f, e, a))
+#define notifier_reset_fd(n, f) ((n)->reset_fd(n, f))
 #define notifier_spin(n) ((n)->spin(n));
 
 typedef closure_type(new_connection, buffer_handler, buffer_handler);

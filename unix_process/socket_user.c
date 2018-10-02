@@ -1,4 +1,4 @@
-#define SOCKET_USER_EPOLL_DEBUG
+//#define SOCKET_USER_EPOLL_DEBUG
 
 #include <runtime.h>
 #include <sys/socket.h>
@@ -29,10 +29,10 @@ typedef struct select_notifier {
     descriptor nfds;		/* highest fd given plus one */
 } *select_notifier;
 
-static boolean select_addfd(notifier n, descriptor f, u32 events, thunk a)
+static boolean select_register(notifier n, descriptor f, u32 events, thunk a)
 {
 #ifdef SOCKET_USER_EPOLL_DEBUG
-    rprintf("select add fd: notifier %p, fd %d, events %P, thunk %p\n", n, f, events, a);
+    rprintf("select_register: notifier %p, fd %d, events %P, thunk %p\n", n, f, events, a);
 #endif
     select_notifier s = (select_notifier)n;
     registration new = allocate(n->h, sizeof(struct registration));
@@ -54,15 +54,14 @@ static boolean select_addfd(notifier n, descriptor f, u32 events, thunk a)
     return true;
 }
 
-static void select_delfd(notifier n, descriptor f)
+static void select_reset_fd(notifier n, descriptor f)
 {
 #ifdef SOCKET_USER_EPOLL_DEBUG
-    rprintf("select del fd: notifier %p, fd %d\n", n, f);
+    rprintf("select_reset_fd: fd %d, notifier %p\n", f, n);
 #endif
     select_notifier s = (select_notifier)n;
     registration r;
     if (!(r = vector_get(s->registrations, f))) {
-	msg_err("no registration for fd %d\n", f);
 	return;
     }
 
@@ -153,8 +152,8 @@ notifier create_select_notifier(heap h)
 {
     select_notifier s = allocate(h, sizeof(struct select_notifier));
     s->n.h = h;
-    s->n.addfd = select_addfd;
-    s->n.delfd = select_delfd;
+    s->n._register = select_register;
+    s->n.reset_fd = select_reset_fd;
     s->n.spin = select_spin;
     s->registrations = allocate_vector(h, 10);
     s->rfds = allocate_bitmap(h, infinity);
@@ -170,10 +169,10 @@ typedef struct epoll_notifier {
     descriptor fd;
 } *epoll_notifier;
 
-static boolean epoll_addfd(notifier n, descriptor f, u32 events, thunk a)
+static boolean epoll_register(notifier n, descriptor f, u32 events, thunk a)
 {
 #ifdef SOCKET_USER_EPOLL_DEBUG
-    rprintf("epoll add fd: notifier %p, fd %d, events %P, thunk %p\n", n, f, events, a);
+    rprintf("epoll register fd: notifier %p, fd %d, events %P, thunk %p\n", n, f, events, a);
 #endif
     epoll_notifier e = (epoll_notifier)n;
     registration new = allocate(n->h, sizeof(struct registration));
@@ -189,10 +188,10 @@ static boolean epoll_addfd(notifier n, descriptor f, u32 events, thunk a)
     return true;
 }
 
-static void epoll_delfd(notifier n, descriptor f)
+static void epoll_reset_fd(notifier n, descriptor f)
 {
 #ifdef SOCKET_USER_EPOLL_DEBUG
-    rprintf("epoll del fd: notifier %p, fd %d\n", n, f);
+    rprintf("epoll_reset_fd fd: notifier %p, fd %d\n", n, f);
 #endif
     epoll_notifier e = (epoll_notifier)n;
     registration r;
@@ -229,7 +228,7 @@ static void epoll_spin(notifier n)
 	    rprintf("   fd %d, events %P\n", r->fd, ev[i].events);
 #endif
             if (ev[i].events & EPOLLHUP)  {
-		delete_descriptor(n, r->fd);
+		notifier_reset_fd(n, r->fd);
                 // always the right thing to do?
                 close(r->fd);
             } else {
@@ -248,8 +247,8 @@ notifier create_epoll_notifier(heap h)
     }
     epoll_notifier e = allocate(h, sizeof(struct epoll_notifier));
     e->n.h = h;
-    e->n.addfd = epoll_addfd;
-    e->n.delfd = epoll_delfd;
+    e->n._register = epoll_register;
+    e->n.reset_fd = epoll_reset_fd;
     e->n.spin = epoll_spin;
     e->registrations = allocate_vector(h, 10);
     e->fd = f;
@@ -284,7 +283,7 @@ static void register_descriptor_write(heap h, notifier n, descriptor f, thunk ea
     registration r = allocate(h, sizeof(struct registration));
     r->fd = f;
     r->a = each;
-    add_descriptor(n, f, EPOLLOUT, each);
+    notifier_register(n, f, EPOLLOUT, each);
 }
 
 static void register_descriptor(heap h, notifier n, descriptor f, thunk each)
@@ -292,7 +291,7 @@ static void register_descriptor(heap h, notifier n, descriptor f, thunk each)
     registration r = allocate(h, sizeof(struct registration));
     r->fd = f;
     r->a = each;
-    add_descriptor(n, f, EPOLLIN|EPOLLRDHUP|EPOLLET, each);
+    notifier_register(n, f, EPOLLIN|EPOLLRDHUP|EPOLLET, each);
 }
 
 static CLOSURE_4_0(connection_input, void, heap, descriptor, notifier, buffer_handler);
@@ -311,7 +310,7 @@ static void connection_input(heap h, descriptor f, notifier n, buffer_handler p)
     // this should have been taken care of by EPOLLHUP, but the
     // kernel doesn't support it        
     if (res == 0) {
-	delete_descriptor(n, f);
+	notifier_reset_fd(n, f);
         close(f);
         apply(p, 0);
     } else {
@@ -321,12 +320,13 @@ static void connection_input(heap h, descriptor f, notifier n, buffer_handler p)
 }
 
 
-static CLOSURE_1_1(connection_output, void, descriptor, buffer);
-static void connection_output(descriptor c, buffer b)
+static CLOSURE_2_1(connection_output, void, descriptor, notifier, buffer);
+static void connection_output(descriptor c, notifier n, buffer b)
 {
     if (b)  {
         write(c, b->contents, buffer_length(b));
     } else {
+	notifier_reset_fd(n, c);
         close(c);
     }
 }
@@ -338,7 +338,7 @@ static void accepting(heap h, notifier n, descriptor c, new_connection nc )
     socklen_t len = sizeof(struct sockaddr_in);
     int s = accept(c, (struct sockaddr *)&where, &len);
     if (s < 0 ) halt("accept %E\n", errno);
-    buffer_handler out = closure(h, connection_output, s);
+    buffer_handler out = closure(h, connection_output, s, n);
     buffer_handler in = apply(nc, out);
     register_descriptor(h, n, s, closure(h, connection_input, h, s, n, in));
 }
@@ -347,10 +347,10 @@ static void accepting(heap h, notifier n, descriptor c, new_connection nc )
 static CLOSURE_4_0(connection_start, void, heap, descriptor, notifier, new_connection);
 void connection_start(heap h, descriptor s, notifier n, new_connection c)
 {
-    buffer_handler out = closure(h, connection_output, s);
+    buffer_handler out = closure(h, connection_output, s, n);
     buffer_handler input = apply(c, out);
     // dont stay for write
-    delete_descriptor(n, s);
+    notifier_reset_fd(n, s);
     register_descriptor(h, n, s, closure(h, connection_input, h, s, n, input));
 }
 
