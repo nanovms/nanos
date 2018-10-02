@@ -1,4 +1,4 @@
-//#define SOCKET_USER_EPOLL_DEBUG
+#define SOCKET_USER_EPOLL_DEBUG
 
 #include <runtime.h>
 #include <sys/socket.h>
@@ -15,20 +15,160 @@
 
 typedef struct registration {
     descriptor fd;
+    u32 events;			/* for select */
     thunk a;
     struct registration * next;
 }  *registration;
+
+typedef struct select_notifier {
+    struct notifier n;
+    vector registrations;
+    bitmap rfds;
+    bitmap wfds;
+    bitmap efds;
+    descriptor nfds;		/* highest fd given plus one */
+} *select_notifier;
+
+static boolean select_addfd(notifier n, descriptor f, u32 events, thunk a)
+{
+#ifdef SOCKET_USER_EPOLL_DEBUG
+    rprintf("select add fd: notifier %p, fd %d, events %P, thunk %p\n", n, f, events, a);
+#endif
+    select_notifier s = (select_notifier)n;
+    registration new = allocate(n->h, sizeof(struct registration));
+    new->fd = f;
+    new->events = events;
+    new->a = a;
+    new->next = vector_get(s->registrations, f);
+    vector_set(s->registrations, f, new);
+    if (f >= s->nfds)
+	s->nfds = f + 1;
+
+    if ((events & EPOLLIN))
+	bitmap_set(s->rfds, f, 1);
+    if ((events & EPOLLOUT))
+	bitmap_set(s->wfds, f, 1);
+    if ((events & EPOLLPRI))
+	bitmap_set(s->efds, f, 1);
+
+    return true;
+}
+
+static void select_delfd(notifier n, descriptor f)
+{
+#ifdef SOCKET_USER_EPOLL_DEBUG
+    rprintf("select del fd: notifier %p, fd %d\n", n, f);
+#endif
+    select_notifier s = (select_notifier)n;
+    registration r;
+    if (!(r = vector_get(s->registrations, f))) {
+	msg_err("no registration for fd %d\n", f);
+	return;
+    }
+
+    bitmap_set(s->rfds, f, 0);
+    bitmap_set(s->wfds, f, 0);
+    bitmap_set(s->efds, f, 0);
+
+    do {
+	registration next;
+	assert(r->fd == f);
+	next = r->next;
+	deallocate(n->h, r, sizeof(struct registration));
+	r = next;
+    } while(r);
+    vector_set(s->registrations, f, 0);
+}
+
+static void select_spin(notifier n)
+{
+#ifdef SOCKET_USER_EPOLL_DEBUG
+    rprintf("select_spin enter: notifier %p\n", n);
+#endif
+    select_notifier s = (select_notifier)n;
+    bitmap rfds_copy = allocate_bitmap(n->h, infinity);
+    bitmap wfds_copy = allocate_bitmap(n->h, infinity);
+    bitmap efds_copy = allocate_bitmap(n->h, infinity);
+
+    while (1) {
+	bitmap_copy(rfds_copy, s->rfds);
+	bitmap_copy(wfds_copy, s->wfds);
+	bitmap_copy(efds_copy, s->efds);
+	u64 * rp = bitmap_base(rfds_copy);
+	u64 * wp = bitmap_base(wfds_copy);
+	u64 * ep = bitmap_base(efds_copy);
+#ifdef SOCKET_USER_EPOLL_DEBUG
+	rprintf("   calling select with nfds = %d\n", s->nfds);
+	rprintf("      at rfds base: %P\n", *rp);
+	rprintf("      at wfds base: %P\n", *wp);
+	rprintf("      at efds base: %P\n", *ep);
+#endif
+	int res = select(s->nfds, (fd_set*)rp, (fd_set*)wp, (fd_set*)ep, 0);
+#ifdef SOCKET_USER_EPOLL_DEBUG
+	rprintf("   returned %d\n", res);
+	rprintf("      at rfds base: %P\n", *rp);
+	rprintf("      at wfds base: %P\n", *wp);
+	rprintf("      at efds base: %P\n", *ep);
+#endif
+        if (res == -1)
+	    halt ("select failed with %s (%d)\n", strerror(errno), errno);
+	if (res == 0)
+	    continue;
+	int words = pad(s->nfds, 64) >> 6;
+        for (int i = 0; i < words; i++) {
+	    u64 u = *rp | *wp | *ep;
+
+	    bitmap_word_foreach_set(u, bit, fd, (i << 6)) {
+		u32 events = 0;
+		u64 mask = 1ull << bit;
+		if (*rp & mask)
+		    events |= EPOLLIN;
+		if (*wp & mask)
+		    events |= EPOLLOUT;
+		if (*wp & mask)
+		    events |= EPOLLPRI;
+#ifdef SOCKET_USER_EPOLL_DEBUG
+		rprintf("   fd %d, events %P:\n", fd, events);
+#endif
+		registration r = vector_get(s->registrations, fd);
+		do {
+		    if (r->events & events) {
+#ifdef SOCKET_USER_EPOLL_DEBUG
+			rprintf("      match events %P, applying thunk %p\n",
+				r->events, r->a);
+#endif
+			apply(r->a);
+		    }
+		    r = r->next;
+		} while (r);
+	    }
+	    rp++;
+	    wp++;
+	    ep++;
+        }
+    }
+}
+
+notifier create_select_notifier(heap h)
+{
+    select_notifier s = allocate(h, sizeof(struct select_notifier));
+    s->n.h = h;
+    s->n.addfd = select_addfd;
+    s->n.delfd = select_delfd;
+    s->n.spin = select_spin;
+    s->registrations = allocate_vector(h, 10);
+    s->rfds = allocate_bitmap(h, infinity);
+    s->wfds = allocate_bitmap(h, infinity);
+    s->efds = allocate_bitmap(h, infinity);
+    s->nfds = 0;
+    return (notifier)s;
+}
 
 typedef struct epoll_notifier {
     struct notifier n;
     vector registrations;
     descriptor fd;
 } *epoll_notifier;
-
-typedef struct select_notifier {
-    struct notifier n;
-    vector registrations;
-} *select_notifier;
 
 static boolean epoll_addfd(notifier n, descriptor f, u32 events, thunk a)
 {
@@ -112,7 +252,6 @@ notifier create_epoll_notifier(heap h)
     e->n.delfd = epoll_delfd;
     e->n.spin = epoll_spin;
     e->registrations = allocate_vector(h, 10);
-    zero(e->registrations->contents, sizeof(void *) * 10); /* XXX move to allocate vector? */
     e->fd = f;
     return (notifier)e;
 }
