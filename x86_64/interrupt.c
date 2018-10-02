@@ -160,18 +160,15 @@ void print_stack2(context c)
     u64 *x = pointer_from_u64(c[FRAME_RSP]);
     u64 *top = pointer_from_u64(c[FRAME_STACK_TOP]);
     console("compressed stack \n");
-    u64 offset;
-    char *name;
-    console("ps ");
-    print_u64(u64_from_pointer(x));
-    console(" ");
-    print_u64(u64_from_pointer(top));
-    console("\n");    
-    
+
     for (u64 *i = x ;i < top; i++) {
-        if ((name = find_elf_sym(*x, &offset))) {
-            console("\t");            
-            console(name);            
+        u64 v = *i;
+        u64 offset;
+        char *name;        
+
+        if ((name = find_elf_sym(v, &offset))) {
+            console("\t");                        
+            console(name);
             console("\n");
         }
     }
@@ -239,7 +236,7 @@ void common_handler()
         if (f == 0) {
             rprintf ("no fault handler\n");
             print_frame(frame);
-            print_stack(frame);
+            print_stack2(frame);
             QEMU_HALT();
         }
         if (i < 25) frame = apply(f, frame);
