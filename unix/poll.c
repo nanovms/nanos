@@ -202,7 +202,9 @@ static boolean epoll_wait_notify(epollfd f, u32 events)
 	    rprintf("   epoll_event %p, data %P, events %P\n", e, e->data, e->events);
 #endif
 	} else {
-	    msg_err("user_events null or full\n");
+#ifdef EPOLL_DEBUG
+	    rprintf("   user_events null or full\n");
+#endif
 	    return false;
 	}
 	epoll_blocked_finish(w, false);
@@ -231,6 +233,7 @@ sysreturn epoll_wait(int epfd,
     heap h = heap_general(get_kernel_heaps());
     epoll e = resolve_fd(current->p, epfd);
     epoll_blocked w = alloc_epoll_blocked(e);
+    w->select = false;
 #ifdef EPOLL_DEBUG
     rprintf("epoll_wait: epoll fd %d, new blocked %p, timeout %d\n", epfd, w, timeout);
 #endif
@@ -360,13 +363,13 @@ static boolean select_notify(epollfd f, u32 events)
 {
     list l = list_get_next(&f->e->blocked_head);
     epoll_blocked w = l ? struct_from_list(l, epoll_blocked, blocked_list) : 0;
-    assert(w->select);
 #ifdef EPOLL_DEBUG
     rprintf("select_notify: f->fd %d, events %P, blocked %p, zombie %d\n",
 	    f->fd, events, w, f->zombie);
 #endif
     f->registered = false;
     if (!f->zombie && w) {
+	assert(w->select);
 	int count = 0;
 	/* XXX need thread safe / cas bitmap ops */
 	/* trusting that notifier masked events */
@@ -418,12 +421,13 @@ static sysreturn select_internal(int nfds,
     unix_heaps uh = get_unix_heaps();
     heap h = heap_general((kernel_heaps)uh);
     epoll e = select_get_epoll();
-    if (e == INVALID_ADDRESS) {
+    if (e == INVALID_ADDRESS)
 	return -ENOMEM;
-    }
     epoll_blocked w = alloc_epoll_blocked(e);
     w->select = true;
-    u64 rv = 0;
+    w->rset = w->wset = w->eset = 0;
+    w->retcount = 0;
+    sysreturn rv = 0;
 
 #ifdef EPOLL_DEBUG
     rprintf("select_internal: nfds %d, readfds %p, writefds %p, exceptfds %p\n"
@@ -431,11 +435,11 @@ static sysreturn select_internal(int nfds,
 	    w, timeout);
 #endif
     if (nfds == 0)
-	goto timeout_only;
+	goto check_rv_timeout;
+
     w->rset = readfds ? bitmap_wrap(h, readfds, nfds) : 0;
     w->wset = writefds ? bitmap_wrap(h, writefds, nfds) : 0;
     w->eset = exceptfds ? bitmap_wrap(h, exceptfds, nfds) : 0;
-    w->retcount = 0;
 
     bitmap_extend(e->fds, nfds - 1);
     u64 * regp = bitmap_base(e->fds);
@@ -455,15 +459,17 @@ static sysreturn select_internal(int nfds,
 	    /* either add or remove epollfd */
 	    if (*regp & (1ull << bit)) {
 #ifdef EPOLL_DEBUG
-		rprintf("   + fd %d\n", fd);
-#endif
-		if (!alloc_epollfd(e, fd, 0, 0))
-		    return -EBADF; /* XXX should be out, dealloc */
-	    } else {
-#ifdef EPOLL_DEBUG
 		rprintf("   - fd %d\n", fd);
 #endif
 		free_epollfd(e, fd);
+	    } else {
+#ifdef EPOLL_DEBUG
+		rprintf("   + fd %d\n", fd);
+#endif
+		if (!alloc_epollfd(e, fd, 0, 0)) {
+		    rv = -EBADF;
+		    goto check_rv_timeout;
+		}
 	    }
 	}
 
@@ -488,11 +494,11 @@ static sysreturn select_internal(int nfds,
 		*ep &= ~mask;
 	    }
 #ifdef EPOLL_DEBUG
-	    rprintf("   fd %d eventmask %P ", fd, eventmask);
+	    rprintf("   fd %d eventmask %P\n", fd, eventmask);
 #endif
 	    if (eventmask != f->eventmask) {
 #ifdef EPOLL_DEBUG
-		rprintf("(was %P, ", f->eventmask);
+		rprintf("      (was %P, ", f->eventmask);
 #endif
 		if (f->registered) {
 #ifdef EPOLL_DEBUG
@@ -530,8 +536,8 @@ static sysreturn select_internal(int nfds,
 	regp++;
     }
     rv = w->retcount;
-  timeout_only:
-    if (timeout == 0 || rv > 0) {
+  check_rv_timeout:
+    if (timeout == 0 || rv != 0) {
 #ifdef EPOLL_DEBUG
 	rprintf("   immediate return; return %d\n", rv);
 #endif
@@ -539,7 +545,7 @@ static sysreturn select_internal(int nfds,
 	return rv;
     }
 
-    if (timeout > 0) {
+    if (timeout != infinity) {
 	w->timeout = register_timer(timeout, closure(h, epoll_blocked_finish, w, true));
 	fetch_and_add(&w->refcnt, 1);
 #ifdef EPOLL_DEBUG
@@ -560,14 +566,14 @@ sysreturn pselect(int nfds,
 		  struct timespec *timeout,
 		  const sigset_t * sigmask)
 {
-    return select_internal(nfds, readfds, writefds, exceptfds, time_from_timespec(timeout), sigmask);
+    return select_internal(nfds, readfds, writefds, exceptfds, timeout ? time_from_timespec(timeout) : infinity, sigmask);
 }
 
 sysreturn select(int nfds,
 		 u64 *readfds, u64 *writefds, u64 *exceptfds,
 		 struct timeval *timeout)
 {
-    return select_internal(nfds, readfds, writefds, exceptfds, time_from_timeval(timeout), 0);
+    return select_internal(nfds, readfds, writefds, exceptfds, timeout ? time_from_timeval(timeout) : infinity, 0);
 
 }
 

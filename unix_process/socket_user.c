@@ -20,14 +20,26 @@ typedef struct registration {
     struct registration * next;
 }  *registration;
 
+typedef struct select_bitmaps {
+    bitmap r;
+    bitmap w;
+    bitmap e;
+} select_bitmaps;
+
 typedef struct select_notifier {
     struct notifier n;
     vector registrations;
-    bitmap rfds;
-    bitmap wfds;
-    bitmap efds;
     descriptor nfds;		/* highest fd given plus one */
+    select_bitmaps fds;
+    select_bitmaps tmp;
 } *select_notifier;
+
+static inline void select_bitmaps_init(heap h, select_bitmaps * b)
+{
+    b->r = allocate_bitmap(h, infinity);
+    b->w = allocate_bitmap(h, infinity);
+    b->e = allocate_bitmap(h, infinity);
+}
 
 static boolean select_register(notifier n, descriptor f, u32 events, thunk a)
 {
@@ -45,11 +57,11 @@ static boolean select_register(notifier n, descriptor f, u32 events, thunk a)
 	s->nfds = f + 1;
 
     if ((events & EPOLLIN))
-	bitmap_set(s->rfds, f, 1);
+	bitmap_set(s->fds.r, f, 1);
     if ((events & EPOLLOUT))
-	bitmap_set(s->wfds, f, 1);
+	bitmap_set(s->fds.w, f, 1);
     if ((events & EPOLLPRI))
-	bitmap_set(s->efds, f, 1);
+	bitmap_set(s->fds.e, f, 1);
 
     return true;
 }
@@ -61,13 +73,12 @@ static void select_reset_fd(notifier n, descriptor f)
 #endif
     select_notifier s = (select_notifier)n;
     registration r;
-    if (!(r = vector_get(s->registrations, f))) {
+    if (!(r = vector_get(s->registrations, f)))
 	return;
-    }
 
-    bitmap_set(s->rfds, f, 0);
-    bitmap_set(s->wfds, f, 0);
-    bitmap_set(s->efds, f, 0);
+    bitmap_set(s->fds.r, f, 0);
+    bitmap_set(s->fds.w, f, 0);
+    bitmap_set(s->fds.e, f, 0);
 
     do {
 	registration next;
@@ -85,29 +96,22 @@ static void select_spin(notifier n)
     rprintf("select_spin enter: notifier %p\n", n);
 #endif
     select_notifier s = (select_notifier)n;
-    bitmap rfds_copy = allocate_bitmap(n->h, infinity);
-    bitmap wfds_copy = allocate_bitmap(n->h, infinity);
-    bitmap efds_copy = allocate_bitmap(n->h, infinity);
 
     while (1) {
-	bitmap_copy(rfds_copy, s->rfds);
-	bitmap_copy(wfds_copy, s->wfds);
-	bitmap_copy(efds_copy, s->efds);
-	u64 * rp = bitmap_base(rfds_copy);
-	u64 * wp = bitmap_base(wfds_copy);
-	u64 * ep = bitmap_base(efds_copy);
+	bitmap_copy(s->tmp.r, s->fds.r);
+	bitmap_copy(s->tmp.w, s->fds.w);
+	bitmap_copy(s->tmp.e, s->fds.e);
+	u64 * rp = bitmap_base(s->tmp.r);
+	u64 * wp = bitmap_base(s->tmp.w);
+	u64 * ep = bitmap_base(s->tmp.e);
 #ifdef SOCKET_USER_EPOLL_DEBUG
 	rprintf("   calling select with nfds = %d\n", s->nfds);
-	rprintf("      at rfds base: %P\n", *rp);
-	rprintf("      at wfds base: %P\n", *wp);
-	rprintf("      at efds base: %P\n", *ep);
+	rprintf("      r: %P\tw: %P\te: %P\n", *rp, *wp, *ep);
 #endif
 	int res = select(s->nfds, (fd_set*)rp, (fd_set*)wp, (fd_set*)ep, 0);
 #ifdef SOCKET_USER_EPOLL_DEBUG
 	rprintf("   returned %d\n", res);
-	rprintf("      at rfds base: %P\n", *rp);
-	rprintf("      at wfds base: %P\n", *wp);
-	rprintf("      at efds base: %P\n", *ep);
+	rprintf("      r: %P\tw: %P\te: %P\n", *rp, *wp, *ep);
 #endif
         if (res == -1)
 	    halt ("select failed with %s (%d)\n", strerror(errno), errno);
@@ -156,9 +160,8 @@ notifier create_select_notifier(heap h)
     s->n.reset_fd = select_reset_fd;
     s->n.spin = select_spin;
     s->registrations = allocate_vector(h, 10);
-    s->rfds = allocate_bitmap(h, infinity);
-    s->wfds = allocate_bitmap(h, infinity);
-    s->efds = allocate_bitmap(h, infinity);
+    select_bitmaps_init(h, &s->fds);
+    select_bitmaps_init(h, &s->tmp);
     s->nfds = 0;
     return (notifier)s;
 }
@@ -195,10 +198,8 @@ static void epoll_reset_fd(notifier n, descriptor f)
 #endif
     epoll_notifier e = (epoll_notifier)n;
     registration r;
-    if (!(r = vector_get(e->registrations, f))) {
-	msg_err("no registration for fd %d\n", f);
+    if (!(r = vector_get(e->registrations, f)))
 	return;
-    }
 
     epoll_ctl(e->fd, EPOLL_CTL_DEL, f, 0);
     do {
@@ -300,23 +301,16 @@ static void connection_input(heap h, descriptor f, notifier n, buffer_handler p)
     // can reuse?
     buffer b = allocate_buffer(h, 512);
     int res = read(f, b->contents, b->length);
-
-    if (res < 0) {
-        // should pass status
-        apply(p, 0);
-        return;
-    }
-    
-    // this should have been taken care of by EPOLLHUP, but the
-    // kernel doesn't support it        
-    if (res == 0) {
-	notifier_reset_fd(n, f);
-        close(f);
-        apply(p, 0);
-    } else {
+    if (res > 0) {
         b->end = res;
         apply(p, b);
+	return;
     }
+    if (res < 0 && errno != ENOTCONN)
+	rprintf("read error: %s (%d)\n", strerror(errno), errno);
+    notifier_reset_fd(n, f);
+    close(f);
+    apply(p, 0);        // should pass status
 }
 
 

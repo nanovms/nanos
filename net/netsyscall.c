@@ -48,9 +48,11 @@ static inline u32 socket_poll_events(sock s)
 {
     u32 events = 0;
     if (queue_length(s->incoming))
-	events |= EPOLLIN;
+	events |= EPOLLIN | EPOLLRDNORM;
+    /* XXX socket state isn't giving a complete picture; needs to specify
+       which transport ends are shut down */
     if (s->state != SOCK_OPEN)
-	events |= EPOLLHUP;
+	events |= EPOLLIN | EPOLLHUP | EPOLLRDHUP | EPOLLRDNORM;
     return events;
 }
 

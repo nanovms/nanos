@@ -129,7 +129,9 @@ void main(int argc, char **argv)
     if (!unassoc) {
         halt("must provide target\n");
     }
-    notifier n = create_epoll_notifier(h);
+
+    notifier n = table_find(t, sym(select)) ? create_select_notifier(h) :
+	create_epoll_notifier(h);
     buffer target = vector_pop(vector_from_tuple(h, unassoc));
     thunk *newconn = allocate(h, sizeof(thunk));
     // there are other solutions for y
