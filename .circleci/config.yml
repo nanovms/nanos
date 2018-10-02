@@ -4,7 +4,7 @@ jobs:
     docker:
       # specify the version
       - image: circleci/golang:1.9
-    working_directory: /go/src/github.com/nanovms/uniboot
+    working_directory: /go/src/github.com/nanovms/nanos
     steps:
       - checkout
       # specify any bash command here prefixed with `run: `
@@ -17,7 +17,7 @@ jobs:
   nightly-build:
     docker:
       - image: circleci/golang:1.9
-    working_directory: /go/src/github.com/nanovms/uniboot
+    working_directory: /go/src/github.com/nanovms/nanos
     steps:
       - checkout
       - run: sudo apt-get update
