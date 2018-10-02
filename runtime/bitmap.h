@@ -15,6 +15,8 @@ bitmap allocate_bitmap(heap h, u64 length);
 void deallocate_bitmap(bitmap b);
 bitmap bitmap_wrap(heap h, u64 * map, u64 length);
 void bitmap_unwrap(bitmap b);
+bitmap bitmap_clone(bitmap b);
+void bitmap_copy(bitmap dest, bitmap src);
 
 #define bitmap_foreach_word(b, w, offset)				\
     for (u64 offset = 0, * __wp = bitmap_base(b), w = *__wp;		\

@@ -161,3 +161,32 @@ void bitmap_unwrap(bitmap b)
 	unwrap_buffer(b->h, b->alloc_map);
     deallocate(b->h, b, sizeof(struct bitmap));
 }
+
+bitmap bitmap_clone(bitmap b)
+{
+    bitmap c = allocate_bitmap_internal(b->h, b->maxbits);
+    c->mapbits = b->mapbits;
+    u64 mapbytes = c->mapbits >> 3;
+    c->alloc_map = allocate_buffer(b->h, mapbytes);
+    if (c->alloc_map == INVALID_ADDRESS)
+	return INVALID_ADDRESS;
+    runtime_memcpy(buffer_ref(c->alloc_map, 0), buffer_ref(b->alloc_map, 0), mapbytes);
+    buffer_produce(c->alloc_map, mapbytes);
+    return c;
+}
+
+void bitmap_copy(bitmap dest, bitmap src)
+{
+    // XXX resize not needed yet
+    assert(dest->maxbits == src->maxbits);
+    assert(src->mapbits > 0);
+    bitmap_extend(dest, src->mapbits - 1);
+    runtime_memcpy(buffer_ref(dest->alloc_map, 0),
+		   buffer_ref(src->alloc_map, 0),
+		   src->mapbits >> 3);
+    if (dest->mapbits > src->mapbits) {
+	u64 off = src->mapbits >> 3;
+	bytes len = (dest->mapbits - src->mapbits) >> 3;
+	zero(buffer_ref(dest->alloc_map, off), len);
+    }
+}
