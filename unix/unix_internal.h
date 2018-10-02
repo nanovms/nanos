@@ -14,8 +14,6 @@ typedef s64 sysreturn;
 typedef struct process *process;
 typedef struct thread *thread;
 
-thread create_thread(process);
-
 void run(thread);
 
 /* unix-specific memory objects and ids */
@@ -48,7 +46,6 @@ typedef struct thread {
        CPU-bound object cache).
     */
     struct unix_heaps uh;
-
     void *set_child_tid;
     void *clear_child_tid;
     u64 tid;
@@ -148,7 +145,7 @@ void default_fault_handler(thread t, context frame);
 void thread_log_internal(thread t, char *desc, ...);
 #define thread_log(__t, __desc, ...) thread_log_internal(__t, __desc, ##__VA_ARGS__)
 // this should always be current
-void thread_sleep(thread);
+void thread_sleep();
 void thread_wakeup(thread);
 
 static inline sysreturn set_syscall_return(thread t, sysreturn val)
@@ -185,3 +182,4 @@ static sysreturn sysreturn_value(thread t)
 
 void init_threads(process p);
 void init_syscalls();
+extern thread kernel_thread;

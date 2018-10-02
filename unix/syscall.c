@@ -397,7 +397,7 @@ static sysreturn contents_read(tuple n, void *dest, u64 length, u64 offset)
 {
     filesystem_read(current->p->fs, n, dest, length, offset,
 		    closure(heap_general(get_kernel_heaps()), readcomplete, current, length));
-    thread_sleep(current);
+    thread_sleep();
 }
 
 static CLOSURE_1_0(file_close, sysreturn, file);
@@ -536,6 +536,7 @@ static sysreturn brk(void *x)
             p->brk += alloc;         
         }
     }
+    rprintf("brk: %p\n", p->brk);
     return sysreturn_from_pointer(p->brk);
 }
 
@@ -579,8 +580,10 @@ sysreturn getpid()
 
 sysreturn sched_yield()
 {
+    // will break tracing, puts this on the queue and then sleeps
+    // race will cause a thread clone
     thread_wakeup(current);
-    thread_sleep(current);
+    thread_sleep();
     return 0;
 }
 

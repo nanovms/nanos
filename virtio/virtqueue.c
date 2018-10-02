@@ -85,16 +85,16 @@ static void vq_interrupt(struct virtqueue *vq)
 {
     volatile struct vring_used_elem *uep;
     vqfinish *vqf = (void *)(vq+1);
-    
     read_barrier();
     // there is a better strategy, but this will roll out
-    *vq->next_interrupt = vq->used->idx;
-    while (vq->used_idx != vq->used->idx) {
+    u16 idx; 
+    while (vq->used_idx != (idx = vq->used->idx)) {
         uep = &vq->used->ring[vq->used_idx  & (vq->entries - 1)];
         // reclaim the desc space
         apply(vqf[uep->id],  uep->len);
         vq->used_idx++; 
     }
+    *vq->next_interrupt = idx;
 }
 
 

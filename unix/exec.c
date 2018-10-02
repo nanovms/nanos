@@ -58,12 +58,15 @@ static void build_exec_stack(heap sh, thread t, Elf64_Ehdr * e, void *start, u64
 void start_process(thread t, void *start)
 {
     t->frame[FRAME_RIP] = u64_from_pointer(start);
+    // should we really be running these on the same stack?
+    t->frame[FRAME_STACK_TOP] = kernel_thread->frame[FRAME_STACK_TOP];
     
     if (table_find(t->p->process_root, sym(gdb))) {
         console ("gdb!\n");
         init_tcp_gdb(heap_general(get_kernel_heaps()), t->p, 1234);
     } else {
-        rprintf ("enq\n");
+        // xxx - dont use wakeup because we dont really have a thread here
+        t->sleep_by = 0;
         enqueue(runqueue, t->run);
     }
 }
@@ -92,7 +95,9 @@ process exec_elf(buffer ex, process kp)
     tuple root = kp->process_root;
     filesystem fs = kp->fs;
     process proc = create_process(uh, root, fs);
-    thread t = create_thread(proc);
+    u64 stack_size = 128*KB;
+    void *stack_base = allocate(kh->backed, stack_size);
+    thread t = create_thread(proc, stack_base + stack_size - 8);
     void *start = load_elf(ex, 0, heap_pages(kh), heap_physical(kh));
     u64 va;
     boolean interp = false;

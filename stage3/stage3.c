@@ -19,10 +19,11 @@ static void read_program_fail(status s)
 
 void startup(kernel_heaps kh,
              tuple root,
-             filesystem fs)
+             filesystem fs,
+             void *stack_top)
 {
     /* kernel process is used as a handle for unix */
-    process kp = init_unix(kh, root, fs);
+    process kp = init_unix(kh, root, fs, stack_top);
     if (kp == INVALID_ADDRESS) {
 	halt("unable to initialize unix instance; halt\n");
     }

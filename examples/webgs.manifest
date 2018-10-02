@@ -6,12 +6,10 @@
     # filesystem path to elf for kernel to run
     program:/webgs
     # put all the tracing arguments in subtree
-#    trace:t
-#    debugsyscalls:t
-#    futex_trace:t    
+    trace:t
+    debugsyscalls:t
+    futex_trace:t    
     fault:t
-#    trace:t
-#    debugsyscalls:t
     arguments:[webgs]
     environment:(USER:bobby PWD:/)
 )

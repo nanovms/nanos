@@ -9,11 +9,14 @@ extern void startup();
 extern void start_interrupts(kernel_heaps kh);
 
 static struct kernel_heaps heaps;
+static u64 kernel_stack_size;
+static void *kernel_stack_start;
 
 // doesnt belong here
 void startup(kernel_heaps kh,
              tuple root,
-             filesystem fs);
+             filesystem fs,
+             void *kernel_stack);
 
 // xxx -this is handing out a page per object
 heap allocate_tagged_region(kernel_heaps kh, u64 tag)
@@ -48,21 +51,24 @@ static void read_complete(thunk target)
     enqueue(runqueue, target);
 }
 
+// xxx - kernel thread
 static context miscframe;
 
 void runloop()
 {
     thunk t;
-
+    console("runloop");
     while(1) {
         u64 delta = timer_check();
         // we're counting on the fact that there is only one of these :/
         if (delta) hpet_timer(delta, ignore);
-        if ((t = dequeue(runqueue))) 
+        if ((t = dequeue(runqueue))) {
+            enable_interrupts();        
             apply(t);
-        
+            disable_interrupts();            
+        }
+        enable_interrupts();        
         frame = miscframe;
-        enable_interrupts();
         __asm__("hlt");
         disable_interrupts();
     }
@@ -82,12 +88,13 @@ static void offset_block_read(block_read r, u64 start, void *dest, u64 length, u
 
 void init_extra_prints(); 
 
-CLOSURE_3_0(startup, void, kernel_heaps, tuple, filesystem);
+CLOSURE_4_0(startup, void, kernel_heaps, tuple, filesystem, void *);
 
 static CLOSURE_1_2(fsstarted, void, tuple, filesystem, status);
 static void fsstarted(tuple root, filesystem fs, status s)
 {
-    enqueue(runqueue, closure(heap_general(&heaps), startup, &heaps, root, fs));
+    enqueue(runqueue, closure(heap_general(&heaps), startup, &heaps, root, fs,
+                              kernel_stack_start + kernel_stack_size - 8));
 }
 
 static CLOSURE_1_3(attach_storage, void, tuple, block_read, block_write, u64);
@@ -176,8 +183,9 @@ static void __attribute__((noinline)) init_service_new_stack()
     init_pci(kh);
     init_virtio_storage(kh, closure(misc, attach_storage, root));
     init_virtio_network(kh);
-
+    register_format('@', format_elf_symbol);
     miscframe = allocate(misc, FRAME_MAX * sizeof(u64));
+    miscframe[FRAME_STACK_TOP] = u64_from_pointer(kernel_stack_start + kernel_stack_size - 8);
     pci_discover();
     runloop();
 }
@@ -209,6 +217,7 @@ static heap init_pages_id_heap(heap h)
     halt("no identity region found; halt\n");
     return INVALID_ADDRESS;	/* no warning */
 }
+
 
 static heap init_physical_id_heap(heap h)
 {
@@ -269,10 +278,9 @@ static void init_kernel_heaps()
 void init_service()
 {
     init_kernel_heaps();
-    u64 stack_size = 32*PAGESIZE;
-    u64 stack_location = allocate_u64(heap_backed(&heaps), stack_size);
-    stack_location += stack_size - 16;
+    kernel_stack_size = 32*PAGESIZE;
+    kernel_stack_start = allocate(heap_backed(&heaps), kernel_stack_size);
+    u64 stack_location = u64_from_pointer(kernel_stack_start + kernel_stack_size - 16);
     *(u64 *)stack_location = 0;
-    asm ("mov %0, %%rsp": :"m"(stack_location));
-    init_service_new_stack();
+    switch_stack(stack_location, init_service_new_stack);
 }

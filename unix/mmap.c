@@ -63,6 +63,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
         u64 m = allocate_u64(physical, len);
         if (m == INVALID_PHYSICAL) return m;
         map(where, m, len, pages);
+        rprintf("mmap anon target:%p size:%p\n", where, size);
         thread_log(current, "mmap anon target:%p size:%p\n", where, size);
         zero(pointer_from_u64(where), len);
         return where;

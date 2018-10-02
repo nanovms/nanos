@@ -1,6 +1,4 @@
 #include <runtime.h>
-#include <hpet.h>
-#include <x86_64.h>
 #include <pci.h>
 
 extern heap interrupt_vectors;

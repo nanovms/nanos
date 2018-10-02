@@ -1,4 +1,3 @@
-#pragma once
 #define VIRTUAL_ADDRESS_BITS 48
 
 #define FS_MSR 0xc0000100
@@ -193,3 +192,13 @@ struct queue {
 
 void register_periodic_timer_interrupt(time interval, thunk handler);
 
+#include <hpet.h>
+
+// getting gnu to treat these registers as allocated is a struggle
+#define switch_stack(__s, __target){\
+        asm ("mov %0, %%rdx": :"r"(__s):"%rdx");\
+        asm ("mov %0, %%rax": :"r"(__target));\
+        asm ("mov %%rdx, %%rsp"::);\
+        asm ("jmp *%%rax"::);\
+  } 
+  

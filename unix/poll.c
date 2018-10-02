@@ -220,7 +220,7 @@ sysreturn epoll_wait(int epfd,
     rprintf("   sleeping...\n");
 #endif
     w->sleeping = true;
-    thread_sleep(current);
+    thread_sleep();
 }
 
 sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
@@ -292,7 +292,7 @@ sysreturn pselect(int nfds,
     } else {
         register_timer(time_from_timespec(timeout),
 		       closure(heap_general(get_kernel_heaps()), select_timeout, current, 0));
-        thread_sleep(current);
+        thread_sleep();
     }
     return 0;
 }

@@ -219,12 +219,19 @@ void listen_port(heap h, descriptor e, u16 port, new_connection n)
 }
 
 
+u64 milliseconds_from_time(time t)
+{
+    return((t*1000)>>32);
+}
+
 void epoll_spin(descriptor e)
 {
     // make a 'notifier' abstraction to allow us to run the same code with epoll, select, kqeuue, etc
     struct epoll_event ev[10];
     while (1) {
-        int res = epoll_wait(e, ev, sizeof(ev)/sizeof(struct epoll_event), -1);
+        time t = timer_check();
+        int ms = t?milliseconds_from_time(t):-1;
+        int res = epoll_wait(e, ev, sizeof(ev)/sizeof(struct epoll_event), ms);
         if (res == -1) halt ("epoll %E", errno);
         for (int i = 0;i < res; i++) {
             registration r = ev[i].data.ptr;

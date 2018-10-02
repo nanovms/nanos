@@ -103,24 +103,29 @@ static void read_complete(sock s, thread t, void *dest, u64 length, boolean slee
 {
     if (s->state != SOCK_OPEN)
         s->s = timmf("errno", "%d", ENOTCONN);
+
+    if ((t == current) && sleeping) {
+        rprintf("stop hitting yourself %p\n", __builtin_return_address(0));
+        print_stack((context)t);
+        halt("viggioud");
+    }
+    
     if (s->s) {
         set_syscall_error(t, errno_from_status(s->s));
-        thread_wakeup(t);
-        return;
+    } else {
+        // could copy in multiple pbufs just to save them from coming back tomorrow
+        struct pbuf *p = queue_peek(s->incoming);
+        u64 xfer = MIN(length, p->len);
+        runtime_memcpy(dest, p->payload, xfer);
+        pbuf_consume(p, xfer);
+        set_syscall_return(t, xfer);    
+        if (p->len == 0) {
+            dequeue(s->incoming);
+            pbuf_free(p);
+        }
+        tcp_recved(s->lw, xfer);
     }
-
-    // could copy in multiple pbufs just to save them from coming back tomorrow
-    struct pbuf *p = queue_peek(s->incoming);
-    u64 xfer = MIN(length, p->len);
-    runtime_memcpy(dest, p->payload, xfer);
-    pbuf_consume(p, xfer);
-    set_syscall_return(t, xfer);    
-    if (p->len == 0) {
-        dequeue(s->incoming);
-        pbuf_free(p);
-    }
-    tcp_recved(s->lw, xfer);
-    if (sleeping) thread_wakeup(t);
+    if (sleeping) thread_wakeup(t);    
 }
 
 static CLOSURE_2_0(read_hup, void, sock, thread);

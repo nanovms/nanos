@@ -155,6 +155,28 @@ void print_u64_with_sym(u64 a)
     }
 }
 
+void print_stack2(context c)
+{
+    u64 *x = pointer_from_u64(c[FRAME_RSP]);
+    u64 *top = pointer_from_u64(c[FRAME_STACK_TOP]);
+    console("compressed stack \n");
+    u64 offset;
+    char *name;
+    console("ps ");
+    print_u64(u64_from_pointer(x));
+    console(" ");
+    print_u64(u64_from_pointer(top));
+    console("\n");    
+    
+    for (u64 *i = x ;i < top; i++) {
+        if ((name = find_elf_sym(*x, &offset))) {
+            console("\t");            
+            console(name);            
+            console("\n");
+        }
+    }
+}
+
 void print_stack(context c)
 {
     u64 frames = 30;

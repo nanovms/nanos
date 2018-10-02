@@ -1,6 +1,7 @@
 #include <unix_internal.h>
 
 thread current;
+extern thread kernel_thread;
 
 static u64 futex_key_function(void *x)
 {
@@ -42,9 +43,8 @@ sysreturn arch_prctl(int code, unsigned long a)
 
 sysreturn clone(unsigned long flags, void *child_stack, void *ptid, void *ctid, void *x)
 {
-    thread t = create_thread(current->p);
+    thread t = create_thread(current->p, child_stack);
     runtime_memcpy(t->frame, current->frame, sizeof(t->frame));
-    t->frame[FRAME_RSP]= u64_from_pointer(child_stack);
     // xxx - the interpretation of ctid is dependent on flags
     // and it can be zero
     // t->frame[FRAME_RAX]= *(u32 *)ctid; 
@@ -90,7 +90,9 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
             set_syscall_return(current, 0);
             // atomic 
             enqueue(f->waiters, current);
+            // is it even possible to thread_sleep some other thread?
             thread_sleep(current);
+            rprintf("shouldn't be here\n");
         }
         return -EAGAIN;
             
@@ -98,7 +100,7 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
         // return the number of waiters that were woken up
         if ((w = dequeue(f->waiters))) {
             if (verbose)
-                thread_log(current, "futex_wake [%d %p %d %p]\n", current->tid, uaddr, *uaddr, w);
+                thread_log(current, "futex_wake [%d->%d %p %d %p]\n", current->tid, w->tid, uaddr, *uaddr, w);
             thread_wakeup(w);
             set_syscall_return(current, 1);            
         }
@@ -207,6 +209,7 @@ void thread_log_internal(thread t, char *desc, ...)
 CLOSURE_1_0(run_thread, void, thread);
 void run_thread(thread t)
 {
+    rprintf("run thread %d %p %p\n", t->tid, __builtin_return_address(0), t->sleep_by);
     current = t;
     thread_log(t, "run",  t->frame[FRAME_RIP]);
     frame  = t->frame;
@@ -216,20 +219,39 @@ void run_thread(thread t)
 // it might be easier, if a little skeezy, to use the return value
 // to genericize the handling of suspended threads. given that there
 // are already conventions (i.e. negative errors) on the interface
-void thread_sleep(thread t)
+void thread_sleep()
 {
-    // config from the filesystem
+    thread t = current;
     thread_log(t, "sleep",  0);
-    runloop();
+    rprintf("pig\n");
+    current = kernel_thread;
+    rprintf("pop %d\n", kernel_thread->tid);    
+    u64 here = u64_from_pointer(__builtin_return_address(0));    
+    if (t->sleep_by) {
+        rprintf("thread %d already sleeping %p %p %@ %@\n", t->tid, t->sleep_by, here, t->sleep_by, here);
+        halt("thread already sleeping\n");
+
+    }
+    t->sleep_by = here;    
+    // config from the filesystem
+
+    rprintf("sleep %p %p %p\n", kernel_thread->tid, kernel_thread->frame[FRAME_STACK_TOP], runloop);
+    switch_stack(kernel_thread->frame[FRAME_STACK_TOP], runloop);
 }
 
 void thread_wakeup(thread t)
 {
-    thread_log(current, "wakeup %d->%d %p", current->tid, t->tid, t->frame[FRAME_RIP]);
+    if (!t->sleep_by) {
+        rprintf("waking up a running thread %p %@\n",  __builtin_return_address(0), __builtin_return_address(0));
+        halt("waking up a running thread %p", __builtin_return_address(0));
+    }
+    t->sleep_by = 0;
+    thread_log(current, "wakeup %d->%d %p %p", current->tid, t->tid, t->frame[FRAME_RIP], __builtin_return_address(0));
     enqueue(runqueue, t->run);
 }
 
-thread create_thread(process p)
+// length?
+thread create_thread(process p, void *stack)
 {
     // heap I guess
     static int tidcount = 0;
@@ -240,7 +262,10 @@ thread create_thread(process p)
     t->tid = tidcount++;
     t->set_child_tid = t->clear_child_tid = 0;
     t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(closure(h, default_fault_handler, t));
+    t->frame[FRAME_RSP]= u64_from_pointer(stack);
+    t->frame[FRAME_STACK_TOP] = u64_from_pointer(stack);    
     t->run = closure(h, run_thread, t);
+    t->sleep_by = u64_from_pointer(&create_thread); // mark as sleeping
     vector_push(p->threads, t);
     return t;
 }

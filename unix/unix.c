@@ -1,6 +1,8 @@
 #include <unix_internal.h>
 #include <gdb.h>
 
+thread kernel_thread;
+
 u64 allocate_fd(process p, file f)
 {
     u64 fd = allocate_u64(p->fdallocator, 1);
@@ -82,7 +84,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     return p;
 }
 
-process init_unix(kernel_heaps kh, tuple root, filesystem fs)
+process init_unix(kernel_heaps kh, tuple root, filesystem fs, void *stack_top)
 {
     heap h = heap_general(kh);
     unix_heaps uh = allocate(h, sizeof(struct unix_heaps));
@@ -100,7 +102,8 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
 	goto alloc_fail;
     set_syscall_handler(syscall_enter);
     process kernel_process = create_process(uh, root, fs);
-    current = create_thread(kernel_process);
+    current = kernel_thread = create_thread(kernel_process, stack_top);
+    rprintf("kernel init %d\n", kernel_thread->tid);
     frame = current->frame;
     init_vdso(heap_physical(kh), heap_pages(kh));
     init_syscalls();

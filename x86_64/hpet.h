@@ -1,4 +1,3 @@
-#pragma once
 
 boolean init_hpet(heap misc, heap virtual_pagesized, heap pages);
 void hpet_timer(time period, thunk t);

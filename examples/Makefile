@@ -1,6 +1,6 @@
 ROOT=$(PWD)/..
 CC=cc
-GO=go
+GO=/home/yuri/g10.4/go/bin/go
 CFLAGS=-g -c -DENABLE_MSG_DEBUG -std=gnu99 -I$(ROOT)/runtime
 
 include $(ROOT)/image.mk
