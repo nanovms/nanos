@@ -443,7 +443,7 @@ static sysreturn select_internal(int nfds,
     u64 * rp = readfds ? readfds : &dummy;
     u64 * wp = writefds ? writefds : &dummy;
     u64 * ep = exceptfds ? exceptfds : &dummy;
-    int words = (nfds >> 6) + 1;
+    int words = pad(nfds, 64) >> 6;
     for (int i = 0; i < words; i++) {
 	/* update epollfds based on delta between registered fds and
  	   union of select fds */
@@ -453,7 +453,7 @@ static sysreturn select_internal(int nfds,
 	/* get alloc/free out of the way */
 	bitmap_word_foreach_set(d, bit, fd, (i << 6)) {
 	    /* either add or remove epollfd */
-	    if (*regp & (1 << bit)) {
+	    if (*regp & (1ull << bit)) {
 #ifdef EPOLL_DEBUG
 		rprintf("   + fd %d\n", fd);
 #endif
@@ -470,7 +470,7 @@ static sysreturn select_internal(int nfds,
 	/* now process all events */
 	bitmap_word_foreach_set(u, bit, fd, (i << 6)) {
 	    u32 eventmask = 0;
-	    u64 mask = 1 << bit;
+	    u64 mask = 1ull << bit;
 	    epollfd f = vector_get(e->events, fd);
 	    assert(f);
 
