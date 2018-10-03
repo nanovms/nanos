@@ -2,12 +2,9 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <sys/mman.h>
+#include <sys/time.h>
 #include <string.h>
 #include <signal.h>
-
-// xxx - can't use <time.h> because of redefinition of time
-
-extern int gettimeofday(struct timeval *tv, void *tz);
 
 void debug(buffer b)
 {
