@@ -1,5 +1,5 @@
 ROOT=$(PWD)/..
-CC=cc
+CC ?= cc
 GO=go
 CFLAGS=-g -c -DENABLE_MSG_DEBUG -std=gnu99 
 

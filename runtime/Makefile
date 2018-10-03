@@ -1,9 +1,11 @@
 VPATH += $(ROOT)/runtime $(ROOT)/runtime/heap
 
+CC ?= cc
+
 all:
 
 $(ROOT)/runtime/contgen: contgen.c
-	cc -std=c99 $< -g -o $(ROOT)/runtime/contgen
+	$(CC) -std=c99 $< -g -o $(ROOT)/runtime/contgen
 
 $(ROOT)/runtime/closure_templates.h: $(ROOT)/runtime/contgen
 	$(ROOT)/runtime/contgen 10 10 > $(ROOT)/runtime/closure_templates.h

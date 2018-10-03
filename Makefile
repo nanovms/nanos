@@ -27,6 +27,13 @@ clean:
 	cd examples ; make clean
 	rm -f runtime/closure_templates.h runtime/contgen image fs
 
+DEBUG ?= n
+ifeq ($(DEBUG),y)
+	DEBUG_ := -s
+else
+	DEBUG_ :=
+endif
+
 # file=image,if=none,id=virtio-disk0,format=raw,cache=none,aio=native
 
 # could really be nice if BOOT and STORAGE could be the same disk
@@ -40,10 +47,10 @@ USERNET = -device virtio-net,netdev=n0 -netdev user,id=n0,hostfwd=tcp::8080-:808
 QEMU ?= qemu-system-x86_64
 
 run-nokvm: image
-	- $(QEMU) $(BOOT) $(DISPLAY) -m 2G -device isa-debug-exit -no-reboot $(STORAGE) $(USERNET)
+	- $(QEMU) $(BOOT) $(DISPLAY) -m 2G -device isa-debug-exit -no-reboot $(STORAGE) $(USERNET) $(DEBUG_)
 
 run: image
-	- $(QEMU) $(BOOT) $(DISPLAY) -m 2G -device isa-debug-exit -no-reboot $(STORAGE) $(NET) $(KVM)
+	- $(QEMU) $(BOOT) $(DISPLAY) -m 2G -device isa-debug-exit -no-reboot $(STORAGE) $(NET) $(KVM) $(DEBUG_)
 
 runnew: image
 	- ~/qemu/x86_64-softmmu/qemu-system-x86_64 -hda image $(DISPLAY) -m 2G -device isa-debug-exit -no-reboot $(STORAGE) $(USERNET) $(KVM)
