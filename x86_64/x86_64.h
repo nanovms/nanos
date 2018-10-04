@@ -9,6 +9,9 @@
 #define LSTAR_MSR 0xc0000082
 #define SFMASK_MSR 0xc0000084
 
+// tuples
+#define FLAG_INTERRUPT 9
+
 extern u64 cpuid();
 extern u64 read_msr(u64);
 extern void write_msr(u64, u64);
@@ -104,6 +107,8 @@ static inline void set_syscall_handler(void *syscall_entry)
     // 48 is sysret cs, and ds is cs + 16...so fix the gdt for return
     // 32 is syscall cs, and ds is cs + 8
     write_msr(STAR_MSR, (cs<<48) | (cs<<32));
+    // there is no way to disable interrupts here, we can only set
+    // this to zero
     write_msr(SFMASK_MSR, 0);
     write_msr(EFER_MSR, read_msr(EFER_MSR) | EFER_SCE);
 }
@@ -137,9 +142,6 @@ static inline word fetch_and_add(word* variable, word value)
     return value;
 }
 
-
-// tuples
-#define FLAG_INTERRUPT 9
 
 static inline u64 read_flags()
 {

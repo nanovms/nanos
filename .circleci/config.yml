@@ -3,19 +3,21 @@ jobs:
   build:
     docker:
       # specify the version
-      - image: circleci/golang:1.9
-    working_directory: /go/src/github.com/nanovms/uniboot
+      - image: circleci/golang:1.11
+    working_directory: /go/src/github.com/nanovms/nanos
     steps:
       - checkout
       # specify any bash command here prefixed with `run: `
       - run: sudo apt-get update
       - run: sudo apt-get install nasm
+      - run: sudo apt-get install qemu
       - run: make
       - run: make unit-test
+      - run: cd test && ./functional.sh
   nightly-build:
     docker:
-      - image: circleci/golang:1.9
-    working_directory: /go/src/github.com/nanovms/uniboot
+      - image: circleci/golang:1.11
+    working_directory: /go/src/github.com/nanovms/nanos
     steps:
       - checkout
       - run: sudo apt-get update

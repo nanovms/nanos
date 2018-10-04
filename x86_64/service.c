@@ -54,23 +54,36 @@ static void read_complete(thunk target)
 // xxx - kernel thread
 static context miscframe;
 
+volatile int interrupt_count;
+
 void runloop()
 {
     thunk t;
-    console("runloop");
     while(1) {
+        interrupt_count = 0;
+
         u64 delta = timer_check();
+        console("runloop ");
+        print_u64(delta);
+        console("\n");
         // we're counting on the fact that there is only one of these :/
         if (delta) hpet_timer(delta, ignore);
         if ((t = dequeue(runqueue))) {
-            enable_interrupts();        
+            console("apply\n");            
+            enable_interrupts();
             apply(t);
             disable_interrupts();            
         }
-        enable_interrupts();        
-        frame = miscframe;
-        __asm__("hlt");
-        disable_interrupts();
+        if (!interrupt_count) {
+            // mwait will be atomic?
+            frame = miscframe;
+            if(!interrupt_count){
+                enable_interrupts();
+                __asm__("hlt");
+            }
+            console("wakeup\n");            
+            disable_interrupts();
+        }
     }
 }
 

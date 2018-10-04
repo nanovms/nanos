@@ -55,7 +55,7 @@ struct HPETMemoryMap {
 
 static volatile struct HPETMemoryMap* hpet;
 static u64 femtoperiod;
-
+#define TN_ENABLE_CNF (1ull<<0)
 #define TN_INT_TYPE_CNF (1ull<<1)
 #define TN_INT_ENB_CNF (1ull<<2)
 #define TN_TYPE_CNF (1ull<<3)
@@ -68,24 +68,29 @@ static u64 femtoperiod;
 #define TN_FSB_INT_DEL_CAP (1ull<<15)
 #define TN_INT_ROUTE_CAP (1ull<<32)
 
+// 52 bits
 #define femto 1000000000000000ull
 static int hpet_interrupts[4];
 
 static void timer_config(int timer, time rate, thunk t, boolean periodic)
 {
-    hpet->timers[timer].config = TN_FSB_EN_CNF | TN_INT_ENB_CNF | TN_VAL_SET_CNF | periodic?TN_TYPE_CNF:0;
+    periodic = 1;
+
     if (!hpet_interrupts[timer]) {
         u32 a, d;
         hpet_interrupts[timer] = allocate_u64(interrupt_vectors, 1);
-        hpet->timers[timer].fsb_routing = ((u64)a << 32) | d;
         msi_format(&a, &d, hpet_interrupts[timer]);    
+        hpet->timers[timer].fsb_routing = ((u64)a << 32) | d;
     }
+    u64 c = TN_ENABLE_CNF | TN_FSB_EN_CNF | TN_INT_ENB_CNF | TN_VAL_SET_CNF | (periodic?TN_TYPE_CNF:0);
+    hpet->timers[timer].config = c;
     // assume that overwrite is ok
     register_interrupt(hpet_interrupts[timer], t);
 
     // overflow for large periods (> 1s)    
     u64 femtorate = (u64)(((u128)rate * femto) >> 32)/femtoperiod;
-    hpet->timers[timer].comparator = femtorate;    
+    rprintf("hpet: %p %p %p\n", rate, femtoperiod, femtorate);
+    hpet->timers[timer].comparator = femtorate*2;    
 }
 
 // allocate timers .. right now its at most 1 one-shot and periodic,
@@ -129,8 +134,6 @@ boolean init_hpet(heap misc, heap virtual_pagesized, heap pages) {
     timers = create_id_heap(misc, 0, 4, 1);
     hpet->configuration.enableCnf |= 1;
     u64 prev = hpet->mainCounterRegister;
-
-    rprintf("tenno - %p %p %p\n", hpet, hpet->timers[0], hpet->timers[1]);
     if (prev == hpet->mainCounterRegister) 
         halt("Error: No increment HPET main counter\n");
 

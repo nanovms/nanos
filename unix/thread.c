@@ -91,7 +91,7 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
             // atomic 
             enqueue(f->waiters, current);
             // is it even possible to thread_sleep some other thread?
-            thread_sleep(current);
+            thread_sleep();
             rprintf("shouldn't be here\n");
         }
         return -EAGAIN;
@@ -169,7 +169,7 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
         if (*uaddr == val) {
             set_syscall_return(current, 0);                            
             enqueue(f->waiters, current);
-            thread_sleep(current);
+            thread_sleep();
         }
         break;
     case FUTEX_WAKE_BITSET: rprintf("FUTEX_wake_bitset unimplemented\n"); break;

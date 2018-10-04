@@ -167,7 +167,9 @@ void print_stack2(context c)
         char *name;        
 
         if ((name = find_elf_sym(v, &offset))) {
-            console("\t");                        
+            console("\t");
+            print_u64(v);
+            console(" ");
             console(name);
             console("\n");
         }
@@ -221,11 +223,19 @@ void print_frame(context f)
     }
 }
 
+// coordination with runloop
+extern int interrupt_count;
+
 void common_handler()
 {
     int i = frame[FRAME_VECTOR];
     u64 z;
-
+    interrupt_count++;
+    console("interrupt ");
+    print_u64(i);
+    console(" ");
+    print_u64(interrupt_count);    
+    console("\n");
     if ((i < interrupt_size) && handlers[i]) {
         // should we switch to the 'kernel process'?
         apply(handlers[i]);

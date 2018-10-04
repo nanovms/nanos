@@ -10,11 +10,26 @@ sysreturn gettimeofday(struct timeval *tv, void *tz)
     return 0;
 }
 
+static CLOSURE_2_0(nanosleep_timeout, void, thread, boolean *);
+static void nanosleep_timeout(thread t, boolean *dead)
+{
+    set_syscall_return(t, 0);
+    thread_wakeup(t);
+}
+
 sysreturn nanosleep(const struct timespec* req, struct timespec* rem)
 {
-    // TODO: set timer to wakeup 
-    rem->ts_sec = 0;
-    rem->ts_nsec = 0;
+    if(rem)
+    {
+        rem->ts_sec = 0;
+        rem->ts_nsec = 0;
+    }
+    // nanosleep is interpretable and the remaining
+    // time is put in rem, but for now this is non interpretable
+    // and we sleep for the whole duration before waking up.
+    register_timer(time_from_timespec(req),
+                   closure(heap_general(get_kernel_heaps()), nanosleep_timeout, current, 0));
+    thread_sleep(current); 
     return 0;
 }
 

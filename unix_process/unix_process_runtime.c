@@ -4,10 +4,11 @@
 #include <sys/mman.h>
 #include <string.h>
 #include <signal.h>
+#include <sys/time.h>
 
-// xxx - can't use <time.h> because of redefinition of time
-
-extern int gettimeofday(struct timeval *tv, void *tz);
+//// xxx - can't use <time.h> because of redefinition of time
+//
+//extern int gettimeofday(struct timeval *tv, void *tz);
 
 void debug(buffer b)
 {
