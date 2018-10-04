@@ -8,10 +8,10 @@
 static boolean basic_test(heap h)
 {
     u64 base = 0x10000;
-    u64 length = 1 << LENGTH_ORDER;
+    u64 length = U64_FROM_BIT(LENGTH_ORDER);
 
     for (int page_order=0; page_order <= MAX_PAGE_ORDER; page_order++) {
-	u64 pagesize = 1 << page_order;
+	u64 pagesize = U64_FROM_BIT(page_order);
 	u64 pages = length / pagesize;
 	heap id = create_id_heap(h, base, length, pagesize);
 
@@ -19,7 +19,7 @@ static boolean basic_test(heap h)
 		  id, pagesize * pages, pages, pagesize);
 
 	for (int alloc_order=0; alloc_order <= (LENGTH_ORDER - page_order); alloc_order++) {
-	    u64 n = 1 << alloc_order;
+	    u64 n = U64_FROM_BIT(alloc_order);
 	    msg_debug(">>> allocations of %d page(s) ... ", n);
 
 	    for (int i=0; i < pages; i += n) {
@@ -60,10 +60,10 @@ static boolean random_test(heap h, heap rh, u64 page_order, int churn)
     int max_order = page_order + MAX_NPAGES_ORDER;
     u64 alloc_size_vec[VEC_LEN];
     u64 alloc_result_vec[VEC_LEN];
-    u64 pagesize = 1 << page_order;
+    u64 pagesize = U64_FROM_BIT(page_order);
 
     for (int i=0; i < VEC_LEN; i++) {
-	alloc_size_vec[i] = random_u64() & (((1 << MAX_NPAGES_ORDER) - 1) << page_order);
+	alloc_size_vec[i] = random_u64() & ((U64_FROM_BIT(MAX_NPAGES_ORDER) - 1) << page_order);
 	if (alloc_size_vec[i] == 0)
 	    alloc_size_vec[i] = pagesize;
     }
@@ -173,8 +173,8 @@ int main(int argc, char **argv)
 	goto fail;
 
     heap rh = allocate_rangeheap(h,
-				 ((1 << (MAX_PAGE_ORDER + MAX_NPAGES_ORDER))
-				  * 64 / N_RANGES));
+				 U64_FROM_BIT(MAX_PAGE_ORDER + MAX_NPAGES_ORDER)
+				 * 64 / N_RANGES);
     for (int order=0; order <= MAX_PAGE_ORDER; order++) {
 	curr_range = 0;
 	if (!random_test(h, rh, order, RANDOM_TEST_PASSES))

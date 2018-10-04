@@ -82,7 +82,7 @@ static struct handler query_handler[] = {
 };
 
 #define TRAP_FLAG 0x100
-#define RESUME_FLAG (1<<16)
+#define RESUME_FLAG U64_FROM_BIT(16)
 static void start_slave(gdb g, boolean stepping)
 {
     // a little more symbolic here please

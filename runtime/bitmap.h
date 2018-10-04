@@ -1,6 +1,6 @@
 /* XXX keep allocs small for now; rolling heap allocations more than a
    page are b0rked */
-#define ALLOC_EXTEND_BITS	(1 << 12)
+#define ALLOC_EXTEND_BITS	U64_FROM_BIT(12)
 
 typedef struct bitmap {
     u64 maxbits;

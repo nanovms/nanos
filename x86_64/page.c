@@ -3,10 +3,10 @@
 //#define PAGE_DEBUG
 
 #define PAGEMASK MASK(PAGELOG)
-#define PAGE_2M_SIZE (1<<7)
-#define PAGE_PRESENT (1<<0)
-#define PAGE_WRITABLE (1<<1)
-#define PAGE_USER (1<<2)
+#define PAGE_2M_SIZE U64_FROM_BIT(7)
+#define PAGE_USER U64_FROM_BIT(2)
+#define PAGE_WRITABLE U64_FROM_BIT(1)
+#define PAGE_PRESENT U64_FROM_BIT(0)
 typedef u64 *page;
 
 #define PT1 39

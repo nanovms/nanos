@@ -24,7 +24,7 @@ void enable_debug_registers()
 {
     u64 cr4;
     mov_from_cr("cr4", cr4);
-    cr4 |= 1<< DEBUG_BIT;
+    cr4 |= U64_FROM_BIT(DEBUG_BIT);
     mov_to_cr("cr4", cr4);    
 }
 

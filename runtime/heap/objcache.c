@@ -419,8 +419,8 @@ heap allocate_objcache(heap meta, heap parent, bytes objsize, bytes pagesize)
 	return INVALID_ADDRESS;
     }
 
-    if (objs_per_page >= (1 << 16)) {
-	objs_per_page = (1 << 16) - 1;
+    if (objs_per_page >= U64_FROM_BIT(16)) {
+	objs_per_page = U64_FROM_BIT(16) - 1;
 	msg_err("too many objects per page (pagesize %d, objsize %d); "
 		"limiting to %d\n", pagesize, objsize, objs_per_page);
     }

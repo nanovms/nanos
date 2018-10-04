@@ -39,7 +39,7 @@ static inline u64 msb(u64 x)
     if (high) {
 	return 63 - __builtin_clz(high);
     } else {
-	unsigned int low = x & (((u64)1 << 32) - 1);
+	unsigned int low = x & MASK(32);
 	return low ? 31 - __builtin_clz(low) : -1ull;
     }
 #else
