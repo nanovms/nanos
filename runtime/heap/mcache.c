@@ -145,8 +145,8 @@ heap allocate_mcache(heap meta, heap parent, int min_order, int max_order, bytes
 	return INVALID_ADDRESS;
     }
 
-    if ((1 << max_order) >= pagesize) {
-	msg_err("max obj size (%d) must be less than pagesize %d\n", 1 << max_order, pagesize);
+    if (U64_FROM_BIT(max_order) >= pagesize) {
+	msg_err("max obj size (%d) must be less than pagesize %d\n", U64_FROM_BIT(max_order), pagesize);
 	return INVALID_ADDRESS;
     }
 
@@ -168,7 +168,7 @@ heap allocate_mcache(heap meta, heap parent, int min_order, int max_order, bytes
     m->h.alloc = mcache_alloc;
     m->h.dealloc = mcache_dealloc;
     m->h.destroy = destroy_mcache;
-    m->h.pagesize = 1 << min_order; /* default to smallest obj size */
+    m->h.pagesize = U64_FROM_BIT(min_order); /* default to smallest obj size */
     m->h.allocated = 0;
     m->meta = meta;
     m->parent = parent;
@@ -176,7 +176,7 @@ heap allocate_mcache(heap meta, heap parent, int min_order, int max_order, bytes
     m->pagesize = pagesize;
 
     for(int i=0, order = min_order; order <= max_order; i++, order++) {
-	u64 obj_size = 1 << order;
+	u64 obj_size = U64_FROM_BIT(order);
 	heap h = allocate_objcache(meta, parent, obj_size, pagesize);
 #ifdef MCACHE_DEBUG
 	console(" - cache size ");

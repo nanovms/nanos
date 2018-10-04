@@ -11,19 +11,19 @@
  * Generate interrupt when the virtqueue ring is
  * completely used, even if we've suppressed them.
  */
-#define VIRTIO_F_NOTIFY_ON_EMPTY (1 << 24)
+#define VIRTIO_F_NOTIFY_ON_EMPTY U64_FROM_BIT(24)
 
 /* Support for indirect buffer descriptors. */
-#define VIRTIO_RING_F_INDIRECT_DESC	(1 << 28)
+#define VIRTIO_RING_F_INDIRECT_DESC	U64_FROM_BIT(28)
 
 /* Support to suppress interrupt until specific index is reached. */
-#define VIRTIO_RING_F_EVENT_IDX		(1 << 29)
+#define VIRTIO_RING_F_EVENT_IDX		U64_FROM_BIT(29)
 
 /*
  * The guest should never negotiate this feature; it
  * is used to detect faulty drivers.
  */
-#define VIRTIO_F_BAD_FEATURE (1 << 30)
+#define VIRTIO_F_BAD_FEATURE U64_FROM_BIT(30)
 
 /*
  * Some VirtIO feature bits (currently bits 28 through 31) are

@@ -27,5 +27,5 @@ unit-test: objcache_test id_heap_test
 	./id_heap_test
 
 clean:
-	rm -f *.o test
+	rm -f *.o objcache_test network_test id_heap_test
 
