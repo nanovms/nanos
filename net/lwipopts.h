@@ -43,6 +43,7 @@ struct tcpip_api_call_data
 
 static inline sys_prot_t sys_arch_protect(void)
 {
+    return 0;
 }
 
 static inline void sys_arch_unprotect(sys_prot_t x)
@@ -125,4 +126,5 @@ static inline void *calloc(size_t n, size_t s)
 {
     void *x =  lwip_allocate(n*s);
     lwip_memset(x, 0, n*s);
+    return x;
 }

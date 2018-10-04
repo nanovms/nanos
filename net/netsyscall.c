@@ -31,9 +31,21 @@ typedef struct sock {
     status s;
 } *sock;
 
+static inline u32 socket_poll_events(sock s)
+{
+    u32 events = 0;
+    if (queue_length(s->incoming))
+	events |= EPOLLIN | EPOLLRDNORM;
+    /* XXX socket state isn't giving a complete picture; needs to specify
+       which transport ends are shut down */
+    if (s->state != SOCK_OPEN)
+	events |= EPOLLIN | EPOLLHUP | EPOLLRDHUP | EPOLLRDNORM;
+    return events;
+}
+
 static void wakeup(sock s)
 {
-    thunk n;
+    event_handler eh;
     status_handler fstatus;
 
     // return status if not handled so someone else can try?
@@ -41,8 +53,13 @@ static void wakeup(sock s)
     if ((fstatus = dequeue(s->waiting))) {
         apply(fstatus, NULL);
     }  else {
-        if ((n = dequeue(s->notify))) {
-            apply(n);
+        if ((eh = dequeue(s->notify))) {
+	    /* XXX again this is really broken, but just behave as
+	       before until next installment allows us to only wake up
+	       if a bit in eventsmask is active */
+            if (!apply(eh, socket_poll_events(s)))
+		if (!enqueue(s->notify, eh))
+		    msg_err("failed; queue full\n");
         }
     }
 }
@@ -132,7 +149,8 @@ static CLOSURE_2_0(read_hup, void, sock, thread);
 static void read_hup(sock s, thread t)
 {
     set_syscall_return(t, 0);
-    enqueue(runqueue, t->run);
+    if (!enqueue(runqueue, t->run))
+	msg_err("runqueue full\n");
 }
 
 static CLOSURE_1_3(socket_read, sysreturn, sock, void *, u64, u64);
@@ -147,9 +165,11 @@ static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
         return sysreturn_value(current);        
     } else {
         // should be an atomic operation
-        enqueue(s->waiting, closure(s->h, read_complete, s, current, dest, length, true));
+        if (!enqueue(s->waiting, closure(s->h, read_complete, s, current, dest, length, true)))
+	    msg_err("waiting queue full\n");
         thread_sleep(current);
     }
+    return 0;			/* suppress warning */
 }
 
 static CLOSURE_1_3(socket_write, sysreturn, sock, void *, u64, u64);
@@ -170,19 +190,21 @@ static sysreturn socket_write(sock s, void *source, u64 length, u64 offset)
     return length;
 }
 
-static CLOSURE_1_2(socket_check, void, sock, thunk, thunk);
-static void socket_check(sock s, thunk t_in, thunk t_hup)
+static CLOSURE_1_2(socket_check, boolean, sock, u32, event_handler);
+static boolean socket_check(sock s, u32 eventmask, event_handler eh)
 {
-    // thread safety - should be atomic
-    if (queue_length(s->incoming)) {
-        apply(t_in);
+    u32 events = socket_poll_events(s);
+    u32 match = events & eventmask;
+    if (match) {
+	return apply(eh, match);
     } else {
-        if (SOCK_OPEN == s->state) {
-	    enqueue(s->notify, t_in);
-	} else {
-	    apply(t_hup);
-	}
+	/* XXX still follows the broken read-only approach; next
+	   installment enqueues eventmask along with handler and uses
+	   a linked-list queue for trivial removal */
+	if (!enqueue(s->notify, eh))
+	    msg_err("notify queue full\n");
     }
+    return true;
 }
 
 #define SOCK_QUEUE_LEN 32
@@ -201,6 +223,7 @@ static sysreturn socket_close(sock s)
     //    deallocate_queue(s->waiting, SOCK_QUEUE_LEN);
     //    deallocate_queue(s->incoming, SOCK_QUEUE_LEN);
     //    unix_cache_free(get_unix_heaps(), socket, s);
+    return 0;
 }
 
 static int allocate_sock(process p, struct tcp_pcb *pcb)
@@ -257,7 +280,8 @@ static err_t connection_data_from_lwip (void *z, struct tcp_pcb *pcb, struct pbu
     }
     
     if (p) {
-        enqueue(s->incoming, p);
+        if (!enqueue(s->incoming, p))
+	    msg_err("incoming queue full\n");
     } else {
         s->state = SOCK_CLOSED;
     }
@@ -324,6 +348,13 @@ static sysreturn connect_tcp(sock s, const ip_addr_t* address, unsigned short po
         s->state = SOCK_IN_CONNECTION;
         err = tcp_connect(s->lw, address, port, connect_complete);
     }
+    status_handler sp = NULL;
+    sock s = (sock)(arg);
+    s->state = SOCK_OPEN;
+    if ((sp = dequeue(s->waiting))) {
+        u64 code =  lwip_to_errno(err);
+        apply(sp, (status)&code);
+    }
     if (ERR_OK != err) 
         return set_syscall_error(current, lwip_errno(err));
 
@@ -373,7 +404,7 @@ static void lwip_conn_err(void* z, err_t b) {
 static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t err)
 {
     sock s = z;
-    thunk p;
+    event_handler eh;
     status_handler sp;
     int fd = allocate_sock(s->p, lw);
     if (fd < 0)
@@ -385,15 +416,17 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t err)
     tcp_arg(lw, sn);
     tcp_recv(lw, connection_data_from_lwip);
     tcp_err(lw, lwip_conn_err);
-    enqueue(s->incoming, sn);
+    if (!enqueue(s->incoming, sn))
+	msg_err("incoming queue full\n");
 
-    //  using an empty queue plus notify as the error signal
-    // isnt really the most robust
     if ((sp = dequeue(s->waiting))) {
         apply(sp, timm("errno", value_from_u64(s->h, lwip_errno(err))));                
     }  else {
-        if ((p = dequeue(s->notify))) {
-            apply(p);
+        if ((eh = dequeue(s->notify))) {
+	    /* bork */
+            if (!apply(eh, EPOLLIN))
+		if (!enqueue(s->notify, eh))
+		    msg_err("notify queue full\n");
         }
     }
     return ERR_OK;
@@ -430,9 +463,11 @@ sysreturn accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
     if (queue_length(s->incoming)) {
         accept_finish(s, current, addr, addrlen, ERR_OK);
     } else {
-        enqueue(s->waiting, closure(s->h, accept_finish, s, current, addr, addrlen));
+        if (!enqueue(s->waiting, closure(s->h, accept_finish, s, current, addr, addrlen)))
+	    msg_err("waiting queue full\n");
     }
     thread_sleep(current);
+    return 0;			/* suppress warning */
 }
 
 sysreturn accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)

@@ -8,7 +8,7 @@
 #include <errno.h>
 #include <string.h>
 
-#define TEST_PAGESIZE  (1 << 21)
+#define TEST_PAGESIZE  U64_FROM_BIT(21)
 
 static inline boolean validate(heap h)
 {

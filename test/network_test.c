@@ -1,7 +1,6 @@
 #include <runtime.h>
 #include <http.h>
 #include <socket_user.h>
-#include <sys/epoll.h>
 #include <stdlib.h>
 
 typedef struct stats {
@@ -91,12 +90,13 @@ static buffer_handler newconn(heap h, thunk newconn, stats s, tuple t, status_ha
 
 }
 
-static CLOSURE_8_0(startconn, void, heap, descriptor, merge, buffer, thunk *, stats, status_handler, tuple);
-static void startconn(heap h, descriptor e, merge m, buffer target, thunk *self, stats s, status_handler err, tuple req)
+static CLOSURE_8_0(startconn, void, heap, notifier, merge, buffer, thunk *, stats, status_handler, tuple);
+static void startconn(heap h, notifier n, merge m, buffer target, thunk *self, stats s, status_handler err, tuple req)
 {
     status_handler sth = apply(m);
+
     s->connections_outstanding++;
-    connection(h, e, target, closure(h, newconn, h, *self, s, req, sth), err);
+    connection(h, n, target, closure(h, newconn, h, *self, s, req, sth), err);
 }
 
 CLOSURE_0_1(connection_error, void, status);
@@ -132,10 +132,12 @@ void main(int argc, char **argv)
     heap h = init_process_runtime();    
     tuple t = parse_arguments(h, argc, argv);
     value unassoc = table_find(t, sym(unassociated));
-    descriptor e = epoll_create(1);
     if (!unassoc) {
         halt("must provide target\n");
     }
+
+    notifier n = table_find(t, sym(select)) ? create_select_notifier(h) :
+	create_epoll_notifier(h);
     buffer target = vector_pop(vector_from_tuple(h, unassoc));
     thunk *newconn = allocate(h, sizeof(thunk));
     // there are other solutions for y
@@ -150,11 +152,13 @@ void main(int argc, char **argv)
     merge m = allocate_merge(h, closure(h, finished, s));
 
     zero(s, sizeof(struct stats)); //?
+
     register_periodic_timer(seconds(1), closure(h, print_stats, s));
     tuple req = timmf("url", "/", "fizz", "bun", "Host", "tenny");
     rprintf("request %v\n", req);
-    *newconn = (thunk)closure(h, startconn, h, e, m, target, newconn, s, err, req);
+    *newconn = (thunk)closure(h, startconn, h, n, m, target, newconn, s, err, req);
+
     apply(*newconn);
-    epoll_spin(e);
+    notifier_spin(n);
 }
 

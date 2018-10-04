@@ -39,6 +39,7 @@ sysreturn arch_prctl(int code, unsigned long a)
     default:
         return set_syscall_error(current, EINVAL);
     }
+    return 0;
 }
 
 sysreturn clone(unsigned long flags, void *child_stack, void *ptid, void *ctid, void *x)
@@ -259,6 +260,7 @@ thread create_thread(process p, void *stack)
     thread t = allocate(h, sizeof(struct thread));
     t->p = p;
     t->uh = *p->uh;
+    t->select_epoll = 0;
     t->tid = tidcount++;
     t->set_child_tid = t->clear_child_tid = 0;
     t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(closure(h, default_fault_handler, t));

@@ -33,6 +33,7 @@ typedef struct unix_heaps {
     heap processes;
 } *unix_heaps;
 
+typedef struct epoll *epoll;
 typedef struct thread {
     // if we use an array typedef its fragile
     // there are likley assumptions that frame sits at the base of thread
@@ -46,6 +47,7 @@ typedef struct thread {
        CPU-bound object cache).
     */
     struct unix_heaps uh;
+    epoll select_epoll;
     void *set_child_tid;
     void *clear_child_tid;
     u64 tid;
@@ -54,12 +56,11 @@ typedef struct thread {
 } *thread;
 
 typedef closure_type(io, sysreturn, void *, u64 length, u64 offset);
-
+typedef closure_type(event_handler, boolean, u32 events);
 typedef struct file {
     u64 offset; 
     io read, write;
-    // check if data on the read path
-    closure_type(check, void, thunk in, thunk hup);
+    closure_type(check, boolean, u32 eventmask, event_handler eh);
     closure_type(close, sysreturn);
     boolean blocking;
     tuple n;
@@ -177,8 +178,8 @@ static sysreturn sysreturn_value(thread t)
     return (sysreturn)t->frame[FRAME_RAX];
 }
 
-
-#define resolve_fd(__p, __fd) ({void *f ; if (!(f = vector_get(__p->files, __fd))) return set_syscall_error(current, EBADF); f;})
+#define resolve_fd_noret(__p, __fd) vector_get(__p->files, __fd)
+#define resolve_fd(__p, __fd) ({void *f ; if (!(f = resolve_fd_noret(__p, __fd))) return set_syscall_error(current, EBADF); f;})
 
 void init_threads(process p);
 void init_syscalls();
