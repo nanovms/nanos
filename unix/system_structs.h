@@ -221,6 +221,8 @@ struct siginfo {
     // plus big hairy union...we dont plan on delivering any of these at the moment
 };
 
+typedef u64 fd_set;
+
 #define NSIG 64
 typedef struct {
     unsigned long sig[NSIG/sizeof(unsigned long)];
@@ -288,9 +290,9 @@ struct epoll_event {
 #define EPOLLERR 0x008
 #define EPOLLHUP 0x010
 #define EPOLLRDHUP 0x2000
-#define EPOLLWAKEUP 1u << 29
-#define EPOLLONESHOT 1u << 30
-#define EPOLLET 1u << 3
+#define EPOLLWAKEUP (1u << 29)
+#define EPOLLONESHOT (1u << 30)
+#define EPOLLET (1u << 31)
 
 typedef struct aux {u64 tag; u64 val;} *aux;
 

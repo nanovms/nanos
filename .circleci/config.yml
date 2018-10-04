@@ -3,7 +3,7 @@ jobs:
   build:
     docker:
       # specify the version
-      - image: circleci/golang:1.9
+      - image: circleci/golang:1.11
     working_directory: /go/src/github.com/nanovms/nanos
     steps:
       - checkout
@@ -16,7 +16,7 @@ jobs:
       - run: cd test && ./functional.sh
   nightly-build:
     docker:
-      - image: circleci/golang:1.9
+      - image: circleci/golang:1.11
     working_directory: /go/src/github.com/nanovms/nanos
     steps:
       - checkout

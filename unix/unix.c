@@ -66,7 +66,6 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->fs = fs;
     p->cwd = root;
     p->process_root = root;
-    u64 infinity = -1ull;
     p->fdallocator = create_id_heap(h, 3, infinity, 1);
     
     p->files = allocate_vector(h, 64);

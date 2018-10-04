@@ -544,8 +544,6 @@ sysreturn readlink(const char *pathname, char *buf, u64 bufsiz)
 sysreturn close(int fd)
 {
     file f = resolve_fd(current->p, fd);
-    if (f == INVALID_ADDRESS)
-	return set_syscall_error(current, EBADF);
     deallocate_fd(current->p, fd, f);
     if (f->close)
 	return apply(f->close);
@@ -622,7 +620,7 @@ buffer install_syscall(heap h)
 }
 
 extern char *syscall_name(int);
-static u64 syscall_debug()
+static void syscall_debug()
 {
     u64 *f = current->frame;
     int call = f[FRAME_VECTOR];

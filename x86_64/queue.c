@@ -4,19 +4,19 @@
 // this is not in x86_64
 
 
-void enqueue(queue q, void *n)
+boolean enqueue(queue q, void *n)
 {
     u64 mask = q->length -1;
-    if (((q->write + 1)  & mask)  == (q->read & mask)) {
-        halt("queue overrun");
-    }
+    if (((q->write + 1)  & mask)  == (q->read & mask))
+        return false;
     // fix this race for multiple writers...maybe a lookaside region
     // next to the write pointer so we can use cas128?
     u64 f = read_flags();
     disable_interrupts();
     u64 slot = fetch_and_add(&q->write, 1);
     q->body[slot & mask]= n;
-    if (f & FLAG_INTERRUPT) enable_interrupts();    
+    if (f & FLAG_INTERRUPT) enable_interrupts();
+    return true;
 }
 
 int queue_length(queue q)

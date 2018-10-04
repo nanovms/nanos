@@ -25,7 +25,8 @@ static inline int runtime_strlen(char *a)
 
 #define pad(__x, __s) ((((__x) - 1) & (~((__s) - 1))) + (__s))
 
-#define MASK(x) ((1ull<<x)-1)
+#define U64_FROM_BIT(x) (1ull<<(x))
+#define MASK(x) (U64_FROM_BIT(x)-1)
 
 #ifndef MIN
 #define MIN(x, y) ((x) < (y)? (x):(y))
@@ -82,12 +83,14 @@ physical vtop(void *x);
 
 // used by stage2/stage3, not process
 #define PAGELOG 12
-#define PAGESIZE (1<<PAGELOG)
+#define PAGESIZE U64_FROM_BIT(PAGELOG)
 #define PAGELOG_2M 21
-#define PAGESIZE_2M (1<<PAGELOG_2M)
+#define PAGESIZE_2M U64_FROM_BIT(PAGELOG_2M)
 #ifndef physical_from_virtual
 physical physical_from_virtual(void *x);
 #endif
+
+#define infinity (-1ull)
 
 #define INVALID_PHYSICAL ((u64)0xffffffffffffffff)
 
