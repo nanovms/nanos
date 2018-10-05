@@ -225,8 +225,10 @@ void print_frame(context f)
 
 // coordination with runloop
 extern int interrupt_count;
+static void *interrupt_stack;
+extern void frame_return();
 
-void common_handler()
+void common_handler_newstack()
 {
     int i = frame[FRAME_VECTOR];
     u64 z;
@@ -251,6 +253,13 @@ void common_handler()
         }
         if (i < 25) frame = apply(f, frame);
     }
+    frame_return();
+}
+
+void common_handler()
+{
+    //    common_handler_newstack();
+    switch_stack(interrupt_stack, common_handler_newstack);
 }
 
 heap interrupt_vectors;
@@ -317,6 +326,10 @@ void start_interrupts(kernel_heaps kh)
     idt = allocate(pages, pages->pagesize);
     frame = allocate(pages, pages->pagesize);
 
+    u64 interrupt_stack_size = 32*KB;
+    interrupt_stack = allocate(heap_backed(kh), interrupt_stack_size);
+    interrupt_stack += interrupt_stack_size;
+                                            
     for (int i = 0; i < interrupt_size; i++) 
         write_idt(idt, i, start + i * delta);
     

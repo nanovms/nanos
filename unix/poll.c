@@ -1,6 +1,6 @@
 #include <unix_internal.h>
 
-//#define EPOLL_DEBUG
+#define EPOLL_DEBUG
 
 typedef struct epoll *epoll;
 
@@ -189,11 +189,15 @@ static void epoll_blocked_finish(epoll_blocked w, boolean timedout)
     if (timedout)
 	rprintf(", timed out %p", w->timeout);
 #endif
+    console("c\n");
     heap h = heap_general(get_kernel_heaps());
+    console("d\n");    
 
     if (w->sleeping) {
         w->sleeping = false;
+        console("a\n");
         thread_wakeup(w->t);
+        console("b\n");        
 	sysreturn rv;
 
 	if (w->select) {
@@ -607,19 +611,7 @@ sysreturn pselect(int nfds,
 		  struct timespec *timeout,
 		  const sigset_t * sigmask)
 {
-<<<<<<< HEAD
-    // xxx - implement wait/notify
-    if (timeout == 0) {
-        rprintf("select poll\n");
-    } else {
-        register_timer(time_from_timespec(timeout),
-		       closure(heap_general(get_kernel_heaps()), select_timeout, current, 0));
-        thread_sleep();
-    }
-    return 0;
-=======
     return select_internal(nfds, readfds, writefds, exceptfds, timeout ? time_from_timespec(timeout) : infinity, sigmask);
->>>>>>> origin/master
 }
 
 sysreturn select(int nfds,

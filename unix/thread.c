@@ -224,9 +224,6 @@ void thread_sleep()
 {
     thread t = current;
     thread_log(t, "sleep",  0);
-    rprintf("pig\n");
-    current = kernel_thread;
-    rprintf("pop %d\n", kernel_thread->tid);    
     u64 here = u64_from_pointer(__builtin_return_address(0));    
     if (t->sleep_by) {
         rprintf("thread %d already sleeping %p %p %@ %@\n", t->tid, t->sleep_by, here, t->sleep_by, here);
@@ -237,17 +234,21 @@ void thread_sleep()
     // config from the filesystem
 
     rprintf("sleep %p %p %p\n", kernel_thread->tid, kernel_thread->frame[FRAME_STACK_TOP], runloop);
+    current = kernel_thread;
     switch_stack(kernel_thread->frame[FRAME_STACK_TOP], runloop);
 }
 
 void thread_wakeup(thread t)
 {
+    console("thread wakeup\n");
     if (!t->sleep_by) {
         rprintf("waking up a running thread %p %@\n",  __builtin_return_address(0), __builtin_return_address(0));
         halt("waking up a running thread %p", __builtin_return_address(0));
     }
+    rprintf("thread wakeupo %p\n", t);    
     t->sleep_by = 0;
-    thread_log(current, "wakeup %d->%d %p %p", current->tid, t->tid, t->frame[FRAME_RIP], __builtin_return_address(0));
+    //    thread_log(current, "wakeup %d %p", t->tid, t->frame[FRAME_RIP]);
+    rprintf("thread wakeup log coplete %p\n", t);        
     enqueue(runqueue, t->run);
 }
 

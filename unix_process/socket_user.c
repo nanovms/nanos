@@ -1,21 +1,16 @@
-#include <runtime.h>
+#include <unix_process_runtime.h>
 #include <sys/socket.h>
 #include <stdlib.h>
 #include <netinet/in.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
-#include <sys/epoll.h>
 #include <socket_user.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <ip.h>
 #include <arpa/inet.h> //htonl
 
-typedef struct registration {
-    descriptor fd;
-    thunk a;
-}  *registration;
 
 void set_nonblocking(descriptor d)
 {
@@ -44,47 +39,8 @@ buffer name_from_sockaddr_in (heap h, struct sockaddr_in *in)
                    htons(in->sin_port));
 }
 
-static CLOSURE_2_0(unreg, void, descriptor, descriptor);
-static void unreg(descriptor e, descriptor f)
-{
-    rprintf("remove\n");
-}
-
-static void register_descriptor_write(heap h, descriptor e, descriptor f, thunk each)
-{
-    registration r = allocate(h, sizeof(struct registration));
-    r->fd = f;
-    r->a = each;
-    struct epoll_event ev;
-    ev.events = EPOLLOUT;
-    ev.data.ptr = r;    
-    epoll_ctl(e, EPOLL_CTL_ADD, f, &ev);
-}
-
-static void register_descriptor_except(heap h, descriptor e, descriptor f, thunk each)
-{
-    registration r = allocate(h, sizeof(struct registration));
-    r->fd = f;
-    r->a = each;
-    struct epoll_event ev;
-    ev.events = EPOLLERR;
-    ev.data.ptr = r;    
-    epoll_ctl(e, EPOLL_CTL_ADD, f, &ev);
-}
-
-static void register_descriptor(heap h, descriptor e, descriptor f, thunk each)
-{
-    registration r = allocate(h, sizeof(struct registration));
-    r->fd = f;
-    r->a = each;
-    struct epoll_event ev;
-    ev.events = EPOLLIN|EPOLLRDHUP|EPOLLET;
-    ev.data.ptr = r;    
-    epoll_ctl(e, EPOLL_CTL_ADD, f, &ev);
-}
-
-static CLOSURE_4_0(connection_input, void, heap, descriptor, descriptor, buffer_handler);
-static void connection_input(heap h, descriptor f, descriptor e, buffer_handler p)
+static CLOSURE_4_0(connection_input, void, heap, descriptor, notifier, buffer_handler);
+static void connection_input(heap h, descriptor f, notifier n, buffer_handler p)
 {
     // can reuse?
     buffer b = allocate_buffer(h, 512);
@@ -99,7 +55,7 @@ static void connection_input(heap h, descriptor f, descriptor e, buffer_handler 
     // this should have been taken care of by EPOLLHUP, but the
     // kernel doesn't support it        
     if (res == 0) {
-        epoll_ctl(e, EPOLL_CTL_DEL, f, 0);
+        notifier_reset_fd(n, f);
         close(f);
         apply(p, 0);
     } else {
@@ -131,8 +87,8 @@ tuple get_sockinfo(descriptor s)
         halt("Error on getpeername %E", errno);
 }
 
-static CLOSURE_4_0(accepting, void, heap, descriptor, descriptor, new_connection);
-static void accepting(heap h, descriptor e, descriptor c, new_connection n)
+static CLOSURE_4_0(accepting, void, heap, notifier, descriptor, new_connection);
+static void accepting(heap h, notifier n, descriptor c, new_connection nc)
 {
     struct sockaddr_in where;
     socklen_t len = sizeof(struct sockaddr_in);
@@ -140,22 +96,22 @@ static void accepting(heap h, descriptor e, descriptor c, new_connection n)
     get_sockinfo(s);
     if (s < 0 ) halt("accept %E\n", errno);
     buffer_handler out = closure(h, connection_output, s);
-    buffer_handler in = apply(n, out);
-    register_descriptor(h, e, s, closure(h, connection_input, h, s, e, in));
+    buffer_handler in = apply(nc, out);
+    register_descriptor_read(n, s, closure(h, connection_input, h, s, n, in));
 }
 
-static CLOSURE_4_0(connection_start, void, heap, descriptor, descriptor, new_connection);
-void connection_start(heap h, descriptor s, descriptor poll, new_connection c)
+static CLOSURE_4_0(connection_start, void, heap, descriptor, notifier, new_connection);
+void connection_start(heap h, descriptor s, notifier n, new_connection c)
 {
     buffer_handler out = closure(h, connection_output, s);
     buffer_handler input = apply(c, out);
     get_sockinfo(s);
-    epoll_ctl(poll, EPOLL_CTL_DEL, s, 0);        
-    register_descriptor(h, poll, s, closure(h, connection_input, h, s, poll, input));
+    notifier_reset_fd(n, s);
+    register_descriptor_read(n, s, closure(h, connection_input, h, s, n, input));
 }
 
-static CLOSURE_3_0(connection_fail, void, descriptor, descriptor, status_handler);
-void connection_fail(descriptor poll, descriptor s, status_handler failure)
+static CLOSURE_3_0(connection_fail, void, notifier, descriptor, status_handler);
+void connection_fail(notifier n, descriptor s, status_handler failure)
 {
     rprintf("connection fail\n");
     u32 result;
@@ -166,13 +122,13 @@ void connection_fail(descriptor poll, descriptor s, status_handler failure)
     } else {
         rprintf("errored socket with no error !?\n");
     }
-    epoll_ctl(poll, EPOLL_CTL_DEL, s, 0);            
+    notifier_reset_fd(n, s);    
 }
 
 // more general registration than epoll fd
 // asynch
 void connection(heap h,
-                descriptor poll,
+                notifier n,
                 buffer target,
                 new_connection c,
                 status_handler failure)
@@ -191,14 +147,14 @@ void connection(heap h,
         apply(failure, timmf("errno", "%d", errno,
                              "errstr", "%E", errno));
     } else {
-        register_descriptor_write(h, poll, s, closure(h, connection_start, h, s, poll, c));
-        register_descriptor_except(h, poll, s, closure(h, connection_fail, poll, s, failure));
+        register_descriptor_write(n, s, closure(h, connection_start, h, s, n, c));
+        register_descriptor_except(n, s, closure(h, connection_fail, n, s, failure));
     }
 }
 
 
 // should rety with asynch completion
-void listen_port(heap h, descriptor e, u16 port, new_connection n)
+void listen_port(heap h, notifier n, u16 port, new_connection nc)
 {
     struct sockaddr_in where;
 
@@ -215,34 +171,7 @@ void listen_port(heap h, descriptor e, u16 port, new_connection n)
     if (listen(service, 5))
         halt("listen %E", errno);
 
-    register_descriptor(h, e, service, closure(h, accepting, h, e, service, n));
+    register_descriptor_read(n, service, closure(h, accepting, h, n, service, nc));
 }
 
-
-u64 milliseconds_from_time(time t)
-{
-    return((t*1000)>>32);
-}
-
-void epoll_spin(descriptor e)
-{
-    // make a 'notifier' abstraction to allow us to run the same code with epoll, select, kqeuue, etc
-    struct epoll_event ev[10];
-    while (1) {
-        time t = timer_check();
-        int ms = t?milliseconds_from_time(t):-1;
-        int res = epoll_wait(e, ev, sizeof(ev)/sizeof(struct epoll_event), ms);
-        if (res == -1) halt ("epoll %E", errno);
-        for (int i = 0;i < res; i++) {
-            registration r = ev[i].data.ptr;
-            if (ev[i].events & EPOLLHUP)  {
-                epoll_ctl(e, EPOLL_CTL_DEL, r->fd, 0);
-                // always the right thing to do?
-                close(r->fd);
-            } else {
-                apply(r->a);
-            }
-        }
-    }
-}
 

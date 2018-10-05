@@ -108,6 +108,13 @@ static inline sysreturn lwip_errno(s8 err)
     //    return timm("lwip_error", value_from_u64(h, err), "errno", value_from_u64(h, unix_errno));
 }
 
+static inline status lwip_status(int err)
+{
+    if (!err) return STATUS_OK;
+    return timmf("errno", "%d", lwip_errno(err),
+                 "lwip_errno", "%d", err);
+}
+
 static inline void pbuf_consume(struct pbuf *p, u64 length)
 {
     p->len -= length;
@@ -228,7 +235,8 @@ static sysreturn socket_close(sock s)
 
 static int allocate_sock(process p, struct tcp_pcb *pcb)
 {
-    file f = unix_cache_alloc(get_unix_heaps(), socket);
+    // maybe no current
+    file f = unix_cache_alloc(p->uh, socket);
     if (f == INVALID_ADDRESS) {
 	msg_err("failed to allocate struct sock\n");
 	return -ENOMEM;
@@ -326,7 +334,7 @@ static void set_completed_state( thread th, sysreturn code)
   set_syscall_return(th, code);
   thread_wakeup(th);
 }
-
+    
 static err_t connect_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
 {
     rprintf("connect complete\n");
@@ -334,32 +342,25 @@ static err_t connect_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
     sock s = (sock)(arg);
     s->state = SOCK_OPEN;
     if ((sp = dequeue(s->waiting))) 
-        apply(sp, timm("errno", value_from_u64(s->h, lwip_errno(err))));
+        apply(sp, lwip_status(err));
+    return ERR_OK;
 }
 
-static sysreturn connect_tcp(sock s, const ip_addr_t* address, unsigned short port)
+static sysreturn connect_tcp(sock socket, const ip_addr_t* address, unsigned short port)
 {
-    enqueue(s->waiting, closure(s->h, set_completed_state, current));
+    if (!enqueue(socket->waiting, closure(socket->h, set_completed_state, current))) {
+        msg_err("waiting queue full\n");
+        return set_syscall_error(current, ENOMEM);
+    }
     int err;
     interrupt_guard() {    
-        tcp_arg(s->lw, s);
-        tcp_err(s->lw, error_handler_tcp);
+        tcp_arg(socket->lw, socket);
+        tcp_err(socket->lw, error_handler_tcp);
         rprintf ("connect %p %p\n", *address, port);
-        s->state = SOCK_IN_CONNECTION;
-        err = tcp_connect(s->lw, address, port, connect_complete);
+        socket->state = SOCK_IN_CONNECTION;
+        err = tcp_connect(socket->lw, address, port, connect_complete);
     }
-    status_handler sp = NULL;
-    sock s = (sock)(arg);
-    s->state = SOCK_OPEN;
-    if ((sp = dequeue(s->waiting))) {
-        u64 code =  lwip_to_errno(err);
-        apply(sp, (status)&code);
-    }
-    if (ERR_OK != err) 
-        return set_syscall_error(current, lwip_errno(err));
-
-    if (s->f.blocking) 
-        thread_sleep(current);
+    if (socket->f.blocking) thread_sleep();
     return set_syscall_error(current, EINPROGRESS);
 }
 

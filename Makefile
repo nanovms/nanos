@@ -1,4 +1,4 @@
-all: examples/hws.image test
+all: examples/webgs.image test
 
 force:
 

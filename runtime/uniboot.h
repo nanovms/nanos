@@ -13,7 +13,7 @@
 #define va_tag_offset 40
 
 #else
-#include "unix_process_runtime.h"
+#define va_tag_offset 44
 #endif
 
 static inline void* tag(void* v, u64 tval) {

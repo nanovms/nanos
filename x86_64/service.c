@@ -69,7 +69,11 @@ void runloop()
         // we're counting on the fact that there is only one of these :/
         if (delta) hpet_timer(delta, ignore);
         if ((t = dequeue(runqueue))) {
-            console("apply\n");            
+            console("apply ");
+            print_u64(u64_from_pointer(t));
+            console(" ");
+            print_u64(u64_from_pointer(*(u64 **)t));
+            console("\n");
             enable_interrupts();
             apply(t);
             disable_interrupts();            

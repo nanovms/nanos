@@ -85,12 +85,14 @@ static void timer_config(int timer, time rate, thunk t, boolean periodic)
     u64 c = TN_ENABLE_CNF | TN_FSB_EN_CNF | TN_INT_ENB_CNF | TN_VAL_SET_CNF | (periodic?TN_TYPE_CNF:0);
     hpet->timers[timer].config = c;
     // assume that overwrite is ok
+    // we're getting level style behaviour for some reason
     register_interrupt(hpet_interrupts[timer], t);
 
     // overflow for large periods (> 1s)    
     u64 femtorate = (u64)(((u128)rate * femto) >> 32)/femtoperiod;
-    rprintf("hpet: %p %p %p\n", rate, femtoperiod, femtorate);
-    hpet->timers[timer].comparator = femtorate*2;    
+    rprintf("hpet: %p %p %p %p\n", rate, femtoperiod, femtorate, hpet->mainCounterRegister);
+    // we can close the Floyd gap here by storing the interrupt time
+    hpet->timers[timer].comparator = femtorate + hpet->mainCounterRegister;
 }
 
 // allocate timers .. right now its at most 1 one-shot and periodic,
@@ -124,6 +126,7 @@ boolean init_hpet(heap misc, heap virtual_pagesized, heap pages) {
     map(hpet_page, HPET_TABLE_ADDRESS, PAGESIZE, pages);
     hpet = (struct HPETMemoryMap*)hpet_page;
 
+    // xxx - set to set size to 64?
     femtoperiod = hpet->capabilities.counterClkPeriod;
     // this is like half the field size, we can do a better probe
     if ((femtoperiod > HPET_MAXIMUM_INCREMENT_PERIOD) || !femtoperiod) {

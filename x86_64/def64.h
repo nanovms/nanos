@@ -11,6 +11,7 @@ typedef __uint128_t u128;
 
 typedef u64 word;
 typedef u64 bytes;
+typedef u8 boolean;
 
 #define pointer_from_u64(__a) ((void *)(__a))
 #define u64_from_pointer(__a) ((u64)(__a))

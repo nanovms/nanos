@@ -6,6 +6,7 @@ typedef unsigned int u32;
 typedef unsigned long long u64;
 typedef long long s64;
 typedef u32 bytes;
+typedef u8 boolean;
 
 // not sure if we keep word, sizeof(word) == sizeof(void **), so I guess its uintptr_t
 typedef u32 word;
