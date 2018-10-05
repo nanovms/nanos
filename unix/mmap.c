@@ -36,9 +36,9 @@ static sysreturn mincore(void *addr, u64 length, u8 *vec)
     return -ENOMEM;
 }
 
-CLOSURE_5_1(mmap_load_entire, void, thread, file, u64, u64, u64, buffer);
-void mmap_load_entire(thread t, file f, u64 where ,u64 len, u64 offset, buffer b) {
-    kernel_heaps kh = get_kernel_heaps();
+CLOSURE_4_1(mmap_load_entire, void, thread, u64, u64, u64, buffer);
+void mmap_load_entire(thread t, u64 where, u64 len, u64 offset, buffer b) {
+    kernel_heaps kh = (kernel_heaps)&t->uh;
     heap pages = heap_pages(kh);
     heap physical = heap_physical(kh);
 
@@ -50,14 +50,16 @@ void mmap_load_entire(thread t, file f, u64 where ,u64 len, u64 offset, buffer b
         msize = len;
 
     // mutal misalignment?...discontiguous backing?
-    map(where, physical_from_virtual(buffer_ref(b, offset)), msize, pages);
+    u64 p = physical_from_virtual(buffer_ref(b, offset));
+    thread_log(current, "mmap file target: %p, phys: %P, msize: %P, len: %P\n", where, p, msize, len);
+    map(where, p, msize, pages);
 
     if (len > msize) {
         u64 bss = pad(len, PAGESIZE) - msize;
         map(where + msize, allocate_u64(physical, bss), bss, pages);
         zero(pointer_from_u64(where + msize), bss);
     }
-    set_syscall_return(t,where);
+    set_syscall_return(t, where);
     thread_wakeup(t);
 }
 
@@ -72,6 +74,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
 {
     process p = current->p;
     kernel_heaps kh = get_kernel_heaps();
+    heap h = heap_general(kh);
     heap pages = heap_pages(kh);
     heap physical = heap_physical(kh);
     // its really unclear whether this should be extended or truncated
@@ -80,14 +83,18 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     len = len & MASK(32);
     u64 where = u64_from_pointer(target);
 
+    thread_log(current, "mmap: target %p, size %P, prot %P, flags %P, fd %d, offset %P\n",
+	       target, size, prot, flags, fd, offset);
     // xx - go wants to specify target without map fixed, and has some strange
     // retry logic around it
     if (!(flags &MAP_FIXED) && !target) {
-        if (flags & MAP_32BIT){
+        if (flags & MAP_32BIT) {
             where = allocate_u64(current->p->virtual32, len);
         } else {
             where = allocate_u64(current->p->virtual, len);
         }
+    } else {
+	thread_log(current, "fixed at %p\n", target);
     }
 
     // make a generic zero page function
@@ -95,19 +102,17 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
         u64 m = allocate_u64(physical, len);
         if (m == INVALID_PHYSICAL) return m;
         map(where, m, len, pages);
-        thread_log(current, "mmap anon target:%p size:%p\n", where, size);
+        thread_log(current, "mmap anon target: %P, len: %P (given size: %P)\n", where, len, size);
         zero(pointer_from_u64(where), len);
         return where;
     }
 
     file f = resolve_fd(current->p, fd);
-    heap hpkh = heap_backed(kh);
-    heap hpusr = hpkh;
-    filesystem_read_entire(p->fs,f->n,hpusr,
-                           closure(hpkh,mmap_load_entire,current,f,where,len,offset),
-                           closure(hpkh,mmap_load_entire_fail,current));
+    thread_log(current, "read file ");
+    filesystem_read_entire(p->fs, f->n, heap_backed(kh),
+                           closure(h, mmap_load_entire, current, where, len, offset),
+                           closure(h, mmap_load_entire_fail, current));
     runloop();
-    return where;
 }
 
 void register_mmap_syscalls(void **map)

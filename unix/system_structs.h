@@ -1,5 +1,6 @@
 // structs that live on the user-kernel boundary
 
+#if 0
 struct stat
   {
     u64 st_dev;		
@@ -15,6 +16,30 @@ struct stat
       u64 st_blksize;	
       u64 st_blocks;	
 } __attribute__((packed));
+#else
+struct stat {
+    u64 st_dev;
+    u64 st_ino;
+    u32 st_mode;
+    u32 st_nlink;
+    u32 st_uid;
+    u32 st_gid;
+    u64 st_rdev;
+    u64 pad1;
+    s64 st_size;
+    s32 st_blksize;
+    u32 pad2;
+    s64 st_blocks;
+    s64 st_atime;
+    u64 st_atime_nsec;
+    s64 st_mtime;
+    u64 st_mtime_nsec;
+    s64 st_ctime;
+    u64 st_ctime_nsec;
+    u32 unused4;
+    u32 unused5;
+} __attribute__((packed));
+#endif
 // better to just do this by offset
 
 #define S_IFMT  00170000
