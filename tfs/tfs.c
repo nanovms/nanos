@@ -30,7 +30,6 @@ static void fs_read_extent(filesystem fs,
 {
     range i = range_intersection(q, ex);
     // offset within a block - these are just the extents, so might be a sub
-    status_handler f = apply(m);
     u64 xfer = range_span(i);
     u64 block_start = u64_from_pointer(val);
     u64 tail = range_span(q) & (fs->blocksize -1);
@@ -49,7 +48,10 @@ static void fs_read_extent(filesystem fs,
     if (*last != 0) zero(buffer_ref(target, *last), target->start - *last);
     *last = q.end;
     target->end = *last;
-    apply(fs->r, target_start, xfer, block_start, f);
+    if (xfer) {
+        status_handler f = apply(m);
+        apply(fs->r, target_start, xfer, block_start, f);
+    }
 }
 
 void filesystem_read(filesystem fs, tuple t, void *dest, u64 length, u64 offset, status_handler completion)
