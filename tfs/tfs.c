@@ -172,6 +172,11 @@ void extent_update(fsfile f, symbol foff, tuple value)
     //    rtrie_remove(f->fs->free, boffset, length);
 }
 
+fsfile fsfile_from_node(filesystem fs, tuple n)
+{
+    return table_find(fs->files, n);
+}
+
 // cache goes on top
 void filesystem_read_entire(filesystem fs, tuple t, heap h, buffer_handler c, status_handler e)
 {
@@ -189,8 +194,7 @@ void filesystem_read_entire(filesystem fs, tuple t, heap h, buffer_handler c, st
         rtrie_range_lookup(f->extents, irange(0, len), closure(h, fs_read_extent, fs, b, last, m, irange(0, len)));
         apply(k, STATUS_OK);
     } else {
-        tuple e = timm("status", "no such file %v\n", t);
-        apply(c, 0);
+        apply(e, timm("status", "no such file %v\n", t));
     }
 }
 
