@@ -63,17 +63,9 @@ void runloop()
         interrupt_count = 0;
 
         u64 delta = timer_check();
-        console("runloop ");
-        print_u64(delta);
-        console("\n");
         // we're counting on the fact that there is only one of these :/
         if (delta) hpet_timer(delta, ignore);
         if ((t = dequeue(runqueue))) {
-            console("apply ");
-            print_u64(u64_from_pointer(t));
-            console(" ");
-            print_u64(u64_from_pointer(*(u64 **)t));
-            console("\n");
             enable_interrupts();
             apply(t);
             disable_interrupts();            
@@ -85,7 +77,6 @@ void runloop()
                 enable_interrupts();
                 __asm__("hlt");
             }
-            console("wakeup\n");            
             disable_interrupts();
         }
     }
@@ -294,6 +285,7 @@ static void init_kernel_heaps()
 // init linker set
 void init_service()
 {
+    console("foo!\n");
     init_kernel_heaps();
     kernel_stack_size = 32*PAGESIZE;
     kernel_stack_start = allocate(heap_backed(&heaps), kernel_stack_size);

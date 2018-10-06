@@ -28,6 +28,7 @@ typedef struct storage {
 static CLOSURE_3_1(complete, void, storage, status_handler, u8 *, u64);
 static void complete(storage s, status_handler f, u8 *result, u64 len)
 {
+
     status st = 0;
     // 1 is io error, 2 is unsupported operation
     if (*result) st = timm("result", "%d", *result);

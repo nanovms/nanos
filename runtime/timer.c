@@ -38,7 +38,6 @@ timer register_timer(time interval, thunk n)
 timer register_periodic_timer(time interval, thunk n)
 {
     timer t=(timer)allocate(theap, sizeof(struct timer));
-    rprintf("register periodic\n");
     t->t = n;
     t->disable = 0;
     t->interval = interval;    
@@ -60,7 +59,6 @@ time timer_check()
             apply(current->t);
             if (current->interval) {
                 current->w += current->interval;
-                rprintf("reinsert timer\n");
                 pqueue_insert(timers, current); 
             }
         }

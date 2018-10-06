@@ -214,7 +214,7 @@ void run_thread(thread t)
     current = t;
     thread_log(t, "run",  t->frame[FRAME_RIP]);
     frame  = t->frame;
-    IRETURN(frame);    
+    frame_return(frame);
 }
 
 // it might be easier, if a little skeezy, to use the return value

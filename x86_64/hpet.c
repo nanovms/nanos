@@ -90,7 +90,7 @@ static void timer_config(int timer, time rate, thunk t, boolean periodic)
 
     // overflow for large periods (> 1s)    
     u64 femtorate = (u64)(((u128)rate * femto) >> 32)/femtoperiod;
-    rprintf("hpet: %p %p %p %p\n", rate, femtoperiod, femtorate, hpet->mainCounterRegister);
+    // rprintf("hpet: %p %p %p %p\n", rate, femtoperiod, femtorate, hpet->mainCounterRegister);
     // we can close the Floyd gap here by storing the interrupt time
     hpet->timers[timer].comparator = femtorate + hpet->mainCounterRegister;
 }

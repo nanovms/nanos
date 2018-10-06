@@ -1,4 +1,4 @@
-all: examples/webgs.image test
+all: examples/hw.image test
 
 force:
 
@@ -30,8 +30,8 @@ force:
 examples/%.image: force
 	cd examples ; make $(notdir $@)
 
-run: rqemu examples/webgs.image
-	./rqemu -kvm examples/webgs.image
+run: rqemu examples/hw.image
+	./rqemu -kvm examples/hw.image
 
-run-nokvm: rqemu examples/webgs.image
-	./rqemu examples/webgs.image
+run-nokvm: rqemu examples/hw.image
+	./rqemu examples/hw.image

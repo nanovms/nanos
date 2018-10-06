@@ -71,9 +71,7 @@ extern u64 *frame;
 
 boolean breakpoint_insert(u64 a, u8 type, u8 length);
 boolean breakpoint_remove(u32 a);
-
-#define IRETURN(frame) __asm__("mov %0, %%rbx"::"g"(frame)); __asm__("jmp frame_return")
-#define ENTER(frame) __asm__("mov %0, %%rbx"::"g"(frame)); __asm__("jmp frame_enter")
+extern void frame_return(context);
 
 void msi_map_vector(int slot, int msislot, int vector);
 
