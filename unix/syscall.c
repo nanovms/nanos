@@ -264,6 +264,7 @@ struct code syscall_codes[]= {
     {SYS_inotify_add_watch, "inotify_add_watch"},
     {SYS_inotify_rm_watch, "inotify_rm_watch"},
     {SYS_migrate_pages, "migrate_pages"},
+    {SYS_openat, "openat"},
     {SYS_mkdirat, "mkdirat"},
     {SYS_mknodat, "mknodat"},
     {SYS_fchownat, "fchownat"},
@@ -410,7 +411,7 @@ sysreturn open(char *name, int flags, int mode)
     bytes length;
     heap h = heap_general(get_kernel_heaps());
     unix_heaps uh = get_unix_heaps();
-    
+
     // fix - lookup should be robust
     if (name == 0) return set_syscall_error (current, EINVAL);
     if (!(n = resolve_cstring(current->p->cwd, name))) {
@@ -434,28 +435,34 @@ sysreturn open(char *name, int flags, int mode)
     f->read = closure(h, contents_read, n);
     f->close = closure(h, file_close, f);
     f->offset = 0;
+    thread_log(current, "open %s, fd %d\n", name, fd);
     return fd;
 }
 
 static void fill_stat(tuple n, struct stat *s)
 {
-    buffer b;
     zero(s, sizeof(struct stat));
     s->st_dev = 0;
     s->st_ino = u64_from_pointer(n);
-    // dir doesn't have contents
-    if (!(b = table_find(n, sym(contents)))) {
+    if (table_find(n, sym(children))) {
         s->st_mode = S_IFDIR | 0777;
         return;
-    }  else {
-        s->st_mode = S_IFREG | 0644;
-        s->st_size = buffer_length(b);
     }
+    fsfile f = fsfile_from_node(current->p->fs, n);
+    if (!f) {
+	msg_err("can't find fsfile\n");
+	return;
+    }
+    s->st_mode = S_IFREG | 0644;
+    s->st_size = file_length(f);
+    thread_log(current, "st_ino %P, st_mode %P, st_size %P\n",
+	       s->st_ino, s->st_mode, s->st_size);
 }
 
 static sysreturn fstat(int fd, struct stat *s)
 {
-    file f = resolve_fd(current->p, fd);            
+    thread_log(current, "fd %d, stat %p\n", fd, s);
+    file f = resolve_fd(current->p, fd);
     // take this from tuple space
     if (fd == 1) {
         s->st_mode = S_IFIFO;
