@@ -386,6 +386,7 @@ static sysreturn access(char *name, int mode)
 static CLOSURE_2_1(readcomplete, void, thread, u64, status);
 static void readcomplete(thread t, u64 len, status s)
 {
+    thread_log(t, "readcomplete: len %d\n", len);
     set_syscall_return(t, len);
     thread_wakeup(t);
 }
@@ -393,6 +394,7 @@ static void readcomplete(thread t, u64 len, status s)
 static CLOSURE_1_3(contents_read, sysreturn, tuple, void *, u64, u64);
 static sysreturn contents_read(tuple n, void *dest, u64 length, u64 offset)
 {
+    thread_log(current, "filesystem_read: %t, length %P, offset %P\n", n, length, offset);
     filesystem_read(current->p->fs, n, dest, length, offset,
 		    closure(heap_general(get_kernel_heaps()), readcomplete, current, length));
     runloop();
