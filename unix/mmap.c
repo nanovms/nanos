@@ -51,7 +51,6 @@ void mmap_load_entire(thread t, u64 where, u64 len, u64 offset, buffer b) {
 
     // mutal misalignment?...discontiguous backing?
     u64 p = physical_from_virtual(buffer_ref(b, offset));
-    thread_log(current, "mmap file target: %p, phys: %P, msize: %P, len: %P\n", where, p, msize, len);
     map(where, p, msize, pages);
 
     if (len > msize) {
@@ -65,7 +64,7 @@ void mmap_load_entire(thread t, u64 where, u64 len, u64 offset, buffer b) {
 
 CLOSURE_1_1(mmap_load_entire_fail, void, thread, status);
 void mmap_load_entire_fail(thread t, status v) {
-    set_syscall_return(t, -1ull);
+    set_syscall_error(t, EACCES);
     thread_wakeup(t);
 }
 
@@ -91,7 +90,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
 	if (where == (u64)INVALID_ADDRESS) {
 	    thread_log(current, "   failed to allocate %s virtual memory, size %P\n",
 		       (flags & MAP_32BIT) ? "32-bit" : "", len);
-	    return -1ull;
+	    return -ENOMEM;
 	}
     } else {
 	/* XXX rb tree check */

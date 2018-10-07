@@ -386,7 +386,6 @@ static sysreturn access(char *name, int mode)
 static CLOSURE_2_1(readcomplete, void, thread, u64, status);
 static void readcomplete(thread t, u64 len, status s)
 {
-    thread_log(t, "readcomplete: len %d\n", len);
     set_syscall_return(t, len);
     thread_wakeup(t);
 }
@@ -437,7 +436,7 @@ sysreturn open(char *name, int flags, int mode)
     f->read = closure(h, contents_read, n);
     f->close = closure(h, file_close, f);
     f->offset = 0;
-    thread_log(current, "open %s, fd %d\n", name, fd);
+    thread_log(current, "open: \"%s\", fd %d, mode %P\n", name, fd, mode);
     return fd;
 }
 
