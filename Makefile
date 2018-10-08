@@ -37,8 +37,8 @@ force:
 examples/%.image: force
 	cd examples ; make $(notdir $@)
 
-run: rqemu examples/hw.image
+run: rqemu examples/webg.image
 	./rqemu -kvm examples/hw.image
 
-run-nokvm: rqemu examples/hw.image
+run-nokvm: rqemu examples/webg.image
 	./rqemu examples/hw.image

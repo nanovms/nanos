@@ -415,10 +415,7 @@ sysreturn open(char *name, int flags, int mode)
     bytes length;
     heap h = heap_general(get_kernel_heaps());
     unix_heaps uh = get_unix_heaps();
-<<<<<<< HEAD
-=======
 
->>>>>>> origin/master
     // fix - lookup should be robust
     if (name == 0) return set_syscall_error (current, EINVAL);
     if (!(n = resolve_cstring(current->p->cwd, name))) {
@@ -442,11 +439,7 @@ sysreturn open(char *name, int flags, int mode)
     f->read = closure(h, contents_read, n);
     f->close = closure(h, file_close, f);
     f->offset = 0;
-<<<<<<< HEAD
-    thread_log(current, "open %s, fd %d\n", name, fd);
-=======
     thread_log(current, "open: \"%s\", fd %d, mode %P\n", name, fd, mode);
->>>>>>> origin/master
     return fd;
 }
 
