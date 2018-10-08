@@ -209,7 +209,7 @@ CLOSURE_1_0(run_thread, void, thread);
 void run_thread(thread t)
 {
     current = t;
-    thread_log(t, "run",  t->frame[FRAME_RIP]);
+    thread_log(t, "run frame %p, RIP=%p", t->frame, t->frame[FRAME_RIP]);
     frame  = t->frame;
     IRETURN(frame);    
 }
@@ -241,6 +241,7 @@ thread create_thread(process p)
     t->select_epoll = 0;
     t->tid = tidcount++;
     t->set_child_tid = t->clear_child_tid = 0;
+    zero(t->frame, sizeof(t->frame));
     t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(closure(h, default_fault_handler, t));
     t->run = closure(h, run_thread, t);
     vector_push(p->threads, t);
