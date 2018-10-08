@@ -264,7 +264,7 @@ struct code syscall_codes[]= {
     {SYS_inotify_add_watch, "inotify_add_watch"},
     {SYS_inotify_rm_watch, "inotify_rm_watch"},
     {SYS_migrate_pages, "migrate_pages"},
-    {SYS_openat, "SYS_openat"},
+    {SYS_openat, "openat"},
     {SYS_mkdirat, "mkdirat"},
     {SYS_mknodat, "mknodat"},
     {SYS_fchownat, "fchownat"},
@@ -396,6 +396,7 @@ static void readcomplete(thread t, u64 len, status s)
 static CLOSURE_1_3(contents_read, sysreturn, tuple, void *, u64, u64);
 static sysreturn contents_read(tuple n, void *dest, u64 length, u64 offset)
 {
+    thread_log(current, "filesystem_read: %t, length %P, offset %P\n", n, length, offset);
     filesystem_read(current->p->fs, n, dest, length, offset,
 		    closure(heap_general(get_kernel_heaps()), readcomplete, current, length));
     thread_sleep();
@@ -414,6 +415,10 @@ sysreturn open(char *name, int flags, int mode)
     bytes length;
     heap h = heap_general(get_kernel_heaps());
     unix_heaps uh = get_unix_heaps();
+<<<<<<< HEAD
+=======
+
+>>>>>>> origin/master
     // fix - lookup should be robust
     if (name == 0) return set_syscall_error (current, EINVAL);
     if (!(n = resolve_cstring(current->p->cwd, name))) {
@@ -437,7 +442,11 @@ sysreturn open(char *name, int flags, int mode)
     f->read = closure(h, contents_read, n);
     f->close = closure(h, file_close, f);
     f->offset = 0;
+<<<<<<< HEAD
     thread_log(current, "open %s, fd %d\n", name, fd);
+=======
+    thread_log(current, "open: \"%s\", fd %d, mode %P\n", name, fd, mode);
+>>>>>>> origin/master
     return fd;
 }
 

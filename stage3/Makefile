@@ -1,6 +1,6 @@
 ROOT = ..
 all:stage3
-CC = cc
+CC ?= cc
 INCLUDES = -DSTAGE3
 
 include $(ROOT)/runtime/Makefile

@@ -24,7 +24,14 @@ clean:
 	cd examples ; make clean
 	rm -f runtime/closure_templates.h runtime/contgen image fs
 
-force:
+DEBUG ?= n
+ifeq ($(DEBUG),y)
+	DEBUG_ := -s
+else
+	DEBUG_ :=
+endif
+
+force: 
 
 # boot/boot stage3/stage3 mkfs/mkfs
 examples/%.image: force

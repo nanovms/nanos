@@ -51,7 +51,10 @@ void mmap_load_entire(thread t, u64 where, u64 len, u64 offset, buffer b) {
 
     // mutal misalignment?...discontiguous backing?
     u64 p = physical_from_virtual(buffer_ref(b, offset));
+<<<<<<< HEAD
     //    thread_log(current, "mmap file target: %p, phys: %P, msize: %P, len: %P\n", where, p, msize, len);
+=======
+>>>>>>> origin/master
     map(where, p, msize, pages);
 
     if (len > msize) {
@@ -65,9 +68,14 @@ void mmap_load_entire(thread t, u64 where, u64 len, u64 offset, buffer b) {
 
 CLOSURE_1_1(mmap_load_entire_fail, void, thread, status);
 void mmap_load_entire_fail(thread t, status v) {
+<<<<<<< HEAD
   set_syscall_return(t,-1);
   thread_wakeup(t);
   return;
+=======
+    set_syscall_error(t, EACCES);
+    thread_wakeup(t);
+>>>>>>> origin/master
 }
 
 static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 offset)
@@ -88,6 +96,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     // xx - go wants to specify target without map fixed, and has some strange
     // retry logic around it
     if (!(flags &MAP_FIXED) && !target) {
+<<<<<<< HEAD
         if (flags & MAP_32BIT) {
             where = allocate_u64(current->p->virtual32, len);
         } else {
@@ -95,6 +104,17 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
         }
     } else {
 	thread_log(current, "fixed at %p\n", target);
+=======
+	where = allocate_u64((flags & MAP_32BIT) ? p->virtual32 : p->virtual, len);
+	if (where == (u64)INVALID_ADDRESS) {
+	    thread_log(current, "   failed to allocate %s virtual memory, size %P\n",
+		       (flags & MAP_32BIT) ? "32-bit" : "", len);
+	    return -ENOMEM;
+	}
+    } else {
+	/* XXX rb tree check */
+	thread_log(current, "   fixed at %p\n", target);
+>>>>>>> origin/master
     }
 
     // make a generic zero page function
@@ -102,17 +122,29 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
         u64 m = allocate_u64(physical, len);
         if (m == INVALID_PHYSICAL) return m;
         map(where, m, len, pages);
+<<<<<<< HEAD
         thread_log(current, "mmap anon target: %P, len: %P (given size: %P)\n", where, len, size);
+=======
+        thread_log(current, "   anon target: %P, len: %P (given size: %P)\n", where, len, size);
+>>>>>>> origin/master
         zero(pointer_from_u64(where), len);
         return where;
     }
 
     file f = resolve_fd(current->p, fd);
+<<<<<<< HEAD
     thread_log(current, "read file ");
     filesystem_read_entire(p->fs, f->n, heap_backed(kh),
                            closure(h, mmap_load_entire, current, where, len, offset),
                            closure(h, mmap_load_entire_fail, current));
     thread_sleep();
+=======
+    thread_log(current, "  read file, blocking...\n");
+    filesystem_read_entire(p->fs, f->n, heap_backed(kh),
+                           closure(h, mmap_load_entire, current, where, len, offset),
+                           closure(h, mmap_load_entire_fail, current));
+    runloop();
+>>>>>>> origin/master
 }
 
 void register_mmap_syscalls(void **map)

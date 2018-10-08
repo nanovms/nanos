@@ -1,46 +1,33 @@
 // structs that live on the user-kernel boundary
 
-#if 0
-struct stat
-  {
-    u64 st_dev;		
-      u64 st_ino;		//16
-      u32 st_nlink; //20
-      u32 pad; // size is off by 8  in this layout - double mode and link?
-      u32 st_mode;	//28
-      u32 st_uid;		 //32
-      u32 st_gid;		//36
-      u64 st_rdev; //44
-      u32 pad2; // size is off by 8  in this layout - double mode and link?
-      u64 st_size; //48	
-      u64 st_blksize;	
-      u64 st_blocks;	
-} __attribute__((packed));
-#else
+/* fields from linux asm/stat.h - 64-bit only */
 struct stat {
+    /* 0 - 3 */
     u64 st_dev;
     u64 st_ino;
+    u64 st_nlink;
     u32 st_mode;
-    u32 st_nlink;
     u32 st_uid;
+
+    /* 4 - 7 */
     u32 st_gid;
+    u32 pad0;
     u64 st_rdev;
-    u64 pad1;
     s64 st_size;
-    s32 st_blksize;
-    u32 pad2;
+    s64 st_blksize;
+
+    /* 8 - 11 */
     s64 st_blocks;
-    s64 st_atime;
+    u64 st_atime;
     u64 st_atime_nsec;
-    s64 st_mtime;
+    u64 st_mtime;
+
+    /* 12 - 17 */
     u64 st_mtime_nsec;
-    s64 st_ctime;
+    u64 st_ctime;
     u64 st_ctime_nsec;
-    u32 unused4;
-    u32 unused5;
+    u64 unused[3];
 } __attribute__((packed));
-#endif
-// better to just do this by offset
 
 #define S_IFMT  00170000
 #define S_IFSOCK 0140000

@@ -3,18 +3,20 @@ all:mkfs dump
 
 ROOT=$(PWD)/..
 
+CC ?= cc
+
 include $(ROOT)/unix_process/Makefile
 INCLUDES += -I$(ROOT)/x86_64
 include $(ROOT)/tfs/Makefile
 
 %.o: %.c $(ROOT)/runtime/closure_templates.h
-	cc -g -c $(INCLUDES) $<
+	$(CC) -g -c $(INCLUDES) $<
 
 mkfs: mkfs.o $(UNIXRUNTIME) $(TFS)
-	cc $^ -g -o mkfs
+	$(CC) $^ -g -o mkfs
 
 dump: dump.o $(UNIXRUNTIME) $(TFS)
-	cc $^ -g -o dump
+	$(CC) $^ -g -o dump
 
 clean:
 	rm -f *.o mkfs dump
