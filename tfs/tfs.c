@@ -6,6 +6,17 @@ struct fsfile {
     tuple md;
 };
 
+static CLOSURE_4_1(copyout, void, void *, void *, u64, status_handler, status);
+void copyout(void *target, void *source, u64 length, status_handler sh, status s)
+{
+    if (s) {
+        apply(sh, s);
+    } else {
+        runtime_memcpy(target, source, length);
+        apply(sh, s);
+    }
+}
+
 static CLOSURE_5_2(fs_read_extent, void,
                    filesystem, buffer, u64 *, merge, range, 
                    range, void *);
@@ -19,12 +30,28 @@ static void fs_read_extent(filesystem fs,
 {
     range i = range_intersection(q, ex);
     // offset within a block - these are just the extents, so might be a sub
-    status_handler f = apply(m);
+    u64 xfer = range_span(i);
+    u64 block_start = u64_from_pointer(val);
+    u64 tail = range_span(q) & (fs->blocksize -1);
+    void *target_start = buffer_ref(target, i.start);
+
+    // handle unaligned tail without clobbering extra memory
+    if (tail && (ex.end > q.end)) {
+        void *temp = allocate(fs->h, fs->blocksize);
+        status_handler f = apply(m);
+        xfer -= tail;
+        status_handler copy = closure(fs->h, copyout, target_start + xfer, temp, tail, f);
+        apply(fs->r, temp, fs->blocksize, block_start + xfer, copy);
+    }
+    
     // last != start
     if (*last != 0) zero(buffer_ref(target, *last), target->start - *last);
     *last = q.end;
     target->end = *last;
-    apply(fs->r, buffer_ref(target, i.start), range_span(i), u64_from_pointer(val), f);
+    if (xfer) {
+        status_handler f = apply(m);
+        apply(fs->r, target_start, xfer, block_start, f);
+    }
 }
 
 void filesystem_read(filesystem fs, tuple t, void *dest, u64 length, u64 offset, status_handler completion)
@@ -172,6 +199,11 @@ void extent_update(fsfile f, symbol foff, tuple value)
     //    rtrie_remove(f->fs->free, boffset, length);
 }
 
+fsfile fsfile_from_node(filesystem fs, tuple n)
+{
+    return table_find(fs->files, n);
+}
+
 // cache goes on top
 void filesystem_read_entire(filesystem fs, tuple t, heap h, buffer_handler c, status_handler e)
 {
@@ -189,8 +221,7 @@ void filesystem_read_entire(filesystem fs, tuple t, heap h, buffer_handler c, st
         rtrie_range_lookup(f->extents, irange(0, len), closure(h, fs_read_extent, fs, b, last, m, irange(0, len)));
         apply(k, STATUS_OK);
     } else {
-        tuple e = timm("status", "no such file %v\n", t);
-        apply(c, 0);
+        apply(e, timm("status", "no such file %v\n", t));
     }
 }
 
@@ -221,6 +252,7 @@ void create_filesystem(heap h,
     fs->w = write;
     fs->root = root;
     fs->alignment = alignment;
+    fs->blocksize = 512;
     fs->free = rtrie_create(h);
     rtrie_insert(fs->free, 0, size, (void *)true); 
     rtrie_remove(fs->free, 0, INITIAL_LOG_SIZE);

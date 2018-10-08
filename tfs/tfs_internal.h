@@ -20,6 +20,7 @@ typedef struct filesystem {
     block_write w;    
     log tl;
     tuple root;
+    bytes blocksize;
 } *filesystem;
 
 void extent_update(fsfile f, symbol foff, tuple value);
