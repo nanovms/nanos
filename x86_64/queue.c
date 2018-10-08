@@ -15,7 +15,7 @@ boolean enqueue(queue q, void *n)
     disable_interrupts();
     u64 slot = fetch_and_add(&q->write, 1);
     q->body[slot & mask]= n;
-    if (f & FLAG_INTERRUPT) enable_interrupts();
+    if (f & (1 << FLAG_INTERRUPT)) enable_interrupts();
     return true;
 }
 
