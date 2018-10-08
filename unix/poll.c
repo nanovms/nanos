@@ -342,7 +342,7 @@ sysreturn epoll_wait(int epfd,
     rprintf("   sleeping...\n");
 #endif
     w->sleeping = true;
-    thread_sleep(current);
+    thread_sleep();
     return 0;			/* suppress warning */
 }
 
@@ -597,7 +597,7 @@ static sysreturn select_internal(int nfds,
     rprintf("   sleeping...\n");
 #endif
     w->sleeping = true;
-    thread_sleep(current);
+    thread_sleep();
     return 0;			/* suppress warning */
 }
 

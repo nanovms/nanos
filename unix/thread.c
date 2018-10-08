@@ -43,7 +43,7 @@ sysreturn arch_prctl(int code, unsigned long a)
 
 sysreturn clone(unsigned long flags, void *child_stack, void *ptid, void *ctid, void *x)
 {
-    thread t = create_thread(current->p);
+    thread t = create_thread(current->p, child_stack);
     runtime_memcpy(t->frame, current->frame, sizeof(t->frame));
     t->frame[FRAME_RSP]= u64_from_pointer(child_stack);
     // xxx - the interpretation of ctid is dependent on flags
@@ -91,7 +91,7 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
             set_syscall_return(current, 0);
             // atomic 
             enqueue(f->waiters, current);
-            thread_sleep(current);
+            thread_sleep();
         }
         return -EAGAIN;
             
@@ -168,7 +168,7 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
         if (*uaddr == val) {
             set_syscall_return(current, 0);                            
             enqueue(f->waiters, current);
-            thread_sleep(current);
+            thread_sleep();
         }
         break;
     case FUTEX_WAKE_BITSET: rprintf("FUTEX_wake_bitset unimplemented\n"); break;
@@ -211,28 +211,36 @@ void run_thread(thread t)
     current = t;
     thread_log(t, "run",  t->frame[FRAME_RIP]);
     frame  = t->frame;
-    IRETURN(frame);    
+    frame_return(frame);
 }
 
 // it might be easier, if a little skeezy, to use the return value
 // to genericize the handling of suspended threads. given that there
 // are already conventions (i.e. negative errors) on the interface
-void thread_sleep(thread t)
+void thread_sleep()
 {
-    // config from the filesystem
+    thread t = current;
+    u64 here = u64_from_pointer(__builtin_return_address(0));
+    if (t->sleep_by) {
+        rprintf("thread %d already sleeping %p %p %@ %@\n", t->tid, t->sleep_by, here, t->sleep_by, here);
+        halt("thread already sleeping\n");
+    }
+    t->sleep_by = here;
     thread_log(t, "sleep",  0);
-    runloop();
+    apply(kernel_sleep);
 }
 
 void thread_wakeup(thread t)
 {
-    thread_log(current, "wakeup %d->%d %p", current->tid, t->tid, t->frame[FRAME_RIP]);
+    if (!t->sleep_by) 
+        halt("waking up a running thread %p", __builtin_return_address(0));
+    t->sleep_by = 0;
+    thread_log(t, "wakeup %d %p", t->tid, t->frame[FRAME_RIP]);
     enqueue(runqueue, t->run);
 }
 
-thread create_thread(process p)
+thread create_thread(process p, void *stack)
 {
-    // heap I guess
     static int tidcount = 0;
     heap h = heap_general((kernel_heaps)p->uh);
     thread t = allocate(h, sizeof(struct thread));
@@ -243,6 +251,10 @@ thread create_thread(process p)
     t->set_child_tid = t->clear_child_tid = 0;
     t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(closure(h, default_fault_handler, t));
     t->run = closure(h, run_thread, t);
+    t->frame[FRAME_RSP]= u64_from_pointer(stack);
+    t->frame[FRAME_STACK_TOP] = u64_from_pointer(stack);
+    t->run = closure(h, run_thread, t);    t->run = closure(h, run_thread, t);
+    t->sleep_by = u64_from_pointer(&create_thread); 
     vector_push(p->threads, t);
     return t;
 }

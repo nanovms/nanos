@@ -112,7 +112,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     filesystem_read_entire(p->fs, f->n, heap_backed(kh),
                            closure(h, mmap_load_entire, current, where, len, offset),
                            closure(h, mmap_load_entire_fail, current));
-    runloop();
+    thread_sleep();
 }
 
 void register_mmap_syscalls(void **map)

@@ -346,7 +346,7 @@ char *syscall_name(int x)
         if (syscall_codes[i].c == x) 
             return syscall_codes[i].n;
     }
-    return ("invalidine syscall");
+    return ("invalid syscall");
 }
 
 
@@ -396,7 +396,7 @@ static sysreturn contents_read(tuple n, void *dest, u64 length, u64 offset)
     thread_log(current, "filesystem_read: %t, length %P, offset %P\n", n, length, offset);
     filesystem_read(current->p->fs, n, dest, length, offset,
 		    closure(heap_general(get_kernel_heaps()), readcomplete, current, length));
-    runloop();
+    thread_sleep();
 }
 
 static CLOSURE_1_0(file_close, sysreturn, file);
@@ -576,9 +576,9 @@ sysreturn getpid()
 
 sysreturn sched_yield()
 {
+    set_syscall_return(current, 0);
     thread_wakeup(current);
-    thread_sleep(current);
-    return 0;
+    thread_sleep();
 }
 
 void exit(int code)

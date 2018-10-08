@@ -116,13 +116,13 @@ getrip:
         pop rbx            ; rsp?
         mov [rax+FRAME_RSP*8], rbx  
         pop rbx            ; ss         
-        call common_handler
+        jmp common_handler
 
         ;; try to unify the interrupt and syscall paths
         ;; could always use iret?
 global_func frame_return
 frame_return:
-        mov rbx, [frame]
+        mov rbx, rdi
 
         mov rax, [rbx+FRAME_FS*8]
         mov rcx, FS_MSR

@@ -151,18 +151,24 @@ void print_u64_with_sym(u64 a)
 	console(name);
 	console(" + ");
 	print_u64(offset);
+	console(" + ");
+	print_u64(a);        
 	console(")");
     }
 }
 
 void print_stack(context c)
 {
-    u64 frames = 30;
+    u64 *top = pointer_from_u64(c[FRAME_STACK_TOP]);    
     u64 *x = pointer_from_u64(c[FRAME_RSP]);
-    // really until page aligned?
     console("stack \n");
-    for (u64 i= frames ;i > 0; i--) {
-        print_u64_with_sym(*(x+i));
+    print_u64(u64_from_pointer(top));
+    console(" ");
+    print_u64(u64_from_pointer(x));
+    console("\n");    
+    
+    for (u64 *i = x ;i < top; i++) {    
+        print_u64_with_sym(*i);
         console("\n");
     }
 }
@@ -202,29 +208,39 @@ void print_frame(context f)
     }
 }
 
-void common_handler()
-{
-    int i = frame[FRAME_VECTOR];
-    u64 z;
+static context interrupt_frame;
 
+void common_handler_newstack()
+{
+    context interrupted = frame;
+    frame = interrupt_frame;
+    
+    int i = interrupted[FRAME_VECTOR];
+    u64 z;
     if ((i < interrupt_size) && handlers[i]) {
-        // should we switch to the 'kernel process'?
         apply(handlers[i]);
         lapic_eoi();
     } else {
-        fault_handler f = pointer_from_u64(frame[FRAME_FAULT_HANDLER]);
+        fault_handler f = pointer_from_u64(interrupted[FRAME_FAULT_HANDLER]);
 
         if (f == 0) {
             rprintf ("no fault handler\n");
-            print_frame(frame);
-            print_stack(frame);
+            print_frame(interrupted);
+            print_stack(interrupted);
             QEMU_HALT();
         }
-        if (i < 25) frame = apply(f, frame);
+        if (i < 25) frame = apply(f, interrupted);
     }
+    frame_return(interrupted);
 }
 
-static heap interrupt_vectors;
+void common_handler()
+{
+    //    common_handler_newstack();
+    switch_stack(interrupt_frame[FRAME_STACK_TOP], common_handler_newstack);
+}
+
+heap interrupt_vectors;
 
 void allocate_msi(int slot, int msi_slot, thunk h)
 {
@@ -257,6 +273,7 @@ void register_interrupt(int vector, thunk t)
     handlers[vector] = t;
 }
 
+// make one-shot
 void configure_timer(time rate, thunk t)
 {
     *(u32 *)(apic_base+APIC_TMRDIV) = 3;
@@ -270,7 +287,7 @@ void configure_timer(time rate, thunk t)
 }
 
 extern u32 interrupt_size;
- 
+
 void start_interrupts(kernel_heaps kh)
 {
     // these are simple enough it would be better to just
@@ -287,6 +304,11 @@ void start_interrupts(kernel_heaps kh)
     idt = allocate(pages, pages->pagesize);
     frame = allocate(pages, pages->pagesize);
 
+    u64 interrupt_stack_size = 32*KB;
+    interrupt_frame = allocate(heap_backed(kh), sizeof(u64) * FRAME_MAX);
+    interrupt_frame[FRAME_STACK_TOP] = allocate_u64(heap_backed(kh), interrupt_stack_size);
+    interrupt_frame[FRAME_STACK_TOP] += interrupt_stack_size;
+                                            
     for (int i = 0; i < interrupt_size; i++) 
         write_idt(idt, i, start + i * delta);
     

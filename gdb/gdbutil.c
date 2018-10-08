@@ -12,6 +12,7 @@ boolean parse_hex_pair(buffer in, u64 *first, u64 *second)
 /* return a pointer to the last char put in buf (null) */
 /* If MAY_FAULT is non-zero, then we should set mem_err in response to
    a fault; if zero treat a fault like any other fault in the stub.  */
+static char *hex_digits="0123456789abcdef";
 boolean mem2hex (string b, void *mem, int count)
 {
     int i;
@@ -22,7 +23,8 @@ boolean mem2hex (string b, void *mem, int count)
     }
     for (i = 0; i < count; i++) {
         ch = *(unsigned char *)(mem++);
-        print_number(b, (u64)ch, 16, 2);
+	push_u8(b, hex_digits[ch>>4]);
+	push_u8(b, hex_digits[ch&15]);
     }
     return (true);
 }

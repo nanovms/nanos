@@ -178,7 +178,7 @@ static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
         // should be an atomic operation
         if (!enqueue(s->waiting, closure(s->h, read_complete, s, current, dest, length, true)))
 	    msg_err("waiting queue full\n");
-        thread_sleep(current);
+        thread_sleep();
     }
     return 0;			/* suppress warning */
 }
@@ -357,7 +357,7 @@ static int connect_tcp(sock socket, const ip_addr_t* address, unsigned short por
     if (ERR_OK != err) {
         return err;
     }
-    thread_sleep(current);
+    thread_sleep();
     return ERR_OK;
 }
 
@@ -472,7 +472,7 @@ sysreturn accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
         if (!enqueue(s->waiting, closure(s->h, accept_finish, s, current, addr, addrlen)))
 	    msg_err("waiting queue full\n");
     }
-    thread_sleep(current);
+    thread_sleep();
     return 0;			/* suppress warning */
 }
 

@@ -17,16 +17,23 @@ static void read_program_fail(status s)
     halt("read program failed %v\n", s);
 }
 
+static CLOSURE_1_0(ksleep, void, void *);
+static void ksleep(void *stack)
+{
+    switch_stack(stack, runloop);
+}
+
 void startup(kernel_heaps kh,
              tuple root,
-             filesystem fs)
+             filesystem fs,
+             void *stack_top)
 {
     /* kernel process is used as a handle for unix */
-    process kp = init_unix(kh, root, fs);
+    heap general = heap_general(kh);
+    process kp = init_unix(kh, root, fs, closure(general, ksleep, stack_top));
     if (kp == INVALID_ADDRESS) {
 	halt("unable to initialize unix instance; halt\n");
-    }
-    heap general = heap_general(kh);
+    }    
     buffer_handler pg = closure(general, read_program_complete, kp, root);
     value p = table_find(root, sym(program));
     tuple pro = resolve_path(root, split(general, p, '/'));

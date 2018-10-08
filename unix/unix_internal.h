@@ -14,7 +14,8 @@ typedef s64 sysreturn;
 typedef struct process *process;
 typedef struct thread *thread;
 
-thread create_thread(process);
+// xxx - pass length (?)
+thread create_thread(process, void *stack_top);
 
 void run(thread);
 
@@ -55,7 +56,7 @@ typedef struct thread {
     void *clear_child_tid;
     u64 tid;
     thunk run;
-    queue log[64];
+    u64 sleep_by; //tracing
 } *thread;
 
 typedef closure_type(io, sysreturn, void *, u64 length, u64 offset);
@@ -120,9 +121,21 @@ static inline void timeval_from_time(struct timeval *d, time t)
     d->tv_usec = ((t-(d->tv_sec<<32)) * micro) >> 32;
 }
 
-static inline time time_from_timespec(struct timespec *t)
+static inline time time_from_timespec(const struct timespec *t)
 {
     return (((u64)t->ts_sec)<<32) + time_from_nsec(t->ts_nsec);
+}
+
+static inline s64 errno_from_status(status s)
+{
+    if (s == 0) return 0;
+    value v;
+    if (v = table_find(s, sym(errno))) {
+        s64 r = u64_from_value(v);
+        return -r;
+    }
+    rprintf("warning - status %v has no unix errno\n", s);
+    return -EFAULT;
 }
 
 static inline void register_syscall(void **m, int i, sysreturn (*f)())
@@ -147,8 +160,9 @@ void default_fault_handler(thread t, context frame);
 void thread_log_internal(thread t, char *desc, ...);
 #define thread_log(__t, __desc, ...) thread_log_internal(__t, __desc, ##__VA_ARGS__)
 // this should always be current
-void thread_sleep(thread);
+void thread_sleep(void);
 void thread_wakeup(thread);
+extern thunk kernel_sleep;
 
 static inline sysreturn set_syscall_return(thread t, sysreturn val)
 {

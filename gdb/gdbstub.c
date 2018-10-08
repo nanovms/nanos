@@ -347,6 +347,7 @@ static void gdbserver_input(gdb g, buffer b)
         } else {
             push_character(g->out, '+');	/* successful transfer */
             apply(g->output_handler, g->out);
+	    reset_buffer(g->output);
             if (handle_request(g, g->in, g->output)) {
                 putpacket (g, g->output);
             }

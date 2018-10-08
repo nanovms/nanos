@@ -70,9 +70,6 @@ extern u64 *frame;
 boolean breakpoint_insert(u64 a, u8 type, u8 length);
 boolean breakpoint_remove(u32 a);
 
-#define IRETURN(frame) __asm__("mov %0, %%rbx"::"g"(frame)); __asm__("jmp frame_return")
-#define ENTER(frame) __asm__("mov %0, %%rbx"::"g"(frame)); __asm__("jmp frame_enter")
-
 void msi_map_vector(int slot, int msislot, int vector);
 
 static inline void write_barrier()
@@ -200,3 +197,12 @@ struct queue {
     for (int __i = 0; __i< __e->e_phnum; __i++)\
         for (Elf64_Phdr *__p = (void *)__e + __e->e_phoff + (__i * __e->e_phentsize); __p ; __p = 0) \
 
+extern void frame_return(context);
+
+// getting gnu to treat these registers as allocated is a struggle
+#define switch_stack(__s, __target){\
+        asm ("mov %0, %%rdx": :"r"(__s):"%rdx");\
+        asm ("mov %0, %%rax": :"r"(__target));\
+        asm ("mov %%rdx, %%rsp"::);\
+        asm ("jmp *%%rax"::);\
+  } 

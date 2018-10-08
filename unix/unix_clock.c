@@ -29,7 +29,7 @@ sysreturn nanosleep(const struct timespec* req, struct timespec* rem)
     // and we sleep for the whole duration before waking up.
     register_timer(time_from_timespec(req),
 		closure(heap_general(get_kernel_heaps()), nanosleep_timeout, current, 0));
-    thread_sleep(current); 
+    thread_sleep(); 
     return 0;
 }
 

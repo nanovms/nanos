@@ -35,7 +35,7 @@ void default_fault_handler(thread t, context frame)
     if (table_find (t->p->process_root, sym(fault))) {
         console("starting gdb\n");
         init_tcp_gdb(heap_general(get_kernel_heaps()), t->p, 1234);
-        thread_sleep(current);
+        thread_sleep();
     }
     halt("");
 }
@@ -80,11 +80,13 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     return p;
 }
 
-process init_unix(kernel_heaps kh, tuple root, filesystem fs)
+thunk kernel_sleep;
+
+process init_unix(kernel_heaps kh, tuple root, filesystem fs, thunk ksleep)
 {
     heap h = heap_general(kh);
     unix_heaps uh = allocate(h, sizeof(struct unix_heaps));
-
+    kernel_sleep = ksleep;
     /* a failure here means termination; just leak */
     if (uh == INVALID_ADDRESS)
 	return INVALID_ADDRESS;
@@ -98,7 +100,6 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
 	goto alloc_fail;
     set_syscall_handler(syscall_enter);
     process kernel_process = create_process(uh, root, fs);
-    current = create_thread(kernel_process);
     frame = current->frame;
     init_vdso(heap_physical(kh), heap_pages(kh));
     init_syscalls();
