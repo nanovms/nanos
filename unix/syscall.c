@@ -406,6 +406,8 @@ static sysreturn file_close(file f)
     return 0;
 }
 
+
+
 sysreturn open(char *name, int flags, int mode)
 {
     tuple n;
@@ -438,6 +440,23 @@ sysreturn open(char *name, int flags, int mode)
     f->offset = 0;
     thread_log(current, "open: \"%s\", fd %d, mode %P\n", name, fd, mode);
     return fd;
+}
+
+/*TODO
+If the pathname given in pathname is relative, then it is interpreted
+       relative to the directory referred to by the file descriptor dirfd
+       (rather than relative to the current working directory of the calling
+       process, as is done by open() for a relative pathname).
+
+       If pathname is relative and dirfd is the special value AT_FDCWD, then
+       pathname is interpreted relative to the current working directory of
+       the calling process (like open()).
+
+       If pathname is absolute, then dirfd is ignore
+*/
+sysreturn openat(int dirfd, char *name, int flags, int mode)
+{
+    return open(name,flags,mode);
 }
 
 static void fill_stat(tuple n, struct stat *s)
@@ -592,6 +611,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_read, read);
     register_syscall(map, SYS_write, write);
     register_syscall(map, SYS_open, open);
+    register_syscall(map, SYS_openat, openat);
     register_syscall(map, SYS_fstat, fstat);
     register_syscall(map, SYS_stat, stat);
     register_syscall(map, SYS_writev, writev);
