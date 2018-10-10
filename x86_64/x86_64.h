@@ -148,6 +148,20 @@ static inline word fetch_and_add(word* variable, word value)
     return value;
 }
 
+static inline void store_fence()
+{
+    __asm__ volatile("sfence");
+}
+
+static inline void load_fence()
+{
+    __asm__ volatile("lfence");
+}
+
+static inline void memory_fence()
+{
+    __asm__ volatile("mfence");
+}
 
 // tuples
 #define FLAG_INTERRUPT 9
@@ -189,10 +203,12 @@ void unmap(u64 virtual, int length, heap h);
 
 // xxx - hide
 struct queue {
-    // these should be on cache lines in the mp case
-    u64 read, write, length;
+    u64 count;
+    u64 write;
+    u64 read;
+    u64 size;
     heap h;
-    void *body[];
+    void *buf[];
 };
 
 
