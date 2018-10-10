@@ -15,7 +15,8 @@ static void *kernel_stack_start;
 // doesnt belong here
 void startup(kernel_heaps kh,
              tuple root,
-             filesystem fs);
+             filesystem fs,
+             void *x);
 
 // xxx -this is handing out a page per object
 heap allocate_tagged_region(kernel_heaps kh, u64 tag)
@@ -50,21 +51,21 @@ static void read_complete(thunk target)
     enqueue(runqueue, target);
 }
 
-static context miscframe;
+static context start_frame;
 
 void runloop()
 {
     thunk t;
 
+    running_frame = start_frame;
     while(1) {
-        // hopefully overall loop is being driven by the lapic periodic interrupt,
-        // which should limit the skew
         timer_check();
         
         while((t = dequeue(runqueue))) {
+            enable_interrupts();
             apply(t);
+            disable_interrupts();
         }
-        frame = miscframe;
         enable_interrupts();
         __asm__("hlt");
         disable_interrupts();
@@ -85,12 +86,13 @@ static void offset_block_read(block_read r, u64 start, void *dest, u64 length, u
 
 void init_extra_prints(); 
 
-CLOSURE_3_0(startup, void, kernel_heaps, tuple, filesystem);
+CLOSURE_4_0(startup, void, kernel_heaps, tuple, filesystem, void *);
 
 static CLOSURE_1_2(fsstarted, void, tuple, filesystem, status);
 static void fsstarted(tuple root, filesystem fs, status s)
 {
-    enqueue(runqueue, closure(heap_general(&heaps), startup, &heaps, root, fs));
+    enqueue(runqueue, closure(heap_general(&heaps), startup, &heaps, root, fs,
+                              kernel_stack_start + kernel_stack_size - 8));
 }
 
 static CLOSURE_1_3(attach_storage, void, tuple, block_read, block_write, u64);
@@ -149,12 +151,17 @@ static void read_kernel_syms()
 static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = &heaps;
+
     heap misc = heap_general(kh);
     heap pages = heap_pages(kh);
     heap virtual_huge = heap_virtual_huge(kh);
     heap virtual_page = heap_virtual_page(kh);
     heap physical = heap_physical(kh);
     heap backed = heap_backed(kh);
+    start_frame = allocate(misc, FRAME_MAX * sizeof(u64));
+    start_frame[FRAME_STACK_TOP] = u64_from_pointer(kernel_stack_start + kernel_stack_size);
+    running_frame = start_frame;
+        
     // just to find maintain the convention of faulting on zero references
     unmap(0, PAGESIZE, pages);
     runqueue = allocate_queue(misc, 64);
@@ -171,8 +178,7 @@ static void __attribute__((noinline)) init_service_new_stack()
     init_virtio_storage(kh, closure(misc, attach_storage, root));
     init_virtio_network(kh);
 
-    miscframe = allocate(misc, FRAME_MAX * sizeof(u64));
-    miscframe[FRAME_STACK_TOP] = u64_from_pointer(kernel_stack_start + kernel_stack_size);
+
     pci_discover();
     // just to get the hlt loop to wake up and service timers. 
     // should change this to post the delta to the front of the queue each time
@@ -267,9 +273,9 @@ static void init_kernel_heaps()
 void init_service()
 {
     init_kernel_heaps();
-    u64 stack_size = 32*PAGESIZE;
-    u64 stack_location = allocate_u64(heap_backed(&heaps), stack_size);
-    stack_location += stack_size-8;
-    *(u64 *)stack_location = 0;
-    switch_stack(stack_location, init_service_new_stack);
+    kernel_stack_size = 32*PAGESIZE;
+    kernel_stack_start = allocate(heap_backed(&heaps), kernel_stack_size);
+    void *top = pointer_from_u64(kernel_stack_start) + kernel_stack_size-8;
+    *(u64 *)top = 0;
+    switch_stack(top, init_service_new_stack);
 }

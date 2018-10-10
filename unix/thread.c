@@ -196,7 +196,7 @@ void thread_log_internal(thread t, char *desc, ...)
         vlist ap;
         vstart (ap, desc);        
         buffer b = allocate_buffer(transient, 100);
-        bprintf (b, "%n %d ", (t->tid - 1)*8, t->tid, desc);
+        bprintf (b, "%n %d ", (t->tid - 1)*8, t->tid);
         buffer f = alloca_wrap_buffer(desc, runtime_strlen(desc));
         vbprintf(b, f, &ap);
         push_u8(b, '\n');
@@ -209,9 +209,8 @@ CLOSURE_1_0(run_thread, void, thread);
 void run_thread(thread t)
 {
     current = t;
-    thread_log(t, "run",  t->frame[FRAME_RIP]);
-    frame  = t->frame;
-    frame_return(frame);
+    thread_log(t, "run %p",  t->frame[FRAME_RIP]);
+    frame_return((context)t);
 }
 
 // it might be easier, if a little skeezy, to use the return value
@@ -226,7 +225,7 @@ void thread_sleep()
         halt("thread already sleeping\n");
     }
     t->sleep_by = here;
-    thread_log(t, "sleep",  0);
+    thread_log(t, "sleep", 0);
     apply(kernel_sleep);
 }
 
@@ -241,7 +240,7 @@ void thread_wakeup(thread t)
 
 thread create_thread(process p, void *stack)
 {
-    static int tidcount = 0;
+    static int tidcount = 1;
     heap h = heap_general((kernel_heaps)p->uh);
     thread t = allocate(h, sizeof(struct thread));
     t->p = p;
@@ -250,10 +249,9 @@ thread create_thread(process p, void *stack)
     t->tid = tidcount++;
     t->set_child_tid = t->clear_child_tid = 0;
     t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(closure(h, default_fault_handler, t));
-    t->run = closure(h, run_thread, t);
     t->frame[FRAME_RSP]= u64_from_pointer(stack);
     t->frame[FRAME_STACK_TOP] = u64_from_pointer(stack);
-    t->run = closure(h, run_thread, t);    t->run = closure(h, run_thread, t);
+    t->run = closure(h, run_thread, t);    
     t->sleep_by = u64_from_pointer(&create_thread); 
     vector_push(p->threads, t);
     return t;

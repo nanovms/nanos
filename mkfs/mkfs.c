@@ -54,9 +54,9 @@ void perr(string s)
 void includedir(tuple dest, buffer path)
 {
     DIR *d = opendir(cstring(path));
-    struct dirent di, *dip;
-    while (readdir_r(d, &di, &dip), dip) {
-    }
+    struct dirent *dip;
+    while (dip = readdir(d)) {
+    }    
 }
 
 

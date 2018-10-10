@@ -10,6 +10,7 @@
     program:/webg
     # put all the tracing arguments in subtree
 #    trace:t
+#    gdb:t
 #    debugsyscalls:t
 #    futex_trace:t    
     fault:t

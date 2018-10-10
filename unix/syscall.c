@@ -642,6 +642,7 @@ static void syscall_debug()
         rprintf("nosyscall %s\n", syscall_name(call));
     }
     set_syscall_return(current, res);
+    frame_enter(f);
 }
 
 // should hang off the thread context, but the assembly handler needs

@@ -10,7 +10,7 @@
 global_func _start
         extern init_service
         
-extern frame
+extern running_frame
 %include "frame_nasm.h"
         
 %define FS_MSR 0xc0000100
@@ -51,7 +51,7 @@ extern syscall
 global_func syscall_enter
 syscall_enter:   
         push rax
-        mov rax, [frame]
+        mov rax, [running_frame]
         mov [rax+FRAME_RBX*8], rbx
         pop rbx
         mov [rax+FRAME_VECTOR*8], rbx
@@ -72,7 +72,6 @@ syscall_enter:
         mov rax, syscall
         mov rax, [rax]
         call rax
-        mov rbx, [frame]
 # no more implicit syscall return here        
 #        mov [rbx + FRAME_RAX], rax
         jmp frame_enter
@@ -81,7 +80,7 @@ syscall_enter:
 extern common_handler
 interrupt_common:
         push rax
-        mov rax, [frame]
+        mov rax, [running_frame]
         mov [rax+FRAME_RBX*8], rbx
         mov [rax+FRAME_RCX*8], rcx
         mov [rax+FRAME_RDX*8], rdx
@@ -100,7 +99,6 @@ interrupt_common:
         mov [rax+FRAME_RAX*8], rbx
         pop rbx            ; vector
         mov [rax+FRAME_VECTOR*8], rbx
-        
         ;;  could avoid this branch with a different inter layout - write as different handler
         cmp rbx, 0xe
         je geterr
@@ -119,9 +117,9 @@ getrip:
         jmp common_handler
 
         ;; try to unify the interrupt and syscall paths
-        ;; could always use iret?
 global_func frame_return
 frame_return:
+        mov [running_frame], rdi
         mov rbx, rdi
 
         mov rax, [rbx+FRAME_FS*8]

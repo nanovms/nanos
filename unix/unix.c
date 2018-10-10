@@ -100,7 +100,6 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs, thunk ksleep)
 	goto alloc_fail;
     set_syscall_handler(syscall_enter);
     process kernel_process = create_process(uh, root, fs);
-    frame = current->frame;
     init_vdso(heap_physical(kh), heap_pages(kh));
     init_syscalls();
     register_file_syscalls(linux_syscalls);

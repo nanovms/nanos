@@ -9,7 +9,7 @@ VPATH += $(ROOT)/test
 %.o: %.c $(ROOT)/runtime/closure_templates.h
 	$(CC) $(CFLAGS) $(INCLUDES) $<
 
-all: hw webs hwg webg hws webs webgs
+all: hw webs hwg webg hws webs 
 
 hwg: hwg.go
 	$(GO) build hwg.go

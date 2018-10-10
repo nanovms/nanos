@@ -2,34 +2,31 @@
 #include <elf64.h>
 #include <gdb.h>
 
-#define spush(__s, __w) *((--(__s))) = (u64)(__w)
+#define sp(__f) __f[FRAME_RSP]
+#define spush(__f, __w) *(u64 *)(sp(__f) = sp(__f) - sizeof(u64)) = (u64)(__w)
 
-#define ppush(__s, __b, __f, ...) ({buffer_clear(__b);\
-            bprintf(b, __f, __VA_ARGS__);                               \
-            u64 len = pad(buffer_length(b), 64)>>6;                     \
-            __s -= len;                                                 \
-            runtime_memcpy(s, buffer_ref(b, 0), buffer_length(b));\
-            (char *)__s;})
+#define ppush(__f, __b, __format, ...) ({buffer_clear(__b);             \
+            bprintf(b, __format, __VA_ARGS__);                          \
+            u64 len = pad(buffer_length(b), 64)>>3;                     \
+            sp(__f) = sp(__f) - len;                                    \
+            runtime_memcpy(pointer_from_u64(sp(__f)), buffer_ref(b, 0), buffer_length(b)); \
+            (char *)pointer_from_u64(sp(__f));})
 
-static void build_exec_stack(heap sh, thread t, Elf64_Ehdr * e, void *start, u64 va, tuple process_root)
+static void build_exec_stack(context f, heap sh, thread t, Elf64_Ehdr * e, void *start, u64 va, tuple process_root)
 {
-    rprintf ("build exec stack %p %v\n", process_root, transient);
     buffer b = allocate_buffer(transient, 128);
     vector arguments = vector_from_tuple(transient, table_find(process_root, sym(arguments)));
     tuple environment = table_find(process_root, sym(environment));
-    u64 stack_size = 2*MB;
-    u64 pointer = stack_size;
-    u64 *s = allocate(sh, stack_size);
-    s += stack_size >> 6;
 
-    spush(s, random_u64());
-    spush(s, random_u64());
+    print_u64(sp(f));
+    spush(f, random_u64());
+    spush(f, random_u64());
     struct aux auxp[] = {
         {AT_PHDR, e->e_phoff + va},
         {AT_PHENT, e->e_phentsize},
         {AT_PHNUM, e->e_phnum},
         {AT_PAGESZ, PAGESIZE},
-        {AT_RANDOM, u64_from_pointer(s)},
+        {AT_RANDOM, u64_from_pointer(sp(f))},
         {AT_ENTRY, u64_from_pointer(start)}};
     
     int auxplen = sizeof(auxp)/(2*sizeof(u64));
@@ -38,22 +35,19 @@ static void build_exec_stack(heap sh, thread t, Elf64_Ehdr * e, void *start, u64
     int envc = table_elements(environment);
     char **envp = stack_allocate(envc * sizeof(u64));
     buffer a;
-    vector_foreach(arguments, a)  argv[argc++] = ppush(s, b, "%b\0", a);
-    table_foreach(environment, n, v)  envp[envc++] = ppush(s, b, "%b=%b\0", symbol_string(n), v);
-    spush(s, 0);
-    spush(s, 0);
-    
+    vector_foreach(arguments, a)  argv[argc++] = ppush(f, b, "%b\0", a);
+    table_foreach(environment, n, v)  envp[envc++] = ppush(f, b, "%b=%b\0", symbol_string(n), v);
+    spush(f, 0);
+    spush(f, 0);
     for (int i = 0; i< auxplen; i++) {
-        spush(s, auxp[i].val);
-        spush(s, auxp[i].tag);
+        spush(f, auxp[i].val);
+        spush(f, auxp[i].tag);
     }
-    spush(s, 0);
-    for (int i = 0; i< envc; i++) spush(s, envp[i]);
-    spush(s, 0);
-    for (int i = argc - 1 ; i >= 0; i--) spush(s, argv[i]);
-    spush(s, argc);
-
-    t->frame[FRAME_RSP] = u64_from_pointer(s);
+    spush(f, 0);
+    for (int i = 0; i< envc; i++) spush(f, envp[i]);
+    spush(f, 0);
+    for (int i = argc - 1 ; i >= 0; i--) spush(f, argv[i]);
+    spush(f, argc);
 }
 
 void start_process(thread t, void *start)
@@ -94,8 +88,9 @@ process exec_elf(buffer ex, process kp)
     process proc = create_process(uh, root, fs);
 
     u64 stack_size = 128*KB;
-    void *stack_base = allocate(kh->backed, stack_size);
-    thread t = create_thread(proc, stack_base + stack_size);
+    void *s = allocate(kh->backed, stack_size);
+    s += stack_size;
+    thread t = create_thread(proc, s);
     void *start = load_elf(ex, 0, heap_pages(kh), heap_physical(kh));
     u64 va;
     boolean interp = false;
@@ -111,7 +106,7 @@ process exec_elf(buffer ex, process kp)
             va = p->p_vaddr;
         proc->brk  = pointer_from_u64(MAX(u64_from_pointer(proc->brk), pad(p->p_vaddr + p->p_memsz, PAGESIZE)));
     }
-    build_exec_stack(heap_backed(kh), t, e, start, va, root);
+    build_exec_stack((context)t, heap_backed(kh), t, e, start, va, root);
             
     foreach_phdr(e, p) {
         if (p->p_type == PT_INTERP) {

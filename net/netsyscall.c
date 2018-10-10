@@ -280,7 +280,6 @@ sysreturn socket(int domain, int type, int protocol)
 static err_t input_lower (void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 {
     sock s = z;
-    
     if (err) {
         // later timmf
         s->s = timm("lwip error", "%d", err);
@@ -301,9 +300,7 @@ sysreturn bind(int sockfd, struct sockaddr *addr, socklen_t addrlen)
     struct sockaddr_in *sin = (struct sockaddr_in *)addr;
     sock s = resolve_fd(current->p, sockfd);
     buffer b = alloca_wrap_buffer(addr, addrlen);
-    // 0 success
-    // xxx - extract address and port
-    //
+    // xxx - extract address 
     err_t err = tcp_bind(s->lw, IP_ANY_TYPE, ntohs(sin->port));
     if(ERR_OK == err){
       s->state = SOCK_OPEN;
@@ -412,7 +409,6 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
     int fd = allocate_sock(s->p, lw);
     if (fd < 0)
 	return ERR_MEM;
-
     // XXX - what if this has been closed in the meantime?
     // refcnt
 
