@@ -11,9 +11,11 @@ jobs:
       - run: sudo apt-get update
       - run: sudo apt-get install nasm
       - run: sudo apt-get install qemu
+      - run: go get "github.com/nanovms/nvm/lepton"
       - run: make
       - run: make unit-test
-      - run: cd test && ./functional.sh
+      - run: cd test && ./functional.sh && cd ..
+      - run: cd gotests && go test 
   nightly-build:
     docker:
       - image: circleci/golang:1.11
