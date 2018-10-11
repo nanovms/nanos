@@ -406,11 +406,17 @@ static sysreturn file_close(file f)
     return 0;
 }
 
-sysreturn open_internal(tuple n, int flags, int mode)
+sysreturn open_internal(tuple root, char *name, int flags, int mode)
 {
+    tuple n;
     bytes length;
     heap h = heap_general(get_kernel_heaps());
     unix_heaps uh = get_unix_heaps();
+       // fix - lookup should be robust
+    if (!(n = resolve_cstring(root, name))) {
+        rprintf("open %s - not found\n", name);
+        return set_syscall_error(current, ENOENT);
+    }
     // might be functional, or be a directory
     file f = unix_cache_alloc(uh, file);
     if (f == INVALID_ADDRESS) {
@@ -434,12 +440,7 @@ sysreturn open(char *name, int flags, int mode)
     tuple n;
     if (name == 0) 
         return set_syscall_error (current, EINVAL);
-    // fix - lookup should be robust
-    if (!(n = resolve_cstring(current->p->cwd, name))) {
-        rprintf("open %s - not found\n", name);
-        return set_syscall_error(current, ENOENT);
-    } 
-    int fd =  open_internal(n, flags, mode); 
+    int fd =  open_internal(current->p->cwd, name, flags, mode); 
     thread_log(current, "open: \"%s\", fd %d, mode %P\n", name, fd, mode);
     return fd;
 }
@@ -466,11 +467,7 @@ sysreturn openat(int dirfd, char *name, int flags, int mode)
         return open(name, flags, mode);
     }
     file f = resolve_fd(current->p, dirfd);
-    if (!(n = resolve_cstring(f->n, name))) {
-        rprintf("open %s - not found\n", name);
-        return set_syscall_error(current, ENOENT);
-    } 
-    return open_internal(n, flags, mode);
+    return open_internal(f->n, name, flags, mode);
 }
 
 static void fill_stat(tuple n, struct stat *s)
