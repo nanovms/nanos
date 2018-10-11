@@ -406,38 +406,68 @@ static sysreturn file_close(file f)
     return 0;
 }
 
-sysreturn open(char *name, int flags, int mode)
+sysreturn open_internal(tuple root, char *name, int flags, int mode)
 {
     tuple n;
     bytes length;
     heap h = heap_general(get_kernel_heaps());
     unix_heaps uh = get_unix_heaps();
-
-    // fix - lookup should be robust
-    if (name == 0) return set_syscall_error (current, EINVAL);
-    if (!(n = resolve_cstring(current->p->cwd, name))) {
+       // fix - lookup should be robust
+    if (!(n = resolve_cstring(root, name))) {
         rprintf("open %s - not found\n", name);
         return set_syscall_error(current, ENOENT);
     }
-
-//    buffer b = allocate(h, sizeof(struct buffer));
     // might be functional, or be a directory
     file f = unix_cache_alloc(uh, file);
     if (f == INVALID_ADDRESS) {
-	msg_err("failed to allocate struct file\n");
-	return set_syscall_error(current, ENOMEM);
+        msg_err("failed to allocate struct file\n");
+        return set_syscall_error(current, ENOMEM);
     }
     int fd = allocate_fd(current->p, f);
     if (fd == INVALID_PHYSICAL) {
         unix_cache_free(uh, file, f);
-	return set_syscall_error(current, EMFILE);        
+        return set_syscall_error(current, EMFILE);
     }
     f->n = n;
     f->read = closure(h, contents_read, n);
     f->close = closure(h, file_close, f);
     f->offset = 0;
+    return fd;
+}
+
+sysreturn open(char *name, int flags, int mode)
+{
+    tuple n;
+    if (name == 0) 
+        return set_syscall_error (current, EINVAL);
+    int fd =  open_internal(current->p->cwd, name, flags, mode); 
     thread_log(current, "open: \"%s\", fd %d, mode %P\n", name, fd, mode);
     return fd;
+}
+
+/*
+If the pathname given in pathname is relative, then it is interpreted
+relative to the directory referred to by the file descriptor dirfd
+(rather than relative to the current working directory of the calling
+process, as is done by open() for a relative pathname).
+
+If pathname is relative and dirfd is the special value AT_FDCWD, then
+pathname is interpreted relative to the current working directory of
+the calling process (like open()).
+
+If pathname is absolute, then dirfd is ignore
+*/
+sysreturn openat(int dirfd, char *name, int flags, int mode)
+{
+    tuple n;
+    if (name == 0)
+        return set_syscall_error (current, EINVAL);
+    // dirfs == AT_FDCWS or path is absolute
+    if (dirfd == AT_FDCWD || *name == '/') {
+        return open(name, flags, mode);
+    }
+    file f = resolve_fd(current->p, dirfd);
+    return open_internal(f->n, name, flags, mode);
 }
 
 static void fill_stat(tuple n, struct stat *s)
@@ -592,6 +622,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_read, read);
     register_syscall(map, SYS_write, write);
     register_syscall(map, SYS_open, open);
+    register_syscall(map, SYS_openat, openat);
     register_syscall(map, SYS_fstat, fstat);
     register_syscall(map, SYS_stat, stat);
     register_syscall(map, SYS_writev, writev);
