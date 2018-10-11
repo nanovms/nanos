@@ -230,6 +230,9 @@ static CLOSURE_1_1(epoll_wait_notify, boolean, epollfd, u32);
 static boolean epoll_wait_notify(epollfd efd, u32 events)
 {
     list l = list_get_next(&efd->e->blocked_head);
+
+    /* XXX we should be walking the whole blocked list unless
+       EPOLLEXCLUSIVE is set */
     epoll_blocked w = l ? struct_from_list(l, epoll_blocked, blocked_list) : 0;
     epoll_debug("epoll_wait_notify: efd->fd %d, events %P, blocked %p, zombie %d\n",
 	    efd->fd, events, w, efd->zombie);
@@ -290,7 +293,7 @@ sysreturn epoll_wait(int epfd,
 	    fetch_and_add(&efd->refcnt, 1);
 	    epoll_debug("   register fd %d, eventmask %P, applying check\n",
 		    efd->fd, efd->eventmask);
-            if (!apply(efd->f->check, efd->eventmask, closure(h, epoll_wait_notify, efd)))
+            if (!apply(efd->f->check, efd->eventmask, /* XXX */ 0, closure(h, epoll_wait_notify, efd)))
 		break;
         }
     }
@@ -502,7 +505,7 @@ static sysreturn select_internal(int nfds,
 		fetch_and_add(&efd->refcnt, 1);
 		epoll_debug("      register epollfd %d, eventmask %P, applying check\n",
 			efd->fd, efd->eventmask);
-		apply(efd->f->check, efd->eventmask, closure(h, select_notify, efd));
+		apply(efd->f->check, efd->eventmask, 0, closure(h, select_notify, efd));
 	    }
 	}
 

@@ -63,7 +63,7 @@ typedef closure_type(event_handler, boolean, u32 events);
 typedef struct file {
     u64 offset; 
     io read, write;
-    closure_type(check, boolean, u32 eventmask, event_handler eh);
+    closure_type(check, boolean, u32 eventmask, u32 last, event_handler eh);
     closure_type(close, sysreturn);
     tuple n;
 } *file;

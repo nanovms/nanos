@@ -22,13 +22,30 @@ typedef closure_type(pcb_handler, void, struct tcp_pcb *);
 // xxx - what is the difference between IN_CONNECTION and open
 // nothing seems to track whether the tcp state is actually
 // connected
+
+// XXX change these over to actual tcp connection states...but
+// defined in tcp-specific area
 enum socket_state {
-  SOCK_UNDEFINED = 0,
-  SOCK_CREATED =1,
-  SOCK_IN_CONNECTION = 2,
-  SOCK_OPEN = 3,
-  SOCK_CLOSED = 4
+    SOCK_UNDEFINED = 0,
+    SOCK_CREATED = 1,
+    SOCK_IN_CONNECTION = 2,
+    SOCK_OPEN = 3,
+    SOCK_CLOSED = 4,
+    SOCK_LISTENING = 5,
 };
+
+/* writers:
+   - socket_check() - enqueue (tail)
+   - notify_dispatch() - modify last, dequeue (head)
+   readers:
+   - notify_dispatch() - eventmask, last
+*/
+typedef struct notify_entry {
+    u32 eventmask;
+    u32 last;
+    event_handler eh;
+    struct list l;
+} *notify_entry;
 
 typedef struct sock {
     struct file f;
@@ -36,8 +53,8 @@ typedef struct sock {
     heap h;
     struct tcp_pcb *lw;
     queue incoming;
-    queue notify;
     queue waiting; // service waiting before notify, do we really need 2 queues here?
+    struct list notify;
     // the notion is that 'waiters' should take priority    
     int fd;
     enum socket_state state; // half open?
@@ -53,8 +70,12 @@ typedef struct sock {
 static inline u32 socket_poll_events(sock s)
 {
     u32 events = 0;
-    if (queue_length(s->incoming))
+    boolean in = queue_length(s->incoming) > 0;
+    if (s->state == SOCK_LISTENING)
+	return in ? EPOLLIN : 0; /* XXX not handling listen sock errors... */
+    if (in)
 	events |= EPOLLIN | EPOLLRDNORM;
+
     /* XXX socket state isn't giving a complete picture; needs to specify
        which transport ends are shut down */
     if (s->state != SOCK_OPEN)
@@ -62,7 +83,60 @@ static inline u32 socket_poll_events(sock s)
     return events;
 }
 
-static void wakeup(sock s)
+static inline boolean notify_enqueue(sock s, u32 eventmask, u32 last, event_handler eh)
+{
+    notify_entry n = allocate(s->h, sizeof(struct notify_entry));
+    if (n == INVALID_ADDRESS)
+	return false;
+    n->eventmask = eventmask;
+    n->last = last;
+    n->eh = eh;
+    list_insert_before(&s->notify, &n->l); /* XXX make cas version */
+    return true;
+}
+
+/* XXX this should move to a more general place for use with other types of files */
+static void notify_dispatch(sock s)
+{
+    /* Depending on the epoll flags given, we may:
+       - notify all waiters on a match (default)
+       - notify on a match only once until condition is reset (EPOLLET)
+       - notify once before removing the registration, handled upstream (EPOLLONESHOT)
+       - notify only one matching waiter (EPOLLEXCLUSIVE)
+    */
+    list l = list_get_next(&s->notify);
+    if (!l)
+	return;
+
+    boolean exclusive_match = false;
+    u32 events = socket_poll_events(s);
+
+    do {
+	notify_entry n = struct_from_list(l, notify_entry, l);
+	u32 masked = events & n->eventmask;
+	list next = list_get_next(l);
+	if (n->eventmask & EPOLLET) {
+	    /* ignore if edge trigger and no change */
+	    if (masked != n->last) {
+		/* check if any events went from 0 -> 1 */
+		u32 rising = (masked ^ n->last) & masked;
+		n->last = masked;
+		if (rising && apply(n->eh, rising)) { /* XXX include events that didn't change? */
+		    list_delete(l);
+		    deallocate(s->h, n, sizeof(struct notify_entry));
+		}
+	    }
+	} else {
+	    if (apply(n->eh, masked)) {
+		list_delete(l);
+		deallocate(s->h, n, sizeof(struct notify_entry));
+	    }
+	}
+	l = next;
+    } while(l && l != &s->notify); /* XXX inelegant */
+}
+
+static void wakeup(sock s, status st)
 {
     event_handler eh;
     status_handler fstatus;
@@ -70,16 +144,9 @@ static void wakeup(sock s)
     // return status if not handled so someone else can try?
     // shouldnt a close event wake up everyone?
     if ((fstatus = dequeue(s->waiting))) {
-        apply(fstatus, NULL);
+        apply(fstatus, st);
     }  else {
-        if ((eh = dequeue(s->notify))) {
-	    /* XXX again this is really broken, but just behave as
-	       before until next installment allows us to only wake up
-	       if a bit in eventsmask is active */
-            if (!apply(eh, socket_poll_events(s)))
-		if (!enqueue(s->notify, eh))
-		    msg_err("failed; queue full\n");
-        }
+	notify_dispatch(s);
     }
 }
 
@@ -203,8 +270,8 @@ static sysreturn socket_write(sock s, void *source, u64 length, u64 offset)
     return length;
 }
 
-static CLOSURE_1_2(socket_check, boolean, sock, u32, event_handler);
-static boolean socket_check(sock s, u32 eventmask, event_handler eh)
+static CLOSURE_1_3(socket_check, boolean, sock, u32, u32, event_handler);
+static boolean socket_check(sock s, u32 eventmask, u32 last, event_handler eh)
 {
     u32 events = socket_poll_events(s);
     u32 match = events & eventmask;
@@ -212,11 +279,8 @@ static boolean socket_check(sock s, u32 eventmask, event_handler eh)
     if (match) {
 	return apply(eh, match);
     } else {
-	/* XXX still follows the broken read-only approach; next
-	   installment enqueues eventmask along with handler and uses
-	   a linked-list queue for trivial removal */
-	if (!enqueue(s->notify, eh))
-	    msg_err("notify queue full\n");
+	if (!notify_enqueue(s, eventmask, last, eh))
+	    msg_err("notify enqueue fail: out of memory\n");
     }
     return true;
 }
@@ -260,7 +324,7 @@ static int allocate_sock(process p, struct tcp_pcb *pcb)
     f->close = closure(h, socket_close, s);
     f->check = closure(h, socket_check, s);
     
-    s->notify = allocate_queue(h, SOCK_QUEUE_LEN);
+    list_init(&s->notify);
     s->waiting = allocate_queue(h, SOCK_QUEUE_LEN);
 
     s->s = STATUS_OK;
@@ -301,7 +365,7 @@ static err_t input_lower (void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t er
     } else {
         s->state = SOCK_CLOSED;
     }
-    wakeup(s);
+    wakeup(s, 0);
     return ERR_OK;
 }
 
@@ -337,8 +401,8 @@ void error_handler_tcp(void* arg, err_t err)
     }
 }
 
-static CLOSURE_1_1(set_completed_state,void,thread,u64*);
-static void set_completed_state( thread th, u64 *code)
+static CLOSURE_1_1(set_completed_state, void, thread, u64 *);
+static void set_completed_state(thread th, u64 *code)
 {
     net_debug("%s: thread %d, code %d\n", __func__, th->tid, *code);
     set_syscall_return(th, *code);
@@ -443,18 +507,11 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
     if (!enqueue(s->incoming, sn))
 	msg_err("incoming queue full\n");
 
-    /* XXX should just call wakeup */
-    if ((sp = dequeue(s->waiting))) {
-        u64 errCode = lwip_to_errno(b);
-        apply(sp,(status)&errCode);
-    }  else {
-        if ((eh = dequeue(s->notify))) {
-	    /* bork */
-            if (!apply(eh, EPOLLIN))
-		if (!enqueue(s->notify, eh))
-		    msg_err("notify queue full\n");
-        }
-    }
+    // XXX - passing a pointer to a stack variable seems kinda
+    // dubious... I guess the thinking was that it should be handled
+    // before return from wakeup, but...
+    u64 errCode = lwip_to_errno(b);
+    wakeup(s, (status)&errCode);
     return ERR_OK;
 }
 
@@ -463,6 +520,7 @@ sysreturn listen(int sockfd, int backlog)
     sock s = resolve_fd(current->p, sockfd);        
     net_debug("%s: sock %d, backlog %d\n", __func__, sockfd, backlog);
     s->lw = tcp_listen_with_backlog(s->lw, backlog);
+    s->state = SOCK_LISTENING;
     tcp_arg(s->lw, s);
     tcp_accept(s->lw, accept_from_lwip);
     tcp_err(s->lw, lwip_conn_err);
@@ -476,7 +534,7 @@ static void accept_finish(sock s, thread target, struct sockaddr *addr, socklen_
     net_debug("%s: sock %d, target thread %d\n", __func__, sn->fd, target->tid);
     remote_sockaddr_in(sn->lw, (struct sockaddr_in *)addr); 
     *addrlen = sizeof(struct sockaddr_in);
-    set_syscall_return(target, sn->fd);                                
+    set_syscall_return(target, sn->fd);
     thread_wakeup(target);
 }
 
@@ -484,6 +542,9 @@ sysreturn accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 {
     sock s = resolve_fd(current->p, sockfd);        
     net_debug("%s: sock %d\n", __func__, sockfd);
+
+    if (s->state != SOCK_LISTENING)
+	return set_syscall_return(current, -EINVAL);
 
     // ok, this is a reasonable interlock to build, the dating app
     // it would be nice if we didn't have to sleep and wakeup for the nonblocking case
