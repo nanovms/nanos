@@ -413,14 +413,12 @@ sysreturn open_internal(tuple n, int flags, int mode)
     unix_heaps uh = get_unix_heaps();
     // might be functional, or be a directory
     file f = unix_cache_alloc(uh, file);
-    if (f == INVALID_ADDRESS) 
-    {
+    if (f == INVALID_ADDRESS) {
         msg_err("failed to allocate struct file\n");
         return set_syscall_error(current, ENOMEM);
     }
     int fd = allocate_fd(current->p, f);
-    if (fd == INVALID_PHYSICAL) 
-    {
+    if (fd == INVALID_PHYSICAL) {
         unix_cache_free(uh, file, f);
         return set_syscall_error(current, EMFILE);
     }
@@ -434,11 +432,10 @@ sysreturn open_internal(tuple n, int flags, int mode)
 sysreturn open(char *name, int flags, int mode)
 {
     tuple n;
-    // fix - lookup should be robust
     if (name == 0) 
         return set_syscall_error (current, EINVAL);
-    if (!(n = resolve_cstring(current->p->cwd, name))) 
-    {
+    // fix - lookup should be robust
+    if (!(n = resolve_cstring(current->p->cwd, name))) {
         rprintf("open %s - not found\n", name);
         return set_syscall_error(current, ENOENT);
     } 
@@ -461,19 +458,19 @@ If pathname is absolute, then dirfd is ignore
 */
 sysreturn openat(int dirfd, char *name, int flags, int mode)
 {
+    tuple n;
     if (name == 0)
         return set_syscall_error (current, EINVAL);
     // dirfs == AT_FDCWS or path is absolute
-    if (dirfd == AT_FDCWD || *name == '/') 
-    {
+    if (dirfd == AT_FDCWD || *name == '/') {
         return open(name, flags, mode);
     }
     file f = resolve_fd(current->p, dirfd);
-    if (!f) 
-    {
-        return EINVAL;
-    }
-    return open_internal(f->n, flags, mode);
+    if (!(n = resolve_cstring(f->n, name))) {
+        rprintf("open %s - not found\n", name);
+        return set_syscall_error(current, ENOENT);
+    } 
+    return open_internal(n, flags, mode);
 }
 
 static void fill_stat(tuple n, struct stat *s)
