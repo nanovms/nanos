@@ -12,6 +12,7 @@ typedef struct epollfd {
     int fd; //debugging only - XXX REMOVE
     file f;
     u32 eventmask;		/* epoll events registered - XXX need lock */
+    u32 lastevents;		/* retain last received events; for edge trigger */
     u64 data; // may be multiple versions of data?
     u64 refcnt;
     epoll e;
@@ -66,6 +67,7 @@ static epollfd alloc_epollfd(epoll e, file f, int fd, u32 eventmask, u64 data)
 	return efd;
     efd->f = f;
     efd->eventmask = eventmask;
+    efd->lastevents = 0;
     efd->fd = fd;
     efd->e = e;
     efd->data = data;
@@ -293,7 +295,8 @@ sysreturn epoll_wait(int epfd,
 	    fetch_and_add(&efd->refcnt, 1);
 	    epoll_debug("   register fd %d, eventmask %P, applying check\n",
 		    efd->fd, efd->eventmask);
-            if (!apply(efd->f->check, efd->eventmask, /* XXX */ 0, closure(h, epoll_wait_notify, efd)))
+            if (!apply(efd->f->check, efd->eventmask, efd->lastevents,
+		       closure(h, epoll_wait_notify, efd)))
 		break;
         }
     }
