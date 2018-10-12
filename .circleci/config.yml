@@ -12,7 +12,7 @@ jobs:
       - run: sudo apt-get install nasm qemu
       - run: cd .. && git clone git@github.com:nanovms/nvm.git
       - run: make && make unit-test
-      - run: cd gotests && go test 
+      - run: make gotest 
   nightly-build:
     docker:
       - image: circleci/golang:1.11
