@@ -1,3 +1,5 @@
+GO?=go
+
 all: image test
 
 force:
@@ -12,7 +14,8 @@ net/lwip:
 
 test: force
 	cd test ; make
-
+gotest: image
+	cd gotests; $(GO) test
 unit-test: test
 	cd test ; make unit-test
 

@@ -9,11 +9,10 @@ jobs:
       - checkout
       # specify any bash command here prefixed with `run: `
       - run: sudo apt-get update
-      - run: sudo apt-get install nasm
-      - run: sudo apt-get install qemu
-      - run: make
-      - run: make unit-test
-      - run: cd test && ./functional.sh
+      - run: sudo apt-get install nasm qemu
+      - run: cd .. && git clone git@github.com:nanovms/nvm.git
+      - run: make && make unit-test
+      - run: make gotest 
   nightly-build:
     docker:
       - image: circleci/golang:1.11
