@@ -239,6 +239,7 @@ static boolean epoll_wait_notify(epollfd efd, u32 events)
     epoll_debug("epoll_wait_notify: efd->fd %d, events %P, blocked %p, zombie %d\n",
 	    efd->fd, events, w, efd->zombie);
     efd->registered = false;
+
     if (!efd->zombie && w) {
 	// strided vectors?
 	if (w->user_events && (w->user_events->length - w->user_events->end)) {
@@ -253,7 +254,10 @@ static boolean epoll_wait_notify(epollfd efd, u32 events)
 	}
 	epoll_blocked_finish(w, false);
     }
+
     epollfd_release(efd);
+    if (efd->eventmask & EPOLLONESHOT)
+	free_epollfd(efd);
     return true;
 }
 
@@ -324,28 +328,40 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
     epoll e = resolve_fd(current->p, epfd);    
     epoll_debug("epoll_ctl: epoll fd %d, op %d, fd %d\n", epfd, op, fd);
     file f = resolve_fd(current->p, fd); /* may return on error */
+    /* XXX verify that fd is not an epoll instance*/
     epollfd efd;
     switch(op) {
     case EPOLL_CTL_ADD:
-	epoll_debug("   adding %d\n", fd);
+	epoll_debug("   adding %d, events %P, data %P\n", fd, event->events, event->data);
 	if (!alloc_epollfd(e, f, fd, event->events | EPOLLERR | EPOLLHUP, event->data))
-	    return -ENOMEM;
+	    return set_syscall_error(current, ENOMEM);
 	break;
     case EPOLL_CTL_DEL:
 	epoll_debug("   removing %d\n", fd);
 	efd = epollfd_from_fd(e, fd);
-	if (efd)
-	    free_epollfd(efd);
-	else
-	    msg_err("delete for unregistered fd %d; ignore\n", fd);
+	if (efd == INVALID_ADDRESS) {
+	    msg_err("delete for unregistered fd %d\n", fd);
+	    return set_syscall_error(current, ENOENT);
+	}
+	free_epollfd(efd);
 	break;
     case EPOLL_CTL_MOD:
-	halt("no epoll_ctl mod\n");
-	epoll_debug("   modifying %d\n", fd);
-	/* XXX share w select */
+	/* EPOLLEXCLUSIVE not allowed */
+	if (event->events & EPOLLEXCLUSIVE)
+	    return set_syscall_error(current, EINVAL);
+	epoll_debug("   modifying %d, events %P, data %P\n", fd, event->events, event->data);
+	efd = epollfd_from_fd(e, fd);
+	if (efd == INVALID_ADDRESS) {
+	    msg_err("modify for unregistered fd %d\n", fd);
+	    return set_syscall_error(current, ENOENT);
+	}
+	free_epollfd(efd);
+	if (!alloc_epollfd(e, f, fd, event->events | EPOLLERR | EPOLLHUP, event->data))
+	    return set_syscall_error(current, ENOMEM);
+	break;
     default:
 	msg_err("unknown op %d\n", op);
-	return -EINVAL;
+	return set_syscall_error(current, EINVAL);
     }
 
     return 0;

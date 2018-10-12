@@ -294,20 +294,21 @@ struct epoll_event {
 #define	EPOLL_CTL_MOD 0x3
 
 
-#define EPOLLIN 0x001
-#define EPOLLPRI 0x002
-#define EPOLLOUT 0x004
-#define EPOLLRDNORM 0x040
-#define EPOLLRDBAND 0x080
-#define EPOLLWRNORM 0x100
-#define EPOLLWRBAND 0x200
-#define EPOLLMSG 0x400
-#define EPOLLERR 0x008
-#define EPOLLHUP 0x010
-#define EPOLLRDHUP 0x2000
-#define EPOLLWAKEUP (1u << 29)
-#define EPOLLONESHOT (1u << 30)
-#define EPOLLET (1u << 31)
+#define EPOLLIN		0x00000001
+#define EPOLLPRI	0x00000002
+#define EPOLLOUT	0x00000004
+#define EPOLLERR	0x00000008
+#define EPOLLHUP	0x00000010
+#define EPOLLRDNORM	0x00000040
+#define EPOLLRDBAND	0x00000080
+#define EPOLLWRNORM	0x00000100
+#define EPOLLWRBAND	0x00000200
+#define EPOLLMSG	0x00000400
+#define EPOLLRDHUP	0x00002000
+#define EPOLLEXCLUSIVE	(1u << 29)
+#define EPOLLWAKEUP	(1u << 29)
+#define EPOLLONESHOT	(1u << 30)
+#define EPOLLET		(1u << 31)
 
 typedef struct aux {u64 tag; u64 val;} *aux;
 
