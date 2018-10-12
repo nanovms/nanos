@@ -11,14 +11,13 @@ typedef struct epoll *epoll;
 typedef struct epollfd {
     int fd; //debugging only - XXX REMOVE
     file f;
-    u32 eventmask;		/* epoll events registered - XXX need lock */
-    u32 lastevents;		/* retain last received events; for edge trigger */
-    u64 data; // may be multiple versions of data?
+    u32 eventmask;  /* epoll events registered - XXX need lock */
+    u32 lastevents; /* retain last received events; for edge trigger */
+    u64 data;	    /* may be multiple versions of data? */
     u64 refcnt;
     epoll e;
     boolean registered;
-    boolean zombie;
-    // xxx bind fd to first blocked that cares
+    boolean zombie;		/* freed or masked by oneshot */
 } *epollfd;
 
 typedef struct epoll_blocked *epoll_blocked;
@@ -240,7 +239,7 @@ static boolean epoll_wait_notify(epollfd efd, u32 events)
 	    efd->fd, events, w, efd->zombie);
     efd->registered = false;
 
-    if (!efd->zombie && w) {
+    if (w && !efd->zombie) {
 	// strided vectors?
 	if (w->user_events && (w->user_events->length - w->user_events->end)) {
 	    struct epoll_event *e = buffer_ref(w->user_events, w->user_events->end);
@@ -248,6 +247,8 @@ static boolean epoll_wait_notify(epollfd efd, u32 events)
 	    e->events = events;
 	    w->user_events->end += sizeof(struct epoll_event);
 	    epoll_debug("   epoll_event %p, data %P, events %P\n", e, e->data, e->events);
+	    if (efd->eventmask & EPOLLONESHOT)
+		efd->zombie = true;
 	} else {
 	    epoll_debug("   user_events null or full\n");
 	    return false;
@@ -256,8 +257,6 @@ static boolean epoll_wait_notify(epollfd efd, u32 events)
     }
 
     epollfd_release(efd);
-    if (efd->eventmask & EPOLLONESHOT)
-	free_epollfd(efd);
     return true;
 }
 
@@ -294,7 +293,9 @@ sysreturn epoll_wait(int epfd,
     bitmap_foreach_set(e->fds, fd) {
 	epollfd efd = vector_get(e->events, fd);
 	assert(efd);
-	if (!efd->registered) {
+	/* If efd is in fds and also a zombie, it's an epfd that's
+	   been masked by a oneshot event. */
+	if (!efd->registered && !efd->zombie) {
 	    efd->registered = true;
 	    fetch_and_add(&efd->refcnt, 1);
 	    epoll_debug("   register fd %d, eventmask %P, applying check\n",
@@ -332,6 +333,11 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
     epollfd efd;
     switch(op) {
     case EPOLL_CTL_ADD:
+	/* EPOLLEXCLUSIVE not yet implemented */
+	if (event->events & EPOLLEXCLUSIVE) {
+	    msg_err("add: EPOLLEXCLUSIVE not supported\n");
+	    return set_syscall_error(current, EINVAL);
+	}
 	epoll_debug("   adding %d, events %P, data %P\n", fd, event->events, event->data);
 	if (!alloc_epollfd(e, f, fd, event->events | EPOLLERR | EPOLLHUP, event->data))
 	    return set_syscall_error(current, ENOMEM);
@@ -346,7 +352,7 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 	free_epollfd(efd);
 	break;
     case EPOLL_CTL_MOD:
-	/* EPOLLEXCLUSIVE not allowed */
+	/* EPOLLEXCLUSIVE not allowed in modify */
 	if (event->events & EPOLLEXCLUSIVE)
 	    return set_syscall_error(current, EINVAL);
 	epoll_debug("   modifying %d, events %P, data %P\n", fd, event->events, event->data);

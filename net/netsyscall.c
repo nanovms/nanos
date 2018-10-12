@@ -102,7 +102,7 @@ static void notify_dispatch(sock s)
        - notify all waiters on a match (default)
        - notify on a match only once until condition is reset (EPOLLET)
        - notify once before removing the registration, handled upstream (EPOLLONESHOT)
-       - notify only one matching waiter (EPOLLEXCLUSIVE)
+       - notify only one matching waiter, even across multiple epoll instances (EPOLLEXCLUSIVE)
     */
     list l = list_get_next(&s->notify);
     if (!l)
@@ -227,6 +227,9 @@ static void read_complete(sock s, thread t, void *dest, u64 length, boolean slee
     if (p->len == 0) {
         dequeue(s->incoming);
         pbuf_free(p);
+	/* reset a triggered EPOLLIN condition */
+	if (queue_length(s->incoming) == 0)
+	    notify_dispatch(s);
     }
     tcp_recved(s->lw, xfer);
     if (sleeping) thread_wakeup(t);
@@ -535,6 +538,11 @@ static void accept_finish(sock s, thread target, struct sockaddr *addr, socklen_
     remote_sockaddr_in(sn->lw, (struct sockaddr_in *)addr); 
     *addrlen = sizeof(struct sockaddr_in);
     set_syscall_return(target, sn->fd);
+    /* XXX I'm not clear on what the behavior should be if a listen
+       socket is used with EPOLLET. Nevertheless, let's handle it as
+       if it's a regular socket. */
+    if (queue_length(s->incoming) == 0)
+	notify_dispatch(s);
     thread_wakeup(target);
 }
 
