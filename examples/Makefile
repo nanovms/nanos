@@ -1,6 +1,6 @@
 ROOT=$(PWD)/..
 CC ?= cc
-GO=go
+GO ?= go
 CFLAGS=-g -c -DENABLE_MSG_DEBUG -std=gnu99 
 
 include $(ROOT)/unix_process/Makefile

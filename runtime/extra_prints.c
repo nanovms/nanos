@@ -94,12 +94,19 @@ static void format_hex_buffer(buffer dest, buffer fmt, vlist *a)
     print_hex_buffer(dest, b);
 }
 
+static void format_time(buffer dest, buffer fmt, vlist *a)
+{
+    time t = varg(*a, time);
+    // XXX rudimentary
+    bprintf(dest, "%ds%dns", t >> 32, t & MASK(32));
+}
 
 void init_extra_prints()
 {
     register_format('t', format_tuple);
     register_format('v', format_value);
     register_format('s', format_cstring);
-    register_format('X', format_hex_buffer);    
+    register_format('X', format_hex_buffer);
+    register_format('T', format_time);
 }
 

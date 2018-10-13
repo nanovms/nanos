@@ -11,6 +11,21 @@ static void timeout()
     sys_check_timeouts();
 }
 
+void lwip_debug(char *format, ...)
+{
+    vlist a;
+    buffer b = allocate_buffer(transient, 64);
+
+    bprintf(b, "lwip %T: ", now());
+
+    struct buffer f;
+    f.start = 0;
+    f.contents = format;
+    f.end = runtime_strlen(format);
+    vstart(a, format);
+    vbprintf(b, &f, &a);
+    debug(b);
+}
 
 void *lwip_allocate(u64 size)
 {

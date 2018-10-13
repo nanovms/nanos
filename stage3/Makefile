@@ -2,6 +2,7 @@ ROOT = ..
 all:stage3
 CC ?= cc
 INCLUDES = -DSTAGE3
+CFLAGS = -DLWIP_DEBUG
 
 include $(ROOT)/runtime/Makefile
 include $(ROOT)/x86_64/Makefile
@@ -19,7 +20,7 @@ stage3: $(NETOBJ) stage3.o $(RUNTIME) $(RUNTIME_EXTRA) $(VIRTIO) $(VIRTIO_NET) $
 	ld -n -e_start -T linker_script -nostdlib $^ -o stage3
 
 .c.o:
-	$(CC) $(INCLUDES) -g -O -nostdinc -fno-stack-protector $< -c
+	$(CC) $(INCLUDES) $(CFLAGS) -g -O -nostdinc -fno-stack-protector $< -c
 
 # fix the frame nasm clean
 clean:
