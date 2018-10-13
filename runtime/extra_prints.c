@@ -98,7 +98,7 @@ static void format_time(buffer dest, buffer fmt, vlist *a)
 {
     time t = varg(*a, time);
     // XXX rudimentary
-    bprintf(dest, "%ds%dns", t >> 32, t & MASK(32));
+    bprintf(dest, "%ds%dns", sec_from_time(t), nsec_from_time(t));
 }
 
 void init_extra_prints()

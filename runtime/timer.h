@@ -10,7 +10,7 @@ void print_time(buffer, time);
 time timer_check();
 time now();
 
-static u64 nano = 1000000000;
+#define nano 1000000000ull
 
 // danger - truncation, should always be subsec
 static inline u64 time_from_nsec(u64 n)
@@ -18,6 +18,16 @@ static inline u64 time_from_nsec(u64 n)
     return (n * (1ull<<32)) / nano;
 }
 
+// without seconds component
+static inline u64 nsec_from_time(time n)
+{
+    return ((n & MASK(32)) * nano) >> 32;
+}
+
+static inline u64 sec_from_time(time n)
+{
+    return n >> 32;
+}
 
 static inline time seconds(int n)
 {
