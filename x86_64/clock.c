@@ -32,7 +32,6 @@ typedef time (*clock_now)(void);
 time now_kvm()
 {
     u64 r = rdtsc();
-    u64 nano = 1000000000ull;
     u64 delta = r - vclock->tsc_timestamp;
     if (vclock->tsc_shift < 0) {
         delta >>= -vclock->tsc_shift;

@@ -11,6 +11,12 @@ static void timeout()
     sys_check_timeouts();
 }
 
+void lwip_debug(char * format, ...)
+{
+    vlist a;
+    vstart(a, format);
+    log_vprintf("LWIP", format, &a);
+}
 
 void *lwip_allocate(u64 size)
 {

@@ -1,6 +1,43 @@
 #pragma once
 #define NO_SYS 2
-#define LWIP_PLATFORM_DIAG(x)
+#ifdef LWIP_DEBUG
+#define LWIP_PLATFORM_DIAG(x) do {lwip_debug x;} while(0)
+#define LWIP_DBG_MIN_LEVEL		LWIP_DBG_LEVEL_ALL
+#define ETHARP_DEBUG                    LWIP_DBG_ON
+#define NETIF_DEBUG                     LWIP_DBG_ON
+#define PBUF_DEBUG                      LWIP_DBG_ON
+#define API_LIB_DEBUG                   LWIP_DBG_ON
+#define API_MSG_DEBUG                   LWIP_DBG_ON
+#define SOCKETS_DEBUG                   LWIP_DBG_ON
+//#define ICMP_DEBUG                      LWIP_DBG_ON
+//#define IGMP_DEBUG                      LWIP_DBG_ON
+//#define INET_DEBUG                      LWIP_DBG_ON
+#define IP_DEBUG                        LWIP_DBG_ON
+//#define IP_REASS_DEBUG                  LWIP_DBG_ON
+//#define RAW_DEBUG                       LWIP_DBG_ON
+//#define MEM_DEBUG                       LWIP_DBG_ON
+//#define MEMP_DEBUG                      LWIP_DBG_ON
+#define SYS_DEBUG                       LWIP_DBG_ON
+#define TIMERS_DEBUG                    LWIP_DBG_ON
+#define TCP_DEBUG                       LWIP_DBG_ON
+#define TCP_INPUT_DEBUG                 LWIP_DBG_ON
+#define TCP_FR_DEBUG                    LWIP_DBG_ON
+#define TCP_RTO_DEBUG                   LWIP_DBG_ON
+#define TCP_CWND_DEBUG                  LWIP_DBG_ON
+#define TCP_WND_DEBUG                   LWIP_DBG_ON
+#define TCP_OUTPUT_DEBUG                LWIP_DBG_ON
+#define TCP_RST_DEBUG                   LWIP_DBG_ON
+#define TCP_QLEN_DEBUG                  LWIP_DBG_ON
+//#define UDP_DEBUG                       LWIP_DBG_ON
+#define TCPIP_DEBUG                     LWIP_DBG_ON
+//#define SLIP_DEBUG                      LWIP_DBG_ON
+//#define DHCP_DEBUG                      LWIP_DBG_ON
+//#define AUTOIP_DEBUG                    LWIP_DBG_ON
+//#define DNS_DEBUG                       LWIP_DBG_ON
+//#define IP6_DEBUG                       LWIP_DBG_ON
+#else
+#define LWIP_PLATFORM_DIAG
+#endif /* LWIP_DEBUG */
 #define LWIP_PLATFORM_ASSERT(x)
 #define LWIP_NO_STDDEF_H 1
 #define LWIP_NO_STDINT_H 1
@@ -31,6 +68,16 @@ typedef void *sys_prot_t;
 typedef u64_t ptrdiff_t;
 typedef unsigned long mem_ptr_t;
 
+// format specifiers
+#define X8_F "c"		/* not actually hex */
+#define U16_F "d"
+#define S16_F "d"
+#define X16_F "d"
+#define U32_F "d"
+#define S32_F "d"
+#define X32_F "P"
+#define SZT_F "d"
+
 // some ifdef rot
 #define API_MSG_M_DEF(m)                m
 #define API_MSG_M_DEF_C(t, m)           t m
@@ -52,6 +99,7 @@ static inline void sys_arch_unprotect(sys_prot_t x)
 extern void console(char *);
 typedef unsigned long long time; 
 extern time now();
+extern void lwip_debug(char * format, ...);
 
 static inline u32_t sys_now(void)
 {
@@ -61,6 +109,7 @@ static inline u32_t sys_now(void)
 
 #define MEM_LIBC_MALLOC 1
 
+extern void net_debug(char *format, ...);
 extern void *lwip_allocate(unsigned long long size);
 extern void lwip_deallocate(void *z);
 

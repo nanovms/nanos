@@ -44,6 +44,12 @@ typedef struct sock {
     status s;
 } *sock;
 
+#ifdef NETSYSCALL_DEBUG
+#define net_debug(x, ...) do {log_printf(" NET", x, ##__VA_ARGS__);} while(0)
+#else
+#define net_debug(x, ...)
+#endif
+
 static inline u32 socket_poll_events(sock s)
 {
     u32 events = 0;
@@ -60,6 +66,7 @@ static void wakeup(sock s)
 {
     event_handler eh;
     status_handler fstatus;
+    net_debug("%s: sock %d\n", __func__, s->fd);
     // return status if not handled so someone else can try?
     // shouldnt a close event wake up everyone?
     if ((fstatus = dequeue(s->waiting))) {
@@ -137,6 +144,8 @@ static inline void pbuf_consume(struct pbuf *p, u64 length)
 static CLOSURE_5_0(read_complete, void, sock, thread, void *, u64, boolean);
 static void read_complete(sock s, thread t, void *dest, u64 length, boolean sleeping)
 {
+    net_debug("%s: sock %d, thread %d, dest %p, len %d, sleeping %d, s->state %d\n",
+	      __func__, s->fd, t->tid, dest, length, sleeping, s->state);
     if (s->state != SOCK_OPEN) {
        set_syscall_error(t, ENOTCONN);
        return;
@@ -156,17 +165,11 @@ static void read_complete(sock s, thread t, void *dest, u64 length, boolean slee
     if (sleeping) thread_wakeup(t);
 }
 
-static CLOSURE_2_0(read_hup, void, sock, thread);
-static void read_hup(sock s, thread t)
-{
-    set_syscall_return(t, 0);
-    if (!enqueue(runqueue, t->run))
-	msg_err("runqueue full\n");
-}
-
 static CLOSURE_1_3(socket_read, sysreturn, sock, void *, u64, u64);
 static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
 {
+    net_debug("%s: sock %d, thread %d, dest %p, length %d, offset %d, s->state %d\n",
+	      __func__, s->fd, current->tid, dest, length, offset, s->state);
     if (SOCK_OPEN != s->state) 
         return set_syscall_error(current, ENOTCONN);
 
@@ -186,6 +189,8 @@ static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
 static CLOSURE_1_3(socket_write, sysreturn, sock, void *, u64, u64);
 static sysreturn socket_write(sock s, void *source, u64 length, u64 offset)
 {
+    net_debug("%s: sock %d, thread %d, source %p, length %d, offset %d, s->state %d\n",
+	      __func__, s->fd, current->tid, source, length, offset, s->state);
     err_t err;
     if (SOCK_OPEN != s->state) 		/* XXX maybe defer to lwip for connect state */
         return set_syscall_error(current, EPIPE);
@@ -203,6 +208,7 @@ static boolean socket_check(sock s, u32 eventmask, event_handler eh)
 {
     u32 events = socket_poll_events(s);
     u32 match = events & eventmask;
+    net_debug("%s: sock %d, eventmask %P, events %P\n", __func__, s->fd, eventmask, events);
     if (match) {
 	return apply(eh, match);
     } else {
@@ -220,6 +226,7 @@ static boolean socket_check(sock s, u32 eventmask, event_handler eh)
 static CLOSURE_1_0(socket_close, sysreturn, sock);
 static sysreturn socket_close(sock s)
 {
+    net_debug("%s: sock %d\n", __func__, s->fd);
     heap h = heap_general(get_kernel_heaps());
     if (s->state == SOCK_OPEN) {
         tcp_close(s->lw);
@@ -274,13 +281,15 @@ sysreturn socket(int domain, int type, int protocol)
         return -ENOMEM;
     
     int fd = allocate_sock(current->p, p);
+    net_debug("%s: new fd %d, pcb %p\n", __func__, fd, p);
     return fd;
 }
 
 static err_t input_lower (void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 {
     sock s = z;
-    
+    net_debug("%s: sock %d, pcb %p, buf %p, err %d\n", __func__, s->fd, pcb, p, err);
+
     if (err) {
         // later timmf
         s->s = timm("lwip error", "%d", err);
@@ -301,6 +310,7 @@ sysreturn bind(int sockfd, struct sockaddr *addr, socklen_t addrlen)
     struct sockaddr_in *sin = (struct sockaddr_in *)addr;
     sock s = resolve_fd(current->p, sockfd);
     buffer b = alloca_wrap_buffer(addr, addrlen);
+    net_debug("%s: sock %d\n", __func__, sockfd);
     // 0 success
     // xxx - extract address and port
     //
@@ -315,6 +325,7 @@ void error_handler_tcp(void* arg, err_t err)
 {
     sock s = (sock)(arg);
     status_handler sp = NULL;
+    net_debug("%s: sock %d, err %d\n", __func__, s->fd, err);
     if(!s)
       return;
     error_message(s, err);
@@ -329,8 +340,9 @@ void error_handler_tcp(void* arg, err_t err)
 static CLOSURE_1_1(set_completed_state,void,thread,u64*);
 static void set_completed_state( thread th, u64 *code)
 {
-  set_syscall_return(th, *code);
-  thread_wakeup(th);
+    net_debug("%s: thread %d, code %d\n", __func__, th->tid, *code);
+    set_syscall_return(th, *code);
+    thread_wakeup(th);
 }
 
 static err_t connect_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
@@ -338,15 +350,18 @@ static err_t connect_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
    status_handler sp = NULL;
    sock s = (sock)(arg);
    s->state = SOCK_OPEN;
+   net_debug("%s: sock %d, pcb %p, err %d\n", __func__, s->fd, tpcb, err);
    if ((sp = dequeue(s->waiting))) {
         u64 code =  lwip_to_errno(err);
+	net_debug("%s: ... applying status handler %p\n", __func__, sp);
         apply(sp, (status)&code);
    }
    return ERR_OK;
 }
 
-static int connect_tcp(sock socket, const ip_addr_t* address, unsigned short port) {
-
+static int connect_tcp(sock socket, const ip_addr_t* address, unsigned short port)
+{
+    net_debug("%s: sock %d, addr %P, port %d\n", __func__, socket->fd, address->addr, port);
     if (!enqueue(socket->waiting, closure(socket->h, set_completed_state, current)))
 	msg_err("waiting queue full\n");
     tcp_arg(socket->lw, socket);
@@ -400,6 +415,7 @@ sysreturn connect(int sockfd, struct sockaddr* addr, socklen_t addrlen) {
 
 static void lwip_conn_err(void* z, err_t b) {
     sock s = z;
+    net_debug("%s: sock %d, err %d\n", __func__, s->fd, b);
     error_message(s, b);
     s->state = SOCK_UNDEFINED;
 }
@@ -415,6 +431,8 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
 
     // XXX - what if this has been closed in the meantime?
     // refcnt
+
+    net_debug("%s: new fd %d, pcb %p, err %d\n", __func__, fd, lw, b);
 
     sock sn = vector_get(s->p->files, fd);
     sn->state = SOCK_OPEN;
@@ -443,6 +461,7 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
 sysreturn listen(int sockfd, int backlog)
 {
     sock s = resolve_fd(current->p, sockfd);        
+    net_debug("%s: sock %d, backlog %d\n", __func__, sockfd, backlog);
     s->lw = tcp_listen_with_backlog(s->lw, backlog);
     tcp_arg(s->lw, s);
     tcp_accept(s->lw, accept_from_lwip);
@@ -454,6 +473,7 @@ static CLOSURE_4_1(accept_finish, void, sock, thread, struct sockaddr *, socklen
 static void accept_finish(sock s, thread target, struct sockaddr *addr, socklen_t *addrlen, u64 status)
 {
     sock sn = dequeue(s->incoming);
+    net_debug("%s: sock %d, target thread %d\n", __func__, sn->fd, target->tid);
     remote_sockaddr_in(sn->lw, (struct sockaddr_in *)addr); 
     *addrlen = sizeof(struct sockaddr_in);
     set_syscall_return(target, sn->fd);                                
@@ -463,6 +483,7 @@ static void accept_finish(sock s, thread target, struct sockaddr *addr, socklen_
 sysreturn accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 {
     sock s = resolve_fd(current->p, sockfd);        
+    net_debug("%s: sock %d\n", __func__, sockfd);
 
     // ok, this is a reasonable interlock to build, the dating app
     // it would be nice if we didn't have to sleep and wakeup for the nonblocking case
