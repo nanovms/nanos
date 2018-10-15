@@ -1,7 +1,7 @@
 #pragma once
 #define NO_SYS 2
 #ifdef LWIP_DEBUG
-#define LWIP_PLATFORM_DIAG(x) do {lwip_debug x;} while(0)
+#define LWIP_PLATFORM_DIAG(x) do {net_debug x;} while(0)
 #define LWIP_DBG_MIN_LEVEL		LWIP_DBG_LEVEL_ALL
 #define ETHARP_DEBUG                    LWIP_DBG_ON
 #define NETIF_DEBUG                     LWIP_DBG_ON
@@ -108,7 +108,7 @@ static inline u32_t sys_now(void)
 
 #define MEM_LIBC_MALLOC 1
 
-extern void lwip_debug(char *format, ...);
+extern void net_debug(char *format, ...);
 extern void *lwip_allocate(unsigned long long size);
 extern void lwip_deallocate(void *z);
 

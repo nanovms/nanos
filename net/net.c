@@ -11,12 +11,12 @@ static void timeout()
     sys_check_timeouts();
 }
 
-void lwip_debug(char *format, ...)
+void net_debug(char *format, ...)
 {
     vlist a;
     buffer b = allocate_buffer(transient, 64);
 
-    bprintf(b, "lwip %T: ", now());
+    bprintf(b, "NET @ %T: ", now());
 
     struct buffer f;
     f.start = 0;
