@@ -1,7 +1,7 @@
 #pragma once
 #define NO_SYS 2
 #ifdef LWIP_DEBUG
-#define LWIP_PLATFORM_DIAG(x) do {net_debug x;} while(0)
+#define LWIP_PLATFORM_DIAG(x) do {lwip_debug x;} while(0)
 #define LWIP_DBG_MIN_LEVEL		LWIP_DBG_LEVEL_ALL
 #define ETHARP_DEBUG                    LWIP_DBG_ON
 #define NETIF_DEBUG                     LWIP_DBG_ON
@@ -99,6 +99,7 @@ static inline void sys_arch_unprotect(sys_prot_t x)
 extern void console(char *);
 typedef unsigned long long time; 
 extern time now();
+extern void lwip_debug(char * format, ...);
 
 static inline u32_t sys_now(void)
 {

@@ -44,7 +44,11 @@ typedef struct sock {
     status s;
 } *sock;
 
-extern void net_debug(char *format, ...);
+#ifdef NETSYSCALL_DEBUG
+#define net_debug(x, ...) do {log_printf(" NET", x, ##__VA_ARGS__);} while(0)
+#else
+#define net_debug(x, ...)
+#endif
 
 static inline u32 socket_poll_events(sock s)
 {

@@ -38,3 +38,23 @@ void vbprintf(buffer d, buffer fmt, vlist *ap)
         }
     }
 }
+
+/* XXX the various debug stuff needs to be folded into one log facility...somewhere */
+void log_vprintf(char * prefix, char * log_format, vlist *a)
+{
+    buffer b = allocate_buffer(transient, 64);
+    bprintf(b, "[%T] %s: ", now(), prefix);
+    struct buffer f;
+    f.start = 0;
+    f.contents = log_format;
+    f.end = runtime_strlen(log_format);
+    vbprintf(b, &f, a);
+    debug(b);
+}
+
+void log_printf(char * prefix, char * log_format, ...)
+{
+    vlist a;
+    vstart(a, log_format);
+    log_vprintf(prefix, log_format, &a);
+}

@@ -8,7 +8,11 @@ void initialize_timers(kernel_heaps kh);
 time parse_time();
 void print_time(buffer, time);
 time timer_check();
+#ifdef BOOT
+static inline time now() { return 0; } /* stub */
+#else
 time now();
+#endif
 
 #define nano 1000000000ull
 

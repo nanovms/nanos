@@ -2,7 +2,7 @@ ROOT = ..
 all:stage3
 CC ?= cc
 INCLUDES = -DSTAGE3
-CFLAGS = -DLWIP_DEBUG
+#CFLAGS = -DLWIP_DEBUG -DEPOLL_DEBUG -DNETSYSCALL_DEBUG
 
 include $(ROOT)/runtime/Makefile
 include $(ROOT)/x86_64/Makefile
