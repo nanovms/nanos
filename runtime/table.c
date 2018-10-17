@@ -32,9 +32,6 @@ table allocate_table(heap h, u64 (*key_function)(void *x), boolean (*equals_func
     t->entries = allocate_zero(h, t->buckets * sizeof(void *));
     t->key_function = key_function;
     t->equals_function = equals_function;
-    //    console("table: ");
-    //    print_u64(u64_from_pointer(new));
-    //    console("\n");
     return(new);
 }
 
@@ -49,10 +46,6 @@ void *table_find (table z, void *c)
     table t = valueof(z);
     key k = t->key_function(c);
     for (entry i = t->entries[position(t->buckets, k)]; i; i = i->next){
-        if (i == INVALID_ADDRESS) {
-            rprintf("badness 10000 %p %p\n", z, z->h);
-            halt("zig why no format");
-        }
         if ((i->k == k) && t->equals_function(i->c, c))
             return(i->v);
     }
@@ -70,10 +63,6 @@ static void resize_table(table z, int buckets)
             entry n = j->next;
             key km = position(buckets, j->k);
             j->next = nentries[km];
-            if (j->next == INVALID_ADDRESS) {
-                rprintf("badness 9000 %p\n", z);
-                halt("zig why no format");
-            }
             nentries[km] = j;
             j = n;
         }

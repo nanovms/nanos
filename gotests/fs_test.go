@@ -31,7 +31,8 @@ func prepareTestImage(finalImage string) {
 	c := defaultConfig()
 	writeFile(filepath)
 	c.Files = append(c.Files, filepath)
-	err := lepton.BuildImage("../examples/webs", finalImage, c)
+	c.DiskImage = finalImage
+	err := lepton.BuildImage("../examples/webs", c)
 	if err != nil {
 		log.Fatal(err)
 	}
