@@ -4,7 +4,7 @@ static vector vector_from_tuple(heap h, tuple n)
     vector r = allocate_vector(h, 100); //table_elements(n));
     void *x;
     
-    for (int i = 0; (x = table_find(n, intern_u64(i)));  i++) 
+    for (int i = 0; n && (x = table_find(n, intern_u64(i)));  i++) 
         vector_push(r, x);
     
     return r;
