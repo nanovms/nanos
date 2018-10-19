@@ -1,10 +1,13 @@
 #pragma once
+#include <runtime.h>
 typedef struct list {
     struct list * prev;
     struct list * next;
 } *list;
 
 #define struct_from_list(l, s, f) ((s)pointer_from_u64(u64_from_pointer(l) - offsetof(s, f)))
+#define list_foreach(list, elem) \
+    for (elem = list_begin(list); elem != list_end(list); elem = elem->next)
 
 static inline void list_init(struct list * head)
 {
@@ -31,7 +34,7 @@ static inline void list_delete(struct list * p)
 }
 
 static inline void list_insert_after(struct list * pos,
-				     struct list * new)
+                     struct list * new)
 {
     new->prev = pos;
     new->next = pos->next;
@@ -40,10 +43,32 @@ static inline void list_insert_after(struct list * pos,
 }
 
 static inline void list_insert_before(struct list * pos,
-				      struct list * new)
+                      struct list * new)
 {
     new->prev = pos->prev;
     new->next = pos;
     pos->prev->next = new;
     pos->prev = new;
+}
+
+static inline struct list *list_begin(struct list *head)
+{
+    return head->next;
+}
+
+static inline struct list *list_end(struct list  *head)
+{
+    return head;
+}
+
+static inline void list_push_back(struct list *list, struct list *elem)
+{
+    list_insert_before(list_end(list), elem);
+}
+
+static inline struct list *list_pop_back(struct list *list)
+{
+    struct list *back = list_end(list)->prev;
+    list_delete(back);
+    return back;
 }

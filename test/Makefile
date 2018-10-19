@@ -1,5 +1,5 @@
 
-all:objcache_test network_test id_heap_test
+all:objcache_test network_test id_heap_test path_test
 
 ROOT=$(PWD)/..
 
@@ -22,10 +22,14 @@ network_test: network_test.o $(UNIXRUNTIME)
 id_heap_test: id_heap_test.o $(UNIXRUNTIME)
 	$(CC) $(CFLAGS) $^ -g -o id_heap_test
 
-unit-test: objcache_test id_heap_test
+path_test: path_test.o $(UNIXRUNTIME)
+	$(CC) $(CFLAGS) $^ -g -o path_test
+
+unit-test: objcache_test id_heap_test path_test
 	./objcache_test
 	./id_heap_test
+	./path_test
 
 clean:
-	rm -f *.o objcache_test network_test id_heap_test
+	rm -f *.o objcache_test network_test id_heap_test path_test
 
