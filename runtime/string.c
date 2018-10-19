@@ -1,7 +1,7 @@
 #include <runtime.h>
 
 char *
-strchr (const char *string, int _c) 
+runtime_strchr (const char *string, int _c)
 {
     char c = _c;
 
@@ -15,14 +15,14 @@ strchr (const char *string, int _c)
 }
     
 char *
-strtok_r (char *s, const char *delimiters, char **save_ptr) 
+strtok_r (char *s, const char *delimiters, char **save_ptr)
 {
     char *token;
 
     if (s == 0)
         s = *save_ptr;
 
-    while (strchr(delimiters, *s) != 0) {
+    while (runtime_strchr(delimiters, *s) != 0) {
         if (*s == '\0') {
             *save_ptr = s;
             return 0;
@@ -32,7 +32,7 @@ strtok_r (char *s, const char *delimiters, char **save_ptr)
     }
 
     token = s;
-    while (strchr(delimiters, *s) == 0)
+    while (runtime_strchr(delimiters, *s) == 0)
         s ++;
 
     if (*s != '\0') {
