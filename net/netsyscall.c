@@ -34,12 +34,6 @@ enum socket_state {
     SOCK_LISTENING = 5,
 };
 
-/* writers:
-   - socket_check() - enqueue (tail)
-   - notify_dispatch() - modify last, dequeue (head)
-   readers:
-   - notify_dispatch() - eventmask, last
-*/
 typedef struct notify_entry {
     u32 eventmask;
     u32 last;
@@ -54,7 +48,7 @@ typedef struct sock {
     struct tcp_pcb *lw;
     queue incoming;
     queue waiting; // service waiting before notify, do we really need 2 queues here?
-    struct list notify;
+    struct list notify;		/* XXX: add spinlock */
     // the notion is that 'waiters' should take priority    
     int fd;
     enum socket_state state; // half open?
