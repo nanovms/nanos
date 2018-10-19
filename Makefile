@@ -15,7 +15,7 @@ net/lwip:
 test: force
 	cd test ; make
 gotest: image
-	cd gotests; $(GO) test
+	cd gotests; make deps; make test
 unit-test: test
 	cd test ; make unit-test
 
