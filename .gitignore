@@ -36,3 +36,4 @@ fs
 test/objcache_test
 test/network_test
 test/id_heap_test
+test/path_test
