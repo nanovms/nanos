@@ -6,7 +6,7 @@
 
 #define ppush(__s, __b, __f, ...) ({buffer_clear(__b);\
             bprintf(b, __f, __VA_ARGS__);                               \
-            u64 len = pad(buffer_length(b), 64)>>6;                     \
+            u64 len = pad(buffer_length(b) * 8, 64)>>6;                     \
             __s -= len;                                                 \
             runtime_memcpy(s, buffer_ref(b, 0), buffer_length(b));\
             (char *)__s;})
