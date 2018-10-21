@@ -49,9 +49,9 @@ static void build_exec_stack(heap sh, thread t, Elf64_Ehdr * e, void *start, u64
         spush(s, auxp[i].tag);
     }
     spush(s, 0);
-    for (int i = 0; i< envc; i++) spush(s, envp[i]);
+    for (int i = envc - 1; i >= 0; i--) spush(s, envp[i]);
     spush(s, 0);
-    for (int i = argc - 1 ; i >= 0; i--) spush(s, argv[i]);
+    for (int i = argc - 1; i >= 0; i--) spush(s, argv[i]);
     spush(s, argc);
 
     t->frame[FRAME_RSP] = u64_from_pointer(s);
