@@ -495,8 +495,7 @@ static sysreturn fstat(int fd, struct stat *s)
     thread_log(current, "fd %d, stat %p\n", fd, s);
     file f = resolve_fd(current->p, fd);
     // take this from tuple space
-    if (fd == 1 || fd == 2) {
-        console("HERE......\n");
+    if (fd == 1) {
         s->st_mode = S_IFIFO;
         return 0;
     }
