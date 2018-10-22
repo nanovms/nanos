@@ -495,7 +495,8 @@ static sysreturn fstat(int fd, struct stat *s)
     thread_log(current, "fd %d, stat %p\n", fd, s);
     file f = resolve_fd(current->p, fd);
     // take this from tuple space
-    if (fd == 1) {
+    if (fd == 1 || fd == 2) {
+        console("HERE......\n");
         s->st_mode = S_IFIFO;
         return 0;
     }
@@ -617,6 +618,11 @@ void exit(int code)
     while(1); //compiler put a noreturn on exit
 }
 
+void exit_group(int status){
+    halt("exit_group");
+    while(1);
+}
+
 void register_file_syscalls(void **map)
 {
     register_syscall(map, SYS_read, read);
@@ -637,6 +643,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_uname, uname);
     register_syscall(map, SYS_getrlimit, getrlimit);
     register_syscall(map, SYS_getpid, getpid);    
+    register_syscall(map,SYS_exit_group, exit_group);
     register_syscall(map, SYS_exit, (sysreturn (*)())exit);
 }
 
