@@ -119,6 +119,7 @@ static void select_spin(notifier n)
 	    continue;
 	int words = pad(s->nfds, 64) >> 6;
         for (int i = 0; i < words; i++) {
+	    // XXX refactor
 	    u64 u = *rp | *wp | *ep;
 
 	    bitmap_word_foreach_set(u, bit, fd, (i << 6)) {

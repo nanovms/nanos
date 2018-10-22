@@ -9,7 +9,7 @@ VPATH += $(ROOT)/test
 %.o: %.c $(ROOT)/runtime/closure_templates.h
 	$(CC) $(CFLAGS) $(INCLUDES) $<
 
-all: hw webs hwg webg hws webs webgs
+all: hw webs hwg webg hws webs webgs lotest
 
 hwg: hwg.go
 	$(GO) build hwg.go
@@ -35,7 +35,8 @@ webgs: webg.go
 fst: fst.go
 	$(GO) build fst.go
 
+lotest: lotest.o $(UNIXRUNTIME)
+	$(CC) $^ -g -o lotest
+
 clean:
-	rm -f *.o *~ hw web hwg webg webs hws webgs
-
-
+	rm -f *.o *~ hw web hwg webg webs hws webgs lotest
