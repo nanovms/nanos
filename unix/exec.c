@@ -6,7 +6,7 @@
 
 #define ppush(__s, __b, __f, ...) ({buffer_clear(__b);\
             bprintf(b, __f, __VA_ARGS__);                               \
-            u64 len = pad(buffer_length(b), 64)>>6;                     \
+            u64 len = pad(buffer_length(b) * 8, 64)>>6;                     \
             __s -= len;                                                 \
             runtime_memcpy(s, buffer_ref(b, 0), buffer_length(b));\
             (char *)__s;})
@@ -49,9 +49,9 @@ static void build_exec_stack(heap sh, thread t, Elf64_Ehdr * e, void *start, u64
         spush(s, auxp[i].tag);
     }
     spush(s, 0);
-    for (int i = 0; i< envc; i++) spush(s, envp[i]);
+    for (int i = envc - 1; i >= 0; i--) spush(s, envp[i]);
     spush(s, 0);
-    for (int i = argc - 1 ; i >= 0; i--) spush(s, argv[i]);
+    for (int i = argc - 1; i >= 0; i--) spush(s, argv[i]);
     spush(s, argc);
 
     t->frame[FRAME_RSP] = u64_from_pointer(s);

@@ -13,6 +13,6 @@
 #    debugsyscalls:t
 #    futex_trace:t    
     fault:t
-    arguments:[webg]
-    environment:(USER:bobby PWD:/)
+    arguments:[webg longargument]
+    environment:(USER:bobby PWD:password)
 )
