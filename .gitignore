@@ -29,6 +29,8 @@ examples/webg
 examples/fst
 examples/hws
 examples/webgs
+examples/lotest
+examples/soop.data
 stage3/frame_nasm.h
 image2
 mkfs/dump
@@ -37,3 +39,4 @@ test/objcache_test
 test/network_test
 test/id_heap_test
 test/path_test
+gotests/.staging
