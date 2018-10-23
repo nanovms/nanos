@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 )
 
 var count int64
@@ -27,6 +28,10 @@ func envHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, s)
 }
 
+func tsHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, "%s\n", time.Now())
+}
+
 func handler(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprintf(w, "unibooty %d", count)
@@ -38,5 +43,6 @@ func main() {
 	http.HandleFunc("/", handler)
 	http.HandleFunc("/args", argsHandler)
 	http.HandleFunc("/env", envHandler)
+	http.HandleFunc("/ts", tsHandler)
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
