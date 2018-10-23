@@ -1,7 +1,10 @@
 #include <runtime.h>
 #include "hpet.h"
+#include "rtc.h"
 
 static struct pvclock_vcpu_time_info *vclock = 0;
+
+static time rtc_offset;
 
 #define CPUID_LEAF_4 0x40000001
 
@@ -65,7 +68,7 @@ INFO:
 static clock_now clock_function = now_kvm;
 
 time now() {
-  return clock_function();
+  return rtc_offset + clock_function();
 }
 
 void init_clock(kernel_heaps kh)
@@ -86,4 +89,5 @@ void init_clock(kernel_heaps kh)
         }
         clock_function = now_hpet;
     }
+    rtc_offset = rtc_gettimeofday() << 32;
 }
