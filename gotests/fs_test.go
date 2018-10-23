@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"testing"
 	"time"
 
@@ -42,6 +43,25 @@ func prepareTestImage(finalImage string) {
 	}
 }
 
+type runeSorter []rune
+
+func (s runeSorter) Less(i, j int) bool {
+	return s[i] < s[j]
+}
+
+func (s runeSorter) Swap(i, j int) {
+	s[i], s[j] = s[j], s[i]
+}
+func (s runeSorter) Len() int {
+	return len(s)
+}
+
+func sortString(s string) string {
+	r := []rune(s)
+	sort.Sort(runeSorter(r))
+	return string(r)
+}
+
 func TestArgsAndEnv(t *testing.T) {
 	const finalImage = "image"
 	prepareTestImage(finalImage)
@@ -76,7 +96,9 @@ func TestArgsAndEnv(t *testing.T) {
 		t.Log(err)
 		t.Errorf("ReadAll failed")
 	}
-	if string(body) != "USER=bobbyPWD=password" {
+
+	if sortString(string(body)) !=
+		sortString("USER=bobbyPWD=password") {
 		t.Errorf("unexpected response" + string(body))
 	}
 	hypervisor.Stop()
