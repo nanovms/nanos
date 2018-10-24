@@ -48,7 +48,7 @@ typedef struct sock {
     struct tcp_pcb *lw;
     queue incoming;
     queue waiting; // service waiting before notify, do we really need 2 queues here?
-    struct list notify;		/* XXX: add spinlock */
+    struct list notify;		/* XXX: add spinlock when available */
     // the notion is that 'waiters' should take priority    
     int fd;
     enum socket_state state; // half open?
@@ -85,24 +85,18 @@ static inline boolean notify_enqueue(sock s, u32 eventmask, u32 last, event_hand
     n->eventmask = eventmask;
     n->last = last;
     n->eh = eh;
-    list_insert_before(&s->notify, &n->l); /* XXX make cas version */
+    list_insert_before(&s->notify, &n->l); /* XXX lock */
     return true;
 }
 
-/* XXX this should move to a more general place for use with other types of files */
+/* XXX this should move to a more general place for use with other types of fds */
 static void notify_dispatch(sock s)
 {
-    /* Depending on the epoll flags given, we may:
-       - notify all waiters on a match (default)
-       - notify on a match only once until condition is reset (EPOLLET)
-       - notify once before removing the registration, handled upstream (EPOLLONESHOT)
-       - notify only one matching waiter, even across multiple epoll instances (EPOLLEXCLUSIVE)
-    */
+    /* XXX need to take a lock here, circle back once we have them */
     list l = list_get_next(&s->notify);
     if (!l)
 	return;
 
-    boolean exclusive_match = false;
     u32 events = socket_poll_events(s);
 
     do {
@@ -112,22 +106,23 @@ static void notify_dispatch(sock s)
 	if (n->eventmask & EPOLLET) {
 	    /* ignore if edge trigger and no change */
 	    if (masked != n->last) {
-		/* check if any events went from 0 -> 1 */
+		/* update saved events, report rising ones */
 		u32 rising = (masked ^ n->last) & masked;
 		n->last = masked;
-		if (rising && apply(n->eh, rising)) { /* XXX include events that didn't change? */
+		if (rising && apply(n->eh, rising)) {
 		    list_delete(l);
 		    deallocate(s->h, n, sizeof(struct notify_entry));
 		}
 	    }
 	} else {
+	    /* report events unconditionally */
 	    if (apply(n->eh, masked)) {
 		list_delete(l);
 		deallocate(s->h, n, sizeof(struct notify_entry));
 	    }
 	}
 	l = next;
-    } while(l && l != &s->notify); /* XXX inelegant */
+    } while(l != &s->notify);
 }
 
 static void wakeup(sock s, status st)
@@ -321,7 +316,7 @@ static int allocate_sock(process p, struct tcp_pcb *pcb)
     f->close = closure(h, socket_close, s);
     f->check = closure(h, socket_check, s);
     
-    list_init(&s->notify);
+    list_init(&s->notify);	/* XXX lock init */
     s->waiting = allocate_queue(h, SOCK_QUEUE_LEN);
 
     s->s = STATUS_OK;
@@ -506,7 +501,9 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
 
     // XXX - passing a pointer to a stack variable seems kinda
     // dubious... I guess the thinking was that it should be handled
-    // before return from wakeup, but...
+    // before return from wakeup, but there's no guarantee.
+    //
+    // Need to rethink this b0rked status scheme...
     u64 errCode = lwip_to_errno(b);
     wakeup(s, (status)&errCode);
     return ERR_OK;
@@ -533,8 +530,8 @@ static void accept_finish(sock s, thread target, struct sockaddr *addr, socklen_
     *addrlen = sizeof(struct sockaddr_in);
     set_syscall_return(target, sn->fd);
     /* XXX I'm not clear on what the behavior should be if a listen
-       socket is used with EPOLLET. Nevertheless, let's handle it as
-       if it's a regular socket. */
+       socket is used with EPOLLET. For now, let's handle it as if
+       it's a regular socket. */
     if (queue_length(s->incoming) == 0)
 	notify_dispatch(s);
     thread_wakeup(target);

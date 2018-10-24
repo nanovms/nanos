@@ -274,6 +274,14 @@ static epoll_blocked alloc_epoll_blocked(epoll e)
     return w;
 }
 
+/* Depending on the epoll flags given, we may:
+   - notify all waiters on a match (default)
+   - notify on a match only once until condition is reset (EPOLLET)
+   - notify once before removing the registration, handled upstream (EPOLLONESHOT)
+   - notify only one matching waiter, even across multiple epoll instances (EPOLLEXCLUSIVE)
+     - XXX Not implemented; will require tracking reported events on a per fd - not per
+           registration - basis.
+*/
 sysreturn epoll_wait(int epfd,
                struct epoll_event *events,
                int maxevents,

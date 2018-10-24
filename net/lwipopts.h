@@ -56,7 +56,6 @@ typedef unsigned long size_t;
 #define LWIP_NETIF_STATUS_CALLBACK 1
 // ehh
 #define LWIP_DHCP_BOOTP_FILE 1
-#define LWIP_HAVE_LOOPIF 1
 typedef unsigned long u64_t;
 typedef unsigned u32_t;
 typedef int s32_t;
