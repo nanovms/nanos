@@ -37,3 +37,5 @@ fst: fst.go
 
 clean:
 	rm -f *.o *~ hw web hwg webg webs hws webgs
+
+
