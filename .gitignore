@@ -29,7 +29,6 @@ examples/webg
 examples/fst
 examples/hws
 examples/webgs
-examples/lotest
 examples/soop.data
 stage3/frame_nasm.h
 image2
