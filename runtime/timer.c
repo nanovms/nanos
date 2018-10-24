@@ -113,6 +113,7 @@ void print_time(string b, time t)
 void initialize_timers(kernel_heaps kh)
 {
     heap h = heap_general(kh);
+    assert(!timers);
     timers = allocate_pqueue(h, timer_less_than);
     theap = h;
 }

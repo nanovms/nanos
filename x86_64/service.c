@@ -164,7 +164,6 @@ static void __attribute__((noinline)) init_service_new_stack()
     init_clock(kh);
     init_net(kh);
     tuple root = allocate_tuple();
-    initialize_timers(kh);
     init_pci(kh);
     init_virtio_storage(kh, closure(misc, attach_storage, root));
     init_virtio_network(kh);
