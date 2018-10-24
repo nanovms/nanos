@@ -2,9 +2,9 @@
 
 struct timer {
     thunk t;
-    time  w;
-    time  interval; 
-    boolean   disable;
+    time w;
+    time interval;
+    boolean disable;
 };
 
 // should pass a timer around
@@ -14,7 +14,7 @@ static heap theap;
 static boolean timer_less_than(void *za, void *zb)
 {
     timer a = za;
-    timer b = zb;    
+    timer b = zb;
     return(a->w < b->w);
 }
 
@@ -29,28 +29,29 @@ timer register_timer(time interval, thunk n)
 
     t->t= n;
     t->interval = 0;
-    t->disable = 0;
+    t->disable = false;
     t->w = now() + interval;
     pqueue_insert(timers, t);
+    rprintf("register one-shot timer: %p %p\n", t, t->interval);
     return(t);
 }
 
 timer register_periodic_timer(time interval, thunk n)
 {
     timer t=(timer)allocate(theap, sizeof(struct timer));
-
     t->t = n;
-    t->disable = 0;
+    t->disable = false;
     t->interval = interval;    
-    t->w = now(theap);
+    t->w = now() + t->interval;
     pqueue_insert(timers, t);
+    rprintf("register periodic %p %p\n", t, t->interval);
     return(t);
 }
 
 time timer_check()
 {
     time here;
-    timer current = false;
+    timer current = 0;
 
     // thread safety, predication?
     while ((current = pqueue_peek(timers)) &&

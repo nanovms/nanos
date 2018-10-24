@@ -32,6 +32,8 @@ struct pvclock_wall_clock {
 typedef __uint128_t u128;
 typedef time (*clock_now)(void);
 
+extern time now_hpet();
+
 time now_kvm()
 {
     u64 r = rdtsc();
@@ -50,21 +52,6 @@ time now_kvm()
     return out;
 }
 
-time now_hpet() {
-  u64 counter = hpet_counter();
-  /*
-INFO:
-      We haven't 128 bit arithmetic. We can't divide 128 bit number.
-      The default type  CLK_PERIOD is femtoseconds but we need nanoseconds.
-      There is potential problem if hpet multiplier less than 1000000 ul.
-      But qemu set it value to 10 000 000. Another problem  may there is rounding.
-      the prefer code will be (u64)((u128)counter*hpet_multiplier())/1000000ul;
-  */
-  u32 multiply = hpet_multiplier()/1000000ul;
-  u64 nsec = (u64)((u128)counter*multiply);
-  return nsec;
-}
-
 static clock_now clock_function = now_kvm;
 
 time now() {
@@ -76,15 +63,18 @@ void init_clock(kernel_heaps kh)
     heap backed = heap_backed(kh);
     // xxx - figure out how to deal with cpu id so we can
     // test for the presence of this feature
+    // this is just used for rdtsc scaling, as both kvm and non-kvm are assumed
+    // to have hpet support
     vclock = allocate(backed, backed->pagesize);
     zero(vclock,sizeof(struct pvclock_vcpu_time_info));
     // add the enable bit 1
     write_msr(MSR_KVM_SYSTEM_TIME, physical_from_virtual(vclock)| 1);
+
     if (0 == vclock->system_time)
     {
         deallocate(backed, vclock, backed->pagesize);
         console("INFO: KVM clock is inaccessible\n");
-        if( !init_hpet(heap_virtual_page(kh), heap_pages(kh))) {
+        if(!init_hpet(heap_general(kh), heap_virtual_page(kh), heap_pages(kh))) {
           halt("ERROR: HPET clock is inaccessible\n");
         }
         clock_function = now_hpet;

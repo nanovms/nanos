@@ -3,6 +3,7 @@
 #include <pci.h>
 #include <virtio.h>
 #include <tfs.h>
+#include <hpet.h>
 
 extern void init_net(kernel_heaps kh);
 extern void startup();
@@ -57,10 +58,12 @@ void runloop()
     while(1) {
         // hopefully overall loop is being driven by the lapic periodic interrupt,
         // which should limit the skew
-        timer_check();
-        
+        u64 delta = timer_check();
+        if (delta) hpet_timer(delta, ignore);
         while((t = dequeue(runqueue))) {
+            enable_interrupts();
             apply(t);
+            disable_interrupts();
         }
         frame = miscframe;
         enable_interrupts();
@@ -144,6 +147,13 @@ static void read_kernel_syms()
     }
 }
 
+CLOSURE_0_0(foo, void);
+void foo()
+{
+    rprintf("bob\n");
+}
+
+
 static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = &heaps;
@@ -162,18 +172,16 @@ static void __attribute__((noinline)) init_service_new_stack()
     init_symtab(kh);
     read_kernel_syms();
     init_clock(kh);
-    init_net(kh);
-    tuple root = allocate_tuple();
     initialize_timers(kh);
+    //    init_net(kh);
+    register_periodic_timer(seconds(1), closure(misc, foo));
+    tuple root = allocate_tuple();
     init_pci(kh);
-    init_virtio_storage(kh, closure(misc, attach_storage, root));
-    init_virtio_network(kh);
+    //    init_virtio_storage(kh, closure(misc, attach_storage, root));
+    //    init_virtio_network(kh);
 
     miscframe = allocate(misc, FRAME_MAX * sizeof(u64));
     pci_discover();
-    // just to get the hlt loop to wake up and service timers. 
-    // should change this to post the delta to the front of the queue each time
-    configure_timer(milliseconds(50), ignore);
     runloop();
 }
 

@@ -7,6 +7,7 @@ typedef unsigned int u32;
 typedef int s32;
 typedef unsigned long long u64;
 typedef long long s64;
+typedef __uint128_t u128;
 
 typedef u64 word;
 typedef u64 bytes;

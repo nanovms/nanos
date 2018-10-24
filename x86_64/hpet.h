@@ -1,5 +1,5 @@
-#pragma once
 
-boolean init_hpet(heap virtual_pagesized, heap pages);
-u32  hpet_multiplier(void);
-u64  hpet_counter(void);
+boolean init_hpet(heap misc, heap virtual_pagesized, heap pages);
+void hpet_timer(time period, thunk t);
+void hpet_periodic_timer(time rate, thunk t);
+
