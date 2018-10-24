@@ -36,4 +36,4 @@ fst: fst.go
 	$(GO) build fst.go
 
 clean:
-	rm -f *.o *~ hw web hwg webg webs hws webgs lotest
+	rm -f *.o *~ hw web hwg webg webs hws webgs
