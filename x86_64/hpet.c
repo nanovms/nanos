@@ -4,69 +4,96 @@
 extern heap interrupt_vectors;
 static heap timers;
 #define HPET_TABLE_ADDRESS 0xfed00000ull
-#define HPET_MAXIMUM_INCREMENT_PERIOD 0x05F5E100ul
+#define HPET_MAXIMUM_INCREMENT_PERIOD 0x05F5E100ul /* 100ns */
 
-struct HPETGCapabilitiesIDRegister {
-    u16 revID : 8;
-    u16 numTimCap : 5;
-    u16 countSizeCap : 1;
-    u16 reserved : 1;
-    u16 legRouteCap : 1;
-    volatile  u16 vendorID;
-    volatile  u32 counterClkPeriod;
-} __attribute__((__packed__));
+/* Note: hpet registers allow only 32 and 64 bit accesses */
+#define HPET_CAPID_COUNTER_CLOCK_PERIOD_SHIFT	32
+#define HPET_CAPID_COUNTER_CLOCK_PERIOD_BITS	32
+#define HPET_CAPID_VENDOR_ID_SHIFT	16
+#define HPET_CAPID_VENDOR_ID_BITS	16
+#define HPET_CAPID_LEG_RT_CAP_SHIFT	15
+#define HPET_CAPID_LEG_RT_CAP_BITS	1
+#define HPET_CAPID_RESERVED_SHIFT	14
+#define HPET_CAPID_RESERVED_BITS	1
+#define HPET_CAPID_COUNT_SIZE_CAP_SHIFT	13
+#define HPET_CAPID_COUNT_SIZE_CAP_BITS	1
+#define HPET_CAPID_NUM_TIM_CAP_SHIFT	8
+#define HPET_CAPID_NUM_TIM_CAP_BITS	5
+#define HPET_CAPID_REV_ID_SHIFT		0
+#define HPET_CAPID_REV_ID_BITS		8
 
-struct HPETGConfigurationRegister {
-    u16 enableCnf : 1;
-    u16 legRtCnf : 1;
-    u16 reserved6 : 6;
-    u16 reservedForNonOS : 8;
-    u16 reserved16;
-    u32 reserved32;
-} __attribute__((__packed__));
+#define HPET_CONF_RESERVED_SHIFT		62
+#define HPET_CONF_RESERVED_BITS			62
+#define HPET_CONF_LEG_RT_CNF_SHIFT		1
+#define HPET_CONF_LEG_RT_CNF_BITS		1
+#define HPET_CONF_ENABLE_CNF_SHIFT		0
+#define HPET_CONF_ENABLE_CNF_BITS		1
 
-struct HPETInterruptStatusRegister {
-    u32 T0IntSts : 1;
-    u32 T1IntSts : 1;
-    u32 TIntSts : 1;
-    u32 TnIntSts : 29;
-    u32 reserved32;
-} __attribute__((__packed__));
+#define HPET_ISR_RESERVED_SHIFT			32
+#define HPET_ISR_RESERVED_BITS			32
+#define HPET_ISR_TN_INT_STS_SHIFT		0
+#define HPET_ISR_TN_INT_STS_BITS		32
+
+#define HPET_TIMER_CONFIG_INT_ROUTE_CAP_SHIFT	32
+#define HPET_TIMER_CONFIG_INT_ROUTE_CAP_BITS	32
+#define HPET_TIMER_CONFIG_RESERVED_SHIFT	16
+#define HPET_TIMER_CONFIG_RESERVED_BITS		16
+#define HPET_TIMER_CONFIG_FSB_INT_DEL_CAP_SHIFT	15
+#define HPET_TIMER_CONFIG_FSB_INT_DEL_CAP_BITS	1
+#define HPET_TIMER_CONFIG_FSB_EN_CNF_SHIFT	14
+#define HPET_TIMER_CONFIG_FSB_EN_CNF_BITS	1
+#define HPET_TIMER_CONFIG_INT_ROUTE_CNF_SHIFT	9
+#define HPET_TIMER_CONFIG_INT_ROUTE_CNF_BITS	5
+#define HPET_TIMER_CONFIG_32MODE_CNF_SHIFT	8
+#define HPET_TIMER_CONFIG_32MODE_CNF_BITS	1
+#define HPET_TIMER_CONFIG_RESERVED2_SHIFT	7
+#define HPET_TIMER_CONFIG_RESERVED2_BITS	1
+#define HPET_TIMER_CONFIG_VAL_SET_CNF_SHIFT	6
+#define HPET_TIMER_CONFIG_VAL_SET_CNF_BITS	1
+#define HPET_TIMER_CONFIG_SIZE_CAP_SHIFT	5
+#define HPET_TIMER_CONFIG_SIZE_CAP_BITS		1
+#define HPET_TIMER_CONFIG_PER_INT_CAP_SHIFT	4
+#define HPET_TIMER_CONFIG_PER_INT_CAP_BITS	1
+#define HPET_TIMER_CONFIG_TYPE_CNF_SHIFT	3
+#define HPET_TIMER_CONFIG_TYPE_CNF_BITS		1
+#define HPET_TIMER_CONFIG_INT_ENB_CNF_SHIFT	2
+#define HPET_TIMER_CONFIG_INT_ENB_CNF_BITS	1
+#define HPET_TIMER_CONFIG_INT_TYPE_CNF_SHIFT	1
+#define HPET_TIMER_CONFIG_INT_TYPE_CNF_BITS	1
+#define HPET_TIMER_CONFIG_RESERVED3_SHIFT	0
+#define HPET_TIMER_CONFIG_RESERVED3_BITS	1
+
+#define HPET_TIMER_COMPARATOR_ADDR_SHIFT	0
+#define HPET_TIMER_COMPARATOR_ADDR_BITS		32
+
+#define HPET_TIMER_FSB_INT_ADDR_SHIFT		32
+#define HPET_TIMER_FSB_INT_ADDR_BITS		32
+#define HPET_TIMER_FSB_INT_VAL_SHIFT		0
+#define HPET_TIMER_FSB_INT_VAL_BITS		32
+
+#define TCONF(f) U64_FROM_BIT(HPET_TIMER_CONFIG_ ## f ## _SHIFT)
 
 struct HPETTimer {
     u64 config;
     u64 comparator;
-    u64 fsb_routing;
+    u64 fsb_int;
     u64 reserved;
 }  __attribute__((__packed__));
 
-
 struct HPETMemoryMap {
-    volatile struct HPETGCapabilitiesIDRegister capabilities;
+    u64 capid;
     u64 reserved1;
-    volatile struct HPETGConfigurationRegister configuration;
+    u64 conf;
     u64 reserved2;
-    volatile struct HPETInterruptStatusRegister interruptStatus;
-    char reserved3[200];
+    u64 isr;
+    u64 reserved3[25];
     u64 mainCounterRegister;
     u64 reserved4;
-    volatile struct HPETTimer timers[32];
+    struct HPETTimer timers[32];
 } __attribute__((__packed__));
 
 static volatile struct HPETMemoryMap* hpet;
 static u64 femtoperiod;
-#define TN_ENABLE_CNF (1ull<<0)
-#define TN_INT_TYPE_CNF (1ull<<1)
-#define TN_INT_ENB_CNF (1ull<<2)
-#define TN_TYPE_CNF (1ull<<3)
-#define TN_PER_INT_CAP (1ull<<4)
-#define TN_SIZE_CAP (1ull<<5)
-#define TN_VAL_SET_CNF (1ull<<6)
-#define TN_32MODE_CNF (1ull<<8)
-#define TN_INT_ROUTE_CNF (1ull<<9)
-#define TN_FSB_EN_CNF (1ull<<14)
-#define TN_FSB_INT_DEL_CAP (1ull<<15)
-#define TN_INT_ROUTE_CAP (1ull<<32)
 
 // 52 bits
 #define femto 1000000000000000ull
@@ -80,10 +107,16 @@ static void timer_config(int timer, time rate, thunk t, boolean periodic)
         u32 a, d;
         hpet_interrupts[timer] = allocate_u64(interrupt_vectors, 1);
         msi_format(&a, &d, hpet_interrupts[timer]);
-        hpet->timers[timer].fsb_routing = ((u64)a << 32) | d;
+        hpet->timers[timer].fsb_int = ((u64)a << 32) | d;
     }
-    u64 c = TN_ENABLE_CNF | TN_FSB_EN_CNF | TN_INT_ENB_CNF | TN_32MODE_CNF;
-    if (periodic) c |= TN_VAL_SET_CNF | TN_TYPE_CNF;
+    u64 c = TCONF(FSB_EN_CNF) | TCONF(32MODE_CNF) | TCONF(INT_ENB_CNF);
+    if (periodic) {
+	if ((hpet->timers[timer].config & TCONF(PER_INT_CAP)) == 0) {
+	    console("HPET timer not capable of periodic interrupts.\n");
+	    return;
+	}
+	c |= TCONF(VAL_SET_CNF) | TCONF(TYPE_CNF);
+    }
     hpet->timers[timer].config = c;
     // assume that overwrite is ok
     register_interrupt(hpet_interrupts[timer], t);
@@ -92,10 +125,12 @@ static void timer_config(int timer, time rate, thunk t, boolean periodic)
     u64 comparator = femtorate + hpet->mainCounterRegister;
     // we can close the Floyd gap here by storing the interrupt time
     // oddly, qemu is ony correct in the 32 bit mode
-    //   hpet->timers[timer].comparator = comparator;
+    hpet->timers[timer].comparator = comparator;
+#if 0
     u32 *target = &hpet->timers[timer].comparator;
     target[0] = comparator;
     target[1] = comparator >> 32;
+#endif
 }
 
 // allocate timers .. right now its at most 1 one-shot and periodic,
@@ -120,17 +155,33 @@ time now_hpet()
 }
 
 boolean init_hpet(heap misc, heap virtual_pagesized, heap pages) {
-    u64 hpet_page = allocate_u64(virtual_pagesized, PAGESIZE);
-    if (INVALID_ADDRESS == (void*)hpet_page) {
+    void * hpet_page = allocate(virtual_pagesized, PAGESIZE);
+    if (hpet_page == INVALID_ADDRESS) {
         console("ERROR: Can't allocate page to map HPET registers\n");
         return false;
     }
 
-    map(hpet_page, HPET_TABLE_ADDRESS, PAGESIZE, pages);
+    map(u64_from_pointer(hpet_page), HPET_TABLE_ADDRESS, PAGESIZE, pages);
     hpet = (struct HPETMemoryMap*)hpet_page;
 
     // xxx - set to set size to 64?
-    femtoperiod = hpet->capabilities.counterClkPeriod;
+    femtoperiod = field_from_u64(hpet->capid, HPET_CAPID_COUNTER_CLOCK_PERIOD);
+    console("reg addr ");
+    print_u64(u64_from_pointer(&hpet->capid));
+    console("reg ");
+    print_u64(*(volatile u64 *)&hpet->capid);
+    console(", femptoperiod ");
+    print_u64(femtoperiod);
+    console(", rev ");
+    print_u64(field_from_u64(hpet->capid, HPET_CAPID_REV_ID));
+    console(", numTimCap ");
+    print_u64(field_from_u64(hpet->capid, HPET_CAPID_NUM_TIM_CAP));
+    console(", vendorID ");
+    print_u64(field_from_u64(hpet->capid, HPET_CAPID_VENDOR_ID));
+    if (field_from_u64(hpet->capid, HPET_CAPID_COUNT_SIZE_CAP))
+	console(", countSizeCap");
+    console("\n");
+
     // this is like half the field size, we can do a better probe
     if ((femtoperiod > HPET_MAXIMUM_INCREMENT_PERIOD) || !femtoperiod) {
         console("ERROR: Can't initialize HPET\n");
@@ -138,10 +189,12 @@ boolean init_hpet(heap misc, heap virtual_pagesized, heap pages) {
     }
 
     timers = create_id_heap(misc, 0, 4, 1);
-    hpet->configuration.enableCnf |= 1;
+    hpet->conf |= U64_FROM_BIT(HPET_CONF_ENABLE_CNF_SHIFT);
     u64 prev = hpet->mainCounterRegister;
-    if (prev == hpet->mainCounterRegister)
-        halt("Error: No increment HPET main counter\n");
+    if (prev == hpet->mainCounterRegister) {
+        console("Error: No increment HPET main counter\n");
+	return false;
+    }
 
     return true;
 }
