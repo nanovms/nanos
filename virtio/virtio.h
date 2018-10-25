@@ -36,3 +36,4 @@
 typedef closure_type(storage_attach, void, block_read, block_write, u64);
 void init_virtio_storage(kernel_heaps kh, storage_attach);
 void init_virtio_network(kernel_heaps kh);
+void init_network_iface(tuple root);

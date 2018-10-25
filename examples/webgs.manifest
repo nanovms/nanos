@@ -12,4 +12,7 @@
     fault:t
     arguments:[webgs]
     environment:(USER:bobby PWD:/)
+#    ipaddrs:[192.168.0.106]
+#    gateway:192.168.0.1
+#    netmask:255.255.255.0
 )
