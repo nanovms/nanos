@@ -1,4 +1,4 @@
 #pragma once
 
-extern char *strchr(const char *, int);
-char *strtok_r (char *, const char *, char **);
+extern char *runtime_strchr(const char *, int);
+extern char *strtok_r (char *, const char *, char **);
