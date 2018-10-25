@@ -242,23 +242,23 @@ void init_virtio_network(kernel_heaps kh)
 }
 
 err_t init_static_config(tuple root, struct netif *n) {
-    value v;
+    ip4_addr_t ip;
     ip4_addr_t netmask;
     ip4_addr_t gw;
-    
-    if(!(v = table_find(root, sym(ipaddrs)))) return ERR_ARG;
-    vector ipaddrs = vector_from_tuple(transient, v);
+    value v;
+
+    if(!(v = table_find(root, sym(ipaddr)))) return ERR_ARG;
+    ip4addr_aton((char *)v, &ip);
+
     if(!(v= table_find(root, sym(gateway)))) return ERR_ARG;
     ip4addr_aton((char *)v, &gw);
+
     if(!(v= table_find(root, sym(netmask)))) return ERR_ARG;
     ip4addr_aton((char *)v, &netmask);
-    buffer b;
-    vector_foreach(ipaddrs, b) {
-        ip4_addr_t ip;
-        ip4addr_aton((char*)b, &ip);
-        netif_set_addr(n, &ip, &netmask, &gw);
-    }
-    netif_set_up(n);        
+    
+    netif_set_addr(n, &ip, &netmask, &gw);
+    netif_set_up(n); 
+    return ERR_OK;       
 }
 
 void init_network_iface(tuple root) {
