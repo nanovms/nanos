@@ -36,14 +36,15 @@ CONTGEN	= $(ROOT)/output/contgen/bin/contgen
 
 TARGET	?= webgs
 
-FST	= $(ROOT)/output/examples/fst
-HWG	= $(ROOT)/output/examples/hwg
-HW	= $(ROOT)/output/examples/hw
-HWS	= $(ROOT)/output/examples/hws
-WEB	= $(ROOT)/output/examples/web
-WEBS	= $(ROOT)/output/examples/webs
-WEBG	= $(ROOT)/output/examples/webg
-WEBGS	= $(ROOT)/output/examples/webgs
+FST		= $(ROOT)/output/examples/fst
+HWG		= $(ROOT)/output/examples/hwg
+HW		= $(ROOT)/output/examples/hw
+HWS		= $(ROOT)/output/examples/hws
+WEB		= $(ROOT)/output/examples/web
+WEBS		= $(ROOT)/output/examples/webs
+WEBG		= $(ROOT)/output/examples/webg
+WEBGS		= $(ROOT)/output/examples/webgs
+GETDENTS	= $(ROOT)/output/examples/getdents
 
 # Tests
 
