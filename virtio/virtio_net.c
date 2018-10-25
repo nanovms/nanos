@@ -198,7 +198,6 @@ static err_t virtioif_init(struct netif *netif)
     post_receive(vn);
     post_receive(vn);
     post_receive(vn);
-    dhcp_start(vn->n); 
     
     return ERR_OK;
 }
@@ -240,4 +239,34 @@ void init_virtio_network(kernel_heaps kh)
     heap h = heap_general(kh);
     register_pci_driver(VIRTIO_PCI_VENDORID, VIRTIO_PCI_DEVICEID_NETWORK,
 			closure(h, init_vnet, h, heap_backed(kh)));
+}
+
+err_t init_static_config(tuple root, struct netif *n) {
+    ip4_addr_t ip;
+    ip4_addr_t netmask;
+    ip4_addr_t gw;
+    value v;
+
+    if(!(v = table_find(root, sym(ipaddr)))) return ERR_ARG;
+    ip4addr_aton((char *)v, &ip);
+
+    if(!(v= table_find(root, sym(gateway)))) return ERR_ARG;
+    ip4addr_aton((char *)v, &gw);
+
+    if(!(v= table_find(root, sym(netmask)))) return ERR_ARG;
+    ip4addr_aton((char *)v, &netmask);
+    
+    netif_set_addr(n, &ip, &netmask, &gw);
+    netif_set_up(n); 
+    return ERR_OK;       
+}
+
+void init_network_iface(tuple root) {
+    struct netif *n = netif_find("en0");
+    if (!n) {
+        halt("no network interface found\n");
+    }
+    if (ERR_OK != init_static_config(root, n)) {
+         dhcp_start(n);
+    } 
 }

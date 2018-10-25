@@ -3,6 +3,7 @@
 #include <tfs.h>
 #include <unix.h>
 #include <gdb.h>
+#include <virtio.h>
 
 static CLOSURE_2_1(read_program_complete, void, process, tuple, buffer);
 static void read_program_complete(process kp, tuple root, buffer b)
@@ -30,6 +31,7 @@ void startup(kernel_heaps kh,
     buffer_handler pg = closure(general, read_program_complete, kp, root);
     value p = table_find(root, sym(program));
     tuple pro = resolve_path(root, split(general, p, '/'));
+    init_network_iface(root);
     filesystem_read_entire(fs, pro, heap_backed(kh), pg, closure(general, read_program_fail));
 }
 
