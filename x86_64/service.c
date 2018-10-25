@@ -61,9 +61,7 @@ void runloop()
         u64 delta = timer_check();
         if (delta) hpet_timer(delta, ignore);
         while((t = dequeue(runqueue))) {
-            enable_interrupts();
             apply(t);
-            disable_interrupts();
         }
         frame = miscframe;
         enable_interrupts();
@@ -147,13 +145,6 @@ static void read_kernel_syms()
     }
 }
 
-CLOSURE_0_0(foo, void);
-void foo()
-{
-    rprintf("bob\n");
-}
-
-
 static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = &heaps;
@@ -172,13 +163,11 @@ static void __attribute__((noinline)) init_service_new_stack()
     init_symtab(kh);
     read_kernel_syms();
     init_clock(kh);
-    initialize_timers(kh);
-    //    init_net(kh);
-    register_periodic_timer(seconds(1), closure(misc, foo));
+    init_net(kh);
     tuple root = allocate_tuple();
     init_pci(kh);
-    //    init_virtio_storage(kh, closure(misc, attach_storage, root));
-    //    init_virtio_network(kh);
+    init_virtio_storage(kh, closure(misc, attach_storage, root));
+    init_virtio_network(kh);
 
     miscframe = allocate(misc, FRAME_MAX * sizeof(u64));
     pci_discover();
