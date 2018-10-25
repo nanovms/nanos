@@ -1,4 +1,10 @@
 #include <runtime.h>
+//#define TIMER_DEBUG
+#ifdef TIMER_DEBUG
+#define timer_debug(x, ...) do {log_printf("TIMER", x, ##__VA_ARGS__);} while(0)
+#else
+#define timer_debug(x, ...)
+#endif
 
 struct timer {
     thunk t;
@@ -32,7 +38,7 @@ timer register_timer(time interval, thunk n)
     t->disable = false;
     t->w = now() + interval;
     pqueue_insert(timers, t);
-    rprintf("register one-shot timer: %p %p\n", t, t->interval);
+    timer_debug("register one-shot timer: %p %p\n", t, t->interval);
     return(t);
 }
 
@@ -44,7 +50,7 @@ timer register_periodic_timer(time interval, thunk n)
     t->interval = interval;    
     t->w = now() + t->interval;
     pqueue_insert(timers, t);
-    rprintf("register periodic %p %p\n", t, t->interval);
+    timer_debug("register periodic %p %p\n", t, t->interval);
     return(t);
 }
 
@@ -114,6 +120,7 @@ void print_time(string b, time t)
 void initialize_timers(kernel_heaps kh)
 {
     heap h = heap_general(kh);
+    assert(!timers);
     timers = allocate_pqueue(h, timer_less_than);
     theap = h;
 }

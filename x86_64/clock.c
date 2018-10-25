@@ -68,16 +68,19 @@ void init_clock(kernel_heaps kh)
     vclock = allocate(backed, backed->pagesize);
     zero(vclock,sizeof(struct pvclock_vcpu_time_info));
     // add the enable bit 1
-    write_msr(MSR_KVM_SYSTEM_TIME, physical_from_virtual(vclock)| 1);
+    write_msr(MSR_KVM_SYSTEM_TIME, physical_from_virtual(vclock) | 1);
 
-    if (0 == vclock->system_time)
-    {
-        deallocate(backed, vclock, backed->pagesize);
-        console("INFO: KVM clock is inaccessible\n");
-        if(!init_hpet(heap_general(kh), heap_virtual_page(kh), heap_pages(kh))) {
-          halt("ERROR: HPET clock is inaccessible\n");
-        }
-        clock_function = now_hpet;
+    if(init_hpet(heap_general(kh), heap_virtual_page(kh), heap_pages(kh))) {
+	console("Using HPET clock source.\n");
+	clock_function = now_hpet;
+    } else {
+	if (vclock->system_time) {
+	    console("Couldn't initialize HPET; defaulting to KVM clock source.\n");
+	    clock_function = now_kvm;
+	} else {
+	    halt("ERROR: No clock source available.\n");
+	}
     }
+
     rtc_offset = rtc_gettimeofday() << 32;
 }

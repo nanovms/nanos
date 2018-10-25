@@ -93,10 +93,7 @@ struct HPETMemoryMap {
 } __attribute__((__packed__));
 
 static volatile struct HPETMemoryMap* hpet;
-static u64 femtoperiod;
-
-// 52 bits
-#define femto 1000000000000000ull
+static time hpet_period_scaled_32;
 static int hpet_interrupts[4];
 
 static void timer_config(int timer, time rate, thunk t, boolean periodic)
@@ -121,16 +118,16 @@ static void timer_config(int timer, time rate, thunk t, boolean periodic)
     // assume that overwrite is ok
     register_interrupt(hpet_interrupts[timer], t);
 
-    u64 femtorate = (u64)((u128)(rate>>16) * (femto>>16))/femtoperiod;
-    u64 comparator = femtorate + hpet->mainCounterRegister;
+    /* We don't have __udivti3, so there's some loss of precision with
+       seconds, otherwise use:
+
+       u64 hprate_high = (((u128)(rate & ~MASK(32))) << 32) / hpet_period_scaled_32;
+    */
+    u64 hprate_high = (rate & ~MASK(32)) / (hpet_period_scaled_32 >> 32);
+    u64 hprate_low = (rate << 32) / hpet_period_scaled_32;
+    u64 comparator = hprate_high + hprate_low + hpet->mainCounterRegister;
     // we can close the Floyd gap here by storing the interrupt time
-    // oddly, qemu is ony correct in the 32 bit mode
     hpet->timers[timer].comparator = comparator;
-#if 0
-    u32 *target = &hpet->timers[timer].comparator;
-    target[0] = comparator;
-    target[1] = comparator >> 32;
-#endif
 }
 
 // allocate timers .. right now its at most 1 one-shot and periodic,
@@ -148,10 +145,7 @@ void hpet_periodic_timer(time rate, thunk t)
 
 time now_hpet()
 {
-    u64 counter = hpet->mainCounterRegister;
-    u64 multiply = femtoperiod*(1ull<<32)/femto;
-    u64 ticks = counter*multiply;
-    return ticks;
+    return (((u128)hpet->mainCounterRegister) * hpet_period_scaled_32) >> 32;
 }
 
 boolean init_hpet(heap misc, heap virtual_pagesized, heap pages) {
@@ -164,31 +158,16 @@ boolean init_hpet(heap misc, heap virtual_pagesized, heap pages) {
     map(u64_from_pointer(hpet_page), HPET_TABLE_ADDRESS, PAGESIZE, pages);
     hpet = (struct HPETMemoryMap*)hpet_page;
 
-    // xxx - set to set size to 64?
-    femtoperiod = field_from_u64(hpet->capid, HPET_CAPID_COUNTER_CLOCK_PERIOD);
-    console("reg addr ");
-    print_u64(u64_from_pointer(&hpet->capid));
-    console("reg ");
-    print_u64(*(volatile u64 *)&hpet->capid);
-    console(", femptoperiod ");
-    print_u64(femtoperiod);
-    console(", rev ");
-    print_u64(field_from_u64(hpet->capid, HPET_CAPID_REV_ID));
-    console(", numTimCap ");
-    print_u64(field_from_u64(hpet->capid, HPET_CAPID_NUM_TIM_CAP));
-    console(", vendorID ");
-    print_u64(field_from_u64(hpet->capid, HPET_CAPID_VENDOR_ID));
-    if (field_from_u64(hpet->capid, HPET_CAPID_COUNT_SIZE_CAP))
-	console(", countSizeCap");
-    console("\n");
-
-    // this is like half the field size, we can do a better probe
+    u64 femtoperiod = field_from_u64(hpet->capid, HPET_CAPID_COUNTER_CLOCK_PERIOD);
     if ((femtoperiod > HPET_MAXIMUM_INCREMENT_PERIOD) || !femtoperiod) {
         console("ERROR: Can't initialize HPET\n");
         return false;
     }
 
-    timers = create_id_heap(misc, 0, 4, 1);
+    /* femtoperiod < 2^32 by definition */
+    hpet_period_scaled_32 = femtoseconds(femtoperiod << 32);
+
+    timers = create_id_heap(misc, 0, field_from_u64(hpet->capid, HPET_CAPID_NUM_TIM_CAP) + 1, 1);
     hpet->conf |= U64_FROM_BIT(HPET_CONF_ENABLE_CNF_SHIFT);
     u64 prev = hpet->mainCounterRegister;
     if (prev == hpet->mainCounterRegister) {
