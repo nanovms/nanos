@@ -54,12 +54,14 @@ timer register_periodic_timer(time interval, thunk n)
     return(t);
 }
 
+/* Presently called with ints off. Address thread safety with
+   pqueue before using with ints enabled.
+*/
 time timer_check()
 {
     time here;
     timer current = 0;
 
-    // thread safety, predication?
     while ((current = pqueue_peek(timers)) &&
            (here = now(), current->w < here)) {
         if (!current->disable) {
@@ -71,10 +73,13 @@ time timer_check()
             }
         }
     }
-    if (current) return(current->w - here);
+    if (current) {
+	time dt = current->w - here;
+	timer_debug("check returning dt: %d\n", dt);
+	return dt;
+    }
     return(0);
 }
-
 
 time parse_time(string b)
 {
