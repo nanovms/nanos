@@ -125,15 +125,16 @@ static void notify_dispatch(sock s)
     } while(l != &s->notify);
 }
 
-static void wakeup(sock s, status st)
+typedef closure_type(lwip_status_handler, void, err_t);
+
+static void wakeup(sock s, err_t err)
 {
-    event_handler eh;
-    status_handler fstatus;
+    lwip_status_handler fstatus;
     net_debug("%s: sock %d\n", __func__, s->fd);
     // return status if not handled so someone else can try?
     // shouldnt a close event wake up everyone?
     if ((fstatus = dequeue(s->waiting))) {
-        apply(fstatus, st);
+        apply(fstatus, err);
     }  else {
 	notify_dispatch(s);
     }
@@ -197,31 +198,41 @@ static inline void pbuf_consume(struct pbuf *p, u64 length)
 }
 
 // racy
-static CLOSURE_5_0(read_complete, void, sock, thread, void *, u64, boolean);
-static void read_complete(sock s, thread t, void *dest, u64 length, boolean sleeping)
+static CLOSURE_5_1(read_complete, void, sock, thread, void *, u64, boolean, err_t);
+static void read_complete(sock s, thread t, void *dest, u64 length, boolean sleeping, err_t lwip_status)
 {
     net_debug("%s: sock %d, thread %d, dest %p, len %d, sleeping %d, s->state %d\n",
 	      __func__, s->fd, t->tid, dest, length, sleeping, s->state);
     if (s->state != SOCK_OPEN) {
        set_syscall_error(t, ENOTCONN);
-       return;
+       goto out;
     }
 
-    // could copy in multiple pbufs just to save them from coming back tomorrow
-    struct pbuf *p = queue_peek(s->incoming);
-    u64 xfer = MIN(length, p->len);
-    runtime_memcpy(dest, p->payload, xfer);
-    pbuf_consume(p, xfer);
-    set_syscall_return(t, xfer);    
-    if (p->len == 0) {
-        dequeue(s->incoming);
-        pbuf_free(p);
-	/* reset a triggered EPOLLIN condition */
-	if (queue_length(s->incoming) == 0)
-	    notify_dispatch(s);
+    if (lwip_status == ERR_OK) {
+	// could copy in multiple pbufs just to save them from coming back tomorrow
+	struct pbuf *p = queue_peek(s->incoming);
+	u64 xfer = 0;
+	if (p) {
+	    xfer = MIN(length, p->len);
+	    runtime_memcpy(dest, p->payload, xfer);
+	    pbuf_consume(p, xfer);
+	    if (p->len == 0) {
+		dequeue(s->incoming);
+		pbuf_free(p);
+		/* reset a triggered EPOLLIN condition */
+		if (queue_length(s->incoming) == 0)
+		    notify_dispatch(s);
+	    }
+	    tcp_recved(s->lw, xfer);
+	}
+	set_syscall_return(t, xfer);
+    } else {
+	set_syscall_return(t, lwip_to_errno(lwip_status));
     }
-    tcp_recved(s->lw, xfer);
-    if (sleeping) thread_wakeup(t);
+
+  out:
+    if (sleeping)
+	thread_wakeup(t);
 }
 
 static CLOSURE_1_3(socket_read, sysreturn, sock, void *, u64, u64);
@@ -229,12 +240,12 @@ static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
 {
     net_debug("%s: sock %d, thread %d, dest %p, length %d, offset %d, s->state %d\n",
 	      __func__, s->fd, current->tid, dest, length, offset, s->state);
-    if (SOCK_OPEN != s->state) 
+    if (s->state != SOCK_OPEN)
         return set_syscall_error(current, ENOTCONN);
 
     // xxx - there is a fat race here between checking queue length and posting on the waiting queue
     if (queue_length(s->incoming)) {
-        read_complete(s, current, dest, length, false);
+        read_complete(s, current, dest, length, false, ERR_OK);
         return sysreturn_value(current);        
     } else {
         // should be an atomic operation
@@ -250,16 +261,17 @@ static sysreturn socket_write(sock s, void *source, u64 length, u64 offset)
 {
     net_debug("%s: sock %d, thread %d, source %p, length %d, offset %d, s->state %d\n",
 	      __func__, s->fd, current->tid, source, length, offset, s->state);
-    err_t err;
-    if (SOCK_OPEN != s->state) 		/* XXX maybe defer to lwip for connect state */
+    if (s->state != SOCK_OPEN) 		/* XXX maybe defer to lwip for connect state */
         return set_syscall_error(current, EPIPE);
-    err = tcp_write(s->lw, source, length, TCP_WRITE_FLAG_COPY);
+    err_t err = tcp_write(s->lw, source, length, TCP_WRITE_FLAG_COPY);
     if (err != ERR_OK)
-        return lwip_to_errno(err);
+        goto out_err;
     err = tcp_output(s->lw);
     if (err != ERR_OK)
-      return lwip_to_errno(err);
-    return length;
+	goto out_err;
+    return set_syscall_return(current, length);
+  out_err:
+    return set_syscall_return(current, lwip_to_errno(err));
 }
 
 static CLOSURE_1_3(socket_check, boolean, sock, u32, u32, event_handler);
@@ -371,59 +383,55 @@ sysreturn bind(int sockfd, struct sockaddr *addr, socklen_t addrlen)
     // xxx - extract address and port
     //
     err_t err = tcp_bind(s->lw, IP_ANY_TYPE, ntohs(sin->port));
-    if(ERR_OK == err){
-      s->state = SOCK_OPEN;
-    }
+    if(err == ERR_OK)
+	s->state = SOCK_OPEN;
     return lwip_to_errno(err);
 }
 
 void error_handler_tcp(void* arg, err_t err)
 {
     sock s = (sock)(arg);
-    status_handler sp = NULL;
+    lwip_status_handler sp = NULL;
     net_debug("%s: sock %d, err %d\n", __func__, s->fd, err);
-    if(!s)
-      return;
+    if (!s)
+	return;
     error_message(s, err);
-    if(ERR_OK != err)
-      s->state = SOCK_UNDEFINED;
-    if ((sp = dequeue(s->waiting))) {
-        u64 code =  lwip_to_errno(err);
-        apply(sp, (status)&code);
-    }
+    if (err != ERR_OK)
+	s->state = SOCK_UNDEFINED;
+    if ((sp = dequeue(s->waiting)))
+        apply(sp, err);
 }
 
-static CLOSURE_1_1(set_completed_state, void, thread, u64 *);
-static void set_completed_state(thread th, u64 *code)
+static CLOSURE_1_1(set_completed_state, void, thread, err_t);
+static void set_completed_state(thread th, err_t lwip_status)
 {
-    net_debug("%s: thread %d, code %d\n", __func__, th->tid, *code);
-    set_syscall_return(th, *code);
+    net_debug("%s: thread %d, lwip_status %d\n", __func__, th->tid, lwip_status);
+    set_syscall_return(th, lwip_to_errno(lwip_status));
     thread_wakeup(th);
 }
 
 static err_t connect_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
 {
-   status_handler sp = NULL;
+   lwip_status_handler sp = NULL;
    sock s = (sock)(arg);
    s->state = SOCK_OPEN;
    net_debug("%s: sock %d, pcb %p, err %d\n", __func__, s->fd, tpcb, err);
    if ((sp = dequeue(s->waiting))) {
-        u64 code =  lwip_to_errno(err);
 	net_debug("%s: ... applying status handler %p\n", __func__, sp);
-        apply(sp, (status)&code);
+        apply(sp, err);
    }
    return ERR_OK;
 }
 
-static int connect_tcp(sock socket, const ip_addr_t* address, unsigned short port)
+static int connect_tcp(sock s, const ip_addr_t* address, unsigned short port)
 {
-    net_debug("%s: sock %d, addr %P, port %d\n", __func__, socket->fd, address->addr, port);
-    if (!enqueue(socket->waiting, closure(socket->h, set_completed_state, current)))
+    net_debug("%s: sock %d, addr %P, port %d\n", __func__, s->fd, address->addr, port);
+    if (!enqueue(s->waiting, closure(s->h, set_completed_state, current)))
 	msg_err("waiting queue full\n");
-    tcp_arg(socket->lw, socket);
-    tcp_err(socket->lw, error_handler_tcp);
-    socket->state = SOCK_IN_CONNECTION;
-    int err = tcp_connect(socket->lw, address, port, connect_complete);
+    tcp_arg(s->lw, s);
+    tcp_err(s->lw, error_handler_tcp);
+    s->state = SOCK_IN_CONNECTION;
+    int err = tcp_connect(s->lw, address, port, connect_complete);
 
     if (ERR_OK != err) {
         return err;
@@ -480,7 +488,6 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
 {
     sock s = z;
     event_handler eh;
-    status_handler sp;
     int fd = allocate_sock(s->p, lw);
     if (fd < 0)
 	return ERR_MEM;
@@ -499,13 +506,7 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
     if (!enqueue(s->incoming, sn))
 	msg_err("incoming queue full\n");
 
-    // XXX - passing a pointer to a stack variable seems kinda
-    // dubious... I guess the thinking was that it should be handled
-    // before return from wakeup, but there's no guarantee.
-    //
-    // Need to rethink this b0rked status scheme...
-    u64 errCode = lwip_to_errno(b);
-    wakeup(s, (status)&errCode);
+    wakeup(s, b);
     return ERR_OK;
 }
 
@@ -521,14 +522,18 @@ sysreturn listen(int sockfd, int backlog)
     return 0;    
 }
 
-static CLOSURE_4_1(accept_finish, void, sock, thread, struct sockaddr *, socklen_t *, u64);
-static void accept_finish(sock s, thread target, struct sockaddr *addr, socklen_t *addrlen, u64 status)
+static CLOSURE_4_1(accept_finish, void, sock, thread, struct sockaddr *, socklen_t *, err_t);
+static void accept_finish(sock s, thread target, struct sockaddr *addr, socklen_t *addrlen, err_t lwip_status)
 {
     sock sn = dequeue(s->incoming);
-    net_debug("%s: sock %d, target thread %d\n", __func__, sn->fd, target->tid);
-    remote_sockaddr_in(sn->lw, (struct sockaddr_in *)addr); 
-    *addrlen = sizeof(struct sockaddr_in);
-    set_syscall_return(target, sn->fd);
+    net_debug("%s: sock %d, target thread %d, status %d\n", __func__, sn->fd, target->tid, lwip_status);
+    if (lwip_status == ERR_OK) {
+	remote_sockaddr_in(sn->lw, (struct sockaddr_in *)addr);
+	*addrlen = sizeof(struct sockaddr_in);
+	set_syscall_return(target, sn->fd);
+    } else {
+	set_syscall_return(target, lwip_to_errno(lwip_status));
+    }
     /* XXX I'm not clear on what the behavior should be if a listen
        socket is used with EPOLLET. For now, let's handle it as if
        it's a regular socket. */
