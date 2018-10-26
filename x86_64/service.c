@@ -56,11 +56,8 @@ void runloop()
     thunk t;
 
     while(1) {
-        // hopefully overall loop is being driven by the lapic periodic interrupt,
-        // which should limit the skew
-        u64 delta = timer_check();
-        if (delta)
-	    hpet_timer(MIN(delta, milliseconds(100)), ignore);
+	u64 timeout = MIN(timer_check(), milliseconds(100));
+	hpet_timer(timeout, ignore);
         while((t = dequeue(runqueue))) {
             apply(t);
         }

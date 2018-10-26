@@ -78,7 +78,7 @@ time timer_check()
 	timer_debug("check returning dt: %d\n", dt);
 	return dt;
     }
-    return(0);
+    return infinity;
 }
 
 time parse_time(string b)

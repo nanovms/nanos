@@ -55,7 +55,7 @@ time now_kvm()
 static clock_now clock_function = now_kvm;
 
 time now() {
-  return rtc_offset + clock_function();
+    return rtc_offset + clock_function();
 }
 
 void init_clock(kernel_heaps kh)
@@ -70,16 +70,16 @@ void init_clock(kernel_heaps kh)
     // add the enable bit 1
     write_msr(MSR_KVM_SYSTEM_TIME, physical_from_virtual(vclock) | 1);
 
-    if(init_hpet(heap_general(kh), heap_virtual_page(kh), heap_pages(kh))) {
+    if (init_hpet(heap_general(kh), heap_virtual_page(kh), heap_pages(kh))) {
 	console("Using HPET clock source.\n");
 	clock_function = now_hpet;
     } else {
-	if (vclock->system_time) {
-	    console("Couldn't initialize HPET; defaulting to KVM clock source.\n");
-	    clock_function = now_kvm;
-	} else {
-	    halt("ERROR: No clock source available.\n");
-	}
+	/* Presently we should always have HPET available. If this is
+	   ever not the case, fix up configure_lapic_timer() to use
+	   calibrated info from KVM (vclock), vector timer insertion
+	   from runloop() and leave default clock_function to
+	   now_kvm. */
+	halt("HPET initialization failed; no timer source\n");
     }
 
     rtc_offset = rtc_gettimeofday() << 32;
