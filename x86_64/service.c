@@ -59,7 +59,8 @@ void runloop()
         // hopefully overall loop is being driven by the lapic periodic interrupt,
         // which should limit the skew
         u64 delta = timer_check();
-        if (delta) hpet_timer(delta, ignore);
+        if (delta)
+	    hpet_timer(MIN(delta, milliseconds(100)), ignore);
         while((t = dequeue(runqueue))) {
             apply(t);
         }

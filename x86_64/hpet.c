@@ -98,8 +98,6 @@ static int hpet_interrupts[4];
 
 static void timer_config(int timer, time rate, thunk t, boolean periodic)
 {
-    periodic = 1;
-
     if (!hpet_interrupts[timer]) {
         u32 a, d;
         hpet_interrupts[timer] = allocate_u64(interrupt_vectors, 1);
