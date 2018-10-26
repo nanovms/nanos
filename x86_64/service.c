@@ -3,6 +3,7 @@
 #include <pci.h>
 #include <virtio.h>
 #include <tfs.h>
+#include <hpet.h>
 
 extern void init_net(kernel_heaps kh);
 extern void startup();
@@ -52,13 +53,13 @@ static context miscframe;
 
 void runloop()
 {
+    /* minimum runloop period - XXX move to a config header */
+    time max_timeout = milliseconds(100);
     thunk t;
 
     while(1) {
-        // hopefully overall loop is being driven by the lapic periodic interrupt,
-        // which should limit the skew
-        timer_check();
-        
+	time timeout = MIN(timer_check(), max_timeout);
+	hpet_timer(timeout, ignore);
         while((t = dequeue(runqueue))) {
             apply(t);
         }
@@ -164,16 +165,12 @@ static void __attribute__((noinline)) init_service_new_stack()
     init_clock(kh);
     init_net(kh);
     tuple root = allocate_tuple();
-    initialize_timers(kh);
     init_pci(kh);
     init_virtio_storage(kh, closure(misc, attach_storage, root));
     init_virtio_network(kh);
 
     miscframe = allocate(misc, FRAME_MAX * sizeof(u64));
     pci_discover();
-    // just to get the hlt loop to wake up and service timers. 
-    // should change this to post the delta to the front of the queue each time
-    configure_timer(milliseconds(50), ignore);
     runloop();
 }
 

@@ -1,10 +1,16 @@
 #include <runtime.h>
+//#define TIMER_DEBUG
+#ifdef TIMER_DEBUG
+#define timer_debug(x, ...) do {log_printf("TIMER", x, ##__VA_ARGS__);} while(0)
+#else
+#define timer_debug(x, ...)
+#endif
 
 struct timer {
     thunk t;
-    time  w;
-    time  interval; 
-    boolean   disable;
+    time w;
+    time interval;
+    boolean disable;
 };
 
 // should pass a timer around
@@ -14,7 +20,7 @@ static heap theap;
 static boolean timer_less_than(void *za, void *zb)
 {
     timer a = za;
-    timer b = zb;    
+    timer b = zb;
     return(a->w < b->w);
 }
 
@@ -29,30 +35,33 @@ timer register_timer(time interval, thunk n)
 
     t->t= n;
     t->interval = 0;
-    t->disable = 0;
+    t->disable = false;
     t->w = now() + interval;
     pqueue_insert(timers, t);
+    timer_debug("register one-shot timer: %p %p\n", t, t->interval);
     return(t);
 }
 
 timer register_periodic_timer(time interval, thunk n)
 {
     timer t=(timer)allocate(theap, sizeof(struct timer));
-
     t->t = n;
-    t->disable = 0;
+    t->disable = false;
     t->interval = interval;    
-    t->w = now(theap);
+    t->w = now() + t->interval;
     pqueue_insert(timers, t);
+    timer_debug("register periodic %p %p\n", t, t->interval);
     return(t);
 }
 
+/* Presently called with ints off. Address thread safety with
+   pqueue before using with ints enabled.
+*/
 time timer_check()
 {
     time here;
-    timer current = false;
+    timer current = 0;
 
-    // thread safety, predication?
     while ((current = pqueue_peek(timers)) &&
            (here = now(), current->w < here)) {
         if (!current->disable) {
@@ -64,10 +73,13 @@ time timer_check()
             }
         }
     }
-    if (current) return(current->w - here);
-    return(0);
+    if (current) {
+	time dt = current->w - here;
+	timer_debug("check returning dt: %d\n", dt);
+	return dt;
+    }
+    return infinity;
 }
-
 
 time parse_time(string b)
 {
@@ -113,6 +125,7 @@ void print_time(string b, time t)
 void initialize_timers(kernel_heaps kh)
 {
     heap h = heap_general(kh);
+    assert(!timers);
     timers = allocate_pqueue(h, timer_less_than);
     theap = h;
 }

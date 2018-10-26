@@ -216,3 +216,6 @@ struct queue {
     for (int __i = 0; __i< __e->e_phnum; __i++)\
         for (Elf64_Phdr *__p = (void *)__e + __e->e_phoff + (__i * __e->e_phentsize); __p ; __p = 0) \
 
+void msi_format(u32 *address, u32 *data, int vector);
+void register_interrupt(int vector, thunk t);
+extern heap interrupt_vectors;

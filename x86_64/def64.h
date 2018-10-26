@@ -7,6 +7,7 @@ typedef unsigned int u32;
 typedef int s32;
 typedef unsigned long long u64;
 typedef long long s64;
+typedef __uint128_t u128;
 
 typedef u64 word;
 typedef u64 bytes;
@@ -17,7 +18,9 @@ typedef u64 bytes;
 // phy instead of virt
 #define vpzero(__v, __p, __y) zero(pointer_from_u64(__v), __y)
 
-#define DIV(__x, __by, __q, __r){\
+#define field_from_u64(u, f) (((u) >> f ## _SHIFT) & MASK(f ## _BITS))
+
+#define DIV(__x, __by, __q, __r){		\
      register u64 a asm("rax");\
      register u64 d asm("rdx");\
      register u64 c asm("rcx");\
