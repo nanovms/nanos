@@ -53,10 +53,12 @@ static context miscframe;
 
 void runloop()
 {
+    /* minimum runloop period - XXX move to a config header */
+    time max_timeout = milliseconds(100);
     thunk t;
 
     while(1) {
-	u64 timeout = MIN(timer_check(), milliseconds(100));
+	time timeout = MIN(timer_check(), max_timeout);
 	hpet_timer(timeout, ignore);
         while((t = dequeue(runqueue))) {
             apply(t);
