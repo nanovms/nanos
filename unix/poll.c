@@ -11,13 +11,13 @@ typedef struct epoll *epoll;
 typedef struct epollfd {
     int fd; //debugging only - XXX REMOVE
     file f;
-    u32 eventmask;		/* epoll events registered - XXX need lock */
-    u64 data; // may be multiple versions of data?
+    u32 eventmask;  /* epoll events registered - XXX need lock */
+    u32 lastevents; /* retain last received events; for edge trigger */
+    u64 data;	    /* may be multiple versions of data? */
     u64 refcnt;
     epoll e;
     boolean registered;
-    boolean zombie;
-    // xxx bind fd to first blocked that cares
+    boolean zombie;		/* freed or masked by oneshot */
 } *epollfd;
 
 typedef struct epoll_blocked *epoll_blocked;
@@ -66,6 +66,7 @@ static epollfd alloc_epollfd(epoll e, file f, int fd, u32 eventmask, u64 data)
 	return efd;
     efd->f = f;
     efd->eventmask = eventmask;
+    efd->lastevents = 0;
     efd->fd = fd;
     efd->e = e;
     efd->data = data;
@@ -230,11 +231,15 @@ static CLOSURE_1_1(epoll_wait_notify, boolean, epollfd, u32);
 static boolean epoll_wait_notify(epollfd efd, u32 events)
 {
     list l = list_get_next(&efd->e->blocked_head);
+
+    /* XXX we should be walking the whole blocked list unless
+       EPOLLEXCLUSIVE is set */
     epoll_blocked w = l ? struct_from_list(l, epoll_blocked, blocked_list) : 0;
     epoll_debug("epoll_wait_notify: efd->fd %d, events %P, blocked %p, zombie %d\n",
 	    efd->fd, events, w, efd->zombie);
     efd->registered = false;
-    if (!efd->zombie && w) {
+
+    if (w && !efd->zombie) {
 	// strided vectors?
 	if (w->user_events && (w->user_events->length - w->user_events->end)) {
 	    struct epoll_event *e = buffer_ref(w->user_events, w->user_events->end);
@@ -242,12 +247,15 @@ static boolean epoll_wait_notify(epollfd efd, u32 events)
 	    e->events = events;
 	    w->user_events->end += sizeof(struct epoll_event);
 	    epoll_debug("   epoll_event %p, data %P, events %P\n", e, e->data, e->events);
+	    if (efd->eventmask & EPOLLONESHOT)
+		efd->zombie = true;
 	} else {
 	    epoll_debug("   user_events null or full\n");
 	    return false;
 	}
 	epoll_blocked_finish(w, false);
     }
+
     epollfd_release(efd);
     return true;
 }
@@ -266,6 +274,14 @@ static epoll_blocked alloc_epoll_blocked(epoll e)
     return w;
 }
 
+/* Depending on the epoll flags given, we may:
+   - notify all waiters on a match (default)
+   - notify on a match only once until condition is reset (EPOLLET)
+   - notify once before removing the registration, handled upstream (EPOLLONESHOT)
+   - notify only one matching waiter, even across multiple epoll instances (EPOLLEXCLUSIVE)
+     - XXX Not implemented; will require tracking reported events on a per fd - not per
+           registration - basis.
+*/
 sysreturn epoll_wait(int epfd,
                struct epoll_event *events,
                int maxevents,
@@ -285,12 +301,15 @@ sysreturn epoll_wait(int epfd,
     bitmap_foreach_set(e->fds, fd) {
 	epollfd efd = vector_get(e->events, fd);
 	assert(efd);
-	if (!efd->registered) {
+	/* If efd is in fds and also a zombie, it's an epfd that's
+	   been masked by a oneshot event. */
+	if (!efd->registered && !efd->zombie) {
 	    efd->registered = true;
 	    fetch_and_add(&efd->refcnt, 1);
 	    epoll_debug("   register fd %d, eventmask %P, applying check\n",
 		    efd->fd, efd->eventmask);
-            if (!apply(efd->f->check, efd->eventmask, closure(h, epoll_wait_notify, efd)))
+            if (!apply(efd->f->check, efd->eventmask, efd->lastevents,
+		       closure(h, epoll_wait_notify, efd)))
 		break;
         }
     }
@@ -318,28 +337,45 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
     epoll e = resolve_fd(current->p, epfd);    
     epoll_debug("epoll_ctl: epoll fd %d, op %d, fd %d\n", epfd, op, fd);
     file f = resolve_fd(current->p, fd); /* may return on error */
+    /* XXX verify that fd is not an epoll instance*/
     epollfd efd;
     switch(op) {
     case EPOLL_CTL_ADD:
-	epoll_debug("   adding %d\n", fd);
+	/* EPOLLEXCLUSIVE not yet implemented */
+	if (event->events & EPOLLEXCLUSIVE) {
+	    msg_err("add: EPOLLEXCLUSIVE not supported\n");
+	    return set_syscall_error(current, EINVAL);
+	}
+	epoll_debug("   adding %d, events %P, data %P\n", fd, event->events, event->data);
 	if (!alloc_epollfd(e, f, fd, event->events | EPOLLERR | EPOLLHUP, event->data))
-	    return -ENOMEM;
+	    return set_syscall_error(current, ENOMEM);
 	break;
     case EPOLL_CTL_DEL:
 	epoll_debug("   removing %d\n", fd);
 	efd = epollfd_from_fd(e, fd);
-	if (efd)
-	    free_epollfd(efd);
-	else
-	    msg_err("delete for unregistered fd %d; ignore\n", fd);
+	if (efd == INVALID_ADDRESS) {
+	    msg_err("delete for unregistered fd %d\n", fd);
+	    return set_syscall_error(current, ENOENT);
+	}
+	free_epollfd(efd);
 	break;
     case EPOLL_CTL_MOD:
-	halt("no epoll_ctl mod\n");
-	epoll_debug("   modifying %d\n", fd);
-	/* XXX share w select */
+	/* EPOLLEXCLUSIVE not allowed in modify */
+	if (event->events & EPOLLEXCLUSIVE)
+	    return set_syscall_error(current, EINVAL);
+	epoll_debug("   modifying %d, events %P, data %P\n", fd, event->events, event->data);
+	efd = epollfd_from_fd(e, fd);
+	if (efd == INVALID_ADDRESS) {
+	    msg_err("modify for unregistered fd %d\n", fd);
+	    return set_syscall_error(current, ENOENT);
+	}
+	free_epollfd(efd);
+	if (!alloc_epollfd(e, f, fd, event->events | EPOLLERR | EPOLLHUP, event->data))
+	    return set_syscall_error(current, ENOMEM);
+	break;
     default:
 	msg_err("unknown op %d\n", op);
-	return -EINVAL;
+	return set_syscall_error(current, EINVAL);
     }
 
     return 0;
@@ -502,7 +538,7 @@ static sysreturn select_internal(int nfds,
 		fetch_and_add(&efd->refcnt, 1);
 		epoll_debug("      register epollfd %d, eventmask %P, applying check\n",
 			efd->fd, efd->eventmask);
-		apply(efd->f->check, efd->eventmask, closure(h, select_notify, efd));
+		apply(efd->f->check, efd->eventmask, 0, closure(h, select_notify, efd));
 	    }
 	}
 
