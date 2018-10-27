@@ -574,9 +574,32 @@ static sysreturn brk(void *x)
     return sysreturn_from_pointer(p->brk);
 }
 
+sysreturn readlink_internal(tuple root, const char *pathname, char *buf, u64 sz) {
+    tuple n;
+    if (!(n = resolve_cstring(root, pathname))) {
+        return set_syscall_error(current, ENOENT);
+    }
+    int nbytes = MIN(runtime_strlen(pathname), sz);
+    runtime_memcpy(buf, pathname, nbytes);
+    return nbytes;
+}
+
+// mkfs resolve all symbolic links, so just need to
+// return pathname in buf
 sysreturn readlink(const char *pathname, char *buf, u64 bufsiz)
+{   
+    return readlink_internal(current->p->cwd, pathname, buf ,bufsiz);
+}
+
+sysreturn readlinkat(int dirfd, const char *pathname, char *buf, u64 bufsiz)
 {
-    return set_syscall_error(current, EINVAL);
+    if (dirfd == AT_FDCWD) {
+        return readlink(pathname, buf, bufsiz);
+    } else if(*pathname == '/') {
+        return readlink_internal(current->p->process_root, pathname, buf, bufsiz);
+    }
+    file f = resolve_fd(current->p, dirfd);
+    return readlink_internal(f->n, pathname, buf, bufsiz);
 }
 
 sysreturn close(int fd)
@@ -636,6 +659,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_fcntl, fcntl);
     register_syscall(map, SYS_getcwd, getcwd);
     register_syscall(map, SYS_readlink, readlink);
+    register_syscall(map, SYS_readlinkat, readlinkat);
     register_syscall(map, SYS_close, close);
     register_syscall(map, SYS_sched_yield, sched_yield);
     register_syscall(map, SYS_brk, brk);
