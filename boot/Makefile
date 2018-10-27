@@ -1,47 +1,74 @@
-# using  > 4.0 guile support..who knew that guile was still a thing
+include ../config.mk
+include ../common.mk
+
+OUT		?= $(ROOT)/output/boot
+
+CFLAGS		+= -m32 -DBOOT -nostdinc
+LDFLAGS		+= -T linker_script -e _start
+AFLAGS		+= -felf
+NASMFLAGS	= -l $@.lst -dSTAGE1SIZE=512 -dSTAGE2SIZE=$(shell stat -c %s $(OUT)/stage2.pad)
+OBJCOPYFLAGS	= -S -O binary
+DDFLAGS		= bs=512 conv=sync
+
 all: boot
 
-ROOT ?= $(PWD)/..
-include $(ROOT)/x86_64/Makefile
-include $(ROOT)/runtime/Makefile
-include $(ROOT)/tfs/Makefile
+boot: $(BOOTIMG)
 
-CC = cc
+includes = \
+	-I$(ROOT)/boot \
+	-I$(SRC)/tfs \
+	-I$(SRC)/runtime \
+	-I$(SRC)/x86_64 \
 
-STAGE1SIZE = 512
+boot-srcs = \
+	$(ROOT)/boot/stage2.c \
+	$(ROOT)/boot/service32.s \
+	$(SRC)/runtime/buffer.c \
+	$(SRC)/runtime/format.c \
+	$(SRC)/runtime/random.c \
+	$(SRC)/runtime/rtrie.c \
+	$(SRC)/runtime/runtime_init.c \
+	$(SRC)/runtime/symbol.c \
+	$(SRC)/runtime/table.c \
+	$(SRC)/runtime/tuple.c \
+	$(SRC)/runtime/merge.c \
+	$(SRC)/x86_64/elf.c \
+	$(SRC)/x86_64/kvm_platform.c \
+	$(SRC)/x86_64/page.c \
+	$(SRC)/x86_64/serial.c \
+	$(SRC)/tfs/tfs.c \
+	$(SRC)/tfs/tlog.c \
 
-stage2.pad: stage2
-	dd if=$< of=$@ bs=512 conv=sync
+boot-objs = $(call srcs-to-objs,$(ROOT),$(OUT),boot)
 
-stage2.strip: stage2.elf
-	strip stage2.elf -o stage2.strip
+$(boot-objs): $(boot-srcs) $(CLOSURE_TMPL)
 
-stage1: stage1.s stage2.pad
-	nasm  -l stage1.lst -dSTAGE1SIZE=$(STAGE1SIZE) -dSTAGE2SIZE=$(shell stat -c %s stage2.pad) $< -o $@
+$(BOOTIMG): $(OUT)/stage1 $(OUT)/stage2.pad
+	$(call cmd,cat)
 
-boot: stage1 stage2.pad
-	cat stage1 stage2.pad > boot
+%/stage1: stage1.s %/stage2.pad
+	$(call cmd,nasm_ld)
 
-# move out to runtime
-SRUNTIME = table.o buffer.o format.o id.o symbol.o tuple.o random.o rtrie.o runtime_init.o extra_prints.o debug_heap.o bitmap.o string.o
-OBJ = service32.o stage2.o serial.o page.o elf.o kvm_platform.o merge.o $(TFS) $(SRUNTIME)
+%.pad: %.bin
+	$(call cmd,dd)
 
-LD = ld
-OD = objdump
+%.bin: %.strip
+	$(call cmd,objcopy)
 
-stage2.elf: $(OBJ) linker_script
-	$(LD) -T linker_script -e _start $(OBJ) $(LIBC) -o $@
+%.strip: %.elf
+	$(call cmd,strip)
 
-stage2: stage2.strip
-	 objcopy -S -O binary $< $@
+$(OUT)/stage2.elf: $(boot-objs) linker_script
+	$(call cmd,ld)
 
-service32.o: service32.s
-	nasm -felf $<
+intermediate := $(addprefix $(OUT)/,stage1 stage1.lst stage2.pad stage2.bin stage2.strip stage2.elf)
 
-%.o: %.c $(ROOT)/runtime/closure_templates.h
-	$(CC) -m32 -O -fno-stack-protector $(INCLUDES) -DBOOT -I. -I../runtime $< -c
+.PRERCIOUS: $(intermediate)
 
-clean:
-	rm -f *.o *~ stage2.elf stage2 bottom.list stage1 stage2.pad boot
+clean-objs = $(boot-objs) $(BOOTIMG) $(intermediate) $(CLOSURE_TMPL)
 
+clean: default-clean
 
+.PHONY: all boot clean
+
+include ../rules.mk

@@ -1,19 +1,23 @@
+include ../config.mk
+include ../common.mk
 
 # Go parameters
 GOCMD?=go
 GOBUILD=$(GOCMD) build
 GOCLEAN=$(GOCMD) clean
-GOTEST=$(GOCMD) test 
+GOTEST=$(GOCMD) test
 GOGET=$(GOCMD) get
 BINARY_NAME=nvm
 
 all: test
 
-test: 
+test:
 	$(GOTEST) -v
 clean:
 	$(GOCLEAN)
-	rm -f $(BINARY_NAME)
+	$(Q) $(RM) -rf .staging
+	$(Q) $(RM) -f $(BINARY_NAME) image ../examples/soop.data
+
 
 deps:
 	$(GOGET) github.com/spf13/cobra
@@ -21,5 +25,5 @@ deps:
 	$(GOGET) github.com/jstemmer/go-junit-report
 	$(GOGET) github.com/d2g/dhcp4
 	$(GOGET) github.com/d2g/dhcp4client
-	$(GOGET) github.com/go-errors/errors  
+	$(GOGET) github.com/go-errors/errors
 

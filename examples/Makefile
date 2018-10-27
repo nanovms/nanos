@@ -1,41 +1,100 @@
-ROOT=$(PWD)/..
-CC ?= cc
-GO ?= go
-CFLAGS=-g -c -DENABLE_MSG_DEBUG -std=gnu99 
+include ../config.mk
+include ../common.mk
 
-include $(ROOT)/unix_process/Makefile
-VPATH += $(ROOT)/test
+OUT = $(ROOT)/output/examples
 
-%.o: %.c $(ROOT)/runtime/closure_templates.h
-	$(CC) $(CFLAGS) $(INCLUDES) $<
+CFLAGS = -g -DENABLE_MSG_DEBUG -std=gnu99 $(includes)
 
-all: hw webs hwg webg hws webs webgs
+all: fst hw hws hwg web webg webgs webs
 
-hwg: hwg.go
-	$(GO) build hwg.go
+fst: $(FST)
 
-hw: hw.c
-	$(CC) hw.c -o hw
+hw: $(HW)
 
-hws: hw.c
-	$(CC) hw.c -g -static -o hws
+hws: $(HWS)
 
-web: web.o http.o socket_user.o $(UNIXRUNTIME)
-	$(CC) $^ -g -o web
+hwg: $(HWG)
 
-webs: web.o http.o socket_user.o  $(UNIXRUNTIME)
-	$(CC) $^ -static -g -o webs
+web: $(WEB)
 
-webg: webg.go
-	$(GO) build webg.go
+webs: $(WEBS)
 
-webgs: webg.go
-	CGO_ENABLED=0 $(GO) build -a -ldflags '-extldflags "-static"' -o webgs webg.go 
+webg: $(WEBG)
 
-fst: fst.go
-	$(GO) build fst.go
+webgs: $(WEBGS)
 
-clean:
-	rm -f *.o *~ hw web hwg webg webs hws webgs
+includes := \
+	-I$(SRC)/runtime \
+	-I$(SRC)/unix_process \
+	-I$(SRC)/x86_64 \
 
+hw-srcs := \
+	$(ROOT)/examples/hw.c
 
+hw-objs = $(call srcs-to-objs,$(ROOT),$(OUT),hw)
+
+$(HW): $(hw-objs)
+	$(call cmd,host-prog)
+
+hws-objs := $(hw-objs)
+
+$(HWS): HOSTLDFLAGS += -static
+$(HWS): $(hw-objs)
+	$(call cmd,host-prog)
+
+web-srcs := \
+	$(ROOT)/examples/web.c \
+	$(SRC)/unix_process/unix_process_runtime.c \
+	$(SRC)/unix_process/mmap_heap.c \
+	$(SRC)/unix_process/http.c \
+	$(SRC)/unix_process/path.c \
+	$(SRC)/unix_process/socket_user.c \
+	$(SRC)/unix_process/tiny_heap.c \
+	$(SRC)/runtime/bitmap.c \
+	$(SRC)/runtime/buffer.c \
+	$(SRC)/runtime/extra_prints.c \
+	$(SRC)/runtime/format.c \
+	$(SRC)/runtime/heap/id.c \
+	$(SRC)/runtime/heap/freelist.c \
+	$(SRC)/runtime/heap/debug_heap.c \
+	$(SRC)/runtime/heap/objcache.c \
+	$(SRC)/runtime/heap/mcache.c \
+	$(SRC)/runtime/merge.c \
+	$(SRC)/runtime/pqueue.c \
+	$(SRC)/runtime/random.c \
+	$(SRC)/runtime/rtrie.c \
+	$(SRC)/runtime/runtime_init.c \
+	$(SRC)/runtime/sha256.c \
+	$(SRC)/runtime/signature.c \
+	$(SRC)/runtime/string.c \
+	$(SRC)/runtime/symbol.c \
+	$(SRC)/runtime/table.c \
+	$(SRC)/runtime/timer.c \
+	$(SRC)/runtime/tuple_parser.c \
+	$(SRC)/runtime/tuple.c \
+
+web-objs = $(call srcs-to-objs,$(ROOT),$(OUT),web)
+
+$(WEB): $(web-objs)
+	$(call cmd,host-prog)
+
+webs-objs := $(web-objs)
+
+$(WEBS): HOSTLDFLAGS += -static
+$(WEBS): $(web-objs)
+	$(call cmd,host-prog)
+
+$(WEBGS): webg.go
+	@ mkdir -p $(dir $@)
+	@ echo "GO	$@"
+	$(Q) CGO_ENABLED=0 $(GO) build -a -ldflags '-extldflags "-static"' -o $@ $^
+
+$(hw-objs) $(web-objs): $(CLOSURE_TMPL)
+
+clean-objs = $(hw-objs) $(web-objs) $(FST) $(HW) $(HWG) $(HWS) $(WEB) $(WEBG) $(WEBGS) $(WEBS) $(CLOSURE_TMPL)
+
+clean: default-clean
+
+.PHONY: fst hw hwg hws web webg webgs webs
+
+include ../rules.mk
