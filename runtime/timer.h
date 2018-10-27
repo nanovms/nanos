@@ -15,6 +15,7 @@ time now();
 #endif
 
 #define nano 1000000000ull
+#define femto 1000000000000000ull
 
 // danger - truncation, should always be subsec
 static inline u64 time_from_nsec(u64 n)
@@ -41,4 +42,9 @@ static inline time seconds(int n)
 static inline time milliseconds(int n)
 {
     return((((u64)n)<<32)/1000ull);
+}
+
+static inline time femtoseconds(u64 fs)
+{
+    return fs / (femto >> 32);
 }

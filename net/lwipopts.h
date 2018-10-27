@@ -18,7 +18,7 @@
 //#define MEM_DEBUG                       LWIP_DBG_ON
 //#define MEMP_DEBUG                      LWIP_DBG_ON
 #define SYS_DEBUG                       LWIP_DBG_ON
-#define TIMERS_DEBUG                    LWIP_DBG_ON
+//#define TIMERS_DEBUG                    LWIP_DBG_ON
 #define TCP_DEBUG                       LWIP_DBG_ON
 #define TCP_INPUT_DEBUG                 LWIP_DBG_ON
 #define TCP_FR_DEBUG                    LWIP_DBG_ON

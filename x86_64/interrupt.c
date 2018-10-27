@@ -224,7 +224,7 @@ void common_handler()
     }
 }
 
-static heap interrupt_vectors;
+heap interrupt_vectors;
 
 void allocate_msi(int slot, int msi_slot, thunk h)
 {
@@ -257,16 +257,14 @@ void register_interrupt(int vector, thunk t)
     handlers[vector] = t;
 }
 
-void configure_timer(time rate, thunk t)
+void configure_lapic_timer(time rate, thunk t)
 {
     *(u32 *)(apic_base+APIC_TMRDIV) = 3;
     int v = allocate_u64(interrupt_vectors, 1);
     *(u32 *)(apic_base+APIC_LVT_TMR) = v | TMR_PERIODIC;
-    // calibrate rdtsc using kvm info
+    // calibrate using kvm info if available, hpet convergence otherwise
     *(u32 *)(apic_base + APIC_TMRINITCNT) = 10 * 1000*1000*8;
     handlers[v] = t;
-    // 3 is 10 ms .. apparently, says who?
-
 }
 
 extern u32 interrupt_size;

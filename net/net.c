@@ -38,5 +38,5 @@ void init_net(kernel_heaps kh)
     rprintf("init net page alloc %p\n", backed);
     lwip_heap = allocate_mcache(h, backed, 5, 11, PAGESIZE);
     lwip_init();
-    register_periodic_timer(milliseconds(500), closure(h, timeout));
+    register_periodic_timer(milliseconds(10), closure(h, timeout));
 }
