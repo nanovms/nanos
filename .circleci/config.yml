@@ -12,7 +12,7 @@ jobs:
       - run: sudo apt-get install nasm qemu
       - run: cd .. && git clone git@github.com:nanovms/nvm.git
       - run: make && make unit-test
-      - run: make gotest 
+      - run: make gotest
   nightly-build:
     docker:
       - image: circleci/golang:1.11
@@ -26,11 +26,11 @@ jobs:
       - run: cp .circleci/boto ~/.boto
       - run: wget https://storage.googleapis.com/pub/gsutil.tar.gz
       - run: tar xfz gsutil.tar.gz -C ~
-      - run: ~/gsutil/gsutil cp stage3/stage3 gs://uniboot
-      - run: ~/gsutil/gsutil cp boot/boot gs://uniboot
-      - run: ~/gsutil/gsutil cp mkfs/mkfs gs://uniboot
-      - run: ~/gsutil/gsutil acl ch -u AllUsers:R gs://uniboot/stage3
-      - run: ~/gsutil/gsutil acl ch -u AllUsers:R gs://uniboot/boot
+      - run: ~/gsutil/gsutil cp output/boot/boot.img gs://uniboot
+      - run: ~/gsutil/gsutil cp output/stage3/stage3.img gs://uniboot
+      - run: ~/gsutil/gsutil cp output/mkfs/bin/mkfs gs://uniboot
+      - run: ~/gsutil/gsutil acl ch -u AllUsers:R gs://uniboot/stage3.img
+      - run: ~/gsutil/gsutil acl ch -u AllUsers:R gs://uniboot/boot.img
       - run: ~/gsutil/gsutil acl ch -u AllUsers:R gs://uniboot/mkfs
 workflows:
   version: 2
