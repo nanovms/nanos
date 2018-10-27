@@ -13,6 +13,9 @@
 #include <fcntl.h>
 #include <ip.h>
 
+/* Helper functions to ignore unused result (eliminate CC warning) */
+static inline void igr() {}
+
 typedef struct registration {
     descriptor fd;
     u32 events;			/* for select */
@@ -319,7 +322,7 @@ static CLOSURE_2_1(connection_output, void, descriptor, notifier, buffer);
 static void connection_output(descriptor c, notifier n, buffer b)
 {
     if (b)  {
-        write(c, b->contents, buffer_length(b));
+        igr(write(c, b->contents, buffer_length(b)));
     } else {
 	notifier_reset_fd(n, c);
         close(c);

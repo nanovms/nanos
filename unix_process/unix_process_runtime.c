@@ -6,9 +6,12 @@
 #include <string.h>
 #include <signal.h>
 
+/* Helper functions to ignore unused result (eliminate CC warning) */
+static inline void igr() {}
+
 void debug(buffer b)
 {
-    write(2, b->contents, buffer_length(b));
+    igr(write(2, b->contents, buffer_length(b)));
 }
 
 static char hex[]="0123456789abcdef";
@@ -16,12 +19,12 @@ static char hex[]="0123456789abcdef";
 void print_u64(u64 s)
 {
     for (int x = 60; x >= 0; x -= 4)
-        write(2, &hex[(s >> x)&0xf], 1);
+        igr(write(2, &hex[(s >> x)&0xf], 1));
 }
 
 void console(char *x)
 {
-    write(2, x, runtime_strlen(x));
+    igr(write(2, x, runtime_strlen(x)));
 }
 
 
@@ -34,7 +37,7 @@ time timeval_to_time(struct timeval *a)
 time now()
 {
     struct timeval result;
-    
+
     gettimeofday(&result,0);
     return(timeval_to_time(&result));
 }
@@ -50,7 +53,7 @@ static u64 malloc_alloc(heap h, bytes s)
 }
 
 heap malloc_allocator()
-{    
+{
     heap h = malloc(sizeof(struct heap));
     h->alloc = malloc_alloc;
     h->dealloc = malloc_free;
@@ -63,7 +66,7 @@ void halt(char *format, ...)
     vlist a;
     vstart(a, format);
     vbprintf(z, alloca_wrap_buffer(format, runtime_strlen(format)), &a);
-    write(1, buffer_ref(z, 0), buffer_length(z));
+    igr(write(1, buffer_ref(z, 0), buffer_length(z)));
     exit(-1);
 }
 
@@ -89,7 +92,7 @@ static struct kernel_heaps heaps; /* really just for init_runtime() */
 
 extern void init_extra_prints();
 
-// 64 bit unix process                  
+// 64 bit unix process
 heap init_process_runtime()
 {
     heaps.general = malloc_allocator();
@@ -97,13 +100,13 @@ heap init_process_runtime()
     init_extra_prints();
     signal(SIGPIPE, SIG_IGN);
     // unix errno print formatter
-    register_format('E', format_errno);       
+    register_format('E', format_errno);
     return heaps.general;
 }
 
 void serial_out(u8 k)
 {
-    write(1, &k, 1);
+    igr(write(1, &k, 1));
 }
 
 
@@ -135,7 +138,7 @@ tuple parse_arguments(heap h, int argc, char **argv)
             }
         }
     }
-    if (unassociated) 
+    if (unassociated)
         table_set(t, sym(unassociated), tuple_from_vector(unassociated));
 
     return t;
