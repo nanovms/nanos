@@ -593,9 +593,10 @@ sysreturn readlink(const char *pathname, char *buf, u64 bufsiz)
 
 sysreturn readlinkat(int dirfd, const char *pathname, char *buf, u64 bufsiz)
 {
-    tuple n;
-    if (dirfd == AT_FDCWD || *pathname == '/') {
+    if (dirfd == AT_FDCWD) {
         return readlink(pathname, buf, bufsiz);
+    } else if(*pathname == '/') {
+        return readlink_internal(current->p->process_root, pathname, buf, bufsiz);
     }
     file f = resolve_fd(current->p, dirfd);
     return readlink_internal(f->n, pathname, buf, bufsiz);
