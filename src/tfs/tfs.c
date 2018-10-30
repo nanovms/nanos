@@ -6,8 +6,8 @@ struct fsfile {
     tuple md;
 };
 
-static CLOSURE_4_1(copyout, void, void *, void *, u64, status_handler, status);
-void copyout(void *target, void *source, u64 length, status_handler sh, status s)
+static CLOSURE_5_1(copyout, void, filesystem, void *, void *, u64, status_handler, status);
+void copyout(filesystem fs, void *target, void *source, u64 length, status_handler sh, status s)
 {
     if (s) {
         apply(sh, s);
@@ -15,6 +15,7 @@ void copyout(void *target, void *source, u64 length, status_handler sh, status s
         runtime_memcpy(target, source, length);
         apply(sh, s);
     }
+    deallocate(fs->h, source, fs->blocksize);
 }
 
 static CLOSURE_4_2(fs_read_extent, void,
@@ -33,7 +34,7 @@ static void fs_read_extent(filesystem fs,
     assert(xfer != 0);
     u64 block_start = u64_from_pointer(val);
     u64 tail = range_span(q) & (fs->blocksize - 1);
-    u64 target_offset = ex.start - q.start;
+    u64 target_offset = i.start - q.start;
     void *target_start = buffer_ref(target, target_offset);
 
     // handle unaligned tail without clobbering extra memory
@@ -41,7 +42,8 @@ static void fs_read_extent(filesystem fs,
         void *temp = allocate(fs->h, fs->blocksize);
         status_handler f = apply(m);
         xfer -= tail;
-        status_handler copy = closure(fs->h, copyout, target_start + xfer, temp, tail, f);
+        status_handler copy = closure(fs->h, copyout, fs, target_start + xfer, temp, tail, f);
+        fetch_and_add(&target->end, tail);
         apply(fs->r, temp, fs->blocksize, block_start + xfer, copy);
     }
 

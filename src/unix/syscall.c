@@ -505,17 +505,16 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
 	f->length = 0;
     }
     f->offset = 0;
+    thread_log(current, "   fd %d, file length %d\n", fd, f->length);
     return fd;
 }
 
 sysreturn open(char *name, int flags, int mode)
 {
-    tuple n;
     if (name == 0) 
         return set_syscall_error (current, EINVAL);
-    int fd =  open_internal(current->p->cwd, name, flags, mode); 
-    thread_log(current, "open: \"%s\", fd %d, mode %P\n", name, fd, mode);
-    return fd;
+    thread_log(current, "open: \"%s\", flags %P, mode %P\n", name, flags, mode);
+    return open_internal(current->p->cwd, name, flags, mode);
 }
 
 /*
