@@ -357,9 +357,12 @@ sysreturn read(int fd, u8 *dest, bytes length)
     return apply(f->read, dest, length, infinity);
 }
 
-sysreturn pread(int fd, u8 *dest, bytes length, bytes offset)
+sysreturn pread(int fd, u8 *dest, bytes length, s64 offset)
 {
     file f = resolve_fd(current->p, fd);
+
+    if (offset < 0)
+	return set_syscall_error(current, EINVAL);
 
     /* use given offset with no file offset update */
     return apply(f->read, dest, length, offset);
@@ -392,11 +395,11 @@ static sysreturn access(char *name, int mode)
 }
 
 static CLOSURE_3_2(file_read_complete, void, thread, file, boolean, status, bytes);
-static void file_read_complete(thread t, file f, boolean file_offset, status s, bytes length)
+static void file_read_complete(thread t, file f, boolean is_file_offset, status s, bytes length)
 {
     thread_log(current, "%s: len %d, status %v\n", __func__, length, s);
     if (is_ok(s)) {
-	if (file_offset)	/* vs specified offset (pread) */
+	if (is_file_offset)	/* vs specified offset (pread) */
 	    f->offset += length;
 	set_syscall_return(t, length);
     } else {
@@ -411,11 +414,20 @@ static sysreturn file_read(file f, void *dest, u64 length, u64 offset_arg)
 {
     thread_log(current, "%s: %t, dest %p, length %d, offset_arg %d\n",
 	       __func__, f->n, dest, length, offset_arg);
-    boolean file_offset = offset_arg == infinity;
-    filesystem_read(current->p->fs, f->n, dest, length, file_offset ? f->offset : offset_arg,
-		    closure(heap_general(get_kernel_heaps()),
-			    file_read_complete, current, f, file_offset));
-    runloop();
+    boolean is_file_offset = offset_arg == infinity;
+    bytes offset = is_file_offset ? f->offset : offset_arg;
+
+    if (offset < f->length) {
+	filesystem_read(current->p->fs, f->n, dest, length, offset,
+			closure(heap_general(get_kernel_heaps()),
+				file_read_complete, current, f, is_file_offset));
+
+	/* XXX Presently only support blocking file reads... */
+	thread_sleep(current);
+    } else {
+	/* XXX special handling for holes will need to go here */
+	set_syscall_return(current, 0);
+    }
 }
 
 static CLOSURE_1_0(file_close, sysreturn, file);
@@ -430,7 +442,6 @@ static sysreturn file_close(file f)
 u32 edge_events(u32 masked, u32 eventmask, u32 last)
 {
     u32 r;
-
     /* report only rising events if edge triggered */
     if ((eventmask & EPOLLET) && (masked != last)) {
 	r = (masked ^ last) & masked;
@@ -446,25 +457,18 @@ static boolean file_check(file f, u32 eventmask, u32 * last, event_handler eh)
     thread_log(current, "file_check: file %t, eventmask %P, last %P, event_handler %p\n",
 	       f->n, eventmask, *last, eh);
 
-    /* XXX Presently, all file operations block. If we presume that
-       EPOLLIN should be signalled only if a read would not block,
-       then we'll never set it here. However, there may be programs
-       that are written such that a read would never be attempted
-       without first having received an EPOLLIN event through
-       epoll_wait(). Discuss.
-
+    /* No support for non-blocking XXXX
        Also, if and when we have some degree of file caching and want
        to support the above, don't rewrite it but factor out the
        notify list stuff from netsyscall.c to share with files.
     */
-    u32 events = EPOLLOUT;	/* XXX always available for write at the moment */
+    u32 events = f->length < infinity ? EPOLLOUT : 0;
     events |= f->offset < f->length ? EPOLLIN : EPOLLHUP;
     u32 masked = events & eventmask;
     u32 r = edge_events(masked, eventmask, *last);
     *last = masked;
-    if (r) {
+    if (r)
 	return apply(eh, r);
-    }
     return true;
 }
 
@@ -584,19 +588,32 @@ static sysreturn stat(char *name, struct stat *s)
     return 0;
 }
 
-sysreturn lseek(int fd, u64 offset, int whence)
+sysreturn lseek(int fd, s64 offset, int whence)
 {
     file f = resolve_fd(current->p, fd);
+    s64 new;
     switch (whence) {
     case SEEK_SET:
-	f->offset = offset;
+	new = offset;
 	break;
     case SEEK_CUR:
-	f->offset += offset;
+	new = f->offset + offset;
 	break;
     case SEEK_END:
-	f->offset = f->length + offset;
+	new = f->length + offset;
 	break;
+    default:
+	return set_syscall_error(current, EINVAL);
+    }
+
+    if (new < 0)
+	return set_syscall_error(current, EINVAL);
+    f->offset = new;
+    /* XXX do this in write, too */
+    if (f->offset > f->length) {
+	msg_err("fd %d, offset %d, whence %d: file holes not supported\n",
+		fd, offset, whence);
+	halt("halt\n");
     }
     return f->offset;
 }
