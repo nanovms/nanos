@@ -1,55 +1,69 @@
-GO?=go
+include config.mk
 
 all: image test
 
-force:
+image: mkfs boot stage3 target
+	@ echo "MKFS	$@"
+	@ mkdir -p $(dir $(IMAGE))
+	$(Q) $(MKFS) $(FS) < examples/$(TARGET).manifest && cat $(BOOTIMG) $(FS) > $(IMAGE)
 
-ROOT = .
+contgen: $(CONTGEN)
 
-image: net/lwip force 
-	make -f image.mk image
+mkfs: mkfs-build
 
-net/lwip:
-	(cd $(ROOT)/net; git clone http://git.savannah.nongnu.org/git/lwip.git ; cd lwip ; git checkout STABLE-2_0_3_RELEASE)
+boot: boot-build
 
-test: force
-	cd test ; make
-gotest: image
-	cd gotests; make deps; make test
+stage3: stage3-build
+
+test: test-build
+
+examples: examples-build
+
+target: $(TARGET)
+
+$(TARGET): contgen
+	$(MAKE) -C examples
+
 unit-test: test
-	cd test ; make unit-test
+	$(MAKE) -C test unit-test
 
-distclean: clean
-	rm -rf net/lwip
+gotest: image
+	$(MAKE) -C gotests deps
+	$(MAKE) -C gotests test
+
+%-build: contgen
+	$(MAKE) -C $(subst -build,,$@)
+
+%-clean:
+	$(MAKE) -C $(subst -clean,,$@) clean
 
 clean:
-	cd boot ; make clean
-	cd stage3 ; make clean
-	cd mkfs ; make clean
-	cd test ; make clean
-	cd examples ; make clean
-	rm -f runtime/closure_templates.h runtime/contgen image fs
+	$(MAKE) {contgen,boot,stage3,mkfs,examples,test}-clean
+	$(MAKE) -C gotests clean
+	$(Q) $(RM) -f $(FS) $(IMAGE) $(IMAGE).dup
+	$(Q) $(RM) -fd $(dir $(IMAGE)) output
 
-DEBUG ?= n
+distclean: clean
+	$(Q) $(RM) -rf $(VENDOR)
+
+DEBUG	?= n
+DEBUG_	:=
 ifeq ($(DEBUG),y)
 	DEBUG_ := -s
-else
-	DEBUG_ :=
 endif
 
-# file=image,if=none,id=virtio-disk0,format=raw,cache=none,aio=native
-
 # could really be nice if BOOT and STORAGE could be the same disk
-BOOT = -boot c -drive file=image,format=raw,if=ide
-STORAGE = -drive file=image,format=raw,if=virtio
-TAP = -netdev tap,id=n0,ifname=tap0,script=no,downscript=no
-NET = -device virtio-net,mac=7e:b8:7e:87:4a:ea,netdev=n0 $(TAP)
-KVM = -enable-kvm
-DISPLAY = -display none -serial stdio
-USERNET = -device virtio-net,netdev=n0 -netdev user,id=n0,hostfwd=tcp::8080-:8080
-QEMU ?= qemu-system-x86_64
+BOOT	= -boot c -drive file=$(IMAGE).dup,format=raw,if=ide
+STORAGE	= -drive file=$(IMAGE),format=raw,if=virtio
+TAP	= -netdev tap,id=n0,ifname=tap0,script=no,downscript=no
+NET	= -device virtio-net,mac=7e:b8:7e:87:4a:ea,netdev=n0 $(TAP)
+KVM	= -enable-kvm
+DISPLAY	= -display none -serial stdio
+USERNET	= -device virtio-net,netdev=n0 -netdev user,id=n0,hostfwd=tcp::8080-:8080
+QEMU	?= qemu-system-x86_64
 
 run-nokvm: image
+	- cp $(IMAGE) $(IMAGE).dup
 	- $(QEMU) $(BOOT) $(DISPLAY) -m 2G -device isa-debug-exit -no-reboot $(STORAGE) $(USERNET) $(DEBUG_)
 
 run: image
@@ -58,4 +72,6 @@ run: image
 runnew: image
 	- ~/qemu/x86_64-softmmu/qemu-system-x86_64 -hda image $(DISPLAY) -m 2G -device isa-debug-exit -no-reboot $(STORAGE) $(USERNET) $(KVM)
 
+.PHONY: image contgen mkfs boot stage3 examples gotest test clean distclean run-nokvm run runnew
 
+include rules.mk

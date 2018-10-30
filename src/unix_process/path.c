@@ -2,6 +2,7 @@
 #include <path.h>
 #include <list.h>
 #include <stringtok.h>
+#include <string.h>
 
 char *canonicalize_path(heap h, buffer cwd, buffer input) {
     struct list out;

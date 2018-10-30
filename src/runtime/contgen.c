@@ -2,6 +2,9 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+/* Helper functions to ignore unused result (eliminate CC warning) */
+static inline void igr() {}
+
 char *output;
 int size;
 int fill = 0;
@@ -98,5 +101,5 @@ int main(int argc, char **argv)
     for (nleft = 0; nleft < lc; nleft++)
         for (nright = 0; nright < rc; nright++)
             cblock();
-    write(1, output, fill);
+    igr(write(1, output, fill));
 }

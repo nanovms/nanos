@@ -1,5 +1,7 @@
 OUTPUT_FORMAT("elf64-x86-64")
 
+ENTRY(_start)
+
 SECTIONS
 {
   . = 0xf000000;
@@ -12,5 +14,5 @@ SECTIONS
   .data : { *(.data) }
    PROVIDE(bss_start = .);
   .bss  ALIGN(32): { *(.bss) }
-   PROVIDE(bss_end = .);  
+   PROVIDE(bss_end = .);
 }

@@ -14,9 +14,9 @@ import (
 
 func defaultConfig() lepton.Config {
 	var c lepton.Config
-	c.Boot = "../boot/boot"
-	c.Kernel = "../stage3/stage3"
-	c.Mkfs = "../mkfs/mkfs"
+	c.Boot = "../output/boot/boot.img"
+	c.Kernel = "../output/stage3/stage3.img"
+	c.Mkfs = "../output/mkfs/bin/mkfs"
 	c.Env = make(map[string]string)
 	return c
 }
@@ -37,7 +37,7 @@ func prepareTestImage(finalImage string) {
 	c.Env["USER"] = "bobby"
 	c.Env["PWD"] = "password"
 	c.DiskImage = finalImage
-	err := lepton.BuildImage("../examples/webg", c)
+	err := lepton.BuildImage("../output/examples/webg", c)
 	if err != nil {
 		log.Fatal(err)
 	}
