@@ -54,7 +54,6 @@ PATH_TEST	= $(ROOT)/output/test/path_test
 # Generated depedencies
 
 CLOSURE_TMPL	= $(OUT)/runtime/closure_templates.h
-FRAME		= $(OUT)/x86_64/frame_nasm.h
 
 # Vendored librarries
 VENDOR		= $(ROOT)/vendor

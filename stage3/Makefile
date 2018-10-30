@@ -110,13 +110,18 @@ $(stage3-srcs): | lwip
 
 $(stage3-objs): $(stage3-srcs) $(CLOSURE_TMPL)
 
-$(OUT)/src/x86_64/crt0.o: AFLAGS += -I$(dir $(FRAME))
-$(OUT)/src/x86_64/crt0.o: $(FRAME)
-
 $(STAGE3): $(stage3-objs)
 	$(call cmd,ld)
 
-clean-objs = $(stage3-objs) $(STAGE3) $(FRAME) $(CLOSURE_TMPL)
+$(OUT)/src/x86_64/crt0.o: AFLAGS += -I$(OUT)/x86_64/
+$(OUT)/src/x86_64/crt0.o: $(OUT)/x86_64/frame_nasm.h
+
+$(OUT)/x86_64/frame_nasm.h: $(SRC)/x86_64/frame.h
+	@ echo "SED	$@"
+	@ mkdir -p $(dir $@)
+	$(Q) sed -e "s/#/%/" < $^ > $@
+
+clean-objs = $(stage3-objs) $(STAGE3) $(OUT)/x86_64/frame_nasm.h $(CLOSURE_TMPL)
 
 clean: default-clean
 

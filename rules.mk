@@ -6,11 +6,6 @@ $(CLOSURE_TMPL): $(CONTGEN)
 	@ mkdir -p $(dir $@)
 	$(Q) $(CONTGEN) 10 10 > $@
 
-$(FRAME): $(SRC)/x86_64/frame.h
-	@ echo "SED	$@"
-	@ mkdir -p $(dir $@)
-	$(Q) sed -e "s/#/%/" < $^ > $@
-
 $(OUT)/%.o: $(ROOT)/%.s
 	$(call cmd,nasm_o_s)
 
