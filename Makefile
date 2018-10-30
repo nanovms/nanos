@@ -52,8 +52,6 @@ ifeq ($(DEBUG),y)
 	DEBUG_ := -s
 endif
 
-# file=image,if=none,id=virtio-disk0,format=raw,cache=none,aio=native
-
 # could really be nice if BOOT and STORAGE could be the same disk
 BOOT	= -boot c -drive file=$(IMAGE).dup,format=raw,if=ide
 STORAGE	= -drive file=$(IMAGE),format=raw,if=virtio

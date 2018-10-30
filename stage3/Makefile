@@ -4,7 +4,7 @@ include ../common.mk
 OUT		?= $(ROOT)/output/stage3
 AFLAGS		= -felf64
 CFLAGS 		+= -DSTAGE3
-LDFLAGS 	+= -n -e_start -T linker_script -nostdlib
+LDFLAGS 	+= -n -T linker_script -nostdlib
 GITFLAGS	+= --depth 1 http://git.savannah.nongnu.org/git/lwip.git -b STABLE-2_0_3_RELEASE
 
 #CFLAGS = -DLWIP_DEBUG -DEPOLL_DEBUG -DNETSYSCALL_DEBUG

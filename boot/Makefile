@@ -4,7 +4,7 @@ include ../common.mk
 OUT		?= $(ROOT)/output/boot
 
 CFLAGS		+= -m32 -DBOOT -nostdinc
-LDFLAGS		+= -T linker_script -e _start
+LDFLAGS		+= -T linker_script
 AFLAGS		+= -felf
 NASMFLAGS	= -l $@.lst -dSTAGE1SIZE=512 -dSTAGE2SIZE=$(shell stat -c %s $(OUT)/stage2.pad)
 OBJCOPYFLAGS	= -S -O binary
@@ -63,7 +63,7 @@ $(OUT)/stage2.elf: $(boot-objs) linker_script
 
 intermediate := $(addprefix $(OUT)/,stage1 stage1.lst stage2.pad stage2.bin stage2.strip stage2.elf)
 
-.PRERCIOUS: $(intermediate)
+.PRECIOUS: $(intermediate)
 
 clean-objs = $(boot-objs) $(BOOTIMG) $(intermediate) $(CLOSURE_TMPL)
 

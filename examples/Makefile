@@ -3,7 +3,7 @@ include ../common.mk
 
 OUT = $(ROOT)/output/examples
 
-CFLAGS = -g -DENABLE_MSG_DEBUG -std=gnu99 $(includes)
+CFLAGS = -g -DENABLE_MSG_DEBUG $(includes)
 
 all: fst hw hws hwg web webg webgs webs
 
