@@ -3,6 +3,7 @@ typedef struct filesystem *filesystem;
 typedef struct fsfile *fsfile;
 
 typedef closure_type(filesystem_complete, void, filesystem, status);
+typedef closure_type(io_status_handler, void, status, bytes);
 
 void create_filesystem(heap h,
                        u64 alignment,
@@ -14,7 +15,7 @@ void create_filesystem(heap h,
 
 // there is a question as to whether tuple->fs file should be mapped inside out outside the filesystem
 // status
-void filesystem_read(filesystem fs, tuple t, void *dest, u64 offset, u64 length, status_handler completion);
+void filesystem_read(filesystem fs, tuple t, void *dest, u64 offset, u64 length, io_status_handler completion);
 void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, status_handler completion);
 u64 file_length(fsfile f);
 fsfile fsfile_from_node(filesystem fs, tuple n);

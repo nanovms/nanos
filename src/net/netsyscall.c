@@ -36,7 +36,7 @@ enum socket_state {
 
 typedef struct notify_entry {
     u32 eventmask;
-    u32 last;
+    u32 * last;
     event_handler eh;
     struct list l;
 } *notify_entry;
@@ -77,7 +77,7 @@ static inline u32 socket_poll_events(sock s)
     return events;
 }
 
-static inline boolean notify_enqueue(sock s, u32 eventmask, u32 last, event_handler eh)
+static inline boolean notify_enqueue(sock s, u32 eventmask, u32 * last, event_handler eh)
 {
     notify_entry n = allocate(s->h, sizeof(struct notify_entry));
     if (n == INVALID_ADDRESS)
@@ -89,6 +89,9 @@ static inline boolean notify_enqueue(sock s, u32 eventmask, u32 last, event_hand
     return true;
 }
 
+/* XXX stuck in syscall.c, move to generic file place */
+extern u32 edge_events(u32 masked, u32 eventmask, u32 last);
+
 /* XXX this should move to a more general place for use with other types of fds */
 static void notify_dispatch(sock s)
 {
@@ -99,27 +102,17 @@ static void notify_dispatch(sock s)
 
     u32 events = socket_poll_events(s);
 
+    /* XXX not using list foreach because of intermediate
+       deletes... make a macro for that */
     do {
 	notify_entry n = struct_from_list(l, notify_entry, l);
-	u32 masked = events & n->eventmask;
 	list next = list_get_next(l);
-	if (n->eventmask & EPOLLET) {
-	    /* ignore if edge trigger and no change */
-	    if (masked != n->last) {
-		/* update saved events, report rising ones */
-		u32 rising = (masked ^ n->last) & masked;
-		n->last = masked;
-		if (rising && apply(n->eh, rising)) {
-		    list_delete(l);
-		    deallocate(s->h, n, sizeof(struct notify_entry));
-		}
-	    }
-	} else {
-	    /* report events unconditionally */
-	    if (apply(n->eh, masked)) {
-		list_delete(l);
-		deallocate(s->h, n, sizeof(struct notify_entry));
-	    }
+	u32 masked = events & n->eventmask;
+	u32 r = edge_events(masked, n->eventmask, *n->last);
+	*n->last = masked;
+	if (r && apply(n->eh, r)) {
+	    list_delete(l);
+	    deallocate(s->h, n, sizeof(struct notify_entry));
 	}
 	l = next;
     } while(l != &s->notify);
@@ -276,14 +269,16 @@ static sysreturn socket_write(sock s, void *source, u64 length, u64 offset)
     return set_syscall_return(current, lwip_to_errno(err));
 }
 
-static CLOSURE_1_3(socket_check, boolean, sock, u32, u32, event_handler);
-static boolean socket_check(sock s, u32 eventmask, u32 last, event_handler eh)
+static CLOSURE_1_3(socket_check, boolean, sock, u32, u32 *, event_handler);
+static boolean socket_check(sock s, u32 eventmask, u32 * last, event_handler eh)
 {
     u32 events = socket_poll_events(s);
-    u32 match = events & eventmask;
+    u32 masked = events & eventmask;
     net_debug("sock %d, eventmask %P, events %P\n", s->fd, eventmask, events);
-    if (match) {
-	return apply(eh, match);
+    if (masked) {
+	u32 report = edge_events(masked, eventmask, *last);
+	*last = masked;
+	return apply(eh, report);
     } else {
 	if (!notify_enqueue(s, eventmask, last, eh))
 	    msg_err("notify enqueue fail: out of memory\n");
