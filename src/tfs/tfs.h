@@ -17,7 +17,8 @@ void create_filesystem(heap h,
 // status
 void filesystem_read(filesystem fs, tuple t, void *dest, u64 offset, u64 length, io_status_handler completion);
 void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, status_handler completion);
-u64 file_length(fsfile f);
+u64 fsfile_get_length(fsfile f);
+void fsfile_set_length(fsfile f, u64);
 fsfile fsfile_from_node(filesystem fs, tuple n);
 fsfile file_lookup(filesystem fs, vector v);
 void filesystem_read_entire(filesystem fs, tuple t, heap h, buffer_handler c, status_handler s);

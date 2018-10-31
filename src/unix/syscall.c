@@ -412,7 +412,7 @@ static void file_read_complete(thread t, file f, boolean is_file_offset, status 
 static CLOSURE_1_3(file_read, sysreturn, file, void *, u64, u64);
 static sysreturn file_read(file f, void *dest, u64 length, u64 offset_arg)
 {
-    thread_log(current, "%s: %t, dest %p, length %d, offset_arg %d\n",
+    thread_log(current, "%s: %v, dest %p, length %d, offset_arg %d\n",
 	       __func__, f->n, dest, length, offset_arg);
     boolean is_file_offset = offset_arg == infinity;
     bytes offset = is_file_offset ? f->offset : offset_arg;
@@ -482,6 +482,11 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
         rprintf("open %s - not found\n", name);
         return set_syscall_error(current, ENOENT);
     }
+    fsfile fsf = fsfile_from_node(current->p->fs, n);
+    if (!fsf) {
+	msg_err("can't find fsfile\n");
+	return set_syscall_error(current, ENOENT);
+    }
     // might be functional, or be a directory
     file f = unix_cache_alloc(uh, file);
     if (f == INVALID_ADDRESS) {
@@ -497,13 +502,7 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
     f->read = closure(h, file_read, f);
     f->close = closure(h, file_close, f);
     f->check = closure(h, file_check, f);
-    value total_len = table_find(n, sym(length));
-    if (total_len) {
-	f->length = u64_from_value(total_len);
-    } else {
-	msg_err("file missing length meta\n");
-	f->length = 0;
-    }
+    f->length = fsfile_get_length(fsf);
     f->offset = 0;
     thread_log(current, "   fd %d, file length %d\n", fd, f->length);
     return fd;
@@ -557,7 +556,7 @@ static void fill_stat(tuple n, struct stat *s)
 	return;
     }
     s->st_mode = S_IFREG | 0644;
-    s->st_size = file_length(f);
+    s->st_size = fsfile_get_length(f);
     thread_log(current, "st_ino %P, st_mode %P, st_size %P\n",
 	       s->st_ino, s->st_mode, s->st_size);
 }

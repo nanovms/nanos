@@ -3,8 +3,19 @@
 struct fsfile {
     rtrie extents;
     filesystem fs;
+    u64 length;
     tuple md;
 };
+
+u64 fsfile_get_length(fsfile f)
+{
+    return f->length;
+}
+
+void fsfile_set_length(fsfile f, u64 length)
+{
+    f->length = length;
+}
 
 static CLOSURE_5_1(copyout, void, filesystem, void *, void *, u64, status_handler, status);
 void copyout(filesystem fs, void *target, void *source, u64 length, status_handler sh, status s)
@@ -126,7 +137,18 @@ static u64 extend(fsfile f, u64 foffset, u64 length)
     return storage;
 }
 
-                   
+// need to provide better/more symmetric access to metadata, but ...
+// status?
+void filesystem_write_tuple(filesystem fs, tuple t)
+{
+    log_write(fs->tl, t, ignore);
+}
+
+void filesystem_write_eav(filesystem fs, tuple t, symbol a, value v)
+{
+    log_write_eav(fs->tl, t, a, v, ignore);
+}
+
 // consider not overwritint the old version and fixing up the metadata
 void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, status_handler completion)
 {
@@ -153,30 +175,12 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, status_handl
 
     /* XXX Technically, we should wait until all extent writes have
        succeeded before extending the length. */
-    value total_len = table_find(t, sym(length));
     u64 end = buffer_length(b) + offset;
-    if (!total_len || (u64_from_value(total_len) < end))
-	log_write_eav(fs->tl, t, sym(length), value_from_u64(fs->h, end), ignore);
-}
-
-// need to provide better/more symmetric access to metadata, but ...
-// status?
-void filesystem_write_tuple(filesystem fs, tuple t)
-{
-    log_write(fs->tl, t, ignore);
-}
-
-void filesystem_write_eav(filesystem fs, tuple t, symbol a, value v)
-{
-    log_write_eav(fs->tl, t, a, v, ignore);
-}
-
-
-u64 file_length(fsfile f)
-{
-    u64 min, max;
-    rtrie_extent(f->extents, &min, &max);
-    return max;
+    if (fsfile_get_length(f) < end) {
+	/* XXX bother updating resident filelength tuple? */
+	fsfile_set_length(f, end);
+	filesystem_write_eav(fs, t, sym(filelength), value_from_u64(fs->h, end));
+    }
 }
 
 fsfile allocate_fsfile(filesystem fs, tuple md)
@@ -185,6 +189,7 @@ fsfile allocate_fsfile(filesystem fs, tuple md)
     f->extents = rtrie_create(fs->h);
     f->fs = fs;
     f->md = md;
+    f->length = 0;
     table_set(fs->files, f->md, f);
     return f;
 }
@@ -226,7 +231,7 @@ void filesystem_read_entire(filesystem fs, tuple t, heap h, buffer_handler c, st
     fsfile f;
     if ((f = table_find(fs->files, t))) {
         // block read is aligning to the next sector
-        u64 len = pad(file_length(f), 512);
+        u64 len = pad(fsfile_get_length(f), 512);
         buffer b = allocate_buffer(h, len + 1024);
         
         // that means a partial read, right?

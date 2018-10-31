@@ -22,7 +22,7 @@ static buffer read_stdin(heap h)
 }
 
 // its nice that we can append a file to any existing buffer, but harsh we have to grow the buffer
-void read_file(buffer dest, buffer name, u64 *length)
+void read_file(buffer dest, buffer name)
 {
     // mode bit metadata
     struct stat st;
@@ -85,11 +85,10 @@ static buffer translate_contents(heap h, value v)
     if (tagof(v) == tag_tuple) {
         value path = table_find((table)v, sym(host));
         if (path) {
-            u64 len;
             // seems like it wouldn't be to hard to arrange
             // for this to avoid the staging copy
             buffer dest = allocate_buffer(h, 1024);
-            read_file(dest, path, &len) ;
+            read_file(dest, path);
             return dest;
         }
     }

@@ -19,7 +19,7 @@ void encode_eav(buffer dest, table dictionary, tuple e, symbol a, value v);
 static inline u64 u64_from_value(value v)
 {
     u64 result;
-    parse_int((buffer)v, 10, &result);
+    parse_int(alloca_wrap((buffer)v), 10, &result);
     return result;
 }
 
