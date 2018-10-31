@@ -63,7 +63,7 @@ void start_process(thread t, void *start)
     
     if (table_find(t->p->process_root, sym(gdb))) {
         console ("gdb!\n");
-        init_tcp_gdb(heap_general(get_kernel_heaps()), t->p, 1234);
+        init_tcp_gdb(heap_general(get_kernel_heaps()), t->p, 9090);
     } else {
         rprintf ("enq\n");
         enqueue(runqueue, t->run);
