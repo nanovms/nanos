@@ -38,7 +38,7 @@ gotest: image
 	$(MAKE) -C $(subst -clean,,$@) clean
 
 clean:
-	$(MAKE) {contgen,boot,stage3,mkfs,examples,test}-clean
+	$(MAKE) $(addsuffix -clean,contgen boot stage3 mkfs examples test)
 	$(MAKE) -C gotests clean
 	$(Q) $(RM) -f $(FS) $(IMAGE) $(IMAGE).dup
 	$(Q) $(RM) -fd $(dir $(IMAGE)) output
