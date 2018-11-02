@@ -34,6 +34,9 @@ CONTGEN	= $(ROOT)/output/contgen/bin/contgen
 # Examples
 
 TARGET	= webgs
+ifeq ($(config), test)
+    TARGET = hw
+endif
 
 FST	= $(ROOT)/output/examples/fst
 HWG	= $(ROOT)/output/examples/hwg
