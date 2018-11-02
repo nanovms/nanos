@@ -72,7 +72,7 @@ void log_read_complete(log tl, status_handler sh, status s)
         for (; frame = pop_u8(b), frame == TUPLE_AVAILABLE;) {
             tuple t = decode_value(tl->h, tl->dictionary, b);
             fsfile f = 0;
-	    u64 filelength = infinity;
+            u64 filelength = infinity;
             // doesn't seem like all the incremental updates are handled here,
             // nor the recursive case
             table_foreach(t, k, v) {
@@ -82,17 +82,17 @@ void log_read_complete(log tl, status_handler sh, status s)
                     }
                     table_set(tl->fs->extents, v, f);
                 }
-		if (k == sym(filelength)) {
-		    filelength = u64_from_value(v);
-		}
+                if (k == sym(filelength)) {
+                    filelength = u64_from_value(v);
+                }
             }
 
-	    if (f && filelength != infinity)
-		fsfile_set_length(f, filelength);
+            if (f && filelength != infinity)
+                fsfile_set_length(f, filelength);
 
             if ((f = table_find(tl->fs->extents, t)))  {
                 table_foreach(t, off, e)
-		    extent_update(f, off, e);
+                    extent_update(f, off, e);
             }
         }
         

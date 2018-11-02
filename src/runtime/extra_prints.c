@@ -63,8 +63,8 @@ static void format_value(buffer dest, buffer fmt, vlist *v)
     buffer b;
     value x = varg(*v, value);
     if (!x) {
-	bprintf(dest, "(none)");
-	return;
+        bprintf(dest, "(none)");
+        return;
     }
 
     switch(tagof(x)) {
@@ -72,14 +72,14 @@ static void format_value(buffer dest, buffer fmt, vlist *v)
         print_tuple(dest, (tuple)x);
         break;
     case tag_symbol:
-	bprintf(dest, "%b", symbol_string((symbol)x));
-	break;
+        bprintf(dest, "%b", symbol_string((symbol)x));
+        break;
     default:
-	b = (buffer)x;
-	if (buffer_length(b) > 20)
-	    bprintf(dest, "{buffer %d}", buffer_length(b));
-	else
-	    bprintf(dest, "%b", b);
+        b = (buffer)x;
+        if (buffer_length(b) > 20)
+            bprintf(dest, "{buffer %d}", buffer_length(b));
+        else
+            bprintf(dest, "%b", b);
     }
 }
 
