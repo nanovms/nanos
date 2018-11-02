@@ -60,25 +60,28 @@ static void format_tuple(buffer dest, buffer fmt, vlist *v)
 
 static void format_value(buffer dest, buffer fmt, vlist *v)
 {
+    buffer b;
     value x = varg(*v, value);
+    if (!x) {
+        bprintf(dest, "(none)");
+        return;
+    }
+
     switch(tagof(x)) {
     case tag_tuple:
         print_tuple(dest, (tuple)x);
         break;
-   case tag_symbol:
-       bprintf(dest, "%b", symbol_string((symbol)x));
-       break;        
-    default:
-        {
-            buffer b = (buffer)x;
-            if (buffer_length(b) > 20) {
-                bprintf(dest, "{buffer %d}", buffer_length(b));
-            } else bprintf(dest, "%b", b);
-        }
+    case tag_symbol:
+        bprintf(dest, "%b", symbol_string((symbol)x));
         break;
+    default:
+        b = (buffer)x;
+        if (buffer_length(b) > 20)
+            bprintf(dest, "{buffer %d}", buffer_length(b));
+        else
+            bprintf(dest, "%b", b);
     }
 }
-
 
 static void format_cstring(buffer dest, buffer fmt, vlist *a)
 {

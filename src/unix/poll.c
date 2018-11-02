@@ -218,11 +218,11 @@ static void epoll_blocked_finish(epoll_blocked w, boolean timedout)
 #endif
 	epoll_blocked_release(w);
     } else if (timedout) {
-	epoll_debug("\n   timer expiry after syscall return; ignored\n");
+	epoll_debug("   timer expiry after syscall return; ignored\n");
 	assert(w->refcnt == 1);
 	epoll_blocked_release(w);
     } else {
-	epoll_debug("\n   ignored: in syscall or zombie event\n");
+	epoll_debug("   in syscall or zombie event\n");
     }
 }
 
@@ -238,7 +238,6 @@ static boolean epoll_wait_notify(epollfd efd, u32 events)
     epoll_debug("epoll_wait_notify: efd->fd %d, events %P, blocked %p, zombie %d\n",
 	    efd->fd, events, w, efd->zombie);
     efd->registered = false;
-
     if (w && !efd->zombie) {
 	// strided vectors?
 	if (w->user_events && (w->user_events->length - w->user_events->end)) {
@@ -304,11 +303,15 @@ sysreturn epoll_wait(int epfd,
 	/* If efd is in fds and also a zombie, it's an epfd that's
 	   been masked by a oneshot event. */
 	if (!efd->registered && !efd->zombie) {
+	    if (!efd->f->check) {
+		msg_err("requested fd %d (eventmask %P) missing check\n", fd, efd->eventmask);
+		continue;
+	    }
 	    efd->registered = true;
 	    fetch_and_add(&efd->refcnt, 1);
 	    epoll_debug("   register fd %d, eventmask %P, applying check\n",
 		    efd->fd, efd->eventmask);
-            if (!apply(efd->f->check, efd->eventmask, efd->lastevents,
+            if (!apply(efd->f->check, efd->eventmask, &efd->lastevents,
 		       closure(h, epoll_wait_notify, efd)))
 		break;
         }

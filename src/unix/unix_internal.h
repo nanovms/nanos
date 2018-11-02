@@ -60,10 +60,12 @@ typedef struct thread {
 
 typedef closure_type(io, sysreturn, void *, u64 length, u64 offset);
 typedef closure_type(event_handler, boolean, u32 events);
+
 typedef struct file {
-    u64 offset; 
+    u64 offset;
+    u64 length;
     io read, write;
-    closure_type(check, boolean, u32 eventmask, u32 last, event_handler eh);
+    closure_type(check, boolean, u32 eventmask, u32 * last, event_handler eh);
     closure_type(close, sysreturn);
     tuple n;
 } *file;
