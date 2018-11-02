@@ -76,7 +76,7 @@ network_test-srcs := \
 	$(SRC)/unix_process/socket_user.c \
 	$(SRC)/unix_process/tiny_heap.c \
 
-network_test-objs = $(call srcs-to-objs,$(ROOT),$(OUT),objcache_test)
+network_test-objs = $(call srcs-to-objs,$(ROOT),$(OUT),network_test)
 
 id_heap_test-srcs := \
 	$(ROOT)/test/id_heap_test.c \
@@ -98,7 +98,7 @@ id_heap_test-srcs := \
 	$(SRC)/tfs/tlog.c \
 	$(SRC)/unix_process/unix_process_runtime.c \
 
-id_heap_test-objs = $(call srcs-to-objs,$(ROOT),$(OUT),objcache_test)
+id_heap_test-objs = $(call srcs-to-objs,$(ROOT),$(OUT),id_heap_test)
 
 path_test-srcs := \
 	$(ROOT)/test/path_test.c \
@@ -122,7 +122,7 @@ path_test-srcs := \
 	$(SRC)/unix_process/unix_process_runtime.c \
 	$(SRC)/unix_process/path.c \
 
-path_test-objs = $(call srcs-to-objs,$(ROOT),$(OUT),objcache_test)
+path_test-objs = $(call srcs-to-objs,$(ROOT),$(OUT),path_test)
 
 $(objcache_test-objs): $(CLOSURE_TMPL)
 $(network_test-objs): $(CLOSURE_TMPL)

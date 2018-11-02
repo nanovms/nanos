@@ -8,7 +8,8 @@ static boolean parse_v4_address(buffer b, u32 *u)
     if (pop_u8(b) != '.') return false;
     parse_int(b, 10, &a);  *u = (*u<<8)|a;        
     if (pop_u8(b) != '.') return false;
-    parse_int(b, 10, &a);  *u = (*u<<8)|a;            
+    parse_int(b, 10, &a);  *u = (*u<<8)|a;
+    return true;
 }
 
 static boolean parse_v4_address_and_port(buffer b, u32 *u, u16 *port)
