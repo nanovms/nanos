@@ -2,6 +2,10 @@
 #include <elf64.h>
 #include <gdb.h>
 
+#ifdef TESTBUILD
+#include <runtime_test.h>
+#endif
+
 #define spush(__s, __w) *((--(__s))) = (u64)(__w)
 
 #define ppush(__s, __b, __f, ...) ({buffer_clear(__b);\
@@ -85,8 +89,15 @@ void load_interp_complete(thread t, kernel_heaps kh, buffer b)
     start_process(t, load_elf(b, where, heap_pages(kh), heap_physical(kh)));
 }
 
+void exec_runtime_tests(){
+#ifdef TESTBUILD
+    test_buffer();
+#endif
+}
+
 process exec_elf(buffer ex, process kp)
 {
+    exec_runtime_tests();
     // is process md always root?
     // set cwd
     unix_heaps uh = kp->uh;

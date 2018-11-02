@@ -1,6 +1,6 @@
 #!/bin/bash
 
-cd .. && make run-nokvm &
+cd .. && make run-nokvm config=test &
 
 sleep 2
 

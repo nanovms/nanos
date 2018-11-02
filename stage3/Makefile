@@ -7,13 +7,15 @@ CFLAGS 		+= -DSTAGE3
 LDFLAGS 	+= -n -T linker_script -nostdlib
 GITFLAGS	+= --depth 1 http://git.savannah.nongnu.org/git/lwip.git -b STABLE-2_0_3_RELEASE
 
+ifeq ($(config), test)
+    CFLAGS += -DTESTBUILD
+endif
+
 #CFLAGS = -DLWIP_DEBUG -DEPOLL_DEBUG -DNETSYSCALL_DEBUG
 
 all: stage3
 
 stage3: $(STAGE3)
-
-lwip: $(LWIP)/.vendored
 
 includes = \
 	-I$(SRC)/gdb \
@@ -24,6 +26,9 @@ includes = \
 	-I$(SRC)/virtio \
 	-I$(SRC)/x86_64 \
 	-I$(LWIP)/src/include \
+
+test-srcs = \
+	$(SRC)/runtime/buffer_test.c \
 
 stage3-srcs = \
 	$(ROOT)/stage3/stage3.c \
@@ -103,10 +108,9 @@ stage3-srcs = \
 	$(LWIP)/src/core/timeouts.c \
 	$(LWIP)/src/core/udp.c \
 	$(LWIP)/src/netif/ethernet.c \
+	$(test-srcs) \
 
 stage3-objs = $(call srcs-to-objs,$(ROOT),$(OUT),stage3)
-
-$(stage3-srcs): | lwip
 
 $(stage3-objs): $(stage3-srcs) $(CLOSURE_TMPL)
 
