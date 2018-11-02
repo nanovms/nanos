@@ -50,7 +50,7 @@ OBJCACHE_TEST	= $(ROOT)/output/test/objcache_test
 NETWORK_TEST	= $(ROOT)/output/test/network_test
 ID_HEAP_TEST	= $(ROOT)/output/test/id_heap_test
 PATH_TEST	= $(ROOT)/output/test/path_test
-
+BITMAP_TEST = $(ROOT)/output/test/bitmap_test
 # Generated depedencies
 
 CLOSURE_TMPL	= $(OUT)/runtime/closure_templates.h
