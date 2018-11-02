@@ -17,6 +17,8 @@ all: stage3
 
 stage3: $(STAGE3)
 
+lwip: $(LWIP)/.vendored
+
 includes = \
 	-I$(SRC)/gdb \
 	-I$(SRC)/net \
@@ -111,6 +113,8 @@ stage3-srcs = \
 	$(test-srcs) \
 
 stage3-objs = $(call srcs-to-objs,$(ROOT),$(OUT),stage3)
+
+$(stage3-srcs): | lwip
 
 $(stage3-objs): $(stage3-srcs) $(CLOSURE_TMPL)
 
