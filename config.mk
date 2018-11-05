@@ -33,7 +33,7 @@ CONTGEN	= $(ROOT)/output/contgen/bin/contgen
 
 # Examples
 
-TARGET	= webgs
+TARGET	?= webgs
 
 FST	= $(ROOT)/output/examples/fst
 HWG	= $(ROOT)/output/examples/hwg
