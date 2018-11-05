@@ -1,0 +1,14 @@
+(
+    children:(
+    	      kernel:(contents:(host:output/stage3/stage3.img))
+              write:(contents:(host:output/examples/write))
+              hello:(contents:(host:examples/write_contents/hello))
+	      )
+    program:/write
+    trace:t
+    debugsyscalls:t
+    futex_trace:t    
+    fault:t
+    arguments:[/]
+    environment:(USER:bobby PWD:/)
+)
