@@ -25,6 +25,8 @@ webg: $(WEBG)
 
 webgs: $(WEBGS)
 
+write: $(WRITE)
+
 includes := \
 	-I$(SRC)/runtime \
 	-I$(SRC)/unix_process \
@@ -51,6 +53,14 @@ getdents-objs = $(call srcs-to-objs,$(ROOT),$(OUT),getdents)
 
 $(GETDENTS): HOSTLDFLAGS += -static
 $(GETDENTS): $(getdents-objs)
+
+write-srcs := \
+	$(ROOT)/examples/write.c
+
+write-objs = $(call srcs-to-objs,$(ROOT),$(OUT),write)
+
+$(WRITE): HOSTLDFLAGS += -static
+$(WRITE): $(write-objs)
 	$(call cmd,host-prog)
 
 web-srcs := \
@@ -102,10 +112,11 @@ $(WEBGS): webg.go
 
 $(hw-objs) $(web-objs): $(CLOSURE_TMPL)
 
-clean-objs = $(hw-objs) $(web-objs) $(FST) $(HW) $(HWG) $(HWS) $(WEB) $(WEBG) $(WEBGS) $(WEBS) $(CLOSURE_TMPL) $(getdents-objs) $(GETDENTS)
+clean-objs = $(hw-objs) $(web-objs) $(FST) $(HW) $(HWG) $(HWS) $(WEB) $(WEBG) $(WEBGS) $(WEBS) $(CLOSURE_TMPL) \
+	$(getdents-objs) $(GETDENTS) $(write-objs) $(WRITE)
 
 clean: default-clean
 
-.PHONY: fst hw hwg hws web webg webgs webs getdents
+.PHONY: fst hw hwg hws web webg webgs webs getdents write
 
 include ../rules.mk
