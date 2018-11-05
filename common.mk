@@ -26,6 +26,9 @@ cmd_strip         = $(STRIP) $(STRIPFLAGS) $(STRIPFLAGS_$(@F)) $< -o $@
 msg_objcopy       = OBJCOPY	$@
 cmd_objcopy       = $(OBJCOPY) $(OBJCOPYFLAGS) $(OBJCOPYFLAGS_$(@F)) $< $@
 
+msg_objdump       = OBJDUMP	$@.dis
+cmd_objdump       = $(OBJDUMP) $(OBJDUMPFLAGS) $(OBJDUMPFLAGS_$(@F)) $< $@ > $@.dis
+
 msg_dd            = DD	$@
 cmd_dd            = $(DD) if=$< of=$@ $(DDFLAGS) $(DDFLAGS_$(@F))
 

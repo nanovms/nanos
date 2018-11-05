@@ -12,6 +12,7 @@ LD	?= ld
 HOSTCC	?= cc
 STRIP	?= strip
 OBJCOPY	?= objcopy
+OBJDUMP ?= objdump
 DD	?= dd
 CAT	?= cat
 RM	?= rm
