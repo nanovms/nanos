@@ -472,6 +472,11 @@ static boolean file_check(file f, u32 eventmask, u32 * last, event_handler eh)
     return true;
 }
 
+static boolean is_dir(tuple n)
+{
+    return children(n) ? true : false;
+}
+
 sysreturn open_internal(tuple root, char *name, int flags, int mode)
 {
     tuple n;
@@ -483,9 +488,9 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
         return set_syscall_error(current, ENOENT);
     }
     fsfile fsf = fsfile_from_node(current->p->fs, n);
-    if (!fsf) {
-	msg_err("can't find fsfile\n");
-	return set_syscall_error(current, ENOENT);
+    if (!fsf && !is_dir(n)) {
+        msg_err("can't find fsfile\n");
+        return set_syscall_error(current, ENOENT);
     }
     // might be functional, or be a directory
     file f = unix_cache_alloc(uh, file);
@@ -502,7 +507,7 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
     f->read = closure(h, file_read, f);
     f->close = closure(h, file_close, f);
     f->check = closure(h, file_check, f);
-    f->length = fsfile_get_length(fsf);
+    f->length = is_dir(n) ? 0 : fsfile_get_length(fsf);
     f->offset = 0;
     thread_log(current, "   fd %d, file length %d\n", fd, f->length);
     return fd;
