@@ -531,17 +531,17 @@ static sysreturn access(char *name, int mode)
     return 0;
 }
 
-static CLOSURE_3_2(file_read_complete, void, thread, file, boolean, status, bytes);
-static void file_read_complete(thread t, file f, boolean is_file_offset, status s, bytes length)
+static CLOSURE_3_2(file_op_complete, void, thread, file, boolean, status, bytes);
+static void file_op_complete(thread t, file f, boolean is_file_offset, status s, bytes length)
 {
     thread_log(current, "%s: len %d, status %v\n", __func__, length, s);
     if (is_ok(s)) {
-	if (is_file_offset)	/* vs specified offset (pread) */
-	    f->offset += length;
-	set_syscall_return(t, length);
+        if (is_file_offset)	/* vs specified offset (pread) */
+            f->offset += length;
+        set_syscall_return(t, length);
     } else {
-	/* XXX should peek inside s and map to errno... */
-	set_syscall_error(t, EIO);
+        /* XXX should peek inside s and map to errno... */
+        set_syscall_error(t, EIO);
     }
     thread_wakeup(t);
 }
@@ -550,20 +550,41 @@ static CLOSURE_1_3(file_read, sysreturn, file, void *, u64, u64);
 static sysreturn file_read(file f, void *dest, u64 length, u64 offset_arg)
 {
     thread_log(current, "%s: %v, dest %p, length %d, offset_arg %d\n",
-	       __func__, f->n, dest, length, offset_arg);
+            __func__, f->n, dest, length, offset_arg);
     boolean is_file_offset = offset_arg == infinity;
     bytes offset = is_file_offset ? f->offset : offset_arg;
 
     if (offset < f->length) {
-	filesystem_read(current->p->fs, f->n, dest, length, offset,
-			closure(heap_general(get_kernel_heaps()),
-				file_read_complete, current, f, is_file_offset));
+        filesystem_read(current->p->fs, f->n, dest, length, offset,
+                closure(heap_general(get_kernel_heaps()),
+                    file_op_complete, current, f, is_file_offset));
 
-	/* XXX Presently only support blocking file reads... */
-	thread_sleep(current);
+        /* XXX Presently only support blocking file reads... */
+        thread_sleep(current);
     } else {
-	/* XXX special handling for holes will need to go here */
-	set_syscall_return(current, 0);
+        /* XXX special handling for holes will need to go here */
+        set_syscall_return(current, 0);
+    }
+}
+
+static CLOSURE_1_3(file_write, sysreturn, file, void *, u64, u64);
+static sysreturn file_write(file f, void *dest, u64 length, u64 offset_arg)
+{
+    thread_log(current, "%s: %v, dest %p, length %d, offset_arg %d\n",
+            __func__, f->n, dest, length, offset_arg);
+    boolean is_file_offset = offset_arg == infinity;
+    bytes offset = is_file_offset ? f->offset : offset_arg;
+
+    if (offset < f->length) {
+        filesystem_write(current->p->fs, f->n, dest, offset,
+                closure(heap_general(get_kernel_heaps()),
+                    file_op_complete, current, f, is_file_offset));
+
+        /* XXX Presently only support blocking file reads... */
+        thread_sleep(current);
+    } else {
+        /* XXX special handling for holes will need to go here */
+        set_syscall_return(current, 0);
     }
 }
 
@@ -643,6 +664,7 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
     }
     f->n = n;
     f->read = closure(h, file_read, f);
+    f->write = closure(h, file_write, f);
     f->close = closure(h, file_close, f);
     f->check = closure(h, file_check, f);
     f->length = is_dir(n) ? 0 : fsfile_get_length(fsf);
