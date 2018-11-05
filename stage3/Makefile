@@ -5,6 +5,7 @@ OUT		?= $(ROOT)/output/stage3
 AFLAGS		= -felf64
 CFLAGS 		+= -DSTAGE3
 LDFLAGS 	+= -n -T linker_script -nostdlib
+OBJDUMPFLAGS	+= -d -S
 GITFLAGS	+= --depth 1 http://git.savannah.nongnu.org/git/lwip.git -b STABLE-2_0_3_RELEASE
 
 ifeq ($(config), test)
@@ -120,6 +121,7 @@ $(stage3-objs): $(stage3-srcs) $(CLOSURE_TMPL)
 
 $(STAGE3): $(stage3-objs)
 	$(call cmd,ld)
+	$(call cmd,objdump)
 
 $(OUT)/src/x86_64/crt0.o: AFLAGS += -I$(OUT)/x86_64/
 $(OUT)/src/x86_64/crt0.o: $(OUT)/x86_64/frame_nasm.h
@@ -129,7 +131,7 @@ $(OUT)/x86_64/frame_nasm.h: $(SRC)/x86_64/frame.h
 	@ mkdir -p $(dir $@)
 	$(Q) sed -e "s/#/%/" < $^ > $@
 
-clean-objs = $(stage3-objs) $(STAGE3) $(OUT)/x86_64/frame_nasm.h $(CLOSURE_TMPL)
+clean-objs = $(stage3-objs) $(STAGE3) $(STAGE3).dis $(OUT)/x86_64/frame_nasm.h $(CLOSURE_TMPL)
 
 clean: default-clean
 
