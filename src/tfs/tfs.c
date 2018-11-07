@@ -177,9 +177,9 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, status_handl
        succeeded before extending the length. */
     u64 end = buffer_length(b) + offset;
     if (fsfile_get_length(f) < end) {
-	/* XXX bother updating resident filelength tuple? */
-	fsfile_set_length(f, end);
-	filesystem_write_eav(fs, t, sym(filelength), value_from_u64(fs->h, end));
+        /* XXX bother updating resident filelength tuple? */
+        fsfile_set_length(f, end);
+        filesystem_write_eav(fs, t, sym(filelength), value_from_u64(fs->h, end));
     }
 }
 
@@ -250,10 +250,115 @@ void flush(filesystem fs, status_handler s)
     log_flush(fs->tl);
 }
 
+void enumerate_files(filesystem fs, tuple root)
+{
+    if (root) {
+        table_foreach(root, k, v) {
+            table_foreach(table_find(v, sym(extents)), k1, v1) {
+                u64 offset, length, block_offset, block_length, i;
+                parse_int(alloca_wrap(table_find(v1, sym(length))), 10, &length);
+                parse_int(alloca_wrap(table_find(v1, sym(offset))), 10, &offset);
+                block_offset = offset >> 9;
+                block_length = length >> 9;
+                cbm_set(fs->free, block_offset, block_length + 1);
+            }
+        }
+    }
+}
+
 static CLOSURE_2_1(log_complete, void, filesystem_complete, filesystem, status);
 static void log_complete(filesystem_complete fc, filesystem fs, status s)
 {
+    tuple fsroot = children(fs->root);
+    enumerate_files(fs, fsroot);
     apply(fc, fs, s);
+}
+
+boolean cbm_test(struct cbm *c, u64 i)
+{
+    return (c->buffer[i / 8] & (1 << (i % 8))) != 0;
+}
+
+boolean cbm_contains(struct cbm *c, u64 start, u64 cnt, boolean val)
+{
+    u64 i;
+
+    for (i = 0; i < cnt; i ++)
+        if (cbm_test(c, start + i) == val)
+            return true;
+
+    return false;
+}
+
+u64 cbm_scan(struct cbm *c, u64 start, u64 cnt, boolean val)
+{
+    u64 last = c->capacity_in_bits - start;
+    u64 i;
+    for (i = start; i <= last; i ++)
+        if (!cbm_contains(c, i, cnt, !val))
+            return i;
+
+    return INVALID_PHYSICAL;
+}
+
+struct cbmalloc {
+    struct heap h;
+    struct cbm *c;
+};
+
+u64 cbm_allocator_alloc(heap h, bytes len)
+{
+    struct cbmalloc *c = (struct cbmalloc *) h;
+    len >>= 9;
+    if (len > c->c->capacity_in_bits) {
+        return INVALID_PHYSICAL;
+    }
+    u64 ret = cbm_scan(c->c, 0, len, false);
+    if (ret != INVALID_PHYSICAL) {
+        cbm_set(c->c, ret, len);
+        return ret << 9;
+    }
+
+    return ret;
+}
+
+heap cbm_allocator(heap h, struct cbm *c)
+{
+    struct cbmalloc *a = allocate(h, sizeof(*a));
+    a->h.alloc = cbm_allocator_alloc;
+    a->c = c;
+    return &a->h;
+}
+
+struct cbm *cbm_create(heap h, u64 capacity)
+{
+    struct cbm *c = allocate(h, sizeof(*c));
+    u8 *buffer = allocate(h, (capacity >> 3) + 1);
+    c->buffer = buffer;
+    c->capacity_in_bits = capacity;
+    return c;
+}
+
+void __cbm_set(struct cbm *c, u64 bit, boolean val)
+{
+    if (val)
+        c->buffer[bit / 8] |= 1 << (bit % 8);
+    else
+        c->buffer[bit / 8] &= ~(1 << (bit % 8));
+}
+
+void cbm_set(struct cbm *c, u64 start, u64 len)
+{
+    u64 i;
+    for (i = 0; i < len; i ++)
+        __cbm_set(c, start + i, true);
+}
+
+void cbm_unset(struct cbm *c, u64 start, u64 len)
+{
+    u64 i;
+    for (i = 0; i < len; i ++)
+        __cbm_set(c, start + i, false);
 }
 
 void create_filesystem(heap h,
@@ -273,10 +378,10 @@ void create_filesystem(heap h,
     fs->root = root;
     fs->alignment = alignment;
     fs->blocksize = SECTOR_SIZE;
-    fs->free = rtrie_create(h);
-    rtrie_insert(fs->free, 0, size, (void *)true); 
-    rtrie_remove(fs->free, 0, INITIAL_LOG_SIZE);
-    fs->storage = rtrie_allocator(h, fs->free);
+    fs->free = cbm_create(h, size >> 9);
+    cbm_unset(fs->free, 0, size >> 9);
+    cbm_set(fs->free, 0, INITIAL_LOG_SIZE >> 9);
+    fs->storage = cbm_allocator(h, fs->free);
     fs->tl = log_create(h, fs, closure(h, log_complete, complete, fs));
 }
 
