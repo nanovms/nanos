@@ -12,6 +12,7 @@ LD	?= ld
 HOSTCC	?= cc
 STRIP	?= strip
 OBJCOPY	?= objcopy
+OBJDUMP ?= objdump
 DD	?= dd
 CAT	?= cat
 RM	?= rm
@@ -33,7 +34,7 @@ CONTGEN	= $(ROOT)/output/contgen/bin/contgen
 
 # Examples
 
-TARGET	= webgs
+TARGET	?= webgs
 
 FST		= $(ROOT)/output/examples/fst
 HWG		= $(ROOT)/output/examples/hwg
