@@ -240,7 +240,7 @@ u64 rtrie_alloc_internal(rtrie root, rtnode *rn, u64 length)
 u64 rtrie_alloc(heap h, bytes length)
 {
     rtalloc ra = (rtalloc)h;
-    rtrie_alloc_internal(ra->r, &ra->r->root, length);
+    return rtrie_alloc_internal(ra->r, &ra->r->root, length);
 }
 
 heap rtrie_allocator(heap h, rtrie r)
