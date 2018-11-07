@@ -1,4 +1,5 @@
 #include <virtio_internal.h>
+#include <runtime.h>
 
 // this is not really a struct...fix the general encoding problem
 struct virtio_blk_req {
@@ -40,6 +41,50 @@ static void complete(storage s, status_handler f, u8 *result, u64 len)
 static CLOSURE_1_3(storage_write, void, storage, buffer, u64, status_handler);
 static void storage_write(storage st, buffer b, u64 offset, status_handler s)
 {
+    u64 sector_size = 512; // get from fs, fix config block read
+    int status_size = 1;
+    int header_size = 16;
+    void *r = allocate(st->v->contiguous, header_size + status_size);
+    *(u32 *)r = VIRTIO_BLK_T_OUT;
+    *(u32 *)(r + 4) = 0; /* reserved to be zero */
+    *(u64 *)(r + 8) = offset / sector_size;
+
+    if (buffer_length(b) != sector_size)
+        halt("virtio buffer has more than one sector\n");
+    
+    void *buffer;
+    /* check buffer alignment */
+    if ((u64)buffer_ref(b, 0) & 0x000fULL) {
+        rprintf("%s: misaligned virtio write buffer\n", __func__);
+        /* reallocate */
+        buffer = allocate(st->v->contiguous, sector_size);
+        memcpy(buffer, buffer_ref(b, 0), sector_size);
+    } else {
+        buffer = buffer_ref(b, 0);
+    }
+    
+    void *address[3];
+    boolean writables[3];
+    bytes lengths[3];
+    int index = 0;
+    
+    address[index] = r;
+    writables[index] = false;
+    lengths[index] = header_size;
+    index++;
+
+    address[index] = buffer;
+    writables[index] = false;
+    lengths[index] = sector_size;
+    index++;
+    
+    address[index] = r + header_size;
+    writables[index] = true;
+    lengths[index] = status_size;
+    index++;
+
+    vqfinish c = closure(st->v->general, complete, st, s, (u8 *)address[2]);
+    virtqueue_enqueue(st->command, address, lengths, writables, index, c);
 }
 
 static CLOSURE_1_4(storage_read, void, storage, void *, u64, u64, status_handler);
