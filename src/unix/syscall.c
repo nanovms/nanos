@@ -574,18 +574,20 @@ static sysreturn file_write(file f, void *dest, u64 length, u64 offset_arg)
             __func__, f->n, dest, length, offset_arg);
     boolean is_file_offset = offset_arg == infinity;
     bytes offset = is_file_offset ? f->offset : offset_arg;
+    heap h = heap_general(get_kernel_heaps());
+    u64 final_length = pad(length, 512); /* XXX: sector size */
+    void *buf = allocate(h, final_length);
+    /* copy from userspace, XXX: check pointer safety */
+    runtime_memset(buf, 0, final_length);
+    runtime_memcpy(buf, dest, length);
+    buffer b = wrap_buffer(h, buf, final_length);
+    thread_log(current, "%s: b_ref: %p\n", __func__, buffer_ref(b, 0));
 
-    if (offset < f->length) {
-        filesystem_write(current->p->fs, f->n, dest, offset,
-                closure(heap_general(get_kernel_heaps()),
-                    file_op_complete, current, f, is_file_offset));
+    filesystem_write(current->p->fs, f->n, b, offset,
+            closure(h, file_op_complete, current, f, is_file_offset));
 
-        /* XXX Presently only support blocking file reads... */
-        thread_sleep(current);
-    } else {
-        /* XXX special handling for holes will need to go here */
-        set_syscall_return(current, 0);
-    }
+    /* XXX Presently only support blocking file writes... */
+    //thread_sleep(current);
 }
 
 static CLOSURE_1_0(file_close, sysreturn, file);
