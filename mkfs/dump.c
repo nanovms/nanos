@@ -55,8 +55,6 @@ void readdir(filesystem fs, heap h, tuple w, buffer path)
     }
 }
 
-#define SECTOR_SIZE 512
-
 static CLOSURE_3_2(fsc, void, heap, buffer, tuple, filesystem, status);
 static void fsc(heap h, buffer b, tuple root, filesystem fs, status s)
 {
