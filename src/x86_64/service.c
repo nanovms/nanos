@@ -107,7 +107,7 @@ static void attach_storage(tuple root, block_read r, block_write w, u64 length)
     // with filesystem...should be hidden as functional handlers on the tuplespace
     heap h = heap_general(&heaps);
     create_filesystem(h,
-                      512, // from the device please
+                      SECTOR_SIZE,
                       length,
                       closure(h, offset_block_read, r, fs_offset),
                       closure(h, offset_block_write, w, fs_offset),

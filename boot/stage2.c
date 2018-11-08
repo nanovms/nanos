@@ -136,7 +136,7 @@ void newstack()
     buffer_handler bh = closure(h, kernel_read_complete);
     console("create fs\n");
     create_filesystem(h,
-                      512,
+                      SECTOR_SIZE,
                       2*1024*1024, // fix,
                       closure(h, stage2_read_disk, fsb),
                       closure(h, stage2_empty_write),
