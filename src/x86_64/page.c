@@ -37,6 +37,13 @@ static inline page pagebase()
     return base;
 }
 
+static inline void flush_tlb()
+{
+    page base;
+    mov_from_cr("cr3", base);
+    mov_to_cr("cr3", base);
+}
+
 // there is a def64 and def32 now
 #ifndef physical_from_virtual
 physical physical_from_virtual(void *x)
@@ -145,7 +152,11 @@ static boolean map_page(page base, u64 v, physical p, heap h, boolean fat, boole
     if (!force_entry(h, base, v, p, 1, fat, flags, &invalidate))
 	return false;
     if (invalidate) {
-	asm volatile("invlpg %0"::"m"(v):);
+#ifdef PAGE_USE_FLUSH
+        flush_tlb();
+#else
+        asm volatile("invlpg (%0)" :: "r" (v) : "memory");
+#endif
     }
     return true;
 }
@@ -192,6 +203,9 @@ static void map_range(u64 virtual, physical p, int length, u64 flags, heap h)
     u64 po = p;
     page pb = pagebase();
 
+    /* may be extreme, but can't be careful enough */
+    memory_fence();
+
     if ((virtual & PAGEMASK) || (p & PAGEMASK) || (length & PAGEMASK)) {
 	if (flags == 0)
 	    console("un");
@@ -230,6 +244,8 @@ static void map_range(u64 virtual, physical p, int length, u64 flags, heap h)
             po += off;
         i += off;
     }
+
+    memory_fence();
 }
 
 void map(u64 virtual, physical p, int length, heap h)
