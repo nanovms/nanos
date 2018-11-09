@@ -5,6 +5,9 @@ typedef struct fsfile *fsfile;
 typedef closure_type(filesystem_complete, void, filesystem, status);
 typedef closure_type(io_status_handler, void, status, bytes);
 
+#define SECTOR_OFFSET 9ULL
+#define SECTOR_SIZE (1ULL << SECTOR_OFFSET)
+
 void create_filesystem(heap h,
                        u64 alignment,
                        u64 size,

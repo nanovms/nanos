@@ -231,7 +231,7 @@ void filesystem_read_entire(filesystem fs, tuple t, heap h, buffer_handler c, st
     fsfile f;
     if ((f = table_find(fs->files, t))) {
         // block read is aligning to the next sector
-        u64 len = pad(fsfile_get_length(f), 512);
+        u64 len = pad(fsfile_get_length(f), fs->blocksize);
         buffer b = allocate_buffer(h, len + 1024);
         
         // that means a partial read, right?
@@ -272,7 +272,7 @@ void create_filesystem(heap h,
     fs->w = write;
     fs->root = root;
     fs->alignment = alignment;
-    fs->blocksize = 512;
+    fs->blocksize = SECTOR_SIZE;
     fs->free = rtrie_create(h);
     rtrie_insert(fs->free, 0, size, (void *)true); 
     rtrie_remove(fs->free, 0, INITIAL_LOG_SIZE);

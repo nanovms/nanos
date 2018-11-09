@@ -90,6 +90,7 @@ static inline buffer wrap_buffer(heap h,
     buffer new = allocate(h, sizeof(struct buffer));
     new->contents = body;
     new->start = 0;
+    new->h = h;
     new->end = length;
     new->length = length;
     return(new);
