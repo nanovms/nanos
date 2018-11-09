@@ -16,6 +16,11 @@ static inline void runtime_memcpy(void *a, void *b, bytes len)
     for (int i = 0; i < len; i++) ((u8 *)a)[i] = ((u8 *)b)[i];
 }
 
+static inline void runtime_memset(u8 *a, u8 b, bytes len)
+{
+    for (int i = 0; i < len; i++) ((u8 *)a)[i] = b;
+}
+
 static inline int runtime_strlen(char *a)
 {
     int i = 0;

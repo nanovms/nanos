@@ -1,4 +1,8 @@
 #pragma once
+
+#include <list.h>
+#include <stringtok.h>
+
 static vector vector_from_tuple(heap h, tuple n)
 {
     vector r = allocate_vector(h, 100); //table_elements(n));
@@ -53,6 +57,7 @@ static inline tuple lookup(tuple t, symbol a)
     return table_find(c, a);
 }
 
+extern int strcmp(const char *, const char *);
 
 // fused buffer wrap, split, and resolve
 static inline tuple resolve_cstring(tuple root, char *f)
@@ -61,6 +66,9 @@ static inline tuple resolve_cstring(tuple root, char *f)
     char *x = f;
     tuple t = root;
     char y;
+
+    if (strcmp(f, ".") == 0)
+        return root;
 
     while ((y = *x++)) {
         if (y == '/') {

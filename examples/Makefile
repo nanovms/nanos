@@ -5,7 +5,7 @@ OUT = $(ROOT)/output/examples
 
 CFLAGS = -g -DENABLE_MSG_DEBUG $(includes)
 
-all: fst hw hws hwg web webg webgs webs
+all: fst hw hws hwg getdents web webg webgs webs
 
 fst: $(FST)
 
@@ -14,6 +14,8 @@ hw: $(HW)
 hws: $(HWS)
 
 hwg: $(HWG)
+
+getdents: $(GETDENTS)
 
 web: $(WEB)
 
@@ -40,6 +42,15 @@ hws-objs := $(hw-objs)
 
 $(HWS): HOSTLDFLAGS += -static
 $(HWS): $(hw-objs)
+	$(call cmd,host-prog)
+
+getdents-srcs := \
+	$(ROOT)/examples/getdents.c
+
+getdents-objs = $(call srcs-to-objs,$(ROOT),$(OUT),getdents)
+
+$(GETDENTS): HOSTLDFLAGS += -static
+$(GETDENTS): $(getdents-objs)
 	$(call cmd,host-prog)
 
 web-srcs := \
@@ -91,10 +102,10 @@ $(WEBGS): webg.go
 
 $(hw-objs) $(web-objs): $(CLOSURE_TMPL)
 
-clean-objs = $(hw-objs) $(web-objs) $(FST) $(HW) $(HWG) $(HWS) $(WEB) $(WEBG) $(WEBGS) $(WEBS) $(CLOSURE_TMPL)
+clean-objs = $(hw-objs) $(web-objs) $(FST) $(HW) $(HWG) $(HWS) $(WEB) $(WEBG) $(WEBGS) $(WEBS) $(CLOSURE_TMPL) $(getdents-objs) $(GETDENTS)
 
 clean: default-clean
 
-.PHONY: fst hw hwg hws web webg webgs webs
+.PHONY: fst hw hwg hws web webg webgs webs getdents
 
 include ../rules.mk
