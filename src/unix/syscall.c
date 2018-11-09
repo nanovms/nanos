@@ -1,4 +1,16 @@
 #include <unix_internal.h>
+#include <metadata.h>
+
+// lifted from linux UAPI
+#define DT_UNKNOWN	0
+#define DT_FIFO		1
+#define DT_CHR		2
+#define DT_DIR		4
+#define DT_BLK		6
+#define DT_REG		8
+#define DT_LNK		10
+#define DT_SOCK		12
+#define DT_WHT		14
 
 typedef struct code {
     int c;
@@ -374,6 +386,84 @@ sysreturn write(int fd, u8 *body, bytes length)
     int res = apply(f->write, body, length, f->offset);
     f->offset += length;
     return res;
+}
+
+static int try_write_dirent(struct linux_dirent *dirp, char *p,
+        int *read_sofar, int *written_sofar, int *f_offset,
+        unsigned int *count, int ft)
+{
+    int len = runtime_strlen(p);
+    *read_sofar += len;
+    if (*read_sofar > *f_offset) {
+        int reclen = sizeof(struct linux_dirent) + len + 3;
+        // include this element in the getdents output
+        if (reclen > *count) {
+            // can't include, there's no space
+            *read_sofar -= len;
+            return -1;
+        } else {
+            // include the entry in the buffer
+            runtime_memset(dirp, 0, reclen);
+            dirp->d_ino = 0; /* XXX */
+            dirp->d_reclen = reclen;
+            runtime_memcpy(dirp->d_name, p, len + 1);
+            dirp->d_off = dirp->d_reclen; // XXX: in the future, pad this.
+            dirp->d_name[len + 2] = 0; /* some zero padding */
+            ((char *)dirp)[dirp->d_reclen - 1] = ft;
+
+            // advance dirp
+            *written_sofar += reclen;
+            *count -= reclen;
+            return reclen;
+        }
+    }
+    return 0;
+}
+
+sysreturn getdents(int fd, struct linux_dirent *dirp, unsigned int count)
+{
+    file f = resolve_fd(current->p, fd);
+    tuple c = children(f->n);
+    int read_sofar = 0, written_sofar = 0;
+
+    if (!c)
+        return -ENOTDIR;
+
+    /* add reference to the current directory */
+    int r = try_write_dirent(dirp, ".",
+                &read_sofar, &written_sofar, &f->offset, &count,
+                DT_DIR);
+    if (r < 0)
+        goto done;
+
+    dirp = (struct linux_dirent *)(((char *)dirp) + r);
+
+    /* add reference to the parent directory */
+    r = try_write_dirent(dirp, "..",
+                &read_sofar, &written_sofar, &f->offset, &count,
+                DT_DIR);
+    if (r < 0)
+        goto done;
+
+    dirp = (struct linux_dirent *)(((char *)dirp) + r);
+
+    table_foreach(c, k, v) {
+        char *p = cstring(symbol_string(k));
+        r = try_write_dirent(dirp, p,
+                    &read_sofar, &written_sofar, &f->offset, &count,
+                    children(v) ? DT_DIR : DT_REG);
+        if (r < 0)
+            goto done;
+        else
+            dirp = (struct linux_dirent *)(((char *)dirp) + r);
+    }
+
+done:
+    f->offset = read_sofar;
+    if (r < 0 && written_sofar == 0)
+        return -EINVAL;
+
+    return written_sofar;
 }
 
 sysreturn writev(int fd, iovec v, int count)
@@ -769,6 +859,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_getpid, getpid);    
     register_syscall(map,SYS_exit_group, exit_group);
     register_syscall(map, SYS_exit, (sysreturn (*)())exit);
+    register_syscall(map, SYS_getdents, getdents);
 }
 
 void *linux_syscalls[SYS_MAX];
