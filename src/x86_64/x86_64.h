@@ -186,8 +186,8 @@ void elf_symbols(buffer elf, closure_type(each, void, char *, u64, u64, u8));
 
 #include <symtab.h>
 
-#define mov_to_cr(__x, __y) __asm__("mov %0,%%"__x: :"a"(__y):);
-#define mov_from_cr(__x, __y) __asm__("mov %%"__x", %0":"=a"(__y):);
+#define mov_to_cr(__x, __y) __asm__("mov %0,%%"__x : : "a"(__y) : "memory");
+#define mov_from_cr(__x, __y) __asm__("mov %%"__x", %0" : "=a"(__y) : : "memory");
 
 typedef closure_type(fault_handler, u64 *, context);
 void configure_timer(time rate, thunk t);
