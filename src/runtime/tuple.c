@@ -33,7 +33,6 @@ tuple allocate_tuple()
 // no error path
 static u64 pop_header(buffer f, boolean *imm, u8 *type)
 {
-    u64 zag = f->start;
     u8 a = pop_u8(f);
     *imm = a>>7;    
     *type = (a>>6) & 1;

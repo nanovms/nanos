@@ -27,6 +27,7 @@ void print_hex_buffer(buffer s, buffer b)
         }
         if (!(i % wlen)) push_u8 (s, ' ');
         print_byte(s, *(u8 *)buffer_ref(b, i));
+        push_u8(s, ' ');
     }
     // better handling of empty buffer
     push_u8(s, '\n');
