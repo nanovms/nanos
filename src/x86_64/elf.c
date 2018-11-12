@@ -41,24 +41,32 @@ void *load_elf(buffer elf, u64 offset, heap pages, heap bss)
             // unaligned segment? doesn't seem useful
             u64 aligned = p->p_vaddr & (~MASK(PAGELOG));
             u64 trim_offset = p->p_vaddr & MASK(PAGELOG);
-            u64 phy = physical_from_virtual(pointer_from_u64(u64_from_pointer(buffer_ref(elf, p->p_offset)) & ~MASK(PAGELOG)));
-            int ssize = pad(p->p_memsz + trim_offset, PAGESIZE);
+            u64 vstart = u64_from_pointer(buffer_ref(elf, p->p_offset)) & ~MASK(PAGELOG);
+            u64 phy = physical_from_virtual(pointer_from_u64(vstart));
+            int ssize = pad(p->p_filesz + trim_offset, PAGESIZE);
             map(aligned + offset, phy, ssize, pages);
 
             // always zero up to the next aligned page start
+            s64 bss_size = p->p_memsz - p->p_filesz;
+
+            if (bss_size < 0)
+                halt("load_elf with p->p_memsz (%d) < p->p_filesz (%d)\n",
+                     p->p_memsz, p->p_filesz);
+            else if (bss_size == 0)
+                continue;
+
             u64 bss_start = p->p_vaddr + offset + p->p_filesz;
-            u32 bss_size = p->p_memsz-p->p_filesz;            
             u64 initial_len = MIN(bss_size, pad(bss_start, PAGESIZE) - bss_start);
 
-            // there is a better approach now?
+            /* vpzero does the right thing whether stage2 or 3... */
             vpzero(pointer_from_u64(bss_start), phy + p->p_filesz, initial_len);
 
             if (bss_size > initial_len) {
                 u64 pstart = bss_start + initial_len;
-                u32 new_pages = pad((bss_size-initial_len), PAGESIZE);
-                u64 phys = allocate_u64(bss, new_pages);
-                map(pstart, phys, new_pages, pages);
-                vpzero(pstart, phys, new_pages);
+                u64 psize = pad((bss_size - initial_len), PAGESIZE);
+                u64 phys = allocate_u64(bss, psize);
+                map(pstart, phys, psize, pages);
+                vpzero(pointer_from_u64(pstart), phys, psize);
             }
         }
     }
