@@ -9,8 +9,6 @@
 #include <dirent.h>
 #include <errno.h>
 
-#define SECTOR_SIZE 512
-
 static buffer read_stdin(heap h)
 {
     buffer in = allocate_buffer(h, 1024);
