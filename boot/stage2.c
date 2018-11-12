@@ -65,13 +65,7 @@ static void __attribute__((noinline)) kernel_read_complete(buffer kb)
     // used in stage3
     stack -= (STACKLEN - 4);	/* XXX b0rk b0rk b0rk */
     map(stack, stack, (u64)STACKLEN, pages);
-
-    // should drop this in stage3? ... i think we just need
-    // service32 and the stack.. this doesn't show up in the e820 regions
-    // stack is currently in the first page, so lets leave it mapped
-    // and take it out later...ideally move the stack here
-    // could put the stack at the top of the page region?
-    map(0, 0, 0xa000, pages);
+    map(0, 0, INITIAL_MAP_SIZE, pages);
 
     // stash away kernel elf image for use in stage3
     create_region(u64_from_pointer(buffer_ref(kb, 0)), pad(buffer_length(kb), PAGESIZE), REGION_KERNIMAGE);

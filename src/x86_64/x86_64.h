@@ -10,6 +10,8 @@
 #define LSTAR_MSR 0xc0000082
 #define SFMASK_MSR 0xc0000084
 
+#define INITIAL_MAP_SIZE (0xa000)
+
 extern u64 cpuid();
 extern u64 read_msr(u64);
 extern void write_msr(u64, u64);

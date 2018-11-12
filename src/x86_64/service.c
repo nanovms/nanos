@@ -92,18 +92,9 @@ static void fsstarted(tuple root, filesystem fs, status s)
     enqueue(runqueue, closure(heap_general(&heaps), startup, &heaps, root, fs));
 }
 
-static CLOSURE_1_3(attach_storage, void, tuple, block_read, block_write, u64);
-static void attach_storage(tuple root, block_read r, block_write w, u64 length)
+static CLOSURE_2_3(attach_storage, void, tuple, u64, block_read, block_write, u64);
+static void attach_storage(tuple root, u64 fs_offset, block_read r, block_write w, u64 length)
 {
-    u64 fs_offset;
-    
-    // bios couldn't probe length(?) .. so from the virtio driver...remember
-    // the location of that block
-    for_regions(e)
-        if (region_type(e) == REGION_FILESYSTEM) {
-            fs_offset = region_base(e);
-        }
-
     // with filesystem...should be hidden as functional handlers on the tuplespace
     heap h = heap_general(&heaps);
     create_filesystem(h,
@@ -145,6 +136,8 @@ static void read_kernel_syms()
     }
 }
 
+extern void move_gdt();
+
 static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = &heaps;
@@ -154,8 +147,10 @@ static void __attribute__((noinline)) init_service_new_stack()
     heap virtual_page = heap_virtual_page(kh);
     heap physical = heap_physical(kh);
     heap backed = heap_backed(kh);
-    // just to find maintain the convention of faulting on zero references
+
+    /* Unmap the first page so we catch faults on null pointer references. */
     unmap(0, PAGESIZE, pages);
+
     runqueue = allocate_queue(misc, 64);
     start_interrupts(kh);
     init_extra_prints();
@@ -166,11 +161,25 @@ static void __attribute__((noinline)) init_service_new_stack()
     init_net(kh);
     tuple root = allocate_tuple();
     init_pci(kh);
-    init_virtio_storage(kh, closure(misc, attach_storage, root));
-    init_virtio_network(kh);
 
+    u64 fs_offset = 0;
+    for_regions(e)
+        if (region_type(e) == REGION_FILESYSTEM) {
+            fs_offset = region_base(e);
+        }
+    if (fs_offset == 0)
+        halt("filesystem region not found; halt\n");
+    init_virtio_storage(kh, closure(misc, attach_storage, root, fs_offset));
+    init_virtio_network(kh);
     miscframe = allocate(misc, FRAME_MAX * sizeof(u64));
     pci_discover();
+
+    /* Switch gdt to kernel space and free up initial mapping, but
+       only after we're done with regions and anything else in that
+       space. */
+    move_gdt();
+    unmap(PAGESIZE, INITIAL_MAP_SIZE - PAGESIZE, pages);
+
     runloop();
 }
 
