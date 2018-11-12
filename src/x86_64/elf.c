@@ -48,7 +48,11 @@ void *load_elf(buffer elf, u64 offset, heap pages, heap bss)
 
             // always zero up to the next aligned page start
             s64 bss_size = p->p_memsz - p->p_filesz;
-            if (bss_size <= 0)  /* can filesz overrun memsz? be safe */
+
+            if (bss_size < 0)
+                halt("load_elf with p->p_memsz (%d) < p->p_filesz (%d)\n",
+                     p->p_memsz, p->p_filesz);
+            else if (bss_size == 0)
                 continue;
 
             u64 bss_start = p->p_vaddr + offset + p->p_filesz;
