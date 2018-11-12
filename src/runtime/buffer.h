@@ -302,14 +302,18 @@ static inline void buffer_write_le32(buffer b, u32 x)
     b->end+=sizeof(u32);
 }
 
-static inline void push_varint(buffer b, u64 p)
+static inline void push_varint(buffer b, u64 x)
 {
-    u64 k = p;
-    while (k > 127) {
-        push_u8(b, 0x80 | (k&MASK(7)));
-        k >>= 7;
+    int last = 0;
+    u8 tmp[10];               /* max (pad(64, 7) / 7) 7-bit strides */
+    tmp[0] = x & 0x7f;
+    x >>= 7;
+    while (x) {
+        tmp[++last] = 0x80 | (x & 0x7f);
+        x >>= 7;
     }
-    push_u8(b, k);
+    for (int i = last; i >= 0; i--)
+        push_u8(b, tmp[i]);
 }
 
 static inline u64 pop_varint(buffer b)
