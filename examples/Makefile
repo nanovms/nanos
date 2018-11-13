@@ -8,7 +8,7 @@ CFLAGS = -g \
 	 -DENABLE_MSG_DEBUG \
 	 $(includes)
 
-all: fst hw hws hwg getdents udploop web webg webgs webs getrandom mkdir time pipe
+all: fst hw hws hwg getdents udploop web webg webgs webs getrandom mkdir time pipe write
 
 fst: $(FST)
 
@@ -67,6 +67,7 @@ getdents-objs = $(call srcs-to-objs,$(ROOT),$(OUT),getdents)
 
 $(GETDENTS): HOSTLDFLAGS += -static
 $(GETDENTS): $(getdents-objs)
+	$(call cmd,host-prog)
 
 write-srcs := \
 	$(ROOT)/examples/write.c
