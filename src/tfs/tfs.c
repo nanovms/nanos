@@ -302,13 +302,16 @@ void enumerate_files(filesystem fs, tuple root)
 {
     if (root) {
         table_foreach(root, k, v) {
-            table_foreach(table_find(v, sym(extents)), k1, v1) {
-                u64 offset, length, block_offset, block_length, i;
-                parse_int(alloca_wrap(table_find(v1, sym(length))), 10, &length);
-                parse_int(alloca_wrap(table_find(v1, sym(offset))), 10, &offset);
-                block_offset = offset >> 9;
-                block_length = length >> 9;
-                cbm_set(fs->free, block_offset, block_length + 1);
+            tuple extents = table_find(v, sym(extents));
+            if (extents) {
+                table_foreach(extents, k1, v1) {
+                    u64 offset, length, block_offset, block_length, i;
+                    parse_int(alloca_wrap(table_find(v1, sym(length))), 10, &length);
+                    parse_int(alloca_wrap(table_find(v1, sym(offset))), 10, &offset);
+                    block_offset = offset >> 9;
+                    block_length = length >> 9;
+                    cbm_set(fs->free, block_offset, block_length + 1);
+                }
             }
         }
     }
