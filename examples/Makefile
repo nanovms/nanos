@@ -5,7 +5,7 @@ OUT = $(ROOT)/output/examples
 
 CFLAGS = -g -DENABLE_MSG_DEBUG $(includes)
 
-all: fst hw hws hwg getdents web webg webgs webs
+all: fst hw hws hwg getdents web webg webgs webs write
 
 fst: $(FST)
 
@@ -53,6 +53,7 @@ getdents-objs = $(call srcs-to-objs,$(ROOT),$(OUT),getdents)
 
 $(GETDENTS): HOSTLDFLAGS += -static
 $(GETDENTS): $(getdents-objs)
+	$(call cmd,host-prog)
 
 write-srcs := \
 	$(ROOT)/examples/write.c
