@@ -40,16 +40,29 @@ static inline u64 allocate_region(heap h, bytes size)
 {
     region_heap rh = (region_heap)h;
     u64 len = pad(size, h->pagesize);
-    for_regions(e){
-        if ((region_type(e) == rh->type) &&       
-            (region_length(e) >= len)) {
-            u64 result = region_base(e);
-            region_base(e) += len;
-            region_length(e) -= len;
-            return result;
+    u64 base = 0;
+    region r;
+
+    /* Select the highest physical region that's within 32-bit space. */
+    for_regions(e) {
+        if ((region_type(e) != rh->type) ||
+            ((region_length(e) & ~MASK(PAGELOG)) < len) ||
+            (region_base(e) + region_length(e) > U64_FROM_BIT(32)))
+            continue;
+        if (region_base(e) > base) {
+            base = region_base(e);
+            r = e;
         }
     }
-    return u64_from_pointer(INVALID_ADDRESS);
+
+    if (base == 0)
+        return u64_from_pointer(INVALID_ADDRESS);
+
+    /* Carve allocations from top of region, mainly to get identity
+       mappings out of the way of commonly-used areas in low memory. */
+    u64 result = ((base + region_length(r)) & ~MASK(PAGELOG)) - len;
+    region_length(r) = result - base;
+    return result;
 }
 
 static inline heap region_allocator(heap h, u64 pagesize, int type)
