@@ -33,7 +33,6 @@ tuple allocate_tuple()
 // no error path
 static u64 pop_header(buffer f, boolean *imm, u8 *type)
 {
-    u64 zag = f->start;
     u8 a = pop_u8(f);
     *imm = a>>7;    
     *type = (a>>6) & 1;
@@ -97,7 +96,7 @@ value decode_value(heap h, tuple dictionary, buffer source)
         } else {
             u64 e = pop_varint(source);
             t = table_find(dictionary, pointer_from_u64(e));
-            if (!t) halt("indrect entry not found %d", e);
+            if (!t) halt("indirect entry (%d) not found", e);
         }
 
         for (int i = 0; i < len ; i++) {

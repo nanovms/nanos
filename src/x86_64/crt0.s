@@ -238,6 +238,45 @@ _start:
         hlt
 .end:
 
+global_func move_gdt
+move_gdt:
+        lgdt [GDT64.Pointer]
+        ret
+.end:
 
+        ;; set this crap up again so we can remove the stage2 one from low memory
+align 16                        ; necessary?
+GDT64:  ; Global Descriptor Table (64-bit).
+        ;;  xxx - clean this up with a macro
+        .Null: equ $ - GDT64 ; The null descriptor.
+        dw 0  ; Limit (low).
+        dw 0  ; Base (low).
+        db 0  ; Base (middle)
+        db 0  ; Access.
+        db 0  ; Granularity.
+        db 0  ; Base (high).
+        .Code: equ $ - GDT64 ; The code descriptor.
+        dw 0  ; Limit (low).
+        dw 0  ; Base (low).
+        db 0  ; Base (middle)
+        db 10011010b    ; Access (exec/read).
+        db 00100000b    ; Granularity.
+        db 0            ; Base (high).
+        .Data: equ $ - GDT64 ; The data descriptor.
+        dw 0         ; Limit (low).
+        dw 0         ; Base (low).
+        db 0         ; Base (middle)
+        db 10010010b ; Access (read/write).
+        db 00000000b ; Granularity.
+        db 0         ; Base (high).
+        .DataAgain: equ $ - GDT64 ; The data descriptor, a copy for sysret
+        dw 0         ; Limit (low).
+        dw 0         ; Base (low).
+        db 0         ; Base (middle)
+        db 10010010b ; Access (read/write).
+        db 00000000b ; Granularity.
+        db 0         ; Base (high).
 
-
+        .Pointer:    ; The GDT-pointer.
+        dw $ - GDT64 - 1    ; Limit.
+        dq GDT64            ; 64 bit Base.
