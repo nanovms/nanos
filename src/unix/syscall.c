@@ -587,7 +587,7 @@ static sysreturn file_write(file f, void *dest, u64 length, u64 offset_arg)
             closure(h, file_op_complete, current, f, is_file_offset));
 
     /* XXX Presently only support blocking file writes... */
-    //thread_sleep(current);
+    thread_sleep(current);
 }
 
 static CLOSURE_1_0(file_close, sysreturn, file);
