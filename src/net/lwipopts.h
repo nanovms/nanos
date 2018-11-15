@@ -1,5 +1,7 @@
 #pragma once
-#define NO_SYS 2
+#define NO_SYS 1
+#define LWIP_SOCKET 0
+#define LWIP_NETCONN 0
 #ifdef LWIP_DEBUG
 #define LWIP_PLATFORM_DIAG(x) do {lwip_debug x;} while(0)
 #define LWIP_DBG_MIN_LEVEL		LWIP_DBG_LEVEL_ALL
