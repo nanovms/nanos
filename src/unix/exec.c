@@ -2,6 +2,15 @@
 #include <elf64.h>
 #include <gdb.h>
 
+//#define EXEC_DEBUG
+#ifdef EXEC_DEBUG
+#define exec_debug(x, ...) do {log_printf("EXEC", x, ##__VA_ARGS__);} while(0)
+#else
+#define exec_debug(x, ...)
+#endif
+
+#define DEFAULT_PROG_ADDR       0x400000
+
 #define spush(__s, __w) *((--(__s))) = (u64)(__w)
 
 #define ppush(__s, __b, __f, ...) ({buffer_clear(__b);\
@@ -13,7 +22,7 @@
 
 static void build_exec_stack(heap sh, thread t, Elf64_Ehdr * e, void *start, u64 va, tuple process_root)
 {
-    rprintf ("build exec stack %p %v\n", process_root, transient);
+    exec_debug("build exec stack start %p, root %v\n", start, process_root);
     buffer b = allocate_buffer(transient, 128);
     vector arguments = vector_from_tuple(transient, table_find(process_root, sym(arguments)));
     tuple environment = table_find(process_root, sym(environment));
@@ -95,36 +104,64 @@ process exec_elf(buffer ex, process kp)
     filesystem fs = kp->fs;
     process proc = create_process(uh, root, fs);
     thread t = create_thread(proc);
-    void *start = load_elf(ex, 0, heap_pages(kh), heap_physical(kh));
-    u64 va;
-    boolean interp = false;
+    tuple interp = 0;
     Elf64_Ehdr *e = (Elf64_Ehdr *)buffer_ref(ex, 0);
 
     proc->brk = 0;
 
-    foreach_phdr(e, p) {
-        // umm, this is passed in aux but..there might be more than one, and p_offset
-        // isn't necessarily 0...i guess this the the 'base' for dynamic
-        // and aslr objects i.e. load_elf offset
-        if ((p->p_type == PT_LOAD)  && (p->p_offset == 0))
-            va = p->p_vaddr;
-        proc->brk  = pointer_from_u64(MAX(u64_from_pointer(proc->brk), pad(p->p_vaddr + p->p_memsz, PAGESIZE)));
-    }
-    build_exec_stack(heap_backed(kh), t, e, start, va, root);
-            
+    exec_debug("exec_elf enter\n");
+
+    u64 load_start = infinity;
+    u64 load_end = 0;
     foreach_phdr(e, p) {
         if (p->p_type == PT_INTERP) {
             char *n = (void *)e + p->p_offset;
-            tuple interp = resolve_path(root, split(heap_general(kh), alloca_wrap_buffer(n, runtime_strlen(n)), '/'));
+            interp = resolve_path(root, split(heap_general(kh), alloca_wrap_buffer(n, runtime_strlen(n)), '/'));
             if (!interp) 
                 halt("couldn't find program interpreter %s\n", n);
-            filesystem_read_entire(fs, interp, heap_backed(kh),
-                                   closure(heap_general(kh), load_interp_complete, t, kh),
-                                   closure(heap_general(kh), load_interp_fail));
-            return proc;
+        } else if (p->p_type == PT_LOAD) {
+            if (p->p_vaddr < load_start)
+                load_start = p->p_vaddr;
+            u64 segend = p->p_vaddr + p->p_memsz;
+            if (segend > load_end)
+                load_end = segend;
         }
     }
-    start_process(t, start);
+
+    if (interp)
+        exec_debug("interp: %t\n", interp);
+
+    u64 load_offset = 0;
+    if (e->e_type == ET_DYN && interp) {
+        /* Have some PIE */
+        load_offset = DEFAULT_PROG_ADDR;
+        if (table_find(root, sym(aslr))) {
+            /* XXX Make random_u64() suck less.
+               XXX Replace 27 with limit derived from kernel start. */
+            load_offset += (random_u64() & ~MASK(PAGELOG)) & MASK(27);
+        }
+        exec_debug("placing PIE at 0x%P\n", load_offset);
+        load_start += load_offset;
+        load_end += load_offset;
+    }
+
+    exec_debug("load start 0x%P, end 0x%P, offset 0x%P\n",
+               load_start, load_end, load_offset);
+    void * entry = load_elf(ex, load_offset, heap_pages(kh), heap_physical(kh));
+    proc->brk = pointer_from_u64(pad(load_end, PAGESIZE));
+    exec_debug("entry 0x%P, brk 0x%p\n", entry, proc->brk);
+    build_exec_stack(heap_backed(kh), t, e, entry, load_start, root);
+
+    if (interp) {
+        exec_debug("reading interp...\n");
+        filesystem_read_entire(fs, interp, heap_backed(kh),
+                               closure(heap_general(kh), load_interp_complete, t, kh),
+                               closure(heap_general(kh), load_interp_fail));
+        return proc;
+    }
+
+    exec_debug("starting process...\n");
+    start_process(t, entry);
     // xxx - in some environments with some programs this causes
     // rtrie insert to blow the stack. fix rtrie.
     //    add_elf_syms(heap_general(kh), ex);
