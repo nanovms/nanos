@@ -2,6 +2,8 @@
 #include <lwip.h>
 #include <net_system_structs.h>
 
+#define NETSYSCALL_DEBUG
+
 struct sockaddr_in {
     u16 family;
     u16 port;
@@ -252,10 +254,26 @@ static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
 static CLOSURE_1_3(socket_write, sysreturn, sock, void *, u64, u64);
 static sysreturn socket_write(sock s, void *source, u64 length, u64 offset)
 {
+    uint16_t available, chunk_size;
     net_debug("sock %d, thread %d, source %p, length %d, offset %d, s->state %d\n",
 	      s->fd, current->tid, source, length, offset, s->state);
+    
+    if (length == 0)
+        return 0;
+
     if (s->state != SOCK_OPEN) 		/* XXX maybe defer to lwip for connect state */
         return set_syscall_error(current, EPIPE);
+       /* We cannot send more data than space available in the send buffer. */
+    if(tcp_sndbuf(s->lw) == 0) {
+       tcp_arg(s->lw, current);
+       thread_sleep(current);
+    }
+
+    available = tcp_sndbuf(s->lw);
+    assert(available > 0);
+    if (length > available) {
+            length = available;
+    }
     err_t err = tcp_write(s->lw, source, length, TCP_WRITE_FLAG_COPY);
     if (err != ERR_OK)
         goto out_err;
@@ -348,6 +366,12 @@ sysreturn socket(int domain, int type, int protocol)
     int fd = allocate_sock(current->p, p);
     net_debug("new fd %d, pcb %p\n", fd, p);
     return fd;
+}
+
+
+static err_t tcp_event_sent(void * arg, struct tcp_pcb * pcb, uint16_t len)
+{
+    thread_wakeup((thread)arg);
 }
 
 static err_t input_lower (void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
@@ -500,9 +524,9 @@ static err_t accept_from_lwip(void *z, struct tcp_pcb *lw, err_t b)
     tcp_arg(lw, sn);
     tcp_recv(lw, input_lower);
     tcp_err(lw, lwip_conn_err);
+    tcp_sent(lw, tcp_event_sent);
     if (!enqueue(s->incoming, sn))
 	msg_err("incoming queue full\n");
-
     wakeup(s, b);
     return ERR_OK;
 }

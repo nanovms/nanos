@@ -34,7 +34,7 @@ CONTGEN	= $(ROOT)/output/contgen/bin/contgen
 
 # Examples
 
-TARGET	?= webg
+TARGET	?= server
 
 FST		= $(ROOT)/output/examples/fst
 HWG		= $(ROOT)/output/examples/hwg
