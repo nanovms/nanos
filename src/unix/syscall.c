@@ -358,7 +358,7 @@ char *syscall_name(int x)
         if (syscall_codes[i].c == x) 
             return syscall_codes[i].n;
     }
-    return ("invalidine syscall");
+    return ("invalid syscall");
 }
 
 sysreturn read(int fd, u8 *dest, bytes length)
@@ -647,7 +647,6 @@ sysreturn openat(int dirfd, char *name, int flags, int mode)
 
 static void fill_stat(tuple n, struct stat *s)
 {
-    zero(s, sizeof(struct stat));
     s->st_dev = 0;
     s->st_ino = u64_from_pointer(n);
     if (table_find(n, sym(children))) {
@@ -669,8 +668,9 @@ static sysreturn fstat(int fd, struct stat *s)
 {
     thread_log(current, "fd %d, stat %p\n", fd, s);
     file f = resolve_fd(current->p, fd);
+    zero(s, sizeof(struct stat));
     // take this from tuple space
-    if (fd == 1) {
+    if (fd == 0 || fd == 1 || fd == 2) {
         s->st_mode = S_IFIFO;
         return 0;
     }
