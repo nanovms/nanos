@@ -67,6 +67,12 @@ typedef Elf64_Sxword	Elf64_Ssize;
  * ELF header.
  */
 
+#define ET_NONE 0
+#define ET_REL 1
+#define ET_EXEC 2
+#define ET_DYN 3
+#define ET_CORE 4
+
 typedef struct {
 	unsigned char	e_ident[EI_NIDENT];	/* File identification. */
 	Elf64_Half	e_type;		/* File type. */
@@ -83,7 +89,6 @@ typedef struct {
 	Elf64_Half	e_shnum;	/* Number of section header entries. */
 	Elf64_Half	e_shstrndx;	/* Section name strings section. */
 } Elf64_Ehdr;
-
 
 /*
  * Program header.

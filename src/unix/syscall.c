@@ -364,6 +364,10 @@ char *syscall_name(int x)
 sysreturn read(int fd, u8 *dest, bytes length)
 {
     file f = resolve_fd(current->p, fd);
+    if (!f)
+        return set_syscall_error(current, EBADF);
+    if (!f->read)
+        return set_syscall_error(current, EINVAL);
 
     /* use (and update) file offset */
     return apply(f->read, dest, length, infinity);
@@ -372,8 +376,9 @@ sysreturn read(int fd, u8 *dest, bytes length)
 sysreturn pread(int fd, u8 *dest, bytes length, s64 offset)
 {
     file f = resolve_fd(current->p, fd);
-
-    if (offset < 0)
+    if (!f)
+        return set_syscall_error(current, EBADF);
+    if (!f->read || offset < 0)
 	return set_syscall_error(current, EINVAL);
 
     /* use given offset with no file offset update */
@@ -383,6 +388,10 @@ sysreturn pread(int fd, u8 *dest, bytes length, s64 offset)
 sysreturn write(int fd, u8 *body, bytes length)
 {
     file f = resolve_fd(current->p, fd);        
+    if (!f)
+        return set_syscall_error(current, EBADF);
+    if (!f->write)
+        return set_syscall_error(current, EINVAL);
     int res = apply(f->write, body, length, f->offset);
     f->offset += length;
     return res;
