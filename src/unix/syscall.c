@@ -534,7 +534,8 @@ static sysreturn access(char *name, int mode)
 static CLOSURE_3_2(file_op_complete, void, thread, file, boolean, status, bytes);
 static void file_op_complete(thread t, file f, boolean is_file_offset, status s, bytes length)
 {
-    thread_log(current, "%s: len %d, status %v\n", __func__, length, s);
+    thread_log(current, "%s: len %d, status %v (%s)\n", __func__,
+            length, s, is_ok(s) ? "OK" : "NOTOK");
     if (is_ok(s)) {
         if (is_file_offset)	/* vs specified offset (pread) */
             f->offset += length;
@@ -549,10 +550,10 @@ static void file_op_complete(thread t, file f, boolean is_file_offset, status s,
 static CLOSURE_1_3(file_read, sysreturn, file, void *, u64, u64);
 static sysreturn file_read(file f, void *dest, u64 length, u64 offset_arg)
 {
-    thread_log(current, "%s: %v, dest %p, length %d, offset_arg %d\n",
-            __func__, f->n, dest, length, offset_arg);
     boolean is_file_offset = offset_arg == infinity;
     bytes offset = is_file_offset ? f->offset : offset_arg;
+    thread_log(current, "%s: %v, dest %p, length %d, offset %d (%s)\n",
+            __func__, f->n, dest, length, offset, is_file_offset ? "infinity" : "exact");
 
     if (offset < f->length) {
         filesystem_read(current->p->fs, f->n, dest, length, offset,
@@ -567,6 +568,8 @@ static sysreturn file_read(file f, void *dest, u64 length, u64 offset_arg)
     }
 }
 
+#define PAD_WRITES 0
+
 static CLOSURE_1_3(file_write, sysreturn, file, void *, u64, u64);
 static sysreturn file_write(file f, void *dest, u64 length, u64 offset_arg)
 {
@@ -575,11 +578,14 @@ static sysreturn file_write(file f, void *dest, u64 length, u64 offset_arg)
     boolean is_file_offset = offset_arg == infinity;
     bytes offset = is_file_offset ? f->offset : offset_arg;
     heap h = heap_general(get_kernel_heaps());
-    u64 final_length = pad(length, 512); /* XXX: sector size */
+
+    u64 final_length = PAD_WRITES ? pad(length, SECTOR_SIZE) : length;
     void *buf = allocate(h, final_length);
+
     /* copy from userspace, XXX: check pointer safety */
     runtime_memset(buf, 0, final_length);
     runtime_memcpy(buf, dest, length);
+
     buffer b = wrap_buffer(h, buf, final_length);
     thread_log(current, "%s: b_ref: %p\n", __func__, buffer_ref(b, 0));
 

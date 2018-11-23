@@ -93,15 +93,23 @@ void filesystem_read(filesystem fs, tuple t, void *dest, u64 length, u64 offset,
 }
 
 // extend here
+// This function is terribly broken. *last is never updated, but it should be.
+// Leave it as it is for now, but get back to this asap. -lkurusa
 static CLOSURE_4_2(fs_write_extent, void,
                    filesystem, buffer, merge, u64 *, 
                    range, void *);
 static void fs_write_extent(filesystem fs, buffer source, merge m, u64 *last, range x, void *val)
 {
-    buffer segment = source; // not really
+    u64 target_len = x.end - x.start, source_len = buffer_length(source);
     // if this doesn't lie on an alignment bonudary we may need to do a read-modify-write
+
+    /* Will this extent be reallocated? */
+    if (source_len > target_len)
+        return;
+
+    /* XXX: is this correct? */
     status_handler sh = apply(m);
-    apply(fs->w, segment, x.start, sh);
+    apply(fs->w, source, x.start, sh);
 }
 
 // wrap in an interface
@@ -148,6 +156,30 @@ void filesystem_write_eav(filesystem fs, tuple t, symbol a, value v)
     log_write_eav(fs->tl, t, a, v, ignore);
 }
 
+static CLOSURE_4_2(filesystem_write_postwork, void, fsfile, tuple, u64, io_status_handler, status, bytes);
+static void filesystem_write_postwork(fsfile f, tuple t, u64 end, io_status_handler completion, status s, bytes length)
+{
+    filesystem fs = f->fs;
+
+    if (fsfile_get_length(f) < end) {
+        /* XXX bother updating resident filelength tuple? */
+        fsfile_set_length(f, end);
+        filesystem_write_eav(fs, t, sym(filelength), value_from_u64(fs->h, end));
+    }
+
+    /* Reset the extent rtrie and update the extent cache */
+    f->extents = rtrie_create(fs->h);
+    tuple extents = table_find(t, sym(extents));
+    table_foreach(extents, off, e)
+        extent_update(f, off, e);
+    table_set(fs->files, t, f);
+
+    /* TODO(lkurusa): Write the final root tuple to the disk */
+
+    tuple e = STATUS_OK;
+    apply(completion, e, end);
+}
+
 // consider not overwritint the old version and fixing up the metadata
 void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, status_handler completion)
 {
@@ -160,24 +192,25 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, status_handl
         apply(completion, timm("no such file"));
         return;
     }
-    merge m = allocate_merge(fs->h, completion);
+
+    merge m = allocate_merge(fs->h, closure(fs->h, filesystem_write_postwork,
+                f, t, buffer_length(b) + offset, completion));
     rtrie_range_lookup(f->extents, irange(offset, offset+len), closure(h, fs_write_extent, f->fs, b, m, last));
     
     if (*last < (offset + len)) {
-        u64 eoff = extend(f, *last, len);
+        u64 elen = (offset + len) - *last;
+        u64 eoff = extend(f, *last, elen);
         if (eoff != u64_from_pointer(INVALID_ADDRESS)) {
             status_handler sh = apply(m);
-            apply(fs->w, wrap_buffer(transient, buffer_ref(b, *last), b->end - *last), eoff, sh);
-        }
-    }
 
-    /* XXX Technically, we should wait until all extent writes have
-       succeeded before extending the length. */
-    u64 end = buffer_length(b) + offset;
-    if (fsfile_get_length(f) < end) {
-        /* XXX bother updating resident filelength tuple? */
-        fsfile_set_length(f, end);
-        filesystem_write_eav(fs, t, sym(filelength), value_from_u64(fs->h, end));
+            /* XXX: this should only pop up when writing to virtio */
+            if (b->end - *last > SECTOR_SIZE)
+                rprintf("trying to write more than what's supported: %d > %d\n",
+                        b->end - *last, SECTOR_SIZE);
+
+            buffer bf = wrap_buffer(transient, buffer_ref(b, *last), b->end - *last);
+            apply(fs->w, bf, eoff, sh);
+        }
     }
 }
 
@@ -421,6 +454,7 @@ void create_filesystem(heap h,
                        filesystem_complete complete)
 {
     filesystem fs = allocate(h, sizeof(struct filesystem));
+    rprintf("fs size %d\n", size);
     fs->files = allocate_table(h, identity_key, pointer_equal);
     fs->extents = allocate_table(h, identity_key, pointer_equal);    
     fs->r = read;
