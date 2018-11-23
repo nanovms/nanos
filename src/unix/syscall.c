@@ -683,31 +683,42 @@ static sysreturn stat(char *name, struct stat *s)
 
 sysreturn lseek(int fd, s64 offset, int whence)
 {
+    thread_log(current, "%s: fd %d offset %d whence %s\n",
+            __func__, fd, offset, whence == SEEK_SET ? "SEEK_SET" :
+            whence == SEEK_CUR ? "SEEK_CUR" :
+            whence == SEEK_END ? "SEEK_END" :
+            "bugged");
+
     file f = resolve_fd(current->p, fd);
     s64 new;
+    s64 curr_offset = (s64) f->offset;
+
     switch (whence) {
-    case SEEK_SET:
-	new = offset;
-	break;
-    case SEEK_CUR:
-	new = f->offset + offset;
-	break;
-    case SEEK_END:
-	new = f->length + offset;
-	break;
-    default:
-	return set_syscall_error(current, EINVAL);
+        case SEEK_SET:
+            new = offset;
+            break;
+        case SEEK_CUR:
+            new = f->offset + offset;
+            break;
+        case SEEK_END:
+            new = f->length + offset;
+            break;
+        default:
+            return set_syscall_error(current, EINVAL);
     }
 
     if (new < 0)
-	return set_syscall_error(current, EINVAL);
+        return set_syscall_error(current, EINVAL);
+
     f->offset = new;
+
     /* XXX do this in write, too */
     if (f->offset > f->length) {
-	msg_err("fd %d, offset %d, whence %d: file holes not supported\n",
-		fd, offset, whence);
-	halt("halt\n");
+        msg_err("fd %d, offset %d, whence %d: file holes not supported\n",
+                fd, offset, whence);
+        halt("halt\n");
     }
+
     return f->offset;
 }
 
