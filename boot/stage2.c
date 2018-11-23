@@ -53,7 +53,6 @@ static void __attribute__((noinline)) kernel_read_complete(buffer kb)
     // should be the intersection of the empty physical and virtual
     // up to some limit, 2M aligned
     u64 identity_length = 0x300000;
-    // could move this up
     u64 pmem = allocate_u64(physical, identity_length);
     heap pages = region_allocator(working, PAGESIZE, REGION_IDENTITY);
     kh.pages = pages;
