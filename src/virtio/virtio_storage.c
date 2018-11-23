@@ -19,6 +19,8 @@ struct virtio_blk_req {
 #define VIRTIO_BLK_S_IOERR     1
 #define VIRTIO_BLK_S_UNSUPP    2
 
+static u8 static_zero_buffer[SECTOR_SIZE] __attribute__((aligned(4096)));
+
 typedef struct storage {
     heap h;
     vtpci v;
@@ -49,23 +51,40 @@ static void storage_write(storage st, buffer b, u64 offset, status_handler s)
     *(u32 *)(r + 4) = 0; /* reserved to be zero */
     *(u64 *)(r + 8) = offset / SECTOR_SIZE;
 
-    if (buffer_length(b) != SECTOR_SIZE)
-        halt("virtio buffer has more than one sector\n");
-    
+    rprintf("virtio_write: offset %d len %d cap %d\n", offset, buffer_length(b),
+            st->capacity);
+
+    if (buffer_length(b) > SECTOR_SIZE) {
+        halt("virtio_write: buffer size (%d) is larger than sector size (%d)\n",
+                buffer_length(b), SECTOR_SIZE);
+    }
+
+    boolean misaligned = (u64)buffer_ref(b, 0) & 0x000fULL;
+    boolean small = buffer_length(b) != SECTOR_SIZE;
+
     void *buffer;
     /* check buffer alignment */
-    if ((u64)buffer_ref(b, 0) & 0x000fULL) {
-        rprintf("%s: misaligned virtio write buffer\n", __func__);
-        /* reallocate */
+    if (misaligned) {
         buffer = allocate(st->v->contiguous, SECTOR_SIZE);
-        memcpy(buffer, buffer_ref(b, 0), SECTOR_SIZE);
+        runtime_memset(buffer, 0, SECTOR_SIZE);
+
+        if (misaligned)
+            rprintf("%s: misaligned virtio write buffer\n", __func__);
+
+        /* reallocate */
+        runtime_memcpy(buffer, buffer_ref(b, 0), buffer_length(b));
     } else {
         buffer = buffer_ref(b, 0);
     }
-    
-    void *address[3];
-    boolean writables[3];
-    bytes lengths[3];
+
+    if (small)
+        rprintf("%s: small virtio write buffer (%d length)\n", __func__, buffer_length(b));
+
+    u64 awl_off = small ? 4 : 3;
+
+    void *address[awl_off];
+    boolean writables[awl_off];
+    bytes lengths[awl_off];
     int index = 0;
     
     address[index] = r;
@@ -75,15 +94,22 @@ static void storage_write(storage st, buffer b, u64 offset, status_handler s)
 
     address[index] = buffer;
     writables[index] = false;
-    lengths[index] = SECTOR_SIZE;
+    lengths[index] = buffer_length(b);
     index++;
-    
+
+    if (small) {
+        address[index] = static_zero_buffer;
+        writables[index] = false;
+        lengths[index] = SECTOR_SIZE - buffer_length(b);
+        index++;
+    }
+
     address[index] = r + header_size;
     writables[index] = true;
     lengths[index] = status_size;
     index++;
 
-    vqfinish c = closure(st->v->general, complete, st, s, (u8 *)address[2]);
+    vqfinish c = closure(st->v->general, complete, st, s, (u8 *)address[awl_off - 1]);
     virtqueue_enqueue(st->command, address, lengths, writables, index, c);
 }
 
