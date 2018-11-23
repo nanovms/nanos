@@ -131,7 +131,7 @@ void newstack()
     console("create fs\n");
     create_filesystem(h,
                       SECTOR_SIZE,
-                      2*1024*1024, // fix,
+                      10*1024*1024, // fix,
                       closure(h, stage2_read_disk, fsb),
                       closure(h, stage2_empty_write),
                       root,

@@ -142,9 +142,11 @@ int main(int argc, char **argv)
 {
     heap h = init_process_runtime();
     descriptor out = open(argv[1], O_CREAT|O_WRONLY, 0644);
+    u64 fs_size = 10ull * 1024 * 1024;
     if (out < 0) {
         halt("couldn't open output file %s\n", argv[1]);
     }
+    ftruncate(out, fs_size);
 
     parser p = tuple_parser(h, closure(h, finish, h), closure(h, perr));
     // this can be streaming
@@ -152,7 +154,7 @@ int main(int argc, char **argv)
     // fixing the size doesn't make sense in this context?
     create_filesystem(h,
                       SECTOR_SIZE,
-                      10ull * 1024 * 1024 * 1024,
+                      fs_size,
                       closure(h, bread, out),
                       closure(h, bwrite, out),
                       allocate_tuple(),
