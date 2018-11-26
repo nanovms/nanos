@@ -1,4 +1,3 @@
-#define INT_MAX 0x7fffffff
 #include <getrandom.h>
 void main()
 {
@@ -7,12 +6,9 @@ void main()
 	unsigned int flags=2;
 	int totBytesfilled=getrandom(buffer,length,flags);
 	printf("%d\n",totBytesfilled);
-
-	if(totBytesfilled<0)
+	if(totBytesfilled<=0)
 	{
 		printf("Error occured with filling the buffer with random bytes\n");
 	}
-
 	return;
-	
 }

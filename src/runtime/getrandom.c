@@ -1,12 +1,13 @@
 #include <getrandom.h>
+#include <errno.h>
 
 //declare a static variable for seeding the rand() function
 static unsigned int seed;
 
 //custom random-number generator using the model of linear congruential generators-->n(x+1) = n(x) * A + C modulo M
-int rand (void) {
-	
-    seed = (seed * 1103515245U + 12345U) & 0x7fffffffU;
+int rand (void) 
+{
+	seed = (seed * 1103515245U + 12345U) & 0x7fffffffU;
     return (int)seed;
 }
 
@@ -23,32 +24,26 @@ int rand (void) {
 */
 int getrandom(void *buf,int bufLength,unsigned int flags)
 {
-	//if buffer is NULL, then return -1 as the value
-	if(!buf || bufLength<0)
-		return -1;
-	
-	runtime_memset(buf,0,bufLength);
+	if(!buf)
+		return EFAULT;
 	
 	//in case of undefined flag values
-	if(flags & ~(GRND_RANDOM | GRND_NONBLOCK))
-	{		
-		return 0; 
-	}
+	if(bufLength <= 0 || (flags & ~(GRND_RANDOM | GRND_NONBLOCK)))
+		return EINVAL; 
 	
 	//for unique values at program start
 	seed = getpid();
 	int count=0;
-	
+	runtime_memset(buf,0,bufLength);
 	for(int i=0;i<bufLength;i++)
 	{
 		*(char*)(buf+i)=rand()%MAX_ENTROPY_POOL;
-			//printf("%c\n",*(char*)(buf+i));
+		//printf("%c\n",*(char*)(buf+i));
 		count++;
 		if(flags==GRND_RANDOM && i==(MAX_RANDOM_ENTROPY_COUNT-1))
 			break;
 	}
 	return count;
-	
 }
 
 
