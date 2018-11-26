@@ -230,6 +230,8 @@ static void read_complete(sock s, thread t, void *dest, u64 length, boolean slee
 	thread_wakeup(t);
 }
 
+//sock s, thread t, void *dest, u64 length, boolean sleeping, err_t lwip_status
+
 static CLOSURE_1_3(socket_read, sysreturn, sock, void *, u64, u64);
 static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
 {
@@ -251,40 +253,61 @@ static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
     return 0;			/* suppress warning */
 }
 
+static CLOSURE_4_0(socket_write_more, sysreturn, sock, void *, u64, u64);
+static sysreturn socket_write_more(sock s, void *source, u64 length, u64 offset) {
+    
+    net_debug("sock %d, thread %d, source %p, length %d, offset %d\n", s->fd, 
+        current->tid, source, length, offset);
+    uint16_t available, nw; 
+    available = tcp_sndbuf(s->lw);
+    tcp_arg(s->lw, s);
+    if (available == 0) {
+        if (!enqueue(s->waiting, closure(s->h, socket_write_more, s, source, length, offset)))
+	        msg_err("waiting queue full\n");
+        // no one is there to wake up the thread
+        //thread_sleep(current);
+    }
+    else {
+        nw = MIN(length, available);
+        // enqueue length bytes to LWIP queue.
+        err_t err = tcp_write(s->lw, (uint16_t*)source + offset, nw, 
+            TCP_WRITE_FLAG_COPY | TCP_WRITE_FLAG_MORE);
+        if (err == ERR_MEM) {
+            msg_debug("ERR_MEM\n");
+            if (!enqueue(s->waiting, closure(s->h, socket_write_more, s, source, length, offset)))
+                msg_err("waiting queue full\n");
+            // no one is there to wake up the thread
+            // use tcp_poll
+            thread_sleep(current);
+        }
+        else if(err == ERR_OK) {
+            // more to write
+            if(length - nw > 0) {
+                enqueue(s->waiting, closure(s->h, socket_write_more, s, source , 
+                                length - nw, offset + nw));
+                thread_sleep(current);
+            } else {
+                tcp_output(s->lw);
+                return set_syscall_return(current, length);
+            }
+        } else {
+            net_debug("lwip error %d\n", err);
+            return set_syscall_return(current, lwip_to_errno(err));
+        }
+    }
+}
+
 static CLOSURE_1_3(socket_write, sysreturn, sock, void *, u64, u64);
 static sysreturn socket_write(sock s, void *source, u64 length, u64 offset)
 {
     uint16_t available, chunk_size;
     net_debug("sock %d, thread %d, source %p, length %d, offset %d, s->state %d\n",
 	      s->fd, current->tid, source, length, offset, s->state);
-    
     if (length == 0)
         return 0;
-
     if (s->state != SOCK_OPEN) 		/* XXX maybe defer to lwip for connect state */
         return set_syscall_error(current, EPIPE);
-       /* We cannot send more data than space available in the send buffer. */
-    if(tcp_sndbuf(s->lw) == 0) {
-       tcp_arg(s->lw, current);
-       thread_sleep(current);
-    }
-
-    available = tcp_sndbuf(s->lw);
-    assert(available > 0);
-    if (length > available) {
-            length = available;
-    }
-    err_t err = tcp_write(s->lw, source, length, TCP_WRITE_FLAG_COPY);
-    if (err != ERR_OK)
-        goto out_err;
-    err = tcp_output(s->lw);
-    if (err != ERR_OK)
-	goto out_err;
-    net_debug("completed\n");
-    return set_syscall_return(current, length);
-  out_err:
-    net_debug("lwip error %d\n", err);
-    return set_syscall_return(current, lwip_to_errno(err));
+    socket_write_more(s, source, length, offset);
 }
 
 static CLOSURE_1_3(socket_check, boolean, sock, u32, u32 *, event_handler);
@@ -368,10 +391,11 @@ sysreturn socket(int domain, int type, int protocol)
     return fd;
 }
 
-
 static err_t tcp_event_sent(void * arg, struct tcp_pcb * pcb, uint16_t len)
 {
-    thread_wakeup((thread)arg);
+    sock s = arg;
+    net_debug("arg %d pcb %p len %d\n", s->fd, pcb, len);
+    wakeup(s, 0);
 }
 
 static err_t input_lower (void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
