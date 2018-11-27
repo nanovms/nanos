@@ -80,7 +80,7 @@ func TestArgsAndEnv(t *testing.T) {
 		t.Log(err)
 		t.Errorf("ReadAll failed")
 	}
-	if string(body) != "webglongargument" {
+	if string(body) != "longargument" {
 		t.Errorf("unexpected response:" + string(body))
 	}
 	resp.Body.Close()
