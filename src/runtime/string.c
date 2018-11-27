@@ -15,7 +15,7 @@ runtime_strchr (const char *string, int _c)
 }
     
 char *
-strtok_r (char *s, const char *delimiters, char **save_ptr)
+runtime_strtok_r (char *s, const char *delimiters, char **save_ptr)
 {
     char *token;
 

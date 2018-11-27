@@ -31,6 +31,7 @@ includes := \
 	-I$(SRC)/runtime \
 	-I$(SRC)/tfs \
 	-I$(SRC)/unix_process \
+	-I$(SRC)/unix \
 	-I$(SRC)/x86_64 \
 
 objcache_test-srcs := \
@@ -123,10 +124,11 @@ path_test-srcs := \
 	$(SRC)/runtime/table.c \
 	$(SRC)/runtime/timer.c \
 	$(SRC)/runtime/tuple.c \
+	$(SRC)/runtime/string.c \
 	$(SRC)/tfs/tfs.c \
 	$(SRC)/tfs/tlog.c \
 	$(SRC)/unix_process/unix_process_runtime.c \
-	$(SRC)/unix_process/path.c \
+	$(SRC)/unix/path.c \
 
 path_test-objs = $(call srcs-to-objs,$(ROOT),$(OUT),path_test)
 

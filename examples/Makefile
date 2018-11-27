@@ -8,7 +8,7 @@ CFLAGS = -g \
 	 -DENABLE_MSG_DEBUG \
 	 $(includes)
 
-all: fst hw hws hwg getdents web webg webgs webs
+all: fst hw hws hwg getdents mkdir web webg webgs webs
 
 fst: $(FST)
 
@@ -20,6 +20,8 @@ hwg: $(HWG)
 
 getdents: $(GETDENTS)
 
+mkdir: $(MKDIR)
+
 web: $(WEB)
 
 webs: $(WEBS)
@@ -30,6 +32,7 @@ webgs: $(WEBGS)
 
 includes := \
 	-I$(SRC)/runtime \
+	-I$(SRC)/unix \
 	-I$(SRC)/unix_process \
 	-I$(SRC)/x86_64 \
 
@@ -56,14 +59,23 @@ $(GETDENTS): HOSTLDFLAGS += -static
 $(GETDENTS): $(getdents-objs)
 	$(call cmd,host-prog)
 
+mkdir-srcs := \
+	$(ROOT)/examples/mkdir.c
+
+mkdir-objs = $(call srcs-to-objs,$(ROOT),$(OUT),mkdir)
+
+$(MKDIR): HOSTLDFLAGS += -static
+$(MKDIR): $(mkdir-objs)
+	$(call cmd,host-prog)
+
 web-srcs := \
 	$(ROOT)/examples/web.c \
 	$(SRC)/unix_process/unix_process_runtime.c \
 	$(SRC)/unix_process/mmap_heap.c \
 	$(SRC)/unix_process/http.c \
-	$(SRC)/unix_process/path.c \
 	$(SRC)/unix_process/socket_user.c \
 	$(SRC)/unix_process/tiny_heap.c \
+	$(SRC)/unix/path.c \
 	$(SRC)/runtime/bitmap.c \
 	$(SRC)/runtime/buffer.c \
 	$(SRC)/runtime/extra_prints.c \
@@ -105,10 +117,10 @@ $(WEBGS): webg.go
 
 $(hw-objs) $(web-objs): $(CLOSURE_TMPL)
 
-clean-objs = $(hw-objs) $(web-objs) $(FST) $(HW) $(HWG) $(HWS) $(WEB) $(WEBG) $(WEBGS) $(WEBS) $(CLOSURE_TMPL) $(getdents-objs) $(GETDENTS)
+clean-objs = $(hw-objs) $(web-objs) $(FST) $(HW) $(HWG) $(HWS) $(WEB) $(WEBG) $(WEBGS) $(WEBS) $(CLOSURE_TMPL) $(getdents-objs) $(GETDENTS) $(mkdir-objs) $(MKDIR)
 
 clean: default-clean
 
-.PHONY: fst hw hwg hws web webg webgs webs getdents
+.PHONY: fst hw hwg hws web webg webgs webs getdents mkdir
 
 include ../rules.mk

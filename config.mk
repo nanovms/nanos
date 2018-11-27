@@ -53,6 +53,7 @@ WEBS		= $(ROOT)/output/examples/webs
 WEBG		= $(ROOT)/output/examples/webg
 # WEBGS		= $(ROOT)/output/examples/webgs
 GETDENTS	= $(ROOT)/output/examples/getdents
+MKDIR		= $(ROOT)/output/examples/mkdir
 
 # Tests
 
