@@ -358,12 +358,16 @@ char *syscall_name(int x)
         if (syscall_codes[i].c == x) 
             return syscall_codes[i].n;
     }
-    return ("invalidine syscall");
+    return ("invalid syscall");
 }
 
 sysreturn read(int fd, u8 *dest, bytes length)
 {
     file f = resolve_fd(current->p, fd);
+    if (!f)
+        return set_syscall_error(current, EBADF);
+    if (!f->read)
+        return set_syscall_error(current, EINVAL);
 
     /* use (and update) file offset */
     return apply(f->read, dest, length, infinity);
@@ -372,8 +376,9 @@ sysreturn read(int fd, u8 *dest, bytes length)
 sysreturn pread(int fd, u8 *dest, bytes length, s64 offset)
 {
     file f = resolve_fd(current->p, fd);
-
-    if (offset < 0)
+    if (!f)
+        return set_syscall_error(current, EBADF);
+    if (!f->read || offset < 0)
 	return set_syscall_error(current, EINVAL);
 
     /* use given offset with no file offset update */
@@ -383,6 +388,10 @@ sysreturn pread(int fd, u8 *dest, bytes length, s64 offset)
 sysreturn write(int fd, u8 *body, bytes length)
 {
     file f = resolve_fd(current->p, fd);        
+    if (!f)
+        return set_syscall_error(current, EBADF);
+    if (!f->write)
+        return set_syscall_error(current, EINVAL);
     int res = apply(f->write, body, length, f->offset);
     f->offset += length;
     return res;
@@ -638,7 +647,6 @@ sysreturn openat(int dirfd, char *name, int flags, int mode)
 
 static void fill_stat(tuple n, struct stat *s)
 {
-    zero(s, sizeof(struct stat));
     s->st_dev = 0;
     s->st_ino = u64_from_pointer(n);
     if (table_find(n, sym(children))) {
@@ -660,8 +668,9 @@ static sysreturn fstat(int fd, struct stat *s)
 {
     thread_log(current, "fd %d, stat %p\n", fd, s);
     file f = resolve_fd(current->p, fd);
+    zero(s, sizeof(struct stat));
     // take this from tuple space
-    if (fd == 1) {
+    if (fd == 0 || fd == 1 || fd == 2) {
         s->st_mode = S_IFIFO;
         return 0;
     }
@@ -729,6 +738,12 @@ sysreturn uname(struct utsname *v)
     char sys[] = "pugnix";
     runtime_memcpy(v->sysname,sys, sizeof(sys));
     runtime_memcpy(v->release, rel, sizeof(rel));
+    return 0;
+}
+
+// we dont limit anything now.
+sysreturn setrlimit(int resource, const struct rlimit *rlim)
+{
     return 0;
 }
 
@@ -867,6 +882,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_brk, brk);
     register_syscall(map, SYS_uname, uname);
     register_syscall(map, SYS_getrlimit, getrlimit);
+    register_syscall(map, SYS_setrlimit, setrlimit);
     register_syscall(map, SYS_getpid, getpid);    
     register_syscall(map,SYS_exit_group, exit_group);
     register_syscall(map, SYS_exit, (sysreturn (*)())exit);
