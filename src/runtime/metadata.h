@@ -81,7 +81,11 @@ static inline tuple resolve_cstring(tuple root, char *f)
             push_character(a, y);
         }
     }
-    if (buffer_length(a)) t = lookup(t, intern(a));
-    return t;
+    
+    if (buffer_length(a)) {
+        t = lookup(t, intern(a));
+        return t;
+    }
+    return 0;
 }
 
