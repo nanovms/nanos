@@ -4,12 +4,18 @@
 
 extern void run64(u32 entry);
 
-//we think this is above the stack we're currently running on, and
-// that it runs right up to the boot block load address at 0x7c00,
-// so 27kB
-static u64 working = 0x1000;
+/* We're placing the working heap base at the beginning of extended
+   memory. Use of this heap is tossed out in the move to stage3, thus
+   no mapping set up for it.
 
-#define STACKLEN 8192
+   XXX grub support: Figure out how to probe areas used by grub modules, etc.
+   XXX can check e820 regions
+*/
+#define WORKING_BASE 0x100000
+#define WORKING_LEN (4*MB)  /* arbitrary, must be enough for any fs meta */
+static u64 working = WORKING_BASE;
+
+#define STACKLEN (8 * PAGESIZE)
 static struct heap workings;
 static struct kernel_heaps kh;
 static u32 stack;
@@ -20,6 +26,8 @@ static u64 stage2_allocator(heap h, bytes b)
     // tag requires 4 byte aligned addresses
     u64 result = working;
     working += pad(b, 4);
+    if (working > (WORKING_BASE + WORKING_LEN))
+        halt("stage2 working heap out of memory\n");
     return result;
 }
 
@@ -39,7 +47,7 @@ static void stage2_empty_write(buffer b, u64 offset, status_handler completion)
 CLOSURE_0_1(fail, void, status);
 void fail(status s)
 {
-    halt("%v", s);
+    halt("filesystem_read_entire failed: %v", s);
 }
 
 static CLOSURE_0_1(kernel_read_complete, void, buffer);
@@ -130,7 +138,7 @@ void newstack()
     console("create fs\n");
     create_filesystem(h,
                       SECTOR_SIZE,
-                      2*1024*1024, // fix,
+                      1024 * MB, /* XXX change to infinity with new rtrie */
                       closure(h, stage2_read_disk, fsb),
                       closure(h, stage2_empty_write),
                       root,
