@@ -29,10 +29,7 @@ log log_create(heap h, filesystem fs, status_handler sh);
 void log_write(log tl, tuple t, thunk complete);
 void log_write_eav(log tl, tuple e, symbol a, value v, thunk complete);
 
-// xxx - tlog.c is using rolling to hold the staging buffer, which currently doesn't deal with multiple
-// allocations properly - take this out of backed
-#define INITIAL_LOG_SIZE (3*KB)
-#define INITIAL_FS_SIZE (20 * MB)
+#define INITIAL_LOG_SIZE (512*KB)
 void read_log(log tl, u64 offset, u64 size, status_handler sh);
 void log_flush(log tl);
 void flush(filesystem fs, status_handler);

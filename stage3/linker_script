@@ -4,7 +4,7 @@ ENTRY(_start)
 
 SECTIONS
 {
-  . = 0xf000000;
+  . = 0x7f000000;
   START = .;
   .start ALIGN(4096): { *(.start)}
   /* the default linker aligns the file and text without throwing

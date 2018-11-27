@@ -7,6 +7,12 @@ image: mkfs boot stage3 target
 	@ mkdir -p $(dir $(IMAGE))
 	$(Q) $(MKFS) $(FS) < examples/$(TARGET).manifest && cat $(BOOTIMG) $(FS) > $(IMAGE)
 
+stage: image
+	- mkdir -p .staging
+	- cp -a output/mkfs/bin/mkfs .staging/mkfs
+	- cp -a output/boot/boot.img .staging/boot.img
+	- cp -a output/stage3/stage3.img .staging/stage3.img
+
 contgen: $(CONTGEN)
 
 mkfs: mkfs-build
