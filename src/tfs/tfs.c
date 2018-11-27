@@ -200,6 +200,11 @@ void link(tuple dir, fsfile f, buffer name)
     log_write_eav(f->fs->tl, soft_create(f->fs, dir, sym(children)), intern(name), f->md, ignore);
 }
 
+int filesystem_mkdir(filesystem fs, char *fp)
+{
+    return 0;
+}
+
 // should be passing status to the client
 static CLOSURE_2_1(read_entire_complete, void, buffer_handler, buffer, status);
 static void read_entire_complete(buffer_handler bh, buffer b, status s)

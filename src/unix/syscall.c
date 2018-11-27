@@ -1,5 +1,6 @@
 #include <unix_internal.h>
 #include <metadata.h>
+#include <path.h>
 
 // lifted from linux UAPI
 #define DT_UNKNOWN	0
@@ -400,13 +401,18 @@ sysreturn write(int fd, u8 *body, bytes length)
 sysreturn mkdir(const char *pathname, int mode)
 {
     heap h = heap_general(get_kernel_heaps());
+    buffer cwd = wrap_buffer_cstring(h, "/"); /* XXX */
 
     /* canonicalize the path */
-    char *final_path = canonicalize_path(h, current->p->cwd,
+    char *final_path = canonicalize_path(h, cwd,
             wrap_buffer_cstring(h, pathname));
 
     thread_log(current, "%s: (mode %d) pathname %s => %s\n",
             __func__, mode, pathname, final_path);
+
+    filesystem_mkdir(current->p->fs, final_path);
+
+    return set_syscall_error(current, EINVAL);
 }
 
 static int try_write_dirent(struct linux_dirent *dirp, char *p,
