@@ -803,8 +803,8 @@ sysreturn readlink_internal(tuple root, const char *pathname, char *buf, u64 sz)
 // mkfs resolve all symbolic links, so just need to
 // return pathname in buf
 sysreturn readlink(const char *pathname, char *buf, u64 bufsiz)
-{   
-    return readlink_internal(current->p->cwd, pathname, buf ,bufsiz);
+{
+    return readlink_internal(current->p->cwd, pathname, buf, bufsiz);
 }
 
 sysreturn readlinkat(int dirfd, const char *pathname, char *buf, u64 bufsiz)
