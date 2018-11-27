@@ -17,7 +17,13 @@ DD	?= dd
 CAT	?= cat
 RM	?= rm
 
-CFLAGS	= -fno-stack-protector -g -O -fdata-sections -ffunction-sections $(includes)
+CFLAGS	= -fno-omit-frame-pointer \
+		  -fno-stack-protector \
+		  -g \
+		  -O \
+		  -fdata-sections \
+		  -ffunction-sections \
+		  $(includes)
 LDFLAGS	= --gc-sections
 
 IMAGE	= $(ROOT)/output/image/image
