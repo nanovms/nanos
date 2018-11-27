@@ -730,6 +730,12 @@ sysreturn uname(struct utsname *v)
     return 0;
 }
 
+// we dont limit anything now.
+sysreturn setrlimit(int resource, const struct rlimit *rlim)
+{
+    return 0;
+}
+
 sysreturn getrlimit(int resource, struct rlimit *rlim)
 {
     switch (resource) {
@@ -865,6 +871,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_brk, brk);
     register_syscall(map, SYS_uname, uname);
     register_syscall(map, SYS_getrlimit, getrlimit);
+    register_syscall(map, SYS_setrlimit, setrlimit);
     register_syscall(map, SYS_getpid, getpid);    
     register_syscall(map,SYS_exit_group, exit_group);
     register_syscall(map, SYS_exit, (sysreturn (*)())exit);
