@@ -25,9 +25,9 @@ u64 do_getrandom(buffer b, u64 flags)
     u8 *buf = (u8 *) buffer_ref(b, 0);
     u64 random_val = random_u64();
 
-	runtime_memset(buf, 0, len);
+    runtime_memset(buf, 0, len);
 
-	for(i = 0; i < len; ) {
+    for(i = 0; i < len; ) {
         buf[i] = ((u8 *) (&random_val))[i % 8];
 
         i ++;
@@ -36,8 +36,8 @@ u64 do_getrandom(buffer b, u64 flags)
 
         if (flags == GRND_RANDOM && i == (MAX_RANDOM_ENTROPY_COUNT - 1))
             break;
-	}
-	return i;
+    }
+    return i;
 }
 
 
