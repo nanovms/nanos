@@ -201,7 +201,7 @@ clean-objs = \
 	$(objcache_test-objs) $(OBJCACHE_TEST) \
 	$(path_test-objs) $(PATH_TEST) \
 	$(pqueue_test-objs) $(PQUEUE_TEST) \
-	$(vector_test-objs) $(PQUEUE_TEST) \
+	$(vector_test-objs) $(VECTOR_TEST) \
 	$(CLOSURE_TMPL) \
 
 clean: default-clean
