@@ -3,7 +3,10 @@ include ../common.mk
 
 OUT = $(ROOT)/output/examples
 
-CFLAGS = -g -DENABLE_MSG_DEBUG $(includes)
+CFLAGS = -g \
+	 -fno-omit-frame-pointer \
+	 -DENABLE_MSG_DEBUG \
+	 $(includes)
 
 all: fst hw hws hwg getdents web webg webgs webs
 
