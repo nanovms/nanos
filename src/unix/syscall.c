@@ -790,32 +790,16 @@ static sysreturn brk(void *x)
     return sysreturn_from_pointer(p->brk);
 }
 
-sysreturn readlink_internal(tuple root, const char *pathname, char *buf, u64 sz) {
-    tuple n;
-    if (!(n = resolve_cstring(root, pathname))) {
-        return set_syscall_error(current, ENOENT);
-    }
-    int nbytes = MIN(runtime_strlen(pathname), sz);
-    runtime_memcpy(buf, pathname, nbytes);
-    return nbytes;
-}
-
-// mkfs resolve all symbolic links, so just need to
-// return pathname in buf
+// mkfs resolve all symbolic links, so we
+// have no symbolic links.
 sysreturn readlink(const char *pathname, char *buf, u64 bufsiz)
 {
-    return readlink_internal(current->p->cwd, pathname, buf, bufsiz);
+    return set_syscall_error(current, EINVAL);
 }
 
 sysreturn readlinkat(int dirfd, const char *pathname, char *buf, u64 bufsiz)
 {
-    if (dirfd == AT_FDCWD) {
-        return readlink(pathname, buf, bufsiz);
-    } else if(*pathname == '/') {
-        return readlink_internal(current->p->process_root, pathname, buf, bufsiz);
-    }
-    file f = resolve_fd(current->p, dirfd);
-    return readlink_internal(f->n, pathname, buf, bufsiz);
+    return set_syscall_error(current, EINVAL);
 }
 
 sysreturn close(int fd)
