@@ -34,8 +34,8 @@ u64 do_getrandom(buffer b, u64 flags)
         if (i % 8 == 0)
             random_val = random_u64();
 
-		if (flags == GRND_RANDOM && i == (MAX_RANDOM_ENTROPY_COUNT - 1))
-			break;
+        if (flags == GRND_RANDOM && i == (MAX_RANDOM_ENTROPY_COUNT - 1))
+            break;
 	}
 	return i;
 }
