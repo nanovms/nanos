@@ -159,22 +159,19 @@ void print_u64_with_sym(u64 a)
 
 extern void *text_start;
 extern void *text_end;
-void __print_stack_with_ebp(u64 *ebp)
+void __print_stack_with_rbp(u64 *rbp)
 {
     for (unsigned int frame = 0; frame < 32; frame ++) {
-        if ((u64) ebp < 4096ULL)
+        if ((u64) rbp < 4096ULL)
             break;
 
-        u64 eip = ebp[1];
+        u64 rip = rbp[1];
 
-        if (eip < (u64) &text_start || eip > (u64) &text_end)
+        if (rip < (u64) &text_start || rip > (u64) &text_end)
             break;
 
-        if (eip < 4096ULL)
-            break;
-
-        ebp = (u64 *) ebp[0];
-        print_u64_with_sym(eip);
+        rbp = (u64 *) rbp[0];
+        print_u64_with_sym(rip);
         console("\n");
     }
 }
@@ -182,7 +179,7 @@ void __print_stack_with_ebp(u64 *ebp)
 void print_stack(context c)
 {
     console("stack trace: \n");
-    __print_stack_with_ebp(pointer_from_u64(c[FRAME_RBP]));
+    __print_stack_with_rbp(pointer_from_u64(c[FRAME_RBP]));
 }
 
 void print_frame(context f)
