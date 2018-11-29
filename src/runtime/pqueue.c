@@ -37,9 +37,10 @@ static void add_pqueue(pqueue q, index i)
 {
     index parent = i >> 1;
 
-    if ((parent > 0) && qcompare(q, parent, i)) {
+    while ((parent > 0) && qcompare(q, parent, i)) {
         swap(q, i, parent);
-        add_pqueue(q, parent);
+        i = parent;
+        parent >>= 1;
     }
 }
 
