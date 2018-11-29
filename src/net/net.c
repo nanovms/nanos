@@ -4,32 +4,49 @@
 
 static heap lwip_heap;
 
-// ok, this is quite sad. lwip is happy to let you use your own timers,
-// but the registration is done using this array. if you add components,
-// check here
+/* Pretty silly. LWIP offers lwip_cyclic_timers for use elsewhere, but
+   says to use LWIP_ARRAYSIZE(), which isn't possible with an
+   incomplete type. Plus there's no terminator to the array. So we
+   just have to manually create our own here. Check
+   lwip/src/core/timeouts.c if we switch on any other LWIP components
+   and add an entry here accordingly. Barf */
 
-#if 0
-CLOSURE_0_0(tcp_tmr, void);
-CLOSURE_0_0(ip_reass_tmr, void);
-CLOSURE_0_0(etharp_tmr, void);
-CLOSURE_0_0(dhcp_coarse_tmr, void);
-CLOSURE_0_0(dhcp_fine_tmr, void);
-#endif
+struct net_lwip_timer {
+    u64 interval_ms;
+    lwip_cyclic_timer_handler handler;
+    const char * name;
+};
 
-static CLOSURE_1_0(dispatch_lwip_timer, void, lwip_cyclic_timer_handler);
-void dispatch_lwip_timer(lwip_cyclic_timer_handler handler)
+static const struct net_lwip_timer net_lwip_timers[] = {
+    {TCP_TMR_INTERVAL, tcp_tmr, "tcp"},
+    {IP_TMR_INTERVAL, ip_reass_tmr, "ip"},
+    {ARP_TMR_INTERVAL, etharp_tmr, "arp"},
+    {DHCP_COARSE_TIMER_MSECS, dhcp_coarse_tmr, "dhcp coarse"},
+    {DHCP_FINE_TIMER_MSECS, dhcp_fine_tmr, "dhcp fine"},
+};
+
+/* We could dispatch lwip timer callbacks as thunks, but breaking it
+   out here gives us a single point of entry for debugging. */
+static CLOSURE_2_0(dispatch_lwip_timer, void, lwip_cyclic_timer_handler, char *);
+void dispatch_lwip_timer(lwip_cyclic_timer_handler handler, char * name)
 {
-    lwip_debug("lwip timer dispatch %p\n", handler);
+#ifdef LWIP_DEBUG
+    lwip_debug("dispatching timer for %s\n", name);
+#endif
     handler();
 }
 
 void sys_timeouts_init(void)
 {
-    register_periodic_timer(milliseconds(TCP_TMR_INTERVAL), closure(lwip_heap, dispatch_lwip_timer, tcp_tmr));
-    register_periodic_timer(milliseconds(IP_TMR_INTERVAL), closure(lwip_heap, dispatch_lwip_timer, ip_reass_tmr));
-    register_periodic_timer(milliseconds(ARP_TMR_INTERVAL), closure(lwip_heap, dispatch_lwip_timer, etharp_tmr));
-    register_periodic_timer(milliseconds(DHCP_COARSE_TIMER_MSECS), closure(lwip_heap, dispatch_lwip_timer, dhcp_coarse_tmr));
-    register_periodic_timer(milliseconds(DHCP_FINE_TIMER_MSECS), closure(lwip_heap, dispatch_lwip_timer, dhcp_fine_tmr));
+    int n = sizeof(net_lwip_timers) / sizeof(struct net_lwip_timer);
+    for (int i = 0; i < n; i++) {
+        struct net_lwip_timer * t = &net_lwip_timers[i];
+        register_periodic_timer(milliseconds(t->interval_ms),
+                                closure(lwip_heap, dispatch_lwip_timer, t->handler, t->name));
+#ifdef LWIP_DEBUG
+        lwip_debug("registered %s timer with period of %d ms\n", t->name, t->interval_ms);
+#endif
+    }
 }
 
 void lwip_debug(char * format, ...)
