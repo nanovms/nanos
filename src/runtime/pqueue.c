@@ -3,6 +3,7 @@
 typedef u32 index; //indices are off by 1 from vector references
 
 struct pqueue {
+    heap h;
     vector body;
     boolean (*sort)(void *, void *);
 };
@@ -20,20 +21,15 @@ static inline void swap(pqueue q, index x, index y)
 
 static void heal(pqueue q, index where)
 {
-    index left = where << 1;
-    index right = left + 1;
-    index min = where;
-    index len = vector_length(q->body);
-    
-    if (left <= len)
-        if (qcompare(q, left, min)) min = left;
-
-    if (right <= len)
-        if (qcompare(q, right, min)) min = right;
-
-    if (min != where) {
-        swap(q, min, where);
-        heal(q, min);
+    index last = vector_length(q->body);
+    index i;
+    while ((i = where << 1) <= last) {
+        if (i < last && qcompare(q, i, i+1))
+            i++;                /* right is larger */
+        if (!qcompare(q, where, i))
+            return;
+        swap(q, where, i);
+        where = i;
     }
 }
 
@@ -77,7 +73,15 @@ void *pqueue_peek(pqueue q)
 pqueue allocate_pqueue(heap h, boolean(*sort)(void *, void *))
 {
     pqueue p = allocate(h, sizeof(struct pqueue));
+    p->h = h;
     p->body = allocate_vector(h, 10);
     p->sort = sort;
     return(p);
+}
+
+void deallocate_pqueue(pqueue p)
+{
+    assert(p);
+    deallocate_vector(p->body);
+    deallocate(p->h, p, sizeof(struct pqueue));
 }
