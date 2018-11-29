@@ -1,5 +1,7 @@
 #include <runtime.h>
-#include <stdlib.h>
+//#include <stdlib.h>
+#define EXIT_FAILURE 1
+#define EXIT_SUCCESS 0
 
 #define MAX_PAGE_ORDER		12
 #define LENGTH_ORDER		16

@@ -21,6 +21,8 @@ CFLAGS	= -fno-omit-frame-pointer \
 		  -fno-stack-protector \
 		  -g \
 		  -O \
+		  -mno-sse \
+		  -mno-sse2 \
 		  -fdata-sections \
 		  -ffunction-sections \
 		  $(includes)

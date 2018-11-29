@@ -1,5 +1,7 @@
 #include <runtime.h>
-#include <stdlib.h>
+//#include <stdlib.h>
+#define EXIT_FAILURE 1
+#define EXIT_SUCCESS 0
 #include <unistd.h>
 #include <sys/stat.h>
 #include <fcntl.h>

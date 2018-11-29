@@ -2,7 +2,7 @@
 
 #include <runtime.h>
 #include <sys/socket.h>
-#include <stdlib.h>
+//#include <stdlib.h>
 #include <netinet/in.h>
 #include <stdio.h>
 #include <string.h>

@@ -1,5 +1,5 @@
 #include <stdarg.h>
-#include <stdlib.h>
+//#include <stdlib.h>
 #include <unistd.h>
 
 /* Helper functions to ignore unused result (eliminate CC warning) */
