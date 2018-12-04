@@ -88,6 +88,9 @@ typedef struct iovec {
 #define EMLINK          31              /* Too many links */
 #define EPIPE           32              /* Broken pipe */
 
+#define EDESTADDRREQ    89		/* Destination address required */
+#define EOPNOTSUPP      95		/* Operation not supported */
+
 #define O_RDONLY	00000000
 #define O_WRONLY	00000001
 #define O_RDWR		00000002
