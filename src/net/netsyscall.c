@@ -54,19 +54,19 @@ typedef struct sock {
     // the notion is that 'waiters' should take priority    
     int fd;
     status lwip_status;
+    union {
+	struct {
+	    struct tcp_pcb *lw;
+	    enum tcp_socket_state state; // half open?
+	} tcp;
+	struct {
+	    struct udp_pcb *lw;
+	    enum udp_socket_state state;
+	} udp;
+    } info;
 } *sock;
 
-typedef struct tcpsock {
-    struct sock sock;
-    struct tcp_pcb *lw;
-    enum tcp_socket_state state; // half open?
-} *tcpsock;
-
-typedef struct udpsock {
-    struct sock sock;
-    struct udp_pcb *lw;
-    enum udp_socket_state state;
-} *udpsock;
+#define NETSYSCALL_DEBUG
 
 #ifdef NETSYSCALL_DEBUG
 #define net_debug(x, ...) do {log_printf(" NET", "%s: " x, __func__, ##__VA_ARGS__);} while(0)
@@ -81,10 +81,9 @@ static inline u32 socket_poll_events(sock s)
     /* XXX socket state isn't giving a complete picture; needs to specify
        which transport ends are shut down */
     if (s->type == SOCK_STREAM) {
-	tcpsock ts = (tcpsock)s;
-	if (ts->state == TCP_SOCK_LISTENING) {
+	if (s->info.tcp.state == TCP_SOCK_LISTENING) {
 	    return in ? EPOLLIN : 0;
-	} else if (ts->state == TCP_SOCK_OPEN) {
+	} else if (s->info.tcp.state == TCP_SOCK_OPEN) {
 	    return in ? EPOLLIN | EPOLLRDNORM : 0;
 	} else {
 	    return EPOLLIN | EPOLLHUP | EPOLLRDHUP | EPOLLRDNORM;
@@ -167,14 +166,14 @@ static void remote_sockaddr_in(sock s, struct sockaddr_in *sin)
 {
     sin->family = AF_INET;
     if (s->type == SOCK_STREAM) {
-	tcpsock ts = (tcpsock)s;
-	sin->port = ntohs(ts->lw->remote_port);
-	sin->address = ntohl(*(u32 *)&ts->lw->remote_ip);
+	struct tcp_pcb * lw = s->info.tcp.lw;
+	sin->port = ntohs(lw->remote_port);
+	sin->address = ntohl(*(u32 *)&lw->remote_ip);
     } else {
 	assert(s->type == SOCK_DGRAM);
-	udpsock us = (udpsock)s;
-	sin->port = ntohs(us->lw->remote_port);
-	sin->address = ntohl(*(u32 *)&us->lw->remote_ip);
+	struct udp_pcb * lw = s->info.udp.lw;
+	sin->port = ntohs(lw->remote_port);
+	sin->address = ntohl(*(u32 *)&lw->remote_ip);
     }
 }
 
@@ -212,9 +211,9 @@ static inline void pbuf_consume(struct pbuf *p, u64 length)
 static CLOSURE_5_1(read_complete, void, sock, thread, void *, u64, boolean, err_t);
 static void read_complete(sock s, thread t, void *dest, u64 length, boolean sleeping, err_t lwip_status)
 {
-    net_debug("sock %d, thread %d, dest %p, len %d, sleeping %d, s->state %d\n",
-	      s->fd, t->tid, dest, length, sleeping, s->state);
-    if (s->type == SOCK_STREAM && ((tcpsock)s)->state != TCP_SOCK_OPEN) {
+    net_debug("sock %d, thread %d, dest %p, len %d, sleeping %d\n",
+	      s->fd, t->tid, dest, length, sleeping);
+    if (s->type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN) {
        set_syscall_error(t, ENOTCONN);
        goto out;
     }
@@ -235,7 +234,7 @@ static void read_complete(sock s, thread t, void *dest, u64 length, boolean slee
 		    notify_dispatch(s);
 	    }
 	    if (s->type == SOCK_STREAM)
-		tcp_recved(((tcpsock)s)->lw, xfer);
+		tcp_recved(s->info.tcp.lw, xfer);
 	}
 	set_syscall_return(t, xfer);
     } else {
@@ -250,9 +249,9 @@ static void read_complete(sock s, thread t, void *dest, u64 length, boolean slee
 static CLOSURE_1_3(socket_read, sysreturn, sock, void *, u64, u64);
 static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
 {
-    net_debug("sock %d, type %d, thread %d, dest %p, length %d, offset %d, s->state %d\n",
-	      s->fd, s->type, current->tid, dest, length, offset, s->state);
-    if (s->type == SOCK_STREAM && ((tcpsock)s)->state != TCP_SOCK_OPEN)
+    net_debug("sock %d, type %d, thread %d, dest %p, length %d, offset %d\n",
+	      s->fd, s->type, current->tid, dest, length, offset);
+    if (s->type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN)
         return set_syscall_error(current, ENOTCONN);
 
     // xxx - there is a fat race here between checking queue length and posting on the waiting queue
@@ -271,23 +270,21 @@ static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
 static CLOSURE_1_3(socket_write, sysreturn, sock, void *, u64, u64);
 static sysreturn socket_write(sock s, void *source, u64 length, u64 offset)
 {
-    net_debug("sock %d, type %d, thread %d, source %p, length %d, offset %d, s->state %d\n",
-	      s->fd, s->type, current->tid, source, length, offset, s->state);
+    net_debug("sock %d, type %d, thread %d, source %p, length %d, offset %d\n",
+	      s->fd, s->type, current->tid, source, length, offset);
     err_t err = ERR_OK;
     if (s->type == SOCK_STREAM) {
-	tcpsock ts = (tcpsock)s;
-	if (ts->state != TCP_SOCK_OPEN) 		/* XXX maybe defer to lwip for connect state */
+	if (s->info.tcp.state != TCP_SOCK_OPEN) 		/* XXX maybe defer to lwip for connect state */
 	    return set_syscall_error(current, EPIPE);
-	err = tcp_write(ts->lw, source, length, TCP_WRITE_FLAG_COPY);
+	err = tcp_write(s->info.tcp.lw, source, length, TCP_WRITE_FLAG_COPY);
 	if (err != ERR_OK)
 	    goto out_lwip_err;
-	err = tcp_output(ts->lw);
+	err = tcp_output(s->info.tcp.lw);
 	if (err != ERR_OK)
 	    goto out_lwip_err;
     } else if (s->type == SOCK_DGRAM) {
-	udpsock us = (udpsock)s;
 	// XXX remote address dummy
-	if (us->state != UDP_SOCK_BOUND) {
+	if (s->info.udp.state != UDP_SOCK_BOUND) {
 	    msg_err("no peer address set\n");
 	    return set_syscall_error(current, EDESTADDRREQ);
 	}
@@ -297,7 +294,7 @@ static sysreturn socket_write(sock s, void *source, u64 length, u64 offset)
 	    return set_syscall_error(current, ENOBUFS);
 	}
 	runtime_memcpy(pbuf->payload, source, length);
-	err = udp_send(us->lw, pbuf);
+	err = udp_send(s->info.udp.lw, pbuf);
 	if (err != ERR_OK)
 	    goto out_lwip_err;
     } else {
@@ -336,9 +333,8 @@ static sysreturn socket_close(sock s)
 {
     net_debug("sock %d, type %d\n", s->fd, s->type);
     heap h = heap_general(get_kernel_heaps());
-    if (s->type == SOCK_STREAM && ((tcpsock)s)->state == TCP_SOCK_OPEN) {
-        tcp_close(((tcpsock)s)->lw);
-    }
+    if (s->type == SOCK_STREAM && s->info.tcp.state == TCP_SOCK_OPEN)
+        tcp_close(s->info.tcp.lw);
     // xxx - we should really be cleaning this up, but tcp_close apparently
     // doesnt really stop everything synchronously, causing weird things to
     // happen when the stale references to these objects get used. investigate.
@@ -375,27 +371,28 @@ static int allocate_sock(process p, int type, sock * rs)
     list_init(&s->notify);	/* XXX lock init */
     s->fd = fd;
     s->lwip_status = STATUS_OK;
+    *rs = s;
     return fd;
 }
 
 static int allocate_tcp_sock(process p, struct tcp_pcb *pcb)
 {
-    tcpsock ts;
-    int fd = allocate_sock(p, SOCK_STREAM, (sock*)&ts);
+    sock s;
+    int fd = allocate_sock(p, SOCK_STREAM, &s);
     if (fd >= 0) {
-	ts->lw = pcb;
-	ts->state = TCP_SOCK_CREATED;
+	s->info.tcp.lw = pcb;
+	s->info.tcp.state = TCP_SOCK_CREATED;
     }
     return fd;
 }
 
 static int allocate_udp_sock(process p, struct udp_pcb * pcb)
 {
-    udpsock us;
-    int fd = allocate_sock(p, SOCK_DGRAM, (sock*)&us);
+    sock s;
+    int fd = allocate_sock(p, SOCK_DGRAM, &s);
     if (fd >= 0) {
-	us->lw = pcb;
-	us->state = UDP_SOCK_CREATED;
+	s->info.udp.lw = pcb;
+	s->info.udp.state = UDP_SOCK_CREATED;
     }
     return fd;
 }
@@ -429,7 +426,6 @@ sysreturn socket(int domain, int type, int protocol)
 static err_t tcp_input_lower(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 {
     sock s = z;
-    tcpsock ts = (tcpsock)s;
     net_debug("sock %d, pcb %p, buf %p, err %d\n", s->fd, pcb, p, err);
 
     if (err) {
@@ -441,7 +437,7 @@ static err_t tcp_input_lower(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t
         if (!enqueue(s->incoming, p))
 	    msg_err("incoming queue full\n");
     } else {
-        ts->state = TCP_SOCK_CLOSED;
+        s->info.tcp.state = TCP_SOCK_CLOSED;
     }
     wakeup(s, 0);
     return ERR_OK;
@@ -457,17 +453,15 @@ sysreturn bind(int sockfd, struct sockaddr *addr, socklen_t addrlen)
     ip_addr_t ipaddr = IPADDR4_INIT(sin->address);
     err_t err;
     if (s->type == SOCK_STREAM) {
-	tcpsock ts = (tcpsock)s;
-	if (ts->state == TCP_SOCK_OPEN)
+	if (s->info.tcp.state == TCP_SOCK_OPEN)
 	    return -EINVAL;	/* already bound */
-	err = tcp_bind(ts->lw, &ipaddr, ntohs(sin->port));
+	err = tcp_bind(s->info.tcp.lw, &ipaddr, ntohs(sin->port));
 	if (err == ERR_OK)
-	    ts->state = TCP_SOCK_OPEN;
+	    s->info.tcp.state = TCP_SOCK_OPEN;
     } else if (s->type == SOCK_DGRAM) {
-	udpsock us = (udpsock)s;
-	err = udp_bind(us->lw, &ipaddr, ntohs(sin->port));
+	err = udp_bind(s->info.udp.lw, &ipaddr, ntohs(sin->port));
 	if (err == ERR_OK)
-	    us->state = UDP_SOCK_BOUND;
+	    s->info.udp.state = UDP_SOCK_BOUND;
     } else {
 	msg_err("unsupported socket type %d\n", s->type);
 	return -EINVAL;
@@ -478,14 +472,13 @@ sysreturn bind(int sockfd, struct sockaddr *addr, socklen_t addrlen)
 void error_handler_tcp(void* arg, err_t err)
 {
     sock s = (sock)arg;
-    tcpsock ts = (tcpsock)arg;
     lwip_status_handler sp = NULL;
     net_debug("sock %d, err %d\n", s->fd, err);
     if (!s)
 	return;
     error_message(s, err);
     if (err != ERR_OK)
-	ts->state = TCP_SOCK_UNDEFINED;
+	s->info.tcp.state = TCP_SOCK_UNDEFINED;
     if ((sp = dequeue(s->waiting)))
         apply(sp, err);
 }
@@ -502,8 +495,7 @@ static err_t connect_tcp_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
 {
    lwip_status_handler sp = NULL;
    sock s = (sock)arg;
-   tcpsock ts = (tcpsock)arg;
-   ts->state = TCP_SOCK_OPEN;
+   s->info.tcp.state = TCP_SOCK_OPEN;
    net_debug("sock %d, pcb %p, err %d\n", s->fd, tpcb, err);
    if ((sp = dequeue(s->waiting))) {
 	net_debug("... applying status handler %p\n", sp);
@@ -514,19 +506,17 @@ static err_t connect_tcp_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
 
 static int connect_tcp(sock s, const ip_addr_t* address, unsigned short port)
 {
-    tcpsock ts = (tcpsock)s;
     net_debug("sock %d, addr %P, port %d\n", s->fd, address->addr, port);
     if (!enqueue(s->waiting, closure(s->h, set_completed_state, current)))
 	msg_err("waiting queue full\n");
-    tcp_arg(ts->lw, ts);
-    tcp_err(ts->lw, error_handler_tcp);
-    ts->state = TCP_SOCK_IN_CONNECTION;
-    int err = tcp_connect(ts->lw, address, port, connect_tcp_complete);
-    if (ERR_OK != err) {
-        return err;
-    }
-    thread_sleep(current);
-    return ERR_OK;
+    struct tcp_pcb * lw = s->info.tcp.lw;
+    tcp_arg(lw, s);
+    tcp_err(lw, error_handler_tcp);
+    s->info.tcp.state = TCP_SOCK_IN_CONNECTION;
+    int err = tcp_connect(lw, address, port, connect_tcp_complete);
+    if (err == ERR_OK)
+	thread_sleep(current);
+    return err;
 }
 
 sysreturn connect(int sockfd, struct sockaddr * addr, socklen_t addrlen)
@@ -536,18 +526,16 @@ sysreturn connect(int sockfd, struct sockaddr * addr, socklen_t addrlen)
     struct sockaddr_in * sin = (struct sockaddr_in*)addr;
     ip_addr_t ipaddr = IPADDR4_INIT(sin->address);
     if (s->type == SOCK_STREAM) {
-	tcpsock ts = (tcpsock)s;
-	if (ts->state == TCP_SOCK_IN_CONNECTION) {
+	if (s->info.tcp.state == TCP_SOCK_IN_CONNECTION) {
 	    err = ERR_ALREADY;
-	} else if (ts->state == TCP_SOCK_OPEN) {
+	} else if (s->info.tcp.state == TCP_SOCK_OPEN) {
 	    err = ERR_ISCONN;
 	} else {
 	    err = connect_tcp(s, &ipaddr, sin->port);
 	}
     } else if (s->type == SOCK_DGRAM) {
-	udpsock us = (udpsock)s;
 	/* Set remote endpoint */
-	err = udp_connect(us->lw, &ipaddr, sin->port);
+	err = udp_connect(s->info.udp.lw, &ipaddr, sin->port);
     } else {
 	msg_err("can't connect on socket type %d\n", s->type);
 	return -EINVAL;
@@ -559,7 +547,7 @@ static void lwip_tcp_conn_err(void * z, err_t b) {
     sock s = z;
     net_debug("sock %d, err %d\n", s->fd, b);
     error_message(s, b);
-    ((tcpsock)s)->state = TCP_SOCK_UNDEFINED;
+    s->info.tcp.state = TCP_SOCK_UNDEFINED;
 }
 
 static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t b)
@@ -575,7 +563,7 @@ static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t b)
 
     net_debug("new fd %d, pcb %p, err %d\n", fd, lw, b);
     sock sn = vector_get(s->p->files, fd);
-    ((tcpsock)sn)->state = TCP_SOCK_OPEN;
+    sn->info.tcp.state = TCP_SOCK_OPEN;
     sn->fd = fd;
     tcp_arg(lw, sn);
     tcp_recv(lw, tcp_input_lower);
@@ -593,12 +581,12 @@ sysreturn listen(int sockfd, int backlog)
     if (s->type != SOCK_STREAM)
 	return -EOPNOTSUPP;
     net_debug("sock %d, backlog %d\n", sockfd, backlog);
-    tcpsock ts = (tcpsock)s;
-    ts->lw = tcp_listen_with_backlog(ts->lw, backlog);
-    ts->state = TCP_SOCK_LISTENING;
-    tcp_arg(ts->lw, ts);
-    tcp_accept(ts->lw, accept_tcp_from_lwip);
-    tcp_err(ts->lw, lwip_tcp_conn_err);
+    struct tcp_pcb * lw = tcp_listen_with_backlog(s->info.tcp.lw, backlog);
+    s->info.tcp.lw = lw;
+    s->info.tcp.state = TCP_SOCK_LISTENING;
+    tcp_arg(lw, s);
+    tcp_accept(lw, accept_tcp_from_lwip);
+    tcp_err(lw, lwip_tcp_conn_err);
     return 0;    
 }
 
@@ -629,7 +617,7 @@ sysreturn accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 	return -EOPNOTSUPP;
     net_debug("sock %d\n", sockfd);
 
-    if (((tcpsock)s)->state != TCP_SOCK_LISTENING)
+    if (s->info.tcp.state != TCP_SOCK_LISTENING)
 	return set_syscall_return(current, -EINVAL);
 
     // ok, this is a reasonable interlock to build, the dating app
@@ -655,13 +643,11 @@ sysreturn getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
     struct sockaddr_in sin;
     sin.family = AF_INET;
     if (s->type == SOCK_STREAM) {
-	tcpsock ts = (tcpsock)s;
-	sin.port = ntohs(ts->lw->local_port);
-	sin.address = ntohl(*(u32 *)&(ts->lw->local_ip));
+	sin.port = ntohs(s->info.tcp.lw->local_port);
+	sin.address = ntohl(*(u32 *)&(s->info.tcp.lw->local_ip));
     } else if (s->type == SOCK_DGRAM) {
-	udpsock us = (udpsock)s;
-	sin.port = ntohs(us->lw->local_port);
-	sin.address = ntohl(*(u32 *)&(us->lw->local_ip));
+	sin.port = ntohs(s->info.udp.lw->local_port);
+	sin.address = ntohl(*(u32 *)&(s->info.udp.lw->local_ip));
     } else {
 	msg_err("not supported for socket type %d\n", s->type);
 	return -EINVAL;
