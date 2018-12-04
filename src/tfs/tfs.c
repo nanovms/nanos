@@ -202,7 +202,39 @@ void link(tuple dir, fsfile f, buffer name)
 
 int filesystem_mkdir(filesystem fs, char *fp)
 {
-    return 0;
+    heap h = fs->h;
+    tuple dir = allocate_tuple();
+    tuple folder = table_find(fs->root, sym(children));
+    char *token, *rest = fp, *basename;
+
+    /* 'make it a folder' by attaching a children node to the tuple */
+    table_set(dir, sym(children), allocate_tuple());
+
+    /* find the folder we need to mkdir in */
+    while ((token = runtime_strtok_r(rest, "/", &rest))) {
+        tuple prev_folder = folder;
+        boolean final = *rest == '\0';
+        folder = table_find(folder, sym_this(token));
+        if (!folder && !final) {
+            rprintf("mkdir: failed to find \"%s\"\n", token);
+            return -1;
+        }
+        if (!folder && final) {
+            basename = token;
+            folder = prev_folder;
+            break;
+        }
+
+        if (folder && final) {
+            /* already exists */
+            rprintf("mkdir: already exists\n");
+            return -1;
+        }
+    }
+
+    table_set(folder, sym_this(basename), dir);
+
+    return -1;
 }
 
 // should be passing status to the client

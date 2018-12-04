@@ -36,6 +36,7 @@ mkfs-srcs := \
 	$(SRC)/runtime/timer.c \
 	$(SRC)/runtime/tuple_parser.c \
 	$(SRC)/runtime/tuple.c \
+	$(SRC)/runtime/string.c \
 	$(SRC)/tfs/tfs.c \
 	$(SRC)/tfs/tlog.c \
 	$(SRC)/unix_process/unix_process_runtime.c \
@@ -58,6 +59,7 @@ dump-srcs := \
 	$(SRC)/runtime/table.c \
 	$(SRC)/runtime/timer.c \
 	$(SRC)/runtime/tuple.c \
+	$(SRC)/runtime/string.c \
 	$(SRC)/tfs/tfs.c \
 	$(SRC)/tfs/tlog.c \
 	$(SRC)/unix_process/unix_process_runtime.c \
