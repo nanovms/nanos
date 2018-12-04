@@ -66,7 +66,7 @@ typedef struct sock {
     } info;
 } *sock;
 
-#define NETSYSCALL_DEBUG
+//#define NETSYSCALL_DEBUG
 
 #ifdef NETSYSCALL_DEBUG
 #define net_debug(x, ...) do {log_printf(" NET", "%s: " x, __func__, ##__VA_ARGS__);} while(0)
@@ -402,6 +402,16 @@ sysreturn socket(int domain, int type, int protocol)
     if (domain != AF_INET)
         return -EAFNOSUPPORT;
 
+    /* check flags */
+    if (type & SOCK_NONBLOCK) {
+	msg_err("non-blocking sockets not yet supported; ignored\n");
+    }
+
+    if (type & SOCK_CLOEXEC) {
+	msg_err("close-on-exec not applicable; ignored\n");
+    }
+
+    type &= SOCK_TYPE_MASK;
     if (type == SOCK_STREAM) {
         struct tcp_pcb *p;
         if (!(p = tcp_new_ip_type(IPADDR_TYPE_ANY)))
