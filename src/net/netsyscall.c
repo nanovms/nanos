@@ -33,7 +33,6 @@ enum tcp_socket_state {
 enum udp_socket_state {
     UDP_SOCK_UNDEFINED = 0,
     UDP_SOCK_CREATED = 1,
-    UDP_SOCK_BOUND = 2,
 };
 
 typedef struct notify_entry {
@@ -207,9 +206,18 @@ static inline void pbuf_consume(struct pbuf *p, u64 length)
     p->payload += length;
 }
 
+struct udp_entry {
+    struct pbuf * p;
+    u32 raddr;
+    u16 rport;
+};
+
 // racy
-static CLOSURE_5_1(read_complete, void, sock, thread, void *, u64, boolean, err_t);
-static void read_complete(sock s, thread t, void *dest, u64 length, boolean sleeping, err_t lwip_status)
+static CLOSURE_7_1(read_complete, void, sock, thread, void *, u64, boolean,
+		   struct sockaddr *, socklen_t *, err_t);
+static void read_complete(sock s, thread t, void *dest, u64 length, boolean sleeping,
+			  struct sockaddr *src_addr, socklen_t *addrlen,
+			  err_t lwip_status)
 {
     net_debug("sock %d, thread %d, dest %p, len %d, sleeping %d\n",
 	      s->fd, t->tid, dest, length, sleeping);
@@ -219,13 +227,43 @@ static void read_complete(sock s, thread t, void *dest, u64 length, boolean slee
     }
 
     if (lwip_status == ERR_OK) {
-	// could copy in multiple pbufs just to save them from coming back tomorrow
-	struct pbuf *p = queue_peek(s->incoming);
 	u64 xfer = 0;
+	struct pbuf * p = 0;
+	u32 raddr;
+	u16 rport;
+	if (s->type == SOCK_STREAM) {
+	    /* XXX Take another stab at this for TCP, consuming
+	       multiple pbufs in the incoming queue if necessary to
+	       fill the request size. This will suffice for now,
+	       albeit with less efficiency. */
+	    p = queue_peek(s->incoming);
+	    raddr = ntohl(*(u32 *)&s->info.tcp.lw->remote_ip);
+	    rport = ntohs(s->info.tcp.lw->remote_port);
+	} else {
+	    assert(s->type == SOCK_DGRAM);
+	    struct udp_entry * e = queue_peek(s->incoming);
+	    if (e) {
+		p = e->p;
+		raddr = e->raddr;
+		rport = e->rport;
+	    }
+	}
+
 	if (p) {
 	    xfer = MIN(length, p->len);
 	    runtime_memcpy(dest, p->payload, xfer);
 	    pbuf_consume(p, xfer);
+
+	    if (src_addr) {
+		struct sockaddr_in sin;
+		sin.family = AF_INET;
+		sin.port = rport;
+		sin.address = raddr;
+		u32 len = MIN(sizeof(sin), *addrlen);
+		*addrlen = len;
+		runtime_memcpy(src_addr, &sin, len);
+	    }
+
 	    if (p->len == 0) {
 		dequeue(s->incoming);
 		pbuf_free(p);
@@ -256,11 +294,11 @@ static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
 
     // xxx - there is a fat race here between checking queue length and posting on the waiting queue
     if (queue_length(s->incoming)) {
-        read_complete(s, current, dest, length, false, ERR_OK);
+        read_complete(s, current, dest, length, false, 0, 0, ERR_OK);
         return sysreturn_value(current);        
     } else {
         // should be an atomic operation
-        if (!enqueue(s->waiting, closure(s->h, read_complete, s, current, dest, length, true)))
+        if (!enqueue(s->waiting, closure(s->h, read_complete, s, current, dest, length, true, 0, 0)))
 	    msg_err("waiting queue full\n");
         thread_sleep(current);
     }
@@ -283,11 +321,7 @@ static sysreturn socket_write(sock s, void *source, u64 length, u64 offset)
 	if (err != ERR_OK)
 	    goto out_lwip_err;
     } else if (s->type == SOCK_DGRAM) {
-	// XXX remote address dummy
-	if (s->info.udp.state != UDP_SOCK_BOUND) {
-	    msg_err("no peer address set\n");
-	    return set_syscall_error(current, EDESTADDRREQ);
-	}
+	/* XXX check if remote endpoint set? let LWIP check? */
 	struct pbuf * pbuf = pbuf_alloc(PBUF_TRANSPORT, length, PBUF_RAM);
 	if (!pbuf) {
 	    msg_err("failed to allocate pbuf for udp_send()\n");
@@ -345,6 +379,29 @@ static sysreturn socket_close(sock s)
     return 0;
 }
 
+static void udp_input_lower(void *z, struct udp_pcb *pcb, struct pbuf *p,
+			    const ip_addr_t * addr, u16 port)
+{
+    sock s = z;
+    u8 *n = (u8 *)addr;
+    net_debug("sock %d, pcb %p, buf %p, src addr %d.%d.%d.%d, port %d\n",
+	      s->fd, pcb, p, n[0], n[1], n[2], n[3], port);
+    assert(pcb == s->info.udp.lw);
+    if (p) {
+	/* could make a cache if we care to */
+	struct udp_entry * e = allocate(s->h, sizeof(struct udp_entry));
+	assert(e != INVALID_ADDRESS);
+	e->p = p;
+	e->raddr = ip4_addr_get_u32(addr);
+	e->rport = port;
+	if (!enqueue(s->incoming, e))
+	    msg_err("incomding queue full\n");
+    } else {
+	msg_err("null pbuf\n");
+    }
+    wakeup(s, 0);
+}
+
 static int allocate_sock(process p, int type, sock * rs)
 {
     sock s = unix_cache_alloc(get_unix_heaps(), socket);
@@ -393,6 +450,7 @@ static int allocate_udp_sock(process p, struct udp_pcb * pcb)
     if (fd >= 0) {
 	s->info.udp.lw = pcb;
 	s->info.udp.state = UDP_SOCK_CREATED;
+	udp_recv(pcb, udp_input_lower, s);
     }
     return fd;
 }
@@ -403,13 +461,11 @@ sysreturn socket(int domain, int type, int protocol)
         return -EAFNOSUPPORT;
 
     /* check flags */
-    if (type & SOCK_NONBLOCK) {
+    if (type & SOCK_NONBLOCK)
 	msg_err("non-blocking sockets not yet supported; ignored\n");
-    }
 
-    if (type & SOCK_CLOEXEC) {
+    if (type & SOCK_CLOEXEC)
 	msg_err("close-on-exec not applicable; ignored\n");
-    }
 
     type &= SOCK_TYPE_MASK;
     if (type == SOCK_STREAM) {
@@ -470,8 +526,6 @@ sysreturn bind(int sockfd, struct sockaddr *addr, socklen_t addrlen)
 	    s->info.tcp.state = TCP_SOCK_OPEN;
     } else if (s->type == SOCK_DGRAM) {
 	err = udp_bind(s->info.udp.lw, &ipaddr, ntohs(sin->port));
-	if (err == ERR_OK)
-	    s->info.udp.state = UDP_SOCK_BOUND;
     } else {
 	msg_err("unsupported socket type %d\n", s->type);
 	return -EINVAL;
@@ -551,6 +605,81 @@ sysreturn connect(int sockfd, struct sockaddr * addr, socklen_t addrlen)
 	return -EINVAL;
     }
     return lwip_to_errno(err);
+}
+
+#define MSG_OOB         0x00000001
+#define MSG_DONTROUTE   0x00000004
+#define MSG_PROBE       0x00000010
+#define MSG_TRUNC       0x00000020
+#define MSG_DONTWAIT    0x00000040
+#define MSG_EOR         0x00000080
+#define MSG_CONFIRM     0x00000800
+#define MSG_NOSIGNAL    0x00004000
+#define MSG_MORE        0x00008000
+
+sysreturn sendto(int sockfd, void * buf, u64 len, int flags,
+		 struct sockaddr *dest_addr, socklen_t addrlen)
+{
+    int err = ERR_OK;
+    sock s = resolve_fd(current->p, sockfd);
+
+    /* Process flags */
+    if (flags & MSG_CONFIRM)
+	msg_err("MSG_CONFIRM unimplemented; ignored\n");
+
+    if (flags & MSG_DONTROUTE)
+	msg_err("MSG_DONTROUTE unimplemented; ignored\n");
+
+    if (flags & MSG_DONTWAIT)
+	msg_err("MSG_DONTWAIT unimplemented; ignored\n");
+
+    if (flags & MSG_EOR) {
+	msg_err("MSG_EOR unimplemented\n");
+	return -EOPNOTSUPP;
+    }
+
+    if (flags & MSG_MORE)
+	msg_err("MSG_MORE unimplemented; ignored\n");
+
+    if (flags & MSG_NOSIGNAL)
+	msg_err("MSG_NOSIGNAL unimplemented; ignored\n");
+
+    if (flags & MSG_OOB)
+	msg_err("MSG_OOB unimplemented; ignored\n");
+
+    /* Ignore dest if TCP */
+    if (s->type == SOCK_DGRAM && dest_addr) {
+	struct sockaddr_in * sin = (struct sockaddr_in *)dest_addr;
+	ip_addr_t ipaddr = IPADDR4_INIT(sin->address);
+	if (addrlen < sizeof(*sin))
+	    return -EINVAL;
+	err = udp_connect(s->info.udp.lw, &ipaddr, sin->port);
+    }
+
+    return socket_write(s, buf, len, 0);
+}
+
+sysreturn recvfrom(int sockfd, void * buf, u64 len, int flags,
+		   struct sockaddr *src_addr, socklen_t *addrlen)
+{
+    sock s = resolve_fd(current->p, sockfd);
+    net_debug("sock %d, type %d, thread %d, dest %p, length %d, offset %d\n",
+	      s->fd, s->type, current->tid, dest, length, offset);
+    if (s->type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN)
+        return set_syscall_error(current, ENOTCONN);
+    /* XXX see above about race...methinks we should just dequeue and pass the entry
+       as is...and also consolidate the entry between tcp and udp */
+    if (queue_length(s->incoming)) {
+        read_complete(s, current, buf, len, false, src_addr, addrlen, ERR_OK);
+        return sysreturn_value(current);
+    } else {
+        // should be an atomic operation
+        if (!enqueue(s->waiting, closure(s->h, read_complete, s, current, buf,
+					 len, true, src_addr, addrlen)))
+	    msg_err("waiting queue full\n");
+        thread_sleep(current);
+    }
+    return 0;			/* suppress warning */
 }
 
 static void lwip_tcp_conn_err(void * z, err_t b) {
@@ -654,10 +783,10 @@ sysreturn getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
     sin.family = AF_INET;
     if (s->type == SOCK_STREAM) {
 	sin.port = ntohs(s->info.tcp.lw->local_port);
-	sin.address = ntohl(*(u32 *)&(s->info.tcp.lw->local_ip));
+	sin.address = ip4_addr_get_u32(&s->info.tcp.lw->local_ip);
     } else if (s->type == SOCK_DGRAM) {
 	sin.port = ntohs(s->info.udp.lw->local_port);
-	sin.address = ntohl(*(u32 *)&(s->info.udp.lw->local_ip));
+	sin.address = ip4_addr_get_u32(&s->info.udp.lw->local_ip);
     } else {
 	msg_err("not supported for socket type %d\n", s->type);
 	return -EINVAL;
@@ -685,7 +814,8 @@ sysreturn setsockopt(int sockfd,
                      void *optval,
                      socklen_t optlen)
 {
-    //    rprintf("sockopt %d %d\n", sockfd, optname);
+    rprintf("sockopt unimplemented: fd %d, level %d, optname %d\n",
+	    sockfd, level, optname);
     return 0;
 }
 
@@ -697,6 +827,8 @@ void register_net_syscalls(void **map)
     register_syscall(map, SYS_accept, accept);
     register_syscall(map, SYS_accept4, accept4);    
     register_syscall(map, SYS_connect, connect);
+    register_syscall(map, SYS_sendto, sendto);
+    register_syscall(map, SYS_recvfrom, recvfrom);
     register_syscall(map, SYS_setsockopt, setsockopt);
     register_syscall(map, SYS_connect, connect);
     register_syscall(map, SYS_getsockname, getsockname);
