@@ -176,6 +176,17 @@ void __print_stack_with_rbp(u64 *rbp)
     }
 }
 
+void __print_stack_from_here()
+{
+    u64 register rbp asm("rbp");
+    __print_stack_with_rbp(rbp);
+}
+
+void print_stack_from_here(void)
+{
+    __print_stack_from_here(0);
+}
+
 void print_stack(context c)
 {
     console("stack trace: \n");
