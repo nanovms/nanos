@@ -205,6 +205,7 @@ int filesystem_mkdir(filesystem fs, char *fp)
     heap h = fs->h;
     tuple dir = allocate_tuple();
     tuple folder = table_find(fs->root, sym(children));
+    symbol basename_sym;
     char *token, *rest = fp, *basename;
 
     /* 'make it a folder' by attaching a children node to the tuple */
@@ -232,9 +233,13 @@ int filesystem_mkdir(filesystem fs, char *fp)
         }
     }
 
-    table_set(folder, sym_this(basename), dir);
+    basename_sym = sym_this(basename);
+    table_set(folder, basename_sym, dir);
+    log_write_eav(fs->tl, folder, basename_sym, dir, ignore);
+    log_flush(fs->tl);
+    rprintf("mkdir: written!\n");
 
-    return -1;
+    return 0;
 }
 
 // should be passing status to the client
