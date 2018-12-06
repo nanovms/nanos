@@ -1,7 +1,6 @@
 #include <runtime.h>
 #include <http.h>
 #include <socket_user.h>
-#include <stdlib.h>
 
 typedef struct stats {
     u32 connections;
