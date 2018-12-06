@@ -52,6 +52,7 @@ objcache_test-srcs := \
 	$(SRC)/runtime/table.c \
 	$(SRC)/runtime/timer.c \
 	$(SRC)/runtime/tuple.c \
+	$(SRC)/runtime/string.c \
 	$(SRC)/tfs/tfs.c \
 	$(SRC)/tfs/tlog.c \
 	$(SRC)/unix_process/unix_process_runtime.c \
@@ -75,6 +76,7 @@ network_test-srcs := \
 	$(SRC)/runtime/table.c \
 	$(SRC)/runtime/timer.c \
 	$(SRC)/runtime/tuple.c \
+	$(SRC)/runtime/string.c \
 	$(SRC)/tfs/tfs.c \
 	$(SRC)/tfs/tlog.c \
 	$(SRC)/unix_process/unix_process_runtime.c \
@@ -101,6 +103,7 @@ id_heap_test-srcs := \
 	$(SRC)/runtime/table.c \
 	$(SRC)/runtime/timer.c \
 	$(SRC)/runtime/tuple.c \
+	$(SRC)/runtime/string.c \
 	$(SRC)/tfs/tfs.c \
 	$(SRC)/tfs/tlog.c \
 	$(SRC)/unix_process/unix_process_runtime.c \
@@ -148,6 +151,7 @@ pqueue_test-srcs := \
 	$(SRC)/runtime/table.c \
 	$(SRC)/runtime/timer.c \
 	$(SRC)/runtime/tuple.c \
+	$(SRC)/runtime/string.c \
 	$(SRC)/unix_process/unix_process_runtime.c \
 
 pqueue_test-objs = $(call srcs-to-objs,$(ROOT),$(OUT),pqueue_test)
@@ -168,6 +172,7 @@ vector_test-srcs := \
 	$(SRC)/runtime/table.c \
 	$(SRC)/runtime/timer.c \
 	$(SRC)/runtime/tuple.c \
+	$(SRC)/runtime/string.c \
 	$(SRC)/unix_process/unix_process_runtime.c \
 
 vector_test-objs = $(call srcs-to-objs,$(ROOT),$(OUT),vector_test)
