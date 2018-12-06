@@ -212,7 +212,11 @@ struct udp_entry {
     u16 rport;
 };
 
-// racy
+/* XXX This needs some more work:
+   - address race issues if multiple threads are reading from the same socket
+   - make udp_entry something universal regardless of protocol
+   - generally refactor / simplify
+*/
 static CLOSURE_7_1(read_complete, void, sock, thread, void *, u64, boolean,
 		   struct sockaddr *, socklen_t *, err_t);
 static void read_complete(sock s, thread t, void *dest, u64 length, boolean sleeping,
@@ -265,7 +269,9 @@ static void read_complete(sock s, thread t, void *dest, u64 length, boolean slee
 	    }
 
 	    if (p->len == 0) {
-		dequeue(s->incoming);
+		void * r = dequeue(s->incoming);
+		if (s->type == SOCK_DGRAM)
+		    deallocate(s->h, r, sizeof(struct udp_entry));
 		pbuf_free(p);
 		/* reset a triggered EPOLLIN condition */
 		if (queue_length(s->incoming) == 0)
