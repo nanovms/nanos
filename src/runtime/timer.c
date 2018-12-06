@@ -17,11 +17,12 @@ struct timer {
 static pqueue timers;
 static heap theap;
 
-static boolean timer_less_than(void *za, void *zb)
+/* The lower time expiry is the higher priority. */
+static boolean timer_compare(void *za, void *zb)
 {
     timer a = za;
     timer b = zb;
-    return(a->w < b->w);
+    return(a->w > b->w);
 }
 
 void remove_timer(timer t)
@@ -126,6 +127,6 @@ void initialize_timers(kernel_heaps kh)
 {
     heap h = heap_general(kh);
     assert(!timers);
-    timers = allocate_pqueue(h, timer_less_than);
+    timers = allocate_pqueue(h, timer_compare);
     theap = h;
 }

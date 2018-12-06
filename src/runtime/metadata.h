@@ -5,10 +5,13 @@
 
 static vector vector_from_tuple(heap h, tuple n)
 {
+    if (!n)
+        return 0;
+
     vector r = allocate_vector(h, 100); //table_elements(n));
     void *x;
     
-    for (int i = 0; n && (x = table_find(n, intern_u64(i)));  i++) 
+    for (int i = 0; (x = table_find(n, intern_u64(i))); i++)
         vector_push(r, x);
     
     return r;
@@ -31,11 +34,14 @@ static inline tuple tuple_from_vector(vector v)
 static inline tuple resolve_path(tuple n, vector v)
 {
     buffer i;
-    // xx destructive, relative
-    vector_pop(v);
     vector_foreach(v, i) {
+        /* null entries ("//") are skipped in path */
+        if (buffer_length(i) == 0)
+            continue;
         tuple c = table_find(n, sym(children));
+        assert(c);
         n = table_find(c, intern(i));
+        assert(n);
     }
     return n;
 }
@@ -81,7 +87,11 @@ static inline tuple resolve_cstring(tuple root, char *f)
             push_character(a, y);
         }
     }
-    if (buffer_length(a)) t = lookup(t, intern(a));
-    return t;
+    
+    if (buffer_length(a)) {
+        t = lookup(t, intern(a));
+        return t;
+    }
+    return 0;
 }
 

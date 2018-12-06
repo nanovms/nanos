@@ -17,7 +17,13 @@ DD	?= dd
 CAT	?= cat
 RM	?= rm
 
-CFLAGS	= -fno-stack-protector -g -O -fdata-sections -ffunction-sections $(includes)
+CFLAGS	= -fno-omit-frame-pointer \
+		  -fno-stack-protector \
+		  -g \
+		  -O \
+		  -fdata-sections \
+		  -ffunction-sections \
+		  $(includes)
 LDFLAGS	= --gc-sections
 
 IMAGE	= $(ROOT)/output/image/image
@@ -52,6 +58,8 @@ OBJCACHE_TEST	= $(ROOT)/output/test/objcache_test
 NETWORK_TEST	= $(ROOT)/output/test/network_test
 ID_HEAP_TEST	= $(ROOT)/output/test/id_heap_test
 PATH_TEST	= $(ROOT)/output/test/path_test
+PQUEUE_TEST	= $(ROOT)/output/test/pqueue_test
+VECTOR_TEST	= $(ROOT)/output/test/vector_test
 
 # Generated depedencies
 

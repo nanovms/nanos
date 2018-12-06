@@ -136,35 +136,50 @@ void lapic_eoi()
     write_barrier();    
 }
 
-char * find_elf_sym(u64 a, u64 *offset);
+char * find_elf_sym(u64 a, u64 *offset, u64 *len);
 
 void print_u64_with_sym(u64 a)
 {
     char * name;
-    u64 offset;
+    u64 offset, len;
 
     print_u64(a);
 
-    name = find_elf_sym(a, &offset);
+    name = find_elf_sym(a, &offset, &len);
     if (name) {
 	console("\t(");
 	console(name);
 	console(" + ");
 	print_u64(offset);
+    console("/");
+    print_u64(len);
 	console(")");
+    }
+}
+
+extern void *text_start;
+extern void *text_end;
+void __print_stack_with_rbp(u64 *rbp)
+{
+    for (unsigned int frame = 0; frame < 32; frame ++) {
+        if ((u64) rbp < 4096ULL)
+            break;
+
+        u64 rip = rbp[1];
+
+        if (rip < (u64) &text_start || rip > (u64) &text_end)
+            break;
+
+        rbp = (u64 *) rbp[0];
+        print_u64_with_sym(rip);
+        console("\n");
     }
 }
 
 void print_stack(context c)
 {
-    u64 frames = 30;
-    u64 *x = pointer_from_u64(c[FRAME_RSP]);
-    // really until page aligned?
-    console("stack \n");
-    for (u64 i= frames ;i > 0; i--) {
-        print_u64_with_sym(*(x+i));
-        console("\n");
-    }
+    console("stack trace: \n");
+    __print_stack_with_rbp(pointer_from_u64(c[FRAME_RBP]));
 }
 
 void print_frame(context f)
