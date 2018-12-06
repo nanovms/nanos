@@ -8,7 +8,7 @@ CFLAGS = -g \
 	 -DENABLE_MSG_DEBUG \
 	 $(includes)
 
-all: fst hw hws hwg getdents web webg webgs webs
+all: fst hw hws hwg getdents udploop web webg webgs webs
 
 fst: $(FST)
 
@@ -19,6 +19,8 @@ hws: $(HWS)
 hwg: $(HWG)
 
 getdents: $(GETDENTS)
+
+udploop: $(UDPLOOP)
 
 web: $(WEB)
 
@@ -54,6 +56,43 @@ getdents-objs = $(call srcs-to-objs,$(ROOT),$(OUT),getdents)
 
 $(GETDENTS): HOSTLDFLAGS += -static
 $(GETDENTS): $(getdents-objs)
+	$(call cmd,host-prog)
+
+udploop-srcs := \
+	$(ROOT)/examples/udploop.c \
+	$(SRC)/unix_process/unix_process_runtime.c \
+	$(SRC)/unix_process/mmap_heap.c \
+	$(SRC)/unix_process/http.c \
+	$(SRC)/unix_process/path.c \
+	$(SRC)/unix_process/socket_user.c \
+	$(SRC)/unix_process/tiny_heap.c \
+	$(SRC)/runtime/bitmap.c \
+	$(SRC)/runtime/buffer.c \
+	$(SRC)/runtime/extra_prints.c \
+	$(SRC)/runtime/format.c \
+	$(SRC)/runtime/heap/id.c \
+	$(SRC)/runtime/heap/freelist.c \
+	$(SRC)/runtime/heap/debug_heap.c \
+	$(SRC)/runtime/heap/objcache.c \
+	$(SRC)/runtime/heap/mcache.c \
+	$(SRC)/runtime/merge.c \
+	$(SRC)/runtime/pqueue.c \
+	$(SRC)/runtime/random.c \
+	$(SRC)/runtime/rtrie.c \
+	$(SRC)/runtime/runtime_init.c \
+	$(SRC)/runtime/sha256.c \
+	$(SRC)/runtime/signature.c \
+	$(SRC)/runtime/string.c \
+	$(SRC)/runtime/symbol.c \
+	$(SRC)/runtime/table.c \
+	$(SRC)/runtime/timer.c \
+	$(SRC)/runtime/tuple_parser.c \
+	$(SRC)/runtime/tuple.c \
+
+udploop-objs = $(call srcs-to-objs,$(ROOT),$(OUT),udploop)
+
+$(UDPLOOP): HOSTLDFLAGS += -static
+$(UDPLOOP): $(udploop-objs)
 	$(call cmd,host-prog)
 
 web-srcs := \
@@ -103,12 +142,12 @@ $(WEBGS): webg.go
 	@ echo "GO	$@"
 	$(Q) CGO_ENABLED=0 $(GO) build -a -ldflags '-extldflags "-static"' -o $@ $^
 
-$(hw-objs) $(web-objs): $(CLOSURE_TMPL)
+$(hw-objs) $(web-objs) $(udploop-objs): $(CLOSURE_TMPL)
 
-clean-objs = $(hw-objs) $(web-objs) $(FST) $(HW) $(HWG) $(HWS) $(WEB) $(WEBG) $(WEBGS) $(WEBS) $(CLOSURE_TMPL) $(getdents-objs) $(GETDENTS)
+clean-objs = $(hw-objs) $(web-objs) $(FST) $(HW) $(HWG) $(HWS) $(WEB) $(WEBG) $(WEBGS) $(WEBS) $(CLOSURE_TMPL) $(getdents-objs) $(GETDENTS) $(udploop-objs) $(UDPLOOP)
 
 clean: default-clean
 
-.PHONY: fst hw hwg hws web webg webgs webs getdents
+.PHONY: fst hw hwg hws web webg webgs webs getdents udploop
 
 include ../rules.mk

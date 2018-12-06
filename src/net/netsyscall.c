@@ -814,7 +814,7 @@ sysreturn setsockopt(int sockfd,
                      void *optval,
                      socklen_t optlen)
 {
-    rprintf("sockopt unimplemented: fd %d, level %d, optname %d\n",
+    msg_err("unimplemented: fd %d, level %d, optname %d\n",
 	    sockfd, level, optname);
     return 0;
 }

@@ -24,7 +24,7 @@ enum protocol_type {
 #define SOCK_TYPE_MASK	0xf
 #define __SOCK_SIZE__	16		/* sizeof(struct sockaddr)	*/
 
-#define AF_INET 10
+#define AF_INET 2
 
 
 // tuplify
