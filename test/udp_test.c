@@ -28,6 +28,7 @@ void main(int argc, char ** argv)
     value unassoc = table_find(t, sym(unassociated));
     if (!unassoc)
         halt("specify target as <ip addr>:<port>\n");
+    boolean terminate = table_find(t, sym(terminate)) != 0;
 
     char sbuf[BUFLEN], rbuf[BUFLEN];
 
@@ -71,7 +72,7 @@ void main(int argc, char ** argv)
     int iter = 0;
     for (int i = 0; i < iterations; i++) {
 	memset(sbuf, i % 256, MSGSIZE);
-	if (i == iterations - 1)
+	if (i == iterations - 1 && terminate)
 	    strcpy(sbuf, "terminate");
 
 	int slen = sendto(fd, sbuf, MSGSIZE, 0, (struct sockaddr *)&dsin, sizeof(dsin));
@@ -91,5 +92,6 @@ void main(int argc, char ** argv)
 	    fail("payload mismatch");
     }
 
+    rprintf("success\n");
     exit(EXIT_SUCCESS);
 }

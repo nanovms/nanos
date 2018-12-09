@@ -527,10 +527,14 @@ sysreturn bind(int sockfd, struct sockaddr *addr, socklen_t addrlen)
     if (s->type == SOCK_STREAM) {
 	if (s->info.tcp.state == TCP_SOCK_OPEN)
 	    return -EINVAL;	/* already bound */
+        net_debug("calling tcp_bind, pcb %p, ip %P, port %d\n",
+                  s->info.tcp.lw, *(u64*)&ipaddr, ntohs(sin->port));
 	err = tcp_bind(s->info.tcp.lw, &ipaddr, ntohs(sin->port));
 	if (err == ERR_OK)
 	    s->info.tcp.state = TCP_SOCK_OPEN;
     } else if (s->type == SOCK_DGRAM) {
+        net_debug("calling udp_bind, pcb %p, ip %P, port %d\n",
+                  s->info.udp.lw, *(u32*)&ipaddr, ntohs(sin->port));
 	err = udp_bind(s->info.udp.lw, &ipaddr, ntohs(sin->port));
     } else {
 	msg_err("unsupported socket type %d\n", s->type);
@@ -628,6 +632,8 @@ sysreturn sendto(int sockfd, void * buf, u64 len, int flags,
 {
     int err = ERR_OK;
     sock s = resolve_fd(current->p, sockfd);
+    net_debug("sendto %d, buf %p, len %d, flags %P, dest_addr %p, addrlen %d\n",
+              sockfd, buf, len, flags, dest_addr, addrlen);
 
     /* Process flags */
     if (flags & MSG_CONFIRM)
@@ -660,6 +666,10 @@ sysreturn sendto(int sockfd, void * buf, u64 len, int flags,
 	if (addrlen < sizeof(*sin))
 	    return -EINVAL;
 	err = udp_connect(s->info.udp.lw, &ipaddr, sin->port);
+        if (err != ERR_OK) {
+            msg_err("udp_connect failed: %s\n", lwip_strerr(err));
+            return lwip_to_errno(err);
+        }
     }
 
     return socket_write(s, buf, len, 0);
@@ -669,8 +679,8 @@ sysreturn recvfrom(int sockfd, void * buf, u64 len, int flags,
 		   struct sockaddr *src_addr, socklen_t *addrlen)
 {
     sock s = resolve_fd(current->p, sockfd);
-    net_debug("sock %d, type %d, thread %d, dest %p, length %d, offset %d\n",
-	      s->fd, s->type, current->tid, dest, length, offset);
+    net_debug("sock %d, type %d, thread %d, buf %p, len %d\n",
+	      s->fd, s->type, current->tid, buf, len);
     if (s->type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN)
         return set_syscall_error(current, ENOTCONN);
     /* XXX see above about race...methinks we should just dequeue and pass the entry

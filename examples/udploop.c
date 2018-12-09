@@ -43,7 +43,8 @@ void main(int argc, char ** argv)
 	fail("bind");
 
     struct sockaddr_in rsin;
-    socklen_t rsin_len;
+    socklen_t rsin_len = sizeof(rsin);
+    const char * tstr = "terminate";
     do {
 	int rlen = recvfrom(fd, buf, BUFLEN, 0, (struct sockaddr *)&rsin, &rsin_len);
 	if (rlen < 0)
@@ -51,17 +52,16 @@ void main(int argc, char ** argv)
 	if (rlen == 0)
 	    continue;
 
-	const char * tstr = "terminate";
+	int slen = sendto(fd, buf, rlen, 0, (struct sockaddr *)&rsin, rsin_len);
+	// XXX retry on EINTR / EAGAIN
+	if (slen < 0)
+	    fail("sendto");
+
 	int tlen = strlen(tstr);
 	if (rlen >= tlen && strncmp(tstr, buf, tlen) == 0) {
 	    rprintf("success\n");
 	    close(fd);
 	    exit(EXIT_SUCCESS);
 	}
-
-	int slen = sendto(fd, buf, rlen, 0, (struct sockaddr *)&rsin, rsin_len);
-	// XXX retry on EINTR / EAGAIN
-	if (slen < 0)
-	    fail("sendto");
     } while(1);
 }
