@@ -3,7 +3,13 @@
 
 #include <errno.h>
 #include <string.h>
-#include <stdlib.h>
+
+// XXX lame - please fix
+//#include <stdlib.h>
+void exit(int status);
+#define EXIT_FAILURE 1
+#define EXIT_SUCCESS 0
+
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
