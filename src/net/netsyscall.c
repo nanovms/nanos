@@ -135,17 +135,16 @@ static void notify_dispatch(sock s)
 
 typedef closure_type(lwip_status_handler, void, err_t);
 
-static void wakeup(sock s, err_t err)
+static void wakeup_sock(sock s, err_t err)
 {
     lwip_status_handler fstatus;
     net_debug("sock %d\n", s->fd);
     // return status if not handled so someone else can try?
     // shouldnt a close event wake up everyone?
-    if ((fstatus = dequeue(s->waiting))) {
+    if ((fstatus = dequeue(s->waiting)))
         apply(fstatus, err);
-    }  else {
+    else
 	notify_dispatch(s);
-    }
 }
 
 static inline void error_message(sock s, err_t err) {
@@ -395,7 +394,7 @@ static void udp_input_lower(void *z, struct udp_pcb *pcb, struct pbuf *p,
     assert(pcb == s->info.udp.lw);
     if (p) {
 	/* could make a cache if we care to */
-	struct udp_entry * e = allocate(s->h, sizeof(struct udp_entry));
+	struct udp_entry * e = allocate(s->h, sizeof(*e));
 	assert(e != INVALID_ADDRESS);
 	e->p = p;
 	e->raddr = ip4_addr_get_u32(addr);
@@ -405,7 +404,7 @@ static void udp_input_lower(void *z, struct udp_pcb *pcb, struct pbuf *p,
     } else {
 	msg_err("null pbuf\n");
     }
-    wakeup(s, 0);
+    wakeup_sock(s, 0);
 }
 
 static int allocate_sock(process p, int type, sock * rs)
@@ -463,15 +462,21 @@ static int allocate_udp_sock(process p, struct udp_pcb * pcb)
 
 sysreturn socket(int domain, int type, int protocol)
 {
-    if (domain != AF_INET)
+    if (domain != AF_INET) {
+        msg_err("domain %d not supported\n", domain);
         return -EAFNOSUPPORT;
+    }
 
     /* check flags */
-    if (type & SOCK_NONBLOCK)
+    int flags = type & ~SOCK_TYPE_MASK;
+    if (check_flags_and_clear(flags, SOCK_NONBLOCK))
 	msg_err("non-blocking sockets not yet supported; ignored\n");
 
-    if (type & SOCK_CLOEXEC)
+    if (check_flags_and_clear(flags, SOCK_CLOEXEC))
 	msg_err("close-on-exec not applicable; ignored\n");
+
+    if ((flags & ~SOCK_TYPE_MASK) != 0)
+        msg_warn("unhandled type flags 0x%P\n", flags);
 
     type &= SOCK_TYPE_MASK;
     if (type == SOCK_STREAM) {
@@ -504,14 +509,16 @@ static err_t tcp_input_lower(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t
         // later timmf
         s->lwip_status = timm("lwip error", "%d", err);
     }
-    
+
+    /* A null pbuf indicates connection closed. */
     if (p) {
         if (!enqueue(s->incoming, p))
 	    msg_err("incoming queue full\n");
     } else {
         s->info.tcp.state = TCP_SOCK_CLOSED;
     }
-    wakeup(s, 0);
+
+    wakeup_sock(s, 0);
     return ERR_OK;
 }
 
@@ -604,8 +611,9 @@ sysreturn connect(int sockfd, struct sockaddr * addr, socklen_t addrlen)
 	    err = ERR_ALREADY;
 	} else if (s->info.tcp.state == TCP_SOCK_OPEN) {
 	    err = ERR_ISCONN;
-	} else {
-	    err = connect_tcp(s, &ipaddr, sin->port);
+	} else if (s->info.tcp.state == TCP_SOCK_LISTENING) {
+            msg_warn("attempt to connect on listening socket fd = %d; ignored\n", sockfd);
+	    err = ERR_ARG;
 	}
     } else if (s->type == SOCK_DGRAM) {
 	/* Set remote endpoint */
@@ -726,7 +734,7 @@ static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t b)
     if (!enqueue(s->incoming, sn))
 	msg_err("incoming queue full\n");
 
-    wakeup(s, b);
+    wakeup_sock(s, b);
     return ERR_OK;
 }
 
