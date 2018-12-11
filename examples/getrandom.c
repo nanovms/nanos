@@ -1,11 +1,20 @@
+#define _GNU_SOURCE
 #include <stdio.h>
-#include <sys/random.h>
+#include <unistd.h>
+#include <sys/syscall.h>
+#include <linux/random.h>
 #include <errno.h>
 #include <math.h>
 
 #define BUF_LEN 128
 
 static int hash[256];
+
+int
+__getrandom(void *buf, int i, int f)
+{
+    return syscall(SYS_getrandom, buf, i, f);
+}
 
 int main(int argc, char **argvp)
 {
@@ -16,7 +25,7 @@ int main(int argc, char **argvp)
         return 1;
     }
 
-    r = getrandom(buffer, BUF_LEN, 0);
+    r = __getrandom(buffer, BUF_LEN, 0);
     if (r != 128) {
         printf("didn't get enough bytes: r = %d, errno = %d\n", r, errno);
         return 2;
