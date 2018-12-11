@@ -150,10 +150,10 @@ static void wakeup_sock(sock s, err_t err)
 static inline void error_message(sock s, err_t err) {
     switch (err) {
         case ERR_ABRT:
-            msg_err("connection closed on fd %d due to tcp_abort or timer\n", s->fd);
+            msg_warn("connection closed on fd %d due to tcp_abort or timer\n", s->fd);
             break;
         case ERR_RST:
-            msg_err("connection closed on fd %d due to remote reset\n", s->fd);
+            msg_warn("connection closed on fd %d due to remote reset\n", s->fd);
             break;
         default:
             msg_err("fd %d: unknown error %d\n", s->fd, err);
@@ -463,17 +463,17 @@ static int allocate_udp_sock(process p, struct udp_pcb * pcb)
 sysreturn socket(int domain, int type, int protocol)
 {
     if (domain != AF_INET) {
-        msg_err("domain %d not supported\n", domain);
+        msg_warn("domain %d not supported\n", domain);
         return -EAFNOSUPPORT;
     }
 
     /* check flags */
     int flags = type & ~SOCK_TYPE_MASK;
     if (check_flags_and_clear(flags, SOCK_NONBLOCK))
-	msg_err("non-blocking sockets not yet supported; ignored\n");
+	msg_warn("non-blocking sockets not yet supported; ignored\n");
 
     if (check_flags_and_clear(flags, SOCK_CLOEXEC))
-	msg_err("close-on-exec not applicable; ignored\n");
+	msg_warn("close-on-exec not applicable; ignored\n");
 
     if ((flags & ~SOCK_TYPE_MASK) != 0)
         msg_warn("unhandled type flags 0x%P\n", flags);
@@ -496,7 +496,7 @@ sysreturn socket(int domain, int type, int protocol)
         net_debug("new udp fd %d, pcb %p\n", fd, p);
         return fd;
     }
-    msg_err("unsupported socket type %d\n", type);
+    msg_warn("unsupported socket type %d\n", type);
     return -EINVAL;
 }
 
@@ -544,7 +544,7 @@ sysreturn bind(int sockfd, struct sockaddr *addr, socklen_t addrlen)
                   s->info.udp.lw, *(u32*)&ipaddr, ntohs(sin->port));
 	err = udp_bind(s->info.udp.lw, &ipaddr, ntohs(sin->port));
     } else {
-	msg_err("unsupported socket type %d\n", s->type);
+	msg_warn("unsupported socket type %d\n", s->type);
 	return -EINVAL;
     }
     return lwip_to_errno(err);
@@ -645,27 +645,27 @@ sysreturn sendto(int sockfd, void * buf, u64 len, int flags,
 
     /* Process flags */
     if (flags & MSG_CONFIRM)
-	msg_err("MSG_CONFIRM unimplemented; ignored\n");
+	msg_warn("MSG_CONFIRM unimplemented; ignored\n");
 
     if (flags & MSG_DONTROUTE)
-	msg_err("MSG_DONTROUTE unimplemented; ignored\n");
+	msg_warn("MSG_DONTROUTE unimplemented; ignored\n");
 
     if (flags & MSG_DONTWAIT)
-	msg_err("MSG_DONTWAIT unimplemented; ignored\n");
+	msg_warn("MSG_DONTWAIT unimplemented; ignored\n");
 
     if (flags & MSG_EOR) {
-	msg_err("MSG_EOR unimplemented\n");
+	msg_warn("MSG_EOR unimplemented\n");
 	return -EOPNOTSUPP;
     }
 
     if (flags & MSG_MORE)
-	msg_err("MSG_MORE unimplemented; ignored\n");
+	msg_warn("MSG_MORE unimplemented; ignored\n");
 
     if (flags & MSG_NOSIGNAL)
-	msg_err("MSG_NOSIGNAL unimplemented; ignored\n");
+	msg_warn("MSG_NOSIGNAL unimplemented; ignored\n");
 
     if (flags & MSG_OOB)
-	msg_err("MSG_OOB unimplemented; ignored\n");
+	msg_warn("MSG_OOB unimplemented; ignored\n");
 
     /* Ignore dest if TCP */
     if (s->type == SOCK_DGRAM && dest_addr) {
@@ -812,7 +812,7 @@ sysreturn getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 	sin.port = ntohs(s->info.udp.lw->local_port);
 	sin.address = ip4_addr_get_u32(&s->info.udp.lw->local_ip);
     } else {
-	msg_err("not supported for socket type %d\n", s->type);
+	msg_warn("not supported for socket type %d\n", s->type);
 	return -EINVAL;
     }
     u64 len = MIN(*addrlen, sizeof(sin));
@@ -838,7 +838,7 @@ sysreturn setsockopt(int sockfd,
                      void *optval,
                      socklen_t optlen)
 {
-    msg_err("unimplemented: fd %d, level %d, optname %d\n",
+    msg_warn("unimplemented: fd %d, level %d, optname %d\n",
 	    sockfd, level, optname);
     return 0;
 }

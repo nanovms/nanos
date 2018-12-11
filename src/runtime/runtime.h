@@ -127,8 +127,12 @@ void debug(buffer);
 #define msg_err(fmt, ...) rprintf("%s error: " fmt, __func__,   \
 				  ##__VA_ARGS__)
 
+#ifdef ENABLE_MSG_WARN
 #define msg_warn(fmt, ...) rprintf("%s warning: " fmt, __func__,   \
 				  ##__VA_ARGS__)
+#else
+#define msg_warn(fmt, ...)
+#endif
 
 #ifdef ENABLE_MSG_DEBUG
 #define msg_debug(fmt, ...) rprintf("%s debug: " fmt, __func__, \
