@@ -1,4 +1,6 @@
 #pragma once
+#include <getrandom.h>
+
 typedef struct kernel_heaps *kernel_heaps;
 typedef struct unix_heaps *unix_heaps;
 typedef struct process *process;

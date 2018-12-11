@@ -5,7 +5,7 @@ srcs-to-objs = \
 cmd = $(if $(Q),@ echo "$(msg_$(1))";) $(cmd_$(1))
 
 msg_host-prog     = HOSTLD	$@
-cmd_host-prog     = $(HOSTCC) $(HOSTLDFLAGS) $(HOSTLDFLAGS_$(@F)) $($(@F)-objs) -o $@
+cmd_host-prog     = $(HOSTCC) $(HOSTLDFLAGS) $(HOSTLDFLAGS_$(@F)) $($(@F)-objs) $(EXTRA_HOSTLDFLAGS) -o $@
 
 msg_cc_o_c        = CC	$@
 cmd_cc_o_c        = $(CC) $(CFLAGS) $(DDFLAGS_$(@F)) -I$(dir $(CLOSURE_TMPL)) -c $< -o $@

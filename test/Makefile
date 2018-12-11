@@ -6,7 +6,7 @@ OUT = $(ROOT)/output/test
 CFLAGS += -g -std=gnu99
 #CFLAGS+=-DENABLE_MSG_DEBUG -DID_HEAP_DEBUG
 
-all: objcache_test network_test id_heap_test path_test pqueue_test vector_test
+all: objcache_test network_test id_heap_test path_test pqueue_test vector_test udp_test
 
 unit-test: objcache_test id_heap_test path_test pqueue_test vector_test
 	$(OBJCACHE_TEST)
@@ -26,6 +26,8 @@ network_test: $(NETWORK_TEST)
 pqueue_test: $(PQUEUE_TEST)
 
 vector_test: $(VECTOR_TEST)
+
+udp_test: $(UDP_TEST)
 
 includes := \
 	-I$(SRC)/runtime \
@@ -177,12 +179,39 @@ vector_test-srcs := \
 
 vector_test-objs = $(call srcs-to-objs,$(ROOT),$(OUT),vector_test)
 
+udp_test-srcs := \
+	$(ROOT)/test/udp_test.c \
+	$(SRC)/runtime/bitmap.c \
+	$(SRC)/runtime/buffer.c \
+	$(SRC)/runtime/extra_prints.c \
+	$(SRC)/runtime/format.c \
+	$(SRC)/runtime/heap/id.c \
+	$(SRC)/runtime/merge.c \
+	$(SRC)/runtime/pqueue.c \
+	$(SRC)/runtime/random.c \
+	$(SRC)/runtime/rtrie.c \
+	$(SRC)/runtime/runtime_init.c \
+	$(SRC)/runtime/symbol.c \
+	$(SRC)/runtime/table.c \
+	$(SRC)/runtime/timer.c \
+	$(SRC)/runtime/tuple.c \
+	$(SRC)/tfs/tfs.c \
+	$(SRC)/tfs/tlog.c \
+	$(SRC)/unix_process/unix_process_runtime.c \
+	$(SRC)/unix_process/mmap_heap.c \
+	$(SRC)/unix_process/http.c \
+	$(SRC)/unix_process/socket_user.c \
+	$(SRC)/unix_process/tiny_heap.c \
+
+udp_test-objs = $(call srcs-to-objs,$(ROOT),$(OUT),udp_test)
+
 $(objcache_test-objs): $(CLOSURE_TMPL)
 $(network_test-objs): $(CLOSURE_TMPL)
 $(id_heap_test-objs): $(CLOSURE_TMPL)
 $(path_test-objs): $(CLOSURE_TMPL)
 $(pqueue_test-objs): $(CLOSURE_TMPL)
 $(vector_test-objs): $(CLOSURE_TMPL)
+$(udp_test-objs): $(CLOSURE_TMPL)
 
 $(OBJCACHE_TEST): $(objcache_test-objs)
 	$(call cmd,host-prog)
@@ -202,6 +231,9 @@ $(PQUEUE_TEST): $(pqueue_test-objs)
 $(VECTOR_TEST): $(vector_test-objs)
 	$(call cmd,host-prog)
 
+$(UDP_TEST): $(udp_test-objs)
+	$(call cmd,host-prog)
+
 clean-objs = \
 	$(id_heap_test-objs) $(ID_HEAP_TEST) \
 	$(network_test-objs) $(NETWORK_TEST) \
@@ -209,10 +241,11 @@ clean-objs = \
 	$(path_test-objs) $(PATH_TEST) \
 	$(pqueue_test-objs) $(PQUEUE_TEST) \
 	$(vector_test-objs) $(VECTOR_TEST) \
+	$(udp_test-objs) $(UDP_TEST) \
 	$(CLOSURE_TMPL) \
 
 clean: default-clean
 
-.PHONY: objcache_test network_test id_heap_test path_test pqueue_test vector_test
+.PHONY: objcache_test network_test id_heap_test path_test pqueue_test vector_test udp_test
 
 include ../rules.mk
