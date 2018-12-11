@@ -61,6 +61,9 @@ static void storage_write(storage st, buffer b, u64 offset, status_handler s)
             st->capacity);
 
     if (buffer_length(b) > SECTOR_SIZE) {
+        rprintf("dumping stack...\n");
+        print_stack_from_here();
+
         halt("virtio_write: buffer size (%d) is larger than sector size (%d)\n",
                 buffer_length(b), SECTOR_SIZE);
     }

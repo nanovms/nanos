@@ -23,6 +23,7 @@ includes = \
 boot-srcs = \
 	$(ROOT)/boot/stage2.c \
 	$(ROOT)/boot/service32.s \
+	$(ROOT)/mkfs/mkfs_stack.c \
 	$(SRC)/runtime/buffer.c \
 	$(SRC)/runtime/format.c \
 	$(SRC)/runtime/random.c \
