@@ -53,6 +53,7 @@ WEBS		= $(ROOT)/output/examples/webs
 WEBG		= $(ROOT)/output/examples/webg
 # WEBGS		= $(ROOT)/output/examples/webgs
 GETDENTS	= $(ROOT)/output/examples/getdents
+UDPLOOP		= $(ROOT)/output/examples/udploop
 
 # Tests
 
@@ -62,6 +63,7 @@ ID_HEAP_TEST	= $(ROOT)/output/test/id_heap_test
 PATH_TEST	= $(ROOT)/output/test/path_test
 PQUEUE_TEST	= $(ROOT)/output/test/pqueue_test
 VECTOR_TEST	= $(ROOT)/output/test/vector_test
+UDP_TEST	= $(ROOT)/output/test/udp_test
 
 # Generated depedencies
 
