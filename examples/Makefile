@@ -121,7 +121,6 @@ $(GETRANDOM): $(getrandom-objs)
 
 web-srcs := \
 	$(ROOT)/examples/web.c \
-	$(ROOT)/mkfs/mkfs_stack.c \
 	$(SRC)/unix_process/unix_process_runtime.c \
 	$(SRC)/unix_process/mmap_heap.c \
 	$(SRC)/unix_process/http.c \

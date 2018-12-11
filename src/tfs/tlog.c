@@ -31,8 +31,6 @@ void log_flush(log tl)
     thunk i;
     buffer b = tl->staging;
 
-    rprintf("log_flush: buf %p blen %d\n", b, buffer_length(b));
-
     buffer_clear(tl->completions);
     push_u8(b, END_OF_LOG);
     apply(tl->fs->w,
@@ -43,12 +41,8 @@ void log_flush(log tl)
 }
 
 
-extern int __fs_ready;
 void log_write_eav(log tl, tuple e, symbol a, value v, thunk complete)
 {
-    if (__fs_ready)
-        rprintf("log_write_eav: %v\n", e);
-
     // out of space
     push_u8(tl->staging, TUPLE_AVAILABLE);
     encode_eav(tl->staging, tl->dictionary, e, a, v);

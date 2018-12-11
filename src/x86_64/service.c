@@ -9,8 +9,6 @@ extern void init_net(kernel_heaps kh);
 extern void startup();
 extern void start_interrupts(kernel_heaps kh);
 
-int __fs_ready = 0;
-
 static struct kernel_heaps heaps;
 
 // doesnt belong here
@@ -172,7 +170,6 @@ static void __attribute__((noinline)) init_service_new_stack()
     if (fs_offset == 0)
         halt("filesystem region not found; halt\n");
     init_virtio_storage(kh, closure(misc, attach_storage, root, fs_offset));
-    __fs_ready = 1;
     init_virtio_network(kh);
     miscframe = allocate(misc, FRAME_MAX * sizeof(u64));
     pci_discover();

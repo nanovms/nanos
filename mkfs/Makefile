@@ -21,7 +21,6 @@ includes := \
 
 mkfs-srcs := \
 	$(ROOT)/mkfs/mkfs.c \
-	$(ROOT)/mkfs/mkfs_stack.c \
 	$(SRC)/runtime/bitmap.c \
 	$(SRC)/runtime/buffer.c \
 	$(SRC)/runtime/extra_prints.c \
@@ -46,7 +45,6 @@ mkfs-objs = $(call srcs-to-objs,$(ROOT),$(OUT),mkfs)
 
 dump-srcs := \
 	$(ROOT)/mkfs/dump.c \
-	$(ROOT)/mkfs/mkfs_stack.c \
 	$(SRC)/runtime/bitmap.c \
 	$(SRC)/runtime/buffer.c \
 	$(SRC)/runtime/extra_prints.c \
