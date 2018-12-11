@@ -42,6 +42,8 @@ static inline int runtime_strlen(char *a)
 
 #define offsetof(__t, __e) u64_from_pointer(&((__t)0)->__e)
 
+#define check_flags_and_clear(x, f) ({boolean match = ((x) & (f)) != 0; (x) &= ~(f); match;})
+
 #if 0
 // this...seems to have a fault (?).. it may be the interrupt
 // machinery
@@ -119,8 +121,18 @@ void print_number(buffer s, u64 x, int base, int pad);
 void debug(buffer);
 #include <format.h>
 
-#define msg_err(fmt, ...) rprintf("%s error: " fmt, __func__, \
+/* XXX: Note that printing function names will reveal our internals to
+   some degree. All the logging stuff needs more time in the oven. */
+
+#define msg_err(fmt, ...) rprintf("%s error: " fmt, __func__,   \
 				  ##__VA_ARGS__)
+
+#ifdef ENABLE_MSG_WARN
+#define msg_warn(fmt, ...) rprintf("%s warning: " fmt, __func__,   \
+				  ##__VA_ARGS__)
+#else
+#define msg_warn(fmt, ...)
+#endif
 
 #ifdef ENABLE_MSG_DEBUG
 #define msg_debug(fmt, ...) rprintf("%s debug: " fmt, __func__, \
