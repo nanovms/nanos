@@ -397,6 +397,24 @@ sysreturn write(int fd, u8 *body, bytes length)
     return res;
 }
 
+sysreturn getrandom(void *buf, u64 buflen, unsigned int flags)
+{
+    heap h = heap_general(get_kernel_heaps());
+    buffer b;
+
+    if (!buf)
+        return set_syscall_error(current, EFAULT);
+
+    if (!buflen)
+        return set_syscall_error(current, EINVAL);
+
+    if (flags & ~(GRND_NONBLOCK | GRND_RANDOM))
+        return set_syscall_error(current, EINVAL);
+
+    b = wrap_buffer(h, buf, buflen);
+    return do_getrandom(b, (u64) flags);
+}
+
 static int try_write_dirent(struct linux_dirent *dirp, char *p,
         int *read_sofar, int *written_sofar, int *f_offset,
         unsigned int *count, int ft)
@@ -871,6 +889,7 @@ void register_file_syscalls(void **map)
     register_syscall(map,SYS_exit_group, exit_group);
     register_syscall(map, SYS_exit, (sysreturn (*)())exit);
     register_syscall(map, SYS_getdents, getdents);
+    register_syscall(map, SYS_getrandom, getrandom);
 }
 
 void *linux_syscalls[SYS_MAX];
