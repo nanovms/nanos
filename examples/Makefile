@@ -77,9 +77,9 @@ udploop-srcs := \
 	$(SRC)/unix_process/unix_process_runtime.c \
 	$(SRC)/unix_process/mmap_heap.c \
 	$(SRC)/unix_process/http.c \
-	$(SRC)/unix_process/path.c \
 	$(SRC)/unix_process/socket_user.c \
 	$(SRC)/unix_process/tiny_heap.c \
+	$(SRC)/unix/path.c \
 	$(SRC)/runtime/bitmap.c \
 	$(SRC)/runtime/buffer.c \
 	$(SRC)/runtime/extra_prints.c \
