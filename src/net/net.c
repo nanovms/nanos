@@ -14,10 +14,10 @@ static heap lwip_heap;
 struct net_lwip_timer {
     u64 interval_ms;
     lwip_cyclic_timer_handler handler;
-    const char * name;
+    char * name;
 };
 
-static const struct net_lwip_timer net_lwip_timers[] = {
+static struct net_lwip_timer net_lwip_timers[] = {
     {TCP_TMR_INTERVAL, tcp_tmr, "tcp"},
     {IP_TMR_INTERVAL, ip_reass_tmr, "ip"},
     {ARP_TMR_INTERVAL, etharp_tmr, "arp"},

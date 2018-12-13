@@ -45,6 +45,8 @@ typedef struct notify_entry {
 typedef struct sock {
     struct file f;
     int type;
+#define SOCK_FLAG_NONBLOCK  0x00000001
+    u32 flags;
     process p;
     heap h;
     queue incoming;
@@ -312,6 +314,61 @@ static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
     return 0;			/* suppress warning */
 }
 
+static CLOSURE_4_0(socket_write_tcp_bh, sysreturn, sock, thread, void *, u64);
+static sysreturn socket_write_tcp_bh(sock s, thread t, void * buf, u64 remain)
+{
+    assert(remain > 0);
+
+    /* Note that the actual transmit window size is truncated to 16
+       bits here (and tcp_write() doesn't accept more than 2^16
+       anyway), so even if we have a large transmit window due to
+       LWIP_WND_SCALE, we still can't write more than 2^16. Sigh... */
+    u64 avail = tcp_sndbuf(s->info.tcp.lw);
+    if (avail == 0) {
+      full:
+        if (s->flags & SOCK_FLAG_NONBLOCK) {
+            return set_syscall_error(t, EAGAIN);
+        } else {
+            /* XXX so - everything on the waiting queue gets woken upon data reception?
+               is there a race here? */
+            if (!enqueue(s->waiting, closure(s->h, socket_write_tcp_bh, s, t, buf, remain)))
+                msg_err("waiting queue full\n");
+            /* XXX note - possible race here if we enable int/lwip bh during runqueue handling, 
+               so find some way to do the window check and sleep atomically... */
+            thread_sleep(current);
+            return 0;             /* never reached; don't make compiler think we fall through */
+        }
+    }
+
+    /* Figure actual length and flags */
+    u64 n;
+    u8 apiflags = TCP_WRITE_FLAG_COPY;
+    if (avail < remain) {
+        n = avail;
+        apiflags |= TCP_WRITE_FLAG_MORE;
+    } else {
+        n = remain;
+    }
+
+    err_t err = tcp_write(s->info.tcp.lw, buf, n, TCP_WRITE_FLAG_COPY);
+    if (err == ERR_OK) {
+        /* XXX prob add a flag to determine whether to continuously
+           post data, e.g. if used by send/sendto... */
+        err = tcp_output(s->info.tcp.lw);
+        if (err == ERR_OK) {
+            return set_syscall_return(t, n);
+        } else {
+            net_debug("tcp_output() lwip error: %s (%d)\n", lwip_strerr(err), err);
+            return set_syscall_return(t, lwip_to_errno(err));
+        }
+    } else if (err == ERR_MEM) { /* catches possible race? can't hurt to check */
+        goto full;
+    } else {
+        net_debug("tcp_write() lwip error: %s (%d)\n", lwip_strerr(err), err);
+        return set_syscall_return(t, lwip_to_errno(err));
+    }
+}
+
 static CLOSURE_1_3(socket_write, sysreturn, sock, void *, u64, u64);
 static sysreturn socket_write(sock s, void *source, u64 length, u64 offset)
 {
@@ -321,13 +378,11 @@ static sysreturn socket_write(sock s, void *source, u64 length, u64 offset)
     if (s->type == SOCK_STREAM) {
 	if (s->info.tcp.state != TCP_SOCK_OPEN) 		/* XXX maybe defer to lwip for connect state */
 	    return set_syscall_error(current, EPIPE);
-	err = tcp_write(s->info.tcp.lw, source, length, TCP_WRITE_FLAG_COPY);
-	if (err != ERR_OK)
-	    goto out_lwip_err;
-	err = tcp_output(s->info.tcp.lw);
-	if (err != ERR_OK)
-	    goto out_lwip_err;
+        if (length == 0)
+            return set_syscall_return(current, 0);
+        return socket_write_tcp_bh(s, current, source, length);
     } else if (s->type == SOCK_DGRAM) {
+        /* XXX check how much we can queue, maybe make udp bh */
 	/* XXX check if remote endpoint set? let LWIP check? */
 	struct pbuf * pbuf = pbuf_alloc(PBUF_TRANSPORT, length, PBUF_RAM);
 	if (!pbuf) {
@@ -719,6 +774,14 @@ static void lwip_tcp_conn_err(void * z, err_t b) {
     s->info.tcp.state = TCP_SOCK_UNDEFINED;
 }
 
+static err_t lwip_tcp_sent(void * arg, struct tcp_pcb * pcb, u16 len)
+{
+    sock s = (sock)arg;
+    net_debug("fd %d, pcb %p, len %d\n", s->fd, pcb, len);
+    wakeup_sock(s, 0);
+    return ERR_OK;
+}
+
 static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t b)
 {
     sock s = z;
@@ -736,6 +799,7 @@ static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t b)
     tcp_arg(lw, sn);
     tcp_recv(lw, tcp_input_lower);
     tcp_err(lw, lwip_tcp_conn_err);
+    tcp_sent(lw, lwip_tcp_sent);
     if (!enqueue(s->incoming, sn))
 	msg_err("incoming queue full\n");
 
