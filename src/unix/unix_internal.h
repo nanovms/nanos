@@ -143,6 +143,11 @@ static inline time time_from_timespec(struct timespec *t)
     return (((u64)t->ts_sec)<<32) + time_from_nsec(t->ts_nsec);
 }
 
+static inline time_t time_t_from_time(time t)
+{
+    return t >> 32;
+}
+
 static inline void register_syscall(void **m, int i, sysreturn (*f)())
 {
     m[i]= f;

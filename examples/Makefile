@@ -8,7 +8,7 @@ CFLAGS = -g \
 	 -DENABLE_MSG_DEBUG \
 	 $(includes)
 
-all: fst hw hws hwg getdents udploop web webg webgs webs getrandom
+all: fst hw hws hwg getdents udploop web webg webgs webs getrandom time
 
 fst: $(FST)
 
@@ -23,6 +23,8 @@ getdents: $(GETDENTS)
 udploop: $(UDPLOOP)
 
 getrandom: $(GETRANDOM)
+
+time: $(TIME)
 
 web: $(WEB)
 
@@ -107,6 +109,15 @@ $(GETRANDOM): EXTRA_HOSTLDFLAGS = -lm
 $(GETRANDOM): $(getrandom-objs)
 	$(call cmd,host-prog)
 
+time-srcs := \
+	$(ROOT)/examples/time.c
+
+time-objs = $(call srcs-to-objs,$(ROOT),$(OUT),time)
+
+$(TIME): HOSTLDFLAGS += -static
+$(TIME): $(time-objs)
+	$(call cmd,host-prog)
+
 web-srcs := \
 	$(ROOT)/examples/web.c \
 	$(SRC)/unix_process/unix_process_runtime.c \
@@ -158,10 +169,10 @@ $(hw-objs) $(web-objs) $(udploop-objs): $(CLOSURE_TMPL)
 
 clean-objs = $(hw-objs) $(web-objs) $(FST) $(HW) $(HWG) $(HWS) $(WEB) $(WEBG) \
 	$(WEBGS) $(WEBS) $(CLOSURE_TMPL) $(getdents-objs) $(GETDENTS) \
-	$(getrandom-objs) $(GETRANDOM) $(udploop-objs) $(UDPLOOP)
+	$(getrandom-objs) $(GETRANDOM) $(time-objs) $(TIME) $(udploop-objs) $(UDPLOOP)
 
 clean: default-clean
 
-.PHONY: fst hw hwg hws web webg webgs webs getdents getrandom udploop
+.PHONY: fst hw hwg hws web webg webgs webs getdents getrandom time udploop
 
 include ../rules.mk
