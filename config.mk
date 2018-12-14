@@ -55,6 +55,7 @@ WEBG		= $(ROOT)/output/examples/webg
 GETDENTS	= $(ROOT)/output/examples/getdents
 UDPLOOP		= $(ROOT)/output/examples/udploop
 GETRANDOM	= $(ROOT)/output/examples/getrandom
+TIME    = $(ROOT)/output/examples/time
 
 # Tests
 

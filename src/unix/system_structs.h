@@ -256,8 +256,10 @@ struct sigaction {
 	void (*sa_restorer)(void);
 };
 
+typedef s64 time_t;
+
 struct timeval {
-    u64 tv_sec;     /* seconds */
+    time_t tv_sec;  /* seconds */
     u64 tv_usec;    /* microseconds */
 };
 
