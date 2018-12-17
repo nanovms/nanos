@@ -16,7 +16,11 @@ static inline void list_init(struct list * head)
 
 static inline boolean list_empty(struct list * head)
 {
+#ifdef __APPLE__
+    assert(((head->next == head) ^ (head->prev == head)) == 0);
+#else
     assert((head->next == head) ^ (head->prev == head) == 0);
+#endif
     return (head->next == head);
 }
 
