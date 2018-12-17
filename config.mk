@@ -56,6 +56,7 @@ GETDENTS	= $(ROOT)/output/examples/getdents
 MKDIR		= $(ROOT)/output/examples/mkdir
 UDPLOOP		= $(ROOT)/output/examples/udploop
 GETRANDOM	= $(ROOT)/output/examples/getrandom
+TIME    = $(ROOT)/output/examples/time
 
 # Tests
 

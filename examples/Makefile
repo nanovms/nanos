@@ -8,7 +8,7 @@ CFLAGS = -g \
 	 -DENABLE_MSG_DEBUG \
 	 $(includes)
 
-all: fst hw hws hwg getdents udploop web webg webgs webs getrandom mkdir
+all: fst hw hws hwg getdents udploop web webg webgs webs getrandom mkdir time
 
 fst: $(FST)
 
@@ -25,6 +25,8 @@ mkdir: $(MKDIR)
 udploop: $(UDPLOOP)
 
 getrandom: $(GETRANDOM)
+
+time: $(TIME)
 
 web: $(WEB)
 
@@ -119,6 +121,15 @@ $(GETRANDOM): EXTRA_HOSTLDFLAGS = -lm
 $(GETRANDOM): $(getrandom-objs)
 	$(call cmd,host-prog)
 
+time-srcs := \
+	$(ROOT)/examples/time.c
+
+time-objs = $(call srcs-to-objs,$(ROOT),$(OUT),time)
+
+$(TIME): HOSTLDFLAGS += -static
+$(TIME): $(time-objs)
+	$(call cmd,host-prog)
+
 web-srcs := \
 	$(ROOT)/examples/web.c \
 	$(SRC)/unix_process/unix_process_runtime.c \
@@ -172,10 +183,10 @@ $(hw-objs) $(web-objs) $(udploop-objs): $(CLOSURE_TMPL)
 clean-objs = $(hw-objs) $(web-objs) $(FST) $(HW) $(HWG) $(HWS) $(WEB) $(WEBG) \
 	$(WEBGS) $(WEBS) $(CLOSURE_TMPL) $(getdents-objs) $(GETDENTS) \
 	$(getrandom-objs) $(GETRANDOM) $(udploop-objs) $(UDPLOOP) \
-	$(mkdir-objs) $(MKDIR)
+	$(mkdir-objs) $(MKDIR) $(time-objs) $(TIME)
 
 clean: default-clean
 
-.PHONY: fst hw hwg hws web webg webgs webs getdents getrandom udploop mkdir
+.PHONY: fst hw hwg hws web webg webgs webs getdents getrandom time udploop mkdir
 
 include ../rules.mk
