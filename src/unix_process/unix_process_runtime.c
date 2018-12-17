@@ -6,8 +6,16 @@
 #include <string.h>
 #include <signal.h>
 
+#ifdef __APPLE__
+#include <stdlib.h>
+#endif
+
 /* Helper functions to ignore unused result (eliminate CC warning) */
+#ifdef __APPLE__
+#define igr(x) x
+#else
 static inline void igr() {}
+#endif 
 
 void debug(buffer b)
 {
@@ -27,14 +35,21 @@ void console(char *x)
     igr(write(2, x, runtime_strlen(x)));
 }
 
-
+#ifdef __APPLE__
+time_value_t timeval_to_time(struct timeval *a)
+#else
 time timeval_to_time(struct timeval *a)
+#endif
 {
     return((((unsigned long long)a->tv_sec)<<32)|
            (((unsigned long long)a->tv_usec)<<32)/1000000);
 }
 
+#ifdef __APPLE__
+time_value_t now()
+#else
 time now()
+#endif
 {
     struct timeval result;
 
