@@ -200,12 +200,20 @@ static u64 rtrie_extent_max(rtnode r)
     u64 k;
     if (!r) return 0;
     if (!(k = rtrie_extent_max(r->children[1]))) return (r->r.end);
+#ifdef __APPLE__
+    // Return something by default to avoid warning
+    return 0;
+#endif
 }
  
 static u64 rtrie_extent_min(rtnode r)
 {
     if (!r) return 0;
     if (!rtrie_extent_min(r->children[0])) return (r->r.start);
+#ifdef __APPLE__
+    // Return something by default to avoid warning
+    return 0;
+#endif
 }
 
 void rtrie_extent(rtrie r, u64 *min, u64 *max)
