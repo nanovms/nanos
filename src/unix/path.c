@@ -21,7 +21,7 @@ char *canonicalize_path(heap h, buffer cwd, buffer input) {
         // Setup tokenizer
         char *pch;
         char *save;
-        pch = strtok_r(path, PATH_SEPARATOR_STRING, &save);
+        pch = runtime_strtok_r(path, PATH_SEPARATOR_STRING, &save);
 
         // Start tokenizing
         while (pch != 0) {
@@ -33,7 +33,7 @@ char *canonicalize_path(heap h, buffer cwd, buffer input) {
 
             // And push them
             list_push_back(&out, &pl->elem);
-            pch = strtok_r(0, PATH_SEPARATOR_STRING, &save);
+            pch = runtime_strtok_r(0, PATH_SEPARATOR_STRING, &save);
         }
         deallocate(h, path, (buffer_length(cwd) + 1) * sizeof(char));
     }
@@ -45,7 +45,7 @@ char *canonicalize_path(heap h, buffer cwd, buffer input) {
     // Initialize the tokenizer...
     char *pch;
     char *save;
-    pch = strtok_r(path, PATH_SEPARATOR_STRING, &save);
+    pch = runtime_strtok_r(path, PATH_SEPARATOR_STRING, &save);
 
     /*
      * Tokenize the path, this time, taking care to properly
@@ -74,7 +74,7 @@ char *canonicalize_path(heap h, buffer cwd, buffer input) {
             pl->s = s;
             list_push_back(&out, &pl->elem);
         }
-        pch = strtok_r(0, PATH_SEPARATOR_STRING, &save);
+        pch = runtime_strtok_r(0, PATH_SEPARATOR_STRING, &save);
     }
     deallocate(h, path, (buffer_length(input) + 1) * sizeof(char));
 

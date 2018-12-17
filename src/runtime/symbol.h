@@ -11,6 +11,11 @@ string symbol_string(symbol s);
       if (!__s){char x[] = #name; __s = intern(alloca_wrap_buffer(x, sizeof(x)-1));} \
      __s;})              
 
+#define sym_this(name)\
+    ({symbol __s = 0;\
+      if (!__s){__s = intern(alloca_wrap_buffer(name, runtime_strlen(name)));} \
+     __s;})              
+
 table symbol_table();
 typedef table tuple;
 tuple allocate_tuple();

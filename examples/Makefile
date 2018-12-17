@@ -8,7 +8,7 @@ CFLAGS = -g \
 	 -DENABLE_MSG_DEBUG \
 	 $(includes)
 
-all: fst hw hws hwg getdents udploop web webg webgs webs getrandom time
+all: fst hw hws hwg getdents udploop web webg webgs webs getrandom mkdir time
 
 fst: $(FST)
 
@@ -19,6 +19,8 @@ hws: $(HWS)
 hwg: $(HWG)
 
 getdents: $(GETDENTS)
+
+mkdir: $(MKDIR)
 
 udploop: $(UDPLOOP)
 
@@ -36,6 +38,7 @@ webgs: $(WEBGS)
 
 includes := \
 	-I$(SRC)/runtime \
+	-I$(SRC)/unix \
 	-I$(SRC)/unix_process \
 	-I$(SRC)/x86_64 \
 
@@ -62,14 +65,23 @@ $(GETDENTS): HOSTLDFLAGS += -static
 $(GETDENTS): $(getdents-objs)
 	$(call cmd,host-prog)
 
+mkdir-srcs := \
+	$(ROOT)/examples/mkdir.c
+
+mkdir-objs = $(call srcs-to-objs,$(ROOT),$(OUT),mkdir)
+
+$(MKDIR): HOSTLDFLAGS += -static
+$(MKDIR): $(mkdir-objs)
+	$(call cmd,host-prog)
+
 udploop-srcs := \
 	$(ROOT)/examples/udploop.c \
 	$(SRC)/unix_process/unix_process_runtime.c \
 	$(SRC)/unix_process/mmap_heap.c \
 	$(SRC)/unix_process/http.c \
-	$(SRC)/unix_process/path.c \
 	$(SRC)/unix_process/socket_user.c \
 	$(SRC)/unix_process/tiny_heap.c \
+	$(SRC)/unix/path.c \
 	$(SRC)/runtime/bitmap.c \
 	$(SRC)/runtime/buffer.c \
 	$(SRC)/runtime/extra_prints.c \
@@ -123,9 +135,9 @@ web-srcs := \
 	$(SRC)/unix_process/unix_process_runtime.c \
 	$(SRC)/unix_process/mmap_heap.c \
 	$(SRC)/unix_process/http.c \
-	$(SRC)/unix_process/path.c \
 	$(SRC)/unix_process/socket_user.c \
 	$(SRC)/unix_process/tiny_heap.c \
+	$(SRC)/unix/path.c \
 	$(SRC)/runtime/bitmap.c \
 	$(SRC)/runtime/buffer.c \
 	$(SRC)/runtime/extra_prints.c \
@@ -167,12 +179,14 @@ $(WEBGS): webg.go
 
 $(hw-objs) $(web-objs) $(udploop-objs): $(CLOSURE_TMPL)
 
+
 clean-objs = $(hw-objs) $(web-objs) $(FST) $(HW) $(HWG) $(HWS) $(WEB) $(WEBG) \
 	$(WEBGS) $(WEBS) $(CLOSURE_TMPL) $(getdents-objs) $(GETDENTS) \
-	$(getrandom-objs) $(GETRANDOM) $(time-objs) $(TIME) $(udploop-objs) $(UDPLOOP)
+	$(getrandom-objs) $(GETRANDOM) $(udploop-objs) $(UDPLOOP) \
+	$(mkdir-objs) $(MKDIR) $(time-objs) $(TIME)
 
 clean: default-clean
 
-.PHONY: fst hw hwg hws web webg webgs webs getdents getrandom time udploop
+.PHONY: fst hw hwg hws web webg webgs webs getdents getrandom time udploop mkdir
 
 include ../rules.mk

@@ -200,6 +200,48 @@ void link(tuple dir, fsfile f, buffer name)
     log_write_eav(f->fs->tl, soft_create(f->fs, dir, sym(children)), intern(name), f->md, ignore);
 }
 
+int filesystem_mkdir(filesystem fs, char *fp)
+{
+    heap h = fs->h;
+    tuple dir = allocate_tuple();
+    tuple folder = table_find(fs->root, sym(children));
+    symbol basename_sym;
+    char *token, *rest = fp, *basename;
+
+    /* 'make it a folder' by attaching a children node to the tuple */
+    table_set(dir, sym(children), allocate_tuple());
+
+    /* find the folder we need to mkdir in */
+    while ((token = runtime_strtok_r(rest, "/", &rest))) {
+        tuple prev_folder = folder;
+        boolean final = *rest == '\0';
+        folder = table_find(folder, sym_this(token));
+        if (!folder) {
+            if (final) {
+                basename = token;
+                folder = prev_folder;
+                break;
+            } else {
+                msg_debug("a path component (\"%s\") is missing\n");
+                return -1;
+            }
+        } else {
+            if (final) {
+                msg_debug("final path component (\"%s\") already exists\n");
+                return -1;
+            }
+        }
+    }
+
+    basename_sym = sym_this(basename);
+    table_set(folder, basename_sym, dir);
+    log_write_eav(fs->tl, folder, basename_sym, dir, ignore);
+    //log_flush(fs->tl);
+    rprintf("mkdir: written!\n");
+
+    return 0;
+}
+
 // should be passing status to the client
 static CLOSURE_2_1(read_entire_complete, void, buffer_handler, buffer, status);
 static void read_entire_complete(buffer_handler bh, buffer b, status s)

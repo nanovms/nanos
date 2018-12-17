@@ -32,6 +32,7 @@ boot-srcs = \
 	$(SRC)/runtime/table.c \
 	$(SRC)/runtime/tuple.c \
 	$(SRC)/runtime/merge.c \
+	$(SRC)/runtime/string.c \
 	$(SRC)/x86_64/elf.c \
 	$(SRC)/x86_64/kvm_platform.c \
 	$(SRC)/x86_64/page.c \
