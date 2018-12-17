@@ -6,7 +6,11 @@ typedef u32 character;
 #define true 1
 #define false 0
 
+#ifdef __APPLE__
+typedef u64 time_value_t;
+#else
 typedef u64 time;
+#endif
 
 extern void console(char *x);
 void print_u64(u64 s);
