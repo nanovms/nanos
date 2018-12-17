@@ -8,8 +8,13 @@
 
 struct timer {
     thunk t;
+#ifdef __APPLE__
+    time_value_t w;
+    time_value_t interval;
+#else
     time w;
     time interval;
+#endif
     boolean disable;
 };
 
@@ -30,7 +35,11 @@ void remove_timer(timer t)
     t->disable = true;
 }
 
+#ifdef __APPLE__
+timer register_timer(time_value_t interval, thunk n)
+#else
 timer register_timer(time interval, thunk n)
+#endif
 {
     timer t=(timer)allocate(theap, sizeof(struct timer));
 
@@ -43,7 +52,11 @@ timer register_timer(time interval, thunk n)
     return(t);
 }
 
+#ifdef __APPLE__
+timer register_periodic_timer(time_value_t interval, thunk n)
+#else
 timer register_periodic_timer(time interval, thunk n)
+#endif
 {
     timer t=(timer)allocate(theap, sizeof(struct timer));
     t->t = n;
@@ -58,9 +71,17 @@ timer register_periodic_timer(time interval, thunk n)
 /* Presently called with ints off. Address thread safety with
    pqueue before using with ints enabled.
 */
+#ifdef __APPLE__
+time_value_t timer_check()
+#else
 time timer_check()
+#endif
 {
+#ifdef __APPLE__
+    time_value_t here;
+#else
     time here;
+#endif
     timer current = 0;
 
     while ((current = pqueue_peek(timers)) &&
@@ -75,14 +96,22 @@ time timer_check()
         }
     }
     if (current) {
-	time dt = current->w - here;
+#ifdef __APPLE__
+	time_value_t dt = current->w - here;
+#else
+        time dt = current->w - here;
+#endif
 	timer_debug("check returning dt: %d\n", dt);
 	return dt;
     }
     return infinity;
 }
 
+#ifdef __APPLE__
+time_value_t parse_time(string b)
+#else
 time parse_time(string b)
+#endif
 {
     character c;
     u64 s = 0, frac = 0, fracnorm = 0;
@@ -97,13 +126,21 @@ time parse_time(string b)
             } else s = s *10 + digit_of(c);
         }
     }
+#ifdef __APPLE__
+    time_value_t result = s << 32;
+#else
     time result = s << 32;
+#endif
 
     if (fracnorm) result |= (frac<<32)/fracnorm;
     return(result);
 }
 
+#ifdef __APPLE__
+void print_time(string b, time_value_t t)
+#else
 void print_time(string b, time t)
+#endif
 {
     u64 s= t>>32;
     u64 f= t&MASK(32);

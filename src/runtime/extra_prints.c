@@ -100,7 +100,11 @@ static void format_hex_buffer(buffer dest, buffer fmt, vlist *a)
 
 static void format_time(buffer dest, buffer fmt, vlist *a)
 {
+#ifdef __APPLE__
+    time_value_t t = varg(*a, time_value_t);
+#else
     time t = varg(*a, time);
+#endif
     // XXX rudimentary
     bprintf(dest, "%ds%dns", sec_from_time(t), nsec_from_time(t));
 }
