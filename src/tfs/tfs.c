@@ -216,20 +216,20 @@ int filesystem_mkdir(filesystem fs, char *fp)
         tuple prev_folder = folder;
         boolean final = *rest == '\0';
         folder = table_find(folder, sym_this(token));
-        if (!folder && !final) {
-            rprintf("mkdir: failed to find \"%s\"\n", token);
-            return -1;
-        }
-        if (!folder && final) {
-            basename = token;
-            folder = prev_folder;
-            break;
-        }
-
-        if (folder && final) {
-            /* already exists */
-            rprintf("mkdir: already exists\n");
-            return -1;
+        if (!folder) {
+            if (final) {
+                basename = token;
+                folder = prev_folder;
+                break;
+            } else {
+                msg_debug("a path component (\"%s\") is missing\n");
+                return -1;
+            }
+        } else {
+            if (final) {
+                msg_debug("final path component (\"%s\") already exists\n");
+                return -1;
+            }
         }
     }
 
