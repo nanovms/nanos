@@ -236,7 +236,7 @@ int filesystem_mkdir(filesystem fs, char *fp)
     basename_sym = sym_this(basename);
     table_set(folder, basename_sym, dir);
     log_write_eav(fs->tl, folder, basename_sym, dir, ignore);
-    log_flush(fs->tl);
+    //log_flush(fs->tl);
     rprintf("mkdir: written!\n");
 
     return 0;
