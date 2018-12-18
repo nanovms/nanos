@@ -71,6 +71,8 @@ typedef void *sys_prot_t;
 typedef u64_t ptrdiff_t;
 typedef unsigned long mem_ptr_t;
 
+#include "../runtime/timer.h"
+
 // format specifiers
 #define X8_F "c"		/* not actually hex */
 #define U16_F "d"
@@ -101,7 +103,7 @@ static inline void sys_arch_unprotect(sys_prot_t x)
 
 extern void console(char *);
 typedef unsigned long long time; 
-extern timestamp now();
+//extern timestamp now();
 extern void lwip_debug(char * format, ...);
 
 static inline u32_t sys_now(void)
