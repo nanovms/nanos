@@ -293,10 +293,13 @@ int filesystem_creat(filesystem fs, char *fp)
     tuple folder = table_find(fs->root, sym(children));
     symbol basename_sym;
     char *token, *rest = fp, *basename;
+    static buffer off = 0;
+
+    if (!off)
+        off = wrap_buffer_cstring(fs->h, "0");
 
     /* 'make it a file' by adding an empty extents list */
     table_set(dir, sym(extents), allocate_tuple());
-    string off = aprintf(fs->h, "%d", 0);
     table_set(dir, sym(filelength), off);
 
     /* find the folder we need to creat in */
