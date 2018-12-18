@@ -71,8 +71,6 @@ typedef void *sys_prot_t;
 typedef u64_t ptrdiff_t;
 typedef unsigned long mem_ptr_t;
 
-#include "../runtime/timer.h"
-
 // format specifiers
 #define X8_F "c"		/* not actually hex */
 #define U16_F "d"
