@@ -1,39 +1,18 @@
 #pragma once
-#ifdef __APPLE__
-typedef u64 time_value_t;
-#else
-typedef u64 time;
-#endif
+typedef u64 timestamp;
 typedef struct timer *timer;
-#ifdef __APPLE__
-timer register_timer(time_value_t, thunk n);
-timer register_periodic_timer(time_value_t interval, thunk n);
-#else
-timer register_timer(time, thunk n);
-timer register_periodic_timer(time interval, thunk n);
-#endif
+
+timer register_timer(timestamp, thunk n);
+timer register_periodic_timer(timestamp interval, thunk n);
 void remove_timer(timer t);
 void initialize_timers(kernel_heaps kh);
-#ifdef __APPLE__
-time_value_t parse_time();
-void print_time(buffer, time_value_t);
-#else
-time parse_time();
-void print_time(buffer, time);
-#endif
-#ifdef __APPLE__
-time_value_t timer_check();
-#else
-time timer_check();
-#endif
+timestamp parse_time();
+void print_time(buffer, timestamp);
+timestamp timer_check();
 #ifdef BOOT
 static inline time now() { return 0; } /* stub */
 #else
-#ifdef __APPLE__
-time_value_t now();
-#else
-time now();
-#endif
+timestamp now();
 #endif
 
 #define nano 1000000000ull
@@ -46,47 +25,27 @@ static inline u64 time_from_nsec(u64 n)
 }
 
 // without seconds component
-#ifdef __APPLE__
-static inline u64 nsec_from_time(time_value_t n)
-#else
-static inline u64 nsec_from_time(time n)
-#endif
+static inline u64 nsec_from_time(timestamp n)
 {
     return ((n & MASK(32)) * nano) >> 32;
 }
 
-#ifdef __APPLE__
-static inline u64 sec_from_time(time_value_t n)
-#else
-static inline u64 sec_from_time(time n)
-#endif
+static inline u64 sec_from_time(timestamp n)
 {
     return n >> 32;
 }
 
-#ifdef __APPLE__
-static inline time_value_t seconds(int n)
-#else
-static inline time seconds(int n)
-#endif
+static inline timestamp seconds(int n)
 {
     return(((u64)n)<<32);
 }
 
-#ifdef __APPLE__
-static inline time_value_t milliseconds(int n)
-#else
-static inline time milliseconds(int n)
-#endif
+static inline timestamp milliseconds(int n)
 {
     return((((u64)n)<<32)/1000ull);
 }
 
-#ifdef __APPLE__
-static inline time_value_t femtoseconds(u64 fs)
-#else
-static inline time femtoseconds(u64 fs)
-#endif
+static inline timestamp femtoseconds(u64 fs)
 {
     return fs / (femto >> 32);
 }
