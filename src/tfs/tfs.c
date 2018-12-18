@@ -296,6 +296,8 @@ int filesystem_creat(filesystem fs, char *fp)
 
     /* 'make it a file' by adding an empty extents list */
     table_set(dir, sym(extents), allocate_tuple());
+    string off = aprintf(fs->h, "%d", 0);
+    table_set(dir, sym(filelength), off);
 
     /* find the folder we need to creat in */
     while ((token = runtime_strtok_r(rest, "/", &rest))) {
@@ -323,9 +325,9 @@ int filesystem_creat(filesystem fs, char *fp)
     table_set(folder, basename_sym, dir);
     log_write_eav(fs->tl, folder, basename_sym, dir, ignore);
     //log_flush(fs->tl);
-    fsfile f = allocate_fsfile(fs, folder);
+
+    fsfile f = allocate_fsfile(fs, dir);
     fsfile_set_length(f, 0);
-    rprintf("creat: written!\n");
 
     return 0;
 }
