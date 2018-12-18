@@ -10,7 +10,7 @@ timestamp parse_time();
 void print_time(buffer, timestamp);
 timestamp timer_check();
 #ifdef BOOT
-static inline time now() { return 0; } /* stub */
+static inline timestamp now() { return 0; } /* stub */
 #else
 timestamp now();
 #endif
