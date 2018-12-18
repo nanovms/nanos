@@ -136,7 +136,7 @@ static timestamp rdtsc(void)
     asm("cpuid":::"%rax", "%rbx", "%rcx", "%rdx");
     asm volatile("rdtsc" : "=a" (a), "=d" (d));
 
-    return (((time)a) | (((time)d) << 32));
+    return (((timestamp)a) | (((timestamp)d) << 32));
 }
 
 void init_clock(kernel_heaps kh);
