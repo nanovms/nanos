@@ -422,6 +422,29 @@ sysreturn mkdir(const char *pathname, int mode)
         return set_syscall_return(current, rc);
 }
 
+sysreturn creat(const char *pathname, int mode)
+{
+    heap h = heap_general(get_kernel_heaps());
+    buffer cwd = wrap_buffer_cstring(h, "/"); /* XXX */
+    int rc;
+
+    if (!pathname)
+        return set_syscall_error(current, EFAULT);
+
+    char *final_path = canonicalize_path(h, cwd,
+            wrap_buffer_cstring(h, pathname));
+
+    thread_log(current, "%s: (mode %d) pathname %s => %s\n",
+            __func__, mode, pathname, final_path);
+
+    rc = filesystem_creat(current->p->fs, final_path);
+
+    if (rc)
+        return set_syscall_error(current, rc);
+    else
+        return set_syscall_return(current, rc);
+}
+
 sysreturn getrandom(void *buf, u64 buflen, unsigned int flags)
 {
     heap h = heap_general(get_kernel_heaps());
@@ -750,9 +773,15 @@ static void fill_stat(tuple n, struct stat *s)
         }
         s->st_size = fsfile_get_length(f);
     }
+    fsfile f = fsfile_from_node(current->p->fs, n);
+    if (!f) {
+        msg_err("can't find fsfile\n");
+        return;
+    }
     s->st_mode = S_IFREG | 0644; /* TODO */
+    s->st_size = fsfile_get_length(f);
     thread_log(current, "st_ino %P, st_mode %P, st_size %P\n",
-	       s->st_ino, s->st_mode, s->st_size);
+            s->st_ino, s->st_mode, s->st_size);
 }
 
 static sysreturn fstat(int fd, struct stat *s)
@@ -997,6 +1026,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_getrandom, getrandom);
     register_syscall(map, SYS_pipe, pipe);
     register_syscall(map, SYS_pipe2, pipe2);
+    register_syscall(map, SYS_creat, creat);
 }
 
 void *linux_syscalls[SYS_MAX];

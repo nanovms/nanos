@@ -8,7 +8,8 @@ CFLAGS = -g \
 	 -DENABLE_MSG_DEBUG \
 	 $(includes)
 
-all: fst hw hws hwg getdents udploop web webg webgs webs getrandom mkdir time pipe write
+all: fst hw hws hwg getdents udploop web webg webgs webs getrandom mkdir time \
+	 pipe write creat
 
 fst: $(FST)
 
@@ -25,6 +26,8 @@ mkdir: $(MKDIR)
 udploop: $(UDPLOOP)
 
 getrandom: $(GETRANDOM)
+
+creat: $(CREAT)
 
 time: $(TIME)
 
@@ -134,6 +137,16 @@ $(GETRANDOM): EXTRA_HOSTLDFLAGS = -lm
 $(GETRANDOM): $(getrandom-objs)
 	$(call cmd,host-prog)
 
+creat-srcs := \
+	$(ROOT)/examples/creat.c
+
+creat-objs = $(call srcs-to-objs,$(ROOT),$(OUT),creat)
+
+$(CREAT): HOSTLDFLAGS += -static
+$(CREAT): EXTRA_HOSTLDFLAGS = -lm
+$(CREAT): $(creat-objs)
+	$(call cmd,host-prog)
+
 time-srcs := \
 	$(ROOT)/examples/time.c
 
@@ -226,10 +239,11 @@ clean-objs = $(hw-objs) $(web-objs) $(FST) $(HW) $(HWG) $(HWS) $(WEB) $(WEBG) \
 	$(WEBGS) $(WEBS) $(CLOSURE_TMPL) $(getdents-objs) $(GETDENTS) \
 	$(getrandom-objs) $(GETRANDOM) $(udploop-objs) $(UDPLOOP) \
 	$(mkdir-objs) $(MKDIR) $(time-objs) $(TIME) $(write-objs) $(WRITE) \
-	$(pipe-objs) $(PIPE)
+	$(pipe-objs) $(PIPE) $(creat-objs) $(CREAT)
 
 clean: default-clean
 
-.PHONY: fst hw hwg hws web webg webgs webs getdents getrandom time udploop mkdir pipe write
+.PHONY: fst hw hwg hws web webg webgs webs getdents getrandom time udploop mkdir \
+	pipe write creat
 
 include ../rules.mk
