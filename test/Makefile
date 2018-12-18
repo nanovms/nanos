@@ -250,15 +250,3 @@ clean: default-clean
 .PHONY: objcache_test network_test id_heap_test path_test pqueue_test vector_test udp_test
 
 include ../rules.mk
-© 2018 GitHub, Inc.
-Terms
-Privacy
-Security
-Status
-Help
-Contact GitHub
-Pricing
-API
-Training
-Blog
-About
