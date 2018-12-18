@@ -12,20 +12,11 @@ LD	?= ld
 HOSTCC	?= cc
 STRIP	?= strip
 OBJCOPY	?= objcopy
-OBJDUMP ?= objdump
 DD	?= dd
 CAT	?= cat
 RM	?= rm
 
-CFLAGS	= -fno-omit-frame-pointer \
-		  -fno-stack-protector \
-		  -g \
-		  -O \
-		  -mno-sse \
-		  -mno-sse2 \
-		  -fdata-sections \
-		  -ffunction-sections \
-		  $(includes)
+CFLAGS	= -fno-stack-protector -g -O -fdata-sections -ffunction-sections $(includes)
 LDFLAGS	= --gc-sections
 
 IMAGE	= $(ROOT)/output/image/image
@@ -42,20 +33,16 @@ CONTGEN	= $(ROOT)/output/contgen/bin/contgen
 
 # Examples
 
-TARGET	?= webg
+TARGET	= webgs
 
-FST		= $(ROOT)/output/examples/fst
-HWG		= $(ROOT)/output/examples/hwg
-HW		= $(ROOT)/output/examples/hw
-HWS		= $(ROOT)/output/examples/hws
-WEB		= $(ROOT)/output/examples/web
-WEBS		= $(ROOT)/output/examples/webs
-WEBG		= $(ROOT)/output/examples/webg
-# WEBGS		= $(ROOT)/output/examples/webgs
-GETDENTS	= $(ROOT)/output/examples/getdents
-UDPLOOP		= $(ROOT)/output/examples/udploop
-GETRANDOM	= $(ROOT)/output/examples/getrandom
-TIME    = $(ROOT)/output/examples/time
+FST	= $(ROOT)/output/examples/fst
+HWG	= $(ROOT)/output/examples/hwg
+HW	= $(ROOT)/output/examples/hw
+HWS	= $(ROOT)/output/examples/hws
+WEB	= $(ROOT)/output/examples/web
+WEBS	= $(ROOT)/output/examples/webs
+WEBG	= $(ROOT)/output/examples/webg
+WEBGS	= $(ROOT)/output/examples/webgs
 
 # Tests
 
@@ -63,10 +50,7 @@ OBJCACHE_TEST	= $(ROOT)/output/test/objcache_test
 NETWORK_TEST	= $(ROOT)/output/test/network_test
 ID_HEAP_TEST	= $(ROOT)/output/test/id_heap_test
 PATH_TEST	= $(ROOT)/output/test/path_test
-PQUEUE_TEST	= $(ROOT)/output/test/pqueue_test
-VECTOR_TEST	= $(ROOT)/output/test/vector_test
-UDP_TEST	= $(ROOT)/output/test/udp_test
-
+BITMAP_TEST = $(ROOT)/output/test/bitmap_test
 # Generated depedencies
 
 CLOSURE_TMPL	= $(OUT)/runtime/closure_templates.h
