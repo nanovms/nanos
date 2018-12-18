@@ -1,5 +1,6 @@
 #include <unix_internal.h>
 #include <metadata.h>
+#include <path.h>
 
 // lifted from linux UAPI
 #define DT_UNKNOWN	0
@@ -395,6 +396,27 @@ sysreturn write(int fd, u8 *body, bytes length)
     int res = apply(f->write, body, length, f->offset);
     f->offset += length;
     return res;
+}
+
+sysreturn mkdir(const char *pathname, int mode)
+{
+    heap h = heap_general(get_kernel_heaps());
+    buffer cwd = wrap_buffer_cstring(h, "/"); /* XXX */
+    int rc;
+
+    /* canonicalize the path */
+    char *final_path = canonicalize_path(h, cwd,
+            wrap_buffer_cstring(h, pathname));
+
+    thread_log(current, "%s: (mode %d) pathname %s => %s\n",
+            __func__, mode, pathname, final_path);
+
+    rc = filesystem_mkdir(current->p->fs, final_path);
+
+    if (rc)
+        return set_syscall_error(current, rc);
+    else
+        return set_syscall_return(current, rc);
 }
 
 sysreturn getrandom(void *buf, u64 buflen, unsigned int flags)
@@ -889,6 +911,7 @@ void register_file_syscalls(void **map)
     register_syscall(map,SYS_exit_group, exit_group);
     register_syscall(map, SYS_exit, (sysreturn (*)())exit);
     register_syscall(map, SYS_getdents, getdents);
+    register_syscall(map, SYS_mkdir, mkdir);
     register_syscall(map, SYS_getrandom, getrandom);
 }
 
