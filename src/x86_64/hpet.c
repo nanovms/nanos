@@ -93,10 +93,10 @@ struct HPETMemoryMap {
 } __attribute__((__packed__));
 
 static volatile struct HPETMemoryMap* hpet;
-static time hpet_period_scaled_32;
+static timestamp hpet_period_scaled_32;
 static int hpet_interrupts[4];
 
-static void timer_config(int timer, time rate, thunk t, boolean periodic)
+static void timer_config(int timer, timestamp rate, thunk t, boolean periodic)
 {
     if (!hpet_interrupts[timer]) {
         u32 a, d;
@@ -130,18 +130,18 @@ static void timer_config(int timer, time rate, thunk t, boolean periodic)
 
 // allocate timers .. right now its at most 1 one-shot and periodic,
 // because we dont want to wire up the free
-void hpet_timer(time rate, thunk t)
+void hpet_timer(timestamp rate, thunk t)
 {
     timer_config(0, rate, t, false);
 }
 
-void hpet_periodic_timer(time rate, thunk t)
+void hpet_periodic_timer(timestamp rate, thunk t)
 {
     timer_config(1, rate, t, true);
 }
 
 
-time now_hpet()
+timestamp now_hpet()
 {
     return (((u128)hpet->mainCounterRegister) * hpet_period_scaled_32) >> 32;
 }
