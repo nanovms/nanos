@@ -5,9 +5,11 @@ OUT = $(ROOT)/output/examples
 
 CFLAGS = -g -DENABLE_MSG_DEBUG $(includes)
 
-all: fst hw hws hwg getdents web webg webgs webs write
+all: fst hw hws hwg getdents web webg webgs webs write sendfile
 
 fst: $(FST)
+
+sendfile: $(SENDFILE)
 
 hw: $(HW)
 
@@ -27,10 +29,12 @@ webgs: $(WEBGS)
 
 write: $(WRITE)
 
+sendfile: $(SENDFILE)
+
 includes := \
 	-I$(SRC)/runtime \
 	-I$(SRC)/unix_process \
-	-I$(SRC)/x86_64 \
+	-I$(SRC)/x86_64
 
 hw-srcs := \
 	$(ROOT)/examples/hw.c
@@ -62,6 +66,15 @@ write-objs = $(call srcs-to-objs,$(ROOT),$(OUT),write)
 
 $(WRITE): HOSTLDFLAGS += -static
 $(WRITE): $(write-objs)
+	$(call cmd,host-prog)
+
+sendfile-srcs := \
+	$(ROOT)/examples/sendfile.c
+
+sendfile-objs = $(call srcs-to-objs,$(ROOT),$(OUT),sendfile)
+
+$(SENDFILE): HOSTLDFLAGS += -static
+$(SENDFILE): $(sendfile-objs)
 	$(call cmd,host-prog)
 
 web-srcs := \
@@ -114,10 +127,10 @@ $(WEBGS): webg.go
 $(hw-objs) $(web-objs): $(CLOSURE_TMPL)
 
 clean-objs = $(hw-objs) $(web-objs) $(FST) $(HW) $(HWG) $(HWS) $(WEB) $(WEBG) $(WEBGS) $(WEBS) $(CLOSURE_TMPL) \
-	$(getdents-objs) $(GETDENTS) $(write-objs) $(WRITE)
+	$(getdents-objs) $(GETDENTS) $(write-objs) $(WRITE) $(SENDFILE) $(sendfile-objs)
 
 clean: default-clean
 
-.PHONY: fst hw hwg hws web webg webgs webs getdents write
+.PHONY: fst hw hwg hws web webg webgs webs getdents write sendfile
 
 include ../rules.mk

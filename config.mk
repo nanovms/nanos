@@ -37,6 +37,7 @@ CONTGEN	= $(ROOT)/output/contgen/bin/contgen
 TARGET	?= webgs
 
 FST		= $(ROOT)/output/examples/fst
+SENDFILE	= $(ROOT)/output/examples/sendfile
 HWG		= $(ROOT)/output/examples/hwg
 HW		= $(ROOT)/output/examples/hw
 HWS		= $(ROOT)/output/examples/hws

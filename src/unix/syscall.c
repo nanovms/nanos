@@ -388,6 +388,43 @@ sysreturn write(int fd, u8 *body, bytes length)
     return res;
 }
 
+static CLOSURE_3_2(file_op_complete, void, thread, file, boolean, status, bytes);
+static void file_op_complete(thread t, file f, boolean is_file_offset, status s, bytes length)
+{
+     thread_log(current, "%s: len %d, status %v (%s)\n", __func__,
+            length, s, is_ok(s) ? "OK" : "NOTOK");
+
+    if (is_ok(s)) {
+        if (is_file_offset)	/* vs specified offset (pread) */
+            f->offset += length;
+        set_syscall_return(t, length);
+    } else {
+        /* XXX should peek inside s and map to errno... */
+        set_syscall_error(t, EIO);
+    }
+    thread_wakeup(t);
+}
+
+static CLOSURE_5_2(file_op_complete_internal, void, thread, file, file, int, void*, status, bytes);
+static void file_op_complete_internal(thread t, file inf, file ouf, int offset_adjust, void* buf, status s, bytes length)
+{
+    buffer b;
+
+    thread_log(current, "%s: len %d, status %v (%s)\n", __func__,
+            length, s, is_ok(s) ? "OK" : "NOTOK");
+    if (is_ok(s)) {
+        if (offset_adjust)
+	        inf->offset += length;
+        b = wrap_buffer(heap_general(get_kernel_heaps()), buf, length);
+        filesystem_write(current->p->fs, ouf->n, b, ouf->offset,
+                closure(heap_general(get_kernel_heaps()), file_op_complete, current, ouf, 1));
+    } else {
+        deallocate_buffer(buf);
+        set_syscall_error(t, EIO);
+        thread_wakeup(current);
+    }
+}
+
 static int try_write_dirent(struct linux_dirent *dirp, char *p,
         int *read_sofar, int *written_sofar, int *f_offset,
         unsigned int *count, int ft)
@@ -484,21 +521,6 @@ static sysreturn access(char *name, int mode)
     return 0;
 }
 
-static CLOSURE_3_2(file_op_complete, void, thread, file, boolean, status, bytes);
-static void file_op_complete(thread t, file f, boolean is_file_offset, status s, bytes length)
-{
-    thread_log(current, "%s: len %d, status %v (%s)\n", __func__,
-            length, s, is_ok(s) ? "OK" : "NOTOK");
-    if (is_ok(s)) {
-        if (is_file_offset)	/* vs specified offset (pread) */
-            f->offset += length;
-        set_syscall_return(t, length);
-    } else {
-        /* XXX should peek inside s and map to errno... */
-        set_syscall_error(t, EIO);
-    }
-    thread_wakeup(t);
-}
 
 static CLOSURE_1_3(file_read, sysreturn, file, void *, u64, u64);
 static sysreturn file_read(file f, void *dest, u64 length, u64 offset_arg)
@@ -548,6 +570,34 @@ static sysreturn file_write(file f, void *dest, u64 length, u64 offset_arg)
     /* XXX Presently only support blocking file writes... */
     thread_sleep(current);
 }
+
+static sysreturn sendfile(int outfile, int infile, unsigned long *offs, bytes count)
+{
+    file inf = resolve_fd(current->p, infile);
+    file ouf = resolve_fd(current->p, outfile);
+    heap h = heap_general(get_kernel_heaps());
+    buffer b;
+    void *buf = allocate(h, count);
+    int res = 0;
+    int tmp;
+    int offset_adjust = (offs == (char*)0);	/* adjust only if offs is NULL */
+    s64 offset = (s64)(offset_adjust == 1) ? inf->offset : *offs;
+
+    if (!inf || !ouf)
+        return set_syscall_error(current, EBADF);
+    if (!inf->read || !ouf->write)
+      return set_syscall_error(current, EINVAL);
+    if ((inf->offset + count) > inf->length)
+        return set_syscall_error(current, EINVAL);
+
+    filesystem_read(current->p->fs, inf->n, buf, count, offset,
+	closure(h, file_op_complete_internal, current, inf, ouf, offset_adjust, buf));
+
+    thread_sleep(current);
+    return count;
+}
+
+
 
 static CLOSURE_1_0(file_close, sysreturn, file);
 static sysreturn file_close(file f)
@@ -884,6 +934,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_open, open);
     register_syscall(map, SYS_openat, openat);
     register_syscall(map, SYS_fstat, fstat);
+    register_syscall(map, SYS_sendfile, sendfile);
     register_syscall(map, SYS_stat, stat);
     register_syscall(map, SYS_writev, writev);
     register_syscall(map, SYS_access, access);
