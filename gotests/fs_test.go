@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nanovms/nvm/lepton"
+	"github.com/nanovms/ops/lepton"
 )
 
 func defaultConfig() lepton.Config {
