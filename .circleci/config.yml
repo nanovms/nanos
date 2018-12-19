@@ -10,7 +10,7 @@ jobs:
       # specify any bash command here prefixed with `run: `
       - run: sudo apt-get update
       - run: sudo apt-get install nasm qemu
-      - run: cd .. && git clone git@github.com:nanovms/nvm.git
+      - run: cd .. && git clone git@github.com:nanovms/ops.git
       - run: make && make unit-test
       - run: make gotest
   nightly-build:
