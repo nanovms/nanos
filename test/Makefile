@@ -3,17 +3,18 @@ include ../common.mk
 
 OUT = $(ROOT)/output/test
 
-CFLAGS += -g -std=gnu99
+CFLAGS += -g -std=gnu99 -Wno-implicit-function-declaration
 #CFLAGS+=-DENABLE_MSG_DEBUG -DID_HEAP_DEBUG
 
-all: objcache_test network_test id_heap_test path_test pqueue_test vector_test udp_test
+all: objcache_test network_test id_heap_test path_test pqueue_test vector_test udp_test buffer_test
 
-unit-test: objcache_test id_heap_test path_test pqueue_test vector_test
+unit-test: objcache_test id_heap_test path_test pqueue_test vector_test buffer_test
 	$(OBJCACHE_TEST)
 	$(ID_HEAP_TEST)
 	$(PATH_TEST)
 	$(PQUEUE_TEST)
 	$(VECTOR_TEST)
+	$(BUFFER_TEST)
 
 objcache_test: $(OBJCACHE_TEST)
 
@@ -28,6 +29,8 @@ pqueue_test: $(PQUEUE_TEST)
 vector_test: $(VECTOR_TEST)
 
 udp_test: $(UDP_TEST)
+
+buffer_test: $(BUFFER_TEST)
 
 includes := \
 	-I$(SRC)/runtime \
@@ -206,6 +209,27 @@ udp_test-srcs := \
 
 udp_test-objs = $(call srcs-to-objs,$(ROOT),$(OUT),udp_test)
 
+buffer_test-srcs := \
+	$(ROOT)/test/buffer_test.c \
+	$(SRC)/runtime/bitmap.c \
+	$(SRC)/runtime/buffer.c \
+	$(SRC)/runtime/extra_prints.c \
+	$(SRC)/runtime/format.c \
+	$(SRC)/runtime/heap/id.c \
+	$(SRC)/runtime/merge.c \
+	$(SRC)/runtime/pqueue.c \
+	$(SRC)/runtime/random.c \
+	$(SRC)/runtime/rtrie.c \
+	$(SRC)/runtime/runtime_init.c \
+	$(SRC)/runtime/symbol.c \
+	$(SRC)/runtime/table.c \
+	$(SRC)/runtime/timer.c \
+	$(SRC)/runtime/tuple.c \
+	$(SRC)/runtime/string.c \
+	$(SRC)/unix_process/unix_process_runtime.c \
+
+buffer_test-objs = $(call srcs-to-objs,$(ROOT),$(OUT),buffer_test)
+
 $(objcache_test-objs): $(CLOSURE_TMPL)
 $(network_test-objs): $(CLOSURE_TMPL)
 $(id_heap_test-objs): $(CLOSURE_TMPL)
@@ -213,6 +237,7 @@ $(path_test-objs): $(CLOSURE_TMPL)
 $(pqueue_test-objs): $(CLOSURE_TMPL)
 $(vector_test-objs): $(CLOSURE_TMPL)
 $(udp_test-objs): $(CLOSURE_TMPL)
+$(buffer_test-objs): $(CLOSURE_TMPL)
 
 $(OBJCACHE_TEST): $(objcache_test-objs)
 	$(call cmd,host-prog)
@@ -235,6 +260,9 @@ $(VECTOR_TEST): $(vector_test-objs)
 $(UDP_TEST): $(udp_test-objs)
 	$(call cmd,host-prog)
 
+$(BUFFER_TEST): $(buffer_test-objs)
+	$(call cmd,host-prog)
+
 clean-objs = \
 	$(id_heap_test-objs) $(ID_HEAP_TEST) \
 	$(network_test-objs) $(NETWORK_TEST) \
@@ -243,10 +271,11 @@ clean-objs = \
 	$(pqueue_test-objs) $(PQUEUE_TEST) \
 	$(vector_test-objs) $(VECTOR_TEST) \
 	$(udp_test-objs) $(UDP_TEST) \
+	$(buffer_test-objs) $(BUFFER_TEST) \
 	$(CLOSURE_TMPL) \
 
 clean: default-clean
 
-.PHONY: objcache_test network_test id_heap_test path_test pqueue_test vector_test udp_test
+.PHONY: objcache_test network_test id_heap_test path_test pqueue_test vector_test udp_test buffer_test
 
 include ../rules.mk
