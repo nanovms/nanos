@@ -67,6 +67,7 @@ PATH_TEST	= $(ROOT)/output/test/path_test
 PQUEUE_TEST	= $(ROOT)/output/test/pqueue_test
 VECTOR_TEST	= $(ROOT)/output/test/vector_test
 UDP_TEST	= $(ROOT)/output/test/udp_test
+BUFFER_TEST	= $(ROOT)/output/test/buffer_test
 
 # Generated depedencies
 

@@ -142,10 +142,6 @@ void buffer_append(buffer b,
                    void *body,
                    bytes length);
 
-void buffer_prepend(buffer b,
-                      void *body,
-                      bytes length);
-
 // little endian variants
 #define WRITE_BE(bits)\
    static inline void buffer_write_be##bits(buffer b, u64 x)   \
