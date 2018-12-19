@@ -26,12 +26,12 @@ jobs:
       - run: cp .circleci/boto ~/.boto
       - run: wget https://storage.googleapis.com/pub/gsutil.tar.gz
       - run: tar xfz gsutil.tar.gz -C ~
-      - run: ~/gsutil/gsutil cp output/boot/boot.img gs://uniboot
-      - run: ~/gsutil/gsutil cp output/stage3/stage3.img gs://uniboot
-      - run: ~/gsutil/gsutil cp output/mkfs/bin/mkfs gs://uniboot
-      - run: ~/gsutil/gsutil acl ch -u AllUsers:R gs://uniboot/stage3.img
-      - run: ~/gsutil/gsutil acl ch -u AllUsers:R gs://uniboot/boot.img
-      - run: ~/gsutil/gsutil acl ch -u AllUsers:R gs://uniboot/mkfs
+      - run: ~/gsutil/gsutil cp output/boot/boot.img gs://nanos
+      - run: ~/gsutil/gsutil cp output/stage3/stage3.img gs://nanos
+      - run: ~/gsutil/gsutil cp output/mkfs/bin/mkfs gs://nanos
+      - run: ~/gsutil/gsutil acl ch -u AllUsers:R gs://nanos/stage3.img
+      - run: ~/gsutil/gsutil acl ch -u AllUsers:R gs://nanos/boot.img
+      - run: ~/gsutil/gsutil acl ch -u AllUsers:R gs://nanos/mkfs
 workflows:
   version: 2
   commit-workflow:
