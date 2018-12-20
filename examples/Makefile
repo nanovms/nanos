@@ -8,7 +8,7 @@ CFLAGS = -g \
 	 -DENABLE_MSG_DEBUG \
 	 $(includes)
 
-all: fst hw hws hwg getdents udploop web webg webgs webs getrandom mkdir time
+all: fst hw hws hwg getdents udploop web webg webgs webs getrandom mkdir time pipe
 
 fst: $(FST)
 
@@ -35,6 +35,8 @@ webs: $(WEBS)
 webg: $(WEBG)
 
 webgs: $(WEBGS)
+
+pipe: $(PIPE)
 
 includes := \
 	-I$(SRC)/runtime \
@@ -130,6 +132,29 @@ $(TIME): HOSTLDFLAGS += -static
 $(TIME): $(time-objs)
 	$(call cmd,host-prog)
 
+pipe-srcs := \
+	$(ROOT)/examples/pipe.c \
+	$(SRC)/unix_process/unix_process_runtime.c \
+	$(SRC)/unix/path.c \
+	$(SRC)/runtime/bitmap.c \
+	$(SRC)/runtime/buffer.c \
+	$(SRC)/runtime/extra_prints.c \
+	$(SRC)/runtime/format.c \
+	$(SRC)/runtime/random.c \
+	$(SRC)/runtime/runtime_init.c \
+	$(SRC)/runtime/string.c \
+	$(SRC)/runtime/symbol.c \
+	$(SRC)/runtime/table.c \
+	$(SRC)/runtime/tuple_parser.c \
+	$(SRC)/runtime/tuple.c \
+
+pipe-objs = $(call srcs-to-objs,$(ROOT),$(OUT),pipe)
+
+$(PIPE): HOSTLDFLAGS += -static
+$(PIPE): EXTRA_HOSTLDFLAGS = -lm
+$(PIPE): $(pipe-objs)
+	$(call cmd,host-prog)
+
 web-srcs := \
 	$(ROOT)/examples/web.c \
 	$(SRC)/unix_process/unix_process_runtime.c \
@@ -179,14 +204,14 @@ $(WEBGS): webg.go
 
 $(hw-objs) $(web-objs) $(udploop-objs): $(CLOSURE_TMPL)
 
-
 clean-objs = $(hw-objs) $(web-objs) $(FST) $(HW) $(HWG) $(HWS) $(WEB) $(WEBG) \
 	$(WEBGS) $(WEBS) $(CLOSURE_TMPL) $(getdents-objs) $(GETDENTS) \
 	$(getrandom-objs) $(GETRANDOM) $(udploop-objs) $(UDPLOOP) \
-	$(mkdir-objs) $(MKDIR) $(time-objs) $(TIME)
+	$(mkdir-objs) $(MKDIR) $(time-objs) $(TIME) \
+	$(pipe-objs) $(PIPE)
 
 clean: default-clean
 
-.PHONY: fst hw hwg hws web webg webgs webs getdents getrandom time udploop mkdir
+.PHONY: fst hw hwg hws web webg webgs webs getdents getrandom time udploop mkdir pipe
 
 include ../rules.mk

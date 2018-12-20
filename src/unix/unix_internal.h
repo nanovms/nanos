@@ -195,3 +195,6 @@ static sysreturn sysreturn_value(thread t)
 
 void init_threads(process p);
 void init_syscalls();
+
+int do_pipe2(heap h, int fds[2], int flags);
+

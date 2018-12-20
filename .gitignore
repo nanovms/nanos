@@ -10,3 +10,4 @@ vendor
 # Editor stuff
 *~
 .vscode
+*.swp
