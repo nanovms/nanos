@@ -101,14 +101,7 @@ static inline void sys_arch_unprotect(sys_prot_t x)
 
 extern void console(char *);
 typedef unsigned long long time; 
-extern time now();
 extern void lwip_debug(char * format, ...);
-
-static inline u32_t sys_now(void)
-{
-    u64_t t = now();
-    return (t * 1000) >> 32;
-}
 
 #define MEM_LIBC_MALLOC 1
 

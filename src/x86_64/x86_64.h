@@ -82,11 +82,19 @@ static inline void write_barrier()
     asm ("sfence");
 }
 
+#ifdef __APPLE__
+#define rol(__x, __b)\
+     ({\
+        __asm__("roll %1, %0": "=g"(__x): "i" (__b));\
+        __x;\
+     })
+#else 
 #define rol(__x, __b)\
      ({\
         __asm__("rol %1, %0": "=g"(__x): "i" (__b));\
         __x;\
-     })\
+     })
+#endif
 
 /*static inline u64 msb(u64 x)
 {
@@ -122,13 +130,13 @@ static inline void set_syscall_handler(void *syscall_entry)
     write_msr(EFER_MSR, read_msr(EFER_MSR) | EFER_SCE);
 }
 
-static time rdtsc(void)
+static timestamp rdtsc(void)
 {
     u64 a, d;
     asm("cpuid":::"%rax", "%rbx", "%rcx", "%rdx");
     asm volatile("rdtsc" : "=a" (a), "=d" (d));
 
-    return (((time)a) | (((time)d) << 32));
+    return (((timestamp)a) | (((timestamp)d) << 32));
 }
 
 void init_clock(kernel_heaps kh);
@@ -192,7 +200,9 @@ void elf_symbols(buffer elf, closure_type(each, void, char *, u64, u64, u8));
 #define mov_from_cr(__x, __y) __asm__("mov %%"__x", %0" : "=a"(__y) : : "memory");
 
 typedef closure_type(fault_handler, u64 *, context);
-void configure_timer(time rate, thunk t);
+
+void configure_timer(timestamp rate, thunk t);
+
 boolean enqueue(queue q, void *n);
 void *dequeue(queue q);
 void *queue_peek(queue q);

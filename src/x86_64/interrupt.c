@@ -283,7 +283,7 @@ void register_interrupt(int vector, thunk t)
     handlers[vector] = t;
 }
 
-void configure_lapic_timer(time rate, thunk t)
+void configure_lapic_timer(timestamp rate, thunk t)
 {
     *(u32 *)(apic_base+APIC_TMRDIV) = 3;
     int v = allocate_u64(interrupt_vectors, 1);

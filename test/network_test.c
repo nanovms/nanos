@@ -39,8 +39,8 @@ static void value_in(heap h,
 {
     s->responses++;
 
-    static time last;
-    time t = now();
+    static timestamp last;
+    timestamp t = now();
 
     if ((t - last) > (1ull<<32)){
         last = t;

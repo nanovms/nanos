@@ -6,7 +6,7 @@ typedef u32 character;
 #define true 1
 #define false 0
 
-typedef u64 time;
+typedef u64 timestamp;
 
 extern void console(char *x);
 void print_u64(u64 s);

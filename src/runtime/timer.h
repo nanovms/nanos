@@ -1,17 +1,18 @@
 #pragma once
-typedef u64 time;
+typedef u64 timestamp;
 typedef struct timer *timer;
-timer register_timer(time, thunk n);
-timer register_periodic_timer(time interval, thunk n);
+
+timer register_timer(timestamp, thunk n);
+timer register_periodic_timer(timestamp interval, thunk n);
 void remove_timer(timer t);
 void initialize_timers(kernel_heaps kh);
-time parse_time();
-void print_time(buffer, time);
-time timer_check();
+timestamp parse_time();
+void print_time(buffer, timestamp);
+timestamp timer_check();
 #ifdef BOOT
-static inline time now() { return 0; } /* stub */
+static inline timestamp now() { return 0; } /* stub */
 #else
-time now();
+timestamp now();
 #endif
 
 #define nano 1000000000ull
@@ -24,27 +25,27 @@ static inline u64 time_from_nsec(u64 n)
 }
 
 // without seconds component
-static inline u64 nsec_from_time(time n)
+static inline u64 nsec_from_time(timestamp n)
 {
     return ((n & MASK(32)) * nano) >> 32;
 }
 
-static inline u64 sec_from_time(time n)
+static inline u64 sec_from_time(timestamp n)
 {
     return n >> 32;
 }
 
-static inline time seconds(int n)
+static inline timestamp seconds(int n)
 {
     return(((u64)n)<<32);
 }
 
-static inline time milliseconds(int n)
+static inline timestamp milliseconds(int n)
 {
     return((((u64)n)<<32)/1000ull);
 }
 
-static inline time femtoseconds(u64 fs)
+static inline timestamp femtoseconds(u64 fs)
 {
     return fs / (femto >> 32);
 }

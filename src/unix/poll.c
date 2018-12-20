@@ -444,7 +444,7 @@ static epoll select_get_epoll()
 
 static sysreturn select_internal(int nfds,
 				 fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
-				 time timeout,
+				 timestamp timeout,
 				 const sigset_t * sigmask)
 {
     unix_heaps uh = get_unix_heaps();
