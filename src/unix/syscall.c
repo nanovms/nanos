@@ -887,12 +887,10 @@ void exit_group(int status){
 
 sysreturn pipe2(int fds[2], int flags)
 {
-    heap h = heap_general(get_kernel_heaps());
-
     if (flags & ~(O_CLOEXEC | O_NONBLOCK))
         return set_syscall_error(current, EINVAL);
 
-    return do_pipe2(h, fds, flags);
+    return do_pipe2(fds, flags);
 }
 
 sysreturn pipe(int fds[2])

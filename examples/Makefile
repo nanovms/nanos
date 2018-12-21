@@ -147,6 +147,13 @@ pipe-srcs := \
 	$(SRC)/runtime/table.c \
 	$(SRC)/runtime/tuple_parser.c \
 	$(SRC)/runtime/tuple.c \
+	$(SRC)/runtime/timer.c \
+	$(SRC)/runtime/pqueue.c \
+	$(SRC)/runtime/heap/id.c \
+	$(SRC)/runtime/heap/freelist.c \
+	$(SRC)/runtime/heap/debug_heap.c \
+	$(SRC)/runtime/heap/objcache.c \
+	$(SRC)/runtime/heap/mcache.c \
 
 pipe-objs = $(call srcs-to-objs,$(ROOT),$(OUT),pipe)
 
