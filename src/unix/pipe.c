@@ -37,7 +37,6 @@ boolean pipe_init(unix_heaps uh)
 
 static void pipe_release(pipe p)
 {
-    pipe_debug("pipe_release:cnt %d\n", p->ref_cnt);
     if (!p->ref_cnt || (fetch_and_add(&p->ref_cnt, -1) == 0)) {
         if (p->data != INVALID_ADDRESS)
             deallocate_buffer(p->data);
