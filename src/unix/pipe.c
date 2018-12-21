@@ -40,6 +40,12 @@ static void pipe_release(pipe p)
     if (!p->ref_cnt || (fetch_and_add(&p->ref_cnt, -1) == 0)) {
         if (p->data != INVALID_ADDRESS)
             deallocate_buffer(p->data);
+
+        if (p->files[0].fd != -1)
+            deallocate_fd(p->p, p->files[0].fd, &p->files[0].f);
+        if (p->files[1].fd != -1)
+            deallocate_fd(p->p, p->files[1].fd, &p->files[1].f);
+
         unix_cache_free(get_unix_heaps(), pipe, p);
     }
 }
@@ -83,6 +89,8 @@ int do_pipe2(int fds[2], int flags)
     }
 
     pipe->data = INVALID_ADDRESS;
+    pipe->files[0].fd = -1;
+    pipe->files[1].fd = -1;
     pipe->h = heap_general((kernel_heaps)uh);
     pipe->p = current->p;
     pipe->files[0].pipe = pipe;
