@@ -1,4 +1,5 @@
 #include <unix_internal.h>
+#include <buffer.h>
 
 #define  PIPE_DEBUG
 #ifdef PIPE_DEBUG
@@ -7,48 +8,105 @@
 #define pipe_debug(x, ...)
 #endif
 
-static CLOSURE_0_3(pipe_read, sysreturn, void *, u64, u64);
-static sysreturn pipe_read(void *dest, u64 length, u64 offset_arg)
+#define INITIAL_PIPE_DATA_SIZE  100
+
+struct pipe_struct;
+
+typedef struct pipe_file_struct {
+    struct file f;
+    int fd;
+    struct pipe_struct *pipe;
+} *pipe_file;
+
+typedef struct pipe_struct {
+    struct pipe_file_struct files[2];
+    process p;
+    heap h;
+    u64 ref_cnt;;
+    buffer data;
+} *pipe;
+
+boolean pipe_init(unix_heaps uh)
 {
-    thread_log(current, "%s: dest %p, length %d, offset_arg %d\n",
-	       __func__, dest, length, offset_arg);
-    return 0;
+    heap general = heap_general((kernel_heaps)uh);
+    heap backed = heap_backed((kernel_heaps)uh);
+
+    uh->pipe_cache = allocate_objcache(general, backed, sizeof(struct pipe_struct), PAGESIZE);
+    return (uh->pipe_cache == INVALID_ADDRESS ? false : true);
+}
+
+static void pipe_release(pipe p)
+{
+    pipe_debug("pipe_release:cnt %d\n", p->ref_cnt);
+    if (!p->ref_cnt || (fetch_and_add(&p->ref_cnt, -1) == 0)) {
+        if (p->data != INVALID_ADDRESS)
+            deallocate_buffer(p->data);
+        unix_cache_free(get_unix_heaps(), pipe, p);
+    }
 }
 
 static CLOSURE_1_0(pipe_close, sysreturn, file);
 static sysreturn pipe_close(file f)
 {
-    pipe_debug("closing - %p\n", f);
-    unix_cache_free(get_unix_heaps(), file, f);
+    pipe_file pf = (pipe_file)f;    
+    pipe_debug("closing - %p\n", pf);
+    pipe_release(pf->pipe);
     return 0;
 }
 
-static CLOSURE_0_3(pipe_write, sysreturn, void*, u64, u64);
-static sysreturn pipe_write(void *d, u64 length, u64 offset)
+static CLOSURE_1_3(pipe_read, sysreturn, file, void *, u64, u64);
+static sysreturn pipe_read(file f, void *dest, u64 length, u64 offset_arg)
 {
-    pipe_debug("write - %p\n", d);
-    u8 *z = d;
+    pipe_file pf = (pipe_file)f;    
+    int real_length = buffer_length(pf->pipe->data);
+
+    real_length = MIN(real_length, length); 
+    buffer_read(pf->pipe->data, dest, real_length);
+    return real_length;
+}
+
+static CLOSURE_1_3(pipe_write, sysreturn, file, void*, u64, u64);
+static sysreturn pipe_write(file f, void *d, u64 length, u64 offset)
+{
+    pipe_file pf = (pipe_file)f;    
+    buffer_write(pf->pipe->data, d, length);
     return length;
 }
 
-
-int do_pipe2(heap h, int fds[2], int flags)
+int do_pipe2(int fds[2], int flags)
 {
     unix_heaps uh = get_unix_heaps();
-    h = heap_general((kernel_heaps)uh);
-    file in = unix_cache_alloc(uh, file);
-    file out = unix_cache_alloc(uh, file);
 
-    if (!in || !out) {
-        msg_err("failed to allocate files\n");
+    pipe pipe = unix_cache_alloc(get_unix_heaps(), pipe);
+    if (pipe == INVALID_ADDRESS) {
+        msg_err("failed to allocate struct pipe\n");
         return -ENOMEM;
     }
-    fds[0] = allocate_fd(current->p, in);
-    fds[1] = allocate_fd(current->p, out);
-    in->write = out->write = closure(h, pipe_write);
-    in->read = out->read = closure(h, pipe_read);
-    in->close = closure(h, pipe_close, in);
-    out->close = closure(h, pipe_close, out);
+
+    pipe->data = INVALID_ADDRESS;
+    pipe->h = heap_general((kernel_heaps)uh);
+    pipe->p = current->p;
+    pipe->files[0].pipe = pipe;
+    pipe->files[1].pipe = pipe;
+    pipe->ref_cnt = 0;
+    pipe->data = allocate_buffer(pipe->h, INITIAL_PIPE_DATA_SIZE);
+    if (pipe->data == INVALID_ADDRESS) {
+        msg_err("failed to allocate pipe's data buffer\n");
+        pipe_release(pipe);
+        return -ENOMEM;
+    }
+
+    file reader = (file)&pipe->files[0];
+    file writer = (file)&pipe->files[1];
+
+    pipe->files[0].fd = fds[0] = allocate_fd(pipe->p, reader);
+    pipe->files[1].fd = fds[1] = allocate_fd(pipe->p, writer);
+    pipe->ref_cnt = 2;
+
+    writer->write = closure(pipe->h, pipe_write, writer);
+    reader->read = closure(pipe->h, pipe_read, reader);
+    reader->close = closure(pipe->h, pipe_close, reader);
+    writer->close = closure(pipe->h, pipe_close, writer);
     return 0;
 }
 

@@ -43,6 +43,7 @@ typedef struct unix_heaps {
     heap epoll_cache;
     heap epollfd_cache;
     heap epoll_blocked_cache;
+    heap pipe_cache;
 #ifdef NET
     heap socket_cache;
 #endif
@@ -162,6 +163,7 @@ void register_poll_syscalls(void **);
 void register_clock_syscalls(void **);
 
 boolean poll_init(unix_heaps uh);
+boolean pipe_init(unix_heaps uh);
 #define sysreturn_from_pointer(__x) ((s64)u64_from_pointer(__x));
 
 extern sysreturn syscall_ignore();
@@ -196,5 +198,5 @@ static sysreturn sysreturn_value(thread t)
 void init_threads(process p);
 void init_syscalls();
 
-int do_pipe2(heap h, int fds[2], int flags);
+int do_pipe2(int fds[2], int flags);
 
