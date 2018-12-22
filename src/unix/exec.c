@@ -14,10 +14,10 @@
 #define spush(__s, __w) *((--(__s))) = (u64)(__w)
 
 #define ppush(__s, __b, __f, ...) ({buffer_clear(__b);\
-            bprintf(b, __f, __VA_ARGS__);                               \
-            u64 len = pad(buffer_length(b) * 8, 64)>>6;                     \
-            __s -= len;                                                 \
-            runtime_memcpy(s, buffer_ref(b, 0), buffer_length(b));\
+            bprintf(__b, __f, __VA_ARGS__);                               \
+            __s -= pad((buffer_length(__b) + 1) * 8, 64)>>6;              \
+            runtime_memcpy(__s, buffer_ref(__b, 0), buffer_length(__b));  \
+            ((char *)__s)[buffer_length(__b)] = '\0';                     \
             (char *)__s;})
 
 static void build_exec_stack(heap sh, thread t, Elf64_Ehdr * e, void *start, u64 va, tuple process_root)
@@ -48,8 +48,20 @@ static void build_exec_stack(heap sh, thread t, Elf64_Ehdr * e, void *start, u64
     char **envp = stack_allocate(envc * sizeof(u64));
     envc = 0;
     buffer a;
-    vector_foreach(arguments, a)  argv[argc++] = ppush(s, b, "%b\0", a);
-    table_foreach(environment, n, v)  envp[envc++] = ppush(s, b, "%b=%b\0", symbol_string(n), v);
+    int argv_len = 0;
+    vector_foreach(arguments, a) {
+        argv_len += buffer_length(a) + 1;
+    }
+    s -= pad(argv_len * 8, 64)>>6;
+    char *p = (char *) s;
+    vector_foreach(arguments, a) {
+        int len = buffer_length(a);
+        runtime_memcpy(p, buffer_ref(a, 0), len);
+        p[len] = '\0';
+        argv[argc++] = p;
+        p += len + 1;
+    }
+    table_foreach(environment, n, v)  envp[envc++] = ppush(s, b, "%b=%b", symbol_string(n), v);
     spush(s, 0);
     spush(s, 0);
     
