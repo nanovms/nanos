@@ -210,3 +210,22 @@ void register_special_files(process p);
 sysreturn spec_read(file f, void *dest, u64 length, u64 offset_arg);
 sysreturn spec_write(file f, void *dest, u64 length, u64 offset_arg);
 u32 spec_events(file f);
+
+#define BLOCKQ_NAME_MAX 20
+
+typedef struct blockq {
+    heap h;
+    /* spinlock lock; */
+    queue waiters;              /* queue of blockq_actions */
+    char name[BLOCKQ_NAME_MAX]; /* for debug */
+    timer timeout;              /* timeout to protect against stuck queue scenarios */
+    time timeout_interval;
+} *blockq;
+
+typedef closure_type(blockq_action, sysreturn, boolean);
+
+blockq allocate_blockq(heap h, char * name, u64 size, time timeout_interval);
+void deallocate_blockq(blockq bq);
+sysreturn blockq_check(blockq bq, thread t, blockq_action a);
+void blockq_wake_one(blockq bq);
+void blockq_flush(blockq bq);
