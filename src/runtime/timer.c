@@ -72,7 +72,7 @@ timestamp timer_check()
                 current->w += current->interval;
                 pqueue_insert(timers, current); 
             }
-        }
+        } // XXX fix the leak
     }
     if (current) {
     	timestamp dt = current->w - here;

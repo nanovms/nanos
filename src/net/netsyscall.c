@@ -1,3 +1,13 @@
+/* TODO before PR
+
+   - verify failure modes from neg lwip status, including on listen socket
+   - sort out lock for sock status
+   - sort out full-length blocking writes for send/sendto
+   - switch on timeout
+   - check err handling of tcp_output
+   - do udp tx bottom half
+*/
+
 #include <unix_internal.h>
 #include <lwip.h>
 #include <lwip/udp.h>
@@ -42,6 +52,8 @@ typedef struct notify_entry {
     struct list l;
 } *notify_entry;
 
+typedef closure_type(lwip_status_handler, void, err_t);
+
 typedef struct sock {
     struct file f;
     int type;
@@ -49,16 +61,19 @@ typedef struct sock {
     u32 flags;
     process p;
     heap h;
+    blockq rxbq;                 /* for incoming queue */
     queue incoming;
-    queue waiting; // service waiting before notify, do we really need 2 queues here?
+    blockq txbq;                 /* for lwip protocol tx buffer */
     struct list notify;		/* XXX: add spinlock when available */
     // the notion is that 'waiters' should take priority    
     int fd;
-    status lwip_status;
+    err_t lwip_error;           /* set to error condition that requires
+                                   handling, ERR_OK otherwise */
     union {
 	struct {
 	    struct tcp_pcb *lw;
 	    enum tcp_socket_state state; // half open?
+            lwip_status_handler connect_bh;
 	} tcp;
 	struct {
 	    struct udp_pcb *lw;
@@ -67,7 +82,7 @@ typedef struct sock {
     } info;
 } *sock;
 
-//#define NETSYSCALL_DEBUG
+#define NETSYSCALL_DEBUG
 
 #ifdef NETSYSCALL_DEBUG
 #define net_debug(x, ...) do {log_printf(" NET", "%s: " x, __func__, ##__VA_ARGS__);} while(0)
@@ -137,18 +152,27 @@ static void notify_dispatch(sock s)
     } while(l != &s->notify);
 }
 
-typedef closure_type(lwip_status_handler, void, err_t);
+#define WAKEUP_SOCK_RX          1
+#define WAKEUP_SOCK_TX          2
+#define WAKEUP_SOCK_EXCEPT      4 /* flush, and thus implies rx & tx */
 
-static void wakeup_sock(sock s, err_t err)
+static void wakeup_sock(sock s, u64 flags)
 {
     lwip_status_handler fstatus;
-    net_debug("sock %d\n", s->fd);
-    // return status if not handled so someone else can try?
-    // shouldnt a close event wake up everyone?
-    if ((fstatus = dequeue(s->waiting)))
-        apply(fstatus, err);
-    else
-	notify_dispatch(s);
+    net_debug("sock %d, flags %d\n", s->fd, flags);
+
+    /* exception leads to release of all blocking requests */
+    if ((flags & WAKEUP_SOCK_EXCEPT)) {
+        blockq_flush(s->rxbq);
+        blockq_flush(s->txbq);
+    } else {
+        if ((flags & WAKEUP_SOCK_RX))
+            blockq_wake_one(s->rxbq);
+
+        if ((flags & WAKEUP_SOCK_TX))
+            blockq_wake_one(s->txbq);
+    }
+    notify_dispatch(s);
 }
 
 static inline void error_message(sock s, err_t err) {
@@ -210,87 +234,88 @@ static inline void pbuf_consume(struct pbuf *p, u64 length)
 }
 
 struct udp_entry {
-    struct pbuf * p;
+    struct pbuf * pbuf;
     u32 raddr;
     u16 rport;
 };
 
-/* XXX This needs some more work:
-   - address race issues if multiple threads are reading from the same socket
-   - make udp_entry something universal regardless of protocol
-   - generally refactor / simplify
-*/
-static CLOSURE_7_1(read_complete, void, sock, thread, void *, u64, boolean,
-		   struct sockaddr *, socklen_t *, err_t);
-static void read_complete(sock s, thread t, void *dest, u64 length, boolean sleeping,
-			  struct sockaddr *src_addr, socklen_t *addrlen,
-			  err_t lwip_status)
+/* called with corresponding blockq lock held */
+static CLOSURE_6_1(sock_read_bh, sysreturn, sock, thread, void *, u64,
+		   struct sockaddr *, socklen_t *, boolean);
+static sysreturn sock_read_bh(sock s, thread t, void *dest, u64 length,
+                              struct sockaddr *src_addr, socklen_t *addrlen,
+                              boolean blocked)
 {
     net_debug("sock %d, thread %d, dest %p, len %d, sleeping %d\n",
-	      s->fd, t->tid, dest, length, sleeping);
-    if (s->type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN) {
-       set_syscall_error(t, ENOTCONN);
-       goto out;
+	      s->fd, t->tid, dest, length, blocked);
+    assert(length > 0);
+    assert(s->type == SOCK_STREAM || s->type == SOCK_DGRAM);
+
+    if (s->type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN)
+        return set_syscall_error(t, ENOTCONN);
+
+    /* XXX need lock here */
+    if (s->lwip_error != ERR_OK) {
+        sysreturn rv = set_syscall_return(t, lwip_to_errno(s->lwip_error));
+        s->lwip_error = ERR_OK;
+        return rv;
     }
 
-    if (lwip_status == ERR_OK) {
-	u64 xfer = 0;
-	struct pbuf * p = 0;
-	u32 raddr;
-	u16 rport;
-	if (s->type == SOCK_STREAM) {
-	    /* XXX Take another stab at this for TCP, consuming
-	       multiple pbufs in the incoming queue if necessary to
-	       fill the request size. This will suffice for now,
-	       albeit with less efficiency. */
-	    p = queue_peek(s->incoming);
-	    raddr = ip4_addr_get_u32(&s->info.tcp.lw->remote_ip);
-	    rport = htons(s->info.tcp.lw->remote_port);
-	} else {
-	    assert(s->type == SOCK_DGRAM);
-	    struct udp_entry * e = queue_peek(s->incoming);
-	    if (e) {
-		p = e->p;
-		raddr = e->raddr;
-		rport = htons(e->rport);
-	    }
-	}
+    /* check if we actually have data */
+    void * p = queue_peek(s->incoming);
+    if (!p)
+        return 0;               /* back to chewing more cud */
 
-	if (p) {
-	    xfer = MIN(length, p->len);
-	    runtime_memcpy(dest, p->payload, xfer);
-	    pbuf_consume(p, xfer);
-
-	    if (src_addr) {
-		struct sockaddr_in sin;
-		sin.family = AF_INET;
-		sin.port = rport;
-		sin.address = raddr;
-		u32 len = MIN(sizeof(sin), *addrlen);
-		*addrlen = len;
-		runtime_memcpy(src_addr, &sin, len);
-	    }
-
-	    if (p->len == 0) {
-		void * r = dequeue(s->incoming);
-		if (s->type == SOCK_DGRAM)
-		    deallocate(s->h, r, sizeof(struct udp_entry));
-		pbuf_free(p);
-		/* reset a triggered EPOLLIN condition */
-		if (queue_length(s->incoming) == 0)
-		    notify_dispatch(s);
-	    }
-	    if (s->type == SOCK_STREAM)
-		tcp_recved(s->info.tcp.lw, xfer);
-	}
-	set_syscall_return(t, xfer);
-    } else {
-	set_syscall_return(t, lwip_to_errno(lwip_status));
+    if (src_addr) {
+        u32 raddr;
+        u16 rport;
+        struct sockaddr_in sin;
+        sin.family = AF_INET;
+        if (s->type == SOCK_STREAM) {
+	    sin.port = ip4_addr_get_u32(&s->info.tcp.lw->remote_ip);
+	    sin.address = htons(s->info.tcp.lw->remote_port);
+        } else {
+            struct udp_entry * e = p;
+            sin.port = e->raddr;
+            sin.address = htons(e->rport);
+        }
+        u32 len = MIN(sizeof(sin), *addrlen);
+        *addrlen = len;
+        runtime_memcpy(src_addr, &sin, len);
     }
 
-  out:
-    if (sleeping)
-	thread_wakeup(t);
+    u64 xfer_total = 0;
+
+    /* TCP: consume multiple buffers to fill request, if available. */
+    do {
+        struct pbuf * pbuf = s->type == SOCK_STREAM ? (struct pbuf *)p :
+            ((struct udp_entry *)p)->pbuf;
+        assert(pbuf->len > 0);
+
+        u64 xfer = MIN(length, pbuf->len);
+        runtime_memcpy(dest, pbuf->payload, xfer);
+        pbuf_consume(pbuf, xfer);
+        length -= xfer;
+        xfer_total += xfer;
+
+        if (pbuf->len == 0) {
+            assert(dequeue(s->incoming) == p);
+            if (s->type == SOCK_DGRAM)
+                deallocate(s->h, p, sizeof(struct udp_entry));
+            pbuf_free(pbuf);
+            p = queue_peek(s->incoming);
+            if (!p)
+                notify_dispatch(s); /* reset a triggered EPOLLIN condition */
+        }
+
+        if (s->type == SOCK_STREAM)
+            tcp_recved(s->info.tcp.lw, xfer);
+    } while(s->type == SOCK_STREAM && length > 0 && p); /* XXX simplify expression */
+
+    if (blocked)
+        thread_wakeup(t);
+
+    return set_syscall_return(t, xfer_total);
 }
 
 static CLOSURE_1_3(socket_read, sysreturn, sock, void *, u64, u64);
@@ -301,22 +326,27 @@ static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
     if (s->type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN)
         return set_syscall_error(current, ENOTCONN);
 
-    // xxx - there is a fat race here between checking queue length and posting on the waiting queue
-    if (queue_length(s->incoming)) {
-        read_complete(s, current, dest, length, false, 0, 0, ERR_OK);
-        return sysreturn_value(current);        
-    } else {
-        // should be an atomic operation
-        if (!enqueue(s->waiting, closure(s->h, read_complete, s, current, dest, length, true, 0, 0)))
-	    msg_err("waiting queue full\n");
-        thread_sleep(current);
-    }
-    return 0;			/* suppress warning */
+    blockq_action ba = closure(s->h, sock_read_bh, s, current, dest, length, 0, 0);
+    sysreturn rv = blockq_check(s->rxbq, current, ba);
+
+    /* We didn't block... */
+    if (rv < 0 || rv > 0)
+        return rv;              /* error or success: return as-is */
+
+    /* XXX ideally we could just prevent this case if we had growing
+       queues... for now bark and return EAGAIN
+
+       we could mess around with making a timer or something, but it
+       would just be easier to make queues growable */
+
+    msg_err("thread %d unable to block; queue full\n", current->tid);
+    return set_syscall_error(current, EAGAIN);
 }
 
-static CLOSURE_4_0(socket_write_tcp_bh, sysreturn, sock, thread, void *, u64);
-static sysreturn socket_write_tcp_bh(sock s, thread t, void * buf, u64 remain)
+static CLOSURE_4_1(socket_write_tcp_bh, sysreturn, sock, thread, void *, u64, boolean);
+static sysreturn socket_write_tcp_bh(sock s, thread t, void * buf, u64 remain, boolean blocked)
 {
+    net_debug("fd %d, thread %p, buf %p, remain %d, blocked %d\n", s->fd, t, buf, remain, blocked);
     assert(remain > 0);
 
     /* Note that the actual transmit window size is truncated to 16
@@ -326,17 +356,12 @@ static sysreturn socket_write_tcp_bh(sock s, thread t, void * buf, u64 remain)
     u64 avail = tcp_sndbuf(s->info.tcp.lw);
     if (avail == 0) {
       full:
-        if (s->flags & SOCK_FLAG_NONBLOCK) {
+        if (!blocked && (s->flags & SOCK_FLAG_NONBLOCK)) {
+            net_debug(" send buf full and non-blocking, return EAGAIN\n");
             return set_syscall_error(t, EAGAIN);
         } else {
-            /* XXX so - everything on the waiting queue gets woken upon data reception?
-               is there a race here? */
-            if (!enqueue(s->waiting, closure(s->h, socket_write_tcp_bh, s, t, buf, remain)))
-                msg_err("waiting queue full\n");
-            /* XXX note - possible race here if we enable int/lwip bh during runqueue handling, 
-               so find some way to do the window check and sleep atomically... */
-            thread_sleep(current);
-            return 0;             /* never reached; don't make compiler think we fall through */
+            net_debug(" send buf full, sleep\n");
+            return 0;           /* block again */
         }
     }
 
@@ -350,23 +375,33 @@ static sysreturn socket_write_tcp_bh(sock s, thread t, void * buf, u64 remain)
         n = remain;
     }
 
+    /* XXX need to pore over lwIP error conditions here */
+    sysreturn rv = 0;
     err_t err = tcp_write(s->info.tcp.lw, buf, n, TCP_WRITE_FLAG_COPY);
     if (err == ERR_OK) {
         /* XXX prob add a flag to determine whether to continuously
            post data, e.g. if used by send/sendto... */
         err = tcp_output(s->info.tcp.lw);
         if (err == ERR_OK) {
-            return set_syscall_return(t, n);
+            net_debug(" tcp_write and tcp_output successful for %d bytes\n", n);
+            rv = n;
         } else {
-            net_debug("tcp_output() lwip error: %s (%d)\n", lwip_strerr(err), err);
-            return set_syscall_return(t, lwip_to_errno(err));
+            net_debug(" tcp_output() lwip error: %s (%d)\n", lwip_strerr(err), err);
+            rv = lwip_to_errno(err);
         }
-    } else if (err == ERR_MEM) { /* catches possible race? can't hurt to check */
+    } else if (err == ERR_MEM) {
+        /* XXX some ambiguity in lwIP - investigate */
+        net_debug(" tcp_write() returned ERR_MEM\n");
         goto full;
     } else {
-        net_debug("tcp_write() lwip error: %s (%d)\n", lwip_strerr(err), err);
-        return set_syscall_return(t, lwip_to_errno(err));
+        net_debug(" tcp_write() lwip error: %s (%d)\n", lwip_strerr(err), err);
+        rv = lwip_to_errno(err);
     }
+
+    if (blocked)
+        thread_wakeup(t);
+
+    return set_syscall_return(t, rv);
 }
 
 static CLOSURE_1_3(socket_write, sysreturn, sock, void *, u64, u64);
@@ -380,7 +415,13 @@ static sysreturn socket_write(sock s, void *source, u64 length, u64 offset)
 	    return set_syscall_error(current, EPIPE);
         if (length == 0)
             return set_syscall_return(current, 0);
-        return socket_write_tcp_bh(s, current, source, length);
+        blockq_action ba = closure(s->h, socket_write_tcp_bh, s, current, source, length);
+        sysreturn rv = blockq_check(s->txbq, current, ba);
+        if (rv < 0 || rv > 0)
+            return rv;          /* error or success; return as-is */
+        /* XXX again, need to just fix the queue stuff */
+        msg_err("thread %d unable to block; queue full\n", current->tid);
+        return set_syscall_error(current, EAGAIN); /* bogus */
     } else if (s->type == SOCK_DGRAM) {
         /* XXX check how much we can queue, maybe make udp bh */
 	/* XXX check if remote endpoint set? let LWIP check? */
@@ -456,7 +497,7 @@ static void udp_input_lower(void *z, struct udp_pcb *pcb, struct pbuf *p,
 	/* could make a cache if we care to */
 	struct udp_entry * e = allocate(s->h, sizeof(*e));
 	assert(e != INVALID_ADDRESS);
-	e->p = p;
+	e->pbuf = p;
 	e->raddr = ip4_addr_get_u32(addr);
 	e->rport = port;
 	if (!enqueue(s->incoming, e))
@@ -464,9 +505,10 @@ static void udp_input_lower(void *z, struct udp_pcb *pcb, struct pbuf *p,
     } else {
 	msg_err("null pbuf\n");
     }
-    wakeup_sock(s, 0);
+    wakeup_sock(s, WAKEUP_SOCK_RX);
 }
 
+#define SOCK_BLOCKQ_LEN 32
 static int allocate_sock(process p, int type, sock * rs)
 {
     sock s = unix_cache_alloc(get_unix_heaps(), socket);
@@ -489,10 +531,11 @@ static int allocate_sock(process p, int type, sock * rs)
     s->p = p;
     s->h = h;
     s->incoming = allocate_queue(h, SOCK_QUEUE_LEN);
-    s->waiting = allocate_queue(h, SOCK_QUEUE_LEN);
+    s->rxbq = allocate_blockq(h, "sock receive", SOCK_BLOCKQ_LEN, 0 /* XXX */);
+    s->txbq = allocate_blockq(h, "sock transmit", SOCK_BLOCKQ_LEN, 0 /* XXX */);
     list_init(&s->notify);	/* XXX lock init */
     s->fd = fd;
-    s->lwip_status = STATUS_OK;
+    s->lwip_error = ERR_OK;
     *rs = s;
     return fd;
 }
@@ -504,6 +547,7 @@ static int allocate_tcp_sock(process p, struct tcp_pcb *pcb)
     if (fd >= 0) {
 	s->info.tcp.lw = pcb;
 	s->info.tcp.state = TCP_SOCK_CREATED;
+        s->info.tcp.connect_bh = 0;
     }
     return fd;
 }
@@ -565,20 +609,20 @@ static err_t tcp_input_lower(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t
     sock s = z;
     net_debug("sock %d, pcb %p, buf %p, err %d\n", s->fd, pcb, p, err);
 
-    if (err) {
-        // later timmf
-        s->lwip_status = timm("lwip error", "%d", err);
-    }
+    if (err)
+        s->lwip_error = err;
 
     /* A null pbuf indicates connection closed. */
     if (p) {
-        if (!enqueue(s->incoming, p))
+        if (!enqueue(s->incoming, p)) {
 	    msg_err("incoming queue full\n");
+            return ERR_BUF;     /* XXX verify */
+        }
     } else {
         s->info.tcp.state = TCP_SOCK_CLOSED;
     }
 
-    wakeup_sock(s, 0);
+    wakeup_sock(s, WAKEUP_SOCK_RX);
     return ERR_OK;
 }
 
@@ -613,23 +657,35 @@ sysreturn bind(int sockfd, struct sockaddr *addr, socklen_t addrlen)
 void error_handler_tcp(void* arg, err_t err)
 {
     sock s = (sock)arg;
-    lwip_status_handler sp = NULL;
     net_debug("sock %d, err %d\n", s->fd, err);
-    if (!s)
+    if (!s || err == ERR_OK)
 	return;
-    error_message(s, err);
-    if (err != ERR_OK)
-	s->info.tcp.state = TCP_SOCK_UNDEFINED;
-    if ((sp = dequeue(s->waiting)))
-        apply(sp, err);
+
+    /* Warning: Don't try to use the pcb. According to lwIP docs, it
+       may have been deallocated already. */
+    s->info.tcp.lw = 0;
+
+    error_message(s, err); // XXX nuke this
+
+    if (err == ERR_ABRT ||
+        err == ERR_RST ||
+        err == ERR_CLSD) {
+        s->info.tcp.state = TCP_SOCK_CLOSED;
+        s->lwip_error = err;
+        wakeup_sock(s, WAKEUP_SOCK_EXCEPT);
+    } else {
+        /* We have no context for any other errors at this point,
+           so bark and ignore... */
+        msg_err("unhandled lwIP error %d (%s)\n", err, lwip_strerr(err));
+    }
 }
 
-static CLOSURE_1_1(set_completed_state, void, thread, err_t);
-static void set_completed_state(thread th, err_t lwip_status)
+static CLOSURE_1_1(connect_tcp_bh, void, thread, err_t);
+static void connect_tcp_bh(thread t, err_t lwip_status)
 {
-    net_debug("thread %d, lwip_status %d\n", th->tid, lwip_status);
-    set_syscall_return(th, lwip_to_errno(lwip_status));
-    thread_wakeup(th);
+    net_debug("thread %d, lwip_status %d\n", t->tid, lwip_status);
+    set_syscall_return(t, lwip_to_errno(lwip_status));
+    thread_wakeup(t);
 }
 
 static err_t connect_tcp_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
@@ -638,22 +694,23 @@ static err_t connect_tcp_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
    sock s = (sock)arg;
    s->info.tcp.state = TCP_SOCK_OPEN;
    net_debug("sock %d, pcb %p, err %d\n", s->fd, tpcb, err);
-   if ((sp = dequeue(s->waiting))) {
-	net_debug("... applying status handler %p\n", sp);
-        apply(sp, err);
-   }
+   assert(s->info.tcp.state == TCP_SOCK_IN_CONNECTION);
+   assert(s->info.tcp.connect_bh);
+   apply(s->info.tcp.connect_bh, err);
+   s->info.tcp.connect_bh = 0;
    return ERR_OK;
 }
 
 static inline int connect_tcp(sock s, const ip_addr_t* address, unsigned short port)
 {
     net_debug("sock %d, addr %P, port %d\n", s->fd, address->addr, port);
-    if (!enqueue(s->waiting, closure(s->h, set_completed_state, current)))
-	msg_err("waiting queue full\n");
+    lwip_status_handler bh = closure(s->h, connect_tcp_bh, current);
     struct tcp_pcb * lw = s->info.tcp.lw;
     tcp_arg(lw, s);
     tcp_err(lw, error_handler_tcp);
     s->info.tcp.state = TCP_SOCK_IN_CONNECTION;
+    assert(s->info.tcp.connect_bh == 0);
+    s->info.tcp.connect_bh = bh;
     int err = tcp_connect(lw, address, port, connect_tcp_complete);
     if (err == ERR_OK)
 	thread_sleep(current);
@@ -752,19 +809,17 @@ sysreturn recvfrom(int sockfd, void * buf, u64 len, int flags,
 	      s->fd, s->type, current->tid, buf, len);
     if (s->type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN)
         return set_syscall_error(current, ENOTCONN);
-    /* XXX see above about race...methinks we should just dequeue and pass the entry
-       as is...and also consolidate the entry between tcp and udp */
-    if (queue_length(s->incoming)) {
-        read_complete(s, current, buf, len, false, src_addr, addrlen, ERR_OK);
-        return sysreturn_value(current);
-    } else {
-        // should be an atomic operation
-        if (!enqueue(s->waiting, closure(s->h, read_complete, s, current, buf,
-					 len, true, src_addr, addrlen)))
-	    msg_err("waiting queue full\n");
-        thread_sleep(current);
-    }
-    return 0;			/* suppress warning */
+
+    blockq_action ba = closure(s->h, sock_read_bh, s, current, buf, len, src_addr, addrlen);
+    sysreturn rv = blockq_check(s->rxbq, current, ba);
+
+    /* We didn't block... */
+    if (rv < 0 || rv > 0)
+        return rv;              /* error or success: return as-is */
+
+    /* XXX same crap */
+    msg_err("thread %d unable to block; queue full\n", current->tid);
+    return set_syscall_error(current, EAGAIN);
 }
 
 static void lwip_tcp_conn_err(void * z, err_t b) {
@@ -778,13 +833,21 @@ static err_t lwip_tcp_sent(void * arg, struct tcp_pcb * pcb, u16 len)
 {
     sock s = (sock)arg;
     net_debug("fd %d, pcb %p, len %d\n", s->fd, pcb, len);
-    wakeup_sock(s, 0);
+    wakeup_sock(s, WAKEUP_SOCK_TX);
     return ERR_OK;
 }
 
 static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t b)
 {
     sock s = z;
+    event_handler eh;
+
+    if (b == ERR_MEM) {
+        s->lwip_error = b;
+        wakeup_sock(s, WAKEUP_SOCK_EXCEPT);
+        return b;               /* lwIP doesn't care */
+    }
+
     int fd = allocate_tcp_sock(s->p, lw);
     if (fd < 0)
 	return ERR_MEM;
@@ -803,7 +866,7 @@ static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t b)
     if (!enqueue(s->incoming, sn))
 	msg_err("incoming queue full\n");
 
-    wakeup_sock(s, b);
+    wakeup_sock(s, WAKEUP_SOCK_RX);
     return ERR_OK;
 }
 
@@ -822,24 +885,40 @@ sysreturn listen(int sockfd, int backlog)
     return 0;    
 }
 
-static CLOSURE_4_1(accept_finish, void, sock, thread, struct sockaddr *, socklen_t *, err_t);
-static void accept_finish(sock s, thread target, struct sockaddr *addr, socklen_t *addrlen, err_t lwip_status)
+static CLOSURE_4_1(accept_bh, sysreturn, sock, thread, struct sockaddr *, socklen_t *, boolean);
+static sysreturn accept_bh(sock s, thread t, struct sockaddr *addr, socklen_t *addrlen, boolean blocked)
 {
-    sock sn = dequeue(s->incoming);
-    net_debug("sock %d, target thread %d, status %d\n", sn->fd, target->tid, lwip_status);
-    if (lwip_status == ERR_OK) {
-	remote_sockaddr_in(sn, (struct sockaddr_in *)addr);
-	*addrlen = sizeof(struct sockaddr_in);
-	set_syscall_return(target, sn->fd);
-    } else {
-	set_syscall_return(target, lwip_to_errno(lwip_status));
+    net_debug("sock %d, target thread %d, lwip_error %d\n", s->fd, t->tid, s->lwip_error);
+
+    /* XXX need lock here */
+    if (s->lwip_error != ERR_OK) {
+        sysreturn rv = set_syscall_return(t, lwip_to_errno(s->lwip_error));
+        s->lwip_error = ERR_OK;
+        return set_syscall_return(current, rv);
     }
-    /* XXX I'm not clear on what the behavior should be if a listen
-       socket is used with EPOLLET. For now, let's handle it as if
-       it's a regular socket. */
+
+    sock sn = dequeue(s->incoming);
+    if (!sn)
+        return 0;               /* block */
+
+    net_debug("child sock %d\n", sn->fd);
+
+    if (addr)
+        remote_sockaddr_in(sn, (struct sockaddr_in *)addr);
+    if (addrlen)
+        *addrlen = sizeof(struct sockaddr_in);
+    set_syscall_return(t, sn->fd);
+
+    /* XXX Check what the behavior should be if a listen socket is
+       used with EPOLLET. For now, let's handle it as if it's a
+       regular socket. */
     if (queue_length(s->incoming) == 0)
 	notify_dispatch(s);
-    thread_wakeup(target);
+
+    if (blocked)
+        thread_wakeup(t);
+
+    return set_syscall_return(t, sn->fd);
 }
 
 sysreturn accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
@@ -850,18 +929,18 @@ sysreturn accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
     net_debug("sock %d\n", sockfd);
 
     if (s->info.tcp.state != TCP_SOCK_LISTENING)
-	return set_syscall_return(current, -EINVAL);
+	return set_syscall_error(current, EINVAL);
 
-    // ok, this is a reasonable interlock to build, the dating app
-    // it would be nice if we didn't have to sleep and wakeup for the nonblocking case
-    if (queue_length(s->incoming)) {
-        accept_finish(s, current, addr, addrlen, ERR_OK);
-    } else {
-        if (!enqueue(s->waiting, closure(s->h, accept_finish, s, current, addr, addrlen)))
-	    msg_err("waiting queue full\n");
-    }
-    thread_sleep(current);
-    return 0;			/* suppress warning */
+    blockq_action ba = closure(s->h, accept_bh, s, current, addr, addrlen);
+    sysreturn rv = blockq_check(s->rxbq, current, ba);
+
+    /* We didn't block... */
+    if (rv < 0 || rv > 0)
+        return rv;              /* error or success: return as-is */
+
+    /* XXX */
+    msg_err("thread %d unable to block; queue full\n", current->tid);
+    return set_syscall_error(current, EAGAIN);
 }
 
 sysreturn accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
