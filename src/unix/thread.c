@@ -128,8 +128,8 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
                 thread_log(current, "futex wake op: [%d %p %d] %p %d %d %d %d\n",  current->tid, uaddr, *uaddr, uaddr2, cmparg, oparg, cmp, op);
             int oldval = *(int *) uaddr2;
             
-            switch (cmp) {
-            case FUTEX_OP_SET:   *uaddr  = oparg; break;
+            switch (op) {
+            case FUTEX_OP_SET:   *uaddr2 = oparg; break;
             case FUTEX_OP_ADD:   *uaddr2 += oparg; break;
             case FUTEX_OP_OR:    *uaddr2 |= oparg; break;
             case FUTEX_OP_ANDN:  *uaddr2 &= ~oparg; break;
