@@ -60,11 +60,24 @@
    the poll notify list). TBD
  */
 
+#define BLOCKQ_DEBUG
+#ifdef BLOCKQ_DEBUG
+#define blockq_debug(x, ...) do {log_printf("  BQ", "%s: " x, __func__, ##__VA_ARGS__);} while(0)
+#else
+#define blockq_debug(x, ...)
+#endif
+
 CLOSURE_1_0(blockq_wake_one, void, blockq);
+
+static inline char * blockq_name(blockq bq)
+{
+    return bq->name;
+}
 
 static inline void blockq_disable_timer(blockq bq)
 {
     if (bq->timeout) {
+        blockq_debug("for \"%s\"\n", blockq_name(bq));
         remove_timer(bq->timeout);
         bq->timeout = 0;
     }
@@ -76,6 +89,7 @@ static inline void blockq_restart_timer_locked(blockq bq)
     if (bq->timeout_interval == 0)
         return;
 
+    blockq_debug("for \"%s\"\n", blockq_name(bq));
     /* timer facility doesn't presently give us a better way... */
     if (bq->timeout)
         remove_timer(bq->timeout);
@@ -84,6 +98,7 @@ static inline void blockq_restart_timer_locked(blockq bq)
 
 sysreturn blockq_check(blockq bq, thread t, blockq_action a)
 {
+    blockq_debug("for \"%s\", tid %d, action %p, apply:\n", blockq_name(bq), t->tid, a);
     /* XXX grab irqsafe mutex/spinlock
 
        presently a no-op because
@@ -99,6 +114,7 @@ sysreturn blockq_check(blockq bq, thread t, blockq_action a)
     sysreturn rv = apply(a, false);
     if (rv != 0) {
         /* XXX release spinlock */
+        blockq_debug(" - direct return: %d\n", rv);
         return rv;
     }
 
@@ -112,6 +128,7 @@ sysreturn blockq_check(blockq bq, thread t, blockq_action a)
         return 0;
     }
 
+    blockq_debug(" - check requires block, sleeping\n");
     /* XXX release spinlock */
     thread_sleep(t);
 }
@@ -129,35 +146,41 @@ sysreturn blockq_check(blockq bq, thread t, blockq_action a)
 
 void blockq_flush(blockq bq)
 {
+    blockq_debug("for \"%s\"\n", blockq_name(bq));
     /* XXX take irqsafe spinlock */
 
     blockq_action a;
-    while ((a = dequeue(bq->waiters)))
-        apply(a, true);
+    while ((a = dequeue(bq->waiters))) {
+        blockq_debug(" - applying %p:\n", a);
+        u64 rv = apply(a, true);
+        blockq_debug("   - returned %d (ignored)\n", rv);
+    }
 
     blockq_disable_timer(bq);
 
     /* XXX release lock */
-
 }
 
 void blockq_wake_one(blockq bq)
 {
-    blockq_action a;
+    blockq_debug("for \"%s\"\n", blockq_name(bq));
 
     /* XXX take irqsafe spinlock */
-
-    a = queue_peek(bq->waiters);
+    blockq_action a = queue_peek(bq->waiters);
     if (!a)
         return;
 
+    blockq_debug(" - applying %p:\n", a);
     sysreturn rv = apply(a, true);
+    blockq_debug("   - returned %d\n", rv);
     if (rv != 0) {
         assert(dequeue(bq->waiters));
 
         /* clear timer if this was the last entry */
         if (queue_length(bq->waiters) == 0)
             blockq_disable_timer(bq);
+
+        /* action sets return value */
     } else if (bq->timeout) {
         /* leave at head of queue and reset timer */
         blockq_restart_timer_locked(bq);
@@ -169,12 +192,12 @@ void blockq_wake_one(blockq bq)
 
 blockq allocate_blockq(heap h, char * name, u64 size, timestamp timeout_interval)
 {
+    blockq_debug("name \"%s\", size %d, timeout_interval %T\n", name, size, timeout_interval);
     blockq bq = allocate(h, sizeof(struct blockq));
     if (bq == INVALID_ADDRESS)
         return bq;
 
     bq->h = h;
-
     bq->waiters = allocate_queue(h, size);
     if (bq->waiters == INVALID_ADDRESS) {
         deallocate(h, bq, sizeof(struct blockq));
@@ -182,7 +205,7 @@ blockq allocate_blockq(heap h, char * name, u64 size, timestamp timeout_interval
     }
 
     if (name) {
-        runtime_memcpy(bq->name, name, MIN(runtime_strlen(name), BLOCKQ_NAME_MAX - 1));
+        runtime_memcpy(bq->name, name, MIN(runtime_strlen(name) + 1, BLOCKQ_NAME_MAX - 1));
         bq->name[BLOCKQ_NAME_MAX - 1] = '\0';
     }
 
@@ -193,6 +216,8 @@ blockq allocate_blockq(heap h, char * name, u64 size, timestamp timeout_interval
 
 void deallocate_blockq(blockq bq)
 {
+    blockq_debug("for \"%s\"\n", blockq_name(bq));
+
     /* XXX what's the right behavior if we have waiters? */
 
     blockq_disable_timer(bq);
