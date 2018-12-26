@@ -167,7 +167,7 @@ void blockq_wake_one(blockq bq)
     
 }
 
-blockq allocate_blockq(heap h, char * name, u64 size, time timeout_interval)
+blockq allocate_blockq(heap h, char * name, u64 size, timestamp timeout_interval)
 {
     blockq bq = allocate(h, sizeof(struct blockq));
     if (bq == INVALID_ADDRESS)
