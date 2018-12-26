@@ -98,12 +98,10 @@ static void format_hex_buffer(buffer dest, buffer fmt, vlist *a)
     print_hex_buffer(dest, b);
 }
 
-static void format_time(buffer dest, buffer fmt, vlist *a)
+static void format_timestamp(buffer dest, buffer fmt, vlist *a)
 {
     timestamp t = varg(*a, timestamp);
-    
-    // XXX rudimentary
-    bprintf(dest, "%ds%dns", sec_from_time(t), nsec_from_time(t));
+    print_timestamp(dest, t);
 }
 
 void init_extra_prints()
@@ -112,6 +110,6 @@ void init_extra_prints()
     register_format('v', format_value);
     register_format('s', format_cstring);
     register_format('X', format_hex_buffer);
-    register_format('T', format_time);
+    register_format('T', format_timestamp);
 }
 
