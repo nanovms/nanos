@@ -198,45 +198,54 @@ void link(tuple dir, fsfile f, buffer name)
     log_write_eav(f->fs->tl, soft_create(f->fs, dir, sym(children)), intern(name), f->md, ignore);
 }
 
-int filesystem_mkdir(filesystem fs, char *fp)
+int filesystem_mkentry(filesystem fs, char *fp, tuple entry)
 {
-    tuple dir = allocate_tuple();
-    tuple folder = table_find(fs->root, sym(children));
+    tuple children = table_find(fs->root, sym(children));
     symbol basename_sym;
     char *token, *rest = fp, *basename = (char *)0;
 
-    /* 'make it a folder' by attaching a children node to the tuple */
-    table_set(dir, sym(children), allocate_tuple());
-
-    /* find the folder we need to mkdir in */
+    /* find the folder we need to mkentry in */
     while ((token = runtime_strtok_r(rest, "/", &rest))) {
-        tuple prev_folder = folder;
         boolean final = *rest == '\0';
-        folder = table_find(folder, sym_this(token));
-        if (!folder) {
-            if (final) {
-                basename = token;
-                folder = prev_folder;
-                break;
-            } else {
-                msg_debug("a path component (\"%s\") is missing\n");
+        tuple t = table_find(children, sym_this(token));
+        if (!t) {
+            if (!final) {
+                msg_debug("a path component (\"%s\") is missing\n", token);
                 return -1;
             }
+
+            basename = token;
+            break;
         } else {
             if (final) {
-                msg_debug("final path component (\"%s\") already exists\n");
+                msg_debug("final path component (\"%s\") already exists\n", token);
+                return -1;
+            }
+
+            children = table_find(t, sym(children));
+            if (!children) {
+                msg_debug("a path component (\"%s\") is not a folder\n", token);
                 return -1;
             }
         }
     }
 
     basename_sym = sym_this(basename);
-    table_set(folder, basename_sym, dir);
-    log_write_eav(fs->tl, folder, basename_sym, dir, ignore);
+    table_set(children, basename_sym, entry);
+    log_write_eav(fs->tl, children, basename_sym, entry, ignore);
     //log_flush(fs->tl);
-    rprintf("mkdir: written!\n");
+    rprintf("mkentry: written!\n");
 
     return 0;
+}
+
+int filesystem_mkdir(filesystem fs, char *fp)
+{
+    tuple dir = allocate_tuple();
+    /* 'make it a folder' by attaching a children node to the tuple */
+    table_set(dir, sym(children), allocate_tuple());
+
+    return filesystem_mkentry(fs, fp, dir);
 }
 
 // should be passing status to the client
