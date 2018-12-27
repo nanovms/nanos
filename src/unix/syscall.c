@@ -894,6 +894,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_openat, openat);
     register_syscall(map, SYS_fstat, fstat);
     register_syscall(map, SYS_stat, stat);
+    register_syscall(map, SYS_lstat, stat);
     register_syscall(map, SYS_writev, writev);
     register_syscall(map, SYS_access, access);
     register_syscall(map, SYS_lseek, lseek);
