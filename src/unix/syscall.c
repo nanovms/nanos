@@ -956,7 +956,7 @@ static void syscall_debug()
     if (table_find(current->p->process_root, sym(debugsyscalls)))
         thread_log(current, syscall_name(call));
     sysreturn (*h)(u64, u64, u64, u64, u64, u64) = current->p->syscall_handlers[call];
-    sysreturn res = -ENOENT;
+    sysreturn res = -ENOSYS;
     if (h) {
         res = h(f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]);
     } else {
