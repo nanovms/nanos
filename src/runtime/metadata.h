@@ -3,7 +3,7 @@
 #include <list.h>
 #include <stringtok.h>
 
-static vector vector_from_tuple(heap h, tuple n)
+static inline vector vector_from_tuple(heap h, tuple n)
 {
     if (!n)
         return 0;

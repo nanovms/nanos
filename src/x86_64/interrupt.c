@@ -179,7 +179,7 @@ void __print_stack_with_rbp(u64 *rbp)
 void __print_stack_from_here()
 {
     u64 register rbp asm("rbp");
-    __print_stack_with_rbp(rbp);
+    __print_stack_with_rbp((u64 *)rbp);
 }
 
 void print_stack_from_here(void)
@@ -231,7 +231,6 @@ void print_frame(context f)
 void common_handler()
 {
     int i = frame[FRAME_VECTOR];
-    u64 z;
 
     if ((i < interrupt_size) && handlers[i]) {
         // should we switch to the 'kernel process'?

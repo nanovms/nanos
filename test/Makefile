@@ -3,7 +3,19 @@ include ../common.mk
 
 OUT = $(ROOT)/output/test
 
-CFLAGS += -g -std=gnu99
+CFLAG_WARNINGS = \
+    -Wimplicit-function-declaration \
+    -Wuninitialized \
+    -Wunused-function \
+    -Wunused-label \
+    -Wunused-value \
+    -Wunused-variable \
+    -Werror
+
+CFLAGS  = -fno-stack-protector
+CFLAGS  += -fdata-sections -ffunction-sections
+CFLAGS  += $(includes)
+CFLAGS  += -g -std=gnu99 -DHOST_BUILD $(CFLAG_WARNINGS)
 #CFLAGS+=-DENABLE_MSG_DEBUG -DID_HEAP_DEBUG
 
 all: objcache_test network_test id_heap_test path_test pqueue_test vector_test udp_test

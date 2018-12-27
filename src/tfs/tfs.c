@@ -81,7 +81,6 @@ void filesystem_read(filesystem fs, tuple t, void *dest, u64 length, u64 offset,
     }
 
     heap h = fs->h;
-    u64 min, max;
     // b here is permanent - cache?
     buffer b = wrap_buffer(h, dest, length);
     /* b->end will accumulate the read extent lengths; enclose b so
@@ -165,7 +164,6 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, status_handl
     rtrie_range_lookup(f->extents, irange(offset, offset+len), closure(h, fs_write_extent, f->fs, b, m, last));
     
     if (*last < (offset + len)) {
-        u64 elen = (offset + len) - *last;
         u64 eoff = extend(f, *last, len);
         if (eoff != u64_from_pointer(INVALID_ADDRESS)) {
             status_handler sh = apply(m);
@@ -202,11 +200,10 @@ void link(tuple dir, fsfile f, buffer name)
 
 int filesystem_mkdir(filesystem fs, char *fp)
 {
-    heap h = fs->h;
     tuple dir = allocate_tuple();
     tuple folder = table_find(fs->root, sym(children));
     symbol basename_sym;
-    char *token, *rest = fp, *basename;
+    char *token, *rest = fp, *basename = (char *)0;
 
     /* 'make it a folder' by attaching a children node to the tuple */
     table_set(dir, sym(children), allocate_tuple());

@@ -27,11 +27,13 @@ static void format_buffer(buffer dest, buffer fmt, vlist *ap)
     push_buffer(dest, varg(*ap, buffer));
 }
 
+#ifndef BITS32    
 static void format_character(buffer dest, buffer fmt, vlist *a)
 {
     character x = varg(*a, character);
     push_character(dest, x);
 }
+#endif
 
 static void format_u64(buffer dest, buffer fmt, vlist *a)
 {

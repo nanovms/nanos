@@ -406,7 +406,7 @@ sysreturn mkdir(const char *pathname, int mode)
 
     /* canonicalize the path */
     char *final_path = canonicalize_path(h, cwd,
-            wrap_buffer_cstring(h, pathname));
+            wrap_buffer_cstring(h, (char *)pathname));
 
     thread_log(current, "%s: (mode %d) pathname %s => %s\n",
             __func__, mode, pathname, final_path);
@@ -438,7 +438,7 @@ sysreturn getrandom(void *buf, u64 buflen, unsigned int flags)
 }
 
 static int try_write_dirent(struct linux_dirent *dirp, char *p,
-        int *read_sofar, int *written_sofar, int *f_offset,
+        int *read_sofar, int *written_sofar, u64 *f_offset,
         unsigned int *count, int ft)
 {
     int len = runtime_strlen(p);
@@ -452,7 +452,7 @@ static int try_write_dirent(struct linux_dirent *dirp, char *p,
             return -1;
         } else {
             // include the entry in the buffer
-            runtime_memset(dirp, 0, reclen);
+            runtime_memset((u8*)dirp, 0, reclen);
             dirp->d_ino = 0; /* XXX */
             dirp->d_reclen = reclen;
             runtime_memcpy(dirp->d_name, p, len + 1);
@@ -518,15 +518,13 @@ done:
 sysreturn writev(int fd, iovec v, int count)
 {
     int res;
-    file f = resolve_fd(current->p, fd);
+    resolve_fd(current->p, fd);
     for (int i = 0; i < count; i++) res += write(fd, v[i].address, v[i].length);
     return res;
 }
 
 static sysreturn access(char *name, int mode)
 {
-    void *where;
-    bytes length;
     if (!resolve_cstring(current->p->cwd, name)) {
         return set_syscall_error(current, ENOENT);
     }
@@ -674,7 +672,6 @@ If pathname is absolute, then dirfd is ignore
 */
 sysreturn openat(int dirfd, char *name, int flags, int mode)
 {
-    tuple n;
     if (name == 0)
         return set_syscall_error (current, EINVAL);
     // dirfs == AT_FDCWS or path is absolute
@@ -740,7 +737,6 @@ sysreturn lseek(int fd, s64 offset, int whence)
 
     file f = resolve_fd(current->p, fd);
     s64 new;
-    s64 curr_offset = (s64) f->offset;
 
     switch (whence) {
         case SEEK_SET:
@@ -908,7 +904,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_getrlimit, getrlimit);
     register_syscall(map, SYS_setrlimit, setrlimit);
     register_syscall(map, SYS_getpid, getpid);    
-    register_syscall(map,SYS_exit_group, exit_group);
+    register_syscall(map,SYS_exit_group, (sysreturn (*)())exit_group);
     register_syscall(map, SYS_exit, (sysreturn (*)())exit);
     register_syscall(map, SYS_getdents, getdents);
     register_syscall(map, SYS_mkdir, mkdir);

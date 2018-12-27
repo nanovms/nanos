@@ -371,7 +371,7 @@ static CLOSURE_1_0(socket_close, sysreturn, sock);
 static sysreturn socket_close(sock s)
 {
     net_debug("sock %d, type %d\n", s->fd, s->type);
-    heap h = heap_general(get_kernel_heaps());
+    //heap h = heap_general(get_kernel_heaps());
     if (s->type == SOCK_STREAM && s->info.tcp.state == TCP_SOCK_OPEN)
         tcp_close(s->info.tcp.lw);
     // xxx - we should really be cleaning this up, but tcp_close apparently
@@ -388,7 +388,9 @@ static void udp_input_lower(void *z, struct udp_pcb *pcb, struct pbuf *p,
 			    const ip_addr_t * addr, u16 port)
 {
     sock s = z;
+#ifdef NETSYSCALL_DEBUG
     u8 *n = (u8 *)addr;
+#endif
     net_debug("sock %d, pcb %p, buf %p, src addr %d.%d.%d.%d, port %d\n",
 	      s->fd, pcb, p, n[0], n[1], n[2], n[3], port);
     assert(pcb == s->info.udp.lw);
@@ -585,7 +587,7 @@ static err_t connect_tcp_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
    return ERR_OK;
 }
 
-static int connect_tcp(sock s, const ip_addr_t* address, unsigned short port)
+static inline int connect_tcp(sock s, const ip_addr_t* address, unsigned short port)
 {
     net_debug("sock %d, addr %P, port %d\n", s->fd, address->addr, port);
     if (!enqueue(s->waiting, closure(s->h, set_completed_state, current)))
@@ -716,7 +718,6 @@ static void lwip_tcp_conn_err(void * z, err_t b) {
 static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t b)
 {
     sock s = z;
-    event_handler eh;
     int fd = allocate_tcp_sock(s->p, lw);
     if (fd < 0)
 	return ERR_MEM;

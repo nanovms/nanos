@@ -155,7 +155,7 @@ static boolean force_entry(heap h, page b, u64 v, physical p, int level,
     }
 }
 
-static boolean map_page(page base, u64 v, physical p, heap h, boolean fat, boolean flags)
+static inline boolean map_page(page base, u64 v, physical p, heap h, boolean fat, boolean flags)
 {
     boolean invalidate = false;
     if (!force_entry(h, base, v, p, 1, fat, flags, &invalidate))
@@ -164,7 +164,7 @@ static boolean map_page(page base, u64 v, physical p, heap h, boolean fat, boole
 #ifdef PAGE_USE_FLUSH
         flush_tlb();
 #else
-        asm volatile("invlpg (%0)" :: "r" (v) : "memory");
+        asm volatile("invlpg (%0)" :: "r" ((unsigned long)v) : "memory");
 #endif
     }
     return true;
@@ -242,6 +242,7 @@ static void map_range(u64 virtual, physical p, int length, u64 flags, heap h)
     for (int i = 0; i < len;) {
 	boolean fat = !(vo & MASK(PT3)) && !(po & MASK(PT3)) && ((len - i) >= (1ull<<PT3));
 	if (!map_page(pb, vo, po, h, fat, flags)) {
+        len +=0;
 	    if (flags == 0)
 		console("unmap: area missing page mappings\n");
 	    else

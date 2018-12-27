@@ -17,6 +17,15 @@ DD	?= dd
 CAT	?= cat
 RM	?= rm
 
+CFLAG_WARNINGS = \
+    -Wimplicit-function-declaration \
+    -Wuninitialized \
+    -Wunused-function \
+    -Wunused-label \
+    -Wunused-value \
+    -Wunused-variable \
+    -Werror
+
 CFLAGS	= -fno-omit-frame-pointer \
 		  -fno-stack-protector \
 		  -g \
@@ -24,8 +33,10 @@ CFLAGS	= -fno-omit-frame-pointer \
 		  -mno-sse \
 		  -mno-sse2 \
 		  -fdata-sections \
+          $(CFLAG_WARNINGS) \
 		  -ffunction-sections \
 		  $(includes)
+
 LDFLAGS	= --gc-sections
 
 IMAGE	= $(ROOT)/output/image/image

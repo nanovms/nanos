@@ -155,7 +155,6 @@ sysreturn epoll_create(u64 flags)
 
 static void epoll_blocked_release(epoll_blocked w)
 {
-    epoll e = w->e;
     epoll_debug("epoll_blocked_release: w %p\n", w);
     if (!list_empty(&w->blocked_list)) {
 	list_delete(&w->blocked_list);
