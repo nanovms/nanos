@@ -143,6 +143,12 @@ static inline timestamp time_from_timespec(struct timespec *t)
     return (((u64)t->ts_sec)<<32) + time_from_nsec(t->ts_nsec);
 }
 
+static inline void timespec_from_time(struct timespec *ts, timestamp t)
+{
+    ts->ts_sec = t>>32;
+    ts->ts_nsec = nsec_from_time(t - (ts->ts_sec<<32));
+}
+
 static inline time_t time_t_from_time(timestamp t)
 {
     return t >> 32;

@@ -134,6 +134,8 @@ typedef struct iovec {
 #define ARCH_GET_FS 0x1003
 #define ARCH_GET_GS 0x1004
 
+typedef int clockid_t;
+
 struct timespec {
 	u64 ts_sec;
 	u64 ts_nsec;

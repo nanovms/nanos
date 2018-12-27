@@ -39,9 +39,16 @@ sysreturn sys_time(time_t *tloc)
     return t;
 }
 
+sysreturn clock_gettime(clockid_t clk_id, struct timespec *tp)
+{
+    thread_log(current, "clock_gettime: clk_id %d\n", clk_id);
+    timespec_from_time(tp, now());
+    return 0;
+}
+
 void register_clock_syscalls(void **map)
 {
-    register_syscall(map, SYS_clock_gettime, syscall_ignore);
+    register_syscall(map, SYS_clock_gettime, clock_gettime);
     register_syscall(map, SYS_clock_getres, syscall_ignore);
     register_syscall(map, SYS_gettimeofday, gettimeofday);
     register_syscall(map, SYS_nanosleep, nanosleep);
