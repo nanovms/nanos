@@ -65,6 +65,7 @@ stage3-srcs = \
 	$(SRC)/unix/unix_clock.c \
 	$(SRC)/unix/unix.c \
 	$(SRC)/unix/vdso.c \
+	$(SRC)/unix/pipe.c \
 	$(SRC)/virtio/virtio_net.c \
 	$(SRC)/virtio/virtio_pci.c \
 	$(SRC)/virtio/virtio_storage.c \
