@@ -22,9 +22,19 @@ typedef struct pipe_struct {
     struct pipe_file_struct files[2];
     process p;
     heap h;
-    u64 ref_cnt;;
+    u64 ref_cnt;
     buffer data;
 } *pipe;
+
+#define BUFFER_DEBUG(BUF,LENGTH) do { \
+    pipe_debug("%s:%d - requested %d -- contents %p start/end %d/%d  -- len %d %d\n", \
+        __func__, __LINE__, \
+        (LENGTH), \
+        (BUF)->contents, \
+        (BUF)->start, \
+        (BUF)->end, \
+        (BUF)->length, buffer_length((BUF))); \
+} while(0)
 
 boolean pipe_init(unix_heaps uh)
 {
@@ -54,7 +64,6 @@ static CLOSURE_1_0(pipe_close, sysreturn, file);
 static sysreturn pipe_close(file f)
 {
     pipe_file pf = (pipe_file)f;    
-    pipe_debug("closing - %p\n", pf);
     pipe_release(pf->pipe);
     return 0;
 }
@@ -63,10 +72,16 @@ static CLOSURE_1_3(pipe_read, sysreturn, file, void *, u64, u64);
 static sysreturn pipe_read(file f, void *dest, u64 length, u64 offset_arg)
 {
     pipe_file pf = (pipe_file)f;    
-    int real_length = buffer_length(pf->pipe->data);
+    buffer b = pf->pipe->data;
+
+    int real_length = buffer_length(b);
 
     real_length = MIN(real_length, length); 
-    buffer_read(pf->pipe->data, dest, real_length);
+    buffer_read(b, dest, real_length);
+    // If we have consumed all of the buffer, reset it. This might prevent future writes to allocte new buffer
+    // in buffer_write/buffer_extend. Can improve things until a proper circular buffer is available 
+    if (!buffer_length(b))
+        buffer_clear(b);
     return real_length;
 }
 
@@ -111,10 +126,11 @@ int do_pipe2(int fds[2], int flags)
     pipe->ref_cnt = 2;
 
     writer->write = closure(pipe->h, pipe_write, writer);
-    reader->read = closure(pipe->h, pipe_read, reader);
-    reader->close = closure(pipe->h, pipe_close, reader);
+    writer->read = 0;
     writer->close = closure(pipe->h, pipe_close, writer);
+
+    reader->read = closure(pipe->h, pipe_read, reader);
+    reader->write = 0;
+    reader->close = closure(pipe->h, pipe_close, reader);
     return 0;
 }
-
-
