@@ -129,6 +129,8 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
 	goto alloc_fail;
     if (!poll_init(uh))
 	goto alloc_fail;
+    if (!pipe_init(uh))
+	goto alloc_fail;
     set_syscall_handler(syscall_enter);
     process kernel_process = create_process(uh, root, fs);
     current = create_thread(kernel_process);
