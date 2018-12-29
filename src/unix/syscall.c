@@ -891,9 +891,10 @@ void exit(int code)
     while(1); //compiler put a noreturn on exit
 }
 
-void exit_group(int status){
+sysreturn  exit_group(int status){
     halt("exit_group");
     while(1);
+    return 0;
 }
 
 sysreturn pipe2(int fds[2], int flags)
@@ -923,7 +924,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_access, access);
     register_syscall(map, SYS_lseek, lseek);
     register_syscall(map, SYS_fcntl, fcntl);
-    register_syscall(map, SYS_ioctl, ioctl);
+    register_syscall(map, SYS_ioctl, (sysreturn (*)())ioctl);
     register_syscall(map, SYS_getcwd, getcwd);
     register_syscall(map, SYS_readlink, readlink);
     register_syscall(map, SYS_readlinkat, readlinkat);
@@ -934,7 +935,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_getrlimit, getrlimit);
     register_syscall(map, SYS_setrlimit, setrlimit);
     register_syscall(map, SYS_getpid, getpid);    
-    register_syscall(map,SYS_exit_group, (sysreturn (*)())exit_group);
+    register_syscall(map,SYS_exit_group, exit_group);
     register_syscall(map, SYS_exit, (sysreturn (*)())exit);
     register_syscall(map, SYS_getdents, getdents);
     register_syscall(map, SYS_mkdir, mkdir);

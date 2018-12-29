@@ -242,7 +242,6 @@ static void map_range(u64 virtual, physical p, int length, u64 flags, heap h)
     for (int i = 0; i < len;) {
 	boolean fat = !(vo & MASK(PT3)) && !(po & MASK(PT3)) && ((len - i) >= (1ull<<PT3));
 	if (!map_page(pb, vo, po, h, fat, flags)) {
-        len +=0;
 	    if (flags == 0)
 		console("unmap: area missing page mappings\n");
 	    else

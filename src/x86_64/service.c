@@ -43,12 +43,6 @@ static u64 bootstrap_alloc(heap h, bytes length)
 
 queue runqueue;
 
-//static CLOSURE_1_0(read_complete, void, thunk);
-static inline void read_complete(thunk target)
-{
-    enqueue(runqueue, target);
-}
-
 static context miscframe;
 
 void runloop()
