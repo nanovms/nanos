@@ -17,7 +17,7 @@ typedef struct http_parser {
     u64 content_length;
 } *http_parser;
 
-CLOSURE_1_2(each_header, void, buffer, symbol, value);
+//CLOSURE_1_2(each_header, void, buffer, symbol, value);
 void each_header(buffer dest, symbol n, value v)
 {
     if (n != sym(url))
