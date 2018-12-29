@@ -650,43 +650,55 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
         struct pollfd *pfd = fds + i;
         epollfd efd;
 
+        /* skip ignored events */
         if (pfd->fd < 0) {
             pfd->revents = 0;
             continue;
         }
 
+        /* obtain efd */
         bitmap_extend(e->fds, pfd->fd);
         efd = epollfd_from_fd(e, pfd->fd);
         if (efd != INVALID_ADDRESS) {
-            epoll_debug("   = fd %d\n", pfd->fd);
+            if (efd->registered) {
+                epoll_debug("   = fd %d (replacing)\n", pfd->fd);
+                /* make into zombie; kind of brutal...need removal */
+                file f = efd->f;
+                free_epollfd(efd);
+                efd = alloc_epollfd(e, f, pfd->fd, pfd->events, i);
+                assert(efd != INVALID_ADDRESS);
+            } else {
+                epoll_debug("   = fd %d (updating)\n", pfd->fd);
+                efd->eventmask = pfd->events;
+                efd->data = i;
+            }
 
+            /* unmark for removal */
             bitmap_extend(remove_efds, pfd->fd);
             bitmap_set(remove_efds, pfd->fd, 0);
         } else {
             epoll_debug("   + fd %d\n", pfd->fd);
             file f = resolve_fd(current->p, pfd->fd); /* may return on error */
-            efd = alloc_epollfd(e, f, pfd->fd, 0, 0);
+            efd = alloc_epollfd(e, f, pfd->fd, pfd->events, i);
             if (efd == INVALID_ADDRESS) {
                 rv = -EBADF;
                 goto check_rv_timeout;
             }
         }
-        efd->eventmask = pfd->events;
-        efd->data = i;
 
-        if (!efd->registered) {
-            if (!efd->f->check) {
-                msg_err("requested fd %d (eventmask %P) missing check\n", pfd->fd, efd->eventmask);
-                continue;
-            }
-            efd->registered = true;
-            fetch_and_add(&efd->refcnt, 1);
-            epoll_debug("   register fd %d, eventmask %P, applying check\n",
-                    efd->fd, efd->eventmask);
-            if (!apply(efd->f->check, efd->eventmask, &efd->lastevents,
-                       closure(h, poll_wait_notify, efd)))
-                break;
+        if (!efd->f->check) {
+            msg_err("requested fd %d (eventmask %P) missing check\n", pfd->fd, pfd->events);
+            continue;
         }
+
+        assert(!efd->registered);
+        efd->registered = true;
+        fetch_and_add(&efd->refcnt, 1);
+        epoll_debug("   register fd %d, eventmask %P, applying check\n",
+            efd->fd, efd->eventmask);
+        if (!apply(efd->f->check, efd->eventmask, &efd->lastevents,
+                   closure(h, poll_wait_notify, efd)))
+            break;
     }
 
     /* clean efds */
