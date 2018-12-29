@@ -885,6 +885,19 @@ void exit_group(int status){
     while(1);
 }
 
+sysreturn pipe2(int fds[2], int flags)
+{
+    if (flags & ~(O_CLOEXEC | O_NONBLOCK))
+        return set_syscall_error(current, EINVAL);
+
+    return do_pipe2(fds, flags);
+}
+
+sysreturn pipe(int fds[2])
+{
+    return pipe2(fds, 0);
+}
+
 void register_file_syscalls(void **map)
 {
     register_syscall(map, SYS_read, read);
@@ -914,6 +927,8 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_getdents, getdents);
     register_syscall(map, SYS_mkdir, mkdir);
     register_syscall(map, SYS_getrandom, getrandom);
+    register_syscall(map, SYS_pipe, pipe);
+    register_syscall(map, SYS_pipe2, pipe2);
 }
 
 void *linux_syscalls[SYS_MAX];
