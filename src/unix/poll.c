@@ -193,7 +193,7 @@ static void epoll_blocked_finish(epoll_blocked w, boolean timedout)
     if (w->sleeping) {
         w->sleeping = false;
         thread_wakeup(w->t);
-	sysreturn rv;
+        sysreturn rv = 0;
 
         switch (w->epoll_type) {
         case EPOLL_TYPE_SELECT:
@@ -690,7 +690,6 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
     }
 
     /* clean efds */
-    int fd;
     bitmap_foreach_set(remove_efds, fd) {
         epoll_debug("   - fd %d\n", fd);
         epollfd efd = epollfd_from_fd(e, fd);
