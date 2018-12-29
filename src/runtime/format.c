@@ -9,7 +9,6 @@ void register_format(character c, formatter f)
 
 void vbprintf(buffer d, buffer fmt, vlist *ap)
 {
-    character i;
     int state = 0;
     int width = 0;
 

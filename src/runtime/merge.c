@@ -12,7 +12,7 @@ static void finish(status_handler c, word *count, status s)
 static CLOSURE_2_0(merge_join, status_handler, status_handler, word *);
 static status_handler merge_join(status_handler m, word *count)
 {
-    word n = fetch_and_add(count, 1);
+    fetch_and_add(count, 1);
     return m;
 }
 

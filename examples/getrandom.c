@@ -10,6 +10,10 @@
 
 static int hash[256];
 
+ void *malloc(size_t size);
+       void free(void *ptr);
+
+
 int
 __getrandom(void *buf, int i, int f)
 {

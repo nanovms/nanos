@@ -84,7 +84,6 @@ timestamp timer_check()
 
 timestamp parse_time(string b)
 {
-    character c;
     u64 s = 0, frac = 0, fracnorm = 0;
 
     foreach_character (c, b) {

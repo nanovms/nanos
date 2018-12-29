@@ -2,6 +2,9 @@
 
 thread current;
 
+CLOSURE_1_1(default_fault_handler, void, thread, context);
+
+
 static u64 futex_key_function(void *x)
 {
     return u64_from_pointer(x);
@@ -76,7 +79,7 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
                        u64 val2,
                        int *uaddr2, int val3)
 {
-    struct timespec *timeout = pointer_from_u64(val2);
+    //struct timespec *timeout = pointer_from_u64(val2);
     boolean verbose = table_find(current->p->process_root, sym(futex_trace))?true:false;
     thread w;
     
@@ -142,7 +145,7 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
                 thread_wakeup(w);
             }
             
-            int c;
+            int c = 0;
             switch (cmp) {
             case FUTEX_OP_CMP_EQ: c = (oldval == cmparg) ; break;
             case FUTEX_OP_CMP_NE: c = (oldval != cmparg); break;

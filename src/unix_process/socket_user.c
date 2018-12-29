@@ -276,13 +276,6 @@ static void fill_v4_sockaddr(struct sockaddr_in *in, u32 address, u16 port)
     in->sin_port = htons(port);
 }
 
-
-static CLOSURE_2_0(unreg, void, descriptor, descriptor);
-static void unreg(descriptor e, descriptor f)
-{
-    rprintf("remove\n");
-}
-
 static void register_descriptor_write(heap h, notifier n, descriptor f, thunk each)
 {
     registration r = allocate(h, sizeof(struct registration));

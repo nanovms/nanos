@@ -116,8 +116,10 @@ static void remove_internal(rtrie rt, rtnode *w, struct range k)
     rtnode r = *w;
     range extra_k = (range){0, 0}, here, extra_here;
 
+    here = (range){0,0xff}; // FIX THIS!! Code wasn't initializing here and getting lucky.
+
     if (r) {
-        range d1 = k, d2 = (range){0,0};        
+        //range d1 = k, d2 = (range){0,0};        
         range i = range_intersection(r->r, k);
         if (!range_empty(i)) {
             cut(k, i, &k, &extra_k);

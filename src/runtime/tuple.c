@@ -101,7 +101,7 @@ value decode_value(heap h, tuple dictionary, buffer source)
         }
 
         for (int i = 0; i < len ; i++) {
-            u8 nametype, valuetype;
+            u8 nametype;
             // nametype is always buffer. can we use that bit?
             u64 nlen = pop_header(source, &imm, &nametype);
             symbol s;
@@ -177,8 +177,6 @@ void encode_eav(buffer dest, table dictionary, tuple e, symbol a, value v)
 // immediate only
 void encode_tuple(buffer dest, table dictionary, tuple t)
 {
-    u64 tuple_id;
-
     push_header(dest, immediate, type_tuple, t->count);
     srecord(dictionary, t);
     table_foreach (t, n, v) {

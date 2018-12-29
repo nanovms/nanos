@@ -34,7 +34,6 @@ static u64 stage2_allocator(heap h, bytes b)
 static CLOSURE_1_4(stage2_read_disk, void, u64, void *, u64, u64, status_handler);
 static void stage2_read_disk(u64 base, void *dest, u64 length, u64 offset, status_handler completion)
 {
-    u32 k, z;
     read_sectors(dest, base+offset, length);
     apply(completion, STATUS_OK);
 }
@@ -54,7 +53,6 @@ static CLOSURE_0_1(kernel_read_complete, void, buffer);
 static void __attribute__((noinline)) kernel_read_complete(buffer kb)
 {
     console("kernel complete\n");
-    u32 *e = (u32 *)kb->contents;
     heap physical = heap_physical(&kh);
     heap working = heap_general(&kh);
 
@@ -153,7 +151,6 @@ void centry()
     workings.alloc = stage2_allocator;
     kh.general = &workings;
     init_runtime(&kh);		/* we know only general is used */
-    void *x = allocate(&workings, 10);
     u32 fsb = filesystem_base();
 
     u32 cr0, cr4;

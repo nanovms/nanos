@@ -23,11 +23,6 @@ void deallocate_fd(process p, int fd, file f)
     deallocate_u64(p->fdallocator, fd, 1);
 }
 
-static boolean node_contents(tuple t, buffer d)
-{
-    return false;
-}    
-
 void default_fault_handler(thread t, context frame)
 {
     print_frame(t->frame);
