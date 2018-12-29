@@ -2,6 +2,10 @@ include ../config.mk
 include ../common.mk
 
 OUT	?= $(ROOT)/output/contgen
+CFLAGS  = -fno-stack-protector
+CFLAGS  += -g
+CFLAGS  += -fdata-sections -ffunction-sections
+CFLAGS  += $(includes)
 
 all: contgen
 

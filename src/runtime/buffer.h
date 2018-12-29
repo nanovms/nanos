@@ -101,7 +101,7 @@ static inline void unwrap_buffer(heap h, buffer b)
     deallocate(h, b, sizeof(struct buffer));
 }
 
-static buffer wrap_buffer_cstring(heap h, char *x)
+static inline buffer wrap_buffer_cstring(heap h, char *x)
 {
     return wrap_buffer(h, x, runtime_strlen(x));
 }

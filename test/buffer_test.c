@@ -3,6 +3,7 @@
 
 //#define ENABLE_MSG_DEBUG
 #include <runtime.h>
+#include <getrandom.h>
 //#include <stdlib.h>
 #define EXIT_SUCCESS 0
 #define EXIT_FAILURE 1
@@ -124,7 +125,7 @@ boolean concat_tests(heap h)
 	    if (current_length + size > seed_size)
 		    size = seed_size - current_length;
 
-        void * prev = buffer_ref(b, current_length);;
+        //void * prev = buffer_ref(b, current_length);;
 
 	    buffer_write(b, buffer_ref(seed_buffer, offset), size);
     	test_assert(buffer_length(b) == (size + current_length));

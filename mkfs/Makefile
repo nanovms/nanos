@@ -5,7 +5,7 @@ OUT	?= $(ROOT)/output/mkfs
 CFLAGS	= -fno-stack-protector
 CFLAGS	+= -g
 CFLAGS	+= -fdata-sections -ffunction-sections
-CFLAGS	+= $(includes)
+CFLAGS	+= $(includes) -DHOST_BUILD
 
 all: mkfs dump
 

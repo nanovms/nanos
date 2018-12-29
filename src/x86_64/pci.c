@@ -80,7 +80,6 @@ u32 pci_readbar(unsigned bus, unsigned slot, unsigned func, int bid, u32 *length
 
 void pci_cfgwrite(int bus, int slot, int func, int reg, int bytes, u32 source)
 {
-    u32 data = -1;
     int port;
     
     port = pci_cfgenable(bus, slot, func, reg, bytes);
@@ -161,7 +160,7 @@ void pci_discover()
                 u32 cp0 = pci_cfgread(0, i, 0, cp, 1);
                 if (cp0 == PCI_CAPABILITY_MSIX) {
                     u32 vector_table = pci_cfgread(0, i, 0, cp+4, 4);
-                    u32 pba_table = pci_cfgread(0, i, 0, cp+8, 4);
+                    pci_cfgread(0, i, 0, cp+8, 4);
                     u32 len;
                     u32 vector_base = pci_readbar(0, i, 0, vector_table & 0xff, &len);
                     len = pad(len, PAGESIZE);

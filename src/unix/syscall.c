@@ -406,7 +406,7 @@ sysreturn mkdir(const char *pathname, int mode)
 
     /* canonicalize the path */
     char *final_path = canonicalize_path(h, cwd,
-            wrap_buffer_cstring(h, pathname));
+            wrap_buffer_cstring(h, (char *)pathname));
 
     thread_log(current, "%s: (mode %d) pathname %s => %s\n",
             __func__, mode, pathname, final_path);
@@ -438,7 +438,7 @@ sysreturn getrandom(void *buf, u64 buflen, unsigned int flags)
 }
 
 static int try_write_dirent(struct linux_dirent *dirp, char *p,
-        int *read_sofar, int *written_sofar, int *f_offset,
+        int *read_sofar, int *written_sofar, u64 *f_offset,
         unsigned int *count, int ft)
 {
     int len = runtime_strlen(p);
@@ -452,7 +452,7 @@ static int try_write_dirent(struct linux_dirent *dirp, char *p,
             return -1;
         } else {
             // include the entry in the buffer
-            runtime_memset(dirp, 0, reclen);
+            runtime_memset((u8*)dirp, 0, reclen);
             dirp->d_ino = 0; /* XXX */
             dirp->d_reclen = reclen;
             runtime_memcpy(dirp->d_name, p, len + 1);
@@ -518,15 +518,13 @@ done:
 sysreturn writev(int fd, iovec v, int count)
 {
     int res;
-    file f = resolve_fd(current->p, fd);
+    resolve_fd(current->p, fd);
     for (int i = 0; i < count; i++) res += write(fd, v[i].address, v[i].length);
     return res;
 }
 
 static sysreturn access(char *name, int mode)
 {
-    void *where;
-    bytes length;
     if (!resolve_cstring(current->p->cwd, name)) {
         return set_syscall_error(current, ENOENT);
     }
@@ -674,7 +672,6 @@ If pathname is absolute, then dirfd is ignore
 */
 sysreturn openat(int dirfd, char *name, int flags, int mode)
 {
-    tuple n;
     if (name == 0)
         return set_syscall_error (current, EINVAL);
     // dirfs == AT_FDCWS or path is absolute
@@ -740,7 +737,6 @@ sysreturn lseek(int fd, s64 offset, int whence)
 
     file f = resolve_fd(current->p, fd);
     s64 new;
-    s64 curr_offset = (s64) f->offset;
 
     switch (whence) {
         case SEEK_SET:
@@ -854,7 +850,22 @@ sysreturn close(int fd)
 
 sysreturn fcntl(int fd, int cmd)
 {
-    return O_RDWR;
+    switch (cmd) {
+    case F_GETFL:
+        return O_RDWR;
+    default:
+        return set_syscall_error(current, ENOSYS);
+    }
+}
+
+sysreturn ioctl(int fd, unsigned long request, ...)
+{
+    switch (request) {
+    case FIONBIO:
+        return 0;
+    default:
+        return set_syscall_error(current, ENOSYS);
+    }
 }
 
 sysreturn syscall_ignore()
@@ -880,9 +891,23 @@ void exit(int code)
     while(1); //compiler put a noreturn on exit
 }
 
-void exit_group(int status){
+sysreturn  exit_group(int status){
     halt("exit_group");
     while(1);
+    return 0;
+}
+
+sysreturn pipe2(int fds[2], int flags)
+{
+    if (flags & ~(O_CLOEXEC | O_NONBLOCK))
+        return set_syscall_error(current, EINVAL);
+
+    return do_pipe2(fds, flags);
+}
+
+sysreturn pipe(int fds[2])
+{
+    return pipe2(fds, 0);
 }
 
 void register_file_syscalls(void **map)
@@ -894,10 +919,12 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_openat, openat);
     register_syscall(map, SYS_fstat, fstat);
     register_syscall(map, SYS_stat, stat);
+    register_syscall(map, SYS_lstat, stat);
     register_syscall(map, SYS_writev, writev);
     register_syscall(map, SYS_access, access);
     register_syscall(map, SYS_lseek, lseek);
     register_syscall(map, SYS_fcntl, fcntl);
+    register_syscall(map, SYS_ioctl, (sysreturn (*)())ioctl);
     register_syscall(map, SYS_getcwd, getcwd);
     register_syscall(map, SYS_readlink, readlink);
     register_syscall(map, SYS_readlinkat, readlinkat);
@@ -913,6 +940,8 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_getdents, getdents);
     register_syscall(map, SYS_mkdir, mkdir);
     register_syscall(map, SYS_getrandom, getrandom);
+    register_syscall(map, SYS_pipe, pipe);
+    register_syscall(map, SYS_pipe2, pipe2);
 }
 
 void *linux_syscalls[SYS_MAX];
@@ -941,7 +970,7 @@ static void syscall_debug()
     if (table_find(current->p->process_root, sym(debugsyscalls)))
         thread_log(current, syscall_name(call));
     sysreturn (*h)(u64, u64, u64, u64, u64, u64) = current->p->syscall_handlers[call];
-    sysreturn res = -ENOENT;
+    sysreturn res = -ENOSYS;
     if (h) {
         res = h(f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]);
     } else {

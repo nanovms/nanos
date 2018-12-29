@@ -23,11 +23,6 @@ void deallocate_fd(process p, int fd, file f)
     deallocate_u64(p->fdallocator, fd, 1);
 }
 
-static boolean node_contents(tuple t, buffer d)
-{
-    return false;
-}    
-
 void default_fault_handler(thread t, context frame)
 {
     print_frame(t->frame);
@@ -128,6 +123,8 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     if (uh->file_cache == INVALID_ADDRESS)
 	goto alloc_fail;
     if (!poll_init(uh))
+	goto alloc_fail;
+    if (!pipe_init(uh))
 	goto alloc_fail;
     set_syscall_handler(syscall_enter);
     process kernel_process = create_process(uh, root, fs);

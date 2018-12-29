@@ -11,7 +11,7 @@ static void gdb_send(tcpgdb g, buffer b)
     //    u64 len = tcp_sndbuf(g->pcb);
     // flags can force a stack copy or toggle push
     // pool?
-    err_t err = tcp_write(g->p, buffer_ref(b, 0), buffer_length(b), TCP_WRITE_FLAG_COPY);
+    tcp_write(g->p, buffer_ref(b, 0), buffer_length(b), TCP_WRITE_FLAG_COPY);
 }
 
 err_t gdb_input(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
@@ -41,7 +41,7 @@ void init_tcp_gdb(heap h, process p, u16 port)
     tcpgdb g = (tcpgdb) allocate(h, sizeof(struct tcpgdb));
     g->p = tcp_new_ip_type(IPADDR_TYPE_ANY); 
     g->input = init_gdb(h, p, closure(h, gdb_send, g));
-    err_t err = tcp_bind(g->p, IP_ANY_TYPE, port);
+    tcp_bind(g->p, IP_ANY_TYPE, port);
     g->p = tcp_listen(g->p);
     tcp_arg(g->p, g);    
     tcp_accept(g->p, gdb_accept);    

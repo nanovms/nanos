@@ -88,6 +88,8 @@ typedef struct iovec {
 #define EMLINK          31              /* Too many links */
 #define EPIPE           32              /* Broken pipe */
 
+#define ENOSYS          38              /* Invalid system call number */
+
 #define EDESTADDRREQ    89		/* Destination address required */
 #define EOPNOTSUPP      95		/* Operation not supported */
 
@@ -98,6 +100,16 @@ typedef struct iovec {
 #define O_TRUNC		00001000
 #define O_APPEND	00002000
 #define O_NONBLOCK	00004000
+#define O_CLOEXEC   02000000
+
+/* Values for the second argument to `fcntl'.  */
+#define F_DUPFD         0       /* Duplicate file descriptor.  */
+#define F_GETFD         1       /* Get file descriptor flags.  */
+#define F_SETFD         2       /* Set file descriptor flags.  */
+#define F_GETFL         3       /* Get file status flags.  */
+#define F_SETFL         4       /* Set file status flags.  */
+
+#define FIONBIO		0x5421
 
 #define AT_NULL         0               /* End of vector */
 #define AT_IGNORE       1               /* Entry should be ignored */
@@ -131,6 +143,8 @@ typedef struct iovec {
 #define ARCH_SET_FS 0x1002
 #define ARCH_GET_FS 0x1003
 #define ARCH_GET_GS 0x1004
+
+typedef int clockid_t;
 
 struct timespec {
 	u64 ts_sec;

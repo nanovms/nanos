@@ -42,7 +42,7 @@ static void vector_push(vector v, void *i)
     v->end += sizeof(void *);
 }
 
-static void *vector_peek(vector v)
+static inline void *vector_peek(vector v)
 {
     if ((v->end - v->start) < sizeof(void *))
         return 0;

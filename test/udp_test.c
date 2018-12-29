@@ -75,7 +75,6 @@ void main(int argc, char ** argv)
 
     struct sockaddr_in rsin;
     socklen_t rsin_len;
-    int iter = 0;
     for (int i = 0; i < iterations; i++) {
 	memset(sbuf, i % 256, MSGSIZE);
 	if (i == iterations - 1 && terminate)
