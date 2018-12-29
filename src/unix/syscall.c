@@ -592,7 +592,7 @@ static CLOSURE_1_3(file_check, boolean, file, u32, u32 *, event_handler);
 static boolean file_check(file f, u32 eventmask, u32 * last, event_handler eh)
 {
     thread_log(current, "file_check: file %t, eventmask %P, last %P, event_handler %p\n",
-	       f->n, eventmask, *last, eh);
+	       f->n, eventmask, last ? *last : 0, eh);
 
     /* No support for non-blocking XXXX
        Also, if and when we have some degree of file caching and want
@@ -602,8 +602,9 @@ static boolean file_check(file f, u32 eventmask, u32 * last, event_handler eh)
     u32 events = f->length < infinity ? EPOLLOUT : 0;
     events |= f->offset < f->length ? EPOLLIN : EPOLLHUP;
     u32 masked = events & eventmask;
-    u32 r = edge_events(masked, eventmask, *last);
-    *last = masked;
+    u32 r = edge_events(masked, eventmask, last ? *last : 0);
+    if (last)
+        *last = masked;
     if (r)
 	return apply(eh, r);
     return true;
