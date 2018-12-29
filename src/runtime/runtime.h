@@ -12,6 +12,17 @@ extern void console(char *x);
 void print_u64(u64 s);
 void exit(int status);
 
+extern void halt(char *format, ...);
+
+// make into no-op for production
+#ifdef NO_ASSERT
+#define assert(x) do { if((x)) { } } while(0)
+#else
+#define assert(x) \
+    do { if(!(x)) halt("assertion " #x " failed in " __FILE__ ": %s() on line %d; halt\n", \
+		       __func__, __LINE__); } while(0)
+#endif
+
 static inline void runtime_memcpy(void *a, void *b, bytes len)
 {
     for (int i = 0; i < len; i++) ((u8 *)a)[i] = ((u8 *)b)[i];
@@ -179,17 +190,6 @@ typedef closure_type(block_read, void, void *, u64, u64, status_handler);
 
 // break out platform - move into the implicit include
 #include <x86_64.h>
-
-extern void halt(char *format, ...);
-
-// make into no-op for production
-#ifdef NO_ASSERT
-#define assert(x) do { if((x)) { } } while(0)
-#else
-#define assert(x) \
-    do { if(!(x)) halt("assertion " #x " failed in " __FILE__ ": %s() on line %d; halt\n", \
-		       __func__, __LINE__); } while(0)
-#endif
 
 // should be  (parser, parser, character)
 typedef closure_type(parser, void *, character);

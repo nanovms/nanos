@@ -6,6 +6,7 @@ buffer allocate_buffer(heap h, bytes s)
     b->start = 0;
     b->end = 0;
     b->length = s;
+    b->wrapped = false;
     b->h = h;
     // two allocations to remove the deallocate ambiguity, otherwise
     // we'd prefer to do it in one
