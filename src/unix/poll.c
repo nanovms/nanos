@@ -367,7 +367,7 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 	    return set_syscall_error(current, EINVAL);
 	}
 	epoll_debug("   adding %d, events %P, data %P\n", fd, event->events, event->data);
-	if (!alloc_epollfd(e, f, fd, event->events | EPOLLERR | EPOLLHUP, event->data))
+	if (alloc_epollfd(e, f, fd, event->events | EPOLLERR | EPOLLHUP, event->data) == INVALID_ADDRESS)
 	    return set_syscall_error(current, ENOMEM);
 	break;
     case EPOLL_CTL_DEL:
@@ -390,7 +390,7 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 	    return set_syscall_error(current, ENOENT);
 	}
 	free_epollfd(efd);
-	if (!alloc_epollfd(e, f, fd, event->events | EPOLLERR | EPOLLHUP, event->data))
+	if (alloc_epollfd(e, f, fd, event->events | EPOLLERR | EPOLLHUP, event->data) == INVALID_ADDRESS)
 	    return set_syscall_error(current, ENOMEM);
 	break;
     default:
@@ -511,7 +511,7 @@ static sysreturn select_internal(int nfds,
 	    } else {
 		epoll_debug("   + fd %d\n", fd);
 		file f = resolve_fd(current->p, fd); /* may return on error */
-		if (!alloc_epollfd(e, f, fd, 0, 0)) {
+		if (alloc_epollfd(e, f, fd, 0, 0) == INVALID_ADDRESS) {
 		    rv = -EBADF;
 		    goto check_rv_timeout;
 		}
@@ -615,7 +615,7 @@ static boolean poll_wait_notify(epollfd efd, u32 events)
             efd->fd, events, w, efd->zombie);
     efd->registered = false;
     if (w && !efd->zombie) {
-        struct pollfd *pfd = buffer_ref(w->poll_fds, efd->data);
+        struct pollfd *pfd = buffer_ref(w->poll_fds, efd->data * sizeof(struct pollfd));
         if (pfd->revents == 0)
             fetch_and_add(&w->poll_retcount, 1);
         pfd->revents = events;
@@ -650,9 +650,14 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
         struct pollfd *pfd = fds + i;
         epollfd efd;
 
+        if (pfd->fd < 0) {
+            pfd->revents = 0;
+            continue;
+        }
+
         bitmap_extend(e->fds, pfd->fd);
-        if (bitmap_get(e->fds, pfd->fd)) {
-            efd = vector_get(e->events, pfd->fd);
+        efd = epollfd_from_fd(e, pfd->fd);
+        if (efd != INVALID_ADDRESS) {
             epoll_debug("   = fd %d\n", pfd->fd);
 
             bitmap_extend(remove_efds, pfd->fd);
@@ -661,12 +666,11 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
             epoll_debug("   + fd %d\n", pfd->fd);
             file f = resolve_fd(current->p, pfd->fd); /* may return on error */
             efd = alloc_epollfd(e, f, pfd->fd, 0, 0);
-            if (!efd) {
+            if (efd == INVALID_ADDRESS) {
                 rv = -EBADF;
                 goto check_rv_timeout;
             }
         }
-        assert(efd);
         efd->eventmask = pfd->events;
         efd->data = i;
 

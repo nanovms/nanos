@@ -26,6 +26,7 @@ void main(int argc, char **argv)
     heap h = init_process_runtime();
     tuple t = parse_arguments(h, argc, argv);
     notifier n = table_find(t, sym(select)) ? create_select_notifier(h) :
+        table_find(t, sym(poll)) ? create_poll_notifier(h) :
 	create_epoll_notifier(h);
     listen_port(h, n, 8080, closure(h, conn, h));
     notifier_spin(n);
