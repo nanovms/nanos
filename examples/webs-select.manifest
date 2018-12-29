@@ -6,6 +6,6 @@
     # filesystem path to elf for kernel to run
     program:/webs
     fault:t
-    arguments:[webs]
+    arguments:[webs -select 1]
     environment:(USER:bobby PWD:/)
 )

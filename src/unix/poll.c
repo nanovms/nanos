@@ -558,7 +558,7 @@ static sysreturn select_internal(int nfds,
 		fetch_and_add(&efd->refcnt, 1);
 		epoll_debug("      register epollfd %d, eventmask %P, applying check\n",
 			efd->fd, efd->eventmask);
-		apply(efd->f->check, efd->eventmask, 0, closure(h, select_notify, efd));
+		apply(efd->f->check, efd->eventmask, &efd->lastevents, closure(h, select_notify, efd));
 	    }
 	}
 
