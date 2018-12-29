@@ -43,3 +43,16 @@ runtime_strtok_r (char *s, const char *delimiters, char **save_ptr)
 
     return token;
 }
+
+int
+runtime_strcmp (const char *string1, const char *string2)
+{
+    int result = 0;
+
+    while (!result && *string1) {
+        result = (int)*string1 - (int)*string2;
+        string1 ++;
+        string2 ++;
+    }
+    return result;
+}
