@@ -132,7 +132,7 @@ static inline void lwip_memcpy(void *a, const void *b, unsigned long len)
 static inline int lwip_strlen(char *a)
 {
     int i = 0;
-    for (char *z = a; *a; a++, i++);
+    for (; *a; a++, i++);
     return i;
 }
 

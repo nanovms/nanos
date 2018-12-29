@@ -76,7 +76,7 @@ static inline heap region_allocator(heap h, u64 pagesize, int type)
 }
 
 
-static void print_regions()
+static inline void print_regions()
 {
     for_regions(e){    
          print_u64(region_type(e));
@@ -87,5 +87,3 @@ static void print_regions()
          console("\n");
     }
 }
-
-

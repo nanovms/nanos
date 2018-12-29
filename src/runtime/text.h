@@ -112,7 +112,6 @@ static inline character pop_character(buffer b)
 // status
 static inline boolean parse_int(buffer b, u32 base, u64 *result)
 {
-  int hexValue;
   int st = false;
   *result = 0;
 

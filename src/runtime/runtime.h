@@ -10,6 +10,7 @@ typedef u64 timestamp;
 
 extern void console(char *x);
 void print_u64(u64 s);
+void exit(int status);
 
 static inline void runtime_memcpy(void *a, void *b, bytes len)
 {
@@ -24,7 +25,8 @@ static inline void runtime_memset(u8 *a, u8 b, bytes len)
 static inline int runtime_strlen(char *a)
 {
     int i = 0;
-    for (char *z = a; *a; a++, i++);
+    char *z;
+    for (z = a; *a; a++, i++);
     return i;
 }
 

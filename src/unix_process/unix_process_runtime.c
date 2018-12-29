@@ -1,6 +1,8 @@
 #include <runtime.h>
 #include <unistd.h>
-//#include <stdlib.h>
+#ifdef HOST_BUILD
+#include <stdlib.h>
+#endif
 #include <sys/mman.h>
 #include <sys/time.h>
 #include <string.h>
@@ -16,6 +18,9 @@
 #else
 static inline void igr() {}
 #endif 
+
+void *malloc(size_t size);
+void free(void *ptr);
 
 void debug(buffer b)
 {
@@ -126,7 +131,6 @@ tuple parse_arguments(heap h, int argc, char **argv)
 {
     tuple t = allocate_tuple();
     vector unassociated = 0;
-    int i;
     symbol tag = 0;
     for (int i = 1; i<argc; i++) {
         buffer b = wrap_buffer_cstring(h, argv[i]);

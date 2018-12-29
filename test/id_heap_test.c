@@ -59,7 +59,7 @@ static boolean basic_test(heap h)
 #define MAX_NPAGES_ORDER 8	/* up to 256 pages (4 bitmap words) */
 static boolean random_test(heap h, heap rh, u64 page_order, int churn)
 {
-    int max_order = page_order + MAX_NPAGES_ORDER;
+    //int max_order = page_order + MAX_NPAGES_ORDER;
     u64 alloc_size_vec[VEC_LEN];
     u64 alloc_result_vec[VEC_LEN];
     u64 pagesize = U64_FROM_BIT(page_order);

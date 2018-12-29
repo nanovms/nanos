@@ -28,7 +28,6 @@ static void log_write_completion(vector v, status nothing)
 
 void log_flush(log tl)
 {
-    thunk i;
     buffer b = tl->staging;
 
     buffer_clear(tl->completions);

@@ -120,7 +120,6 @@ static inline void memory_barrier()
 static inline void set_syscall_handler(void *syscall_entry)
 {
     u64 cs  = 0x08;
-    u64 ss  = 0x10;
 
     write_msr(LSTAR_MSR, u64_from_pointer(syscall_entry));
     // 48 is sysret cs, and ds is cs + 16...so fix the gdt for return
@@ -130,7 +129,7 @@ static inline void set_syscall_handler(void *syscall_entry)
     write_msr(EFER_MSR, read_msr(EFER_MSR) | EFER_SCE);
 }
 
-static timestamp rdtsc(void)
+static inline timestamp rdtsc(void)
 {
     u64 a, d;
     asm("cpuid":::"%rax", "%rbx", "%rcx", "%rdx");

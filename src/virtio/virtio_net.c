@@ -131,7 +131,6 @@ static void post_receive(vnet vn);
 static CLOSURE_1_1(input, void, xpbuf, u64);
 static void input(xpbuf x, u64 len)
 {
-    struct eth_hdr *ethhdr;
     vnet vn= x->vn;
     // under what conditions does a virtio queue give us zero?
     if (x != NULL) {
@@ -151,12 +150,11 @@ static void input(xpbuf x, u64 len)
 
 static void post_receive(vnet vn)
 {
-    u64 len = 1500;
     // use aligned half pages just because
     xpbuf x = allocate(vn->rxbuffers, sizeof(struct xpbuf) + vn->rxbuflen);
     x->vn = vn;
     x->p.custom_free_function = receive_buffer_release;
-    struct pbuf* p = pbuf_alloced_custom(PBUF_RAW,
+    pbuf_alloced_custom(PBUF_RAW,
                                          vn->rxbuflen,
                                          PBUF_REF,
                                          &x->p,
@@ -206,9 +204,9 @@ static CLOSURE_2_3(init_vnet, void, heap, heap, int, int, int);
 static void init_vnet(heap general, heap page_allocator,
 		      int bus, int slot, int function)
 {
-    u32 badness = VIRTIO_F_BAD_FEATURE | VIRTIO_NET_F_CSUM | VIRTIO_NET_F_GUEST_CSUM |
-        VIRTIO_NET_F_GUEST_TSO4 | VIRTIO_NET_F_GUEST_TSO6 |  VIRTIO_NET_F_GUEST_ECN|
-        VIRTIO_NET_F_GUEST_UFO | VIRTIO_NET_F_CTRL_VLAN | VIRTIO_NET_F_MQ;
+    //u32 badness = VIRTIO_F_BAD_FEATURE | VIRTIO_NET_F_CSUM | VIRTIO_NET_F_GUEST_CSUM |
+    //    VIRTIO_NET_F_GUEST_TSO4 | VIRTIO_NET_F_GUEST_TSO6 |  VIRTIO_NET_F_GUEST_ECN|
+    //    VIRTIO_NET_F_GUEST_UFO | VIRTIO_NET_F_CTRL_VLAN | VIRTIO_NET_F_MQ;
 
     vtpci dev = attach_vtpci(general, page_allocator, bus, slot, function, VIRTIO_NET_F_MAC);
     vnet vn = allocate(dev->general, sizeof(struct vnet));

@@ -127,7 +127,7 @@ void deallocate_fd(process p, int fd, file f);
 
 void init_vdso(heap, heap);
 
-static inline timestamp time_from_timeval(struct timeval *t)
+static inline timestamp time_from_timeval(const struct timeval *t)
 {
     return (((u64)t->tv_sec)<<32) + ((((u64)t->tv_usec) * 1000000) / (1ull << 32));
 }
@@ -139,7 +139,7 @@ static inline void timeval_from_time(struct timeval *d, timestamp t)
     d->tv_usec = ((t-(d->tv_sec<<32)) * micro) >> 32;
 }
 
-static inline timestamp time_from_timespec(struct timespec *t)
+static inline timestamp time_from_timespec(const struct timespec *t)
 {
     return (((u64)t->ts_sec)<<32) + time_from_nsec(t->ts_nsec);
 }
@@ -173,7 +173,7 @@ boolean pipe_init(unix_heaps uh);
 #define sysreturn_from_pointer(__x) ((s64)u64_from_pointer(__x));
 
 extern sysreturn syscall_ignore();
-CLOSURE_1_1(default_fault_handler, void, thread, context);
+//CLOSURE_1_1(default_fault_handler, void, thread, context);
 void default_fault_handler(thread t, context frame);
 void thread_log_internal(thread t, char *desc, ...);
 #define thread_log(__t, __desc, ...) thread_log_internal(__t, __desc, ##__VA_ARGS__)
@@ -193,7 +193,7 @@ static inline sysreturn set_syscall_error(thread t, s32 val)
     return (sysreturn)-val;
 }
 
-static sysreturn sysreturn_value(thread t)
+static inline sysreturn sysreturn_value(thread t)
 {
     return (sysreturn)t->frame[FRAME_RAX];
 }
