@@ -192,7 +192,7 @@ static boolean poll_register(notifier n, descriptor f, u32 events, thunk a)
     new->next = vector_get(p->registrations, f);
     vector_set(p->registrations, f, new);
 
-    assert(f < NFDS(p->poll_fds));
+    extend_total(p->poll_fds, (f+1) * sizeof(struct pollfd));
     struct pollfd *fds = buffer_ref(p->poll_fds, 0);
     fds[f].fd = f;
     fds[f].events = events;
