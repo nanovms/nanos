@@ -130,6 +130,7 @@ void main(int argc, char **argv)
     }
 
     notifier n = table_find(t, sym(select)) ? create_select_notifier(h) :
+        table_find(t, sym(poll)) ? create_poll_notifier(h) :
 	create_epoll_notifier(h);
     buffer target = vector_pop(vector_from_tuple(h, unassoc));
     thunk *newconn = allocate(h, sizeof(thunk));
