@@ -57,6 +57,7 @@ MKDIR		= $(ROOT)/output/examples/mkdir
 UDPLOOP		= $(ROOT)/output/examples/udploop
 GETRANDOM	= $(ROOT)/output/examples/getrandom
 TIME    = $(ROOT)/output/examples/time
+PIPE	= $(ROOT)/output/examples/pipe
 
 # Tests
 

@@ -100,6 +100,7 @@ typedef struct iovec {
 #define O_TRUNC		00001000
 #define O_APPEND	00002000
 #define O_NONBLOCK	00004000
+#define O_CLOEXEC   02000000
 
 #define AT_NULL         0               /* End of vector */
 #define AT_IGNORE       1               /* Entry should be ignored */
