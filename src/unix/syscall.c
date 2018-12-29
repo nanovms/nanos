@@ -850,7 +850,22 @@ sysreturn close(int fd)
 
 sysreturn fcntl(int fd, int cmd)
 {
-    return O_RDWR;
+    switch (cmd) {
+    case F_GETFL:
+        return O_RDWR;
+    default:
+        return set_syscall_error(current, ENOSYS);
+    }
+}
+
+sysreturn ioctl(int fd, unsigned long request, ...)
+{
+    switch (request) {
+    case FIONBIO:
+        return 0;
+    default:
+        return set_syscall_error(current, ENOSYS);
+    }
 }
 
 sysreturn syscall_ignore()
@@ -903,10 +918,12 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_openat, openat);
     register_syscall(map, SYS_fstat, fstat);
     register_syscall(map, SYS_stat, stat);
+    register_syscall(map, SYS_lstat, stat);
     register_syscall(map, SYS_writev, writev);
     register_syscall(map, SYS_access, access);
     register_syscall(map, SYS_lseek, lseek);
     register_syscall(map, SYS_fcntl, fcntl);
+    register_syscall(map, SYS_ioctl, ioctl);
     register_syscall(map, SYS_getcwd, getcwd);
     register_syscall(map, SYS_readlink, readlink);
     register_syscall(map, SYS_readlinkat, readlinkat);
