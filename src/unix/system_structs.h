@@ -102,6 +102,15 @@ typedef struct iovec {
 #define O_NONBLOCK	00004000
 #define O_CLOEXEC   02000000
 
+/* Values for the second argument to `fcntl'.  */
+#define F_DUPFD         0       /* Duplicate file descriptor.  */
+#define F_GETFD         1       /* Get file descriptor flags.  */
+#define F_SETFD         2       /* Set file descriptor flags.  */
+#define F_GETFL         3       /* Get file status flags.  */
+#define F_SETFL         4       /* Set file status flags.  */
+
+#define FIONBIO		0x5421
+
 #define AT_NULL         0               /* End of vector */
 #define AT_IGNORE       1               /* Entry should be ignored */
 #define AT_EXECFD       2               /* File descriptor of program */
