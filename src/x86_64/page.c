@@ -164,7 +164,7 @@ static inline boolean map_page(page base, u64 v, physical p, heap h, boolean fat
 #ifdef PAGE_USE_FLUSH
         flush_tlb();
 #else
-        asm volatile("invlpg (%0)" :: "r" ((unsigned long)v) : "memory");
+        asm volatile("invlpg (%0)" :: "r" (v) : "memory");
 #endif
     }
     return true;
