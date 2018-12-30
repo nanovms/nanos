@@ -19,4 +19,5 @@ void connection(heap h,
                 status_handler failure);
 void listen_port(heap h, notifier n, u16 port, new_connection);
 notifier create_select_notifier(heap h);
+notifier create_poll_notifier(heap h);
 notifier create_epoll_notifier(heap h);

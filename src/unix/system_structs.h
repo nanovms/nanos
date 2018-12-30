@@ -255,6 +255,14 @@ struct siginfo {
 
 typedef u64 fd_set;
 
+typedef unsigned long int nfds_t;
+
+struct pollfd {
+    int   fd;         /* file descriptor */
+    short events;     /* requested events */
+    short revents;    /* returned events */
+};
+
 #define NSIG 64
 typedef struct {
     unsigned long sig[NSIG/sizeof(unsigned long)];

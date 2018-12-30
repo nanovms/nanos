@@ -12,6 +12,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <ip.h>
+#include <poll.h>
 
 /* Helper functions to ignore unused result (eliminate CC warning) */
 static inline void igr() {}
@@ -168,6 +169,132 @@ notifier create_select_notifier(heap h)
     select_bitmaps_init(h, &s->tmp);
     s->nfds = 0;
     return (notifier)s;
+}
+
+typedef struct poll_notifier {
+    struct notifier n;
+    vector registrations;
+    buffer poll_fds;
+} *poll_notifier;
+
+#define NFDS(poll_fds) (buffer_length(poll_fds) / sizeof(struct pollfd))
+
+static boolean poll_register(notifier n, descriptor f, u32 events, thunk a)
+{
+#ifdef SOCKET_USER_EPOLL_DEBUG
+    rprintf("poll_register: notifier %p, fd %d, events %P, thunk %p\n", n, f, events, a);
+#endif
+    poll_notifier p = (poll_notifier)n;
+    registration new = allocate(n->h, sizeof(struct registration));
+    new->fd = f;
+    new->events = events;
+    new->a = a;
+    new->next = vector_get(p->registrations, f);
+    vector_set(p->registrations, f, new);
+
+    extend_total(p->poll_fds, (f+1) * sizeof(struct pollfd));
+    struct pollfd *fds = buffer_ref(p->poll_fds, 0);
+    fds[f].fd = f;
+    fds[f].events = events;
+
+    return true;
+}
+
+static void poll_reset_fd(notifier n, descriptor f)
+{
+#ifdef SOCKET_USER_EPOLL_DEBUG
+    rprintf("poll_reset_fd: fd %d, notifier %p\n", f, n);
+#endif
+    poll_notifier p = (poll_notifier)n;
+    registration r;
+    if (!(r = vector_get(p->registrations, f)))
+        return;
+
+    assert(f < NFDS(p->poll_fds));
+    struct pollfd *fds = buffer_ref(p->poll_fds, 0);
+    fds[f].fd = -1;
+
+    do {
+        registration next;
+        assert(r->fd == f);
+        next = r->next;
+        deallocate(n->h, r, sizeof(struct registration));
+        r = next;
+    } while(r);
+    vector_set(p->registrations, f, 0);
+}
+
+static void poll_spin(notifier n)
+{
+#ifdef SOCKET_USER_EPOLL_DEBUG
+    rprintf("poll_spin enter: notifier %p\n", n);
+#endif
+    poll_notifier p = (poll_notifier)n;
+    while (1) {
+        struct pollfd *fds = (struct pollfd *) buffer_ref(p->poll_fds, 0);
+#ifdef SOCKET_USER_EPOLL_DEBUG
+        rprintf("   calling poll with nfds = %d\n", NFDS(p->poll_fds));
+#endif
+        for (int i = 0; i < NFDS(p->poll_fds); i++) {
+            fds[i].revents = 0;
+#ifdef SOCKET_USER_EPOLL_DEBUG
+            rprintf("      fd %d, events %P, revents %P\n", fds[i].fd, fds[i].events, fds[i].revents);
+#endif
+        }
+
+        int res = poll(buffer_ref(p->poll_fds, 0), NFDS(p->poll_fds), -1);
+#ifdef SOCKET_USER_EPOLL_DEBUG
+        rprintf("   returned %d\n", res);
+#endif
+        if (res == -1)
+            halt("poll failed with %s (%d)\n", strerror(errno));
+        for (int i = 0; i < NFDS(p->poll_fds); i++) {
+            if (fds[i].revents == 0)
+                continue;
+
+#ifdef SOCKET_USER_EPOLL_DEBUG
+            rprintf("   fd %d, events %P, revents %P:\n", fds[i], fds[i].events, fds[i].revents);
+#endif
+            if (fds[i].revents & EPOLLHUP) {
+                rprintf("   fd %d: EPOLLHUP, closing\n", fds[i].fd);
+                notifier_reset_fd(n, fds[i].fd);
+                // always the right thing to do?
+                close(fds[i].fd);
+                continue;
+            }
+
+            registration r = vector_get(p->registrations, fds[i].fd);
+            do {
+                if (r->events & fds[i].revents) {
+#ifdef SOCKET_USER_EPOLL_DEBUG
+                    rprintf("      match events %P, applying thunk %p\n",
+                        r->events, r->a);
+#endif
+                    apply(r->a);
+                }
+                r = r->next;
+            } while (r);
+        }
+    }
+}
+
+notifier create_poll_notifier(heap h)
+{
+    poll_notifier p = allocate(h, sizeof(struct select_notifier));
+    p->n.h = h;
+    p->n._register = poll_register;
+    p->n.reset_fd = poll_reset_fd;
+    p->n.spin = poll_spin;
+    p->registrations = allocate_vector(h, 10);
+
+    p->poll_fds = allocate_buffer(h, 10 * sizeof(struct pollfd));
+    buffer_produce(p->poll_fds, 10 * sizeof(struct pollfd));
+    struct pollfd *fds = (struct pollfd *) buffer_ref(p->poll_fds, 0);
+    for (int i = 0; i < NFDS(p->poll_fds); i++) {
+        fds[i].fd = -1;
+    }
+
+    return (notifier)p;
 }
 
 typedef struct epoll_notifier {
