@@ -3,7 +3,7 @@ include ../common.mk
 
 OUT		?= $(ROOT)/output/boot
 
-CFLAGS		+= -m32 -DBOOT -nostdinc
+CFLAGS		+= -m32 -DBOOT -nostdinc -DPAGE_USE_FLUSH
 LDFLAGS		+= -T linker_script
 AFLAGS		+= -felf
 NASMFLAGS	= -l $@.lst -dSTAGE1SIZE=512 -dSTAGE2SIZE=$(shell stat -c %s $(OUT)/stage2.pad)
