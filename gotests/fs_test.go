@@ -66,8 +66,9 @@ func TestArgsAndEnv(t *testing.T) {
 	const finalImage = "image"
 	prepareTestImage(finalImage)
 	hypervisor := lepton.HypervisorInstance()
+	rconfig := lepton.RuntimeConfig(finalImage, []int{8080}, true)
 	go func() {
-		hypervisor.Start(finalImage, 8080)
+		hypervisor.Start(&rconfig);
 	}()
 	time.Sleep(3 * time.Second)
 	resp, err := http.Get("http://127.0.0.1:8080/args")
@@ -107,8 +108,9 @@ func TestFileSystem(t *testing.T) {
 	const finalImage = "image"
 	prepareTestImage(finalImage)
 	hypervisor := lepton.HypervisorInstance()
+	rconfig := lepton.RuntimeConfig(finalImage, []int{8080}, true)
 	go func() {
-		hypervisor.Start(finalImage, 8080)
+		hypervisor.Start(&rconfig)
 	}()
 	time.Sleep(3 * time.Second)
 	resp, err := http.Get("http://127.0.0.1:8080")
