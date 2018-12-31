@@ -158,7 +158,6 @@ static void notify_dispatch(sock s)
 
 static void wakeup_sock(sock s, u64 flags)
 {
-    lwip_status_handler fstatus;
     net_debug("sock %d, flags %d\n", s->fd, flags);
 
     /* exception leads to release of all blocking requests */
@@ -267,8 +266,6 @@ static sysreturn sock_read_bh(sock s, thread t, void *dest, u64 length,
         return 0;               /* back to chewing more cud */
 
     if (src_addr) {
-        u32 raddr;
-        u16 rport;
         struct sockaddr_in sin;
         sin.family = AF_INET;
         if (s->type == SOCK_STREAM) {
@@ -690,7 +687,6 @@ static void connect_tcp_bh(thread t, err_t lwip_status)
 
 static err_t connect_tcp_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
 {
-   lwip_status_handler sp = NULL;
    sock s = (sock)arg;
    s->info.tcp.state = TCP_SOCK_OPEN;
    net_debug("sock %d, pcb %p, err %d\n", s->fd, tpcb, err);
@@ -840,7 +836,6 @@ static err_t lwip_tcp_sent(void * arg, struct tcp_pcb * pcb, u16 len)
 static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t b)
 {
     sock s = z;
-    event_handler eh;
 
     if (b == ERR_MEM) {
         s->lwip_error = b;

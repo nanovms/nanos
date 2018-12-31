@@ -147,7 +147,7 @@ static inline timestamp time_from_timespec(const struct timespec *t)
 static inline void timespec_from_time(struct timespec *ts, timestamp t)
 {
     ts->ts_sec = t>>32;
-    ts->ts_nsec = nsec_from_time(t - (ts->ts_sec<<32));
+    ts->ts_nsec = nsec_from_timestamp(t - (ts->ts_sec<<32));
 }
 
 static inline time_t time_t_from_time(timestamp t)
