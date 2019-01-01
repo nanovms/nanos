@@ -967,13 +967,14 @@ static void syscall_debug()
 {
     u64 *f = current->frame;
     int call = f[FRAME_VECTOR];
-    if (table_find(current->p->process_root, sym(debugsyscalls)))
+    void *debugsyscalls = table_find(current->p->process_root, sym(debugsyscalls));
+    if(debugsyscalls)  
         thread_log(current, syscall_name(call));
     sysreturn (*h)(u64, u64, u64, u64, u64, u64) = current->p->syscall_handlers[call];
     sysreturn res = -ENOSYS;
     if (h) {
         res = h(f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]);
-    } else {
+    } else if (debugsyscalls) {
         rprintf("nosyscall %s\n", syscall_name(call));
     }
     set_syscall_return(current, res);

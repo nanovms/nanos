@@ -52,7 +52,6 @@ void fail(status s)
 static CLOSURE_0_1(kernel_read_complete, void, buffer);
 static void __attribute__((noinline)) kernel_read_complete(buffer kb)
 {
-    console("kernel complete\n");
     heap physical = heap_physical(&kh);
     heap working = heap_general(&kh);
 
@@ -133,7 +132,6 @@ void newstack()
     heap h = heap_general(&kh);
     heap physical = heap_physical(&kh);
     buffer_handler bh = closure(h, kernel_read_complete);
-    console("create fs\n");
     create_filesystem(h,
                       SECTOR_SIZE,
                       1024 * MB, /* XXX change to infinity with new rtrie */
