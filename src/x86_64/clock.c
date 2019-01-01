@@ -71,7 +71,6 @@ void init_clock(kernel_heaps kh)
     write_msr(MSR_KVM_SYSTEM_TIME, physical_from_virtual(vclock) | 1);
 
     if (init_hpet(heap_general(kh), heap_virtual_page(kh), heap_pages(kh))) {
-	console("Using HPET clock source.\n");
 	clock_function = now_hpet;
     } else {
 	/* Presently we should always have HPET available. If this is
