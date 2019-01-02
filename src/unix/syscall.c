@@ -531,6 +531,16 @@ static sysreturn access(char *name, int mode)
     return 0;
 }
 
+static boolean is_special(tuple n)
+{
+    return table_find(n, sym(special)) ? true : false;
+}
+
+static boolean is_dir(tuple n)
+{
+    return children(n) ? true : false;
+}
+
 static CLOSURE_3_2(file_op_complete, void, thread, file, boolean, status, bytes);
 static void file_op_complete(thread t, file f, boolean is_file_offset, status s, bytes length)
 {
@@ -554,6 +564,10 @@ static sysreturn file_read(file f, void *dest, u64 length, u64 offset_arg)
     bytes offset = is_file_offset ? f->offset : offset_arg;
     thread_log(current, "%s: %v, dest %p, length %d, offset %d (%s)\n",
             __func__, f->n, dest, length, offset, is_file_offset ? "infinity" : "exact");
+
+    if (is_special(f->n)) {
+	return spec_read(f, dest, length, offset);
+    }
 
     if (offset < f->length) {
         filesystem_read(current->p->fs, f->n, dest, length, offset,
@@ -623,13 +637,18 @@ static boolean file_check(file f, u32 eventmask, u32 * last, event_handler eh)
     thread_log(current, "file_check: file %t, eventmask %P, last %P, event_handler %p\n",
 	       f->n, eventmask, last ? *last : 0, eh);
 
-    /* No support for non-blocking XXXX
-       Also, if and when we have some degree of file caching and want
-       to support the above, don't rewrite it but factor out the
-       notify list stuff from netsyscall.c to share with files.
-    */
-    u32 events = f->length < infinity ? EPOLLOUT : 0;
-    events |= f->offset < f->length ? EPOLLIN : EPOLLHUP;
+    u32 events;
+    if (is_special(f->n)) {
+        events = spec_events(f);
+    } else {
+        /* No support for non-blocking XXXX
+           Also, if and when we have some degree of file caching and want
+           to support the above, don't rewrite it but factor out the
+           notify list stuff from netsyscall.c to share with files.
+        */
+        events = f->length < infinity ? EPOLLOUT : 0;
+        events |= f->offset < f->length ? EPOLLIN : EPOLLHUP;
+    }
     u32 masked = events & eventmask;
     u32 r = edge_events(masked, eventmask, last ? *last : 0);
     if (last)
@@ -637,11 +656,6 @@ static boolean file_check(file f, u32 eventmask, u32 * last, event_handler eh)
     if (r)
 	return apply(eh, r);
     return true;
-}
-
-static boolean is_dir(tuple n)
-{
-    return children(n) ? true : false;
 }
 
 sysreturn open_internal(tuple root, char *name, int flags, int mode)
@@ -654,10 +668,14 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
         rprintf("open %s - not found\n", name);
         return set_syscall_error(current, ENOENT);
     }
-    fsfile fsf = fsfile_from_node(current->p->fs, n);
-    if (!fsf && !is_dir(n)) {
-        msg_err("can't find fsfile\n");
-        return set_syscall_error(current, ENOENT);
+    u64 length = 0;
+    if (!is_dir(n) && !is_special(n)) {
+        fsfile fsf = fsfile_from_node(current->p->fs, n);
+        if (!fsf) {
+            msg_err("can't find fsfile (%t)\n", n);
+            return set_syscall_error(current, ENOENT);
+        }
+        length = fsfile_get_length(fsf);
     }
     // might be functional, or be a directory
     file f = unix_cache_alloc(uh, file);
@@ -675,7 +693,7 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
     f->write = closure(h, file_write, f);
     f->close = closure(h, file_close, f);
     f->check = closure(h, file_check, f);
-    f->length = is_dir(n) ? 0 : fsfile_get_length(fsf);
+    f->length = length;
     f->offset = 0;
     thread_log(current, "   fd %d, file length %d\n", fd, f->length);
     return fd;
@@ -717,17 +735,19 @@ static void fill_stat(tuple n, struct stat *s)
 {
     s->st_dev = 0;
     s->st_ino = u64_from_pointer(n);
-    if (table_find(n, sym(children))) {
+    s->st_size = 0;
+    if (is_dir(n)) {
         s->st_mode = S_IFDIR | 0777;
         return;
+    } else if (!is_special(n)) {
+        fsfile f = fsfile_from_node(current->p->fs, n);
+        if (!f) {
+            msg_err("can't find fsfile\n");
+            return;
+        }
+        s->st_size = fsfile_get_length(f);
     }
-    fsfile f = fsfile_from_node(current->p->fs, n);
-    if (!f) {
-	msg_err("can't find fsfile\n");
-	return;
-    }
-    s->st_mode = S_IFREG | 0644;
-    s->st_size = fsfile_get_length(f);
+    s->st_mode = S_IFREG | 0644; /* TODO */
     thread_log(current, "st_ino %P, st_mode %P, st_size %P\n",
 	       s->st_ino, s->st_mode, s->st_size);
 }
