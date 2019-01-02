@@ -8,9 +8,14 @@
 
 typedef struct log *log;
 
+struct cbm {
+    u8 *buffer;
+    u64 capacity_in_bits;
+};
+
 typedef struct filesystem {
     heap storage;
-    rtrie free;
+    struct cbm *free;
     heap h;
     int alignment;
     table files; // maps tuple to fsfile

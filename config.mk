@@ -69,6 +69,7 @@ UDPLOOP		= $(ROOT)/output/examples/udploop
 GETRANDOM	= $(ROOT)/output/examples/getrandom
 TIME    = $(ROOT)/output/examples/time
 PIPE	= $(ROOT)/output/examples/pipe
+WRITE		= $(ROOT)/output/examples/write
 
 # Tests
 
