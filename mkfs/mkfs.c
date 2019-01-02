@@ -132,7 +132,7 @@ static void fsc(heap h, descriptor out, filesystem fs, status s)
         tuple f = vector_get(i, 0);        
         buffer c = vector_get(i, 1);
         allocate_fsfile(fs, f);
-        filesystem_write(fs, f, c, 0, ignore_status);
+        filesystem_write(fs, f, c, 0, ignore_io_status);
     }
     flush(fs, ignore_status);
     close(out);

@@ -225,12 +225,11 @@ $(hw-objs) $(web-objs) $(udploop-objs): $(CLOSURE_TMPL)
 clean-objs = $(hw-objs) $(web-objs) $(FST) $(HW) $(HWG) $(HWS) $(WEB) $(WEBG) \
 	$(WEBGS) $(WEBS) $(CLOSURE_TMPL) $(getdents-objs) $(GETDENTS) \
 	$(getrandom-objs) $(GETRANDOM) $(udploop-objs) $(UDPLOOP) \
-	$(mkdir-objs) $(MKDIR) $(time-objs) $(TIME) $(WRITE) $(write-objs)
+	$(mkdir-objs) $(MKDIR) $(time-objs) $(TIME) $(write-objs) $(WRITE) \
 	$(pipe-objs) $(PIPE)
 
 clean: default-clean
 
-.PHONY: fst hw hwg hws web webg webgs webs getdents getrandom time udploop mkdir \
-	pipe
+.PHONY: fst hw hwg hws web webg webgs webs getdents getrandom time udploop mkdir pipe write
 
 include ../rules.mk

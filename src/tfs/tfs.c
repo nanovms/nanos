@@ -65,6 +65,8 @@ static void fs_read_extent(filesystem fs,
     }
 }
 
+io_status_handler ignore_io_status;
+
 static CLOSURE_2_1(filesystem_read_complete, void, io_status_handler, buffer, status);
 static void filesystem_read_complete(io_status_handler c, buffer b, status s)
 {
@@ -156,8 +158,8 @@ void filesystem_write_eav(filesystem fs, tuple t, symbol a, value v)
     log_write_eav(fs->tl, t, a, v, ignore);
 }
 
-static CLOSURE_4_2(filesystem_write_postwork, void, fsfile, tuple, u64, io_status_handler, status, bytes);
-static void filesystem_write_postwork(fsfile f, tuple t, u64 end, io_status_handler completion, status s, bytes length)
+static CLOSURE_4_1(filesystem_write_complete, void, fsfile, tuple, u64, io_status_handler, status);
+static void filesystem_write_complete(fsfile f, tuple t, u64 end, io_status_handler completion, status s)
 {
     filesystem fs = f->fs;
 
@@ -181,7 +183,7 @@ static void filesystem_write_postwork(fsfile f, tuple t, u64 end, io_status_hand
 }
 
 // consider not overwritint the old version and fixing up the metadata
-void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, status_handler completion)
+void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_handler completion)
 {
     heap h = fs->h;
     u64 len = buffer_length(b);
@@ -189,11 +191,11 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, status_handl
     *last = offset;
     fsfile f;
     if (!(f = table_find(fs->files, t))) {
-        apply(completion, timm("no such file"));
+        apply(completion, timm("no such file"), 0);
         return;
     }
 
-    merge m = allocate_merge(fs->h, closure(fs->h, filesystem_write_postwork,
+    merge m = allocate_merge(fs->h, closure(fs->h, filesystem_write_complete,
                 f, t, buffer_length(b) + offset, completion));
     rtrie_range_lookup(f->extents, irange(offset, offset+len), closure(h, fs_write_extent, f->fs, b, m, last));
     
@@ -331,31 +333,28 @@ void flush(filesystem fs, status_handler s)
     log_flush(fs->tl);
 }
 
-void enumerate_files(filesystem fs, tuple root)
+/* XXX: cbm stuff is temporary */
+
+void __cbm_set(struct cbm *c, u64 bit, boolean val)
 {
-    if (root) {
-        table_foreach(root, k, v) {
-            tuple extents = table_find(v, sym(extents));
-            if (extents) {
-                table_foreach(extents, k1, v1) {
-                    u64 offset, length, block_offset, block_length, i;
-                    parse_int(alloca_wrap(table_find(v1, sym(length))), 10, &length);
-                    parse_int(alloca_wrap(table_find(v1, sym(offset))), 10, &offset);
-                    block_offset = offset >> 9;
-                    block_length = length >> 9;
-                    cbm_set(fs->free, block_offset, block_length + 1);
-                }
-            }
-        }
-    }
+    if (val)
+        c->buffer[bit / 8] |= 1 << (bit % 8);
+    else
+        c->buffer[bit / 8] &= ~(1 << (bit % 8));
 }
 
-static CLOSURE_2_1(log_complete, void, filesystem_complete, filesystem, status);
-static void log_complete(filesystem_complete fc, filesystem fs, status s)
+void cbm_set(struct cbm *c, u64 start, u64 len)
 {
-    tuple fsroot = children(fs->root);
-    enumerate_files(fs, fsroot);
-    apply(fc, fs, s);
+    u64 i;
+    for (i = 0; i < len; i ++)
+        __cbm_set(c, start + i, true);
+}
+
+void cbm_unset(struct cbm *c, u64 start, u64 len)
+{
+    u64 i;
+    for (i = 0; i < len; i ++)
+        __cbm_set(c, start + i, false);
 }
 
 boolean cbm_test(struct cbm *c, u64 i)
@@ -423,27 +422,35 @@ struct cbm *cbm_create(heap h, u64 capacity)
     return c;
 }
 
-void __cbm_set(struct cbm *c, u64 bit, boolean val)
+void enumerate_files(filesystem fs, tuple root)
 {
-    if (val)
-        c->buffer[bit / 8] |= 1 << (bit % 8);
-    else
-        c->buffer[bit / 8] &= ~(1 << (bit % 8));
+    if (root) {
+        table_foreach(root, k, v) {
+            tuple extents = table_find(v, sym(extents));
+            if (extents) {
+                table_foreach(extents, k1, v1) {
+                    u64 offset, length, block_offset, block_length;
+                    parse_int(alloca_wrap(table_find(v1, sym(length))), 10, &length);
+                    parse_int(alloca_wrap(table_find(v1, sym(offset))), 10, &offset);
+                    block_offset = offset >> 9;
+                    block_length = length >> 9;
+                    cbm_set(fs->free, block_offset, block_length + 1);
+                }
+            }
+        }
+    }
 }
 
-void cbm_set(struct cbm *c, u64 start, u64 len)
+static CLOSURE_2_1(log_complete, void, filesystem_complete, filesystem, status);
+static void log_complete(filesystem_complete fc, filesystem fs, status s)
 {
-    u64 i;
-    for (i = 0; i < len; i ++)
-        __cbm_set(c, start + i, true);
+    tuple fsroot = children(fs->root);
+    enumerate_files(fs, fsroot);
+    apply(fc, fs, s);
 }
 
-void cbm_unset(struct cbm *c, u64 start, u64 len)
-{
-    u64 i;
-    for (i = 0; i < len; i ++)
-        __cbm_set(c, start + i, false);
-}
+static CLOSURE_0_2(ignore_io_body, void, status, bytes);
+static void ignore_io_body(status s, bytes length){}
 
 void create_filesystem(heap h,
                        u64 alignment,
@@ -455,6 +462,7 @@ void create_filesystem(heap h,
 {
     filesystem fs = allocate(h, sizeof(struct filesystem));
     rprintf("fs size %d\n", size);
+    ignore_io_status = closure(h, ignore_io_body);
     fs->files = allocate_table(h, identity_key, pointer_equal);
     fs->extents = allocate_table(h, identity_key, pointer_equal);    
     fs->r = read;
