@@ -74,9 +74,8 @@ static void bread(descriptor d, void *source, u64 length, u64 offset, status_han
 static CLOSURE_0_1(err, void, status);
 static void err(status s)
 {
-    rprintf ("reported error\n");
+    rprintf("reported error\n");
 }
-
 
 static buffer translate_contents(heap h, value v)
 {
@@ -146,7 +145,6 @@ int main(int argc, char **argv)
     if (out < 0) {
         halt("couldn't open output file %s\n", argv[1]);
     }
-    ftruncate(out, fs_size);
 
     parser p = tuple_parser(h, closure(h, finish, h), closure(h, perr));
     // this can be streaming

@@ -464,7 +464,6 @@ void create_filesystem(heap h,
                        filesystem_complete complete)
 {
     filesystem fs = allocate(h, sizeof(struct filesystem));
-    rprintf("fs size %d\n", size);
     ignore_io_status = closure(h, ignore_io_body);
     fs->files = allocate_table(h, identity_key, pointer_equal);
     fs->extents = allocate_table(h, identity_key, pointer_equal);    
