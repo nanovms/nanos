@@ -277,6 +277,95 @@ int filesystem_mkentry(filesystem fs, char *fp, tuple entry)
     return 0;
 }
 
+/* XXX: cbm stuff is temporary */
+
+void __cbm_set(struct cbm *c, u64 bit, boolean val)
+{
+    if (val)
+        c->buffer[bit / 8] |= 1 << (bit % 8);
+    else
+        c->buffer[bit / 8] &= ~(1 << (bit % 8));
+}
+
+void cbm_set(struct cbm *c, u64 start, u64 len)
+{
+    u64 i;
+    for (i = 0; i < len; i ++)
+        __cbm_set(c, start + i, true);
+}
+
+void cbm_unset(struct cbm *c, u64 start, u64 len)
+{
+    u64 i;
+    for (i = 0; i < len; i ++)
+        __cbm_set(c, start + i, false);
+}
+
+boolean cbm_test(struct cbm *c, u64 i)
+{
+    return (c->buffer[i / 8] & (1 << (i % 8))) != 0;
+}
+
+boolean cbm_contains(struct cbm *c, u64 start, u64 cnt, boolean val)
+{
+    u64 i;
+
+    for (i = 0; i < cnt; i ++)
+        if (cbm_test(c, start + i) == val)
+            return true;
+
+    return false;
+}
+
+u64 cbm_scan(struct cbm *c, u64 start, u64 cnt, boolean val)
+{
+    u64 last = c->capacity_in_bits - start;
+    u64 i;
+    for (i = start; i <= last; i ++)
+        if (!cbm_contains(c, i, cnt, !val))
+            return i;
+
+    return INVALID_PHYSICAL;
+}
+
+struct cbmalloc {
+    struct heap h;
+    struct cbm *c;
+};
+
+u64 cbm_allocator_alloc(heap h, bytes len)
+{
+    struct cbmalloc *c = (struct cbmalloc *) h;
+    len >>= 9;
+    if (len > c->c->capacity_in_bits) {
+        return INVALID_PHYSICAL;
+    }
+    u64 ret = cbm_scan(c->c, 0, len, false);
+    if (ret != INVALID_PHYSICAL) {
+        cbm_set(c->c, ret, len);
+        return ret << 9;
+    }
+
+    return ret;
+}
+
+heap cbm_allocator(heap h, struct cbm *c)
+{
+    struct cbmalloc *a = allocate(h, sizeof(*a));
+    a->h.alloc = cbm_allocator_alloc;
+    a->c = c;
+    return &a->h;
+}
+
+struct cbm *cbm_create(heap h, u64 capacity)
+{
+    struct cbm *c = allocate(h, sizeof(*c));
+    u8 *buffer = allocate(h, (capacity >> 3) + 1);
+    c->buffer = buffer;
+    c->capacity_in_bits = capacity;
+    return c;
+}
+
 int filesystem_mkdir(filesystem fs, char *fp)
 {
     tuple dir = allocate_tuple();
