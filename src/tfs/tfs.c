@@ -236,7 +236,7 @@ void link(tuple dir, fsfile f, buffer name)
     log_write_eav(f->fs->tl, soft_create(f->fs, dir, sym(children)), intern(name), f->md, ignore);
 }
 
-int filesystem_mkentry(filesystem fs, char *fp, tuple entry)
+fs_status filesystem_mkentry(filesystem fs, char *fp, tuple entry)
 {
     tuple children = table_find(fs->root, sym(children));
     symbol basename_sym;
@@ -249,7 +249,7 @@ int filesystem_mkentry(filesystem fs, char *fp, tuple entry)
         if (!t) {
             if (!final) {
                 msg_debug("a path component (\"%s\") is missing\n", token);
-                return -1;
+                return FS_STATUS_NOENT;
             }
 
             basename = token;
@@ -257,13 +257,13 @@ int filesystem_mkentry(filesystem fs, char *fp, tuple entry)
         } else {
             if (final) {
                 msg_debug("final path component (\"%s\") already exists\n", token);
-                return -1;
+                return FS_STATUS_EXIST;
             }
 
             children = table_find(t, sym(children));
             if (!children) {
                 msg_debug("a path component (\"%s\") is not a folder\n", token);
-                return -1;
+                return FS_STATUS_NOTDIR;
             }
         }
     }
@@ -274,10 +274,10 @@ int filesystem_mkentry(filesystem fs, char *fp, tuple entry)
     //log_flush(fs->tl);
     rprintf("mkentry: written!\n");
 
-    return 0;
+    return FS_STATUS_OK;
 }
 
-int filesystem_mkdir(filesystem fs, char *fp)
+fs_status filesystem_mkdir(filesystem fs, char *fp)
 {
     tuple dir = allocate_tuple();
     /* 'make it a folder' by attaching a children node to the tuple */
@@ -286,13 +286,9 @@ int filesystem_mkdir(filesystem fs, char *fp)
     return filesystem_mkentry(fs, fp, dir);
 }
 
-int filesystem_creat(filesystem fs, char *fp)
+fs_status filesystem_creat(filesystem fs, char *fp)
 {
-    heap h = fs->h;
     tuple dir = allocate_tuple();
-    tuple folder = table_find(fs->root, sym(children));
-    symbol basename_sym;
-    char *token, *rest = fp, *basename;
     static buffer off = 0;
 
     if (!off)
@@ -302,37 +298,10 @@ int filesystem_creat(filesystem fs, char *fp)
     table_set(dir, sym(extents), allocate_tuple());
     table_set(dir, sym(filelength), off);
 
-    /* find the folder we need to creat in */
-    while ((token = runtime_strtok_r(rest, "/", &rest))) {
-        tuple prev_folder = folder;
-        boolean final = *rest == '\0';
-        folder = table_find(folder, sym_this(token));
-        if (!folder) {
-            if (final) {
-                basename = token;
-                folder = prev_folder;
-                break;
-            } else {
-                msg_debug("a path component (\"%s\") is missing\n");
-                return -1;
-            }
-        } else {
-            if (final) {
-                msg_debug("final path component (\"%s\") already exists\n");
-                return -1;
-            }
-        }
-    }
-
-    basename_sym = sym_this(basename);
-    table_set(folder, basename_sym, dir);
-    log_write_eav(fs->tl, folder, basename_sym, dir, ignore);
-    //log_flush(fs->tl);
-
     fsfile f = allocate_fsfile(fs, dir);
     fsfile_set_length(f, 0);
 
-    return 0;
+    return filesystem_mkentry(fs, fp, dir);
 }
 
 // should be passing status to the client

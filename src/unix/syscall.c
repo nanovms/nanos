@@ -401,48 +401,51 @@ sysreturn pwrite(int fd, u8 *body, bytes length, s64 offset)
     return apply(f->write, body, length, offset);
 }
 
-sysreturn mkdir(const char *pathname, int mode)
+sysreturn sysreturn_from_fs_status(fs_status s)
+{
+    switch (s) {
+    case FS_STATUS_OK:
+        return 0;
+    case FS_STATUS_NOENT:
+        return -ENOENT;
+    case FS_STATUS_EXIST:
+        return -EEXIST;
+    case FS_STATUS_NOTDIR:
+        return -ENOTDIR;
+    default:
+        halt("status %d, update %s\n", s, __func__);
+        return 0;               /* suppress warn */
+    }
+}
+
+static sysreturn do_mkent(const char *pathname, int mode, boolean is_dir)
 {
     heap h = heap_general(get_kernel_heaps());
     buffer cwd = wrap_buffer_cstring(h, "/"); /* XXX */
-    int rc;
+
+    if (!pathname)
+        return set_syscall_error(current, EFAULT);
 
     /* canonicalize the path */
     char *final_path = canonicalize_path(h, cwd,
             wrap_buffer_cstring(h, (char *)pathname));
 
-    thread_log(current, "%s: (mode %d) pathname %s => %s\n",
-            __func__, mode, pathname, final_path);
+    thread_log(current, "%s: %s (mode %d) pathname %s => %s\n",
+               __func__, is_dir ? "mkdir" : "creat", mode, pathname, final_path);
 
-    rc = filesystem_mkdir(current->p->fs, final_path);
+    sysreturn r = is_dir ? filesystem_mkdir(current->p->fs, final_path) :
+        filesystem_creat(current->p->fs, final_path);
+    return set_syscall_return(current, sysreturn_from_fs_status(r));
+}
 
-    if (rc)
-        return set_syscall_error(current, rc);
-    else
-        return set_syscall_return(current, rc);
+sysreturn mkdir(const char *pathname, int mode)
+{
+    do_mkent(pathname, mode, true);
 }
 
 sysreturn creat(const char *pathname, int mode)
 {
-    heap h = heap_general(get_kernel_heaps());
-    buffer cwd = wrap_buffer_cstring(h, "/"); /* XXX */
-    int rc;
-
-    if (!pathname)
-        return set_syscall_error(current, EFAULT);
-
-    char *final_path = canonicalize_path(h, cwd,
-            wrap_buffer_cstring(h, pathname));
-
-    thread_log(current, "%s: (mode %d) pathname %s => %s\n",
-            __func__, mode, pathname, final_path);
-
-    rc = filesystem_creat(current->p->fs, final_path);
-
-    if (rc)
-        return set_syscall_error(current, rc);
-    else
-        return set_syscall_return(current, rc);
+    do_mkent(pathname, mode, false);
 }
 
 sysreturn getrandom(void *buf, u64 buflen, unsigned int flags)
