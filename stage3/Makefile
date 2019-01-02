@@ -60,6 +60,7 @@ stage3-srcs = \
 	$(SRC)/unix/poll.c \
 	$(SRC)/unix/path.c \
 	$(SRC)/unix/signal.c \
+	$(SRC)/unix/special.c \
 	$(SRC)/unix/syscall.c \
 	$(SRC)/unix/thread.c \
 	$(SRC)/unix/unix_clock.c \
