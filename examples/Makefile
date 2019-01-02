@@ -9,8 +9,6 @@ all: fst hw hws hwg getdents web webg webgs webs write sendfile
 
 fst: $(FST)
 
-sendfile: $(SENDFILE)
-
 hw: $(HW)
 
 hws: $(HWS)
