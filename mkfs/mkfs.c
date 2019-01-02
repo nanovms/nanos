@@ -142,7 +142,7 @@ int main(int argc, char **argv)
 {
     heap h = init_process_runtime();
     descriptor out = open(argv[1], O_CREAT|O_WRONLY, 0644);
-    u64 fs_size = 10ull * 1024 * 1024;
+    u64 fs_size = 100ull * MB;  /* XXX temp, change to infinity after rtrie/bitmap fix */
     if (out < 0) {
         halt("couldn't open output file %s\n", argv[1]);
     }

@@ -205,10 +205,13 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_ha
         if (eoff != u64_from_pointer(INVALID_ADDRESS)) {
             status_handler sh = apply(m);
 
-            /* XXX: this should only pop up when writing to virtio */
+            /* XXX: this should only pop up when writing to virtio,
+               check for HOST_BUILD is just a lazy kludge */
+#ifndef HOST_BUILD
             if (b->end - *last > SECTOR_SIZE)
                 rprintf("trying to write more than what's supported: %d > %d\n",
                         b->end - *last, SECTOR_SIZE);
+#endif
 
             buffer bf = wrap_buffer(transient, buffer_ref(b, *last), b->end - *last);
             apply(fs->w, bf, eoff, sh);
