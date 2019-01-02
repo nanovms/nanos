@@ -19,7 +19,6 @@ symbol intern_u64(u64 u)
 symbol intern(string name)
 {
     symbol s;
-    table s2 = ((table)valueof(symbols));
     if (!(s=table_find(symbols, name))){
         // shouldnt really be on transient
         buffer b = allocate_buffer(iheap, buffer_length(name));

@@ -65,6 +65,8 @@ static void fs_read_extent(filesystem fs,
     }
 }
 
+io_status_handler ignore_io_status;
+
 static CLOSURE_2_1(filesystem_read_complete, void, io_status_handler, buffer, status);
 static void filesystem_read_complete(io_status_handler c, buffer b, status s)
 {
@@ -81,7 +83,6 @@ void filesystem_read(filesystem fs, tuple t, void *dest, u64 length, u64 offset,
     }
 
     heap h = fs->h;
-    u64 min, max;
     // b here is permanent - cache?
     buffer b = wrap_buffer(h, dest, length);
     /* b->end will accumulate the read extent lengths; enclose b so
@@ -157,8 +158,8 @@ void filesystem_write_eav(filesystem fs, tuple t, symbol a, value v)
     log_write_eav(fs->tl, t, a, v, ignore);
 }
 
-static CLOSURE_4_2(filesystem_write_postwork, void, fsfile, tuple, u64, io_status_handler, status, bytes);
-static void filesystem_write_postwork(fsfile f, tuple t, u64 end, io_status_handler completion, status s, bytes length)
+static CLOSURE_4_1(filesystem_write_complete, void, fsfile, tuple, u64, io_status_handler, status);
+static void filesystem_write_complete(fsfile f, tuple t, u64 end, io_status_handler completion, status s)
 {
     filesystem fs = f->fs;
 
@@ -182,7 +183,7 @@ static void filesystem_write_postwork(fsfile f, tuple t, u64 end, io_status_hand
 }
 
 // consider not overwritint the old version and fixing up the metadata
-void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, status_handler completion)
+void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_handler completion)
 {
     heap h = fs->h;
     u64 len = buffer_length(b);
@@ -190,11 +191,11 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, status_handl
     *last = offset;
     fsfile f;
     if (!(f = table_find(fs->files, t))) {
-        apply(completion, timm("no such file"));
+        apply(completion, timm("no such file"), 0);
         return;
     }
 
-    merge m = allocate_merge(fs->h, closure(fs->h, filesystem_write_postwork,
+    merge m = allocate_merge(fs->h, closure(fs->h, filesystem_write_complete,
                 f, t, buffer_length(b) + offset, completion));
     rtrie_range_lookup(f->extents, irange(offset, offset+len), closure(h, fs_write_extent, f->fs, b, m, last));
     
@@ -204,10 +205,13 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, status_handl
         if (eoff != u64_from_pointer(INVALID_ADDRESS)) {
             status_handler sh = apply(m);
 
-            /* XXX: this should only pop up when writing to virtio */
+            /* XXX: this should only pop up when writing to virtio,
+               check for HOST_BUILD is just a lazy kludge */
+#ifndef HOST_BUILD
             if (b->end - *last > SECTOR_SIZE)
                 rprintf("trying to write more than what's supported: %d > %d\n",
                         b->end - *last, SECTOR_SIZE);
+#endif
 
             buffer bf = wrap_buffer(transient, buffer_ref(b, *last), b->end - *last);
             apply(fs->w, bf, eoff, sh);
@@ -230,6 +234,56 @@ void link(tuple dir, fsfile f, buffer name)
 {
     // this has to log the soft create too.
     log_write_eav(f->fs->tl, soft_create(f->fs, dir, sym(children)), intern(name), f->md, ignore);
+}
+
+int filesystem_mkentry(filesystem fs, char *fp, tuple entry)
+{
+    tuple children = table_find(fs->root, sym(children));
+    symbol basename_sym;
+    char *token, *rest = fp, *basename = (char *)0;
+
+    /* find the folder we need to mkentry in */
+    while ((token = runtime_strtok_r(rest, "/", &rest))) {
+        boolean final = *rest == '\0';
+        tuple t = table_find(children, sym_this(token));
+        if (!t) {
+            if (!final) {
+                msg_debug("a path component (\"%s\") is missing\n", token);
+                return -1;
+            }
+
+            basename = token;
+            break;
+        } else {
+            if (final) {
+                msg_debug("final path component (\"%s\") already exists\n", token);
+                return -1;
+            }
+
+            children = table_find(t, sym(children));
+            if (!children) {
+                msg_debug("a path component (\"%s\") is not a folder\n", token);
+                return -1;
+            }
+        }
+    }
+
+    basename_sym = sym_this(basename);
+    table_set(children, basename_sym, entry);
+    log_write_eav(fs->tl, children, basename_sym, entry, ignore);
+    //log_flush(fs->tl);
+    rprintf("mkentry: written!\n");
+
+    return 0;
+}
+
+int filesystem_mkdir(filesystem fs, char *fp)
+{
+    tuple dir = allocate_tuple();
+    /* 'make it a folder' by attaching a children node to the tuple */
+    table_set(dir, sym(children), allocate_tuple());
+
+    return filesystem_mkentry(fs, fp, dir);
 }
 
 // should be passing status to the client
@@ -282,6 +336,7 @@ void flush(filesystem fs, status_handler s)
     log_flush(fs->tl);
 }
 
+
 void enumerate_files(filesystem fs, tuple root)
 {
     if (root) {
@@ -289,7 +344,7 @@ void enumerate_files(filesystem fs, tuple root)
             tuple extents = table_find(v, sym(extents));
             if (extents) {
                 table_foreach(extents, k1, v1) {
-                    u64 offset, length, block_offset, block_length, i;
+                    u64 offset, length, block_offset, block_length;
                     parse_int(alloca_wrap(table_find(v1, sym(length))), 10, &length);
                     parse_int(alloca_wrap(table_find(v1, sym(offset))), 10, &offset);
                     block_offset = offset >> 9;
@@ -309,92 +364,9 @@ static void log_complete(filesystem_complete fc, filesystem fs, status s)
     apply(fc, fs, s);
 }
 
-boolean cbm_test(struct cbm *c, u64 i)
-{
-    return (c->buffer[i / 8] & (1 << (i % 8))) != 0;
-}
 
-boolean cbm_contains(struct cbm *c, u64 start, u64 cnt, boolean val)
-{
-    u64 i;
-
-    for (i = 0; i < cnt; i ++)
-        if (cbm_test(c, start + i) == val)
-            return true;
-
-    return false;
-}
-
-u64 cbm_scan(struct cbm *c, u64 start, u64 cnt, boolean val)
-{
-    u64 last = c->capacity_in_bits - start;
-    u64 i;
-    for (i = start; i <= last; i ++)
-        if (!cbm_contains(c, i, cnt, !val))
-            return i;
-
-    return INVALID_PHYSICAL;
-}
-
-struct cbmalloc {
-    struct heap h;
-    struct cbm *c;
-};
-
-u64 cbm_allocator_alloc(heap h, bytes len)
-{
-    struct cbmalloc *c = (struct cbmalloc *) h;
-    len >>= 9;
-    if (len > c->c->capacity_in_bits) {
-        return INVALID_PHYSICAL;
-    }
-    u64 ret = cbm_scan(c->c, 0, len, false);
-    if (ret != INVALID_PHYSICAL) {
-        cbm_set(c->c, ret, len);
-        return ret << 9;
-    }
-
-    return ret;
-}
-
-heap cbm_allocator(heap h, struct cbm *c)
-{
-    struct cbmalloc *a = allocate(h, sizeof(*a));
-    a->h.alloc = cbm_allocator_alloc;
-    a->c = c;
-    return &a->h;
-}
-
-struct cbm *cbm_create(heap h, u64 capacity)
-{
-    struct cbm *c = allocate(h, sizeof(*c));
-    u8 *buffer = allocate(h, (capacity >> 3) + 1);
-    c->buffer = buffer;
-    c->capacity_in_bits = capacity;
-    return c;
-}
-
-void __cbm_set(struct cbm *c, u64 bit, boolean val)
-{
-    if (val)
-        c->buffer[bit / 8] |= 1 << (bit % 8);
-    else
-        c->buffer[bit / 8] &= ~(1 << (bit % 8));
-}
-
-void cbm_set(struct cbm *c, u64 start, u64 len)
-{
-    u64 i;
-    for (i = 0; i < len; i ++)
-        __cbm_set(c, start + i, true);
-}
-
-void cbm_unset(struct cbm *c, u64 start, u64 len)
-{
-    u64 i;
-    for (i = 0; i < len; i ++)
-        __cbm_set(c, start + i, false);
-}
+static CLOSURE_0_2(ignore_io_body, void, status, bytes);
+static void ignore_io_body(status s, bytes length){}
 
 void create_filesystem(heap h,
                        u64 alignment,
@@ -405,7 +377,7 @@ void create_filesystem(heap h,
                        filesystem_complete complete)
 {
     filesystem fs = allocate(h, sizeof(struct filesystem));
-    rprintf("fs size %d\n", size);
+    ignore_io_status = closure(h, ignore_io_body);
     fs->files = allocate_table(h, identity_key, pointer_equal);
     fs->extents = allocate_table(h, identity_key, pointer_equal);    
     fs->r = read;

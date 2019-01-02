@@ -51,18 +51,21 @@ stage3-srcs = \
 	$(SRC)/runtime/table.c \
 	$(SRC)/runtime/timer.c \
 	$(SRC)/runtime/tuple.c \
+	$(SRC)/runtime/string.c \
 	$(SRC)/tfs/tfs.c \
 	$(SRC)/tfs/tlog.c \
 	$(SRC)/unix/exec.c \
 	$(SRC)/unix/mktime.c \
 	$(SRC)/unix/mmap.c \
 	$(SRC)/unix/poll.c \
+	$(SRC)/unix/path.c \
 	$(SRC)/unix/signal.c \
 	$(SRC)/unix/syscall.c \
 	$(SRC)/unix/thread.c \
 	$(SRC)/unix/unix_clock.c \
 	$(SRC)/unix/unix.c \
 	$(SRC)/unix/vdso.c \
+	$(SRC)/unix/pipe.c \
 	$(SRC)/virtio/virtio_net.c \
 	$(SRC)/virtio/virtio_pci.c \
 	$(SRC)/virtio/virtio_storage.c \

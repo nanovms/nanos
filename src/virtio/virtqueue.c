@@ -102,7 +102,6 @@ status virtqueue_alloc(vtpci dev,
                        struct virtqueue **vqp,
                        thunk *t)
 {
-    status s = STATUS_OK;
     struct virtqueue *vq;
     u64 d = size * sizeof(struct vring_desc);
     u64 avail_end =  pad(d + 6 + 2*size, align);
@@ -151,7 +150,7 @@ status virtqueue_enqueue(struct virtqueue *vq,
                          int segments,
                          vqfinish completion)
 {
-    int needed;
+    int needed = 0;
     u16 idx = vq->desc_idx;
     u16 hidx = idx;
 

@@ -1,5 +1,7 @@
 #pragma once
-#define NO_SYS 2
+#define NO_SYS 1
+#define LWIP_SOCKET 0
+#define LWIP_NETCONN 0
 #ifdef LWIP_DEBUG
 #define LWIP_PLATFORM_DIAG(x) do {lwip_debug x;} while(0)
 #define LWIP_DBG_MIN_LEVEL		LWIP_DBG_LEVEL_ALL
@@ -28,7 +30,7 @@
 #define TCP_OUTPUT_DEBUG                LWIP_DBG_ON
 #define TCP_RST_DEBUG                   LWIP_DBG_ON
 #define TCP_QLEN_DEBUG                  LWIP_DBG_ON
-//#define UDP_DEBUG                       LWIP_DBG_ON
+#define UDP_DEBUG                       LWIP_DBG_ON
 #define TCPIP_DEBUG                     LWIP_DBG_ON
 //#define SLIP_DEBUG                      LWIP_DBG_ON
 //#define DHCP_DEBUG                      LWIP_DBG_ON
@@ -54,7 +56,8 @@
 #define MEMP_MEM_MALLOC 1
 typedef unsigned long size_t;
 #define LWIP_NETIF_STATUS_CALLBACK 1
-// ehh
+#define LWIP_TIMERS 1
+#define LWIP_TIMERS_CUSTOM 1
 #define LWIP_DHCP_BOOTP_FILE 1
 typedef unsigned long u64_t;
 typedef unsigned u32_t;
@@ -98,14 +101,7 @@ static inline void sys_arch_unprotect(sys_prot_t x)
 
 extern void console(char *);
 typedef unsigned long long time; 
-extern time now();
 extern void lwip_debug(char * format, ...);
-
-static inline u32_t sys_now(void)
-{
-    u64_t t = now();
-    return (t * 1000) >> 32;
-}
 
 #define MEM_LIBC_MALLOC 1
 
@@ -136,7 +132,7 @@ static inline void lwip_memcpy(void *a, const void *b, unsigned long len)
 static inline int lwip_strlen(char *a)
 {
     int i = 0;
-    for (char *z = a; *a; a++, i++);
+    for (; *a; a++, i++);
     return i;
 }
 

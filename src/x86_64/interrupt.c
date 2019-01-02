@@ -136,35 +136,61 @@ void lapic_eoi()
     write_barrier();    
 }
 
-char * find_elf_sym(u64 a, u64 *offset);
+char * find_elf_sym(u64 a, u64 *offset, u64 *len);
 
 void print_u64_with_sym(u64 a)
 {
     char * name;
-    u64 offset;
+    u64 offset, len;
 
     print_u64(a);
 
-    name = find_elf_sym(a, &offset);
+    name = find_elf_sym(a, &offset, &len);
     if (name) {
 	console("\t(");
 	console(name);
 	console(" + ");
 	print_u64(offset);
+    console("/");
+    print_u64(len);
 	console(")");
     }
 }
 
-void print_stack(context c)
+extern void *text_start;
+extern void *text_end;
+void __print_stack_with_rbp(u64 *rbp)
 {
-    u64 frames = 30;
-    u64 *x = pointer_from_u64(c[FRAME_RSP]);
-    // really until page aligned?
-    console("stack \n");
-    for (u64 i= frames ;i > 0; i--) {
-        print_u64_with_sym(*(x+i));
+    for (unsigned int frame = 0; frame < 32; frame ++) {
+        if ((u64) rbp < 4096ULL)
+            break;
+
+        u64 rip = rbp[1];
+
+        if (rip < (u64) &text_start || rip > (u64) &text_end)
+            break;
+
+        rbp = (u64 *) rbp[0];
+        print_u64_with_sym(rip);
         console("\n");
     }
+}
+
+void __print_stack_from_here()
+{
+    u64 register rbp asm("rbp");
+    __print_stack_with_rbp((u64 *)rbp);
+}
+
+void print_stack_from_here(void)
+{
+    __print_stack_from_here(0);
+}
+
+void print_stack(context c)
+{
+    console("stack trace: \n");
+    __print_stack_with_rbp(pointer_from_u64(c[FRAME_RBP]));
 }
 
 void print_frame(context f)
@@ -205,7 +231,6 @@ void print_frame(context f)
 void common_handler()
 {
     int i = frame[FRAME_VECTOR];
-    u64 z;
 
     if ((i < interrupt_size) && handlers[i]) {
         // should we switch to the 'kernel process'?
@@ -257,7 +282,7 @@ void register_interrupt(int vector, thunk t)
     handlers[vector] = t;
 }
 
-void configure_lapic_timer(time rate, thunk t)
+void configure_lapic_timer(timestamp rate, thunk t)
 {
     *(u32 *)(apic_base+APIC_TMRDIV) = 3;
     int v = allocate_u64(interrupt_vectors, 1);

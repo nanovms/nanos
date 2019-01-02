@@ -1,0 +1,15 @@
+(
+    #64 bit elf to boot from host
+    children:(kernel:(contents:(host:output/stage3/stage3.img))
+              #user program
+	      mkdir:(contents:(host:output/examples/mkdir))
+	      )
+    # filesystem path to elf for kernel to run
+    program:/mkdir
+    trace:t
+    debugsyscalls:t
+    futex_trace:t    
+    fault:t
+    arguments:[webg poppy]
+    environment:(USER:bobby PWD:/)
+)

@@ -4,7 +4,7 @@
 
 static struct pvclock_vcpu_time_info *vclock = 0;
 
-static time rtc_offset;
+static timestamp rtc_offset;
 
 #define CPUID_LEAF_4 0x40000001
 
@@ -30,11 +30,11 @@ struct pvclock_wall_clock {
 } __attribute__((__packed__));
 
 typedef __uint128_t u128;
-typedef time (*clock_now)(void);
+typedef timestamp (*clock_now)(void);
 
-extern time now_hpet();
+extern timestamp now_hpet();
 
-time now_kvm()
+timestamp now_kvm()
 {
     u64 r = rdtsc();
     u64 delta = r - vclock->tsc_timestamp;
@@ -48,13 +48,13 @@ time now_kvm()
     u64 nsec =  ((u128)delta * vclock->tsc_to_system_mul) >> 32;
     u64 sec = nsec / nano;
     nsec -= sec * nano;
-    time out  = (sec<<32) + time_from_nsec(nsec);
+    timestamp out  = (sec<<32) + time_from_nsec(nsec);
     return out;
 }
 
 static clock_now clock_function = now_kvm;
 
-time now() {
+timestamp now() {
     return rtc_offset + clock_function();
 }
 
@@ -71,7 +71,6 @@ void init_clock(kernel_heaps kh)
     write_msr(MSR_KVM_SYSTEM_TIME, physical_from_virtual(vclock) | 1);
 
     if (init_hpet(heap_general(kh), heap_virtual_page(kh), heap_pages(kh))) {
-	console("Using HPET clock source.\n");
 	clock_function = now_hpet;
     } else {
 	/* Presently we should always have HPET available. If this is

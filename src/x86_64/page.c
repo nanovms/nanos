@@ -1,6 +1,7 @@
 #include <runtime.h>
 
 //#define PAGE_DEBUG
+//#define PTE_DEBUG
 
 #define PAGEMASK MASK(PAGELOG)
 #define PAGE_2M_SIZE U64_FROM_BIT(7)
@@ -66,28 +67,36 @@ physical physical_from_virtual(void *x)
 static void write_pte(page target, physical to, u64 flags, boolean * invalidate)
 {
     u64 new = to | flags;
-#ifdef PAGE_DEBUG
+#ifdef PTE_DEBUG
     console(", write_pte: ");
     print_u64(u64_from_pointer(target));
     console(" = ");
     print_u64(new);
 #endif
     if (*target == new) {
-#ifdef PAGE_DEBUG
+#ifdef PTE_DEBUG
 	console(", pte same; no op");
 #endif
 	return;
     }
     /* invalidate when changing any pte that was marked as present */
     if (*target & PAGE_PRESENT) {
-#ifdef PAGE_DEBUG
+#ifdef PTE_DEBUG
 	console(", invalidate; prev ");
 	print_u64(*target);
+#elif defined(PAGE_DEBUG)
+        console("   invalidate for target ");
+        print_u64(u64_from_pointer(target));
+        console(", old ");
+        print_u64(*target);
+        console(", new ");
+        print_u64(new);
+        console("\n");
 #endif
 	*invalidate = true;
     }
     *target = new;
-#ifdef PAGE_DEBUG
+#ifdef PTE_DEBUG
     console("\n");
 #endif
 }
@@ -112,7 +121,7 @@ static boolean force_entry(heap h, page b, u64 v, physical p, int level,
     page pte = b + offset;
 
     if (level == (fat ? 3 : 4)) {
-#ifdef PAGE_DEBUG
+#ifdef PTE_DEBUG
 	console("! ");
 	print_level(level);
 	console(", offset ");
@@ -134,7 +143,7 @@ static boolean force_entry(heap h, page b, u64 v, physical p, int level,
 		return false;
 	    if (!force_entry(h, n, v, p, level + 1, fat, flags, invalidate))
 		return false;
-#ifdef PAGE_DEBUG
+#ifdef PTE_DEBUG
 	    console("- ");
 	    print_level(level);
 	    console(", offset ");
@@ -146,7 +155,7 @@ static boolean force_entry(heap h, page b, u64 v, physical p, int level,
     }
 }
 
-static boolean map_page(page base, u64 v, physical p, heap h, boolean fat, boolean flags)
+static inline boolean map_page(page base, u64 v, physical p, heap h, boolean fat, boolean flags)
 {
     boolean invalidate = false;
     if (!force_entry(h, base, v, p, 1, fat, flags, &invalidate))

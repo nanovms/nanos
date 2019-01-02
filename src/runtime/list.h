@@ -16,7 +16,8 @@ static inline void list_init(struct list * head)
 
 static inline boolean list_empty(struct list * head)
 {
-    assert((head->next == head) ^ (head->prev == head) == 0);
+    assert(((head->next == head) ^ (head->prev == head)) == 0);
+
     return (head->next == head);
 }
 

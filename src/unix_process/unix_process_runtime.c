@@ -1,13 +1,26 @@
 #include <runtime.h>
 #include <unistd.h>
+#ifdef HOST_BUILD
 #include <stdlib.h>
+#endif
 #include <sys/mman.h>
 #include <sys/time.h>
 #include <string.h>
 #include <signal.h>
 
+#ifdef __APPLE__
+#include <stdlib.h>
+#endif
+
 /* Helper functions to ignore unused result (eliminate CC warning) */
+#ifdef __APPLE__
+#define igr(x) x
+#else
 static inline void igr() {}
+#endif 
+
+void *malloc(size_t size);
+void free(void *ptr);
 
 void debug(buffer b)
 {
@@ -27,14 +40,13 @@ void console(char *x)
     igr(write(2, x, runtime_strlen(x)));
 }
 
-
-time timeval_to_time(struct timeval *a)
+timestamp timeval_to_time(struct timeval *a)
 {
     return((((unsigned long long)a->tv_sec)<<32)|
            (((unsigned long long)a->tv_usec)<<32)/1000000);
 }
 
-time now()
+timestamp now()
 {
     struct timeval result;
 
@@ -119,7 +131,6 @@ tuple parse_arguments(heap h, int argc, char **argv)
 {
     tuple t = allocate_tuple();
     vector unassociated = 0;
-    int i;
     symbol tag = 0;
     for (int i = 1; i<argc; i++) {
         buffer b = wrap_buffer_cstring(h, argv[i]);

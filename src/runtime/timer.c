@@ -8,8 +8,8 @@
 
 struct timer {
     thunk t;
-    time w;
-    time interval;
+    timestamp w;
+    timestamp interval;
     boolean disable;
 };
 
@@ -17,11 +17,12 @@ struct timer {
 static pqueue timers;
 static heap theap;
 
-static boolean timer_less_than(void *za, void *zb)
+/* The lower time expiry is the higher priority. */
+static boolean timer_compare(void *za, void *zb)
 {
     timer a = za;
     timer b = zb;
-    return(a->w < b->w);
+    return(a->w > b->w);
 }
 
 void remove_timer(timer t)
@@ -29,7 +30,7 @@ void remove_timer(timer t)
     t->disable = true;
 }
 
-timer register_timer(time interval, thunk n)
+timer register_timer(timestamp interval, thunk n)
 {
     timer t=(timer)allocate(theap, sizeof(struct timer));
 
@@ -42,7 +43,7 @@ timer register_timer(time interval, thunk n)
     return(t);
 }
 
-timer register_periodic_timer(time interval, thunk n)
+timer register_periodic_timer(timestamp interval, thunk n)
 {
     timer t=(timer)allocate(theap, sizeof(struct timer));
     t->t = n;
@@ -57,9 +58,9 @@ timer register_periodic_timer(time interval, thunk n)
 /* Presently called with ints off. Address thread safety with
    pqueue before using with ints enabled.
 */
-time timer_check()
+timestamp timer_check()
 {
-    time here;
+    timestamp here;
     timer current = 0;
 
     while ((current = pqueue_peek(timers)) &&
@@ -74,16 +75,15 @@ time timer_check()
         }
     }
     if (current) {
-	time dt = current->w - here;
-	timer_debug("check returning dt: %d\n", dt);
-	return dt;
+    	timestamp dt = current->w - here;
+    	timer_debug("check returning dt: %d\n", dt);
+    	return dt;
     }
     return infinity;
 }
 
-time parse_time(string b)
+timestamp parse_time(string b)
 {
-    character c;
     u64 s = 0, frac = 0, fracnorm = 0;
 
     foreach_character (c, b) {
@@ -96,13 +96,13 @@ time parse_time(string b)
             } else s = s *10 + digit_of(c);
         }
     }
-    time result = s << 32;
+    timestamp result = s << 32;
 
     if (fracnorm) result |= (frac<<32)/fracnorm;
     return(result);
 }
 
-void print_time(string b, time t)
+void print_time(string b, timestamp t)
 {
     u64 s= t>>32;
     u64 f= t&MASK(32);
@@ -126,6 +126,6 @@ void initialize_timers(kernel_heaps kh)
 {
     heap h = heap_general(kh);
     assert(!timers);
-    timers = allocate_pqueue(h, timer_less_than);
+    timers = allocate_pqueue(h, timer_compare);
     theap = h;
 }

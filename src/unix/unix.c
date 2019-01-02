@@ -23,11 +23,6 @@ void deallocate_fd(process p, int fd, file f)
     deallocate_u64(p->fdallocator, fd, 1);
 }
 
-static boolean node_contents(tuple t, buffer d)
-{
-    return false;
-}    
-
 void default_fault_handler(thread t, context frame)
 {
     print_frame(t->frame);
@@ -41,6 +36,20 @@ void default_fault_handler(thread t, context frame)
     halt("");
 }
 
+static CLOSURE_0_3(dummy_read, sysreturn, void *, u64, u64);
+static sysreturn dummy_read(void *dest, u64 length, u64 offset_arg)
+{
+    thread_log(current, "%s: dest %p, length %d, offset_arg %d\n",
+	       __func__, dest, length, offset_arg);
+    return 0;
+}
+
+static CLOSURE_1_0(std_close, sysreturn, file);
+static sysreturn std_close(file f)
+{
+    unix_cache_free(get_unix_heaps(), file, f);
+    return 0;
+}
 
 static CLOSURE_0_3(stdout, sysreturn, void*, u64, u64);
 static sysreturn stdout(void *d, u64 length, u64 offset)
@@ -53,6 +62,29 @@ static sysreturn stdout(void *d, u64 length, u64 offset)
 }
 
 extern void *linux_syscalls[];
+
+static boolean create_stdfiles(unix_heaps uh, process p)
+{
+    heap h = heap_general((kernel_heaps)uh);
+    file in = unix_cache_alloc(uh, file);
+    file out = unix_cache_alloc(uh, file);
+    file err = unix_cache_alloc(uh, file);
+    if (!in || !out || !err) {
+        msg_err("failed to allocate files\n");
+        return false;
+    }
+    assert(allocate_fd(p, in) == 0);
+    assert(allocate_fd(p, out) == 1);
+    assert(allocate_fd(p, err) == 2);
+
+    /* Writes to in, reads from out and err act as if handled by the
+       out and in files respectively. */
+    in->write = out->write = err->write = closure(h, stdout);
+    in->read = out->read = err->read = closure(h, dummy_read);
+    in->close = closure(h, std_close, in);
+    out->close = closure(h, std_close, out);
+    err->close = closure(h, std_close, err);
+}
 
 process create_process(unix_heaps uh, tuple root, filesystem fs)
 {
@@ -67,15 +99,10 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->fs = fs;
     p->cwd = root;
     p->process_root = root;
-    p->fdallocator = create_id_heap(h, 3, infinity, 1);
-    
+    p->fdallocator = create_id_heap(h, 0, infinity, 1);
     p->files = allocate_vector(h, 64);
     zero(p->files, sizeof(p->files));
-    file out = allocate(h, sizeof(struct file));
-    out->write = closure(h, stdout);
-    vector_set(p->files, 1, out);
-    vector_set(p->files, 2, out);
-
+    create_stdfiles(uh, p);
     init_threads(p);
     p->syscall_handlers = linux_syscalls;
     return p;
@@ -96,6 +123,8 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     if (uh->file_cache == INVALID_ADDRESS)
 	goto alloc_fail;
     if (!poll_init(uh))
+	goto alloc_fail;
+    if (!pipe_init(uh))
 	goto alloc_fail;
     set_syscall_handler(syscall_enter);
     process kernel_process = create_process(uh, root, fs);

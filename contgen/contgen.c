@@ -71,7 +71,6 @@ void pi(char *fmt, ...)
 void cblock()
 {
     p("#define CLOSURE_%_%(_name, _rettype^~)|", nleft, nright, ", _l%", ", _r%");
-
     p("_rettype _name(^~);|", "@_l%", "@_r%");
 
     p("struct _closure_##_name{|");
@@ -81,7 +80,8 @@ void cblock()
     p("};|");
 
     p("static _rettype _apply_##_name(void *z~){|", ", _r% r%");
-    p("  struct _closure_##_name *n = z;|");
+    if (nleft)
+        p("  struct _closure_##_name *n = z; |");
     p("  return _name(^~);|", "@n->l%", "@r%");
     p("}|");
 

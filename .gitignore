@@ -1,3 +1,6 @@
+/examples/time
+/tags
+
 # Default build directiory
 output
 
@@ -7,4 +10,5 @@ vendor
 # Editor stuff
 *~
 .vscode
-
+*.swo
+*.swp

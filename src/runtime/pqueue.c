@@ -3,6 +3,7 @@
 typedef u32 index; //indices are off by 1 from vector references
 
 struct pqueue {
+    heap h;
     vector body;
     boolean (*sort)(void *, void *);
 };
@@ -14,27 +15,21 @@ static inline void swap(pqueue q, index x, index y)
     vector_set(q->body, y-1, temp);
 }
 
-
 #define qcompare(__q, __x, __y)\
   (q->sort(vector_get((__q)->body, (__x-1)), \
                 vector_get((__q)->body, (__y-1))))
 
 static void heal(pqueue q, index where)
 {
-    index left= where<<1;
-    index right = left+1;
-    index min = where;
-    index len = vector_length(q->body);
-    
-    if (left <= len)
-        if (qcompare(q, left, min)) min = left;
-
-    if (right <= len)
-        if (qcompare(q, right, min)) min = right;
-
-    if (min != where) {
-        swap(q, min, where);
-        heal(q, min);
+    index last = vector_length(q->body);
+    index i;
+    while ((i = where << 1) <= last) {
+        if (i < last && qcompare(q, i, i+1))
+            i++;                /* right is larger */
+        if (!qcompare(q, where, i))
+            return;
+        swap(q, where, i);
+        where = i;
     }
 }
 
@@ -42,12 +37,12 @@ static void add_pqueue(pqueue q, index i)
 {
     index parent = i >> 1;
 
-    if ((parent > 0) && qcompare(q, i, parent)) {
+    while ((parent > 0) && qcompare(q, parent, i)) {
         swap(q, i, parent);
-        add_pqueue(q, parent);
+        i = parent;
+        parent >>= 1;
     }
 }
-
 
 void pqueue_insert(pqueue q, void *v)
 {
@@ -73,13 +68,21 @@ void *pqueue_pop(pqueue q)
 void *pqueue_peek(pqueue q)
 {
     if (vector_length(q->body)) return(vector_get(q->body, 0));
-    return(false);
+    return 0; // XXX INVALID_ADDRESS?
 }
 
 pqueue allocate_pqueue(heap h, boolean(*sort)(void *, void *))
 {
     pqueue p = allocate(h, sizeof(struct pqueue));
+    p->h = h;
     p->body = allocate_vector(h, 10);
     p->sort = sort;
     return(p);
+}
+
+void deallocate_pqueue(pqueue p)
+{
+    assert(p);
+    deallocate_vector(p->body);
+    deallocate(p->h, p, sizeof(struct pqueue));
 }

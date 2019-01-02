@@ -15,8 +15,9 @@ static inline void *vector_get(vector v, int offset)
 
 static inline void vector_set(vector v, int offset, void *value)
 {
+    bytes base = v->start + offset * sizeof(void *);
     extend_total(v, (offset + 1) *sizeof(void *));
-    runtime_memcpy(v->contents + offset * sizeof(void*), &value, sizeof(void *));
+    runtime_memcpy(v->contents + base, &value, sizeof(void *));
 }
 
 static inline int vector_length(vector v)
@@ -41,11 +42,11 @@ static void vector_push(vector v, void *i)
     v->end += sizeof(void *);
 }
 
-static void *vector_peek(vector v)
+static inline void *vector_peek(vector v)
 {
     if ((v->end - v->start) < sizeof(void *))
         return 0;
-    return *(void **)(v->contents + v->start);
+    return *(void **)(v->contents + v->end - sizeof(void *));
 }
 
 static void *vector_pop(vector v)
@@ -54,8 +55,8 @@ static void *vector_pop(vector v)
         return 0;
     
     void *res;
-    runtime_memcpy(&res, v->contents + v->start, sizeof(void *));
-    v->start += sizeof(void *);
+    v->end -= sizeof(void *);
+    runtime_memcpy(&res, v->contents + v->end, sizeof(void *));
     return res;
 }
 

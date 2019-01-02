@@ -43,22 +43,16 @@ static u64 bootstrap_alloc(heap h, bytes length)
 
 queue runqueue;
 
-static CLOSURE_1_0(read_complete, void, thunk);
-static void read_complete(thunk target)
-{
-    enqueue(runqueue, target);
-}
-
 static context miscframe;
 
 void runloop()
 {
     /* minimum runloop period - XXX move to a config header */
-    time max_timeout = milliseconds(100);
+    timestamp max_timeout = milliseconds(100);
     thunk t;
 
     while(1) {
-	time timeout = MIN(timer_check(), max_timeout);
+	timestamp timeout = MIN(timer_check(), max_timeout);
 	hpet_timer(timeout, ignore);
         while((t = dequeue(runqueue))) {
             apply(t);
@@ -143,10 +137,10 @@ static void __attribute__((noinline)) init_service_new_stack()
     kernel_heaps kh = &heaps;
     heap misc = heap_general(kh);
     heap pages = heap_pages(kh);
-    heap virtual_huge = heap_virtual_huge(kh);
-    heap virtual_page = heap_virtual_page(kh);
-    heap physical = heap_physical(kh);
-    heap backed = heap_backed(kh);
+    //heap virtual_huge = heap_virtual_huge(kh);
+    //heap virtual_page = heap_virtual_page(kh);
+    //heap physical = heap_physical(kh);
+    //heap backed = heap_backed(kh);
 
     /* Unmap the first page so we catch faults on null pointer references. */
     unmap(0, PAGESIZE, pages);

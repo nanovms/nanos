@@ -6,10 +6,22 @@ typedef u32 character;
 #define true 1
 #define false 0
 
-typedef u64 time;
+typedef u64 timestamp;
 
 extern void console(char *x);
 void print_u64(u64 s);
+void exit(int status);
+
+extern void halt(char *format, ...);
+
+// make into no-op for production
+#ifdef NO_ASSERT
+#define assert(x) do { if((x)) { } } while(0)
+#else
+#define assert(x) \
+    do { if(!(x)) halt("assertion " #x " failed in " __FILE__ ": %s() on line %d; halt\n", \
+		       __func__, __LINE__); } while(0)
+#endif
 
 static inline void runtime_memcpy(void *a, void *b, bytes len)
 {
@@ -24,7 +36,8 @@ static inline void runtime_memset(u8 *a, u8 b, bytes len)
 static inline int runtime_strlen(char *a)
 {
     int i = 0;
-    for (char *z = a; *a; a++, i++);
+    char *z;
+    for (z = a; *a; a++, i++);
     return i;
 }
 
@@ -41,6 +54,8 @@ static inline int runtime_strlen(char *a)
 #endif
 
 #define offsetof(__t, __e) u64_from_pointer(&((__t)0)->__e)
+
+#define check_flags_and_clear(x, f) ({boolean match = ((x) & (f)) != 0; (x) &= ~(f); match;})
 
 #if 0
 // this...seems to have a fault (?).. it may be the interrupt
@@ -119,8 +134,18 @@ void print_number(buffer s, u64 x, int base, int pad);
 void debug(buffer);
 #include <format.h>
 
-#define msg_err(fmt, ...) rprintf("%s error: " fmt, __func__, \
+/* XXX: Note that printing function names will reveal our internals to
+   some degree. All the logging stuff needs more time in the oven. */
+
+#define msg_err(fmt, ...) rprintf("%s error: " fmt, __func__,   \
 				  ##__VA_ARGS__)
+
+#ifdef ENABLE_MSG_WARN
+#define msg_warn(fmt, ...) rprintf("%s warning: " fmt, __func__,   \
+				  ##__VA_ARGS__)
+#else
+#define msg_warn(fmt, ...)
+#endif
 
 #ifdef ENABLE_MSG_DEBUG
 #define msg_debug(fmt, ...) rprintf("%s debug: " fmt, __func__, \
@@ -165,17 +190,6 @@ typedef closure_type(block_read, void, void *, u64, u64, status_handler);
 
 // break out platform - move into the implicit include
 #include <x86_64.h>
-
-extern void halt(char *format, ...);
-
-// make into no-op for production
-#ifdef NO_ASSERT
-#define assert(x) do { if((x)) { } } while(0)
-#else
-#define assert(x) \
-    do { if(!(x)) halt("assertion " #x " failed in " __FILE__ ": %s() on line %d; halt\n", \
-		       __func__, __LINE__); } while(0)
-#endif
 
 // should be  (parser, parser, character)
 typedef closure_type(parser, void *, character);

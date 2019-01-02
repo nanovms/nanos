@@ -74,9 +74,8 @@ static void bread(descriptor d, void *source, u64 length, u64 offset, status_han
 static CLOSURE_0_1(err, void, status);
 static void err(status s)
 {
-    rprintf ("reported error\n");
+    rprintf("reported error\n");
 }
-
 
 static buffer translate_contents(heap h, value v)
 {
@@ -132,7 +131,7 @@ static void fsc(heap h, descriptor out, filesystem fs, status s)
         tuple f = vector_get(i, 0);        
         buffer c = vector_get(i, 1);
         allocate_fsfile(fs, f);
-        filesystem_write(fs, f, c, 0, ignore_status);
+        filesystem_write(fs, f, c, 0, ignore_io_status);
     }
     flush(fs, ignore_status);
     close(out);
@@ -142,7 +141,7 @@ int main(int argc, char **argv)
 {
     heap h = init_process_runtime();
     descriptor out = open(argv[1], O_CREAT|O_WRONLY, 0644);
-    u64 fs_size = 10ull * 1024 * 1024;
+    u64 fs_size = 100ull * MB;  /* XXX temp, change to infinity after rtrie/bitmap fix */
     if (out < 0) {
         halt("couldn't open output file %s\n", argv[1]);
     }

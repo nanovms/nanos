@@ -1,7 +1,6 @@
 #include <runtime.h>
 #include <http.h>
 #include <socket_user.h>
-#include <stdlib.h>
 
 typedef struct stats {
     u32 connections;
@@ -40,8 +39,8 @@ static void value_in(heap h,
 {
     s->responses++;
 
-    static time last;
-    time t = now();
+    static timestamp last;
+    timestamp t = now();
 
     if ((t - last) > (1ull<<32)){
         last = t;
@@ -131,6 +130,7 @@ void main(int argc, char **argv)
     }
 
     notifier n = table_find(t, sym(select)) ? create_select_notifier(h) :
+        table_find(t, sym(poll)) ? create_poll_notifier(h) :
 	create_epoll_notifier(h);
     buffer target = vector_pop(vector_from_tuple(h, unassoc));
     thunk *newconn = allocate(h, sizeof(thunk));
