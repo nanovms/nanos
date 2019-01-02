@@ -42,10 +42,11 @@ struct epoll_blocked {
             u64 poll_retcount;
         };
 	struct {
-	    bitmap rset;
-	    bitmap wset;
-	    bitmap eset;
-	    u64 retcount;
+            int nfds;
+            bitmap rset;
+            bitmap wset;
+            bitmap eset;
+            u64 retcount;
 	};
     };
     struct list blocked_list;
@@ -203,6 +204,7 @@ static void epoll_blocked_finish(epoll_blocked w, boolean timedout)
 		bitmap_unwrap(w->wset);
 	    if (w->eset)
 		bitmap_unwrap(w->eset);
+            w->nfds = 0;
 	    w->rset = w->wset = w->eset = 0;
 	    rv = w->retcount;	/* XXX error check */
             break;
@@ -414,7 +416,7 @@ static boolean select_notify(epollfd efd, u32 events)
     epoll_debug("select_notify: efd->fd %d, events %P, blocked %p, zombie %d\n",
 	    efd->fd, events, w, efd->zombie);
     efd->registered = false;
-    if (!efd->zombie && w) {
+    if (!efd->zombie && w && efd->fd < w->nfds) {
 	assert(w->epoll_type == EPOLL_TYPE_SELECT);
 	int count = 0;
 	/* XXX need thread safe / cas bitmap ops */
@@ -459,6 +461,13 @@ static epoll select_get_epoll()
     return e;
 }
 
+static inline void free_fd(epoll e, int fd)
+{
+    epollfd efd = epollfd_from_fd(e, fd);
+    assert(efd != INVALID_ADDRESS);
+    free_epollfd(efd);
+}
+
 static sysreturn select_internal(int nfds,
 				 fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
 				 timestamp timeout,
@@ -473,6 +482,7 @@ static sysreturn select_internal(int nfds,
     if (w == INVALID_ADDRESS)
 	return -ENOMEM;
     w->epoll_type = EPOLL_TYPE_SELECT;
+    w->nfds = nfds;
     w->rset = w->wset = w->eset = 0;
     w->retcount = 0;
     sysreturn rv = 0;
@@ -488,26 +498,32 @@ static sysreturn select_internal(int nfds,
     w->eset = exceptfds ? bitmap_wrap(h, exceptfds, nfds) : 0;
 
     bitmap_extend(e->fds, nfds - 1);
-    u64 * regp = bitmap_base(e->fds);
     u64 dummy = 0;
     u64 * rp = readfds ? readfds : &dummy;
     u64 * wp = writefds ? writefds : &dummy;
     u64 * ep = exceptfds ? exceptfds : &dummy;
-    int words = pad(nfds, 64) >> 6;
-    for (int i = 0; i < words; i++) {
+    bitmap_foreach_word(e->fds, w, offset) {
+        if (offset >= nfds) {
+            /* nfds shrunk since an earlier call to select; just nuke
+               any epollfds from here forward */
+            bitmap_word_foreach_set(w, bit, fd, offset) {
+                epoll_debug("   X fd %d\n", fd);
+                free_fd(e, fd);
+            }
+            continue;
+        }
+
 	/* update epollfds based on delta between registered fds and
  	   union of select fds */
 	u64 u = *rp | *wp | *ep;
-	u64 d = u ^ *regp;
+	u64 d = u ^ w;
 
 	/* get alloc/free out of the way */
-	bitmap_word_foreach_set(d, bit, fd, (i << 6)) {
+	bitmap_word_foreach_set(d, bit, fd, offset) {
 	    /* either add or remove epollfd */
-	    if (*regp & (1ull << bit)) {
+	    if (w & (1ull << bit)) {
 		epoll_debug("   - fd %d\n", fd);
-		epollfd efd = epollfd_from_fd(e, fd);
-		assert(efd != INVALID_ADDRESS);
-		free_epollfd(efd);
+                free_fd(e, fd);
 	    } else {
 		epoll_debug("   + fd %d\n", fd);
 		file f = resolve_fd(current->p, fd); /* may return on error */
@@ -519,7 +535,7 @@ static sysreturn select_internal(int nfds,
 	}
 
 	/* now process all events */
-	bitmap_word_foreach_set(u, bit, fd, (i << 6)) {
+	bitmap_word_foreach_set(u, bit, fd, offset) {
 	    u32 eventmask = 0;
 	    u64 mask = 1ull << bit;
 	    epollfd efd = vector_get(e->events, fd);
@@ -568,7 +584,6 @@ static sysreturn select_internal(int nfds,
 	    wp++;
 	if (exceptfds)
 	    ep++;
-	regp++;
     }
     rv = w->retcount;
   check_rv_timeout:
