@@ -123,8 +123,9 @@ static void notify_dispatch(sock s)
 	notify_entry n = struct_from_list(l, notify_entry, l);
 	list next = list_get_next(l);
 	u32 masked = events & n->eventmask;
-	u32 r = edge_events(masked, n->eventmask, *n->last);
-	*n->last = masked;
+        u32 r = edge_events(masked, n->eventmask, n->last ? *n->last : 0);
+        if (n->last)
+            *n->last = masked;
 	if (r && apply(n->eh, r)) {
 	    list_delete(l);
 	    deallocate(s->h, n, sizeof(struct notify_entry));
@@ -355,8 +356,9 @@ static boolean socket_check(sock s, u32 eventmask, u32 * last, event_handler eh)
     net_debug("sock %d, type %d, eventmask %P, events %P\n",
 	      s->fd, s->type, eventmask, events);
     if (masked) {
-	u32 report = edge_events(masked, eventmask, *last);
-	*last = masked;
+        u32 report = edge_events(masked, eventmask, last ? *last : 0);
+        if (last)
+            *last = masked;
 	return apply(eh, report);
     } else {
 	if (!notify_enqueue(s, eventmask, last, eh))

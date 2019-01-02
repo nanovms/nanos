@@ -8,7 +8,8 @@
 static CLOSURE_2_1(read_program_complete, void, process, tuple, buffer);
 static void read_program_complete(process kp, tuple root, buffer b)
 {
-    rprintf ("read program complete: %p %v\n", root, root);
+    if (table_find(root, sym(trace)))
+        rprintf ("read program complete: %p %v\n", root, root);
     exec_elf(b, kp);
 }
 
