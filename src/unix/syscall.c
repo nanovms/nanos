@@ -448,11 +448,6 @@ static boolean is_special(tuple n)
     return table_find(n, sym(special)) ? true : false;
 }
 
-static boolean is_dir(tuple n)
-{
-    return children(n) ? true : false;
-}
-
 static CLOSURE_3_2(file_op_complete, void, thread, file, boolean, status, bytes);
 static void file_op_complete(thread t, file f, boolean is_file_offset, status s, bytes length)
 {
