@@ -1,4 +1,6 @@
-/examples/time
+/examples/soop.data
+/gotests/.staging
+/gotests/image
 /tags
 
 # Default build directiory

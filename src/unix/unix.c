@@ -131,6 +131,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     current = create_thread(kernel_process);
     frame = current->frame;
     init_vdso(heap_physical(kh), heap_pages(kh));
+    register_special_files(kernel_process);
     init_syscalls();
     register_file_syscalls(linux_syscalls);
 #ifdef NET
