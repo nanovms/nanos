@@ -8,7 +8,7 @@ CFLAGS = -g \
 	 -DENABLE_MSG_DEBUG \
 	 $(includes)
 
-all: fst hw hws hwg getdents udploop web webg webgs webs getrandom mkdir time pipe
+all: fst hw hws hwg getdents udploop web webg webgs webs getrandom mkdir time pipe write
 
 fst: $(FST)
 
@@ -38,6 +38,8 @@ webgs: $(WEBGS)
 
 pipe: $(PIPE)
 
+write: $(WRITE)
+
 includes := \
 	-I$(SRC)/runtime \
 	-I$(SRC)/unix \
@@ -65,6 +67,15 @@ getdents-objs = $(call srcs-to-objs,$(ROOT),$(OUT),getdents)
 
 $(GETDENTS): HOSTLDFLAGS += -static
 $(GETDENTS): $(getdents-objs)
+	$(call cmd,host-prog)
+
+write-srcs := \
+	$(ROOT)/examples/write.c
+
+write-objs = $(call srcs-to-objs,$(ROOT),$(OUT),write)
+
+$(WRITE): HOSTLDFLAGS += -static
+$(WRITE): $(write-objs)
 	$(call cmd,host-prog)
 
 mkdir-srcs := \
@@ -214,11 +225,11 @@ $(hw-objs) $(web-objs) $(udploop-objs): $(CLOSURE_TMPL)
 clean-objs = $(hw-objs) $(web-objs) $(FST) $(HW) $(HWG) $(HWS) $(WEB) $(WEBG) \
 	$(WEBGS) $(WEBS) $(CLOSURE_TMPL) $(getdents-objs) $(GETDENTS) \
 	$(getrandom-objs) $(GETRANDOM) $(udploop-objs) $(UDPLOOP) \
-	$(mkdir-objs) $(MKDIR) $(time-objs) $(TIME) \
+	$(mkdir-objs) $(MKDIR) $(time-objs) $(TIME) $(write-objs) $(WRITE) \
 	$(pipe-objs) $(PIPE)
 
 clean: default-clean
 
-.PHONY: fst hw hwg hws web webg webgs webs getdents getrandom time udploop mkdir pipe
+.PHONY: fst hw hwg hws web webg webgs webs getdents getrandom time udploop mkdir pipe write
 
 include ../rules.mk

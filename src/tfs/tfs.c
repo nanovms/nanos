@@ -65,6 +65,8 @@ static void fs_read_extent(filesystem fs,
     }
 }
 
+io_status_handler ignore_io_status;
+
 static CLOSURE_2_1(filesystem_read_complete, void, io_status_handler, buffer, status);
 static void filesystem_read_complete(io_status_handler c, buffer b, status s)
 {
@@ -93,15 +95,23 @@ void filesystem_read(filesystem fs, tuple t, void *dest, u64 length, u64 offset,
 }
 
 // extend here
+// This function is terribly broken. *last is never updated, but it should be.
+// Leave it as it is for now, but get back to this asap. -lkurusa
 static CLOSURE_4_2(fs_write_extent, void,
                    filesystem, buffer, merge, u64 *, 
                    range, void *);
 static void fs_write_extent(filesystem fs, buffer source, merge m, u64 *last, range x, void *val)
 {
-    buffer segment = source; // not really
+    u64 target_len = x.end - x.start, source_len = buffer_length(source);
     // if this doesn't lie on an alignment bonudary we may need to do a read-modify-write
+
+    /* Will this extent be reallocated? */
+    if (source_len > target_len)
+        return;
+
+    /* XXX: is this correct? */
     status_handler sh = apply(m);
-    apply(fs->w, segment, x.start, sh);
+    apply(fs->w, source, x.start, sh);
 }
 
 // wrap in an interface
@@ -148,8 +158,32 @@ void filesystem_write_eav(filesystem fs, tuple t, symbol a, value v)
     log_write_eav(fs->tl, t, a, v, ignore);
 }
 
+static CLOSURE_4_1(filesystem_write_complete, void, fsfile, tuple, u64, io_status_handler, status);
+static void filesystem_write_complete(fsfile f, tuple t, u64 end, io_status_handler completion, status s)
+{
+    filesystem fs = f->fs;
+
+    if (fsfile_get_length(f) < end) {
+        /* XXX bother updating resident filelength tuple? */
+        fsfile_set_length(f, end);
+        filesystem_write_eav(fs, t, sym(filelength), value_from_u64(fs->h, end));
+    }
+
+    /* Reset the extent rtrie and update the extent cache */
+    f->extents = rtrie_create(fs->h);
+    tuple extents = table_find(t, sym(extents));
+    table_foreach(extents, off, e)
+        extent_update(f, off, e);
+    table_set(fs->files, t, f);
+
+    /* TODO(lkurusa): Write the final root tuple to the disk */
+
+    tuple e = STATUS_OK;
+    apply(completion, e, end);
+}
+
 // consider not overwritint the old version and fixing up the metadata
-void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, status_handler completion)
+void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_handler completion)
 {
     heap h = fs->h;
     u64 len = buffer_length(b);
@@ -157,27 +191,31 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, status_handl
     *last = offset;
     fsfile f;
     if (!(f = table_find(fs->files, t))) {
-        apply(completion, timm("no such file"));
+        apply(completion, timm("no such file"), 0);
         return;
     }
-    merge m = allocate_merge(fs->h, completion);
+
+    merge m = allocate_merge(fs->h, closure(fs->h, filesystem_write_complete,
+                f, t, buffer_length(b) + offset, completion));
     rtrie_range_lookup(f->extents, irange(offset, offset+len), closure(h, fs_write_extent, f->fs, b, m, last));
     
     if (*last < (offset + len)) {
-        u64 eoff = extend(f, *last, len);
+        u64 elen = (offset + len) - *last;
+        u64 eoff = extend(f, *last, elen);
         if (eoff != u64_from_pointer(INVALID_ADDRESS)) {
             status_handler sh = apply(m);
-            apply(fs->w, wrap_buffer(transient, buffer_ref(b, *last), b->end - *last), eoff, sh);
-        }
-    }
 
-    /* XXX Technically, we should wait until all extent writes have
-       succeeded before extending the length. */
-    u64 end = buffer_length(b) + offset;
-    if (fsfile_get_length(f) < end) {
-	/* XXX bother updating resident filelength tuple? */
-	fsfile_set_length(f, end);
-	filesystem_write_eav(fs, t, sym(filelength), value_from_u64(fs->h, end));
+            /* XXX: this should only pop up when writing to virtio,
+               check for HOST_BUILD is just a lazy kludge */
+#ifndef HOST_BUILD
+            if (b->end - *last > SECTOR_SIZE)
+                rprintf("trying to write more than what's supported: %d > %d\n",
+                        b->end - *last, SECTOR_SIZE);
+#endif
+
+            buffer bf = wrap_buffer(transient, buffer_ref(b, *last), b->end - *last);
+            apply(fs->w, bf, eoff, sh);
+        }
     }
 }
 
@@ -298,11 +336,124 @@ void flush(filesystem fs, status_handler s)
     log_flush(fs->tl);
 }
 
+/* XXX: cbm stuff is temporary */
+
+void __cbm_set(struct cbm *c, u64 bit, boolean val)
+{
+    if (val)
+        c->buffer[bit / 8] |= 1 << (bit % 8);
+    else
+        c->buffer[bit / 8] &= ~(1 << (bit % 8));
+}
+
+void cbm_set(struct cbm *c, u64 start, u64 len)
+{
+    u64 i;
+    for (i = 0; i < len; i ++)
+        __cbm_set(c, start + i, true);
+}
+
+void cbm_unset(struct cbm *c, u64 start, u64 len)
+{
+    u64 i;
+    for (i = 0; i < len; i ++)
+        __cbm_set(c, start + i, false);
+}
+
+boolean cbm_test(struct cbm *c, u64 i)
+{
+    return (c->buffer[i / 8] & (1 << (i % 8))) != 0;
+}
+
+boolean cbm_contains(struct cbm *c, u64 start, u64 cnt, boolean val)
+{
+    u64 i;
+
+    for (i = 0; i < cnt; i ++)
+        if (cbm_test(c, start + i) == val)
+            return true;
+
+    return false;
+}
+
+u64 cbm_scan(struct cbm *c, u64 start, u64 cnt, boolean val)
+{
+    u64 last = c->capacity_in_bits - start;
+    u64 i;
+    for (i = start; i <= last; i ++)
+        if (!cbm_contains(c, i, cnt, !val))
+            return i;
+
+    return INVALID_PHYSICAL;
+}
+
+struct cbmalloc {
+    struct heap h;
+    struct cbm *c;
+};
+
+u64 cbm_allocator_alloc(heap h, bytes len)
+{
+    struct cbmalloc *c = (struct cbmalloc *) h;
+    len >>= 9;
+    if (len > c->c->capacity_in_bits) {
+        return INVALID_PHYSICAL;
+    }
+    u64 ret = cbm_scan(c->c, 0, len, false);
+    if (ret != INVALID_PHYSICAL) {
+        cbm_set(c->c, ret, len);
+        return ret << 9;
+    }
+
+    return ret;
+}
+
+heap cbm_allocator(heap h, struct cbm *c)
+{
+    struct cbmalloc *a = allocate(h, sizeof(*a));
+    a->h.alloc = cbm_allocator_alloc;
+    a->c = c;
+    return &a->h;
+}
+
+struct cbm *cbm_create(heap h, u64 capacity)
+{
+    struct cbm *c = allocate(h, sizeof(*c));
+    u8 *buffer = allocate(h, (capacity >> 3) + 1);
+    c->buffer = buffer;
+    c->capacity_in_bits = capacity;
+    return c;
+}
+
+void enumerate_files(filesystem fs, tuple root)
+{
+    if (root) {
+        table_foreach(root, k, v) {
+            tuple extents = table_find(v, sym(extents));
+            if (extents) {
+                table_foreach(extents, k1, v1) {
+                    u64 offset, length, block_offset, block_length;
+                    parse_int(alloca_wrap(table_find(v1, sym(length))), 10, &length);
+                    parse_int(alloca_wrap(table_find(v1, sym(offset))), 10, &offset);
+                    block_offset = offset >> 9;
+                    block_length = length >> 9;
+                    cbm_set(fs->free, block_offset, block_length + 1);
+                }
+            }
+        }
+    }
+}
+
 static CLOSURE_2_1(log_complete, void, filesystem_complete, filesystem, status);
 static void log_complete(filesystem_complete fc, filesystem fs, status s)
 {
+    tuple fsroot = children(fs->root);
+    enumerate_files(fs, fsroot);
     apply(fc, fs, s);
 }
+
+static CLOSURE_0_2(ignore_io_body, void, status, bytes);
+static void ignore_io_body(status s, bytes length){}
 
 void create_filesystem(heap h,
                        u64 alignment,
@@ -313,6 +464,7 @@ void create_filesystem(heap h,
                        filesystem_complete complete)
 {
     filesystem fs = allocate(h, sizeof(struct filesystem));
+    ignore_io_status = closure(h, ignore_io_body);
     fs->files = allocate_table(h, identity_key, pointer_equal);
     fs->extents = allocate_table(h, identity_key, pointer_equal);    
     fs->r = read;
@@ -321,10 +473,10 @@ void create_filesystem(heap h,
     fs->root = root;
     fs->alignment = alignment;
     fs->blocksize = SECTOR_SIZE;
-    fs->free = rtrie_create(h);
-    rtrie_insert(fs->free, 0, size, (void *)true); 
-    rtrie_remove(fs->free, 0, INITIAL_LOG_SIZE);
-    fs->storage = rtrie_allocator(h, fs->free);
+    fs->free = cbm_create(h, size >> 9);
+    cbm_unset(fs->free, 0, size >> 9);
+    cbm_set(fs->free, 0, INITIAL_LOG_SIZE >> 9);
+    fs->storage = cbm_allocator(h, fs->free);
     fs->tl = log_create(h, fs, closure(h, log_complete, complete, fs));
 }
 
