@@ -272,7 +272,7 @@ fs_status filesystem_mkentry(filesystem fs, char *fp, tuple entry)
     table_set(children, basename_sym, entry);
     log_write_eav(fs->tl, children, basename_sym, entry, ignore);
     //log_flush(fs->tl);
-    rprintf("mkentry: written!\n");
+    msg_debug("written!\n");
 
     return FS_STATUS_OK;
 }
