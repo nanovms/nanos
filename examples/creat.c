@@ -59,10 +59,8 @@ void check(const char *path, int expect)
 int main(int argc, char **argv)
 {
     check("/kernel", 0);
-    _creat("/kernel", 0, EEXIST);
     _creat("/test", 0, 0);
     check("/test", 0);
-    _creat("/test", 0, EEXIST);
     _creat("/blurb/test/deep", 0, ENOENT);
     check("/blurb/test/deep", ENOENT);
     printf("test passed\n");
