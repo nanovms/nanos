@@ -581,7 +581,7 @@ static sysreturn file_read(file f, void *dest, u64 length, u64 offset_arg)
         thread_sleep(current);
     } else {
         /* XXX special handling for holes will need to go here */
-        set_syscall_return(current, 0);
+        return 0;
     }
 }
 
