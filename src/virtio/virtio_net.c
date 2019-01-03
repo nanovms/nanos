@@ -264,6 +264,7 @@ void init_network_iface(tuple root) {
     if (!n) {
         halt("no network interface found\n");
     }
+    netif_set_default(n);
     if (ERR_OK != init_static_config(root, n)) {
          dhcp_start(n);
     } 
