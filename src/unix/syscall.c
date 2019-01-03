@@ -393,9 +393,7 @@ sysreturn write(int fd, u8 *body, bytes length)
         return set_syscall_error(current, EBADF);
     if (!f->write)
         return set_syscall_error(current, EINVAL);
-    int res = apply(f->write, body, length, f->offset);
-    f->offset += length;
-    return res;
+    return apply(f->write, body, length, infinity);
 }
 
 sysreturn mkdir(const char *pathname, int mode)
