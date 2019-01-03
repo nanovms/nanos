@@ -566,9 +566,9 @@ static sysreturn file_read(file f, void *dest, u64 length, u64 offset_arg)
             __func__, f->n, dest, length, offset, is_file_offset ? "infinity" : "exact");
 
     if (is_special(f->n)) {
-	return spec_read(f, dest, length, offset);
+        return spec_read(f, dest, length, offset);
     }
-
+  
     if (offset < f->length) {
         filesystem_read(current->p->fs, f->n, dest, length, offset,
                 closure(heap_general(get_kernel_heaps()),
