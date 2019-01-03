@@ -169,6 +169,7 @@ static void epoll_blocked_release(epoll_blocked w)
     epoll_debug("epoll_blocked_release: w %p\n", w);
     if (!list_empty(&w->blocked_list)) {
 	list_delete(&w->blocked_list);
+        list_init(&w->blocked_list);
 	epoll_debug("   removed from epoll list\n");
     }
     if (fetch_and_add(&w->refcnt, -1) == 0) {
