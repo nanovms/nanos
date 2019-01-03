@@ -401,147 +401,51 @@ sysreturn pwrite(int fd, u8 *body, bytes length, s64 offset)
     return apply(f->write, body, length, offset);
 }
 
-sysreturn mkdir(const char *pathname, int mode)
+sysreturn sysreturn_from_fs_status(fs_status s)
+{
+    switch (s) {
+    case FS_STATUS_OK:
+        return 0;
+    case FS_STATUS_NOENT:
+        return -ENOENT;
+    case FS_STATUS_EXIST:
+        return -EEXIST;
+    case FS_STATUS_NOTDIR:
+        return -ENOTDIR;
+    default:
+        halt("status %d, update %s\n", s, __func__);
+        return 0;               /* suppress warn */
+    }
+}
+
+static sysreturn do_mkent(const char *pathname, int mode, boolean dir)
 {
     heap h = heap_general(get_kernel_heaps());
     buffer cwd = wrap_buffer_cstring(h, "/"); /* XXX */
-    int rc;
+
+    if (!pathname)
+        return set_syscall_error(current, EFAULT);
 
     /* canonicalize the path */
     char *final_path = canonicalize_path(h, cwd,
             wrap_buffer_cstring(h, (char *)pathname));
 
-    thread_log(current, "%s: (mode %d) pathname %s => %s\n",
-            __func__, mode, pathname, final_path);
+    thread_log(current, "%s: %s (mode %d) pathname %s => %s\n",
+               __func__, dir ? "mkdir" : "creat", mode, pathname, final_path);
 
-    rc = filesystem_mkdir(current->p->fs, final_path);
-
-    if (rc)
-        return set_syscall_error(current, rc);
-    else
-        return set_syscall_return(current, rc);
-}
-
-sysreturn getrandom(void *buf, u64 buflen, unsigned int flags)
-{
-    heap h = heap_general(get_kernel_heaps());
-    buffer b;
-
-    if (!buf)
-        return set_syscall_error(current, EFAULT);
-
-    if (!buflen)
-        return set_syscall_error(current, EINVAL);
-
-    if (flags & ~(GRND_NONBLOCK | GRND_RANDOM))
-        return set_syscall_error(current, EINVAL);
-
-    b = wrap_buffer(h, buf, buflen);
-    return do_getrandom(b, (u64) flags);
-}
-
-static int try_write_dirent(struct linux_dirent *dirp, char *p,
-        int *read_sofar, int *written_sofar, u64 *f_offset,
-        unsigned int *count, int ft)
-{
-    int len = runtime_strlen(p);
-    *read_sofar += len;
-    if (*read_sofar > *f_offset) {
-        int reclen = sizeof(struct linux_dirent) + len + 3;
-        // include this element in the getdents output
-        if (reclen > *count) {
-            // can't include, there's no space
-            *read_sofar -= len;
-            return -1;
-        } else {
-            // include the entry in the buffer
-            runtime_memset((u8*)dirp, 0, reclen);
-            dirp->d_ino = 0; /* XXX */
-            dirp->d_reclen = reclen;
-            runtime_memcpy(dirp->d_name, p, len + 1);
-            dirp->d_off = dirp->d_reclen; // XXX: in the future, pad this.
-            dirp->d_name[len + 2] = 0; /* some zero padding */
-            ((char *)dirp)[dirp->d_reclen - 1] = ft;
-
-            // advance dirp
-            *written_sofar += reclen;
-            *count -= reclen;
-            return reclen;
-        }
-    }
-    return 0;
-}
-
-sysreturn getdents(int fd, struct linux_dirent *dirp, unsigned int count)
-{
-    file f = resolve_fd(current->p, fd);
-    tuple c = children(f->n);
-    int read_sofar = 0, written_sofar = 0;
-
-    if (!c)
-        return -ENOTDIR;
-
-    /* add reference to the current directory */
-    int r = try_write_dirent(dirp, ".",
-                &read_sofar, &written_sofar, &f->offset, &count,
-                DT_DIR);
-    if (r < 0)
-        goto done;
-
-    dirp = (struct linux_dirent *)(((char *)dirp) + r);
-
-    /* add reference to the parent directory */
-    r = try_write_dirent(dirp, "..",
-                &read_sofar, &written_sofar, &f->offset, &count,
-                DT_DIR);
-    if (r < 0)
-        goto done;
-
-    dirp = (struct linux_dirent *)(((char *)dirp) + r);
-
-    table_foreach(c, k, v) {
-        char *p = cstring(symbol_string(k));
-        r = try_write_dirent(dirp, p,
-                    &read_sofar, &written_sofar, &f->offset, &count,
-                    children(v) ? DT_DIR : DT_REG);
-        if (r < 0)
-            goto done;
-        else
-            dirp = (struct linux_dirent *)(((char *)dirp) + r);
-    }
-
-done:
-    f->offset = read_sofar;
-    if (r < 0 && written_sofar == 0)
-        return -EINVAL;
-
-    return written_sofar;
-}
-
-sysreturn writev(int fd, iovec v, int count)
-{
-    int res;
-    resolve_fd(current->p, fd);
-    for (int i = 0; i < count; i++) res += write(fd, v[i].address, v[i].length);
-    return res;
-}
-
-static sysreturn access(char *name, int mode)
-{
-    if (!resolve_cstring(current->p->cwd, name)) {
-        return set_syscall_error(current, ENOENT);
-    }
-    return 0;
-}
-
-static boolean is_special(tuple n)
-{
-    return table_find(n, sym(special)) ? true : false;
+    sysreturn r = dir ? filesystem_mkdir(current->p->fs, final_path) :
+        filesystem_creat(current->p->fs, final_path);
+    return set_syscall_return(current, sysreturn_from_fs_status(r));
 }
 
 static boolean is_dir(tuple n)
 {
     return children(n) ? true : false;
+}
+
+static boolean is_special(tuple n)
+{
+    return table_find(n, sym(special)) ? true : false;
 }
 
 static CLOSURE_3_2(file_op_complete, void, thread, file, boolean, status, bytes);
@@ -663,11 +567,25 @@ static boolean file_check(file f, u32 eventmask, u32 * last, event_handler eh)
 
 sysreturn open_internal(tuple root, char *name, int flags, int mode)
 {
-    tuple n;
     heap h = heap_general(get_kernel_heaps());
     unix_heaps uh = get_unix_heaps();
-       // fix - lookup should be robust
-    if (!(n = resolve_cstring(root, name))) {
+    tuple n = resolve_cstring(root, name);
+
+    if ((flags & O_CREAT)) {
+        if (n && (flags & O_EXCL)) {
+            rprintf("open %s with O_EXCL - already exists\n", name);
+            return set_syscall_error(current, EEXIST);
+        } else if (!n) {
+            sysreturn rv = do_mkent(name, mode, false);
+            if (rv)
+                return rv;
+            /* XXX We could rearrange calls to return tuple instead of
+               status; though this serves as a sanity check. */
+            n = resolve_cstring(root, name);
+        }
+    }
+
+    if (!n) {
         rprintf("open %s - not found\n", name);
         return set_syscall_error(current, ENOENT);
     }
@@ -705,9 +623,134 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
 sysreturn open(char *name, int flags, int mode)
 {
     if (name == 0) 
-        return set_syscall_error (current, EINVAL);
+        return set_syscall_error (current, EFAULT);
     thread_log(current, "open: \"%s\", flags %P, mode %P\n", name, flags, mode);
     return open_internal(current->p->cwd, name, flags, mode);
+}
+
+sysreturn mkdir(const char *pathname, int mode)
+{
+    return do_mkent(pathname, mode, true);
+}
+
+sysreturn creat(const char *pathname, int mode)
+{
+    if (!pathname)
+        return set_syscall_error (current, EFAULT);
+    thread_log(current, "creat: \"%s\", mode %P\n", pathname, mode);
+    return open_internal(current->p->cwd, (char *)pathname, O_CREAT|O_WRONLY|O_TRUNC, mode);
+}
+
+sysreturn getrandom(void *buf, u64 buflen, unsigned int flags)
+{
+    heap h = heap_general(get_kernel_heaps());
+    buffer b;
+
+    if (!buf)
+        return set_syscall_error(current, EFAULT);
+
+    if (!buflen)
+        return set_syscall_error(current, EINVAL);
+
+    if (flags & ~(GRND_NONBLOCK | GRND_RANDOM))
+        return set_syscall_error(current, EINVAL);
+
+    b = wrap_buffer(h, buf, buflen);
+    return do_getrandom(b, (u64) flags);
+}
+
+static int try_write_dirent(struct linux_dirent *dirp, char *p,
+        int *read_sofar, int *written_sofar, u64 *f_offset,
+        unsigned int *count, int ft)
+{
+    int len = runtime_strlen(p);
+    *read_sofar += len;
+    if (*read_sofar > *f_offset) {
+        int reclen = sizeof(struct linux_dirent) + len + 3;
+        // include this element in the getdents output
+        if (reclen > *count) {
+            // can't include, there's no space
+            *read_sofar -= len;
+            return -1;
+        } else {
+            // include the entry in the buffer
+            runtime_memset((u8*)dirp, 0, reclen);
+            dirp->d_ino = 0; /* XXX */
+            dirp->d_reclen = reclen;
+            runtime_memcpy(dirp->d_name, p, len + 1);
+            dirp->d_off = dirp->d_reclen; // XXX: in the future, pad this.
+            dirp->d_name[len + 2] = 0; /* some zero padding */
+            ((char *)dirp)[dirp->d_reclen - 1] = ft;
+
+            // advance dirp
+            *written_sofar += reclen;
+            *count -= reclen;
+            return reclen;
+        }
+    }
+    return 0;
+}
+
+sysreturn getdents(int fd, struct linux_dirent *dirp, unsigned int count)
+{
+    file f = resolve_fd(current->p, fd);
+    tuple c = children(f->n);
+    int read_sofar = 0, written_sofar = 0;
+
+    if (!c)
+        return -ENOTDIR;
+
+    /* add reference to the current directory */
+    int r = try_write_dirent(dirp, ".",
+                &read_sofar, &written_sofar, &f->offset, &count,
+                DT_DIR);
+    if (r < 0)
+        goto done;
+
+    dirp = (struct linux_dirent *)(((char *)dirp) + r);
+
+    /* add reference to the parent directory */
+    r = try_write_dirent(dirp, "..",
+                &read_sofar, &written_sofar, &f->offset, &count,
+                DT_DIR);
+    if (r < 0)
+        goto done;
+
+    dirp = (struct linux_dirent *)(((char *)dirp) + r);
+
+    table_foreach(c, k, v) {
+        char *p = cstring(symbol_string(k));
+        r = try_write_dirent(dirp, p,
+                    &read_sofar, &written_sofar, &f->offset, &count,
+                    children(v) ? DT_DIR : DT_REG);
+        if (r < 0)
+            goto done;
+        else
+            dirp = (struct linux_dirent *)(((char *)dirp) + r);
+    }
+
+done:
+    f->offset = read_sofar;
+    if (r < 0 && written_sofar == 0)
+        return -EINVAL;
+
+    return written_sofar;
+}
+
+sysreturn writev(int fd, iovec v, int count)
+{
+    int res;
+    resolve_fd(current->p, fd);
+    for (int i = 0; i < count; i++) res += write(fd, v[i].address, v[i].length);
+    return res;
+}
+
+static sysreturn access(char *name, int mode)
+{
+    if (!resolve_cstring(current->p->cwd, name)) {
+        return set_syscall_error(current, ENOENT);
+    }
+    return 0;
 }
 
 /*
@@ -750,9 +793,15 @@ static void fill_stat(tuple n, struct stat *s)
         }
         s->st_size = fsfile_get_length(f);
     }
+    fsfile f = fsfile_from_node(current->p->fs, n);
+    if (!f) {
+        msg_err("can't find fsfile\n");
+        return;
+    }
     s->st_mode = S_IFREG | 0644; /* TODO */
+    s->st_size = fsfile_get_length(f);
     thread_log(current, "st_ino %P, st_mode %P, st_size %P\n",
-	       s->st_ino, s->st_mode, s->st_size);
+            s->st_ino, s->st_mode, s->st_size);
 }
 
 static sysreturn fstat(int fd, struct stat *s)
@@ -997,6 +1046,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_getrandom, getrandom);
     register_syscall(map, SYS_pipe, pipe);
     register_syscall(map, SYS_pipe2, pipe2);
+    register_syscall(map, SYS_creat, creat);
 }
 
 void *linux_syscalls[SYS_MAX];
