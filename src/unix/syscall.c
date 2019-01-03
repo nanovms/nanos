@@ -365,8 +365,6 @@ char *syscall_name(int x)
 sysreturn read(int fd, u8 *dest, bytes length)
 {
     file f = resolve_fd(current->p, fd);
-    if (!f)
-        return set_syscall_error(current, EBADF);
     if (!f->read)
         return set_syscall_error(current, EINVAL);
 
@@ -377,8 +375,6 @@ sysreturn read(int fd, u8 *dest, bytes length)
 sysreturn pread(int fd, u8 *dest, bytes length, s64 offset)
 {
     file f = resolve_fd(current->p, fd);
-    if (!f)
-        return set_syscall_error(current, EBADF);
     if (!f->read || offset < 0)
 	return set_syscall_error(current, EINVAL);
 
@@ -389,11 +385,20 @@ sysreturn pread(int fd, u8 *dest, bytes length, s64 offset)
 sysreturn write(int fd, u8 *body, bytes length)
 {
     file f = resolve_fd(current->p, fd);        
-    if (!f)
-        return set_syscall_error(current, EBADF);
     if (!f->write)
         return set_syscall_error(current, EINVAL);
+
+    /* use (and update) file offset */
     return apply(f->write, body, length, infinity);
+}
+
+sysreturn pwrite(int fd, u8 *body, bytes length, s64 offset)
+{
+    file f = resolve_fd(current->p, fd);
+    if (!f->write || offset < 0)
+        return set_syscall_error(current, EINVAL);
+
+    return apply(f->write, body, length, offset);
 }
 
 sysreturn mkdir(const char *pathname, int mode)
@@ -964,6 +969,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_read, read);
     register_syscall(map, SYS_pread64, pread);
     register_syscall(map, SYS_write, write);
+    register_syscall(map, SYS_pwrite64, pwrite);
     register_syscall(map, SYS_open, open);
     register_syscall(map, SYS_openat, openat);
     register_syscall(map, SYS_fstat, fstat);
