@@ -631,8 +631,7 @@ static boolean poll_wait_notify(epollfd efd, u32 events)
     efd->registered = false;
     if (w && !efd->zombie) {
         struct pollfd *pfd = buffer_ref(w->poll_fds, efd->data * sizeof(struct pollfd));
-        if (pfd->revents == 0)
-            fetch_and_add(&w->poll_retcount, 1);
+        fetch_and_add(&w->poll_retcount, 1);
         pfd->revents = events;
         epoll_debug("   event on %d (%d), events %P\n", efd->fd, pfd->fd, pfd->revents);
         epoll_blocked_finish(w, false);
