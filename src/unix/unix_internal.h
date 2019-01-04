@@ -34,6 +34,14 @@ struct linux_dirent {
     */
 };
 
+struct linux_dirent64 {
+    u64            d_ino;    /* 64-bit inode number */
+    u64            d_off;    /* 64-bit offset to next structure */
+    unsigned short d_reclen; /* Size of this dirent */
+    unsigned char  d_type;   /* File type */
+    char           d_name[]; /* Filename (null-terminated) */
+};
+
 /* unix-specific memory objects and ids */
 typedef struct unix_heaps {
     struct kernel_heaps kh;	/* must be first */
