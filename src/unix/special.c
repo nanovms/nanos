@@ -22,7 +22,7 @@ static sysreturn null_read(file f, void *dest, u64 length, u64 offset_arg)
 
 static sysreturn null_write(file f, void *dest, u64 length, u64 offset_arg)
 {
-   return 0;
+   return length;
 }
 
 static u32 urandom_events(file f)
@@ -30,10 +30,15 @@ static u32 urandom_events(file f)
     return EPOLLIN;
 }
 
+static u32 null_events(file f)
+{
+    return EPOLLOUT;
+}
+
 static special_file
 special_files[] = {
     { "/dev/urandom", .read = urandom_read, .write = 0, .events = urandom_events },
-    { "/dev/null", .read = null_read, .write = null_write, .events = 0 },
+    { "/dev/null", .read = null_read, .write = null_write, .events = null_events },
 };
 
 void register_special_files(process p)
