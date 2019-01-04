@@ -145,7 +145,6 @@ int main(int argc, char **argv)
     if (out < 0) {
         halt("couldn't open output file %s\n", argv[1]);
     }
-    ftruncate(out, fs_size);
 
     parser p = tuple_parser(h, closure(h, finish, h), closure(h, perr));
     // this can be streaming

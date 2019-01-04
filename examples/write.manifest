@@ -5,7 +5,6 @@
               hello:(contents:(host:examples/write_contents/hello))
 	      )
     program:/write
-
 #    trace:t
 #    debugsyscalls:t
 #    futex_trace:t

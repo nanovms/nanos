@@ -8,7 +8,8 @@ CFLAGS = -g \
 	 -DENABLE_MSG_DEBUG \
 	 $(includes)
 
-all: fst hw hws hwg getdents udploop web webg webgs webs getrandom mkdir time pipe write sendfile
+all: fst hw hws hwg getdents udploop web webg webgs webs getrandom mkdir time \
+	 pipe write creat sendfile
 
 fst: $(FST)
 
@@ -25,6 +26,8 @@ mkdir: $(MKDIR)
 udploop: $(UDPLOOP)
 
 getrandom: $(GETRANDOM)
+
+creat: $(CREAT)
 
 time: $(TIME)
 
@@ -80,7 +83,6 @@ $(WRITE): HOSTLDFLAGS += -static
 $(WRITE): $(write-objs)
 	$(call cmd,host-prog)
 
-
 sendfile-srcs := \
 	$(ROOT)/examples/sendfile.c
 
@@ -88,7 +90,7 @@ sendfile-objs = $(call srcs-to-objs,$(ROOT),$(OUT),sendfile)
 
 $(SENDFILE): HOSTLDFLAGS += -static
 $(SENDFILE): $(sendfile-objs)
-  $(call cmd,host-prog)
+	$(call cmd,host-prog)
 
 mkdir-srcs := \
 	$(ROOT)/examples/mkdir.c
@@ -146,6 +148,16 @@ $(GETRANDOM): EXTRA_HOSTLDFLAGS = -lm
 $(GETRANDOM): $(getrandom-objs)
 	$(call cmd,host-prog)
 
+creat-srcs := \
+	$(ROOT)/examples/creat.c
+
+creat-objs = $(call srcs-to-objs,$(ROOT),$(OUT),creat)
+
+$(CREAT): HOSTLDFLAGS += -static
+$(CREAT): EXTRA_HOSTLDFLAGS = -lm
+$(CREAT): $(creat-objs)
+	$(call cmd,host-prog)
+
 time-srcs := \
 	$(ROOT)/examples/time.c
 
@@ -183,7 +195,7 @@ pipe-objs = $(call srcs-to-objs,$(ROOT),$(OUT),pipe)
 $(PIPE): HOSTLDFLAGS += -static
 $(PIPE): EXTRA_HOSTLDFLAGS = -lm
 $(PIPE): $(pipe-objs)
-
+	$(call cmd,host-prog)
 
 web-srcs := \
 	$(ROOT)/examples/web.c \
@@ -238,11 +250,11 @@ clean-objs = $(hw-objs) $(web-objs) $(FST) $(HW) $(HWG) $(HWS) $(WEB) $(WEBG) \
 	$(WEBGS) $(WEBS) $(CLOSURE_TMPL) $(getdents-objs) $(GETDENTS) \
 	$(getrandom-objs) $(GETRANDOM) $(udploop-objs) $(UDPLOOP) \
 	$(mkdir-objs) $(MKDIR) $(time-objs) $(TIME) $(write-objs) $(WRITE) \
-	$(pipe-objs) $(PIPE) $(SENDFILE) $(sendfile-objs)
+	$(pipe-objs) $(PIPE) $(creat-objs) $(CREAT) $(sendfile-objs) $(SENDFILE)
 
 clean: default-clean
 
-.PHONY: fst hw hwg hws web webg webgs webs getdents getrandom time udploop mkdir pipe write sendfile
-
+.PHONY: fst hw hwg hws web webg webgs webs getdents getrandom time udploop mkdir \
+	pipe write creat sendfile
 
 include ../rules.mk

@@ -19,7 +19,6 @@ struct virtio_blk_req {
 #define VIRTIO_BLK_S_IOERR     1
 #define VIRTIO_BLK_S_UNSUPP    2
 
-
 static u8 static_zero_buffer[SECTOR_SIZE] __attribute__((aligned(PAGESIZE)));
 
 #ifdef VIRTIO_BLK_DEBUG

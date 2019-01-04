@@ -68,6 +68,7 @@ GETDENTS	= $(ROOT)/output/examples/getdents
 MKDIR		= $(ROOT)/output/examples/mkdir
 UDPLOOP		= $(ROOT)/output/examples/udploop
 GETRANDOM	= $(ROOT)/output/examples/getrandom
+CREAT		= $(ROOT)/output/examples/creat
 TIME    = $(ROOT)/output/examples/time
 PIPE	= $(ROOT)/output/examples/pipe
 WRITE		= $(ROOT)/output/examples/write

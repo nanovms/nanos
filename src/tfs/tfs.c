@@ -236,7 +236,7 @@ void link(tuple dir, fsfile f, buffer name)
     log_write_eav(f->fs->tl, soft_create(f->fs, dir, sym(children)), intern(name), f->md, ignore);
 }
 
-int filesystem_mkentry(filesystem fs, char *fp, tuple entry)
+fs_status filesystem_mkentry(filesystem fs, char *fp, tuple entry)
 {
     tuple children = table_find(fs->root, sym(children));
     symbol basename_sym;
@@ -249,7 +249,7 @@ int filesystem_mkentry(filesystem fs, char *fp, tuple entry)
         if (!t) {
             if (!final) {
                 msg_debug("a path component (\"%s\") is missing\n", token);
-                return -1;
+                return FS_STATUS_NOENT;
             }
 
             basename = token;
@@ -257,13 +257,13 @@ int filesystem_mkentry(filesystem fs, char *fp, tuple entry)
         } else {
             if (final) {
                 msg_debug("final path component (\"%s\") already exists\n", token);
-                return -1;
+                return FS_STATUS_EXIST;
             }
 
             children = table_find(t, sym(children));
             if (!children) {
                 msg_debug("a path component (\"%s\") is not a folder\n", token);
-                return -1;
+                return FS_STATUS_NOTDIR;
             }
         }
     }
@@ -272,9 +272,86 @@ int filesystem_mkentry(filesystem fs, char *fp, tuple entry)
     table_set(children, basename_sym, entry);
     log_write_eav(fs->tl, children, basename_sym, entry, ignore);
     //log_flush(fs->tl);
-    rprintf("mkentry: written!\n");
+    msg_debug("written!\n");
 
-    return 0;
+    return FS_STATUS_OK;
+}
+
+fs_status filesystem_mkdir(filesystem fs, char *fp)
+{
+    tuple dir = allocate_tuple();
+    /* 'make it a folder' by attaching a children node to the tuple */
+    table_set(dir, sym(children), allocate_tuple());
+
+    return filesystem_mkentry(fs, fp, dir);
+}
+
+fs_status filesystem_creat(filesystem fs, char *fp)
+{
+    tuple dir = allocate_tuple();
+    static buffer off = 0;
+
+    if (!off)
+        off = wrap_buffer_cstring(fs->h, "0");
+
+    /* 'make it a file' by adding an empty extents list */
+    table_set(dir, sym(extents), allocate_tuple());
+    table_set(dir, sym(filelength), off);
+
+    fsfile f = allocate_fsfile(fs, dir);
+    fsfile_set_length(f, 0);
+
+    return filesystem_mkentry(fs, fp, dir);
+}
+
+// should be passing status to the client
+static CLOSURE_2_1(read_entire_complete, void, buffer_handler, buffer, status);
+static void read_entire_complete(buffer_handler bh, buffer b, status s)
+{
+    apply(bh, b);
+}
+
+
+// translate symbolic to range trie
+void extent_update(fsfile f, symbol foff, tuple value)
+{
+    u64 length, foffset, boffset;
+    parse_int(alloca_wrap(symbol_string(foff)), 10, &foffset);
+    parse_int(alloca_wrap(table_find(value, sym(length))), 10, &length);
+    parse_int(alloca_wrap(table_find(value, sym(offset))), 10, &boffset);
+    rtrie_insert(f->extents, foffset, length, pointer_from_u64(boffset));
+    // xxx - fix before write
+    //    rtrie_remove(f->fs->free, boffset, length);
+}
+
+fsfile fsfile_from_node(filesystem fs, tuple n)
+{
+    return table_find(fs->files, n);
+}
+
+// cache goes on top
+void filesystem_read_entire(filesystem fs, tuple t, heap h, buffer_handler c, status_handler e)
+{
+    fsfile f;
+    if ((f = table_find(fs->files, t))) {
+        // block read is aligning to the next sector
+        u64 len = pad(fsfile_get_length(f), fs->blocksize);
+        buffer b = allocate_buffer(h, len + 1024);
+        
+        // that means a partial read, right?
+        status_handler c1 = closure(f->fs->h, read_entire_complete, c, b);
+        merge m = allocate_merge(f->fs->h, c1);
+        status_handler k = apply(m); // hold a reference until we're sure we've issued everything
+        rtrie_range_lookup(f->extents, irange(0, len), closure(h, fs_read_extent, fs, b, m, irange(0, len)));
+        apply(k, STATUS_OK);
+    } else {
+        apply(e, timm("status", "no such file %v\n", t));
+    }
+}
+
+void flush(filesystem fs, status_handler s)
+{
+    log_flush(fs->tl);
 }
 
 /* XXX: cbm stuff is temporary */
@@ -366,66 +443,6 @@ struct cbm *cbm_create(heap h, u64 capacity)
     return c;
 }
 
-int filesystem_mkdir(filesystem fs, char *fp)
-{
-    tuple dir = allocate_tuple();
-    /* 'make it a folder' by attaching a children node to the tuple */
-    table_set(dir, sym(children), allocate_tuple());
-
-    return filesystem_mkentry(fs, fp, dir);
-}
-
-// should be passing status to the client
-static CLOSURE_2_1(read_entire_complete, void, buffer_handler, buffer, status);
-static void read_entire_complete(buffer_handler bh, buffer b, status s)
-{
-    apply(bh, b);
-}
-
-
-// translate symbolic to range trie
-void extent_update(fsfile f, symbol foff, tuple value)
-{
-    u64 length, foffset, boffset;
-    parse_int(alloca_wrap(symbol_string(foff)), 10, &foffset);
-    parse_int(alloca_wrap(table_find(value, sym(length))), 10, &length);
-    parse_int(alloca_wrap(table_find(value, sym(offset))), 10, &boffset);
-    rtrie_insert(f->extents, foffset, length, pointer_from_u64(boffset));
-    // xxx - fix before write
-    //    rtrie_remove(f->fs->free, boffset, length);
-}
-
-fsfile fsfile_from_node(filesystem fs, tuple n)
-{
-    return table_find(fs->files, n);
-}
-
-// cache goes on top
-void filesystem_read_entire(filesystem fs, tuple t, heap h, buffer_handler c, status_handler e)
-{
-    fsfile f;
-    if ((f = table_find(fs->files, t))) {
-        // block read is aligning to the next sector
-        u64 len = pad(fsfile_get_length(f), fs->blocksize);
-        buffer b = allocate_buffer(h, len + 1024);
-        
-        // that means a partial read, right?
-        status_handler c1 = closure(f->fs->h, read_entire_complete, c, b);
-        merge m = allocate_merge(f->fs->h, c1);
-        status_handler k = apply(m); // hold a reference until we're sure we've issued everything
-        rtrie_range_lookup(f->extents, irange(0, len), closure(h, fs_read_extent, fs, b, m, irange(0, len)));
-        apply(k, STATUS_OK);
-    } else {
-        apply(e, timm("status", "no such file %v\n", t));
-    }
-}
-
-void flush(filesystem fs, status_handler s)
-{
-    log_flush(fs->tl);
-}
-
-
 void enumerate_files(filesystem fs, tuple root)
 {
     if (root) {
@@ -452,7 +469,6 @@ static void log_complete(filesystem_complete fc, filesystem fs, status s)
     enumerate_files(fs, fsroot);
     apply(fc, fs, s);
 }
-
 
 static CLOSURE_0_2(ignore_io_body, void, status, bytes);
 static void ignore_io_body(status s, bytes length){}

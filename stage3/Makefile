@@ -60,6 +60,7 @@ stage3-srcs = \
 	$(SRC)/unix/poll.c \
 	$(SRC)/unix/path.c \
 	$(SRC)/unix/signal.c \
+	$(SRC)/unix/special.c \
 	$(SRC)/unix/syscall.c \
 	$(SRC)/unix/thread.c \
 	$(SRC)/unix/unix_clock.c \
@@ -106,7 +107,8 @@ stage3-srcs = \
 	$(LWIP)/src/core/tcp.c \
 	$(LWIP)/src/core/timeouts.c \
 	$(LWIP)/src/core/udp.c \
-	$(LWIP)/src/netif/ethernet.c \
+	$(LWIP)/src/api/err.c \
+	$(LWIP)/src/netif/ethernet.c
 
 stage3-objs = $(call srcs-to-objs,$(ROOT),$(OUT),stage3)
 
