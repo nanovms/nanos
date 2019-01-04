@@ -83,13 +83,14 @@ static inline u32 socket_poll_events(sock s)
 	if (s->info.tcp.state == TCP_SOCK_LISTENING) {
 	    return in ? EPOLLIN : 0;
 	} else if (s->info.tcp.state == TCP_SOCK_OPEN) {
-	    return in ? EPOLLIN | EPOLLRDNORM : 0;
+            /* TODO: should use tcp_write_checks() for EPOLLOUT | EPOLLWRNORM? */
+	    return (in ? EPOLLIN | EPOLLRDNORM : 0) | EPOLLOUT | EPOLLWRNORM;
 	} else {
 	    return EPOLLIN | EPOLLHUP | EPOLLRDHUP | EPOLLRDNORM;
 	}
     }
     assert(s->type == SOCK_DGRAM);
-    return in ? EPOLLIN | EPOLLRDNORM : 0;
+    return (in ? EPOLLIN | EPOLLRDNORM : 0) | EPOLLOUT | EPOLLWRNORM;
 }
 
 static inline boolean notify_enqueue(sock s, u32 eventmask, u32 * last, event_handler eh)
@@ -167,12 +168,12 @@ static void remote_sockaddr_in(sock s, struct sockaddr_in *sin)
     if (s->type == SOCK_STREAM) {
 	struct tcp_pcb * lw = s->info.tcp.lw;
 	sin->port = ntohs(lw->remote_port);
-	sin->address = ntohl(*(u32 *)&lw->remote_ip);
+	sin->address = ip4_addr_get_u32(&lw->remote_ip);
     } else {
 	assert(s->type == SOCK_DGRAM);
 	struct udp_pcb * lw = s->info.udp.lw;
 	sin->port = ntohs(lw->remote_port);
-	sin->address = ntohl(*(u32 *)&lw->remote_ip);
+	sin->address = ip4_addr_get_u32(&lw->remote_ip);
     }
 }
 
@@ -241,15 +242,15 @@ static void read_complete(sock s, thread t, void *dest, u64 length, boolean slee
 	       fill the request size. This will suffice for now,
 	       albeit with less efficiency. */
 	    p = queue_peek(s->incoming);
-	    raddr = ntohl(*(u32 *)&s->info.tcp.lw->remote_ip);
-	    rport = ntohs(s->info.tcp.lw->remote_port);
+	    raddr = ip4_addr_get_u32(&s->info.tcp.lw->remote_ip);
+	    rport = htons(s->info.tcp.lw->remote_port);
 	} else {
 	    assert(s->type == SOCK_DGRAM);
 	    struct udp_entry * e = queue_peek(s->incoming);
 	    if (e) {
 		p = e->p;
 		raddr = e->raddr;
-		rport = e->rport;
+		rport = htons(e->rport);
 	    }
 	}
 
@@ -619,9 +620,10 @@ sysreturn connect(int sockfd, struct sockaddr * addr, socklen_t addrlen)
             msg_warn("attempt to connect on listening socket fd = %d; ignored\n", sockfd);
 	    err = ERR_ARG;
 	}
+	err = connect_tcp(s, &ipaddr, ntohs(sin->port));
     } else if (s->type == SOCK_DGRAM) {
 	/* Set remote endpoint */
-	err = udp_connect(s->info.udp.lw, &ipaddr, sin->port);
+	err = udp_connect(s->info.udp.lw, &ipaddr, ntohs(sin->port));
     } else {
 	msg_err("can't connect on socket type %d\n", s->type);
 	return -EINVAL;
@@ -677,7 +679,7 @@ sysreturn sendto(int sockfd, void * buf, u64 len, int flags,
 	ip_addr_t ipaddr = IPADDR4_INIT(sin->address);
 	if (addrlen < sizeof(*sin))
 	    return -EINVAL;
-	err = udp_connect(s->info.udp.lw, &ipaddr, sin->port);
+	err = udp_connect(s->info.udp.lw, &ipaddr, ntohs(sin->port));
         if (err != ERR_OK) {
             msg_err("udp_connect failed: %s\n", lwip_strerr(err));
             return lwip_to_errno(err);
