@@ -517,6 +517,50 @@ static sysreturn file_write(file f, void *dest, u64 length, u64 offset_arg)
     thread_sleep(current);
 }
 
+static CLOSURE_5_2(file_op_complete_internal, void, thread, file, file, int, void*, status, bytes);
+static void file_op_complete_internal(thread t, file inf, file ouf, int offset_adjust, void* buf, status s, bytes length)
+{
+    buffer b;
+
+    thread_log(current, "%s: len %d, status %v (%s)\n", __func__,
+            length, s, is_ok(s) ? "OK" : "NOTOK");
+    if (is_ok(s)) {
+        if (offset_adjust)
+	        inf->offset += length;
+        b = wrap_buffer(heap_general(get_kernel_heaps()), buf, length);
+        filesystem_write(current->p->fs, ouf->n, b, ouf->offset,
+                closure(heap_general(get_kernel_heaps()), file_op_complete, current, ouf, 1));
+    } else {
+        deallocate_buffer(buf);
+        set_syscall_error(t, EIO);
+        thread_wakeup(current);
+    }
+}
+
+
+static sysreturn sendfile(int outfile, int infile, unsigned long *offs, bytes count)
+{
+    file inf = resolve_fd(current->p, infile);
+    file ouf = resolve_fd(current->p, outfile);
+    heap h = heap_general(get_kernel_heaps());
+    void *buf = allocate(h, count);
+    int offset_adjust = (offs == 0);	/* adjust only if offs is NULL */
+    s64 offset = (s64)(offset_adjust == 1) ? inf->offset : *offs;
+
+    if (!inf->read || !ouf->write)
+      return set_syscall_error(current, EINVAL);
+    if ((inf->offset + count) > inf->length)
+        return set_syscall_error(current, EINVAL);
+
+    filesystem_read(current->p->fs, inf->n, buf, count, offset,
+	closure(h, file_op_complete_internal, current, inf, ouf, offset_adjust, buf));
+
+    thread_sleep(current);
+    return count;
+}
+
+
+
 static CLOSURE_1_0(file_close, sysreturn, file);
 static sysreturn file_close(file f)
 {
@@ -1022,6 +1066,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_open, open);
     register_syscall(map, SYS_openat, openat);
     register_syscall(map, SYS_fstat, fstat);
+    register_syscall(map, SYS_sendfile, sendfile);
     register_syscall(map, SYS_stat, stat);
     register_syscall(map, SYS_lstat, stat);
     register_syscall(map, SYS_writev, writev);
