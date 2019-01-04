@@ -116,8 +116,10 @@ static void remove_internal(rtrie rt, rtnode *w, struct range k)
     rtnode r = *w;
     range extra_k = (range){0, 0}, here, extra_here;
 
+    here = (range){0,0xff}; // FIX THIS!! Code wasn't initializing here and getting lucky.
+
     if (r) {
-        range d1 = k, d2 = (range){0,0};        
+        //range d1 = k, d2 = (range){0,0};        
         range i = range_intersection(r->r, k);
         if (!range_empty(i)) {
             cut(k, i, &k, &extra_k);
@@ -200,12 +202,17 @@ static u64 rtrie_extent_max(rtnode r)
     u64 k;
     if (!r) return 0;
     if (!(k = rtrie_extent_max(r->children[1]))) return (r->r.end);
+
+    // Return something by default to avoid warning
+    return 0;
 }
  
 static u64 rtrie_extent_min(rtnode r)
 {
     if (!r) return 0;
     if (!rtrie_extent_min(r->children[0])) return (r->r.start);
+
+    return 0;
 }
 
 void rtrie_extent(rtrie r, u64 *min, u64 *max)

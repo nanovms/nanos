@@ -100,7 +100,8 @@ static void format_hex_buffer(buffer dest, buffer fmt, vlist *a)
 
 static void format_time(buffer dest, buffer fmt, vlist *a)
 {
-    time t = varg(*a, time);
+    timestamp t = varg(*a, timestamp);
+    
     // XXX rudimentary
     bprintf(dest, "%ds%dns", sec_from_time(t), nsec_from_time(t));
 }

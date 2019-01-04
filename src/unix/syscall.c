@@ -1,5 +1,6 @@
 #include <unix_internal.h>
 #include <metadata.h>
+#include <path.h>
 
 // lifted from linux UAPI
 #define DT_UNKNOWN	0
@@ -358,12 +359,14 @@ char *syscall_name(int x)
         if (syscall_codes[i].c == x) 
             return syscall_codes[i].n;
     }
-    return ("invalidine syscall");
+    return ("invalid syscall");
 }
 
 sysreturn read(int fd, u8 *dest, bytes length)
 {
     file f = resolve_fd(current->p, fd);
+    if (!f->read)
+        return set_syscall_error(current, EINVAL);
 
     /* use (and update) file offset */
     return apply(f->read, dest, length, infinity);
@@ -372,8 +375,7 @@ sysreturn read(int fd, u8 *dest, bytes length)
 sysreturn pread(int fd, u8 *dest, bytes length, s64 offset)
 {
     file f = resolve_fd(current->p, fd);
-
-    if (offset < 0)
+    if (!f->read || offset < 0)
 	return set_syscall_error(current, EINVAL);
 
     /* use given offset with no file offset update */
@@ -383,17 +385,74 @@ sysreturn pread(int fd, u8 *dest, bytes length, s64 offset)
 sysreturn write(int fd, u8 *body, bytes length)
 {
     file f = resolve_fd(current->p, fd);        
-    int res = apply(f->write, body, length, f->offset);
-    f->offset += length;
-    return res;
+    if (!f->write)
+        return set_syscall_error(current, EINVAL);
+
+    /* use (and update) file offset */
+    return apply(f->write, body, length, infinity);
+}
+
+sysreturn pwrite(int fd, u8 *body, bytes length, s64 offset)
+{
+    file f = resolve_fd(current->p, fd);
+    if (!f->write || offset < 0)
+        return set_syscall_error(current, EINVAL);
+
+    return apply(f->write, body, length, offset);
+}
+
+sysreturn sysreturn_from_fs_status(fs_status s)
+{
+    switch (s) {
+    case FS_STATUS_OK:
+        return 0;
+    case FS_STATUS_NOENT:
+        return -ENOENT;
+    case FS_STATUS_EXIST:
+        return -EEXIST;
+    case FS_STATUS_NOTDIR:
+        return -ENOTDIR;
+    default:
+        halt("status %d, update %s\n", s, __func__);
+        return 0;               /* suppress warn */
+    }
+}
+
+static sysreturn do_mkent(const char *pathname, int mode, boolean dir)
+{
+    heap h = heap_general(get_kernel_heaps());
+    buffer cwd = wrap_buffer_cstring(h, "/"); /* XXX */
+
+    if (!pathname)
+        return set_syscall_error(current, EFAULT);
+
+    /* canonicalize the path */
+    char *final_path = canonicalize_path(h, cwd,
+            wrap_buffer_cstring(h, (char *)pathname));
+
+    thread_log(current, "%s: %s (mode %d) pathname %s => %s\n",
+               __func__, dir ? "mkdir" : "creat", mode, pathname, final_path);
+
+    sysreturn r = dir ? filesystem_mkdir(current->p->fs, final_path) :
+        filesystem_creat(current->p->fs, final_path);
+    return set_syscall_return(current, sysreturn_from_fs_status(r));
+}
+
+static boolean is_dir(tuple n)
+{
+    return children(n) ? true : false;
+}
+
+static boolean is_special(tuple n)
+{
+    return table_find(n, sym(special)) ? true : false;
 }
 
 static CLOSURE_3_2(file_op_complete, void, thread, file, boolean, status, bytes);
 static void file_op_complete(thread t, file f, boolean is_file_offset, status s, bytes length)
 {
-     thread_log(current, "%s: len %d, status %v (%s)\n", __func__,
+    thread_log(current, "%s: len %d, status %v (%s)\n", __func__,
             length, s, is_ok(s) ? "OK" : "NOTOK");
-
     if (is_ok(s)) {
         if (is_file_offset)	/* vs specified offset (pread) */
             f->offset += length;
@@ -403,6 +462,59 @@ static void file_op_complete(thread t, file f, boolean is_file_offset, status s,
         set_syscall_error(t, EIO);
     }
     thread_wakeup(t);
+}
+
+static CLOSURE_1_3(file_read, sysreturn, file, void *, u64, u64);
+static sysreturn file_read(file f, void *dest, u64 length, u64 offset_arg)
+{
+    boolean is_file_offset = offset_arg == infinity;
+    bytes offset = is_file_offset ? f->offset : offset_arg;
+    thread_log(current, "%s: %v, dest %p, length %d, offset %d (%s)\n",
+            __func__, f->n, dest, length, offset, is_file_offset ? "infinity" : "exact");
+
+    if (is_special(f->n)) {
+        return spec_read(f, dest, length, offset);
+    }
+  
+    if (offset < f->length) {
+        filesystem_read(current->p->fs, f->n, dest, length, offset,
+                closure(heap_general(get_kernel_heaps()),
+                    file_op_complete, current, f, is_file_offset));
+
+        /* XXX Presently only support blocking file reads... */
+        thread_sleep(current);
+    } else {
+        /* XXX special handling for holes will need to go here */
+        return 0;
+    }
+}
+
+#define PAD_WRITES 0
+
+static CLOSURE_1_3(file_write, sysreturn, file, void *, u64, u64);
+static sysreturn file_write(file f, void *dest, u64 length, u64 offset_arg)
+{
+    thread_log(current, "%s: %v, dest %p, length %d, offset_arg %d\n",
+            __func__, f->n, dest, length, offset_arg);
+    boolean is_file_offset = offset_arg == infinity;
+    bytes offset = is_file_offset ? f->offset : offset_arg;
+    heap h = heap_general(get_kernel_heaps());
+
+    u64 final_length = PAD_WRITES ? pad(length, SECTOR_SIZE) : length;
+    void *buf = allocate(h, final_length);
+
+    /* copy from userspace, XXX: check pointer safety */
+    runtime_memset(buf, 0, final_length);
+    runtime_memcpy(buf, dest, length);
+
+    buffer b = wrap_buffer(h, buf, final_length);
+    thread_log(current, "%s: b_ref: %p\n", __func__, buffer_ref(b, 0));
+
+    filesystem_write(current->p->fs, f->n, b, offset,
+            closure(h, file_op_complete, current, f, is_file_offset));
+
+    /* XXX Presently only support blocking file writes... */
+    thread_sleep(current);
 }
 
 static CLOSURE_5_2(file_op_complete_internal, void, thread, file, file, int, void*, status, bytes);
@@ -425,8 +537,174 @@ static void file_op_complete_internal(thread t, file inf, file ouf, int offset_a
     }
 }
 
+
+static sysreturn sendfile(int outfile, int infile, unsigned long *offs, bytes count)
+{
+    file inf = resolve_fd(current->p, infile);
+    file ouf = resolve_fd(current->p, outfile);
+    heap h = heap_general(get_kernel_heaps());
+    void *buf = allocate(h, count);
+    int offset_adjust = (offs == 0);	/* adjust only if offs is NULL */
+    s64 offset = (s64)(offset_adjust == 1) ? inf->offset : *offs;
+
+    if (!inf->read || !ouf->write)
+      return set_syscall_error(current, EINVAL);
+    if ((inf->offset + count) > inf->length)
+        return set_syscall_error(current, EINVAL);
+
+    filesystem_read(current->p->fs, inf->n, buf, count, offset,
+	closure(h, file_op_complete_internal, current, inf, ouf, offset_adjust, buf));
+
+    thread_sleep(current);
+    return count;
+}
+
+
+
+static CLOSURE_1_0(file_close, sysreturn, file);
+static sysreturn file_close(file f)
+{
+    unix_cache_free(get_unix_heaps(), file, f);
+    return 0;
+}
+
+/* XXX this needs to move - with the notify stuff in netsyscall - to
+   generic file routines (and make static inline) */
+u32 edge_events(u32 masked, u32 eventmask, u32 last)
+{
+    u32 r;
+    /* report only rising events if edge triggered */
+    if ((eventmask & EPOLLET) && (masked != last)) {
+	r = (masked ^ last) & masked;
+    } else {
+	r = masked;
+    }
+    return r;
+}
+
+static CLOSURE_1_3(file_check, boolean, file, u32, u32 *, event_handler);
+static boolean file_check(file f, u32 eventmask, u32 * last, event_handler eh)
+{
+    thread_log(current, "file_check: file %t, eventmask %P, last %P, event_handler %p\n",
+	       f->n, eventmask, last ? *last : 0, eh);
+
+    u32 events;
+    if (is_special(f->n)) {
+        events = spec_events(f);
+    } else {
+        /* No support for non-blocking XXXX
+           Also, if and when we have some degree of file caching and want
+           to support the above, don't rewrite it but factor out the
+           notify list stuff from netsyscall.c to share with files.
+        */
+        events = f->length < infinity ? EPOLLOUT : 0;
+        events |= f->offset < f->length ? EPOLLIN : EPOLLHUP;
+    }
+    u32 masked = events & eventmask;
+    u32 r = edge_events(masked, eventmask, last ? *last : 0);
+    if (last)
+        *last = masked;
+    if (r)
+	return apply(eh, r);
+    return true;
+}
+
+sysreturn open_internal(tuple root, char *name, int flags, int mode)
+{
+    heap h = heap_general(get_kernel_heaps());
+    unix_heaps uh = get_unix_heaps();
+    tuple n = resolve_cstring(root, name);
+
+    if ((flags & O_CREAT)) {
+        if (n && (flags & O_EXCL)) {
+            rprintf("open %s with O_EXCL - already exists\n", name);
+            return set_syscall_error(current, EEXIST);
+        } else if (!n) {
+            sysreturn rv = do_mkent(name, mode, false);
+            if (rv)
+                return rv;
+            /* XXX We could rearrange calls to return tuple instead of
+               status; though this serves as a sanity check. */
+            n = resolve_cstring(root, name);
+        }
+    }
+
+    if (!n) {
+        rprintf("open %s - not found\n", name);
+        return set_syscall_error(current, ENOENT);
+    }
+    u64 length = 0;
+    if (!is_dir(n) && !is_special(n)) {
+        fsfile fsf = fsfile_from_node(current->p->fs, n);
+        if (!fsf) {
+            msg_err("can't find fsfile (%t)\n", n);
+            return set_syscall_error(current, ENOENT);
+        }
+        length = fsfile_get_length(fsf);
+    }
+    // might be functional, or be a directory
+    file f = unix_cache_alloc(uh, file);
+    if (f == INVALID_ADDRESS) {
+        msg_err("failed to allocate struct file\n");
+        return set_syscall_error(current, ENOMEM);
+    }
+    int fd = allocate_fd(current->p, f);
+    if (fd == INVALID_PHYSICAL) {
+        unix_cache_free(uh, file, f);
+        return set_syscall_error(current, EMFILE);
+    }
+    f->n = n;
+    f->read = closure(h, file_read, f);
+    f->write = closure(h, file_write, f);
+    f->close = closure(h, file_close, f);
+    f->check = closure(h, file_check, f);
+    f->length = length;
+    f->offset = 0;
+    thread_log(current, "   fd %d, file length %d\n", fd, f->length);
+    return fd;
+}
+
+sysreturn open(char *name, int flags, int mode)
+{
+    if (name == 0) 
+        return set_syscall_error (current, EFAULT);
+    thread_log(current, "open: \"%s\", flags %P, mode %P\n", name, flags, mode);
+    return open_internal(current->p->cwd, name, flags, mode);
+}
+
+sysreturn mkdir(const char *pathname, int mode)
+{
+    return do_mkent(pathname, mode, true);
+}
+
+sysreturn creat(const char *pathname, int mode)
+{
+    if (!pathname)
+        return set_syscall_error (current, EFAULT);
+    thread_log(current, "creat: \"%s\", mode %P\n", pathname, mode);
+    return open_internal(current->p->cwd, (char *)pathname, O_CREAT|O_WRONLY|O_TRUNC, mode);
+}
+
+sysreturn getrandom(void *buf, u64 buflen, unsigned int flags)
+{
+    heap h = heap_general(get_kernel_heaps());
+    buffer b;
+
+    if (!buf)
+        return set_syscall_error(current, EFAULT);
+
+    if (!buflen)
+        return set_syscall_error(current, EINVAL);
+
+    if (flags & ~(GRND_NONBLOCK | GRND_RANDOM))
+        return set_syscall_error(current, EINVAL);
+
+    b = wrap_buffer(h, buf, buflen);
+    return do_getrandom(b, (u64) flags);
+}
+
 static int try_write_dirent(struct linux_dirent *dirp, char *p,
-        int *read_sofar, int *written_sofar, int *f_offset,
+        int *read_sofar, int *written_sofar, u64 *f_offset,
         unsigned int *count, int ft)
 {
     int len = runtime_strlen(p);
@@ -440,7 +718,7 @@ static int try_write_dirent(struct linux_dirent *dirp, char *p,
             return -1;
         } else {
             // include the entry in the buffer
-            runtime_memset(dirp, 0, reclen);
+            runtime_memset((u8*)dirp, 0, reclen);
             dirp->d_ino = 0; /* XXX */
             dirp->d_reclen = reclen;
             runtime_memcpy(dirp->d_name, p, len + 1);
@@ -506,189 +784,17 @@ done:
 sysreturn writev(int fd, iovec v, int count)
 {
     int res;
-    file f = resolve_fd(current->p, fd);
+    resolve_fd(current->p, fd);
     for (int i = 0; i < count; i++) res += write(fd, v[i].address, v[i].length);
     return res;
 }
 
 static sysreturn access(char *name, int mode)
 {
-    void *where;
-    bytes length;
     if (!resolve_cstring(current->p->cwd, name)) {
         return set_syscall_error(current, ENOENT);
     }
     return 0;
-}
-
-
-static CLOSURE_1_3(file_read, sysreturn, file, void *, u64, u64);
-static sysreturn file_read(file f, void *dest, u64 length, u64 offset_arg)
-{
-    boolean is_file_offset = offset_arg == infinity;
-    bytes offset = is_file_offset ? f->offset : offset_arg;
-    thread_log(current, "%s: %v, dest %p, length %d, offset %d (%s)\n",
-            __func__, f->n, dest, length, offset, is_file_offset ? "infinity" : "exact");
-
-    if (offset < f->length) {
-        filesystem_read(current->p->fs, f->n, dest, length, offset,
-                closure(heap_general(get_kernel_heaps()),
-                    file_op_complete, current, f, is_file_offset));
-
-        /* XXX Presently only support blocking file reads... */
-        thread_sleep(current);
-    } else {
-        /* XXX special handling for holes will need to go here */
-        set_syscall_return(current, 0);
-    }
-}
-
-#define PAD_WRITES 0
-
-static CLOSURE_1_3(file_write, sysreturn, file, void *, u64, u64);
-static sysreturn file_write(file f, void *dest, u64 length, u64 offset_arg)
-{
-    thread_log(current, "%s: %v, dest %p, length %d, offset_arg %d\n",
-            __func__, f->n, dest, length, offset_arg);
-    boolean is_file_offset = offset_arg == infinity;
-    bytes offset = is_file_offset ? f->offset : offset_arg;
-    heap h = heap_general(get_kernel_heaps());
-
-    u64 final_length = PAD_WRITES ? pad(length, SECTOR_SIZE) : length;
-    void *buf = allocate(h, final_length);
-
-    /* copy from userspace, XXX: check pointer safety */
-    runtime_memset(buf, 0, final_length);
-    runtime_memcpy(buf, dest, length);
-
-    buffer b = wrap_buffer(h, buf, final_length);
-    thread_log(current, "%s: b_ref: %p\n", __func__, buffer_ref(b, 0));
-
-    filesystem_write(current->p->fs, f->n, b, offset,
-            closure(h, file_op_complete, current, f, is_file_offset));
-
-    /* XXX Presently only support blocking file writes... */
-    thread_sleep(current);
-}
-
-static sysreturn sendfile(int outfile, int infile, unsigned long *offs, bytes count)
-{
-    file inf = resolve_fd(current->p, infile);
-    file ouf = resolve_fd(current->p, outfile);
-    heap h = heap_general(get_kernel_heaps());
-    buffer b;
-    void *buf = allocate(h, count);
-    int res = 0;
-    int tmp;
-    int offset_adjust = (offs == (char*)0);	/* adjust only if offs is NULL */
-    s64 offset = (s64)(offset_adjust == 1) ? inf->offset : *offs;
-
-    if (!inf || !ouf)
-        return set_syscall_error(current, EBADF);
-    if (!inf->read || !ouf->write)
-      return set_syscall_error(current, EINVAL);
-    if ((inf->offset + count) > inf->length)
-        return set_syscall_error(current, EINVAL);
-
-    filesystem_read(current->p->fs, inf->n, buf, count, offset,
-	closure(h, file_op_complete_internal, current, inf, ouf, offset_adjust, buf));
-
-    thread_sleep(current);
-    return count;
-}
-
-
-
-static CLOSURE_1_0(file_close, sysreturn, file);
-static sysreturn file_close(file f)
-{
-    unix_cache_free(get_unix_heaps(), file, f);
-    return 0;
-}
-
-/* XXX this needs to move - with the notify stuff in netsyscall - to
-   generic file routines (and make static inline) */
-u32 edge_events(u32 masked, u32 eventmask, u32 last)
-{
-    u32 r;
-    /* report only rising events if edge triggered */
-    if ((eventmask & EPOLLET) && (masked != last)) {
-	r = (masked ^ last) & masked;
-    } else {
-	r = masked;
-    }
-    return r;
-}
-
-static CLOSURE_1_3(file_check, boolean, file, u32, u32 *, event_handler);
-static boolean file_check(file f, u32 eventmask, u32 * last, event_handler eh)
-{
-    thread_log(current, "file_check: file %t, eventmask %P, last %P, event_handler %p\n",
-	       f->n, eventmask, *last, eh);
-
-    /* No support for non-blocking XXXX
-       Also, if and when we have some degree of file caching and want
-       to support the above, don't rewrite it but factor out the
-       notify list stuff from netsyscall.c to share with files.
-    */
-    u32 events = f->length < infinity ? EPOLLOUT : 0;
-    events |= f->offset < f->length ? EPOLLIN : EPOLLHUP;
-    u32 masked = events & eventmask;
-    u32 r = edge_events(masked, eventmask, *last);
-    *last = masked;
-    if (r)
-	return apply(eh, r);
-    return true;
-}
-
-static boolean is_dir(tuple n)
-{
-    return children(n) ? true : false;
-}
-
-sysreturn open_internal(tuple root, char *name, int flags, int mode)
-{
-    tuple n;
-    heap h = heap_general(get_kernel_heaps());
-    unix_heaps uh = get_unix_heaps();
-       // fix - lookup should be robust
-    if (!(n = resolve_cstring(root, name))) {
-        rprintf("open %s - not found\n", name);
-        return set_syscall_error(current, ENOENT);
-    }
-    fsfile fsf = fsfile_from_node(current->p->fs, n);
-    if (!fsf && !is_dir(n)) {
-        msg_err("can't find fsfile\n");
-        return set_syscall_error(current, ENOENT);
-    }
-    // might be functional, or be a directory
-    file f = unix_cache_alloc(uh, file);
-    if (f == INVALID_ADDRESS) {
-        msg_err("failed to allocate struct file\n");
-        return set_syscall_error(current, ENOMEM);
-    }
-    int fd = allocate_fd(current->p, f);
-    if (fd == INVALID_PHYSICAL) {
-        unix_cache_free(uh, file, f);
-        return set_syscall_error(current, EMFILE);
-    }
-    f->n = n;
-    f->read = closure(h, file_read, f);
-    f->write = closure(h, file_write, f);
-    f->close = closure(h, file_close, f);
-    f->check = closure(h, file_check, f);
-    f->length = is_dir(n) ? 0 : fsfile_get_length(fsf);
-    f->offset = 0;
-    thread_log(current, "   fd %d, file length %d\n", fd, f->length);
-    return fd;
-}
-
-sysreturn open(char *name, int flags, int mode)
-{
-    if (name == 0) 
-        return set_syscall_error (current, EINVAL);
-    thread_log(current, "open: \"%s\", flags %P, mode %P\n", name, flags, mode);
-    return open_internal(current->p->cwd, name, flags, mode);
 }
 
 /*
@@ -705,7 +811,6 @@ If pathname is absolute, then dirfd is ignore
 */
 sysreturn openat(int dirfd, char *name, int flags, int mode)
 {
-    tuple n;
     if (name == 0)
         return set_syscall_error (current, EINVAL);
     // dirfs == AT_FDCWS or path is absolute
@@ -718,30 +823,38 @@ sysreturn openat(int dirfd, char *name, int flags, int mode)
 
 static void fill_stat(tuple n, struct stat *s)
 {
-    zero(s, sizeof(struct stat));
     s->st_dev = 0;
     s->st_ino = u64_from_pointer(n);
-    if (table_find(n, sym(children))) {
+    s->st_size = 0;
+    if (is_dir(n)) {
         s->st_mode = S_IFDIR | 0777;
         return;
+    } else if (!is_special(n)) {
+        fsfile f = fsfile_from_node(current->p->fs, n);
+        if (!f) {
+            msg_err("can't find fsfile\n");
+            return;
+        }
+        s->st_size = fsfile_get_length(f);
     }
     fsfile f = fsfile_from_node(current->p->fs, n);
     if (!f) {
-	msg_err("can't find fsfile\n");
-	return;
+        msg_err("can't find fsfile\n");
+        return;
     }
-    s->st_mode = S_IFREG | 0644;
+    s->st_mode = S_IFREG | 0644; /* TODO */
     s->st_size = fsfile_get_length(f);
     thread_log(current, "st_ino %P, st_mode %P, st_size %P\n",
-	       s->st_ino, s->st_mode, s->st_size);
+            s->st_ino, s->st_mode, s->st_size);
 }
 
 static sysreturn fstat(int fd, struct stat *s)
 {
     thread_log(current, "fd %d, stat %p\n", fd, s);
     file f = resolve_fd(current->p, fd);
+    zero(s, sizeof(struct stat));
     // take this from tuple space
-    if (fd == 1) {
+    if (fd == 0 || fd == 1 || fd == 2) {
         s->st_mode = S_IFIFO;
         return 0;
     }
@@ -771,7 +884,6 @@ sysreturn lseek(int fd, s64 offset, int whence)
 
     file f = resolve_fd(current->p, fd);
     s64 new;
-    s64 curr_offset = (s64) f->offset;
 
     switch (whence) {
         case SEEK_SET:
@@ -809,6 +921,12 @@ sysreturn uname(struct utsname *v)
     char sys[] = "pugnix";
     runtime_memcpy(v->sysname,sys, sizeof(sys));
     runtime_memcpy(v->release, rel, sizeof(rel));
+    return 0;
+}
+
+// we dont limit anything now.
+sysreturn setrlimit(int resource, const struct rlimit *rlim)
+{
     return 0;
 }
 
@@ -855,32 +973,16 @@ static sysreturn brk(void *x)
     return sysreturn_from_pointer(p->brk);
 }
 
-sysreturn readlink_internal(tuple root, const char *pathname, char *buf, u64 sz) {
-    tuple n;
-    if (!(n = resolve_cstring(root, pathname))) {
-        return set_syscall_error(current, ENOENT);
-    }
-    int nbytes = MIN(runtime_strlen(pathname), sz);
-    runtime_memcpy(buf, pathname, nbytes);
-    return nbytes;
-}
-
-// mkfs resolve all symbolic links, so just need to
-// return pathname in buf
+// mkfs resolve all symbolic links, so we
+// have no symbolic links.
 sysreturn readlink(const char *pathname, char *buf, u64 bufsiz)
-{   
-    return readlink_internal(current->p->cwd, pathname, buf ,bufsiz);
+{
+    return set_syscall_error(current, EINVAL);
 }
 
 sysreturn readlinkat(int dirfd, const char *pathname, char *buf, u64 bufsiz)
 {
-    if (dirfd == AT_FDCWD) {
-        return readlink(pathname, buf, bufsiz);
-    } else if(*pathname == '/') {
-        return readlink_internal(current->p->process_root, pathname, buf, bufsiz);
-    }
-    file f = resolve_fd(current->p, dirfd);
-    return readlink_internal(f->n, pathname, buf, bufsiz);
+    return set_syscall_error(current, EINVAL);
 }
 
 sysreturn close(int fd)
@@ -895,7 +997,22 @@ sysreturn close(int fd)
 
 sysreturn fcntl(int fd, int cmd)
 {
-    return O_RDWR;
+    switch (cmd) {
+    case F_GETFL:
+        return O_RDWR;
+    default:
+        return set_syscall_error(current, ENOSYS);
+    }
+}
+
+sysreturn ioctl(int fd, unsigned long request, ...)
+{
+    switch (request) {
+    case FIONBIO:
+        return 0;
+    default:
+        return set_syscall_error(current, ENOSYS);
+    }
 }
 
 sysreturn syscall_ignore()
@@ -921,9 +1038,23 @@ void exit(int code)
     while(1); //compiler put a noreturn on exit
 }
 
-void exit_group(int status){
+sysreturn  exit_group(int status){
     halt("exit_group");
     while(1);
+    return 0;
+}
+
+sysreturn pipe2(int fds[2], int flags)
+{
+    if (flags & ~(O_CLOEXEC | O_NONBLOCK))
+        return set_syscall_error(current, EINVAL);
+
+    return do_pipe2(fds, flags);
+}
+
+sysreturn pipe(int fds[2])
+{
+    return pipe2(fds, 0);
 }
 
 void register_file_syscalls(void **map)
@@ -931,15 +1062,18 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_read, read);
     register_syscall(map, SYS_pread64, pread);
     register_syscall(map, SYS_write, write);
+    register_syscall(map, SYS_pwrite64, pwrite);
     register_syscall(map, SYS_open, open);
     register_syscall(map, SYS_openat, openat);
     register_syscall(map, SYS_fstat, fstat);
     register_syscall(map, SYS_sendfile, sendfile);
     register_syscall(map, SYS_stat, stat);
+    register_syscall(map, SYS_lstat, stat);
     register_syscall(map, SYS_writev, writev);
     register_syscall(map, SYS_access, access);
     register_syscall(map, SYS_lseek, lseek);
     register_syscall(map, SYS_fcntl, fcntl);
+    register_syscall(map, SYS_ioctl, (sysreturn (*)())ioctl);
     register_syscall(map, SYS_getcwd, getcwd);
     register_syscall(map, SYS_readlink, readlink);
     register_syscall(map, SYS_readlinkat, readlinkat);
@@ -948,10 +1082,16 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_brk, brk);
     register_syscall(map, SYS_uname, uname);
     register_syscall(map, SYS_getrlimit, getrlimit);
+    register_syscall(map, SYS_setrlimit, setrlimit);
     register_syscall(map, SYS_getpid, getpid);    
     register_syscall(map,SYS_exit_group, exit_group);
     register_syscall(map, SYS_exit, (sysreturn (*)())exit);
     register_syscall(map, SYS_getdents, getdents);
+    register_syscall(map, SYS_mkdir, mkdir);
+    register_syscall(map, SYS_getrandom, getrandom);
+    register_syscall(map, SYS_pipe, pipe);
+    register_syscall(map, SYS_pipe2, pipe2);
+    register_syscall(map, SYS_creat, creat);
 }
 
 void *linux_syscalls[SYS_MAX];
@@ -977,13 +1117,14 @@ static void syscall_debug()
 {
     u64 *f = current->frame;
     int call = f[FRAME_VECTOR];
-    if (table_find(current->p->process_root, sym(debugsyscalls)))
+    void *debugsyscalls = table_find(current->p->process_root, sym(debugsyscalls));
+    if(debugsyscalls)  
         thread_log(current, syscall_name(call));
     sysreturn (*h)(u64, u64, u64, u64, u64, u64) = current->p->syscall_handlers[call];
-    sysreturn res = -ENOENT;
+    sysreturn res = -ENOSYS;
     if (h) {
         res = h(f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]);
-    } else {
+    } else if (debugsyscalls) {
         rprintf("nosyscall %s\n", syscall_name(call));
     }
     set_syscall_return(current, res);

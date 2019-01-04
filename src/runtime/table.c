@@ -44,6 +44,7 @@ static inline key position(int buckets, key x)
 void *table_find (table z, void *c)
 {
     table t = valueof(z);
+    assert(t);
     key k = t->key_function(c);
     for (entry i = t->entries[position(t->buckets, k)]; i; i = i->next){
         if ((i->k == k) && t->equals_function(i->c, c))

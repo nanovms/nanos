@@ -58,7 +58,7 @@ static inline void format_pointer(buffer dest, buffer fmt, vlist *a)
     print_number(dest, x, 16, 8);
 }
 
-static void format_number(buffer dest, buffer fmt, vlist *a)
+static inline void format_number(buffer dest, buffer fmt, vlist *a)
 {
     // ehh - move to def
     u64 x = varg(*a, u32);

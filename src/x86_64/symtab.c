@@ -30,18 +30,21 @@ void elf_symtable_add(char * name, u64 a, u64 len, u8 info)
     rtrie_insert(elf_symtable, a, len, name);
 }
 
-char * find_elf_sym(u64 a, u64 *offset)
+char * find_elf_sym(u64 a, u64 *offset, u64 *len)
 {
     if (!elf_symtable)
-	return 0;
+        return 0;
 
     range r;
     char * m = rtrie_lookup(elf_symtable, a, &r);
     if (!m)
-	return 0;
-    
+        return 0;
+
     if (offset)
-	*offset = a - r.start;
+        *offset = a - r.start;
+
+    if (len)
+        *len = r.end - r.start;
 
     return m;
 }

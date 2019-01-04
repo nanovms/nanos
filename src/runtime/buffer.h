@@ -6,6 +6,7 @@ struct buffer {
     bytes start;
     bytes end;
     bytes length;
+    boolean wrapped;
     heap h;
     void *contents;
 };
@@ -26,7 +27,8 @@ static inline char peek_char(buffer b)
   buffer b = __builtin_alloca(sizeof(struct buffer));   \
   b->contents =(void *) __b;                  \
   b->end = b->length = __l;\
-  b->start  =0 ;\
+  b->start  = 0;\
+  b->wrapped = true;\
   b->h = 0;\
   b;\
   })
@@ -59,6 +61,7 @@ static inline void buffer_extend(buffer b, bytes len)
 {
     // xxx - pad to pagesize
     if (b->length < (b->end + len)) {
+        assert(!b->wrapped);    /* wrapped buffers can't be extended */
         int oldlen = b->length;
         b->length = 2*((b->end-b->start)+len);
         void *new =  allocate(b->h, b->length);
@@ -93,6 +96,7 @@ static inline buffer wrap_buffer(heap h,
     new->h = h;
     new->end = length;
     new->length = length;
+    new->wrapped = true;
     return(new);
 }
 
@@ -101,7 +105,7 @@ static inline void unwrap_buffer(heap h, buffer b)
     deallocate(h, b, sizeof(struct buffer));
 }
 
-static buffer wrap_buffer_cstring(heap h, char *x)
+static inline buffer wrap_buffer_cstring(heap h, char *x)
 {
     return wrap_buffer(h, x, runtime_strlen(x));
 }
@@ -141,10 +145,6 @@ boolean buffer_read(buffer b, void *dest, bytes length);
 void buffer_append(buffer b,
                    void *body,
                    bytes length);
-
-void buffer_prepend(buffer b,
-                      void *body,
-                      bytes length);
 
 // little endian variants
 #define WRITE_BE(bits)\
@@ -229,7 +229,8 @@ static inline void copy_descriptor(buffer d, buffer s)
     d->contents = s->contents;
     d->start = s->start;
     d->end = s->end;
-    d->length = s->length;                    
+    d->length = s->length;
+    d->wrapped = s->wrapped;
 }
 
 static inline boolean buffer_compare(void *za, void *zb)
@@ -261,6 +262,7 @@ static inline boolean buffer_compare(void *za, void *zb)
     __b->start = 0;\
     __b->end = 0;\
     __b->length = __length;\
+    __b->wrapped = true; /* it's not wrapped, but we don't want a resize */\
     __b;\
    })
 

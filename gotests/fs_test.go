@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nanovms/nvm/lepton"
+	"github.com/nanovms/ops/lepton"
 )
 
 func defaultConfig() lepton.Config {
@@ -66,8 +66,9 @@ func TestArgsAndEnv(t *testing.T) {
 	const finalImage = "image"
 	prepareTestImage(finalImage)
 	hypervisor := lepton.HypervisorInstance()
+	rconfig := lepton.RuntimeConfig(finalImage, []int{8080}, true)
 	go func() {
-		hypervisor.Start(finalImage, 8080)
+		hypervisor.Start(&rconfig);
 	}()
 	time.Sleep(3 * time.Second)
 	resp, err := http.Get("http://127.0.0.1:8080/args")
@@ -80,7 +81,7 @@ func TestArgsAndEnv(t *testing.T) {
 		t.Log(err)
 		t.Errorf("ReadAll failed")
 	}
-	if string(body) != "webglongargument" {
+	if string(body) != "longargument" {
 		t.Errorf("unexpected response:" + string(body))
 	}
 	resp.Body.Close()
@@ -107,8 +108,9 @@ func TestFileSystem(t *testing.T) {
 	const finalImage = "image"
 	prepareTestImage(finalImage)
 	hypervisor := lepton.HypervisorInstance()
+	rconfig := lepton.RuntimeConfig(finalImage, []int{8080}, true)
 	go func() {
-		hypervisor.Start(finalImage, 8080)
+		hypervisor.Start(&rconfig)
 	}()
 	time.Sleep(3 * time.Second)
 	resp, err := http.Get("http://127.0.0.1:8080")

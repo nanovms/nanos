@@ -4,12 +4,18 @@
 
 extern void run64(u32 entry);
 
-//we think this is above the stack we're currently running on, and
-// that it runs right up to the boot block load address at 0x7c00,
-// so 27kB
-static u64 working = 0x1000;
+/* We're placing the working heap base at the beginning of extended
+   memory. Use of this heap is tossed out in the move to stage3, thus
+   no mapping set up for it.
 
-#define STACKLEN 8192
+   XXX grub support: Figure out how to probe areas used by grub modules, etc.
+   XXX can check e820 regions
+*/
+#define WORKING_BASE 0x100000
+#define WORKING_LEN (4*MB)  /* arbitrary, must be enough for any fs meta */
+static u64 working = WORKING_BASE;
+
+#define STACKLEN (8 * PAGESIZE)
 static struct heap workings;
 static struct kernel_heaps kh;
 static u32 stack;
@@ -20,13 +26,14 @@ static u64 stage2_allocator(heap h, bytes b)
     // tag requires 4 byte aligned addresses
     u64 result = working;
     working += pad(b, 4);
+    if (working > (WORKING_BASE + WORKING_LEN))
+        halt("stage2 working heap out of memory\n");
     return result;
 }
 
 static CLOSURE_1_4(stage2_read_disk, void, u64, void *, u64, u64, status_handler);
 static void stage2_read_disk(u64 base, void *dest, u64 length, u64 offset, status_handler completion)
 {
-    u32 k, z;
     read_sectors(dest, base+offset, length);
     apply(completion, STATUS_OK);
 }
@@ -39,21 +46,18 @@ static void stage2_empty_write(buffer b, u64 offset, status_handler completion)
 CLOSURE_0_1(fail, void, status);
 void fail(status s)
 {
-    halt("%v", s);
+    halt("filesystem_read_entire failed: %v", s);
 }
 
 static CLOSURE_0_1(kernel_read_complete, void, buffer);
 static void __attribute__((noinline)) kernel_read_complete(buffer kb)
 {
-    console("kernel complete\n");
-    u32 *e = (u32 *)kb->contents;
     heap physical = heap_physical(&kh);
     heap working = heap_general(&kh);
 
     // should be the intersection of the empty physical and virtual
     // up to some limit, 2M aligned
     u64 identity_length = 0x300000;
-    // could move this up
     u64 pmem = allocate_u64(physical, identity_length);
     heap pages = region_allocator(working, PAGESIZE, REGION_IDENTITY);
     kh.pages = pages;
@@ -128,10 +132,9 @@ void newstack()
     heap h = heap_general(&kh);
     heap physical = heap_physical(&kh);
     buffer_handler bh = closure(h, kernel_read_complete);
-    console("create fs\n");
     create_filesystem(h,
                       SECTOR_SIZE,
-                      10*1024*1024, // fix,
+                      1024 * MB, /* XXX change to infinity with new rtrie */
                       closure(h, stage2_read_disk, fsb),
                       closure(h, stage2_empty_write),
                       root,
@@ -146,7 +149,6 @@ void centry()
     workings.alloc = stage2_allocator;
     kh.general = &workings;
     init_runtime(&kh);		/* we know only general is used */
-    void *x = allocate(&workings, 10);
     u32 fsb = filesystem_base();
 
     u32 cr0, cr4;

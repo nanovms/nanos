@@ -19,7 +19,13 @@ struct virtio_blk_req {
 #define VIRTIO_BLK_S_IOERR     1
 #define VIRTIO_BLK_S_UNSUPP    2
 
-static u8 static_zero_buffer[SECTOR_SIZE] __attribute__((aligned(4096)));
+static u8 static_zero_buffer[SECTOR_SIZE] __attribute__((aligned(PAGESIZE)));
+
+#ifdef VIRTIO_BLK_DEBUG
+# define virtio_blk_debug rprintf
+#else
+# define virtio_blk_debug(...) do { } while(0)
+#endif /* defined(VIRTIO_BLK_DEBUG) */
 
 typedef struct storage {
     heap h;
@@ -51,7 +57,7 @@ static void storage_write(storage st, buffer b, u64 offset, status_handler s)
     *(u32 *)(r + 4) = 0; /* reserved to be zero */
     *(u64 *)(r + 8) = offset / SECTOR_SIZE;
 
-    rprintf("virtio_write: offset %d len %d cap %d\n", offset, buffer_length(b),
+    virtio_blk_debug("virtio_write: offset %d len %d cap %d\n", offset, buffer_length(b),
             st->capacity);
 
     if (buffer_length(b) > SECTOR_SIZE) {
@@ -69,7 +75,7 @@ static void storage_write(storage st, buffer b, u64 offset, status_handler s)
         runtime_memset(buffer, 0, SECTOR_SIZE);
 
         if (misaligned)
-            rprintf("%s: misaligned virtio write buffer\n", __func__);
+            virtio_blk_debug("%s: misaligned virtio write buffer\n", __func__);
 
         /* reallocate */
         runtime_memcpy(buffer, buffer_ref(b, 0), buffer_length(b));
@@ -78,7 +84,7 @@ static void storage_write(storage st, buffer b, u64 offset, status_handler s)
     }
 
     if (small)
-        rprintf("%s: small virtio write buffer (%d length)\n", __func__, buffer_length(b));
+        virtio_blk_debug("%s: small virtio write buffer (%d length)\n", __func__, buffer_length(b));
 
     u64 awl_off = small ? 4 : 3;
 

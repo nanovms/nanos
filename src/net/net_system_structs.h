@@ -21,13 +21,15 @@ enum protocol_type {
     SOCK_RAW     = 3     /* raw socket			*/
 };
 
+#define SOCK_TYPE_MASK	0xf
 #define __SOCK_SIZE__	16		/* sizeof(struct sockaddr)	*/
 
-#define AF_INET 10
+#define AF_INET 2
 
 
 // tuplify
 #define SOCK_NONBLOCK 00004000
+#define SOCK_CLOEXEC  02000000
 #define TCP_NODELAY		1	/* Turn off Nagle's algorithm. */
 #define TCP_MAXSEG		2	/* Limit MSS */
 #define TCP_CORK		3	/* Never send partially complete segments */

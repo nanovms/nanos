@@ -3,7 +3,7 @@ include ../common.mk
 
 OUT		?= $(ROOT)/output/boot
 
-CFLAGS		+= -m32 -DBOOT -nostdinc
+CFLAGS		+= -m32 -DBOOT -nostdinc -DPAGE_USE_FLUSH
 LDFLAGS		+= -T linker_script
 AFLAGS		+= -felf
 NASMFLAGS	= -l $@.lst -dSTAGE1SIZE=512 -dSTAGE2SIZE=$(shell stat -c %s $(OUT)/stage2.pad)
@@ -32,6 +32,7 @@ boot-srcs = \
 	$(SRC)/runtime/table.c \
 	$(SRC)/runtime/tuple.c \
 	$(SRC)/runtime/merge.c \
+	$(SRC)/runtime/string.c \
 	$(SRC)/x86_64/elf.c \
 	$(SRC)/x86_64/kvm_platform.c \
 	$(SRC)/x86_64/page.c \

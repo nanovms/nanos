@@ -15,7 +15,7 @@ runtime_strchr (const char *string, int _c)
 }
     
 char *
-strtok_r (char *s, const char *delimiters, char **save_ptr)
+runtime_strtok_r (char *s, const char *delimiters, char **save_ptr)
 {
     char *token;
 
@@ -42,4 +42,17 @@ strtok_r (char *s, const char *delimiters, char **save_ptr)
         *save_ptr = s;
 
     return token;
+}
+
+int
+runtime_strcmp (const char *string1, const char *string2)
+{
+    int result = 0;
+
+    while (!result && *string1) {
+        result = (int)*string1 - (int)*string2;
+        string1 ++;
+        string2 ++;
+    }
+    return result;
 }

@@ -5,6 +5,8 @@ typedef struct fsfile *fsfile;
 typedef closure_type(filesystem_complete, void, filesystem, status);
 typedef closure_type(io_status_handler, void, status, bytes);
 
+extern io_status_handler ignore_io_status;
+
 #define SECTOR_OFFSET 9ULL
 #define SECTOR_SIZE (1ULL << SECTOR_OFFSET)
 
@@ -19,7 +21,7 @@ void create_filesystem(heap h,
 // there is a question as to whether tuple->fs file should be mapped inside out outside the filesystem
 // status
 void filesystem_read(filesystem fs, tuple t, void *dest, u64 offset, u64 length, io_status_handler completion);
-void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, status_handler completion);
+void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_handler completion);
 u64 fsfile_get_length(fsfile f);
 void fsfile_set_length(fsfile f, u64);
 fsfile fsfile_from_node(filesystem fs, tuple n);
@@ -32,3 +34,13 @@ fsfile allocate_fsfile(filesystem fs, tuple md);
 // per-file flush
 void flush(filesystem fs, status_handler s);
 
+typedef enum {
+    FS_STATUS_OK = 0,
+    FS_STATUS_NOENT,
+    FS_STATUS_EXIST,
+    FS_STATUS_NOTDIR,
+} fs_status;
+
+fs_status filesystem_mkentry(filesystem fs, char *fp, tuple entry);
+fs_status filesystem_mkdir(filesystem fs, char *fp);
+fs_status filesystem_creat(filesystem fs, char *fp);

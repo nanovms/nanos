@@ -10,6 +10,7 @@
 
 #define BUF_LEN 10
 
+#define SENDFILE_DEBUG
 #ifdef SENDFILE_DEBUG
 #define sf_dbg(fmt, args...)	printf("[%s]" fmt , __func__, ##args)
 #else

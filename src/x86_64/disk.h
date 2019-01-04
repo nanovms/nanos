@@ -15,13 +15,13 @@ static inline u64 sector_sum(u64 *s)
 
 static inline void read_sectors(void *dest, u32 sector, u32 count)
 {
-    u16 max, base = 0x1f0;
+    u16 base = 0x1f0;
     u8  drive = 0x40;
     u32 total = pad(count, (1<<sector_log));
     // xxx- put the low bits in the offset?
     u32 ts = sector>>sector_log;
     void *d = dest;
-    u64 k = in8(base + 7);
+    //u64 k = in8(base + 7);
         
     while (total) {
         u32 secs = total>>sector_log;
@@ -43,7 +43,6 @@ static inline void read_sectors(void *dest, u32 sector, u32 count)
             d += 1<<sector_log;
         }
 
-        u64 k = in8(base + 7);
         total -= xfer<<sector_log;
         ts += xfer;
     }

@@ -1,5 +1,7 @@
 #include <runtime.h>
-#include <stdlib.h>
+//#include <stdlib.h>
+#define EXIT_FAILURE 1
+#define EXIT_SUCCESS 0
 #include <unistd.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -75,7 +77,6 @@ boolean objcache_test(heap meta, heap parent, int objsize)
 {
     /* just a cursory test */
     int opp = (TEST_PAGESIZE - FOOTER_SIZE) / objsize;
-    int i;
     heap h = allocate_objcache(meta, parent, objsize, TEST_PAGESIZE);
     vector objs = allocate_vector(meta, opp);
 

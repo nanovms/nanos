@@ -6,3 +6,7 @@
 #include <lwip/def.h>
 #include <lwip/ip.h>
 #include <lwip/tcp.h>
+#include <lwip/timeouts.h>
+#include <lwip/ip4_frag.h>
+#include <lwip/etharp.h>
+#include <lwip/dhcp.h>

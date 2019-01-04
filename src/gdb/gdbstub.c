@@ -309,7 +309,7 @@ static boolean handle_request(gdb g, buffer b, buffer output)
 static CLOSURE_1_1(gdbserver_input, void, gdb, buffer);
 static void gdbserver_input(gdb g, buffer b)
 {
-    char ch;
+    char ch = '0';
     /* wait around for the start character, ignore all other characters */
     while (buffer_length(b) && ((ch = get_char(b)) != '$')) {
         if (ch == ASCII_CONTROL_C) { //wth?
