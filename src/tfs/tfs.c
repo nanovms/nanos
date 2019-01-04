@@ -236,7 +236,7 @@ void link(tuple dir, fsfile f, buffer name)
     log_write_eav(f->fs->tl, soft_create(f->fs, dir, sym(children)), intern(name), f->md, ignore);
 }
 
-int filesystem_mkentry(filesystem fs, char *fp, tuple entry)
+fs_status filesystem_mkentry(filesystem fs, char *fp, tuple entry)
 {
     tuple children = table_find(fs->root, sym(children));
     symbol basename_sym;
@@ -249,7 +249,7 @@ int filesystem_mkentry(filesystem fs, char *fp, tuple entry)
         if (!t) {
             if (!final) {
                 msg_debug("a path component (\"%s\") is missing\n", token);
-                return -1;
+                return FS_STATUS_NOENT;
             }
 
             basename = token;
@@ -257,13 +257,13 @@ int filesystem_mkentry(filesystem fs, char *fp, tuple entry)
         } else {
             if (final) {
                 msg_debug("final path component (\"%s\") already exists\n", token);
-                return -1;
+                return FS_STATUS_EXIST;
             }
 
             children = table_find(t, sym(children));
             if (!children) {
                 msg_debug("a path component (\"%s\") is not a folder\n", token);
-                return -1;
+                return FS_STATUS_NOTDIR;
             }
         }
     }
@@ -272,16 +272,34 @@ int filesystem_mkentry(filesystem fs, char *fp, tuple entry)
     table_set(children, basename_sym, entry);
     log_write_eav(fs->tl, children, basename_sym, entry, ignore);
     //log_flush(fs->tl);
-    rprintf("mkentry: written!\n");
+    msg_debug("written!\n");
 
-    return 0;
+    return FS_STATUS_OK;
 }
 
-int filesystem_mkdir(filesystem fs, char *fp)
+fs_status filesystem_mkdir(filesystem fs, char *fp)
 {
     tuple dir = allocate_tuple();
     /* 'make it a folder' by attaching a children node to the tuple */
     table_set(dir, sym(children), allocate_tuple());
+
+    return filesystem_mkentry(fs, fp, dir);
+}
+
+fs_status filesystem_creat(filesystem fs, char *fp)
+{
+    tuple dir = allocate_tuple();
+    static buffer off = 0;
+
+    if (!off)
+        off = wrap_buffer_cstring(fs->h, "0");
+
+    /* 'make it a file' by adding an empty extents list */
+    table_set(dir, sym(extents), allocate_tuple());
+    table_set(dir, sym(filelength), off);
+
+    fsfile f = allocate_fsfile(fs, dir);
+    fsfile_set_length(f, 0);
 
     return filesystem_mkentry(fs, fp, dir);
 }
