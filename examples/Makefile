@@ -9,7 +9,7 @@ CFLAGS = -g \
 	 $(includes)
 
 all: fst hw hws hwg getdents udploop web webg webgs webs getrandom mkdir time \
-	 pipe write creat
+	 pipe write creat sendfile
 
 fst: $(FST)
 
@@ -43,11 +43,13 @@ pipe: $(PIPE)
 
 write: $(WRITE)
 
+sendfile: $(SENDFILE)
+
 includes := \
 	-I$(SRC)/runtime \
 	-I$(SRC)/unix \
 	-I$(SRC)/unix_process \
-	-I$(SRC)/x86_64 \
+	-I$(SRC)/x86_64
 
 hw-srcs := \
 	$(ROOT)/examples/hw.c
@@ -79,6 +81,15 @@ write-objs = $(call srcs-to-objs,$(ROOT),$(OUT),write)
 
 $(WRITE): HOSTLDFLAGS += -static
 $(WRITE): $(write-objs)
+	$(call cmd,host-prog)
+
+sendfile-srcs := \
+	$(ROOT)/examples/sendfile.c
+
+sendfile-objs = $(call srcs-to-objs,$(ROOT),$(OUT),sendfile)
+
+$(SENDFILE): HOSTLDFLAGS += -static
+$(SENDFILE): $(sendfile-objs)
 	$(call cmd,host-prog)
 
 mkdir-srcs := \
@@ -239,11 +250,11 @@ clean-objs = $(hw-objs) $(web-objs) $(FST) $(HW) $(HWG) $(HWS) $(WEB) $(WEBG) \
 	$(WEBGS) $(WEBS) $(CLOSURE_TMPL) $(getdents-objs) $(GETDENTS) \
 	$(getrandom-objs) $(GETRANDOM) $(udploop-objs) $(UDPLOOP) \
 	$(mkdir-objs) $(MKDIR) $(time-objs) $(TIME) $(write-objs) $(WRITE) \
-	$(pipe-objs) $(PIPE) $(creat-objs) $(CREAT)
+	$(pipe-objs) $(PIPE) $(creat-objs) $(CREAT) $(sendfile-objs) $(SENDFILE)
 
 clean: default-clean
 
 .PHONY: fst hw hwg hws web webg webgs webs getdents getrandom time udploop mkdir \
-	pipe write creat
+	pipe write creat sendfile
 
 include ../rules.mk

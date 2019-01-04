@@ -467,6 +467,51 @@ static void file_op_complete(thread t, file f, fsfile fsf, boolean is_file_offse
     thread_wakeup(t);
 }
 
+static CLOSURE_7_2(file_op_complete_internal, void, thread, file, fsfile, file, fsfile, int, void*, status, bytes);
+static void file_op_complete_internal(thread t, file inf, fsfile inffs, file ouf, fsfile outfs, int offset_adjust, void* buf, status s, bytes length)
+{
+    buffer b;
+
+    thread_log(current, "%s: len %d, status %v (%s)\n", __func__,
+            length, s, is_ok(s) ? "OK" : "NOTOK");
+    if (is_ok(s)) {
+        if (inffs)
+            inf->length = fsfile_get_length(inffs);
+        if (offset_adjust)
+	        inf->offset += length;
+        b = wrap_buffer(heap_general(get_kernel_heaps()), buf, length);
+        filesystem_write(current->p->fs, ouf->n, b, ouf->offset,
+                closure(heap_general(get_kernel_heaps()), file_op_complete, current, ouf, outfs, 1));
+    } else {
+        deallocate_buffer(buf);
+        set_syscall_error(t, EIO);
+        thread_wakeup(current);
+    }
+}
+
+static sysreturn sendfile(int outfile, int infile, unsigned long *offs, bytes count)
+{
+    file inf = resolve_fd(current->p, infile);
+    fsfile inffs = fsfile_from_node(current->p->fs, inf->n);
+    file ouf = resolve_fd(current->p, outfile);
+    fsfile outfs = fsfile_from_node(current->p->fs, ouf->n);
+    heap h = heap_general(get_kernel_heaps());
+    void *buf = allocate(h, count);
+    int offset_adjust = (offs == 0);	/* adjust only if offs is NULL */
+    s64 offset = (s64)(offset_adjust == 1) ? inf->offset : *offs;
+
+    if (!inf->read || !ouf->write)
+      return set_syscall_error(current, EINVAL);
+    if ((inf->offset + count) > inf->length)
+        return set_syscall_error(current, EINVAL);
+
+    filesystem_read(current->p->fs, inf->n, buf, count, offset,
+	closure(h, file_op_complete_internal, current, inf, inffs, ouf, outfs, offset_adjust, buf));
+
+    thread_sleep(current);
+    return count;
+}
+
 static CLOSURE_2_3(file_read, sysreturn, file, fsfile, void *, u64, u64);
 static sysreturn file_read(file f, fsfile fsf, void *dest, u64 length, u64 offset_arg)
 {
@@ -1032,6 +1077,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_open, open);
     register_syscall(map, SYS_openat, openat);
     register_syscall(map, SYS_fstat, fstat);
+    register_syscall(map, SYS_sendfile, sendfile);
     register_syscall(map, SYS_stat, stat);
     register_syscall(map, SYS_lstat, stat);
     register_syscall(map, SYS_writev, writev);

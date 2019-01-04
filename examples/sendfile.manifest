@@ -1,0 +1,22 @@
+(
+    #64 bit elf to boot from host
+    children:(kernel:(contents:(host:output/stage3/stage3.img))
+          # files
+   		  infile:(contents:(host:examples/write_contents/infile))
+	      outfile:(contents:(host:examples/write_contents/outfile))
+
+	      #user program
+	      sendfile:(contents:(host:output/examples/sendfile))
+	      etc:(children:(ld.so.cache:(contents:(host:/etc/ld.so.cache))))
+	      lib:(children:(x86_64-linux-gnu:(children:(libc.so.6:(contents:(host:/lib/x86_64-linux-gnu/libc.so.6)) libpthread.so.0:(contents:(host:/lib/x86_64-linux-gnu/libpthread.so.0))))))
+	      lib64:(children:(ld-linux-x86-64.so.2:(contents:(host:/lib64/ld-linux-x86-64.so.2)))))
+    # filesystem path to elf for kernel to run
+    program:/sendfile
+    # put all the tracing arguments in subtree
+    #trace:
+    #debugsyscalls:t
+    #futex_trace:t    
+    fault:t
+    arguments:[sendfile longargument]
+    environment:(USER:bobby PWD:password)
+)
