@@ -60,7 +60,7 @@
    the poll notify list). TBD
  */
 
-#define BLOCKQ_DEBUG
+//#define BLOCKQ_DEBUG
 #ifdef BLOCKQ_DEBUG
 #define blockq_debug(x, ...) do {log_printf("  BQ", "%s: " x, __func__, ##__VA_ARGS__);} while(0)
 #else
@@ -152,8 +152,7 @@ void blockq_flush(blockq bq)
     blockq_action a;
     while ((a = dequeue(bq->waiters))) {
         blockq_debug(" - applying %p:\n", a);
-        u64 rv = apply(a, true);
-        blockq_debug("   - returned %d (ignored)\n", rv);
+        apply(a, true);
     }
 
     blockq_disable_timer(bq);

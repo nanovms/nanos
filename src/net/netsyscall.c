@@ -78,7 +78,7 @@ typedef struct sock {
     } info;
 } *sock;
 
-#define NETSYSCALL_DEBUG
+//#define NETSYSCALL_DEBUG
 
 #ifdef NETSYSCALL_DEBUG
 #define net_debug(x, ...) do {log_printf(" NET", "%s: " x, __func__, ##__VA_ARGS__);} while(0)
@@ -255,8 +255,8 @@ static sysreturn sock_read_bh(sock s, thread t, void *dest, u64 length,
                               boolean blocked)
 {
     err_t err = get_lwip_error(s);
-    net_debug("sock %d, thread %d, dest %p, len %d, sleeping %d, lwip err %s\n",
-	      s->fd, t->tid, dest, length, blocked, lwip_strerr(err));
+    net_debug("sock %d, thread %d, dest %p, len %d, blocked %d, lwip err %d\n",
+	      s->fd, t->tid, dest, length, blocked, err);
     assert(length > 0);
     assert(s->type == SOCK_STREAM || s->type == SOCK_DGRAM);
 
@@ -352,8 +352,8 @@ static CLOSURE_4_1(socket_write_tcp_bh, sysreturn, sock, thread, void *, u64, bo
 static sysreturn socket_write_tcp_bh(sock s, thread t, void * buf, u64 remain, boolean blocked)
 {
     err_t err = get_lwip_error(s);
-    net_debug("fd %d, thread %p, buf %p, remain %d, blocked %d, lwip err %s\n",
-              s->fd, t, buf, remain, blocked, lwip_strerr(err));
+    net_debug("fd %d, thread %p, buf %p, remain %d, blocked %d, lwip err %d\n",
+              s->fd, t, buf, remain, blocked, err);
     assert(remain > 0);
 
     if (err != ERR_OK) {
@@ -398,7 +398,7 @@ static sysreturn socket_write_tcp_bh(sock s, thread t, void * buf, u64 remain, b
             net_debug(" tcp_write and tcp_output successful for %d bytes\n", n);
             rv = n;
         } else {
-            net_debug(" tcp_output() lwip error: %s (%d)\n", lwip_strerr(err), err);
+            net_debug(" tcp_output() lwip error: %d\n", err);
             rv = lwip_to_errno(err);
             /* XXX map error to socket tcp state */
         }
@@ -407,7 +407,7 @@ static sysreturn socket_write_tcp_bh(sock s, thread t, void * buf, u64 remain, b
         net_debug(" tcp_write() returned ERR_MEM\n");
         goto full;
     } else {
-        net_debug(" tcp_write() lwip error: %s (%d)\n", lwip_strerr(err), err);
+        net_debug(" tcp_write() lwip error: %d\n", err);
         rv = lwip_to_errno(err);
     }
 
@@ -624,7 +624,7 @@ static err_t tcp_input_lower(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t
 
     if (err != ERR_OK) {
         /* shouldn't happen according to lwIP sources; just report */
-        msg_err("Unexpected error from lwIP: %s\n", lwip_strerr(err));
+        msg_err("Unexpected error from lwIP: %d\n", err);
     }
 
     /* A null pbuf indicates connection closed. */
@@ -692,7 +692,7 @@ void error_handler_tcp(void* arg, err_t err)
     } else {
         /* We have no context for any other errors at this point,
            so bark and ignore... */
-        msg_err("unhandled lwIP error %d (%s)\n", err, lwip_strerr(err));
+        msg_err("unhandled lwIP error %d\n", err);
     }
 }
 
@@ -741,15 +741,16 @@ sysreturn connect(int sockfd, struct sockaddr * addr, socklen_t addrlen)
     struct sockaddr_in * sin = (struct sockaddr_in*)addr;
     ip_addr_t ipaddr = IPADDR4_INIT(sin->address);
     if (s->type == SOCK_STREAM) {
-	if (s->info.tcp.state == TCP_SOCK_IN_CONNECTION) {
-	    err = ERR_ALREADY;
-	} else if (s->info.tcp.state == TCP_SOCK_OPEN) {
-	    err = ERR_ISCONN;
-	} else if (s->info.tcp.state == TCP_SOCK_LISTENING) {
+        if (s->info.tcp.state == TCP_SOCK_IN_CONNECTION) {
+            err = ERR_ALREADY;
+        } else if (s->info.tcp.state == TCP_SOCK_OPEN) {
+            err = ERR_ISCONN;
+        } else if (s->info.tcp.state == TCP_SOCK_LISTENING) {
             msg_warn("attempt to connect on listening socket fd = %d; ignored\n", sockfd);
-	    err = ERR_ARG;
-	}
-	err = connect_tcp(s, &ipaddr, ntohs(sin->port));
+            err = ERR_ARG;
+        } else {
+            err = connect_tcp(s, &ipaddr, ntohs(sin->port));
+        }
     } else if (s->type == SOCK_DGRAM) {
 	/* Set remote endpoint */
 	err = udp_connect(s->info.udp.lw, &ipaddr, ntohs(sin->port));
@@ -810,7 +811,7 @@ sysreturn sendto(int sockfd, void * buf, u64 len, int flags,
 	    return -EINVAL;
 	err = udp_connect(s->info.udp.lw, &ipaddr, ntohs(sin->port));
         if (err != ERR_OK) {
-            msg_err("udp_connect failed: %s\n", lwip_strerr(err));
+            msg_err("udp_connect failed: %d\n", err);
             return lwip_to_errno(err);
         }
     }
@@ -909,8 +910,7 @@ static CLOSURE_4_1(accept_bh, sysreturn, sock, thread, struct sockaddr *, sockle
 static sysreturn accept_bh(sock s, thread t, struct sockaddr *addr, socklen_t *addrlen, boolean blocked)
 {
     err_t err = get_lwip_error(s);
-    net_debug("sock %d, target thread %d, lwip err %s\n",
-              s->fd, t->tid, lwip_strerr(err));
+    net_debug("sock %d, target thread %d, lwip err %d\n", s->fd, t->tid, err);
 
     if (err != ERR_OK) {
         sysreturn rv = set_syscall_return(t, err);
