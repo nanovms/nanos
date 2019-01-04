@@ -1,9 +1,6 @@
-/* TODO before PR
+/* TODO
 
-   - verify failure modes from neg lwip status, including on listen socket
-   - sort out lock for sock status
-   - sort out full-length blocking writes for send/sendto
-   - switch on timeout
+   - consider switching on blockq timeout
    - check err handling of tcp_output
    - do udp tx bottom half
 */
@@ -67,8 +64,7 @@ typedef struct sock {
     struct list notify;		/* XXX: add spinlock when available */
     // the notion is that 'waiters' should take priority    
     int fd;
-    err_t lwip_error;           /* set to error condition that requires
-                                   handling, ERR_OK otherwise */
+    err_t lwip_error;           /* lwIP error code; ERR_OK if normal */
     union {
 	struct {
 	    struct tcp_pcb *lw;
@@ -152,9 +148,22 @@ static void notify_dispatch(sock s)
     } while(l != &s->notify);
 }
 
-#define WAKEUP_SOCK_RX          1
-#define WAKEUP_SOCK_TX          2
-#define WAKEUP_SOCK_EXCEPT      4 /* flush, and thus implies rx & tx */
+/* May be called from irq/softirq */
+static void set_lwip_error(sock s, err_t err)
+{
+    /* XXX lock / atomic / barrier */
+    s->lwip_error = err;
+}
+
+static err_t get_lwip_error(sock s)
+{
+    /* XXX lock / atomic / barrier */
+    return s->lwip_error;
+}
+
+#define WAKEUP_SOCK_RX          0x00000001
+#define WAKEUP_SOCK_TX          0x00000002
+#define WAKEUP_SOCK_EXCEPT      0x00000004 /* flush, and thus implies rx & tx */
 
 static void wakeup_sock(sock s, u64 flags)
 {
@@ -245,18 +254,17 @@ static sysreturn sock_read_bh(sock s, thread t, void *dest, u64 length,
                               struct sockaddr *src_addr, socklen_t *addrlen,
                               boolean blocked)
 {
-    net_debug("sock %d, thread %d, dest %p, len %d, sleeping %d\n",
-	      s->fd, t->tid, dest, length, blocked);
+    err_t err = get_lwip_error(s);
+    net_debug("sock %d, thread %d, dest %p, len %d, sleeping %d, lwip err %s\n",
+	      s->fd, t->tid, dest, length, blocked, lwip_strerr(err));
     assert(length > 0);
     assert(s->type == SOCK_STREAM || s->type == SOCK_DGRAM);
 
     if (s->type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN)
         return set_syscall_error(t, ENOTCONN);
 
-    /* XXX need lock here */
-    if (s->lwip_error != ERR_OK) {
-        sysreturn rv = set_syscall_return(t, lwip_to_errno(s->lwip_error));
-        s->lwip_error = ERR_OK;
+    if (err != ERR_OK) {
+        sysreturn rv = set_syscall_return(t, lwip_to_errno(err));
         return rv;
     }
 
@@ -343,8 +351,15 @@ static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
 static CLOSURE_4_1(socket_write_tcp_bh, sysreturn, sock, thread, void *, u64, boolean);
 static sysreturn socket_write_tcp_bh(sock s, thread t, void * buf, u64 remain, boolean blocked)
 {
-    net_debug("fd %d, thread %p, buf %p, remain %d, blocked %d\n", s->fd, t, buf, remain, blocked);
+    err_t err = get_lwip_error(s);
+    net_debug("fd %d, thread %p, buf %p, remain %d, blocked %d, lwip err %s\n",
+              s->fd, t, buf, remain, blocked, lwip_strerr(err));
     assert(remain > 0);
+
+    if (err != ERR_OK) {
+        sysreturn rv = set_syscall_return(t, lwip_to_errno(err));
+        return rv;
+    }
 
     /* Note that the actual transmit window size is truncated to 16
        bits here (and tcp_write() doesn't accept more than 2^16
@@ -374,7 +389,7 @@ static sysreturn socket_write_tcp_bh(sock s, thread t, void * buf, u64 remain, b
 
     /* XXX need to pore over lwIP error conditions here */
     sysreturn rv = 0;
-    err_t err = tcp_write(s->info.tcp.lw, buf, n, TCP_WRITE_FLAG_COPY);
+    err = tcp_write(s->info.tcp.lw, buf, n, TCP_WRITE_FLAG_COPY);
     if (err == ERR_OK) {
         /* XXX prob add a flag to determine whether to continuously
            post data, e.g. if used by send/sendto... */
@@ -385,6 +400,7 @@ static sysreturn socket_write_tcp_bh(sock s, thread t, void * buf, u64 remain, b
         } else {
             net_debug(" tcp_output() lwip error: %s (%d)\n", lwip_strerr(err), err);
             rv = lwip_to_errno(err);
+            /* XXX map error to socket tcp state */
         }
     } else if (err == ERR_MEM) {
         /* XXX some ambiguity in lwIP - investigate */
@@ -532,7 +548,7 @@ static int allocate_sock(process p, int type, sock * rs)
     s->txbq = allocate_blockq(h, "sock transmit", SOCK_BLOCKQ_LEN, 0 /* XXX */);
     list_init(&s->notify);	/* XXX lock init */
     s->fd = fd;
-    s->lwip_error = ERR_OK;
+    set_lwip_error(s, ERR_OK);
     *rs = s;
     return fd;
 }
@@ -606,8 +622,10 @@ static err_t tcp_input_lower(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t
     sock s = z;
     net_debug("sock %d, pcb %p, buf %p, err %d\n", s->fd, pcb, p, err);
 
-    if (err)
-        s->lwip_error = err;
+    if (err != ERR_OK) {
+        /* shouldn't happen according to lwIP sources; just report */
+        msg_err("Unexpected error from lwIP: %s\n", lwip_strerr(err));
+    }
 
     /* A null pbuf indicates connection closed. */
     if (p) {
@@ -615,11 +633,12 @@ static err_t tcp_input_lower(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t
 	    msg_err("incoming queue full\n");
             return ERR_BUF;     /* XXX verify */
         }
+        wakeup_sock(s, WAKEUP_SOCK_RX);
     } else {
         s->info.tcp.state = TCP_SOCK_CLOSED;
+        wakeup_sock(s, WAKEUP_SOCK_EXCEPT);
     }
 
-    wakeup_sock(s, WAKEUP_SOCK_RX);
     return ERR_OK;
 }
 
@@ -668,7 +687,7 @@ void error_handler_tcp(void* arg, err_t err)
         err == ERR_RST ||
         err == ERR_CLSD) {
         s->info.tcp.state = TCP_SOCK_CLOSED;
-        s->lwip_error = err;
+        set_lwip_error(s, err);
         wakeup_sock(s, WAKEUP_SOCK_EXCEPT);
     } else {
         /* We have no context for any other errors at this point,
@@ -697,6 +716,7 @@ static err_t connect_tcp_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
    return ERR_OK;
 }
 
+/* XXX move to blockq */
 static inline int connect_tcp(sock s, const ip_addr_t* address, unsigned short port)
 {
     net_debug("sock %d, addr %P, port %d\n", s->fd, address->addr, port);
@@ -705,6 +725,7 @@ static inline int connect_tcp(sock s, const ip_addr_t* address, unsigned short p
     tcp_arg(lw, s);
     tcp_err(lw, error_handler_tcp);
     s->info.tcp.state = TCP_SOCK_IN_CONNECTION;
+    set_lwip_error(s, ERR_OK);
     assert(s->info.tcp.connect_bh == 0);
     s->info.tcp.connect_bh = bh;
     int err = tcp_connect(lw, address, port, connect_tcp_complete);
@@ -823,6 +844,8 @@ static void lwip_tcp_conn_err(void * z, err_t b) {
     net_debug("sock %d, err %d\n", s->fd, b);
     error_message(s, b);
     s->info.tcp.state = TCP_SOCK_UNDEFINED;
+    set_lwip_error(s, b);
+    wakeup_sock(s, WAKEUP_SOCK_EXCEPT);
 }
 
 static err_t lwip_tcp_sent(void * arg, struct tcp_pcb * pcb, u16 len)
@@ -833,14 +856,14 @@ static err_t lwip_tcp_sent(void * arg, struct tcp_pcb * pcb, u16 len)
     return ERR_OK;
 }
 
-static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t b)
+static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t err)
 {
     sock s = z;
 
-    if (b == ERR_MEM) {
-        s->lwip_error = b;
+    if (err == ERR_MEM) {
+        set_lwip_error(s, err);
         wakeup_sock(s, WAKEUP_SOCK_EXCEPT);
-        return b;               /* lwIP doesn't care */
+        return err;               /* lwIP doesn't care */
     }
 
     int fd = allocate_tcp_sock(s->p, lw);
@@ -850,10 +873,11 @@ static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t b)
     // XXX - what if this has been closed in the meantime?
     // refcnt
 
-    net_debug("new fd %d, pcb %p, err %d\n", fd, lw, b);
+    net_debug("new fd %d, pcb %p\n", fd, lw);
     sock sn = vector_get(s->p->files, fd);
     sn->info.tcp.state = TCP_SOCK_OPEN;
     sn->fd = fd;
+    set_lwip_error(s, ERR_OK);
     tcp_arg(lw, sn);
     tcp_recv(lw, tcp_input_lower);
     tcp_err(lw, lwip_tcp_conn_err);
@@ -874,6 +898,7 @@ sysreturn listen(int sockfd, int backlog)
     struct tcp_pcb * lw = tcp_listen_with_backlog(s->info.tcp.lw, backlog);
     s->info.tcp.lw = lw;
     s->info.tcp.state = TCP_SOCK_LISTENING;
+    set_lwip_error(s, ERR_OK);
     tcp_arg(lw, s);
     tcp_accept(lw, accept_tcp_from_lwip);
     tcp_err(lw, lwip_tcp_conn_err);
@@ -883,12 +908,12 @@ sysreturn listen(int sockfd, int backlog)
 static CLOSURE_4_1(accept_bh, sysreturn, sock, thread, struct sockaddr *, socklen_t *, boolean);
 static sysreturn accept_bh(sock s, thread t, struct sockaddr *addr, socklen_t *addrlen, boolean blocked)
 {
-    net_debug("sock %d, target thread %d, lwip_error %d\n", s->fd, t->tid, s->lwip_error);
+    err_t err = get_lwip_error(s);
+    net_debug("sock %d, target thread %d, lwip err %s\n",
+              s->fd, t->tid, lwip_strerr(err));
 
-    /* XXX need lock here */
-    if (s->lwip_error != ERR_OK) {
-        sysreturn rv = set_syscall_return(t, lwip_to_errno(s->lwip_error));
-        s->lwip_error = ERR_OK;
+    if (err != ERR_OK) {
+        sysreturn rv = set_syscall_return(t, err);
         return set_syscall_return(current, rv);
     }
 
