@@ -17,6 +17,7 @@ int main(int argc, char **argv)
         perror("open");
         return EXIT_FAILURE;
     }
+    printf("open succeeded, fd %d\n", fd);
 
     rv = read(fd, buf, 256);
     if (rv < 0) {
@@ -24,10 +25,8 @@ int main(int argc, char **argv)
         goto out_fail;
     }
 
-    if (rv == 0) {
-        fprintf(stderr, "empty source file\n");
-        goto out_fail;
-    }
+    if (rv == 0)
+        printf("empty source file\n");
 
     if (rv >= BUFLEN)
         rv = BUFLEN - 1;
@@ -59,7 +58,7 @@ int main(int argc, char **argv)
     }
 
     if (rv != len) {
-        fprintf(stderr, "read #2 fail: expecting %d bytes, rv: %d\n", len, rv);
+        printf("read #2 fail: expecting %d bytes, rv: %d\n", len, rv);
         goto out_fail;
     }
 

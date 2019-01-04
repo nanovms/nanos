@@ -33,5 +33,14 @@ void filesystem_write_eav(filesystem fs, tuple t, symbol a, value v);
 fsfile allocate_fsfile(filesystem fs, tuple md);
 // per-file flush
 void flush(filesystem fs, status_handler s);
-int filesystem_mkdir(filesystem fs, char *fp);
-int filesystem_mkentry(filesystem fs, char *fp, tuple entry);
+
+typedef enum {
+    FS_STATUS_OK = 0,
+    FS_STATUS_NOENT,
+    FS_STATUS_EXIST,
+    FS_STATUS_NOTDIR,
+} fs_status;
+
+fs_status filesystem_mkentry(filesystem fs, char *fp, tuple entry);
+fs_status filesystem_mkdir(filesystem fs, char *fp);
+fs_status filesystem_creat(filesystem fs, char *fp);
