@@ -4,6 +4,7 @@
 typedef struct special_file {
     const char *path;
     sysreturn (*read)(file f, void *dest, u64 length, u64 offset_arg);
+    sysreturn (*write)(file f, void *dest, u64 length, u64 offset_arg);
     u32 (*events)(file f);
 } special_file;
 
@@ -14,6 +15,16 @@ static sysreturn urandom_read(file f, void *dest, u64 length, u64 offset_arg)
     return length;
 }
 
+static sysreturn null_read(file f, void *dest, u64 length, u64 offset_arg)
+{
+   return 0;
+}
+
+static sysreturn null_write(file f, void *dest, u64 length, u64 offset_arg)
+{
+   return 0;
+}
+
 static u32 urandom_events(file f)
 {
     return EPOLLIN;
@@ -21,7 +32,8 @@ static u32 urandom_events(file f)
 
 static special_file
 special_files[] = {
-    { "/dev/urandom", .read = urandom_read, .events = urandom_events },
+    { "/dev/urandom", .read = urandom_read, .write = 0, .events = urandom_events },
+    { "/dev/null", .read = null_read, .write = null_write, .events = 0 },
 };
 
 void register_special_files(process p)
@@ -66,6 +78,18 @@ spec_read(file f, void *dest, u64 length, u64 offset_arg)
     if (sf->read)
         return sf->read(f, dest, length, offset_arg);
 
+    return 0;
+}
+
+sysreturn
+spec_write(file f, void *dest, u64 length, u64 offset_arg)
+{
+    special_file *sf = get_special(f);
+    assert(sf);
+
+    thread_log(current, "spec_write: %s\n", sf->path);
+    if (sf->write)
+        return sf->write(f, dest, length, offset_arg);
     return 0;
 }
 

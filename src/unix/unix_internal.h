@@ -208,4 +208,5 @@ int do_pipe2(int fds[2], int flags);
 
 void register_special_files(process p);
 sysreturn spec_read(file f, void *dest, u64 length, u64 offset_arg);
+sysreturn spec_write(file f, void *dest, u64 length, u64 offset_arg);
 u32 spec_events(file f);

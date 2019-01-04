@@ -514,6 +514,10 @@ static sysreturn file_write(file f, fsfile fsf, void *dest, u64 length, u64 offs
     buffer b = wrap_buffer(h, buf, final_length);
     thread_log(current, "%s: b_ref: %p\n", __func__, buffer_ref(b, 0));
 
+    if (is_special(f->n)) {
+        return spec_write(f, b, length, offset);
+    }
+
     filesystem_write(current->p->fs, f->n, b, offset,
                      closure(h, file_op_complete, current, f, fsf, is_file_offset));
 
