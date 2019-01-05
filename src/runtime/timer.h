@@ -7,7 +7,7 @@ timer register_periodic_timer(timestamp interval, thunk n);
 void remove_timer(timer t);
 void initialize_timers(kernel_heaps kh);
 timestamp parse_time();
-void print_time(buffer, timestamp);
+void print_timestamp(buffer, timestamp);
 timestamp timer_check();
 #ifdef BOOT
 static inline timestamp now() { return 0; } /* stub */
@@ -25,12 +25,12 @@ static inline u64 time_from_nsec(u64 n)
 }
 
 // without seconds component
-static inline u64 nsec_from_time(timestamp n)
+static inline u64 nsec_from_timestamp(timestamp n)
 {
     return ((n & MASK(32)) * nano) >> 32;
 }
 
-static inline u64 sec_from_time(timestamp n)
+static inline u64 sec_from_timestamp(timestamp n)
 {
     return n >> 32;
 }

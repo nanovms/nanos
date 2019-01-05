@@ -72,7 +72,7 @@ timestamp timer_check()
                 current->w += current->interval;
                 pqueue_insert(timers, current); 
             }
-        }
+        } // XXX fix the leak
     }
     if (current) {
     	timestamp dt = current->w - here;
@@ -102,12 +102,12 @@ timestamp parse_time(string b)
     return(result);
 }
 
-void print_time(string b, timestamp t)
+void print_timestamp(string b, timestamp t)
 {
     u64 s= t>>32;
     u64 f= t&MASK(32);
 
-    bprintf(b, "%u", s);
+    bprintf(b, "%d", s);
     if (f) {
         int count=0;
 
