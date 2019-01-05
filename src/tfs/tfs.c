@@ -498,3 +498,7 @@ void create_filesystem(heap h,
     fs->tl = log_create(h, fs, closure(h, log_complete, complete, fs));
 }
 
+tuple filesystem_getroot(filesystem fs)
+{
+    return fs->root;
+}
