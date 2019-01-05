@@ -389,7 +389,7 @@ static sysreturn socket_write_tcp_bh(sock s, thread t, void * buf, u64 remain, b
 
     /* XXX need to pore over lwIP error conditions here */
     sysreturn rv = 0;
-    err = tcp_write(s->info.tcp.lw, buf, n, TCP_WRITE_FLAG_COPY);
+    err = tcp_write(s->info.tcp.lw, buf, n, apiflags);
     if (err == ERR_OK) {
         /* XXX prob add a flag to determine whether to continuously
            post data, e.g. if used by send/sendto... */
