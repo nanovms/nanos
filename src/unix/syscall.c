@@ -748,7 +748,7 @@ sysreturn getrandom(void *buf, u64 buflen, unsigned int flags)
     return do_getrandom(b, (u64) flags);
 }
 
-static int try_write_dirent(struct linux_dirent *dirp, char *p,
+static int try_write_dirent(tuple root, struct linux_dirent *dirp, char *p,
         int *read_sofar, int *written_sofar, u64 *f_offset,
         unsigned int *count, int ft)
 {
@@ -762,9 +762,10 @@ static int try_write_dirent(struct linux_dirent *dirp, char *p,
             *read_sofar -= len;
             return -1;
         } else {
+            tuple n = resolve_cstring(root, p);
             // include the entry in the buffer
             runtime_memset((u8*)dirp, 0, reclen);
-            dirp->d_ino = 0; /* XXX */
+            dirp->d_ino = u64_from_pointer(n);
             dirp->d_reclen = reclen;
             runtime_memcpy(dirp->d_name, p, len + 1);
             dirp->d_off = dirp->d_reclen; // XXX: in the future, pad this.
@@ -790,7 +791,7 @@ sysreturn getdents(int fd, struct linux_dirent *dirp, unsigned int count)
         return -ENOTDIR;
 
     /* add reference to the current directory */
-    int r = try_write_dirent(dirp, ".",
+    int r = try_write_dirent(f->n, dirp, ".",
                 &read_sofar, &written_sofar, &f->offset, &count,
                 DT_DIR);
     if (r < 0)
@@ -799,7 +800,7 @@ sysreturn getdents(int fd, struct linux_dirent *dirp, unsigned int count)
     dirp = (struct linux_dirent *)(((char *)dirp) + r);
 
     /* add reference to the parent directory */
-    r = try_write_dirent(dirp, "..",
+    r = try_write_dirent(f->n, dirp, "..",
                 &read_sofar, &written_sofar, &f->offset, &count,
                 DT_DIR);
     if (r < 0)
@@ -809,7 +810,7 @@ sysreturn getdents(int fd, struct linux_dirent *dirp, unsigned int count)
 
     table_foreach(c, k, v) {
         char *p = cstring(symbol_string(k));
-        r = try_write_dirent(dirp, p,
+        r = try_write_dirent(f->n, dirp, p,
                     &read_sofar, &written_sofar, &f->offset, &count,
                     children(v) ? DT_DIR : DT_REG);
         if (r < 0)
@@ -826,7 +827,7 @@ done:
     return written_sofar;
 }
 
-static int try_write_dirent64(struct linux_dirent64 *dirp, char *p,
+static int try_write_dirent64(tuple root, struct linux_dirent64 *dirp, char *p,
         int *read_sofar, int *written_sofar, u64 *f_offset,
         unsigned int *count, int ft)
 {
@@ -840,9 +841,10 @@ static int try_write_dirent64(struct linux_dirent64 *dirp, char *p,
             *read_sofar -= len;
             return -1;
         } else {
+            tuple n = resolve_cstring(root, p);
             // include the entry in the buffer
             runtime_memset((u8*)dirp, 0, reclen);
-            dirp->d_ino = 0; /* XXX */
+            dirp->d_ino = u64_from_pointer(n);
             dirp->d_reclen = reclen;
             runtime_memcpy(dirp->d_name, p, len + 1);
             dirp->d_off = dirp->d_reclen; // XXX: in the future, pad this.
@@ -868,7 +870,7 @@ sysreturn getdents64(int fd, struct linux_dirent64 *dirp, unsigned int count)
         return -ENOTDIR;
 
     /* add reference to the current directory */
-    int r = try_write_dirent64(dirp, ".",
+    int r = try_write_dirent64(f->n, dirp, ".",
                 &read_sofar, &written_sofar, &f->offset, &count,
                 DT_DIR);
     if (r < 0)
@@ -877,7 +879,7 @@ sysreturn getdents64(int fd, struct linux_dirent64 *dirp, unsigned int count)
     dirp = (struct linux_dirent64 *)(((char *)dirp) + r);
 
     /* add reference to the parent directory */
-    r = try_write_dirent64(dirp, "..",
+    r = try_write_dirent64(f->n, dirp, "..",
                 &read_sofar, &written_sofar, &f->offset, &count,
                 DT_DIR);
     if (r < 0)
@@ -887,7 +889,7 @@ sysreturn getdents64(int fd, struct linux_dirent64 *dirp, unsigned int count)
 
     table_foreach(c, k, v) {
         char *p = cstring(symbol_string(k));
-        r = try_write_dirent64(dirp, p,
+        r = try_write_dirent64(f->n, dirp, p,
                     &read_sofar, &written_sofar, &f->offset, &count,
                     children(v) ? DT_DIR : DT_REG);
         if (r < 0)
