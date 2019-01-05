@@ -236,9 +236,9 @@ void link(tuple dir, fsfile f, buffer name)
     log_write_eav(f->fs->tl, soft_create(f->fs, dir, sym(children)), intern(name), f->md, ignore);
 }
 
-fs_status filesystem_mkentry(filesystem fs, char *fp, tuple entry)
+fs_status filesystem_mkentry(filesystem fs, tuple root, char *fp, tuple entry)
 {
-    tuple children = table_find(fs->root, sym(children));
+    tuple children = (root ? root : table_find(fs->root, sym(children)));
     symbol basename_sym;
     char *token, *rest = fp, *basename = (char *)0;
 
@@ -273,17 +273,16 @@ fs_status filesystem_mkentry(filesystem fs, char *fp, tuple entry)
     log_write_eav(fs->tl, children, basename_sym, entry, ignore);
     //log_flush(fs->tl);
     msg_debug("written!\n");
-
     return FS_STATUS_OK;
 }
 
-fs_status filesystem_mkdir(filesystem fs, char *fp)
+fs_status filesystem_mkdir(filesystem fs, tuple root, char *fp)
 {
     tuple dir = allocate_tuple();
     /* 'make it a folder' by attaching a children node to the tuple */
     table_set(dir, sym(children), allocate_tuple());
 
-    return filesystem_mkentry(fs, fp, dir);
+    return filesystem_mkentry(fs, root, fp, dir);
 }
 
 fs_status filesystem_creat(filesystem fs, char *fp)
@@ -301,7 +300,7 @@ fs_status filesystem_creat(filesystem fs, char *fp)
     fsfile f = allocate_fsfile(fs, dir);
     fsfile_set_length(f, 0);
 
-    return filesystem_mkentry(fs, fp, dir);
+    return filesystem_mkentry(fs, 0, fp, dir);
 }
 
 // should be passing status to the client

@@ -452,22 +452,26 @@ sysreturn sysreturn_from_fs_status(fs_status s)
     }
 }
 
-static sysreturn do_mkent(const char *pathname, int mode, boolean dir)
+static sysreturn do_mkent(tuple root, const char *pathname, int mode, boolean dir)
 {
     heap h = heap_general(get_kernel_heaps());
     buffer cwd = wrap_buffer_cstring(h, "/"); /* XXX */
+    char *final_path = 0;
 
     if (!pathname)
         return set_syscall_error(current, EFAULT);
 
     /* canonicalize the path */
-    char *final_path = canonicalize_path(h, cwd,
+    if (!root) {
+        final_path = canonicalize_path(h, cwd,
             wrap_buffer_cstring(h, (char *)pathname));
+    } else
+        final_path = (char *)pathname;
 
     thread_log(current, "%s: %s (mode %d) pathname %s => %s\n",
                __func__, dir ? "mkdir" : "creat", mode, pathname, final_path);
 
-    sysreturn r = dir ? filesystem_mkdir(current->p->fs, final_path) :
+    sysreturn r = dir ? filesystem_mkdir(current->p->fs, root, final_path) :
         filesystem_creat(current->p->fs, final_path);
     return set_syscall_return(current, sysreturn_from_fs_status(r));
 }
@@ -663,7 +667,7 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
             msg_err("\"%s\" opened with O_EXCL but already exists\n", name);
             return set_syscall_error(current, EEXIST);
         } else if (!n) {
-            sysreturn rv = do_mkent(name, mode, false);
+            sysreturn rv = do_mkent(0, name, mode, false);
             if (rv)
                 return rv;
             /* XXX We could rearrange calls to return tuple instead of
@@ -719,7 +723,34 @@ sysreturn open(char *name, int flags, int mode)
 
 sysreturn mkdir(const char *pathname, int mode)
 {
-    return do_mkent(pathname, mode, true);
+    return do_mkent(0, pathname, mode, true);
+}
+
+/*
+If the pathname given in pathname is relative, then it is interpreted
+relative to the directory referred to by the file descriptor dirfd
+(rather than relative to the current working directory of the calling
+process, as is done by open() for a relative pathname).
+
+If pathname is relative and dirfd is the special value AT_FDCWD, then
+pathname is interpreted relative to the current working directory of
+the calling process (like open()).
+
+If pathname is absolute, then dirfd is ignore
+*/
+sysreturn mkdirat(int dirfd, char *pathname, int mode)
+{
+    if (pathname == 0)
+        return set_syscall_error (current, EINVAL);
+    // dirfd == AT_FDCWS or path is absolute
+    if (dirfd == AT_FDCWD || *pathname == '/') {
+        return mkdir(pathname, mode);
+    }
+    file f = resolve_fd(current->p, dirfd);
+    tuple children = table_find(f->n, sym(children));
+    if (!children)
+        return -ENOTDIR;
+    return do_mkent(children, pathname, mode, true);
 }
 
 sysreturn creat(const char *pathname, int mode)
@@ -1133,6 +1164,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_exit, (sysreturn (*)())exit);
     register_syscall(map, SYS_getdents, getdents);
     register_syscall(map, SYS_mkdir, mkdir);
+    register_syscall(map, SYS_mkdirat, mkdirat);
     register_syscall(map, SYS_getrandom, getrandom);
     register_syscall(map, SYS_pipe, pipe);
     register_syscall(map, SYS_pipe2, pipe2);
