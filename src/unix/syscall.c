@@ -353,6 +353,40 @@ struct code syscall_codes[]= {
     {SYS_pkey_alloc, "pkey_alloc"},
     {SYS_pkey_free, "pkey_free"}};
 
+// fused buffer wrap, split, and resolve
+static inline tuple resolve_cstring(tuple root, char *f)
+{
+    buffer a = little_stack_buffer(50);
+    char *x = f;
+    tuple t = root;
+    char y;
+
+    if (strcmp(f, ".") == 0)
+        return root;
+
+    if (strcmp(f, "/") == 0)
+        return filesystem_getroot(current->p->fs);
+
+    while ((y = *x++)) {
+        if (y == '/') {
+            if (buffer_length(a)) {
+                t = lookup(t, intern(a));
+                if (!t) return t;
+                buffer_clear(a);
+            }                
+        } else {
+            push_character(a, y);
+        }
+    }
+    
+    if (buffer_length(a)) {
+        t = lookup(t, intern(a));
+        return t;
+    }
+    return 0;
+}
+
+
 char *syscall_name(int x)
 {
     for (int i = 0; i < sizeof(syscall_codes)/sizeof(struct code); i++) {
