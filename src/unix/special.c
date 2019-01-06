@@ -79,7 +79,7 @@ spec_read(file f, void *dest, u64 length, u64 offset_arg)
     special_file *sf = get_special(f);
     assert(sf);
 
-    thread_log(current, "spec_read: %s\n", sf->path);
+    thread_log(current, "spec_read: %s", sf->path);
     if (sf->read)
         return sf->read(f, dest, length, offset_arg);
 
@@ -92,7 +92,7 @@ spec_write(file f, void *dest, u64 length, u64 offset_arg)
     special_file *sf = get_special(f);
     assert(sf);
 
-    thread_log(current, "spec_write: %s\n", sf->path);
+    thread_log(current, "spec_write: %s", sf->path);
     if (sf->write)
         return sf->write(f, dest, length, offset_arg);
     return 0;
@@ -104,7 +104,7 @@ spec_events(file f)
     special_file *sf = get_special(f);
     assert(sf);
 
-    thread_log(current, "spec_events: %s\n", sf->path);
+    thread_log(current, "spec_events: %s", sf->path);
     if (sf->events)
         return sf->events(f);
 
