@@ -50,7 +50,7 @@ void register_special_files(process p)
     buffer root = alloca_wrap_buffer(ROOT, sizeof(ROOT));
 
     /* TODO: create parent directories */
-    res = filesystem_mkdir(p->fs, canonicalize_path(h, root, wrap_buffer_cstring(h, "/dev")));
+    res = filesystem_mkdir(p->fs, 0, canonicalize_path(h, root, wrap_buffer_cstring(h, "/dev")));
 
     for (int i = 0; i < sizeof(special_files) / sizeof(special_files[0]); i++) {
         special_file *sf = special_files + i;
@@ -59,7 +59,7 @@ void register_special_files(process p)
         tuple entry = allocate_tuple();
         buffer b = wrap_buffer(h, sf, sizeof(*sf));
         table_set(entry, sym(special), b);
-        res = filesystem_mkentry(p->fs,
+        res = filesystem_mkentry(p->fs, 0,
             canonicalize_path(h, root, wrap_buffer_cstring(h, (char *) sf->path)),
             entry);
     }
