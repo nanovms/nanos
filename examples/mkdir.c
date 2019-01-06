@@ -118,4 +118,16 @@ int main(int argc, char **argv)
     _mkdirat(fd, "/test1", 0); check("/test1");
     listdir("/");
     listdir("/test");
+
+    // Validate AT_FDCMD usage
+    _mkdirat(AT_FDCWD, "test2", 0); check("/test2");
+    listdir("/");
+    listdir("/test");
+
+    // Validate it fails on non-directories
+    int r = open("/zip", O_WRONLY | O_CREAT, 0644);
+    _mkdirat(r, "zipa", 0);
+    listdir("/");
+    listdir("/test");
+
 }
