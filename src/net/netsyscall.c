@@ -707,10 +707,10 @@ static void connect_tcp_bh(thread t, err_t lwip_status)
 static err_t connect_tcp_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
 {
    sock s = (sock)arg;
-   s->info.tcp.state = TCP_SOCK_OPEN;
    net_debug("sock %d, pcb %p, err %d\n", s->fd, tpcb, err);
    assert(s->info.tcp.state == TCP_SOCK_IN_CONNECTION);
    assert(s->info.tcp.connect_bh);
+   s->info.tcp.state = TCP_SOCK_OPEN;
    apply(s->info.tcp.connect_bh, err);
    s->info.tcp.connect_bh = 0;
    return ERR_OK;

@@ -122,5 +122,6 @@ void register_mmap_syscalls(void **map)
     register_syscall(map, SYS_mremap, mremap);        
     register_syscall(map, SYS_munmap, syscall_ignore);
     register_syscall(map, SYS_mprotect, syscall_ignore);
+    register_syscall(map, SYS_madvise, syscall_ignore);
 }
 
