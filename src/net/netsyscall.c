@@ -277,12 +277,12 @@ static sysreturn sock_read_bh(sock s, thread t, void *dest, u64 length,
         struct sockaddr_in sin;
         sin.family = AF_INET;
         if (s->type == SOCK_STREAM) {
-	    sin.port = ip4_addr_get_u32(&s->info.tcp.lw->remote_ip);
-	    sin.address = htons(s->info.tcp.lw->remote_port);
+	    sin.address = ip4_addr_get_u32(&s->info.tcp.lw->remote_ip);
+	    sin.port = htons(s->info.tcp.lw->remote_port);
         } else {
             struct udp_entry * e = p;
-            sin.port = e->raddr;
-            sin.address = htons(e->rport);
+            sin.address = e->raddr;
+            sin.port = htons(e->rport);
         }
         u32 len = MIN(sizeof(sin), *addrlen);
         *addrlen = len;
@@ -707,10 +707,10 @@ static void connect_tcp_bh(thread t, err_t lwip_status)
 static err_t connect_tcp_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
 {
    sock s = (sock)arg;
-   s->info.tcp.state = TCP_SOCK_OPEN;
    net_debug("sock %d, pcb %p, err %d\n", s->fd, tpcb, err);
    assert(s->info.tcp.state == TCP_SOCK_IN_CONNECTION);
    assert(s->info.tcp.connect_bh);
+   s->info.tcp.state = TCP_SOCK_OPEN;
    apply(s->info.tcp.connect_bh, err);
    s->info.tcp.connect_bh = 0;
    return ERR_OK;
