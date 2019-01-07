@@ -353,6 +353,40 @@ struct code syscall_codes[]= {
     {SYS_pkey_alloc, "pkey_alloc"},
     {SYS_pkey_free, "pkey_free"}};
 
+// fused buffer wrap, split, and resolve
+static inline tuple resolve_cstring(tuple root, char *f)
+{
+    buffer a = little_stack_buffer(50);
+    char *x = f;
+    tuple t = root;
+    char y;
+
+    if (strcmp(f, ".") == 0)
+        return root;
+
+    if (strcmp(f, "/") == 0)
+        return filesystem_getroot(current->p->fs);
+
+    while ((y = *x++)) {
+        if (y == '/') {
+            if (buffer_length(a)) {
+                t = lookup(t, intern(a));
+                if (!t) return t;
+                buffer_clear(a);
+            }                
+        } else {
+            push_character(a, y);
+        }
+    }
+    
+    if (buffer_length(a)) {
+        t = lookup(t, intern(a));
+        return t;
+    }
+    return 0;
+}
+
+
 char *syscall_name(int x)
 {
     for (int i = 0; i < sizeof(syscall_codes)/sizeof(struct code); i++) {
@@ -418,22 +452,26 @@ sysreturn sysreturn_from_fs_status(fs_status s)
     }
 }
 
-static sysreturn do_mkent(const char *pathname, int mode, boolean dir)
+static sysreturn do_mkent(tuple root, const char *pathname, int mode, boolean dir)
 {
     heap h = heap_general(get_kernel_heaps());
     buffer cwd = wrap_buffer_cstring(h, "/"); /* XXX */
+    char *final_path = 0;
 
     if (!pathname)
         return set_syscall_error(current, EFAULT);
 
     /* canonicalize the path */
-    char *final_path = canonicalize_path(h, cwd,
+    if (!root) {
+        final_path = canonicalize_path(h, cwd,
             wrap_buffer_cstring(h, (char *)pathname));
+    } else
+        final_path = (char *)pathname;
 
-    thread_log(current, "%s: %s (mode %d) pathname %s => %s\n",
+    thread_log(current, "%s: %s (mode %d) pathname %s => %s",
                __func__, dir ? "mkdir" : "creat", mode, pathname, final_path);
 
-    sysreturn r = dir ? filesystem_mkdir(current->p->fs, final_path) :
+    sysreturn r = dir ? filesystem_mkdir(current->p->fs, root, final_path) :
         filesystem_creat(current->p->fs, final_path);
     return set_syscall_return(current, sysreturn_from_fs_status(r));
 }
@@ -451,7 +489,7 @@ static boolean is_special(tuple n)
 static CLOSURE_4_2(file_op_complete, void, thread, file, fsfile, boolean, status, bytes);
 static void file_op_complete(thread t, file f, fsfile fsf, boolean is_file_offset, status s, bytes length)
 {
-    thread_log(current, "%s: len %d, status %v (%s)\n", __func__,
+    thread_log(current, "%s: len %d, status %v (%s)", __func__,
             length, s, is_ok(s) ? "OK" : "NOTOK");
     if (is_ok(s)) {
         /* if regular file, update length */
@@ -472,7 +510,7 @@ static void file_op_complete_internal(thread t, file inf, fsfile inffs, file ouf
 {
     buffer b;
 
-    thread_log(current, "%s: len %d, status %v (%s)\n", __func__,
+    thread_log(current, "%s: len %d, status %v (%s)", __func__,
             length, s, is_ok(s) ? "OK" : "NOTOK");
     if (is_ok(s)) {
         if (inffs)
@@ -517,7 +555,7 @@ static sysreturn file_read(file f, fsfile fsf, void *dest, u64 length, u64 offse
 {
     boolean is_file_offset = offset_arg == infinity;
     bytes offset = is_file_offset ? f->offset : offset_arg;
-    thread_log(current, "%s: %v, dest %p, length %d, offset %d (%s), file length %d\n",
+    thread_log(current, "%s: %v, dest %p, length %d, offset %d (%s), file length %d",
                __func__, f->n, dest, length, offset, is_file_offset ? "infinity" : "exact",
                f->length);
 
@@ -543,7 +581,7 @@ static sysreturn file_read(file f, fsfile fsf, void *dest, u64 length, u64 offse
 static CLOSURE_2_3(file_write, sysreturn, file, fsfile, void *, u64, u64);
 static sysreturn file_write(file f, fsfile fsf, void *dest, u64 length, u64 offset_arg)
 {
-    thread_log(current, "%s: %v, dest %p, length %d, offset_arg %d\n",
+    thread_log(current, "%s: %v, dest %p, length %d, offset_arg %d",
             __func__, f->n, dest, length, offset_arg);
     boolean is_file_offset = offset_arg == infinity;
     bytes offset = is_file_offset ? f->offset : offset_arg;
@@ -557,7 +595,7 @@ static sysreturn file_write(file f, fsfile fsf, void *dest, u64 length, u64 offs
     runtime_memcpy(buf, dest, length);
 
     buffer b = wrap_buffer(h, buf, final_length);
-    thread_log(current, "%s: b_ref: %p\n", __func__, buffer_ref(b, 0));
+    thread_log(current, "%s: b_ref: %p", __func__, buffer_ref(b, 0));
 
     if (is_special(f->n)) {
         return spec_write(f, b, length, offset);
@@ -594,7 +632,7 @@ u32 edge_events(u32 masked, u32 eventmask, u32 last)
 static CLOSURE_2_3(file_check, boolean, file, fsfile, u32, u32 *, event_handler);
 static boolean file_check(file f, fsfile fsf, u32 eventmask, u32 * last, event_handler eh)
 {
-    thread_log(current, "file_check: file %t, eventmask %P, last %P, event_handler %p\n",
+    thread_log(current, "file_check: file %t, eventmask %P, last %P, event_handler %p",
 	       f->n, eventmask, last ? *last : 0, eh);
 
     u32 events;
@@ -629,7 +667,7 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
             msg_err("\"%s\" opened with O_EXCL but already exists\n", name);
             return set_syscall_error(current, EEXIST);
         } else if (!n) {
-            sysreturn rv = do_mkent(name, mode, false);
+            sysreturn rv = do_mkent(0, name, mode, false);
             if (rv)
                 return rv;
             /* XXX We could rearrange calls to return tuple instead of
@@ -671,7 +709,7 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
     f->check = closure(h, file_check, f, fsf);
     f->length = length;
     f->offset = 0;
-    thread_log(current, "   fd %d, file length %d\n", fd, f->length);
+    thread_log(current, "   fd %d, file length %d", fd, f->length);
     return fd;
 }
 
@@ -679,20 +717,47 @@ sysreturn open(char *name, int flags, int mode)
 {
     if (name == 0) 
         return set_syscall_error (current, EFAULT);
-    thread_log(current, "open: \"%s\", flags %P, mode %P\n", name, flags, mode);
+    thread_log(current, "open: \"%s\", flags %P, mode %P", name, flags, mode);
     return open_internal(current->p->cwd, name, flags, mode);
 }
 
 sysreturn mkdir(const char *pathname, int mode)
 {
-    return do_mkent(pathname, mode, true);
+    return do_mkent(0, pathname, mode, true);
+}
+
+/*
+If the pathname given in pathname is relative, then it is interpreted
+relative to the directory referred to by the file descriptor dirfd
+(rather than relative to the current working directory of the calling
+process, as is done by open() for a relative pathname).
+
+If pathname is relative and dirfd is the special value AT_FDCWD, then
+pathname is interpreted relative to the current working directory of
+the calling process (like open()).
+
+If pathname is absolute, then dirfd is ignore
+*/
+sysreturn mkdirat(int dirfd, char *pathname, int mode)
+{
+    if (pathname == 0)
+        return set_syscall_error (current, EINVAL);
+    // dirfd == AT_FDCWS or path is absolute
+    if (dirfd == AT_FDCWD || *pathname == '/') {
+        return mkdir(pathname, mode);
+    }
+    file f = resolve_fd(current->p, dirfd);
+    tuple children = table_find(f->n, sym(children));
+    if (!children)
+        return -ENOTDIR;
+    return do_mkent(children, pathname, mode, true);
 }
 
 sysreturn creat(const char *pathname, int mode)
 {
     if (!pathname)
         return set_syscall_error (current, EFAULT);
-    thread_log(current, "creat: \"%s\", mode %P\n", pathname, mode);
+    thread_log(current, "creat: \"%s\", mode %P", pathname, mode);
     return open_internal(current->p->cwd, (char *)pathname, O_CREAT|O_WRONLY|O_TRUNC, mode);
 }
 
@@ -849,13 +914,13 @@ static void fill_stat(tuple n, struct stat *s)
         s->st_size = fsfile_get_length(f);
     }
     s->st_mode = S_IFREG | 0644; /* TODO */
-    thread_log(current, "st_ino %P, st_mode %P, st_size %P\n",
+    thread_log(current, "st_ino %P, st_mode %P, st_size %P",
             s->st_ino, s->st_mode, s->st_size);
 }
 
 static sysreturn fstat(int fd, struct stat *s)
 {
-    thread_log(current, "fd %d, stat %p\n", fd, s);
+    thread_log(current, "fd %d, stat %p", fd, s);
     file f = resolve_fd(current->p, fd);
     zero(s, sizeof(struct stat));
     // take this from tuple space
@@ -881,7 +946,7 @@ static sysreturn stat(char *name, struct stat *s)
 
 sysreturn lseek(int fd, s64 offset, int whence)
 {
-    thread_log(current, "%s: fd %d offset %d whence %s\n",
+    thread_log(current, "%s: fd %d offset %d whence %s",
             __func__, fd, offset, whence == SEEK_SET ? "SEEK_SET" :
             whence == SEEK_CUR ? "SEEK_CUR" :
             whence == SEEK_END ? "SEEK_END" :
@@ -1093,6 +1158,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_exit, (sysreturn (*)())exit);
     register_syscall(map, SYS_getdents, getdents);
     register_syscall(map, SYS_mkdir, mkdir);
+    register_syscall(map, SYS_mkdirat, mkdirat);
     register_syscall(map, SYS_getrandom, getrandom);
     register_syscall(map, SYS_pipe, pipe);
     register_syscall(map, SYS_pipe2, pipe2);
