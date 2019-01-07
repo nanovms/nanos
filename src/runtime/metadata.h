@@ -64,34 +64,3 @@ static inline tuple lookup(tuple t, symbol a)
 }
 
 extern int strcmp(const char *, const char *);
-
-// fused buffer wrap, split, and resolve
-static inline tuple resolve_cstring(tuple root, char *f)
-{
-    buffer a = little_stack_buffer(50);
-    char *x = f;
-    tuple t = root;
-    char y;
-
-    if (strcmp(f, ".") == 0)
-        return root;
-
-    while ((y = *x++)) {
-        if (y == '/') {
-            if (buffer_length(a)) {
-                t = lookup(t, intern(a));
-                if (!t) return t;
-                buffer_clear(a);
-            }                
-        } else {
-            push_character(a, y);
-        }
-    }
-    
-    if (buffer_length(a)) {
-        t = lookup(t, intern(a));
-        return t;
-    }
-    return 0;
-}
-
