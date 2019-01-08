@@ -664,7 +664,7 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
 
     if ((flags & O_CREAT)) {
         if (n && (flags & O_EXCL)) {
-            msg_err("\"%s\" opened with O_EXCL but already exists\n", name);
+            thread_log(current, "\"%s\" opened with O_EXCL but already exists\n", name);
             return set_syscall_error(current, EEXIST);
         } else if (!n) {
             sysreturn rv = do_mkent(0, name, mode, false);
@@ -677,7 +677,7 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
     }
 
     if (!n) {
-        msg_err("\"%s\" - not found\n", name);
+        thread_log(current, "\"%s\" - not found\n", name);
         return set_syscall_error(current, ENOENT);
     }
     u64 length = 0;
@@ -685,7 +685,7 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
     if (!is_dir(n) && !is_special(n)) {
         fsf = fsfile_from_node(current->p->fs, n);
         if (!fsf) {
-            msg_err("\"%s\": can't find corresponding fsfile (%t)\n", name, n);
+            thread_log(current, "\"%s\": can't find corresponding fsfile (%t)\n", name, n);
             return set_syscall_error(current, ENOENT);
         }
         length = fsfile_get_length(fsf);
@@ -693,12 +693,12 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
     // might be functional, or be a directory
     file f = unix_cache_alloc(uh, file);
     if (f == INVALID_ADDRESS) {
-        msg_err("failed to allocate struct file\n");
+        thread_log(current, "failed to allocate struct file");
         return set_syscall_error(current, ENOMEM);
     }
     int fd = allocate_fd(current->p, f);
     if (fd == INVALID_PHYSICAL) {
-        msg_err("failed to allocate fd\n");
+        thread_log(current, "failed to allocate fd");
         unix_cache_free(uh, file, f);
         return set_syscall_error(current, EMFILE);
     }
