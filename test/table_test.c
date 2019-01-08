@@ -2,6 +2,7 @@
 #include <runtime.h>
 #include <table.h>
 #define EMPTY ((void *)0)
+#define KEYS_COUNT 1000
 
 static inline key int_key_function(void *x) {
   return *((key*)(x));
@@ -19,48 +20,44 @@ static inline boolean string_equal_function(void *x, void *y) {
   return strcmp(x_str, y_str) == 0;
 }
 
-void deallocate_table(table t) {
-  while(table_elements(t)) {
-    for(int i = 0; i<t->buckets; i++){
-      entry j = t->entries[i];
-      if(j != INVALID_ADDRESS) {
-        key nextdel = j->k;
-        table_set(t, &nextdel, EMPTY);
-      }
-    }
-  }
-  heap h = t->h;
-  deallocate(h, t->entries, t->buckets * sizeof(void *));
-  deallocate(h, t, sizeof(struct table)); 
-}
-
+int keys[KEYS_COUNT];
 void check_int(table t) {
   // empty table
   assert(table_elements(t) == 0);
-  // add 4 elements
-  int key[] = {0, 1, 2, 3};
+  u64 empty_table_allocated = t->h->allocated;
+  // add elements
   int value[] = {4, 5, 6, 7};
-  for(int i = 0; i < 4; ++i) {
-    table_set(t, &key[i], &value[i]);
+  int valsz = 4;
+  for(int i = 0; i < KEYS_COUNT; ++i) {
+    int ival = i % valsz;
+    keys[i] = i;
+    table_set(t, &keys[i], &value[ival]);
   }
-  assert(table_elements(t) == 4);
+  assert(table_elements(t) == KEYS_COUNT);
   // add new element in same key
   value[0] = 10;
-  table_set(t, &key[0], &value[0]);
+  table_set(t, &keys[0], &value[0]);
+  //table_foreach(t, k, v) {
+  //  msg_debug("--> %d: %d\n", *((int*)k), *((int*)v));
+  //}
   // same size?
-  assert(table_elements(t) == 4);
+  assert(table_elements(t) == KEYS_COUNT);
   // check values
-  for(int i = 0; i < 4; ++i) {
-    void *v = table_find(t, &key[i]);
+  for(int i = 0; i < KEYS_COUNT; ++i) {
+    void *v = table_find(t, &keys[i]);
     int val = *((int*)v);
-    assert(val == value[i]);
+    int ival = i % valsz;
+    assert(val == value[ival]);
   }
-  //delete values
-  for(int i = 0; i < 4; ++i) {
-    table_set(t, &key[i], EMPTY);
+  // delete values
+  for(int i = 0; i < KEYS_COUNT; ++i) {
+    table_set(t, &keys[i], EMPTY);
   }
+  msg_debug("table size %d == %d\n", empty_table_allocated, t->h->allocated);
   // empty table again
   assert(table_elements(t) == 0);
+  // check allocated memory
+  assert(empty_table_allocated == t->h->allocated);
 }
 
 void check_string(table t) {
@@ -96,11 +93,14 @@ void check_string(table t) {
 
 int main() {
   heap h = init_process_runtime();
+  u64 empty_heap_allocated = h->allocated;
   msg_debug("test with default functions (pointers)\n");
   table t = allocate_table(h, identity_key, pointer_equal);
   check_int(t);
+  msg_debug("heap size %d,%d\n", h->pagesize, h->allocated);
   deallocate_table(t);
   t = EMPTY;
+  msg_debug("table size %d\n", h->allocated);
 
   msg_debug("test with int values functions\n");
   t = allocate_table(h, int_key_function, int_equal_function);
@@ -113,6 +113,10 @@ int main() {
   check_string(t);
   deallocate_table(t);
   t = EMPTY;
+
+  msg_debug("heap size %d == %d\n", empty_heap_allocated, h->allocated);
+  // check allocated memory
+  assert(empty_heap_allocated == h->allocated);
   
   exit(0);
 }
