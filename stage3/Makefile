@@ -54,6 +54,7 @@ stage3-srcs = \
 	$(SRC)/runtime/string.c \
 	$(SRC)/tfs/tfs.c \
 	$(SRC)/tfs/tlog.c \
+	$(SRC)/unix/blockq.c \
 	$(SRC)/unix/exec.c \
 	$(SRC)/unix/mktime.c \
 	$(SRC)/unix/mmap.c \

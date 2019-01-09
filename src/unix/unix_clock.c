@@ -41,7 +41,7 @@ sysreturn sys_time(time_t *tloc)
 
 sysreturn clock_gettime(clockid_t clk_id, struct timespec *tp)
 {
-    thread_log(current, "clock_gettime: clk_id %d\n", clk_id);
+    thread_log(current, "clock_gettime: clk_id %d", clk_id);
     timespec_from_time(tp, now());
     return 0;
 }

@@ -93,7 +93,7 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
     case FUTEX_WAIT:
         if (*uaddr == val) {
             if (verbose) 
-                thread_log(current, "futex wait %p %p %p\n", uaddr, val, current);
+                thread_log(current, "futex wait %p %p %p", uaddr, val, current);
             // if we resume we are woken up, no timeout support
             set_syscall_return(current, 0);
             // atomic 
@@ -106,7 +106,7 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
         // return the number of waiters that were woken up
         if ((w = dequeue(f->waiters))) {
             if (verbose)
-                thread_log(current, "futex_wake [%d %p %d %p]\n", current->tid, uaddr, *uaddr, w);
+                thread_log(current, "futex_wake [%d %p %d %p]", current->tid, uaddr, *uaddr, w);
             thread_wakeup(w);
             set_syscall_return(current, 1);            
         }
@@ -115,7 +115,7 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
     case FUTEX_REQUEUE: rprintf("futex_requeue\n"); break;
     case FUTEX_CMP_REQUEUE:
         if (verbose)
-            thread_log(current, "futex_cmp_requeue [%d %p %d] %d\n", current->tid, uaddr, *uaddr, val3);
+            thread_log(current, "futex_cmp_requeue [%d %p %d] %d", current->tid, uaddr, *uaddr, val3);
         if (*uaddr == val3) {
             if ((w = dequeue(f->waiters))) {
                 set_syscall_return(current, 1);                            
@@ -132,7 +132,7 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
             unsigned int op = (val3 >> 28) & MASK(4);
 
             if (verbose)
-                thread_log(current, "futex wake op: [%d %p %d] %p %d %d %d %d\n",  current->tid, uaddr, *uaddr, uaddr2, cmparg, oparg, cmp, op);
+                thread_log(current, "futex wake op: [%d %p %d] %p %d %d %d %d",  current->tid, uaddr, *uaddr, uaddr2, cmparg, oparg, cmp, op);
             int oldval = *(int *) uaddr2;
             
             switch (op) {
@@ -171,7 +171,7 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
 
     case FUTEX_WAIT_BITSET:
         if (verbose)
-            thread_log(current, "futex_wait_bitset [%d %p %d] %p %p\n", current->tid, uaddr, *uaddr, val3);
+            thread_log(current, "futex_wait_bitset [%d %p %d] %p %p", current->tid, uaddr, *uaddr, val3);
         if (*uaddr == val) {
             set_syscall_return(current, 0);                            
             enqueue(f->waiters, current);
