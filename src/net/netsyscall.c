@@ -277,12 +277,12 @@ static sysreturn sock_read_bh(sock s, thread t, void *dest, u64 length,
         struct sockaddr_in sin;
         sin.family = AF_INET;
         if (s->type == SOCK_STREAM) {
-	    sin.port = ip4_addr_get_u32(&s->info.tcp.lw->remote_ip);
-	    sin.address = htons(s->info.tcp.lw->remote_port);
+	    sin.address = ip4_addr_get_u32(&s->info.tcp.lw->remote_ip);
+	    sin.port = htons(s->info.tcp.lw->remote_port);
         } else {
             struct udp_entry * e = p;
-            sin.port = e->raddr;
-            sin.address = htons(e->rport);
+            sin.address = e->raddr;
+            sin.port = htons(e->rport);
         }
         u32 len = MIN(sizeof(sin), *addrlen);
         *addrlen = len;
