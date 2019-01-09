@@ -994,13 +994,7 @@ static void fill_stat(tuple n, struct stat *s)
         }
         s->st_size = fsfile_get_length(f);
     }
-    fsfile f = fsfile_from_node(current->p->fs, n);
-    if (!f) {
-        msg_err("can't find fsfile\n");
-        return;
-    }
     s->st_mode = S_IFREG | 0644; /* TODO */
-    s->st_size = fsfile_get_length(f);
     thread_log(current, "st_ino %P, st_mode %P, st_size %P",
             s->st_ino, s->st_mode, s->st_size);
 }
