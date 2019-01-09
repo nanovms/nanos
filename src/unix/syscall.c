@@ -664,7 +664,7 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
 
     if ((flags & O_CREAT)) {
         if (n && (flags & O_EXCL)) {
-            msg_err("\"%s\" opened with O_EXCL but already exists\n", name);
+            thread_log(current, "\"%s\" opened with O_EXCL but already exists", name);
             return set_syscall_error(current, EEXIST);
         } else if (!n) {
             sysreturn rv = do_mkent(0, name, mode, false);
@@ -677,7 +677,7 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
     }
 
     if (!n) {
-        msg_err("\"%s\" - not found\n", name);
+        thread_log(current, "\"%s\" - not found", name);
         return set_syscall_error(current, ENOENT);
     }
     u64 length = 0;
@@ -685,7 +685,7 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
     if (!is_dir(n) && !is_special(n)) {
         fsf = fsfile_from_node(current->p->fs, n);
         if (!fsf) {
-            msg_err("\"%s\": can't find corresponding fsfile (%t)\n", name, n);
+            thread_log(current, "\"%s\": can't find corresponding fsfile (%t)", name, n);
             return set_syscall_error(current, ENOENT);
         }
         length = fsfile_get_length(fsf);
@@ -693,12 +693,12 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
     // might be functional, or be a directory
     file f = unix_cache_alloc(uh, file);
     if (f == INVALID_ADDRESS) {
-        msg_err("failed to allocate struct file\n");
+        thread_log(current, "failed to allocate struct file");
         return set_syscall_error(current, ENOMEM);
     }
     int fd = allocate_fd(current->p, f);
     if (fd == INVALID_PHYSICAL) {
-        msg_err("failed to allocate fd\n");
+        thread_log(current, "failed to allocate fd");
         unix_cache_free(uh, file, f);
         return set_syscall_error(current, EMFILE);
     }
@@ -779,7 +779,7 @@ sysreturn getrandom(void *buf, u64 buflen, unsigned int flags)
     return do_getrandom(b, (u64) flags);
 }
 
-static int try_write_dirent(struct linux_dirent *dirp, char *p,
+static int try_write_dirent(tuple root, struct linux_dirent *dirp, char *p,
         int *read_sofar, int *written_sofar, u64 *f_offset,
         unsigned int *count, int ft)
 {
@@ -793,9 +793,10 @@ static int try_write_dirent(struct linux_dirent *dirp, char *p,
             *read_sofar -= len;
             return -1;
         } else {
+            tuple n = resolve_cstring(root, p);
             // include the entry in the buffer
             runtime_memset((u8*)dirp, 0, reclen);
-            dirp->d_ino = 0; /* XXX */
+            dirp->d_ino = u64_from_pointer(n);
             dirp->d_reclen = reclen;
             runtime_memcpy(dirp->d_name, p, len + 1);
             dirp->d_off = dirp->d_reclen; // XXX: in the future, pad this.
@@ -821,7 +822,7 @@ sysreturn getdents(int fd, struct linux_dirent *dirp, unsigned int count)
         return -ENOTDIR;
 
     /* add reference to the current directory */
-    int r = try_write_dirent(dirp, ".",
+    int r = try_write_dirent(f->n, dirp, ".",
                 &read_sofar, &written_sofar, &f->offset, &count,
                 DT_DIR);
     if (r < 0)
@@ -830,7 +831,7 @@ sysreturn getdents(int fd, struct linux_dirent *dirp, unsigned int count)
     dirp = (struct linux_dirent *)(((char *)dirp) + r);
 
     /* add reference to the parent directory */
-    r = try_write_dirent(dirp, "..",
+    r = try_write_dirent(f->n, dirp, "..",
                 &read_sofar, &written_sofar, &f->offset, &count,
                 DT_DIR);
     if (r < 0)
@@ -840,7 +841,7 @@ sysreturn getdents(int fd, struct linux_dirent *dirp, unsigned int count)
 
     table_foreach(c, k, v) {
         char *p = cstring(symbol_string(k));
-        r = try_write_dirent(dirp, p,
+        r = try_write_dirent(f->n, dirp, p,
                     &read_sofar, &written_sofar, &f->offset, &count,
                     children(v) ? DT_DIR : DT_REG);
         if (r < 0)
@@ -856,6 +857,86 @@ done:
 
     return written_sofar;
 }
+
+static int try_write_dirent64(tuple root, struct linux_dirent64 *dirp, char *p,
+        int *read_sofar, int *written_sofar, u64 *f_offset,
+        unsigned int *count, int ft)
+{
+    int len = runtime_strlen(p);
+    *read_sofar += len;
+    if (*read_sofar > *f_offset) {
+        int reclen = sizeof(struct linux_dirent64) + len + 3;
+        // include this element in the getdents output
+        if (reclen > *count) {
+            // can't include, there's no space
+            *read_sofar -= len;
+            return -1;
+        } else {
+            tuple n = resolve_cstring(root, p);
+            // include the entry in the buffer
+            runtime_memset((u8*)dirp, 0, reclen);
+            dirp->d_ino = u64_from_pointer(n);
+            dirp->d_reclen = reclen;
+            runtime_memcpy(dirp->d_name, p, len + 1);
+            dirp->d_off = dirp->d_reclen; // XXX: in the future, pad this.
+            dirp->d_name[len + 2] = 0; /* some zero padding */
+            dirp->d_type = ft;
+
+            // advance dirp
+            *written_sofar += reclen;
+            *count -= reclen;
+            return reclen;
+        }
+    }
+    return 0;
+}
+
+sysreturn getdents64(int fd, struct linux_dirent64 *dirp, unsigned int count)
+{
+    file f = resolve_fd(current->p, fd);
+    tuple c = children(f->n);
+    int read_sofar = 0, written_sofar = 0;
+
+    if (!c)
+        return -ENOTDIR;
+
+    /* add reference to the current directory */
+    int r = try_write_dirent64(f->n, dirp, ".",
+                &read_sofar, &written_sofar, &f->offset, &count,
+                DT_DIR);
+    if (r < 0)
+        goto done;
+
+    dirp = (struct linux_dirent64 *)(((char *)dirp) + r);
+
+    /* add reference to the parent directory */
+    r = try_write_dirent64(f->n, dirp, "..",
+                &read_sofar, &written_sofar, &f->offset, &count,
+                DT_DIR);
+    if (r < 0)
+        goto done;
+
+    dirp = (struct linux_dirent64 *)(((char *)dirp) + r);
+
+    table_foreach(c, k, v) {
+        char *p = cstring(symbol_string(k));
+        r = try_write_dirent64(f->n, dirp, p,
+                    &read_sofar, &written_sofar, &f->offset, &count,
+                    children(v) ? DT_DIR : DT_REG);
+        if (r < 0)
+            goto done;
+        else
+            dirp = (struct linux_dirent64 *)(((char *)dirp) + r);
+    }
+
+done:
+    f->offset = read_sofar;
+    if (r < 0 && written_sofar == 0)
+        return -EINVAL;
+
+    return written_sofar;
+}
+
 
 sysreturn writev(int fd, iovec v, int count)
 {
@@ -1157,6 +1238,7 @@ void register_file_syscalls(void **map)
     register_syscall(map,SYS_exit_group, exit_group);
     register_syscall(map, SYS_exit, (sysreturn (*)())exit);
     register_syscall(map, SYS_getdents, getdents);
+    register_syscall(map, SYS_getdents64, getdents64);
     register_syscall(map, SYS_mkdir, mkdir);
     register_syscall(map, SYS_mkdirat, mkdirat);
     register_syscall(map, SYS_getrandom, getrandom);

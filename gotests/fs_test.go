@@ -37,7 +37,8 @@ func prepareTestImage(finalImage string) {
 	c.Env["USER"] = "bobby"
 	c.Env["PWD"] = "password"
 	c.DiskImage = finalImage
-	err := lepton.BuildImage("../output/examples/webg", c)
+	c.Program = "../output/examples/webg"
+	err := lepton.BuildImage(c)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -68,7 +69,7 @@ func TestArgsAndEnv(t *testing.T) {
 	hypervisor := lepton.HypervisorInstance()
 	rconfig := lepton.RuntimeConfig(finalImage, []int{8080}, true)
 	go func() {
-		hypervisor.Start(&rconfig);
+		hypervisor.Start(&rconfig)
 	}()
 	time.Sleep(3 * time.Second)
 	resp, err := http.Get("http://127.0.0.1:8080/args")
