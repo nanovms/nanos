@@ -1,4 +1,7 @@
+<<<<<<< HEAD
 //#define ENABLE_MSG_DEBUG
+=======
+>>>>>>> 24cef18d47f39c3852244ad74e4d8cb108bd1610
 #include <runtime.h>
 #include <table.h>
 #define EMPTY ((void *)0)
@@ -37,9 +40,7 @@ void check_int(table t) {
   // add new element in same key
   value[0] = 10;
   table_set(t, &keys[0], &value[0]);
-  //table_foreach(t, k, v) {
-  //  msg_debug("--> %d: %d\n", *((int*)k), *((int*)v));
-  //}
+
   // same size?
   assert(table_elements(t) == KEYS_COUNT);
   // check values
