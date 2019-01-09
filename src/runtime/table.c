@@ -1,6 +1,7 @@
 #include <runtime.h>
 
 #define EMPTY ((void *)0)
+#define MIN_BUCKET_SIZE 4
 
 void table_check(table t, char *n)
 {
@@ -23,16 +24,28 @@ void table_check(table t, char *n)
 
 table allocate_table(heap h, u64 (*key_function)(void *x), boolean (*equals_function)(void *x, void *y))
 {
-    table new = allocate(h, sizeof(struct table));
+    bytes table_size = sizeof(struct table);
+    table new = allocate(h, table_size);
     if (new == INVALID_ADDRESS) halt("allocate table failed\n");
     table t = tablev(new);
     t->h = h;
+    t->h->allocated += table_size;
     t->count = 0;
-    t->buckets = 4;
-    t->entries = allocate_zero(h, t->buckets * sizeof(void *));
+    t->buckets = MIN_BUCKET_SIZE;
+    bytes entries_size = t->buckets * sizeof(void *);
+    t->entries = allocate_zero(h, entries_size);
+    t->h->allocated += entries_size;
     t->key_function = key_function;
     t->equals_function = equals_function;
     return(new);
+}
+
+void deallocate_table(table t) {
+  bytes entries_size = t->buckets * sizeof(void *);
+  bytes table_size = sizeof(struct table);
+  t->h->allocated -= entries_size + table_size;
+  deallocate(t->h, t->entries, entries_size);
+  deallocate(t->h, t, table_size);
 }
 
 static inline key position(int buckets, key x)
@@ -56,8 +69,12 @@ void *table_find (table z, void *c)
 
 static void resize_table(table z, int buckets)
 {
+    if(buckets < MIN_BUCKET_SIZE)
+        buckets = MIN_BUCKET_SIZE;
     table t = valueof(z);
-    entry *nentries = allocate_zero(t->h, buckets * sizeof(void *));
+    bytes entries_size = buckets * sizeof(void *);
+    entry *nentries = allocate_zero(t->h, entries_size);
+    t->h->allocated += entries_size;
     for(int i = 0; i<t->buckets; i++){
         entry j = t->entries[i];
         while(j) {
@@ -68,6 +85,9 @@ static void resize_table(table z, int buckets)
             j = n;
         }
     }
+    entries_size = t->buckets * sizeof(void *);
+    deallocate(t->h, t->entries, t->buckets * sizeof(void *));
+    t->h->allocated -= entries_size;
     t->entries = nentries;
     t->buckets = buckets;
     table_check(t, "resize");
@@ -87,7 +107,11 @@ void table_set (table z, void *c, void *v)
                 entry z = *e;
                 *e = (*e)->next;
                 table_check(t, "remove");
-                deallocate(t->h, z, sizeof(struct entry));
+                bytes entry_size = sizeof(struct entry);
+                deallocate(t->h, z, entry_size);
+                t->h->allocated -= entry_size;
+                if(t->count < (t->buckets/2))
+                    resize_table(t, t->buckets/2);
             } else (*e)->v = v;
             return;
         }
@@ -95,7 +119,9 @@ void table_set (table z, void *c, void *v)
 
     if (v != EMPTY) {
         // xxx - shouldnt need to zero - messing about
-        entry n = valueof(allocate_zero(t->h, sizeof(struct entry)));
+        bytes entry_size = sizeof(struct entry);
+        entry n = valueof(allocate_zero(t->h, entry_size));
+        t->h->allocated += entry_size;
 
         if (n == INVALID_ADDRESS) {
             halt("couldn't allocate table entry\n");
@@ -108,6 +134,9 @@ void table_set (table z, void *c, void *v)
         
         if (t->count++ > t->buckets) 
             resize_table(t, t->buckets*2);
+    }
+    else if(t->count < (t->buckets/2)) {
+        resize_table(t, t->buckets/2);
     }
 }
 

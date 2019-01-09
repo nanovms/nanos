@@ -5,7 +5,7 @@ typedef u64 key;
 
 table allocate_table(heap h, key (*key_function)(void *x), boolean (*equal_function)(void *x, void *y));
 int table_elements(table t);
-
+void deallocate_table(table t);
 
 typedef struct entry {
     void *v;
