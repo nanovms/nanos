@@ -47,6 +47,8 @@ sysreturn arch_prctl(int code, unsigned long a)
 sysreturn clone(unsigned long flags, void *child_stack, void *ptid, void *ctid, void *x)
 {
     thread t = create_thread(current->p);
+    if ((flags & CLONE_CHILD_CLEARTID) != 0)
+        t->clear_child_tid = ctid;
     runtime_memcpy(t->frame, current->frame, sizeof(t->frame));
     t->frame[FRAME_RSP]= u64_from_pointer(child_stack);
     // xxx - the interpretation of ctid is dependent on flags
@@ -54,6 +56,8 @@ sysreturn clone(unsigned long flags, void *child_stack, void *ptid, void *ctid, 
     // t->frame[FRAME_RAX]= *(u32 *)ctid; 
     t->frame[FRAME_FS] = u64_from_pointer(x);
     thread_wakeup(t);
+    if ((flags & CLONE_PARENT_SETTID) != 0)
+        runtime_memcpy(ptid, &t->tid, sizeof(t->tid));
     return t->tid;
 }
 
