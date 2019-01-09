@@ -664,7 +664,7 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
 
     if ((flags & O_CREAT)) {
         if (n && (flags & O_EXCL)) {
-            thread_log(current, "\"%s\" opened with O_EXCL but already exists\n", name);
+            thread_log(current, "\"%s\" opened with O_EXCL but already exists", name);
             return set_syscall_error(current, EEXIST);
         } else if (!n) {
             sysreturn rv = do_mkent(0, name, mode, false);
@@ -677,7 +677,7 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
     }
 
     if (!n) {
-        thread_log(current, "\"%s\" - not found\n", name);
+        thread_log(current, "\"%s\" - not found", name);
         return set_syscall_error(current, ENOENT);
     }
     u64 length = 0;
@@ -685,7 +685,7 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
     if (!is_dir(n) && !is_special(n)) {
         fsf = fsfile_from_node(current->p->fs, n);
         if (!fsf) {
-            thread_log(current, "\"%s\": can't find corresponding fsfile (%t)\n", name, n);
+            thread_log(current, "\"%s\": can't find corresponding fsfile (%t)", name, n);
             return set_syscall_error(current, ENOENT);
         }
         length = fsfile_get_length(fsf);
