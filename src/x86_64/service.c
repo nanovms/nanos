@@ -191,11 +191,14 @@ static heap init_pages_id_heap(heap h)
 		print_u64(length);
 		halt("\nhalt");
 	    }
+
+#if KERNEL_DEBUG
 	    console("pages heap: ");
 	    print_u64(base);
 	    console(", length ");
 	    print_u64(length);
 	    console("\n");
+#endif
 	    if (!id_heap_add_range(pages, base, length))
 		halt("    - id_heap_add_range failed\n");
 	    return pages;
@@ -209,7 +212,9 @@ static heap init_physical_id_heap(heap h)
 {
     heap physical = allocate_id_heap(h, PAGESIZE);
     boolean found = false;
+#if KERNEL_DEBUG
     console("physical memory:\n");
+#endif
     for_regions(e) {
 	if (region_type(e) == REGION_PHYSICAL) {
 	    /* Align for 2M pages */
@@ -221,11 +226,13 @@ static heap init_physical_id_heap(heap h)
 	    if (base >= end)
 		continue;
 	    u64 length = end - base;
+#if KERNEL_DEBUG
 	    console("   base ");
 	    print_u64(base);
 	    console(", length ");
 	    print_u64(length);
 	    console("\n");
+#endif
 	    if (!id_heap_add_range(physical, base, length))
 		halt("    - id_heap_add_range failed\n");
 	    found = true;
