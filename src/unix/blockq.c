@@ -3,19 +3,19 @@
 /* blockq - a facility for queueing up threads waiting for a resource
 
    Given an action closure, blockq_check() will attempt the action
-   while holding the blockq's lock. If it succeeds (rv > 0), it will
+   while holding the blockq's lock. If it succeeds (rv >= 0), it will
    release the lock and return the result of the action to the
    caller. If rv is negative, an error condition is presumed, the lock
-   is released and rv is returned at once. If rv == 0, the action gets
+   is released and rv is returned at once. If rv == infinity, the action gets
    added to the blockq's waiters queue, an optional timeout is (re)set,
    the lock is released and the thread is finally blocked.
 
    blockq_wake(), meant to be safe for calling from interrupt context,
    takes the blockq lock (really a no-op until SMP support) and
    attempts to apply the action at the head of the waiters queue. If
-   it returns 0, it is left at the head of the queue, the timer is
-   reset, the lock is released and waiting resumes. Either < 0 (error
-   condition) or > 0 (success) causes the action to be removed from
+   it returns infinity, it is left at the head of the queue, the timer is
+   reset, the lock is released and waiting resumes, otherwise
+   it causes the action to be removed from
    the queue, and the lock released. In either case, the call returns
    to the caller. It is up to the action to apply results to the
    thread frame and call thread_wakeup() as necessary.
@@ -46,7 +46,7 @@
    In the existing cases right now, the action return value semantics
    mirror those of the syscall itself. Of course, the blocking code
    may interpret this return value as necessary, provided that a value
-   > 0 represents success (no further blocking required), == 0
+   >= 0 represents success (no further blocking required), == infinity
    indicates blocking required, and < 0 an error condition (and return).
 
    Note also that this presently serializes requests and handles them
@@ -112,7 +112,7 @@ sysreturn blockq_check(blockq bq, thread t, blockq_action a)
          spinlock.
     */
     sysreturn rv = apply(a, false);
-    if (rv != 0) {
+    if (rv != infinity) {
         /* XXX release spinlock */
         blockq_debug(" - direct return: %d\n", rv);
         return rv;
@@ -125,7 +125,7 @@ sysreturn blockq_check(blockq bq, thread t, blockq_action a)
     if (!enqueue(bq->waiters, a)) {
         /* XXX hmm */
         msg_err("waiter queue full for bq %p\n", bq);
-        return 0;
+        return infinity;
     }
 
     blockq_debug(" - check requires block, sleeping\n");
