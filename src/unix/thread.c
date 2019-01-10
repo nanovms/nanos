@@ -75,11 +75,24 @@ static fut soft_create_futex(process p, u64 key)
     return f;
 }
 
+static CLOSURE_1_0(futex_timeout, void, thread);
+static void futex_timeout(thread t)
+{
+    set_syscall_return(t, ETIMEDOUT);
+    thread_wakeup(t);
+}
+
+sysreturn futex_timer(thread t, const struct timespec* req)
+{
+    register_timer(time_from_timespec(req),
+		closure(heap_general(get_kernel_heaps()), futex_timeout, t));
+}
+
 static sysreturn futex(int *uaddr, int futex_op, int val,
                        u64 val2,
                        int *uaddr2, int val3)
 {
-    //struct timespec *timeout = pointer_from_u64(val2);
+    struct timespec *timeout = pointer_from_u64(val2);
     boolean verbose = table_find(current->p->process_root, sym(futex_trace))?true:false;
     thread w;
     
@@ -90,8 +103,10 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
         if (*uaddr == val) {
             if (verbose) 
                 thread_log(current, "futex wait %p %p %p", uaddr, val, current);
-            // if we resume we are woken up, no timeout support
+            // if we resume we are woken up.
             set_syscall_return(current, 0);
+            if(timeout)
+                futex_timer(current, timeout);
             // atomic 
             enqueue(f->waiters, current);
             thread_sleep(current);
