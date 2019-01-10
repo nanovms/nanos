@@ -37,13 +37,7 @@ static int inline string_character_length(char *s) {
 // specialized bytewise memcpy, since this is between 1 and 4
 
 #define string_foreach(__i, __s)                                    \
-    for (u32 __x = 0, *__t, __q, __i, __limit = buffer_length(__s);       \
-         __i = 0, __t = (u32 *)buffer_ref(__s, __x), __q = utf8_length(*__t),   \
-             runtime_memcpy(&__i, __t, __q),                              \
-             __i = __builtin_bswap32(__i),                                \
-             __i = __i >> 8 * (4 - __q),                                  \
-             __x<__limit;                                                 \
-         __x += __q)
+    for (character __i; __i = pop_character(__s), __i != CHARACTER_INVALID;)
 
 
 static inline character utf8_decode(u8 *x, int *count)
