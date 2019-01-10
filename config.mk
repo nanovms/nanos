@@ -92,6 +92,7 @@ VECTOR_TEST	= $(ROOT)/output/test/vector_test
 UDP_TEST	= $(ROOT)/output/test/udp_test
 BUFFER_TEST	= $(ROOT)/output/test/buffer_test
 RANGE_TEST	= $(ROOT)/output/test/range_test
+TUPLE_TEST	= $(ROOT)/output/test/tuple_test
 
 # Generated depedencies
 

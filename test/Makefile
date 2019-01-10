@@ -12,9 +12,9 @@ CFLAGS  += -DNO_EPOLL
 endif
 #CFLAGS+=-DENABLE_MSG_DEBUG -DID_HEAP_DEBUG
 
-all: objcache_test network_test id_heap_test path_test pqueue_test vector_test udp_test buffer_test range_test
+all: objcache_test network_test id_heap_test path_test pqueue_test vector_test udp_test buffer_test range_test tuple_test
 
-unit-test: objcache_test id_heap_test path_test pqueue_test vector_test buffer_test range_test
+unit-test: objcache_test id_heap_test path_test pqueue_test vector_test buffer_test range_test tuple_test
 	$(OBJCACHE_TEST)
 	$(ID_HEAP_TEST)
 	$(PATH_TEST)
@@ -22,6 +22,7 @@ unit-test: objcache_test id_heap_test path_test pqueue_test vector_test buffer_t
 	$(VECTOR_TEST)
 	$(BUFFER_TEST)
 	$(RANGE_TEST)
+	$(TUPLE_TEST)
 
 objcache_test: $(OBJCACHE_TEST)
 
@@ -40,6 +41,8 @@ udp_test: $(UDP_TEST)
 buffer_test: $(BUFFER_TEST)
 
 range_test: $(RANGE_TEST)
+
+tuple_test: $(TUPLE_TEST)
 
 includes := \
 	-I$(SRC)/runtime \
@@ -260,6 +263,27 @@ range_test-srcs := \
 
 range_test-objs = $(call srcs-to-objs,$(ROOT),$(OUT),range_test)
 
+tuple_test-srcs := \
+		$(ROOT)/test/tuple_test.c \
+		$(SRC)/runtime/bitmap.c \
+		$(SRC)/runtime/buffer.c \
+		$(SRC)/runtime/extra_prints.c \
+		$(SRC)/runtime/format.c \
+		$(SRC)/runtime/heap/id.c \
+		$(SRC)/runtime/merge.c \
+		$(SRC)/runtime/pqueue.c \
+		$(SRC)/runtime/random.c \
+		$(SRC)/runtime/rtrie.c \
+		$(SRC)/runtime/runtime_init.c \
+		$(SRC)/runtime/symbol.c \
+		$(SRC)/runtime/table.c \
+		$(SRC)/runtime/timer.c \
+		$(SRC)/runtime/tuple.c \
+		$(SRC)/runtime/string.c \
+		$(SRC)/unix_process/unix_process_runtime.c
+
+tuple_test-objs = $(call srcs-to-objs,$(ROOT),$(OUT),tuple_test)
+
 $(objcache_test-objs): $(CLOSURE_TMPL)
 $(network_test-objs): $(CLOSURE_TMPL)
 $(id_heap_test-objs): $(CLOSURE_TMPL)
@@ -269,6 +293,7 @@ $(vector_test-objs): $(CLOSURE_TMPL)
 $(udp_test-objs): $(CLOSURE_TMPL)
 $(buffer_test-objs): $(CLOSURE_TMPL)
 $(range_test-objs): $(CLOSURE_TMPL)
+$(tuple_test-objs): $(CLOSURE_TMPL)
 
 $(OBJCACHE_TEST): $(objcache_test-objs)
 	$(call cmd,host-prog)
@@ -297,6 +322,9 @@ $(BUFFER_TEST): $(buffer_test-objs)
 $(RANGE_TEST): $(range_test-objs)
 	$(call cmd,host-prog)
 
+$(TUPLE_TEST): $(tuple_test-objs)
+	$(call cmd,host-prog)
+
 clean-objs = \
 	$(id_heap_test-objs) $(ID_HEAP_TEST) \
 	$(network_test-objs) $(NETWORK_TEST) \
@@ -307,10 +335,11 @@ clean-objs = \
 	$(udp_test-objs) $(UDP_TEST) \
 	$(buffer_test-objs) $(BUFFER_TEST) \
 	$(range_test-objs) $(RANGE_TEST) \
+	$(tuple_test-objs) $(TUPLE_TEST) \
 	$(CLOSURE_TMPL) \
 
 clean: default-clean
 
-.PHONY: objcache_test network_test id_heap_test path_test pqueue_test vector_test udp_test buffer_test range_test
+.PHONY: objcache_test network_test id_heap_test path_test pqueue_test vector_test udp_test buffer_test range_test tuple_test
 
 include ../rules.mk
