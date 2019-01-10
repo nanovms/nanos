@@ -128,14 +128,18 @@ static void receive_buffer_release(struct pbuf *p)
 
 static void post_receive(vnet vn);
 
+#define VIRTIO_NET_HDR_SIZE 10
+
 static CLOSURE_1_1(input, void, xpbuf, u64);
 static void input(xpbuf x, u64 len)
 {
     vnet vn= x->vn;
     // under what conditions does a virtio queue give us zero?
     if (x != NULL) {
-        x->p.pbuf.len = len;
-        x->p.pbuf.payload += 10;
+        len -= VIRTIO_NET_HDR_SIZE;
+        assert(len <= x->p.pbuf.len);
+        x->p.pbuf.tot_len = x->p.pbuf.len = len;
+        x->p.pbuf.payload += VIRTIO_NET_HDR_SIZE;
         if (vn->n->input(&x->p.pbuf, vn->n) != ERR_OK) {
             receive_buffer_release(&x->p.pbuf);
         }
@@ -211,7 +215,7 @@ static void init_vnet(heap general, heap page_allocator,
     vtpci dev = attach_vtpci(general, page_allocator, bus, slot, function, VIRTIO_NET_F_MAC);
     vnet vn = allocate(dev->general, sizeof(struct vnet));
     vn->n = allocate(dev->general, sizeof(struct netif));
-    vn->rxbuflen = 1500;
+    vn->rxbuflen = VIRTIO_NET_HDR_SIZE + sizeof(struct eth_hdr) + sizeof(struct eth_vlan_hdr) + 1500;
     vn->rxbuffers = wrap_freelist(dev->general, dev->general, vn->rxbuflen + sizeof(struct xpbuf));
     vn->rxbuffers = allocate_objcache(dev->general, page_allocator,
 				      vn->rxbuflen + sizeof(struct xpbuf), PAGESIZE_2M);
