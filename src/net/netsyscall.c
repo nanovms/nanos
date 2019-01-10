@@ -97,7 +97,7 @@ static inline u32 socket_poll_events(sock s)
 	} else if (s->info.tcp.state == TCP_SOCK_OPEN) {
             /* TODO: should use tcp_write_checks() for EPOLLOUT | EPOLLWRNORM? */
 	    return (in ? EPOLLIN | EPOLLRDNORM : 0) |
-                (s->info.tcp.lw->state == ESTABLISHED ? EPOLLOUT | EPOLLWRNORM : EPOLLHUP);
+                (s->info.tcp.lw->state == ESTABLISHED ? EPOLLOUT | EPOLLWRNORM : EPOLLIN | EPOLLHUP);
 	} else {
 	    return 0;
 	}
