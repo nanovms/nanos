@@ -305,6 +305,7 @@ static sysreturn sock_read_bh(sock s, thread t, void *dest, u64 length,
         pbuf_consume(pbuf, xfer);
         length -= xfer;
         xfer_total += xfer;
+        dest = (char *) dest + xfer;
 
         if (pbuf->len == 0) {
             assert(dequeue(s->incoming) == p);
