@@ -653,7 +653,7 @@ static boolean poll_wait_notify(epollfd efd, u32 events)
 }
 
 static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
-                               int timeout, /* milliseconds */
+                               timestamp timeout,
                                const sigset_t * sigmask)
 {
     heap h = heap_general(get_kernel_heaps());
@@ -749,8 +749,8 @@ check_rv_timeout:
         return rv;
     }
 
-    if (timeout > 0) {
-        w->timeout = register_timer(milliseconds(timeout), closure(h, epoll_blocked_finish, w, true));
+    if (timeout != infinity) {
+        w->timeout = register_timer(timeout, closure(h, epoll_blocked_finish, w, true));
         fetch_and_add(&w->refcnt, 1);
         epoll_debug("   registered timer %p\n", w->timeout);
     }
@@ -762,12 +762,12 @@ check_rv_timeout:
 
 sysreturn ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *tmo_p, const sigset_t *sigmask)
 {
-    return poll_internal(fds, nfds, tmo_p ? (tmo_p->ts_sec * 1000 + tmo_p->ts_nsec / 1000000) : infinity, sigmask);
+    return poll_internal(fds, nfds, tmo_p ? time_from_timespec(tmo_p) : infinity, sigmask);
 }
 
 sysreturn poll(struct pollfd *fds, nfds_t nfds, int timeout)
 {
-    return poll_internal(fds, nfds, timeout, 0);
+    return poll_internal(fds, nfds, timeout >= 0 ? milliseconds(timeout) : infinity, 0);
 }
 
 void register_poll_syscalls(void **map)
