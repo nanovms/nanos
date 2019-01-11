@@ -60,6 +60,7 @@ sysreturn clone(unsigned long flags, void *child_stack, void *ptid, void *ctid, 
 
 typedef struct fut {
     queue waiters;
+    timer t;
 } *fut;
     
 static fut soft_create_futex(process p, u64 key)
@@ -75,6 +76,13 @@ static fut soft_create_futex(process p, u64 key)
     return f;
 }
 
+void futex_thread_wakeup(fut f, thread t) {
+    if (f->t){
+        remove_timer(f->t);
+    }
+    thread_wakeup(t);
+}
+
 static CLOSURE_1_0(futex_timeout, void, thread);
 static void futex_timeout(thread t)
 {
@@ -82,9 +90,9 @@ static void futex_timeout(thread t)
     thread_wakeup(t);
 }
 
-sysreturn futex_timer(thread t, const struct timespec* req)
+sysreturn register_futex_timer(thread t, fut f, const struct timespec* req)
 {
-    register_timer(time_from_timespec(req),
+   f->t = register_timer(time_from_timespec(req),
 		closure(heap_general(get_kernel_heaps()), futex_timeout, t));
 }
 
@@ -107,7 +115,7 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
             set_syscall_return(current, 0);
             //timeout is relative, measured against the CLOCK_MONOTONIC clock
             if(timeout)
-                futex_timer(current, timeout);
+                register_futex_timer(current, f, timeout);
             // atomic 
             enqueue(f->waiters, current);
             thread_sleep(current);
@@ -119,8 +127,8 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
         if ((w = dequeue(f->waiters))) {
             if (verbose)
                 thread_log(current, "futex_wake [%d %p %d %p]", current->tid, uaddr, *uaddr, w);
-            thread_wakeup(w);
-            set_syscall_return(current, 1);            
+            set_syscall_return(current, 1); 
+            futex_thread_wakeup(f, w);
         }
         return 0;
         
@@ -131,7 +139,7 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
         if (*uaddr == val3) {
             if ((w = dequeue(f->waiters))) {
                 set_syscall_return(current, 1);                            
-                thread_wakeup(w);
+                futex_thread_wakeup(f, w);
             }
             return 0;
         }
@@ -158,7 +166,7 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
             int result = 0;
             while ((w = dequeue(f->waiters))) {
                 result++;
-                thread_wakeup(w);
+                futex_thread_wakeup(f, w);
             }
             
             int c = 0;
@@ -175,7 +183,7 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
                 fut f = soft_create_futex(current->p, u64_from_pointer(uaddr2));
                 if ((w = dequeue(f->waiters))) {                
                     result++;
-                    thread_wakeup(w);
+                    futex_thread_wakeup(f, w);
                 }
             }
             return result;
@@ -189,7 +197,7 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
             set_syscall_return(current, 0);
               //timeout is absolute based on CLOCK_REALTIME 
             if(timeout)
-                futex_timer(current, timeout);                          
+                register_futex_timer(current, f, timeout);                          
             enqueue(f->waiters, current);
             thread_sleep(current);
         }
