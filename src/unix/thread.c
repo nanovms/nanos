@@ -96,7 +96,7 @@ static void futex_timeout(thread t)
     thread_wakeup(t);
 }
 
-sysreturn register_futex_timer(thread t, fut f, const struct timespec* req)
+void register_futex_timer(thread t, fut f, const struct timespec* req)
 {
    f->t = register_timer(time_from_timespec(req),
 		closure(heap_general(get_kernel_heaps()), futex_timeout, t));
