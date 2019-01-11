@@ -21,7 +21,7 @@ static buffer read_stdin(heap h)
     return in;
 }
 
-buffer resolve_file_name(heap h, const char *target_root, buffer name, struct stat *st)
+buffer lookup_file(heap h, const char *target_root, buffer name, struct stat *st)
 {
     char path_buf[PATH_MAX];
     const char *n = buffer_ref(name, 0);
@@ -67,11 +67,15 @@ void read_file(heap h, buffer dest, buffer name)
     // mode bit metadata
     struct stat st;
     if (stat(cstring(name), &st) < 0) {
+#ifdef DEV
         const char *target_root = getenv("NANOS_TARGET_ROOT");
+#else
+        const char *target_root = NULL;
+#endif
         if (target_root == NULL)
             halt("couldn't open file %b\n", name);
 
-        name_b = resolve_file_name(h, target_root, name, &st);
+        name_b = lookup_file(h, target_root, name, &st);
         //printf("%s -> %s\n", cstring(name), cstring(name_b));
         name = name_b;
     }
