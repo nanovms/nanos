@@ -113,7 +113,7 @@ static inline buffer wrap_buffer_cstring(heap h, char *x)
 buffer allocate_buffer(heap h, bytes length);
 
 
-static inline void buffer_write(buffer b, void *source, bytes length)
+static inline void buffer_write(buffer b, const void *source, bytes length)
 {
     buffer_extend(b, length);
     runtime_memcpy(buffer_ref(b, b->end-b->start), source, length);
@@ -139,11 +139,11 @@ void buffer_copy(buffer dest, bytes doff,
                  buffer source, bytes soff,
                  bytes length);
 
-void buffer_write(buffer b, void *source, bytes length);
+void buffer_write(buffer b, const void *source, bytes length);
 boolean buffer_read(buffer b, void *dest, bytes length);
 
 void buffer_append(buffer b,
-                   void *body,
+                   const void *body,
                    bytes length);
 
 // little endian variants
