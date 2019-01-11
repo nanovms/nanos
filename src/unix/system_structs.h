@@ -92,6 +92,7 @@ typedef struct iovec {
 
 #define EDESTADDRREQ    89		/* Destination address required */
 #define EOPNOTSUPP      95		/* Operation not supported */
+#define ETIMEDOUT       110     /* Connection timed out */
 
 #define O_RDONLY	00000000
 #define O_WRONLY	00000001
