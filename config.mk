@@ -1,6 +1,7 @@
 mkpath	= $(abspath $(lastword $(MAKEFILE_LIST)))
 ROOT	= $(patsubst %/,%,$(dir $(mkpath)))
 SRC	= $(ROOT)/src
+UNAME_s = $(shell uname -s)
 
 # To reveal verbose build messages, override Q= in command line.
 Q	?= @
@@ -10,6 +11,7 @@ CC	?= cc
 NASM	?= nasm
 LD	?= ld
 HOSTCC	?= cc
+HOSTLD  ?= $(HOSTCC)
 STRIP	?= strip
 OBJCOPY	?= objcopy
 OBJDUMP ?= objdump
@@ -39,6 +41,11 @@ CFLAGS	= -fno-omit-frame-pointer \
 		  $(includes)
 
 LDFLAGS	= --gc-sections
+TARGET_ROOT = $(NANOS_TARGET_ROOT)
+OBJS_CRTBEGIN_D = -dynamic-linker /lib64/ld-linux-x86-64.so.2 $(TARGET_ROOT)/usr/lib/x86_64-linux-gnu/Scrt1.o $(TARGET_ROOT)/usr/lib/x86_64-linux-gnu/crti.o $(TARGET_ROOT)/usr/lib/gcc/x86_64-linux-gnu/6/crtbeginS.o
+OBJS_CRTEND_D = -L=/usr/lib/x86_64-linux-gnu -L=/usr/lib/gcc/x86_64-linux-gnu/6 -lc $(TARGET_ROOT)/usr/lib/gcc/x86_64-linux-gnu/6/crtendS.o $(TARGET_ROOT)/usr/lib/x86_64-linux-gnu/crtn.o
+OBJS_CRTBEGIN = $(TARGET_ROOT)/usr/lib/x86_64-linux-gnu/crt1.o $(TARGET_ROOT)/usr/lib/x86_64-linux-gnu/crti.o $(TARGET_ROOT)/usr/lib/gcc/x86_64-linux-gnu/6/crtbeginT.o
+OBJS_CRTEND = -L=/usr/lib/x86_64-linux-gnu -L=/usr/lib/gcc/x86_64-linux-gnu/6 --start-group -lgcc -lgcc_eh -lc --end-group $(TARGET_ROOT)/usr/lib/gcc/x86_64-linux-gnu/6/crtend.o $(TARGET_ROOT)/usr/lib/x86_64-linux-gnu/crtn.o
 
 IMAGE	= $(ROOT)/output/image/image
 FS	= $(ROOT)/output/image/fs

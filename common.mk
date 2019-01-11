@@ -5,7 +5,8 @@ srcs-to-objs = \
 cmd = $(if $(Q),@ echo "$(msg_$(1))";) $(cmd_$(1))
 
 msg_host-prog     = HOSTLD	$@
-cmd_host-prog     = $(HOSTCC) $(HOSTLDFLAGS) $(HOSTLDFLAGS_$(@F)) $($(@F)-objs) $(EXTRA_HOSTLDFLAGS) -o $@
+cmd_host-prog     = $(HOSTLD) $(HOSTLDFLAGS) $(HOSTLDFLAGS_$(@F)) \
+			$(OBJS_BEGIN) $^ $(EXTRA_HOSTLDFLAGS) $(OBJS_END) -o $@
 
 msg_cc_o_c        = CC	$@
 cmd_cc_o_c        = $(CC) $(CFLAGS) $(DDFLAGS_$(@F)) -I$(dir $(CLOSURE_TMPL)) -c $< -o $@
@@ -14,11 +15,11 @@ msg_nasm_o_s      = NASM	$@
 cmd_nasm_o_s      = $(NASM) $(AFLAGS) $(AFLAGS_$(@F)) $< -o $@
 
 msg_go            = GO	$@
-cmd_go            = $(GO) build $(GOFLAGS) -o $@ $^
+cmd_go            = $(GO_ENV) $(GO) build $(GOFLAGS) -o $@ $^
 
 msg_ld            = LD	$@
-cmd_ld            = $(LD) $(LDFLAGS) $(EXTRA_LDFLAGS) $(LDFLAGS_$(@F)) \
-                        $(filter-out linker_script,$^) -o $@
+cmd_ld            = $(LD) $(LDFLAGS) $(LDFLAGS_$(@F)) \
+		         $(filter-out linker_script,$^) $(EXTRA_LDFLAGS) -o $@
 
 msg_strip         = STRIP	$@
 cmd_strip         = $(STRIP) $(STRIPFLAGS) $(STRIPFLAGS_$(@F)) $< -o $@

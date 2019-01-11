@@ -6,7 +6,10 @@ OUT = $(ROOT)/output/test
 CFLAGS  = -fno-stack-protector
 CFLAGS  += -fdata-sections -ffunction-sections
 CFLAGS  += $(includes)
-CFLAGS  += -g -std=gnu99 -DHOST_BUILD $(CFLAG_WARNINGS) -Wformat
+CFLAGS  += -g -std=gnu11 -DHOST_BUILD $(CFLAG_WARNINGS) -Wformat $(PLATFORM_CFLAGS)
+ifeq ($(UNAME_s),Darwin)
+CFLAGS  += -DNO_EPOLL
+endif
 #CFLAGS+=-DENABLE_MSG_DEBUG -DID_HEAP_DEBUG
 
 all: objcache_test network_test id_heap_test path_test pqueue_test vector_test udp_test buffer_test

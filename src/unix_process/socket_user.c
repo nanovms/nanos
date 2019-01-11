@@ -7,7 +7,14 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#ifndef NO_EPOLL
 #include <sys/epoll.h>
+#else
+#define EPOLLIN POLLIN
+#define EPOLLOUT POLLOUT
+#define EPOLLPRI POLLPRI
+#define EPOLLHUP POLLHUP
+#endif
 #include <socket_user.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -297,6 +304,7 @@ notifier create_poll_notifier(heap h)
     return (notifier)p;
 }
 
+#ifndef NO_EPOLL
 typedef struct epoll_notifier {
     struct notifier n;
     vector registrations;
@@ -387,6 +395,7 @@ notifier create_epoll_notifier(heap h)
     e->fd = f;
     return (notifier)e;
 }
+#endif
 
 void set_nonblocking(descriptor d)
 {
@@ -417,7 +426,7 @@ static void register_descriptor(heap h, notifier n, descriptor f, thunk each)
     registration r = allocate(h, sizeof(struct registration));
     r->fd = f;
     r->a = each;
-    notifier_register(n, f, EPOLLIN|EPOLLRDHUP|EPOLLET, each);
+    notifier_register(n, f, EPOLLIN|EPOLLHUP, each);
 }
 
 static CLOSURE_4_0(connection_input, void, heap, descriptor, notifier, buffer_handler);
