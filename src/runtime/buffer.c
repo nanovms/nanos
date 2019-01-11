@@ -15,7 +15,7 @@ buffer allocate_buffer(heap h, bytes s)
 }
 
 void buffer_append(buffer b,
-                     void *body,
+                     const void *body,
                      bytes length)
 {
     buffer_extend(b, length);
