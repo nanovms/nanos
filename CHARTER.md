@@ -18,7 +18,7 @@ incorporated into each vm.
 KISS. As Nanos is not intended to be ran on bare metal we strive to keep
 the core as simple as possible.
 
-2. **Performance**: 
+3. **Performance**: 
 
 ## Contributions & Project Roles
 

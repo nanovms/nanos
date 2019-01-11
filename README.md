@@ -2,6 +2,8 @@
 
 [![CircleCI](https://circleci.com/gh/nanovms/nanos.svg?style=svg)](https://circleci.com/gh/nanovms/nanos)
 
+Read more about the Nanos Charter [here](CHARTER.md).
+
 ### Building/Running
 
 Please use [https://github.com/nanovms/ops](ops) unless you are planning
