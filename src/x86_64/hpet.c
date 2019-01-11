@@ -168,10 +168,11 @@ boolean init_hpet(heap misc, heap virtual_pagesized, heap pages) {
     timers = create_id_heap(misc, 0, field_from_u64(hpet->capid, HPET_CAPID_NUM_TIM_CAP) + 1, 1);
     hpet->conf |= U64_FROM_BIT(HPET_CONF_ENABLE_CNF_SHIFT);
     u64 prev = hpet->mainCounterRegister;
-    if (prev == hpet->mainCounterRegister) {
-        console("Error: No increment HPET main counter\n");
-	return false;
+    for (int i = 0; i < 10; i ++) {
+        if (prev == hpet->mainCounterRegister) 
+            continue;
+        return true;
     }
-
-    return true;
+    console("Error: No increment HPET main counter\n");
+    return false;
 }
