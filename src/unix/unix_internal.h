@@ -14,9 +14,6 @@ typedef s64 sysreturn;
 typedef struct process *process;
 typedef struct thread *thread;
 
-#define CLONE_PARENT_SETTID     0x00100000      /* set the TID in the parent */
-#define CLONE_CHILD_CLEARTID    0x00200000      /* clear the TID in the child */
-
 thread create_thread(process);
 void exit_thread(thread);
 
