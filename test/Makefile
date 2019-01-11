@@ -3,15 +3,6 @@ include ../common.mk
 
 OUT = $(ROOT)/output/test
 
-CFLAG_WARNINGS = \
-    -Wimplicit-function-declaration \
-    -Wuninitialized \
-    -Wunused-function \
-    -Wunused-label \
-    -Wunused-value \
-    -Wunused-variable \
-    -Werror
-
 CFLAGS  = -fno-stack-protector
 CFLAGS  += -fdata-sections -ffunction-sections
 CFLAGS  += $(includes)
