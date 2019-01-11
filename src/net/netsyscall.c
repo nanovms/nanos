@@ -271,7 +271,7 @@ static sysreturn sock_read_bh(sock s, thread t, void *dest, u64 length,
     /* check if we actually have data */
     void * p = queue_peek(s->incoming);
     if (!p)
-        return 0;               /* back to chewing more cud */
+        return infinity;               /* back to chewing more cud */
 
     if (src_addr) {
         struct sockaddr_in sin;
@@ -335,7 +335,7 @@ static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
     sysreturn rv = blockq_check(s->rxbq, current, ba);
 
     /* We didn't block... */
-    if (rv < 0 || rv > 0)
+    if (rv != infinity)
         return rv;              /* error or success: return as-is */
 
     /* XXX ideally we could just prevent this case if we had growing
@@ -373,7 +373,7 @@ static sysreturn socket_write_tcp_bh(sock s, thread t, void * buf, u64 remain, b
             return set_syscall_error(t, EAGAIN);
         } else {
             net_debug(" send buf full, sleep\n");
-            return 0;           /* block again */
+            return infinity;           /* block again */
         }
     }
 
@@ -388,7 +388,7 @@ static sysreturn socket_write_tcp_bh(sock s, thread t, void * buf, u64 remain, b
     }
 
     /* XXX need to pore over lwIP error conditions here */
-    sysreturn rv = 0;
+    sysreturn rv = infinity;
     err = tcp_write(s->info.tcp.lw, buf, n, apiflags);
     if (err == ERR_OK) {
         /* XXX prob add a flag to determine whether to continuously
@@ -430,7 +430,7 @@ static sysreturn socket_write(sock s, void *source, u64 length, u64 offset)
             return set_syscall_return(current, 0);
         blockq_action ba = closure(s->h, socket_write_tcp_bh, s, current, source, length);
         sysreturn rv = blockq_check(s->txbq, current, ba);
-        if (rv < 0 || rv > 0)
+        if (rv != infinity)
             return rv;          /* error or success; return as-is */
         /* XXX again, need to just fix the queue stuff */
         msg_err("thread %d unable to block; queue full\n", current->tid);
@@ -832,7 +832,7 @@ sysreturn recvfrom(int sockfd, void * buf, u64 len, int flags,
     sysreturn rv = blockq_check(s->rxbq, current, ba);
 
     /* We didn't block... */
-    if (rv < 0 || rv > 0)
+    if (rv != infinity)
         return rv;              /* error or success: return as-is */
 
     /* XXX same crap */
@@ -919,7 +919,7 @@ static sysreturn accept_bh(sock s, thread t, struct sockaddr *addr, socklen_t *a
 
     sock sn = dequeue(s->incoming);
     if (!sn)
-        return 0;               /* block */
+        return infinity;               /* block */
 
     net_debug("child sock %d\n", sn->fd);
 
@@ -955,7 +955,7 @@ sysreturn accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
     sysreturn rv = blockq_check(s->rxbq, current, ba);
 
     /* We didn't block... */
-    if (rv < 0 || rv > 0)
+    if (rv != infinity)
         return rv;              /* error or success: return as-is */
 
     /* XXX */
