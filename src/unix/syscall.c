@@ -1185,14 +1185,13 @@ sysreturn sched_yield()
 
 void exit(int code)
 {
-    halt("");
-    while(1); //compiler put a noreturn on exit
+    exit_thread(current);
+    runloop();
 }
 
-sysreturn  exit_group(int status){
+sysreturn exit_group(int status)
+{
     halt("exit_group");
-    while(1);
-    return 0;
 }
 
 sysreturn pipe2(int fds[2], int flags)
@@ -1235,7 +1234,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_getrlimit, getrlimit);
     register_syscall(map, SYS_setrlimit, setrlimit);
     register_syscall(map, SYS_getpid, getpid);    
-    register_syscall(map,SYS_exit_group, exit_group);
+    register_syscall(map, SYS_exit_group, exit_group);
     register_syscall(map, SYS_exit, (sysreturn (*)())exit);
     register_syscall(map, SYS_getdents, getdents);
     register_syscall(map, SYS_getdents64, getdents64);
