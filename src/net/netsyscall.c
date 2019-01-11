@@ -33,8 +33,7 @@ enum tcp_socket_state {
     TCP_SOCK_CREATED = 1,
     TCP_SOCK_IN_CONNECTION = 2,
     TCP_SOCK_OPEN = 3,
-    TCP_SOCK_CLOSED = 4,
-    TCP_SOCK_LISTENING = 5,
+    TCP_SOCK_LISTENING = 4,
 };
 
 enum udp_socket_state {
@@ -97,9 +96,10 @@ static inline u32 socket_poll_events(sock s)
 	    return in ? EPOLLIN : 0;
 	} else if (s->info.tcp.state == TCP_SOCK_OPEN) {
             /* TODO: should use tcp_write_checks() for EPOLLOUT | EPOLLWRNORM? */
-	    return (in ? EPOLLIN | EPOLLRDNORM : 0) | EPOLLOUT | EPOLLWRNORM;
+	    return (in ? EPOLLIN | EPOLLRDNORM : 0) |
+                (s->info.tcp.lw->state == ESTABLISHED ? EPOLLOUT | EPOLLWRNORM : EPOLLIN | EPOLLHUP);
 	} else {
-	    return EPOLLIN | EPOLLHUP | EPOLLRDHUP | EPOLLRDNORM;
+	    return 0;
 	}
     }
     assert(s->type == SOCK_DGRAM);
@@ -270,8 +270,11 @@ static sysreturn sock_read_bh(sock s, thread t, void *dest, u64 length,
 
     /* check if we actually have data */
     void * p = queue_peek(s->incoming);
-    if (!p)
+    if (!p) {
+        if (s->type == SOCK_STREAM && s->info.tcp.lw->state != ESTABLISHED)
+            return set_syscall_return(t, 0);
         return infinity;               /* back to chewing more cud */
+    }
 
     if (src_addr) {
         struct sockaddr_in sin;
@@ -302,6 +305,7 @@ static sysreturn sock_read_bh(sock s, thread t, void *dest, u64 length,
         pbuf_consume(pbuf, xfer);
         length -= xfer;
         xfer_total += xfer;
+        dest = (char *) dest + xfer;
 
         if (pbuf->len == 0) {
             assert(dequeue(s->incoming) == p);
@@ -635,7 +639,6 @@ static err_t tcp_input_lower(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t
         }
         wakeup_sock(s, WAKEUP_SOCK_RX);
     } else {
-        s->info.tcp.state = TCP_SOCK_CLOSED;
         wakeup_sock(s, WAKEUP_SOCK_EXCEPT);
     }
 
@@ -686,7 +689,6 @@ void error_handler_tcp(void* arg, err_t err)
     if (err == ERR_ABRT ||
         err == ERR_RST ||
         err == ERR_CLSD) {
-        s->info.tcp.state = TCP_SOCK_CLOSED;
         set_lwip_error(s, err);
         wakeup_sock(s, WAKEUP_SOCK_EXCEPT);
     } else {
@@ -694,6 +696,23 @@ void error_handler_tcp(void* arg, err_t err)
            so bark and ignore... */
         msg_err("unhandled lwIP error %d\n", err);
     }
+}
+
+static void lwip_tcp_conn_err(void * z, err_t b) {
+    sock s = z;
+    net_debug("sock %d, err %d\n", s->fd, b);
+    error_message(s, b);
+    s->info.tcp.state = TCP_SOCK_UNDEFINED;
+    set_lwip_error(s, b);
+    wakeup_sock(s, WAKEUP_SOCK_EXCEPT);
+}
+
+static err_t lwip_tcp_sent(void * arg, struct tcp_pcb * pcb, u16 len)
+{
+    sock s = (sock)arg;
+    net_debug("fd %d, pcb %p, len %d\n", s->fd, pcb, len);
+    wakeup_sock(s, WAKEUP_SOCK_TX);
+    return ERR_OK;
 }
 
 static CLOSURE_1_1(connect_tcp_bh, void, thread, err_t);
@@ -723,7 +742,9 @@ static inline int connect_tcp(sock s, const ip_addr_t* address, unsigned short p
     lwip_status_handler bh = closure(s->h, connect_tcp_bh, current);
     struct tcp_pcb * lw = s->info.tcp.lw;
     tcp_arg(lw, s);
+    tcp_recv(lw, tcp_input_lower);
     tcp_err(lw, error_handler_tcp);
+    tcp_sent(lw, lwip_tcp_sent);
     s->info.tcp.state = TCP_SOCK_IN_CONNECTION;
     set_lwip_error(s, ERR_OK);
     assert(s->info.tcp.connect_bh == 0);
@@ -838,23 +859,6 @@ sysreturn recvfrom(int sockfd, void * buf, u64 len, int flags,
     /* XXX same crap */
     msg_err("thread %d unable to block; queue full\n", current->tid);
     return set_syscall_error(current, EAGAIN);
-}
-
-static void lwip_tcp_conn_err(void * z, err_t b) {
-    sock s = z;
-    net_debug("sock %d, err %d\n", s->fd, b);
-    error_message(s, b);
-    s->info.tcp.state = TCP_SOCK_UNDEFINED;
-    set_lwip_error(s, b);
-    wakeup_sock(s, WAKEUP_SOCK_EXCEPT);
-}
-
-static err_t lwip_tcp_sent(void * arg, struct tcp_pcb * pcb, u16 len)
-{
-    sock s = (sock)arg;
-    net_debug("fd %d, pcb %p, len %d\n", s->fd, pcb, len);
-    wakeup_sock(s, WAKEUP_SOCK_TX);
-    return ERR_OK;
 }
 
 static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t err)

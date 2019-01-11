@@ -134,8 +134,10 @@ static void input(xpbuf x, u64 len)
     vnet vn= x->vn;
     // under what conditions does a virtio queue give us zero?
     if (x != NULL) {
-        x->p.pbuf.len = len;
-        x->p.pbuf.payload += 10;
+        len -= NET_HEADER_LENGTH;
+        assert(len <= x->p.pbuf.len);
+        x->p.pbuf.tot_len = x->p.pbuf.len = len;
+        x->p.pbuf.payload += NET_HEADER_LENGTH;
         if (vn->n->input(&x->p.pbuf, vn->n) != ERR_OK) {
             receive_buffer_release(&x->p.pbuf);
         }
@@ -211,8 +213,7 @@ static void init_vnet(heap general, heap page_allocator,
     vtpci dev = attach_vtpci(general, page_allocator, bus, slot, function, VIRTIO_NET_F_MAC);
     vnet vn = allocate(dev->general, sizeof(struct vnet));
     vn->n = allocate(dev->general, sizeof(struct netif));
-    vn->rxbuflen = 1500;
-    vn->rxbuffers = wrap_freelist(dev->general, dev->general, vn->rxbuflen + sizeof(struct xpbuf));
+    vn->rxbuflen = NET_HEADER_LENGTH + sizeof(struct eth_hdr) + sizeof(struct eth_vlan_hdr) + 1500;
     vn->rxbuffers = allocate_objcache(dev->general, page_allocator,
 				      vn->rxbuflen + sizeof(struct xpbuf), PAGESIZE_2M);
     /* rx = 0, tx = 1, ctl = 2 by 
