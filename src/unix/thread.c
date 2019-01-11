@@ -20,9 +20,9 @@ sysreturn gettid()
     return current->tid;
 }
 
-sysreturn set_tid_address(void *a)
+sysreturn set_tid_address(int *a)
 {
-    current->set_child_tid = a;
+    current->clear_tid = a;
     return current->tid;
 }
 
@@ -44,15 +44,21 @@ sysreturn arch_prctl(int code, unsigned long a)
     return 0;
 }
 
-sysreturn clone(unsigned long flags, void *child_stack, void *ptid, void *ctid, void *x)
+sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, unsigned long newtls)
 {
+    thread_log(current, "clone: flags %P, child_stack %p, ptid %p, ctid %p, newtls %d",
+        flags, child_stack, ptid, ctid, newtls);
     thread t = create_thread(current->p);
     runtime_memcpy(t->frame, current->frame, sizeof(t->frame));
     t->frame[FRAME_RSP]= u64_from_pointer(child_stack);
     // xxx - the interpretation of ctid is dependent on flags
     // and it can be zero
     // t->frame[FRAME_RAX]= *(u32 *)ctid; 
-    t->frame[FRAME_FS] = u64_from_pointer(x);
+    t->frame[FRAME_FS] = newtls;
+    if (flags & CLONE_PARENT_SETTID)
+        *ptid = t->tid;
+    if (flags & CLONE_CHILD_CLEARTID)
+        t->clear_tid = ctid;
     thread_wakeup(t);
     return t->tid;
 }
@@ -271,12 +277,24 @@ thread create_thread(process p)
     t->uh = *p->uh;
     t->select_epoll = 0;
     t->tid = tidcount++;
-    t->set_child_tid = t->clear_child_tid = 0;
+    t->clear_tid = 0;
     zero(t->frame, sizeof(t->frame));
     t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(closure(h, default_fault_handler, t));
     t->run = closure(h, run_thread, t);
     vector_push(p->threads, t);
     return t;
+}
+
+void exit_thread(thread t)
+{
+    if (t->clear_tid) {
+        *t->clear_tid = 0;
+        futex(t->clear_tid, FUTEX_WAKE, 1, 0, 0, 0);
+    }
+
+    /* TODO: remove also from p->threads (but it is not currently used) */
+    heap h = heap_general((kernel_heaps)t->p->uh);
+    deallocate(h, t, sizeof(struct thread));
 }
 
 void init_threads(process p)
