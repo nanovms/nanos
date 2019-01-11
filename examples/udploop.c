@@ -17,7 +17,7 @@ void fail(char * s)
 
 table parse_arguments(heap h, int argc, char **argv);
 
-void main(int argc, char ** argv)
+int main(int argc, char ** argv)
 {
     heap h = init_process_runtime();
     tuple t = parse_arguments(h, argc, argv);
@@ -64,4 +64,6 @@ void main(int argc, char ** argv)
 	    exit(EXIT_SUCCESS);
 	}
     } while(1);
+
+    return 0;
 }

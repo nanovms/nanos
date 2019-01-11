@@ -58,7 +58,7 @@ int main(int argc, char **argv)
     }
 
     if (rv != len) {
-        printf("read #2 fail: expecting %d bytes, rv: %d\n", len, rv);
+        printf("read #2 fail: expecting %d bytes, rv: %ld\n", len, rv);
         goto out_fail;
     }
 

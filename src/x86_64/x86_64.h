@@ -82,19 +82,11 @@ static inline void write_barrier()
     asm ("sfence");
 }
 
-#ifdef __APPLE__
 #define rol(__x, __b)\
      ({\
-        __asm__("roll %1, %0": "=g"(__x): "i" (__b));\
+        __asm__("rolq %1, %0": "=g"(__x): "i" (__b));\
         __x;\
      })
-#else 
-#define rol(__x, __b)\
-     ({\
-        __asm__("rol %1, %0": "=g"(__x): "i" (__b));\
-        __x;\
-     })
-#endif
 
 /*static inline u64 msb(u64 x)
 {
@@ -131,7 +123,7 @@ static inline void set_syscall_handler(void *syscall_entry)
 
 static inline timestamp rdtsc(void)
 {
-    u64 a, d;
+    u32 a, d;
     asm("cpuid":::"%rax", "%rbx", "%rcx", "%rdx");
     asm volatile("rdtsc" : "=a" (a), "=d" (d));
 

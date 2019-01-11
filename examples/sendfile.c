@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <sys/syscall.h>
+#include <sys/sendfile.h>
 #include <errno.h>
 #include <string.h>
 
@@ -79,7 +80,7 @@ int main(int argc, char *argv[])
     for (i = 0; i < sizeof(cmp_buf) - 1; i++)
 	    sf_dbg("buf[%d] = 0x%02x\n", i+1, cmp_buf[i]);
 
-    if (memcmp(buf, cmp_buf, sizeof(buf) != 0))
+    if (memcmp(buf, cmp_buf, sizeof(buf)) != 0)
         sf_err_goto(err_fop, "sendfile() failed!!\n");
 
     close(fd_out);

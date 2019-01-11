@@ -84,6 +84,7 @@ static boolean create_stdfiles(unix_heaps uh, process p)
     in->close = closure(h, std_close, in);
     out->close = closure(h, std_close, out);
     err->close = closure(h, std_close, err);
+    return true;
 }
 
 process create_process(unix_heaps uh, tuple root, filesystem fs)
