@@ -105,6 +105,7 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
                 thread_log(current, "futex wait %p %p %p", uaddr, val, current);
             // if we resume we are woken up.
             set_syscall_return(current, 0);
+            //timeout is relative, measured against the CLOCK_MONOTONIC clock
             if(timeout)
                 futex_timer(current, timeout);
             // atomic 
@@ -183,8 +184,12 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
     case FUTEX_WAIT_BITSET:
         if (verbose)
             thread_log(current, "futex_wait_bitset [%d %p %d] %p %p", current->tid, uaddr, *uaddr, val3);
+      
         if (*uaddr == val) {
-            set_syscall_return(current, 0);                            
+            set_syscall_return(current, 0);
+              //timeout is absolute based on CLOCK_REALTIME 
+            if(timeout)
+                futex_timer(current, timeout);                          
             enqueue(f->waiters, current);
             thread_sleep(current);
         }
