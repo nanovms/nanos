@@ -1,40 +1,63 @@
-# uniboot
+# nanos
 
-[![CircleCI](https://circleci.com/gh/deferpanic/uniboot.svg?style=svg)](https://circleci.com/gh/deferpanic/uniboot)
+[![CircleCI](https://circleci.com/gh/nanovms/nanos.svg?style=svg)](https://circleci.com/gh/nanovms/nanos)
 
-setting up qemu networking
+Read more about the Nanos Charter [here](CHARTER.md).
 
-  first setup your bridge environment:
-  
+### Building/Running
+
+Please use [https://github.com/nanovms/ops](ops) unless you are planning
+on modifying nanos.
+
+For Nanos try running the first example first:
 ```
-# create bridge named br0.
-ip link add br0 type bridge
-# bring up the bridge.
-ip link set br0 up
-# add the ethernet adapter eth0 to bridge.
-ip link set $(ETH0) master br0
-# create a tap device named tap0.
-ip tuntap add tap0 mode tap user `whoami`
-# bring up the bridge.
-ip link set tap0 up
-# add tap0 to bridge.
-ip link set tap0 master br0
-# assign ip to bridge.
-dhclient -v br0
+make run-nokvm
 ```
 
-invoke qemu:
+To try a different target currently found in examples/ you can:
+
+1) cp the manifest file to target.manifest
+2) add your code and set a target in examples/Makefile
+
 ```
-  -device virtio-net,netdev=n0,mac=[tapeth]  -netdev tap,ifname=tap0,id=n0,script=no
+TARGET=mynewtarget make run-novkm
 ```
 
-the learning bridge should be happy to deal with any random mac, but it really only
-works if the guest mac matches the host-assigned tap0 mac
+### Creating a Manifest
 
-to address the tap0 cdev, need to run as root, have to figure that out
+* arguments
+* environment variables
 
-this could all be wrapped up in make or a script or a c program, but its
-pretty involved
+### TFS
 
+TFS is the current filesystem utilized by Nanos.
 
+### Optional Flags
 
+* thread tracing
+
+```
+futex_trace: t
+```
+
+* syscall tracing
+
+```
+debugsyscalls: t
+```
+
+* stackdump
+
+```
+fault: t
+```
+
+[https://github.com/nanovms/nanos/wiki/Architecture](Architecture)
+
+[https://github.com/nanovms/nanos/wiki/debugging](Debugging Help)
+
+[https://github.com/nanovms/nanos/wiki/networking-setup](Manual Networking Setup)
+
+[Build Envs](https://github.com/nanovms/nanos/wiki/Build-Envs)
+
+[Reference Materials](https://github.com/nanovms/nanos/wiki/reference-materials)

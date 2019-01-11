@@ -23,7 +23,7 @@ extern void halt(char *format, ...);
 		       __func__, __LINE__); } while(0)
 #endif
 
-static inline void runtime_memcpy(void *a, void *b, bytes len)
+static inline void runtime_memcpy(void *a, const void *b, bytes len)
 {
     for (int i = 0; i < len; i++) ((u8 *)a)[i] = ((u8 *)b)[i];
 }
@@ -33,10 +33,10 @@ static inline void runtime_memset(u8 *a, u8 b, bytes len)
     for (int i = 0; i < len; i++) ((u8 *)a)[i] = b;
 }
 
-static inline int runtime_strlen(char *a)
+static inline int runtime_strlen(const char *a)
 {
     int i = 0;
-    char *z;
+    const char *z;
     for (z = a; *a; a++, i++);
     return i;
 }
