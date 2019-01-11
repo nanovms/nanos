@@ -62,9 +62,10 @@ buffer resolve_file_name(heap h, const char *target_root, buffer name, struct st
 // its nice that we can append a file to any existing buffer, but harsh we have to grow the buffer
 void read_file(heap h, buffer dest, buffer name)
 {
+    buffer name_b = NULL;
+
     // mode bit metadata
     struct stat st;
-    buffer name_b = NULL;
     if (stat(cstring(name), &st) < 0) {
         const char *target_root = getenv("NANOS_TARGET_ROOT");
         if (target_root == NULL)
@@ -75,13 +76,14 @@ void read_file(heap h, buffer dest, buffer name)
         name = name_b;
     }
     int fd = open(cstring(name), O_RDONLY);
-    if (name_b != NULL)
-        deallocate_buffer(name_b);
     if (fd < 0) halt("couldn't open file %b\n", name);
     u64 size = st.st_size;
     buffer_extend(dest, pad(st.st_size, SECTOR_SIZE));
     read(fd, buffer_ref(dest, 0), size);
     dest->end += size;
+
+    if (name_b != NULL)
+        deallocate_buffer(name_b);
 }
 
 heap malloc_allocator();
