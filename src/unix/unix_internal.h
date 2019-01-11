@@ -189,7 +189,7 @@ void default_fault_handler(thread t, context frame);
 void thread_log_internal(thread t, char *desc, ...);
 #define thread_log(__t, __desc, ...) thread_log_internal(__t, __desc, ##__VA_ARGS__)
 // this should always be current
-void thread_sleep(thread);
+void thread_sleep(thread) __attribute__((noreturn));
 void thread_wakeup(thread);
 
 static inline sysreturn set_syscall_return(thread t, sysreturn val)

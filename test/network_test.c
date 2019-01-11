@@ -120,7 +120,7 @@ u64 extract_u64_with_default(tuple t, symbol n, u64 otherwise)
 }
 
 
-void main(int argc, char **argv)
+int main(int argc, char **argv)
 {
     heap h = init_process_runtime();    
     tuple t = parse_arguments(h, argc, argv);
@@ -148,5 +148,6 @@ void main(int argc, char **argv)
     *newconn = (thunk)closure(h, startconn, h, n, m, target, newconn, s, err, req);
     apply(*newconn);
     notifier_spin(n);
+    return 0;
 }
 

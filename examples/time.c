@@ -13,13 +13,13 @@ main()
         time_t t, t2;
 
         gettimeofday(&tv, NULL);
-        printf("gettimeofday: tv_sec = %llu, tv_usec = %llu\n", tv.tv_sec, tv.tv_usec);
+        printf("gettimeofday: tv_sec = %lu, tv_usec = %lu\n", tv.tv_sec, tv.tv_usec);
 
         t = time(NULL);
-        printf("time: retval = %lld\n", t);
+        printf("time: retval = %ld\n", t);
 
         t = time(&t2);
-        printf("time: retval = %lld, out = %lld\n", t, t2);
+        printf("time: retval = %ld, out = %ld\n", t, t2);
 
         sleep(1);
     }

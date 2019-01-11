@@ -361,10 +361,10 @@ static inline tuple resolve_cstring(tuple root, char *f)
     tuple t = root;
     char y;
 
-    if (strcmp(f, ".") == 0)
+    if (runtime_strcmp(f, ".") == 0)
         return root;
 
-    if (strcmp(f, "/") == 0)
+    if (runtime_strcmp(f, "/") == 0)
         return filesystem_getroot(current->p->fs);
 
     while ((y = *x++)) {
@@ -940,7 +940,7 @@ done:
 
 sysreturn writev(int fd, iovec v, int count)
 {
-    int res;
+    int res = 0;
     resolve_fd(current->p, fd);
     for (int i = 0; i < count; i++) res += write(fd, v[i].address, v[i].length);
     return res;
