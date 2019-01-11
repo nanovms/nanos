@@ -10,6 +10,14 @@ CFLAGS = -g \
 CFLAGS+= $(CFLAG_WARNINGS) \
 	-std=gnu11 \
          -Wformat
+ifeq ($(UNAME_s),Darwin)
+CFLAGS += -target x86_64-elf --sysroot $(TARGET_ROOT)
+HOSTLD = x86_64-elf-ld
+HOSTLDFLAGS += --sysroot=$(TARGET_ROOT)
+OBJS_BEGIN=	$(OBJS_CRTBEGIN)
+OBJS_END=	$(OBJS_CRTEND)
+GO_ENV=		GOOS=linux GOARCH=amd64
+endif
 
 all: fst hw hws hwg getdents udploop web webg webgs webs getrandom mkdir time \
 	 pipe write creat sendfile
@@ -59,6 +67,10 @@ hw-srcs := \
 
 hw-objs = $(call srcs-to-objs,$(ROOT),$(OUT),hw)
 
+ifeq ($(UNAME_s),Darwin)
+$(HW): OBJS_BEGIN=$(OBJS_CRTBEGIN_D)
+$(HW): OBJS_END=$(OBJS_CRTEND_D)
+endif
 $(HW): $(hw-objs)
 	$(call cmd,host-prog)
 
@@ -157,7 +169,6 @@ creat-srcs := \
 creat-objs = $(call srcs-to-objs,$(ROOT),$(OUT),creat)
 
 $(CREAT): HOSTLDFLAGS += -static
-$(CREAT): EXTRA_HOSTLDFLAGS = -lm
 $(CREAT): $(creat-objs)
 	$(call cmd,host-prog)
 
@@ -233,6 +244,10 @@ web-srcs := \
 
 web-objs = $(call srcs-to-objs,$(ROOT),$(OUT),web)
 
+ifeq ($(UNAME_s),Darwin)
+$(WEB): OBJS_BEGIN=$(OBJS_CRTBEGIN_D)
+$(WEB): OBJS_END=$(OBJS_CRTEND_D)
+endif
 $(WEB): $(web-objs)
 	$(call cmd,host-prog)
 
@@ -245,7 +260,7 @@ $(WEBS): $(web-objs)
 $(WEBGS): webg.go
 	@ mkdir -p $(dir $@)
 	@ echo "GO	$@"
-	$(Q) CGO_ENABLED=0 $(GO) build -a -ldflags '-extldflags "-static"' -o $@ $^
+	$(Q) CGO_ENABLED=0 $(GO_ENV) $(GO) build -a -ldflags '-extldflags "-static"' -o $@ $^
 
 $(hw-objs) $(web-objs) $(udploop-objs): $(CLOSURE_TMPL)
 
