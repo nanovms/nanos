@@ -1,40 +1,33 @@
-# uniboot
+# nanos
 
-[![CircleCI](https://circleci.com/gh/deferpanic/uniboot.svg?style=svg)](https://circleci.com/gh/deferpanic/uniboot)
+[![CircleCI](https://circleci.com/gh/nanovms/nanos.svg?style=svg)](https://circleci.com/gh/nanovms/nanos)
 
-setting up qemu networking
+Please use [https://github.com/nanovms/ops](ops) unless you are planning
+on coding with nanos.
 
-  first setup your bridge environment:
-  
+For Nanos try running the first example first:
 ```
-# create bridge named br0.
-ip link add br0 type bridge
-# bring up the bridge.
-ip link set br0 up
-# add the ethernet adapter eth0 to bridge.
-ip link set $(ETH0) master br0
-# create a tap device named tap0.
-ip tuntap add tap0 mode tap user `whoami`
-# bring up the bridge.
-ip link set tap0 up
-# add tap0 to bridge.
-ip link set tap0 master br0
-# assign ip to bridge.
-dhclient -v br0
+make run-nokvm
 ```
 
-invoke qemu:
-```
-  -device virtio-net,netdev=n0,mac=[tapeth]  -netdev tap,ifname=tap0,id=n0,script=no
-```
 
-the learning bridge should be happy to deal with any random mac, but it really only
-works if the guest mac matches the host-assigned tap0 mac
+### Creating a Manifest
 
-to address the tap0 cdev, need to run as root, have to figure that out
+* arguments
+* environment variables
 
-this could all be wrapped up in make or a script or a c program, but its
-pretty involved
+### TFS
+
+### Optional Flags
+
+* thread tracing
+* syscall tracing
+* stackdump
 
 
+[https://github.com/nanovms/nanos/wiki/Architecture](Architecture)
+[https://github.com/nanovms/nanos/wiki/debugging](Debugging Help)
+[https://github.com/nanovms/nanos/wiki/networking-setup](Manual Networking Setup)
+[Build Envs](https://github.com/nanovms/nanos/wiki/Build-Envs)
 
+[Reference Materials](https://github.com/nanovms/nanos/wiki/reference-materials)
