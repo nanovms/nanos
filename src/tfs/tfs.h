@@ -41,6 +41,8 @@ typedef enum {
     FS_STATUS_NOTDIR,
 } fs_status;
 
-fs_status filesystem_mkentry(filesystem fs, char *fp, tuple entry);
-fs_status filesystem_mkdir(filesystem fs, char *fp);
+fs_status filesystem_mkentry(filesystem fs, tuple root, char *fp, tuple entry);
+fs_status filesystem_mkdir(filesystem fs, tuple root, char *fp);
 fs_status filesystem_creat(filesystem fs, char *fp);
+
+tuple filesystem_getroot(filesystem fs);

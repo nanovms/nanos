@@ -40,7 +40,7 @@ void default_fault_handler(thread t, context frame)
 static CLOSURE_0_3(dummy_read, sysreturn, void *, u64, u64);
 static sysreturn dummy_read(void *dest, u64 length, u64 offset_arg)
 {
-    thread_log(current, "%s: dest %p, length %d, offset_arg %d\n",
+    thread_log(current, "%s: dest %p, length %d, offset_arg %d",
 	       __func__, dest, length, offset_arg);
     return 0;
 }

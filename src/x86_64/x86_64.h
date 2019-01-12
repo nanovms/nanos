@@ -207,8 +207,8 @@ void *dequeue(queue q);
 void *queue_peek(queue q);
 int queue_length(queue q);
 queue allocate_queue(heap h, u64 size);
-void deallocate_queue(queue q, u64 size);
-void runloop();
+void deallocate_queue(queue q);
+void runloop() __attribute__((noreturn));
 void map(u64 virtual, physical p, int length, heap h);
 void unmap(u64 virtual, int length, heap h);
 

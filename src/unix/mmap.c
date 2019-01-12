@@ -81,20 +81,20 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     len = len & MASK(32);
     u64 where = u64_from_pointer(target);
 
-    thread_log(current, "mmap: target %p, size %P, prot %P, flags %P, fd %d, offset %P\n",
+    thread_log(current, "mmap: target %p, size %P, prot %P, flags %P, fd %d, offset %P",
 	       target, size, prot, flags, fd, offset);
     // xx - go wants to specify target without map fixed, and has some strange
     // retry logic around it
     if (!(flags &MAP_FIXED) && !target) {
 	where = allocate_u64((flags & MAP_32BIT) ? p->virtual32 : p->virtual, len);
 	if (where == (u64)INVALID_ADDRESS) {
-	    thread_log(current, "   failed to allocate %s virtual memory, size %P\n",
+	    thread_log(current, "   failed to allocate %s virtual memory, size %P",
 		       (flags & MAP_32BIT) ? "32-bit" : "", len);
 	    return -ENOMEM;
 	}
     } else {
 	/* XXX rb tree check */
-	thread_log(current, "   fixed at %p\n", target);
+	thread_log(current, "   fixed at %p", target);
     }
 
     // make a generic zero page function
@@ -102,13 +102,13 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
         u64 m = allocate_u64(physical, len);
         if (m == INVALID_PHYSICAL) return m;
         map(where, m, len, pages);
-        thread_log(current, "   anon target: %P, len: %P (given size: %P)\n", where, len, size);
+        thread_log(current, "   anon target: %P, len: %P (given size: %P)", where, len, size);
         zero(pointer_from_u64(where), len);
         return where;
     }
 
     file f = resolve_fd(current->p, fd);
-    thread_log(current, "  read file, blocking...\n");
+    thread_log(current, "  read file, blocking...");
     filesystem_read_entire(p->fs, f->n, heap_backed(kh),
                            closure(h, mmap_load_entire, current, where, len, offset),
                            closure(h, mmap_load_entire_fail, current));
@@ -122,5 +122,6 @@ void register_mmap_syscalls(void **map)
     register_syscall(map, SYS_mremap, mremap);        
     register_syscall(map, SYS_munmap, syscall_ignore);
     register_syscall(map, SYS_mprotect, syscall_ignore);
+    register_syscall(map, SYS_madvise, syscall_ignore);
 }
 

@@ -15,7 +15,11 @@ typedef s64 sysreturn;
 typedef struct process *process;
 typedef struct thread *thread;
 
+#define CLONE_PARENT_SETTID     0x00100000      /* set the TID in the parent */
+#define CLONE_CHILD_CLEARTID    0x00200000      /* clear the TID in the child */
+
 thread create_thread(process);
+void exit_thread(thread);
 
 void run(thread);
 
@@ -33,6 +37,14 @@ struct linux_dirent {
     char           d_type;    // File type (only since Linux
     // 2.6.4); offset is (d_reclen - 1)
     */
+};
+
+struct linux_dirent64 {
+    u64            d_ino;    /* 64-bit inode number */
+    u64            d_off;    /* 64-bit offset to next structure */
+    unsigned short d_reclen; /* Size of this dirent */
+    unsigned char  d_type;   /* File type */
+    char           d_name[]; /* Filename (null-terminated) */
 };
 
 /* unix-specific memory objects and ids */
@@ -69,9 +81,8 @@ typedef struct thread {
     struct unix_heaps uh;
 
     epoll select_epoll;
-    void *set_child_tid;
-    void *clear_child_tid;
-    u64 tid;
+    int *clear_tid;
+    int tid;
     thunk run;
     queue log[64];
 } *thread;
@@ -164,7 +175,7 @@ static inline timestamp time_from_timespec(const struct timespec *t)
 static inline void timespec_from_time(struct timespec *ts, timestamp t)
 {
     ts->ts_sec = t>>32;
-    ts->ts_nsec = nsec_from_time(t - (ts->ts_sec<<32));
+    ts->ts_nsec = nsec_from_timestamp(t - (ts->ts_sec<<32));
 }
 
 static inline time_t time_t_from_time(timestamp t)
@@ -227,3 +238,22 @@ void register_special_files(process p);
 sysreturn spec_read(file f, void *dest, u64 length, u64 offset_arg);
 sysreturn spec_write(file f, void *dest, u64 length, u64 offset_arg);
 u32 spec_events(file f);
+
+#define BLOCKQ_NAME_MAX 20
+
+typedef struct blockq {
+    heap h;
+    /* spinlock lock; */
+    queue waiters;              /* queue of blockq_actions */
+    char name[BLOCKQ_NAME_MAX]; /* for debug */
+    timer timeout;              /* timeout to protect against stuck queue scenarios */
+    timestamp timeout_interval;
+} *blockq;
+
+typedef closure_type(blockq_action, sysreturn, boolean);
+
+blockq allocate_blockq(heap h, char * name, u64 size, timestamp timeout_interval);
+void deallocate_blockq(blockq bq);
+sysreturn blockq_check(blockq bq, thread t, blockq_action a);
+void blockq_wake_one(blockq bq);
+void blockq_flush(blockq bq);

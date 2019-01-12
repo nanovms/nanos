@@ -20,9 +20,9 @@ sysreturn gettid()
     return current->tid;
 }
 
-sysreturn set_tid_address(void *a)
+sysreturn set_tid_address(int *a)
 {
-    current->set_child_tid = a;
+    current->clear_tid = a;
     return current->tid;
 }
 
@@ -44,8 +44,10 @@ sysreturn arch_prctl(int code, unsigned long a)
     return 0;
 }
 
-sysreturn clone(unsigned long flags, void *child_stack, void *ptid, void *ctid, void *x)
+sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, unsigned long newtls)
 {
+    thread_log(current, "clone: flags %P, child_stack %p, ptid %p, ctid %p, newtls %d",
+        flags, child_stack, ptid, ctid, newtls);
     thread t = create_thread(current->p);
     if ((flags & CLONE_CHILD_CLEARTID) != 0)
         t->clear_child_tid = ctid;
@@ -54,7 +56,11 @@ sysreturn clone(unsigned long flags, void *child_stack, void *ptid, void *ctid, 
     // xxx - the interpretation of ctid is dependent on flags
     // and it can be zero
     // t->frame[FRAME_RAX]= *(u32 *)ctid; 
-    t->frame[FRAME_FS] = u64_from_pointer(x);
+    t->frame[FRAME_FS] = newtls;
+    if (flags & CLONE_PARENT_SETTID)
+        *ptid = t->tid;
+    if (flags & CLONE_CHILD_CLEARTID)
+        t->clear_tid = ctid;
     thread_wakeup(t);
     if ((flags & CLONE_PARENT_SETTID) != 0)
         runtime_memcpy(ptid, &t->tid, sizeof(t->tid));
@@ -64,6 +70,7 @@ sysreturn clone(unsigned long flags, void *child_stack, void *ptid, void *ctid, 
 
 typedef struct fut {
     queue waiters;
+    timer t;
 } *fut;
     
 static fut soft_create_futex(process p, u64 key)
@@ -79,11 +86,31 @@ static fut soft_create_futex(process p, u64 key)
     return f;
 }
 
+void futex_thread_wakeup(fut f, thread t) {
+    if (f->t){
+        remove_timer(f->t);
+    }
+    thread_wakeup(t);
+}
+
+static CLOSURE_1_0(futex_timeout, void, thread);
+static void futex_timeout(thread t)
+{
+    set_syscall_return(t, ETIMEDOUT);
+    thread_wakeup(t);
+}
+
+sysreturn register_futex_timer(thread t, fut f, const struct timespec* req)
+{
+   f->t = register_timer(time_from_timespec(req),
+		closure(heap_general(get_kernel_heaps()), futex_timeout, t));
+}
+
 static sysreturn futex(int *uaddr, int futex_op, int val,
                        u64 val2,
                        int *uaddr2, int val3)
 {
-    //struct timespec *timeout = pointer_from_u64(val2);
+    struct timespec *timeout = pointer_from_u64(val2);
     boolean verbose = table_find(current->p->process_root, sym(futex_trace))?true:false;
     thread w;
     
@@ -93,9 +120,12 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
     case FUTEX_WAIT:
         if (*uaddr == val) {
             if (verbose) 
-                thread_log(current, "futex wait %p %p %p\n", uaddr, val, current);
-            // if we resume we are woken up, no timeout support
+                thread_log(current, "futex wait %p %p %p", uaddr, val, current);
+            // if we resume we are woken up.
             set_syscall_return(current, 0);
+            //timeout is relative, measured against the CLOCK_MONOTONIC clock
+            if(timeout)
+                register_futex_timer(current, f, timeout);
             // atomic 
             enqueue(f->waiters, current);
             thread_sleep(current);
@@ -106,20 +136,20 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
         // return the number of waiters that were woken up
         if ((w = dequeue(f->waiters))) {
             if (verbose)
-                thread_log(current, "futex_wake [%d %p %d %p]\n", current->tid, uaddr, *uaddr, w);
-            thread_wakeup(w);
-            set_syscall_return(current, 1);            
+                thread_log(current, "futex_wake [%d %p %d %p]", current->tid, uaddr, *uaddr, w);
+            set_syscall_return(current, 1); 
+            futex_thread_wakeup(f, w);
         }
         return 0;
         
     case FUTEX_REQUEUE: rprintf("futex_requeue\n"); break;
     case FUTEX_CMP_REQUEUE:
         if (verbose)
-            thread_log(current, "futex_cmp_requeue [%d %p %d] %d\n", current->tid, uaddr, *uaddr, val3);
+            thread_log(current, "futex_cmp_requeue [%d %p %d] %d", current->tid, uaddr, *uaddr, val3);
         if (*uaddr == val3) {
             if ((w = dequeue(f->waiters))) {
                 set_syscall_return(current, 1);                            
-                thread_wakeup(w);
+                futex_thread_wakeup(f, w);
             }
             return 0;
         }
@@ -132,7 +162,7 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
             unsigned int op = (val3 >> 28) & MASK(4);
 
             if (verbose)
-                thread_log(current, "futex wake op: [%d %p %d] %p %d %d %d %d\n",  current->tid, uaddr, *uaddr, uaddr2, cmparg, oparg, cmp, op);
+                thread_log(current, "futex wake op: [%d %p %d] %p %d %d %d %d",  current->tid, uaddr, *uaddr, uaddr2, cmparg, oparg, cmp, op);
             int oldval = *(int *) uaddr2;
             
             switch (op) {
@@ -146,7 +176,7 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
             int result = 0;
             while ((w = dequeue(f->waiters))) {
                 result++;
-                thread_wakeup(w);
+                futex_thread_wakeup(f, w);
             }
             
             int c = 0;
@@ -163,7 +193,7 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
                 fut f = soft_create_futex(current->p, u64_from_pointer(uaddr2));
                 if ((w = dequeue(f->waiters))) {                
                     result++;
-                    thread_wakeup(w);
+                    futex_thread_wakeup(f, w);
                 }
             }
             return result;
@@ -171,9 +201,13 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
 
     case FUTEX_WAIT_BITSET:
         if (verbose)
-            thread_log(current, "futex_wait_bitset [%d %p %d] %p %p\n", current->tid, uaddr, *uaddr, val3);
+            thread_log(current, "futex_wait_bitset [%d %p %d] %p %p", current->tid, uaddr, *uaddr, val3);
+      
         if (*uaddr == val) {
-            set_syscall_return(current, 0);                            
+            set_syscall_return(current, 0);
+              //timeout is absolute based on CLOCK_REALTIME 
+            if(timeout)
+                register_futex_timer(current, f, timeout);                          
             enqueue(f->waiters, current);
             thread_sleep(current);
         }
@@ -247,12 +281,24 @@ thread create_thread(process p)
     t->uh = *p->uh;
     t->select_epoll = 0;
     t->tid = tidcount++;
-    t->set_child_tid = t->clear_child_tid = 0;
+    t->clear_tid = 0;
     zero(t->frame, sizeof(t->frame));
     t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(closure(h, default_fault_handler, t));
     t->run = closure(h, run_thread, t);
     vector_push(p->threads, t);
     return t;
+}
+
+void exit_thread(thread t)
+{
+    if (t->clear_tid) {
+        *t->clear_tid = 0;
+        futex(t->clear_tid, FUTEX_WAKE, 1, 0, 0, 0);
+    }
+
+    /* TODO: remove also from p->threads (but it is not currently used) */
+    heap h = heap_general((kernel_heaps)t->p->uh);
+    deallocate(h, t, sizeof(struct thread));
 }
 
 void init_threads(process p)

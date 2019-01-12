@@ -9,8 +9,7 @@
 typedef struct epoll *epoll;
 
 typedef struct epollfd {
-    int fd; //debugging only - XXX REMOVE
-    file f;
+    int fd;
     u32 eventmask;  /* epoll events registered - XXX need lock */
     u32 lastevents; /* retain last received events; for edge trigger */
     u64 data;	    /* may be multiple versions of data? */
@@ -70,15 +69,14 @@ static epollfd epollfd_from_fd(epoll e, int fd)
     return efd;
 }
 
-static epollfd alloc_epollfd(epoll e, file f, int fd, u32 eventmask, u64 data)
+static epollfd alloc_epollfd(epoll e, int fd, u32 eventmask, u64 data)
 {
     epollfd efd = unix_cache_alloc(get_unix_heaps(), epollfd);
     if (efd == INVALID_ADDRESS)
 	return efd;
-    efd->f = f;
+    efd->fd = fd;
     efd->eventmask = eventmask;
     efd->lastevents = 0;
-    efd->fd = fd;
     efd->e = e;
     efd->data = data;
     efd->refcnt = 1;
@@ -320,10 +318,18 @@ sysreturn epoll_wait(int epfd,
     bitmap_foreach_set(e->fds, fd) {
 	epollfd efd = vector_get(e->events, fd);
 	assert(efd);
+        assert(efd->fd == fd);
+        file f = resolve_fd_noret(current->p, efd->fd);
+        if (!f) {
+            epoll_debug("   x fd %d\n", efd->fd);
+            free_epollfd(efd);
+            continue;
+        }
+
 	/* If efd is in fds and also a zombie, it's an epfd that's
 	   been masked by a oneshot event. */
 	if (!efd->registered && !efd->zombie) {
-	    if (!efd->f->check) {
+	    if (!f->check) {
 		msg_err("requested fd %d (eventmask %P) missing check\n", fd, efd->eventmask);
 		continue;
 	    }
@@ -331,7 +337,7 @@ sysreturn epoll_wait(int epfd,
 	    fetch_and_add(&efd->refcnt, 1);
 	    epoll_debug("   register fd %d, eventmask %P, applying check\n",
 		    efd->fd, efd->eventmask);
-            if (!apply(efd->f->check, efd->eventmask, &efd->lastevents,
+            if (!apply(f->check, efd->eventmask, &efd->lastevents,
 		       closure(h, epoll_wait_notify, efd)))
 		break;
         }
@@ -359,7 +365,6 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 {
     epoll e = resolve_fd(current->p, epfd);    
     epoll_debug("epoll_ctl: epoll fd %d, op %d, fd %d\n", epfd, op, fd);
-    file f = resolve_fd(current->p, fd); /* may return on error */
     /* XXX verify that fd is not an epoll instance*/
     epollfd efd;
     switch(op) {
@@ -370,7 +375,7 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 	    return set_syscall_error(current, EINVAL);
 	}
 	epoll_debug("   adding %d, events %P, data %P\n", fd, event->events, event->data);
-	if (alloc_epollfd(e, f, fd, event->events | EPOLLERR | EPOLLHUP, event->data) == INVALID_ADDRESS)
+	if (alloc_epollfd(e, fd, event->events | EPOLLERR | EPOLLHUP, event->data) == INVALID_ADDRESS)
 	    return set_syscall_error(current, ENOMEM);
 	break;
     case EPOLL_CTL_DEL:
@@ -393,7 +398,7 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 	    return set_syscall_error(current, ENOENT);
 	}
 	free_epollfd(efd);
-	if (alloc_epollfd(e, f, fd, event->events | EPOLLERR | EPOLLHUP, event->data) == INVALID_ADDRESS)
+	if (alloc_epollfd(e, fd, event->events | EPOLLERR | EPOLLHUP, event->data) == INVALID_ADDRESS)
 	    return set_syscall_error(current, ENOMEM);
 	break;
     default:
@@ -527,8 +532,7 @@ static sysreturn select_internal(int nfds,
                 free_fd(e, fd);
 	    } else {
 		epoll_debug("   + fd %d\n", fd);
-		file f = resolve_fd(current->p, fd); /* may return on error */
-		if (alloc_epollfd(e, f, fd, 0, 0) == INVALID_ADDRESS) {
+		if (alloc_epollfd(e, fd, 0, 0) == INVALID_ADDRESS) {
 		    rv = -EBADF;
 		    goto check_rv_timeout;
 		}
@@ -541,6 +545,13 @@ static sysreturn select_internal(int nfds,
 	    u64 mask = 1ull << bit;
 	    epollfd efd = vector_get(e->events, fd);
 	    assert(efd);
+            assert(efd->fd == fd);
+            file f = resolve_fd_noret(current->p, efd->fd);
+            if (!f) {
+                epoll_debug("   x fd %d\n", efd->fd);
+                free_epollfd(efd);
+                continue;
+            }
 
 	    /* XXX again these need to be thread/int-safe / cas access */
 	    if (*rp & mask) {
@@ -560,9 +571,8 @@ static sysreturn select_internal(int nfds,
 		if (efd->registered) {
 		    epoll_debug("   replacing\n");
 		    /* make into zombie; kind of brutal...need removal */
-		    file f = efd->f;
 		    free_epollfd(efd);
-		    efd = alloc_epollfd(e, f, fd, eventmask, 0);
+		    efd = alloc_epollfd(e, fd, eventmask, 0);
 		    assert(efd != INVALID_ADDRESS);
 		} else {
 		    epoll_debug("   updating\n");
@@ -575,7 +585,7 @@ static sysreturn select_internal(int nfds,
 		fetch_and_add(&efd->refcnt, 1);
 		epoll_debug("      register epollfd %d, eventmask %P, applying check\n",
 			efd->fd, efd->eventmask);
-		apply(efd->f->check, efd->eventmask, &efd->lastevents, closure(h, select_notify, efd));
+		apply(f->check, efd->eventmask, &efd->lastevents, closure(h, select_notify, efd));
 	    }
 	}
 
@@ -643,7 +653,7 @@ static boolean poll_wait_notify(epollfd efd, u32 events)
 }
 
 static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
-                               int timeout, /* milliseconds */
+                               timestamp timeout,
                                const sigset_t * sigmask)
 {
     heap h = heap_general(get_kernel_heaps());
@@ -678,9 +688,8 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
             if (efd->registered) {
                 epoll_debug("   = fd %d (replacing)\n", pfd->fd);
                 /* make into zombie; kind of brutal...need removal */
-                file f = efd->f;
                 free_epollfd(efd);
-                efd = alloc_epollfd(e, f, pfd->fd, pfd->events, i);
+                efd = alloc_epollfd(e, pfd->fd, pfd->events, i);
                 assert(efd != INVALID_ADDRESS);
             } else {
                 epoll_debug("   = fd %d (updating)\n", pfd->fd);
@@ -693,15 +702,20 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
             bitmap_set(remove_efds, pfd->fd, 0);
         } else {
             epoll_debug("   + fd %d\n", pfd->fd);
-            file f = resolve_fd(current->p, pfd->fd); /* may return on error */
-            efd = alloc_epollfd(e, f, pfd->fd, pfd->events, i);
+            efd = alloc_epollfd(e, pfd->fd, pfd->events, i);
             if (efd == INVALID_ADDRESS) {
                 rv = -EBADF;
                 goto check_rv_timeout;
             }
         }
+        file f = resolve_fd_noret(current->p, efd->fd);
+        if (!f) {
+            epoll_debug("   x fd %d\n", pfd->fd);
+            free_epollfd(efd);
+            continue;
+        }
 
-        if (!efd->f->check) {
+        if (!f->check) {
             msg_err("requested fd %d (eventmask %P) missing check\n", pfd->fd, pfd->events);
             continue;
         }
@@ -711,7 +725,7 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
         fetch_and_add(&efd->refcnt, 1);
         epoll_debug("   register fd %d, eventmask %P, applying check\n",
             efd->fd, efd->eventmask);
-        if (!apply(efd->f->check, efd->eventmask, &efd->lastevents,
+        if (!apply(f->check, efd->eventmask, &efd->lastevents,
                    closure(h, poll_wait_notify, efd)))
             break;
     }
@@ -735,8 +749,8 @@ check_rv_timeout:
         return rv;
     }
 
-    if (timeout > 0) {
-        w->timeout = register_timer(milliseconds(timeout), closure(h, epoll_blocked_finish, w, true));
+    if (timeout != infinity) {
+        w->timeout = register_timer(timeout, closure(h, epoll_blocked_finish, w, true));
         fetch_and_add(&w->refcnt, 1);
         epoll_debug("   registered timer %p\n", w->timeout);
     }
@@ -748,12 +762,12 @@ check_rv_timeout:
 
 sysreturn ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *tmo_p, const sigset_t *sigmask)
 {
-    return poll_internal(fds, nfds, tmo_p ? (tmo_p->ts_sec * 1000 + tmo_p->ts_nsec / 1000000) : infinity, sigmask);
+    return poll_internal(fds, nfds, tmo_p ? time_from_timespec(tmo_p) : infinity, sigmask);
 }
 
 sysreturn poll(struct pollfd *fds, nfds_t nfds, int timeout)
 {
-    return poll_internal(fds, nfds, timeout, 0);
+    return poll_internal(fds, nfds, timeout >= 0 ? milliseconds(timeout) : infinity, 0);
 }
 
 void register_poll_syscalls(void **map)

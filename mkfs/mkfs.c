@@ -1,5 +1,6 @@
 #include <runtime.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -8,6 +9,7 @@
 #include <tfs.h>
 #include <dirent.h>
 #include <errno.h>
+#include <limits.h>
 
 static buffer read_stdin(heap h)
 {
@@ -19,18 +21,73 @@ static buffer read_stdin(heap h)
     return in;
 }
 
-// its nice that we can append a file to any existing buffer, but harsh we have to grow the buffer
-void read_file(buffer dest, buffer name)
+buffer lookup_file(heap h, const char *target_root, buffer name, struct stat *st)
 {
+    char path_buf[PATH_MAX];
+    const char *n = buffer_ref(name, 0);
+
+    name = allocate_buffer(h, PATH_MAX); // new buffer
+
+    while (1) {
+        buffer_clear(name);
+        buffer_write(name, target_root, strlen(target_root));
+	if (n[0] != '/')
+            buffer_write_byte(name, '/');
+        buffer_write(name, n, strlen(n));
+
+        if (lstat(cstring(name), st) < 0)
+           halt("couldn't stat file %b\n", name);
+        if (!S_ISLNK(st->st_mode))
+           break;
+
+        int len;
+        if ((len = readlink(cstring(name), path_buf, sizeof(path_buf))) < 0)
+           halt("couldn't readlink file %b\n", name);
+        path_buf[len] = '\0';
+	if (path_buf[0] == '/') {
+	    /* absolute links need to be resolved */
+            n = path_buf;
+	    continue;
+        }
+
+        /* relative links are ok */
+        if (stat(cstring(name), st) < 0)
+            halt("couldn't stat file %b\n", name);
+	break;
+    }
+
+    return name;
+}
+
+// its nice that we can append a file to any existing buffer, but harsh we have to grow the buffer
+void read_file(heap h, buffer dest, buffer name)
+{
+    buffer name_b = NULL;
+
     // mode bit metadata
     struct stat st;
+    if (stat(cstring(name), &st) < 0) {
+#ifdef DEV
+        const char *target_root = getenv("NANOS_TARGET_ROOT");
+#else
+        const char *target_root = NULL;
+#endif
+        if (target_root == NULL)
+            halt("couldn't open file %b\n", name);
+
+        name_b = lookup_file(h, target_root, name, &st);
+        //printf("%s -> %s\n", cstring(name), cstring(name_b));
+        name = name_b;
+    }
     int fd = open(cstring(name), O_RDONLY);
     if (fd < 0) halt("couldn't open file %b\n", name);
-    fstat(fd, &st);
     u64 size = st.st_size;
     buffer_extend(dest, pad(st.st_size, SECTOR_SIZE));
     read(fd, buffer_ref(dest, 0), size);
     dest->end += size;
+
+    if (name_b != NULL)
+        deallocate_buffer(name_b);
 }
 
 heap malloc_allocator();
@@ -85,7 +142,7 @@ static buffer translate_contents(heap h, value v)
             // seems like it wouldn't be to hard to arrange
             // for this to avoid the staging copy
             buffer dest = allocate_buffer(h, 1024);
-            read_file(dest, path);
+            read_file(h, dest, path);
             return dest;
         }
     }
