@@ -246,7 +246,7 @@ static heap init_physical_id_heap(heap h)
 
 static void init_kernel_heaps()
 {
-    struct heap bootstrap;
+    static struct heap bootstrap;
     bootstrap.alloc = bootstrap_alloc;
     bootstrap.dealloc = leak;
 
