@@ -1,6 +1,7 @@
 #include <unix_internal.h>
 #include <metadata.h>
 #include <path.h>
+#include <lwip.h>
 
 // lifted from linux UAPI
 #define DT_UNKNOWN	0
@@ -389,7 +390,7 @@ sysreturn write(int fd, u8 *body, bytes length)
         return set_syscall_error(current, EINVAL);
 
     /* use (and update) file offset */
-    return apply(f->write, body, length, infinity);
+    return apply(f->write, body, length, infinity, IS_BLOCKING);
 }
 
 sysreturn pwrite(int fd, u8 *body, bytes length, s64 offset)
@@ -398,8 +399,20 @@ sysreturn pwrite(int fd, u8 *body, bytes length, s64 offset)
     if (!f->write || offset < 0)
         return set_syscall_error(current, EINVAL);
 
-    return apply(f->write, body, length, offset);
+    return apply(f->write, body, length, offset, IS_BLOCKING);
 }
+
+sysreturn sendfile(int outfd, int infd, unsigned long *offs, bytes count)
+{
+    file i = resolve_fd(current->p, infd);
+    file o = resolve_fd(current->p, outfd);
+
+    if (!i->read || !o->write)
+        return set_syscall_error(current, EINVAL);
+
+    return apply(i->sendfile, outfd, offs, count);
+}
+
 
 sysreturn sysreturn_from_fs_status(fs_status s)
 {
@@ -470,7 +483,7 @@ static void file_op_complete(thread t, file f, fsfile fsf, boolean is_file_offse
 static CLOSURE_7_2(file_op_complete_internal, void, thread, file, fsfile, file, fsfile, int, void*, status, bytes);
 static void file_op_complete_internal(thread t, file inf, fsfile inffs, file ouf, fsfile outfs, int offset_adjust, void* buf, status s, bytes length)
 {
-    buffer b;
+    int ret; 
 
     thread_log(current, "%s: len %d, status %v (%s)\n", __func__,
             length, s, is_ok(s) ? "OK" : "NOTOK");
@@ -479,37 +492,36 @@ static void file_op_complete_internal(thread t, file inf, fsfile inffs, file ouf
             inf->length = fsfile_get_length(inffs);
         if (offset_adjust)
 	        inf->offset += length;
-        b = wrap_buffer(heap_general(get_kernel_heaps()), buf, length);
-        filesystem_write(current->p->fs, ouf->n, b, ouf->offset,
-                closure(heap_general(get_kernel_heaps()), file_op_complete, current, ouf, outfs, 1));
+        ret = apply(ouf->write, buf, length, infinity, NO_BLOCKING);
+        if (!IS_REG(ouf)) {
+            set_syscall_return(t, ret);
+            thread_wakeup(t);
+        }
     } else {
-        deallocate_buffer(buf);
         set_syscall_error(t, EIO);
         thread_wakeup(current);
     }
 }
 
-static sysreturn sendfile(int outfile, int infile, unsigned long *offs, bytes count)
+static CLOSURE_2_3(file_sendfile, sysreturn, file, fsfile, int, unsigned long*, bytes);
+sysreturn file_sendfile(file inf, fsfile inffs, int outfile, unsigned long *offs, bytes count)
 {
-    file inf = resolve_fd(current->p, infile);
-    fsfile inffs = fsfile_from_node(current->p->fs, inf->n);
     file ouf = resolve_fd(current->p, outfile);
     fsfile outfs = fsfile_from_node(current->p->fs, ouf->n);
     heap h = heap_general(get_kernel_heaps());
-    void *buf = allocate(h, count);
+    void *buf;
     int offset_adjust = (offs == 0);	/* adjust only if offs is NULL */
     s64 offset = (s64)(offset_adjust == 1) ? inf->offset : *offs;
 
-    if (!inf->read || !ouf->write)
-      return set_syscall_error(current, EINVAL);
     if ((inf->offset + count) > inf->length)
-        return set_syscall_error(current, EINVAL);
+        count = inf->length - inf->offset;
+
+    buf = allocate(h, count);
 
     filesystem_read(current->p->fs, inf->n, buf, count, offset,
-	closure(h, file_op_complete_internal, current, inf, inffs, ouf, outfs, offset_adjust, buf));
+    	closure(h, file_op_complete_internal, current, inf, inffs, ouf, outfs, offset_adjust, buf));
 
     thread_sleep(current);
-    return count;
 }
 
 static CLOSURE_2_3(file_read, sysreturn, file, fsfile, void *, u64, u64);
@@ -540,8 +552,8 @@ static sysreturn file_read(file f, fsfile fsf, void *dest, u64 length, u64 offse
 
 #define PAD_WRITES 0
 
-static CLOSURE_2_3(file_write, sysreturn, file, fsfile, void *, u64, u64);
-static sysreturn file_write(file f, fsfile fsf, void *dest, u64 length, u64 offset_arg)
+static CLOSURE_2_4(file_write, sysreturn, file, fsfile, void *, u64, u64, int);
+static sysreturn file_write(file f, fsfile fsf, void *dest, u64 length, u64 offset_arg, int is_blocking)
 {
     thread_log(current, "%s: %v, dest %p, length %d, offset_arg %d\n",
             __func__, f->n, dest, length, offset_arg);
@@ -567,7 +579,8 @@ static sysreturn file_write(file f, fsfile fsf, void *dest, u64 length, u64 offs
                      closure(h, file_op_complete, current, f, fsf, is_file_offset));
 
     /* XXX Presently only support blocking file writes... */
-    thread_sleep(current);
+    if (is_blocking)
+        thread_sleep(current);
 }
 
 static CLOSURE_2_0(file_close, sysreturn, file, fsfile);
@@ -667,9 +680,11 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
     f->n = n;
     f->read = closure(h, file_read, f, fsf);
     f->write = closure(h, file_write, f, fsf);
+    f->sendfile = closure(h, file_sendfile, f, fsf);
     f->close = closure(h, file_close, f, fsf);
     f->check = closure(h, file_check, f, fsf);
     f->length = length;
+    f->type = FILE_REG;
     f->offset = 0;
     thread_log(current, "   fd %d, file length %d\n", fd, f->length);
     return fd;
@@ -984,16 +999,40 @@ static sysreturn brk(void *x)
     return sysreturn_from_pointer(p->brk);
 }
 
-// mkfs resolve all symbolic links, so we
-// have no symbolic links.
-sysreturn readlink(const char *pathname, char *buf, u64 bufsiz)
-{
-    return set_syscall_error(current, EINVAL);
+sysreturn readlink_internal(tuple root, char *pathname, char *buf, u64 sz) {
+    tuple n;
+    pathname = "/usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java";
+
+//    if (!(n = resolve_cstring(root, pathname))) {
+    if (!(n = resolve_cstring(root, "/usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java"))) {
+        msg_err("in %s. error \n", __func__);
+        return set_syscall_error(current, ENOENT);
+    }
+    int nbytes = MIN(runtime_strlen(pathname), sz);
+    runtime_memcpy(buf, pathname, nbytes);
+    msg_err("in %s. ret %d \n", __func__, nbytes);
+    return nbytes;
 }
 
-sysreturn readlinkat(int dirfd, const char *pathname, char *buf, u64 bufsiz)
+// mkfs resolve all symbolic links, so just need to
+// return pathname in buf
+sysreturn readlink(char *pathname, char *buf, u64 bufsiz)
+{   
+    msg_err("in %s. path %s\n", __func__, pathname);
+    if (strcmp(pathname, "/proc/self/exe") == 0)
+        return readlink_internal(current->p->cwd, pathname, buf ,bufsiz);
+    msg_err("in %s. err bad path \n", __func__);
+}
+
+sysreturn readlinkat(int dirfd, char *pathname, char *buf, u64 bufsiz)
 {
-    return set_syscall_error(current, EINVAL);
+    if (dirfd == AT_FDCWD) {
+        return readlink(pathname, buf, bufsiz);
+    } else if(*pathname == '/') {
+        return readlink_internal(current->p->process_root, pathname, buf, bufsiz);
+    }
+    file f = resolve_fd(current->p, dirfd);
+    return readlink_internal(f->n, pathname, buf, bufsiz);
 }
 
 sysreturn close(int fd)

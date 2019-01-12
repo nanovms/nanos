@@ -4,6 +4,7 @@
 #include <system_structs.h>
 #include <tfs.h>
 #include <unix.h>
+#include <lwip.h>
 
 typedef s64 sysreturn;
 
@@ -76,14 +77,30 @@ typedef struct thread {
 } *thread;
 
 typedef closure_type(io, sysreturn, void *, u64 length, u64 offset);
+typedef closure_type(nb_io, sysreturn, void *, u64 length, u64 offset, int is_blocking);
 typedef closure_type(event_handler, boolean, u32 events);
+
+#define IS_BLOCKING      1
+#define NO_BLOCKING      0
+
+#define FILE_REG         0x1
+#define FILE_SOCK        0x2
+#define FILE_PIPE        0x4
+#define FILE_SYMLINK     0x8
+
+#define IS_REG(f)       (f->type & FILE_REG)
+#define IS_SOCK(f)       (f->type & FILE_SOCK)
+#define IS_PIPE(f)       (f->type & FILE_PIPE)
 
 typedef struct file {
     u64 offset;
     u64 length;
-    io read, write;
+    u32 type;
+    io read;
+    nb_io write;
     closure_type(check, boolean, u32 eventmask, u32 * last, event_handler eh);
     closure_type(close, sysreturn);
+    closure_type(sendfile, sysreturn, int outfile, unsigned long *offs, bytes count);
     tuple n;
 } *file;
 

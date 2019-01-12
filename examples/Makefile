@@ -84,7 +84,32 @@ $(WRITE): $(write-objs)
 	$(call cmd,host-prog)
 
 sendfile-srcs := \
-	$(ROOT)/examples/sendfile.c
+	$(ROOT)/examples/sendfile-all.c \
+	$(ROOT)/examples/sendfile-pipe.c \
+	$(ROOT)/examples/sendfile-regular.c \
+	$(ROOT)/examples/sendfile-socket.c \
+	$(SRC)/unix_process/unix_process_runtime.c  \
+	$(SRC)/unix/path.c \
+	$(SRC)/runtime/bitmap.c \
+	$(SRC)/runtime/buffer.c \
+	$(SRC)/runtime/extra_prints.c \
+	$(SRC)/runtime/format.c \
+	$(SRC)/runtime/random.c \
+	$(SRC)/runtime/runtime_init.c \
+	$(SRC)/runtime/string.c \
+	$(SRC)/runtime/symbol.c \
+	$(SRC)/runtime/table.c \
+	$(SRC)/runtime/tuple_parser.c \
+	$(SRC)/runtime/tuple.c \
+	$(SRC)/runtime/timer.c \
+	$(SRC)/runtime/pqueue.c \
+	$(SRC)/runtime/heap/id.c \
+	$(SRC)/runtime/heap/freelist.c \
+	$(SRC)/runtime/heap/debug_heap.c \
+	$(SRC)/runtime/heap/objcache.c \
+	$(SRC)/runtime/heap/mcache.c \
+
+
 
 sendfile-objs = $(call srcs-to-objs,$(ROOT),$(OUT),sendfile)
 

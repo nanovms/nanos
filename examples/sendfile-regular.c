@@ -7,12 +7,16 @@
 #include <sys/syscall.h>
 #include <errno.h>
 #include <string.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <runtime.h>
+#include "sendfile_test.h"
 
 #define BUF_LEN 10
 
 #define SENDFILE_DEBUG
 #ifdef SENDFILE_DEBUG
-#define sf_dbg(fmt, args...)	printf("[%s]" fmt , __func__, ##args)
+#define sf_dbg(fmt, args...)	fprintf(stderr, "[%s]" fmt , __func__, ##args)
 #else
 #define sf_dbg(fmt, args...)
 #endif
@@ -25,7 +29,7 @@
 } while (0)
 
 
-int main(int argc, char *argv[])
+int sendfile_file()
 {
     int ret;
     int i;
@@ -33,6 +37,7 @@ int main(int argc, char *argv[])
     int fd_out;
     char buf[BUF_LEN];
     char cmp_buf[BUF_LEN];
+    const char *pipe_res;
 
     fd_in = open("infile", O_RDWR);
     if (fd_in == -1)
@@ -85,16 +90,17 @@ int main(int argc, char *argv[])
     close(fd_out);
     close(fd_in);
 
-    printf("!!!Success!!!\n");
-    exit (0);
+    printf("!!!%s Success, ret 0!!!\n", __func__);
+    return (0);
 
 err_fop:
     close(fd_out);
 err_fdout:
     close(fd_in);
 err_fdin:
+err_sockfd:
 
-    exit(1);
+    return(1);
 }
 
 

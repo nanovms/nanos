@@ -12,7 +12,8 @@ u64 allocate_fd(process p, file f)
     f->offset = 0;
     f->check = 0;
     f->close = 0;
-    f->read = f->write = 0;
+    f->read = 0;
+    f->write = 0;
     vector_set(p->files, fd, f);
     return fd;
 }
@@ -51,8 +52,8 @@ static sysreturn std_close(file f)
     return 0;
 }
 
-static CLOSURE_0_3(stdout, sysreturn, void*, u64, u64);
-static sysreturn stdout(void *d, u64 length, u64 offset)
+static CLOSURE_0_4(stdout, sysreturn, void*, u64, u64, int);
+static sysreturn stdout(void *d, u64 length, u64 offset, int is_blocking)
 {
     u8 *z = d;
     for (int i = 0; i< length; i++) {

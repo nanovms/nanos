@@ -312,8 +312,8 @@ static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
     return 0;			/* suppress warning */
 }
 
-static CLOSURE_1_3(socket_write, sysreturn, sock, void *, u64, u64);
-static sysreturn socket_write(sock s, void *source, u64 length, u64 offset)
+static CLOSURE_1_4(socket_write, sysreturn, sock, void *, u64, u64, int);
+static sysreturn socket_write(sock s, void *source, u64 length, u64 offset, int is_blocking)
 {
     net_debug("sock %d, type %d, thread %d, source %p, length %d, offset %d\n",
 	      s->fd, s->type, current->tid, source, length, offset);
@@ -430,6 +430,8 @@ static int allocate_sock(process p, int type, sock * rs)
     f->write = closure(h, socket_write, s);
     f->close = closure(h, socket_close, s);
     f->check = closure(h, socket_check, s);
+    f->sendfile = 0;
+    f->type = FILE_SOCK;
     s->type = type;
     s->p = p;
     s->h = h;
@@ -686,7 +688,7 @@ sysreturn sendto(int sockfd, void * buf, u64 len, int flags,
         }
     }
 
-    return socket_write(s, buf, len, 0);
+    return socket_write(s, buf, len, 0, IS_BLOCKING);
 }
 
 sysreturn recvfrom(int sockfd, void * buf, u64 len, int flags,

@@ -85,8 +85,8 @@ static sysreturn pipe_read(file f, void *dest, u64 length, u64 offset_arg)
     return real_length;
 }
 
-static CLOSURE_1_3(pipe_write, sysreturn, file, void*, u64, u64);
-static sysreturn pipe_write(file f, void *d, u64 length, u64 offset)
+static CLOSURE_1_4(pipe_write, sysreturn, file, void*, u64, u64, int);
+static sysreturn pipe_write(file f, void *d, u64 length, u64 offset, int is_blocking)
 {
     pipe_file pf = (pipe_file)f;    
     buffer_write(pf->pipe->data, d, length);
@@ -126,10 +126,14 @@ int do_pipe2(int fds[2], int flags)
     pipe->ref_cnt = 2;
 
     writer->write = closure(pipe->h, pipe_write, writer);
+    writer->sendfile = 0;
+    writer->type = FILE_PIPE;
     writer->read = 0;
     writer->close = closure(pipe->h, pipe_close, writer);
 
     reader->read = closure(pipe->h, pipe_read, reader);
+    reader->sendfile = 0;
+    reader->type = FILE_PIPE;
     reader->write = 0;
     reader->close = closure(pipe->h, pipe_close, reader);
     return 0;
