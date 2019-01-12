@@ -285,7 +285,7 @@ fs_status filesystem_mkdir(filesystem fs, tuple root, char *fp)
     return filesystem_mkentry(fs, root, fp, dir);
 }
 
-fs_status filesystem_creat(filesystem fs, char *fp)
+fs_status filesystem_creat(filesystem fs, tuple root, char *fp)
 {
     tuple dir = allocate_tuple();
     static buffer off = 0;
@@ -300,7 +300,7 @@ fs_status filesystem_creat(filesystem fs, char *fp)
     fsfile f = allocate_fsfile(fs, dir);
     fsfile_set_length(f, 0);
 
-    return filesystem_mkentry(fs, 0, fp, dir);
+    return filesystem_mkentry(fs, root, fp, dir);
 }
 
 // should be passing status to the client

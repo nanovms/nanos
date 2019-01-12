@@ -48,7 +48,7 @@ listdir(char *dir)
        for (bpos = 0; bpos < nread;) {
            d = (struct linux_dirent *) (buf + bpos);
            d_type = *(buf + bpos + d->d_reclen - 1);
-           printf("%-10s ", (d_type == DT_REG) ?  "regular" :
+           printf("(%s) %-10s ", dir, (d_type == DT_REG) ?  "regular" :
                             (d_type == DT_DIR) ?  "directory" :
                             (d_type == DT_FIFO) ? "FIFO" :
                             (d_type == DT_SOCK) ? "socket" :
@@ -78,6 +78,22 @@ void _mkdirat(int fd, const char *path, int m)
     printf("r = %d, errno = %d\n", r, errno);
 }
 
+void _chdir(const char *path)
+{
+    errno = 0;
+    printf("chdir(%s) => ", path);
+    int r = chdir(path);
+    printf("r = %d, errno = %d\n", r, errno);
+}
+
+void _fchdir(int fd)
+{
+    errno = 0;
+    printf("fchdir(%d) => ", fd);
+    int r = fchdir(fd);
+    printf("r = %d, errno = %d\n", r, errno);
+}
+
 void check(const char *path)
 {
     struct stat st;
@@ -93,6 +109,26 @@ void check(const char *path)
         printf("     => \"%s\" is not a directory.\n", path);
         return;
     }
+}
+
+/* expect = 0 for success, errno otherwise */
+void _creat(const char *path, int m, int expect)
+{
+    printf("creat(%s, 0x%x) => ", path, m);
+    int r = creat(path, (mode_t) m);
+    if (r < 0) {
+        printf("%s\n", strerror(errno));
+        if (errno != expect)
+            goto fail;
+    } else {
+        printf("fd %d\n", r);
+        if (expect)
+            goto fail;
+    }
+    return;
+  fail:
+    printf("test failed\n");
+    //exit(EXIT_FAILURE);
 }
 
 int main(int argc, char **argv)
@@ -129,5 +165,16 @@ int main(int argc, char **argv)
     _mkdirat(r, "zipa", 0);
     listdir("/");
     listdir("/test");
+
+    _chdir("/");
+    _creat("root_newfile", 0, 0);
+    listdir(".");
+
+    _chdir("/test/subdir");
+    _mkdir("testdir_from_chdir", 0); check("testdir_from_chdir");
+    _creat("test_newfile", 0, 0);
+    listdir(".");
+    _fchdir(fd);
+    listdir(".");
 
 }
