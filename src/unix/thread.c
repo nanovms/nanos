@@ -49,8 +49,6 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, un
     thread_log(current, "clone: flags %P, child_stack %p, ptid %p, ctid %p, newtls %d",
         flags, child_stack, ptid, ctid, newtls);
     thread t = create_thread(current->p);
-    if ((flags & CLONE_CHILD_CLEARTID) != 0)
-        t->clear_child_tid = ctid;
     runtime_memcpy(t->frame, current->frame, sizeof(t->frame));
     t->frame[FRAME_RSP]= u64_from_pointer(child_stack);
     // xxx - the interpretation of ctid is dependent on flags
@@ -62,8 +60,6 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, un
     if (flags & CLONE_CHILD_CLEARTID)
         t->clear_tid = ctid;
     thread_wakeup(t);
-    if ((flags & CLONE_PARENT_SETTID) != 0)
-        runtime_memcpy(ptid, &t->tid, sizeof(t->tid));
     return t->tid;
 }
 

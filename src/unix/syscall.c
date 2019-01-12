@@ -1139,40 +1139,16 @@ static sysreturn brk(void *x)
     return sysreturn_from_pointer(p->brk);
 }
 
-sysreturn readlink_internal(tuple root, char *pathname, char *buf, u64 sz) {
-    tuple n;
-    pathname = "/usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java";
-
-//    if (!(n = resolve_cstring(root, pathname))) {
-    if (!(n = resolve_cstring(root, "/usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java"))) {
-        msg_err("in %s. error \n", __func__);
-        return set_syscall_error(current, ENOENT);
-    }
-    int nbytes = MIN(runtime_strlen(pathname), sz);
-    runtime_memcpy(buf, pathname, nbytes);
-    msg_err("in %s. ret %d \n", __func__, nbytes);
-    return nbytes;
-}
-
 // mkfs resolve all symbolic links, so just need to
 // return pathname in buf
 sysreturn readlink(char *pathname, char *buf, u64 bufsiz)
 {   
-    msg_err("in %s. path %s\n", __func__, pathname);
-    if (strcmp(pathname, "/proc/self/exe") == 0)
-        return readlink_internal(current->p->cwd, pathname, buf ,bufsiz);
-    msg_err("in %s. err bad path \n", __func__);
+    return set_syscall_error(current, EINVAL);
 }
 
 sysreturn readlinkat(int dirfd, char *pathname, char *buf, u64 bufsiz)
 {
-    if (dirfd == AT_FDCWD) {
-        return readlink(pathname, buf, bufsiz);
-    } else if(*pathname == '/') {
-        return readlink_internal(current->p->process_root, pathname, buf, bufsiz);
-    }
-    file f = resolve_fd(current->p, dirfd);
-    return readlink_internal(f->n, pathname, buf, bufsiz);
+    return set_syscall_error(current, EINVAL);
 }
 
 sysreturn close(int fd)

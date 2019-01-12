@@ -52,7 +52,6 @@ const char *pipe_read(int filedes[2], int len)
     }
     buffer_write_byte(in, (u8)'\0');
     buffer_clear(in);
-    printf("Read %s\n", (char*)buffer_ref(in, 0));
 
     return (const char *)buffer_ref(in, 0);
 }
@@ -60,11 +59,11 @@ const char *pipe_read(int filedes[2], int len)
 int sendfile_pipe()
 {
     int ret = 1;
+    int res;
     int i;
     int fd_in;
     int pi[2];
     char buf[BUF_LEN];
-    char cmp_buf[BUF_LEN];
     const char *pipe_res;
 
     ret = __pipe(pi);
@@ -73,19 +72,29 @@ int sendfile_pipe()
     fd_in = open("infile", O_RDWR);
     if (fd_in == -1)
         sf_err_goto(err_fdin, "error %d opeing sendfile_test\n", errno);
-    sf_dbg("pipe0 %d, pipe1 %d, fd %d\n", pi[0], pi[1], fd_in);
-
     lseek(fd_in, 0, SEEK_SET);
-    ret = sendfile(pi[1], fd_in, NULL, BUF_LEN);
+    ret = read(fd_in, buf, BUF_LEN);
     if (ret != BUF_LEN)
-	    sf_err_goto(err_fop, "sendfile error %d. wrote %d of %d\n", errno, ret, BUF_LEN);
+        sf_err_goto(err_fop, "read %d of %d\n", ret, BUF_LEN);
+
+    sf_dbg("pipe0 %d, pipe1 %d, fd %d\n", pi[0], pi[1], fd_in);
+    res = sendfile(pi[1], fd_in, NULL, BUF_LEN);
+    if (res != BUF_LEN)
+	    sf_err_goto(err_fop, "sendfile error %d. wrote %d of %d\n", errno, res, BUF_LEN);
     
-    pipe_res = pipe_read(pi, BUF_LEN); 
-    sf_dbg("pipe res %s\n", pipe_res);
-   	
+    pipe_res = pipe_read(pi, BUF_LEN);
+    sf_dbg("pipe res[%d] %s\n", strlen(pipe_res), pipe_res);
+    if (pipe_res != res)
+        sf_err_goto(err_fop, "lengths differ");
+
+    if (strncmp(pipe_res, buf, BUF_LEN) != 0) 
+        sf_err_goto(err_fop, "data_differ");
+
+    sf_dbg("!!!%s Success!!!\n", __func__);
+
     ret = 0;
+
 err_fop:
-err_fdout:
     close(fd_in);
 err_fdin:
     close(pi[0]);
@@ -93,5 +102,3 @@ err_fdin:
 
     return(ret);
 }
-
-
