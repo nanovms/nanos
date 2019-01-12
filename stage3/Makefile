@@ -58,6 +58,7 @@ stage3-srcs = \
 	$(SRC)/unix/exec.c \
 	$(SRC)/unix/mktime.c \
 	$(SRC)/unix/mmap.c \
+	$(SRC)/unix/notify.c \
 	$(SRC)/unix/poll.c \
 	$(SRC)/unix/path.c \
 	$(SRC)/unix/signal.c \
