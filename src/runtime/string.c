@@ -47,12 +47,10 @@ runtime_strtok_r (char *s, const char *delimiters, char **save_ptr)
 int
 runtime_strcmp (const char *string1, const char *string2)
 {
-    int result = 0;
-
-    while (!result && *string1) {
-        result = (int)*string1 - (int)*string2;
-        string1 ++;
-        string2 ++;
+    while (*string1 && *string1 == *string2) {
+        string1++;
+        string2++;
     }
-    return result;
+
+    return *(const unsigned char *)string1 - *(const unsigned char *)string2;
 }
