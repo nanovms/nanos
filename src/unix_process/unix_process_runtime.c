@@ -8,16 +8,8 @@
 #include <string.h>
 #include <signal.h>
 
-#ifdef __APPLE__
-#include <stdlib.h>
-#endif
-
 /* Helper functions to ignore unused result (eliminate CC warning) */
-#ifdef __APPLE__
-#define igr(x) x
-#else
-static inline void igr() {}
-#endif 
+static inline void igr(int x) {}
 
 void *malloc(size_t size);
 void free(void *ptr);

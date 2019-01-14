@@ -15,7 +15,7 @@
 #include <poll.h>
 
 /* Helper functions to ignore unused result (eliminate CC warning) */
-static inline void igr() {}
+static inline void igr(int x) {}
 
 typedef struct registration {
     descriptor fd;

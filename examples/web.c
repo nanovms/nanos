@@ -21,7 +21,7 @@ buffer_handler conn(heap h, buffer_handler out)
 // no good place to put this
 table parse_arguments(heap h, int argc, char **argv);
 
-void main(int argc, char **argv)
+int main(int argc, char **argv)
 {
     heap h = init_process_runtime();
     tuple t = parse_arguments(h, argc, argv);
@@ -30,5 +30,5 @@ void main(int argc, char **argv)
 	create_epoll_notifier(h);
     listen_port(h, n, 8080, closure(h, conn, h));
     notifier_spin(n);
+    return 0;
 }
-

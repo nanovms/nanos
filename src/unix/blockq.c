@@ -63,16 +63,16 @@
 //#define BLOCKQ_DEBUG
 #ifdef BLOCKQ_DEBUG
 #define blockq_debug(x, ...) do {log_printf("  BQ", "%s: " x, __func__, ##__VA_ARGS__);} while(0)
-#else
-#define blockq_debug(x, ...)
-#endif
-
-CLOSURE_1_0(blockq_wake_one, void, blockq);
 
 static inline char * blockq_name(blockq bq)
 {
     return bq->name;
 }
+#else
+#define blockq_debug(x, ...)
+#endif
+
+CLOSURE_1_0(blockq_wake_one, void, blockq);
 
 static inline void blockq_disable_timer(blockq bq)
 {

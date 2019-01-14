@@ -45,7 +45,7 @@ struct linux_dirent64 {
        for (bpos = 0; bpos < nread;) { \
            d = (struct STRUCT *) (buf + bpos); \
 	        struct stat st; \
-           printf("%ld  ", d->d_ino); \
+           printf("%8lld  ", (long long) d->d_ino); \
            d_type = (DTYPE); \
            printf("%-10s ", (d_type == DT_REG) ?  "regular" : \
                             (d_type == DT_DIR) ?  "directory" : \
@@ -58,7 +58,7 @@ struct linux_dirent64 {
                    (long long) d->d_off, d->d_name); \
            bpos += d->d_reclen; \
            if ((lstat(d->d_name, &st) != -1) && (d->d_ino != st.st_ino)) { \
-                printf("ERROR - getdent entry ino (%8ld) doesn't match stat's ino (%8ld)\n", d->d_ino, st.st_ino); \
+                printf("ERROR - getdent entry ino (%8lld) doesn't match stat's ino (%8ld)\n", (long long) d->d_ino, st.st_ino); \
            } \
        } \
    } \

@@ -53,7 +53,7 @@ char *canonicalize_path(heap h, buffer cwd, buffer input) {
      * (do nothing)
      */
     while (pch != 0) {
-        if (!strcmp(pch, PATH_UP)) {
+        if (!runtime_strcmp(pch, PATH_UP)) {
             // Pop
             if (!list_empty(&out)) {
                 struct list *elem = list_pop_back(&out);
@@ -64,7 +64,7 @@ char *canonicalize_path(heap h, buffer cwd, buffer input) {
                     deallocate(h, n, sizeof(*n));
                 }
             }
-        } else if (!strcmp(pch, PATH_DOT)) {
+        } else if (!runtime_strcmp(pch, PATH_DOT)) {
             // Do nothing
         } else {
             // Push

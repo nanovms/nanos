@@ -3,7 +3,7 @@
 #include <unistd.h>
 
 /* Helper functions to ignore unused result (eliminate CC warning) */
-static inline void igr() {}
+static inline void igr(int x) {}
 
 char *output;
 int size;
