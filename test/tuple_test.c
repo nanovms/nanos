@@ -15,16 +15,6 @@ if (expr) ; else { \
 } \
 } while (0)
 
-static inline void show_tuple(heap h, tuple t)
-{
-    buffer b = allocate_buffer(h, 32);
-    print_tuple(b, t);
-    buffer_write_byte(b, 0x0A);
-    buffer_write_byte(b, 0x00);
-    rprintf(buffer_ref(b, 0));
-    deallocate_buffer(b);
-}
-
 int main(int argc, char **argv)
 {
     boolean fail = false;
@@ -37,7 +27,7 @@ int main(int argc, char **argv)
         buffer b1 = wrap_buffer_cstring(h, tst[i]);
         table_set(t1, intern_u64(i), b1);
     }
-    test_assert(table_elements(t1) == COUNT_ELM);// show_tuple(h, t1);
+    test_assert(table_elements(t1) == COUNT_ELM);//rprintf("%t\n", t1);
 
     // from vector
     vector v1 = allocate_vector(h, COUNT_ELM);
@@ -45,7 +35,7 @@ int main(int argc, char **argv)
         vector_push(v1, wrap_buffer_cstring(h, tst[i]));
     }
     tuple t2 = tuple_from_vector(v1);
-    test_assert(table_elements(t2) == COUNT_ELM);// show_tuple(h, t2);
+    test_assert(table_elements(t2) == COUNT_ELM);//rprintf("%t\n", t2);
     deallocate_vector(v1);
 
     // value <-> U64
@@ -65,14 +55,19 @@ int main(int argc, char **argv)
     // encode
     buffer b3 = allocate_buffer(h, 128);
     tuple t3 = allocate_tuple();
-    table_set(t3, intern_u64(5), wrap_buffer_cstring(h, "70"));
-    encode_tuple(b3, t1, t3);
-    test_assert(buffer_length(b3) > 0);//rprintf("%d\n", buffer_length(b3));
+    table_set(t3, intern_u64(1), wrap_buffer_cstring(h, "200"));//rprintf("tuple to enc: %t\n", t3);
 
-    // decode /todo/
-    //tuple t4 = decode_value(h, t1, b3);
-    //rprintf("%d\n", table_elements(t4));
-    //show_tuple(h, t3);
+    tuple tdict1 = allocate_tuple();
+    table_set(tdict1, intern_u64(1), wrap_buffer_cstring(h, "100"));//rprintf("dict tuple: %t\n", tdict1);
+
+    encode_tuple(b3, tdict1, t3);
+
+    test_assert(buffer_length(b3) > 0);//rprintf("buffer b3 = : %X", b3);
+
+    // decode
+    //tuple tdict2 = allocate_tuple();
+    //table_set(tdict2, intern_u64(1), wrap_buffer_cstring(h, "200"));
+    //tuple t4 = decode_value(h, tdict2, b3);//rprintf("%t\n", t4);
 
     if (fail){
         msg_err("tuple test failed\n");
@@ -80,5 +75,4 @@ int main(int argc, char **argv)
     }
     rprintf("tuple test success\n");
     exit(EXIT_SUCCESS);
-
 }
