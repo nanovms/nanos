@@ -9,6 +9,7 @@
 #endif
 
 #define INITIAL_PIPE_DATA_SIZE  100
+#define DEFAULT_PIPE_MAX_SIZE   (16 * PAGESIZE) /* see pipe(7) */
 #define PIPE_READ               0
 #define PIPE_WRITE              1
 
@@ -27,6 +28,7 @@ typedef struct pipe_struct {
     process p;
     heap h;
     u64 ref_cnt;
+    u64 max_size;               /* XXX: can change with F_SETPIPE_SZ */
     buffer data;
 } *pipe;
 
@@ -80,44 +82,101 @@ static sysreturn pipe_close(file f)
     return 0;
 }
 
+static CLOSURE_4_1(pipe_read_bh, sysreturn, pipe_file, thread, void *, u64, boolean);
+static sysreturn pipe_read_bh(pipe_file pf, thread t, void *dest, u64 length, boolean blocked)
+{
+    buffer b = pf->pipe->data;
+    int real_length = MIN(buffer_length(b), length);
+    if (real_length == 0)
+        return infinity;
+
+    buffer_read(b, dest, real_length);
+
+    pipe_file write_pf = &pf->pipe->files[PIPE_WRITE];
+    blockq_wake_one(write_pf->bq);
+    notify_dispatch(write_pf->ns, EPOLLOUT);
+
+    // If we have consumed all of the buffer, reset it. This might prevent future writes to allocte new buffer
+    // in buffer_write/buffer_extend. Can improve things until a proper circular buffer is available
+    if (buffer_length(b) == 0) {
+        buffer_clear(b);
+        notify_dispatch(pf->ns, 0); /* for edge trigger */
+    }
+
+    if (blocked)
+        thread_wakeup(t);
+
+    return set_syscall_return(t, real_length);
+}
+
 static CLOSURE_1_3(pipe_read, sysreturn, file, void *, u64, u64);
 static sysreturn pipe_read(file f, void *dest, u64 length, u64 offset_arg)
 {
-    pipe_file pf = (pipe_file)f;    
-    buffer b = pf->pipe->data;
+    pipe_file pf = (pipe_file)f;
 
-    int real_length = MIN(buffer_length(b), length);
-    if (real_length > 0) {
-        buffer_read(b, dest, real_length);
-        /* XXX enable once pipe limits are working
+    /* XXX surely there must be more error checking here... */
 
-           pipe_file write_pf = &pf->pipe->files[PIPE_WRITE];
-           blockq_wake_one(write_pf->bq);
-           notify_dispatch(write_pf->ns, EPOLLOUT);
-        */
+    if (length == 0)
+        return 0;
 
-        // If we have consumed all of the buffer, reset it. This might prevent future writes to allocte new buffer
-        // in buffer_write/buffer_extend. Can improve things until a proper circular buffer is available
-        if (buffer_length(b) == 0) {
-            buffer_clear(b);
-            notify_dispatch(pf->ns, 0); /* for edge trigger poll */
-        }
-    }
-    return real_length;
+    blockq_action ba = closure(pf->pipe->h, pipe_read_bh, pf, current, dest, length);
+    sysreturn rv = blockq_check(pf->bq, current, ba);
+
+    /* direct return */
+    if (rv != infinity)
+        return rv;
+
+    /* XXX ideally we could just prevent this case if we had growing
+       queues... for now bark and return EAGAIN */
+    msg_err("thread %d unable to block; queue full\n", current->tid);
+    return -EAGAIN;
 }
 
-static CLOSURE_1_3(pipe_write, sysreturn, file, void*, u64, u64);
-static sysreturn pipe_write(file f, void *d, u64 length, u64 offset)
+static CLOSURE_4_1(pipe_write_bh, sysreturn, pipe_file, thread, void *, u64, boolean);
+static sysreturn pipe_write_bh(pipe_file pf, thread t, void *dest, u64 length, boolean blocked)
+{
+    pipe p = pf->pipe;
+    buffer b = p->data;
+    u64 avail = p->max_size - buffer_length(b);
+
+    if (avail == 0)
+        return infinity;
+
+    u64 real_length = MIN(length, avail);
+    buffer_write(b, dest, real_length);
+    if (avail == length)
+        notify_dispatch(pf->ns, 0); /* for edge trigger */
+
+    pipe_file read_pf = &pf->pipe->files[PIPE_READ];
+    blockq_wake_one(read_pf->bq);
+    notify_dispatch(read_pf->ns, EPOLLIN);
+
+    if (blocked)
+        thread_wakeup(t);
+
+    return set_syscall_return(t, real_length);
+}
+
+static CLOSURE_1_3(pipe_write, sysreturn, file, void *, u64, u64);
+static sysreturn pipe_write(file f, void * dest, u64 length, u64 offset)
 {
     pipe_file pf = (pipe_file)f;
-    /* XXX add limit check */
-    if (length > 0) {
-        pipe_file read_pf = &pf->pipe->files[PIPE_READ];
-        buffer_write(pf->pipe->data, d, length);
-        blockq_wake_one(read_pf->bq);
-        notify_dispatch(read_pf->ns, EPOLLIN);
-    }
-    return length;
+
+    /* XXX error checks */
+
+    if (length == 0)
+        return 0;
+
+    blockq_action ba = closure(pf->pipe->h, pipe_write_bh, pf, current, dest, length);
+    sysreturn rv = blockq_check(pf->bq, current, ba);
+
+    /* direct return */
+    if (rv != infinity)
+        return rv;
+
+    /* bogus */
+    msg_err("thread %d unable to block; queue full\n", current->tid);
+    return set_syscall_error(current, EAGAIN);
 }
 
 static boolean pipe_check_internal(pipe_file pf, u32 events, u32 eventmask,
@@ -175,6 +234,7 @@ int do_pipe2(int fds[2], int flags)
     pipe->files[PIPE_READ].pipe = pipe;
     pipe->files[PIPE_WRITE].pipe = pipe;
     pipe->ref_cnt = 0;
+    pipe->max_size = DEFAULT_PIPE_MAX_SIZE;
     pipe->data = allocate_buffer(pipe->h, INITIAL_PIPE_DATA_SIZE);
     if (pipe->data == INVALID_ADDRESS) {
         msg_err("failed to allocate pipe's data buffer\n");
