@@ -724,9 +724,10 @@ sysreturn open(char *name, int flags, int mode)
 
 sysreturn mkdir(const char *pathname, int mode)
 {
-    tuple root = (*pathname == '/' ? 0 : current->p->cwd);
-    tuple children = (root ? table_find(root, sym(children)) : 0);
-    return do_mkent(children, pathname, mode, true);
+    tuple root = 0;
+    if (*pathname != '/')
+        root = table_find(current->p->cwd, sym(children));
+    return do_mkent(root, pathname, mode, true);
 }
 
 /*
@@ -952,7 +953,7 @@ sysreturn chdir(const char *path)
         return set_syscall_error(current, ENOENT);
     }
     current->p->cwd = n;
-    return 0;
+    set_syscall_return(current, 0);
 }
 
 sysreturn fchdir(int dirfd)
@@ -960,10 +961,10 @@ sysreturn fchdir(int dirfd)
     file f = resolve_fd(current->p, dirfd);
     tuple children = table_find(f->n, sym(children));
     if (!children)
-        return -ENOTDIR;
+        return set_syscall_error(current, -ENOTDIR);
 
     current->p->cwd = f->n;
-    return 0;
+    set_syscall_return(current, 0);
 }
 
 sysreturn writev(int fd, iovec v, int count)
