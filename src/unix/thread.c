@@ -77,6 +77,7 @@ static fut soft_create_futex(process p, u64 key)
     if (!(f = table_find(p->futices, pointer_from_u64(key)))) {
         f = allocate(h, sizeof(struct fut));
         f->waiters = allocate_queue(h, 32);
+        f->t = 0;
         table_set(p->futices, pointer_from_u64(key), f);
     }
     return f;
