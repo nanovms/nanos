@@ -1,9 +1,13 @@
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <unistd.h>
-#include <runtime.h>
 #include <sys/syscall.h>
 #include <errno.h>
+#include <string.h>
+#include <stdlib.h>
+#include <pthread.h>
+
+#include <runtime.h>
 
 #define EXIT_SUCCESS 0
 
@@ -13,69 +17,131 @@
 // no good place to put this
 table parse_arguments(heap h, int argc, char **argv);
 
-int
-__pipe(int fildes[2])
+int __pipe(int fildes[2])
 {
     return syscall(SYS_pipe, fildes);
 }
 
+void basic_test(heap h, int * fds)
+{
+    const int BSIZE = 1000;
+    ssize_t nbytes;
+
+    char *test_string = "This is a pipe test string!";
+    int test_len = strlen(test_string);
+    buffer in = allocate_buffer(h, BSIZE);
+    buffer out = allocate_buffer(h, BSIZE);
+
+    nbytes = write(fds[1], test_string, test_len);
+    if (nbytes < 0)
+        handle_error("basic test write");
+
+    if (nbytes < test_len) {
+        printf("pipe basic test: short write (%d)\n", nbytes);
+        exit(EXIT_FAILURE);
+    }
+
+    int nread = 0;
+    char * ibuf = buffer_ref(in, 0);
+    do {
+        nbytes = read(fds[0], ibuf + nread, 5);
+        if (nbytes < 0)
+            handle_error("basic test read");
+        nread += nbytes;
+    } while (nread < test_len);
+
+    buffer_produce(in, test_len);
+    buffer_write_byte(in, (u8)'\0');
+    buffer_clear(in);
+
+    if (strcmp(test_string, (const char *)buffer_ref(in, 0))) {
+        printf("PIPE-RD/WR - ERROR - test message corrupted, expected %s and got %s\n",
+            test_string, (char *)buffer_ref(in, 0));
+        exit(EXIT_FAILURE);
+    } else {
+        printf("PIPE-RD/WR - SUCCESS - test message received\n");
+    }
+}
+
+#define BLOCKING_TEST_LEN (256 * KB)
+
+char blocking_srcbuf[BLOCKING_TEST_LEN];
+
+void * blocking_test_child(void * arg)
+{
+    const int dstbufsiz = 256;
+    int * fds = (int *)arg;
+    char dstbuf[dstbufsiz];
+    int nread = 0;
+
+    do {
+        int nbytes = read(fds[0], dstbuf, dstbufsiz);
+        if (nbytes < 0)
+            handle_error("blocking test read");
+        for (int i = 0; i < nbytes; i++) {
+            if (dstbuf[i] != blocking_srcbuf[nread + i]) {
+                printf("blocking test: mismatch at offset %d\n", nread + i);
+                return (void *)EXIT_FAILURE;
+            }
+        }
+        nread += nbytes;
+    } while (nread < BLOCKING_TEST_LEN);
+
+    printf("blocking test: read data successfully; child exiting\n");
+    return (void *)EXIT_SUCCESS;
+}
+
+void blocking_test(heap h, int * fds)
+{
+    for (int i=0; i < BLOCKING_TEST_LEN; i++)
+        blocking_srcbuf[i] = (char)random_u64();
+
+    pthread_t pt;
+    if (pthread_create(&pt, NULL, blocking_test_child, fds))
+        handle_error("blocking test pthread_create");
+
+    int nwritten = 0;
+    do {
+        int nbytes = write(fds[1], blocking_srcbuf + nwritten, BLOCKING_TEST_LEN - nwritten);
+        if (nbytes < 0)
+            handle_error("blocking test write");
+        nwritten += nbytes;
+    } while(nwritten < BLOCKING_TEST_LEN);
+
+    printf("blocking test: wrote data; waiting for child\n");
+
+    void * retval;
+    if (pthread_join(pt, &retval))
+        handle_error("blocking test pthread_join");
+    if (retval != (void *)EXIT_SUCCESS) {
+        printf("blocking test failed: read thread failed with retval %d\n", (long long)retval);
+        exit(EXIT_FAILURE);
+    }
+    printf("blocking test passed\n");
+}
+
 int main(int argc, char **argv)
 {
-    int fd[2] = {0,0};
-    const int BSIZE = 1000;
+    int fds[2] = {0,0};
     ssize_t nbytes;
     int status;
     int i;
 
-    char *test_string = "This is a pipe test string!";
-
     heap h = init_process_runtime();
     tuple t = parse_arguments(h, argc, argv);
 
-    buffer in = allocate_buffer(h,BSIZE);
-    buffer out = allocate_buffer(h,BSIZE);
-
-    status = __pipe(fd);
-    if (status == -1 )
-        perror("pipe");
-
-    printf("PIPE-CREATE - SUCCESS, fds %d %d\n", fd[0], fd[1]);
-
-//#include <stdio.h>
-//#include <string.h>
-//#include <unistd.h>
-//#include <fcntl.h>
-//#include <sys/types.h>
-//#include <sys/wait.h>
-
-    nbytes = write(fd[1], test_string, runtime_strlen(test_string));
-    if (nbytes == -1)
-        perror("write");
+    status = __pipe(fds);
+    if (status == -1)
+        handle_error("pipe");
     //fcntl(fd[0], F_SETFL, O_NONBLOCK);
 
-    while ((nbytes = read(fd[0], buffer_ref(in, buffer_length(in)), 5)) > 0) {
-        buffer_produce(in, nbytes);
-    }
-    buffer_write_byte(in, (u8)'\0');
-    buffer_clear(in);
+    printf("PIPE-CREATE - SUCCESS, fds %d %d\n", fds[0], fds[1]);
 
-    if (runtime_strcmp(test_string, (const char *)buffer_ref(in, 0))) {
-        printf("PIPE-RD/WR - ERROR - test message corrupted, expected %s and got %s\n",
-            test_string, 
-            (char *)buffer_ref(in, 0));
-    } else
-        printf("PIPE-RD/WR - SUCCESS - test message received\n");
+    basic_test(h, fds);
 
-    for (i = 0; i < 10; ++i) {
-        nbytes = write(fd[1], buffer_ref(in,0), BSIZE);
-        while ((nbytes = read(fd[0], buffer_ref(in, buffer_length(in)), BSIZE)) > 0) {
-            buffer_produce(in, nbytes);
-        }
-        buffer_clear(in);
-    }
-    printf("PIPE-RD/WR-LARGE - SUCCESS\n");
+    blocking_test(h, fds);
 
-    close(fd[0]);
-    close(fd[1]);
+    close(fds[0]);
+    close(fds[1]);
     return(EXIT_SUCCESS);
 }
