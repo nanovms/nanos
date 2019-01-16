@@ -56,7 +56,7 @@ void basic_test(heap h, int * fds)
 
     if (strcmp(test_string, (const char *)buffer_ref(in, 0))) {
         printf("PIPE-RD/WR - ERROR - test message corrupted, expected %s and got %s\n",
-            test_string, (char *)buffer_ref(in, 0));
+               test_string, (char *)buffer_ref(in, 0));
         exit(EXIT_FAILURE);
     } else {
         printf("PIPE-RD/WR - SUCCESS - test message received\n");
@@ -65,7 +65,7 @@ void basic_test(heap h, int * fds)
 
 #define BLOCKING_TEST_LEN (256 * KB)
 
-char blocking_srcbuf[BLOCKING_TEST_LEN];
+static char blocking_srcbuf[BLOCKING_TEST_LEN];
 
 void * blocking_test_child(void * arg)
 {
@@ -102,19 +102,21 @@ void blocking_test(heap h, int * fds)
 
     int nwritten = 0;
     do {
-        int nbytes = write(fds[1], blocking_srcbuf + nwritten, BLOCKING_TEST_LEN - nwritten);
+        int nbytes = write(fds[1], blocking_srcbuf + nwritten,
+                           BLOCKING_TEST_LEN - nwritten);
         if (nbytes < 0)
             handle_error("blocking test write");
         nwritten += nbytes;
     } while(nwritten < BLOCKING_TEST_LEN);
 
-    printf("blocking test: wrote data; waiting for child\n");
+    printf("blocking test: finished writing data; waiting for read thread\n");
 
-    void * retval;
+    void * retval = 0;
     if (pthread_join(pt, &retval))
         handle_error("blocking test pthread_join");
     if (retval != (void *)EXIT_SUCCESS) {
-        printf("blocking test failed: read thread failed with retval %d\n", (long long)retval);
+        printf("blocking test failed: read thread failed with retval %d\n",
+               (long long)retval);
         exit(EXIT_FAILURE);
     }
     printf("blocking test passed\n");
@@ -133,7 +135,6 @@ int main(int argc, char **argv)
     status = __pipe(fds);
     if (status == -1)
         handle_error("pipe");
-    //fcntl(fd[0], F_SETFL, O_NONBLOCK);
 
     printf("PIPE-CREATE - SUCCESS, fds %d %d\n", fds[0], fds[1]);
 
