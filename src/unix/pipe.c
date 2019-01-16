@@ -114,8 +114,6 @@ static sysreturn pipe_read(file f, void *dest, u64 length, u64 offset_arg)
 {
     pipe_file pf = (pipe_file)f;
 
-    /* XXX surely there must be more error checking here... */
-
     if (length == 0)
         return 0;
 
@@ -161,8 +159,6 @@ static CLOSURE_1_3(pipe_write, sysreturn, file, void *, u64, u64);
 static sysreturn pipe_write(file f, void * dest, u64 length, u64 offset)
 {
     pipe_file pf = (pipe_file)f;
-
-    /* XXX error checks */
 
     if (length == 0)
         return 0;
@@ -210,7 +206,7 @@ static boolean pipe_write_check(file f, u32 eventmask, u32 * last, event_handler
 {
     pipe_file pf = (pipe_file)f;
     assert(f->write);
-    u32 events = EPOLLOUT; /* XXX limit - 16 pages default (see pipe(7)) */
+    u32 events = buffer_length(pf->pipe->data) < pf->pipe->max_size ? EPOLLOUT : 0;
     return pipe_check_internal(pf, events, eventmask, last, eh);
 }
 
