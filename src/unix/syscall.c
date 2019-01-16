@@ -455,7 +455,6 @@ sysreturn sysreturn_from_fs_status(fs_status s)
 static sysreturn do_mkent(tuple root, const char *pathname, int mode, boolean dir)
 {
     heap h = heap_general(get_kernel_heaps());
-    buffer cwd = wrap_buffer_cstring(h, "/"); /* XXX */
     char *final_path = 0;
 
     if (!pathname)
@@ -463,6 +462,7 @@ static sysreturn do_mkent(tuple root, const char *pathname, int mode, boolean di
 
     /* canonicalize the path */
     if (!root) {
+        buffer cwd = wrap_buffer_cstring(h, "/"); /* XXX */
         final_path = canonicalize_path(h, cwd,
             wrap_buffer_cstring(h, (char *)pathname));
     } else
@@ -472,7 +472,7 @@ static sysreturn do_mkent(tuple root, const char *pathname, int mode, boolean di
                __func__, dir ? "mkdir" : "creat", mode, pathname, final_path);
 
     sysreturn r = dir ? filesystem_mkdir(current->p->fs, root, final_path) :
-        filesystem_creat(current->p->fs, final_path);
+        filesystem_creat(current->p->fs, root, final_path);
     return set_syscall_return(current, sysreturn_from_fs_status(r));
 }
 
@@ -667,7 +667,8 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
             thread_log(current, "\"%s\" opened with O_EXCL but already exists", name);
             return set_syscall_error(current, EEXIST);
         } else if (!n) {
-            sysreturn rv = do_mkent(0, name, mode, false);
+            tuple children = (root ? table_find(root, sym(children)) : 0);
+            sysreturn rv = do_mkent(children, name, mode, false);
             if (rv)
                 return rv;
             /* XXX We could rearrange calls to return tuple instead of
@@ -723,7 +724,10 @@ sysreturn open(char *name, int flags, int mode)
 
 sysreturn mkdir(const char *pathname, int mode)
 {
-    return do_mkent(0, pathname, mode, true);
+    tuple root = 0;
+    if (*pathname != '/')
+        root = table_find(current->p->cwd, sym(children));
+    return do_mkent(root, pathname, mode, true);
 }
 
 /*
@@ -757,8 +761,10 @@ sysreturn creat(const char *pathname, int mode)
 {
     if (!pathname)
         return set_syscall_error (current, EFAULT);
+
+    tuple root = (*pathname == '/' ? 0 : current->p->cwd);
     thread_log(current, "creat: \"%s\", mode %P", pathname, mode);
-    return open_internal(current->p->cwd, (char *)pathname, O_CREAT|O_WRONLY|O_TRUNC, mode);
+    return open_internal(root, (char *)pathname, O_CREAT|O_WRONLY|O_TRUNC, mode);
 }
 
 sysreturn getrandom(void *buf, u64 buflen, unsigned int flags)
@@ -937,6 +943,29 @@ done:
     return written_sofar;
 }
 
+sysreturn chdir(const char *path)
+{
+    tuple n;
+    if (path == 0)
+        return set_syscall_error (current, EINVAL);
+
+    if (!(n = resolve_cstring(current->p->cwd, (char *)path)) || !is_dir(n)) {
+        return set_syscall_error(current, ENOENT);
+    }
+    current->p->cwd = n;
+    set_syscall_return(current, 0);
+}
+
+sysreturn fchdir(int dirfd)
+{
+    file f = resolve_fd(current->p, dirfd);
+    tuple children = table_find(f->n, sym(children));
+    if (!children)
+        return set_syscall_error(current, -ENOTDIR);
+
+    current->p->cwd = f->n;
+    set_syscall_return(current, 0);
+}
 
 sysreturn writev(int fd, iovec v, int count)
 {
@@ -1245,6 +1274,8 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_pipe, pipe);
     register_syscall(map, SYS_pipe2, pipe2);
     register_syscall(map, SYS_creat, creat);
+    register_syscall(map, SYS_chdir, chdir);
+    register_syscall(map, SYS_fchdir, fchdir);
 }
 
 void *linux_syscalls[SYS_MAX];
