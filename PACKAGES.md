@@ -5,9 +5,12 @@ slightly sensitive info.
 
 ### Create Directory
 
+For example if we want to make a package for Lua 5.2.4 we'd have the
+following:
+
 ```
-export PKGNAME=mypkg
-export PKGVERSION=0.0.1
+export PKGNAME=lua
+export PKGVERSION=5.2.4
 
 mkdir $PKGNAME_$PKGVERSION
 ```
@@ -54,6 +57,9 @@ but don't forget libnss and friends.
 /lib/x86_64-linux-gnu/libnss_dns.so.2
 ```
 
+Needs more information on exactly what we want/need here (prob. not
+everything).
+
 ```
 /etc/sssl/certs
 ```
@@ -74,7 +80,8 @@ gsutil cp g://packagehub/manifest.json .
   "lua_5.2.4": {
       "runtime" : "lua",
       "version": "5.2.4",
-      "language":"lua"
+      "language": "lua",
+      "description": "lua"
   },
 ```
 
