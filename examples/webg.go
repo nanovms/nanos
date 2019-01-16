@@ -18,6 +18,21 @@ func argsHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, s)
 }
 
+func reqTestHandler(w http.ResponseWriter, r *http.Request) {
+	resp, err := http.Get("https://ops.city")
+	if err != nil {
+		fmt.Println(err)
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	fmt.Fprint(w, string(body))
+}
+
 func envHandler(w http.ResponseWriter, r *http.Request) {
 
 	var s string
@@ -41,6 +56,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 func main() {
 
 	http.HandleFunc("/", handler)
+	http.HandleFunc("/req", reqTestHandler)
 	http.HandleFunc("/args", argsHandler)
 	http.HandleFunc("/env", envHandler)
 	http.HandleFunc("/ts", tsHandler)
