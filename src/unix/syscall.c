@@ -537,7 +537,7 @@ static sysreturn sendfile(int out_fd, int in_fd, int *offset, bytes count)
     heap h = heap_general(get_kernel_heaps());
 
     // infile need to a regular file
-    if (!table_find(current->p->fs, infile->n)) {
+    if (!table_find(current->p->process_root, infile->n)) {
         return set_syscall_error(current, ENOSYS);
     }
 
