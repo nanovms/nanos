@@ -953,7 +953,7 @@ sysreturn chdir(const char *path)
         return set_syscall_error(current, ENOENT);
     }
     current->p->cwd = n;
-    set_syscall_return(current, 0);
+    return set_syscall_return(current, 0);
 }
 
 sysreturn fchdir(int dirfd)
@@ -964,7 +964,7 @@ sysreturn fchdir(int dirfd)
         return set_syscall_error(current, -ENOTDIR);
 
     current->p->cwd = f->n;
-    set_syscall_return(current, 0);
+    return set_syscall_return(current, 0);
 }
 
 sysreturn writev(int fd, iovec v, int count)
