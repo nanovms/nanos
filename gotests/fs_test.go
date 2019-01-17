@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -32,12 +33,19 @@ func prepareTestImage(finalImage string) {
 	const filepath = "../examples/soop.data"
 	c := defaultConfig()
 	writeFile(filepath)
+
+	c.Files = append(c.Files, "/lib/x86_64-linux-gnu/libnss_dns.so.2")
+	c.Files = append(c.Files, "/etc/ssl/certs/ca-certificates.crt")
 	c.Files = append(c.Files, filepath)
+
 	c.Args = append(c.Args, "longargument")
+
 	c.Env["USER"] = "bobby"
 	c.Env["PWD"] = "password"
+
 	c.DiskImage = finalImage
 	c.Program = "../output/examples/webg"
+
 	err := lepton.BuildImage(c)
 	if err != nil {
 		log.Fatal(err)
@@ -105,6 +113,7 @@ func TestArgsAndEnv(t *testing.T) {
 	}
 	hypervisor.Stop()
 }
+
 func TestFileSystem(t *testing.T) {
 	const finalImage = "image"
 	prepareTestImage(finalImage)
@@ -128,5 +137,36 @@ func TestFileSystem(t *testing.T) {
 	if string(body) != "unibooty 0" {
 		t.Errorf("unexpected response" + string(body))
 	}
+	hypervisor.Stop()
+}
+
+func TestHTTP(t *testing.T) {
+	const finalImage = "image"
+	prepareTestImage(finalImage)
+	hypervisor := lepton.HypervisorInstance()
+	rconfig := lepton.RuntimeConfig(finalImage, []int{8080}, true)
+	go func() {
+		hypervisor.Start(&rconfig)
+	}()
+
+	time.Sleep(3 * time.Second)
+
+	resp, err := http.Get("http://127.0.0.1:8080/req")
+	if err != nil {
+		t.Log(err)
+		t.Errorf("failed to get 127.0.0.1:8080/req")
+	}
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Log(err)
+		t.Errorf("ReadAll failed")
+	}
+
+	if !strings.Contains(string(body), "unikernel compilation") {
+		t.Errorf("unexpected response:" + string(body))
+	}
+	resp.Body.Close()
+
 	hypervisor.Stop()
 }
