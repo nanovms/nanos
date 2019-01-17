@@ -505,50 +505,62 @@ static void file_op_complete(thread t, file f, fsfile fsf, boolean is_file_offse
     thread_wakeup(t);
 }
 
-static CLOSURE_7_2(file_op_complete_internal, void, thread, file, fsfile, file, fsfile, int, void*, status, bytes);
-static void file_op_complete_internal(thread t, file inf, fsfile inffs, file ouf, fsfile outfs, int offset_adjust, void* buf, status s, bytes length)
+static CLOSURE_6_2(sendfile_read_complete, void, heap, thread, file, file, int*, void*, status, bytes);
+static void sendfile_read_complete(heap h, thread t, file in, file out, int* offset, void* buf, status s, bytes length)
 {
-    buffer b;
-
-    thread_log(current, "%s: len %d, status %v (%s)", __func__,
-            length, s, is_ok(s) ? "OK" : "NOTOK");
     if (is_ok(s)) {
-        if (inffs)
-            inf->length = fsfile_get_length(inffs);
-        if (offset_adjust)
-	        inf->offset += length;
-        b = wrap_buffer(heap_general(get_kernel_heaps()), buf, length);
-        filesystem_write(current->p->fs, ouf->n, b, ouf->offset,
-                closure(heap_general(get_kernel_heaps()), file_op_complete, current, ouf, outfs, 1));
+        /* TODO:
+            This has couple of issues.
+            1. We don't wait for write to succeed before updating the offset. 
+            2. buf is leaking, we can't release it unless we know write is done.
+            I am looking at adding a generic completed handler for all file ops (ie sockets, files and pipe),
+            and these completion handler can be invoked from bottom-half of operations allowing to chain 
+            handler and do any necessary clean up.
+        */
+       if(!offset) {
+           in->offset += length;
+       } else {
+            *offset += length;
+       }
+       apply(out->write, buf, length, 0);
     } else {
-        deallocate_buffer(buf);
+        deallocate(h,buf,length);
         set_syscall_error(t, EIO);
-        thread_wakeup(current);
     }
 }
 
-static sysreturn sendfile(int outfile, int infile, unsigned long *offs, bytes count)
+// in_fd need to a regular file.
+static sysreturn sendfile(int out_fd, int in_fd, int *offset, bytes count)
 {
-    file inf = resolve_fd(current->p, infile);
-    fsfile inffs = fsfile_from_node(current->p->fs, inf->n);
-    file ouf = resolve_fd(current->p, outfile);
-    fsfile outfs = fsfile_from_node(current->p->fs, ouf->n);
+    file infile = resolve_fd(current->p, in_fd);
+    file outfile = resolve_fd(current->p, out_fd);
     heap h = heap_general(get_kernel_heaps());
-    void *buf = allocate(h, count);
-    int offset_adjust = (offs == 0);	/* adjust only if offs is NULL */
-    s64 offset = (s64)(offset_adjust == 1) ? inf->offset : *offs;
 
-    if (!inf->read || !ouf->write)
+    // infile need to a regular file
+    if (!table_find(current->p->fs, infile->n)) {
+        return set_syscall_error(current, ENOSYS);
+    }
+
+    if (!infile->read || !outfile->write)
       return set_syscall_error(current, EINVAL);
-    if ((inf->offset + count) > inf->length)
+    
+    if ((infile->offset + count) > infile->length)
         return set_syscall_error(current, EINVAL);
+    
+    void *buf = allocate(h, count);
+    u64 read_offset = 0;
+    if(!offset) {
+        read_offset = infile->offset;
+    } else  {
+        read_offset = *offset;
+    }
 
-    filesystem_read(current->p->fs, inf->n, buf, count, offset,
-	closure(h, file_op_complete_internal, current, inf, inffs, ouf, outfs, offset_adjust, buf));
-
+    filesystem_read(current->p->fs, infile->n, buf, count, read_offset,
+	                closure(h, sendfile_read_complete, h, current, infile, outfile, offset, buf));
     thread_sleep(current);
-    return count;
+    return set_syscall_return(current,count); // bogus
 }
+
 
 static CLOSURE_2_3(file_read, sysreturn, file, fsfile, void *, u64, u64);
 static sysreturn file_read(file f, fsfile fsf, void *dest, u64 length, u64 offset_arg)
