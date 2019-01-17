@@ -2,6 +2,7 @@
 #define NO_SYS 1
 #define LWIP_SOCKET 0
 #define LWIP_NETCONN 0
+#define ARP_QUEUEING 1
 #ifdef LWIP_DEBUG
 #define LWIP_PLATFORM_DIAG(x) do {lwip_debug x;} while(0)
 #define LWIP_DBG_MIN_LEVEL		LWIP_DBG_LEVEL_ALL
