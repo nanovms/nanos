@@ -1187,11 +1187,21 @@ sysreturn close(int fd)
     return 0;
 }
 
-sysreturn fcntl(int fd, int cmd)
+sysreturn fcntl(int fd, int cmd, int arg)
 {
+    file f = resolve_fd(current->p, fd);
+
     switch (cmd) {
+    case F_GETFD:
+        return set_syscall_return(current, f->flags);
+    case F_SETFD:
+        f->flags = arg;
+        return set_syscall_return(current, 0);
     case F_GETFL:
         return O_RDWR;
+    case F_SETFL:
+        thread_log(current, "fcntl: fd %d, F_SETFL, %P", fd, arg);
+        return set_syscall_return(current, 0);
     default:
         return set_syscall_error(current, ENOSYS);
     }
