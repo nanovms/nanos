@@ -36,13 +36,13 @@ buffer lookup_file(heap h, const char *target_root, buffer name, struct stat *st
         buffer_write(name, n, strlen(n));
 
         if (lstat(cstring(name), st) < 0)
-           halt("couldn't stat file %b\n", name);
+           halt("couldn't stat file %b: %s\n", name, strerror(errno));
         if (!S_ISLNK(st->st_mode))
            break;
 
         int len;
         if ((len = readlink(cstring(name), path_buf, sizeof(path_buf))) < 0)
-           halt("couldn't readlink file %b\n", name);
+           halt("couldn't readlink file %b: %s\n", name, strerror(errno));
         path_buf[len] = '\0';
 	if (path_buf[0] == '/') {
 	    /* absolute links need to be resolved */
@@ -52,7 +52,7 @@ buffer lookup_file(heap h, const char *target_root, buffer name, struct stat *st
 
         /* relative links are ok */
         if (stat(cstring(name), st) < 0)
-            halt("couldn't stat file %b\n", name);
+            halt("couldn't stat file %b: %s\n", name, strerror(errno));
 	break;
     }
 
@@ -73,18 +73,19 @@ void read_file(heap h, buffer dest, buffer name)
         const char *target_root = NULL;
 #endif
         if (target_root == NULL)
-            halt("couldn't open file %b\n", name);
+            halt("couldn't open file %b: %s\n", name, strerror(errno));
 
         name_b = lookup_file(h, target_root, name, &st);
         //printf("%s -> %s\n", cstring(name), cstring(name_b));
         name = name_b;
     }
     int fd = open(cstring(name), O_RDONLY);
-    if (fd < 0) halt("couldn't open file %b\n", name);
+    if (fd < 0) halt("couldn't open file %b: %s\n", name, strerror(errno));
     u64 size = st.st_size;
     buffer_extend(dest, pad(st.st_size, SECTOR_SIZE));
     read(fd, buffer_ref(dest, 0), size);
     dest->end += size;
+    close(fd);
 
     if (name_b != NULL)
         deallocate_buffer(name_b);
@@ -109,9 +110,9 @@ void perr(string s)
 void includedir(tuple dest, buffer path)
 {
     DIR *d = opendir(cstring(path));
-    struct dirent di, *dip;
-    while (readdir_r(d, &di, &dip), dip) {
+    while (readdir(d)) {
     }
+    closedir(d);
 }
 
 
