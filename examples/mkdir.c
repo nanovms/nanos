@@ -7,6 +7,7 @@
 #define _GNU_SOURCE
 #include <dirent.h>     /* Defines DT_* constants */
 #include <unistd.h>
+#include <string.h>
 #include <stdlib.h>
 #include <sys/syscall.h>
 

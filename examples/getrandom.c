@@ -22,7 +22,7 @@ __getrandom(void *buf, int i, int f)
 
 int main(int argc, char **argvp)
 {
-    int r, i, j;
+    int r, i;
     char *buffer = malloc(BUF_LEN);
     if (!buffer) {
         printf("failed to allocate a buffer\n");

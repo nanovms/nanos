@@ -17,7 +17,6 @@ static u64 debug_alloc(heap h, bytes size)
 
 static void debug_dealloc(heap h, u64 x, bytes size)
 {
-    dheap d = (dheap)h;
 }
 
 heap debug_heap(heap meta, heap target)
