@@ -1,5 +1,11 @@
 #include <tfs_internal.h>
 
+#if defined(TFS_DEBUG)
+#define tfs_debug(x, ...) do {rprintf("TFS: " x, ##__VA_ARGS__);} while(0)
+#else
+#define tfs_debug(x, ...)
+#endif
+
 struct fsfile {
     rtrie extents;
     filesystem fs;
@@ -20,6 +26,7 @@ void fsfile_set_length(fsfile f, u64 length)
 static CLOSURE_5_1(copyout, void, filesystem, void *, void *, u64, status_handler, status);
 void copyout(filesystem fs, void *target, void *source, u64 length, status_handler sh, status s)
 {
+    tfs_debug("copyout: target %p, length %P: %v\n", target, length, s);
     if (s) {
         apply(sh, s);
     } else {
@@ -40,28 +47,77 @@ static void fs_read_extent(filesystem fs,
                            void *val)
 {
     range i = range_intersection(q, ex);
-    // offset within a block - these are just the extents, so might be a sub
     u64 xfer = range_span(i);
     assert(xfer != 0);
     u64 block_start = u64_from_pointer(val);
-    u64 tail = range_span(q) & (fs->blocksize - 1);
+
+    // target_offset is required for the cases when q.start < ex.start
+    // (q spans more than one extent) but this does not happen now
+    // because rtrie_lookup() is used to find an extent (q.start is always >= ex.start)
     u64 target_offset = i.start - q.start;
     void *target_start = buffer_ref(target, target_offset);
 
-    // handle unaligned tail without clobbering extra memory
-    if (tail && (ex.end > q.end)) {
+    // make i absolute
+    i.start += block_start;
+    i.end += block_start;
+
+    tfs_debug("fs_read_extent: q %R, ex %R, block_start %P, i %R, xfer %P, target_offset %P, target_start %p, blocksize %d\n",
+        q, ex, block_start, i, xfer, target_offset, target_start, fs->blocksize);
+
+    /*
+     * +       i.start--+        +--start_padded      i.end--+      +--end_padded
+     * |                |        |                           |      |
+     * |                v        v                           v      v
+     * v                 <-head->                    <-tail->
+     * |---------|------[========|=======....=======|========]------|
+     *            <--blocksize-->                    <--blocksize-->
+     */
+
+    // handle unaligned head without clobbering extra memory
+    u64 start_padded = pad(i.start, fs->blocksize);
+    if (i.start > 0 && i.start < start_padded) {
+        // unaligned start
+        u64 head = MIN(start_padded - i.start, xfer);
+
         void *temp = allocate(fs->h, fs->blocksize);
         status_handler f = apply(m);
+        xfer -= head;
+        status_handler copy = closure(fs->h, copyout, fs, target_start, temp + (fs->blocksize - head), head, f);
+        fetch_and_add(&target->end, head);
+        u64 read_start = start_padded - fs->blocksize;
+        tfs_debug("fs_read_extent: unaligned head(%P, %P): reading block at %P (%P)\n",
+            i.start, start_padded, read_start, head);
+        apply(fs->r, temp, fs->blocksize, read_start, copy);
+
+        i.start += head;
+        target_start += head;
+    }
+
+    // handle unaligned tail without clobbering extra memory
+    u64 end_padded = pad(i.end, fs->blocksize);
+    if (xfer > 0 && i.end < end_padded) {
+        // unaligned end
+        u64 tail = i.end + fs->blocksize - end_padded;
+
+        void *temp = allocate(fs->h, fs->blocksize);
+        status_handler f = apply(m);
+        assert(xfer >= tail);
         xfer -= tail;
         status_handler copy = closure(fs->h, copyout, fs, target_start + xfer, temp, tail, f);
         fetch_and_add(&target->end, tail);
-        apply(fs->r, temp, fs->blocksize, block_start + xfer, copy);
+        u64 read_start = end_padded - fs->blocksize;
+        tfs_debug("fs_read_extent: unaligned tail(%P, %P): reading block at %P (%P)\n",
+            i.end, end_padded, read_start, tail);
+        apply(fs->r, temp, fs->blocksize, read_start, copy);
     }
 
-    if (xfer) {
+    if (xfer > 0) {
         status_handler f = apply(m);
         fetch_and_add(&target->end, xfer);
-        apply(fs->r, target_start, xfer, block_start, f);
+        assert(i.start == 0 || pad(i.start, fs->blocksize) == i.start);
+        tfs_debug("fs_read_extent: reading blocks at %P (%P)\n",
+            i.start, xfer);
+        apply(fs->r, target_start, xfer, i.start, f);
     }
 }
 
