@@ -7,6 +7,8 @@ CFLAGS = -g \
 	 -fno-omit-frame-pointer \
 	 -DENABLE_MSG_DEBUG \
 	 $(includes)
+CFLAGS+= $(CFLAG_WARNINGS) \
+         -Wformat
 
 all: fst hw hws hwg getdents udploop web webg webgs webs getrandom mkdir time \
 	 pipe write creat sendfile

@@ -131,7 +131,7 @@ static parser name_complete(heap h, tuple t, parser check, err_internal err, voi
 {
     buffer res = allocate_buffer(h, 20);
     completion vc = closure(h, value_complete, t, intern(b), check);
-    parser term = combinate(h, closure(h, terminal, vc, value_terminal, res));
+    combinate(h, closure(h, terminal, vc, value_terminal, res));
     // not sure why we have to violate typing
     parser pv = (void *)closure(h, parse_value, h, vc, err);
     return ignore_whitespace(h, (void *)closure(h, dispatch_property, h, pv, err));

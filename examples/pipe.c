@@ -30,14 +30,13 @@ void basic_test(heap h, int * fds)
     char *test_string = "This is a pipe test string!";
     int test_len = strlen(test_string);
     buffer in = allocate_buffer(h, BSIZE);
-    buffer out = allocate_buffer(h, BSIZE);
 
     nbytes = write(fds[1], test_string, test_len);
     if (nbytes < 0)
         handle_error("basic test write");
 
     if (nbytes < test_len) {
-        printf("pipe basic test: short write (%d)\n", nbytes);
+        printf("pipe basic test: short write (%ld)\n", nbytes);
         exit(EXIT_FAILURE);
     }
 
@@ -115,7 +114,7 @@ void blocking_test(heap h, int * fds)
     if (pthread_join(pt, &retval))
         handle_error("blocking test pthread_join");
     if (retval != (void *)EXIT_SUCCESS) {
-        printf("blocking test failed: read thread failed with retval %d\n",
+        printf("blocking test failed: read thread failed with retval %lld\n",
                (long long)retval);
         exit(EXIT_FAILURE);
     }
@@ -125,12 +124,10 @@ void blocking_test(heap h, int * fds)
 int main(int argc, char **argv)
 {
     int fds[2] = {0,0};
-    ssize_t nbytes;
     int status;
-    int i;
 
     heap h = init_process_runtime();
-    tuple t = parse_arguments(h, argc, argv);
+    parse_arguments(h, argc, argv);
 
     status = __pipe(fds);
     if (status == -1)

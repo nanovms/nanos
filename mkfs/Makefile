@@ -6,6 +6,7 @@ CFLAGS	= -fno-stack-protector
 CFLAGS	+= -g
 CFLAGS	+= -fdata-sections -ffunction-sections
 CFLAGS	+= $(includes) -DHOST_BUILD
+CFLAGS  += $(CFLAG_WARNINGS) -Wformat
 
 all: mkfs dump
 

@@ -119,7 +119,7 @@ void includedir(tuple dest, buffer path)
 static CLOSURE_1_3(bwrite, void, descriptor, buffer, u64, status_handler);
 static void bwrite(descriptor d, buffer s, u64 offset, status_handler c)
 {
-    int res = pwrite(d, buffer_ref(s, 0), buffer_length(s),  offset);
+    pwrite(d, buffer_ref(s, 0), buffer_length(s),  offset);
     apply(c, STATUS_OK);
 }
 
@@ -159,7 +159,6 @@ static value translate(heap h, vector worklist, filesystem fs, value v, status_h
         {
             tuple out = allocate_tuple();
             table_foreach((table)v, k, child) {
-                buffer b;
                 if (k == sym(contents)) {
                     vector_push(worklist, build_vector(h, out, translate_contents(h, child)));
                 } else {
