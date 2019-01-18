@@ -627,20 +627,6 @@ static sysreturn file_close(file f, fsfile fsf)
     return 0;
 }
 
-/* XXX this needs to move - with the notify stuff in netsyscall - to
-   generic file routines (and make static inline) */
-u32 edge_events(u32 masked, u32 eventmask, u32 last)
-{
-    u32 r;
-    /* report only rising events if edge triggered */
-    if ((eventmask & EPOLLET) && (masked != last)) {
-	r = (masked ^ last) & masked;
-    } else {
-	r = masked;
-    }
-    return r;
-}
-
 static CLOSURE_2_3(file_check, boolean, file, fsfile, u32, u32 *, event_handler);
 static boolean file_check(file f, fsfile fsf, u32 eventmask, u32 * last, event_handler eh)
 {

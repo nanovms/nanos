@@ -256,7 +256,7 @@ static boolean epoll_wait_notify(epollfd efd, u32 events)
     epoll_debug("epoll_wait_notify: efd->fd %d, events %P, blocked %p, zombie %d\n",
 	    efd->fd, events, w, efd->zombie);
     efd->registered = false;
-    if (w && !efd->zombie) {
+    if (w && !efd->zombie && events != NOTIFY_EVENTS_RELEASE) {
 	// strided vectors?
 	if (w->user_events && (w->user_events->length - w->user_events->end)) {
 	    struct epoll_event *e = buffer_ref(w->user_events, w->user_events->end);
@@ -422,7 +422,7 @@ static boolean select_notify(epollfd efd, u32 events)
     epoll_debug("select_notify: efd->fd %d, events %P, blocked %p, zombie %d\n",
 	    efd->fd, events, w, efd->zombie);
     efd->registered = false;
-    if (!efd->zombie && w && efd->fd < w->nfds) {
+    if (!efd->zombie && w && efd->fd < w->nfds && events != NOTIFY_EVENTS_RELEASE) {
 	assert(w->epoll_type == EPOLL_TYPE_SELECT);
 	int count = 0;
 	/* XXX need thread safe / cas bitmap ops */
@@ -640,7 +640,7 @@ static boolean poll_wait_notify(epollfd efd, u32 events)
     epoll_debug("poll_wait_notify: efd->fd %d, events %P, blocked %p, zombie %d\n",
             efd->fd, events, w, efd->zombie);
     efd->registered = false;
-    if (w && !efd->zombie) {
+    if (w && !efd->zombie && events != NOTIFY_EVENTS_RELEASE) {
         struct pollfd *pfd = buffer_ref(w->poll_fds, efd->data * sizeof(struct pollfd));
         fetch_and_add(&w->poll_retcount, 1);
         pfd->revents = events;

@@ -41,13 +41,6 @@ enum udp_socket_state {
     UDP_SOCK_CREATED = 1,
 };
 
-typedef struct notify_entry {
-    u32 eventmask;
-    u32 * last;
-    event_handler eh;
-    struct list l;
-} *notify_entry;
-
 typedef closure_type(lwip_status_handler, void, err_t);
 
 typedef struct sock {
@@ -60,7 +53,7 @@ typedef struct sock {
     blockq rxbq;                 /* for incoming queue */
     queue incoming;
     blockq txbq;                 /* for lwip protocol tx buffer */
-    struct list notify;		/* XXX: add spinlock when available */
+    notify_set ns;
     // the notion is that 'waiters' should take priority    
     int fd;
     err_t lwip_error;           /* lwIP error code; ERR_OK if normal */
@@ -106,46 +99,9 @@ static inline u32 socket_poll_events(sock s)
     return (in ? EPOLLIN | EPOLLRDNORM : 0) | EPOLLOUT | EPOLLWRNORM;
 }
 
-static inline boolean notify_enqueue(sock s, u32 eventmask, u32 * last, event_handler eh)
+static inline void notify_sock(sock s)
 {
-    notify_entry n = allocate(s->h, sizeof(struct notify_entry));
-    if (n == INVALID_ADDRESS)
-	return false;
-    n->eventmask = eventmask;
-    n->last = last;
-    n->eh = eh;
-    list_insert_before(&s->notify, &n->l); /* XXX lock */
-    return true;
-}
-
-/* XXX stuck in syscall.c, move to generic file place */
-extern u32 edge_events(u32 masked, u32 eventmask, u32 last);
-
-/* XXX this should move to a more general place for use with other types of fds */
-static void notify_dispatch(sock s)
-{
-    /* XXX need to take a lock here, circle back once we have them */
-    list l = list_get_next(&s->notify);
-    if (!l)
-	return;
-
-    u32 events = socket_poll_events(s);
-
-    /* XXX not using list foreach because of intermediate
-       deletes... make a macro for that */
-    do {
-	notify_entry n = struct_from_list(l, notify_entry, l);
-	list next = list_get_next(l);
-	u32 masked = events & n->eventmask;
-        u32 r = edge_events(masked, n->eventmask, n->last ? *n->last : 0);
-        if (n->last)
-            *n->last = masked;
-	if (r && apply(n->eh, r)) {
-	    list_delete(l);
-	    deallocate(s->h, n, sizeof(struct notify_entry));
-	}
-	l = next;
-    } while(l != &s->notify);
+    notify_dispatch(s->ns, socket_poll_events(s));
 }
 
 /* May be called from irq/softirq */
@@ -180,7 +136,7 @@ static void wakeup_sock(sock s, u64 flags)
         if ((flags & WAKEUP_SOCK_TX))
             blockq_wake_one(s->txbq);
     }
-    notify_dispatch(s);
+    notify_sock(s);
 }
 
 static inline void error_message(sock s, err_t err) {
@@ -314,7 +270,7 @@ static sysreturn sock_read_bh(sock s, thread t, void *dest, u64 length,
             pbuf_free(pbuf);
             p = queue_peek(s->incoming);
             if (!p)
-                notify_dispatch(s); /* reset a triggered EPOLLIN condition */
+                notify_sock(s); /* reset a triggered EPOLLIN condition */
         }
 
         if (s->type == SOCK_STREAM)
@@ -475,7 +431,7 @@ static boolean socket_check(sock s, u32 eventmask, u32 * last, event_handler eh)
             *last = masked;
 	return apply(eh, report);
     } else {
-	if (!notify_enqueue(s, eventmask, last, eh))
+	if (!notify_add(s->ns, eventmask, last, eh))
 	    msg_err("notify enqueue fail: out of memory\n");
     }
     return true;
@@ -550,7 +506,7 @@ static int allocate_sock(process p, int type, sock * rs)
     s->incoming = allocate_queue(h, SOCK_QUEUE_LEN);
     s->rxbq = allocate_blockq(h, "sock receive", SOCK_BLOCKQ_LEN, 0 /* XXX */);
     s->txbq = allocate_blockq(h, "sock transmit", SOCK_BLOCKQ_LEN, 0 /* XXX */);
-    list_init(&s->notify);	/* XXX lock init */
+    s->ns = allocate_notify_set(h);
     s->fd = fd;
     set_lwip_error(s, ERR_OK);
     *rs = s;
@@ -937,7 +893,7 @@ static sysreturn accept_bh(sock s, thread t, struct sockaddr *addr, socklen_t *a
        used with EPOLLET. For now, let's handle it as if it's a
        regular socket. */
     if (queue_length(s->incoming) == 0)
-	notify_dispatch(s);
+	notify_sock(s);
 
     if (blocked)
         thread_wakeup(t);

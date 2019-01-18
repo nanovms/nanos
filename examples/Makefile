@@ -193,7 +193,7 @@ pipe-srcs := \
 pipe-objs = $(call srcs-to-objs,$(ROOT),$(OUT),pipe)
 
 $(PIPE): HOSTLDFLAGS += -static
-$(PIPE): EXTRA_HOSTLDFLAGS = -lm
+$(PIPE): EXTRA_HOSTLDFLAGS = -lm -lpthread
 $(PIPE): $(pipe-objs)
 	$(call cmd,host-prog)
 
