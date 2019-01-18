@@ -43,10 +43,12 @@ static void stage2_empty_write(buffer b, u64 offset, status_handler completion)
 {
 }
 
+extern void init_extra_prints();
+
 CLOSURE_0_1(fail, void, status);
 void fail(status s)
 {
-    halt("filesystem_read_entire failed: %v", s);
+    halt("filesystem_read_entire failed: %v\n", s);
 }
 
 static CLOSURE_0_1(kernel_read_complete, void, buffer);
@@ -147,8 +149,10 @@ void newstack()
 void centry()
 {
     workings.alloc = stage2_allocator;
+    workings.dealloc = leak;
     kh.general = &workings;
     init_runtime(&kh);		/* we know only general is used */
+    init_extra_prints();
     u32 fsb = filesystem_base();
 
     u32 cr0, cr4;

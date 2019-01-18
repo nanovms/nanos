@@ -101,7 +101,11 @@ static void format_hex_buffer(buffer dest, buffer fmt, vlist *a)
 static void format_timestamp(buffer dest, buffer fmt, vlist *a)
 {
     timestamp t = varg(*a, timestamp);
+#ifdef BOOT
+    print_number(dest, t, 10, 1);
+#else
     print_timestamp(dest, t);
+#endif
 }
 
 void init_extra_prints()

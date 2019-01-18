@@ -24,6 +24,7 @@ boot-srcs = \
 	$(ROOT)/boot/stage2.c \
 	$(ROOT)/boot/service32.s \
 	$(SRC)/runtime/buffer.c \
+	$(SRC)/runtime/extra_prints.c \
 	$(SRC)/runtime/format.c \
 	$(SRC)/runtime/random.c \
 	$(SRC)/runtime/rtrie.c \
