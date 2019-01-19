@@ -194,7 +194,8 @@ boolean id_heap_reserve(heap h, u64 base, u64 length)
     vector_foreach(i->ranges, r) {
         u64 r_end = r->base + r->length - 1;
         if (base >= r->base && end <= r_end) {
-            return bitmap_reserve(r->b, base / page_size(i),
+            u64 start = (base - r->base) / page_size(i);
+            return bitmap_reserve(r->b, start,
                                   pad(length, page_size(i)) / page_size(i));
         }
     }

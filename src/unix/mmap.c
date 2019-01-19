@@ -80,21 +80,48 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     //gack
     len = len & MASK(32);
     u64 where = u64_from_pointer(target);
-
+    u64 end = where + size - 1;
     thread_log(current, "mmap: target %p, size %P, prot %P, flags %P, fd %d, offset %P",
 	       target, size, prot, flags, fd, offset);
     // xx - go wants to specify target without map fixed, and has some strange
     // retry logic around it
-    if (!(flags &MAP_FIXED) && !target) {
-	where = allocate_u64((flags & MAP_32BIT) ? p->virtual32 : p->virtual, len);
+
+    /* XXX it's very wasteful to use a huge page with each anonymous
+       map if not 32-bit - make some logic which determines if the
+       requested size/alignment would be better served by vh (status
+       quo) or a per-process virtual pagesize heap */
+    boolean is_32bit = flags & MAP_32BIT;
+    heap vh = is_32bit ? p->virtual32 : p->virtual;
+    u64 maplen = pad(len, vh->pagesize);
+    if (!(flags & MAP_FIXED) && !target) {
+	where = allocate_u64(vh, maplen);
 	if (where == (u64)INVALID_ADDRESS) {
 	    thread_log(current, "   failed to allocate %s virtual memory, size %P",
-		       (flags & MAP_32BIT) ? "32-bit" : "", len);
+		       is_32bit ? "32-bit" : "", len);
 	    return -ENOMEM;
 	}
+        rtrie_insert(p->vmap, where, maplen, (void *)1 /* XXX nz for now, later vm area */);
     } else {
-	/* XXX rb tree check */
-	thread_log(current, "   fixed at %p", target);
+	thread_log(current, "   fixed at %P", where);
+        /* XXX range lookup in rtrie is broke, do manually until
+           fixed... note that this check could pass even if start and
+           end lie in two different mmapped areas. No matter, as we
+           just need to verify that this overlapping map lies in a
+           huge page that we're already using...the overlapping mmap
+           lawlessness is to be tolerated for the moment.
+
+           This is like a really crude start to vm tracking...
+        */
+        if (!rtrie_lookup(p->vmap, where, 0) || !rtrie_lookup(p->vmap, end, 0)) {
+            u64 mstart = where & ~(vh->pagesize - 1);
+            if (id_heap_reserve(vh, mstart, maplen)) {
+                rtrie_insert(p->vmap, mstart, maplen, (void *)1 /* XXX */);
+            } else {
+                thread_log(current, "   failed to reserve area [%P - %P] in id heap\n",
+                           where, end);
+                return -ENOMEM;
+            }
+        }
     }
 
     // make a generic zero page function
