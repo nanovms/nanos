@@ -199,11 +199,10 @@ void filesystem_write_eav(filesystem fs, tuple t, symbol a, value v)
 static CLOSURE_3_1(fsfile_write_cleanup, void, filesystem, buffer, status_handler, status);
 void fsfile_write_cleanup(filesystem fs, buffer b, status_handler sh, status s)
 {
-    //deallocate(fs->h, b, fs->blocksize);
+    deallocate(fs->h, b, fs->blocksize);
     msg_debug("%d: status %v (%s)\n", __LINE__,
             s, is_ok(s) ? "OK" : "NOTOK");
 
-    //status_handler sh = apply(m);
     apply(sh, s);
 }
 
@@ -266,17 +265,17 @@ static void fsfile_update(fsfile f, tuple t, buffer source, merge m, u64 *last, 
         apply(fs->r, buffer_ref(rmw_buffer,0), fs->blocksize, block_start, copy);
     } else {
         apply(fs->w, wrapped_source, block_start, sh);
-        //status_handler do_write = closure(fs->h, fsfile_write, fs, wrapped_source, block_start, sh);
-        //apply(do_write, 0);
     }
 }
 
 
 static CLOSURE_6_1(filesystem_write_complete, void, fsfile, tuple, u64, io_status_handler, u64 *, tuple, status);
-static void filesystem_write_complete(fsfile f, tuple t, u64 length, io_status_handler completion, u64 *offset, tuple write_state,  status s)
+static void filesystem_write_complete(fsfile f, tuple t, u64 length, io_status_handler completion, u64 *last, tuple write_state,  status s)
 {
     filesystem fs = f->fs;
-    u64 end = *offset;
+    u64 end = *last;
+
+    deallocate(fs->h, last, sizeof(u64));
 
     if (fsfile_get_length(f) < end) {
         /* XXX bother updating resident filelength tuple? */
