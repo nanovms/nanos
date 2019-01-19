@@ -9,6 +9,7 @@ typedef struct bitmap {
     buffer alloc_map;
 } *bitmap;
 
+boolean bitmap_reserve(bitmap b, u64 start, u64 nbits);
 u64 bitmap_alloc(bitmap b, int order);
 boolean bitmap_dealloc(bitmap b, u64 bit, u64 order);
 bitmap allocate_bitmap(heap h, u64 length);

@@ -12,9 +12,8 @@ static inline u64 * pointer_from_bit(u64 * base, u64 bit)
     return base + (bit >> 6);
 }
 
-static boolean for_range_in_map(u64 * base, u64 start, u64 order, boolean set, boolean val)
+static boolean for_range_in_map(u64 * base, u64 start, u64 nbits, boolean set, boolean val)
 {
-    u64 nbits = 1ull << order;
     u64 wlen = ((nbits - 1) >> 6) + 1;
     u64 mask = nbits >= 64 ? -1 : ((1ull << nbits) - 1) << (64 - nbits - start);
     u64 * w = pointer_from_bit(base, start);
@@ -29,6 +28,24 @@ static boolean for_range_in_map(u64 * base, u64 start, u64 order, boolean set, b
 	}
     }
     return true;
+}
+
+/* Requesting beyond the end of maxbits isn't an error; the caller may
+   use it to avoid an additional range check.
+
+   While bitmap_alloc() serves power-of-2 sized and aligned
+   allocations, our reserve does not require such alignment. The two
+   should co-exist without issue. */
+boolean bitmap_reserve(bitmap b, u64 start, u64 nbits)
+{
+    /* check both start and end in case of overflow / corrupt args */
+    if (start >= b->maxbits || start + nbits > b->maxbits)
+        return false;
+
+    bitmap_extend(b, start + nbits - 1);
+    u64 * mapbase = bitmap_base(b);
+    return (for_range_in_map(mapbase, start, nbits, false, false) &&
+            for_range_in_map(mapbase, start, nbits, true, true));
 }
 
 #define check_skip(a, z, n, b) if(n >= a && z >= n) { z -= n; b += n; }
@@ -67,8 +84,8 @@ u64 bitmap_alloc(bitmap b, int order)
 	if (bit + alloc_bits > b->maxbits)
 	    break;
 
-	if (for_range_in_map(mapbase, bit, order, false, false)) {
-	    for_range_in_map(mapbase, bit, order, true, true);
+	if (for_range_in_map(mapbase, bit, alloc_bits, false, false)) {
+	    for_range_in_map(mapbase, bit, alloc_bits, true, true);
 	    return bit;
 	}
 
@@ -99,13 +116,13 @@ boolean bitmap_dealloc(bitmap b, u64 bit, u64 order)
 	return false;
     }
 
-    if (!for_range_in_map(mapbase, bit, order, false, true)) {
+    if (!for_range_in_map(mapbase, bit, nbits, false, true)) {
 	msg_err("bitmap %p, bit %d, order %d: not allocated in map; leaking\n",
 		b, bit, order);
 	return false;
     }
 
-    for_range_in_map(mapbase, bit, order, true, false);
+    for_range_in_map(mapbase, bit, nbits, true, false);
     return true;
 }
 
