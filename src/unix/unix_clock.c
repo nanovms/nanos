@@ -16,11 +16,6 @@ static void nanosleep_timeout(thread t, boolean *dead)
 
 sysreturn nanosleep(const struct timespec* req, struct timespec* rem)
 {
-    if(rem)
-    {
-        rem->ts_sec = 0;
-        rem->ts_nsec = 0;
-    }
     // nanosleep is interpretable and the remaining
     // time is put in rem, but for now this is non interpretable
     // and we sleep for the whole duration before waking up.
