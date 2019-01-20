@@ -1,5 +1,4 @@
-#define ENABLE_MSG_DEBUG
-
+##define ENABLE_MSG_DEBUG
 #include <tfs_internal.h>
 
 #if defined(TFS_DEBUG)
@@ -199,7 +198,7 @@ void filesystem_write_eav(filesystem fs, tuple t, symbol a, value v)
 static CLOSURE_3_1(fsfile_write_cleanup, void, filesystem, buffer, status_handler, status);
 void fsfile_write_cleanup(filesystem fs, buffer b, status_handler sh, status s)
 {
-    deallocate(fs->h, b, fs->blocksize);
+    deallocate_buffer(b);
     msg_debug("%d: status %v (%s)\n", __LINE__,
             s, is_ok(s) ? "OK" : "NOTOK");
 
