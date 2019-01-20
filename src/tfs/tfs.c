@@ -1,4 +1,4 @@
-##define ENABLE_MSG_DEBUG
+#define ENABLE_MSG_DEBUG
 #include <tfs_internal.h>
 
 #if defined(TFS_DEBUG)
