@@ -19,8 +19,8 @@ extern void halt(char *format, ...);
 #define assert(x) do { if((x)) { } } while(0)
 #else
 #define assert(x) \
-    do { if(!(x)) halt("assertion " #x " failed in " __FILE__ ": %s() on line %d; halt\n", \
-		       __func__, __LINE__); } while(0)
+    do { if(!(x)) halt("assertion %s failed in " __FILE__ ": %s() on line %d; halt\n", \
+		       #x, __func__, __LINE__); } while(0)
 #endif
 
 static inline void runtime_memcpy(void *a, const void *b, bytes len)
