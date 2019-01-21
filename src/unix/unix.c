@@ -106,6 +106,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     create_stdfiles(uh, p);
     init_threads(p);
     p->syscall_handlers = linux_syscalls;
+    p->vmap = rtrie_create(h);
     return p;
 }
 

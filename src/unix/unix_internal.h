@@ -115,6 +115,7 @@ typedef struct process {
     u64 sigmask;
     void **syscall_handlers;
     vector files;
+    rtrie vmap;                /* virtual areas */
 } *process;
 
 extern thread current;
