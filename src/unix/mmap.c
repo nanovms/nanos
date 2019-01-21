@@ -92,8 +92,8 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
        quo) or a per-process virtual pagesize heap */
     boolean is_32bit = flags & MAP_32BIT;
     heap vh = is_32bit ? p->virtual32 : p->virtual;
-    u64 maplen = pad(len, vh->pagesize);
     if (!(flags & MAP_FIXED) && !target) {
+        u64 maplen = pad(len, vh->pagesize);
 	where = allocate_u64(vh, maplen);
 	if (where == (u64)INVALID_ADDRESS) {
 	    thread_log(current, "   failed to allocate %s virtual memory, size %P",
@@ -103,24 +103,51 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
         rtrie_insert(p->vmap, where, maplen, (void *)1 /* XXX nz for now, later vm area */);
     } else {
 	thread_log(current, "   fixed at %P", where);
-        /* XXX range lookup in rtrie is broke, do manually until
-           fixed... note that this check could pass even if start and
-           end lie in two different mmapped areas. No matter, as we
-           just need to verify that this overlapping map lies in a
-           huge page that we're already using...the overlapping mmap
-           lawlessness is to be tolerated for the moment.
 
-           This is like a really crude start to vm tracking...
-        */
-        if (!rtrie_lookup(p->vmap, where, 0) || !rtrie_lookup(p->vmap, end, 0)) {
-            u64 mstart = where & ~(vh->pagesize - 1);
-            if (id_heap_reserve(vh, mstart, maplen)) {
-                rtrie_insert(p->vmap, mstart, maplen, (void *)1 /* XXX */);
-            } else {
-                thread_log(current, "   failed to reserve area [%P - %P] in id heap\n",
-                           where, end);
+        /* whether 32 or 64 bit */
+        if (where < HUGE_PAGESIZE && end < HUGE_PAGESIZE) {
+            /* We don't have a heap in low mem, only bound by kernel and zero page. */
+            if (where < PROCESS_VIRTUAL_32_HEAP_START ||
+                end >= (PROCESS_VIRTUAL_32_HEAP_START + PROCESS_VIRTUAL_32_HEAP_LENGTH)) {
+                thread_log(current, "   map [%P - %P] outside of valid 32-bit range [%P - %P]\n",
+                           where, end, PROCESS_VIRTUAL_32_HEAP_START,
+                           PROCESS_VIRTUAL_32_HEAP_START + PROCESS_VIRTUAL_32_HEAP_LENGTH - 1);
                 return -ENOMEM;
             }
+        } else if (!is_32bit) {
+            if (where < PROCESS_VIRTUAL_HEAP_START ||
+                end >= (PROCESS_VIRTUAL_HEAP_START + PROCESS_VIRTUAL_HEAP_LENGTH)) {
+                /* Try to allow outside our process virtual space, as
+                   long as we can block it out in virtual_huge. */
+                vh = heap_virtual_huge(kh);
+            }
+
+            /* XXX range lookup in rtrie is broke, do manually until
+               fixed... note that this check could pass even if start and
+               end lie in two different mmapped areas. No matter, as we
+               just need to verify that this overlapping map lies in a
+               huge page that we're already using...the overlapping mmap
+               lawlessness is to be tolerated for the moment.
+
+               This is like a really crude start to vm tracking...
+            */
+            if (!rtrie_lookup(p->vmap, where, 0) || !rtrie_lookup(p->vmap, end, 0)) {
+                u64 mapstart = where & ~(HUGE_PAGESIZE - 1);
+                u64 mapend = pad(end, HUGE_PAGESIZE);
+                u64 maplen = mapend - mapstart + 1;
+
+                if (id_heap_reserve(vh, mapstart, maplen)) {
+                    rtrie_insert(p->vmap, mapstart, maplen, (void *)1 /* XXX */);
+                } else {
+                    thread_log(current, "   failed to reserve area [%P - %P] in id heap\n",
+                               where, end);
+                    return -ENOMEM;
+                }
+            }
+        } else {
+            thread_log(current, "   invalid virtual address range for 32-bit [%P - %P]\n",
+                       where, end);
+            return -ENOMEM;
         }
     }
 

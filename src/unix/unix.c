@@ -94,9 +94,18 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->uh = uh;
     p->brk = 0;
     p->pid = allocate_u64(uh->processes, 1);
-    // xxx - take from virtual allocator
-    p->virtual = create_id_heap(h, 0x7000000000ull, 0x10000000000ull, 0x100000000);
-    p->virtual32 = create_id_heap(h, 0x10000000, 0xe0000000, PAGESIZE);
+
+    /* don't need these for kernel process */
+    if (p->pid > 1) {
+        p->virtual = create_id_heap(h, PROCESS_VIRTUAL_HEAP_START,
+                                    PROCESS_VIRTUAL_HEAP_LENGTH, HUGE_PAGESIZE);
+        assert(p->virtual != INVALID_ADDRESS);
+        assert(id_heap_reserve(heap_virtual_huge((kernel_heaps)uh),
+                               PROCESS_VIRTUAL_HEAP_START, PROCESS_VIRTUAL_HEAP_LENGTH));
+        p->virtual32 = create_id_heap(h, PROCESS_VIRTUAL_32_HEAP_START,
+                                      PROCESS_VIRTUAL_32_HEAP_LENGTH, PAGESIZE);
+        assert(p->virtual32 != INVALID_ADDRESS);
+    }
     p->fs = fs;
     p->cwd = root;
     p->process_root = root;

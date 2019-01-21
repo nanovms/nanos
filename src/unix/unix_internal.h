@@ -5,6 +5,13 @@
 #include <tfs.h>
 #include <unix.h>
 
+/* XXX kinda arbitrary, not sure where these came from or what correct
+   values should be */
+#define PROCESS_VIRTUAL_HEAP_START      0x7000000000ull
+#define PROCESS_VIRTUAL_HEAP_LENGTH     0x10000000000ull
+#define PROCESS_VIRTUAL_32_HEAP_START   0x10000000
+#define PROCESS_VIRTUAL_32_HEAP_LENGTH  0x6f000000
+
 typedef s64 sysreturn;
 
 // conditionalize
