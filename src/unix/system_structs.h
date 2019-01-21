@@ -132,6 +132,12 @@ typedef struct iovec {
 #define AT_RANDOM       25   
 #define AT_FDCWD        -100            /* openat should use the current working directory.*/
 
+#define AT_SYMLINK_NOFOLLOW 0x100       /* Do not follow symbolic links.  */
+#define AT_REMOVEDIR        0x200       /* Remove directory instead of unlinking file. */
+#define AT_SYMLINK_FOLLOW   0x400       /* Follow symbolic links.  */
+#define AT_NO_AUTOMOUNT     0x800       /* Suppress terminal automount traversal */
+#define AT_EMPTY_PATH       0x1000      /* Allow empty relative pathname */
+
 #define MAP_FIXED 0x10
 #define MAP_ANONYMOUS 0x20
 #define MAP_PRIVATE	0x02

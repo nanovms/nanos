@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"os"
 )
 
 func main() {
@@ -13,6 +14,11 @@ func main() {
 		log.Fatal(err)
 	}
 
+    fileInfo, err := os.Stat("zig")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(fileInfo);
 	files, err := ioutil.ReadDir("/")
 	if err != nil {
 		log.Fatal(err)

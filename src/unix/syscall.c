@@ -367,6 +367,9 @@ static inline tuple resolve_cstring(tuple root, char *f)
     if (runtime_strcmp(f, "/") == 0)
         return filesystem_getroot(current->p->fs);
 
+    if (*f == '/')
+        t = filesystem_getroot(current->p->fs);
+
     while ((y = *x++)) {
         if (y == '/') {
             if (buffer_length(a)) {
@@ -1052,6 +1055,31 @@ static sysreturn stat(char *name, struct stat *s)
     return 0;
 }
 
+static sysreturn newfstatat(int dfd, char *name, struct stat *s, int flags)
+{
+    tuple n;
+
+    // if !relative or AT_FDCWD, just treat as normal stat
+    if ((*name == '/') || (dfd == AT_FDCWD))
+        return stat(name, s);
+
+    // if relative, but AT_EMPTY_PATH set, works just like fstat()
+    if (flags & AT_EMPTY_PATH)
+        return fstat(dfd, s);
+
+    // Else, if we have a fd of a directory, resolve name to it.
+    file f = resolve_fd(current->p, dfd);
+    tuple children = table_find(f->n, sym(children));
+    if (!is_dir(children))
+        return set_syscall_error(current, -ENOTDIR);
+    
+    if (!(n = resolve_cstring(children, name))) {    
+        return set_syscall_error(current, ENOENT);
+    }
+    fill_stat(n, s);
+    return 0;
+}
+
 sysreturn lseek(int fd, s64 offset, int whence)
 {
     thread_log(current, "%s: fd %d offset %d whence %s",
@@ -1284,6 +1312,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_creat, creat);
     register_syscall(map, SYS_chdir, chdir);
     register_syscall(map, SYS_fchdir, fchdir);
+    register_syscall(map, SYS_newfstatat, newfstatat);
 }
 
 void *linux_syscalls[SYS_MAX];
