@@ -12,8 +12,8 @@ typedef struct range {
 
 typedef closure_type(subrange, void, range r, void *);
 
-void rangemap_insert(rangemap r, u64 start, u64 length, void *value);
-void rangemap_remove(rangemap r, u64 start, u64 length);
+boolean rangemap_insert(rangemap r, u64 start, u64 length, void *value);
+boolean rangemap_remove(rangemap r, u64 start, u64 length);
 void *rangemap_lookup(rangemap r, u64 point, range * rrange);
 void rangemap_range_lookup(rangemap r, range q, subrange s);
 rangemap allocate_rangemap(heap h);

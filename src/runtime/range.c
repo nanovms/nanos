@@ -18,27 +18,30 @@ struct rangemap {
     struct list root;
 };
 
-void rangemap_insert(rangemap r, u64 start, u64 length, void *value)
+boolean rangemap_insert(rangemap r, u64 start, u64 length, void *value)
 {
     rmnode n = allocate(r->h, sizeof(struct rmnode));
     n->r.start = start;
     n->r.end = start + length;    
     n->value = value;
 
-    struct list * i;
-    list_foreach(&r->root, i) {
-        rmnode curr = struct_from_list(i, rmnode, l);
+    struct list * l;
+    list_foreach(&r->root, l) {
+        rmnode curr = struct_from_list(l, rmnode, l);
+        range i = range_intersection(curr->r, n->r);
         /* check for overlap...kinda harsh to assert, add error handling... */
-        if (point_in_range(curr->r, start)) {
+        if (range_span(i)) {
+            /* XXX bark for now until we know we have all potential cases handled... */
             msg_err("attempt to insert range %R but overlap with %R (%p)\n",
                     n->r, curr->r, curr->value);
-            halt("sadness\n");
+            return false;
         }
         assert(!point_in_range(curr->r, start + length - 1));
         if (curr->r.start > start)
             break;
     }
-    list_insert_before(i, &n->l);
+    list_insert_before(l, &n->l);
+    return true;
 }
 
 /* XXX assuming we don't ever allow an outsider to hold a
@@ -49,8 +52,9 @@ static void delete_node(rangemap r, rmnode n)
     deallocate(r->h, n, sizeof(struct rmnode));
 }
 
-static void rangemap_remove_internal(rangemap rt, range k)
+static boolean rangemap_remove_internal(rangemap rt, range k)
 {
+    boolean match = false;
     list l = list_get_next(&rt->root);
 
     while (l) {
@@ -63,6 +67,8 @@ static void rangemap_remove_internal(rangemap rt, range k)
             l = next;
             continue;
         }
+
+        match = true;
 
         /* complete overlap (delete) */
         if (range_equal(curr->r, i)) {
@@ -93,12 +99,15 @@ static void rangemap_remove_internal(rangemap rt, range k)
         }
         l = next;               /* valid even if we inserted one */
     }
+
+    return match;
 }
 
-/* XXX nuke */
-void rangemap_remove(rangemap r, u64 start, u64 length)
+/* XXX need to solidify how this should work...
+   a passsed callback with 'edits' may be useful */
+boolean rangemap_remove(rangemap r, u64 start, u64 length)
 {
-    rangemap_remove_internal(r, (range){start, start+length});
+    return rangemap_remove_internal(r, (range){start, start+length});
 }
 
 void *rangemap_lookup(rangemap r, u64 point, range * rrange)
@@ -107,7 +116,8 @@ void *rangemap_lookup(rangemap r, u64 point, range * rrange)
     list_foreach(&r->root, i) {
         rmnode curr = struct_from_list(i, rmnode, l);
         if (point_in_range(curr->r, point)) {
-            *rrange = curr->r;
+            if (rrange)
+                *rrange = curr->r;
             return curr->value;
         }
     }
