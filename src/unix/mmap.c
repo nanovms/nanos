@@ -76,9 +76,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     heap pages = heap_pages(kh);
     heap physical = heap_physical(kh);
     // its really unclear whether this should be extended or truncated
-    u64 len = pad(size, PAGESIZE);
-    //gack
-    len = len & MASK(32);
+    u64 len = pad(size, PAGESIZE) & MASK(32);
     u64 where = u64_from_pointer(target);
     u64 end = where + size - 1;
     thread_log(current, "mmap: target %p, size %P, prot %P, flags %P, fd %d, offset %P",
@@ -86,13 +84,11 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     // xx - go wants to specify target without map fixed, and has some strange
     // retry logic around it
 
-    /* XXX it's very wasteful to use a huge page with each anonymous
-       map if not 32-bit - make some logic which determines if the
-       requested size/alignment would be better served by vh (status
-       quo) or a per-process virtual pagesize heap */
-    boolean is_32bit = flags & MAP_32BIT;
-    heap vh = is_32bit ? p->virtual32 : p->virtual;
     if (!(flags & MAP_FIXED) && !target) {
+        /* XXX: consider drawing virtual allocations from pagesize id - one
+           huge page per non-fixed mmap is wasteful */
+        boolean is_32bit = flags & MAP_32BIT;
+        heap vh = is_32bit ? p->virtual32 : p->virtual;
         u64 maplen = pad(len, vh->pagesize);
 	where = allocate_u64(vh, maplen);
 	if (where == (u64)INVALID_ADDRESS) {
@@ -104,7 +100,8 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     } else {
 	thread_log(current, "   fixed at %P", where);
 
-        /* whether 32 or 64 bit */
+        /* 32 bit mode is ignored if MAP_FIXED */
+        heap vh = p->virtual;
         if (where < HUGE_PAGESIZE && end < HUGE_PAGESIZE) {
             /* We don't have a heap in low mem, only bound by kernel and zero page. */
             if (where < PROCESS_VIRTUAL_32_HEAP_START ||
@@ -114,7 +111,11 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
                            PROCESS_VIRTUAL_32_HEAP_START + PROCESS_VIRTUAL_32_HEAP_LENGTH - 1);
                 return -ENOMEM;
             }
-        } else if (!is_32bit) {
+
+            /* Attempt to reserve low memory fixed mappings in virtual32 to avoid collisions
+               in any future low mem allocation. Don't fail if we can't reserve or it's already reserved. */
+            id_heap_reserve(p->virtual32, where, size);
+        } else {
             if (where < PROCESS_VIRTUAL_HEAP_START ||
                 end >= (PROCESS_VIRTUAL_HEAP_START + PROCESS_VIRTUAL_HEAP_LENGTH)) {
                 /* Try to allow outside our process virtual space, as
@@ -144,10 +145,6 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
                     return -ENOMEM;
                 }
             }
-        } else {
-            thread_log(current, "   invalid virtual address range for 32-bit [%P - %P]\n",
-                       where, end);
-            return -ENOMEM;
         }
     }
 
