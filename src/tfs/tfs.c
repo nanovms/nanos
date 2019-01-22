@@ -190,6 +190,11 @@ static CLOSURE_4_2(fs_write_extent, void,
                    range, void *);
 static void fs_write_extent(filesystem fs, buffer source, merge m, u64 *last, range x, void *val)
 {
+    if (val == range_hole) {
+        rprintf("hole: %R\n", x);
+        return;
+    }
+
     u64 target_len = x.end - x.start, source_len = buffer_length(source);
     // if this doesn't lie on an alignment bonudary we may need to do a read-modify-write
 
@@ -229,7 +234,7 @@ static u64 extend(fsfile f, u64 foffset, u64 length)
     tuple exts = soft_create(f->fs, f->md, sym(extents));
     symbol offs = intern_u64(foffset);
     table_set(exts, offs, e);
-    log_write_eav(f->fs->tl, exts, offs, e, ignore); 
+    log_write_eav(f->fs->tl, exts, offs, e, ignore);
     rtrie_insert(f->extents, foffset, length, pointer_from_u64(storage));
     return storage;
 }
@@ -258,7 +263,7 @@ static void filesystem_write_complete(fsfile f, tuple t, u64 end, io_status_hand
     }
 
     /* Reset the extent rtrie and update the extent cache */
-    f->extents = rtrie_create(fs->h);
+    f->extents = allocate_rtrie(fs->h);
     tuple extents = table_find(t, sym(extents));
     table_foreach(extents, off, e)
         extent_update(f, off, e);
@@ -310,7 +315,7 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_ha
 fsfile allocate_fsfile(filesystem fs, tuple md)
 {
     fsfile f = allocate(fs->h, sizeof(struct fsfile));
-    f->extents = rtrie_create(fs->h);
+    f->extents = allocate_rtrie(fs->h);
     f->fs = fs;
     f->md = md;
     f->length = 0;

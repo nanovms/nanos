@@ -60,5 +60,5 @@ void add_elf_syms(buffer b)
 void init_symtab(kernel_heaps kh)
 {
     general = heap_general(kh);
-    elf_symtable = rtrie_create(general);
+    elf_symtable = allocate_rtrie(general);
 }
