@@ -6,7 +6,6 @@ CFLAGS  = -fno-stack-protector
 CFLAGS  += -g
 CFLAGS  += -fdata-sections -ffunction-sections
 CFLAGS  += $(includes)
-CFLAGS  += -std=c99
 
 all: contgen
 
