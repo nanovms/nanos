@@ -119,13 +119,13 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
 
                This is like a really crude start to vm tracking...
             */
-            if (!rtrie_lookup(p->vmap, where, 0) || !rtrie_lookup(p->vmap, end, 0)) {
+            if (!rangemap_lookup(p->vmap, where, 0) || !rangemap_lookup(p->vmap, end, 0)) {
                 u64 mapstart = where & ~(HUGE_PAGESIZE - 1);
                 u64 mapend = pad(end, HUGE_PAGESIZE);
                 u64 maplen = mapend - mapstart + 1;
 
                 if (id_heap_reserve(vh, mapstart, maplen)) {
-                    rtrie_insert(p->vmap, mapstart, maplen, (void *)1 /* XXX */);
+                    rangemap_insert(p->vmap, mapstart, maplen, (void *)1 /* XXX */);
                 } else if (fixed) {
                     thread_log(current, "   failed to reserve area [%P - %P] in id heap\n",
                                where, end);
@@ -156,7 +156,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
                        is_32bit ? "32-bit" : "", len);
             return -ENOMEM;
         }
-        rtrie_insert(p->vmap, where, maplen, (void *)1 /* XXX nz for now, later vm area */);
+        rangemap_insert(p->vmap, where, maplen, (void *)1 /* XXX nz for now, later vm area */);
     }
 
     // make a generic zero page function
