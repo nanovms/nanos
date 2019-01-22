@@ -70,8 +70,8 @@ MKDIR		= $(ROOT)/output/examples/mkdir
 UDPLOOP		= $(ROOT)/output/examples/udploop
 GETRANDOM	= $(ROOT)/output/examples/getrandom
 CREAT		= $(ROOT)/output/examples/creat
-TIME    = $(ROOT)/output/examples/time
-PIPE	= $(ROOT)/output/examples/pipe
+TIME		= $(ROOT)/output/examples/time
+PIPE		= $(ROOT)/output/examples/pipe
 WRITE		= $(ROOT)/output/examples/write
 
 # Tests
@@ -84,6 +84,7 @@ PQUEUE_TEST	= $(ROOT)/output/test/pqueue_test
 VECTOR_TEST	= $(ROOT)/output/test/vector_test
 UDP_TEST	= $(ROOT)/output/test/udp_test
 BUFFER_TEST	= $(ROOT)/output/test/buffer_test
+RANGE_TEST	= $(ROOT)/output/test/range_test
 
 # Generated depedencies
 

@@ -57,7 +57,7 @@ static boolean rangemap_remove_internal(rangemap rt, range k)
     boolean match = false;
     list l = list_get_next(&rt->root);
 
-    while (l) {
+    while (l && l != &rt->root) {
         rmnode curr = struct_from_list(l, rmnode, l);
         list next = list_get_next(l);
         range i = range_intersection(curr->r, k);
@@ -132,10 +132,10 @@ void rangemap_range_lookup(rangemap r, range q, subrange s)
         rmnode curr = struct_from_list(i, rmnode, l);
         range i = range_intersection(curr->r, q);
 
+        if (curr->r.start > last_covered)
+            apply(s, irange(last_covered, curr->r.start), range_hole);
         if (!range_empty(i))
             apply(s, curr->r, curr->value);
-        else if (curr->r.start > last_covered)
-            apply(s, irange(last_covered, curr->r.start), range_hole);
         last_covered = curr->r.end;
     }
 
