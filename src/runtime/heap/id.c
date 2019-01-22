@@ -186,6 +186,22 @@ boolean id_heap_add_range(heap h, u64 base, u64 length)
     return id_add_range((id_heap)h, base, length) != INVALID_ADDRESS;
 }
 
+boolean id_heap_reserve(heap h, u64 base, u64 length)
+{
+    id_heap i = (id_heap)h;
+    id_range r;
+    u64 end = base + length - 1;
+    vector_foreach(i->ranges, r) {
+        u64 r_end = r->base + r->length - 1;
+        if (base >= r->base && end <= r_end) {
+            u64 start = (base - r->base) / page_size(i);
+            return bitmap_reserve(r->b, start,
+                                  pad(length, page_size(i)) / page_size(i));
+        }
+    }
+    return false;
+}
+
 heap create_id_heap(heap h, u64 base, u64 length, u64 pagesize)
 {
     id_heap i = (id_heap)allocate_id_heap(h, pagesize);
