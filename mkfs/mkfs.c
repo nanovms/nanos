@@ -178,7 +178,9 @@ extern heap init_process_runtime();
 static CLOSURE_2_2(fsc, void, heap, descriptor, filesystem, status);
 static void fsc(heap h, descriptor out, filesystem fs, status s)
 {
-    
+    if (!root)
+        exit(1);
+
     vector worklist = allocate_vector(h, 10);
     tuple md = translate(h, worklist, fs, root, closure(h, err));
     rprintf ("metadata %v\n", md);
