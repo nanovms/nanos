@@ -33,9 +33,9 @@ $(TARGET): contgen
 unit-test: test
 	$(MAKE) -C test unit-test
 
-gotest: image
-	$(MAKE) -C gotests deps
-	$(MAKE) -C gotests test
+runtests: image
+	$(MAKE) -C tests deps
+	$(MAKE) -C tests test
 
 %-build: contgen
 	$(MAKE) -C $(subst -build,,$@)
@@ -45,7 +45,7 @@ gotest: image
 
 clean:
 	$(MAKE) $(addsuffix -clean,contgen boot stage3 mkfs examples test)
-	$(MAKE) -C gotests clean
+	$(MAKE) -C tests clean
 	$(Q) $(RM) -f $(FS) $(IMAGE) $(IMAGE).dup
 	$(Q) $(RM) -fd $(dir $(IMAGE)) output
 
