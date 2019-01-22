@@ -104,8 +104,8 @@ status virtqueue_alloc(vtpci dev,
 {
     struct virtqueue *vq;
     u64 d = size * sizeof(struct vring_desc);
-    u64 avail_end =  pad(d + 6 + 2*size, align);
-    u64 alloc = avail_end + 8*size;
+    u64 avail_end =  pad(d + sizeof(*vq->avail) + sizeof(vq->avail->ring[0]) * size, align);
+    u64 alloc = avail_end + sizeof(*vq->used) + sizeof(vq->used->ring[0]) * size;
     vq = allocate(dev->general, sizeof(struct virtqueue) + size * sizeof(vqfinish));
     
     if (vq == INVALID_ADDRESS) 
