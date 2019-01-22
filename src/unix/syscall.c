@@ -1195,10 +1195,16 @@ sysreturn fcntl(int fd, int cmd, int arg)
 
 sysreturn ioctl(int fd, unsigned long request, ...)
 {
+    // checks if fd is valid
+    resolve_fd(current->p, fd);
+
     switch (request) {
     case FIONBIO:
+    case FIONCLEX:
+    case FIOCLEX:
         return 0;
     default:
+        thread_log(current, "ioctl: fd %d, request %P - not implemented", fd, request);
         return set_syscall_error(current, ENOSYS);
     }
 }

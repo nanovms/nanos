@@ -105,7 +105,7 @@ static void write_pte(page target, physical to, u64 flags, boolean * invalidate)
 #endif
 }
 
-#ifdef PAGE_DEBUG
+#ifdef PTE_DEBUG
 static void print_level(int level)
 {
     int i;
