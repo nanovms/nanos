@@ -53,7 +53,7 @@ objcache_test-srcs := \
 	$(SRC)/runtime/merge.c \
 	$(SRC)/runtime/pqueue.c \
 	$(SRC)/runtime/random.c \
-	$(SRC)/runtime/rtrie.c \
+	$(SRC)/runtime/range.c \
 	$(SRC)/runtime/runtime_init.c \
 	$(SRC)/runtime/sha256.c \
 	$(SRC)/runtime/symbol.c \
@@ -78,7 +78,7 @@ network_test-srcs := \
 	$(SRC)/runtime/merge.c \
 	$(SRC)/runtime/pqueue.c \
 	$(SRC)/runtime/random.c \
-	$(SRC)/runtime/rtrie.c \
+	$(SRC)/runtime/range.c \
 	$(SRC)/runtime/runtime_init.c \
 	$(SRC)/runtime/symbol.c \
 	$(SRC)/runtime/table.c \
@@ -105,7 +105,7 @@ id_heap_test-srcs := \
 	$(SRC)/runtime/merge.c \
 	$(SRC)/runtime/pqueue.c \
 	$(SRC)/runtime/random.c \
-	$(SRC)/runtime/rtrie.c \
+	$(SRC)/runtime/range.c \
 	$(SRC)/runtime/runtime_init.c \
 	$(SRC)/runtime/symbol.c \
 	$(SRC)/runtime/table.c \
@@ -128,7 +128,7 @@ path_test-srcs := \
 	$(SRC)/runtime/merge.c \
 	$(SRC)/runtime/pqueue.c \
 	$(SRC)/runtime/random.c \
-	$(SRC)/runtime/rtrie.c \
+	$(SRC)/runtime/range.c \
 	$(SRC)/runtime/runtime_init.c \
 	$(SRC)/runtime/sha256.c \
 	$(SRC)/runtime/symbol.c \
@@ -153,7 +153,7 @@ pqueue_test-srcs := \
 	$(SRC)/runtime/merge.c \
 	$(SRC)/runtime/pqueue.c \
 	$(SRC)/runtime/random.c \
-	$(SRC)/runtime/rtrie.c \
+	$(SRC)/runtime/range.c \
 	$(SRC)/runtime/runtime_init.c \
 	$(SRC)/runtime/symbol.c \
 	$(SRC)/runtime/table.c \
@@ -174,7 +174,7 @@ vector_test-srcs := \
 	$(SRC)/runtime/merge.c \
 	$(SRC)/runtime/pqueue.c \
 	$(SRC)/runtime/random.c \
-	$(SRC)/runtime/rtrie.c \
+	$(SRC)/runtime/range.c \
 	$(SRC)/runtime/runtime_init.c \
 	$(SRC)/runtime/symbol.c \
 	$(SRC)/runtime/table.c \
@@ -195,7 +195,7 @@ udp_test-srcs := \
 	$(SRC)/runtime/merge.c \
 	$(SRC)/runtime/pqueue.c \
 	$(SRC)/runtime/random.c \
-	$(SRC)/runtime/rtrie.c \
+	$(SRC)/runtime/range.c \
 	$(SRC)/runtime/runtime_init.c \
 	$(SRC)/runtime/symbol.c \
 	$(SRC)/runtime/table.c \
@@ -222,7 +222,7 @@ buffer_test-srcs := \
 	$(SRC)/runtime/merge.c \
 	$(SRC)/runtime/pqueue.c \
 	$(SRC)/runtime/random.c \
-	$(SRC)/runtime/rtrie.c \
+	$(SRC)/runtime/range.c \
 	$(SRC)/runtime/runtime_init.c \
 	$(SRC)/runtime/symbol.c \
 	$(SRC)/runtime/table.c \

@@ -7,28 +7,27 @@
    implementation can be swapped with one that uses an rbtree, a skip
    list, or something else. */
 
-typedef struct rtnode {
+typedef struct rmnode {
     range r;
     void *value;
     struct list l;
-} *rtnode;
+} *rmnode;
 
-struct rtrie {
+struct rangemap {
     heap h;
     struct list root;
 };
 
-void rtrie_insert(rtrie r, u64 start, u64 length, void *value)
+void rangemap_insert(rangemap r, u64 start, u64 length, void *value)
 {
-    rtnode n = allocate(r->h, sizeof(struct rtnode));
+    rmnode n = allocate(r->h, sizeof(struct rmnode));
     n->r.start = start;
     n->r.end = start + length;    
     n->value = value;
 
-    rprintf("insert %R, val %p\n", n->r, value);
     struct list * i;
     list_foreach(&r->root, i) {
-        rtnode curr = struct_from_list(i, rtnode, l);
+        rmnode curr = struct_from_list(i, rmnode, l);
         /* check for overlap...kinda harsh to assert, add error handling... */
         if (point_in_range(curr->r, start)) {
             msg_err("attempt to insert range %R but overlap with %R (%p)\n",
@@ -44,18 +43,18 @@ void rtrie_insert(rtrie r, u64 start, u64 length, void *value)
 
 /* XXX assuming we don't ever allow an outsider to hold a
    reference... in which case we'd need refcounts or rcu */
-static void delete_node(rtrie r, rtnode n)
+static void delete_node(rangemap r, rmnode n)
 {
     list_delete(&n->l);
-    deallocate(r->h, n, sizeof(struct rtnode));
+    deallocate(r->h, n, sizeof(struct rmnode));
 }
 
-static void rtrie_remove_internal(rtrie rt, range k)
+static void rangemap_remove_internal(rangemap rt, range k)
 {
     list l = list_get_next(&rt->root);
 
     while (l) {
-        rtnode curr = struct_from_list(l, rtnode, l);
+        rmnode curr = struct_from_list(l, rmnode, l);
         list next = list_get_next(l);
         range i = range_intersection(curr->r, k);
 
@@ -81,7 +80,7 @@ static void rtrie_remove_internal(rtrie rt, range k)
                    would need benefit from this - plus this would
                    violate any refcounts kept on behalf of opaque
                    value. */
-                rtnode rn = allocate(rt->h, sizeof(struct rtnode));
+                rmnode rn = allocate(rt->h, sizeof(struct rmnode));
                 rn->r.start = i.end;
                 rn->r.end = curr->r.end;
                 rn->value = curr->value; /* XXX this is perhaps most dubious */
@@ -97,16 +96,16 @@ static void rtrie_remove_internal(rtrie rt, range k)
 }
 
 /* XXX nuke */
-void rtrie_remove(rtrie r, u64 start, u64 length)
+void rangemap_remove(rangemap r, u64 start, u64 length)
 {
-    rtrie_remove_internal(r, (range){start, start+length});
+    rangemap_remove_internal(r, (range){start, start+length});
 }
 
-void *rtrie_lookup(rtrie r, u64 point, range * rrange)
+void *rangemap_lookup(rangemap r, u64 point, range * rrange)
 {
     struct list * i;
     list_foreach(&r->root, i) {
-        rtnode curr = struct_from_list(i, rtnode, l);
+        rmnode curr = struct_from_list(i, rmnode, l);
         if (point_in_range(curr->r, point)) {
             *rrange = curr->r;
             return curr->value;
@@ -115,12 +114,12 @@ void *rtrie_lookup(rtrie r, u64 point, range * rrange)
     return 0;
 }
 
-void rtrie_range_lookup(rtrie r, range q, subrange s)
+void rangemap_range_lookup(rangemap r, range q, subrange s)
 {
     struct list * i;
     u64 last_covered = q.start;
     list_foreach(&r->root, i) {
-        rtnode curr = struct_from_list(i, rtnode, l);
+        rmnode curr = struct_from_list(i, rmnode, l);
         range i = range_intersection(curr->r, q);
 
         if (!range_empty(i))
@@ -135,15 +134,15 @@ void rtrie_range_lookup(rtrie r, range q, subrange s)
         apply(s, irange(last_covered, q.end), range_hole);
 }
 
-rtrie allocate_rtrie(heap h)
+rangemap allocate_rangemap(heap h)
 {
-    rtrie r = allocate(h, sizeof(struct rtrie));
+    rangemap r = allocate(h, sizeof(struct rangemap));
     r->h = h;
     list_init(&r->root);
     return r;
 }
 
-void deallocate_rtrie(rtrie r)
+void deallocate_rangemap(rangemap r)
 {
 }
 

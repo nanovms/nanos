@@ -1,5 +1,5 @@
 #pragma once
-typedef struct rtrie *rtrie;
+typedef struct rangemap *rangemap;
 
 // [start, end)
 typedef struct range {
@@ -12,12 +12,12 @@ typedef struct range {
 
 typedef closure_type(subrange, void, range r, void *);
 
-void rtrie_insert(rtrie r, u64 start, u64 length, void *value);
-void rtrie_remove(rtrie r, u64 start, u64 length);
-void rtrie_range_lookup(rtrie r, range q, subrange s);
-void *rtrie_lookup(rtrie r, u64 point, range * rrange);
-rtrie allocate_rtrie(heap h);
-void deallocate_rtrie(rtrie r);
+void rangemap_insert(rangemap r, u64 start, u64 length, void *value);
+void rangemap_remove(rangemap r, u64 start, u64 length);
+void *rangemap_lookup(rangemap r, u64 point, range * rrange);
+void rangemap_range_lookup(rangemap r, range q, subrange s);
+rangemap allocate_rangemap(heap h);
+void deallocate_rangemap(rangemap r);
 
 static inline range range_intersection(range a, range b)
 {

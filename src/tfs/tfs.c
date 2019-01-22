@@ -7,7 +7,7 @@
 #endif
 
 struct fsfile {
-    rtrie extents;
+    rangemap extents;
     filesystem fs;
     u64 length;
     tuple md;
@@ -179,7 +179,7 @@ void filesystem_read(filesystem fs, tuple t, void *dest, u64 length, u64 offset,
     b->end = b->start;
     merge m = allocate_merge(h, closure(h, filesystem_read_complete, completion, b));
     range total = irange(offset, offset+length);
-    rtrie_range_lookup(f->extents, total, closure(h, fs_read_extent, f->fs, b, m, total));
+    rangemap_range_lookup(f->extents, total, closure(h, fs_read_extent, f->fs, b, m, total));
 }
 
 // extend here
@@ -191,7 +191,7 @@ static CLOSURE_4_2(fs_write_extent, void,
 static void fs_write_extent(filesystem fs, buffer source, merge m, u64 *last, range x, void *val)
 {
     if (val == range_hole) {
-        rprintf("hole: %R\n", x);
+//        rprintf("hole: %R\n", x);
         return;
     }
 
@@ -235,7 +235,7 @@ static u64 extend(fsfile f, u64 foffset, u64 length)
     symbol offs = intern_u64(foffset);
     table_set(exts, offs, e);
     log_write_eav(f->fs->tl, exts, offs, e, ignore);
-    rtrie_insert(f->extents, foffset, length, pointer_from_u64(storage));
+    rangemap_insert(f->extents, foffset, length, pointer_from_u64(storage));
     return storage;
 }
 
@@ -263,7 +263,7 @@ static void filesystem_write_complete(fsfile f, tuple t, u64 end, io_status_hand
     }
 
     /* Reset the extent rtrie and update the extent cache */
-    f->extents = allocate_rtrie(fs->h);
+    f->extents = allocate_rangemap(fs->h);
     tuple extents = table_find(t, sym(extents));
     table_foreach(extents, off, e)
         extent_update(f, off, e);
@@ -290,7 +290,7 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_ha
 
     merge m = allocate_merge(fs->h, closure(fs->h, filesystem_write_complete,
                 f, t, buffer_length(b) + offset, completion));
-    rtrie_range_lookup(f->extents, irange(offset, offset+len), closure(h, fs_write_extent, f->fs, b, m, last));
+    rangemap_range_lookup(f->extents, irange(offset, offset+len), closure(h, fs_write_extent, f->fs, b, m, last));
     
     if (*last < (offset + len)) {
         u64 elen = (offset + len) - *last;
@@ -315,7 +315,7 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_ha
 fsfile allocate_fsfile(filesystem fs, tuple md)
 {
     fsfile f = allocate(fs->h, sizeof(struct fsfile));
-    f->extents = allocate_rtrie(fs->h);
+    f->extents = allocate_rangemap(fs->h);
     f->fs = fs;
     f->md = md;
     f->length = 0;
@@ -411,7 +411,7 @@ void extent_update(fsfile f, symbol foff, tuple value)
     parse_int(alloca_wrap(symbol_string(foff)), 10, &foffset);
     parse_int(alloca_wrap(table_find(value, sym(length))), 10, &length);
     parse_int(alloca_wrap(table_find(value, sym(offset))), 10, &boffset);
-    rtrie_insert(f->extents, foffset, length, pointer_from_u64(boffset));
+    rangemap_insert(f->extents, foffset, length, pointer_from_u64(boffset));
     // xxx - fix before write
     //    rtrie_remove(f->fs->free, boffset, length);
 }
@@ -434,7 +434,7 @@ void filesystem_read_entire(filesystem fs, tuple t, heap h, buffer_handler c, st
         status_handler c1 = closure(f->fs->h, read_entire_complete, c, b);
         merge m = allocate_merge(f->fs->h, c1);
         status_handler k = apply(m); // hold a reference until we're sure we've issued everything
-        rtrie_range_lookup(f->extents, irange(0, len), closure(h, fs_read_extent, fs, b, m, irange(0, len)));
+        rangemap_range_lookup(f->extents, irange(0, len), closure(h, fs_read_extent, fs, b, m, irange(0, len)));
         apply(k, STATUS_OK);
     } else {
         apply(e, timm("status", "no such file %v\n", t));
