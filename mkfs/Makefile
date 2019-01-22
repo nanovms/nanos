@@ -7,7 +7,6 @@ CFLAGS	+= -g
 CFLAGS	+= -fdata-sections -ffunction-sections
 CFLAGS	+= $(includes) -DHOST_BUILD
 CFLAGS  += $(CFLAG_WARNINGS) -Wformat
-CFLAGS  += -std=gnu99
 
 all: mkfs dump
 
