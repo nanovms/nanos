@@ -79,45 +79,32 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     u64 len = pad(size, PAGESIZE) & MASK(32);
     u64 where = u64_from_pointer(target);
     u64 end = where + size - 1;
+    boolean fixed = (flags & MAP_FIXED) != 0;
     thread_log(current, "mmap: target %p, size %P, prot %P, flags %P, fd %d, offset %P",
 	       target, size, prot, flags, fd, offset);
-    // xx - go wants to specify target without map fixed, and has some strange
-    // retry logic around it
 
-    if (!(flags & MAP_FIXED) && !target) {
-        /* XXX: consider drawing virtual allocations from pagesize id - one
-           huge page per non-fixed mmap is wasteful */
-        boolean is_32bit = flags & MAP_32BIT;
-        heap vh = is_32bit ? p->virtual32 : p->virtual;
-        u64 maplen = pad(len, vh->pagesize);
-	where = allocate_u64(vh, maplen);
-	if (where == (u64)INVALID_ADDRESS) {
-	    thread_log(current, "   failed to allocate %s virtual memory, size %P",
-		       is_32bit ? "32-bit" : "", len);
-	    return -ENOMEM;
-	}
-        rtrie_insert(p->vmap, where, maplen, (void *)1 /* XXX nz for now, later vm area */);
-    } else {
-	thread_log(current, "   fixed at %P", where);
+    if (target) {
+	thread_log(current, "   %s at %P", fixed ? "fixed" : "hint", where);
 
         /* 32 bit mode is ignored if MAP_FIXED */
         heap vh = p->virtual;
         if (where < HUGE_PAGESIZE && end < HUGE_PAGESIZE) {
-            /* We don't have a heap in low mem, only bound by kernel and zero page. */
-            if (where < PROCESS_VIRTUAL_32_HEAP_START ||
-                end >= (PROCESS_VIRTUAL_32_HEAP_START + PROCESS_VIRTUAL_32_HEAP_LENGTH)) {
+            /* bound by kernel and zero page. */
+            if (where >= PROCESS_VIRTUAL_32_HEAP_START || end <= PROCESS_VIRTUAL_32_HEAP_END) {
+                /* Attempt to reserve low memory fixed mappings in
+                   virtual32 to avoid collisions in any future low mem
+                   allocation. Don't fail if we can't reserve or it's
+                   already reserved. */
+                id_heap_reserve(p->virtual32, where, size);
+            } else if (fixed) {
                 thread_log(current, "   map [%P - %P] outside of valid 32-bit range [%P - %P]\n",
-                           where, end, PROCESS_VIRTUAL_32_HEAP_START,
-                           PROCESS_VIRTUAL_32_HEAP_START + PROCESS_VIRTUAL_32_HEAP_LENGTH - 1);
+                           where, end, PROCESS_VIRTUAL_32_HEAP_START, PROCESS_VIRTUAL_32_HEAP_END);
                 return -ENOMEM;
+            } else {
+                target = 0; /* allocate */
             }
-
-            /* Attempt to reserve low memory fixed mappings in virtual32 to avoid collisions
-               in any future low mem allocation. Don't fail if we can't reserve or it's already reserved. */
-            id_heap_reserve(p->virtual32, where, size);
         } else {
-            if (where < PROCESS_VIRTUAL_HEAP_START ||
-                end >= (PROCESS_VIRTUAL_HEAP_START + PROCESS_VIRTUAL_HEAP_LENGTH)) {
+            if (where < PROCESS_VIRTUAL_HEAP_START || end > PROCESS_VIRTUAL_HEAP_END) {
                 /* Try to allow outside our process virtual space, as
                    long as we can block it out in virtual_huge. */
                 vh = heap_virtual_huge(kh);
@@ -139,13 +126,37 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
 
                 if (id_heap_reserve(vh, mapstart, maplen)) {
                     rtrie_insert(p->vmap, mapstart, maplen, (void *)1 /* XXX */);
-                } else {
+                } else if (fixed) {
                     thread_log(current, "   failed to reserve area [%P - %P] in id heap\n",
                                where, end);
                     return -ENOMEM;
+                } else {
+                    target = 0; /* allocate */
                 }
             }
         }
+    }
+
+    /* target may have been cleared if we couldn't get that address and
+       want to default to allocating... */
+    if (!target) {
+        if (fixed) {
+            thread_log(current, "   attempt to map zero page\n");
+            return -ENOMEM;
+        }
+
+        /* XXX: consider drawing virtual allocations from pagesize id - one
+           huge page per non-fixed mmap is wasteful */
+        boolean is_32bit = flags & MAP_32BIT;
+        heap vh = is_32bit ? p->virtual32 : p->virtual;
+        u64 maplen = pad(len, vh->pagesize);
+        where = allocate_u64(vh, maplen);
+        if (where == (u64)INVALID_ADDRESS) {
+            thread_log(current, "   failed to allocate %s virtual memory, size %P",
+                       is_32bit ? "32-bit" : "", len);
+            return -ENOMEM;
+        }
+        rtrie_insert(p->vmap, where, maplen, (void *)1 /* XXX nz for now, later vm area */);
     }
 
     // make a generic zero page function
