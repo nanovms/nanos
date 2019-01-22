@@ -46,6 +46,10 @@ static void fs_read_extent(filesystem fs,
                            range ex,
                            void *val)
 {
+    /* XXX add special handling for file holes (zero buffer area) */
+    if (val == range_hole)
+        return;
+
     range i = range_intersection(q, ex);
     u64 block_start = u64_from_pointer(val);
 
