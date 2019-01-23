@@ -115,3 +115,5 @@ it gets cached for a while.
 
 I've tried looking at this but that doesn't seem to work either.
 https://cloud.google.com/storage/docs/gsutil/commands/setmeta
+
+The default value seems to be one hour cache.
