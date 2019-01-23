@@ -1,0 +1,377 @@
+#! /bin/bash
+#
+# Copyright 2018 Undo Ltd.
+#
+# https://github.com/barisione/clang-format-hooks
+
+# Force variable declaration before access.
+set -u
+# Make any failure in piped commands be reflected in the exit code.
+set -o pipefail
+
+readonly bash_source="${BASH_SOURCE[0]:-$0}"
+
+if [ -t 1 ] && hash tput 2> /dev/null; then
+    readonly b=$(tput bold)
+    readonly i=$(tput sitm)
+    readonly n=$(tput sgr0)
+else
+    readonly b=
+    readonly i=
+    readonly n=
+fi
+
+function error_exit() {
+    for str in "$@"; do
+        echo -n "$b$str$n" >&2
+    done
+    echo >&2
+
+    exit 1
+}
+
+# realpath is not available everywhere.
+function realpath() {
+    if [ "${OSTYPE:-}" = "linux-gnu" ]; then
+        readlink -m "$@"
+    else
+        # Python should always be available on macOS.
+        # We use sys.stdout.write instead of print so it's compatible with both Python 2 and 3.
+        python -c "import sys; import os.path; sys.stdout.write(os.path.realpath('''$1''') + '\\n')"
+    fi
+}
+
+# realpath --relative-to is only available on recent Linux distros.
+# This function behaves identical to Python's os.path.relpath() and doesn't need files to exist.
+function rel_realpath() {
+    local -r path=$(realpath "$1")
+    local -r rel_to=$(realpath "${2:-$PWD}")
+
+    # Split the paths into components.
+    IFS='/' read -r -a path_parts <<< "$path"
+    IFS='/' read -r -a rel_to_parts <<< "$rel_to"
+
+    # Search for the first different component.
+    for ((idx=1; idx<${#path_parts[@]}; idx++)); do
+        if [ "${path_parts[idx]}" != "${rel_to_parts[idx]:-}" ]; then
+            break
+        fi
+    done
+
+    result=()
+    # Add the required ".." to the $result array.
+    local -r first_different_idx="$idx"
+    for ((idx=first_different_idx; idx<${#rel_to_parts[@]}; idx++)); do
+        result+=("..")
+    done
+    # Add the required components from $path.
+    for ((idx=first_different_idx; idx<${#path_parts[@]}; idx++)); do
+        result+=("${path_parts[idx]}")
+    done
+
+    if [ "${#result[@]}" -gt 0 ]; then
+        # Join the array with a "/" as separator.
+        echo "$(export IFS='/'; echo "${result[*]}")"
+    else
+        echo .
+    fi
+}
+
+# Find the top-level git directory (taking into account we could be in a submodule).
+declare git_test_dir=.
+declare top_dir
+
+while true; do
+    top_dir=$(git -C "$git_test_dir" rev-parse --show-toplevel) || \
+        error_exit "You need to be in the git repository to run this script."
+
+    # Try to handle git worktree.
+    # The best way to deal both with git submodules and worktrees would be to
+    # use --show-superproject-working-tree, but it's not supported in git 2.7.4
+    # which is shipped in Ubuntu 16.04.
+    declare git_common_dir
+    if git_common_dir=$(git -C "$git_test_dir" rev-parse --git-common-dir 2>/dev/null); then
+        # The common dir could be relative, so we make it absolute.
+        git_common_dir=$(cd "$git_test_dir" && realpath "$git_common_dir")
+        declare maybe_top_dir
+        maybe_top_dir=$(realpath "$git_common_dir/..")
+        if [ -e "$maybe_top_dir/.git" ]; then
+            # We are not in a submodules, otherwise common dir would have been
+            # something like PROJ/.git/modules/SUBMODULE and there would not be
+            # a .git directory in PROJ/.git/modules/.
+            top_dir="$maybe_top_dir"
+        fi
+    fi
+
+    [ -e "$top_dir/.git" ] || \
+        error_exit "No .git directory in $top_dir."
+
+    if [ -d "$top_dir/.git" ]; then
+        # We are done! top_dir is the root git directory.
+        break
+    elif [ -f "$top_dir/.git" ]; then
+        # We are in a submodule.
+        git_test_dir="$git_test_dir/.."
+    fi
+done
+
+readonly top_dir
+
+hook_path="$top_dir/.git/hooks/pre-commit"
+readonly hook_path
+
+me=$(realpath "$bash_source") || exit 1
+readonly me
+
+me_relative_to_hook=$(rel_realpath "$me" "$(dirname "$hook_path")") || exit 1
+readonly me_relative_to_hook
+
+my_dir=$(dirname "$me") || exit 1
+readonly my_dir
+
+apply_format="$my_dir/apply-format"
+readonly apply_format
+
+apply_format_relative_to_top_dir=$(rel_realpath "$apply_format" "$top_dir") || exit 1
+readonly apply_format_relative_to_top_dir
+
+function is_installed() {
+    if [ ! -e "$hook_path" ]; then
+        echo nothing
+    else
+        existing_hook_target=$(realpath "$hook_path") || exit 1
+        readonly existing_hook_target
+
+        if [ "$existing_hook_target" = "$me" ]; then
+            # Already installed.
+            echo installed
+        else
+            # There's a hook, but it's not us.
+            echo different
+        fi
+    fi
+}
+
+function install() {
+    if ln -s "$me_relative_to_hook" "$hook_path" 2> /dev/null; then
+        echo "Pre-commit hook installed."
+    else
+        local -r res=$(is_installed)
+        if [ "$res" = installed ]; then
+            error_exit "The hook is already installed."
+        elif [ "$res" = different ]; then
+            error_exit "There's already an existing pre-commit hook, but for something else."
+        elif [ "$res" = nothing ]; then
+            error_exit "There's no pre-commit hook, but we couldn't create a symlink."
+        else
+            error_exit "Unexpected failure."
+        fi
+    fi
+}
+
+function uninstall() {
+    local -r res=$(is_installed)
+    if [ "$res" = installed ]; then
+        rm "$hook_path" || \
+            error_exit "Couldn't remove the pre-commit hook."
+    elif [ "$res" = different ]; then
+        error_exit "There's a pre-commit hook installed, but for something else. Not removing."
+    elif [ "$res" = nothing ]; then
+        error_exit "There's no pre-commit hook, nothing to uninstall."
+    else
+        error_exit "Unexpected failure detecting the pre-commit hook status."
+    fi
+}
+
+function show_help() {
+    cat << EOF
+${b}SYNOPSIS${n}
+
+    $bash_source [install|uninstall]
+
+${b}DESCRIPTION${n}
+
+    Git hook to verify and fix formatting before committing.
+
+    The script is invoked automatically when you commit, so you need to call it
+    directly only to set up the hook or remove it.
+
+    To setup the hook run this script passing "install" on the command line.
+    To remove the hook run passing "uninstall".
+
+${b}CONFIGURATION${n}
+
+    You can configure the hook using the "git config" command.
+
+    ${b}hooks.clangFormatDiffInteractive${n} (default: true)
+        By default, the hook requires user input. If you don't run git from a
+        terminal, you can disable the interactive prompt with:
+            ${i}\$ git config hooks.clangFormatDiffInteractive false${n}
+
+    ${b}hooks.clangFormatDiffStyle${n} (default: file)
+        Unless a different style is specified, the hook expects a file named
+        .clang-format to exist in the repository. This file should contain the
+        configuration for clang-format.
+        You can specify a different style (in this example, the WebKit one)
+        with:
+            ${i}\$ git config hooks.clangFormatDiffStyle WebKit${n}
+EOF
+}
+
+if [ $# = 1 ]; then
+    case "$1" in
+        -h | -\? | --help )
+            show_help
+            exit 0
+            ;;
+        install )
+            install
+            exit 0
+            ;;
+        uninstall )
+            uninstall
+            exit 0
+            ;;
+    esac
+fi
+
+[ $# = 0 ] || error_exit "Invalid arguments: $*"
+
+
+# This is a real run of the hook, not a install/uninstall run.
+
+if [ -z "${GIT_DIR:-}" ] && [ -z "${GIT_INDEX_FILE:-}" ]; then
+    error_exit \
+        $'It looks like you invoked this script directly, but it\'s supposed to be used\n' \
+        $'as a pre-commit git hook.\n' \
+        $'\n' \
+        $'To install the hook try:\n' \
+        $'    ' "$bash_source" $' install\n' \
+        $'\n' \
+        $'For more details on this script try:\n' \
+        $'    ' "$bash_source" $' --help\n'
+fi
+
+[ -x "$apply_format" ] || \
+    error_exit \
+    $'Cannot find the apply-format script.\n' \
+    $'I expected it here:\n' \
+    $'    ' "$apply_format"
+
+readonly style=$(cd "$top_dir" && git config hooks.clangFormatDiffStyle || echo file)
+
+apply_format_opts=(
+    "--style=$style"
+    --cached
+    )
+
+readonly exclusions_file="$top_dir/.clang-format-hook-exclude"
+if [ -e "$exclusions_file" ]; then
+    while IFS= read -r line; do
+        if [[ "$line" && "$line" != "#"* ]]; then
+            apply_format_opts+=("--internal-opt-ignore-regex=$line")
+        fi
+    done < "$exclusions_file"
+fi
+
+readonly patch=$(mktemp)
+trap '{ rm -f "$patch"; }' EXIT
+"$apply_format" --style="$style" --cached "${apply_format_opts[@]}" > "$patch" || \
+    error_exit $'\nThe apply-format script failed.'
+
+if [ "$(wc -l < "$patch")" -eq 0 ]; then
+    echo "The staged content is formatted correctly."
+    exit 0
+fi
+
+
+# The code is not formatted correctly.
+
+interactive=$(cd "$top_dir" && git config --bool hooks.clangFormatDiffInteractive)
+if [ "$interactive" != false ]; then
+    # Interactive is the default, so anything that is not false is converted to
+    # true, including possibly invalid values.
+    interactive=true
+fi
+readonly interactive
+
+if [ "$interactive" = false ]; then
+    echo "${b}The staged content is not formatted correctly.${n}"
+    echo "You can fix the formatting with:"
+    echo "    ${i}\$ ./$apply_format_relative_to_top_dir --apply-to-staged${n}"
+    echo
+    echo "You can also make this script interactive (if you use git from a terminal) with:"
+    echo "    ${i}\$ git config hooks.clangFormatDiffInteractive true${n}"
+    exit 1
+fi
+
+if hash colordiff 2> /dev/null; then
+    colordiff < "$patch"
+else
+    echo "${b}(Install colordiff to see this diff in color!)${n}"
+    echo
+    cat "$patch"
+fi
+
+echo
+echo "${b}The staged content is not formatted correctly.${n}"
+echo "The patch shown above can be applied automatically to fix the formatting."
+echo
+
+echo "You can:"
+echo " [a]: Apply the patch"
+echo " [f]: Force and commit anyway (not recommended!)"
+echo " [c]: Cancel the commit"
+echo " [?]: Show help"
+echo
+
+readonly tty=${PRE_COMMIT_HOOK_TTY:-/dev/tty}
+
+while true; do
+    echo -n "What would you like to do? [a/f/c/?] "
+    read -r answer < "$tty"
+    case "$answer" in
+
+        [aA] )
+            patch -p0 < "$patch" || \
+                error_exit \
+                $'\n' \
+                $'Cannot apply patch to local files.\n' \
+                $'Have you modified the file locally after starting the commit?'
+            git apply -p0 --cached < "$patch" || \
+                error_exit \
+                $'\n' \
+                $'Cannot apply patch to git staged changes.\n' \
+                $'This may happen if you have some overlapping unstaged changes. To solve\n' \
+                $'you need to stage or reset changes manually.'
+            ;;
+
+        [fF] )
+            echo
+            echo "Will commit anyway!"
+            echo "You can always abort by quitting your editor with no commit message."
+            echo
+            echo -n "Press return to continue."
+            read -r < "$tty"
+            exit 0
+            ;;
+
+        [cC] )
+            error_exit "Commit aborted as requested."
+            ;;
+
+        \? )
+            echo
+            show_help
+            echo
+            continue
+            ;;
+
+        * )
+            echo 'Invalid answer. Type "a", "f" or "c".'
+            echo
+            continue
+
+    esac
+    break
+done
