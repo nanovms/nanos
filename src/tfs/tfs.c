@@ -47,8 +47,6 @@ static void fs_read_extent(filesystem fs,
                            void *val)
 {
     range i = range_intersection(q, ex);
-    u64 xfer = range_span(i);
-    assert(xfer != 0);
     u64 block_start = u64_from_pointer(val);
 
     // target_offset is required for the cases when q.start < ex.start
@@ -56,13 +54,14 @@ static void fs_read_extent(filesystem fs,
     // because rtrie_lookup() is used to find an extent (q.start is always >= ex.start)
     u64 target_offset = i.start - q.start;
     void *target_start = buffer_ref(target, target_offset);
+    bytes target_length = target->length;
 
     // make i absolute
     i.start += block_start;
     i.end += block_start;
 
-    tfs_debug("fs_read_extent: q %R, ex %R, block_start %P, i %R, xfer %P, target_offset %P, target_start %p, blocksize %d\n",
-        q, ex, block_start, i, xfer, target_offset, target_start, fs->blocksize);
+    tfs_debug("fs_read_extent: q %R, ex %R, block_start %P, i %R, target_offset %P, target_start %p, target length %P, blocksize %d\n",
+        q, ex, block_start, i, target_offset, target_start, target_length, fs->blocksize);
 
     /*
      * +       i.start--+        +--start_padded      i.end--+      +--end_padded
@@ -77,48 +76,81 @@ static void fs_read_extent(filesystem fs,
     u64 start_padded = pad(i.start, fs->blocksize);
     if (i.start > 0 && i.start < start_padded) {
         // unaligned start
-        u64 head = MIN(start_padded - i.start, xfer);
+        u64 head = MIN(start_padded - i.start, range_span(i));
 
         void *temp = allocate(fs->h, fs->blocksize);
+        assert(temp != INVALID_ADDRESS);
         status_handler f = apply(m);
-        xfer -= head;
         status_handler copy = closure(fs->h, copyout, fs, target_start, temp + (fs->blocksize - head), head, f);
         fetch_and_add(&target->end, head);
         u64 read_start = start_padded - fs->blocksize;
-        tfs_debug("fs_read_extent: unaligned head(%P, %P): reading block at %P (%P)\n",
+        tfs_debug("fs_read_extent: unaligned head (%P, %P): reading block at %P (%P)\n",
             i.start, start_padded, read_start, head);
         apply(fs->r, temp, fs->blocksize, read_start, copy);
 
         i.start += head;
         target_start += head;
+        target_length -= head;
     }
 
     // handle unaligned tail without clobbering extra memory
     u64 end_padded = pad(i.end, fs->blocksize);
-    if (xfer > 0 && i.end < end_padded) {
+    if (range_span(i) > 0 && i.end < end_padded && end_padded - i.start > target_length) {
         // unaligned end
         u64 tail = i.end + fs->blocksize - end_padded;
 
         void *temp = allocate(fs->h, fs->blocksize);
+        assert(temp != INVALID_ADDRESS);
         status_handler f = apply(m);
-        assert(xfer >= tail);
-        xfer -= tail;
-        status_handler copy = closure(fs->h, copyout, fs, target_start + xfer, temp, tail, f);
+        assert(range_span(i) >= tail);
+        status_handler copy = closure(fs->h, copyout, fs, target_start + range_span(i) - tail, temp, tail, f);
         fetch_and_add(&target->end, tail);
         u64 read_start = end_padded - fs->blocksize;
-        tfs_debug("fs_read_extent: unaligned tail(%P, %P): reading block at %P (%P)\n",
+        tfs_debug("fs_read_extent: unaligned tail (%P, %P): reading block at %P (%P)\n",
             i.end, end_padded, read_start, tail);
         apply(fs->r, temp, fs->blocksize, read_start, copy);
+
+        i.end -= tail;
+        target_length -= tail;
     }
 
-    if (xfer > 0) {
+#ifdef BOOT
+    if (range_span(i) > 0) {
+        u64 xfer = range_span(i);
+        u64 xfer_padded = pad(xfer, fs->blocksize);
+
         status_handler f = apply(m);
         fetch_and_add(&target->end, xfer);
         assert(i.start == 0 || pad(i.start, fs->blocksize) == i.start);
+        assert(xfer <= target_length);
         tfs_debug("fs_read_extent: reading blocks at %P (%P)\n",
             i.start, xfer);
-        apply(fs->r, target_start, xfer, i.start, f);
+        apply(fs->r, target_start, xfer_padded, i.start, f);
     }
+#else
+    // general heap max_order is 20
+    u64 max_read_chunk = U64_FROM_BIT(20);
+    while (range_span(i) > 0) {
+        u64 xfer = MIN(range_span(i), max_read_chunk);
+        assert(xfer);
+        u64 xfer_padded = pad(xfer, fs->blocksize);
+
+        void *temp = allocate(fs->h, xfer_padded);
+        assert(temp != INVALID_ADDRESS);
+        status_handler f = apply(m);
+        assert(xfer <= target_length);
+        status_handler copy = closure(fs->h, copyout, fs, target_start, temp, xfer, f);
+        fetch_and_add(&target->end, xfer);
+        assert(i.start == 0 || pad(i.start, fs->blocksize) == i.start);
+        tfs_debug("fs_read_extent: chunk %R (%P): reading blocks at %P (%P)\n",
+            i, xfer_padded, i.start, xfer);
+        apply(fs->r, temp, xfer_padded, i.start, copy);
+
+        i.start += xfer;
+        target_start += xfer;
+        target_length -= xfer;
+    }
+#endif
 }
 
 io_status_handler ignore_io_status;
