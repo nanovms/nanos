@@ -32,8 +32,8 @@ boolean rangemap_insert(rangemap r, u64 start, u64 length, void *value)
         /* check for overlap...kinda harsh to assert, add error handling... */
         if (range_span(i)) {
             /* XXX bark for now until we know we have all potential cases handled... */
-            msg_err("attempt to insert range %R but overlap with %R (%p)\n",
-                    n->r, curr->r, curr->value);
+            msg_warn("attempt to insert range %R but overlap with %R (%p)\n",
+                     n->r, curr->r, curr->value);
             return false;
         }
         assert(!point_in_range(curr->r, start + length - 1));
@@ -90,7 +90,7 @@ static boolean rangemap_remove_internal(rangemap rt, range k)
                 rn->r.start = i.end;
                 rn->r.end = curr->r.end;
                 rn->value = curr->value; /* XXX this is perhaps most dubious */
-                msg_err("unexpected hole trim: curr %R, key %R\n", curr->r, k);
+                msg_warn("unexpected hole trim: curr %R, key %R\n", curr->r, k);
                 list_insert_after(l, &rn->l);
             }
             curr->r.end = i.start;
