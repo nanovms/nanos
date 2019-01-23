@@ -38,6 +38,16 @@ eyberg@s1:~/plz/lua_5.2.4$ tree
 4 directories, 8 files
 ```
 
+Your package.manifest should look something like this:
+
+```
+{
+   "Program":"lua_5.2.4/lua",
+   "Args" : ["lua"],
+   "Version":"5.2.4"
+}
+```
+
 In many cases this is a dump from ldd:
 
 ```
@@ -61,13 +71,15 @@ Needs more information on exactly what we want/need here (prob. not
 everything).
 
 ```
-/etc/sssl/certs
+/etc/ssl/certs
 ```
 
 ### Tar it up
 
+The name needs to reflect this format:
+
 ```
-tar czf $PKGNAME_PKGVERSION.tgz $PKGNAME_$PKGVERSION
+tar czf $PKGNAME_PKGVERSION.tar.gz $PKGNAME_$PKGVERSION
 ```
 
 ### Update the manifest.json
@@ -91,7 +103,7 @@ Note: If you need access to google cloud talk to Ian. Also, we'll be
 moving this to a self hosted minio instance before too long.
 
 ```
-gsutil cp ~/$lang_$version.tar.gz g://packagehub/.
+gsutil cp ~/$lang_$version.tar.gz gs://packagehub/$lang_version.tar.gz
 gsutil -D setacl public-read gs://packagehub/$lang_$version.tar.gz
 gsutil -D setacl public-read gs://packagehub/manifest.json
 ```
@@ -99,4 +111,7 @@ gsutil -D setacl public-read gs://packagehub/manifest.json
 ### NOTE
 
 For some crazy reason google doesn't update the last-modified header and
-it gets cached fo a second.
+it gets cached for a while.
+
+I've tried looking at this but that doesn't seem to work either.
+https://cloud.google.com/storage/docs/gsutil/commands/setmeta
