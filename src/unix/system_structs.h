@@ -112,6 +112,8 @@ typedef struct iovec {
 #define F_SETFL         4       /* Set file status flags.  */
 
 #define FIONBIO		0x5421
+#define FIONCLEX        0x5450
+#define FIOCLEX         0x5451
 
 #define AT_NULL         0               /* End of vector */
 #define AT_IGNORE       1               /* Entry should be ignored */

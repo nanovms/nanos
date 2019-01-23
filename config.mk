@@ -27,7 +27,7 @@ CFLAG_WARNINGS = \
     -Werror
 
 CFLAGS	= -fno-omit-frame-pointer \
-		  -std=gnu99 \
+		  -std=gnu11 \
 		  -fno-stack-protector \
 		  -g \
 		  -O \

@@ -8,7 +8,7 @@ CFLAGS = -g \
 	 -DENABLE_MSG_DEBUG \
 	 $(includes)
 CFLAGS+= $(CFLAG_WARNINGS) \
-	-std=gnu99 \
+	-std=gnu11 \
          -Wformat
 
 all: fst hw hws hwg getdents udploop web webg webgs webs getrandom mkdir time \

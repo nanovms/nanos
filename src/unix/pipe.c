@@ -1,7 +1,6 @@
 #include <unix_internal.h>
 #include <buffer.h>
 
-#define  PIPE_DEBUG
 #ifdef PIPE_DEBUG
 #define pipe_debug(x, ...) do {log_printf("PIPE", x, ##__VA_ARGS__);} while(0)
 #else
@@ -51,34 +50,64 @@ boolean pipe_init(unix_heaps uh)
     return (uh->pipe_cache == INVALID_ADDRESS ? false : true);
 }
 
-static inline void pipe_dealloc_end(pipe p, pipe_file pf)
+static inline void pipe_notify_reader(pipe_file pf, int events)
 {
-    if (pf->fd != -1) {
-        deallocate_fd(p->p, pf->fd, &(pf->f));
-        deallocate_notify_set(pf->ns);
-        deallocate_blockq(pf->bq);
+    pipe_file read_pf = &pf->pipe->files[PIPE_READ];
+    if (read_pf->fd != -1) {
+        if (events & EPOLLHUP)
+            blockq_flush(read_pf->bq);
+        else
+            blockq_wake_one(read_pf->bq);
+        notify_dispatch(read_pf->ns, events);
+    }
+}
+
+static inline void pipe_notify_writer(pipe_file pf, int events)
+{
+    pipe_file write_pf = &pf->pipe->files[PIPE_WRITE];
+    if (write_pf->fd != -1) {
+        if (events & EPOLLHUP)
+            blockq_flush(write_pf->bq);
+        else
+            blockq_wake_one(write_pf->bq);
+        notify_dispatch(write_pf->ns, events);
     }
 }
 
 static void pipe_release(pipe p)
 {
     if (!p->ref_cnt || (fetch_and_add(&p->ref_cnt, -1) == 0)) {
+        pipe_debug("%s(%p): deallocating pipe\n", __func__, p);
         if (p->data != INVALID_ADDRESS)
             deallocate_buffer(p->data);
 
-        /* XXX revisit waiter release */
-        pipe_dealloc_end(p, &p->files[PIPE_READ]);
-        pipe_dealloc_end(p, &p->files[PIPE_WRITE]);
-
         unix_cache_free(get_unix_heaps(), pipe, p);
+    }
+}
+
+static inline void pipe_dealloc_end(pipe p, pipe_file pf)
+{
+    if (pf->fd != -1) {
+        if (&p->files[PIPE_READ] == pf) {
+            pipe_notify_writer(pf, EPOLLHUP);
+            pipe_debug("%s(%p): writer notified\n", __func__, p);
+        }
+        if (&p->files[PIPE_WRITE] == pf) {
+            pipe_notify_reader(pf, EPOLLIN | EPOLLHUP);
+            pipe_debug("%s(%p): reader notified\n", __func__, p);
+        }
+        deallocate_notify_set(pf->ns);
+        deallocate_blockq(pf->bq);
+        pf->fd = -1;
+        pipe_release(p);
     }
 }
 
 static CLOSURE_1_0(pipe_close, sysreturn, file);
 static sysreturn pipe_close(file f)
 {
-    pipe_file pf = (pipe_file)f;    
-    pipe_release(pf->pipe);
+    pipe_file pf = (pipe_file)f;
+    pipe_dealloc_end(pf->pipe, pf);
     return 0;
 }
 
@@ -87,14 +116,14 @@ static sysreturn pipe_read_bh(pipe_file pf, thread t, void *dest, u64 length, bo
 {
     buffer b = pf->pipe->data;
     int real_length = MIN(buffer_length(b), length);
-    if (real_length == 0)
+    if (real_length == 0) {
+        if (pf->pipe->files[PIPE_WRITE].fd == -1)
+            return 0;
         return infinity;
+    }
 
     buffer_read(b, dest, real_length);
-
-    pipe_file write_pf = &pf->pipe->files[PIPE_WRITE];
-    blockq_wake_one(write_pf->bq);
-    notify_dispatch(write_pf->ns, EPOLLOUT);
+    pipe_notify_writer(pf, EPOLLOUT);
 
     // If we have consumed all of the buffer, reset it. This might prevent future writes to allocte new buffer
     // in buffer_write/buffer_extend. Can improve things until a proper circular buffer is available
@@ -137,17 +166,18 @@ static sysreturn pipe_write_bh(pipe_file pf, thread t, void *dest, u64 length, b
     buffer b = p->data;
     u64 avail = p->max_size - buffer_length(b);
 
-    if (avail == 0)
+    if (avail == 0) {
+        if (pf->pipe->files[PIPE_READ].fd == -1)
+            return set_syscall_error(t, EPIPE);
         return infinity;
+    }
 
     u64 real_length = MIN(length, avail);
     buffer_write(b, dest, real_length);
     if (avail == length)
         notify_dispatch(pf->ns, 0); /* for edge trigger */
 
-    pipe_file read_pf = &pf->pipe->files[PIPE_READ];
-    blockq_wake_one(read_pf->bq);
-    notify_dispatch(read_pf->ns, EPOLLIN);
+    pipe_notify_reader(pf, EPOLLIN);
 
     if (blocked)
         thread_wakeup(t);
@@ -198,6 +228,8 @@ static boolean pipe_read_check(file f, u32 eventmask, u32 * last, event_handler 
     pipe_file pf = (pipe_file)f;
     assert(f->read);
     u32 events = buffer_length(pf->pipe->data) ? EPOLLIN : 0;
+    if (pf->pipe->files[PIPE_WRITE].fd == -1)
+        events |= EPOLLIN | EPOLLHUP;
     return pipe_check_internal(pf, events, eventmask, last, eh);
 }
 
@@ -207,6 +239,8 @@ static boolean pipe_write_check(file f, u32 eventmask, u32 * last, event_handler
     pipe_file pf = (pipe_file)f;
     assert(f->write);
     u32 events = buffer_length(pf->pipe->data) < pf->pipe->max_size ? EPOLLOUT : 0;
+    if (pf->pipe->files[PIPE_READ].fd == -1)
+        events |= EPOLLHUP;
     return pipe_check_internal(pf, events, eventmask, last, eh);
 }
 
