@@ -172,9 +172,7 @@ process exec_elf(buffer ex, process kp)
 
     exec_debug("starting process...\n");
     start_process(t, entry);
-    // xxx - in some environments with some programs this causes
-    // rtrie insert to blow the stack. fix rtrie.
-    //    add_elf_syms(heap_general(kh), ex);
+    add_elf_syms(ex);
     return proc;    
 }
 

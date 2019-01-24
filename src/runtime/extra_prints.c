@@ -108,6 +108,12 @@ static void format_timestamp(buffer dest, buffer fmt, vlist *a)
 #endif
 }
 
+static void format_range(buffer dest, buffer fmt, vlist *a)
+{
+    range r = varg(*a, range);
+    bprintf(dest, "(%P %P)", r.start, r.end);
+}
+
 void init_extra_prints()
 {
     register_format('t', format_tuple);
@@ -115,5 +121,6 @@ void init_extra_prints()
     register_format('s', format_cstring);
     register_format('X', format_hex_buffer);
     register_format('T', format_timestamp);
+    register_format('R', format_range);
 }
 
