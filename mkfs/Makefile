@@ -7,6 +7,7 @@ CFLAGS	+= -g
 CFLAGS	+= -fdata-sections -ffunction-sections
 CFLAGS	+= $(includes) -DHOST_BUILD
 CFLAGS  += $(CFLAG_WARNINGS) -Wformat
+CFLAGS  += -std=gnu11
 
 all: mkfs dump
 
@@ -30,7 +31,7 @@ mkfs-srcs := \
 	$(SRC)/runtime/merge.c \
 	$(SRC)/runtime/pqueue.c \
 	$(SRC)/runtime/random.c \
-	$(SRC)/runtime/rtrie.c \
+	$(SRC)/runtime/range.c \
 	$(SRC)/runtime/runtime_init.c \
 	$(SRC)/runtime/symbol.c \
 	$(SRC)/runtime/table.c \
@@ -54,7 +55,7 @@ dump-srcs := \
 	$(SRC)/runtime/merge.c \
 	$(SRC)/runtime/pqueue.c \
 	$(SRC)/runtime/random.c \
-	$(SRC)/runtime/rtrie.c \
+	$(SRC)/runtime/range.c \
 	$(SRC)/runtime/runtime_init.c \
 	$(SRC)/runtime/symbol.c \
 	$(SRC)/runtime/table.c \

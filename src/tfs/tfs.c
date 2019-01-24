@@ -7,7 +7,7 @@
 #endif
 
 struct fsfile {
-    rtrie extents;
+    rangemap extents;
     filesystem fs;
     u64 length;
     tuple md;
@@ -46,9 +46,11 @@ static void fs_read_extent(filesystem fs,
                            range ex,
                            void *val)
 {
+    /* XXX add special handling for file holes (zero buffer area) */
+    if (val == range_hole)
+        return;
+
     range i = range_intersection(q, ex);
-    u64 xfer = range_span(i);
-    assert(xfer != 0);
     u64 block_start = u64_from_pointer(val);
 
     // target_offset is required for the cases when q.start < ex.start
@@ -56,13 +58,14 @@ static void fs_read_extent(filesystem fs,
     // because rtrie_lookup() is used to find an extent (q.start is always >= ex.start)
     u64 target_offset = i.start - q.start;
     void *target_start = buffer_ref(target, target_offset);
+    bytes target_length = target->length;
 
     // make i absolute
     i.start += block_start;
     i.end += block_start;
 
-    tfs_debug("fs_read_extent: q %R, ex %R, block_start %P, i %R, xfer %P, target_offset %P, target_start %p, blocksize %d\n",
-        q, ex, block_start, i, xfer, target_offset, target_start, fs->blocksize);
+    tfs_debug("fs_read_extent: q %R, ex %R, block_start %P, i %R, target_offset %P, target_start %p, target length %P, blocksize %d\n",
+        q, ex, block_start, i, target_offset, target_start, target_length, fs->blocksize);
 
     /*
      * +       i.start--+        +--start_padded      i.end--+      +--end_padded
@@ -77,48 +80,81 @@ static void fs_read_extent(filesystem fs,
     u64 start_padded = pad(i.start, fs->blocksize);
     if (i.start > 0 && i.start < start_padded) {
         // unaligned start
-        u64 head = MIN(start_padded - i.start, xfer);
+        u64 head = MIN(start_padded - i.start, range_span(i));
 
         void *temp = allocate(fs->h, fs->blocksize);
+        assert(temp != INVALID_ADDRESS);
         status_handler f = apply(m);
-        xfer -= head;
         status_handler copy = closure(fs->h, copyout, fs, target_start, temp + (fs->blocksize - head), head, f);
         fetch_and_add(&target->end, head);
         u64 read_start = start_padded - fs->blocksize;
-        tfs_debug("fs_read_extent: unaligned head(%P, %P): reading block at %P (%P)\n",
+        tfs_debug("fs_read_extent: unaligned head (%P, %P): reading block at %P (%P)\n",
             i.start, start_padded, read_start, head);
         apply(fs->r, temp, fs->blocksize, read_start, copy);
 
         i.start += head;
         target_start += head;
+        target_length -= head;
     }
 
     // handle unaligned tail without clobbering extra memory
     u64 end_padded = pad(i.end, fs->blocksize);
-    if (xfer > 0 && i.end < end_padded) {
+    if (range_span(i) > 0 && i.end < end_padded && end_padded - i.start > target_length) {
         // unaligned end
         u64 tail = i.end + fs->blocksize - end_padded;
 
         void *temp = allocate(fs->h, fs->blocksize);
+        assert(temp != INVALID_ADDRESS);
         status_handler f = apply(m);
-        assert(xfer >= tail);
-        xfer -= tail;
-        status_handler copy = closure(fs->h, copyout, fs, target_start + xfer, temp, tail, f);
+        assert(range_span(i) >= tail);
+        status_handler copy = closure(fs->h, copyout, fs, target_start + range_span(i) - tail, temp, tail, f);
         fetch_and_add(&target->end, tail);
         u64 read_start = end_padded - fs->blocksize;
-        tfs_debug("fs_read_extent: unaligned tail(%P, %P): reading block at %P (%P)\n",
+        tfs_debug("fs_read_extent: unaligned tail (%P, %P): reading block at %P (%P)\n",
             i.end, end_padded, read_start, tail);
         apply(fs->r, temp, fs->blocksize, read_start, copy);
+
+        i.end -= tail;
+        target_length -= tail;
     }
 
-    if (xfer > 0) {
+#ifdef BOOT
+    if (range_span(i) > 0) {
+        u64 xfer = range_span(i);
+        u64 xfer_padded = pad(xfer, fs->blocksize);
+
         status_handler f = apply(m);
         fetch_and_add(&target->end, xfer);
         assert(i.start == 0 || pad(i.start, fs->blocksize) == i.start);
+        assert(xfer <= target_length);
         tfs_debug("fs_read_extent: reading blocks at %P (%P)\n",
             i.start, xfer);
-        apply(fs->r, target_start, xfer, i.start, f);
+        apply(fs->r, target_start, xfer_padded, i.start, f);
     }
+#else
+    // general heap max_order is 20
+    u64 max_read_chunk = U64_FROM_BIT(20);
+    while (range_span(i) > 0) {
+        u64 xfer = MIN(range_span(i), max_read_chunk);
+        assert(xfer);
+        u64 xfer_padded = pad(xfer, fs->blocksize);
+
+        void *temp = allocate(fs->h, xfer_padded);
+        assert(temp != INVALID_ADDRESS);
+        status_handler f = apply(m);
+        assert(xfer <= target_length);
+        status_handler copy = closure(fs->h, copyout, fs, target_start, temp, xfer, f);
+        fetch_and_add(&target->end, xfer);
+        assert(i.start == 0 || pad(i.start, fs->blocksize) == i.start);
+        tfs_debug("fs_read_extent: chunk %R (%P): reading blocks at %P (%P)\n",
+            i, xfer_padded, i.start, xfer);
+        apply(fs->r, temp, xfer_padded, i.start, copy);
+
+        i.start += xfer;
+        target_start += xfer;
+        target_length -= xfer;
+    }
+#endif
 }
 
 io_status_handler ignore_io_status;
@@ -147,7 +183,7 @@ void filesystem_read(filesystem fs, tuple t, void *dest, u64 length, u64 offset,
     b->end = b->start;
     merge m = allocate_merge(h, closure(h, filesystem_read_complete, completion, b));
     range total = irange(offset, offset+length);
-    rtrie_range_lookup(f->extents, total, closure(h, fs_read_extent, f->fs, b, m, total));
+    rangemap_range_lookup(f->extents, total, closure(h, fs_read_extent, f->fs, b, m, total));
 }
 
 // extend here
@@ -158,6 +194,11 @@ static CLOSURE_4_2(fs_write_extent, void,
                    range, void *);
 static void fs_write_extent(filesystem fs, buffer source, merge m, u64 *last, range x, void *val)
 {
+    if (val == range_hole) {
+//        rprintf("hole: %R\n", x);
+        return;
+    }
+
     u64 target_len = x.end - x.start, source_len = buffer_length(source);
     // if this doesn't lie on an alignment bonudary we may need to do a read-modify-write
 
@@ -197,8 +238,8 @@ static u64 extend(fsfile f, u64 foffset, u64 length)
     tuple exts = soft_create(f->fs, f->md, sym(extents));
     symbol offs = intern_u64(foffset);
     table_set(exts, offs, e);
-    log_write_eav(f->fs->tl, exts, offs, e, ignore); 
-    rtrie_insert(f->extents, foffset, length, pointer_from_u64(storage));
+    log_write_eav(f->fs->tl, exts, offs, e, ignore);
+    rangemap_insert(f->extents, foffset, length, pointer_from_u64(storage));
     return storage;
 }
 
@@ -226,7 +267,7 @@ static void filesystem_write_complete(fsfile f, tuple t, u64 end, io_status_hand
     }
 
     /* Reset the extent rtrie and update the extent cache */
-    f->extents = rtrie_create(fs->h);
+    f->extents = allocate_rangemap(fs->h);
     tuple extents = table_find(t, sym(extents));
     table_foreach(extents, off, e)
         extent_update(f, off, e);
@@ -253,7 +294,7 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_ha
 
     merge m = allocate_merge(fs->h, closure(fs->h, filesystem_write_complete,
                 f, t, buffer_length(b) + offset, completion));
-    rtrie_range_lookup(f->extents, irange(offset, offset+len), closure(h, fs_write_extent, f->fs, b, m, last));
+    rangemap_range_lookup(f->extents, irange(offset, offset+len), closure(h, fs_write_extent, f->fs, b, m, last));
     
     if (*last < (offset + len)) {
         u64 elen = (offset + len) - *last;
@@ -278,7 +319,7 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_ha
 fsfile allocate_fsfile(filesystem fs, tuple md)
 {
     fsfile f = allocate(fs->h, sizeof(struct fsfile));
-    f->extents = rtrie_create(fs->h);
+    f->extents = allocate_rangemap(fs->h);
     f->fs = fs;
     f->md = md;
     f->length = 0;
@@ -374,7 +415,7 @@ void extent_update(fsfile f, symbol foff, tuple value)
     parse_int(alloca_wrap(symbol_string(foff)), 10, &foffset);
     parse_int(alloca_wrap(table_find(value, sym(length))), 10, &length);
     parse_int(alloca_wrap(table_find(value, sym(offset))), 10, &boffset);
-    rtrie_insert(f->extents, foffset, length, pointer_from_u64(boffset));
+    rangemap_insert(f->extents, foffset, length, pointer_from_u64(boffset));
     // xxx - fix before write
     //    rtrie_remove(f->fs->free, boffset, length);
 }
@@ -397,7 +438,7 @@ void filesystem_read_entire(filesystem fs, tuple t, heap h, buffer_handler c, st
         status_handler c1 = closure(f->fs->h, read_entire_complete, c, b);
         merge m = allocate_merge(f->fs->h, c1);
         status_handler k = apply(m); // hold a reference until we're sure we've issued everything
-        rtrie_range_lookup(f->extents, irange(0, len), closure(h, fs_read_extent, fs, b, m, irange(0, len)));
+        rangemap_range_lookup(f->extents, irange(0, len), closure(h, fs_read_extent, fs, b, m, irange(0, len)));
         apply(k, STATUS_OK);
     } else {
         apply(e, timm("status", "no such file %v\n", t));

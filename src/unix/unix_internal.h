@@ -5,6 +5,15 @@
 #include <tfs.h>
 #include <unix.h>
 
+/* XXX kinda arbitrary, not sure where these came from or what correct
+   values should be */
+#define PROCESS_VIRTUAL_HEAP_START      0x7000000000ull
+#define PROCESS_VIRTUAL_HEAP_LENGTH     0x10000000000ull
+#define PROCESS_VIRTUAL_HEAP_END        (PROCESS_VIRTUAL_HEAP_START + PROCESS_VIRTUAL_HEAP_LENGTH - 1)
+#define PROCESS_VIRTUAL_32_HEAP_START   0x10000000
+#define PROCESS_VIRTUAL_32_HEAP_LENGTH  0x6f000000
+#define PROCESS_VIRTUAL_32_HEAP_END     (PROCESS_VIRTUAL_32_HEAP_START + PROCESS_VIRTUAL_32_HEAP_LENGTH - 1)
+
 typedef s64 sysreturn;
 
 // conditionalize
@@ -34,6 +43,8 @@ struct linux_dirent {
     // 2.6.4); offset is (d_reclen - 1)
     */
 };
+
+#define NAME_MAX 255
 
 struct linux_dirent64 {
     u64            d_ino;    /* 64-bit inode number */
@@ -115,7 +126,7 @@ typedef struct process {
     u64 sigmask;
     void **syscall_handlers;
     vector files;
-    rtrie vmap;                /* virtual areas */
+    rangemap vmap;                /* virtual areas */
 } *process;
 
 extern thread current;

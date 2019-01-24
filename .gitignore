@@ -1,6 +1,6 @@
 /examples/soop.data
-/gotests/.staging
-/gotests/image
+/tests/.staging/*
+/tests/image
 /tags
 
 # Default build directiory
