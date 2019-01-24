@@ -57,11 +57,3 @@ static inline void format_pointer(buffer dest, buffer fmt, vlist *a)
     u64 x = varg(*a, u32);
     print_number(dest, x, 16, 8);
 }
-
-static inline void format_number(buffer dest, buffer fmt, vlist *a)
-{
-    // ehh - move to def
-    u64 x = varg(*a, u32);
-    print_number(dest, x, 10, 1);
-}
-

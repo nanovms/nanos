@@ -21,6 +21,15 @@ void print_number(buffer s, u64 x, int base, int pad)
     }
 }
 
+static void format_number(buffer dest, buffer fmt, vlist *a)
+{
+    s64 x = varg(*a, s64);
+    if (x < 0) {                /* emit sign & two's complement */
+        push_u8(dest, '-');
+        x = -x;
+    }
+    print_number(dest, x, 10, 1);
+}
 
 static void format_buffer(buffer dest, buffer fmt, vlist *ap)
 {
