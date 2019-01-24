@@ -3,10 +3,20 @@ include ../common.mk
 
 OUT		?= $(ROOT)/output/boot
 
-CFLAGS		+= -m32 -DBOOT -nostdinc -DPAGE_USE_FLUSH
+ifeq ($(UNAME_s),Darwin)
+CFLAGS          += -target i386-elf
+LD              = x86_64-elf-ld
+STRIP           = x86_64-elf-strip
+OBJCOPY         = x86_64-elf-objcopy
+SIZE_CMD        = stat -f %z
+else
+CFLAGS          += -m32
+SIZE_CMD        = stat -c %s
+endif
+CFLAGS		+= -DBOOT -nostdinc -fno-builtin -DPAGE_USE_FLUSH
 LDFLAGS		+= -T linker_script
 AFLAGS		+= -felf
-NASMFLAGS	= -l $@.lst -dSTAGE1SIZE=512 -dSTAGE2SIZE=$(shell stat -c %s $(OUT)/stage2.pad)
+NASMFLAGS	= -l $@.lst -dSTAGE1SIZE=512 -dSTAGE2SIZE=$(shell $(SIZE_CMD) $(OUT)/stage2.pad)
 OBJCOPYFLAGS	= -S -O binary
 DDFLAGS		= bs=512 conv=sync
 

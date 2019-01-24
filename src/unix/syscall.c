@@ -684,10 +684,10 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
     if (!is_dir(n) && !is_special(n)) {
         fsf = fsfile_from_node(current->p->fs, n);
         if (!fsf) {
-            thread_log(current, "\"%s\": can't find corresponding fsfile (%t)", name, n);
-            return set_syscall_error(current, ENOENT);
+            length = 0;
+        } else {
+            length = fsfile_get_length(fsf);
         }
-        length = fsfile_get_length(fsf);
     }
     // might be functional, or be a directory
     file f = unix_cache_alloc(uh, file);
@@ -1016,10 +1016,10 @@ static void fill_stat(tuple n, struct stat *s)
     } else if (!is_special(n)) {
         fsfile f = fsfile_from_node(current->p->fs, n);
         if (!f) {
-            msg_err("can't find fsfile\n");
-            return;
+            s->st_size = 0;
+        } else {
+            s->st_size = fsfile_get_length(f);
         }
-        s->st_size = fsfile_get_length(f);
     }
     s->st_mode = S_IFREG | 0644; /* TODO */
     thread_log(current, "st_ino %P, st_mode %P, st_size %P",
@@ -1043,6 +1043,7 @@ static sysreturn fstat(int fd, struct stat *s)
 
 static sysreturn stat(char *name, struct stat *s)
 {
+    thread_log(current, "name %s, stat %p", name, s);
     tuple n;
 
     if (!(n = resolve_cstring(current->p->cwd, name))) {    

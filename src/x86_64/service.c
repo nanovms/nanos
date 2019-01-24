@@ -6,12 +6,12 @@
 #include <hpet.h>
 
 extern void init_net(kernel_heaps kh);
-extern void startup();
 extern void start_interrupts(kernel_heaps kh);
 
 static struct kernel_heaps heaps;
 
 // doesnt belong here
+CLOSURE_3_0(startup, void, kernel_heaps, tuple, filesystem);
 void startup(kernel_heaps kh,
              tuple root,
              filesystem fs);
@@ -77,8 +77,6 @@ static void offset_block_read(block_read r, u64 start, void *dest, u64 length, u
 }
 
 void init_extra_prints(); 
-
-CLOSURE_3_0(startup, void, kernel_heaps, tuple, filesystem);
 
 static CLOSURE_1_2(fsstarted, void, tuple, filesystem, status);
 static void fsstarted(tuple root, filesystem fs, status s)
