@@ -60,20 +60,23 @@ timer register_periodic_timer(timestamp interval, thunk n)
 */
 timestamp timer_check()
 {
-    timestamp here;
+    timestamp here = 0;
     timer current = 0;
 
     while ((current = pqueue_peek(timers)) &&
            (here = now(), current->w < here)) {
-        if (!current->disable) {
             pqueue_pop(timers);
-            apply(current->t);
-            if (current->interval) {
-                current->w += current->interval;
-                pqueue_insert(timers, current); 
+            if(!current->disable) {
+                apply(current->t);
+                if (current->interval) {
+                    current->w += current->interval;
+                    pqueue_insert(timers, current); 
+                }
+            } else {
+                deallocate(theap, current, sizeof(struct timer));
+                current = 0;
             }
-        } // XXX fix the leak
-    }
+        }
     if (current) {
     	timestamp dt = current->w - here;
     	timer_debug("check returning dt: %d\n", dt);

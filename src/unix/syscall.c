@@ -356,7 +356,7 @@ struct code syscall_codes[]= {
 // fused buffer wrap, split, and resolve
 static inline tuple resolve_cstring(tuple root, char *f)
 {
-    buffer a = little_stack_buffer(50);
+    buffer a = little_stack_buffer(NAME_MAX);
     char *x = f;
     tuple t = root;
     char y;
