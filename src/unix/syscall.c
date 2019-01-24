@@ -1323,8 +1323,10 @@ static void syscall_debug()
     sysreturn res = -ENOSYS;
     if (h) {
         res = h(f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]);
+        if (debugsyscalls)
+            thread_log(current, "direct return: %d", res);
     } else if (debugsyscalls) {
-        rprintf("nosyscall %s\n", syscall_name(call));
+        thread_log(current, "nosyscall %s\n", syscall_name(call));
     }
     set_syscall_return(current, res);
 }
