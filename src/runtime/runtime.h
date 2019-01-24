@@ -204,7 +204,7 @@ typedef struct signature {
     u64 s[4];
 } *signature;
 
-#include <rtrie.h>
+#include <range.h>
 
 void init_runtime(kernel_heaps kh);
 heap allocate_tagged_region(kernel_heaps kh, u64 tag);

@@ -3,7 +3,11 @@ include ../common.mk
 
 OUT		?= $(ROOT)/output/stage3
 AFLAGS		= -felf64
-CFLAGS 		+= -DSTAGE3
+ifeq ($(UNAME_s),Darwin)
+CFLAGS          += -target x86_64-elf
+LD              = x86_64-elf-ld
+endif
+CFLAGS 		+= -DSTAGE3 -nostdinc -fno-builtin
 LDFLAGS 	+= -n -T linker_script -nostdlib
 OBJDUMPFLAGS	+= -d -S
 GITFLAGS	+= --depth 1 http://git.savannah.nongnu.org/git/lwip.git -b STABLE-2_0_3_RELEASE
@@ -44,7 +48,7 @@ stage3-srcs = \
 	$(SRC)/runtime/merge.c \
 	$(SRC)/runtime/pqueue.c \
 	$(SRC)/runtime/random.c \
-	$(SRC)/runtime/rtrie.c \
+	$(SRC)/runtime/range.c \
 	$(SRC)/runtime/runtime_init.c \
 	$(SRC)/runtime/sha256.c \
 	$(SRC)/runtime/symbol.c \

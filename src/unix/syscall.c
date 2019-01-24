@@ -367,6 +367,9 @@ static inline tuple resolve_cstring(tuple root, char *f)
     if (runtime_strcmp(f, "/") == 0)
         return filesystem_getroot(current->p->fs);
 
+    if (*f == '/')
+        t = filesystem_getroot(current->p->fs);
+
     while ((y = *x++)) {
         if (y == '/') {
             if (buffer_length(a)) {
@@ -684,10 +687,10 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
     if (!is_dir(n) && !is_special(n)) {
         fsf = fsfile_from_node(current->p->fs, n);
         if (!fsf) {
-            thread_log(current, "\"%s\": can't find corresponding fsfile (%t)", name, n);
-            return set_syscall_error(current, ENOENT);
+            length = 0;
+        } else {
+            length = fsfile_get_length(fsf);
         }
-        length = fsfile_get_length(fsf);
     }
     // might be functional, or be a directory
     file f = unix_cache_alloc(uh, file);
@@ -1016,10 +1019,10 @@ static void fill_stat(tuple n, struct stat *s)
     } else if (!is_special(n)) {
         fsfile f = fsfile_from_node(current->p->fs, n);
         if (!f) {
-            msg_err("can't find fsfile\n");
-            return;
+            s->st_size = 0;
+        } else {
+            s->st_size = fsfile_get_length(f);
         }
-        s->st_size = fsfile_get_length(f);
     }
     s->st_mode = S_IFREG | 0644; /* TODO */
     thread_log(current, "st_ino %P, st_mode %P, st_size %P",
@@ -1043,9 +1046,35 @@ static sysreturn fstat(int fd, struct stat *s)
 
 static sysreturn stat(char *name, struct stat *s)
 {
+    thread_log(current, "name %s, stat %p", name, s);
     tuple n;
 
     if (!(n = resolve_cstring(current->p->cwd, name))) {    
+        return set_syscall_error(current, ENOENT);
+    }
+    fill_stat(n, s);
+    return 0;
+}
+
+static sysreturn newfstatat(int dfd, char *name, struct stat *s, int flags)
+{
+    tuple n;
+
+    // if !relative or AT_FDCWD, just treat as normal stat
+    if ((*name == '/') || (dfd == AT_FDCWD))
+        return stat(name, s);
+
+    // if relative, but AT_EMPTY_PATH set, works just like fstat()
+    if (flags & AT_EMPTY_PATH)
+        return fstat(dfd, s);
+
+    // Else, if we have a fd of a directory, resolve name to it.
+    file f = resolve_fd(current->p, dfd);
+    tuple children = table_find(f->n, sym(children));
+    if (!is_dir(children))
+        return set_syscall_error(current, -ENOTDIR);
+    
+    if (!(n = resolve_cstring(children, name))) {    
         return set_syscall_error(current, ENOENT);
     }
     fill_stat(n, s);
@@ -1290,6 +1319,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_creat, creat);
     register_syscall(map, SYS_chdir, chdir);
     register_syscall(map, SYS_fchdir, fchdir);
+    register_syscall(map, SYS_newfstatat, newfstatat);
 }
 
 void *linux_syscalls[SYS_MAX];
