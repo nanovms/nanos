@@ -1,0 +1,342 @@
+#! /bin/bash
+#
+# Copyright 2018 Undo Ltd.
+#
+# https://github.com/barisione/clang-format-hooks
+
+# Force variable declaration before access.
+set -u
+# Make any failure in piped commands be reflected in the exit code.
+set -o pipefail
+
+readonly bash_source="${BASH_SOURCE[0]:-$0}"
+
+##################
+# Misc functions #
+##################
+
+function error_exit() {
+    for str in "$@"; do
+        echo -n "$str" >&2
+    done
+    echo >&2
+
+    exit 1
+}
+
+
+########################
+# Command line parsing #
+########################
+
+function show_help() {
+    if [ -t 1 ] && hash tput 2> /dev/null; then
+        local -r b=$(tput bold)
+        local -r i=$(tput sitm)
+        local -r n=$(tput sgr0)
+    else
+        local -r b=
+        local -r i=
+        local -r n=
+    fi
+
+    cat << EOF
+${b}SYNOPSIS${n}
+
+    To reformat git diffs:
+
+        ${i}$bash_source [OPTIONS] [FILES-OR-GIT-DIFF-OPTIONS]${n}
+
+    To reformat whole files, including unchanged parts:
+
+        ${i}$bash_source [-f | --whole-file] FILES${n}
+
+${b}DESCRIPTION${n}
+
+    Reformat C or C++ code to match a specified formatting style.
+
+    This command can either work on diffs, to reformat only changed parts of
+    the code, or on whole files (if -f or --whole-file is used).
+
+    ${b}FILES-OR-GIT-DIFF-OPTIONS${n}
+        List of files to consider when applying clang-format to a diff. This is
+        passed to "git diff" as is, so it can also include extra git options or
+        revisions.
+        For example, to apply clang-format on the changes made in the last few
+        revisions you could use:
+            ${i}\$ $bash_source HEAD~3${n}
+
+    ${b}FILES${n}
+        List of files to completely reformat.
+
+    ${b}-f, --whole-file${n}
+        Reformat the specified files completely (including parts you didn't
+        change).
+        The patch is printed on stdout by default. Use -i if you want to modify
+        the files on disk.
+
+    ${b}--staged, --cached${n}
+        Reformat only code which is staged for commit.
+        The patch is printed on stdout by default. Use -i if you want to modify
+        the files on disk.
+
+    ${b}-i${n}
+        Reformat the code and apply the changes to the files on disk (instead
+        of just printing the patch on stdout).
+
+    ${b}--apply-to-staged${n}
+        This is like specifying both --staged and -i, but the formatting
+        changes are also staged for commit (so you can just use "git commit"
+        to commit what you planned to, but formatted correctly).
+
+    ${b}--style STYLE${n}
+        The style to use for reformatting code.
+        If no style is specified, then it's assumed there's a .clang-format
+        file in the current directory or one of its parents.
+
+    ${b}--help, -h, -?${n}
+        Show this help.
+EOF
+}
+
+# getopts doesn't support long options.
+# getopt mangles stuff.
+# So we parse manually...
+declare positionals=()
+declare has_positionals=false
+declare whole_file=false
+declare apply_to_staged=false
+declare staged=false
+declare in_place=false
+declare style=file
+declare ignored=()
+while [ $# -gt 0 ]; do
+    declare arg="$1"
+    shift # Past option.
+    case "$arg" in
+        -h | -\? | --help )
+            show_help
+            exit 0
+            ;;
+        -f | --whole-file )
+            whole_file=true
+            ;;
+        --apply-to-staged )
+            apply_to_staged=true
+            ;;
+        --cached | --staged )
+            staged=true
+            ;;
+        -i )
+            in_place=true
+            ;;
+        --style=* )
+            style="${arg//--style=/}"
+            ;;
+        --style )
+            [ $# -gt 0 ] || \
+                error_exit "No argument for --style option."
+            style="$1"
+            shift
+            ;;
+        --internal-opt-ignore-regex=* )
+            ignored+=("${arg//--internal-opt-ignore-regex=/}")
+            ;;
+        --internal-opt-ignore-regex )
+            ignored+=("${arg//--internal-opt-ignore-regex=/}")
+            [ $# -gt 0 ] || \
+                error_exit "No argument for --internal-opt-ignore-regex option."
+            ignored+=("$1")
+            shift
+            ;;
+        -- )
+            # Stop processing further arguments.
+            if [ $# -gt 0 ]; then
+                positionals+=("$@")
+                has_positionals=true
+            fi
+            break
+            ;;
+        -* )
+            error_exit "Unknown argument: $arg"
+            ;;
+        *)
+            positionals+=("$arg")
+            ;;
+    esac
+done
+
+# Restore positional arguments, access them from "$@".
+if [ ${#positionals[@]} -gt 0 ]; then
+    set -- "${positionals[@]}"
+    has_positionals=true
+fi
+
+[ -n "$style" ] || \
+    error_exit "If you use --style you need to specify a valid style."
+
+#######################################
+# Detection of clang-format & friends #
+#######################################
+
+# clang-format.
+declare format="${CLANG_FORMAT:-}"
+if [ -z "$format" ]; then
+    format=$(type -p clang-format)
+fi
+
+if [ -z "$format" ]; then
+    error_exit \
+        $'You need to install clang-format.\n' \
+        $'\n' \
+        $'On Ubuntu/Debian this is available in the clang-format package or, in\n' \
+        $'older distro versions, clang-format-VERSION.\n' \
+        $'On Fedora it\'s available in the clang package.\n' \
+        $'You can also specify your own path for clang-format by setting the\n' \
+        $'$CLANG_FORMAT environment variable.'
+fi
+
+# clang-format-diff.
+if [ "$whole_file" = false ]; then
+    invalid="/dev/null/invalid/path"
+    if [ "${OSTYPE:-}" = "linux-gnu" ]; then
+        readonly sort_version=-V
+    else
+        # On macOS, sort doesn't have -V.
+        readonly sort_version=-n
+    fi
+    declare paths_to_try=()
+    # .deb packages directly from upstream.
+    # We try these first as they are probably newer than the system ones.
+    while read -r f; do
+        paths_to_try+=("$f")
+    done < <(compgen -G "/usr/share/clang/clang-format-*/clang-format-diff.py" | sort "$sort_version" -r)
+    # LLVM official releases (just untarred in /usr/local).
+    while read -r f; do
+        paths_to_try+=("$f")
+    done < <(compgen -G "/usr/local/clang+llvm*/share/clang/clang-format-diff.py" | sort "$sort_version" -r)
+    # Maybe it's in the $PATH already? This is true for Ubuntu and Debian.
+    paths_to_try+=( \
+        "$(type -p clang-format-diff 2> /dev/null || echo "$invalid")" \
+        "$(type -p clang-format-diff.py 2> /dev/null || echo "$invalid")" \
+        )
+    # Fedora.
+    paths_to_try+=( \
+        /usr/share/clang/clang-format-diff.py \
+        )
+    # Gentoo.
+    while read -r f; do
+        paths_to_try+=("$f")
+    done < <(compgen -G "/usr/lib/llvm/*/share/clang/clang-format-diff.py" | sort -n -r)
+    # Homebrew.
+    while read -r f; do
+        paths_to_try+=("$f")
+    done < <(compgen -G "/usr/local/Cellar/clang-format/*/share/clang/clang-format-diff.py" | sort -n -r)
+
+    declare format_diff=
+
+    # Did the user specify a path?
+    if [ -n "${CLANG_FORMAT_DIFF:-}" ]; then
+        format_diff="$CLANG_FORMAT_DIFF"
+    else
+        for path in "${paths_to_try[@]}"; do
+            if [ -e "$path" ]; then
+                # Found!
+                format_diff="$path"
+                if [ ! -x "$format_diff" ]; then
+                    format_diff="python $format_diff"
+                fi
+                break
+            fi
+        done
+    fi
+
+    if [ -z "$format_diff" ]; then
+        error_exit \
+            $'Cannot find clang-format-diff which should be shipped as part of the same\n' \
+            $'package where clang-format is.\n' \
+            $'\n' \
+            $'Please find out where clang-format-diff is in your distro and report an issue\n' \
+            $'at https://github.com/barisione/clang-format-hooks/issues with details about\n' \
+            $'your operating system and setup.\n' \
+            $'\n' \
+            $'You can also specify your own path for clang-format-diff by setting the\n' \
+            $'$CLANG_FORMAT_DIFF environment variable, for instance:\n' \
+            $'\n' \
+            $'    CLANG_FORMAT_DIFF="python /.../clang-format-diff.py" \\\n' \
+            $'        ' "$bash_source"
+    fi
+
+    readonly format_diff
+fi
+
+
+############################
+# Actually run the command #
+############################
+
+if [ "$whole_file" = true ]; then
+
+    [ "$has_positionals" = true ] || \
+        error_exit "No files to reformat specified."
+    [ "$staged" = false ] || \
+        error_exit "--staged/--cached only make sense when applying to a diff."
+
+    read -r -a format_args <<< "$format"
+    format_args+=("-style=file")
+    [ "$in_place" = true ] && format_args+=("-i")
+
+    "${format_args[@]}" "$@"
+
+else # Diff-only.
+
+    if [ "$apply_to_staged" = true ]; then
+        [ "$staged" = false ] || \
+            error_exit "You don't need --staged/--cached with --apply-to-staged."
+        [ "$in_place" = false ] || \
+            error_exit "You don't need -i with --apply-to-staged."
+        staged=true
+        readonly patch_dest=$(mktemp)
+        trap '{ rm -f "$patch_dest"; }' EXIT
+    else
+        readonly patch_dest=/dev/stdout
+    fi
+
+    declare git_args=(git diff -U0 --no-color)
+    [ "$staged" = true ] && git_args+=("--staged")
+
+    # $format_diff may contain a command ("python") and the script to excute, so we
+    # need to split it.
+    read -r -a format_diff_args <<< "$format_diff"
+    [ "$in_place" = true ] && format_diff_args+=("-i")
+
+    # Build the regex for paths to consider or ignore.
+    # We use negative lookahead assertions which preceed the list of allowed patterns
+    # (that is, the extensions we want).
+    exclusions_regex=
+    if [ "${#ignored[@]}" -gt 0 ]; then
+        for pattern in "${ignored[@]}"; do
+            exclusions_regex="$exclusions_regex(?!$pattern)"
+        done
+    fi
+
+    "${git_args[@]}" "$@" \
+        | "${format_diff_args[@]}" \
+            -p1 \
+            -style="$style" \
+            -iregex="$exclusions_regex"'.*\.(c|cpp|cxx|cc|h|m|mm|js|java)' \
+            > "$patch_dest" \
+        || exit 1
+
+    if [ "$apply_to_staged" = true ]; then
+        if [ ! -s "$patch_dest" ]; then
+            echo "No formatting changes to apply."
+            exit 0
+        fi
+        patch -p0 < "$patch_dest" || \
+            error_exit "Cannot apply patch to local files."
+        git apply -p0 --cached < "$patch_dest" || \
+            error_exit "Cannot apply patch to git staged changes."
+    fi
+
+fi
