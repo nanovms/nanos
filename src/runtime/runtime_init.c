@@ -21,7 +21,7 @@ void print_number(buffer s, u64 x, int base, int pad)
     }
 }
 
-static inline void format_number(buffer dest, buffer fmt, vlist *a)
+static void format_number(buffer dest, buffer fmt, vlist *a)
 {
     s64 x = varg(*a, s64);
     if (x < 0) {                /* emit sign & two's complement */
