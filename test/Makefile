@@ -12,15 +12,16 @@ CFLAGS  += -DNO_EPOLL
 endif
 #CFLAGS+=-DENABLE_MSG_DEBUG -DID_HEAP_DEBUG
 
-all: objcache_test network_test id_heap_test path_test pqueue_test vector_test udp_test buffer_test
+all: objcache_test network_test id_heap_test path_test pqueue_test vector_test udp_test buffer_test range_test
 
-unit-test: objcache_test id_heap_test path_test pqueue_test vector_test buffer_test
+unit-test: objcache_test id_heap_test path_test pqueue_test vector_test buffer_test range_test
 	$(OBJCACHE_TEST)
 	$(ID_HEAP_TEST)
 	$(PATH_TEST)
 	$(PQUEUE_TEST)
 	$(VECTOR_TEST)
 	$(BUFFER_TEST)
+	$(RANGE_TEST)
 
 objcache_test: $(OBJCACHE_TEST)
 
@@ -37,6 +38,8 @@ vector_test: $(VECTOR_TEST)
 udp_test: $(UDP_TEST)
 
 buffer_test: $(BUFFER_TEST)
+
+range_test: $(RANGE_TEST)
 
 includes := \
 	-I$(SRC)/runtime \
@@ -56,7 +59,7 @@ objcache_test-srcs := \
 	$(SRC)/runtime/merge.c \
 	$(SRC)/runtime/pqueue.c \
 	$(SRC)/runtime/random.c \
-	$(SRC)/runtime/rtrie.c \
+	$(SRC)/runtime/range.c \
 	$(SRC)/runtime/runtime_init.c \
 	$(SRC)/runtime/sha256.c \
 	$(SRC)/runtime/symbol.c \
@@ -81,7 +84,7 @@ network_test-srcs := \
 	$(SRC)/runtime/merge.c \
 	$(SRC)/runtime/pqueue.c \
 	$(SRC)/runtime/random.c \
-	$(SRC)/runtime/rtrie.c \
+	$(SRC)/runtime/range.c \
 	$(SRC)/runtime/runtime_init.c \
 	$(SRC)/runtime/symbol.c \
 	$(SRC)/runtime/table.c \
@@ -108,7 +111,7 @@ id_heap_test-srcs := \
 	$(SRC)/runtime/merge.c \
 	$(SRC)/runtime/pqueue.c \
 	$(SRC)/runtime/random.c \
-	$(SRC)/runtime/rtrie.c \
+	$(SRC)/runtime/range.c \
 	$(SRC)/runtime/runtime_init.c \
 	$(SRC)/runtime/symbol.c \
 	$(SRC)/runtime/table.c \
@@ -131,7 +134,7 @@ path_test-srcs := \
 	$(SRC)/runtime/merge.c \
 	$(SRC)/runtime/pqueue.c \
 	$(SRC)/runtime/random.c \
-	$(SRC)/runtime/rtrie.c \
+	$(SRC)/runtime/range.c \
 	$(SRC)/runtime/runtime_init.c \
 	$(SRC)/runtime/sha256.c \
 	$(SRC)/runtime/symbol.c \
@@ -156,7 +159,7 @@ pqueue_test-srcs := \
 	$(SRC)/runtime/merge.c \
 	$(SRC)/runtime/pqueue.c \
 	$(SRC)/runtime/random.c \
-	$(SRC)/runtime/rtrie.c \
+	$(SRC)/runtime/range.c \
 	$(SRC)/runtime/runtime_init.c \
 	$(SRC)/runtime/symbol.c \
 	$(SRC)/runtime/table.c \
@@ -177,7 +180,7 @@ vector_test-srcs := \
 	$(SRC)/runtime/merge.c \
 	$(SRC)/runtime/pqueue.c \
 	$(SRC)/runtime/random.c \
-	$(SRC)/runtime/rtrie.c \
+	$(SRC)/runtime/range.c \
 	$(SRC)/runtime/runtime_init.c \
 	$(SRC)/runtime/symbol.c \
 	$(SRC)/runtime/table.c \
@@ -198,7 +201,7 @@ udp_test-srcs := \
 	$(SRC)/runtime/merge.c \
 	$(SRC)/runtime/pqueue.c \
 	$(SRC)/runtime/random.c \
-	$(SRC)/runtime/rtrie.c \
+	$(SRC)/runtime/range.c \
 	$(SRC)/runtime/runtime_init.c \
 	$(SRC)/runtime/symbol.c \
 	$(SRC)/runtime/table.c \
@@ -225,7 +228,7 @@ buffer_test-srcs := \
 	$(SRC)/runtime/merge.c \
 	$(SRC)/runtime/pqueue.c \
 	$(SRC)/runtime/random.c \
-	$(SRC)/runtime/rtrie.c \
+	$(SRC)/runtime/range.c \
 	$(SRC)/runtime/runtime_init.c \
 	$(SRC)/runtime/symbol.c \
 	$(SRC)/runtime/table.c \
@@ -236,6 +239,27 @@ buffer_test-srcs := \
 
 buffer_test-objs = $(call srcs-to-objs,$(ROOT),$(OUT),buffer_test)
 
+range_test-srcs := \
+	$(ROOT)/test/range_test.c \
+	$(SRC)/runtime/bitmap.c \
+	$(SRC)/runtime/buffer.c \
+	$(SRC)/runtime/extra_prints.c \
+	$(SRC)/runtime/format.c \
+	$(SRC)/runtime/heap/id.c \
+	$(SRC)/runtime/merge.c \
+	$(SRC)/runtime/pqueue.c \
+	$(SRC)/runtime/random.c \
+	$(SRC)/runtime/range.c \
+	$(SRC)/runtime/runtime_init.c \
+	$(SRC)/runtime/symbol.c \
+	$(SRC)/runtime/table.c \
+	$(SRC)/runtime/timer.c \
+	$(SRC)/runtime/tuple.c \
+	$(SRC)/runtime/string.c \
+	$(SRC)/unix_process/unix_process_runtime.c \
+
+range_test-objs = $(call srcs-to-objs,$(ROOT),$(OUT),range_test)
+
 $(objcache_test-objs): $(CLOSURE_TMPL)
 $(network_test-objs): $(CLOSURE_TMPL)
 $(id_heap_test-objs): $(CLOSURE_TMPL)
@@ -244,6 +268,7 @@ $(pqueue_test-objs): $(CLOSURE_TMPL)
 $(vector_test-objs): $(CLOSURE_TMPL)
 $(udp_test-objs): $(CLOSURE_TMPL)
 $(buffer_test-objs): $(CLOSURE_TMPL)
+$(range_test-objs): $(CLOSURE_TMPL)
 
 $(OBJCACHE_TEST): $(objcache_test-objs)
 	$(call cmd,host-prog)
@@ -269,6 +294,9 @@ $(UDP_TEST): $(udp_test-objs)
 $(BUFFER_TEST): $(buffer_test-objs)
 	$(call cmd,host-prog)
 
+$(RANGE_TEST): $(range_test-objs)
+	$(call cmd,host-prog)
+
 clean-objs = \
 	$(id_heap_test-objs) $(ID_HEAP_TEST) \
 	$(network_test-objs) $(NETWORK_TEST) \
@@ -278,10 +306,11 @@ clean-objs = \
 	$(vector_test-objs) $(VECTOR_TEST) \
 	$(udp_test-objs) $(UDP_TEST) \
 	$(buffer_test-objs) $(BUFFER_TEST) \
+	$(range_test-objs) $(RANGE_TEST) \
 	$(CLOSURE_TMPL) \
 
 clean: default-clean
 
-.PHONY: objcache_test network_test id_heap_test path_test pqueue_test vector_test udp_test buffer_test
+.PHONY: objcache_test network_test id_heap_test path_test pqueue_test vector_test udp_test buffer_test range_test
 
 include ../rules.mk

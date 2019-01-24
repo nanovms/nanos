@@ -136,7 +136,7 @@ udploop-srcs := \
 	$(SRC)/runtime/merge.c \
 	$(SRC)/runtime/pqueue.c \
 	$(SRC)/runtime/random.c \
-	$(SRC)/runtime/rtrie.c \
+	$(SRC)/runtime/range.c \
 	$(SRC)/runtime/runtime_init.c \
 	$(SRC)/runtime/sha256.c \
 	$(SRC)/runtime/signature.c \
@@ -231,7 +231,7 @@ web-srcs := \
 	$(SRC)/runtime/merge.c \
 	$(SRC)/runtime/pqueue.c \
 	$(SRC)/runtime/random.c \
-	$(SRC)/runtime/rtrie.c \
+	$(SRC)/runtime/range.c \
 	$(SRC)/runtime/runtime_init.c \
 	$(SRC)/runtime/sha256.c \
 	$(SRC)/runtime/signature.c \

@@ -37,7 +37,7 @@ boot-srcs = \
 	$(SRC)/runtime/extra_prints.c \
 	$(SRC)/runtime/format.c \
 	$(SRC)/runtime/random.c \
-	$(SRC)/runtime/rtrie.c \
+	$(SRC)/runtime/range.c \
 	$(SRC)/runtime/runtime_init.c \
 	$(SRC)/runtime/symbol.c \
 	$(SRC)/runtime/table.c \
