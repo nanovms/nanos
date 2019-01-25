@@ -210,25 +210,30 @@ static sysreturn sock_read_bh(sock s, thread t, void *dest, u64 length,
                               struct sockaddr *src_addr, socklen_t *addrlen,
                               boolean blocked)
 {
+    sysreturn rv = 0;
     err_t err = get_lwip_error(s);
     net_debug("sock %d, thread %d, dest %p, len %d, blocked %d, lwip err %d\n",
 	      s->fd, t->tid, dest, length, blocked, err);
     assert(length > 0);
     assert(s->type == SOCK_STREAM || s->type == SOCK_DGRAM);
 
-    if (s->type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN)
-        return set_syscall_error(t, ENOTCONN);
+    if (s->type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN) {
+        rv = -ENOTCONN;         /* XXX or 0? */
+        goto out;
+    }
 
     if (err != ERR_OK) {
-        sysreturn rv = set_syscall_return(t, lwip_to_errno(err));
-        return rv;
+        rv = lwip_to_errno(err);
+        goto out;
     }
 
     /* check if we actually have data */
     void * p = queue_peek(s->incoming);
     if (!p) {
-        if (s->type == SOCK_STREAM && s->info.tcp.lw->state != ESTABLISHED)
-            return set_syscall_return(t, 0);
+        if (s->type == SOCK_STREAM && s->info.tcp.lw->state != ESTABLISHED) {
+            rv = 0;
+            goto out;
+        }
         return infinity;               /* back to chewing more cud */
     }
 
@@ -277,10 +282,12 @@ static sysreturn sock_read_bh(sock s, thread t, void *dest, u64 length,
             tcp_recved(s->info.tcp.lw, xfer);
     } while(s->type == SOCK_STREAM && length > 0 && p); /* XXX simplify expression */
 
+    rv = xfer_total;
+  out:
     if (blocked)
         thread_wakeup(t);
 
-    return set_syscall_return(t, xfer_total);
+    return set_syscall_return(t, rv);
 }
 
 static CLOSURE_1_3(socket_read, sysreturn, sock, void *, u64, u64);
@@ -311,14 +318,20 @@ static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
 static CLOSURE_4_1(socket_write_tcp_bh, sysreturn, sock, thread, void *, u64, boolean);
 static sysreturn socket_write_tcp_bh(sock s, thread t, void * buf, u64 remain, boolean blocked)
 {
+    sysreturn rv = 0;
     err_t err = get_lwip_error(s);
     net_debug("fd %d, thread %p, buf %p, remain %d, blocked %d, lwip err %d\n",
               s->fd, t, buf, remain, blocked, err);
     assert(remain > 0);
 
     if (err != ERR_OK) {
-        sysreturn rv = set_syscall_return(t, lwip_to_errno(err));
-        return rv;
+        rv = lwip_to_errno(err);
+        goto out;
+    }
+
+    if (s->type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN) {
+        rv = -ENOTCONN;
+        goto out;
     }
 
     /* Note that the actual transmit window size is truncated to 16
@@ -330,7 +343,8 @@ static sysreturn socket_write_tcp_bh(sock s, thread t, void * buf, u64 remain, b
       full:
         if (!blocked && (s->flags & SOCK_FLAG_NONBLOCK)) {
             net_debug(" send buf full and non-blocking, return EAGAIN\n");
-            return set_syscall_error(t, EAGAIN);
+            rv = -EAGAIN;
+            goto out;
         } else {
             net_debug(" send buf full, sleep\n");
             return infinity;           /* block again */
@@ -348,7 +362,6 @@ static sysreturn socket_write_tcp_bh(sock s, thread t, void * buf, u64 remain, b
     }
 
     /* XXX need to pore over lwIP error conditions here */
-    sysreturn rv = infinity;
     err = tcp_write(s->info.tcp.lw, buf, n, apiflags);
     if (err == ERR_OK) {
         /* XXX prob add a flag to determine whether to continuously
@@ -370,7 +383,7 @@ static sysreturn socket_write_tcp_bh(sock s, thread t, void * buf, u64 remain, b
         net_debug(" tcp_write() lwip error: %d\n", err);
         rv = lwip_to_errno(err);
     }
-
+  out:
     if (blocked)
         thread_wakeup(t);
 
@@ -869,12 +882,13 @@ sysreturn listen(int sockfd, int backlog)
 static CLOSURE_4_1(accept_bh, sysreturn, sock, thread, struct sockaddr *, socklen_t *, boolean);
 static sysreturn accept_bh(sock s, thread t, struct sockaddr *addr, socklen_t *addrlen, boolean blocked)
 {
+    sysreturn rv = 0;
     err_t err = get_lwip_error(s);
     net_debug("sock %d, target thread %d, lwip err %d\n", s->fd, t->tid, err);
 
     if (err != ERR_OK) {
-        sysreturn rv = set_syscall_return(t, err);
-        return set_syscall_return(current, rv);
+        rv = set_syscall_return(t, err);
+        goto out;
     }
 
     sock sn = dequeue(s->incoming);
@@ -887,7 +901,6 @@ static sysreturn accept_bh(sock s, thread t, struct sockaddr *addr, socklen_t *a
         remote_sockaddr_in(sn, (struct sockaddr_in *)addr);
     if (addrlen)
         *addrlen = sizeof(struct sockaddr_in);
-    set_syscall_return(t, sn->fd);
 
     /* XXX Check what the behavior should be if a listen socket is
        used with EPOLLET. For now, let's handle it as if it's a
@@ -895,10 +908,12 @@ static sysreturn accept_bh(sock s, thread t, struct sockaddr *addr, socklen_t *a
     if (queue_length(s->incoming) == 0)
 	notify_sock(s);
 
+    rv = sn->fd;
+  out:
     if (blocked)
         thread_wakeup(t);
 
-    return set_syscall_return(t, sn->fd);
+    return set_syscall_return(t, rv);
 }
 
 sysreturn accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
