@@ -118,7 +118,7 @@ static sysreturn pipe_read_bh(pipe_file pf, thread t, void *dest, u64 length, bo
     int real_length = MIN(buffer_length(b), length);
     if (real_length == 0) {
         if (pf->pipe->files[PIPE_WRITE].fd == -1)
-            return 0;
+            goto out;
         return infinity;
     }
 
@@ -131,7 +131,7 @@ static sysreturn pipe_read_bh(pipe_file pf, thread t, void *dest, u64 length, bo
         buffer_clear(b);
         notify_dispatch(pf->ns, 0); /* for edge trigger */
     }
-
+  out:
     if (blocked)
         thread_wakeup(t);
 
@@ -162,13 +162,16 @@ static sysreturn pipe_read(file f, void *dest, u64 length, u64 offset_arg)
 static CLOSURE_4_1(pipe_write_bh, sysreturn, pipe_file, thread, void *, u64, boolean);
 static sysreturn pipe_write_bh(pipe_file pf, thread t, void *dest, u64 length, boolean blocked)
 {
+    sysreturn rv = 0;
     pipe p = pf->pipe;
     buffer b = p->data;
     u64 avail = p->max_size - buffer_length(b);
 
     if (avail == 0) {
-        if (pf->pipe->files[PIPE_READ].fd == -1)
-            return set_syscall_error(t, EPIPE);
+        if (pf->pipe->files[PIPE_READ].fd == -1) {
+            rv = -EPIPE;
+            goto out;
+        }
         return infinity;
     }
 
@@ -179,10 +182,12 @@ static sysreturn pipe_write_bh(pipe_file pf, thread t, void *dest, u64 length, b
 
     pipe_notify_reader(pf, EPOLLIN);
 
+    rv = real_length;
+  out:
     if (blocked)
         thread_wakeup(t);
 
-    return set_syscall_return(t, real_length);
+    return set_syscall_return(t, rv);
 }
 
 static CLOSURE_1_3(pipe_write, sysreturn, file, void *, u64, u64);
