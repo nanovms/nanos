@@ -124,7 +124,7 @@ void *rangemap_lookup(rangemap r, u64 point, range * rrange)
     return 0;
 }
 
-void rangemap_range_lookup(rangemap r, range q, subrange s)
+void rangemap_range_lookup_aligned(rangemap r, range q, u64 alignment, subrange s)
 {
     struct list * i;
     u64 last_covered = q.start;
@@ -136,12 +136,17 @@ void rangemap_range_lookup(rangemap r, range q, subrange s)
             apply(s, irange(last_covered, curr->r.start), range_hole);
         if (!range_empty(i))
             apply(s, curr->r, curr->value);
-        last_covered = curr->r.end;
+        last_covered = pad(curr->r.end, alignment);
     }
 
     /* check for hole after last entry */
     if (last_covered < q.end)
         apply(s, irange(last_covered, q.end), range_hole);
+}
+
+void rangemap_range_lookup(rangemap r, range q, subrange s)
+{
+    rangemap_range_lookup_aligned(r, q, 1, s);
 }
 
 rangemap allocate_rangemap(heap h)

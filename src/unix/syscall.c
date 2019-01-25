@@ -1111,12 +1111,14 @@ sysreturn lseek(int fd, s64 offset, int whence)
 
     f->offset = new;
 
+#ifdef NEVER
     /* XXX do this in write, too */
     if (f->offset > f->length) {
         msg_err("fd %d, offset %d, whence %d: file holes not supported\n",
                 fd, offset, whence);
         halt("halt\n");
     }
+#endif
 
     return f->offset;
 }
