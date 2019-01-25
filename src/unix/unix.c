@@ -102,9 +102,13 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
         assert(p->virtual != INVALID_ADDRESS);
         assert(id_heap_reserve(heap_virtual_huge((kernel_heaps)uh),
                                PROCESS_VIRTUAL_HEAP_START, PROCESS_VIRTUAL_HEAP_LENGTH));
+        p->virtual_page = create_id_heap_backed(h, p->virtual, PAGESIZE);
+        assert(p->virtual_page != INVALID_ADDRESS);
         p->virtual32 = create_id_heap(h, PROCESS_VIRTUAL_32_HEAP_START,
                                       PROCESS_VIRTUAL_32_HEAP_LENGTH, PAGESIZE);
         assert(p->virtual32 != INVALID_ADDRESS);
+    } else {
+        p->virtual = p->virtual_page = p->virtual32 = 0;
     }
     p->fs = fs;
     p->cwd = root;

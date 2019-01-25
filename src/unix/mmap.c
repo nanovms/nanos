@@ -145,15 +145,14 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
             return -ENOMEM;
         }
 
-        /* XXX: consider drawing virtual allocations from pagesize id - one
-           huge page per non-fixed mmap is wasteful */
         boolean is_32bit = flags & MAP_32BIT;
-        heap vh = is_32bit ? p->virtual32 : p->virtual;
+        heap vh = is_32bit ? p->virtual32 : p->virtual_page;
         u64 maplen = pad(len, vh->pagesize);
         where = allocate_u64(vh, maplen);
         if (where == (u64)INVALID_ADDRESS) {
-            thread_log(current, "   failed to allocate %s virtual memory, size %P",
-                       is_32bit ? "32-bit" : "", len);
+            /* We'll always want to know about low memory conditions, so just bark. */
+            msg_err("failed to allocate %s virtual memory, size %P",
+                    is_32bit ? "32-bit" : "", len);
             return -ENOMEM;
         }
         rangemap_insert(p->vmap, where, maplen, (void *)1 /* XXX nz for now, later vm area */);
@@ -162,7 +161,10 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     // make a generic zero page function
     if (flags & MAP_ANONYMOUS) {
         u64 m = allocate_u64(physical, len);
-        if (m == INVALID_PHYSICAL) return m;
+        if (m == INVALID_PHYSICAL) {
+            msg_err("failed to allocate physical memory, size %d\n", len);
+            return -ENOMEM;
+        }
         map(where, m, len, pages);
         thread_log(current, "   anon target: %P, len: %P (given size: %P)", where, len, size);
         zero(pointer_from_u64(where), len);

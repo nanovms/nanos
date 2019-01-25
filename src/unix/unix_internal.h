@@ -115,6 +115,7 @@ typedef struct process {
     // i guess this should also be a heap, brk is so nasty
     void *brk;
     heap virtual;
+    heap virtual_page;
     heap virtual32;    
     heap fdallocator;
     filesystem fs;	/* XXX should be underneath tuple operators */
