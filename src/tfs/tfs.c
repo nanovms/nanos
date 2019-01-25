@@ -1,3 +1,4 @@
+#define ENABLE_MSG_DEBUG
 #include <tfs_internal.h>
 
 #if defined(TFS_DEBUG)
@@ -5,6 +6,8 @@
 #else
 #define tfs_debug(x, ...)
 #endif
+
+#define align(__x, __s) ((__x) & ~((__s) - 1))
 
 struct fsfile {
     rangemap extents;
@@ -186,31 +189,6 @@ void filesystem_read(filesystem fs, tuple t, void *dest, u64 length, u64 offset,
     rangemap_range_lookup(f->extents, total, closure(h, fs_read_extent, f->fs, b, m, total));
 }
 
-// extend here
-// This function is terribly broken. *last is never updated, but it should be.
-// Leave it as it is for now, but get back to this asap. -lkurusa
-static CLOSURE_4_2(fs_write_extent, void,
-                   filesystem, buffer, merge, u64 *, 
-                   range, void *);
-static void fs_write_extent(filesystem fs, buffer source, merge m, u64 *last, range x, void *val)
-{
-    if (val == range_hole) {
-//        rprintf("hole: %R\n", x);
-        return;
-    }
-
-    u64 target_len = x.end - x.start, source_len = buffer_length(source);
-    // if this doesn't lie on an alignment bonudary we may need to do a read-modify-write
-
-    /* Will this extent be reallocated? */
-    if (source_len > target_len)
-        return;
-
-    /* XXX: is this correct? */
-    status_handler sh = apply(m);
-    apply(fs->w, source, x.start, sh);
-}
-
 // wrap in an interface
 static tuple soft_create(filesystem fs, tuple t, symbol a)
 {
@@ -223,7 +201,7 @@ static tuple soft_create(filesystem fs, tuple t, symbol a)
     return v;
 }
 
-static u64 extend(fsfile f, u64 foffset, u64 length)
+static u64 allocate_extend(fsfile f, u64 foffset, u64 length)
 {
     tuple e = timm("length", "%d", length);
     
@@ -255,65 +233,154 @@ void filesystem_write_eav(filesystem fs, tuple t, symbol a, value v)
     log_write_eav(fs->tl, t, a, v, ignore);
 }
 
-static CLOSURE_4_1(filesystem_write_complete, void, fsfile, tuple, u64, io_status_handler, status);
-static void filesystem_write_complete(fsfile f, tuple t, u64 end, io_status_handler completion, status s)
+static CLOSURE_3_1(fsfile_write_cleanup, void, filesystem, buffer, status_handler, status);
+void fsfile_write_cleanup(filesystem fs, buffer b, status_handler sh, status s)
+{
+    deallocate_buffer(b);
+    msg_debug("%d: status %v (%s)\n", __LINE__,
+            s, is_ok(s) ? "OK" : "NOTOK");
+
+    apply(sh, s);
+}
+
+static CLOSURE_4_1(fsfile_write, void,
+                   filesystem, buffer, u64, status_handler, 
+                   status)
+static void fsfile_write(filesystem fs, buffer b, u64 block_start, status_handler sh, status s)
+{
+    msg_debug("%d: writing to %d for %d\n", __LINE__, block_start, buffer_length(b));
+    status_handler cleanup = closure(fs->h, fsfile_write_cleanup, fs, b, sh);
+    apply(fs->w, b, block_start, cleanup);
+}
+
+static CLOSURE_6_1(fsfile_modify_read, void, filesystem, buffer, buffer, u64, u64, status_handler, status);
+void fsfile_modify_read(filesystem fs, buffer target, buffer source, u64 block_start, u64 offset_in_block, status_handler sh, status s)
+{
+    msg_debug("modifying to %d for %d\n", block_start, buffer_length(target));
+    if (s) {
+        deallocate(fs->h, target, fs->blocksize);
+        apply(sh, s);
+    } else {
+        // this buffer has already been sized, correctly. all we need is to copy all of it at target+offset_in_block
+        u64 length = buffer_length(source);
+        runtime_memcpy(buffer_ref(target,offset_in_block), buffer_ref(source,0), length);
+        unwrap_buffer(fs->h,source);
+        status_handler do_write = closure(fs->h, fsfile_write, fs, target, block_start, sh);
+        apply(do_write, s);
+    }
+}
+
+static CLOSURE_6_2(fsfile_update, void,
+                   fsfile, tuple, buffer, merge, tuple, range,
+                   range , void *);
+static void fsfile_update(fsfile f, tuple t, buffer source, merge m, tuple write_state, range q, range ex, void *val)
 {
     filesystem fs = f->fs;
 
-    if (fsfile_get_length(f) < end) {
+    // Is this an existing range or new?
+    if (val == range_hole) {
+        // we are extending the file, do so at blocksize at a time until we drained source buffer.
+        u64 offset = pad(fsfile_get_length(f), fs->blocksize);
+        status_handler sh = apply(m); // Prevent race to filesystem_write_complete until we complete loop 
+        while (buffer_length(source)) {
+#ifndef HOST_BUILD
+            u64 elen = MIN(fs->blocksize, buffer_length(source));
+#else
+            u64 elen = buffer_length(source);
+#endif
+            u64 eoff = allocate_extend(f, offset, elen);
+            if (eoff != u64_from_pointer(INVALID_ADDRESS)) {
+                status_handler sh = apply(m);
+                buffer bf = wrap_buffer(transient, buffer_ref(source, 0), elen);
+                offset += elen;
+                msg_debug("writing to %d for %d\n", eoff, buffer_length(bf));
+                apply(fs->w, bf, eoff, sh);
+                buffer_consume(source, elen);
+            }
+        }
+        apply(sh, 0);
+        return;
+    }
+
+    status_handler sh = apply(m);
+    u64 block_start = u64_from_pointer(val);
+    u64 source_len = MIN(buffer_length(source), fs->blocksize);
+    u64 block_len = ex.end - ex.start;
+    // The range.start > our query range, query must start in middle of range.
+    u64 offset_in_block = (q.start > ex.start) ? q.start - ex.start : 0; 
+
+    u64 xfer = ((source_len + offset_in_block) > fs->blocksize) ? fs->blocksize - offset_in_block : source_len;
+    u64 new_block_len = MAX(block_len, xfer + offset_in_block);
+
+    // create a buffer for just portion of source we are using for this block, and increment source
+    buffer wrapped_source = sub_buffer(fs->h, source, 0, xfer);
+    buffer_consume(source, xfer);
+    // until a better way to tell filesystem_write_complete new size of block
+    table_set(write_state, intern_u64(ex.start), pointer_from_u64(new_block_len));
+    ex.end = new_block_len;
+
+    // if this doesn't lie on an alignment bonudary we NEED to do a read-modify-write
+    if ((block_len != new_block_len) || (xfer != fs->blocksize)) {
+        buffer rmw_buffer = allocate_buffer(fs->h, fs->blocksize);
+        buffer_produce(rmw_buffer,fs->blocksize);
+        status_handler copy = closure(fs->h, fsfile_modify_read, fs, rmw_buffer, wrapped_source, block_start, offset_in_block, sh);
+        msg_debug("reading to %d for %d\n", block_start, fs->blocksize);
+        apply(fs->r, buffer_ref(rmw_buffer,0), fs->blocksize, block_start, copy);
+    } else {
+        msg_debug("writing to %d for %d\n", block_start, buffer_length(wrapped_source));
+        apply(fs->w, wrapped_source, block_start, sh);
+    }
+}
+
+static CLOSURE_6_1(filesystem_write_complete, void, fsfile, tuple, u64, io_status_handler, u64, tuple, status);
+static void filesystem_write_complete(fsfile f, tuple t, u64 length, io_status_handler completion, u64 last_offset, tuple write_state, status s)
+{
+    filesystem fs = f->fs;
+
+    if (fsfile_get_length(f) < last_offset) {
         /* XXX bother updating resident filelength tuple? */
-        fsfile_set_length(f, end);
-        filesystem_write_eav(fs, t, sym(filelength), value_from_u64(fs->h, end));
+        fsfile_set_length(f, last_offset);
+        filesystem_write_eav(fs, t, sym(filelength), value_from_u64(fs->h, last_offset));
     }
 
     /* Reset the extent rtrie and update the extent cache */
     f->extents = allocate_rangemap(fs->h);
     tuple extents = table_find(t, sym(extents));
-    table_foreach(extents, off, e)
-        extent_update(f, off, e);
+    table_foreach(extents, off, e) {
+        u64 efoffset;
+        parse_int(alloca_wrap(symbol_string(off)), 10, &efoffset);
+        u64 updated_length = u64_from_pointer(table_find(write_state, intern_u64(efoffset)));
+        extent_update(f, extents, off, e, updated_length);
+    }
     table_set(fs->files, t, f);
-
-    /* TODO(lkurusa): Write the final root tuple to the disk */
-
     tuple e = STATUS_OK;
-    apply(completion, e, end);
+    apply(completion, e, length);
 }
 
 // consider not overwritint the old version and fixing up the metadata
 void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_handler completion)
 {
-    heap h = fs->h;
-    u64 len = buffer_length(b);
-    u64 *last = allocate(h, sizeof(u64));
-    *last = offset;
     fsfile f;
+    
     if (!(f = table_find(fs->files, t))) {
         apply(completion, timm("no such file"), 0);
         return;
     }
 
+    u64 len = buffer_length(b);
+    // Until there is a better way for inform filesystem_write_complete of block length updates
+    tuple write_state = allocate_tuple();
+
+    range offset_range = irange(offset, offset+len);
+    range aligned_range = irange(align(offset,fs->blocksize), pad(offset_range.end, fs->alignment));
+
     merge m = allocate_merge(fs->h, closure(fs->h, filesystem_write_complete,
-                f, t, buffer_length(b) + offset, completion));
-    rangemap_range_lookup(f->extents, irange(offset, offset+len), closure(h, fs_write_extent, f->fs, b, m, last));
-    
-    if (*last < (offset + len)) {
-        u64 elen = (offset + len) - *last;
-        u64 eoff = extend(f, *last, elen);
-        if (eoff != u64_from_pointer(INVALID_ADDRESS)) {
-            status_handler sh = apply(m);
+                f, t, buffer_length(b), completion, offset_range.end, write_state));
 
-            /* XXX: this should only pop up when writing to virtio,
-               check for HOST_BUILD is just a lazy kludge */
-#ifndef HOST_BUILD
-            if (b->end - *last > SECTOR_SIZE)
-                rprintf("trying to write more than what's supported: %d > %d\n",
-                        b->end - *last, SECTOR_SIZE);
-#endif
-
-            buffer bf = wrap_buffer(transient, buffer_ref(b, *last), b->end - *last);
-            apply(fs->w, bf, eoff, sh);
-        }
-    }
+    status_handler sh = apply(m); // Prevent race to fsfile_extend, until we are sure rtrie_range_lookup is scheduled
+    rangemap_range_lookup_aligned(f->extents, aligned_range, fs->blocksize, 
+        closure(fs->h, fsfile_update, f, t, b, m, write_state, offset_range));
+    apply(sh, 0);
 }
 
 fsfile allocate_fsfile(filesystem fs, tuple md)
@@ -409,12 +476,23 @@ static void read_entire_complete(buffer_handler bh, buffer b, status s)
 
 
 // translate symbolic to range trie
-void extent_update(fsfile f, symbol foff, tuple value)
+void extent_update(fsfile f, tuple exts, symbol foff, tuple value, u64 reallength)
 {
     u64 length, foffset, boffset;
     parse_int(alloca_wrap(symbol_string(foff)), 10, &foffset);
     parse_int(alloca_wrap(table_find(value, sym(length))), 10, &length);
     parse_int(alloca_wrap(table_find(value, sym(offset))), 10, &boffset);
+
+    if (reallength && (length != reallength)) {
+        length = reallength;
+        tuple e = timm("length", "%d", length);
+        string off = aprintf(f->fs->h, "%d", boffset);
+        table_set(e, sym(offset), off);
+        tuple exts = soft_create(f->fs, f->md, sym(extents));
+        symbol offs = intern_u64(foffset);
+        table_set(exts, offs, e);
+        log_write_eav(f->fs->tl, exts, offs, e, ignore);
+    }
     rangemap_insert(f->extents, foffset, length, pointer_from_u64(boffset));
     // xxx - fix before write
     //    rtrie_remove(f->fs->free, boffset, length);
