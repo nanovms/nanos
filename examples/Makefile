@@ -90,30 +90,7 @@ $(GETDENTS): $(getdents-objs)
 	$(call cmd,host-prog)
 
 write-srcs := \
-	$(ROOT)/examples/write.c \
-	$(SRC)/runtime/buffer.c \
-	$(SRC)/runtime/sha256.c \
-	$(SRC)/runtime/signature.c \
-	$(SRC)/runtime/string.c \
-	$(SRC)/runtime/symbol.c \
-	$(SRC)/unix_process/unix_process_runtime.c \
-	$(SRC)/runtime/table.c \
-	$(SRC)/runtime/timer.c \
-	$(SRC)/runtime/tuple_parser.c \
-	$(SRC)/runtime/tuple.c \
-    $(SRC)/runtime/pqueue.c \
-    $(SRC)/runtime/random.c \
-    $(SRC)/runtime/rtrie.c \
-    $(SRC)/runtime/runtime_init.c \
-    $(SRC)/runtime/bitmap.c \
-    $(SRC)/runtime/extra_prints.c \
-    $(SRC)/runtime/format.c \
-    $(SRC)/runtime/heap/id.c \
-    $(SRC)/runtime/heap/freelist.c \
-    $(SRC)/runtime/heap/debug_heap.c \
-    $(SRC)/runtime/heap/objcache.c \
-    $(SRC)/runtime/heap/mcache.c \
-    $(SRC)/runtime/merge.c
+	$(ROOT)/examples/write.c
 
 write-objs = $(call srcs-to-objs,$(ROOT),$(OUT),write)
 

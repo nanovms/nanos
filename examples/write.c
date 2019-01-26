@@ -4,7 +4,6 @@
 #include <fcntl.h>
 #include <string.h>
 #include <errno.h>
-#include <runtime.h>
 #include <sys/stat.h>
 
 #define BUFLEN 512
@@ -15,7 +14,7 @@ static char buf[BUFLEN * 4];
 
 static inline ssize_t  READ(int fd, char *buf, ssize_t size)
 {   
-    runtime_memset(buf, 0xff, size); 
+    memset(buf, 0xff, size); 
     ssize_t _rv = read(fd, buf, size);
     if (_rv < 0) {
         perror("read #1");

@@ -258,7 +258,8 @@ void fsfile_modify_read(filesystem fs, buffer target, buffer source, u64 block_s
 {
     msg_debug("modifying to %d for %d\n", block_start, buffer_length(target));
     if (s) {
-        deallocate(fs->h, target, fs->blocksize);
+        deallocate_buffer(target);
+        unwrap_buffer(fs->h,source);
         apply(sh, s);
     } else {
         // this buffer has already been sized, correctly. all we need is to copy all of it at target+offset_in_block
