@@ -1,4 +1,4 @@
-#define ENABLE_MSG_DEBUG
+//#define ENABLE_MSG_DEBUG
 #include <tfs_internal.h>
 
 #if defined(TFS_DEBUG)
@@ -295,6 +295,7 @@ static void fsfile_update(fsfile f, tuple t, buffer source, merge m, tuple write
 {
     filesystem fs = f->fs;
 
+    msg_debug("q:%d:%d:ex:%d:%d:%s\n", q.start,q.end,ex.start,ex.end, (val == range_hole ? "hole" : "nohole"));
     // Is this an existing range or new?
     if (val == range_hole) {
         // we are extending the file, do so at blocksize at a time until we drained source buffer.
