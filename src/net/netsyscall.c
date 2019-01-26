@@ -879,21 +879,26 @@ sysreturn listen(int sockfd, int backlog)
     return 0;    
 }
 
-static CLOSURE_4_1(accept_bh, sysreturn, sock, thread, struct sockaddr *, socklen_t *, boolean);
-static sysreturn accept_bh(sock s, thread t, struct sockaddr *addr, socklen_t *addrlen, boolean blocked)
+static CLOSURE_5_1(accept_bh, sysreturn, sock, thread, struct sockaddr *, socklen_t *, int, boolean);
+static sysreturn accept_bh(sock s, thread t, struct sockaddr *addr, socklen_t *addrlen, int flags, boolean blocked)
 {
     sysreturn rv = 0;
     err_t err = get_lwip_error(s);
     net_debug("sock %d, target thread %d, lwip err %d\n", s->fd, t->tid, err);
 
     if (err != ERR_OK) {
-        rv = set_syscall_return(t, err);
+        rv = lwip_to_errno(err);
         goto out;
     }
 
     sock sn = dequeue(s->incoming);
-    if (!sn)
+    if (!sn) {
+        if ((flags & SOCK_NONBLOCK)) {
+            rv = -EAGAIN;
+            goto out;
+        }
         return infinity;               /* block */
+    }
 
     net_debug("child sock %d\n", sn->fd);
 
@@ -916,17 +921,17 @@ static sysreturn accept_bh(sock s, thread t, struct sockaddr *addr, socklen_t *a
     return set_syscall_return(t, rv);
 }
 
-sysreturn accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
+sysreturn accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 {
     sock s = resolve_fd(current->p, sockfd);        
     if (s->type != SOCK_STREAM)
 	return -EOPNOTSUPP;
-    net_debug("sock %d\n", sockfd);
+    net_debug("sock %d, addr %p, addrlen %p, flags %P\n", sockfd, addr, addrlen, flags);
 
     if (s->info.tcp.state != TCP_SOCK_LISTENING)
 	return set_syscall_error(current, EINVAL);
 
-    blockq_action ba = closure(s->h, accept_bh, s, current, addr, addrlen);
+    blockq_action ba = closure(s->h, accept_bh, s, current, addr, addrlen, flags);
     sysreturn rv = blockq_check(s->rxbq, current, ba);
 
     /* We didn't block... */
@@ -938,9 +943,9 @@ sysreturn accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
     return set_syscall_error(current, EAGAIN);
 }
 
-sysreturn accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
+sysreturn accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 {
-    return(accept(sockfd, addr, addrlen));
+    return accept4(sockfd, addr, addrlen, 0);
 }
 
 sysreturn getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
