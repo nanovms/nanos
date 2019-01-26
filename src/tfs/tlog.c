@@ -91,7 +91,7 @@ void log_read_complete(log tl, status_handler sh, status s)
 
             if ((f = table_find(tl->fs->extents, t)))  {
                 table_foreach(t, off, e)
-                    extent_update(f, t, off, e, 0);
+                    extent_update(f, off, e, 0);
             }
         }
         

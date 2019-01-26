@@ -201,23 +201,40 @@ static tuple soft_create(filesystem fs, tuple t, symbol a)
     return v;
 }
 
+static void extent_add(fsfile f, u64 foffset, u64 length, u64 boffset, boolean  update)
+{
+    if (update) {
+        tuple e = timm("length", "%d", length);
+        string off = aprintf(f->fs->h, "%d", boffset);
+        table_set(e, sym(offset), off);
+        tuple exts = soft_create(f->fs, f->md, sym(extents));
+        symbol offs = intern_u64(foffset);
+        table_set(exts, offs, e);
+        log_write_eav(f->fs->tl, exts, offs, e, ignore);
+    }
+    rangemap_insert(f->extents, foffset, length, pointer_from_u64(boffset));
+}
+
+// translate symbolic to range trie
+void extent_update(fsfile f, symbol foff, tuple value, u64 reallength)
+{
+    u64 length, foffset, boffset;
+    parse_int(alloca_wrap(symbol_string(foff)), 10, &foffset);
+    parse_int(alloca_wrap(table_find(value, sym(length))), 10, &length);
+    parse_int(alloca_wrap(table_find(value, sym(offset))), 10, &boffset);
+
+    boolean  doupdate = (reallength && (length != reallength)) ? true : false;
+    length = doupdate ? reallength : length;
+    extent_add(f, foffset, length, boffset, doupdate);
+}
+
 static u64 allocate_extend(fsfile f, u64 foffset, u64 length)
 {
-    tuple e = timm("length", "%d", length);
-    
     u64 storage = allocate_u64(f->fs->storage, pad(length, f->fs->alignment));
     if (storage == u64_from_pointer(INVALID_ADDRESS)) {
         halt("out of storage");
     }
-    //  we should(?) encode this as an immediate bitstring?
-    string off = aprintf(f->fs->h, "%d", storage);
-    table_set(e, sym(offset), off);
-
-    tuple exts = soft_create(f->fs, f->md, sym(extents));
-    symbol offs = intern_u64(foffset);
-    table_set(exts, offs, e);
-    log_write_eav(f->fs->tl, exts, offs, e, ignore);
-    rangemap_insert(f->extents, foffset, length, pointer_from_u64(storage));
+    extent_add(f, foffset, length, storage, true);
     return storage;
 }
 
@@ -351,7 +368,7 @@ static void filesystem_write_complete(fsfile f, tuple t, u64 length, io_status_h
         u64 efoffset;
         parse_int(alloca_wrap(symbol_string(off)), 10, &efoffset);
         u64 updated_length = u64_from_pointer(table_find(write_state, intern_u64(efoffset)));
-        extent_update(f, extents, off, e, updated_length);
+        extent_update(f, off, e, updated_length);
     }
     table_set(fs->files, t, f);
     tuple e = STATUS_OK;
@@ -473,30 +490,6 @@ static CLOSURE_2_1(read_entire_complete, void, buffer_handler, buffer, status);
 static void read_entire_complete(buffer_handler bh, buffer b, status s)
 {
     apply(bh, b);
-}
-
-
-// translate symbolic to range trie
-void extent_update(fsfile f, tuple exts, symbol foff, tuple value, u64 reallength)
-{
-    u64 length, foffset, boffset;
-    parse_int(alloca_wrap(symbol_string(foff)), 10, &foffset);
-    parse_int(alloca_wrap(table_find(value, sym(length))), 10, &length);
-    parse_int(alloca_wrap(table_find(value, sym(offset))), 10, &boffset);
-
-    if (reallength && (length != reallength)) {
-        length = reallength;
-        tuple e = timm("length", "%d", length);
-        string off = aprintf(f->fs->h, "%d", boffset);
-        table_set(e, sym(offset), off);
-        tuple exts = soft_create(f->fs, f->md, sym(extents));
-        symbol offs = intern_u64(foffset);
-        table_set(exts, offs, e);
-        log_write_eav(f->fs->tl, exts, offs, e, ignore);
-    }
-    rangemap_insert(f->extents, foffset, length, pointer_from_u64(boffset));
-    // xxx - fix before write
-    //    rtrie_remove(f->fs->free, boffset, length);
 }
 
 fsfile fsfile_from_node(filesystem fs, tuple n)
