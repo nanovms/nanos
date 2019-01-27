@@ -293,6 +293,26 @@ static epoll_blocked alloc_epoll_blocked(epoll e)
     return w;
 }
 
+static boolean epoll_check(heap h, epollfd efd, file f)
+{
+    /* If efd is in fds and also a zombie, it's an epfd that's
+       been masked by a oneshot event. */
+    if (!efd->registered && !efd->zombie) {
+        if (f->check) {
+            efd->registered = true;
+            fetch_and_add(&efd->refcnt, 1);
+            epoll_debug("   register fd %d, eventmask %P, applying check\n",
+                        efd->fd, efd->eventmask);
+            if (!apply(f->check, efd->eventmask, &efd->lastevents,
+                       closure(h, epoll_wait_notify, efd)))
+                return false;
+        } else {
+            msg_err("requested fd %d (eventmask %P) missing check\n", efd->fd, efd->eventmask);
+        }
+    }
+    return true;
+}
+
 /* Depending on the epoll flags given, we may:
    - notify all waiters on a match (default)
    - notify on a match only once until condition is reset (EPOLLET)
@@ -328,21 +348,8 @@ sysreturn epoll_wait(int epfd,
             continue;
         }
 
-	/* If efd is in fds and also a zombie, it's an epfd that's
-	   been masked by a oneshot event. */
-	if (!efd->registered && !efd->zombie) {
-	    if (!f->check) {
-		msg_err("requested fd %d (eventmask %P) missing check\n", fd, efd->eventmask);
-		continue;
-	    }
-	    efd->registered = true;
-	    fetch_and_add(&efd->refcnt, 1);
-	    epoll_debug("   register fd %d, eventmask %P, applying check\n",
-		    efd->fd, efd->eventmask);
-            if (!apply(f->check, efd->eventmask, &efd->lastevents,
-		       closure(h, epoll_wait_notify, efd)))
-		break;
-        }
+        if (!epoll_check(h, efd, f))
+            break;
     }
 
     int eventcount = w->user_events->end/sizeof(struct epoll_event);
@@ -365,6 +372,7 @@ sysreturn epoll_wait(int epfd,
 
 sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 {
+    heap h = heap_general(get_kernel_heaps());
     epoll e = resolve_fd(current->p, epfd);    
     epoll_debug("epoll_ctl: epoll fd %d, op %d, fd %d\n", epfd, op, fd);
     /* XXX verify that fd is not an epoll instance*/
@@ -379,6 +387,16 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 	epoll_debug("   adding %d, events %P, data %P\n", fd, event->events, event->data);
 	if (alloc_epollfd(e, fd, event->events | EPOLLERR | EPOLLHUP, event->data) == INVALID_ADDRESS)
 	    return set_syscall_error(current, ENOMEM);
+        /* if we have a blocked waiter, see if we can post any events
+           XXX add lock */
+        efd = epollfd_from_fd(e, fd);
+        assert(efd != INVALID_ADDRESS);
+        file f = resolve_fd_noret(current->p, efd->fd);
+        assert(f);
+        if (!list_empty(&efd->e->blocked_head)) {
+            epoll_debug("   posting check for blocked waiter\n");
+            epoll_check(h, efd, f);
+        }
 	break;
     case EPOLL_CTL_DEL:
 	epoll_debug("   removing %d\n", fd);
