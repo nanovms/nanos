@@ -441,10 +441,16 @@ static boolean socket_check(sock s, u32 eventmask, u32 * last, event_handler eh)
 {
     u32 events = socket_poll_events(s);
     u32 report = edge_events(events, eventmask, last);
-    net_debug("sock %d, type %d, eventmask %P, last %d, events %P, masked %P, report %P\n",
-	      s->fd, s->type, eventmask, last, last ? *last : -1, events, masked, report);
+    net_debug("sock %d, type %d, eventmask %P, last %d, events %P, report %P\n",
+	      s->fd, s->type, eventmask, last ? *last : -1, events, report);
     if (report) {
-        return apply(eh, report);
+        if (apply(eh, report)) {
+            if (last)
+                *last = events & eventmask;
+            return true;
+        } else {
+            return false;
+        }
     } else {
 	if (!notify_add(s->ns, eventmask, last, eh))
 	    msg_err("notify enqueue fail: out of memory\n");

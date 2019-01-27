@@ -647,7 +647,16 @@ static boolean file_check(file f, fsfile fsf, u32 eventmask, u32 * last, event_h
     u32 report = edge_events(events, eventmask, last);
     /* bring in notify_set if we want threads to properly pick up file
        updates via select/poll */
-    return report ? apply(eh, report) : true;
+    if (report) {
+        if (apply(eh, report)) {
+            if (last)
+                *last = events & eventmask;
+            return true;
+        } else {
+            return false;
+        }
+    }
+    return true;
 }
 
 sysreturn open_internal(tuple root, char *name, int flags, int mode)

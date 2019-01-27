@@ -57,7 +57,11 @@ void notify_dispatch(notify_set s, u32 events)
         notify_entry n = struct_from_list(l, notify_entry, l);
         list next = list_get_next(l);
         u32 report = edge_events(events, n->eventmask, n->last);
-        if (report && apply(n->eh, report)) {
+        if (report) {
+            if (apply(n->eh, report)) {
+                if (n->last)
+                    *n->last = events & n->eventmask;
+            }
             list_delete(l);
             deallocate(s->h, n, sizeof(struct notify_entry));
         }

@@ -215,7 +215,13 @@ static boolean pipe_check_internal(pipe_file pf, u32 events, u32 eventmask,
 {
     u32 report = edge_events(events, eventmask, last);
     if (report) {
-        return apply(eh, report);
+        if (apply(eh, report)) {
+            if (last)
+                *last = events & eventmask;
+            return true;
+        } else {
+            return false;
+        }
     } else {
         if (!notify_add(pf->ns, eventmask, last, eh))
 	    msg_err("notify enqueue fail: out of memory\n");

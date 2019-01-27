@@ -1,5 +1,10 @@
 typedef struct notify_set *notify_set;
 
+/* An event_handler only returns true if the event was positively
+   reported to the user program. This is critical for proper edge
+   detect support. */
+typedef closure_type(event_handler, boolean, u32 events);
+
 /* NOTIFY_EVENTS_RELEASE is a special value of events to signal to the
    event_handler that a notify_set is being deallocated.
    event_handlers should detect this special case and release
@@ -14,7 +19,11 @@ static inline u32 edge_events(u32 events, u32 eventmask, u32 * last)
     u64 delta;
     if (last) {
         delta = masked ^ *last;
-        *last = masked;
+        /* only reset last bits for cleared events; set events will be
+           updated in last if the notify event handler is successfully
+           applied (meaning that the rising edge was definitely
+           reported to user program) */
+        *last &= ~(delta & ~events);
     } else {
         delta = 0;
     }

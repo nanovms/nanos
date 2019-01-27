@@ -248,6 +248,7 @@ static void epoll_blocked_finish(epoll_blocked w, boolean timedout)
 static CLOSURE_1_1(epoll_wait_notify, boolean, epollfd, u32);
 static boolean epoll_wait_notify(epollfd efd, u32 events)
 {
+    boolean reported = false;
     list l = list_get_next(&efd->e->blocked_head);
 
     /* XXX we should be walking the whole blocked list unless
@@ -266,6 +267,7 @@ static boolean epoll_wait_notify(epollfd efd, u32 events)
 	    epoll_debug("   epoll_event %p, data %P, events %P\n", e, e->data, e->events);
 	    if (efd->eventmask & EPOLLONESHOT)
 		efd->zombie = true;
+            reported = true;
 	} else {
 	    epoll_debug("   user_events null or full\n");
 	    return false;
@@ -274,7 +276,7 @@ static boolean epoll_wait_notify(epollfd efd, u32 events)
     }
 
     epollfd_release(efd);
-    return true;
+    return reported;
 }
 
 static epoll_blocked alloc_epoll_blocked(epoll e)
@@ -417,6 +419,7 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 static CLOSURE_1_1(select_notify, boolean, epollfd, u32);
 static boolean select_notify(epollfd efd, u32 events)
 {
+    boolean reported = false;
     list l = list_get_next(&efd->e->blocked_head);
     epoll_blocked w = l ? struct_from_list(l, epoll_blocked, blocked_list) : 0;
     epoll_debug("select_notify: efd->fd %d, events %P, blocked %p, zombie %d\n",
@@ -441,11 +444,12 @@ static boolean select_notify(epollfd efd, u32 events)
 	}
 	assert(count);
 	fetch_and_add(&w->retcount, count);
+        reported = true;
 	epoll_debug("   event on %d, events %P\n", efd->fd, events);
 	epoll_blocked_finish(w, false);
     }
     epollfd_release(efd);
-    return true;
+    return reported;
 }
 
 static epoll select_get_epoll()
@@ -634,6 +638,7 @@ sysreturn select(int nfds,
 static CLOSURE_1_1(poll_wait_notify, boolean, epollfd, u32);
 static boolean poll_wait_notify(epollfd efd, u32 events)
 {
+    boolean reported = false;
     list l = list_get_next(&efd->e->blocked_head);
 
     epoll_blocked w = l ? struct_from_list(l, epoll_blocked, blocked_list) : 0;
@@ -643,13 +648,14 @@ static boolean poll_wait_notify(epollfd efd, u32 events)
     if (w && !efd->zombie && events != NOTIFY_EVENTS_RELEASE) {
         struct pollfd *pfd = buffer_ref(w->poll_fds, efd->data * sizeof(struct pollfd));
         fetch_and_add(&w->poll_retcount, 1);
+        reported = true;
         pfd->revents = events;
         epoll_debug("   event on %d (%d), events %P\n", efd->fd, pfd->fd, pfd->revents);
         epoll_blocked_finish(w, false);
     }
 
     epollfd_release(efd);
-    return true;
+    return reported;
 }
 
 static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
