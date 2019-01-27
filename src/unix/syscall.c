@@ -640,21 +640,14 @@ static boolean file_check(file f, fsfile fsf, u32 eventmask, u32 * last, event_h
     if (is_special(f->n)) {
         events = spec_events(f);
     } else {
-        /* No support for non-blocking XXXX
-           Also, if and when we have some degree of file caching and want
-           to support the above, don't rewrite it but factor out the
-           notify list stuff from netsyscall.c to share with files.
-        */
+        /* XXX add nonblocking support */
         events = f->length < infinity ? EPOLLOUT : 0;
         events |= f->offset < f->length ? EPOLLIN : EPOLLHUP;
     }
-    u32 masked = events & eventmask;
-    u32 r = edge_events(masked, eventmask, last ? *last : 0);
-    if (last)
-        *last = masked;
-    if (r)
-	return apply(eh, r);
-    return true;
+    u32 report = edge_events(events, eventmask, last);
+    /* bring in notify_set if we want threads to properly pick up file
+       updates via select/poll */
+    return report ? apply(eh, report) : true;
 }
 
 sysreturn open_internal(tuple root, char *name, int flags, int mode)

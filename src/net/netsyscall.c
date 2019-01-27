@@ -46,7 +46,6 @@ typedef closure_type(lwip_status_handler, void, err_t);
 typedef struct sock {
     struct file f;
     int type;
-#define SOCK_FLAG_NONBLOCK  0x00000001
     u32 flags;
     process p;
     heap h;
@@ -101,7 +100,9 @@ static inline u32 socket_poll_events(sock s)
 
 static inline void notify_sock(sock s)
 {
-    notify_dispatch(s->ns, socket_poll_events(s));
+    u32 events = socket_poll_events(s);
+    net_debug("sock %d, events %P\n", s->fd, events);
+    notify_dispatch(s->ns, events);
 }
 
 /* May be called from irq/softirq */
@@ -234,6 +235,10 @@ static sysreturn sock_read_bh(sock s, thread t, void *dest, u64 length,
             rv = 0;
             goto out;
         }
+        if ((s->flags & SOCK_NONBLOCK)) {
+            rv = -EAGAIN;
+            goto out;
+        }
         return infinity;               /* back to chewing more cud */
     }
 
@@ -341,7 +346,7 @@ static sysreturn socket_write_tcp_bh(sock s, thread t, void * buf, u64 remain, b
     u64 avail = tcp_sndbuf(s->info.tcp.lw);
     if (avail == 0) {
       full:
-        if (!blocked && (s->flags & SOCK_FLAG_NONBLOCK)) {
+        if (!blocked && (s->flags & SOCK_NONBLOCK)) {
             net_debug(" send buf full and non-blocking, return EAGAIN\n");
             rv = -EAGAIN;
             goto out;
@@ -435,14 +440,11 @@ static CLOSURE_1_3(socket_check, boolean, sock, u32, u32 *, event_handler);
 static boolean socket_check(sock s, u32 eventmask, u32 * last, event_handler eh)
 {
     u32 events = socket_poll_events(s);
-    u32 masked = events & eventmask;
-    net_debug("sock %d, type %d, eventmask %P, events %P\n",
-	      s->fd, s->type, eventmask, events);
-    if (masked) {
-        u32 report = edge_events(masked, eventmask, last ? *last : 0);
-        if (last)
-            *last = masked;
-	return apply(eh, report);
+    u32 report = edge_events(events, eventmask, last);
+    net_debug("sock %d, type %d, eventmask %P, last %d, events %P, masked %P, report %P\n",
+	      s->fd, s->type, eventmask, last, last ? *last : -1, events, masked, report);
+    if (report) {
+        return apply(eh, report);
     } else {
 	if (!notify_add(s->ns, eventmask, last, eh))
 	    msg_err("notify enqueue fail: out of memory\n");
@@ -495,7 +497,7 @@ static void udp_input_lower(void *z, struct udp_pcb *pcb, struct pbuf *p,
 }
 
 #define SOCK_BLOCKQ_LEN 32
-static int allocate_sock(process p, int type, sock * rs)
+static int allocate_sock(process p, int type, u32 flags, sock * rs)
 {
     sock s = unix_cache_alloc(get_unix_heaps(), socket);
     if (s == INVALID_ADDRESS) {
@@ -521,15 +523,16 @@ static int allocate_sock(process p, int type, sock * rs)
     s->txbq = allocate_blockq(h, "sock transmit", SOCK_BLOCKQ_LEN, 0 /* XXX */);
     s->ns = allocate_notify_set(h);
     s->fd = fd;
+    s->flags = flags;           /* XXX should sanity check */
     set_lwip_error(s, ERR_OK);
     *rs = s;
     return fd;
 }
 
-static int allocate_tcp_sock(process p, struct tcp_pcb *pcb)
+static int allocate_tcp_sock(process p, struct tcp_pcb *pcb, u32 flags)
 {
     sock s;
-    int fd = allocate_sock(p, SOCK_STREAM, &s);
+    int fd = allocate_sock(p, SOCK_STREAM, flags, &s);
     if (fd >= 0) {
 	s->info.tcp.lw = pcb;
 	s->info.tcp.state = TCP_SOCK_CREATED;
@@ -538,10 +541,10 @@ static int allocate_tcp_sock(process p, struct tcp_pcb *pcb)
     return fd;
 }
 
-static int allocate_udp_sock(process p, struct udp_pcb * pcb)
+static int allocate_udp_sock(process p, struct udp_pcb * pcb, u32 flags)
 {
     sock s;
-    int fd = allocate_sock(p, SOCK_DGRAM, &s);
+    int fd = allocate_sock(p, SOCK_DGRAM, flags, &s);
     if (fd >= 0) {
 	s->info.udp.lw = pcb;
 	s->info.udp.state = UDP_SOCK_CREATED;
@@ -559,8 +562,9 @@ sysreturn socket(int domain, int type, int protocol)
 
     /* check flags */
     int flags = type & ~SOCK_TYPE_MASK;
+    boolean nonblock = false;
     if (check_flags_and_clear(flags, SOCK_NONBLOCK))
-	msg_warn("non-blocking sockets not yet supported; ignored\n");
+        nonblock = true;
 
     if (check_flags_and_clear(flags, SOCK_CLOEXEC))
 	msg_warn("close-on-exec not applicable; ignored\n");
@@ -574,7 +578,7 @@ sysreturn socket(int domain, int type, int protocol)
         if (!(p = tcp_new_ip_type(IPADDR_TYPE_ANY)))
             return -ENOMEM;
 
-        int fd = allocate_tcp_sock(current->p, p);
+        int fd = allocate_tcp_sock(current->p, p, nonblock ? SOCK_NONBLOCK : 0);
         net_debug("new tcp fd %d, pcb %p\n", fd, p);
         return fd;
     } else if (type == SOCK_DGRAM) {
@@ -582,7 +586,7 @@ sysreturn socket(int domain, int type, int protocol)
         if (!(p = udp_new()))
             return -ENOMEM;
 
-        int fd = allocate_udp_sock(current->p, p);
+        int fd = allocate_udp_sock(current->p, p, nonblock ? SOCK_NONBLOCK : 0);
         net_debug("new udp fd %d, pcb %p\n", fd, p);
         return fd;
     }
@@ -840,7 +844,8 @@ static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t err)
         return err;               /* lwIP doesn't care */
     }
 
-    int fd = allocate_tcp_sock(s->p, lw);
+    /* XXX such a thing as nonblock inherited from listen socket? */
+    int fd = allocate_tcp_sock(s->p, lw, 0);
     if (fd < 0)
 	return ERR_MEM;
 
@@ -893,7 +898,7 @@ static sysreturn accept_bh(sock s, thread t, struct sockaddr *addr, socklen_t *a
 
     sock sn = dequeue(s->incoming);
     if (!sn) {
-        if ((flags & SOCK_NONBLOCK)) {
+        if ((s->flags & SOCK_NONBLOCK) || (flags & SOCK_NONBLOCK)) {
             rv = -EAGAIN;
             goto out;
         }

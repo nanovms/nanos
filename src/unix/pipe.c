@@ -213,12 +213,8 @@ static sysreturn pipe_write(file f, void * dest, u64 length, u64 offset)
 static boolean pipe_check_internal(pipe_file pf, u32 events, u32 eventmask,
                                    u32 * last, event_handler eh)
 {
-    u32 masked = events & eventmask;
-    /* XXX debug */
-    if (masked) {
-        u32 report = edge_events(masked, eventmask, last ? *last : 0);
-        if (last)
-            *last = masked;
+    u32 report = edge_events(events, eventmask, last);
+    if (report) {
         return apply(eh, report);
     } else {
         if (!notify_add(pf->ns, eventmask, last, eh))

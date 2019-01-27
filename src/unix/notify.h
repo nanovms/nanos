@@ -8,16 +8,18 @@ typedef struct notify_set *notify_set;
 
 /* We're using epoll events internally, expecting they will properly
    serve as a superset of all {epoll,poll,select} events. */
-static inline u32 edge_events(u32 masked, u32 eventmask, u32 last)
+static inline u32 edge_events(u32 events, u32 eventmask, u32 * last)
 {
-    u32 r;
-    /* report only rising events if edge triggered */
-    if ((eventmask & EPOLLET) && (masked != last)) {
-	r = (masked ^ last) & masked;
+    u64 masked = events & eventmask;
+    u64 delta;
+    if (last) {
+        delta = masked ^ *last;
+        *last = masked;
     } else {
-	r = masked;
+        delta = 0;
     }
-    return r;
+    /* report only rising events if edge triggered */
+    return (eventmask & EPOLLET) ? (delta & masked) : masked;
 }
 
 notify_set allocate_notify_set(heap h);
