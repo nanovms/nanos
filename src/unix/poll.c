@@ -226,7 +226,7 @@ static void epoll_blocked_finish(epoll_blocked w, boolean timedout)
 	   that we have a race-free way to disable the timer if waking
 	   on an event.
 
-	   This will have to be revisited, for we'll accumulate a
+	   XXX This will have to be revisited, for we'll accumulate a
 	   bunch of zombie epoll_blocked and timer objects until they
 	   start timing out.
 	*/

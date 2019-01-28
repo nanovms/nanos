@@ -16,19 +16,20 @@ typedef closure_type(event_handler, boolean, u32 events);
 static inline u32 edge_events(u32 events, u32 eventmask, u32 * last)
 {
     u64 masked = events & eventmask;
-    u64 delta;
+    u64 report = masked;
     if (last) {
-        delta = masked ^ *last;
-        /* only reset last bits for cleared events; set events will be
-           updated in last if the notify event handler is successfully
-           applied (meaning that the rising edge was definitely
-           reported to user program) */
+        u64 delta = masked ^ *last;
+        /* record falling edge: only reset last bits for cleared
+           events right now; set events will be propagated to last
+           when the notify event handler is successfully applied
+           (meaning that the rising edge was definitely reported to
+           user program) */
         *last &= ~(delta & ~events);
-    } else {
-        delta = 0;
+
+        if (eventmask & EPOLLET)
+            report = masked & delta; /* report only rising edges */
     }
-    /* report only rising events if edge triggered */
-    return (eventmask & EPOLLET) ? (delta & masked) : masked;
+    return report;
 }
 
 notify_set allocate_notify_set(heap h);
