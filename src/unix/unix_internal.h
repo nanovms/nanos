@@ -95,7 +95,6 @@ typedef struct thread {
 } *thread;
 
 typedef closure_type(io, sysreturn, void *, u64 length, u64 offset);
-typedef closure_type(event_handler, boolean, u32 events);
 
 #include <notify.h>
 
