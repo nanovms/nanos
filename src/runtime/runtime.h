@@ -203,8 +203,6 @@ typedef struct signature {
     u64 s[4];
 } *signature;
 
-#include <range.h>
-
 void init_runtime(kernel_heaps kh);
 heap allocate_tagged_region(kernel_heaps kh, u64 tag);
 typedef closure_type(buffer_promise, void, buffer_handler);
@@ -225,6 +223,7 @@ extern heap transient;
 
 #include <list.h>
 #include <bitmap.h>
+#include <range.h>
 
 typedef closure_type(merge, status_handler);
 merge allocate_merge(heap h, status_handler completion);

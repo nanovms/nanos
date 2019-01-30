@@ -36,22 +36,34 @@ void copyout(filesystem fs, void *target, void *source, u64 offset, u64 length, 
     deallocate(fs->h, source, fs->blocksize);
 }
 
-static CLOSURE_4_2(fs_read_extent, void,
+/* range_from_rmnode for file extent range */
+typedef struct extent {
+    struct rmnode node;
+    u64 block_start;
+} *extent;
+
+static inline extent allocate_extent(heap h, range init_range, u64 block_start)
+{
+    extent e = allocate(h, sizeof(struct extent));
+    if (e == INVALID_ADDRESS)
+        return e;
+    rmnode_init(&e->node, init_range);
+    e->block_start = block_start;
+    return e;
+}
+
+static CLOSURE_4_1(fs_read_extent, void,
                    filesystem, buffer, merge, range,
-                   range, void *);
+                   rmnode);
 static void fs_read_extent(filesystem fs,
                            buffer target,
                            merge m,
                            range q,
-                           range ex,
-                           void *val)
+                           rmnode node)
 {
-    /* XXX add special handling for file holes (zero buffer area) */
-    if (val == range_hole)
-        return;
-
-    range i = range_intersection(q, ex);
-    u64 block_start = u64_from_pointer(val);
+    extent e = (extent)node;
+    range i = range_intersection(q, node->r);
+    u64 block_start = e->block_start;
 
     // target_offset is required for the cases when q.start < ex.start
     // (q spans more than one extent) but this does not happen now
@@ -189,24 +201,19 @@ void filesystem_read(filesystem fs, tuple t, void *dest, u64 length, u64 offset,
 // extend here
 // This function is terribly broken. *last is never updated, but it should be.
 // Leave it as it is for now, but get back to this asap. -lkurusa
-static CLOSURE_4_2(fs_write_extent, void,
-                   filesystem, buffer, merge, u64 *, 
-                   range, void *);
-static void fs_write_extent(filesystem fs, buffer source, merge m, u64 *last, range x, void *val)
+static CLOSURE_4_1(fs_write_extent, void, filesystem, buffer, merge, u64 *, rmnode);
+static void fs_write_extent(filesystem fs, buffer source, merge m, u64 *last, rmnode node)
 {
-    if (val == range_hole) {
-//        rprintf("hole: %R\n", x);
-        return;
-    }
-
+    range x = node->r;
     u64 target_len = x.end - x.start, source_len = buffer_length(source);
+    // u64 block_start = u64_from_pointer(node->val);
     // if this doesn't lie on an alignment bonudary we may need to do a read-modify-write
 
     /* Will this extent be reallocated? */
     if (source_len > target_len)
         return;
 
-    /* XXX: is this correct? */
+    /* XXX: is this correct? no, it's all fucked */
     status_handler sh = apply(m);
     apply(fs->w, source, x.start, sh);
 }
@@ -225,6 +232,7 @@ static tuple soft_create(filesystem fs, tuple t, symbol a)
 
 static u64 extend(fsfile f, u64 foffset, u64 length)
 {
+    heap h = f->fs->h;
     tuple e = timm("length", "%d", length);
     
     u64 storage = allocate_u64(f->fs->storage, pad(length, f->fs->alignment));
@@ -232,14 +240,18 @@ static u64 extend(fsfile f, u64 foffset, u64 length)
         halt("out of storage");
     }
     //  we should(?) encode this as an immediate bitstring?
-    string off = aprintf(f->fs->h, "%d", storage);
+    string off = aprintf(h, "%d", storage);
     table_set(e, sym(offset), off);
 
     tuple exts = soft_create(f->fs, f->md, sym(extents));
     symbol offs = intern_u64(foffset);
     table_set(exts, offs, e);
     log_write_eav(f->fs->tl, exts, offs, e, ignore);
-    rangemap_insert(f->extents, foffset, length, pointer_from_u64(storage));
+    /* XXX this extend / alloc stuff is getting redone */
+    extent ex = allocate_extent(h, irange(foffset, foffset + length), storage);
+    if (ex == INVALID_ADDRESS)
+        halt("allocate_extent: out of memory\n");
+    assert(rangemap_insert(f->extents, &ex->node));
     return storage;
 }
 
@@ -267,6 +279,7 @@ static void filesystem_write_complete(fsfile f, tuple t, u64 end, io_status_hand
     }
 
     /* Reset the extent rtrie and update the extent cache */
+    /* XXX dealloc rangemap, don't bother cause this gets nuked */
     f->extents = allocate_rangemap(fs->h);
     tuple extents = table_find(t, sym(extents));
     table_foreach(extents, off, e)
@@ -411,11 +424,17 @@ static void read_entire_complete(buffer_handler bh, buffer b, status s)
 // translate symbolic to range trie
 void extent_update(fsfile f, symbol foff, tuple value)
 {
+    /* XXX suspect crap */
     u64 length, foffset, boffset;
     parse_int(alloca_wrap(symbol_string(foff)), 10, &foffset);
     parse_int(alloca_wrap(table_find(value, sym(length))), 10, &length);
     parse_int(alloca_wrap(table_find(value, sym(offset))), 10, &boffset);
-    rangemap_insert(f->extents, foffset, length, pointer_from_u64(boffset));
+
+    /* XXX this isn't really update, but add - getting nuked anyway */
+    extent ex = allocate_extent(f->fs->h, irange(foffset, foffset + length), boffset);
+    if (ex == INVALID_ADDRESS)
+        halt("allocate_extent: out of memory\n");
+    assert(rangemap_insert(f->extents, &ex->node));
     // xxx - fix before write
     //    rtrie_remove(f->fs->free, boffset, length);
 }

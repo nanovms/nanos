@@ -1,23 +1,61 @@
 #pragma once
-typedef struct rangemap *rangemap;
+typedef struct rangemap {
+    heap h;
+    struct list root;
+} *rangemap;
 
 // [start, end)
 typedef struct range {
     u64 start, end;
 } range;
 
+typedef struct rmnode {
+    range r;
+    struct list l;
+} *rmnode;
+
 #define irange(__s, __e)  (range){__s, __e}        
 #define point_in_range(__r, __p) ((__p >= __r.start) && (__p < __r.end))
-#define range_hole ((void *)infinity)
 
-typedef closure_type(subrange, void, range r, void *);
+/* XXX might want to add a boolean return to abort op */
+typedef closure_type(rmnode_handler, void, rmnode n);
 
-boolean rangemap_insert(rangemap r, u64 start, u64 length, void *value);
-boolean rangemap_remove(rangemap r, u64 start, u64 length);
-void *rangemap_lookup(rangemap r, u64 point, range * rrange);
-void rangemap_range_lookup(rangemap r, range q, subrange s);
+boolean rangemap_insert(rangemap rm, rmnode n);
+boolean rangemap_remove_range(rangemap rm, range r);
+rmnode rangemap_lookup(rangemap rm, u64 point);
+boolean rangemap_range_lookup(rangemap rm, range q, rmnode_handler rh);
 rangemap allocate_rangemap(heap h);
-void deallocate_rangemap(rangemap r);
+void deallocate_rangemap(rangemap rm);
+
+static inline range range_from_rmnode(rmnode n)
+{
+    return n->r;
+}
+
+static inline void rmnode_set_range(rmnode n, range r)
+{
+    n->r = r;
+}
+
+static inline void rmnode_init(rmnode n, range r)
+{
+    rmnode_set_range(n, r);
+    list_init(&n->l);
+}
+
+static inline rmnode rangemap_prev_node(rangemap rm, rmnode n)
+{
+    if (n->l.prev == &rm->root)
+        return INVALID_ADDRESS;
+    return struct_from_list(n->l.prev, rmnode, l);
+}
+
+static inline rmnode rangemap_next_node(rangemap rm, rmnode n)
+{
+    if (n->l.next == &rm->root)
+        return INVALID_ADDRESS;
+    return struct_from_list(n->l.next, rmnode, l);
+}
 
 static inline range range_intersection(range a, range b)
 {

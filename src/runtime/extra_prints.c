@@ -111,7 +111,7 @@ static void format_timestamp(buffer dest, buffer fmt, vlist *a)
 static void format_range(buffer dest, buffer fmt, vlist *a)
 {
     range r = varg(*a, range);
-    bprintf(dest, "(%P %P)", r.start, r.end);
+    bprintf(dest, "[%d %d)", r.start, r.end);
 }
 
 void init_extra_prints()

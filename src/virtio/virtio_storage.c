@@ -68,6 +68,7 @@ static void storage_write(storage st, buffer b, u64 offset, status_handler s)
     boolean misaligned = (u64)buffer_ref(b, 0) & 0x000fULL;
     boolean small = buffer_length(b) != SECTOR_SIZE;
 
+    /* XXX highly suspicious */
     void *buffer;
     /* check buffer alignment */
     if (misaligned) {

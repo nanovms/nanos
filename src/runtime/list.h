@@ -21,6 +21,7 @@ static inline boolean list_empty(struct list * head)
     return (head->next == head);
 }
 
+/* XXX fix, this isn't used right */
 static inline struct list * list_get_next(struct list * head)
 {
     return head->next == head ? 0 : head->next;

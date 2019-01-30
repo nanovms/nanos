@@ -68,6 +68,20 @@ void mmap_load_entire_fail(thread t, status v) {
     thread_wakeup(t);
 }
 
+typedef struct vmap {
+    struct rmnode node;
+    /* oh, what we could do here */
+} *vmap;
+
+static inline vmap allocate_vmap(heap h, range r)
+{
+    vmap vm = allocate(h, sizeof(struct vmap));
+    if (vm == INVALID_ADDRESS)
+        return vm;
+    rmnode_init(&vm->node, r);
+    return vm;
+}
+
 static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 offset)
 {
     process p = current->p;
@@ -119,13 +133,19 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
 
                This is like a really crude start to vm tracking...
             */
-            if (!rangemap_lookup(p->vmap, where, 0) || !rangemap_lookup(p->vmap, end, 0)) {
+            if (rangemap_lookup(p->vmap, where) == INVALID_ADDRESS ||
+                rangemap_lookup(p->vmap, end) == INVALID_ADDRESS) {
                 u64 mapstart = where & ~(HUGE_PAGESIZE - 1);
                 u64 mapend = pad(end, HUGE_PAGESIZE);
                 u64 maplen = mapend - mapstart + 1;
 
                 if (id_heap_reserve(vh, mapstart, maplen)) {
-                    rangemap_insert(p->vmap, mapstart, maplen, (void *)1 /* XXX */);
+                    vmap vm = allocate_vmap(h, irange(mapstart, mapstart + maplen));
+                    if (vm == INVALID_ADDRESS) {
+                        msg_err("failed to allocate vmap\n");
+                        return -ENOMEM;
+                    }
+                    assert(rangemap_insert(p->vmap, &vm->node));
                 } else if (fixed) {
                     thread_log(current, "   failed to reserve area [%P - %P] in id heap\n",
                                where, end);
@@ -155,7 +175,12 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
                     is_32bit ? "32-bit" : "", len);
             return -ENOMEM;
         }
-        rangemap_insert(p->vmap, where, maplen, (void *)1 /* XXX nz for now, later vm area */);
+        vmap vm = allocate_vmap(h, irange(where, where + maplen));
+        if (vm == INVALID_ADDRESS) {
+            msg_err("failed to allocate vmap\n");
+            return -ENOMEM;
+        }
+        assert(rangemap_insert(p->vmap, &vm->node));
     }
 
     // make a generic zero page function

@@ -109,10 +109,6 @@ static void read_kernel_syms()
 	    kern_base = region_base(e);
 	    kern_length = region_length(e);
 
-	    /* XXX At present, this maps the kernel ELF image in order
-	     * to get to the symbols, then leaves it mapped to use its
-	     * strings. It should just copy the strings over and unmap
-	     * it. */
 	    u64 v = allocate_u64(heap_virtual_huge(&heaps), kern_length);
 	    map(v, kern_base, kern_length, heap_pages(&heaps));
 #ifdef ELF_SYMTAB_DEBUG
@@ -120,6 +116,7 @@ static void read_kernel_syms()
 		    kern_base, kern_length, v);
 #endif
 	    add_elf_syms(alloca_wrap_buffer(v, kern_length));
+            unmap(v, kern_length, heap_pages(&heaps));
 	    break;
 	}
     
