@@ -252,6 +252,11 @@ static extent create_extent(fsfile f, range r)
     u64 alloc_order = find_order(pad(length, alignment));
     u64 alloc_bytes = MAX(1 << alloc_order, MIN_EXTENT_SIZE);
 
+#ifdef BOOT
+    /* No writes from the bootloader, please. */
+    return INVALID_ADDRESS;
+#endif
+
     tfs_debug("create_extent: length %d, align %d, length %d, alloc_order %d, alloc_bytes %d\n",
               length, alignment, length, alloc_order, alloc_bytes);
 
@@ -260,6 +265,7 @@ static extent create_extent(fsfile f, range r)
         msg_err("out of storage");
         return INVALID_ADDRESS;
     }
+    tfs_debug("   block_start 0x%P\n", block_start);
 
     /* XXX this extend / alloc stuff is getting redone */
     extent ex = allocate_extent(h, r, block_start, alloc_bytes);
@@ -268,7 +274,6 @@ static extent create_extent(fsfile f, range r)
     assert(rangemap_insert(f->extentmap, &ex->node));
 
     // XXX encode this as an immediate bitstring
-    // just rewrite
     tuple e = timm("length", "%d", length);
     string offset = aprintf(h, "%d", block_start);
     table_set(e, sym(offset), offset);
@@ -292,7 +297,13 @@ void ingest_extent(fsfile f, symbol off, tuple value)
     parse_int(alloca_wrap(table_find(value, sym(allocated))), 10, &allocated);
     tfs_debug("   file offset %d, length %d, block_start 0x%P, allocated %d\n",
               file_offset, length, block_start, allocated);
-
+#ifndef BOOT
+    if (!id_heap_reserve(f->fs->storage, block_start, allocated)) {
+        /* soft error... */
+        msg_err("unable to reserve storage at start 0x%P, len 0x%P\n",
+                block_start, allocated);
+    }
+#endif
     range r = irange(file_offset, file_offset + length);
     extent ex = allocate_extent(f->fs->h, r, block_start, allocated);
     if (ex == INVALID_ADDRESS)
@@ -564,119 +575,9 @@ void flush(filesystem fs, status_handler s)
     log_flush(fs->tl);
 }
 
-/* XXX: cbm stuff is temporary */
-
-void __cbm_set(struct cbm *c, u64 bit, boolean val)
-{
-    if (val)
-        c->buffer[bit / 8] |= 1 << (bit % 8);
-    else
-        c->buffer[bit / 8] &= ~(1 << (bit % 8));
-}
-
-void cbm_set(struct cbm *c, u64 start, u64 len)
-{
-    u64 i;
-    for (i = 0; i < len; i ++)
-        __cbm_set(c, start + i, true);
-}
-
-void cbm_unset(struct cbm *c, u64 start, u64 len)
-{
-    u64 i;
-    for (i = 0; i < len; i ++)
-        __cbm_set(c, start + i, false);
-}
-
-boolean cbm_test(struct cbm *c, u64 i)
-{
-    return (c->buffer[i / 8] & (1 << (i % 8))) != 0;
-}
-
-boolean cbm_contains(struct cbm *c, u64 start, u64 cnt, boolean val)
-{
-    u64 i;
-
-    for (i = 0; i < cnt; i ++)
-        if (cbm_test(c, start + i) == val)
-            return true;
-
-    return false;
-}
-
-u64 cbm_scan(struct cbm *c, u64 start, u64 cnt, boolean val)
-{
-    u64 last = c->capacity_in_bits - start;
-    u64 i;
-    for (i = start; i <= last; i ++)
-        if (!cbm_contains(c, i, cnt, !val))
-            return i;
-
-    return INVALID_PHYSICAL;
-}
-
-struct cbmalloc {
-    struct heap h;
-    struct cbm *c;
-};
-
-u64 cbm_allocator_alloc(heap h, bytes len)
-{
-    struct cbmalloc *c = (struct cbmalloc *) h;
-    len >>= 9;
-    if (len > c->c->capacity_in_bits) {
-        return INVALID_PHYSICAL;
-    }
-    u64 ret = cbm_scan(c->c, 0, len, false);
-    if (ret != INVALID_PHYSICAL) {
-        cbm_set(c->c, ret, len);
-        return ret << 9;
-    }
-
-    return ret;
-}
-
-heap cbm_allocator(heap h, struct cbm *c)
-{
-    struct cbmalloc *a = allocate(h, sizeof(*a));
-    a->h.alloc = cbm_allocator_alloc;
-    a->c = c;
-    return &a->h;
-}
-
-struct cbm *cbm_create(heap h, u64 capacity)
-{
-    struct cbm *c = allocate(h, sizeof(*c));
-    u8 *buffer = allocate(h, (capacity >> 3) + 1);
-    c->buffer = buffer;
-    c->capacity_in_bits = capacity;
-    return c;
-}
-
-void enumerate_files(filesystem fs, tuple root)
-{
-    if (root) {
-        table_foreach(root, k, v) {
-            tuple extents = table_find(v, sym(extents));
-            if (extents) {
-                table_foreach(extents, k1, v1) {
-                    u64 offset, length, block_offset, block_length;
-                    parse_int(alloca_wrap(table_find(v1, sym(length))), 10, &length);
-                    parse_int(alloca_wrap(table_find(v1, sym(offset))), 10, &offset);
-                    block_offset = offset >> 9;
-                    block_length = length >> 9;
-                    cbm_set(fs->free, block_offset, block_length + 1);
-                }
-            }
-        }
-    }
-}
-
 static CLOSURE_2_1(log_complete, void, filesystem_complete, filesystem, status);
 static void log_complete(filesystem_complete fc, filesystem fs, status s)
 {
-    tuple fsroot = children(fs->root);
-    enumerate_files(fs, fsroot);
     apply(fc, fs, s);
 }
 
@@ -701,10 +602,11 @@ void create_filesystem(heap h,
     fs->root = root;
     fs->alignment = alignment;
     fs->blocksize = SECTOR_SIZE;
-    fs->free = cbm_create(h, size >> 9);
-    cbm_unset(fs->free, 0, size >> 9);
-    cbm_set(fs->free, 0, INITIAL_LOG_SIZE >> 9);
-    fs->storage = cbm_allocator(h, fs->free);
+#ifndef BOOT
+    fs->storage = create_id_heap(h, 0, infinity, SECTOR_SIZE);
+    assert(fs->storage != INVALID_ADDRESS);
+    assert(id_heap_reserve(fs->storage, 0, INITIAL_LOG_SIZE));
+#endif
     fs->tl = log_create(h, fs, closure(h, log_complete, complete, fs));
 }
 
