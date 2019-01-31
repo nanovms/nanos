@@ -52,11 +52,11 @@ debugsyscalls: t
 fault: t
 ```
 
-[https://github.com/nanovms/nanos/wiki/Architecture](Architecture)
+[Architecture](https://github.com/nanovms/nanos/wiki/Architecture)
 
-[https://github.com/nanovms/nanos/wiki/debugging](Debugging Help)
+[Debugging Help](https://github.com/nanovms/nanos/wiki/debugging)
 
-[https://github.com/nanovms/nanos/wiki/networking-setup](Manual Networking Setup)
+[Manual Networking Setup](https://github.com/nanovms/nanos/wiki/networking-setup)
 
 [Build Envs](https://github.com/nanovms/nanos/wiki/Build-Envs)
 
