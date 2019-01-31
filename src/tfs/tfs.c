@@ -7,7 +7,7 @@
 #endif
 
 struct fsfile {
-    rangemap extents;
+    rangemap extentmap;
     filesystem fs;
     u64 length;
     tuple md;
@@ -40,15 +40,17 @@ void copyout(filesystem fs, void *target, void *source, u64 offset, u64 length, 
 typedef struct extent {
     struct rmnode node;
     u64 block_start;
+    u64 allocated;
 } *extent;
 
-static inline extent allocate_extent(heap h, range init_range, u64 block_start)
+static inline extent allocate_extent(heap h, range init_range, u64 block_start, u64 allocated)
 {
     extent e = allocate(h, sizeof(struct extent));
     if (e == INVALID_ADDRESS)
         return e;
     rmnode_init(&e->node, init_range);
     e->block_start = block_start;
+    e->allocated = allocated;
     return e;
 }
 
@@ -76,8 +78,8 @@ static void fs_read_extent(filesystem fs,
     i.start += block_start;
     i.end += block_start;
 
-    tfs_debug("fs_read_extent: q %R, ex %R, block_start %P, i %R, target_offset %P, target_start %p, target length %P, blocksize %d\n",
-        q, ex, block_start, i, target_offset, target_start, target_length, fs->blocksize);
+    tfs_debug("fs_read_extent: q %R, ex %R, block_start %P, i %R, target_offset %d, target_start %p, target length %d, blocksize %d\n",
+        q, node->r, block_start, i, target_offset, target_start, target_length, fs->blocksize);
 
     /*
      * +       i.start--+        +--start_padded      i.end--+      +--end_padded
@@ -139,8 +141,8 @@ static void fs_read_extent(filesystem fs,
         fetch_and_add(&target->end, xfer);
         assert(i.start == 0 || pad(i.start, fs->blocksize) == i.start);
         assert(xfer <= target_length);
-        tfs_debug("fs_read_extent: reading blocks at %P (%P)\n",
-            i.start, xfer);
+        tfs_debug("fs_read_extent: reading blocks at %P (xfer %P), target %p\n",
+                  i.start, xfer_padded, target_start);
         apply(fs->r, target_start, xfer_padded, i.start, f);
     }
 #else
@@ -195,7 +197,7 @@ void filesystem_read(filesystem fs, tuple t, void *dest, u64 length, u64 offset,
     b->end = b->start;
     merge m = allocate_merge(h, closure(h, filesystem_read_complete, completion, b));
     range total = irange(offset, offset+length);
-    rangemap_range_lookup(f->extents, total, closure(h, fs_read_extent, f->fs, b, m, total));
+    rangemap_range_lookup(f->extentmap, total, closure(h, fs_read_extent, f->fs, b, m, total));
 }
 
 // extend here
@@ -230,30 +232,138 @@ static tuple soft_create(filesystem fs, tuple t, symbol a)
     return v;
 }
 
-static u64 extend(fsfile f, u64 foffset, u64 length)
+/* create a new extent in the filesystem
+
+   The life an extent depends on a particular allocation of contiguous
+   storage space. The extent is tied to this allocated area (nominally
+   page size). Only the extent data length may be updated; the file
+   offset, block start and allocation size are immutable. As an
+   optimization, adjacent extents on the disk could be joined into
+   larger extents with only a meta update.
+
+*/
+#define MIN_EXTENT_SIZE PAGESIZE
+
+static extent create_extent(fsfile f, range r)
 {
     heap h = f->fs->h;
-    tuple e = timm("length", "%d", length);
-    
-    u64 storage = allocate_u64(f->fs->storage, pad(length, f->fs->alignment));
-    if (storage == u64_from_pointer(INVALID_ADDRESS)) {
-        halt("out of storage");
-    }
-    //  we should(?) encode this as an immediate bitstring?
-    string off = aprintf(h, "%d", storage);
-    table_set(e, sym(offset), off);
+    u64 length = range_span(r);
+    u64 alignment = f->fs->alignment;
+    u64 alloc_order = find_order(pad(length, alignment));
+    u64 alloc_bytes = MAX(1 << alloc_order, MIN_EXTENT_SIZE);
 
-    tuple exts = soft_create(f->fs, f->md, sym(extents));
-    symbol offs = intern_u64(foffset);
-    table_set(exts, offs, e);
-    log_write_eav(f->fs->tl, exts, offs, e, ignore);
+    tfs_debug("create_extent: length %d, align %d, length %d, alloc_order %d, alloc_bytes %d\n",
+              length, alignment, length, alloc_order, alloc_bytes);
+
+    u64 block_start = allocate_u64(f->fs->storage, alloc_bytes);
+    if (block_start == u64_from_pointer(INVALID_ADDRESS)) {
+        msg_err("out of storage");
+        return INVALID_ADDRESS;
+    }
+
     /* XXX this extend / alloc stuff is getting redone */
-    extent ex = allocate_extent(h, irange(foffset, foffset + length), storage);
+    extent ex = allocate_extent(h, r, block_start, alloc_bytes);
     if (ex == INVALID_ADDRESS)
-        halt("allocate_extent: out of memory\n");
-    assert(rangemap_insert(f->extents, &ex->node));
-    return storage;
+        halt("out of memory\n");
+    assert(rangemap_insert(f->extentmap, &ex->node));
+
+    // XXX encode this as an immediate bitstring
+    // just rewrite
+    tuple e = timm("length", "%d", length);
+    string offset = aprintf(h, "%d", block_start);
+    table_set(e, sym(offset), offset);
+    string allocated = aprintf(h, "%d", alloc_bytes);
+    table_set(e, sym(allocated), allocated);
+    symbol offs = intern_u64(r.start);
+
+    tuple extents = soft_create(f->fs, f->md, sym(extents));
+    table_set(extents, offs, e);
+    log_write_eav(f->fs->tl, extents, offs, e, ignore);
+    return ex;
 }
+
+void ingest_extent(fsfile f, symbol off, tuple value)
+{
+    tfs_debug("ingest_extent: f %p, off %b, value %v\n", f, symbol_string(off), value);
+    u64 length, file_offset, block_start, allocated;
+    parse_int(alloca_wrap(symbol_string(off)), 10, &file_offset);
+    parse_int(alloca_wrap(table_find(value, sym(length))), 10, &length);
+    parse_int(alloca_wrap(table_find(value, sym(offset))), 10, &block_start);
+    parse_int(alloca_wrap(table_find(value, sym(allocated))), 10, &allocated);
+    tfs_debug("   file offset %d, length %d, block_start 0x%P, allocated %d\n",
+              file_offset, length, block_start, allocated);
+
+    range r = irange(file_offset, file_offset + length);
+    extent ex = allocate_extent(f->fs->h, r, block_start, allocated);
+    if (ex == INVALID_ADDRESS)
+        halt("out of memory\n");
+    assert(rangemap_insert(f->extentmap, &ex->node));
+}
+
+boolean set_extent_length(fsfile f, extent ex, u64 length)
+{
+    tfs_debug("set_extent_length: range %R, allocated %d, new length %d\n",
+              ex->node.r, ex->allocated, length);
+    if (length > ex->allocated) {
+        tfs_debug("failed: new length %d > ex->allocated %d\n",
+                  length, ex->allocated);
+        return false;
+    }
+
+    range r = ex->node.r;
+    r.end = ex->node.r.start + length;
+
+    if (rangemap_range_lookup(f->extentmap, r, 0)) {
+        tfs_debug("failed: collides with existing extent\n");
+        return false;
+    }
+
+    tuple extents = table_find(f->md, sym(extents));
+    if (!extents) {
+        tfs_debug("failed: can't find extents in f->md\n");
+        return false;
+    }
+
+    symbol offs = intern_u64(r.start);
+    tuple extent_tuple = table_find(extents, offs);
+    if (!extent_tuple) {
+        tfs_debug("failed: can't find extent tuple\n");
+        return false;
+    }
+
+    /* re-insert in rangemap */
+    rangemap_remove_node(f->extentmap, &ex->node);
+
+    if (!rangemap_insert(f->extentmap, &ex->node)) {
+        tfs_debug("failed: rangemap_insert failed\n");
+        return false;
+    }
+
+    /* update length in tuple and log */
+    string v = aprintf(f->fs->h, "%d", length);
+    table_set(extent_tuple, sym(length), v);
+    log_write_eav(f->fs->tl, extents, offs, extent_tuple, ignore);
+    log_flush(f->fs->tl);       /* XXX flush each time for now */
+    return true;
+}
+
+#if 0
+/* use more of an extent's allocated area */
+static u64 inflate_extent(extent e, u64 n)
+{
+
+}
+
+static void truncate_extent(extent e, u64 n)
+{
+
+}
+
+static boolean delete_extent(extent e)
+{
+
+}
+#endif
 
 // need to provide better/more symmetric access to metadata, but ...
 // status?
@@ -280,10 +390,12 @@ static void filesystem_write_complete(fsfile f, tuple t, u64 end, io_status_hand
 
     /* Reset the extent rtrie and update the extent cache */
     /* XXX dealloc rangemap, don't bother cause this gets nuked */
-    f->extents = allocate_rangemap(fs->h);
+    f->extentmap = allocate_rangemap(fs->h);
+#if 0
     tuple extents = table_find(t, sym(extents));
     table_foreach(extents, off, e)
         extent_update(f, off, e);
+#endif
     table_set(fs->files, t, f);
 
     /* TODO(lkurusa): Write the final root tuple to the disk */
@@ -307,32 +419,34 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_ha
 
     merge m = allocate_merge(fs->h, closure(fs->h, filesystem_write_complete,
                 f, t, buffer_length(b) + offset, completion));
-    rangemap_range_lookup(f->extents, irange(offset, offset+len), closure(h, fs_write_extent, f->fs, b, m, last));
-    
+    rangemap_range_lookup(f->extentmap, irange(offset, offset+len), closure(h, fs_write_extent, f->fs, b, m, last));
+
     if (*last < (offset + len)) {
         u64 elen = (offset + len) - *last;
-        u64 eoff = extend(f, *last, elen);
-        if (eoff != u64_from_pointer(INVALID_ADDRESS)) {
-            status_handler sh = apply(m);
-
-            /* XXX: this should only pop up when writing to virtio,
-               check for HOST_BUILD is just a lazy kludge */
-#ifndef HOST_BUILD
-            if (b->end - *last > SECTOR_SIZE)
-                rprintf("trying to write more than what's supported: %d > %d\n",
-                        b->end - *last, SECTOR_SIZE);
-#endif
-
-            buffer bf = wrap_buffer(transient, buffer_ref(b, *last), b->end - *last);
-            apply(fs->w, bf, eoff, sh);
+        extent ex = create_extent(f, irange(*last, *last + elen)); /* XXX nuke anyway */
+        if (ex == INVALID_ADDRESS) {
+            msg_err("unable to create extent\n");
+            /* XXX do completion with error */
+            return;
         }
+
+        status_handler sh = apply(m);
+        /* XXX: this should only pop up when writing to virtio,
+           check for HOST_BUILD is just a lazy kludge */
+#ifndef HOST_BUILD
+        if (b->end - *last > SECTOR_SIZE)
+            rprintf("trying to write more than what's supported: %d > %d\n",
+                    b->end - *last, SECTOR_SIZE);
+#endif
+        buffer bf = wrap_buffer(transient, buffer_ref(b, *last), b->end - *last);
+        apply(fs->w, bf, ex->block_start, sh);
     }
 }
 
 fsfile allocate_fsfile(filesystem fs, tuple md)
 {
     fsfile f = allocate(fs->h, sizeof(struct fsfile));
-    f->extents = allocate_rangemap(fs->h);
+    f->extentmap = allocate_rangemap(fs->h);
     f->fs = fs;
     f->md = md;
     f->length = 0;
@@ -420,25 +534,6 @@ static void read_entire_complete(buffer_handler bh, buffer b, status s)
     apply(bh, b);
 }
 
-
-// translate symbolic to range trie
-void extent_update(fsfile f, symbol foff, tuple value)
-{
-    /* XXX suspect crap */
-    u64 length, foffset, boffset;
-    parse_int(alloca_wrap(symbol_string(foff)), 10, &foffset);
-    parse_int(alloca_wrap(table_find(value, sym(length))), 10, &length);
-    parse_int(alloca_wrap(table_find(value, sym(offset))), 10, &boffset);
-
-    /* XXX this isn't really update, but add - getting nuked anyway */
-    extent ex = allocate_extent(f->fs->h, irange(foffset, foffset + length), boffset);
-    if (ex == INVALID_ADDRESS)
-        halt("allocate_extent: out of memory\n");
-    assert(rangemap_insert(f->extents, &ex->node));
-    // xxx - fix before write
-    //    rtrie_remove(f->fs->free, boffset, length);
-}
-
 fsfile fsfile_from_node(filesystem fs, tuple n)
 {
     return table_find(fs->files, n);
@@ -457,7 +552,7 @@ void filesystem_read_entire(filesystem fs, tuple t, heap h, buffer_handler c, st
         status_handler c1 = closure(f->fs->h, read_entire_complete, c, b);
         merge m = allocate_merge(f->fs->h, c1);
         status_handler k = apply(m); // hold a reference until we're sure we've issued everything
-        rangemap_range_lookup(f->extents, irange(0, len), closure(h, fs_read_extent, fs, b, m, irange(0, len)));
+        rangemap_range_lookup(f->extentmap, irange(0, len), closure(h, fs_read_extent, fs, b, m, irange(0, len)));
         apply(k, STATUS_OK);
     } else {
         apply(e, timm("status", "no such file %v\n", t));

@@ -20,11 +20,6 @@ boolean rangemap_insert(rangemap rm, rmnode n)
     return true;
 }
 
-void rangemap_remove_node(rangemap rm, rmnode n)
-{
-    list_delete(&n->l);
-}
-
 boolean rangemap_remove_range(rangemap rm, range k)
 {
     boolean match = false;
@@ -85,6 +80,19 @@ rmnode rangemap_lookup(rangemap rm, u64 point)
     list_foreach(&rm->root, i) {
         rmnode curr = struct_from_list(i, rmnode, l);
         if (point_in_range(curr->r, point))
+            return curr;
+    }
+    return INVALID_ADDRESS;
+}
+
+/* return either an exact match or the neighbor to the right */
+rmnode rangemap_lookup_at_or_next(rangemap rm, u64 point)
+{
+    struct list * i;
+    list_foreach(&rm->root, i) {
+        rmnode curr = struct_from_list(i, rmnode, l);
+        if (point_in_range(curr->r, point) ||
+            curr->r.start > point)
             return curr;
     }
     return INVALID_ADDRESS;

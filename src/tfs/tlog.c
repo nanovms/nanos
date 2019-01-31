@@ -29,8 +29,6 @@ static void log_write_completion(vector v, status nothing)
 void log_flush(log tl)
 {
     buffer b = tl->staging;
-
-    buffer_clear(tl->completions);
     push_u8(b, END_OF_LOG);
     apply(tl->fs->w,
           b,
@@ -76,10 +74,11 @@ void log_read_complete(log tl, status_handler sh, status s)
             // nor the recursive case
             table_foreach(t, k, v) {
                 if (k == sym(extents)) {
+                    /* don't know why this needs to be in fs, it's really tlog-specific */
                     if (!(f = table_find(tl->fs->extents, v))) {
                         f = allocate_fsfile(tl->fs, t);
+                        table_set(tl->fs->extents, v, f);
                     }
-                    table_set(tl->fs->extents, v, f);
                 }
                 if (k == sym(filelength)) {
                     filelength = u64_from_value(v);
@@ -91,7 +90,7 @@ void log_read_complete(log tl, status_handler sh, status s)
 
             if ((f = table_find(tl->fs->extents, t)))  {
                 table_foreach(t, off, e)
-                    extent_update(f, off, e);
+                    ingest_extent(f, off, e);
             }
         }
         
@@ -103,7 +102,7 @@ void log_read_complete(log tl, status_handler sh, status s)
             table_foreach (logroot, k, v) 
                 table_set(tl->fs->root, k, v);
     }
-    
+
     apply(sh, 0);
     // something really strange is going on with the value of frame
     //    if (frame != END_OF_LOG) halt("bad log tag %p\n", frame);    

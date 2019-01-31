@@ -28,7 +28,7 @@ typedef struct filesystem {
     bytes blocksize;
 } *filesystem;
 
-void extent_update(fsfile f, symbol foff, tuple value);
+void ingest_extent(fsfile f, symbol foff, tuple value);
 
 log log_create(heap h, filesystem fs, status_handler sh);
 void log_write(log tl, tuple t, thunk complete);

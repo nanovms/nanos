@@ -23,6 +23,7 @@ typedef closure_type(rmnode_handler, void, rmnode n);
 boolean rangemap_insert(rangemap rm, rmnode n);
 boolean rangemap_remove_range(rangemap rm, range r);
 rmnode rangemap_lookup(rangemap rm, u64 point);
+rmnode rangemap_lookup_at_or_next(rangemap rm, u64 point);
 boolean rangemap_range_lookup(rangemap rm, range q, rmnode_handler rh);
 rangemap allocate_rangemap(heap h);
 void deallocate_rangemap(rangemap rm);
@@ -55,6 +56,11 @@ static inline rmnode rangemap_next_node(rangemap rm, rmnode n)
     if (n->l.next == &rm->root)
         return INVALID_ADDRESS;
     return struct_from_list(n->l.next, rmnode, l);
+}
+
+static inline void rangemap_remove_node(rangemap rm, rmnode n)
+{
+    list_delete(&n->l);
 }
 
 static inline range range_intersection(range a, range b)

@@ -42,6 +42,8 @@ static inline int runtime_strlen(const char *a)
 
 #define pad(__x, __s) ((((__x) - 1) & (~((__s) - 1))) + (__s))
 
+#define find_order(x) ((x) > 1 ? msb((x) - 1) + 1 : 0)
+
 #define U64_FROM_BIT(x) (1ull<<(x))
 #define MASK(x) (U64_FROM_BIT(x)-1)
 

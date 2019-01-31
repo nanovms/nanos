@@ -18,10 +18,10 @@ typedef struct id_heap {
 #define page_order(i) (i->page_order)
 #define page_mask(i) (page_size(i) - 1)
 
-static inline int find_order(id_heap i, bytes alloc_size)
+static inline int find_page_order(id_heap i, bytes alloc_size)
 {
-    int order = pad(alloc_size, page_size(i)) >> page_order(i);
-    return order > 1 ? msb(order - 1) + 1 : 0;	/* round up to next power of 2 */
+    int npages = pad(alloc_size, page_size(i)) >> page_order(i);
+    return find_order(npages);  /* round up to next power of 2 */
 }
 
 static id_range id_add_range(id_heap i, u64 base, u64 length)
@@ -95,7 +95,7 @@ static u64 id_alloc(heap h, bytes count)
     id_heap i = (id_heap)h;
     if (count == 0)
 	return INVALID_PHYSICAL;
-    int order = find_order(i, count);
+    int order = find_page_order(i, count);
 
     id_range r;
     vector_foreach(i->ranges, r) {
@@ -121,7 +121,7 @@ static void id_dealloc(heap h, u64 a, bytes count)
 
     id_range r;
     char * s;
-    int order = find_order(i, count);
+    int order = find_page_order(i, count);
 
     vector_foreach(i->ranges, r) {
 	if (a < r->base || (a + count) > r->base + r->length)
