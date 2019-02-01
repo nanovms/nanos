@@ -388,6 +388,72 @@ void filesystem_write_eav(filesystem fs, tuple t, symbol a, value v)
     log_write_eav(fs->tl, t, a, v, ignore);
 }
 
+/* Holes over the query range will be filled with extents before later
+   being filled with content. However, there are at least two
+   differing ways that we can do this function:
+
+   1) Use only single page-sized extents when writing. The reasons are
+      two-fold: With our storage allocator, larger, non power-of-2
+      sizes will lead to more wasted allocated space, and larger,
+      varied allocations leads to more fragmentation of storage space.
+
+      This comes at the cost of meta for every page worth of file
+      data. However, extent meta for contiguous areas can be
+      aggregated. This is aided by the storage allocator issuing
+      allocations in-order when possible. (Note that we can add a
+      "release" function to the id heap to complement reserve. This
+      would allow us to arbitrarily deallocate blocks - and not
+      necessarily in allocation alignments (as with reserve).)
+
+   2) An alternative approach is to break large extent requests into
+      allocation sizes that can be filled completely, descending in
+      order. This would address the wasted allocated space issue but
+      not the fragmentation issue.
+
+   In any case, the attempt is to isolate the logic for mapping a
+   write to a series of extents to this function alone. So any
+   implementation of the above methods merely takes place in the logic
+   below.
+*/
+/* static */
+boolean fill_extents(fsfile f, range q)
+{
+    u64 curr = q.start;
+    rmnode node = rangemap_lookup_at_or_next(f->extentmap, q.start);
+
+    do {
+        u64 limit = node ? node->r.start : q.end;
+        if (curr < limit) {
+            range hole = irange(curr, limit);
+            range fill = range_intersection(q, hole);
+
+            /* just doing min-sized extents for now */
+            s64 remain = range_span(fill);
+            u64 curr = fill.start;
+
+            do {
+                /* create_extent will allocate a minimum of pagesize */
+                u64 length = MIN(MIN_EXTENT_SIZE, remain);
+                range r = irange(curr, length);
+                extent ex = create_extent(f, r);
+                if (ex == INVALID_ADDRESS) {
+                    msg_err("failed to create extent\n");
+                    return false;
+                }
+                curr += length;
+                remain -= length;
+            } while (remain > 0);
+        }
+
+        /* advance past existing extent */
+        if (node)
+            curr = node->r.end;
+        node = rangemap_next_node(f->extentmap, node);
+    } while(curr < q.end);
+
+    return true;
+}
+
 static CLOSURE_4_1(filesystem_write_complete, void, fsfile, tuple, u64, io_status_handler, status);
 static void filesystem_write_complete(fsfile f, tuple t, u64 end, io_status_handler completion, status s)
 {
