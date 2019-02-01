@@ -2,7 +2,7 @@
 #include <path.h>
 #include <buffer.h>
 #include <unistd.h>
-//#include <stdlib.h>
+#include <stdlib.h>
 #define EXIT_FAILURE 1
 #define EXIT_SUCCESS 0
 #include <stdio.h>
