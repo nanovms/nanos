@@ -25,35 +25,34 @@ buffer lookup_file(heap h, const char *target_root, buffer name, struct stat *st
 {
     char path_buf[PATH_MAX];
     const char *n = buffer_ref(name, 0);
+    int len = buffer_length(name);
 
     name = allocate_buffer(h, PATH_MAX); // new buffer
 
     while (1) {
         buffer_clear(name);
         buffer_write(name, target_root, strlen(target_root));
-	if (n[0] != '/')
+        if (n[0] != '/')
             buffer_write_byte(name, '/');
-        buffer_write(name, n, strlen(n));
+        buffer_write(name, n, len);
 
         if (lstat(cstring(name), st) < 0)
            halt("couldn't stat file %b: %s\n", name, strerror(errno));
         if (!S_ISLNK(st->st_mode))
            break;
 
-        int len;
         if ((len = readlink(cstring(name), path_buf, sizeof(path_buf))) < 0)
            halt("couldn't readlink file %b: %s\n", name, strerror(errno));
-        path_buf[len] = '\0';
-	if (path_buf[0] == '/') {
-	    /* absolute links need to be resolved */
+        if (path_buf[0] == '/') {
+            /* absolute links need to be resolved */
             n = path_buf;
-	    continue;
+            continue;
         }
 
         /* relative links are ok */
         if (stat(cstring(name), st) < 0)
             halt("couldn't stat file %b: %s\n", name, strerror(errno));
-	break;
+        break;
     }
 
     return name;
