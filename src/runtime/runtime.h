@@ -10,7 +10,6 @@ typedef u64 timestamp;
 
 extern void console(char *x);
 void print_u64(u64 s);
-void exit(int status);
 
 extern void halt(char *format, ...);
 

@@ -5,6 +5,7 @@ OUT = $(ROOT)/output/examples
 
 CFLAGS = -g \
 	 -fno-omit-frame-pointer \
+	 -DHOST_BUILD \
 	 -DENABLE_MSG_DEBUG \
 	 $(includes)
 CFLAGS+= $(CFLAG_WARNINGS) \
