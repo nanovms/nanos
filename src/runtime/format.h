@@ -42,9 +42,7 @@ static inline void bprintf(buffer b, char *fmt, ...)
 static inline void rprintf(char *format, ...)
 {
     vlist a;    
-    buffer b = allocate_buffer(transient, 64);
-    // fix alloca buffer support
-    // buffer b = little_stack_buffer(1024);
+    buffer b = little_stack_buffer(1024);
     
     struct buffer f;
     f.start = 0;
