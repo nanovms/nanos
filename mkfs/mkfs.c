@@ -16,7 +16,7 @@ static buffer read_stdin(heap h)
     buffer in = allocate_buffer(h, 1024);
     int r, k;
     while ((r = in->length - in->end) &&
-           ((k = read(0, in->contents + in->end, r)), in->end += k, k == r)) 
+           ((k = read(0, in->contents + in->end, r)), in->end += k, k > 0))
         buffer_extend(in, 1024);
     return in;
 }
@@ -106,16 +106,6 @@ void perr(string s)
     rprintf("parse error %b\n", s);
 }
 
-// status
-void includedir(tuple dest, buffer path)
-{
-    DIR *d = opendir(cstring(path));
-    while (readdir(d)) {
-    }
-    closedir(d);
-}
-
-
 static CLOSURE_1_3(bwrite, void, descriptor, buffer, u64, status_handler);
 static void bwrite(descriptor d, buffer s, u64 offset, status_handler c)
 {
@@ -173,7 +163,6 @@ static value translate(heap h, vector worklist, filesystem fs, value v, status_h
 }
 
 extern heap init_process_runtime();
-#include <stdio.h>
 
 static CLOSURE_2_2(fsc, void, heap, descriptor, filesystem, status);
 static void fsc(heap h, descriptor out, filesystem fs, status s)
@@ -216,4 +205,5 @@ int main(int argc, char **argv)
                       closure(h, bwrite, out),
                       allocate_tuple(),
                       closure(h, fsc, h, out));
+    exit(0);
 }
