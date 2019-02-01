@@ -23,14 +23,14 @@ void fsfile_set_length(fsfile f, u64 length)
     f->length = length;
 }
 
-static CLOSURE_5_1(copyout, void, filesystem, void *, void *, u64, status_handler, status);
-void copyout(filesystem fs, void *target, void *source, u64 length, status_handler sh, status s)
+static CLOSURE_6_1(copyout, void, filesystem, void *, void *, u64, u64, status_handler, status);
+void copyout(filesystem fs, void *target, void *source, u64 offset, u64 length, status_handler sh, status s)
 {
-    tfs_debug("copyout: target %p, length %P: %v\n", target, length, s);
+    tfs_debug("copyout: source %p, offset %d, target %p, length %P: %v\n", source, offset, target, length, s);
     if (s) {
         apply(sh, s);
     } else {
-        runtime_memcpy(target, source, length);
+        runtime_memcpy(target, (char *) source + offset, length);
         apply(sh, s);
     }
     deallocate(fs->h, source, fs->blocksize);
@@ -85,11 +85,11 @@ static void fs_read_extent(filesystem fs,
         void *temp = allocate(fs->h, fs->blocksize);
         assert(temp != INVALID_ADDRESS);
         status_handler f = apply(m);
-        status_handler copy = closure(fs->h, copyout, fs, target_start, temp + (fs->blocksize - head), head, f);
+        status_handler copy = closure(fs->h, copyout, fs, target_start, temp, fs->blocksize - (start_padded - i.start), head, f);
         fetch_and_add(&target->end, head);
         u64 read_start = start_padded - fs->blocksize;
-        tfs_debug("fs_read_extent: unaligned head (%P, %P): reading block at %P (%P)\n",
-            i.start, start_padded, read_start, head);
+        tfs_debug("fs_read_extent: unaligned head (%P, %P): reading block at %P (%P) to %p\n",
+            i.start, start_padded, read_start, head, temp);
         apply(fs->r, temp, fs->blocksize, read_start, copy);
 
         i.start += head;
@@ -107,11 +107,11 @@ static void fs_read_extent(filesystem fs,
         assert(temp != INVALID_ADDRESS);
         status_handler f = apply(m);
         assert(range_span(i) >= tail);
-        status_handler copy = closure(fs->h, copyout, fs, target_start + range_span(i) - tail, temp, tail, f);
+        status_handler copy = closure(fs->h, copyout, fs, target_start + range_span(i) - tail, temp, 0, tail, f);
         fetch_and_add(&target->end, tail);
         u64 read_start = end_padded - fs->blocksize;
-        tfs_debug("fs_read_extent: unaligned tail (%P, %P): reading block at %P (%P)\n",
-            i.end, end_padded, read_start, tail);
+        tfs_debug("fs_read_extent: unaligned tail (%P, %P): reading block at %P (%P) to %p\n",
+            i.end, end_padded, read_start, tail, temp);
         apply(fs->r, temp, fs->blocksize, read_start, copy);
 
         i.end -= tail;
@@ -143,11 +143,11 @@ static void fs_read_extent(filesystem fs,
         assert(temp != INVALID_ADDRESS);
         status_handler f = apply(m);
         assert(xfer <= target_length);
-        status_handler copy = closure(fs->h, copyout, fs, target_start, temp, xfer, f);
+        status_handler copy = closure(fs->h, copyout, fs, target_start, temp, 0, xfer, f);
         fetch_and_add(&target->end, xfer);
         assert(i.start == 0 || pad(i.start, fs->blocksize) == i.start);
-        tfs_debug("fs_read_extent: chunk %R (%P): reading blocks at %P (%P)\n",
-            i, xfer_padded, i.start, xfer);
+        tfs_debug("fs_read_extent: chunk %R (%P): reading blocks at %P (%P) to %p\n",
+            i, xfer_padded, i.start, xfer, temp);
         apply(fs->r, temp, xfer_padded, i.start, copy);
 
         i.start += xfer;
