@@ -10,9 +10,8 @@ typedef u64 timestamp;
 
 extern void console(char *x);
 void print_u64(u64 s);
-void exit(int status);
 
-extern void halt(char *format, ...);
+extern void halt(char *format, ...) __attribute__((noreturn));
 
 // make into no-op for production
 #ifdef NO_ASSERT

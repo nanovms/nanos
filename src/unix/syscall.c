@@ -1265,8 +1265,7 @@ void exit(int code)
 
 sysreturn exit_group(int status)
 {
-    halt("exit_group");
-    while (1);
+    halt("exit_group\n");
 }
 
 sysreturn pipe2(int fds[2], int flags)

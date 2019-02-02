@@ -1,4 +1,5 @@
 #include <runtime.h>
+#include <stdlib.h>
 #include <http.h>
 #include <socket_user.h>
 
@@ -96,7 +97,7 @@ CLOSURE_0_1(connection_error, void, status);
 void connection_error(status s)
 {
     rprintf("connection error! %v\n", s);
-    exit(-1);
+    exit(1);
 }
 
 CLOSURE_1_1(finished, void, stats, status);

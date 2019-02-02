@@ -16,7 +16,7 @@ static buffer read_stdin(heap h)
     buffer in = allocate_buffer(h, 1024);
     int r, k;
     while ((r = in->length - in->end) &&
-           ((k = read(0, in->contents + in->end, r)), in->end += k, k == r)) 
+           ((k = read(0, in->contents + in->end, r)), in->end += k, k > 0))
         buffer_extend(in, 1024);
     return in;
 }
@@ -25,35 +25,34 @@ buffer lookup_file(heap h, const char *target_root, buffer name, struct stat *st
 {
     char path_buf[PATH_MAX];
     const char *n = buffer_ref(name, 0);
+    int len = buffer_length(name);
 
     name = allocate_buffer(h, PATH_MAX); // new buffer
 
     while (1) {
         buffer_clear(name);
         buffer_write(name, target_root, strlen(target_root));
-	if (n[0] != '/')
+        if (n[0] != '/')
             buffer_write_byte(name, '/');
-        buffer_write(name, n, strlen(n));
+        buffer_write(name, n, len);
 
         if (lstat(cstring(name), st) < 0)
            halt("couldn't stat file %b: %s\n", name, strerror(errno));
         if (!S_ISLNK(st->st_mode))
            break;
 
-        int len;
         if ((len = readlink(cstring(name), path_buf, sizeof(path_buf))) < 0)
            halt("couldn't readlink file %b: %s\n", name, strerror(errno));
-        path_buf[len] = '\0';
-	if (path_buf[0] == '/') {
-	    /* absolute links need to be resolved */
+        if (path_buf[0] == '/') {
+            /* absolute links need to be resolved */
             n = path_buf;
-	    continue;
+            continue;
         }
 
         /* relative links are ok */
         if (stat(cstring(name), st) < 0)
             halt("couldn't stat file %b: %s\n", name, strerror(errno));
-	break;
+        break;
     }
 
     return name;
@@ -105,16 +104,6 @@ void perr(string s)
 {
     rprintf("parse error %b\n", s);
 }
-
-// status
-void includedir(tuple dest, buffer path)
-{
-    DIR *d = opendir(cstring(path));
-    while (readdir(d)) {
-    }
-    closedir(d);
-}
-
 
 static CLOSURE_1_3(bwrite, void, descriptor, buffer, u64, status_handler);
 static void bwrite(descriptor d, buffer s, u64 offset, status_handler c)
@@ -173,7 +162,6 @@ static value translate(heap h, vector worklist, filesystem fs, value v, status_h
 }
 
 extern heap init_process_runtime();
-#include <stdio.h>
 
 static CLOSURE_2_2(fsc, void, heap, descriptor, filesystem, status);
 static void fsc(heap h, descriptor out, filesystem fs, status s)
@@ -216,4 +204,5 @@ int main(int argc, char **argv)
                       closure(h, bwrite, out),
                       allocate_tuple(),
                       closure(h, fsc, h, out));
+    exit(0);
 }

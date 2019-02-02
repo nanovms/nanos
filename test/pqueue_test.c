@@ -1,6 +1,6 @@
 //#define ENABLE_MSG_DEBUG
 #include <runtime.h>
-//#include <stdlib.h>
+#include <stdlib.h>
 #define EXIT_FAILURE 1
 #define EXIT_SUCCESS 0
 

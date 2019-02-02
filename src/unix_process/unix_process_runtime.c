@@ -71,7 +71,7 @@ void halt(char *format, ...)
     vstart(a, format);
     vbprintf(z, alloca_wrap_buffer(format, runtime_strlen(format)), &a);
     igr(write(1, buffer_ref(z, 0), buffer_length(z)));
-    exit(-1);
+    exit(2);
 }
 
 heap allocate_tagged_region(kernel_heaps kh, u64 tag)

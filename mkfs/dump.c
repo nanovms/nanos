@@ -70,7 +70,7 @@ int main(int argc, char **argv)
 
     if (fd < 0) {
         rprintf("couldn't open file %s\n", argv[1]);
-        exit(-1);
+        exit(1);
     }
     create_filesystem(h,
                       SECTOR_SIZE,
