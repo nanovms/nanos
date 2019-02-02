@@ -76,7 +76,7 @@ static inline void pipe_notify_writer(pipe_file pf, int events)
 
 static void pipe_release(pipe p)
 {
-    if (!p->ref_cnt || (fetch_and_add(&p->ref_cnt, -1) == 0)) {
+    if (!p->ref_cnt || (fetch_and_add(&p->ref_cnt, -1) == 1)) {
         pipe_debug("%s(%p): deallocating pipe\n", __func__, p);
         if (p->data != INVALID_ADDRESS)
             deallocate_buffer(p->data);
