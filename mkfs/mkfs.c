@@ -171,7 +171,14 @@ static void fsc(heap h, descriptor out, filesystem fs, status s)
 
     vector worklist = allocate_vector(h, 10);
     tuple md = translate(h, worklist, fs, root, closure(h, err));
-    rprintf ("metadata %v\n", md);
+
+    rprintf("metadata ");
+    buffer b = allocate_buffer(transient, 64);
+    print_tuple(b, md);
+    debug(b);
+    deallocate_buffer(b);
+    rprintf("\n");
+
     filesystem_write_tuple(fs, md);
     vector i;
     vector_foreach(worklist, i) {
