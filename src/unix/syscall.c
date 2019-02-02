@@ -401,7 +401,7 @@ char *syscall_name(int x)
 
 sysreturn read(int fd, u8 *dest, bytes length)
 {
-    file f = resolve_fd(current->p, fd);
+    fdesc f = resolve_fd(current->p, fd);
     if (!f->read)
         return set_syscall_error(current, EINVAL);
 
@@ -411,7 +411,7 @@ sysreturn read(int fd, u8 *dest, bytes length)
 
 sysreturn pread(int fd, u8 *dest, bytes length, s64 offset)
 {
-    file f = resolve_fd(current->p, fd);
+    fdesc f = resolve_fd(current->p, fd);
     if (!f->read || offset < 0)
 	return set_syscall_error(current, EINVAL);
 
@@ -421,7 +421,7 @@ sysreturn pread(int fd, u8 *dest, bytes length, s64 offset)
 
 sysreturn write(int fd, u8 *body, bytes length)
 {
-    file f = resolve_fd(current->p, fd);        
+    fdesc f = resolve_fd(current->p, fd);
     if (!f->write)
         return set_syscall_error(current, EINVAL);
 
@@ -431,7 +431,7 @@ sysreturn write(int fd, u8 *body, bytes length)
 
 sysreturn pwrite(int fd, u8 *body, bytes length, s64 offset)
 {
-    file f = resolve_fd(current->p, fd);
+    fdesc f = resolve_fd(current->p, fd);
     if (!f->write || offset < 0)
         return set_syscall_error(current, EINVAL);
 
@@ -508,8 +508,8 @@ static void file_op_complete(thread t, file f, fsfile fsf, boolean is_file_offse
     thread_wakeup(t);
 }
 
-static CLOSURE_6_2(sendfile_read_complete, void, heap, thread, file, file, int*, void*, status, bytes);
-static void sendfile_read_complete(heap h, thread t, file in, file out, int* offset, void* buf, status s, bytes length)
+static CLOSURE_6_2(sendfile_read_complete, void, heap, thread, file, fdesc, int*, void*, status, bytes);
+static void sendfile_read_complete(heap h, thread t, file in, fdesc out, int* offset, void* buf, status s, bytes length)
 {
     if (is_ok(s)) {
         /* TODO:
@@ -536,7 +536,7 @@ static void sendfile_read_complete(heap h, thread t, file in, file out, int* off
 static sysreturn sendfile(int out_fd, int in_fd, int *offset, bytes count)
 {
     file infile = resolve_fd(current->p, in_fd);
-    file outfile = resolve_fd(current->p, out_fd);
+    fdesc outfile = resolve_fd(current->p, out_fd);
     heap h = heap_general(get_kernel_heaps());
 
     // infile need to a regular file
@@ -544,7 +544,7 @@ static sysreturn sendfile(int out_fd, int in_fd, int *offset, bytes count)
         return set_syscall_error(current, ENOSYS);
     }
 
-    if (!infile->read || !outfile->write)
+    if (!infile->f.read || !outfile->write)
       return set_syscall_error(current, EINVAL);
     
     if ((infile->offset + count) > infile->length)
@@ -706,11 +706,12 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
         unix_cache_free(uh, file, f);
         return set_syscall_error(current, EMFILE);
     }
+    fdesc_init(&f->f);
+    f->f.read = closure(h, file_read, f, fsf);
+    f->f.write = closure(h, file_write, f, fsf);
+    f->f.close = closure(h, file_close, f, fsf);
+    f->f.check = closure(h, file_check, f, fsf);
     f->n = n;
-    f->read = closure(h, file_read, f, fsf);
-    f->write = closure(h, file_write, f, fsf);
-    f->close = closure(h, file_close, f, fsf);
-    f->check = closure(h, file_check, f, fsf);
     f->length = length;
     f->offset = 0;
     thread_log(current, "   fd %d, file length %d", fd, f->length);
@@ -723,6 +724,21 @@ sysreturn open(char *name, int flags, int mode)
         return set_syscall_error (current, EFAULT);
     thread_log(current, "open: \"%s\", flags %P, mode %P", name, flags, mode);
     return open_internal(current->p->cwd, name, flags, mode);
+}
+
+sysreturn dup(int fd)
+{
+    thread_log(current, "dup: fd %d", fd);
+    fdesc f = resolve_fd(current->p, fd);
+
+    int newfd = allocate_fd(current->p, f);
+    if (newfd == INVALID_PHYSICAL) {
+        thread_log(current, "failed to allocate fd");
+        return set_syscall_error(current, EMFILE);
+    }
+
+    fetch_and_add(&f->refcnt, 1);
+    return newfd;
 }
 
 sysreturn mkdir(const char *pathname, int mode)
@@ -1196,17 +1212,21 @@ sysreturn readlinkat(int dirfd, const char *pathname, char *buf, u64 bufsiz)
 
 sysreturn close(int fd)
 {
-    file f = resolve_fd(current->p, fd);
-    deallocate_fd(current->p, fd, f);
-    if (f->close)
-	return apply(f->close);
-    msg_err("no close handler for fd %d\n", fd);
+    fdesc f = resolve_fd(current->p, fd);
+    deallocate_fd(current->p, fd);
+
+    if (fetch_and_add(&f->refcnt, -1) == 1) {
+        if (f->close)
+	    return apply(f->close);
+        msg_err("no close handler for fd %d\n", fd);
+    }
+
     return 0;
 }
 
 sysreturn fcntl(int fd, int cmd, int arg)
 {
-    file f = resolve_fd(current->p, fd);
+    fdesc f = resolve_fd(current->p, fd);
 
     switch (cmd) {
     case F_GETFD:
@@ -1289,6 +1309,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_pwrite64, pwrite);
     register_syscall(map, SYS_open, open);
     register_syscall(map, SYS_openat, openat);
+    register_syscall(map, SYS_dup, dup);
     register_syscall(map, SYS_fstat, fstat);
     register_syscall(map, SYS_sendfile, sendfile);
     register_syscall(map, SYS_stat, stat);
