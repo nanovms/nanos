@@ -91,10 +91,12 @@ static epollfd alloc_epollfd(epoll e, int fd, u32 eventmask, u64 data)
 
 static void epollfd_release(epollfd efd)
 {
-    epoll_debug("epollfd_release: efd->fd %d, refcnt %d\n", efd->fd, efd->refcnt);
+    epoll_debug("epollfd_release: efd %p, fd %d, refcnt %d\n", efd, efd->fd, efd->refcnt);
     assert(efd->refcnt > 0);
-    if (fetch_and_add(&efd->refcnt, -1) == 0)
+    if (fetch_and_add(&efd->refcnt, -1) == 1) {
+        epoll_debug("epollfd_release: deallocating efd %p\n", efd);
 	unix_cache_free(get_unix_heaps(), epollfd, efd);
+    }
 }
 
 static void free_epollfd(epollfd efd)
@@ -170,7 +172,7 @@ static void epoll_blocked_release(epoll_blocked w)
         list_init(&w->blocked_list);
 	epoll_debug("   removed from epoll list\n");
     }
-    if (fetch_and_add(&w->refcnt, -1) == 0) {
+    if (fetch_and_add(&w->refcnt, -1) == 1) {
 	unix_cache_free(get_unix_heaps(), epoll_blocked, w);
 	epoll_debug("   deallocated\n");
     }
