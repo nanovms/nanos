@@ -64,43 +64,52 @@ void log_read_complete(log tl, status_handler sh, status s)
     buffer b = tl->staging;
     u8 frame = 0;
 
-    if (s == 0) {
-        // log extension - length at the beginnin and pointer at the end
-        for (; frame = pop_u8(b), frame == TUPLE_AVAILABLE;) {
-            tuple t = decode_value(tl->h, tl->dictionary, b);
-            fsfile f = 0;
-            u64 filelength = infinity;
-            // doesn't seem like all the incremental updates are handled here,
-            // nor the recursive case
-            table_foreach(t, k, v) {
-                if (k == sym(extents)) {
-                    /* don't know why this needs to be in fs, it's really tlog-specific */
-                    if (!(f = table_find(tl->fs->extents, v))) {
-                        f = allocate_fsfile(tl->fs, t);
-                        table_set(tl->fs->extents, v, f);
-                    }
+    if (!is_ok(s)) {
+        apply(sh, s);
+        return;
+    }
+
+    /* this is crap, but just fix for now due to time */
+
+    // log extension - length at the beginnin and pointer at the end
+    for (; frame = pop_u8(b), frame == TUPLE_AVAILABLE;) {
+        tuple t = decode_value(tl->h, tl->dictionary, b);
+        fsfile f = 0;
+        u64 filelength = infinity;
+        // doesn't seem like all the incremental updates are handled here,
+        // nor the recursive case
+        table_foreach(t, k, v) {
+            if (k == sym(extents)) {
+                /* don't know why this needs to be in fs, it's really tlog-specific */
+                if (!(f = table_find(tl->fs->extents, v))) {
+                    f = allocate_fsfile(tl->fs, t);
                 }
-                if (k == sym(filelength)) {
-                    filelength = u64_from_value(v);
-                }
+                table_set(tl->fs->extents, v, f);
             }
-
-            if (f && filelength != infinity)
-                fsfile_set_length(f, filelength);
-
-            if ((f = table_find(tl->fs->extents, t)))  {
-                table_foreach(t, off, e)
-                    ingest_extent(f, off, e);
+            if (k == sym(filelength)) {
+                filelength = u64_from_value(v);
             }
         }
         
-        // not sure we should be passing the root.. anyways, splat the
-        // log root onto the given root
-        table logroot = (table)table_find(tl->dictionary, pointer_from_u64(1));
-        
-        if (logroot)
-            table_foreach (logroot, k, v) 
-                table_set(tl->fs->root, k, v);
+        if (f && filelength != infinity)
+            fsfile_set_length(f, filelength);
+    }
+
+    /* XXX this will only work for reading the log a single time
+       through, but at present we're not using any incremental log updates */
+    table_foreach(tl->fs->extents, t, f) {
+        table_foreach(t, off, e) {
+            ingest_extent((fsfile)f, off, e);
+        }
+    }
+
+    // not sure we should be passing the root.. anyways, splat the
+    // log root onto the given root
+    table logroot = (table)table_find(tl->dictionary, pointer_from_u64(1));
+
+    if (logroot) {
+        table_foreach (logroot, k, v)
+            table_set(tl->fs->root, k, v);
     }
 
     apply(sh, 0);

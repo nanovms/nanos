@@ -72,14 +72,15 @@ static void fs_read_extent(filesystem fs,
     // because rtrie_lookup() is used to find an extent (q.start is always >= ex.start)
     u64 target_offset = i.start - q.start;
     void *target_start = buffer_ref(target, target_offset);
-    bytes target_length = target->length;
+    bytes target_length = range_span(i);
 
     // make i absolute
-    i.start += block_start;
-    i.end += block_start;
+    s64 delta = block_start - node->r.start;
+    i.start += delta;
+    i.end += delta;
 
     tfs_debug("fs_read_extent: q %R, ex %R, block_start %P, i %R, target_offset %d, target_start %p, target length %d, blocksize %d\n",
-        q, node->r, block_start, i, target_offset, target_start, target_length, fs->blocksize);
+              q, node->r, block_start, i, target_offset, target_start, (u64)target_length, (u64)fs->blocksize);
 
     /*
      * +       i.start--+        +--start_padded      i.end--+      +--end_padded
@@ -200,24 +201,22 @@ void filesystem_read(filesystem fs, tuple t, void *dest, u64 length, u64 offset,
     rangemap_range_lookup(f->extentmap, total, closure(h, fs_read_extent, f->fs, b, m, total));
 }
 
-// extend here
-// This function is terribly broken. *last is never updated, but it should be.
-// Leave it as it is for now, but get back to this asap. -lkurusa
-static CLOSURE_4_1(fs_write_extent, void, filesystem, buffer, merge, u64 *, rmnode);
-static void fs_write_extent(filesystem fs, buffer source, merge m, u64 *last, rmnode node)
+static void fs_write_extent(filesystem fs, buffer source, merge m, range q, rmnode node)
 {
-    range x = node->r;
-    u64 target_len = x.end - x.start, source_len = buffer_length(source);
-    // u64 block_start = u64_from_pointer(node->val);
-    // if this doesn't lie on an alignment bonudary we may need to do a read-modify-write
+    range i = range_intersection(q, node->r);
+    u64 source_offset = i.start - q.start;
+    u64 length = range_span(i);
 
-    /* Will this extent be reallocated? */
-    if (source_len > target_len)
-        return;
+    /* XXX This is temporary crap, and we're leaking. Unfinished,
+       don't look here. Actually just redo the virtio write as it
+       doesn't need to use a buffer and is probably fucked anyway.
 
-    /* XXX: is this correct? no, it's all fucked */
+       And yes, partial block writes aren't done.
+    */
+    void * source_buf = buffer_ref(source, source_offset);
+    buffer sub = wrap_buffer(fs->h, source_buf, length);
     status_handler sh = apply(m);
-    apply(fs->w, source, x.start, sh);
+    apply(fs->w, sub, ((extent)node)->block_start, sh);
 }
 
 // wrap in an interface
@@ -257,8 +256,8 @@ static extent create_extent(fsfile f, range r)
     return INVALID_ADDRESS;
 #endif
 
-    tfs_debug("create_extent: length %d, align %d, length %d, alloc_order %d, alloc_bytes %d\n",
-              length, alignment, length, alloc_order, alloc_bytes);
+    tfs_debug("create_extent: align %d, offset %d, length %d, alloc_order %d, alloc_bytes %d\n",
+              alignment, r.start, length, alloc_order, alloc_bytes);
 
     u64 block_start = allocate_u64(f->fs->storage, alloc_bytes);
     if (block_start == u64_from_pointer(INVALID_ADDRESS)) {
@@ -358,24 +357,6 @@ boolean set_extent_length(fsfile f, extent ex, u64 length)
     return true;
 }
 
-#if 0
-/* use more of an extent's allocated area */
-static u64 inflate_extent(extent e, u64 n)
-{
-
-}
-
-static void truncate_extent(extent e, u64 n)
-{
-
-}
-
-static boolean delete_extent(extent e)
-{
-
-}
-#endif
-
 // need to provide better/more symmetric access to metadata, but ...
 // status?
 void filesystem_write_tuple(filesystem fs, tuple t)
@@ -386,6 +367,20 @@ void filesystem_write_tuple(filesystem fs, tuple t)
 void filesystem_write_eav(filesystem fs, tuple t, symbol a, value v)
 {
     log_write_eav(fs->tl, t, a, v, ignore);
+}
+
+static CLOSURE_4_1(filesystem_write_complete, void, fsfile, tuple, range, io_status_handler, status);
+static void filesystem_write_complete(fsfile f, tuple t, range q, io_status_handler completion, status s)
+{
+    filesystem fs = f->fs;
+
+    if (fsfile_get_length(f) < q.end) {
+        /* XXX bother updating resident filelength tuple? */
+        fsfile_set_length(f, q.end);
+        filesystem_write_eav(fs, t, sym(filelength), value_from_u64(fs->h, q.end));
+    }
+
+    apply(completion, s, is_ok(s) ? range_span(q) : 0);
 }
 
 /* Holes over the query range will be filled with extents before later
@@ -415,109 +410,86 @@ void filesystem_write_eav(filesystem fs, tuple t, symbol a, value v)
    implementation of the above methods merely takes place in the logic
    below.
 */
-/* static */
-boolean fill_extents(fsfile f, range q)
-{
-    u64 curr = q.start;
-    rmnode node = rangemap_lookup_at_or_next(f->extentmap, q.start);
 
-    do {
-        u64 limit = node ? node->r.start : q.end;
-        if (curr < limit) {
-            range hole = irange(curr, limit);
-            range fill = range_intersection(q, hole);
-
-            /* just doing min-sized extents for now */
-            s64 remain = range_span(fill);
-            u64 curr = fill.start;
-
-            do {
-                /* create_extent will allocate a minimum of pagesize */
-                u64 length = MIN(MIN_EXTENT_SIZE, remain);
-                range r = irange(curr, length);
-                extent ex = create_extent(f, r);
-                if (ex == INVALID_ADDRESS) {
-                    msg_err("failed to create extent\n");
-                    return false;
-                }
-                curr += length;
-                remain -= length;
-            } while (remain > 0);
-        }
-
-        /* advance past existing extent */
-        if (node)
-            curr = node->r.end;
-        node = rangemap_next_node(f->extentmap, node);
-    } while(curr < q.end);
-
-    return true;
-}
-
-static CLOSURE_4_1(filesystem_write_complete, void, fsfile, tuple, u64, io_status_handler, status);
-static void filesystem_write_complete(fsfile f, tuple t, u64 end, io_status_handler completion, status s)
-{
-    filesystem fs = f->fs;
-
-    if (fsfile_get_length(f) < end) {
-        /* XXX bother updating resident filelength tuple? */
-        fsfile_set_length(f, end);
-        filesystem_write_eav(fs, t, sym(filelength), value_from_u64(fs->h, end));
-    }
-
-    /* Reset the extent rtrie and update the extent cache */
-    /* XXX dealloc rangemap, don't bother cause this gets nuked */
-    f->extentmap = allocate_rangemap(fs->h);
-#if 0
-    tuple extents = table_find(t, sym(extents));
-    table_foreach(extents, off, e)
-        extent_update(f, off, e);
-#endif
-    table_set(fs->files, t, f);
-
-    /* TODO(lkurusa): Write the final root tuple to the disk */
-
-    tuple e = STATUS_OK;
-    apply(completion, e, end);
-}
-
-// consider not overwritint the old version and fixing up the metadata
 void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_handler completion)
 {
-    heap h = fs->h;
     u64 len = buffer_length(b);
-    u64 *last = allocate(h, sizeof(u64));
-    *last = offset;
+    range q = irange(offset, offset + len);
+    u64 curr = offset;
+
     fsfile f;
     if (!(f = table_find(fs->files, t))) {
         apply(completion, timm("no such file"), 0);
         return;
     }
 
-    merge m = allocate_merge(fs->h, closure(fs->h, filesystem_write_complete,
-                f, t, buffer_length(b) + offset, completion));
-    rangemap_range_lookup(f->extentmap, irange(offset, offset+len), closure(h, fs_write_extent, f->fs, b, m, last));
+    tfs_debug("filesystem_write: tuple %p, buffer %p, offset %d, length %d\n",
+              t, b, offset, buffer_length(b));
 
-    if (*last < (offset + len)) {
-        u64 elen = (offset + len) - *last;
-        extent ex = create_extent(f, irange(*last, *last + elen)); /* XXX nuke anyway */
-        if (ex == INVALID_ADDRESS) {
-            msg_err("unable to create extent\n");
-            /* XXX do completion with error */
-            return;
+    rmnode node = rangemap_lookup_at_or_next(f->extentmap, q.start);
+    merge m = allocate_merge(fs->h, closure(fs->h, filesystem_write_complete,
+                f, t, q, completion));
+    status_handler sh = apply(m);
+
+    do {
+        /* detect and fill any hole before extent (or to end) */
+        u64 limit = node != INVALID_ADDRESS ? node->r.start : q.end;
+        if (curr < limit) {
+            range hole = irange(curr, limit);
+            range fill = range_intersection(q, hole);
+
+            /* XXX optimization: check for a preceding extent and
+               inflate if possible */
+
+            /* just doing min-sized extents for now */
+            s64 remain = range_span(fill);
+
+            do {
+#ifdef HOST_BUILD
+                /* kludge for mkfs: one big extent */
+//                u64 length = remain;
+                u64 length = MIN(1 << 20, remain);
+#else
+                /* create_extent will allocate a minimum of pagesize */
+                u64 length = MIN(MIN_EXTENT_SIZE, remain);
+#endif
+                range r = irange(curr, curr + length);
+                extent ex = create_extent(f, r);
+                if (ex == INVALID_ADDRESS) {
+                    msg_err("failed to create extent\n");
+                    goto fail;
+                }
+                tfs_debug("   writing new extent at %R\n", r);
+                fs_write_extent(f->fs, b, m, q, &ex->node);
+                curr += length;
+                remain -= length;
+            } while (remain > 0);
+
+            /* should be at boundary of next extent or end */
+            assert(curr == limit);
         }
 
-        status_handler sh = apply(m);
-        /* XXX: this should only pop up when writing to virtio,
-           check for HOST_BUILD is just a lazy kludge */
-#ifndef HOST_BUILD
-        if (b->end - *last > SECTOR_SIZE)
-            rprintf("trying to write more than what's supported: %d > %d\n",
-                    b->end - *last, SECTOR_SIZE);
-#endif
-        buffer bf = wrap_buffer(transient, buffer_ref(b, *last), b->end - *last);
-        apply(fs->w, bf, ex->block_start, sh);
-    }
+        if (node != INVALID_ADDRESS) {
+            /* overwrite any overlap with extent */
+            range i = range_intersection(q, node->r);
+            if (range_span(i)) {
+                tfs_debug("   updating extent at %R (intersection %R)\n", node->r, i);
+                fs_write_extent(f->fs, b, m, q, node);
+            }
+            curr = i.end;
+            node = rangemap_next_node(f->extentmap, node);
+        }
+
+    } while(curr < q.end);
+
+    /* apply merge success */
+    apply(sh, STATUS_OK);
+    return;
+
+  fail:
+    /* apply merge fail */
+    apply(sh, timm("write failed"));
+    return;
 }
 
 fsfile allocate_fsfile(filesystem fs, tuple md)

@@ -545,7 +545,7 @@ static sysreturn sendfile(int out_fd, int in_fd, int *offset, bytes count)
     }
 
     if (!infile->f.read || !outfile->write)
-      return set_syscall_error(current, EINVAL);
+        return set_syscall_error(current, EINVAL);
     
     if ((infile->offset + count) > infile->length)
         return set_syscall_error(current, EINVAL);
