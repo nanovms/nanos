@@ -2,22 +2,28 @@
 #include <buffer.h>
 #include <gdb.h>
 
-u64 allocate_fd(process p, file f)
+void fdesc_init(fdesc f)
+{
+    f->read = 0;
+    f->write = 0;
+    f->close = 0;
+    f->check = 0;
+    f->refcnt = 1;
+    f->flags = 0;
+}
+
+u64 allocate_fd(process p, void *f)
 {
     u64 fd = allocate_u64(p->fdallocator, 1);
     if (fd == INVALID_PHYSICAL) {
 	msg_err("fail; maxed out\n");
 	return fd;
     }
-    f->offset = 0;
-    f->check = 0;
-    f->close = 0;
-    f->read = f->write = 0;
     vector_set(p->files, fd, f);
     return fd;
 }
 
-void deallocate_fd(process p, int fd, file f)
+void deallocate_fd(process p, int fd)
 {
     vector_set(p->files, fd, 0);
     deallocate_u64(p->fdallocator, fd, 1);
@@ -79,11 +85,14 @@ static boolean create_stdfiles(unix_heaps uh, process p)
 
     /* Writes to in, reads from out and err act as if handled by the
        out and in files respectively. */
-    in->write = out->write = err->write = closure(h, stdout);
-    in->read = out->read = err->read = closure(h, dummy_read);
-    in->close = closure(h, std_close, in);
-    out->close = closure(h, std_close, out);
-    err->close = closure(h, std_close, err);
+    fdesc_init(&in->f);
+    in->f.close = closure(h, std_close, in);
+    fdesc_init(&out->f);
+    out->f.close = closure(h, std_close, out);
+    fdesc_init(&err->f);
+    err->f.close = closure(h, std_close, err);
+    in->f.write = out->f.write = err->f.write = closure(h, stdout);
+    in->f.read = out->f.read = err->f.read = closure(h, dummy_read);
     return true;
 }
 

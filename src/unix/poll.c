@@ -52,7 +52,7 @@ struct epoll_blocked {
 };
 
 struct epoll {
-    struct file f;
+    struct fdesc f;             /* must be first */
     // xxx - multiple threads can block on the same e with epoll_wait
     struct list blocked_head;
     vector events;		/* epollfds indexed by fd */
@@ -129,16 +129,16 @@ sysreturn epoll_create(u64 flags)
     sysreturn rv;
     epoll_debug("epoll_create: flags %P\n", flags);
     heap h = heap_general(get_kernel_heaps());
-    file f = unix_cache_alloc(get_unix_heaps(), epoll);
-    if (f == INVALID_ADDRESS)
+    epoll e = unix_cache_alloc(get_unix_heaps(), epoll);
+    if (e == INVALID_ADDRESS)
 	return -ENOMEM;
-    u64 fd = allocate_fd(current->p, f);
+    u64 fd = allocate_fd(current->p, e);
     if (fd == INVALID_PHYSICAL) {
 	rv = -EMFILE;
 	goto out_cache_free;
     }
-    epoll e = (epoll)f;
-    f->close = closure(h, epoll_close, e);
+    fdesc_init(&e->f);
+    e->f.close = closure(h, epoll_close, e);
     list_init(&e->blocked_head);
     e->events = allocate_vector(h, 8);
     if (e->events == INVALID_ADDRESS) {
@@ -156,9 +156,9 @@ sysreturn epoll_create(u64 flags)
   out_free_events:
     deallocate_vector(e->events);
   out_dealloc_fd:
-    deallocate_fd(current->p, fd, f);
+    deallocate_fd(current->p, fd);
   out_cache_free:
-    unix_cache_free(get_unix_heaps(), epoll, f);
+    unix_cache_free(get_unix_heaps(), epoll, e);
     return rv;
 }
 
@@ -295,7 +295,7 @@ static epoll_blocked alloc_epoll_blocked(epoll e)
     return w;
 }
 
-static boolean epoll_check(heap h, epollfd efd, file f)
+static boolean epoll_check(heap h, epollfd efd, fdesc f)
 {
     /* If efd is in fds and also a zombie, it's an epfd that's
        been masked by a oneshot event. */
@@ -343,7 +343,7 @@ sysreturn epoll_wait(int epfd,
 	epollfd efd = vector_get(e->events, fd);
 	assert(efd);
         assert(efd->fd == fd);
-        file f = resolve_fd_noret(current->p, efd->fd);
+        fdesc f = resolve_fd_noret(current->p, efd->fd);
         if (!f) {
             epoll_debug("   x fd %d\n", efd->fd);
             free_epollfd(efd);
@@ -393,7 +393,7 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
            XXX add lock */
         efd = epollfd_from_fd(e, fd);
         assert(efd != INVALID_ADDRESS);
-        file f = resolve_fd_noret(current->p, efd->fd);
+        fdesc f = resolve_fd_noret(current->p, efd->fd);
         assert(f);
         if (!list_empty(&efd->e->blocked_head)) {
             epoll_debug("   posting check for blocked waiter\n");
@@ -570,7 +570,7 @@ static sysreturn select_internal(int nfds,
 	    epollfd efd = vector_get(e->events, fd);
 	    assert(efd);
             assert(efd->fd == fd);
-            file f = resolve_fd_noret(current->p, efd->fd);
+            fdesc f = resolve_fd_noret(current->p, efd->fd);
             if (!f) {
                 epoll_debug("   x fd %d\n", efd->fd);
                 free_epollfd(efd);
@@ -734,7 +734,7 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
                 goto check_rv_timeout;
             }
         }
-        file f = resolve_fd_noret(current->p, efd->fd);
+        fdesc f = resolve_fd_noret(current->p, efd->fd);
         if (!f) {
             epoll_debug("   x fd %d\n", pfd->fd);
             free_epollfd(efd);
