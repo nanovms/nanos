@@ -44,7 +44,7 @@ enum udp_socket_state {
 typedef closure_type(lwip_status_handler, void, err_t);
 
 typedef struct sock {
-    struct file f;
+    struct fdesc f;              /* must be first */
     int type;
     u32 flags;
     process p;
@@ -510,17 +510,17 @@ static int allocate_sock(process p, int type, u32 flags, sock * rs)
 	msg_err("failed to allocate struct sock\n");
 	return -ENOMEM;
     }
-    file f = (file)s;
-    int fd = allocate_fd(p, f);
+    int fd = allocate_fd(p, s);
     if (fd == INVALID_PHYSICAL) {
-	unix_cache_free(get_unix_heaps(), socket, f);
+	unix_cache_free(get_unix_heaps(), socket, s);
 	return -EMFILE;
     }
+    fdesc_init(&s->f);
     heap h = heap_general(get_kernel_heaps());
-    f->read = closure(h, socket_read, s);
-    f->write = closure(h, socket_write, s);
-    f->close = closure(h, socket_close, s);
-    f->check = closure(h, socket_check, s);
+    s->f.read = closure(h, socket_read, s);
+    s->f.write = closure(h, socket_write, s);
+    s->f.close = closure(h, socket_close, s);
+    s->f.check = closure(h, socket_check, s);
     s->type = type;
     s->p = p;
     s->h = h;

@@ -98,15 +98,22 @@ typedef closure_type(io, sysreturn, void *, u64 length, u64 offset);
 
 #include <notify.h>
 
-typedef struct file {
-    u64 offset;
-    u64 length;
-    int flags;                  /* F_GETFD/F_SETFD flags */
+typedef struct fdesc {
     io read, write;
     closure_type(check, boolean, u32 eventmask, u32 * last, event_handler eh);
     closure_type(close, sysreturn);
+    u64 refcnt;
+    int flags;                  /* F_GETFD/F_SETFD flags */
+} *fdesc;
+
+struct file {
+    struct fdesc f;             /* must be first */
     tuple n;
-} *file;
+    u64 offset;
+    u64 length;
+};
+
+typedef struct file *file;
 
 typedef struct process {
     unix_heaps uh;		/* non-thread-specific */
@@ -144,9 +151,11 @@ static inline kernel_heaps get_kernel_heaps()
 #define unix_cache_alloc(uh, c) ({ heap __c = uh->c ## _cache; allocate(__c, __c->pagesize); })
 #define unix_cache_free(uh, c, p) ({ heap __c = uh->c ## _cache; deallocate(__c, p, __c->pagesize); })
 
-u64 allocate_fd(process p, file f);
+void fdesc_init(fdesc f);
 
-void deallocate_fd(process p, int fd, file f);
+u64 allocate_fd(process p, void *f);
+
+void deallocate_fd(process p, int fd);
 
 void init_vdso(heap, heap);
 
