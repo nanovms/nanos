@@ -31,7 +31,8 @@ void log_flush(log tl)
     buffer b = tl->staging;
     push_u8(b, END_OF_LOG);
     apply(tl->fs->w,
-          b,
+          buffer_ref(b, 0),
+          buffer_length(b),
           tl->offset + b->start, 
           closure(tl->h, log_write_completion, tl->completions));
     b->end -= 1;

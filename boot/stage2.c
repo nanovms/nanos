@@ -38,8 +38,8 @@ static void stage2_read_disk(u64 base, void *dest, u64 length, u64 offset, statu
     apply(completion, STATUS_OK);
 }
 
-static CLOSURE_0_3(stage2_empty_write, void, buffer, u64, status_handler);
-static void stage2_empty_write(buffer b, u64 offset, status_handler completion)
+static CLOSURE_0_4(stage2_empty_write, void, void *, u64, u64, status_handler);
+static void stage2_empty_write(void * src, u64 length, u64 offset, status_handler completion)
 {
 }
 

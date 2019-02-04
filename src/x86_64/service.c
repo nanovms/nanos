@@ -64,10 +64,10 @@ void runloop()
     }
 }
 
-static CLOSURE_2_3(offset_block_write, void, block_write, u64, buffer, u64, status_handler);
-static void offset_block_write(block_write w, u64 start, buffer b, u64 offset, status_handler h)
+static CLOSURE_2_4(offset_block_write, void, block_write, u64, void *, u64, u64, status_handler);
+static void offset_block_write(block_write w, u64 start, void *src, u64 length, u64 offset, status_handler h)
 {
-    apply(w, b, start + offset, h);
+    apply(w, src, length, start + offset, h);
 }
 
 static CLOSURE_2_4(offset_block_read, void, block_read, u64, void *, u64, u64, status_handler);

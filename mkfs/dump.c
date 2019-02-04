@@ -7,8 +7,8 @@
 #include <tfs.h>
 #include <errno.h>
 
-static CLOSURE_1_3(bwrite, void, descriptor, buffer, u64, status_handler);
-static void bwrite(descriptor d, buffer s, u64 offset, status_handler c)
+static CLOSURE_1_4(bwrite, void, descriptor, void *, u64, u64, status_handler);
+static void bwrite(descriptor d, void * s, u64 length, u64 offset, status_handler c)
 {
 
 }

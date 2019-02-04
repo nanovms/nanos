@@ -182,7 +182,7 @@ typedef void *value;
 
 typedef closure_type(buffer_handler, void, buffer);
 typedef closure_type(thunk, void);
-typedef closure_type(block_write, void, buffer, u64, status_handler);
+typedef closure_type(block_write, void, void *, u64, u64, status_handler);
 typedef closure_type(block_read, void, void *, u64, u64, status_handler);
 
 #include <pqueue.h>

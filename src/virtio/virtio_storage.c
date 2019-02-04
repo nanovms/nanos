@@ -2,24 +2,27 @@
 #include <runtime.h>
 #include <tfs.h>
 
+//#define VIRTIO_BLK_DEBUG
+
 // this is not really a struct...fix the general encoding problem
-struct virtio_blk_req {
+typedef struct virtio_blk_req {
     u32 type;
     u32 reserved;
     u64 sector;
     u64 data; // phys? spec had u8 data[][512]
     u8 status;
-};
+} __attribute__((packed)) *virtio_blk_req;
 
-#define VIRTIO_BLK_T_IN           0
-#define VIRTIO_BLK_T_OUT          1
-#define VIRTIO_BLK_T_FLUSH        4
+#define VIRTIO_BLK_REQ_HEADER_SIZE      16
+#define VIRTIO_BLK_REQ_STATUS_SIZE      1
 
-#define VIRTIO_BLK_S_OK        0
-#define VIRTIO_BLK_S_IOERR     1
-#define VIRTIO_BLK_S_UNSUPP    2
+#define VIRTIO_BLK_T_IN         0
+#define VIRTIO_BLK_T_OUT        1
+#define VIRTIO_BLK_T_FLUSH      4
 
-static u8 static_zero_buffer[SECTOR_SIZE] __attribute__((aligned(PAGESIZE)));
+#define VIRTIO_BLK_S_OK         0
+#define VIRTIO_BLK_S_IOERR      1
+#define VIRTIO_BLK_S_UNSUPP     2
 
 #ifdef VIRTIO_BLK_DEBUG
 # define virtio_blk_debug rprintf
@@ -35,122 +38,98 @@ typedef struct storage {
     u64 block_size;
 } *storage;
 
-static CLOSURE_3_1(complete, void, storage, status_handler, u8 *, u64);
-static void complete(storage s, status_handler f, u8 *result, u64 len)
+static virtio_blk_req allocate_virtio_blk_req(storage st, u32 type, u64 sector)
+{
+    virtio_blk_req req = allocate(st->v->contiguous, sizeof(struct virtio_blk_req));
+    req->type = type;
+    req->reserved = 0;
+    req->sector = sector;
+    req->status = 0;
+    return req;
+}
+
+static void deallocate_virtio_blk_req(storage st, virtio_blk_req req)
+{
+    deallocate(st->v->contiguous, req,
+               pad(sizeof(struct virtio_blk_req), st->v->contiguous->pagesize));
+}
+
+static CLOSURE_4_1(complete, void, storage, status_handler, u8 *, virtio_blk_req, u64);
+static void complete(storage s, status_handler f, u8 *result, virtio_blk_req req, u64 len)
 {
     status st = 0;
     // 1 is io error, 2 is unsupported operation
     if (*result) st = timm("result", "%d", *result);
     apply(f, st);
+    deallocate_virtio_blk_req(s, req);
     //    s->command->avail->flags &= ~VRING_AVAIL_F_NO_INTERRUPT;
     // used isn't valid?
     //    rprintf("used: %d\n",  s->command->vq_ring.used->idx);    
 }
 
-static CLOSURE_1_3(storage_write, void, storage, buffer, u64, status_handler);
-static void storage_write(storage st, buffer b, u64 offset, status_handler s)
+static inline void storage_rw_internal(storage st, boolean write, void * buf, u64 length, u64 offset,
+                                       status_handler s)
 {
-    int status_size = 1;
-    int header_size = 16;
-    void *r = allocate(st->v->contiguous, header_size + status_size);
-    *(u32 *)r = VIRTIO_BLK_T_OUT;
-    *(u32 *)(r + 4) = 0; /* reserved to be zero */
-    *(u64 *)(r + 8) = offset / SECTOR_SIZE;
+    char * err = 0;
+    virtio_blk_debug("virtio_%s: offset %d len %d cap %d\n", write ? "write" : "read", offset,
+                     length, st->capacity);
 
-    virtio_blk_debug("virtio_write: offset %d len %d cap %d\n", offset, buffer_length(b),
-            st->capacity);
-
-    if (buffer_length(b) > SECTOR_SIZE) {
-        halt("virtio_write: buffer size (%d) is larger than sector size (%d)\n",
-                buffer_length(b), SECTOR_SIZE);
+    if ((u64_from_pointer(buf) & (PAGESIZE - 1))) {
+        err = "buffer must be page-aligned.";
+        goto out_inval;
     }
 
-    boolean misaligned = (u64)buffer_ref(b, 0) & 0x000fULL;
-    boolean small = buffer_length(b) != SECTOR_SIZE;
-
-    /* XXX highly suspicious */
-    void *buffer;
-    /* check buffer alignment */
-    if (misaligned) {
-        buffer = allocate(st->v->contiguous, SECTOR_SIZE);
-        runtime_memset(buffer, 0, SECTOR_SIZE);
-
-        if (misaligned)
-            virtio_blk_debug("%s: misaligned virtio write buffer\n", __func__);
-
-        /* reallocate */
-        runtime_memcpy(buffer, buffer_ref(b, 0), buffer_length(b));
-    } else {
-        buffer = buffer_ref(b, 0);
+    if ((offset & (SECTOR_SIZE - 1))) {
+        err = "offset must be sector-aligned.";
+        goto out_inval;
     }
 
-    if (small)
-        virtio_blk_debug("%s: small virtio write buffer (%d length)\n", __func__, buffer_length(b));
-
-    u64 awl_off = small ? 4 : 3;
-
-    void *address[awl_off];
-    boolean writables[awl_off];
-    bytes lengths[awl_off];
-    int index = 0;
-    
-    address[index] = r;
-    writables[index] = false;
-    lengths[index] = header_size;
-    index++;
-
-    address[index] = buffer;
-    writables[index] = false;
-    lengths[index] = buffer_length(b);
-    index++;
-
-    if (small) {
-        address[index] = static_zero_buffer;
-        writables[index] = false;
-        lengths[index] = SECTOR_SIZE - buffer_length(b);
-        index++;
+    if (length > 0 && (length & (SECTOR_SIZE - 1))) {
+        err = "length must be > 0 and sector-aligned.";
+        goto out_inval;
     }
 
-    address[index] = r + header_size;
-    writables[index] = true;
-    lengths[index] = status_size;
-    index++;
+    virtio_blk_req req = allocate_virtio_blk_req(st, write ? VIRTIO_BLK_T_OUT : VIRTIO_BLK_T_IN,
+                                                 offset / SECTOR_SIZE);
 
-    vqfinish c = closure(st->v->general, complete, st, s, (u8 *)address[awl_off - 1]);
-    virtqueue_enqueue(st->command, address, lengths, writables, index, c);
-}
-
-static CLOSURE_1_4(storage_read, void, storage, void *, u64, u64, status_handler);
-static void storage_read(storage st, void *target, u64 length, u64 offset, status_handler c)
-{
-    int status_size = 1;
-    int header_size = 16;
-    void *r = allocate(st->v->contiguous, header_size + status_size);
-    *(u32 *)r = VIRTIO_BLK_T_IN;
-    *(u32 *)(r + 4) = 0;
-    *(u64 *)(r + 8) = offset / SECTOR_SIZE;
-    
     void *address[3];
     boolean writables[3];
     bytes lengths[3];
     int index = 0;
     
-    address[index] = r;
+    address[index] = req;
     writables[index] = false;
-    lengths[index] = header_size;
+    lengths[index] = VIRTIO_BLK_REQ_HEADER_SIZE;
     index++;
 
-    address[index] = target;
-    writables[index] = true;
-    lengths[index] = pad(length, SECTOR_SIZE);
+    address[index] = buf;
+    writables[index] = !write;
+    lengths[index] = length;
     index++;
-    
-    address[index] = r + header_size;
+
+    address[index] = ((void *)req) + VIRTIO_BLK_REQ_HEADER_SIZE;
     writables[index] = true;
-    lengths[index] = status_size;
+    lengths[index] = VIRTIO_BLK_REQ_STATUS_SIZE;
     index++;
-    vqfinish s = closure(st->v->general, complete, st, c, (u8 *)address[2]);
-    virtqueue_enqueue(st->command, address, lengths, writables, index, s);
+
+    vqfinish c = closure(st->v->general, complete, st, s, (u8 *)address[2], req);
+    virtqueue_enqueue(st->command, address, lengths, writables, index, c);
+    return;
+  out_inval:
+    msg_err("%s", err);               /* yes, bark */
+    apply(s, timm("result", "%s", err));
+}
+
+static CLOSURE_1_4(storage_write, void, storage, void *, u64, u64, status_handler);
+static void storage_write(storage st, void * source, u64 length, u64 offset, status_handler s)
+{
+    storage_rw_internal(st, true, source, length, offset, s);
+}
+
+static CLOSURE_1_4(storage_read, void, storage, void *, u64, u64, status_handler);
+static void storage_read(storage st, void * target, u64 length, u64 offset, status_handler s)
+{
+    storage_rw_internal(st, false, target, length, offset, s);
 }
 
 static CLOSURE_4_3(attach, void, heap, storage_attach, heap, heap, int, int, int);

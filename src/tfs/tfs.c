@@ -54,6 +54,32 @@ static inline extent allocate_extent(heap h, range init_range, u64 block_start, 
     return e;
 }
 
+/* extent op
+
+   - determine range of on which to perform operation
+   - allocate pages for the operation from backed heap and/or freelist
+   - if a write operation
+     - and an unaligned start is detected, read the first sector into the buffer
+     - same with unaligned end (using the same merge)
+
+   merge completion / direct call if aligned:
+
+   - if a write operation, copy the content of the user buffer into
+     the dma buffer, overwriting any read data within the query range
+     but leaving data outside the range untouched
+   - begin the i/o operation as a one-shot request to block device
+
+   i/o completion:
+
+   - if a read operation, copy data from the dma buffer to the user buffer
+   - release dma buffer
+   - apply status handler
+
+   It might be more efficient to allow the aligned portion of an
+   unaligned request, if any, to proceed without blocking for
+   unaligned block reads.
+*/
+
 static CLOSURE_4_1(fs_read_extent, void,
                    filesystem, buffer, merge, range,
                    rmnode);
@@ -206,6 +232,9 @@ static void fs_write_extent(filesystem fs, buffer source, merge m, range q, rmno
     range i = range_intersection(q, node->r);
     u64 source_offset = i.start - q.start;
     u64 length = range_span(i);
+    void * buf = buffer_ref(source, source_offset);
+    tfs_debug("fs_write_extent: buf %p, len %d, q %R, node %R, start 0x%P\n",
+              buf, buffer_length(source), q, node->r, ((extent)node)->block_start);
 
     /* XXX This is temporary crap, and we're leaking. Unfinished,
        don't look here. Actually just redo the virtio write as it
@@ -213,10 +242,8 @@ static void fs_write_extent(filesystem fs, buffer source, merge m, range q, rmno
 
        And yes, partial block writes aren't done.
     */
-    void * source_buf = buffer_ref(source, source_offset);
-    buffer sub = wrap_buffer(fs->h, source_buf, length);
     status_handler sh = apply(m);
-    apply(fs->w, sub, ((extent)node)->block_start, sh);
+    apply(fs->w, buf, length, ((extent)node)->block_start, sh);
 }
 
 // wrap in an interface
@@ -286,14 +313,31 @@ static extent create_extent(fsfile f, range r)
     return ex;
 }
 
+static inline boolean ingest_parse_int(tuple value, symbol s, u64 * i)
+{
+    buffer b = table_find(value, s);
+    /* bark, because these shouldn't really happen */
+    if (!b) {
+        msg_err("value missing %s\n", symbol_string(s));
+        return false;
+    }
+
+    /* XXX gross, but we're having issues with too many allocas in stage2 */
+    bytes start = b->start;
+    parse_int(b, 10, i);
+    b->start = start;
+    return true;
+}
+
 void ingest_extent(fsfile f, symbol off, tuple value)
 {
     tfs_debug("ingest_extent: f %p, off %b, value %v\n", f, symbol_string(off), value);
     u64 length, file_offset, block_start, allocated;
+    assert(off);
     parse_int(alloca_wrap(symbol_string(off)), 10, &file_offset);
-    parse_int(alloca_wrap(table_find(value, sym(length))), 10, &length);
-    parse_int(alloca_wrap(table_find(value, sym(offset))), 10, &block_start);
-    parse_int(alloca_wrap(table_find(value, sym(allocated))), 10, &allocated);
+    if (!ingest_parse_int(value, sym(length), &length)) return;
+    if (!ingest_parse_int(value, sym(offset), &block_start)) return;
+    if (!ingest_parse_int(value, sym(allocated), &allocated)) return;
     tfs_debug("   file offset %d, length %d, block_start 0x%P, allocated %d\n",
               file_offset, length, block_start, allocated);
 #ifndef BOOT
@@ -423,8 +467,7 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_ha
         return;
     }
 
-    tfs_debug("filesystem_write: tuple %p, buffer %p, offset %d, length %d\n",
-              t, b, offset, buffer_length(b));
+    tfs_debug("filesystem_write: tuple %p, buffer %p, q %R\n", t, b, q);
 
     rmnode node = rangemap_lookup_at_or_next(f->extentmap, q.start);
     merge m = allocate_merge(fs->h, closure(fs->h, filesystem_write_complete,
