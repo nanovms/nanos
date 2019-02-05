@@ -31,15 +31,15 @@ static u64 stage2_allocator(heap h, bytes b)
     return result;
 }
 
-static CLOSURE_1_4(stage2_read_disk, void, u64, void *, u64, u64, status_handler);
-static void stage2_read_disk(u64 base, void *dest, u64 length, u64 offset, status_handler completion)
+static CLOSURE_1_3(stage2_read_disk, void, u64, void *, range, status_handler);
+static void stage2_read_disk(u64 base, void *dest, range blocks, status_handler completion)
 {
-    read_sectors(dest, base+offset, length);
+    read_sectors(dest, base + (blocks.start * SECTOR_SIZE), range_span(blocks) * SECTOR_SIZE);
     apply(completion, STATUS_OK);
 }
 
-static CLOSURE_0_4(stage2_empty_write, void, void *, u64, u64, status_handler);
-static void stage2_empty_write(void * src, u64 length, u64 offset, status_handler completion)
+static CLOSURE_0_3(stage2_empty_write, void, void *, range, status_handler);
+static void stage2_empty_write(void * src, range blocks, status_handler completion)
 {
 }
 
@@ -137,6 +137,7 @@ void newstack()
     create_filesystem(h,
                       SECTOR_SIZE,
                       1024 * MB, /* XXX change to infinity with new rtrie */
+                      0,         /* ignored in boot */
                       closure(h, stage2_read_disk, fsb),
                       closure(h, stage2_empty_write),
                       root,

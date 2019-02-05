@@ -67,30 +67,28 @@ static void complete(storage s, status_handler f, u8 *result, virtio_blk_req req
     //    rprintf("used: %d\n",  s->command->vq_ring.used->idx);    
 }
 
-static inline void storage_rw_internal(storage st, boolean write, void * buf, u64 length, u64 offset,
-                                       status_handler s)
+static inline void storage_rw_internal(storage st, boolean write, void * buf,
+                                       range sectors, status_handler s)
 {
     char * err = 0;
-    virtio_blk_debug("virtio_%s: offset %d len %d cap %d\n", write ? "write" : "read", offset,
-                     length, st->capacity);
+    virtio_blk_debug("virtio_%s: block range %R cap %d\n", write ? "write" : "read", sectors, st->capacity);
 
-    if ((u64_from_pointer(buf) & (PAGESIZE - 1))) {
-        err = "buffer must be page-aligned.";
+    /* XXX so no, not page aligned but what? 16? */
+    if ((u64_from_pointer(buf) & 15)) {
+        msg_err("misaligned buf: %p\n", buf);
+        err = "write buffer not properly aligned";
         goto out_inval;
     }
 
-    if ((offset & (SECTOR_SIZE - 1))) {
-        err = "offset must be sector-aligned.";
-        goto out_inval;
-    }
-
-    if (length > 0 && (length & (SECTOR_SIZE - 1))) {
-        err = "length must be > 0 and sector-aligned.";
+    u64 start_sector = sectors.start;
+    u64 nsectors = range_span(sectors);
+    if (nsectors == 0) {
+        err = "length must be > 0";
         goto out_inval;
     }
 
     virtio_blk_req req = allocate_virtio_blk_req(st, write ? VIRTIO_BLK_T_OUT : VIRTIO_BLK_T_IN,
-                                                 offset / SECTOR_SIZE);
+                                                 start_sector);
 
     void *address[3];
     boolean writables[3];
@@ -104,7 +102,7 @@ static inline void storage_rw_internal(storage st, boolean write, void * buf, u6
 
     address[index] = buf;
     writables[index] = !write;
-    lengths[index] = length;
+    lengths[index] = nsectors * st->block_size;
     index++;
 
     address[index] = ((void *)req) + VIRTIO_BLK_REQ_HEADER_SIZE;
@@ -120,16 +118,16 @@ static inline void storage_rw_internal(storage st, boolean write, void * buf, u6
     apply(s, timm("result", "%s", err));
 }
 
-static CLOSURE_1_4(storage_write, void, storage, void *, u64, u64, status_handler);
-static void storage_write(storage st, void * source, u64 length, u64 offset, status_handler s)
+static CLOSURE_1_3(storage_write, void, storage, void *, range, status_handler);
+static void storage_write(storage st, void * source, range blocks, status_handler s)
 {
-    storage_rw_internal(st, true, source, length, offset, s);
+    storage_rw_internal(st, true, source, blocks, s);
 }
 
-static CLOSURE_1_4(storage_read, void, storage, void *, u64, u64, status_handler);
-static void storage_read(storage st, void * target, u64 length, u64 offset, status_handler s)
+static CLOSURE_1_3(storage_read, void, storage, void *, range, status_handler);
+static void storage_read(storage st, void * target, range blocks, status_handler s)
 {
-    storage_rw_internal(st, false, target, length, offset, s);
+    storage_rw_internal(st, false, target, blocks, s);
 }
 
 static CLOSURE_4_3(attach, void, heap, storage_attach, heap, heap, int, int, int);

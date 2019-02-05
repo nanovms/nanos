@@ -26,14 +26,19 @@ static void log_write_completion(vector v, status nothing)
 
 // xxx  currently we cant take writes during the flush
 
+/* XXX it's not right to just stick SECTOR_{SIZE,OFFSET} everywhere...
+   and add block_log2 to fs */
+range log_block_range(log tl, u64 offset, u64 length)
+{
+    return irange(offset >> SECTOR_OFFSET, (offset + length) >> SECTOR_OFFSET);
+}
+
 void log_flush(log tl)
 {
     buffer b = tl->staging;
     push_u8(b, END_OF_LOG);
-    apply(tl->fs->w,
-          buffer_ref(b, 0),
-          buffer_length(b),
-          tl->offset + b->start, 
+    range r = log_block_range(tl, tl->offset, pad(buffer_length(b), SECTOR_SIZE));
+    apply(tl->fs->w, buffer_ref(b, 0), r,
           closure(tl->h, log_write_completion, tl->completions));
     b->end -= 1;
 }
@@ -123,7 +128,8 @@ void read_log(log tl, u64 offset, u64 size, status_handler sh)
     tl->staging = allocate_buffer(tl->h, size);
     //    tl->staging->end = size;
     status_handler tlc = closure(tl->h, log_read_complete, tl, sh);
-    apply(tl->fs->r, tl->staging->contents, tl->staging->length, 0, tlc);
+    range r = log_block_range(tl, offset, pad(tl->staging->length, tl->fs->blocksize));
+    apply(tl->fs->r, tl->staging->contents, r, tlc);
 }
 
 log log_create(heap h, filesystem fs, status_handler sh)

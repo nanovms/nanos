@@ -105,15 +105,15 @@ void perr(string s)
     rprintf("parse error %b\n", s);
 }
 
-static CLOSURE_1_4(bwrite, void, descriptor, void *, u64, u64, status_handler);
-static void bwrite(descriptor d, void * s, u64 length, u64 offset, status_handler c)
+static CLOSURE_1_3(bwrite, void, descriptor, void *, range, status_handler);
+static void bwrite(descriptor d, void * s, range blocks, status_handler c)
 {
-    pwrite(d, s, length,  offset);
+    pwrite(d, s, range_span(blocks) << SECTOR_OFFSET, blocks.start << SECTOR_OFFSET);
     apply(c, STATUS_OK);
 }
 
-static CLOSURE_1_4(bread, void, descriptor, void *, u64, u64, status_handler);
-static void bread(descriptor d, void *source, u64 length, u64 offset, status_handler completion)
+static CLOSURE_1_3(bread, void, descriptor, void *, range, status_handler);
+static void bread(descriptor d, void *source, range blocks, status_handler completion)
 {
     apply(completion, timm("error", "empty file"));
 }
@@ -207,6 +207,7 @@ int main(int argc, char **argv)
     create_filesystem(h,
                       SECTOR_SIZE,
                       fs_size,
+                      h,
                       closure(h, bread, out),
                       closure(h, bwrite, out),
                       allocate_tuple(),

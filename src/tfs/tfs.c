@@ -23,19 +23,6 @@ void fsfile_set_length(fsfile f, u64 length)
     f->length = length;
 }
 
-static CLOSURE_6_1(copyout, void, filesystem, void *, void *, u64, u64, status_handler, status);
-void copyout(filesystem fs, void *target, void *source, u64 offset, u64 length, status_handler sh, status s)
-{
-    tfs_debug("copyout: source %p, offset %d, target %p, length %P: %v\n", source, offset, target, length, s);
-    if (s) {
-        apply(sh, s);
-    } else {
-        runtime_memcpy(target, (char *) source + offset, length);
-        apply(sh, s);
-    }
-    deallocate(fs->h, source, fs->blocksize);
-}
-
 /* range_from_rmnode for file extent range */
 typedef struct extent {
     struct rmnode node;
@@ -80,6 +67,75 @@ static inline extent allocate_extent(heap h, range init_range, u64 block_start, 
    unaligned block reads.
 */
 
+
+/* I imagine this evolving into a more general page / buffer chace
+   interface. We should be able to maintain and recycle dma buffers
+   for anything in the system, or at least virtio. These should be
+   kept in free lists, and also get passed down to virtqueue so it
+   isn't calling physical_from_virtual() with each enqueue.
+*/
+typedef struct fs_dma_buf {
+    void * buf;
+    //u64 bus;           /* bus address would go here */
+    u64 alloc_size;
+    range blocks;        /* in sectors, not bytes */
+    u64 block_offset;    /* offset of query start within first block */
+    u64 data_length;
+} *fs_dma_buf;
+
+static fs_dma_buf fs_allocate_dma_buffer(filesystem fs, extent e, range i)
+{
+    fs_dma_buf db = allocate(fs->h, sizeof(struct fs_dma_buf));
+    if (db == INVALID_ADDRESS)
+        return db;
+    bytes absolute = e->block_start + i.start - e->node.r.start;
+    db->data_length = range_span(i);
+    bytes blocksize = fs->blocksize;
+    bytes padlength = pad(db->data_length, blocksize);
+    u64 start_block = absolute / blocksize; /* XXX need to stash blocksize log2 */
+    u64 nblocks = padlength / blocksize;
+    db->blocks = irange(start_block, start_block + nblocks);
+    db->block_offset = absolute & (blocksize - 1);
+
+    /* determine power-of-2 allocation size */
+    u64 alloc_order = find_order(pad(padlength, fs->dma->pagesize));
+    db->alloc_size = 1ull << alloc_order;
+#ifndef BOOT
+    db->buf = allocate(fs->dma, db->alloc_size);
+    if (db->buf == INVALID_ADDRESS) {
+        msg_err("failed to allocate dma buffer of size %d\n", db->alloc_size);
+        deallocate(fs->h, db, sizeof(struct fs_dma_buf));
+        return INVALID_ADDRESS;
+    }
+#else
+    db->buf = 0;                /* fixed up by caller for stage2 */
+#endif
+    return db;
+}
+
+static void fs_deallocate_dma_buffer(filesystem fs, fs_dma_buf db)
+{
+#ifndef BOOT
+    deallocate(fs->dma, db->buf, db->alloc_size);
+#endif
+    deallocate(fs->h, db, sizeof(struct fs_dma_buf));
+}
+
+static CLOSURE_4_1(fs_read_extent_complete, void, filesystem, fs_dma_buf, void *, status_handler, status);
+static void fs_read_extent_complete(filesystem fs, fs_dma_buf db, void * target, status_handler sh, status s)
+{
+    tfs_debug("fs_read_extent_complete: status %v\n", s);
+    if (s) {
+        apply(sh, s);
+        return;
+    }
+#ifndef BOOT
+    runtime_memcpy(target, db->buf + db->block_offset, db->data_length);
+#endif
+    fs_deallocate_dma_buffer(fs, db);
+    apply(sh, s);
+}
+
 static CLOSURE_4_1(fs_read_extent, void,
                    filesystem, buffer, merge, range,
                    rmnode);
@@ -89,25 +145,6 @@ static void fs_read_extent(filesystem fs,
                            range q,
                            rmnode node)
 {
-    extent e = (extent)node;
-    range i = range_intersection(q, node->r);
-    u64 block_start = e->block_start;
-
-    // target_offset is required for the cases when q.start < ex.start
-    // (q spans more than one extent) but this does not happen now
-    // because rtrie_lookup() is used to find an extent (q.start is always >= ex.start)
-    u64 target_offset = i.start - q.start;
-    void *target_start = buffer_ref(target, target_offset);
-    bytes target_length = range_span(i);
-
-    // make i absolute
-    s64 delta = block_start - node->r.start;
-    i.start += delta;
-    i.end += delta;
-
-    tfs_debug("fs_read_extent: q %R, ex %R, block_start %P, i %R, target_offset %d, target_start %p, target length %d, blocksize %d\n",
-              q, node->r, block_start, i, target_offset, target_start, (u64)target_length, (u64)fs->blocksize);
-
     /*
      * +       i.start--+        +--start_padded      i.end--+      +--end_padded
      * |                |        |                           |      |
@@ -117,93 +154,43 @@ static void fs_read_extent(filesystem fs,
      *            <--blocksize-->                    <--blocksize-->
      */
 
-    // handle unaligned head without clobbering extra memory
-    u64 start_padded = pad(i.start, fs->blocksize);
-    if (i.start > 0 && i.start < start_padded) {
-        // unaligned start
-        u64 head = MIN(start_padded - i.start, range_span(i));
+    /* target (user) buffer */
+    range i = range_intersection(q, node->r);
+    u64 target_offset = i.start - q.start;
+    void *target_start = buffer_ref(target, target_offset);
 
-        void *temp = allocate(fs->h, fs->blocksize);
-        assert(temp != INVALID_ADDRESS);
-        status_handler f = apply(m);
-        status_handler copy = closure(fs->h, copyout, fs, target_start, temp, fs->blocksize - (start_padded - i.start), head, f);
-        fetch_and_add(&target->end, head);
-        u64 read_start = start_padded - fs->blocksize;
-        tfs_debug("fs_read_extent: unaligned head (%P, %P): reading block at %P (%P) to %p\n",
-            i.start, start_padded, read_start, head, temp);
-        apply(fs->r, temp, fs->blocksize, read_start, copy);
-
-        i.start += head;
-        target_start += head;
-        target_length -= head;
-    }
-
-    // handle unaligned tail without clobbering extra memory
-    u64 end_padded = pad(i.end, fs->blocksize);
-    if (range_span(i) > 0 && i.end < end_padded && end_padded - i.start > target_length) {
-        // unaligned end
-        u64 tail = i.end + fs->blocksize - end_padded;
-
-        void *temp = allocate(fs->h, fs->blocksize);
-        assert(temp != INVALID_ADDRESS);
-        status_handler f = apply(m);
-        assert(range_span(i) >= tail);
-        status_handler copy = closure(fs->h, copyout, fs, target_start + range_span(i) - tail, temp, 0, tail, f);
-        fetch_and_add(&target->end, tail);
-        u64 read_start = end_padded - fs->blocksize;
-        tfs_debug("fs_read_extent: unaligned tail (%P, %P): reading block at %P (%P) to %p\n",
-            i.end, end_padded, read_start, tail, temp);
-        apply(fs->r, temp, fs->blocksize, read_start, copy);
-
-        i.end -= tail;
-        target_length -= tail;
-    }
-
+    /* get and init dma buf */
+    extent e = (extent)node;
+    fs_dma_buf db = fs_allocate_dma_buffer(fs, e, i);
 #ifdef BOOT
-    if (range_span(i) > 0) {
-        u64 xfer = range_span(i);
-        u64 xfer_padded = pad(xfer, fs->blocksize);
-
-        status_handler f = apply(m);
-        fetch_and_add(&target->end, xfer);
-        assert(i.start == 0 || pad(i.start, fs->blocksize) == i.start);
-        assert(xfer <= target_length);
-        tfs_debug("fs_read_extent: reading blocks at %P (xfer %P), target %p\n",
-                  i.start, xfer_padded, target_start);
-        apply(fs->r, target_start, xfer_padded, i.start, f);
-    }
-#else
-    // general heap max_order is 20
-    u64 max_read_chunk = U64_FROM_BIT(20);
-    while (range_span(i) > 0) {
-        u64 xfer = MIN(range_span(i), max_read_chunk);
-        assert(xfer);
-        u64 xfer_padded = pad(xfer, fs->blocksize);
-
-        void *temp = allocate(fs->h, xfer_padded);
-        assert(temp != INVALID_ADDRESS);
-        status_handler f = apply(m);
-        assert(xfer <= target_length);
-        status_handler copy = closure(fs->h, copyout, fs, target_start, temp, 0, xfer, f);
-        fetch_and_add(&target->end, xfer);
-        assert(i.start == 0 || pad(i.start, fs->blocksize) == i.start);
-        tfs_debug("fs_read_extent: chunk %R (%P): reading blocks at %P (%P) to %p\n",
-            i, xfer_padded, i.start, xfer, temp);
-        apply(fs->r, temp, xfer_padded, i.start, copy);
-
-        i.start += xfer;
-        target_start += xfer;
-        target_length -= xfer;
-    }
+    /* XXX To skip the copy in stage2, we're banking on the kernel
+       being loaded in its entirety, with no partial-block reads
+       (except the end, but that's fine). */
+    assert(i.start == node->r.start);
+    db->buf = target_start;
 #endif
+
+    tfs_debug("fs_read_extent: q %R, ex %R, blocks %R, block_offset %d, i %R, "
+              "target_offset %d, target_start %p, length %d, blocksize %d\n",
+              q, node->r, db->blocks, db->block_offset, i,
+              target_offset, target_start, db->data_length, (u64)fs->blocksize);
+
+    status_handler f = apply(m);
+    fetch_and_add(&target->end, db->data_length); /* XXX don't need this, right? */
+    status_handler copy = closure(fs->h, fs_read_extent_complete, fs, db, target_start, f);
+    apply(fs->r, db->buf, db->blocks, copy);
+
+    /* XXX hole zero */
 }
 
 io_status_handler ignore_io_status;
 
-static CLOSURE_2_1(filesystem_read_complete, void, io_status_handler, buffer, status);
-static void filesystem_read_complete(io_status_handler c, buffer b, status s)
+static CLOSURE_3_1(filesystem_read_complete, void, heap, io_status_handler, buffer, status);
+static void filesystem_read_complete(heap h, io_status_handler c, buffer b, status s)
 {
+    tfs_debug("filesystem_read_complete: status %v, length %d\n", s, buffer_length(b));
     apply(c, s, buffer_length(b));
+    unwrap_buffer(h, b);
 }
 
 void filesystem_read(filesystem fs, tuple t, void *dest, u64 length, u64 offset, io_status_handler completion)
@@ -222,9 +209,38 @@ void filesystem_read(filesystem fs, tuple t, void *dest, u64 length, u64 offset,
        that filesystem_read_complete can hand the total read length to
        the completion. */
     b->end = b->start;
-    merge m = allocate_merge(h, closure(h, filesystem_read_complete, completion, b));
+    merge m = allocate_merge(h, closure(h, filesystem_read_complete, h, completion, b));
     range total = irange(offset, offset+length);
     rangemap_range_lookup(f->extentmap, total, closure(h, fs_read_extent, f->fs, b, m, total));
+}
+
+// should be passing status to the client
+static CLOSURE_2_1(read_entire_complete, void, buffer_handler, buffer, status);
+static void read_entire_complete(buffer_handler bh, buffer b, status s)
+{
+    tfs_debug("read_entire_complete: status %v, addr %p, length %d\n",
+              s, buffer_ref(b, 0), buffer_length(b));
+    apply(bh, b);
+}
+
+// cache goes on top
+void filesystem_read_entire(filesystem fs, tuple t, heap h, buffer_handler c, status_handler e)
+{
+    fsfile f;
+    if ((f = table_find(fs->files, t))) {
+        // block read is aligning to the next sector
+        u64 len = pad(fsfile_get_length(f), fs->blocksize);
+        buffer b = allocate_buffer(h, len + 1024);
+
+        // that means a partial read, right?
+        status_handler c1 = closure(f->fs->h, read_entire_complete, c, b);
+        merge m = allocate_merge(f->fs->h, c1);
+        status_handler k = apply(m); // hold a reference until we're sure we've issued everything
+        rangemap_range_lookup(f->extentmap, irange(0, len), closure(h, fs_read_extent, fs, b, m, irange(0, len)));
+        apply(k, STATUS_OK);
+    } else {
+        apply(e, timm("status", "no such file %v\n", t));
+    }
 }
 
 static void fs_write_extent(filesystem fs, buffer source, merge m, range q, rmnode node)
@@ -243,7 +259,10 @@ static void fs_write_extent(filesystem fs, buffer source, merge m, range q, rmno
        And yes, partial block writes aren't done.
     */
     status_handler sh = apply(m);
-    apply(fs->w, buf, length, ((extent)node)->block_start, sh);
+    /* XXX wrong, fix next */
+    u64 block_start = ((extent)node)->block_start / fs->blocksize;
+    range r = irange(block_start, block_start + (pad(length, fs->blocksize) / fs->blocksize));
+    apply(fs->w, buf, r, sh);
 }
 
 // wrap in an interface
@@ -268,7 +287,6 @@ static tuple soft_create(filesystem fs, tuple t, symbol a)
    larger extents with only a meta update.
 
 */
-#define MIN_EXTENT_SIZE PAGESIZE
 
 static extent create_extent(fsfile f, range r)
 {
@@ -318,7 +336,7 @@ static inline boolean ingest_parse_int(tuple value, symbol s, u64 * i)
     buffer b = table_find(value, s);
     /* bark, because these shouldn't really happen */
     if (!b) {
-        msg_err("value missing %s\n", symbol_string(s));
+        msg_err("value missing %b\n", symbol_string(s));
         return false;
     }
 
@@ -488,14 +506,8 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_ha
             s64 remain = range_span(fill);
 
             do {
-#ifdef HOST_BUILD
-                /* kludge for mkfs: one big extent */
-//                u64 length = remain;
-                u64 length = MIN(1 << 20, remain);
-#else
                 /* create_extent will allocate a minimum of pagesize */
-                u64 length = MIN(MIN_EXTENT_SIZE, remain);
-#endif
+                u64 length = MIN(MAX_EXTENT_SIZE, remain);
                 range r = irange(curr, curr + length);
                 extent ex = create_extent(f, r);
                 if (ex == INVALID_ADDRESS) {
@@ -558,6 +570,11 @@ fs_status filesystem_mkentry(filesystem fs, tuple root, char *fp, tuple entry)
     symbol basename_sym;
     char *token, *rest = fp, *basename = (char *)0;
 
+    if (!children) {
+        msg_err("failed for \"%s\": no children found in root tuple\n", fp);
+        return FS_STATUS_NOENT;
+    }
+
     /* find the folder we need to mkentry in */
     while ((token = runtime_strtok_r(rest, "/", &rest))) {
         boolean final = *rest == '\0';
@@ -619,36 +636,9 @@ fs_status filesystem_creat(filesystem fs, tuple root, char *fp)
     return filesystem_mkentry(fs, root, fp, dir);
 }
 
-// should be passing status to the client
-static CLOSURE_2_1(read_entire_complete, void, buffer_handler, buffer, status);
-static void read_entire_complete(buffer_handler bh, buffer b, status s)
-{
-    apply(bh, b);
-}
-
 fsfile fsfile_from_node(filesystem fs, tuple n)
 {
     return table_find(fs->files, n);
-}
-
-// cache goes on top
-void filesystem_read_entire(filesystem fs, tuple t, heap h, buffer_handler c, status_handler e)
-{
-    fsfile f;
-    if ((f = table_find(fs->files, t))) {
-        // block read is aligning to the next sector
-        u64 len = pad(fsfile_get_length(f), fs->blocksize);
-        buffer b = allocate_buffer(h, len + 1024);
-        
-        // that means a partial read, right?
-        status_handler c1 = closure(f->fs->h, read_entire_complete, c, b);
-        merge m = allocate_merge(f->fs->h, c1);
-        status_handler k = apply(m); // hold a reference until we're sure we've issued everything
-        rangemap_range_lookup(f->extentmap, irange(0, len), closure(h, fs_read_extent, fs, b, m, irange(0, len)));
-        apply(k, STATUS_OK);
-    } else {
-        apply(e, timm("status", "no such file %v\n", t));
-    }
 }
 
 void flush(filesystem fs, status_handler s)
@@ -668,15 +658,18 @@ static void ignore_io_body(status s, bytes length){}
 void create_filesystem(heap h,
                        u64 alignment,
                        u64 size,
+                       heap dma,
                        block_read read,
                        block_write write,
                        tuple root,
                        filesystem_complete complete)
 {
+    tfs_debug("create_filesystem: ...\n");
     filesystem fs = allocate(h, sizeof(struct filesystem));
     ignore_io_status = closure(h, ignore_io_body);
     fs->files = allocate_table(h, identity_key, pointer_equal);
-    fs->extents = allocate_table(h, identity_key, pointer_equal);    
+    fs->extents = allocate_table(h, identity_key, pointer_equal);
+    fs->dma = dma;
     fs->r = read;
     fs->h = h;
     fs->w = write;

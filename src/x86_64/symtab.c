@@ -59,7 +59,7 @@ char * find_elf_sym(u64 a, u64 *offset, u64 *len)
         return 0;
 
     elfsym es = (elfsym)rangemap_lookup(elf_symtable, a);
-    if (!es)
+    if (es == INVALID_ADDRESS)
         return 0;
     range r = range_from_rmnode(&es->node);
 
