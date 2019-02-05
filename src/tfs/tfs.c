@@ -176,7 +176,7 @@ static void fs_read_extent(filesystem fs,
               target_offset, target_start, db->data_length, (u64)fs->blocksize);
 
     status_handler f = apply(m);
-    fetch_and_add(&target->end, db->data_length); /* XXX don't need this, right? */
+    fetch_and_add(&target->end, db->data_length);
     status_handler copy = closure(fs->h, fs_read_extent_complete, fs, db, target_start, f);
     apply(fs->r, db->buf, db->blocks, copy);
 
@@ -202,6 +202,7 @@ void filesystem_read(filesystem fs, tuple t, void *dest, u64 length, u64 offset,
         return;
     }
 
+    assert(fs == f->fs);
     heap h = fs->h;
     // b here is permanent - cache?
     buffer b = wrap_buffer(h, dest, length);
@@ -210,8 +211,10 @@ void filesystem_read(filesystem fs, tuple t, void *dest, u64 length, u64 offset,
        the completion. */
     b->end = b->start;
     merge m = allocate_merge(h, closure(h, filesystem_read_complete, h, completion, b));
+    status_handler k = apply(m); // hold a reference until we're sure we've issued everything
     range total = irange(offset, offset+length);
-    rangemap_range_lookup(f->extentmap, total, closure(h, fs_read_extent, f->fs, b, m, total));
+    rangemap_range_lookup(f->extentmap, total, closure(h, fs_read_extent, fs, b, m, total));
+    apply(k, STATUS_OK);
 }
 
 // should be passing status to the client
@@ -228,6 +231,7 @@ void filesystem_read_entire(filesystem fs, tuple t, heap h, buffer_handler c, st
 {
     fsfile f;
     if ((f = table_find(fs->files, t))) {
+        assert(fs == f->fs);
         // block read is aligning to the next sector
         u64 len = pad(fsfile_get_length(f), fs->blocksize);
         buffer b = allocate_buffer(h, len + 1024);
@@ -236,7 +240,8 @@ void filesystem_read_entire(filesystem fs, tuple t, heap h, buffer_handler c, st
         status_handler c1 = closure(f->fs->h, read_entire_complete, c, b);
         merge m = allocate_merge(f->fs->h, c1);
         status_handler k = apply(m); // hold a reference until we're sure we've issued everything
-        rangemap_range_lookup(f->extentmap, irange(0, len), closure(h, fs_read_extent, fs, b, m, irange(0, len)));
+        range total = irange(0, len);
+        rangemap_range_lookup(f->extentmap, total, closure(h, fs_read_extent, fs, b, m, total));
         apply(k, STATUS_OK);
     } else {
         apply(e, timm("status", "no such file %v\n", t));
@@ -249,8 +254,8 @@ static void fs_write_extent(filesystem fs, buffer source, merge m, range q, rmno
     u64 source_offset = i.start - q.start;
     u64 length = range_span(i);
     void * buf = buffer_ref(source, source_offset);
-    tfs_debug("fs_write_extent: buf %p, len %d, q %R, node %R, start 0x%P\n",
-              buf, buffer_length(source), q, node->r, ((extent)node)->block_start);
+    tfs_debug("fs_write_extent: buf %p, buf len %d, q %R, node %R, i %R, i len %d, start 0x%P\n",
+              buf, buffer_length(source), q, node->r, i, length, ((extent)node)->block_start);
 
     /* XXX This is temporary crap, and we're leaking. Unfinished,
        don't look here. Actually just redo the virtio write as it
@@ -262,6 +267,7 @@ static void fs_write_extent(filesystem fs, buffer source, merge m, range q, rmno
     /* XXX wrong, fix next */
     u64 block_start = ((extent)node)->block_start / fs->blocksize;
     range r = irange(block_start, block_start + (pad(length, fs->blocksize) / fs->blocksize));
+    tfs_debug("   write from 0x%p to block range %R\n", buf, r);
     apply(fs->w, buf, r, sh);
 }
 

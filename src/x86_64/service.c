@@ -68,7 +68,9 @@ static CLOSURE_2_3(offset_block_write, void, block_write, u64, void *, range, st
 static void offset_block_write(block_write w, u64 start, void *src, range blocks, status_handler h)
 {
     assert((start & (SECTOR_SIZE - 1)) == 0);
-    blocks.start += (start >> SECTOR_OFFSET);
+    u64 ds = start >> SECTOR_OFFSET;
+    blocks.start += ds;
+    blocks.end += ds;
     apply(w, src, blocks, h);
 }
 
@@ -76,7 +78,9 @@ static CLOSURE_2_3(offset_block_read, void, block_read, u64, void *, range, stat
 static void offset_block_read(block_read r, u64 start, void *dest, range blocks, status_handler h)
 {
     assert((start & (SECTOR_SIZE - 1)) == 0);
-    blocks.start += (start >> SECTOR_OFFSET);
+    u64 ds = start >> SECTOR_OFFSET;
+    blocks.start += ds;
+    blocks.end += ds;
     apply(r, dest, blocks, h);
 }
 
