@@ -580,8 +580,8 @@ static sysreturn file_read(file f, fsfile fsf, void *dest, u64 length, u64 offse
 
     if (offset < f->length) {
         filesystem_read(current->p->fs, f->n, dest, length, offset,
-                closure(heap_general(get_kernel_heaps()),
-                        file_op_complete, current, f, fsf, is_file_offset));
+                        closure(heap_general(get_kernel_heaps()),
+                                file_op_complete, current, f, fsf, is_file_offset));
 
         /* XXX Presently only support blocking file reads... */
         thread_sleep(current);
@@ -604,6 +604,13 @@ static sysreturn file_write(file f, fsfile fsf, void *dest, u64 length, u64 offs
 
     u64 final_length = PAD_WRITES ? pad(length, SECTOR_SIZE) : length;
     void *buf = allocate(h, final_length);
+
+    /* XXX we shouldn't need to copy here, however if we at some point
+       want to support non-blocking, we'll need to fix the unaligned
+       block rmw in the extent write (prob just break it up into
+       aligned and unaligned portions, copying aligned data straight
+       to dma buffer and stashing unaligned portions to be copied post
+       block read) */
 
     /* copy from userspace, XXX: check pointer safety */
     runtime_memset(buf, 0, final_length);

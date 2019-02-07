@@ -29,7 +29,7 @@ u64 fsfile_get_length(fsfile f);
 void fsfile_set_length(fsfile f, u64);
 fsfile fsfile_from_node(filesystem fs, tuple n);
 fsfile file_lookup(filesystem fs, vector v);
-void filesystem_read_entire(filesystem fs, tuple t, heap h, buffer_handler c, status_handler s);
+void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler c, status_handler s);
 // need to provide better/more symmetric access to metadata, but ...
 void filesystem_write_tuple(filesystem fs, tuple t);
 void filesystem_write_eav(filesystem fs, tuple t, symbol a, value v);

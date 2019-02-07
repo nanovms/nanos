@@ -79,7 +79,7 @@ typedef struct fs_dma_buf {
     //u64 bus;           /* bus address would go here */
     u64 alloc_size;
     range blocks;        /* in sectors, not bytes */
-    u64 block_offset;    /* offset of query start within first block */
+    u64 start_offset;    /* offset of query start within first block */
     u64 data_length;
 } *fs_dma_buf;
 
@@ -95,7 +95,7 @@ static fs_dma_buf fs_allocate_dma_buffer(filesystem fs, extent e, range i)
     u64 start_block = absolute / blocksize; /* XXX need to stash blocksize log2 */
     u64 nblocks = padlength / blocksize;
     db->blocks = irange(start_block, start_block + nblocks);
-    db->block_offset = absolute & (blocksize - 1);
+    db->start_offset = absolute & (blocksize - 1);
 
     /* determine power-of-2 allocation size */
     u64 alloc_order = find_order(pad(padlength, fs->dma->pagesize));
@@ -130,7 +130,7 @@ static void fs_read_extent_complete(filesystem fs, fs_dma_buf db, void * target,
         return;
     }
 #ifndef BOOT
-    runtime_memcpy(target, db->buf + db->block_offset, db->data_length);
+    runtime_memcpy(target, db->buf + db->start_offset, db->data_length);
 #endif
     fs_deallocate_dma_buffer(fs, db);
     apply(sh, s);
@@ -145,16 +145,6 @@ static void fs_read_extent(filesystem fs,
                            range q,
                            rmnode node)
 {
-    /*
-     * +       i.start--+        +--start_padded      i.end--+      +--end_padded
-     * |                |        |                           |      |
-     * |                v        v                           v      v
-     * v                 <-head->                    <-tail->
-     * |---------|------[========|=======....=======|========]------|
-     *            <--blocksize-->                    <--blocksize-->
-     */
-
-    /* target (user) buffer */
     range i = range_intersection(q, node->r);
     u64 target_offset = i.start - q.start;
     void *target_start = buffer_ref(target, target_offset);
@@ -162,6 +152,10 @@ static void fs_read_extent(filesystem fs,
     /* get and init dma buf */
     extent e = (extent)node;
     fs_dma_buf db = fs_allocate_dma_buffer(fs, e, i);
+    if (db == INVALID_ADDRESS) {
+        msg_err("failed; unable to allocate dma buffer, i span %d bytes\n", range_span(i));
+        return;
+    }
 #ifdef BOOT
     /* XXX To skip the copy in stage2, we're banking on the kernel
        being loaded in its entirety, with no partial-block reads
@@ -170,9 +164,9 @@ static void fs_read_extent(filesystem fs,
     db->buf = target_start;
 #endif
 
-    tfs_debug("fs_read_extent: q %R, ex %R, blocks %R, block_offset %d, i %R, "
+    tfs_debug("fs_read_extent: q %R, ex %R, blocks %R, start_offset %d, i %R, "
               "target_offset %d, target_start %p, length %d, blocksize %d\n",
-              q, node->r, db->blocks, db->block_offset, i,
+              q, node->r, db->blocks, db->start_offset, i,
               target_offset, target_start, db->data_length, (u64)fs->blocksize);
 
     status_handler f = apply(m);
@@ -227,48 +221,107 @@ static void read_entire_complete(buffer_handler bh, buffer b, status s)
 }
 
 // cache goes on top
-void filesystem_read_entire(filesystem fs, tuple t, heap h, buffer_handler c, status_handler e)
+void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler c, status_handler e)
 {
     fsfile f;
     if ((f = table_find(fs->files, t))) {
         assert(fs == f->fs);
         // block read is aligning to the next sector
         u64 len = pad(fsfile_get_length(f), fs->blocksize);
-        buffer b = allocate_buffer(h, len + 1024);
+        buffer b = allocate_buffer(bufheap, len + 1024);
 
         // that means a partial read, right?
         status_handler c1 = closure(f->fs->h, read_entire_complete, c, b);
         merge m = allocate_merge(f->fs->h, c1);
         status_handler k = apply(m); // hold a reference until we're sure we've issued everything
         range total = irange(0, len);
-        rangemap_range_lookup(f->extentmap, total, closure(h, fs_read_extent, fs, b, m, total));
+        rangemap_range_lookup(f->extentmap, total, closure(fs->h, fs_read_extent, fs, b, m, total));
         apply(k, STATUS_OK);
     } else {
         apply(e, timm("status", "no such file %v\n", t));
     }
 }
 
+/*
+ * +       i.start--+        +--start_padded      i.end--+      +--end_padded
+ * |                |        |                           |      |
+ * |                v        v                           v      v
+ * v                 <-head->                    <-tail->
+ * |---------|------[========|=======....=======|========]------|
+ *            <--blocksize-->                    <--blocksize-->
+ */
+
+/* In theory these writes could be split up, allowing the aligned
+   write to commence without waiting for head/tail reads. Not clear if
+   it matters. */
+static CLOSURE_4_1(fs_write_extent_complete, void, filesystem, fs_dma_buf, void *, status_handler, status);
+static void fs_write_extent_complete(filesystem fs, fs_dma_buf db, void * source,
+                                     status_handler sh, status s)
+{
+    if (!is_ok(s)) {
+        msg_err("read failed: %v\n", s);
+        apply(sh, s);
+        return;
+    }
+    void * dest = db->buf + db->start_offset;
+    tfs_debug("fs_write_extent_complete: copy from 0x%p to 0x%p, len %d\n", source, dest, db->data_length);
+    runtime_memcpy(dest, source, db->data_length);
+    tfs_debug("   write from 0x%p to block range %R\n", db->buf, db->blocks);
+    apply(fs->w, db->buf, db->blocks, sh);
+}
+
+static void fs_write_extent_read_block(filesystem fs, fs_dma_buf db, u64 offset_block, status_handler sh)
+{
+    u64 absolute_block = db->blocks.start + offset_block;
+    void * buf = db->buf + (offset_block * fs->blocksize) - db->start_offset;
+    apply(fs->r, buf, irange(absolute_block, absolute_block + 1), sh);
+}
+
 static void fs_write_extent(filesystem fs, buffer source, merge m, range q, rmnode node)
 {
     range i = range_intersection(q, node->r);
     u64 source_offset = i.start - q.start;
-    u64 length = range_span(i);
-    void * buf = buffer_ref(source, source_offset);
-    tfs_debug("fs_write_extent: buf %p, buf len %d, q %R, node %R, i %R, i len %d, start 0x%P\n",
-              buf, buffer_length(source), q, node->r, i, length, ((extent)node)->block_start);
+    void * source_start = buffer_ref(source, source_offset);
 
-    /* XXX This is temporary crap, and we're leaking. Unfinished,
-       don't look here. Actually just redo the virtio write as it
-       doesn't need to use a buffer and is probably fucked anyway.
+#ifdef BOOT
+    msg_err("File writing unsupported in stage2.\n");
+    return;
+#endif
 
-       And yes, partial block writes aren't done.
-    */
+    extent e = (extent)node;
+    fs_dma_buf db = fs_allocate_dma_buffer(fs, e, i);
+    if (db == INVALID_ADDRESS) {
+        msg_err("failed; unable to allocate dma buffer, i span %d bytes\n", range_span(i));
+        return;
+    }
+
+    tfs_debug("fs_write_extent: source (+off) %p, buf len %d, q %R, node %R,\n"
+              "                 i %R, i len %d, ext start 0x%P, dma buf %p\n",
+              source_start, buffer_length(source), q, node->r, i, range_span(i),
+              ((extent)node)->block_start, db->buf);
+
+    /* Check for unaligned block writes and initiate reads for them.
+       This would all be obviated by a diskcache. */
+    boolean head = db->start_offset != 0;
+    boolean tail =
+        ((db->data_length + db->start_offset) & (fs->blocksize - 1)) != 0 &&
+        (range_span(db->blocks) > 1) && /* head != tail */
+        (i.end != node->r.end); /* no need to rmw tail if we're at the end of the extent */
+
     status_handler sh = apply(m);
-    /* XXX wrong, fix next */
-    u64 block_start = ((extent)node)->block_start / fs->blocksize;
-    range r = irange(block_start, block_start + (pad(length, fs->blocksize) / fs->blocksize));
-    tfs_debug("   write from 0x%p to block range %R\n", buf, r);
-    apply(fs->w, buf, r, sh);
+    if (head || tail) {
+        merge m2 = allocate_merge(fs->h, closure(fs->h, fs_write_extent_complete, fs, db, source, sh));
+        status_handler k = apply(m2);
+        if (head)
+            fs_write_extent_read_block(fs, db, 0, apply(m2));
+        if (tail)
+            fs_write_extent_read_block(fs, db, db->blocks.end - 1, apply(m2));
+        apply(k, STATUS_OK);
+        return;
+    }
+
+    /* everything is aligned, so proceed to the write */
+    fs_write_extent_complete(fs, db, source_start, sh, STATUS_OK);
 }
 
 // wrap in an interface
