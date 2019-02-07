@@ -41,38 +41,11 @@ static inline extent allocate_extent(heap h, range init_range, u64 block_start, 
     return e;
 }
 
-/* extent op
-
-   - determine range of on which to perform operation
-   - allocate pages for the operation from backed heap and/or freelist
-   - if a write operation
-     - and an unaligned start is detected, read the first sector into the buffer
-     - same with unaligned end (using the same merge)
-
-   merge completion / direct call if aligned:
-
-   - if a write operation, copy the content of the user buffer into
-     the dma buffer, overwriting any read data within the query range
-     but leaving data outside the range untouched
-   - begin the i/o operation as a one-shot request to block device
-
-   i/o completion:
-
-   - if a read operation, copy data from the dma buffer to the user buffer
-   - release dma buffer
-   - apply status handler
-
-   It might be more efficient to allow the aligned portion of an
-   unaligned request, if any, to proceed without blocking for
-   unaligned block reads.
-*/
-
-
-/* I imagine this evolving into a more general page / buffer chace
-   interface. We should be able to maintain and recycle dma buffers
-   for anything in the system, or at least virtio. These should be
-   kept in free lists, and also get passed down to virtqueue so it
-   isn't calling physical_from_virtual() with each enqueue.
+/* This can evolve into / be replaced by a more general page / buffer
+   chace interface. We should be able to maintain and recycle dma
+   buffers for anything in the system, or at least virtio. These
+   could be kept in free lists, and also get passed down to virtqueue
+   so it isn't calling physical_from_virtual() with each enqueue.
 */
 typedef struct fs_dma_buf {
     void * buf;
@@ -170,8 +143,6 @@ static void fs_read_extent(filesystem fs,
     fetch_and_add(&target->end, db->data_length);
     status_handler copy = closure(fs->h, fs_read_extent_complete, fs, db, target_start, f);
     apply(fs->r, db->buf, db->blocks, copy);
-
-    /* XXX hole zero */
 }
 
 io_status_handler ignore_io_status;
@@ -180,63 +151,63 @@ static CLOSURE_3_1(filesystem_read_complete, void, heap, io_status_handler, buff
 static void filesystem_read_complete(heap h, io_status_handler c, buffer b, status s)
 {
     tfs_debug("filesystem_read_complete: status %v, length %d\n", s, buffer_length(b));
-    apply(c, s, buffer_length(b));
+    apply(c, s, is_ok(s) ? buffer_length(b) : 0);
     unwrap_buffer(h, b);
 }
 
-void filesystem_read(filesystem fs, tuple t, void *dest, u64 length, u64 offset, io_status_handler completion)
+static void filesystem_read_internal(filesystem fs, fsfile f, buffer b, u64 length, u64 offset,
+                                     status_handler sh)
+{
+    merge m = allocate_merge(fs->h, sh);
+    status_handler k = apply(m); // hold a reference until we're sure we've issued everything
+    range total = irange(offset, offset+length);
+    rangemap_range_lookup(f->extentmap, total, closure(fs->h, fs_read_extent, fs, b, m, total));
+    apply(k, STATUS_OK);
+}
+
+void filesystem_read(filesystem fs, tuple t, void *dest, u64 length, u64 offset,
+                     io_status_handler io_complete)
 {
     fsfile f;
     if (!(f = table_find(fs->files, t))) {
         tuple e = timm("result", "no such file %t", t);
-        apply(completion, e, 0);
+        apply(io_complete, e, 0);
         return;
     }
 
-    assert(fs == f->fs);
-    heap h = fs->h;
-    // b here is permanent - cache?
-    buffer b = wrap_buffer(h, dest, length);
-    /* b->end will accumulate the read extent lengths; enclose b so
-       that filesystem_read_complete can hand the total read length to
-       the completion. */
+    /* b->end will accumulate the read extent and hole lengths, thus
+       effectively handing a read length to the completion. */
+    buffer b = wrap_buffer(fs->h, dest, length);
     b->end = b->start;
-    merge m = allocate_merge(h, closure(h, filesystem_read_complete, h, completion, b));
-    status_handler k = apply(m); // hold a reference until we're sure we've issued everything
-    range total = irange(offset, offset+length);
-    rangemap_range_lookup(f->extentmap, total, closure(h, fs_read_extent, fs, b, m, total));
-    apply(k, STATUS_OK);
+    status_handler sh = closure(fs->h, filesystem_read_complete, fs->h, io_complete, b);
+    filesystem_read_internal(fs, f, b, length, offset, sh);
 }
 
-// should be passing status to the client
-static CLOSURE_2_1(read_entire_complete, void, buffer_handler, buffer, status);
-static void read_entire_complete(buffer_handler bh, buffer b, status s)
+static CLOSURE_3_1(read_entire_complete, void, buffer_handler, buffer, status_handler, status);
+static void read_entire_complete(buffer_handler bh, buffer b, status_handler sh, status s)
 {
     tfs_debug("read_entire_complete: status %v, addr %p, length %d\n",
               s, buffer_ref(b, 0), buffer_length(b));
+    if (!is_ok(s)) {
+        deallocate_buffer(b);
+        apply(sh, s);
+        return;
+    }
     apply(bh, b);
 }
 
-// cache goes on top
-void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler c, status_handler e)
+void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler c, status_handler sh)
 {
     fsfile f;
-    if ((f = table_find(fs->files, t))) {
-        assert(fs == f->fs);
-        // block read is aligning to the next sector
-        u64 len = pad(fsfile_get_length(f), fs->blocksize);
-        buffer b = allocate_buffer(bufheap, len + 1024);
-
-        // that means a partial read, right?
-        status_handler c1 = closure(f->fs->h, read_entire_complete, c, b);
-        merge m = allocate_merge(f->fs->h, c1);
-        status_handler k = apply(m); // hold a reference until we're sure we've issued everything
-        range total = irange(0, len);
-        rangemap_range_lookup(f->extentmap, total, closure(fs->h, fs_read_extent, fs, b, m, total));
-        apply(k, STATUS_OK);
-    } else {
-        apply(e, timm("status", "no such file %v\n", t));
+    if (!(f = table_find(fs->files, t))) {
+        tuple e = timm("result", "no such file %t", t);
+        apply(sh, e);
+        return;
     }
+
+    u64 length = pad(fsfile_get_length(f), fs->blocksize);
+    buffer b = allocate_buffer(bufheap, pad(length, PAGESIZE /* just call it a feature */));
+    filesystem_read_internal(fs, f, b, length, 0, closure(fs->h, read_entire_complete, c, b, sh));
 }
 
 /*
