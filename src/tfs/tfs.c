@@ -577,14 +577,11 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_ha
                     msg_err("failed to create extent\n");
                     goto fail;
                 }
-                tfs_debug("   writing new extent at %R\n", r);
+                tfs_debug("   writing new extent %R\n", r);
                 fs_write_extent(f->fs, b, m, q, &ex->node);
                 curr += length;
                 remain -= length;
             } while (remain > 0);
-
-            /* should be at boundary of next extent or end */
-            assert(curr == limit);
         }
 
         if (node != INVALID_ADDRESS) {
@@ -594,10 +591,9 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_ha
                 tfs_debug("   updating extent at %R (intersection %R)\n", node->r, i);
                 fs_write_extent(f->fs, b, m, q, node);
             }
-            curr = i.end;
+            curr = node->r.end;
             node = rangemap_next_node(f->extentmap, node);
         }
-
     } while(curr < q.end);
 
     /* apply merge success */

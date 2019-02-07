@@ -102,11 +102,10 @@ void scatter_write_test()
         exit(EXIT_FAILURE);
     }
 
-    /* This will simultaneously test file creation, extension, holes
-       and writes. */
+    /* This will simultaneously test file creation, extension, holes and writes. */
     for (int iter = 0; iter < SCATTER_ITERATIONS; iter++) {
         int position = _random() % SCATTER_BUFLEN;
-        int x = _random() % SCATTER_BUFLEN;
+        int x = _random() % (SCATTER_BUFLEN / 8);
         int length = min(x, SCATTER_BUFLEN - position);
 
         if (length == 0)
