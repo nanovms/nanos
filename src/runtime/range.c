@@ -99,7 +99,7 @@ rmnode rangemap_lookup_at_or_next(rangemap rm, u64 point)
 }
 
 /* can be called with rh == 0 for true/false match */
-boolean rangemap_range_lookup(rangemap rm, range q, rmnode_handler rh)
+boolean rangemap_range_lookup(rangemap rm, range q, rmnode_handler nh)
 {
     boolean match = false;
     struct list * i;
@@ -109,10 +109,31 @@ boolean rangemap_range_lookup(rangemap rm, range q, rmnode_handler rh)
 
         if (!range_empty(i)) {
             match = true;
-            if (rh == 0)        /* abort search if match w/o handler */
+            if (nh == 0)        /* abort search if match w/o handler */
                 return true;
-            apply(rh, curr);
+            apply(nh, curr);
         }
+    }
+    return match;
+}
+
+boolean rangemap_range_find_gaps(rangemap rm, range q, range_handler rh)
+{
+    boolean match = false;
+    u64 lastedge = q.start;
+    struct list * i;
+    list_foreach(&rm->root, i) {
+        rmnode curr = struct_from_list(i, rmnode, l);
+        u64 edge = curr->r.start;
+        if (edge > lastedge) {
+            match = true;
+            apply(rh, irange(lastedge, edge));
+        }
+        lastedge = curr->r.end;
+    }
+    if (q.end > lastedge) {
+        match = true;
+        apply(rh, irange(lastedge, q.end));
     }
     return match;
 }

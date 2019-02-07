@@ -145,6 +145,17 @@ static void fs_read_extent(filesystem fs,
     apply(fs->r, db->buf, db->blocks, copy);
 }
 
+static CLOSURE_3_1(fs_zero_hole, void, filesystem, buffer, range, range);
+void fs_zero_hole(filesystem fs, buffer b, range q, range z)
+{
+    range i = range_intersection(q, z);
+    u64 target_offset = i.start - q.start;
+    void * target = buffer_ref(b, target_offset);
+    u64 length = range_span(i);
+    tfs_debug("fs_zero_hole: i %R, target %p, length %d\n", i, target, length);
+    runtime_memset(target, 0, length);
+}
+
 io_status_handler ignore_io_status;
 
 static CLOSURE_3_1(filesystem_read_complete, void, heap, io_status_handler, buffer, status);
@@ -161,7 +172,13 @@ static void filesystem_read_internal(filesystem fs, fsfile f, buffer b, u64 leng
     merge m = allocate_merge(fs->h, sh);
     status_handler k = apply(m); // hold a reference until we're sure we've issued everything
     range total = irange(offset, offset+length);
+
+    /* read extent data */
     rangemap_range_lookup(f->extentmap, total, closure(fs->h, fs_read_extent, fs, b, m, total));
+
+    /* zero areas corresponding to file holes */
+    rangemap_range_find_gaps(f->extentmap, total, closure(fs->h, fs_zero_hole, fs, b, total));
+
     apply(k, STATUS_OK);
 }
 
@@ -188,12 +205,12 @@ static void read_entire_complete(buffer_handler bh, buffer b, status_handler sh,
 {
     tfs_debug("read_entire_complete: status %v, addr %p, length %d\n",
               s, buffer_ref(b, 0), buffer_length(b));
-    if (!is_ok(s)) {
+    if (is_ok(s)) {
+        apply(bh, b);
+    } else {
         deallocate_buffer(b);
         apply(sh, s);
-        return;
     }
-    apply(bh, b);
 }
 
 void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler c, status_handler sh)
@@ -206,7 +223,7 @@ void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler
     }
 
     u64 length = pad(fsfile_get_length(f), fs->blocksize);
-    buffer b = allocate_buffer(bufheap, pad(length, PAGESIZE /* just call it a feature */));
+    buffer b = allocate_buffer(bufheap, pad(length, bufheap->pagesize));
     filesystem_read_internal(fs, f, b, length, 0, closure(fs->h, read_entire_complete, c, b, sh));
 }
 
