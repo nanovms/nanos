@@ -82,8 +82,8 @@ void basic_write_test()
 }
 
 #define min(x, y) ((x) < (y) ? (x) : (y))
-#define SCATTER_BUFLEN  (1 << 20)
-#define SCATTER_ITERATIONS 64
+#define SCATTER_BUFLEN  2048
+#define SCATTER_ITERATIONS 4
 #define _random(x) (labs(random()))
 void scatter_write_test()
 {
@@ -127,7 +127,7 @@ void scatter_write_test()
             _READ(tmp, min(length - n, BUFLEN));
             for (int i = 0; i < rv; i++) {
                 if (tmp[i] != buf[n + i]) {
-                    printf("scatter test fail: read content mismatch\n");
+                    printf("scatter test fail: read content mismatch at offset %d\n", n + i);
                     exit(EXIT_FAILURE);
                 }
             }
@@ -145,6 +145,7 @@ void scatter_write_test()
 
 int main(int argc, char **argv)
 {
+    setvbuf(stdout, NULL, _IOLBF, 0);
     basic_write_test();
     scatter_write_test();
 }

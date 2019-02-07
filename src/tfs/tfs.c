@@ -62,14 +62,14 @@ static fs_dma_buf fs_allocate_dma_buffer(filesystem fs, extent e, range i)
     fs_dma_buf db = allocate(fs->h, sizeof(struct fs_dma_buf));
     if (db == INVALID_ADDRESS)
         return db;
-    bytes absolute = e->block_start + i.start - e->node.r.start;
-    db->data_length = range_span(i);
     bytes blocksize = fs->blocksize;
-    bytes padlength = pad(db->data_length, blocksize);
+    bytes absolute = e->block_start + i.start - e->node.r.start;
+    db->start_offset = absolute & (blocksize - 1);
+    db->data_length = range_span(i);
+    bytes padlength = pad(db->start_offset + db->data_length, blocksize);
     u64 start_block = absolute / blocksize; /* XXX need to stash blocksize log2 */
     u64 nblocks = padlength / blocksize;
     db->blocks = irange(start_block, start_block + nblocks);
-    db->start_offset = absolute & (blocksize - 1);
 
     /* determine power-of-2 allocation size */
     u64 alloc_order = find_order(pad(padlength, fs->dma->pagesize));
@@ -274,8 +274,10 @@ static void fs_write_extent_aligned(filesystem fs, fs_dma_buf db, void * source,
 static void fs_write_extent_read_block(filesystem fs, fs_dma_buf db, u64 offset_block, status_handler sh)
 {
     u64 absolute_block = db->blocks.start + offset_block;
-    void * buf = db->buf + (offset_block * fs->blocksize) - db->start_offset;
-    apply(fs->r, buf, irange(absolute_block, absolute_block + 1), sh);
+    void * buf = db->buf + (offset_block * fs->blocksize);
+    range r = irange(absolute_block, absolute_block + 1);
+    tfs_debug("fs_write_extent_read_block: sector range %R, buf %p\n", r, buf);
+    apply(fs->r, buf, r, sh);
 }
 
 static void fs_write_extent(filesystem fs, buffer source, merge m, range q, rmnode node)
@@ -311,7 +313,8 @@ static void fs_write_extent(filesystem fs, buffer source, merge m, range q, rmno
 
     status_handler sh = apply(m);
     if (head || tail) {
-        merge m2 = allocate_merge(fs->h, closure(fs->h, fs_write_extent_aligned, fs, db, source, sh));
+        merge m2 = allocate_merge(fs->h, closure(fs->h, fs_write_extent_aligned,
+                                                 fs, db, source_start, sh));
         status_handler k = apply(m2);
         if (head)
             fs_write_extent_read_block(fs, db, 0, apply(m2));
