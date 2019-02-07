@@ -125,12 +125,9 @@ static CLOSURE_4_1(fs_read_extent_complete, void, filesystem, fs_dma_buf, void *
 static void fs_read_extent_complete(filesystem fs, fs_dma_buf db, void * target, status_handler sh, status s)
 {
     tfs_debug("fs_read_extent_complete: status %v\n", s);
-    if (s) {
-        apply(sh, s);
-        return;
-    }
 #ifndef BOOT
-    runtime_memcpy(target, db->buf + db->start_offset, db->data_length);
+    if (is_ok(s))
+        runtime_memcpy(target, db->buf + db->start_offset, db->data_length);
 #endif
     fs_deallocate_dma_buffer(fs, db);
     apply(sh, s);
@@ -251,12 +248,19 @@ void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler
  *            <--blocksize-->                    <--blocksize-->
  */
 
+static CLOSURE_3_1(fs_write_extent_complete, void, filesystem, fs_dma_buf, status_handler, status);
+static void fs_write_extent_complete(filesystem fs, fs_dma_buf db, status_handler sh, status s)
+{
+    tfs_debug("fs_write_extent_complete: status %v\n", s);
+    fs_deallocate_dma_buffer(fs, db);
+    apply(sh, s);
+}
+
 /* In theory these writes could be split up, allowing the aligned
    write to commence without waiting for head/tail reads. Not clear if
    it matters. */
-static CLOSURE_4_1(fs_write_extent_complete, void, filesystem, fs_dma_buf, void *, status_handler, status);
-static void fs_write_extent_complete(filesystem fs, fs_dma_buf db, void * source,
-                                     status_handler sh, status s)
+static CLOSURE_4_1(fs_write_extent_aligned, void, filesystem, fs_dma_buf, void *, status_handler, status);
+static void fs_write_extent_aligned(filesystem fs, fs_dma_buf db, void * source, status_handler sh, status s)
 {
     if (!is_ok(s)) {
         msg_err("read failed: %v\n", s);
@@ -267,7 +271,8 @@ static void fs_write_extent_complete(filesystem fs, fs_dma_buf db, void * source
     tfs_debug("fs_write_extent_complete: copy from 0x%p to 0x%p, len %d\n", source, dest, db->data_length);
     runtime_memcpy(dest, source, db->data_length);
     tfs_debug("   write from 0x%p to block range %R\n", db->buf, db->blocks);
-    apply(fs->w, db->buf, db->blocks, sh);
+    status_handler complete = closure(fs->h, fs_write_extent_complete, fs, db, sh);
+    apply(fs->w, db->buf, db->blocks, complete);
 }
 
 static void fs_write_extent_read_block(filesystem fs, fs_dma_buf db, u64 offset_block, status_handler sh)
@@ -310,7 +315,7 @@ static void fs_write_extent(filesystem fs, buffer source, merge m, range q, rmno
 
     status_handler sh = apply(m);
     if (head || tail) {
-        merge m2 = allocate_merge(fs->h, closure(fs->h, fs_write_extent_complete, fs, db, source, sh));
+        merge m2 = allocate_merge(fs->h, closure(fs->h, fs_write_extent_aligned, fs, db, source, sh));
         status_handler k = apply(m2);
         if (head)
             fs_write_extent_read_block(fs, db, 0, apply(m2));
@@ -321,7 +326,7 @@ static void fs_write_extent(filesystem fs, buffer source, merge m, range q, rmno
     }
 
     /* everything is aligned, so proceed to the write */
-    fs_write_extent_complete(fs, db, source_start, sh, STATUS_OK);
+    fs_write_extent_aligned(fs, db, source_start, sh, STATUS_OK);
 }
 
 // wrap in an interface
