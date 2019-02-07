@@ -1,5 +1,6 @@
 #include <tfs_internal.h>
 
+//#define TFS_DEBUG
 #if defined(TFS_DEBUG)
 #define tfs_debug(x, ...) do {rprintf("TFS: " x, ##__VA_ARGS__);} while(0)
 #else
@@ -146,14 +147,15 @@ static void fs_read_extent(filesystem fs,
 }
 
 static CLOSURE_3_1(fs_zero_hole, void, filesystem, buffer, range, range);
-void fs_zero_hole(filesystem fs, buffer b, range q, range z)
+void fs_zero_hole(filesystem fs, buffer target, range q, range z)
 {
     range i = range_intersection(q, z);
     u64 target_offset = i.start - q.start;
-    void * target = buffer_ref(b, target_offset);
+    void * target_start = buffer_ref(target, target_offset);
     u64 length = range_span(i);
-    tfs_debug("fs_zero_hole: i %R, target %p, length %d\n", i, target, length);
-    runtime_memset(target, 0, length);
+    tfs_debug("fs_zero_hole: i %R, target_start %p, length %d\n", i, target_start, length);
+    runtime_memset(target_start, 0, length);
+    fetch_and_add(&target->end, length);
 }
 
 io_status_handler ignore_io_status;
@@ -171,7 +173,13 @@ static void filesystem_read_internal(filesystem fs, fsfile f, buffer b, u64 leng
 {
     merge m = allocate_merge(fs->h, sh);
     status_handler k = apply(m); // hold a reference until we're sure we've issued everything
-    range total = irange(offset, offset+length);
+    u64 file_length = fsfile_get_length(f);
+    u64 actual_length = MIN(length, file_length - offset);
+    if (offset >= file_length || actual_length == 0) { /* XXX check */
+        apply(k, STATUS_OK);
+        return;
+    }
+    range total = irange(offset, offset + actual_length);
 
     /* read extent data */
     rangemap_range_lookup(f->extentmap, total, closure(fs->h, fs_read_extent, fs, b, m, total));

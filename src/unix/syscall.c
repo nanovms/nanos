@@ -1135,14 +1135,6 @@ sysreturn lseek(int fd, s64 offset, int whence)
         return set_syscall_error(current, EINVAL);
 
     f->offset = new;
-
-    /* XXX do this in write, too */
-    if (f->offset > f->length) {
-        msg_err("fd %d, offset %d, whence %d: file holes not supported\n",
-                fd, offset, whence);
-        halt("halt\n");
-    }
-
     return f->offset;
 }
 
