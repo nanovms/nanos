@@ -82,19 +82,18 @@ void basic_write_test()
 }
 
 #define min(x, y) ((x) < (y) ? (x) : (y))
-#define SCATTER_BUFLEN  2048
-#define SCATTER_ITERATIONS 4
 #define _random(x) (labs(random()))
-void scatter_write_test()
+
+void scatter_write_test(ssize_t buflen, int iterations, int max_writesize)
 {
     ssize_t rv;
-    char tmp[BUFLEN];
-    char * buf = malloc(SCATTER_BUFLEN);
+    unsigned char tmp[BUFLEN];
+    unsigned char * buf = malloc(buflen);
     if (!buf) {
-        printf("malloc of size %d failed\n", SCATTER_BUFLEN);
+        printf("malloc of size %ld failed\n", buflen);
         exit(EXIT_FAILURE);
     }
-    bzero(buf, SCATTER_BUFLEN);
+    bzero(buf, buflen);
 
     int fd = open("scatter", O_CREAT | O_TRUNC | O_RDWR, S_IRUSR | S_IWUSR);
     if (fd < 0) {
@@ -102,11 +101,13 @@ void scatter_write_test()
         exit(EXIT_FAILURE);
     }
 
+    int rmost = 0;
+
     /* This will simultaneously test file creation, extension, holes and writes. */
-    for (int iter = 0; iter < SCATTER_ITERATIONS; iter++) {
-        int position = _random() % SCATTER_BUFLEN;
-        int x = _random() % (SCATTER_BUFLEN / 8);
-        int length = min(x, SCATTER_BUFLEN - position);
+    for (int iter = 0; iter < iterations; iter++) {
+        int position = _random() % buflen;
+        int x = _random() % max_writesize;
+        int length = min(x, buflen - position);
 
         if (length == 0)
             length = 1;
@@ -117,22 +118,29 @@ void scatter_write_test()
         /* write fragment */
         _LSEEK(position, SEEK_SET);
         _WRITE(buf + position, length);
+        if (position + length > rmost)
+            rmost = position + length;
 
         /* verify content
            could just as well randomize the read offset... */
         _LSEEK(0, SEEK_SET);
         int n = 0;
         do {
-            _READ(tmp, min(length - n, BUFLEN));
+            bzero(tmp, BUFLEN);
+            _READ(tmp, min(rmost - n, BUFLEN));
             for (int i = 0; i < rv; i++) {
                 if (tmp[i] != buf[n + i]) {
                     printf("scatter test fail: read content mismatch at offset %d\n", n + i);
+#if 0
+                    for (int z = 0; z < BUFLEN; z++) {
+                        printf("%d - buf: %d, read: %d\n", z, buf[n + z], tmp[z]);
+                    }
+#endif
                     exit(EXIT_FAILURE);
                 }
             }
             n += rv;
-        } while (n < length);
-        printf("iter %d complete\n", iter);
+        } while (n < rmost);
     }
     printf("scatter write test passed\n");
     close(fd);
@@ -146,5 +154,5 @@ int main(int argc, char **argv)
 {
     setvbuf(stdout, NULL, _IOLBF, 0);
     basic_write_test();
-    scatter_write_test();
+    scatter_write_test(1 << 18, 64, 1 << 12);
 }

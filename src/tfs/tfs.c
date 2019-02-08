@@ -98,7 +98,8 @@ static void fs_deallocate_dma_buffer(filesystem fs, fs_dma_buf db)
 static CLOSURE_4_1(fs_read_extent_complete, void, filesystem, fs_dma_buf, void *, status_handler, status);
 static void fs_read_extent_complete(filesystem fs, fs_dma_buf db, void * target, status_handler sh, status s)
 {
-    tfs_debug("fs_read_extent_complete: status %v\n", s);
+    tfs_debug("fs_read_extent_complete: dma buf 0x%p, start_offset %d, length %d, target 0x%p, status %v\n",
+              db->buf, db->start_offset, db->data_length, target, s);
 #ifndef BOOT
     if (is_ok(s))
         runtime_memcpy(target, db->buf + db->start_offset, db->data_length);
@@ -305,11 +306,13 @@ static void fs_write_extent(filesystem fs, buffer source, merge m, range q, rmno
 
     /* Check for unaligned block writes and initiate reads for them.
        This would all be obviated by a diskcache. */
-    boolean head = db->start_offset != 0;
-    boolean tail =
-        ((db->data_length + db->start_offset) & (fs->blocksize - 1)) != 0 &&
-        (range_span(db->blocks) > 1) && /* head != tail */
+    boolean tail_rmw = ((db->data_length + db->start_offset) & (fs->blocksize - 1)) != 0 &&
         (i.end != node->r.end); /* no need to rmw tail if we're at the end of the extent */
+    boolean plural = range_span(db->blocks) > 1;
+
+    /* just do a head op if one block and either head or tail are misaligned */
+    boolean head = db->start_offset != 0 || (tail_rmw && !plural);
+    boolean tail = tail_rmw && plural;
 
     status_handler sh = apply(m);
     if (head || tail) {
@@ -319,7 +322,7 @@ static void fs_write_extent(filesystem fs, buffer source, merge m, range q, rmno
         if (head)
             fs_write_extent_read_block(fs, db, 0, apply(m2));
         if (tail)
-            fs_write_extent_read_block(fs, db, db->blocks.end - 1, apply(m2));
+            fs_write_extent_read_block(fs, db, range_span(db->blocks) - 1, apply(m2));
         apply(k, STATUS_OK);
         return;
     }
