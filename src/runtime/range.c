@@ -121,19 +121,23 @@ boolean rangemap_range_find_gaps(rangemap rm, range q, range_handler rh)
 {
     boolean match = false;
     u64 lastedge = q.start;
-    struct list * i;
-    list_foreach(&rm->root, i) {
-        rmnode curr = struct_from_list(i, rmnode, l);
+    struct list * l;
+    list_foreach(&rm->root, l) {
+        rmnode curr = struct_from_list(l, rmnode, l);
         u64 edge = curr->r.start;
-        if (edge > lastedge) {
+        range i = range_intersection(irange(lastedge, edge), q);
+        if (range_span(i)) {
             match = true;
-            apply(rh, irange(lastedge, edge));
+            apply(rh, i);
         }
         lastedge = curr->r.end;
     }
-    if (q.end > lastedge) {
+
+    /* check for a gap between the last node and q.end */
+    range i = range_intersection(irange(lastedge, q.end), q);
+    if (range_span(i)) {
         match = true;
-        apply(rh, irange(lastedge, q.end));
+        apply(rh, i);
     }
     return match;
 }
