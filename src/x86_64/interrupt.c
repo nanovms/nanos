@@ -151,8 +151,8 @@ void print_u64_with_sym(u64 a)
 	console(name);
 	console(" + ");
 	print_u64(offset);
-    console("/");
-    print_u64(len);
+        console("/");
+        print_u64(len);
 	console(")");
     }
 }

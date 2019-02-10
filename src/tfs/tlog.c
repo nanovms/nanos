@@ -26,15 +26,19 @@ static void log_write_completion(vector v, status nothing)
 
 // xxx  currently we cant take writes during the flush
 
+/* XXX it's not right to just stick SECTOR_{SIZE,OFFSET} everywhere...
+   and add block_log2 to fs */
+range log_block_range(log tl, u64 offset, u64 length)
+{
+    return irange(offset >> SECTOR_OFFSET, (offset + length) >> SECTOR_OFFSET);
+}
+
 void log_flush(log tl)
 {
     buffer b = tl->staging;
-
-    buffer_clear(tl->completions);
     push_u8(b, END_OF_LOG);
-    apply(tl->fs->w,
-          b,
-          tl->offset + b->start, 
+    range r = log_block_range(tl, tl->offset, pad(buffer_length(b), SECTOR_SIZE));
+    apply(tl->fs->w, buffer_ref(b, 0), r,
           closure(tl->h, log_write_completion, tl->completions));
     b->end -= 1;
 }
@@ -66,44 +70,54 @@ void log_read_complete(log tl, status_handler sh, status s)
     buffer b = tl->staging;
     u8 frame = 0;
 
-    if (s == 0) {
-        // log extension - length at the beginnin and pointer at the end
-        for (; frame = pop_u8(b), frame == TUPLE_AVAILABLE;) {
-            tuple t = decode_value(tl->h, tl->dictionary, b);
-            fsfile f = 0;
-            u64 filelength = infinity;
-            // doesn't seem like all the incremental updates are handled here,
-            // nor the recursive case
-            table_foreach(t, k, v) {
-                if (k == sym(extents)) {
-                    if (!(f = table_find(tl->fs->extents, v))) {
-                        f = allocate_fsfile(tl->fs, t);
-                    }
-                    table_set(tl->fs->extents, v, f);
+    if (!is_ok(s)) {
+        apply(sh, s);
+        return;
+    }
+
+    /* this is crap, but just fix for now due to time */
+
+    // log extension - length at the beginnin and pointer at the end
+    for (; frame = pop_u8(b), frame == TUPLE_AVAILABLE;) {
+        tuple t = decode_value(tl->h, tl->dictionary, b);
+        fsfile f = 0;
+        u64 filelength = infinity;
+        // doesn't seem like all the incremental updates are handled here,
+        // nor the recursive case
+        table_foreach(t, k, v) {
+            if (k == sym(extents)) {
+                /* don't know why this needs to be in fs, it's really tlog-specific */
+                if (!(f = table_find(tl->fs->extents, v))) {
+                    f = allocate_fsfile(tl->fs, t);
                 }
-                if (k == sym(filelength)) {
-                    filelength = u64_from_value(v);
-                }
+                table_set(tl->fs->extents, v, f);
             }
-
-            if (f && filelength != infinity)
-                fsfile_set_length(f, filelength);
-
-            if ((f = table_find(tl->fs->extents, t)))  {
-                table_foreach(t, off, e)
-                    extent_update(f, off, e);
+            if (k == sym(filelength)) {
+                filelength = u64_from_value(v);
             }
         }
         
-        // not sure we should be passing the root.. anyways, splat the
-        // log root onto the given root
-        table logroot = (table)table_find(tl->dictionary, pointer_from_u64(1));
-        
-        if (logroot)
-            table_foreach (logroot, k, v) 
-                table_set(tl->fs->root, k, v);
+        if (f && filelength != infinity)
+            fsfile_set_length(f, filelength);
     }
-    
+
+    /* XXX this will only work for reading the log a single time
+       through, but at present we're not using any incremental log updates */
+    table_foreach(tl->fs->extents, t, f) {
+        table_foreach(t, off, e) {
+            ingest_extent((fsfile)f, off, e);
+        }
+    }
+
+    // not sure we should be passing the root.. anyways, splat the
+    // log root onto the given root
+    table logroot = (table)table_find(tl->dictionary, pointer_from_u64(1));
+
+    if (logroot) {
+        table_foreach (logroot, k, v)
+            table_set(tl->fs->root, k, v);
+    }
+
     apply(sh, 0);
     // something really strange is going on with the value of frame
     //    if (frame != END_OF_LOG) halt("bad log tag %p\n", frame);    
@@ -114,7 +128,8 @@ void read_log(log tl, u64 offset, u64 size, status_handler sh)
     tl->staging = allocate_buffer(tl->h, size);
     //    tl->staging->end = size;
     status_handler tlc = closure(tl->h, log_read_complete, tl, sh);
-    apply(tl->fs->r, tl->staging->contents, tl->staging->length, 0, tlc);
+    range r = log_block_range(tl, offset, pad(tl->staging->length, tl->fs->blocksize));
+    apply(tl->fs->r, tl->staging->contents, r, tlc);
 }
 
 log log_create(heap h, filesystem fs, status_handler sh)

@@ -64,16 +64,24 @@ void runloop()
     }
 }
 
-static CLOSURE_2_3(offset_block_write, void, block_write, u64, buffer, u64, status_handler);
-static void offset_block_write(block_write w, u64 start, buffer b, u64 offset, status_handler h)
+static CLOSURE_2_3(offset_block_write, void, block_write, u64, void *, range, status_handler);
+static void offset_block_write(block_write w, u64 start, void *src, range blocks, status_handler h)
 {
-    apply(w, b, start + offset, h);
+    assert((start & (SECTOR_SIZE - 1)) == 0);
+    u64 ds = start >> SECTOR_OFFSET;
+    blocks.start += ds;
+    blocks.end += ds;
+    apply(w, src, blocks, h);
 }
 
-static CLOSURE_2_4(offset_block_read, void, block_read, u64, void *, u64, u64, status_handler);
-static void offset_block_read(block_read r, u64 start, void *dest, u64 length, u64 offset, status_handler h)
+static CLOSURE_2_3(offset_block_read, void, block_read, u64, void *, range, status_handler);
+static void offset_block_read(block_read r, u64 start, void *dest, range blocks, status_handler h)
 {
-    apply(r, dest, length, start + offset, h);
+    assert((start & (SECTOR_SIZE - 1)) == 0);
+    u64 ds = start >> SECTOR_OFFSET;
+    blocks.start += ds;
+    blocks.end += ds;
+    apply(r, dest, blocks, h);
 }
 
 void init_extra_prints(); 
@@ -92,6 +100,7 @@ static void attach_storage(tuple root, u64 fs_offset, block_read r, block_write 
     create_filesystem(h,
                       SECTOR_SIZE,
                       length,
+                      heap_backed(&heaps),
                       closure(h, offset_block_read, r, fs_offset),
                       closure(h, offset_block_write, w, fs_offset),
                       root,
@@ -109,17 +118,14 @@ static void read_kernel_syms()
 	    kern_base = region_base(e);
 	    kern_length = region_length(e);
 
-	    /* XXX At present, this maps the kernel ELF image in order
-	     * to get to the symbols, then leaves it mapped to use its
-	     * strings. It should just copy the strings over and unmap
-	     * it. */
 	    u64 v = allocate_u64(heap_virtual_huge(&heaps), kern_length);
 	    map(v, kern_base, kern_length, heap_pages(&heaps));
 #ifdef ELF_SYMTAB_DEBUG
-	    rprintf("kernel ELF image at %P, length %P, mapped at %P\n",
+	    rprintf("kernel ELF image at %P, length %d, mapped at %P\n",
 		    kern_base, kern_length, v);
 #endif
 	    add_elf_syms(alloca_wrap_buffer(v, kern_length));
+            unmap(v, kern_length, heap_pages(&heaps));
 	    break;
 	}
     

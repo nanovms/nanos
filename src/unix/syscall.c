@@ -545,7 +545,7 @@ static sysreturn sendfile(int out_fd, int in_fd, int *offset, bytes count)
     }
 
     if (!infile->f.read || !outfile->write)
-      return set_syscall_error(current, EINVAL);
+        return set_syscall_error(current, EINVAL);
     
     if ((infile->offset + count) > infile->length)
         return set_syscall_error(current, EINVAL);
@@ -570,9 +570,9 @@ static sysreturn file_read(file f, fsfile fsf, void *dest, u64 length, u64 offse
 {
     boolean is_file_offset = offset_arg == infinity;
     bytes offset = is_file_offset ? f->offset : offset_arg;
-    thread_log(current, "%s: %v, dest %p, length %d, offset %d (%s), file length %d",
-               __func__, f->n, dest, length, offset, is_file_offset ? "infinity" : "exact",
-               f->length);
+    thread_log(current, "%s: f %p, dest %p, offset %d (%s), length %d, file length %d",
+               __func__, f, dest, offset, is_file_offset ? "file" : "specified",
+               length, f->length);
 
     if (is_special(f->n)) {
         return spec_read(f, dest, length, offset);
@@ -580,8 +580,8 @@ static sysreturn file_read(file f, fsfile fsf, void *dest, u64 length, u64 offse
 
     if (offset < f->length) {
         filesystem_read(current->p->fs, f->n, dest, length, offset,
-                closure(heap_general(get_kernel_heaps()),
-                        file_op_complete, current, f, fsf, is_file_offset));
+                        closure(heap_general(get_kernel_heaps()),
+                                file_op_complete, current, f, fsf, is_file_offset));
 
         /* XXX Presently only support blocking file reads... */
         thread_sleep(current);
@@ -596,14 +596,22 @@ static sysreturn file_read(file f, fsfile fsf, void *dest, u64 length, u64 offse
 static CLOSURE_2_3(file_write, sysreturn, file, fsfile, void *, u64, u64);
 static sysreturn file_write(file f, fsfile fsf, void *dest, u64 length, u64 offset_arg)
 {
-    thread_log(current, "%s: %v, dest %p, length %d, offset_arg %d",
-            __func__, f->n, dest, length, offset_arg);
     boolean is_file_offset = offset_arg == infinity;
     bytes offset = is_file_offset ? f->offset : offset_arg;
+    thread_log(current, "%s: f %p, dest %p, offset %d (%s), length %d, file length %d",
+               __func__, f, dest, offset, is_file_offset ? "file" : "specified",
+               length, f->length);
     heap h = heap_general(get_kernel_heaps());
 
     u64 final_length = PAD_WRITES ? pad(length, SECTOR_SIZE) : length;
     void *buf = allocate(h, final_length);
+
+    /* XXX we shouldn't need to copy here, however if we at some point
+       want to support non-blocking, we'll need to fix the unaligned
+       block rmw in the extent write (prob just break it up into
+       aligned and unaligned portions, copying aligned data straight
+       to dma buffer and stashing unaligned portions to be copied post
+       block read) */
 
     /* copy from userspace, XXX: check pointer safety */
     runtime_memset(buf, 0, final_length);
@@ -1128,14 +1136,6 @@ sysreturn lseek(int fd, s64 offset, int whence)
         return set_syscall_error(current, EINVAL);
 
     f->offset = new;
-
-    /* XXX do this in write, too */
-    if (f->offset > f->length) {
-        msg_err("fd %d, offset %d, whence %d: file holes not supported\n",
-                fd, offset, whence);
-        halt("halt\n");
-    }
-
     return f->offset;
 }
 

@@ -33,6 +33,15 @@ void print_hex_buffer(buffer s, buffer b)
     push_u8(s, '\n');
 }
 
+/* just a little tool for debugging */
+void print_csum_buffer(buffer s, buffer b)
+{
+    u64 csum = 0;
+    for (int i = 0; i < buffer_length(b); i++)
+        csum += *(u8*)buffer_ref(b, i);
+    bprintf(s, "%d", csum);
+}
+
 void print_tuple(buffer b, tuple z)
 {
     table t = valueof(z);
@@ -94,8 +103,14 @@ static void format_cstring(buffer dest, buffer fmt, vlist *a)
 
 static void format_hex_buffer(buffer dest, buffer fmt, vlist *a)
 {
-    buffer b= varg(*a, buffer);
+    buffer b = varg(*a, buffer);
     print_hex_buffer(dest, b);
+}
+
+static void format_csum_buffer(buffer dest, buffer fmt, vlist *a)
+{
+    buffer b = varg(*a, buffer);
+    print_csum_buffer(dest, b);
 }
 
 static void format_timestamp(buffer dest, buffer fmt, vlist *a)
@@ -111,7 +126,7 @@ static void format_timestamp(buffer dest, buffer fmt, vlist *a)
 static void format_range(buffer dest, buffer fmt, vlist *a)
 {
     range r = varg(*a, range);
-    bprintf(dest, "(%P %P)", r.start, r.end);
+    bprintf(dest, "[%d %d)", r.start, r.end);
 }
 
 void init_extra_prints()
@@ -122,5 +137,6 @@ void init_extra_prints()
     register_format('X', format_hex_buffer);
     register_format('T', format_timestamp);
     register_format('R', format_range);
+    register_format('C', format_csum_buffer);
 }
 

@@ -7,16 +7,18 @@
 #include <tfs.h>
 #include <errno.h>
 
-static CLOSURE_1_3(bwrite, void, descriptor, buffer, u64, status_handler);
-static void bwrite(descriptor d, buffer s, u64 offset, status_handler c)
+static CLOSURE_1_3(bwrite, void, descriptor, void *, range, status_handler);
+static void bwrite(descriptor d, void * s, range blocks, status_handler c)
 {
 
 }
 
-static CLOSURE_1_4(bread, void, descriptor, void *, u64, u64, status_handler);
-static void bread(descriptor d, void *dest, u64 length, u64 offset, status_handler c)
+static CLOSURE_1_3(bread, void, descriptor, void *, range, status_handler);
+static void bread(descriptor d, void *dest, range blocks, status_handler c)
 {
     int xfer, total = 0;
+    u64 offset = blocks.start << SECTOR_OFFSET;
+    u64 length = range_span(blocks) << SECTOR_OFFSET;
     while (total < length) {
         xfer = pread(d, dest + total , length - total, offset + total);
         if (xfer == 0) apply(c, 0);
@@ -75,6 +77,7 @@ int main(int argc, char **argv)
     create_filesystem(h,
                       SECTOR_SIZE,
                       10ull * 1024 * 1024 * 1024,
+                      h,
                       closure(h, bread, fd),
                       closure(h, bwrite, fd),
                       root,

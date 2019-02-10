@@ -12,9 +12,7 @@ string symbol_string(symbol s);
      __s;})              
 
 #define sym_this(name)\
-    ({symbol __s = 0;\
-      if (!__s){__s = intern(alloca_wrap_buffer(name, runtime_strlen(name)));} \
-     __s;})              
+    (intern(alloca_wrap_buffer(name, runtime_strlen(name))))
 
 table symbol_table();
 typedef table tuple;

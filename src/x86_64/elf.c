@@ -24,6 +24,11 @@ void elf_symbols(buffer elf, closure_type(each, void, char *, u64, u64, u8))
         s++;
     }
 
+    if (!symbols || !symbol_strings) {
+        msg_err("failed: symtab not found\n");
+        return;
+    }
+
     Elf64_Sym *sym = buffer_ref(elf, symbols->sh_offset);
     for (int i = 0; i < symbols->sh_size; i+=symbols->sh_entsize) {
         apply(each,

@@ -42,6 +42,8 @@ static inline int runtime_strlen(const char *a)
 
 #define pad(__x, __s) ((((__x) - 1) & (~((__s) - 1))) + (__s))
 
+#define find_order(x) ((x) > 1 ? msb((x) - 1) + 1 : 0)
+
 #define U64_FROM_BIT(x) (1ull<<(x))
 #define MASK(x) (U64_FROM_BIT(x)-1)
 
@@ -176,16 +178,20 @@ typedef void *value;
 
 #include <closure.h>
 #include <closure_templates.h>
-#include <status.h>
 
-typedef closure_type(buffer_handler, void, buffer);
 typedef closure_type(thunk, void);
-typedef closure_type(block_write, void, buffer, u64, status_handler);
-typedef closure_type(block_read, void, void *, u64, u64, status_handler);
 
+#include <list.h>
+#include <bitmap.h>
+#include <status.h>
 #include <pqueue.h>
 #include <timer.h>
 #include <tuple.h>
+#include <range.h>
+
+typedef closure_type(buffer_handler, void, buffer);
+typedef closure_type(block_write, void, void *, range, status_handler);
+typedef closure_type(block_read, void, void *, range, status_handler);
 
 // break out platform - move into the implicit include
 #include <x86_64.h>
@@ -202,8 +208,6 @@ u64 random_u64();
 typedef struct signature {
     u64 s[4];
 } *signature;
-
-#include <range.h>
 
 void init_runtime(kernel_heaps kh);
 heap allocate_tagged_region(kernel_heaps kh, u64 tag);
@@ -222,9 +226,6 @@ extern status_handler ignore_status;
 #define cstring(__b) ({buffer n = little_stack_buffer(512); push_buffer(n, __b); push_u8(n, 0); n->contents;})
 
 extern heap transient;
-
-#include <list.h>
-#include <bitmap.h>
 
 typedef closure_type(merge, status_handler);
 merge allocate_merge(heap h, status_handler completion);

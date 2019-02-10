@@ -61,6 +61,9 @@ heap malloc_allocator()
     heap h = malloc(sizeof(struct heap));
     h->alloc = malloc_alloc;
     h->dealloc = malloc_free;
+    h->destroy = 0;
+    h->pagesize = PAGESIZE;
+    h->allocated = 0;
     return h;
 }
 

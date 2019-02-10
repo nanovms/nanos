@@ -86,9 +86,6 @@ static void write_pte(page target, physical to, u64 flags, boolean * invalidate)
     /* invalidate when changing any pte that was marked as present */
     if (*target & PAGE_PRESENT) {
 #ifdef PTE_DEBUG
-	console(", invalidate; prev ");
-	print_u64(*target);
-#elif defined(PAGE_DEBUG)
         console("   invalidate for target ");
         print_u64(u64_from_pointer(target));
         console(", old ");
@@ -137,6 +134,11 @@ static boolean force_entry(heap h, page b, u64 v, physical p, int level,
 	return true;
     } else {
 	if (*pte & PAGE_PRESENT) {
+            /* XXX when unmapping, add a check here to see if the
+               directory page is completely unused, and explicitly
+               remove and free them when possible. This will avoid the
+               occasional invalidate caused by lingering mid
+               directories without entries */
 	    return force_entry(h, pointer_from_u64(b[offset] & ~PAGEMASK),
 			       v, p, level + 1, fat, flags, invalidate);
 	} else {
@@ -159,17 +161,19 @@ static boolean force_entry(heap h, page b, u64 v, physical p, int level,
     }
 }
 
-static inline boolean map_page(page base, u64 v, physical p, heap h, boolean fat, boolean flags)
+static inline boolean map_page(page base, u64 v, physical p, heap h,
+                               boolean fat, boolean flags, boolean * invalidate)
 {
-    boolean invalidate = false;
-    if (!force_entry(h, base, v, p, 1, fat, flags, &invalidate))
+    boolean page_invalidate = false;
+    if (!force_entry(h, base, v, p, 1, fat, flags, &page_invalidate))
 	return false;
-    if (invalidate) {
+    if (page_invalidate) {
 #ifdef PAGE_USE_FLUSH
         flush_tlb();
 #else
         asm volatile("invlpg (%0)" :: "r" (v) : "memory");
 #endif
+        *invalidate = true;
     }
     return true;
 }
@@ -243,9 +247,10 @@ static void map_range(u64 virtual, physical p, int length, u64 flags, heap h)
     console("\n");
 #endif
 
+    boolean invalidate = false;
     for (int i = 0; i < len;) {
 	boolean fat = !(vo & MASK(PT3)) && !(po & MASK(PT3)) && ((len - i) >= (1ull<<PT3));
-	if (!map_page(pb, vo, po, h, fat, flags)) {
+	if (!map_page(pb, vo, po, h, fat, flags, &invalidate)) {
 	    if (flags == 0)
 		console("unmap: area missing page mappings\n");
 	    else
@@ -257,6 +262,10 @@ static void map_range(u64 virtual, physical p, int length, u64 flags, heap h)
             po += off;
         i += off;
     }
+#ifdef PAGE_DEBUG
+    if (invalidate && p)        /* don't care about invalidate on unmap */
+        console("   - part of map caused invalidate\n");
+#endif
 
     memory_fence();
 }

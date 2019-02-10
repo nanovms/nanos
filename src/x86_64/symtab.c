@@ -2,8 +2,26 @@
 #include <region.h>
 #include <elf64.h>
 
+/* really this should be an instance... */
 static heap general;
 static rangemap elf_symtable;
+
+typedef struct elfsym {
+    struct rmnode node;
+    char * name;
+} *elfsym;
+
+static inline elfsym allocate_elfsym(range r, char * name)
+{
+    elfsym es = allocate(general, sizeof(struct elfsym));
+    assert(es != INVALID_ADDRESS);
+    rmnode_init(&es->node, r);
+    int bytes = runtime_strlen(name) + 1;
+    es->name = allocate(general, bytes);
+    assert(es->name != INVALID_ADDRESS);
+    runtime_memcpy(es->name, name, bytes);
+    return es;
+}
 
 CLOSURE_0_4(elf_symtable_add, void, char *, u64, u64, u8);
 void elf_symtable_add(char * name, u64 a, u64 len, u8 info)
@@ -17,17 +35,22 @@ void elf_symtable_add(char * name, u64 a, u64 len, u8 info)
 
     assert(elf_symtable);
 
-    char * m;
-    if ((m = rangemap_lookup(elf_symtable, a, 0)) ||
-	(m = rangemap_lookup(elf_symtable, a + len - 1, 0))) {
+    range r = irange(a, a + len);
+    boolean match = rangemap_range_lookup(elf_symtable, r, 0);
+    if (match) {
 #ifdef ELF_SYMTAB_DEBUG
-	rprintf("!!! %s (%P) exists in rangemap as \"%s\"; skipping\n",
-		name, a, m);
+	msg_err("\"%s\" %R would overlap in rangemap with \"%s\" %R; skipping\n",
+		name, r, match->name, range_from_rmnode(&match->node));
 #endif
 	return;
     }
 
-    rangemap_insert(elf_symtable, a, len, name);
+    elfsym es = allocate_elfsym(r, name);
+    if (!rangemap_insert(elf_symtable, &es->node)) {
+        /* shouldn't ever happen, so bark if it does */
+        msg_err("unable to add symbol \"%s\" of range %R to map; skipping\n",
+                name, r);
+    }
 }
 
 char * find_elf_sym(u64 a, u64 *offset, u64 *len)
@@ -35,10 +58,10 @@ char * find_elf_sym(u64 a, u64 *offset, u64 *len)
     if (!elf_symtable)
         return 0;
 
-    range r;
-    char * m = rangemap_lookup(elf_symtable, a, &r);
-    if (!m)
+    elfsym es = (elfsym)rangemap_lookup(elf_symtable, a);
+    if (es == INVALID_ADDRESS)
         return 0;
+    range r = range_from_rmnode(&es->node);
 
     if (offset)
         *offset = a - r.start;
@@ -46,7 +69,7 @@ char * find_elf_sym(u64 a, u64 *offset, u64 *len)
     if (len)
         *len = r.end - r.start;
 
-    return m;
+    return es->name;
 }
 
 void add_elf_syms(buffer b)
