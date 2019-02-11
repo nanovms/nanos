@@ -1,14 +1,12 @@
-
 ;;;   we start up at 7c00 in 16 bit mode
 init:		
 	bits 16			 
-	org 0x00
-	bseg equ 0x7c0
 	base equ 0x7c00
+	org base
 	stage2 equ 0x8000        
 
 	;; set up our data segment
-	mov ax,bseg		
+	xor ax,ax
 	mov ds,ax
 	cli
 	
@@ -31,7 +29,7 @@ init:
 
         call readsectors
         
-	jmp ascend
+	jmp 0:stage2
 
 	smapsig equ 0x534D4150
 regionlen equ 20        
@@ -40,7 +38,7 @@ e820:	xor ebx, ebx
         mov edi, entries - regionlen
 .each:	
 	mov edx, smapsig
-	mov ax, bseg
+	xor ax, ax
 	mov es, ax
 	mov eax, 0xe820
 	mov ecx, regionlen
@@ -65,55 +63,6 @@ seta20:
 	out 0x60,al			;  A20
 	ret				; To caller
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;	
-;;; global descriptor table ;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;	
-gdt:
-	dw 0,0,0,0                    ;  trash
-	dw 0xffff,0,0x9a00,0xcf       ;  32 bit code
-	dw 0xffff,0,0x9200,0xcf       ;  32 bit data
-	dw 0xffff,0,0x9a00,0x0        ;  16 bit code
-	dw 0xffff,0,0x9200,0x0        ;  16 bit data	
-.end:
-	
-gdtdesc: dw gdt.end-gdt-1
-	 dd gdt+base
-
-;;; symbolic labels for indices into the GDT representing
-;;; segments of interest (reference intel manual)
-code32 equ 0x8
-data32 equ 0x10
-code16 equ 0x18
-data16 equ 0x20
-
-;;; enter 32 bit mode from 16 bit mode
-;;;  we had the interrupt handlers here..but they dont need to
-;;;  be in the mbr
-;;;  parameterize entry
-ascend:
-	lgdt [gdtdesc]
-
-	;; change the processor mode flag
-	mov eax, cr0
-        or eax, 1
-	mov cr0, eax
-;;;  push e820 and end of loaded application
-	jmp code32:stage2
-	
-
-;; mov cl, 0x0  ;; sector number ((x-1)/512)
-;; target address is ax << 4
-
-sectorsize equ 512
-
-
-readsectors:
-        mov si, dap
-        mov ah, 0x42   
-        mov dl, 0x80   
-        int 0x13
-        ret
-
 
 serial_out:   
 	mov dx,0
@@ -121,15 +70,26 @@ serial_out:
 	int 0x14
         ret
         
+
+sectorsize equ 512
+
 dap:
         db 0x10
         db 0
         .sectors:    dw STAGE2SIZE/sectorsize
-        .offset:     dw 0
-        .segment:    dw 0x0800
+        .offset:     dw stage2
+        .segment:    dw 0
         .sector      dd 1
         .sectorm     dd 0
         
+readsectors:
+        mov si, dap
+        mov ah, 0x42
+        mov dl, 0x80
+        int 0x13
+        ret
+
+
         times 512-22 - ($-$$) db 0           
 ;;;  entries start
 entries:
