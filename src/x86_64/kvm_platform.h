@@ -1,7 +1,6 @@
 #pragma once
 #include <io.h>
-#include <disk.h>
-#include <booto.h>
+#include <region.h>
 
 static inline void QEMU_HALT() __attribute__((noreturn));
 

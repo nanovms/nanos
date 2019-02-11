@@ -4,6 +4,8 @@
 
 extern void run64(u32 entry);
 
+#define BOOT_BASE 0x7c00
+
 /* We're placing the working heap base at the beginning of extended
    memory. Use of this heap is tossed out in the move to stage3, thus
    no mapping set up for it.
@@ -14,6 +16,9 @@ extern void run64(u32 entry);
 #define WORKING_BASE 0x100000
 #define WORKING_LEN (4*MB)  /* arbitrary, must be enough for any fs meta */
 static u64 working = WORKING_BASE;
+
+#define SCRATCH_BASE 0x2000
+#define SCRATCH_LEN (BOOT_BASE - SCRATCH_BASE)
 
 #define STACKLEN (8 * PAGESIZE)
 static struct heap workings;
@@ -31,10 +36,25 @@ static u64 stage2_allocator(heap h, bytes b)
     return result;
 }
 
+extern void bios_read_sectors(int offset, int count);
+
+static void read_sectors(char *dest, u64 start_sector, u64 nsectors)
+{
+    while (nsectors > 0) {
+        int read_sectors = MIN(nsectors, SCRATCH_LEN >> SECTOR_OFFSET);
+	bios_read_sectors(start_sector, read_sectors);
+	runtime_memcpy(dest, pointer_from_u64(SCRATCH_BASE), read_sectors << SECTOR_OFFSET);
+	dest += read_sectors << SECTOR_OFFSET;
+	start_sector += read_sectors;
+	nsectors -= read_sectors;
+    }
+}
+
 static CLOSURE_1_3(stage2_read_disk, void, u64, void *, range, status_handler);
 static void stage2_read_disk(u64 base, void *dest, range blocks, status_handler completion)
 {
-    read_sectors(dest, base + (blocks.start * SECTOR_SIZE), range_span(blocks) * SECTOR_SIZE);
+    assert(pad(base, SECTOR_SIZE) == base);
+    read_sectors(dest, (base >> SECTOR_OFFSET) + blocks.start, range_span(blocks));
     apply(completion, STATUS_OK);
 }
 
@@ -48,7 +68,7 @@ extern void init_extra_prints();
 CLOSURE_0_1(fail, void, status);
 void fail(status s)
 {
-    halt("filesystem_read_entire failed: %v\n", s);
+    halt("filesystem_read_entire failed: %t\n", s);
 }
 
 static CLOSURE_0_1(kernel_read_complete, void, buffer);
@@ -154,7 +174,6 @@ void centry()
     kh.general = &workings;
     init_runtime(&kh);		/* we know only general is used */
     init_extra_prints();
-    u32 fsb = filesystem_base();
 
     u32 cr0, cr4;
     mov_from_cr("cr0", cr0);
@@ -162,18 +181,17 @@ void centry()
     cr0 &= ~(1<<2); // clear EM
     cr0 |= 1<<1; // set MP EM
     cr4 |= 1<<9; // set osfxsr
-    cr0 |= 1<<10; // set osxmmexcpt
+    cr4 |= 1<<10; // set osxmmexcpt
     mov_to_cr("cr0", cr0);
     mov_to_cr("cr4", cr4);    
 
-    // need to ignore the bios area and the area we're running in
+    // need to ignore the area we're running in
     // could reclaim stage2 before entering stage3
     for_regions (r) {
-        // range intersect free memory with bios
-        u32 b = region_base(r);        
-        if (region_type(r) == REGION_PHYSICAL) {
-            if (b == 0) region_base(r) = pad (0x7c00 + fsb, PAGESIZE);
-            region_length(r) -= region_base(r) - b;
+        if (region_type(r) == REGION_PHYSICAL && region_base(r) == 0) {
+            u64 reserved = pad(BOOT_BASE + filesystem_base(), PAGESIZE);
+            region_base(r) = reserved;
+            region_length(r) -= reserved;
         }
     }
     

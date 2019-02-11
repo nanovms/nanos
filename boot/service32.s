@@ -1,35 +1,134 @@
-        bits 32
-        stack equ 0x700
+SCRATCH_BASE equ 0x2000
+REAL_SP equ SCRATCH_BASE-0x10
+
+;
+; enter real mode
+; See also: https://wiki.osdev.org/Real_Mode
+;
+; assumes that:
+; - interrupts are disabled
+; - paging is not enabled (we enable it only in stage3)
+; - GDT contains 16-bit data and code entries
+; - real IDT is effective (we load IDT only in stage3)
+%macro ENTER_REAL 0
+	jmp gdt32.code16:%%prot16	; enter 16-bit protected mode
+
+%%prot16:
+	bits 16
+	;; change the processor mode flag
+	mov eax, cr0
+	mov ecx, 1
+	not ecx
+	and eax, ecx
+	mov cr0, eax			; enter real mode
+	jmp 0:%%real
+
+%%real:
+	xor ax, ax
+	mov ss, ax
+	mov ds, ax
+	mov es, ax
+	mov fs, ax
+	mov gs, ax
+
+	mov sp, REAL_SP
+%endmacro
+
+%macro ENTER_PROTECTED 0
+	lgdt [gdt32.desc]
+
+	;; change the processor mode flag
+	mov eax, cr0
+	or eax, 1
+	mov cr0, eax
+	jmp gdt32.code32:%%protected
+
+%%protected:
+	bits 32
+	mov ax, gdt32.data32
+	mov ss, ax
+	mov ds, ax
+	mov es, ax
+	mov fs, ax
+	mov gs, ax
+
+	mov esp, [protected_esp]
+%endmacro
+
+;; entry point
         extern centry
         section .start
-        
 
-;; move the 32 bit segment setup to stage1
 global _start
 _start:
-        xor edx, edx
-        mov dl, 0x10 ; data32 from stage1
-        mov ss, dx   
-        mov ds, dx
-        mov es, dx
-        mov fs, dx
-        mov gs, dx
-
-        mov esp, stack
-        mov ebp, stack        
+	bits 16
+	ENTER_PROTECTED
         jmp centry
 
-# try to fix the asm inline for this        
-global diskcopy
-diskcopy:
-        push edi
-        mov edi, [esp + 8]
-        mov dx, 0x1f0
-        mov ecx, 0x80           ; 512 / 4
-        cld
-        rep insd
-        pop edi
-        ret
+;
+; 32-bit GDT
+	align 4
+gdt32:
+	dw 0,0,0,0			;  trash
+.code32 equ $ - gdt32
+	dw 0xffff,0,0x9a00,0xcf		;  32 bit code
+.data32 equ $ - gdt32
+	dw 0xffff,0,0x9200,0xcf		;  32 bit data
+.code16 equ $ - gdt32
+	dw 0xffff,0,0x9a00,0x0		;  16 bit code
+.data16 equ $ - gdt32
+	dw 0xffff,0,0x9200,0x0		;  16 bit data
+.desc:
+	dw $ - gdt32 -1
+	dd gdt32
+
+protected_esp:
+	dd REAL_SP			; initial stack pointer
+
+
+dap:
+	db 0x10
+	db 0
+	.sectors:	dw 0
+	.offset:	dw SCRATCH_BASE
+	.segment:	dw 0
+	.sector:	dd 0
+	.sectorm:	dd 0
+
+
+global bios_read_sectors
+bios_read_sectors:
+	; conform to x86_64 cdecl
+	push ebp
+	mov ebp, esp
+
+	push ebx
+	push esi
+	push edi
+
+	; save protected mode stack
+	mov [protected_esp], esp
+
+	; prepare dap
+	mov eax, [ebp + 8]
+	mov [dap.sector], eax
+	mov eax, [ebp + 12]
+	mov [dap.sectors], ax
+
+	ENTER_REAL
+	mov si, dap
+	mov ah, 0x42
+	mov dl, 0x80			; first drive
+	int 0x13
+	ENTER_PROTECTED
+
+	pop edi
+	pop esi
+	pop ebx
+
+	pop ebp
+	ret
+
 
 global run64        
 run64:
