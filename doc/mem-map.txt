@@ -47,9 +47,11 @@ high mem (persists into stage3):
 [...]
 
 low mem (dismantled in stage3):
-  00008000    service32.s:_start, stage2, GDT64, transition to 64-bit
-  00007c00    stage1 (boot) code base, e820 memory regions, 16/32 GDT
-  00001000    temporarily used by stage2 for working heap
+  00100000    temporarily used by stage2 for working heap
+  00008000    service32.s:_start, stage2, 16/32 GDT, GDT64, transition to 64-bit
+  00007c00    stage1 (boot) code base, e820 memory regions
+  00002000    scratch area for real mode BIOS I/O buffer
+  00000500    stack for real mode BIOS
 
 ** TODO: stack could just come from identity heap
 
