@@ -23,7 +23,11 @@ void print_number(buffer s, u64 x, int base, int pad)
 
 static void format_number(buffer dest, buffer fmt, vlist *a)
 {
+#ifdef BITS32
+    s64 x = varg(*a, int);
+#else
     s64 x = varg(*a, s64);
+#endif
     if (x < 0) {                /* emit sign & two's complement */
         push_u8(dest, '-');
         x = -x;
