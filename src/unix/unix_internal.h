@@ -54,6 +54,12 @@ struct linux_dirent64 {
     char           d_name[]; /* Filename (null-terminated) */
 };
 
+#define CPU_SET_SIZE    1024
+#define CPU_SET_WORDS   (CPU_SET_SIZE >> 6)
+typedef struct {
+    u64 mask[CPU_SET_WORDS];
+} cpu_set_t;
+
 /* unix-specific memory objects and ids */
 typedef struct unix_heaps {
     struct kernel_heaps kh;	/* must be first */
