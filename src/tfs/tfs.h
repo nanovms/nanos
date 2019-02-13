@@ -35,7 +35,7 @@ void filesystem_write_tuple(filesystem fs, tuple t);
 void filesystem_write_eav(filesystem fs, tuple t, symbol a, value v);
 fsfile allocate_fsfile(filesystem fs, tuple md);
 // per-file flush
-void flush(filesystem fs, status_handler s);
+void filesystem_flush(filesystem fs); /* XXX redo */
 
 typedef enum {
     FS_STATUS_OK = 0,
