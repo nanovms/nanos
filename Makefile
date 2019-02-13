@@ -46,7 +46,6 @@ runtests: image
 clean:
 	$(MAKE) $(addsuffix -clean,contgen boot stage3 mkfs examples test)
 	$(MAKE) -C tests clean
-	$(Q) $(RM) -f $(FS) $(IMAGE) $(IMAGE).dup
 	$(Q) $(RM) -fd $(dir $(IMAGE)) output
 
 distclean: clean
@@ -67,7 +66,6 @@ USERNET	= -device virtio-net,netdev=n0 -netdev user,id=n0,hostfwd=tcp::8080-:808
 QEMU	?= qemu-system-x86_64
 
 run-nokvm: image
-	- cp $(IMAGE) $(IMAGE).dup
 	- $(QEMU) $(DISPLAY) -m 2G -device isa-debug-exit -no-reboot $(STORAGE) $(USERNET) $(DEBUG_)
 
 run: image
