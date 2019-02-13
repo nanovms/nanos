@@ -68,7 +68,7 @@ extern void init_extra_prints();
 CLOSURE_0_1(fail, void, status);
 void fail(status s)
 {
-    halt("filesystem_read_entire failed: %t\n", s);
+    halt("filesystem_read_entire failed: %v\n", s);
 }
 
 static CLOSURE_0_1(kernel_read_complete, void, buffer);
