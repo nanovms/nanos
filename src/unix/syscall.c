@@ -1301,6 +1301,20 @@ sysreturn pipe(int fds[2])
     return pipe2(fds, 0);
 }
 
+sysreturn sched_getaffinity(int pid, u64 cpusetsize, cpu_set_t *mask)
+{
+    if (cpusetsize < sizeof(u64))
+        return -EINVAL;
+    if (mask)
+        mask->mask[0] = 1ull;      /* always cpu 0 */
+    return 0;
+}
+
+sysreturn sched_setaffinity(int pid, u64 cpusetsize, const cpu_set_t *mast)
+{
+    return 0;                   /* stub */
+}
+
 void register_file_syscalls(void **map)
 {
     register_syscall(map, SYS_read, read);
@@ -1342,6 +1356,8 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_chdir, chdir);
     register_syscall(map, SYS_fchdir, fchdir);
     register_syscall(map, SYS_newfstatat, newfstatat);
+    register_syscall(map, SYS_sched_getaffinity, sched_getaffinity);
+    register_syscall(map, SYS_sched_setaffinity, sched_setaffinity);
 }
 
 void *linux_syscalls[SYS_MAX];
