@@ -10,7 +10,7 @@ boolean rangemap_insert(rangemap rm, rmnode n)
         if (range_span(i)) {
             /* XXX bark for now until we know we have all potential cases handled... */
             msg_warn("attempt to insert range %R but overlap with %R (%p)\n",
-                     n->r, curr->r, curr->value);
+                     n->r, curr->r, curr);
             return false;
         }
         if (curr->r.start > n->r.start)
