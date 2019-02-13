@@ -34,6 +34,7 @@ tuple allocate_tuple()
 static u64 pop_header(buffer f, boolean *imm, u8 *type)
 {
     u8 a = pop_u8(f);
+    //rprintf("pop %P\n", (u64) a);
     *imm = a>>7;    
     *type = (a>>6) & 1;
     
@@ -41,6 +42,7 @@ static u64 pop_header(buffer f, boolean *imm, u8 *type)
     if (a & (1<<5)) {
         do {
             a = pop_u8(f);
+            //rprintf("pop %P extra\n", (u64) a);
             len = (len<<7) | (a & 0x7f);
         } while(a & 0x80);
     }
@@ -56,9 +58,10 @@ static void push_header(buffer b, boolean imm, u8 type, u64 length)
     // is msb off by one?
     int bits = msb(length) + 1;
     int words = 0;
-    buffer_extend(b, words + 1);
     // (imm type ext) 
-    if (bits > 5) words = pad((bits - 5), 7)/7;
+    if (bits > 5)
+        words = ((bits - 5) + (7 - 1)) / 7;
+    buffer_extend(b, words + 1);
     //    rprintf ("push header: %s %s decimal length:%d bits:%d words:%d\n",
     //             imm?"immediate":"reference",
     //             type?"tuple":"buffer",
@@ -66,17 +69,15 @@ static void push_header(buffer b, boolean imm, u8 type, u64 length)
     //             bits,
     //             words);
     u8 first = (imm << 7) |  (type << 6) | (((words)?1:0)<<5) | (length >> (words * 7));
-    //    rprintf("push %p\n", first);
+    //rprintf("push %P\n", (u64) first);
     push_u8(b, first);
 
     int i = words;
     while (i-- > 0) {
         u8 v =  ((length >> (i * 7)) & 0x7f) | (i ? 0x80 : 0);
-        //  rprintf ("push %p extra\n", v);
-        *((u8 *)b->contents + b->end + (words - i - 1)) = v;
+        //rprintf("push %P extra\n", (u64) v);
+        push_u8(b, v);
     }
-
-    b->end += words;
 }
 
 // h is for buffer values, copy them out
@@ -97,7 +98,7 @@ value decode_value(heap h, tuple dictionary, buffer source)
         } else {
             u64 e = pop_varint(source);
             t = table_find(dictionary, pointer_from_u64(e));
-            if (!t) halt("indirect entry (%d) not found", e);
+            if (!t) halt("indirect tuple not found: %P\n", e);
         }
 
         for (int i = 0; i < len ; i++) {
@@ -112,7 +113,7 @@ value decode_value(heap h, tuple dictionary, buffer source)
                 source->start += nlen;                                
             } else {
                 s = table_find(dictionary, pointer_from_u64(nlen));
-                if (!s) rprintf("missing decode dictionary symbol %d\n", nlen);                
+                if (!s) halt("indirect symbol not found: %P\n", nlen);
             }
             value nv = decode_value(h, dictionary, source);
             table_set(t, s, nv);
@@ -126,7 +127,9 @@ value decode_value(heap h, tuple dictionary, buffer source)
             source->start += len;
             return b;
         } else {
-            return table_find(dictionary, pointer_from_u64(len));
+            buffer b = table_find(dictionary, pointer_from_u64(len));
+            if (!b) halt("indirect buffer not found: %P\n", len);
+            return b;
         }
     }
 }

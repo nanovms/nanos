@@ -408,9 +408,9 @@ static inline boolean ingest_parse_int(tuple value, symbol s, u64 * i)
 
     /* XXX gross, but we're having issues with too many allocas in stage2 */
     bytes start = b->start;
-    parse_int(b, 10, i);
+    boolean retval = parse_int(b, 10, i);
     b->start = start;
-    return true;
+    return retval;
 }
 
 void ingest_extent(fsfile f, symbol off, tuple value)
@@ -418,10 +418,10 @@ void ingest_extent(fsfile f, symbol off, tuple value)
     tfs_debug("ingest_extent: f %p, off %b, value %v\n", f, symbol_string(off), value);
     u64 length, file_offset, block_start, allocated;
     assert(off);
-    parse_int(alloca_wrap(symbol_string(off)), 10, &file_offset);
-    if (!ingest_parse_int(value, sym(length), &length)) return;
-    if (!ingest_parse_int(value, sym(offset), &block_start)) return;
-    if (!ingest_parse_int(value, sym(allocated), &allocated)) return;
+    assert(parse_int(alloca_wrap(symbol_string(off)), 10, &file_offset));
+    assert(ingest_parse_int(value, sym(length), &length));
+    assert(ingest_parse_int(value, sym(offset), &block_start));
+    assert(ingest_parse_int(value, sym(allocated), &allocated));
     tfs_debug("   file offset %d, length %d, block_start 0x%P, allocated %d\n",
               file_offset, length, block_start, allocated);
 #ifndef BOOT
