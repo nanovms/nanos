@@ -26,7 +26,7 @@ static inline void *tag(void *v, u16 tval)
 
 static inline u16 tagof(void *v)
 {
-    return *(u8 *)v-1;
+    return *((u8 *)v-1);
 }
 
 static inline void *valueof(void *v)
