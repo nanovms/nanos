@@ -20,8 +20,8 @@ Linux and Mac. Update the below.
 ## Ops
 Build ops for Mac and Linux and update below.
 ```
-    gsutil cp stage3.img gs://cli/linux 
-    gsutil cp stage3.img gs://cli/darwin
+    gsutil cp ops gs://cli/linux 
+    gsutil cp ops gs://cli/darwin
     gsutil -D setacl public-read  gs://cli/linux/ops 
     gsutil -D setacl public-read  gs://cli/darwin/ops 
 
