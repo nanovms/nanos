@@ -1,5 +1,12 @@
 #include <tfs_internal.h>
 
+//#define TLOG_DEBUG
+#ifdef TLOG_DEBUG
+#define tlog_debug(x, ...) do {rprintf("TLOG: " x, ##__VA_ARGS__);} while(0)
+#else
+#define tlog_debug(x, ...)
+#endif
+
 #define END_OF_LOG 1
 #define TUPLE_AVAILABLE 2
 #define END_OF_SEGMENT 3
@@ -42,11 +49,13 @@ void log_flush(log tl)
 
     buffer b = tl->staging;
     push_u8(b, END_OF_LOG);
+#ifdef TLOG_DEBUG
     u64 z = tl->staging->end;
     tl->staging->start = 0;
     tl->staging->end = 1024;
     rprintf("staging contains:\n%X\n", b);
     tl->staging->end = z;
+#endif
 
     void * buf = b->contents;
     u64 length = b->end;
@@ -58,6 +67,7 @@ void log_flush(log tl)
 
 void log_write_eav(log tl, tuple e, symbol a, value v, thunk complete)
 {
+    tlog_debug("log_write_eav: tl %p, e %p (%t), a \"%b\", v %v\n", tl, e, e, symbol_string(a), v);
     // out of space
     push_u8(tl->staging, TUPLE_AVAILABLE);
     encode_eav(tl->staging, tl->dictionary, e, a, v);
@@ -67,6 +77,7 @@ void log_write_eav(log tl, tuple e, symbol a, value v, thunk complete)
 
 void log_write(log tl, tuple t, thunk complete)
 {
+    tlog_debug("log_write: tl %p, t %p (%t)\n", tl, t, t);
     // out of space
     push_u8(tl->staging, TUPLE_AVAILABLE);
     // this should be incremental on root!
@@ -81,6 +92,7 @@ void log_read_complete(log tl, status_handler sh, status s)
     buffer b = tl->staging;
     u8 frame = 0;
 
+    tlog_debug("log_read_complete: buffer len %d, status %v\n", buffer_length(b), s);
     if (!is_ok(s)) {
         apply(sh, s);
         return;
@@ -91,38 +103,38 @@ void log_read_complete(log tl, status_handler sh, status s)
     // log extension - length at the beginnin and pointer at the end
     for (; frame = pop_u8(b), frame == TUPLE_AVAILABLE || frame == END_OF_SEGMENT;) {
         if (frame == END_OF_SEGMENT) {
-            // XXX debug
+            tlog_debug("-> segment boundary\n");
             continue;
         }
-        tuple t = decode_value(tl->h, tl->dictionary, b);
-        rprintf("decoded %t\n", t);
+        tuple dv = decode_value(tl->h, tl->dictionary, b);
+        tlog_debug("   decoded %p\n", dv);
+        if (tagof(dv) != tag_tuple)
+            continue;
+
         fsfile f = 0;
         u64 filelength = infinity;
-        // doesn't seem like all the incremental updates are handled here,
-        // nor the recursive case
+        tuple t = (tuple)dv;
 
-        /* right, so just pasting in random extents won't get picked up here... */
         table_foreach(t, k, v) {
             if (k == sym(extents)) {
-                rprintf("ext %v\n", v);
+                tlog_debug("extents: %p\n", v);
                 /* don't know why this needs to be in fs, it's really tlog-specific */
                 if (!(f = table_find(tl->fs->extents, v))) {
                     f = allocate_fsfile(tl->fs, t);
-                    rprintf("create f %p\n", f);
                     table_set(tl->fs->extents, v, f);
+                    tlog_debug("   created fsfile %p\n", f);
                 } else {
-                    rprintf("f match %p\n", f);
+                    tlog_debug("   found fsfile %p\n", f);
                 }
             } else if (k == sym(filelength)) {
                 filelength = u64_from_value(v);
-                rprintf("len %d\n", filelength);
-            } else {
-                rprintf("other: %s = %v\n", symbol_string(k), v);
             }
         }
         
-        if (f && filelength != infinity)
+        if (f && filelength != infinity) {
+            tlog_debug("   update fsfile length to %d\n", filelength);
             fsfile_set_length(f, filelength);
+        }
     }
 
     if (frame == END_OF_LOG) {
@@ -131,13 +143,13 @@ void log_read_complete(log tl, status_handler sh, status s)
     /* mark end of log */
     b->end = b->start;
     b->start = 0;
-    rprintf("log read, end 0x%P\n", b->end);
+    tlog_debug("   log parse finished, end now at %d\n", b->end);
 
     /* XXX this will only work for reading the log a single time
        through, but at present we're not using any incremental log updates */
     table_foreach(tl->fs->extents, t, f) {
         table_foreach(t, off, e) {
-            rprintf("ingesting sym %s, val %v\n", symbol_string(off), e);
+            tlog_debug("   tlog ingesting sym %b, val %p\n", symbol_string(off), e);
             ingest_extent((fsfile)f, off, e);
         }
     }
@@ -151,6 +163,20 @@ void log_read_complete(log tl, status_handler sh, status s)
             table_set(tl->fs->root, k, v);
         }
     }
+
+#ifndef BOOT
+    /* Reverse pairs in dictionary so that we can use it for writing
+       the next log segment. */
+    table newdict = allocate_table(tl->h, identity_key, pointer_equal);
+    table_foreach(tl->dictionary, k, v) {
+        tlog_debug("   dict swap: k %p, v %p, type %d\n", k, v, tagof(v));
+        if (tagof(v) == tag_tuple || tagof(v) == tag_symbol)
+            table_set(newdict, v, k);
+    }
+    // deallocate_table(tl->dictionary);
+    tl->dictionary = newdict;
+#endif
+
     apply(sh, 0);
     // something really strange is going on with the value of frame
     //    if (frame != END_OF_LOG) halt("bad log tag %p\n", frame);    
@@ -167,6 +193,7 @@ void read_log(log tl, u64 offset, u64 size, status_handler sh)
 
 log log_create(heap h, filesystem fs, status_handler sh)
 {
+    tlog_debug("log_create: heap %p, fs %p, sh %p\n", h, fs, sh);
     log tl = allocate(h, sizeof(struct log));
     tl->h = h;
     tl->offset = 0;
