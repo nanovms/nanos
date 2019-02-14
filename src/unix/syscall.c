@@ -1371,6 +1371,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_sched_getaffinity, sched_getaffinity);
     register_syscall(map, SYS_sched_setaffinity, sched_setaffinity);
     register_syscall(map, SYS_getuid, getuid);
+    register_syscall(map, SYS_geteuid, geteuid);
 }
 
 void *linux_syscalls[SYS_MAX];
