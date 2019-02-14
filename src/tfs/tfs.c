@@ -547,6 +547,7 @@ static void filesystem_write_complete(fsfile f, tuple t, range q, io_status_hand
    below.
 */
 
+/* XXX This needs to additionally block if a log flush is in flight. */
 void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_handler completion)
 {
     u64 len = buffer_length(b);

@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <string.h>
 #include <limits.h>
+#include <ctype.h>
 
 #define BUFLEN 256
 
@@ -82,7 +83,7 @@ void basic_write_test()
 }
 
 #define min(x, y) ((x) < (y) ? (x) : (y))
-#define _random(x) (labs(random()))
+#define _random() (labs(random()))
 
 void scatter_write_test(ssize_t buflen, int iterations, int max_writesize)
 {
@@ -95,11 +96,12 @@ void scatter_write_test(ssize_t buflen, int iterations, int max_writesize)
     }
     bzero(buf, buflen);
 
-    int fd = open("scatter", O_CREAT | O_TRUNC | O_RDWR, S_IRUSR | S_IWUSR);
+    int fd = open("scatter", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
     if (fd < 0) {
         perror("open");
         exit(EXIT_FAILURE);
     }
+    _READ(buf, buflen);
 
     int rmost = 0;
 
@@ -107,7 +109,7 @@ void scatter_write_test(ssize_t buflen, int iterations, int max_writesize)
     for (int iter = 0; iter < iterations; iter++) {
         int position = _random() % buflen;
         int x = _random() % max_writesize;
-        int length = min(x, buflen - position);
+        ssize_t length = min(x, buflen - position);
 
         if (length == 0)
             length = 1;
@@ -150,9 +152,49 @@ void scatter_write_test(ssize_t buflen, int iterations, int max_writesize)
     exit(EXIT_FAILURE);
 }
 
+void append_write_test()
+{
+    ssize_t rv;
+    unsigned char tmp[BUFLEN];
+    int fd = open("append", O_CREAT | O_RDWR);
+    if (fd < 0) {
+        perror("open");
+        exit(EXIT_FAILURE);
+    }
+
+    /* XXX kinda stupid, this should use some known pattern and check it */
+    printf("existing content: \"");
+    do {
+        _READ(tmp, BUFLEN);
+        for (int i = 0; i < rv; i++) {
+            if (isalpha(tmp[i]))
+                putchar(tmp[i]);
+            else
+                putchar('_');
+        }
+    } while (rv > 0);
+    printf("\"\nappending \"");
+
+    ssize_t len = _random() % (BUFLEN / 4);
+    for (int i = 0; i < len; i++) {
+        tmp[i] = 'a' + (_random() % 26);
+        putchar(tmp[i]);
+    }
+
+    printf("\"\n");
+    _WRITE(tmp, len);
+    close(fd);
+    return;
+  out_fail:
+    close(fd);
+    exit(EXIT_FAILURE);
+}
+
 int main(int argc, char **argv)
 {
     setvbuf(stdout, NULL, _IOLBF, 0);
     basic_write_test();
-    scatter_write_test(1 << 18, 64, 1 << 12);
+    scatter_write_test(1 << 12, 64, 1 << 10);
+    append_write_test();
+    printf("write test passed\n");
 }

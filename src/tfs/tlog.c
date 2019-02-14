@@ -42,11 +42,14 @@ range log_block_range(log tl, u64 length)
                   (tl->offset + pad(length, tl->fs->blocksize)) >> SECTOR_OFFSET);
 }
 
+/* XXX we're just writing the whole log - instead write only from
+   block of buffer start forward */
 void log_flush(log tl)
 {
     if (!__sync_bool_compare_and_swap(&tl->dirty, 1, 0))
         return;
 
+    tlog_debug("log_flush: log %p dirty\n", tl);
     buffer b = tl->staging;
     push_u8(b, END_OF_LOG);
 #ifdef TLOG_DEBUG
@@ -60,15 +63,18 @@ void log_flush(log tl)
     void * buf = b->contents;
     u64 length = b->end;
     range r = log_block_range(tl, length);
-    rprintf("range %R, buf %p, length %d, start %d\n", r, buf, length, b->start);
     apply(tl->fs->w, buf, r, closure(tl->h, log_write_completion, tl->completions));
     b->end -= 1;                /* next write removes END_OF_LOG */
+//    rprintf("was %d now %d\n", b->start, b->end);
+//    b->start = b->end;          /* pick up next write here */
 }
 
 void log_write_eav(log tl, tuple e, symbol a, value v, thunk complete)
 {
     tlog_debug("log_write_eav: tl %p, e %p (%t), a \"%b\", v %v\n", tl, e, e, symbol_string(a), v);
-    // out of space
+    /* XXX make log extendable */
+    if (tl->staging->end > INITIAL_LOG_SIZE - 32)
+        halt("log full\n");
     push_u8(tl->staging, TUPLE_AVAILABLE);
     encode_eav(tl->staging, tl->dictionary, e, a, v);
     vector_push(tl->completions, complete);
@@ -78,7 +84,8 @@ void log_write_eav(log tl, tuple e, symbol a, value v, thunk complete)
 void log_write(log tl, tuple t, thunk complete)
 {
     tlog_debug("log_write: tl %p, t %p (%t)\n", tl, t, t);
-    // out of space
+    if (tl->staging->end > INITIAL_LOG_SIZE - 32)
+        halt("log full\n");
     push_u8(tl->staging, TUPLE_AVAILABLE);
     // this should be incremental on root!
     encode_tuple(tl->staging, tl->dictionary, t);
