@@ -42,6 +42,26 @@ static inline extent allocate_extent(heap h, range init_range, u64 block_start, 
     return e;
 }
 
+/* Once this is called at the close of every filesystem operation, we
+   can remove the intermediate flushes. */
+void filesystem_flush(filesystem fs)
+{
+    log_flush(fs->tl);
+}
+
+/* XXX don't ignore status
+       set fs dirty bit and flush at end of fs operation
+*/
+void filesystem_write_tuple(filesystem fs, tuple t)
+{
+    log_write(fs->tl, t, ignore);
+}
+
+void filesystem_write_eav(filesystem fs, tuple t, symbol a, value v)
+{
+    log_write_eav(fs->tl, t, a, v, ignore);
+}
+
 /* This can evolve into / be replaced by a more general page / buffer
    chace interface. We should be able to maintain and recycle dma
    buffers for anything in the system, or at least virtio. These
@@ -338,7 +358,7 @@ static tuple soft_create(filesystem fs, tuple t, symbol a)
     if (!(v = table_find(t, a))) {
         v = allocate_tuple();
         table_set(t, a, v);
-        log_write_eav(fs->tl, t, a, v, ignore); // not really ignore, this should carry a merge
+        filesystem_write_eav(fs, t, a, v);
     }
     return v;
 }
@@ -393,7 +413,7 @@ static extent create_extent(fsfile f, range r)
 
     tuple extents = soft_create(f->fs, f->md, sym(extents));
     table_set(extents, offs, e);
-    log_write_eav(f->fs->tl, extents, offs, e, ignore);
+    filesystem_write_eav(f->fs, extents, offs, e);
     return ex;
 }
 
@@ -480,21 +500,8 @@ boolean set_extent_length(fsfile f, extent ex, u64 length)
     /* update length in tuple and log */
     string v = aprintf(f->fs->h, "%d", length);
     table_set(extent_tuple, sym(length), v);
-    log_write_eav(f->fs->tl, extents, offs, extent_tuple, ignore);
-    log_flush(f->fs->tl);       /* XXX flush each time for now */
+    filesystem_write_eav(f->fs, extents, offs, extent_tuple);
     return true;
-}
-
-// need to provide better/more symmetric access to metadata, but ...
-// status?
-void filesystem_write_tuple(filesystem fs, tuple t)
-{
-    log_write(fs->tl, t, ignore);
-}
-
-void filesystem_write_eav(filesystem fs, tuple t, symbol a, value v)
-{
-    log_write_eav(fs->tl, t, a, v, ignore);
 }
 
 static CLOSURE_4_1(filesystem_write_complete, void, fsfile, tuple, range, io_status_handler, status);
@@ -508,6 +515,7 @@ static void filesystem_write_complete(fsfile f, tuple t, range q, io_status_hand
         filesystem_write_eav(fs, t, sym(filelength), value_from_u64(fs->h, q.end));
     }
 
+    filesystem_flush(fs);
     apply(completion, s, is_ok(s) ? range_span(q) : 0);
 }
 
@@ -539,6 +547,7 @@ static void filesystem_write_complete(fsfile f, tuple t, range q, io_status_hand
    below.
 */
 
+/* XXX This needs to additionally block if a log flush is in flight. */
 void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_handler completion)
 {
     u64 len = buffer_length(b);
@@ -622,8 +631,9 @@ fsfile allocate_fsfile(filesystem fs, tuple md)
 
 void link(tuple dir, fsfile f, buffer name)
 {
-    // this has to log the soft create too.
-    log_write_eav(f->fs->tl, soft_create(f->fs, dir, sym(children)), intern(name), f->md, ignore);
+    filesystem_write_eav(f->fs, soft_create(f->fs, dir, sym(children)),
+                         intern(name), f->md);
+    filesystem_flush(f->fs);
 }
 
 fs_status filesystem_mkentry(filesystem fs, tuple root, char *fp, tuple entry)
@@ -665,9 +675,9 @@ fs_status filesystem_mkentry(filesystem fs, tuple root, char *fp, tuple entry)
 
     basename_sym = sym_this(basename);
     table_set(children, basename_sym, entry);
-    log_write_eav(fs->tl, children, basename_sym, entry, ignore);
-    //log_flush(fs->tl);
+    filesystem_write_eav(fs, children, basename_sym, entry);
     msg_debug("written!\n");
+    filesystem_flush(fs);
     return FS_STATUS_OK;
 }
 
@@ -701,11 +711,6 @@ fs_status filesystem_creat(filesystem fs, tuple root, char *fp)
 fsfile fsfile_from_node(filesystem fs, tuple n)
 {
     return table_find(fs->files, n);
-}
-
-void flush(filesystem fs, status_handler s)
-{
-    log_flush(fs->tl);
 }
 
 static CLOSURE_2_1(log_complete, void, filesystem_complete, filesystem, status);

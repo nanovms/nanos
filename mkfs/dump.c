@@ -68,6 +68,12 @@ int main(int argc, char **argv)
 {
     heap h = init_process_runtime();
     tuple root = allocate_tuple();
+
+    if (argc < 3) {
+        rprintf("usage: %s <fs image> <target dir>\n");
+        exit(1);
+    }
+
     int fd = open(argv[1], O_RDONLY);
 
     if (fd < 0) {

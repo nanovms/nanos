@@ -183,7 +183,7 @@ static void fsc(heap h, descriptor out, const char *target_root, filesystem fs, 
         allocate_fsfile(fs, f);
         filesystem_write(fs, f, c, 0, ignore_io_status);
     }
-    flush(fs, ignore_status);
+    filesystem_flush(fs);
     close(out);
 }
 
