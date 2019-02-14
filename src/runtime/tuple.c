@@ -19,14 +19,14 @@ static heap theap;
 static inline void drecord(table dictionary, void *x)
 {
     u64 count = dictionary->count + 1;
-    tuple_debug("drecord: dict %p, index %d <-> x %p\n", dictionary, count, x);
+    tuple_debug("drecord: dict %p, index 0x%P <-> x %p\n", dictionary, count, x);
     table_set(dictionary, pointer_from_u64(count), x);
 }
 
 static inline void srecord(table dictionary, void *x)
 {
     u64 count = dictionary->count + 1;
-    tuple_debug("srecord: dict %p, x %p -> index %d\n", dictionary, x, count);
+    tuple_debug("srecord: dict %p, x %p -> index 0x%P\n", dictionary, x, count);
     table_set(dictionary, x, pointer_from_u64(count));
 }
 
@@ -72,7 +72,7 @@ static void push_header(buffer b, boolean imm, u8 type, u64 length)
     if (bits > 5)
         words = ((bits - 5) + (7 - 1)) / 7;
     buffer_extend(b, words + 1);
-    tuple_debug("push header: %s %s decimal length:%d bits:%d words:%d\n",
+    tuple_debug("push header: %s %s decimal length:0x%P bits:%d words:%d\n",
                 imm ? "immediate" : "reference",
                 type ? "tuple" : "buffer",
                 length,
@@ -109,8 +109,8 @@ value decode_value(heap h, tuple dictionary, buffer source)
         } else {
             u64 e = pop_varint(source);
             t = table_find(dictionary, pointer_from_u64(e));
-            if (!t) halt("indirect tuple not found: %d, offset %d\n", e, (u64)source->start);
-            tuple_debug("decode_value: indirect %d -> %d\n", e, u64_from_pointer(t));
+            if (!t) halt("indirect tuple not found: 0x%P, offset %d\n", e, source->start);
+            tuple_debug("decode_value: indirect 0x%P -> 0x%P\n", e, u64_from_pointer(t));
         }
 
         for (int i = 0; i < len ; i++) {
@@ -125,7 +125,7 @@ value decode_value(heap h, tuple dictionary, buffer source)
                 source->start += nlen;                                
             } else {
                 s = table_find(dictionary, pointer_from_u64(nlen));
-                if (!s) halt("indirect symbol not found: %d, offset %d\n", nlen, source->start);
+                if (!s) halt("indirect symbol not found: 0x%P, offset %d\n", nlen, source->start);
             }
             value nv = decode_value(h, dictionary, source);
             table_set(t, s, nv);
@@ -141,7 +141,7 @@ value decode_value(heap h, tuple dictionary, buffer source)
             source->start += len;
         } else {
             b = table_find(dictionary, pointer_from_u64(len));
-            if (!b) halt("indirect buffer not found: %d, offset %d\n", len, source->start);
+            if (!b) halt("indirect buffer not found: 0x%P, offset %d\n", len, source->start);
         }
         tuple_debug("decode_value: %s buffer %p (%b)\n",
                     imm == immediate ? "immediate" : "indirect", b, b);
@@ -182,11 +182,11 @@ void encode_eav(buffer dest, table dictionary, tuple e, symbol a, value v)
     // (set/get/iterate)
     u64 d = u64_from_pointer(table_find(dictionary, e));
     if (d) {
-        tuple_debug("encode_eav: e (%t) indirect at index %d\n", e, d);
+        tuple_debug("encode_eav: e (%t) indirect at index 0x%P\n", e, d);
         push_header(dest, reference, type_tuple, 1);
         push_varint(dest, d);
     } else {
-        tuple_debug("encode_eav: e (%t) immediate at index %d\n",
+        tuple_debug("encode_eav: e (%t) immediate at index 0x%P\n",
                     e, dictionary->count + 1);
         push_header(dest, immediate, type_tuple, 1);
         srecord(dictionary, e);
