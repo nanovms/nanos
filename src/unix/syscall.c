@@ -1315,6 +1315,18 @@ sysreturn sched_setaffinity(int pid, u64 cpusetsize, const cpu_set_t *mast)
     return 0;                   /* stub */
 }
 
+/* uid_t getuid(void); */
+sysreturn getuid(void)
+{
+    return set_syscall_return(current, 0);
+}
+
+/* uid_t geteuid(void); */
+sysreturn geteuid(void)
+{
+    return set_syscall_return(current, 0);
+}
+
 void register_file_syscalls(void **map)
 {
     register_syscall(map, SYS_read, read);
@@ -1358,6 +1370,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_newfstatat, newfstatat);
     register_syscall(map, SYS_sched_getaffinity, sched_getaffinity);
     register_syscall(map, SYS_sched_setaffinity, sched_setaffinity);
+    register_syscall(map, SYS_getuid, getuid);
 }
 
 void *linux_syscalls[SYS_MAX];
