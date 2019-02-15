@@ -532,7 +532,6 @@ static void filesystem_write_data_complete(fsfile f, tuple t, range q, merge m_m
 
     filesystem_flush_log(fs);
     apply(m_sh, STATUS_OK);
-//    apply(completion, s, is_ok(s) ? range_span(q) : 0);
 }
 
 /* Holes over the query range will be filled with extents before later
@@ -658,6 +657,8 @@ void link(tuple dir, fsfile f, buffer name)
 }
 #endif
 
+/* XXX these will all need to take completions - some ironing out of
+   interface is in order */
 fs_status filesystem_mkentry(filesystem fs, tuple root, char *fp, tuple entry)
 {
     tuple children = (root ? root : table_find(fs->root, sym(children)));
@@ -697,9 +698,8 @@ fs_status filesystem_mkentry(filesystem fs, tuple root, char *fp, tuple entry)
 
     basename_sym = sym_this(basename);
     table_set(children, basename_sym, entry);
-    /* XXX this totally shouldn't be ignore, but I don't feel like
-     * breaking all this up for blocking at the moment
-     */
+
+    /* XXX this shouldn't be ignore - extend this when we add completion to interface */
     filesystem_write_eav(fs, children, basename_sym, entry, ignore_status);
     msg_debug("written!\n");
     filesystem_flush_log(fs);
