@@ -34,10 +34,29 @@ sysreturn sys_time(time_t *tloc)
     return t;
 }
 
+#define CLOCK_REALTIME	0
+#define CLOCK_MONOTONIC	1
+
+extern timestamp monotonic_clk_start;
+
 sysreturn clock_gettime(clockid_t clk_id, struct timespec *tp)
 {
-    thread_log(current, "clock_gettime: clk_id %d", clk_id);
-    timespec_from_time(tp, now());
+    switch (clk_id) {
+	case CLOCK_REALTIME:
+	    thread_log(current, "clock_gettime: clk_id %d", clk_id);
+	    timespec_from_time(tp, now());
+	break;
+
+	/* seconds returned is the time elapsed from boot */
+	case CLOCK_MONOTONIC:
+	    thread_log(current, "clock_gettime: clk_id %d", clk_id);
+	    timespec_from_time(tp, now() - monotonic_clk_start);
+	break;
+
+	default:
+	    thread_log(current, "clock_gettime: bogus clk_id %d", clk_id);
+	break;
+    }
     return 0;
 }
 

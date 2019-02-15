@@ -5,6 +5,7 @@
 static struct pvclock_vcpu_time_info *vclock = 0;
 
 static timestamp rtc_offset;
+timestamp monotonic_clk_start;
 
 #define CPUID_LEAF_4 0x40000001
 
@@ -82,4 +83,9 @@ void init_clock(kernel_heaps kh)
     }
 
     rtc_offset = rtc_gettimeofday() << 32;
+
+    /* timer should be set up at this point so let's set the timestamp for
+     monotonic time calculation (time elapsed since boot) */
+
+    monotonic_clk_start = now();
 }
