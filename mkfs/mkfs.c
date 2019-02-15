@@ -175,7 +175,7 @@ static void fsc(heap h, descriptor out, const char *target_root, filesystem fs, 
     deallocate_buffer(b);
     rprintf("\n");
 
-    filesystem_write_tuple(fs, md);
+    filesystem_write_tuple(fs, md, ignore_status);
     vector i;
     vector_foreach(worklist, i) {
         tuple f = vector_get(i, 0);        
@@ -183,7 +183,6 @@ static void fsc(heap h, descriptor out, const char *target_root, filesystem fs, 
         allocate_fsfile(fs, f);
         filesystem_write(fs, f, c, 0, ignore_io_status);
     }
-    filesystem_flush(fs);
     close(out);
 }
 
