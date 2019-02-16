@@ -11,8 +11,6 @@
 #define TUPLE_AVAILABLE 2
 #define END_OF_SEGMENT 3
 
-#define TRAILER_SIZE 16
-
 typedef struct log {
     filesystem fs;
     u64 remainder;
@@ -25,11 +23,12 @@ typedef struct log {
 } *log;
 
 static CLOSURE_1_1(log_write_completion, void, vector, status);
-static void log_write_completion(vector v, status nothing)
+static void log_write_completion(vector v, status s)
 {
     // reclaim the buffer now and the vector...make it a whole thing
-    thunk i;
-    vector_foreach(v, i) apply(i);
+    status_handler i;
+    vector_foreach(v, i)
+        apply(i, s);
 }
 
 // xxx  currently we cant take writes during the flush
@@ -69,7 +68,7 @@ void log_flush(log tl)
 //    b->start = b->end;          /* pick up next write here */
 }
 
-void log_write_eav(log tl, tuple e, symbol a, value v, thunk complete)
+void log_write_eav(log tl, tuple e, symbol a, value v, status_handler sh)
 {
     tlog_debug("log_write_eav: tl %p, e %p (%t), a \"%b\", v %v\n", tl, e, e, symbol_string(a), v);
     /* XXX make log extendable */
@@ -77,11 +76,11 @@ void log_write_eav(log tl, tuple e, symbol a, value v, thunk complete)
         halt("log full\n");
     push_u8(tl->staging, TUPLE_AVAILABLE);
     encode_eav(tl->staging, tl->dictionary, e, a, v);
-    vector_push(tl->completions, complete);
+    vector_push(tl->completions, sh);
     tl->dirty = true;
 }
 
-void log_write(log tl, tuple t, thunk complete)
+void log_write(log tl, tuple t, status_handler sh)
 {
     tlog_debug("log_write: tl %p, t %p (%t)\n", tl, t, t);
     if (tl->staging->end > INITIAL_LOG_SIZE - 32)
@@ -89,7 +88,7 @@ void log_write(log tl, tuple t, thunk complete)
     push_u8(tl->staging, TUPLE_AVAILABLE);
     // this should be incremental on root!
     encode_tuple(tl->staging, tl->dictionary, t);
-    vector_push(tl->completions, complete);
+    vector_push(tl->completions, sh);
     tl->dirty = true;
 }
 
