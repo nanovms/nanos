@@ -59,18 +59,13 @@ buffer lookup_file(heap h, const char *target_root, buffer name, struct stat *st
 }
 
 // its nice that we can append a file to any existing buffer, but harsh we have to grow the buffer
-void read_file(heap h, buffer dest, buffer name)
+void read_file(heap h, const char *target_root, buffer dest, buffer name)
 {
     buffer name_b = NULL;
 
     // mode bit metadata
     struct stat st;
     if (stat(cstring(name), &st) < 0) {
-#ifdef DEV
-        const char *target_root = getenv("NANOS_TARGET_ROOT");
-#else
-        const char *target_root = NULL;
-#endif
         if (target_root == NULL)
             halt("couldn't open file %b: %s\n", name, strerror(errno));
 
@@ -124,7 +119,7 @@ static void err(status s)
     rprintf("reported error\n");
 }
 
-static buffer translate_contents(heap h, value v)
+static buffer translate_contents(heap h, const char *target_root, value v)
 {
     if (tagof(v) == tag_tuple) {
         value path = table_find((table)v, sym(host));
@@ -132,7 +127,7 @@ static buffer translate_contents(heap h, value v)
             // seems like it wouldn't be to hard to arrange
             // for this to avoid the staging copy
             buffer dest = allocate_buffer(h, 1024);
-            read_file(h, dest, path);
+            read_file(h, target_root, dest, path);
             return dest;
         }
     }
@@ -141,7 +136,8 @@ static buffer translate_contents(heap h, value v)
 
 // dont really like the file/tuple duality, but we need to get something running today,
 // so push all the bodies onto a worklist
-static value translate(heap h, vector worklist, filesystem fs, value v, status_handler sh)
+static value translate(heap h, vector worklist,
+		       const char *target_root, filesystem fs, value v, status_handler sh)
 {
     switch(tagof(v)) {
     case tag_tuple:
@@ -149,9 +145,9 @@ static value translate(heap h, vector worklist, filesystem fs, value v, status_h
             tuple out = allocate_tuple();
             table_foreach((table)v, k, child) {
                 if (k == sym(contents)) {
-                    vector_push(worklist, build_vector(h, out, translate_contents(h, child)));
+                    vector_push(worklist, build_vector(h, out, translate_contents(h, target_root, child)));
                 } else {
-                    table_set(out, k, translate(h, worklist, fs, child, sh));
+                    table_set(out, k, translate(h, worklist, target_root, fs, child, sh));
                 }
             }
             return out;
@@ -163,14 +159,14 @@ static value translate(heap h, vector worklist, filesystem fs, value v, status_h
 
 extern heap init_process_runtime();
 
-static CLOSURE_2_2(fsc, void, heap, descriptor, filesystem, status);
-static void fsc(heap h, descriptor out, filesystem fs, status s)
+static CLOSURE_3_2(fsc, void, heap, descriptor, const char *, filesystem, status);
+static void fsc(heap h, descriptor out, const char *target_root, filesystem fs, status s)
 {
     if (!root)
         exit(1);
 
     vector worklist = allocate_vector(h, 10);
-    tuple md = translate(h, worklist, fs, root, closure(h, err));
+    tuple md = translate(h, worklist, target_root, fs, root, closure(h, err));
 
     rprintf("metadata ");
     buffer b = allocate_buffer(transient, 64);
@@ -179,7 +175,7 @@ static void fsc(heap h, descriptor out, filesystem fs, status s)
     deallocate_buffer(b);
     rprintf("\n");
 
-    filesystem_write_tuple(fs, md);
+    filesystem_write_tuple(fs, md, ignore_status);
     vector i;
     vector_foreach(worklist, i) {
         tuple f = vector_get(i, 0);        
@@ -187,17 +183,47 @@ static void fsc(heap h, descriptor out, filesystem fs, status s)
         allocate_fsfile(fs, f);
         filesystem_write(fs, f, c, 0, ignore_io_status);
     }
-    flush(fs, ignore_status);
     close(out);
+}
+
+static void usage(const char *program_name)
+{
+    const char *p = strrchr(program_name, '/');
+    if (p != NULL)
+        p++;
+    else
+        p = program_name;
+    printf("Usage: %s [-r target-root] image-file < manifest-file\n"
+           "\n"
+	   "-r	- specify target root\n",
+           p);
 }
 
 int main(int argc, char **argv)
 {
+    int c;
+    const char *target_root = NULL;
+
+    while ((c = getopt(argc, argv, "hr:")) != EOF) {
+        switch (c) {
+        case 'r':
+            target_root = optarg;
+	    break;
+        default:
+            usage(argv[0]);
+	    exit(1);
+        }
+    }
+    argc -= optind;
+    argv += optind;
+
+    const char *image_path = argv[0];
+
     heap h = init_process_runtime();
-    descriptor out = open(argv[1], O_CREAT|O_WRONLY, 0644);
+    descriptor out = open(image_path, O_CREAT|O_WRONLY, 0644);
     u64 fs_size = 100ull * MB;  /* XXX temp, change to infinity after rtrie/bitmap fix */
     if (out < 0) {
-        halt("couldn't open output file %s\n", argv[1]);
+        halt("couldn't open output file %s\n", image_path);
     }
 
     parser p = tuple_parser(h, closure(h, finish, h), closure(h, perr));
@@ -211,6 +237,6 @@ int main(int argc, char **argv)
                       closure(h, bread, out),
                       closure(h, bwrite, out),
                       allocate_tuple(),
-                      closure(h, fsc, h, out));
+                      closure(h, fsc, h, out, target_root));
     exit(0);
 }

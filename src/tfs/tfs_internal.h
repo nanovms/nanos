@@ -32,8 +32,8 @@ typedef struct filesystem {
 void ingest_extent(fsfile f, symbol foff, tuple value);
 
 log log_create(heap h, filesystem fs, status_handler sh);
-void log_write(log tl, tuple t, thunk complete);
-void log_write_eav(log tl, tuple e, symbol a, value v, thunk complete);
+void log_write(log tl, tuple t, status_handler sh);
+void log_write_eav(log tl, tuple e, symbol a, value v, status_handler sh);
 
 #define INITIAL_LOG_SIZE (512*KB)
 void read_log(log tl, u64 offset, u64 size, status_handler sh);
