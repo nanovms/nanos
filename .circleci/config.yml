@@ -26,12 +26,13 @@ jobs:
       - run: cp .circleci/boto ~/.boto
       - run: wget https://storage.googleapis.com/pub/gsutil.tar.gz
       - run: tar xfz gsutil.tar.gz -C ~
-      - run: ~/gsutil/gsutil cp output/boot/boot.img gs://nanos
-      - run: ~/gsutil/gsutil cp output/stage3/stage3.img gs://nanos
-      - run: ~/gsutil/gsutil cp output/mkfs/bin/mkfs gs://nanos
-      - run: ~/gsutil/gsutil acl ch -u AllUsers:R gs://nanos/stage3.img
-      - run: ~/gsutil/gsutil acl ch -u AllUsers:R gs://nanos/boot.img
-      - run: ~/gsutil/gsutil acl ch -u AllUsers:R gs://nanos/mkfs
+      - run: mkdir temp && cp output/stage3/stage3.img temp/ && cp output/boot/boot.img temp/ && cp output/mkfs/bin/mkfs temp/
+      - run: cd temp && tar cvzf nanos-nightly-linux.tar.gz * && ~/gsutil/gsutil cp nanos-nightly-linux.tar.gz gs://nanos/release/nightly
+      - run: ~/gsutil/gsutil acl ch -u AllUsers:R gs://nanos/release/nightly/nanos-nightly-linux.tar.gz
+      - run: rm -r temp
+      - run: echo $(date +"%m%d%Y") > nanos-nightly-linux.timestamp
+      - run: ~/gsutil/gsutil cp nanos-nightly-linux.timestamp gs://nanos/release/nightly
+      - run: ~/gsutil/gsutil acl ch -u AllUsers:R gs://nanos/release/nightly/nanos-nightly-linux.timestamp
 workflows:
   version: 2
   commit-workflow:
