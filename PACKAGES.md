@@ -85,7 +85,11 @@ tar czf $PKGNAME_PKGVERSION.tar.gz $PKGNAME_$PKGVERSION
 ### Update the manifest.json
 
 ```
-gsutil cp g://packagehub/manifest.json .
+gsutil cp gs://packagehub/manifest.json .
+```
+
+```
+md5 "$PKG_NAME"_"$PKGVERSION"
 ```
 
 ```
@@ -93,7 +97,8 @@ gsutil cp g://packagehub/manifest.json .
       "runtime" : "lua",
       "version": "5.2.4",
       "language": "lua",
-      "description": "lua"
+      "description": "lua",
+      "md5":"deadbeefdeadbeefdeadbeefdeadbeef"
   },
 ```
 
@@ -117,3 +122,9 @@ I've tried looking at this but that doesn't seem to work either.
 https://cloud.google.com/storage/docs/gsutil/commands/setmeta
 
 The default value seems to be one hour cache.
+
+### Backup/Restore:
+
+```
+gsutil rsync -r gs://packagehub .
+```
