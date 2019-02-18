@@ -85,7 +85,7 @@ tar czf $PKGNAME_PKGVERSION.tar.gz $PKGNAME_$PKGVERSION
 ### Update the manifest.json
 
 ```
-gsutil cp g://packagehub/manifest.json .
+gsutil cp gs://packagehub/manifest.json .
 ```
 
 ```
@@ -117,3 +117,9 @@ I've tried looking at this but that doesn't seem to work either.
 https://cloud.google.com/storage/docs/gsutil/commands/setmeta
 
 The default value seems to be one hour cache.
+
+### Backup/Restore:
+
+```
+gsutil rsync -r gs://packagehub .
+```
