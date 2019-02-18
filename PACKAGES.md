@@ -89,11 +89,16 @@ gsutil cp gs://packagehub/manifest.json .
 ```
 
 ```
+md5 "$PKG_NAME"_"$PKGVERSION"
+```
+
+```
   "lua_5.2.4": {
       "runtime" : "lua",
       "version": "5.2.4",
       "language": "lua",
-      "description": "lua"
+      "description": "lua",
+      "md5":"deadbeefdeadbeefdeadbeefdeadbeef"
   },
 ```
 
