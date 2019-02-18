@@ -1407,7 +1407,7 @@ static void syscall_debug()
         if (debugsyscalls)
             thread_log(current, "direct return: %d", res);
     } else if (debugsyscalls) {
-        thread_log(current, "nosyscall %s\n", syscall_name(call));
+        thread_log(current, "nosyscall %s", syscall_name(call));
     }
     set_syscall_return(current, res);
 }
