@@ -94,7 +94,6 @@ static void vq_interrupt(struct virtqueue *vq)
     }
 }
 
-
 status virtqueue_alloc(vtpci dev,
                        u16 queue,
                        u16 size,
@@ -142,6 +141,43 @@ void virtqueue_notify(struct virtqueue *vq)
     vtpci_notify_virtqueue(vq->dev, vq->queue_index);
 }
 
+/* We have a situation where we have a limited queue depth for virtio
+   but may have a large number of requests that get queued at once,
+   e.g. a large file read or write covering many file extents. Our
+   options are:
+
+   1) Make the enqueue fail (as in return false to indicate a
+      temporary failure to queue, not a terminal I/O error that would
+      be passed to the completion) and make the producer side re-queue
+      at a later point.
+
+      Again this takes some work as the producer needs to be
+      restartable, whereas presently the producers are written as if
+      they expect to issue all requests at once.
+
+      One can see the lure of having lightweight kernel threads here.
+
+   2) Queue up requests up to some limit. It may be a large number of
+      requests and mean that a large number of I/O buffers are tied up
+      at any given time.
+
+      Probably the easiest thing to do for the time being is create a
+      chain of backlogged requests at the virtqueue level. It's sort
+      of kicking the can down the road, because at some point a
+      threshold must be reached or memory is exhausted. We'll need
+      proper backpressure sooner or later, else a hogwild process can
+      exhaust resources pretty easily. However, the backlog should
+      address queue overflows in the short term.
+
+   3) Provide a way for the producer to reserve queue space before
+      actually enqueueing. Still, it needs a way to come back and
+      finish its requests off. So it's still basically #1 but just
+      shifting the complication around.
+
+   This is all kinda reminiscent of the blockq, but not unix-specific.
+*/
+
+
 status virtqueue_enqueue(struct virtqueue *vq,
                          /* not an ideal writev, but good enough for  today */
                          void **as,
@@ -150,7 +186,6 @@ status virtqueue_enqueue(struct virtqueue *vq,
                          int segments,
                          vqfinish completion)
 {
-    int needed = 0;
     u16 idx = vq->desc_idx;
     u16 hidx = idx;
 
@@ -177,7 +212,7 @@ status virtqueue_enqueue(struct virtqueue *vq,
     }
 
     vq->desc_idx = idx;
-    vq->free_cnt -= needed;
+    vq->free_cnt -= segments;
 
     u16 avail_idx  = vq->avail->idx & (vq->entries - 1);
     vq->avail->ring[avail_idx] = hidx;

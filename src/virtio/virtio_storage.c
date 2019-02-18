@@ -68,7 +68,7 @@ static void complete(storage s, status_handler f, u8 *result, virtio_blk_req req
 }
 
 static inline void storage_rw_internal(storage st, boolean write, void * buf,
-                                       range sectors, status_handler s)
+                                       range sectors, status_handler sh)
 {
     char * err = 0;
     virtio_blk_debug("virtio_%s: block range %R cap %d\n", write ? "write" : "read", sectors, st->capacity);
@@ -110,12 +110,14 @@ static inline void storage_rw_internal(storage st, boolean write, void * buf,
     lengths[index] = VIRTIO_BLK_REQ_STATUS_SIZE;
     index++;
 
-    vqfinish c = closure(st->v->general, complete, st, s, (u8 *)address[2], req);
-    virtqueue_enqueue(st->command, address, lengths, writables, index, c);
+    vqfinish c = closure(st->v->general, complete, st, sh, (u8 *)address[2], req);
+    status s = virtqueue_enqueue(st->command, address, lengths, writables, index, c);
+    if (!is_ok(s))
+        halt("storage_rw_internal: storage command virtqueue enqueue failed: %v\n", st);
     return;
   out_inval:
     msg_err("%s", err);               /* yes, bark */
-    apply(s, timm("result", "%s", err));
+    apply(sh, timm("result", "%s", err));
 }
 
 static CLOSURE_1_3(storage_write, void, storage, void *, range, status_handler);
