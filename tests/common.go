@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"os"
 	"sort"
 
 	"github.com/nanovms/ops/lepton"
@@ -15,6 +16,7 @@ func defaultConfig() lepton.Config {
 	c.NameServer = "8.8.8.8"
 
 	c.Env = make(map[string]string)
+	c.TargetRoot = os.Getenv("NANOS_TARGET_ROOT")
 	return c
 }
 
