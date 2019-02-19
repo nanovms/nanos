@@ -721,8 +721,8 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
     f->f.check = closure(h, file_check, f, fsf);
     f->n = n;
     f->length = length;
-    f->offset = 0;
-    thread_log(current, "   fd %d, file length %d", fd, f->length);
+    f->offset = (flags & O_APPEND) ? length : 0;
+    thread_log(current, "   fd %d, length %d, offset %d", fd, f->length, f->offset);
     return fd;
 }
 
@@ -1407,7 +1407,7 @@ static void syscall_debug()
         if (debugsyscalls)
             thread_log(current, "direct return: %d", res);
     } else if (debugsyscalls) {
-        thread_log(current, "nosyscall %s\n", syscall_name(call));
+        thread_log(current, "nosyscall %s", syscall_name(call));
     }
     set_syscall_return(current, res);
 }

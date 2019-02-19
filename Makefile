@@ -5,7 +5,7 @@ all: image test
 image: mkfs boot stage3 target
 	@ echo "MKFS	$@"
 	@ mkdir -p $(dir $(IMAGE))
-	$(Q) $(MKFS) $(FS) < examples/$(TARGET).manifest && cat $(BOOTIMG) $(FS) > $(IMAGE)
+	$(Q) $(MKFS) $(TARGET_ROOT_OPT) $(FS) < examples/$(TARGET).manifest && cat $(BOOTIMG) $(FS) > $(IMAGE)
 
 stage: image
 	- mkdir -p .staging
@@ -55,6 +55,10 @@ DEBUG	?= n
 DEBUG_	:=
 ifeq ($(DEBUG),y)
 	DEBUG_ := -s
+endif
+
+ifneq ($(NANOS_TARGET_ROOT),)
+TARGET_ROOT_OPT= -r $(NANOS_TARGET_ROOT)
 endif
 
 STORAGE	= -drive file=$(IMAGE),format=raw,if=virtio

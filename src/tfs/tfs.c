@@ -42,9 +42,7 @@ static inline extent allocate_extent(heap h, range init_range, u64 block_start, 
     return e;
 }
 
-/* Once this is called at the close of every filesystem operation, we
-   can remove the intermediate flushes. */
-void filesystem_flush(filesystem fs)
+static void filesystem_flush_log(filesystem fs)
 {
     log_flush(fs->tl);
 }
@@ -52,14 +50,14 @@ void filesystem_flush(filesystem fs)
 /* XXX don't ignore status
        set fs dirty bit and flush at end of fs operation
 */
-void filesystem_write_tuple(filesystem fs, tuple t)
+void filesystem_write_tuple(filesystem fs, tuple t, status_handler sh)
 {
-    log_write(fs->tl, t, ignore);
+    log_write(fs->tl, t, sh);
 }
 
-void filesystem_write_eav(filesystem fs, tuple t, symbol a, value v)
+void filesystem_write_eav(filesystem fs, tuple t, symbol a, value v, status_handler sh)
 {
-    log_write_eav(fs->tl, t, a, v, ignore);
+    log_write_eav(fs->tl, t, a, v, sh);
 }
 
 /* This can evolve into / be replaced by a more general page / buffer
@@ -352,13 +350,13 @@ static void fs_write_extent(filesystem fs, buffer source, merge m, range q, rmno
 }
 
 // wrap in an interface
-static tuple soft_create(filesystem fs, tuple t, symbol a)
+static tuple soft_create(filesystem fs, tuple t, symbol a, merge m)
 {
     tuple v;
     if (!(v = table_find(t, a))) {
         v = allocate_tuple();
         table_set(t, a, v);
-        filesystem_write_eav(fs, t, a, v);
+        filesystem_write_eav(fs, t, a, v, apply(m));
     }
     return v;
 }
@@ -374,7 +372,7 @@ static tuple soft_create(filesystem fs, tuple t, symbol a)
 
 */
 
-static extent create_extent(fsfile f, range r)
+static extent create_extent(fsfile f, range r, merge m)
 {
     heap h = f->fs->h;
     u64 length = range_span(r);
@@ -411,9 +409,9 @@ static extent create_extent(fsfile f, range r)
     table_set(e, sym(allocated), allocated);
     symbol offs = intern_u64(r.start);
 
-    tuple extents = soft_create(f->fs, f->md, sym(extents));
+    tuple extents = soft_create(f->fs, f->md, sym(extents), m);
     table_set(extents, offs, e);
-    filesystem_write_eav(f->fs, extents, offs, e);
+    filesystem_write_eav(f->fs, extents, offs, e, apply(m));
     return ex;
 }
 
@@ -458,7 +456,7 @@ void ingest_extent(fsfile f, symbol off, tuple value)
     assert(rangemap_insert(f->extentmap, &ex->node));
 }
 
-boolean set_extent_length(fsfile f, extent ex, u64 length)
+boolean set_extent_length(fsfile f, extent ex, u64 length, merge m)
 {
     tfs_debug("set_extent_length: range %R, allocated %d, new length %d\n",
               ex->node.r, ex->allocated, length);
@@ -500,23 +498,40 @@ boolean set_extent_length(fsfile f, extent ex, u64 length)
     /* update length in tuple and log */
     string v = aprintf(f->fs->h, "%d", length);
     table_set(extent_tuple, sym(length), v);
-    filesystem_write_eav(f->fs, extents, offs, extent_tuple);
+    filesystem_write_eav(f->fs, extents, offs, extent_tuple, apply(m));
     return true;
 }
 
-static CLOSURE_4_1(filesystem_write_complete, void, fsfile, tuple, range, io_status_handler, status);
-static void filesystem_write_complete(fsfile f, tuple t, range q, io_status_handler completion, status s)
+static CLOSURE_2_1(filesystem_write_meta_complete, void, range, io_status_handler, status);
+static void filesystem_write_meta_complete(range q, io_status_handler ish, status s)
+{
+    u64 n = range_span(q);
+    tfs_debug("%s: range %R, bytes %d, status %v\n", __func__, q, n, s);
+    apply(ish, s, is_ok(s) ? n : 0);
+}
+
+static CLOSURE_5_1(filesystem_write_data_complete, void, fsfile, tuple, range, merge, status_handler, status);
+static void filesystem_write_data_complete(fsfile f, tuple t, range q, merge m_meta, status_handler m_sh,
+                                           status s)
 {
     filesystem fs = f->fs;
+    tfs_debug("%s: range %R, status %v\n", __func__, q, s);
+
+    if (!is_ok(s)) {
+        /* XXX need to cancel meta update rather than just flush... */
+        filesystem_flush_log(fs);
+        apply(m_sh, s);
+        return;
+    }
 
     if (fsfile_get_length(f) < q.end) {
         /* XXX bother updating resident filelength tuple? */
         fsfile_set_length(f, q.end);
-        filesystem_write_eav(fs, t, sym(filelength), value_from_u64(fs->h, q.end));
+        filesystem_write_eav(fs, t, sym(filelength), value_from_u64(fs->h, q.end), apply(m_meta));
     }
 
-    filesystem_flush(fs);
-    apply(completion, s, is_ok(s) ? range_span(q) : 0);
+    filesystem_flush_log(fs);
+    apply(m_sh, STATUS_OK);
 }
 
 /* Holes over the query range will be filled with extents before later
@@ -548,7 +563,7 @@ static void filesystem_write_complete(fsfile f, tuple t, range q, io_status_hand
 */
 
 /* XXX This needs to additionally block if a log flush is in flight. */
-void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_handler completion)
+void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_handler ish)
 {
     u64 len = buffer_length(b);
     range q = irange(offset, offset + len);
@@ -556,17 +571,21 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_ha
 
     fsfile f;
     if (!(f = table_find(fs->files, t))) {
-        apply(completion, timm("no such file"), 0);
+        apply(ish, timm("no such file"), 0);
         return;
     }
 
     tfs_debug("filesystem_write: tuple %p, buffer %p, q %R\n", t, b, q);
 
     rmnode node = rangemap_lookup_at_or_next(f->extentmap, q.start);
-    merge m = allocate_merge(fs->h, closure(fs->h, filesystem_write_complete,
-                f, t, q, completion));
-    status_handler sh = apply(m);
 
+    /* meta merge completion is gated by data merge completion, thus the initial m_meta apply */
+    merge m_meta = allocate_merge(fs->h, closure(fs->h, filesystem_write_meta_complete, q, ish));
+    merge m_data = allocate_merge(fs->h, closure(fs->h, filesystem_write_data_complete,
+                                                 f, t, q, m_meta, apply(m_meta)));
+
+    /* hold data merge open until all extent operations have been initiated */
+    status_handler sh = apply(m_data);
     do {
         /* detect and fill any hole before extent (or to end) */
         u64 limit = node != INVALID_ADDRESS ? node->r.start : q.end;
@@ -584,13 +603,13 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_ha
                 /* create_extent will allocate a minimum of pagesize */
                 u64 length = MIN(MAX_EXTENT_SIZE, remain);
                 range r = irange(curr, curr + length);
-                extent ex = create_extent(f, r);
+                extent ex = create_extent(f, r, m_meta);
                 if (ex == INVALID_ADDRESS) {
                     msg_err("failed to create extent\n");
                     goto fail;
                 }
                 tfs_debug("   writing new extent %R\n", r);
-                fs_write_extent(f->fs, b, m, q, &ex->node);
+                fs_write_extent(f->fs, b, m_data, q, &ex->node);
                 curr += length;
                 remain -= length;
             } while (remain > 0);
@@ -601,14 +620,14 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_ha
             range i = range_intersection(q, node->r);
             if (range_span(i)) {
                 tfs_debug("   updating extent at %R (intersection %R)\n", node->r, i);
-                fs_write_extent(f->fs, b, m, q, node);
+                fs_write_extent(f->fs, b, m_data, q, node);
             }
             curr = node->r.end;
             node = rangemap_next_node(f->extentmap, node);
         }
     } while(curr < q.end);
 
-    /* apply merge success */
+    /* all data I/O has been queued */
     apply(sh, STATUS_OK);
     return;
 
@@ -629,13 +648,17 @@ fsfile allocate_fsfile(filesystem fs, tuple md)
     return f;
 }
 
+#if 0
 void link(tuple dir, fsfile f, buffer name)
 {
     filesystem_write_eav(f->fs, soft_create(f->fs, dir, sym(children)),
                          intern(name), f->md);
-    filesystem_flush(f->fs);
+    filesystem_flush_log(f->fs);
 }
+#endif
 
+/* XXX these will all need to take completions - some ironing out of
+   interface is in order */
 fs_status filesystem_mkentry(filesystem fs, tuple root, char *fp, tuple entry)
 {
     tuple children = (root ? root : table_find(fs->root, sym(children)));
@@ -675,9 +698,11 @@ fs_status filesystem_mkentry(filesystem fs, tuple root, char *fp, tuple entry)
 
     basename_sym = sym_this(basename);
     table_set(children, basename_sym, entry);
-    filesystem_write_eav(fs, children, basename_sym, entry);
+
+    /* XXX this shouldn't be ignore - extend this when we add completion to interface */
+    filesystem_write_eav(fs, children, basename_sym, entry, ignore_status);
     msg_debug("written!\n");
-    filesystem_flush(fs);
+    filesystem_flush_log(fs);
     return FS_STATUS_OK;
 }
 
