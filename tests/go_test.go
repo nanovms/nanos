@@ -105,6 +105,37 @@ func TestFileSystem(t *testing.T) {
 	hypervisor.Stop()
 }
 
+func validateResponse(t *testing.T, finalImage string, expected string) {
+	hypervisor := lepton.HypervisorInstance()
+	rconfig := lepton.RuntimeConfig(finalImage, []int{8080}, true)
+	go func() {
+		hypervisor.Start(&rconfig)
+	}()
+
+	time.Sleep(3 * time.Second)
+
+	resp, err := http.Get("http://127.0.0.1:8080/file")
+	if err != nil {
+		t.Error("failed to get 127.0.0.1:8080/file")
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		t.Error("ReadAll failed")
+	}
+	if string(body) != expected {
+		t.Error("unexpected response" + string(body))
+	}
+	hypervisor.Stop()
+}
+
+func TestInstancePersistence(t *testing.T) {
+	const finalImage = "instance.img"
+	prepareTestImage(finalImage)
+	validateResponse(t, finalImage, "something")
+	validateResponse(t, finalImage, "somethingsomething")
+}
+
 func TestHTTP(t *testing.T) {
 	const finalImage = "image"
 	prepareTestImage(finalImage)

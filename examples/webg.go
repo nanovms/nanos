@@ -54,6 +54,28 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	count++
 }
 
+func filePersistenceHandler(w http.ResponseWriter, r *http.Request) {
+
+	f, err := os.OpenFile("a.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		panic(err)
+	}
+
+	if _, err := f.Write([]byte("something")); err != nil {
+		panic(err)
+	}
+
+	if err := f.Close(); err != nil {
+		panic(err)
+	}
+
+	dat, err := ioutil.ReadFile("a.log")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Fprint(w, string(dat))
+}
+
 func main() {
 
 	http.HandleFunc("/", handler)
@@ -61,5 +83,6 @@ func main() {
 	http.HandleFunc("/args", argsHandler)
 	http.HandleFunc("/env", envHandler)
 	http.HandleFunc("/ts", tsHandler)
+	http.HandleFunc("/file", filePersistenceHandler)
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
