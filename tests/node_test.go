@@ -34,9 +34,10 @@ func TestNodeHelloWorld(t *testing.T) {
 	const packageName = "node_v11.15.0"
 	localpackage := api.DownloadPackage(packageName)
 	fmt.Printf("Extracting %s...\n", localpackage)
-	api.ExtractPackage(localpackage, ".staging")
+	stagingFolder := path.Join(api.PackagesCache, ".staging")
+	api.ExtractPackage(localpackage, stagingFolder)
 	// load the package manifest
-	manifest := path.Join(".staging", packageName, "package.manifest")
+	manifest := path.Join(stagingFolder, packageName, "package.manifest")
 	if _, err := os.Stat(manifest); err != nil {
 		panic(err)
 	}
@@ -50,7 +51,7 @@ func TestNodeHelloWorld(t *testing.T) {
 	c.Mkfs = "../output/mkfs/bin/mkfs"
 	c.Env = make(map[string]string)
 
-	if err := api.BuildImageFromPackage(path.Join(".staging", packageName), *c); err != nil {
+	if err := api.BuildImageFromPackage(path.Join(stagingFolder, packageName), *c); err != nil {
 		t.Error(err)
 	}
 
