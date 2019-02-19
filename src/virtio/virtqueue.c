@@ -42,10 +42,9 @@ struct virtqueue {
     struct vring_desc *desc;
     struct vring_avail *avail;
     volatile struct vring_used *used;    
-    u16	free_cnt;
-    u16	desc_idx;
-    u16 avail_idx;
-    u16 used_idx;
+    u64 free_cnt;               /* atomic */
+    u16 desc_idx;               /* producer only */
+    u16 used_idx;               /* irq only */
     thunk completions[0];
 };
 
@@ -90,7 +89,8 @@ static void vq_interrupt(struct virtqueue *vq)
         uep = &vq->used->ring[vq->used_idx  & (vq->entries - 1)];
         // reclaim the desc space
         apply(vqf[uep->id],  uep->len);
-        vq->used_idx++; 
+        vq->used_idx++;
+        fetch_and_add(&vq->free_cnt, 1);
     }
 }
 
@@ -212,7 +212,7 @@ status virtqueue_enqueue(struct virtqueue *vq,
     }
 
     vq->desc_idx = idx;
-    vq->free_cnt -= segments;
+    fetch_and_add(&vq->free_cnt, -1);
 
     u16 avail_idx  = vq->avail->idx & (vq->entries - 1);
     vq->avail->ring[avail_idx] = hidx;
