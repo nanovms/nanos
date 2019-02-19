@@ -3,6 +3,7 @@ package runner
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -34,23 +35,25 @@ func TestNodeHelloWorld(t *testing.T) {
 	const packageName = "node_v11.15.0"
 	localpackage := api.DownloadPackage(packageName)
 	fmt.Printf("Extracting %s...\n", localpackage)
-	api.ExtractPackage(localpackage, ".staging")
+	staging := ".staging"
+	api.ExtractPackage(localpackage, staging)
 	// load the package manifest
-	manifest := path.Join(".staging", packageName, "package.manifest")
+	manifest := path.Join(staging, packageName, "package.manifest")
 	if _, err := os.Stat(manifest); err != nil {
 		panic(err)
 	}
 
 	c := unWarpConfig(manifest)
 	c.Args = append(c.Args, "js/hello.js")
-	c.RunConfig.Imagename = api.FinalImg
+	c.RunConfig.Imagename = "image"
 	c.RunConfig.Memory = "2G"
 	c.Boot = "../output/boot/boot.img"
 	c.Kernel = "../output/stage3/stage3.img"
 	c.Mkfs = "../output/mkfs/bin/mkfs"
 	c.Env = make(map[string]string)
+	c.DiskImage = "image"
 
-	if err := api.BuildImageFromPackage(path.Join(".staging", packageName), *c); err != nil {
+	if err := api.BuildImageFromPackage(path.Join(staging, packageName), *c); err != nil {
 		t.Error(err)
 	}
 
@@ -70,9 +73,19 @@ func waitForRegex(cmd *exec.Cmd, text string, t *testing.T) error {
 		return err
 	}
 	done := make(chan struct{})
-	scanner := bufio.NewScanner(reader)
+	errch := make(chan error, 1)
+
+	err = cmd.Start()
+	if err != nil {
+		return err
+	}
 
 	go func() {
+		errch <- cmd.Wait()
+	}()
+
+	go func() {
+		scanner := bufio.NewScanner(reader)
 		for scanner.Scan() {
 			ptext := scanner.Text()
 			fmt.Println(ptext)
@@ -81,27 +94,20 @@ func waitForRegex(cmd *exec.Cmd, text string, t *testing.T) error {
 				return
 			}
 		}
-		t.Errorf("Expected text '%s' not found", text)
-		done <- struct{}{}
+		errch <- errors.New("Expected text not found")
 	}()
 
-	err = cmd.Start()
-	if err != nil {
-		return err
-	}
-	<-done
+	select {
 
-	var timer *time.Timer
-	timer = time.AfterFunc(3*time.Second, func() {
+	case <-time.After(time.Second * 3):
 		cmd.Process.Kill()
-	})
-
-	err = cmd.Wait()
-	if err != nil {
-		return err
+	case err := <-errch:
+		if err != nil {
+			return err
+		}
+	case <-done:
+		cmd.Process.Kill()
+		return nil
 	}
-
-	timer.Stop()
-	cmd.Process.Kill()
 	return nil
 }
