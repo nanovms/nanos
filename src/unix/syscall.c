@@ -721,8 +721,8 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
     f->f.check = closure(h, file_check, f, fsf);
     f->n = n;
     f->length = length;
-    f->offset = 0;
-    thread_log(current, "   fd %d, file length %d", fd, f->length);
+    f->offset = (flags & O_APPEND) ? length : 0;
+    thread_log(current, "   fd %d, length %d, offset %d", fd, f->length, f->offset);
     return fd;
 }
 
