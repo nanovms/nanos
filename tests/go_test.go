@@ -33,7 +33,7 @@ func prepareTestImage(finalImage string) {
 	c.Env["USER"] = "bobby"
 	c.Env["PWD"] = "password"
 
-	c.DiskImage = finalImage
+	c.RunConfig.Imagename = finalImage
 	c.Program = "../output/examples/webg"
 
 	err := lepton.BuildImage(c)

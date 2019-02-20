@@ -51,7 +51,7 @@ func TestNodeHelloWorld(t *testing.T) {
 	c.Kernel = "../output/stage3/stage3.img"
 	c.Mkfs = "../output/mkfs/bin/mkfs"
 	c.Env = make(map[string]string)
-	c.DiskImage = "image"
+	c.RunConfig.Imagename = "image"
 
 	if err := api.BuildImageFromPackage(path.Join(staging, packageName), *c); err != nil {
 		t.Error(err)
