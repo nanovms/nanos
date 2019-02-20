@@ -571,7 +571,7 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_ha
 
     fsfile f;
     if (!(f = table_find(fs->files, t))) {
-        apply(ish, timm("no such file"), 0);
+        apply(ish, timm("result", "no such file"), 0);
         return;
     }
 
@@ -633,7 +633,7 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_ha
 
   fail:
     /* apply merge fail */
-    apply(sh, timm("write failed"));
+    apply(sh, timm("result", "write failed"));
     return;
 }
 

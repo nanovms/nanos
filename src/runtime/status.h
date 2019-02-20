@@ -32,7 +32,7 @@ static inline tuple timm_internal(char *first, ...)
 }
 
 // fix for zero argument case
-#define timm(...)  timm_internal(__VA_ARGS__, INVALID_ADDRESS)
+#define timm(first, ...)  timm_internal(first, __VA_ARGS__, INVALID_ADDRESS)
 
 #define STATUS_OK ((tuple)0)
 static inline boolean is_ok(status s)
