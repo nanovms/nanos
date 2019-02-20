@@ -15,37 +15,51 @@ static inline timestamp now() { return 0; } /* stub */
 timestamp now();
 #endif
 
-#define nano 1000000000ull
-#define femto 1000000000000000ull
+#define THOUSAND (1000ull)
+#define MILLION (1000000ull)
+#define BILLION (1000000000ull)
+#define QUADRILLION (1000000000000000ull)
+#define TIMESTAMP_SECOND (1ull << 32)
 
 // danger - truncation, should always be subsec
-static inline u64 time_from_nsec(u64 n)
+
+static inline timestamp seconds(u64 n)
 {
-    return (n * (1ull<<32)) / nano;
+    return n * TIMESTAMP_SECOND;
+}
+
+static inline timestamp milliseconds(u64 n)
+{
+    return seconds(n) / THOUSAND;
+}
+
+static inline timestamp microseconds(u64 n)
+{
+    return seconds(n) / MILLION;
+}
+
+static inline timestamp nanoseconds(u64 n)
+{
+    return seconds(n) / BILLION;
+}
+
+static inline timestamp femtoseconds(u64 fs)
+{
+    return fs / (QUADRILLION >> 32);
 }
 
 // without seconds component
 static inline u64 nsec_from_timestamp(timestamp n)
 {
-    return ((n & MASK(32)) * nano) >> 32;
+    return ((n & MASK(32)) * BILLION) / TIMESTAMP_SECOND;
+}
+
+static inline u64 usec_from_timestamp(timestamp n)
+{
+    return ((n & MASK(32)) * MILLION) / TIMESTAMP_SECOND;
 }
 
 static inline u64 sec_from_timestamp(timestamp n)
 {
-    return n >> 32;
-}
-
-static inline timestamp seconds(int n)
-{
-    return(((u64)n)<<32);
-}
-
-static inline timestamp milliseconds(int n)
-{
-    return((((u64)n)<<32)/1000ull);
-}
-
-static inline timestamp femtoseconds(u64 fs)
-{
-    return fs / (femto >> 32);
+    return n / TIMESTAMP_SECOND;
 }
