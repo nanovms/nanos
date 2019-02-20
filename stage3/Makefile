@@ -32,6 +32,7 @@ includes = \
 
 stage3-srcs = \
 	$(ROOT)/stage3/stage3.c \
+	$(ROOT)/gitversion.c \
 	$(SRC)/gdb/gdbstub.c \
 	$(SRC)/gdb/gdbtcp.c \
 	$(SRC)/gdb/gdbutil.c \
