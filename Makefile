@@ -46,6 +46,7 @@ runtests: image
 clean:
 	$(MAKE) $(addsuffix -clean,contgen boot stage3 mkfs examples test)
 	$(MAKE) -C tests clean
+	$(Q) $(RM) -f $(FS) $(IMAGE)
 	$(Q) $(RM) -fd $(dir $(IMAGE)) output
 
 distclean: clean
