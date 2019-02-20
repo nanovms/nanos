@@ -349,4 +349,7 @@ struct epoll_event {
 
 typedef struct aux {u64 tag; u64 val;} *aux;
 
+typedef u32 uid_t;
+typedef u32 gid_t;
+
 

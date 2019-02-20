@@ -103,7 +103,9 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
         lengths[index] = q->len;
     }
 
-    virtqueue_enqueue(vn->txq, address, lengths, writables, index, closure(vn->dev->general, tx_complete, p));
+    status s = virtqueue_enqueue(vn->txq, address, lengths, writables, index, closure(vn->dev->general, tx_complete, p));
+    if (!is_ok(s))
+        halt("low_level_output: tx virtqueue enqueue failed: %v\n", s);
 
     MIB2_STATS_NETIF_ADD(netif, ifoutoctets, p->tot_len);
     if (((u8_t *)p->payload)[0] & 1) {
@@ -166,7 +168,9 @@ static void post_receive(vnet vn)
     void *address[] = {x+1};
     u64 lengths[] = {vn->rxbuflen};
     boolean writables[] = {true};
-    virtqueue_enqueue(vn->rxq, address, lengths, writables, 1, closure(vn->dev->general, input, x));    
+    status s = virtqueue_enqueue(vn->rxq, address, lengths, writables, 1, closure(vn->dev->general, input, x));
+    if (!is_ok(s))
+        halt("post_receive: rx virtqueue enqueue failed: %v\n", s);
 }
 
 static void status_callback(struct netif *netif)
