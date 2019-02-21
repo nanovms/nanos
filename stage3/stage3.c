@@ -10,7 +10,7 @@ static void read_program_complete(process kp, tuple root, buffer b)
 {
     if (table_find(root, sym(trace))) {
         rprintf("read program complete: %p ", root);
-        rprintf("gitversion:%s", gitversion);
+        rprintf("gitversion: %s", gitversion);
 
         buffer b = allocate_buffer(transient, 64);
         print_tuple(b, root);
