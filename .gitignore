@@ -14,3 +14,4 @@ vendor
 .vscode
 *.swo
 *.swp
+gitversion.c
