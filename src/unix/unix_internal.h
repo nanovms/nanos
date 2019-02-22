@@ -167,30 +167,29 @@ void init_vdso(heap, heap);
 
 static inline timestamp time_from_timeval(const struct timeval *t)
 {
-    return (((u64)t->tv_sec)<<32) + ((((u64)t->tv_usec) * 1000000) / (1ull << 32));
+    return seconds(t->tv_sec) + microseconds(t->tv_usec);
 }
 
 static inline void timeval_from_time(struct timeval *d, timestamp t)
 {
-    u64 micro  = 1000000;
-    d->tv_sec = t>>32;
-    d->tv_usec = ((t-(d->tv_sec<<32)) * micro) >> 32;
+    d->tv_sec = t / TIMESTAMP_SECOND;
+    d->tv_usec = usec_from_timestamp(t);
 }
 
 static inline timestamp time_from_timespec(const struct timespec *t)
 {
-    return (((u64)t->ts_sec)<<32) + time_from_nsec(t->ts_nsec);
+    return seconds(t->ts_sec) + nanoseconds(t->ts_nsec);
 }
 
 static inline void timespec_from_time(struct timespec *ts, timestamp t)
 {
-    ts->ts_sec = t>>32;
-    ts->ts_nsec = nsec_from_timestamp(t - (ts->ts_sec<<32));
+    ts->ts_sec = t / TIMESTAMP_SECOND;
+    ts->ts_nsec = nsec_from_timestamp(t);
 }
 
 static inline time_t time_t_from_time(timestamp t)
 {
-    return t >> 32;
+    return t / TIMESTAMP_SECOND;
 }
 
 static inline void register_syscall(void **m, int i, sysreturn (*f)())

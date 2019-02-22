@@ -47,9 +47,9 @@ timestamp now_kvm()
     // ok - a 64 bit number (?) multiplied by a 32 bit number yields
     // a 96 bit result, chuck the bottom 32 bits
     u64 nsec =  ((u128)delta * vclock->tsc_to_system_mul) >> 32;
-    u64 sec = nsec / nano;
-    nsec -= sec * nano;
-    timestamp out  = (sec<<32) + time_from_nsec(nsec);
+    u64 sec = nsec / BILLION;
+    nsec -= sec * BILLION;
+    timestamp out = seconds(sec) + nanoseconds(nsec);
     return out;
 }
 

@@ -1327,6 +1327,11 @@ sysreturn geteuid(void)
     return set_syscall_return(current, 0);
 }
 
+sysreturn chown(const char *pathname, uid_t owner, gid_t group)
+{
+    return 0;
+}
+
 void register_file_syscalls(void **map)
 {
     register_syscall(map, SYS_read, read);
@@ -1372,6 +1377,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_sched_setaffinity, sched_setaffinity);
     register_syscall(map, SYS_getuid, getuid);
     register_syscall(map, SYS_geteuid, geteuid);
+    register_syscall(map, SYS_chown, chown);
 }
 
 void *linux_syscalls[SYS_MAX];
