@@ -15,11 +15,16 @@ REAL_SP equ SCRATCH_BASE-0x10
 
 %%prot16:
 	bits 16
+	mov ax, gdt32.data16
+	mov ss, ax			; 16-bit stack
+	mov ds, ax
+	mov es, ax
+	mov fs, ax
+	mov gs, ax
+
 	;; change the processor mode flag
 	mov eax, cr0
-	mov ecx, 1
-	not ecx
-	and eax, ecx
+	and eax, ~1
 	mov cr0, eax			; enter real mode
 	jmp 0:%%real
 

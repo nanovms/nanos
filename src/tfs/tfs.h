@@ -48,3 +48,4 @@ fs_status filesystem_mkdir(filesystem fs, tuple root, char *fp);
 fs_status filesystem_creat(filesystem fs, tuple root, char *fp);
 
 tuple filesystem_getroot(filesystem fs);
+extern const char *gitversion;
