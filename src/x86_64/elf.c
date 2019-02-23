@@ -2,46 +2,74 @@
 #include <elf64.h>
 
 
-static inline char *elf_string(buffer elf, Elf64_Shdr *string_section, u64 offset)
+static char *elf_string(buffer elf, Elf64_Shdr *string_section, u64 offset)
 {
-    return (char *)(buffer_ref(elf, string_section->sh_offset + offset));
+    char * str = buffer_ref(elf, string_section->sh_offset + offset);
+    char * end = buffer_ref(elf, string_section->sh_offset + string_section->sh_size);
+    for (char * c = str; c < end; c++)
+        if (*c == '\0')
+            return str;
+    return 0;                   /* no null terminator found */
 }
+
+#define ELF_CHECK_PTR(ptr, type)                  \
+    if (((void*)ptr) + sizeof(type) > elf_end)    \
+        goto out_elf_fail;
 
 void elf_symbols(buffer elf, closure_type(each, void, char *, u64, u64, u8))
 {
     char *symbol_string_name = ".strtab";
+    void * elf_end = buffer_ref(elf, buffer_length(elf));
     Elf64_Ehdr *elfh = buffer_ref(elf, 0);
+    ELF_CHECK_PTR(elfh, Elf64_Ehdr);
     Elf64_Shdr *section_names = buffer_ref(elf, elfh->e_shoff + elfh->e_shstrndx * elfh->e_shentsize);
+    ELF_CHECK_PTR(section_names, Elf64_Shdr);
+    if (elf_string(elf, section_names, section_names->sh_size) > (char*)elf_end)
+        goto out_elf_fail;
+
     Elf64_Shdr *symbols =0 , *symbol_strings =0;
     Elf64_Shdr *s = buffer_ref(elf, elfh->e_shoff);
 
     for (int i = 0; i< elfh->e_shnum; i++) {
-        if (s->sh_type == SHT_SYMTAB) symbols = s;
-        // elf is kinda broken wrt finding the right string table for the symbols
-        if ((s->sh_type == SHT_STRTAB) &&
-            (compare_bytes(elf_string(elf, section_names, s->sh_name), symbol_string_name, sizeof(symbol_string_name)-1)))
-            symbol_strings = s;
+        ELF_CHECK_PTR(s, Elf64_Shdr);
+        if (s->sh_type == SHT_SYMTAB) {
+            symbols = s;
+        } else if (s->sh_type == SHT_STRTAB) {
+            char * name = elf_string(elf, section_names, s->sh_name);
+            if (!name)
+                goto out_elf_fail;
+            if (compare_bytes(name, symbol_string_name, sizeof(symbol_string_name)-1))
+                symbol_strings = s;
+        }
         s++;
     }
 
     if (!symbols || !symbol_strings) {
-        msg_err("failed: symtab not found\n");
+        msg_warn("failed: symtab not found\n");
         return;
     }
 
     Elf64_Sym *sym = buffer_ref(elf, symbols->sh_offset);
     for (int i = 0; i < symbols->sh_size; i+=symbols->sh_entsize) {
-        apply(each,
-              elf_string(elf, symbol_strings, sym->st_name),
-              sym->st_value, sym->st_size, sym->st_info);
+        ELF_CHECK_PTR(sym, Elf64_Sym);
+        char * name = elf_string(elf, symbol_strings, sym->st_name);
+        if (!name)
+            goto out_elf_fail;
+        apply(each, name, sym->st_value, sym->st_size, sym->st_info);
         sym++;
     }
+    return;
+  out_elf_fail:
+    msg_err("failed to parse elf file, len %d; check file image consistency\n", buffer_length(elf));
 }
 
 void *load_elf(buffer elf, u64 offset, heap pages, heap bss)
 {
+    void * elf_end = buffer_ref(elf, buffer_length(elf));
     Elf64_Ehdr *e = buffer_ref(elf, 0);
+    ELF_CHECK_PTR(e, Elf64_Ehdr);
     foreach_phdr(e, p) {
+        ELF_CHECK_PTR(p, Elf64_Phdr);
         if (p->p_type == PT_LOAD) {
             // unaligned segment? doesn't seem useful
             u64 aligned = p->p_vaddr & (~MASK(PAGELOG));
@@ -78,4 +106,7 @@ void *load_elf(buffer elf, u64 offset, heap pages, heap bss)
     u64 entry = e->e_entry;
     entry += offset; 
     return pointer_from_u64(entry);
+  out_elf_fail:
+    msg_err("failed to parse elf file, len %d; check file image consistency\n", buffer_length(elf));
+    return INVALID_ADDRESS;
 }
