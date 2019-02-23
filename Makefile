@@ -2,7 +2,7 @@ include config.mk
 
 all: image test
 
-image: mkfs boot stage3 target
+image: gitversion.c mkfs boot stage3 target
 	@ echo "MKFS	$@"
 	@ mkdir -p $(dir $(IMAGE))
 	$(Q) $(MKFS) $(TARGET_ROOT_OPT) $(FS) < examples/$(TARGET).manifest && cat $(BOOTIMG) $(FS) > $(IMAGE)
@@ -30,6 +30,9 @@ target: $(TARGET)
 $(TARGET): contgen
 	$(MAKE) -C examples
 
+gitversion.c : .git/index .git/HEAD
+	echo "const char *gitversion = \"$(shell git rev-parse HEAD)\";" > $@
+
 unit-test: test
 	$(MAKE) -C test unit-test
 
@@ -47,7 +50,8 @@ clean:
 	$(MAKE) $(addsuffix -clean,contgen boot stage3 mkfs examples test)
 	$(MAKE) -C tests clean
 	$(Q) $(RM) -f $(FS) $(IMAGE)
-	$(Q) $(RM) -fd $(dir $(IMAGE)) output
+	$(Q) $(RM) -rfd $(dir $(IMAGE)) output
+	$(Q) $(RM) -f gitversion.c
 
 distclean: clean
 	$(Q) $(RM) -rf $(VENDOR)
