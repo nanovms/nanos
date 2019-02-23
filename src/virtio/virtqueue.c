@@ -34,20 +34,32 @@
 #define VRING_DESC_F_WRITE      2
 #define VRING_DESC_F_INDIRECT	4
 
-struct virtqueue {
-    void *dev;
+/* XXX This backlogging of requests is really an band-aid until our
+   kernel threads are in order. */
+typedef struct vqrequest {
+    struct list l;
+    u64 pa;
+    bytes length;
+    u16 desc_flags;
+    vqfinish completion;
+} *vqrequest;
+
+typedef struct virtqueue {
+    vtpci dev;
     u16 entries;
     u16 queue_index;
     void *ring_mem;
-    struct vring_desc *desc;
-    struct vring_avail *avail;
+    /* XXX wait, sort out what really needs to be volatile (regs) */
+    volatile struct vring_desc *desc;
+    volatile struct vring_avail *avail;
     volatile struct vring_used *used;    
     u64 free_cnt;               /* atomic */
     u16 desc_idx;               /* producer only */
     u16 used_idx;               /* irq only */
+    struct list requests;
+    u64 nrequests;
     thunk completions[0];
-};
-
+} *virtqueue;
 
 // start figuring out an encoding framework - these structs are fragile
 struct vring_desc {
@@ -77,6 +89,7 @@ struct vring_used {
     struct vring_used_elem ring[0];
 };
 
+void virtqueue_fill_irq(virtqueue vq);
 
 static CLOSURE_1_0(vq_interrupt, void, virtqueue);
 static void vq_interrupt(struct virtqueue *vq)
@@ -86,12 +99,14 @@ static void vq_interrupt(struct virtqueue *vq)
     
     read_barrier();
     while (vq->used_idx != vq->used->idx) {
-        uep = &vq->used->ring[vq->used_idx  & (vq->entries - 1)];
+        uep = &vq->used->ring[vq->used_idx & (vq->entries - 1)];
         // reclaim the desc space
-        apply(vqf[uep->id],  uep->len);
+        apply(vqf[uep->id], uep->len);
         vq->used_idx++;
         fetch_and_add(&vq->free_cnt, 1);
     }
+
+    virtqueue_fill_irq(vq);
 }
 
 status virtqueue_alloc(vtpci dev,
@@ -121,9 +136,10 @@ status virtqueue_alloc(vtpci dev,
         vq->used = (struct vring_used *) (vq->ring_mem  + avail_end);
         *t = closure(dev->general, vq_interrupt, vq);
         *vqp = vq;
+        list_init(&vq->requests);
         return 0;
     }
-    
+
     return(timm("status", "cannot allocate memory for virtqueue ring"));
 }
 
@@ -177,8 +193,81 @@ void virtqueue_notify(struct virtqueue *vq)
    This is all kinda reminiscent of the blockq, but not unix-specific.
 */
 
+/* called from interrupt level or with ints disabled */
+void virtqueue_fill_irq(virtqueue vq)
+{
+    u64 count = MIN(vq->free_cnt, vq->nrequests);
+    if (!count)
+        return;
 
-status virtqueue_enqueue(struct virtqueue *vq,
+    vqfinish *vqa = (void *)(vq + 1);
+    u16 idx = vq->desc_idx;
+    u16 hidx = idx;
+    list l = &vq->requests;
+    list n = list_get_next(l);
+    do {
+        assert(n);
+        vqrequest r = struct_from_list(n, vqrequest, l);
+
+        volatile struct vring_desc *dp = vq->desc + idx;
+        dp->addr = r->pa;
+        vqa[idx] = r->completion; /* only necessary for last, but doesn't hurt */
+        dp->len = r->length;
+        idx = (idx + 1) & (vq->entries - 1);
+        if ((r->desc_flags & VRING_DESC_F_NEXT))
+            dp->next = idx;
+        dp->flags = r->desc_flags;
+        list nn = list_get_next(n);
+        list_delete(n);
+        deallocate(vq->dev->general, r, sizeof(struct vqrequest));
+        n = nn;
+    } while(--count > 0);
+    vq->desc_idx = idx;
+    vq->free_cnt--;
+
+    u16 avail_idx = vq->avail->idx & (vq->entries - 1);
+    vq->avail->ring[avail_idx] = hidx;
+    write_barrier();
+    vq->avail->idx++;           /* XXX why no mask? */
+    virtqueue_notify(vq);
+}
+
+void virtqueue_fill(virtqueue vq)
+{
+    /* XXX duh */
+    virtqueue_fill_irq(vq);
+}
+
+status virtqueue_enqueue(virtqueue vq,
+                         /* not an ideal writev, but good enough for  today */
+                         void **as,
+                         bytes *lengths,
+                         boolean *writables,
+                         int segments,
+                         vqfinish completion)
+{
+    /* XXX limit check */
+
+    for (int i = 0; i < segments; i++) {
+        vqrequest r = allocate(vq->dev->general, sizeof(struct vqrequest));
+        list_init(&r->l);
+        r->pa = physical_from_virtual(as[i]);
+        r->length = lengths[i];
+        r->desc_flags = i < segments - 1 ? VRING_DESC_F_NEXT : 0;
+        if (writables[i])
+            r->desc_flags |= VRING_DESC_F_WRITE;
+        r->completion = completion;
+        /* XXX noirq */
+        list_insert_after(&vq->requests, &r->l);
+    }
+
+    virtqueue_fill(vq);
+
+    return STATUS_OK;
+}
+
+#if 0
+status virtqueue_enqueue(virtqueue vq,
                          /* not an ideal writev, but good enough for  today */
                          void **as,
                          bytes *lengths,
@@ -221,5 +310,4 @@ status virtqueue_enqueue(struct virtqueue *vq,
     virtqueue_notify(vq);
     return STATUS_OK;
 }
-
-
+#endif
