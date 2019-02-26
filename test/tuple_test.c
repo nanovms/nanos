@@ -1,5 +1,6 @@
 #include <runtime.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define EXIT_SUCCESS 0
 #define EXIT_FAILURE 1
@@ -56,7 +57,6 @@ int main(int argc, char **argv)
     table_set(t3, intern_u64(1), wrap_buffer_cstring(h, "200"));//rprintf("tuple to enc: %t\n", t3);
 
     tuple tdict1 = allocate_tuple();
-    table_set(tdict1, intern_u64(1), wrap_buffer_cstring(h, "100"));//rprintf("dict tuple: %t\n", tdict1);
 
     encode_tuple(b3, tdict1, t3);
 
@@ -64,9 +64,11 @@ int main(int argc, char **argv)
 
     // decode
     table tdict2 = allocate_table(h, identity_key, pointer_equal);
-    //table_set(tdict2, intern_u64(1), wrap_buffer_cstring(h, "200"));
-    //tuple t4 = decode_value(h, tdict2, b3);//rprintf("%t\n", t4);
-    decode_value(h, tdict2, b3);
+    tuple t4 = decode_value(h, tdict2, b3);
+
+    buffer buf = allocate_buffer(h, 128);
+    bprintf(buf, "%t", t4);
+    test_assert(strncmp(buf->contents, "(1:200)", buf->length) == 0);
 
 
     if (fail){
