@@ -1,6 +1,3 @@
-/* XXX TODO
-*/
-
 #include <runtime.h>
 #include <stdlib.h>
 
