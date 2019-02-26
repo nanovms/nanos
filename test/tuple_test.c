@@ -2,6 +2,7 @@
 */
 
 #include <runtime.h>
+#include <stdlib.h>
 
 #define EXIT_SUCCESS 0
 #define EXIT_FAILURE 1
@@ -65,9 +66,11 @@ int main(int argc, char **argv)
     test_assert(buffer_length(b3) > 0);//rprintf("buffer b3 = : %X", b3);
 
     // decode
-    //tuple tdict2 = allocate_tuple();
+    table tdict2 = allocate_table(h, identity_key, pointer_equal);
     //table_set(tdict2, intern_u64(1), wrap_buffer_cstring(h, "200"));
     //tuple t4 = decode_value(h, tdict2, b3);//rprintf("%t\n", t4);
+    decode_value(h, tdict2, b3);
+
 
     if (fail){
         msg_err("tuple test failed\n");
