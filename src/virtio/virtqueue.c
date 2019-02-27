@@ -28,54 +28,38 @@
 
 #include <virtio_internal.h>
 
-#define VQ_RING_DESC_CHAIN_END 32768
+/* do this:
 
+   allocate_vqmsg
+   - prealloc vector of size 3
+
+   vqmsg_push
+   - add a,w,l tuple
+   
+   vqmsg_commit
+   - queue message along with completion
+
+*/
+
+#define VQ_RING_DESC_CHAIN_END  32768
 #define VRING_DESC_F_NEXT       1
 #define VRING_DESC_F_WRITE      2
 #define VRING_DESC_F_INDIRECT	4
 
-/* XXX This backlogging of requests is really an band-aid until our
-   kernel threads are in order. */
-typedef struct vqrequest {
-    struct list l;
-    u64 pa;
-    bytes length;
-    u16 desc_flags;
-    vqfinish completion;
-} *vqrequest;
-
-typedef struct virtqueue {
-    vtpci dev;
-    u16 entries;
-    u16 queue_index;
-    void *ring_mem;
-    /* XXX wait, sort out what really needs to be volatile (regs) */
-    volatile struct vring_desc *desc;
-    volatile struct vring_avail *avail;
-    volatile struct vring_used *used;    
-    u64 free_cnt;               /* atomic */
-    u16 desc_idx;               /* producer only */
-    u16 used_idx;               /* irq only */
-    struct list requests;
-    u64 nrequests;
-    thunk completions[0];
-} *virtqueue;
-
-// start figuring out an encoding framework - these structs are fragile
+/* shared with vqmsg with next unused */
 struct vring_desc {
-    u64 addr;    /* Address (guest-physical). */
-    u32 len;     /* Length. */
-    u16 flags;        /* The flags as indicated above. */
-    u16 next;         /* We chain unused descriptors via this, too. */
-};
+    u64 busaddr;                /* phys for now */
+    u32 len;
+    u16 flags;
+    u16 next;
+} __attribute__((packed));
 
 struct vring_avail {
     u16 flags;
     u16 idx;
     u16 ring[0];
-};
+} __attribute__((packed));
 
-/* uint32_t is used here for ids for padding reasons. */
 struct vring_used_elem {
     /* Index of start of used descriptor chain. */
     u32 id;
@@ -87,9 +71,75 @@ struct vring_used {
     u16 flags;
     u16 idx;
     struct vring_used_elem ring[0];
-};
+} __attribute__((packed));
 
-void virtqueue_fill_irq(virtqueue vq);
+typedef struct vqmsg {
+    struct list l;
+    u64 count;
+    buffer descv;               /* XXX should be a variable stride vector */
+    vqfinish completion;
+} *vqmsg;
+    
+typedef struct virtqueue {
+    vtpci dev;
+    u16 entries;
+    u16 queue_index;
+    void *ring_mem;
+    volatile struct vring_desc *desc;
+    volatile struct vring_avail *avail;
+    volatile struct vring_used *used;    
+    u64 free_cnt;               /* atomic */
+    u16 desc_idx;               /* producer only */
+    u16 used_idx;               /* irq only */
+    struct list msgqueue;
+    thunk completions[0];
+} *virtqueue;
+
+/* Most uses here are a chain of 3 or less descriptors. */
+#define VQMSG_DEFAULT_SIZE     3
+vqmsg allocate_vqmsg(virtqueue vq)
+{
+    heap h = vq->dev->general;
+    vqmsg m = allocate(h, sizeof(struct vqmsg));
+    list_init(&m->l);
+    m->count = 0;
+    m->descv = allocate_buffer(h, sizeof(struct vring_desc) * VQMSG_DEFAULT_SIZE);
+    if (m->descv == INVALID_ADDRESS) {
+        deallocate(h, m, sizeof(struct vqmsg));
+        return INVALID_ADDRESS;
+    }
+    m->completion = 0;          /* fill on queue */
+    return m;
+}
+
+void deallocate_vqmsg(virtqueue vq, vqmsg m)
+{
+    deallocate_buffer(m->descv);
+    deallocate(vq->dev->general, m, sizeof(struct vqmsg));
+}
+
+void vqmsg_push(virtqueue vq, vqmsg m, void * addr, u32 len, boolean write)
+{
+    buffer_extend(m->descv, (m->count + 1) * sizeof(struct vring_desc));
+    struct vring_desc * d = buffer_ref(m->descv, m->count * sizeof(struct vring_desc));
+    d->busaddr = physical_from_virtual(addr);
+    d->len = len;
+    d->flags = write ? VRING_DESC_F_WRITE : 0;
+    d->next = 0;
+    m->count++;
+}
+
+static void virtqueue_fill(virtqueue vq);
+
+void vqmsg_commit(virtqueue vq, vqmsg m, vqfinish completion)
+{
+    m->completion = completion;
+    /* XXX noirq */
+    list_insert_after(&vq->msgqueue, &m->l);
+    virtqueue_fill(vq);
+}
+
+static void virtqueue_fill_irq(virtqueue vq);
 
 static CLOSURE_1_0(vq_interrupt, void, virtqueue);
 static void vq_interrupt(struct virtqueue *vq)
@@ -136,7 +186,7 @@ status virtqueue_alloc(vtpci dev,
         vq->used = (struct vring_used *) (vq->ring_mem  + avail_end);
         *t = closure(dev->general, vq_interrupt, vq);
         *vqp = vq;
-        list_init(&vq->requests);
+        list_init(&vq->msgqueue);
         return 0;
     }
 
@@ -157,71 +207,43 @@ void virtqueue_notify(struct virtqueue *vq)
     vtpci_notify_virtqueue(vq->dev, vq->queue_index);
 }
 
-/* We have a situation where we have a limited queue depth for virtio
-   but may have a large number of requests that get queued at once,
-   e.g. a large file read or write covering many file extents. Our
-   options are:
-
-   1) Make the enqueue fail (as in return false to indicate a
-      temporary failure to queue, not a terminal I/O error that would
-      be passed to the completion) and make the producer side re-queue
-      at a later point.
-
-      Again this takes some work as the producer needs to be
-      restartable, whereas presently the producers are written as if
-      they expect to issue all requests at once.
-
-      One can see the lure of having lightweight kernel threads here.
-
-   2) Queue up requests up to some limit. It may be a large number of
-      requests and mean that a large number of I/O buffers are tied up
-      at any given time.
-
-      Probably the easiest thing to do for the time being is create a
-      chain of backlogged requests at the virtqueue level. It's sort
-      of kicking the can down the road, because at some point a
-      threshold must be reached or memory is exhausted. We'll need
-      proper backpressure sooner or later, else a hogwild process can
-      exhaust resources pretty easily. However, the backlog should
-      address queue overflows in the short term.
-
-   3) Provide a way for the producer to reserve queue space before
-      actually enqueueing. Still, it needs a way to come back and
-      finish its requests off. So it's still basically #1 but just
-      shifting the complication around.
-
-   This is all kinda reminiscent of the blockq, but not unix-specific.
-*/
-
 /* called from interrupt level or with ints disabled */
-void virtqueue_fill_irq(virtqueue vq)
+static void virtqueue_fill_irq(virtqueue vq)
 {
-    u64 count = MIN(vq->free_cnt, vq->nrequests);
-    if (!count)
-        return;
-
     vqfinish *vqa = (void *)(vq + 1);
     u16 idx = vq->desc_idx;
     u16 hidx = idx;
-    list l = &vq->requests;
+    list l = &vq->msgqueue;
     list n = list_get_next(l);
-    do {
-        assert(n);
-        vqrequest r = struct_from_list(n, vqrequest, l);
+    while (n && n != &vq->msgqueue) {
+        vqmsg m = struct_from_list(n, vqmsg, l);
+        rprintf("msg %p, count %d, descv %p\n", m, m->count, m->descv);
+        if (vq->free_cnt < m->count)
+            return;
 
-        volatile struct vring_desc *dp = vq->desc + idx;
-        dp->addr = r->pa;
-        vqa[idx] = r->completion; /* only necessary for last, but doesn't hurt */
-        dp->len = r->length;
-        idx = (idx + 1) & (vq->entries - 1);
-        if ((r->desc_flags & VRING_DESC_F_NEXT))
-            dp->next = idx;
-        dp->flags = r->desc_flags;
+        assert(m->completion);
+        vqa[idx] = m->completion;
+
+        struct vring_desc *p = buffer_ref(m->descv, 0);
+        for (int i = 0; i < m->count; i++) {
+            u16 next = (idx + 1) & (vq->entries - 1);
+            volatile struct vring_desc *dst = vq->desc + idx;
+            struct vring_desc src = *p++;
+            if (i < m->count - 1) {
+                src.flags |= VRING_DESC_F_NEXT;
+                src.next = next;
+            }
+            rprintf("desc ba %P, len %d, flags %P, next %d\n",
+                    src.busaddr, src.len, src.flags, src.next);
+            *dst = src;
+            idx = next;
+        }
+
         list nn = list_get_next(n);
         list_delete(n);
-        deallocate(vq->dev->general, r, sizeof(struct vqrequest));
+        deallocate(vq->dev->general, m, sizeof(struct vqmsg));
         n = nn;
-    } while(--count > 0);
+    }
     vq->desc_idx = idx;
     vq->free_cnt--;
 
@@ -232,12 +254,13 @@ void virtqueue_fill_irq(virtqueue vq)
     virtqueue_notify(vq);
 }
 
-void virtqueue_fill(virtqueue vq)
+static void virtqueue_fill(virtqueue vq)
 {
     /* XXX duh */
     virtqueue_fill_irq(vq);
 }
 
+#if 0
 status virtqueue_enqueue(virtqueue vq,
                          /* not an ideal writev, but good enough for  today */
                          void **as,
@@ -266,7 +289,6 @@ status virtqueue_enqueue(virtqueue vq,
     return STATUS_OK;
 }
 
-#if 0
 status virtqueue_enqueue(virtqueue vq,
                          /* not an ideal writev, but good enough for  today */
                          void **as,

@@ -84,8 +84,8 @@ static void tx_complete(struct pbuf *p, u64 len)
 static err_t low_level_output(struct netif *netif, struct pbuf *p)
 {
     vnet vn = netif->state;
-    struct pbuf *q;
 
+#if 0
     void *address[3];
     boolean writables[3];
     bytes lengths[3];
@@ -106,7 +106,18 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
     status s = virtqueue_enqueue(vn->txq, address, lengths, writables, index, closure(vn->dev->general, tx_complete, p));
     if (!is_ok(s))
         halt("low_level_output: tx virtqueue enqueue failed: %v\n", s);
+#endif
+    vqmsg m = allocate_vqmsg(vn->txq);
+    assert(m != INVALID_ADDRESS);
+    vqmsg_push(vn->txq, m, vn->empty, NET_HEADER_LENGTH, false);
 
+    pbuf_ref(p);
+
+    for (struct pbuf * q = p; q != NULL; q = q->next)
+        vqmsg_push(vn->txq, m, q->payload, q->len, false);
+
+    vqmsg_commit(vn->txq, m, closure(vn->dev->general, tx_complete, p));
+    
     MIB2_STATS_NETIF_ADD(netif, ifoutoctets, p->tot_len);
     if (((u8_t *)p->payload)[0] & 1) {
         /* broadcast or multicast packet*/
@@ -159,18 +170,24 @@ static void post_receive(vnet vn)
     x->vn = vn;
     x->p.custom_free_function = receive_buffer_release;
     pbuf_alloced_custom(PBUF_RAW,
-                                         vn->rxbuflen,
-                                         PBUF_REF,
-                                         &x->p,
-                                         x+1,
-                                         // this is fucked
-                                         vn->rxbuflen);
+                        vn->rxbuflen,
+                        PBUF_REF,
+                        &x->p,
+                        x+1,
+                        // this is fucked
+                        vn->rxbuflen);
+#if 0
     void *address[] = {x+1};
     u64 lengths[] = {vn->rxbuflen};
     boolean writables[] = {true};
     status s = virtqueue_enqueue(vn->rxq, address, lengths, writables, 1, closure(vn->dev->general, input, x));
     if (!is_ok(s))
         halt("post_receive: rx virtqueue enqueue failed: %v\n", s);
+#endif
+    vqmsg m = allocate_vqmsg(vn->rxq);
+    assert(m != INVALID_ADDRESS);
+    vqmsg_push(vn->rxq, m, x+1, vn->rxbuflen, true);
+    vqmsg_commit(vn->rxq, m, closure(vn->dev->general, input, x));
 }
 
 static void status_callback(struct netif *netif)
