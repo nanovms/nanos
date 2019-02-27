@@ -212,7 +212,7 @@ status virtqueue_enqueue(struct virtqueue *vq,
     }
 
     vq->desc_idx = idx;
-    fetch_and_add(&vq->free_cnt, -1);
+    fetch_and_add(&vq->free_cnt, -segments);
 
     u16 avail_idx  = vq->avail->idx & (vq->entries - 1);
     vq->avail->ring[avail_idx] = hidx;

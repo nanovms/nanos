@@ -363,11 +363,11 @@ static tuple soft_create(filesystem fs, tuple t, symbol a, merge m)
 
 /* create a new extent in the filesystem
 
-   The life an extent depends on a particular allocation of contiguous
-   storage space. The extent is tied to this allocated area (nominally
-   page size). Only the extent data length may be updated; the file
-   offset, block start and allocation size are immutable. As an
-   optimization, adjacent extents on the disk could be joined into
+   The life of an extent depends on a particular allocation of
+   contiguous storage space. The extent is tied to this allocated area
+   (nominally page size). Only the extent data length may be updated;
+   the file offset, block start and allocation size are immutable. As
+   an optimization, adjacent extents on the disk could be joined into
    larger extents with only a meta update.
 
 */
@@ -601,7 +601,11 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_ha
 
             do {
                 /* create_extent will allocate a minimum of pagesize */
+#ifdef HOST_BUILD
+                u64 length = remain; /* mkfs: one large extent */
+#else
                 u64 length = MIN(MAX_EXTENT_SIZE, remain);
+#endif
                 range r = irange(curr, curr + length);
                 extent ex = create_extent(f, r, m_meta);
                 if (ex == INVALID_ADDRESS) {
