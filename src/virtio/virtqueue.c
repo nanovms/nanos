@@ -92,7 +92,7 @@ typedef struct virtqueue {
     u16 desc_idx;               /* producer only */
     u16 used_idx;               /* irq only */
     struct list msgqueue;
-    thunk completions[0];
+    vqmsg msgs[0];
 } *virtqueue;
 
 /* Most uses here are a chain of 3 or less descriptors. */
@@ -112,6 +112,7 @@ vqmsg allocate_vqmsg(virtqueue vq)
     return m;
 }
 
+/* must be safe at interrupt level */
 void deallocate_vqmsg(virtqueue vq, vqmsg m)
 {
     deallocate_buffer(m->descv);
@@ -130,6 +131,7 @@ void vqmsg_push(virtqueue vq, vqmsg m, void * addr, u32 len, boolean write)
 }
 
 static void virtqueue_fill(virtqueue vq);
+static void virtqueue_fill_irq(virtqueue vq);
 
 void vqmsg_commit(virtqueue vq, vqmsg m, vqfinish completion)
 {
@@ -139,21 +141,21 @@ void vqmsg_commit(virtqueue vq, vqmsg m, vqfinish completion)
     virtqueue_fill(vq);
 }
 
-static void virtqueue_fill_irq(virtqueue vq);
-
 static CLOSURE_1_0(vq_interrupt, void, virtqueue);
-static void vq_interrupt(struct virtqueue *vq)
+static void vq_interrupt(virtqueue vq)
 {
     volatile struct vring_used_elem *uep;
-    vqfinish *vqf = (void *)(vq+1);
+    vqmsg *vqm = (void *)(vq+1);
     
     read_barrier();
     while (vq->used_idx != vq->used->idx) {
         uep = &vq->used->ring[vq->used_idx & (vq->entries - 1)];
-        // reclaim the desc space
-        apply(vqf[uep->id], uep->len);
+        vqmsg m = vqm[uep->id];
+        apply(m->completion, uep->len);
         vq->used_idx++;
-        fetch_and_add(&vq->free_cnt, 1);
+        fetch_and_add(&vq->free_cnt, m->count);
+        vqm[uep->id] = 0;
+        deallocate_vqmsg(vq, m);
     }
 
     virtqueue_fill_irq(vq);
@@ -163,14 +165,14 @@ status virtqueue_alloc(vtpci dev,
                        u16 queue,
                        u16 size,
                        int align,
-                       struct virtqueue **vqp,
+                       virtqueue *vqp,
                        thunk *t)
 {
-    struct virtqueue *vq;
+    virtqueue vq;
     u64 d = size * sizeof(struct vring_desc);
-    u64 avail_end =  pad(d + sizeof(*vq->avail) + sizeof(vq->avail->ring[0]) * size, align);
+    u64 avail_end = pad(d + sizeof(*vq->avail) + sizeof(vq->avail->ring[0]) * size, align);
     u64 alloc = avail_end + sizeof(*vq->used) + sizeof(vq->used->ring[0]) * size;
-    vq = allocate(dev->general, sizeof(struct virtqueue) + size * sizeof(vqfinish));
+    vq = allocate(dev->general, sizeof(struct virtqueue) + size * sizeof(vqmsg));
     
     if (vq == INVALID_ADDRESS) 
         return timm("status", "cannot allocate virtqueue");
@@ -210,19 +212,19 @@ void virtqueue_notify(struct virtqueue *vq)
 /* called from interrupt level or with ints disabled */
 static void virtqueue_fill_irq(virtqueue vq)
 {
-    vqfinish *vqa = (void *)(vq + 1);
+    vqmsg *vqm = (void *)(vq + 1);
     u16 idx = vq->desc_idx;
-    u16 hidx = idx;
     list l = &vq->msgqueue;
     list n = list_get_next(l);
+
     while (n && n != &vq->msgqueue) {
         vqmsg m = struct_from_list(n, vqmsg, l);
-        rprintf("msg %p, count %d, descv %p\n", m, m->count, m->descv);
+        u16 head = idx;
         if (vq->free_cnt < m->count)
             return;
 
         assert(m->completion);
-        vqa[idx] = m->completion;
+        vqm[idx] = m;
 
         struct vring_desc *p = buffer_ref(m->descv, 0);
         for (int i = 0; i < m->count; i++) {
@@ -233,24 +235,22 @@ static void virtqueue_fill_irq(virtqueue vq)
                 src.flags |= VRING_DESC_F_NEXT;
                 src.next = next;
             }
-            rprintf("desc ba %P, len %d, flags %P, next %d\n",
-                    src.busaddr, src.len, src.flags, src.next);
             *dst = src;
             idx = next;
         }
 
+        u16 avail_idx = vq->avail->idx & (vq->entries - 1);
+        vq->avail->ring[avail_idx] = head;
+        vq->avail->idx++;           /* XXX why no mask? */
+        vq->free_cnt -= m->count;
+
         list nn = list_get_next(n);
         list_delete(n);
-        deallocate(vq->dev->general, m, sizeof(struct vqmsg));
         n = nn;
     }
-    vq->desc_idx = idx;
-    vq->free_cnt--;
 
-    u16 avail_idx = vq->avail->idx & (vq->entries - 1);
-    vq->avail->ring[avail_idx] = hidx;
+    vq->desc_idx = idx;
     write_barrier();
-    vq->avail->idx++;           /* XXX why no mask? */
     virtqueue_notify(vq);
 }
 
@@ -259,77 +259,3 @@ static void virtqueue_fill(virtqueue vq)
     /* XXX duh */
     virtqueue_fill_irq(vq);
 }
-
-#if 0
-status virtqueue_enqueue(virtqueue vq,
-                         /* not an ideal writev, but good enough for  today */
-                         void **as,
-                         bytes *lengths,
-                         boolean *writables,
-                         int segments,
-                         vqfinish completion)
-{
-    /* XXX limit check */
-
-    for (int i = 0; i < segments; i++) {
-        vqrequest r = allocate(vq->dev->general, sizeof(struct vqrequest));
-        list_init(&r->l);
-        r->pa = physical_from_virtual(as[i]);
-        r->length = lengths[i];
-        r->desc_flags = i < segments - 1 ? VRING_DESC_F_NEXT : 0;
-        if (writables[i])
-            r->desc_flags |= VRING_DESC_F_WRITE;
-        r->completion = completion;
-        /* XXX noirq */
-        list_insert_after(&vq->requests, &r->l);
-    }
-
-    virtqueue_fill(vq);
-
-    return STATUS_OK;
-}
-
-status virtqueue_enqueue(virtqueue vq,
-                         /* not an ideal writev, but good enough for  today */
-                         void **as,
-                         bytes *lengths,
-                         boolean *writables,
-                         int segments,
-                         vqfinish completion)
-{
-    u16 idx = vq->desc_idx;
-    u16 hidx = idx;
-
-    if (vq->free_cnt < segments)
-        return timm("status", "no room in queue");
-
-    // allocate descs from a heap
-    for (int i = 0; i < segments; i++) {
-        struct vring_desc *dp =  vq->desc + idx;
-        u64 p = physical_from_virtual(as[i]);
-        u16 flags =0;
-        dp->addr = p;
-        
-        vqfinish *vqa = (void *)(vq + 1);
-        vqa[idx] = completion; // just the last guy?
-        dp->len = lengths[i];
-        idx = (idx +1)&(vq->entries - 1);
-        if (i != (segments-1)) {
-            flags |= VRING_DESC_F_NEXT;
-            dp->next = idx; //since this never changes, freebsd built it in advance
-        } 
-        if (writables[i]) flags |= VRING_DESC_F_WRITE;
-        dp->flags = flags;
-    }
-
-    vq->desc_idx = idx;
-    fetch_and_add(&vq->free_cnt, -1);
-
-    u16 avail_idx  = vq->avail->idx & (vq->entries - 1);
-    vq->avail->ring[avail_idx] = hidx;
-    write_barrier();
-    vq->avail->idx++;
-    virtqueue_notify(vq);
-    return STATUS_OK;
-}
-#endif
