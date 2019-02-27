@@ -28,19 +28,6 @@
 
 #include <virtio_internal.h>
 
-/* do this:
-
-   allocate_vqmsg
-   - prealloc vector of size 3
-
-   vqmsg_push
-   - add a,w,l tuple
-   
-   vqmsg_commit
-   - queue message along with completion
-
-*/
-
 #define VQ_RING_DESC_CHAIN_END  32768
 #define VRING_DESC_F_NEXT       1
 #define VRING_DESC_F_WRITE      2
@@ -113,7 +100,7 @@ vqmsg allocate_vqmsg(virtqueue vq)
 }
 
 /* must be safe at interrupt level */
-void deallocate_vqmsg(virtqueue vq, vqmsg m)
+void deallocate_vqmsg_irq(virtqueue vq, vqmsg m)
 {
     deallocate_buffer(m->descv);
     deallocate(vq->dev->general, m, sizeof(struct vqmsg));
@@ -155,7 +142,7 @@ static void vq_interrupt(virtqueue vq)
         vq->used_idx++;
         fetch_and_add(&vq->free_cnt, m->count);
         vqm[uep->id] = 0;
-        deallocate_vqmsg(vq, m);
+        deallocate_vqmsg_irq(vq, m);
     }
 
     virtqueue_fill_irq(vq);
@@ -203,9 +190,7 @@ physical virtqueue_paddr(struct virtqueue *vq)
 void virtqueue_notify(struct virtqueue *vq)
 {
     /* Ensure updated avail->idx is visible to host. */
-    /* this was 'mb', i have read_barrier and write_barrier - they are both
-    the same, cant be right*/
-    read_barrier();
+    memory_barrier();
     vtpci_notify_virtqueue(vq->dev, vq->queue_index);
 }
 
@@ -241,7 +226,7 @@ static void virtqueue_fill_irq(virtqueue vq)
 
         u16 avail_idx = vq->avail->idx & (vq->entries - 1);
         vq->avail->ring[avail_idx] = head;
-        vq->avail->idx++;           /* XXX why no mask? */
+        vq->avail->idx++;
         vq->free_cnt -= m->count;
 
         list nn = list_get_next(n);
@@ -250,12 +235,11 @@ static void virtqueue_fill_irq(virtqueue vq)
     }
 
     vq->desc_idx = idx;
-    write_barrier();
     virtqueue_notify(vq);
 }
 
 static void virtqueue_fill(virtqueue vq)
 {
-    /* XXX duh */
+    /* XXX same as irq for now, save/disable/restore later */
     virtqueue_fill_irq(vq);
 }
