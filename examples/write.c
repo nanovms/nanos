@@ -194,7 +194,7 @@ int main(int argc, char **argv)
 {
     setvbuf(stdout, NULL, _IOLBF, 0);
     basic_write_test();
-    scatter_write_test(1 << 12, 64, 1 << 10);
+    scatter_write_test(1 << 18, 64, 1 << 12);
     append_write_test();
     printf("write test passed\n");
     return EXIT_SUCCESS;
