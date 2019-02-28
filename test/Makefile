@@ -7,10 +7,14 @@ CFLAGS  = -fno-stack-protector
 CFLAGS  += -fdata-sections -ffunction-sections
 CFLAGS  += $(includes)
 CFLAGS  += -g -std=gnu11 -DHOST_BUILD $(CFLAG_WARNINGS) -Wformat $(PLATFORM_CFLAGS)
+#CFLAGS  += --coverage
+CFLAGS  += -fprofile-arcs -ftest-coverage
 ifeq ($(UNAME_s),Darwin)
 CFLAGS  += -DNO_EPOLL
 endif
 #CFLAGS+=-DENABLE_MSG_DEBUG -DID_HEAP_DEBUG
+
+HOSTLDFLAGS  += -fprofile-arcs
 
 all: objcache_test network_test id_heap_test path_test pqueue_test vector_test udp_test buffer_test range_test tuple_test
 
@@ -23,6 +27,19 @@ unit-test: objcache_test id_heap_test path_test pqueue_test vector_test buffer_t
 	$(BUFFER_TEST)
 	$(RANGE_TEST)
 	$(TUPLE_TEST)
+
+gcov: objcache_test id_heap_test path_test pqueue_test vector_test buffer_test range_test tuple_test
+	gcov -o $(OUT)/test $(OBJCACHE_TEST)
+	gcov -o $(OUT)/test $(ID_HEAP_TEST)
+	gcov -o $(OUT)/test $(PATH_TEST)
+	gcov -o $(OUT)/test $(PQUEUE_TEST)
+	gcov -o $(OUT)/test $(VECTOR_TEST)
+	gcov -o $(OUT)/test $(BUFFER_TEST)
+	gcov -o $(OUT)/test $(RANGE_TEST)
+	gcov -o $(OUT)/test $(TUPLE_TEST)
+	lcov --capture --directory .. --output-file gcov-tests.info
+	mkdir -p $(OUT)/gcov
+	genhtml gcov-tests.info --output-directory $(OUT)/gcov
 
 objcache_test: $(OBJCACHE_TEST)
 

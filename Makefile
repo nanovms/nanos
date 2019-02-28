@@ -36,6 +36,9 @@ gitversion.c : .git/index .git/HEAD
 unit-test: test
 	$(MAKE) -C test unit-test
 
+gcov: test
+	$(MAKE) -C test gcov
+
 runtests: image
 	$(MAKE) -C tests deps
 	$(MAKE) -C tests test
