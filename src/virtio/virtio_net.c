@@ -85,28 +85,6 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
 {
     vnet vn = netif->state;
 
-#if 0
-    void *address[3];
-    boolean writables[3];
-    bytes lengths[3];
-    int index = 0;
-
-    address[index] = vn->empty;
-    writables[index] = false;
-    lengths[index] = NET_HEADER_LENGTH;
-
-    pbuf_ref(p);
-
-    for (q = p; index++, q != NULL; q = q->next) {
-        address[index] = q->payload;
-        writables[index] = false;
-        lengths[index] = q->len;
-    }
-
-    status s = virtqueue_enqueue(vn->txq, address, lengths, writables, index, closure(vn->dev->general, tx_complete, p));
-    if (!is_ok(s))
-        halt("low_level_output: tx virtqueue enqueue failed: %v\n", s);
-#endif
     vqmsg m = allocate_vqmsg(vn->txq);
     assert(m != INVALID_ADDRESS);
     vqmsg_push(vn->txq, m, vn->empty, NET_HEADER_LENGTH, false);
@@ -176,14 +154,7 @@ static void post_receive(vnet vn)
                         x+1,
                         // this is fucked
                         vn->rxbuflen);
-#if 0
-    void *address[] = {x+1};
-    u64 lengths[] = {vn->rxbuflen};
-    boolean writables[] = {true};
-    status s = virtqueue_enqueue(vn->rxq, address, lengths, writables, 1, closure(vn->dev->general, input, x));
-    if (!is_ok(s))
-        halt("post_receive: rx virtqueue enqueue failed: %v\n", s);
-#endif
+
     vqmsg m = allocate_vqmsg(vn->rxq);
     assert(m != INVALID_ADDRESS);
     vqmsg_push(vn->rxq, m, x+1, vn->rxbuflen, true);

@@ -89,33 +89,6 @@ static inline void storage_rw_internal(storage st, boolean write, void * buf,
 
     virtio_blk_req req = allocate_virtio_blk_req(st, write ? VIRTIO_BLK_T_OUT : VIRTIO_BLK_T_IN,
                                                  start_sector);
-#if 0
-    void *address[3];
-    boolean writables[3];
-    bytes lengths[3];
-    int index = 0;
-    
-    address[index] = req;
-    writables[index] = false;
-    lengths[index] = VIRTIO_BLK_REQ_HEADER_SIZE;
-    index++;
-
-    address[index] = buf;
-    writables[index] = !write;
-    lengths[index] = nsectors * st->block_size;
-    index++;
-
-    address[index] = ((void *)req) + VIRTIO_BLK_REQ_HEADER_SIZE;
-    writables[index] = true;
-    lengths[index] = VIRTIO_BLK_REQ_STATUS_SIZE;
-    index++;
-
-    vqfinish c = closure(st->v->general, complete, st, sh, (u8 *)address[2], req);
-    status s = virtqueue_enqueue(st->command, address, lengths, writables, index, c);
-    if (!is_ok(s))
-        halt("storage_rw_internal: storage command virtqueue enqueue failed: %v\n", s);
-#endif
-
     virtqueue vq = st->command;
     vqmsg m = allocate_vqmsg(vq);
     assert(m != INVALID_ADDRESS);
