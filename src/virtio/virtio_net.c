@@ -143,7 +143,6 @@ static void input(xpbuf x, u64 len)
 
 static void post_receive(vnet vn)
 {
-    // use aligned half pages just because
     xpbuf x = allocate(vn->rxbuffers, sizeof(struct xpbuf) + vn->rxbuflen);
     x->vn = vn;
     x->p.custom_free_function = receive_buffer_release;
@@ -152,7 +151,6 @@ static void post_receive(vnet vn)
                         PBUF_REF,
                         &x->p,
                         x+1,
-                        // this is fucked
                         vn->rxbuflen);
 
     vqmsg m = allocate_vqmsg(vn->rxq);

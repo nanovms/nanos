@@ -132,7 +132,7 @@ static CLOSURE_1_0(vq_interrupt, void, virtqueue);
 static void vq_interrupt(virtqueue vq)
 {
     volatile struct vring_used_elem *uep;
-    vqmsg *vqm = (void *)(vq+1);
+    vqmsg *vqm = vq->msgs;
     
     read_barrier();
     while (vq->used_idx != vq->used->idx) {
@@ -182,12 +182,12 @@ status virtqueue_alloc(vtpci dev,
     return(timm("status", "cannot allocate memory for virtqueue ring"));
 }
 
-physical virtqueue_paddr(struct virtqueue *vq)
+physical virtqueue_paddr(virtqueue vq)
 {
     return (physical_from_virtual(vq->ring_mem));
 }
 
-void virtqueue_notify(struct virtqueue *vq)
+void virtqueue_notify(virtqueue vq)
 {
     /* Ensure updated avail->idx is visible to host. */
     memory_barrier();
@@ -197,7 +197,7 @@ void virtqueue_notify(struct virtqueue *vq)
 /* called from interrupt level or with ints disabled */
 static void virtqueue_fill_irq(virtqueue vq)
 {
-    vqmsg *vqm = (void *)(vq + 1);
+    vqmsg *vqm = vq->msgs;
     u16 idx = vq->desc_idx;
     list l = &vq->msgqueue;
     list n = list_get_next(l);
