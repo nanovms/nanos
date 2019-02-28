@@ -1332,6 +1332,21 @@ sysreturn chown(const char *pathname, uid_t owner, gid_t group)
     return 0;
 }
 
+sysreturn setgroups(bytes size, const gid_t *list)
+{
+    return 0;                   /* stub */
+}
+
+sysreturn setuid(uid_t uid)
+{
+  return 0; /* stub */
+}
+
+sysreturn setgid(gid_t gid)
+{
+  return 0; /* stub */
+}
+
 void register_file_syscalls(void **map)
 {
     register_syscall(map, SYS_read, read);
@@ -1378,6 +1393,9 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_getuid, getuid);
     register_syscall(map, SYS_geteuid, geteuid);
     register_syscall(map, SYS_chown, chown);
+    register_syscall(map, SYS_setgroups, setgroups);
+    register_syscall(map, SYS_setuid, setuid);
+    register_syscall(map, SYS_setgid, setgid);
 }
 
 void *linux_syscalls[SYS_MAX];
