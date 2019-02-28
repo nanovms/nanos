@@ -40,6 +40,12 @@ runtests: image
 	$(MAKE) -C tests deps
 	$(MAKE) -C tests test
 
+%-runtest:
+	$(MAKE) TARGET=$(subst -runtest,,$@) run-nokvm
+
+runtime-tests:
+	$(MAKE) -j1 $(addsuffix -runtest,creat fst getdents getrandom hw hws mkdir pipe write)
+
 %-build: contgen
 	$(MAKE) -C $(subst -build,,$@)
 
@@ -75,13 +81,10 @@ USERNET	= -device virtio-net,netdev=n0 -netdev user,id=n0,hostfwd=tcp::8080-:808
 QEMU	?= qemu-system-x86_64
 
 run-nokvm: image
-	- $(QEMU) $(DISPLAY) -m 2G -device isa-debug-exit -no-reboot $(STORAGE) $(USERNET) $(DEBUG_)
+	$(QEMU) $(DISPLAY) -m 2G -device isa-debug-exit -no-reboot $(STORAGE) $(USERNET) $(DEBUG_) || exit $$(($$?>>1))
 
 run: image
-	- $(QEMU) $(DISPLAY) -m 2G -device isa-debug-exit -no-reboot $(STORAGE) $(NET) $(KVM) $(DEBUG_)
-
-runnew: image
-	- ~/qemu/x86_64-softmmu/qemu-system-x86_64 -hda image $(DISPLAY) -m 2G -device isa-debug-exit -no-reboot $(STORAGE) $(USERNET) $(KVM)
+	$(QEMU) $(DISPLAY) -m 2G -device isa-debug-exit -no-reboot $(STORAGE) $(NET) $(KVM) $(DEBUG_) || exit $$(($$?>>1))
 
 .PHONY: image contgen mkfs boot stage3 examples gotest test clean distclean run-nokvm run runnew
 

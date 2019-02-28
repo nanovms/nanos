@@ -257,7 +257,7 @@ static boolean handle_request(gdb g, buffer b, buffer output)
         
         /* kill the program */
     case 'k':		
-        QEMU_HALT();
+        vm_exit(VM_EXIT_GDB);
         break;
         
     case 'z':

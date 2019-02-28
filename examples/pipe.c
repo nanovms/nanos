@@ -9,8 +9,6 @@
 
 #include <runtime.h>
 
-#define EXIT_SUCCESS 0
-
 #define handle_error(msg) \
        do { perror(msg); exit(EXIT_FAILURE); } while (0)
 
