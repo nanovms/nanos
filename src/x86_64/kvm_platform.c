@@ -1,7 +1,11 @@
 #include <runtime.h>
 #include <kvm_platform.h>
 
-// the handler for this in qemu overwrites the exit code to insure its nonzero
+void vm_exit(u8 code)
+{
+    QEMU_HALT(code);
+}
+
 void halt(char *format, ...)
 {
     vlist a;
@@ -14,6 +18,6 @@ void halt(char *format, ...)
     vstart(a, format);
     vbprintf(b, &f, &a);
     debug(b);
-    QEMU_HALT();
+    vm_exit(VM_EXIT_HALT);
 }
 

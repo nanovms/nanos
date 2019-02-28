@@ -197,4 +197,5 @@ int main(int argc, char **argv)
     scatter_write_test(1 << 18, 64, 1 << 12);
     append_write_test();
     printf("write test passed\n");
+    return EXIT_SUCCESS;
 }

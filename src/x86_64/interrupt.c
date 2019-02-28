@@ -244,7 +244,7 @@ void common_handler()
             rprintf ("no fault handler\n");
             print_frame(frame);
             print_stack(frame);
-            QEMU_HALT();
+            vm_exit(VM_EXIT_FAULT);
         }
         if (i < 25) frame = apply(f, frame);
     }

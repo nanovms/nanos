@@ -12,6 +12,10 @@
 
 #define INITIAL_MAP_SIZE (0xa000)
 
+#define VM_EXIT_GDB 0x7d
+#define VM_EXIT_FAULT 0x7e
+#define VM_EXIT_HALT 0x7f
+
 extern u64 cpuid();
 extern u64 read_msr(u64);
 extern void write_msr(u64, u64);

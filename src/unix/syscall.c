@@ -1285,7 +1285,7 @@ void exit(int code)
 
 sysreturn exit_group(int status)
 {
-    halt("exit_group\n");
+    vm_exit(status);
 }
 
 sysreturn pipe2(int fds[2], int flags)

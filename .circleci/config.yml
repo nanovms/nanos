@@ -13,6 +13,7 @@ jobs:
       - run: cd .. && git clone git@github.com:nanovms/ops.git
       - run: make && make unit-test
       - run: make && make runtests
+      - run: make && make runtime-tests
   nightly-build:
     docker:
       - image: circleci/golang:1.11
