@@ -30,7 +30,7 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
     u64 maplen = pad(new_size, vh->pagesize);
     u64 vnew = allocate_u64(vh, maplen);
     if (vnew == (u64)INVALID_ADDRESS) {
-        msg_err("failed to allocate virtual memory, size %d\n", maplen);
+        msg_err("failed to allocate virtual memory, size %d", maplen);
         return -ENOMEM;
     }
 
@@ -38,23 +38,23 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
     u64 dlen = maplen - old_size;
     u64 dphys = allocate_u64(physical, dlen);
     if (dphys == INVALID_PHYSICAL) {
-        msg_err("failed to allocate physical memory, size %d\n", dlen);
+        msg_err("failed to allocate physical memory, size %d", dlen);
         deallocate_u64(vh, vnew, maplen);
         return -ENOMEM;
     }
-    thread_log(current, "   new physical pages at 0x%P, size %d\n", dphys, dlen);
+    thread_log(current, "   new physical pages at 0x%P, size %d", dphys, dlen);
 
     /* remove old mapping */
     u64 oldphys = physical_from_virtual(old_address);
-    thread_log(current, "   old mapping at phys addr 0x%P, unmapping\n", oldphys);
+    thread_log(current, "   old mapping at phys addr 0x%P, unmapping", oldphys);
     unmap(u64_from_pointer(old_address), old_size, pages);
 
     /* map existing portion */
-    thread_log(current, "   mapping existing portion at 0x%P\n", vnew);
+    thread_log(current, "   mapping existing portion at 0x%P", vnew);
     map(vnew, oldphys, old_size, pages);
 
     /* map new portion and zero */
-    thread_log(current, "   mapping and zeroing new portion at 0x%P\n", vnew + old_size);
+    thread_log(current, "   mapping and zeroing new portion at 0x%P", vnew + old_size);
     map(vnew + old_size, dphys, dlen, pages);
     zero(pointer_from_u64(vnew + old_size), dlen);
 
@@ -147,7 +147,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
                    already reserved. */
                 id_heap_reserve(p->virtual32, where, size);
             } else if (fixed) {
-                thread_log(current, "   map [%P - %P] outside of valid 32-bit range [%P - %P]\n",
+                thread_log(current, "   map [%P - %P] outside of valid 32-bit range [%P - %P]",
                            where, end, PROCESS_VIRTUAL_32_HEAP_START, PROCESS_VIRTUAL_32_HEAP_END);
                 return -ENOMEM;
             } else {
@@ -183,7 +183,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
                     }
                     assert(rangemap_insert(p->vmap, &vm->node));
                 } else if (fixed) {
-                    thread_log(current, "   failed to reserve area [%P - %P] in id heap\n",
+                    thread_log(current, "   failed to reserve area [%P - %P] in id heap",
                                where, end);
                     return -ENOMEM;
                 } else {
@@ -197,7 +197,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
        want to default to allocating... */
     if (!target) {
         if (fixed) {
-            thread_log(current, "   attempt to map zero page\n");
+            thread_log(current, "   attempt to map zero page");
             return -ENOMEM;
         }
 
