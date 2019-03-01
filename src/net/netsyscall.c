@@ -291,7 +291,7 @@ static sysreturn sock_read_bh(sock s, thread t, void *dest, u64 length,
   out:
     if (blocked)
         thread_wakeup(t);
-
+    net_debug("   returning %d\n", rv);
     return set_syscall_return(t, rv);
 }
 
@@ -827,6 +827,9 @@ sysreturn recvfrom(int sockfd, void * buf, u64 len, int flags,
 	      s->fd, s->type, current->tid, buf, len);
     if (s->type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN)
         return set_syscall_error(current, ENOTCONN);
+
+    if (len == 0)
+        return 0;
 
     blockq_action ba = closure(s->h, sock_read_bh, s, current, buf, len, src_addr, addrlen);
     sysreturn rv = blockq_check(s->rxbq, current, ba);
