@@ -1,5 +1,19 @@
 #include <unix_internal.h>
 
+typedef struct vmap {
+    struct rmnode node;
+    /* oh, what we could do here */
+} *vmap;
+
+static inline vmap allocate_vmap(heap h, range r)
+{
+    vmap vm = allocate(h, sizeof(struct vmap));
+    if (vm == INVALID_ADDRESS)
+        return vm;
+    rmnode_init(&vm->node, r);
+    return vm;
+}
+
 sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void * new_address)
 {
     kernel_heaps kh = get_kernel_heaps();
@@ -39,6 +53,16 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
         msg_err("failed to allocate virtual memory, size %d", maplen);
         return -ENOMEM;
     }
+
+    /* add new vmap - XXX should remove old vmap - make a range lookup
+       that makes this easy */
+    vmap vm = allocate_vmap(heap_general(kh), irange(vnew, vnew + maplen));
+    if (vm == INVALID_ADDRESS) {
+        msg_err("failed to allocate vmap\n");
+        deallocate_u64(vh, vnew, maplen);
+        return -ENOMEM;
+    }
+    assert(rangemap_insert(p->vmap, &vm->node));
 
     /* balance of physical allocation */
     u64 dlen = maplen - old_size;
@@ -108,20 +132,6 @@ CLOSURE_1_1(mmap_load_entire_fail, void, thread, status);
 void mmap_load_entire_fail(thread t, status v) {
     set_syscall_error(t, EACCES);
     thread_wakeup(t);
-}
-
-typedef struct vmap {
-    struct rmnode node;
-    /* oh, what we could do here */
-} *vmap;
-
-static inline vmap allocate_vmap(heap h, range r)
-{
-    vmap vm = allocate(h, sizeof(struct vmap));
-    if (vm == INVALID_ADDRESS)
-        return vm;
-    rmnode_init(&vm->node, r);
-    return vm;
 }
 
 static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 offset)
@@ -220,6 +230,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
         vmap vm = allocate_vmap(h, irange(where, where + maplen));
         if (vm == INVALID_ADDRESS) {
             msg_err("failed to allocate vmap\n");
+            deallocate_u64(vh, where, maplen);
             return -ENOMEM;
         }
         assert(rangemap_insert(p->vmap, &vm->node));
