@@ -9,11 +9,17 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
 	       old_address, old_size, new_size, flags, new_address);
 
     if ((flags & MREMAP_MAYMOVE) == 0) {
-        msg_err("only supporting MREMAP_MAYMOVE at the moment\n");
+        msg_err("only supporting MREMAP_MAYMOVE yet\n");
+        return -ENOMEM;
+    }
+
+    if ((flags & MREMAP_FIXED)) {
+        msg_err("no support for MREMAP_FIXED yet\n");
         return -ENOMEM;
     }
 
     if ((u64_from_pointer(old_address) & MASK(PAGELOG)) ||
+        (flags & ~(MREMAP_MAYMOVE | MREMAP_FIXED)) ||
         new_size == 0)
         return -EINVAL;
 
