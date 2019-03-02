@@ -515,7 +515,7 @@ static int allocate_sock(process p, int type, u32 flags, sock * rs)
 	unix_cache_free(get_unix_heaps(), socket, s);
 	return -EMFILE;
     }
-    fdesc_init(&s->f);
+    fdesc_init(&s->f, FDESC_TYPE_SOCKET);
     heap h = heap_general(get_kernel_heaps());
     s->f.read = closure(h, socket_read, s);
     s->f.write = closure(h, socket_write, s);
