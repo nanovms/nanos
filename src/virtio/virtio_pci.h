@@ -54,6 +54,7 @@
 #define VIRTIO_MSI_CONFIG_VECTOR  20 /* configuration change vector (16, RW) */
 #define VIRTIO_MSI_QUEUE_VECTOR   22 /* vector for selected VQ notifications
 					(16, RW) */
+#define VIRTIO_MSI_DEVICE_CONFIG  24
 
 /* The bit of the ISR which indicates a device has an interrupt. */
 #define VIRTIO_PCI_ISR_INTR	0x1
@@ -83,5 +84,6 @@ vtpci attach_vtpci();
 #define VIRTIO_PCI_DEVICEID_STORAGE 0x1001
 #define VIRTIO_PCI_DEVICEID_BALLOON 0x1002
 #define VIRTIO_PCI_DEVICEID_CONSOLE 0x1003
+#define VIRTIO_PCI_DEVICEID_SCSI    0x1004
 #define VIRTIO_PCI_DEVICEID_ENTROPY 0x1005
 #define VIRTIO_PCI_DEVICEID_FILESYSTEM_9P 0x1009

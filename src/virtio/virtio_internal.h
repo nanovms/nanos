@@ -52,3 +52,5 @@ vqmsg allocate_vqmsg(virtqueue vq);
 void deallocate_vqmsg(virtqueue vq, vqmsg m);
 void vqmsg_push(virtqueue vq, vqmsg m, void * addr, u32 len, boolean write);
 void vqmsg_commit(virtqueue vq, vqmsg m, vqfinish completion);
+
+void virtio_register_scsi(kernel_heaps kh, storage_attach a);

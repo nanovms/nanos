@@ -67,10 +67,6 @@ typedef struct xpbuf
 } *xpbuf;
 
 
-// fix, this per-device offset is variable - 24 with msi
-#define DEVICE_CONFIG_OFFSET 24
-
-
 static CLOSURE_1_1(tx_complete, void, struct pbuf *, u64);
 static void tx_complete(struct pbuf *p, u64 len)
 {
@@ -177,7 +173,7 @@ static err_t virtioif_init(struct netif *netif)
     netif->hwaddr_len = ETHARP_HWADDR_LEN;
     netif->status_callback = status_callback;
     for (int i = 0; i < ETHER_ADDR_LEN; i++) 
-        netif->hwaddr[i] =  in8(vn->dev->base+DEVICE_CONFIG_OFFSET+i);
+        netif->hwaddr[i] =  in8(vn->dev->base + VIRTIO_MSI_DEVICE_CONFIG + i);
     netif->mtu = 1500;
 
     /* device capabilities */
