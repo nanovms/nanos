@@ -40,3 +40,42 @@ static inline void format_pointer(buffer dest, buffer fmt, vlist *a)
     print_number(dest, x, 16, 17);
 }
 
+/* These are defined as functions to avoid multiple evaluation of x. */
+static inline u16
+__bswap16(u16 _x)
+{
+    return (u16)(_x << 8 | _x >> 8);
+}
+
+static inline u32
+__bswap32(u32 _x)
+{
+    return ((u32)__bswap16(_x & 0xffff) << 16) | __bswap16(_x >> 16);
+}
+
+static inline u64
+__bswap64(u64 _x)
+{
+    return ((u64)__bswap32(_x & 0xffffffff) << 32) | __bswap32(_x >> 32);
+}
+
+#ifndef htobe16
+#define htobe16(x) __bswap16(x)
+#endif
+#ifndef be16toh
+#define be16toh(x) __bswap16(x)
+#endif
+
+#ifndef htobe32
+#define htobe32(x) __bswap32(x)
+#endif
+#ifndef be32toh
+#define be32toh(x) __bswap32(x)
+#endif
+
+#ifndef htobe64
+#define htobe64(x) __bswap64(x)
+#endif
+#ifndef be64toh
+#define be64toh(x) __bswap64(x)
+#endif

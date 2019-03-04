@@ -89,9 +89,9 @@ vtpci attach_vtpci(heap h, heap page_allocator, int bus, int slot, int func, u64
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_ACK);
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER);
 
-    u32 features = in32(dev->base + 0);
+    u32 features = in32(dev->base + VIRTIO_PCI_HOST_FEATURES);
 
-    out32(dev->base+4, features & feature_mask);
+    out32(dev->base + VIRTIO_PCI_GUEST_FEATURES, features & feature_mask);
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_FEATURE); 
 
     dev->general = h;

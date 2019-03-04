@@ -72,7 +72,9 @@ ifneq ($(NANOS_TARGET_ROOT),)
 TARGET_ROOT_OPT= -r $(NANOS_TARGET_ROOT)
 endif
 
-STORAGE	= -drive file=$(IMAGE),format=raw,if=virtio
+STORAGE	= -drive if=none,id=hd0,format=raw,file=$(IMAGE)
+STORAGE+= -device virtio-blk,drive=hd0
+#STORAGE+= -device virtio-scsi-pci,id=scsi0 -device scsi-hd,bus=scsi0.0,drive=hd0
 TAP	= -netdev tap,id=n0,ifname=tap0,script=no,downscript=no
 NET	= -device virtio-net,mac=7e:b8:7e:87:4a:ea,netdev=n0 $(TAP)
 KVM	= -enable-kvm

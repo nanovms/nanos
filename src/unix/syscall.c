@@ -1426,9 +1426,6 @@ void register_file_syscalls(void **map)
 
 void *linux_syscalls[SYS_MAX];
 
-#define offsetof(__t, __e) u64_from_pointer(&((__t)0)->__e)
-
-
 // return value is fucked up and need ENOENT - enoent could be initialized
 buffer install_syscall(heap h)
 {

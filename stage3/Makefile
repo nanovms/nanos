@@ -77,7 +77,9 @@ stage3-srcs = \
 	$(SRC)/virtio/virtio_net.c \
 	$(SRC)/virtio/virtio_pci.c \
 	$(SRC)/virtio/virtio_storage.c \
+	$(SRC)/virtio/virtio_scsi.c \
 	$(SRC)/virtio/virtqueue.c \
+	$(SRC)/virtio/scsi.c \
 	$(SRC)/x86_64/backed_heap.c \
 	$(SRC)/x86_64/breakpoint.c \
 	$(SRC)/x86_64/clock.c \
