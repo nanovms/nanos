@@ -2,13 +2,14 @@
 #include <buffer.h>
 #include <gdb.h>
 
-void fdesc_init(fdesc f)
+void fdesc_init(fdesc f, int type)
 {
     f->read = 0;
     f->write = 0;
     f->close = 0;
     f->check = 0;
     f->refcnt = 1;
+    f->type = type;
     f->flags = 0;
 }
 
@@ -85,11 +86,11 @@ static boolean create_stdfiles(unix_heaps uh, process p)
 
     /* Writes to in, reads from out and err act as if handled by the
        out and in files respectively. */
-    fdesc_init(&in->f);
+    fdesc_init(&in->f, FDESC_TYPE_STDIO);
     in->f.close = closure(h, std_close, in);
-    fdesc_init(&out->f);
+    fdesc_init(&out->f, FDESC_TYPE_STDIO);
     out->f.close = closure(h, std_close, out);
-    fdesc_init(&err->f);
+    fdesc_init(&err->f, FDESC_TYPE_STDIO);
     err->f.close = closure(h, std_close, err);
     in->f.write = out->f.write = err->f.write = closure(h, stdout);
     in->f.read = out->f.read = err->f.read = closure(h, dummy_read);

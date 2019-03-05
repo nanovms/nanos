@@ -104,11 +104,20 @@ typedef closure_type(io, sysreturn, void *, u64 length, u64 offset);
 
 #include <notify.h>
 
+#define FDESC_TYPE_REGULAR      1
+#define FDESC_TYPE_DIRECTORY    2
+#define FDESC_TYPE_SPECIAL      3
+#define FDESC_TYPE_SOCKET       4
+#define FDESC_TYPE_PIPE         5
+#define FDESC_TYPE_STDIO        6
+#define FDESC_TYPE_EPOLL        7
+
 typedef struct fdesc {
     io read, write;
     closure_type(check, boolean, u32 eventmask, u32 * last, event_handler eh);
     closure_type(close, sysreturn);
     u64 refcnt;
+    int type;
     int flags;                  /* F_GETFD/F_SETFD flags */
 } *fdesc;
 
@@ -157,7 +166,7 @@ static inline kernel_heaps get_kernel_heaps()
 #define unix_cache_alloc(uh, c) ({ heap __c = uh->c ## _cache; allocate(__c, __c->pagesize); })
 #define unix_cache_free(uh, c, p) ({ heap __c = uh->c ## _cache; deallocate(__c, p, __c->pagesize); })
 
-void fdesc_init(fdesc f);
+void fdesc_init(fdesc f, int type);
 
 u64 allocate_fd(process p, void *f);
 

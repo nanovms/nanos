@@ -137,7 +137,7 @@ sysreturn epoll_create(u64 flags)
 	rv = -EMFILE;
 	goto out_cache_free;
     }
-    fdesc_init(&e->f);
+    fdesc_init(&e->f, FDESC_TYPE_EPOLL);
     e->f.close = closure(h, epoll_close, e);
     list_init(&e->blocked_head);
     e->events = allocate_vector(h, 8);
