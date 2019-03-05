@@ -276,7 +276,7 @@ int do_pipe2(int fds[2], int flags)
 
     pipe_file reader = &pipe->files[PIPE_READ];
     reader->fd = fds[PIPE_READ] = allocate_fd(pipe->p, reader);
-    fdesc_init(&reader->f);
+    fdesc_init(&reader->f, FDESC_TYPE_PIPE);
     reader->ns = allocate_notify_set(pipe->h);
     reader->bq = allocate_blockq(pipe->h, "pipe read", PIPE_BLOCKQ_LEN, 0);
     reader->f.read = closure(pipe->h, pipe_read, reader);
@@ -284,7 +284,7 @@ int do_pipe2(int fds[2], int flags)
     reader->f.check = closure(pipe->h, pipe_read_check, reader);
 
     pipe_file writer = &pipe->files[PIPE_WRITE];
-    fdesc_init(&writer->f);
+    fdesc_init(&writer->f, FDESC_TYPE_PIPE);
     writer->fd = fds[PIPE_WRITE] = allocate_fd(pipe->p, writer);
     writer->ns = allocate_notify_set(pipe->h);
     writer->bq = allocate_blockq(pipe->h, "pipe write", PIPE_BLOCKQ_LEN, 0);
