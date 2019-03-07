@@ -9,6 +9,7 @@ void initialize_timers(kernel_heaps kh);
 timestamp parse_time();
 void print_timestamp(buffer, timestamp);
 timestamp timer_check();
+void runloop_timer(timestamp duration);
 #ifdef BOOT
 static inline timestamp now() { return 0; } /* stub */
 #else

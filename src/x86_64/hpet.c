@@ -140,6 +140,10 @@ void hpet_periodic_timer(timestamp rate, thunk t)
     timer_config(1, rate, t, true);
 }
 
+void hpet_runloop_timer(timestamp duration)
+{
+    timer_config(0, duration, ignore, false);
+}
 
 timestamp now_hpet()
 {

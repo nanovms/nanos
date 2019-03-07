@@ -30,8 +30,11 @@ static u64 *idt;
 #define APIC_CPUFOCUS 0x200
 #define APIC_NMI 4<<8
 #define TMR_PERIODIC 0x20000
+#define TMR_TSC_DEADLINE 0x40000
 #define TMR_BASEDIV (1<< 20)
     
+#define APIC_LVT_INTMASK 0x00010000
+
 // tuplify these mapping
 static char *interrupts[] = {
     "Divide by 0",
@@ -129,13 +132,6 @@ u64 *frame;
 
 void *apic_base = (void *)0xfee00000;
 
-void lapic_eoi()
-{
-    write_barrier();
-    *(unsigned int *)(apic_base +0xb0) = 0;
-    write_barrier();    
-}
-
 char * find_elf_sym(u64 a, u64 *offset, u64 *len);
 
 void print_u64_with_sym(u64 a)
@@ -229,6 +225,33 @@ void print_frame(context f)
     }
 }
 
+static inline void apic_write(int reg, u32 val)
+{
+    *(u32 *)(apic_base + reg) = val;
+}
+
+static inline u32 apic_read(int reg)
+{
+    return *(u32 *)(apic_base + reg);
+}
+
+static inline void apic_set(int reg, u32 v)
+{
+    apic_write(reg, apic_read(reg) | v);
+}
+
+static inline void apic_clear(int reg, u32 v)
+{
+    apic_write(reg, apic_read(reg) & ~v);
+}
+
+void lapic_eoi()
+{
+    write_barrier();
+    apic_write(APIC_EOI, 0);
+    write_barrier();
+}
+
 void common_handler()
 {
     int i = frame[FRAME_VECTOR];
@@ -270,11 +293,10 @@ static void enable_lapic(heap pages)
     create_region(u64_from_pointer(apic_base), PAGESIZE, REGION_VIRTUAL);
     
     // turn on the svr, then enable three lines
-    *(unsigned int *)(apic_base + APIC_SPURIOUS) = *(unsigned int *)(apic_base + APIC_SPURIOUS) | APIC_SW_ENABLE;
-
-    *(u32 *)(apic_base + APIC_LVT_LINT0)= APIC_DISABLE;
-    *(u32 *)(apic_base + APIC_LVT_LINT1)= APIC_DISABLE;
-    *(u32 *)(apic_base + APIC_LVT_ERR)= allocate_u64(interrupt_vectors, 1);
+    apic_write(APIC_SPURIOUS, *(unsigned int *)(apic_base + APIC_SPURIOUS) | APIC_SW_ENABLE);
+    apic_write(APIC_LVT_LINT0, APIC_DISABLE);
+    apic_write(APIC_LVT_LINT1, APIC_DISABLE);
+    apic_write(APIC_LVT_ERR, allocate_u64(interrupt_vectors, 1));
 }
 
 
@@ -283,14 +305,43 @@ void register_interrupt(int vector, thunk t)
     handlers[vector] = t;
 }
 
-void configure_lapic_timer(timestamp rate, thunk t)
+extern timestamp now_kvm();
+
+static u32 apic_timer_cal_sec;
+
+/* ugh, don't want to slow down the boot this much...see if we can
+   trim this some more */
+#define CALIBRATE_DURATION_MS 10
+void calibrate_lapic_timer()
 {
-    *(u32 *)(apic_base+APIC_TMRDIV) = 3;
+    apic_write(APIC_TMRINITCNT, -1u);
+    timestamp a = now_kvm();
+    timestamp b = a + milliseconds(10);
+    while(now_kvm() < b)
+        ;
+    u32 delta = -1u - apic_read(APIC_TMRCURRCNT);
+    apic_set(APIC_LVT_TMR, APIC_LVT_INTMASK);
+    apic_timer_cal_sec = (1000 / CALIBRATE_DURATION_MS) * delta;
+}
+
+void lapic_runloop_timer(timestamp interval)
+{
+    /* interval * apic_timer_cal_sec / second */
+    u32 cnt = (((u128)interval) * apic_timer_cal_sec) >> 32;
+    apic_clear(APIC_LVT_TMR, APIC_LVT_INTMASK);
+    apic_write(APIC_TMRINITCNT, cnt);
+}
+
+static CLOSURE_0_0(int_ignore, void);
+static void int_ignore(void) {}
+
+void configure_lapic_timer(heap h)
+{
+    apic_write(APIC_TMRDIV, 3 /* 16 */);
     int v = allocate_u64(interrupt_vectors, 1);
-    *(u32 *)(apic_base+APIC_LVT_TMR) = v | TMR_PERIODIC;
-    // calibrate using kvm info if available, hpet convergence otherwise
-    *(u32 *)(apic_base + APIC_TMRINITCNT) = 10 * 1000*1000*8;
-    handlers[v] = t;
+    apic_write(APIC_LVT_TMR, v); /* one shot */
+    handlers[v] = closure(h, int_ignore);
+    calibrate_lapic_timer();
 }
 
 extern u32 interrupt_size;
@@ -320,4 +371,6 @@ void start_interrupts(kernel_heaps kh)
     *(u64 *)(dest + 1) = (u64)idt;// physical_from_virtual(idt);
     asm("lidt %0": : "m"(*dest));
     enable_lapic(pages);
+    if (using_lapic_timer())
+        configure_lapic_timer(general);
 }
