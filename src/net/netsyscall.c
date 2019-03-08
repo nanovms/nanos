@@ -18,6 +18,7 @@ struct sockaddr_in {
 
 struct sockaddr {
     u16 family;
+    u8 sa_data[14];
 } *sockaddr;
 
 typedef u32 socklen_t;
@@ -253,7 +254,7 @@ static sysreturn sock_read_bh(sock s, thread t, void *dest, u64 length,
             sin.address = e->raddr;
             sin.port = htons(e->rport);
         }
-        u32 len = MIN(sizeof(sin), *addrlen);
+        u32 len = MIN(sizeof(struct sockaddr), *addrlen);
         *addrlen = len;
         runtime_memcpy(src_addr, &sin, len);
     }
@@ -738,6 +739,9 @@ sysreturn connect(int sockfd, struct sockaddr * addr, socklen_t addrlen)
 {
     int err = ERR_OK;
     sock s = resolve_fd(current->p, sockfd);
+    if (!addr || addrlen < sizeof(struct sockaddr_in)) {
+        return -EINVAL;
+    }
     struct sockaddr_in * sin = (struct sockaddr_in*)addr;
     ip_addr_t ipaddr = IPADDR4_INIT(sin->address);
     if (s->type == SOCK_STREAM) {
@@ -919,7 +923,7 @@ static sysreturn accept_bh(sock s, thread t, struct sockaddr *addr, socklen_t *a
     if (addr)
         remote_sockaddr_in(sn, (struct sockaddr_in *)addr);
     if (addrlen)
-        *addrlen = sizeof(struct sockaddr_in);
+        *addrlen = sizeof(struct sockaddr);
 
     /* XXX Check what the behavior should be if a listen socket is
        used with EPOLLET. For now, let's handle it as if it's a
@@ -979,7 +983,7 @@ sysreturn getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
     }
     u64 len = MIN(*addrlen, sizeof(sin));
     runtime_memcpy(addr, &sin, len);
-    *addrlen = len;
+    *addrlen = sizeof(struct sockaddr);
     return 0;
 }
 
@@ -988,9 +992,9 @@ sysreturn getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
     sock s = resolve_fd(current->p, sockfd);
     struct sockaddr_in sin;
     remote_sockaddr_in(s, &sin);
-    u64 len = MIN(*addrlen, sizeof(sin));
+    u64 len = MIN(*addrlen, sizeof(struct sockaddr));
     runtime_memcpy(addr, &sin, len);
-    *addrlen = len;
+    *addrlen = sizeof(struct sockaddr);
     return 0;    
 }
 
