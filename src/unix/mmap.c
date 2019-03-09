@@ -617,14 +617,57 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
 }
 #endif
 
-void register_mmap_syscalls(struct syscall *map)
+static sysreturn munmap(void *addr, u64 length)
 {
-    register_syscall(map, mincore, mincore);
-    register_syscall(map, mmap, mmap);
-    register_syscall(map, mremap, mremap);
-    register_syscall(map, munmap, syscall_ignore);
-    register_syscall(map, mprotect, mprotect);
-    register_syscall(map, madvise, syscall_ignore);
+    kernel_heaps kh = get_kernel_heaps();
+    heap pages = heap_pages(kh);
+    heap physical = heap_physical(kh);
+    process p = current->p;
+    thread_log(current, "munmap: addr %p, size 0x%P", addr, length);
+
+    /* first find any relevant vmap(s) and determine if we can even do this
+
+       XXX- man page says we shouldn't throw an error if some or all
+       of the area is unmapped, but what if there are parts that we
+       can map and some that we can't?
+
+       make note of virt heap source in vmap
+    */
+
+    u64 vaddr = u64_from_pointer(addr);
+    if (!addr || (vaddr & (PAGESIZE - 1)))
+        return -EINVAL;
+
+    /* XXX erm, how do we handle removal of a 4K page's worth from a 2M mapping? */
+    u64 padlen = pad(length, PAGESIZE);
+    u64 paddr = physical_from_virtual(addr);
+
+    /* XXX leap of faith... */
+    unmap(vaddr, padlen, pages);
+
+    /* release physical pages
+
+       This is all kinds of dangerous, because the given range is
+       going to be rounded up to the next order. That's fine if the
+       range comes exactly from a previous mmap, but not ok if it's
+       some portion of a mapping that isn't already an power-of-2
+       number of pages. Expect page faults and bad behavior before
+       fixing this...
+
+       id_heap_range_modify is probably the way to go. However, we're
+       kludging it here because we want to typically remove the
+       rounded-up allocation. Maybe fix this by trimming off unused
+       portions after the allocation. Might want to think about making
+       id only align on request...
+    */
+
+//    assert(id_heap_range_modify(physical, paddr, padlen, true, false));
+    deallocate(physical, paddr, padlen);
+
+    // XXX virtual32
+    deallocate(p->virtual, vaddr, padlen);
+
+    return 0;
 }
 
 /* kernel start */
@@ -667,4 +710,14 @@ void mmap_process_init(process p)
 
     /* Reserved */
     add_varea(user_va_tag_end, U64_FROM_BIT(VIRTUAL_ADDRESS_BITS), 0, false);
+}
+
+void register_mmap_syscalls(struct syscall *map)
+{
+    register_syscall(map, mincore, mincore);
+    register_syscall(map, mmap, mmap);
+    register_syscall(map, mremap, mremap);
+    register_syscall(map, munmap, munmap);
+    register_syscall(map, mprotect, mprotect);
+    register_syscall(map, madvise, syscall_ignore);
 }
