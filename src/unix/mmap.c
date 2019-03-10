@@ -622,7 +622,7 @@ static sysreturn munmap(void *addr, u64 length)
     kernel_heaps kh = get_kernel_heaps();
     heap pages = heap_pages(kh);
     heap physical = heap_physical(kh);
-    process p = current->p;
+    // process p = current->p;
     thread_log(current, "munmap: addr %p, size 0x%P", addr, length);
 
     /* first find any relevant vmap(s) and determine if we can even do this
@@ -664,8 +664,8 @@ static sysreturn munmap(void *addr, u64 length)
 //    assert(id_heap_range_modify(physical, paddr, padlen, true, false));
     deallocate(physical, paddr, padlen);
 
-    // XXX virtual32
-    deallocate(p->virtual, vaddr, padlen);
+    /* XXX - don't bother until we remove from vmaps, also check if virtual32... */
+    // deallocate(p->virtual_page, vaddr, padlen);
 
     return 0;
 }
