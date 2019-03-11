@@ -2,7 +2,7 @@
 #include "hpet.h"
 #include "rtc.h"
 
-static struct pvclock_vcpu_time_info *vclock = 0;
+static volatile struct pvclock_vcpu_time_info *vclock = 0;
 
 static timestamp rtc_offset;
 
@@ -31,6 +31,7 @@ struct pvclock_wall_clock {
 
 typedef __uint128_t u128;
 typedef timestamp (*clock_now)(void);
+typedef void (*clock_timer)(timestamp);
 
 extern timestamp now_hpet();
 
@@ -52,10 +53,25 @@ timestamp now_kvm()
     return out;
 }
 
-static clock_now clock_function = now_kvm;
+extern void lapic_runloop_timer(timestamp interval);
 
+static clock_now clock_function = now_kvm;
+static clock_timer timer_function = lapic_runloop_timer;
+
+boolean using_lapic_timer(void)
+{
+    return timer_function == lapic_runloop_timer;
+}
+
+/* system time adjusted by rtc offset */
 timestamp now() {
     return rtc_offset + clock_function();
+}
+
+/* system timer that is reserved for processing the global timer heap */
+void runloop_timer(timestamp duration)
+{
+    timer_function(duration);
 }
 
 void init_clock(kernel_heaps kh)
@@ -65,20 +81,24 @@ void init_clock(kernel_heaps kh)
     // test for the presence of this feature
     // this is just used for rdtsc scaling, as both kvm and non-kvm are assumed
     // to have hpet support
-    vclock = allocate(backed, backed->pagesize);
-    zero(vclock,sizeof(struct pvclock_vcpu_time_info));
-    // add the enable bit 1
-    write_msr(MSR_KVM_SYSTEM_TIME, physical_from_virtual(vclock) | 1);
+    struct pvclock_vcpu_time_info * vc = allocate(backed, backed->pagesize);
+    zero(vc, sizeof(struct pvclock_vcpu_time_info));
+    vclock = vc;
 
-    if (init_hpet(heap_general(kh), heap_virtual_page(kh), heap_pages(kh))) {
-	clock_function = now_hpet;
+    // add the enable bit 1
+    write_msr(MSR_KVM_SYSTEM_TIME, physical_from_virtual(vc) | 1);
+    memory_barrier();
+
+    /* if we can't get pvclock, fall back on HPET */
+    if (vclock->system_time == 0) {
+        if (!init_hpet(heap_general(kh), heap_virtual_page(kh), heap_pages(kh))) {
+            halt("HPET initialization failed; no timer source\n");
+        }
+        clock_function = now_hpet;
+        timer_function = hpet_runloop_timer;
     } else {
-	/* Presently we should always have HPET available. If this is
-	   ever not the case, fix up configure_lapic_timer() to use
-	   calibrated info from KVM (vclock), vector timer insertion
-	   from runloop() and leave default clock_function to
-	   now_kvm. */
-	halt("HPET initialization failed; no timer source\n");
+        clock_function = now_kvm;
+        timer_function = lapic_runloop_timer;
     }
 
     rtc_offset = rtc_gettimeofday() << 32;

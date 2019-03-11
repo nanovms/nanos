@@ -9,6 +9,7 @@
 #define STAR_MSR 0xc0000081
 #define LSTAR_MSR 0xc0000082
 #define SFMASK_MSR 0xc0000084
+#define TSC_DEADLINE_MSR 0x6e0
 
 #define INITIAL_MAP_SIZE (0xa000)
 
@@ -102,14 +103,12 @@ static inline void write_barrier()
 
 static inline void read_barrier()
 {
-        asm ("lfence");
+    asm ("lfence" ::: "memory");
 }
 
 static inline void memory_barrier()
 {
-    // waa
-    asm ("lfence");
-    asm ("sfence");
+    asm ("mfence" ::: "memory");
 }
 
 
@@ -135,6 +134,7 @@ static inline timestamp rdtsc(void)
 }
 
 void init_clock(kernel_heaps kh);
+boolean using_lapic_timer(void);
 void serial_out(u8 a);
 
 boolean valiate_virtual(void *base, u64 length);
