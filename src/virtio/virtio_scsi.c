@@ -235,8 +235,10 @@ static void virtio_scsi_read_capacity_done(storage_attach a, u16 target, u16 lun
     if (resp->status != SCSI_STATUS_OK || resp->response != VIRTIO_SCSI_S_OK)
         return;
 
-    if (s->capacity > 0) // attach only first disk
+    if (s->capacity > 0) {
+        // attach only first disk
         return;
+    }
 
     struct scsi_res_read_capacity_16 *res = (struct scsi_res_read_capacity_16 *) r->data;
     u64 sectors = be64toh(res->addr) + 1; // returns address of last sector
@@ -252,6 +254,22 @@ static void virtio_scsi_read_capacity_done(storage_attach a, u16 target, u16 lun
     apply(a, in, out, s->capacity);
 }
 
+static void virtio_scsi_report_luns(virtio_scsi s, storage_attach a, u16 target);
+
+static void virtio_scsi_next_target(virtio_scsi s, storage_attach a, u16 target)
+{
+    if (s->capacity > 0) {
+        // scan only until first disk is found
+        return;
+    }
+
+    if (target >= s->max_target)
+        return;
+
+    // scan next target
+    virtio_scsi_report_luns(s, a, target + 1);
+}
+
 static CLOSURE_4_2(virtio_scsi_test_unit_ready_done, void, storage_attach, u16, u16, int, virtio_scsi, virtio_scsi_request);
 static void virtio_scsi_test_unit_ready_done(storage_attach a, u16 target, u16 lun, int retry_count, virtio_scsi s, virtio_scsi_request r)
 {
@@ -263,6 +281,8 @@ static void virtio_scsi_test_unit_ready_done(storage_attach a, u16 target, u16 l
             r = virtio_scsi_alloc_request(s, target, lun, SCSI_CMD_TEST_UNIT_READY);
             virtio_scsi_enqueue_request(s, r, r->data, r->alloc_len,
                 closure(s->v->general, virtio_scsi_test_unit_ready_done, a, target, lun, retry_count + 1));
+        } else {
+            virtio_scsi_next_target(s, a, target);
         }
         return;
     }
@@ -282,8 +302,10 @@ static void virtio_scsi_inquiry_done(storage_attach a, u16 target, u16 lun, virt
     struct virtio_scsi_resp_cmd *resp = &r->resp;
     virtio_scsi_debug("%s: target %d, lun %d, response %d, status %d\n",
         __func__, target, lun, resp->response, resp->status);
-    if (resp->status != SCSI_STATUS_OK || resp->response != VIRTIO_SCSI_S_OK)
+    if (resp->status != SCSI_STATUS_OK || resp->response != VIRTIO_SCSI_S_OK) {
+        virtio_scsi_next_target(s, a, target);
         return;
+    }
 
 #ifdef VIRTIO_SCSI_DEBUG
     struct scsi_res_inquiry *res = (struct scsi_res_inquiry *) r->data;
@@ -300,21 +322,16 @@ static void virtio_scsi_inquiry_done(storage_attach a, u16 target, u16 lun, virt
         closure(s->v->general, virtio_scsi_test_unit_ready_done, a, target, lun, 0));
 }
 
-static void virtio_scsi_report_luns(virtio_scsi s, storage_attach a, u16 target);
-
 static CLOSURE_2_2(virtio_scsi_report_luns_done, void, storage_attach, u16, virtio_scsi, virtio_scsi_request);
 static void virtio_scsi_report_luns_done(storage_attach a, u16 target, virtio_scsi s, virtio_scsi_request r)
 {
-    if (target + 1 < s->max_target) {
-        // scan next target
-        //virtio_scsi_report_luns(s, a, target + 1);
-    }
-
     struct virtio_scsi_resp_cmd *resp = &r->resp;
     virtio_scsi_debug("%s: target %d, response %d, status %d\n",
         __func__, target, resp->response, resp->status);
-    if (resp->status != SCSI_STATUS_OK || resp->response != VIRTIO_SCSI_S_OK)
+    if (resp->status != SCSI_STATUS_OK || resp->response != VIRTIO_SCSI_S_OK) {
+        virtio_scsi_next_target(s, a, target);
         return;
+    }
 
     struct scsi_res_report_luns *res = (struct scsi_res_report_luns *) r->data;
     u32 length = be32toh(res->length);
