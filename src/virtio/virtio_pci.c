@@ -32,16 +32,13 @@
 #include <pci.h>
 
 
-#define VIRTIO_PCI_CONFIG(_sc)                                          \
-    VIRTIO_PCI_CONFIG_OFF((((_sc)->vtpci_flags & VTPCI_FLAG_MSIX)) != 0)
-
 static u8 vtpci_get_status(vtpci dev)
 {
     return (in8(dev->base+ VIRTIO_PCI_STATUS));
 }
 
 
-static void vtpci_set_status(vtpci dev, u8 status)
+void vtpci_set_status(vtpci dev, u8 status)
 {
     if (status != VIRTIO_CONFIG_STATUS_RESET)
         status |= vtpci_get_status(dev);
@@ -65,6 +62,9 @@ status vtpci_alloc_virtqueue(vtpci dev,
     allocate_msi(dev->slot, idx, handler);     
     out32(dev->base + VIRTIO_PCI_QUEUE_PFN, virtqueue_paddr(vq) >> VIRTIO_PCI_QUEUE_ADDR_SHIFT);
     out16(dev->base + VIRTIO_MSI_QUEUE_VECTOR, idx);
+    int check_idx = in16(dev->base + VIRTIO_MSI_QUEUE_VECTOR);
+    if (check_idx != idx)
+        return timm("status", "cannot configure virtqueue MSI-X vector");
     *result = vq;
     return STATUS_OK;
 }
@@ -96,8 +96,6 @@ vtpci attach_vtpci(heap h, heap page_allocator, int bus, int slot, int func, u64
 
     dev->general = h;
     dev->contiguous = page_allocator;    
-
-    vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER_OK);
 
     return dev;
 }

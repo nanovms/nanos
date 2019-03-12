@@ -211,6 +211,9 @@ static void init_vnet(heap general, heap page_allocator,
     vn->empty = allocate(dev->contiguous, dev->contiguous->pagesize);
     for (int i = 0; i < NET_HEADER_LENGTH ; i++)  ((u8 *)vn->empty)[i] = 0;
     vn->n->state = vn;
+    // initialization complete
+    vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER_OK);
+
     netif_add(vn->n,
               0, 0, 0, 
               vn,

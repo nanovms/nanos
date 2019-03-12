@@ -71,10 +71,11 @@
 #define VIRTIO_PCI_QUEUE_ADDR_SHIFT	12
 #define VIRTIO_PCI_VRING_ALIGN	4096
 
+vtpci attach_vtpci(heap h, heap page_allocator, int bus, int slot, int func, u64 feature_mask);
 status vtpci_alloc_virtqueue(vtpci dev,
                               int idx,
                               struct virtqueue **result);
-vtpci attach_vtpci();
+void vtpci_set_status(vtpci dev, u8 status);
 
 /* VirtIO PCI vendor/device ID. */
 #define VIRTIO_PCI_VENDORID	0x1AF4

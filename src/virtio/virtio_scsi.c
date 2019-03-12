@@ -356,15 +356,23 @@ static void virtio_scsi_attach(heap general, storage_attach a, heap page_allocat
     virtio_scsi_debug("max target %d\n", s->max_target);
 #endif
 
-    vtpci_alloc_virtqueue(s->v, 0, &s->command);
-    vtpci_alloc_virtqueue(s->v, 1, &s->eventq);
-    for (int i = 0; i < VIRTIO_SCSI_NUM_EVENTS; i++)
-        virtio_scsi_enqueue_event(s, s->events + i);
-    vtpci_alloc_virtqueue(s->v, 2, &s->requestq);
+    status st = vtpci_alloc_virtqueue(s->v, 0, &s->command);
+    assert(st == STATUS_OK);
+    st = vtpci_alloc_virtqueue(s->v, 1, &s->eventq);
+    assert(st == STATUS_OK);
+    st = vtpci_alloc_virtqueue(s->v, 2, &s->requestq);
+    assert(st == STATUS_OK);
 
     // On reset, the device MUST set sense_size to 96 and cdb_size to 32
     out32(s->v->base + VIRTIO_MSI_DEVICE_CONFIG + VIRTIO_SCSI_R_SENSE_SIZE, VIRTIO_SCSI_SENSE_SIZE);
     out32(s->v->base + VIRTIO_MSI_DEVICE_CONFIG + VIRTIO_SCSI_R_CDB_SIZE, VIRTIO_SCSI_CDB_SIZE);
+
+    // initialization complete
+    vtpci_set_status(s->v, VIRTIO_CONFIG_STATUS_DRIVER_OK);
+
+    // enqueue events
+    for (int i = 0; i < VIRTIO_SCSI_NUM_EVENTS; i++)
+        virtio_scsi_enqueue_event(s, s->events + i);
 
     // scan bus
     virtio_scsi_report_luns(s, a, 0);

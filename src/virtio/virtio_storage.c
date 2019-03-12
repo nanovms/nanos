@@ -164,6 +164,9 @@ static void attach(heap general, storage_attach a, heap page_allocator, heap pag
 		   ((u64) in32(s->v->base + VIRTIO_MSI_DEVICE_CONFIG + VIRTIO_BLK_R_CAPACITY_HIGH) << 32)) * s->block_size;
     pci_set_bus_master(bus, slot, function);
     vtpci_alloc_virtqueue(s->v, 0, &s->command);
+    // initialization complete
+    vtpci_set_status(s->v, VIRTIO_CONFIG_STATUS_DRIVER_OK);
+
     block_read in = closure(general, storage_read, s);
     block_write out = closure(general, storage_write, s);
     apply(a, in, out, s->capacity);
