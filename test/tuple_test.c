@@ -63,13 +63,13 @@ boolean encode_decode_test(heap h)
     // encode
     buffer b3 = allocate_buffer(h, 128);
     tuple t3 = allocate_tuple();
-    table_set(t3, intern_u64(1), wrap_buffer_cstring(h, "200"));//rprintf("tuple to enc: %t\n", t3);
+    table_set(t3, intern_u64(1), wrap_buffer_cstring(h, "200"));
 
     tuple tdict1 = allocate_tuple();
 
     encode_tuple(b3, tdict1, t3);
 
-    test_assert(buffer_length(b3) > 0);//rprintf("buffer b3 = : %X", b3);
+    test_assert(buffer_length(b3) > 0);
 
     // decode
     table tdict2 = allocate_table(h, identity_key, pointer_equal);
