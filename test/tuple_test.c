@@ -10,14 +10,14 @@
 #define test_assert(expr) do { \
 if (expr) ; else { \
     msg_err("%s -- failed at %s:%d\n", #expr, __FILE__, __LINE__); \
-    fail = 1; \
+    goto fail; \
 } \
 } while (0)
 
-int main(int argc, char **argv)
+boolean all_tests(heap h)
 {
-    boolean fail = false;
-    heap h = init_process_runtime();
+    boolean failure = true;
+
     char *tst[COUNT_ELM] = {"00","10","20","30","40","50","60","70","80","90"};
 
     // check count
@@ -70,11 +70,22 @@ int main(int argc, char **argv)
     bprintf(buf, "%t", t4);
     test_assert(strncmp(buf->contents, "(1:200)", buf->length) == 0);
 
+    failure = false;
+fail:
+    return failure;
+}
 
-    if (fail){
-        msg_err("tuple test failed\n");
+int main(int argc, char **argv)
+{
+    heap h = init_process_runtime();
+
+    int failure = 0;
+
+    failure |= all_tests(h);
+
+    if (failure) {
+        msg_err("Test failed\n");
         exit(EXIT_FAILURE);
     }
-    rprintf("tuple test success\n");
     exit(EXIT_SUCCESS);
 }
