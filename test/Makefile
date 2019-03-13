@@ -7,14 +7,16 @@ CFLAGS  = -fno-stack-protector
 CFLAGS  += -fdata-sections -ffunction-sections
 CFLAGS  += $(includes)
 CFLAGS  += -g -std=gnu11 -DHOST_BUILD $(CFLAG_WARNINGS) -Wformat $(PLATFORM_CFLAGS)
-#CFLAGS  += --coverage
-CFLAGS  += -fprofile-arcs -ftest-coverage
 ifeq ($(UNAME_s),Darwin)
 CFLAGS  += -DNO_EPOLL
 endif
 #CFLAGS+=-DENABLE_MSG_DEBUG -DID_HEAP_DEBUG
 
+# gcov support
+ifdef GCOV
+CFLAGS  += -fprofile-arcs -ftest-coverage
 HOSTLDFLAGS  += -fprofile-arcs
+endif
 
 all: objcache_test network_test id_heap_test path_test pqueue_test vector_test udp_test buffer_test range_test tuple_test
 
