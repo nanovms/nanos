@@ -23,9 +23,17 @@ extern void vm_exit(u8 code) __attribute__((noreturn));
 		       #x, __func__, __LINE__); } while(0)
 #endif
 
-static inline void runtime_memcpy(void *a, const void *b, bytes len)
+static inline void runtime_memcpy(void *desc, const void *src, bytes len)
 {
-    for (int i = 0; i < len; i++) ((u8 *)a)[i] = ((u8 *)b)[i];
+    int i = 0;
+    if ( (unsigned long)src & sizeof(long) == 0 && 
+         (unsigned long)desc & sizeof(long) == 0 &&  (len & sizeof(long)) == 0) {
+        long *to = desc;
+        const long* from = src;
+        for (;i < len / sizeof(long);i++) to[i] = from[i];
+    } else {
+        for (; i < len; i++) ((u8 *)desc)[i] = ((u8 *)src)[i];
+    }
 }
 
 static inline void runtime_memset(u8 *a, u8 b, bytes len)
