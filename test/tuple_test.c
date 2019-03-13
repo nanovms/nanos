@@ -84,6 +84,38 @@ fail:
     return failure;
 }
 
+boolean encode_decode_reference_test(heap h)
+{
+    boolean failure = true;
+
+    // encode
+    buffer b3 = allocate_buffer(h, 128);
+    tuple t3 = allocate_tuple();
+    tuple t33 = allocate_tuple();
+    table_set(t33, intern_u64(1), wrap_buffer_cstring(h, "200"));
+    table_set(t3, intern_u64(1), t33);
+    table_set(t3, intern_u64(2), t33);
+
+    tuple tdict1 = allocate_tuple();
+
+    encode_tuple(b3, tdict1, t3);
+
+    test_assert(buffer_length(b3) > 0);
+
+    // decode
+    table tdict2 = allocate_table(h, identity_key, pointer_equal);
+    tuple t4 = decode_value(h, tdict2, b3);
+
+    buffer buf = allocate_buffer(h, 128);
+    bprintf(buf, "%t", t4);
+    rprintf("%t\n", t4);
+    test_assert(strncmp(buf->contents, "(1:(1:200) 2:(1:200))", buf->length) == 0);
+
+    failure = false;
+fail:
+    return failure;
+}
+
 int main(int argc, char **argv)
 {
     heap h = init_process_runtime();
@@ -92,6 +124,7 @@ int main(int argc, char **argv)
 
     failure |= all_tests(h);
     failure |= encode_decode_test(h);
+    failure |= encode_decode_reference_test(h);
 
     if (failure) {
         msg_err("Test failed\n");
