@@ -291,5 +291,5 @@ int main(int argc, char **argv)
     check2(fd, "/test/subdir/test_newfile", "subdir/test_newfile", 0);
     _fchdir(fd);
     listdir("test", ".");
-    exit(0);
+    exit(EXIT_SUCCESS);
 }

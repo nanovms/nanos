@@ -1,6 +1,5 @@
 #include <virtio_internal.h>
 #include <runtime.h>
-#include <tfs.h>
 
 //#define VIRTIO_BLK_DEBUG
 
@@ -12,6 +11,44 @@ typedef struct virtio_blk_req {
     u64 data; // phys? spec had u8 data[][512]
     u8 status;
 } __attribute__((packed)) *virtio_blk_req;
+
+// device configuration offsets
+struct virtio_blk_config {
+    u64 capacity;
+    u32 size_max;
+    u32 seg_max;
+    struct virtio_blk_geometry {
+        u16 cylinders;
+        u8 heads;
+        u8 sectors;
+   } geometry;
+   u32 blk_size;
+   struct virtio_blk_topology {
+       // # of logical blocks per physical block (log2)
+       u8 physical_block_exp;
+       // offset of first aligned logical block
+       u8 alignment_offset;
+       // suggested minimum I/O size in blocks
+       u16 min_io_size;
+       // optimal (suggested maximum) I/O size in blocks
+       u32 opt_io_size;
+    } topology;
+    u8 reserved;
+} __attribute__((packed));
+
+#define VIRTIO_BLK_R_CAPACITY_LOW		(offsetof(struct virtio_blk_config *, capacity))
+#define VIRTIO_BLK_R_CAPACITY_HIGH		(offsetof(struct virtio_blk_config *, capacity) + 4)
+#define VIRTIO_BLK_R_SIZE_MAX			(offsetof(struct virtio_blk_config *, size_max))
+#define VIRTIO_BLK_R_SEG_MAX			(offsetof(struct virtio_blk_config *, seg_max))
+#define VIRTIO_BLK_R_GEOM_CYLINDERS		(offsetof(struct virtio_blk_config *, geometry) + offsetof(struct virtio_blk_geometry *, cylinders))
+#define VIRTIO_BLK_R_GEOM_HEADS			(offsetof(struct virtio_blk_config *, geometry) + offsetof(struct virtio_blk_geometry *, heads))
+#define VIRTIO_BLK_R_GEOM_SECTORS		(offsetof(struct virtio_blk_config *, geometry) + offsetof(struct virtio_blk_geometry *, sectors))
+#define VIRTIO_BLK_R_BLOCK_SIZE			(offsetof(struct virtio_blk_config *, blk_size))
+#define VIRTIO_BLK_R_TOPOLOGY_PHYSICAL_BLOCK_EXP (offsetof(struct virtio_blk_config *, topology) + offsetof(struct virtio_blk_topology *, physical_block_exp))
+#define VIRTIO_BLK_R_TOPOLOGY_ALIGNMENT_OFFSET	(offsetof(struct virtio_blk_config *, topology) + offsetof(struct virtio_blk_topology *, alignment_offset))
+#define VIRTIO_BLK_R_TOPOLOGY_MIN_IO_SIZE	(offsetof(struct virtio_blk_config *, topology) + offsetof(struct virtio_blk_topology *, min_io_size))
+#define VIRTIO_BLK_R_TOPOLOGY_OPT_IO_SIZE	(offsetof(struct virtio_blk_config *, topology) + offsetof(struct virtio_blk_topology *, opt_io_size))
+#define VIRTIO_BLK_R_RESERVED			(offsetof(struct virtio_blk_config *, reserved))
 
 #define VIRTIO_BLK_REQ_HEADER_SIZE      16
 #define VIRTIO_BLK_REQ_STATUS_SIZE      1
@@ -31,7 +68,6 @@ typedef struct virtio_blk_req {
 #endif /* defined(VIRTIO_BLK_DEBUG) */
 
 typedef struct storage {
-    heap h;
     vtpci v;
     struct virtqueue *command;
     u64 capacity;
@@ -89,31 +125,15 @@ static inline void storage_rw_internal(storage st, boolean write, void * buf,
 
     virtio_blk_req req = allocate_virtio_blk_req(st, write ? VIRTIO_BLK_T_OUT : VIRTIO_BLK_T_IN,
                                                  start_sector);
-
-    void *address[3];
-    boolean writables[3];
-    bytes lengths[3];
-    int index = 0;
-    
-    address[index] = req;
-    writables[index] = false;
-    lengths[index] = VIRTIO_BLK_REQ_HEADER_SIZE;
-    index++;
-
-    address[index] = buf;
-    writables[index] = !write;
-    lengths[index] = nsectors * st->block_size;
-    index++;
-
-    address[index] = ((void *)req) + VIRTIO_BLK_REQ_HEADER_SIZE;
-    writables[index] = true;
-    lengths[index] = VIRTIO_BLK_REQ_STATUS_SIZE;
-    index++;
-
-    vqfinish c = closure(st->v->general, complete, st, sh, (u8 *)address[2], req);
-    status s = virtqueue_enqueue(st->command, address, lengths, writables, index, c);
-    if (!is_ok(s))
-        halt("storage_rw_internal: storage command virtqueue enqueue failed: %v\n", s);
+    virtqueue vq = st->command;
+    vqmsg m = allocate_vqmsg(vq);
+    assert(m != INVALID_ADDRESS);
+    vqmsg_push(vq, m, req, VIRTIO_BLK_REQ_HEADER_SIZE, false);
+    vqmsg_push(vq, m, buf, nsectors * st->block_size, !write);
+    void * statusp = ((void *)req) + VIRTIO_BLK_REQ_HEADER_SIZE;
+    vqmsg_push(vq, m, statusp, VIRTIO_BLK_REQ_STATUS_SIZE, true);
+    vqfinish c = closure(st->v->general, complete, st, sh, statusp, req);
+    vqmsg_commit(vq, m, c);
     return;
   out_inval:
     msg_err("%s", err);               /* yes, bark */
@@ -138,23 +158,29 @@ static void attach(heap general, storage_attach a, heap page_allocator, heap pag
 
     storage s = allocate(general, sizeof(struct storage));
     s->v = attach_vtpci(general, page_allocator, bus, slot, function, 0);
-    u32 len;
-    // bar 1 is is a 4k memory region in the pci gap - to what end?
 
-    u32 base = pci_readbar(bus, slot, function, 0, &len);
-    base &=~1;
-    s->block_size = in32(44 + base);
-    s->capacity = (in32(24 + base) | ((u64)in32(28 + base)  << 32)) * s->block_size;
+    s->block_size = in32(s->v->base + VIRTIO_MSI_DEVICE_CONFIG + VIRTIO_BLK_R_BLOCK_SIZE);
+    s->capacity = (in32(s->v->base + VIRTIO_MSI_DEVICE_CONFIG + VIRTIO_BLK_R_CAPACITY_LOW) |
+		   ((u64) in32(s->v->base + VIRTIO_MSI_DEVICE_CONFIG + VIRTIO_BLK_R_CAPACITY_HIGH) << 32)) * s->block_size;
     pci_set_bus_master(bus, slot, function);
     vtpci_alloc_virtqueue(s->v, 0, &s->command);
+    // initialization complete
+    vtpci_set_status(s->v, VIRTIO_CONFIG_STATUS_DRIVER_OK);
+
     block_read in = closure(general, storage_read, s);
     block_write out = closure(general, storage_write, s);
     apply(a, in, out, s->capacity);
 }
 
-void init_virtio_storage(kernel_heaps kh, storage_attach a)
+static void virtio_register_blk(kernel_heaps kh, storage_attach a)
 {
     heap h = heap_general(kh);
     register_pci_driver(VIRTIO_PCI_VENDORID, VIRTIO_PCI_DEVICEID_STORAGE,
                         closure(h, attach, h, a, heap_backed(kh), heap_pages(kh)));
+}
+
+void init_virtio_storage(kernel_heaps kh, storage_attach a)
+{
+    virtio_register_blk(kh, a);
+    virtio_register_scsi(kh, a);
 }

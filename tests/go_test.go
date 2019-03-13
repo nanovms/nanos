@@ -133,6 +133,9 @@ func TestInstancePersistence(t *testing.T) {
 	const finalImage = "instance.img"
 	prepareTestImage(finalImage)
 	validateResponse(t, finalImage, "something")
+	// wait before starting a new instance since process.Kill
+	// do not wait for the actual process to exit.
+	time.Sleep(5 * time.Second)
 	validateResponse(t, finalImage, "somethingsomething")
 }
 

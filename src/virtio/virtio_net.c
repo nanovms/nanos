@@ -67,10 +67,6 @@ typedef struct xpbuf
 } *xpbuf;
 
 
-// fix, this per-device offset is variable - 24 with msi
-#define DEVICE_CONFIG_OFFSET 24
-
-
 static CLOSURE_1_1(tx_complete, void, struct pbuf *, u64);
 static void tx_complete(struct pbuf *p, u64 len)
 {
@@ -84,29 +80,18 @@ static void tx_complete(struct pbuf *p, u64 len)
 static err_t low_level_output(struct netif *netif, struct pbuf *p)
 {
     vnet vn = netif->state;
-    struct pbuf *q;
 
-    void *address[3];
-    boolean writables[3];
-    bytes lengths[3];
-    int index = 0;
-
-    address[index] = vn->empty;
-    writables[index] = false;
-    lengths[index] = NET_HEADER_LENGTH;
+    vqmsg m = allocate_vqmsg(vn->txq);
+    assert(m != INVALID_ADDRESS);
+    vqmsg_push(vn->txq, m, vn->empty, NET_HEADER_LENGTH, false);
 
     pbuf_ref(p);
 
-    for (q = p; index++, q != NULL; q = q->next) {
-        address[index] = q->payload;
-        writables[index] = false;
-        lengths[index] = q->len;
-    }
+    for (struct pbuf * q = p; q != NULL; q = q->next)
+        vqmsg_push(vn->txq, m, q->payload, q->len, false);
 
-    status s = virtqueue_enqueue(vn->txq, address, lengths, writables, index, closure(vn->dev->general, tx_complete, p));
-    if (!is_ok(s))
-        halt("low_level_output: tx virtqueue enqueue failed: %v\n", s);
-
+    vqmsg_commit(vn->txq, m, closure(vn->dev->general, tx_complete, p));
+    
     MIB2_STATS_NETIF_ADD(netif, ifoutoctets, p->tot_len);
     if (((u8_t *)p->payload)[0] & 1) {
         /* broadcast or multicast packet*/
@@ -154,23 +139,20 @@ static void input(xpbuf x, u64 len)
 
 static void post_receive(vnet vn)
 {
-    // use aligned half pages just because
     xpbuf x = allocate(vn->rxbuffers, sizeof(struct xpbuf) + vn->rxbuflen);
     x->vn = vn;
     x->p.custom_free_function = receive_buffer_release;
     pbuf_alloced_custom(PBUF_RAW,
-                                         vn->rxbuflen,
-                                         PBUF_REF,
-                                         &x->p,
-                                         x+1,
-                                         // this is fucked
-                                         vn->rxbuflen);
-    void *address[] = {x+1};
-    u64 lengths[] = {vn->rxbuflen};
-    boolean writables[] = {true};
-    status s = virtqueue_enqueue(vn->rxq, address, lengths, writables, 1, closure(vn->dev->general, input, x));
-    if (!is_ok(s))
-        halt("post_receive: rx virtqueue enqueue failed: %v\n", s);
+                        vn->rxbuflen,
+                        PBUF_REF,
+                        &x->p,
+                        x+1,
+                        vn->rxbuflen);
+
+    vqmsg m = allocate_vqmsg(vn->rxq);
+    assert(m != INVALID_ADDRESS);
+    vqmsg_push(vn->rxq, m, x+1, vn->rxbuflen, true);
+    vqmsg_commit(vn->rxq, m, closure(vn->dev->general, input, x));
 }
 
 static void status_callback(struct netif *netif)
@@ -191,7 +173,7 @@ static err_t virtioif_init(struct netif *netif)
     netif->hwaddr_len = ETHARP_HWADDR_LEN;
     netif->status_callback = status_callback;
     for (int i = 0; i < ETHER_ADDR_LEN; i++) 
-        netif->hwaddr[i] =  in8(vn->dev->base+DEVICE_CONFIG_OFFSET+i);
+        netif->hwaddr[i] =  in8(vn->dev->base + VIRTIO_MSI_DEVICE_CONFIG + i);
     netif->mtu = 1500;
 
     /* device capabilities */
@@ -229,6 +211,9 @@ static void init_vnet(heap general, heap page_allocator,
     vn->empty = allocate(dev->contiguous, dev->contiguous->pagesize);
     for (int i = 0; i < NET_HEADER_LENGTH ; i++)  ((u8 *)vn->empty)[i] = 0;
     vn->n->state = vn;
+    // initialization complete
+    vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER_OK);
+
     netif_add(vn->n,
               0, 0, 0, 
               vn,

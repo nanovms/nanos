@@ -3,7 +3,6 @@
 #include <pci.h>
 #include <virtio.h>
 #include <tfs.h>
-#include <hpet.h>
 
 extern void init_net(kernel_heaps kh);
 extern void start_interrupts(kernel_heaps kh);
@@ -53,7 +52,7 @@ void runloop()
 
     while(1) {
 	timestamp timeout = MIN(timer_check(), max_timeout);
-	hpet_timer(timeout, ignore);
+	runloop_timer(timeout);
         while((t = dequeue(runqueue))) {
             apply(t);
         }
@@ -150,12 +149,12 @@ static void __attribute__((noinline)) init_service_new_stack()
     unmap(0, PAGESIZE, pages);
 
     runqueue = allocate_queue(misc, 64);
+    init_clock(kh);
     start_interrupts(kh);
     init_extra_prints();
     init_runtime(kh);
     init_symtab(kh);
     read_kernel_syms();
-    init_clock(kh);
     init_net(kh);
     tuple root = allocate_tuple();
     init_pci(kh);

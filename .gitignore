@@ -1,3 +1,5 @@
+tests/tempimage
+tests/image*
 /examples/soop.data
 /tests/.staging/*
 /tests/image

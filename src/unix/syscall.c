@@ -667,6 +667,16 @@ static boolean file_check(file f, fsfile fsf, u32 eventmask, u32 * last, event_h
     return true;
 }
 
+static int file_type_from_tuple(tuple n)
+{
+    if (is_dir(n))
+        return FDESC_TYPE_DIRECTORY;
+    else if (is_special(n))
+        return FDESC_TYPE_SPECIAL;
+    else
+        return FDESC_TYPE_REGULAR;
+}
+
 sysreturn open_internal(tuple root, char *name, int flags, int mode)
 {
     heap h = heap_general(get_kernel_heaps());
@@ -692,9 +702,12 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
         thread_log(current, "\"%s\" - not found", name);
         return set_syscall_error(current, ENOENT);
     }
+
     u64 length = 0;
     fsfile fsf = 0;
-    if (!is_dir(n) && !is_special(n)) {
+
+    int type = file_type_from_tuple(n);
+    if (type == FDESC_TYPE_REGULAR) {
         fsf = fsfile_from_node(current->p->fs, n);
         if (!fsf) {
             length = 0;
@@ -702,19 +715,21 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
             length = fsfile_get_length(fsf);
         }
     }
-    // might be functional, or be a directory
+
     file f = unix_cache_alloc(uh, file);
     if (f == INVALID_ADDRESS) {
         thread_log(current, "failed to allocate struct file");
         return set_syscall_error(current, ENOMEM);
     }
+
     int fd = allocate_fd(current->p, f);
     if (fd == INVALID_PHYSICAL) {
         thread_log(current, "failed to allocate fd");
         unix_cache_free(uh, file, f);
         return set_syscall_error(current, EMFILE);
     }
-    fdesc_init(&f->f);
+
+    fdesc_init(&f->f, type);
     f->f.read = closure(h, file_read, f, fsf);
     f->f.write = closure(h, file_write, f, fsf);
     f->f.close = closure(h, file_close, f, fsf);
@@ -1034,23 +1049,37 @@ sysreturn openat(int dirfd, char *name, int flags, int mode)
     return open_internal(f->n, name, flags, mode);
 }
 
-static void fill_stat(tuple n, struct stat *s)
+static void fill_stat(int type, tuple n, struct stat *s)
 {
+    switch (type) {
+    case FDESC_TYPE_REGULAR:
+        s->st_mode = S_IFREG | 0644;
+        break;
+    case FDESC_TYPE_DIRECTORY:
+        s->st_mode = S_IFDIR | 0777;
+        break;
+    case FDESC_TYPE_SPECIAL:
+        s->st_mode = S_IFCHR;   /* assuming only character devs now */
+        break;
+    case FDESC_TYPE_SOCKET:
+        s->st_mode = S_IFSOCK;
+        break;
+    case FDESC_TYPE_PIPE:
+    case FDESC_TYPE_STDIO:
+        s->st_mode = S_IFIFO;
+        break;
+    case FDESC_TYPE_EPOLL:
+        s->st_mode = S_IFCHR;   /* XXX not clear - EBADF? */
+        break;
+    }
     s->st_dev = 0;
     s->st_ino = u64_from_pointer(n);
     s->st_size = 0;
-    if (is_dir(n)) {
-        s->st_mode = S_IFDIR | 0777;
-        return;
-    } else if (!is_special(n)) {
+    if (type == FDESC_TYPE_REGULAR) {
         fsfile f = fsfile_from_node(current->p->fs, n);
-        if (!f) {
-            s->st_size = 0;
-        } else {
+        if (f)
             s->st_size = fsfile_get_length(f);
-        }
     }
-    s->st_mode = S_IFREG | 0644; /* TODO */
     thread_log(current, "st_ino %P, st_mode %P, st_size %P",
             s->st_ino, s->st_mode, s->st_size);
 }
@@ -1058,17 +1087,11 @@ static void fill_stat(tuple n, struct stat *s)
 static sysreturn fstat(int fd, struct stat *s)
 {
     thread_log(current, "fd %d, stat %p", fd, s);
-    file f = resolve_fd(current->p, fd);
+    fdesc f = resolve_fd(current->p, fd);
     zero(s, sizeof(struct stat));
-    // take this from tuple space
-    if (fd == 0 || fd == 1 || fd == 2) {
-        s->st_mode = S_IFIFO;
-        return 0;
-    }
-    fill_stat(f->n, s);
+    fill_stat(f->type, ((file)f)->n, s);
     return 0;
 }
-
 
 static sysreturn stat(char *name, struct stat *s)
 {
@@ -1078,7 +1101,8 @@ static sysreturn stat(char *name, struct stat *s)
     if (!(n = resolve_cstring(current->p->cwd, name))) {    
         return set_syscall_error(current, ENOENT);
     }
-    fill_stat(n, s);
+
+    fill_stat(file_type_from_tuple(n), n, s);
     return 0;
 }
 
@@ -1103,7 +1127,8 @@ static sysreturn newfstatat(int dfd, char *name, struct stat *s, int flags)
     if (!(n = resolve_cstring(children, name))) {    
         return set_syscall_error(current, ENOENT);
     }
-    fill_stat(n, s);
+
+    fill_stat(file_type_from_tuple(n), n, s);
     return 0;
 }
 
@@ -1212,6 +1237,7 @@ sysreturn readlinkat(int dirfd, const char *pathname, char *buf, u64 bufsiz)
 
 sysreturn close(int fd)
 {
+    thread_log(current, "close: fd %d", fd);
     fdesc f = resolve_fd(current->p, fd);
     deallocate_fd(current->p, fd);
 
@@ -1285,7 +1311,7 @@ void exit(int code)
 
 sysreturn exit_group(int status)
 {
-    halt("exit_group\n");
+    vm_exit(status);
 }
 
 sysreturn pipe2(int fds[2], int flags)
@@ -1330,6 +1356,21 @@ sysreturn geteuid(void)
 sysreturn chown(const char *pathname, uid_t owner, gid_t group)
 {
     return 0;
+}
+
+sysreturn setgroups(bytes size, const gid_t *list)
+{
+    return 0;                   /* stub */
+}
+
+sysreturn setuid(uid_t uid)
+{
+  return 0; /* stub */
+}
+
+sysreturn setgid(gid_t gid)
+{
+  return 0; /* stub */
 }
 
 void register_file_syscalls(void **map)
@@ -1378,12 +1419,12 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_getuid, getuid);
     register_syscall(map, SYS_geteuid, geteuid);
     register_syscall(map, SYS_chown, chown);
+    register_syscall(map, SYS_setgroups, setgroups);
+    register_syscall(map, SYS_setuid, setuid);
+    register_syscall(map, SYS_setgid, setgid);
 }
 
 void *linux_syscalls[SYS_MAX];
-
-#define offsetof(__t, __e) u64_from_pointer(&((__t)0)->__e)
-
 
 // return value is fucked up and need ENOENT - enoent could be initialized
 buffer install_syscall(heap h)

@@ -2,10 +2,11 @@
 #include <io.h>
 #include <region.h>
 
-static inline void QEMU_HALT() __attribute__((noreturn));
+static inline void QEMU_HALT(u8 code) __attribute__((noreturn));
 
-static inline void QEMU_HALT()
+static inline void QEMU_HALT(u8 code)
 {
-    out8(0x501, 0); // does not return
+    /* special qemu debug exit; returns ((code << 1) | 1) to shell */
+    out8(0x501, code);
     while (1);
 }

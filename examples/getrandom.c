@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <unistd.h>
+#include <stdlib.h>
 #include <sys/syscall.h>
 #include <linux/random.h>
 #include <errno.h>
@@ -59,5 +60,5 @@ int main(int argc, char **argvp)
 
     entropy *= (double) -1;
     printf("Shannon Entropy of getrandom(2) is %f bits per byte\n", entropy);
-    return 0;
+    return EXIT_SUCCESS;
 }

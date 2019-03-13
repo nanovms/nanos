@@ -46,11 +46,11 @@ status virtqueue_alloc(vtpci dev,
 
 physical virtqueue_paddr(struct virtqueue *vq);
 
-status virtqueue_enqueue(struct virtqueue *vq,
-                         /* not an ideal writev, but good enough for  today */
-                         void **as,
-                         bytes *lengths,
-                         boolean *writables,
-                         int segments,
-                         vqfinish completion);
+typedef struct vqmsg *vqmsg;
 
+vqmsg allocate_vqmsg(virtqueue vq);
+void deallocate_vqmsg(virtqueue vq, vqmsg m);
+void vqmsg_push(virtqueue vq, vqmsg m, void * addr, u32 len, boolean write);
+void vqmsg_commit(virtqueue vq, vqmsg m, vqfinish completion);
+
+void virtio_register_scsi(kernel_heaps kh, storage_attach a);
