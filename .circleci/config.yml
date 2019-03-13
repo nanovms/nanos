@@ -14,6 +14,7 @@ jobs:
       - run: make && make unit-test
       - run: make && make runtests
       - run: make && make runtime-tests
+  
   nightly-build:
     docker:
       - image: circleci/golang:1.11
@@ -34,6 +35,17 @@ jobs:
       - run: echo $(date +"%m%d%Y") > nanos-nightly-linux.timestamp
       - run: ~/gsutil/gsutil cp nanos-nightly-linux.timestamp gs://nanos/release/nightly
       - run: ~/gsutil/gsutil acl ch -u AllUsers:R gs://nanos/release/nightly/nanos-nightly-linux.timestamp
+  
+  nightly-build-mac:
+    macos:
+        xcode: "9.0" 
+    working_directory: /go/src/github.com/nanovms/nanos
+    steps:
+      - checkout
+      - run: CI=1 /usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
+      - run: brew install go
+      - run: make
+
 workflows:
   version: 2
   commit-workflow:
@@ -49,3 +61,4 @@ workflows:
                 - master
     jobs:
       - nightly-build
+      - nightly-build-mac
