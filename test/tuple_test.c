@@ -108,8 +108,37 @@ boolean encode_decode_reference_test(heap h)
 
     buffer buf = allocate_buffer(h, 128);
     bprintf(buf, "%t", t4);
-    //rprintf("%t\n", t4);
     test_assert(strncmp(buf->contents, "(1:(1:200) 2:(1:200))", buf->length) == 0);
+
+    failure = false;
+fail:
+    return failure;
+}
+
+boolean encode_decode_lengthy_test(heap h)
+{
+    boolean failure = true;
+
+    // encode
+    buffer b3 = allocate_buffer(h, 1000*50);
+    tuple t3 = allocate_tuple();
+    for (int i=0; i<1000; ++i)
+    {
+        table_set(t3, intern_u64(i), wrap_buffer_cstring(h, "100"));
+    }
+
+    tuple tdict1 = allocate_tuple();
+
+    encode_tuple(b3, tdict1, t3);
+
+    test_assert(buffer_length(b3) > 0);
+
+    // decode
+    table tdict2 = allocate_table(h, identity_key, pointer_equal);
+    tuple t4 = decode_value(h, tdict2, b3);
+
+    //rprintf("%t\n", t4);
+    test_assert(t4->count == 1000);
 
     failure = false;
 fail:
@@ -125,6 +154,7 @@ int main(int argc, char **argv)
     failure |= all_tests(h);
     failure |= encode_decode_test(h);
     failure |= encode_decode_reference_test(h);
+    failure |= encode_decode_lengthy_test(h);
 
     if (failure) {
         msg_err("Test failed\n");
