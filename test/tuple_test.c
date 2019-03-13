@@ -51,6 +51,15 @@ boolean all_tests(heap h)
         test_assert(j3 == j2);//rprintf("j3=%d,j2=%d\n",j3, j2);
     }
 
+    failure = false;
+fail:
+    return failure;
+}
+
+boolean encode_decode_test(heap h)
+{
+    boolean failure = true;
+
     // encode
     buffer b3 = allocate_buffer(h, 128);
     tuple t3 = allocate_tuple();
@@ -82,6 +91,7 @@ int main(int argc, char **argv)
     int failure = 0;
 
     failure |= all_tests(h);
+    failure |= encode_decode_test(h);
 
     if (failure) {
         msg_err("Test failed\n");
