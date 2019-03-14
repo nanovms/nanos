@@ -14,7 +14,7 @@ endif
 
 all: objcache_test network_test id_heap_test path_test pqueue_test vector_test udp_test buffer_test range_test
 
-unit-test: objcache_test id_heap_test path_test pqueue_test vector_test buffer_test range_test
+unit-tests: objcache_test id_heap_test path_test pqueue_test vector_test buffer_test range_test
 	$(OBJCACHE_TEST)
 	$(ID_HEAP_TEST)
 	$(PATH_TEST)

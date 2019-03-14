@@ -33,18 +33,29 @@ $(TARGET): contgen
 gitversion.c : .git/index .git/HEAD
 	echo "const char *gitversion = \"$(shell git rev-parse HEAD)\";" > $@
 
-unit-test: test
-	$(MAKE) -C test unit-test
+unit-tests: test
+	$(MAKE) -C test unit-tests
 
-runtests: image
+go-tests: image
 	$(MAKE) -C tests deps
 	$(MAKE) -C tests test
 
-%-runtest:
-	$(MAKE) TARGET=$(subst -runtest,,$@) run-nokvm
+%-runtime-test-kvm:
+	$(MAKE) TARGET=$(subst -runtime-test-kvm,,$@) run
+
+%-runtime-test-nokvm:
+	$(MAKE) TARGET=$(subst -runtime-test-nokvm,,$@) run-nokvm
+
+RUNTIME_TESTS = creat fst getdents getrandom hw hws mkdir pipe write
+runtime-tests-kvm:
+	$(MAKE) -j1 $(addsuffix -runtime-test-kvm,$(RUNTIME_TESTS))
+
+runtime-tests-nokvm:
+	$(MAKE) -j1 $(addsuffix -runtime-test-nokvm,$(RUNTIME_TESTS))
 
 runtime-tests:
-	$(MAKE) -j1 $(addsuffix -runtest,creat fst getdents getrandom hw hws mkdir pipe write)
+	$(MAKE) runtime-tests-nokvm
+	$(MAKE) runtime-tests-kvm
 
 %-build: contgen
 	$(MAKE) -C $(subst -build,,$@)
@@ -85,8 +96,11 @@ QEMU	?= qemu-system-x86_64
 run-nokvm: image
 	$(QEMU) $(DISPLAY) -m 2G -device isa-debug-exit -no-reboot $(STORAGE) $(USERNET) $(DEBUG_) || exit $$(($$?>>1))
 
-run: image
+run-bridge: image
 	$(QEMU) $(DISPLAY) -m 2G -device isa-debug-exit -no-reboot $(STORAGE) $(NET) $(KVM) $(DEBUG_) || exit $$(($$?>>1))
+
+run: image
+	$(QEMU) $(DISPLAY) -m 2G -device isa-debug-exit -no-reboot $(STORAGE) $(USERNET) $(KVM) $(DEBUG_) || exit $$(($$?>>1))
 
 .PHONY: image contgen mkfs boot stage3 examples gotest test clean distclean run-nokvm run runnew
 
