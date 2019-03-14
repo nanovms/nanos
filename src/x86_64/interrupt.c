@@ -128,7 +128,7 @@ char *register_name(u64 s)
 }
 
 static thunk *handlers;
-u64 *frame;
+context frame;
 
 void *apic_base = (void *)0xfee00000;
 
