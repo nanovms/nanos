@@ -30,17 +30,36 @@ void deallocate_fd(process p, int fd)
     deallocate_u64(p->fdallocator, fd, 1);
 }
 
+/* XXX it's sort of fucked up that this can be called on behalf of an
+   interrupt handler and not in a thread context...
+*/
+boolean unix_fault_page(u64 vaddr);
 context default_fault_handler(thread t, context frame)
 {
-    print_frame(t->frame);
-    print_stack(t->frame);
-
-    if (table_find (t->p->process_root, sym(fault))) {
-        console("starting gdb\n");
-        init_tcp_gdb(heap_general(get_kernel_heaps()), t->p, 9090);
-        thread_sleep(current);
+    /* note that frame here can be int_frame or syscall_frame, not
+       necessarily the thread frame */
+    if (frame[FRAME_VECTOR] == 14) {
+        /* XXX move this to x86_64 */
+        u64 fault_address;
+        mov_from_cr("cr2", fault_address);
+        if (unix_fault_page(fault_address))
+            return frame;
     }
-    halt("");
+
+    console("Unhandled: ");
+    print_u64(frame[FRAME_VECTOR]);
+    console("\n");
+    print_frame(frame);
+    print_stack(frame);
+
+    if (table_find (current->p->process_root, sym(fault))) {
+        console("starting gdb\n");
+        init_tcp_gdb(heap_general(get_kernel_heaps()), current->p, 9090);
+        thread_sleep(current);
+    } else {
+        halt("halt\n");
+    }
+    return frame;
 }
 
 static CLOSURE_0_3(dummy_read, sysreturn, void *, u64, u64);

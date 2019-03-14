@@ -252,14 +252,19 @@ void lapic_eoi()
     write_barrier();
 }
 
+static context intframe;
+
 void common_handler()
 {
     int i = frame[FRAME_VECTOR];
 
     if ((i < interrupt_size) && handlers[i]) {
         // should we switch to the 'kernel process'?
+        context saveframe = frame;
+        frame = intframe;
         apply(handlers[i]);
         lapic_eoi();
+        frame = saveframe;
     } else {
         fault_handler f = pointer_from_u64(frame[FRAME_FAULT_HANDLER]);
 
@@ -269,7 +274,9 @@ void common_handler()
             print_stack(frame);
             vm_exit(VM_EXIT_FAULT);
         }
-        if (i < 25) frame = apply(f, frame);
+        if (i < 25) {
+            frame = apply(f, frame);
+        }
     }
 }
 
@@ -345,7 +352,11 @@ void configure_lapic_timer(heap h)
 }
 
 extern u32 interrupt_size;
- 
+
+/* XXX fuckme */
+context default_fault_handler(void * t, context frame);
+CLOSURE_1_1(default_fault_handler, context, void *, context);
+
 void start_interrupts(kernel_heaps kh)
 {
     // these are simple enough it would be better to just
@@ -355,6 +366,8 @@ void start_interrupts(kernel_heaps kh)
     heap general = heap_general(kh);
     heap pages = heap_pages(kh);
     handlers = allocate_zero(general, interrupt_size * sizeof(thunk));
+    intframe = allocate_zero(general, FRAME_MAX * sizeof(u64));
+    intframe[FRAME_FAULT_HANDLER] = u64_from_pointer(closure(general, default_fault_handler, (void *)0)); /* XXX fuck this */
     // architectural - end of exceptions
     u32 vector_start = 0x20;
     interrupt_vectors = create_id_heap(general, vector_start, interrupt_size - vector_start, 1);

@@ -1,17 +1,78 @@
 #include <unix_internal.h>
 
+#define VMAP_FLAG_MMAP          1
+#define VMAP_FLAG_ANONYMOUS     2
+
 typedef struct vmap {
     struct rmnode node;
-    /* oh, what we could do here */
+    heap vheap;                 /* presently either p->virtual or p->virtual32 */
+    u32 flags;
+    u32 prot;
 } *vmap;
 
-static inline vmap allocate_vmap(heap h, range r)
+static vmap allocate_vmap(heap h, range r)
 {
     vmap vm = allocate(h, sizeof(struct vmap));
     if (vm == INVALID_ADDRESS)
         return vm;
     rmnode_init(&vm->node, r);
     return vm;
+}
+
+/* Keep in mind that not only user instructions will fault in pages;
+   any kernel code operating on behalf of a syscall, or otherwise
+   holding onto a userspace buffer, can also cause a page
+   fault.
+
+   Therefore:
+
+   - allocating a physical page must be trivial and safe at interrupt
+     level
+
+     - if we want to avoid either big locks around the id heaps or
+       multiple writers, we can preallocate pages and keep them on a
+       free list
+
+   - needless to say, map() will need to be safe from either interrupt
+     or non-interrupt levels
+
+*/
+
+boolean unix_fault_page(u64 vaddr)
+{
+    process p = current->p;
+    kernel_heaps kh = get_kernel_heaps();
+    rmnode n;
+
+    if ((n = rangemap_lookup(p->vmap, vaddr)) != INVALID_ADDRESS) {
+#if 0
+        console(">");
+        print_u64(vaddr);
+#endif
+        vmap vm = (vmap)n;      /* XXX use macro */
+        u32 flags = VMAP_FLAG_MMAP | VMAP_FLAG_ANONYMOUS;
+        if ((vm->flags & flags) != flags) {
+            console("bad flags\n");
+            print_u64(vm->flags);
+            halt("");
+            return false;
+        }
+        u64 paddr = allocate_u64(heap_physical(kh), PAGESIZE);
+        if (paddr == INVALID_PHYSICAL) {
+            msg_err("cannot get physical page; OOM\n");
+            halt("");
+            return false;
+        }
+        u64 vaddr_aligned = vaddr & ~MASK(PAGELOG);
+        map(vaddr_aligned, paddr, PAGESIZE, heap_pages(kh));
+        zero(pointer_from_u64(vaddr_aligned), PAGESIZE);
+//        console(".");
+        return true;
+    }
+    console("page not found: ");
+    print_u64(vaddr);
+    console("\n");
+    return false;
 }
 
 sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void * new_address)
@@ -139,71 +200,80 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     process p = current->p;
     kernel_heaps kh = get_kernel_heaps();
     heap h = heap_general(kh);
-    heap pages = heap_pages(kh);
-    heap physical = heap_physical(kh);
     // its really unclear whether this should be extended or truncated
     u64 len = pad(size, PAGESIZE) & MASK(32);
     u64 where = u64_from_pointer(target);
     u64 end = where + size - 1;
     boolean fixed = (flags & MAP_FIXED) != 0;
-    thread_log(current, "mmap: target %p, size %P, prot %P, flags %P, fd %d, offset %P",
+    boolean mapped = false;
+    thread_log(current, "mmap: target %p, size %P, prot %P, flags %P, fd %d, offset %P\n",
 	       target, size, prot, flags, fd, offset);
 
-    if (target) {
+    if (where) {
 	thread_log(current, "   %s at %P", fixed ? "fixed" : "hint", where);
 
-        /* 32 bit mode is ignored if MAP_FIXED */
-        heap vh = p->virtual;
-        if (where < HUGE_PAGESIZE && end < HUGE_PAGESIZE) {
-            /* bound by kernel and zero page. */
-            if (where >= PROCESS_VIRTUAL_32_HEAP_START || end <= PROCESS_VIRTUAL_32_HEAP_END) {
-                /* Attempt to reserve low memory fixed mappings in
-                   virtual32 to avoid collisions in any future low mem
-                   allocation. Don't fail if we can't reserve or it's
-                   already reserved. */
-                id_heap_reserve(p->virtual32, where, size);
-            } else if (fixed) {
-                thread_log(current, "   map [%P - %P] outside of valid 32-bit range [%P - %P]",
-                           where, end, PROCESS_VIRTUAL_32_HEAP_START, PROCESS_VIRTUAL_32_HEAP_END);
-                return -ENOMEM;
-            } else {
-                target = 0; /* allocate */
-            }
+        vmap vmap_start = (vmap)rangemap_lookup(p->vmap, where);
+        vmap vmap_end = (vmap)rangemap_lookup(p->vmap, end);
+        if (vmap_start != INVALID_ADDRESS &&
+            vmap_end == vmap_start &&
+            (vmap_start->flags & VMAP_FLAG_ANONYMOUS) == 0) {
+            mapped = true;
         } else {
-            if (where < PROCESS_VIRTUAL_HEAP_START || end > PROCESS_VIRTUAL_HEAP_END) {
-                /* Try to allow outside our process virtual space, as
-                   long as we can block it out in virtual_huge. */
-                vh = heap_virtual_huge(kh);
-            }
-
-            /* XXX range lookup in rtrie is broke, do manually until
-               fixed... note that this check could pass even if start and
-               end lie in two different mmapped areas. No matter, as we
-               just need to verify that this overlapping map lies in a
-               huge page that we're already using...the overlapping mmap
-               lawlessness is to be tolerated for the moment.
-
-               This is like a really crude start to vm tracking...
-            */
-            if (rangemap_lookup(p->vmap, where) == INVALID_ADDRESS ||
-                rangemap_lookup(p->vmap, end) == INVALID_ADDRESS) {
-                u64 mapstart = where & ~(HUGE_PAGESIZE - 1);
-                u64 mapend = pad(end, HUGE_PAGESIZE);
-                u64 maplen = mapend - mapstart + 1;
-
-                if (id_heap_reserve(vh, mapstart, maplen)) {
-                    vmap vm = allocate_vmap(h, irange(mapstart, mapstart + maplen));
-                    if (vm == INVALID_ADDRESS) {
-                        msg_err("failed to allocate vmap\n");
-                        return -ENOMEM;
-                    }
-                    assert(rangemap_insert(p->vmap, &vm->node));
+            /* 32 bit mode is ignored if MAP_FIXED */
+            heap vh = p->virtual;
+            if (where < HUGE_PAGESIZE && end < HUGE_PAGESIZE) {
+                /* bound by kernel and zero page. */
+                if (where >= PROCESS_VIRTUAL_32_HEAP_START || end <= PROCESS_VIRTUAL_32_HEAP_END) {
+                    /* Attempt to reserve low memory fixed mappings in
+                       virtual32 to avoid collisions in any future low mem
+                       allocation. Don't fail if we can't reserve or it's
+                       already reserved. */
+                    id_heap_reserve(p->virtual32, where, size);
                 } else if (fixed) {
-                    thread_log(current, "   failed to reserve area [%P - %P] in id heap",
-                               where, end);
+                    thread_log(current, "   map [%P - %P] outside of valid 32-bit range [%P - %P]",
+                               where, end, PROCESS_VIRTUAL_32_HEAP_START, PROCESS_VIRTUAL_32_HEAP_END);
                     return -ENOMEM;
                 } else {
                     target = 0; /* allocate */
+                }
+            } else {
+                if (where < PROCESS_VIRTUAL_HEAP_START || end > PROCESS_VIRTUAL_HEAP_END) {
+                    /* Try to allow outside our process virtual space, as
+                       long as we can block it out in virtual_huge. */
+                    vh = heap_virtual_huge(kh);
+                }
+
+                /* XXX range lookup in rtrie is broke, do manually until
+                   fixed... note that this check could pass even if start and
+                   end lie in two different mmapped areas. No matter, as we
+                   just need to verify that this overlapping map lies in a
+                   huge page that we're already using...the overlapping mmap
+                   lawlessness is to be tolerated for the moment.
+
+                   This is like a really crude start to vm tracking...
+                */
+                if (vmap_start == INVALID_ADDRESS || vmap_end == INVALID_ADDRESS) {
+                    u64 mapstart = where & ~(HUGE_PAGESIZE - 1);
+                    u64 mapend = pad(end, HUGE_PAGESIZE);
+                    u64 maplen = mapend - mapstart + 1;
+
+                    if (id_heap_reserve(vh, mapstart, maplen)) {
+                        vmap vm = allocate_vmap(h, irange(mapstart, mapstart + maplen));
+                        if (vm == INVALID_ADDRESS) {
+                            msg_err("failed to allocate vmap\n");
+                        return -ENOMEM;
+                        }
+                        vm->flags = VMAP_FLAG_MMAP;
+                        if ((flags & MAP_ANONYMOUS))
+                            vm->flags |= VMAP_FLAG_ANONYMOUS;
+                        assert(rangemap_insert(p->vmap, &vm->node));
+                    } else if (fixed) {
+                        thread_log(current, "   failed to reserve area [%P - %P] in id heap",
+                                   where, end);
+                        return -ENOMEM;
+                    } else {
+                        target = 0; /* allocate */
+                    }
                 }
             }
         }
@@ -233,19 +303,50 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
             deallocate_u64(vh, where, maplen);
             return -ENOMEM;
         }
+        vm->flags = VMAP_FLAG_MMAP;
+        if ((flags & MAP_ANONYMOUS))
+            vm->flags |= VMAP_FLAG_ANONYMOUS;
         assert(rangemap_insert(p->vmap, &vm->node));
     }
 
     // make a generic zero page function
     if (flags & MAP_ANONYMOUS) {
-        u64 m = allocate_u64(physical, len);
-        if (m == INVALID_PHYSICAL) {
-            msg_err("failed to allocate physical memory, size %d\n", len);
-            return -ENOMEM;
+#if 0
+        if (mapped) {
+            rprintf("zero only at 0x%P, 0x%P\n", where, len);
+        } else {
+            heap pages = heap_pages(kh);
+            heap physical = heap_physical(kh);
+            u64 m = allocate_u64(physical, len);
+            if (m == INVALID_PHYSICAL) {
+                msg_err("failed to allocate physical memory, size %d\n", len);
+                return -ENOMEM;
+            }
+            map(where, m, len, pages);
+            thread_log(current, "   anon target: %P, len: %P (given size: %P)", where, len, size);
         }
-        map(where, m, len, pages);
-        thread_log(current, "   anon target: %P, len: %P (given size: %P)", where, len, size);
         zero(pointer_from_u64(where), len);
+#else
+        if (mapped) {
+            /* just zero */
+//            rprintf("anon zero: 0x%P, 0x%P\n", where, len);
+            zero(pointer_from_u64(where), len);
+        } else {
+#if 0
+            u64 end = where + len;
+            for (u64 v = where; v < end; v += PAGESIZE) {
+                u64 p = physical_from_virtual(pointer_from_u64(v));
+                if (p != INVALID_PHYSICAL)
+                    rprintf("fuckme: 0x%P -> 0x%P\n", v, p);
+            }
+#endif
+//            heap pages = heap_pages(kh);
+            /* shouldn't have to...debug */
+//            unmap(where, len, pages);
+//            rprintf("anon nomap: 0x%P, 0x%P\n", where, len);
+            thread_log(current, "   anon nomap target: %P, len: %P (given size: %P)", where, len, size);
+        }
+#endif
         return where;
     }
 
