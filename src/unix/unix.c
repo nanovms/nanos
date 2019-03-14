@@ -30,7 +30,7 @@ void deallocate_fd(process p, int fd)
     deallocate_u64(p->fdallocator, fd, 1);
 }
 
-void default_fault_handler(thread t, context frame)
+context default_fault_handler(thread t, context frame)
 {
     print_frame(t->frame);
     print_stack(t->frame);

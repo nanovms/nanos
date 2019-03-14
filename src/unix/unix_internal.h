@@ -219,8 +219,7 @@ boolean pipe_init(unix_heaps uh);
 #define sysreturn_from_pointer(__x) ((s64)u64_from_pointer(__x));
 
 extern sysreturn syscall_ignore();
-//CLOSURE_1_1(default_fault_handler, void, thread, context);
-void default_fault_handler(thread t, context frame);
+context default_fault_handler(thread t, context frame);
 void thread_log_internal(thread t, char *desc, ...);
 #define thread_log(__t, __desc, ...) thread_log_internal(__t, __desc, ##__VA_ARGS__)
 // this should always be current
