@@ -36,6 +36,16 @@ gitversion.c : .git/index .git/HEAD
 unit-test: test
 	$(MAKE) -C test unit-test
 
+release : image
+	rm -r release
+	mkdir release
+	cp output/boot/boot.img release
+	cp output/mkfs/bin/mkfs release
+	cp output/stage3/stage3.img release
+	cd release
+	tar -czvf nanos-release-$(OS)-${version}.tar.gz *
+	mv nanos-release-$(OS)-${version}.tar.gz release
+
 runtests: image
 	$(MAKE) -C tests deps
 	$(MAKE) -C tests test
