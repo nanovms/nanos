@@ -1171,6 +1171,13 @@ sysreturn uname(struct utsname *v)
     char sys[] = "pugnix";
     runtime_memcpy(v->sysname,sys, sizeof(sys));
     runtime_memcpy(v->release, rel, sizeof(rel));
+
+    //v->sysname[0] = 0;
+    v->nodename[0] = 0;
+    //v->release[0] = 0;
+    v->version[0] = 0;
+    v->machine[0] = 0;
+
     return 0;
 }
 
