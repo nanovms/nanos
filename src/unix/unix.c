@@ -173,7 +173,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     set_syscall_handler(syscall_enter);
     process kernel_process = create_process(uh, root, fs);
     current = create_thread(kernel_process);
-    frame = current->frame;
+    running_frame = current->frame;
     init_vdso(heap_physical(kh), heap_pages(kh));
     register_special_files(kernel_process);
     init_syscalls();

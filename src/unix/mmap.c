@@ -45,10 +45,6 @@ boolean unix_fault_page(u64 vaddr)
     rmnode n;
 
     if ((n = rangemap_lookup(p->vmap, vaddr)) != INVALID_ADDRESS) {
-#if 0
-        console(">");
-        print_u64(vaddr);
-#endif
         vmap vm = (vmap)n;      /* XXX use macro */
         u32 flags = VMAP_FLAG_MMAP | VMAP_FLAG_ANONYMOUS;
         if ((vm->flags & flags) != flags) {
@@ -66,7 +62,6 @@ boolean unix_fault_page(u64 vaddr)
         u64 vaddr_aligned = vaddr & ~MASK(PAGELOG);
         map(vaddr_aligned, paddr, PAGESIZE, heap_pages(kh));
         zero(pointer_from_u64(vaddr_aligned), PAGESIZE);
-//        console(".");
         return true;
     }
     console("page not found: ");

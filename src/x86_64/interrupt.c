@@ -84,12 +84,11 @@ char *interrupt_name(u64 s)
 }
 
 
-void write_idt(u64 *idt, int interrupt, void *hv)
+void write_idt(u64 *idt, int interrupt, void *hv, u64 ist)
 {
     // huh, idt entries are virtual 
     u64 h = u64_from_pointer(hv); 
     u64 selector = 0x08;
-    u64 ist = 0; // this is a stask switch through the tss
     u64 type_attr = 0x8e;
         
     u64 *target = (void *)(u64)(idt + 2*interrupt);
@@ -128,7 +127,7 @@ char *register_name(u64 s)
 }
 
 static thunk *handlers;
-context frame;
+context running_frame;
 
 void *apic_base = (void *)0xfee00000;
 
@@ -256,26 +255,26 @@ static context intframe;
 
 void common_handler()
 {
-    int i = frame[FRAME_VECTOR];
+    int i = running_frame[FRAME_VECTOR];
 
     if ((i < interrupt_size) && handlers[i]) {
         // should we switch to the 'kernel process'?
-        context saveframe = frame;
-        frame = intframe;
+        context saveframe = running_frame;
+        running_frame = intframe;
         apply(handlers[i]);
         lapic_eoi();
-        frame = saveframe;
+        running_frame = saveframe;
     } else {
-        fault_handler f = pointer_from_u64(frame[FRAME_FAULT_HANDLER]);
+        fault_handler f = pointer_from_u64(running_frame[FRAME_FAULT_HANDLER]);
 
         if (f == 0) {
             rprintf ("no fault handler\n");
-            print_frame(frame);
-            print_stack(frame);
+            print_frame(running_frame);
+            print_stack(running_frame);
             vm_exit(VM_EXIT_FAULT);
         }
         if (i < 25) {
-            frame = apply(f, frame);
+            running_frame = apply(f, running_frame);
         }
     }
 }
@@ -357,6 +356,36 @@ extern u32 interrupt_size;
 context default_fault_handler(void * t, context frame);
 CLOSURE_1_1(default_fault_handler, context, void *, context);
 
+#define FAULT_STACK_PAGES       8
+#define RSP0_STACK_PAGES        8
+
+extern volatile void * TSS;
+static inline void write_tss_u64(int offset, u64 val)
+{
+    u64 * vec = (u64 *)(u64_from_pointer(&TSS) + offset);
+#if 0
+    console("tss ");
+    print_u64(u64_from_pointer(vec));
+    console(" = ");
+    print_u64(val);
+#endif
+    *vec = val;
+}
+
+static void set_ist(int i, u64 sp)
+{
+    assert(i > 0 && i <= 7);
+    write_tss_u64(0x24 + (i - 1) * 8, sp);
+}
+
+#if 0
+static void set_rsp(int i, u64 sp)
+{
+    assert(i >= 0 && i <= 2);
+    write_tss_u64(0x04 + i * 8, sp);
+}
+#endif
+
 void start_interrupts(kernel_heaps kh)
 {
     // these are simple enough it would be better to just
@@ -368,15 +397,35 @@ void start_interrupts(kernel_heaps kh)
     handlers = allocate_zero(general, interrupt_size * sizeof(thunk));
     intframe = allocate_zero(general, FRAME_MAX * sizeof(u64));
     intframe[FRAME_FAULT_HANDLER] = u64_from_pointer(closure(general, default_fault_handler, (void *)0)); /* XXX fuck this */
+
+    /* XXX make helper */
+    void *faultstack = allocate_zero(pages, pages->pagesize * FAULT_STACK_PAGES);
+    u64 fs_top = (u64)faultstack + pages->pagesize * FAULT_STACK_PAGES - sizeof(u64);
+#if 0
+    console("fs_top ");
+    print_u64(fs_top);
+    console("\n");
+#endif
+    set_ist(1, fs_top);
+
+#if 0
+    void *rsp0stack = allocate_zero(pages, pages->pagesize * RSP0_STACK_PAGES);
+    u64 rs_top = (u64)rsp0stack + pages->pagesize * RSP0_STACK_PAGES - sizeof(u64);
+    console("rs_top ");
+    print_u64(rs_top);
+    console("\n");
+    set_rsp(0, rs_top);
+#endif
+
     // architectural - end of exceptions
     u32 vector_start = 0x20;
     interrupt_vectors = create_id_heap(general, vector_start, interrupt_size - vector_start, 1);
     // assuming contig gives us a page aligned, page padded identity map
     idt = allocate(pages, pages->pagesize);
-    frame = allocate(pages, pages->pagesize);
+    running_frame = allocate(pages, pages->pagesize); // XXX ?
 
     for (int i = 0; i < interrupt_size; i++) 
-        write_idt(idt, i, start + i * delta);
+        write_idt(idt, i, start + i * delta, i == 0xe ? 1 : 0);
     
     u16 *dest = (u16 *)(idt + 2*interrupt_size);
     dest[0] = 16*interrupt_size -1;

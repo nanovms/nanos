@@ -1463,13 +1463,13 @@ static void syscall_debug()
     sysreturn (*h)(u64, u64, u64, u64, u64, u64) = current->p->syscall_handlers[call];
     sysreturn res = -ENOSYS;
     if (h) {
-        context saveframe = frame;
-        frame = syscall_frame;
-        frame[FRAME_FAULT_HANDLER] = f[FRAME_FAULT_HANDLER]; /* XXX blech */
+        context saveframe = running_frame;
+        running_frame = syscall_frame;
+        running_frame[FRAME_FAULT_HANDLER] = f[FRAME_FAULT_HANDLER]; /* XXX blech */
         res = h(f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]);
         if (debugsyscalls)
             thread_log(current, "direct return: %d, rsp 0x%P", res, f[FRAME_RSP]);
-        frame = saveframe;
+        running_frame = saveframe;
     } else if (debugsyscalls) {
         thread_log(current, "nosyscall %s", syscall_name(call));
     }

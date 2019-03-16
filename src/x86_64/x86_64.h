@@ -67,7 +67,7 @@ static inline u64 lsb(u64 x)
 
 typedef u64 *context;
 
-extern u64 *frame;
+extern context running_frame;
 
 #define BREAKPOINT_INSTRUCTION 00
 #define BREAKPOINT_WRITE 01
