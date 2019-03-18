@@ -254,8 +254,8 @@ static void virtio_scsi_read_capacity_done(storage_attach a, u16 target, u16 lun
     virtio_scsi_debug("%s: target %d, lun %d, block size 0x%P, capacity 0x%P\n",
         __func__, target, lun, s->block_size, s->capacity);
 
-    block_read in = closure(s->v->general, virtio_scsi_read, s);
-    block_write out = closure(s->v->general, virtio_scsi_write, s);
+    block_io in = closure(s->v->general, virtio_scsi_read, s);
+    block_io out = closure(s->v->general, virtio_scsi_write, s);
     apply(a, in, out, s->capacity);
 }
 

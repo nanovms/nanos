@@ -33,7 +33,7 @@
 #define VIRTIO_TRANSPORT_F_START	28
 #define VIRTIO_TRANSPORT_F_END		32
 
-typedef closure_type(storage_attach, void, block_read, block_write, u64);
+typedef closure_type(storage_attach, void, block_io, block_io, u64);
 void init_virtio_storage(kernel_heaps kh, storage_attach);
 void init_virtio_network(kernel_heaps kh);
 void init_network_iface(tuple root);
