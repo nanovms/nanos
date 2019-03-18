@@ -1,9 +1,11 @@
-tests/tempimage
-tests/image*
-/examples/soop.data
-/tests/.staging/*
-/tests/image
-/tags
+test/go/instance.img
+test/go/image*
+test/go/.staging/*
+test/go/image
+test/runtime/soop.data
+ID
+tags
+TAGS
 
 # Default build directiory
 output

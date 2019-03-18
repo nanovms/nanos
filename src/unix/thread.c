@@ -2,8 +2,7 @@
 
 thread current;
 
-CLOSURE_1_1(default_fault_handler, void, thread, context);
-
+CLOSURE_1_1(default_fault_handler, context, thread, context);
 
 static u64 futex_key_function(void *x)
 {
@@ -46,14 +45,16 @@ sysreturn arch_prctl(int code, unsigned long a)
 
 sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, unsigned long newtls)
 {
-    thread_log(current, "clone: flags %P, child_stack %p, ptid %p, ctid %p, newtls %d",
+    thread_log(current, "clone: flags %P, child_stack %p, ptid %p, ctid %p, newtls %P",
         flags, child_stack, ptid, ctid, newtls);
+
+    /* clone thread context up to FRAME_VECTOR */
     thread t = create_thread(current->p);
-    runtime_memcpy(t->frame, current->frame, sizeof(t->frame));
+    runtime_memcpy(t->frame, current->frame, sizeof(u64) * FRAME_ERROR_CODE);
+
+    /* clone behaves like fork at the syscall level, returning 0 to the child */
+    set_syscall_return(t, 0);
     t->frame[FRAME_RSP]= u64_from_pointer(child_stack);
-    // xxx - the interpretation of ctid is dependent on flags
-    // and it can be zero
-    // t->frame[FRAME_RAX]= *(u32 *)ctid; 
     t->frame[FRAME_FS] = newtls;
     if (flags & CLONE_PARENT_SETTID)
         *ptid = t->tid;
@@ -62,7 +63,6 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, un
     thread_wakeup(t);
     return t->tid;
 }
-
 
 typedef struct fut {
     queue waiters;
