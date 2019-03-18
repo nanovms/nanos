@@ -6,18 +6,31 @@ UNAME_s = $(shell uname -s)
 # To reveal verbose build messages, override Q= in command line.
 Q	?= @
 
-GO	?= go
+CAT	?= cat
 CC	?= cc
-NASM	?= nasm
-LD	?= ld
+DD	?= dd
+ifeq ($(UNAME_s),Darwin)
+GNUTAR	?= gnutar
+else
+GNUTAR	?= tar
+endif
+GO	?= go
 HOSTCC	?= cc
 HOSTLD  ?= $(HOSTCC)
+NASM	?= nasm
+LD	?= ld
+LN	?= ln
 STRIP	?= strip
 OBJCOPY	?= objcopy
 OBJDUMP ?= objdump
-DD	?= dd
-CAT	?= cat
 RM	?= rm
+
+GCLOUD		?= gcloud
+GSUTIL		?= gsutil
+GCE_PROJECT	?= prod-1033
+GCE_BUCKET	?= nanos-test/gce-images
+GCE_IMAGE	?= nanos-$(TARGET)
+GCE_INSTANCE	?= nanos-$(TARGET)
 
 CFLAG_WARNINGS = \
     -Wimplicit-function-declaration \
