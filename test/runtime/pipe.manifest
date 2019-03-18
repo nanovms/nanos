@@ -2,10 +2,14 @@
     #64 bit elf to boot from host
     children:(kernel:(contents:(host:output/stage3/stage3.img))
               #user program
-              udploop:(contents:(host:output/examples/udploop)))
+	      pipe:(contents:(host:output/test/runtime/pipe))
+	      )
     # filesystem path to elf for kernel to run
-    program:/udploop
+    program:/pipe
+    trace:t
+    debugsyscalls:t
+    futex_trace:t
     fault:t
-    arguments:[udploop]
+    arguments:[test]
     environment:(USER:bobby PWD:/)
 )
