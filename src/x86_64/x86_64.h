@@ -204,9 +204,12 @@ void *queue_peek(queue q);
 int queue_length(queue q);
 queue allocate_queue(heap h, u64 size);
 void deallocate_queue(queue q);
+
+context allocate_frame(heap h);
 void runloop() __attribute__((noreturn));
 void handle_interrupts();
 void install_fallback_fault_handler(fault_handler h);
+
 void map(u64 virtual, physical p, int length, heap h);
 void unmap(u64 virtual, int length, heap h);
 

@@ -1463,9 +1463,11 @@ static void syscall_debug()
     sysreturn (*h)(u64, u64, u64, u64, u64, u64) = current->p->syscall_handlers[call];
     sysreturn res = -ENOSYS;
     if (h) {
+        /* exchange frames so that a fault won't clobber the syscall
+           context, but retain the fault handler that has current enclosed */
         context saveframe = running_frame;
         running_frame = syscall_frame;
-        running_frame[FRAME_FAULT_HANDLER] = f[FRAME_FAULT_HANDLER]; /* XXX blech */
+        running_frame[FRAME_FAULT_HANDLER] = f[FRAME_FAULT_HANDLER];
         res = h(f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]);
         if (debugsyscalls)
             thread_log(current, "direct return: %d, rsp 0x%P", res, f[FRAME_RSP]);
@@ -1484,6 +1486,7 @@ void init_syscalls()
 {
     //syscall = b->contents;
     // debug the synthesized version later, at least we have the table dispatch
+    heap h = heap_general(get_kernel_heaps());
     syscall = syscall_debug;
-    syscall_frame = allocate_zero(heap_general(get_kernel_heaps()), FRAME_MAX * sizeof(u64));
+    syscall_frame = allocate_frame(h);
 }

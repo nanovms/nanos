@@ -382,7 +382,7 @@ static void set_ist(int i, u64 sp)
     write_tss_u64(0x24 + (i - 1) * 8, sp);
 }
 
-static context allocate_frame(heap h)
+context allocate_frame(heap h)
 {
     context f = allocate_zero(h, FRAME_MAX * sizeof(u64));
     assert(f != INVALID_ADDRESS);
