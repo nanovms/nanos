@@ -1,11 +1,11 @@
 include config.mk
 
-all: image test
+all: image test-build
 
 image: gitversion.c mkfs boot stage3 target
 	@ echo "MKFS	$@"
 	@ mkdir -p $(dir $(IMAGE))
-	$(Q) $(MKFS) $(TARGET_ROOT_OPT) $(FS) < examples/$(TARGET).manifest && cat $(BOOTIMG) $(FS) > $(IMAGE)
+	$(Q) $(MKFS) $(TARGET_ROOT_OPT) $(FS) < test/runtime/$(TARGET).manifest && cat $(BOOTIMG) $(FS) > $(IMAGE)
 
 stage: image
 	- mkdir -p .staging
@@ -45,30 +45,50 @@ boot: boot-build
 
 stage3: stage3-build
 
-test: test-build
+test-build:
+	$(MAKE) -C test
 
-examples: examples-build
+test: test-build
+	$(MAKE) unit-tests
+	$(MAKE) go-tests
+	$(MAKE) runtime-tests
+
+test-nokvm: test-build
+	$(MAKE) unit-tests
+	$(MAKE) go-tests
+	$(MAKE) runtime-tests-nokvm
 
 target: $(TARGET)
 
 $(TARGET): contgen
-	$(MAKE) -C examples
+	$(MAKE) -C test/runtime
 
 gitversion.c : .git/index .git/HEAD
 	echo "const char *gitversion = \"$(shell git rev-parse HEAD)\";" > $@
 
-unit-test: test
-	$(MAKE) -C test unit-test
+unit-tests:
+	$(MAKE) -C test/unit test
 
-runtests: image
-	$(MAKE) -C tests deps
-	$(MAKE) -C tests test
+go-tests: image
+	$(MAKE) -C test/go test
 
-%-runtest:
-	$(MAKE) TARGET=$(subst -runtest,,$@) run-nokvm
+# maybe move these to test/runtime/Makefile - first put image building in common
+%-runtime-test-kvm:
+	$(MAKE) TARGET=$(subst -runtime-test-kvm,,$@) run
+
+%-runtime-test-nokvm:
+	$(MAKE) TARGET=$(subst -runtime-test-nokvm,,$@) run-nokvm
+
+RUNTIME_TESTS = creat fst getdents getrandom hw hws mkdir pipe write
+runtime-tests-kvm:
+	$(MAKE) -j1 $(addsuffix -runtime-test-kvm,$(RUNTIME_TESTS))
+
+runtime-tests-nokvm:
+	$(MAKE) -j1 $(addsuffix -runtime-test-nokvm,$(RUNTIME_TESTS))
 
 runtime-tests:
-	$(MAKE) -j1 $(addsuffix -runtest,creat fst getdents getrandom hw hws mkdir pipe write)
+	$(MAKE) runtime-tests-nokvm
+	$(MAKE) runtime-tests-kvm
 
 %-build: contgen
 	$(MAKE) -C $(subst -build,,$@)
@@ -77,8 +97,7 @@ runtime-tests:
 	$(MAKE) -C $(subst -clean,,$@) clean
 
 clean:
-	$(MAKE) $(addsuffix -clean,contgen boot stage3 mkfs examples test)
-	$(MAKE) -C tests clean
+	$(MAKE) $(addsuffix -clean,contgen boot stage3 mkfs test)
 	$(Q) $(RM) -f $(FS) $(IMAGE)
 	$(Q) $(RM) -rfd $(dir $(IMAGE)) output
 	$(Q) $(RM) -f gitversion.c
@@ -109,9 +128,12 @@ QEMU	?= qemu-system-x86_64
 run-nokvm: image
 	$(QEMU) $(DISPLAY) -m 2G -device isa-debug-exit -no-reboot $(STORAGE) $(USERNET) $(DEBUG_) || exit $$(($$?>>1))
 
-run: image
+run-bridge: image
 	$(QEMU) $(DISPLAY) -m 2G -device isa-debug-exit -no-reboot $(STORAGE) $(NET) $(KVM) $(DEBUG_) || exit $$(($$?>>1))
 
-.PHONY: image contgen mkfs boot stage3 examples gotest test clean distclean run-nokvm run runnew
+run: image
+	$(QEMU) $(DISPLAY) -m 2G -device isa-debug-exit -no-reboot $(STORAGE) $(USERNET) $(KVM) $(DEBUG_) || exit $$(($$?>>1))
+
+.PHONY: image contgen mkfs boot stage3 test clean distclean run-nokvm run
 
 include rules.mk
