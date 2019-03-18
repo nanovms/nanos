@@ -43,8 +43,20 @@ jobs:
     steps:
       - checkout
       - run: CI=1 /usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
-      - run: brew install go
+      - run: brew update && brew install nasm && brew install go
+      - run: brew tap nanovms/homebrew-x86_64-elf
+      - run: brew install x86_64-elf-binutils
       - run: make
+      - run: cp .circleci/boto ~/.boto
+      - run: wget https://storage.googleapis.com/pub/gsutil.tar.gz
+      - run: tar xfz gsutil.tar.gz -C ~
+      - run: mkdir temp && cp output/stage3/stage3.img temp/ && cp output/boot/boot.img temp/ && cp output/mkfs/bin/mkfs temp/
+      - run: cd temp && tar cvzf nanos-nightly-darwin.tar.gz * && ~/gsutil/gsutil cp nanos-nightly-darwin.tar.gz gs://nanos/release/nightly
+      - run: ~/gsutil/gsutil acl ch -u AllUsers:R gs://nanos/release/nightly/nanos-nightly-darwin.tar.gz
+      - run: rm -r temp
+      - run: echo $(date +"%m%d%Y") > nanos-nightly-darwin.timestamp
+      - run: ~/gsutil/gsutil cp nanos-nightly-darwin.timestamp gs://nanos/release/nightly
+      - run: ~/gsutil/gsutil acl ch -u AllUsers:R gs://nanos/release/nightly/nanos-nightly-darwin.timestamp
 
 workflows:
   version: 2
