@@ -2,10 +2,10 @@
     #64 bit elf to boot from host
     children:(kernel:(contents:(host:output/stage3/stage3.img))
               #user program
-              webs:(contents:(host:output/examples/webs)))
+              webs:(contents:(host:output/test/runtime/webs)))
     # filesystem path to elf for kernel to run
     program:/webs
     fault:t
-    arguments:[webs -poll 1]
+    arguments:[webs]
     environment:(USER:bobby PWD:/)
 )

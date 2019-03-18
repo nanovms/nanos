@@ -1,7 +1,7 @@
-include ../config.mk
-include ../common.mk
+include ../../config.mk
+include ../../common.mk
 
-OUT = $(ROOT)/output/examples
+OUT = $(ROOT)/output/test/runtime
 
 CFLAGS = -g \
 	 -fno-omit-frame-pointer \
@@ -64,7 +64,7 @@ includes := \
 	-I$(SRC)/x86_64
 
 hw-srcs := \
-	$(ROOT)/examples/hw.c
+	$(ROOT)/test/runtime/hw.c
 
 hw-objs = $(call srcs-to-objs,$(ROOT),$(OUT),hw)
 
@@ -82,7 +82,7 @@ $(HWS): $(hw-objs)
 	$(call cmd,host-prog)
 
 getdents-srcs := \
-	$(ROOT)/examples/getdents.c
+	$(ROOT)/test/runtime/getdents.c
 
 getdents-objs = $(call srcs-to-objs,$(ROOT),$(OUT),getdents)
 
@@ -91,7 +91,7 @@ $(GETDENTS): $(getdents-objs)
 	$(call cmd,host-prog)
 
 write-srcs := \
-	$(ROOT)/examples/write.c
+	$(ROOT)/test/runtime/write.c
 
 write-objs = $(call srcs-to-objs,$(ROOT),$(OUT),write)
 
@@ -100,7 +100,7 @@ $(WRITE): $(write-objs)
 	$(call cmd,host-prog)
 
 sendfile-srcs := \
-	$(ROOT)/examples/sendfile.c
+	$(ROOT)/test/runtime/sendfile.c
 
 sendfile-objs = $(call srcs-to-objs,$(ROOT),$(OUT),sendfile)
 
@@ -109,7 +109,7 @@ $(SENDFILE): $(sendfile-objs)
 	$(call cmd,host-prog)
 
 mkdir-srcs := \
-	$(ROOT)/examples/mkdir.c
+	$(ROOT)/test/runtime/mkdir.c
 
 mkdir-objs = $(call srcs-to-objs,$(ROOT),$(OUT),mkdir)
 
@@ -118,7 +118,7 @@ $(MKDIR): $(mkdir-objs)
 	$(call cmd,host-prog)
 
 udploop-srcs := \
-	$(ROOT)/examples/udploop.c \
+	$(ROOT)/test/runtime/udploop.c \
 	$(SRC)/unix_process/unix_process_runtime.c \
 	$(SRC)/unix_process/mmap_heap.c \
 	$(SRC)/unix_process/http.c \
@@ -155,7 +155,7 @@ $(UDPLOOP): $(udploop-objs)
 	$(call cmd,host-prog)
 
 getrandom-srcs := \
-	$(ROOT)/examples/getrandom.c
+	$(ROOT)/test/runtime/getrandom.c
 
 getrandom-objs = $(call srcs-to-objs,$(ROOT),$(OUT),getrandom)
 
@@ -165,7 +165,7 @@ $(GETRANDOM): $(getrandom-objs)
 	$(call cmd,host-prog)
 
 creat-srcs := \
-	$(ROOT)/examples/creat.c
+	$(ROOT)/test/runtime/creat.c
 
 creat-objs = $(call srcs-to-objs,$(ROOT),$(OUT),creat)
 
@@ -174,7 +174,7 @@ $(CREAT): $(creat-objs)
 	$(call cmd,host-prog)
 
 time-srcs := \
-	$(ROOT)/examples/time.c
+	$(ROOT)/test/runtime/time.c
 
 time-objs = $(call srcs-to-objs,$(ROOT),$(OUT),time)
 
@@ -183,7 +183,7 @@ $(TIME): $(time-objs)
 	$(call cmd,host-prog)
 
 pipe-srcs := \
-	$(ROOT)/examples/pipe.c \
+	$(ROOT)/test/runtime/pipe.c \
 	$(SRC)/unix_process/unix_process_runtime.c \
 	$(SRC)/unix/path.c \
 	$(SRC)/runtime/bitmap.c \
@@ -213,7 +213,7 @@ $(PIPE): $(pipe-objs)
 	$(call cmd,host-prog)
 
 web-srcs := \
-	$(ROOT)/examples/web.c \
+	$(ROOT)/test/runtime/web.c \
 	$(SRC)/unix_process/unix_process_runtime.c \
 	$(SRC)/unix_process/mmap_heap.c \
 	$(SRC)/unix_process/http.c \
@@ -276,4 +276,4 @@ clean: default-clean
 .PHONY: fst hw hwg hws web webg webgs webs getdents getrandom time udploop mkdir \
 	pipe write creat sendfile
 
-include ../rules.mk
+include ../../rules.mk

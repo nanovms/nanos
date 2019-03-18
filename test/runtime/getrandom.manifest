@@ -2,10 +2,14 @@
     #64 bit elf to boot from host
     children:(kernel:(contents:(host:output/stage3/stage3.img))
               #user program
-              webs:(contents:(host:output/examples/webs)))
+	      getrandom:(contents:(host:output/test/runtime/getrandom))
+	      )
     # filesystem path to elf for kernel to run
-    program:/webs
+    program:/getrandom
+    trace:t
+    debugsyscalls:t
+    futex_trace:t
     fault:t
-    arguments:[webs -select 1]
+    arguments:[webg poppy]
     environment:(USER:bobby PWD:/)
 )
