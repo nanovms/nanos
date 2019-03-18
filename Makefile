@@ -13,6 +13,30 @@ stage: image
 	- cp -a output/boot/boot.img .staging/boot.img
 	- cp -a output/stage3/stage3.img .staging/stage3.img
 
+.PHONY: upload-gce-image gce-image delete-gce-image
+.PHONY: run-gce delete-gce gce-console
+
+upload-gce-image: image
+	$(LN) -f $(IMAGE) $(dir $(IMAGE))disk.raw
+	cd $(dir $(IMAGE)) && $(GNUTAR) cfz $(GCE_IMAGE)-image.tar.gz disk.raw
+	$(GSUTIL) cp $(dir $(IMAGE))$(GCE_IMAGE)-image.tar.gz gs://$(GCE_BUCKET)/$(GCE_IMAGE)-image.tar.gz
+
+gce-image: | upload-gce-image delete-gce-image
+	$(GCLOUD) compute --project=$(GCE_PROJECT) images create $(GCE_IMAGE) --source-uri=https://storage.googleapis.com/$(GCE_BUCKET)/$(GCE_IMAGE)-image.tar.gz
+
+delete-gce-image:
+	- $(GCLOUD) compute --project=$(GCE_PROJECT) images delete $(GCE_IMAGE) --quiet
+
+run-gce: delete-gce
+	$(GCLOUD) compute --project=$(GCE_PROJECT) instances create $(GCE_INSTANCE) --machine-type=custom-1-2048 --image=nanos-$(TARGET) --image-project=$(GCE_PROJECT) --tags=nanos
+	@$(MAKE) gce-console
+
+delete-gce:
+	- $(GCLOUD) compute --project=$(GCE_PROJECT) instances delete $(GCE_INSTANCE) --quiet
+
+gce-console:
+	$(GCLOUD) compute --project=$(GCE_PROJECT) instances tail-serial-port-output $(GCE_INSTANCE)
+
 contgen: $(CONTGEN)
 
 mkfs: mkfs-build
@@ -92,8 +116,8 @@ TARGET_ROOT_OPT= -r $(NANOS_TARGET_ROOT)
 endif
 
 STORAGE	= -drive if=none,id=hd0,format=raw,file=$(IMAGE)
-STORAGE+= -device virtio-blk,drive=hd0
-#STORAGE+= -device virtio-scsi-pci,id=scsi0 -device scsi-hd,bus=scsi0.0,drive=hd0
+#STORAGE+= -device virtio-blk,drive=hd0
+STORAGE+= -device virtio-scsi-pci,id=scsi0 -device scsi-hd,bus=scsi0.0,drive=hd0
 TAP	= -netdev tap,id=n0,ifname=tap0,script=no,downscript=no
 NET	= -device virtio-net,mac=7e:b8:7e:87:4a:ea,netdev=n0 $(TAP)
 KVM	= -enable-kvm
