@@ -11,7 +11,7 @@ BINARY_NAME=ops
 
 all: build
 
-build:
+build: deps
 	$(GOBUILD)
 
 test:
