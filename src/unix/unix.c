@@ -30,14 +30,13 @@ void deallocate_fd(process p, int fd)
     deallocate_u64(p->fdallocator, fd, 1);
 }
 
-/* XXX it's sort of fucked up that this can be called on behalf of an
-   interrupt handler and not in a thread context...
-*/
-boolean unix_fault_page(u64 vaddr);
+CLOSURE_1_1(default_fault_handler, context, thread, context);
 context default_fault_handler(thread t, context frame)
 {
-    /* note that frame here can be int_frame or syscall_frame, not
-       necessarily the thread frame */
+    /* frame can be:
+       - t->frame if user or syscall
+       - miscframe in interrupt level
+    */
     if (frame[FRAME_VECTOR] == 14) {
         /* XXX move this to x86_64 */
         u64 fault_address;
@@ -174,6 +173,19 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     process kernel_process = create_process(uh, root, fs);
     current = create_thread(kernel_process);
     running_frame = current->frame;
+
+    /* Install a fault handler for use when anonymous pages are
+       faulted in within the interrupt handler (e.g. syscall bottom
+       halves, I/O directly to user buffers). This is permissible now
+       because we only support one process address space. Should this
+       ever change, this will need to be reworked; either we make
+       faults from the interrupt handler illegal or store a reference
+       to the relevant thread frame upon entering the bottom half
+       routine.
+    */
+    fault_handler fallback_handler = closure(h, default_fault_handler, current);
+    install_fallback_fault_handler(fallback_handler);
+
     init_vdso(heap_physical(kh), heap_pages(kh));
     register_special_files(kernel_process);
     init_syscalls();

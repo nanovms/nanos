@@ -64,7 +64,8 @@ static inline void buffer_extend(buffer b, bytes len)
         assert(!b->wrapped);    /* wrapped buffers can't be extended */
         int oldlen = b->length;
         b->length = 2*((b->end-b->start)+len);
-        void *new =  allocate(b->h, b->length);
+        void *new = allocate(b->h, b->length);
+        assert(new != INVALID_ADDRESS);
         runtime_memcpy(new, b->contents + b->start, (b->end-b->start));
         deallocate(b->h, b->contents, oldlen);
         b->end = b->end - b->start;
@@ -91,6 +92,7 @@ static inline buffer wrap_buffer(heap h,
                                  bytes length)
 {
     buffer new = allocate(h, sizeof(struct buffer));
+    assert(new != INVALID_ADDRESS);
     new->contents = body;
     new->start = 0;
     new->h = h;

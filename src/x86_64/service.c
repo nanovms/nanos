@@ -133,20 +133,22 @@ static void read_kernel_syms()
     }
 }
 
-extern void move_gdt();
+extern void install_gdt64_and_tss();
 
 context default_fault_handler(void * t, context frame);
 CLOSURE_1_1(default_fault_handler, context, void *, context);
+
+void install_fallback_fault_handler(fault_handler h)
+{
+    assert(miscframe);
+    miscframe[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
+}
 
 static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = &heaps;
     heap misc = heap_general(kh);
     heap pages = heap_pages(kh);
-    //heap virtual_huge = heap_virtual_huge(kh);
-    //heap virtual_page = heap_virtual_page(kh);
-    //heap physical = heap_physical(kh);
-    //heap backed = heap_backed(kh);
 
     /* Unmap the first page so we catch faults on null pointer references. */
     unmap(0, PAGESIZE, pages);
@@ -175,10 +177,8 @@ static void __attribute__((noinline)) init_service_new_stack()
     miscframe[FRAME_FAULT_HANDLER] = u64_from_pointer(closure(misc, default_fault_handler, (void *)0)); /* XXX fuck this */
     pci_discover();
 
-    /* Switch gdt to kernel space and free up initial mapping, but
-       only after we're done with regions and anything else in that
-       space. */
-    move_gdt();
+    /* Switch to stage3 GDT64, enable TSS and free up initial map */
+    install_gdt64_and_tss();
     unmap(PAGESIZE, INITIAL_MAP_SIZE - PAGESIZE, pages);
 
     runloop();

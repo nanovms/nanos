@@ -5,6 +5,9 @@ typedef u32 character;
 
 #define true 1
 #define false 0
+#define infinity (-1ull)
+#define INVALID_PHYSICAL ((u64)0xffffffffffffffff)
+#define INVALID_ADDRESS ((void *)0xffffffffffffffffull)
 
 typedef u64 timestamp;
 
@@ -112,12 +115,6 @@ physical vtop(void *x);
 physical physical_from_virtual(void *x);
 #endif
 
-#define infinity (-1ull)
-
-#define INVALID_PHYSICAL ((u64)0xffffffffffffffff)
-
-#define INVALID_ADDRESS ((void *)0xffffffffffffffffull)
-
 heap zero_wrap(heap meta, heap parent);
 
 boolean validate_virtual(void *base, u64 length);
@@ -212,6 +209,7 @@ typedef struct signature {
 
 void init_runtime(kernel_heaps kh);
 heap allocate_tagged_region(kernel_heaps kh, u64 tag);
+void install_fallback_fault_handler(fault_handler h);
 typedef closure_type(buffer_promise, void, buffer_handler);
 
 extern thunk ignore;

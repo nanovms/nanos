@@ -36,9 +36,9 @@ static vmap allocate_vmap(heap h, range r)
    - allocating a physical page must be fast and safe at interrupt
      level
 
-     - as with so many other things in the kernel, if/when we move
-       from the bifurcated runqueue / interrupt processing scheme, we
-       need to put the proper locks in place
+     - as elsewhere in the kernel, if/when we move from the bifurcated
+       runqueue / interrupt processing scheme, we need to put the
+       proper locks in place
 
      - we can easily build a free list of physical pages
 

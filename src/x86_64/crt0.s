@@ -236,8 +236,8 @@ _start:
         hlt
 .end:
 
-global_func move_gdt
-move_gdt:
+global_func install_gdt64_and_tss
+install_gdt64_and_tss:
         lgdt [GDT64.Pointer]
         mov rax, TSS
         mov [GDT64 + GDT64.TSS + 2], ax

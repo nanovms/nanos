@@ -251,19 +251,14 @@ void lapic_eoi()
     write_barrier();
 }
 
-static context intframe;
-
 void common_handler()
 {
     int i = running_frame[FRAME_VECTOR];
 
     if ((i < interrupt_size) && handlers[i]) {
         // should we switch to the 'kernel process'?
-        context saveframe = running_frame;
-        running_frame = intframe;
         apply(handlers[i]);
         lapic_eoi();
-        running_frame = saveframe;
     } else {
         fault_handler f = pointer_from_u64(running_frame[FRAME_FAULT_HANDLER]);
 
@@ -352,12 +347,7 @@ void configure_lapic_timer(heap h)
 
 extern u32 interrupt_size;
 
-/* XXX fuckme */
-context default_fault_handler(void * t, context frame);
-CLOSURE_1_1(default_fault_handler, context, void *, context);
-
 #define FAULT_STACK_PAGES       8
-#define RSP0_STACK_PAGES        8
 
 extern volatile void * TSS;
 static inline void write_tss_u64(int offset, u64 val)
@@ -372,14 +362,6 @@ static void set_ist(int i, u64 sp)
     write_tss_u64(0x24 + (i - 1) * 8, sp);
 }
 
-#if 0
-static void set_rsp(int i, u64 sp)
-{
-    assert(i >= 0 && i <= 2);
-    write_tss_u64(0x04 + i * 8, sp);
-}
-#endif
-
 void start_interrupts(kernel_heaps kh)
 {
     // these are simple enough it would be better to just
@@ -389,9 +371,8 @@ void start_interrupts(kernel_heaps kh)
     heap general = heap_general(kh);
     heap pages = heap_pages(kh);
     handlers = allocate_zero(general, interrupt_size * sizeof(thunk));
-    intframe = allocate_zero(general, FRAME_MAX * sizeof(u64));
-    intframe[FRAME_FAULT_HANDLER] = u64_from_pointer(closure(general, default_fault_handler, (void *)0)); /* XXX fuck this */
 
+    /* TSS is installed at the end of stage3 runtime initialization */
     void *faultstack = allocate_zero(pages, pages->pagesize * FAULT_STACK_PAGES);
     u64 fs_top = (u64)faultstack + pages->pagesize * FAULT_STACK_PAGES - sizeof(u64);
     set_ist(1, fs_top);
@@ -401,7 +382,6 @@ void start_interrupts(kernel_heaps kh)
     interrupt_vectors = create_id_heap(general, vector_start, interrupt_size - vector_start, 1);
     // assuming contig gives us a page aligned, page padded identity map
     idt = allocate(pages, pages->pagesize);
-    running_frame = allocate(pages, pages->pagesize); // XXX ?
 
     for (int i = 0; i < interrupt_size; i++) 
         write_idt(idt, i, start + i * delta, i == 0xe ? 1 : 0);
