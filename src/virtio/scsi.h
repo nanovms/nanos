@@ -254,3 +254,5 @@ struct scsi_res_report_luns
 } __attribute__((packed));
 
 int scsi_data_len(u8 cmd);
+
+void scsi_dump_sense(const u8 *sense, int length);
