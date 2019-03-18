@@ -47,7 +47,3 @@ static inline key identity_key(void *a)
 {
     return u64_from_pointer(a);
 }
-
-
-extern void serial_out(u8);
-
