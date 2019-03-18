@@ -28,6 +28,12 @@
 
 #include <virtio_internal.h>
 
+#ifdef VIRTQUEUE_DEBUG
+# define virtqueue_debug rprintf
+#else
+# define virtqueue_debug(...) do { } while(0)
+#endif // defined(VIRTQUEUE_DEBUG)
+
 #define VQ_RING_DESC_CHAIN_END  32768
 #define VRING_DESC_F_NEXT       1
 #define VRING_DESC_F_WRITE      2
@@ -131,6 +137,7 @@ void vqmsg_commit(virtqueue vq, vqmsg m, vqfinish completion)
 static CLOSURE_1_0(vq_interrupt, void, virtqueue);
 static void vq_interrupt(virtqueue vq)
 {
+    virtqueue_debug("%s: ENTRY: vq %p\n", __func__, vq);
     volatile struct vring_used_elem *uep;
     vqmsg *vqm = vq->msgs;
     
@@ -146,6 +153,7 @@ static void vq_interrupt(virtqueue vq)
     }
 
     virtqueue_fill_irq(vq);
+    virtqueue_debug("%s: EXIT: vq %p\n", __func__, vq);
 }
 
 status virtqueue_alloc(vtpci dev,
@@ -164,6 +172,7 @@ status virtqueue_alloc(vtpci dev,
     if (vq == INVALID_ADDRESS) 
         return timm("status", "cannot allocate virtqueue");
     
+    virtqueue_debug("%s: virtqueue %p: idx %d, size %d\n", __func__, vq, (u64) queue, (u64) size);
     vq->dev = dev;
     vq->queue_index = queue;
     vq->entries = size;
@@ -205,9 +214,13 @@ static void virtqueue_fill_irq(virtqueue vq)
     while (n && n != &vq->msgqueue) {
         vqmsg m = struct_from_list(n, vqmsg, l);
         u16 head = idx;
-        if (vq->free_cnt < m->count)
-            return;
+        if (vq->free_cnt < m->count) {
+            virtqueue_debug("%s: virtqueue %p: queue full (vq->free_cnt %d)\n",
+                __func__, vq, (u64) vq->free_cnt);
+            break;
+        }
 
+        virtqueue_debug("%s: virtqueue %p: next msg %p (idx %d)\n", __func__, vq, m, (u64) idx);
         assert(m->completion);
         vqm[idx] = m;
 
@@ -234,8 +247,12 @@ static void virtqueue_fill_irq(virtqueue vq)
         n = nn;
     }
 
-    vq->desc_idx = idx;
-    virtqueue_notify(vq);
+    if (vq->desc_idx != idx) {
+        virtqueue_debug("%s: notifying virtqueue %p (vq->desc_idx %d, idx %d)\n",
+            __func__, vq, (u64) vq->desc_idx, (u64) idx);
+        vq->desc_idx = idx;
+        virtqueue_notify(vq);
+    }
 }
 
 static void virtqueue_fill(virtqueue vq)
