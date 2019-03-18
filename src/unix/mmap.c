@@ -19,44 +19,60 @@ static vmap allocate_vmap(heap h, range r)
     return vm;
 }
 
-/* Keep in mind that not only user instructions will fault in pages;
-   any kernel code operating on behalf of a syscall, or otherwise
-   holding onto a userspace buffer, can also cause a page
-   fault.
+/* Page faults may be caused by:
+
+   - user program instructions
+
+   - syscall top halves accessing unmapped anonymous pages
+
+   - syscall bottom halves accessing unmapped anonymous pages (while
+     in the interrupt handler!)
+
+     - can consider manually faulting in user pages in top half to
+       avoid faults from interrupt handler; this is debatable
 
    Therefore:
 
-   - allocating a physical page must be trivial and safe at interrupt
+   - allocating a physical page must be fast and safe at interrupt
      level
 
-     - if we want to avoid either big locks around the id heaps or
-       multiple writers, we can preallocate pages and keep them on a
-       free list
+     - as with so many other things in the kernel, if/when we move
+       from the bifurcated runqueue / interrupt processing scheme, we
+       need to put the proper locks in place
 
-   - needless to say, map() will need to be safe from either interrupt
-     or non-interrupt levels
+     - we can easily build a free list of physical pages
 
+       - also note that, given that id deallocations don't need to
+         match their source allocations, we can take any size
+         deallocation and bust it up into single pages to cache
+
+   - map() needs to be safe at interrupt and non-interrupt levels
+
+   - the page fault handler runs on its own stack (set as IST0 in
+     TSS), given that the user stack may live on an anonymous mapping
+     and need to have pages faulted in on its own behalf - otherwise
+     we eventually wind up with a triple fault as the CPU cannot push
+     onto the stack when invoking the exception handler
 */
 
 boolean unix_fault_page(u64 vaddr)
 {
     process p = current->p;
     kernel_heaps kh = get_kernel_heaps();
-    rmnode n;
+    vmap vm;
 
-    if ((n = rangemap_lookup(p->vmap, vaddr)) != INVALID_ADDRESS) {
-        vmap vm = (vmap)n;      /* XXX use macro */
+    if ((vm = (vmap)rangemap_lookup(p->vmap, vaddr)) != INVALID_ADDRESS) {
         u32 flags = VMAP_FLAG_MMAP | VMAP_FLAG_ANONYMOUS;
         if ((vm->flags & flags) != flags) {
             console("bad flags\n");
             print_u64(vm->flags);
-            halt("");
             return false;
         }
+
+        /* XXX make free list */
         u64 paddr = allocate_u64(heap_physical(kh), PAGESIZE);
         if (paddr == INVALID_PHYSICAL) {
             msg_err("cannot get physical page; OOM\n");
-            halt("");
             return false;
         }
         u64 vaddr_aligned = vaddr & ~MASK(PAGELOG);
@@ -306,42 +322,12 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
 
     // make a generic zero page function
     if (flags & MAP_ANONYMOUS) {
-#if 0
-        if (mapped) {
-            rprintf("zero only at 0x%P, 0x%P\n", where, len);
-        } else {
-            heap pages = heap_pages(kh);
-            heap physical = heap_physical(kh);
-            u64 m = allocate_u64(physical, len);
-            if (m == INVALID_PHYSICAL) {
-                msg_err("failed to allocate physical memory, size %d\n", len);
-                return -ENOMEM;
-            }
-            map(where, m, len, pages);
-            thread_log(current, "   anon target: %P, len: %P (given size: %P)", where, len, size);
-        }
-        zero(pointer_from_u64(where), len);
-#else
         if (mapped) {
             /* just zero */
-//            rprintf("anon zero: 0x%P, 0x%P\n", where, len);
             zero(pointer_from_u64(where), len);
         } else {
-#if 0
-            u64 end = where + len;
-            for (u64 v = where; v < end; v += PAGESIZE) {
-                u64 p = physical_from_virtual(pointer_from_u64(v));
-                if (p != INVALID_PHYSICAL)
-                    rprintf("fuckme: 0x%P -> 0x%P\n", v, p);
-            }
-#endif
-//            heap pages = heap_pages(kh);
-            /* shouldn't have to...debug */
-//            unmap(where, len, pages);
-//            rprintf("anon nomap: 0x%P, 0x%P\n", where, len);
             thread_log(current, "   anon nomap target: %P, len: %P (given size: %P)", where, len, size);
         }
-#endif
         return where;
     }
 

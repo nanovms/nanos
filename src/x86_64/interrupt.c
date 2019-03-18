@@ -363,12 +363,6 @@ extern volatile void * TSS;
 static inline void write_tss_u64(int offset, u64 val)
 {
     u64 * vec = (u64 *)(u64_from_pointer(&TSS) + offset);
-#if 0
-    console("tss ");
-    print_u64(u64_from_pointer(vec));
-    console(" = ");
-    print_u64(val);
-#endif
     *vec = val;
 }
 
@@ -398,24 +392,9 @@ void start_interrupts(kernel_heaps kh)
     intframe = allocate_zero(general, FRAME_MAX * sizeof(u64));
     intframe[FRAME_FAULT_HANDLER] = u64_from_pointer(closure(general, default_fault_handler, (void *)0)); /* XXX fuck this */
 
-    /* XXX make helper */
     void *faultstack = allocate_zero(pages, pages->pagesize * FAULT_STACK_PAGES);
     u64 fs_top = (u64)faultstack + pages->pagesize * FAULT_STACK_PAGES - sizeof(u64);
-#if 0
-    console("fs_top ");
-    print_u64(fs_top);
-    console("\n");
-#endif
     set_ist(1, fs_top);
-
-#if 0
-    void *rsp0stack = allocate_zero(pages, pages->pagesize * RSP0_STACK_PAGES);
-    u64 rs_top = (u64)rsp0stack + pages->pagesize * RSP0_STACK_PAGES - sizeof(u64);
-    console("rs_top ");
-    print_u64(rs_top);
-    console("\n");
-    set_rsp(0, rs_top);
-#endif
 
     // architectural - end of exceptions
     u32 vector_start = 0x20;

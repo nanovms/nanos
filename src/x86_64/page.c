@@ -255,7 +255,7 @@ static void map_range(u64 virtual, physical p, int length, u64 flags, heap h)
 	    if (flags == 0)
 		console("unmap: area missing page mappings\n");
 	    else
-		halt("map: ran out of page table memory");
+		halt("map: ran out of page table memory\n");
 	}
         int off = 1ull << (fat ? PT3 : PT4);
         vo += off;
