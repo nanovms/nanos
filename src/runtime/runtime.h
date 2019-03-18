@@ -209,7 +209,6 @@ typedef struct signature {
 
 void init_runtime(kernel_heaps kh);
 heap allocate_tagged_region(kernel_heaps kh, u64 tag);
-void install_fallback_fault_handler(fault_handler h);
 typedef closure_type(buffer_promise, void, buffer_handler);
 
 extern thunk ignore;

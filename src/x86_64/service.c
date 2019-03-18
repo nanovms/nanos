@@ -42,8 +42,6 @@ static u64 bootstrap_alloc(heap h, bytes length)
 
 queue runqueue;
 
-static context miscframe;
-
 void runloop()
 {
     /* minimum runloop period - XXX move to a config header */
@@ -56,10 +54,7 @@ void runloop()
         while((t = dequeue(runqueue))) {
             apply(t);
         }
-        running_frame = miscframe;
-        enable_interrupts();
-        __asm__("hlt");
-        disable_interrupts();
+        handle_interrupts();
     }
 }
 
@@ -135,15 +130,6 @@ static void read_kernel_syms()
 
 extern void install_gdt64_and_tss();
 
-context default_fault_handler(void * t, context frame);
-CLOSURE_1_1(default_fault_handler, context, void *, context);
-
-void install_fallback_fault_handler(fault_handler h)
-{
-    assert(miscframe);
-    miscframe[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
-}
-
 static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = &heaps;
@@ -173,8 +159,6 @@ static void __attribute__((noinline)) init_service_new_stack()
         halt("filesystem region not found; halt\n");
     init_virtio_storage(kh, closure(misc, attach_storage, root, fs_offset));
     init_virtio_network(kh);
-    miscframe = allocate(misc, FRAME_MAX * sizeof(u64));
-    miscframe[FRAME_FAULT_HANDLER] = u64_from_pointer(closure(misc, default_fault_handler, (void *)0)); /* XXX fuck this */
     pci_discover();
 
     /* Switch to stage3 GDT64, enable TSS and free up initial map */

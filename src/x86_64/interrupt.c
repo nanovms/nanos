@@ -251,14 +251,34 @@ void lapic_eoi()
     write_barrier();
 }
 
+context miscframe;              /* for context save on interrupt */
+context intframe;               /* for context save on exception within interrupt */
+
+void handle_interrupts()
+{
+    running_frame = miscframe;
+    enable_interrupts();
+    __asm__("hlt");
+    disable_interrupts();
+}
+
+void install_fallback_fault_handler(fault_handler h)
+{
+    assert(miscframe);
+    miscframe[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
+    intframe[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
+}
+
 void common_handler()
 {
     int i = running_frame[FRAME_VECTOR];
 
     if ((i < interrupt_size) && handlers[i]) {
-        // should we switch to the 'kernel process'?
+        context saveframe = running_frame;
+        running_frame = intframe;
         apply(handlers[i]);
         lapic_eoi();
+        running_frame = saveframe;
     } else {
         fault_handler f = pointer_from_u64(running_frame[FRAME_FAULT_HANDLER]);
 
@@ -362,6 +382,13 @@ static void set_ist(int i, u64 sp)
     write_tss_u64(0x24 + (i - 1) * 8, sp);
 }
 
+static context allocate_frame(heap h)
+{
+    context f = allocate_zero(h, FRAME_MAX * sizeof(u64));
+    assert(f != INVALID_ADDRESS);
+    return f;
+}
+
 void start_interrupts(kernel_heaps kh)
 {
     // these are simple enough it would be better to just
@@ -370,7 +397,14 @@ void start_interrupts(kernel_heaps kh)
     void *start = &interrupt0;
     heap general = heap_general(kh);
     heap pages = heap_pages(kh);
+
+    /* exception handlers */
     handlers = allocate_zero(general, interrupt_size * sizeof(thunk));
+    assert(handlers != INVALID_ADDRESS);
+
+    /* alternate frame storage */
+    miscframe = allocate_frame(general);
+    intframe = allocate_frame(general);
 
     /* TSS is installed at the end of stage3 runtime initialization */
     void *faultstack = allocate_zero(pages, pages->pagesize * FAULT_STACK_PAGES);
