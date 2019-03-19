@@ -228,6 +228,7 @@ extern status_handler ignore_status;
 
 extern heap transient;
 
-typedef closure_type(merge, status_handler);
-merge allocate_merge(heap h, status_handler completion);
+typedef struct merge *merge;
 
+merge allocate_merge(heap h, status_handler completion);
+status_handler apply_merge(merge m);
