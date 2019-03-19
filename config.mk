@@ -6,18 +6,31 @@ UNAME_s = $(shell uname -s)
 # To reveal verbose build messages, override Q= in command line.
 Q	?= @
 
-GO	?= go
+CAT	?= cat
 CC	?= cc
-NASM	?= nasm
-LD	?= ld
+DD	?= dd
+ifeq ($(UNAME_s),Darwin)
+GNUTAR	?= gnutar
+else
+GNUTAR	?= tar
+endif
+GO	?= go
 HOSTCC	?= cc
 HOSTLD  ?= $(HOSTCC)
+NASM	?= nasm
+LD	?= ld
+LN	?= ln
 STRIP	?= strip
 OBJCOPY	?= objcopy
 OBJDUMP ?= objdump
-DD	?= dd
-CAT	?= cat
 RM	?= rm
+
+GCLOUD		?= gcloud
+GSUTIL		?= gsutil
+GCE_PROJECT	?= prod-1033
+GCE_BUCKET	?= nanos-test/gce-images
+GCE_IMAGE	?= nanos-$(TARGET)
+GCE_INSTANCE	?= nanos-$(TARGET)
 
 CFLAG_WARNINGS = \
     -Wimplicit-function-declaration \
@@ -59,27 +72,27 @@ MKFS	= $(ROOT)/output/mkfs/bin/mkfs
 DUMP	= $(ROOT)/output/mkfs/bin/dump
 CONTGEN	= $(ROOT)/output/contgen/bin/contgen
 
-# Examples
+# runtime tests / ready-to-use targets
 
 TARGET	?= webg
 
-FST		= $(ROOT)/output/examples/fst
-SENDFILE	= $(ROOT)/output/examples/sendfile
-HWG		= $(ROOT)/output/examples/hwg
-HW		= $(ROOT)/output/examples/hw
-HWS		= $(ROOT)/output/examples/hws
-WEB		= $(ROOT)/output/examples/web
-WEBS		= $(ROOT)/output/examples/webs
-WEBG		= $(ROOT)/output/examples/webg
-# WEBGS		= $(ROOT)/output/examples/webgs
-GETDENTS	= $(ROOT)/output/examples/getdents
-MKDIR		= $(ROOT)/output/examples/mkdir
-UDPLOOP		= $(ROOT)/output/examples/udploop
-GETRANDOM	= $(ROOT)/output/examples/getrandom
-CREAT		= $(ROOT)/output/examples/creat
-TIME		= $(ROOT)/output/examples/time
-PIPE		= $(ROOT)/output/examples/pipe
-WRITE		= $(ROOT)/output/examples/write
+FST		= $(ROOT)/output/test/runtime/fst
+SENDFILE	= $(ROOT)/output/test/runtime/sendfile
+HWG		= $(ROOT)/output/test/runtime/hwg
+HW		= $(ROOT)/output/test/runtime/hw
+HWS		= $(ROOT)/output/test/runtime/hws
+WEB		= $(ROOT)/output/test/runtime/web
+WEBS		= $(ROOT)/output/test/runtime/webs
+WEBG		= $(ROOT)/output/test/runtime/webg
+# WEBGS		= $(ROOT)/output/test/runtime/webgs
+GETDENTS	= $(ROOT)/output/test/runtime/getdents
+MKDIR		= $(ROOT)/output/test/runtime/mkdir
+UDPLOOP		= $(ROOT)/output/test/runtime/udploop
+GETRANDOM	= $(ROOT)/output/test/runtime/getrandom
+CREAT		= $(ROOT)/output/test/runtime/creat
+TIME		= $(ROOT)/output/test/runtime/time
+PIPE		= $(ROOT)/output/test/runtime/pipe
+WRITE		= $(ROOT)/output/test/runtime/write
 
 # Tests
 
