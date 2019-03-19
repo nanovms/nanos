@@ -217,7 +217,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     u64 end = where + size - 1;
     boolean fixed = (flags & MAP_FIXED) != 0;
     boolean mapped = false;
-    thread_log(current, "mmap: target %p, size %P, prot %P, flags %P, fd %d, offset %P\n",
+    thread_log(current, "mmap: target %p, size %P, prot %P, flags %P, fd %d, offset %P",
 	       target, size, prot, flags, fd, offset);
 
     if (where) {
