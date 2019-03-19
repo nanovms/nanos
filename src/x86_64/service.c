@@ -58,24 +58,47 @@ void runloop()
     }
 }
 
-static CLOSURE_2_3(offset_block_write, void, block_write, u64, void *, range, status_handler);
-static void offset_block_write(block_write w, u64 start, void *src, range blocks, status_handler h)
+static inline u64 paged_block_io_span(range blocks)
 {
-    assert((start & (SECTOR_SIZE - 1)) == 0);
-    u64 ds = start >> SECTOR_OFFSET;
-    blocks.start += ds;
-    blocks.end += ds;
-    apply(w, src, blocks, h);
+    u64 nblocks = range_span(blocks);
+    return MIN(nblocks, PAGESIZE >> SECTOR_OFFSET);
 }
 
-static CLOSURE_2_3(offset_block_read, void, block_read, u64, void *, range, status_handler);
-static void offset_block_read(block_read r, u64 start, void *dest, range blocks, status_handler h)
+static void paged_block_io(block_io io, void *dest, range blocks, status_handler h);
+
+static CLOSURE_4_1(paged_block_io_complete, void, block_io, void *, range, status_handler, status);
+static void paged_block_io_complete(block_io io, void *dest, range blocks, status_handler h, status s)
 {
-    assert((start & (SECTOR_SIZE - 1)) == 0);
-    u64 ds = start >> SECTOR_OFFSET;
+    if (s == STATUS_OK) {
+        u64 span = paged_block_io_span(blocks);
+        if (blocks.start + span < blocks.end) {
+            // next page I/O
+            blocks.start += span;
+            dest = (char *) dest + (span << SECTOR_OFFSET);
+            paged_block_io(io, dest, blocks, h);
+            return;
+        }
+    }
+
+    apply(h, s);
+}
+
+// split I/O to storage driver to PAGESIZE requests
+static void paged_block_io(block_io io, void *dest, range blocks, status_handler h)
+{
+    status_handler sh = closure(heap_general(&heaps), paged_block_io_complete, io, dest, blocks, h);
+    apply(io, dest, irange(blocks.start, blocks.start + paged_block_io_span(blocks)), sh);
+}
+
+static CLOSURE_2_3(offset_block_io, void, u64, block_io, void *, range, status_handler);
+static void offset_block_io(u64 offset, block_io io, void *dest, range blocks, status_handler h)
+{
+    assert((offset & (SECTOR_SIZE - 1)) == 0);
+    u64 ds = offset >> SECTOR_OFFSET;
     blocks.start += ds;
     blocks.end += ds;
-    apply(r, dest, blocks, h);
+
+    paged_block_io(io, dest, blocks, h);
 }
 
 void init_extra_prints(); 
@@ -83,11 +106,12 @@ void init_extra_prints();
 static CLOSURE_1_2(fsstarted, void, tuple, filesystem, status);
 static void fsstarted(tuple root, filesystem fs, status s)
 {
+    assert(s == STATUS_OK);
     enqueue(runqueue, closure(heap_general(&heaps), startup, &heaps, root, fs));
 }
 
-static CLOSURE_2_3(attach_storage, void, tuple, u64, block_read, block_write, u64);
-static void attach_storage(tuple root, u64 fs_offset, block_read r, block_write w, u64 length)
+static CLOSURE_2_3(attach_storage, void, tuple, u64, block_io, block_io, u64);
+static void attach_storage(tuple root, u64 fs_offset, block_io r, block_io w, u64 length)
 {
     // with filesystem...should be hidden as functional handlers on the tuplespace
     heap h = heap_general(&heaps);
@@ -95,8 +119,8 @@ static void attach_storage(tuple root, u64 fs_offset, block_read r, block_write 
                       SECTOR_SIZE,
                       length,
                       heap_backed(&heaps),
-                      closure(h, offset_block_read, r, fs_offset),
-                      closure(h, offset_block_write, w, fs_offset),
+                      closure(h, offset_block_io, fs_offset, r),
+                      closure(h, offset_block_io, fs_offset, w),
                       root,
                       closure(h, fsstarted, root));
 }
