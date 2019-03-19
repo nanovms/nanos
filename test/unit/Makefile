@@ -16,6 +16,7 @@ endif
 # gcov support
 CFLAGS  += -fprofile-arcs -ftest-coverage
 HOSTLDFLAGS  += -fprofile-arcs
+GCOVOUT = $(OUT)/test/unit
 
 all: objcache_test network_test id_heap_test path_test pqueue_test vector_test udp_test buffer_test range_test tuple_test
 
@@ -30,15 +31,15 @@ test: objcache_test id_heap_test path_test pqueue_test vector_test buffer_test r
 	$(TUPLE_TEST)
 
 gcov: objcache_test id_heap_test path_test pqueue_test vector_test buffer_test range_test tuple_test
-	gcov -o $(OUT)/test $(OBJCACHE_TEST)
-	gcov -o $(OUT)/test $(ID_HEAP_TEST)
-	gcov -o $(OUT)/test $(PATH_TEST)
-	gcov -o $(OUT)/test $(PQUEUE_TEST)
-	gcov -o $(OUT)/test $(VECTOR_TEST)
-	gcov -o $(OUT)/test $(BUFFER_TEST)
-	gcov -o $(OUT)/test $(RANGE_TEST)
-	gcov -o $(OUT)/test $(TUPLE_TEST)
-	lcov --capture --directory .. --output-file gcov-tests.info
+	gcov -o $(GCOVOUT) $(OBJCACHE_TEST)
+	gcov -o $(GCOVOUT) $(ID_HEAP_TEST)
+	gcov -o $(GCOVOUT) $(PATH_TEST)
+	gcov -o $(GCOVOUT) $(PQUEUE_TEST)
+	gcov -o $(GCOVOUT) $(VECTOR_TEST)
+	gcov -o $(GCOVOUT) $(BUFFER_TEST)
+	gcov -o $(GCOVOUT) $(RANGE_TEST)
+	gcov -o $(GCOVOUT) $(TUPLE_TEST)
+	lcov --capture --directory ../.. --output-file gcov-tests.info
 	mkdir -p $(OUT)/gcov
 	genhtml gcov-tests.info --output-directory $(OUT)/gcov
 
