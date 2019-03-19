@@ -89,7 +89,7 @@ static buffer_handler newconn(heap h, thunk newconn, stats s, tuple t, status_ha
 static CLOSURE_8_0(startconn, void, heap, notifier, merge, buffer, thunk *, stats, status_handler, tuple);
 static void startconn(heap h, notifier n, merge m, buffer target, thunk *self, stats s, status_handler err, tuple req)
 {
-    status_handler sth = apply(m);
+    status_handler sth = apply_merge(m);
     connection(h, n, target, closure(h, newconn, h, *self, s, req, sth), err);
 }
 
