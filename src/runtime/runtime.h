@@ -5,6 +5,9 @@ typedef u32 character;
 
 #define true 1
 #define false 0
+#define infinity (-1ull)
+#define INVALID_PHYSICAL ((u64)infinity)
+#define INVALID_ADDRESS ((void *)infinity)
 
 typedef u64 timestamp;
 
@@ -111,12 +114,6 @@ physical vtop(void *x);
 #ifndef physical_from_virtual
 physical physical_from_virtual(void *x);
 #endif
-
-#define infinity (-1ull)
-
-#define INVALID_PHYSICAL ((u64)0xffffffffffffffff)
-
-#define INVALID_ADDRESS ((void *)0xffffffffffffffffull)
 
 heap zero_wrap(heap meta, heap parent);
 

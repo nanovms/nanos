@@ -45,7 +45,7 @@ static inline int subdivide(int quantum, int per, int s, int o)
 #define allocate_zero(__h, __b) ({\
             u64 __len =  __b;\
             void *x = allocate(__h, __len);       \
-            zero(x, __len);                       \
+            if (x != INVALID_ADDRESS) zero(x, __len);    \
             x; })
 
 static inline void leak(heap h, u64 x, bytes length)

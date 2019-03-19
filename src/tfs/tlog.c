@@ -29,6 +29,7 @@ static void log_write_completion(vector v, status s)
     status_handler i;
     vector_foreach(v, i)
         apply(i, s);
+    v->start = v->end = 0;
 }
 
 // xxx  currently we cant take writes during the flush
