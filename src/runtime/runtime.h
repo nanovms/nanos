@@ -101,6 +101,8 @@ typedef u64 physical;
 
 physical vtop(void *x);
 
+#define cprintf(...)
+
 // used by stage2/stage3, not process
 #define PAGELOG 12
 #define PAGESIZE U64_FROM_BIT(PAGELOG)
@@ -189,7 +191,8 @@ typedef closure_type(thunk, void);
 #include <range.h>
 
 typedef closure_type(buffer_handler, void, buffer);
-typedef closure_type(block_io, void, void *, range, status_handler);
+typedef closure_type(block_write, void, void *, range, status_handler);
+typedef closure_type(block_read, void, void *, range, status_handler);
 
 // break out platform - move into the implicit include
 #include <x86_64.h>
