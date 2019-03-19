@@ -30,4 +30,5 @@ deps:
 	$(GOGET) github.com/d2g/dhcp4client
 	$(GOGET) github.com/go-errors/errors
 	$(GOGET) github.com/cheggaaa/pb
+	$(GOGET) github.com/nanovms/ops/lepton
 

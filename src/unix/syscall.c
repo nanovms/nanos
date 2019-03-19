@@ -1167,10 +1167,18 @@ sysreturn lseek(int fd, s64 offset, int whence)
 
 sysreturn uname(struct utsname *v)
 {
-    char rel[]= "4.4.0-87";
-    char sys[] = "pugnix";
-    runtime_memcpy(v->sysname,sys, sizeof(sys));
-    runtime_memcpy(v->release, rel, sizeof(rel));
+    char sysname[] = "pugnix";
+    char release[]= "4.4.0-87";
+    char nodename[] = "nanovms"; // TODO: later we probably would want to get this from /etc/hostname
+    char version[] = "Nanos unikernel";
+    char machine[] = "x86_64";
+
+    runtime_memcpy(v->sysname, sysname, sizeof(sysname));
+    runtime_memcpy(v->release, release, sizeof(release));
+    runtime_memcpy(v->nodename, nodename, sizeof(nodename));
+    runtime_memcpy(v->version, version, sizeof(version));
+    runtime_memcpy(v->machine, machine, sizeof(machine));
+
     return 0;
 }
 

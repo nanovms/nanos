@@ -167,8 +167,8 @@ static void attach(heap general, storage_attach a, heap page_allocator, heap pag
     // initialization complete
     vtpci_set_status(s->v, VIRTIO_CONFIG_STATUS_DRIVER_OK);
 
-    block_io in = closure(general, storage_read, s);
-    block_io out = closure(general, storage_write, s);
+    block_read in = closure(general, storage_read, s);
+    block_write out = closure(general, storage_write, s);
     apply(a, in, out, s->capacity);
 }
 
