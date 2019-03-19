@@ -220,6 +220,8 @@ boolean pipe_init(unix_heaps uh);
 
 extern sysreturn syscall_ignore();
 context default_fault_handler(thread t, context frame);
+boolean unix_fault_page(u64 vaddr);
+
 void thread_log_internal(thread t, char *desc, ...);
 #define thread_log(__t, __desc, ...) thread_log_internal(__t, __desc, ##__VA_ARGS__)
 // this should always be current

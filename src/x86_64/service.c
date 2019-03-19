@@ -42,8 +42,6 @@ static u64 bootstrap_alloc(heap h, bytes length)
 
 queue runqueue;
 
-static context miscframe;
-
 void runloop()
 {
     /* minimum runloop period - XXX move to a config header */
@@ -56,10 +54,7 @@ void runloop()
         while((t = dequeue(runqueue))) {
             apply(t);
         }
-        frame = miscframe;
-        enable_interrupts();
-        __asm__("hlt");
-        disable_interrupts();
+        handle_interrupts();
     }
 }
 
@@ -133,17 +128,13 @@ static void read_kernel_syms()
     }
 }
 
-extern void move_gdt();
+extern void install_gdt64_and_tss();
 
 static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = &heaps;
     heap misc = heap_general(kh);
     heap pages = heap_pages(kh);
-    //heap virtual_huge = heap_virtual_huge(kh);
-    //heap virtual_page = heap_virtual_page(kh);
-    //heap physical = heap_physical(kh);
-    //heap backed = heap_backed(kh);
 
     /* Unmap the first page so we catch faults on null pointer references. */
     unmap(0, PAGESIZE, pages);
@@ -168,13 +159,10 @@ static void __attribute__((noinline)) init_service_new_stack()
         halt("filesystem region not found; halt\n");
     init_virtio_storage(kh, closure(misc, attach_storage, root, fs_offset));
     init_virtio_network(kh);
-    miscframe = allocate(misc, FRAME_MAX * sizeof(u64));
     pci_discover();
 
-    /* Switch gdt to kernel space and free up initial mapping, but
-       only after we're done with regions and anything else in that
-       space. */
-    move_gdt();
+    /* Switch to stage3 GDT64, enable TSS and free up initial map */
+    install_gdt64_and_tss();
     unmap(PAGESIZE, INITIAL_MAP_SIZE - PAGESIZE, pages);
 
     runloop();

@@ -1222,7 +1222,10 @@ static sysreturn brk(void *x)
         } else {
             // I guess assuming we're aligned
             u64 alloc = pad(u64_from_pointer(x), PAGESIZE) - pad(u64_from_pointer(p->brk), PAGESIZE);
-            map(u64_from_pointer(p->brk), allocate_u64(heap_physical(kh), alloc), alloc, heap_pages(kh));
+            u64 phys = allocate_u64(heap_physical(kh), alloc);
+            if (phys == INVALID_PHYSICAL)
+                return -ENOMEM;
+            map(u64_from_pointer(p->brk), phys, alloc, heap_pages(kh));
             // people shouldn't depend on this
             zero(p->brk, alloc);
             p->brk += alloc;         
@@ -1381,6 +1384,13 @@ sysreturn setgid(gid_t gid)
   return 0; /* stub */
 }
 
+sysreturn prctl(int option, u64 arg2, u64 arg3, u64 arg4, u64 arg5)
+{
+    thread_log(current, "prctl: option %d, arg2 0x%P, arg3 0x%P, arg4 0x%P, arg5 0x%P",
+               option, arg2, arg3, arg4, arg5);
+    return 0;
+}
+
 void register_file_syscalls(void **map)
 {
     register_syscall(map, SYS_read, read);
@@ -1430,6 +1440,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_setgroups, setgroups);
     register_syscall(map, SYS_setuid, setuid);
     register_syscall(map, SYS_setgid, setgid);
+    register_syscall(map, SYS_prctl, prctl);
 }
 
 void *linux_syscalls[SYS_MAX];
@@ -1447,20 +1458,28 @@ buffer install_syscall(heap h)
     return b;
 }
 
+static context syscall_frame;
+
 extern char *syscall_name(int);
 static void syscall_debug()
 {
     u64 *f = current->frame;
     int call = f[FRAME_VECTOR];
     void *debugsyscalls = table_find(current->p->process_root, sym(debugsyscalls));
-    if(debugsyscalls)  
+    if (debugsyscalls)
         thread_log(current, syscall_name(call));
     sysreturn (*h)(u64, u64, u64, u64, u64, u64) = current->p->syscall_handlers[call];
     sysreturn res = -ENOSYS;
     if (h) {
+        /* exchange frames so that a fault won't clobber the syscall
+           context, but retain the fault handler that has current enclosed */
+        context saveframe = running_frame;
+        running_frame = syscall_frame;
+        running_frame[FRAME_FAULT_HANDLER] = f[FRAME_FAULT_HANDLER];
         res = h(f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]);
         if (debugsyscalls)
-            thread_log(current, "direct return: %d", res);
+            thread_log(current, "direct return: %d, rsp 0x%P", res, f[FRAME_RSP]);
+        running_frame = saveframe;
     } else if (debugsyscalls) {
         thread_log(current, "nosyscall %s", syscall_name(call));
     }
@@ -1475,5 +1494,7 @@ void init_syscalls()
 {
     //syscall = b->contents;
     // debug the synthesized version later, at least we have the table dispatch
+    heap h = heap_general(get_kernel_heaps());
     syscall = syscall_debug;
+    syscall_frame = allocate_frame(h);
 }

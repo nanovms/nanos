@@ -30,17 +30,35 @@ void deallocate_fd(process p, int fd)
     deallocate_u64(p->fdallocator, fd, 1);
 }
 
+CLOSURE_1_1(default_fault_handler, context, thread, context);
 context default_fault_handler(thread t, context frame)
 {
-    print_frame(t->frame);
-    print_stack(t->frame);
-
-    if (table_find (t->p->process_root, sym(fault))) {
-        console("starting gdb\n");
-        init_tcp_gdb(heap_general(get_kernel_heaps()), t->p, 9090);
-        thread_sleep(current);
+    /* frame can be:
+       - t->frame if user or syscall
+       - miscframe in interrupt level
+    */
+    if (frame[FRAME_VECTOR] == 14) {
+        /* XXX move this to x86_64 */
+        u64 fault_address;
+        mov_from_cr("cr2", fault_address);
+        if (unix_fault_page(fault_address))
+            return frame;
     }
-    halt("");
+
+    console("Unhandled: ");
+    print_u64(frame[FRAME_VECTOR]);
+    console("\n");
+    print_frame(frame);
+    print_stack(frame);
+
+    if (table_find (current->p->process_root, sym(fault))) {
+        console("starting gdb\n");
+        init_tcp_gdb(heap_general(get_kernel_heaps()), current->p, 9090);
+        thread_sleep(current);
+    } else {
+        halt("halt\n");
+    }
+    return frame;
 }
 
 static CLOSURE_0_3(dummy_read, sysreturn, void *, u64, u64);
@@ -154,7 +172,20 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     set_syscall_handler(syscall_enter);
     process kernel_process = create_process(uh, root, fs);
     current = create_thread(kernel_process);
-    frame = current->frame;
+    running_frame = current->frame;
+
+    /* Install a fault handler for use when anonymous pages are
+       faulted in within the interrupt handler (e.g. syscall bottom
+       halves, I/O directly to user buffers). This is permissible now
+       because we only support one process address space. Should this
+       ever change, this will need to be reworked; either we make
+       faults from the interrupt handler illegal or store a reference
+       to the relevant thread frame upon entering the bottom half
+       routine.
+    */
+    fault_handler fallback_handler = closure(h, default_fault_handler, current);
+    install_fallback_fault_handler(fallback_handler);
+
     init_vdso(heap_physical(kh), heap_pages(kh));
     register_special_files(kernel_process);
     init_syscalls();

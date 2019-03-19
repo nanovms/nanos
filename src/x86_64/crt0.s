@@ -10,7 +10,7 @@
 global_func _start
         extern init_service
         
-extern frame
+extern running_frame
 %include "frame_nasm.h"
         
 %define FS_MSR 0xc0000100
@@ -51,7 +51,7 @@ extern syscall
 global_func syscall_enter
 syscall_enter:   
         push rax
-        mov rax, [frame]
+        mov rax, [running_frame]
         mov [rax+FRAME_RBX*8], rbx
         pop rbx
         mov [rax+FRAME_VECTOR*8], rbx
@@ -72,16 +72,14 @@ syscall_enter:
         mov rax, syscall
         mov rax, [rax]
         call rax
-        mov rbx, [frame]
-# no more implicit syscall return here        
-#        mov [rbx + FRAME_RAX], rax
+        mov rbx, [running_frame]
         jmp frame_enter
 .end:
         
 extern common_handler
 interrupt_common:
         push rax
-        mov rax, [frame]
+        mov rax, [running_frame]
         mov [rax+FRAME_RBX*8], rbx
         mov [rax+FRAME_RCX*8], rcx
         mov [rax+FRAME_RDX*8], rdx
@@ -122,7 +120,7 @@ getrip:
         ;; could always use iret?
 global_func frame_return
 frame_return:
-        mov rbx, [frame]
+        mov rbx, [running_frame]
 
         mov rax, [rbx+FRAME_FS*8]
         mov rcx, FS_MSR
@@ -238,9 +236,18 @@ _start:
         hlt
 .end:
 
-global_func move_gdt
-move_gdt:
+global_func install_gdt64_and_tss
+install_gdt64_and_tss:
         lgdt [GDT64.Pointer]
+        mov rax, TSS
+        mov [GDT64 + GDT64.TSS + 2], ax
+        shr rax, 0x10
+        mov [GDT64 + GDT64.TSS + 4], al
+        mov [GDT64 + GDT64.TSS + 7], ah
+        shr rax, 0x10
+        mov [GDT64 + GDT64.TSS + 8], eax
+        mov rax, GDT64.TSS
+        ltr ax
         ret
 .end:
 
@@ -276,7 +283,47 @@ GDT64:  ; Global Descriptor Table (64-bit).
         db 10010010b ; Access (read/write).
         db 00000000b ; Granularity.
         db 0         ; Base (high).
-
+        .TSS: equ $ - GDT64     ; TSS descriptor (system segment descriptor - 64bit mode)
+        dw (TSS.end - TSS)      ; Limit (low)
+        dw 0                    ; Base [15:0] [fill in base at runtime, for I lack nasm sauce]
+        db 0                    ; Base [23:16]
+        db 10001001b            ; Present, long mode type available TSS
+        db 00000000b            ; byte granularity
+        db 0                    ; Base [31:24]
+        dd 0                    ; Base [63:32]
+        dd 0                    ; Reserved
         .Pointer:    ; The GDT-pointer.
         dw $ - GDT64 - 1    ; Limit.
         dq GDT64            ; 64 bit Base.
+
+        align 16                ; XXX ??
+global_data TSS
+TSS:                            ; 64 bit TSS
+        dd 0                    ; reserved      0x00
+        dd 0                    ; RSP0 (low)    0x04
+        dd 0                    ; RSP0 (high)   0x08
+        dd 0                    ; RSP1 (low)    0x0c
+        dd 0                    ; RSP1 (high)   0x10
+        dd 0                    ; RSP2 (low)    0x14
+        dd 0                    ; RSP2 (high)   0x18
+        dd 0                    ; reserved      0x1c
+        dd 0                    ; reserved      0x20
+        dd 0                    ; IST1 (low)    0x24
+        dd 0                    ; IST1 (high)   0x28
+        dd 0                    ; IST2 (low)    0x2c
+        dd 0                    ; IST2 (high)   0x30
+        dd 0                    ; IST3 (low)    0x34
+        dd 0                    ; IST3 (high)   0x38
+        dd 0                    ; IST4 (low)    0x3c
+        dd 0                    ; IST4 (high)   0x40
+        dd 0                    ; IST5 (low)    0x44
+        dd 0                    ; IST5 (high)   0x48
+        dd 0                    ; IST6 (low)    0x4c
+        dd 0                    ; IST6 (high)   0x50
+        dd 0                    ; IST7 (low)    0x54
+        dd 0                    ; IST7 (high)   0x58
+        dd 0                    ; reserved      0x5c
+        dd 0                    ; reserved      0x60
+        dw 0                    ; IOPB offset   0x64
+        dw 0                    ; reserved      0x66
+.end:
