@@ -1,5 +1,5 @@
-include ../config.mk
-include ../common.mk
+include ../../config.mk
+include ../../common.mk
 
 # Go parameters
 GOCMD?=go
@@ -9,15 +9,18 @@ GOTEST=$(GOCMD) test
 GOGET=$(GOCMD) get
 BINARY_NAME=ops
 
-all: test
+all: build
+
+build: deps
+	$(GOBUILD)
 
 test:
 	$(GOTEST) -v
+
 clean:
 	$(GOCLEAN)
 	$(Q) $(RM) -rf .staging
-	$(Q) $(RM) -f $(BINARY_NAME) image ../examples/soop.data
-
+	$(Q) $(RM) -f $(BINARY_NAME) image ../runtime/soop.data
 
 deps:
 	$(GOGET) github.com/spf13/cobra
@@ -27,4 +30,5 @@ deps:
 	$(GOGET) github.com/d2g/dhcp4client
 	$(GOGET) github.com/go-errors/errors
 	$(GOGET) github.com/cheggaaa/pb
+	$(GOGET) github.com/nanovms/ops/lepton
 
