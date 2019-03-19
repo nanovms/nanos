@@ -64,8 +64,7 @@ boolean unix_fault_page(u64 vaddr)
     if ((vm = (vmap)rangemap_lookup(p->vmap, vaddr)) != INVALID_ADDRESS) {
         u32 flags = VMAP_FLAG_MMAP | VMAP_FLAG_ANONYMOUS;
         if ((vm->flags & flags) != flags) {
-            console("bad flags\n");
-            print_u64(vm->flags);
+            msg_err("vaddr 0x%P matched vmap with invalid flags (0x%P)\n", vaddr, vm->flags);
             return false;
         }
 
@@ -80,9 +79,7 @@ boolean unix_fault_page(u64 vaddr)
         zero(pointer_from_u64(vaddr_aligned), PAGESIZE);
         return true;
     }
-    console("page not found: ");
-    print_u64(vaddr);
-    console("\n");
+    msg_err("no vmap found for vaddr 0x%P\n", vaddr);
     return false;
 }
 
