@@ -1204,6 +1204,27 @@ sysreturn getrlimit(int resource, struct rlimit *rlim)
     return -1;
 }
 
+sysreturn prlimit64(int pid, int resource, const struct rlimit *new_limit, struct rlimit *old_limit)
+{
+    // if new_limit !NULL then places new limits
+    // if old_limit !NULL then place old limits in old limits?
+    // so... just set new_limit?
+ 
+    switch (resource) {
+    case RLIMIT_STACK:
+        old_limit->rlim_cur = 2*1024*1024;
+        old_limit->rlim_max = 2*1024*1024;
+
+        return 0;
+    case RLIMIT_NOFILE:
+        // we .. .dont really have one?
+        old_limit->rlim_cur = 65536;
+        old_limit->rlim_max = 65536;
+        return 0;
+    }
+    return -1;
+}
+
 static sysreturn getcwd(char *buf, u64 length)
 {
     runtime_memcpy(buf, "/", 2);
@@ -1418,6 +1439,7 @@ void register_file_syscalls(void **map)
     register_syscall(map, SYS_uname, uname);
     register_syscall(map, SYS_getrlimit, getrlimit);
     register_syscall(map, SYS_setrlimit, setrlimit);
+    register_syscall(map, SYS_prlimit64, prlimit64);
     register_syscall(map, SYS_getpid, getpid);    
     register_syscall(map, SYS_exit_group, exit_group);
     register_syscall(map, SYS_exit, (sysreturn (*)())exit);
