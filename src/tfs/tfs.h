@@ -16,8 +16,8 @@ void create_filesystem(heap h,
                        u64 alignment,
                        u64 size,
                        heap dma,
-                       block_io read,
-                       block_io write,
+                       block_read read,
+                       block_write write,
                        tuple root,
                        filesystem_complete complete);
 
