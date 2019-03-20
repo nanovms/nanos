@@ -184,11 +184,15 @@ status virtqueue_alloc(vtpci dev,
 
     if ((vq->ring_mem = allocate_zero(dev->contiguous, alloc)) != INVALID_ADDRESS) {
         vq->desc = (struct vring_desc *) vq->ring_mem;
-        for (int i = 0; i < vq->entries - 1; i++)
-            vq->desc[i].next = i + 1;
         vq->avail = (struct vring_avail *) (vq->desc + size);
         vq->used = (struct vring_used *) (vq->ring_mem  + avail_end);
         virtqueue_debug("%s: desc %p, avail %p, used %p\n", __func__, vq->desc, vq->avail, vq->used);
+
+        // initialize descriptor chains
+        for (int i = 0; i < vq->entries - 1; i++)
+            vq->desc[i].next = i + 1;
+        vq->desc[vq->entries - 1].next = 0;
+
         *t = closure(dev->general, vq_interrupt, vq);
         *vqp = vq;
         list_init(&vq->msgqueue);
