@@ -37,6 +37,7 @@ merge allocate_merge(heap h, status_handler completion)
     status_handler sh = closure(h, merge_join, m);
     m->apply = closure(h, merge_add, m, sh);
     m->completion = completion;
+    m->last_status = STATUS_OK;
     return m;
 }
 
