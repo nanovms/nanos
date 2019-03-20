@@ -22,8 +22,8 @@ typedef struct filesystem {
     table extents; // maps extents
     closure_type(log, void, tuple);
     heap dma;
-    block_read r;
-    block_write w;    
+    block_io r;
+    block_io w;
     log tl;
     tuple root;
     bytes blocksize;

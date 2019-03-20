@@ -258,8 +258,8 @@ static void virtio_scsi_read_capacity_done(storage_attach a, u16 target, u16 lun
     virtio_scsi_debug("%s: target %d, lun %d, block size 0x%P, capacity 0x%P\n",
         __func__, target, lun, s->block_size, s->capacity);
 
-    block_read in = closure(s->v->general, virtio_scsi_read, s);
-    block_write out = closure(s->v->general, virtio_scsi_write, s);
+    block_io in = closure(s->v->general, virtio_scsi_read, s);
+    block_io out = closure(s->v->general, virtio_scsi_write, s);
     apply(a, in, out, s->capacity);
 }
 
@@ -407,7 +407,7 @@ static void virtio_scsi_attach(heap general, storage_attach a, heap page_allocat
     virtio_scsi_debug("max target %d\n", (u64) s->max_target);
 
     s->max_lun = in32(s->v->base + VIRTIO_MSI_DEVICE_CONFIG + VIRTIO_SCSI_R_MAX_LUN);
-    virtio_scsi_debug("max lun %d\n", (u64) max_lun);
+    virtio_scsi_debug("max lun %d\n", (u64) s->max_lun);
 
     status st = vtpci_alloc_virtqueue(s->v, 0, &s->command);
     assert(st == STATUS_OK);
