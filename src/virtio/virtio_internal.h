@@ -10,7 +10,7 @@ typedef closure_type(vqfinish, void, u64);
 struct vtpci {
     int slot;
     u64 base; //io region base
-    u64 vtpci_features;
+    u64 features;
 
     heap contiguous;
     heap general;    

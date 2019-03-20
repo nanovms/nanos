@@ -101,13 +101,13 @@ struct virtio_scsi {
 
     struct virtqueue *requestq;
 
-    u64 capacity;
-    u64 block_size;
     u16 max_target;
     u16 max_lun;
 
     u16 target;
     u16 lun;
+    u64 capacity;
+    u64 block_size;
 };
 
 typedef struct virtio_scsi *virtio_scsi;
@@ -154,7 +154,7 @@ static virtio_scsi_request virtio_scsi_alloc_request(virtio_scsi s, u16 target, 
     virtio_scsi_debug("%s: cmd 0x%P, data len %d\n", __func__, (u64) cmd, alloc_len);
 
     virtio_scsi_request r = allocate(s->v->contiguous, sizeof(*r) + alloc_len);
-    runtime_memset((void *) &r->req, 0, sizeof(r->req));
+    zero((void *) &r->req, sizeof(r->req));
     r->req.cdb[0] = cmd;
     r->req.lun[0] = 1;
     r->req.lun[1] = target;
@@ -231,6 +231,14 @@ static void virtio_scsi_read(virtio_scsi s, void *buf, range blocks, status_hand
     virtio_scsi_io(s, SCSI_CMD_READ_16, buf, blocks, sh);
 }
 
+static CLOSURE_2_0(virtio_scsi_init_done, void, virtio_scsi, storage_attach);
+static void virtio_scsi_init_done(virtio_scsi s, storage_attach a)
+{
+    block_io in = closure(s->v->general, virtio_scsi_read, s);
+    block_io out = closure(s->v->general, virtio_scsi_write, s);
+    apply(a, in, out, s->capacity);
+}
+
 static CLOSURE_3_2(virtio_scsi_read_capacity_done, void, storage_attach, u16, u16, virtio_scsi, virtio_scsi_request);
 static void virtio_scsi_read_capacity_done(storage_attach a, u16 target, u16 lun, virtio_scsi s, virtio_scsi_request r)
 {
@@ -258,9 +266,7 @@ static void virtio_scsi_read_capacity_done(storage_attach a, u16 target, u16 lun
     virtio_scsi_debug("%s: target %d, lun %d, block size 0x%P, capacity 0x%P\n",
         __func__, target, lun, s->block_size, s->capacity);
 
-    block_io in = closure(s->v->general, virtio_scsi_read, s);
-    block_io out = closure(s->v->general, virtio_scsi_write, s);
-    apply(a, in, out, s->capacity);
+    enqueue(runqueue, closure(s->v->general, virtio_scsi_init_done, s, a));
 }
 
 static void virtio_scsi_report_luns(virtio_scsi s, storage_attach a, u16 target);
@@ -381,7 +387,9 @@ static CLOSURE_4_3(virtio_scsi_attach, void, heap, storage_attach, heap, heap, i
 static void virtio_scsi_attach(heap general, storage_attach a, heap page_allocator, heap pages, int bus, int slot, int function)
 {
     virtio_scsi s = allocate(general, sizeof(struct virtio_scsi));
-    s->v = attach_vtpci(general, page_allocator, bus, slot, function, VIRTIO_SCSI_F_HOTPLUG);
+    s->v = attach_vtpci(general, page_allocator, bus, slot, function, 0);
+
+    virtio_scsi_debug("features 0x%P\n", (u64) s->v->features);
 
 #ifdef VIRTIO_SCSI_DEBUG
     u32 num_queues = in32(s->v->base + VIRTIO_MSI_DEVICE_CONFIG + VIRTIO_SCSI_R_NUM_QUEUES);
