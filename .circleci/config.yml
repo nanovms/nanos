@@ -22,7 +22,7 @@ jobs:
       - run: sudo apt-get update
       - run: sudo apt-get install nasm
       - run: make
-      - run: make unit-test
+      - run: make test-nokvm
       - run: cp .circleci/boto ~/.boto
       - run: wget https://storage.googleapis.com/pub/gsutil.tar.gz
       - run: tar xfz gsutil.tar.gz -C ~
