@@ -130,7 +130,7 @@ void vqmsg_commit(virtqueue vq, vqmsg m, vqfinish completion)
 {
     m->completion = completion;
     /* XXX noirq */
-    list_insert_after(&vq->msgqueue, &m->l);
+    list_push_back(&vq->msgqueue, &m->l);
     virtqueue_fill(vq);
 }
 
