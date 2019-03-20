@@ -474,9 +474,9 @@ static sysreturn do_mkent(tuple root, const char *pathname, int mode, boolean di
     thread_log(current, "%s: %s (mode %d) pathname %s => %s",
                __func__, dir ? "mkdir" : "creat", mode, pathname, final_path);
 
-    sysreturn r = dir ? filesystem_mkdir(current->p->fs, root, final_path) :
+    fs_status status = dir ? filesystem_mkdir(current->p->fs, root, final_path) :
         filesystem_creat(current->p->fs, root, final_path);
-    return set_syscall_return(current, sysreturn_from_fs_status(r));
+    return set_syscall_return(current, sysreturn_from_fs_status(status));
 }
 
 static boolean is_dir(tuple n)
