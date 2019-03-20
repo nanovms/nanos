@@ -83,7 +83,7 @@ typedef struct virtqueue {
     volatile struct vring_used *used;    
     u64 free_cnt;               /* atomic */
     u16 desc_idx;               /* producer only */
-    u16 used_idx;               /* irq only */
+    u16 last_used_idx;          /* irq only */
     struct list msgqueue;
     vqmsg msgs[0];
 } *virtqueue;
@@ -137,23 +137,26 @@ void vqmsg_commit(virtqueue vq, vqmsg m, vqfinish completion)
 static CLOSURE_1_0(vq_interrupt, void, virtqueue);
 static void vq_interrupt(virtqueue vq)
 {
-    virtqueue_debug("%s: ENTRY: vq %p\n", __func__, vq);
-    volatile struct vring_used_elem *uep;
-    vqmsg *vqm = vq->msgs;
+    // ensure we see up-to-date used->idx (updated by host)
+    memory_barrier();
+    virtqueue_debug("%s: ENTRY: vq %p (entries %d, last_used_idx %d, used->idx %d)\n",
+        __func__, vq, (u64) vq->entries, (u64) vq->last_used_idx, (u64) vq->used->idx);
     
-    read_barrier();
-    while (vq->used_idx != vq->used->idx) {
-        uep = &vq->used->ring[vq->used_idx & (vq->entries - 1)];
-        vqmsg m = vqm[uep->id];
+    while (vq->last_used_idx != vq->used->idx) {
+        volatile struct vring_used_elem *uep = vq->used->ring + (vq->last_used_idx & (vq->entries - 1));
+        virtqueue_debug("%s: last_used_idx %d, id %d, len %d\n",
+            __func__, (u64) vq->last_used_idx, (u64) uep->id, (u64) uep->len);
+        vqmsg m = vq->msgs[uep->id];
         apply(m->completion, uep->len);
-        vq->used_idx++;
+
+        vq->last_used_idx++;
         fetch_and_add(&vq->free_cnt, m->count);
-        vqm[uep->id] = 0;
+        vq->msgs[uep->id] = 0;
         deallocate_vqmsg_irq(vq, m);
     }
 
     virtqueue_fill_irq(vq);
-    virtqueue_debug("%s: EXIT: vq %p\n", __func__, vq);
+    virtqueue_debug("%s: EXIT: vq %p (last_used_idx %d)\n", __func__, vq, (u64) vq->last_used_idx);
 }
 
 status virtqueue_alloc(vtpci dev,
@@ -166,13 +169,14 @@ status virtqueue_alloc(vtpci dev,
     virtqueue vq;
     u64 d = size * sizeof(struct vring_desc);
     u64 avail_end = pad(d + sizeof(*vq->avail) + sizeof(vq->avail->ring[0]) * size, align);
-    u64 alloc = avail_end + sizeof(*vq->used) + sizeof(vq->used->ring[0]) * size;
+    u64 alloc = avail_end + pad(sizeof(*vq->used) + sizeof(vq->used->ring[0]) * size, align);
     vq = allocate(dev->general, sizeof(struct virtqueue) + size * sizeof(vqmsg));
     
     if (vq == INVALID_ADDRESS) 
         return timm("status", "cannot allocate virtqueue");
     
-    virtqueue_debug("%s: virtqueue %p: idx %d, size %d\n", __func__, vq, (u64) queue, (u64) size);
+    virtqueue_debug("%s: virtqueue %p: idx %d, size %d, alloc %d\n",
+        __func__, vq, (u64) queue, (u64) size, alloc);
     vq->dev = dev;
     vq->queue_index = queue;
     vq->entries = size;
@@ -180,8 +184,11 @@ status virtqueue_alloc(vtpci dev,
 
     if ((vq->ring_mem = allocate_zero(dev->contiguous, alloc)) != INVALID_ADDRESS) {
         vq->desc = (struct vring_desc *) vq->ring_mem;
+        for (int i = 0; i < vq->entries - 1; i++)
+            vq->desc[i].next = i + 1;
         vq->avail = (struct vring_avail *) (vq->desc + size);
         vq->used = (struct vring_used *) (vq->ring_mem  + avail_end);
+        virtqueue_debug("%s: desc %p, avail %p, used %p\n", __func__, vq->desc, vq->avail, vq->used);
         *t = closure(dev->general, vq_interrupt, vq);
         *vqp = vq;
         list_init(&vq->msgqueue);
@@ -196,7 +203,7 @@ physical virtqueue_paddr(virtqueue vq)
     return (physical_from_virtual(vq->ring_mem));
 }
 
-void virtqueue_notify(virtqueue vq)
+static void virtqueue_notify(virtqueue vq)
 {
     /* Ensure updated avail->idx is visible to host. */
     memory_barrier();
@@ -206,53 +213,64 @@ void virtqueue_notify(virtqueue vq)
 /* called from interrupt level or with ints disabled */
 static void virtqueue_fill_irq(virtqueue vq)
 {
-    vqmsg *vqm = vq->msgs;
-    u16 idx = vq->desc_idx;
-    list l = &vq->msgqueue;
-    list n = list_get_next(l);
+    virtqueue_debug("%s: ENTRY (entries %d, desc_idx %d, avail->idx %d)\n",
+        __func__, (u64) vq->entries, (u64) vq->desc_idx, (u64) vq->avail->idx);
+    list n = list_get_next(&vq->msgqueue);
 
+    u16 added = 0;
     while (n && n != &vq->msgqueue) {
         vqmsg m = struct_from_list(n, vqmsg, l);
-        u16 head = idx;
         if (vq->free_cnt < m->count) {
             virtqueue_debug("%s: virtqueue %p: queue full (vq->free_cnt %d)\n",
-                __func__, vq, (u64) vq->free_cnt);
+                __func__, vq, vq->free_cnt);
             break;
         }
 
-        virtqueue_debug("%s: virtqueue %p: next msg %p (idx %d)\n", __func__, vq, m, (u64) idx);
         assert(m->completion);
-        vqm[idx] = m;
+        u16 head = vq->desc_idx;
+        vq->msgs[head] = m;
 
-        struct vring_desc *p = buffer_ref(m->descv, 0);
         for (int i = 0; i < m->count; i++) {
-            u16 next = (idx + 1) & (vq->entries - 1);
-            volatile struct vring_desc *dst = vq->desc + idx;
-            struct vring_desc src = *p++;
-            if (i < m->count - 1) {
-                src.flags |= VRING_DESC_F_NEXT;
-                src.next = next;
-            }
-            *dst = src;
-            idx = next;
+            struct vring_desc *src = buffer_ref(m->descv, i * sizeof(*src));
+            volatile struct vring_desc *d = vq->desc + vq->desc_idx;
+            d->busaddr = src->busaddr;
+            d->len = src->len;
+            d->flags = src->flags;
+            if (i < m->count - 1)
+                d->flags |= VRING_DESC_F_NEXT;
+            vq->desc_idx = d->next;
+
+#if 0
+            virtqueue_debug("%s: virtqueue %p: msg %p (count %d): desc->flags 0x%P, desc->next %d\n",
+                __func__, vq, m, (u64) m->count, (u64) d->flags, (u64) d->next);
+#endif
         }
 
-        u16 avail_idx = vq->avail->idx & (vq->entries - 1);
+        u16 avail_idx = (vq->avail->idx + added++) & (vq->entries - 1);
         vq->avail->ring[avail_idx] = head;
-        vq->avail->idx++;
-        vq->free_cnt -= m->count;
+        virtqueue_debug("%s: virtqueue %p: msg %p (count %d): avail->ring[%d] = %d\n",
+            __func__, vq, m, (u64) m->count, (u64) avail_idx, (u64) head);
+        fetch_and_add(&vq->free_cnt, -m->count);
 
         list nn = list_get_next(n);
         list_delete(n);
         n = nn;
     }
 
-    if (vq->desc_idx != idx) {
-        virtqueue_debug("%s: notifying virtqueue %p (vq->desc_idx %d, idx %d)\n",
-            __func__, vq, (u64) vq->desc_idx, (u64) idx);
-        vq->desc_idx = idx;
-        virtqueue_notify(vq);
+    if (added > 0) {
+        // ensure desc and avail ring updates above are visible before updating avail->idx
+        write_barrier();
+        vq->avail->idx += added;
+
+        // ensure used->flags update is visible (updated by host)
+        memory_barrier();
+        if (vq->used->flags != VRING_USED_F_NO_NOTIFY) {
+            virtqueue_debug("%s: notifying virtqueue %p (added %d, avail->idx %d)\n",
+                __func__, vq, (u64) added, (u64) vq->avail->idx);
+            virtqueue_notify(vq);
+        }
     }
+    virtqueue_debug("%s: EXIT (desc_idx %d)\n", __func__, (u64) vq->desc_idx);
 }
 
 static void virtqueue_fill(virtqueue vq)
