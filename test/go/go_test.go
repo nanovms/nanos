@@ -20,7 +20,7 @@ func writeFile(path string) {
 }
 
 func prepareTestImage(finalImage string) {
-	const filepath = "../examples/soop.data"
+	const filepath = "../runtime/soop.data"
 	c := defaultConfig()
 	writeFile(filepath)
 
@@ -34,7 +34,7 @@ func prepareTestImage(finalImage string) {
 	c.Env["PWD"] = "password"
 
 	c.RunConfig.Imagename = finalImage
-	c.Program = "../output/examples/webg"
+	c.Program = "../../output/test/runtime/webg"
 
 	err := lepton.BuildImage(c)
 	if err != nil {

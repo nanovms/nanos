@@ -104,6 +104,7 @@ struct virtio_scsi {
     u64 capacity;
     u64 block_size;
     u16 max_target;
+    u16 max_lun;
 
     u16 target;
     u16 lun;
@@ -196,8 +197,12 @@ static void virtio_scsi_io_done(status_handler sh, void *buf, u64 len, virtio_sc
         __func__, s->target, s->lun, resp->response, resp->status);
 
     status st = 0;
-    if (resp->status != SCSI_STATUS_OK)
-        st = timm("result", "%d", resp->status);
+    if (resp->response != VIRTIO_SCSI_S_OK) {
+        st = timm("result", "response %d", (u64) resp->response);
+    } else if (resp->status != SCSI_STATUS_OK) {
+        scsi_dump_sense(resp->sense, sizeof(resp->sense));
+        st = timm("result", "status %d", (u64) resp->status);
+    }
     apply(sh, st);
 }
 
@@ -232,8 +237,12 @@ static void virtio_scsi_read_capacity_done(storage_attach a, u16 target, u16 lun
     struct virtio_scsi_resp_cmd *resp = &r->resp;
     virtio_scsi_debug("%s: target %d, lun %d, response %d, status %d\n",
         __func__, target, lun, resp->response, resp->status);
-    if (resp->status != SCSI_STATUS_OK || resp->response != VIRTIO_SCSI_S_OK)
+    if (resp->response != VIRTIO_SCSI_S_OK)
         return;
+    if (resp->status != SCSI_STATUS_OK) {
+        scsi_dump_sense(resp->sense, sizeof(resp->sense));
+        return;
+    }
 
     if (s->capacity > 0) {
         // attach only first disk
@@ -249,8 +258,8 @@ static void virtio_scsi_read_capacity_done(storage_attach a, u16 target, u16 lun
     virtio_scsi_debug("%s: target %d, lun %d, block size 0x%P, capacity 0x%P\n",
         __func__, target, lun, s->block_size, s->capacity);
 
-    block_read in = closure(s->v->general, virtio_scsi_read, s);
-    block_write out = closure(s->v->general, virtio_scsi_write, s);
+    block_io in = closure(s->v->general, virtio_scsi_read, s);
+    block_io out = closure(s->v->general, virtio_scsi_write, s);
     apply(a, in, out, s->capacity);
 }
 
@@ -276,12 +285,17 @@ static void virtio_scsi_test_unit_ready_done(storage_attach a, u16 target, u16 l
     struct virtio_scsi_resp_cmd *resp = &r->resp;
     virtio_scsi_debug("%s: target %d, lun %d, response %d, status %d\n",
         __func__, target, lun, resp->response, resp->status);
-    if (resp->status != SCSI_STATUS_OK || resp->response != VIRTIO_SCSI_S_OK) {
+    if (resp->response != VIRTIO_SCSI_S_OK) {
+        virtio_scsi_next_target(s, a, target);
+        return;
+    }
+    if (resp->status != SCSI_STATUS_OK) {
         if (retry_count < 3) {
             r = virtio_scsi_alloc_request(s, target, lun, SCSI_CMD_TEST_UNIT_READY);
             virtio_scsi_enqueue_request(s, r, r->data, r->alloc_len,
                 closure(s->v->general, virtio_scsi_test_unit_ready_done, a, target, lun, retry_count + 1));
         } else {
+            scsi_dump_sense(resp->sense, sizeof(resp->sense));
             virtio_scsi_next_target(s, a, target);
         }
         return;
@@ -302,7 +316,9 @@ static void virtio_scsi_inquiry_done(storage_attach a, u16 target, u16 lun, virt
     struct virtio_scsi_resp_cmd *resp = &r->resp;
     virtio_scsi_debug("%s: target %d, lun %d, response %d, status %d\n",
         __func__, target, lun, resp->response, resp->status);
-    if (resp->status != SCSI_STATUS_OK || resp->response != VIRTIO_SCSI_S_OK) {
+    if (resp->response != VIRTIO_SCSI_S_OK || resp->status != SCSI_STATUS_OK) {
+        if (resp->status != SCSI_STATUS_OK)
+            scsi_dump_sense(resp->sense, sizeof(resp->sense));
         virtio_scsi_next_target(s, a, target);
         return;
     }
@@ -328,7 +344,9 @@ static void virtio_scsi_report_luns_done(storage_attach a, u16 target, virtio_sc
     struct virtio_scsi_resp_cmd *resp = &r->resp;
     virtio_scsi_debug("%s: target %d, response %d, status %d\n",
         __func__, target, resp->response, resp->status);
-    if (resp->status != SCSI_STATUS_OK || resp->response != VIRTIO_SCSI_S_OK) {
+    if (resp->response != VIRTIO_SCSI_S_OK || resp->status != SCSI_STATUS_OK) {
+        if (resp->status != SCSI_STATUS_OK)
+            scsi_dump_sense(resp->sense, sizeof(resp->sense));
         virtio_scsi_next_target(s, a, target);
         return;
     }
@@ -336,7 +354,7 @@ static void virtio_scsi_report_luns_done(storage_attach a, u16 target, virtio_sc
     struct scsi_res_report_luns *res = (struct scsi_res_report_luns *) r->data;
     u32 length = be32toh(res->length);
     virtio_scsi_debug("%s: got %d luns\n", __func__, length / sizeof(res->lundata[0]));
-    for (u32 i = 0; i < length / sizeof(res->lundata[0]); i++) {
+    for (u32 i = 0; i < MIN(s->max_lun, length / sizeof(res->lundata[0])); i++) {
         u16 lun = (res->lundata[i] & 0xffff) >> 8;
         virtio_scsi_debug("%s: got lun %d (lundata 0x%P)\n", __func__, lun, res->lundata[i]);
 
@@ -366,12 +384,30 @@ static void virtio_scsi_attach(heap general, storage_attach a, heap page_allocat
     s->v = attach_vtpci(general, page_allocator, bus, slot, function, VIRTIO_SCSI_F_HOTPLUG);
 
 #ifdef VIRTIO_SCSI_DEBUG
+    u32 num_queues = in32(s->v->base + VIRTIO_MSI_DEVICE_CONFIG + VIRTIO_SCSI_R_NUM_QUEUES);
+    virtio_scsi_debug("num queues %d\n", (u64) num_queues);
+
+    u32 seg_max = in32(s->v->base + VIRTIO_MSI_DEVICE_CONFIG + VIRTIO_SCSI_R_SEG_MAX);
+    virtio_scsi_debug("seg max %d\n", (u64) seg_max);
+
+    u32 max_sectors = in32(s->v->base + VIRTIO_MSI_DEVICE_CONFIG + VIRTIO_SCSI_R_MAX_SECTORS);
+    virtio_scsi_debug("max sectors %d\n", (u64) max_sectors);
+
+    u32 cmd_per_lun = in32(s->v->base + VIRTIO_MSI_DEVICE_CONFIG + VIRTIO_SCSI_R_CMD_PER_LUN);
+    virtio_scsi_debug("cmd per lun %d\n", (u64) cmd_per_lun);
+
     u32 event_info_size = in32(s->v->base + VIRTIO_MSI_DEVICE_CONFIG + VIRTIO_SCSI_R_EVENT_INFO_SIZE);
-    virtio_scsi_debug("event info size %d\n", event_info_size);
+    virtio_scsi_debug("event info size %d\n", (u64) event_info_size);
+
+    u32 max_channel = in16(s->v->base + VIRTIO_MSI_DEVICE_CONFIG + VIRTIO_SCSI_R_MAX_CHANNEL);
+    virtio_scsi_debug("max channel %d\n", (u64) max_channel);
+#endif
 
     s->max_target = in16(s->v->base + VIRTIO_MSI_DEVICE_CONFIG + VIRTIO_SCSI_R_MAX_TARGET);
-    virtio_scsi_debug("max target %d\n", s->max_target);
-#endif
+    virtio_scsi_debug("max target %d\n", (u64) s->max_target);
+
+    s->max_lun = in32(s->v->base + VIRTIO_MSI_DEVICE_CONFIG + VIRTIO_SCSI_R_MAX_LUN);
+    virtio_scsi_debug("max lun %d\n", (u64) s->max_lun);
 
     status st = vtpci_alloc_virtqueue(s->v, 0, &s->command);
     assert(st == STATUS_OK);

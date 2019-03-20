@@ -63,6 +63,7 @@ physical physical_from_virtual(void *x)
     if (!l1) return INVALID_PHYSICAL;        
     if (l2[pindex(xt, PT3)] & PAGE_2M_SIZE) return ((u64)l1 | (xt & MASK(PT3)));
     u64 *l0 = pt_lookup(l1, xt, PT4);
+    if (!l0) return INVALID_PHYSICAL;
     return (u64)l0 | (xt & MASK(PT4));
 }
 #endif
@@ -254,7 +255,7 @@ static void map_range(u64 virtual, physical p, int length, u64 flags, heap h)
 	    if (flags == 0)
 		console("unmap: area missing page mappings\n");
 	    else
-		halt("map: ran out of page table memory");
+		halt("map: ran out of page table memory\n");
 	}
         int off = 1ull << (fat ? PT3 : PT4);
         vo += off;

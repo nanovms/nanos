@@ -84,12 +84,11 @@ char *interrupt_name(u64 s)
 }
 
 
-void write_idt(u64 *idt, int interrupt, void *hv)
+void write_idt(u64 *idt, int interrupt, void *hv, u64 ist)
 {
     // huh, idt entries are virtual 
     u64 h = u64_from_pointer(hv); 
     u64 selector = 0x08;
-    u64 ist = 0; // this is a stask switch through the tss
     u64 type_attr = 0x8e;
         
     u64 *target = (void *)(u64)(idt + 2*interrupt);
@@ -128,7 +127,7 @@ char *register_name(u64 s)
 }
 
 static thunk *handlers;
-context frame;
+context running_frame;
 
 void *apic_base = (void *)0xfee00000;
 
@@ -252,24 +251,46 @@ void lapic_eoi()
     write_barrier();
 }
 
+context miscframe;              /* for context save on interrupt */
+context intframe;               /* for context save on exception within interrupt */
+
+void handle_interrupts()
+{
+    running_frame = miscframe;
+    enable_interrupts();
+    __asm__("hlt");
+    disable_interrupts();
+}
+
+void install_fallback_fault_handler(fault_handler h)
+{
+    assert(miscframe);
+    miscframe[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
+    intframe[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
+}
+
 void common_handler()
 {
-    int i = frame[FRAME_VECTOR];
+    int i = running_frame[FRAME_VECTOR];
 
     if ((i < interrupt_size) && handlers[i]) {
-        // should we switch to the 'kernel process'?
+        context saveframe = running_frame;
+        running_frame = intframe;
         apply(handlers[i]);
         lapic_eoi();
+        running_frame = saveframe;
     } else {
-        fault_handler f = pointer_from_u64(frame[FRAME_FAULT_HANDLER]);
+        fault_handler f = pointer_from_u64(running_frame[FRAME_FAULT_HANDLER]);
 
         if (f == 0) {
             rprintf ("no fault handler\n");
-            print_frame(frame);
-            print_stack(frame);
+            print_frame(running_frame);
+            print_stack(running_frame);
             vm_exit(VM_EXIT_FAULT);
         }
-        if (i < 25) frame = apply(f, frame);
+        if (i < 25) {
+            running_frame = apply(f, running_frame);
+        }
     }
 }
 
@@ -345,7 +366,29 @@ void configure_lapic_timer(heap h)
 }
 
 extern u32 interrupt_size;
- 
+
+#define FAULT_STACK_PAGES       8
+
+extern volatile void * TSS;
+static inline void write_tss_u64(int offset, u64 val)
+{
+    u64 * vec = (u64 *)(u64_from_pointer(&TSS) + offset);
+    *vec = val;
+}
+
+static void set_ist(int i, u64 sp)
+{
+    assert(i > 0 && i <= 7);
+    write_tss_u64(0x24 + (i - 1) * 8, sp);
+}
+
+context allocate_frame(heap h)
+{
+    context f = allocate_zero(h, FRAME_MAX * sizeof(u64));
+    assert(f != INVALID_ADDRESS);
+    return f;
+}
+
 void start_interrupts(kernel_heaps kh)
 {
     // these are simple enough it would be better to just
@@ -354,16 +397,28 @@ void start_interrupts(kernel_heaps kh)
     void *start = &interrupt0;
     heap general = heap_general(kh);
     heap pages = heap_pages(kh);
+
+    /* exception handlers */
     handlers = allocate_zero(general, interrupt_size * sizeof(thunk));
+    assert(handlers != INVALID_ADDRESS);
+
+    /* alternate frame storage */
+    miscframe = allocate_frame(general);
+    intframe = allocate_frame(general);
+
+    /* TSS is installed at the end of stage3 runtime initialization */
+    void *faultstack = allocate_zero(pages, pages->pagesize * FAULT_STACK_PAGES);
+    u64 fs_top = (u64)faultstack + pages->pagesize * FAULT_STACK_PAGES - sizeof(u64);
+    set_ist(1, fs_top);
+
     // architectural - end of exceptions
     u32 vector_start = 0x20;
     interrupt_vectors = create_id_heap(general, vector_start, interrupt_size - vector_start, 1);
     // assuming contig gives us a page aligned, page padded identity map
     idt = allocate(pages, pages->pagesize);
-    frame = allocate(pages, pages->pagesize);
 
     for (int i = 0; i < interrupt_size; i++) 
-        write_idt(idt, i, start + i * delta);
+        write_idt(idt, i, start + i * delta, i == 0xe ? 1 : 0);
     
     u16 *dest = (u16 *)(idt + 2*interrupt_size);
     dest[0] = 16*interrupt_size -1;

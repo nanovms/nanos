@@ -15,6 +15,53 @@
 #define SCSI_STATUS_ACA_ACTIVE          0x30
 #define SCSI_STATUS_TASK_ABORTED        0x40
 
+/*
+ * Fixed format sense data.
+ */
+struct scsi_sense_data
+{
+	u8 error_code;
+#define	SSD_ERRCODE			0x7F
+#define		SSD_CURRENT_ERROR	0x70
+#define		SSD_DEFERRED_ERROR	0x71
+#define	SSD_ERRCODE_VALID	0x80
+	u8 segment;
+	u8 flags;
+#define	SSD_KEY				0x0F
+#define		SSD_KEY_NO_SENSE	0x00
+#define		SSD_KEY_RECOVERED_ERROR	0x01
+#define		SSD_KEY_NOT_READY	0x02
+#define		SSD_KEY_MEDIUM_ERROR	0x03
+#define		SSD_KEY_HARDWARE_ERROR	0x04
+#define		SSD_KEY_ILLEGAL_REQUEST	0x05
+#define		SSD_KEY_UNIT_ATTENTION	0x06
+#define		SSD_KEY_DATA_PROTECT	0x07
+#define		SSD_KEY_BLANK_CHECK	0x08
+#define		SSD_KEY_Vendor_Specific	0x09
+#define		SSD_KEY_COPY_ABORTED	0x0a
+#define		SSD_KEY_ABORTED_COMMAND	0x0b
+#define		SSD_KEY_EQUAL		0x0c
+#define		SSD_KEY_VOLUME_OVERFLOW	0x0d
+#define		SSD_KEY_MISCOMPARE	0x0e
+#define		SSD_KEY_COMPLETED	0x0f
+#define	SSD_SDAT_OVFL	0x10
+#define	SSD_ILI		0x20
+#define	SSD_EOM		0x40
+#define	SSD_FILEMARK	0x80
+	u8 info[4];
+	u8 extra_len;
+	u8 cmd_spec_info[4];
+	u8 asc;
+	u8 ascq;
+	u8 fru;
+	u8 sense_key_spec[3];
+#define	SSD_SCS_VALID		0x80
+#define	SSD_FIELDPTR_CMD	0x40
+#define	SSD_BITPTR_VALID	0x08
+#define	SSD_BITPTR_VALUE	0x07
+	u8 extra_bytes[14];
+} __attribute__((packed));
+
 #define SCSI_CMD_TEST_UNIT_READY        0x00
 #define SCSI_CMD_INQUIRY                0x12
 #define SCSI_CMD_READ_16                0x88
@@ -254,3 +301,5 @@ struct scsi_res_report_luns
 } __attribute__((packed));
 
 int scsi_data_len(u8 cmd);
+
+void scsi_dump_sense(const u8 *sense, int length);

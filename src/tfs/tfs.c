@@ -159,7 +159,7 @@ static void fs_read_extent(filesystem fs,
               q, node->r, db->blocks, db->start_offset, i,
               target_offset, target_start, db->data_length, (u64)fs->blocksize);
 
-    status_handler f = apply(m);
+    status_handler f = apply_merge(m);
     fetch_and_add(&target->end, db->data_length);
     status_handler copy = closure(fs->h, fs_read_extent_complete, fs, db, target_start, f);
     apply(fs->r, db->buf, db->blocks, copy);
@@ -191,7 +191,7 @@ static void filesystem_read_internal(filesystem fs, fsfile f, buffer b, u64 leng
                                      status_handler sh)
 {
     merge m = allocate_merge(fs->h, sh);
-    status_handler k = apply(m); // hold a reference until we're sure we've issued everything
+    status_handler k = apply_merge(m); // hold a reference until we're sure we've issued everything
     u64 file_length = fsfile_get_length(f);
     u64 actual_length = MIN(length, file_length - offset);
     if (offset >= file_length || actual_length == 0) { /* XXX check */
@@ -332,15 +332,15 @@ static void fs_write_extent(filesystem fs, buffer source, merge m, range q, rmno
     boolean head = db->start_offset != 0 || (tail_rmw && !plural);
     boolean tail = tail_rmw && plural;
 
-    status_handler sh = apply(m);
+    status_handler sh = apply_merge(m);
     if (head || tail) {
         merge m2 = allocate_merge(fs->h, closure(fs->h, fs_write_extent_aligned,
                                                  fs, db, source_start, sh));
-        status_handler k = apply(m2);
+        status_handler k = apply_merge(m2);
         if (head)
-            fs_write_extent_read_block(fs, db, 0, apply(m2));
+            fs_write_extent_read_block(fs, db, 0, apply_merge(m2));
         if (tail)
-            fs_write_extent_read_block(fs, db, range_span(db->blocks) - 1, apply(m2));
+            fs_write_extent_read_block(fs, db, range_span(db->blocks) - 1, apply_merge(m2));
         apply(k, STATUS_OK);
         return;
     }
@@ -356,7 +356,7 @@ static tuple soft_create(filesystem fs, tuple t, symbol a, merge m)
     if (!(v = table_find(t, a))) {
         v = allocate_tuple();
         table_set(t, a, v);
-        filesystem_write_eav(fs, t, a, v, apply(m));
+        filesystem_write_eav(fs, t, a, v, apply_merge(m));
     }
     return v;
 }
@@ -411,7 +411,7 @@ static extent create_extent(fsfile f, range r, merge m)
 
     tuple extents = soft_create(f->fs, f->md, sym(extents), m);
     table_set(extents, offs, e);
-    filesystem_write_eav(f->fs, extents, offs, e, apply(m));
+    filesystem_write_eav(f->fs, extents, offs, e, apply_merge(m));
     return ex;
 }
 
@@ -498,7 +498,7 @@ boolean set_extent_length(fsfile f, extent ex, u64 length, merge m)
     /* update length in tuple and log */
     string v = aprintf(f->fs->h, "%d", length);
     table_set(extent_tuple, sym(length), v);
-    filesystem_write_eav(f->fs, extents, offs, extent_tuple, apply(m));
+    filesystem_write_eav(f->fs, extents, offs, extent_tuple, apply_merge(m));
     return true;
 }
 
@@ -527,7 +527,7 @@ static void filesystem_write_data_complete(fsfile f, tuple t, range q, merge m_m
     if (fsfile_get_length(f) < q.end) {
         /* XXX bother updating resident filelength tuple? */
         fsfile_set_length(f, q.end);
-        filesystem_write_eav(fs, t, sym(filelength), value_from_u64(fs->h, q.end), apply(m_meta));
+        filesystem_write_eav(fs, t, sym(filelength), value_from_u64(fs->h, q.end), apply_merge(m_meta));
     }
 
     filesystem_flush_log(fs);
@@ -582,10 +582,10 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_ha
     /* meta merge completion is gated by data merge completion, thus the initial m_meta apply */
     merge m_meta = allocate_merge(fs->h, closure(fs->h, filesystem_write_meta_complete, q, ish));
     merge m_data = allocate_merge(fs->h, closure(fs->h, filesystem_write_data_complete,
-                                                 f, t, q, m_meta, apply(m_meta)));
+                                                 f, t, q, m_meta, apply_merge(m_meta)));
 
     /* hold data merge open until all extent operations have been initiated */
-    status_handler sh = apply(m_data);
+    status_handler sh = apply_merge(m_data);
     do {
         /* detect and fill any hole before extent (or to end) */
         u64 limit = node != INVALID_ADDRESS ? node->r.start : q.end;
@@ -751,8 +751,8 @@ void create_filesystem(heap h,
                        u64 alignment,
                        u64 size,
                        heap dma,
-                       block_read read,
-                       block_write write,
+                       block_io read,
+                       block_io write,
                        tuple root,
                        filesystem_complete complete)
 {

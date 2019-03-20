@@ -42,8 +42,6 @@ static u64 bootstrap_alloc(heap h, bytes length)
 
 queue runqueue;
 
-static context miscframe;
-
 void runloop()
 {
     /* minimum runloop period - XXX move to a config header */
@@ -56,31 +54,31 @@ void runloop()
         while((t = dequeue(runqueue))) {
             apply(t);
         }
-        frame = miscframe;
-        enable_interrupts();
-        __asm__("hlt");
-        disable_interrupts();
+        handle_interrupts();
     }
 }
 
-static CLOSURE_2_3(offset_block_write, void, block_write, u64, void *, range, status_handler);
-static void offset_block_write(block_write w, u64 start, void *src, range blocks, status_handler h)
+static CLOSURE_2_3(offset_block_io, void, u64, block_io, void *, range, status_handler);
+static void offset_block_io(u64 offset, block_io io, void *dest, range blocks, status_handler sh)
 {
-    assert((start & (SECTOR_SIZE - 1)) == 0);
-    u64 ds = start >> SECTOR_OFFSET;
+    assert((offset & (SECTOR_SIZE - 1)) == 0);
+    u64 ds = offset >> SECTOR_OFFSET;
     blocks.start += ds;
     blocks.end += ds;
-    apply(w, src, blocks, h);
-}
 
-static CLOSURE_2_3(offset_block_read, void, block_read, u64, void *, range, status_handler);
-static void offset_block_read(block_read r, u64 start, void *dest, range blocks, status_handler h)
-{
-    assert((start & (SECTOR_SIZE - 1)) == 0);
-    u64 ds = start >> SECTOR_OFFSET;
-    blocks.start += ds;
-    blocks.end += ds;
-    apply(r, dest, blocks, h);
+    // split I/O to storage driver to PAGESIZE requests
+    heap h = heap_general(&heaps);
+    merge m = allocate_merge(h, sh);
+    status_handler k = apply_merge(m);
+    while (blocks.start < blocks.end) {
+        u64 span = MIN(range_span(blocks), PAGESIZE >> SECTOR_OFFSET);
+        apply(io, dest, irange(blocks.start, blocks.start + span), apply_merge(m));
+
+        // next block
+        blocks.start += span;
+        dest = (char *) dest + (span << SECTOR_OFFSET);
+    }
+    apply(k, STATUS_OK);
 }
 
 void init_extra_prints(); 
@@ -88,11 +86,12 @@ void init_extra_prints();
 static CLOSURE_1_2(fsstarted, void, tuple, filesystem, status);
 static void fsstarted(tuple root, filesystem fs, status s)
 {
+    assert(s == STATUS_OK);
     enqueue(runqueue, closure(heap_general(&heaps), startup, &heaps, root, fs));
 }
 
-static CLOSURE_2_3(attach_storage, void, tuple, u64, block_read, block_write, u64);
-static void attach_storage(tuple root, u64 fs_offset, block_read r, block_write w, u64 length)
+static CLOSURE_2_3(attach_storage, void, tuple, u64, block_io, block_io, u64);
+static void attach_storage(tuple root, u64 fs_offset, block_io r, block_io w, u64 length)
 {
     // with filesystem...should be hidden as functional handlers on the tuplespace
     heap h = heap_general(&heaps);
@@ -100,8 +99,8 @@ static void attach_storage(tuple root, u64 fs_offset, block_read r, block_write 
                       SECTOR_SIZE,
                       length,
                       heap_backed(&heaps),
-                      closure(h, offset_block_read, r, fs_offset),
-                      closure(h, offset_block_write, w, fs_offset),
+                      closure(h, offset_block_io, fs_offset, r),
+                      closure(h, offset_block_io, fs_offset, w),
                       root,
                       closure(h, fsstarted, root));
 }
@@ -133,17 +132,13 @@ static void read_kernel_syms()
     }
 }
 
-extern void move_gdt();
+extern void install_gdt64_and_tss();
 
 static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = &heaps;
     heap misc = heap_general(kh);
     heap pages = heap_pages(kh);
-    //heap virtual_huge = heap_virtual_huge(kh);
-    //heap virtual_page = heap_virtual_page(kh);
-    //heap physical = heap_physical(kh);
-    //heap backed = heap_backed(kh);
 
     /* Unmap the first page so we catch faults on null pointer references. */
     unmap(0, PAGESIZE, pages);
@@ -168,13 +163,10 @@ static void __attribute__((noinline)) init_service_new_stack()
         halt("filesystem region not found; halt\n");
     init_virtio_storage(kh, closure(misc, attach_storage, root, fs_offset));
     init_virtio_network(kh);
-    miscframe = allocate(misc, FRAME_MAX * sizeof(u64));
     pci_discover();
 
-    /* Switch gdt to kernel space and free up initial mapping, but
-       only after we're done with regions and anything else in that
-       space. */
-    move_gdt();
+    /* Switch to stage3 GDT64, enable TSS and free up initial map */
+    install_gdt64_and_tss();
     unmap(PAGESIZE, INITIAL_MAP_SIZE - PAGESIZE, pages);
 
     runloop();

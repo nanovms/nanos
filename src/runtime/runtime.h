@@ -5,6 +5,9 @@ typedef u32 character;
 
 #define true 1
 #define false 0
+#define infinity (-1ull)
+#define INVALID_PHYSICAL ((u64)infinity)
+#define INVALID_ADDRESS ((void *)infinity)
 
 typedef u64 timestamp;
 
@@ -101,8 +104,6 @@ typedef u64 physical;
 
 physical vtop(void *x);
 
-#define cprintf(...)
-
 // used by stage2/stage3, not process
 #define PAGELOG 12
 #define PAGESIZE U64_FROM_BIT(PAGELOG)
@@ -111,12 +112,6 @@ physical vtop(void *x);
 #ifndef physical_from_virtual
 physical physical_from_virtual(void *x);
 #endif
-
-#define infinity (-1ull)
-
-#define INVALID_PHYSICAL ((u64)0xffffffffffffffff)
-
-#define INVALID_ADDRESS ((void *)0xffffffffffffffffull)
 
 heap zero_wrap(heap meta, heap parent);
 
@@ -191,8 +186,7 @@ typedef closure_type(thunk, void);
 #include <range.h>
 
 typedef closure_type(buffer_handler, void, buffer);
-typedef closure_type(block_write, void, void *, range, status_handler);
-typedef closure_type(block_read, void, void *, range, status_handler);
+typedef closure_type(block_io, void, void *, range, status_handler);
 
 // break out platform - move into the implicit include
 #include <x86_64.h>
@@ -228,6 +222,7 @@ extern status_handler ignore_status;
 
 extern heap transient;
 
-typedef closure_type(merge, status_handler);
-merge allocate_merge(heap h, status_handler completion);
+typedef struct merge *merge;
 
+merge allocate_merge(heap h, status_handler completion);
+status_handler apply_merge(merge m);
