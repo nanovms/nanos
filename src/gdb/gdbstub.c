@@ -206,8 +206,8 @@ static boolean handle_request(gdb g, buffer b, buffer output)
     case 'P':		/* set the value of a single CPU register - return OK */
         {
             u64 regno;
-            if (parse_int (b, 16, &regno) && (get_char(b) == '='))                
-                if (regno >= 0 && regno < (sizeof(context)/sizeof(u64))) {
+            if (parse_int (b, 16, &regno) && (get_char(b) == '='))
+                if (regno < (sizeof(context)/sizeof(u64))) {
                     hex2mem (b, g->t->frame + regno, 8);
                     bprintf (output, "OK");
                     break;
