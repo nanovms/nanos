@@ -20,7 +20,7 @@ jobs:
     steps:
       - checkout
       - run: sudo apt-get update
-      - run: sudo apt-get install nasm
+      - run: sudo apt-get install nasm qemu
       - run: make
       - run: make test-nokvm
       - run: cp .circleci/boto ~/.boto
