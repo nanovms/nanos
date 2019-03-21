@@ -107,14 +107,14 @@ void pci_set_bus_master(int bus, int slot, int func)
 
 void msi_format(u32 *address, u32 *data, int vector)
 {
-    u32 destination = 0;
-    u32 rh = 0;
-    u32 dm = 0;     // what is dm?
-    u32 trigger = 1; // edge, level = 1
-    u32 mode = 000; // 000 fixed, 001 lowest, 010 dmi, 100 nmi, 101 init, 111 extint
-    u32 level = 0;
-    
+    u32 dm = 0;             // destination mode: ignored if rh == 0
+    u32 rh = 0;             // redirection hint: 0 - disabled
+    u32 destination = 0;    // destination APIC
     *address = (0xfee << 20) | (destination << 12) | (rh << 3) | (dm << 2);
+
+    u32 mode = 0;           // delivery mode: 000 fixed, 001 lowest, 010 smi, 100 nmi, 101 init, 111 extint
+    u32 level = 0;          // trigger level: 0 - deassert, 1 - assert
+    u32 trigger = 0;        // trigger mode: 0 - edge, 1 - level
     *data = (trigger << 15) | (level << 14) | (mode << 8) | vector;
 }
 
