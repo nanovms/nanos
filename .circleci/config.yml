@@ -60,6 +60,8 @@ workflows:
   commit-workflow:
     jobs:
       - build
+      - nightly-build-mac
+      - nightly-build
   nightly:
     triggers:
       - schedule:
