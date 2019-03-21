@@ -70,6 +70,7 @@ static void offset_block_io(u64 offset, block_io io, void *dest, range blocks, s
     heap h = heap_general(&heaps);
     merge m = allocate_merge(h, sh);
     status_handler k = apply_merge(m);
+    enable_interrupts();
     while (blocks.start < blocks.end) {
         u64 span = MIN(range_span(blocks), PAGESIZE >> SECTOR_OFFSET);
         apply(io, dest, irange(blocks.start, blocks.start + span), apply_merge(m));
@@ -78,6 +79,7 @@ static void offset_block_io(u64 offset, block_io io, void *dest, range blocks, s
         blocks.start += span;
         dest = (char *) dest + (span << SECTOR_OFFSET);
     }
+    disable_interrupts();
     apply(k, STATUS_OK);
 }
 

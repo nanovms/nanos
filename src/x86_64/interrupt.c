@@ -256,6 +256,9 @@ context intframe;               /* for context save on exception within interrup
 
 void handle_interrupts()
 {
+    if (fetch_and_add(&runloop_timer_fired, 0) > 0)
+        return;
+
     running_frame = miscframe;
     enable_interrupts();
     __asm__("hlt");
@@ -299,7 +302,7 @@ heap interrupt_vectors;
 void allocate_msi(int slot, int msi_slot, thunk h)
 {
     int v = allocate_u64(interrupt_vectors, 1);
-    handlers[v] = h;
+    register_interrupt(v, h);
     msi_map_vector(slot, msi_slot, v);
 }
 
@@ -328,6 +331,16 @@ void register_interrupt(int vector, thunk t)
 
 extern timestamp now_kvm();
 
+word runloop_timer_fired;
+
+static CLOSURE_0_0(runloop_timer_handler, void);
+static void runloop_timer_handler()
+{
+    fetch_and_add(&runloop_timer_fired, 1);
+}
+
+thunk runloop_timer_interrupt;
+
 static u32 apic_timer_cal_sec;
 
 /* ugh, don't want to slow down the boot this much...see if we can
@@ -353,15 +366,12 @@ void lapic_runloop_timer(timestamp interval)
     apic_write(APIC_TMRINITCNT, cnt);
 }
 
-static CLOSURE_0_0(int_ignore, void);
-static void int_ignore(void) {}
-
 void configure_lapic_timer(heap h)
 {
     apic_write(APIC_TMRDIV, 3 /* 16 */);
     int v = allocate_u64(interrupt_vectors, 1);
     apic_write(APIC_LVT_TMR, v); /* one shot */
-    handlers[v] = closure(h, int_ignore);
+    register_interrupt(v, runloop_timer_interrupt);
     calibrate_lapic_timer();
 }
 
@@ -403,7 +413,7 @@ void start_interrupts(kernel_heaps kh)
     assert(handlers != INVALID_ADDRESS);
 
     /* alternate frame storage */
-    miscframe = allocate_frame(general);
+    running_frame = miscframe = allocate_frame(general);
     intframe = allocate_frame(general);
 
     /* TSS is installed at the end of stage3 runtime initialization */
@@ -425,6 +435,8 @@ void start_interrupts(kernel_heaps kh)
     
     *(u64 *)(dest + 1) = (u64)idt;// physical_from_virtual(idt);
     asm("lidt %0": : "m"(*dest));
+
+    runloop_timer_interrupt = closure(general, runloop_timer_handler);
     enable_lapic(pages);
     if (using_lapic_timer())
         configure_lapic_timer(general);

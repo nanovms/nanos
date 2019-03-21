@@ -71,6 +71,7 @@ timestamp now() {
 /* system timer that is reserved for processing the global timer heap */
 void runloop_timer(timestamp duration)
 {
+    runloop_timer_fired = 0;
     timer_function(duration);
 }
 

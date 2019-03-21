@@ -2,11 +2,13 @@
 
 void initialize_buffer();
 
-static inline CLOSURE_0_0(ignore_body, void);
-static inline void ignore_body(){}
-thunk ignore;
-status_handler ignore_status;
+static CLOSURE_0_1(ignore_status_func, void, status)
+static void ignore_status_func(status s)
+{
+    // do nothing
+}
 
+status_handler ignore_status;
 
 // doesn't really belong here
 static char *hex_digits="0123456789abcdef";
@@ -74,8 +76,7 @@ void init_runtime(kernel_heaps kh)
     register_format('p', format_pointer);
     init_tuples(allocate_tagged_region(kh, tag_tuple));
     init_symbols(allocate_tagged_region(kh, tag_symbol), h);
-    ignore = closure(h, ignore_body);
-    ignore_status = (void*)ignore;
+    ignore_status = closure(h, ignore_status_func);
     errheap = h;
     register_format('P', format_u64);    // for 32 bit
     register_format('d', format_number);

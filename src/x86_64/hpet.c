@@ -142,7 +142,7 @@ void hpet_periodic_timer(timestamp rate, thunk t)
 
 void hpet_runloop_timer(timestamp duration)
 {
-    timer_config(0, duration, ignore, false);
+    timer_config(0, duration, runloop_timer_interrupt, false);
 }
 
 timestamp now_hpet()

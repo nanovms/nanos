@@ -53,7 +53,7 @@ void readdir(filesystem fs, heap h, tuple w, buffer path)
             }
         }
         if (k == sym(extents))
-            filesystem_read_entire(fs, w, h, closure(h, write_file, path), (void *)ignore);
+            filesystem_read_entire(fs, w, h, closure(h, write_file, path), ignore_status);
     }
 }
 

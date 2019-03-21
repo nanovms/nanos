@@ -208,7 +208,6 @@ void init_runtime(kernel_heaps kh);
 heap allocate_tagged_region(kernel_heaps kh, u64 tag);
 typedef closure_type(buffer_promise, void, buffer_handler);
 
-extern thunk ignore;
 extern status_handler ignore_status;
 
 #include <metadata.h>

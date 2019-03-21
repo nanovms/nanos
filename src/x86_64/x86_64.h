@@ -84,7 +84,7 @@ void msi_map_vector(int slot, int msislot, int vector);
 
 static inline void write_barrier()
 {
-    asm ("sfence");
+    asm ("sfence" ::: "memory");
 }
 
 #define rol(__x, __b)\
@@ -196,7 +196,8 @@ void elf_symbols(buffer elf, closure_type(each, void, char *, u64, u64, u8));
 
 typedef closure_type(fault_handler, context, context);
 
-void configure_timer(timestamp rate, thunk t);
+extern word runloop_timer_fired;
+extern thunk runloop_timer_interrupt;
 
 boolean enqueue(queue q, void *n);
 void *dequeue(queue q);
