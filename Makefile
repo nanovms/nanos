@@ -1,6 +1,6 @@
 include config.mk
 
-all: image test-build
+all: image
 
 image: gitversion.c mkfs boot stage3 target
 	@ echo "MKFS	$@"
