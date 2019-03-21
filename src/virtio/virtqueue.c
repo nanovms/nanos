@@ -81,10 +81,9 @@ typedef struct virtqueue {
     volatile struct vring_desc *desc;
     volatile struct vring_avail *avail;
     volatile struct vring_used *used;    
-    u64 free_cnt;               /* atomic */
-    u16 desc_idx;               /* producer only */
-    u16 last_used_idx;          /* irq only */
     struct list msgqueue;
+    heap dheap;
+    u16 last_used_idx;          /* irq only */
     vqmsg msgs[0];
 } *virtqueue;
 
@@ -150,7 +149,7 @@ static void vq_interrupt(virtqueue vq)
         apply(m->completion, uep->len);
 
         vq->last_used_idx++;
-        fetch_and_add(&vq->free_cnt, m->count);
+        deallocate_u64(vq->dheap, uep->id, m->count);
         vq->msgs[uep->id] = 0;
         deallocate_vqmsg_irq(vq, m);
     }
@@ -180,7 +179,6 @@ status virtqueue_alloc(vtpci dev,
     vq->dev = dev;
     vq->queue_index = queue;
     vq->entries = size;
-    vq->free_cnt = size;
 
     if ((vq->ring_mem = allocate_zero(dev->contiguous, alloc)) != INVALID_ADDRESS) {
         vq->desc = (struct vring_desc *) vq->ring_mem;
@@ -192,9 +190,14 @@ status virtqueue_alloc(vtpci dev,
         *t = closure(dev->general, vq_interrupt, vq);
         *vqp = vq;
         list_init(&vq->msgqueue);
+        vq->dheap = create_id_heap(dev->general, 0, size, 1);
+        if (vq->dheap == INVALID_ADDRESS) {
+            deallocate(dev->contiguous, vq->ring_mem, alloc);
+            goto nomem;
+        }
         return 0;
     }
-
+  nomem:
     return(timm("status", "cannot allocate memory for virtqueue ring"));
 }
 
@@ -213,33 +216,32 @@ static void virtqueue_notify(virtqueue vq)
 /* called from interrupt level or with ints disabled */
 static void virtqueue_fill_irq(virtqueue vq)
 {
-    virtqueue_debug("%s: ENTRY (entries %d, desc_idx %d, avail->idx %d)\n",
-        __func__, (u64) vq->entries, (u64) vq->desc_idx, (u64) vq->avail->idx);
+    virtqueue_debug("%s: ENTRY (entries %d, dheap allocated %d, avail->idx %d)\n",
+        __func__, (u64) vq->entries, (u64) vq->dheap->allocated, (u64) vq->avail->idx);
     list n = list_get_next(&vq->msgqueue);
 
     u16 added = 0;
     while (n && n != &vq->msgqueue) {
         vqmsg m = struct_from_list(n, vqmsg, l);
-        if (vq->free_cnt < m->count) {
-            virtqueue_debug("%s: virtqueue %p: queue full (vq->free_cnt %d)\n",
-                __func__, vq, vq->free_cnt);
+        assert(m->completion);
+
+        u64 head = allocate_u64(vq->dheap, m->count);
+        if (head == infinity) {
+            virtqueue_debug("%s: virtqueue %p: queue full (dheap allocated %d)\n",
+                __func__, vq, vq->dheap->allocated);
             break;
         }
 
-        assert(m->completion);
-        u16 head = vq->desc_idx;
         vq->msgs[head] = m;
 
         for (int i = 0; i < m->count; i++) {
             struct vring_desc *src = buffer_ref(m->descv, i * sizeof(*src));
-            volatile struct vring_desc *d = vq->desc + vq->desc_idx;
+            volatile struct vring_desc *d = vq->desc + head + i;
             d->busaddr = src->busaddr;
             d->len = src->len;
             d->flags = src->flags;
             if (i < m->count - 1)
                 d->flags |= VRING_DESC_F_NEXT;
-            vq->desc_idx = d->next;
-
 #if 0
             virtqueue_debug("%s: virtqueue %p: msg %p (count %d): desc->flags 0x%P, desc->next %d\n",
                 __func__, vq, m, (u64) m->count, (u64) d->flags, (u64) d->next);
@@ -250,7 +252,6 @@ static void virtqueue_fill_irq(virtqueue vq)
         vq->avail->ring[avail_idx] = head;
         virtqueue_debug("%s: virtqueue %p: msg %p (count %d): avail->ring[%d] = %d\n",
             __func__, vq, m, (u64) m->count, (u64) avail_idx, (u64) head);
-        fetch_and_add(&vq->free_cnt, -m->count);
 
         list nn = list_get_next(n);
         list_delete(n);
@@ -270,7 +271,7 @@ static void virtqueue_fill_irq(virtqueue vq)
             virtqueue_notify(vq);
         }
     }
-    virtqueue_debug("%s: EXIT (desc_idx %d)\n", __func__, (u64) vq->desc_idx);
+    virtqueue_debug("%s: EXIT (dheap allocated %d)\n", __func__, (u64) vq->dheap->allocated);
 }
 
 static void virtqueue_fill(virtqueue vq)
