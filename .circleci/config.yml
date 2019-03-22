@@ -43,7 +43,7 @@ jobs:
       - run: brew update && brew install nasm && brew install go
       - run: brew tap nanovms/homebrew-x86_64-elf
       - run: brew install x86_64-elf-binutils
-      - run: make
+      - run: make image
       - run: cp .circleci/boto ~/.boto
       - run: wget https://storage.googleapis.com/pub/gsutil.tar.gz
       - run: tar xfz gsutil.tar.gz -C ~
