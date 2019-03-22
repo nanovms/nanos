@@ -571,7 +571,7 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_ha
 
     fsfile f;
     if (!(f = table_find(fs->files, t))) {
-        apply(ish, timm("result", "no such file"), 0);
+        apply(ish, timm("result", "no such file %t", t), 0);
         return;
     }
 
@@ -657,17 +657,24 @@ void link(tuple dir, fsfile f, buffer name)
 }
 #endif
 
-/* XXX these will all need to take completions - some ironing out of
-   interface is in order */
 fs_status filesystem_mkentry(filesystem fs, tuple root, char *fp, tuple entry)
 {
     tuple children = (root ? root : table_find(fs->root, sym(children)));
     symbol basename_sym;
-    char *token, *rest = fp, *basename = (char *)0;
+    char *token, *rest, *basename = (char *)0;
+    fs_status status = FS_STATUS_OK;
+
+    int fp_len = runtime_strlen(fp);
+    char *fp_copy = allocate(fs->h, fp_len);
+    assert(fp_copy != INVALID_ADDRESS);
+    runtime_memcpy(fp_copy, fp, fp_len);
+    fp_copy[fp_len] = '\0';
+    rest = fp_copy;
 
     if (!children) {
-        msg_err("failed for \"%s\": no children found in root tuple\n", fp);
-        return FS_STATUS_NOENT;
+        msg_err("failed for \"%s\": no children found in root tuple\n", rest);
+        status = FS_STATUS_NOENT;
+        goto out_dealloc;
     }
 
     /* find the folder we need to mkentry in */
@@ -676,22 +683,25 @@ fs_status filesystem_mkentry(filesystem fs, tuple root, char *fp, tuple entry)
         tuple t = table_find(children, sym_this(token));
         if (!t) {
             if (!final) {
-                msg_debug("a path component (\"%s\") is missing\n", token);
-                return FS_STATUS_NOENT;
+                msg_err("a path component (\"%s\") is missing\n", token);
+                status = FS_STATUS_NOENT;
+                goto out_dealloc;
             }
 
             basename = token;
             break;
         } else {
             if (final) {
-                msg_debug("final path component (\"%s\") already exists\n", token);
-                return FS_STATUS_EXIST;
+                msg_err("final path component (\"%s\") already exists\n", token);
+                status = FS_STATUS_EXIST;
+                goto out_dealloc;
             }
 
             children = table_find(t, sym(children));
             if (!children) {
                 msg_debug("a path component (\"%s\") is not a folder\n", token);
-                return FS_STATUS_NOTDIR;
+                status = FS_STATUS_NOTDIR;
+                goto out_dealloc;
             }
         }
     }
@@ -699,11 +709,13 @@ fs_status filesystem_mkentry(filesystem fs, tuple root, char *fp, tuple entry)
     basename_sym = sym_this(basename);
     table_set(children, basename_sym, entry);
 
-    /* XXX this shouldn't be ignore - extend this when we add completion to interface */
+    /* XXX rather than ignore, there should be a wakeup on a sync blockq */
     filesystem_write_eav(fs, children, basename_sym, entry, ignore_status);
     msg_debug("written!\n");
     filesystem_flush_log(fs);
-    return FS_STATUS_OK;
+  out_dealloc:
+    deallocate(fs->h, fp_copy, fp_len);
+    return status;
 }
 
 fs_status filesystem_mkdir(filesystem fs, tuple root, char *fp)
