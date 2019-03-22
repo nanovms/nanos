@@ -6,10 +6,10 @@
 	      )
     # filesystem path to elf for kernel to run
     program:/pipe
-    trace:t
-    debugsyscalls:t
-    futex_trace:t
-    fault:t
+#    trace:t
+#    debugsyscalls:t
+#    futex_trace:t
+#    fault:t
     arguments:[test]
     environment:(USER:bobby PWD:/)
 )

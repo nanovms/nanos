@@ -108,8 +108,8 @@ boolean encode_decode_reference_test(heap h)
 
     buffer buf = allocate_buffer(h, 128);
     bprintf(buf, "%t", t4);
-    test_assert(strncmp(buf->contents, "(1:(1:200) 2:(1:200))", buf->length) == 0);
-
+    test_assert((strncmp(buf->contents, "(1:(1:200) 2:(1:200))", buf->length) == 0) ||
+                (strncmp(buf->contents, "(2:(1:200) 1:(1:200))", buf->length) == 0));
     failure = false;
 fail:
     return failure;

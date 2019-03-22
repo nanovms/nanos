@@ -20,7 +20,7 @@ jobs:
     steps:
       - checkout
       - run: sudo apt-get update
-      - run: sudo apt-get install nasm
+      - run: sudo apt-get install nasm qemu
       - run: make
       - run: make test-nokvm
       - run: cp .circleci/boto ~/.boto
@@ -37,14 +37,13 @@ jobs:
   nightly-build-mac:
     macos:
         xcode: "9.0" 
-    working_directory: /go/src/github.com/nanovms/nanos
     steps:
       - checkout
       - run: CI=1 /usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
       - run: brew update && brew install nasm && brew install go
       - run: brew tap nanovms/homebrew-x86_64-elf
       - run: brew install x86_64-elf-binutils
-      - run: make
+      - run: make image
       - run: cp .circleci/boto ~/.boto
       - run: wget https://storage.googleapis.com/pub/gsutil.tar.gz
       - run: tar xfz gsutil.tar.gz -C ~
