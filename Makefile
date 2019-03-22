@@ -60,7 +60,7 @@ test-nokvm: test-build
 
 target: $(TARGET)
 
-$(TARGET): contgen
+$(TARGET):
 	$(MAKE) -C test/runtime $(TARGET)
 
 gitversion.c : .git/index .git/HEAD
