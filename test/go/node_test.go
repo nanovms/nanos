@@ -32,7 +32,7 @@ func unWarpConfig(file string) *api.Config {
 
 func TestNodeHelloWorld(t *testing.T) {
 
-	const packageName = "node_v11.15.0"
+	const packageName = "node_v11.5.0"
 	localpackage := api.DownloadPackage(packageName)
 	fmt.Printf("Extracting %s...\n", localpackage)
 	staging := ".staging"
