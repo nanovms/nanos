@@ -1,6 +1,6 @@
 include config.mk
 
-all: image test-build
+all: image
 
 image: gitversion.c mkfs boot stage3 target
 	@ echo "MKFS	$@"
@@ -60,8 +60,8 @@ test-nokvm: test-build
 
 target: $(TARGET)
 
-$(TARGET): contgen
-	$(MAKE) -C test/runtime
+$(TARGET):
+	$(MAKE) -C test/runtime $(TARGET)
 
 gitversion.c : .git/index .git/HEAD
 	echo "const char *gitversion = \"$(shell git rev-parse HEAD)\";" > $@

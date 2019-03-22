@@ -356,7 +356,12 @@ clean-objs = \
 	$(tuple_test-objs) $(TUPLE_TEST) \
 	$(CLOSURE_TMPL) \
 
-clean: default-clean
+clean-gc = $(call objs-to-gc,$(OUT),$(clean-objs))
+
+gcov-clean:
+	$(Q) $(RM) -f $(clean-gc)
+
+clean: gcov-clean default-clean
 
 .PHONY: objcache_test network_test id_heap_test path_test pqueue_test vector_test udp_test buffer_test range_test tuple_test
 
