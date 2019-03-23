@@ -37,7 +37,7 @@ func TestNodeHelloWorld(t *testing.T) {
 	fmt.Printf("Extracting %s...\n", localpackage)
 	staging := ".staging"
 
-	os.Mkdir(staging, 755)
+	os.MkdirAll(staging, 755)
 	cpCmd := exec.Command("cp", "-rf", localpackage, staging)
 	err := cpCmd.Run()
 	if err != nil {
