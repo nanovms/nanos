@@ -36,6 +36,14 @@ func TestNodeHelloWorld(t *testing.T) {
 	localpackage := api.DownloadPackage(packageName)
 	fmt.Printf("Extracting %s...\n", localpackage)
 	staging := ".staging"
+
+	os.Mkdir(staging, 755)
+	cpCmd := exec.Command("cp", "-rf", localpackage, staging)
+	err := cpCmd.Run()
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	api.ExtractPackage(localpackage, staging)
 	// load the package manifest
 	manifest := path.Join(staging, packageName, "package.manifest")
