@@ -36,6 +36,16 @@ static inline void runtime_memset(u8 *a, u8 b, bytes len)
     for (int i = 0; i < len; i++) ((u8 *)a)[i] = b;
 }
 
+static inline int runtime_memcmp(const void *a, const void *b, bytes len)
+{
+    for (int i = 0; i < len; i++) {
+        int res = ((signed char *) a)[i] - ((signed char *) b)[i];
+        if (res != 0)
+            return res;
+    }
+    return 0;
+}
+
 static inline int runtime_strlen(const char *a)
 {
     int i = 0;
