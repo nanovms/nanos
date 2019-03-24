@@ -329,14 +329,19 @@ static void virtio_scsi_inquiry_done(storage_attach a, u16 target, u16 lun, virt
         return;
     }
 
-#ifdef VIRTIO_SCSI_DEBUG
     struct scsi_res_inquiry *res = (struct scsi_res_inquiry *) r->data;
+#ifdef VIRTIO_SCSI_DEBUG
     virtio_scsi_debug("%s: vendor %b, product %b, revision %b\n",
         __func__,
         alloca_wrap_buffer(res->vendor, sizeof(res->vendor)),
         alloca_wrap_buffer(res->product, sizeof(res->product)),
         alloca_wrap_buffer(res->revision, sizeof(res->revision)));
 #endif
+    static const char vendor_google[] = "Google";
+    if (runtime_memcmp(res->vendor, vendor_google, sizeof(vendor_google) - 1) == 0) {
+        virtio_scsi_debug("%s: limiting max queued\n", __func__);
+        virtqueue_set_max_queued(s->requestq, 1);
+    }
 
     // test unit ready
     r = virtio_scsi_alloc_request(s, target, lun, SCSI_CMD_TEST_UNIT_READY);

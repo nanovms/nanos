@@ -58,6 +58,9 @@ void runloop()
     }
 }
 
+//#define MAX_BLOCK_IO_SIZE PAGE_SIZE
+#define MAX_BLOCK_IO_SIZE (256 * 1024)
+
 static CLOSURE_2_3(offset_block_io, void, u64, block_io, void *, range, status_handler);
 static void offset_block_io(u64 offset, block_io io, void *dest, range blocks, status_handler sh)
 {
@@ -71,7 +74,7 @@ static void offset_block_io(u64 offset, block_io io, void *dest, range blocks, s
     merge m = allocate_merge(h, sh);
     status_handler k = apply_merge(m);
     while (blocks.start < blocks.end) {
-        u64 span = MIN(range_span(blocks), PAGESIZE >> SECTOR_OFFSET);
+        u64 span = MIN(range_span(blocks), MAX_BLOCK_IO_SIZE >> SECTOR_OFFSET);
         apply(io, dest, irange(blocks.start, blocks.start + span), apply_merge(m));
 
         // next block
