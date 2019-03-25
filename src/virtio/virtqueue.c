@@ -82,7 +82,7 @@ typedef struct virtqueue {
     volatile struct vring_avail *avail;
     volatile struct vring_used *used;    
     u64 free_cnt;               /* atomic */
-    u16 desc_idx;               /* producer only */
+    u16 desc_idx;               /* head of descriptor free list */
     u16 last_used_idx;          /* irq only */
     struct list msgqueue;
     vqmsg msgs[0];
@@ -146,12 +146,24 @@ static void vq_interrupt(virtqueue vq)
         volatile struct vring_used_elem *uep = vq->used->ring + (vq->last_used_idx & (vq->entries - 1));
         virtqueue_debug("%s: last_used_idx %d, id %d, len %d\n",
             __func__, (u64) vq->last_used_idx, (u64) uep->id, (u64) uep->len);
-        vqmsg m = vq->msgs[uep->id];
+        int head = uep->id;
+        vqmsg m = vq->msgs[head];
         apply(m->completion, uep->len);
+
+        /* return descriptor(s) to free list */
+        int dcount = 1;
+        volatile struct vring_desc *d = vq->desc + head;
+        while ((d->flags & VRING_DESC_F_NEXT)) {
+            d = vq->desc + d->next;
+            dcount++;
+        }
+        assert(dcount == m->count);
+        d->next = vq->desc_idx;
+        vq->desc_idx = head;
 
         vq->last_used_idx++;
         fetch_and_add(&vq->free_cnt, m->count);
-        vq->msgs[uep->id] = 0;
+        vq->msgs[head] = 0;
         deallocate_vqmsg_irq(vq, m);
     }
 
@@ -184,11 +196,15 @@ status virtqueue_alloc(vtpci dev,
 
     if ((vq->ring_mem = allocate_zero(dev->contiguous, alloc)) != INVALID_ADDRESS) {
         vq->desc = (struct vring_desc *) vq->ring_mem;
-        for (int i = 0; i < vq->entries - 1; i++)
-            vq->desc[i].next = i + 1;
         vq->avail = (struct vring_avail *) (vq->desc + size);
         vq->used = (struct vring_used *) (vq->ring_mem  + avail_end);
         virtqueue_debug("%s: desc %p, avail %p, used %p\n", __func__, vq->desc, vq->avail, vq->used);
+
+        // initialize descriptor chains
+        for (int i = 0; i < vq->entries - 1; i++)
+            vq->desc[i].next = i + 1;
+        vq->desc[vq->entries - 1].next = 0;
+
         *t = closure(dev->general, vq_interrupt, vq);
         *vqp = vq;
         list_init(&vq->msgqueue);

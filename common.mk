@@ -2,6 +2,10 @@ srcs-to-objs = \
 	$(patsubst $(1)/%.c,$(2)/%.o,$(filter %.c,$($(3)-srcs))) \
 	$(patsubst $(1)/%.s,$(2)/%.o,$(filter %.s,$($(3)-srcs)))
 
+objs-to-gc = \
+	$(patsubst $(1)/%.o,$(1)/%.gcda,$(filter %.o,$(2))) \
+	$(patsubst $(1)/%.o,$(1)/%.gcno,$(filter %.o,$(2)))
+
 cmd = $(if $(Q),@ echo "$(msg_$(1))";) $(cmd_$(1))
 
 msg_host-prog     = HOSTLD	$@

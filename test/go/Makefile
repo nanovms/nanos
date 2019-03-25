@@ -14,7 +14,7 @@ all: build
 build: deps
 	$(GOBUILD)
 
-test:
+test: build
 	$(GOTEST) -v
 
 clean:
