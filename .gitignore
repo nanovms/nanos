@@ -1,3 +1,4 @@
+release
 test/go/instance.img
 test/go/image*
 test/go/.staging/*
