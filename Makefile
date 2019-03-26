@@ -121,7 +121,7 @@ OS = linux
 endif
 
 ifeq ($(UNAME_S),Darwin)
-OS = darwin 
+OS = darwin
 endif
 
 STORAGE	= -drive if=none,id=hd0,format=raw,file=$(IMAGE)
@@ -134,16 +134,14 @@ DISPLAY	= -display none -serial stdio
 USERNET	= -device virtio-net,netdev=n0 -netdev user,id=n0,hostfwd=tcp::8080-:8080,hostfwd=tcp::9090-:9090,hostfwd=udp::5309-:5309
 QEMU	?= qemu-system-x86_64
 
-release : image
-	rm -r release
+release:
+	-rm -rf release
 	mkdir release
 	cp output/boot/boot.img release
 	cp output/mkfs/bin/mkfs release
 	cp output/stage3/stage3.img release
-	cd release
-	tar -czvf nanos-release-$(OS)-${version}.tar.gz *
-	mv nanos-release-$(OS)-${version}.tar.gz release
-	
+	cd release && tar -czvf nanos-release-$(OS)-${version}.tar.gz *
+
 run-nokvm: image
 	$(QEMU) $(DISPLAY) -m 2G -device isa-debug-exit -no-reboot $(STORAGE) $(USERNET) $(DEBUG_) || exit $$(($$?>>1))
 
@@ -153,6 +151,6 @@ run-bridge: image
 run: image
 	$(QEMU) $(DISPLAY) -m 2G -device isa-debug-exit -no-reboot $(STORAGE) $(USERNET) $(KVM) $(DEBUG_) || exit $$(($$?>>1))
 
-.PHONY: image contgen mkfs boot stage3 test clean distclean run-nokvm run
+.PHONY: image contgen mkfs boot stage3 test clean distclean run-nokvm run release
 
 include rules.mk
