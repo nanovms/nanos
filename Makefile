@@ -115,6 +115,15 @@ ifneq ($(NANOS_TARGET_ROOT),)
 TARGET_ROOT_OPT= -r $(NANOS_TARGET_ROOT)
 endif
 
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Linux)
+OS = linux
+endif
+
+ifeq ($(UNAME_S),Darwin)
+OS = darwin 
+endif
+
 STORAGE	= -drive if=none,id=hd0,format=raw,file=$(IMAGE)
 #STORAGE+= -device virtio-blk,drive=hd0
 STORAGE+= -device virtio-scsi-pci,id=scsi0 -device scsi-hd,bus=scsi0.0,drive=hd0
@@ -125,6 +134,16 @@ DISPLAY	= -display none -serial stdio
 USERNET	= -device virtio-net,netdev=n0 -netdev user,id=n0,hostfwd=tcp::8080-:8080,hostfwd=tcp::9090-:9090,hostfwd=udp::5309-:5309
 QEMU	?= qemu-system-x86_64
 
+release : image
+	rm -r release
+	mkdir release
+	cp output/boot/boot.img release
+	cp output/mkfs/bin/mkfs release
+	cp output/stage3/stage3.img release
+	cd release
+	tar -czvf nanos-release-$(OS)-${version}.tar.gz *
+	mv nanos-release-$(OS)-${version}.tar.gz release
+	
 run-nokvm: image
 	$(QEMU) $(DISPLAY) -m 2G -device isa-debug-exit -no-reboot $(STORAGE) $(USERNET) $(DEBUG_) || exit $$(($$?>>1))
 
