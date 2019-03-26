@@ -657,7 +657,7 @@ void link(tuple dir, fsfile f, buffer name)
 }
 #endif
 
-fs_status filesystem_mkentry(filesystem fs, tuple root, char *fp, tuple entry)
+fs_status filesystem_mkentry(filesystem fs, tuple root, char *fp, tuple entry, boolean persistent)
 {
     tuple children = (root ? root : table_find(fs->root, sym(children)));
     symbol basename_sym;
@@ -710,24 +710,25 @@ fs_status filesystem_mkentry(filesystem fs, tuple root, char *fp, tuple entry)
     table_set(children, basename_sym, entry);
 
     /* XXX rather than ignore, there should be a wakeup on a sync blockq */
-    filesystem_write_eav(fs, children, basename_sym, entry, ignore_status);
-    msg_debug("written!\n");
-    filesystem_flush_log(fs);
+    if (persistent) {
+        filesystem_write_eav(fs, children, basename_sym, entry, ignore_status);
+        filesystem_flush_log(fs);
+    }
   out_dealloc:
     deallocate(fs->h, fp_copy, fp_len);
     return status;
 }
 
-fs_status filesystem_mkdir(filesystem fs, tuple root, char *fp)
+fs_status filesystem_mkdir(filesystem fs, tuple root, char *fp, boolean persistent)
 {
     tuple dir = allocate_tuple();
     /* 'make it a folder' by attaching a children node to the tuple */
     table_set(dir, sym(children), allocate_tuple());
 
-    return filesystem_mkentry(fs, root, fp, dir);
+    return filesystem_mkentry(fs, root, fp, dir, persistent);
 }
 
-fs_status filesystem_creat(filesystem fs, tuple root, char *fp)
+fs_status filesystem_creat(filesystem fs, tuple root, char *fp, boolean persistent)
 {
     tuple dir = allocate_tuple();
     static buffer off = 0;
@@ -742,7 +743,7 @@ fs_status filesystem_creat(filesystem fs, tuple root, char *fp)
     fsfile f = allocate_fsfile(fs, dir);
     fsfile_set_length(f, 0);
 
-    return filesystem_mkentry(fs, root, fp, dir);
+    return filesystem_mkentry(fs, root, fp, dir, persistent);
 }
 
 fsfile fsfile_from_node(filesystem fs, tuple n)
