@@ -86,14 +86,6 @@ heap allocate_tagged_region(kernel_heaps kh, u64 tag)
     return create_id_heap(heap_general(kh), u64_from_pointer(region), size, 1);
 }
 
-
-static void format_errno(buffer dest, buffer fmt, vlist *a)
-{
-    char *e = strerror(varg(*a, int));
-    int len = runtime_strlen(e);
-    buffer_write(dest, e, len);
-}
-
 // xxx - not the kernel
 static struct kernel_heaps heaps; /* really just for init_runtime() */
 
@@ -106,8 +98,6 @@ heap init_process_runtime()
     init_runtime(&heaps);
     init_extra_prints();
     signal(SIGPIPE, SIG_IGN);
-    // unix errno print formatter
-    register_format('E', format_errno);
     return heaps.general;
 }
 

@@ -98,7 +98,7 @@ static inline void blockq_restart_timer_locked(blockq bq)
 
 sysreturn blockq_check(blockq bq, thread t, blockq_action a)
 {
-    blockq_debug("for \"%s\", tid %d, action %p, apply:\n", blockq_name(bq), t->tid, a);
+    blockq_debug("for \"%s\", tid %ld, action %p, apply:\n", blockq_name(bq), t->tid, a);
     /* XXX grab irqsafe mutex/spinlock
 
        presently a no-op because
@@ -114,7 +114,7 @@ sysreturn blockq_check(blockq bq, thread t, blockq_action a)
     sysreturn rv = apply(a, false);
     if (rv != infinity) {
         /* XXX release spinlock */
-        blockq_debug(" - direct return: %d\n", rv);
+        blockq_debug(" - direct return: %ld\n", rv);
         return rv;
     }
 
@@ -171,7 +171,7 @@ void blockq_wake_one(blockq bq)
 
     blockq_debug(" - applying %p:\n", a);
     sysreturn rv = apply(a, true);
-    blockq_debug("   - returned %d\n", rv);
+    blockq_debug("   - returned %ld\n", rv);
     if (rv != 0) {
         assert(dequeue(bq->waiters));
 
@@ -191,7 +191,7 @@ void blockq_wake_one(blockq bq)
 
 blockq allocate_blockq(heap h, char * name, u64 size, timestamp timeout_interval)
 {
-    blockq_debug("name \"%s\", size %d, timeout_interval %T\n", name, size, timeout_interval);
+    blockq_debug("name \"%s\", size %ld, timeout_interval %T\n", name, size, timeout_interval);
     blockq bq = allocate(h, sizeof(struct blockq));
     if (bq == INVALID_ADDRESS)
         return bq;

@@ -50,10 +50,3 @@ static inline void *valueof(void *v)
      __q = a|(((u64)b)<<32);                                  \
      __r = d;\
  }
-
-void print_number(buffer s, u64 x, int base, int pad);
-static inline void format_pointer(buffer dest, buffer fmt, vlist *a)
-{
-    u64 x = varg(*a, u32);
-    print_number(dest, x, 16, 8);
-}

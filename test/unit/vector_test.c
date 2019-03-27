@@ -62,7 +62,7 @@ boolean basic_test(heap h)
 
         /* Attempt to detect resize and check content */
         if (prev != v->contents || i == n - 1) {
-            msg_debug("resize detected at index %d\n", i);
+            msg_debug("resize detected at index %ld\n", i);
             for (long j = 0; j < i + 1; j++) {
                 if (vector_get(v, j) != (void *)j) {
                     msg = "resize: content mismatch";

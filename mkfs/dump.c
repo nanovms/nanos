@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <tfs.h>
 #include <errno.h>
+#include <string.h>
 
 static CLOSURE_1_3(bwrite, void, descriptor, void *, range, status_handler);
 static void bwrite(descriptor d, void * s, range blocks, status_handler c)
@@ -22,7 +23,7 @@ static void bread(descriptor d, void *dest, range blocks, status_handler c)
     while (total < length) {
         xfer = pread(d, dest + total , length - total, offset + total);
         if (xfer == 0) apply(c, 0);
-        if (xfer == -1) apply(c, timm("read-error", "%E", errno));
+        if (xfer == -1) apply(c, timm("read-error", "%s", strerror(errno)));
         total += xfer;
     }
     apply(c, STATUS_OK);

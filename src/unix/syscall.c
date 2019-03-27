@@ -471,7 +471,7 @@ static sysreturn do_mkent(tuple root, const char *pathname, int mode, boolean di
     } else
         final_path = (char *)pathname;
 
-    thread_log(current, "%s: %s (mode %d) pathname %s => %s",
+    thread_log(current, "%s: %s (mode %x) pathname %s => %s",
                __func__, dir ? "mkdir" : "creat", mode, pathname, final_path);
 
     fs_status status = dir ? filesystem_mkdir(current->p->fs, root, final_path, true) :
@@ -569,8 +569,8 @@ static CLOSURE_2_3(file_read, sysreturn, file, fsfile, void *, u64, u64);
 static sysreturn file_read(file f, fsfile fsf, void *dest, u64 length, u64 offset_arg)
 {
     boolean is_file_offset = offset_arg == infinity;
-    bytes offset = is_file_offset ? f->offset : offset_arg;
-    thread_log(current, "%s: f %p, dest %p, offset %d (%s), length %d, file length %d",
+    u64 offset = is_file_offset ? f->offset : offset_arg;
+    thread_log(current, "%s: f %p, dest %p, offset %ld (%s), length %ld, file length %ld",
                __func__, f, dest, offset, is_file_offset ? "file" : "specified",
                length, f->length);
 
@@ -597,8 +597,8 @@ static CLOSURE_2_3(file_write, sysreturn, file, fsfile, void *, u64, u64);
 static sysreturn file_write(file f, fsfile fsf, void *dest, u64 length, u64 offset_arg)
 {
     boolean is_file_offset = offset_arg == infinity;
-    bytes offset = is_file_offset ? f->offset : offset_arg;
-    thread_log(current, "%s: f %p, dest %p, offset %d (%s), length %d, file length %d",
+    u64 offset = is_file_offset ? f->offset : offset_arg;
+    thread_log(current, "%s: f %p, dest %p, offset %ld (%s), length %ld, file length %ld",
                __func__, f, dest, offset, is_file_offset ? "file" : "specified",
                length, f->length);
     heap h = heap_general(get_kernel_heaps());
@@ -641,7 +641,7 @@ static sysreturn file_close(file f, fsfile fsf)
 static CLOSURE_2_3(file_check, boolean, file, fsfile, u32, u32 *, event_handler);
 static boolean file_check(file f, fsfile fsf, u32 eventmask, u32 * last, event_handler eh)
 {
-    thread_log(current, "file_check: file %t, eventmask %P, last %P, event_handler %p",
+    thread_log(current, "file_check: file %t, eventmask %x, last %x, event_handler %p",
 	       f->n, eventmask, last ? *last : 0, eh);
 
     u32 events;
@@ -737,7 +737,7 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
     f->n = n;
     f->length = length;
     f->offset = (flags & O_APPEND) ? length : 0;
-    thread_log(current, "   fd %d, length %d, offset %d", fd, f->length, f->offset);
+    thread_log(current, "   fd %d, length %ld, offset %ld", fd, f->length, f->offset);
     return fd;
 }
 
@@ -745,7 +745,7 @@ sysreturn open(char *name, int flags, int mode)
 {
     if (name == 0) 
         return set_syscall_error (current, EFAULT);
-    thread_log(current, "open: \"%s\", flags %P, mode %P", name, flags, mode);
+    thread_log(current, "open: \"%s\", flags %x, mode %x", name, flags, mode);
     return open_internal(current->p->cwd, name, flags, mode);
 }
 
@@ -805,7 +805,7 @@ sysreturn creat(const char *pathname, int mode)
         return set_syscall_error (current, EFAULT);
 
     tuple root = (*pathname == '/' ? 0 : current->p->cwd);
-    thread_log(current, "creat: \"%s\", mode %P", pathname, mode);
+    thread_log(current, "creat: \"%s\", mode 0x%x", pathname, mode);
     return open_internal(root, (char *)pathname, O_CREAT|O_WRONLY|O_TRUNC, mode);
 }
 
@@ -1080,7 +1080,7 @@ static void fill_stat(int type, tuple n, struct stat *s)
         if (f)
             s->st_size = fsfile_get_length(f);
     }
-    thread_log(current, "st_ino %P, st_mode %P, st_size %P",
+    thread_log(current, "st_ino %lx, st_mode 0x%x, st_size %lx",
             s->st_ino, s->st_mode, s->st_size);
 }
 
@@ -1134,7 +1134,7 @@ static sysreturn newfstatat(int dfd, char *name, struct stat *s, int flags)
 
 sysreturn lseek(int fd, s64 offset, int whence)
 {
-    thread_log(current, "%s: fd %d offset %d whence %s",
+    thread_log(current, "%s: fd %d offset %ld whence %s",
             __func__, fd, offset, whence == SEEK_SET ? "SEEK_SET" :
             whence == SEEK_CUR ? "SEEK_CUR" :
             whence == SEEK_END ? "SEEK_END" :
@@ -1274,7 +1274,7 @@ sysreturn fcntl(int fd, int cmd, int arg)
     case F_GETFL:
         return O_RDWR;
     case F_SETFL:
-        thread_log(current, "fcntl: fd %d, F_SETFL, %P", fd, arg);
+        thread_log(current, "fcntl: fd %d, F_SETFL, %x", fd, arg);
         return set_syscall_return(current, 0);
     default:
         return set_syscall_error(current, ENOSYS);
@@ -1292,7 +1292,7 @@ sysreturn ioctl(int fd, unsigned long request, ...)
     case FIOCLEX:
         return 0;
     default:
-        thread_log(current, "ioctl: fd %d, request %P - not implemented", fd, request);
+        thread_log(current, "ioctl: fd %d, request %x - not implemented", fd, request);
         return set_syscall_error(current, ENOSYS);
     }
 }
@@ -1386,7 +1386,7 @@ sysreturn setgid(gid_t gid)
 
 sysreturn prctl(int option, u64 arg2, u64 arg3, u64 arg4, u64 arg5)
 {
-    thread_log(current, "prctl: option %d, arg2 0x%P, arg3 0x%P, arg4 0x%P, arg5 0x%P",
+    thread_log(current, "prctl: option %d, arg2 0x%lx, arg3 0x%lx, arg4 0x%lx, arg5 0x%lx",
                option, arg2, arg3, arg4, arg5);
     return 0;
 }
@@ -1478,7 +1478,7 @@ static void syscall_debug()
         running_frame[FRAME_FAULT_HANDLER] = f[FRAME_FAULT_HANDLER];
         res = h(f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]);
         if (debugsyscalls)
-            thread_log(current, "direct return: %d, rsp 0x%P", res, f[FRAME_RSP]);
+            thread_log(current, "direct return: %ld, rsp 0x%lx", res, f[FRAME_RSP]);
         running_frame = saveframe;
     } else if (debugsyscalls) {
         thread_log(current, "nosyscall %s", syscall_name(call));

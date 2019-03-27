@@ -83,7 +83,7 @@ void *load_elf(buffer elf, u64 offset, heap pages, heap bss)
             s64 bss_size = p->p_memsz - p->p_filesz;
 
             if (bss_size < 0)
-                halt("load_elf with p->p_memsz (%d) < p->p_filesz (%d)\n",
+                halt("load_elf with p->p_memsz (%ld) < p->p_filesz (%ld)\n",
                      p->p_memsz, p->p_filesz);
             else if (bss_size == 0)
                 continue;

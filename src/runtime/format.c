@@ -1,64 +1,101 @@
 #include <runtime.h>
 
-static formatter formatters[96]={0};
+struct formatter {
+	formatter f;
+	int accepts_long;
+};
 
-void register_format(character c, formatter f)
+static struct formatter formatters[96]={0};
+#define FORMATTER(c) (formatters[c - 32])
+
+void register_format(character c, formatter f, int accepts_long)
 {
-    if ((c > 32) && (c < 128)) formatters[c-32] = f;
+    assert(c != 'l'); // reserved
+
+    if ((c > 32) && (c < 128)) {
+        FORMATTER(c).f = f;
+        FORMATTER(c).accepts_long = accepts_long;
+    }
+}
+
+static void invalid_format(buffer d, buffer fmt, int start_idx, int idx)
+{
+    static char header[] = "[invalid format ";
+
+    buffer_write(d, header, sizeof(header) - 1);
+    for (int i = 0; i < idx - start_idx + 1; i++)
+        push_u8(d, byte(fmt, start_idx + i));
+    push_u8(d, ']');
+}
+
+static void reset_formatter_state(struct formatter_state *s)
+{
+    s->state = 0;
+    s->format = 0;
+    s->modifier = 0;
+    s->width = 0;
 }
 
 void vbprintf(buffer d, buffer fmt, vlist *ap)
 {
-    int state = 0;
-    int width = 0;
+    int start_idx = 0;
+    struct formatter_state s;
 
-    foreach_character(i, fmt) {
-        if (state == 1)  {
-	    if ((i >= 48) && (i <= 57)) {
-		width = width * 10 + i - 48;
-	    } else {
-		if ((i > 32) && (i < 128) && formatters[i - 32]) {
-		    /* XXX width ignored; should pass and handle */
-		    formatters[i-32](d, fmt, ap);
+    reset_formatter_state(&s);
+    foreach_character(idx, c, fmt) {
+        if (s.state == 1)  {
+	    if ((c >= 48) && (c <= 57)) {
+		s.width = s.width * 10 + c - 48;
+	    } else if (c == 'l') {
+                if (s.modifier != 0)
+                    invalid_format(d, fmt, start_idx, idx);
+                else
+                    s.modifier = c;
+            } else {
+		if ((c > 32) && (c < 128) &&
+                    FORMATTER(c).f &&
+                    (s.modifier != 'l' || FORMATTER(c).accepts_long)) {
+                    s.format = c;
+		    FORMATTER(c).f(d, &s, ap);
 		} else {
-		    char header[] = "[invalid format %";
-		    buffer_write(d, header, sizeof(header) - 1);
-		    push_character(d, i);
-		    push_u8(d, ']');
-		}
-		state = 0;
+                    invalid_format(d, fmt, start_idx, idx);
+                }
+
+                reset_formatter_state(&s);
             }
         } else {           
-            if ((state == 0) && (i == '%')) {
-                state = 1;
+            if ((s.state == 0) && (c == '%')) {
+                s.state = 1;
+		start_idx = idx;
             } else {
-                push_character(d, i);
+                push_character(d, c);
             }
         }
     }
 }
 
 /* XXX the various debug stuff needs to be folded into one log facility...somewhere */
-void log_vprintf(char * prefix, char * log_format, vlist *a)
+void log_vprintf(const char *prefix, const char *log_format, vlist *a)
 {
-    buffer b = allocate_buffer(transient, 64);
+    static char buf[PAGESIZE * 4];
+
+    buffer b = alloca_wrap_buffer(buf, sizeof(buf));
+    b->end = 0;
+
     bprintf(b, "[%T] %s: ", now(), prefix);
-    struct buffer f;
-    f.start = 0;
-    f.contents = log_format;
-    f.end = runtime_strlen(log_format);
-    vbprintf(b, &f, a);
+    buffer f = alloca_wrap_buffer(log_format, runtime_strlen(log_format));
+    vbprintf(b, f, a);
     debug(b);
 }
 
-void log_printf(char * prefix, char * log_format, ...)
+void log_printf(const char * prefix, const char *log_format, ...)
 {
     vlist a;
     vstart(a, log_format);
     log_vprintf(prefix, log_format, &a);
 }
 
-buffer aprintf(heap h, char *fmt, ...)
+buffer aprintf(heap h, const char *fmt, ...)
 {
     buffer b = allocate_buffer(h, 80);
     vlist ap;
@@ -77,7 +114,7 @@ void bbprintf(buffer b, buffer fmt, ...)
     vend(ap);
 }
 
-void bprintf(buffer b, char *fmt, ...)
+void bprintf(buffer b, const char *fmt, ...)
 {
     vlist ap;
     buffer f = alloca_wrap_buffer(fmt, runtime_strlen(fmt));
@@ -87,17 +124,16 @@ void bprintf(buffer b, char *fmt, ...)
 }
 
 
-void rprintf(char *format, ...)
+void rprintf(const char *format, ...)
 {
+    static char buf[PAGESIZE * 4];
+
+    buffer b = alloca_wrap_buffer(buf, sizeof(buf));
+    b->end = 0;
+
     vlist a;
-    buffer b = little_stack_buffer(1024);
-
-    struct buffer f;
-    f.start = 0;
-    f.contents = format;
-    f.end = runtime_strlen(format);
-
     vstart(a, format);
-    vbprintf(b, &f, &a);
+    buffer f = alloca_wrap_buffer(format, runtime_strlen(format));
+    vbprintf(b, f, &a);
     debug(b);
 }

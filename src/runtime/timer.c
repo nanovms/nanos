@@ -89,7 +89,7 @@ timestamp parse_time(string b)
 {
     u64 s = 0, frac = 0, fracnorm = 0;
 
-    foreach_character (c, b) {
+    foreach_character (_, c, b) {
         if (c == '.')  {
             fracnorm = 1;
         } else {
@@ -107,7 +107,7 @@ timestamp parse_time(string b)
 
 void print_timestamp(string b, timestamp t)
 {
-    u64 s= t>>32;
+    u32 s= t>>32;
     u64 f= t&MASK(32);
 
     bprintf(b, "%d", s);

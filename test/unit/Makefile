@@ -7,7 +7,7 @@ TESTSRC = $(ROOT)/test/unit
 CFLAGS  = -fno-stack-protector
 CFLAGS  += -fdata-sections -ffunction-sections
 CFLAGS  += $(includes)
-CFLAGS  += -g -std=gnu11 -DHOST_BUILD $(CFLAG_WARNINGS) -Wformat $(PLATFORM_CFLAGS)
+CFLAGS  += -g -std=gnu11 -DHOST_BUILD $(CFLAG_WARNINGS) $(PLATFORM_CFLAGS)
 ifeq ($(UNAME_s),Darwin)
 CFLAGS  += -DNO_EPOLL
 endif

@@ -95,7 +95,7 @@ static fs_dma_buf fs_allocate_dma_buffer(filesystem fs, extent e, range i)
 #ifndef BOOT
     db->buf = allocate(fs->dma, db->alloc_size);
     if (db->buf == INVALID_ADDRESS) {
-        msg_err("failed to allocate dma buffer of size %d\n", db->alloc_size);
+        msg_err("failed to allocate dma buffer of size %ld\n", db->alloc_size);
         deallocate(fs->h, db, sizeof(struct fs_dma_buf));
         return INVALID_ADDRESS;
     }
@@ -116,7 +116,7 @@ static void fs_deallocate_dma_buffer(filesystem fs, fs_dma_buf db)
 static CLOSURE_4_1(fs_read_extent_complete, void, filesystem, fs_dma_buf, void *, status_handler, status);
 static void fs_read_extent_complete(filesystem fs, fs_dma_buf db, void * target, status_handler sh, status s)
 {
-    tfs_debug("fs_read_extent_complete: dma buf 0x%p, start_offset %d, length %d, target 0x%p, status %v\n",
+    tfs_debug("fs_read_extent_complete: dma buf 0x%p, start_offset %ld, length %ld, target %p, status %v\n",
               db->buf, db->start_offset, db->data_length, target, s);
 #ifndef BOOT
     if (is_ok(s))
@@ -143,7 +143,7 @@ static void fs_read_extent(filesystem fs,
     extent e = (extent)node;
     fs_dma_buf db = fs_allocate_dma_buffer(fs, e, i);
     if (db == INVALID_ADDRESS) {
-        msg_err("failed; unable to allocate dma buffer, i span %d bytes\n", range_span(i));
+        msg_err("failed; unable to allocate dma buffer, i span %ld bytes\n", range_span(i));
         return;
     }
 #ifdef BOOT
@@ -154,8 +154,8 @@ static void fs_read_extent(filesystem fs,
     db->buf = target_start;
 #endif
 
-    tfs_debug("fs_read_extent: q %R, ex %R, blocks %R, start_offset %d, i %R, "
-              "target_offset %d, target_start %p, length %d, blocksize %d\n",
+    tfs_debug("fs_read_extent: q %R, ex %R, blocks %R, start_offset %ld, i %R, "
+              "target_offset %ld, target_start %p, length %ld, blocksize %ld\n",
               q, node->r, db->blocks, db->start_offset, i,
               target_offset, target_start, db->data_length, (u64)fs->blocksize);
 
@@ -172,7 +172,7 @@ void fs_zero_hole(filesystem fs, buffer target, range q, range z)
     u64 target_offset = i.start - q.start;
     void * target_start = buffer_ref(target, target_offset);
     u64 length = range_span(i);
-    tfs_debug("fs_zero_hole: i %R, target_start %p, length %d\n", i, target_start, length);
+    tfs_debug("fs_zero_hole: i %R, target_start %p, length %ld\n", i, target_start, length);
     runtime_memset(target_start, 0, length);
     fetch_and_add(&target->end, length);
 }
@@ -283,7 +283,7 @@ static void fs_write_extent_aligned(filesystem fs, fs_dma_buf db, void * source,
         return;
     }
     void * dest = db->buf + db->start_offset;
-    tfs_debug("fs_write_extent_complete: copy from 0x%p to 0x%p, len %d\n", source, dest, db->data_length);
+    tfs_debug("fs_write_extent_complete: copy from 0x%p to 0x%p, len %ld\n", source, dest, db->data_length);
     runtime_memcpy(dest, source, db->data_length);
     tfs_debug("   write from 0x%p to block range %R\n", db->buf, db->blocks);
     status_handler complete = closure(fs->h, fs_write_extent_complete, fs, db, sh);
@@ -313,12 +313,12 @@ static void fs_write_extent(filesystem fs, buffer source, merge m, range q, rmno
     extent e = (extent)node;
     fs_dma_buf db = fs_allocate_dma_buffer(fs, e, i);
     if (db == INVALID_ADDRESS) {
-        msg_err("failed; unable to allocate dma buffer, i span %d bytes\n", range_span(i));
+        msg_err("failed; unable to allocate dma buffer, i span %ld bytes\n", range_span(i));
         return;
     }
 
     tfs_debug("fs_write_extent: source (+off) %p, buf len %d, q %R, node %R,\n"
-              "                 i %R, i len %d, ext start 0x%P, dma buf %p\n",
+              "                 i %R, i len %ld, ext start 0x%lx, dma buf %p\n",
               source_start, buffer_length(source), q, node->r, i, range_span(i),
               ((extent)node)->block_start, db->buf);
 
@@ -385,7 +385,7 @@ static extent create_extent(fsfile f, range r, merge m)
     return INVALID_ADDRESS;
 #endif
 
-    tfs_debug("create_extent: align %d, offset %d, length %d, alloc_order %d, alloc_bytes %d\n",
+    tfs_debug("create_extent: align %d, offset %ld, length %ld, alloc_order %ld, alloc_bytes %ld\n",
               alignment, r.start, length, alloc_order, alloc_bytes);
 
     u64 block_start = allocate_u64(f->fs->storage, alloc_bytes);
@@ -393,7 +393,7 @@ static extent create_extent(fsfile f, range r, merge m)
         msg_err("out of storage");
         return INVALID_ADDRESS;
     }
-    tfs_debug("   block_start 0x%P\n", block_start);
+    tfs_debug("   block_start 0x%lx\n", block_start);
 
     /* XXX this extend / alloc stuff is getting redone */
     extent ex = allocate_extent(h, r, block_start, alloc_bytes);
@@ -402,10 +402,10 @@ static extent create_extent(fsfile f, range r, merge m)
     assert(rangemap_insert(f->extentmap, &ex->node));
 
     // XXX encode this as an immediate bitstring
-    tuple e = timm("length", "%d", length);
-    string offset = aprintf(h, "%d", block_start);
+    tuple e = timm("length", "%ld", length);
+    string offset = aprintf(h, "%ld", block_start);
     table_set(e, sym(offset), offset);
-    string allocated = aprintf(h, "%d", alloc_bytes);
+    string allocated = aprintf(h, "%ld", alloc_bytes);
     table_set(e, sym(allocated), allocated);
     symbol offs = intern_u64(r.start);
 
@@ -440,12 +440,12 @@ void ingest_extent(fsfile f, symbol off, tuple value)
     assert(ingest_parse_int(value, sym(length), &length));
     assert(ingest_parse_int(value, sym(offset), &block_start));
     assert(ingest_parse_int(value, sym(allocated), &allocated));
-    tfs_debug("   file offset %d, length %d, block_start 0x%P, allocated %d\n",
+    tfs_debug("   file offset %ld, length %ld, block_start 0x%lx, allocated %ld\n",
               file_offset, length, block_start, allocated);
 #ifndef BOOT
     if (!id_heap_reserve(f->fs->storage, block_start, allocated)) {
         /* soft error... */
-        msg_err("unable to reserve storage at start 0x%P, len 0x%P\n",
+        msg_err("unable to reserve storage at start 0x%lx, len 0x%lx\n",
                 block_start, allocated);
     }
 #endif
@@ -458,10 +458,10 @@ void ingest_extent(fsfile f, symbol off, tuple value)
 
 boolean set_extent_length(fsfile f, extent ex, u64 length, merge m)
 {
-    tfs_debug("set_extent_length: range %R, allocated %d, new length %d\n",
+    tfs_debug("set_extent_length: range %R, allocated %ld, new length %ld\n",
               ex->node.r, ex->allocated, length);
     if (length > ex->allocated) {
-        tfs_debug("failed: new length %d > ex->allocated %d\n",
+        tfs_debug("failed: new length %ld > ex->allocated %ld\n",
                   length, ex->allocated);
         return false;
     }
@@ -496,7 +496,7 @@ boolean set_extent_length(fsfile f, extent ex, u64 length, merge m)
     }
 
     /* update length in tuple and log */
-    string v = aprintf(f->fs->h, "%d", length);
+    string v = aprintf(f->fs->h, "%ld", length);
     table_set(extent_tuple, sym(length), v);
     filesystem_write_eav(f->fs, extents, offs, extent_tuple, apply_merge(m));
     return true;
@@ -506,7 +506,7 @@ static CLOSURE_2_1(filesystem_write_meta_complete, void, range, io_status_handle
 static void filesystem_write_meta_complete(range q, io_status_handler ish, status s)
 {
     u64 n = range_span(q);
-    tfs_debug("%s: range %R, bytes %d, status %v\n", __func__, q, n, s);
+    tfs_debug("%s: range %R, bytes %ld, status %v\n", __func__, q, n, s);
     apply(ish, s, is_ok(s) ? n : 0);
 }
 

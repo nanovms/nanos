@@ -24,8 +24,8 @@ static void reset_parser(gdb g)
 
 static context gdb_handle_exception (gdb g, context frame)
 {
-    int exceptionVector = frame[FRAME_VECTOR];
-    //     rprintf ("gdb exception: %d %p [%p %p] %p %p\n", exceptionVector, g, frame, g->t->frame, frame[FRAME_RIP], *(u64 *)frame[FRAME_RIP]);
+    u64 exceptionVector = frame[FRAME_VECTOR];
+    //     rprintf ("gdb exception: %ld %p [%p %p] %p %p\n", exceptionVector, g, frame, g->t->frame, frame[FRAME_RIP], *(u64 *)frame[FRAME_RIP]);
     sigval = computeSignal(exceptionVector);
     reset_buffer(g->output);
     /*

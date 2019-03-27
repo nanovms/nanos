@@ -42,7 +42,7 @@ static id_range id_add_range(id_heap i, u64 base, u64 length)
 	u64 r_end = r->base + r->length - 1;
 	if ((base >= r->base && base <= r_end) ||
 	    (end >= r->base && end <= r_end)) {
-	    msg_err("range [%P, %P] overlaps range [%P, %P]; fail\n",
+	    msg_err("range [%lx, %lx] overlaps range [%lx, %lx]; fail\n",
 		    base, end, r->base, r_end);
 	    return INVALID_ADDRESS;
 	}
@@ -60,7 +60,7 @@ static id_range id_add_range(id_heap i, u64 base, u64 length)
     }
     vector_push(i->ranges, r);
 #ifdef ID_HEAP_DEBUG
-    msg_debug("added range base %P, length %P\n", base, length);
+    msg_debug("added range base %lx, length %lx\n", base, length);
 #endif
     return r;
 }
@@ -84,7 +84,7 @@ static u64 id_alloc_from_range(id_heap i, id_range r, int order)
     u64 offset = bit << page_order(i);
     i->h.allocated += alloc_bits;
 #ifdef ID_HEAP_DEBUG
-    msg_debug("heap %p, size %d: got offset (%d << %d = %P)\t>%P\n",
+    msg_debug("heap %p, size %ld: got offset (%ld << %ld = %lx)\t>%lx\n",
 	      i, alloc_bits, bit, page_order(i), offset, r->base + offset);
 #endif
     return r->base + offset;
@@ -143,7 +143,7 @@ static void id_dealloc(heap h, u64 a, bytes count)
     }
     s = "allocation doesn't match any range";
   fail:
-    msg_err("heap %p, offset %P, count %d: %s; leaking\n", h, a, count, s);
+    msg_err("heap %p, offset %lx, count %d: %s; leaking\n", h, a, count, s);
 }
 
 static void id_destroy(heap h)

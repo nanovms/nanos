@@ -8,9 +8,7 @@ CFLAGS = -g \
 	 -DHOST_BUILD \
 	 -DENABLE_MSG_DEBUG \
 	 $(includes)
-CFLAGS+= $(CFLAG_WARNINGS) \
-	-std=gnu11 \
-         -Wformat
+CFLAGS+= $(CFLAG_WARNINGS) -std=gnu11
 ifeq ($(UNAME_s),Darwin)
 CFLAGS += -target x86_64-elf --sysroot $(TARGET_ROOT)
 HOSTLD = x86_64-elf-ld

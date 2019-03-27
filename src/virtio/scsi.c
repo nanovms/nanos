@@ -19,11 +19,11 @@ static void scsi_bdump_sense(buffer b, const u8 *sense, int length)
 {
     assert(length >= sizeof(struct scsi_sense_data));
     for (int i = 0; i < sizeof(struct scsi_sense_data); i++) {
-        bprintf(b, "%s%P", i > 0 ? " " : "", (u64) sense[i]);
+        bprintf(b, "%s%02x", i > 0 ? " " : "", sense[i]);
     }
     struct scsi_sense_data *ssd = (struct scsi_sense_data *) sense;
-    bprintf(b, ": KEY %P, ASC/ASCQ %P/%P",
-        (u64) (ssd->flags & SSD_KEY), (u64) ssd->asc, (u64) ssd->ascq);
+    bprintf(b, ": KEY %x, ASC/ASCQ %02x/%02x",
+        (ssd->flags & SSD_KEY), ssd->asc, ssd->ascq);
 }
 
 void scsi_dump_sense(const u8 *sense, int length)
