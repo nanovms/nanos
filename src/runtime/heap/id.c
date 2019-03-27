@@ -157,7 +157,7 @@ static void id_destroy(heap h)
     deallocate(i->meta, i, sizeof(struct id_heap));
 }
 
-heap allocate_id_heap(heap h, u64 pagesize)
+heap allocate_id_heap(heap h, bytes pagesize)
 {
     assert((pagesize & (pagesize-1)) == 0); /* pagesize is power of 2 */
 
@@ -202,7 +202,7 @@ boolean id_heap_reserve(heap h, u64 base, u64 length)
     return false;
 }
 
-heap create_id_heap(heap h, u64 base, u64 length, u64 pagesize)
+heap create_id_heap(heap h, u64 base, u64 length, bytes pagesize)
 {
     id_heap i = (id_heap)allocate_id_heap(h, pagesize);
     if (i == INVALID_ADDRESS)
@@ -219,7 +219,7 @@ heap create_id_heap(heap h, u64 base, u64 length, u64 pagesize)
     return ((heap)i);
 }
 
-heap create_id_heap_backed(heap h, heap parent, u64 pagesize)
+heap create_id_heap_backed(heap h, heap parent, bytes pagesize)
 {
     id_heap i = (id_heap)allocate_id_heap(h, pagesize);
     if (i == INVALID_ADDRESS)

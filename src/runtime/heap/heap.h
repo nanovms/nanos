@@ -10,15 +10,15 @@ struct heap {
 };
 
 heap debug_heap(heap m, heap p);
-heap create_id_heap(heap h, u64 base, u64 length, u64 pagesize);
-heap create_id_heap_backed(heap h, heap parent, u64 pagesize);
-heap allocate_id_heap(heap h, u64 pagesize); /* id heap with no ranges */
+heap create_id_heap(heap h, u64 base, u64 length, bytes pagesize);
+heap create_id_heap_backed(heap h, heap parent, bytes pagesize);
+heap allocate_id_heap(heap h, bytes pagesize); /* id heap with no ranges */
 boolean id_heap_add_range(heap h, u64 base, u64 length);
 boolean id_heap_reserve(heap h, u64 base, u64 length);
 heap wrap_freelist(heap meta, heap parent, bytes size);
 heap allocate_objcache(heap meta, heap parent, bytes objsize, bytes pagesize);
 boolean objcache_validate(heap h);
-heap objcache_from_object(u64 obj, u64 parent_pagesize);
+heap objcache_from_object(u64 obj, bytes parent_pagesize);
 heap allocate_mcache(heap meta, heap parent, int min_order, int max_order, bytes pagesize);
 
 // really internals

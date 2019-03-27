@@ -37,7 +37,7 @@ typedef struct objcache {
     heap parent;
     struct list free;		/* pages with available objects */
     struct list full;		/* fully-occupied pages */
-    u64 pagesize;		/* allocation size for parent heap */
+    bytes pagesize;		/* allocation size for parent heap */
     u64 objs_per_page;		/* objects per page */
     u64 total_objs;		/* total objects in cache */
     u64 alloced_objs;		/* total cache occupancy (of total_objs) */
@@ -246,9 +246,9 @@ static void objcache_destroy(heap h)
 	deallocate_u64(o->parent, page_from_footer(o, f), page_size(o));
 }
 
-heap objcache_from_object(u64 obj, u64 parent_pagesize)
+heap objcache_from_object(u64 obj, bytes parent_pagesize)
 {
-    footer f = pointer_from_u64((obj & ~(parent_pagesize - 1)) +
+    footer f = pointer_from_u64((obj & ~((u64) parent_pagesize - 1)) +
 				(parent_pagesize - sizeof(struct footer)));
     if (f->magic != FOOTER_MAGIC)
 	return INVALID_ADDRESS;
