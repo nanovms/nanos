@@ -11,7 +11,7 @@ static void physically_backed_dealloc(heap h, u64 x, bytes length)
 {
     backed b = (backed)h;
     if ((x & (h->pagesize-1)) | (length & (h->pagesize-1))) {
-	msg_err("attempt to free unaligned area at %P, length %P; leaking\n", x, length);
+	msg_err("attempt to free unaligned area at %lx, length %x; leaking\n", x, length);
 	return;
     }
 

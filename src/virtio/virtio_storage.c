@@ -107,7 +107,7 @@ static inline void storage_rw_internal(storage st, boolean write, void * buf,
                                        range sectors, status_handler sh)
 {
     char * err = 0;
-    virtio_blk_debug("virtio_%s: block range %R cap %d\n", write ? "write" : "read", sectors, st->capacity);
+    virtio_blk_debug("virtio_%s: block range %R cap %ld\n", write ? "write" : "read", sectors, st->capacity);
 
     /* XXX so no, not page aligned but what? 16? */
     if ((u64_from_pointer(buf) & 15)) {

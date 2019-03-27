@@ -39,6 +39,6 @@ void console(char *x)
 
 void debug(buffer b)
 {
-    foreach_character(i, b) serial_out(i);
+    foreach_character(_, i, b) serial_out(i);
 }
 

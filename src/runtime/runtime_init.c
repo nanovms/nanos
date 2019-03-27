@@ -13,53 +13,69 @@ static char *hex_digits="0123456789abcdef";
 
 void print_number(buffer s, u64 x, int base, int pad)
 {
-    if ((x > 0) || (pad > 0)) {
-        u64 q, r;
-        DIV(x, base, q, r);
+    u64 q, r;
+    DIV(x, base, q, r);
+    if (q > 0 || pad > 1)
         print_number(s, q, base, pad - 1);
-        push_u8(s, hex_digits[r]);
-    }
+    push_u8(s, hex_digits[r]);
 }
 
-static void format_number(buffer dest, buffer fmt, vlist *a)
+static void format_pointer(buffer dest, struct formatter_state *s, vlist *a)
 {
+    push_u8(dest, '0');
+    push_u8(dest, 'x');
 #ifdef BITS32
-    s64 x = varg(*a, int);
+    u64 x = varg(*a, u32);
+    int pad = 8;
 #else
-    s64 x = varg(*a, s64);
+    u64 x = varg(*a, u64);
+    int pad = 16;
 #endif
-    if (x < 0) {                /* emit sign & two's complement */
+    print_number(dest, x, 16, pad);
+}
+
+static void format_number(buffer dest, struct formatter_state *s, vlist *a)
+{
+    int base = s->format == 'x' ? 16 : 10;
+
+    s64 x;
+    if (s->modifier == 'l')
+        x = varg(*a, s64);
+    else
+        x = varg(*a, int);
+    if (s->format == 'd' && x < 0) {
+	/* emit sign & two's complement */
         push_u8(dest, '-');
         x = -x;
     }
-    print_number(dest, x, 10, 1);
+
+    print_number(dest, x, base, s->width);
 }
 
-static void format_buffer(buffer dest, buffer fmt, vlist *ap)
+static void format_buffer(buffer dest, struct formatter_state *s, vlist *ap)
 {
     push_buffer(dest, varg(*ap, buffer));
 }
 
-#ifndef BITS32    
-static void format_character(buffer dest, buffer fmt, vlist *a)
+static void format_character(buffer dest, struct formatter_state *s, vlist *a)
 {
-    character x = varg(*a, character);
+    int x = varg(*a, int);
     push_character(dest, x);
 }
-#endif
 
-static void format_u64(buffer dest, buffer fmt, vlist *a)
+static void format_cstring(buffer dest, struct formatter_state *s, vlist *a)
 {
-    u64 x = varg(*a, u64);
-    print_number(dest, x, 16, 1);
+    char *c = varg(*a, char *);
+    if (!c) c = (char *)"(null)";
+    int len = runtime_strlen(c);
+    buffer_write(dest, c, len);
 }
 
-static void format_spaces(buffer dest, buffer fmt, vlist *a)
+static void format_spaces(buffer dest, struct formatter_state *s, vlist *a)
 {
-    u64 n = varg(*a, u64);
+    int n = varg(*a, int);
     for (int i = 0; i < n; i++) push_u8(dest, ' ');
 }
-
 
 // maybe the same?
 heap errheap;
@@ -71,20 +87,19 @@ void init_runtime(kernel_heaps kh)
 {
     // environment specific
     heap h = transient = heap_general(kh);
-    register_format('p', format_pointer);
+    register_format('p', format_pointer, 0);
+    register_format('x', format_number, 1);
+    register_format('d', format_number, 1);
+    register_format('s', format_cstring, 0);
+    register_format('b', format_buffer, 0);
+    register_format('n', format_spaces, 0);
+    register_format('c', format_character, 0);
     init_tuples(allocate_tagged_region(kh, tag_tuple));
     init_symbols(allocate_tagged_region(kh, tag_symbol), h);
     ignore = closure(h, ignore_body);
     ignore_status = (void*)ignore;
     errheap = h;
-    register_format('P', format_u64);    // for 32 bit
-    register_format('d', format_number);
-    register_format('b', format_buffer);
-    register_format('n', format_spaces);    
-    // fix
-#ifndef BITS32    
+#ifndef BITS32
     initialize_timers(kh);
-    register_format('c', format_character);
 #endif
 }
-

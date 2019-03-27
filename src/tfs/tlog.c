@@ -139,7 +139,7 @@ void log_read_complete(log tl, status_handler sh, status s)
         }
         
         if (f && filelength != infinity) {
-            tlog_debug("   update fsfile length to %d\n", filelength);
+            tlog_debug("   update fsfile length to %ld\n", filelength);
             fsfile_set_length(f, filelength);
         }
     }

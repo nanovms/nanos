@@ -33,12 +33,6 @@ typedef u64 bytes;
  }
 
 void print_number(buffer s, u64 x, int base, int pad);
-static inline void format_pointer(buffer dest, buffer fmt, vlist *a)
-{
-    u64 x = varg(*a, u64);
-    // ?
-    print_number(dest, x, 16, 17);
-}
 
 /* These are defined as functions to avoid multiple evaluation of x. */
 static inline u16

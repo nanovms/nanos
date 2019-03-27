@@ -39,6 +39,7 @@ CFLAG_WARNINGS = \
     -Wunused-label \
     -Wunused-value \
     -Wunused-variable \
+    -Wformat \
     -Werror
 
 CFLAGS	= -fno-omit-frame-pointer \

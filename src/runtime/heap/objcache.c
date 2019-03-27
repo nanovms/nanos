@@ -95,7 +95,7 @@ static footer objcache_addpage(objcache o)
 	return 0;
     }
 
-    msg_debug("heap %p, got page %P\n", o, p);
+    msg_debug("heap %p, got page %lx\n", o, p);
     assert ((p & (page_size(o) - 1)) == 0);
 
     footer f = footer_from_page(o, p);
@@ -113,7 +113,7 @@ static footer objcache_addpage(objcache o)
 static inline boolean validate_page(objcache o, footer f)
 {
     if (f->magic != FOOTER_MAGIC) {
-	msg_err("objcache %p, footer %p, bad magic! (%P)\n", o, f, f->magic);
+	msg_err("objcache %p, footer %p, bad magic! (%x)\n", o, f, f->magic);
 	return false;
     }
 
@@ -132,15 +132,14 @@ static void objcache_deallocate(heap h, u64 x, bytes size)
     footer f = footer_from_page(o, p);
 
     if (size != object_size(o)) {
-	msg_err("on heap %p: dealloc size (%d) doesn't match object size "
-		"(%d); leaking\n", h, size, object_size(o));
+	msg_err("on heap %p: dealloc size (%d) doesn't match object size (%d); leaking\n",\
+            h, size, object_size(o));
 	return;
     }
 
-    msg_debug("*** heap %p: objsize %d, per page %d, total %d, alloced %d\n",
-	      h, object_size(o), o->objs_per_page, o->total_objs,
-	      o->alloced_objs);
-    msg_debug(" -  obj %P, page %p, footer: free %d, head %d, avail %d\n",
+    msg_debug("*** heap %p: objsize %d, per page %ld, total %ld, alloced %ld\n",
+	      h, object_size(o), o->objs_per_page, o->total_objs, o->alloced_objs);
+    msg_debug(" -  obj %lx, page %p, footer: free %d, head %d, avail %d\n",
 	      x, p, f->free, f->head, f->avail);
 
     if (!validate_page(o, f)) {
@@ -170,14 +169,13 @@ static u64 objcache_allocate(heap h, bytes size)
 {
     objcache o = (objcache)h;
     if (size != object_size(o)) {
-	msg_err("on heap %p: alloc size (%d) doesn't match object size "
-		"(%d)\n", h, size, object_size(o));
+	msg_err("on heap %p: alloc size (%d) doesn't match object size (%d)\n",
+            h, size, object_size(o));
 	return INVALID_PHYSICAL;
     }
 
-    msg_debug("*** heap %p: objsize %d, per page %d, total %d, alloced %d\n",
-	      h, object_size(o), o->objs_per_page, o->total_objs,
-	      o->alloced_objs);
+    msg_debug("*** heap %p: objsize %d, per page %ld, total %ld, alloced %ld\n",
+	      h, object_size(o), o->objs_per_page, o->total_objs, o->alloced_objs);
     
     footer f;
     struct list * next_free = list_get_next(&o->free);
@@ -197,7 +195,7 @@ static u64 objcache_allocate(heap h, bytes size)
 
     page p = page_from_footer(o, f);
 
-    msg_debug("allocating from page %P\n", p);
+    msg_debug("allocating from page %lx\n", p);
 
     /* first check page's free list */
     u64 obj;
@@ -224,7 +222,7 @@ static u64 objcache_allocate(heap h, bytes size)
     assert(o->alloced_objs <= o->total_objs);
     o->alloced_objs++;
     h->allocated += size;
-    msg_debug("returning obj %P\n", obj);
+    msg_debug("returning obj %lx\n", obj);
     return obj;
 }
 
@@ -235,8 +233,8 @@ static void objcache_destroy(heap h)
     /* Check and report if there are unreturned objects, but proceed
        to release pages to parent heap anyway. */
     if (o->alloced_objs > 0) {
-	msg_debug("%d objects still allocated in objcache %p; releasing "
-		  "pages anyway\n", o->alloced_objs, o);
+	msg_debug("%ld objects still allocated in objcache %p; releasing pages anyway\n",
+	    o->alloced_objs, o);
     }
 
     footer f;
@@ -279,17 +277,17 @@ boolean objcache_validate(heap h)
 	page p = page_from_footer(o, f);
 
 	if (!validate_page(o, f)) {
-	    msg_err("page %P on free list failed validate\n", p);
+	    msg_err("page %lx on free list failed validate\n", p);
 	    return false;
 	}
 
 	if (f->avail == 0) {
-	    msg_err("page %P on free list but has 0 avail\n", p);
+	    msg_err("page %lx on free list but has 0 avail\n", p);
 	    return false;
 	}
 
 	if (!is_valid_index(f->free) && f->head == o->objs_per_page) {
-	    msg_err("page %P on free list but object freelist empty "
+	    msg_err("page %lx on free list but object freelist empty "
 		    "and no uninitialized objects\n", p);
 	    return false;
 	}
@@ -303,8 +301,8 @@ boolean objcache_validate(heap h)
 	    do {
 		/* validate index */
 		if (next >= o->objs_per_page) {
-		    msg_err("page %P on free list has invalid object index "
-			    "%d, objs_per_page %d\n", p, next, o->objs_per_page);
+		    msg_err("page %lx on free list has invalid object index %d, objs_per_page %ld\n",
+                        p, next, o->objs_per_page);
 		    return false;
 		}
 		u64 obj = obj_from_index(o, p, next);
@@ -313,26 +311,26 @@ boolean objcache_validate(heap h)
 	    } while(is_valid_index(next) && free_tally <= invalid_index);
 
 	    if (free_tally > invalid_index) {
-		msg_err("page %P on free list overflow while walking free list; "
+		msg_err("page %lx on free list overflow while walking free list; "
 			"corrupt from possible loop, free_tally %d\n", p, free_tally);
 		return false;
 	    }
 	}
 
 	if (f->head > o->objs_per_page) {
-	    msg_err("page %P on free list has f->head = %d > objs_per_page = "
-		    "%d\n", p, f->head, o->objs_per_page);
+	    msg_err("page %lx on free list has f->head = %d > objs_per_page = %ld\n",
+                p, f->head, o->objs_per_page);
 	    return false;
 	}
 	
 	int uninit_count = o->objs_per_page - f->head;
 	if (free_tally + uninit_count != f->avail) {
-	    msg_err("page %P free (%d) and uninit (%d) counts do not equal "
-		    "f->avail (%d)\n", p, free_tally, uninit_count, f->avail);
+	    msg_err("page %lx free (%d) and uninit (%d) counts do not equal f->avail (%d)\n",
+                p, free_tally, uninit_count, f->avail);
 	    return false;
 	}
 
-	msg_debug("free page %P has %d free and %d uninit (%d avail)\n",
+	msg_debug("free page %lx has %d free and %d uninit (%d avail)\n",
 		  p, free_tally, uninit_count, f->avail);
 		  
 	total_avail += f->avail;
@@ -344,25 +342,25 @@ boolean objcache_validate(heap h)
 	page p = page_from_footer(o, f);
 
 	if (!validate_page(o, f)) {
-	    msg_err("page %P on full list failed validate\n", p);
+	    msg_err("page %lx on full list failed validate\n", p);
 	    return false;
 	}
 
 	if (f->avail != 0) {
-	    msg_err("page %P on full list but has non-zero avail (%d)\n",
+	    msg_err("page %lx on full list but has non-zero avail (%d)\n",
 		    p, f->avail);
 	    return false;
 	}
 
 	if (is_valid_index(f->free)) {
-	    msg_err("page %P on full list but object freelist non-empty "
-		    "(%d)\n", p, f->free);
+	    msg_err("page %lx on full list but object freelist non-empty (%d)\n",
+                p, f->free);
 	    return false;
 	}
 
 	if (f->head < o->objs_per_page) {
-	    msg_err("page %P on full list but uninitialized objects remain "
-		    "(%d)\n", o->objs_per_page - f->head);
+	    msg_err("page %lx on full list but uninitialized objects remain (%ld)\n",
+                p, o->objs_per_page - f->head);
 	    return false;
 	}
 
@@ -371,16 +369,14 @@ boolean objcache_validate(heap h)
 
     /* validate counts */
     if (total_pages * o->objs_per_page != o->total_objs) {
-	msg_err("total_objs (%d) doesn't match tallied pages (%d) * "
-		"objs_per_page (%d)\n", o->total_objs, total_pages,
-		o->objs_per_page);
+	msg_err("total_objs (%ld) doesn't match tallied pages (%ld) * objs_per_page (%ld)\n",
+            o->total_objs, total_pages, o->objs_per_page);
 	return false;
     }
 
     if (o->total_objs - total_avail != o->alloced_objs) {
-	msg_err("total_objs (%d) - tallied available objs (%d) doesn't match "
-		"o->alloced_objs (%d)\n", o->total_objs, total_avail,
-		o->alloced_objs);
+	msg_err("total_objs (%ld) - tallied available objs (%ld) doesn't match o->alloced_objs (%ld)\n",
+            o->total_objs, total_avail, o->alloced_objs);
 	return false;
     }
     
@@ -396,7 +392,7 @@ heap allocate_objcache(heap meta, heap parent, bytes objsize, bytes pagesize)
     u64 objs_per_page;
 
     if (objsize < sizeof(u16)) {
-	msg_err("object size must be > %d\n", sizeof(u64));
+	msg_err("object size must be > %d\n", sizeof(u16));
 	return INVALID_ADDRESS;
     }
 
@@ -410,7 +406,7 @@ heap allocate_objcache(heap meta, heap parent, bytes objsize, bytes pagesize)
     objs_per_page = (pagesize - sizeof(struct footer)) / objsize;
     
     msg_debug("allocate_objcache(): meta %p, parent %p, objsize %d, "
-		   "pagesize %d, obj per page %d\n",
+		   "pagesize %d, obj per page %ld\n",
 		   meta, parent, objsize, pagesize, objs_per_page);
     
     if (objs_per_page == 0) {
@@ -422,7 +418,7 @@ heap allocate_objcache(heap meta, heap parent, bytes objsize, bytes pagesize)
     if (objs_per_page >= U64_FROM_BIT(16)) {
 	objs_per_page = U64_FROM_BIT(16) - 1;
 	msg_err("too many objects per page (pagesize %d, objsize %d); "
-		"limiting to %d\n", pagesize, objsize, objs_per_page);
+		"limiting to %ld\n", pagesize, objsize, objs_per_page);
     }
     
     objcache o = allocate(meta, sizeof(struct objcache));

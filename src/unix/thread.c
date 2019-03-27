@@ -45,7 +45,7 @@ sysreturn arch_prctl(int code, unsigned long a)
 
 sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, unsigned long newtls)
 {
-    thread_log(current, "clone: flags %P, child_stack %p, ptid %p, ctid %p, newtls %P",
+    thread_log(current, "clone: flags %lx, child_stack %p, ptid %p, ctid %p, newtls %lx",
         flags, child_stack, ptid, ctid, newtls);
 
     /* clone thread context up to FRAME_VECTOR */
@@ -99,7 +99,7 @@ static int futex_wake(fut f, int val, boolean verbose, int *uaddr)
     while (result < val && (w = dequeue(f->waiters))) {
         result++;
         if (verbose) {
-            thread_log(current, "futex_wake [%d %p %d] %p %d/%d",
+            thread_log(current, "futex_wake [%ld %p %d] %p %d/%d",
                 current->tid, uaddr, *uaddr, w, result, val);
         }
         futex_thread_wakeup(f, w);
@@ -135,7 +135,7 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
     case FUTEX_WAIT:
         if (*uaddr == val) {
             if (verbose) {
-                thread_log(current, "futex_wait [%d %p %d] %d %p",
+                thread_log(current, "futex_wait [%ld %p %d] %d %p",
                     current->tid, uaddr, *uaddr, val, timeout);
             }
             // if we resume we are woken up
@@ -155,7 +155,7 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
     case FUTEX_REQUEUE: rprintf("futex_requeue not implemented\n"); break;
     case FUTEX_CMP_REQUEUE:
         if (verbose) {
-            thread_log(current, "futex_cmp_requeue [%d %p %d] %d %p %d",
+            thread_log(current, "futex_cmp_requeue [%ld %p %d] %d %p %d",
                 current->tid, uaddr, *uaddr, val3, uaddr2, *uaddr2);
         }
         if (*uaddr == val3) {
@@ -167,7 +167,7 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
                 while (result2 < val2 && (w = dequeue(f->waiters))) {
                     result2++;
                     if (verbose) {
-                        thread_log(current, "futex_cmp_requeue [%d %p %d] %p %d/%d",
+                        thread_log(current, "futex_cmp_requeue [%ld %p %d] %p %d/%d",
                             current->tid, uaddr2, *uaddr2, w, result2, val2);
                     }
                     enqueue(f2->waiters, w);
@@ -186,7 +186,7 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
             unsigned int op = (val3 >> 28) & MASK(4);
 
             if (verbose) {
-                thread_log(current, "futex_wake_op: [%d %p %d] %p %d %d %d %d",
+                thread_log(current, "futex_wake_op: [%ld %p %d] %p %d %d %d %d",
                     current->tid, uaddr, *uaddr, uaddr2, cmparg, oparg, cmp, op);
             }
 
@@ -223,7 +223,7 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
     case FUTEX_WAIT_BITSET:
         if (*uaddr == val) {
             if (verbose) {
-                thread_log(current, "futex_wait_bitset [%d %p %d] %d %p %d",
+                thread_log(current, "futex_wait_bitset [%ld %p %d] %d %p %d",
                     current->tid, uaddr, *uaddr, val, timeout, val3);
             }
             set_syscall_return(current, 0);
@@ -260,7 +260,7 @@ void thread_log_internal(thread t, char *desc, ...)
         vlist ap;
         vstart (ap, desc);        
         buffer b = allocate_buffer(transient, 100);
-        bprintf (b, "%n %d ", (t->tid - 1)*8, t->tid, desc);
+        bprintf(b, "%n%d ", (int) ((t->tid - 1) * 8), t->tid);
         buffer f = alloca_wrap_buffer(desc, runtime_strlen(desc));
         vbprintf(b, f, &ap);
         push_u8(b, '\n');
@@ -290,7 +290,7 @@ void thread_sleep(thread t)
 
 void thread_wakeup(thread t)
 {
-    thread_log(current, "wakeup %d->%d %p", current->tid, t->tid, t->frame[FRAME_RIP]);
+    thread_log(current, "wakeup %ld->%ld %p", current->tid, t->tid, t->frame[FRAME_RIP]);
     enqueue(runqueue, t->run);
 }
 

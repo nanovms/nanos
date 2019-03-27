@@ -154,7 +154,7 @@ static sysreturn pipe_read(pipe_file pf, void *dest, u64 length, u64 offset_arg)
 
     /* XXX ideally we could just prevent this case if we had growing
        queues... for now bark and return EAGAIN */
-    msg_err("thread %d unable to block; queue full\n", current->tid);
+    msg_err("thread %ld unable to block; queue full\n", current->tid);
     return -EAGAIN;
 }
 
@@ -203,7 +203,7 @@ static sysreturn pipe_write(pipe_file pf, void * dest, u64 length, u64 offset)
         return rv;
 
     /* bogus */
-    msg_err("thread %d unable to block; queue full\n", current->tid);
+    msg_err("thread %ld unable to block; queue full\n", current->tid);
     return set_syscall_error(current, EAGAIN);
 }
 

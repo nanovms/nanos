@@ -118,7 +118,7 @@ static parser dispatch_property(heap h, parser pv, err_internal e, character x)
         return pv;
 
     default:
-        return apply(e, aprintf(h, "unknown property descriminator %c", x));
+        return apply(e, aprintf(h, "unknown property discriminator %d", x));
         break;
     }
     
