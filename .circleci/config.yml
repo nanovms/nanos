@@ -7,12 +7,12 @@ jobs:
     working_directory: /go/src/github.com/nanovms/nanos
     steps:
       - checkout
-      # specify any bash command here prefixed with `run: `
       - run: sudo apt-get update
       - run: sudo apt-get install nasm qemu
       - run: cd .. && git clone git@github.com:nanovms/ops.git
       - run: make
       - run: make test-nokvm
+
   nightly-build:
     docker:
       - image: circleci/golang:1.11
@@ -23,16 +23,22 @@ jobs:
       - run: sudo apt-get install nasm qemu
       - run: make
       - run: make test-nokvm
-      - run: cp .circleci/boto ~/.boto
-      - run: wget https://storage.googleapis.com/pub/gsutil.tar.gz
-      - run: tar xfz gsutil.tar.gz -C ~
+
+      - run: echo "deb http://packages.cloud.google.com/apt cloud-sdk-jessie main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
+      - run: curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
+      - run: sudo apt-get update && sudo apt-get install google-cloud-sdk
+
+      - run: echo $GCLOUD_SERVICE_KEY | gcloud auth activate-service-account --key-file=-
+      - run: sudo gcloud config set project ${GOOGLE_PROJECT_ID}
+      - run: gcloud --quiet config set compute/zone ${GOOGLE_COMPUTE_ZONE}
+
       - run: mkdir temp && cp output/stage3/stage3.img temp/ && cp output/boot/boot.img temp/ && cp output/mkfs/bin/mkfs temp/
-      - run: cd temp && tar cvzf nanos-nightly-linux.tar.gz * && ~/gsutil/gsutil cp nanos-nightly-linux.tar.gz gs://nanos/release/nightly
-      - run: ~/gsutil/gsutil acl ch -u AllUsers:R gs://nanos/release/nightly/nanos-nightly-linux.tar.gz
+      - run: cd temp && tar cvzf nanos-nightly-linux.tar.gz * && gsutil cp nanos-nightly-linux.tar.gz gs://nanos/release/nightly
+      - run: gsutil acl ch -u AllUsers:R gs://nanos/release/nightly/nanos-nightly-linux.tar.gz
       - run: rm -r temp
       - run: echo $(date +"%m%d%Y") > nanos-nightly-linux.timestamp
-      - run: ~/gsutil/gsutil cp nanos-nightly-linux.timestamp gs://nanos/release/nightly
-      - run: ~/gsutil/gsutil acl ch -u AllUsers:R gs://nanos/release/nightly/nanos-nightly-linux.timestamp
+      - run: gsutil cp nanos-nightly-linux.timestamp gs://nanos/release/nightly
+      - run: gsutil acl ch -u AllUsers:R gs://nanos/release/nightly/nanos-nightly-linux.timestamp
    
   build-mac:
     macos:
@@ -65,15 +71,22 @@ jobs:
           environment:
             NANOS_TARGET_ROOT: target-root
           command: make image
-      - run: cp .circleci/boto ~/.boto
-      - run: wget https://storage.googleapis.com/pub/gsutil.tar.gz && tar xfz gsutil.tar.gz -C ~
+
+      - run: curl https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-240.0.0-darwin-x86_64.tar.gz
+      - run: tar xzf google-cloud-sdk*.tar.gz
+      - run: ./google-cloud-sdk/install.sh
+
+      - run: echo $GCLOUD_SERVICE_KEY | gcloud auth activate-service-account --key-file=-
+      - run: sudo gcloud config set project ${GOOGLE_PROJECT_ID}
+      - run: gcloud --quiet config set compute/zone ${GOOGLE_COMPUTE_ZONE}
+
       - run: mkdir temp && cp output/stage3/stage3.img temp/ && cp output/boot/boot.img temp/ && cp output/mkfs/bin/mkfs temp/
-      - run: cd temp && tar cvzf nanos-nightly-darwin.tar.gz * && ~/gsutil/gsutil cp nanos-nightly-darwin.tar.gz gs://nanos/release/nightly
-      - run: ~/gsutil/gsutil acl ch -u AllUsers:R gs://nanos/release/nightly/nanos-nightly-darwin.tar.gz
+      - run: cd temp && tar cvzf nanos-nightly-darwin.tar.gz * && gsutil cp nanos-nightly-darwin.tar.gz gs://nanos/release/nightly
+      - run: gsutil acl ch -u AllUsers:R gs://nanos/release/nightly/nanos-nightly-darwin.tar.gz
       - run: rm -r temp
       - run: echo $(date +"%m%d%Y") > nanos-nightly-darwin.timestamp
-      - run: ~/gsutil/gsutil cp nanos-nightly-darwin.timestamp gs://nanos/release/nightly
-      - run: ~/gsutil/gsutil acl ch -u AllUsers:R gs://nanos/release/nightly/nanos-nightly-darwin.timestamp
+      - run: gsutil cp nanos-nightly-darwin.timestamp gs://nanos/release/nightly
+      - run: gsutil acl ch -u AllUsers:R gs://nanos/release/nightly/nanos-nightly-darwin.timestamp
 
 workflows:
   version: 2
