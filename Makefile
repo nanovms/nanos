@@ -26,7 +26,7 @@ GCE_INSTANCE	?= nanos-$(TARGET)
 
 all: image
 
-.PHONY: image release mkfs boot stage3 target stage distclean
+.PHONY: image release contgen mkfs boot stage3 target stage distclean
 
 image: mkfs boot stage3 target
 	@ echo "MKFS	$@"
@@ -41,10 +41,13 @@ release:
 	$(CP) $(STAGE3) release
 	cd release && $(TAR) -czvf nanos-release-$(REL_OS)-${version}.tar.gz *
 
-mkfs boot stage3:
+contgen:
 	$(Q) $(MAKE) -C $@
 
-target:
+mkfs boot stage3: contgen
+	$(Q) $(MAKE) -C $@
+
+target: contgen
 	$(Q) $(MAKE) -C test/runtime $(TARGET)
 
 stage: image

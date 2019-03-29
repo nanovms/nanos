@@ -17,13 +17,15 @@ static void bwrite(descriptor d, void * s, range blocks, status_handler c)
 static CLOSURE_1_3(bread, void, descriptor, void *, range, status_handler);
 static void bread(descriptor d, void *dest, range blocks, status_handler c)
 {
-    int xfer, total = 0;
+    ssize_t xfer, total = 0;
     u64 offset = blocks.start << SECTOR_OFFSET;
     u64 length = range_span(blocks) << SECTOR_OFFSET;
     while (total < length) {
-        xfer = pread(d, dest + total , length - total, offset + total);
-        if (xfer == 0) apply(c, 0);
-        if (xfer == -1) apply(c, timm("read-error", "%s", strerror(errno)));
+        xfer = pread(d, dest + total, length - total, offset + total);
+        if (xfer < 0 && errno != EINTR) {
+            apply(c, timm("read-error", "%s", strerror(errno)));
+            return;
+        }
         total += xfer;
     }
     apply(c, STATUS_OK);
@@ -38,7 +40,17 @@ void write_file(buffer path, buffer b)
     // openat would be nicer really
     char *z = cstring(path);
     int fd = open(z, O_CREAT|O_WRONLY, 0644);
-    write(fd, buffer_ref(b, 0), buffer_length(b));
+    size_t xfer, len = buffer_length(b);
+    while (len > 0) {
+        xfer = write(fd, buffer_ref(b, 0), len);
+        if (xfer < 0 && errno != EINTR) {
+            perror("file write");
+            close(fd);
+            exit(EXIT_FAILURE);
+        }
+        len -= xfer;
+        buffer_consume(b, xfer);
+    }
     close(fd);
 }
 
@@ -72,14 +84,14 @@ int main(int argc, char **argv)
 
     if (argc < 3) {
         rprintf("usage: %s <fs image> <target dir>\n");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
     int fd = open(argv[1], O_RDONLY);
 
     if (fd < 0) {
         rprintf("couldn't open file %s\n", argv[1]);
-        exit(1);
+        exit(EXIT_FAILURE);
     }
     create_filesystem(h,
                       SECTOR_SIZE,
@@ -89,4 +101,5 @@ int main(int argc, char **argv)
                       closure(h, bwrite, fd),
                       root,
                       closure(h, fsc, h, alloca_wrap_buffer(argv[2], runtime_strlen(argv[2])), root));
+    return EXIT_SUCCESS;
 }
