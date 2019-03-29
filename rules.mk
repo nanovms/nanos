@@ -42,7 +42,7 @@ GENHTML=	genhtml
 
 CFLAGS+=	-std=gnu11 -O -g
 CFLAGS+=	-Wall -Werror -Wno-char-subscripts
-CFLAGS+=-I$(OBJDIR)
+CFLAGS+=	-I$(OBJDIR)
 
 KERNCFLAGS=	-nostdinc \
 		-fno-builtin \
@@ -64,7 +64,7 @@ OBJS_CRTEND = -L=/usr/lib/x86_64-linux-gnu -L=/usr/lib/gcc/x86_64-linux-gnu/6 --
 # functions
 
 # reverse list
-reverse = $(if $(1),$(call reverse,$(wordlist 2,$(words $(1)),$(1)))) $(firstword $(1))
+reverse=	$(if $(1),$(call reverse,$(wordlist 2,$(words $(1)),$(1)))) $(firstword $(1))
 
 # execute command (additional empty line is necessary!)
 define execute_command
@@ -77,7 +77,7 @@ endef
 # $2 - source file
 objfile=	$(patsubst $(ROOTDIR)/%$(suffix $2),$(OBJDIR)/%$1,$2)
 
-cmd = $(if $(Q),@ echo "$(msg_$(1))";) $(cmd_$(1))
+cmd=		$(if $(Q),@ echo "$(msg_$(1))";) $(cmd_$(1))
 
 ##############################################################################
 # commands
