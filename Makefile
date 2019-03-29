@@ -17,12 +17,12 @@ CLEANFILES+=	$(IMAGE) $(FS)
 CLEANDIRS+=	$(OUTDIR)/image
 
 # GCE
-GCLOUD		?= gcloud
-GSUTIL		?= gsutil
-GCE_PROJECT	?= prod-1033
-GCE_BUCKET	?= nanos-test/gce-images
-GCE_IMAGE	?= nanos-$(TARGET)
-GCE_INSTANCE	?= nanos-$(TARGET)
+GCLOUD= 	gcloud
+GSUTIL=		gsutil
+GCE_PROJECT=	prod-1033
+GCE_BUCKET=	nanos-test/gce-images
+GCE_IMAGE=	nanos-$(TARGET)
+GCE_INSTANCE=	nanos-$(TARGET)
 
 all: image
 
@@ -78,32 +78,31 @@ runtime-tests runtime-tests-nokvm:
 ##############################################################################
 # run
 
-.PHONY: run-nokvm run-bridge run
+.PHONY: run run-bridge run-nokvm
 
-DEBUG	?= n
-DEBUG_	:=
-ifeq ($(DEBUG),y)
-	DEBUG_ := -s
-endif
+QEMU=	qemu-system-x86_64
 
-STORAGE	= -drive if=none,id=hd0,format=raw,file=$(IMAGE)
-#STORAGE+= -device virtio-blk,drive=hd0
-STORAGE+= -device virtio-scsi-pci,id=scsi0 -device scsi-hd,bus=scsi0.0,drive=hd0
-TAP	= -netdev tap,id=n0,ifname=tap0,script=no,downscript=no
-NET	= -device virtio-net,mac=7e:b8:7e:87:4a:ea,netdev=n0 $(TAP)
-KVM	= -enable-kvm
-DISPLAY	= -display none -serial stdio
-USERNET	= -device virtio-net,netdev=n0 -netdev user,id=n0,hostfwd=tcp::8080-:8080,hostfwd=tcp::9090-:9090,hostfwd=udp::5309-:5309
-QEMU	?= qemu-system-x86_64
+QEMU_MEMORY=	-m 2G
+QEMU_DISPLAY=	-display none -serial stdio
+QEMU_STORAGE=	-drive if=none,id=hd0,format=raw,file=$(IMAGE)
+#QEMU_STORAGE+= -device virtio-blk,drive=hd0
+QEMU_STORAGE+=	-device virtio-scsi-pci,id=scsi0 -device scsi-hd,bus=scsi0.0,drive=hd0
+QEMU_TAP=	-netdev tap,id=n0,ifname=tap0,script=no,downscript=no
+QEMU_NET=	-device virtio-net,mac=7e:b8:7e:87:4a:ea,netdev=n0 $(QEMU_TAP)
+QEMU_USERNET=	-device virtio-net,netdev=n0 -netdev user,id=n0,hostfwd=tcp::8080-:8080,hostfwd=tcp::9090-:9090,hostfwd=udp::5309-:5309
+QEMU_KVM=	-enable-kvm
+QEMU_FLAGS=
 
-run-nokvm: image
-	$(QEMU) $(DISPLAY) -m 2G -device isa-debug-exit -no-reboot $(STORAGE) $(USERNET) $(DEBUG_) || exit $$(($$?>>1))
-
-run-bridge: image
-	$(QEMU) $(DISPLAY) -m 2G -device isa-debug-exit -no-reboot $(STORAGE) $(NET) $(KVM) $(DEBUG_) || exit $$(($$?>>1))
+QEMU_COMMON=	$(QEMU_DISPLAY) $(QEMU_MEMORY) $(QEMU_STORAGE) -device isa-debug-exit -no-reboot $(QEMU_FLAGS)
 
 run: image
-	$(QEMU) $(DISPLAY) -m 2G -device isa-debug-exit -no-reboot $(STORAGE) $(USERNET) $(KVM) $(DEBUG_) || exit $$(($$?>>1))
+	$(QEMU) $(QEMU_COMMON) $(QEMU_USERNET) $(QEMU_KVM) || exit $$(($$?>>1))
+
+run-bridge: image
+	$(QEMU) $(QEMU_COMMON) $(QEMU_NET) $(QEMU_KVM) || exit $$(($$?>>1))
+
+run-nokvm: image
+	$(QEMU) $(QEMU_COMMON) $(QEMU_USERNET) || exit $$(($$?>>1))
 
 ##############################################################################
 # GCE
