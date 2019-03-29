@@ -62,11 +62,15 @@ distclean: clean
 ##############################################################################
 # tests
 
+.PHONY: test test-nokvm
+
 test test-nokvm: mkfs boot stage3
 	$(Q) $(MAKE) -C test all test # explictly build all tests to check all is buildable
 	$(Q) $(MAKE) runtime-tests$(subst test,,$@)
 
 RUNTIME_TESTS=	creat fst getdents getrandom hw hws mkdir pipe write
+
+.PHONY: runtime-tests runtime-tests-nokvm
 
 runtime-tests runtime-tests-nokvm:
 	$(foreach t,$(RUNTIME_TESTS),$(call execute_command,$(Q) $(MAKE) run$(subst runtime-tests,,$@) TARGET=$t))
