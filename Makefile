@@ -1,10 +1,10 @@
 SUBDIR=		contgen mkfs boot stage3 test
 
 # runtime tests / ready-to-use targets
-TARGET?=	webg
+TARGET=		webg
 
 ifneq ($(NANOS_TARGET_ROOT),)
-TARGET_ROOT_OPT= -r $(NANOS_TARGET_ROOT)
+TARGET_ROOT_OPT=	-r $(NANOS_TARGET_ROOT)
 endif
 
 MKFS=		$(OUTDIR)/mkfs/bin/mkfs
@@ -80,7 +80,7 @@ runtime-tests runtime-tests-nokvm:
 
 .PHONY: run run-bridge run-nokvm
 
-QEMU=	qemu-system-x86_64
+QEMU=		qemu-system-x86_64
 
 QEMU_MEMORY=	-m 2G
 QEMU_DISPLAY=	-display none -serial stdio
