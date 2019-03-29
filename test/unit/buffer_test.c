@@ -151,9 +151,8 @@ boolean concat_tests(heap h)
 #define VBPRINTF_TEST(b, orig, fmt, ...)                                                 \
     do {                                                                                 \
         buffer_clear(b);                                                                 \
-	bbprintf(b, alloca_wrap_buffer(fmt, runtime_strlen(fmt)), ##__VA_ARGS__);        \
-        rprintf("b: [%b]\n", b); \
-	test_assert(buffer_compare(b, alloca_wrap_buffer(orig, runtime_strlen(orig))));  \
+        bbprintf(b, alloca_wrap_buffer(fmt, runtime_strlen(fmt)), ##__VA_ARGS__);        \
+        test_assert(buffer_compare(b, alloca_wrap_buffer(orig, runtime_strlen(orig))));  \
     } while (0)
 
 boolean vbprintf_tests(heap h)
