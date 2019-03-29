@@ -1,127 +1,82 @@
-include config.mk
+SUBDIR=		contgen mkfs boot stage3 test
 
-all: image
-
-image: gitversion.c mkfs boot stage3 target
-	@ echo "MKFS	$@"
-	@ mkdir -p $(dir $(IMAGE))
-	$(Q) $(MKFS) $(TARGET_ROOT_OPT) $(FS) < test/runtime/$(TARGET).manifest && cat $(BOOTIMG) $(FS) > $(IMAGE)
-
-stage: image
-	- mkdir -p .staging
-	- cp -a output/mkfs/bin/mkfs .staging/mkfs
-	- cp -a output/boot/boot.img .staging/boot.img
-	- cp -a output/stage3/stage3.img .staging/stage3.img
-
-.PHONY: upload-gce-image gce-image delete-gce-image
-.PHONY: run-gce delete-gce gce-console
-
-upload-gce-image: image
-	$(LN) -f $(IMAGE) $(dir $(IMAGE))disk.raw
-	cd $(dir $(IMAGE)) && $(GNUTAR) cfz $(GCE_IMAGE)-image.tar.gz disk.raw
-	$(GSUTIL) cp $(dir $(IMAGE))$(GCE_IMAGE)-image.tar.gz gs://$(GCE_BUCKET)/$(GCE_IMAGE)-image.tar.gz
-
-gce-image: | upload-gce-image delete-gce-image
-	$(GCLOUD) compute --project=$(GCE_PROJECT) images create $(GCE_IMAGE) --source-uri=https://storage.googleapis.com/$(GCE_BUCKET)/$(GCE_IMAGE)-image.tar.gz
-
-delete-gce-image:
-	- $(GCLOUD) compute --project=$(GCE_PROJECT) images delete $(GCE_IMAGE) --quiet
-
-run-gce: delete-gce
-	$(GCLOUD) compute --project=$(GCE_PROJECT) instances create $(GCE_INSTANCE) --machine-type=custom-1-2048 --image=nanos-$(TARGET) --image-project=$(GCE_PROJECT) --tags=nanos
-	@$(MAKE) gce-console
-
-delete-gce:
-	- $(GCLOUD) compute --project=$(GCE_PROJECT) instances delete $(GCE_INSTANCE) --quiet
-
-gce-console:
-	$(GCLOUD) compute --project=$(GCE_PROJECT) instances tail-serial-port-output $(GCE_INSTANCE)
-
-contgen: $(CONTGEN)
-
-mkfs: mkfs-build
-
-boot: boot-build
-
-stage3: stage3-build
-
-test-build:
-	$(MAKE) -C test
-
-test: test-build
-	$(MAKE) unit-tests
-	$(MAKE) go-tests
-	$(MAKE) runtime-tests
-
-test-nokvm: test-build
-	$(MAKE) unit-tests
-	$(MAKE) go-tests
-	$(MAKE) runtime-tests-nokvm
-
-target: $(TARGET)
-
-$(TARGET):
-	$(MAKE) -C test/runtime $(TARGET)
-
-gitversion.c : .git/index .git/HEAD
-	echo "const char *gitversion = \"$(shell git rev-parse HEAD)\";" > $@
-
-unit-tests:
-	$(MAKE) -C test/unit test
-
-go-tests: image
-	$(MAKE) -C test/go test
-
-# maybe move these to test/runtime/Makefile - first put image building in common
-%-runtime-test-kvm:
-	$(MAKE) TARGET=$(subst -runtime-test-kvm,,$@) run
-
-%-runtime-test-nokvm:
-	$(MAKE) TARGET=$(subst -runtime-test-nokvm,,$@) run-nokvm
-
-RUNTIME_TESTS = creat fst getdents getrandom hw hws mkdir pipe write
-runtime-tests-kvm:
-	$(MAKE) -j1 $(addsuffix -runtime-test-kvm,$(RUNTIME_TESTS))
-
-runtime-tests-nokvm:
-	$(MAKE) -j1 $(addsuffix -runtime-test-nokvm,$(RUNTIME_TESTS))
-
-runtime-tests:
-	$(MAKE) runtime-tests-nokvm
-	$(MAKE) runtime-tests-kvm
-
-%-build: contgen
-	$(MAKE) -C $(subst -build,,$@)
-
-%-clean:
-	$(MAKE) -C $(subst -clean,,$@) clean
-
-clean:
-	$(MAKE) $(addsuffix -clean,contgen boot stage3 mkfs test)
-	$(Q) $(RM) -f $(FS) $(IMAGE)
-	$(Q) $(RM) -rfd $(dir $(IMAGE)) output
-	$(Q) $(RM) -f gitversion.c
-
-distclean: clean
-	$(Q) $(RM) -rf $(VENDOR)
-
-DEBUG	?= n
-DEBUG_	:=
-ifeq ($(DEBUG),y)
-	DEBUG_ := -s
-endif
+# runtime tests / ready-to-use targets
+TARGET?=	webg
 
 ifneq ($(NANOS_TARGET_ROOT),)
 TARGET_ROOT_OPT= -r $(NANOS_TARGET_ROOT)
 endif
 
-UNAME_S := $(shell uname -s)
-ifeq ($(UNAME_S),Linux)
-OS = linux
-endif
+MKFS=		$(OUTDIR)/mkfs/bin/mkfs
+BOOTIMG=	$(OUTDIR)/boot/boot.img
+STAGE3=		$(OUTDIR)/stage3/bin/stage3.img
 
-ifeq ($(UNAME_S),Darwin)
-OS = darwin
+IMAGE=		$(OUTDIR)/image/image
+FS=		$(OUTDIR)/image/fs
+CLEANFILES+=	$(IMAGE) $(FS)
+CLEANDIRS+=	$(OUTDIR)/image
+
+# GCE
+GCLOUD		?= gcloud
+GSUTIL		?= gsutil
+GCE_PROJECT	?= prod-1033
+GCE_BUCKET	?= nanos-test/gce-images
+GCE_IMAGE	?= nanos-$(TARGET)
+GCE_INSTANCE	?= nanos-$(TARGET)
+
+all: image
+
+.PHONY: image release mkfs boot stage3 target stage distclean
+
+image: mkfs boot stage3 target
+	@ echo "MKFS	$@"
+	@ $(MKDIR) $(dir $(IMAGE))
+	$(Q) $(MKFS) $(TARGET_ROOT_OPT) $(FS) <test/runtime/$(TARGET).manifest && cat $(BOOTIMG) $(FS) >$(IMAGE)
+
+release:
+	$(Q) $(RM) -r release
+	$(Q) $(MKDIR) release
+	$(CP) $(MKFS) release
+	$(CP) $(BOOTIMG) release
+	$(CP) $(STAGE3) release
+	cd release && $(TAR) -czvf nanos-release-$(REL_OS)-${version}.tar.gz *
+
+mkfs boot stage3:
+	$(Q) $(MAKE) -C $@
+
+target:
+	$(Q) $(MAKE) -C test/runtime $(TARGET)
+
+stage: image
+	$(Q) $(MKDIR) .staging
+	$(Q) $(CP) -a $(MKFS) .staging/mkfs
+	$(Q) $(CP) -a $(BOOTIMG) .staging/boot.img
+	$(Q) $(CP) -a $(STAGE3) .staging/stage3.img
+
+distclean: clean
+	$(Q) $(RM) -rf $(VENDORDIR)
+
+##############################################################################
+# tests
+
+test test-nokvm: mkfs boot stage3
+	$(Q) $(MAKE) -C test all test # explictly build all tests to check all is buildable
+	$(Q) $(MAKE) runtime-tests$(subst test,,$@)
+
+RUNTIME_TESTS=	creat fst getdents getrandom hw hws mkdir pipe write
+
+runtime-tests runtime-tests-nokvm:
+	$(foreach t,$(RUNTIME_TESTS),$(call execute_command,$(Q) $(MAKE) run$(subst runtime-tests,,$@) TARGET=$t))
+
+##############################################################################
+# run
+
+.PHONY: run-nokvm run-bridge run
+
+DEBUG	?= n
+DEBUG_	:=
+ifeq ($(DEBUG),y)
+	DEBUG_ := -s
 endif
 
 STORAGE	= -drive if=none,id=hd0,format=raw,file=$(IMAGE)
@@ -134,14 +89,6 @@ DISPLAY	= -display none -serial stdio
 USERNET	= -device virtio-net,netdev=n0 -netdev user,id=n0,hostfwd=tcp::8080-:8080,hostfwd=tcp::9090-:9090,hostfwd=udp::5309-:5309
 QEMU	?= qemu-system-x86_64
 
-release:
-	-rm -rf release
-	mkdir release
-	cp output/boot/boot.img release
-	cp output/mkfs/bin/mkfs release
-	cp output/stage3/stage3.img release
-	cd release && tar -czvf nanos-release-$(OS)-${version}.tar.gz *
-
 run-nokvm: image
 	$(QEMU) $(DISPLAY) -m 2G -device isa-debug-exit -no-reboot $(STORAGE) $(USERNET) $(DEBUG_) || exit $$(($$?>>1))
 
@@ -151,6 +98,41 @@ run-bridge: image
 run: image
 	$(QEMU) $(DISPLAY) -m 2G -device isa-debug-exit -no-reboot $(STORAGE) $(USERNET) $(KVM) $(DEBUG_) || exit $$(($$?>>1))
 
-.PHONY: image contgen mkfs boot stage3 test clean distclean run-nokvm run release
+##############################################################################
+# GCE
+
+.PHONY: upload-gce-image gce-image delete-gce-image
+.PHONY: run-gce delete-gce gce-console
+
+CLEANFILES+=	$(OUTDIR)/image/disk.raw $(OUTDIR)/image/*-image.tar.gz
+
+upload-gce-image: image
+	$(Q) $(LN) -f $(IMAGE) $(dir $(IMAGE))disk.raw
+	$(Q) cd $(dir $(IMAGE)) && $(GNUTAR) cfz $(GCE_IMAGE)-image.tar.gz disk.raw
+	$(Q) $(GSUTIL) cp $(dir $(IMAGE))$(GCE_IMAGE)-image.tar.gz gs://$(GCE_BUCKET)/$(GCE_IMAGE)-image.tar.gz
+
+gce-image: | upload-gce-image delete-gce-image
+	$(Q) $(GCLOUD) compute --project=$(GCE_PROJECT) images create $(GCE_IMAGE) --source-uri=https://storage.googleapis.com/$(GCE_BUCKET)/$(GCE_IMAGE)-image.tar.gz
+
+delete-gce-image:
+	- $(Q) $(GCLOUD) compute --project=$(GCE_PROJECT) images delete $(GCE_IMAGE) --quiet
+
+run-gce: delete-gce
+	$(Q) $(GCLOUD) compute --project=$(GCE_PROJECT) instances create $(GCE_INSTANCE) --machine-type=custom-1-2048 --image=nanos-$(TARGET) --image-project=$(GCE_PROJECT) --tags=nanos
+	$(Q) $(MAKE) gce-console
+
+delete-gce:
+	- $(Q) $(GCLOUD) compute --project=$(GCE_PROJECT) instances delete $(GCE_INSTANCE) --quiet
+
+gce-console:
+	$(Q) $(GCLOUD) compute --project=$(GCE_PROJECT) instances tail-serial-port-output $(GCE_INSTANCE)
 
 include rules.mk
+
+ifeq ($(UNAME_s),Linux)
+REL_OS=	linux
+endif
+
+ifeq ($(UNAME_s),Darwin)
+REL_OS=	darwin
+endif

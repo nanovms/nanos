@@ -1,8 +1,8 @@
 (
     #64 bit elf to boot from host
-    children:(kernel:(contents:(host:output/stage3/stage3.img))
+    children:(kernel:(contents:(host:output/stage3/bin/stage3.img))
               #user program
-	      getrandom:(contents:(host:output/test/runtime/getrandom))
+	      getrandom:(contents:(host:output/test/runtime/bin/getrandom))
 	      )
     # filesystem path to elf for kernel to run
     program:/getrandom

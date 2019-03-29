@@ -11,7 +11,7 @@ global_func _start
         extern init_service
         
 extern running_frame
-%include "frame_nasm.h"
+%include "frame.inc"
         
 %define FS_MSR 0xc0000100
         

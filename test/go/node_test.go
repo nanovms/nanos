@@ -56,7 +56,7 @@ func TestNodeHelloWorld(t *testing.T) {
 	c.RunConfig.Imagename = "image"
 	c.RunConfig.Memory = "2G"
 	c.Boot = "../../output/boot/boot.img"
-	c.Kernel = "../../output/stage3/stage3.img"
+	c.Kernel = "../../output/stage3/bin/stage3.img"
 	c.Mkfs = "../../output/mkfs/bin/mkfs"
 	c.Env = make(map[string]string)
 	c.RunConfig.Imagename = "image"

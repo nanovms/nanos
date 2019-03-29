@@ -1,13 +1,9 @@
-include ../../config.mk
-include ../../common.mk
-
 # Go parameters
-GOCMD?=go
-GOBUILD=$(GOCMD) build
-GOCLEAN=$(GOCMD) clean
-GOTEST=$(GOCMD) test
-GOGET=$(GOCMD) get
-BINARY_NAME=ops
+GOBUILD=	$(GO) build
+GOCLEAN=	$(GO) clean
+GOTEST=		$(GO) test
+GOGET=		$(GO) get
+BINARY_NAME=	ops
 
 all: build
 
@@ -18,7 +14,7 @@ test: build
 	$(GOTEST) -v
 
 clean:
-	$(GOCLEAN)
+	$(Q) $(GOCLEAN)
 	$(Q) $(RM) -rf .staging
 	$(Q) $(RM) -f $(BINARY_NAME) image ../runtime/soop.data
 
@@ -32,3 +28,4 @@ deps:
 	$(GOGET) github.com/cheggaaa/pb
 	$(GOGET) github.com/nanovms/ops/lepton
 
+include ../../rules.mk
