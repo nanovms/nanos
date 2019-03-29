@@ -26,7 +26,7 @@ GCE_INSTANCE=	nanos-$(TARGET)
 
 all: image
 
-.PHONY: image release mkfs boot stage3 target stage distclean
+.PHONY: image release contgen mkfs boot stage3 target stage distclean
 
 image: mkfs boot stage3 target
 	@ echo "MKFS	$@"
@@ -41,10 +41,13 @@ release:
 	$(CP) $(STAGE3) release
 	cd release && $(TAR) -czvf nanos-release-$(REL_OS)-${version}.tar.gz *
 
-mkfs boot stage3:
+contgen:
 	$(Q) $(MAKE) -C $@
 
-target:
+mkfs boot stage3: contgen
+	$(Q) $(MAKE) -C $@
+
+target: contgen
 	$(Q) $(MAKE) -C test/runtime $(TARGET)
 
 stage: image
@@ -59,11 +62,15 @@ distclean: clean
 ##############################################################################
 # tests
 
+.PHONY: test test-nokvm
+
 test test-nokvm: mkfs boot stage3
 	$(Q) $(MAKE) -C test all test # explictly build all tests to check all is buildable
 	$(Q) $(MAKE) runtime-tests$(subst test,,$@)
 
 RUNTIME_TESTS=	creat fst getdents getrandom hw hws mkdir pipe write
+
+.PHONY: runtime-tests runtime-tests-nokvm
 
 runtime-tests runtime-tests-nokvm:
 	$(foreach t,$(RUNTIME_TESTS),$(call execute_command,$(Q) $(MAKE) run$(subst runtime-tests,,$@) TARGET=$t))

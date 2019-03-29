@@ -1,10 +1,26 @@
 #include <tfs_internal.h>
 
 //#define TFS_DEBUG
+//#define TFS_REPORT_SHA256
 #if defined(TFS_DEBUG)
 #define tfs_debug(x, ...) do {rprintf("TFS: " x, ##__VA_ARGS__);} while(0)
 #else
 #define tfs_debug(x, ...)
+#endif
+
+#if defined(TFS_REPORT_SHA256) && !defined(BOOT)
+static inline void report_sha256(buffer b)
+{
+    buffer sha = little_stack_buffer(32);
+    sha256(sha, b);
+    rprintf("   SHA256: %16lx%16lx%16lx%16lx\n",
+            be64toh(*(u64*)buffer_ref(sha, 0)),
+            be64toh(*(u64*)buffer_ref(sha, 8)),
+            be64toh(*(u64*)buffer_ref(sha, 16)),
+            be64toh(*(u64*)buffer_ref(sha, 24)));
+}
+#else
+#define report_sha256(b)
 #endif
 
 struct fsfile {
@@ -183,6 +199,7 @@ static CLOSURE_3_1(filesystem_read_complete, void, heap, io_status_handler, buff
 static void filesystem_read_complete(heap h, io_status_handler c, buffer b, status s)
 {
     tfs_debug("filesystem_read_complete: status %v, length %d\n", s, buffer_length(b));
+    report_sha256(b);
     apply(c, s, is_ok(s) ? buffer_length(b) : 0);
     unwrap_buffer(h, b);
 }
@@ -233,6 +250,7 @@ static void read_entire_complete(buffer_handler bh, buffer b, status_handler sh,
     tfs_debug("read_entire_complete: status %v, addr %p, length %d\n",
               s, buffer_ref(b, 0), buffer_length(b));
     if (is_ok(s)) {
+        report_sha256(b);
         apply(bh, b);
     } else {
         deallocate_buffer(b);
