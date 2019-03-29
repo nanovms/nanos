@@ -1,7 +1,7 @@
 (
     children:(
-    	      kernel:(contents:(host:output/stage3/stage3.img))
-              write:(contents:(host:output/test/runtime/write))
+    	      kernel:(contents:(host:output/stage3/bin/stage3.img))
+              write:(contents:(host:output/test/runtime/bin/write))
               hello:(contents:(host:test/runtime/write_contents/hello))
 	      )
     program:/write

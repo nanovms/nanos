@@ -11,7 +11,7 @@ func defaultConfig() lepton.Config {
 	var c lepton.Config
 
 	c.Boot = "../../output/boot/boot.img"
-	c.Kernel = "../../output/stage3/stage3.img"
+	c.Kernel = "../../output/stage3/bin/stage3.img"
 	c.Mkfs = "../../output/mkfs/bin/mkfs"
 	c.NameServer = "8.8.8.8"
 

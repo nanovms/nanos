@@ -1,86 +1,86 @@
-include ../config.mk
-include ../common.mk
+PROGRAMS=	stage2.elf
 
-OUT		?= $(ROOT)/output/boot
+SRCS-stage2.elf= \
+	$(CURDIR)/stage2.c \
+	$(CURDIR)/service32.s \
+	$(SRCDIR)/runtime/buffer.c \
+	$(SRCDIR)/runtime/extra_prints.c \
+	$(SRCDIR)/runtime/format.c \
+	$(SRCDIR)/runtime/random.c \
+	$(SRCDIR)/runtime/range.c \
+	$(SRCDIR)/runtime/runtime_init.c \
+	$(SRCDIR)/runtime/symbol.c \
+	$(SRCDIR)/runtime/table.c \
+	$(SRCDIR)/runtime/tuple.c \
+	$(SRCDIR)/runtime/merge.c \
+	$(SRCDIR)/runtime/string.c \
+	$(SRCDIR)/x86_64/elf.c \
+	$(SRCDIR)/x86_64/kvm_platform.c \
+	$(SRCDIR)/x86_64/page.c \
+	$(SRCDIR)/x86_64/serial.c \
+	$(SRCDIR)/tfs/tfs.c \
+	$(SRCDIR)/tfs/tlog.c
 
-ifeq ($(UNAME_s),Darwin)
-CFLAGS          += -target i386-elf
-LD              = x86_64-elf-ld
-STRIP           = x86_64-elf-strip
-OBJCOPY         = x86_64-elf-objcopy
-SIZE_CMD        = stat -f %z
-else
-CFLAGS          += -m32
-SIZE_CMD        = stat -c %s
-endif
-CFLAGS		+= -DBOOT -nostdinc -fno-builtin -DPAGE_USE_FLUSH
-LDFLAGS		+= -T linker_script
-AFLAGS		+= -felf
-NASMFLAGS	= -l $@.lst -dSTAGE1SIZE=512 -dSTAGE2SIZE=$(shell $(SIZE_CMD) $(OUT)/stage2.pad)
-OBJCOPYFLAGS	= -S -O binary
+CFLAGS+=	$(KERNCFLAGS) -DBOOT -DPAGE_USE_FLUSH
+CFLAGS+= \
+	-I$(CURDIR) \
+	-I$(SRCDIR)/tfs \
+	-I$(SRCDIR)/runtime \
+	-I$(SRCDIR)/x86_64
+LDFLAGS+=	$(KERNLDFLAGS) -T linker_script
+AFLAGS+=	-felf
+
+NASMFLAGS	= -l $@.lst -dSTAGE1SIZE=512 -dSTAGE2SIZE=$(shell $(SIZE_CMD) $(OBJDIR)/stage2.pad)
 DDFLAGS		= bs=512 conv=sync
+OBJCOPYFLAGS	= -S -O binary
+
+msg_cat=	CAT	$@
+cmd_cat=	$(CAT) $^ > $@
+
+msg_nasm_ld=	NASM_LD	$@
+cmd_nasm_ld=	$(NASM) $(NASMFLAGS) $(NASMFLAGS_$(@F)) $< -o $@
+
+msg_dd=		DD	$@
+cmd_dd=		$(DD) if=$< of=$@ $(DDFLAGS) $(DDFLAGS_$(@F))
+
+msg_objcopy=	OBJCOPY	$@
+cmd_objcopy=	$(OBJCOPY) $(OBJCOPYFLAGS) $(OBJCOPYFLAGS_$(@F)) $< $@
 
 all: boot
 
-boot: $(BOOTIMG)
+include ../rules.mk
 
-includes = \
-	-I$(ROOT)/boot \
-	-I$(SRC)/tfs \
-	-I$(SRC)/runtime \
-	-I$(SRC)/x86_64 \
+CLEANFILES+=	$(foreach f,boot.img stage1 stage1.lst stage2.pad stage2.bin stage2.strip,$(OBJDIR)/$f)
 
-boot-srcs = \
-	$(ROOT)/boot/stage2.c \
-	$(ROOT)/boot/service32.s \
-	$(SRC)/runtime/buffer.c \
-	$(SRC)/runtime/extra_prints.c \
-	$(SRC)/runtime/format.c \
-	$(SRC)/runtime/random.c \
-	$(SRC)/runtime/range.c \
-	$(SRC)/runtime/runtime_init.c \
-	$(SRC)/runtime/symbol.c \
-	$(SRC)/runtime/table.c \
-	$(SRC)/runtime/tuple.c \
-	$(SRC)/runtime/merge.c \
-	$(SRC)/runtime/string.c \
-	$(SRC)/x86_64/elf.c \
-	$(SRC)/x86_64/kvm_platform.c \
-	$(SRC)/x86_64/page.c \
-	$(SRC)/x86_64/serial.c \
-	$(SRC)/tfs/tfs.c \
-	$(SRC)/tfs/tlog.c \
+.PHONY: boot
 
-boot-objs = $(call srcs-to-objs,$(ROOT),$(OUT),boot)
+boot: $(OBJDIR)/boot.img
 
-$(boot-objs): $(boot-srcs) $(CLOSURE_TMPL)
-
-$(BOOTIMG): $(OUT)/stage1 $(OUT)/stage2.pad
+$(OBJDIR)/boot.img: $(OBJDIR)/stage1 $(OBJDIR)/stage2.pad
 	$(call cmd,cat)
 
-%/stage1: stage1.s %/stage2.pad
+$(OBJDIR)/stage1: stage1.s $(OBJDIR)/stage2.pad
 	$(call cmd,nasm_ld)
 
-%.pad: %.bin
+$(OBJDIR)/stage2.pad: $(OBJDIR)/stage2.bin
 	$(call cmd,dd)
 
-%.bin: %.strip
+$(OBJDIR)/stage2.bin: $(OBJDIR)/stage2.strip
 	$(call cmd,objcopy)
 
-%.strip: %.elf
+$(OBJDIR)/stage2.strip: $(OBJDIR)/bin/stage2.elf
 	$(call cmd,strip)
 
-$(OUT)/stage2.elf: $(boot-objs) linker_script
-	$(call cmd,ld)
+$(PROG-stage2.elf): linker_script
 
-intermediate := $(addprefix $(OUT)/,stage1 stage1.lst stage2.pad stage2.bin stage2.strip stage2.elf)
-
-.PRECIOUS: $(intermediate)
-
-clean-objs = $(boot-objs) $(BOOTIMG) $(intermediate) $(CLOSURE_TMPL)
-
-clean: default-clean
-
-.PHONY: all boot clean
-
-include ../rules.mk
+ifeq ($(UNAME_s),Darwin)
+CFLAGS+=	-target i386-elf
+LD=		x86_64-elf-ld
+STRIP=		x86_64-elf-strip
+OBJCOPY=	x86_64-elf-objcopy
+SIZE_CMD=	stat -f %z
+else
+LD=		ld
+CFLAGS+=	-m32
+SIZE_CMD=	stat -c %s
+endif

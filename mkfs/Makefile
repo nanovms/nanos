@@ -1,85 +1,52 @@
-include ../config.mk
-include ../common.mk
+PROGRAMS=	mkfs dump
+SRCS-mkfs= \
+	$(CURDIR)/mkfs.c \
+	$(SRCDIR)/runtime/bitmap.c \
+	$(SRCDIR)/runtime/buffer.c \
+	$(SRCDIR)/runtime/extra_prints.c \
+	$(SRCDIR)/runtime/format.c \
+	$(SRCDIR)/runtime/heap/id.c \
+	$(SRCDIR)/runtime/merge.c \
+	$(SRCDIR)/runtime/pqueue.c \
+	$(SRCDIR)/runtime/random.c \
+	$(SRCDIR)/runtime/range.c \
+	$(SRCDIR)/runtime/runtime_init.c \
+	$(SRCDIR)/runtime/symbol.c \
+	$(SRCDIR)/runtime/table.c \
+	$(SRCDIR)/runtime/timer.c \
+	$(SRCDIR)/runtime/tuple_parser.c \
+	$(SRCDIR)/runtime/tuple.c \
+	$(SRCDIR)/runtime/string.c \
+	$(SRCDIR)/tfs/tfs.c \
+	$(SRCDIR)/tfs/tlog.c \
+	$(SRCDIR)/unix_process/unix_process_runtime.c
+SRCS-dump= \
+	$(CURDIR)/dump.c \
+	$(SRCDIR)/runtime/bitmap.c \
+	$(SRCDIR)/runtime/buffer.c \
+	$(SRCDIR)/runtime/extra_prints.c \
+	$(SRCDIR)/runtime/format.c \
+	$(SRCDIR)/runtime/heap/id.c \
+	$(SRCDIR)/runtime/merge.c \
+	$(SRCDIR)/runtime/pqueue.c \
+	$(SRCDIR)/runtime/random.c \
+	$(SRCDIR)/runtime/range.c \
+	$(SRCDIR)/runtime/runtime_init.c \
+	$(SRCDIR)/runtime/symbol.c \
+	$(SRCDIR)/runtime/table.c \
+	$(SRCDIR)/runtime/timer.c \
+	$(SRCDIR)/runtime/tuple.c \
+	$(SRCDIR)/runtime/string.c \
+	$(SRCDIR)/tfs/tfs.c \
+	$(SRCDIR)/tfs/tlog.c \
+	$(SRCDIR)/unix_process/unix_process_runtime.c
 
-OUT	?= $(ROOT)/output/mkfs
-CFLAGS	= -fno-stack-protector
-CFLAGS	+= -g
-CFLAGS	+= -fdata-sections -ffunction-sections
-CFLAGS	+= $(includes) -DHOST_BUILD
-CFLAGS  += $(CFLAG_WARNINGS)
-CFLAGS  += -std=gnu11
+CFLAGS+=-DHOST_BUILD
+CFLAGS+=-I$(SRCDIR)/runtime \
+	-I$(SRCDIR)/tfs \
+	-I$(SRCDIR)/unix_process \
+	-I$(SRCDIR)/x86_64
 
-all: mkfs dump
-
-mkfs: $(MKFS)
-
-dump: $(DUMP)
-
-includes := \
-	-I$(SRC)/runtime \
-        -I$(SRC)/tfs \
-        -I$(SRC)/unix_process \
-        -I$(SRC)/x86_64 \
-
-mkfs-srcs := \
-	$(ROOT)/mkfs/mkfs.c \
-	$(SRC)/runtime/bitmap.c \
-	$(SRC)/runtime/buffer.c \
-	$(SRC)/runtime/extra_prints.c \
-	$(SRC)/runtime/format.c \
-	$(SRC)/runtime/heap/id.c \
-	$(SRC)/runtime/merge.c \
-	$(SRC)/runtime/pqueue.c \
-	$(SRC)/runtime/random.c \
-	$(SRC)/runtime/range.c \
-	$(SRC)/runtime/runtime_init.c \
-	$(SRC)/runtime/symbol.c \
-	$(SRC)/runtime/table.c \
-	$(SRC)/runtime/timer.c \
-	$(SRC)/runtime/tuple_parser.c \
-	$(SRC)/runtime/tuple.c \
-	$(SRC)/runtime/string.c \
-	$(SRC)/tfs/tfs.c \
-	$(SRC)/tfs/tlog.c \
-	$(SRC)/unix_process/unix_process_runtime.c \
-
-mkfs-objs = $(call srcs-to-objs,$(ROOT),$(OUT),mkfs)
-
-dump-srcs := \
-	$(ROOT)/mkfs/dump.c \
-	$(SRC)/runtime/bitmap.c \
-	$(SRC)/runtime/buffer.c \
-	$(SRC)/runtime/extra_prints.c \
-	$(SRC)/runtime/format.c \
-	$(SRC)/runtime/heap/id.c \
-	$(SRC)/runtime/merge.c \
-	$(SRC)/runtime/pqueue.c \
-	$(SRC)/runtime/random.c \
-	$(SRC)/runtime/range.c \
-	$(SRC)/runtime/runtime_init.c \
-	$(SRC)/runtime/symbol.c \
-	$(SRC)/runtime/table.c \
-	$(SRC)/runtime/timer.c \
-	$(SRC)/runtime/tuple.c \
-	$(SRC)/runtime/string.c \
-	$(SRC)/tfs/tfs.c \
-	$(SRC)/tfs/tlog.c \
-	$(SRC)/unix_process/unix_process_runtime.c \
-
-dump-objs = $(call srcs-to-objs,$(ROOT),$(OUT),dump)
-
-$(mkfs-objs) $(dump-objs): $(CLOSURE_TMPL)
-
-$(MKFS): $(mkfs-objs)
-	$(call cmd,host-prog)
-
-$(DUMP): $(dump-objs)
-	$(call cmd,host-prog)
-
-clean-objs = $(mkfs-objs) $(dump-objs) $(MKFS) $(DUMP) $(CLOSURE_TMPL)
-
-clean: default-clean
-
-.PHONY: mkfs dump
+all: $(PROGRAMS)
 
 include ../rules.mk

@@ -34,7 +34,7 @@ func prepareTestImage(finalImage string) {
 	c.Env["PWD"] = "password"
 
 	c.RunConfig.Imagename = finalImage
-	c.Program = "../../output/test/runtime/webg"
+	c.Program = "../../output/test/runtime/bin/webg"
 
 	err := lepton.BuildImage(c)
 	if err != nil {
