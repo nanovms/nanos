@@ -49,8 +49,7 @@ static inline int runtime_memcmp(const void *a, const void *b, bytes len)
 static inline int runtime_strlen(const char *a)
 {
     int i = 0;
-    const char *z;
-    for (z = a; *a; a++, i++);
+    for (; *a; a++, i++);
     return i;
 }
 

@@ -207,7 +207,7 @@ static boolean handle_request(gdb g, buffer b, buffer output)
         {
             u64 regno;
             if (parse_int (b, 16, &regno) && (get_char(b) == '='))                
-                if (regno < (sizeof(context)/sizeof(u64))) {
+                if (regno < FRAME_MAX) {
                     hex2mem (b, g->t->frame + regno, 8);
                     bprintf (output, "OK");
                     break;

@@ -310,6 +310,7 @@ static void virtqueue_fill_irq(virtqueue vq)
     int notified = 0;
     if (added > 0)
         notified = virtqueue_notify(vq);
+    (void) notified;
     virtqueue_debug("%s: EXIT: vq %p: added %d, notified %d, desc_idx %d\n",
         __func__, vq, added, notified, vq->desc_idx);
 }

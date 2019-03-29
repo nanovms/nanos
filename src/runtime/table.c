@@ -11,7 +11,7 @@ void table_check(table t, char *n)
         while(j) {
             if (j == INVALID_ADDRESS) {
                 rprintf("badness 8000 %p %s %p\n", t, n, last);
-                rprintf("build: %p\n", __builtin_return_address(1));
+                //rprintf("build: %p\n", __builtin_return_address(1));
                 halt("zig why no format");
             }
             last = j;

@@ -36,10 +36,10 @@ static inline void *valueof(void *v)
 
 #define DIV(__x, __by, __q, __r)\
  {\
-     volatile register unsigned int a asm("eax");\
-     volatile register unsigned int b asm("ebx");\
-     volatile register unsigned int c asm("ecx");\
-     volatile register unsigned int d asm("edx");\
+     register u32 a asm("eax");\
+     register u32 b asm("ebx");\
+     register u32 c asm("ecx");\
+     register u32 d asm("edx");\
      a = __x>>32;\
      b = x;\
      c = __by;\
