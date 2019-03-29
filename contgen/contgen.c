@@ -1,6 +1,8 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <stdio.h>
+#include <string.h>
 
 /* Helper functions to ignore unused result (eliminate CC warning) */
 static inline void igr(int x) {}
@@ -95,6 +97,15 @@ void cblock()
 
 int main(int argc, char **argv)
 {
+    if (argc < 3) {
+        char *p = strrchr(argv[0], '/');
+	if (p != NULL)
+            *p++ = '\0';
+        else
+            p = argv[0];
+        fprintf(stderr, "Usage: %s lc rc\n", p);
+	exit(1);
+    }
     int lc = atoi(argv[1]);
     int rc = atoi(argv[2]);
     output = malloc(size = 1024);
