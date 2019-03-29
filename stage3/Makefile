@@ -146,6 +146,7 @@ $(OBJDIR)/frame.inc: $(SRCDIR)/x86_64/frame.h
 ifeq ($(UNAME_s),Darwin)
 CFLAGS+=	-target x86_64-elf
 LD=		x86_64-elf-ld
+OBJDUMP=	x86_64-elf-objdump
 else
 LD=		ld
 endif
