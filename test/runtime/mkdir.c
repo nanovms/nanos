@@ -129,7 +129,7 @@ static inline int _open(char *path, int flags, mode_t mode, const char *func, in
 
 static inline int _openat(int dfd, char *path, int flags, mode_t mode, const char *func, int line)
 {
-    int fd = openat(dfd, path, flags);
+    int fd = openat(dfd, path, flags, mode);
     if (fd == -1) {
         printf("%s(%d): ERROR opening %s, errno = %d\n", func, line, path, errno);
     }
