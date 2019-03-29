@@ -5,7 +5,7 @@ struct formatter {
 	int accepts_long;
 };
 
-static struct formatter formatters[96]={0};
+static struct formatter formatters[96];
 #define FORMATTER(c) (formatters[c - 32])
 
 void register_format(character c, formatter f, int accepts_long)

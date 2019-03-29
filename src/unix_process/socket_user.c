@@ -494,7 +494,7 @@ void connection(heap h,
     int s = socket(AF_INET, SOCK_STREAM, 0);
     u32 v4;
     u16 port;
-    parse_v4_address_and_port(alloca_wrap(target), &v4, &port);
+    assert(parse_v4_address_and_port(alloca_wrap(target), &v4, &port));
     fill_v4_sockaddr(&where, v4, port);
     // this is still blocking!
     int res = connect(s, (struct sockaddr *)&where, sizeof(struct sockaddr_in));
