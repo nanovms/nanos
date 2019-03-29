@@ -77,7 +77,15 @@ void read_file(heap h, const char *target_root, buffer dest, buffer name)
     if (fd < 0) halt("couldn't open file %b: %s\n", name, strerror(errno));
     u64 size = st.st_size;
     buffer_extend(dest, pad(st.st_size, SECTOR_SIZE));
-    read(fd, buffer_ref(dest, 0), size);
+    u64 total = 0;
+    while (total < size) {
+        int rv = read(fd, buffer_ref(dest, total), size - total);
+        if (rv < 0 && errno != EINTR) {
+            close(fd);
+            halt("file read error: %s\n", strerror(errno));
+        }
+        total += rv;
+    }
     dest->end += size;
     close(fd);
 
@@ -103,7 +111,17 @@ void perr(string s)
 static CLOSURE_1_3(bwrite, void, descriptor, void *, range, status_handler);
 static void bwrite(descriptor d, void * s, range blocks, status_handler c)
 {
-    pwrite(d, s, range_span(blocks) << SECTOR_OFFSET, blocks.start << SECTOR_OFFSET);
+    ssize_t start = blocks.start << SECTOR_OFFSET;
+    ssize_t size = range_span(blocks) << SECTOR_OFFSET;
+    ssize_t total = 0;
+    while (total < size) {
+        ssize_t rv = pwrite(d, s + total, size - total, start + total);
+        if (rv < 0 && errno != EINTR) {
+            apply(c, timm("error", "pwrite error: %s", strerror(errno)));
+            return;
+        }
+        total += rv;
+    }
     apply(c, STATUS_OK);
 }
 
