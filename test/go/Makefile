@@ -28,4 +28,6 @@ deps:
 	$(GOGET) github.com/cheggaaa/pb
 	$(GOGET) github.com/nanovms/ops/lepton
 
+.PHONY: build test clean deps
+
 include ../../rules.mk

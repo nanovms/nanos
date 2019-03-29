@@ -241,6 +241,8 @@ CLEANFILES+=	$(GCOVFILES)
 
 all: $(PROGRAMS)
 
+.PHONY: test gcov gcov-clean
+
 test: all
 	$(foreach p,$(filter-out $(SKIP_TEST),$(PROGRAMS)),$(call execute_command,$(PROG-$p)))
 
