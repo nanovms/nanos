@@ -33,7 +33,7 @@ image: mkfs boot stage3 target
 	@ $(MKDIR) $(dir $(IMAGE))
 	$(Q) $(MKFS) $(TARGET_ROOT_OPT) $(FS) <test/runtime/$(TARGET).manifest && cat $(BOOTIMG) $(FS) >$(IMAGE)
 
-release:
+release: mkfs boot stage3
 	$(Q) $(RM) -r release
 	$(Q) $(MKDIR) release
 	$(CP) $(MKFS) release
@@ -50,7 +50,7 @@ mkfs boot stage3: contgen
 target: contgen
 	$(Q) $(MAKE) -C test/runtime $(TARGET)
 
-stage: image
+stage: mkfs boot stage3
 	$(Q) $(MKDIR) .staging
 	$(Q) $(CP) -a $(MKFS) .staging/mkfs
 	$(Q) $(CP) -a $(BOOTIMG) .staging/boot.img
@@ -117,7 +117,7 @@ upload-gce-image: image
 	$(Q) cd $(dir $(IMAGE)) && $(GNUTAR) cfz $(GCE_IMAGE)-image.tar.gz disk.raw
 	$(Q) $(GSUTIL) cp $(dir $(IMAGE))$(GCE_IMAGE)-image.tar.gz gs://$(GCE_BUCKET)/$(GCE_IMAGE)-image.tar.gz
 
-gce-image: | upload-gce-image delete-gce-image
+gce-image: upload-gce-image delete-gce-image
 	$(Q) $(GCLOUD) compute --project=$(GCE_PROJECT) images create $(GCE_IMAGE) --source-uri=https://storage.googleapis.com/$(GCE_BUCKET)/$(GCE_IMAGE)-image.tar.gz
 
 delete-gce-image:

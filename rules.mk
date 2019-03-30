@@ -155,18 +155,12 @@ endif
 ##############################################################################
 # clean
 
-.PHONY: clean pre-clean do-clean post-clean
+.PHONY: clean
 
-clean: | pre-clean do-clean post-clean
-
-pre-clean:
-
-do-clean:
+clean:
 	$(foreach d,$(SUBDIR),$(call execute_command,$(Q) $(MAKE) -C $d clean))
 	$(Q) $(RM) $(CLEANFILES)
 	$(Q) $(RM) -d $(call reverse,$(sort $(CLEANDIRS))) $(OBJDIR)
-
-post-clean:
 
 ##############################################################################
 # implicit rules
