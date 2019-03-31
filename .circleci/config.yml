@@ -75,7 +75,7 @@ jobs:
       - run: curl -O https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-240.0.0-darwin-x86_64.tar.gz
       - run: tar xzf google-cloud-sdk*.tar.gz
       - run: ./google-cloud-sdk/install.sh -q
-
+      - run: source /Users/distiller/project/google-cloud-sdk/path.bash.inc
       - run: echo $GCLOUD_SERVICE_KEY | gcloud auth activate-service-account --key-file=-
       - run: sudo gcloud config set project ${GOOGLE_PROJECT_ID}
       - run: gcloud --quiet config set compute/zone ${GOOGLE_COMPUTE_ZONE}
