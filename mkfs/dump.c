@@ -40,7 +40,7 @@ void write_file(buffer path, buffer b)
     // openat would be nicer really
     char *z = cstring(path);
     int fd = open(z, O_CREAT|O_WRONLY, 0644);
-    size_t xfer, len = buffer_length(b);
+    ssize_t xfer, len = buffer_length(b);
     while (len > 0) {
         xfer = write(fd, buffer_ref(b, 0), len);
         if (xfer < 0 && errno != EINTR) {
