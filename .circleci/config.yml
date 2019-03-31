@@ -65,17 +65,17 @@ jobs:
       - run: brew update && brew install nasm go wget
       - run: brew tap nanovms/homebrew-x86_64-elf
       - run: brew install x86_64-elf-binutils
-      - run: mkdir target-root && cd target-root && wget https://storage.googleapis.com/testmisc/target-root.tar.gz && tar xfvz target-root.tar.gz
+      - run: mkdir target-root && cd target-root && wget https://storage.googleapis.com/testmisc/target-root.tar.gz && tar xzf target-root.tar.gz
       - run: 
           name: macbuild
           environment:
             NANOS_TARGET_ROOT: target-root
           command: make image
 
-      - run: curl https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-240.0.0-darwin-x86_64.tar.gz
+      - run: curl -O https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-240.0.0-darwin-x86_64.tar.gz
       - run: tar xzf google-cloud-sdk*.tar.gz
-      - run: ./google-cloud-sdk/install.sh
-
+      - run: ./google-cloud-sdk/install.sh -q
+      - run: source /Users/distiller/project/google-cloud-sdk/path.bash.inc && echo export PATH=$PATH > $BASH_ENV
       - run: echo $GCLOUD_SERVICE_KEY | gcloud auth activate-service-account --key-file=-
       - run: sudo gcloud config set project ${GOOGLE_PROJECT_ID}
       - run: gcloud --quiet config set compute/zone ${GOOGLE_COMPUTE_ZONE}
