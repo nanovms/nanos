@@ -92,7 +92,8 @@ workflows:
   version: 2
   commit-workflow:
     jobs:
-      - build
+      - nightly-build
+      - nightly-build-mac
   nightly:
     triggers:
       - schedule:
