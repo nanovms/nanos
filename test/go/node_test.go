@@ -43,7 +43,7 @@ func TestNodeHelloWorld(t *testing.T) {
 
 	os.MkdirAll(staging, 0755)
 	cpCmd := exec.Command("cp", "-rf", localpackage, staging)
-	err := cpCmd.Run()
+	err = cpCmd.Run()
 	if err != nil {
 		t.Fatal(err)
 	}
