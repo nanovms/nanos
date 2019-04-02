@@ -1014,6 +1014,31 @@ sysreturn setsockopt(int sockfd,
     return 0;
 }
 
+sysreturn getsockopt(int sockfd, int level, int optname, void *optval, socklen_t *optlen)
+{
+    sock s = resolve_fd(current->p, sockfd);
+    net_debug("sock %d, type %d, thread %ld, level %d, optname %d\n, optlen %d\n",
+	      s->fd, s->type, current->tid, level, optname, *optlen);
+
+    union {
+        int val;
+    } ret_optval;
+    int ret_optlen = sizeof(ret_optval);
+
+    switch (optname) {
+    case SO_TYPE:
+        ret_optval.val = s->type;
+        break;
+    default:
+        return set_syscall_error(current, ENOPROTOOPT);
+    }
+
+    runtime_memcpy(optval, &ret_optval, ret_optlen);
+    *optlen = sizeof(ret_optval);
+
+    return 0;
+}
+
 void register_net_syscalls(void **map)
 {
     register_syscall(map, SYS_socket, socket);
@@ -1028,6 +1053,7 @@ void register_net_syscalls(void **map)
     register_syscall(map, SYS_connect, connect);
     register_syscall(map, SYS_getsockname, getsockname);
     register_syscall(map, SYS_getpeername, getpeername);    
+    register_syscall(map, SYS_getsockopt, getsockopt);
 }
 
 boolean netsyscall_init(unix_heaps uh)

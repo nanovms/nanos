@@ -89,6 +89,7 @@ typedef struct iovec {
 #define EPIPE           32              /* Broken pipe */
 
 #define ENOSYS          38              /* Invalid system call number */
+#define ENOPROTOOPT     42              /* Protocol not available */
 
 #define EDESTADDRREQ    89		/* Destination address required */
 #define EOPNOTSUPP      95		/* Operation not supported */
@@ -353,3 +354,5 @@ typedef u32 uid_t;
 typedef u32 gid_t;
 
 
+/* set/getsockopt optnames */
+#define SO_TYPE 3
