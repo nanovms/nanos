@@ -45,7 +45,7 @@ func sortString(s string) string {
 	return string(r)
 }
 
-const START_WAIT_TIMEOUT = time.Second * 10
+const START_WAIT_TIMEOUT = time.Second * 30
 
 func runAndWaitForString(rconfig *lepton.RunConfig, timeout time.Duration, text string, t *testing.T) lepton.Hypervisor {
 	hypervisor := lepton.HypervisorInstance()
