@@ -13,7 +13,7 @@ build: deps
 test: build
 	$(GOTEST) -v
 
-clean:
+post-clean:
 	$(Q) $(GOCLEAN)
 	$(Q) $(RM) -rf .staging
 	$(Q) $(RM) -f $(BINARY_NAME) image ../runtime/soop.data
