@@ -1,16 +1,13 @@
 package runner
 
 import (
-	"bufio"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"os/exec"
 	"path"
 	"testing"
-	"time"
 
 	api "github.com/nanovms/ops/lepton"
 )
@@ -69,57 +66,6 @@ func TestNodeHelloWorld(t *testing.T) {
 		t.Error(err)
 	}
 
-	hypervisor := api.HypervisorInstance()
-	if hypervisor == nil {
-		t.Error("No hypervisor found on $PATH")
-	}
-
-	cmd := hypervisor.Command(&c.RunConfig)
-	waitForRegex(cmd, "hello from nodejs", t)
-}
-
-func waitForRegex(cmd *exec.Cmd, text string, t *testing.T) error {
-
-	reader, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	done := make(chan struct{})
-	errch := make(chan error, 1)
-
-	err = cmd.Start()
-	if err != nil {
-		return err
-	}
-
-	go func() {
-		errch <- cmd.Wait()
-	}()
-
-	go func() {
-		scanner := bufio.NewScanner(reader)
-		for scanner.Scan() {
-			ptext := scanner.Text()
-			fmt.Println(ptext)
-			if ptext == text {
-				done <- struct{}{}
-				return
-			}
-		}
-		errch <- errors.New("Expected text not found")
-	}()
-
-	select {
-
-	case <-time.After(time.Second * 3):
-		cmd.Process.Kill()
-	case err := <-errch:
-		if err != nil {
-			return err
-		}
-	case <-done:
-		cmd.Process.Kill()
-		return nil
-	}
-	return nil
+	hypervisor := runAndWaitForString(&c.RunConfig, START_WAIT_TIMEOUT, "hello from nodejs", t)
+	defer hypervisor.Stop()
 }

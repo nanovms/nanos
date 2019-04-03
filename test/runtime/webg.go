@@ -77,6 +77,7 @@ func filePersistenceHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	port := "8080"
 
 	http.HandleFunc("/", handler)
 	http.HandleFunc("/req", reqTestHandler)
@@ -84,5 +85,12 @@ func main() {
 	http.HandleFunc("/env", envHandler)
 	http.HandleFunc("/ts", tsHandler)
 	http.HandleFunc("/file", filePersistenceHandler)
-	log.Fatal(http.ListenAndServe(":8080", nil))
+
+	done := make(chan bool)
+	go func() {
+		log.Fatal(http.ListenAndServe(":" + port, nil))
+		done <- true
+	}()
+	fmt.Printf("Server started on port %v\n", port)
+	<-done
 }
