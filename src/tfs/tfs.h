@@ -16,8 +16,8 @@ void create_filesystem(heap h,
                        u64 alignment,
                        u64 size,
                        heap dma,
-                       block_read read,
-                       block_write write,
+                       block_io read,
+                       block_io write,
                        tuple root,
                        filesystem_complete complete);
 
@@ -43,9 +43,9 @@ typedef enum {
     FS_STATUS_NOTDIR,
 } fs_status;
 
-fs_status filesystem_mkentry(filesystem fs, tuple root, char *fp, tuple entry);
-fs_status filesystem_mkdir(filesystem fs, tuple root, char *fp);
-fs_status filesystem_creat(filesystem fs, tuple root, char *fp);
+fs_status filesystem_mkentry(filesystem fs, tuple root, char *fp, tuple entry, boolean persistent);
+fs_status filesystem_mkdir(filesystem fs, tuple root, char *fp, boolean persistent);
+fs_status filesystem_creat(filesystem fs, tuple root, char *fp, boolean persistent);
 
 tuple filesystem_getroot(filesystem fs);
 extern const char *gitversion;

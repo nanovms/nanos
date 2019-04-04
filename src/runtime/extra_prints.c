@@ -39,7 +39,7 @@ void print_csum_buffer(buffer s, buffer b)
     u64 csum = 0;
     for (int i = 0; i < buffer_length(b); i++)
         csum += *(u8*)buffer_ref(b, i);
-    bprintf(s, "%d", csum);
+    bprintf(s, "%lx", csum);
 }
 
 void print_tuple(buffer b, tuple z)
@@ -63,12 +63,12 @@ void print_tuple(buffer b, tuple z)
     bprintf(b, ")");
 }
 
-static void format_tuple(buffer dest, buffer fmt, vlist *v)
+static void format_tuple(buffer dest, struct formatter_state *s, vlist *v)
 {
     print_tuple(dest, varg(*v, tuple));
 }
 
-static void format_value(buffer dest, buffer fmt, vlist *v)
+static void format_value(buffer dest, struct formatter_state *s, vlist *v)
 {
     buffer b;
     value x = varg(*v, value);
@@ -93,50 +93,40 @@ static void format_value(buffer dest, buffer fmt, vlist *v)
     }
 }
 
-static void format_cstring(buffer dest, buffer fmt, vlist *a)
-{
-    char *c = varg(*a, char *);
-    if (!c) c = (char *)"(null)";
-    int len = runtime_strlen(c);
-    buffer_write(dest, c, len);    
-}
-
-static void format_hex_buffer(buffer dest, buffer fmt, vlist *a)
+static void format_hex_buffer(buffer dest, struct formatter_state *s, vlist *a)
 {
     buffer b = varg(*a, buffer);
     print_hex_buffer(dest, b);
 }
 
-static void format_csum_buffer(buffer dest, buffer fmt, vlist *a)
+static void format_csum_buffer(buffer dest, struct formatter_state *s, vlist *a)
 {
     buffer b = varg(*a, buffer);
     print_csum_buffer(dest, b);
 }
 
-static void format_timestamp(buffer dest, buffer fmt, vlist *a)
+static void format_timestamp(buffer dest, struct formatter_state *s, vlist *a)
 {
     timestamp t = varg(*a, timestamp);
 #ifdef BOOT
-    print_number(dest, t, 10, 1);
+    print_number(dest, t, 10, 0);
 #else
     print_timestamp(dest, t);
 #endif
 }
 
-static void format_range(buffer dest, buffer fmt, vlist *a)
+static void format_range(buffer dest, struct formatter_state *s, vlist *a)
 {
     range r = varg(*a, range);
-    bprintf(dest, "[%d %d)", r.start, r.end);
+    bprintf(dest, "[%ld %ld)", r.start, r.end);
 }
 
 void init_extra_prints()
 {
-    register_format('t', format_tuple);
-    register_format('v', format_value);
-    register_format('s', format_cstring);
-    register_format('X', format_hex_buffer);
-    register_format('T', format_timestamp);
-    register_format('R', format_range);
-    register_format('C', format_csum_buffer);
+    register_format('t', format_tuple, 0);
+    register_format('v', format_value, 0);
+    register_format('X', format_hex_buffer, 0);
+    register_format('T', format_timestamp, 0);
+    register_format('R', format_range, 0);
+    register_format('C', format_csum_buffer, 0);
 }
-

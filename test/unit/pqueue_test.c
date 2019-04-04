@@ -12,14 +12,14 @@ boolean basic_sort(void * a, void * b)
 boolean peek_check(pqueue q, u64 v)
 {
     void * rv = pqueue_peek(q);
-    msg_debug("peek_check: want %d, got %d\n", v, (long)rv);
+    msg_debug("peek_check: want %ld, got %ld\n", v, (u64)rv);
     return rv == (void *)v;
 }
 
 boolean pop_check(pqueue q, u64 v)
 {
     void * rv = pqueue_pop(q);
-    msg_debug("pop_check: want %d, got %d\n", v, (long)rv);
+    msg_debug("pop_check: want %ld, got %ld\n", v, (u64)rv);
     return rv == (void *)v;
 }
 
@@ -146,7 +146,7 @@ boolean random_test(heap h, int n, int passes)
         remain = n - npop;
         for (int i = 0; i < npop; i++) {
             u64 v = (u64)pqueue_pop(q);
-            msg_debug("  pop %d\n", v);
+            msg_debug("  pop %ld\n", v);
             if (v > last) {
                 msg = "pop out of order";
                 goto fail;

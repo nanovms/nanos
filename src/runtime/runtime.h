@@ -36,11 +36,20 @@ static inline void runtime_memset(u8 *a, u8 b, bytes len)
     for (int i = 0; i < len; i++) ((u8 *)a)[i] = b;
 }
 
+static inline int runtime_memcmp(const void *a, const void *b, bytes len)
+{
+    for (int i = 0; i < len; i++) {
+        int res = ((signed char *) a)[i] - ((signed char *) b)[i];
+        if (res != 0)
+            return res;
+    }
+    return 0;
+}
+
 static inline int runtime_strlen(const char *a)
 {
     int i = 0;
-    const char *z;
-    for (z = a; *a; a++, i++);
+    for (; *a; a++, i++);
     return i;
 }
 
@@ -103,8 +112,6 @@ extern heap transient;
 typedef u64 physical;
 
 physical vtop(void *x);
-
-#define cprintf(...)
 
 // used by stage2/stage3, not process
 #define PAGELOG 12
@@ -188,8 +195,7 @@ typedef closure_type(thunk, void);
 #include <range.h>
 
 typedef closure_type(buffer_handler, void, buffer);
-typedef closure_type(block_write, void, void *, range, status_handler);
-typedef closure_type(block_read, void, void *, range, status_handler);
+typedef closure_type(block_io, void, void *, range, status_handler);
 
 // break out platform - move into the implicit include
 #include <x86_64.h>
@@ -225,6 +231,7 @@ extern status_handler ignore_status;
 
 extern heap transient;
 
-typedef closure_type(merge, status_handler);
-merge allocate_merge(heap h, status_handler completion);
+typedef struct merge *merge;
 
+merge allocate_merge(heap h, status_handler completion);
+status_handler apply_merge(merge m);

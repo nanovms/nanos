@@ -1,21 +1,11 @@
-include ../config.mk
-include ../common.mk
+SUBDIR=			unit runtime go
 
-all: test-build
-
-test-build:
-	$(MAKE) -C unit
-	$(MAKE) -C go
-	$(MAKE) -C runtime
-
-test:
-	$(MAKE) -C unit test
-	$(MAKE) -C go test
 # can't do runtime until image build is common...
+SUBDIR_SKIP-test=	runtime
 
-clean:
-	$(MAKE) -C unit clean
-	$(MAKE) -C go clean
-	$(MAKE) -C runtime clean
+all test:
+	$(foreach d,$(filter-out $(SUBDIR_SKIP-$@),$(SUBDIR)),$(call execute_command,$(Q) $(MAKE) -C $d $@))
+
+test: all
 
 include ../rules.mk

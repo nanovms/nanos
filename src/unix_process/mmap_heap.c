@@ -1,11 +1,12 @@
 #include <runtime.h>
 #include <sys/mman.h>
 #include <errno.h>
+#include <string.h>
 
 void mmapheap_dealloc(heap h, u64 x, bytes size)
 {
     if (munmap((void *)x, size))
-        halt("munmap failed %E\n", errno);
+        halt("munmap failed %s\n", strerror(errno));
 }
 
 u64 mmapheap_alloc(heap h, bytes size)
@@ -13,7 +14,7 @@ u64 mmapheap_alloc(heap h, bytes size)
     void * rv = mmap(0, size + h->pagesize, PROT_READ | PROT_WRITE,
 		     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (rv == MAP_FAILED) {
-	msg_err("mmap() failed: errno %E", errno);
+	msg_err("mmap() failed: errno %s", strerror(errno));
 	return INVALID_PHYSICAL;
     } else {
         return (u64_from_pointer(rv) + h->pagesize - 1) & ~(h->pagesize - 1);

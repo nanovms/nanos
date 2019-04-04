@@ -102,7 +102,7 @@ static inline u32 socket_poll_events(sock s)
 static inline void notify_sock(sock s)
 {
     u32 events = socket_poll_events(s);
-    net_debug("sock %d, events %P\n", s->fd, events);
+    net_debug("sock %d, events %lx\n", s->fd, events);
     notify_dispatch(s->ns, events);
 }
 
@@ -123,7 +123,7 @@ static err_t get_lwip_error(sock s)
 #define WAKEUP_SOCK_TX          0x00000002
 #define WAKEUP_SOCK_EXCEPT      0x00000004 /* flush, and thus implies rx & tx */
 
-static void wakeup_sock(sock s, u64 flags)
+static void wakeup_sock(sock s, int flags)
 {
     net_debug("sock %d, flags %d\n", s->fd, flags);
 
@@ -214,7 +214,7 @@ static sysreturn sock_read_bh(sock s, thread t, void *dest, u64 length,
 {
     sysreturn rv = 0;
     err_t err = get_lwip_error(s);
-    net_debug("sock %d, thread %d, dest %p, len %d, blocked %d, lwip err %d\n",
+    net_debug("sock %d, thread %ld, dest %p, len %ld, blocked %d, lwip err %d\n",
 	      s->fd, t->tid, dest, length, blocked, err);
     assert(length > 0);
     assert(s->type == SOCK_STREAM || s->type == SOCK_DGRAM);
@@ -294,14 +294,14 @@ static sysreturn sock_read_bh(sock s, thread t, void *dest, u64 length,
   out:
     if (blocked)
         thread_wakeup(t);
-    net_debug("   returning %d\n", rv);
+    net_debug("   returning %ld\n", rv);
     return set_syscall_return(t, rv);
 }
 
 static CLOSURE_1_3(socket_read, sysreturn, sock, void *, u64, u64);
 static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
 {
-    net_debug("sock %d, type %d, thread %d, dest %p, length %d, offset %d\n",
+    net_debug("sock %d, type %d, thread %ld, dest %p, length %ld, offset %ld\n",
 	      s->fd, s->type, current->tid, dest, length, offset);
     if (s->type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN)
         return set_syscall_error(current, ENOTCONN);
@@ -319,7 +319,7 @@ static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
        we could mess around with making a timer or something, but it
        would just be easier to make queues growable */
 
-    msg_err("thread %d unable to block; queue full\n", current->tid);
+    msg_err("thread %ld unable to block; queue full\n", current->tid);
     return set_syscall_error(current, EAGAIN);
 }
 
@@ -328,8 +328,8 @@ static sysreturn socket_write_tcp_bh(sock s, thread t, void * buf, u64 remain, b
 {
     sysreturn rv = 0;
     err_t err = get_lwip_error(s);
-    net_debug("fd %d, thread %p, buf %p, remain %d, blocked %d, lwip err %d\n",
-              s->fd, t, buf, remain, blocked, err);
+    net_debug("fd %d, thread %ld, buf %p, remain %ld, blocked %d, lwip err %d\n",
+              s->fd, t->tid, buf, remain, blocked, err);
     assert(remain > 0);
 
     if (err != ERR_OK) {
@@ -376,7 +376,7 @@ static sysreturn socket_write_tcp_bh(sock s, thread t, void * buf, u64 remain, b
            post data, e.g. if used by send/sendto... */
         err = tcp_output(s->info.tcp.lw);
         if (err == ERR_OK) {
-            net_debug(" tcp_write and tcp_output successful for %d bytes\n", n);
+            net_debug(" tcp_write and tcp_output successful for %ld bytes\n", n);
             rv = n;
         } else {
             net_debug(" tcp_output() lwip error: %d\n", err);
@@ -401,7 +401,7 @@ static sysreturn socket_write_tcp_bh(sock s, thread t, void * buf, u64 remain, b
 static CLOSURE_1_3(socket_write, sysreturn, sock, void *, u64, u64);
 static sysreturn socket_write(sock s, void *source, u64 length, u64 offset)
 {
-    net_debug("sock %d, type %d, thread %d, source %p, length %d, offset %d\n",
+    net_debug("sock %d, type %d, thread %ld, source %p, length %ld, offset %ld\n",
 	      s->fd, s->type, current->tid, source, length, offset);
     err_t err = ERR_OK;
     if (s->type == SOCK_STREAM) {
@@ -414,7 +414,7 @@ static sysreturn socket_write(sock s, void *source, u64 length, u64 offset)
         if (rv != infinity)
             return rv;          /* error or success; return as-is */
         /* XXX again, need to just fix the queue stuff */
-        msg_err("thread %d unable to block; queue full\n", current->tid);
+        msg_err("thread %ld unable to block; queue full\n", current->tid);
         return set_syscall_error(current, EAGAIN); /* bogus */
     } else if (s->type == SOCK_DGRAM) {
         /* XXX check how much we can queue, maybe make udp bh */
@@ -444,7 +444,7 @@ static boolean socket_check(sock s, u32 eventmask, u32 * last, event_handler eh)
 {
     u32 events = socket_poll_events(s);
     u32 report = edge_events(events, eventmask, last);
-    net_debug("sock %d, type %d, eventmask %P, last %d, events %P, report %P\n",
+    net_debug("sock %d, type %d, eventmask %x, last %d, events %x, report %x\n",
 	      s->fd, s->type, eventmask, last ? *last : -1, events, report);
     if (report) {
         if (apply(eh, report)) {
@@ -579,7 +579,7 @@ sysreturn socket(int domain, int type, int protocol)
 	msg_warn("close-on-exec not applicable; ignored\n");
 
     if ((flags & ~SOCK_TYPE_MASK) != 0)
-        msg_warn("unhandled type flags 0x%P\n", flags);
+        msg_warn("unhandled type flags 0x%x\n", flags);
 
     type &= SOCK_TYPE_MASK;
     if (type == SOCK_STREAM) {
@@ -639,13 +639,13 @@ sysreturn bind(int sockfd, struct sockaddr *addr, socklen_t addrlen)
     if (s->type == SOCK_STREAM) {
 	if (s->info.tcp.state == TCP_SOCK_OPEN)
 	    return -EINVAL;	/* already bound */
-        net_debug("calling tcp_bind, pcb %p, ip %P, port %d\n",
-                  s->info.tcp.lw, *(u64*)&ipaddr, ntohs(sin->port));
+        net_debug("calling tcp_bind, pcb %p, ip %x, port %d\n",
+                  s->info.tcp.lw, *(u32*)&ipaddr, ntohs(sin->port));
 	err = tcp_bind(s->info.tcp.lw, &ipaddr, ntohs(sin->port));
 	if (err == ERR_OK)
 	    s->info.tcp.state = TCP_SOCK_OPEN;
     } else if (s->type == SOCK_DGRAM) {
-        net_debug("calling udp_bind, pcb %p, ip %P, port %d\n",
+        net_debug("calling udp_bind, pcb %p, ip %x, port %d\n",
                   s->info.udp.lw, *(u32*)&ipaddr, ntohs(sin->port));
 	err = udp_bind(s->info.udp.lw, &ipaddr, ntohs(sin->port));
     } else {
@@ -700,7 +700,7 @@ static err_t lwip_tcp_sent(void * arg, struct tcp_pcb * pcb, u16 len)
 static CLOSURE_1_1(connect_tcp_bh, void, thread, err_t);
 static void connect_tcp_bh(thread t, err_t lwip_status)
 {
-    net_debug("thread %d, lwip_status %d\n", t->tid, lwip_status);
+    net_debug("thread %ld, lwip_status %d\n", t->tid, lwip_status);
     set_syscall_return(t, lwip_to_errno(lwip_status));
     thread_wakeup(t);
 }
@@ -720,7 +720,7 @@ static err_t connect_tcp_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
 /* XXX move to blockq */
 static inline int connect_tcp(sock s, const ip_addr_t* address, unsigned short port)
 {
-    net_debug("sock %d, addr %P, port %d\n", s->fd, address->addr, port);
+    net_debug("sock %d, addr %x, port %d\n", s->fd, address->addr, port);
     lwip_status_handler bh = closure(s->h, connect_tcp_bh, current);
     struct tcp_pcb * lw = s->info.tcp.lw;
     tcp_arg(lw, s);
@@ -782,7 +782,7 @@ sysreturn sendto(int sockfd, void * buf, u64 len, int flags,
 {
     int err = ERR_OK;
     sock s = resolve_fd(current->p, sockfd);
-    net_debug("sendto %d, buf %p, len %d, flags %P, dest_addr %p, addrlen %d\n",
+    net_debug("sendto %d, buf %p, len %ld, flags %x, dest_addr %p, addrlen %d\n",
               sockfd, buf, len, flags, dest_addr, addrlen);
 
     /* Process flags */
@@ -829,7 +829,7 @@ sysreturn recvfrom(int sockfd, void * buf, u64 len, int flags,
 		   struct sockaddr *src_addr, socklen_t *addrlen)
 {
     sock s = resolve_fd(current->p, sockfd);
-    net_debug("sock %d, type %d, thread %d, buf %p, len %d\n",
+    net_debug("sock %d, type %d, thread %ld, buf %p, len %ld\n",
 	      s->fd, s->type, current->tid, buf, len);
     if (s->type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN)
         return set_syscall_error(current, ENOTCONN);
@@ -904,7 +904,7 @@ static sysreturn accept_bh(sock s, thread t, struct sockaddr *addr, socklen_t *a
 {
     sysreturn rv = 0;
     err_t err = get_lwip_error(s);
-    net_debug("sock %d, target thread %d, lwip err %d\n", s->fd, t->tid, err);
+    net_debug("sock %d, target thread %ld, lwip err %d\n", s->fd, t->tid, err);
 
     if (err != ERR_OK) {
         rv = lwip_to_errno(err);
@@ -946,7 +946,7 @@ sysreturn accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int fla
     sock s = resolve_fd(current->p, sockfd);        
     if (s->type != SOCK_STREAM)
 	return -EOPNOTSUPP;
-    net_debug("sock %d, addr %p, addrlen %p, flags %P\n", sockfd, addr, addrlen, flags);
+    net_debug("sock %d, addr %p, addrlen %p, flags %x\n", sockfd, addr, addrlen, flags);
 
     if (s->info.tcp.state != TCP_SOCK_LISTENING)
 	return set_syscall_error(current, EINVAL);
@@ -959,7 +959,7 @@ sysreturn accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int fla
         return rv;              /* error or success: return as-is */
 
     /* XXX */
-    msg_err("thread %d unable to block; queue full\n", current->tid);
+    msg_err("thread %ld unable to block; queue full\n", current->tid);
     return set_syscall_error(current, EAGAIN);
 }
 

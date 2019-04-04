@@ -44,7 +44,7 @@ void sys_timeouts_init(void)
         register_periodic_timer(milliseconds(t->interval_ms),
                                 closure(lwip_heap, dispatch_lwip_timer, t->handler, t->name));
 #ifdef LWIP_DEBUG
-        lwip_debug("registered %s timer with period of %d ms\n", t->name, t->interval_ms);
+        lwip_debug("registered %s timer with period of %ld ms\n", t->name, t->interval_ms);
 #endif
     }
 }

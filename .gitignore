@@ -1,3 +1,4 @@
+release
 test/go/instance.img
 test/go/image*
 test/go/.staging/*
@@ -18,4 +19,3 @@ vendor
 .vscode
 *.swo
 *.swp
-gitversion.c

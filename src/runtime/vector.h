@@ -64,7 +64,7 @@ static inline vector split(heap h, buffer source, char divider)
 {
     vector result = allocate_vector(h, 10);
     buffer each = allocate_buffer(h, 10);
-    foreach_character(i, source) {
+    foreach_character(_, i, source) {
         if (i == divider)  {
             vector_push(result, each);
             each = allocate_buffer(h, 10);

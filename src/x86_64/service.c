@@ -58,24 +58,30 @@ void runloop()
     }
 }
 
-static CLOSURE_2_3(offset_block_write, void, block_write, u64, void *, range, status_handler);
-static void offset_block_write(block_write w, u64 start, void *src, range blocks, status_handler h)
-{
-    assert((start & (SECTOR_SIZE - 1)) == 0);
-    u64 ds = start >> SECTOR_OFFSET;
-    blocks.start += ds;
-    blocks.end += ds;
-    apply(w, src, blocks, h);
-}
+//#define MAX_BLOCK_IO_SIZE PAGE_SIZE
+#define MAX_BLOCK_IO_SIZE (256 * 1024)
 
-static CLOSURE_2_3(offset_block_read, void, block_read, u64, void *, range, status_handler);
-static void offset_block_read(block_read r, u64 start, void *dest, range blocks, status_handler h)
+static CLOSURE_2_3(offset_block_io, void, u64, block_io, void *, range, status_handler);
+static void offset_block_io(u64 offset, block_io io, void *dest, range blocks, status_handler sh)
 {
-    assert((start & (SECTOR_SIZE - 1)) == 0);
-    u64 ds = start >> SECTOR_OFFSET;
+    assert((offset & (SECTOR_SIZE - 1)) == 0);
+    u64 ds = offset >> SECTOR_OFFSET;
     blocks.start += ds;
     blocks.end += ds;
-    apply(r, dest, blocks, h);
+
+    // split I/O to storage driver to PAGESIZE requests
+    heap h = heap_general(&heaps);
+    merge m = allocate_merge(h, sh);
+    status_handler k = apply_merge(m);
+    while (blocks.start < blocks.end) {
+        u64 span = MIN(range_span(blocks), MAX_BLOCK_IO_SIZE >> SECTOR_OFFSET);
+        apply(io, dest, irange(blocks.start, blocks.start + span), apply_merge(m));
+
+        // next block
+        blocks.start += span;
+        dest = (char *) dest + (span << SECTOR_OFFSET);
+    }
+    apply(k, STATUS_OK);
 }
 
 void init_extra_prints(); 
@@ -83,11 +89,12 @@ void init_extra_prints();
 static CLOSURE_1_2(fsstarted, void, tuple, filesystem, status);
 static void fsstarted(tuple root, filesystem fs, status s)
 {
+    assert(s == STATUS_OK);
     enqueue(runqueue, closure(heap_general(&heaps), startup, &heaps, root, fs));
 }
 
-static CLOSURE_2_3(attach_storage, void, tuple, u64, block_read, block_write, u64);
-static void attach_storage(tuple root, u64 fs_offset, block_read r, block_write w, u64 length)
+static CLOSURE_2_3(attach_storage, void, tuple, u64, block_io, block_io, u64);
+static void attach_storage(tuple root, u64 fs_offset, block_io r, block_io w, u64 length)
 {
     // with filesystem...should be hidden as functional handlers on the tuplespace
     heap h = heap_general(&heaps);
@@ -95,8 +102,8 @@ static void attach_storage(tuple root, u64 fs_offset, block_read r, block_write 
                       SECTOR_SIZE,
                       length,
                       heap_backed(&heaps),
-                      closure(h, offset_block_read, r, fs_offset),
-                      closure(h, offset_block_write, w, fs_offset),
+                      closure(h, offset_block_io, fs_offset, r),
+                      closure(h, offset_block_io, fs_offset, w),
                       root,
                       closure(h, fsstarted, root));
 }
@@ -115,7 +122,8 @@ static void read_kernel_syms()
 	    u64 v = allocate_u64(heap_virtual_huge(&heaps), kern_length);
 	    map(v, kern_base, kern_length, heap_pages(&heaps));
 #ifdef ELF_SYMTAB_DEBUG
-	    rprintf("kernel ELF image at %P, length %d, mapped at %P\n",
+	    rprintf("xxx\n");
+	    rprintf("kernel ELF image at 0x%lx, length %ld, mapped at 0x%lx\n",
 		    kern_base, kern_length, v);
 #endif
 	    add_elf_syms(alloca_wrap_buffer(v, kern_length));

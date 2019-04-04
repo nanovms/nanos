@@ -150,16 +150,16 @@ process exec_elf(buffer ex, process kp)
                XXX Replace 27 with limit derived from kernel start. */
             load_offset += (random_u64() & ~MASK(PAGELOG)) & MASK(27);
         }
-        exec_debug("placing PIE at 0x%P\n", load_offset);
+        exec_debug("placing PIE at 0x%lx\n", load_offset);
         load_start += load_offset;
         load_end += load_offset;
     }
 
-    exec_debug("load start 0x%P, end 0x%P, offset 0x%P\n",
+    exec_debug("load start 0x%lx, end 0x%lx, offset 0x%lx\n",
                load_start, load_end, load_offset);
     void * entry = load_elf(ex, load_offset, heap_pages(kh), heap_physical(kh));
     proc->brk = pointer_from_u64(pad(load_end, PAGESIZE));
-    exec_debug("entry 0x%P, brk 0x%p\n", entry, proc->brk);
+    exec_debug("entry %p, brk 0x%p\n", entry, proc->brk);
     build_exec_stack(heap_backed(kh), t, e, entry, load_start, root);
 
     if (interp) {

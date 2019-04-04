@@ -107,7 +107,7 @@ static inline void storage_rw_internal(storage st, boolean write, void * buf,
                                        range sectors, status_handler sh)
 {
     char * err = 0;
-    virtio_blk_debug("virtio_%s: block range %R cap %d\n", write ? "write" : "read", sectors, st->capacity);
+    virtio_blk_debug("virtio_%s: block range %R cap %ld\n", write ? "write" : "read", sectors, st->capacity);
 
     /* XXX so no, not page aligned but what? 16? */
     if ((u64_from_pointer(buf) & 15)) {
@@ -167,8 +167,8 @@ static void attach(heap general, storage_attach a, heap page_allocator, heap pag
     // initialization complete
     vtpci_set_status(s->v, VIRTIO_CONFIG_STATUS_DRIVER_OK);
 
-    block_read in = closure(general, storage_read, s);
-    block_write out = closure(general, storage_write, s);
+    block_io in = closure(general, storage_read, s);
+    block_io out = closure(general, storage_write, s);
     apply(a, in, out, s->capacity);
 }
 

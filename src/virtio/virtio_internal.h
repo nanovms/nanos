@@ -10,7 +10,7 @@ typedef closure_type(vqfinish, void, u64);
 struct vtpci {
     int slot;
     u64 base; //io region base
-    u64 vtpci_features;
+    u64 features;
 
     heap contiguous;
     heap general;    
@@ -34,6 +34,7 @@ status virtqueue_alloc(vtpci dev,
                        struct virtqueue **vqp,
                        thunk *t);
 
+void virtqueue_set_max_queued(virtqueue, int);
 
 /* The Host uses this in used->flags to advise the Guest: don't kick me
  * when you add a buffer.  It's unreliable, so it's simply an

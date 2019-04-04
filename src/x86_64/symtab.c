@@ -39,8 +39,7 @@ void elf_symtable_add(char * name, u64 a, u64 len, u8 info)
     boolean match = rangemap_range_lookup(elf_symtable, r, 0);
     if (match) {
 #ifdef ELF_SYMTAB_DEBUG
-	msg_err("\"%s\" %R would overlap in rangemap with \"%s\" %R; skipping\n",
-		name, r, match->name, range_from_rmnode(&match->node));
+	msg_err("\"%s\" %R would overlap in rangemap; skipping\n", name, r);
 #endif
 	return;
     }

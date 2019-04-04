@@ -77,7 +77,15 @@ void read_file(heap h, const char *target_root, buffer dest, buffer name)
     if (fd < 0) halt("couldn't open file %b: %s\n", name, strerror(errno));
     u64 size = st.st_size;
     buffer_extend(dest, pad(st.st_size, SECTOR_SIZE));
-    read(fd, buffer_ref(dest, 0), size);
+    u64 total = 0;
+    while (total < size) {
+        int rv = read(fd, buffer_ref(dest, total), size - total);
+        if (rv < 0 && errno != EINTR) {
+            close(fd);
+            halt("file read error: %s\n", strerror(errno));
+        }
+        total += rv;
+    }
     dest->end += size;
     close(fd);
 
@@ -100,10 +108,20 @@ void perr(string s)
     rprintf("parse error %b\n", s);
 }
 
-static CLOSURE_1_3(bwrite, void, descriptor, void *, range, status_handler);
-static void bwrite(descriptor d, void * s, range blocks, status_handler c)
+static CLOSURE_2_3(bwrite, void, descriptor, ssize_t, void *, range, status_handler);
+static void bwrite(descriptor d, ssize_t offset, void * s, range blocks, status_handler c)
 {
-    pwrite(d, s, range_span(blocks) << SECTOR_OFFSET, blocks.start << SECTOR_OFFSET);
+    ssize_t start = blocks.start << SECTOR_OFFSET;
+    ssize_t size = range_span(blocks) << SECTOR_OFFSET;
+    ssize_t total = 0;
+    while (total < size) {
+        ssize_t rv = pwrite(d, s + total, size - total, offset + start + total);
+        if (rv < 0 && errno != EINTR) {
+            apply(c, timm("error", "pwrite error: %s", strerror(errno)));
+            return;
+        }
+        total += rv;
+    }
     apply(c, STATUS_OK);
 }
 
@@ -137,7 +155,7 @@ static buffer translate_contents(heap h, const char *target_root, value v)
 // dont really like the file/tuple duality, but we need to get something running today,
 // so push all the bodies onto a worklist
 static value translate(heap h, vector worklist,
-		       const char *target_root, filesystem fs, value v, status_handler sh)
+                       const char *target_root, filesystem fs, value v, status_handler sh)
 {
     switch(tagof(v)) {
     case tag_tuple:
@@ -193,37 +211,68 @@ static void usage(const char *program_name)
         p++;
     else
         p = program_name;
-    printf("Usage: %s [-r target-root] image-file < manifest-file\n"
+    printf("Usage: %s [-b boot-image] [-r target-root] image-file < manifest-file\n"
            "\n"
-	   "-r	- specify target root\n",
+           "-b	- specify boot image to prepend\n"
+           "-r	- specify target root\n",
            p);
 }
 
 int main(int argc, char **argv)
 {
     int c;
+    const char *bootimg_path = NULL;
     const char *target_root = NULL;
 
-    while ((c = getopt(argc, argv, "hr:")) != EOF) {
+    while ((c = getopt(argc, argv, "hb:r:")) != EOF) {
         switch (c) {
+        case 'b':
+            bootimg_path = optarg;
+            break;
         case 'r':
             target_root = optarg;
-	    break;
+            break;
         default:
             usage(argv[0]);
-	    exit(1);
+            exit(1);
         }
     }
     argc -= optind;
     argv += optind;
-
     const char *image_path = argv[0];
 
     heap h = init_process_runtime();
     descriptor out = open(image_path, O_CREAT|O_WRONLY, 0644);
     u64 fs_size = 100ull * MB;  /* XXX temp, change to infinity after rtrie/bitmap fix */
     if (out < 0) {
-        halt("couldn't open output file %s\n", image_path);
+        halt("couldn't open output file %s: %s\n", image_path, strerror(errno));
+    }
+
+    // prepend boot image (if any)
+    ssize_t offset = 0;
+    if (bootimg_path != NULL) {
+        descriptor in = open(bootimg_path, O_RDONLY);
+        if (in < 0) {
+            halt("couldn't open boot image file %s: %s\n", bootimg_path, strerror(errno));
+        }
+
+        char buf[PAGESIZE];
+        ssize_t nr;
+        while ((nr = read(in, buf, sizeof(buf))) > 0) {
+            ssize_t nw;
+
+            while (nr > 0) {
+                nw = write(out, buf, nr);
+                if (nw < 0) {
+                    halt("couldn't write to output file %s: %s\n", image_path, strerror(errno));
+                }
+                offset += nw;
+                nr -= nw;
+            }
+        }
+        if (nr < 0) {
+            halt("couldn't read from boot image file %s: %s\n", bootimg_path, strerror(errno));
+        }
     }
 
     parser p = tuple_parser(h, closure(h, finish, h), closure(h, perr));
@@ -235,7 +284,7 @@ int main(int argc, char **argv)
                       fs_size,
                       h,
                       closure(h, bread, out),
-                      closure(h, bwrite, out),
+                      closure(h, bwrite, out, offset),
                       allocate_tuple(),
                       closure(h, fsc, h, out, target_root));
     exit(0);

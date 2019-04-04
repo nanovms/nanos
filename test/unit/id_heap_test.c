@@ -17,22 +17,22 @@ static boolean basic_test(heap h)
 	u64 pages = length / pagesize;
 	heap id = create_id_heap(h, base, length, pagesize);
 
-	msg_debug("*** allocated id heap %p at length %d (%d pages), pagesize %d\n",
+	msg_debug("*** allocated id heap %p at length %ld (%ld pages), pagesize %ld\n",
 		  id, pagesize * pages, pages, pagesize);
 
 	for (int alloc_order=0; alloc_order <= (LENGTH_ORDER - page_order); alloc_order++) {
 	    u64 n = U64_FROM_BIT(alloc_order);
-	    msg_debug(">>> allocations of %d page(s) ... ", n);
+	    msg_debug(">>> allocations of %ld page(s) ... ", n);
 
 	    for (int i=0; i < pages; i += n) {
 		u64 a = allocate_u64(id, pagesize * n);
 		if (a == INVALID_PHYSICAL) {
-		    msg_err("!!! allocation failed for page %d\n", i);
+		    msg_err("!!! allocation failed for page %ld\n", i);
 		    return false;
 		}
 		u64 expect = base + i * pagesize;
 		if (a != expect) {
-		    msg_err("!!! allocation for page %d returned %P, expecting %P\n",
+		    msg_err("!!! allocation for page %ld returned %lx, expecting %lx\n",
 			    i, a, expect);
 		    return false;
 		}
@@ -73,7 +73,7 @@ static boolean random_test(heap h, heap rh, u64 page_order, int churn)
     zero(alloc_result_vec, VEC_LEN * sizeof(u64));
 
     heap id = create_id_heap_backed(h, rh, pagesize);
-    msg_debug("*** allocated id heap %p, parent heap %p, pagesize %d\n",
+    msg_debug("*** allocated id heap %p, parent heap %p, pagesize %ld\n",
 	      id, rh, pagesize);
 
     do {
@@ -86,9 +86,9 @@ static boolean random_test(heap h, heap rh, u64 page_order, int churn)
 		continue;
 
 	    alloc_result_vec[o] = allocate_u64(id, alloc_size_vec[o]);
-	    msg_debug("alloc %d, size %d, result %P\n", o, alloc_size_vec[o], alloc_result_vec[o]);
+	    msg_debug("alloc %d, size %ld, result %lx\n", o, alloc_size_vec[o], alloc_result_vec[o]);
 	    if (alloc_result_vec[o] == INVALID_PHYSICAL) {
-		msg_err("alloc of size %d failed\n", alloc_size_vec[o]);
+		msg_err("alloc of size %ld failed\n", alloc_size_vec[o]);
 		goto fail;
 	    }
 	}
@@ -120,7 +120,7 @@ static boolean random_test(heap h, heap rh, u64 page_order, int churn)
 		continue;
 	    int o = (i + start) % VEC_LEN;
 	    if (alloc_result_vec[o]) {
-		msg_debug("dealloc %d, size %d\n", o, alloc_size_vec[o]);
+		msg_debug("dealloc %d, size %ld\n", o, alloc_size_vec[o]);
 		deallocate_u64(id, alloc_result_vec[o], alloc_size_vec[o]);
 		alloc_result_vec[o] = 0;
 	    }
@@ -137,7 +137,7 @@ static boolean random_test(heap h, heap rh, u64 page_order, int churn)
   fail:
     msg_err("test vector:\ni\t(alloc,\tresult)\n");
     for (int i=0; i < VEC_LEN; i++) {
-	rprintf("%d\t(%d,\t%P)\n", i, alloc_size_vec[i], alloc_result_vec[i]);
+	rprintf("%d\t(%ld,\t%lx)\n", i, alloc_size_vec[i], alloc_result_vec[i]);
     }
     return false;
 }

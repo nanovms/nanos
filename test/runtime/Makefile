@@ -1,279 +1,164 @@
-include ../../config.mk
-include ../../common.mk
+# these are built for the target platform (Linux x86_64)
+PROGRAMS= \
+	creat \
+	fst \
+	getdents \
+	getrandom \
+	hw \
+	hwg \
+	hws \
+	mkdir \
+	pipe \
+	sendfile \
+	time \
+	udploop \
+	web \
+	webg \
+	webs \
+	write
 
-OUT = $(ROOT)/output/test/runtime
+SRCS-creat=		$(CURDIR)/creat.c
+LDFLAGS-creat=		-static
 
-CFLAGS = -g \
-	 -fno-omit-frame-pointer \
-	 -DHOST_BUILD \
-	 -DENABLE_MSG_DEBUG \
-	 $(includes)
-CFLAGS+= $(CFLAG_WARNINGS) \
-	-std=gnu11 \
-         -Wformat
+SRCS-getdents=		$(CURDIR)/getdents.c
+LDFLAGS-getdents=	-static
+
+SRCS-getrandom=		$(CURDIR)/getrandom.c
+LDFLAGS-getrandom=	-static
+LIBS-getrandom=		-lm
+
+SRCS-hw=		$(CURDIR)/hw.c
+
+SRCS-hws=		$(SRCS-hw)
+LDFLAGS-hws=		-static
+
+SRCS-mkdir=		$(CURDIR)/mkdir.c
+LDFLAGS-mkdir=		-static
+
+SRCS-pipe= \
+	$(CURDIR)/pipe.c \
+	$(SRCDIR)/unix_process/unix_process_runtime.c \
+	$(SRCDIR)/unix/path.c \
+	$(SRCDIR)/runtime/bitmap.c \
+	$(SRCDIR)/runtime/buffer.c \
+	$(SRCDIR)/runtime/extra_prints.c \
+	$(SRCDIR)/runtime/format.c \
+	$(SRCDIR)/runtime/random.c \
+	$(SRCDIR)/runtime/runtime_init.c \
+	$(SRCDIR)/runtime/string.c \
+	$(SRCDIR)/runtime/symbol.c \
+	$(SRCDIR)/runtime/table.c \
+	$(SRCDIR)/runtime/tuple_parser.c \
+	$(SRCDIR)/runtime/tuple.c \
+	$(SRCDIR)/runtime/timer.c \
+	$(SRCDIR)/runtime/pqueue.c \
+	$(SRCDIR)/runtime/heap/id.c \
+	$(SRCDIR)/runtime/heap/freelist.c \
+	$(SRCDIR)/runtime/heap/debug_heap.c \
+	$(SRCDIR)/runtime/heap/objcache.c \
+	$(SRCDIR)/runtime/heap/mcache.c
+LDFLAGS-pipe=		-static
+LIBS-pipe=		-lm -lpthread
+
+SRCS-sendfile=		$(CURDIR)/sendfile.c
+LDFLAGS-sendfile=	-static
+
+SRCS-time=		$(CURDIR)/time.c
+LDFLAGS-time=		-static
+
+SRCS-udploop= \
+	$(CURDIR)/udploop.c \
+	$(SRCDIR)/unix_process/unix_process_runtime.c \
+	$(SRCDIR)/unix_process/mmap_heap.c \
+	$(SRCDIR)/unix_process/http.c \
+	$(SRCDIR)/unix_process/socket_user.c \
+	$(SRCDIR)/unix_process/tiny_heap.c \
+	$(SRCDIR)/unix/path.c \
+	$(SRCDIR)/runtime/bitmap.c \
+	$(SRCDIR)/runtime/buffer.c \
+	$(SRCDIR)/runtime/extra_prints.c \
+	$(SRCDIR)/runtime/format.c \
+	$(SRCDIR)/runtime/heap/id.c \
+	$(SRCDIR)/runtime/heap/freelist.c \
+	$(SRCDIR)/runtime/heap/debug_heap.c \
+	$(SRCDIR)/runtime/heap/objcache.c \
+	$(SRCDIR)/runtime/heap/mcache.c \
+	$(SRCDIR)/runtime/merge.c \
+	$(SRCDIR)/runtime/pqueue.c \
+	$(SRCDIR)/runtime/random.c \
+	$(SRCDIR)/runtime/range.c \
+	$(SRCDIR)/runtime/runtime_init.c \
+	$(SRCDIR)/runtime/sha256.c \
+	$(SRCDIR)/runtime/signature.c \
+	$(SRCDIR)/runtime/string.c \
+	$(SRCDIR)/runtime/symbol.c \
+	$(SRCDIR)/runtime/table.c \
+	$(SRCDIR)/runtime/timer.c \
+	$(SRCDIR)/runtime/tuple_parser.c \
+	$(SRCDIR)/runtime/tuple.c
+LDFLAGS-udploop=	 -static
+
+SRCS-web= \
+	$(CURDIR)/web.c \
+	$(SRCDIR)/unix_process/unix_process_runtime.c \
+	$(SRCDIR)/unix_process/mmap_heap.c \
+	$(SRCDIR)/unix_process/http.c \
+	$(SRCDIR)/unix_process/socket_user.c \
+	$(SRCDIR)/unix_process/tiny_heap.c \
+	$(SRCDIR)/unix/path.c \
+	$(SRCDIR)/runtime/bitmap.c \
+	$(SRCDIR)/runtime/buffer.c \
+	$(SRCDIR)/runtime/extra_prints.c \
+	$(SRCDIR)/runtime/format.c \
+	$(SRCDIR)/runtime/heap/id.c \
+	$(SRCDIR)/runtime/heap/freelist.c \
+	$(SRCDIR)/runtime/heap/debug_heap.c \
+	$(SRCDIR)/runtime/heap/objcache.c \
+	$(SRCDIR)/runtime/heap/mcache.c \
+	$(SRCDIR)/runtime/merge.c \
+	$(SRCDIR)/runtime/pqueue.c \
+	$(SRCDIR)/runtime/random.c \
+	$(SRCDIR)/runtime/range.c \
+	$(SRCDIR)/runtime/runtime_init.c \
+	$(SRCDIR)/runtime/sha256.c \
+	$(SRCDIR)/runtime/signature.c \
+	$(SRCDIR)/runtime/string.c \
+	$(SRCDIR)/runtime/symbol.c \
+	$(SRCDIR)/runtime/table.c \
+	$(SRCDIR)/runtime/timer.c \
+	$(SRCDIR)/runtime/tuple_parser.c \
+	$(SRCDIR)/runtime/tuple.c
+
+SRCS-webs=		$(SRCS-web)
+LDFLAGS-webs=		-static
+
+SRCS-write=		$(CURDIR)/write.c
+LDFLAGS-write=		-static
+
+CFLAGS+=	-DHOST_BUILD \
+		-DENABLE_MSG_DEBUG
+CFLAGS+=	-I$(SRCDIR)/runtime \
+		-I$(SRCDIR)/unix \
+		-I$(SRCDIR)/unix_process \
+		-I$(SRCDIR)/x86_64
+
+CLEANDIRS+=	$(OBJDIR)/test
+
+all: $(PROGRAMS)
+
+include ../../rules.mk
+
 ifeq ($(UNAME_s),Darwin)
-CFLAGS += -target x86_64-elf --sysroot $(TARGET_ROOT)
-HOSTLD = x86_64-elf-ld
-HOSTLDFLAGS += --sysroot=$(TARGET_ROOT)
+CFLAGS+=	-target x86_64-elf --sysroot $(TARGET_ROOT)
+LD=		x86_64-elf-ld
+LDFLAGS+=	--sysroot=$(TARGET_ROOT)
 OBJS_BEGIN=	$(OBJS_CRTBEGIN)
 OBJS_END=	$(OBJS_CRTEND)
 GO_ENV=		GOOS=linux GOARCH=amd64
+
+$(PROG-hw): OBJS_BEGIN=$(OBJS_CRTBEGIN_D)
+$(PROG-hw): OBJS_END=$(OBJS_CRTEND_D)
+
+$(PROG-web): OBJS_BEGIN=$(OBJS_CRTBEGIN_D)
+$(PROG-web): OBJS_END=$(OBJS_CRTEND_D)
 endif
-
-all: fst hw hws hwg getdents udploop web webg webgs webs getrandom mkdir time \
-	 pipe write creat sendfile
-
-fst: $(FST)
-
-hw: $(HW)
-
-hws: $(HWS)
-
-hwg: $(HWG)
-
-getdents: $(GETDENTS)
-
-mkdir: $(MKDIR)
-
-udploop: $(UDPLOOP)
-
-getrandom: $(GETRANDOM)
-
-creat: $(CREAT)
-
-time: $(TIME)
-
-web: $(WEB)
-
-webs: $(WEBS)
-
-webg: $(WEBG)
-
-webgs: $(WEBGS)
-
-pipe: $(PIPE)
-
-write: $(WRITE)
-
-sendfile: $(SENDFILE)
-
-includes := \
-	-I$(SRC)/runtime \
-	-I$(SRC)/unix \
-	-I$(SRC)/unix_process \
-	-I$(SRC)/x86_64
-
-hw-srcs := \
-	$(ROOT)/test/runtime/hw.c
-
-hw-objs = $(call srcs-to-objs,$(ROOT),$(OUT),hw)
-
-ifeq ($(UNAME_s),Darwin)
-$(HW): OBJS_BEGIN=$(OBJS_CRTBEGIN_D)
-$(HW): OBJS_END=$(OBJS_CRTEND_D)
-endif
-$(HW): $(hw-objs)
-	$(call cmd,host-prog)
-
-hws-objs := $(hw-objs)
-
-$(HWS): HOSTLDFLAGS += -static
-$(HWS): $(hw-objs)
-	$(call cmd,host-prog)
-
-getdents-srcs := \
-	$(ROOT)/test/runtime/getdents.c
-
-getdents-objs = $(call srcs-to-objs,$(ROOT),$(OUT),getdents)
-
-$(GETDENTS): HOSTLDFLAGS += -static
-$(GETDENTS): $(getdents-objs)
-	$(call cmd,host-prog)
-
-write-srcs := \
-	$(ROOT)/test/runtime/write.c
-
-write-objs = $(call srcs-to-objs,$(ROOT),$(OUT),write)
-
-$(WRITE): HOSTLDFLAGS += -static
-$(WRITE): $(write-objs)
-	$(call cmd,host-prog)
-
-sendfile-srcs := \
-	$(ROOT)/test/runtime/sendfile.c
-
-sendfile-objs = $(call srcs-to-objs,$(ROOT),$(OUT),sendfile)
-
-$(SENDFILE): HOSTLDFLAGS += -static
-$(SENDFILE): $(sendfile-objs)
-	$(call cmd,host-prog)
-
-mkdir-srcs := \
-	$(ROOT)/test/runtime/mkdir.c
-
-mkdir-objs = $(call srcs-to-objs,$(ROOT),$(OUT),mkdir)
-
-$(MKDIR): HOSTLDFLAGS += -static
-$(MKDIR): $(mkdir-objs)
-	$(call cmd,host-prog)
-
-udploop-srcs := \
-	$(ROOT)/test/runtime/udploop.c \
-	$(SRC)/unix_process/unix_process_runtime.c \
-	$(SRC)/unix_process/mmap_heap.c \
-	$(SRC)/unix_process/http.c \
-	$(SRC)/unix_process/socket_user.c \
-	$(SRC)/unix_process/tiny_heap.c \
-	$(SRC)/unix/path.c \
-	$(SRC)/runtime/bitmap.c \
-	$(SRC)/runtime/buffer.c \
-	$(SRC)/runtime/extra_prints.c \
-	$(SRC)/runtime/format.c \
-	$(SRC)/runtime/heap/id.c \
-	$(SRC)/runtime/heap/freelist.c \
-	$(SRC)/runtime/heap/debug_heap.c \
-	$(SRC)/runtime/heap/objcache.c \
-	$(SRC)/runtime/heap/mcache.c \
-	$(SRC)/runtime/merge.c \
-	$(SRC)/runtime/pqueue.c \
-	$(SRC)/runtime/random.c \
-	$(SRC)/runtime/range.c \
-	$(SRC)/runtime/runtime_init.c \
-	$(SRC)/runtime/sha256.c \
-	$(SRC)/runtime/signature.c \
-	$(SRC)/runtime/string.c \
-	$(SRC)/runtime/symbol.c \
-	$(SRC)/runtime/table.c \
-	$(SRC)/runtime/timer.c \
-	$(SRC)/runtime/tuple_parser.c \
-	$(SRC)/runtime/tuple.c \
-
-udploop-objs = $(call srcs-to-objs,$(ROOT),$(OUT),udploop)
-
-$(UDPLOOP): HOSTLDFLAGS += -static
-$(UDPLOOP): $(udploop-objs)
-	$(call cmd,host-prog)
-
-getrandom-srcs := \
-	$(ROOT)/test/runtime/getrandom.c
-
-getrandom-objs = $(call srcs-to-objs,$(ROOT),$(OUT),getrandom)
-
-$(GETRANDOM): HOSTLDFLAGS += -static
-$(GETRANDOM): EXTRA_HOSTLDFLAGS = -lm
-$(GETRANDOM): $(getrandom-objs)
-	$(call cmd,host-prog)
-
-creat-srcs := \
-	$(ROOT)/test/runtime/creat.c
-
-creat-objs = $(call srcs-to-objs,$(ROOT),$(OUT),creat)
-
-$(CREAT): HOSTLDFLAGS += -static
-$(CREAT): $(creat-objs)
-	$(call cmd,host-prog)
-
-time-srcs := \
-	$(ROOT)/test/runtime/time.c
-
-time-objs = $(call srcs-to-objs,$(ROOT),$(OUT),time)
-
-$(TIME): HOSTLDFLAGS += -static
-$(TIME): $(time-objs)
-	$(call cmd,host-prog)
-
-pipe-srcs := \
-	$(ROOT)/test/runtime/pipe.c \
-	$(SRC)/unix_process/unix_process_runtime.c \
-	$(SRC)/unix/path.c \
-	$(SRC)/runtime/bitmap.c \
-	$(SRC)/runtime/buffer.c \
-	$(SRC)/runtime/extra_prints.c \
-	$(SRC)/runtime/format.c \
-	$(SRC)/runtime/random.c \
-	$(SRC)/runtime/runtime_init.c \
-	$(SRC)/runtime/string.c \
-	$(SRC)/runtime/symbol.c \
-	$(SRC)/runtime/table.c \
-	$(SRC)/runtime/tuple_parser.c \
-	$(SRC)/runtime/tuple.c \
-	$(SRC)/runtime/timer.c \
-	$(SRC)/runtime/pqueue.c \
-	$(SRC)/runtime/heap/id.c \
-	$(SRC)/runtime/heap/freelist.c \
-	$(SRC)/runtime/heap/debug_heap.c \
-	$(SRC)/runtime/heap/objcache.c \
-	$(SRC)/runtime/heap/mcache.c \
-
-pipe-objs = $(call srcs-to-objs,$(ROOT),$(OUT),pipe)
-
-$(PIPE): HOSTLDFLAGS += -static
-$(PIPE): EXTRA_HOSTLDFLAGS = -lm -lpthread
-$(PIPE): $(pipe-objs)
-	$(call cmd,host-prog)
-
-web-srcs := \
-	$(ROOT)/test/runtime/web.c \
-	$(SRC)/unix_process/unix_process_runtime.c \
-	$(SRC)/unix_process/mmap_heap.c \
-	$(SRC)/unix_process/http.c \
-	$(SRC)/unix_process/socket_user.c \
-	$(SRC)/unix_process/tiny_heap.c \
-	$(SRC)/unix/path.c \
-	$(SRC)/runtime/bitmap.c \
-	$(SRC)/runtime/buffer.c \
-	$(SRC)/runtime/extra_prints.c \
-	$(SRC)/runtime/format.c \
-	$(SRC)/runtime/heap/id.c \
-	$(SRC)/runtime/heap/freelist.c \
-	$(SRC)/runtime/heap/debug_heap.c \
-	$(SRC)/runtime/heap/objcache.c \
-	$(SRC)/runtime/heap/mcache.c \
-	$(SRC)/runtime/merge.c \
-	$(SRC)/runtime/pqueue.c \
-	$(SRC)/runtime/random.c \
-	$(SRC)/runtime/range.c \
-	$(SRC)/runtime/runtime_init.c \
-	$(SRC)/runtime/sha256.c \
-	$(SRC)/runtime/signature.c \
-	$(SRC)/runtime/string.c \
-	$(SRC)/runtime/symbol.c \
-	$(SRC)/runtime/table.c \
-	$(SRC)/runtime/timer.c \
-	$(SRC)/runtime/tuple_parser.c \
-	$(SRC)/runtime/tuple.c \
-
-web-objs = $(call srcs-to-objs,$(ROOT),$(OUT),web)
-
-ifeq ($(UNAME_s),Darwin)
-$(WEB): OBJS_BEGIN=$(OBJS_CRTBEGIN_D)
-$(WEB): OBJS_END=$(OBJS_CRTEND_D)
-endif
-$(WEB): $(web-objs)
-	$(call cmd,host-prog)
-
-webs-objs := $(web-objs)
-
-$(WEBS): HOSTLDFLAGS += -static
-$(WEBS): $(web-objs)
-	$(call cmd,host-prog)
-
-$(WEBGS): webg.go
-	@ mkdir -p $(dir $@)
-	@ echo "GO	$@"
-	$(Q) CGO_ENABLED=0 $(GO_ENV) $(GO) build -a -ldflags '-extldflags "-static"' -o $@ $^
-
-$(hw-objs) $(web-objs) $(udploop-objs): $(CLOSURE_TMPL)
-
-clean-objs = $(hw-objs) $(web-objs) $(FST) $(HW) $(HWG) $(HWS) $(WEB) $(WEBG) \
-	$(WEBGS) $(WEBS) $(CLOSURE_TMPL) $(getdents-objs) $(GETDENTS) \
-	$(getrandom-objs) $(GETRANDOM) $(udploop-objs) $(UDPLOOP) \
-	$(mkdir-objs) $(MKDIR) $(time-objs) $(TIME) $(write-objs) $(WRITE) \
-	$(pipe-objs) $(PIPE) $(creat-objs) $(CREAT) $(sendfile-objs) $(SENDFILE)
-
-clean: default-clean
-
-.PHONY: fst hw hwg hws web webg webgs webs getdents getrandom time udploop mkdir \
-	pipe write creat sendfile
-
-include ../../rules.mk

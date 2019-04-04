@@ -17,17 +17,18 @@ int scsi_data_len(u8 cmd)
 
 static void scsi_bdump_sense(buffer b, const u8 *sense, int length)
 {
-    assert(length >= 14);
-    for (int i = 0; i < MIN(length, 16); i++) {
-        bprintf(b, "%s%P", i > 0 ? " " : "", (u64) sense[i]);
+    assert(length >= sizeof(struct scsi_sense_data));
+    for (int i = 0; i < sizeof(struct scsi_sense_data); i++) {
+        bprintf(b, "%s%02x", i > 0 ? " " : "", sense[i]);
     }
-    bprintf(b, ": key %P, asc %P/%P",
-        (u64) (sense[2] & 0xf), (u64) sense[12], (u64) sense[13]);
+    struct scsi_sense_data *ssd = (struct scsi_sense_data *) sense;
+    bprintf(b, ": KEY %x, ASC/ASCQ %02x/%02x",
+        (ssd->flags & SSD_KEY), ssd->asc, ssd->ascq);
 }
 
 void scsi_dump_sense(const u8 *sense, int length)
 {
     buffer b = little_stack_buffer(1024);
     scsi_bdump_sense(b, sense, length);
-    rprintf("sense %b\n", b);
+    rprintf("SCSI SENSE %b\n", b);
 }

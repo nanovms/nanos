@@ -105,19 +105,19 @@ boolean bitmap_dealloc(bitmap b, u64 bit, u64 order)
 
     /* XXX maybe error code instead of msg_err... */
     if (bit & (nbits - 1)) {
-	msg_err("bitmap %p, bit %d is not aligned to order %d\n",
+	msg_err("bitmap %p, bit %ld is not aligned to order %ld\n",
 		b, bit, order);
 	return false;
     }
 
     if (bit + nbits > b->maxbits) {
-	msg_err("bitmap %p, bit %d, order %d: exceeds bit length %d\n",
+	msg_err("bitmap %p, bit %ld, order %ld: exceeds bit length %ld\n",
 		b, bit, order, b->maxbits);
 	return false;
     }
 
     if (!for_range_in_map(mapbase, bit, nbits, false, true)) {
-	msg_err("bitmap %p, bit %d, order %d: not allocated in map; leaking\n",
+	msg_err("bitmap %p, bit %ld, order %ld: not allocated in map; leaking\n",
 		b, bit, order);
 	return false;
     }

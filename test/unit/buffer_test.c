@@ -148,6 +148,56 @@ boolean concat_tests(heap h)
     return failure;
 }
 
+#define VBPRINTF_TEST(b, orig, fmt, ...)                                                 \
+    do {                                                                                 \
+        buffer_clear(b);                                                                 \
+        bbprintf(b, alloca_wrap_buffer(fmt, runtime_strlen(fmt)), ##__VA_ARGS__);        \
+        test_assert(buffer_compare(b, alloca_wrap_buffer(orig, runtime_strlen(orig))));  \
+    } while (0)
+
+boolean vbprintf_tests(heap h)
+{
+    boolean failure = true;
+    buffer b = allocate_buffer(h, 10);
+
+    // %s
+    VBPRINTF_TEST(b, "hello, world", "%s", "hello, world");
+    VBPRINTF_TEST(b, "(null)", "%s", "(null)");
+
+    // %p
+    void *p = (void *) 0x123456780000;
+    VBPRINTF_TEST(b, "0x0000123456780000", "%p", p);
+
+    // System V AMD64 ABI calling convention:
+    // the first six integer or pointer arguments are passed in registers
+    //
+    // first two arguments of bbprintf() are buffer and format
+    // so add 4 more dummy arguments to test va_arg() stack arguments
+
+    // %c
+    VBPRINTF_TEST(b, "xxxxab", "%c%c%c%c%c%c", 'x', 'x', 'x', 'x', 'a', 'b');
+
+    // %d
+    u8 x = 12;
+    u16 y = 3456;
+    int z = 7890;
+    VBPRINTF_TEST(b, "0 0 0 0 12 3456 7890", "%d %d %d %d %d %d %d", 0, 0, 0, 0, x, y, z);
+    VBPRINTF_TEST(b, "0 0 0 0 1234 -42", "%d %d %d %d %ld %d", 0, 0, 0, 0, 1234l, -42);
+
+    // %x
+    u64 w = 0x1122334455667788;
+    VBPRINTF_TEST(b, "0 0 0 0 1234 0x1122334455667788", "%x %x %x %x %x 0x%lx", 0, 0, 0, 0, 0x1234, w);
+
+    // invalid format
+    VBPRINTF_TEST(b, "[invalid format %y]", "%y", 0);
+    VBPRINTF_TEST(b, "[invalid format %ls]", "%ls", 0);
+
+    failure = false;
+
+fail:
+    deallocate_buffer(b);
+    return failure;
+}
 
 int main(int argc, char **argv)
 {
@@ -157,6 +207,7 @@ int main(int argc, char **argv)
     failure |= basic_tests(h);
     failure |= byteorder_tests(h);
     failure |= concat_tests(h);
+    failure |= vbprintf_tests(h);
 
     if (failure) {
         msg_err("Test failed\n");

@@ -55,7 +55,7 @@ static inline void select_bitmaps_init(heap h, select_bitmaps * b)
 static boolean select_register(notifier n, descriptor f, u32 events, thunk a)
 {
 #ifdef SOCKET_USER_EPOLL_DEBUG
-    rprintf("select_register: notifier %p, fd %d, events %P, thunk %p\n", n, f, events, a);
+    rprintf("select_register: notifier %p, fd %d, events %x, thunk %p\n", n, f, events, a);
 #endif
     select_notifier s = (select_notifier)n;
     registration new = allocate(n->h, sizeof(struct registration));
@@ -117,12 +117,12 @@ static void select_spin(notifier n)
 	u64 * ep = bitmap_base(s->tmp.e);
 #ifdef SOCKET_USER_EPOLL_DEBUG
 	rprintf("   calling select with nfds = %d\n", s->nfds);
-	rprintf("      r: %P\tw: %P\te: %P\n", *rp, *wp, *ep);
+	rprintf("      r: %lx\tw: %lx\te: %lx\n", *rp, *wp, *ep);
 #endif
 	int res = select(s->nfds, (fd_set*)rp, (fd_set*)wp, (fd_set*)ep, 0);
 #ifdef SOCKET_USER_EPOLL_DEBUG
 	rprintf("   returned %d\n", res);
-	rprintf("      r: %P\tw: %P\te: %P\n", *rp, *wp, *ep);
+	rprintf("      r: %lx\tw: %lx\te: %lx\n", *rp, *wp, *ep);
 #endif
         if (res == -1)
 	    halt ("select failed with %s (%d)\n", strerror(errno), errno);
@@ -143,13 +143,13 @@ static void select_spin(notifier n)
 		if (*wp & mask)
 		    events |= EPOLLPRI;
 #ifdef SOCKET_USER_EPOLL_DEBUG
-		rprintf("   fd %d, events %P:\n", fd, events);
+		rprintf("   fd %d, events %x:\n", fd, events);
 #endif
 		registration r = vector_get(s->registrations, fd);
 		do {
 		    if (r->events & events) {
 #ifdef SOCKET_USER_EPOLL_DEBUG
-			rprintf("      match events %P, applying thunk %p\n",
+			rprintf("      match events %x, applying thunk %p\n",
 				r->events, r->a);
 #endif
 			apply(r->a);
@@ -189,7 +189,7 @@ typedef struct poll_notifier {
 static boolean poll_register(notifier n, descriptor f, u32 events, thunk a)
 {
 #ifdef SOCKET_USER_EPOLL_DEBUG
-    rprintf("poll_register: notifier %p, fd %d, events %P, thunk %p\n", n, f, events, a);
+    rprintf("poll_register: notifier %p, fd %d, events %x, thunk %p\n", n, f, events, a);
 #endif
     poll_notifier p = (poll_notifier)n;
     registration new = allocate(n->h, sizeof(struct registration));
@@ -245,7 +245,7 @@ static void poll_spin(notifier n)
         for (int i = 0; i < NFDS(p->poll_fds); i++) {
             fds[i].revents = 0;
 #ifdef SOCKET_USER_EPOLL_DEBUG
-            rprintf("      fd %d, events %P, revents %P\n", fds[i].fd, fds[i].events, fds[i].revents);
+            rprintf("      fd %d, events %x, revents %x\n", fds[i].fd, fds[i].events, fds[i].revents);
 #endif
         }
 
@@ -254,13 +254,13 @@ static void poll_spin(notifier n)
         rprintf("   returned %d\n", res);
 #endif
         if (res == -1)
-            halt("poll failed with %s (%d)\n", strerror(errno));
+            halt("poll failed with %s (%d)\n", strerror(errno), errno);
         for (int i = 0; i < NFDS(p->poll_fds); i++) {
             if (fds[i].revents == 0)
                 continue;
 
 #ifdef SOCKET_USER_EPOLL_DEBUG
-            rprintf("   fd %d, events %P, revents %P:\n", fds[i], fds[i].events, fds[i].revents);
+            rprintf("   fd %d, events %x, revents %x:\n", fds[i], fds[i].events, fds[i].revents);
 #endif
             if (fds[i].revents & POLLHUP) {
                 rprintf("   fd %d: POLLHUP, closing\n", fds[i].fd);
@@ -274,7 +274,7 @@ static void poll_spin(notifier n)
             do {
                 if (r->events & fds[i].revents) {
 #ifdef SOCKET_USER_EPOLL_DEBUG
-                    rprintf("      match events %P, applying thunk %p\n",
+                    rprintf("      match events %x, applying thunk %p\n",
                         r->events, r->a);
 #endif
                     apply(r->a);
@@ -314,7 +314,7 @@ typedef struct epoll_notifier {
 static boolean epoll_register(notifier n, descriptor f, u32 events, thunk a)
 {
 #ifdef SOCKET_USER_EPOLL_DEBUG
-    rprintf("epoll register fd: notifier %p, fd %d, events %P, thunk %p\n", n, f, events, a);
+    rprintf("epoll register fd: notifier %p, fd %d, events %x, thunk %p\n", n, f, events, a);
 #endif
     epoll_notifier e = (epoll_notifier)n;
     registration new = allocate(n->h, sizeof(struct registration));
@@ -361,11 +361,11 @@ static void epoll_spin(notifier n)
     while (1) {
         int res = epoll_wait(e->fd, ev, sizeof(ev)/sizeof(struct epoll_event), -1);
         if (res == -1)
-	    halt ("epoll failed with %s (%d)\n", strerror(errno));
+	    halt("epoll failed with %s (%d)\n", strerror(errno), errno);
         for (int i = 0; i < res; i++) {
             registration r = ev[i].data.ptr;
 #ifdef SOCKET_USER_EPOLL_DEBUG
-	    rprintf("   fd %d, events %P\n", r->fd, ev[i].events);
+	    rprintf("   fd %d, events %x\n", r->fd, ev[i].events);
 #endif
             if (ev[i].events & EPOLLHUP)  {
                 descriptor fd = r->fd;
@@ -401,7 +401,7 @@ void set_nonblocking(descriptor d)
 {
     int flags = fcntl(d, F_GETFL);
     if (fcntl(d, F_SETFL, flags | O_NONBLOCK)) {
-        halt("fcntl %E\n", errno);
+        halt("fcntl %s\n", strerror(errno));
     }
 }
 
@@ -465,7 +465,7 @@ static void accepting(heap h, notifier n, descriptor c, new_connection nc )
     struct sockaddr_in where;
     socklen_t len = sizeof(struct sockaddr_in);
     int s = accept(c, (struct sockaddr *)&where, &len);
-    if (s < 0 ) halt("accept %E\n", errno);
+    if (s < 0 ) halt("accept %s\n", strerror(errno));
     buffer_handler out = closure(h, connection_output, s, n);
     buffer_handler in = apply(nc, out);
     register_descriptor(h, n, s, closure(h, connection_input, h, s, n, in));
@@ -494,14 +494,14 @@ void connection(heap h,
     int s = socket(AF_INET, SOCK_STREAM, 0);
     u32 v4;
     u16 port;
-    parse_v4_address_and_port(alloca_wrap(target), &v4, &port);
+    assert(parse_v4_address_and_port(alloca_wrap(target), &v4, &port));
     fill_v4_sockaddr(&where, v4, port);
     // this is still blocking!
     int res = connect(s, (struct sockaddr *)&where, sizeof(struct sockaddr_in));
     if (res) {
         rprintf("zikkay %d %p\n", res, failure);        
         apply(failure, timm("errno", "%d", errno,
-                            "errstr", "%E", errno));
+                            "errstr", "%s", strerror(errno)));
     } else {
         register_descriptor_write(h, n, s, closure(h, connection_start, h, s, n, c));
     }
@@ -521,10 +521,10 @@ void listen_port(heap h, notifier n, u16 port, new_connection nc)
         perror("setsockopt(SO_REUSEADDR) failed");
     
     if (bind(service, (struct sockaddr *)&where, sizeof(struct sockaddr_in)))
-        halt("bind %E", errno);
+        halt("bind %s", strerror(errno));
 
     if (listen(service, 5))
-        halt("listen %E", errno);
+        halt("listen %s", strerror(errno));
 
     register_descriptor(h, n, service, closure(h, accepting, h, n, service, nc));
 }

@@ -24,8 +24,8 @@ static void reset_parser(gdb g)
 
 static context gdb_handle_exception (gdb g, context frame)
 {
-    int exceptionVector = frame[FRAME_VECTOR];
-    //     rprintf ("gdb exception: %d %p [%p %p] %p %p\n", exceptionVector, g, frame, g->t->frame, frame[FRAME_RIP], *(u64 *)frame[FRAME_RIP]);
+    u64 exceptionVector = frame[FRAME_VECTOR];
+    //     rprintf ("gdb exception: %ld %p [%p %p] %p %p\n", exceptionVector, g, frame, g->t->frame, frame[FRAME_RIP], *(u64 *)frame[FRAME_RIP]);
     sigval = computeSignal(exceptionVector);
     reset_buffer(g->output);
     /*
@@ -207,7 +207,7 @@ static boolean handle_request(gdb g, buffer b, buffer output)
         {
             u64 regno;
             if (parse_int (b, 16, &regno) && (get_char(b) == '='))                
-                if (regno >= 0 && regno < (sizeof(context)/sizeof(u64))) {
+                if (regno < FRAME_MAX) {
                     hex2mem (b, g->t->frame + regno, 8);
                     bprintf (output, "OK");
                     break;

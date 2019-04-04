@@ -156,7 +156,7 @@ void append_write_test()
 {
     ssize_t rv;
     unsigned char tmp[BUFLEN];
-    int fd = open("append", O_CREAT | O_RDWR);
+    int fd = open("append", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
     if (fd < 0) {
         perror("open");
         exit(EXIT_FAILURE);

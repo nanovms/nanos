@@ -1,146 +1,152 @@
-include ../config.mk
-include ../common.mk
+LWIPDIR=	$(VENDORDIR)/lwip
 
-OUT		?= $(ROOT)/output/stage3
-AFLAGS		= -felf64
-ifeq ($(UNAME_s),Darwin)
-CFLAGS          += -target x86_64-elf
-LD              = x86_64-elf-ld
-endif
-CFLAGS 		+= -DSTAGE3 -nostdinc -fno-builtin
-LDFLAGS 	+= -n -T linker_script -nostdlib
-OBJDUMPFLAGS	+= -d -S
-GITFLAGS	+= --depth 1 http://git.savannah.nongnu.org/git/lwip.git -b STABLE-2_0_3_RELEASE
+PROGRAMS=	stage3.img
+SRCS-stage3.img= \
+	$(CURDIR)/stage3.c \
+	$(OBJDIR)/gitversion.c \
+	$(SRCDIR)/gdb/gdbstub.c \
+	$(SRCDIR)/gdb/gdbtcp.c \
+	$(SRCDIR)/gdb/gdbutil.c \
+	$(SRCDIR)/net/net.c \
+	$(SRCDIR)/net/netsyscall.c \
+	$(SRCDIR)/runtime/bitmap.c \
+	$(SRCDIR)/runtime/buffer.c \
+	$(SRCDIR)/runtime/extra_prints.c \
+	$(SRCDIR)/runtime/format.c \
+	$(SRCDIR)/runtime/heap/freelist.c \
+	$(SRCDIR)/runtime/heap/id.c \
+	$(SRCDIR)/runtime/heap/mcache.c \
+	$(SRCDIR)/runtime/heap/objcache.c \
+	$(SRCDIR)/runtime/merge.c \
+	$(SRCDIR)/runtime/pqueue.c \
+	$(SRCDIR)/runtime/random.c \
+	$(SRCDIR)/runtime/range.c \
+	$(SRCDIR)/runtime/runtime_init.c \
+	$(SRCDIR)/runtime/sha256.c \
+	$(SRCDIR)/runtime/symbol.c \
+	$(SRCDIR)/runtime/table.c \
+	$(SRCDIR)/runtime/timer.c \
+	$(SRCDIR)/runtime/tuple.c \
+	$(SRCDIR)/runtime/string.c \
+	$(SRCDIR)/tfs/tfs.c \
+	$(SRCDIR)/tfs/tlog.c \
+	$(SRCDIR)/unix/blockq.c \
+	$(SRCDIR)/unix/exec.c \
+	$(SRCDIR)/unix/mktime.c \
+	$(SRCDIR)/unix/mmap.c \
+	$(SRCDIR)/unix/notify.c \
+	$(SRCDIR)/unix/poll.c \
+	$(SRCDIR)/unix/path.c \
+	$(SRCDIR)/unix/signal.c \
+	$(SRCDIR)/unix/special.c \
+	$(SRCDIR)/unix/syscall.c \
+	$(SRCDIR)/unix/thread.c \
+	$(SRCDIR)/unix/unix_clock.c \
+	$(SRCDIR)/unix/unix.c \
+	$(SRCDIR)/unix/vdso.c \
+	$(SRCDIR)/unix/pipe.c \
+	$(SRCDIR)/virtio/virtio_net.c \
+	$(SRCDIR)/virtio/virtio_pci.c \
+	$(SRCDIR)/virtio/virtio_storage.c \
+	$(SRCDIR)/virtio/virtio_scsi.c \
+	$(SRCDIR)/virtio/virtqueue.c \
+	$(SRCDIR)/virtio/scsi.c \
+	$(SRCDIR)/x86_64/backed_heap.c \
+	$(SRCDIR)/x86_64/breakpoint.c \
+	$(SRCDIR)/x86_64/clock.c \
+	$(SRCDIR)/x86_64/crt0.s \
+	$(SRCDIR)/x86_64/elf.c \
+	$(SRCDIR)/x86_64/hpet.c \
+	$(SRCDIR)/x86_64/interrupt.c \
+	$(SRCDIR)/x86_64/kvm_platform.c \
+	$(SRCDIR)/x86_64/page.c \
+	$(SRCDIR)/x86_64/pci.c \
+	$(SRCDIR)/x86_64/queue.c \
+	$(SRCDIR)/x86_64/rtc.c \
+	$(SRCDIR)/x86_64/serial.c \
+	$(SRCDIR)/x86_64/service.c \
+	$(SRCDIR)/x86_64/symtab.c \
+	$(SRCDIR)/x86_64/synth.c \
+	$(SRCS-lwip)
+SRCS-lwip= \
+	$(LWIPDIR)/src/core/def.c \
+	$(LWIPDIR)/src/core/inet_chksum.c \
+	$(LWIPDIR)/src/core/init.c \
+	$(LWIPDIR)/src/core/ip.c \
+	$(LWIPDIR)/src/core/ipv4/dhcp.c \
+	$(LWIPDIR)/src/core/ipv4/etharp.c \
+	$(LWIPDIR)/src/core/ipv4/icmp.c \
+	$(LWIPDIR)/src/core/ipv4/ip4_addr.c \
+	$(LWIPDIR)/src/core/ipv4/ip4_frag.c \
+	$(LWIPDIR)/src/core/ipv4/ip4.c \
+	$(LWIPDIR)/src/core/mem.c \
+	$(LWIPDIR)/src/core/memp.c \
+	$(LWIPDIR)/src/core/netif.c \
+	$(LWIPDIR)/src/core/pbuf.c \
+	$(LWIPDIR)/src/core/stats.c \
+	$(LWIPDIR)/src/core/tcp_in.c \
+	$(LWIPDIR)/src/core/tcp_out.c \
+	$(LWIPDIR)/src/core/tcp.c \
+	$(LWIPDIR)/src/core/timeouts.c \
+	$(LWIPDIR)/src/core/udp.c \
+	$(LWIPDIR)/src/api/err.c \
+	$(LWIPDIR)/src/netif/ethernet.c
+CFLAGS+=	$(KERNCFLAGS) -DSTAGE3
+CFLAGS+= \
+	-I$(SRCDIR)/gdb \
+	-I$(SRCDIR)/net \
+	-I$(SRCDIR)/runtime \
+	-I$(SRCDIR)/tfs \
+	-I$(SRCDIR)/unix \
+	-I$(SRCDIR)/virtio \
+	-I$(SRCDIR)/x86_64 \
+	-I$(LWIPDIR)/src/include
+#CFLAGS+=	-DLWIPDIR_DEBUG -DEPOLL_DEBUG -DNETSYSCALL_DEBUG -DKERNEL_DEBUG
+AFLAGS+=	-felf64 -I$(OBJDIR)/
+LDFLAGS+=	$(KERNLDFLAGS) -T linker_script
 
-#CFLAGS += -DLWIP_DEBUG -DEPOLL_DEBUG -DNETSYSCALL_DEBUG -DKERNEL_DEBUG
+CLEANFILES+=	$(foreach f,gitversion.c frame.inc stage3.dis stage3.img,$(OBJDIR)/$f)
+CLEANDIRS+=	$(foreach d,output src vendor vendor/lwip vendor/lwip/src,$(OBJDIR)/$d)
 
-all: stage3
+OBJDUMPFLAGS=	-d -S
+GITFLAGS+=	--depth 1 http://git.savannah.nongnu.org/git/lwip.git -b STABLE-2_0_3_RELEASE
 
-stage3: $(STAGE3)
+msg_objdump=	OBJDUMP	$@
+cmd_objdump=	$(OBJDUMP) $(OBJDUMPFLAGS) $(OBJDUMPFLAGS_$(@F)) $< $< >$@
 
-lwip: $(LWIP)/.vendored
+msg_sed=	SED	$@
+cmd_sed=	$(SED) -e 's/\#/%/' <$^ >$@
 
-includes = \
-	-I$(SRC)/gdb \
-	-I$(SRC)/net \
-	-I$(SRC)/runtime \
-	-I$(SRC)/tfs \
-	-I$(SRC)/unix \
-	-I$(SRC)/virtio \
-	-I$(SRC)/x86_64 \
-	-I$(LWIP)/src/include \
+msg_version=	VERSION	$@
+cmd_version=	$(ECHO) "const char *gitversion = \"$(shell $(GIT) rev-parse HEAD)\";" >$@
 
-stage3-srcs = \
-	$(ROOT)/stage3/stage3.c \
-	$(ROOT)/gitversion.c \
-	$(SRC)/gdb/gdbstub.c \
-	$(SRC)/gdb/gdbtcp.c \
-	$(SRC)/gdb/gdbutil.c \
-	$(SRC)/net/net.c \
-	$(SRC)/net/netsyscall.c \
-	$(SRC)/runtime/bitmap.c \
-	$(SRC)/runtime/buffer.c \
-	$(SRC)/runtime/extra_prints.c \
-	$(SRC)/runtime/format.c \
-	$(SRC)/runtime/heap/freelist.c \
-	$(SRC)/runtime/heap/id.c \
-	$(SRC)/runtime/heap/mcache.c \
-	$(SRC)/runtime/heap/objcache.c \
-	$(SRC)/runtime/merge.c \
-	$(SRC)/runtime/pqueue.c \
-	$(SRC)/runtime/random.c \
-	$(SRC)/runtime/range.c \
-	$(SRC)/runtime/runtime_init.c \
-	$(SRC)/runtime/sha256.c \
-	$(SRC)/runtime/symbol.c \
-	$(SRC)/runtime/table.c \
-	$(SRC)/runtime/timer.c \
-	$(SRC)/runtime/tuple.c \
-	$(SRC)/runtime/string.c \
-	$(SRC)/tfs/tfs.c \
-	$(SRC)/tfs/tlog.c \
-	$(SRC)/unix/blockq.c \
-	$(SRC)/unix/exec.c \
-	$(SRC)/unix/mktime.c \
-	$(SRC)/unix/mmap.c \
-	$(SRC)/unix/notify.c \
-	$(SRC)/unix/poll.c \
-	$(SRC)/unix/path.c \
-	$(SRC)/unix/signal.c \
-	$(SRC)/unix/special.c \
-	$(SRC)/unix/syscall.c \
-	$(SRC)/unix/thread.c \
-	$(SRC)/unix/unix_clock.c \
-	$(SRC)/unix/unix.c \
-	$(SRC)/unix/vdso.c \
-	$(SRC)/unix/pipe.c \
-	$(SRC)/virtio/virtio_net.c \
-	$(SRC)/virtio/virtio_pci.c \
-	$(SRC)/virtio/virtio_storage.c \
-	$(SRC)/virtio/virtio_scsi.c \
-	$(SRC)/virtio/virtqueue.c \
-	$(SRC)/virtio/scsi.c \
-	$(SRC)/x86_64/backed_heap.c \
-	$(SRC)/x86_64/breakpoint.c \
-	$(SRC)/x86_64/clock.c \
-	$(SRC)/x86_64/crt0.s \
-	$(SRC)/x86_64/elf.c \
-	$(SRC)/x86_64/hpet.c \
-	$(SRC)/x86_64/interrupt.c \
-	$(SRC)/x86_64/kvm_platform.c \
-	$(SRC)/x86_64/page.c \
-	$(SRC)/x86_64/pci.c \
-	$(SRC)/x86_64/queue.c \
-	$(SRC)/x86_64/rtc.c \
-	$(SRC)/x86_64/serial.c \
-	$(SRC)/x86_64/service.c \
-	$(SRC)/x86_64/symtab.c \
-	$(SRC)/x86_64/synth.c \
-	$(LWIP)/src/core/def.c \
-	$(LWIP)/src/core/inet_chksum.c \
-	$(LWIP)/src/core/init.c \
-	$(LWIP)/src/core/ip.c \
-	$(LWIP)/src/core/ipv4/dhcp.c \
-	$(LWIP)/src/core/ipv4/etharp.c \
-	$(LWIP)/src/core/ipv4/icmp.c \
-	$(LWIP)/src/core/ipv4/ip4_addr.c \
-	$(LWIP)/src/core/ipv4/ip4_frag.c \
-	$(LWIP)/src/core/ipv4/ip4.c \
-	$(LWIP)/src/core/mem.c \
-	$(LWIP)/src/core/memp.c \
-	$(LWIP)/src/core/netif.c \
-	$(LWIP)/src/core/pbuf.c \
-	$(LWIP)/src/core/stats.c \
-	$(LWIP)/src/core/tcp_in.c \
-	$(LWIP)/src/core/tcp_out.c \
-	$(LWIP)/src/core/tcp.c \
-	$(LWIP)/src/core/timeouts.c \
-	$(LWIP)/src/core/udp.c \
-	$(LWIP)/src/api/err.c \
-	$(LWIP)/src/netif/ethernet.c
-
-stage3-objs = $(call srcs-to-objs,$(ROOT),$(OUT),stage3)
-
-$(stage3-srcs): | lwip
-
-$(stage3-objs): $(stage3-srcs) $(CLOSURE_TMPL)
-
-$(STAGE3): $(stage3-objs)
-	$(call cmd,ld)
-	$(call cmd,objdump)
-
-$(OUT)/src/x86_64/crt0.o: AFLAGS += -I$(OUT)/x86_64/
-$(OUT)/src/x86_64/crt0.o: $(OUT)/x86_64/frame_nasm.h
-
-$(OUT)/x86_64/frame_nasm.h: $(SRC)/x86_64/frame.h
-	@ echo "SED	$@"
-	@ mkdir -p $(dir $@)
-	$(Q) sed -e "s/#/%/" < $^ > $@
-
-clean-objs = $(stage3-objs) $(STAGE3) $(STAGE3).dis $(OUT)/x86_64/frame_nasm.h $(CLOSURE_TMPL)
-
-clean: default-clean
-
-.PHONY: all stage3 clean
+all: stage3.dis
 
 include ../rules.mk
+
+.PHONY: stage3.dis
+
+stage3.dis: $(OBJDIR)/stage3.dis
+
+$(OBJDIR)/stage3.dis: $(PROG-stage3.img)
+	$(call cmd,objdump)
+
+$(PROG-stage3.img): linker_script
+
+$(OBJDIR)/gitversion.c: $(ROOTDIR)/.git/index $(ROOTDIR)/.git/HEAD
+	$(call cmd,version)
+
+$(SRCS-lwip): $(LWIPDIR)/.vendored
+
+$(OBJDIR)/src/x86_64/crt0.o: $(OBJDIR)/frame.inc
+
+$(OBJDIR)/frame.inc: $(SRCDIR)/x86_64/frame.h
+	$(call cmd,sed)
+
+ifeq ($(UNAME_s),Darwin)
+CFLAGS+=	-target x86_64-elf
+LD=		x86_64-elf-ld
+OBJDUMP=	x86_64-elf-objdump
+else
+LD=		ld
+endif

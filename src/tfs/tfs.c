@@ -1,10 +1,26 @@
 #include <tfs_internal.h>
 
 //#define TFS_DEBUG
+//#define TFS_REPORT_SHA256
 #if defined(TFS_DEBUG)
 #define tfs_debug(x, ...) do {rprintf("TFS: " x, ##__VA_ARGS__);} while(0)
 #else
 #define tfs_debug(x, ...)
+#endif
+
+#if defined(TFS_REPORT_SHA256) && !defined(BOOT)
+static inline void report_sha256(buffer b)
+{
+    buffer sha = little_stack_buffer(32);
+    sha256(sha, b);
+    rprintf("   SHA256: %16lx%16lx%16lx%16lx\n",
+            be64toh(*(u64*)buffer_ref(sha, 0)),
+            be64toh(*(u64*)buffer_ref(sha, 8)),
+            be64toh(*(u64*)buffer_ref(sha, 16)),
+            be64toh(*(u64*)buffer_ref(sha, 24)));
+}
+#else
+#define report_sha256(b)
 #endif
 
 struct fsfile {
@@ -95,7 +111,7 @@ static fs_dma_buf fs_allocate_dma_buffer(filesystem fs, extent e, range i)
 #ifndef BOOT
     db->buf = allocate(fs->dma, db->alloc_size);
     if (db->buf == INVALID_ADDRESS) {
-        msg_err("failed to allocate dma buffer of size %d\n", db->alloc_size);
+        msg_err("failed to allocate dma buffer of size %ld\n", db->alloc_size);
         deallocate(fs->h, db, sizeof(struct fs_dma_buf));
         return INVALID_ADDRESS;
     }
@@ -116,7 +132,7 @@ static void fs_deallocate_dma_buffer(filesystem fs, fs_dma_buf db)
 static CLOSURE_4_1(fs_read_extent_complete, void, filesystem, fs_dma_buf, void *, status_handler, status);
 static void fs_read_extent_complete(filesystem fs, fs_dma_buf db, void * target, status_handler sh, status s)
 {
-    tfs_debug("fs_read_extent_complete: dma buf 0x%p, start_offset %d, length %d, target 0x%p, status %v\n",
+    tfs_debug("fs_read_extent_complete: dma buf 0x%p, start_offset %ld, length %ld, target %p, status %v\n",
               db->buf, db->start_offset, db->data_length, target, s);
 #ifndef BOOT
     if (is_ok(s))
@@ -143,7 +159,7 @@ static void fs_read_extent(filesystem fs,
     extent e = (extent)node;
     fs_dma_buf db = fs_allocate_dma_buffer(fs, e, i);
     if (db == INVALID_ADDRESS) {
-        msg_err("failed; unable to allocate dma buffer, i span %d bytes\n", range_span(i));
+        msg_err("failed; unable to allocate dma buffer, i span %ld bytes\n", range_span(i));
         return;
     }
 #ifdef BOOT
@@ -154,12 +170,12 @@ static void fs_read_extent(filesystem fs,
     db->buf = target_start;
 #endif
 
-    tfs_debug("fs_read_extent: q %R, ex %R, blocks %R, start_offset %d, i %R, "
-              "target_offset %d, target_start %p, length %d, blocksize %d\n",
+    tfs_debug("fs_read_extent: q %R, ex %R, blocks %R, start_offset %ld, i %R, "
+              "target_offset %ld, target_start %p, length %ld, blocksize %ld\n",
               q, node->r, db->blocks, db->start_offset, i,
               target_offset, target_start, db->data_length, (u64)fs->blocksize);
 
-    status_handler f = apply(m);
+    status_handler f = apply_merge(m);
     fetch_and_add(&target->end, db->data_length);
     status_handler copy = closure(fs->h, fs_read_extent_complete, fs, db, target_start, f);
     apply(fs->r, db->buf, db->blocks, copy);
@@ -172,7 +188,7 @@ void fs_zero_hole(filesystem fs, buffer target, range q, range z)
     u64 target_offset = i.start - q.start;
     void * target_start = buffer_ref(target, target_offset);
     u64 length = range_span(i);
-    tfs_debug("fs_zero_hole: i %R, target_start %p, length %d\n", i, target_start, length);
+    tfs_debug("fs_zero_hole: i %R, target_start %p, length %ld\n", i, target_start, length);
     runtime_memset(target_start, 0, length);
     fetch_and_add(&target->end, length);
 }
@@ -183,6 +199,7 @@ static CLOSURE_3_1(filesystem_read_complete, void, heap, io_status_handler, buff
 static void filesystem_read_complete(heap h, io_status_handler c, buffer b, status s)
 {
     tfs_debug("filesystem_read_complete: status %v, length %d\n", s, buffer_length(b));
+    report_sha256(b);
     apply(c, s, is_ok(s) ? buffer_length(b) : 0);
     unwrap_buffer(h, b);
 }
@@ -191,7 +208,7 @@ static void filesystem_read_internal(filesystem fs, fsfile f, buffer b, u64 leng
                                      status_handler sh)
 {
     merge m = allocate_merge(fs->h, sh);
-    status_handler k = apply(m); // hold a reference until we're sure we've issued everything
+    status_handler k = apply_merge(m); // hold a reference until we're sure we've issued everything
     u64 file_length = fsfile_get_length(f);
     u64 actual_length = MIN(length, file_length - offset);
     if (offset >= file_length || actual_length == 0) { /* XXX check */
@@ -233,6 +250,7 @@ static void read_entire_complete(buffer_handler bh, buffer b, status_handler sh,
     tfs_debug("read_entire_complete: status %v, addr %p, length %d\n",
               s, buffer_ref(b, 0), buffer_length(b));
     if (is_ok(s)) {
+        report_sha256(b);
         apply(bh, b);
     } else {
         deallocate_buffer(b);
@@ -283,7 +301,7 @@ static void fs_write_extent_aligned(filesystem fs, fs_dma_buf db, void * source,
         return;
     }
     void * dest = db->buf + db->start_offset;
-    tfs_debug("fs_write_extent_complete: copy from 0x%p to 0x%p, len %d\n", source, dest, db->data_length);
+    tfs_debug("fs_write_extent_complete: copy from 0x%p to 0x%p, len %ld\n", source, dest, db->data_length);
     runtime_memcpy(dest, source, db->data_length);
     tfs_debug("   write from 0x%p to block range %R\n", db->buf, db->blocks);
     status_handler complete = closure(fs->h, fs_write_extent_complete, fs, db, sh);
@@ -313,12 +331,12 @@ static void fs_write_extent(filesystem fs, buffer source, merge m, range q, rmno
     extent e = (extent)node;
     fs_dma_buf db = fs_allocate_dma_buffer(fs, e, i);
     if (db == INVALID_ADDRESS) {
-        msg_err("failed; unable to allocate dma buffer, i span %d bytes\n", range_span(i));
+        msg_err("failed; unable to allocate dma buffer, i span %ld bytes\n", range_span(i));
         return;
     }
 
     tfs_debug("fs_write_extent: source (+off) %p, buf len %d, q %R, node %R,\n"
-              "                 i %R, i len %d, ext start 0x%P, dma buf %p\n",
+              "                 i %R, i len %ld, ext start 0x%lx, dma buf %p\n",
               source_start, buffer_length(source), q, node->r, i, range_span(i),
               ((extent)node)->block_start, db->buf);
 
@@ -332,15 +350,15 @@ static void fs_write_extent(filesystem fs, buffer source, merge m, range q, rmno
     boolean head = db->start_offset != 0 || (tail_rmw && !plural);
     boolean tail = tail_rmw && plural;
 
-    status_handler sh = apply(m);
+    status_handler sh = apply_merge(m);
     if (head || tail) {
         merge m2 = allocate_merge(fs->h, closure(fs->h, fs_write_extent_aligned,
                                                  fs, db, source_start, sh));
-        status_handler k = apply(m2);
+        status_handler k = apply_merge(m2);
         if (head)
-            fs_write_extent_read_block(fs, db, 0, apply(m2));
+            fs_write_extent_read_block(fs, db, 0, apply_merge(m2));
         if (tail)
-            fs_write_extent_read_block(fs, db, range_span(db->blocks) - 1, apply(m2));
+            fs_write_extent_read_block(fs, db, range_span(db->blocks) - 1, apply_merge(m2));
         apply(k, STATUS_OK);
         return;
     }
@@ -356,7 +374,7 @@ static tuple soft_create(filesystem fs, tuple t, symbol a, merge m)
     if (!(v = table_find(t, a))) {
         v = allocate_tuple();
         table_set(t, a, v);
-        filesystem_write_eav(fs, t, a, v, apply(m));
+        filesystem_write_eav(fs, t, a, v, apply_merge(m));
     }
     return v;
 }
@@ -385,7 +403,7 @@ static extent create_extent(fsfile f, range r, merge m)
     return INVALID_ADDRESS;
 #endif
 
-    tfs_debug("create_extent: align %d, offset %d, length %d, alloc_order %d, alloc_bytes %d\n",
+    tfs_debug("create_extent: align %d, offset %ld, length %ld, alloc_order %ld, alloc_bytes %ld\n",
               alignment, r.start, length, alloc_order, alloc_bytes);
 
     u64 block_start = allocate_u64(f->fs->storage, alloc_bytes);
@@ -393,7 +411,7 @@ static extent create_extent(fsfile f, range r, merge m)
         msg_err("out of storage");
         return INVALID_ADDRESS;
     }
-    tfs_debug("   block_start 0x%P\n", block_start);
+    tfs_debug("   block_start 0x%lx\n", block_start);
 
     /* XXX this extend / alloc stuff is getting redone */
     extent ex = allocate_extent(h, r, block_start, alloc_bytes);
@@ -402,16 +420,16 @@ static extent create_extent(fsfile f, range r, merge m)
     assert(rangemap_insert(f->extentmap, &ex->node));
 
     // XXX encode this as an immediate bitstring
-    tuple e = timm("length", "%d", length);
-    string offset = aprintf(h, "%d", block_start);
+    tuple e = timm("length", "%ld", length);
+    string offset = aprintf(h, "%ld", block_start);
     table_set(e, sym(offset), offset);
-    string allocated = aprintf(h, "%d", alloc_bytes);
+    string allocated = aprintf(h, "%ld", alloc_bytes);
     table_set(e, sym(allocated), allocated);
     symbol offs = intern_u64(r.start);
 
     tuple extents = soft_create(f->fs, f->md, sym(extents), m);
     table_set(extents, offs, e);
-    filesystem_write_eav(f->fs, extents, offs, e, apply(m));
+    filesystem_write_eav(f->fs, extents, offs, e, apply_merge(m));
     return ex;
 }
 
@@ -440,12 +458,12 @@ void ingest_extent(fsfile f, symbol off, tuple value)
     assert(ingest_parse_int(value, sym(length), &length));
     assert(ingest_parse_int(value, sym(offset), &block_start));
     assert(ingest_parse_int(value, sym(allocated), &allocated));
-    tfs_debug("   file offset %d, length %d, block_start 0x%P, allocated %d\n",
+    tfs_debug("   file offset %ld, length %ld, block_start 0x%lx, allocated %ld\n",
               file_offset, length, block_start, allocated);
 #ifndef BOOT
     if (!id_heap_reserve(f->fs->storage, block_start, allocated)) {
         /* soft error... */
-        msg_err("unable to reserve storage at start 0x%P, len 0x%P\n",
+        msg_err("unable to reserve storage at start 0x%lx, len 0x%lx\n",
                 block_start, allocated);
     }
 #endif
@@ -458,10 +476,10 @@ void ingest_extent(fsfile f, symbol off, tuple value)
 
 boolean set_extent_length(fsfile f, extent ex, u64 length, merge m)
 {
-    tfs_debug("set_extent_length: range %R, allocated %d, new length %d\n",
+    tfs_debug("set_extent_length: range %R, allocated %ld, new length %ld\n",
               ex->node.r, ex->allocated, length);
     if (length > ex->allocated) {
-        tfs_debug("failed: new length %d > ex->allocated %d\n",
+        tfs_debug("failed: new length %ld > ex->allocated %ld\n",
                   length, ex->allocated);
         return false;
     }
@@ -496,9 +514,9 @@ boolean set_extent_length(fsfile f, extent ex, u64 length, merge m)
     }
 
     /* update length in tuple and log */
-    string v = aprintf(f->fs->h, "%d", length);
+    string v = aprintf(f->fs->h, "%ld", length);
     table_set(extent_tuple, sym(length), v);
-    filesystem_write_eav(f->fs, extents, offs, extent_tuple, apply(m));
+    filesystem_write_eav(f->fs, extents, offs, extent_tuple, apply_merge(m));
     return true;
 }
 
@@ -506,7 +524,7 @@ static CLOSURE_2_1(filesystem_write_meta_complete, void, range, io_status_handle
 static void filesystem_write_meta_complete(range q, io_status_handler ish, status s)
 {
     u64 n = range_span(q);
-    tfs_debug("%s: range %R, bytes %d, status %v\n", __func__, q, n, s);
+    tfs_debug("%s: range %R, bytes %ld, status %v\n", __func__, q, n, s);
     apply(ish, s, is_ok(s) ? n : 0);
 }
 
@@ -527,7 +545,7 @@ static void filesystem_write_data_complete(fsfile f, tuple t, range q, merge m_m
     if (fsfile_get_length(f) < q.end) {
         /* XXX bother updating resident filelength tuple? */
         fsfile_set_length(f, q.end);
-        filesystem_write_eav(fs, t, sym(filelength), value_from_u64(fs->h, q.end), apply(m_meta));
+        filesystem_write_eav(fs, t, sym(filelength), value_from_u64(fs->h, q.end), apply_merge(m_meta));
     }
 
     filesystem_flush_log(fs);
@@ -571,7 +589,7 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_ha
 
     fsfile f;
     if (!(f = table_find(fs->files, t))) {
-        apply(ish, timm("result", "no such file"), 0);
+        apply(ish, timm("result", "no such file %t", t), 0);
         return;
     }
 
@@ -582,10 +600,10 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_ha
     /* meta merge completion is gated by data merge completion, thus the initial m_meta apply */
     merge m_meta = allocate_merge(fs->h, closure(fs->h, filesystem_write_meta_complete, q, ish));
     merge m_data = allocate_merge(fs->h, closure(fs->h, filesystem_write_data_complete,
-                                                 f, t, q, m_meta, apply(m_meta)));
+                                                 f, t, q, m_meta, apply_merge(m_meta)));
 
     /* hold data merge open until all extent operations have been initiated */
-    status_handler sh = apply(m_data);
+    status_handler sh = apply_merge(m_data);
     do {
         /* detect and fill any hole before extent (or to end) */
         u64 limit = node != INVALID_ADDRESS ? node->r.start : q.end;
@@ -657,17 +675,24 @@ void link(tuple dir, fsfile f, buffer name)
 }
 #endif
 
-/* XXX these will all need to take completions - some ironing out of
-   interface is in order */
-fs_status filesystem_mkentry(filesystem fs, tuple root, char *fp, tuple entry)
+fs_status filesystem_mkentry(filesystem fs, tuple root, char *fp, tuple entry, boolean persistent)
 {
     tuple children = (root ? root : table_find(fs->root, sym(children)));
     symbol basename_sym;
-    char *token, *rest = fp, *basename = (char *)0;
+    char *token, *rest, *basename = (char *)0;
+    fs_status status = FS_STATUS_OK;
+
+    int fp_len = runtime_strlen(fp);
+    char *fp_copy = allocate(fs->h, fp_len);
+    assert(fp_copy != INVALID_ADDRESS);
+    runtime_memcpy(fp_copy, fp, fp_len);
+    fp_copy[fp_len] = '\0';
+    rest = fp_copy;
 
     if (!children) {
-        msg_err("failed for \"%s\": no children found in root tuple\n", fp);
-        return FS_STATUS_NOENT;
+        msg_err("failed for \"%s\": no children found in root tuple\n", rest);
+        status = FS_STATUS_NOENT;
+        goto out_dealloc;
     }
 
     /* find the folder we need to mkentry in */
@@ -676,22 +701,25 @@ fs_status filesystem_mkentry(filesystem fs, tuple root, char *fp, tuple entry)
         tuple t = table_find(children, sym_this(token));
         if (!t) {
             if (!final) {
-                msg_debug("a path component (\"%s\") is missing\n", token);
-                return FS_STATUS_NOENT;
+                msg_err("a path component (\"%s\") is missing\n", token);
+                status = FS_STATUS_NOENT;
+                goto out_dealloc;
             }
 
             basename = token;
             break;
         } else {
             if (final) {
-                msg_debug("final path component (\"%s\") already exists\n", token);
-                return FS_STATUS_EXIST;
+                msg_err("final path component (\"%s\") already exists\n", token);
+                status = FS_STATUS_EXIST;
+                goto out_dealloc;
             }
 
             children = table_find(t, sym(children));
             if (!children) {
                 msg_debug("a path component (\"%s\") is not a folder\n", token);
-                return FS_STATUS_NOTDIR;
+                status = FS_STATUS_NOTDIR;
+                goto out_dealloc;
             }
         }
     }
@@ -699,23 +727,26 @@ fs_status filesystem_mkentry(filesystem fs, tuple root, char *fp, tuple entry)
     basename_sym = sym_this(basename);
     table_set(children, basename_sym, entry);
 
-    /* XXX this shouldn't be ignore - extend this when we add completion to interface */
-    filesystem_write_eav(fs, children, basename_sym, entry, ignore_status);
-    msg_debug("written!\n");
-    filesystem_flush_log(fs);
-    return FS_STATUS_OK;
+    /* XXX rather than ignore, there should be a wakeup on a sync blockq */
+    if (persistent) {
+        filesystem_write_eav(fs, children, basename_sym, entry, ignore_status);
+        filesystem_flush_log(fs);
+    }
+  out_dealloc:
+    deallocate(fs->h, fp_copy, fp_len);
+    return status;
 }
 
-fs_status filesystem_mkdir(filesystem fs, tuple root, char *fp)
+fs_status filesystem_mkdir(filesystem fs, tuple root, char *fp, boolean persistent)
 {
     tuple dir = allocate_tuple();
     /* 'make it a folder' by attaching a children node to the tuple */
     table_set(dir, sym(children), allocate_tuple());
 
-    return filesystem_mkentry(fs, root, fp, dir);
+    return filesystem_mkentry(fs, root, fp, dir, persistent);
 }
 
-fs_status filesystem_creat(filesystem fs, tuple root, char *fp)
+fs_status filesystem_creat(filesystem fs, tuple root, char *fp, boolean persistent)
 {
     tuple dir = allocate_tuple();
     static buffer off = 0;
@@ -730,7 +761,7 @@ fs_status filesystem_creat(filesystem fs, tuple root, char *fp)
     fsfile f = allocate_fsfile(fs, dir);
     fsfile_set_length(f, 0);
 
-    return filesystem_mkentry(fs, root, fp, dir);
+    return filesystem_mkentry(fs, root, fp, dir, persistent);
 }
 
 fsfile fsfile_from_node(filesystem fs, tuple n)
@@ -751,8 +782,8 @@ void create_filesystem(heap h,
                        u64 alignment,
                        u64 size,
                        heap dma,
-                       block_read read,
-                       block_write write,
+                       block_io read,
+                       block_io write,
                        tuple root,
                        filesystem_complete complete)
 {

@@ -250,10 +250,10 @@ static inline boolean buffer_compare(void *za, void *zb)
 
 
 // the ascii subset..utf8 me
-#define foreach_character(__i, __s)                          \
-    for (u32 __x = 0, __i, __limit = buffer_length(__s);   \
-         __i = *(u8 *)buffer_ref(__s, __x), __x<__limit;    \
-         __x++)
+#define foreach_character(__i, __c, __s)                   \
+    for (u32 __i = 0, __c, __limit = buffer_length(__s);   \
+         __c = *(u8 *)buffer_ref(__s, __i), __i<__limit;   \
+         __i++)
              
 
 // alternate stack, real heap, say no to alloca
