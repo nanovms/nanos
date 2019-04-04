@@ -272,7 +272,7 @@ void init_service()
     init_kernel_heaps();
     u64 stack_size = 32*PAGESIZE;
     u64 stack_location = allocate_u64(heap_backed(&heaps), stack_size);
-    stack_location += stack_size - 16;
+    stack_location += stack_size - STACK_ALIGNMENT;
     *(u64 *)stack_location = 0;
     asm ("mov %0, %%rsp": :"m"(stack_location));
     init_service_new_stack();
