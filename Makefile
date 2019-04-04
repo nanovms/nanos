@@ -11,9 +11,8 @@ MKFS=		$(OUTDIR)/mkfs/bin/mkfs
 BOOTIMG=	$(OUTDIR)/boot/boot.img
 STAGE3=		$(OUTDIR)/stage3/bin/stage3.img
 
-IMAGE=		$(OUTDIR)/image/image
-FS=		$(OUTDIR)/image/fs
-CLEANFILES+=	$(IMAGE) $(FS)
+IMAGE=		$(OUTDIR)/image/disk.raw
+CLEANFILES+=	$(IMAGE)
 CLEANDIRS+=	$(OUTDIR)/image
 
 # GCE
@@ -31,7 +30,7 @@ all: image
 image: mkfs boot stage3 target
 	@ echo "MKFS	$@"
 	@ $(MKDIR) $(dir $(IMAGE))
-	$(Q) $(MKFS) $(TARGET_ROOT_OPT) $(FS) <test/runtime/$(TARGET).manifest && cat $(BOOTIMG) $(FS) >$(IMAGE)
+	$(Q) $(MKFS) $(TARGET_ROOT_OPT) -b $(BOOTIMG) $(IMAGE) <test/runtime/$(TARGET).manifest
 
 release: mkfs boot stage3
 	$(Q) $(RM) -r release
@@ -110,11 +109,10 @@ run-nokvm: image
 .PHONY: upload-gce-image gce-image delete-gce-image
 .PHONY: run-gce delete-gce gce-console
 
-CLEANFILES+=	$(OUTDIR)/image/disk.raw $(OUTDIR)/image/*-image.tar.gz
+CLEANFILES+=	$(OUTDIR)/image/*-image.tar.gz
 
 upload-gce-image: image
-	$(Q) $(LN) -f $(IMAGE) $(dir $(IMAGE))disk.raw
-	$(Q) cd $(dir $(IMAGE)) && $(GNUTAR) cfz $(GCE_IMAGE)-image.tar.gz disk.raw
+	$(Q) cd $(dir $(IMAGE)) && $(GNUTAR) cfz $(GCE_IMAGE)-image.tar.gz $(notdir $(IMAGE))
 	$(Q) $(GSUTIL) cp $(dir $(IMAGE))$(GCE_IMAGE)-image.tar.gz gs://$(GCE_BUCKET)/$(GCE_IMAGE)-image.tar.gz
 
 gce-image: upload-gce-image delete-gce-image
