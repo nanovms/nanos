@@ -50,14 +50,12 @@ func TestArgsAndEnv(t *testing.T) {
 
 	resp, err := http.Get("http://127.0.0.1:8080/args")
 	if err != nil {
-		t.Error("failed to get 127.0.0.1:8080/args")
-		t.FailNow()
+		t.Fatal("failed to get 127.0.0.1:8080/args")
 	}
 	defer resp.Body.Close()
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		t.Error("ReadAll failed")
-		t.FailNow()
+		t.Fatal("ReadAll failed")
 	}
 	if string(body) != "longargument" {
 		t.Error("unexpected response:" + string(body))
@@ -65,13 +63,11 @@ func TestArgsAndEnv(t *testing.T) {
 
 	resp, err = http.Get("http://127.0.0.1:8080/env")
 	if err != nil {
-		t.Error("failed to get 127.0.0.1:8080/env")
-		t.FailNow()
+		t.Fatal("failed to get 127.0.0.1:8080/env")
 	}
 	body, err = ioutil.ReadAll(resp.Body)
 	if err != nil {
-		t.Error("ReadAll failed")
-		t.FailNow()
+		t.Fatal("ReadAll failed")
 	}
 
 	if sortString(string(body)) !=
@@ -89,14 +85,12 @@ func TestFileSystem(t *testing.T) {
 
 	resp, err := http.Get("http://127.0.0.1:8080")
 	if err != nil {
-		t.Error("failed to get 127.0.0.1:8080")
-		t.FailNow()
+		t.Fatal("failed to get 127.0.0.1:8080")
 	}
 	defer resp.Body.Close()
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		t.Error("ReadAll failed")
-		t.FailNow()
+		t.Fatal("ReadAll failed")
 	}
 	if string(body) != "unibooty 0" {
 		t.Error("unexpected response" + string(body))
@@ -110,14 +104,12 @@ func validateResponse(t *testing.T, finalImage string, expected string) {
 
 	resp, err := http.Get("http://127.0.0.1:8080/file")
 	if err != nil {
-		t.Error("failed to get 127.0.0.1:8080/file")
-		t.FailNow()
+		t.Fatal("failed to get 127.0.0.1:8080/file")
 	}
 	defer resp.Body.Close()
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		t.Error("ReadAll failed")
-		t.FailNow()
+		t.Fatal("ReadAll failed")
 	}
 	if string(body) != expected {
 		t.Error("unexpected response" + string(body))
@@ -140,15 +132,13 @@ func TestHTTP(t *testing.T) {
 
 	resp, err := http.Get("http://127.0.0.1:8080/req")
 	if err != nil {
-		t.Error("failed to get 127.0.0.1:8080/req")
-		t.FailNow()
+		t.Fatal("failed to get 127.0.0.1:8080/req")
 	}
 	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		t.Error("ReadAll failed")
-		t.FailNow()
+		t.Fatal("ReadAll failed")
 	}
 
 	if !strings.Contains(string(body), "unikernel compilation") {
