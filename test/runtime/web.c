@@ -28,7 +28,9 @@ int main(int argc, char **argv)
     notifier n = table_find(t, sym(select)) ? create_select_notifier(h) :
         table_find(t, sym(poll)) ? create_poll_notifier(h) :
 	create_epoll_notifier(h);
-    listen_port(h, n, 8080, closure(h, conn, h));
+    u16 port = 8080;
+    listen_port(h, n, port, closure(h, conn, h));
+    rprintf("Server started on port %d\n", port);
     notifier_spin(n);
     return 0;
 }
