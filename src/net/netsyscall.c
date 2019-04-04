@@ -1009,7 +1009,7 @@ sysreturn setsockopt(int sockfd,
                      void *optval,
                      socklen_t optlen)
 {
-    msg_warn("unimplemented: fd %d, level %d, optname %d\n",
+    msg_warn("setsockopt unimplemented: fd %d, level %d, optname %d\n",
 	    sockfd, level, optname);
     return 0;
 }
@@ -1030,6 +1030,8 @@ sysreturn getsockopt(int sockfd, int level, int optname, void *optval, socklen_t
         ret_optval.val = s->type;
         break;
     default:
+        msg_warn("getsockopt unimplemented optname: fd %d, level %d, optname %d\n",
+            sockfd, level, optname);
         return set_syscall_error(current, ENOPROTOOPT);
     }
 
