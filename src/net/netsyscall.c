@@ -1018,12 +1018,11 @@ sysreturn getsockopt(int sockfd, int level, int optname, void *optval, socklen_t
 {
     sock s = resolve_fd(current->p, sockfd);
     net_debug("sock %d, type %d, thread %ld, level %d, optname %d\n, optlen %d\n",
-	      s->fd, s->type, current->tid, level, optname, *optlen);
+        s->fd, s->type, current->tid, level, optname, optlen ? *optlen : -1)
 
     union {
         int val;
     } ret_optval;
-    int ret_optlen = sizeof(ret_optval);
 
     switch (optname) {
     case SO_TYPE:
@@ -1035,8 +1034,11 @@ sysreturn getsockopt(int sockfd, int level, int optname, void *optval, socklen_t
         return set_syscall_error(current, ENOPROTOOPT);
     }
 
-    runtime_memcpy(optval, &ret_optval, ret_optlen);
-    *optlen = sizeof(ret_optval);
+    if (optval && optlen) {
+        int ret_optlen = MIN(*optlen, sizeof(ret_optval));
+        runtime_memcpy(optval, &ret_optval, ret_optlen);
+        *optlen = ret_optlen;
+    }
 
     return 0;
 }
