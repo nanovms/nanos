@@ -15,7 +15,7 @@
 
 #define ppush(__s, __b, __f, ...) ({buffer_clear(__b);\
             bprintf(__b, __f, __VA_ARGS__);                               \
-            __s -= pad((buffer_length(__b) + 1) * 8, 64)>>6;              \
+            __s -= pad((buffer_length(__b) + 1), STACK_ALIGNMENT) >> 3;   \
             runtime_memcpy(__s, buffer_ref(__b, 0), buffer_length(__b));  \
             ((char *)__s)[buffer_length(__b)] = '\0';                     \
             (char *)__s;})
@@ -23,35 +23,21 @@
 static void build_exec_stack(heap sh, thread t, Elf64_Ehdr * e, void *start, u64 va, tuple process_root)
 {
     exec_debug("build exec stack start %p, root %v\n", start, process_root);
-    buffer b = allocate_buffer(transient, 128);
-    vector arguments = vector_from_tuple(transient, table_find(process_root, sym(arguments)));
-    tuple environment = table_find(process_root, sym(environment));
+
     u64 stack_size = 2*MB;
     u64 *s = allocate(sh, stack_size);
-    s += stack_size >> 6;
+    s += stack_size >> 3;
 
-    spush(s, random_u64());
-    spush(s, random_u64());
-    struct aux auxp[] = {
-        {AT_PHDR, e->e_phoff + va},
-        {AT_PHENT, e->e_phentsize},
-        {AT_PHNUM, e->e_phnum},
-        {AT_PAGESZ, PAGESIZE},
-        {AT_RANDOM, u64_from_pointer(s)},
-        {AT_ENTRY, u64_from_pointer(start)}};
-    
-    int auxplen = sizeof(auxp)/(2*sizeof(u64));
-    int argc = 0;
+    // argv ASCIIZ strings
+    vector arguments = vector_from_tuple(transient, table_find(process_root, sym(arguments)));
     char **argv = stack_allocate(vector_length(arguments) * sizeof(u64));
-    int envc = table_elements(environment);
-    char **envp = stack_allocate(envc * sizeof(u64));
-    envc = 0;
     buffer a;
     int argv_len = 0;
     vector_foreach(arguments, a) {
         argv_len += buffer_length(a) + 1;
     }
-    s -= pad(argv_len * 8, 64)>>6;
+    s -= pad(argv_len, STACK_ALIGNMENT) >> 3;
+    int argc = 0;
     char *p = (char *) s;
     vector_foreach(arguments, a) {
         int len = buffer_length(a);
@@ -60,20 +46,51 @@ static void build_exec_stack(heap sh, thread t, Elf64_Ehdr * e, void *start, u64
         argv[argc++] = p;
         p += len + 1;
     }
-    table_foreach(environment, n, v)  envp[envc++] = ppush(s, b, "%b=%b", symbol_string(n), v);
-    spush(s, 0);
-    spush(s, 0);
-    
-    for (int i = 0; i< auxplen; i++) {
+
+    // envp ASCIIZ strings
+    tuple environment = table_find(process_root, sym(environment));
+    int envc = table_elements(environment);
+    char **envp = stack_allocate(envc * sizeof(u64));
+    envc = 0;
+    buffer b = allocate_buffer(transient, 128);
+    table_foreach(environment, n, v)
+        envp[envc++] = ppush(s, b, "%b=%b", symbol_string(n), v);
+
+    // stack padding
+    if ((envc + 1 + argc + 1 + 1) % 2 == 1) {
+        spush(s, 0);
+    }
+
+    // auxiliary vector
+    struct aux auxp[] = {
+        {AT_NULL, 0},
+        {AT_PHDR, e->e_phoff + va},
+        {AT_PHENT, e->e_phentsize},
+        {AT_PHNUM, e->e_phnum},
+        {AT_PAGESZ, PAGESIZE},
+        {AT_RANDOM, u64_from_pointer(s)},
+        {AT_ENTRY, u64_from_pointer(start)},
+    };
+    for (int i = 0; i < sizeof(auxp) / sizeof(auxp[0]); i++) {
         spush(s, auxp[i].val);
         spush(s, auxp[i].tag);
     }
+
+    // envp
     spush(s, 0);
-    for (int i = envc - 1; i >= 0; i--) spush(s, envp[i]);
+    for (int i = envc - 1; i >= 0; i--)
+        spush(s, envp[i]);
+
+    // argv
     spush(s, 0);
-    for (int i = argc - 1; i >= 0; i--) spush(s, argv[i]);
+    for (int i = argc - 1; i >= 0; i--)
+        spush(s, argv[i]);
+
+    // argc
     spush(s, argc);
 
+    // stack should be 16-byte aligned
+    assert(pad(u64_from_pointer(s), STACK_ALIGNMENT) == u64_from_pointer(s));
     t->frame[FRAME_RSP] = u64_from_pointer(s);
 }
 
