@@ -82,7 +82,8 @@ runtime-tests runtime-tests-noaccel:
 QEMU=		qemu-system-x86_64
 
 QEMU_MEMORY=	-m 2G
-QEMU_DISPLAY=	-display none -serial stdio
+QEMU_DISPLAY=	-display none
+QEMU_SERIAL=	-serial stdio
 QEMU_STORAGE=	-drive if=none,id=hd0,format=raw,file=$(IMAGE)
 #QEMU_STORAGE+= -device virtio-blk,drive=hd0
 QEMU_STORAGE+=	-device virtio-scsi-pci,id=scsi0 -device scsi-hd,bus=scsi0.0,drive=hd0
@@ -91,7 +92,7 @@ QEMU_NET=	-device virtio-net,mac=7e:b8:7e:87:4a:ea,netdev=n0 $(QEMU_TAP)
 QEMU_USERNET=	-device virtio-net,netdev=n0 -netdev user,id=n0,hostfwd=tcp::8080-:8080,hostfwd=tcp::9090-:9090,hostfwd=udp::5309-:5309
 QEMU_FLAGS=
 
-QEMU_COMMON=	$(QEMU_DISPLAY) $(QEMU_MEMORY) $(QEMU_STORAGE) -device isa-debug-exit -no-reboot $(QEMU_FLAGS)
+QEMU_COMMON=	$(QEMU_MEMORY) $(QEMU_DISPLAY) $(QEMU_SERIAL) $(QEMU_STORAGE) -device isa-debug-exit -no-reboot $(QEMU_FLAGS)
 
 run: image
 	$(QEMU) $(QEMU_COMMON) $(QEMU_USERNET) $(QEMU_ACCEL) || exit $$(($$?>>1))
