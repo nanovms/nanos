@@ -82,7 +82,8 @@ runtime-tests runtime-tests-nokvm:
 QEMU=		qemu-system-x86_64
 
 QEMU_MEMORY=	-m 2G
-QEMU_DISPLAY=	-display none -serial stdio
+QEMU_DISPLAY=	-display none
+QEMU_SERIAL=	-serial stdio
 QEMU_STORAGE=	-drive if=none,id=hd0,format=raw,file=$(IMAGE)
 #QEMU_STORAGE+= -device virtio-blk,drive=hd0
 QEMU_STORAGE+=	-device virtio-scsi-pci,id=scsi0 -device scsi-hd,bus=scsi0.0,drive=hd0
@@ -92,7 +93,7 @@ QEMU_USERNET=	-device virtio-net,netdev=n0 -netdev user,id=n0,hostfwd=tcp::8080-
 QEMU_KVM=	-enable-kvm
 QEMU_FLAGS=
 
-QEMU_COMMON=	$(QEMU_DISPLAY) $(QEMU_MEMORY) $(QEMU_STORAGE) -device isa-debug-exit -no-reboot $(QEMU_FLAGS)
+QEMU_COMMON=	$(QEMU_MEMORY) $(QEMU_DISPLAY) $(QEMU_SERIAL) $(QEMU_STORAGE) -device isa-debug-exit -no-reboot $(QEMU_FLAGS)
 
 run: image
 	$(QEMU) $(QEMU_COMMON) $(QEMU_USERNET) $(QEMU_KVM) || exit $$(($$?>>1))

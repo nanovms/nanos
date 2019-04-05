@@ -21,6 +21,12 @@ void serial_out(u8 a)
 {
     while (!is_transmit_empty());
     out8(BASE, a);
+#ifdef BOOT
+    extern void bios_tty_out(u8);
+    bios_tty_out(a);
+    if (a == '\n')
+        bios_tty_out('\r');
+#endif
 }
 
 static char hex[]="0123456789abcdef";
