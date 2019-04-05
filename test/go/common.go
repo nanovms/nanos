@@ -50,14 +50,12 @@ const START_WAIT_TIMEOUT = time.Second * 30
 func runAndWaitForString(rconfig *lepton.RunConfig, timeout time.Duration, text string, t *testing.T) lepton.Hypervisor {
 	hypervisor := lepton.HypervisorInstance()
 	if hypervisor == nil {
-		t.Error("No hypervisor found on $PATH")
-		t.FailNow()
+		t.Fatal("No hypervisor found on $PATH")
 	}
 	cmd := hypervisor.Command(rconfig)
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
-		t.Error(err)
-		t.FailNow()
+		t.Fatal(err)
 	}
 	reader := io.TeeReader(stdoutPipe, os.Stdout)
 	cmd.Stderr = os.Stderr
@@ -82,12 +80,10 @@ func runAndWaitForString(rconfig *lepton.RunConfig, timeout time.Duration, text 
 	select {
 	case <-time.After(timeout):
 		hypervisor.Stop()
-		t.Error("Timed out")
-		t.FailNow()
+		t.Fatal("Timed out")
 	case err := <-errch:
 		hypervisor.Stop()
-		t.Error(err)
-		t.FailNow()
+		t.Fatal(err)
 	case <-done:
 		break
 	}
