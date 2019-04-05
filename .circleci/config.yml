@@ -11,7 +11,7 @@ jobs:
       - run: sudo apt-get install nasm qemu
       - run: cd .. && git clone git@github.com:nanovms/ops.git
       - run: make
-      - run: make test-nokvm
+      - run: make test-noaccel
 
   nightly-build:
     docker:
@@ -22,7 +22,7 @@ jobs:
       - run: sudo apt-get update
       - run: sudo apt-get install nasm qemu
       - run: make
-      - run: make test-nokvm
+      - run: make test-noaccel
 
       - run: echo "deb http://packages.cloud.google.com/apt cloud-sdk-jessie main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
       - run: curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
@@ -54,7 +54,7 @@ jobs:
           name: macbuild
           environment:
             NANOS_TARGET_ROOT: target-root
-          command: make test-nokvm
+          command: make test-noaccel
   
   nightly-build-mac:
     macos:

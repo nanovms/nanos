@@ -25,17 +25,25 @@ sysreturn set_tid_address(int *a)
     return current->tid;
 }
 
-sysreturn arch_prctl(int code, unsigned long a)
+sysreturn arch_prctl(int code, unsigned long addr)
 {    
+    thread_log(current, "arch_prctl: code 0x%x, addr 0x%lx", code, addr);
     switch (code) {
     case ARCH_SET_GS:
+        current->frame[FRAME_GS] = addr;
         break;
     case ARCH_SET_FS:
-        current->frame[FRAME_FS] = a;
+        current->frame[FRAME_FS] = addr;
         return 0;
     case ARCH_GET_FS:
+	if (!addr)
+            return set_syscall_error(current, EINVAL);
+	*(u64 *) addr = current->frame[FRAME_FS];
         break;
     case ARCH_GET_GS:
+	if (!addr)
+            return set_syscall_error(current, EINVAL);
+	*(u64 *) addr = current->frame[FRAME_GS];
         break;
     default:
         return set_syscall_error(current, EINVAL);
