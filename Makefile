@@ -61,17 +61,17 @@ distclean: clean
 ##############################################################################
 # tests
 
-.PHONY: test test-nokvm
+.PHONY: test test-noaccel
 
-test test-nokvm: mkfs boot stage3
+test test-noaccel: mkfs boot stage3
 	$(Q) $(MAKE) -C test test
 	$(Q) $(MAKE) runtime-tests$(subst test,,$@)
 
 RUNTIME_TESTS=	creat fst getdents getrandom hw hws mkdir pipe write
 
-.PHONY: runtime-tests runtime-tests-nokvm
+.PHONY: runtime-tests runtime-tests-noaccel
 
-runtime-tests runtime-tests-nokvm:
+runtime-tests runtime-tests-noaccel:
 	$(foreach t,$(RUNTIME_TESTS),$(call execute_command,$(Q) $(MAKE) run$(subst runtime-tests,,$@) TARGET=$t))
 
 ##############################################################################
@@ -90,18 +90,17 @@ QEMU_STORAGE+=	-device virtio-scsi-pci,id=scsi0 -device scsi-hd,bus=scsi0.0,driv
 QEMU_TAP=	-netdev tap,id=n0,ifname=tap0,script=no,downscript=no
 QEMU_NET=	-device virtio-net,mac=7e:b8:7e:87:4a:ea,netdev=n0 $(QEMU_TAP)
 QEMU_USERNET=	-device virtio-net,netdev=n0 -netdev user,id=n0,hostfwd=tcp::8080-:8080,hostfwd=tcp::9090-:9090,hostfwd=udp::5309-:5309
-QEMU_KVM=	-enable-kvm
 QEMU_FLAGS=
 
 QEMU_COMMON=	$(QEMU_MEMORY) $(QEMU_DISPLAY) $(QEMU_SERIAL) $(QEMU_STORAGE) -device isa-debug-exit -no-reboot $(QEMU_FLAGS)
 
 run: image
-	$(QEMU) $(QEMU_COMMON) $(QEMU_USERNET) $(QEMU_KVM) || exit $$(($$?>>1))
+	$(QEMU) $(QEMU_COMMON) $(QEMU_USERNET) $(QEMU_ACCEL) || exit $$(($$?>>1))
 
 run-bridge: image
-	$(QEMU) $(QEMU_COMMON) $(QEMU_NET) $(QEMU_KVM) || exit $$(($$?>>1))
+	$(QEMU) $(QEMU_COMMON) $(QEMU_NET) $(QEMU_ACCEL) || exit $$(($$?>>1))
 
-run-nokvm: image
+run-noaccel: image
 	$(QEMU) $(QEMU_COMMON) $(QEMU_USERNET) || exit $$(($$?>>1))
 
 ##############################################################################
@@ -134,10 +133,12 @@ gce-console:
 
 include rules.mk
 
-ifeq ($(UNAME_s),Linux)
-REL_OS=	linux
-endif
-
 ifeq ($(UNAME_s),Darwin)
-REL_OS=	darwin
+REL_OS=		darwin
+QEMU_ACCEL=	-accel $(ACCEL)
+ACCEL?=		hvf
+# ACCEL=?	hax
+else
+REL_OS=		linux
+QEMU_ACCEL=	-accel kvm
 endif
