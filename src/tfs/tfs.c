@@ -675,7 +675,7 @@ void link(tuple dir, fsfile f, buffer name)
 }
 #endif
 
-fs_status filesystem_mkentry(filesystem fs, tuple root, char *fp, tuple entry, boolean persistent)
+fs_status filesystem_mkentry(filesystem fs, tuple root, const char *fp, tuple entry, boolean persistent)
 {
     tuple children = (root ? root : table_find(fs->root, sym(children)));
     symbol basename_sym;
@@ -737,7 +737,7 @@ fs_status filesystem_mkentry(filesystem fs, tuple root, char *fp, tuple entry, b
     return status;
 }
 
-fs_status filesystem_mkdir(filesystem fs, tuple root, char *fp, boolean persistent)
+fs_status filesystem_mkdir(filesystem fs, tuple root, const char *fp, boolean persistent)
 {
     tuple dir = allocate_tuple();
     /* 'make it a folder' by attaching a children node to the tuple */
@@ -746,7 +746,7 @@ fs_status filesystem_mkdir(filesystem fs, tuple root, char *fp, boolean persiste
     return filesystem_mkentry(fs, root, fp, dir, persistent);
 }
 
-fs_status filesystem_creat(filesystem fs, tuple root, char *fp, boolean persistent)
+fs_status filesystem_creat(filesystem fs, tuple root, const char *fp, boolean persistent)
 {
     tuple dir = allocate_tuple();
     static buffer off = 0;
