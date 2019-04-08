@@ -354,10 +354,10 @@ struct code syscall_codes[]= {
     {SYS_pkey_free, "pkey_free"}};
 
 // fused buffer wrap, split, and resolve
-static inline tuple resolve_cstring(tuple root, char *f)
+static inline tuple resolve_cstring(tuple root, const char *f)
 {
     buffer a = little_stack_buffer(NAME_MAX);
-    char *x = f;
+    const char *x = f;
     tuple t = root;
     char y;
 
@@ -677,7 +677,7 @@ static int file_type_from_tuple(tuple n)
         return FDESC_TYPE_REGULAR;
 }
 
-sysreturn open_internal(tuple root, char *name, int flags, int mode)
+sysreturn open_internal(tuple root, const char *name, int flags, int mode)
 {
     heap h = heap_general(get_kernel_heaps());
     unix_heaps uh = get_unix_heaps();
@@ -741,7 +741,7 @@ sysreturn open_internal(tuple root, char *name, int flags, int mode)
     return fd;
 }
 
-sysreturn open(char *name, int flags, int mode)
+sysreturn open(const char *name, int flags, int mode)
 {
     if (name == 0) 
         return set_syscall_error (current, EFAULT);
@@ -1019,6 +1019,7 @@ sysreturn writev(int fd, iovec v, int count)
 
 static sysreturn access(char *name, int mode)
 {
+    thread_log(current, "access: \"%s\", mode %d", name, mode);
     if (!resolve_cstring(current->p->cwd, name)) {
         return set_syscall_error(current, ENOENT);
     }
@@ -1093,16 +1094,16 @@ static sysreturn fstat(int fd, struct stat *s)
     return 0;
 }
 
-static sysreturn stat(char *name, struct stat *s)
+static sysreturn stat(char *name, struct stat *buf)
 {
-    thread_log(current, "name %s, stat %p", name, s);
+    thread_log(current, "stat: \"%s\", buf %p", name, buf);
     tuple n;
 
     if (!(n = resolve_cstring(current->p->cwd, name))) {    
         return set_syscall_error(current, ENOENT);
     }
 
-    fill_stat(file_type_from_tuple(n), n, s);
+    fill_stat(file_type_from_tuple(n), n, buf);
     return 0;
 }
 
@@ -1218,7 +1219,7 @@ sysreturn prlimit64(int pid, int resource, const struct rlimit *new_limit, struc
 
     if (old_limit != 0) {
         sysreturn ret = getrlimit(resource, old_limit);
-	if (ret < 0)
+        if (ret < 0)
             return ret;
     }
 
@@ -1260,11 +1261,25 @@ static sysreturn brk(void *x)
 // have no symbolic links.
 sysreturn readlink(const char *pathname, char *buf, u64 bufsiz)
 {
+    thread_log(current, "readlink: \"%s\"", pathname);
+
+    // special case for /proc/self/exe for $ORIGIN handling in ld-linux.so(8)
+    if (runtime_strcmp(pathname, "/proc/self/exe") == 0) {
+        value p = table_find(current->p->process_root, sym(program));
+        assert(p != 0);
+        sysreturn retval = MIN(bufsiz, buffer_length(p));
+        // readlink(2) does not NUL-terminate
+        runtime_memcpy(buf, buffer_ref(p, 0), retval);
+        thread_log(current, "readlink: returning \"%v\"", alloca_wrap_buffer(buf, retval));
+        return retval;
+    }
+
     return set_syscall_error(current, EINVAL);
 }
 
 sysreturn readlinkat(int dirfd, const char *pathname, char *buf, u64 bufsiz)
 {
+    thread_log(current, "readlinkat: \"%s\", dirfd %d", pathname, dirfd);
     return set_syscall_error(current, EINVAL);
 }
 
