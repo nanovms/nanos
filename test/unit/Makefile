@@ -3,7 +3,6 @@ PROGRAMS= \
 	id_heap_test \
 	network_test \
 	objcache_test \
-	path_test \
 	pqueue_test \
 	range_test \
 	tuple_test \
@@ -99,29 +98,6 @@ SRCS-objcache_test= \
 	$(SRCDIR)/tfs/tlog.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c \
 	$(SRCDIR)/unix_process/mmap_heap.c
-
-SRCS-path_test= \
-	$(CURDIR)/path_test.c \
-	$(SRCDIR)/runtime/bitmap.c \
-	$(SRCDIR)/runtime/buffer.c \
-	$(SRCDIR)/runtime/extra_prints.c \
-	$(SRCDIR)/runtime/format.c \
-	$(SRCDIR)/runtime/heap/id.c \
-	$(SRCDIR)/runtime/merge.c \
-	$(SRCDIR)/runtime/pqueue.c \
-	$(SRCDIR)/runtime/random.c \
-	$(SRCDIR)/runtime/range.c \
-	$(SRCDIR)/runtime/runtime_init.c \
-	$(SRCDIR)/runtime/sha256.c \
-	$(SRCDIR)/runtime/symbol.c \
-	$(SRCDIR)/runtime/table.c \
-	$(SRCDIR)/runtime/timer.c \
-	$(SRCDIR)/runtime/tuple.c \
-	$(SRCDIR)/runtime/string.c \
-	$(SRCDIR)/tfs/tfs.c \
-	$(SRCDIR)/tfs/tlog.c \
-	$(SRCDIR)/unix_process/unix_process_runtime.c \
-	$(SRCDIR)/unix/path.c
 
 SRCS-pqueue_test= \
 	$(CURDIR)/pqueue_test.c \

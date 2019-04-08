@@ -42,7 +42,6 @@ LDFLAGS-mkdir=		-static
 SRCS-pipe= \
 	$(CURDIR)/pipe.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c \
-	$(SRCDIR)/unix/path.c \
 	$(SRCDIR)/runtime/bitmap.c \
 	$(SRCDIR)/runtime/buffer.c \
 	$(SRCDIR)/runtime/extra_prints.c \
@@ -79,7 +78,6 @@ SRCS-udploop= \
 	$(SRCDIR)/unix_process/http.c \
 	$(SRCDIR)/unix_process/socket_user.c \
 	$(SRCDIR)/unix_process/tiny_heap.c \
-	$(SRCDIR)/unix/path.c \
 	$(SRCDIR)/runtime/bitmap.c \
 	$(SRCDIR)/runtime/buffer.c \
 	$(SRCDIR)/runtime/extra_prints.c \
@@ -111,7 +109,6 @@ SRCS-web= \
 	$(SRCDIR)/unix_process/http.c \
 	$(SRCDIR)/unix_process/socket_user.c \
 	$(SRCDIR)/unix_process/tiny_heap.c \
-	$(SRCDIR)/unix/path.c \
 	$(SRCDIR)/runtime/bitmap.c \
 	$(SRCDIR)/runtime/buffer.c \
 	$(SRCDIR)/runtime/extra_prints.c \
