@@ -1190,39 +1190,40 @@ sysreturn setrlimit(int resource, const struct rlimit *rlim)
 
 sysreturn getrlimit(int resource, struct rlimit *rlim)
 {
+    thread_log(current, "getrlimit: resource %d, rlim %p", resource, rlim);
+
     switch (resource) {
     case RLIMIT_STACK:
+        if (!rlim)
+            return set_syscall_error(current, EINVAL);
         rlim->rlim_cur = 2*1024*1024;
         rlim->rlim_max = 2*1024*1024;
         return 0;
     case RLIMIT_NOFILE:
+        if (!rlim)
+            return set_syscall_error(current, EINVAL);
         // we .. .dont really have one?
         rlim->rlim_cur = 65536;
         rlim->rlim_max = 65536;
         return 0;
     }
-    return -1;
+
+    return set_syscall_error(current, EINVAL);
 }
 
 sysreturn prlimit64(int pid, int resource, const struct rlimit *new_limit, struct rlimit *old_limit)
 {
-    // if new_limit !NULL then places new limits
-    // if old_limit !NULL then place old limits in old limits?
-    // so... just set new_limit?
- 
-    switch (resource) {
-    case RLIMIT_STACK:
-        old_limit->rlim_cur = 2*1024*1024;
-        old_limit->rlim_max = 2*1024*1024;
+    thread_log(current, "getrlimit: pid %d, resource %d, new_limit %p, old_limit %p",
+        pid, resource, new_limit, old_limit);
 
-        return 0;
-    case RLIMIT_NOFILE:
-        // we .. .dont really have one?
-        old_limit->rlim_cur = 65536;
-        old_limit->rlim_max = 65536;
-        return 0;
+    if (old_limit != 0) {
+        sysreturn ret = getrlimit(resource, old_limit);
+	if (ret < 0)
+            return ret;
     }
-    return -1;
+
+    // setting new limits is not implemented
+    return 0;
 }
 
 static sysreturn getcwd(char *buf, u64 length)

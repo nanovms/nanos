@@ -96,6 +96,25 @@ static volatile struct HPETMemoryMap* hpet;
 static timestamp hpet_period_scaled_32;
 static int hpet_interrupts[4];
 
+static u64 hpet_config_get() __attribute__((noinline));
+
+static u64 hpet_config_get()
+{
+    return hpet->conf;
+}
+
+static void hpet_config_set(u64 conf)
+{
+    hpet->conf = conf;
+}
+
+static u64 hpet_main_counter() __attribute__((noinline));
+
+static u64 hpet_main_counter()
+{
+    return hpet->mainCounterRegister;
+}
+
 static void timer_config(int timer, timestamp rate, thunk t, boolean periodic)
 {
     if (!hpet_interrupts[timer]) {
@@ -106,7 +125,7 @@ static void timer_config(int timer, timestamp rate, thunk t, boolean periodic)
     }
     u64 c = TCONF(FSB_EN_CNF) | TCONF(32MODE_CNF) | TCONF(INT_ENB_CNF);
     if (periodic) {
-	if ((hpet->timers[timer].config & TCONF(PER_INT_CAP)) == 0) {
+        if ((hpet->timers[timer].config & TCONF(PER_INT_CAP)) == 0) {
 	    console("HPET timer not capable of periodic interrupts.\n");
 	    return;
 	}
@@ -123,7 +142,7 @@ static void timer_config(int timer, timestamp rate, thunk t, boolean periodic)
     */
     u64 hprate_high = (rate & ~MASK(32)) / (hpet_period_scaled_32 >> 32);
     u64 hprate_low = (rate << 32) / hpet_period_scaled_32;
-    u64 comparator = hprate_high + hprate_low + hpet->mainCounterRegister;
+    u64 comparator = hprate_high + hprate_low + hpet_main_counter();
     // we can close the Floyd gap here by storing the interrupt time
     hpet->timers[timer].comparator = comparator;
 }
@@ -147,7 +166,7 @@ void hpet_runloop_timer(timestamp duration)
 
 timestamp now_hpet()
 {
-    return (((u128)hpet->mainCounterRegister) * hpet_period_scaled_32) >> 32;
+    return (((u128)hpet_main_counter()) * hpet_period_scaled_32) >> 32;
 }
 
 boolean init_hpet(heap misc, heap virtual_pagesized, heap pages) {
@@ -170,10 +189,10 @@ boolean init_hpet(heap misc, heap virtual_pagesized, heap pages) {
     hpet_period_scaled_32 = femtoseconds(femtoperiod << 32);
 
     timers = create_id_heap(misc, 0, field_from_u64(hpet->capid, HPET_CAPID_NUM_TIM_CAP) + 1, 1);
-    hpet->conf |= U64_FROM_BIT(HPET_CONF_ENABLE_CNF_SHIFT);
-    u64 prev = hpet->mainCounterRegister;
+    hpet_config_set(hpet_config_get() | U64_FROM_BIT(HPET_CONF_ENABLE_CNF_SHIFT));
+    u64 prev = hpet_main_counter();
     for (int i = 0; i < 10; i ++) {
-        if (prev == hpet->mainCounterRegister) 
+        if (prev == hpet_main_counter())
             continue;
         return true;
     }

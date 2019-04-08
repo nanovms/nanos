@@ -103,7 +103,7 @@ dap:
 
 global bios_read_sectors
 bios_read_sectors:
-	; conform to x86_64 cdecl
+	; conform to x86 cdecl
 	push ebp
 	mov ebp, esp
 
@@ -125,6 +125,37 @@ bios_read_sectors:
 	mov ah, 0x42
 	mov dl, 0x80			; first drive
 	int 0x13
+	ENTER_PROTECTED
+
+	pop edi
+	pop esi
+	pop ebx
+
+	pop ebp
+	ret
+
+
+global bios_tty_out
+bios_tty_out:
+	; conform to x86_64 cdecl
+	push ebp
+	mov ebp, esp
+
+	push ebx
+	push esi
+	push edi
+
+	; save protected mode stack
+	mov [protected_esp], esp
+
+	; save character
+	mov ebx, [ebp + 8]
+
+	ENTER_REAL
+	mov ax, bx	; character
+	mov ah, 0xe	; teletype output
+	xor bh, bh	; page 0
+	int 0x10
 	ENTER_PROTECTED
 
 	pop edi
