@@ -137,19 +137,17 @@ static void err(status s)
     rprintf("reported error\n");
 }
 
-static buffer translate_contents(heap h, const char *target_root, value v)
+static buffer get_file_contents(heap h, const char *target_root, value v)
 {
-    if (tagof(v) == tag_tuple) {
-        value path = table_find((table)v, sym(host));
-        if (path) {
-            // seems like it wouldn't be to hard to arrange
-            // for this to avoid the staging copy
-            buffer dest = allocate_buffer(h, 1024);
-            read_file(h, target_root, dest, path);
-            return dest;
-        }
+    value path = table_find((table)v, sym(host));
+    if (path) {
+        // seems like it wouldn't be to hard to arrange
+        // for this to avoid the staging copy
+        buffer dest = allocate_buffer(h, 1024);
+        read_file(h, target_root, dest, path);
+        return dest;
     }
-    return v;
+    return 0;
 }
 
 // dont really like the file/tuple duality, but we need to get something running today,
@@ -163,7 +161,7 @@ static value translate(heap h, vector worklist,
             tuple out = allocate_tuple();
             table_foreach((table)v, k, child) {
                 if (k == sym(contents)) {
-                    vector_push(worklist, build_vector(h, out, translate_contents(h, target_root, child)));
+                    vector_push(worklist, build_vector(h, out, child));
                 } else {
                     table_set(out, k, translate(h, worklist, target_root, fs, child, sh));
                 }
@@ -197,9 +195,12 @@ static void fsc(heap h, descriptor out, const char *target_root, filesystem fs, 
     vector i;
     vector_foreach(worklist, i) {
         tuple f = vector_get(i, 0);        
-        buffer c = vector_get(i, 1);
-        allocate_fsfile(fs, f);
-        filesystem_write(fs, f, c, 0, ignore_io_status);
+        buffer contents = get_file_contents(h, target_root, vector_get(i, 1));
+        if (contents) {
+            allocate_fsfile(fs, f);
+            filesystem_write(fs, f, contents, 0, ignore_io_status);
+            deallocate_buffer(contents);
+        }
     }
     close(out);
 }
