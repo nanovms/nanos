@@ -21,58 +21,73 @@ static buffer read_stdin(heap h)
     return in;
 }
 
+/**
+ * Try to lookup file in target_root
+ *
+ * Always fills in "st", even if target_root is not specified
+ */
 buffer lookup_file(heap h, const char *target_root, buffer name, struct stat *st)
 {
-    char path_buf[PATH_MAX];
-    const char *n = buffer_ref(name, 0);
-    int len = buffer_length(name);
+    buffer target_name = NULL;
 
-    name = allocate_buffer(h, PATH_MAX); // new buffer
+    // try target_root
+    if (target_root != NULL) {
+        char path_buf[PATH_MAX];
+        const char *n = buffer_ref(name, 0);
+        int len = buffer_length(name);
 
-    while (1) {
-        buffer_clear(name);
-        buffer_write(name, target_root, strlen(target_root));
-        if (n[0] != '/')
-            buffer_write_byte(name, '/');
-        buffer_write(name, n, len);
+        target_name = allocate_buffer(h, PATH_MAX);
+        while (1) {
+            // compose target_name
+            buffer_clear(target_name);
+            buffer_write(target_name, target_root, strlen(target_root));
+            if (n[0] != '/')
+                buffer_write_byte(target_name, '/');
+            buffer_write(target_name, n, len);
 
-        if (lstat(cstring(name), st) < 0)
-           halt("couldn't stat file %b: %s\n", name, strerror(errno));
-        if (!S_ISLNK(st->st_mode))
-           break;
+            if (lstat(cstring(target_name), st) < 0) {
+                if (errno != ENOENT)
+                    halt("couldn't stat file %b: %s\n", target_name, strerror(errno));
 
-        if ((len = readlink(cstring(name), path_buf, sizeof(path_buf))) < 0)
-           halt("couldn't readlink file %b: %s\n", name, strerror(errno));
-        if (path_buf[0] == '/') {
-            /* absolute links need to be resolved */
+                // not found in target root -- fallback to lookup on host
+                deallocate_buffer(target_name);
+                target_name = NULL;
+                break;
+            }
+            if (!S_ISLNK(st->st_mode)) {
+                // not a symlink found in target root
+                return target_name;
+            }
+
+            if ((len = readlink(cstring(target_name), path_buf, sizeof(path_buf))) < 0)
+                halt("couldn't readlink file %b: %s\n", name, strerror(errno));
+            if (path_buf[0] != '/') {
+                // relative symlinks are ok
+                name = target_name;
+                break;
+            }
+
+            // absolute symlinks need to be resolved again
             n = path_buf;
-            continue;
         }
-
-        /* relative links are ok */
-        if (stat(cstring(name), st) < 0)
-            halt("couldn't stat file %b: %s\n", name, strerror(errno));
-        break;
     }
 
-    return name;
+    if (stat(cstring(name), st) < 0)
+        halt("couldn't stat file %b: %s\n", name, strerror(errno));
+    return target_name;
 }
 
 // its nice that we can append a file to any existing buffer, but harsh we have to grow the buffer
 void read_file(heap h, const char *target_root, buffer dest, buffer name)
 {
-    buffer name_b = NULL;
-
     // mode bit metadata
     struct stat st;
-    if (stat(cstring(name), &st) < 0) {
-        if (target_root == NULL)
-            halt("couldn't open file %b: %s\n", name, strerror(errno));
-
-        name_b = lookup_file(h, target_root, name, &st);
-        //printf("%s -> %s\n", cstring(name), cstring(name_b));
-        name = name_b;
+    buffer target_name = lookup_file(h, target_root, name, &st);
+    if (target_name != NULL) {
+        //printf("%s -> %s\n", cstring(name), cstring(target_name));
+        name = target_name;
     }
+
     int fd = open(cstring(name), O_RDONLY);
     if (fd < 0) halt("couldn't open file %b: %s\n", name, strerror(errno));
     u64 size = st.st_size;
@@ -82,15 +97,15 @@ void read_file(heap h, const char *target_root, buffer dest, buffer name)
         int rv = read(fd, buffer_ref(dest, total), size - total);
         if (rv < 0 && errno != EINTR) {
             close(fd);
-            halt("file read error: %s\n", strerror(errno));
+            halt("read: %b: %s\n", name, strerror(errno));
         }
         total += rv;
     }
     dest->end += size;
     close(fd);
 
-    if (name_b != NULL)
-        deallocate_buffer(name_b);
+    if (target_name != NULL)
+        deallocate_buffer(target_name);
 }
 
 heap malloc_allocator();
