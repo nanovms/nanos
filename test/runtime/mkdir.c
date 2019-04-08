@@ -29,40 +29,42 @@ struct linux_dirent {
 #define BUF_SIZE 64
 
 int
-listdir(char *label, char *dir)
+listdir(const char *label, const char *dir)
 {
-   int fd, nread;
-   char buf[BUF_SIZE];
-   struct linux_dirent *d;
-   int bpos;
-   char d_type;
+    int fd, nread;
+    char buf[BUF_SIZE];
+    struct linux_dirent *d;
+    int bpos;
+    char d_type;
+ 
+    fd = open(dir, O_RDONLY | O_DIRECTORY);
+    if (fd == -1)
+        handle_error("open");
+ 
+    for ( ; ; ) {
+        nread = syscall(SYS_getdents, fd, buf, BUF_SIZE);
+        if (nread == -1)
+            handle_error("getdents");
+ 
+        if (nread == 0)
+            break;
+ 
+        for (bpos = 0; bpos < nread;) {
+            d = (struct linux_dirent *) (buf + bpos);
+            d_type = *(buf + bpos + d->d_reclen - 1);
+            printf("(%s) - (%s) %-10s ", label, dir, (d_type == DT_REG) ?  "regular" :
+                             (d_type == DT_DIR) ?  "directory" :
+                             (d_type == DT_FIFO) ? "FIFO" :
+                             (d_type == DT_SOCK) ? "socket" :
+                             (d_type == DT_LNK) ?  "symlink" :
+                             (d_type == DT_BLK) ?  "block dev" :
+                             (d_type == DT_CHR) ?  "char dev" : "???");
+            printf("%s\n", d->d_name);
+            bpos += d->d_reclen;
+        }
+    }
 
-   fd = open(dir, O_RDONLY | O_DIRECTORY);
-   if (fd == -1)
-       handle_error("open");
-
-   for ( ; ; ) {
-       nread = syscall(SYS_getdents, fd, buf, BUF_SIZE);
-       if (nread == -1)
-           handle_error("getdents");
-
-       if (nread == 0)
-           break;
-
-       for (bpos = 0; bpos < nread;) {
-           d = (struct linux_dirent *) (buf + bpos);
-           d_type = *(buf + bpos + d->d_reclen - 1);
-           printf("(%s) - (%s) %-10s ", label, dir, (d_type == DT_REG) ?  "regular" :
-                            (d_type == DT_DIR) ?  "directory" :
-                            (d_type == DT_FIFO) ? "FIFO" :
-                            (d_type == DT_SOCK) ? "socket" :
-                            (d_type == DT_LNK) ?  "symlink" :
-                            (d_type == DT_BLK) ?  "block dev" :
-                            (d_type == DT_CHR) ?  "char dev" : "???");
-           printf("%s\n", d->d_name);
-           bpos += d->d_reclen;
-       }
-   }
+    close(fd);
     return 0;
 }
 
@@ -73,13 +75,18 @@ void _mkdir(const char *path, int m)
     int r = mkdir(path, (mode_t) m);
     if (r) printf("r = %d, errno = %d\n", r, errno);
     int dfd = open(path, O_RDONLY | O_DIRECTORY);
-    if (dfd == -1) printf("dfd = %d, for %s, errno = %d\n", dfd, path, errno);
+    if (dfd == -1) {
+        printf("dfd = %d, for %s, errno = %d\n", dfd, path, errno);
+    } else {
+        close(dfd);
+        printf("ok\n");
+    }
 }
 
 void _mkdirat(int fd, const char *path, int m)
 {
     errno = 0;
-    printf("mkdirt(%s, 0x%x) => ", path, m);
+    printf("mkdirat(%d, %s, 0x%x) => ", fd, path, m);
     int r = mkdirat(fd, path, (mode_t) m);
     printf("r = %d, errno = %d\n", r, errno);
 }
@@ -147,10 +154,10 @@ void check2(int dfd, char *fullpath, char *relpath, int flags)
     int fstatat_ino = -1;
 
     int full_fd = OPEN(fullpath, O_RDONLY, 0);
-    char *full_dname  = dirname(strdup(fullpath));
+    char *full_dname = dirname(strdup(fullpath));
     int full_dfd = OPEN(full_dname, O_RDONLY | O_DIRECTORY, 0);
 
-    char *rel_dname  = dirname(strdup(relpath));
+    char *rel_dname = dirname(strdup(relpath));
     int rel_dfd = OPENAT(dfd, rel_dname, O_RDONLY | O_DIRECTORY, 0);
     int rel_fd = OPENAT(AT_FDCWD, relpath, O_RDONLY, 0);
 
@@ -209,8 +216,10 @@ void check2(int dfd, char *fullpath, char *relpath, int flags)
             "AT_EMPTY_PATH path with reldfd",
             stat_ino, fstatat_ino);
     }
-    close(full_dfd);
+    close(rel_fd);
     close(rel_dfd);
+    close(full_dfd);
+    close(full_fd);
 }
 
 /* expect = 0 for success, errno otherwise */
@@ -224,17 +233,21 @@ void _creat(const char *path, int m, int expect)
             goto fail;
     } else {
         printf("fd %d\n", r);
+        close(r);
         if (expect)
             goto fail;
     }
     return;
-  fail:
+
+fail:
     printf("test failed\n");
     //exit(EXIT_FAILURE);
 }
 
 int main(int argc, char **argv)
 {
+    setbuf(stdout, NULL);
+
     _mkdir("/test", 0); check("/test");
     _mkdir("/blurb/test/deep", 0);
     _mkdir("/test/subdir", 0); check("/test/subdir");
@@ -250,11 +263,11 @@ int main(int argc, char **argv)
     listdir("/","/");
     listdir("/test", "/test");
     listdir("/test/subdir2","/test/subdir2");
-    _mkdirat(fd, "/test1", 0); check("/test1");
+    _mkdirat(fd, "/test1", 0); check("/test/test1");
     listdir("/","/");
     listdir("/test", "/test");
 
-    // Validate AT_FDCMD usage
+    // Validate AT_FDCWD usage
     _mkdirat(AT_FDCWD, "test2", 0); check("/test2");
     listdir("/","/");
     listdir("/test", "/test");
@@ -262,6 +275,7 @@ int main(int argc, char **argv)
     // Validate it fails on non-directories
     int r = open("/zip", O_WRONLY | O_CREAT, 0644);
     _mkdirat(r, "zipa", 0);
+    close(r);
     listdir("/","/");
     listdir("/test", "/test");
 
@@ -272,15 +286,18 @@ int main(int argc, char **argv)
     //check2(fd, "/test/subdir/test_newfile", "subdir/test_new_file", 0);
 
     close(fd);
-    fd = OPEN("/test/subdir", O_DIRECTORY, 0);
 
+    fd = OPEN("/test/subdir", O_DIRECTORY, 0);
     _chdir("/test/subdir");
     _mkdir("testdir_from_chdir", 0); check("testdir_from_chdir");
     _creat("test_newfile", 0, 0);
-    OPENAT(AT_FDCWD, "test_newfile2", O_CREAT, 0660);
-    int tmpfd = OPENAT(fd, "test_newfile3", O_CREAT, 0660);
+    int tmpfd = OPENAT(AT_FDCWD, "test_newfile2", O_CREAT, 0660);
+    close(tmpfd);
+    tmpfd = OPENAT(fd, "test_newfile3", O_CREAT, 0660);
     close(tmpfd);
     tmpfd = OPENAT(fd, "test_newfile3", O_RDONLY, 0660);
+    close(tmpfd);
+    close(fd);
 
     _chdir("/test/subdir");
     listdir("/test/subdir", ".");
@@ -290,6 +307,7 @@ int main(int argc, char **argv)
     fd = OPEN("/test", O_DIRECTORY, 0);
     check2(fd, "/test/subdir/test_newfile", "subdir/test_newfile", 0);
     _fchdir(fd);
+    close(fd);
     listdir("test", ".");
     exit(EXIT_SUCCESS);
 }

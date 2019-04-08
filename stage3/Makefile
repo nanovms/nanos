@@ -36,7 +36,6 @@ SRCS-stage3.img= \
 	$(SRCDIR)/unix/mmap.c \
 	$(SRCDIR)/unix/notify.c \
 	$(SRCDIR)/unix/poll.c \
-	$(SRCDIR)/unix/path.c \
 	$(SRCDIR)/unix/signal.c \
 	$(SRCDIR)/unix/special.c \
 	$(SRCDIR)/unix/syscall.c \

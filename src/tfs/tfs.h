@@ -43,9 +43,9 @@ typedef enum {
     FS_STATUS_NOTDIR,
 } fs_status;
 
-fs_status filesystem_mkentry(filesystem fs, tuple root, const char *fp, tuple entry, boolean persistent);
-fs_status filesystem_mkdir(filesystem fs, tuple root, const char *fp, boolean persistent);
-fs_status filesystem_creat(filesystem fs, tuple root, const char *fp, boolean persistent);
+fs_status filesystem_mkentry(filesystem fs, tuple cwd, const char *fp, tuple entry, boolean persistent);
+fs_status filesystem_mkdir(filesystem fs, tuple cwd, const char *fp, boolean persistent);
+fs_status filesystem_creat(filesystem fs, tuple cwd, const char *fp, boolean persistent);
 
 tuple filesystem_getroot(filesystem fs);
 extern const char *gitversion;

@@ -1,6 +1,5 @@
 #include <unix_internal.h>
 #include <metadata.h>
-#include <path.h>
 
 // lifted from linux UAPI
 #define DT_UNKNOWN	0
@@ -354,27 +353,18 @@ struct code syscall_codes[]= {
     {SYS_pkey_free, "pkey_free"}};
 
 // fused buffer wrap, split, and resolve
-static inline tuple resolve_cstring(tuple root, const char *f)
+static inline tuple resolve_cstring(tuple cwd, const char *f)
 {
+    tuple t = *f == '/' ? filesystem_getroot(current->p->fs) : cwd;
+
     buffer a = little_stack_buffer(NAME_MAX);
-    const char *x = f;
-    tuple t = root;
     char y;
-
-    if (runtime_strcmp(f, ".") == 0)
-        return root;
-
-    if (runtime_strcmp(f, "/") == 0)
-        return filesystem_getroot(current->p->fs);
-
-    if (*f == '/')
-        t = filesystem_getroot(current->p->fs);
-
-    while ((y = *x++)) {
+    while ((y = *f++)) {
         if (y == '/') {
             if (buffer_length(a)) {
                 t = lookup(t, intern(a));
-                if (!t) return t;
+                if (!t)
+                    return t;
                 buffer_clear(a);
             }                
         } else {
@@ -384,9 +374,9 @@ static inline tuple resolve_cstring(tuple root, const char *f)
     
     if (buffer_length(a)) {
         t = lookup(t, intern(a));
-        return t;
     }
-    return 0;
+
+    return t;
 }
 
 
@@ -413,7 +403,7 @@ sysreturn pread(int fd, u8 *dest, bytes length, s64 offset)
 {
     fdesc f = resolve_fd(current->p, fd);
     if (!f->read || offset < 0)
-	return set_syscall_error(current, EINVAL);
+        return set_syscall_error(current, EINVAL);
 
     /* use given offset with no file offset update */
     return apply(f->read, dest, length, offset);
@@ -455,30 +445,6 @@ sysreturn sysreturn_from_fs_status(fs_status s)
     }
 }
 
-static sysreturn do_mkent(tuple root, const char *pathname, int mode, boolean dir)
-{
-    heap h = heap_general(get_kernel_heaps());
-    char *final_path = 0;
-
-    if (!pathname)
-        return set_syscall_error(current, EFAULT);
-
-    /* canonicalize the path */
-    if (!root) {
-        buffer cwd = wrap_buffer_cstring(h, "/"); /* XXX */
-        final_path = canonicalize_path(h, cwd,
-            wrap_buffer_cstring(h, (char *)pathname));
-    } else
-        final_path = (char *)pathname;
-
-    thread_log(current, "%s: %s (mode %x) pathname %s => %s",
-               __func__, dir ? "mkdir" : "creat", mode, pathname, final_path);
-
-    fs_status status = dir ? filesystem_mkdir(current->p->fs, root, final_path, true) :
-        filesystem_creat(current->p->fs, root, final_path, true);
-    return set_syscall_return(current, sysreturn_from_fs_status(status));
-}
-
 static boolean is_dir(tuple n)
 {
     return children(n) ? true : false;
@@ -498,7 +464,7 @@ static void file_op_complete(thread t, file f, fsfile fsf, boolean is_file_offse
         /* if regular file, update length */
         if (fsf)
             f->length = fsfile_get_length(fsf);
-        if (is_file_offset)	/* vs specified offset (pread) */
+        if (is_file_offset) /* vs specified offset (pread) */
             f->offset += length;
         set_syscall_return(t, length);
     } else {
@@ -559,7 +525,7 @@ static sysreturn sendfile(int out_fd, int in_fd, int *offset, bytes count)
     }
 
     filesystem_read(current->p->fs, infile->n, buf, count, read_offset,
-	                closure(h, sendfile_read_complete, h, current, infile, outfile, offset, buf));
+                closure(h, sendfile_read_complete, h, current, infile, outfile, offset, buf));
     thread_sleep(current);
     return set_syscall_return(current,count); // bogus
 }
@@ -642,7 +608,7 @@ static CLOSURE_2_3(file_check, boolean, file, fsfile, u32, u32 *, event_handler)
 static boolean file_check(file f, fsfile fsf, u32 eventmask, u32 * last, event_handler eh)
 {
     thread_log(current, "file_check: file %t, eventmask %x, last %x, event_handler %p",
-	       f->n, eventmask, last ? *last : 0, eh);
+               f->n, eventmask, last ? *last : 0, eh);
 
     u32 events;
     if (is_special(f->n)) {
@@ -677,24 +643,24 @@ static int file_type_from_tuple(tuple n)
         return FDESC_TYPE_REGULAR;
 }
 
-sysreturn open_internal(tuple root, const char *name, int flags, int mode)
+sysreturn open_internal(tuple cwd, const char *name, int flags, int mode)
 {
     heap h = heap_general(get_kernel_heaps());
     unix_heaps uh = get_unix_heaps();
-    tuple n = resolve_cstring(root, name);
+    tuple n = resolve_cstring(cwd, name);
 
     if ((flags & O_CREAT)) {
         if (n && (flags & O_EXCL)) {
             thread_log(current, "\"%s\" opened with O_EXCL but already exists", name);
             return set_syscall_error(current, EEXIST);
         } else if (!n) {
-            tuple children = (root ? table_find(root, sym(children)) : 0);
-            sysreturn rv = do_mkent(children, name, mode, false);
-            if (rv)
-                return rv;
+            fs_status fs = filesystem_creat(current->p->fs, cwd, name, mode);
+            if (fs != FS_STATUS_OK)
+                return sysreturn_from_fs_status(fs);
+
             /* XXX We could rearrange calls to return tuple instead of
                status; though this serves as a sanity check. */
-            n = resolve_cstring(root, name);
+            n = resolve_cstring(cwd, name);
         }
     }
 
@@ -766,10 +732,12 @@ sysreturn dup(int fd)
 
 sysreturn mkdir(const char *pathname, int mode)
 {
-    tuple root = 0;
-    if (*pathname != '/')
-        root = table_find(current->p->cwd, sym(children));
-    return do_mkent(root, pathname, mode, true);
+    thread_log(current, "mkdir: \"%s\", mode 0x%x", pathname, mode);
+    if (pathname == 0)
+        return set_syscall_error(current, EINVAL);
+
+    fs_status fs = filesystem_mkdir(current->p->fs, current->p->cwd, pathname, true);
+    return sysreturn_from_fs_status(fs);
 }
 
 /*
@@ -786,17 +754,22 @@ If pathname is absolute, then dirfd is ignore
 */
 sysreturn mkdirat(int dirfd, char *pathname, int mode)
 {
+    thread_log(current, "mkdirat: \"%s\", dirfd %d, mode 0x%x", pathname, dirfd, mode);
     if (pathname == 0)
-        return set_syscall_error (current, EINVAL);
-    // dirfd == AT_FDCWS or path is absolute
-    if (dirfd == AT_FDCWD || *pathname == '/') {
-        return mkdir(pathname, mode);
+        return set_syscall_error(current, EINVAL);
+
+    tuple cwd;
+    if (dirfd == AT_FDCWD)
+        cwd = current->p->cwd;
+    else {
+        file f = resolve_fd(current->p, dirfd);
+        if (!is_dir(f->n))
+            return -ENOTDIR;
+        cwd = f->n;
     }
-    file f = resolve_fd(current->p, dirfd);
-    tuple children = table_find(f->n, sym(children));
-    if (!children)
-        return -ENOTDIR;
-    return do_mkent(children, pathname, mode, true);
+
+    fs_status fs = filesystem_mkdir(current->p->fs, cwd, pathname, true);
+    return sysreturn_from_fs_status(fs);
 }
 
 sysreturn creat(const char *pathname, int mode)
@@ -804,9 +777,8 @@ sysreturn creat(const char *pathname, int mode)
     if (!pathname)
         return set_syscall_error (current, EFAULT);
 
-    tuple root = (*pathname == '/' ? 0 : current->p->cwd);
     thread_log(current, "creat: \"%s\", mode 0x%x", pathname, mode);
-    return open_internal(root, (char *)pathname, O_CREAT|O_WRONLY|O_TRUNC, mode);
+    return open_internal(current->p->cwd, pathname, O_CREAT|O_WRONLY|O_TRUNC, mode);
 }
 
 sysreturn getrandom(void *buf, u64 buflen, unsigned int flags)
@@ -864,38 +836,20 @@ sysreturn getdents(int fd, struct linux_dirent *dirp, unsigned int count)
 {
     file f = resolve_fd(current->p, fd);
     tuple c = children(f->n);
-    int read_sofar = 0, written_sofar = 0;
-
     if (!c)
         return -ENOTDIR;
 
-    /* add reference to the current directory */
-    int r = try_write_dirent(f->n, dirp, ".",
-                &read_sofar, &written_sofar, &f->offset, &count,
-                DT_DIR);
-    if (r < 0)
-        goto done;
-
-    dirp = (struct linux_dirent *)(((char *)dirp) + r);
-
-    /* add reference to the parent directory */
-    r = try_write_dirent(f->n, dirp, "..",
-                &read_sofar, &written_sofar, &f->offset, &count,
-                DT_DIR);
-    if (r < 0)
-        goto done;
-
-    dirp = (struct linux_dirent *)(((char *)dirp) + r);
-
+    int r = 0;
+    int read_sofar = 0, written_sofar = 0;
     table_foreach(c, k, v) {
         char *p = cstring(symbol_string(k));
         r = try_write_dirent(f->n, dirp, p,
                     &read_sofar, &written_sofar, &f->offset, &count,
-                    children(v) ? DT_DIR : DT_REG);
+                    is_dir(v) ? DT_DIR : DT_REG);
         if (r < 0)
             goto done;
-        else
-            dirp = (struct linux_dirent *)(((char *)dirp) + r);
+
+        dirp = (struct linux_dirent *)(((char *)dirp) + r);
     }
 
 done:
@@ -943,38 +897,20 @@ sysreturn getdents64(int fd, struct linux_dirent64 *dirp, unsigned int count)
 {
     file f = resolve_fd(current->p, fd);
     tuple c = children(f->n);
-    int read_sofar = 0, written_sofar = 0;
-
     if (!c)
         return -ENOTDIR;
 
-    /* add reference to the current directory */
-    int r = try_write_dirent64(f->n, dirp, ".",
-                &read_sofar, &written_sofar, &f->offset, &count,
-                DT_DIR);
-    if (r < 0)
-        goto done;
-
-    dirp = (struct linux_dirent64 *)(((char *)dirp) + r);
-
-    /* add reference to the parent directory */
-    r = try_write_dirent64(f->n, dirp, "..",
-                &read_sofar, &written_sofar, &f->offset, &count,
-                DT_DIR);
-    if (r < 0)
-        goto done;
-
-    dirp = (struct linux_dirent64 *)(((char *)dirp) + r);
-
+    int r = 0;
+    int read_sofar = 0, written_sofar = 0;
     table_foreach(c, k, v) {
         char *p = cstring(symbol_string(k));
         r = try_write_dirent64(f->n, dirp, p,
                     &read_sofar, &written_sofar, &f->offset, &count,
-                    children(v) ? DT_DIR : DT_REG);
+                    is_dir(v) ? DT_DIR : DT_REG);
         if (r < 0)
             goto done;
-        else
-            dirp = (struct linux_dirent64 *)(((char *)dirp) + r);
+
+        dirp = (struct linux_dirent64 *)(((char *)dirp) + r);
     }
 
 done:
@@ -989,9 +925,9 @@ sysreturn chdir(const char *path)
 {
     tuple n;
     if (path == 0)
-        return set_syscall_error (current, EINVAL);
+        return set_syscall_error(current, EINVAL);
 
-    if (!(n = resolve_cstring(current->p->cwd, (char *)path)) || !is_dir(n)) {
+    if (!(n = resolve_cstring(current->p->cwd, path)) || !is_dir(n)) {
         return set_syscall_error(current, ENOENT);
     }
     current->p->cwd = n;
@@ -1017,7 +953,7 @@ sysreturn writev(int fd, iovec v, int count)
     return res;
 }
 
-static sysreturn access(char *name, int mode)
+static sysreturn access(const char *name, int mode)
 {
     thread_log(current, "access: \"%s\", mode %d", name, mode);
     if (!resolve_cstring(current->p->cwd, name)) {
@@ -1038,16 +974,22 @@ the calling process (like open()).
 
 If pathname is absolute, then dirfd is ignore
 */
-sysreturn openat(int dirfd, char *name, int flags, int mode)
+sysreturn openat(int dirfd, const char *name, int flags, int mode)
 {
     if (name == 0)
-        return set_syscall_error (current, EINVAL);
-    // dirfs == AT_FDCWS or path is absolute
-    if (dirfd == AT_FDCWD || *name == '/') {
-        return open(name, flags, mode);
+        return set_syscall_error(current, EINVAL);
+
+    tuple cwd;
+    if (dirfd == AT_FDCWD)
+        cwd = current->p->cwd;
+    else {
+        file f = resolve_fd(current->p, dirfd);
+        if (!is_dir(f->n))
+            return -ENOTDIR;
+        cwd = f->n;
     }
-    file f = resolve_fd(current->p, dirfd);
-    return open_internal(f->n, name, flags, mode);
+
+    return open_internal(cwd, name, flags, mode);
 }
 
 static void fill_stat(int type, tuple n, struct stat *s)
@@ -1094,7 +1036,7 @@ static sysreturn fstat(int fd, struct stat *s)
     return 0;
 }
 
-static sysreturn stat(char *name, struct stat *buf)
+static sysreturn stat(const char *name, struct stat *buf)
 {
     thread_log(current, "stat: \"%s\", buf %p", name, buf);
     tuple n;
@@ -1107,7 +1049,7 @@ static sysreturn stat(char *name, struct stat *buf)
     return 0;
 }
 
-static sysreturn newfstatat(int dfd, char *name, struct stat *s, int flags)
+static sysreturn newfstatat(int dfd, const char *name, struct stat *s, int flags)
 {
     tuple n;
 
@@ -1291,7 +1233,7 @@ sysreturn close(int fd)
 
     if (fetch_and_add(&f->refcnt, -1) == 1) {
         if (f->close)
-	    return apply(f->close);
+            return apply(f->close);
         msg_err("no close handler for fd %d\n", fd);
     }
 
