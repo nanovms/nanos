@@ -175,12 +175,12 @@ static parser parse_value(heap h, completion c, err_internal err, character in)
     case '"':
         return combinate(h, closure(h, quoted_string, c, allocate_buffer(h, 8)));
     case '(':
-        return combinate(h, closure(h, is_end_of_tuple, h, c, allocate_tuple(), err));
+        return ignore_whitespace(h, combinate(h, closure(h, is_end_of_tuple, h, c, allocate_tuple(), err)));
     case '[':
         {
             u64 *i= allocate(h, sizeof(u64));
             *i = 0;
-            return combinate(h, closure(h, is_end_of_vector, h, c, allocate_tuple(), err, i));
+            return ignore_whitespace(h, combinate(h, closure(h, is_end_of_vector, h, c, allocate_tuple(), err, i)));
         }
     default:
         return apply(ignore_whitespace(h, combinate(h, closure(h, terminal, c, value_terminal, allocate_buffer(h, 8)))), in);
