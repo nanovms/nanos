@@ -92,7 +92,7 @@ msg_cc=		CC	$@
 cmd_cc=		$(CC) $(CFLAGS) $(CFLAGS-$(@F)) -c $< -o $@
 
 msg_mkdep=	MKDEP	$@
-cmd_mkdep=	$(CC) -M -MG -MT "$(call objfile,.o,$<) $(call objfile,.d,$<)" $(CFLAGS) $(CFLAGS-$(@F)) $< -o $@
+cmd_mkdep=	$(CC) -M -MG -MP -MT "$(call objfile,.o,$<) $(call objfile,.d,$<)" $(CFLAGS) $(CFLAGS-$(@F)) $< -o $@
 
 msg_nasm=	NASM	$@
 cmd_nasm=	$(NASM) $(AFLAGS) $(AFLAGS-$(@F)) $< -o $@
