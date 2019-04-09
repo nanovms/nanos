@@ -135,7 +135,7 @@ endef
 
 $(foreach prog, $(PROGRAMS), $(eval $(call build_program,$(prog))))
 
-ifeq ($(filter print-% clean,$(MAKECMDGOALS)),)
+ifeq ($(filter print-% clean cleandepend,$(MAKECMDGOALS)),)
 -include $(sort $(DEPFILES))
 endif
 
@@ -159,6 +159,7 @@ endif
 # clean
 
 .PHONY: clean pre-clean do-clean post-clean
+.PHONY: cleandepend
 
 pre-clean:
 
@@ -170,6 +171,10 @@ do-clean: pre-clean
 post-clean: do-clean
 
 clean: post-clean
+
+cleandepend:
+	$(foreach d,$(SUBDIR),$(call execute_command,$(Q) $(MAKE) -C $d cleandepend))
+	$(Q) $(RM) $(DEPFILES)
 
 ##############################################################################
 # implicit rules
