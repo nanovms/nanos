@@ -1,8 +1,6 @@
 #include <runtime.h>
 #include <unistd.h>
-#ifdef HOST_BUILD
 #include <stdlib.h>
-#endif
 #include <sys/mman.h>
 #include <sys/time.h>
 #include <string.h>
@@ -138,4 +136,9 @@ tuple parse_arguments(heap h, int argc, char **argv)
         table_set(t, sym(unassociated), tuple_from_vector(unassociated));
 
     return t;
+}
+
+void print_stack_from_here()
+{
+    // empty for now
 }

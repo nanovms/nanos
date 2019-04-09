@@ -18,7 +18,9 @@ PROGRAMS= \
 	webs \
 	write
 
-SRCS-creat=		$(CURDIR)/creat.c
+SRCS-creat= \
+	$(CURDIR)/creat.c \
+	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-creat=		-static
 
 SRCS-getdents=		$(CURDIR)/getdents.c
@@ -33,7 +35,9 @@ SRCS-hw=		$(CURDIR)/hw.c
 SRCS-hws=		$(SRCS-hw)
 LDFLAGS-hws=		-static
 
-SRCS-mkdir=		$(CURDIR)/mkdir.c
+SRCS-mkdir= \
+	$(CURDIR)/mkdir.c \
+	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-mkdir=		-static
 
 SRCS-nullpage=		$(CURDIR)/nullpage.c
@@ -44,7 +48,6 @@ LDFLAGS-nullpage=	-static
 SRCS-pipe= \
 	$(CURDIR)/pipe.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c \
-	$(SRCDIR)/unix/path.c \
 	$(SRCDIR)/runtime/bitmap.c \
 	$(SRCDIR)/runtime/buffer.c \
 	$(SRCDIR)/runtime/extra_prints.c \
@@ -69,7 +72,9 @@ LIBS-pipe=		-lm -lpthread
 SRCS-sendfile=		$(CURDIR)/sendfile.c
 LDFLAGS-sendfile=	-static
 
-SRCS-time=		$(CURDIR)/time.c
+SRCS-time= \
+	$(CURDIR)/time.c \
+	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-time=		-static
 
 SRCS-udploop= \
@@ -79,7 +84,6 @@ SRCS-udploop= \
 	$(SRCDIR)/unix_process/http.c \
 	$(SRCDIR)/unix_process/socket_user.c \
 	$(SRCDIR)/unix_process/tiny_heap.c \
-	$(SRCDIR)/unix/path.c \
 	$(SRCDIR)/runtime/bitmap.c \
 	$(SRCDIR)/runtime/buffer.c \
 	$(SRCDIR)/runtime/extra_prints.c \
@@ -111,7 +115,6 @@ SRCS-web= \
 	$(SRCDIR)/unix_process/http.c \
 	$(SRCDIR)/unix_process/socket_user.c \
 	$(SRCDIR)/unix_process/tiny_heap.c \
-	$(SRCDIR)/unix/path.c \
 	$(SRCDIR)/runtime/bitmap.c \
 	$(SRCDIR)/runtime/buffer.c \
 	$(SRCDIR)/runtime/extra_prints.c \
@@ -138,11 +141,12 @@ SRCS-web= \
 SRCS-webs=		$(SRCS-web)
 LDFLAGS-webs=		-static
 
-SRCS-write=		$(CURDIR)/write.c
+SRCS-write= \
+	$(CURDIR)/write.c \
+	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-write=		-static
 
-CFLAGS+=	-DHOST_BUILD \
-		-DENABLE_MSG_DEBUG
+CFLAGS+=	-DENABLE_MSG_DEBUG
 CFLAGS+=	-I$(SRCDIR)/runtime \
 		-I$(SRCDIR)/unix \
 		-I$(SRCDIR)/unix_process \
