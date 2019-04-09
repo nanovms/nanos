@@ -21,9 +21,14 @@ extern void vm_exit(u8 code) __attribute__((noreturn));
 #ifdef NO_ASSERT
 #define assert(x) do { if((x)) { } } while(0)
 #else
-#define assert(x) \
-    do { if(!(x)) halt("assertion %s failed in " __FILE__ ": %s() on line %d; halt\n", \
-		       #x, __func__, __LINE__); } while(0)
+#define assert(x)                                   \
+    do {                                            \
+        if (!(x)) {                                 \
+            extern void print_stack_from_here();    \
+            print_stack_from_here();                \
+            halt("assertion %s failed in " __FILE__ ": %s() on line %d; halt\n", #x, __func__, __LINE__); \
+        }                                           \
+    } while(0)
 #endif
 
 static inline void runtime_memcpy(void *a, const void *b, bytes len)
