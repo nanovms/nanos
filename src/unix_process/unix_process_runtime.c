@@ -1,8 +1,6 @@
 #include <runtime.h>
 #include <unistd.h>
-#ifdef HOST_BUILD
 #include <stdlib.h>
-#endif
 #include <sys/mman.h>
 #include <sys/time.h>
 #include <string.h>
