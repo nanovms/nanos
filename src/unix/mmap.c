@@ -2,22 +2,14 @@
 
 #define VMAP_FLAG_MMAP          1
 #define VMAP_FLAG_ANONYMOUS     2
+#define VMAP_FLAG_WRITABLE      4
+#define VMAP_FLAG_EXEC          8
 
 typedef struct vmap {
     struct rmnode node;
     heap vheap;                 /* presently either p->virtual or p->virtual32 */
-    u32 flags;
-    u32 prot;
+    u64 flags;
 } *vmap;
-
-static vmap allocate_vmap(heap h, range r)
-{
-    vmap vm = allocate(h, sizeof(struct vmap));
-    if (vm == INVALID_ADDRESS)
-        return vm;
-    rmnode_init(&vm->node, r);
-    return vm;
-}
 
 /* Page faults may be caused by:
 
@@ -55,6 +47,16 @@ static vmap allocate_vmap(heap h, range r)
      onto the stack when invoking the exception handler
 */
 
+static u64 map_flags_from_vmap(vmap vm)
+{
+    u64 flags = 0;
+    if ((vm->flags & VMAP_FLAG_EXEC) == 0)
+        flags |= PAGE_NO_EXEC;
+    if ((vm->flags & VMAP_FLAG_WRITABLE))
+        flags |= PAGE_WRITABLE;
+    return flags;
+}
+
 boolean unix_fault_page(u64 vaddr)
 {
     process p = current->p;
@@ -75,12 +77,26 @@ boolean unix_fault_page(u64 vaddr)
             return false;
         }
         u64 vaddr_aligned = vaddr & ~MASK(PAGELOG);
-        map(vaddr_aligned, paddr, PAGESIZE, heap_pages(kh));
+        map(vaddr_aligned, paddr, PAGESIZE, map_flags_from_vmap(vm), heap_pages(kh));
         zero(pointer_from_u64(vaddr_aligned), PAGESIZE);
         return true;
     }
     msg_err("no vmap found for vaddr 0x%lx\n", vaddr);
     return false;
+}
+
+static vmap allocate_vmap(heap h, rangemap rm, range r, u64 flags)
+{
+    vmap vm = allocate(h, sizeof(struct vmap));
+    if (vm == INVALID_ADDRESS)
+        return vm;
+    rmnode_init(&vm->node, r);
+    vm->flags = flags;
+    if (!rangemap_insert(rm, &vm->node)) {
+        deallocate(h, vm, sizeof(struct vmap));
+        return INVALID_ADDRESS;
+    }
+    return vm;
 }
 
 sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void * new_address)
@@ -123,15 +139,22 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
         return -ENOMEM;
     }
 
-    /* add new vmap - XXX should remove old vmap - make a range lookup
-       that makes this easy */
-    vmap vm = allocate_vmap(heap_general(kh), irange(vnew, vnew + maplen));
+    /* remove old mapping, preserving attributes
+     * XXX should verify entire given range
+     */
+    vmap old_vm = (vmap)rangemap_lookup(p->vmap, u64_from_pointer(old_address));
+    if (old_vm == INVALID_ADDRESS)
+        return -EFAULT;
+    u64 vmflags = old_vm->flags;
+    rangemap_remove_node(p->vmap, &old_vm->node);
+
+    /* create new vm with old attributes */
+    vmap vm = allocate_vmap(heap_general(kh), p->vmap, irange(vnew, vnew + maplen), vmflags);
     if (vm == INVALID_ADDRESS) {
         msg_err("failed to allocate vmap\n");
         deallocate_u64(vh, vnew, maplen);
         return -ENOMEM;
     }
-    assert(rangemap_insert(p->vmap, &vm->node));
 
     /* balance of physical allocation */
     u64 dlen = maplen - old_size;
@@ -149,12 +172,13 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
     unmap(u64_from_pointer(old_address), old_size, pages);
 
     /* map existing portion */
+    u64 mapflags = map_flags_from_vmap(vm);
     thread_log(current, "   mapping existing portion at 0x%lx", vnew);
-    map(vnew, oldphys, old_size, pages);
+    map(vnew, oldphys, old_size, mapflags, pages);
 
     /* map new portion and zero */
     thread_log(current, "   mapping and zeroing new portion at 0x%lx", vnew + old_size);
-    map(vnew + old_size, dphys, dlen, pages);
+    map(vnew + old_size, dphys, dlen, mapflags, pages);
     zero(pointer_from_u64(vnew + old_size), dlen);
 
     return sysreturn_from_pointer(vnew);
@@ -229,6 +253,15 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     thread_log(current, "mmap: target %p, size %lx, prot %x, flags %x, fd %d, offset %lx",
 	       target, size, prot, flags, fd, offset);
 
+    vmap vm = 0;
+    u64 vmflags = VMAP_FLAG_MMAP;
+    if ((flags & MAP_ANONYMOUS))
+        vmflags |= VMAP_FLAG_ANONYMOUS;
+    if ((prot & PROT_EXEC))
+        vmflags |= VMAP_FLAG_EXEC;
+    if ((prot & PROT_WRITE))
+        vmflags |= VMAP_FLAG_WRITABLE;
+
     if (where) {
 	thread_log(current, "   %s at %lx", fixed ? "fixed" : "hint", where);
 
@@ -238,6 +271,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
             vmap_end == vmap_start &&
             (vmap_start->flags & VMAP_FLAG_ANONYMOUS) == 0) {
             mapped = true;
+            vm = vmap_start;
         } else {
             /* 32 bit mode is ignored if MAP_FIXED */
             heap vh = p->virtual;
@@ -249,6 +283,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
                        allocation. Don't fail if we can't reserve or it's
                        already reserved. */
                     id_heap_reserve(p->virtual32, where, size);
+                    /* XXX vmap? */
                 } else if (fixed) {
                     thread_log(current, "   map [%lx - %lx] outside of valid 32-bit range [%lx - %lx]",
                                where, end, PROCESS_VIRTUAL_32_HEAP_START, PROCESS_VIRTUAL_32_HEAP_END);
@@ -278,15 +313,11 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
                     u64 maplen = mapend - mapstart + 1;
 
                     if (id_heap_reserve(vh, mapstart, maplen)) {
-                        vmap vm = allocate_vmap(h, irange(mapstart, mapstart + maplen));
+                        vm = allocate_vmap(h, p->vmap, irange(mapstart, mapstart + maplen), vmflags);
                         if (vm == INVALID_ADDRESS) {
                             msg_err("failed to allocate vmap\n");
-                        return -ENOMEM;
+                            return -ENOMEM;
                         }
-                        vm->flags = VMAP_FLAG_MMAP;
-                        if ((flags & MAP_ANONYMOUS))
-                            vm->flags |= VMAP_FLAG_ANONYMOUS;
-                        assert(rangemap_insert(p->vmap, &vm->node));
                     } else if (fixed) {
                         thread_log(current, "   failed to reserve area [%lx - %lx] in id heap",
                                    where, end);
@@ -317,16 +348,12 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
                     is_32bit ? "32-bit" : "", len);
             return -ENOMEM;
         }
-        vmap vm = allocate_vmap(h, irange(where, where + maplen));
+        vm = allocate_vmap(h, p->vmap, irange(where, where + maplen), vmflags);
         if (vm == INVALID_ADDRESS) {
             msg_err("failed to allocate vmap\n");
             deallocate_u64(vh, where, maplen);
             return -ENOMEM;
         }
-        vm->flags = VMAP_FLAG_MMAP;
-        if ((flags & MAP_ANONYMOUS))
-            vm->flags |= VMAP_FLAG_ANONYMOUS;
-        assert(rangemap_insert(p->vmap, &vm->node));
     }
 
     // make a generic zero page function
@@ -340,6 +367,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
         return where;
     }
 
+    assert(vm);
     file f = resolve_fd(current->p, fd);
     thread_log(current, "  read file at 0x%lx, %s map, blocking...", where, mapped ? "existing" : "new");
 

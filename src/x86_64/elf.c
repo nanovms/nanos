@@ -77,7 +77,15 @@ void *load_elf(buffer elf, u64 offset, heap pages, heap bss)
             u64 vstart = u64_from_pointer(buffer_ref(elf, p->p_offset)) & ~MASK(PAGELOG);
             u64 phy = physical_from_virtual(pointer_from_u64(vstart));
             int ssize = pad(p->p_filesz + trim_offset, PAGESIZE);
-            map(aligned + offset, phy, ssize, pages);
+
+            /* determine access permissions */
+            u64 flags = 0;
+            if ((p->p_flags & PF_X) == 0) {
+                flags |= PAGE_NO_EXEC;
+                if ((p->p_flags & PF_W))
+                    flags |= PAGE_WRITABLE;
+            }
+            map(aligned + offset, phy, ssize, flags, pages);
 
             // always zero up to the next aligned page start
             s64 bss_size = p->p_memsz - p->p_filesz;
@@ -98,7 +106,8 @@ void *load_elf(buffer elf, u64 offset, heap pages, heap bss)
                 u64 pstart = bss_start + initial_len;
                 u64 psize = pad((bss_size - initial_len), PAGESIZE);
                 u64 phys = allocate_u64(bss, psize);
-                map(pstart, phys, psize, pages);
+                /* XXX other flags for bss? */
+                map(pstart, phys, psize, flags, pages);
                 vpzero(pointer_from_u64(pstart), phys, psize);
             }
         }

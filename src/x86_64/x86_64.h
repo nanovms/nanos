@@ -199,7 +199,19 @@ void runloop() __attribute__((noreturn));
 void handle_interrupts();
 void install_fallback_fault_handler(fault_handler h);
 
-void map(u64 virtual, physical p, int length, heap h);
+#define PAGE_NO_EXEC U64_FROM_BIT(63)
+#define PAGE_2M_SIZE U64_FROM_BIT(7)
+#define PAGE_DIRTY U64_FROM_BIT(6)
+#define PAGE_ACCESSED U64_FROM_BIT(5)
+#define PAGE_CACHE_DISABLE U64_FROM_BIT(4)
+#define PAGE_WRITETHROUGH U64_FROM_BIT(3)
+#define PAGE_USER U64_FROM_BIT(2)
+#define PAGE_WRITABLE U64_FROM_BIT(1)
+#define PAGE_PRESENT U64_FROM_BIT(0)
+
+#define PAGE_DEV_FLAGS (PAGE_WRITABLE | PAGE_WRITETHROUGH | PAGE_NO_EXEC)
+
+void map(u64 virtual, physical p, int length, u64 flags, heap h);
 void unmap(u64 virtual, int length, heap h);
 
 // xxx - hide

@@ -166,7 +166,7 @@ void pci_discover()
                     len = pad(len, PAGESIZE);
                     // ?? this is per device, so why is it global? - pass to probe?
                     u8 *vector_table_ptr = allocate(virtual_huge, len);
-                    map((u64)vector_table_ptr, vector_base, len, pages);
+                    map((u64)vector_table_ptr, vector_base, len, PAGE_DEV_FLAGS, pages);
                     msi_map[i] = (void *) (vector_table_ptr + (vector_table & ~0x7)); // table offset
                     // qemu gets really* mad if you do this a 16 bit write
                     pci_cfgwrite(0, i, 0, cp+3, 1, 0x80);

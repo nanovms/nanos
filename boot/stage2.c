@@ -86,12 +86,12 @@ static void __attribute__((noinline)) kernel_read_complete(buffer kb)
     create_region(pmem, identity_length, REGION_IDENTITY);
     void *vmbase = allocate_zero(pages, PAGESIZE);
     mov_to_cr("cr3", vmbase);
-    map(pmem, pmem, identity_length, pages);
+    map(pmem, pmem, identity_length, PAGE_WRITABLE | PAGE_PRESENT, pages);
     // going to some trouble to set this up here, but its barely
     // used in stage3
     stack -= (STACKLEN - 4);	/* XXX b0rk b0rk b0rk */
-    map(stack, stack, (u64)STACKLEN, pages);
-    map(0, 0, INITIAL_MAP_SIZE, pages);
+    map(stack, stack, (u64)STACKLEN, PAGE_WRITABLE, pages);
+    map(0, 0, INITIAL_MAP_SIZE, PAGE_WRITABLE | PAGE_PRESENT, pages);
 
     // stash away kernel elf image for use in stage3
     create_region(u64_from_pointer(buffer_ref(kb, 0)), pad(buffer_length(kb), PAGESIZE), REGION_KERNIMAGE);

@@ -43,7 +43,7 @@ static u64 physically_backed_alloc(heap h, bytes length)
     if (p != INVALID_PHYSICAL) {
         u64 v = allocate_u64(b->virtual, len);
         if (v != INVALID_PHYSICAL) {
-            map(v, p, len, b->pages);
+            map(v, p, len, PAGE_WRITABLE | PAGE_NO_EXEC, b->pages);
             return v;
         }
     }

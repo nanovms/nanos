@@ -4,10 +4,6 @@
 //#define PTE_DEBUG
 
 #define PAGEMASK MASK(PAGELOG)
-#define PAGE_2M_SIZE U64_FROM_BIT(7)
-#define PAGE_USER U64_FROM_BIT(2)
-#define PAGE_WRITABLE U64_FROM_BIT(1)
-#define PAGE_PRESENT U64_FROM_BIT(0)
 typedef u64 *page;
 
 #define PT1 39
@@ -272,11 +268,11 @@ static void map_range(u64 virtual, physical p, int length, u64 flags, heap h)
     memory_fence();
 }
 
-void map(u64 virtual, physical p, int length, heap h)
+void map(u64 virtual, physical p, int length, u64 flags, heap h)
 {
     // really set user?
-    u64 flags = PAGE_WRITABLE | PAGE_PRESENT | PAGE_USER;
-    map_range(virtual, p, length, flags, h);
+    // u64 flags = PAGE_WRITABLE | PAGE_PRESENT | PAGE_USER;
+    map_range(virtual, p, length, flags | PAGE_PRESENT, h);
 }
 
 void unmap(u64 virtual, int length, heap h)

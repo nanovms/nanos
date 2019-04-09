@@ -120,7 +120,7 @@ static void read_kernel_syms()
 	    kern_length = region_length(e);
 
 	    u64 v = allocate_u64(heap_virtual_huge(&heaps), kern_length);
-	    map(v, kern_base, kern_length, heap_pages(&heaps));
+	    map(v, kern_base, kern_length, PAGE_NO_EXEC, heap_pages(&heaps));
 #ifdef ELF_SYMTAB_DEBUG
 	    rprintf("xxx\n");
 	    rprintf("kernel ELF image at 0x%lx, length %ld, mapped at 0x%lx\n",
