@@ -41,11 +41,11 @@ sysreturn clock_gettime(clockid_t clk_id, struct timespec *tp)
     return 0;
 }
 
-void register_clock_syscalls(void **map)
+void register_clock_syscalls(struct syscall *map)
 {
-    register_syscall(map, SYS_clock_gettime, clock_gettime);
-    register_syscall(map, SYS_clock_getres, syscall_ignore);
-    register_syscall(map, SYS_gettimeofday, gettimeofday);
-    register_syscall(map, SYS_nanosleep, nanosleep);
-    register_syscall(map, SYS_time, sys_time);
+    register_syscall(map, clock_gettime, clock_gettime);
+    register_syscall(map, clock_getres, syscall_ignore);
+    register_syscall(map, gettimeofday, gettimeofday);
+    register_syscall(map, nanosleep, nanosleep);
+    register_syscall(map, time, sys_time);
 }

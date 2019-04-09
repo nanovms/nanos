@@ -86,7 +86,7 @@ static sysreturn stdout(void *d, u64 length, u64 offset)
     return length;
 }
 
-extern void *linux_syscalls[];
+extern struct syscall *linux_syscalls;
 
 static boolean create_stdfiles(unix_heaps uh, process p)
 {
@@ -146,7 +146,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     zero(p->files, sizeof(p->files));
     create_stdfiles(uh, p);
     init_threads(p);
-    p->syscall_handlers = linux_syscalls;
+    p->syscalls = linux_syscalls;
     p->vmap = allocate_rangemap(h);
     return p;
 }
@@ -200,6 +200,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     register_thread_syscalls(linux_syscalls);
     register_poll_syscalls(linux_syscalls);
     register_clock_syscalls(linux_syscalls);
+    register_other_syscalls(linux_syscalls);
     return kernel_process;
   alloc_fail:
     msg_err("failed to allocate kernel objects\n");
