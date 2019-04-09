@@ -41,6 +41,7 @@ LCOV=		lcov
 GENHTML=	genhtml
 
 CFLAGS+=	-std=gnu11 -O -g
+CFLAGS+=	-fstack-protector-strong
 CFLAGS+=	-Wall -Werror -Wno-char-subscripts
 CFLAGS+=	-I$(OBJDIR)
 
@@ -48,10 +49,12 @@ KERNCFLAGS=	-nostdinc \
 		-fno-builtin \
 		-mno-sse \
 		-mno-sse2 \
-		-fno-omit-frame-pointer \
-		-fno-stack-protector \
 		-fdata-sections \
 		-ffunction-sections
+ifneq ($(UNAME_s),Darwin)
+KERNCFLAGS+=	-mstack-protector-guard=global \
+		-fno-pic
+endif
 KERNLDFLAGS=	--gc-sections -n
 
 TARGET_ROOT = $(NANOS_TARGET_ROOT)
