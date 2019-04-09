@@ -171,16 +171,11 @@ void __print_stack_with_rbp(u64 *rbp)
     }
 }
 
-void __print_stack_from_here()
+void print_stack_from_here(void)
 {
     u64 rbp;
     asm("movq %%rbp, %0" : "=r" (rbp));
     __print_stack_with_rbp((u64 *)rbp);
-}
-
-void print_stack_from_here(void)
-{
-    __print_stack_from_here();
 }
 
 void print_stack(context c)
