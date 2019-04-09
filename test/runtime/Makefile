@@ -17,7 +17,9 @@ PROGRAMS= \
 	webs \
 	write
 
-SRCS-creat=		$(CURDIR)/creat.c
+SRCS-creat= \
+	$(CURDIR)/creat.c \
+	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-creat=		-static
 
 SRCS-getdents=		$(CURDIR)/getdents.c
@@ -32,7 +34,9 @@ SRCS-hw=		$(CURDIR)/hw.c
 SRCS-hws=		$(SRCS-hw)
 LDFLAGS-hws=		-static
 
-SRCS-mkdir=		$(CURDIR)/mkdir.c
+SRCS-mkdir= \
+	$(CURDIR)/mkdir.c \
+	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-mkdir=		-static
 
 SRCS-pipe= \
@@ -63,7 +67,9 @@ LIBS-pipe=		-lm -lpthread
 SRCS-sendfile=		$(CURDIR)/sendfile.c
 LDFLAGS-sendfile=	-static
 
-SRCS-time=		$(CURDIR)/time.c
+SRCS-time= \
+	$(CURDIR)/time.c \
+	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-time=		-static
 
 SRCS-udploop= \
@@ -132,7 +138,9 @@ SRCS-web= \
 SRCS-webs=		$(SRCS-web)
 LDFLAGS-webs=		-static
 
-SRCS-write=		$(CURDIR)/write.c
+SRCS-write= \
+	$(CURDIR)/write.c \
+	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-write=		-static
 
 CFLAGS+=	-DHOST_BUILD \
