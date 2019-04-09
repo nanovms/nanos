@@ -196,3 +196,5 @@ $(OBJDIR)/bin/%: %.go
 
 print-%:
 	@echo "$* = $($*)"
+
+-include Makefile.local

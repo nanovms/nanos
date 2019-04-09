@@ -1,20 +1,24 @@
+Makefile.local
+/tags
+/TAGS
+
+# test artifacts
+/test/go/instance.img
+/test/go/image*
+/test/go/.staging/*
+/test/go/image
+/test/runtime/soop.data
+
+# Default build directory
+/output
+
+# release
+/release
 latest.txt
 *.md5
-release
-test/go/instance.img
-test/go/image*
-test/go/.staging/*
-test/go/image
-test/runtime/soop.data
-ID
-tags
-TAGS
-
-# Default build directiory
-output
 
 # Vendored libaries
-vendor
+/vendor
 
 # Editor stuff
 *~
