@@ -211,7 +211,9 @@ CLEANDIRS+=	$(OBJDIR)/test
 # gcov support
 CFLAGS+=	-fprofile-arcs -ftest-coverage
 LDFLAGS+=	-fprofile-arcs
-GCOVFILES=	$(sort $(foreach p,$(PROGRAMS),$(patsubst %.o,%.gcda,$(OBJS-$p)) $(patsubst %.o,%.gcno,$(OBJS-$p))))
+GCDAFILES=	$(sort $(foreach p,$(PROGRAMS),$(patsubst %.o,%.gcda,$(OBJS-$p))))
+GCOVFILES=	$(sort $(foreach p,$(PROGRAMS),$(patsubst %.o,%.gcno,$(OBJS-$p))))
+GCOVFILES+=	$(GCDAFILES) $(OBJDIR)/gcov-tests.info
 CLEANFILES+=	$(GCOVFILES)
 
 all: $(PROGRAMS)
@@ -219,16 +221,20 @@ all: $(PROGRAMS)
 .PHONY: test gcov gcov-clean
 
 test: all
+	$(Q) $(RM) $(GCDAFILES)
 	$(foreach p,$(filter-out $(SKIP_TEST),$(PROGRAMS)),$(call execute_command,$(PROG-$p)))
 
-gcov: all
-	$(foreach p,$(PROGRAMS),$(eval $(GCOV) -o $(OBJDIR) $(PROG-$p)))
+gcov: test
+	$(foreach p,$(PROGRAMS),$(call execute_command,$(GCOV) -o $(OBJDIR) $(PROG-$p)))
 	$(LCOV) --capture --directory $(ROOTDIR) --output-file $(OBJDIR)/gcov-tests.info
 	$(MKDIR) $(OBJDIR)/gcov
 	$(GENHTML) $(OBJDIR)/gcov-tests.info --output-directory $(OBJDIR)/gcov
 
+pre-clean:
+	$(Q) $(RM) -r $(OBJDIR)/gcov
+
 gcov-clean:
-	@$(RM) -f $(GCOVFILES)
+	$(Q) $(RM) $(GCOVFILES)
 
 include ../../rules.mk
 
