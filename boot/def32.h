@@ -50,3 +50,8 @@ static inline void *valueof(void *v)
      __q = a|(((u64)b)<<32);                                  \
      __r = d;\
  }
+
+static inline void print_stack_from_here()
+{
+    // empty for now
+}

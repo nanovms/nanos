@@ -43,7 +43,6 @@ SRCS-dump= \
 	$(SRCDIR)/tfs/tlog.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c
 
-CFLAGS+=-DHOST_BUILD
 CFLAGS+=-I$(SRCDIR)/runtime \
 	-I$(SRCDIR)/tfs \
 	-I$(SRCDIR)/unix_process \
