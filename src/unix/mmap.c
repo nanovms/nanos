@@ -336,13 +336,13 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     runloop();
 }
 
-void register_mmap_syscalls(void **map)
+void register_mmap_syscalls(struct syscall *map)
 {
-    register_syscall(map, SYS_mincore, mincore);
-    register_syscall(map, SYS_mmap, mmap);
-    register_syscall(map, SYS_mremap, mremap);        
-    register_syscall(map, SYS_munmap, syscall_ignore);
-    register_syscall(map, SYS_mprotect, syscall_ignore);
-    register_syscall(map, SYS_madvise, syscall_ignore);
+    register_syscall(map, mincore, mincore);
+    register_syscall(map, mmap, mmap);
+    register_syscall(map, mremap, mremap);
+    register_syscall(map, munmap, syscall_ignore);
+    register_syscall(map, mprotect, syscall_ignore);
+    register_syscall(map, madvise, syscall_ignore);
 }
 

@@ -130,6 +130,8 @@ struct file {
 
 typedef struct file *file;
 
+struct syscall;
+
 typedef struct process {
     unix_heaps uh;		/* non-thread-specific */
     int pid;
@@ -146,7 +148,7 @@ typedef struct process {
     fault_handler handler;
     vector threads;
     u64 sigmask;
-    void **syscall_handlers;
+    struct syscall *syscalls;
     vector files;
     rangemap vmap;                /* virtual areas */
 } *process;
@@ -201,18 +203,18 @@ static inline time_t time_t_from_time(timestamp t)
     return t / TIMESTAMP_SECOND;
 }
 
-static inline void register_syscall(void **m, int i, sysreturn (*f)())
-{
-    m[i]= f;
-}
+void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *name);
 
-void register_file_syscalls(void **);
-void register_net_syscalls(void **);
-void register_signal_syscalls(void **);
-void register_mmap_syscalls(void **);
-void register_thread_syscalls(void **);
-void register_poll_syscalls(void **);
-void register_clock_syscalls(void **);
+#define register_syscall(m, n, f) _register_syscall(m, SYS_##n, f, #n)
+
+void register_file_syscalls(struct syscall *);
+void register_net_syscalls(struct syscall *);
+void register_signal_syscalls(struct syscall *);
+void register_mmap_syscalls(struct syscall *);
+void register_thread_syscalls(struct syscall *);
+void register_poll_syscalls(struct syscall *);
+void register_clock_syscalls(struct syscall *);
+void register_other_syscalls(struct syscall *);
 
 boolean poll_init(unix_heaps uh);
 boolean pipe_init(unix_heaps uh);
@@ -222,7 +224,7 @@ extern sysreturn syscall_ignore();
 context default_fault_handler(thread t, context frame);
 boolean unix_fault_page(u64 vaddr);
 
-void thread_log_internal(thread t, char *desc, ...);
+void thread_log_internal(thread t, const char *desc, ...);
 #define thread_log(__t, __desc, ...) thread_log_internal(__t, __desc, ##__VA_ARGS__)
 // this should always be current
 void thread_sleep(thread) __attribute__((noreturn));
