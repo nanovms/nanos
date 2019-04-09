@@ -1,0 +1,13 @@
+(
+    children:(
+        kernel:(contents:(host:output/stage3/bin/stage3.img))
+        nullpage:(contents:(host:output/test/runtime/bin/nullpage))
+    )
+    program:/nullpage
+#    trace:t
+#    debugsyscalls:t
+#    futex_trace:t
+    fault:t
+    arguments:[nullpage]
+    environment:(USER:bobby PWD:/)
+)

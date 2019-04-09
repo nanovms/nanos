@@ -8,6 +8,7 @@ PROGRAMS= \
 	hwg \
 	hws \
 	mkdir \
+	nullpage \
 	pipe \
 	sendfile \
 	time \
@@ -34,6 +35,11 @@ LDFLAGS-hws=		-static
 
 SRCS-mkdir=		$(CURDIR)/mkdir.c
 LDFLAGS-mkdir=		-static
+
+SRCS-nullpage=		$(CURDIR)/nullpage.c
+# use -O0 so that clang does not generate UD2 instruction for the code with undefined behavior
+CFLAGS-nullpage.c=	-O0
+LDFLAGS-nullpage=	-static
 
 SRCS-pipe= \
 	$(CURDIR)/pipe.c \
