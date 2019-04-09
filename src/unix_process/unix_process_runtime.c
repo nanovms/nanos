@@ -139,3 +139,8 @@ tuple parse_arguments(heap h, int argc, char **argv)
 
     return t;
 }
+
+void print_stack_from_here()
+{
+    // empty for now
+}
