@@ -9,7 +9,7 @@ VENDORDIR=	$(ROOTDIR)/vendor
 UNAME_s=	$(shell uname -s)
 
 # To reveal verbose build messages, override Q= in command line.
-Q	?= @
+Q=		@
 
 ECHO=		echo
 CAT=		cat
@@ -89,19 +89,19 @@ msg_ld=		LD	$@
 cmd_ld=		$(LD) $(LDFLAGS) $(LDFLAGS-$(@F)) $(OBJS_BEGIN) $(filter %.o,$^) $(LIBS-$(@F)) $(OBJS_END) -o $@
 
 msg_cc=		CC	$@
-cmd_cc=		$(CC) $(CFLAGS) $(CFLAGS-$(@F)) -c $< -o $@
+cmd_cc=		$(CC) $(CFLAGS) $(CFLAGS-$(<F)) -c $< -o $@
 
 msg_mkdep=	MKDEP	$@
-cmd_mkdep=	$(CC) -M -MG -MP -MT "$(call objfile,.o,$<) $(call objfile,.d,$<)" $(CFLAGS) $(CFLAGS-$(@F)) $< -o $@
+cmd_mkdep=	$(CC) -M -MG -MP -MT "$(call objfile,.o,$<) $(call objfile,.d,$<)" $(CFLAGS) $(CFLAGS-$(<F)) $< -o $@
 
 msg_nasm=	NASM	$@
-cmd_nasm=	$(NASM) $(AFLAGS) $(AFLAGS-$(@F)) $< -o $@
+cmd_nasm=	$(NASM) $(AFLAGS) $(AFLAGS-$(<F)) $< -o $@
 
 msg_go=		GO	$@
 cmd_go=		$(GO_ENV) $(GO) build $(GOFLAGS) -o $@ $^
 
 msg_strip=	STRIP	$@
-cmd_strip=	$(STRIP) $(STRIPFLAGS) $(STRIPFLAGS_$(@F)) $< -o $@
+cmd_strip=	$(STRIP) $(STRIPFLAGS) $(STRIPFLAGS-$(<F)) $< -o $@
 
 msg_contgen=	CONTGEN	$@
 cmd_contgen=	$(CONTGEN) 10 10 >$@
