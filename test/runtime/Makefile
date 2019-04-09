@@ -143,8 +143,7 @@ SRCS-write= \
 	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-write=		-static
 
-CFLAGS+=	-DHOST_BUILD \
-		-DENABLE_MSG_DEBUG
+CFLAGS+=	-DENABLE_MSG_DEBUG
 CFLAGS+=	-I$(SRCDIR)/runtime \
 		-I$(SRCDIR)/unix \
 		-I$(SRCDIR)/unix_process \
