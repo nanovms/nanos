@@ -5,7 +5,8 @@
 #include <gdb.h>
 #include <virtio.h>
 
-void print_tuple_noparents(buffer b, tuple z)
+// copied from print_tuple()
+void print_root(buffer b, tuple z)
 {
     table t = valueof(z);
     boolean sub = false;
@@ -15,13 +16,12 @@ void print_tuple_noparents(buffer b, tuple z)
             push_character(b, ' ');
         }
         bprintf(b, "%b:", symbol_string((symbol)n));
-        if (n == sym_this(".") || n == sym_this(".."))
-            continue;
-        // xxx print value
-        if (tagof(v) == tag_tuple) {
-            print_tuple_noparents(b, v);
-        } else {
-            bprintf(b, "%b", v);
+        if (n != sym_this(".") && n != sym_this("..") && n != sym_this("special")) {
+            if (tagof(v) == tag_tuple) {
+                print_root(b, v);
+            } else {
+                bprintf(b, "%b", v);
+            }
         }
         sub = true;
     }
@@ -33,10 +33,10 @@ static void read_program_complete(process kp, tuple root, buffer b)
 {
     if (table_find(root, sym(trace))) {
         rprintf("read program complete: %p ", root);
-        rprintf("gitversion: %s", gitversion);
+        rprintf("gitversion: %s ", gitversion);
 
         buffer b = allocate_buffer(transient, 64);
-        print_tuple_noparents(b, root);
+        print_root(b, root);
         debug(b);
         deallocate_buffer(b);
         rprintf("\n");

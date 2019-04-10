@@ -15,9 +15,9 @@ sysreturn sigprocmask(int how, u64 *new, u64 *old)
     return 0;
 }
 
-void register_signal_syscalls(void **map)
+void register_signal_syscalls(struct syscall *map)
 {
-    register_syscall(map, SYS_rt_sigprocmask, sigprocmask);
-    register_syscall(map, SYS_rt_sigaction, sigaction);
-    register_syscall(map, SYS_sigaltstack, syscall_ignore);    
+    register_syscall(map, rt_sigprocmask, sigprocmask);
+    register_syscall(map, rt_sigaction, sigaction);
+    register_syscall(map, sigaltstack, syscall_ignore);
 }
