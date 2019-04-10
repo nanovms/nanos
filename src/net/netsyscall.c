@@ -1043,21 +1043,20 @@ sysreturn getsockopt(int sockfd, int level, int optname, void *optval, socklen_t
     return 0;
 }
 
-void register_net_syscalls(void **map)
+void register_net_syscalls(struct syscall *map)
 {
-    register_syscall(map, SYS_socket, socket);
-    register_syscall(map, SYS_bind, bind);
-    register_syscall(map, SYS_listen, listen);
-    register_syscall(map, SYS_accept, accept);
-    register_syscall(map, SYS_accept4, accept4);    
-    register_syscall(map, SYS_connect, connect);
-    register_syscall(map, SYS_sendto, sendto);
-    register_syscall(map, SYS_recvfrom, recvfrom);
-    register_syscall(map, SYS_setsockopt, setsockopt);
-    register_syscall(map, SYS_connect, connect);
-    register_syscall(map, SYS_getsockname, getsockname);
-    register_syscall(map, SYS_getpeername, getpeername);    
-    register_syscall(map, SYS_getsockopt, getsockopt);
+    register_syscall(map, socket, socket);
+    register_syscall(map, bind, bind);
+    register_syscall(map, listen, listen);
+    register_syscall(map, accept, accept);
+    register_syscall(map, accept4, accept4);
+    register_syscall(map, connect, connect);
+    register_syscall(map, sendto, sendto);
+    register_syscall(map, recvfrom, recvfrom);
+    register_syscall(map, setsockopt, setsockopt);
+    register_syscall(map, getsockname, getsockname);
+    register_syscall(map, getpeername, getpeername);
+    register_syscall(map, getsockopt, getsockopt);
 }
 
 boolean netsyscall_init(unix_heaps uh)

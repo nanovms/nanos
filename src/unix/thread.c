@@ -253,22 +253,22 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
     return 0;
 }
 
-void register_thread_syscalls(void **map)
+void register_thread_syscalls(struct syscall *map)
 {
-    register_syscall(map, SYS_futex, futex);
-    register_syscall(map, SYS_clone, clone);
-    register_syscall(map, SYS_arch_prctl, arch_prctl);
-    register_syscall(map, SYS_set_tid_address, set_tid_address);
-    register_syscall(map, SYS_gettid, gettid);
+    register_syscall(map, futex, futex);
+    register_syscall(map, clone, clone);
+    register_syscall(map, arch_prctl, arch_prctl);
+    register_syscall(map, set_tid_address, set_tid_address);
+    register_syscall(map, gettid, gettid);
 }
 
-void thread_log_internal(thread t, char *desc, ...)
+void thread_log_internal(thread t, const char *desc, ...)
 {
     if (table_find(t->p->process_root, sym(trace))) {
         vlist ap;
         vstart (ap, desc);        
         buffer b = allocate_buffer(transient, 100);
-        bprintf(b, "%n%d ", (int) ((t->tid - 1) * 8), t->tid);
+        bprintf(b, "%n%d ", (int) ((MAX(MIN(t->tid, 20), 1) - 1) * 4), t->tid);
         buffer f = alloca_wrap_buffer(desc, runtime_strlen(desc));
         vbprintf(b, f, &ap);
         push_u8(b, '\n');
