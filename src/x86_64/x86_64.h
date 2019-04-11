@@ -185,6 +185,7 @@ typedef struct queue *queue;
 extern queue runqueue;
 
 heap physically_backed(heap meta, heap virtual, heap physical, heap pages, u64 pagesize);
+void physically_backed_dealloc_virtual(heap h, u64 x, bytes length);
 void print_stack(context c);
 void print_frame(context f);
 #include <synth.h>

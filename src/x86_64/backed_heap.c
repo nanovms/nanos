@@ -7,19 +7,32 @@ typedef struct backed {
     heap pages;
 } *backed;
 
-static void physically_backed_dealloc(heap h, u64 x, bytes length)
+void physically_backed_dealloc_virtual(heap h, u64 x, bytes length)
 {
-    backed b = (backed)h;
-    if ((x & (h->pagesize-1)) | (length & (h->pagesize-1))) {
+    backed b = (backed)h;       /* XXX need to keep track of heap type... */
+    u64 padlen = pad(length, h->pagesize);
+    if ((x & (h->pagesize-1))) {
 	msg_err("attempt to free unaligned area at %lx, length %x; leaking\n", x, length);
 	return;
     }
 
-    deallocate(b->physical, physical_from_virtual(pointer_from_u64(x)), length);
-    deallocate(b->virtual, pointer_from_u64(x), length);
-    unmap(x, length, b->pages);
+    deallocate(b->virtual, pointer_from_u64(x), padlen);
+    unmap(x, padlen, b->pages);
 }
 
+static void physically_backed_dealloc(heap h, u64 x, bytes length)
+{
+    backed b = (backed)h;
+    u64 padlen = pad(length, h->pagesize);
+    if ((x & (h->pagesize-1))) {
+	msg_err("attempt to free unaligned area at %lx, length %x; leaking\n", x, length);
+	return;
+    }
+
+    deallocate(b->physical, physical_from_virtual(pointer_from_u64(x)), padlen);
+    deallocate(b->virtual, pointer_from_u64(x), padlen);
+    unmap(x, padlen, b->pages);
+}
 
 static u64 physically_backed_alloc(heap h, bytes length)
 {
