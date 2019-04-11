@@ -61,7 +61,10 @@ distclean: clean
 ##############################################################################
 # tests
 
-.PHONY: test test-noaccel
+.PHONY: test-all test test-noaccel
+
+test-all:
+	$(Q) $(MAKE) -C test
 
 test test-noaccel: mkfs boot stage3
 	$(Q) $(MAKE) -C test test

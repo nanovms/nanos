@@ -35,7 +35,7 @@ void tuple_signature(tuple t, signature dest)
 
 static inline boolean signature_equal(void *a, void* b)
 {
-    return compare_bytes(a, b, sizeof(struct signature));
+    return runtime_memcmp(a, b, sizeof(struct signature));
 }
 
 static inline key signature_key(void *z)

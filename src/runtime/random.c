@@ -11,7 +11,7 @@ u64 random_u64(void) {
 
     s1 ^= s0;
     // xxx - no 32 bits
-#ifndef BITS32    
+#ifndef BOOT
     s[0] = rol(s0, 55) ^ s1 ^ (s1 << 14); // a, b
     s[1] = rol(s1, 36); // c
 #endif
