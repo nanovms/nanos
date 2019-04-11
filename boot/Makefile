@@ -23,7 +23,7 @@ SRCS-stage2.elf= \
 	$(SRCDIR)/tfs/tfs.c \
 	$(SRCDIR)/tfs/tlog.c
 
-CFLAGS+=	$(KERNCFLAGS) -DBOOT
+CFLAGS+=	$(KERNCFLAGS) -DBOOT -DPAGE_USE_FLUSH
 CFLAGS+= \
 	-I$(CURDIR) \
 	-I$(SRCDIR)/tfs \
