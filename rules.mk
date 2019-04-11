@@ -50,6 +50,7 @@ KERNCFLAGS=	-nostdinc \
 		-mno-sse2 \
 		-fdata-sections \
 		-ffunction-sections
+KERNCFLAGS+=	-fno-omit-frame-pointer
 KERNLDFLAGS=	--gc-sections -n
 
 TARGET_ROOT=	$(NANOS_TARGET_ROOT)
