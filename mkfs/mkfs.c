@@ -223,10 +223,7 @@ static void fsc(heap h, descriptor out, const char *target_root, filesystem fs, 
 static void usage(const char *program_name)
 {
     const char *p = strrchr(program_name, '/');
-    if (p != NULL)
-        p++;
-    else
-        p = program_name;
+    p = p != NULL ? p + 1 : program_name;
     printf("Usage: %s [-b boot-image] [-r target-root] image-file < manifest-file\n"
            "\n"
            "-b	- specify boot image to prepend\n"
