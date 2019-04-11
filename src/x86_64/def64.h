@@ -32,8 +32,6 @@ typedef u64 bytes;
      __r = d;\
  }
 
-void print_number(buffer s, u64 x, int base, int pad);
-
 /* These are defined as functions to avoid multiple evaluation of x. */
 static inline u16
 __bswap16(u16 _x)
