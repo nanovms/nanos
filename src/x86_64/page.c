@@ -139,6 +139,10 @@ static boolean force_entry(heap h, page b, u64 v, physical p, int level,
                remove and free them when possible. This will avoid the
                occasional invalidate caused by lingering mid
                directories without entries */
+
+            /* by default, middle entries must have user and writable flags
+               set, for the result is the AND of these middle dir bits */
+            flags |= PAGE_WRITABLE | PAGE_USER;
 	    return force_entry(h, pointer_from_u64(b[offset] & ~PAGEMASK),
 			       v, p, level + 1, fat, flags, invalidate);
 	} else {
@@ -209,6 +213,61 @@ boolean validate_virtual(void *base, u64 length)
     }
     return true;
 }
+
+/* Update access protection flags for any pages mapped within a given area
+
+   Again, we should consider resolving which pages are mapped via some
+   other structure.
+ */
+
+void update_map_flags(u64 vaddr, u64 length, u64 flags)
+{
+    u64 e = vaddr + length;
+    u64 p = vaddr;
+    page pb = pagebase(), l1, l2;
+    u64 l3, l4;
+
+    /* this is fucking ridiculous, refactor with validate and clean this shit up */
+    while (p < e) {
+        u64 n1 = p + U64_FROM_BIT(PT1);
+        if ((l1 = pt_lookup(pb, p, PT1))) {
+            u64 e1 = MIN(n1, e);
+            while(p < e1) {
+                u64 n2 = p + U64_FROM_BIT(PT2);
+                if ((l2 = pt_lookup(l1, p, PT2))) {
+                    u64 e2 = MIN(n2, e);
+                    while(p < e2) {
+                        u64 n3 = p + U64_FROM_BIT(PT3);
+                        l3 = l2[pindex(p, PT3)];
+                        if ((l3 & PAGE_PRESENT)) {
+                            if ((l3 & PAGE_2M_SIZE)) {
+                                l2[pindex(p, PT3)] = (l3 & ~PAGE_PROT_FLAGS) | flags;
+                                rprintf("update: l3 0x%lx -> 0x%lx\n", l3, l2[pindex(p, PT3)]);
+                            } else {
+                                u64 e3 = MIN(n3, e);
+                                while(p < e3) {
+                                    u64 n4 = p + U64_FROM_BIT(PT4);
+                                    page l3p = (page)pointer_from_u64(l3 & ~PAGEMASK);
+                                    l4 = l3p[pindex(p, PT4)];
+                                    if ((l4 & PAGE_PRESENT)) {
+                                        l3p[pindex(p, PT4)] = (l4 & ~PAGE_PROT_FLAGS) | flags;
+                                        rprintf("update: l4 0x%lx -> 0x%lx\n", l4, l3p[pindex(p, PT4)]);
+                                    }
+                                    p = n4;
+                                }
+                            }
+                        }
+                        p = n3;
+                    }
+                }
+                p = n2;
+            }
+        }
+        p = n1;
+    }
+}
+
+#endif
 
 // error processing
 static void map_range(u64 virtual, physical p, int length, u64 flags, heap h)

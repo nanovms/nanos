@@ -236,6 +236,7 @@ void install_fallback_fault_handler(fault_handler h);
 #define PAGE_WRITABLE U64_FROM_BIT(1)
 #define PAGE_PRESENT U64_FROM_BIT(0)
 
+#define PAGE_PROT_FLAGS (PAGE_NO_EXEC | PAGE_USER | PAGE_WRITABLE)
 #define PAGE_DEV_FLAGS (PAGE_WRITABLE | PAGE_WRITETHROUGH | PAGE_NO_EXEC)
 
 void map(u64 virtual, physical p, int length, u64 flags, heap h);

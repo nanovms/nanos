@@ -1085,7 +1085,7 @@ static sysreturn brk(void *x)
             u64 phys = allocate_u64(heap_physical(kh), alloc);
             if (phys == INVALID_PHYSICAL)
                 return -ENOMEM;
-            /* XXX prob shouldn't assume no exec */
+            /* XXX no exec configurable? */
             map(u64_from_pointer(p->brk), phys, alloc, PAGE_WRITABLE | PAGE_NO_EXEC, heap_pages(kh));
             // people shouldn't depend on this
             zero(p->brk, alloc);

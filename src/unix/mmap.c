@@ -57,16 +57,23 @@ static u64 map_flags_from_vmap(vmap vm)
     return flags;
 }
 
-boolean unix_fault_page(u64 vaddr)
+boolean unix_fault_page(u64 vaddr, context frame)
 {
     process p = current->p;
     kernel_heaps kh = get_kernel_heaps();
-    vmap vm;
+    u64 error_code = frame[FRAME_ERROR_CODE];
 
-    if ((vm = (vmap)rangemap_lookup(p->vmap, vaddr)) != INVALID_ADDRESS) {
+    if ((error_code & FRAME_ERROR_P) == 0) {
+        vmap vm = (vmap)rangemap_lookup(p->vmap, vaddr);
+        if (vm == INVALID_ADDRESS) {
+            msg_err("no vmap found for vaddr 0x%lx\n", vaddr);
+            return false;
+        }
+
         u32 flags = VMAP_FLAG_MMAP | VMAP_FLAG_ANONYMOUS;
         if ((vm->flags & flags) != flags) {
-            msg_err("vaddr 0x%lx matched vmap with invalid flags (0x%x)\n", vaddr, vm->flags);
+            msg_err("vaddr 0x%lx matched vmap with invalid flags (0x%x)\n",
+                    vaddr, vm->flags);
             return false;
         }
 
@@ -77,12 +84,28 @@ boolean unix_fault_page(u64 vaddr)
             return false;
         }
         u64 vaddr_aligned = vaddr & ~MASK(PAGELOG);
+//        rprintf("FOO addr 0x%lx, flags 0x%lx\n", vaddr, map_flags_from_vmap(vm));
         map(vaddr_aligned, paddr, PAGESIZE, map_flags_from_vmap(vm), heap_pages(kh));
+
+        /* XXX this kludge can be removed after moving to k/u split */
+        u64 cr0_save;
+        mov_from_cr("cr0", cr0_save);
+        set_page_write_protect(false);
         zero(pointer_from_u64(vaddr_aligned), PAGESIZE);
+        mov_to_cr("cr0", cr0_save);
         return true;
+    } else {
+        /* page protection violation */
+        rprintf("Page protection violation: addr 0x%lx, rip 0x%lx, "
+                "error %s%s%s\n", vaddr, frame[FRAME_RIP],
+                (error_code & FRAME_ERROR_RW) ? "W" : "R",
+                (error_code & FRAME_ERROR_US) ? "U" : "S",
+                (error_code & FRAME_ERROR_ID) ? "I" : "D");
+
+        if ((error_code & FRAME_ERROR_RSV))
+            rprintf("bug: pte reserved\n");
+        return false;
     }
-    msg_err("no vmap found for vaddr 0x%lx\n", vaddr);
-    return false;
 }
 
 static vmap allocate_vmap(heap h, rangemap rm, range r, u64 flags)
@@ -268,8 +291,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
         vmap vmap_start = (vmap)rangemap_lookup(p->vmap, where);
         vmap vmap_end = (vmap)rangemap_lookup(p->vmap, end);
         if (vmap_start != INVALID_ADDRESS &&
-            vmap_end == vmap_start &&
-            (vmap_start->flags & VMAP_FLAG_ANONYMOUS) == 0) {
+            vmap_end == vmap_start) {
             mapped = true;
             vm = vmap_start;
         } else {
@@ -358,11 +380,21 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
 
     // make a generic zero page function
     if (flags & MAP_ANONYMOUS) {
+        thread_log(current, "   anon target: %s, %lx, len: %lx (given size: %lx)",
+                   mapped ? "existing" : "new", where, len, size);
         if (mapped) {
-            /* just zero */
-            zero(pointer_from_u64(where), len);
-        } else {
-            thread_log(current, "   anon nomap target: %lx, len: %lx (given size: %lx)", where, len, size);
+            if ((vm->flags & VMAP_FLAG_ANONYMOUS) == 0) {
+                /* anon overlaid on backed mapping; just zero */
+                zero(pointer_from_u64(where), len);
+            }
+
+            /* XXX need to check if a new vmap is required... */
+
+            if (vm->flags != vmflags) {
+                thread_log(current, "   new vm flags: 0x%lx\n", vmflags);
+                vm->flags = vmflags;
+                update_map_flags(where, len, map_flags_from_vmap(vm));
+            }
         }
         return where;
     }

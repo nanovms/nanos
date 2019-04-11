@@ -26,6 +26,12 @@
 
 #define FRAME_VECTOR 24
 
+#define FRAME_ERROR_P   0x01    /* prot violation */
+#define FRAME_ERROR_RW  0x02    /* write access */
+#define FRAME_ERROR_US  0x04    /* user access */
+#define FRAME_ERROR_RSV 0x08    /* pte reserved set */
+#define FRAME_ERROR_ID  0x10    /* instruction fetch */
+
 #define FRAME_ERROR_CODE 25
 #define FRAME_FAULT_HANDLER 26
 #define FRAME_STACK_TOP 27
