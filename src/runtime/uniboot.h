@@ -11,9 +11,8 @@
 // this is to avoid colliding with the kernel when running on stage3.
 #ifdef STAGE3
 #define va_tag_offset 40
-
 #else
-#include "unix_process_runtime.h"
+#define va_tag_offset 44
 #endif
 
 static inline void* tag(void* v, u64 tval) {
@@ -26,5 +25,4 @@ static inline u16 tagof(void* v) {
 
 #define valueof(__x) (__x)
 
-
-#endif
+#endif // BOOT

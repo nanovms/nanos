@@ -31,9 +31,6 @@ static void bread(descriptor d, void *dest, range blocks, status_handler c)
     apply(c, STATUS_OK);
 }
 
-
-boolean compare_bytes(void *a, void *b, bytes len);
-
 CLOSURE_1_1(write_file, void, buffer, buffer);
 void write_file(buffer path, buffer b)
 {

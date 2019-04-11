@@ -38,7 +38,7 @@ void elf_symbols(buffer elf, closure_type(each, void, char *, u64, u64, u8))
             char * name = elf_string(elf, section_names, s->sh_name);
             if (!name)
                 goto out_elf_fail;
-            if (compare_bytes(name, symbol_string_name, sizeof(symbol_string_name)-1))
+            if (runtime_memcmp(name, symbol_string_name, sizeof(symbol_string_name)-1))
                 symbol_strings = s;
         }
         s++;
