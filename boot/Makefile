@@ -9,8 +9,10 @@ SRCS-stage2.elf= \
 	$(SRCDIR)/runtime/random.c \
 	$(SRCDIR)/runtime/range.c \
 	$(SRCDIR)/runtime/runtime_init.c \
+	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/symbol.c \
 	$(SRCDIR)/runtime/table.c \
+	$(SRCDIR)/runtime/timer.c \
 	$(SRCDIR)/runtime/tuple.c \
 	$(SRCDIR)/runtime/merge.c \
 	$(SRCDIR)/runtime/string.c \
@@ -21,7 +23,7 @@ SRCS-stage2.elf= \
 	$(SRCDIR)/tfs/tfs.c \
 	$(SRCDIR)/tfs/tlog.c
 
-CFLAGS+=	$(KERNCFLAGS) -DBOOT -DPAGE_USE_FLUSH
+CFLAGS+=	$(KERNCFLAGS) -DBOOT
 CFLAGS+= \
 	-I$(CURDIR) \
 	-I$(SRCDIR)/tfs \
