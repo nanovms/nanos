@@ -56,10 +56,10 @@ TARGET_ROOT=	$(NANOS_TARGET_ROOT)
 GCC_VER=	6
 # crtbegin/crtend for dynamically linked executables
 OBJS_CRTBEGIN_D=-dynamic-linker /lib64/ld-linux-x86-64.so.2 $(TARGET_ROOT)/usr/lib/x86_64-linux-gnu/Scrt1.o $(TARGET_ROOT)/usr/lib/x86_64-linux-gnu/crti.o $(TARGET_ROOT)/usr/lib/gcc/x86_64-linux-gnu/$(GCC_VER)/crtbeginS.o
-OBJS_CRTEND_D=	-L=/usr/lib/x86_64-linux-gnu -L=/usr/lib/gcc/x86_64-linux-gnu/6 -lc $(TARGET_ROOT)/usr/lib/gcc/x86_64-linux-gnu/$(GCC_VER)/crtendS.o $(TARGET_ROOT)/usr/lib/x86_64-linux-gnu/crtn.o
+OBJS_CRTEND_D=	-L=/usr/lib/x86_64-linux-gnu -L=/usr/lib/gcc/x86_64-linux-gnu/$(GCC_VER) -lc $(TARGET_ROOT)/usr/lib/gcc/x86_64-linux-gnu/$(GCC_VER)/crtendS.o $(TARGET_ROOT)/usr/lib/x86_64-linux-gnu/crtn.o
 # crtbegin/crtend for statically linked executables
 OBJS_CRTBEGIN=	$(TARGET_ROOT)/usr/lib/x86_64-linux-gnu/crt1.o $(TARGET_ROOT)/usr/lib/x86_64-linux-gnu/crti.o $(TARGET_ROOT)/usr/lib/gcc/x86_64-linux-gnu/$(GCC_VER)/crtbeginT.o
-OBJS_CRTEND=	-L=/usr/lib/x86_64-linux-gnu -L=/usr/lib/gcc/x86_64-linux-gnu/6 --start-group -lgcc -lgcc_eh -lc --end-group $(TARGET_ROOT)/usr/lib/gcc/x86_64-linux-gnu/$(GCC_VER)/crtend.o $(TARGET_ROOT)/usr/lib/x86_64-linux-gnu/crtn.o
+OBJS_CRTEND=	-L=/usr/lib/x86_64-linux-gnu -L=/usr/lib/gcc/x86_64-linux-gnu/$(GCC_VER) --start-group -lgcc -lgcc_eh -lc --end-group $(TARGET_ROOT)/usr/lib/gcc/x86_64-linux-gnu/$(GCC_VER)/crtend.o $(TARGET_ROOT)/usr/lib/x86_64-linux-gnu/crtn.o
 
 ##############################################################################
 # functions
