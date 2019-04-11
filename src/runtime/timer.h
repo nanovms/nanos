@@ -11,6 +11,7 @@ void print_timestamp(buffer, timestamp);
 timestamp timer_check();
 void runloop_timer(timestamp duration);
 timestamp now();
+timestamp uptime();
 
 #define THOUSAND (1000ull)
 #define MILLION (1000000ull)

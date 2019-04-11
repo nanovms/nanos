@@ -68,6 +68,10 @@ timestamp now() {
     return rtc_offset + clock_function();
 }
 
+timestamp uptime() {
+    return clock_function();
+}
+
 /* system timer that is reserved for processing the global timer heap */
 void runloop_timer(timestamp duration)
 {

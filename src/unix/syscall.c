@@ -58,7 +58,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, lchown, 0);
     register_syscall(map, umask, 0);
     register_syscall(map, getrusage, 0);
-    register_syscall(map, sysinfo, 0);
     register_syscall(map, times, 0);
     register_syscall(map, ptrace, 0);
     register_syscall(map, syslog, 0);
@@ -1229,6 +1228,21 @@ sysreturn prctl(int option, u64 arg2, u64 arg3, u64 arg4, u64 arg5)
     return 0;
 }
 
+sysreturn sysinfo(struct sysinfo *info)
+{
+    if (info == 0)
+        return set_syscall_error(current, EINVAL);
+
+    kernel_heaps kh = get_kernel_heaps();
+    runtime_memset((u8 *) info, 0, sizeof(*info));
+    info->uptime = uptime();
+    info->totalram = id_heap_total(kh->physical);
+    info->freeram = info->totalram < kh->physical->allocated ? 0 : info->totalram - kh->physical->allocated;
+    info->procs = 1;
+    info->mem_unit = 1;
+    return 0;
+}
+
 void register_file_syscalls(struct syscall *map)
 {
     register_syscall(map, read, read);
@@ -1280,6 +1294,7 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, setuid, syscall_ignore);
     register_syscall(map, setgid, syscall_ignore);
     register_syscall(map, prctl, prctl);
+    register_syscall(map, sysinfo, sysinfo);
 }
 
 struct syscall {

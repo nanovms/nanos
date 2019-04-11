@@ -9,6 +9,7 @@ typedef struct id_range {
 typedef struct id_heap {
     struct heap h;
     u64 page_order;
+    u64 total;
     heap meta;
     heap parent;
     vector ranges;
@@ -59,6 +60,7 @@ static id_range id_add_range(id_heap i, u64 base, u64 length)
 	return INVALID_ADDRESS;
     }
     vector_push(i->ranges, r);
+    i->total += length;
 #ifdef ID_HEAP_DEBUG
     msg_debug("added range base %lx, length %lx\n", base, length);
 #endif
@@ -170,6 +172,7 @@ heap allocate_id_heap(heap h, bytes pagesize)
     i->h.destroy = id_destroy;
     i->h.allocated = 0;
     i->page_order = msb(pagesize);
+    i->total = 0;
     i->meta = h;
     i->parent = 0;
     i->ranges = allocate_vector(h, 1);
@@ -200,6 +203,12 @@ boolean id_heap_reserve(heap h, u64 base, u64 length)
         }
     }
     return false;
+}
+
+u64 id_heap_total(heap h)
+{
+    id_heap i = (id_heap)h;
+    return i->total;
 }
 
 heap create_id_heap(heap h, u64 base, u64 length, bytes pagesize)

@@ -54,6 +54,25 @@ struct linux_dirent64 {
     char           d_name[]; /* Filename (null-terminated) */
 };
 
+struct sysinfo {
+    u64 uptime;         /* Seconds since boot */
+    u64 loads[3];       /* 1, 5, and 15 minute load averages */
+    u64 totalram;       /* Total usable main memory size */
+    u64 freeram;        /* Available memory size */
+    u64 sharedram;      /* Amount of shared memory */
+    u64 bufferram;      /* Memory used by buffers */
+
+    u64 totalswap;      /* Total swap space size */
+    u64 freeswap;       /* Swap space still available */
+    u16 procs;          /* Number of current processes */
+    u16 pad;
+    u64 totalhigh;      /* Total high memory size */
+    u64 freehigh;       /* Available high memory size */
+    u32 mem_unit;       /* Memory unit size in bytes */
+    char _f[20-2*sizeof(u64)-sizeof(u32)];
+                        /* Padding to 64 bytes */
+};
+
 #define CPU_SET_SIZE    1024
 #define CPU_SET_WORDS   (CPU_SET_SIZE >> 6)
 typedef struct {

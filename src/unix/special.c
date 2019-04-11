@@ -38,6 +38,7 @@ static special_file
 special_files[] = {
     { "/dev/urandom", .read = urandom_read, .write = 0, .events = urandom_events },
     { "/dev/null", .read = null_read, .write = null_write, .events = null_events },
+    { "/sys/devices/system/cpu/cpu0", .read = null_read, .write = null_write, .events = null_events },
 };
 
 void register_special_files(process p)
@@ -46,6 +47,10 @@ void register_special_files(process p)
 
     /* TODO: create parent directories */
     filesystem_mkdir(p->fs, 0, "/dev", false);
+    filesystem_mkdir(p->fs, 0, "/sys", false);
+    filesystem_mkdir(p->fs, 0, "/sys/devices", false);
+    filesystem_mkdir(p->fs, 0, "/sys/devices/system", false);
+    filesystem_mkdir(p->fs, 0, "/sys/devices/system/cpu", false);
 
     for (int i = 0; i < sizeof(special_files) / sizeof(special_files[0]); i++) {
         special_file *sf = special_files + i;
