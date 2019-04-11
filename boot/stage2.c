@@ -96,7 +96,7 @@ static void __attribute__((noinline)) kernel_read_complete(buffer kb)
     // stash away kernel elf image for use in stage3
     create_region(u64_from_pointer(buffer_ref(kb, 0)), pad(buffer_length(kb), PAGESIZE), REGION_KERNIMAGE);
 
-    void *k = load_elf(kb, 0, pages, physical);
+    void *k = load_elf(kb, 0, pages, physical, false);
     if (!k) {
         halt("kernel elf parse failed\n");
     }
@@ -182,6 +182,7 @@ void centry()
     cr0 |= 1<<1; // set MP EM
     cr4 |= 1<<9; // set osfxsr
     cr4 |= 1<<10; // set osxmmexcpt
+//    cr4 |= 1<<20; // set smep
     mov_to_cr("cr0", cr0);
     mov_to_cr("cr4", cr4);    
 

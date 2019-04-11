@@ -118,7 +118,7 @@ CLOSURE_2_1(load_interp_complete, void, thread, kernel_heaps, buffer);
 void load_interp_complete(thread t, kernel_heaps kh, buffer b)
 {
     u64 where = allocate_u64(heap_virtual_huge(kh), HUGE_PAGESIZE);
-    start_process(t, load_elf(b, where, heap_pages(kh), heap_physical(kh)));
+    start_process(t, load_elf(b, where, heap_pages(kh), heap_physical(kh), true));
 }
 
 process exec_elf(buffer ex, process kp)
@@ -174,7 +174,7 @@ process exec_elf(buffer ex, process kp)
 
     exec_debug("load start 0x%lx, end 0x%lx, offset 0x%lx\n",
                load_start, load_end, load_offset);
-    void * entry = load_elf(ex, load_offset, heap_pages(kh), heap_physical(kh));
+    void * entry = load_elf(ex, load_offset, heap_pages(kh), heap_physical(kh), true);
     proc->brk = pointer_from_u64(pad(load_end, PAGESIZE));
     exec_debug("entry %p, brk 0x%p\n", entry, proc->brk);
     build_exec_stack(heap_backed(kh), t, e, entry, load_start, root);

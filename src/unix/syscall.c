@@ -1335,10 +1335,12 @@ static void syscall_debug()
         context saveframe = running_frame;
         running_frame = syscall_frame;
         running_frame[FRAME_FAULT_HANDLER] = f[FRAME_FAULT_HANDLER];
+        set_page_write_protect(false);
         res = h(f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]);
         if (debugsyscalls)
             thread_log(current, "direct return: %ld, rsp 0x%lx", res, f[FRAME_RSP]);
         running_frame = saveframe;
+        set_page_write_protect(true);
     } else if (debugsyscalls) {
         if (s->name)
             thread_log(current, "nosyscall %s", s->name);

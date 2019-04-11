@@ -7,19 +7,31 @@
 #define GS_MSR 0xc0000101
 #define LSTAR 0xC0000082
 #define EFER_MSR 0xc0000080
-#define EFER_SCE 1
+#define EFER_SCE   0x0001
+#define EFER_LME   0x0100
+#define EFER_LMA   0x0400
+#define EFER_NXE   0x0800
+#define EFER_SVME  0x1000
+#define EFER_LMSLE 0x2000
+#define EFER_FFXSR 0x4000
+#define EFER_TCE   0x8000
 #define STAR_MSR 0xc0000081
 #define LSTAR_MSR 0xc0000082
 #define SFMASK_MSR 0xc0000084
 #define TSC_DEADLINE_MSR 0x6e0
 
+#define C0_WP   0x00010000
 #define INITIAL_MAP_SIZE (0xa000)
 
 #define VM_EXIT_GDB 0x7d
 #define VM_EXIT_FAULT 0x7e
 #define VM_EXIT_HALT 0x7f
 
-extern u64 cpuid();
+static inline void cpuid(u32 fn, u32 * v)
+{
+    asm volatile("cpuid" : "=a" (v[0]), "=b" (v[1]), "=c" (v[2]), "=d" (v[3]) : "0" (fn));
+}
+
 extern u64 read_msr(u64);
 extern void write_msr(u64, u64);
 extern u64 read_xmsr(u64);
@@ -28,15 +40,17 @@ extern void syscall_enter();
 
 #define HUGE_PAGESIZE 0x100000000ull
 
+#define mov_to_cr(__x, __y) asm volatile("mov %0,%%"__x : : "a"(__y) : "memory");
+#define mov_from_cr(__x, __y) asm volatile("mov %%"__x", %0" : "=a"(__y) : : "memory");
 
 static inline void enable_interrupts()
 {
-    asm ("sti");
+    asm volatile("sti");
 }
 
 static inline void disable_interrupts()
 {
-    asm ("cli");
+    asm volatile("cli");
 }
 
 /* returns -1 if x == 0, caller must check */
@@ -79,26 +93,25 @@ extern context running_frame;
 boolean breakpoint_insert(u64 a, u8 type, u8 length);
 boolean breakpoint_remove(u32 a);
 
-#define IRETURN(frame) __asm__("mov %0, %%rbx"::"g"(frame)); __asm__("jmp frame_return")
-#define ENTER(frame) __asm__("mov %0, %%rbx"::"g"(frame)); __asm__("jmp frame_enter")
+#define IRETURN(frame) asm volatile("mov %0, %%rbx"::"g"(frame)); asm("jmp frame_return")
+#define ENTER(frame) asm volatile("mov %0, %%rbx"::"g"(frame)); asm("jmp frame_enter")
 
 void msi_map_vector(int slot, int msislot, int vector);
 
 static inline void write_barrier()
 {
-    asm ("sfence");
+    asm volatile("sfence");
 }
 
 static inline void read_barrier()
 {
-    asm ("lfence" ::: "memory");
+    asm volatile("lfence" ::: "memory");
 }
 
 static inline void memory_barrier()
 {
-    asm ("mfence" ::: "memory");
+    asm volatile("mfence" ::: "memory");
 }
-
 
 static inline void set_syscall_handler(void *syscall_entry)
 {
@@ -109,16 +122,33 @@ static inline void set_syscall_handler(void *syscall_entry)
     // 32 is syscall cs, and ds is cs + 8
     write_msr(STAR_MSR, (cs<<48) | (cs<<32));
     write_msr(SFMASK_MSR, 0);
-    write_msr(EFER_MSR, read_msr(EFER_MSR) | EFER_SCE);
+
+    u64 efer_flags = EFER_SCE;
+    u32 v[4];
+    cpuid(0x80000001, v);
+    if (v[3] & (1 << 20)) {     /* EDX.NX */
+        efer_flags |= EFER_NXE;
+    } else {
+        msg_err("platform doesn't support no exec page protection\n");
+    }
+
+    write_msr(EFER_MSR, read_msr(EFER_MSR) | efer_flags);
 }
 
-static inline timestamp rdtsc(void)
+static inline void set_page_write_protect(boolean enable)
+{
+    u64 cr0;
+    mov_from_cr("cr0", cr0);
+    cr0 = enable ? (cr0 | C0_WP) : (cr0 & ~C0_WP);
+    mov_to_cr("cr0", cr0);
+}
+
+static inline u64 rdtsc(void)
 {
     u32 a, d;
-    asm("cpuid":::"%rax", "%rbx", "%rcx", "%rdx");
+    asm volatile("cpuid" ::: "%rax", "%rbx", "%rcx", "%rdx"); /* serialize execution */
     asm volatile("rdtsc" : "=a" (a), "=d" (d));
-
-    return (((timestamp)a) | (((timestamp)d) << 32));
+    return (((u64)a) | (((u64)d) << 32));
 }
 
 void init_clock(kernel_heaps kh);
@@ -133,7 +163,7 @@ char *register_name(u64 code);
 
 static inline word fetch_and_add(word* variable, word value)
 {
-    __asm__ volatile("lock; xadd %0, %1"
+    asm volatile("lock; xadd %0, %1"
                      : "+r" (value), "+m" (*variable) // input+output
                      : // No input-only
                      : "memory"
@@ -143,17 +173,17 @@ static inline word fetch_and_add(word* variable, word value)
 
 static inline void store_fence()
 {
-    __asm__ volatile("sfence");
+    asm volatile("sfence");
 }
 
 static inline void load_fence()
 {
-    __asm__ volatile("lfence");
+    asm volatile("lfence");
 }
 
 static inline void memory_fence()
 {
-    __asm__ volatile("mfence");
+    asm volatile("mfence");
 }
 
 // tuples
@@ -162,8 +192,8 @@ static inline void memory_fence()
 static inline u64 read_flags()
 {
     u64 out;
-    __asm__("pushf");
-    __asm__("pop %0":"=g"(out));
+    asm("pushf");
+    asm("pop %0":"=g"(out));
     return out;
 }
 
@@ -175,13 +205,10 @@ void physically_backed_dealloc_virtual(heap h, u64 x, bytes length);
 void print_stack(context c);
 void print_frame(context f);
 #include <synth.h>
-void *load_elf(buffer elf, u64 offset, heap pages, heap bss);
+void *load_elf(buffer elf, u64 offset, heap pages, heap bss, boolean user);
 void elf_symbols(buffer elf, closure_type(each, void, char *, u64, u64, u8));
 
 #include <symtab.h>
-
-#define mov_to_cr(__x, __y) __asm__("mov %0,%%"__x : : "a"(__y) : "memory");
-#define mov_from_cr(__x, __y) __asm__("mov %%"__x", %0" : "=a"(__y) : : "memory");
 
 typedef closure_type(fault_handler, context, context);
 

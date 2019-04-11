@@ -63,7 +63,7 @@ void elf_symbols(buffer elf, closure_type(each, void, char *, u64, u64, u8))
     msg_err("failed to parse elf file, len %d; check file image consistency\n", buffer_length(elf));
 }
 
-void *load_elf(buffer elf, u64 offset, heap pages, heap bss)
+void *load_elf(buffer elf, u64 offset, heap pages, heap bss, boolean user)
 {
     void * elf_end = buffer_ref(elf, buffer_length(elf));
     Elf64_Ehdr *e = buffer_ref(elf, 0);
@@ -79,12 +79,11 @@ void *load_elf(buffer elf, u64 offset, heap pages, heap bss)
             int ssize = pad(p->p_filesz + trim_offset, PAGESIZE);
 
             /* determine access permissions */
-            u64 flags = 0;
-            if ((p->p_flags & PF_X) == 0) {
+            u64 flags = user ? PAGE_USER : 0;
+            if ((p->p_flags & PF_X) == 0)
                 flags |= PAGE_NO_EXEC;
-                if ((p->p_flags & PF_W))
-                    flags |= PAGE_WRITABLE;
-            }
+            if ((p->p_flags & PF_W))
+                flags |= PAGE_WRITABLE;
             map(aligned + offset, phy, ssize, flags, pages);
 
             // always zero up to the next aligned page start

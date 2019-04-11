@@ -198,19 +198,6 @@ write_msr:
         ret
 .end:
 
-global_func cpuid
-cpuid:
-        mov eax, 1
-        cpuid
-        mov rax, rcx
-        shl rax, 0x20
-        ;;  its not clear how to clear the top bits of rdx in a more direct fashion
-        shl rdx, 0x20
-        shr rdx, 0x20                
-        or rax, rdx
-        ret
-.end:
-
 global_func read_xmsr
 read_xmsr:
         mov rcx, rdi

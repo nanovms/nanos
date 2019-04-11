@@ -1,0 +1,13 @@
+(
+    children:(
+        kernel:(contents:(host:output/stage3/bin/stage3.img))
+        paging:(contents:(host:output/test/runtime/bin/paging))
+    )
+    program:/paging
+#    trace:t
+#    debugsyscalls:t
+#    futex_trace:t
+    fault:t
+    arguments:[paging]
+    environment:(USER:bobby PWD:/)
+)

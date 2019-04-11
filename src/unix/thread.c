@@ -282,7 +282,8 @@ void run_thread(thread t)
 {
     current = t;
     thread_log(t, "run frame %p, RIP=%p", t->frame, t->frame[FRAME_RIP]);
-    running_frame  = t->frame;
+    running_frame = t->frame;
+    set_page_write_protect(true);
     IRETURN(running_frame);
 }
 
