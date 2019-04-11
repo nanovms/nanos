@@ -108,11 +108,7 @@ static void format_csum_buffer(buffer dest, struct formatter_state *s, vlist *a)
 static void format_timestamp(buffer dest, struct formatter_state *s, vlist *a)
 {
     timestamp t = varg(*a, timestamp);
-#ifdef BOOT
-    print_number(dest, t, 10, 0);
-#else
     print_timestamp(dest, t);
-#endif
 }
 
 static void format_range(buffer dest, struct formatter_state *s, vlist *a)

@@ -22,7 +22,6 @@ static inline u64 pindex(u64 x, u64 offset)
     return ((x >> offset) & MASK(9));
 }
 
-#ifndef physical_from_virtual
 static inline page pt_lookup(page table, u64 t, unsigned int x)
 {
     u64 a = table[pindex(t, x)];
@@ -30,7 +29,6 @@ static inline page pt_lookup(page table, u64 t, unsigned int x)
         return (page)pointer_from_u64(a & ~PAGEMASK);
     return 0;
 }
-#endif
 
 static inline page pagebase()
 {
@@ -179,7 +177,6 @@ static inline boolean map_page(page base, u64 v, physical p, heap h,
     return true;
 }
 
-#ifndef BITS32
 boolean validate_virtual(void *base, u64 length)
 {
     u64 e = u64_from_pointer(base) + length;    
@@ -211,7 +208,6 @@ boolean validate_virtual(void *base, u64 length)
     }
     return true;
 }
-#endif
 
 // error processing
 static void map_range(u64 virtual, physical p, int length, u64 flags, heap h)

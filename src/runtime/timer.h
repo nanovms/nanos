@@ -10,11 +10,7 @@ timestamp parse_time();
 void print_timestamp(buffer, timestamp);
 timestamp timer_check();
 void runloop_timer(timestamp duration);
-#ifdef BOOT
-static inline timestamp now() { return 0; } /* stub */
-#else
 timestamp now();
-#endif
 
 #define THOUSAND (1000ull)
 #define MILLION (1000000ull)

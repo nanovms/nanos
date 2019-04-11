@@ -24,13 +24,8 @@ static void format_pointer(buffer dest, struct formatter_state *s, vlist *a)
 {
     push_u8(dest, '0');
     push_u8(dest, 'x');
-#ifdef BITS32
-    u64 x = varg(*a, u32);
-    int pad = 8;
-#else
-    u64 x = varg(*a, u64);
-    int pad = 16;
-#endif
+    u64 x = varg(*a, word);
+    int pad = sizeof(word) * 2;
     print_number(dest, x, 16, pad);
 }
 
@@ -99,9 +94,7 @@ void init_runtime(kernel_heaps kh)
     ignore = closure(h, ignore_body);
     ignore_status = (void*)ignore;
     errheap = h;
-#ifndef BITS32
     initialize_timers(kh);
-#endif
 }
 
 #define STACK_CHK_GUARD 0x595e9fbd94fda766
