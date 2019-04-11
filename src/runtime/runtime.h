@@ -1,5 +1,8 @@
 #pragma once
 #include <uniboot.h>
+#if !defined(BOOT) && !defined(STAGE3)
+#include <unix_process_runtime.h>
+#endif
 typedef u8 boolean;
 typedef u32 character;
 
@@ -164,15 +167,6 @@ void debug(buffer);
 #else
 #define msg_debug(fmt, ...)
 #endif
-
-static inline boolean compare_bytes(void *a, void *b, bytes len)
-{
-    for (int i = 0; i < len ; i++) {
-        if (((u8 *)a)[i] != ((u8 *)b)[i])
-            return false;
-    }
-    return true;
-}
 
 // value is a pointer that we can meaningfully inquire about the type of 
 typedef void *value;
