@@ -133,6 +133,11 @@ static boolean force_entry(heap h, page b, u64 v, physical p, int level,
 	return true;
     } else {
 	if (*pte & PAGE_PRESENT) {
+            if (level == 3 && (*pte & PAGE_2M_SIZE)) {
+                console("\nforce_entry fail: attempting to map a 4K page over an "
+                        "existing 2M mapping\n");
+                return false;
+            }
             /* XXX when unmapping, add a check here to see if the
                directory page is completely unused, and explicitly
                remove and free them when possible. This will avoid the
