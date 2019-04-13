@@ -143,5 +143,5 @@ ACCEL?=		hvf
 # ACCEL=?	hax
 else
 REL_OS=		linux
-QEMU_ACCEL=	-accel kvm
+QEMU_ACCEL=	-enable-kvm
 endif
