@@ -683,21 +683,35 @@ void fixup_directory(tuple parent, tuple dir)
 
     table_foreach(c, k, v) {
         (void) k;
-        if (tagof(v) == tag_tuple && children(v)) {
+        if (tagof(v) == tag_tuple)
             fixup_directory(dir, v);
-        }
     }
 
     table_set(c, sym_this("."), dir);
     table_set(c, sym_this(".."), parent);
 }
 
-fs_status filesystem_mkentry(filesystem fs, tuple cwd, const char *fp, tuple entry, boolean persistent)
+static void do_mkentry(filesystem fs, tuple parent, const char *name, tuple entry, boolean persistent)
+{
+    symbol name_sym = sym_this(name);
+    tuple c = children(parent);
+    table_set(c, name_sym, entry);
+
+    /* XXX rather than ignore, there should be a wakeup on a sync blockq */
+    if (persistent) {
+        filesystem_write_eav(fs, c, name_sym, entry, ignore_status);
+        filesystem_flush_log(fs);
+    }
+
+    fixup_directory(parent, entry);
+}
+
+fs_status filesystem_mkentry(filesystem fs, tuple cwd, const char *fp, tuple entry, boolean persistent, boolean recursive)
 {
     tuple parent = cwd ? cwd : fs->root;
     assert(children(parent));
 
-    char *token, *rest, *basename = (char *)0;
+    char *token, *rest;
     fs_status status = FS_STATUS_OK;
 
     int fp_len = runtime_strlen(fp);
@@ -713,43 +727,40 @@ fs_status filesystem_mkentry(filesystem fs, tuple cwd, const char *fp, tuple ent
         tuple t = lookup(parent, sym_this(token));
         if (!t) {
             if (!final) {
+                if (recursive) {
+                    /* create intermediate directory */
+                    tuple dir = allocate_tuple();
+                    table_set(dir, sym(children), allocate_tuple());
+                    do_mkentry(fs, parent, token, dir, persistent);
+
+                    parent = dir;
+                    continue;
+                }
+
                 msg_err("a path component (\"%s\") is missing\n", token);
                 status = FS_STATUS_NOENT;
-                goto out_dealloc;
+                break;
             }
 
-            basename = token;
+            do_mkentry(fs, parent, token, entry, persistent);
             break;
         }
 
         if (final) {
             msg_err("final path component (\"%s\") already exists\n", token);
             status = FS_STATUS_EXIST;
-            goto out_dealloc;
+            break;
         }
 
         if (!children(t)) {
             msg_debug("a path component (\"%s\") is not a folder\n", token);
             status = FS_STATUS_NOTDIR;
-            goto out_dealloc;
+            break;
         }
 
         parent = t;
     }
 
-    symbol basename_sym = sym_this(basename);
-    tuple c = children(parent);
-    table_set(c, basename_sym, entry);
-
-    /* XXX rather than ignore, there should be a wakeup on a sync blockq */
-    if (persistent) {
-        filesystem_write_eav(fs, c, basename_sym, entry, ignore_status);
-        filesystem_flush_log(fs);
-    }
-
-    fixup_directory(parent, entry);
-
-out_dealloc:
     deallocate(fs->h, fp_copy, fp_len);
     return status;
 }
@@ -760,7 +771,7 @@ fs_status filesystem_mkdir(filesystem fs, tuple cwd, const char *fp, boolean per
     /* 'make it a folder' by attaching a children node to the tuple */
     table_set(dir, sym(children), allocate_tuple());
 
-    return filesystem_mkentry(fs, cwd, fp, dir, persistent);
+    return filesystem_mkentry(fs, cwd, fp, dir, persistent, false);
 }
 
 fs_status filesystem_creat(filesystem fs, tuple cwd, const char *fp, boolean persistent)
@@ -778,7 +789,7 @@ fs_status filesystem_creat(filesystem fs, tuple cwd, const char *fp, boolean per
     fsfile f = allocate_fsfile(fs, dir);
     fsfile_set_length(f, 0);
 
-    return filesystem_mkentry(fs, cwd, fp, dir, persistent);
+    return filesystem_mkentry(fs, cwd, fp, dir, persistent, false);
 }
 
 fsfile fsfile_from_node(filesystem fs, tuple n)
