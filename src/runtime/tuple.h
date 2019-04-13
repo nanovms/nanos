@@ -6,6 +6,7 @@ typedef struct dencoder *dencoder;
 
 void init_tuples(heap theap);
 void print_tuple(buffer b, tuple t);
+void print_root(buffer b, tuple t);
 
 void encode_tuple(buffer dest, table dictionary, tuple t);
 
