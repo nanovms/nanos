@@ -171,8 +171,8 @@ static sysreturn mincore(void *addr, u64 length, u8 *vec)
     return -ENOMEM;
 }
 
-CLOSURE_4_2(mmap_read_complete, void, thread, u64, u64, buffer, status, bytes);
-void mmap_read_complete(thread t, u64 where, u64 mmap_len, buffer b, status s, bytes length) {
+CLOSURE_5_2(mmap_read_complete, void, thread, u64, u64, boolean, buffer, status, bytes);
+void mmap_read_complete(thread t, u64 where, u64 mmap_len, boolean mapped, buffer b, status s, bytes length) {
     if (!is_ok(s)) {
         deallocate_buffer(b);
         set_syscall_error(t, EACCES);
@@ -187,14 +187,28 @@ void mmap_read_complete(thread t, u64 where, u64 mmap_len, buffer b, status s, b
     // mutal misalignment?...discontiguous backing?
     u64 length_padded = pad(length, PAGESIZE);
     u64 p = physical_from_virtual(buffer_ref(b, 0));
-    map(where, p, length_padded, pages);
+    if (mapped)
+        runtime_memcpy(pointer_from_u64(where), buffer_ref(b, 0), length);
+    else
+        map(where, p, length_padded, pages);
+
     if (length < length_padded)
         zero(pointer_from_u64(where + length), length_padded - length);
 
     if (length_padded < mmap_len) {
         u64 bss = pad(mmap_len, PAGESIZE) - length_padded;
-        map(where + length_padded, allocate_u64(physical, bss), bss, pages);
+        if (!mapped)
+            map(where + length_padded, allocate_u64(physical, bss), bss, pages);
         zero(pointer_from_u64(where + length_padded), bss);
+    }
+
+    if (mapped) {
+        deallocate_buffer(b);
+    } else {
+        /* XXX This is gross. Either support this within the buffer interface or use something besides
+           a buffer... */
+        physically_backed_dealloc_virtual(b->h, u64_from_pointer(buffer_ref(b, 0)), pad(mmap_len, b->h->pagesize));
+        deallocate(b->h, b, sizeof(struct buffer));
     }
 
     set_syscall_return(t, where);
@@ -327,12 +341,12 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     }
 
     file f = resolve_fd(current->p, fd);
-    thread_log(current, "  read file, blocking...");
+    thread_log(current, "  read file at 0x%lx, %s map, blocking...", where, mapped ? "existing" : "new");
 
     heap mh = heap_backed(kh);
     buffer b = allocate_buffer(mh, pad(len, mh->pagesize));
     filesystem_read(p->fs, f->n, buffer_ref(b, 0), len, offset,
-        closure(h, mmap_read_complete, current, where, len, b));
+                    closure(h, mmap_read_complete, current, where, len, mapped, b));
     runloop();
 }
 
