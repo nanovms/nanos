@@ -18,5 +18,3 @@ table symbol_table();
 typedef table tuple;
 tuple allocate_tuple();
 key key_from_symbol(void *z);
-boolean symbol_equal(void *a, void* b);
-
