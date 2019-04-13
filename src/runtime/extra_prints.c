@@ -63,6 +63,42 @@ void print_tuple(buffer b, tuple z)
     bprintf(b, ")");
 }
 
+// copied from print_tuple()
+static void _print_root(buffer b, tuple z, int indent, boolean is_children)
+{
+    table t = valueof(z);
+    boolean sub = false;
+    bprintf(b, "(");
+    if (is_children)
+        push_character(b, '\n');
+    table_foreach(t, n, v) {
+        if (sub) {
+            if (is_children)
+                push_character(b, '\n');
+            else
+                push_character(b, ' ');
+        }
+        bprintf(b, "%n%b:", is_children ? indent : 0, symbol_string((symbol)n));
+        if (n != sym_this(".") && n != sym_this("..") && n != sym(special)) {
+            if (tagof(v) == tag_tuple) {
+                boolean is_children = n == sym(children);
+                _print_root(b, v, is_children ? indent + 4 : indent, is_children);
+            } else {
+                bprintf(b, "%b", v);
+            }
+        }
+        sub = true;
+    }
+    if (is_children && indent >= 4)
+        bprintf(b, "\n%n", indent - 4);
+    bprintf(b, ")");
+}
+
+void print_root(buffer b, tuple z)
+{
+    _print_root(b, z, 0, true);
+}
+
 static void format_tuple(buffer dest, struct formatter_state *s, vlist *v)
 {
     print_tuple(dest, varg(*v, tuple));

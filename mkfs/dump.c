@@ -71,29 +71,6 @@ void readdir(filesystem fs, heap h, tuple w, buffer path)
     }
 }
 
-// copied from print_tuple()
-void print_root(buffer b, tuple z)
-{
-    table t = valueof(z);
-    boolean sub = false;
-    bprintf(b, "(");
-    table_foreach(t, n, v) {
-        if (sub) {
-            push_character(b, ' ');
-        }
-        bprintf(b, "%b:", symbol_string((symbol)n));
-        if (n != sym_this(".") && n != sym_this("..") && n != sym_this("special")) {
-            if (tagof(v) == tag_tuple) {
-                print_root(b, v);
-            } else {
-                bprintf(b, "%b", v);
-            }
-        }
-        sub = true;
-    }
-    bprintf(b, ")");
-}
-
 static CLOSURE_3_2(fsc, void, heap, buffer, tuple, filesystem, status);
 static void fsc(heap h, buffer b, tuple root, filesystem fs, status s)
 {
