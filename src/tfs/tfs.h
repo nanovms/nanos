@@ -43,7 +43,8 @@ typedef enum {
     FS_STATUS_NOTDIR,
 } fs_status;
 
-fs_status filesystem_mkentry(filesystem fs, tuple cwd, const char *fp, tuple entry, boolean persistent);
+fs_status filesystem_mkentry(filesystem fs, tuple cwd, const char *fp, tuple entry,
+    boolean persistent, boolean recursive);
 fs_status filesystem_mkdir(filesystem fs, tuple cwd, const char *fp, boolean persistent);
 fs_status filesystem_creat(filesystem fs, tuple cwd, const char *fp, boolean persistent);
 
