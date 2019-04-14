@@ -20,6 +20,13 @@ boolean rangemap_insert(rangemap rm, rmnode n)
     return true;
 }
 
+boolean rangemap_reinsert(rangemap rm, rmnode n, range k)
+{
+    rangemap_remove_node(rm, n);
+    n->r = k;
+    return rangemap_insert(rm, n);
+}
+
 boolean rangemap_remove_range(rangemap rm, range k)
 {
     boolean match = false;

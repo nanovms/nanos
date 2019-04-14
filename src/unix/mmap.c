@@ -11,6 +11,17 @@ typedef struct vmap {
     u64 flags;
 } *vmap;
 
+static boolean vmap_attr_equal(vmap a, vmap b)
+{
+    return a->vheap == b->vheap && a->flags == b->flags;
+}
+
+static void vmap_copy_attr(vmap dest, vmap src)
+{
+    dest->vheap = src->vheap;
+    dest->flags = src->flags;
+}
+
 /* Page faults may be caused by:
 
    - user program instructions
@@ -47,12 +58,12 @@ typedef struct vmap {
      onto the stack when invoking the exception handler
 */
 
-static u64 map_flags_from_vmap(vmap vm)
+static inline u64 page_map_flags(u64 vmflags)
 {
     u64 flags = 0;
-    if ((vm->flags & VMAP_FLAG_EXEC) == 0)
+    if ((vmflags & VMAP_FLAG_EXEC) == 0)
         flags |= PAGE_NO_EXEC;
-    if ((vm->flags & VMAP_FLAG_WRITABLE))
+    if ((vmflags & VMAP_FLAG_WRITABLE))
         flags |= PAGE_WRITABLE;
     return flags;
 }
@@ -85,7 +96,7 @@ boolean unix_fault_page(u64 vaddr, context frame)
         }
         u64 vaddr_aligned = vaddr & ~MASK(PAGELOG);
 //        rprintf("FOO addr 0x%lx, flags 0x%lx\n", vaddr, map_flags_from_vmap(vm));
-        map(vaddr_aligned, paddr, PAGESIZE, map_flags_from_vmap(vm), heap_pages(kh));
+        map(vaddr_aligned, paddr, PAGESIZE, page_map_flags(vm->flags), heap_pages(kh));
 
         /* XXX this kludge can be removed after moving to k/u split */
         u64 cr0_save;
@@ -108,12 +119,13 @@ boolean unix_fault_page(u64 vaddr, context frame)
     }
 }
 
-static vmap allocate_vmap(heap h, rangemap rm, range r, u64 flags)
+static vmap allocate_vmap(heap h, rangemap rm, range r, heap vheap, u64 flags)
 {
     vmap vm = allocate(h, sizeof(struct vmap));
     if (vm == INVALID_ADDRESS)
         return vm;
     rmnode_init(&vm->node, r);
+    vm->vheap = vheap;
     vm->flags = flags;
     if (!rangemap_insert(rm, &vm->node)) {
         deallocate(h, vm, sizeof(struct vmap));
@@ -168,11 +180,12 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
     vmap old_vm = (vmap)rangemap_lookup(p->vmap, u64_from_pointer(old_address));
     if (old_vm == INVALID_ADDRESS)
         return -EFAULT;
+    heap vheap = old_vm->vheap;
     u64 vmflags = old_vm->flags;
     rangemap_remove_node(p->vmap, &old_vm->node);
 
     /* create new vm with old attributes */
-    vmap vm = allocate_vmap(heap_general(kh), p->vmap, irange(vnew, vnew + maplen), vmflags);
+    vmap vm = allocate_vmap(heap_general(kh), p->vmap, irange(vnew, vnew + maplen), vheap, vmflags);
     if (vm == INVALID_ADDRESS) {
         msg_err("failed to allocate vmap\n");
         deallocate_u64(vh, vnew, maplen);
@@ -195,7 +208,7 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
     unmap(u64_from_pointer(old_address), old_size, pages);
 
     /* map existing portion */
-    u64 mapflags = map_flags_from_vmap(vm);
+    u64 mapflags = page_map_flags(vm->flags);
     thread_log(current, "   mapping existing portion at 0x%lx", vnew);
     map(vnew, oldphys, old_size, mapflags, pages);
 
@@ -262,6 +275,199 @@ void mmap_read_complete(thread t, u64 where, u64 mmap_len, boolean mapped, buffe
     thread_wakeup(t);
 }
 
+#if 0
+static CLOSURE_3_1(vmap_paint_intersection, void, heap, rangemap, vmap, rmnode);
+static void vmap_paint_intersection(heap h, rangemap pvmap, vmap q, rmnode node)
+{
+    vmap match = (vmap)node;
+    if (vmap_attr_equal(q, match))
+        return;
+
+    range rn = node->r;
+    range rq = q->node.r;
+    range ri = range_intersection(rq, rn);
+
+    /* attribute mismatch; check if we can just reuse matching node */
+    assert(range_span(ri) > 0); // XXX
+    if (range_equal(ri, rn)) {
+        /* key (range) remains the same, no need to reinsert */
+        vmap_copy_attr(match, q);
+        return;
+    }
+
+    /* trim match at both head and tail ends */
+    boolean head = ri.start > rn.start;
+    boolean tail = ri.end < rn.end;
+
+    if (head) {
+        /* truncate node at start */
+        range rh = { rn.start, ri.start };
+        u64 rtend = rn.end;
+        rangemap_reinsert(pvmap, node, rh);
+
+        if (tail) {
+            /* create node at tail end */
+            range rt = { ri.end, rtend };
+            vmap mt = allocate_vmap(h, pvmap, rt, match->vheap, match->flags);
+            assert(mt != INVALID_ADDRESS);
+            rangemap_insert(pvmap, mt);
+        }
+    } else if (tail) {
+        /* move node start back */
+        range rt = { ri.end, n->r.end };
+        rangemap_reinsert(pvmap, node, rt);
+    }
+}
+
+static CLOSURE_3_1(vmap_paint_gap, void, heap, rangemap, vmap, range);
+static void vmap_paint_gap(heap h, rangemap pvmap, vmap q, range r)
+{
+    vmap mt = allocate_vmap(h, pvmap, r, q->vheap, q->flags);
+    assert(mt != INVALID_ADDRESS);
+    rangemap_insert(pvmap, mt);
+}
+
+static void vmap_paint(heap h, rangemap pvmap, vmap q)
+{
+    range rq = q->node.r;
+    assert((r.start & MASK(PAGELOG)) == 0);
+    assert((r.end & MASK(PAGELOG)) == 0);
+    assert(range_span(r) > 0);
+
+    rmnode_handler nh = closure(h, vmap_paint_intersection, h, pvmap, q);
+    rangemap_range_lookup(pvmap, rq, nh);
+
+    range_handler rh = closure(h, vmap_paint_gap, h, pvmap, q);
+    rangemap_range_find_gaps(pvmap, rq, rh);
+
+    update_map_flags(rq.start, range_span(rq), map_flags(q->flags));
+}
+#endif
+
+/* XXX refactor */
+static CLOSURE_3_1(vmap_attribute_update_intersection, void, heap, rangemap, vmap, rmnode);
+static void vmap_attribute_update_intersection(heap h, rangemap pvmap, vmap q, rmnode node)
+{
+    vmap match = (vmap)node;
+    if (vmap_attr_equal(q, match))
+        return;
+
+    range rn = node->r;
+    range rq = q->node.r;
+    range ri = range_intersection(rq, rn);
+    assert(range_span(ri) > 0); // XXX
+
+    boolean head = ri.start > rn.start;
+    boolean tail = ri.end < rn.end;
+
+    /*
+      case 1: !head && !tail
+
+      node: |----------------|
+      q:    |----------------|  (can extend past node start or end)
+      attr: qqqqqqqqqqqqqqqqqq
+
+      case 2: head && !tail
+
+      node: |----------------|
+      q:       |---------------|
+      attr: nnnqqqqqqqqqqqqqqq
+
+      case 3: !head && tail
+
+      node:    |----------------|
+      q:    |---------------|
+      attr:    qqqqqqqqqqqqqqnnnn
+
+      case 4: head && tail
+
+      node: |----------------|
+      q:       |---------|
+      attr: nnnqqqqqqqqqqqnnnn
+
+    */
+
+    if (head) {
+        u64 rtend = rn.end;
+
+        /* split non-intersecting part of node */
+        range rhl = { rn.start, ri.start };
+        assert(rangemap_reinsert(pvmap, node, rhl));
+
+        /* create node for intersection */
+        vmap mh = allocate_vmap(h, pvmap, ri, q->vheap, q->flags);
+        assert(mh != INVALID_ADDRESS);
+        assert(rangemap_insert(pvmap, &mh->node));
+        
+        if (tail) {
+            /* create node at tail end */
+            range rt = { ri.end, rtend };
+            vmap mt = allocate_vmap(h, pvmap, rt, match->vheap, match->flags);
+            assert(mt != INVALID_ADDRESS);
+            assert(rangemap_insert(pvmap, &mt->node));
+        }
+    } else if (tail) {
+        /* move node start back */
+        range rt = { ri.end, node->r.end };
+        assert(rangemap_reinsert(pvmap, node, rt));
+
+        /* create node for intersection */
+        vmap mt = allocate_vmap(h, pvmap, ri, q->vheap, q->flags);
+        assert(mt != INVALID_ADDRESS);
+        assert(rangemap_insert(pvmap, &mt->node));
+    } else {
+        /* key (range) remains the same, no need to reinsert */
+        vmap_copy_attr(match, q);
+    }
+}
+
+static void vmap_attribute_update(heap h, rangemap pvmap, vmap q)
+{
+    range rq = q->node.r;
+    assert((rq.start & MASK(PAGELOG)) == 0);
+    assert((rq.end & MASK(PAGELOG)) == 0);
+    assert(range_span(rq) > 0);
+
+    rmnode_handler nh = closure(h, vmap_attribute_update_intersection, h, pvmap, q);
+    rangemap_range_lookup(pvmap, rq, nh);
+
+    update_map_flags(rq.start, range_span(rq), page_map_flags(q->flags));
+}
+
+sysreturn mprotect(void * addr, u64 len, int prot)
+{
+    rprintf("mprotect: addr %p, len 0x%lx, prot 0x%x\n", addr, len, prot);
+
+    if (len == 0)
+        return 0;
+
+    heap h = heap_general(get_kernel_heaps());
+    rangemap pvmap = current->p->vmap;
+    u64 where = u64_from_pointer(addr);
+    u64 padlen = pad(len, PAGESIZE);
+    if ((where & MASK(PAGELOG)))
+        return -EINVAL;
+
+    u64 new_vmflags = 0;
+    if ((prot & PROT_EXEC))
+        new_vmflags |= VMAP_FLAG_EXEC;
+    if ((prot & PROT_WRITE))
+        new_vmflags |= VMAP_FLAG_WRITABLE;
+
+    range r = { where, where + len };
+    struct vmap q;
+    q.node.r = r;
+//    q.vheap = resolve_vheap_for_range(r);
+    q.vheap = current->p->virtual_page; // XXX
+    q.flags = new_vmflags;
+
+    vmap_attribute_update(h, pvmap, &q);
+
+    /* update mapped pages */
+    update_map_flags(where, padlen, page_map_flags(new_vmflags));
+    return 0;
+}
+
 static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 offset)
 {
     process p = current->p;
@@ -273,7 +479,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     u64 end = where + size - 1;
     boolean fixed = (flags & MAP_FIXED) != 0;
     boolean mapped = false;
-    thread_log(current, "mmap: target %p, size %lx, prot %x, flags %x, fd %d, offset %lx",
+    rprintf("mmap: target %p, size %lx, prot %x, flags %x, fd %d, offset %lx",
 	       target, size, prot, flags, fd, offset);
 
     vmap vm = 0;
@@ -335,7 +541,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
                     u64 maplen = mapend - mapstart + 1;
 
                     if (id_heap_reserve(vh, mapstart, maplen)) {
-                        vm = allocate_vmap(h, p->vmap, irange(mapstart, mapstart + maplen), vmflags);
+                        vm = allocate_vmap(h, p->vmap, irange(mapstart, mapstart + maplen), vh, vmflags);
                         if (vm == INVALID_ADDRESS) {
                             msg_err("failed to allocate vmap\n");
                             return -ENOMEM;
@@ -370,7 +576,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
                     is_32bit ? "32-bit" : "", len);
             return -ENOMEM;
         }
-        vm = allocate_vmap(h, p->vmap, irange(where, where + maplen), vmflags);
+        vm = allocate_vmap(h, p->vmap, irange(where, where + maplen), vh, vmflags);
         if (vm == INVALID_ADDRESS) {
             msg_err("failed to allocate vmap\n");
             deallocate_u64(vh, where, maplen);
@@ -393,7 +599,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
             if (vm->flags != vmflags) {
                 thread_log(current, "   new vm flags: 0x%lx\n", vmflags);
                 vm->flags = vmflags;
-                update_map_flags(where, len, map_flags_from_vmap(vm));
+                update_map_flags(where, len, page_map_flags(vmflags));
             }
         }
         return where;
@@ -416,7 +622,7 @@ void register_mmap_syscalls(struct syscall *map)
     register_syscall(map, mmap, mmap);
     register_syscall(map, mremap, mremap);
     register_syscall(map, munmap, syscall_ignore);
-    register_syscall(map, mprotect, syscall_ignore);
+    register_syscall(map, mprotect, mprotect);
     register_syscall(map, madvise, syscall_ignore);
 }
 
