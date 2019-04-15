@@ -50,6 +50,15 @@ static inline void *valueof(void *v)
      __r = d;\
  }
 
+/* 64bit rol */
+#define ROL(__x, __b) __rolq(__x, __b)
+
+static inline u64 __rolq(u64 x, int b)
+{
+    b &= 63;
+    return (x << b) | (x >> (-b & 63));
+}
+
 static inline void print_stack_from_here()
 {
     // empty for now
