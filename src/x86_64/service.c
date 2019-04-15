@@ -149,6 +149,8 @@ static void __attribute__((noinline)) init_service_new_stack()
 
     runqueue = allocate_queue(misc, 64);
     init_clock(kh);
+    init_random(now());
+    __stack_chk_guard_init();
     start_interrupts(kh);
     init_extra_prints();
     init_runtime(kh);
@@ -269,7 +271,6 @@ static void init_kernel_heaps()
 // init linker set
 void init_service()
 {
-    __stack_chk_guard_init();
     init_kernel_heaps();
     u64 stack_size = 32*PAGESIZE;
     u64 stack_location = allocate_u64(heap_backed(&heaps), stack_size);

@@ -32,6 +32,12 @@ typedef u64 bytes;
      __r = d;\
  }
 
+#define ROL(__x, __b)\
+     ({\
+        __asm__("rolq %1, %0": "=g"(__x): "i" (__b));\
+        __x;\
+     })
+
 /* These are defined as functions to avoid multiple evaluation of x. */
 static inline u16
 __bswap16(u16 _x)

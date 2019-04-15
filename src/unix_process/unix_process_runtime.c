@@ -93,6 +93,7 @@ extern void init_extra_prints();
 heap init_process_runtime()
 {
     heaps.general = malloc_allocator();
+    init_random(now());
     init_runtime(&heaps);
     init_extra_prints();
     signal(SIGPIPE, SIG_IGN);

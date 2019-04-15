@@ -206,6 +206,7 @@ typedef closure_type(parse_error, void, buffer);
 typedef closure_type(parse_finish, void, void *);
 parser tuple_parser(heap h, parse_finish c, parse_error err);
 parser parser_feed (parser p, buffer b);
+void init_random(u64 seed);
 u64 random_u64();
 
 typedef struct signature {
