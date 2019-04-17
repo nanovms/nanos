@@ -2,21 +2,20 @@
 
 boolean rangemap_insert(rangemap rm, rmnode n)
 {
-    struct list * l;
     list_foreach(&rm->root, l) {
         rmnode curr = struct_from_list(l, rmnode, l);
         range i = range_intersection(curr->r, n->r);
-        /* check for overlap...kinda harsh to assert, add error handling... */
         if (range_span(i)) {
             /* XXX bark for now until we know we have all potential cases handled... */
-            msg_warn("attempt to insert range %R but overlap with %R (%p)\n",
-                     n->r, curr->r, curr);
+            msg_warn("attempt to insert %p (%R) but overlap with %p (%R)\n", n, n->r, curr, curr->r);
             return false;
         }
-        if (curr->r.start > n->r.start)
-            break;
+        if (curr->r.start > n->r.start) {
+            list_insert_before(l, &n->l);
+            return true;
+        }
     }
-    list_insert_before(l, &n->l);
+    list_insert_before(&rm->root, &n->l);
     return true;
 }
 
@@ -83,7 +82,6 @@ boolean rangemap_remove_range(rangemap rm, range k)
 
 rmnode rangemap_lookup(rangemap rm, u64 point)
 {
-    struct list * i;
     list_foreach(&rm->root, i) {
         rmnode curr = struct_from_list(i, rmnode, l);
         if (point_in_range(curr->r, point))
@@ -95,7 +93,6 @@ rmnode rangemap_lookup(rangemap rm, u64 point)
 /* return either an exact match or the neighbor to the right */
 rmnode rangemap_lookup_at_or_next(rangemap rm, u64 point)
 {
-    struct list * i;
     list_foreach(&rm->root, i) {
         rmnode curr = struct_from_list(i, rmnode, l);
         if (point_in_range(curr->r, point) ||
@@ -109,7 +106,6 @@ rmnode rangemap_lookup_at_or_next(rangemap rm, u64 point)
 boolean rangemap_range_lookup(rangemap rm, range q, rmnode_handler nh)
 {
     boolean match = false;
-    struct list * i;
     list_foreach(&rm->root, i) {
         rmnode curr = struct_from_list(i, rmnode, l);
         range i = range_intersection(curr->r, q);
@@ -128,7 +124,6 @@ boolean rangemap_range_find_gaps(rangemap rm, range q, range_handler rh)
 {
     boolean match = false;
     u64 lastedge = q.start;
-    struct list * l;
     list_foreach(&rm->root, l) {
         rmnode curr = struct_from_list(l, rmnode, l);
         u64 edge = curr->r.start;

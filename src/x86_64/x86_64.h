@@ -227,6 +227,7 @@ void handle_interrupts();
 void install_fallback_fault_handler(fault_handler h);
 
 #define PAGE_NO_EXEC U64_FROM_BIT(63)
+#define PAGE_NO_FAT U64_FROM_BIT(9) /* AVL[0] */
 #define PAGE_2M_SIZE U64_FROM_BIT(7)
 #define PAGE_DIRTY U64_FROM_BIT(6)
 #define PAGE_ACCESSED U64_FROM_BIT(5)
