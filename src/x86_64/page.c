@@ -320,8 +320,6 @@ void update_map_flags(u64 vaddr, u64 length, u64 flags)
     }
 }
 
-#endif
-
 // error processing
 static void map_range(u64 virtual, physical p, int length, u64 flags, heap h)
 {

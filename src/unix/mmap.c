@@ -244,8 +244,9 @@ static sysreturn mincore(void *addr, u64 length, u8 *vec)
     return -ENOMEM;
 }
 
-CLOSURE_5_2(mmap_read_complete, void, thread, u64, u64, boolean, buffer, status, bytes);
-void mmap_read_complete(thread t, u64 where, u64 mmap_len, boolean mapped, buffer b, status s, bytes length) {
+static CLOSURE_6_2(mmap_read_complete, void, thread, u64, u64, boolean, buffer, u64, status, bytes);
+static void mmap_read_complete(thread t, u64 where, u64 mmap_len, boolean mapped, buffer b, u64 mapflags,
+                               status s, bytes length) {
     if (!is_ok(s)) {
         deallocate_buffer(b);
         set_syscall_error(t, EACCES);
@@ -263,7 +264,7 @@ void mmap_read_complete(thread t, u64 where, u64 mmap_len, boolean mapped, buffe
     if (mapped)
         runtime_memcpy(pointer_from_u64(where), buffer_ref(b, 0), length);
     else
-        map(where, p, length_padded, pages);
+        map(where, p, length_padded, mapflags, pages);
 
     if (length < length_padded)
         zero(pointer_from_u64(where + length), length_padded - length);
@@ -271,7 +272,7 @@ void mmap_read_complete(thread t, u64 where, u64 mmap_len, boolean mapped, buffe
     if (length_padded < mmap_len) {
         u64 bss = pad(mmap_len, PAGESIZE) - length_padded;
         if (!mapped)
-            map(where + length_padded, allocate_u64(physical, bss), bss, pages);
+            map(where + length_padded, allocate_u64(physical, bss), bss, mapflags, pages);
         zero(pointer_from_u64(where + length_padded), bss);
     }
 
@@ -506,38 +507,6 @@ sysreturn mprotect(void * addr, u64 len, int prot)
     return 0;
 }
 
-CLOSURE_5_1(mmap_load_entire, void, thread, u64, u64, u64, u64, buffer);
-void mmap_load_entire(thread t, u64 where, u64 len, u64 offset, u64 mapflags, buffer b) {
-    kernel_heaps kh = (kernel_heaps)&t->uh;
-    heap pages = heap_pages(kh);
-    heap physical = heap_physical(kh);
-
-    u64 msize = 0;
-    u64 blen = buffer_length(b);
-    if (blen > offset)
-        msize = pad(blen - offset, PAGESIZE);
-    if (msize > len)
-        msize = len;
-
-    // mutal misalignment?...discontiguous backing?
-    u64 p = physical_from_virtual(buffer_ref(b, offset));
-    map(where, p, msize, mapflags, pages);
-
-    if (len > msize) {
-        u64 bss = pad(len, PAGESIZE) - msize;
-        map(where + msize, allocate_u64(physical, bss), bss, mapflags, pages);
-        zero(pointer_from_u64(where + msize), bss);
-    }
-    set_syscall_return(t, where);
-    thread_wakeup(t);
-}
-
-static CLOSURE_1_1(mmap_load_entire_fail, void, thread, status);
-void mmap_load_entire_fail(thread t, status v) {
-    set_syscall_error(t, EACCES);
-    thread_wakeup(t);
-}
-
 static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 offset)
 {
     process p = current->p;
@@ -682,7 +651,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     heap mh = heap_backed(kh);
     buffer b = allocate_buffer(mh, pad(len, mh->pagesize));
     filesystem_read(p->fs, f->n, buffer_ref(b, 0), len, offset,
-                    closure(h, mmap_read_complete, current, where, len, mapped, b));
+                    closure(h, mmap_read_complete, current, where, len, mapped, b, page_map_flags(vmflags)));
     runloop();
 }
 
