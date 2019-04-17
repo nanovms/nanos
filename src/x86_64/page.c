@@ -14,10 +14,10 @@ typedef u64 *page;
 
 static const int level_shift[5] = { -1, PT1, PT2, PT3, PT4 };
 
-static inline u64 physical_from_pte(u64 pte)
+static inline page page_from_pte(u64 pte)
 {
     /* page directory pointer base address [51:12] */
-    return pte & (MASK(52) & ~PAGEMASK);
+    return (page)pointer_from_u64(pte & (MASK(52) & ~PAGEMASK));
 }
 
 static inline u64 pindex(u64 x, u64 offset)
@@ -29,7 +29,7 @@ static inline page pt_lookup(page table, u64 t, unsigned int x)
 {
     u64 a = table[pindex(t, x)];
     if (a & 1) 
-        return (page)pointer_from_u64(physical_from_pte(a));
+        return page_from_pte(a);
     return 0;
 }
 
@@ -227,33 +227,71 @@ static inline u64 pt_level_end(u64 p, int level)
     return (p & ~MASK(level)) + U64_FROM_BIT(level);
 }
 
-boolean validate_virtual(void *base, u64 length)
-{
-    u64 e = u64_from_pointer(base) + length;    
-    u64 p  = u64_from_pointer(base);
-    page pb = pagebase(), l1, l2, l3;
+#define for_level(base, start, end, level, levelend)                    \
+    for (u64 addr ## level = start, next ## level, end ## level, * pte ## level; \
+         next ## level = pt_level_end(addr ## level, PT ## level),      \
+             end ## level = MIN(next ## level, end), addr ## level < levelend; \
+         addr ## level = next ## level)                                 \
+        if ((*(pte ## level = ((u64*)base) + pindex(addr ## level, PT ## level)) & PAGE_PRESENT))
 
-    while (p < e) {
-        if (!(l1 = pt_lookup(pb, p, PT1))) return false;
-        u64 e1 = MIN(pt_level_end(p, PT1), e);
-        while(p < e1) {
-            if (!(l2 =  pt_lookup(l1, p, PT2))) return false;
-            u64 e2 = MIN(pt_level_end(p, PT2), e);
-            while(p < e2) {
-                if (!(l3 = pt_lookup(l2, p, PT3))) return false;
-                if (l2[pindex(p, PT3)] & PAGE_2M_SIZE) {
-                    p += 1ull<<PT3;
+boolean validate_virtual(void * base, u64 length)
+{
+    u64 start = u64_from_pointer(base);
+    u64 end = start + length;
+    rprintf("validate base %p, len 0x%lx...\n", base, length);
+    for_level(pagebase(), start, end, 1, end) {
+        for_level(page_from_pte(*pte1), addr1, end, 2, end1) {
+            for_level(page_from_pte(*pte2), addr2, end, 3, end2) {
+                if ((*pte3 & PAGE_2M_SIZE) == 0) {
+                    for_level(page_from_pte(*pte3), addr3, end, 4, end3) {
+                        (void)end4;
+                    } else {
+                        return false;
+                    }
+                }
+            } else {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    } else {
+        return false;
+    }
+    rprintf("pass\n");
+    return true;
+}
+
+typedef closure_type(page_handler, void, u64, u64 *);
+
+static void traverse_range(u64 vaddr, u64 length, page_handler ph)
+{
+    u64 end = vaddr + length;
+
+    for_level(pagebase(), vaddr, end, 1, end) {
+        for_level(page_from_pte(*pte1), addr1, end, 2, end1) {
+            for_level(page_from_pte(*pte2), addr2, end, 3, end2) {
+                if ((*pte3 & PAGE_2M_SIZE)) {
+                    apply(ph, addr3, pte3);
                 } else {
-                    u64 e3 = MIN(pt_level_end(p, PT3), e);
-                    while(p < e3) {
-                        if (!pt_lookup(l3, p, PT4)) return false;
-                        p += 1ull<<PAGELOG;
+                    for_level(page_from_pte(*pte3), addr3, end, 4, end3) {
+                        apply(ph, addr4, pte4);
+                        (void)end4;
                     }
                 }
             }
         }
     }
-    return true;
+}
+
+static CLOSURE_1_2(update_pte_flags, void, u64, u64, u64 *);
+static void update_pte_flags(u64 flags, u64 addr, u64 * pte)
+{
+    u64 old = *pte;
+    *pte = (old & ~PAGE_PROT_FLAGS) | flags;
+#ifdef PAGE_UPDATE_DEBUG
+    rprintf("  update 0x%lx: pte @ 0x%lx, 0x%lx -> 0x%lx\n", addr, pte, old, *pte);
+#endif
 }
 
 /* Update access protection flags for any pages mapped within a given area
@@ -264,60 +302,12 @@ boolean validate_virtual(void *base, u64 length)
 
 void update_map_flags(u64 vaddr, u64 length, u64 flags)
 {
-    u64 e = vaddr + length;
-    u64 p = vaddr;
-    page pb = pagebase(), l1, l2;
-    u64 l3, l4;
-
     flags &= ~PAGE_NO_FAT;
 #ifdef PAGE_UPDATE_DEBUG
     rprintf("update_map_flags: vaddr 0x%lx, length 0x%lx, flags 0x%lx\n", vaddr, length, flags);
 #endif
 
-    /* this is fucking ridiculous, refactor with validate and clean this shit up */
-    while (p < e) {
-        u64 n1 = pt_level_end(p, PT1);
-        if ((l1 = pt_lookup(pb, p, PT1))) {
-            u64 e1 = MIN(n1, e);
-            while(p < e1) {
-                u64 n2 = pt_level_end(p, PT2);
-                if ((l2 = pt_lookup(l1, p, PT2))) {
-                    u64 e2 = MIN(n2, e);
-                    while(p < e2) {
-                        u64 n3 = pt_level_end(p, PT3);
-                        l3 = l2[pindex(p, PT3)];
-                        if ((l3 & PAGE_PRESENT)) {
-                            if ((l3 & PAGE_2M_SIZE)) {
-                                l2[pindex(p, PT3)] = (l3 & ~PAGE_PROT_FLAGS) | flags;
-#ifdef PAGE_UPDATE_DEBUG
-                                rprintf("update: vaddr 0x%lx, l3 0x%lx -> 0x%lx\n",
-                                        p, l3, l2[pindex(p, PT3)]);
-#endif
-                            } else {
-                                u64 e3 = MIN(n3, e);
-                                while(p < e3) {
-                                    u64 n4 = pt_level_end(p, PT4);
-                                    page l3p = (page)pointer_from_u64(l3 & ~PAGEMASK);
-                                    l4 = l3p[pindex(p, PT4)];
-                                    if ((l4 & PAGE_PRESENT)) {
-                                        l3p[pindex(p, PT4)] = (l4 & ~PAGE_PROT_FLAGS) | flags;
-#ifdef PAGE_UPDATE_DEBUG
-                                        rprintf("update: vaddr 0x%lx, l4 0x%lx -> 0x%lx\n",
-                                                p, l4, l3p[pindex(p, PT4)]);
-#endif
-                                    }
-                                    p = n4;
-                                }
-                            }
-                        }
-                        p = n3;
-                    }
-                }
-                p = n2;
-            }
-        }
-        p = n1;
-    }
+    traverse_range(vaddr, length, closure(transient, update_pte_flags, flags));
 }
 
 // error processing
