@@ -186,7 +186,7 @@ void centry()
     mov_to_cr("cr0", cr0);
     mov_to_cr("cr4", cr4);    
 
-    /* Enable no-execute (NX) bits in ptes. */
+    /* Validate support for no-exec (NX) bits in ptes. */
     u32 v[4];
     cpuid(0x80000001, v);
     if (!(v[3] & (1 << 20))) {     /* EDX.NX */

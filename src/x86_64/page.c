@@ -235,7 +235,6 @@ boolean validate_virtual(void * base, u64 length)
 {
     u64 start = u64_from_pointer(base);
     u64 end = start + length;
-    rprintf("validate base %p, len 0x%lx...\n", base, length);
     for_level(pagebase(), start, end, 1, end) {
         for_level(page_from_pte(*pte1), addr1, end, 2, end1) {
             for_level(page_from_pte(*pte2), addr2, end, 3, end2) {
@@ -255,7 +254,6 @@ boolean validate_virtual(void * base, u64 length)
     } else {
         return false;
     }
-    rprintf("pass\n");
     return true;
 }
 

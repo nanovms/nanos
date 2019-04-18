@@ -8,6 +8,7 @@
 #    debugsyscalls:t
 #    futex_trace:t
     fault:t
-    arguments:[paging execwrite]
+# { execwrite, writeprotect, noexec }
+    arguments:[paging noexec]
     environment:(USER:bobby PWD:/)
 )
