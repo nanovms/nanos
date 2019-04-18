@@ -2,12 +2,9 @@
 
 //#define PAGE_DEBUG
 //#define PTE_DEBUG
+//#define PAGE_UPDATE_DEBUG
 
 #define PAGEMASK MASK(PAGELOG)
-#define PAGE_2M_SIZE U64_FROM_BIT(7)
-#define PAGE_USER U64_FROM_BIT(2)
-#define PAGE_WRITABLE U64_FROM_BIT(1)
-#define PAGE_PRESENT U64_FROM_BIT(0)
 typedef u64 *page;
 
 #define PT1 39
@@ -16,6 +13,12 @@ typedef u64 *page;
 #define PT4 12
 
 static const int level_shift[5] = { -1, PT1, PT2, PT3, PT4 };
+
+static inline page page_from_pte(u64 pte)
+{
+    /* page directory pointer base address [51:12] */
+    return (page)pointer_from_u64(pte & (MASK(52) & ~PAGEMASK));
+}
 
 static inline u64 pindex(u64 x, u64 offset)
 {
@@ -26,7 +29,7 @@ static inline page pt_lookup(page table, u64 t, unsigned int x)
 {
     u64 a = table[pindex(t, x)];
     if (a & 1) 
-        return (page)pointer_from_u64(a & ~PAGEMASK);
+        return page_from_pte(a);
     return 0;
 }
 
@@ -66,6 +69,34 @@ physical physical_from_virtual(void *x)
 }
 #endif
 
+#ifndef BOOT
+static u64 dump_lookup(u64 base, u64 t, unsigned int x)
+{
+    return page_from_pte(base)[pindex(t, x)];
+}
+
+void dump_ptes(void *x)
+{
+    u64 xt = u64_from_pointer(x);
+
+    rprintf("dump_ptes 0x%lx\n", x);
+    u64 l1 = dump_lookup((u64)pagebase(), xt, PT1);
+    rprintf("  l1: 0x%lx\n", l1);
+    if ((l1 & 1) == 0)
+        return;
+    u64 l2 = dump_lookup(l1, xt, PT2);
+    rprintf("  l2: 0x%lx\n", l2);
+    if ((l2 & 1) == 0)
+        return;
+    u64 l3 = dump_lookup(l2, xt, PT3);
+    rprintf("  l3: 0x%lx\n", l3);
+    if ((l3 & 1) == 0 || (l3 & PAGE_2M_SIZE))
+        return;
+    u64 l4 = dump_lookup(l3, xt, PT4);
+    rprintf("  l4: 0x%lx\n", l4);
+}
+#endif
+
 /* virtual from physical of n required if we move off the identity map for pages */
 static void write_pte(page target, physical to, u64 flags, boolean * invalidate)
 {
@@ -76,6 +107,7 @@ static void write_pte(page target, physical to, u64 flags, boolean * invalidate)
     console(" = ");
     print_u64(new);
 #endif
+    assert((new & PAGE_NO_FAT) == 0);
     if (*target == new) {
 #ifdef PTE_DEBUG
 	console(", pte same; no op");
@@ -120,6 +152,8 @@ static boolean force_entry(heap h, page b, u64 v, physical p, int level,
     u32 offset = pindex(v, level_shift[level]);
     page pte = b + offset;
 
+    assert((flags & PAGE_NO_FAT) == 0);
+
     if (level == (fat ? 3 : 4)) {
 #ifdef PTE_DEBUG
 	console("! ");
@@ -143,8 +177,8 @@ static boolean force_entry(heap h, page b, u64 v, physical p, int level,
                remove and free them when possible. This will avoid the
                occasional invalidate caused by lingering mid
                directories without entries */
-	    return force_entry(h, pointer_from_u64(b[offset] & ~PAGEMASK),
-			       v, p, level + 1, fat, flags, invalidate);
+
+	    return force_entry(h, page_from_pte(b[offset]), v, p, level + 1, fat, flags, invalidate);
 	} else {
 	    if (flags == 0)	/* only lookup for unmap */
 		return false;
@@ -159,16 +193,19 @@ static boolean force_entry(heap h, page b, u64 v, physical p, int level,
 	    console(", offset ");
 	    print_u64(offset);
 #endif
-	    write_pte(pte, u64_from_pointer(n), flags, invalidate);
+            /* user and writable are AND of flags from all levels */
+	    write_pte(pte, u64_from_pointer(n), PAGE_WRITABLE | PAGE_USER | PAGE_PRESENT, invalidate);
 	    return true;
 	}
     }
 }
 
 static inline boolean map_page(page base, u64 v, physical p, heap h,
-                               boolean fat, boolean flags, boolean * invalidate)
+                               boolean fat, u64 flags, boolean * invalidate)
 {
     boolean page_invalidate = false;
+//    rprintf("map_page: force entry base 0x%p, v 0x%lx, p 0x%lx, fat %d, flags 0x%lx\n",
+//            base, v, p, fat, flags);
     if (!force_entry(h, base, v, p, 1, fat, flags, &page_invalidate))
 	return false;
     if (page_invalidate) {
@@ -182,36 +219,85 @@ static inline boolean map_page(page base, u64 v, physical p, heap h,
     return true;
 }
 
-boolean validate_virtual(void *base, u64 length)
+static inline u64 pt_level_end(u64 p, int level)
 {
-    u64 e = u64_from_pointer(base) + length;    
-    u64 p  = u64_from_pointer(base);
-    page pb = pagebase(), l1, l2, l3;
+    return (p & ~MASK(level)) + U64_FROM_BIT(level);
+}
 
-    while (p < e) {
-        if (!(l1 = pt_lookup(pb, p, PT1))) return false;
-        u64 e1 = MIN(p + (1ull<<PT1), e);
-        while(p < e1) {
-            if (!(l2 =  pt_lookup(l1, p, PT2))) return false;
-            u64 e2 = MIN(p + (1ull<<PT2), e);
-            while(p < e2) {
-                if (!(l3 = pt_lookup(l2, p, PT3))) return false;
-                if (l2[pindex(p, PT3)] & PAGE_2M_SIZE) {
-                    p += 1ull<<PT3;
+#define for_level(base, start, end, level, levelend)                    \
+    for (u64 addr ## level = start, next ## level, end ## level, * pte ## level; \
+         next ## level = pt_level_end(addr ## level, PT ## level),      \
+             end ## level = MIN(next ## level, end), addr ## level < levelend; \
+         addr ## level = next ## level)                                 \
+        if ((*(pte ## level = ((u64*)base) + pindex(addr ## level, PT ## level)) & PAGE_PRESENT))
+
+boolean validate_virtual(void * base, u64 length)
+{
+    u64 start = u64_from_pointer(base);
+    u64 end = start + length;
+    for_level(pagebase(), start, end, 1, end) {
+        for_level(page_from_pte(*pte1), addr1, end, 2, end1) {
+            for_level(page_from_pte(*pte2), addr2, end, 3, end2) {
+                if ((*pte3 & PAGE_2M_SIZE) == 0) {
+                    for_level(page_from_pte(*pte3), addr3, end, 4, end3) {
+                        (void)end4;
+                    } else {
+                        return false;
+                    }
+                }
+            } else {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    } else {
+        return false;
+    }
+    return true;
+}
+
+typedef closure_type(page_handler, void, u64, u64 *);
+
+static void traverse_range(u64 vaddr, u64 length, page_handler ph)
+{
+    u64 end = vaddr + length;
+
+    for_level(pagebase(), vaddr, end, 1, end) {
+        for_level(page_from_pte(*pte1), addr1, end, 2, end1) {
+            for_level(page_from_pte(*pte2), addr2, end, 3, end2) {
+                if ((*pte3 & PAGE_2M_SIZE)) {
+                    apply(ph, addr3, pte3);
                 } else {
-                    u64 e3 = MIN(p + (1ull<<PT3), e);
-                    while(p < e3) {
-                        u64 e3 = MIN(p + (1ull<<PT3), e);
-                        while (p < e3) {
-                            if (!pt_lookup(l3, p, PT4)) return false;
-                            p += 1ull<<PAGELOG;
-                        }
+                    for_level(page_from_pte(*pte3), addr3, end, 4, end3) {
+                        apply(ph, addr4, pte4);
+                        (void)end4;
                     }
                 }
             }
         }
     }
-    return true;
+}
+
+static CLOSURE_1_2(update_pte_flags, void, u64, u64, u64 *);
+static void update_pte_flags(u64 flags, u64 addr, u64 * pte)
+{
+    u64 old = *pte;
+    *pte = (old & ~PAGE_PROT_FLAGS) | flags;
+#ifdef PAGE_UPDATE_DEBUG
+    rprintf("  update 0x%lx: pte @ 0x%lx, 0x%lx -> 0x%lx\n", addr, pte, old, *pte);
+#endif
+}
+
+/* Update access protection flags for any pages mapped within a given area */
+void update_map_flags(u64 vaddr, u64 length, u64 flags)
+{
+    flags &= ~PAGE_NO_FAT;
+#ifdef PAGE_DEBUG
+    rprintf("update_map_flags: vaddr 0x%lx, length 0x%lx, flags 0x%lx\n", vaddr, length, flags);
+#endif
+
+    traverse_range(vaddr, length, closure(transient, update_pte_flags, flags));
 }
 
 // error processing
@@ -251,8 +337,9 @@ static void map_range(u64 virtual, physical p, int length, u64 flags, heap h)
 
     boolean invalidate = false;
     for (int i = 0; i < len;) {
-	boolean fat = !(vo & MASK(PT3)) && !(po & MASK(PT3)) && ((len - i) >= (1ull<<PT3));
-	if (!map_page(pb, vo, po, h, fat, flags, &invalidate)) {
+	boolean fat = ((flags & PAGE_NO_FAT) == 0) && !(vo & MASK(PT3)) &&
+            !(po & MASK(PT3)) && ((len - i) >= (1ull<<PT3));
+	if (!map_page(pb, vo, po, h, fat, flags & ~PAGE_NO_FAT, &invalidate)) {
 	    if (flags == 0)
 		console("unmap: area missing page mappings\n");
 	    else
@@ -272,11 +359,9 @@ static void map_range(u64 virtual, physical p, int length, u64 flags, heap h)
     memory_fence();
 }
 
-void map(u64 virtual, physical p, int length, heap h)
+void map(u64 virtual, physical p, int length, u64 flags, heap h)
 {
-    // really set user?
-    u64 flags = PAGE_WRITABLE | PAGE_PRESENT | PAGE_USER;
-    map_range(virtual, p, length, flags, h);
+    map_range(virtual, p, length, flags | PAGE_PRESENT, h);
 }
 
 void unmap(u64 virtual, int length, heap h)

@@ -129,6 +129,8 @@ physical vtop(void *x);
 #ifndef physical_from_virtual
 physical physical_from_virtual(void *x);
 #endif
+void dump_ptes(void *x);
+void update_map_flags(u64 vaddr, u64 length, u64 flags);
 
 heap zero_wrap(heap meta, heap parent);
 

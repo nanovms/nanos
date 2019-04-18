@@ -304,7 +304,7 @@ static void enable_lapic(heap pages)
     // there is an msr that moves the physical
     u64 lapic = 0xfee00000;
     
-    map(u64_from_pointer(apic_base), lapic, PAGESIZE, pages);
+    map(u64_from_pointer(apic_base), lapic, PAGESIZE, PAGE_DEV_FLAGS, pages);
     // xxx - no one is listening
     create_region(u64_from_pointer(apic_base), PAGESIZE, REGION_VIRTUAL);
     

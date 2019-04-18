@@ -147,7 +147,11 @@ typedef struct iovec {
 #define MREMAP_MAYMOVE	1
 #define MREMAP_FIXED	2
 #define MAP_STACK	0x20000
-#define MAP_32BIT	0x40	
+#define MAP_32BIT	0x40
+
+#define PROT_READ       0x1
+#define PROT_WRITE      0x2
+#define PROT_EXEC       0x4
 
 // straight from linux
 #define ARCH_SET_GS 0x1001

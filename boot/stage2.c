@@ -86,17 +86,17 @@ static void __attribute__((noinline)) kernel_read_complete(buffer kb)
     create_region(pmem, identity_length, REGION_IDENTITY);
     void *vmbase = allocate_zero(pages, PAGESIZE);
     mov_to_cr("cr3", vmbase);
-    map(pmem, pmem, identity_length, pages);
+    map(pmem, pmem, identity_length, PAGE_WRITABLE | PAGE_PRESENT, pages);
     // going to some trouble to set this up here, but its barely
     // used in stage3
     stack -= (STACKLEN - 4);	/* XXX b0rk b0rk b0rk */
-    map(stack, stack, (u64)STACKLEN, pages);
-    map(0, 0, INITIAL_MAP_SIZE, pages);
+    map(stack, stack, (u64)STACKLEN, PAGE_WRITABLE, pages);
+    map(0, 0, INITIAL_MAP_SIZE, PAGE_WRITABLE | PAGE_PRESENT, pages);
 
     // stash away kernel elf image for use in stage3
     create_region(u64_from_pointer(buffer_ref(kb, 0)), pad(buffer_length(kb), PAGESIZE), REGION_KERNIMAGE);
 
-    void *k = load_elf(kb, 0, pages, physical);
+    void *k = load_elf(kb, 0, pages, physical, false);
     if (!k) {
         halt("kernel elf parse failed\n");
     }
@@ -182,8 +182,24 @@ void centry()
     cr0 |= 1<<1; // set MP EM
     cr4 |= 1<<9; // set osfxsr
     cr4 |= 1<<10; // set osxmmexcpt
+//    cr4 |= 1<<20; // set smep - use once we do kernel / user split
     mov_to_cr("cr0", cr0);
     mov_to_cr("cr4", cr4);    
+
+    /* Validate support for no-exec (NX) bits in ptes. */
+    u32 v[4];
+    cpuid(0x80000001, v);
+    if (!(v[3] & (1 << 20))) {     /* EDX.NX */
+        /* Note: It seems unlikely that we'd ever run into a platform
+           that doesn't support no-exec, but if we did and still
+           wanted to run, we could let this pass here and leave a
+           cookie for the page table code to mask out any attempt to
+           set NX. Otherwise, a page fault for use of reserved bits
+           will be thrown, or worse a sudden exit if a map() with NX
+           occurs before exception handler setup. NXE is set in
+           service32.s:run64. */
+        halt("halt: platform doesn't support no-exec page protection\n");
+    }
 
     // need to ignore the area we're running in
     // could reclaim stage2 before entering stage3

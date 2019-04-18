@@ -1085,7 +1085,8 @@ static sysreturn brk(void *x)
             u64 phys = allocate_u64(heap_physical(kh), alloc);
             if (phys == INVALID_PHYSICAL)
                 return -ENOMEM;
-            map(u64_from_pointer(p->brk), phys, alloc, heap_pages(kh));
+            /* XXX no exec configurable? */
+            map(u64_from_pointer(p->brk), phys, alloc, PAGE_WRITABLE | PAGE_NO_EXEC, heap_pages(kh));
             // people shouldn't depend on this
             zero(p->brk, alloc);
             p->brk += alloc;         
@@ -1334,10 +1335,13 @@ static void syscall_debug()
         context saveframe = running_frame;
         running_frame = syscall_frame;
         running_frame[FRAME_FAULT_HANDLER] = f[FRAME_FAULT_HANDLER];
+        /* XXX remove write protect toggle after kernel/user split */
+        set_page_write_protect(false);
         res = h(f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]);
         if (debugsyscalls)
             thread_log(current, "direct return: %ld, rsp 0x%lx", res, f[FRAME_RSP]);
         running_frame = saveframe;
+        set_page_write_protect(true);
     } else if (debugsyscalls) {
         if (s->name)
             thread_log(current, "nosyscall %s", s->name);

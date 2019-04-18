@@ -150,7 +150,7 @@ static void format_timestamp(buffer dest, struct formatter_state *s, vlist *a)
 static void format_range(buffer dest, struct formatter_state *s, vlist *a)
 {
     range r = varg(*a, range);
-    bprintf(dest, "[%ld %ld)", r.start, r.end);
+    bprintf(dest, "[0x%lx 0x%lx)", r.start, r.end);
 }
 
 void init_extra_prints()

@@ -41,7 +41,7 @@ context default_fault_handler(thread t, context frame)
         /* XXX move this to x86_64 */
         u64 fault_address;
         mov_from_cr("cr2", fault_address);
-        if (unix_fault_page(fault_address))
+        if (unix_fault_page(fault_address, frame))
             return frame;
     }
 
