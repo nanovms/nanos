@@ -261,10 +261,12 @@ static void mmap_read_complete(thread t, u64 where, u64 mmap_len, boolean mapped
     // mutal misalignment?...discontiguous backing?
     u64 length_padded = pad(length, PAGESIZE);
     u64 p = physical_from_virtual(buffer_ref(b, 0));
-    if (mapped)
+    if (mapped) {
+        update_map_flags(where, length, mapflags);
         runtime_memcpy(pointer_from_u64(where), buffer_ref(b, 0), length);
-    else
+    } else {
         map(where, p, length_padded, mapflags, pages);
+    }
 
     if (length < length_padded)
         zero(pointer_from_u64(where + length), length_padded - length);
@@ -273,6 +275,8 @@ static void mmap_read_complete(thread t, u64 where, u64 mmap_len, boolean mapped
         u64 bss = pad(mmap_len, PAGESIZE) - length_padded;
         if (!mapped)
             map(where + length_padded, allocate_u64(physical, bss), bss, mapflags, pages);
+        else
+            update_map_flags(where + length_padded, bss, mapflags);
         zero(pointer_from_u64(where + length_padded), bss);
     }
 

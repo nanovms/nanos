@@ -155,8 +155,6 @@ void init_clock(kernel_heaps kh);
 boolean using_lapic_timer(void);
 void serial_out(u8 a);
 
-boolean valiate_virtual(void *base, u64 length);
-
 // tuples
 char *interrupt_name(u64 code);
 char *register_name(u64 code);

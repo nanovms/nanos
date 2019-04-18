@@ -182,7 +182,7 @@ void centry()
     cr0 |= 1<<1; // set MP EM
     cr4 |= 1<<9; // set osfxsr
     cr4 |= 1<<10; // set osxmmexcpt
-//    cr4 |= 1<<20; // set smep
+//    cr4 |= 1<<20; // set smep - use once we do kernel / user split
     mov_to_cr("cr0", cr0);
     mov_to_cr("cr4", cr4);    
 

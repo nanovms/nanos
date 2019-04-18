@@ -80,20 +80,20 @@ void dump_ptes(void *x)
     u64 xt = u64_from_pointer(x);
 
     rprintf("dump_ptes 0x%lx\n", x);
-    u64 l3 = dump_lookup((u64)pagebase(), xt, PT1);
-    rprintf("  l3: 0x%lx\n", l3);
-    if ((l3 & 1) == 0)
+    u64 l1 = dump_lookup((u64)pagebase(), xt, PT1);
+    rprintf("  l1: 0x%lx\n", l1);
+    if ((l1 & 1) == 0)
         return;
-    u64 l2 = dump_lookup(l3, xt, PT2);
+    u64 l2 = dump_lookup(l1, xt, PT2);
     rprintf("  l2: 0x%lx\n", l2);
     if ((l2 & 1) == 0)
         return;
-    u64 l1 = dump_lookup(l2, xt, PT3);
-    rprintf("  l1: 0x%lx\n", l1);
-    if ((l1 & 1) == 0 || (l1 & PAGE_2M_SIZE))
+    u64 l3 = dump_lookup(l2, xt, PT3);
+    rprintf("  l3: 0x%lx\n", l3);
+    if ((l3 & 1) == 0 || (l3 & PAGE_2M_SIZE))
         return;
-    u64 l0 = dump_lookup(l1, xt, PT4);
-    rprintf("  l0: 0x%lx\n", l0);
+    u64 l4 = dump_lookup(l3, xt, PT4);
+    rprintf("  l4: 0x%lx\n", l4);
 }
 #endif
 
@@ -166,9 +166,6 @@ static boolean force_entry(heap h, page b, u64 v, physical p, int level,
 	write_pte(pte, p, flags, invalidate);
 	return true;
     } else {
-        /* by default, middle entries must have user and writable flags
-           set, for the result is the AND of these middle dir bits */
-        flags |= PAGE_WRITABLE | PAGE_USER;
 	if (*pte & PAGE_PRESENT) {
             if (level == 3 && (*pte & PAGE_2M_SIZE)) {
                 console("\nforce_entry fail: attempting to map a 4K page over an "
@@ -197,6 +194,9 @@ static boolean force_entry(heap h, page b, u64 v, physical p, int level,
 	    console(", offset ");
 	    print_u64(offset);
 #endif
+            /* by default, middle entries must have user and writable flags
+               set, for the result is the AND of these middle dir bits */
+            flags |= PAGE_WRITABLE | PAGE_USER;
 	    write_pte(pte, u64_from_pointer(n), flags, invalidate);
 	    return true;
 	}
