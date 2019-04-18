@@ -122,17 +122,7 @@ static inline void set_syscall_handler(void *syscall_entry)
     // 32 is syscall cs, and ds is cs + 8
     write_msr(STAR_MSR, (cs<<48) | (cs<<32));
     write_msr(SFMASK_MSR, 0);
-
-    u64 efer_flags = EFER_SCE;
-    u32 v[4];
-    cpuid(0x80000001, v);
-    if (v[3] & (1 << 20)) {     /* EDX.NX */
-        efer_flags |= EFER_NXE;
-    } else {
-        msg_err("platform doesn't support no exec page protection\n");
-    }
-
-    write_msr(EFER_MSR, read_msr(EFER_MSR) | efer_flags);
+    write_msr(EFER_MSR, read_msr(EFER_MSR) | EFER_SCE);
 }
 
 static inline void set_page_write_protect(boolean enable)

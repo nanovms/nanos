@@ -72,7 +72,7 @@ physical physical_from_virtual(void *x)
 #ifndef BOOT
 static u64 dump_lookup(u64 base, u64 t, unsigned int x)
 {
-    return ((page)pointer_from_u64(base & ~PAGEMASK))[pindex(t, x)];
+    return page_from_pte(base)[pindex(t, x)];
 }
 
 void dump_ptes(void *x)
@@ -178,8 +178,7 @@ static boolean force_entry(heap h, page b, u64 v, physical p, int level,
                occasional invalidate caused by lingering mid
                directories without entries */
 
-	    return force_entry(h, pointer_from_u64(b[offset] & ~PAGEMASK),
-			       v, p, level + 1, fat, flags, invalidate);
+	    return force_entry(h, page_from_pte(b[offset]), v, p, level + 1, fat, flags, invalidate);
 	} else {
 	    if (flags == 0)	/* only lookup for unmap */
 		return false;
@@ -194,17 +193,15 @@ static boolean force_entry(heap h, page b, u64 v, physical p, int level,
 	    console(", offset ");
 	    print_u64(offset);
 #endif
-            /* by default, middle entries must have user and writable flags
-               set, for the result is the AND of these middle dir bits */
-            flags |= PAGE_WRITABLE | PAGE_USER;
-	    write_pte(pte, u64_from_pointer(n), flags, invalidate);
+            /* user and writable are AND of flags from all levels */
+	    write_pte(pte, u64_from_pointer(n), PAGE_WRITABLE | PAGE_USER | PAGE_PRESENT, invalidate);
 	    return true;
 	}
     }
 }
 
 static inline boolean map_page(page base, u64 v, physical p, heap h,
-                               boolean fat, boolean flags, boolean * invalidate)
+                               boolean fat, u64 flags, boolean * invalidate)
 {
     boolean page_invalidate = false;
 //    rprintf("map_page: force entry base 0x%p, v 0x%lx, p 0x%lx, fat %d, flags 0x%lx\n",
@@ -294,16 +291,11 @@ static void update_pte_flags(u64 flags, u64 addr, u64 * pte)
 #endif
 }
 
-/* Update access protection flags for any pages mapped within a given area
-
-   Again, we should consider resolving which pages are mapped via some
-   other structure.
- */
-
+/* Update access protection flags for any pages mapped within a given area */
 void update_map_flags(u64 vaddr, u64 length, u64 flags)
 {
     flags &= ~PAGE_NO_FAT;
-#ifdef PAGE_UPDATE_DEBUG
+#ifdef PAGE_DEBUG
     rprintf("update_map_flags: vaddr 0x%lx, length 0x%lx, flags 0x%lx\n", vaddr, length, flags);
 #endif
 

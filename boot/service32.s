@@ -180,6 +180,7 @@ run64:
         
         rdmsr      
         or eax, 1 << 8      ; Set the LM-bit which is the 9th bit (bit 8).
+        or eax, 1 << 11     ; NXE - enable no exec flag in page tables
         wrmsr
 
         pop edx                 ; return

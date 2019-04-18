@@ -186,6 +186,21 @@ void centry()
     mov_to_cr("cr0", cr0);
     mov_to_cr("cr4", cr4);    
 
+    /* Enable no-execute (NX) bits in ptes. */
+    u32 v[4];
+    cpuid(0x80000001, v);
+    if (!(v[3] & (1 << 20))) {     /* EDX.NX */
+        /* Note: It seems unlikely that we'd ever run into a platform
+           that doesn't support no-exec, but if we did and still
+           wanted to run, we could let this pass here and leave a
+           cookie for the page table code to mask out any attempt to
+           set NX. Otherwise, a page fault for use of reserved bits
+           will be thrown, or worse a sudden exit if a map() with NX
+           occurs before exception handler setup. NXE is set in
+           service32.s:run64. */
+        halt("halt: platform doesn't support no-exec page protection\n");
+    }
+
     // need to ignore the area we're running in
     // could reclaim stage2 before entering stage3
     for_regions (r) {
