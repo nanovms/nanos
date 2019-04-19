@@ -25,14 +25,6 @@ static inline u64 pindex(u64 x, u64 offset)
     return ((x >> offset) & MASK(9));
 }
 
-static inline page pt_lookup(page table, u64 t, unsigned int x)
-{
-    u64 a = table[pindex(t, x)];
-    if (a & 1) 
-        return page_from_pte(a);
-    return 0;
-}
-
 static inline page pagebase()
 {
     page base;
@@ -52,6 +44,14 @@ static inline void flush_tlb()
 
 // there is a def64 and def32 now
 #ifndef physical_from_virtual
+static inline page pt_lookup(page table, u64 t, unsigned int x)
+{
+    u64 a = table[pindex(t, x)];
+    if (a & 1)
+        return page_from_pte(a);
+    return 0;
+}
+
 physical physical_from_virtual(void *x)
 {
     u64 xt = u64_from_pointer(x);
