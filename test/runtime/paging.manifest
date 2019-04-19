@@ -8,7 +8,7 @@
 #    debugsyscalls:t
 #    futex_trace:t
     fault:t
-# { execwrite, writeprotect, noexec }
-    arguments:[paging noexec]
+# available tests: { write-exec, write-ro, exec-mmap, exec-heap, exec-stack }
+    arguments:[paging write-exec]
     environment:(USER:bobby PWD:/)
 )
