@@ -127,7 +127,7 @@ static inline void set_syscall_handler(void *syscall_entry)
 
 static inline void set_page_write_protect(boolean enable)
 {
-    u64 cr0;
+    word cr0;
     mov_from_cr("cr0", cr0);
     cr0 = enable ? (cr0 | C0_WP) : (cr0 & ~C0_WP);
     mov_to_cr("cr0", cr0);
