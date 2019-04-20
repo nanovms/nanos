@@ -7,57 +7,88 @@
 
 static long pagesize;
 
-void foo(void)
+static void foo(void)
 {
     printf("foo\n");
 }
 
-/* tests that code pages, as installed by elf loader, are read-only */
-void test_write_to_exec(void)
+static void test_write(void * p)
 {
-    unsigned long * p = (unsigned long *)&foo;
-    printf("before write to addr 0x%p in code page (should fault here):\n", p);
-    *p = 0x0;
+    printf("before write to addr %p (should fault here):\n", p);
+    *(int *)p = 0x0;
     printf("test failed\n");
     exit(EXIT_FAILURE);
+}
+
+/* tests that code pages, as installed by elf loader, are read-only */
+static void test_write_to_exec(void)
+{
+    unsigned long * p = (unsigned long *)&foo;
+    printf("test write to read-only text page\n");
+    test_write(p);
 }
 
 /* test read-only permissions set with an mmap */
-void test_writeprotect(void)
+static void test_write_to_ro(void)
 {
     void * p = mmap(NULL, 0x1000, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (p == (void *)-1) {
         printf("mmap fail: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
-    printf("before write to read-only page (should fault here):\n");
-    *(int*)p = 0;
-    printf("test failed\n");
-    exit(EXIT_FAILURE);
+    printf("test write to read-only mmapped page\n");
+    test_write(p);
 }
 
-/* attempt to jump into page without PROT_EXEC */
-void test_noexec(void)
+/* test no-exec protection */
+static void test_exec(void * p)
 {
-    void * p = mmap(NULL, 0x1000, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (p == (void *)-1) {
-        printf("mmap fail: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    printf("before write to read-only page (should fault here):\n");
+    printf("before jump to addr %p (should fault here):\n", p);
     void (*testfn)() = p;
     testfn();
     printf("test failed\n");
     exit(EXIT_FAILURE);
 }
 
-void usage(char * progname)
+static void test_exec_mmap()
 {
-    printf("usage: %s {execwrite|writeprotect}\n", progname);
-    printf(" fault tests (these should cause a page fault / protection violation):\n");
-    printf(" \texecwrite: test writing to an executable page\n");
-    printf(" \twriteprotect: test writing to a read-only page\n");
-    printf(" \tnoexec: test execution from a no-exec page\n");
+    printf("test exec in mmap without PROT_EXEC\n");
+    void * p = mmap(NULL, 0x1000, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (p == (void *)-1) {
+        printf("mmap fail: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    test_exec(p);
+}
+
+static void test_exec_heap(void)
+{
+    printf("test exec in heap page\n");
+    void * p = malloc(sizeof(int));
+    if (!p) {
+        printf("malloc failed\n");
+        exit(EXIT_FAILURE);
+    }
+    test_exec(p);
+}
+
+static void test_exec_stack(void)
+{
+    int c;
+    void * p = &c;
+    printf("test exec in stack page\n");
+    test_exec(p);
+}
+
+static void usage(char * progname)
+{
+    printf("usage:\n  %s { write-exec | write-ro | exec-mmap | exec-heap | exec-stack }\n", progname);
+    printf("\n    protection fault tests (these should cause a page fault / protection violation):\n");
+    printf(" \twrite-exec: write to executable page\n");
+    printf(" \twrite-ro: write to read-only page\n");
+    printf(" \texec-mmap: exec in no-exec mmaped page\n");
+    printf(" \texec-heap: exec in heap\n");
+    printf(" \texec-stack: exec in stack\n");
     exit(EXIT_FAILURE);
 }
 
@@ -66,12 +97,16 @@ int main(int argc, char * argv[])
     setbuf(stdout, NULL);
     pagesize = sysconf(_SC_PAGESIZE);
     if (argc == 2) {
-        if (!strcmp(argv[1], "execwrite"))
+        if (!strcmp(argv[1], "write-exec"))
             test_write_to_exec();
-        else if(!strcmp(argv[1], "writeprotect"))
-            test_writeprotect();
-        else if(!strcmp(argv[1], "noexec"))
-            test_noexec();
+        else if(!strcmp(argv[1], "write-ro"))
+            test_write_to_ro();
+        else if(!strcmp(argv[1], "exec-mmap"))
+            test_exec_mmap();
+        else if(!strcmp(argv[1], "exec-heap"))
+            test_exec_heap();
+        else if(!strcmp(argv[1], "exec-stack"))
+            test_exec_stack();
         else
             usage(argv[0]);
     } else {
