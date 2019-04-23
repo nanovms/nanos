@@ -133,6 +133,7 @@ process exec_elf(buffer ex, process kp)
     thread t = create_thread(proc);
     tuple interp = 0;
     Elf64_Ehdr *e = (Elf64_Ehdr *)buffer_ref(ex, 0);
+    boolean aslr = table_find(root, sym(aslr)) != 0;
 
     proc->brk = 0;
 
@@ -162,9 +163,8 @@ process exec_elf(buffer ex, process kp)
     if (e->e_type == ET_DYN && interp) {
         /* Have some PIE */
         load_offset = DEFAULT_PROG_ADDR;
-        if (table_find(root, sym(aslr))) {
-            /* XXX Make random_u64() suck less.
-               XXX Replace 27 with limit derived from kernel start. */
+        if (aslr) {
+            /* XXX Replace 27 with limit derived from kernel start. */
             load_offset += (random_u64() & ~MASK(PAGELOG)) & MASK(27);
         }
         exec_debug("placing PIE at 0x%lx\n", load_offset);
@@ -175,9 +175,17 @@ process exec_elf(buffer ex, process kp)
     exec_debug("load start 0x%lx, end 0x%lx, offset 0x%lx\n",
                load_start, load_end, load_offset);
     void * entry = load_elf(ex, load_offset, heap_pages(kh), heap_physical(kh), true);
-    proc->brk = pointer_from_u64(pad(load_end, PAGESIZE));
+    /* if aslr, introduce 4M of variation to heap start ... kinda arbitrary */
+    u64 brk_offset = aslr ? (random_u64() & (MASK(22) & ~MASK(PAGELOG))) : 0;
+    proc->brk = pointer_from_u64(pad(load_end, PAGESIZE) + brk_offset);
     exec_debug("entry %p, brk 0x%p\n", entry, proc->brk);
-    build_exec_stack(heap_backed(kh), t, e, entry, load_start, root);
+    heap sh_backed = heap_backed(kh);
+    heap sh_virt = heap_virtual_page(kh);
+    if (aslr)
+        id_heap_set_randomize(sh_virt, true);
+    build_exec_stack(sh_backed, t, e, entry, load_start, root);
+    if (aslr)
+        id_heap_set_randomize(sh_virt, false);
 
     if (interp) {
         exec_debug("reading interp...\n");

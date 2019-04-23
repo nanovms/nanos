@@ -50,11 +50,13 @@ boolean bitmap_reserve(bitmap b, u64 start, u64 nbits)
 
 #define check_skip(a, z, n, b) if(n >= a && z >= n) { z -= n; b += n; }
 
-u64 bitmap_alloc(bitmap b, int order)
+static u64 bitmap_alloc_internal(bitmap b, int order, u64 startbit, u64 endbit)
 {
-    u64 bit = 0;
+    u64 bit = startbit;
     u64 alloc_bits = 1ull << order;
     u64 * mapbase = bitmap_base(b);
+
+    assert((startbit & MASK(order)) == 0);
 
     do {
 	/* Check if we need to expand the map */
@@ -81,7 +83,7 @@ u64 bitmap_alloc(bitmap b, int order)
 	    check_skip(alloc_bits, nlz, 0, bit);
 	}
 
-	if (bit + alloc_bits > b->maxbits)
+	if (bit + alloc_bits > endbit)
 	    break;
 
 	if (for_range_in_map(mapbase, bit, alloc_bits, false, false)) {
@@ -92,12 +94,30 @@ u64 bitmap_alloc(bitmap b, int order)
 	/* XXX should skip trailing / intermediate set bits too */
 
 	bit += alloc_bits;
-    } while(bit < b->maxbits);
+    } while(bit < endbit);
 
     return INVALID_PHYSICAL;
 }
 
-boolean bitmap_dealloc(bitmap b, u64 bit, u64 order)
+u64 bitmap_alloc(bitmap b, int order)
+{
+    return bitmap_alloc_internal(b, order, 0, b->maxbits);
+}
+
+/* Allocate 2^order bits, beginning search at offset - for randomized
+   and next-fit allocations. offset will be aligned down to the lower
+   order boundary.
+*/
+u64 bitmap_alloc_with_offset(bitmap b, int order, u64 offset)
+{
+    u64 off_align = offset & ~MASK(order);
+    u64 bit = bitmap_alloc_internal(b, order, off_align, b->maxbits);
+    if (bit == INVALID_PHYSICAL && off_align > 0)
+        return bitmap_alloc_internal(b, order, 0, off_align);
+    return bit;
+}
+
+boolean bitmap_dealloc(bitmap b, u64 bit, int order)
 {
     u64 nbits = 1ull << order;
     u64 * mapbase = bitmap_base(b);

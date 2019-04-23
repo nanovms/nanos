@@ -6,10 +6,13 @@ typedef struct id_range {
     bitmap b;
 } *id_range;
 
+#define ID_HEAP_FLAG_RANDOMIZE  1
+
 typedef struct id_heap {
     struct heap h;
     u64 page_order;
     u64 total;
+    u64 flags;
     heap meta;
     heap parent;
     vector ranges;
@@ -78,7 +81,12 @@ static id_range id_get_backed_page(id_heap i)
 
 static u64 id_alloc_from_range(id_heap i, id_range r, int order)
 {
-    u64 bit = bitmap_alloc(r->b, order);
+    u64 bit_offset = 0;
+    u64 max_start = (r->b->maxbits - U64_FROM_BIT(order)) & ~MASK(order);
+    if ((i->flags & ID_HEAP_FLAG_RANDOMIZE))
+        bit_offset = random_u64() % max_start;
+
+    u64 bit = bitmap_alloc_with_offset(r->b, order, bit_offset);
     u64 alloc_bits = 1ull << order;
     if (bit == INVALID_PHYSICAL)
 	return bit;
@@ -180,6 +188,7 @@ heap allocate_id_heap(heap h, bytes pagesize)
 	deallocate(h, i, sizeof(struct id_heap));
 	return INVALID_ADDRESS;
     }
+    i->flags = 0;
     return (heap)i;
 }
 
@@ -209,6 +218,12 @@ u64 id_heap_total(heap h)
 {
     id_heap i = (id_heap)h;
     return i->total;
+}
+
+void id_heap_set_randomize(heap h, boolean randomize)
+{
+    id_heap i = (id_heap)h;
+    i->flags = randomize ? i->flags | ID_HEAP_FLAG_RANDOMIZE : i->flags & ~ID_HEAP_FLAG_RANDOMIZE;
 }
 
 heap create_id_heap(heap h, u64 base, u64 length, bytes pagesize)

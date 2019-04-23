@@ -11,7 +11,8 @@ typedef struct bitmap {
 
 boolean bitmap_reserve(bitmap b, u64 start, u64 nbits);
 u64 bitmap_alloc(bitmap b, int order);
-boolean bitmap_dealloc(bitmap b, u64 bit, u64 order);
+u64 bitmap_alloc_with_offset(bitmap b, int order, u64 offset);
+boolean bitmap_dealloc(bitmap b, u64 bit, int order);
 bitmap allocate_bitmap(heap h, u64 length);
 void deallocate_bitmap(bitmap b);
 bitmap bitmap_wrap(heap h, u64 * map, u64 length);
