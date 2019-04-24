@@ -119,7 +119,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
 {
     heap h = heap_general((kernel_heaps)uh);
     process p = allocate(h, sizeof(struct process));
-    boolean aslr = table_find(root, sym(aslr)) != 0;
+    boolean aslr = table_find(root, sym(noaslr)) == 0;
 
     p->uh = uh;
     p->brk = 0;
