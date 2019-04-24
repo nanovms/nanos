@@ -20,12 +20,18 @@
             ((char *)__s)[buffer_length(__b)] = '\0';                     \
             (char *)__s;})
 
-static void build_exec_stack(heap sh, thread t, Elf64_Ehdr * e, void *start, u64 va, tuple process_root)
+static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start, u64 va, tuple process_root)
 {
     exec_debug("build exec stack start %p, root %v\n", start, process_root);
 
     u64 stack_size = 2*MB;
-    u64 *s = allocate(sh, stack_size);
+    u64 * s = allocate(p->virtual32, stack_size);
+    assert(s != INVALID_ADDRESS);
+    u64 sphys = allocate_u64(heap_physical(get_kernel_heaps()), stack_size);
+    assert(sphys != INVALID_PHYSICAL);
+
+    map(u64_from_pointer(s), sphys, stack_size, PAGE_WRITABLE | PAGE_NO_EXEC | PAGE_USER, heap_pages(get_kernel_heaps()));
+
     s += stack_size >> 3;
 
     // argv ASCIIZ strings
@@ -38,13 +44,13 @@ static void build_exec_stack(heap sh, thread t, Elf64_Ehdr * e, void *start, u64
     }
     s -= pad(argv_len, STACK_ALIGNMENT) >> 3;
     int argc = 0;
-    char *p = (char *) s;
+    char * sp = (char *) s;
     vector_foreach(arguments, a) {
         int len = buffer_length(a);
-        runtime_memcpy(p, buffer_ref(a, 0), len);
-        p[len] = '\0';
-        argv[argc++] = p;
-        p += len + 1;
+        runtime_memcpy(sp, buffer_ref(a, 0), len);
+        sp[len] = '\0';
+        argv[argc++] = sp;
+        sp += len + 1;
     }
 
     // envp ASCIIZ strings
@@ -179,13 +185,8 @@ process exec_elf(buffer ex, process kp)
     u64 brk_offset = aslr ? (random_u64() & (MASK(22) & ~MASK(PAGELOG))) : 0;
     proc->brk = pointer_from_u64(pad(load_end, PAGESIZE) + brk_offset);
     exec_debug("entry %p, brk 0x%p\n", entry, proc->brk);
-    heap sh_backed = heap_backed(kh);
-    heap sh_virt = heap_virtual_page(kh);
-    if (aslr)
-        id_heap_set_randomize(sh_virt, true);
-    build_exec_stack(sh_backed, t, e, entry, load_start, root);
-    if (aslr)
-        id_heap_set_randomize(sh_virt, false);
+
+    build_exec_stack(proc, t, e, entry, load_start, root);
 
     if (interp) {
         exec_debug("reading interp...\n");
