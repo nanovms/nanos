@@ -119,6 +119,8 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
 {
     heap h = heap_general((kernel_heaps)uh);
     process p = allocate(h, sizeof(struct process));
+    boolean aslr = table_find(root, sym(aslr)) != 0;
+
     p->uh = uh;
     p->brk = 0;
     p->pid = allocate_u64(uh->processes, 1);
@@ -132,9 +134,13 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
                                PROCESS_VIRTUAL_HEAP_START, PROCESS_VIRTUAL_HEAP_LENGTH));
         p->virtual_page = create_id_heap_backed(h, p->virtual, PAGESIZE);
         assert(p->virtual_page != INVALID_ADDRESS);
+        if (aslr)
+            id_heap_set_randomize(p->virtual_page, true);
         p->virtual32 = create_id_heap(h, PROCESS_VIRTUAL_32_HEAP_START,
                                       PROCESS_VIRTUAL_32_HEAP_LENGTH, PAGESIZE);
         assert(p->virtual32 != INVALID_ADDRESS);
+        if (aslr)
+            id_heap_set_randomize(p->virtual32, true);
     } else {
         p->virtual = p->virtual_page = p->virtual32 = 0;
     }
