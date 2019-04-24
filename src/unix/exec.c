@@ -133,7 +133,7 @@ process exec_elf(buffer ex, process kp)
     thread t = create_thread(proc);
     tuple interp = 0;
     Elf64_Ehdr *e = (Elf64_Ehdr *)buffer_ref(ex, 0);
-    boolean aslr = table_find(root, sym(aslr)) != 0;
+    boolean aslr = table_find(root, sym(noaslr)) == 0;
 
     proc->brk = 0;
 
