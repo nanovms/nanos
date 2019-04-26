@@ -73,7 +73,7 @@ syscall_enter:
         mov rax, [rax]
         call rax
         mov rbx, [running_frame]
-        jmp frame_enter
+        jmp frame_return
 .end:
         
 extern common_handler
@@ -116,10 +116,6 @@ getrip:
         pop rbx            ; ss         
         call common_handler
 
-        ;; try to unify the interrupt and syscall paths
-        ;; could always use iret?
-global_func frame_return
-frame_return:
         mov rbx, [running_frame]
 
         mov rax, [rbx+FRAME_FS*8]
@@ -129,7 +125,7 @@ frame_return:
         wrmsr ;; move fs, consider macro
 
         mov rax, rbx
-        
+
         mov rbx, [rax+FRAME_RBX*8]
         mov rcx, [rax+FRAME_RCX*8]
         mov rdx, [rax+FRAME_RDX*8]
@@ -151,6 +147,41 @@ frame_return:
         push qword [rax+FRAME_RIP*8]   ; rip
         mov rax, [rax+FRAME_RAX*8]
         iretq
+
+global_func frame_return
+frame_return:
+;;;         mov rbx, [running_frame]
+
+        mov rax, [rbx+FRAME_FS*8]
+        mov rcx, FS_MSR
+        mov rdx, rax
+        shr rdx, 0x20
+        wrmsr ;; move fs, consider macro
+
+        mov rax, rbx
+
+        mov rbx, [rax+FRAME_RBX*8]
+        mov rdx, [rax+FRAME_RDX*8]
+        mov rbp, [rax+FRAME_RBP*8]
+        mov rsi, [rax+FRAME_RSI*8]
+        mov rdi, [rax+FRAME_RDI*8]
+        mov r8, [rax+FRAME_R8*8]
+        mov r9, [rax+FRAME_R9*8]
+        mov r10, [rax+FRAME_R10*8]
+        mov r11, [rax+FRAME_FLAGS*8] ; flags saved from r11 on syscall
+        mov r12, [rax+FRAME_R12*8]
+        mov r13, [rax+FRAME_R13*8]
+        mov r14, [rax+FRAME_R14*8]
+        mov r15, [rax+FRAME_R15*8]
+;;;     push qword 0x10     ; ss - should be 0x10? pp 293
+;;;     push qword [rax+FRAME_RSP*8]      ; rsp
+;;;     push qword [rax+FRAME_FLAGS*8]   ; rflags
+;;;     push qword 0x08   ; cs
+;;;     push qword [rax+FRAME_RIP*8]   ; rip
+        mov rsp, [rax+FRAME_RSP*8]
+        mov rcx, [rax+FRAME_RIP*8]
+        mov rax, [rax+FRAME_RAX*8]
+        o64 sysret
 .end:
 
 global_func geterr
@@ -263,13 +294,13 @@ GDT64:  ; Global Descriptor Table (64-bit).
         db 10010010b ; Access (read/write).
         db 00000000b ; Granularity.
         db 0         ; Base (high).
-        .DataAgain: equ $ - GDT64 ; The data descriptor, a copy for sysret
-        dw 0         ; Limit (low).
-        dw 0         ; Base (low).
-        db 0         ; Base (middle)
-        db 10010010b ; Access (read/write).
-        db 00000000b ; Granularity.
-        db 0         ; Base (high).
+        .CodeAgain: equ $ - GDT64 ; The code descriptor.
+        dw 0  ; Limit (low).
+        dw 0  ; Base (low).
+        db 0  ; Base (middle)
+        db 10011010b    ; Access (exec/read).
+        db 00100000b    ; Granularity.
+        db 0            ; Base (high).
         .TSS: equ $ - GDT64     ; TSS descriptor (system segment descriptor - 64bit mode)
         dw (TSS.end - TSS)      ; Limit (low)
         dw 0                    ; Base [15:0] [fill in base at runtime, for I lack nasm sauce]

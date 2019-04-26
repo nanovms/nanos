@@ -3,6 +3,8 @@
 
 #define VIRTUAL_ADDRESS_BITS 48
 
+#define CODE_SEGMENT_SELECTOR   8
+
 #define FS_MSR 0xc0000100
 #define GS_MSR 0xc0000101
 #define LSTAR 0xC0000082
@@ -115,12 +117,12 @@ static inline void memory_barrier()
 
 static inline void set_syscall_handler(void *syscall_entry)
 {
-    u64 cs  = 0x08;
+    u64 cs = CODE_SEGMENT_SELECTOR;
 
     write_msr(LSTAR_MSR, u64_from_pointer(syscall_entry));
     // 48 is sysret cs, and ds is cs + 16...so fix the gdt for return
     // 32 is syscall cs, and ds is cs + 8
-    write_msr(STAR_MSR, (cs<<48) | (cs<<32));
+    write_msr(STAR_MSR, ((cs | 0x3)<<48) | (cs<<32));
     write_msr(SFMASK_MSR, 0);
     write_msr(EFER_MSR, read_msr(EFER_MSR) | EFER_SCE);
 }
@@ -214,16 +216,16 @@ void runloop() __attribute__((noreturn));
 void handle_interrupts();
 void install_fallback_fault_handler(fault_handler h);
 
-#define PAGE_NO_EXEC U64_FROM_BIT(63)
-#define PAGE_NO_FAT U64_FROM_BIT(9) /* AVL[0] */
-#define PAGE_2M_SIZE U64_FROM_BIT(7)
-#define PAGE_DIRTY U64_FROM_BIT(6)
-#define PAGE_ACCESSED U64_FROM_BIT(5)
-#define PAGE_CACHE_DISABLE U64_FROM_BIT(4)
-#define PAGE_WRITETHROUGH U64_FROM_BIT(3)
-#define PAGE_USER U64_FROM_BIT(2)
-#define PAGE_WRITABLE U64_FROM_BIT(1)
-#define PAGE_PRESENT U64_FROM_BIT(0)
+#define PAGE_NO_EXEC       U64_FROM_BIT(63)
+#define PAGE_NO_FAT        0x0200 /* AVL[0] */
+#define PAGE_2M_SIZE       0x0080
+#define PAGE_DIRTY         0x0040
+#define PAGE_ACCESSED      0x0020
+#define PAGE_CACHE_DISABLE 0x0010
+#define PAGE_WRITETHROUGH  0x0008
+#define PAGE_USER          0x0004
+#define PAGE_WRITABLE      0x0002
+#define PAGE_PRESENT       0x0001
 
 #define PAGE_PROT_FLAGS (PAGE_NO_EXEC | PAGE_USER | PAGE_WRITABLE)
 #define PAGE_DEV_FLAGS (PAGE_WRITABLE | PAGE_WRITETHROUGH | PAGE_NO_EXEC)
