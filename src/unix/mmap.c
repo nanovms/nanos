@@ -89,15 +89,8 @@ boolean unix_fault_page(u64 vaddr, context frame)
             return false;
         }
         u64 vaddr_aligned = vaddr & ~MASK(PAGELOG);
-//        rprintf("FOO addr 0x%lx, flags 0x%lx\n", vaddr, map_flags_from_vmap(vm));
         map(vaddr_aligned, paddr, PAGESIZE, page_map_flags(vm->flags), heap_pages(kh));
-
-        /* XXX this kludge can be removed after moving to k/u split */
-        u64 cr0_save;
-        mov_from_cr("cr0", cr0_save);
-        set_page_write_protect(false);
         zero(pointer_from_u64(vaddr_aligned), PAGESIZE);
-        mov_to_cr("cr0", cr0_save);
         return true;
     } else {
         /* page protection violation */
