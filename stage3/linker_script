@@ -19,6 +19,10 @@ SECTIONS
     {
         *(.text)
         *(.text.*)
+        . = ALIGN(4096);
+        vdso_start = .;
+        *(.vdso)        /* must be at end of section; we use text_end to determine its extent */
+        vdso_end = .;
     }
     text_end = .;
 
