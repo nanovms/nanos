@@ -32,7 +32,7 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, fork, 0);
     register_syscall(map, vfork, 0);
     register_syscall(map, execve, 0);
-    register_syscall(map, wait4, 0);
+    register_syscall(map, wait4, syscall_ignore);
     register_syscall(map, kill, 0);
     register_syscall(map, semget, 0);
     register_syscall(map, semop, 0);
