@@ -265,6 +265,8 @@ void register_thread_syscalls(struct syscall *map)
 void thread_log_internal(thread t, const char *desc, ...)
 {
     if (table_find(t->p->process_root, sym(trace))) {
+        if (syscall_notrace(t->syscall))
+            return;
         vlist ap;
         vstart (ap, desc);        
         buffer b = allocate_buffer(transient, 100);
@@ -309,6 +311,7 @@ thread create_thread(process p)
     heap h = heap_general((kernel_heaps)p->uh);
     thread t = allocate(h, sizeof(struct thread));
     t->p = p;
+    t->syscall = -1;
     t->uh = *p->uh;
     t->select_epoll = 0;
     t->tid = tidcount++;
