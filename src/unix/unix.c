@@ -207,6 +207,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     register_poll_syscalls(linux_syscalls);
     register_clock_syscalls(linux_syscalls);
     register_other_syscalls(linux_syscalls);
+    configure_syscalls(kernel_process);
     return kernel_process;
   alloc_fail:
     msg_err("failed to allocate kernel objects\n");

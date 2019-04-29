@@ -102,6 +102,7 @@ typedef struct thread {
     // if we use an array typedef its fragile
     // there are likley assumptions that frame sits at the base of thread
     u64 frame[FRAME_MAX];
+    int syscall;
     process p;
 
     /* Heaps in the unix world are typically found through
@@ -225,6 +226,9 @@ static inline time_t time_t_from_time(timestamp t)
 void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *name);
 
 #define register_syscall(m, n, f) _register_syscall(m, SYS_##n, f, #n)
+
+void configure_syscalls(process p);
+boolean syscall_notrace(int syscall);
 
 void register_file_syscalls(struct syscall *);
 void register_net_syscalls(struct syscall *);

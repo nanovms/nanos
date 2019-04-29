@@ -1300,9 +1300,12 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, sysinfo, sysinfo);
 }
 
+#define SYSCALL_F_NOTRACE 0x1
+
 struct syscall {
     void *handler;
     const char *name;
+    int flags;
 };
 
 static struct syscall _linux_syscalls[SYS_MAX];
@@ -1314,11 +1317,12 @@ static void syscall_debug()
 {
     u64 *f = current->frame;
     int call = f[FRAME_VECTOR];
-    if (call >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0])) {
+    if (call < 0 || call >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0])) {
         thread_log(current, "invalid syscall %d", call);
         set_syscall_return(current, -ENOSYS);
         return;
     }
+    current->syscall = call;
     void *debugsyscalls = table_find(current->p->process_root, sym(debugsyscalls));
     struct syscall *s = current->p->syscalls + call;
     if (debugsyscalls) {
@@ -1327,7 +1331,7 @@ static void syscall_debug()
         else
             thread_log(current, "syscall %d", call);
     }
-    sysreturn (*h)(u64, u64, u64, u64, u64, u64) = current->p->syscalls[call].handler;
+    sysreturn (*h)(u64, u64, u64, u64, u64, u64) = s->handler;
     sysreturn res = -ENOSYS;
     if (h) {
         /* exchange frames so that a fault won't clobber the syscall
@@ -1349,6 +1353,15 @@ static void syscall_debug()
             thread_log(current, "nosyscall %d", call);
     }
     set_syscall_return(current, res);
+    current->syscall = -1;
+}
+
+boolean syscall_notrace(int syscall)
+{
+    if (syscall < 0 || syscall >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0]))
+        return false;
+    struct syscall *s = current->p->syscalls + syscall;
+    return (s->flags & SYSCALL_F_NOTRACE) != 0;
 }
 
 // should hang off the thread context, but the assembly handler needs
@@ -1369,4 +1382,27 @@ void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *n
     assert(m[n].handler == 0);
     m[n].handler = f;
     m[n].name = name;
+}
+
+void configure_syscalls(process p)
+{
+    void *notrace = table_find(p->process_root, sym(notrace));
+    if (notrace) {
+        table_foreach(notrace, k, v) {
+            (void) &k;
+
+            for (int i = 0; i < sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0]); i++) {
+                struct syscall *s = current->p->syscalls + i;
+                if (!s->name)
+                    continue;
+
+                buffer name = alloca_wrap_buffer(s->name, runtime_strlen(s->name));
+                if (!buffer_compare(name, v))
+                    continue;
+
+                s->flags |= SYSCALL_F_NOTRACE;
+                break;
+            }
+        }
+    }
 }
