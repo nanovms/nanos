@@ -152,7 +152,7 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
     kernel_heaps kh = get_kernel_heaps();
     process p = current->p;
 
-    thread_log(current, "mremap: old_address %p, old_size %ld, new_size %ld, flags %x, new_address %p",
+    thread_log(current, "mremap: old_address %p, old_size %ld, new_size %ld, flags 0x%x, new_address %p",
 	       old_address, old_size, new_size, flags, new_address);
 
     if ((flags & MREMAP_MAYMOVE) == 0) {
@@ -455,7 +455,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     u64 end = where + size - 1;
     boolean fixed = (flags & MAP_FIXED) != 0;
     boolean mapped = false;
-    thread_log(current, "mmap: target %p, size %lx, prot %x, flags %x, fd %d, offset %lx",
+    thread_log(current, "mmap: target %p, size 0x%lx, prot 0x%x, flags 0x%x, fd %d, offset 0x%lx",
 	       target, size, prot, flags, fd, offset);
 
     vmap vm = 0;
@@ -468,7 +468,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
         vmflags |= VMAP_FLAG_WRITABLE;
 
     if (where) {
-	thread_log(current, "   %s at %lx", fixed ? "fixed" : "hint", where);
+        thread_log(current, "   %s at 0x%lx", fixed ? "fixed" : "hint", where);
 
         vmap vmap_start = (vmap)rangemap_lookup(p->vmap, where);
         vmap vmap_end = (vmap)rangemap_lookup(p->vmap, end);
@@ -481,7 +481,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
             heap vh = p->virtual;
             if (where < HUGE_PAGESIZE && end < HUGE_PAGESIZE) {
                 /* bound by kernel and zero page. */
-                if (where >= PROCESS_VIRTUAL_32_HEAP_START || end <= PROCESS_VIRTUAL_32_HEAP_END) {
+                if (where >= PROCESS_VIRTUAL_32_HEAP_START && end <= PROCESS_VIRTUAL_32_HEAP_END) {
                     /* Attempt to reserve low memory fixed mappings in
                        virtual32 to avoid collisions in any future low mem
                        allocation. Don't fail if we can't reserve or it's
@@ -489,7 +489,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
                     id_heap_reserve(p->virtual32, where, size);
                     /* XXX vmap? */
                 } else if (fixed) {
-                    thread_log(current, "   map [%lx - %lx] outside of valid 32-bit range [%lx - %lx]",
+                    thread_log(current, "   map [0x%lx - 0x%lx] outside of valid 32-bit range [0x%lx - 0x%lx]",
                                where, end, PROCESS_VIRTUAL_32_HEAP_START, PROCESS_VIRTUAL_32_HEAP_END);
                     return -ENOMEM;
                 } else {
@@ -523,7 +523,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
                             return -ENOMEM;
                         }
                     } else if (fixed) {
-                        thread_log(current, "   failed to reserve area [%lx - %lx] in id heap",
+                        thread_log(current, "   failed to reserve area [0x%lx - 0x%lx] in id heap",
                                    where, end);
                         return -ENOMEM;
                     } else {
@@ -548,7 +548,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
         where = allocate_u64(vh, maplen);
         if (where == (u64)INVALID_ADDRESS) {
             /* We'll always want to know about low memory conditions, so just bark. */
-            msg_err("failed to allocate %s virtual memory, size %lx",
+            msg_err("failed to allocate %s virtual memory, size 0x%lx",
                     is_32bit ? "32-bit" : "", len);
             return -ENOMEM;
         }
@@ -562,7 +562,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
 
     // make a generic zero page function
     if (flags & MAP_ANONYMOUS) {
-        thread_log(current, "   anon target: %s, %lx, len: %lx (given size: %lx)",
+        thread_log(current, "   anon target: %s, 0x%lx, len: 0x%lx (given size: 0x%lx)",
                    mapped ? "existing" : "new", where, len, size);
         if (mapped) {
             if ((vm->flags & VMAP_FLAG_ANONYMOUS) == 0) {
