@@ -1066,8 +1066,14 @@ sysreturn prlimit64(int pid, int resource, const struct rlimit *new_limit, struc
 
 static sysreturn getcwd(char *buf, u64 length)
 {
-    runtime_memcpy(buf, "/", 2);
-    return sysreturn_from_pointer(buf);
+    static const char cwd[] = "/";
+    int cwd_len = sizeof(cwd);
+
+    if (length < cwd_len)
+        return set_syscall_error(current, ERANGE);
+
+    runtime_memcpy(buf, cwd, cwd_len);
+    return cwd_len;
 }
 
 static sysreturn brk(void *x)
@@ -1086,7 +1092,7 @@ static sysreturn brk(void *x)
             if (phys == INVALID_PHYSICAL)
                 return -ENOMEM;
             /* XXX no exec configurable? */
-            map(u64_from_pointer(p->brk), phys, alloc, PAGE_WRITABLE | PAGE_NO_EXEC, heap_pages(kh));
+            map(u64_from_pointer(p->brk), phys, alloc, PAGE_WRITABLE | PAGE_NO_EXEC | PAGE_USER , heap_pages(kh));
             // people shouldn't depend on this
             zero(p->brk, alloc);
             p->brk += alloc;         
@@ -1339,13 +1345,11 @@ static void syscall_debug()
         context saveframe = running_frame;
         running_frame = syscall_frame;
         running_frame[FRAME_FAULT_HANDLER] = f[FRAME_FAULT_HANDLER];
-        /* XXX remove write protect toggle after kernel/user split */
-        set_page_write_protect(false);
+
         res = h(f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]);
         if (debugsyscalls)
             thread_log(current, "direct return: %ld, rsp 0x%lx", res, f[FRAME_RSP]);
         running_frame = saveframe;
-        set_page_write_protect(true);
     } else if (debugsyscalls) {
         if (s->name)
             thread_log(current, "nosyscall %s", s->name);
