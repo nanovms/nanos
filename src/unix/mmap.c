@@ -573,7 +573,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
             /* XXX need to check if a new vmap is required... */
 
             if (vm->flags != vmflags) {
-                thread_log(current, "   new vm flags: 0x%lx\n", vmflags);
+                thread_log(current, "   new vm flags: 0x%lx", vmflags);
                 vm->flags = vmflags;
                 update_map_flags(where, len, page_map_flags(vmflags));
             }
