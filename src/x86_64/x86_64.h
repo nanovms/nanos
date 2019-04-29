@@ -96,7 +96,6 @@ boolean breakpoint_insert(u64 a, u8 type, u8 length);
 boolean breakpoint_remove(u32 a);
 
 #define IRETURN(frame) asm volatile("mov %0, %%rbx"::"g"(frame)); asm("jmp frame_return")
-#define ENTER(frame) asm volatile("mov %0, %%rbx"::"g"(frame)); asm("jmp frame_enter")
 
 void msi_map_vector(int slot, int msislot, int vector);
 
