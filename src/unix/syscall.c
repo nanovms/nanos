@@ -52,8 +52,8 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, link, 0);
     register_syscall(map, unlink, 0);
     register_syscall(map, symlink, 0);
-    register_syscall(map, chmod, 0);
-    register_syscall(map, fchmod, 0);
+    register_syscall(map, chmod, syscall_ignore);
+    register_syscall(map, fchmod, syscall_ignore);
     register_syscall(map, fchown, 0);
     register_syscall(map, lchown, 0);
     register_syscall(map, umask, 0);
@@ -199,7 +199,7 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, renameat, 0);
     register_syscall(map, linkat, 0);
     register_syscall(map, symlinkat, 0);
-    register_syscall(map, fchmodat, 0);
+    register_syscall(map, fchmodat, syscall_ignore);
     register_syscall(map, faccessat, 0);
     register_syscall(map, unshare, 0);
     register_syscall(map, set_robust_list, 0);
