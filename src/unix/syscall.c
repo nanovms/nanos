@@ -1066,8 +1066,14 @@ sysreturn prlimit64(int pid, int resource, const struct rlimit *new_limit, struc
 
 static sysreturn getcwd(char *buf, u64 length)
 {
-    runtime_memcpy(buf, "/", 2);
-    return sysreturn_from_pointer(buf);
+    static const char cwd[] = "/";
+    int cwd_len = sizeof(cwd);
+
+    if (length < cwd_len)
+        return set_syscall_error(current, ERANGE);
+
+    runtime_memcpy(buf, cwd, cwd_len);
+    return cwd_len;
 }
 
 static sysreturn brk(void *x)
