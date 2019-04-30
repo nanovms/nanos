@@ -1,10 +1,17 @@
+/* Right now we're only implementing vsyscalls, but we'll nominally
+   put everything under a vdso umbrella */
+
 #include <unix_internal.h>
 
-// from go/src/runtime/vdso_linux_amd64.go
+static void *vsyscall_base = (void *)0xffffffffff600000ull;
 
-void *vdso_base = (void *)0xffffffffff600000ull;
+#define VSYSCALL_OFFSET_VGETTIMEOFDAY   0x000
+#define VSYSCALL_OFFSET_VTIME           0x400
+#define VSYSCALL_OFFSET_VGETCPU         0x800
 
-u64 vdso_gettimeofday(struct timeval *x, void *tz);
+sysreturn vsyscall_gettimeofday(struct timeval *x, void *tz);
+sysreturn vsyscall_time(time_t *tloc);
+sysreturn vsyscall_getcpu(u32 * cpu, u32 * node, void * tcache /* deprecated */);
 
 /* see linker_script */
 extern void * vdso_start;
@@ -12,24 +19,49 @@ extern void * vdso_end;
 
 void init_vdso(heap physical_pages, heap pages)
 {
-    map(u64_from_pointer(vdso_base), allocate_u64(physical_pages, PAGESIZE), PAGESIZE, PAGE_USER, pages);
-    buffer b = alloca_wrap_buffer(vdso_base, PAGESIZE);
-    b->end = 0; // sigh
-    mov_32_imm(b, 0, u64_from_pointer(vdso_gettimeofday));
+    /* build vsyscall vectors */
+    map(u64_from_pointer(vsyscall_base), allocate_u64(physical_pages, PAGESIZE), PAGESIZE, PAGE_USER, pages);
+    buffer b = alloca_wrap_buffer(vsyscall_base, PAGESIZE);
+    b->end = VSYSCALL_OFFSET_VGETTIMEOFDAY;
+    mov_32_imm(b, 0, u64_from_pointer(vsyscall_gettimeofday));
     jump_indirect(b, 0);
 
-    /* allow user execution for vdso pages */
+    b->end = VSYSCALL_OFFSET_VTIME;
+    mov_32_imm(b, 0, u64_from_pointer(vsyscall_time));
+    jump_indirect(b, 0);
+
+    b->end = VSYSCALL_OFFSET_VGETCPU;
+    mov_32_imm(b, 0, u64_from_pointer(vsyscall_getcpu));
+    jump_indirect(b, 0);
+
+    /* allow user execution for vsyscall pages */
     u64 vs = u64_from_pointer(&vdso_start);
     u64 ve = u64_from_pointer(&vdso_end);
     u64 len = pad(ve - vs, PAGESIZE);
     update_map_flags(vs, len, PAGE_USER);
 }
 
-u64 __attribute__((section (".vdso"))) vdso_gettimeofday(struct timeval *x, void *tz)
+sysreturn __attribute__((section (".vdso"))) vsyscall_gettimeofday(struct timeval *x, void *tz)
 {
     /* XXX a vdso-safe version of "timeval_from_time(x, now())" will
        need to be implemented... for now just fall back to the syscall */
-    u64 rv;
+    sysreturn rv;
     asm("syscall" : "=a" (rv) : "0" (SYS_gettimeofday), "D" (x), "S" (tz) : "memory");
     return rv;
+}
+
+sysreturn __attribute__((section (".vdso"))) vsyscall_time(time_t *tloc)
+{
+    sysreturn rv;
+    asm("syscall" : "=a" (rv) : "0" (SYS_time), "D" (tloc) : "memory");
+    return rv;
+}
+
+sysreturn __attribute__((section (".vdso"))) vsyscall_getcpu(u32 * cpu, u32 * node, void * tcache /* deprecated */)
+{
+    if (cpu)
+        *cpu = 0;
+    if (node)
+        *node = 0;
+    return 0;
 }

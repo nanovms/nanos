@@ -14,6 +14,7 @@ PROGRAMS= \
 	sendfile \
 	time \
 	udploop \
+	vsyscall \
 	web \
 	webg \
 	webs \
@@ -111,6 +112,9 @@ SRCS-udploop= \
 	$(SRCDIR)/runtime/tuple_parser.c \
 	$(SRCDIR)/runtime/tuple.c
 LDFLAGS-udploop=	 -static
+
+SRCS-vsyscall=		 $(CURDIR)/vsyscall.c
+LDFLAGS-vsyscall=	 -static
 
 SRCS-web= \
 	$(CURDIR)/web.c \
