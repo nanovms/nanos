@@ -1237,8 +1237,6 @@ sysreturn prctl(int option, u64 arg2, u64 arg3, u64 arg4, u64 arg5)
 
 sysreturn sysinfo(struct sysinfo *info)
 {
-    return set_syscall_error(current, ENOSYS);
-
     if (info == 0)
         return set_syscall_error(current, EINVAL);
 
