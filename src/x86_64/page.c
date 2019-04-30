@@ -200,20 +200,27 @@ static boolean force_entry(heap h, page b, u64 v, physical p, int level,
     }
 }
 
+static inline void page_invalidate(u64 v)
+{
+#ifdef PAGE_USE_FLUSH
+    /* It isn't efficient to do this for each page, but this option is
+       only used for stage2 and debugging... */
+    flush_tlb();
+#else
+    asm volatile("invlpg (%0)" :: "r" (v) : "memory");
+#endif
+}
+
 static inline boolean map_page(page base, u64 v, physical p, heap h,
                                boolean fat, u64 flags, boolean * invalidate)
 {
-    boolean page_invalidate = false;
+    boolean invalidate_entry = false;
 //    rprintf("map_page: force entry base 0x%p, v 0x%lx, p 0x%lx, fat %d, flags 0x%lx\n",
 //            base, v, p, fat, flags);
-    if (!force_entry(h, base, v, p, 1, fat, flags, &page_invalidate))
+    if (!force_entry(h, base, v, p, 1, fat, flags, &invalidate_entry))
 	return false;
-    if (page_invalidate) {
-#ifdef PAGE_USE_FLUSH
-        flush_tlb();
-#else
-        asm volatile("invlpg (%0)" :: "r" (v) : "memory");
-#endif
+    if (invalidate_entry) {
+        page_invalidate(v);
         *invalidate = true;
     }
     return true;
@@ -287,6 +294,7 @@ static void update_pte_flags(u64 flags, u64 addr, u64 * pte)
 #ifdef PAGE_UPDATE_DEBUG
     rprintf("  update 0x%lx: pte @ 0x%lx, 0x%lx -> 0x%lx\n", addr, pte, old, *pte);
 #endif
+    page_invalidate(addr);
 }
 
 /* Update access protection flags for any pages mapped within a given area */
