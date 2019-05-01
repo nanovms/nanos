@@ -160,11 +160,11 @@ void __print_stack_with_rbp(u64 *rbp)
         if ((u64) rbp < 4096ULL)
             break;
 
-        u64 rip = rbp[1];
-
-        if (rip < (u64) &text_start || rip > (u64) &text_end)
+        if (!validate_virtual(rbp, sizeof(u64)) ||
+            !validate_virtual(rbp + 1, sizeof(u64)))
             break;
 
+        u64 rip = rbp[1];
         rbp = (u64 *) rbp[0];
         print_u64_with_sym(rip);
         console("\n");
@@ -178,10 +178,19 @@ void print_stack_from_here(void)
     __print_stack_with_rbp((u64 *)rbp);
 }
 
+#define STACK_TRACE_DEPTH       24
 void print_stack(context c)
 {
-    console("stack trace: \n");
+    console("\nframe trace:\n");
     __print_stack_with_rbp(pointer_from_u64(c[FRAME_RBP]));
+
+    console("\nstack trace:\n");
+    u64 *x = pointer_from_u64(c[FRAME_RSP]);
+    for (u64 i = 0; i < STACK_TRACE_DEPTH; i++) {
+        print_u64_with_sym(*(x+i));
+        console("\n");
+    }
+    console("\n");
 }
 
 void print_frame(context f)
