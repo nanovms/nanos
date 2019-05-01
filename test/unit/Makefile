@@ -5,6 +5,7 @@ PROGRAMS= \
 	objcache_test \
 	pqueue_test \
 	range_test \
+	table_test \
 	tuple_test \
 	udp_test \
 	vector_test
@@ -135,6 +136,22 @@ SRCS-range_test= \
 	$(SRCDIR)/runtime/timer.c \
 	$(SRCDIR)/runtime/tuple.c \
 	$(SRCDIR)/runtime/string.c \
+	$(SRCDIR)/unix_process/unix_process_runtime.c
+
+SRCS-table_test= \
+	$(CURDIR)/table_test.c \
+	$(SRCDIR)/runtime/bitmap.c \
+	$(SRCDIR)/runtime/buffer.c \
+	$(SRCDIR)/runtime/extra_prints.c \
+	$(SRCDIR)/runtime/format.c \
+	$(SRCDIR)/runtime/heap/id.c \
+	$(SRCDIR)/runtime/pqueue.c \
+	$(SRCDIR)/runtime/random.c \
+	$(SRCDIR)/runtime/runtime_init.c \
+	$(SRCDIR)/runtime/symbol.c \
+	$(SRCDIR)/runtime/table.c \
+	$(SRCDIR)/runtime/timer.c \
+	$(SRCDIR)/runtime/tuple.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c
 
 SRCS-tuple_test= \
