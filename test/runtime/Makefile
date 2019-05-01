@@ -113,7 +113,9 @@ SRCS-udploop= \
 	$(SRCDIR)/runtime/tuple.c
 LDFLAGS-udploop=	 -static
 
-SRCS-vsyscall=		 $(CURDIR)/vsyscall.c
+SRCS-vsyscall= \
+	$(CURDIR)/vsyscall.c \
+	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-vsyscall=	 -static
 
 SRCS-web= \
