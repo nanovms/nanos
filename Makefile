@@ -138,10 +138,10 @@ include rules.mk
 
 ifeq ($(UNAME_s),Darwin)
 REL_OS=		darwin
-QEMU_ACCEL=	-accel $(ACCEL)
+QEMU_ACCEL=	-accel $(ACCEL) -cpu host
 ACCEL?=		hvf
 # ACCEL=?	hax
 else
 REL_OS=		linux
-QEMU_ACCEL=	-enable-kvm
+QEMU_ACCEL=	-enable-kvm -cpu host
 endif
