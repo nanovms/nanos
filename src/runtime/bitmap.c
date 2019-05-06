@@ -1,8 +1,12 @@
 /* bitmap allocator
 
-   All allocations are power-of-2 sized and aligned to size.
-   The bitmap length may be arbitrarily sized.
-   The bitmap buffer is allocated in ALLOC_EXTEND_BITS / 8 byte increments as needed.
+   Allocations are aligned to next power-of-2 equal or greater than
+   allocation size. This allows a simpler and faster allocation
+   algorithm, and also has the side-effect of allowing mixed page
+   sizes (e.g. 4K + 2M) within the same space.
+
+   The bitmap length may be arbitrarily sized. The bitmap buffer is
+   allocated in ALLOC_EXTEND_BITS / 8 byte increments as needed.
 */
 
 #include <runtime.h>
@@ -15,7 +19,7 @@ static inline u64 * pointer_from_bit(u64 * base, u64 bit)
 static boolean for_range_in_map(u64 * base, u64 start, u64 nbits, boolean set, boolean val)
 {
     u64 wlen = ((nbits - 1) >> 6) + 1;
-    u64 mask = nbits >= 64 ? -1 : ((1ull << nbits) - 1) << (64 - nbits - start);
+    u64 mask = nbits >= 64 ? -1 : ((1ull << nbits) - 1) << start;
     u64 * w = pointer_from_bit(base, start);
     u64 * wend = w + wlen;
     for (; w < wend; w++) {
@@ -48,60 +52,59 @@ boolean bitmap_reserve(bitmap b, u64 start, u64 nbits)
             for_range_in_map(mapbase, start, nbits, true, true));
 }
 
-#define check_skip(a, z, n, b) if(n >= a && z >= n) { z -= n; b += n; }
-
-static u64 bitmap_alloc_internal(bitmap b, int order, u64 startbit, u64 endbit)
+static u64 bitmap_alloc_internal(bitmap b, u64 nbits, u64 startbit, u64 endbit)
 {
     u64 bit = startbit;
-    u64 alloc_bits = 1ull << order;
+    int order = find_order(nbits);
+    u64 stride = U64_FROM_BIT(order);
     u64 * mapbase = bitmap_base(b);
 
     assert((startbit & MASK(order)) == 0);
 
-    do {
-	/* Check if we need to expand the map */
-	if (bitmap_extend(b, bit + alloc_bits))
-	    mapbase = bitmap_base(b);
+    if (nbits >= 64) {
+        /* multi-word */
+        while (bit + nbits <= endbit) {
+            if (bitmap_extend(b, bit + nbits))
+                mapbase = bitmap_base(b);
 
-	/* Avoid checking bitmap word multiple times for small allocations */
-	if (order < 6 && (bit & 63) == 0) {
-	    u64 inv = ~*pointer_from_bit(mapbase, bit);
-	    if (inv == 0) {
-		bit += 64;
-		continue;
-	    }
+            if (for_range_in_map(mapbase, bit, nbits, false, false)) {
+                for_range_in_map(mapbase, bit, nbits, true, true);
+                return bit;
+            }
 
-	    /* Advance over allocated bits to order boundary;
-	       room for improvement here... */
-	    u64 nlz = 63 - msb(inv);
-	    check_skip(alloc_bits, nlz, 32, bit);
-	    check_skip(alloc_bits, nlz, 16, bit);
-	    check_skip(alloc_bits, nlz, 8, bit);
-	    check_skip(alloc_bits, nlz, 4, bit);
-	    check_skip(alloc_bits, nlz, 2, bit);
-	    check_skip(alloc_bits, nlz, 1, bit);
-	    check_skip(alloc_bits, nlz, 0, bit);
-	}
+            bit += stride;
+        }
+    } else {
+        /* allocations up to a word's worth of bits */
+        for (; bit + nbits <= endbit; bit += 64) {
+            if (bitmap_extend(b, bit + 64))
+                mapbase = bitmap_base(b);
 
-	if (bit + alloc_bits > endbit)
-	    break;
+            int shift = 0;
+            u64 mask = MASK(nbits);
+            u64 bw = *pointer_from_bit(mapbase, bit);
 
-	if (for_range_in_map(mapbase, bit, alloc_bits, false, false)) {
-	    for_range_in_map(mapbase, bit, alloc_bits, true, true);
-	    return bit;
-	}
+            if (bw == -1ull)    /* skip full words */
+                continue;
 
-	/* XXX should skip trailing / intermediate set bits too */
+            do {
+                if ((bw & mask) == 0) {
+                    assert(for_range_in_map(mapbase, bit + shift, nbits, true, true));
+                    return bit + shift;
+                }
 
-	bit += alloc_bits;
-    } while(bit < endbit);
+                mask <<= stride;
+                shift += stride;
+            } while (shift < 64);
+        }
+    }
 
     return INVALID_PHYSICAL;
 }
 
 u64 bitmap_alloc(bitmap b, int order)
 {
-    return bitmap_alloc_internal(b, order, 0, b->maxbits);
+    return bitmap_alloc_internal(b, U64_FROM_BIT(order), 0, b->maxbits);
 }
 
 /* Allocate 2^order bits, beginning search at offset - for randomized
@@ -111,9 +114,10 @@ u64 bitmap_alloc(bitmap b, int order)
 u64 bitmap_alloc_with_offset(bitmap b, int order, u64 offset)
 {
     u64 off_align = offset & ~MASK(order);
-    u64 bit = bitmap_alloc_internal(b, order, off_align, b->maxbits);
+    u64 nbits = U64_FROM_BIT(order);
+    u64 bit = bitmap_alloc_internal(b, nbits, off_align, b->maxbits);
     if (bit == INVALID_PHYSICAL && off_align > 0)
-        return bitmap_alloc_internal(b, order, 0, off_align);
+        return bitmap_alloc_internal(b, nbits, 0, off_align);
     return bit;
 }
 
