@@ -22,10 +22,9 @@ typedef struct id_heap {
 #define page_order(i) (i->page_order)
 #define page_mask(i) (page_size(i) - 1)
 
-static inline int find_page_order(id_heap i, bytes alloc_size)
+static inline int pages_from_bytes(id_heap i, bytes alloc_size)
 {
-    int npages = pad(alloc_size, page_size(i)) >> page_order(i);
-    return find_order(npages);  /* round up to next power of 2 */
+    return pad(alloc_size, page_size(i)) >> page_order(i);
 }
 
 static id_range id_add_range(id_heap i, u64 base, u64 length)
@@ -79,20 +78,20 @@ static id_range id_get_backed_page(id_heap i)
     return id_add_range(i, base, length);
 }
 
-static u64 id_alloc_from_range(id_heap i, id_range r, int order)
+static u64 id_alloc_from_range(id_heap i, id_range r, u64 pages)
 {
     u64 bit_offset = 0;
-    u64 max_start = (r->b->maxbits - U64_FROM_BIT(order)) & ~MASK(order);
+    u64 pages_rounded = U64_FROM_BIT(find_order(pages));
+    u64 max_start = r->b->maxbits - pages_rounded;
     if ((i->flags & ID_HEAP_FLAG_RANDOMIZE))
         bit_offset = random_u64() % max_start;
 
-    u64 bit = bitmap_alloc_with_offset(r->b, order, bit_offset);
-    u64 alloc_bits = 1ull << order;
+    u64 bit = bitmap_alloc_with_offset(r->b, pages, bit_offset);
     if (bit == INVALID_PHYSICAL)
 	return bit;
 
     u64 offset = bit << page_order(i);
-    i->h.allocated += alloc_bits;
+    i->h.allocated += pages << page_order(i);
 #ifdef ID_HEAP_DEBUG
     msg_debug("heap %p, size %ld: got offset (%ld << %ld = %lx)\t>%lx\n",
 	      i, alloc_bits, bit, page_order(i), offset, r->base + offset);
@@ -105,11 +104,11 @@ static u64 id_alloc(heap h, bytes count)
     id_heap i = (id_heap)h;
     if (count == 0)
 	return INVALID_PHYSICAL;
-    int order = find_page_order(i, count);
+    u64 pages = pages_from_bytes(i, count);
 
     id_range r;
     vector_foreach(i->ranges, r) {
-	u64 a = id_alloc_from_range(i, r, order);
+	u64 a = id_alloc_from_range(i, r, pages);
 	if (a != INVALID_PHYSICAL)
 	    return a;
     }
@@ -117,7 +116,7 @@ static u64 id_alloc(heap h, bytes count)
     /* All parent allocations are the same size, so if it doesn't fit
        the next one, fail. */
     if (i->parent && (r = id_get_backed_page(i)) != INVALID_ADDRESS)
-	return id_alloc_from_range(i, r, order);
+	return id_alloc_from_range(i, r, pages);
 
     return INVALID_PHYSICAL;
 }
@@ -131,7 +130,7 @@ static void id_dealloc(heap h, u64 a, bytes count)
 
     id_range r;
     char * s;
-    int order = find_page_order(i, count);
+    u64 pages = pages_from_bytes(i, count);
 
     vector_foreach(i->ranges, r) {
 	if (a < r->base || (a + count) > r->base + r->length)
@@ -142,11 +141,11 @@ static void id_dealloc(heap h, u64 a, bytes count)
 	    s = "allocation not aligned to pagesize";
 	    goto fail;
 	}
-	if (!bitmap_dealloc(r->b, bit, order)) {
+	if (!bitmap_dealloc(r->b, bit, pages)) {
 	    s = "bitmap dealloc failed";
 	    goto fail;
 	}
-	u64 deallocated = 1ull << order;
+	u64 deallocated = pages << page_order(i);
 	assert(h->allocated >= deallocated);
 	h->allocated -= deallocated;
 	return;

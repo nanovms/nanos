@@ -59,7 +59,7 @@ static u64 bitmap_alloc_internal(bitmap b, u64 nbits, u64 startbit, u64 endbit)
     u64 stride = U64_FROM_BIT(order);
     u64 * mapbase = bitmap_base(b);
 
-    assert((startbit & MASK(order)) == 0);
+    startbit &= ~MASK(order);   /* start at alignment */
 
     if (nbits >= 64) {
         /* multi-word */
@@ -102,51 +102,49 @@ static u64 bitmap_alloc_internal(bitmap b, u64 nbits, u64 startbit, u64 endbit)
     return INVALID_PHYSICAL;
 }
 
-u64 bitmap_alloc(bitmap b, int order)
+u64 bitmap_alloc(bitmap b, u64 nbits)
 {
-    return bitmap_alloc_internal(b, U64_FROM_BIT(order), 0, b->maxbits);
+    return bitmap_alloc_internal(b, nbits, 0, b->maxbits);
 }
 
-/* Allocate 2^order bits, beginning search at offset - for randomized
-   and next-fit allocations. offset will be aligned down to the lower
+/* Allocate size bits, beginning search at offset - for randomized and
+   next-fit allocations. offset will be aligned down to the lower
    order boundary.
 */
-u64 bitmap_alloc_with_offset(bitmap b, int order, u64 offset)
+u64 bitmap_alloc_with_offset(bitmap b, u64 size, u64 offset)
 {
-    u64 off_align = offset & ~MASK(order);
-    u64 nbits = U64_FROM_BIT(order);
-    u64 bit = bitmap_alloc_internal(b, nbits, off_align, b->maxbits);
-    if (bit == INVALID_PHYSICAL && off_align > 0)
-        return bitmap_alloc_internal(b, nbits, 0, off_align);
+    u64 bit = bitmap_alloc_internal(b, size, offset, b->maxbits);
+    if (bit == INVALID_PHYSICAL && offset > 0)
+        return bitmap_alloc_internal(b, size, 0, offset);
     return bit;
 }
 
-boolean bitmap_dealloc(bitmap b, u64 bit, int order)
+boolean bitmap_dealloc(bitmap b, u64 bit, u64 size)
 {
-    u64 nbits = 1ull << order;
+    int order = find_order(size);
     u64 * mapbase = bitmap_base(b);
     assert(mapbase);
 
     /* XXX maybe error code instead of msg_err... */
-    if (bit & (nbits - 1)) {
+    if (bit & (size - 1)) {
 	msg_err("bitmap %p, bit %ld is not aligned to order %ld\n",
 		b, bit, order);
 	return false;
     }
 
-    if (bit + nbits > b->maxbits) {
+    if (bit + size > b->maxbits) {
 	msg_err("bitmap %p, bit %ld, order %ld: exceeds bit length %ld\n",
 		b, bit, order, b->maxbits);
 	return false;
     }
 
-    if (!for_range_in_map(mapbase, bit, nbits, false, true)) {
+    if (!for_range_in_map(mapbase, bit, size, false, true)) {
 	msg_err("bitmap %p, bit %ld, order %ld: not allocated in map; leaking\n",
 		b, bit, order);
 	return false;
     }
 
-    for_range_in_map(mapbase, bit, nbits, true, false);
+    for_range_in_map(mapbase, bit, size, true, false);
     return true;
 }
 
