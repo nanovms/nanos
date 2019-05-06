@@ -137,6 +137,43 @@ static void read_kernel_syms()
 
 extern void install_gdt64_and_tss();
 
+static boolean try_hw_seed(u64 * seed, boolean rdseed)
+{
+    u64 c;
+    u32 v[4];
+    if (rdseed) {
+        cpuid(0x7, 0, v);
+        if ((v[1] & (1 << 18)) == 0) /* EBX.RDSEED */
+            return false;
+    } else {
+        cpuid(0x1, 0, v);
+        if ((v[2] & (1 << 30)) == 0) /* ECX.RDRAND */
+            return false;
+    }
+
+    int attempts = 128; /* arbitrary */
+    do {
+        if (rdseed)
+            asm volatile("rdseed %0; sbb %1, %1" : "=r" (*seed), "=r" (c));
+        else
+            asm volatile("rdrand %0; sbb %1, %1" : "=r" (*seed), "=r" (c));
+        if (c)
+            return true;
+    } while (attempts-- > 0);
+
+    return false;
+}
+
+static u64 random_seed(void)
+{
+    u64 seed = 0;
+    if (try_hw_seed(&seed, true))
+        return seed;
+    if (try_hw_seed(&seed, false))
+        return seed;
+    return (u64)now();
+}
+
 static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = &heaps;
@@ -148,7 +185,7 @@ static void __attribute__((noinline)) init_service_new_stack()
 
     runqueue = allocate_queue(misc, 64);
     init_clock(kh);
-    init_random(now());
+    init_random(random_seed());
     __stack_chk_guard_init();
     start_interrupts(kh);
     init_extra_prints();

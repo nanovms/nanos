@@ -188,7 +188,7 @@ void centry()
 
     /* Validate support for no-exec (NX) bits in ptes. */
     u32 v[4];
-    cpuid(0x80000001, v);
+    cpuid(0x80000001, 0, v);
     if (!(v[3] & (1 << 20))) {     /* EDX.NX */
         /* Note: It seems unlikely that we'd ever run into a platform
            that doesn't support no-exec, but if we did and still
