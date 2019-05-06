@@ -31,7 +31,7 @@
 
 static inline void cpuid(u32 fn, u32 ecx, u32 * v)
 {
-    asm volatile("cpuid" : "=a" (v[0]), "=b" (v[1]), "=c" (v[2]), "=d" (v[3]) : "0" (fn), "2" (ecx) : "memory");
+    asm volatile("cpuid" : "=a" (v[0]), "=b" (v[1]), "=c" (v[2]), "=d" (v[3]) : "0" (fn), "2" (ecx));
 }
 
 extern u64 read_msr(u64);
