@@ -147,6 +147,7 @@ SRCS-table_test= \
 	$(SRCDIR)/runtime/heap/id.c \
 	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/random.c \
+	$(SRCDIR)/runtime/range.c \
 	$(SRCDIR)/runtime/runtime_init.c \
 	$(SRCDIR)/runtime/symbol.c \
 	$(SRCDIR)/runtime/table.c \
@@ -164,6 +165,7 @@ SRCS-tuple_test= \
 	$(SRCDIR)/runtime/merge.c \
 	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/random.c \
+	$(SRCDIR)/runtime/range.c \
 	$(SRCDIR)/runtime/runtime_init.c \
 	$(SRCDIR)/runtime/symbol.c \
 	$(SRCDIR)/runtime/table.c \
