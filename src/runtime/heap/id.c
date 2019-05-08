@@ -3,6 +3,7 @@
 typedef struct id_range {
     struct rmnode n;
     bitmap b;
+    u64 next_bit;               /* for next-fit search */
 } *id_range;
 
 #define ID_HEAP_FLAG_RANDOMIZE  1
@@ -52,6 +53,7 @@ static id_range id_add_range(id_heap i, u64 base, u64 length)
         msg_err("%s: failed to allocate bitmap for range %R\n", __func__, ir->n.r);
         goto fail;
     }
+    ir->next_bit = 0;
     i->total += length;
 #ifdef ID_HEAP_DEBUG
     msg_debug("added range base %lx, length %lx\n", base, length);
@@ -73,15 +75,18 @@ static id_range id_get_backed_page(id_heap i)
 
 static u64 id_alloc_from_range(id_heap i, id_range r, u64 pages)
 {
-    u64 bit_offset = 0;
+    u64 bit_offset;
     u64 pages_rounded = U64_FROM_BIT(find_order(pages));
     u64 max_start = r->b->maxbits - pages_rounded;
     if ((i->flags & ID_HEAP_FLAG_RANDOMIZE))
         bit_offset = random_u64() % max_start;
+    else
+        bit_offset = r->next_bit;
 
     u64 bit = bitmap_alloc_with_offset(r->b, pages, bit_offset);
     if (bit == INVALID_PHYSICAL)
 	return bit;
+    r->next_bit = bit;
 
     u64 offset = bit << page_order(i);
     i->h.allocated += pages << page_order(i);
@@ -127,6 +132,9 @@ static void dealloc_from_range(id_heap i, range q, rmnode n)
         msg_err("heap %p: bitmap dealloc for range %R failed; leaking\n", i, q);
         return;
     }
+
+    if (bit < r->next_bit)
+        r->next_bit = bit;
 
     u64 deallocated = pages << page_order(i);
     assert(i->h.allocated >= deallocated);

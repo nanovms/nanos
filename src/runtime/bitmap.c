@@ -54,12 +54,10 @@ boolean bitmap_reserve(bitmap b, u64 start, u64 nbits)
 
 static u64 bitmap_alloc_internal(bitmap b, u64 nbits, u64 startbit, u64 endbit)
 {
-    u64 bit = startbit;
     int order = find_order(nbits);
     u64 stride = U64_FROM_BIT(order);
     u64 * mapbase = bitmap_base(b);
-
-    startbit &= ~MASK(order);   /* start at alignment */
+    u64 bit = startbit & ~MASK(order); /* start at alignment */
 
     if (nbits >= 64) {
         /* multi-word */
@@ -75,13 +73,17 @@ static u64 bitmap_alloc_internal(bitmap b, u64 nbits, u64 startbit, u64 endbit)
             bit += stride;
         }
     } else {
-        /* allocations up to a word's worth of bits */
-        for (; bit + nbits <= endbit; bit += 64) {
+        int shift = bit & 63;   /* offset if startbit not on word align */
+        bit &= ~63;
+
+        /* allocations up to a word's worth of bits
+
+           XXX: add special case for (endbit & 63) */
+        for (; bit + nbits <= endbit; shift = 0, bit += 64) {
             if (bitmap_extend(b, bit + 64))
                 mapbase = bitmap_base(b);
 
-            int shift = 0;
-            u64 mask = MASK(nbits);
+            u64 mask = MASK(nbits) << shift;
             u64 bw = *pointer_from_bit(mapbase, bit);
 
             if (bw == -1ull)    /* skip full words */
