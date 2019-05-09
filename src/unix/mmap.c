@@ -615,6 +615,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
                     closure(h, mmap_read_complete, current, where, len, mapped, b, page_map_flags(vmflags)));
     runloop();
 }
+#endif
 
 void register_mmap_syscalls(struct syscall *map)
 {
