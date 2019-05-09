@@ -361,3 +361,9 @@ typedef u32 gid_t;
 
 /* set/getsockopt optnames */
 #define SO_TYPE 3
+
+
+/* eventfd flags */
+#define EFD_CLOEXEC     02000000
+#define EFD_NONBLOCK    00004000
+#define EFD_SEMAPHORE   00000001

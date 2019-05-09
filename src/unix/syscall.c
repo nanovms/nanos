@@ -212,12 +212,10 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, utimensat, 0);
     register_syscall(map, signalfd, 0);
     register_syscall(map, timerfd_create, 0);
-    register_syscall(map, eventfd, 0);
     register_syscall(map, fallocate, 0);
     register_syscall(map, timerfd_settime, 0);
     register_syscall(map, timerfd_gettime, 0);
     register_syscall(map, signalfd4, 0);
-    register_syscall(map, eventfd2, 0);
     register_syscall(map, dup3, 0);
     register_syscall(map, inotify_init1, 0);
     register_syscall(map, preadv, 0);
@@ -1219,6 +1217,16 @@ sysreturn pipe(int fds[2])
     return pipe2(fds, 0);
 }
 
+sysreturn eventfd(unsigned int count)
+{
+    return do_eventfd2(count, 0);
+}
+
+sysreturn eventfd2(unsigned int count, int flags)
+{
+    return do_eventfd2(count, flags);
+}
+
 sysreturn sched_getaffinity(int pid, u64 cpusetsize, cpu_set_t *mask)
 {
     if (cpusetsize < sizeof(u64))
@@ -1288,6 +1296,8 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, getrandom, getrandom);
     register_syscall(map, pipe, pipe);
     register_syscall(map, pipe2, pipe2);
+    register_syscall(map, eventfd, eventfd);
+    register_syscall(map, eventfd2, eventfd2);
     register_syscall(map, creat, creat);
     register_syscall(map, chdir, chdir);
     register_syscall(map, fchdir, fchdir);

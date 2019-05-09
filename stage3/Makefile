@@ -32,6 +32,7 @@ SRCS-stage3.img= \
 	$(SRCDIR)/tfs/tlog.c \
 	$(SRCDIR)/unix/blockq.c \
 	$(SRCDIR)/unix/exec.c \
+	$(SRCDIR)/unix/eventfd.c \
 	$(SRCDIR)/unix/mktime.c \
 	$(SRCDIR)/unix/mmap.c \
 	$(SRCDIR)/unix/notify.c \

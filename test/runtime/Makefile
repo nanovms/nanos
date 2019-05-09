@@ -1,6 +1,7 @@
 # these are built for the target platform (Linux x86_64)
 PROGRAMS= \
 	creat \
+	eventfd \
 	fst \
 	getdents \
 	getrandom \
@@ -24,6 +25,12 @@ SRCS-creat= \
 	$(CURDIR)/creat.c \
 	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-creat=		-static
+
+SRCS-eventfd= \
+	$(CURDIR)/eventfd.c \
+
+LDFLAGS-eventfd=	-static
+LIBS-eventfd=		-lpthread
 
 SRCS-getdents=		$(CURDIR)/getdents.c
 LDFLAGS-getdents=	-static

@@ -278,6 +278,8 @@ void init_syscalls();
 
 int do_pipe2(int fds[2], int flags);
 
+int do_eventfd2(unsigned int count, int flags);
+
 void register_special_files(process p);
 sysreturn spec_read(file f, void *dest, u64 length, u64 offset_arg);
 sysreturn spec_write(file f, void *dest, u64 length, u64 offset_arg);
