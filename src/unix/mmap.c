@@ -7,13 +7,12 @@
 
 typedef struct vmap {
     struct rmnode node;
-    heap vheap;                 /* presently either p->virtual or p->virtual32 */
     u64 flags;
 } *vmap;
 
 static boolean vmap_attr_equal(vmap a, vmap b)
 {
-    return a->vheap == b->vheap && a->flags == b->flags;
+    return a->flags == b->flags;
 }
 
 /* Page faults may be caused by:
@@ -125,13 +124,12 @@ boolean unix_fault_page(u64 vaddr, context frame)
     }
 }
 
-static vmap allocate_vmap(heap h, rangemap rm, range r, heap vheap, u64 flags)
+static vmap allocate_vmap(heap h, rangemap rm, range r, u64 flags)
 {
     vmap vm = allocate(h, sizeof(struct vmap));
     if (vm == INVALID_ADDRESS)
         return vm;
     rmnode_init(&vm->node, r);
-    vm->vheap = vheap;
     vm->flags = flags;
     if (!rangemap_insert(rm, &vm->node)) {
         deallocate(h, vm, sizeof(struct vmap));
@@ -186,12 +184,11 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
     vmap old_vm = (vmap)rangemap_lookup(p->vmap, u64_from_pointer(old_address));
     if (old_vm == INVALID_ADDRESS)
         return -EFAULT;
-    heap vheap = old_vm->vheap;
     u64 vmflags = old_vm->flags;
     rangemap_remove_node(p->vmap, &old_vm->node);
 
     /* create new vm with old attributes */
-    vmap vm = allocate_vmap(heap_general(kh), p->vmap, irange(vnew, vnew + maplen), vheap, vmflags);
+    vmap vm = allocate_vmap(heap_general(kh), p->vmap, irange(vnew, vnew + maplen), vmflags);
     if (vm == INVALID_ADDRESS) {
         msg_err("failed to allocate vmap\n");
         deallocate_u64(vh, vnew, maplen);
@@ -366,13 +363,13 @@ static void vmap_attribute_update_intersection(heap h, rangemap pvmap, vmap q, r
         vmap_dump(pvmap);
 #endif
         /* create node for intersection */
-        vmap mh = allocate_vmap(h, pvmap, ri, q->vheap, newflags);
+        vmap mh = allocate_vmap(h, pvmap, ri, newflags);
         assert(mh != INVALID_ADDRESS);
         
         if (tail) {
             /* create node at tail end */
             range rt = { ri.end, rtend };
-            vmap mt = allocate_vmap(h, pvmap, rt, match->vheap, match->flags);
+            vmap mt = allocate_vmap(h, pvmap, rt, match->flags);
             assert(mt != INVALID_ADDRESS);
         }
     } else if (tail) {
@@ -381,11 +378,10 @@ static void vmap_attribute_update_intersection(heap h, rangemap pvmap, vmap q, r
         assert(rangemap_reinsert(pvmap, node, rt));
 
         /* create node for intersection */
-        vmap mt = allocate_vmap(h, pvmap, ri, q->vheap, newflags);
+        vmap mt = allocate_vmap(h, pvmap, ri, newflags);
         assert(mt != INVALID_ADDRESS);
     } else {
         /* key (range) remains the same, no need to reinsert */
-        match->vheap = q->vheap;
         match->flags = newflags;
     }
 }
@@ -429,14 +425,177 @@ sysreturn mprotect(void * addr, u64 len, int prot)
     range r = { where, where + padlen };
     struct vmap q;
     q.node.r = r;
-//    q.vheap = resolve_vheap_for_range(r);
-    q.vheap = current->p->virtual_page; // XXX
     q.flags = new_vmflags;
 
     vmap_attribute_update(h, pvmap, &q);
     return 0;
 }
 
+/* If we can re-use a node (range is exact match), just update the
+   flags. Otherwise trim back any vmap(s) that overlap with q,
+   creating a new node if necessary. After this point, new nodes can
+   be created using the gap fill.
+ */
+static CLOSURE_3_1(vmap_paint_intersection, void, heap, rangemap, vmap, rmnode);
+static void vmap_paint_intersection(heap h, rangemap pvmap, vmap q, rmnode node)
+{
+    vmap match = (vmap)node;
+    if (vmap_attr_equal(q, match))
+        return;
+
+    range rn = node->r;
+    range ri = range_intersection(q->node.r, rn);
+
+    assert(range_span(ri) > 0); // XXX
+
+    /* attribute mismatch; check if we can just reuse matching node */
+    if (range_equal(ri, rn)) {
+        /* key (range) remains the same, no need to reinsert */
+        match->flags = q->flags;
+        return;
+    }
+
+    /* trim match at both head and tail ends */
+    boolean head = ri.start > rn.start;
+    boolean tail = ri.end < rn.end;
+
+    if (head) {
+        /* truncate node at start */
+        range rh = { rn.start, ri.start };
+        u64 rtend = rn.end;
+        rangemap_reinsert(pvmap, node, rh);
+
+        if (tail) {
+            /* create node at tail end */
+            range rt = { ri.end, rtend };
+            vmap mt = allocate_vmap(h, pvmap, rt, match->flags);
+            assert(mt != INVALID_ADDRESS);
+        }
+    } else if (tail) {
+        /* move node start back */
+        range rt = { ri.end, rn.end };
+        rangemap_reinsert(pvmap, node, rt);
+    }
+}
+
+static CLOSURE_3_1(vmap_paint_gap, void, heap, rangemap, vmap, range);
+static void vmap_paint_gap(heap h, rangemap pvmap, vmap q, range r)
+{
+    vmap mt = allocate_vmap(h, pvmap, r, q->flags);
+    assert(mt != INVALID_ADDRESS);
+}
+
+static void vmap_paint(heap h, rangemap pvmap, vmap q)
+{
+    range rq = q->node.r;
+    assert((rq.start & MASK(PAGELOG)) == 0);
+    assert((rq.end & MASK(PAGELOG)) == 0);
+    assert(range_span(rq) > 0);
+
+    rmnode_handler nh = closure(h, vmap_paint_intersection, h, pvmap, q);
+    rangemap_range_lookup(pvmap, rq, nh);
+
+    range_handler rh = closure(h, vmap_paint_gap, h, pvmap, q);
+    rangemap_range_find_gaps(pvmap, rq, rh);
+
+    update_map_flags(rq.start, range_span(rq), page_map_flags(q->flags));
+}
+
+static inline boolean in_virtual_heap(range q)
+{
+    range r = irange(PROCESS_VIRTUAL_HEAP_START, PROCESS_VIRTUAL_HEAP_END);
+    return !range_empty(range_intersection(r, q));
+}
+
+static inline boolean in_lowmem(range q)
+{
+    /* zero page up to virtual32 heap */
+    range r = irange(PAGESIZE, PROCESS_VIRTUAL_32_HEAP_START);
+    return !range_empty(range_intersection(r, q));
+}
+
+static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 offset)
+{
+    process p = current->p;
+    kernel_heaps kh = get_kernel_heaps();
+    heap h = heap_general(kh);
+    // its really unclear whether this should be extended or truncated
+    u64 len = pad(size, PAGESIZE) & MASK(32);
+    boolean mapped = false;
+    thread_log(current, "mmap: target %p, size 0x%lx, prot 0x%x, flags 0x%x, fd %d, offset 0x%lx",
+	       target, size, prot, flags, fd, offset);
+
+    /* Determine vmap flags */
+    u64 vmflags = VMAP_FLAG_MMAP;
+    if ((flags & MAP_ANONYMOUS))
+        vmflags |= VMAP_FLAG_ANONYMOUS;
+    if ((prot & PROT_EXEC))
+        vmflags |= VMAP_FLAG_EXEC;
+    if ((prot & PROT_WRITE))
+        vmflags |= VMAP_FLAG_WRITABLE;
+
+    /* Fixed or hint address */
+    boolean fixed = (flags & MAP_FIXED) != 0;
+    u64 where = u64_from_pointer(target);
+    if (where) {
+        /* A specified address is only allowed in certain areas. Programs may specify a fixed
+           address to augment some existing mapping. */
+        range q = irange(where, where + len);
+        if (in_virtual_heap(q)) {
+            id_heap_reserve(p->virtual_page, where, len);
+        } else if (!in_lowmem(q)) {
+            if (fixed) {
+                thread_log(current, "   fail: fixed address range %R outside of lowmem or virtual_page heap\n", q);
+                return -ENOMEM;
+            } else {
+                where = 0;
+            }
+        }
+    }
+
+    /* Allocate from virtual heap if no address specified or hint unavailable */
+    if (!where) {
+        if (fixed) {
+            thread_log(current, "   attempt to map zero page");
+            return -ENOMEM;
+        }
+
+        boolean is_32bit = flags & MAP_32BIT;
+        heap vh = is_32bit ? p->virtual32 : p->virtual_page;
+        u64 maplen = pad(len, vh->pagesize);
+        where = allocate_u64(vh, maplen);
+        if (where == (u64)INVALID_ADDRESS) {
+            /* We'll always want to know about low memory conditions, so just bark. */
+            msg_err("failed to allocate %s virtual memory, size 0x%lx",
+                    is_32bit ? "32-bit" : "", len);
+            return -ENOMEM;
+        }
+    }
+
+    /* Paint into process vmap */
+    struct vmap q;
+    q.flags = vmflags;
+    q.node.r = irange(where, where + len);
+    vmap_paint(h, p->vmap, &q);
+
+    if (flags & MAP_ANONYMOUS) {
+        thread_log(current, "   anon target: %s, 0x%lx, len: 0x%lx (given size: 0x%lx)",
+                   mapped ? "existing" : "new", where, len, size);
+        zero_mapped_pages(where, len);
+        return where;
+    }
+
+    file f = resolve_fd(current->p, fd);
+    thread_log(current, "  read file at 0x%lx, %s map, blocking...", where, mapped ? "existing" : "new");
+
+    heap mh = heap_backed(kh);
+    buffer b = allocate_buffer(mh, pad(len, mh->pagesize));
+    filesystem_read(p->fs, f->n, buffer_ref(b, 0), len, offset,
+                    closure(h, mmap_read_complete, current, where, len, mapped, b, page_map_flags(vmflags)));
+    runloop();
+}
+
+#if 0
 static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 offset)
 {
     process p = current->p;
@@ -584,6 +743,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
                     closure(h, mmap_read_complete, current, where, len, mapped, b, page_map_flags(vmflags)));
     runloop();
 }
+#endif
 
 void register_mmap_syscalls(struct syscall *map)
 {

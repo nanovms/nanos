@@ -131,6 +131,7 @@ physical physical_from_virtual(void *x);
 #endif
 void dump_ptes(void *x);
 void update_map_flags(u64 vaddr, u64 length, u64 flags);
+void zero_mapped_pages(u64 vaddr, u64 length);
 
 heap zero_wrap(heap meta, heap parent);
 
