@@ -19,6 +19,7 @@ void print_u64(u64 s);
 
 extern void halt(char *format, ...) __attribute__((noreturn));
 extern void vm_exit(u8 code) __attribute__((noreturn));
+extern void print_stack_from_here();
 
 // make into no-op for production
 #ifdef NO_ASSERT
@@ -27,7 +28,6 @@ extern void vm_exit(u8 code) __attribute__((noreturn));
 #define assert(x)                                   \
     do {                                            \
         if (!(x)) {                                 \
-            extern void print_stack_from_here();    \
             print_stack_from_here();                \
             halt("assertion %s failed in " __FILE__ ": %s() on line %d; halt\n", #x, __func__, __LINE__); \
         }                                           \
