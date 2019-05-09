@@ -419,9 +419,6 @@ sysreturn mprotect(void * addr, u64 len, int prot)
     if ((prot & PROT_WRITE))
         new_vmflags |= VMAP_FLAG_WRITABLE;
 
-//    vmap_dump(pvmap);
-//    rprintf("vmflags: 0x%lx\n", new_vmflags);
-
     range r = { where, where + padlen };
     struct vmap q;
     q.node.r = r;
@@ -501,18 +498,21 @@ static void vmap_paint(heap h, rangemap pvmap, vmap q)
     update_map_flags(rq.start, range_span(rq), page_map_flags(q->flags));
 }
 
-static inline boolean in_virtual_heap(range q)
-{
-    range r = irange(PROCESS_VIRTUAL_HEAP_START, PROCESS_VIRTUAL_HEAP_END);
-    return !range_empty(range_intersection(r, q));
-}
+/* XXX
 
-static inline boolean in_lowmem(range q)
-{
-    /* zero page up to virtual32 heap */
-    range r = irange(PAGESIZE, PROCESS_VIRTUAL_32_HEAP_START);
-    return !range_empty(range_intersection(r, q));
-}
+   Just one more step here: we should be able to use a rangemap that
+   readily maps a query range to a heap (or otherwise indicated "open
+   areas" such as low addr space mmap tag heap space). The question is
+   whether to mix in areas of individual mmaps. rangemap isn't really
+   supposed to support overlapping regions, so it seems we might need
+   to make child maps. In any case, this shouldn't be too disruptive
+   to change and will further simplify mmap...
+*/
+
+static range varea_user_tag_region = irange(1ull << user_va_tag_offset,
+                                            tag_max << user_va_tag_offset);
+static range varea_virtual_heap = irange(PROCESS_VIRTUAL_HEAP_START, PROCESS_VIRTUAL_HEAP_END);
+static range varea_lowmem = irange(PAGESIZE, PROCESS_VIRTUAL_32_HEAP_START);
 
 static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 offset)
 {
@@ -541,9 +541,10 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
         /* A specified address is only allowed in certain areas. Programs may specify a fixed
            address to augment some existing mapping. */
         range q = irange(where, where + len);
-        if (in_virtual_heap(q)) {
+        if (ranges_intersect(q, varea_virtual_heap)) {
             id_heap_reserve(p->virtual_page, where, len);
-        } else if (!in_lowmem(q)) {
+        } else if (!ranges_intersect(q, varea_user_tag_region) &&
+                   !ranges_intersect(q, varea_lowmem)) {
             if (fixed) {
                 thread_log(current, "   fail: fixed address range %R outside of lowmem or virtual_page heap\n", q);
                 return -ENOMEM;

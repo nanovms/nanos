@@ -180,6 +180,7 @@ typedef void *value;
 #define tag_tuple (2ull)
 #define tag_string (3ull)
 #define tag_buffer_promise (4ull) //?
+#define tag_max (5ull)
 
 #include <symbol.h>
 
