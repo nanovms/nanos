@@ -28,6 +28,7 @@ LDFLAGS-creat=		-static
 
 SRCS-eventfd= \
 	$(CURDIR)/eventfd.c \
+	$(SRCDIR)/unix_process/ssp.c
 
 LDFLAGS-eventfd=	-static
 LIBS-eventfd=		-lpthread
