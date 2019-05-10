@@ -11,26 +11,66 @@
 
 #include <runtime.h>
 
+#define BITMAP_WORDLEN_LOG      6
+#define BITMAP_WORDLEN          (1 << BITMAP_WORDLEN_LOG)
+#define BITMAP_WORDMASK         (BITMAP_WORDLEN - 1)
+
 static inline u64 * pointer_from_bit(u64 * base, u64 bit)
 {
-    return base + (bit >> 6);
+    return base + (bit >> BITMAP_WORDLEN_LOG);
+}
+
+static inline boolean word_op(u64 * w, u64 mask, boolean set, boolean val)
+{
+    if (set) {
+        *w = val ? *w | mask : *w & ~mask;
+    } else {
+        u64 masked = mask & *w;
+        if ((val ? masked : (masked ^ mask)) != mask) {
+            return false;
+        }
+    }
+    return true;
 }
 
 static boolean for_range_in_map(u64 * base, u64 start, u64 nbits, boolean set, boolean val)
 {
-    u64 wlen = ((nbits - 1) >> 6) + 1;
-    u64 mask = nbits >= 64 ? -1 : ((1ull << nbits) - 1) << start;
+    u64 end = start + nbits;
+    u64 head = start & BITMAP_WORDMASK;
+    u64 tail = end & BITMAP_WORDMASK;
+
+    if (nbits == 0)
+        return true;
+
+    /* for simplicity, always treat first word as a special case */
+    u64 mask = -1ull;
+    boolean single = head + nbits <= BITMAP_WORDLEN;
+
+    if (head)
+        mask &= ~MASK(head);
+
+    if (tail && single)
+        mask &= MASK(tail);
+
+    boolean r = word_op(pointer_from_bit(base, start), mask, set, val);
+    if (!r || single)
+        return r;
+
+    start += BITMAP_WORDLEN - head;
+
     u64 * w = pointer_from_bit(base, start);
-    u64 * wend = w + wlen;
+    u64 * wend = pointer_from_bit(base, end & ~BITMAP_WORDMASK);
+
     for (; w < wend; w++) {
-	if (set) {
-	    *w = val ? *w | mask : *w & ~mask;
-	} else {
-	    u64 masked = mask & *w;
-	    if ((val ? masked : (masked ^ mask)) != mask)
-		return false;
-	}
+        if (!word_op(w, -1ull, set, val))
+            return false;
     }
+
+    if (tail) {
+        if (!word_op(wend, MASK(tail), set, val))
+            return false;
+    }
+
     return true;
 }
 
@@ -40,7 +80,7 @@ static boolean for_range_in_map(u64 * base, u64 start, u64 nbits, boolean set, b
    While bitmap_alloc() serves power-of-2 sized and aligned
    allocations, our reserve does not require such alignment. The two
    should co-exist without issue. */
-boolean bitmap_reserve(bitmap b, u64 start, u64 nbits)
+boolean bitmap_range_check_and_set(bitmap b, u64 start, u64 nbits, boolean validate, boolean set)
 {
     /* check both start and end in case of overflow / corrupt args */
     if (start >= b->maxbits || start + nbits > b->maxbits)
@@ -48,8 +88,8 @@ boolean bitmap_reserve(bitmap b, u64 start, u64 nbits)
 
     bitmap_extend(b, start + nbits - 1);
     u64 * mapbase = bitmap_base(b);
-    return (for_range_in_map(mapbase, start, nbits, false, false) &&
-            for_range_in_map(mapbase, start, nbits, true, true));
+    return (!validate || for_range_in_map(mapbase, start, nbits, false, !set)) &&
+        for_range_in_map(mapbase, start, nbits, true, set);
 }
 
 static u64 bitmap_alloc_internal(bitmap b, u64 nbits, u64 startbit, u64 endbit)

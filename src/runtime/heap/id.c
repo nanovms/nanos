@@ -209,7 +209,7 @@ static void reserve_range(id_heap i, range q, boolean * fail, rmnode n)
     id_range r = (id_range)n;
 
     int bit = (ri.start - n->r.start) >> page_order(i);
-    if (!bitmap_reserve(r->b, bit, pages_from_bytes(i, range_span(ri))))
+    if (!bitmap_range_check_and_set(r->b, bit, pages_from_bytes(i, range_span(ri)), false, true))
         *fail = true;
 }
 
