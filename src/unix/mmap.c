@@ -479,7 +479,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
                        virtual32 to avoid collisions in any future low mem
                        allocation. Don't fail if we can't reserve or it's
                        already reserved. */
-                    id_heap_reserve(p->virtual32, where, size);
+                    id_heap_range_modify(p->virtual32, where, size, false, true);
                     /* XXX vmap? */
                 } else if (fixed) {
                     thread_log(current, "   map [0x%lx - 0x%lx] outside of valid 32-bit range [0x%lx - 0x%lx]",
@@ -509,7 +509,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
                     u64 mapend = pad(end, HUGE_PAGESIZE);
                     u64 maplen = mapend - mapstart + 1;
 
-                    if (id_heap_reserve(vh, mapstart, maplen)) {
+                    if (id_heap_range_modify(vh, mapstart, maplen, true, true)) {
                         vm = allocate_vmap(h, p->vmap, irange(mapstart, mapstart + maplen), vh, vmflags);
                         if (vm == INVALID_ADDRESS) {
                             msg_err("failed to allocate vmap\n");

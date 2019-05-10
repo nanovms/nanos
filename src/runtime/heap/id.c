@@ -202,18 +202,18 @@ boolean id_heap_add_range(heap h, u64 base, u64 length)
     return id_add_range((id_heap)h, base, length) != INVALID_ADDRESS;
 }
 
-static CLOSURE_3_1(reserve_range, void, id_heap, range, boolean *, rmnode);
-static void reserve_range(id_heap i, range q, boolean * fail, rmnode n)
+static CLOSURE_5_1(reserve_range, void, id_heap, range, boolean *, boolean, boolean, rmnode);
+static void reserve_range(id_heap i, range q, boolean * fail, boolean validate, boolean allocate, rmnode n)
 {
     range ri = range_intersection(q, n->r);
     id_range r = (id_range)n;
 
     int bit = (ri.start - n->r.start) >> page_order(i);
-    if (!bitmap_range_check_and_set(r->b, bit, pages_from_bytes(i, range_span(ri)), false, true))
+    if (!bitmap_range_check_and_set(r->b, bit, pages_from_bytes(i, range_span(ri)), validate, allocate))
         *fail = true;
 }
 
-boolean id_heap_reserve(heap h, u64 base, u64 length)
+boolean id_heap_range_modify(heap h, u64 base, u64 length, boolean validate, boolean allocate)
 {
     id_heap i = (id_heap)h;
     base &= ~page_mask(i);
@@ -221,8 +221,7 @@ boolean id_heap_reserve(heap h, u64 base, u64 length)
 
     range q = irange(base, base + length);
     boolean fail = false;
-    rmnode_handler nh = closure(transient, reserve_range, i, q, &fail);
-
+    rmnode_handler nh = closure(transient, reserve_range, i, q, &fail, validate, allocate);
     boolean result = rangemap_range_lookup(i->ranges, q, nh);
     return result && !fail;
 }
