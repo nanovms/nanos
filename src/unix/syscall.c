@@ -593,6 +593,7 @@ sysreturn open_internal(tuple cwd, const char *name, int flags, int mode)
     f->f.write = closure(h, file_write, f, fsf);
     f->f.close = closure(h, file_close, f, fsf);
     f->f.check = closure(h, file_check, f, fsf);
+    f->f.flags = flags;
     f->n = n;
     f->length = length;
     f->offset = (flags & O_APPEND) ? length : 0;
@@ -1146,14 +1147,20 @@ sysreturn fcntl(int fd, int cmd, int arg)
 
     switch (cmd) {
     case F_GETFD:
-        return set_syscall_return(current, f->flags);
+        return set_syscall_return(current, f->flags & O_CLOEXEC);
     case F_SETFD:
-        f->flags = arg;
+        f->flags = (f->flags & ~O_CLOEXEC) | (arg & O_CLOEXEC);
         return set_syscall_return(current, 0);
     case F_GETFL:
-        return O_RDWR;
+        return set_syscall_return(current, f->flags & ~O_CLOEXEC);
     case F_SETFL:
         thread_log(current, "fcntl: fd %d, F_SETFL, %x", fd, arg);
+
+        /* Ignore file access mode and file creation flags. */
+        arg &= ~(O_RDONLY | O_WRONLY | O_RDWR | O_CREAT | O_EXCL | O_NOCTTY |
+                O_TRUNC);
+
+        f->flags = arg & ~O_CLOEXEC;
         return set_syscall_return(current, 0);
     default:
         return set_syscall_error(current, ENOSYS);

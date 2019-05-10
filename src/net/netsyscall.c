@@ -524,6 +524,7 @@ static int allocate_sock(process p, int type, u32 flags, sock * rs)
     s->f.write = closure(h, socket_write, s);
     s->f.close = closure(h, socket_close, s);
     s->f.check = closure(h, socket_check, s);
+    s->f.flags = flags;
     s->type = type;
     s->p = p;
     s->h = h;
