@@ -542,7 +542,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
            address to augment some existing mapping. */
         range q = irange(where, where + len);
         if (ranges_intersect(q, varea_virtual_heap)) {
-            id_heap_reserve(p->virtual_page, where, len);
+            id_heap_range_modify(p->virtual_page, where, len, false, true);
         } else if (!ranges_intersect(q, varea_user_tag_region) &&
                    !ranges_intersect(q, varea_lowmem)) {
             if (fixed) {
