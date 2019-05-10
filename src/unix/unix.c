@@ -112,6 +112,7 @@ static boolean create_stdfiles(unix_heaps uh, process p)
     err->f.close = closure(h, std_close, err);
     in->f.write = out->f.write = err->f.write = closure(h, stdout);
     in->f.read = out->f.read = err->f.read = closure(h, dummy_read);
+    in->f.flags = out->f.flags = err->f.flags = O_RDWR;
     return true;
 }
 
