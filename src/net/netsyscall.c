@@ -47,7 +47,6 @@ typedef closure_type(lwip_status_handler, void, err_t);
 typedef struct sock {
     struct fdesc f;              /* must be first */
     int type;
-    u32 flags;
     process p;
     heap h;
     blockq rxbq;                 /* for incoming queue */
@@ -236,7 +235,7 @@ static sysreturn sock_read_bh(sock s, thread t, void *dest, u64 length,
             rv = 0;
             goto out;
         }
-        if ((s->flags & SOCK_NONBLOCK)) {
+        if ((s->f.flags & SOCK_NONBLOCK)) {
             rv = -EAGAIN;
             goto out;
         }
@@ -349,7 +348,7 @@ static sysreturn socket_write_tcp_bh(sock s, thread t, void * buf, u64 remain, b
     u64 avail = tcp_sndbuf(s->info.tcp.lw);
     if (avail == 0) {
       full:
-        if (!blocked && (s->flags & SOCK_NONBLOCK)) {
+        if (!blocked && (s->f.flags & SOCK_NONBLOCK)) {
             net_debug(" send buf full and non-blocking, return EAGAIN\n");
             rv = -EAGAIN;
             goto out;
@@ -533,7 +532,6 @@ static int allocate_sock(process p, int type, u32 flags, sock * rs)
     s->txbq = allocate_blockq(h, "sock transmit", SOCK_BLOCKQ_LEN, 0 /* XXX */);
     s->ns = allocate_notify_set(h);
     s->fd = fd;
-    s->flags = flags;           /* XXX should sanity check */
     set_lwip_error(s, ERR_OK);
     *rs = s;
     return fd;
@@ -914,7 +912,7 @@ static sysreturn accept_bh(sock s, thread t, struct sockaddr *addr, socklen_t *a
 
     sock sn = dequeue(s->incoming);
     if (!sn) {
-        if ((s->flags & SOCK_NONBLOCK) || (flags & SOCK_NONBLOCK)) {
+        if ((s->f.flags & SOCK_NONBLOCK) || (flags & SOCK_NONBLOCK)) {
             rv = -EAGAIN;
             goto out;
         }
