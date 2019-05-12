@@ -53,8 +53,8 @@ struct utsname {
 };
     
 typedef struct iovec {
-    void *address;
-    u64 length;
+    void *iov_base;
+    u64 iov_len;
 } *iovec;
 
 #define EPERM           1               /* Operation not permitted */

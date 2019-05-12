@@ -19,7 +19,8 @@ PROGRAMS= \
 	web \
 	webg \
 	webs \
-	write
+	write \
+	readv
 
 SRCS-creat= \
 	$(CURDIR)/creat.c \
@@ -163,6 +164,11 @@ SRCS-write= \
 	$(CURDIR)/write.c \
 	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-write=		-static
+
+SRCS-readv = \
+	$(CURDIR)/readv.c \
+	$(SRCDIR)/unix_process/ssp.c
+LDFLAGS-readv=		-static
 
 CFLAGS+=	-DENABLE_MSG_DEBUG
 CFLAGS+=	-I$(SRCDIR)/runtime \
