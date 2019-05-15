@@ -271,6 +271,8 @@ void thread_log_internal(thread t, const char *desc, ...)
         vstart (ap, desc);        
         buffer b = allocate_buffer(transient, 100);
         bprintf(b, "%n%d ", (int) ((MAX(MIN(t->tid, 20), 1) - 1) * 4), t->tid);
+        if (current->name[0] != '\0')
+            bprintf(b, "[%s] ", current->name);
         buffer f = alloca_wrap_buffer(desc, runtime_strlen(desc));
         vbprintf(b, f, &ap);
         push_u8(b, '\n');
@@ -316,6 +318,7 @@ thread create_thread(process p)
     t->select_epoll = 0;
     t->tid = tidcount++;
     t->clear_tid = 0;
+    t->name[0] = '\0';
     zero(t->frame, sizeof(t->frame));
     t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(closure(h, default_fault_handler, t));
     t->run = closure(h, run_thread, t);

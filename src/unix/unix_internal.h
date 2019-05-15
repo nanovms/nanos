@@ -116,6 +116,8 @@ typedef struct thread {
     epoll select_epoll;
     int *clear_tid;
     int tid;
+    char name[16]; /* thread name */
+
     thunk run;
     queue log[64];
 } *thread;
@@ -303,3 +305,7 @@ void deallocate_blockq(blockq bq);
 sysreturn blockq_check(blockq bq, thread t, blockq_action a);
 void blockq_wake_one(blockq bq);
 void blockq_flush(blockq bq);
+
+/* Values to pass as first argument to prctl() */
+#define PR_SET_NAME    15               /* Set process name */
+#define PR_GET_NAME    16               /* Get process name */
