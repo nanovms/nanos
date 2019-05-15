@@ -8,16 +8,17 @@ sysreturn sigaction(int signum,
     return 0;
 }
 
-
-sysreturn sigprocmask(int how, u64 *new, u64 *old)
+sysreturn rt_sigprocmask(int how, const sigset_t *set, sigset_t *oldset, u64 sigsetsize)
 {
-    if (old) *old = 0;
+    if (oldset)
+        runtime_memset((void *) oldset, 0, sigsetsize);
+
     return 0;
 }
 
 void register_signal_syscalls(struct syscall *map)
 {
-    register_syscall(map, rt_sigprocmask, sigprocmask);
+    register_syscall(map, rt_sigprocmask, rt_sigprocmask);
     register_syscall(map, rt_sigaction, sigaction);
     register_syscall(map, sigaltstack, syscall_ignore);
 }
