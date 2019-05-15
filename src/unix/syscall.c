@@ -1246,6 +1246,17 @@ sysreturn prctl(int option, u64 arg2, u64 arg3, u64 arg4, u64 arg5)
 {
     thread_log(current, "prctl: option %d, arg2 0x%lx, arg3 0x%lx, arg4 0x%lx, arg5 0x%lx",
                option, arg2, arg3, arg4, arg5);
+
+    switch (option) {
+    case PR_SET_NAME:
+        runtime_memcpy(current->name, (void *) arg2, sizeof(current->name));
+        current->name[sizeof(current->name) - 1] = '\0';
+        break;
+    case PR_GET_NAME:
+        runtime_memcpy((void *) arg2, current->name, sizeof(current->name));
+        break;
+    }
+
     return 0;
 }
 
