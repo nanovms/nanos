@@ -15,7 +15,6 @@
 void register_other_syscalls(struct syscall *map)
 {
     register_syscall(map, rt_sigreturn, 0);
-    register_syscall(map, readv, 0);
     register_syscall(map, msync, 0);
     register_syscall(map, shmget, 0);
     register_syscall(map, shmat, 0);
@@ -300,6 +299,48 @@ sysreturn pread(int fd, u8 *dest, bytes length, s64 offset)
 
     /* use given offset with no file offset update */
     return apply(f->read, dest, length, offset);
+}
+
+static CLOSURE_5_2(readv_complete, void, heap, thread, struct iovec*, u8*, u64, status, u64);
+static void readv_complete(heap h, thread t, struct iovec *iov, u8* read_bytes, u64 total_len, status s, u64 read_len)
+{
+    int curr_pos = 0;
+    int iv = 0;
+    if(is_ok(s)) {
+
+	while(curr_pos < read_len) {
+	    struct iovec iovector = iov[iv];
+	    int to_read = (iovector.iov_len < read_len - curr_pos) ? iovector.iov_len : read_len - curr_pos;
+            runtime_memcpy(iovector.iov_base, read_bytes + curr_pos, to_read);
+            curr_pos += iovector.iov_len;
+            iv += 1;
+	}
+	deallocate(h, read_bytes, total_len);
+	set_syscall_return(t, read_len);
+    }
+    else
+	set_syscall_error(t, EINVAL);
+
+    thread_wakeup(t);
+}
+
+sysreturn readv(int fd, struct iovec *iov, int iovcnt)
+{
+    u64 total_len = 0;
+    heap h = heap_general(get_kernel_heaps());
+
+    file f = resolve_fd(current->p, fd);
+    if (!f->f.read || iovcnt < 0)
+        return set_syscall_error(current, EINVAL);
+
+    for(int i = 0; i < iovcnt; i++)
+	total_len = iov[i].iov_len + total_len;
+
+    u8 *read_bytes = allocate(h, total_len);
+
+    filesystem_read(current->p->fs, f->n, read_bytes, total_len, 0,
+		    closure(h, readv_complete, h, current, iov, read_bytes, total_len));
+    thread_sleep(current);
 }
 
 sysreturn write(int fd, u8 *body, bytes length)
@@ -843,7 +884,7 @@ sysreturn writev(int fd, iovec v, int count)
 {
     int res = 0;
     resolve_fd(current->p, fd);
-    for (int i = 0; i < count; i++) res += write(fd, v[i].address, v[i].length);
+    for (int i = 0; i < count; i++) res += write(fd, v[i].iov_base, v[i].iov_len);
     return res;
 }
 
@@ -1288,6 +1329,7 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, sendfile, sendfile);
     register_syscall(map, stat, stat);
     register_syscall(map, lstat, stat);
+    register_syscall(map, readv, readv);
     register_syscall(map, writev, writev);
     register_syscall(map, access, access);
     register_syscall(map, lseek, lseek);
