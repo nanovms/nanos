@@ -280,6 +280,8 @@ void init_syscalls();
 
 int do_pipe2(int fds[2], int flags);
 
+sysreturn socketpair(int domain, int type, int protocol, int sv[2]);
+
 int do_eventfd2(unsigned int count, int flags);
 
 void register_special_files(process p);

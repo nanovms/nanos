@@ -13,6 +13,7 @@ PROGRAMS= \
 	paging \
 	pipe \
 	sendfile \
+	socketpair \
 	time \
 	udploop \
 	vsyscall \
@@ -86,6 +87,12 @@ LIBS-pipe=		-lm -lpthread
 
 SRCS-sendfile=		$(CURDIR)/sendfile.c
 LDFLAGS-sendfile=	-static
+
+SRCS-socketpair= \
+	$(CURDIR)/socketpair.c \
+	$(SRCDIR)/unix_process/ssp.c
+LDFLAGS-socketpair=	-static
+LIBS-socketpair=	-lpthread
 
 SRCS-time= \
 	$(CURDIR)/time.c \

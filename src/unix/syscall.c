@@ -27,7 +27,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, sendmsg, 0);
     register_syscall(map, recvmsg, 0);
     register_syscall(map, shutdown, 0);
-    register_syscall(map, socketpair, 0);
     register_syscall(map, fork, 0);
     register_syscall(map, vfork, 0);
     register_syscall(map, execve, 0);
@@ -1355,6 +1354,7 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, getrandom, getrandom);
     register_syscall(map, pipe, pipe);
     register_syscall(map, pipe2, pipe2);
+    register_syscall(map, socketpair, socketpair);
     register_syscall(map, eventfd, eventfd);
     register_syscall(map, eventfd2, eventfd2);
     register_syscall(map, creat, creat);

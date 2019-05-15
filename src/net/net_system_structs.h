@@ -1,4 +1,5 @@
 #define	ENOTSOCK	88	/* Socket operation on non-socket */
+#define	ESOCKTNOSUPPORT 94	/* Socket type not supported */
 #define	EPFNOSUPPORT	96	/* Protocol family not supported */
 #define	EAFNOSUPPORT	97	/* Address family not supported by protocol */
 #define	EADDRINUSE	98	/* Address already in use */
@@ -24,6 +25,7 @@ enum protocol_type {
 #define SOCK_TYPE_MASK	0xf
 #define __SOCK_SIZE__	16		/* sizeof(struct sockaddr)	*/
 
+#define AF_UNIX 1
 #define AF_INET 2
 
 
