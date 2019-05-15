@@ -1236,11 +1236,10 @@ sysreturn eventfd2(unsigned int count, int flags)
 
 sysreturn sched_getaffinity(int pid, u64 cpusetsize, cpu_set_t *mask)
 {
-    if (cpusetsize < sizeof(u64))
-        return -EINVAL;
-    if (mask)
-        mask->mask[0] = 1ull;      /* always cpu 0 */
-    return 0;
+    if (!mask || cpusetsize < sizeof(mask->mask[0]))
+        return set_syscall_error(current, EINVAL);
+    mask->mask[0] = 1;      /* always cpu 0 */
+    return sizeof(mask->mask[0]);
 }
 
 sysreturn prctl(int option, u64 arg2, u64 arg3, u64 arg4, u64 arg5)
