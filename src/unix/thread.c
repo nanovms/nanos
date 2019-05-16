@@ -101,9 +101,13 @@ static void futex_thread_wakeup(fut f, thread t) {
 // return the number of waiters that were woken up
 static int futex_wake(fut f, int val, boolean verbose, int *uaddr)
 {
+    if (verbose) {
+        thread_log(current, "futex_wake [%ld %p %d] %d",
+            current->tid, uaddr, *uaddr, val);
+    }
+
     int result = 0;
     thread w;
-
     while (result < val && (w = dequeue(f->waiters))) {
         result++;
         if (verbose) {
@@ -141,11 +145,11 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
     int op = futex_op & 127; // chuck the private bit
     switch(op) {
     case FUTEX_WAIT:
+        if (verbose) {
+            thread_log(current, "futex_wait [%ld %p %d] %d %p",
+            current->tid, uaddr, *uaddr, val, timeout);
+        }
         if (*uaddr == val) {
-            if (verbose) {
-                thread_log(current, "futex_wait [%ld %p %d] %d %p",
-                    current->tid, uaddr, *uaddr, val, timeout);
-            }
             // if we resume we are woken up
             set_syscall_return(current, 0);
             //timeout is relative, measured against the CLOCK_MONOTONIC clock
@@ -229,11 +233,11 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
         }
 
     case FUTEX_WAIT_BITSET:
+        if (verbose) {
+            thread_log(current, "futex_wait_bitset [%ld %p %d] %d %p %d",
+                current->tid, uaddr, *uaddr, val, timeout, val3);
+        }
         if (*uaddr == val) {
-            if (verbose) {
-                thread_log(current, "futex_wait_bitset [%ld %p %d] %d %p %d",
-                    current->tid, uaddr, *uaddr, val, timeout, val3);
-            }
             set_syscall_return(current, 0);
             // TODO: timeout should be absolute based on CLOCK_REALTIME
             if (timeout)
@@ -253,6 +257,38 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
     return 0;
 }
 
+static sysreturn set_robust_list(struct robust_list_head *head, u64 len)
+{
+    if (sizeof(*head) != len)
+        return set_syscall_error(current, EINVAL);
+
+    current->robust_list_head = head;
+    return 0;
+}
+
+static sysreturn get_robust_list(int pid, struct robust_list_head **head_ptr, u64 *len_ptr)
+{
+    thread t;
+    if (pid == 0) {
+        t = current;
+    } else {
+        thread t2;
+	t = 0;
+        vector_foreach(current->p->threads, t2) {
+            if (t2->tid == pid) {
+                t = t2;
+                break;
+            }
+        }
+	if (t == 0)
+            return set_syscall_error(current, ESRCH);
+    }
+
+    *head_ptr = t->robust_list_head;
+    *len_ptr = sizeof(*t->robust_list_head);
+    return 0;
+}
+
 void register_thread_syscalls(struct syscall *map)
 {
     register_syscall(map, futex, futex);
@@ -260,11 +296,14 @@ void register_thread_syscalls(struct syscall *map)
     register_syscall(map, arch_prctl, arch_prctl);
     register_syscall(map, set_tid_address, set_tid_address);
     register_syscall(map, gettid, gettid);
+    register_syscall(map, set_robust_list, set_robust_list);
+    register_syscall(map, get_robust_list, get_robust_list);
 }
 
 void thread_log_internal(thread t, const char *desc, ...)
 {
-    if (table_find(t->p->process_root, sym(trace))) {
+    if (table_find(t->p->process_root, sym(trace)) ||
+        (t->syscall == SYS_futex && table_find(t->p->process_root, sym(futex_trace)))) {
         if (syscall_notrace(t->syscall))
             return;
         vlist ap;
@@ -319,6 +358,7 @@ thread create_thread(process p)
     t->tid = tidcount++;
     t->clear_tid = 0;
     t->name[0] = '\0';
+    t->robust_list_head = 0;
     zero(t->frame, sizeof(t->frame));
     t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(closure(h, default_fault_handler, t));
     t->run = closure(h, run_thread, t);
@@ -333,7 +373,14 @@ void exit_thread(thread t)
         futex(t->clear_tid, FUTEX_WAKE, 1, 0, 0, 0);
     }
 
-    /* TODO: remove also from p->threads (but it is not currently used) */
+    /* TODO: remove also from p->threads */
+    if (t->robust_list_head != 0) {
+        struct robust_list_head *head = t->robust_list_head;
+        for (struct robust_list *l = head->list.next; l != &head->list; l = l->next) {
+            u32 *lock_word = (u32 *) ((u8 *) l + head->futex_offset);
+	    (void) lock_word; // TODO
+        }
+    }
     heap h = heap_general((kernel_heaps)t->p->uh);
     deallocate(h, t, sizeof(struct thread));
 }
