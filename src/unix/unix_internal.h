@@ -172,7 +172,8 @@ typedef struct process {
     u64 sigmask;
     struct syscall *syscalls;
     vector files;
-    rangemap vmap;                /* virtual areas */
+    rangemap vareas;               /* available address space */
+    rangemap vmaps;                /* process mappings */
 } *process;
 
 extern thread current;
@@ -197,6 +198,8 @@ u64 allocate_fd(process p, void *f);
 void deallocate_fd(process p, int fd);
 
 void init_vdso(heap, heap);
+
+void mmap_process_init(process p);
 
 static inline timestamp time_from_timeval(const struct timeval *t)
 {
