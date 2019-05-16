@@ -305,7 +305,8 @@ static boolean epoll_check(heap h, epollfd efd, fdesc f)
             fetch_and_add(&efd->refcnt, 1);
             epoll_debug("   register fd %d, eventmask %x, applying check\n",
                         efd->fd, efd->eventmask);
-            if (!apply(f->check, efd->eventmask, &efd->lastevents,
+            if (!apply(f->check, efd->eventmask | (EPOLLERR | EPOLLHUP),
+                       &efd->lastevents,
                        closure(h, epoll_wait_notify, efd)))
                 return false;
         } else {
@@ -751,7 +752,8 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
         fetch_and_add(&efd->refcnt, 1);
         epoll_debug("   register fd %d, eventmask %x, applying check\n",
             efd->fd, efd->eventmask);
-        if (!apply(f->check, efd->eventmask, &efd->lastevents,
+        if (!apply(f->check, efd->eventmask | (EPOLLERR | EPOLLHUP),
+                   &efd->lastevents,
                    closure(h, poll_wait_notify, efd)))
             break;
     }
