@@ -67,6 +67,7 @@ SRCS-pipe= \
 	$(SRCDIR)/runtime/extra_prints.c \
 	$(SRCDIR)/runtime/format.c \
 	$(SRCDIR)/runtime/random.c \
+	$(SRCDIR)/runtime/range.c \
 	$(SRCDIR)/runtime/runtime_init.c \
 	$(SRCDIR)/runtime/string.c \
 	$(SRCDIR)/runtime/symbol.c \

@@ -461,7 +461,7 @@ void ingest_extent(fsfile f, symbol off, tuple value)
     tfs_debug("   file offset %ld, length %ld, block_start 0x%lx, allocated %ld\n",
               file_offset, length, block_start, allocated);
 #ifndef BOOT
-    if (!id_heap_reserve(f->fs->storage, block_start, allocated)) {
+    if (!id_heap_range_modify(f->fs->storage, block_start, allocated, true, true)) {
         /* soft error... */
         msg_err("unable to reserve storage at start 0x%lx, len 0x%lx\n",
                 block_start, allocated);
@@ -831,7 +831,7 @@ void create_filesystem(heap h,
 #ifndef BOOT
     fs->storage = create_id_heap(h, 0, infinity, SECTOR_SIZE);
     assert(fs->storage != INVALID_ADDRESS);
-    assert(id_heap_reserve(fs->storage, 0, INITIAL_LOG_SIZE));
+    assert(id_heap_range_modify(fs->storage, 0, INITIAL_LOG_SIZE, true, true));
 #endif
     fs->tl = log_create(h, fs, closure(h, log_complete, complete, fs));
 }

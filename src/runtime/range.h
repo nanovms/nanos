@@ -61,6 +61,14 @@ static inline rmnode rangemap_next_node(rangemap rm, rmnode n)
     return struct_from_list(n->l.next, rmnode, l);
 }
 
+static inline rmnode rangemap_first_node(rangemap rm)
+{
+    if (rm->root.next == &rm->root)
+        return INVALID_ADDRESS;
+    else
+        return struct_from_list(rm->root.next, rmnode, l);
+}
+
 static inline void rangemap_remove_node(rangemap rm, rmnode n)
 {
     list_delete(&n->l);
