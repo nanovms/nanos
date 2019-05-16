@@ -511,6 +511,7 @@ static varea allocate_varea(heap h, rangemap vareas, range r, heap vh, boolean a
         return va;
     rmnode_init(&va->node, r);
     va->allow_fixed = allow_fixed;
+    va->h = vh;
     if (!rangemap_insert(vareas, &va->node)) {
         deallocate(h, va, sizeof(struct vmap));
         return INVALID_ADDRESS;
@@ -625,9 +626,11 @@ void register_mmap_syscalls(struct syscall *map)
     register_syscall(map, madvise, syscall_ignore);
 }
 
-/* kernel extent */
+/* kernel start */
 extern void * START;
-extern void * bss_end;
+
+#define add_varea(start, end, vheap, allow_fixed) \
+    assert(allocate_varea(h, p->vareas, irange(start, end), vheap, allow_fixed));
 
 void mmap_process_init(process p)
 {
@@ -635,12 +638,32 @@ void mmap_process_init(process p)
     p->vareas = allocate_rangemap(h);
     p->vmaps = allocate_rangemap(h);
     assert(p->vareas != INVALID_ADDRESS && p->vmaps != INVALID_ADDRESS);
-    assert(allocate_varea(h, p->vmaps, irange(PAGESIZE, PROCESS_VIRTUAL_32_HEAP_START), 0, true));
-    assert(allocate_varea(h, p->vmaps, irange(PROCESS_VIRTUAL_32_HEAP_START, PROCESS_VIRTUAL_32_HEAP_END), p->virtual32, true));
-    range kr = irange(u64_from_pointer(&START), pad(u64_from_pointer(&bss_end), 0x01000000));
-    assert(allocate_varea(h, p->vmaps, kr, 0, false));
-    assert(allocate_varea(h, p->vmaps, irange(HUGE_PAGESIZE, PROCESS_VIRTUAL_HEAP_START), 0, false));
-    assert(allocate_varea(h, p->vmaps, irange(PROCESS_VIRTUAL_HEAP_START, PROCESS_VIRTUAL_HEAP_END), p->virtual_page, true));
-    assert(allocate_varea(h, p->vmaps, irange(PROCESS_VIRTUAL_HEAP_END, U64_FROM_BIT(VIRTUAL_ADDRESS_BITS)), 0, false));
-    assert(allocate_varea(h, p->vmaps, irange(1ull << user_va_tag_offset, tag_max << user_va_tag_offset), 0, true));
+
+    /* It may be more elegant to put these into a table... */
+
+    /* Low memory is fair game but untracked... */
+    add_varea(PAGESIZE, PROCESS_VIRTUAL_32_HEAP_START, 0, true);
+
+    /* Fixed mappings in virtual32 space; just reserve the area so future allocations won't collide */
+    add_varea(PROCESS_VIRTUAL_32_HEAP_START, PROCESS_VIRTUAL_32_HEAP_END, p->virtual32, true);
+
+    /* Kernel memory through the end of 2gb area */
+    add_varea(u64_from_pointer(&START), 0x80000000, 0, false);
+
+    /* Reserved for kernel allocations */
+    add_varea(HUGE_PAGESIZE, PROCESS_VIRTUAL_HEAP_START, 0, false);
+
+    /* Allow (tracked) reservations in p->virtual */
+    add_varea(PROCESS_VIRTUAL_HEAP_START, PROCESS_VIRTUAL_HEAP_END, p->virtual_page, true);
+
+    /* Reserved */
+    u64 user_va_tag_start = U64_FROM_BIT(user_va_tag_offset);
+    u64 user_va_tag_end = user_va_tag_start * tag_max;
+    add_varea(PROCESS_VIRTUAL_HEAP_END, user_va_tag_start, 0, false);
+
+    /* Allow mmaps in user va tag area (untracked) */
+    add_varea(user_va_tag_start, user_va_tag_end, 0, true);
+
+    /* Reserved */
+    add_varea(user_va_tag_end, U64_FROM_BIT(VIRTUAL_ADDRESS_BITS), 0, false);
 }
