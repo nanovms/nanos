@@ -87,9 +87,10 @@ static inline u32 socket_poll_events(sock s)
 	if (s->info.tcp.state == TCP_SOCK_LISTENING) {
 	    return in ? EPOLLIN : 0;
 	} else if (s->info.tcp.state == TCP_SOCK_OPEN) {
-            /* TODO: should use tcp_write_checks() for EPOLLOUT | EPOLLWRNORM? */
 	    return (in ? EPOLLIN | EPOLLRDNORM : 0) |
-                (s->info.tcp.lw->state == ESTABLISHED ? EPOLLOUT | EPOLLWRNORM : EPOLLIN | EPOLLHUP);
+                (s->info.tcp.lw->state == ESTABLISHED ?
+                (tcp_sndbuf(s->info.tcp.lw) ? EPOLLOUT | EPOLLWRNORM : 0) :
+                EPOLLIN | EPOLLHUP);
 	} else {
 	    return 0;
 	}
@@ -377,6 +378,9 @@ static sysreturn socket_write_tcp_bh(sock s, thread t, void * buf, u64 remain, b
         if (err == ERR_OK) {
             net_debug(" tcp_write and tcp_output successful for %ld bytes\n", n);
             rv = n;
+            if (n == avail) {
+                notify_sock(s); /* reset a triggered EPOLLOUT condition */
+            }
         } else {
             net_debug(" tcp_output() lwip error: %d\n", err);
             rv = lwip_to_errno(err);
