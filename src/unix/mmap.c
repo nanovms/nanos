@@ -314,7 +314,6 @@ static void vmap_attribute_update_intersection(heap h, rangemap pvmap, vmap q, r
     range rn = node->r;
     range rq = q->node.r;
     range ri = range_intersection(rq, rn);
-    assert(range_span(ri) > 0); // XXX
 
     boolean head = ri.start > rn.start;
     boolean tail = ri.end < rn.end;
@@ -346,10 +345,6 @@ static void vmap_attribute_update_intersection(heap h, rangemap pvmap, vmap q, r
 
     */
 
-#if 0  // XXX make debug
-    rprintf("pre attr update:\n");
-    vmap_dump(pvmap);
-#endif
     u64 newflags = (match->flags & ~(VMAP_FLAG_WRITABLE | VMAP_FLAG_EXEC)) | q->flags;
 
     if (head) {
@@ -359,9 +354,6 @@ static void vmap_attribute_update_intersection(heap h, rangemap pvmap, vmap q, r
         range rhl = { rn.start, ri.start };
         assert(rangemap_reinsert(pvmap, node, rhl));
 
-#if 0
-        vmap_dump(pvmap);
-#endif
         /* create node for intersection */
         vmap mh = allocate_vmap(h, pvmap, ri, newflags);
         assert(mh != INVALID_ADDRESS);
@@ -616,56 +608,82 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     runloop();
 }
 
-static sysreturn munmap(void *addr, u64 length)
+static CLOSURE_1_1(dealloc_phys_page, void, heap, range);
+static void dealloc_phys_page(heap physical, range r)
+{
+    if (!id_heap_range_modify(physical, r.start, range_span(r), true, false))
+        msg_err("some of physical range %R not allocated in heap\n", r);
+}
+
+static CLOSURE_2_1(process_unmap_intersection, void, process, range, rmnode);
+static void process_unmap_intersection(process p, range rq, rmnode node)
 {
     kernel_heaps kh = get_kernel_heaps();
-    heap pages = heap_pages(kh);
-    heap physical = heap_physical(kh);
-    // process p = current->p;
+    vmap match = (vmap)node;
+    range rn = node->r;
+    range ri = range_intersection(rq, rn);
+
+    /* similar logic to attribute update above */
+    boolean head = ri.start > rn.start;
+    boolean tail = ri.end < rn.end;
+
+//    rprintf("unmap q %R, node %R, head %d, tail %d\n", rq, node->r, head, tail);
+
+    if (head) {
+        u64 rtend = rn.end;
+
+        /* split non-intersecting part of node */
+        range rhl = { rn.start, ri.start };
+        assert(rangemap_reinsert(p->vmaps, node, rhl));
+
+        if (tail) {
+            /* create node for tail end */
+            range rt = { ri.end, rtend };
+            vmap mt = allocate_vmap(heap_general(kh), p->vmaps, rt, match->flags);
+            assert(mt != INVALID_ADDRESS);
+        }
+    } else if (tail) {
+        /* move node start back */
+        range rt = { ri.end, node->r.end };
+        assert(rangemap_reinsert(p->vmaps, node, rt));
+    } else {
+        /* delete outright */
+        rangemap_remove_node(p->vmaps, node);
+    }
+
+    /* unmap any mapped pages and return to physical heap */
+    u64 len = range_span(ri);
+    unmap_pages_with_handler(ri.start, len, closure(heap_general(kh), dealloc_phys_page, heap_physical(kh)));
+
+    /* return virtual mapping to heap, if any ... assuming a vmap cannot span heaps!
+       XXX: this shouldn't be a lookup per, so consider stashing a link to varea or heap in vmap
+       though in practice these are small numbers... */
+    varea v = (varea)rangemap_lookup(p->vareas, ri.start);
+    assert(v != INVALID_ADDRESS);
+    if (v->h)
+        id_heap_range_modify(v->h, ri.start, len, false, false);
+}
+
+static void process_unmap_range(process p, range q)
+{
+    rmnode_handler nh = closure(transient, process_unmap_intersection, p, q);
+    rangemap_range_lookup(p->vmaps, q, nh);
+}
+
+static sysreturn munmap(void *addr, u64 length)
+{
+    process p = current->p;
     thread_log(current, "munmap: addr %p, size 0x%P", addr, length);
 
-    /* first find any relevant vmap(s) and determine if we can even do this
-
-       XXX- man page says we shouldn't throw an error if some or all
-       of the area is unmapped, but what if there are parts that we
-       can map and some that we can't?
-
-       make note of virt heap source in vmap
-    */
-
-    u64 vaddr = u64_from_pointer(addr);
-    if (!addr || (vaddr & (PAGESIZE - 1)))
+    u64 where = u64_from_pointer(addr);
+    if ((where & MASK(PAGELOG)) || length == 0)
         return -EINVAL;
 
-    /* XXX erm, how do we handle removal of a 4K page's worth from a 2M mapping? */
     u64 padlen = pad(length, PAGESIZE);
-    u64 paddr = physical_from_virtual(addr);
+    range q = irange(where, where + padlen);
 
-    /* XXX leap of faith... */
-    unmap(vaddr, padlen, pages);
-
-    /* release physical pages
-
-       This is all kinds of dangerous, because the given range is
-       going to be rounded up to the next order. That's fine if the
-       range comes exactly from a previous mmap, but not ok if it's
-       some portion of a mapping that isn't already an power-of-2
-       number of pages. Expect page faults and bad behavior before
-       fixing this...
-
-       id_heap_range_modify is probably the way to go. However, we're
-       kludging it here because we want to typically remove the
-       rounded-up allocation. Maybe fix this by trimming off unused
-       portions after the allocation. Might want to think about making
-       id only align on request...
-    */
-
-//    assert(id_heap_range_modify(physical, paddr, padlen, true, false));
-    deallocate(physical, paddr, padlen);
-
-    /* XXX - don't bother until we remove from vmaps, also check if virtual32... */
-    // deallocate(p->virtual_page, vaddr, padlen);
-
+    /* clear out any mapped areas in our meta */
+    process_unmap_range(p, q);
     return 0;
 }
 
@@ -673,7 +691,7 @@ static sysreturn munmap(void *addr, u64 length)
 extern void * START;
 
 #define add_varea(start, end, vheap, allow_fixed) \
-    assert(allocate_varea(h, p->vareas, irange(start, end), vheap, allow_fixed));
+    assert(allocate_varea(h, p->vareas, irange(start, end), vheap, allow_fixed) != INVALID_ADDRESS);
 
 void mmap_process_init(process p)
 {

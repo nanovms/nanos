@@ -226,6 +226,7 @@ void install_fallback_fault_handler(fault_handler h);
 #define PAGE_WRITABLE      0x0002
 #define PAGE_PRESENT       0x0001
 
+#define PAGE_FLAGS_MASK    (PAGE_NO_EXEC | PAGEMASK)
 #define PAGE_PROT_FLAGS (PAGE_NO_EXEC | PAGE_USER | PAGE_WRITABLE)
 #define PAGE_DEV_FLAGS (PAGE_WRITABLE | PAGE_WRITETHROUGH | PAGE_NO_EXEC)
 
