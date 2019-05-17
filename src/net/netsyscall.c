@@ -916,7 +916,7 @@ static sysreturn accept_bh(sock s, thread t, struct sockaddr *addr, socklen_t *a
 
     sock sn = dequeue(s->incoming);
     if (!sn) {
-        if ((s->f.flags & SOCK_NONBLOCK) || (flags & SOCK_NONBLOCK)) {
+        if (s->f.flags & SOCK_NONBLOCK) {
             rv = -EAGAIN;
             goto out;
         }
@@ -925,6 +925,7 @@ static sysreturn accept_bh(sock s, thread t, struct sockaddr *addr, socklen_t *a
 
     net_debug("child sock %d\n", sn->fd);
 
+    sn->f.flags = flags;
     if (addr)
         remote_sockaddr_in(sn, (struct sockaddr_in *)addr);
     if (addrlen)
@@ -951,7 +952,8 @@ sysreturn accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int fla
 	return -EOPNOTSUPP;
     net_debug("sock %d, addr %p, addrlen %p, flags %x\n", sockfd, addr, addrlen, flags);
 
-    if (s->info.tcp.state != TCP_SOCK_LISTENING)
+    if ((s->info.tcp.state != TCP_SOCK_LISTENING) ||
+            (flags & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)))
 	return set_syscall_error(current, EINVAL);
 
     blockq_action ba = closure(s->h, accept_bh, s, current, addr, addrlen, flags);
