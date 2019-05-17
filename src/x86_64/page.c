@@ -308,6 +308,17 @@ void update_map_flags(u64 vaddr, u64 length, u64 flags)
     traverse_range(vaddr, length, closure(transient, update_pte_flags, flags));
 }
 
+static CLOSURE_0_2(zero_page, void, u64, u64 *);
+static void zero_page(u64 addr, u64 * pte)
+{
+    zero(pointer_from_u64(addr), *pte & PAGE_2M_SIZE ? PAGE_2M_SIZE : PAGESIZE);
+}
+
+void zero_mapped_pages(u64 vaddr, u64 length)
+{
+    traverse_range(vaddr, length, closure(transient, zero_page));
+}
+
 // error processing
 static void map_range(u64 virtual, physical p, int length, u64 flags, heap h)
 {

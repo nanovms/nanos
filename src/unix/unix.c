@@ -143,8 +143,10 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
         assert(p->virtual32 != INVALID_ADDRESS);
         if (aslr)
             id_heap_set_randomize(p->virtual32, true);
+        mmap_process_init(p);
     } else {
         p->virtual = p->virtual_page = p->virtual32 = 0;
+        p->vareas = p->vmaps = INVALID_ADDRESS;
     }
     p->fs = fs;
     p->cwd = root;
@@ -155,7 +157,6 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     create_stdfiles(uh, p);
     init_threads(p);
     p->syscalls = linux_syscalls;
-    p->vmap = allocate_rangemap(h);
     return p;
 }
 

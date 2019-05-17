@@ -131,6 +131,7 @@ physical physical_from_virtual(void *x);
 #endif
 void dump_ptes(void *x);
 void update_map_flags(u64 vaddr, u64 length, u64 flags);
+void zero_mapped_pages(u64 vaddr, u64 length);
 
 heap zero_wrap(heap meta, heap parent);
 
@@ -179,6 +180,7 @@ typedef void *value;
 #define tag_tuple (2ull)
 #define tag_string (3ull)
 #define tag_buffer_promise (4ull) //?
+#define tag_max (5ull)
 
 #include <symbol.h>
 
