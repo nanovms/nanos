@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version=0.1.12
+version=0.1.14
 plat="$(uname -s | awk '{print tolower($0)}')"
 
 tgz="nanos-release-$plat-$version.tar.gz"
