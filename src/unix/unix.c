@@ -131,8 +131,8 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
         p->virtual = create_id_heap(h, PROCESS_VIRTUAL_HEAP_START,
                                     PROCESS_VIRTUAL_HEAP_LENGTH, HUGE_PAGESIZE);
         assert(p->virtual != INVALID_ADDRESS);
-        assert(id_heap_range_modify(heap_virtual_huge((kernel_heaps)uh),
-                                    PROCESS_VIRTUAL_HEAP_START, PROCESS_VIRTUAL_HEAP_LENGTH,
+        assert(id_heap_set_area(heap_virtual_huge((kernel_heaps)uh),
+                                PROCESS_VIRTUAL_HEAP_START, PROCESS_VIRTUAL_HEAP_LENGTH,
                                     true, true));
         p->virtual_page = create_id_heap_backed(h, p->virtual, PAGESIZE);
         assert(p->virtual_page != INVALID_ADDRESS);

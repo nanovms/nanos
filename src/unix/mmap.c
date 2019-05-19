@@ -522,7 +522,7 @@ static boolean mmap_reserve_range(process p, range q)
             if (!a->allow_fixed)
                 return false;
             if (a->h)
-                id_heap_range_modify(a->h, q.start, range_span(q), false, true);
+                id_heap_set_area(a->h, q.start, range_span(q), false, true);
         }
         a = (varea)rangemap_next_node(p->vareas, (rmnode)a);
     }
@@ -611,7 +611,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
 static CLOSURE_1_1(dealloc_phys_page, void, heap, range);
 static void dealloc_phys_page(heap physical, range r)
 {
-    if (!id_heap_range_modify(physical, r.start, range_span(r), true, false))
+    if (!id_heap_set_area(physical, r.start, range_span(r), true, false))
         msg_err("some of physical range %R not allocated in heap\n", r);
 }
 
@@ -661,7 +661,7 @@ static void process_unmap_intersection(process p, range rq, rmnode node)
     varea v = (varea)rangemap_lookup(p->vareas, ri.start);
     assert(v != INVALID_ADDRESS);
     if (v->h)
-        id_heap_range_modify(v->h, ri.start, len, false, false);
+        id_heap_set_area(v->h, ri.start, len, false, false);
 }
 
 static void process_unmap_range(process p, range q)
