@@ -319,6 +319,22 @@ void zero_mapped_pages(u64 vaddr, u64 length)
     traverse_range(vaddr, length, closure(transient, zero_page));
 }
 
+static CLOSURE_1_2(unmap_page, void, range_handler, u64, u64 *);
+void unmap_page(range_handler rh, u64 vaddr, u64 * pte)
+{
+    int pagesize = *pte & PAGE_2M_SIZE ? PAGE_2M_SIZE : PAGESIZE;
+    u64 phys = *pte & ~PAGE_FLAGS_MASK;
+    *pte = 0;
+    range p = irange(phys, phys + pagesize);
+    apply(rh, p);
+}
+
+void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh)
+{
+    assert(!((virtual & PAGEMASK) || (length & PAGEMASK)));
+    traverse_range(virtual, length, closure(transient, unmap_page, rh));
+}
+
 // error processing
 static void map_range(u64 virtual, physical p, int length, u64 flags, heap h)
 {
@@ -359,9 +375,8 @@ static void map_range(u64 virtual, physical p, int length, u64 flags, heap h)
 	boolean fat = ((flags & PAGE_NO_FAT) == 0) && !(vo & MASK(PT3)) &&
             !(po & MASK(PT3)) && ((len - i) >= (1ull<<PT3));
 	if (!map_page(pb, vo, po, h, fat, flags & ~PAGE_NO_FAT, &invalidate)) {
-	    if (flags == 0)
-		console("unmap: area missing page mappings\n");
-	    else
+            /* may fail if flags == 0 and no mapping, but that's not a problem */
+            if (flags)
 		halt("map: ran out of page table memory\n");
 	}
         int off = 1ull << (fat ? PT3 : PT4);
