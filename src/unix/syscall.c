@@ -1185,6 +1185,8 @@ sysreturn fcntl(int fd, int cmd, int arg)
 {
     fdesc f = resolve_fd(current->p, fd);
 
+    thread_log(current, "fcntl: fd %d, cmd %d, arg %d", fd, cmd, arg);
+
     switch (cmd) {
     case F_GETFD:
         return set_syscall_return(current, f->flags & O_CLOEXEC);
