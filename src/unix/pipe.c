@@ -258,6 +258,14 @@ int do_pipe2(int fds[2], int flags)
         return -ENOMEM;
     }
 
+    if (flags & ~(O_CLOEXEC | O_DIRECT | O_NONBLOCK))
+        return -EINVAL;
+
+    if (flags & O_DIRECT) {
+        msg_err("O_DIRECT unsupported\n");
+        return -EOPNOTSUPP;
+    }
+
     pipe->data = INVALID_ADDRESS;
     pipe->files[PIPE_READ].fd = -1;
     pipe->files[PIPE_WRITE].fd = -1;
@@ -282,6 +290,7 @@ int do_pipe2(int fds[2], int flags)
     reader->f.read = closure(pipe->h, pipe_read, reader);
     reader->f.close = closure(pipe->h, pipe_close, reader);
     reader->f.check = closure(pipe->h, pipe_read_check, reader);
+    reader->f.flags = (flags & O_NONBLOCK) | O_RDONLY;
 
     pipe_file writer = &pipe->files[PIPE_WRITE];
     fdesc_init(&writer->f, FDESC_TYPE_PIPE);
@@ -291,6 +300,7 @@ int do_pipe2(int fds[2], int flags)
     writer->f.write = closure(pipe->h, pipe_write, writer);
     writer->f.close = closure(pipe->h, pipe_close, writer);
     writer->f.check = closure(pipe->h, pipe_write_check, writer);
+    writer->f.flags = (flags & O_NONBLOCK) | O_WRONLY;
 
     pipe->ref_cnt = 2;
 

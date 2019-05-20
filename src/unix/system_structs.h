@@ -105,7 +105,8 @@ typedef struct iovec {
 #define O_TRUNC		00001000
 #define O_APPEND	00002000
 #define O_NONBLOCK	00004000
-#define O_CLOEXEC   02000000
+#define O_DIRECT        00040000
+#define O_CLOEXEC       02000000
 
 /* Values for the second argument to `fcntl'.  */
 #define F_DUPFD         0       /* Duplicate file descriptor.  */
