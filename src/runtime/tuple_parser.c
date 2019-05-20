@@ -14,7 +14,7 @@ static charset property_sigils;
 // find sequence combinator
 static boolean member(charset cs, character c)
 {
-    return table_find(cs, pointer_from_u64((u64)c))?true:false; 
+    return table_find(cs, pointer_from_u64((u64)c))?true:false;
 }
 
 // could be variadic, later tables overwrite earlier
@@ -30,7 +30,7 @@ static charset charset_from_string(heap h, char *elements)
 {
     table t = allocate_table(h, identity_key, pointer_equal);
     // utf8 me
-    for (char *i = elements; *i; i++) 
+    for (char *i = elements; *i; i++)
         table_set(t, pointer_from_u64((u64)*i), (void *)1);
     return t;
 }
@@ -47,7 +47,7 @@ static parser selfinate (heap h, selfparser p, character in)
 // this also has to be done on the return
 static parser combinate(heap h, selfparser p)
 {
-    return (parser)closure(h, selfinate, h, p);    
+    return (parser)closure(h, selfinate, h, p);
 }
 
 
@@ -64,7 +64,7 @@ static parser eat_whitespace(heap h, parser finish, parser self, character in)
     if (in == '#') {
         return combinate(h, closure(h, til_newline, self));
     }
-    
+
     if (member(whitespace, in)) return self;
     return apply(finish, in);
 }
@@ -86,7 +86,7 @@ static parser quoted_string(completion c, buffer b, parser self, character in)
     return(apply(c, b));
 }
 
-    
+
 static CLOSURE_3_2(terminal, parser, completion, charset, buffer, parser, character);
 static parser terminal(completion c, charset final, buffer b, parser self, character in)
 {
@@ -113,7 +113,7 @@ static parser dispatch_property(heap h, parser pv, err_internal e, character x)
     switch(x) {
         //    case '|':
         //    case '/':
-        //    case '.':        
+        //    case '.':
     case ':':
         return pv;
 
@@ -121,7 +121,7 @@ static parser dispatch_property(heap h, parser pv, err_internal e, character x)
         return apply(e, aprintf(h, "unknown property discriminator %d", x));
         break;
     }
-    
+
 }
 
 static CLOSURE_3_1(parse_value, parser, heap, completion, err_internal, character);
@@ -162,7 +162,7 @@ static parser is_end_of_vector(heap h, completion c, tuple t, err_internal e, u6
     if (in != ']') {
         completion vc = closure(h, value_complete, t, intern_u64(*index), self);
         (*index)++;
-        // doesnt handle whitespace before end 
+        // doesnt handle whitespace before end
         return apply(ignore_whitespace(h, (void *)closure(h, parse_value, h, vc, e)), in);
     }
     return apply(c, t);
@@ -196,7 +196,7 @@ static parser kill(parser self, character ig)
 
 
 static CLOSURE_2_1(bridge_err, parser, heap, parse_error, buffer);
-static parser bridge_err(heap h, parse_error error, buffer b)    
+static parser bridge_err(heap h, parse_error error, buffer b)
 {
     apply(error, b);
     return combinate(h, closure(h, kill));
@@ -208,20 +208,20 @@ static parser bridge_completion(heap h, parse_finish c, err_internal err, void *
     apply(c, v);
     // another self case
     completion bc = closure(h, bridge_completion, h, c, err);
-    return (void *)closure(h, parse_value, h, bc, err);    
+    return (void *)closure(h, parse_value, h, bc, err);
 }
 
 parser tuple_parser(heap h, parse_finish c, parse_error err)
 {
     if (!whitespace) whitespace = charset_from_string(h, " \n\t");
     if (!name_terminal) name_terminal = charset_from_string(h, "()[]");
-    value_terminal = charset_union(h, name_terminal, whitespace);    
+    value_terminal = charset_union(h, name_terminal, whitespace);
     if (!property_sigils) property_sigils = charset_from_string(h, ":|/"); // dot should be here
     // variadic
-    name_terminal = charset_union(h, charset_union(h, name_terminal, property_sigils), whitespace);    
+    name_terminal = charset_union(h, charset_union(h, name_terminal, property_sigils), whitespace);
     // error close over line number
     err_internal k = closure(h, bridge_err, h, err);
-    completion bc = closure(h, bridge_completion, h, c, k);    
+    completion bc = closure(h, bridge_completion, h, c, k);
     return (void *)closure(h, parse_value, h, bc, k);
 }
 
