@@ -19,6 +19,7 @@ void print_u64(u64 s);
 
 extern void halt(char *format, ...) __attribute__((noreturn));
 extern void vm_exit(u8 code) __attribute__((noreturn));
+extern void print_stack_from_here();
 
 // make into no-op for production
 #ifdef NO_ASSERT
@@ -27,7 +28,6 @@ extern void vm_exit(u8 code) __attribute__((noreturn));
 #define assert(x)                                   \
     do {                                            \
         if (!(x)) {                                 \
-            extern void print_stack_from_here();    \
             print_stack_from_here();                \
             halt("assertion %s failed in " __FILE__ ": %s() on line %d; halt\n", #x, __func__, __LINE__); \
         }                                           \
@@ -122,16 +122,6 @@ typedef u64 physical;
 physical vtop(void *x);
 
 // used by stage2/stage3, not process
-#define PAGELOG 12
-#define PAGESIZE U64_FROM_BIT(PAGELOG)
-#define PAGELOG_2M 21
-#define PAGESIZE_2M U64_FROM_BIT(PAGELOG_2M)
-#ifndef physical_from_virtual
-physical physical_from_virtual(void *x);
-#endif
-void dump_ptes(void *x);
-void update_map_flags(u64 vaddr, u64 length, u64 flags);
-void zero_mapped_pages(u64 vaddr, u64 length);
 
 heap zero_wrap(heap meta, heap parent);
 
@@ -196,6 +186,18 @@ typedef closure_type(thunk, void);
 #include <timer.h>
 #include <tuple.h>
 #include <range.h>
+
+#define PAGELOG 12
+#define PAGESIZE U64_FROM_BIT(PAGELOG)
+#define PAGELOG_2M 21
+#define PAGESIZE_2M U64_FROM_BIT(PAGELOG_2M)
+#ifndef physical_from_virtual
+physical physical_from_virtual(void *x);
+#endif
+void dump_ptes(void *x);
+void update_map_flags(u64 vaddr, u64 length, u64 flags);
+void zero_mapped_pages(u64 vaddr, u64 length);
+void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh);
 
 typedef closure_type(buffer_handler, void, buffer);
 typedef closure_type(block_io, void, void *, range, status_handler);

@@ -14,7 +14,7 @@ heap create_id_heap(heap h, u64 base, u64 length, bytes pagesize);
 heap create_id_heap_backed(heap h, heap parent, bytes pagesize);
 heap allocate_id_heap(heap h, bytes pagesize); /* id heap with no ranges */
 boolean id_heap_add_range(heap h, u64 base, u64 length);
-boolean id_heap_range_modify(heap h, u64 base, u64 length, boolean validate, boolean allocate);
+boolean id_heap_set_area(heap h, u64 base, u64 length, boolean validate, boolean allocate);
 u64 id_heap_total(heap h);
 void id_heap_set_randomize(heap h, boolean randomize);
 heap wrap_freelist(heap meta, heap parent, bytes size);

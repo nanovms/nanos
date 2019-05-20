@@ -202,8 +202,8 @@ boolean id_heap_add_range(heap h, u64 base, u64 length)
     return id_add_range((id_heap)h, base, length) != INVALID_ADDRESS;
 }
 
-static CLOSURE_5_1(reserve_range, void, id_heap, range, boolean *, boolean, boolean, rmnode);
-static void reserve_range(id_heap i, range q, boolean * fail, boolean validate, boolean allocate, rmnode n)
+static CLOSURE_5_1(set_intersection, void, id_heap, range, boolean *, boolean, boolean, rmnode);
+static void set_intersection(id_heap i, range q, boolean * fail, boolean validate, boolean allocate, rmnode n)
 {
     range ri = range_intersection(q, n->r);
     id_range r = (id_range)n;
@@ -213,7 +213,7 @@ static void reserve_range(id_heap i, range q, boolean * fail, boolean validate, 
         *fail = true;
 }
 
-boolean id_heap_range_modify(heap h, u64 base, u64 length, boolean validate, boolean allocate)
+boolean id_heap_set_area(heap h, u64 base, u64 length, boolean validate, boolean allocate)
 {
     id_heap i = (id_heap)h;
     base &= ~page_mask(i);
@@ -221,7 +221,7 @@ boolean id_heap_range_modify(heap h, u64 base, u64 length, boolean validate, boo
 
     range q = irange(base, base + length);
     boolean fail = false;
-    rmnode_handler nh = closure(transient, reserve_range, i, q, &fail, validate, allocate);
+    rmnode_handler nh = closure(transient, set_intersection, i, q, &fail, validate, allocate);
     boolean result = rangemap_range_lookup(i->ranges, q, nh);
     return result && !fail;
 }

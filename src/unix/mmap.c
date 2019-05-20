@@ -314,7 +314,6 @@ static void vmap_attribute_update_intersection(heap h, rangemap pvmap, vmap q, r
     range rn = node->r;
     range rq = q->node.r;
     range ri = range_intersection(rq, rn);
-    assert(range_span(ri) > 0); // XXX
 
     boolean head = ri.start > rn.start;
     boolean tail = ri.end < rn.end;
@@ -346,10 +345,6 @@ static void vmap_attribute_update_intersection(heap h, rangemap pvmap, vmap q, r
 
     */
 
-#if 0  // XXX make debug
-    rprintf("pre attr update:\n");
-    vmap_dump(pvmap);
-#endif
     u64 newflags = (match->flags & ~(VMAP_FLAG_WRITABLE | VMAP_FLAG_EXEC)) | q->flags;
 
     if (head) {
@@ -359,9 +354,6 @@ static void vmap_attribute_update_intersection(heap h, rangemap pvmap, vmap q, r
         range rhl = { rn.start, ri.start };
         assert(rangemap_reinsert(pvmap, node, rhl));
 
-#if 0
-        vmap_dump(pvmap);
-#endif
         /* create node for intersection */
         vmap mh = allocate_vmap(h, pvmap, ri, newflags);
         assert(mh != INVALID_ADDRESS);
@@ -530,7 +522,7 @@ static boolean mmap_reserve_range(process p, range q)
             if (!a->allow_fixed)
                 return false;
             if (a->h)
-                id_heap_range_modify(a->h, q.start, range_span(q), false, true);
+                id_heap_set_area(a->h, q.start, range_span(q), false, true);
         }
         a = (varea)rangemap_next_node(p->vareas, (rmnode)a);
     }
@@ -616,21 +608,90 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     runloop();
 }
 
-void register_mmap_syscalls(struct syscall *map)
+static CLOSURE_1_1(dealloc_phys_page, void, heap, range);
+static void dealloc_phys_page(heap physical, range r)
 {
-    register_syscall(map, mincore, mincore);
-    register_syscall(map, mmap, mmap);
-    register_syscall(map, mremap, mremap);
-    register_syscall(map, munmap, syscall_ignore);
-    register_syscall(map, mprotect, mprotect);
-    register_syscall(map, madvise, syscall_ignore);
+    if (!id_heap_set_area(physical, r.start, range_span(r), true, false))
+        msg_err("some of physical range %R not allocated in heap\n", r);
+}
+
+static CLOSURE_2_1(process_unmap_intersection, void, process, range, rmnode);
+static void process_unmap_intersection(process p, range rq, rmnode node)
+{
+    kernel_heaps kh = get_kernel_heaps();
+    vmap match = (vmap)node;
+    range rn = node->r;
+    range ri = range_intersection(rq, rn);
+
+    /* similar logic to attribute update above */
+    boolean head = ri.start > rn.start;
+    boolean tail = ri.end < rn.end;
+
+//    rprintf("unmap q %R, node %R, head %d, tail %d\n", rq, node->r, head, tail);
+
+    if (head) {
+        u64 rtend = rn.end;
+
+        /* split non-intersecting part of node */
+        range rhl = { rn.start, ri.start };
+        assert(rangemap_reinsert(p->vmaps, node, rhl));
+
+        if (tail) {
+            /* create node for tail end */
+            range rt = { ri.end, rtend };
+            vmap mt = allocate_vmap(heap_general(kh), p->vmaps, rt, match->flags);
+            assert(mt != INVALID_ADDRESS);
+        }
+    } else if (tail) {
+        /* move node start back */
+        range rt = { ri.end, node->r.end };
+        assert(rangemap_reinsert(p->vmaps, node, rt));
+    } else {
+        /* delete outright */
+        rangemap_remove_node(p->vmaps, node);
+    }
+
+    /* unmap any mapped pages and return to physical heap */
+    u64 len = range_span(ri);
+    unmap_pages_with_handler(ri.start, len, closure(heap_general(kh), dealloc_phys_page, heap_physical(kh)));
+
+    /* return virtual mapping to heap, if any ... assuming a vmap cannot span heaps!
+       XXX: this shouldn't be a lookup per, so consider stashing a link to varea or heap in vmap
+       though in practice these are small numbers... */
+    varea v = (varea)rangemap_lookup(p->vareas, ri.start);
+    assert(v != INVALID_ADDRESS);
+    if (v->h)
+        id_heap_set_area(v->h, ri.start, len, false, false);
+}
+
+static void process_unmap_range(process p, range q)
+{
+    rmnode_handler nh = closure(transient, process_unmap_intersection, p, q);
+    rangemap_range_lookup(p->vmaps, q, nh);
+}
+
+static sysreturn munmap(void *addr, u64 length)
+{
+    process p = current->p;
+    thread_log(current, "munmap: addr %p, size 0x%P", addr, length);
+
+    u64 where = u64_from_pointer(addr);
+    if ((where & MASK(PAGELOG)) || length == 0)
+        return -EINVAL;
+
+    u64 padlen = pad(length, PAGESIZE);
+    range q = irange(where, where + padlen);
+
+    /* clear out any mapped areas in our meta */
+    process_unmap_range(p, q);
+    return 0;
 }
 
 /* kernel start */
 extern void * START;
 
 #define add_varea(start, end, vheap, allow_fixed) \
-    assert(allocate_varea(h, p->vareas, irange(start, end), vheap, allow_fixed));
+    assert(allocate_varea(h, p->vareas, irange(start, end), vheap, allow_fixed) != INVALID_ADDRESS);
 
 void mmap_process_init(process p)
 {
@@ -666,4 +727,14 @@ void mmap_process_init(process p)
 
     /* Reserved */
     add_varea(user_va_tag_end, U64_FROM_BIT(VIRTUAL_ADDRESS_BITS), 0, false);
+}
+
+void register_mmap_syscalls(struct syscall *map)
+{
+    register_syscall(map, mincore, mincore);
+    register_syscall(map, mmap, mmap);
+    register_syscall(map, mremap, mremap);
+    register_syscall(map, munmap, munmap);
+    register_syscall(map, mprotect, mprotect);
+    register_syscall(map, madvise, syscall_ignore);
 }
