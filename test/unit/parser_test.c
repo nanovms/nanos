@@ -90,7 +90,7 @@ PARSE_TEST(empty_tuple_test, "()")
     return true;
 }
 
-PARSE_TEST(empty_tuple_with_whitespaces_test, "  (   )    ")
+PARSE_TEST(empty_tuple_with_whitespaces_test, " ( ) ")
 {
     test_no_errors();
     test_assert(root != NULL);
@@ -99,6 +99,14 @@ PARSE_TEST(empty_tuple_with_whitespaces_test, "  (   )    ")
 }
 
 PARSE_TEST(empty_vector_test, "[]")
+{
+    test_no_errors();
+    test_assert(root != NULL);
+    test_assert(root->count == 0);
+    return true;
+}
+
+PARSE_TEST(empty_vector_with_whitespaces_test, " [ ] ")
 {
     test_no_errors();
     test_assert(root != NULL);
@@ -132,27 +140,6 @@ PARSE_TEST(tuple_simple_test, "(key:value)")
     test_assert(v1 != NULL);
     test_strings_equal(v1->contents, "value");
     deallocate_buffer(v1);
-
-    return true;
-}
-
-PARSE_TEST(quoted_value_test, "(key:\"value\")")
-{
-    test_no_errors();
-    test_assert(root != NULL);
-    test_assert(root->count == 1);
-    buffer buf = allocate_buffer(h, 128);
-    bprintf(buf, "%t", root);
-    test_strings_equal(buf->contents, "(key:value)");
-    deallocate_buffer(buf);
-
-    return true;
-}
-
-PARSE_TEST(unknown_terminal_test, "(key:value()")
-{
-    test_assert(errors_count == 1);
-    test_strings_equal(last_error->contents, "unknown property discriminator 40");
 
     return true;
 }
@@ -207,6 +194,136 @@ PARSE_TEST(vector_2elements_test, "[val1 val2]")
     return true;
 }
 
+PARSE_TEST(whitespace_after_last_vector_value_test, "[val ]")
+{
+    test_no_errors();
+    test_assert(root != NULL);
+    test_assert(root->count == 2);
+
+    buffer v1 = table_find(root, intern_u64(0));
+    test_assert(v1 != NULL);
+    test_strings_equal(v1->contents, "val");
+
+    buffer v2 = table_find(root, intern_u64(1));
+    test_assert(v2 != NULL);
+    test_strings_equal(v2->contents, "");
+
+    return true;
+}
+
+PARSE_TEST(tuple_nested_tuple_test, "(key:(key2:value2))")
+{
+    test_no_errors();
+
+    test_assert(root != NULL);
+    test_assert(root->count == 1);
+
+    tuple v1 = (tuple)table_find(root, intern(wrap_buffer_cstring(h, "key")));
+    test_assert(v1 != NULL);
+    test_assert(v1->count == 1);
+
+    buffer v2 = table_find(v1, intern(wrap_buffer_cstring(h, "key2")));
+    test_assert(v2 != NULL);
+    test_strings_equal(v2->contents, "value2");
+    deallocate_buffer(v2);
+
+    return true;
+}
+
+PARSE_TEST(vector_nested_tuple_test, "[(key2:value2)]")
+{
+    test_no_errors();
+
+    test_assert(root != NULL);
+    test_assert(root->count == 1);
+
+    tuple v1 = (tuple)table_find(root, intern_u64(0));
+    test_assert(v1 != NULL);
+    test_assert(v1->count == 1);
+
+    buffer v2 = table_find(v1, intern(wrap_buffer_cstring(h, "key2")));
+    test_assert(v2 != NULL);
+    test_strings_equal(v2->contents, "value2");
+    deallocate_buffer(v2);
+
+    return true;
+}
+
+PARSE_TEST(tuple_nested_vector_test, "(key:[value2])")
+{
+    test_no_errors();
+
+    test_assert(root != NULL);
+    test_assert(root->count == 1);
+
+    tuple v1 = (tuple)table_find(root, intern(wrap_buffer_cstring(h, "key")));
+    test_assert(v1 != NULL);
+    test_assert(v1->count == 1);
+
+    buffer v2 = table_find(v1, intern_u64(0));
+    test_assert(v2 != NULL);
+    test_strings_equal(v2->contents, "value2");
+    deallocate_buffer(v2);
+
+    return true;
+}
+
+PARSE_TEST(vector_nested_vector_test, "[[value2]]")
+{
+    test_no_errors();
+
+    test_assert(root != NULL);
+    test_assert(root->count == 1);
+
+    tuple v1 = (tuple)table_find(root, intern_u64(0));
+    test_assert(v1 != NULL);
+    test_assert(v1->count == 1);
+
+    buffer v2 = table_find(v1, intern_u64(0));
+    test_assert(v2 != NULL);
+    test_strings_equal(v2->contents, "value2");
+    deallocate_buffer(v2);
+
+    return true;
+}
+
+PARSE_TEST(quoted_tuple_value_test, "(key:\"value\")")
+{
+    test_no_errors();
+    test_assert(root != NULL);
+    test_assert(root->count == 1);
+    buffer buf = allocate_buffer(h, 128);
+    bprintf(buf, "%t", root);
+    test_strings_equal(buf->contents, "(key:value)");
+    deallocate_buffer(buf);
+
+    return true;
+}
+
+PARSE_TEST(unknown_terminal_test, "(key:value()")
+{
+    test_assert(errors_count == 1);
+    test_strings_equal(last_error->contents, "unknown property discriminator 40");
+
+    return true;
+}
+
+PARSE_TEST(single_closing_tuple_bracket_test, ")")
+{
+    test_assert(errors_count == 1);
+    test_strings_equal(last_error->contents, "unknown property discriminator 40");
+
+    return true;
+}
+
+PARSE_TEST(single_closing_vector_bracket_test, "]")
+{
+    test_assert(errors_count == 1);
+    test_strings_equal(last_error->contents, "unknown property discriminator 40");
+
+    return true;
+}
+
 void init (heap h)
 {
     p = tuple_parser(h, closure(h, finish, h), closure(h, perr));
@@ -219,14 +336,25 @@ test_func TESTS[] = {
     empty_tuple_test,
     empty_tuple_with_whitespaces_test,
     empty_vector_test,
+    empty_vector_with_whitespaces_test,
     all_is_comment_test,
     partial_comment_test,
     tuple_simple_test,
-    quoted_value_test,
-    unknown_terminal_test,
     vector_simple_test,
     tuple_2elements_test,
     vector_2elements_test,
+    whitespace_after_last_vector_value_test,
+    tuple_nested_tuple_test,
+    vector_nested_tuple_test,
+    tuple_nested_vector_test,
+    vector_nested_vector_test,
+    quoted_tuple_value_test,
+    unknown_terminal_test,
+
+    //crashing tests
+    /* single_closing_tuple_bracket_test, */
+    /* single_closing_vector_bracket_test, */
+
     NULL
 };
 
