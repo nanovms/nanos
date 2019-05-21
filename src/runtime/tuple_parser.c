@@ -75,15 +75,23 @@ static parser ignore_whitespace(heap h, parser next)
     return combinate(h, s);
 }
 
-static CLOSURE_2_2(quoted_string, parser, completion, buffer, parser, character);
-static parser quoted_string(completion c, buffer b, parser self, character in)
+/* static CLOSURE_2_2(escaped_character, parser, completion, buffer, parser, character); */
+/* static parser escaped_character(completion c, buffer b, parser next, character in) */
+/* { */
+/*     push_character(b, in); */
+/*     return next; */
+/* } */
+
+static CLOSURE_3_2(quoted_string, parser, heap, completion, buffer, parser, character);
+static parser quoted_string(heap h, completion c, buffer b, parser self, character in)
 {
-    // backslash
     if (in == '"') {
-        apply(c, b);
-        return self;
+        return apply(c, b);
+    /* } else if (in == '\\') { */
+    /*     return closure(escaped_character, self, b); */
     }
-    return(apply(c, b));
+    push_character(b, in);
+    return self;
 }
 
 
@@ -129,9 +137,7 @@ static CLOSURE_3_1(parse_value, parser, heap, completion, err_internal, characte
 static CLOSURE_4_1(name_complete, parser, heap, tuple, parser, err_internal, void *);
 static parser name_complete(heap h, tuple t, parser check, err_internal err, void *b)
 {
-    buffer res = allocate_buffer(h, 20);
     completion vc = closure(h, value_complete, t, intern(b), check);
-    combinate(h, closure(h, terminal, vc, value_terminal, res));
     // not sure why we have to violate typing
     parser pv = (void *)closure(h, parse_value, h, vc, err);
     return ignore_whitespace(h, (void *)closure(h, dispatch_property, h, pv, err));
@@ -173,7 +179,7 @@ static parser parse_value(heap h, completion c, err_internal err, character in)
 {
     switch(in) {
     case '"':
-        return combinate(h, closure(h, quoted_string, c, allocate_buffer(h, 8)));
+        return combinate(h, closure(h, quoted_string, h, c, allocate_buffer(h, 8)));
     case '(':
         return ignore_whitespace(h, combinate(h, closure(h, is_end_of_tuple, h, c, allocate_tuple(), err)));
     case '[':

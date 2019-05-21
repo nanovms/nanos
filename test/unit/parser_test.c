@@ -136,7 +136,7 @@ PARSE_TEST(tuple_simple_test, "(key:value)")
     return true;
 }
 
-PARSE_TEST(quoted_value_test, "( key: \"value\" )")
+PARSE_TEST(quoted_value_test, "(key:\"value\")")
 {
     test_no_errors();
     test_assert(root != NULL);
@@ -222,7 +222,7 @@ test_func TESTS[] = {
     all_is_comment_test,
     partial_comment_test,
     tuple_simple_test,
-    /* quoted_value_test, */
+    quoted_value_test,
     unknown_terminal_test,
     vector_simple_test,
     tuple_2elements_test,
