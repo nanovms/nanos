@@ -10,6 +10,11 @@
 #include <lwip/udp.h>
 #include <net_system_structs.h>
 
+#define resolve_socket(__p, __fd) ({fdesc f = resolve_fd(__p, __fd); \
+    if (f->type != FDESC_TYPE_SOCKET) \
+        return set_syscall_error(current, ENOTSOCK); \
+    (sock)f;})
+
 struct sockaddr_in {
     u16 family;
     u16 port;
@@ -22,6 +27,16 @@ struct sockaddr {
 } *sockaddr;
 
 typedef u32 socklen_t;
+
+struct msghdr {
+    void *msg_name;
+    socklen_t msg_namelen;
+    struct iovec *msg_iov;
+    size_t msg_iovlen;
+    void *msg_control;
+    size_t msg_controllen;
+    int msg_flags;
+};
 
 // xxx - what is the difference between IN_CONNECTION and open
 // nothing seems to track whether the tcp state is actually
@@ -295,6 +310,33 @@ static sysreturn sock_read_bh(sock s, thread t, void *dest, u64 length,
     if (blocked)
         thread_wakeup(t);
     net_debug("   returning %ld\n", rv);
+    return set_syscall_return(t, rv);
+}
+
+static CLOSURE_5_1(recvmsg_bh, sysreturn, sock, thread, void *, u64,
+        struct msghdr *, boolean);
+static sysreturn recvmsg_bh(sock s, thread t, void *dest, u64 length,
+        struct msghdr *msg, boolean blocked)
+{
+    sysreturn rv = sock_read_bh(s, t, dest, length, msg->msg_name,
+            &msg->msg_namelen, blocked);
+    if (rv == infinity) {
+        return rv;
+    }
+
+    s64 offset = 0;
+    int iv = 0;
+    while (offset < rv) {
+        struct iovec *iov = &msg->msg_iov[iv];
+
+        runtime_memcpy(iov->iov_base, dest + offset,
+                MIN(iov->iov_len, rv - offset));
+        offset += iov->iov_len;
+        iv++;
+    }
+    deallocate(s->h, dest, length);
+    msg->msg_controllen = 0;
+    msg->msg_flags = 0;
     return set_syscall_return(t, rv);
 }
 
@@ -852,6 +894,37 @@ sysreturn recvfrom(int sockfd, void * buf, u64 len, int flags,
     return set_syscall_error(current, EAGAIN);
 }
 
+sysreturn recvmsg(int sockfd, struct msghdr *msg, int flags)
+{
+    u64 total_len;
+    u8 *buf;
+    sock s = resolve_socket(current->p, sockfd);
+
+    net_debug("sock %d, type %d, thread %ld\n", s->fd, s->type, current->tid);
+    if ((s->type == SOCK_STREAM) && (s->info.tcp.state != TCP_SOCK_OPEN)) {
+        return set_syscall_error(current, ENOTCONN);
+    }
+    total_len = 0;
+    for (int i = 0; i < msg->msg_iovlen; i++) {
+        total_len += msg->msg_iov[i].iov_len;
+    }
+    if (total_len == 0) {
+        return 0;
+    }
+    buf = allocate(s->h, total_len);
+    if (buf == INVALID_ADDRESS) {
+        return set_syscall_error(current, ENOMEM);
+    }
+    blockq_action ba = closure(s->h, recvmsg_bh, s, current, buf, total_len,
+            msg);
+    sysreturn rv = blockq_check(s->rxbq, current, ba);
+    if (rv != infinity) {
+        return set_syscall_return(current, rv);
+    }
+    msg_err("thread %d unable to block; queue full\n", current->tid);
+    return set_syscall_error(current, EAGAIN);
+}
+
 static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t err)
 {
     sock s = z;
@@ -1067,6 +1140,7 @@ void register_net_syscalls(struct syscall *map)
     register_syscall(map, connect, connect);
     register_syscall(map, sendto, sendto);
     register_syscall(map, recvfrom, recvfrom);
+    register_syscall(map, recvmsg, recvmsg);
     register_syscall(map, setsockopt, setsockopt);
     register_syscall(map, getsockname, getsockname);
     register_syscall(map, getpeername, getpeername);

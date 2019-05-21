@@ -25,7 +25,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, alarm, 0);
     register_syscall(map, setitimer, 0);
     register_syscall(map, sendmsg, 0);
-    register_syscall(map, recvmsg, 0);
     register_syscall(map, shutdown, 0);
     register_syscall(map, fork, 0);
     register_syscall(map, vfork, 0);
