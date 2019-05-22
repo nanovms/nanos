@@ -24,7 +24,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, getitimer, 0);
     register_syscall(map, alarm, 0);
     register_syscall(map, setitimer, 0);
-    register_syscall(map, sendmsg, 0);
     register_syscall(map, shutdown, 0);
     register_syscall(map, fork, 0);
     register_syscall(map, vfork, 0);
@@ -226,7 +225,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, open_by_handle_at, 0);
     register_syscall(map, clock_adjtime, 0);
     register_syscall(map, syncfs, 0);
-    register_syscall(map, sendmmsg, 0);
     register_syscall(map, setns, 0);
     register_syscall(map, getcpu, 0);
     register_syscall(map, process_vm_readv, 0);

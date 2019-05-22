@@ -38,6 +38,11 @@ struct msghdr {
     int msg_flags;
 };
 
+struct mmsghdr {
+    struct msghdr msg_hdr;
+    unsigned int msg_len;
+};
+
 // xxx - what is the difference between IN_CONNECTION and open
 // nothing seems to track whether the tcp state is actually
 // connected
@@ -71,6 +76,7 @@ typedef struct sock {
     // the notion is that 'waiters' should take priority    
     int fd;
     err_t lwip_error;           /* lwIP error code; ERR_OK if normal */
+    unsigned int msg_count;
     union {
 	struct {
 	    struct tcp_pcb *lw;
@@ -907,6 +913,138 @@ sysreturn sendto(int sockfd, void * buf, u64 len, int flags,
     return socket_write_internal(s, buf, len, false);
 }
 
+static sysreturn sendmsg_prepare(sock s, const struct msghdr *msg, int flags,
+        void **buf, u64 *len)
+{
+    sysreturn rv;
+    size_t i;
+
+    rv = sendto_prepare(s, flags, msg->msg_name, msg->msg_namelen);
+    if (rv < 0) {
+        return rv;
+    }
+    *len = 0;
+    for (i = 0; i < msg->msg_iovlen; i++) {
+        *len += msg->msg_iov[i].iov_len;
+    }
+    if (*len == 0) {
+        return 0;
+    }
+    *buf = allocate(s->h, *len);
+    if (*buf == INVALID_ADDRESS) {
+        return -ENOMEM;
+    }
+    s64 offset = 0;
+    for (i = 0; i < msg->msg_iovlen; i++) {
+        struct iovec *iov = &msg->msg_iov[i];
+
+        runtime_memcpy(*buf + offset, iov->iov_base, iov->iov_len);
+        offset += iov->iov_len;
+    }
+    return *len;
+}
+
+sysreturn sendmsg(int sockfd, const struct msghdr *msg, int flags)
+{
+    sock s = resolve_socket(current->p, sockfd);
+    void *buf;
+    u64 len;
+    sysreturn rv;
+
+    net_debug("sock %d, type %d, flags 0x%x\n", s->fd, s->type, flags);
+    rv = sendmsg_prepare(s, msg, flags, &buf, &len);
+    if (rv <= 0) {
+        return set_syscall_return(current, rv);
+    }
+    return socket_write_internal(s, buf, len, true);
+}
+
+static CLOSURE_7_1(sendmmsg_tcp_bh, sysreturn, sock, thread, void *, u64, int,
+        struct mmsghdr *, unsigned int, boolean);
+static sysreturn sendmmsg_tcp_bh(sock s, thread t, void *buf, u64 len,
+        int flags, struct mmsghdr *msgvec, unsigned int vlen, boolean blocked)
+{
+    sysreturn rv = socket_write_tcp_bh(s, t, buf, len, true, false);
+
+    while (true) {
+        if (rv == infinity) {
+            return rv;
+        }
+        else if (rv <= 0) {
+            if (s->msg_count > 0) {
+                rv = s->msg_count;
+            }
+            break;
+        }
+        msgvec[s->msg_count++].msg_len = rv;
+        if (s->msg_count == vlen) {
+            break;
+        }
+        rv = sendmsg_prepare(s, &msgvec[s->msg_count].msg_hdr, flags, &buf,
+                &len);
+        if (rv > 0) {
+            rv = socket_write_tcp_bh(s, t, buf, len, true, false);
+        }
+    }
+    if (blocked) {
+        thread_wakeup(t);
+    }
+    return set_syscall_return(t, rv);
+}
+
+sysreturn sendmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
+        int flags)
+{
+    void *buf;
+    u64 len;
+    sysreturn rv = 0;
+    sock s = resolve_socket(current->p, sockfd);
+
+    net_debug("sock %d, type %d, flags 0x%x, vlen %d\n", s->fd, s->type, flags,
+            vlen);
+    for (s->msg_count = 0; s->msg_count < vlen; s->msg_count++) {
+        struct msghdr *msg_hdr = &msgvec[s->msg_count].msg_hdr;
+
+        rv = sendmsg_prepare(s, msg_hdr, flags, &buf, &len);
+        if (rv < 0) {
+            break;
+        }
+        else if (rv == 0) {
+            msgvec[s->msg_count].msg_len = 0;
+            continue;
+        }
+        switch (s->type) {
+        case SOCK_STREAM:
+            if (s->info.tcp.state != TCP_SOCK_OPEN) {
+                rv = -EPIPE;
+                break;
+            }
+            blockq_action ba = closure(s->h, sendmmsg_tcp_bh, s, current,
+                    buf, len, flags, msgvec, vlen);
+            rv = blockq_check(s->txbq, current, ba);
+            if (rv != infinity) {
+                goto out;
+            }
+            msg_err("thread %ld unable to block; queue full\n", current->tid);
+            rv = -EAGAIN;
+            break;
+        case SOCK_DGRAM:
+            rv = socket_write_udp(s, buf, len);
+            break;
+        }
+        deallocate(s->h, buf, len);
+        if (rv < 0) {
+            break;
+        }
+        msgvec[s->msg_count].msg_len = rv;
+    }
+out:
+    if (s->msg_count > 0) {
+        rv = s->msg_count;
+    }
+    return set_syscall_return(current, rv);
+}
+
 sysreturn recvfrom(int sockfd, void * buf, u64 len, int flags,
 		   struct sockaddr *src_addr, socklen_t *addrlen)
 {
@@ -1176,6 +1314,8 @@ void register_net_syscalls(struct syscall *map)
     register_syscall(map, accept4, accept4);
     register_syscall(map, connect, connect);
     register_syscall(map, sendto, sendto);
+    register_syscall(map, sendmsg, sendmsg);
+    register_syscall(map, sendmmsg, sendmmsg);
     register_syscall(map, recvfrom, recvfrom);
     register_syscall(map, recvmsg, recvmsg);
     register_syscall(map, setsockopt, setsockopt);
