@@ -50,6 +50,7 @@
 
 #define LWIP_WND_SCALE 1
 #define TCP_RCV_SCALE 0         /* XXX check */
+#define TCP_LISTEN_BACKLOG 1
 #define LWIP_DHCP 1
 // would prefer to set this dynamically...also,
 // seems better to allow some progress to be made

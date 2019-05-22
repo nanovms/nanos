@@ -879,8 +879,13 @@ static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t err)
     tcp_recv(lw, tcp_input_lower);
     tcp_err(lw, lwip_tcp_conn_err);
     tcp_sent(lw, lwip_tcp_sent);
-    if (!enqueue(s->incoming, sn))
+    if (!enqueue(s->incoming, sn)) {
+        msg_err("queue overrun; shouldn't happen with lwIP listen backlog\n");
         return ERR_BUF;         /* lwIP will do tcp_abort */
+    }
+
+    /* consume a slot in the lwIP listen backlog */
+    tcp_backlog_delayed(lw);
 
     wakeup_sock(s, WAKEUP_SOCK_RX);
     return ERR_OK;
@@ -891,6 +896,7 @@ sysreturn listen(int sockfd, int backlog)
     sock s = resolve_fd(current->p, sockfd);
     if (s->type != SOCK_STREAM)
 	return -EOPNOTSUPP;
+    backlog = MAX(backlog, SOCK_QUEUE_LEN);
     net_debug("sock %d, backlog %d\n", sockfd, backlog);
     struct tcp_pcb * lw = tcp_listen_with_backlog(s->info.tcp.lw, backlog);
     s->info.tcp.lw = lw;
@@ -936,6 +942,9 @@ static sysreturn accept_bh(sock s, thread t, struct sockaddr *addr, socklen_t *a
        regular socket. */
     if (queue_length(s->incoming) == 0)
 	notify_sock(s);
+
+    /* release slot in lwIP listen backlog */
+    tcp_backlog_accepted(sn->info.tcp.lw);
 
     rv = sn->fd;
   out:
