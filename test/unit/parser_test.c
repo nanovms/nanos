@@ -433,6 +433,19 @@ PARSE_TEST(quoted_spaced_vector_value_test, "[\"hello value\"]")
     return true;
 }
 
+PARSE_TEST(quoted_escaped_quote_vector_value_test, "[\"hello \\\"value\\\"\"]")
+{
+    test_no_errors();
+    test_assert(root != NULL);
+    test_assert(root->count == 1);
+
+    buffer v1 = table_find(root, intern_u64(0));
+    test_assert(v1 != NULL);
+    test_strings_equal(v1->contents, "hello \"value\"");
+
+    return true;
+}
+
 PARSE_TEST(unknown_terminal_test, "(key:value()")
 {
     test_assert(errors_count == 1);
@@ -493,6 +506,7 @@ test_func TESTS[] = {
 
     quoted_vector_value_test,
     quoted_spaced_vector_value_test,
+    quoted_escaped_quote_vector_value_test,
 
     unknown_terminal_test,
 

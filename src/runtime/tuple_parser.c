@@ -75,20 +75,20 @@ static parser ignore_whitespace(heap h, parser next)
     return combinate(h, s);
 }
 
-/* static CLOSURE_2_2(escaped_character, parser, completion, buffer, parser, character); */
-/* static parser escaped_character(completion c, buffer b, parser next, character in) */
-/* { */
-/*     push_character(b, in); */
-/*     return next; */
-/* } */
+static CLOSURE_3_1(escaped_character, parser, heap, buffer, parser, character);
+static parser escaped_character(heap h, buffer b, parser next, character in)
+{
+    push_character(b, in);
+    return next;
+}
 
 static CLOSURE_3_2(quoted_string, parser, heap, completion, buffer, parser, character);
 static parser quoted_string(heap h, completion c, buffer b, parser self, character in)
 {
     if (in == '"') {
         return apply(c, b);
-    /* } else if (in == '\\') { */
-    /*     return closure(escaped_character, self, b); */
+    } else if (in == '\\') {
+        return (void *)closure(h, escaped_character, h, b, self);
     }
     push_character(b, in);
     return self;
