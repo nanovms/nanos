@@ -300,6 +300,19 @@ PARSE_TEST(quoted_tuple_value_test, "(key:\"value\")")
     return true;
 }
 
+PARSE_TEST(quoted_tuple_name_test, "(\"key\":value)")
+{
+    test_no_errors();
+    test_assert(root != NULL);
+    test_assert(root->count == 1);
+    buffer buf = allocate_buffer(h, 128);
+    bprintf(buf, "%t", root);
+    test_strings_equal(buf->contents, "(key:value)");
+    deallocate_buffer(buf);
+
+    return true;
+}
+
 PARSE_TEST(unknown_terminal_test, "(key:value()")
 {
     test_assert(errors_count == 1);
@@ -340,6 +353,8 @@ test_func TESTS[] = {
     all_is_comment_test,
     partial_comment_test,
     tuple_simple_test,
+    quoted_tuple_value_test,
+    quoted_tuple_name_test,
     vector_simple_test,
     tuple_2elements_test,
     vector_2elements_test,

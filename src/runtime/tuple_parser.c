@@ -143,20 +143,31 @@ static parser name_complete(heap h, tuple t, parser check, err_internal err, voi
     return ignore_whitespace(h, (void *)closure(h, dispatch_property, h, pv, err));
 }
 
+static CLOSURE_3_1(parse_name, parser, heap, completion, buffer, character);
+static parser parse_name(heap h, completion c, buffer b, character in)
+{
+    if (in == '"') {
+        return combinate(h, closure(h, quoted_string, h, c, b));
+    }
+
+    parser p = combinate(h, closure(h, terminal, c, name_terminal, b));
+    return apply(p, in);
+}
 
 static CLOSURE_4_2(is_end_of_tuple, parser,
                    heap, completion, tuple, err_internal,
                    parser, character);
 static parser is_end_of_tuple(heap h, completion c, tuple t, err_internal e, parser self, character in)
 {
-    if (in != ')') {
-        parser *p = allocate(h, sizeof(parser));
-        parser cew = ignore_whitespace(h, self);
-        completion nc = closure(h, name_complete, h, t, cew, e);
-        *p = ignore_whitespace(h, combinate(h, closure(h, terminal, nc, name_terminal, allocate_buffer(h, 100))));
-        return apply(*p, in);
+    if (in == ')') {
+        return apply(c, t);
     }
-    return apply(c, t);
+
+    parser *p = allocate(h, sizeof(parser));
+    parser cew = ignore_whitespace(h, self);
+    completion nc = closure(h, name_complete, h, t, cew, e);
+    *p = ignore_whitespace(h, (void *)closure(h, parse_name, h, nc, allocate_buffer(h, 100)));
+    return apply(*p, in);
 }
 
 static CLOSURE_5_2(is_end_of_vector, parser,
