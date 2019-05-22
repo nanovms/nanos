@@ -464,7 +464,7 @@ static boolean socket_check(sock s, u32 eventmask, u32 * last, event_handler eh)
     return true;
 }
 
-#define SOCK_QUEUE_LEN 32
+#define SOCK_QUEUE_LEN 128
 
 static CLOSURE_1_0(socket_close, sysreturn, sock);
 static sysreturn socket_close(sock s)
@@ -501,7 +501,7 @@ static void udp_input_lower(void *z, struct udp_pcb *pcb, struct pbuf *p,
 	e->raddr = ip4_addr_get_u32(addr);
 	e->rport = port;
 	if (!enqueue(s->incoming, e))
-	    msg_err("incomding queue full\n");
+	    msg_err("incoming queue full\n");
     } else {
 	msg_err("null pbuf\n");
     }
@@ -880,7 +880,7 @@ static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t err)
     tcp_err(lw, lwip_tcp_conn_err);
     tcp_sent(lw, lwip_tcp_sent);
     if (!enqueue(s->incoming, sn))
-	msg_err("incoming queue full\n");
+        return ERR_BUF;         /* lwIP will do tcp_abort */
 
     wakeup_sock(s, WAKEUP_SOCK_RX);
     return ERR_OK;
