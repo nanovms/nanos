@@ -185,12 +185,21 @@ static parser is_end_of_vector(heap h, completion c, tuple t, err_internal e, u6
     return apply(c, t);
 }
 
+static CLOSURE_3_1(parse_value_string, parser,
+                   heap, completion, buffer,
+                   character);
+static parser parse_value_string(heap h, completion c, buffer b, character in)
+{
+    if (in == '"')
+        return combinate(h, closure(h, quoted_string, h, c, b));
+
+    parser p = combinate(h, closure(h, terminal, c, value_terminal, b));
+    return apply(p, in);
+}
 
 static parser parse_value(heap h, completion c, err_internal err, character in)
 {
     switch(in) {
-    case '"':
-        return combinate(h, closure(h, quoted_string, h, c, allocate_buffer(h, 8)));
     case '(':
         return ignore_whitespace(h, combinate(h, closure(h, is_end_of_tuple, h, c, allocate_tuple(), err)));
     case '[':
@@ -200,7 +209,10 @@ static parser parse_value(heap h, completion c, err_internal err, character in)
             return ignore_whitespace(h, combinate(h, closure(h, is_end_of_vector, h, c, allocate_tuple(), err, i)));
         }
     default:
-        return apply(ignore_whitespace(h, combinate(h, closure(h, terminal, c, value_terminal, allocate_buffer(h, 8)))), in);
+        {
+            parser p = ignore_whitespace(h, (void *)closure(h, parse_value_string, h, c, allocate_buffer(h, 8)));
+            return apply(p, in);
+        }
     }
 }
 
