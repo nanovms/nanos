@@ -144,6 +144,21 @@ PARSE_TEST(tuple_simple_test, "(key:value)")
     return true;
 }
 
+PARSE_TEST(tuple_simple_spaced_test, " ( key : value ) ")
+{
+    test_no_errors();
+
+    test_assert(root != NULL);
+    test_assert(root->count == 1);
+
+    buffer v1 = table_find(root, intern(wrap_buffer_cstring(h, "key")));
+    test_assert(v1 != NULL);
+    test_strings_equal(v1->contents, "value");
+    deallocate_buffer(v1);
+
+    return true;
+}
+
 PARSE_TEST(vector_simple_test, "[val1]")
 {
     test_no_errors();
@@ -290,12 +305,14 @@ PARSE_TEST(vector_nested_vector_test, "[[value2]]")
 PARSE_TEST(quoted_tuple_value_test, "(key:\"value\")")
 {
     test_no_errors();
+
     test_assert(root != NULL);
     test_assert(root->count == 1);
-    buffer buf = allocate_buffer(h, 128);
-    bprintf(buf, "%t", root);
-    test_strings_equal(buf->contents, "(key:value)");
-    deallocate_buffer(buf);
+
+    buffer v1 = table_find(root, intern(wrap_buffer_cstring(h, "key")));
+    test_assert(v1 != NULL);
+    test_strings_equal(v1->contents, "value");
+    deallocate_buffer(v1);
 
     return true;
 }
@@ -303,12 +320,115 @@ PARSE_TEST(quoted_tuple_value_test, "(key:\"value\")")
 PARSE_TEST(quoted_tuple_name_test, "(\"key\":value)")
 {
     test_no_errors();
+
     test_assert(root != NULL);
     test_assert(root->count == 1);
-    buffer buf = allocate_buffer(h, 128);
-    bprintf(buf, "%t", root);
-    test_strings_equal(buf->contents, "(key:value)");
-    deallocate_buffer(buf);
+
+    buffer v1 = table_find(root, intern(wrap_buffer_cstring(h, "key")));
+    test_assert(v1 != NULL);
+    test_strings_equal(v1->contents, "value");
+    deallocate_buffer(v1);
+
+    return true;
+}
+
+PARSE_TEST(quoted_tuple_name_value_test, "(\"key\":\"value\")")
+{
+    test_no_errors();
+
+    test_assert(root != NULL);
+    test_assert(root->count == 1);
+
+    buffer v1 = table_find(root, intern(wrap_buffer_cstring(h, "key")));
+    test_assert(v1 != NULL);
+    test_strings_equal(v1->contents, "value");
+    deallocate_buffer(v1);
+
+    return true;
+}
+
+PARSE_TEST(spaced_quoted_tuple_name_value_test, "( \"key\" : \"value\" )")
+{
+    test_no_errors();
+
+    test_assert(root != NULL);
+    test_assert(root->count == 1);
+
+    buffer v1 = table_find(root, intern(wrap_buffer_cstring(h, "key")));
+    test_assert(v1 != NULL);
+    test_strings_equal(v1->contents, "value");
+    deallocate_buffer(v1);
+
+    return true;
+}
+
+PARSE_TEST(quoted_spaced_tuple_value_test, "(key:\"hello value\")")
+{
+    test_no_errors();
+
+    test_assert(root != NULL);
+    test_assert(root->count == 1);
+
+    buffer v1 = table_find(root, intern(wrap_buffer_cstring(h, "key")));
+    test_assert(v1 != NULL);
+    test_strings_equal(v1->contents, "hello value");
+    deallocate_buffer(v1);
+
+    return true;
+}
+
+PARSE_TEST(quoted_spaced_tuple_name_test, "(\"hello key\":value)")
+{
+    test_no_errors();
+
+    test_assert(root != NULL);
+    test_assert(root->count == 1);
+
+    buffer v1 = table_find(root, intern(wrap_buffer_cstring(h, "hello key")));
+    test_assert(v1 != NULL);
+    test_strings_equal(v1->contents, "value");
+    deallocate_buffer(v1);
+
+    return true;
+}
+
+PARSE_TEST(quoted_spaced_tuple_name_value_test, "(\"hello key\":\"hello value\")")
+{
+    test_no_errors();
+
+    test_assert(root != NULL);
+    test_assert(root->count == 1);
+
+    buffer v1 = table_find(root, intern(wrap_buffer_cstring(h, "hello key")));
+    test_assert(v1 != NULL);
+    test_strings_equal(v1->contents, "hello value");
+    deallocate_buffer(v1);
+
+    return true;
+}
+
+PARSE_TEST(quoted_vector_value_test, "[\"value\"]")
+{
+    test_no_errors();
+    test_assert(root != NULL);
+    test_assert(root->count == 1);
+
+    buffer v1 = table_find(root, intern_u64(0));
+    test_assert(v1 != NULL);
+    test_strings_equal(v1->contents, "value");
+
+    return true;
+}
+
+PARSE_TEST(quoted_spaced_vector_value_test, "[\"hello value\"]")
+{
+    test_no_errors();
+    test_assert(root != NULL);
+    test_assert(root->count == 1);
+
+    buffer v1 = table_find(root, intern_u64(0));
+    test_assert(v1 != NULL);
+    test_strings_equal(v1->contents, "hello value");
 
     return true;
 }
@@ -353,8 +473,7 @@ test_func TESTS[] = {
     all_is_comment_test,
     partial_comment_test,
     tuple_simple_test,
-    quoted_tuple_value_test,
-    quoted_tuple_name_test,
+    tuple_simple_spaced_test,
     vector_simple_test,
     tuple_2elements_test,
     vector_2elements_test,
@@ -363,7 +482,18 @@ test_func TESTS[] = {
     vector_nested_tuple_test,
     tuple_nested_vector_test,
     vector_nested_vector_test,
+
     quoted_tuple_value_test,
+    quoted_tuple_name_test,
+    quoted_tuple_name_value_test,
+    spaced_quoted_tuple_name_value_test,
+    quoted_spaced_tuple_value_test,
+    quoted_spaced_tuple_name_test,
+    quoted_spaced_tuple_name_value_test,
+
+    quoted_vector_value_test,
+    quoted_spaced_vector_value_test,
+
     unknown_terminal_test,
 
     //crashing tests
