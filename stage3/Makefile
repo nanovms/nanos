@@ -137,7 +137,7 @@ $(PROG-stage3.img): linker_script
 $(OBJDIR)/gitversion.c: $(ROOTDIR)/.git/index $(ROOTDIR)/.git/HEAD
 	$(call cmd,version)
 
-$(SRCS-lwip): $(LWIPDIR)/.vendored
+$(OBJS-stage3.img): $(LWIPDIR)/.vendored
 
 $(OBJDIR)/src/x86_64/crt0.o: $(OBJDIR)/frame.inc
 

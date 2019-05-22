@@ -44,6 +44,8 @@ CFLAGS+=	-std=gnu11 -O -g
 CFLAGS+=	-Wall -Werror -Wno-char-subscripts
 CFLAGS+=	-I$(OBJDIR)
 
+DEPFLAGS=	-MD -MP -MT $@
+
 KERNCFLAGS=	-nostdinc \
 		-fno-builtin \
 		-mno-sse \
@@ -88,10 +90,7 @@ msg_ld=		LD	$@
 cmd_ld=		$(LD) $(LDFLAGS) $(LDFLAGS-$(@F)) $(OBJS_BEGIN) $(filter %.o,$^) $(LIBS-$(@F)) $(OBJS_END) -o $@
 
 msg_cc=		CC	$@
-cmd_cc=		$(CC) $(CFLAGS) $(CFLAGS-$(<F)) -c $< -o $@
-
-msg_mkdep=	MKDEP	$@
-cmd_mkdep=	$(CC) -M -MG -MP -MT "$(call objfile,.o,$<) $(call objfile,.d,$<)" $(CFLAGS) $(CFLAGS-$(<F)) $< -o $@
+cmd_cc=		$(CC) $(DEPFLAGS) $(CFLAGS) $(CFLAGS-$(<F)) -c $< -o $@
 
 msg_nasm=	NASM	$@
 cmd_nasm=	$(NASM) $(AFLAGS) $(AFLAGS-$(<F)) $< -o $@
@@ -115,7 +114,10 @@ define build_program
 PROG-$1=	$(OBJDIR)/bin/$1
 OBJS-$1=	$$(foreach s,$$(filter %.c %.s,$$(SRCS-$1)),$$(call objfile,.o,$$s))
 OBJDIRS-$1=	$$(sort $$(dir $$(OBJS-$1)))
-DEPS-$1=	$$(patsubst %.o, %.d,$$(OBJS-$1))
+ifneq ($$(filter $(SRCDIR)/runtime/%.c,$$(SRCS-$1)),)
+GENHEADERS-$1=	$(OBJDIR)/closure_templates.h
+endif
+DEPS-$1=	$$(patsubst %.o,%.d,$$(OBJS-$1))
 
 .PHONY: $1
 
@@ -128,7 +130,8 @@ $$(PROG-$1): $$(OBJS-$1)
 endif
 
 DEPFILES+=	$$(DEPS-$1)
-CLEANFILES+=	$$(PROG-$1) $$(OBJS-$1) $$(DEPS-$1)
+GENHEADERS+=	$$(GENHEADERS-$1)
+CLEANFILES+=	$$(PROG-$1) $$(OBJS-$1) $$(DEPS-$1) $$(GENHEADERS-$1)
 CLEANDIRS+=	$(OBJDIR)/bin $(OBJDIR)/src $$(OBJDIRS-$1)
 endef
 
@@ -141,12 +144,10 @@ endif
 ##############################################################################
 # closure_templates
 
-closure_templates.h: $(OBJDIR)/closure_templates.h
-
-CLEANFILES+=	$(OBJDIR)/closure_templates.h
 CONTGEN=	$(OUTDIR)/contgen/bin/contgen
 
 $(OBJDIR)/closure_templates.h: $(CONTGEN)
+	@$(MKDIR) $(dir $@)
 	$(call cmd,contgen)
 
 ifeq ($(filter contgen,$(PROGRAMS)),)
@@ -181,16 +182,17 @@ cleandepend:
 .SUFFIXES:
 
 $(OBJDIR)/%.o: $(ROOTDIR)/%.s
+	@$(MKDIR) $(dir $@)
 	$(call cmd,nasm)
 
-$(OBJDIR)/%.o: $(ROOTDIR)/%.c
+$(OBJDIR)/%.o: $(ROOTDIR)/%.c $(OBJDIR)/%.d | $(sort $(GENHEADERS))
+	@$(MKDIR) $(dir $@)
 	$(call cmd,cc)
 
-$(OBJDIR)/%.d: $(ROOTDIR)/%.c
-	@$(MKDIR) $(dir $@)
-	$(call cmd,mkdep)
+$(DEPFILES):
 
 $(OBJDIR)/bin/%: %.go
+	@$(MKDIR) $(dir $@)
 	$(call cmd,go)
 
 %/.vendored:
