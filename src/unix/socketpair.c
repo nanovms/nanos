@@ -4,6 +4,8 @@
 
 #define SOCKPAIR_BUF_MAX_SIZE   (16 * PAGESIZE)
 
+#define SOCKPAIR_DGRAM_MAX_COUNT    64
+
 #define SOCKPAIR_BLOCKQ_LEN 32
 
 struct sockpair;
@@ -21,8 +23,69 @@ struct sockpair {
     struct sockpair_socket sockets[2];
     heap h;
     u64 ref_cnt;
+    int type;
     buffer data;
+    unsigned int dgram_len[SOCKPAIR_DGRAM_MAX_COUNT];
 };
+
+static void sockpair_dgram_set_len(struct sockpair *sp, u64 len)
+{
+    int last_dgram;
+
+    for (last_dgram = SOCKPAIR_DGRAM_MAX_COUNT - 1; last_dgram >= 0;
+            last_dgram--) {
+        if (sp->dgram_len[last_dgram] != 0) {
+            break;
+        }
+    }
+    if (last_dgram < SOCKPAIR_DGRAM_MAX_COUNT - 1) {
+        sp->dgram_len[last_dgram + 1] = len;
+    }
+}
+
+static u64 sockpair_dgram_get_len(struct sockpair *sp)
+{
+    int first_dgram;
+
+    for (first_dgram = 0; first_dgram < SOCKPAIR_DGRAM_MAX_COUNT; first_dgram++)
+    {
+        if (sp->dgram_len[first_dgram] != 0) {
+            return sp->dgram_len[first_dgram];
+        }
+    }
+    return 0;   /* no datagrams were found */
+}
+
+static void sockpair_dgram_consume(struct sockpair *sp)
+{
+    int first_dgram;
+
+    for (first_dgram = 0; first_dgram < SOCKPAIR_DGRAM_MAX_COUNT; first_dgram++)
+    {
+        if (sp->dgram_len[first_dgram] != 0) {
+            sp->dgram_len[first_dgram] = 0;
+            break;
+        }
+    }
+}
+
+static unsigned int sockpair_dgram_get_free(struct sockpair *sp)
+{
+    int last_dgram;
+
+    for (last_dgram = SOCKPAIR_DGRAM_MAX_COUNT - 1; last_dgram >= 0;
+            last_dgram--) {
+        if (sp->dgram_len[last_dgram] != 0) {
+            break;
+        }
+    }
+    return (SOCKPAIR_DGRAM_MAX_COUNT - 1 - last_dgram);
+}
+
+static void sockpair_dgram_clear(struct sockpair *sp)
+{
+    runtime_memset((u8 *)sp->dgram_len, 0, sizeof(sp->dgram_len));
+}
 
 static inline void sockpair_notify_reader(sockpair_socket s, int events)
 {
@@ -56,8 +119,16 @@ static sysreturn sockpair_read_bh(sockpair_socket s, thread t, void *dest,
         u64 length, boolean blocked)
 {
     buffer b = s->sockpair->data;
-    int real_length = MIN(buffer_length(b), length);
+    int real_length;
+    int dgram_length;
 
+    if (s->sockpair->type == SOCK_STREAM) {
+        real_length = MIN(buffer_length(b), length);
+    }
+    else {
+        dgram_length = sockpair_dgram_get_len(s->sockpair);
+        real_length = MIN(dgram_length, length);
+    }
     if (real_length == 0) {
         if (s->peer->fd == -1) {
             goto out;
@@ -68,10 +139,20 @@ static sysreturn sockpair_read_bh(sockpair_socket s, thread t, void *dest,
         }
         return infinity;
     }
-    buffer_read(b, dest, real_length);
+    if (s->sockpair->type == SOCK_STREAM) {
+        buffer_read(b, dest, real_length);
+    }
+    else {
+        runtime_memcpy(dest, buffer_ref(b, 0), real_length);
+        buffer_consume(b, dgram_length);
+        sockpair_dgram_consume(s->sockpair);
+    }
     sockpair_notify_writer(s->peer, EPOLLOUT);
     if (buffer_length(b) == 0) {
         buffer_clear(b);
+        if (s->sockpair->type == SOCK_DGRAM) {
+            sockpair_dgram_clear(s->sockpair);
+        }
     }
 out:
     if (blocked) {
@@ -113,7 +194,9 @@ static sysreturn sockpair_write_bh(sockpair_socket s, thread t, void *dest,
     }
 
     u64 avail = SOCKPAIR_BUF_MAX_SIZE - buffer_length(b);
-    if (avail == 0) {
+    if ((avail == 0) || ((s->sockpair->type == SOCK_DGRAM) &&
+            ((avail < length) || (sockpair_dgram_get_free(s->sockpair) == 0))))
+    {
         if (s->f.flags & SOCK_NONBLOCK) {
             rv = -EAGAIN;
             goto out;
@@ -123,6 +206,9 @@ static sysreturn sockpair_write_bh(sockpair_socket s, thread t, void *dest,
 
     u64 real_length = MIN(length, avail);
     buffer_write(b, dest, real_length);
+    if (s->sockpair->type == SOCK_DGRAM) {
+        sockpair_dgram_set_len(s->sockpair, length);
+    }
     sockpair_notify_reader(s->peer, EPOLLIN);
     rv = real_length;
 out:
@@ -235,7 +321,8 @@ sysreturn socketpair(int domain, int type, int protocol, int sv[2]) {
     if (domain != AF_UNIX) {
         return set_syscall_error(current, EAFNOSUPPORT);
     }
-    if ((type & SOCK_TYPE_MASK) != SOCK_STREAM) {
+    if (((type & SOCK_TYPE_MASK) != SOCK_STREAM) &&
+            ((type & SOCK_TYPE_MASK) != SOCK_DGRAM)) {
         return set_syscall_error(current, ESOCKTNOSUPPORT);
     }
     sockpair = allocate(h, sizeof(*sockpair));
@@ -251,6 +338,10 @@ sysreturn socketpair(int domain, int type, int protocol, int sv[2]) {
         return set_syscall_error(current, ENOMEM);
     }
     sockpair->ref_cnt = 0;
+    sockpair->type = type & SOCK_TYPE_MASK;
+    if (sockpair->type == SOCK_DGRAM) {
+        sockpair_dgram_clear(sockpair);
+    }
     for (i = 0; i < 2; i++) {
         sockpair_socket s = &sockpair->sockets[i];
 
