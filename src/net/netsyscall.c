@@ -10,6 +10,11 @@
 #include <lwip/udp.h>
 #include <net_system_structs.h>
 
+#define resolve_socket(__p, __fd) ({fdesc f = resolve_fd(__p, __fd); \
+    if (f->type != FDESC_TYPE_SOCKET) \
+        return set_syscall_error(current, ENOTSOCK); \
+    (sock)f;})
+
 struct sockaddr_in {
     u16 family;
     u16 port;
@@ -22,6 +27,21 @@ struct sockaddr {
 } *sockaddr;
 
 typedef u32 socklen_t;
+
+struct msghdr {
+    void *msg_name;
+    socklen_t msg_namelen;
+    struct iovec *msg_iov;
+    size_t msg_iovlen;
+    void *msg_control;
+    size_t msg_controllen;
+    int msg_flags;
+};
+
+struct mmsghdr {
+    struct msghdr msg_hdr;
+    unsigned int msg_len;
+};
 
 // xxx - what is the difference between IN_CONNECTION and open
 // nothing seems to track whether the tcp state is actually
@@ -56,6 +76,7 @@ typedef struct sock {
     // the notion is that 'waiters' should take priority    
     int fd;
     err_t lwip_error;           /* lwIP error code; ERR_OK if normal */
+    unsigned int msg_count;
     union {
 	struct {
 	    struct tcp_pcb *lw;
@@ -298,6 +319,33 @@ static sysreturn sock_read_bh(sock s, thread t, void *dest, u64 length,
     return set_syscall_return(t, rv);
 }
 
+static CLOSURE_5_1(recvmsg_bh, sysreturn, sock, thread, void *, u64,
+        struct msghdr *, boolean);
+static sysreturn recvmsg_bh(sock s, thread t, void *dest, u64 length,
+        struct msghdr *msg, boolean blocked)
+{
+    sysreturn rv = sock_read_bh(s, t, dest, length, msg->msg_name,
+            &msg->msg_namelen, blocked);
+    if (rv == infinity) {
+        return rv;
+    }
+
+    s64 offset = 0;
+    int iv = 0;
+    while (offset < rv) {
+        struct iovec *iov = &msg->msg_iov[iv];
+
+        runtime_memcpy(iov->iov_base, dest + offset,
+                MIN(iov->iov_len, rv - offset));
+        offset += iov->iov_len;
+        iv++;
+    }
+    deallocate(s->h, dest, length);
+    msg->msg_controllen = 0;
+    msg->msg_flags = 0;
+    return set_syscall_return(t, rv);
+}
+
 static CLOSURE_1_3(socket_read, sysreturn, sock, void *, u64, u64);
 static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
 {
@@ -323,8 +371,10 @@ static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
     return set_syscall_error(current, EAGAIN);
 }
 
-static CLOSURE_4_1(socket_write_tcp_bh, sysreturn, sock, thread, void *, u64, boolean);
-static sysreturn socket_write_tcp_bh(sock s, thread t, void * buf, u64 remain, boolean blocked)
+static CLOSURE_5_1(socket_write_tcp_bh, sysreturn, sock, thread, void *, u64,
+        boolean, boolean);
+static sysreturn socket_write_tcp_bh(sock s, thread t, void * buf, u64 remain,
+        boolean dealloc, boolean blocked)
 {
     sysreturn rv = 0;
     err_t err = get_lwip_error(s);
@@ -395,10 +445,67 @@ static sysreturn socket_write_tcp_bh(sock s, thread t, void * buf, u64 remain, b
         rv = lwip_to_errno(err);
     }
   out:
+    if (dealloc)
+        deallocate(s->h, buf, remain);
     if (blocked)
         thread_wakeup(t);
 
     return set_syscall_return(t, rv);
+}
+
+static sysreturn socket_write_udp(sock s, void *source, u64 length)
+{
+    err_t err = ERR_OK;
+
+    /* XXX check how much we can queue, maybe make udp bh */
+    /* XXX check if remote endpoint set? let LWIP check? */
+    struct pbuf * pbuf = pbuf_alloc(PBUF_TRANSPORT, length, PBUF_RAM);
+
+    if (!pbuf) {
+        msg_err("failed to allocate pbuf for udp_send()\n");
+        return -ENOBUFS;
+    }
+    runtime_memcpy(pbuf->payload, source, length);
+    err = udp_send(s->info.udp.lw, pbuf);
+    if (err != ERR_OK) {
+        net_debug("lwip error %d\n", err);
+        return lwip_to_errno(err);
+    }
+    return length;
+}
+
+static sysreturn socket_write_internal(sock s, void *source, u64 length,
+        boolean dealloc)
+{
+    sysreturn rv;
+
+    if (s->type == SOCK_STREAM) {
+	if (s->info.tcp.state != TCP_SOCK_OPEN) 		/* XXX maybe defer to lwip for connect state */
+	    return set_syscall_error(current, EPIPE);
+        if (length == 0) {
+            rv = 0;
+            goto out;
+        }
+        blockq_action ba = closure(s->h, socket_write_tcp_bh, s, current,
+                source, length, dealloc);
+        rv = blockq_check(s->txbq, current, ba);
+        if (rv != infinity)
+            goto out;          /* error or success; return as-is */
+        /* XXX again, need to just fix the queue stuff */
+        msg_err("thread %ld unable to block; queue full\n", current->tid);
+        rv = -EAGAIN; /* bogus */
+    } else if (s->type == SOCK_DGRAM) {
+        rv = socket_write_udp(s, source, length);
+    } else {
+	msg_err("socket type %d unsupported\n", s->type);
+	rv = -EINVAL;
+    }
+    net_debug("completed\n");
+out:
+    if (dealloc) {
+        deallocate(s->h, source, length);
+    }
+    return set_syscall_return(current, rv);
 }
 
 static CLOSURE_1_3(socket_write, sysreturn, sock, void *, u64, u64);
@@ -406,40 +513,7 @@ static sysreturn socket_write(sock s, void *source, u64 length, u64 offset)
 {
     net_debug("sock %d, type %d, thread %ld, source %p, length %ld, offset %ld\n",
 	      s->fd, s->type, current->tid, source, length, offset);
-    err_t err = ERR_OK;
-    if (s->type == SOCK_STREAM) {
-	if (s->info.tcp.state != TCP_SOCK_OPEN) 		/* XXX maybe defer to lwip for connect state */
-	    return set_syscall_error(current, EPIPE);
-        if (length == 0)
-            return set_syscall_return(current, 0);
-        blockq_action ba = closure(s->h, socket_write_tcp_bh, s, current, source, length);
-        sysreturn rv = blockq_check(s->txbq, current, ba);
-        if (rv != infinity)
-            return rv;          /* error or success; return as-is */
-        /* XXX again, need to just fix the queue stuff */
-        msg_err("thread %ld unable to block; queue full\n", current->tid);
-        return set_syscall_error(current, EAGAIN); /* bogus */
-    } else if (s->type == SOCK_DGRAM) {
-        /* XXX check how much we can queue, maybe make udp bh */
-	/* XXX check if remote endpoint set? let LWIP check? */
-	struct pbuf * pbuf = pbuf_alloc(PBUF_TRANSPORT, length, PBUF_RAM);
-	if (!pbuf) {
-	    msg_err("failed to allocate pbuf for udp_send()\n");
-	    return set_syscall_error(current, ENOBUFS);
-	}
-	runtime_memcpy(pbuf->payload, source, length);
-	err = udp_send(s->info.udp.lw, pbuf);
-	if (err != ERR_OK)
-	    goto out_lwip_err;
-    } else {
-	msg_err("socket type %d unsupported\n", s->type);
-	return set_syscall_error(current, EINVAL);
-    }
-    net_debug("completed\n");
-    return set_syscall_return(current, length);
-  out_lwip_err:
-    net_debug("lwip error %d\n", err);
-    return set_syscall_return(current, lwip_to_errno(err));
+    return socket_write_internal(s, source, length, false);
 }
 
 static CLOSURE_1_3(socket_check, boolean, sock, u32, u32 *, event_handler);
@@ -780,13 +854,10 @@ sysreturn connect(int sockfd, struct sockaddr * addr, socklen_t addrlen)
 #define MSG_NOSIGNAL    0x00004000
 #define MSG_MORE        0x00008000
 
-sysreturn sendto(int sockfd, void * buf, u64 len, int flags,
-		 struct sockaddr *dest_addr, socklen_t addrlen)
+static sysreturn sendto_prepare(sock s, int flags, struct sockaddr *dest_addr,
+        socklen_t addrlen)
 {
     int err = ERR_OK;
-    sock s = resolve_fd(current->p, sockfd);
-    net_debug("sendto %d, buf %p, len %ld, flags %x, dest_addr %p, addrlen %d\n",
-              sockfd, buf, len, flags, dest_addr, addrlen);
 
     /* Process flags */
     if (flags & MSG_CONFIRM)
@@ -825,7 +896,153 @@ sysreturn sendto(int sockfd, void * buf, u64 len, int flags,
         }
     }
 
-    return socket_write(s, buf, len, 0);
+    return 0;
+}
+
+sysreturn sendto(int sockfd, void * buf, u64 len, int flags,
+		 struct sockaddr *dest_addr, socklen_t addrlen)
+{
+    sock s = resolve_fd(current->p, sockfd);
+    net_debug("sendto %d, buf %p, len %ld, flags %x, dest_addr %p, addrlen %d\n",
+              sockfd, buf, len, flags, dest_addr, addrlen);
+
+    sysreturn rv = sendto_prepare(s, flags, dest_addr, addrlen);
+    if (rv < 0) {
+        return set_syscall_return(current, rv);
+    }
+    return socket_write_internal(s, buf, len, false);
+}
+
+static sysreturn sendmsg_prepare(sock s, const struct msghdr *msg, int flags,
+        void **buf, u64 *len)
+{
+    sysreturn rv;
+    size_t i;
+
+    rv = sendto_prepare(s, flags, msg->msg_name, msg->msg_namelen);
+    if (rv < 0) {
+        return rv;
+    }
+    *len = 0;
+    for (i = 0; i < msg->msg_iovlen; i++) {
+        *len += msg->msg_iov[i].iov_len;
+    }
+    if (*len == 0) {
+        return 0;
+    }
+    *buf = allocate(s->h, *len);
+    if (*buf == INVALID_ADDRESS) {
+        return -ENOMEM;
+    }
+    s64 offset = 0;
+    for (i = 0; i < msg->msg_iovlen; i++) {
+        struct iovec *iov = &msg->msg_iov[i];
+
+        runtime_memcpy(*buf + offset, iov->iov_base, iov->iov_len);
+        offset += iov->iov_len;
+    }
+    return *len;
+}
+
+sysreturn sendmsg(int sockfd, const struct msghdr *msg, int flags)
+{
+    sock s = resolve_socket(current->p, sockfd);
+    void *buf;
+    u64 len;
+    sysreturn rv;
+
+    net_debug("sock %d, type %d, flags 0x%x\n", s->fd, s->type, flags);
+    rv = sendmsg_prepare(s, msg, flags, &buf, &len);
+    if (rv <= 0) {
+        return set_syscall_return(current, rv);
+    }
+    return socket_write_internal(s, buf, len, true);
+}
+
+static CLOSURE_7_1(sendmmsg_tcp_bh, sysreturn, sock, thread, void *, u64, int,
+        struct mmsghdr *, unsigned int, boolean);
+static sysreturn sendmmsg_tcp_bh(sock s, thread t, void *buf, u64 len,
+        int flags, struct mmsghdr *msgvec, unsigned int vlen, boolean blocked)
+{
+    sysreturn rv = socket_write_tcp_bh(s, t, buf, len, true, false);
+
+    while (true) {
+        if (rv == infinity) {
+            return rv;
+        }
+        else if (rv <= 0) {
+            if (s->msg_count > 0) {
+                rv = s->msg_count;
+            }
+            break;
+        }
+        msgvec[s->msg_count++].msg_len = rv;
+        if (s->msg_count == vlen) {
+            break;
+        }
+        rv = sendmsg_prepare(s, &msgvec[s->msg_count].msg_hdr, flags, &buf,
+                &len);
+        if (rv > 0) {
+            rv = socket_write_tcp_bh(s, t, buf, len, true, false);
+        }
+    }
+    if (blocked) {
+        thread_wakeup(t);
+    }
+    return set_syscall_return(t, rv);
+}
+
+sysreturn sendmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
+        int flags)
+{
+    void *buf;
+    u64 len;
+    sysreturn rv = 0;
+    sock s = resolve_socket(current->p, sockfd);
+
+    net_debug("sock %d, type %d, flags 0x%x, vlen %d\n", s->fd, s->type, flags,
+            vlen);
+    for (s->msg_count = 0; s->msg_count < vlen; s->msg_count++) {
+        struct msghdr *msg_hdr = &msgvec[s->msg_count].msg_hdr;
+
+        rv = sendmsg_prepare(s, msg_hdr, flags, &buf, &len);
+        if (rv < 0) {
+            break;
+        }
+        else if (rv == 0) {
+            msgvec[s->msg_count].msg_len = 0;
+            continue;
+        }
+        switch (s->type) {
+        case SOCK_STREAM:
+            if (s->info.tcp.state != TCP_SOCK_OPEN) {
+                rv = -EPIPE;
+                break;
+            }
+            blockq_action ba = closure(s->h, sendmmsg_tcp_bh, s, current,
+                    buf, len, flags, msgvec, vlen);
+            rv = blockq_check(s->txbq, current, ba);
+            if (rv != infinity) {
+                goto out;
+            }
+            msg_err("thread %ld unable to block; queue full\n", current->tid);
+            rv = -EAGAIN;
+            break;
+        case SOCK_DGRAM:
+            rv = socket_write_udp(s, buf, len);
+            break;
+        }
+        deallocate(s->h, buf, len);
+        if (rv < 0) {
+            break;
+        }
+        msgvec[s->msg_count].msg_len = rv;
+    }
+out:
+    if (s->msg_count > 0) {
+        rv = s->msg_count;
+    }
+    return set_syscall_return(current, rv);
 }
 
 sysreturn recvfrom(int sockfd, void * buf, u64 len, int flags,
@@ -848,6 +1065,37 @@ sysreturn recvfrom(int sockfd, void * buf, u64 len, int flags,
         return rv;              /* error or success: return as-is */
 
     /* XXX same crap */
+    msg_err("thread %d unable to block; queue full\n", current->tid);
+    return set_syscall_error(current, EAGAIN);
+}
+
+sysreturn recvmsg(int sockfd, struct msghdr *msg, int flags)
+{
+    u64 total_len;
+    u8 *buf;
+    sock s = resolve_socket(current->p, sockfd);
+
+    net_debug("sock %d, type %d, thread %ld\n", s->fd, s->type, current->tid);
+    if ((s->type == SOCK_STREAM) && (s->info.tcp.state != TCP_SOCK_OPEN)) {
+        return set_syscall_error(current, ENOTCONN);
+    }
+    total_len = 0;
+    for (int i = 0; i < msg->msg_iovlen; i++) {
+        total_len += msg->msg_iov[i].iov_len;
+    }
+    if (total_len == 0) {
+        return 0;
+    }
+    buf = allocate(s->h, total_len);
+    if (buf == INVALID_ADDRESS) {
+        return set_syscall_error(current, ENOMEM);
+    }
+    blockq_action ba = closure(s->h, recvmsg_bh, s, current, buf, total_len,
+            msg);
+    sysreturn rv = blockq_check(s->rxbq, current, ba);
+    if (rv != infinity) {
+        return set_syscall_return(current, rv);
+    }
     msg_err("thread %d unable to block; queue full\n", current->tid);
     return set_syscall_error(current, EAGAIN);
 }
@@ -1066,7 +1314,10 @@ void register_net_syscalls(struct syscall *map)
     register_syscall(map, accept4, accept4);
     register_syscall(map, connect, connect);
     register_syscall(map, sendto, sendto);
+    register_syscall(map, sendmsg, sendmsg);
+    register_syscall(map, sendmmsg, sendmmsg);
     register_syscall(map, recvfrom, recvfrom);
+    register_syscall(map, recvmsg, recvmsg);
     register_syscall(map, setsockopt, setsockopt);
     register_syscall(map, getsockname, getsockname);
     register_syscall(map, getpeername, getpeername);
