@@ -3,6 +3,7 @@ PROGRAMS= \
 	id_heap_test \
 	network_test \
 	objcache_test \
+	parser_test \
 	pqueue_test \
 	range_test \
 	table_test \
@@ -99,6 +100,26 @@ SRCS-objcache_test= \
 	$(SRCDIR)/tfs/tlog.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c \
 	$(SRCDIR)/unix_process/mmap_heap.c
+
+SRCS-parser_test= \
+	$(CURDIR)/parser_test.c \
+	$(SRCDIR)/runtime/tuple_parser.c \
+	$(SRCDIR)/runtime/bitmap.c \
+	$(SRCDIR)/runtime/buffer.c \
+	$(SRCDIR)/runtime/extra_prints.c \
+	$(SRCDIR)/runtime/format.c \
+	$(SRCDIR)/runtime/heap/id.c \
+	$(SRCDIR)/runtime/merge.c \
+	$(SRCDIR)/runtime/pqueue.c \
+	$(SRCDIR)/runtime/random.c \
+	$(SRCDIR)/runtime/range.c \
+	$(SRCDIR)/runtime/runtime_init.c \
+	$(SRCDIR)/runtime/symbol.c \
+	$(SRCDIR)/runtime/table.c \
+	$(SRCDIR)/runtime/timer.c \
+	$(SRCDIR)/runtime/tuple.c \
+	$(SRCDIR)/runtime/string.c \
+	$(SRCDIR)/unix_process/unix_process_runtime.c
 
 SRCS-pqueue_test= \
 	$(CURDIR)/pqueue_test.c \
@@ -217,6 +238,7 @@ SRCS-vector_test= \
 	$(SRCDIR)/runtime/tuple.c \
 	$(SRCDIR)/runtime/string.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c
+
 
 CFLAGS+=	-I$(SRCDIR)/runtime \
 		-I$(SRCDIR)/tfs \
