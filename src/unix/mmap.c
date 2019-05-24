@@ -549,10 +549,15 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     if ((prot & PROT_WRITE))
         vmflags |= VMAP_FLAG_WRITABLE;
 
-    /* Fixed or hint address */
+    /* Don't really try to honor a hint, only fixed. */
     boolean fixed = (flags & MAP_FIXED) != 0;
-    u64 where = u64_from_pointer(target);
-    if (where) {
+    u64 where = fixed ? u64_from_pointer(target) : 0;
+
+    if (fixed) {
+        if (where == 0) {
+            thread_log(current, "   attempt to map zero page");
+            return -ENOMEM;
+        }
         /* A specified address is only allowed in certain areas. Programs may specify
            a fixed address to augment some existing mapping. */
         range q = irange(where, where + len);
@@ -567,12 +572,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     }
 
     /* Allocate from virtual heap if no address specified or hint unavailable */
-    if (!where) {
-        if (fixed) {
-            thread_log(current, "   attempt to map zero page");
-            return -ENOMEM;
-        }
-
+    if (where == 0) {
         boolean is_32bit = flags & MAP_32BIT;
         heap vh = is_32bit ? p->virtual32 : p->virtual_page;
         u64 maplen = pad(len, vh->pagesize);
@@ -673,7 +673,7 @@ static void process_unmap_range(process p, range q)
 static sysreturn munmap(void *addr, u64 length)
 {
     process p = current->p;
-    thread_log(current, "munmap: addr %p, size 0x%P", addr, length);
+    thread_log(current, "munmap: addr %p, size 0x%lx", addr, length);
 
     u64 where = u64_from_pointer(addr);
     if ((where & MASK(PAGELOG)) || length == 0)
