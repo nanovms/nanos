@@ -87,6 +87,8 @@ typedef u64 *context;
 
 extern context running_frame;
 
+extern void * syscall_stack_top;
+
 #define BREAKPOINT_INSTRUCTION 00
 #define BREAKPOINT_WRITE 01
 #define BREAKPOINT_IO 10

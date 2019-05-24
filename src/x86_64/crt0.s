@@ -8,9 +8,10 @@
 %endmacro
         
 global_func _start
-        extern init_service
-        
-extern running_frame
+extern  init_service
+extern  running_frame
+extern  syscall_stack_top
+
 %include "frame.inc"
         
 %define FS_MSR 0xc0000100
@@ -137,6 +138,7 @@ syscall_enter:
         mov [rax+FRAME_RIP*8], rcx
         mov rax, syscall
         mov rax, [rax]
+        mov rsp, [syscall_stack_top]
         call rax
         mov rbx, [running_frame]
         jmp frame_return

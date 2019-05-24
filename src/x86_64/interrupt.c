@@ -372,6 +372,7 @@ void configure_lapic_timer(heap h)
 extern u32 interrupt_size;
 
 #define FAULT_STACK_PAGES       8
+#define SYSCALL_STACK_PAGES     8
 
 extern volatile void * TSS;
 static inline void write_tss_u64(int offset, u64 val)
@@ -393,6 +394,16 @@ context allocate_frame(heap h)
     return f;
 }
 
+void * allocate_stack(heap pages, int npages)
+{
+    void * base = allocate_zero(pages, pages->pagesize * npages);
+    if (base == INVALID_ADDRESS)
+        return base;
+    return base + pages->pagesize * npages - STACK_ALIGNMENT;
+}
+
+void * syscall_stack_top;
+
 void start_interrupts(kernel_heaps kh)
 {
     // these are simple enough it would be better to just
@@ -410,10 +421,15 @@ void start_interrupts(kernel_heaps kh)
     miscframe = allocate_frame(general);
     intframe = allocate_frame(general);
 
-    /* TSS is installed at the end of stage3 runtime initialization */
-    void *faultstack = allocate_zero(pages, pages->pagesize * FAULT_STACK_PAGES);
-    u64 fs_top = (u64)faultstack + pages->pagesize * FAULT_STACK_PAGES - sizeof(u64);
-    set_ist(1, fs_top);
+    /* TSS is installed at the end of stage3 runtime initialization,
+       so create IST entry for page fault alternate stack. */
+    void * fault_stack_top = allocate_stack(pages, FAULT_STACK_PAGES);
+    assert(fault_stack_top != INVALID_ADDRESS);
+    set_ist(1, u64_from_pointer(fault_stack_top));
+
+    /* syscall stack - this can be replaced later by a per-thread kernel stack */
+    syscall_stack_top = allocate_stack(pages, SYSCALL_STACK_PAGES);
+    assert(syscall_stack_top != INVALID_ADDRESS);
 
     // architectural - end of exceptions
     u32 vector_start = 0x20;
