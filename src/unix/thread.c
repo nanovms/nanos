@@ -56,6 +56,9 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, un
     thread_log(current, "clone: flags %lx, child_stack %p, ptid %p, ctid %p, newtls %lx",
         flags, child_stack, ptid, ctid, newtls);
 
+    if (!child_stack)   /* this is actually a fork() */
+        return set_syscall_error(current, ENOSYS);
+
     /* clone thread context up to FRAME_VECTOR */
     thread t = create_thread(current->p);
     runtime_memcpy(t->frame, current->frame, sizeof(u64) * FRAME_ERROR_CODE);
