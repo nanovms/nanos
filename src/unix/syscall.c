@@ -39,7 +39,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, msgrcv, 0);
     register_syscall(map, msgctl, 0);
     register_syscall(map, flock, 0);
-    register_syscall(map, fsync, 0);
     register_syscall(map, fdatasync, 0);
     register_syscall(map, truncate, 0);
     register_syscall(map, ftruncate, 0);
@@ -884,6 +883,34 @@ sysreturn writev(int fd, iovec v, int count)
     return res;
 }
 
+static CLOSURE_2_1(fsync_complete, void, thread, file, status);
+static void fsync_complete(thread t, file f, status s)
+{
+    thread_log(current, "%s: status %v (%s)", __func__, s,
+            is_ok(s) ? "OK" : "NOTOK");
+    if (is_ok(s)) {
+        set_syscall_return(t, 0);
+    } else {
+        set_syscall_error(t, EIO);
+    }
+    thread_wakeup(t);
+}
+
+static sysreturn fsync(int fd)
+{
+    file f = resolve_fd(current->p, fd);
+
+    if (filesystem_flush(current->p->fs, f->n,
+            closure(heap_general(get_kernel_heaps()), fsync_complete, current,
+            f))) {
+        /* Nothing to sync. */
+        return set_syscall_return(current, 0);
+    }
+    else {
+        thread_sleep(current);
+    }
+}
+
 static sysreturn access(const char *name, int mode)
 {
     thread_log(current, "access: \"%s\", mode %d", name, mode);
@@ -1329,6 +1356,7 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, lstat, stat);
     register_syscall(map, readv, readv);
     register_syscall(map, writev, writev);
+    register_syscall(map, fsync, fsync);
     register_syscall(map, access, access);
     register_syscall(map, lseek, lseek);
     register_syscall(map, fcntl, fcntl);

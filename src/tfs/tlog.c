@@ -69,6 +69,16 @@ void log_flush(log tl)
 //    b->start = b->end;          /* pick up next write here */
 }
 
+boolean log_flush_complete(log tl, status_handler completion)
+{
+    if (!tl->dirty) {
+        return true;
+    }
+    vector_push(tl->completions, completion);
+    log_flush(tl);
+    return false;
+}
+
 void log_write_eav(log tl, tuple e, symbol a, value v, status_handler sh)
 {
     tlog_debug("log_write_eav: tl %p, e %p (%t), a \"%b\", v %v\n", tl, e, e, symbol_string(a), v);

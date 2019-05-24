@@ -655,6 +655,16 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_ha
     return;
 }
 
+boolean filesystem_flush(filesystem fs, tuple t, status_handler completion)
+{
+    /* A write() call returns after everything is sent to disk, so nothing to
+     * do here. The only work that might be pending is when directory entries
+     * are modified, see do_mkentry(); to deal with that, flush the filesystem
+     * log.
+     */
+    return log_flush_complete(fs->tl, completion);
+}
+
 fsfile allocate_fsfile(filesystem fs, tuple md)
 {
     fsfile f = allocate(fs->h, sizeof(struct fsfile));
