@@ -11,7 +11,7 @@ on modifying nanos.
 
 For Nanos try running the first example first:
 ```
-make run-nokvm
+make run
 ```
 
 To try a different target currently found in examples/ you can:
@@ -20,7 +20,7 @@ To try a different target currently found in examples/ you can:
 2) add your code and set a target in examples/Makefile
 
 ```
-TARGET=mynewtarget make run-novkm
+TARGET=mynewtarget make run
 ```
 
 ### Creating a Manifest
