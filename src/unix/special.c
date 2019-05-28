@@ -10,7 +10,7 @@ typedef struct special_file {
 static sysreturn urandom_read(file f, void *dest, u64 length, u64 offset)
 {
     buffer b = alloca_wrap_buffer(dest, length);
-    do_getrandom(b, 0);
+    random_buffer(b);
     return length;
 }
 

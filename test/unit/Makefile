@@ -29,6 +29,7 @@ SRCS-buffer_test= \
 	$(SRCDIR)/runtime/timer.c \
 	$(SRCDIR)/runtime/tuple.c \
 	$(SRCDIR)/runtime/string.c \
+	$(SRCDIR)/runtime/crypto/chacha.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c
 
 SRCS-id_heap_test= \
@@ -48,6 +49,7 @@ SRCS-id_heap_test= \
 	$(SRCDIR)/runtime/timer.c \
 	$(SRCDIR)/runtime/tuple.c \
 	$(SRCDIR)/runtime/string.c \
+	$(SRCDIR)/runtime/crypto/chacha.c \
 	$(SRCDIR)/tfs/tfs.c \
 	$(SRCDIR)/tfs/tlog.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c
@@ -69,6 +71,7 @@ SRCS-network_test= \
 	$(SRCDIR)/runtime/timer.c \
 	$(SRCDIR)/runtime/tuple.c \
 	$(SRCDIR)/runtime/string.c \
+	$(SRCDIR)/runtime/crypto/chacha.c \
 	$(SRCDIR)/tfs/tfs.c \
 	$(SRCDIR)/tfs/tlog.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c \
@@ -96,6 +99,7 @@ SRCS-objcache_test= \
 	$(SRCDIR)/runtime/timer.c \
 	$(SRCDIR)/runtime/tuple.c \
 	$(SRCDIR)/runtime/string.c \
+	$(SRCDIR)/runtime/crypto/chacha.c \
 	$(SRCDIR)/tfs/tfs.c \
 	$(SRCDIR)/tfs/tlog.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c \
@@ -119,6 +123,7 @@ SRCS-parser_test= \
 	$(SRCDIR)/runtime/timer.c \
 	$(SRCDIR)/runtime/tuple.c \
 	$(SRCDIR)/runtime/string.c \
+	$(SRCDIR)/runtime/crypto/chacha.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c
 
 SRCS-pqueue_test= \
@@ -138,6 +143,7 @@ SRCS-pqueue_test= \
 	$(SRCDIR)/runtime/timer.c \
 	$(SRCDIR)/runtime/tuple.c \
 	$(SRCDIR)/runtime/string.c \
+	$(SRCDIR)/runtime/crypto/chacha.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c
 
 SRCS-range_test= \
@@ -157,6 +163,7 @@ SRCS-range_test= \
 	$(SRCDIR)/runtime/timer.c \
 	$(SRCDIR)/runtime/tuple.c \
 	$(SRCDIR)/runtime/string.c \
+	$(SRCDIR)/runtime/crypto/chacha.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c
 
 SRCS-table_test= \
@@ -174,6 +181,7 @@ SRCS-table_test= \
 	$(SRCDIR)/runtime/table.c \
 	$(SRCDIR)/runtime/timer.c \
 	$(SRCDIR)/runtime/tuple.c \
+	$(SRCDIR)/runtime/crypto/chacha.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c
 
 SRCS-tuple_test= \
@@ -193,6 +201,7 @@ SRCS-tuple_test= \
 	$(SRCDIR)/runtime/timer.c \
 	$(SRCDIR)/runtime/tuple.c \
 	$(SRCDIR)/runtime/string.c \
+	$(SRCDIR)/runtime/crypto/chacha.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c
 
 SRCS-udp_test= \
@@ -212,6 +221,7 @@ SRCS-udp_test= \
 	$(SRCDIR)/runtime/timer.c \
 	$(SRCDIR)/runtime/tuple.c \
 	$(SRCDIR)/runtime/string.c \
+	$(SRCDIR)/runtime/crypto/chacha.c \
 	$(SRCDIR)/tfs/tfs.c \
 	$(SRCDIR)/tfs/tlog.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c \
@@ -237,6 +247,7 @@ SRCS-vector_test= \
 	$(SRCDIR)/runtime/timer.c \
 	$(SRCDIR)/runtime/tuple.c \
 	$(SRCDIR)/runtime/string.c \
+	$(SRCDIR)/runtime/crypto/chacha.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c
 
 

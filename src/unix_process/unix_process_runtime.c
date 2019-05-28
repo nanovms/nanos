@@ -44,6 +44,11 @@ timestamp now()
     return(timeval_to_time(&result));
 }
 
+u64 random_seed()
+{
+    return random();
+}
+
 static void malloc_free(heap h, u64 z, bytes length)
 {
     free(pointer_from_u64(z));
@@ -93,7 +98,7 @@ extern void init_extra_prints();
 heap init_process_runtime()
 {
     heaps.general = malloc_allocator();
-    init_random(now());
+    init_random();
     init_runtime(&heaps);
     init_extra_prints();
     signal(SIGPIPE, SIG_IGN);

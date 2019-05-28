@@ -314,3 +314,8 @@ void blockq_flush(blockq bq);
 /* Values to pass as first argument to prctl() */
 #define PR_SET_NAME    15               /* Set process name */
 #define PR_GET_NAME    16               /* Get process name */
+
+/* getrandom(2) flags */
+#define GRND_NONBLOCK               1
+#define GRND_RANDOM                 2
+

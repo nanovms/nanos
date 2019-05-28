@@ -28,6 +28,7 @@ SRCS-stage3.img= \
 	$(SRCDIR)/runtime/timer.c \
 	$(SRCDIR)/runtime/tuple.c \
 	$(SRCDIR)/runtime/string.c \
+	$(SRCDIR)/runtime/crypto/chacha.c \
 	$(SRCDIR)/tfs/tfs.c \
 	$(SRCDIR)/tfs/tlog.c \
 	$(SRCDIR)/unix/blockq.c \

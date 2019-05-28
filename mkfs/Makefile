@@ -18,6 +18,7 @@ SRCS-mkfs= \
 	$(SRCDIR)/runtime/tuple.c \
 	$(SRCDIR)/runtime/string.c \
 	$(SRCDIR)/runtime/sha256.c \
+	$(SRCDIR)/runtime/crypto/chacha.c \
 	$(SRCDIR)/tfs/tfs.c \
 	$(SRCDIR)/tfs/tlog.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c
@@ -39,6 +40,7 @@ SRCS-dump= \
 	$(SRCDIR)/runtime/tuple.c \
 	$(SRCDIR)/runtime/string.c \
 	$(SRCDIR)/runtime/sha256.c \
+	$(SRCDIR)/runtime/crypto/chacha.c \
 	$(SRCDIR)/tfs/tfs.c \
 	$(SRCDIR)/tfs/tlog.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c
