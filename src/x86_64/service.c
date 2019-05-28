@@ -164,7 +164,7 @@ static boolean try_hw_seed(u64 * seed, boolean rdseed)
     return false;
 }
 
-static u64 random_seed(void)
+u64 random_seed(void)
 {
     u64 seed = 0;
     if (try_hw_seed(&seed, true))
@@ -185,7 +185,7 @@ static void __attribute__((noinline)) init_service_new_stack()
 
     runqueue = allocate_queue(misc, 64);
     init_clock(kh);
-    init_random(random_seed());
+    init_random();
     __stack_chk_guard_init();
     start_interrupts(kh);
     init_extra_prints();

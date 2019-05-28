@@ -726,7 +726,7 @@ sysreturn getrandom(void *buf, u64 buflen, unsigned int flags)
         return set_syscall_error(current, EINVAL);
 
     b = wrap_buffer(h, buf, buflen);
-    return do_getrandom(b, (u64) flags);
+    return random_buffer(b);
 }
 
 static int try_write_dirent(tuple root, struct linux_dirent *dirp, char *p,

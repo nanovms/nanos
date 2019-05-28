@@ -212,8 +212,11 @@ typedef closure_type(parse_error, void, buffer);
 typedef closure_type(parse_finish, void, void *);
 parser tuple_parser(heap h, parse_finish c, parse_error err);
 parser parser_feed (parser p, buffer b);
-void init_random(u64 seed);
+
+// RNG
+void init_random();
 u64 random_u64();
+u64 random_buffer(buffer b);
 
 typedef struct signature {
     u64 s[4];

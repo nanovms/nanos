@@ -67,6 +67,7 @@ SRCS-pipe= \
 	$(SRCDIR)/runtime/buffer.c \
 	$(SRCDIR)/runtime/extra_prints.c \
 	$(SRCDIR)/runtime/format.c \
+	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/random.c \
 	$(SRCDIR)/runtime/range.c \
 	$(SRCDIR)/runtime/runtime_init.c \
@@ -76,7 +77,7 @@ SRCS-pipe= \
 	$(SRCDIR)/runtime/tuple_parser.c \
 	$(SRCDIR)/runtime/tuple.c \
 	$(SRCDIR)/runtime/timer.c \
-	$(SRCDIR)/runtime/pqueue.c \
+	$(SRCDIR)/runtime/crypto/chacha.c \
 	$(SRCDIR)/runtime/heap/id.c \
 	$(SRCDIR)/runtime/heap/freelist.c \
 	$(SRCDIR)/runtime/heap/debug_heap.c \
@@ -127,7 +128,8 @@ SRCS-udploop= \
 	$(SRCDIR)/runtime/table.c \
 	$(SRCDIR)/runtime/timer.c \
 	$(SRCDIR)/runtime/tuple_parser.c \
-	$(SRCDIR)/runtime/tuple.c
+	$(SRCDIR)/runtime/tuple.c \
+	$(SRCDIR)/runtime/crypto/chacha.c
 LDFLAGS-udploop=	 -static
 
 SRCS-vsyscall= \
@@ -163,7 +165,8 @@ SRCS-web= \
 	$(SRCDIR)/runtime/table.c \
 	$(SRCDIR)/runtime/timer.c \
 	$(SRCDIR)/runtime/tuple_parser.c \
-	$(SRCDIR)/runtime/tuple.c
+	$(SRCDIR)/runtime/tuple.c \
+	$(SRCDIR)/runtime/crypto/chacha.c
 
 SRCS-webs=		$(SRCS-web)
 LDFLAGS-webs=		-static

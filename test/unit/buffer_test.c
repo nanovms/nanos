@@ -3,7 +3,6 @@
 
 //#define ENABLE_MSG_DEBUG
 #include <runtime.h>
-#include <getrandom.h>
 #include <string.h>
 #include <stdlib.h>
 #define EXIT_SUCCESS 0
@@ -84,7 +83,7 @@ boolean concat_tests(heap h)
     // using buffer_produce() to set the amount of data in buffer, so getrandom() will 
     // initialize/fill the allocated size
     buffer_produce(seed_buffer, seed_size);
-    test_assert(do_getrandom(seed_buffer, seed_size) == seed_size);
+    test_assert(random_buffer(seed_buffer) == seed_size);
     test_assert(seed_buffer->length == seed_size);
 
     // append small chucks of source buffer to test buffer and validate buffer_length()

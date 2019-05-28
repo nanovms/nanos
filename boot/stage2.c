@@ -36,6 +36,20 @@ static u64 stage2_allocator(heap h, bytes b)
     return result;
 }
 
+static u64 s[2] = { 0xa5a5beefa5a5cafe, 0xbeef55aaface55aa };
+
+u64 random_u64()
+{
+    u64 s0 = s[0];
+    u64 s1 = s[1];
+    u64 result = s0 + s1;
+
+    s1 ^= s0;
+    s[0] = ROL(s0, 55) ^ s1 ^ (s1 << 14); // a, b
+    s[1] = ROL(s1, 36); // c
+    return result;
+}
+
 extern void bios_read_sectors(int offset, int count);
 
 static void read_sectors(char *dest, u64 start_sector, u64 nsectors)
