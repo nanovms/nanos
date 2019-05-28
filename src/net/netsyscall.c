@@ -1280,7 +1280,7 @@ sysreturn getsockopt(int sockfd, int level, int optname, void *optval, socklen_t
 {
     sock s = resolve_fd(current->p, sockfd);
     net_debug("sock %d, type %d, thread %ld, level %d, optname %d\n, optlen %d\n",
-        s->fd, s->type, current->tid, level, optname, optlen ? *optlen : -1)
+        s->fd, s->type, current->tid, level, optname, optlen ? *optlen : -1);
 
     union {
         int val;
