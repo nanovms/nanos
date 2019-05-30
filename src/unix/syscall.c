@@ -12,6 +12,18 @@
 #define DT_SOCK		12
 #define DT_WHT		14
 
+#define resolve_dir(__dirfd, __path) ({ \
+    tuple cwd; \
+    if (*(__path) == '/') cwd = filesystem_getroot(current->p->fs); \
+    else if (__dirfd == AT_FDCWD) cwd = current->p->cwd; \
+    else { \
+        file f = resolve_fd(current->p, __dirfd); \
+        if (!is_dir(f->n)) return set_syscall_error(current, ENOTDIR); \
+        cwd = f->n; \
+    } \
+    cwd; \
+})
+
 void register_other_syscalls(struct syscall *map)
 {
     register_syscall(map, rt_sigreturn, 0);
@@ -689,14 +701,7 @@ sysreturn mkdirat(int dirfd, char *pathname, int mode)
         return set_syscall_error(current, EINVAL);
 
     tuple cwd;
-    if (dirfd == AT_FDCWD)
-        cwd = current->p->cwd;
-    else {
-        file f = resolve_fd(current->p, dirfd);
-        if (!is_dir(f->n))
-            return -ENOTDIR;
-        cwd = f->n;
-    }
+    cwd = resolve_dir(dirfd, pathname);
 
     fs_status fs = filesystem_mkdir(current->p->fs, cwd, pathname, true);
     return sysreturn_from_fs_status(fs);
@@ -938,14 +943,7 @@ sysreturn openat(int dirfd, const char *name, int flags, int mode)
         return set_syscall_error(current, EINVAL);
 
     tuple cwd;
-    if (dirfd == AT_FDCWD)
-        cwd = current->p->cwd;
-    else {
-        file f = resolve_fd(current->p, dirfd);
-        if (!is_dir(f->n))
-            return -ENOTDIR;
-        cwd = f->n;
-    }
+    cwd = resolve_dir(dirfd, name);
 
     return open_internal(cwd, name, flags, mode);
 }
