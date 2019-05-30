@@ -1,6 +1,9 @@
 #pragma once
-
-#define STACK_ALIGNMENT 16
+#define STACK_ALIGNMENT     16
+#define KERNEL_STACK_PAGES  32
+#define FAULT_STACK_PAGES   8
+#define INT_STACK_PAGES     8
+#define SYSCALL_STACK_PAGES 8
 
 #define VIRTUAL_ADDRESS_BITS 48
 

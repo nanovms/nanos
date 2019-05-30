@@ -406,6 +406,9 @@ void * allocate_stack(heap pages, int npages)
 
 void * syscall_stack_top;
 
+#define IST_INTERRUPT 1         /* for all interrupts */
+#define IST_PAGEFAULT 2         /* page fault specific */
+
 void start_interrupts(kernel_heaps kh)
 {
     // these are simple enough it would be better to just
@@ -423,11 +426,15 @@ void start_interrupts(kernel_heaps kh)
     miscframe = allocate_frame(general);
     intframe = allocate_frame(general);
 
-    /* TSS is installed at the end of stage3 runtime initialization,
-       so create IST entry for page fault alternate stack. */
+    /* Page fault alternate stack. */
     void * fault_stack_top = allocate_stack(pages, FAULT_STACK_PAGES);
     assert(fault_stack_top != INVALID_ADDRESS);
-    set_ist(1, u64_from_pointer(fault_stack_top));
+    set_ist(IST_PAGEFAULT, u64_from_pointer(fault_stack_top));
+
+    /* Interrupt handlers run on their own stack. */
+    void * int_stack_top = allocate_stack(pages, INT_STACK_PAGES);
+    assert(int_stack_top != INVALID_ADDRESS);
+    set_ist(IST_INTERRUPT, u64_from_pointer(int_stack_top));
 
     /* syscall stack - this can be replaced later by a per-thread kernel stack */
     syscall_stack_top = allocate_stack(pages, SYSCALL_STACK_PAGES);
@@ -439,9 +446,12 @@ void start_interrupts(kernel_heaps kh)
     // assuming contig gives us a page aligned, page padded identity map
     idt = allocate(pages, pages->pagesize);
 
-    for (int i = 0; i < interrupt_size; i++) 
-        write_idt(idt, i, start + i * delta, i == 0xe ? 1 : 0);
+    for (int i = 0; i < 32; i++)
+        write_idt(idt, i, start + i * delta, i == 0xe ? IST_PAGEFAULT : 0);
     
+    for (int i = 32; i < interrupt_size; i++)
+        write_idt(idt, i, start + i * delta, IST_INTERRUPT);
+
     u16 *dest = (u16 *)(idt + 2*interrupt_size);
     dest[0] = 16*interrupt_size -1;
     
