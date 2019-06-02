@@ -31,6 +31,17 @@ boolean basic_tests(heap h)
     test_assert(buffer_length(b) == 1);
     test_assert(buffer_read_byte(b) == 0xee);
     test_assert(buffer_length(b) == 0);
+    for (u8 i = 0; i < 3; i++) {
+        push_u8(b, i);
+    }
+    for (u8 i = 0; i < 3; i++) {
+        test_assert(pop_u8(b) == i);
+    }
+    buffer_write_le32(b, 0xdeadbeef);
+    test_assert(buffer_read_le32(b) == 0xdeadbeef);
+    push_varint(b, 0xdeadbeef);
+    test_assert(pop_varint(b) == 0xdeadbeef);
+    test_assert(buffer_length(b) == 0);
     /*
      * Validate wrap_buffer_cstring initialization, and contents
      */

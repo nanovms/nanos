@@ -287,7 +287,7 @@ static inline u8 pop_u8(buffer b)
 static inline void push_u8(buffer b, u8 x)
 {
     buffer_extend(b, 1);
-    *(u8 *)buffer_ref(b, b->end) = x;
+    *(u8 *)buffer_ref(b, buffer_length(b)) = x;
     b->end++;
 }
 
@@ -302,7 +302,7 @@ static inline u32 buffer_read_le32(buffer b)
 static inline void buffer_write_le32(buffer b, u32 x)
 {
     buffer_extend(b, sizeof(u32));
-    *(u32 *)buffer_ref(b, b->end) = x;
+    *(u32 *)buffer_ref(b, buffer_length(b)) = x;
     b->end+=sizeof(u32);
 }
 
