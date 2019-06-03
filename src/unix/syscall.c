@@ -55,9 +55,7 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, truncate, 0);
     register_syscall(map, ftruncate, 0);
     register_syscall(map, rename, 0);
-    register_syscall(map, rmdir, 0);
     register_syscall(map, link, 0);
-    register_syscall(map, unlink, 0);
     register_syscall(map, symlink, 0);
     register_syscall(map, chmod, syscall_ignore);
     register_syscall(map, fchmod, syscall_ignore);
@@ -202,7 +200,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, mknodat, 0);
     register_syscall(map, fchownat, 0);
     register_syscall(map, futimesat, 0);
-    register_syscall(map, unlinkat, 0);
     register_syscall(map, renameat, 0);
     register_syscall(map, linkat, 0);
     register_syscall(map, symlinkat, 0);
@@ -1188,6 +1185,86 @@ sysreturn readlinkat(int dirfd, const char *pathname, char *buf, u64 bufsiz)
     return set_syscall_error(current, EINVAL);
 }
 
+static CLOSURE_1_1(file_delete_complete, void, thread, status);
+static void file_delete_complete(thread t, status s)
+{
+    thread_log(current, "%s: status %v (%s)", __func__, s,
+            is_ok(s) ? "OK" : "NOTOK");
+    if (is_ok(s)) {
+        set_syscall_return(t, 0);
+    }
+    else {
+        set_syscall_error(t, EIO);
+    }
+    thread_wakeup(t);
+}
+
+static sysreturn unlink_internal(tuple cwd, const char *pathname)
+{
+    tuple n = resolve_cstring(cwd, pathname);
+    if (!n) {
+        return set_syscall_error(current, ENOENT);
+    }
+    if (is_dir(n)) {
+        return set_syscall_error(current, EISDIR);
+    }
+    filesystem_delete(current->p->fs, cwd, pathname,
+            closure(heap_general(get_kernel_heaps()), file_delete_complete,
+            current));
+    thread_sleep(current);
+}
+
+static sysreturn rmdir_internal(tuple cwd, const char *pathname)
+{
+    tuple n = resolve_cstring(cwd, pathname);
+    if (!n) {
+        return set_syscall_error(current, ENOENT);
+    }
+    if (!is_dir(n)) {
+        return set_syscall_error(current, ENOTDIR);
+    }
+    tuple c = children(n);
+    table_foreach(c, k, v) {
+        char *p = cstring(symbol_string(k));
+
+        if (runtime_strcmp(p, ".") && runtime_strcmp(p, "..")) {
+            thread_log(current, "%s: found entry '%s'", __func__, p);
+            return set_syscall_error(current, ENOTEMPTY);
+        }
+    }
+    filesystem_delete(current->p->fs, cwd, pathname,
+            closure(heap_general(get_kernel_heaps()), file_delete_complete,
+            current));
+    thread_sleep(current);
+}
+
+sysreturn unlink(const char *pathname)
+{
+    thread_log(current, "unlink %s", pathname);
+    return unlink_internal(current->p->cwd, pathname);
+}
+
+sysreturn unlinkat(int dirfd, const char *pathname, int flags)
+{
+    thread_log(current, "unlinkat %d %s 0x%x", dirfd, pathname, flags);
+    if (flags & ~AT_REMOVEDIR) {
+        return set_syscall_error(current, EINVAL);
+    }
+    tuple cwd = resolve_dir(dirfd, pathname);
+    if (flags & AT_REMOVEDIR) {
+        return rmdir_internal(cwd, pathname);
+    }
+    else {
+        return unlink_internal(cwd, pathname);
+    }
+}
+
+sysreturn rmdir(const char *pathname)
+{
+    thread_log(current, "rmdir %s", pathname);
+    return rmdir_internal(current->p->cwd, pathname);
+}
+
 sysreturn close(int fd)
 {
     thread_log(current, "close: fd %d", fd);
@@ -1362,6 +1439,9 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, getcwd, getcwd);
     register_syscall(map, readlink, readlink);
     register_syscall(map, readlinkat, readlinkat);
+    register_syscall(map, unlink, unlink);
+    register_syscall(map, unlinkat, unlinkat);
+    register_syscall(map, rmdir, rmdir);
     register_syscall(map, close, close);
     register_syscall(map, sched_yield, sched_yield);
     register_syscall(map, brk, brk);

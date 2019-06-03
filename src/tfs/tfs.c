@@ -76,6 +76,48 @@ void filesystem_write_eav(filesystem fs, tuple t, symbol a, value v, status_hand
     log_write_eav(fs->tl, t, a, v, sh);
 }
 
+static symbol fs_get_parent_child(filesystem fs, tuple cwd, const char *fp,
+        tuple *parent, tuple *child)
+{
+    int fp_len = runtime_strlen(fp);
+    char *fp_copy = allocate(fs->h, fp_len + 1);
+    assert(fp_copy != INVALID_ADDRESS);
+    runtime_memcpy(fp_copy, fp, fp_len);
+    fp_copy[fp_len] = '\0';
+    char *token, *rest = fp_copy;
+    symbol child_sym = 0;
+    while ((token = runtime_strtok_r(rest, "/", &rest))) {
+        symbol s = sym_this(token);
+        tuple t = lookup(cwd, s);
+        if (!t) {   /* entry not found */
+            break;
+        }
+        if (*rest != '\0') {
+            cwd = t;
+            continue;
+        }
+        if (parent) {
+            *parent = cwd;
+        }
+        if (child) {
+            *child = t;
+        }
+        child_sym = s;
+        break;
+    }
+    deallocate(fs->h, fp_copy, fp_len + 1);
+    return child_sym;
+}
+
+static void fs_set_dir_entry(filesystem fs, tuple parent, symbol name_sym,
+        tuple child, status_handler sh)
+{
+    tuple c = children(parent);
+    table_set(c, name_sym, child);
+    filesystem_write_eav(fs, c, name_sym, 0, sh);
+    filesystem_flush_log(fs);
+}
+
 /* This can evolve into / be replaced by a more general page / buffer
    chace interface. We should be able to maintain and recycle dma
    buffers for anything in the system, or at least virtio. These
@@ -800,6 +842,17 @@ fs_status filesystem_creat(filesystem fs, tuple cwd, const char *fp, boolean per
     fsfile_set_length(f, 0);
 
     return filesystem_mkentry(fs, cwd, fp, dir, persistent, false);
+}
+
+void filesystem_delete(filesystem fs, tuple cwd, const char *fp,
+        status_handler completion)
+{
+    tuple parent;
+    symbol child_sym = fs_get_parent_child(fs, cwd, fp, &parent, 0);
+    if (!child_sym) {
+        return;
+    }
+    fs_set_dir_entry(fs, parent, child_sym, 0, completion);
 }
 
 fsfile fsfile_from_node(filesystem fs, tuple n)

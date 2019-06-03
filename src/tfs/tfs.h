@@ -48,6 +48,8 @@ fs_status filesystem_mkentry(filesystem fs, tuple cwd, const char *fp, tuple ent
     boolean persistent, boolean recursive);
 fs_status filesystem_mkdir(filesystem fs, tuple cwd, const char *fp, boolean persistent);
 fs_status filesystem_creat(filesystem fs, tuple cwd, const char *fp, boolean persistent);
+void filesystem_delete(filesystem fs, tuple cwd, const char *fp,
+    status_handler completion);
 
 tuple filesystem_getroot(filesystem fs);
 extern const char *gitversion;

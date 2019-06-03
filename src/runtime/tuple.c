@@ -133,6 +133,8 @@ value decode_value(heap h, tuple dictionary, buffer source)
         tuple_debug("decode_value: decoded tuple %t\n", t);
         return t;
     } else {
+        if (len == 0)
+            return 0;
         buffer b;
         if (imm == immediate) {
             // doesn't seem like we should always need to take a copy in all cases
@@ -165,7 +167,10 @@ void encode_symbol(buffer dest, table dictionary, symbol s)
 void encode_tuple(buffer dest, table dictionary, tuple t);
 void encode_value(buffer dest, table dictionary, value v)
 {
-    if (tagof(v) == tag_tuple) {
+    if (!v) {
+        push_header(dest, immediate, type_buffer, 0);
+    }
+    else if (tagof(v) == tag_tuple) {
         encode_tuple(dest, dictionary, (tuple)v);
     } else {
         push_header(dest, immediate, type_buffer, buffer_length((buffer)v));

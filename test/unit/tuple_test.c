@@ -79,6 +79,11 @@ boolean encode_decode_test(heap h)
     bprintf(buf, "%t", t4);
     test_assert(strncmp(buf->contents, "(1:200)", buf->length) == 0);
 
+    // update tuple by removing an entry
+    encode_eav(b3, tdict1, t3, intern_u64(1), 0);
+    test_assert(decode_value(h, tdict2, b3) == t4);
+    test_assert(!table_find(t4, intern_u64(1)));
+
     failure = false;
 fail:
     return failure;

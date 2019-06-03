@@ -90,6 +90,7 @@ typedef struct iovec {
 #define ERANGE          34              /* Math result not representable */
 
 #define ENOSYS          38              /* Invalid system call number */
+#define ENOTEMPTY       39              /* Directory not empty */
 #define ENOPROTOOPT     42              /* Protocol not available */
 
 #define EDESTADDRREQ    89		/* Destination address required */

@@ -16,6 +16,7 @@ PROGRAMS= \
 	socketpair \
 	time \
 	udploop \
+	unlink \
 	vsyscall \
 	web \
 	webg \
@@ -131,6 +132,11 @@ SRCS-udploop= \
 	$(SRCDIR)/runtime/tuple.c \
 	$(SRCDIR)/runtime/crypto/chacha.c
 LDFLAGS-udploop=	 -static
+
+SRCS-unlink= \
+	$(CURDIR)/unlink.c \
+	$(SRCDIR)/unix_process/ssp.c
+LDFLAGS-unlink=		-static
 
 SRCS-vsyscall= \
 	$(CURDIR)/vsyscall.c \

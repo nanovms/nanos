@@ -130,11 +130,18 @@ static u64 tagged_allocate(heap h, bytes length)
     return base + 1;    
 }
 
+static void tagged_deallocate(heap h, u64 a, bytes length)
+{
+    tagged_allocator ta = (void *)h;
+    deallocate_u64(ta->parent, a - 1, length + 1);
+}
+
 heap allocate_tagged_region(kernel_heaps kh, u64 tag)
 {
     heap h = heap_general(kh);
     tagged_allocator ta = allocate(h, sizeof(struct tagged_allocator));
     ta->h.alloc = tagged_allocate;
+    ta->h.dealloc = tagged_deallocate;
     ta->tag = tag;
     ta->parent = h;
     return (heap)ta;
