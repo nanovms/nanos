@@ -767,7 +767,7 @@ fs_status filesystem_mkentry(filesystem fs, tuple cwd, const char *fp, tuple ent
     fs_status status = FS_STATUS_OK;
 
     int fp_len = runtime_strlen(fp);
-    char *fp_copy = allocate(fs->h, fp_len);
+    char *fp_copy = allocate(fs->h, fp_len + 1);
     assert(fp_copy != INVALID_ADDRESS);
     runtime_memcpy(fp_copy, fp, fp_len);
     fp_copy[fp_len] = '\0';
@@ -813,7 +813,7 @@ fs_status filesystem_mkentry(filesystem fs, tuple cwd, const char *fp, tuple ent
         parent = t;
     }
 
-    deallocate(fs->h, fp_copy, fp_len);
+    deallocate(fs->h, fp_copy, fp_len + 1);
     return status;
 }
 
