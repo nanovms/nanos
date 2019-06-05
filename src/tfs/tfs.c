@@ -89,10 +89,10 @@ static symbol fs_get_parent_child(filesystem fs, tuple cwd, const char *fp,
     while ((token = runtime_strtok_r(rest, "/", &rest))) {
         symbol s = sym_this(token);
         tuple t = lookup(cwd, s);
-        if (!t) {   /* entry not found */
-            break;
-        }
         if (*rest != '\0') {
+            if (!t) {   /* entry not found */
+                break;
+            }
             cwd = t;
             continue;
         }
@@ -107,15 +107,6 @@ static symbol fs_get_parent_child(filesystem fs, tuple cwd, const char *fp,
     }
     deallocate(fs->h, fp_copy, fp_len + 1);
     return child_sym;
-}
-
-static void fs_set_dir_entry(filesystem fs, tuple parent, symbol name_sym,
-        tuple child, status_handler sh)
-{
-    tuple c = children(parent);
-    table_set(c, name_sym, child);
-    filesystem_write_eav(fs, c, name_sym, 0, sh);
-    filesystem_flush_log(fs);
 }
 
 /* This can evolve into / be replaced by a more general page / buffer
@@ -743,6 +734,45 @@ void fixup_directory(tuple parent, tuple dir)
     table_set(c, sym_this(".."), parent);
 }
 
+static void cleanup_directory(tuple dir)
+{
+    tuple c = children(dir);
+    if (!c) {
+        return;
+    }
+    table_set(c, sym_this("."), 0);
+    table_set(c, sym_this(".."), 0);
+    table_foreach(c, k, v) {
+        (void) k;
+        if (tagof(v) == tag_tuple) {
+            cleanup_directory(v);
+        }
+    }
+}
+
+static void fs_set_dir_entry(filesystem fs, tuple parent, symbol name_sym,
+        tuple child, status_handler sh)
+{
+    if (child) {
+        /* If this is a directory, remove its . and .. directory entries, which
+         * must not be written in the log. */
+        cleanup_directory(child);
+    }
+    tuple c = children(parent);
+    table_set(c, name_sym, child);
+    if (sh) {
+        filesystem_write_eav(fs, c, name_sym, child, sh);
+        filesystem_flush_log(fs);
+    }
+    else {
+        filesystem_write_eav(fs, c, name_sym, child, ignore_status);
+    }
+    if (child) {
+        /* If this is a directory, re-add its . and .. directory entries. */
+        fixup_directory(parent, child);
+    }
+}
+
 static void do_mkentry(filesystem fs, tuple parent, const char *name, tuple entry, boolean persistent)
 {
     symbol name_sym = sym_this(name);
@@ -853,6 +883,43 @@ void filesystem_delete(filesystem fs, tuple cwd, const char *fp,
         return;
     }
     fs_set_dir_entry(fs, parent, child_sym, 0, completion);
+}
+
+void filesystem_rename(filesystem fs, tuple oldwd, const char *oldfp,
+        tuple newwd, const char *newfp, status_handler completion)
+{
+    tuple oldparent;
+    tuple t;
+    symbol oldchild_sym = fs_get_parent_child(fs, oldwd, oldfp, &oldparent, &t);
+    if (!oldchild_sym) {
+        return;
+    }
+    tuple newparent;
+    symbol newchild_sym = fs_get_parent_child(fs, newwd, newfp, &newparent, 0);
+    if (!newchild_sym) {
+        return;
+    }
+    fs_set_dir_entry(fs, oldparent, oldchild_sym, 0, 0);
+    fs_set_dir_entry(fs, newparent, newchild_sym, t, completion);
+}
+
+void filesystem_exchange(filesystem fs, tuple wd1, const char *fp1,
+        tuple wd2, const char *fp2, status_handler completion)
+{
+    tuple parent1;
+    tuple child1;
+    symbol child1_sym = fs_get_parent_child(fs, wd1, fp1, &parent1, &child1);
+    if (!child1_sym) {
+        return;
+    }
+    tuple parent2;
+    tuple child2;
+    symbol child2_sym = fs_get_parent_child(fs, wd2, fp2, &parent2, &child2);
+    if (!child2_sym) {
+        return;
+    }
+    fs_set_dir_entry(fs, parent1, child1_sym, child2, 0);
+    fs_set_dir_entry(fs, parent2, child2_sym, child1, completion);
 }
 
 fsfile fsfile_from_node(filesystem fs, tuple n)

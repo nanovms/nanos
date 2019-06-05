@@ -55,7 +55,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, fdatasync, 0);
     register_syscall(map, truncate, 0);
     register_syscall(map, ftruncate, 0);
-    register_syscall(map, rename, 0);
     register_syscall(map, link, 0);
     register_syscall(map, symlink, 0);
     register_syscall(map, chmod, syscall_ignore);
@@ -200,7 +199,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, mknodat, 0);
     register_syscall(map, fchownat, 0);
     register_syscall(map, futimesat, 0);
-    register_syscall(map, renameat, 0);
     register_syscall(map, linkat, 0);
     register_syscall(map, symlinkat, 0);
     register_syscall(map, fchmodat, syscall_ignore);
@@ -241,7 +239,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, finit_module, 0);
     register_syscall(map, sched_setattr, 0);
     register_syscall(map, sched_getattr, 0);
-    register_syscall(map, renameat2, 0);
     register_syscall(map, seccomp, 0);
     register_syscall(map, memfd_create, 0);
     register_syscall(map, kexec_file_load, 0);
@@ -283,6 +280,70 @@ static inline tuple resolve_cstring(tuple cwd, const char *f)
     }
 
     return t;
+}
+
+static inline tuple resolve_cstring_parent(tuple cwd, const char *f)
+{
+    tuple t = (*f == '/' ? filesystem_getroot(current->p->fs) : cwd);
+    tuple parent = 0;
+    buffer a = little_stack_buffer(NAME_MAX);
+    char y;
+    while ((y = *f++)) {
+        if (y == '/') {
+            if (buffer_length(a)) {
+                if (!t) {
+                    return false;
+                }
+                parent = t;
+                t = lookup(parent, intern(a));
+                buffer_clear(a);
+            }
+        }
+        else {
+            push_character(a, y);
+        }
+    }
+    if (buffer_length(a)) {
+        if (!t) {
+            return false;
+        }
+        parent = t;
+    }
+    return parent;
+}
+
+/* Check if fp1 is a (direct or indirect) ancestor if fp2. */
+static inline boolean filepath_is_ancestor(tuple wd1, const char *fp1,
+        tuple wd2, const char *fp2)
+{
+    tuple t1 = resolve_cstring(wd1, fp1);
+    if (!t1) {
+        return false;
+    }
+    tuple t2 = (*fp2 == '/' ? filesystem_getroot(current->p->fs) : wd2);
+    buffer a = little_stack_buffer(NAME_MAX);
+    char y;
+    while ((y = *fp2++)) {
+        if (y == '/') {
+            if (buffer_length(a)) {
+                if (t2 == t1) {
+                    return true;
+                }
+                t2 = lookup(t2, intern(a));
+                if (!t2) {
+                    return false;
+                }
+                buffer_clear(a);
+            }
+        }
+        else {
+            push_character(a, y);
+        }
+    }
+    if (buffer_length(a) && (t2 == t1)) {
+        return true;
+    }
+    return false;
 }
 
 sysreturn read(int fd, u8 *dest, bytes length)
@@ -1334,6 +1395,105 @@ sysreturn rmdir(const char *pathname)
     return rmdir_internal(current->p->cwd, pathname);
 }
 
+static CLOSURE_1_1(file_rename_complete, void, thread, status);
+static void file_rename_complete(thread t, status s)
+{
+    thread_log(current, "%s: status %v (%s)", __func__, s,
+            is_ok(s) ? "OK" : "NOTOK");
+    if (is_ok(s)) {
+        set_syscall_return(t, 0);
+    }
+    else {
+        set_syscall_error(t, EIO);
+    }
+    thread_wakeup(t);
+}
+
+static sysreturn rename_internal(tuple oldwd, const char *oldpath, tuple newwd,
+        const char *newpath)
+{
+    tuple old = resolve_cstring(oldwd, oldpath);
+    tuple newparent = resolve_cstring_parent(newwd, newpath);
+    if (!old || !oldpath[0] || !newparent || !newpath[0]) {
+        return set_syscall_error(current, ENOENT);
+    }
+    tuple new = resolve_cstring(newwd, newpath);
+    if (new && is_dir(new)) {
+        if (!is_dir(old)) {
+            return set_syscall_error(current, EISDIR);
+        }
+        tuple c = children(new);
+        table_foreach(c, k, v) {
+            char *p = cstring(symbol_string(k));
+
+            if (runtime_strcmp(p, ".") && runtime_strcmp(p, "..")) {
+                thread_log(current, "%s: found entry '%s'", __func__, p);
+                return set_syscall_error(current, ENOTEMPTY);
+            }
+        }
+    }
+    if (new && !is_dir(new) && is_dir(old)) {
+        return set_syscall_error(current, ENOTDIR);
+    }
+    if (filepath_is_ancestor(oldwd, oldpath, newwd, newpath)) {
+        return set_syscall_error(current, EINVAL);
+    }
+    filesystem_rename(current->p->fs, oldwd, oldpath, newwd, newpath,
+            closure(heap_general(get_kernel_heaps()), file_rename_complete,
+            current));
+    thread_sleep(current);
+}
+
+sysreturn rename(const char *oldpath, const char *newpath)
+{
+    thread_log(current, "rename \"%s\" \"%s\"", oldpath, newpath);
+    return rename_internal(current->p->cwd, oldpath, current->p->cwd, newpath);
+}
+
+sysreturn renameat(int olddirfd, const char *oldpath, int newdirfd,
+        const char *newpath)
+{
+    thread_log(current, "renameat %d \"%s\" %d \"%s\"", olddirfd, oldpath,
+            newdirfd, newpath);
+    tuple oldwd = resolve_dir(olddirfd, oldpath);
+    tuple newwd = resolve_dir(newdirfd, newpath);
+    return rename_internal(oldwd, oldpath, newwd, newpath);
+}
+
+sysreturn renameat2(int olddirfd, const char *oldpath, int newdirfd,
+        const char *newpath, unsigned int flags)
+{
+    thread_log(current, "renameat2 %d \"%s\" %d \"%s\", flags 0x%x", olddirfd,
+            oldpath, newdirfd, newpath, flags);
+    if ((flags & ~(RENAME_EXCHANGE | RENAME_NOREPLACE)) ||
+            ((flags & RENAME_EXCHANGE) && (flags & RENAME_NOREPLACE))) {
+        return set_syscall_error(current, EINVAL);
+    }
+    tuple oldwd = resolve_dir(olddirfd, oldpath);
+    tuple newwd = resolve_dir(newdirfd, newpath);
+    if (flags & RENAME_EXCHANGE) {
+        if (filepath_is_ancestor(oldwd, oldpath, newwd, newpath) ||
+                filepath_is_ancestor(newwd, newpath, oldwd, oldpath)) {
+            return set_syscall_error(current, EINVAL);
+        }
+        tuple old = resolve_cstring(oldwd, oldpath);
+        tuple new = resolve_cstring(newwd, newpath);
+        if (!old || !new) {
+            return set_syscall_error(current, ENOENT);
+        }
+        filesystem_exchange(current->p->fs, oldwd, oldpath, newwd, newpath,
+                closure(heap_general(get_kernel_heaps()), file_rename_complete,
+                current));
+        thread_sleep(current);
+    }
+    else {
+        if ((flags & RENAME_NOREPLACE) && resolve_cstring(newwd, newpath)) {
+            return set_syscall_error(current, EEXIST);
+        }
+        return rename_internal(oldwd, oldpath, newwd, newpath);
+    }
+}
+
 sysreturn close(int fd)
 {
     thread_log(current, "close: fd %d", fd);
@@ -1511,6 +1671,9 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, unlink, unlink);
     register_syscall(map, unlinkat, unlinkat);
     register_syscall(map, rmdir, rmdir);
+    register_syscall(map, rename, rename);
+    register_syscall(map, renameat, renameat);
+    register_syscall(map, renameat2, renameat2);
     register_syscall(map, close, close);
     register_syscall(map, sched_yield, sched_yield);
     register_syscall(map, brk, brk);

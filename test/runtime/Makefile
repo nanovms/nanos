@@ -12,6 +12,7 @@ PROGRAMS= \
 	nullpage \
 	paging \
 	pipe \
+	rename \
 	sendfile \
 	socketpair \
 	time \
@@ -87,6 +88,11 @@ SRCS-pipe= \
 	$(SRCDIR)/runtime/heap/mcache.c
 LDFLAGS-pipe=		-static
 LIBS-pipe=		-lm -lpthread
+
+SRCS-rename= \
+	$(CURDIR)/rename.c \
+	$(SRCDIR)/unix_process/ssp.c
+LDFLAGS-rename=		-static
 
 SRCS-sendfile=		$(CURDIR)/sendfile.c
 LDFLAGS-sendfile=	-static
