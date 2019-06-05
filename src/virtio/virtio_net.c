@@ -46,7 +46,7 @@
 #include "virtio_internal.h"
 #include "virtio_net.h"
 
-#include <pci.h>
+#include <io.h>
 
 typedef struct vnet {
     vtpci dev;
@@ -189,15 +189,13 @@ static err_t virtioif_init(struct netif *netif)
     return ERR_OK;
 }
 
-static CLOSURE_2_3(init_vnet, void, heap, heap, int, int, int);
-static void init_vnet(heap general, heap page_allocator,
-		      int bus, int slot, int function)
+static void virtio_net_attach(heap general, heap page_allocator, pci_dev d)
 {
     //u32 badness = VIRTIO_F_BAD_FEATURE | VIRTIO_NET_F_CSUM | VIRTIO_NET_F_GUEST_CSUM |
     //    VIRTIO_NET_F_GUEST_TSO4 | VIRTIO_NET_F_GUEST_TSO6 |  VIRTIO_NET_F_GUEST_ECN|
     //    VIRTIO_NET_F_GUEST_UFO | VIRTIO_NET_F_CTRL_VLAN | VIRTIO_NET_F_MQ;
 
-    vtpci dev = attach_vtpci(general, page_allocator, bus, slot, function, VIRTIO_NET_F_MAC);
+    vtpci dev = attach_vtpci(general, page_allocator, d, VIRTIO_NET_F_MAC);
     vnet vn = allocate(dev->general, sizeof(struct vnet));
     vn->n = allocate(dev->general, sizeof(struct netif));
     vn->rxbuflen = NET_HEADER_LENGTH + sizeof(struct eth_hdr) + sizeof(struct eth_vlan_hdr) + 1500;
@@ -222,12 +220,20 @@ static void init_vnet(heap general, heap page_allocator,
               ethernet_input);
 }
 
+static CLOSURE_2_1(virtio_net_probe, boolean, heap, heap, pci_dev);
+static boolean virtio_net_probe(heap general, heap page_allocator, pci_dev d)
+{
+    if (pci_get_vendor(d) != VIRTIO_PCI_VENDORID || pci_get_device(d) != VIRTIO_PCI_DEVICEID_NETWORK)
+        return false;
+
+    virtio_net_attach(general, page_allocator, d);
+    return true;
+}
 
 void init_virtio_network(kernel_heaps kh)
 {
     heap h = heap_general(kh);
-    register_pci_driver(VIRTIO_PCI_VENDORID, VIRTIO_PCI_DEVICEID_NETWORK,
-			closure(h, init_vnet, h, heap_backed(kh)));
+    register_pci_driver(closure(h, virtio_net_probe, h, heap_backed(kh)));
 }
 
 err_t init_static_config(tuple root, struct netif *n) {

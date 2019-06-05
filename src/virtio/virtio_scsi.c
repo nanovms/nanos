@@ -2,7 +2,8 @@
 #include <x86_64.h>
 #include <drivers/storage.h>
 #include <virtio/scsi.h>
-#include <pci.h>
+#include <x86_64.h>
+#include <io.h>
 
 #include "virtio_internal.h"
 
@@ -392,11 +393,10 @@ static void virtio_scsi_report_luns(virtio_scsi s, storage_attach a, u16 target)
         closure(s->v->general, virtio_scsi_report_luns_done, a, target));
 }
 
-static CLOSURE_4_3(virtio_scsi_attach, void, heap, storage_attach, heap, heap, int, int, int);
-static void virtio_scsi_attach(heap general, storage_attach a, heap page_allocator, heap pages, int bus, int slot, int function)
+static void virtio_scsi_attach(heap general, storage_attach a, heap page_allocator, heap pages, pci_dev _dev)
 {
     virtio_scsi s = allocate(general, sizeof(struct virtio_scsi));
-    s->v = attach_vtpci(general, page_allocator, bus, slot, function, 0);
+    s->v = attach_vtpci(general, page_allocator, _dev, 0);
 
     virtio_scsi_debug("features 0x%lx\n", s->v->features);
 
@@ -448,9 +448,18 @@ static void virtio_scsi_attach(heap general, storage_attach a, heap page_allocat
     virtio_scsi_report_luns(s, a, 0);
 }
 
+static CLOSURE_4_1(virtio_scsi_probe, boolean, heap, storage_attach, heap, heap, pci_dev);
+static boolean virtio_scsi_probe(heap general, storage_attach a, heap page_allocator, heap pages, pci_dev d)
+{
+    if (pci_get_vendor(d) != VIRTIO_PCI_VENDORID || pci_get_device(d) != VIRTIO_PCI_DEVICEID_SCSI)
+        return false;
+
+    virtio_scsi_attach(general, a, page_allocator, pages, d);
+    return true;
+}
+
 void virtio_register_scsi(kernel_heaps kh, storage_attach a)
 {
     heap h = heap_general(kh);
-    register_pci_driver(VIRTIO_PCI_VENDORID, VIRTIO_PCI_DEVICEID_SCSI,
-                        closure(h, virtio_scsi_attach, h, a, heap_backed(kh), heap_pages(kh)));
+    register_pci_driver(closure(h, virtio_scsi_probe, h, a, heap_backed(kh), heap_pages(kh)));
 }

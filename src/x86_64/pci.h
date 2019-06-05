@@ -1,4 +1,7 @@
 #pragma once
+
+#define PCIR_VENDOR     0x00
+#define PCIR_DEVICE     0x02
 #define PCIR_MEMBASE0_2 0x1c
 #define PCIR_MEMLIMIT0_2 0x20
 #define PCIR_MEMBASE1_2 0x24
@@ -8,14 +11,38 @@
 #define PCIR_IOBASEH_1  0x30
 #define PCIR_IOLIMITH_1 0x32
 
-void pci_cfgwrite(int bus, int slot, int func, int reg, int bytes, u32 source);
-u32 pci_cfgread(int bus, int slot, int func, int reg, int bytes);
-u32 pci_readbar(unsigned bus, unsigned slot, unsigned func, int bid, u32 *length);
+typedef struct pci_dev *pci_dev;
+
+struct pci_dev {
+    int bus;
+    int slot;
+    int function;
+};
+
+void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source);
+u32 pci_cfgread(pci_dev dev, int reg, int bytes);
+
+static inline u16 pci_get_vendor(pci_dev dev)
+{
+    return pci_cfgread(dev, PCIR_VENDOR, 2);
+}
+
+static inline u16 pci_get_device(pci_dev dev)
+{
+    return pci_cfgread(dev, PCIR_DEVICE, 2);
+}
+
+u32 pci_readbar(pci_dev dev, int bid, u32 *length);
     
 void pci_discover();
-void pci_set_bus_master(int bus, int slot, int func);
+void pci_set_bus_master(pci_dev dev);
+void pci_enable_msix(pci_dev dev);
+void pci_setup_msix(pci_dev dev, int msi_slot, thunk h);
+
 #define PCI_COMMAND_REGISTER 6
 
 void init_pci(kernel_heaps kh);
-typedef closure_type(pci_probe, void , int, int, int ); // bus slot func
-void register_pci_driver(u16 vendor, u16 device, pci_probe p);
+
+typedef closure_type(pci_probe, boolean, pci_dev); // bus slot func
+
+void register_pci_driver(pci_probe p);
