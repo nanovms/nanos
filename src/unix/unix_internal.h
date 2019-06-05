@@ -138,6 +138,7 @@ typedef closure_type(io, sysreturn, void *, u64 length, u64 offset);
 typedef struct fdesc {
     io read, write;
     closure_type(check, boolean, u32 eventmask, u32 * last, event_handler eh);
+    closure_type(ioctl, sysreturn, unsigned long request, vlist ap);
     closure_type(close, sysreturn);
     u64 refcnt;
     int type;

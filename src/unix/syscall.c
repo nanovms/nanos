@@ -1540,8 +1540,15 @@ sysreturn fcntl(int fd, int cmd, int arg)
 sysreturn ioctl(int fd, unsigned long request, ...)
 {
     // checks if fd is valid
-    resolve_fd(current->p, fd);
+    fdesc f = resolve_fd(current->p, fd);
 
+    if (f->ioctl) {
+        vlist args;
+        vstart(args, request);
+        sysreturn rv = apply(f->ioctl, request, args);
+        vend(args);
+        return set_syscall_return(current, rv);
+    }
     switch (request) {
     case FIONBIO:
     case FIONCLEX:

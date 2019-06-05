@@ -8,6 +8,7 @@ void fdesc_init(fdesc f, int type)
     f->write = 0;
     f->close = 0;
     f->check = 0;
+    f->ioctl = 0;
     f->refcnt = 1;
     f->type = type;
     f->flags = 0;
