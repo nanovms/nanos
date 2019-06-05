@@ -1,5 +1,5 @@
 #include <drivers/storage.h>
-#include <pci.h>
+#include <io.h>
 
 #include "virtio_internal.h"
 
@@ -154,17 +154,14 @@ static void storage_read(storage st, void * target, range blocks, status_handler
     storage_rw_internal(st, false, target, blocks, s);
 }
 
-static CLOSURE_4_3(attach, void, heap, storage_attach, heap, heap, int, int, int);
-static void attach(heap general, storage_attach a, heap page_allocator, heap pages, int bus, int slot, int function)
+static void virtio_blk_attach(heap general, storage_attach a, heap page_allocator, heap pages, pci_dev d)
 {
-
     storage s = allocate(general, sizeof(struct storage));
-    s->v = attach_vtpci(general, page_allocator, bus, slot, function, 0);
+    s->v = attach_vtpci(general, page_allocator, d, 0);
 
     s->block_size = in32(s->v->base + VIRTIO_MSI_DEVICE_CONFIG + VIRTIO_BLK_R_BLOCK_SIZE);
     s->capacity = (in32(s->v->base + VIRTIO_MSI_DEVICE_CONFIG + VIRTIO_BLK_R_CAPACITY_LOW) |
 		   ((u64) in32(s->v->base + VIRTIO_MSI_DEVICE_CONFIG + VIRTIO_BLK_R_CAPACITY_HIGH) << 32)) * s->block_size;
-    pci_set_bus_master(bus, slot, function);
     vtpci_alloc_virtqueue(s->v, 0, &s->command);
     // initialization complete
     vtpci_set_status(s->v, VIRTIO_CONFIG_STATUS_DRIVER_OK);
@@ -174,9 +171,18 @@ static void attach(heap general, storage_attach a, heap page_allocator, heap pag
     apply(a, in, out, s->capacity);
 }
 
+static CLOSURE_4_1(virtio_blk_probe, boolean, heap, storage_attach, heap, heap, pci_dev);
+static boolean virtio_blk_probe(heap general, storage_attach a, heap page_allocator, heap pages, pci_dev d)
+{
+    if (pci_get_vendor(d) != VIRTIO_PCI_VENDORID || pci_get_device(d) != VIRTIO_PCI_DEVICEID_STORAGE)
+        return false;
+
+    virtio_blk_attach(general, a, page_allocator, pages, d);
+    return true;
+}
+
 void virtio_register_blk(kernel_heaps kh, storage_attach a)
 {
     heap h = heap_general(kh);
-    register_pci_driver(VIRTIO_PCI_VENDORID, VIRTIO_PCI_DEVICEID_STORAGE,
-                        closure(h, attach, h, a, heap_backed(kh), heap_pages(kh)));
+    register_pci_driver(closure(h, virtio_blk_probe, h, a, heap_backed(kh), heap_pages(kh)));
 }

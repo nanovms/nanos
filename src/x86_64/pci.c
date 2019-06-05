@@ -2,6 +2,7 @@
 #include <pci.h>
 #include <page.h>
 #include <io.h>
+#include <x86_64.h>
 
 #define CONF1_ADDR_PORT    0x0cf8
 #define CONF1_DATA_PORT    0x0cfc
@@ -28,32 +29,38 @@
 #define	PCIE_REGMAX	4095	/* highest supported config register addr. */
 #define	PCI_MAXHDRTYPE	2
 
-#define PCIR_VENDOR     0x00
-#define PCIR_DEVICE     0x02
 #define PCIR_CAPABILITIES_POINTER   0x34
+#define PCI_CAPABILITY_MSIX 0x11
 
+// use the global nodespace
+static vector drivers;
+static heap virtual_huge;
+static heap pages;
+
+// assume the single bus layout
+static u32 *msi_map[PCI_SLOTMAX];
 
 /* enable configuration space accesses and return data port address */
-static int pci_cfgenable(unsigned bus, unsigned slot, unsigned func, int reg, int bytes)
+static int pci_cfgenable(pci_dev dev, int reg, int bytes)
 {
     int dataport = 0;
     
-    if (bus <= PCI_BUSMAX && slot <= PCI_SLOTMAX && func <= PCI_FUNCMAX &&
+    if (dev->bus <= PCI_BUSMAX && dev->slot <= PCI_SLOTMAX && dev->function <= PCI_FUNCMAX &&
         (unsigned)reg <= PCI_REGMAX && bytes != 3 &&
         (unsigned)bytes <= 4 && (reg & (bytes - 1)) == 0) {
-        out32(CONF1_ADDR_PORT, (1U << 31) | (bus << 16) | (slot << 11) 
-              | (func << 8) | (reg & ~0x03));
+        out32(CONF1_ADDR_PORT, (1U << 31) | (dev->bus << 16) | (dev->slot << 11)
+              | (dev->function << 8) | (reg & ~0x03));
         dataport = CONF1_DATA_PORT + (reg & 0x03);
     }
     return (dataport);
 }
 
-u32 pci_cfgread(int bus, int slot, int func, int reg, int bytes)
+u32 pci_cfgread(pci_dev dev, int reg, int bytes)
 {
     u32 data = -1;
     int port;
     
-    port = pci_cfgenable(bus, slot, func, reg, bytes);
+    port = pci_cfgenable(dev, reg, bytes);
     if (port != 0) {
         switch (bytes) {
         case 1:
@@ -70,20 +77,20 @@ u32 pci_cfgread(int bus, int slot, int func, int reg, int bytes)
     return (data);
 }
 
-u32 pci_readbar(unsigned bus, unsigned slot, unsigned func, int bid, u32 *length)
+u32 pci_readbar(pci_dev dev, int bid, u32 *length)
 {
-    u32 base = pci_cfgread(bus, slot, func, 0x10 + 4 *bid, 4);
-    pci_cfgwrite(bus, slot, func, 0x10 + 4 *bid, 4, 0xffffffff);
-    *length = ~pci_cfgread(bus, slot, func, 0x10 + 4 *bid, 4) + 1;
-    pci_cfgwrite(bus, slot, func, 0x10 + 4 *bid, 4, base);    
+    u32 base = pci_cfgread(dev, 0x10 + 4 *bid, 4);
+    pci_cfgwrite(dev, 0x10 + 4 *bid, 4, 0xffffffff);
+    *length = ~pci_cfgread(dev, 0x10 + 4 *bid, 4) + 1;
+    pci_cfgwrite(dev, 0x10 + 4 *bid, 4, base);
     return base;
 }
 
-void pci_cfgwrite(int bus, int slot, int func, int reg, int bytes, u32 source)
+void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
 {
     int port;
     
-    port = pci_cfgenable(bus, slot, func, reg, bytes);
+    port = pci_cfgenable(dev, reg, bytes);
     if (port != 0) {
         switch (bytes) {
         case 1:
@@ -99,11 +106,36 @@ void pci_cfgwrite(int bus, int slot, int func, int reg, int bytes, u32 source)
     }
 }
 
-void pci_set_bus_master(int bus, int slot, int func)
+void pci_set_bus_master(pci_dev dev)
 {
-    u16 command = pci_cfgread(bus, slot, func, PCI_COMMAND_REGISTER, 2);
+    u16 command = pci_cfgread(dev, PCI_COMMAND_REGISTER, 2);
     command |= 4; // bus master
-    pci_cfgwrite(bus, slot, func, PCI_COMMAND_REGISTER, 2, command);
+    pci_cfgwrite(dev, PCI_COMMAND_REGISTER, 2, command);
+}
+
+void pci_enable_msix(pci_dev dev)
+{
+     u32 cp = pci_cfgread(dev, PCIR_CAPABILITIES_POINTER, 1);
+     while (cp != 0) {
+         if (pci_cfgread(dev, cp, 1) != PCI_CAPABILITY_MSIX) {
+             // next cap
+	     cp = pci_cfgread(dev, cp + 1, 1);
+             continue;
+         }
+
+         u32 vector_table = pci_cfgread(dev, cp + 4, 4);
+         pci_cfgread(dev, cp + 8, 4);
+         u32 len;
+         u32 vector_base = pci_readbar(dev, vector_table & 0x7, &len);
+         len = pad(len, PAGESIZE);
+         // ?? this is per device, so why is it global? - pass to probe?
+         u8 *vector_table_ptr = allocate(virtual_huge, len);
+         map((u64)vector_table_ptr, vector_base, len, PAGE_DEV_FLAGS, pages);
+         msi_map[dev->slot] = (void *) (vector_table_ptr + (vector_table & ~0x7)); // table offset
+         // qemu gets really* mad if you do this a 16 bit write
+         pci_cfgwrite(dev, cp + 3, 1, 0x80);
+         break;
+     }
 }
 
 void msi_format(u32 *address, u32 *data, int vector)
@@ -119,65 +151,39 @@ void msi_format(u32 *address, u32 *data, int vector)
     *data = (trigger << 15) | (level << 14) | (mode << 8) | vector;
 }
 
-// assume the singel bus layout
-static u32 *msi_map[PCI_SLOTMAX];
-
-void msi_map_vector(int slot, int msislot, int vector)
+void pci_setup_msix(pci_dev dev, int msi_slot, thunk h)
 {
+    int v = allocate_u64(interrupt_vectors, 1);
+    register_interrupt(v, h);
+
     u32 a, d;
     u32 vector_control = 0;
-    msi_format(&a, &d, vector);
-    msi_map[slot][msislot*4] = a;
-    msi_map[slot][msislot*4 + 1] = 0;
-    msi_map[slot][msislot*4 + 2] = d;
-    msi_map[slot][msislot*4 + 3] = vector_control;
+    msi_format(&a, &d, v);
+
+    msi_map[dev->slot][msi_slot*4] = a;
+    msi_map[dev->slot][msi_slot*4 + 1] = 0;
+    msi_map[dev->slot][msi_slot*4 + 2] = d;
+    msi_map[dev->slot][msi_slot*4 + 3] = vector_control;
 }
 
-    
-#define MSI_MESSAGE_ENABLE 1
-#define PCI_CAPABILITY_MSIX 0x11
-extern void *pagebase;
-
-// use the global nodespace
-static table drivers;
-static heap virtual_huge;
-static heap pages;
-
-void register_pci_driver(u16 vendor, u16 device, pci_probe p)
+void register_pci_driver(pci_probe p)
 {
-    table_set(drivers, pointer_from_u64((u64)(vendor<<16|device)), p);
+    vector_push(drivers, p);
 }
-
 
 void pci_discover()
 {
     // we dont actually need to do recursive discovery, qemu leaves it all on bus0 for us
     for (int i = 0; i < 16; i++) {
-        u32 vid = pci_cfgread(0, i, 0, PCIR_VENDOR, 2);
-        u32 did = pci_cfgread(0, i, 0, PCIR_DEVICE, 2);
-        if (!((vid == 0xffff)  && (did == 0xffff))) {
-            u32 cp = pci_cfgread(0, i, 0, PCIR_CAPABILITIES_POINTER, 1);
-            while (cp) {
-                u32 cp0 = pci_cfgread(0, i, 0, cp, 1);
-                if (cp0 == PCI_CAPABILITY_MSIX) {
-                    u32 vector_table = pci_cfgread(0, i, 0, cp+4, 4);
-                    pci_cfgread(0, i, 0, cp+8, 4);
-                    u32 len;
-                    u32 vector_base = pci_readbar(0, i, 0, vector_table & 0x7, &len);
-                    len = pad(len, PAGESIZE);
-                    // ?? this is per device, so why is it global? - pass to probe?
-                    u8 *vector_table_ptr = allocate(virtual_huge, len);
-                    map((u64)vector_table_ptr, vector_base, len, PAGE_DEV_FLAGS, pages);
-                    msi_map[i] = (void *) (vector_table_ptr + (vector_table & ~0x7)); // table offset
-                    // qemu gets really* mad if you do this a 16 bit write
-                    pci_cfgwrite(0, i, 0, cp+3, 1, 0x80);
-                    break;
-                }
-                cp = pci_cfgread(0, i, 0, cp + 1, 1);
-            }
-            pci_probe p;
-            if ((p =  table_find(drivers, pointer_from_u64((u64)(vid<<16|did)))))
-                apply(p, 0, i, 0);
+        struct pci_dev _dev = { .bus = 0, .slot = i, .function = 0};
+        pci_dev dev = &_dev;
+
+        if (pci_get_vendor(dev) == 0xffff && pci_get_device(dev) == 0xffff)
+            continue;
+
+        pci_probe p;
+        vector_foreach(drivers, p) {
+            apply(p, dev);
         }
     }
 }
@@ -187,5 +193,5 @@ void init_pci(kernel_heaps kh)
     // should use the global node space
     virtual_huge = heap_virtual_huge(kh);
     pages = heap_pages(kh);
-    drivers = allocate_table(heap_general(kh), identity_key, pointer_equal);
+    drivers = allocate_vector(heap_general(kh), 8);
 }

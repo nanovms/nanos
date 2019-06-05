@@ -38,11 +38,14 @@
 #pragma once
 
 #include <runtime/runtime.h>
+#include <pci.h>
 
 typedef struct vtpci *vtpci;
 
 struct vtpci {
-    int slot;
+    struct pci_dev _dev;
+    pci_dev dev;
+
     u64 base; //io region base
     u64 features;
 
@@ -90,10 +93,8 @@ struct vtpci {
 #define VIRTIO_PCI_QUEUE_ADDR_SHIFT	12
 #define VIRTIO_PCI_VRING_ALIGN	4096
 
-vtpci attach_vtpci(heap h, heap page_allocator, int bus, int slot, int func, u64 feature_mask);
-status vtpci_alloc_virtqueue(vtpci dev,
-                              int idx,
-                              struct virtqueue **result);
+vtpci attach_vtpci(heap h, heap page_allocator, pci_dev d, u64 feature_mask);
+status vtpci_alloc_virtqueue(vtpci dev, int idx, struct virtqueue **result);
 void vtpci_set_status(vtpci dev, u8 status);
 
 /* VirtIO PCI vendor/device ID. */

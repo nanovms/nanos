@@ -333,13 +333,6 @@ void common_handler()
 
 heap interrupt_vectors;
 
-void allocate_msi(int slot, int msi_slot, thunk h)
-{
-    int v = allocate_u64(interrupt_vectors, 1);
-    handlers[v] = h;
-    msi_map_vector(slot, msi_slot, v);
-}
-
 // actually allocate the virtual  - put in the tree
 static void enable_lapic(heap pages)
 {
@@ -398,7 +391,7 @@ void configure_lapic_timer(heap h)
     apic_write(APIC_TMRDIV, 3 /* 16 */);
     int v = allocate_u64(interrupt_vectors, 1);
     apic_write(APIC_LVT_TMR, v); /* one shot */
-    handlers[v] = closure(h, int_ignore);
+    register_interrupt(v, closure(h, int_ignore));
     calibrate_lapic_timer();
 }
 

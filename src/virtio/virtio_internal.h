@@ -1,7 +1,6 @@
 #pragma once
 
 #include "virtio_pci.h"
-#include <kvm_platform.h>
 
 typedef struct virtqueue *virtqueue;
 
