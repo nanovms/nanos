@@ -28,9 +28,9 @@
 
 /* Driver for the VirtIO PCI interface. */
 
-#include <virtio_internal.h>
-#include <pci.h>
+#include "virtio_internal.h"
 
+#include <pci.h>
 
 static u8 vtpci_get_status(vtpci dev)
 {

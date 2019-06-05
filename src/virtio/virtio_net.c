@@ -43,9 +43,10 @@
 #include "lwip/dhcp.h"
 #include "lwip/timeouts.h"
 #include "netif/ethernet.h"
+#include "virtio_internal.h"
+#include "virtio_net.h"
 
-#include <virtio_internal.h>
-#include <virtio_net.h>
+#include <pci.h>
 
 typedef struct vnet {
     vtpci dev;

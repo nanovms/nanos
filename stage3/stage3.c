@@ -2,7 +2,7 @@
 #include <tfs.h>
 #include <unix.h>
 #include <gdb.h>
-#include <virtio.h>
+#include <virtio/virtio.h>
 
 static CLOSURE_2_1(read_program_complete, void, process, tuple, buffer);
 static void read_program_complete(process kp, tuple root, buffer b)

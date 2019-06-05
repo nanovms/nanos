@@ -4,6 +4,7 @@ PROGRAMS=	stage3.img
 SRCS-stage3.img= \
 	$(CURDIR)/stage3.c \
 	$(OBJDIR)/gitversion.c \
+	$(SRCDIR)/drivers/storage.c \
 	$(SRCDIR)/gdb/gdbstub.c \
 	$(SRCDIR)/gdb/gdbtcp.c \
 	$(SRCDIR)/gdb/gdbutil.c \
@@ -95,12 +96,12 @@ SRCS-lwip= \
 	$(LWIPDIR)/src/netif/ethernet.c
 CFLAGS+=	$(KERNCFLAGS) -DSTAGE3
 CFLAGS+= \
+	-I$(SRCDIR) \
 	-I$(SRCDIR)/gdb \
 	-I$(SRCDIR)/net \
 	-I$(SRCDIR)/runtime \
 	-I$(SRCDIR)/tfs \
 	-I$(SRCDIR)/unix \
-	-I$(SRCDIR)/virtio \
 	-I$(SRCDIR)/x86_64 \
 	-I$(LWIPDIR)/src/include
 #CFLAGS+=	-DLWIPDIR_DEBUG -DEPOLL_DEBUG -DNETSYSCALL_DEBUG -DKERNEL_DEBUG

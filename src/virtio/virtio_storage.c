@@ -1,5 +1,7 @@
-#include <virtio_internal.h>
-#include <runtime.h>
+#include <drivers/storage.h>
+#include <pci.h>
+
+#include "virtio_internal.h"
 
 //#define VIRTIO_BLK_DEBUG
 
@@ -172,15 +174,9 @@ static void attach(heap general, storage_attach a, heap page_allocator, heap pag
     apply(a, in, out, s->capacity);
 }
 
-static void virtio_register_blk(kernel_heaps kh, storage_attach a)
+void virtio_register_blk(kernel_heaps kh, storage_attach a)
 {
     heap h = heap_general(kh);
     register_pci_driver(VIRTIO_PCI_VENDORID, VIRTIO_PCI_DEVICEID_STORAGE,
                         closure(h, attach, h, a, heap_backed(kh), heap_pages(kh)));
-}
-
-void init_virtio_storage(kernel_heaps kh, storage_attach a)
-{
-    virtio_register_blk(kh, a);
-    virtio_register_scsi(kh, a);
 }
