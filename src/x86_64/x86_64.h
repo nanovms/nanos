@@ -1,4 +1,7 @@
 #pragma once
+
+#include <runtime.h>
+
 #define STACK_ALIGNMENT     16
 #define KERNEL_STACK_PAGES  32
 #define FAULT_STACK_PAGES   8

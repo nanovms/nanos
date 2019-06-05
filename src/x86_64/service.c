@@ -1,11 +1,12 @@
 #include <runtime.h>
 #include <pci.h>
-#include <virtio.h>
 #include <tfs.h>
 #include <x86_64.h>
 #include <region.h>
 #include <page.h>
 #include <symtab.h>
+#include <virtio/virtio.h>
+#include <drivers/storage.h>
 #include <unix_internal.h>
 
 extern void init_net(kernel_heaps kh);
@@ -237,7 +238,7 @@ static void __attribute__((noinline)) init_service_new_stack()
         }
     if (fs_offset == 0)
         halt("filesystem region not found; halt\n");
-    init_virtio_storage(kh, closure(misc, attach_storage, root, fs_offset));
+    init_storage(kh, closure(misc, attach_storage, root, fs_offset));
     init_virtio_network(kh);
     pci_discover();
 

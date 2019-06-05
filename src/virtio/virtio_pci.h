@@ -35,6 +35,25 @@
  * $FreeBSD$
  */
 
+#pragma once
+
+#include <runtime/runtime.h>
+
+typedef struct vtpci *vtpci;
+
+struct vtpci {
+    int slot;
+    u64 base; //io region base
+    u64 features;
+
+    heap contiguous;
+    heap general;
+    struct virtio_feature_desc	*vtpci_child_feat_desc;
+
+    int vtpci_nvqs;
+    struct virtqueue *vtpci_vqs;
+};
+
 /* VirtIO ABI version, this must match exactly. */
 #define VIRTIO_PCI_ABI_VERSION	0
 

@@ -26,8 +26,9 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <virtio_internal.h>
 #include <x86_64.h>
+
+#include "virtio_internal.h"
 
 #ifdef VIRTQUEUE_DEBUG
 # define virtqueue_debug rprintf
