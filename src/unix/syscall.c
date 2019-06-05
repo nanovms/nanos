@@ -1086,11 +1086,10 @@ static sysreturn newfstatat(int dfd, const char *name, struct stat *s, int flags
 
     // Else, if we have a fd of a directory, resolve name to it.
     file f = resolve_fd(current->p, dfd);
-    tuple children = table_find(f->n, sym(children));
-    if (!is_dir(children))
-        return set_syscall_error(current, -ENOTDIR);
+    if (!is_dir(f->n))
+        return set_syscall_error(current, ENOTDIR);
     
-    if (!(n = resolve_cstring(children, name))) {    
+    if (!(n = resolve_cstring(f->n, name))) {
         return set_syscall_error(current, ENOENT);
     }
 
