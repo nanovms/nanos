@@ -1,5 +1,4 @@
 #include <runtime.h>
-#include <kvm_platform.h>
 #include <tfs.h>
 #include <unix.h>
 #include <gdb.h>

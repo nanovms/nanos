@@ -77,3 +77,14 @@ __bswap64(u64 _x)
 #ifndef be64toh
 #define be64toh(x) __bswap64(x)
 #endif
+
+/* returns -1 if x == 0, caller must check */
+static inline u64 msb(u64 x)
+{
+    return x ? 63 - __builtin_clzll(x) : -1ull;
+}
+
+static inline u64 lsb(u64 x)
+{
+    return ((s64)__builtin_ffsll(x)) - 1;
+}

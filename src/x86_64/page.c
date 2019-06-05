@@ -1,4 +1,6 @@
 #include <runtime.h>
+#include <x86_64.h>
+#include <page.h>
 
 //#define PAGE_DEBUG
 //#define PTE_DEBUG
@@ -344,7 +346,7 @@ static void map_range(u64 virtual, physical p, int length, u64 flags, heap h)
     page pb = pagebase();
 
     /* may be extreme, but can't be careful enough */
-    memory_fence();
+    memory_barrier();
 
     if ((virtual & PAGEMASK) || (p & PAGEMASK) || (length & PAGEMASK)) {
 	if (flags == 0)
@@ -390,7 +392,7 @@ static void map_range(u64 virtual, physical p, int length, u64 flags, heap h)
         console("   - part of map caused invalidate\n");
 #endif
 
-    memory_fence();
+    memory_barrier();
 }
 
 void map(u64 virtual, physical p, int length, u64 flags, heap h)

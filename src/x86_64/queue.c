@@ -1,4 +1,5 @@
 #include <runtime.h>
+#include <x86_64.h>
 
 void queue_dump(queue q)
 {
@@ -101,7 +102,7 @@ queue allocate_queue(heap h, u64 size)
     zero(q->buf, size * sizeof(void *));
     // XXX: we could do a release ordering here, however let's just use a full
     // barrier for now.
-    memory_fence();
+    memory_barrier();
     return q;
 }
 

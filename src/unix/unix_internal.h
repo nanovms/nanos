@@ -4,6 +4,7 @@
 #include <system_structs.h>
 #include <tfs.h>
 #include <unix.h>
+#include <x86_64.h>
 
 /* XXX kinda arbitrary, not sure where these came from or what correct
    values should be */

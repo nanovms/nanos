@@ -1,8 +1,11 @@
 #include <runtime.h>
-#include <kvm_platform.h>
 #include <pci.h>
 #include <virtio.h>
 #include <tfs.h>
+#include <x86_64.h>
+#include <region.h>
+#include <page.h>
+#include <symtab.h>
 
 extern void init_net(kernel_heaps kh);
 extern void start_interrupts(kernel_heaps kh);
