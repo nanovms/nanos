@@ -34,6 +34,10 @@ interrupt_common:
         mov [rax+FRAME_R13*8], r13
         mov [rax+FRAME_R14*8], r14
         mov [rax+FRAME_R15*8], r15
+        mov [rax+FRAME_DS*8], ds
+        mov [rax+FRAME_ES*8], es
+        mov [rax+FRAME_FS*8], fs
+        mov [rax+FRAME_GS*8], gs
         pop rbx            ; eax
         mov [rax+FRAME_RAX*8], rbx
         pop rbx            ; vector
@@ -48,14 +52,18 @@ interrupt_common:
 getrip:
         pop rbx            ; eip
         mov [rax+FRAME_RIP*8], rbx
-        pop rbx            ; discard cs
+        pop rbx            ; cs
+        mov [rax+FRAME_CS*8], rbx
         pop rbx            ; rflags
         mov [rax+FRAME_FLAGS*8], rbx
         pop rbx            ; rsp?
-        mov [rax+FRAME_RSP*8], rbx  
+        mov [rax+FRAME_RSP*8], rbx
         pop rbx            ; ss         
+        mov [rax+FRAME_SS*8], rbx
         call common_handler
 
+global interrupt_exit
+interrupt_exit:
         mov rbx, [running_frame]
 
         mov rax, [rbx+FRAME_FS*8]
@@ -80,10 +88,16 @@ getrip:
         mov r13, [rax+FRAME_R13*8]
         mov r14, [rax+FRAME_R14*8]
         mov r15, [rax+FRAME_R15*8]
-        push qword 0x10     ; ss - should be 0x10? pp 293
-        push qword [rax+FRAME_RSP*8]      ; rsp
-        push qword [rax+FRAME_FLAGS*8]   ; rflags
-        push qword 0x08   ; cs        
+        mov ds, [rax+FRAME_DS*8]
+        mov es, [rax+FRAME_ES*8]
+;;        mov fs, [rax+FRAME_FS*8]
+        mov gs, [rax+FRAME_GS*8]
+;;        push qword 0x10     ; ss - should be 0x10? pp 293
+        push qword [rax+FRAME_SS*8]    ; ss
+        push qword [rax+FRAME_RSP*8]   ; rsp
+        push qword [rax+FRAME_FLAGS*8] ; rflags
+;;        push qword 0x08   ; cs
+        push qword [rax+FRAME_CS*8]    ; cs
         push qword [rax+FRAME_RIP*8]   ; rip
         mov rax, [rax+FRAME_RAX*8]
         iretq
@@ -237,34 +251,41 @@ install_gdt64_and_tss:
 align 16                        ; necessary?
 GDT64:  ; Global Descriptor Table (64-bit).
         ;;  xxx - clean this up with a macro
-        .Null: equ $ - GDT64 ; The null descriptor.
+        .Null: equ $ - GDT64 ; null descriptor
         dw 0  ; Limit (low).
         dw 0  ; Base (low).
         db 0  ; Base (middle)
         db 0  ; Access.
         db 0  ; Granularity.
         db 0  ; Base (high).
-        .Code: equ $ - GDT64 ; The code descriptor.
+        .Code: equ $ - GDT64 ; code descriptor - 0x08
         dw 0  ; Limit (low).
         dw 0  ; Base (low).
         db 0  ; Base (middle)
         db 10011010b    ; Access (exec/read).
         db 00100000b    ; Granularity.
         db 0            ; Base (high).
-        .Data: equ $ - GDT64 ; The data descriptor.
+        .Data: equ $ - GDT64 ; data descriptor - 0x10
         dw 0         ; Limit (low).
         dw 0         ; Base (low).
         db 0         ; Base (middle)
         db 10010010b ; Access (read/write).
         db 00000000b ; Granularity.
         db 0         ; Base (high).
-        .CodeAgain: equ $ - GDT64 ; The code descriptor for sysret into long mode
+        .UserCode: equ $ - GDT64 ; user code descriptor (sysret into long mode) - 0x18
         dw 0  ; Limit (low).
         dw 0  ; Base (low).
         db 0  ; Base (middle)
-        db 10011010b    ; Access (exec/read).
+        db 11111010b    ; Access (exec/read).
         db 00100000b    ; Granularity.
         db 0            ; Base (high).
+        .UserData: equ $ - GDT64 ; user data descriptor - 0x20
+        dw 0         ; Limit (low).
+        dw 0         ; Base (low).
+        db 0         ; Base (middle)
+        db 11110010b ; Access (read/write).
+        db 00000000b ; Granularity.
+        db 0         ; Base (high).
         .TSS: equ $ - GDT64     ; TSS descriptor (system segment descriptor - 64bit mode)
         dw (TSS.end - TSS)      ; Limit (low)
         dw 0                    ; Base [15:0] [fill in base at runtime, for I lack nasm sauce]

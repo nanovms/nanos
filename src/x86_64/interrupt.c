@@ -82,7 +82,7 @@ static char *interrupts[] = {
 
 char *interrupt_name(u64 s)
 {
-    return(interrupts[s]);
+    return s < 32 ? interrupts[s] : "";
 }
 
 
@@ -119,8 +119,14 @@ static char* textoreg[] = {
     "r14", //14
     "r15", //15
     "rip", //16
-    "flags", //17        
-    "vector", //18
+    "flags", //17
+    "ss",  //18
+    "cs",  //19
+    "ds",  //20
+    "es",  //21
+    "fs",  //22
+    "gs",  //23
+    "vector", // 24
 };
 
 char *register_name(u64 s)
@@ -222,7 +228,7 @@ void print_frame(context f)
         console("\n");
     }
     
-    for (int j = 0; j< 18; j++) {
+    for (int j = 0; j < 24; j++) {
         console(register_name(j));
         console(": ");
         print_u64_with_sym(f[j]);
@@ -259,6 +265,7 @@ void lapic_eoi()
 
 context miscframe;              /* for context save on interrupt */
 context intframe;               /* for context save on exception within interrupt */
+context bhframe;
 
 void handle_interrupts()
 {
@@ -271,20 +278,55 @@ void handle_interrupts()
 void install_fallback_fault_handler(fault_handler h)
 {
     assert(miscframe);
+    assert(intframe);
     miscframe[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
     intframe[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
+    bhframe[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
+}
+
+void * bh_stack_top;
+
+void frame_setuser(context frame)
+{
+    console("setuser\n");
+    frame[FRAME_SS] = 0x23;
+    frame[FRAME_CS] = 0x1b;
+    frame[FRAME_DS] = 0x23;
+//    frame[FRAME_ES] = 0x23;
+    frame[FRAME_FS] = frame[FRAME_FS] | 0x3;
+//    frame[FRAME_GS] = 0x23;
 }
 
 void common_handler()
 {
     int i = running_frame[FRAME_VECTOR];
+    boolean usermode = running_frame[FRAME_SS] == 0 || running_frame[FRAME_SS] == 0x13;
+
+    console("\ninterrupt enter: ");
+//    print_frame(running_frame);
+    if (running_frame == intframe) {
+        console("exception during interrupt handling\n");
+    }
 
     if ((i < interrupt_size) && handlers[i]) {
-        context saveframe = running_frame;
-        running_frame = intframe;
+        console("rflags ");
+        print_u64(read_flags());
+        boolean in_bh = running_frame == bhframe;
+        console(", in_bh ");
+        print_u64(in_bh);
+        frame_push(intframe);   /* catch any spurious exceptions during int handling */
+        console(", handlers: ");
         apply(handlers[i]);
         lapic_eoi();
-        running_frame = saveframe;
+        frame_pop();
+        if (!in_bh) {
+            console(", do bh");
+            /* do bottom halves */
+            if (usermode)
+                frame_setuser(running_frame);
+            frame_push(bhframe);
+            switch_stack(bh_stack_top, process_bhqueue);
+        }
     } else {
         fault_handler f = pointer_from_u64(running_frame[FRAME_FAULT_HANDLER]);
 
@@ -298,6 +340,12 @@ void common_handler()
             running_frame = apply(f, running_frame);
         }
     }
+
+    /* if we crossed privilege levels, reprogram SS and CS - ? */
+    if (usermode)
+        frame_setuser(running_frame);
+
+    console(", done\n");
 }
 
 heap interrupt_vectors;
@@ -393,6 +441,9 @@ context allocate_frame(heap h)
 {
     context f = allocate_zero(h, FRAME_MAX * sizeof(u64));
     assert(f != INVALID_ADDRESS);
+    console("alloc frame ");
+    print_u64(u64_from_pointer(f));
+    console("\n");
     return f;
 }
 
@@ -425,6 +476,7 @@ void start_interrupts(kernel_heaps kh)
     /* alternate frame storage */
     miscframe = allocate_frame(general);
     intframe = allocate_frame(general);
+    bhframe = allocate_frame(general);
 
     /* Page fault alternate stack. */
     void * fault_stack_top = allocate_stack(pages, FAULT_STACK_PAGES);
@@ -439,6 +491,10 @@ void start_interrupts(kernel_heaps kh)
     /* syscall stack - this can be replaced later by a per-thread kernel stack */
     syscall_stack_top = allocate_stack(pages, SYSCALL_STACK_PAGES);
     assert(syscall_stack_top != INVALID_ADDRESS);
+
+    /* Bottom half stack */
+    bh_stack_top = allocate_stack(pages, BH_STACK_PAGES);
+    assert(bh_stack_top != INVALID_ADDRESS);
 
     // architectural - end of exceptions
     u32 vector_start = 0x20;

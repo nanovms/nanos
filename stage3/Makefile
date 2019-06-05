@@ -110,7 +110,7 @@ LDFLAGS+=	$(KERNLDFLAGS) -T linker_script
 CLEANFILES+=	$(foreach f,gitversion.c frame.inc stage3.dis stage3.img,$(OBJDIR)/$f)
 CLEANDIRS+=	$(foreach d,output src vendor vendor/lwip vendor/lwip/src,$(OBJDIR)/$d)
 
-OBJDUMPFLAGS=	-d -S
+OBJDUMPFLAGS=	-d -S -M intel-mnemonic
 GITFLAGS+=	--depth 1 http://git.savannah.nongnu.org/git/lwip.git -b STABLE-2_0_3_RELEASE
 
 msg_objdump=	OBJDUMP	$@

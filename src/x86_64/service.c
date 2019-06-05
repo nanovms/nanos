@@ -45,6 +45,7 @@ static u64 bootstrap_alloc(heap h, bytes length)
 }
 
 queue runqueue;
+queue bhqueue;
 
 void runloop()
 {
@@ -56,7 +57,9 @@ void runloop()
 	timestamp timeout = MIN(timer_check(), max_timeout);
 	runloop_timer(timeout);
         while((t = dequeue(runqueue))) {
+            enable_interrupts();
             apply(t);
+            disable_interrupts();
         }
         if (current) {
             proc_pause(current->p);
@@ -66,6 +69,24 @@ void runloop()
             proc_resume(current->p);
         }
     }
+}
+
+extern void interrupt_exit(void);
+
+/* Not called directly but via return into bhframe from interrupt_common */
+void process_bhqueue()
+{
+    thunk t;
+    console("pbh ... ");
+    while((t = dequeue(bhqueue))) {
+        apply(t);
+    }
+    frame_pop();
+    console("return frame: \n");
+    print_frame(running_frame);
+    console("\n");
+
+    interrupt_exit();
 }
 
 //#define MAX_BLOCK_IO_SIZE PAGE_SIZE
@@ -194,6 +215,7 @@ static void __attribute__((noinline)) init_service_new_stack()
     unmap(0, PAGESIZE, pages);
 
     runqueue = allocate_queue(misc, 64);
+    bhqueue = allocate_queue(misc, 64);
     init_clock(kh);
     init_random();
     __stack_chk_guard_init();

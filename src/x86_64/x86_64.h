@@ -3,6 +3,7 @@
 #define KERNEL_STACK_PAGES  32
 #define FAULT_STACK_PAGES   8
 #define INT_STACK_PAGES     8
+#define BH_STACK_PAGES      8
 #define SYSCALL_STACK_PAGES 8
 
 #define VIRTUAL_ADDRESS_BITS 48
@@ -140,6 +141,7 @@ static inline u64 read_flags()
 
 typedef struct queue *queue;
 extern queue runqueue;
+extern queue bhqueue;
 
 heap physically_backed(heap meta, heap virtual, heap physical, heap pages, u64 pagesize);
 void physically_backed_dealloc_virtual(heap h, u64 x, bytes length);
@@ -158,8 +160,38 @@ queue allocate_queue(heap h, u64 size);
 void deallocate_queue(queue q);
 
 context allocate_frame(heap h);
+
+static inline void frame_push(context new)
+{
+    console("frame_push: ");
+    print_u64(u64_from_pointer(running_frame));
+    console("\n");
+    new[FRAME_SAVED_FRAME] = u64_from_pointer(running_frame);
+    running_frame = new;
+}
+
+static inline void frame_pop(void)
+{
+    console("frame_pop: from ");
+    print_u64(u64_from_pointer(running_frame));
+    console(" to ");
+    print_u64(running_frame[FRAME_SAVED_FRAME]);
+    running_frame = pointer_from_u64(running_frame[FRAME_SAVED_FRAME]);
+    console(", rip: ");
+    print_u64(running_frame[FRAME_RIP]);
+    console("\n");
+}
+
+#define switch_stack(__s, __target) {                   \
+        asm ("mov %0, %%rdx": :"r"(__s):"%rdx");        \
+        asm ("mov %0, %%rax": :"r"(__target));          \
+        asm ("mov %%rdx, %%rsp"::);                     \
+        asm ("jmp *%%rax"::);                           \
+    }
+
 void runloop() __attribute__((noreturn));
-void handle_interrupts();
+void kernel_sleep();
+void process_bhqueue();
 void install_fallback_fault_handler(fault_handler h);
 
 // xxx - hide
