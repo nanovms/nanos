@@ -1,4 +1,5 @@
 #pragma once
+
 #define STACK_ALIGNMENT 16
 
 #define VIRTUAL_ADDRESS_BITS 48
@@ -23,11 +24,6 @@
 #define TSC_DEADLINE_MSR 0x6e0
 
 #define C0_WP   0x00010000
-#define INITIAL_MAP_SIZE (0xa000)
-
-#define VM_EXIT_GDB 0x7d
-#define VM_EXIT_FAULT 0x7e
-#define VM_EXIT_HALT 0x7f
 
 static inline void cpuid(u32 fn, u32 ecx, u32 * v)
 {
@@ -55,33 +51,9 @@ static inline void disable_interrupts()
     asm volatile("cli");
 }
 
-/* returns -1 if x == 0, caller must check */
-static inline u64 msb(u64 x)
-{
-#ifdef BOOT			/* 32 bit */
-    /* gcc docs state __builtin_clz for 0 val is undefined, so check */
-    unsigned int high = x >> 32;
-    if (high) {
-	return 63 - __builtin_clz(high);
-    } else {
-	unsigned int low = x & MASK(32);
-	return low ? 31 - __builtin_clz(low) : -1ull;
-    }
-#else
-    return x ? 63 - __builtin_clzll(x) : -1ull;
-#endif
-}
-
-#ifndef BOOT
-static inline u64 lsb(u64 x)
-{
-    return ((s64)__builtin_ffsll(x)) - 1;
-}
-#endif
-
 // belong here? share with nasm
 // currently maps to the linux gdb frame layout for convenience
-#include <frame.h>
+#include "frame.h"
 
 typedef u64 *context;
 
@@ -152,31 +124,6 @@ void serial_out(u8 a);
 char *interrupt_name(u64 code);
 char *register_name(u64 code);
 
-static inline word fetch_and_add(word* variable, word value)
-{
-    asm volatile("lock; xadd %0, %1"
-                     : "+r" (value), "+m" (*variable) // input+output
-                     : // No input-only
-                     : "memory"
-                     );
-    return value;
-}
-
-static inline void store_fence()
-{
-    asm volatile("sfence");
-}
-
-static inline void load_fence()
-{
-    asm volatile("lfence");
-}
-
-static inline void memory_fence()
-{
-    asm volatile("mfence");
-}
-
 // tuples
 #define FLAG_INTERRUPT 9
 
@@ -195,11 +142,6 @@ heap physically_backed(heap meta, heap virtual, heap physical, heap pages, u64 p
 void physically_backed_dealloc_virtual(heap h, u64 x, bytes length);
 void print_stack(context c);
 void print_frame(context f);
-#include <synth.h>
-void *load_elf(buffer elf, u64 offset, heap pages, heap bss, boolean user);
-void elf_symbols(buffer elf, closure_type(each, void, char *, u64, u64, u8));
-
-#include <symtab.h>
 
 typedef closure_type(fault_handler, context, context);
 
@@ -217,24 +159,6 @@ void runloop() __attribute__((noreturn));
 void handle_interrupts();
 void install_fallback_fault_handler(fault_handler h);
 
-#define PAGE_NO_EXEC       U64_FROM_BIT(63)
-#define PAGE_NO_FAT        0x0200 /* AVL[0] */
-#define PAGE_2M_SIZE       0x0080
-#define PAGE_DIRTY         0x0040
-#define PAGE_ACCESSED      0x0020
-#define PAGE_CACHE_DISABLE 0x0010
-#define PAGE_WRITETHROUGH  0x0008
-#define PAGE_USER          0x0004
-#define PAGE_WRITABLE      0x0002
-#define PAGE_PRESENT       0x0001
-
-#define PAGE_FLAGS_MASK    (PAGE_NO_EXEC | PAGEMASK)
-#define PAGE_PROT_FLAGS (PAGE_NO_EXEC | PAGE_USER | PAGE_WRITABLE)
-#define PAGE_DEV_FLAGS (PAGE_WRITABLE | PAGE_WRITETHROUGH | PAGE_NO_EXEC)
-
-void map(u64 virtual, physical p, int length, u64 flags, heap h);
-void unmap(u64 virtual, int length, heap h);
-
 // xxx - hide
 struct queue {
     u64 count;
@@ -244,11 +168,6 @@ struct queue {
     heap h;
     void *buf[];
 };
-
-
-#define foreach_phdr(__e, __p)\
-    for (int __i = 0; __i< __e->e_phnum; __i++)\
-        for (Elf64_Phdr *__p = (void *)__e + __e->e_phoff + (__i * __e->e_phentsize); __p ; __p = 0) \
 
 void msi_format(u32 *address, u32 *data, int vector);
 void register_interrupt(int vector, thunk t);

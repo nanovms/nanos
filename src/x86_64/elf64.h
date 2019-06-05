@@ -168,4 +168,11 @@ typedef struct {
 #define SHT_SYMTAB 2/* symbol table section */
 #define SHT_STRTAB 3/* string table section */
 
+#define foreach_phdr(__e, __p)\
+    for (int __i = 0; __i< __e->e_phnum; __i++)\
+        for (Elf64_Phdr *__p = (void *)__e + __e->e_phoff + (__i * __e->e_phentsize); __p ; __p = 0) \
+
+void elf_symbols(buffer elf, closure_type(each, void, char *, u64, u64, u8));
+void *load_elf(buffer elf, u64 offset, heap pages, heap bss, boolean user);
+
 #endif /* !_SYS_ELF64_H_ */

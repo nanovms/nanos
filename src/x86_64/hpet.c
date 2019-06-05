@@ -1,5 +1,7 @@
 #include <runtime.h>
 #include <pci.h>
+#include <x86_64.h>
+#include <page.h>
 
 extern heap interrupt_vectors;
 static heap timers;

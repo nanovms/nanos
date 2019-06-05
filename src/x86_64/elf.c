@@ -1,6 +1,6 @@
 #include <runtime.h>
 #include <elf64.h>
-
+#include <page.h>
 
 static char *elf_string(buffer elf, Elf64_Shdr *string_section, u64 offset)
 {

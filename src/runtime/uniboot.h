@@ -27,3 +27,5 @@ static inline u16 tagof(void* v) {
 #define valueof(__x) (__x)
 
 #endif // BOOT
+
+#include <x86.h>

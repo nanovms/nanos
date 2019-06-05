@@ -1,4 +1,5 @@
 #include <unix_internal.h>
+#include <page.h>
 
 #define VMAP_FLAG_MMAP          1
 #define VMAP_FLAG_ANONYMOUS     2

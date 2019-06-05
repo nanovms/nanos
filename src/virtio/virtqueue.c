@@ -27,6 +27,7 @@
  */
 
 #include <virtio_internal.h>
+#include <x86_64.h>
 
 #ifdef VIRTQUEUE_DEBUG
 # define virtqueue_debug rprintf

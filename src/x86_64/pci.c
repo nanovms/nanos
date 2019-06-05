@@ -1,6 +1,7 @@
 #include <runtime.h>
 #include <pci.h>
-#include <kvm_platform.h>
+#include <page.h>
+#include <io.h>
 
 #define CONF1_ADDR_PORT    0x0cf8
 #define CONF1_DATA_PORT    0x0cfc

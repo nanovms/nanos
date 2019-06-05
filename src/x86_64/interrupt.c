@@ -1,5 +1,7 @@
 #include <runtime.h>
+#include <x86_64.h>
 #include <kvm_platform.h>
+#include <page.h>
 
 // coordinate with crt0
 extern u32 interrupt_size;
