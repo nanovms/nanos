@@ -267,7 +267,7 @@ context miscframe;              /* for context save on interrupt */
 context intframe;               /* for context save on exception within interrupt */
 context bhframe;
 
-void handle_interrupts()
+void kernel_sleep()
 {
     running_frame = miscframe;
     enable_interrupts();

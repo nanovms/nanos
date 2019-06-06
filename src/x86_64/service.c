@@ -63,7 +63,7 @@ void runloop()
         if (current) {
             proc_pause(current->p);
         }
-        handle_interrupts();
+        kernel_sleep();
         if (current) {
             proc_resume(current->p);
         }
