@@ -299,7 +299,8 @@ void frame_setuser(context frame)
 void common_handler()
 {
     int i = running_frame[FRAME_VECTOR];
-    boolean usermode = running_frame[FRAME_SS] == 0 || running_frame[FRAME_SS] == 0x13;
+    boolean usermode = (running_frame != intframe && running_frame != bhframe) &&
+        (running_frame[FRAME_SS] == 0 || running_frame[FRAME_SS] == 0x13);
 
     if (running_frame == intframe) {
         console("exception during interrupt handling\n");
