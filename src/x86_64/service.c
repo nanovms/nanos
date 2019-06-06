@@ -6,6 +6,7 @@
 #include <region.h>
 #include <page.h>
 #include <symtab.h>
+#include <unix_internal.h>
 
 extern void init_net(kernel_heaps kh);
 extern void start_interrupts(kernel_heaps kh);
@@ -57,7 +58,13 @@ void runloop()
         while((t = dequeue(runqueue))) {
             apply(t);
         }
+        if (current) {
+            proc_pause(current->p);
+        }
         handle_interrupts();
+        if (current) {
+            proc_resume(current->p);
+        }
     }
 }
 

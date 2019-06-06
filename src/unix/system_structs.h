@@ -304,6 +304,16 @@ struct timeval {
     u64 tv_usec;    /* microseconds */
 };
 
+#define CLOCKS_PER_SEC  100
+
+typedef s64 clock_t;
+
+struct tms {
+    clock_t tms_utime;
+    clock_t tms_stime;
+    clock_t tms_cutime;
+    clock_t tms_cstime;
+};
 
 #define CSIGNAL		0x000000ff	/* signal mask to be sent at exit */
 #define CLONE_VM	0x00000100	/* set if VM shared between processes */

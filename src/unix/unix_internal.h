@@ -175,6 +175,9 @@ typedef struct process {
     vector files;
     rangemap vareas;               /* available address space */
     rangemap vmaps;                /* process mappings */
+    boolean sysctx;
+    timestamp utime, stime;
+    timestamp start_time;
 } *process;
 
 extern thread current;
