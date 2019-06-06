@@ -158,9 +158,10 @@ syscall_enter:
         mov rsp, [syscall_stack_top]
         call rax
         mov rbx, [running_frame]
-        jmp frame_return
+        ;; fall through to frame_return
 .end:
 
+;; must follow syscall_enter
 global_func frame_return
 frame_return:
         mov rax, [rbx+FRAME_FS*8]

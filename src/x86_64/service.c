@@ -57,7 +57,6 @@ void runloop()
 	timestamp timeout = MIN(timer_check(), max_timeout);
 	runloop_timer(timeout);
         while((t = dequeue(runqueue))) {
-            enable_interrupts();
             apply(t);
             disable_interrupts();
         }
