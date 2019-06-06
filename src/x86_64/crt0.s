@@ -71,6 +71,9 @@ global interrupt_exit
 interrupt_exit:
         mov rbx, [running_frame]
 
+        ; set fs selector to null before writing hidden base (for intel/no-accel)
+        mov rax, 0
+        mov fs, rax
         mov rax, [rbx+FRAME_FS*8]
         mov rcx, FS_MSR
         mov rdx, rax
@@ -91,15 +94,9 @@ interrupt_exit:
         mov r13, [rbx+FRAME_R13*8]
         mov r14, [rbx+FRAME_R14*8]
         mov r15, [rbx+FRAME_R15*8]
-  ;;      mov ds, [rbx+FRAME_DS*8]
-;;        mov es, [rbx+FRAME_ES*8]
-;;        mov fs, [rbx+FRAME_FS*8]
-;;        mov gs, [rbx+FRAME_GS*8]
-;;        push qword 0x10     ; ss - should be 0x10? pp 293
         push qword [rbx+FRAME_SS*8]    ; ss
         push qword [rbx+FRAME_RSP*8]   ; rsp
         push qword [rbx+FRAME_FLAGS*8] ; rflags
-;;        push qword 0x08   ; cs
         push qword [rbx+FRAME_CS*8]    ; cs
         push qword [rbx+FRAME_RIP*8]   ; rip
         mov rbx, [rbx+FRAME_RBX*8]
@@ -164,6 +161,9 @@ syscall_enter:
 ;; must follow syscall_enter
 global_func frame_return
 frame_return:
+        ; set fs selector to null before writing hidden base (for intel/no-accel)
+        mov rax, 0
+        mov fs, rax
         mov rax, [rbx+FRAME_FS*8]
         mov rcx, FS_MSR
         mov rdx, rax

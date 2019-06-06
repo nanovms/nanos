@@ -102,30 +102,30 @@ void write_idt(u64 *idt, int interrupt, void *hv, u64 ist)
 
 // tuplify and synthesize
 static char* textoreg[] = {
-    "rax", //0 
-    "rbx", //1
-    "rcx", //2
-    "rdx", //3
-    "rsi", //4
-    "rdi", //5
-    "rbp", //6
-    "rsp", //7
-    "r8",  //8
-    "r9",  //9
-    "r10", //10
-    "r11", //11
-    "r12", //12
-    "r13", //13
-    "r14", //14
-    "r15", //15
-    "rip", //16
+    "  rax", //0
+    "  rbx", //1
+    "  rcx", //2
+    "  rdx", //3
+    "  rsi", //4
+    "  rdi", //5
+    "  rbp", //6
+    "  rsp", //7
+    "   r8",  //8
+    "   r9",  //9
+    "  r10", //10
+    "  r11", //11
+    "  r12", //12
+    "  r13", //13
+    "  r14", //14
+    "  r15", //15
+    "  rip", //16
     "flags", //17
-    "ss",  //18
-    "cs",  //19
-    "ds",  //20
-    "es",  //21
-    "fs",  //22
-    "gs",  //23
+    "   ss",  //18
+    "   cs",  //19
+    "   ds",  //20
+    "   es",  //21
+    "   fs",  //22
+    "   gs",  //23
     "vector", // 24
 };
 
@@ -290,10 +290,6 @@ void frame_setuser(context frame)
 {
     frame[FRAME_SS] = 0x23;
     frame[FRAME_CS] = 0x1b;
-    frame[FRAME_DS] = 0x23;
-    frame[FRAME_ES] = 0x23;
-//    frame[FRAME_FS] = frame[FRAME_FS] | 0x3;
-    frame[FRAME_GS] = 0x23;
 }
 
 void common_handler()
