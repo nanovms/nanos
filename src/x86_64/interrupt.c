@@ -288,13 +288,12 @@ void * bh_stack_top;
 
 void frame_setuser(context frame)
 {
-    console("setuser\n");
     frame[FRAME_SS] = 0x23;
     frame[FRAME_CS] = 0x1b;
     frame[FRAME_DS] = 0x23;
-//    frame[FRAME_ES] = 0x23;
-    frame[FRAME_FS] = frame[FRAME_FS] | 0x3;
-//    frame[FRAME_GS] = 0x23;
+    frame[FRAME_ES] = 0x23;
+//    frame[FRAME_FS] = frame[FRAME_FS] | 0x3;
+    frame[FRAME_GS] = 0x23;
 }
 
 void common_handler()
@@ -302,25 +301,17 @@ void common_handler()
     int i = running_frame[FRAME_VECTOR];
     boolean usermode = running_frame[FRAME_SS] == 0 || running_frame[FRAME_SS] == 0x13;
 
-    console("\ninterrupt enter: ");
-//    print_frame(running_frame);
     if (running_frame == intframe) {
         console("exception during interrupt handling\n");
     }
 
     if ((i < interrupt_size) && handlers[i]) {
-        console("rflags ");
-        print_u64(read_flags());
         boolean in_bh = running_frame == bhframe;
-        console(", in_bh ");
-        print_u64(in_bh);
         frame_push(intframe);   /* catch any spurious exceptions during int handling */
-        console(", handlers: ");
         apply(handlers[i]);
         lapic_eoi();
         frame_pop();
         if (!in_bh) {
-            console(", do bh");
             /* do bottom halves */
             if (usermode)
                 frame_setuser(running_frame);
@@ -344,8 +335,6 @@ void common_handler()
     /* if we crossed privilege levels, reprogram SS and CS - ? */
     if (usermode)
         frame_setuser(running_frame);
-
-    console(", done\n");
 }
 
 heap interrupt_vectors;
@@ -441,9 +430,6 @@ context allocate_frame(heap h)
 {
     context f = allocate_zero(h, FRAME_MAX * sizeof(u64));
     assert(f != INVALID_ADDRESS);
-    console("alloc frame ");
-    print_u64(u64_from_pointer(f));
-    console("\n");
     return f;
 }
 

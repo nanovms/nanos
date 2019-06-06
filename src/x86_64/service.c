@@ -77,15 +77,10 @@ extern void interrupt_exit(void);
 void process_bhqueue()
 {
     thunk t;
-    console("pbh ... ");
     while((t = dequeue(bhqueue))) {
         apply(t);
     }
     frame_pop();
-    console("return frame: \n");
-    print_frame(running_frame);
-    console("\n");
-
     interrupt_exit();
 }
 

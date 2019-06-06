@@ -163,23 +163,29 @@ context allocate_frame(heap h);
 
 static inline void frame_push(context new)
 {
+#if 0
     console("frame_push: ");
     print_u64(u64_from_pointer(running_frame));
     console("\n");
+#endif
     new[FRAME_SAVED_FRAME] = u64_from_pointer(running_frame);
     running_frame = new;
 }
 
 static inline void frame_pop(void)
 {
+#if 0
     console("frame_pop: from ");
     print_u64(u64_from_pointer(running_frame));
     console(" to ");
     print_u64(running_frame[FRAME_SAVED_FRAME]);
+#endif
     running_frame = pointer_from_u64(running_frame[FRAME_SAVED_FRAME]);
+#if 0
     console(", rip: ");
     print_u64(running_frame[FRAME_RIP]);
     console("\n");
+#endif
 }
 
 #define switch_stack(__s, __target) {                   \
