@@ -209,7 +209,7 @@ static void __attribute__((noinline)) init_service_new_stack()
     unmap(0, PAGESIZE, pages);
 
     runqueue = allocate_queue(misc, 64);
-    bhqueue = allocate_queue(misc, 64);
+    bhqueue = allocate_queue(misc, 2048); /* XXX will need something extensible really */
     init_clock(kh);
     init_random();
     __stack_chk_guard_init();

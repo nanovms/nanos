@@ -326,5 +326,7 @@ static void virtqueue_fill_irq(virtqueue vq)
 static void virtqueue_fill(virtqueue vq)
 {
     /* XXX same as irq for now, save/disable/restore later */
+    u64 flags = irq_disable_save();
     virtqueue_fill_irq(vq);
+    irq_restore(flags);
 }

@@ -100,7 +100,7 @@ static inline void set_syscall_handler(void *syscall_entry)
     // 48 is sysret cs, and ds is cs + 16...so fix the gdt for return
     // 32 is syscall cs, and ds is cs + 8
     write_msr(STAR_MSR, ((cs | 0x3)<<48) | (cs<<32));
-    write_msr(SFMASK_MSR, 0);
+    write_msr(SFMASK_MSR, 0x200);
     write_msr(EFER_MSR, read_msr(EFER_MSR) | EFER_SCE);
 }
 
@@ -131,12 +131,25 @@ char *register_name(u64 code);
 // tuples
 #define FLAG_INTERRUPT 9
 
-static inline u64 read_flags()
+static inline u64 read_flags(void)
 {
     u64 out;
     asm("pushf");
     asm("pop %0":"=g"(out));
     return out;
+}
+
+static inline u64 irq_disable_save(void)
+{
+    u64 flags = read_flags();
+    disable_interrupts();
+    return flags;
+}
+
+static inline void irq_restore(u64 flags)
+{
+    if ((flags & FLAG_INTERRUPT))
+        enable_interrupts();
 }
 
 typedef struct queue *queue;
