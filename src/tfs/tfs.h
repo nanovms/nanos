@@ -25,6 +25,8 @@ void create_filesystem(heap h,
 // status
 void filesystem_read(filesystem fs, tuple t, void *dest, u64 offset, u64 length, io_status_handler completion);
 void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_handler completion);
+boolean filesystem_truncate(filesystem fs, fsfile f, u64 len,
+        status_handler completion);
 boolean filesystem_flush(filesystem fs, tuple t, status_handler completion);
 u64 fsfile_get_length(fsfile f);
 void fsfile_set_length(fsfile f, u64);

@@ -688,6 +688,19 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_ha
     return;
 }
 
+boolean filesystem_truncate(filesystem fs, fsfile f, u64 len,
+        status_handler completion)
+{
+    if (fsfile_get_length(f) == len) {
+        return true;
+    }
+    fsfile_set_length(f, len);
+    filesystem_write_eav(fs, f->md, sym(filelength), value_from_u64(fs->h, len),
+            completion);
+    filesystem_flush_log(fs);
+    return false;
+}
+
 boolean filesystem_flush(filesystem fs, tuple t, status_handler completion)
 {
     /* A write() call returns after everything is sent to disk, so nothing to

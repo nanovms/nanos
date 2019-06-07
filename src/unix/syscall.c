@@ -53,8 +53,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, msgctl, 0);
     register_syscall(map, flock, 0);
     register_syscall(map, fdatasync, 0);
-    register_syscall(map, truncate, 0);
-    register_syscall(map, ftruncate, 0);
     register_syscall(map, link, 0);
     register_syscall(map, symlink, 0);
     register_syscall(map, chmod, syscall_ignore);
@@ -1016,6 +1014,63 @@ sysreturn fchdir(int dirfd)
     return set_syscall_return(current, 0);
 }
 
+static CLOSURE_1_1(truncate_complete, void, thread, status);
+static void truncate_complete(thread t, status s)
+{
+    thread_log(current, "%s: status %v (%s)", __func__, s,
+            is_ok(s) ? "OK" : "NOTOK");
+    if (is_ok(s)) {
+        set_syscall_return(t, 0);
+    } else {
+        set_syscall_error(t, EIO);
+    }
+    thread_wakeup(t);
+}
+
+static sysreturn truncate_internal(tuple t, long length)
+{
+    if (is_dir(t)) {
+        return set_syscall_error(current, EISDIR);
+    }
+    if (length < 0) {
+        return set_syscall_error(current, EINVAL);
+    }
+    fsfile fsf = fsfile_from_node(current->p->fs, t);
+    if (!fsf) {
+        return set_syscall_error(current, ENOENT);
+    }
+    if (filesystem_truncate(current->p->fs, fsf, length,
+            closure(heap_general(get_kernel_heaps()), truncate_complete,
+            current))) {
+        /* Nothing to do. */
+        return set_syscall_return(current, 0);
+    }
+    else {
+        thread_sleep(current);
+    }
+}
+
+sysreturn truncate(const char *path, long length)
+{
+    thread_log(current, "%s \"%s\" %d", __func__, path, length);
+    tuple t = resolve_cstring(current->p->cwd, path);
+    if (!t) {
+        return set_syscall_error(current, ENOENT);
+    }
+    return truncate_internal(t, length);
+}
+
+static sysreturn ftruncate(int fd, long length)
+{
+    thread_log(current, "%s %d %d", __func__, fd, length);
+    file f = resolve_fd(current->p, fd);
+    if (!(f->f.flags & (O_RDWR | O_WRONLY)) ||
+            (f->f.type != FDESC_TYPE_REGULAR)) {
+        return set_syscall_error(current, EINVAL);
+    }
+    return truncate_internal(f->n, length);
+}
+
 static CLOSURE_2_1(fsync_complete, void, thread, file, status);
 static void fsync_complete(thread t, file f, status s)
 {
@@ -1667,6 +1722,8 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, lstat, stat);
     register_syscall(map, readv, readv);
     register_syscall(map, writev, writev);
+    register_syscall(map, truncate, truncate);
+    register_syscall(map, ftruncate, ftruncate);
     register_syscall(map, fsync, fsync);
     register_syscall(map, access, access);
     register_syscall(map, lseek, lseek);
