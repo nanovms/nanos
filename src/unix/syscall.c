@@ -684,8 +684,8 @@ static sysreturn file_close(file f, fsfile fsf)
 static CLOSURE_2_3(file_check, boolean, file, fsfile, u32, u32 *, event_handler);
 static boolean file_check(file f, fsfile fsf, u32 eventmask, u32 * last, event_handler eh)
 {
-    thread_log(current, "file_check: file %t, eventmask %x, last %x, event_handler %p",
-               f->n, eventmask, last ? *last : 0, eh);
+    thread_log(current, "file_check: f %p, eventmask %x, last %x, event_handler %p",
+               f, eventmask, last ? *last : 0, eh);
 
     u32 events;
     if (is_special(f->n)) {
