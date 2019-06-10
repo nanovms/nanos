@@ -22,6 +22,7 @@ PROGRAMS= \
 	webg \
 	webs \
 	write \
+	writev \
 	readv
 
 SRCS-creat= \
@@ -181,6 +182,11 @@ SRCS-write= \
 	$(CURDIR)/write.c \
 	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-write=		-static
+
+SRCS-writev= \
+        $(CURDIR)/writev.c \
+        $(SRCDIR)/unix_process/ssp.c
+LDFLAGS-writev=          -static
 
 SRCS-readv = \
 	$(CURDIR)/readv.c \
