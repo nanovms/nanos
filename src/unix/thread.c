@@ -291,7 +291,10 @@ void run_thread(thread t)
     thread_log(t, "run frame %p, RIP=%p", t->frame, t->frame[FRAME_RIP]);
     proc_enter_user(current->p);
     running_frame = t->frame;
-    running_frame[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
+
+    // XXX Keeping interrupts disabled during thread execution;
+    // debugging race condition found with epoll
+    //    running_frame[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
     IRETURN(running_frame);
 }
 

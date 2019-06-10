@@ -286,35 +286,23 @@ void install_fallback_fault_handler(fault_handler h)
 
 void * bh_stack_top;
 
-void frame_setuser(context frame)
-{
-    frame[FRAME_SS] = 0x23;
-    frame[FRAME_CS] = 0x1b;
-}
-
 void common_handler()
 {
     int i = running_frame[FRAME_VECTOR];
-    boolean usermode = (running_frame != intframe && running_frame != bhframe) &&
+    boolean in_bh = running_frame == bhframe;
+    boolean in_inthandler = running_frame == intframe;
+    boolean in_usermode = (!in_inthandler && !in_bh) &&
         (running_frame[FRAME_SS] == 0 || running_frame[FRAME_SS] == 0x13);
 
-    if (running_frame == intframe) {
+    if (in_inthandler) {
         console("exception during interrupt handling\n");
     }
 
     if ((i < interrupt_size) && handlers[i]) {
-        boolean in_bh = running_frame == bhframe;
         frame_push(intframe);   /* catch any spurious exceptions during int handling */
         apply(handlers[i]);
         lapic_eoi();
         frame_pop();
-        if (!in_bh) {
-            /* do bottom halves */
-            if (usermode)
-                frame_setuser(running_frame);
-            frame_push(bhframe);
-            switch_stack(bh_stack_top, process_bhqueue);
-        }
     } else {
         fault_handler f = pointer_from_u64(running_frame[FRAME_FAULT_HANDLER]);
 
@@ -329,9 +317,18 @@ void common_handler()
         }
     }
 
-    /* if we crossed privilege levels, reprogram SS and CS - ? */
-    if (usermode)
-        frame_setuser(running_frame);
+    /* if we crossed privilege levels, reprogram SS and CS */
+    if (in_usermode) {
+        running_frame[FRAME_SS] = 0x23;
+        running_frame[FRAME_CS] = 0x1b;
+    }
+
+    /* if the interrupt didn't occur during bottom half or int handler
+       execution, switch context to bottom half processing */
+    if (!in_bh && !in_inthandler) {
+        frame_push(bhframe);
+        switch_stack(bh_stack_top, process_bhqueue);
+    }
 }
 
 heap interrupt_vectors;

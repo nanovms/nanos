@@ -47,15 +47,32 @@ static u64 bootstrap_alloc(heap h, bytes length)
 queue runqueue;
 queue bhqueue;
 
-void runloop()
+static void timer_update(void)
 {
     /* minimum runloop period - XXX move to a config header */
-    timestamp max_timeout = milliseconds(100);
+    timestamp timeout = MIN(timer_check(), milliseconds(100) /* XXX config */);
+    runloop_timer(timeout);
+}
+
+extern void interrupt_exit(void);
+
+void process_bhqueue()
+{
+    thunk t;
+    while((t = dequeue(bhqueue))) {
+        apply(t);
+    }
+
+    timer_update();
+    frame_pop();
+    interrupt_exit();
+}
+
+void runloop()
+{
     thunk t;
 
     while(1) {
-	timestamp timeout = MIN(timer_check(), max_timeout);
-	runloop_timer(timeout);
         while((t = dequeue(runqueue))) {
             apply(t);
             disable_interrupts();
@@ -63,24 +80,12 @@ void runloop()
         if (current) {
             proc_pause(current->p);
         }
+        timer_update();
         kernel_sleep();
         if (current) {
             proc_resume(current->p);
         }
     }
-}
-
-extern void interrupt_exit(void);
-
-/* Not called directly but via return into bhframe from interrupt_common */
-void process_bhqueue()
-{
-    thunk t;
-    while((t = dequeue(bhqueue))) {
-        apply(t);
-    }
-    frame_pop();
-    interrupt_exit();
 }
 
 //#define MAX_BLOCK_IO_SIZE PAGE_SIZE
