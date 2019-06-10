@@ -310,20 +310,20 @@ static void readv_complete(heap h, thread t, struct iovec *iov, u8* read_bytes, 
 {
     int curr_pos = 0;
     int iv = 0;
-    if(is_ok(s)) {
+    if (is_ok(s)) {
 
-	while(curr_pos < read_len) {
-	    struct iovec iovector = iov[iv];
-	    int to_read = (iovector.iov_len < read_len - curr_pos) ? iovector.iov_len : read_len - curr_pos;
+        while (curr_pos < read_len) {
+            struct iovec iovector = iov[iv];
+            int to_read = (iovector.iov_len < read_len - curr_pos) ? iovector.iov_len : read_len - curr_pos;
             runtime_memcpy(iovector.iov_base, read_bytes + curr_pos, to_read);
             curr_pos += iovector.iov_len;
             iv += 1;
-	}
-	deallocate(h, read_bytes, total_len);
-	set_syscall_return(t, read_len);
+        }
+        deallocate(h, read_bytes, total_len);
+        set_syscall_return(t, read_len);
     }
     else
-	set_syscall_error(t, EINVAL);
+        set_syscall_error(t, EINVAL);
 
     thread_wakeup(t);
 }
@@ -337,13 +337,13 @@ sysreturn readv(int fd, struct iovec *iov, int iovcnt)
     if (!f->f.read || iovcnt < 0)
         return set_syscall_error(current, EINVAL);
 
-    for(int i = 0; i < iovcnt; i++)
-	total_len = iov[i].iov_len + total_len;
+    for (int i = 0; i < iovcnt; i++)
+        total_len = iov[i].iov_len + total_len;
 
     u8 *read_bytes = allocate(h, total_len);
 
     filesystem_read(current->p->fs, f->n, read_bytes, total_len, 0,
-		    closure(h, readv_complete, h, current, iov, read_bytes, total_len));
+                    closure(h, readv_complete, h, current, iov, read_bytes, total_len));
     thread_sleep(current);
 }
 
