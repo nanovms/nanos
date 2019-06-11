@@ -34,15 +34,7 @@ interrupt_common:
         mov [rbx+FRAME_R13*8], r13
         mov [rbx+FRAME_R14*8], r14
         mov [rbx+FRAME_R15*8], r15
-;;        mov [rbx+FRAME_DS*8], ds
-;;        mov [rbx+FRAME_ES*8], es
 
-;;        mov rcx, FS_MSR
-;;        rdmsr
-;;        mov [rbx+FRAME_FS*8], eax
-;;        mov [rbx+FRAME_FS*8+4], edx
-        
-;;        mov [rbx+FRAME_GS*8], gs
         pop rax            ; rbx
         mov [rbx+FRAME_RBX*8], rax
         pop rax            ; vector

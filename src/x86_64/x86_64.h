@@ -29,6 +29,8 @@
 
 #define C0_WP   0x00010000
 
+#define FLAG_INTERRUPT 9
+
 static inline void cpuid(u32 fn, u32 ecx, u32 * v)
 {
     asm volatile("cpuid" : "=a" (v[0]), "=b" (v[1]), "=c" (v[2]), "=d" (v[3]) : "0" (fn), "2" (ecx));
@@ -100,7 +102,7 @@ static inline void set_syscall_handler(void *syscall_entry)
     // 48 is sysret cs, and ds is cs + 16...so fix the gdt for return
     // 32 is syscall cs, and ds is cs + 8
     write_msr(STAR_MSR, ((cs | 0x3)<<48) | (cs<<32));
-    write_msr(SFMASK_MSR, 0x200);
+    write_msr(SFMASK_MSR, U64_FROM_BIT(FLAG_INTERRUPT));
     write_msr(EFER_MSR, read_msr(EFER_MSR) | EFER_SCE);
 }
 
@@ -127,9 +129,6 @@ void serial_out(u8 a);
 // tuples
 char *interrupt_name(u64 code);
 char *register_name(u64 code);
-
-// tuples
-#define FLAG_INTERRUPT 9
 
 static inline u64 read_flags(void)
 {
@@ -176,29 +175,13 @@ context allocate_frame(heap h);
 
 static inline void frame_push(context new)
 {
-#if 0
-    console("frame_push: ");
-    print_u64(u64_from_pointer(running_frame));
-    console("\n");
-#endif
     new[FRAME_SAVED_FRAME] = u64_from_pointer(running_frame);
     running_frame = new;
 }
 
 static inline void frame_pop(void)
 {
-#if 0
-    console("frame_pop: from ");
-    print_u64(u64_from_pointer(running_frame));
-    console(" to ");
-    print_u64(running_frame[FRAME_SAVED_FRAME]);
-#endif
     running_frame = pointer_from_u64(running_frame[FRAME_SAVED_FRAME]);
-#if 0
-    console(", rip: ");
-    print_u64(running_frame[FRAME_RIP]);
-    console("\n");
-#endif
 }
 
 #define switch_stack(__s, __target) {                   \

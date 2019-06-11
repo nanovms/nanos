@@ -58,12 +58,15 @@ extern void interrupt_exit(void);
 
 void process_bhqueue()
 {
+    /* XXX - we're on bh frame & stack; re-enable ints here */
     thunk t;
     while((t = dequeue(bhqueue))) {
         apply(t);
     }
 
     timer_update();
+
+    /* XXX - and disable before frame pop */
     frame_pop();
     interrupt_exit();
 }
