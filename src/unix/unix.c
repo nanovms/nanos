@@ -157,7 +157,64 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     create_stdfiles(uh, p);
     init_threads(p);
     p->syscalls = linux_syscalls;
+    p->sysctx = false;
+    p->utime = p->stime = 0;
+    p->start_time = now();
     return p;
+}
+
+void proc_enter_user(process p)
+{
+    if (p->sysctx) {
+        timestamp here = now();
+        p->stime += here - p->start_time;
+        p->sysctx = false;
+        p->start_time = here;
+    }
+}
+
+void proc_enter_system(process p)
+{
+    if (!p->sysctx) {
+        timestamp here = now();
+        p->utime += here - p->start_time;
+        p->sysctx = true;
+        p->start_time = here;
+    }
+}
+
+void proc_pause(process p)
+{
+    timestamp here = now();
+    if (p->sysctx) {
+        p->stime += here - p->start_time;
+    }
+    else {
+        p->utime += here - p->start_time;
+    }
+}
+
+void proc_resume(process p)
+{
+    p->start_time = now();
+}
+
+timestamp proc_utime(process p)
+{
+    timestamp utime = p->utime;
+    if (!p->sysctx) {
+        utime += now() - p->start_time;
+    }
+    return utime;
+}
+
+timestamp proc_stime(process p)
+{
+    timestamp stime = p->stime;
+    if (p->sysctx) {
+        stime += now() - p->start_time;
+    }
+    return stime;
 }
 
 process init_unix(kernel_heaps kh, tuple root, filesystem fs)

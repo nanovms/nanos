@@ -61,24 +61,24 @@ timer register_periodic_timer(timestamp interval, thunk n)
 timestamp timer_check()
 {
     timestamp here = 0;
-    timer current = 0;
+    timer t = 0;
 
-    while ((current = pqueue_peek(timers)) &&
-           (here = now(), current->w < here)) {
+    while ((t = pqueue_peek(timers)) &&
+           (here = now(), t->w < here)) {
             pqueue_pop(timers);
-            if(!current->disable) {
-                apply(current->t);
-                if (current->interval) {
-                    current->w += current->interval;
-                    pqueue_insert(timers, current); 
+            if(!t->disable) {
+                apply(t->t);
+                if (t->interval) {
+                    t->w += t->interval;
+                    pqueue_insert(timers, t);
                 }
             } else {
-                deallocate(theap, current, sizeof(struct timer));
-                current = 0;
+                deallocate(theap, t, sizeof(struct timer));
+                t = 0;
             }
         }
-    if (current) {
-    	timestamp dt = current->w - here;
+    if (t) {
+    	timestamp dt = t->w - here;
     	timer_debug("check returning dt: %d\n", dt);
     	return dt;
     }

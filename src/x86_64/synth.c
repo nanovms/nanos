@@ -1,5 +1,5 @@
 #include <runtime.h>
-
+#include <synth.h>
 
 void sib(buffer b, u32 scale, u32 index, u32 base)
 {

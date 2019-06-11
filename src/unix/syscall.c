@@ -1,5 +1,6 @@
 #include <unix_internal.h>
 #include <metadata.h>
+#include <page.h>
 
 // lifted from linux UAPI
 #define DT_UNKNOWN	0
@@ -63,7 +64,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, lchown, 0);
     register_syscall(map, umask, 0);
     register_syscall(map, getrusage, 0);
-    register_syscall(map, times, 0);
     register_syscall(map, ptrace, 0);
     register_syscall(map, syslog, 0);
     register_syscall(map, getgid, 0);
@@ -1512,6 +1512,8 @@ static void syscall_debug()
     sysreturn (*h)(u64, u64, u64, u64, u64, u64) = s->handler;
     sysreturn res = -ENOSYS;
     if (h) {
+        proc_enter_system(current->p);
+
         /* exchange frames so that a fault won't clobber the syscall
            context, but retain the fault handler that has current enclosed */
         context saveframe = running_frame;
@@ -1521,6 +1523,7 @@ static void syscall_debug()
         res = h(f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]);
         if (debugsyscalls)
             thread_log(current, "direct return: %ld, rsp 0x%lx", res, f[FRAME_RSP]);
+        proc_enter_user(current->p);
         running_frame = saveframe;
     } else if (debugsyscalls) {
         if (s->name)

@@ -1,6 +1,9 @@
 #include <runtime.h>
 #include <tfs.h>
-#include <kvm_platform.h>
+#include <elf64.h>
+#include <page.h>
+#include <region.h>
+#include <x86_64.h>
 
 extern void run64(u32 entry);
 

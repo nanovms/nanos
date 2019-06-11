@@ -4,6 +4,7 @@
 #include <system_structs.h>
 #include <tfs.h>
 #include <unix.h>
+#include <x86_64.h>
 
 /* XXX kinda arbitrary, not sure where these came from or what correct
    values should be */
@@ -174,6 +175,9 @@ typedef struct process {
     vector files;
     rangemap vareas;               /* available address space */
     rangemap vmaps;                /* process mappings */
+    boolean sysctx;
+    timestamp utime, stime;
+    timestamp start_time;
 } *process;
 
 extern thread current;

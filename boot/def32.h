@@ -59,6 +59,19 @@ static inline u64 __rolq(u64 x, int b)
     return (x << b) | (x >> (-b & 63));
 }
 
+/* returns -1 if x == 0, caller must check */
+static inline u64 msb(u64 x)
+{
+    /* gcc docs state __builtin_clz for 0 val is undefined, so check */
+    unsigned int high = x >> 32;
+    if (high) {
+	return 63 - __builtin_clz(high);
+    } else {
+	unsigned int low = x & 0xffffffff;
+	return low ? 31 - __builtin_clz(low) : -1ull;
+    }
+}
+
 static inline void print_stack_from_here()
 {
     // empty for now

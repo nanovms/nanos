@@ -34,6 +34,17 @@ sysreturn sys_time(time_t *tloc)
     return t;
 }
 
+sysreturn times(struct tms *buf)
+{
+    buf->tms_utime = CLOCKS_PER_SEC * proc_utime(current->p) / TIMESTAMP_SECOND;
+    buf->tms_stime = CLOCKS_PER_SEC * proc_stime(current->p) / TIMESTAMP_SECOND;
+    buf->tms_cutime = buf->tms_cstime = 0;  /* there are no child processes */
+    thread_log(current, "times: user %ld, system %ld", buf->tms_utime,
+            buf->tms_stime);
+    return set_syscall_return(current,
+            CLOCKS_PER_SEC * uptime() / TIMESTAMP_SECOND);
+}
+
 sysreturn clock_gettime(clockid_t clk_id, struct timespec *tp)
 {
     thread_log(current, "clock_gettime: clk_id %d", clk_id);
@@ -48,4 +59,5 @@ void register_clock_syscalls(struct syscall *map)
     register_syscall(map, gettimeofday, gettimeofday);
     register_syscall(map, nanosleep, nanosleep);
     register_syscall(map, time, sys_time);
+    register_syscall(map, times, times);
 }

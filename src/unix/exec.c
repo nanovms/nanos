@@ -1,6 +1,8 @@
 #include <unix_internal.h>
 #include <elf64.h>
+#include <page.h>
 #include <gdb.h>
+#include <symtab.h>
 
 //#define EXEC_DEBUG
 #ifdef EXEC_DEBUG

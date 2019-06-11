@@ -1,5 +1,7 @@
 #include <runtime.h>
+#include <x86_64.h>
 #include <kvm_platform.h>
+#include <page.h>
 
 // coordinate with crt0
 extern u32 interrupt_size;
@@ -80,7 +82,7 @@ static char *interrupts[] = {
 
 char *interrupt_name(u64 s)
 {
-    return(interrupts[s]);
+    return s < 32 ? interrupts[s] : "";
 }
 
 
@@ -100,25 +102,31 @@ void write_idt(u64 *idt, int interrupt, void *hv, u64 ist)
 
 // tuplify and synthesize
 static char* textoreg[] = {
-    "rax", //0 
-    "rbx", //1
-    "rcx", //2
-    "rdx", //3
-    "rsi", //4
-    "rdi", //5
-    "rbp", //6
-    "rsp", //7
-    "r8",  //8
-    "r9",  //9
-    "r10", //10
-    "r11", //11
-    "r12", //12
-    "r13", //13
-    "r14", //14
-    "r15", //15
-    "rip", //16
-    "flags", //17        
-    "vector", //18
+    "  rax", //0
+    "  rbx", //1
+    "  rcx", //2
+    "  rdx", //3
+    "  rsi", //4
+    "  rdi", //5
+    "  rbp", //6
+    "  rsp", //7
+    "   r8",  //8
+    "   r9",  //9
+    "  r10", //10
+    "  r11", //11
+    "  r12", //12
+    "  r13", //13
+    "  r14", //14
+    "  r15", //15
+    "  rip", //16
+    "flags", //17
+    "   ss",  //18
+    "   cs",  //19
+    "   ds",  //20
+    "   es",  //21
+    "   fs",  //22
+    "   gs",  //23
+    "vector", // 24
 };
 
 char *register_name(u64 s)
@@ -220,7 +228,7 @@ void print_frame(context f)
         console("\n");
     }
     
-    for (int j = 0; j< 18; j++) {
+    for (int j = 0; j < 24; j++) {
         console(register_name(j));
         console(": ");
         print_u64_with_sym(f[j]);
@@ -257,8 +265,9 @@ void lapic_eoi()
 
 context miscframe;              /* for context save on interrupt */
 context intframe;               /* for context save on exception within interrupt */
+context bhframe;
 
-void handle_interrupts()
+void kernel_sleep()
 {
     running_frame = miscframe;
     enable_interrupts();
@@ -269,20 +278,31 @@ void handle_interrupts()
 void install_fallback_fault_handler(fault_handler h)
 {
     assert(miscframe);
+    assert(intframe);
     miscframe[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
     intframe[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
+    bhframe[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
 }
+
+void * bh_stack_top;
 
 void common_handler()
 {
     int i = running_frame[FRAME_VECTOR];
+    boolean in_bh = running_frame == bhframe;
+    boolean in_inthandler = running_frame == intframe;
+    boolean in_usermode = (!in_inthandler && !in_bh) &&
+        (running_frame[FRAME_SS] == 0 || running_frame[FRAME_SS] == 0x13);
+
+    if (in_inthandler) {
+        console("exception during interrupt handling\n");
+    }
 
     if ((i < interrupt_size) && handlers[i]) {
-        context saveframe = running_frame;
-        running_frame = intframe;
+        frame_push(intframe);   /* catch any spurious exceptions during int handling */
         apply(handlers[i]);
         lapic_eoi();
-        running_frame = saveframe;
+        frame_pop();
     } else {
         fault_handler f = pointer_from_u64(running_frame[FRAME_FAULT_HANDLER]);
 
@@ -295,6 +315,19 @@ void common_handler()
         if (i < 25) {
             running_frame = apply(f, running_frame);
         }
+    }
+
+    /* if we crossed privilege levels, reprogram SS and CS */
+    if (in_usermode) {
+        running_frame[FRAME_SS] = 0x23;
+        running_frame[FRAME_CS] = 0x1b;
+    }
+
+    /* if the interrupt didn't occur during bottom half or int handler
+       execution, switch context to bottom half processing */
+    if (!in_bh && !in_inthandler) {
+        frame_push(bhframe);
+        switch_stack(bh_stack_top, process_bhqueue);
     }
 }
 
@@ -404,6 +437,9 @@ void * allocate_stack(heap pages, int npages)
 
 void * syscall_stack_top;
 
+#define IST_INTERRUPT 1         /* for all interrupts */
+#define IST_PAGEFAULT 2         /* page fault specific */
+
 void start_interrupts(kernel_heaps kh)
 {
     // these are simple enough it would be better to just
@@ -420,16 +456,25 @@ void start_interrupts(kernel_heaps kh)
     /* alternate frame storage */
     miscframe = allocate_frame(general);
     intframe = allocate_frame(general);
+    bhframe = allocate_frame(general);
 
-    /* TSS is installed at the end of stage3 runtime initialization,
-       so create IST entry for page fault alternate stack. */
+    /* Page fault alternate stack. */
     void * fault_stack_top = allocate_stack(pages, FAULT_STACK_PAGES);
     assert(fault_stack_top != INVALID_ADDRESS);
-    set_ist(1, u64_from_pointer(fault_stack_top));
+    set_ist(IST_PAGEFAULT, u64_from_pointer(fault_stack_top));
+
+    /* Interrupt handlers run on their own stack. */
+    void * int_stack_top = allocate_stack(pages, INT_STACK_PAGES);
+    assert(int_stack_top != INVALID_ADDRESS);
+    set_ist(IST_INTERRUPT, u64_from_pointer(int_stack_top));
 
     /* syscall stack - this can be replaced later by a per-thread kernel stack */
     syscall_stack_top = allocate_stack(pages, SYSCALL_STACK_PAGES);
     assert(syscall_stack_top != INVALID_ADDRESS);
+
+    /* Bottom half stack */
+    bh_stack_top = allocate_stack(pages, BH_STACK_PAGES);
+    assert(bh_stack_top != INVALID_ADDRESS);
 
     // architectural - end of exceptions
     u32 vector_start = 0x20;
@@ -437,9 +482,12 @@ void start_interrupts(kernel_heaps kh)
     // assuming contig gives us a page aligned, page padded identity map
     idt = allocate(pages, pages->pagesize);
 
-    for (int i = 0; i < interrupt_size; i++) 
-        write_idt(idt, i, start + i * delta, i == 0xe ? 1 : 0);
+    for (int i = 0; i < 32; i++)
+        write_idt(idt, i, start + i * delta, i == 0xe ? IST_PAGEFAULT : 0);
     
+    for (int i = 32; i < interrupt_size; i++)
+        write_idt(idt, i, start + i * delta, IST_INTERRUPT);
+
     u16 *dest = (u16 *)(idt + 2*interrupt_size);
     dest[0] = 16*interrupt_size -1;
     

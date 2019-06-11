@@ -1,4 +1,5 @@
 #include <gdb_internal.h>
+#include <kvm_platform.h>
 
 int signalmap[]={8, 5, 0, 5, 16, 16, 4, 8, 7, 11, 11, 11, 11, 11, 11, 0, 7};
 

@@ -202,9 +202,6 @@ void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh);
 typedef closure_type(buffer_handler, void, buffer);
 typedef closure_type(block_io, void, void *, range, status_handler);
 
-// break out platform - move into the implicit include
-#include <x86_64.h>
-
 // should be  (parser, parser, character)
 typedef closure_type(parser, void *, character);
 // change to status_handler

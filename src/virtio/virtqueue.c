@@ -27,6 +27,7 @@
  */
 
 #include <virtio_internal.h>
+#include <x86_64.h>
 
 #ifdef VIRTQUEUE_DEBUG
 # define virtqueue_debug rprintf
@@ -141,6 +142,12 @@ void vqmsg_commit(virtqueue vq, vqmsg m, vqfinish completion)
     virtqueue_fill(vq);
 }
 
+static CLOSURE_2_0(vq_complete, void, vqfinish, u16);
+static void vq_complete(vqfinish f, u16 len)
+{
+    apply(f, len);
+}
+
 static CLOSURE_1_0(vq_interrupt, void, virtqueue);
 static void vq_interrupt(virtqueue vq)
 {
@@ -176,7 +183,8 @@ static void vq_interrupt(virtqueue vq)
         vq->msgs[head] = 0;
         deallocate_vqmsg_irq(vq, m);
 
-        apply(completion, len);
+        /* XXX seems like we could devise a way to avoid another enqueue */
+        enqueue(bhqueue, closure(vq->dev->general, vq_complete, completion, len));
     }
 
     virtqueue_fill_irq(vq);
@@ -318,5 +326,7 @@ static void virtqueue_fill_irq(virtqueue vq)
 static void virtqueue_fill(virtqueue vq)
 {
     /* XXX same as irq for now, save/disable/restore later */
+    u64 flags = irq_disable_save();
     virtqueue_fill_irq(vq);
+    irq_restore(flags);
 }

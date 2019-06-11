@@ -2,6 +2,8 @@
    put everything under a vdso umbrella */
 
 #include <unix_internal.h>
+#include <page.h>
+#include <synth.h>
 
 static void *vsyscall_base = (void *)0xffffffffff600000ull;
 
