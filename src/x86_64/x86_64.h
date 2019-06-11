@@ -1,6 +1,10 @@
 #pragma once
-
-#define STACK_ALIGNMENT 16
+#define STACK_ALIGNMENT     16
+#define KERNEL_STACK_PAGES  32
+#define FAULT_STACK_PAGES   8
+#define INT_STACK_PAGES     8
+#define BH_STACK_PAGES      8
+#define SYSCALL_STACK_PAGES 8
 
 #define VIRTUAL_ADDRESS_BITS 48
 
@@ -24,6 +28,8 @@
 #define TSC_DEADLINE_MSR 0x6e0
 
 #define C0_WP   0x00010000
+
+#define FLAG_INTERRUPT 9
 
 static inline void cpuid(u32 fn, u32 ecx, u32 * v)
 {
@@ -96,7 +102,7 @@ static inline void set_syscall_handler(void *syscall_entry)
     // 48 is sysret cs, and ds is cs + 16...so fix the gdt for return
     // 32 is syscall cs, and ds is cs + 8
     write_msr(STAR_MSR, ((cs | 0x3)<<48) | (cs<<32));
-    write_msr(SFMASK_MSR, 0);
+    write_msr(SFMASK_MSR, U64_FROM_BIT(FLAG_INTERRUPT));
     write_msr(EFER_MSR, read_msr(EFER_MSR) | EFER_SCE);
 }
 
@@ -124,10 +130,7 @@ void serial_out(u8 a);
 char *interrupt_name(u64 code);
 char *register_name(u64 code);
 
-// tuples
-#define FLAG_INTERRUPT 9
-
-static inline u64 read_flags()
+static inline u64 read_flags(void)
 {
     u64 out;
     asm("pushf");
@@ -135,8 +138,22 @@ static inline u64 read_flags()
     return out;
 }
 
+static inline u64 irq_disable_save(void)
+{
+    u64 flags = read_flags();
+    disable_interrupts();
+    return flags;
+}
+
+static inline void irq_restore(u64 flags)
+{
+    if ((flags & FLAG_INTERRUPT))
+        enable_interrupts();
+}
+
 typedef struct queue *queue;
 extern queue runqueue;
+extern queue bhqueue;
 
 heap physically_backed(heap meta, heap virtual, heap physical, heap pages, u64 pagesize);
 void physically_backed_dealloc_virtual(heap h, u64 x, bytes length);
@@ -155,8 +172,28 @@ queue allocate_queue(heap h, u64 size);
 void deallocate_queue(queue q);
 
 context allocate_frame(heap h);
+
+static inline void frame_push(context new)
+{
+    new[FRAME_SAVED_FRAME] = u64_from_pointer(running_frame);
+    running_frame = new;
+}
+
+static inline void frame_pop(void)
+{
+    running_frame = pointer_from_u64(running_frame[FRAME_SAVED_FRAME]);
+}
+
+#define switch_stack(__s, __target) {                   \
+        asm ("mov %0, %%rdx": :"r"(__s):"%rdx");        \
+        asm ("mov %0, %%rax": :"r"(__target));          \
+        asm ("mov %%rdx, %%rsp"::);                     \
+        asm ("jmp *%%rax"::);                           \
+    }
+
 void runloop() __attribute__((noreturn));
-void handle_interrupts();
+void kernel_sleep();
+void process_bhqueue();
 void install_fallback_fault_handler(fault_handler h);
 
 // xxx - hide

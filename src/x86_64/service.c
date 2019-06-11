@@ -45,23 +45,46 @@ static u64 bootstrap_alloc(heap h, bytes length)
 }
 
 queue runqueue;
+queue bhqueue;
+
+static void timer_update(void)
+{
+    /* minimum runloop period - XXX move to a config header */
+    timestamp timeout = MIN(timer_check(), milliseconds(100) /* XXX config */);
+    runloop_timer(timeout);
+}
+
+extern void interrupt_exit(void);
+
+void process_bhqueue()
+{
+    /* XXX - we're on bh frame & stack; re-enable ints here */
+    thunk t;
+    while((t = dequeue(bhqueue))) {
+        apply(t);
+    }
+
+    timer_update();
+
+    /* XXX - and disable before frame pop */
+    frame_pop();
+    interrupt_exit();
+}
 
 void runloop()
 {
-    /* minimum runloop period - XXX move to a config header */
-    timestamp max_timeout = milliseconds(100);
     thunk t;
 
     while(1) {
-	timestamp timeout = MIN(timer_check(), max_timeout);
-	runloop_timer(timeout);
         while((t = dequeue(runqueue))) {
             apply(t);
+            disable_interrupts();
         }
         if (current) {
             proc_pause(current->p);
         }
-        handle_interrupts();
+        timer_update();
+        kernel_sleep();
         if (current) {
             proc_resume(current->p);
         }
@@ -194,6 +217,7 @@ static void __attribute__((noinline)) init_service_new_stack()
     unmap(0, PAGESIZE, pages);
 
     runqueue = allocate_queue(misc, 64);
+    bhqueue = allocate_queue(misc, 2048); /* XXX will need something extensible really */
     init_clock(kh);
     init_random();
     __stack_chk_guard_init();
