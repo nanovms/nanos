@@ -221,7 +221,7 @@ static void epoll_blocked_finish(epoll_blocked w, boolean timedout)
             break;
 	}
 
-	epoll_debug("\n   syscall return %ld\n", rv);
+	epoll_debug("   syscall return %ld\n", rv);
 	set_syscall_return(w->t, rv);
 
 	/* We'll let the timeout run to expiry until we can be sure
