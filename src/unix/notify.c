@@ -57,6 +57,16 @@ void notify_dispatch(notify_set s, u32 events)
         notify_entry n = struct_from_list(l, notify_entry, l);
         list next = list_get_next(l);
         u32 report = edge_events(events, n->eventmask, n->last);
+
+        /* If there are flags to report, don't update the edge
+           (*n->last) until it has been acknowledged as queued by the
+           event handler.
+
+           However, if there's nothing to report, this dispatch is
+           probably the result of a falling edge. These should always
+           be reflected in *n->last.
+        */
+
         if (report) {
             if (apply(n->eh, report)) {
                 if (n->last)
@@ -64,6 +74,9 @@ void notify_dispatch(notify_set s, u32 events)
             }
             list_delete(l);
             deallocate(s->h, n, sizeof(struct notify_entry));
+        } else {
+            if (n->last)
+                *n->last = events & n->eventmask;
         }
         l = next;
     } while(l != &s->entries);
