@@ -5,6 +5,9 @@
 #include <string.h>
 #include <limits.h>
 #include <ctype.h>
+#include <errno.h>
+#include <sys/eventfd.h>
+#include <sys/stat.h>
 
 #define BUFLEN 256
 
@@ -190,12 +193,139 @@ void append_write_test()
     exit(EXIT_FAILURE);
 }
 
+void truncate_test()
+{
+    unsigned char tmp[BUFLEN];
+    ssize_t rv;
+    struct stat s;
+
+    int fd = open("new_file", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+    if (fd < 0) {
+        perror("open");
+        exit(EXIT_FAILURE);
+    }
+    if (ftruncate(fd, BUFLEN / 2) < 0) {
+        perror("ftruncate to BUFLEN / 2");
+        exit(EXIT_FAILURE);
+    }
+    close(fd);
+
+    rv = stat("new_file", &s);
+    if (rv < 0) {
+        perror("stat");
+        exit(EXIT_FAILURE);
+    }
+    if (s.st_size != BUFLEN / 2) {
+        printf("unexpected file size %ld\n", s.st_size);
+        exit(EXIT_FAILURE);
+    }
+    fd = open("new_file", O_RDWR);
+    if (fd < 0) {
+        perror("open");
+        exit(EXIT_FAILURE);
+    }
+    _READ(tmp, BUFLEN);
+    if (rv != BUFLEN / 2) {
+        printf("read %ld bytes, expected %d\n", rv, BUFLEN / 2);
+        exit(EXIT_FAILURE);
+    }
+    for (int i = 0; i < BUFLEN / 2; i++) {
+        if (tmp[i] != 0) {
+            printf("unexpected data 0x%02x at offset %d\n", tmp[i], i);
+            exit(EXIT_FAILURE);
+        }
+    }
+    if (ftruncate(fd, BUFLEN / 2) < 0) {
+        perror("ftruncate to same length as current length");
+        exit(EXIT_FAILURE);
+    }
+    if ((ftruncate(fd, -1) == 0) || (errno != EINVAL)) {
+        printf("negative length truncate test failed\n");
+        exit(EXIT_FAILURE);
+    }
+    _LSEEK(0, SEEK_SET);
+    for (int i = 0; i < BUFLEN / 2; i++) {
+        tmp[i] = i;
+    }
+    _WRITE(tmp, BUFLEN / 2);
+    if (ftruncate(fd, BUFLEN / 4) < 0) {
+        perror("ftruncate to BUFLEN / 4");
+        exit(EXIT_FAILURE);
+    }
+    close(fd);
+
+    fd = open("new_file", O_RDWR);
+    if (fd < 0) {
+        perror("open");
+        exit(EXIT_FAILURE);
+    }
+    _READ(tmp, BUFLEN);
+    if (rv != BUFLEN / 4) {
+        printf("read %ld bytes, expected %d\n", rv, BUFLEN / 4);
+        exit(EXIT_FAILURE);
+    }
+    for (int i = 0; i < BUFLEN / 4; i++) {
+        if (tmp[i] != i) {
+            printf("unexpected data 0x%02x at offset %d\n", tmp[i], i);
+            exit(EXIT_FAILURE);
+        }
+    }
+    close(fd);
+
+    fd = open("new_file", O_RDONLY);
+    if (fd < 0) {
+        perror("open");
+        exit(EXIT_FAILURE);
+    }
+    if ((ftruncate(fd, 0) == 0) || ((errno != EBADF) && (errno != EINVAL))) {
+        printf("read-only file truncate test failed\n");
+        exit(EXIT_FAILURE);
+    }
+    close(fd);
+
+    if ((ftruncate(fd, 0) == 0) || ((errno != EBADF) && (errno != EINVAL))) {
+        printf("bad file descriptor truncate test failed\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (mkdir("my_dir", S_IRUSR | S_IWUSR) < 0) {
+        perror("mkdir");
+        exit(EXIT_FAILURE);
+    }
+    if ((truncate("my_dir", 0) == 0) || (errno != EISDIR)) {
+        printf("directory truncate test failed\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if ((truncate("nonexisting", 0) == 0) || (errno != ENOENT)) {
+        printf("non-existing file truncate test failed\n");
+        exit(EXIT_FAILURE);
+    }
+
+    fd = eventfd(0, 0);
+    if (fd < 0) {
+        perror("eventfd");
+        exit(EXIT_FAILURE);
+    }
+    if ((ftruncate(fd, 0) == 0) || (errno != EINVAL)) {
+        printf("non-regular file truncate test failed\n");
+        exit(EXIT_FAILURE);
+    }
+    close(fd);
+
+    return;
+  out_fail:
+    close(fd);
+    exit(EXIT_FAILURE);
+}
+
 int main(int argc, char **argv)
 {
     setvbuf(stdout, NULL, _IOLBF, 0);
     basic_write_test();
     scatter_write_test(1 << 18, 64, 1 << 12);
     append_write_test();
+    truncate_test();
     printf("write test passed\n");
     return EXIT_SUCCESS;
 }

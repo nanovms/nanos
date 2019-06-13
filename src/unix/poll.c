@@ -378,6 +378,10 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
     heap h = heap_general(get_kernel_heaps());
     epoll e = resolve_fd(current->p, epfd);    
     epoll_debug("epoll_ctl: epoll fd %d, op %d, fd %d\n", epfd, op, fd);
+    fdesc f = resolve_fd(current->p, fd);
+    if ((f->type == FDESC_TYPE_REGULAR) || (f->type == FDESC_TYPE_DIRECTORY)) {
+	return set_syscall_error(current, EPERM);
+    }
     /* XXX verify that fd is not an epoll instance*/
     epollfd efd;
     switch(op) {

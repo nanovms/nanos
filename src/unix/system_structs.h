@@ -380,3 +380,7 @@ typedef u32 gid_t;
 #define EFD_CLOEXEC     02000000
 #define EFD_NONBLOCK    00004000
 #define EFD_SEMAPHORE   00000001
+
+/* renameat2 flags */
+#define RENAME_NOREPLACE    (1 << 0)
+#define RENAME_EXCHANGE     (1 << 1)

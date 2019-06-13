@@ -25,6 +25,8 @@ void create_filesystem(heap h,
 // status
 void filesystem_read(filesystem fs, tuple t, void *dest, u64 offset, u64 length, io_status_handler completion);
 void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_handler completion);
+boolean filesystem_truncate(filesystem fs, fsfile f, u64 len,
+        status_handler completion);
 boolean filesystem_flush(filesystem fs, tuple t, status_handler completion);
 u64 fsfile_get_length(fsfile f);
 void fsfile_set_length(fsfile f, u64);
@@ -50,6 +52,10 @@ fs_status filesystem_mkdir(filesystem fs, tuple cwd, const char *fp, boolean per
 fs_status filesystem_creat(filesystem fs, tuple cwd, const char *fp, boolean persistent);
 void filesystem_delete(filesystem fs, tuple cwd, const char *fp,
     status_handler completion);
+void filesystem_rename(filesystem fs, tuple oldwd, const char *oldfp,
+        tuple newwd, const char *newfp, status_handler completion);
+void filesystem_exchange(filesystem fs, tuple wd1, const char *fp1,
+        tuple wd2, const char *fp2, status_handler completion);
 
 tuple filesystem_getroot(filesystem fs);
 extern const char *gitversion;

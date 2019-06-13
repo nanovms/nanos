@@ -53,9 +53,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, msgctl, 0);
     register_syscall(map, flock, 0);
     register_syscall(map, fdatasync, 0);
-    register_syscall(map, truncate, 0);
-    register_syscall(map, ftruncate, 0);
-    register_syscall(map, rename, 0);
     register_syscall(map, link, 0);
     register_syscall(map, symlink, 0);
     register_syscall(map, chmod, syscall_ignore);
@@ -200,7 +197,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, mknodat, 0);
     register_syscall(map, fchownat, 0);
     register_syscall(map, futimesat, 0);
-    register_syscall(map, renameat, 0);
     register_syscall(map, linkat, 0);
     register_syscall(map, symlinkat, 0);
     register_syscall(map, fchmodat, syscall_ignore);
@@ -241,7 +237,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, finit_module, 0);
     register_syscall(map, sched_setattr, 0);
     register_syscall(map, sched_getattr, 0);
-    register_syscall(map, renameat2, 0);
     register_syscall(map, seccomp, 0);
     register_syscall(map, memfd_create, 0);
     register_syscall(map, kexec_file_load, 0);
@@ -285,6 +280,70 @@ static inline tuple resolve_cstring(tuple cwd, const char *f)
     return t;
 }
 
+static inline tuple resolve_cstring_parent(tuple cwd, const char *f)
+{
+    tuple t = (*f == '/' ? filesystem_getroot(current->p->fs) : cwd);
+    tuple parent = 0;
+    buffer a = little_stack_buffer(NAME_MAX);
+    char y;
+    while ((y = *f++)) {
+        if (y == '/') {
+            if (buffer_length(a)) {
+                if (!t) {
+                    return false;
+                }
+                parent = t;
+                t = lookup(parent, intern(a));
+                buffer_clear(a);
+            }
+        }
+        else {
+            push_character(a, y);
+        }
+    }
+    if (buffer_length(a)) {
+        if (!t) {
+            return false;
+        }
+        parent = t;
+    }
+    return parent;
+}
+
+/* Check if fp1 is a (direct or indirect) ancestor if fp2. */
+static inline boolean filepath_is_ancestor(tuple wd1, const char *fp1,
+        tuple wd2, const char *fp2)
+{
+    tuple t1 = resolve_cstring(wd1, fp1);
+    if (!t1) {
+        return false;
+    }
+    tuple t2 = (*fp2 == '/' ? filesystem_getroot(current->p->fs) : wd2);
+    buffer a = little_stack_buffer(NAME_MAX);
+    char y;
+    while ((y = *fp2++)) {
+        if (y == '/') {
+            if (buffer_length(a)) {
+                if (t2 == t1) {
+                    return true;
+                }
+                t2 = lookup(t2, intern(a));
+                if (!t2) {
+                    return false;
+                }
+                buffer_clear(a);
+            }
+        }
+        else {
+            push_character(a, y);
+        }
+    }
+    if (buffer_length(a) && (t2 == t1)) {
+        return true;
+    }
+    return false;
+}
+
 sysreturn read(int fd, u8 *dest, bytes length)
 {
     fdesc f = resolve_fd(current->p, fd);
@@ -310,20 +369,20 @@ static void readv_complete(heap h, thread t, struct iovec *iov, u8* read_bytes, 
 {
     int curr_pos = 0;
     int iv = 0;
-    if(is_ok(s)) {
+    if (is_ok(s)) {
 
-	while(curr_pos < read_len) {
-	    struct iovec iovector = iov[iv];
-	    int to_read = (iovector.iov_len < read_len - curr_pos) ? iovector.iov_len : read_len - curr_pos;
+        while (curr_pos < read_len) {
+            struct iovec iovector = iov[iv];
+            int to_read = (iovector.iov_len < read_len - curr_pos) ? iovector.iov_len : read_len - curr_pos;
             runtime_memcpy(iovector.iov_base, read_bytes + curr_pos, to_read);
             curr_pos += iovector.iov_len;
             iv += 1;
-	}
-	deallocate(h, read_bytes, total_len);
-	set_syscall_return(t, read_len);
+        }
+        deallocate(h, read_bytes, total_len);
+        set_syscall_return(t, read_len);
     }
     else
-	set_syscall_error(t, EINVAL);
+        set_syscall_error(t, EINVAL);
 
     thread_wakeup(t);
 }
@@ -337,13 +396,13 @@ sysreturn readv(int fd, struct iovec *iov, int iovcnt)
     if (!f->f.read || iovcnt < 0)
         return set_syscall_error(current, EINVAL);
 
-    for(int i = 0; i < iovcnt; i++)
-	total_len = iov[i].iov_len + total_len;
+    for (int i = 0; i < iovcnt; i++)
+        total_len = iov[i].iov_len + total_len;
 
     u8 *read_bytes = allocate(h, total_len);
 
     filesystem_read(current->p->fs, f->n, read_bytes, total_len, 0,
-		    closure(h, readv_complete, h, current, iov, read_bytes, total_len));
+                    closure(h, readv_complete, h, current, iov, read_bytes, total_len));
     thread_sleep(current);
 }
 
@@ -355,6 +414,84 @@ sysreturn write(int fd, u8 *body, bytes length)
 
     /* use (and update) file offset */
     return apply(f->write, body, length, infinity);
+}
+
+static CLOSURE_4_2(
+        writev_buf_complete, void,
+        heap, buffer, bytes *, status_handler,
+        status, u64);
+static void writev_buf_complete(
+        heap h, buffer buf, bytes *total_bytes_written, status_handler sh,
+        status s, bytes bytes_written)
+{
+    if (is_ok(s)) {
+        *total_bytes_written += bytes_written;
+    }
+
+    unwrap_buffer(h, buf);
+
+    apply(sh, s);
+}
+
+static CLOSURE_4_1(
+        writev_complete, void,
+        heap, thread, file, bytes *,
+        status);
+static void writev_complete(
+        heap h, thread t, file f, bytes *total_bytes_written,
+        status s)
+{
+    f->offset = f->offset + *total_bytes_written;
+
+    /*
+     * According to man 2 writev, we should handle final status differently than merge_join() does:
+     * - merge_join() sets succeeds if ALL suboperations succeeded,
+     *   i.e. fail if any of suboperations had failed
+     * - writev() must succeed if ANY write succeeded,
+     *   i.e. fail only if ALL writes failed
+     * Because of that, we ignoring passed status here and rely on total_bytes written,
+     * which gets updated only if any suboperation had succeeded.
+     */
+    if (*total_bytes_written > 0) {
+        set_syscall_return(t, *total_bytes_written);
+    } else {
+        set_syscall_error(t, EIO);
+    }
+
+    deallocate(h, total_bytes_written, sizeof(*total_bytes_written));
+
+    thread_wakeup(t);
+}
+
+sysreturn writev(int fd, struct iovec *iov, int iovcnt)
+{
+    heap h = heap_general(get_kernel_heaps());
+
+    file f = resolve_fd(current->p, fd);
+    if (!f->f.read || iovcnt < 0)
+        return set_syscall_error(current, EINVAL);
+
+    bytes *total_bytes_written = allocate(h, sizeof(*total_bytes_written));
+    *total_bytes_written = 0;
+    merge m = allocate_merge(h, closure(h, writev_complete, h, current, f, total_bytes_written));
+
+    u64 total_len = 0;
+    u64 curr_pos = f->offset;
+    for (int i = 0; i < iovcnt; i++) {
+        void *base = iov[i].iov_base;
+        u64 len = iov[i].iov_len;
+
+        buffer buf = wrap_buffer(h, base, len);
+
+        status_handler buf_sh = apply_merge(m);
+        filesystem_write(current->p->fs, f->n, buf, curr_pos,
+                         closure(h, writev_buf_complete, h, buf, total_bytes_written, buf_sh));
+
+        curr_pos += len;
+        total_len += len;
+    }
+
+    thread_sleep(current);
 }
 
 sysreturn pwrite(int fd, u8 *body, bytes length, s64 offset)
@@ -545,8 +682,8 @@ static sysreturn file_close(file f, fsfile fsf)
 static CLOSURE_2_3(file_check, boolean, file, fsfile, u32, u32 *, event_handler);
 static boolean file_check(file f, fsfile fsf, u32 eventmask, u32 * last, event_handler eh)
 {
-    thread_log(current, "file_check: file %t, eventmask %x, last %x, event_handler %p",
-               f->n, eventmask, last ? *last : 0, eh);
+    thread_log(current, "file_check: f %p, eventmask %x, last %x, event_handler %p",
+               f, eventmask, last ? *last : 0, eh);
 
     u32 events;
     if (is_special(f->n)) {
@@ -877,12 +1014,61 @@ sysreturn fchdir(int dirfd)
     return set_syscall_return(current, 0);
 }
 
-sysreturn writev(int fd, iovec v, int count)
+static CLOSURE_1_1(truncate_complete, void, thread, status);
+static void truncate_complete(thread t, status s)
 {
-    int res = 0;
-    resolve_fd(current->p, fd);
-    for (int i = 0; i < count; i++) res += write(fd, v[i].iov_base, v[i].iov_len);
-    return res;
+    thread_log(current, "%s: status %v (%s)", __func__, s,
+            is_ok(s) ? "OK" : "NOTOK");
+    if (is_ok(s)) {
+        set_syscall_return(t, 0);
+    } else {
+        set_syscall_error(t, EIO);
+    }
+    thread_wakeup(t);
+}
+
+static sysreturn truncate_internal(tuple t, long length)
+{
+    if (is_dir(t)) {
+        return set_syscall_error(current, EISDIR);
+    }
+    if (length < 0) {
+        return set_syscall_error(current, EINVAL);
+    }
+    fsfile fsf = fsfile_from_node(current->p->fs, t);
+    if (!fsf) {
+        return set_syscall_error(current, ENOENT);
+    }
+    if (filesystem_truncate(current->p->fs, fsf, length,
+            closure(heap_general(get_kernel_heaps()), truncate_complete,
+            current))) {
+        /* Nothing to do. */
+        return set_syscall_return(current, 0);
+    }
+    else {
+        thread_sleep(current);
+    }
+}
+
+sysreturn truncate(const char *path, long length)
+{
+    thread_log(current, "%s \"%s\" %d", __func__, path, length);
+    tuple t = resolve_cstring(current->p->cwd, path);
+    if (!t) {
+        return set_syscall_error(current, ENOENT);
+    }
+    return truncate_internal(t, length);
+}
+
+static sysreturn ftruncate(int fd, long length)
+{
+    thread_log(current, "%s %d %d", __func__, fd, length);
+    file f = resolve_fd(current->p, fd);
+    if (!(f->f.flags & (O_RDWR | O_WRONLY)) ||
+            (f->f.type != FDESC_TYPE_REGULAR)) {
+        return set_syscall_error(current, EINVAL);
+    }
+    return truncate_internal(f->n, length);
 }
 
 static CLOSURE_2_1(fsync_complete, void, thread, file, status);
@@ -1016,11 +1202,10 @@ static sysreturn newfstatat(int dfd, const char *name, struct stat *s, int flags
 
     // Else, if we have a fd of a directory, resolve name to it.
     file f = resolve_fd(current->p, dfd);
-    tuple children = table_find(f->n, sym(children));
-    if (!is_dir(children))
-        return set_syscall_error(current, -ENOTDIR);
+    if (!is_dir(f->n))
+        return set_syscall_error(current, ENOTDIR);
     
-    if (!(n = resolve_cstring(children, name))) {    
+    if (!(n = resolve_cstring(f->n, name))) {
         return set_syscall_error(current, ENOENT);
     }
 
@@ -1265,6 +1450,105 @@ sysreturn rmdir(const char *pathname)
     return rmdir_internal(current->p->cwd, pathname);
 }
 
+static CLOSURE_1_1(file_rename_complete, void, thread, status);
+static void file_rename_complete(thread t, status s)
+{
+    thread_log(current, "%s: status %v (%s)", __func__, s,
+            is_ok(s) ? "OK" : "NOTOK");
+    if (is_ok(s)) {
+        set_syscall_return(t, 0);
+    }
+    else {
+        set_syscall_error(t, EIO);
+    }
+    thread_wakeup(t);
+}
+
+static sysreturn rename_internal(tuple oldwd, const char *oldpath, tuple newwd,
+        const char *newpath)
+{
+    tuple old = resolve_cstring(oldwd, oldpath);
+    tuple newparent = resolve_cstring_parent(newwd, newpath);
+    if (!old || !oldpath[0] || !newparent || !newpath[0]) {
+        return set_syscall_error(current, ENOENT);
+    }
+    tuple new = resolve_cstring(newwd, newpath);
+    if (new && is_dir(new)) {
+        if (!is_dir(old)) {
+            return set_syscall_error(current, EISDIR);
+        }
+        tuple c = children(new);
+        table_foreach(c, k, v) {
+            char *p = cstring(symbol_string(k));
+
+            if (runtime_strcmp(p, ".") && runtime_strcmp(p, "..")) {
+                thread_log(current, "%s: found entry '%s'", __func__, p);
+                return set_syscall_error(current, ENOTEMPTY);
+            }
+        }
+    }
+    if (new && !is_dir(new) && is_dir(old)) {
+        return set_syscall_error(current, ENOTDIR);
+    }
+    if (filepath_is_ancestor(oldwd, oldpath, newwd, newpath)) {
+        return set_syscall_error(current, EINVAL);
+    }
+    filesystem_rename(current->p->fs, oldwd, oldpath, newwd, newpath,
+            closure(heap_general(get_kernel_heaps()), file_rename_complete,
+            current));
+    thread_sleep(current);
+}
+
+sysreturn rename(const char *oldpath, const char *newpath)
+{
+    thread_log(current, "rename \"%s\" \"%s\"", oldpath, newpath);
+    return rename_internal(current->p->cwd, oldpath, current->p->cwd, newpath);
+}
+
+sysreturn renameat(int olddirfd, const char *oldpath, int newdirfd,
+        const char *newpath)
+{
+    thread_log(current, "renameat %d \"%s\" %d \"%s\"", olddirfd, oldpath,
+            newdirfd, newpath);
+    tuple oldwd = resolve_dir(olddirfd, oldpath);
+    tuple newwd = resolve_dir(newdirfd, newpath);
+    return rename_internal(oldwd, oldpath, newwd, newpath);
+}
+
+sysreturn renameat2(int olddirfd, const char *oldpath, int newdirfd,
+        const char *newpath, unsigned int flags)
+{
+    thread_log(current, "renameat2 %d \"%s\" %d \"%s\", flags 0x%x", olddirfd,
+            oldpath, newdirfd, newpath, flags);
+    if ((flags & ~(RENAME_EXCHANGE | RENAME_NOREPLACE)) ||
+            ((flags & RENAME_EXCHANGE) && (flags & RENAME_NOREPLACE))) {
+        return set_syscall_error(current, EINVAL);
+    }
+    tuple oldwd = resolve_dir(olddirfd, oldpath);
+    tuple newwd = resolve_dir(newdirfd, newpath);
+    if (flags & RENAME_EXCHANGE) {
+        if (filepath_is_ancestor(oldwd, oldpath, newwd, newpath) ||
+                filepath_is_ancestor(newwd, newpath, oldwd, oldpath)) {
+            return set_syscall_error(current, EINVAL);
+        }
+        tuple old = resolve_cstring(oldwd, oldpath);
+        tuple new = resolve_cstring(newwd, newpath);
+        if (!old || !new) {
+            return set_syscall_error(current, ENOENT);
+        }
+        filesystem_exchange(current->p->fs, oldwd, oldpath, newwd, newpath,
+                closure(heap_general(get_kernel_heaps()), file_rename_complete,
+                current));
+        thread_sleep(current);
+    }
+    else {
+        if ((flags & RENAME_NOREPLACE) && resolve_cstring(newwd, newpath)) {
+            return set_syscall_error(current, EEXIST);
+        }
+        return rename_internal(oldwd, oldpath, newwd, newpath);
+    }
+}
+
 sysreturn close(int fd)
 {
     thread_log(current, "close: fd %d", fd);
@@ -1311,8 +1595,15 @@ sysreturn fcntl(int fd, int cmd, int arg)
 sysreturn ioctl(int fd, unsigned long request, ...)
 {
     // checks if fd is valid
-    resolve_fd(current->p, fd);
+    fdesc f = resolve_fd(current->p, fd);
 
+    if (f->ioctl) {
+        vlist args;
+        vstart(args, request);
+        sysreturn rv = apply(f->ioctl, request, args);
+        vend(args);
+        return set_syscall_return(current, rv);
+    }
     switch (request) {
     case FIONBIO:
     case FIONCLEX:
@@ -1431,6 +1722,8 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, lstat, stat);
     register_syscall(map, readv, readv);
     register_syscall(map, writev, writev);
+    register_syscall(map, truncate, truncate);
+    register_syscall(map, ftruncate, ftruncate);
     register_syscall(map, fsync, fsync);
     register_syscall(map, access, access);
     register_syscall(map, lseek, lseek);
@@ -1442,6 +1735,9 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, unlink, unlink);
     register_syscall(map, unlinkat, unlinkat);
     register_syscall(map, rmdir, rmdir);
+    register_syscall(map, rename, rename);
+    register_syscall(map, renameat, renameat);
+    register_syscall(map, renameat2, renameat2);
     register_syscall(map, close, close);
     register_syscall(map, sched_yield, sched_yield);
     register_syscall(map, brk, brk);
