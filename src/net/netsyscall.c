@@ -10,6 +10,11 @@
 #include <lwip/udp.h>
 #include <net_system_structs.h>
 
+#define SIOCGIFCONF 0x8912
+#define SIOCGIFADDR 0x8915
+
+#define IFNAMSIZ    16
+
 #define resolve_socket(__p, __fd) ({fdesc f = resolve_fd(__p, __fd); \
     if (f->type != FDESC_TYPE_SOCKET) \
         return set_syscall_error(current, ENOTSOCK); \
@@ -41,6 +46,41 @@ struct msghdr {
 struct mmsghdr {
     struct msghdr msg_hdr;
     unsigned int msg_len;
+};
+
+struct ifmap {
+    unsigned long mem_start;
+    unsigned long mem_end;
+    unsigned short base_addr;
+    unsigned char irq;
+    unsigned char dma;
+    unsigned char port;
+};
+
+struct ifreq {
+    char ifr_name[IFNAMSIZ];
+    union {
+        struct sockaddr ifr_addr;
+        struct sockaddr ifr_dstaddr;
+        struct sockaddr ifr_broadaddr;
+        struct sockaddr ifr_netmask;
+        struct sockaddr ifr_hwaddr;
+        short ifr_flags;
+        int ifr_ivalue;
+        int ifr_mtu;
+        struct ifmap ifru_map;
+        char ifr_slave[IFNAMSIZ];
+        char ifr_newname[IFNAMSIZ];
+        void *ifr_data;
+    } ifr;
+};
+
+struct ifconf {
+    int ifc_len;
+    union {
+        char *ifc_buf;
+        struct ifreq *ifc_req;
+    } ifc;
 };
 
 // xxx - what is the difference between IN_CONNECTION and open
@@ -538,6 +578,67 @@ static boolean socket_check(sock s, u32 eventmask, u32 * last, event_handler eh)
     return true;
 }
 
+static CLOSURE_1_2(socket_ioctl, sysreturn, sock, unsigned long, vlist);
+static sysreturn socket_ioctl(sock s, unsigned long request, vlist ap)
+{
+    net_debug("sock %d, request 0x%x\n", s->fd, request);
+    switch (request) {
+    case SIOCGIFCONF: {
+        struct ifconf *ifconf = varg(ap, struct ifconf *);
+        if (ifconf->ifc.ifc_req == NULL) {
+            ifconf->ifc_len = 0;
+            for (struct netif *netif = netif_list; netif != NULL;
+                    netif = netif->next) {
+                if (netif_is_up(netif) && netif_is_link_up(netif) &&
+                        !ip4_addr_isany(netif_ip4_addr(netif))) {
+                    ifconf->ifc_len += sizeof(struct ifreq);
+                }
+            }
+        }
+        else {
+            int len = 0;
+            int iface = 0;
+            for (struct netif *netif = netif_list; (netif != NULL) &&
+                    (len + sizeof(ifconf->ifc) <= ifconf->ifc_len);
+                    netif = netif->next) {
+                if (netif_is_up(netif) && netif_is_link_up(netif) &&
+                        !ip4_addr_isany(netif_ip4_addr(netif))) {
+                    runtime_memcpy(ifconf->ifc.ifc_req[iface].ifr_name,
+                            netif->name, sizeof(netif->name));
+                    ifconf->ifc.ifc_req[iface].ifr_name[sizeof(netif->name)] =
+                            '0' + netif->num;
+                    ifconf->ifc.ifc_req[iface].ifr_name[sizeof(netif->name) + 1]
+                             = '\0';
+                    struct sockaddr_in *addr = (struct sockaddr_in *)
+                            &ifconf->ifc.ifc_req[iface].ifr.ifr_addr;
+                    addr->family = AF_INET;
+                    runtime_memcpy(&addr->address, netif_ip4_addr(netif),
+                            sizeof(ip4_addr_t));
+                    len += sizeof(ifconf->ifc);
+                    iface++;
+                }
+            }
+            ifconf->ifc_len = len;
+        }
+        return 0;
+    }
+    case SIOCGIFADDR: {
+        struct ifreq *ifreq = varg(ap, struct ifreq *);
+        struct netif *netif = netif_find(ifreq->ifr_name);
+        if (!netif) {
+            return -ENODEV;
+        }
+        struct sockaddr_in *addr = (struct sockaddr_in *)&ifreq->ifr.ifr_addr;
+        addr->family = AF_INET;
+        runtime_memcpy(&addr->address, netif_ip4_addr(netif),
+                sizeof(ip4_addr_t));
+        return 0;
+    }
+    default:
+        return -ENOSYS;
+    }
+}
+
 #define SOCK_QUEUE_LEN 128
 
 static CLOSURE_1_0(socket_close, sysreturn, sock);
@@ -601,6 +702,7 @@ static int allocate_sock(process p, int type, u32 flags, sock * rs)
     s->f.write = closure(h, socket_write, s);
     s->f.close = closure(h, socket_close, s);
     s->f.check = closure(h, socket_check, s);
+    s->f.ioctl = closure(h, socket_ioctl, s);
     s->f.flags = flags;
     s->type = type;
     s->p = p;
