@@ -17,6 +17,7 @@ boolean id_heap_add_range(heap h, u64 base, u64 length);
 boolean id_heap_set_area(heap h, u64 base, u64 length, boolean validate, boolean allocate);
 u64 id_heap_total(heap h);
 void id_heap_set_randomize(heap h, boolean randomize);
+u64 id_heap_alloc_gte(heap h, u64 min);
 heap wrap_freelist(heap meta, heap parent, bytes size);
 heap allocate_objcache(heap meta, heap parent, bytes objsize, bytes pagesize);
 boolean objcache_validate(heap h);
