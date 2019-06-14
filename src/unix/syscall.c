@@ -1594,6 +1594,19 @@ sysreturn fcntl(int fd, int cmd, int arg)
 
         f->flags = arg & ~O_CLOEXEC;
         return set_syscall_return(current, 0);
+    case F_DUPFD:
+    case F_DUPFD_CLOEXEC: {
+        if (arg < 0) {
+            return set_syscall_error(current, EINVAL);
+        }
+        int newfd = allocate_fd_gte(current->p, arg, f);
+        if (newfd == INVALID_PHYSICAL) {
+            thread_log(current, "failed to allocate fd");
+            return set_syscall_error(current, EMFILE);
+        }
+        fetch_and_add(&f->refcnt, 1);
+        return set_syscall_return(current, newfd);
+    }
     default:
         return set_syscall_error(current, ENOSYS);
     }

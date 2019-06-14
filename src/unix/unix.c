@@ -25,6 +25,18 @@ u64 allocate_fd(process p, void *f)
     return fd;
 }
 
+u64 allocate_fd_gte(process p, u64 min, void *f)
+{
+    u64 fd = id_heap_alloc_gte(p->fdallocator, min);
+    if (fd == INVALID_PHYSICAL) {
+        msg_err("failed\n");
+    }
+    else {
+        vector_set(p->files, fd, f);
+    }
+    return fd;
+}
+
 void deallocate_fd(process p, int fd)
 {
     vector_set(p->files, fd, 0);
