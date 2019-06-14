@@ -364,8 +364,12 @@ sysreturn pread(int fd, u8 *dest, bytes length, s64 offset)
     return apply(f->read, dest, length, offset);
 }
 
-static CLOSURE_5_2(readv_complete, void, heap, thread, struct iovec*, u8*, u64, status, u64);
-static void readv_complete(heap h, thread t, struct iovec *iov, u8* read_bytes, u64 total_len, status s, u64 read_len)
+static CLOSURE_6_2(readv_complete, void,
+    heap, thread, file, struct iovec*, u8*, u64,
+    status, u64);
+static void readv_complete(
+    heap h, thread t, file f, struct iovec *iov, u8* read_bytes, u64 total_len,
+    status s, u64 read_len)
 {
     int curr_pos = 0;
     int iv = 0;
@@ -380,6 +384,8 @@ static void readv_complete(heap h, thread t, struct iovec *iov, u8* read_bytes, 
         }
         deallocate(h, read_bytes, total_len);
         set_syscall_return(t, read_len);
+
+        f->offset += total_len;
     }
     else
         set_syscall_error(t, EINVAL);
@@ -401,8 +407,9 @@ sysreturn readv(int fd, struct iovec *iov, int iovcnt)
 
     u8 *read_bytes = allocate(h, total_len);
 
-    filesystem_read(current->p->fs, f->n, read_bytes, total_len, 0,
-                    closure(h, readv_complete, h, current, iov, read_bytes, total_len));
+    filesystem_read(current->p->fs, f->n, read_bytes, total_len, f->offset,
+                    closure(h, readv_complete, h, current, f, iov, read_bytes, total_len));
+
     thread_sleep(current);
 }
 

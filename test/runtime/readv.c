@@ -3,43 +3,65 @@
 #include <fcntl.h>
 #include <string.h>
 #include <sys/uio.h>
+#include <unistd.h>
 
-#define PRINT_B(iov) \
-	for(int i = 0; i < 4; i++) \
-		printf("'%c'", ((char*)iov.iov_base)[i]); \
-	printf("\n");
+#define EXPECT_STRN_EQUAL(expected, actual_str, actual_len) \
+    if (strncmp(expected, actual_str, actual_len) != 0) { \
+        char actual_buf[actual_len + 1]; \
+        memcpy(actual_buf, actual_str, actual_len); \
+        actual_buf[actual_len] = '\0'; \
+        printf("\"%s\" != \"%s\" -- failed at %s:%d\n", expected, actual_buf, __FILE__, __LINE__); \
+        exit(EXIT_FAILURE); \
+    }
+
+#define EXPECT_LONG_EQUAL(expected, actual) \
+    if (expected != actual) { \
+        printf("\"%ld\" != \"%ld\" -- failed at %s:%d\n", (long)expected, (long)actual, __FILE__, __LINE__); \
+        exit(EXIT_FAILURE); \
+    }
 
 int main()
 {
-	struct iovec iovs[3];
-	char onev[4], twov[4], threev[4];
-	iovs[0].iov_base = onev;
-	iovs[1].iov_base = twov;
-	iovs[2].iov_base = threev;
-	iovs[0].iov_len = iovs[1].iov_len = iovs[2].iov_len = 4;
+    struct iovec iovs[3];
+    char onev[4], twov[4], threev[4];
+    iovs[0].iov_base = onev;
+    iovs[1].iov_base = twov;
+    iovs[2].iov_base = threev;
+    iovs[0].iov_len = iovs[1].iov_len = iovs[2].iov_len = 4;
 
-	int fd = open("hello", O_RDWR);
-	if (fd < 0) {
-		perror("open");
-		exit(EXIT_FAILURE);
-	}
+    int fd = open("hello", O_RDWR);
+    if (fd < 0) {
+        perror("open");
+        exit(EXIT_FAILURE);
+    }
 
-	int rv = readv(fd, iovs, 3);
-	if(rv < 0) {
-		printf("\nread unsuccessful");
-		exit(EXIT_FAILURE);
-	}
+    int startpos = 4;
+    int rv = lseek(fd, startpos, SEEK_SET);
+    if (rv < 0) {
+        perror("lseek");
+        exit(EXIT_FAILURE);
+    }
 
-	if ((strncmp("one ", iovs[0].iov_base, 4) != 0) ||
-	    (strncmp("six ", iovs[1].iov_base, 4) != 0) ||
-	    (strncmp("four", iovs[2].iov_base, 4) != 0)) {
-		printf("readv failed");
-		exit(EXIT_FAILURE);
-	}
+    rv = readv(fd, iovs, 3);
+    if (rv < 0) {
+        perror("readv\n");
+        exit(EXIT_FAILURE);
+    }
+    int bytes_read = rv;
 
-	printf("read %d bytes\n", rv);
-	PRINT_B(iovs[0]);
-	PRINT_B(iovs[1]);
-	PRINT_B(iovs[2]);
-	return EXIT_SUCCESS;
+    EXPECT_STRN_EQUAL("one ", iovs[0].iov_base, 4);
+    EXPECT_STRN_EQUAL("six ", iovs[1].iov_base, 4);
+    EXPECT_STRN_EQUAL("four", iovs[2].iov_base, 4);
+
+    rv = lseek(fd, 0, SEEK_CUR);
+    if (rv < 0) {
+        perror("lseek");
+        exit(EXIT_FAILURE);
+    }
+    int curpos = rv;
+    EXPECT_LONG_EQUAL(startpos + bytes_read, curpos);
+
+    printf("readv test PASSED\n");
+
+    return EXIT_SUCCESS;
 }
