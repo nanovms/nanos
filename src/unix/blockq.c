@@ -123,9 +123,13 @@ sysreturn blockq_check(blockq bq, thread t, blockq_action a)
         blockq_restart_timer_locked(bq);
 
     if (!enqueue(bq->waiters, a)) {
-        /* XXX hmm */
+        /* XXX ideally we could just prevent this case if we had growing
+           queues... for now bark and return EAGAIN
+
+           we could mess around with making a timer or something, but it
+           would just be easier to make queues growable */
         msg_err("waiter queue full for bq %p\n", bq);
-        return infinity;
+        return -EAGAIN;
     }
 
     blockq_debug(" - check requires block, sleeping\n");

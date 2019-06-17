@@ -171,13 +171,7 @@ static sysreturn sockpair_read(sockpair_socket s, void *dest, u64 length,
 
     blockq_action ba = closure(s->sockpair->h, sockpair_read_bh, s, current,
             dest, length);
-    sysreturn rv = blockq_check(s->read_bq, current, ba);
-
-    if (rv != infinity) {
-        return rv;
-    }
-    msg_err("thread %ld unable to block; queue full\n", current->tid);
-    return set_syscall_error(current, EAGAIN);
+    return blockq_check(s->read_bq, current, ba);
 }
 
 static CLOSURE_4_1(sockpair_write_bh, sysreturn, sockpair_socket, thread,
@@ -229,13 +223,7 @@ static sysreturn sockpair_write(sockpair_socket s, void * dest, u64 length,
 
     blockq_action ba = closure(s->sockpair->h, sockpair_write_bh, s, current,
             dest, length);
-    sysreturn rv = blockq_check(s->write_bq, current, ba);
-
-    if (rv != infinity) {
-        return rv;
-    }
-    msg_err("thread %ld unable to block; queue full\n", current->tid);
-    return set_syscall_error(current, EAGAIN);
+    return blockq_check(s->write_bq, current, ba);
 }
 
 static CLOSURE_1_3(sockpair_check, boolean, sockpair_socket, u32, u32 *,

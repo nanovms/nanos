@@ -54,13 +54,7 @@ static sysreturn efd_read(struct efd *efd, void *buf, u64 length,
     }
 
     blockq_action ba = closure(efd->h, efd_read_bh, efd, current, buf, length);
-    sysreturn rv = blockq_check(efd->read_bq, current, ba);
-
-    if (rv != infinity)
-        return rv;
-
-    msg_err("thread %ld unable to block; queue full\n", current->tid);
-    return set_syscall_error(current, EAGAIN);
+    return blockq_check(efd->read_bq, current, ba);
 }
 
 static CLOSURE_4_1(efd_write_bh, sysreturn, struct efd *, thread, void *, u64,
@@ -97,13 +91,7 @@ static sysreturn efd_write(struct efd *efd, void *buf, u64 length,
     }
 
     blockq_action ba = closure(efd->h, efd_write_bh, efd, current, buf, length);
-    sysreturn rv = blockq_check(efd->write_bq, current, ba);
-
-    if (rv != infinity)
-        return rv;
-
-    msg_err("thread %ld unable to block; queue full\n", current->tid);
-    return set_syscall_error(current, EAGAIN);
+    return blockq_check(efd->write_bq, current, ba);
 }
 
 static CLOSURE_1_3(efd_check, boolean, struct efd *, u32, u32 *, event_handler);

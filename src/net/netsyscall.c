@@ -380,7 +380,9 @@ static sysreturn recvmsg_bh(sock s, thread t, void *dest, u64 length,
         offset += iov->iov_len;
         iv++;
     }
-    deallocate(s->h, dest, length);
+    if (blocked) {
+        deallocate(s->h, dest, length);
+    }
     msg->msg_controllen = 0;
     msg->msg_flags = 0;
     return set_syscall_return(t, rv);
@@ -395,20 +397,7 @@ static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
         return set_syscall_error(current, ENOTCONN);
 
     blockq_action ba = closure(s->h, sock_read_bh, s, current, dest, length, 0, 0);
-    sysreturn rv = blockq_check(s->rxbq, current, ba);
-
-    /* We didn't block... */
-    if (rv != infinity)
-        return rv;              /* error or success: return as-is */
-
-    /* XXX ideally we could just prevent this case if we had growing
-       queues... for now bark and return EAGAIN
-
-       we could mess around with making a timer or something, but it
-       would just be easier to make queues growable */
-
-    msg_err("thread %ld unable to block; queue full\n", current->tid);
-    return set_syscall_error(current, EAGAIN);
+    return blockq_check(s->rxbq, current, ba);
 }
 
 static CLOSURE_5_1(socket_write_tcp_bh, sysreturn, sock, thread, void *, u64,
@@ -529,11 +518,6 @@ static sysreturn socket_write_internal(sock s, void *source, u64 length,
         blockq_action ba = closure(s->h, socket_write_tcp_bh, s, current,
                 source, length, dealloc);
         rv = blockq_check(s->txbq, current, ba);
-        if (rv != infinity)
-            goto out;          /* error or success; return as-is */
-        /* XXX again, need to just fix the queue stuff */
-        msg_err("thread %ld unable to block; queue full\n", current->tid);
-        rv = -EAGAIN; /* bogus */
     } else if (s->type == SOCK_DGRAM) {
         rv = socket_write_udp(s, source, length);
     } else {
@@ -1124,11 +1108,6 @@ sysreturn sendmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
             blockq_action ba = closure(s->h, sendmmsg_tcp_bh, s, current,
                     buf, len, flags, msgvec, vlen);
             rv = blockq_check(s->txbq, current, ba);
-            if (rv != infinity) {
-                goto out;
-            }
-            msg_err("thread %ld unable to block; queue full\n", current->tid);
-            rv = -EAGAIN;
             break;
         case SOCK_DGRAM:
             rv = socket_write_udp(s, buf, len);
@@ -1140,7 +1119,6 @@ sysreturn sendmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
         }
         msgvec[s->msg_count].msg_len = rv;
     }
-out:
     if (s->msg_count > 0) {
         rv = s->msg_count;
     }
@@ -1160,15 +1138,7 @@ sysreturn recvfrom(int sockfd, void * buf, u64 len, int flags,
         return 0;
 
     blockq_action ba = closure(s->h, sock_read_bh, s, current, buf, len, src_addr, addrlen);
-    sysreturn rv = blockq_check(s->rxbq, current, ba);
-
-    /* We didn't block... */
-    if (rv != infinity)
-        return rv;              /* error or success: return as-is */
-
-    /* XXX same crap */
-    msg_err("thread %d unable to block; queue full\n", current->tid);
-    return set_syscall_error(current, EAGAIN);
+    return blockq_check(s->rxbq, current, ba);
 }
 
 sysreturn recvmsg(int sockfd, struct msghdr *msg, int flags)
@@ -1195,11 +1165,8 @@ sysreturn recvmsg(int sockfd, struct msghdr *msg, int flags)
     blockq_action ba = closure(s->h, recvmsg_bh, s, current, buf, total_len,
             msg);
     sysreturn rv = blockq_check(s->rxbq, current, ba);
-    if (rv != infinity) {
-        return set_syscall_return(current, rv);
-    }
-    msg_err("thread %d unable to block; queue full\n", current->tid);
-    return set_syscall_error(current, EAGAIN);
+    deallocate(s->h, buf, total_len);
+    return rv;
 }
 
 static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t err)
@@ -1316,15 +1283,7 @@ sysreturn accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int fla
 	return set_syscall_error(current, EINVAL);
 
     blockq_action ba = closure(s->h, accept_bh, s, current, addr, addrlen, flags);
-    sysreturn rv = blockq_check(s->rxbq, current, ba);
-
-    /* We didn't block... */
-    if (rv != infinity)
-        return rv;              /* error or success: return as-is */
-
-    /* XXX */
-    msg_err("thread %ld unable to block; queue full\n", current->tid);
-    return set_syscall_error(current, EAGAIN);
+    return blockq_check(s->rxbq, current, ba);
 }
 
 sysreturn accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
