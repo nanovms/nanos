@@ -74,10 +74,12 @@ context default_fault_handler(thread t, context frame)
     return frame;
 }
 
-static CLOSURE_0_3(dummy_read, sysreturn, void *, u64, u64);
-static sysreturn dummy_read(void *dest, u64 length, u64 offset_arg)
+static CLOSURE_0_6(dummy_read, sysreturn,
+        void *, u64, u64, thread, boolean, io_completion);
+static sysreturn dummy_read(void *dest, u64 length, u64 offset_arg, thread t,
+        boolean bh, io_completion completion)
 {
-    thread_log(current, "%s: dest %p, length %ld, offset_arg %ld",
+    thread_log(t, "%s: dest %p, length %ld, offset_arg %ld",
 	       __func__, dest, length, offset_arg);
     return 0;
 }
@@ -89,8 +91,10 @@ static sysreturn std_close(file f)
     return 0;
 }
 
-static CLOSURE_0_3(stdout, sysreturn, void*, u64, u64);
-static sysreturn stdout(void *d, u64 length, u64 offset)
+static CLOSURE_0_6(stdout, sysreturn,
+        void*, u64, u64, thread, boolean, io_completion);
+static sysreturn stdout(void *d, u64 length, u64 offset, thread t, boolean bh,
+        io_completion completion)
 {
     u8 *z = d;
     for (int i = 0; i< length; i++) {

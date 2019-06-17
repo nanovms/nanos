@@ -27,9 +27,11 @@ static void log_write_completion(vector v, status s)
 {
     // reclaim the buffer now and the vector...make it a whole thing
     status_handler i;
-    vector_foreach(v, i)
+    int len = vector_length(v);
+    for (int count = 0; count < len; count++) {
+        i = vector_delete(v, 0);
         apply(i, s);
-    v->start = v->end = 0;
+    }
 }
 
 // xxx  currently we cant take writes during the flush

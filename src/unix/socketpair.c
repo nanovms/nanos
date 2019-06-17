@@ -113,10 +113,11 @@ static inline void sockpair_notify_writer(sockpair_socket s, int events)
     }
 }
 
-static CLOSURE_4_1(sockpair_read_bh, sysreturn, sockpair_socket, thread, void *,
-        u64, boolean);
+static CLOSURE_5_1(sockpair_read_bh, sysreturn,
+        sockpair_socket, thread, void *, u64, io_completion,
+        boolean);
 static sysreturn sockpair_read_bh(sockpair_socket s, thread t, void *dest,
-        u64 length, boolean blocked)
+        u64 length, io_completion completion, boolean blocked)
 {
     buffer b = s->sockpair->data;
     int real_length;
@@ -156,28 +157,31 @@ static sysreturn sockpair_read_bh(sockpair_socket s, thread t, void *dest,
     }
 out:
     if (blocked) {
-        thread_wakeup(t);
+        blockq_set_completion(s->read_bq, completion, t, real_length);
     }
-    return set_syscall_return(t, real_length);
+    return real_length;
 }
 
-static CLOSURE_1_3(sockpair_read, sysreturn, sockpair_socket, void *, u64, u64);
+static CLOSURE_1_6(sockpair_read, sysreturn,
+        sockpair_socket,
+        void *, u64, u64, thread, boolean, io_completion);
 static sysreturn sockpair_read(sockpair_socket s, void *dest, u64 length,
-        u64 offset_arg)
+        u64 offset_arg, thread t, boolean bh, io_completion completion)
 {
     if (length == 0) {
         return 0;
     }
 
-    blockq_action ba = closure(s->sockpair->h, sockpair_read_bh, s, current,
-            dest, length);
-    return blockq_check(s->read_bq, current, ba);
+    blockq_action ba = closure(s->sockpair->h, sockpair_read_bh, s, t,
+            dest, length, completion);
+    return blockq_check(s->read_bq, !bh ? t : 0, ba);
 }
 
-static CLOSURE_4_1(sockpair_write_bh, sysreturn, sockpair_socket, thread,
-        void *, u64, boolean);
+static CLOSURE_5_1(sockpair_write_bh, sysreturn,
+        sockpair_socket, thread, void *, u64, io_completion,
+        boolean);
 static sysreturn sockpair_write_bh(sockpair_socket s, thread t, void *dest,
-        u64 length, boolean blocked)
+        u64 length, io_completion completion, boolean blocked)
 {
     sysreturn rv = 0;
     buffer b = s->sockpair->data;
@@ -207,23 +211,24 @@ static sysreturn sockpair_write_bh(sockpair_socket s, thread t, void *dest,
     rv = real_length;
 out:
     if (blocked) {
-        thread_wakeup(t);
+        blockq_set_completion(s->write_bq, completion, t, rv);
     }
-    return set_syscall_return(t, rv);
+    return rv;
 }
 
-static CLOSURE_1_3(sockpair_write, sysreturn, sockpair_socket, void *, u64,
-        u64);
+static CLOSURE_1_6(sockpair_write, sysreturn,
+        sockpair_socket,
+        void *, u64, u64, thread, boolean, io_completion);
 static sysreturn sockpair_write(sockpair_socket s, void * dest, u64 length,
-        u64 offset)
+        u64 offset, thread t, boolean bh, io_completion completion)
 {
     if (length == 0) {
         return 0;
     }
 
-    blockq_action ba = closure(s->sockpair->h, sockpair_write_bh, s, current,
-            dest, length);
-    return blockq_check(s->write_bq, current, ba);
+    blockq_action ba = closure(s->sockpair->h, sockpair_write_bh, s, t,
+            dest, length, completion);
+    return blockq_check(s->write_bq, !bh ? t : 0, ba);
 }
 
 static CLOSURE_1_3(sockpair_check, boolean, sockpair_socket, u32, u32 *,

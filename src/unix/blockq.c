@@ -96,6 +96,17 @@ static inline void blockq_restart_timer_locked(blockq bq)
     bq->timeout = register_timer(bq->timeout_interval, closure(bq->h, blockq_wake_one, bq));
 }
 
+static void blockq_apply_completion_locked(blockq bq)
+{
+    if (bq->completion) {
+        io_completion completion = bq->completion;
+        bq->completion = 0;
+        /* XXX release spinlock */
+        apply(completion, bq->completion_thread, bq->completion_rv);
+        /* XXX acquire spinlock */
+    }
+}
+
 sysreturn blockq_check(blockq bq, thread t, blockq_action a)
 {
     blockq_debug("for \"%s\", tid %ld, action %p, apply:\n", blockq_name(bq), t->tid, a);
@@ -134,7 +145,10 @@ sysreturn blockq_check(blockq bq, thread t, blockq_action a)
 
     blockq_debug(" - check requires block, sleeping\n");
     /* XXX release spinlock */
-    thread_sleep(t);
+    if (t)
+        thread_sleep(t);
+    else
+        return infinity;
 }
 
 /* Wake all waiters and empty queue, typically for error conditions,
@@ -157,6 +171,7 @@ void blockq_flush(blockq bq)
     while ((a = dequeue(bq->waiters))) {
         blockq_debug(" - applying %p:\n", a);
         apply(a, true);
+        blockq_apply_completion_locked(bq);
     }
 
     blockq_disable_timer(bq);
@@ -178,6 +193,7 @@ void blockq_wake_one(blockq bq)
     blockq_debug("   - returned %ld\n", rv);
     if (rv != 0) {
         assert(dequeue(bq->waiters));
+        blockq_apply_completion_locked(bq);
 
         /* clear timer if this was the last entry */
         if (queue_length(bq->waiters) == 0)
@@ -191,6 +207,14 @@ void blockq_wake_one(blockq bq)
 
     /* XXX release lock */
     
+}
+
+void blockq_set_completion(blockq bq, io_completion completion, thread t,
+        sysreturn rv)
+{
+    bq->completion = completion;
+    bq->completion_thread = t;
+    bq->completion_rv = rv;
 }
 
 blockq allocate_blockq(heap h, char * name, u64 size, timestamp timeout_interval)

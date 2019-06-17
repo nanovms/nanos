@@ -124,7 +124,8 @@ typedef struct thread {
 } *thread;
 
 typedef closure_type(io_completion, void, thread t, sysreturn rv);
-typedef closure_type(io, sysreturn, void *, u64 length, u64 offset);
+typedef closure_type(io, sysreturn, void *buf, u64 length, u64 offset, thread t,
+        boolean bh, io_completion completion);
 
 #include <notify.h>
 
@@ -303,8 +304,10 @@ sysreturn socketpair(int domain, int type, int protocol, int sv[2]);
 int do_eventfd2(unsigned int count, int flags);
 
 void register_special_files(process p);
-sysreturn spec_read(file f, void *dest, u64 length, u64 offset_arg);
-sysreturn spec_write(file f, void *dest, u64 length, u64 offset_arg);
+sysreturn spec_read(file f, void *dest, u64 length, u64 offset_arg, thread t,
+        boolean bh, io_completion completion);
+sysreturn spec_write(file f, void *dest, u64 length, u64 offset_arg, thread t,
+        boolean bh, io_completion completion);
 u32 spec_events(file f);
 
 #define BLOCKQ_NAME_MAX 20
@@ -316,6 +319,9 @@ typedef struct blockq {
     char name[BLOCKQ_NAME_MAX]; /* for debug */
     timer timeout;              /* timeout to protect against stuck queue scenarios */
     timestamp timeout_interval;
+    io_completion completion;
+    thread completion_thread;
+    sysreturn completion_rv;
 } *blockq;
 
 typedef closure_type(blockq_action, sysreturn, boolean);
@@ -325,6 +331,8 @@ void deallocate_blockq(blockq bq);
 sysreturn blockq_check(blockq bq, thread t, blockq_action a);
 void blockq_wake_one(blockq bq);
 void blockq_flush(blockq bq);
+void blockq_set_completion(blockq bq, io_completion completion, thread t,
+        sysreturn rv);
 
 /* Values to pass as first argument to prctl() */
 #define PR_SET_NAME    15               /* Set process name */

@@ -96,12 +96,13 @@ get_special(file f)
 }
 
 sysreturn
-spec_read(file f, void *dest, u64 length, u64 offset)
+spec_read(file f, void *dest, u64 length, u64 offset, thread t, boolean bh,
+        io_completion completion)
 {
     special_file *sf = get_special(f);
     assert(sf);
 
-    thread_log(current, "spec_read: %s", sf->path);
+    thread_log(t, "spec_read: %s", sf->path);
     if (sf->read) {
         sysreturn nr = sf->read(f, dest, length, offset);
         if (nr > 0)
@@ -113,12 +114,13 @@ spec_read(file f, void *dest, u64 length, u64 offset)
 }
 
 sysreturn
-spec_write(file f, void *dest, u64 length, u64 offset)
+spec_write(file f, void *dest, u64 length, u64 offset, thread t, boolean bh,
+        io_completion completion)
 {
     special_file *sf = get_special(f);
     assert(sf);
 
-    thread_log(current, "spec_write: %s", sf->path);
+    thread_log(t, "spec_write: %s", sf->path);
     if (sf->write)
         return sf->write(f, dest, length, offset);
     return 0;

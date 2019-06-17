@@ -344,14 +344,19 @@ static inline boolean filepath_is_ancestor(tuple wd1, const char *fp1,
     return false;
 }
 
+static CLOSURE_0_2(syscall_io_complete, void,
+        thread, sysreturn);
+
 sysreturn read(int fd, u8 *dest, bytes length)
 {
     fdesc f = resolve_fd(current->p, fd);
     if (!f->read)
         return set_syscall_error(current, EINVAL);
+    io_completion completion = closure(heap_general(get_kernel_heaps()),
+            syscall_io_complete);
 
     /* use (and update) file offset */
-    return apply(f->read, dest, length, infinity);
+    return apply(f->read, dest, length, infinity, current, false, completion);
 }
 
 sysreturn pread(int fd, u8 *dest, bytes length, s64 offset)
@@ -359,9 +364,11 @@ sysreturn pread(int fd, u8 *dest, bytes length, s64 offset)
     fdesc f = resolve_fd(current->p, fd);
     if (!f->read || offset < 0)
         return set_syscall_error(current, EINVAL);
+    io_completion completion = closure(heap_general(get_kernel_heaps()),
+            syscall_io_complete);
 
     /* use given offset with no file offset update */
-    return apply(f->read, dest, length, offset);
+    return apply(f->read, dest, length, offset, current, false, completion);
 }
 
 static CLOSURE_6_2(readv_complete, void,
@@ -418,9 +425,11 @@ sysreturn write(int fd, u8 *body, bytes length)
     fdesc f = resolve_fd(current->p, fd);
     if (!f->write)
         return set_syscall_error(current, EINVAL);
+    io_completion completion = closure(heap_general(get_kernel_heaps()),
+            syscall_io_complete);
 
     /* use (and update) file offset */
-    return apply(f->write, body, length, infinity);
+    return apply(f->write, body, length, infinity, current, false, completion);
 }
 
 static CLOSURE_4_2(
@@ -507,7 +516,9 @@ sysreturn pwrite(int fd, u8 *body, bytes length, s64 offset)
     if (!f->write || offset < 0)
         return set_syscall_error(current, EINVAL);
 
-    return apply(f->write, body, length, offset);
+    io_completion completion = closure(heap_general(get_kernel_heaps()),
+            syscall_io_complete);
+    return apply(f->write, body, length, offset, current, false, completion);
 }
 
 sysreturn sysreturn_from_fs_status(fs_status s)
@@ -537,47 +548,60 @@ static boolean is_special(tuple n)
     return table_find(n, sym(special)) ? true : false;
 }
 
-static CLOSURE_4_2(file_op_complete, void, thread, file, fsfile, boolean, status, bytes);
-static void file_op_complete(thread t, file f, fsfile fsf, boolean is_file_offset, status s, bytes length)
+static CLOSURE_5_2(file_op_complete, void,
+        thread, file, fsfile, boolean, io_completion,
+        status, bytes);
+static void file_op_complete(thread t, file f, fsfile fsf,
+        boolean is_file_offset, io_completion completion, status s,
+        bytes length)
 {
-    thread_log(current, "%s: len %d, status %v (%s)", __func__,
+    thread_log(t, "%s: len %d, status %v (%s)", __func__,
             length, s, is_ok(s) ? "OK" : "NOTOK");
+    sysreturn rv;
     if (is_ok(s)) {
         /* if regular file, update length */
         if (fsf)
             f->length = fsfile_get_length(fsf);
         if (is_file_offset) /* vs specified offset (pread) */
             f->offset += length;
-        set_syscall_return(t, length);
+        rv = length;
     } else {
         /* XXX should peek inside s and map to errno... */
-        set_syscall_error(t, EIO);
+        rv = -EIO;
     }
+    apply(completion, t, rv);
+}
+
+static CLOSURE_5_2(sendfile_complete, void,
+        heap, file, int *, void *, bytes,
+        thread, sysreturn);
+static void sendfile_complete(heap h, file in, int *offset, void *buf,
+        bytes len, thread t, sysreturn rv)
+{
+    if (rv > 0) {
+        if (!offset) {
+            in->offset += rv;
+        } else {
+             *offset += rv;
+        }
+    }
+    deallocate(h, buf, len);
+    set_syscall_return(t, rv);
     thread_wakeup(t);
 }
 
 static CLOSURE_6_2(sendfile_read_complete, void, heap, thread, file, fdesc, int*, void*, status, bytes);
 static void sendfile_read_complete(heap h, thread t, file in, fdesc out, int* offset, void* buf, status s, bytes length)
 {
+    sysreturn rv;
+    io_completion completion = closure(h, sendfile_complete, h, in, offset,
+            buf, length);
     if (is_ok(s)) {
-        /* TODO:
-            This has couple of issues.
-            1. We don't wait for write to succeed before updating the offset. 
-            2. buf is leaking, we can't release it unless we know write is done.
-            I am looking at adding a generic completed handler for all file ops (ie sockets, files and pipe),
-            and these completion handler can be invoked from bottom-half of operations allowing to chain 
-            handler and do any necessary clean up.
-        */
-       if(!offset) {
-           in->offset += length;
-       } else {
-            *offset += length;
-       }
-       apply(out->write, buf, length, 0);
+        rv = apply(out->write, buf, length, 0, t, true, completion);
     } else {
-        deallocate(h,buf,length);
-        set_syscall_error(t, EIO);
+        rv = -EIO;
     }
+    apply(completion, t, rv);
 }
 
 // in_fd need to a regular file.
@@ -613,26 +637,35 @@ static sysreturn sendfile(int out_fd, int in_fd, int *offset, bytes count)
 }
 
 
-static CLOSURE_2_3(file_read, sysreturn, file, fsfile, void *, u64, u64);
-static sysreturn file_read(file f, fsfile fsf, void *dest, u64 length, u64 offset_arg)
+static CLOSURE_2_6(file_read, sysreturn,
+        file, fsfile,
+        void *, u64, u64, thread, boolean, io_completion);
+static sysreturn file_read(file f, fsfile fsf, void *dest, u64 length,
+        u64 offset_arg, thread t, boolean bh, io_completion completion)
 {
     boolean is_file_offset = offset_arg == infinity;
     u64 offset = is_file_offset ? f->offset : offset_arg;
-    thread_log(current, "%s: f %p, dest %p, offset %ld (%s), length %ld, file length %ld",
+    thread_log(t, "%s: f %p, dest %p, offset %ld (%s), length %ld, file length %ld",
                __func__, f, dest, offset, is_file_offset ? "file" : "specified",
                length, f->length);
 
     if (is_special(f->n)) {
-        return spec_read(f, dest, length, offset);
+        return spec_read(f, dest, length, offset, t, bh, completion);
     }
 
     if (offset < f->length) {
-        filesystem_read(current->p->fs, f->n, dest, length, offset,
+        filesystem_read(t->p->fs, f->n, dest, length, offset,
                         closure(heap_general(get_kernel_heaps()),
-                                file_op_complete, current, f, fsf, is_file_offset));
+                                file_op_complete, t, f, fsf, is_file_offset,
+                                completion));
 
         /* XXX Presently only support blocking file reads... */
-        thread_sleep(current);
+        if (!bh) {
+            thread_sleep(t);
+        }
+        else {
+            return infinity;
+        }
     } else {
         /* XXX special handling for holes will need to go here */
         return 0;
@@ -641,12 +674,15 @@ static sysreturn file_read(file f, fsfile fsf, void *dest, u64 length, u64 offse
 
 #define PAD_WRITES 0
 
-static CLOSURE_2_3(file_write, sysreturn, file, fsfile, void *, u64, u64);
-static sysreturn file_write(file f, fsfile fsf, void *dest, u64 length, u64 offset_arg)
+static CLOSURE_2_6(file_write, sysreturn,
+        file, fsfile,
+        void *, u64, u64, thread, boolean, io_completion);
+static sysreturn file_write(file f, fsfile fsf, void *dest, u64 length,
+        u64 offset_arg, thread t, boolean bh, io_completion completion)
 {
     boolean is_file_offset = offset_arg == infinity;
     u64 offset = is_file_offset ? f->offset : offset_arg;
-    thread_log(current, "%s: f %p, dest %p, offset %ld (%s), length %ld, file length %ld",
+    thread_log(t, "%s: f %p, dest %p, offset %ld (%s), length %ld, file length %ld",
                __func__, f, dest, offset, is_file_offset ? "file" : "specified",
                length, f->length);
     heap h = heap_general(get_kernel_heaps());
@@ -666,17 +702,23 @@ static sysreturn file_write(file f, fsfile fsf, void *dest, u64 length, u64 offs
     runtime_memcpy(buf, dest, length);
 
     buffer b = wrap_buffer(h, buf, final_length);
-    thread_log(current, "%s: b_ref: %p", __func__, buffer_ref(b, 0));
+    thread_log(t, "%s: b_ref: %p", __func__, buffer_ref(b, 0));
 
     if (is_special(f->n)) {
-        return spec_write(f, b, length, offset);
+        return spec_write(f, b, length, offset, t, bh, completion);
     }
 
-    filesystem_write(current->p->fs, f->n, b, offset,
-                     closure(h, file_op_complete, current, f, fsf, is_file_offset));
+    filesystem_write(t->p->fs, f->n, b, offset,
+                     closure(h, file_op_complete, t, f, fsf, is_file_offset,
+                     completion));
 
     /* XXX Presently only support blocking file writes... */
-    thread_sleep(current);
+    if (!bh) {
+        thread_sleep(t);
+    }
+    else {
+        return infinity;
+    }
 }
 
 static CLOSURE_2_0(file_close, sysreturn, file, fsfile);
