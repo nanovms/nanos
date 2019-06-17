@@ -123,6 +123,7 @@ typedef struct thread {
     queue log[64];
 } *thread;
 
+typedef closure_type(io_completion, void, thread t, sysreturn rv);
 typedef closure_type(io, sysreturn, void *, u64 length, u64 offset);
 
 #include <notify.h>
@@ -281,6 +282,12 @@ static inline sysreturn set_syscall_error(thread t, s32 val)
 static inline sysreturn sysreturn_value(thread t)
 {
     return (sysreturn)t->frame[FRAME_RAX];
+}
+
+static inline void syscall_io_complete(thread t, sysreturn rv)
+{
+    set_syscall_return(t, rv);
+    thread_wakeup(t);
 }
 
 #define resolve_fd_noret(__p, __fd) vector_get(__p->files, __fd)
