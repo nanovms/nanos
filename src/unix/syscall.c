@@ -25,6 +25,11 @@
     cwd; \
 })
 
+struct iov_progress {
+    int count;
+    u64 total_len;
+};
+
 void register_other_syscalls(struct syscall *map)
 {
     register_syscall(map, rt_sigreturn, 0);
@@ -347,6 +352,62 @@ static inline boolean filepath_is_ancestor(tuple wd1, const char *fp1,
 static CLOSURE_0_2(syscall_io_complete, void,
         thread, sysreturn);
 
+static CLOSURE_7_2(
+        iov_transfer, void,
+        heap, file, io, struct iovec *, int, struct iov_progress *, boolean,
+        thread, sysreturn);
+static void iov_transfer(
+        heap h, file f, io op, struct iovec *iov, int iovcnt,
+        struct iov_progress *progress, boolean bh, thread t, sysreturn rv)
+{
+    boolean do_io = !bh;
+    io_completion completion = closure(h, iov_transfer, h, f, op, iov, iovcnt,
+            progress, true);
+    for (; progress->count < iovcnt; progress->count++) {
+        u64 len = iov[progress->count].iov_len;
+        if (len == 0) {
+            continue;
+        }
+        if (do_io) {
+            thread_log(t, "%s %d/%d%s", __func__, progress->count + 1, iovcnt,
+                    bh ? " BH" : "");
+            rv = apply(op, iov[progress->count].iov_base, len, f->offset, t, bh,
+                    completion);
+            if (rv == infinity) {
+                return;
+            }
+        }
+        if (rv > 0) {
+            f->offset += rv;
+            progress->total_len += rv;
+        }
+        if (rv != len) {
+            break;
+        }
+        do_io = true;
+    }
+    if (progress->total_len > 0) {
+        rv = progress->total_len;
+    }
+    deallocate(h, progress, sizeof(*progress));
+    set_syscall_return(t, rv);
+    if (bh) {
+        thread_wakeup(t);
+    }
+}
+
+static sysreturn iov_internal(file f, io op, struct iovec *iov, int iovcnt)
+{
+    if (!op || iovcnt < 0) {
+        return set_syscall_error(current, EINVAL);
+    }
+    heap h = heap_general(get_kernel_heaps());
+    struct iov_progress *progress = allocate(h, sizeof(struct iov_progress));
+    runtime_memset((void *)progress, 0, sizeof(*progress));
+    iov_transfer(h, f, op, iov, iovcnt, progress, false, current, 0);
+    return sysreturn_value(current);
+}
+
 sysreturn read(int fd, u8 *dest, bytes length)
 {
     fdesc f = resolve_fd(current->p, fd);
@@ -371,53 +432,10 @@ sysreturn pread(int fd, u8 *dest, bytes length, s64 offset)
     return apply(f->read, dest, length, offset, current, false, completion);
 }
 
-static CLOSURE_6_2(readv_complete, void,
-    heap, thread, file, struct iovec*, u8*, u64,
-    status, u64);
-static void readv_complete(
-    heap h, thread t, file f, struct iovec *iov, u8* read_bytes, u64 total_len,
-    status s, u64 read_len)
-{
-    int curr_pos = 0;
-    int iv = 0;
-    if (is_ok(s)) {
-
-        while (curr_pos < read_len) {
-            struct iovec iovector = iov[iv];
-            int to_read = (iovector.iov_len < read_len - curr_pos) ? iovector.iov_len : read_len - curr_pos;
-            runtime_memcpy(iovector.iov_base, read_bytes + curr_pos, to_read);
-            curr_pos += iovector.iov_len;
-            iv += 1;
-        }
-        deallocate(h, read_bytes, total_len);
-        set_syscall_return(t, read_len);
-
-        f->offset += total_len;
-    }
-    else
-        set_syscall_error(t, EINVAL);
-
-    thread_wakeup(t);
-}
-
 sysreturn readv(int fd, struct iovec *iov, int iovcnt)
 {
-    u64 total_len = 0;
-    heap h = heap_general(get_kernel_heaps());
-
     file f = resolve_fd(current->p, fd);
-    if (!f->f.read || iovcnt < 0)
-        return set_syscall_error(current, EINVAL);
-
-    for (int i = 0; i < iovcnt; i++)
-        total_len = iov[i].iov_len + total_len;
-
-    u8 *read_bytes = allocate(h, total_len);
-
-    filesystem_read(current->p->fs, f->n, read_bytes, total_len, f->offset,
-                    closure(h, readv_complete, h, current, f, iov, read_bytes, total_len));
-
-    thread_sleep(current);
+    return iov_internal(f, f->f.read, iov, iovcnt);
 }
 
 sysreturn write(int fd, u8 *body, bytes length)
@@ -432,82 +450,10 @@ sysreturn write(int fd, u8 *body, bytes length)
     return apply(f->write, body, length, infinity, current, false, completion);
 }
 
-static CLOSURE_4_2(
-        writev_buf_complete, void,
-        heap, buffer, bytes *, status_handler,
-        status, u64);
-static void writev_buf_complete(
-        heap h, buffer buf, bytes *total_bytes_written, status_handler sh,
-        status s, bytes bytes_written)
-{
-    if (is_ok(s)) {
-        *total_bytes_written += bytes_written;
-    }
-
-    unwrap_buffer(h, buf);
-
-    apply(sh, s);
-}
-
-static CLOSURE_4_1(
-        writev_complete, void,
-        heap, thread, file, bytes *,
-        status);
-static void writev_complete(
-        heap h, thread t, file f, bytes *total_bytes_written,
-        status s)
-{
-    f->offset = f->offset + *total_bytes_written;
-
-    /*
-     * According to man 2 writev, we should handle final status differently than merge_join() does:
-     * - merge_join() sets succeeds if ALL suboperations succeeded,
-     *   i.e. fail if any of suboperations had failed
-     * - writev() must succeed if ANY write succeeded,
-     *   i.e. fail only if ALL writes failed
-     * Because of that, we ignoring passed status here and rely on total_bytes written,
-     * which gets updated only if any suboperation had succeeded.
-     */
-    if (*total_bytes_written > 0) {
-        set_syscall_return(t, *total_bytes_written);
-    } else {
-        set_syscall_error(t, EIO);
-    }
-
-    deallocate(h, total_bytes_written, sizeof(*total_bytes_written));
-
-    thread_wakeup(t);
-}
-
 sysreturn writev(int fd, struct iovec *iov, int iovcnt)
 {
-    heap h = heap_general(get_kernel_heaps());
-
     file f = resolve_fd(current->p, fd);
-    if (!f->f.read || iovcnt < 0)
-        return set_syscall_error(current, EINVAL);
-
-    bytes *total_bytes_written = allocate(h, sizeof(*total_bytes_written));
-    *total_bytes_written = 0;
-    merge m = allocate_merge(h, closure(h, writev_complete, h, current, f, total_bytes_written));
-
-    u64 total_len = 0;
-    u64 curr_pos = f->offset;
-    for (int i = 0; i < iovcnt; i++) {
-        void *base = iov[i].iov_base;
-        u64 len = iov[i].iov_len;
-
-        buffer buf = wrap_buffer(h, base, len);
-
-        status_handler buf_sh = apply_merge(m);
-        filesystem_write(current->p->fs, f->n, buf, curr_pos,
-                         closure(h, writev_buf_complete, h, buf, total_bytes_written, buf_sh));
-
-        curr_pos += len;
-        total_len += len;
-    }
-
-    thread_sleep(current);
+    return iov_internal(f, f->f.write, iov, iovcnt);
 }
 
 sysreturn pwrite(int fd, u8 *body, bytes length, s64 offset)
