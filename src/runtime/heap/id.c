@@ -97,6 +97,27 @@ static u64 id_alloc_from_range(id_heap i, id_range r, u64 pages)
     return r->n.r.start + offset;
 }
 
+/* Allocate an ID greater than or equal to min. */
+static u64 id_alloc_from_range_gte(id_heap i, id_range r, u64 pages, u64 min)
+{
+    u64 bit = bitmap_alloc_with_offset(r->b, pages, min);
+    if (bit == INVALID_PHYSICAL) {
+        return bit;
+    }
+    else if (bit < min) {
+        /* Couldn't find an ID greater than or equal to min. */
+        bitmap_dealloc(r->b, bit, pages);
+        return INVALID_PHYSICAL;
+    }
+    u64 offset = bit << page_order(i);
+    i->h.allocated += pages << page_order(i);
+#ifdef ID_HEAP_DEBUG
+    msg_debug("heap %p, pages %ld: got offset (%ld << %ld = %lx)\t>%lx\n",
+          i, pages, bit, page_order(i), offset, r->n.r.start + offset);
+#endif
+    return r->n.r.start + offset;
+}
+
 static u64 id_alloc(heap h, bytes count)
 {
     id_heap i = (id_heap)h;
@@ -236,6 +257,22 @@ void id_heap_set_randomize(heap h, boolean randomize)
 {
     id_heap i = (id_heap)h;
     i->flags = randomize ? i->flags | ID_HEAP_FLAG_RANDOMIZE : i->flags & ~ID_HEAP_FLAG_RANDOMIZE;
+}
+
+/* Allocate an ID greater than or equal to min. */
+u64 id_heap_alloc_gte(heap h, u64 min)
+{
+    id_heap i = (id_heap)h;
+    u64 pages = pages_from_bytes(i, 1);
+    id_range r = (id_range)rangemap_first_node(i->ranges);
+    while (r != INVALID_ADDRESS) {
+        u64 a = id_alloc_from_range_gte(i, r, pages, min);
+        if (a != INVALID_PHYSICAL) {
+            return a;
+        }
+        r = (id_range)rangemap_next_node(i->ranges, (rmnode)r);
+    }
+    return INVALID_PHYSICAL;
 }
 
 heap create_id_heap(heap h, u64 base, u64 length, bytes pagesize)

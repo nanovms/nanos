@@ -6,6 +6,7 @@
 #define MAX_PAGE_ORDER		12
 #define LENGTH_ORDER		16
 #define RANDOM_TEST_PASSES	100
+#define GTE_TEST_MAX		512
 
 static boolean basic_test(heap h)
 {
@@ -167,6 +168,76 @@ heap allocate_rangeheap(heap meta, bytes pagesize)
     return h;
 }
 
+static boolean alloc_gte_test(heap h)
+{
+    heap idh = create_id_heap(h, 0, GTE_TEST_MAX, 1);
+    if (idh == INVALID_ADDRESS) {
+        msg_err("cannot create heap\n");
+        return false;
+    }
+    if (id_heap_alloc_gte(idh, GTE_TEST_MAX) != INVALID_PHYSICAL) {
+        msg_err("allocation should have failed for id %ld\n", GTE_TEST_MAX);
+        return false;
+    }
+    for (u64 id = 0; id < GTE_TEST_MAX; id++) {
+        u64 allocated = id_heap_alloc_gte(idh, id);
+        if (allocated != id) {
+            if (allocated == INVALID_PHYSICAL) {
+                msg_err("allocation failed for id %ld\n", id);
+                return false;
+            }
+            else {
+                msg_err("allocation returned %ld, expecting %ld\n", allocated,
+                        id);
+                return false;
+            }
+        }
+    }
+    for (u64 id = 0; id < GTE_TEST_MAX; id++) {
+        deallocate_u64(idh, id, 1);
+    }
+    for (u64 id = GTE_TEST_MAX - 1; (s64)id >= 0; id--) {
+        u64 allocated = id_heap_alloc_gte(idh, id);
+        if (allocated != id) {
+            if (allocated == INVALID_PHYSICAL) {
+                msg_err("allocation failed for id %ld\n", id);
+                return false;
+            }
+            else {
+                msg_err("allocation returned %ld, expecting %ld\n", allocated,
+                        id);
+                return false;
+            }
+        }
+    }
+    for (u64 id = 0; id < GTE_TEST_MAX; id++) {
+        deallocate_u64(idh, id, 1);
+    }
+    for (u64 id = 0; ; id++) {
+        u64 allocated = id_heap_alloc_gte(idh, 0);
+        if (allocated == INVALID_PHYSICAL) {
+            if (id != GTE_TEST_MAX) {
+                msg_err("allocation failed for id %ld\n", id);
+                return false;
+            }
+            break;
+        }
+        else if (id == GTE_TEST_MAX) {
+            msg_err("allocation should have failed for id %ld\n", GTE_TEST_MAX);
+            return false;
+        }
+    }
+    for (u64 id = GTE_TEST_MAX - 1; (s64)id >= 0; id--) {
+        deallocate_u64(idh, id, 1);
+    }
+    if (idh->allocated > 0) {
+        msg_err("heap allocated is %d, should be zero\n", idh->allocated);
+        return false;
+    }
+    idh->destroy(idh);
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     heap h = init_process_runtime();
@@ -182,6 +253,9 @@ int main(int argc, char **argv)
 	if (!random_test(h, rh, order, RANDOM_TEST_PASSES))
 	    goto fail;
     }
+
+    if (!alloc_gte_test(h))
+        goto fail;
 
     msg_debug("test passed\n");
     exit(EXIT_SUCCESS);

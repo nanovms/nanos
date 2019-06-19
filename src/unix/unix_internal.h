@@ -200,6 +200,9 @@ void fdesc_init(fdesc f, int type);
 
 u64 allocate_fd(process p, void *f);
 
+/* Allocate a file descriptor greater than or equal to min. */
+u64 allocate_fd_gte(process p, u64 min, void *f);
+
 void deallocate_fd(process p, int fd);
 
 void init_vdso(heap, heap);
