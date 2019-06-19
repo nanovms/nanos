@@ -557,10 +557,6 @@ static sysreturn socket_write(sock s, void *source, u64 length, u64 offset,
 static CLOSURE_1_3(socket_check, boolean, sock, u32, u32 *, event_handler);
 static boolean socket_check(sock s, u32 eventmask, u32 * last, event_handler eh)
 {
-    /* We don't want listen sockets to follow edge trigger behavior... */
-    if (s->type == SOCK_STREAM && s->info.tcp.state == TCP_SOCK_LISTENING)
-        last = 0;
-
     u32 events = socket_poll_events(s);
     u32 report = edge_events(events, eventmask, last);
     net_debug("sock %d, type %d, eventmask %x, last %d, events %x, report %x\n",
@@ -1306,7 +1302,9 @@ static sysreturn accept_bh(sock s, thread t, struct sockaddr *addr, socklen_t *a
     if (addrlen)
         *addrlen = sizeof(struct sockaddr);
 
-    notify_sock(s);
+    /* report falling edge in case of edge trigger */
+    if (queue_length(s->incoming) == 0)
+        notify_sock(s);
 
     /* release slot in lwIP listen backlog */
     tcp_backlog_accepted(sn->info.tcp.lw);
