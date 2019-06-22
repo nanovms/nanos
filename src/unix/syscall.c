@@ -674,12 +674,9 @@ static sysreturn file_close(file f, fsfile fsf)
     return 0;
 }
 
-static CLOSURE_2_3(file_check, boolean, file, fsfile, u32, u32 *, event_handler);
-static boolean file_check(file f, fsfile fsf, u32 eventmask, u32 * last, event_handler eh)
+static CLOSURE_1_0(file_events, u32, file);
+static u32 file_events(file f)
 {
-    thread_log(current, "file_check: f %p, eventmask %x, last %x, event_handler %p",
-               f, eventmask, last ? *last : 0, eh);
-
     u32 events;
     if (is_special(f->n)) {
         events = spec_events(f);
@@ -688,19 +685,7 @@ static boolean file_check(file f, fsfile fsf, u32 eventmask, u32 * last, event_h
         events = f->length < infinity ? EPOLLOUT : 0;
         events |= f->offset < f->length ? EPOLLIN : EPOLLHUP;
     }
-    u32 report = edge_events(events, eventmask, last);
-    /* bring in notify_set if we want threads to properly pick up file
-       updates via select/poll */
-    if (report) {
-        if (apply(eh, report)) {
-            if (last)
-                *last = events & eventmask;
-            return true;
-        } else {
-            return false;
-        }
-    }
-    return true;
+    return events;
 }
 
 static int file_type_from_tuple(tuple n)
@@ -765,11 +750,11 @@ sysreturn open_internal(tuple cwd, const char *name, int flags, int mode)
         return set_syscall_error(current, EMFILE);
     }
 
-    fdesc_init(&f->f, type);
+    init_fdesc(h, &f->f, type);
     f->f.read = closure(h, file_read, f, fsf);
     f->f.write = closure(h, file_write, f, fsf);
     f->f.close = closure(h, file_close, f, fsf);
-    f->f.check = closure(h, file_check, f, fsf);
+    f->f.events = closure(h, file_events, f);
     f->f.flags = flags;
     f->n = n;
     f->length = length;

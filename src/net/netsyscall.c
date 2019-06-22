@@ -112,8 +112,6 @@ typedef struct sock {
     blockq rxbq;                 /* for incoming queue */
     queue incoming;
     blockq txbq;                 /* for lwip protocol tx buffer */
-    notify_set ns;
-    // the notion is that 'waiters' should take priority    
     int fd;
     err_t lwip_error;           /* lwIP error code; ERR_OK if normal */
     unsigned int msg_count;
@@ -138,7 +136,8 @@ typedef struct sock {
 #define net_debug(x, ...)
 #endif
 
-static inline u32 socket_poll_events(sock s)
+static CLOSURE_1_0(socket_events, u32, sock);
+static inline u32 socket_events(sock s)
 {
     boolean in = queue_length(s->incoming) > 0;
 
@@ -162,9 +161,9 @@ static inline u32 socket_poll_events(sock s)
 
 static inline void notify_sock(sock s)
 {
-    u32 events = socket_poll_events(s);
+    u32 events = socket_events(s);
     net_debug("sock %d, events %lx\n", s->fd, events);
-    notify_dispatch(s->ns, events);
+    notify_dispatch(s->f.ns, events);
 }
 
 /* May be called from irq/softirq */
@@ -554,28 +553,6 @@ static sysreturn socket_write(sock s, void *source, u64 length, u64 offset,
     return socket_write_internal(s, source, length, t, bh, completion);
 }
 
-static CLOSURE_1_3(socket_check, boolean, sock, u32, u32 *, event_handler);
-static boolean socket_check(sock s, u32 eventmask, u32 * last, event_handler eh)
-{
-    u32 events = socket_poll_events(s);
-    u32 report = edge_events(events, eventmask, last);
-    net_debug("sock %d, type %d, eventmask %x, last %d, events %x, report %x\n",
-	      s->fd, s->type, eventmask, last ? *last : -1, events, report);
-    if (report) {
-        if (apply(eh, report)) {
-            if (last)
-                *last = events & eventmask;
-            return true;
-        } else {
-            return false;
-        }
-    } else {
-	if (!notify_add(s->ns, eventmask, last, eh))
-	    msg_err("notify enqueue fail: out of memory\n");
-    }
-    return true;
-}
-
 static CLOSURE_1_2(socket_ioctl, sysreturn, sock, unsigned long, vlist);
 static sysreturn socket_ioctl(sock s, unsigned long request, vlist ap)
 {
@@ -694,12 +671,12 @@ static int allocate_sock(process p, int type, u32 flags, sock * rs)
 	unix_cache_free(get_unix_heaps(), socket, s);
 	return -EMFILE;
     }
-    fdesc_init(&s->f, FDESC_TYPE_SOCKET);
     heap h = heap_general(get_kernel_heaps());
+    init_fdesc(h, &s->f, FDESC_TYPE_SOCKET);
     s->f.read = closure(h, socket_read, s);
     s->f.write = closure(h, socket_write, s);
     s->f.close = closure(h, socket_close, s);
-    s->f.check = closure(h, socket_check, s);
+    s->f.events = closure(h, socket_events, s);
     s->f.ioctl = closure(h, socket_ioctl, s);
     s->f.flags = flags;
     s->type = type;
@@ -708,7 +685,6 @@ static int allocate_sock(process p, int type, u32 flags, sock * rs)
     s->incoming = allocate_queue(h, SOCK_QUEUE_LEN);
     s->rxbq = allocate_blockq(h, "sock receive", SOCK_BLOCKQ_LEN, 0 /* XXX */);
     s->txbq = allocate_blockq(h, "sock transmit", SOCK_BLOCKQ_LEN, 0 /* XXX */);
-    s->ns = allocate_notify_set(h);
     s->fd = fd;
     set_lwip_error(s, ERR_OK);
     *rs = s;

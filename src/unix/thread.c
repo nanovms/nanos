@@ -294,7 +294,7 @@ void run_thread(thread t)
 
     // XXX Keeping interrupts disabled during thread execution;
     // debugging race condition found with epoll
-    //    running_frame[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
+    running_frame[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
     IRETURN(running_frame);
 }
 
