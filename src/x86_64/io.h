@@ -14,6 +14,13 @@ static inline void out32(u32 port, u32 data)
     __asm __volatile("outl %0, %w1" : : "a" (data), "Nd" (port));
 }
 
+static inline void outs32(u32 port, const void *addr, u32 count)
+{
+        __asm __volatile("cld; rep; outsl"
+                         : "+S" (addr), "+c" (count)
+                         : "d" (port));
+}
+
 static inline u8 in8(u32 port)
 {
     unsigned char ret;
@@ -36,3 +43,10 @@ static inline u32 in32(u32 port)
     return (data);
 }
 
+static inline void ins32(u32 port, void *addr, u32 count)
+{
+        __asm __volatile("cld; rep; insl"
+                         : "+D" (addr), "+c" (count)
+                         : "d" (port)
+                         : "memory");
+}
