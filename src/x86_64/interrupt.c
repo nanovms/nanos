@@ -356,8 +356,6 @@ void register_interrupt(int vector, thunk t)
     handlers[vector] = t;
 }
 
-extern timestamp now_kvm();
-
 static u32 apic_timer_cal_sec;
 
 /* ugh, don't want to slow down the boot this much...see if we can
@@ -366,10 +364,7 @@ static u32 apic_timer_cal_sec;
 void calibrate_lapic_timer()
 {
     apic_write(APIC_TMRINITCNT, -1u);
-    timestamp a = now_kvm();
-    timestamp b = a + milliseconds(10);
-    while(now_kvm() < b)
-        ;
+    kern_sleep(milliseconds(10));
     u32 delta = -1u - apic_read(APIC_TMRCURRCNT);
     apic_set(APIC_LVT_TMR, APIC_LVT_INTMASK);
     apic_timer_cal_sec = (1000 / CALIBRATE_DURATION_MS) * delta;

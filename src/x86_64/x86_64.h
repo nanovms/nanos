@@ -127,6 +127,7 @@ static inline u64 rdtsc(void)
 
 void init_clock(kernel_heaps kh);
 boolean using_lapic_timer(void);
+void kern_sleep(timestamp delta);
 void serial_out(u8 a);
 
 // tuples
