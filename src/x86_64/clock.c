@@ -74,6 +74,13 @@ timestamp uptime() {
     return clock_function();
 }
 
+void kern_sleep(timestamp delta)
+{
+    timestamp end = now() + delta;
+    while (now() < end)
+        asm volatile("pause");
+}
+
 /* system timer that is reserved for processing the global timer heap */
 void runloop_timer(timestamp duration)
 {
