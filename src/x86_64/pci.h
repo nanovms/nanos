@@ -1,7 +1,10 @@
 #pragma once
 
+/* PCI config register */
 #define PCIR_VENDOR     0x00
 #define PCIR_DEVICE     0x02
+#define PCIR_SUBCLASS   0x0a
+#define PCIR_CLASS      0x0b
 #define PCIR_MEMBASE0_2 0x1c
 #define PCIR_MEMLIMIT0_2 0x20
 #define PCIR_MEMBASE1_2 0x24
@@ -10,6 +13,12 @@
 #define PCIR_IOLIMITL_1 0x1d
 #define PCIR_IOBASEH_1  0x30
 #define PCIR_IOLIMITH_1 0x32
+
+/* PCI device class */
+#define PCIC_STORAGE 0x01
+
+/* PCI device subclass */
+#define PCIS_STORAGE_IDE 0x01
 
 typedef struct pci_dev *pci_dev;
 
@@ -30,6 +39,16 @@ static inline u16 pci_get_vendor(pci_dev dev)
 static inline u16 pci_get_device(pci_dev dev)
 {
     return pci_cfgread(dev, PCIR_DEVICE, 2);
+}
+
+static inline u16 pci_get_class(pci_dev dev)
+{
+    return pci_cfgread(dev, PCIR_CLASS, 1);
+}
+
+static inline u16 pci_get_subclass(pci_dev dev)
+{
+    return pci_cfgread(dev, PCIR_SUBCLASS, 1);
 }
 
 u32 pci_readbar(pci_dev dev, int bid, u32 *length);
