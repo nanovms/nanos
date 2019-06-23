@@ -83,13 +83,21 @@ runtime-tests runtime-tests-noaccel:
 .PHONY: run run-bridge run-nokvm
 
 QEMU=		qemu-system-x86_64
+STORAGE=	virtio-scsi
 
 QEMU_MEMORY=	-m 2G
 QEMU_DISPLAY=	-display none
 QEMU_SERIAL=	-serial stdio
 QEMU_STORAGE=	-drive if=none,id=hd0,format=raw,file=$(IMAGE)
-#QEMU_STORAGE+= -device virtio-blk,drive=hd0
+ifeq ($(STORAGE),virtio-scsi)
 QEMU_STORAGE+=	-device virtio-scsi-pci,id=scsi0 -device scsi-hd,bus=scsi0.0,drive=hd0
+else ifeq ($(STORAGE),virtio-blk)
+QEMU_STORAGE+=	-device virtio-blk,drive=hd0
+else ifeq ($(STORAGE),ide)
+QEMU_STORAGE+=	-device piix4-ide,id=ide0 -device ide-hd,bus=ide0.0,drive=hd0,bootindex=0
+else
+$(error Unsupported STORAGE=$(STORAGE))
+endif
 QEMU_TAP=	-netdev tap,id=n0,ifname=tap0,script=no,downscript=no
 QEMU_NET=	-device virtio-net,mac=7e:b8:7e:87:4a:ea,netdev=n0 $(QEMU_TAP)
 QEMU_USERNET=	-device virtio-net,netdev=n0 -netdev user,id=n0,hostfwd=tcp::8080-:8080,hostfwd=tcp::9090-:9090,hostfwd=udp::5309-:5309

@@ -4,6 +4,7 @@ PROGRAMS=	stage3.img
 SRCS-stage3.img= \
 	$(CURDIR)/stage3.c \
 	$(OBJDIR)/gitversion.c \
+	$(SRCDIR)/drivers/ata-pci.c \
 	$(SRCDIR)/drivers/storage.c \
 	$(SRCDIR)/gdb/gdbstub.c \
 	$(SRCDIR)/gdb/gdbtcp.c \
