@@ -87,13 +87,5 @@ func runAndWaitForString(rconfig *lepton.RunConfig, timeout time.Duration, text 
 	case <-done:
 		break
 	}
-
-	// XXX for some odd reason, enabling interrupts during thread
-	// execution means sometimes the server isn't quite ready to
-	// accept a connection, despite the "Server started" banner
-	// being printed. Investigate the cause of this, or whether
-	// this is even a bug.
-	time.Sleep(2 * time.Second)
-
 	return hypervisor
 }
