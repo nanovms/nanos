@@ -18,8 +18,9 @@ boolean basic_test(heap h)
 
     /* null vec test */
     if (vector_pop(v) ||
-        vector_peek(v)) {
-        msg = "null vector pop / peek fail";
+        vector_peek(v) ||
+        vector_delete(v, 0)) {
+        msg = "null vector pop / peek / delete fail";
         goto fail;
     }
 
@@ -85,6 +86,23 @@ boolean basic_test(heap h)
 
     if (i != n) {
         msg = "foreach: iterations doesn't match length";
+        goto fail;
+    }
+
+    for (i = 0; i < 8; i++) {
+        if ((long)vector_delete(v, 0) != i) {
+            msg = "delete: content mismatch";
+            goto fail;
+        }
+    }
+    for (i = 10; i < 20; i++) {
+        if ((long)vector_delete(v, 2) != i) {
+            msg = "delete: content mismatch";
+            goto fail;
+        }
+    }
+    if (vector_length(v) != n - 8 - 10) {
+        msg = "delete: wrong vector length";
         goto fail;
     }
 

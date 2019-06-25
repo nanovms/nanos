@@ -25,6 +25,24 @@ static inline int vector_length(vector v)
     return buffer_length(v)/sizeof(void *);
 }
 
+static inline void *vector_delete(vector v, int offset)
+{
+    void *res;
+    bytes base = v->start + offset * sizeof(void *);
+    if ((base + sizeof(void *)) > v->end) {
+        return 0;
+    }
+    runtime_memcpy(&res, v->contents + base, sizeof(void *));
+    int len = vector_length(v);
+    for (; offset < len - 1; offset++) {
+        base = v->start + offset * sizeof(void *);
+        runtime_memcpy(v->contents + base, v->contents + base + sizeof(void *),
+                sizeof(void *));
+    }
+    v->end -= sizeof(void *);
+    return res;
+}
+
 static inline vector allocate_vector(heap h, int length)
 {
     return allocate_buffer(h, length * sizeof (void *));

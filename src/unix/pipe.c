@@ -112,8 +112,11 @@ static sysreturn pipe_close(pipe_file pf)
     return 0;
 }
 
-static CLOSURE_4_1(pipe_read_bh, sysreturn, pipe_file, thread, void *, u64, boolean);
-static sysreturn pipe_read_bh(pipe_file pf, thread t, void *dest, u64 length, boolean blocked)
+static CLOSURE_5_1(pipe_read_bh, sysreturn,
+        pipe_file, thread, void *, u64, io_completion,
+        boolean);
+static sysreturn pipe_read_bh(pipe_file pf, thread t, void *dest, u64 length,
+        io_completion completion, boolean blocked)
 {
     buffer b = pf->pipe->data;
     int real_length = MIN(buffer_length(b), length);
@@ -134,32 +137,30 @@ static sysreturn pipe_read_bh(pipe_file pf, thread t, void *dest, u64 length, bo
     }
   out:
     if (blocked)
-        thread_wakeup(t);
+        blockq_set_completion(pf->bq, completion, t, real_length);
 
-    return set_syscall_return(t, real_length);
+    return real_length;
 }
 
-static CLOSURE_1_3(pipe_read, sysreturn, pipe_file, void *, u64, u64);
-static sysreturn pipe_read(pipe_file pf, void *dest, u64 length, u64 offset_arg)
+static CLOSURE_1_6(pipe_read, sysreturn,
+        pipe_file,
+        void *, u64, u64, thread, boolean, io_completion);
+static sysreturn pipe_read(pipe_file pf, void *dest, u64 length, u64 offset_arg,
+        thread t, boolean bh, io_completion completion)
 {
     if (length == 0)
         return 0;
 
-    blockq_action ba = closure(pf->pipe->h, pipe_read_bh, pf, current, dest, length);
-    sysreturn rv = blockq_check(pf->bq, current, ba);
-
-    /* direct return */
-    if (rv != infinity)
-        return rv;
-
-    /* XXX ideally we could just prevent this case if we had growing
-       queues... for now bark and return EAGAIN */
-    msg_err("thread %ld unable to block; queue full\n", current->tid);
-    return -EAGAIN;
+    blockq_action ba = closure(pf->pipe->h, pipe_read_bh, pf, t, dest, length,
+            completion);
+    return blockq_check(pf->bq, !bh ? t : 0, ba);
 }
 
-static CLOSURE_4_1(pipe_write_bh, sysreturn, pipe_file, thread, void *, u64, boolean);
-static sysreturn pipe_write_bh(pipe_file pf, thread t, void *dest, u64 length, boolean blocked)
+static CLOSURE_5_1(pipe_write_bh, sysreturn,
+        pipe_file, thread, void *, u64, io_completion,
+        boolean);
+static sysreturn pipe_write_bh(pipe_file pf, thread t, void *dest, u64 length,
+        io_completion completion, boolean blocked)
 {
     sysreturn rv = 0;
     pipe p = pf->pipe;
@@ -184,27 +185,23 @@ static sysreturn pipe_write_bh(pipe_file pf, thread t, void *dest, u64 length, b
     rv = real_length;
   out:
     if (blocked)
-        thread_wakeup(t);
+        blockq_set_completion(pf->bq, completion, t, rv);
 
-    return set_syscall_return(t, rv);
+    return rv;
 }
 
-static CLOSURE_1_3(pipe_write, sysreturn, pipe_file, void *, u64, u64);
-static sysreturn pipe_write(pipe_file pf, void * dest, u64 length, u64 offset)
+static CLOSURE_1_6(pipe_write, sysreturn,
+        pipe_file,
+        void *, u64, u64, thread, boolean, io_completion);
+static sysreturn pipe_write(pipe_file pf, void * dest, u64 length, u64 offset,
+        thread t, boolean bh, io_completion completion)
 {
     if (length == 0)
         return 0;
 
-    blockq_action ba = closure(pf->pipe->h, pipe_write_bh, pf, current, dest, length);
-    sysreturn rv = blockq_check(pf->bq, current, ba);
-
-    /* direct return */
-    if (rv != infinity)
-        return rv;
-
-    /* bogus */
-    msg_err("thread %ld unable to block; queue full\n", current->tid);
-    return set_syscall_error(current, EAGAIN);
+    blockq_action ba = closure(pf->pipe->h, pipe_write_bh, pf, t, dest, length,
+            completion);
+    return blockq_check(pf->bq, !bh ? t : 0, ba);
 }
 
 static boolean pipe_check_internal(pipe_file pf, u32 events, u32 eventmask,

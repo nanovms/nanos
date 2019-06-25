@@ -267,11 +267,12 @@ struct udp_entry {
 };
 
 /* called with corresponding blockq lock held */
-static CLOSURE_6_1(sock_read_bh, sysreturn, sock, thread, void *, u64,
-		   struct sockaddr *, socklen_t *, boolean);
+static CLOSURE_7_1(sock_read_bh, sysreturn,
+        sock, thread, void *, u64, struct sockaddr *, socklen_t *, io_completion,
+        boolean);
 static sysreturn sock_read_bh(sock s, thread t, void *dest, u64 length,
                               struct sockaddr *src_addr, socklen_t *addrlen,
-                              boolean blocked)
+                              io_completion completion, boolean blocked)
 {
     sysreturn rv = 0;
     err_t err = get_lwip_error(s);
@@ -354,22 +355,18 @@ static sysreturn sock_read_bh(sock s, thread t, void *dest, u64 length,
     rv = xfer_total;
   out:
     if (blocked)
-        thread_wakeup(t);
+        blockq_set_completion(s->rxbq, completion, t, rv);
     net_debug("   returning %ld\n", rv);
-    return set_syscall_return(t, rv);
+    return rv;
 }
 
-static CLOSURE_5_1(recvmsg_bh, sysreturn, sock, thread, void *, u64,
-        struct msghdr *, boolean);
-static sysreturn recvmsg_bh(sock s, thread t, void *dest, u64 length,
-        struct msghdr *msg, boolean blocked)
+static CLOSURE_5_2(
+        recvmsg_complete, void,
+        sock, struct msghdr *, void *, u64, boolean,
+        thread, sysreturn);
+static void recvmsg_complete(sock s, struct msghdr *msg, void *dest, u64 length,
+        boolean blocked, thread t, sysreturn rv)
 {
-    sysreturn rv = sock_read_bh(s, t, dest, length, msg->msg_name,
-            &msg->msg_namelen, blocked);
-    if (rv == infinity) {
-        return rv;
-    }
-
     s64 offset = 0;
     int iv = 0;
     while (offset < rv) {
@@ -383,38 +380,46 @@ static sysreturn recvmsg_bh(sock s, thread t, void *dest, u64 length,
     deallocate(s->h, dest, length);
     msg->msg_controllen = 0;
     msg->msg_flags = 0;
-    return set_syscall_return(t, rv);
+    set_syscall_return(t, rv);
+    if (blocked) {
+        thread_wakeup(t);
+    }
 }
 
-static CLOSURE_1_3(socket_read, sysreturn, sock, void *, u64, u64);
-static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset)
+static CLOSURE_5_1(recvmsg_bh, sysreturn, sock, thread, void *, u64,
+        struct msghdr *, boolean);
+static sysreturn recvmsg_bh(sock s, thread t, void *dest, u64 length,
+        struct msghdr *msg, boolean blocked)
+{
+    io_completion completion = closure(s->h, recvmsg_complete, s, msg, dest,
+            length, true);
+    return sock_read_bh(s, t, dest, length, msg->msg_name,
+            &msg->msg_namelen, completion, blocked);
+}
+
+static CLOSURE_0_2(syscall_io_complete, void,
+        thread, sysreturn);
+
+static CLOSURE_1_6(socket_read, sysreturn,
+        sock,
+        void *, u64, u64, thread, boolean, io_completion);
+static sysreturn socket_read(sock s, void *dest, u64 length, u64 offset,
+        thread t, boolean bh, io_completion completion)
 {
     net_debug("sock %d, type %d, thread %ld, dest %p, length %ld, offset %ld\n",
-	      s->fd, s->type, current->tid, dest, length, offset);
+	      s->fd, s->type, t->tid, dest, length, offset);
     if (s->type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN)
-        return set_syscall_error(current, ENOTCONN);
+        return -ENOTCONN;
 
-    blockq_action ba = closure(s->h, sock_read_bh, s, current, dest, length, 0, 0);
-    sysreturn rv = blockq_check(s->rxbq, current, ba);
-
-    /* We didn't block... */
-    if (rv != infinity)
-        return rv;              /* error or success: return as-is */
-
-    /* XXX ideally we could just prevent this case if we had growing
-       queues... for now bark and return EAGAIN
-
-       we could mess around with making a timer or something, but it
-       would just be easier to make queues growable */
-
-    msg_err("thread %ld unable to block; queue full\n", current->tid);
-    return set_syscall_error(current, EAGAIN);
+    blockq_action ba = closure(s->h, sock_read_bh, s, t, dest, length, 0,
+            0, completion);
+    return blockq_check(s->rxbq, !bh ? t : 0, ba);
 }
 
 static CLOSURE_5_1(socket_write_tcp_bh, sysreturn, sock, thread, void *, u64,
-        boolean, boolean);
+        io_completion, boolean);
 static sysreturn socket_write_tcp_bh(sock s, thread t, void * buf, u64 remain,
-        boolean dealloc, boolean blocked)
+        io_completion completion, boolean blocked)
 {
     sysreturn rv = 0;
     err_t err = get_lwip_error(s);
@@ -485,12 +490,10 @@ static sysreturn socket_write_tcp_bh(sock s, thread t, void * buf, u64 remain,
         rv = lwip_to_errno(err);
     }
   out:
-    if (dealloc)
-        deallocate(s->h, buf, remain);
     if (blocked)
-        thread_wakeup(t);
+        blockq_set_completion(s->txbq, completion, t, rv);
 
-    return set_syscall_return(t, rv);
+    return rv;
 }
 
 static sysreturn socket_write_udp(sock s, void *source, u64 length)
@@ -515,25 +518,20 @@ static sysreturn socket_write_udp(sock s, void *source, u64 length)
 }
 
 static sysreturn socket_write_internal(sock s, void *source, u64 length,
-        boolean dealloc)
+        thread t, boolean bh, io_completion completion)
 {
     sysreturn rv;
 
     if (s->type == SOCK_STREAM) {
 	if (s->info.tcp.state != TCP_SOCK_OPEN) 		/* XXX maybe defer to lwip for connect state */
-	    return set_syscall_error(current, EPIPE);
+	    return -EPIPE;
         if (length == 0) {
             rv = 0;
             goto out;
         }
-        blockq_action ba = closure(s->h, socket_write_tcp_bh, s, current,
-                source, length, dealloc);
-        rv = blockq_check(s->txbq, current, ba);
-        if (rv != infinity)
-            goto out;          /* error or success; return as-is */
-        /* XXX again, need to just fix the queue stuff */
-        msg_err("thread %ld unable to block; queue full\n", current->tid);
-        rv = -EAGAIN; /* bogus */
+        blockq_action ba = closure(s->h, socket_write_tcp_bh, s, t,
+                source, length, completion);
+        rv = blockq_check(s->txbq, !bh ? t : 0, ba);
     } else if (s->type == SOCK_DGRAM) {
         rv = socket_write_udp(s, source, length);
     } else {
@@ -542,18 +540,18 @@ static sysreturn socket_write_internal(sock s, void *source, u64 length,
     }
     net_debug("completed\n");
 out:
-    if (dealloc) {
-        deallocate(s->h, source, length);
-    }
-    return set_syscall_return(current, rv);
+    return rv;
 }
 
-static CLOSURE_1_3(socket_write, sysreturn, sock, void *, u64, u64);
-static sysreturn socket_write(sock s, void *source, u64 length, u64 offset)
+static CLOSURE_1_6(socket_write, sysreturn,
+        sock,
+        void *, u64, u64, thread, boolean, io_completion);
+static sysreturn socket_write(sock s, void *source, u64 length, u64 offset,
+        thread t, boolean bh, io_completion completion)
 {
     net_debug("sock %d, type %d, thread %ld, source %p, length %ld, offset %ld\n",
 	      s->fd, s->type, current->tid, source, length, offset);
-    return socket_write_internal(s, source, length, false);
+    return socket_write_internal(s, source, length, t, bh, completion);
 }
 
 static CLOSURE_1_3(socket_check, boolean, sock, u32, u32 *, event_handler);
@@ -1012,7 +1010,8 @@ sysreturn sendto(int sockfd, void * buf, u64 len, int flags,
     if (rv < 0) {
         return set_syscall_return(current, rv);
     }
-    return socket_write_internal(s, buf, len, false);
+    io_completion completion = closure(s->h, syscall_io_complete);
+    return socket_write_internal(s, buf, len, current, false, completion);
 }
 
 static sysreturn sendmsg_prepare(sock s, const struct msghdr *msg, int flags,
@@ -1046,6 +1045,20 @@ static sysreturn sendmsg_prepare(sock s, const struct msghdr *msg, int flags,
     return *len;
 }
 
+static CLOSURE_4_2(
+        sendmsg_complete, void,
+        sock, void *, u64, boolean,
+        thread, sysreturn);
+static void sendmsg_complete(sock s, void *buf, u64 len, boolean blocked,
+        thread t, sysreturn rv)
+{
+    deallocate(s->h, buf, len);
+    set_syscall_return(t, rv);
+    if (blocked) {
+        thread_wakeup(t);
+    }
+}
+
 sysreturn sendmsg(int sockfd, const struct msghdr *msg, int flags)
 {
     sock s = resolve_socket(current->p, sockfd);
@@ -1058,7 +1071,21 @@ sysreturn sendmsg(int sockfd, const struct msghdr *msg, int flags)
     if (rv <= 0) {
         return set_syscall_return(current, rv);
     }
-    return socket_write_internal(s, buf, len, true);
+    io_completion completion = closure(s->h, sendmsg_complete, s, buf, len,
+            true);
+    rv = socket_write_internal(s, buf, len, current, false, completion);
+    sendmsg_complete(s, buf, len, false, current, rv);
+    return rv;
+}
+
+static CLOSURE_3_2(
+        sendmmsg_buf_complete, void,
+        sock, void *, u64,
+        thread, sysreturn);
+static void sendmmsg_buf_complete(sock s, void *buf, u64 len, thread t,
+        sysreturn rv)
+{
+    deallocate(s->h, buf, len);
 }
 
 static CLOSURE_7_1(sendmmsg_tcp_bh, sysreturn, sock, thread, void *, u64, int,
@@ -1066,7 +1093,9 @@ static CLOSURE_7_1(sendmmsg_tcp_bh, sysreturn, sock, thread, void *, u64, int,
 static sysreturn sendmmsg_tcp_bh(sock s, thread t, void *buf, u64 len,
         int flags, struct mmsghdr *msgvec, unsigned int vlen, boolean blocked)
 {
-    sysreturn rv = socket_write_tcp_bh(s, t, buf, len, true, false);
+    io_completion completion = closure(s->h, sendmmsg_buf_complete, s, buf,
+            len);
+    sysreturn rv = socket_write_tcp_bh(s, t, buf, len, completion, true);
 
     while (true) {
         if (rv == infinity) {
@@ -1085,7 +1114,8 @@ static sysreturn sendmmsg_tcp_bh(sock s, thread t, void *buf, u64 len,
         rv = sendmsg_prepare(s, &msgvec[s->msg_count].msg_hdr, flags, &buf,
                 &len);
         if (rv > 0) {
-            rv = socket_write_tcp_bh(s, t, buf, len, true, false);
+            completion = closure(s->h, sendmmsg_buf_complete, s, buf, len);
+            rv = socket_write_tcp_bh(s, t, buf, len, completion, true);
         }
     }
     if (blocked) {
@@ -1124,11 +1154,6 @@ sysreturn sendmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
             blockq_action ba = closure(s->h, sendmmsg_tcp_bh, s, current,
                     buf, len, flags, msgvec, vlen);
             rv = blockq_check(s->txbq, current, ba);
-            if (rv != infinity) {
-                goto out;
-            }
-            msg_err("thread %ld unable to block; queue full\n", current->tid);
-            rv = -EAGAIN;
             break;
         case SOCK_DGRAM:
             rv = socket_write_udp(s, buf, len);
@@ -1140,7 +1165,6 @@ sysreturn sendmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
         }
         msgvec[s->msg_count].msg_len = rv;
     }
-out:
     if (s->msg_count > 0) {
         rv = s->msg_count;
     }
@@ -1159,16 +1183,10 @@ sysreturn recvfrom(int sockfd, void * buf, u64 len, int flags,
     if (len == 0)
         return 0;
 
-    blockq_action ba = closure(s->h, sock_read_bh, s, current, buf, len, src_addr, addrlen);
-    sysreturn rv = blockq_check(s->rxbq, current, ba);
-
-    /* We didn't block... */
-    if (rv != infinity)
-        return rv;              /* error or success: return as-is */
-
-    /* XXX same crap */
-    msg_err("thread %d unable to block; queue full\n", current->tid);
-    return set_syscall_error(current, EAGAIN);
+    io_completion completion = closure(s->h, syscall_io_complete);
+    blockq_action ba = closure(s->h, sock_read_bh, s, current, buf, len,
+            src_addr, addrlen, completion);
+    return blockq_check(s->rxbq, current, ba);
 }
 
 sysreturn recvmsg(int sockfd, struct msghdr *msg, int flags)
@@ -1195,11 +1213,8 @@ sysreturn recvmsg(int sockfd, struct msghdr *msg, int flags)
     blockq_action ba = closure(s->h, recvmsg_bh, s, current, buf, total_len,
             msg);
     sysreturn rv = blockq_check(s->rxbq, current, ba);
-    if (rv != infinity) {
-        return set_syscall_return(current, rv);
-    }
-    msg_err("thread %d unable to block; queue full\n", current->tid);
-    return set_syscall_error(current, EAGAIN);
+    recvmsg_complete(s, msg, buf, total_len, false, current, rv);
+    return rv;
 }
 
 static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t err)
@@ -1316,15 +1331,7 @@ sysreturn accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int fla
 	return set_syscall_error(current, EINVAL);
 
     blockq_action ba = closure(s->h, accept_bh, s, current, addr, addrlen, flags);
-    sysreturn rv = blockq_check(s->rxbq, current, ba);
-
-    /* We didn't block... */
-    if (rv != infinity)
-        return rv;              /* error or success: return as-is */
-
-    /* XXX */
-    msg_err("thread %ld unable to block; queue full\n", current->tid);
-    return set_syscall_error(current, EAGAIN);
+    return blockq_check(s->rxbq, current, ba);
 }
 
 sysreturn accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)

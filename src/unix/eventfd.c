@@ -13,10 +13,11 @@ struct efd {
     u64 counter;
 };
 
-static CLOSURE_4_1(efd_read_bh, sysreturn, struct efd *, thread, void *, u64,
+static CLOSURE_5_1(efd_read_bh, sysreturn,
+        struct efd *, thread, void *, u64, io_completion,
         boolean);
 static sysreturn efd_read_bh(struct efd *efd, thread t, void *buf, u64 length,
-        boolean blocked)
+        io_completion completion, boolean blocked)
 {
     sysreturn rv = sizeof(efd->counter);
 
@@ -41,32 +42,30 @@ static sysreturn efd_read_bh(struct efd *efd, thread t, void *buf, u64 length,
     notify_dispatch(efd->ns, EPOLLOUT);
 out:
     if (blocked)
-        thread_wakeup(t);
-    return set_syscall_return(t, rv);
+        blockq_set_completion(efd->read_bq, completion, t, rv);
+    return rv;
 }
 
-static CLOSURE_1_3(efd_read, sysreturn, struct efd *, void *, u64, u64);
+static CLOSURE_1_6(efd_read, sysreturn,
+        struct efd *,
+        void *, u64, u64, thread, boolean, io_completion);
 static sysreturn efd_read(struct efd *efd, void *buf, u64 length,
-        u64 offset_arg)
+        u64 offset_arg, thread t, boolean bh, io_completion completion)
 {
     if (length < sizeof(u64)) {
-        return set_syscall_error(current, EINVAL);
+        return -EINVAL;
     }
 
-    blockq_action ba = closure(efd->h, efd_read_bh, efd, current, buf, length);
-    sysreturn rv = blockq_check(efd->read_bq, current, ba);
-
-    if (rv != infinity)
-        return rv;
-
-    msg_err("thread %ld unable to block; queue full\n", current->tid);
-    return set_syscall_error(current, EAGAIN);
+    blockq_action ba = closure(efd->h, efd_read_bh, efd, t, buf, length,
+            completion);
+    return blockq_check(efd->read_bq, !bh ? t : 0, ba);
 }
 
-static CLOSURE_4_1(efd_write_bh, sysreturn, struct efd *, thread, void *, u64,
+static CLOSURE_5_1(efd_write_bh, sysreturn,
+        struct efd *, thread, void *, u64, io_completion,
         boolean);
 static sysreturn efd_write_bh(struct efd *efd, thread t, void *buf, u64 length,
-        boolean blocked)
+        io_completion completion, boolean blocked)
 {
     sysreturn rv = sizeof(efd->counter);
     u64 counter;
@@ -84,26 +83,23 @@ static sysreturn efd_write_bh(struct efd *efd, thread t, void *buf, u64 length,
     notify_dispatch(efd->ns, EPOLLIN);
 out:
     if (blocked)
-        thread_wakeup(t);
-    return set_syscall_return(t, rv);
+        blockq_set_completion(efd->write_bq, completion, t, rv);
+    return rv;
 }
 
-static CLOSURE_1_3(efd_write, sysreturn, struct efd *, void *, u64, u64);
+static CLOSURE_1_6(efd_write, sysreturn,
+        struct efd *,
+        void *, u64, u64, thread, boolean, io_completion);
 static sysreturn efd_write(struct efd *efd, void *buf, u64 length,
-        u64 offset)
+        u64 offset, thread t, boolean bh, io_completion completion)
 {
     if (length < sizeof(u64)) {
-        return set_syscall_error(current, EINVAL);
+        return -EINVAL;
     }
 
-    blockq_action ba = closure(efd->h, efd_write_bh, efd, current, buf, length);
-    sysreturn rv = blockq_check(efd->write_bq, current, ba);
-
-    if (rv != infinity)
-        return rv;
-
-    msg_err("thread %ld unable to block; queue full\n", current->tid);
-    return set_syscall_error(current, EAGAIN);
+    blockq_action ba = closure(efd->h, efd_write_bh, efd, t, buf, length,
+            completion);
+    return blockq_check(efd->write_bq, !bh ? t : 0, ba);
 }
 
 static CLOSURE_1_3(efd_check, boolean, struct efd *, u32, u32 *, event_handler);
