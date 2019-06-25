@@ -1,6 +1,4 @@
-// XXX
 #include <unix_internal.h>
-#include <notify.h>
 
 struct notify_entry {
     u32 eventmask;
