@@ -150,9 +150,9 @@ static void read_kernel_syms()
 
     /* add kernel symbols */
     for_regions(e)
-	if (region_type(e) == REGION_KERNIMAGE) {
-	    kern_base = region_base(e);
-	    kern_length = region_length(e);
+	if (e->type == REGION_KERNIMAGE) {
+	    kern_base = e->base;
+	    kern_length = e->length;
 
 	    u64 v = allocate_u64(heap_virtual_huge(&heaps), kern_length);
 	    map(v, kern_base, kern_length, 0, heap_pages(&heaps));
@@ -236,10 +236,10 @@ static void __attribute__((noinline)) init_service_new_stack()
     tuple root = allocate_tuple();
 
     u64 fs_offset = 0;
-    for_regions(e)
-        if (region_type(e) == REGION_FILESYSTEM) {
-            fs_offset = region_base(e);
-        }
+    for_regions(e) {
+        if (e->type == REGION_FILESYSTEM)
+            fs_offset = e->base;
+    }
     if (fs_offset == 0)
         halt("filesystem region not found; halt\n");
     init_storage(kh, closure(misc, attach_storage, root, fs_offset));
@@ -257,9 +257,9 @@ static heap init_pages_id_heap(heap h)
 {
     heap pages = allocate_id_heap(h, PAGESIZE);
     for_regions(e) {
-	if (region_type(e) == REGION_IDENTITY) {
-	    u64 base = region_base(e);
-	    u64 length = region_length(e);
+	if (e->type == REGION_IDENTITY) {
+	    u64 base = e->base;
+	    u64 length = e->length;
 	    if ((base & (PAGESIZE-1)) | (length & (PAGESIZE-1))) {
 		console("identity region unaligned!\nbase: ");
 		print_u64(base);
@@ -292,10 +292,10 @@ static heap init_physical_id_heap(heap h)
     console("physical memory:\n");
 #endif
     for_regions(e) {
-	if (region_type(e) == REGION_PHYSICAL) {
+	if (e->type == REGION_PHYSICAL) {
 	    /* Align for 2M pages */
-	    u64 base = region_base(e);
-	    u64 end = base + region_length(e) - 1;
+	    u64 base = e->base;
+	    u64 end = base + e->length - 1;
 	    u64 page2m_mask = (2 << 20) - 1;
 	    base = (base + page2m_mask) & ~page2m_mask;
 	    end &= ~page2m_mask;

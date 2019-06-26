@@ -169,8 +169,10 @@ heap allocate_tagged_region(kernel_heaps kh, u64 tag)
 u32 filesystem_base()
 {
     u32 fsbase = 0;
-    for_regions(r) 
-        if (region_type(r) == REGION_FILESYSTEM) fsbase = region_base(r);
+    for_regions(r) {
+        if (r->type == REGION_FILESYSTEM)
+            fsbase = r->base;
+    }
     if (fsbase == 0) {
         halt("invalid filesystem offset\n");
     }
@@ -242,12 +244,12 @@ void centry()
     }
 
     // need to ignore the area we're running in
-    // could reclaim stage2 before entering stage3
+    // TODO: could reclaim stage2 before entering stage3
     for_regions (r) {
-        if (region_type(r) == REGION_PHYSICAL && region_base(r) == 0) {
+        if (r->type == REGION_PHYSICAL && r->base == 0) {
             u64 reserved = pad(BOOT_BASE + filesystem_base(), PAGESIZE);
-            region_base(r) = reserved;
-            region_length(r) -= reserved;
+            r->base = reserved;
+            r->length -= reserved;
         }
     }
     
