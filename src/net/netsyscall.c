@@ -643,16 +643,24 @@ static CLOSURE_1_0(socket_close, sysreturn, sock);
 static sysreturn socket_close(sock s)
 {
     net_debug("sock %d, type %d\n", s->fd, s->type);
-    //heap h = heap_general(get_kernel_heaps());
-    if (s->type == SOCK_STREAM && s->info.tcp.state == TCP_SOCK_OPEN)
+    switch (s->type) {
+    case SOCK_STREAM:
+        /* tcp_close() doesn't really stop everything synchronously; in order to
+         * prevent any lwIP callback that might be called after tcp_close() from
+         * using a stale reference to the socket structure, set the callback
+         * argument to NULL. */
         tcp_close(s->info.tcp.lw);
-    // xxx - we should really be cleaning this up, but tcp_close apparently
-    // doesnt really stop everything synchronously, causing weird things to
-    // happen when the stale references to these objects get used. investigate.
-    //    deallocate_queue(s->notify, SOCK_QUEUE_LEN);
-    //    deallocate_queue(s->waiting, SOCK_QUEUE_LEN);
-    //    deallocate_queue(s->incoming, SOCK_QUEUE_LEN);
-    //    unix_cache_free(get_unix_heaps(), socket, s);
+        tcp_arg(s->info.tcp.lw, 0);
+        break;
+    case SOCK_DGRAM:
+        udp_remove(s->info.udp.lw);
+        break;
+    }
+    deallocate_notify_set(s->ns);
+    deallocate_blockq(s->txbq);
+    deallocate_blockq(s->rxbq);
+    deallocate_queue(s->incoming);
+    unix_cache_free(get_unix_heaps(), socket, s);
     return 0;
 }
 
@@ -782,6 +790,9 @@ sysreturn socket(int domain, int type, int protocol)
 
 static err_t tcp_input_lower(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 {
+    if (!z) {
+        return err;
+    }
     sock s = z;
     net_debug("sock %d, pcb %p, buf %p, err %d\n", s->fd, pcb, p, err);
 
@@ -834,6 +845,8 @@ sysreturn bind(int sockfd, struct sockaddr *addr, socklen_t addrlen)
 
 void error_handler_tcp(void* arg, err_t err)
 {
+    if (!arg)
+        return;
     sock s = (sock)arg;
     net_debug("sock %d, err %d\n", s->fd, err);
     if (!s || err == ERR_OK)
@@ -858,6 +871,9 @@ void error_handler_tcp(void* arg, err_t err)
 }
 
 static void lwip_tcp_conn_err(void * z, err_t b) {
+    if (!z) {
+        return;
+    }
     sock s = z;
     net_debug("sock %d, err %d\n", s->fd, b);
     error_message(s, b);
@@ -868,6 +884,9 @@ static void lwip_tcp_conn_err(void * z, err_t b) {
 
 static err_t lwip_tcp_sent(void * arg, struct tcp_pcb * pcb, u16 len)
 {
+    if (!arg) {
+        return ERR_OK;
+    }
     sock s = (sock)arg;
     net_debug("fd %d, pcb %p, len %d\n", s->fd, pcb, len);
     wakeup_sock(s, WAKEUP_SOCK_TX);
@@ -884,6 +903,9 @@ static void connect_tcp_bh(thread t, err_t lwip_status)
 
 static err_t connect_tcp_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
 {
+   if (!arg) {
+      return ERR_OK;
+   }
    sock s = (sock)arg;
    net_debug("sock %d, pcb %p, err %d\n", s->fd, tpcb, err);
    assert(s->info.tcp.state == TCP_SOCK_IN_CONNECTION);
@@ -1219,6 +1241,9 @@ sysreturn recvmsg(int sockfd, struct msghdr *msg, int flags)
 
 static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t err)
 {
+    if (!z) {
+        return ERR_CLSD;
+    }
     sock s = z;
 
     if (err == ERR_MEM) {
