@@ -14,7 +14,8 @@ typedef u32 character;
 
 typedef u64 timestamp;
 
-extern void console(char *x);
+void console_write(char *s, bytes count);
+
 void print_u64(u64 s);
 
 extern void halt(char *format, ...) __attribute__((noreturn));
@@ -59,6 +60,11 @@ static inline int runtime_strlen(const char *a)
     int i = 0;
     for (; *a; a++, i++);
     return i;
+}
+
+static inline void console(char *s)
+{
+    console_write(s, runtime_strlen(s));
 }
 
 #define pad(__x, __s) ((((__x) - 1) & (~((__s) - 1))) + (__s))
@@ -137,8 +143,6 @@ void print_number(buffer s, u64 x, int base, int pad);
 
 #include <text.h>
 #include <vector.h>
-
-void debug(buffer);
 #include <format.h>
 
 /* XXX: Note that printing function names will reveal our internals to

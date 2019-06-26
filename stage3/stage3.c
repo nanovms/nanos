@@ -13,7 +13,7 @@ static void read_program_complete(process kp, tuple root, buffer b)
 
         buffer b = allocate_buffer(transient, 64);
         print_root(b, root);
-        debug(b);
+        buffer_print(b);
         deallocate_buffer(b);
         rprintf("\n");
        
