@@ -6,10 +6,15 @@ static inline CLOSURE_0_0(ignore_body, void);
 static inline void ignore_body(){}
 thunk ignore;
 status_handler ignore_status;
-
-
-// doesn't really belong here
 static char *hex_digits="0123456789abcdef";
+
+void print_u64(u64 s)
+{
+    buffer b = little_stack_buffer(16);
+    for (int x = 60; x >= 0; x -= 4)
+        push_u8(b, hex_digits[(s >> x) & 0xf]);
+    buffer_print(b);
+}
 
 void print_number(buffer s, u64 x, int base, int pad)
 {

@@ -4,6 +4,7 @@
 #include <page.h>
 #include <region.h>
 #include <x86_64.h>
+#include <serial.h>
 
 extern void run64(u32 entry);
 
@@ -53,7 +54,22 @@ u64 random_u64()
     return result;
 }
 
+// defined in service32.s
+extern void bios_tty_out(char);
 extern void bios_read_sectors(int offset, int count);
+
+void console_write(char *s, bytes count)
+{
+    for (; count--; s++) {
+        // serial console
+        serial_putchar(*s);
+
+        // BIOS console
+        bios_tty_out(*s);
+        if (*s == '\n')
+            bios_tty_out('\r');
+    }
+}
 
 static void read_sectors(char *dest, u64 start_sector, u64 nsectors)
 {

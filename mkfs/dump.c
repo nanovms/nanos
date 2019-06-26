@@ -81,7 +81,7 @@ static void fsc(heap h, buffer b, tuple root, filesystem fs, status s)
 
     buffer rb = allocate_buffer(h, PAGESIZE);
     print_root(rb, root);
-    debug(rb);
+    buffer_print(rb);
     rprintf("\n");
     deallocate_buffer(rb);
 

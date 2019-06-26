@@ -85,7 +85,7 @@ void log_vprintf(const char *prefix, const char *log_format, vlist *a)
     bprintf(b, "[%T] %s: ", now(), prefix);
     buffer f = alloca_wrap_buffer(log_format, runtime_strlen(log_format));
     vbprintf(b, f, a);
-    debug(b);
+    buffer_print(b);
 }
 
 void log_printf(const char * prefix, const char *log_format, ...)
@@ -135,5 +135,5 @@ void rprintf(const char *format, ...)
     vstart(a, format);
     buffer f = alloca_wrap_buffer(format, runtime_strlen(format));
     vbprintf(b, f, &a);
-    debug(b);
+    buffer_print(b);
 }

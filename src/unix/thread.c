@@ -279,7 +279,7 @@ void thread_log_internal(thread t, const char *desc, ...)
         buffer f = alloca_wrap_buffer(desc, runtime_strlen(desc));
         vbprintf(b, f, &ap);
         push_u8(b, '\n');
-        debug(b);
+        buffer_print(b);
     }
 }
 

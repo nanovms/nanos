@@ -102,10 +102,7 @@ static CLOSURE_0_6(stdout, sysreturn,
 static sysreturn stdout(void *d, u64 length, u64 offset, thread t, boolean bh,
         io_completion completion)
 {
-    u8 *z = d;
-    for (int i = 0; i< length; i++) {
-        serial_out(z[i]);
-    }
+    console_write(d, length);
     return length;
 }
 
