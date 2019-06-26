@@ -311,7 +311,7 @@ static void epoll_wait_notify(epollfd efd, u32 events)
                 efd->fd, events, report, w, efd->zombie);
 
     /* XXX need to do some work to properly dole out to multiple epoll_waits (threads)... */
-    if (report && w && !efd->zombie && events != NOTIFY_EVENTS_RELEASE) {
+    if (report && w && !efd->zombie) {
 	if (w->user_events && (w->user_events->length - w->user_events->end)) {
 	    struct epoll_event *e = buffer_ref(w->user_events, w->user_events->end);
 	    e->data = efd->data;
