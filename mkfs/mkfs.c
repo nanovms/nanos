@@ -11,6 +11,8 @@
 #include <errno.h>
 #include <limits.h>
 
+#include <region.h>
+
 static buffer read_stdin(heap h)
 {
     buffer in = allocate_buffer(h, 1024);
@@ -217,7 +219,83 @@ static void fsc(heap h, descriptor out, const char *target_root, filesystem fs, 
             deallocate_buffer(contents);
         }
     }
-    close(out);
+}
+
+struct partition_entry {
+    u8 active;
+    u8 chs_start[3];
+    u8 type;
+    u8 chs_end[3];
+    u32 lba_start;
+    u32 nsectors;
+} __attribute__((packed));
+
+#define SEC_PER_TRACK 63
+#define HEADS 255
+#define MAX_CYL 1023
+
+static void mbr_chs(u8 *chs, u64 offset)
+{
+    u64 cyl = ((offset / SECTOR_SIZE) / SEC_PER_TRACK) / HEADS;
+    u64 head = ((offset / SECTOR_SIZE) / SEC_PER_TRACK) % HEADS;
+    u64 sec = ((offset / SECTOR_SIZE) % SEC_PER_TRACK) + 1;
+    if (cyl > MAX_CYL) {
+        cyl = MAX_CYL;
+	head = 254;
+	sec = 63;
+    }
+
+    chs[0] = head;
+    chs[1] = (cyl >> 8) | sec;
+    chs[2] = cyl & 0xff;
+}
+
+static void write_mbr(descriptor f)
+{
+    // get resulting size
+    off_t total_size = lseek(f, 0, SEEK_END);
+    if (total_size < 0)
+        halt("could not get image size: %s\n", strerror(errno));
+    assert(total_size % SECTOR_SIZE == 0);
+
+    // read MBR
+    char buf[SECTOR_SIZE];
+    int res = pread(f, buf, sizeof(buf), 0);
+    if (res < 0)
+        halt("could not read MBR: %s\n", strerror(errno));
+    else if (res != sizeof(buf))
+        halt("could not read MBR (short read)\n");
+
+    // MBR signature
+    u16 *mbr_sig = (u16 *) (buf + sizeof(buf) - sizeof(*mbr_sig));
+    if (*mbr_sig != 0xaa55)
+        halt("invalid MBR signature\n");
+
+    // first MBR partition entry
+    struct partition_entry *e = (struct partition_entry *) ((char *) mbr_sig - 4 * sizeof(*e));
+
+    // FS region comes right before MBR partitions (see boot/stage1.s)
+    region r = (region) ((char *) e - sizeof(*r));
+    if (r->type != REGION_FILESYSTEM)
+        halt("invalid boot record (missing filesystem region) \n");
+    u64 fs_offset = r->base;
+    assert(fs_offset % SECTOR_SIZE == 0);
+    assert(total_size > fs_offset);
+
+    // create partition entry
+    e->active = 0x80;      // active, bootable
+    e->type = 0x83;        // any Linux filesystem
+    mbr_chs(e->chs_start, fs_offset);
+    mbr_chs(e->chs_end, total_size - SECTOR_SIZE);
+    e->lba_start = fs_offset / SECTOR_SIZE;
+    e->nsectors = (total_size - fs_offset) / SECTOR_SIZE;
+
+    // write MBR
+    res = pwrite(f, buf, sizeof(buf), 0);
+    if (res < 0)
+        halt("could not write MBR: %s\n", strerror(errno));
+    else if (res != sizeof(buf))
+        halt("could not write MBR (short write)\n");
 }
 
 static void usage(const char *program_name)
@@ -255,7 +333,7 @@ int main(int argc, char **argv)
     const char *image_path = argv[0];
 
     heap h = init_process_runtime();
-    descriptor out = open(image_path, O_CREAT|O_WRONLY, 0644);
+    descriptor out = open(image_path, O_CREAT|O_RDWR, 0644);
     u64 fs_size = 100ull * MB;  /* XXX temp, change to infinity after rtrie/bitmap fix */
     if (out < 0) {
         halt("couldn't open output file %s: %s\n", image_path, strerror(errno));
@@ -300,5 +378,10 @@ int main(int argc, char **argv)
                       closure(h, bwrite, out, offset),
                       allocate_tuple(),
                       closure(h, fsc, h, out, target_root));
+
+    if (bootimg_path != NULL)
+        write_mbr(out);
+
+    close(out);
     exit(0);
 }

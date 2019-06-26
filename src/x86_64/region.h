@@ -1,16 +1,15 @@
 #pragma once
-typedef u8 regionbody[20];
-typedef regionbody *region;
 
-#define for_regions(__r) for (region __r = regions; region_type(__r);__r -= 1)
+struct region {
+    u64 base;
+    u64 length;
+    u32 type;
+} __attribute__((packed));
 
-// see stage2.s - pass from Makefile? argument?
-#define region_start 0x7dfe
+typedef struct region *region;
 
-#define region_base(__r) (((u64 *)__r)[0])
-#define region_length(__r) (((u64 *)__r)[1])
-#define region_type(__r) (((u32 *)__r)[4])
-#define regions ((region)pointer_from_u64(region_start - sizeof(regionbody)))
+#define regions ((region)pointer_from_u64(0x7c00 + 0x200 - (4 * 16 + 2) - sizeof(struct region)))
+#define for_regions(__r) for (region __r = regions; __r->type; __r -= 1)
 
 #define REGION_PHYSICAL 1 // available physical memory
 #define REGION_DEVICE 2   // e820 physical region configured for i/o
@@ -22,10 +21,11 @@ typedef regionbody *region;
 static inline region create_region(u64 base, u64 length, int type)
 {
     region r = regions;
-    for (;region_type(r);r -= 1);
-    region_type(r) = type;
-    region_base(r) = base;
-    region_length(r) = length;
+    for (; r->type; r -= 1)
+        ;
+    r->base = base;
+    r->length = length;
+    r->type = type;
     return r;
 }
 
@@ -45,12 +45,12 @@ static inline u64 allocate_region(heap h, bytes size)
 
     /* Select the highest physical region that's within 32-bit space. */
     for_regions(e) {
-        if ((region_type(e) != rh->type) ||
-            ((region_length(e) & ~MASK(PAGELOG)) < len) ||
-            (region_base(e) + region_length(e) > U64_FROM_BIT(32)))
+        if ((e->type != rh->type) ||
+            ((e->length & ~MASK(PAGELOG)) < len) ||
+            (e->base + e->length > U64_FROM_BIT(32)))
             continue;
-        if (region_base(e) > base) {
-            base = region_base(e);
+        if (e->base > base) {
+            base = e->base;
             r = e;
         }
     }
@@ -60,8 +60,8 @@ static inline u64 allocate_region(heap h, bytes size)
 
     /* Carve allocations from top of region, mainly to get identity
        mappings out of the way of commonly-used areas in low memory. */
-    u64 result = ((base + region_length(r)) & ~MASK(PAGELOG)) - len;
-    region_length(r) = result - base;
+    u64 result = ((base + r->length) & ~MASK(PAGELOG)) - len;
+    r->length = result - base;
     return result;
 }
 
@@ -79,11 +79,11 @@ static inline heap region_allocator(heap h, u64 pagesize, int type)
 static inline void print_regions()
 {
     for_regions(e){    
-         print_u64(region_type(e));
+         print_u64(e->type);
          console(" ");
-         print_u64(region_base(e));
+         print_u64(e->base);
          console(" ");
-         print_u64(region_length(e));                  
+         print_u64(e->length);
          console("\n");
     }
 }

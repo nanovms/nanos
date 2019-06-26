@@ -1,6 +1,6 @@
 ;;;   we start up at 7c00 in 16 bit mode
-init:		
-	bits 16			 
+init:
+	bits 16
 	base equ 0x7c00
 	org base
 	stage2 equ 0x8000        
@@ -31,19 +31,17 @@ init:
         
 	jmp 0:stage2
 
-	smapsig equ 0x534D4150
-regionlen equ 20        
 ;;; e820 - return the amount of total memory
 e820:	xor ebx, ebx
-        mov edi, entries - regionlen
+        mov edi, fsentry
 .each:	
-	mov edx, smapsig
+	sub edi, fsentry.end - fsentry
+	mov edx, 0x534D4150 ; 'SMAP'
 	xor ax, ax
 	mov es, ax
 	mov eax, 0xe820
-	mov ecx, regionlen
+	mov ecx, fsentry.end - fsentry
 	int 0x15
-	sub edi, regionlen
         test ebx, ebx
         jne .each
 	ret
@@ -76,9 +74,9 @@ sectorsize equ 512
 dap:
         db 0x10
         db 0
-        .sectors:    dw STAGE2SIZE/sectorsize
-        .offset:     dw stage2
-        .segment:    dw 0
+        .sectors     dw STAGE2SIZE/sectorsize
+        .offset      dw stage2
+        .segment     dw 0
         .sector      dd 1
         .sectorm     dd 0
         
@@ -90,19 +88,20 @@ readsectors:
         ret
 
 
-        times 512-22 - ($-$$) db 0           
-;;;  entries start
-entries:
+        times 512 - (end - fsentry) - ($ - $$) db 0
+
 ;; tell stage2 what its size on disk is so we can find the filesystem
-;;  xx - defined in x86_64/region.h
-	fsregion equ 0x5
 fsentry:
         dq STAGE1SIZE + STAGE2SIZE
         dq 0
-        dd fsregion
-        
-;;  mbr signature        
-        dw 0xAA55             
+        dd 0x5    ; REGION_FILESYSTEM - defined in src/x86_64/region.h
+.end:
 
-        
-        
+;;  mbr partition entries
+part1:   times 16 db 0
+part2:   times 16 db 0
+part3:   times 16 db 0
+part4:   times 16 db 0
+;;  mbr signature
+        dw 0xAA55
+end:

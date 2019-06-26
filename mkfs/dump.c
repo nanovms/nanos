@@ -98,17 +98,17 @@ static u64 get_fs_offset(descriptor fd)
 	exit(EXIT_FAILURE);
     }
 
-    // FS region comes right before MBR signature (see boot/stage1.s)
-    void *r = buf + sizeof(buf) - sizeof(u16) - sizeof(regionbody);
     // last two bytes should be MBR signature
-    u16 sig = *(u16 *)(buf + sizeof(buf) - sizeof(u16));
+    u16 *mbr_sig = (u16 *) (buf + sizeof(buf) - sizeof(*mbr_sig));
+    // FS region comes right before MBR partitions (see boot/stage1.s)
+    region r = (region) ((char *) mbr_sig - (4 * 16) - sizeof(*r));
 
-    if (sig != 0xaa55 || region_type(r) != REGION_FILESYSTEM) {
+    if (*mbr_sig != 0xaa55 || r->type != REGION_FILESYSTEM) {
         // probably raw filesystem
         return 0;
     }
 
-    u64 fs_offset = region_base(r);
+    u64 fs_offset = r->base;
     rprintf("detected filesystem at 0x%lx\n", fs_offset);
     return fs_offset;
 }

@@ -1,6 +1,5 @@
 #pragma once
 #include <io.h>
-#include <region.h>
 
 #define VM_EXIT_GDB 0x7d
 #define VM_EXIT_FAULT 0x7e
