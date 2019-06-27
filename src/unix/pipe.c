@@ -20,7 +20,6 @@ struct pipe_file {
     struct fdesc f;       /* must be first */
     int fd;
     pipe pipe;
-    notify_set ns;
     blockq bq;
 };
 
@@ -60,7 +59,7 @@ static inline void pipe_notify_reader(pipe_file pf, int events)
             blockq_flush(read_pf->bq);
         else
             blockq_wake_one(read_pf->bq);
-        notify_dispatch(read_pf->ns, events);
+        notify_dispatch(read_pf->f.ns, events);
     }
 }
 
@@ -72,7 +71,7 @@ static inline void pipe_notify_writer(pipe_file pf, int events)
             blockq_flush(write_pf->bq);
         else
             blockq_wake_one(write_pf->bq);
-        notify_dispatch(write_pf->ns, events);
+        notify_dispatch(write_pf->f.ns, events);
     }
 }
 
@@ -98,8 +97,8 @@ static inline void pipe_dealloc_end(pipe p, pipe_file pf)
             pipe_notify_reader(pf, EPOLLIN | EPOLLHUP);
             pipe_debug("%s(%p): reader notified\n", __func__, p);
         }
-        deallocate_notify_set(pf->ns);
         deallocate_blockq(pf->bq);
+        release_fdesc(&pf->f);
         pf->fd = -1;
         pipe_release(p);
     }
@@ -133,7 +132,7 @@ static sysreturn pipe_read_bh(pipe_file pf, thread t, void *dest, u64 length,
     // in buffer_write/buffer_extend. Can improve things until a proper circular buffer is available
     if (buffer_length(b) == 0) {
         buffer_clear(b);
-        notify_dispatch(pf->ns, 0); /* for edge trigger */
+        notify_dispatch(pf->f.ns, 0); /* for edge trigger */
     }
   out:
     if (blocked)
@@ -178,7 +177,7 @@ static sysreturn pipe_write_bh(pipe_file pf, thread t, void *dest, u64 length,
     u64 real_length = MIN(length, avail);
     buffer_write(b, dest, real_length);
     if (avail == length)
-        notify_dispatch(pf->ns, 0); /* for edge trigger */
+        notify_dispatch(pf->f.ns, 0); /* for edge trigger */
 
     pipe_notify_reader(pf, EPOLLIN);
 
@@ -204,43 +203,24 @@ static sysreturn pipe_write(pipe_file pf, void * dest, u64 length, u64 offset,
     return blockq_check(pf->bq, !bh ? t : 0, ba);
 }
 
-static boolean pipe_check_internal(pipe_file pf, u32 events, u32 eventmask,
-                                   u32 * last, event_handler eh)
-{
-    u32 report = edge_events(events, eventmask, last);
-    if (report) {
-        if (apply(eh, report)) {
-            if (last)
-                *last = events & eventmask;
-            return true;
-        } else {
-            return false;
-        }
-    } else {
-        if (!notify_add(pf->ns, eventmask, last, eh))
-	    msg_err("notify enqueue fail: out of memory\n");
-        return true;
-    }
-}
-
-static CLOSURE_1_3(pipe_read_check, boolean, pipe_file, u32, u32 *, event_handler);
-static boolean pipe_read_check(pipe_file pf, u32 eventmask, u32 * last, event_handler eh)
+static CLOSURE_1_0(pipe_read_events, u32, pipe_file);
+static u32 pipe_read_events(pipe_file pf)
 {
     assert(pf->f.read);
     u32 events = buffer_length(pf->pipe->data) ? EPOLLIN : 0;
     if (pf->pipe->files[PIPE_WRITE].fd == -1)
         events |= EPOLLIN | EPOLLHUP;
-    return pipe_check_internal(pf, events, eventmask, last, eh);
+    return events;
 }
 
-static CLOSURE_1_3(pipe_write_check, boolean, pipe_file, u32, u32 *, event_handler);
-static boolean pipe_write_check(pipe_file pf, u32 eventmask, u32 * last, event_handler eh)
+static CLOSURE_1_0(pipe_write_events, u32, pipe_file);
+static u32 pipe_write_events(pipe_file pf)
 {
     assert(pf->f.write);
     u32 events = buffer_length(pf->pipe->data) < pf->pipe->max_size ? EPOLLOUT : 0;
     if (pf->pipe->files[PIPE_READ].fd == -1)
         events |= EPOLLHUP;
-    return pipe_check_internal(pf, events, eventmask, last, eh);
+    return events;
 }
 
 #define PIPE_BLOCKQ_LEN         32
@@ -281,22 +261,20 @@ int do_pipe2(int fds[2], int flags)
 
     pipe_file reader = &pipe->files[PIPE_READ];
     reader->fd = fds[PIPE_READ] = allocate_fd(pipe->p, reader);
-    fdesc_init(&reader->f, FDESC_TYPE_PIPE);
-    reader->ns = allocate_notify_set(pipe->h);
+    init_fdesc(pipe->h, &reader->f, FDESC_TYPE_PIPE);
     reader->bq = allocate_blockq(pipe->h, "pipe read", PIPE_BLOCKQ_LEN, 0);
     reader->f.read = closure(pipe->h, pipe_read, reader);
     reader->f.close = closure(pipe->h, pipe_close, reader);
-    reader->f.check = closure(pipe->h, pipe_read_check, reader);
+    reader->f.events = closure(pipe->h, pipe_read_events, reader);
     reader->f.flags = (flags & O_NONBLOCK) | O_RDONLY;
 
     pipe_file writer = &pipe->files[PIPE_WRITE];
-    fdesc_init(&writer->f, FDESC_TYPE_PIPE);
+    init_fdesc(pipe->h, &writer->f, FDESC_TYPE_PIPE);
     writer->fd = fds[PIPE_WRITE] = allocate_fd(pipe->p, writer);
-    writer->ns = allocate_notify_set(pipe->h);
     writer->bq = allocate_blockq(pipe->h, "pipe write", PIPE_BLOCKQ_LEN, 0);
     writer->f.write = closure(pipe->h, pipe_write, writer);
     writer->f.close = closure(pipe->h, pipe_close, writer);
-    writer->f.check = closure(pipe->h, pipe_write_check, writer);
+    writer->f.events = closure(pipe->h, pipe_write_events, writer);
     writer->f.flags = (flags & O_NONBLOCK) | O_WRONLY;
 
     pipe->ref_cnt = 2;

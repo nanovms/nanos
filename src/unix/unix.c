@@ -2,16 +2,22 @@
 #include <buffer.h>
 #include <gdb.h>
 
-void fdesc_init(fdesc f, int type)
+void init_fdesc(heap h, fdesc f, int type)
 {
     f->read = 0;
     f->write = 0;
     f->close = 0;
-    f->check = 0;
+    f->events = 0;
     f->ioctl = 0;
     f->refcnt = 1;
     f->type = type;
     f->flags = 0;
+    f->ns = allocate_notify_set(h);
+}
+
+void release_fdesc(fdesc f)
+{
+    deallocate_notify_set(f->ns);
 }
 
 u64 allocate_fd(process p, void *f)
@@ -121,11 +127,11 @@ static boolean create_stdfiles(unix_heaps uh, process p)
 
     /* Writes to in, reads from out and err act as if handled by the
        out and in files respectively. */
-    fdesc_init(&in->f, FDESC_TYPE_STDIO);
+    init_fdesc(h, &in->f, FDESC_TYPE_STDIO);
     in->f.close = closure(h, std_close, in);
-    fdesc_init(&out->f, FDESC_TYPE_STDIO);
+    init_fdesc(h, &out->f, FDESC_TYPE_STDIO);
     out->f.close = closure(h, std_close, out);
-    fdesc_init(&err->f, FDESC_TYPE_STDIO);
+    init_fdesc(h, &err->f, FDESC_TYPE_STDIO);
     err->f.close = closure(h, std_close, err);
     in->f.write = out->f.write = err->f.write = closure(h, stdout);
     in->f.read = out->f.read = err->f.read = closure(h, dummy_read);

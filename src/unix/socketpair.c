@@ -15,7 +15,6 @@ typedef struct sockpair_socket {
     int fd;
     struct sockpair *sockpair;
     struct sockpair_socket *peer;
-    notify_set ns;
     blockq read_bq, write_bq;
 } *sockpair_socket;
 
@@ -96,7 +95,7 @@ static inline void sockpair_notify_reader(sockpair_socket s, int events)
         else {
             blockq_wake_one(s->read_bq);
         }
-        notify_dispatch(s->ns, events);
+        notify_dispatch(s->f.ns, events);
     }
 }
 
@@ -109,7 +108,7 @@ static inline void sockpair_notify_writer(sockpair_socket s, int events)
         else {
             blockq_wake_one(s->write_bq);
         }
-        notify_dispatch(s->ns, events);
+        notify_dispatch(s->f.ns, events);
     }
 }
 
@@ -231,10 +230,8 @@ static sysreturn sockpair_write(sockpair_socket s, void * dest, u64 length,
     return blockq_check(s->write_bq, !bh ? t : 0, ba);
 }
 
-static CLOSURE_1_3(sockpair_check, boolean, sockpair_socket, u32, u32 *,
-        event_handler);
-static boolean sockpair_check(sockpair_socket s, u32 eventmask, u32 *last,
-        event_handler eh)
+static CLOSURE_1_0(sockpair_events, u32, sockpair_socket);
+static u32 sockpair_events(sockpair_socket s)
 {
     u32 events = 0;
     if (buffer_length(s->sockpair->data) != 0) {
@@ -246,25 +243,7 @@ static boolean sockpair_check(sockpair_socket s, u32 eventmask, u32 *last,
     if (s->peer->fd == -1) {
         events |= EPOLLHUP;
     }
-
-    u32 report = edge_events(events, eventmask, last);
-    if (report) {
-        if (apply(eh, report)) {
-            if (last) {
-                *last = events & eventmask;
-            }
-            return true;
-        }
-        else {
-            return false;
-        }
-    }
-    else {
-        if (!notify_add(s->ns, eventmask, last, eh)) {
-            msg_err("notify enqueue fail: out of memory\n");
-        }
-    }
-    return true;
+    return events;
 }
 
 static void sockpair_dealloc_sock(sockpair_socket s)
@@ -276,15 +255,13 @@ static void sockpair_dealloc_sock(sockpair_socket s)
         }
         s->fd = -1;
     }
-    if ((s->ns != 0) && (s->ns != INVALID_ADDRESS)) {
-        deallocate_notify_set(s->ns);
-    }
     if ((s->read_bq != 0) && (s->read_bq != INVALID_ADDRESS)) {
         deallocate_blockq(s->read_bq);
     }
     if ((s->write_bq != 0) && (s->write_bq != INVALID_ADDRESS)) {
         deallocate_blockq(s->write_bq);
     }
+    release_fdesc(&s->f);
 }
 
 static void sockpair_release(struct sockpair *sockpair)
@@ -323,7 +300,7 @@ sysreturn socketpair(int domain, int type, int protocol, int sv[2]) {
         msg_err("failed to allocate socketpair structure\n");
         return set_syscall_error(current, ENOMEM);
     }
-    sockpair->h = heap_general((kernel_heaps) uh);
+    sockpair->h = h;
     sockpair->data = allocate_buffer(sockpair->h, 128);
     if (sockpair->data == INVALID_ADDRESS) {
         msg_err("failed to allocate socketpair data buffer\n");
@@ -345,11 +322,6 @@ sysreturn socketpair(int domain, int type, int protocol, int sv[2]) {
             msg_err("failed to allocate socketpair file descriptor\n");
             break;
         }
-        s->ns = allocate_notify_set(sockpair->h);
-        if (s->ns == INVALID_ADDRESS) {
-            msg_err("failed to allocate socketpair notify set\n");
-            break;
-        }
         s->read_bq = allocate_blockq(sockpair->h, "socketpair read",
                 SOCKPAIR_BLOCKQ_LEN, 0);
         if (s->read_bq == INVALID_ADDRESS) {
@@ -362,11 +334,11 @@ sysreturn socketpair(int domain, int type, int protocol, int sv[2]) {
             msg_err("failed to allocate socketpair write block queue\n");
             break;
         }
-        fdesc_init(&s->f, FDESC_TYPE_SOCKET);
+        init_fdesc(h, &s->f, FDESC_TYPE_SOCKET);
         s->f.flags = type & ~SOCK_TYPE_MASK;
         s->f.read = closure(sockpair->h, sockpair_read, s);
         s->f.write = closure(sockpair->h, sockpair_write, s);
-        s->f.check = closure(sockpair->h, sockpair_check, s);
+        s->f.events = closure(sockpair->h, sockpair_events, s);
         s->f.close = closure(sockpair->h, sockpair_close, s);
     }
     if (i != 2) {
