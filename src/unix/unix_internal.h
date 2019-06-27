@@ -141,7 +141,12 @@ typedef struct fdesc {
     io read, write;
     closure_type(events, u32);
     closure_type(ioctl, sysreturn, unsigned long request, vlist ap);
+
+    /* close() is assumed to not block the calling thread. If any implementation
+     * violates this assumption, the code in dup2() will need to be revisited.
+     */
     closure_type(close, sysreturn);
+
     u64 refcnt;
     int type;
     int flags;                  /* F_GETFD/F_SETFD flags */

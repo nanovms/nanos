@@ -1,5 +1,6 @@
 # these are built for the target platform (Linux x86_64)
 PROGRAMS= \
+	dup \
 	creat \
 	eventfd \
 	fst \
@@ -25,6 +26,11 @@ PROGRAMS= \
 	write \
 	writev \
 	readv
+
+SRCS-dup= \
+	$(CURDIR)/dup.c \
+	$(SRCDIR)/unix_process/ssp.c
+LDFLAGS-dup=		-static
 
 SRCS-creat= \
 	$(CURDIR)/creat.c \

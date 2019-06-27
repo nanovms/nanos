@@ -89,6 +89,11 @@ boolean basic_test(heap h)
         goto fail;
     }
 
+    if (vector_get(v, -1) || vector_get(v, n)) {
+        msg = "get: out of bounds access";
+        goto fail;
+    }
+
     for (i = 0; i < 8; i++) {
         if ((long)vector_delete(v, 0) != i) {
             msg = "delete: content mismatch";
