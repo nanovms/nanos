@@ -633,10 +633,10 @@ static sysreturn socket_close(sock s)
         udp_remove(s->info.udp.lw);
         break;
     }
-    deallocate_notify_set(s->ns);
     deallocate_blockq(s->txbq);
     deallocate_blockq(s->rxbq);
     deallocate_queue(s->incoming);
+    release_fdesc(&s->f);
     unix_cache_free(get_unix_heaps(), socket, s);
     return 0;
 }
