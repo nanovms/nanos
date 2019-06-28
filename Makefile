@@ -83,10 +83,17 @@ runtime-tests runtime-tests-noaccel:
 .PHONY: run run-bridge run-nokvm
 
 QEMU=		qemu-system-x86_64
+DISPLAY=	none
 STORAGE=	virtio-scsi
 
 QEMU_MEMORY=	-m 2G
+ifeq ($(DISPLAY),none)
 QEMU_DISPLAY=	-display none
+else ifeq ($(DISPLAY),vga)
+QEMU_DISPLAY=
+else
+$(error Unsupported DISPLAY=$(DISPLAY))
+endif
 QEMU_SERIAL=	-serial stdio
 QEMU_STORAGE=	-drive if=none,id=hd0,format=raw,file=$(IMAGE)
 ifeq ($(STORAGE),virtio-scsi)

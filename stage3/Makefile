@@ -7,6 +7,7 @@ SRCS-stage3.img= \
 	$(SRCDIR)/drivers/ata-pci.c \
 	$(SRCDIR)/drivers/console.c \
 	$(SRCDIR)/drivers/storage.c \
+	$(SRCDIR)/drivers/vga.c \
 	$(SRCDIR)/gdb/gdbstub.c \
 	$(SRCDIR)/gdb/gdbtcp.c \
 	$(SRCDIR)/gdb/gdbutil.c \
