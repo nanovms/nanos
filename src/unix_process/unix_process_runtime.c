@@ -12,24 +12,6 @@ static inline void igr(int x) {}
 void *malloc(size_t size);
 void free(void *ptr);
 
-void debug(buffer b)
-{
-    igr(write(2, b->contents, buffer_length(b)));
-}
-
-static char hex[]="0123456789abcdef";
-
-void print_u64(u64 s)
-{
-    for (int x = 60; x >= 0; x -= 4)
-        igr(write(2, &hex[(s >> x)&0xf], 1));
-}
-
-void console(char *x)
-{
-    igr(write(2, x, runtime_strlen(x)));
-}
-
 timestamp timeval_to_time(struct timeval *a)
 {
     return((((unsigned long long)a->tv_sec)<<32)|
@@ -105,11 +87,10 @@ heap init_process_runtime()
     return heaps.general;
 }
 
-void serial_out(u8 k)
+void console_write(char *s, bytes count)
 {
-    igr(write(1, &k, 1));
+    igr(write(1, s, count));
 }
-
 
 u64 physical_from_virtual(void *__x)
 {

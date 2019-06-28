@@ -17,7 +17,7 @@ void halt(char *format, ...)
 
     vstart(a, format);
     vbprintf(b, &f, &a);
-    debug(b);
+    buffer_print(b);
     vm_exit(VM_EXIT_HALT);
 }
 

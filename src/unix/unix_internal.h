@@ -139,12 +139,18 @@ typedef closure_type(io, sysreturn, void *buf, u64 length, u64 offset, thread t,
 
 typedef struct fdesc {
     io read, write;
-    closure_type(check, boolean, u32 eventmask, u32 * last, event_handler eh);
+    closure_type(events, u32);
     closure_type(ioctl, sysreturn, unsigned long request, vlist ap);
+
+    /* close() is assumed to not block the calling thread. If any implementation
+     * violates this assumption, the code in dup2() will need to be revisited.
+     */
     closure_type(close, sysreturn);
+
     u64 refcnt;
     int type;
     int flags;                  /* F_GETFD/F_SETFD flags */
+    notify_set ns;
 } *fdesc;
 
 struct file {
@@ -198,7 +204,9 @@ static inline kernel_heaps get_kernel_heaps()
 #define unix_cache_alloc(uh, c) ({ heap __c = uh->c ## _cache; allocate(__c, __c->pagesize); })
 #define unix_cache_free(uh, c, p) ({ heap __c = uh->c ## _cache; deallocate(__c, p, __c->pagesize); })
 
-void fdesc_init(fdesc f, int type);
+void init_fdesc(heap h, fdesc f, int type);
+
+void release_fdesc(fdesc f);
 
 u64 allocate_fd(process p, void *f);
 

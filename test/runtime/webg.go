@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"time"
+	"net"
 )
 
 var count int64
@@ -87,10 +88,17 @@ func main() {
 	http.HandleFunc("/file", filePersistenceHandler)
 
 	done := make(chan bool)
+	ready := make(chan bool)
 	go func() {
-		log.Fatal(http.ListenAndServe(":" + port, nil))
+		listener, err := net.Listen("tcp", ":" + port)
+		if err != nil {
+			panic(err)
+		}
+		ready <- true
+		log.Fatal(http.Serve(listener, nil))
 		done <- true
 	}()
+	<-ready
 	fmt.Printf("Server started on port %v\n", port)
 	<-done
 }

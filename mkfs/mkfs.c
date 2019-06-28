@@ -204,7 +204,7 @@ static void fsc(heap h, descriptor out, const char *target_root, filesystem fs, 
     rprintf("metadata ");
     buffer b = allocate_buffer(transient, 64);
     print_tuple(b, md);
-    debug(b);
+    buffer_print(b);
     deallocate_buffer(b);
     rprintf("\n");
 

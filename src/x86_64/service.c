@@ -7,6 +7,7 @@
 #include <symtab.h>
 #include <virtio/virtio.h>
 #include <drivers/storage.h>
+#include <drivers/console.h>
 #include <unix_internal.h>
 
 extern void init_net(kernel_heaps kh);
@@ -214,6 +215,12 @@ static void __attribute__((noinline)) init_service_new_stack()
     heap misc = heap_general(kh);
     heap pages = heap_pages(kh);
 
+    init_runtime(kh);
+    init_extra_prints();
+    init_pci(kh);
+    init_console(kh);
+    pci_discover(); // early PCI discover to configure VGA console
+
     /* Unmap the first page so we catch faults on null pointer references. */
     unmap(0, PAGESIZE, pages);
 
@@ -223,13 +230,10 @@ static void __attribute__((noinline)) init_service_new_stack()
     init_random();
     __stack_chk_guard_init();
     start_interrupts(kh);
-    init_extra_prints();
-    init_runtime(kh);
     init_symtab(kh);
     read_kernel_syms();
     init_net(kh);
     tuple root = allocate_tuple();
-    init_pci(kh);
 
     u64 fs_offset = 0;
     for_regions(e) {
@@ -240,7 +244,7 @@ static void __attribute__((noinline)) init_service_new_stack()
         halt("filesystem region not found; halt\n");
     init_storage(kh, closure(misc, attach_storage, root, fs_offset));
     init_virtio_network(kh);
-    pci_discover();
+    pci_discover(); // do PCI discover again for other devices
 
     /* Switch to stage3 GDT64, enable TSS and free up initial map */
     install_gdt64_and_tss();

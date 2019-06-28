@@ -112,8 +112,6 @@ typedef struct sock {
     blockq rxbq;                 /* for incoming queue */
     queue incoming;
     blockq txbq;                 /* for lwip protocol tx buffer */
-    notify_set ns;
-    // the notion is that 'waiters' should take priority    
     int fd;
     err_t lwip_error;           /* lwIP error code; ERR_OK if normal */
     unsigned int msg_count;
@@ -138,23 +136,24 @@ typedef struct sock {
 #define net_debug(x, ...)
 #endif
 
-static inline u32 socket_poll_events(sock s)
+static CLOSURE_1_0(socket_events, u32, sock);
+static inline u32 socket_events(sock s)
 {
     boolean in = queue_length(s->incoming) > 0;
 
     /* XXX socket state isn't giving a complete picture; needs to specify
        which transport ends are shut down */
     if (s->type == SOCK_STREAM) {
-	if (s->info.tcp.state == TCP_SOCK_LISTENING) {
-	    return in ? EPOLLIN : 0;
-	} else if (s->info.tcp.state == TCP_SOCK_OPEN) {
-	    return (in ? EPOLLIN | EPOLLRDNORM : 0) |
+        if (s->info.tcp.state == TCP_SOCK_LISTENING) {
+            return in ? EPOLLIN : 0;
+        } else if (s->info.tcp.state == TCP_SOCK_OPEN) {
+            return (in ? EPOLLIN | EPOLLRDNORM : 0) |
                 (s->info.tcp.lw->state == ESTABLISHED ?
                 (tcp_sndbuf(s->info.tcp.lw) ? EPOLLOUT | EPOLLWRNORM : 0) :
                 EPOLLIN | EPOLLHUP);
-	} else {
-	    return 0;
-	}
+        } else {
+            return 0;
+        }
     }
     assert(s->type == SOCK_DGRAM);
     return (in ? EPOLLIN | EPOLLRDNORM : 0) | EPOLLOUT | EPOLLWRNORM;
@@ -162,9 +161,9 @@ static inline u32 socket_poll_events(sock s)
 
 static inline void notify_sock(sock s)
 {
-    u32 events = socket_poll_events(s);
+    u32 events = socket_events(s);
     net_debug("sock %d, events %lx\n", s->fd, events);
-    notify_dispatch(s->ns, events);
+    notify_dispatch(s->f.ns, events);
 }
 
 /* May be called from irq/softirq */
@@ -554,28 +553,6 @@ static sysreturn socket_write(sock s, void *source, u64 length, u64 offset,
     return socket_write_internal(s, source, length, t, bh, completion);
 }
 
-static CLOSURE_1_3(socket_check, boolean, sock, u32, u32 *, event_handler);
-static boolean socket_check(sock s, u32 eventmask, u32 * last, event_handler eh)
-{
-    u32 events = socket_poll_events(s);
-    u32 report = edge_events(events, eventmask, last);
-    net_debug("sock %d, type %d, eventmask %x, last %d, events %x, report %x\n",
-	      s->fd, s->type, eventmask, last ? *last : -1, events, report);
-    if (report) {
-        if (apply(eh, report)) {
-            if (last)
-                *last = events & eventmask;
-            return true;
-        } else {
-            return false;
-        }
-    } else {
-	if (!notify_add(s->ns, eventmask, last, eh))
-	    msg_err("notify enqueue fail: out of memory\n");
-    }
-    return true;
-}
-
 static CLOSURE_1_2(socket_ioctl, sysreturn, sock, unsigned long, vlist);
 static sysreturn socket_ioctl(sock s, unsigned long request, vlist ap)
 {
@@ -643,16 +620,24 @@ static CLOSURE_1_0(socket_close, sysreturn, sock);
 static sysreturn socket_close(sock s)
 {
     net_debug("sock %d, type %d\n", s->fd, s->type);
-    //heap h = heap_general(get_kernel_heaps());
-    if (s->type == SOCK_STREAM && s->info.tcp.state == TCP_SOCK_OPEN)
+    switch (s->type) {
+    case SOCK_STREAM:
+        /* tcp_close() doesn't really stop everything synchronously; in order to
+         * prevent any lwIP callback that might be called after tcp_close() from
+         * using a stale reference to the socket structure, set the callback
+         * argument to NULL. */
         tcp_close(s->info.tcp.lw);
-    // xxx - we should really be cleaning this up, but tcp_close apparently
-    // doesnt really stop everything synchronously, causing weird things to
-    // happen when the stale references to these objects get used. investigate.
-    //    deallocate_queue(s->notify, SOCK_QUEUE_LEN);
-    //    deallocate_queue(s->waiting, SOCK_QUEUE_LEN);
-    //    deallocate_queue(s->incoming, SOCK_QUEUE_LEN);
-    //    unix_cache_free(get_unix_heaps(), socket, s);
+        tcp_arg(s->info.tcp.lw, 0);
+        break;
+    case SOCK_DGRAM:
+        udp_remove(s->info.udp.lw);
+        break;
+    }
+    deallocate_blockq(s->txbq);
+    deallocate_blockq(s->rxbq);
+    deallocate_queue(s->incoming);
+    release_fdesc(&s->f);
+    unix_cache_free(get_unix_heaps(), socket, s);
     return 0;
 }
 
@@ -694,12 +679,12 @@ static int allocate_sock(process p, int type, u32 flags, sock * rs)
 	unix_cache_free(get_unix_heaps(), socket, s);
 	return -EMFILE;
     }
-    fdesc_init(&s->f, FDESC_TYPE_SOCKET);
     heap h = heap_general(get_kernel_heaps());
+    init_fdesc(h, &s->f, FDESC_TYPE_SOCKET);
     s->f.read = closure(h, socket_read, s);
     s->f.write = closure(h, socket_write, s);
     s->f.close = closure(h, socket_close, s);
-    s->f.check = closure(h, socket_check, s);
+    s->f.events = closure(h, socket_events, s);
     s->f.ioctl = closure(h, socket_ioctl, s);
     s->f.flags = flags;
     s->type = type;
@@ -708,7 +693,6 @@ static int allocate_sock(process p, int type, u32 flags, sock * rs)
     s->incoming = allocate_queue(h, SOCK_QUEUE_LEN);
     s->rxbq = allocate_blockq(h, "sock receive", SOCK_BLOCKQ_LEN, 0 /* XXX */);
     s->txbq = allocate_blockq(h, "sock transmit", SOCK_BLOCKQ_LEN, 0 /* XXX */);
-    s->ns = allocate_notify_set(h);
     s->fd = fd;
     set_lwip_error(s, ERR_OK);
     *rs = s;
@@ -782,6 +766,9 @@ sysreturn socket(int domain, int type, int protocol)
 
 static err_t tcp_input_lower(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 {
+    if (!z) {
+        return err;
+    }
     sock s = z;
     net_debug("sock %d, pcb %p, buf %p, err %d\n", s->fd, pcb, p, err);
 
@@ -834,6 +821,8 @@ sysreturn bind(int sockfd, struct sockaddr *addr, socklen_t addrlen)
 
 void error_handler_tcp(void* arg, err_t err)
 {
+    if (!arg)
+        return;
     sock s = (sock)arg;
     net_debug("sock %d, err %d\n", s->fd, err);
     if (!s || err == ERR_OK)
@@ -858,6 +847,9 @@ void error_handler_tcp(void* arg, err_t err)
 }
 
 static void lwip_tcp_conn_err(void * z, err_t b) {
+    if (!z) {
+        return;
+    }
     sock s = z;
     net_debug("sock %d, err %d\n", s->fd, b);
     error_message(s, b);
@@ -868,6 +860,9 @@ static void lwip_tcp_conn_err(void * z, err_t b) {
 
 static err_t lwip_tcp_sent(void * arg, struct tcp_pcb * pcb, u16 len)
 {
+    if (!arg) {
+        return ERR_OK;
+    }
     sock s = (sock)arg;
     net_debug("fd %d, pcb %p, len %d\n", s->fd, pcb, len);
     wakeup_sock(s, WAKEUP_SOCK_TX);
@@ -884,6 +879,9 @@ static void connect_tcp_bh(thread t, err_t lwip_status)
 
 static err_t connect_tcp_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
 {
+   if (!arg) {
+      return ERR_OK;
+   }
    sock s = (sock)arg;
    net_debug("sock %d, pcb %p, err %d\n", s->fd, tpcb, err);
    assert(s->info.tcp.state == TCP_SOCK_IN_CONNECTION);
@@ -1219,6 +1217,9 @@ sysreturn recvmsg(int sockfd, struct msghdr *msg, int flags)
 
 static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t err)
 {
+    if (!z) {
+        return ERR_CLSD;
+    }
     sock s = z;
 
     if (err == ERR_MEM) {
@@ -1302,11 +1303,9 @@ static sysreturn accept_bh(sock s, thread t, struct sockaddr *addr, socklen_t *a
     if (addrlen)
         *addrlen = sizeof(struct sockaddr);
 
-    /* XXX Check what the behavior should be if a listen socket is
-       used with EPOLLET. For now, let's handle it as if it's a
-       regular socket. */
+    /* report falling edge in case of edge trigger */
     if (queue_length(s->incoming) == 0)
-	notify_sock(s);
+        notify_sock(s);
 
     /* release slot in lwIP listen backlog */
     tcp_backlog_accepted(sn->info.tcp.lw);

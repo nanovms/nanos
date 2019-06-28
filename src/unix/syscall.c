@@ -30,6 +30,8 @@ struct iov_progress {
     u64 total_len;
 };
 
+sysreturn close(int fd);
+
 void register_other_syscalls(struct syscall *map)
 {
     register_syscall(map, rt_sigreturn, 0);
@@ -37,7 +39,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, shmget, 0);
     register_syscall(map, shmat, 0);
     register_syscall(map, shmctl, 0);
-    register_syscall(map, dup2, 0);
     register_syscall(map, pause, 0);
     register_syscall(map, getitimer, 0);
     register_syscall(map, alarm, 0);
@@ -221,7 +222,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, timerfd_settime, 0);
     register_syscall(map, timerfd_gettime, 0);
     register_syscall(map, signalfd4, 0);
-    register_syscall(map, dup3, 0);
     register_syscall(map, inotify_init1, 0);
     register_syscall(map, preadv, 0);
     register_syscall(map, pwritev, 0);
@@ -674,12 +674,9 @@ static sysreturn file_close(file f, fsfile fsf)
     return 0;
 }
 
-static CLOSURE_2_3(file_check, boolean, file, fsfile, u32, u32 *, event_handler);
-static boolean file_check(file f, fsfile fsf, u32 eventmask, u32 * last, event_handler eh)
+static CLOSURE_1_0(file_events, u32, file);
+static u32 file_events(file f)
 {
-    thread_log(current, "file_check: f %p, eventmask %x, last %x, event_handler %p",
-               f, eventmask, last ? *last : 0, eh);
-
     u32 events;
     if (is_special(f->n)) {
         events = spec_events(f);
@@ -688,19 +685,7 @@ static boolean file_check(file f, fsfile fsf, u32 eventmask, u32 * last, event_h
         events = f->length < infinity ? EPOLLOUT : 0;
         events |= f->offset < f->length ? EPOLLIN : EPOLLHUP;
     }
-    u32 report = edge_events(events, eventmask, last);
-    /* bring in notify_set if we want threads to properly pick up file
-       updates via select/poll */
-    if (report) {
-        if (apply(eh, report)) {
-            if (last)
-                *last = events & eventmask;
-            return true;
-        } else {
-            return false;
-        }
-    }
-    return true;
+    return events;
 }
 
 static int file_type_from_tuple(tuple n)
@@ -765,11 +750,11 @@ sysreturn open_internal(tuple cwd, const char *name, int flags, int mode)
         return set_syscall_error(current, EMFILE);
     }
 
-    fdesc_init(&f->f, type);
+    init_fdesc(h, &f->f, type);
     f->f.read = closure(h, file_read, f, fsf);
     f->f.write = closure(h, file_write, f, fsf);
     f->f.close = closure(h, file_close, f, fsf);
-    f->f.check = closure(h, file_check, f, fsf);
+    f->f.events = closure(h, file_events, f);
     f->f.flags = flags;
     f->n = n;
     f->length = length;
@@ -799,6 +784,40 @@ sysreturn dup(int fd)
 
     fetch_and_add(&f->refcnt, 1);
     return newfd;
+}
+
+sysreturn dup2(int oldfd, int newfd)
+{
+    thread_log(current, "%s: oldfd %d, newfd %d", __func__, oldfd, newfd);
+    fdesc f = resolve_fd(current->p, oldfd);
+    if (newfd != oldfd) {
+        if (resolve_fd_noret(current->p, newfd)) {
+            /* The code below assumes that close() never blocks the calling
+             * thread. If there is a close() implementation that potentially
+             * blocks, this will need to be revisited. */
+            close(newfd);
+        }
+        int fd = allocate_fd_gte(current->p, newfd, f);
+        if (fd != newfd) {
+            thread_log(current, "failed to reuse newfd");
+            return -EMFILE;
+        }
+        fetch_and_add(&f->refcnt, 1);
+    }
+    return newfd;
+}
+
+sysreturn dup3(int oldfd, int newfd, int flags)
+{
+    if ((newfd == oldfd) || (flags & ~O_CLOEXEC)) {
+        return -EINVAL;
+    }
+
+    /* Setting file descriptor flags on newfd is not supported. */
+    if (flags & O_CLOEXEC) {
+        msg_warn("close-on-exec flag not supported, ignored\n");
+    }
+    return dup2(oldfd, newfd);
 }
 
 sysreturn mkdir(const char *pathname, int mode)
@@ -1724,6 +1743,8 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, open, open);
     register_syscall(map, openat, openat);
     register_syscall(map, dup, dup);
+    register_syscall(map, dup2, dup2);
+    register_syscall(map, dup3, dup3);
     register_syscall(map, fstat, fstat);
     register_syscall(map, sendfile, sendfile);
     register_syscall(map, stat, stat);

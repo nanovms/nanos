@@ -16,6 +16,7 @@
 
 /* PCI device class */
 #define PCIC_STORAGE 0x01
+#define PCIC_DISPLAY 0x03
 
 /* PCI device subclass */
 #define PCIS_STORAGE_IDE 0x01

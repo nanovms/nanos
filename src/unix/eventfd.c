@@ -8,7 +8,6 @@ struct efd {
     struct fdesc f; /* must be first */
     int fd;
     heap h;
-    notify_set ns;
     blockq read_bq, write_bq;
     u64 counter;
 };
@@ -39,7 +38,7 @@ static sysreturn efd_read_bh(struct efd *efd, thread t, void *buf, u64 length,
         efd->counter = 0;
     }
     blockq_wake_one(efd->write_bq);
-    notify_dispatch(efd->ns, EPOLLOUT);
+    notify_dispatch(efd->f.ns, EPOLLOUT);
 out:
     if (blocked)
         blockq_set_completion(efd->read_bq, completion, t, rv);
@@ -80,7 +79,7 @@ static sysreturn efd_write_bh(struct efd *efd, thread t, void *buf, u64 length,
     }
     efd->counter += counter;
     blockq_wake_one(efd->read_bq);
-    notify_dispatch(efd->ns, EPOLLIN);
+    notify_dispatch(efd->f.ns, EPOLLIN);
 out:
     if (blocked)
         blockq_set_completion(efd->write_bq, completion, t, rv);
@@ -102,9 +101,8 @@ static sysreturn efd_write(struct efd *efd, void *buf, u64 length,
     return blockq_check(efd->write_bq, !bh ? t : 0, ba);
 }
 
-static CLOSURE_1_3(efd_check, boolean, struct efd *, u32, u32 *, event_handler);
-static boolean efd_check(struct efd *efd, u32 eventmask, u32 * last,
-        event_handler eh)
+static CLOSURE_1_0(efd_events, u32, struct efd *);
+static u32 efd_events(struct efd *efd)
 {
     u32 events = 0;
     if (efd->counter != 0) {
@@ -113,29 +111,15 @@ static boolean efd_check(struct efd *efd, u32 eventmask, u32 * last,
     if (efd->counter != EFD_COUNTER_MAX) {
         events |= EPOLLOUT;
     }
-
-    u32 report = edge_events(events, eventmask, last);
-    if (report) {
-        if (apply(eh, report)) {
-            if (last)
-                *last = events & eventmask;
-            return true;
-        } else {
-            return false;
-        }
-    } else {
-        if (!notify_add(efd->ns, eventmask, last, eh))
-            msg_err("notify enqueue fail: out of memory\n");
-    }
-    return true;
+    return events;
 }
 
 static CLOSURE_1_0(efd_close, sysreturn, struct efd *);
 static sysreturn efd_close(struct efd *efd)
 {
-    deallocate_notify_set(efd->ns);
     deallocate_blockq(efd->read_bq);
     deallocate_blockq(efd->write_bq);
+    release_fdesc(&efd->f);
     deallocate(efd->h, efd, sizeof(*efd));
     return 0;
 }
@@ -155,14 +139,13 @@ int do_eventfd2(unsigned int count, int flags)
         return -ENOMEM;
     }
     efd->fd = allocate_fd(current->p, efd);
-    fdesc_init(&efd->f, 0);
+    init_fdesc(h, &efd->f, 0);
     efd->f.flags = flags;
     efd->f.read = closure(h, efd_read, efd);
     efd->f.write = closure(h, efd_write, efd);
-    efd->f.check = closure(h, efd_check, efd);
+    efd->f.events = closure(h, efd_events, efd);
     efd->f.close = closure(h, efd_close, efd);
     efd->h = h;
-    efd->ns = allocate_notify_set(h);
     efd->read_bq = allocate_blockq(h, "eventfd read", EFD_BLOCKQ_LEN, 0);
     efd->write_bq = allocate_blockq(h, "eventfd write", EFD_BLOCKQ_LEN, 0);
     efd->counter = count;

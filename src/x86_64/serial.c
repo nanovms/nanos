@@ -1,5 +1,6 @@
 #include <runtime.h>
 #include <io.h>
+#include "serial.h"
 
 #define BASE 0x3f8
 
@@ -17,34 +18,9 @@ static boolean is_transmit_empty() {
     return in8(BASE + 5) & 0x20;
 }
 
-void serial_out(u8 a)
+void serial_putchar(char c)
 {
-    while (!is_transmit_empty());
-    out8(BASE, a);
-#ifdef BOOT
-    extern void bios_tty_out(u8);
-    bios_tty_out(a);
-    if (a == '\n')
-        bios_tty_out('\r');
-#endif
+    while (!is_transmit_empty())
+        ;
+    out8(BASE, c);
 }
-
-static char hex[]="0123456789abcdef";
-
-void print_u64(u64 s)
-{
-    for (int x = 60; x >= 0; x -= 4)
-        serial_out(hex[(s >> x)&0xf]);
-}
-
-void console(char *x)
-{
-    for (char *i = x; *i; i++) 
-        serial_out(*i);
-}
-
-void debug(buffer b)
-{
-    foreach_character(_, i, b) serial_out(i);
-}
-

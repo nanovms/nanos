@@ -279,7 +279,7 @@ void thread_log_internal(thread t, const char *desc, ...)
         buffer f = alloca_wrap_buffer(desc, runtime_strlen(desc));
         vbprintf(b, f, &ap);
         push_u8(b, '\n');
-        debug(b);
+        buffer_print(b);
     }
 }
 
@@ -291,10 +291,7 @@ void run_thread(thread t)
     thread_log(t, "run frame %p, RIP=%p", t->frame, t->frame[FRAME_RIP]);
     proc_enter_user(current->p);
     running_frame = t->frame;
-
-    // XXX Keeping interrupts disabled during thread execution;
-    // debugging race condition found with epoll
-    //    running_frame[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
+    running_frame[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
     IRETURN(running_frame);
 }
 
