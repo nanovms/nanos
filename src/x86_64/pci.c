@@ -40,6 +40,11 @@ static heap pages;
 // assume the single bus layout
 static u32 *msi_map[PCI_SLOTMAX];
 
+struct pci_driver {
+    pci_probe probe;
+    boolean attached;
+};
+
 /* enable configuration space accesses and return data port address */
 static int pci_cfgenable(pci_dev dev, int reg, int bytes)
 {
@@ -166,9 +171,12 @@ void pci_setup_msix(pci_dev dev, int msi_slot, thunk h)
     msi_map[dev->slot][msi_slot*4 + 3] = vector_control;
 }
 
-void register_pci_driver(pci_probe p)
+void register_pci_driver(pci_probe probe)
 {
-    vector_push(drivers, p);
+    struct pci_driver *d = allocate(drivers->h, sizeof(struct pci_driver));
+    d->probe = probe;
+    d->attached = false;
+    vector_push(drivers, d);
 }
 
 void pci_discover()
@@ -181,9 +189,11 @@ void pci_discover()
         if (pci_get_vendor(dev) == 0xffff && pci_get_device(dev) == 0xffff)
             continue;
 
-        pci_probe p;
-        vector_foreach(drivers, p) {
-            apply(p, dev);
+        struct pci_driver *d;
+        vector_foreach(drivers, d) {
+            if (!d->attached && apply(d->probe, dev)) {
+                d->attached = true;
+            }
         }
     }
 }
