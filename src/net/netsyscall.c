@@ -328,16 +328,24 @@ static sysreturn sock_read_bh(sock s, thread t, void *dest, u64 length,
     do {
         struct pbuf * pbuf = s->type == SOCK_STREAM ? (struct pbuf *)p :
             ((struct udp_entry *)p)->pbuf;
-        assert(pbuf->len > 0);
+        struct pbuf *cur_buf = pbuf;
 
-        u64 xfer = MIN(length, pbuf->len);
-        runtime_memcpy(dest, pbuf->payload, xfer);
-        pbuf_consume(pbuf, xfer);
-        length -= xfer;
-        xfer_total += xfer;
-        dest = (char *) dest + xfer;
+        do {
+            if (cur_buf->len == 0) {
+                cur_buf = cur_buf->next;
+                continue;
+            }
+            u64 xfer = MIN(length, cur_buf->len);
+            runtime_memcpy(dest, cur_buf->payload, xfer);
+            pbuf_consume(cur_buf, xfer);
+            length -= xfer;
+            xfer_total += xfer;
+            dest = (char *) dest + xfer;
+            if (s->type == SOCK_STREAM)
+                tcp_recved(s->info.tcp.lw, xfer);
+        } while ((length > 0) && cur_buf);
 
-        if (pbuf->len == 0) {
+        if (!cur_buf || (s->type == SOCK_DGRAM)) {
             assert(dequeue(s->incoming) == p);
             if (s->type == SOCK_DGRAM)
                 deallocate(s->h, p, sizeof(struct udp_entry));
@@ -346,9 +354,6 @@ static sysreturn sock_read_bh(sock s, thread t, void *dest, u64 length,
             if (!p)
                 notify_sock(s); /* reset a triggered EPOLLIN condition */
         }
-
-        if (s->type == SOCK_STREAM)
-            tcp_recved(s->info.tcp.lw, xfer);
     } while(s->type == SOCK_STREAM && length > 0 && p); /* XXX simplify expression */
 
     rv = xfer_total;
