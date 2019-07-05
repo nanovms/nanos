@@ -68,8 +68,8 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, getrusage, 0);
     register_syscall(map, ptrace, 0);
     register_syscall(map, syslog, 0);
-    register_syscall(map, getgid, 0);
-    register_syscall(map, getegid, 0);
+    register_syscall(map, getgid, syscall_ignore);
+    register_syscall(map, getegid, syscall_ignore);
     register_syscall(map, setpgid, 0);
     register_syscall(map, getppid, 0);
     register_syscall(map, getpgrp, 0);
