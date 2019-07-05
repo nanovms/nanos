@@ -34,7 +34,6 @@ sysreturn close(int fd);
 
 void register_other_syscalls(struct syscall *map)
 {
-    register_syscall(map, rt_sigreturn, 0);
     register_syscall(map, msync, 0);
     register_syscall(map, shmget, 0);
     register_syscall(map, shmat, 0);
@@ -1935,6 +1934,8 @@ static void syscall_debug()
     }
     set_syscall_return(current, res);
     current->syscall = -1;
+
+    dispatch_signals(current);
 }
 
 boolean syscall_notrace(int syscall)

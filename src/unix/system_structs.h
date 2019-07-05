@@ -276,11 +276,110 @@ typedef __signalfn_t *__sighandler_t;
 #define SIG_IGN	((__sighandler_t)1)	/* ignore signal */
 #define SIG_ERR	((__sighandler_t)-1)	/* error return from signal */
 
-struct siginfo {
-    int si_signo;
-    int si_errno;
-    int si_code;
-    // plus big hairy union...we dont plan on delivering any of these at the moment
+#define SIGINFO_SIZE    128
+
+typedef struct siginfo {
+    u32 si_signo;
+    s32 si_errno;
+    s32 si_code;
+
+    union {
+        u8 pad[SIGINFO_SIZE - 3 * sizeof(int)];
+
+        struct {
+            u32 pid;
+            u32 uid;
+        } kill;
+
+        struct {
+            u32 tid;
+            u32 overrun;
+            u64 sigval;
+            int sys_private;
+        } timer;
+
+        struct {
+            u32 pid;
+            u32 uid;
+            u64 sigval;
+        } rt;
+        
+        struct {
+            u32 pid;
+            u32 uid;
+            s32 status;
+            u32 utime;
+            u32 stime;
+        } sigchld;
+        
+        struct {
+            u64 addr; /* faulting insn/memory ref. */
+            
+            union {
+                /* BUS_MCEERR_AR / BUS_MCEERR_A0 */
+                short addr_lsb; /* LSB of the reported address */
+
+                /* SEGV_BNDERR */
+                struct {
+                    u64 dummy;
+                    u64 lower;
+                    u64 upper;
+                } addr_bnd;
+
+                /* SEGV_PKUERR */
+                struct {
+                    u64 dummy;
+                    u32 pkey;
+                } addr_pkey;
+            };
+        } sigfault;
+        
+        struct {
+            u64 band;
+            u32 fd;
+        } sigpoll;
+        
+        struct {
+            u64 call_addr;
+            s32 syscall;
+            u32 arch;
+        } _sigsys;
+    } _sifields;
+} __attribute__((aligned(8))) siginfo_t;
+
+#define SIGNALFD_SIGINFO_SIZE 128
+
+struct signalfd_siginfo {
+    u32 ssi_signo;
+    s32 ssi_errno;
+    s32 ssi_code;
+    u32 ssi_pid;
+    u32 ssi_uid;
+    s32 ssi_fd;
+    u32 ssi_tid;
+    u32 ssi_band;
+
+    /* 32 */
+    u32 ssi_overrun;
+    u32 ssi_trapno;
+    s32 ssi_status;
+    s32 ssi_int;
+    u64 ssi_ptr;
+    u64 ssi_utime;
+
+    /* 64 */
+    u64 ssi_stime;
+    u64 ssi_addr;
+    u16 ssi_addr_lsb;
+    u16 pad2;
+    s32 ssi_syscall;
+    u64 ssi_call_addr;
+
+    /* 96 */
+    u32 ssi_arch;
+
+    /* 100 */
+    u8 pad[SIGNALFD_SIGINFO_SIZE - 100];
 };
 
 typedef u64 fd_set;
@@ -307,6 +406,15 @@ struct sigaction {
 	unsigned long sa_flags;
 	void (*sa_restorer)(void);
 };
+
+typedef struct {
+    void *ss_sp;
+    u32 ss_flags;
+    u64 ss_size;
+} stack_t;
+
+#define SS_ONSTACK      1
+#define SS_DISABLE      2
 
 typedef s64 time_t;
 

@@ -121,6 +121,15 @@ typedef struct thread {
 
     thunk run;
     queue log[64];
+
+    /* signal internal - preferably bitmaps would be used here, but
+       for time's sake and the fact that _NSIG is presently 64 in
+       Linux, juse use u64s for now... */
+    u64 sigmask;
+    u64 sigpending;
+    u64 sigsaved;            /* original mask saved on rt_sigsuspend */
+    vector queues;           /* vector  */
+    u64 sigframe[FRAME_MAX];
 } *thread;
 
 typedef closure_type(io_completion, void, thread t, sysreturn rv);
@@ -164,29 +173,32 @@ typedef struct file *file;
 
 struct syscall;
 
+/* XXX reorg */
 typedef struct process {
-    unix_heaps uh;		/* non-thread-specific */
-    int pid;
+    unix_heaps      uh;		/* non-thread-specific */
+    int             pid;
     // i guess this should also be a heap, brk is so nasty
-    void *brk;
-    heap virtual;
-    heap virtual_page;
-    heap virtual32;    
-    heap fdallocator;
-    filesystem fs;	/* XXX should be underneath tuple operators */
-    tuple process_root;
-    tuple cwd; 
-    table futices;
-    fault_handler handler;
-    vector threads;
-    u64 sigmask;
+    void           *brk;
+    heap            virtual;
+    heap            virtual_page;
+    heap            virtual32;    
+    heap            fdallocator;
+    filesystem      fs;         /* XXX should be underneath tuple operators */
+    tuple           process_root;
+    tuple           cwd; 
+    table           futices;
+    fault_handler   handler;
+    vector          threads;
+    u64             sigmask;
     struct syscall *syscalls;
-    vector files;
-    rangemap vareas;               /* available address space */
-    rangemap vmaps;                /* process mappings */
-    boolean sysctx;
-    timestamp utime, stime;
-    timestamp start_time;
+    vector          files;
+    rangemap        vareas;     /* available address space */
+    rangemap        vmaps;      /* process mappings */
+    boolean         sysctx;
+    timestamp       utime, stime;
+    timestamp       start_time;
+    u64             sigpending;
+    __sighandler_t  sigacts[NSIG]; /* signal dispositions */
 } *process;
 
 extern thread current;
@@ -245,6 +257,8 @@ static inline time_t time_t_from_time(timestamp t)
 {
     return t / TIMESTAMP_SECOND;
 }
+
+void dispatch_signals(thread t);
 
 void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *name);
 

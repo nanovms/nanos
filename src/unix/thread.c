@@ -295,6 +295,10 @@ void run_thread(thread t)
     thread_log(t, "run frame %p, RIP=%p", t->frame, t->frame[FRAME_RIP]);
     proc_enter_user(current->p);
     running_frame = t->frame;
+
+    /* check if we have a pending signal */
+    dispatch_signals(t);
+
     running_frame[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
     IRETURN(running_frame);
 }
