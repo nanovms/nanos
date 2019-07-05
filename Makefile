@@ -109,7 +109,7 @@ QEMU_STORAGE+=	-device virtio-scsi-pci,id=scsi0 -device scsi-hd,bus=scsi0.0,driv
 else ifeq ($(STORAGE),virtio-blk)
 QEMU_STORAGE+=	-device virtio-blk,drive=hd0
 else ifeq ($(STORAGE),ide)
-QEMU_STORAGE+=	-device piix4-ide,id=ide0 -device ide-hd,bus=ide0.0,drive=hd0,bootindex=0
+QEMU_STORAGE+=	-device ide-hd,bus=ide.0,drive=hd0
 else
 $(error Unsupported STORAGE=$(STORAGE))
 endif

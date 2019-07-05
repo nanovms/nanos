@@ -5,6 +5,12 @@
 #define PCIR_DEVICE     0x02
 #define PCIR_SUBCLASS   0x0a
 #define PCIR_CLASS      0x0b
+#define PCIR_HDRTYPE    0x0e
+#define PCIM_HDRTYPE            0x7f
+#define PCIM_HDRTYPE_NORMAL     0x00
+#define PCIM_HDRTYPE_BRIDGE     0x01
+#define PCIM_HDRTYPE_CARDBUS    0x02
+#define PCIM_MFDEV              0x80
 #define PCIR_MEMBASE0_2 0x1c
 #define PCIR_MEMLIMIT0_2 0x20
 #define PCIR_MEMBASE1_2 0x24
@@ -42,14 +48,19 @@ static inline u16 pci_get_device(pci_dev dev)
     return pci_cfgread(dev, PCIR_DEVICE, 2);
 }
 
-static inline u16 pci_get_class(pci_dev dev)
+static inline u8 pci_get_class(pci_dev dev)
 {
     return pci_cfgread(dev, PCIR_CLASS, 1);
 }
 
-static inline u16 pci_get_subclass(pci_dev dev)
+static inline u8 pci_get_subclass(pci_dev dev)
 {
     return pci_cfgread(dev, PCIR_SUBCLASS, 1);
+}
+
+static inline u8 pci_get_hdrtype(pci_dev dev)
+{
+    return pci_cfgread(dev, PCIR_HDRTYPE, 1);
 }
 
 u32 pci_readbar(pci_dev dev, int bid, u32 *length);
