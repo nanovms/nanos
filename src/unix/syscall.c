@@ -65,7 +65,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, fchmod, syscall_ignore);
     register_syscall(map, fchown, 0);
     register_syscall(map, lchown, 0);
-    register_syscall(map, umask, 0);
     register_syscall(map, getrusage, 0);
     register_syscall(map, ptrace, 0);
     register_syscall(map, syslog, 0);
@@ -1734,6 +1733,11 @@ sysreturn sysinfo(struct sysinfo *info)
     return 0;
 }
 
+sysreturn umask(int mask)
+{
+	return mask;
+}
+
 void register_file_syscalls(struct syscall *map)
 {
     register_syscall(map, read, read);
@@ -1801,6 +1805,7 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, setgid, syscall_ignore);
     register_syscall(map, prctl, prctl);
     register_syscall(map, sysinfo, sysinfo);
+    register_syscall(map, umask, umask);
 }
 
 #define SYSCALL_F_NOTRACE 0x1
