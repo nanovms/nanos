@@ -631,8 +631,10 @@ static sysreturn socket_close(sock s)
          * prevent any lwIP callback that might be called after tcp_close() from
          * using a stale reference to the socket structure, set the callback
          * argument to NULL. */
-        tcp_close(s->info.tcp.lw);
-        tcp_arg(s->info.tcp.lw, 0);
+        if (s->info.tcp.lw) {
+            tcp_close(s->info.tcp.lw);
+            tcp_arg(s->info.tcp.lw, 0);
+        }
         break;
     case SOCK_DGRAM:
         udp_remove(s->info.udp.lw);
@@ -860,6 +862,10 @@ static void lwip_tcp_conn_err(void * z, err_t b) {
     error_message(s, b);
     s->info.tcp.state = TCP_SOCK_UNDEFINED;
     set_lwip_error(s, b);
+
+    /* Don't try to use the pcb, it may have been deallocated already. */
+    s->info.tcp.lw = 0;
+
     wakeup_sock(s, WAKEUP_SOCK_EXCEPT);
 }
 
