@@ -1,39 +1,38 @@
 ## Security
 
-This document should contain any pro-active measures we've enabled or
-are roadmapped - the idea is that when someone asks we can start
-referencing it.
+Security is not binary. Software is not 'secure' or 'insecure'. It's
+more of a spectrum.
 
-[] Stack Randomization
+This document contains any pro-active measures we've enabled.
 
-[] Heap Randomization
+__ASLR__:
 
-[] Library Randomization
+* Stack Randomization
 
-[] Binary Randomization
+* Heap Randomization
 
-[X] Stack Execution off by Default
+* Library Randomization
 
-[X] Heap Execution off by Default
+* Binary Randomization
 
-[X] Null Page is Not Mapped
+__Page Protections__:
 
-[X] Stack Cookies/Canaries
+* Stack Execution off by Default
 
-[] Rodata no execute
+* Heap Execution off by Default
 
-[X] Text no write
+* Null Page is Not Mapped
 
-[] Guard Pages
+* Stack Cookies/Canaries
 
-[] Heap Canaries
+* Rodata no execute
 
-[] Stack Smashing - comes via gcc (not sure if nanos is good though?)
+* Text no write
 
-## Other Designs Considerations
+## Other Considerations
 
-[X] Single Process
+* Single Process
 
-[X] No Users
+* No Users
 
-[X] No Shell
+* No Shell

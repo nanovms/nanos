@@ -403,6 +403,10 @@ static void ata_attach(struct ata *dev, storage_attach a)
 
     // identify
     ata_out8(dev, ATA_COMMAND, ATA_ATA_IDENTIFY);
+    if (ata_in8(dev, ATA_STATUS) == 0) {
+        // drive does not exist
+        return;
+    }
     if (ata_wait(dev, ATA_S_READY | ATA_S_DRQ) < 0) {
         rprintf("%s: IDENTIFY timeout\n", __func__);
         return;

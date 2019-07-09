@@ -9,6 +9,13 @@ Read more about the Nanos Charter [here](CHARTER.md).
 Please use [https://github.com/nanovms/ops](ops) unless you are planning
 on modifying nanos.
 
+If you are in a vm already (which is a bad idea) you'll need to specify
+that you don't want hardware acceleration:
+
+```
+make run no-accel
+```
+
 For Nanos try running the first example first:
 ```
 make run
@@ -23,34 +30,31 @@ To try a different target currently found in examples/ you can:
 TARGET=mynewtarget make run
 ```
 
-### Creating a Manifest
-
-* arguments
-* environment variables
-
 ### TFS
 
 TFS is the current filesystem utilized by Nanos.
 
 ### Optional Flags
 
-* thread tracing
+thread tracing:
 
 ```
 futex_trace: t
 ```
 
-* syscall tracing
+syscall tracing:
 
 ```
 debugsyscalls: t
 ```
 
-* stackdump
+stackdump:
 
 ```
 fault: t
 ```
+
+Read more about Security [here](SECURITY.md).
 
 [Architecture](https://github.com/nanovms/nanos/wiki/Architecture)
 

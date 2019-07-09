@@ -4,6 +4,12 @@
 #include <io.h>
 #include <x86_64.h>
 
+#ifdef PCI_DEBUG
+# define pci_debug rprintf
+#else
+# define pci_debug(...) do { } while(0)
+#endif // PCI_DEBUG
+
 #define CONF1_ADDR_PORT    0x0cf8
 #define CONF1_DATA_PORT    0x0cfc
 
@@ -179,20 +185,39 @@ void register_pci_driver(pci_probe probe)
     vector_push(drivers, d);
 }
 
+static void pci_probe_device(pci_dev dev)
+{
+    u16 vendor = pci_get_vendor(dev);
+    if (vendor == 0xffff)
+        return;
+    pci_debug("%s: %02x:%02x:%x: %04x:%04x\n",
+        __func__, dev->bus, dev->slot, dev->function, vendor, pci_get_device(dev));
+
+    struct pci_driver *d;
+    vector_foreach(drivers, d) {
+        if (!d->attached && apply(d->probe, dev)) {
+            d->attached = true;
+        }
+    }
+}
+
+/*
+ * See https://wiki.osdev.org/PCI#Enumerating_PCI_Buses
+ */
 void pci_discover()
 {
     // we dont actually need to do recursive discovery, qemu leaves it all on bus0 for us
     for (int i = 0; i < 16; i++) {
-        struct pci_dev _dev = { .bus = 0, .slot = i, .function = 0};
+        struct pci_dev _dev = { .bus = 0, .slot = i, .function = 0 };
         pci_dev dev = &_dev;
 
-        if (pci_get_vendor(dev) == 0xffff && pci_get_device(dev) == 0xffff)
-            continue;
+        pci_probe_device(dev);
 
-        struct pci_driver *d;
-        vector_foreach(drivers, d) {
-            if (!d->attached && apply(d->probe, dev)) {
-                d->attached = true;
+        // check multifunction devices
+        if (pci_get_hdrtype(dev) & PCIM_MFDEV) {
+            for (int f = 1; f < 8; f++) {
+                dev->function = f;
+                pci_probe_device(dev);
             }
         }
     }
