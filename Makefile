@@ -23,6 +23,14 @@ GCE_BUCKET=	nanos-test/gce-images
 GCE_IMAGE=	nanos-$(TARGET)
 GCE_INSTANCE=	nanos-$(TARGET)
 
+# AWS
+AWS=		aws
+JQ=		jq
+PRINTF=		printf
+CLEAR_LINE=	[1K\r
+AWS_S3_BUCKET=	nanos-test
+AWS_AMI_IMAGE=	nanos-$(TARGET)
+
 all: image
 
 .PHONY: image release contgen mkfs boot stage3 target stage distclean
@@ -148,6 +156,28 @@ delete-gce:
 
 gce-console:
 	$(Q) $(GCLOUD) compute --project=$(GCE_PROJECT) instances tail-serial-port-output $(GCE_INSTANCE)
+
+##############################################################################
+# AWS
+.PHONY: upload-ec2-image create-ec2-snapshot
+
+upload-ec2-image:
+	$(Q) $(AWS) s3 cp $(IMAGE) s3://$(AWS_S3_BUCKET)/$(AWS_AMI_IMAGE).raw
+
+create-ec2-snapshot: upload-ec2-image
+	$(Q) json=`$(AWS) ec2 import-snapshot --disk-container "Description=NanoVMs Test,Format=raw,UserBucket={S3Bucket=$(AWS_S3_BUCKET),S3Key=$(AWS_AMI_IMAGE).raw}"` && \
+		import_task_id=`$(ECHO) "$$json" | $(JQ) -r .ImportTaskId` && \
+		while :; do \
+			json=`$(AWS) ec2 describe-import-snapshot-tasks --import-task-ids $$import_task_id`; \
+			status=`$(ECHO) "$$json" | $(JQ) -r ".ImportSnapshotTasks[0].SnapshotTaskDetail.Status"`; \
+			if [ x"$$status" = x"completed" ]; then \
+			        $(PRINTF) "$(CLEAR_LINE)Task $$import_task_id: $$status\n"; \
+				break; \
+			fi; \
+			progress=`$(ECHO) "$$json" | $(JQ) -r ".ImportSnapshotTasks[0].SnapshotTaskDetail.Progress?"`; \
+			status_message=`$(ECHO) "$$json" | $(JQ) -r ".ImportSnapshotTasks[0].SnapshotTaskDetail.StatusMessage?"`; \
+			$(PRINTF) "$(CLEAR_LINE)Task $$import_task_id: $$status_message ($$progress%%)"; \
+		done
 
 include rules.mk
 
