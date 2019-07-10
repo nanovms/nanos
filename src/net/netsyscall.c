@@ -614,6 +614,16 @@ static sysreturn socket_ioctl(sock s, unsigned long request, vlist ap)
                 sizeof(ip4_addr_t));
         return 0;
     }
+    case FIONBIO: {
+        int opt = varg(ap, int);
+        if (opt) {
+            s->f.flags |= SOCK_NONBLOCK;
+        }
+        else {
+            s->f.flags &= ~SOCK_NONBLOCK;
+        }
+        return 0;
+    }
     default:
         return -ENOSYS;
     }
