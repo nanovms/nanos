@@ -60,3 +60,8 @@ enum protocol_type {
 #define TCP_SAVE_SYN		27	/* Record SYN headers for new connections */
 #define TCP_SAVED_SYN		28	/* Get SYN headers recorded for connection */
 
+#ifndef SHUT_RD
+  #define SHUT_RD   0
+  #define SHUT_WR   1
+  #define SHUT_RDWR 2
+#endif

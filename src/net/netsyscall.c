@@ -648,6 +648,45 @@ static sysreturn socket_close(sock s)
     return 0;
 }
 
+sysreturn shutdown(int sockfd, int how)
+{
+    int shut_rx=0, shut_tx=0;
+    sock s = resolve_fd(current->p, sockfd);
+    net_debug("sock %d, type %d, how %d\n", sockfd, s->type, how);
+
+    switch(how) {
+    case SHUT_RD:
+        shut_rx = 1;
+        break;
+    case SHUT_WR:
+        shut_tx = 1;
+        break;
+    case SHUT_RDWR:
+        shut_rx = 1;
+        shut_tx = 1;
+        break;
+    default:
+        msg_warn("Wrong value passed for direction sock %d, type %d\n", sockfd, s->type);
+        return -EINVAL;
+    }
+    switch (s->type) {
+        case SOCK_STREAM:
+        tcp_shutdown(s->info.tcp.lw, shut_rx, shut_tx);
+        if(how == SHUT_RDWR) {
+            /*Not sure if we need to close the socket and cleanup if user call shutdown for both direction ??
+            Assumption is, user will call close() API after shutdown() */
+            
+            //socket_close(s); 
+        }
+        break;
+    case SOCK_DGRAM:
+        msg_warn("shutdown not supported in UDP sock %d, type %d\n", sockfd, s->type);	
+        return -EAFNOSUPPORT;
+    }
+    
+    return 0;
+}
+
 static void udp_input_lower(void *z, struct udp_pcb *pcb, struct pbuf *p,
 			    const ip_addr_t * addr, u16 port)
 {
@@ -1441,6 +1480,7 @@ void register_net_syscalls(struct syscall *map)
     register_syscall(map, getsockname, getsockname);
     register_syscall(map, getpeername, getpeername);
     register_syscall(map, getsockopt, getsockopt);
+    register_syscall(map, shutdown, shutdown);
 }
 
 boolean netsyscall_init(unix_heaps uh)
