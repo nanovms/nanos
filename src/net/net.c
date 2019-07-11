@@ -58,7 +58,8 @@ void lwip_debug(char * format, ...)
 
 void *lwip_allocate(u64 size)
 {
-    return allocate_zero(lwip_heap, size);
+    void *p = allocate_zero(lwip_heap, size);
+    return ((p != INVALID_ADDRESS) ? p : 0);
 }
 
 void lwip_deallocate(void *x)
