@@ -104,8 +104,11 @@ static void release_epollfd(epollfd efd)
 static void unregister_epollfd(epollfd efd)
 {
     epoll_debug("efd %d\n", efd->fd);
-    epoll_debug("efd->e->f.ns %p\n", efd->e->f.ns);
-    notify_remove(efd->e->f.ns, efd->notify_handle);
+
+    fdesc f = resolve_fd_noret(current->p, efd->fd);
+    assert(f);
+    epoll_debug("f->ns %p\n", f->ns);
+    notify_remove(f->ns, efd->notify_handle);
     efd->registered = false;
     efd->notify_handle = 0;
 }
