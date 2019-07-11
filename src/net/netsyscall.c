@@ -650,11 +650,12 @@ static sysreturn socket_close(sock s)
 
 sysreturn shutdown(int sockfd, int how)
 {
-    int shut_rx=0, shut_tx=0;
-    sock s = resolve_fd(current->p, sockfd);
+    int shut_rx = 0, shut_tx = 0;
+    sock s = resolve_socket(current->p, sockfd);
+		
     net_debug("sock %d, type %d, how %d\n", sockfd, s->type, how);
 
-    switch(how) {
+    switch (how) {
     case SHUT_RD:
         shut_rx = 1;
         break;
@@ -670,18 +671,14 @@ sysreturn shutdown(int sockfd, int how)
         return -EINVAL;
     }
     switch (s->type) {
-        case SOCK_STREAM:
-        tcp_shutdown(s->info.tcp.lw, shut_rx, shut_tx);
-        if(how == SHUT_RDWR) {
-            /*Not sure if we need to close the socket and cleanup if user call shutdown for both direction ??
-            Assumption is, user will call close() API after shutdown() */
-            
-            //socket_close(s); 
+    case SOCK_STREAM:
+        if (s->info.tcp.state != TCP_SOCK_OPEN) {
+            return -ENOTCONN;
         }
+        tcp_shutdown(s->info.tcp.lw, shut_rx, shut_tx);
         break;
     case SOCK_DGRAM:
-        msg_warn("shutdown not supported in UDP sock %d, type %d\n", sockfd, s->type);	
-        return -EAFNOSUPPORT;
+        return -ENOTCONN;
     }
     
     return 0;
