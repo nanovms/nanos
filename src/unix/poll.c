@@ -381,7 +381,6 @@ sysreturn epoll_wait(int epfd,
 	epollfd efd = vector_get(e->events, fd);
 	assert(efd);
         assert(efd->fd == fd);
-        assert(efd->registered);
 
         if (efd->zombie)
             continue;
@@ -395,7 +394,8 @@ sysreturn epoll_wait(int epfd,
 
         /* event transitions may in some cases need to be polled for
            (e.g. due to change in lwIP internal state), so request a check */
-        check_fdesc(f);
+        if (efd->registered)
+            check_fdesc(f);
     }
 
     int eventcount = w->user_events->end/sizeof(struct epoll_event);
