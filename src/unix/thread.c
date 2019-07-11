@@ -57,7 +57,11 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, un
         flags, child_stack, ptid, ctid, newtls);
 
     if (!child_stack)   /* this is actually a fork() */
+    {
+        thread_log(current, "attempted to fork by passing "
+                   "null child stack, aborting.");
         return set_syscall_error(current, ENOSYS);
+    }
 
     /* clone thread context up to FRAME_VECTOR */
     thread t = create_thread(current->p);
