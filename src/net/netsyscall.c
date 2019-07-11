@@ -331,18 +331,18 @@ static sysreturn sock_read_bh(sock s, thread t, void *dest, u64 length,
         struct pbuf *cur_buf = pbuf;
 
         do {
-            if (cur_buf->len == 0) {
-                cur_buf = cur_buf->next;
-                continue;
+            if (cur_buf->len > 0) {
+                u64 xfer = MIN(length, cur_buf->len);
+                runtime_memcpy(dest, cur_buf->payload, xfer);
+                pbuf_consume(cur_buf, xfer);
+                length -= xfer;
+                xfer_total += xfer;
+                dest = (char *) dest + xfer;
+                if (s->type == SOCK_STREAM)
+                    tcp_recved(s->info.tcp.lw, xfer);
             }
-            u64 xfer = MIN(length, cur_buf->len);
-            runtime_memcpy(dest, cur_buf->payload, xfer);
-            pbuf_consume(cur_buf, xfer);
-            length -= xfer;
-            xfer_total += xfer;
-            dest = (char *) dest + xfer;
-            if (s->type == SOCK_STREAM)
-                tcp_recved(s->info.tcp.lw, xfer);
+            if (cur_buf->len == 0)
+                cur_buf = cur_buf->next;
         } while ((length > 0) && cur_buf);
 
         if (!cur_buf || (s->type == SOCK_DGRAM)) {
