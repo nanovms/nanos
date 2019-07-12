@@ -7,7 +7,7 @@ jobs:
     steps:
       - checkout
       - run: sudo apt-get update
-      - run: sudo apt-get install nasm qemu ruby rustc
+      - run: sudo apt-get install nasm qemu ent ruby rustc
       - run: cd .. && git clone git@github.com:nanovms/ops.git
       - run: make
       - run: curl https://ops.city/get.sh -sSfL | sh
@@ -23,7 +23,7 @@ jobs:
     steps:
       - checkout
       - run: sudo apt-get update
-      - run: sudo apt-get install nasm qemu ruby rustc
+      - run: sudo apt-get install nasm qemu ent ruby rustc
       - run: make
       - run: curl https://ops.city/get.sh -sSfL | sh
       - run:
@@ -54,7 +54,7 @@ jobs:
     steps:
       - checkout
       - run: CI=1 /usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
-      - run: brew update && brew install nasm go wget qemu
+      - run: brew update && brew install nasm go wget qemu ent
       - run: brew tap nanovms/homebrew-x86_64-elf
       - run: brew install x86_64-elf-binutils
       - run: mkdir target-root && cd target-root && wget https://storage.googleapis.com/testmisc/target-root.tar.gz && tar xfvz target-root.tar.gz
@@ -74,7 +74,7 @@ jobs:
     steps:
       - checkout
       - run: CI=1 /usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
-      - run: brew update && brew install nasm go wget
+      - run: brew update && brew install nasm go wget ent
       - run: brew tap nanovms/homebrew-x86_64-elf
       - run: brew install x86_64-elf-binutils
       - run: mkdir target-root && cd target-root && wget https://storage.googleapis.com/testmisc/target-root.tar.gz && tar xzf target-root.tar.gz
