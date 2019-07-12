@@ -1,5 +1,4 @@
-SCRATCH_BASE equ 0x2000
-REAL_SP equ SCRATCH_BASE-0x10
+base equ 0x7c00
 
 ;
 ; enter real mode
@@ -11,6 +10,9 @@ REAL_SP equ SCRATCH_BASE-0x10
 ; - GDT contains 16-bit data and code entries
 ; - real IDT is effective (we load IDT only in stage3)
 %macro ENTER_REAL 0
+	; save protected mode stack
+	mov [protected_esp], esp
+
 	jmp gdt32.code16:%%prot16	; enter 16-bit protected mode
 
 %%prot16:
@@ -36,12 +38,13 @@ REAL_SP equ SCRATCH_BASE-0x10
 	mov fs, ax
 	mov gs, ax
 
-	mov sp, REAL_SP
+	mov sp, [real_sp]
 %endmacro
 
-%macro ENTER_PROTECTED 0
-	lgdt [gdt32.desc]
 
+;
+; assumes "bits 16" mode
+%macro ENTER_PROTECTED 0
 	;; change the processor mode flag
 	mov eax, cr0
 	or eax, 1
@@ -60,15 +63,30 @@ REAL_SP equ SCRATCH_BASE-0x10
 	mov esp, [protected_esp]
 %endmacro
 
+
 ;; entry point
-        extern centry
-        section .start
+extern centry
+section .start
+
 
 global _start
 _start:
 	bits 16
+	; move stack
+	xor ax, ax
+	mov ss, ax
+	mov eax, base - 0x10
+	mov [real_sp], ax
+	sub eax, 0x1000			; temporary protected mode stack until newstack() in stage2
+					; should not overlap with real mode stack to not trigger SSP
+	mov [protected_esp], eax
+
+	; load 32-bit GDT
+	lgdt [gdt32.desc]
+
 	ENTER_PROTECTED
         jmp centry
+
 
 ;
 ; 32-bit GDT
@@ -87,18 +105,33 @@ gdt32:
 	dw $ - gdt32 -1
 	dd gdt32
 
-protected_esp:
-	dd REAL_SP			; initial stack pointer
 
+protected_esp: dd 0			; protected mode stack pointer
+real_sp: dw 0				; real mode stack pointer
 
 dap:
-	db 0x10
+	db dap.end - dap
 	db 0
-	.sectors:	dw 0
-	.offset:	dw SCRATCH_BASE
+	.sector_count:	dw 0
+	.offset:	dw 0
 	.segment:	dw 0
-	.sector:	dd 0
-	.sectorm:	dd 0
+	.lba:	        dq 0
+.end:
+
+
+%ifdef USE_AH02
+dpt:
+	.heads	dw 0
+	.spt	dw 0
+	.cyls	dw 0
+%endif
+
+
+%ifdef DEBUG
+bits 16
+%include "tty.inc"
+bits 32
+%endif
 
 
 global bios_read_sectors
@@ -111,20 +144,134 @@ bios_read_sectors:
 	push esi
 	push edi
 
-	; save protected mode stack
-	mov [protected_esp], esp
-
 	; prepare dap
 	mov eax, [ebp + 8]
-	mov [dap.sector], eax
+	mov [dap.offset], ax
 	mov eax, [ebp + 12]
-	mov [dap.sectors], ax
+	mov [dap.lba], eax
+	mov eax, [ebp + 16]
+	mov [dap.sector_count], ax
 
 	ENTER_REAL
+
+%ifdef DEBUG
+; print DAP
+	TTY_OUT 'D'
+	TTY_OUT ':'
+	mov cx, [dap]
+	mov si, dap
+	call tty_out_bytes
+	TTY_OUT_NL
+%endif
+
+%ifndef USE_AH02
+; read from the disk
 	mov si, dap
 	mov ah, 0x42
 	mov dl, 0x80			; first drive
 	int 0x13
+%else
+; get disk parameters
+	mov ah, 8
+	mov dl, 0x80
+	int 0x13			; DH = heads - 1, CX[0:5] = spt, CX[8:15]CX[6:7] = cyls - 1
+
+; print result
+	TTY_OUT 'O'
+	TTY_OUT ':'
+	TTY_OUT_HEX dh
+	TTY_OUT ':'
+	TTY_OUT_HEX ch
+	TTY_OUT_HEX cl
+	TTY_OUT_NL
+
+; convert to CHS
+	xor dl, dl
+	xchg dh, dl
+	inc dx
+	mov [dpt.heads], dx
+	mov al, cl
+	and ax, 0x3f
+	mov [dpt.spt], ax
+	shr cl, 6
+	xchg cl, ch
+	inc cx
+	mov [dpt.cyls], cx
+
+; print cyls:heads:spt
+	TTY_OUT 'P'
+	TTY_OUT ':'
+	TTY_OUT_HEX [dpt.cyls + 1]
+	TTY_OUT_HEX [dpt.cyls]
+	TTY_OUT ':'
+	TTY_OUT_HEX [dpt.heads + 1]
+	TTY_OUT_HEX [dpt.heads]
+	TTY_OUT ':'
+	TTY_OUT_HEX [dpt.spt + 1]
+	TTY_OUT_HEX [dpt.spt]
+	TTY_OUT_NL
+
+.loop:
+; print LBA
+	TTY_OUT 'L'
+	TTY_OUT ':'
+	TTY_OUT_HEX [dap.lba+3]
+	TTY_OUT_HEX [dap.lba+2]
+	TTY_OUT_HEX [dap.lba+1]
+	TTY_OUT_HEX [dap.lba+0]
+	TTY_OUT_NL
+
+; convert to LBA to CHS
+	mov ax, [dap.lba]
+	mov dx, [dap.lba + 2]		; DX:AX = LBA
+	div word [dpt.spt]		; DX = sector, AX = head * cyl
+	mov cx, dx
+	inc cx				; CX = sector, AX = head * cyl
+	xor dx, dx			; DX:AX = head * cyl
+	div word [dpt.heads]		; CX = sector, DX = head, AX = cyl
+	mov bx, ax			; CX = sector, DX = head, BX = cyl
+
+; print CHS
+	TTY_OUT 'C'
+	TTY_OUT ':'
+	TTY_OUT_HEX bh
+	TTY_OUT_HEX bl
+	TTY_OUT ':'
+	TTY_OUT_HEX dh
+	TTY_OUT_HEX dl
+	TTY_OUT ':'
+	TTY_OUT_HEX ch
+	TTY_OUT_HEX cl
+	TTY_OUT_NL
+
+; convert to AH = 02h args
+	mov dh, dl			; DH = head
+	and cx, 0x3f			; CX = sector
+	shl bh, 6
+	xchg bh, bl			; BX[8:15]BX[6:7] = cyl
+	or cx, bx			; CX[0:5] = sector, CX[6:7]CX[8:15] = cyl
+
+; print args
+	TTY_OUT 'I'
+	TTY_OUT ':'
+	TTY_OUT_HEX dh
+	TTY_OUT ':'
+	TTY_OUT_HEX ch
+	TTY_OUT_HEX cl
+	TTY_OUT_NL
+
+; read from the disk
+	mov ax, 0x0201			; AH = 02h, sector count = 1
+	mov dl, 0x80
+	mov bx, [dap.offset]
+	int 0x13
+
+	add word [dap.offset], 512
+	inc dword [dap.lba]
+	dec word [dap.sector_count]
+	jnz .loop
+%endif
+
 	ENTER_PROTECTED
 
 	pop edi
@@ -144,9 +291,6 @@ bios_tty_out:
 	push ebx
 	push esi
 	push edi
-
-	; save protected mode stack
-	mov [protected_esp], esp
 
 	; save character
 	mov ebx, [ebp + 8]

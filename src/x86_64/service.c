@@ -238,7 +238,7 @@ static void __attribute__((noinline)) init_service_new_stack()
     u64 fs_offset = 0;
     for_regions(e) {
         if (e->type == REGION_FILESYSTEM)
-            fs_offset = e->base;
+            fs_offset = SECTOR_SIZE + e->length;
     }
     if (fs_offset == 0)
         halt("filesystem region not found; halt\n");

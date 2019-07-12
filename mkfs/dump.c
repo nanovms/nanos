@@ -108,7 +108,7 @@ static u64 get_fs_offset(descriptor fd)
         return 0;
     }
 
-    u64 fs_offset = r->base;
+    u64 fs_offset = SECTOR_SIZE + r->length;
     rprintf("detected filesystem at 0x%lx\n", fs_offset);
     return fs_offset;
 }

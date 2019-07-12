@@ -278,7 +278,7 @@ static void write_mbr(descriptor f)
     region r = (region) ((char *) e - sizeof(*r));
     if (r->type != REGION_FILESYSTEM)
         halt("invalid boot record (missing filesystem region) \n");
-    u64 fs_offset = r->base;
+    u64 fs_offset = SECTOR_SIZE + r->length;
     assert(fs_offset % SECTOR_SIZE == 0);
     assert(total_size > fs_offset);
 
