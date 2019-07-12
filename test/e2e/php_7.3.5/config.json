@@ -1,0 +1,9 @@
+{
+    "Args": ["b.php"],
+    "RunConfig": {
+        "Ports": [9501]
+    },
+    "Boot": "../../../output/boot/boot.img",
+    "Kernel": "../../../output/stage3/bin/stage3.img",
+    "Mkfs": "../../../output/mkfs/bin/mkfs"
+}
