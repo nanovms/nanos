@@ -527,10 +527,11 @@ static void select_notify(epollfd efd, u32 events)
 	    bitmap_set(w->eset, efd->fd, 1);
 	    count++;
 	}
-	assert(count);
-	fetch_and_add(&w->retcount, count);
-	epoll_debug("   event on %d, events 0x%x\n", efd->fd, events);
-	epoll_blocked_finish(w, false);
+	if (count > 0) {
+	    fetch_and_add(&w->retcount, count);
+	    epoll_debug("   event on %d, events 0x%x\n", efd->fd, events);
+	    epoll_blocked_finish(w, false);
+	}
     }
 }
 
