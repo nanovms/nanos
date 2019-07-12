@@ -36,3 +36,6 @@ __Page Protections__:
 * No Users
 
 * No Shell
+
+To report security issues email security @ . We don't do PGP.
+(https://gist.github.com/rjhansen/67ab921ffb4084c865b3618d6955275f)
