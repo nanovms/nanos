@@ -6,9 +6,28 @@
 #include <x86_64.h>
 #include <serial.h>
 
+#ifdef STAGE2_DEBUG
+# define stage2_debug rprintf
+#else
+# define stage2_debug(...) do { } while(0)
+#endif // STAGE2_DEBUG
+
 extern void run64(u32 entry);
 
+/*
+ * low memory map:
+ * 0x0000..0x03ff - real mode IDT
+ * 0x0400..0x04ff - BDA (BIOS data area)
+ * 0x0500..0x6bff - bios_read_sectors() buffer
+ * 0x6c00..0x7dff - stage2 real mode stack
+ * 0x7c00..0x7dff - MBR (stage1)
+ * 0x7e00..0x7fff - unused
+ * 0x8000..       - stage2 code
+ */
+#define REAL_MODE_STACK_SIZE 0x1000
+#define SCRATCH_BASE 0x500
 #define BOOT_BASE 0x7c00
+#define SCRATCH_LEN (BOOT_BASE - REAL_MODE_STACK_SIZE)
 
 /* We're placing the working heap base at the beginning of extended
    memory. Use of this heap is tossed out in the move to stage3, thus
@@ -20,9 +39,6 @@ extern void run64(u32 entry);
 #define WORKING_BASE 0x100000
 #define WORKING_LEN (4*MB)  /* arbitrary, must be enough for any fs meta */
 static u64 working = WORKING_BASE;
-
-#define SCRATCH_BASE 0x2000
-#define SCRATCH_LEN (BOOT_BASE - SCRATCH_BASE)
 
 #define STACKLEN (8 * PAGESIZE)
 static struct heap workings;
@@ -56,7 +72,7 @@ u64 random_u64()
 
 // defined in service32.s
 extern void bios_tty_out(char);
-extern void bios_read_sectors(int offset, int count);
+extern void bios_read_sectors(void *buffer, int start_sector, int sector_count);
 
 void console_write(char *s, bytes count)
 {
@@ -73,21 +89,25 @@ void console_write(char *s, bytes count)
 
 static void read_sectors(char *dest, u64 start_sector, u64 nsectors)
 {
+    void *read_buffer = pointer_from_u64(SCRATCH_BASE);
+    stage2_debug("%s: %p <- 0x%lx (0x%lx)\n", __func__, dest, start_sector, nsectors);
+
     while (nsectors > 0) {
         int read_sectors = MIN(nsectors, SCRATCH_LEN >> SECTOR_OFFSET);
-	bios_read_sectors(start_sector, read_sectors);
-	runtime_memcpy(dest, pointer_from_u64(SCRATCH_BASE), read_sectors << SECTOR_OFFSET);
-	dest += read_sectors << SECTOR_OFFSET;
-	start_sector += read_sectors;
-	nsectors -= read_sectors;
+        stage2_debug("bios_read_sectors: %p <- 0x%lx (0x%x)\n", dest, start_sector, read_sectors);
+        bios_read_sectors(read_buffer, start_sector, read_sectors);
+        runtime_memcpy(dest, read_buffer, read_sectors << SECTOR_OFFSET);
+        dest += read_sectors << SECTOR_OFFSET;
+        start_sector += read_sectors;
+        nsectors -= read_sectors;
     }
 }
 
 static CLOSURE_1_3(stage2_read_disk, void, u64, void *, range, status_handler);
-static void stage2_read_disk(u64 base, void *dest, range blocks, status_handler completion)
+static void stage2_read_disk(u64 offset, void *dest, range blocks, status_handler completion)
 {
-    assert(pad(base, SECTOR_SIZE) == base);
-    read_sectors(dest, (base >> SECTOR_OFFSET) + blocks.start, range_span(blocks));
+    assert(pad(offset, SECTOR_SIZE) == offset);
+    read_sectors(dest, (offset >> SECTOR_OFFSET) + blocks.start, range_span(blocks));
     apply(completion, STATUS_OK);
 }
 
@@ -107,6 +127,7 @@ void fail(status s)
 static CLOSURE_0_1(kernel_read_complete, void, buffer);
 static void __attribute__((noinline)) kernel_read_complete(buffer kb)
 {
+    stage2_debug("%s\n", __func__);
     heap physical = heap_physical(&kh);
     heap working = heap_general(&kh);
 
@@ -122,7 +143,7 @@ static void __attribute__((noinline)) kernel_read_complete(buffer kb)
     map(pmem, pmem, identity_length, PAGE_WRITABLE | PAGE_PRESENT, pages);
     // going to some trouble to set this up here, but its barely
     // used in stage3
-    stack -= (STACKLEN - 4);	/* XXX b0rk b0rk b0rk */
+    stack -= (STACKLEN - 4); /* XXX b0rk b0rk b0rk */
     map(stack, stack, (u64)STACKLEN, PAGE_WRITABLE, pages);
     map(0, 0, INITIAL_MAP_SIZE, PAGE_WRITABLE | PAGE_PRESENT, pages);
 
@@ -166,17 +187,13 @@ heap allocate_tagged_region(kernel_heaps kh, u64 tag)
     return (heap)ta;
 }
 
-u32 filesystem_base()
+region fsregion()
 {
-    u32 fsbase = 0;
     for_regions(r) {
         if (r->type == REGION_FILESYSTEM)
-            fsbase = r->base;
+            return r;
     }
-    if (fsbase == 0) {
-        halt("invalid filesystem offset\n");
-    }
-    return fsbase;
+    halt("invalid filesystem offset\n");
 }
 
 
@@ -191,7 +208,7 @@ static void filesystem_initialized(heap h, heap physical, tuple root, buffer_han
 
 void newstack()
 {
-    u32 fsb = filesystem_base();
+    u32 fs_offset = SECTOR_SIZE + fsregion()->length; // MBR + stage2
     tuple root = allocate_tuple();
     heap h = heap_general(&kh);
     heap physical = heap_physical(&kh);
@@ -200,7 +217,7 @@ void newstack()
                       SECTOR_SIZE,
                       1024 * MB, /* XXX change to infinity with new rtrie */
                       0,         /* ignored in boot */
-                      closure(h, stage2_read_disk, fsb),
+                      closure(h, stage2_read_disk, fs_offset),
                       closure(h, stage2_empty_write),
                       root,
                       closure(h, filesystem_initialized, h, physical, root, bh));
@@ -214,8 +231,9 @@ void centry()
     workings.alloc = stage2_allocator;
     workings.dealloc = leak;
     kh.general = &workings;
-    init_runtime(&kh);		/* we know only general is used */
+    init_runtime(&kh); /* we know only general is used */
     init_extra_prints();
+    stage2_debug("%s\n", __func__);
 
     u32 cr0, cr4;
     mov_from_cr("cr0", cr0);
@@ -247,12 +265,13 @@ void centry()
     // TODO: could reclaim stage2 before entering stage3
     for_regions (r) {
         if (r->type == REGION_PHYSICAL && r->base == 0) {
-            u64 reserved = pad(BOOT_BASE + filesystem_base(), PAGESIZE);
+            region fs = fsregion();
+            u64 reserved = pad(fs->base + fs->length, PAGESIZE);
             r->base = reserved;
             r->length -= reserved;
         }
     }
-    
+
     kh.physical = region_allocator(&workings, PAGESIZE, REGION_PHYSICAL);
     assert(kh.physical);
     
