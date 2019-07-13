@@ -180,6 +180,9 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->sysctx = false;
     p->utime = p->stime = 0;
     p->start_time = now();
+    p->sigmask = 0;
+    p->sigpending = 0;
+    zero(p->sigacts, sizeof(p->sigacts));
     return p;
 }
 

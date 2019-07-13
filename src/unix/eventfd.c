@@ -12,13 +12,18 @@ struct efd {
     u64 counter;
 };
 
-static CLOSURE_5_1(efd_read_bh, sysreturn,
-        struct efd *, thread, void *, u64, io_completion,
-        boolean);
+static CLOSURE_5_2(efd_read_bh, sysreturn,
+                   struct efd *, thread, void *, u64, io_completion,
+                   boolean, boolean);
 static sysreturn efd_read_bh(struct efd *efd, thread t, void *buf, u64 length,
-        io_completion completion, boolean blocked)
+                             io_completion completion, boolean blocked, boolean nullify)
 {
     sysreturn rv = sizeof(efd->counter);
+
+    if (nullify) {
+        rv = -EINTR;
+        goto out;
+    }
 
     if (efd->counter == 0) {
         if (efd->f.flags & EFD_NONBLOCK) {
@@ -57,17 +62,22 @@ static sysreturn efd_read(struct efd *efd, void *buf, u64 length,
 
     blockq_action ba = closure(efd->h, efd_read_bh, efd, t, buf, length,
             completion);
-    return blockq_check(efd->read_bq, !bh ? t : 0, ba);
+    return blockq_check(efd->read_bq, t, ba, bh);
 }
 
-static CLOSURE_5_1(efd_write_bh, sysreturn,
-        struct efd *, thread, void *, u64, io_completion,
-        boolean);
+static CLOSURE_5_2(efd_write_bh, sysreturn,
+                   struct efd *, thread, void *, u64, io_completion,
+                   boolean, boolean);
 static sysreturn efd_write_bh(struct efd *efd, thread t, void *buf, u64 length,
-        io_completion completion, boolean blocked)
+                              io_completion completion, boolean blocked, boolean nullify)
 {
     sysreturn rv = sizeof(efd->counter);
     u64 counter;
+
+    if (nullify) {
+        rv = -EINTR;
+        goto out;
+    }
 
     runtime_memcpy(&counter, buf, sizeof(counter));
     if (counter > (EFD_COUNTER_MAX - efd->counter)) {
@@ -98,7 +108,7 @@ static sysreturn efd_write(struct efd *efd, void *buf, u64 length,
 
     blockq_action ba = closure(efd->h, efd_write_bh, efd, t, buf, length,
             completion);
-    return blockq_check(efd->write_bq, !bh ? t : 0, ba);
+    return blockq_check(efd->write_bq, t, ba, bh);
 }
 
 static CLOSURE_1_0(efd_events, u32, struct efd *);

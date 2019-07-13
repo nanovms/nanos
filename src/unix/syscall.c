@@ -38,7 +38,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, shmget, 0);
     register_syscall(map, shmat, 0);
     register_syscall(map, shmctl, 0);
-    register_syscall(map, pause, 0);
     register_syscall(map, getitimer, 0);
     register_syscall(map, alarm, 0);
     register_syscall(map, setitimer, 0);
@@ -46,7 +45,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, vfork, 0);
     register_syscall(map, execve, 0);
     register_syscall(map, wait4, syscall_ignore);
-    register_syscall(map, kill, 0);
     register_syscall(map, semget, 0);
     register_syscall(map, semop, 0);
     register_syscall(map, semctl, 0);
@@ -153,7 +151,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, removexattr, 0);
     register_syscall(map, lremovexattr, 0);
     register_syscall(map, fremovexattr, 0);
-    register_syscall(map, tkill, 0);
     register_syscall(map, set_thread_area, 0);
     register_syscall(map, io_setup, 0);
     register_syscall(map, io_destroy, 0);
@@ -174,7 +171,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, timer_getoverrun, 0);
     register_syscall(map, timer_delete, 0);
     register_syscall(map, clock_settime, 0);
-    register_syscall(map, tgkill, 0);
     register_syscall(map, utimes, 0);
     register_syscall(map, vserver, 0);
     register_syscall(map, mbind, 0);
@@ -1894,7 +1890,8 @@ static context syscall_frame;
 
 static void syscall_debug()
 {
-    u64 *f = current->frame;
+//    u64 *f = current->frame;
+    u64 *f = running_frame;     /* usually current->frame, except for sigreturn */
     int call = f[FRAME_VECTOR];
     if (call < 0 || call >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0])) {
         thread_log(current, "invalid syscall %d", call);

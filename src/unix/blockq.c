@@ -72,7 +72,11 @@ static inline char * blockq_name(blockq bq)
 #define blockq_debug(x, ...)
 #endif
 
-CLOSURE_1_0(blockq_wake_one, void, blockq);
+typedef struct blockq_item {
+    blockq_action a;
+    thread t;
+    struct list l;
+} *blockq_item;
 
 static inline void blockq_disable_timer(blockq bq)
 {
@@ -82,6 +86,8 @@ static inline void blockq_disable_timer(blockq bq)
         bq->timeout = 0;
     }
 }
+
+CLOSURE_1_0(blockq_wake_one, void, blockq);
 
 /* caller must hold the lock */
 static inline void blockq_restart_timer_locked(blockq bq)
@@ -107,22 +113,19 @@ static void blockq_apply_completion_locked(blockq bq)
     }
 }
 
-sysreturn blockq_check(blockq bq, thread t, blockq_action a)
+sysreturn blockq_check(blockq bq, thread t, blockq_action a, boolean in_bh)
 {
-    blockq_debug("for \"%s\", tid %ld, action %p, apply:\n", blockq_name(bq), t->tid, a);
-    /* XXX grab irqsafe mutex/spinlock
+    assert(t);
+    blockq_debug("%p \"%s\", tid %ld, action %p, apply:\n", bq, blockq_name(bq), t->tid, a);
+    /* XXX irqsafe mutex/spinlock
 
-       presently a no-op because
-       1) we don't have locks yet and
-       2) runqueue handling and interrupt handling are segregated, so
+       We're actually not irq safe here at the moment, and any blockq
+       actions "should" only happen in the bhqueue.
 
-       - before switching on interrupt handling during runqueue,
-         disable interrupts during critical section, and
-
-       - before we switch on another CPU thread, insert IRQ-safe
-         spinlock.
+       Before we switch on another CPU thread, insert IRQ-safe
+       spinlock.
     */
-    sysreturn rv = apply(a, false);
+    sysreturn rv = apply(a, false, false);
     if (rv != infinity) {
         /* XXX release spinlock */
         blockq_debug(" - direct return: %ld\n", rv);
@@ -130,79 +133,101 @@ sysreturn blockq_check(blockq bq, thread t, blockq_action a)
     }
 
     /* If the queue was empty, start the timer */
-    if (queue_length(bq->waiters) == 0)
+    if (list_empty(&bq->waiters_head))
         blockq_restart_timer_locked(bq);
 
-    if (!enqueue(bq->waiters, a)) {
-        /* XXX ideally we could just prevent this case if we had growing
-           queues... for now bark and return EAGAIN
-
-           we could mess around with making a timer or something, but it
-           would just be easier to make queues growable */
-        msg_err("waiter queue full for bq %p\n", bq);
+    // XXX make cache
+    blockq_item bi = allocate(bq->h, sizeof(struct blockq_item));
+    if (bi == INVALID_ADDRESS) {
+        msg_err("unable to allocate blockq_item\n");
         return -EAGAIN;
     }
+    bi->a = a;
+    bi->t = t;
+    blockq_debug("queue bi %p, a %p, tid %d\n", bi, bi->a, bi->t->tid);
+    list_insert_before(&bq->waiters_head, &bi->l);
 
     blockq_debug(" - check requires block, sleeping\n");
+    t->blocked_on = bq;
+    t->blocked_on_action = a;
     /* XXX release spinlock */
-    if (t)
-        thread_sleep(t);
-    else
+    if (!in_bh) {
+        thread_sleep(t);        /* no return */
+    } else {
         return infinity;
+    }
 }
 
-/* Wake all waiters and empty queue, typically for error conditions,
-   closed pipe/connections, etc. It is up to the called action to
-   determine the state of the resource (e.g. socket status) and know
-   that it will not remain on the queue regardless - and therefore
-   must wake up (or block on something else). The blockq user must do
-   its own synchronization / barriers to this end;
-
-   In other words, a zero return value from the action will not cause
-   it to remain in the waiters queue to be executed later; it's done.
-*/
-
-void blockq_flush(blockq bq)
+void blockq_flush_thread(blockq bq, thread t)
 {
-    blockq_debug("for \"%s\"\n", blockq_name(bq));
+//    blockq_debug("for \"%s\"\n", blockq_name(bq));
+    blockq_debug("bq %p, name %p\n", bq, blockq_name(bq));
     /* XXX take irqsafe spinlock */
 
-    blockq_action a;
-    while ((a = dequeue(bq->waiters))) {
-        blockq_debug(" - applying %p:\n", a);
-        apply(a, true);
+    list_foreach(&bq->waiters_head, l) {
+        blockq_item bi = struct_from_list(l, blockq_item, l);
+        if (bi->t != t)
+            continue;
+        blockq_debug(" - applying %p:\n", bi->a);
+        apply(bi->a, /* blocking */ true, /* nullify */ true);
         blockq_apply_completion_locked(bq);
     }
-
     blockq_disable_timer(bq);
 
     /* XXX release lock */
 }
 
-void blockq_wake_one(blockq bq)
+/* Wake all waiters and empty queue, typically for error conditions,
+   closed pipe/connections, etc. Actions are called with nullify set,
+   indicating the last time that the action will be used by the
+   blockq, regardless of what the action returns.
+*/
+
+void blockq_flush(blockq bq)
 {
-    blockq_debug("for \"%s\"\n", blockq_name(bq));
+    blockq_debug("bq %p - \"%s\"\n", bq, blockq_name(bq));
 
     /* XXX take irqsafe spinlock */
-    blockq_action a = queue_peek(bq->waiters);
-    if (!a)
-        return;
-
-    blockq_debug(" - applying %p:\n", a);
-    sysreturn rv = apply(a, true);
-    blockq_debug("   - returned %ld\n", rv);
-    if (rv != 0) {
-        assert(dequeue(bq->waiters));
+    list_foreach(&bq->waiters_head, l) {
+        blockq_item bi = struct_from_list(l, blockq_item, l);
+        if (bi->a) {
+            blockq_debug(" - applying %p:\n", bi->a);
+            apply(bi->a, /* blocking */ true, /* nullify */ true);
+        }
+        list_delete(l);
         blockq_apply_completion_locked(bq);
+    }
+    blockq_disable_timer(bq);
+    /* XXX release lock */
+}
 
-        /* clear timer if this was the last entry */
-        if (queue_length(bq->waiters) == 0)
-            blockq_disable_timer(bq);
+void blockq_wake_one(blockq bq)
+{
+    blockq_debug("bq %p \"%s\"\n", bq, blockq_name(bq));
 
-        /* action sets return value */
-    } else if (bq->timeout) {
-        /* leave at head of queue and reset timer */
-        blockq_restart_timer_locked(bq);
+    /* XXX take irqsafe spinlock */
+    list l = list_get_next(&bq->waiters_head);
+    if (!l)
+        return;
+    blockq_item bi = struct_from_list(l, blockq_item, l);
+    blockq_debug("bq %p, bi %p, action %p, tid %d\n", bq, bi, bi->a, bi->t->tid);
+
+    if (bi->a) {
+        sysreturn rv = apply(bi->a, true, false);
+        blockq_debug("   - returned %ld\n", rv);
+        if (rv != 0) {
+            list_delete(l);
+            blockq_apply_completion_locked(bq);
+            
+            /* clear timer if this was the last entry */
+            if (list_empty(&bq->waiters_head))
+                blockq_disable_timer(bq);
+            
+            /* action sets return value */
+        } else if (bq->timeout) {
+            /* leave at head of queue and reset timer */
+            blockq_restart_timer_locked(bq);
+        }
     }
 
     /* XXX release lock */
@@ -225,11 +250,7 @@ blockq allocate_blockq(heap h, char * name, u64 size, timestamp timeout_interval
         return bq;
 
     bq->h = h;
-    bq->waiters = allocate_queue(h, size);
-    if (bq->waiters == INVALID_ADDRESS) {
-        deallocate(h, bq, sizeof(struct blockq));
-        return INVALID_ADDRESS;
-    }
+    list_init(&bq->waiters_head);
 
     if (name) {
         runtime_memcpy(bq->name, name, MIN(runtime_strlen(name) + 1, BLOCKQ_NAME_MAX - 1));
@@ -238,6 +259,9 @@ blockq allocate_blockq(heap h, char * name, u64 size, timestamp timeout_interval
 
     bq->timeout = 0;
     bq->timeout_interval = timeout_interval;
+    bq->completion = 0;
+    bq->completion_thread = 0;
+    bq->completion_rv = 0;
     return bq;
 }
 
@@ -248,6 +272,5 @@ void deallocate_blockq(blockq bq)
     /* XXX what's the right behavior if we have waiters? */
 
     blockq_disable_timer(bq);
-    deallocate_queue(bq->waiters);
     deallocate(bq->h, bq, sizeof(struct blockq));
 }

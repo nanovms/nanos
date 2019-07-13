@@ -98,6 +98,24 @@ typedef struct unix_heaps {
     heap processes;
 } *unix_heaps;
 
+typedef closure_type(io_completion, void, thread t, sysreturn rv);
+
+#define BLOCKQ_NAME_MAX 20
+
+typedef struct blockq {
+    heap h;
+    /* spinlock lock; */
+    struct list waiters_head;
+    queue waiters;              /* queue of blockq_actions */
+    char name[BLOCKQ_NAME_MAX]; /* for debug */
+    timer timeout;              /* timeout to protect against stuck queue scenarios */
+    timestamp timeout_interval;
+    io_completion completion;
+    thread completion_thread;
+    sysreturn completion_rv;
+} *blockq;
+
+typedef closure_type(blockq_action, sysreturn, boolean /* blocking */, boolean /* nullify */);
 typedef struct epoll *epoll;
 typedef struct thread {
     // if we use an array typedef its fragile
@@ -122,17 +140,23 @@ typedef struct thread {
     thunk run;
     queue log[64];
 
+    /* blocking info */
+    blockq blocked_on;
+    blockq_action blocked_on_action;
+
+    blockq dummy_blockq;        /* for pause(2) */
+
     /* signal internal - preferably bitmaps would be used here, but
        for time's sake and the fact that _NSIG is presently 64 in
-       Linux, juse use u64s for now... */
+       Linux, just use u64s for now... */
     u64 sigmask;
     u64 sigpending;
     u64 sigsaved;            /* original mask saved on rt_sigsuspend */
+    u64 rax_saved;           /* XXX hack */
     vector queues;           /* vector  */
     u64 sigframe[FRAME_MAX];
 } *thread;
 
-typedef closure_type(io_completion, void, thread t, sysreturn rv);
 typedef closure_type(io, sysreturn, void *buf, u64 length, u64 offset, thread t,
         boolean bh, io_completion completion);
 
@@ -189,7 +213,6 @@ typedef struct process {
     table           futices;
     fault_handler   handler;
     vector          threads;
-    u64             sigmask;
     struct syscall *syscalls;
     vector          files;
     rangemap        vareas;     /* available address space */
@@ -197,6 +220,7 @@ typedef struct process {
     boolean         sysctx;
     timestamp       utime, stime;
     timestamp       start_time;
+    u64             sigmask;
     u64             sigpending;
     __sighandler_t  sigacts[NSIG]; /* signal dispositions */
 } *process;
@@ -332,27 +356,13 @@ sysreturn spec_write(file f, void *dest, u64 length, u64 offset_arg, thread t,
         boolean bh, io_completion completion);
 u32 spec_events(file f);
 
-#define BLOCKQ_NAME_MAX 20
-
-typedef struct blockq {
-    heap h;
-    /* spinlock lock; */
-    queue waiters;              /* queue of blockq_actions */
-    char name[BLOCKQ_NAME_MAX]; /* for debug */
-    timer timeout;              /* timeout to protect against stuck queue scenarios */
-    timestamp timeout_interval;
-    io_completion completion;
-    thread completion_thread;
-    sysreturn completion_rv;
-} *blockq;
-
-typedef closure_type(blockq_action, sysreturn, boolean);
 
 blockq allocate_blockq(heap h, char * name, u64 size, timestamp timeout_interval);
 void deallocate_blockq(blockq bq);
-sysreturn blockq_check(blockq bq, thread t, blockq_action a);
+sysreturn blockq_check(blockq bq, thread t, blockq_action a, boolean in_bh);
 void blockq_wake_one(blockq bq);
 void blockq_flush(blockq bq);
+void blockq_flush_thread(blockq bq, thread t);
 void blockq_set_completion(blockq bq, io_completion completion, thread t,
         sysreturn rv);
 

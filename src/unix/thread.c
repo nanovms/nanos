@@ -336,6 +336,14 @@ thread create_thread(process p)
     t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(closure(h, default_fault_handler, t));
     t->run = closure(h, run_thread, t);
     vector_push(p->threads, t);
+    t->blocked_on = 0;
+    t->blocked_on_action = 0;
+    t->dummy_blockq = allocate_blockq(h, "dummy", 1, 0);
+    t->sigmask = 0;
+    t->sigpending = 0;
+    t->sigsaved = 0;
+    // XXX queues
+    // XXX sigframe
     return t;
 }
 
