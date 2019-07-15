@@ -12,7 +12,7 @@ Read more about the Nanos Charter [here](CHARTER.md).
 
 ### Building/Running
 
-It is highly encouraged to use [https://github.com/nanovms/ops](ops) to build and run your applications using Nanos unless you are planning
+It is highly encouraged to use [ops](https://github.com/nanovms/ops) to build and run your applications using Nanos unless you are planning
 on modifying Nanos. OPS provides sensible defaults for most users and
 incorporates our understanding of how to appropriately best use Nanos.
 It is also currently highly coupled to Nanos.
