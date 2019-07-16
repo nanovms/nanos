@@ -1,4 +1,4 @@
-SUBDIR=			unit runtime go
+SUBDIR=			unit runtime go e2e
 
 # can't do runtime until image build is common...
 SUBDIR_SKIP-test=	runtime

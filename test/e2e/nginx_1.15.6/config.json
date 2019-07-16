@@ -1,0 +1,10 @@
+{
+  "Files": ["index.html"],
+  "Dirs": ["usr"],
+  "RunConfig": {
+    "Ports": [8084]
+  },
+  "Boot": "../../../output/boot/boot.img",
+  "Kernel": "../../../output/stage3/bin/stage3.img",
+  "Mkfs": "../../../output/mkfs/bin/mkfs"
+}

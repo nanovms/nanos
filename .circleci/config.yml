@@ -8,10 +8,15 @@ jobs:
     steps:
       - checkout
       - run: sudo apt-get update
-      - run: sudo apt-get install nasm qemu
+      - run: sudo apt-get install nasm qemu ruby rustc
       - run: cd .. && git clone git@github.com:nanovms/ops.git
       - run: make
-      - run: make test-noaccel
+      - run: curl https://ops.city/get.sh -sSfL | sh
+      - run:
+          command: |
+            OPS_DIR=$HOME/.ops
+            PATH=$HOME/.ops/bin:$PATH
+            make test-noaccel
 
   nightly-build:
     docker:
@@ -20,9 +25,14 @@ jobs:
     steps:
       - checkout
       - run: sudo apt-get update
-      - run: sudo apt-get install nasm qemu
+      - run: sudo apt-get install nasm qemu ruby rustc
       - run: make
-      - run: make test-noaccel
+      - run: curl https://ops.city/get.sh -sSfL | sh
+      - run:
+          command: |
+            OPS_DIR=$HOME/.ops
+            PATH=$HOME/.ops/bin:$PATH
+            make test-noaccel
 
       - run: echo "deb http://packages.cloud.google.com/apt cloud-sdk-jessie main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
       - run: curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
@@ -50,11 +60,15 @@ jobs:
       - run: brew tap nanovms/homebrew-x86_64-elf
       - run: brew install x86_64-elf-binutils
       - run: mkdir target-root && cd target-root && wget https://storage.googleapis.com/testmisc/target-root.tar.gz && tar xfvz target-root.tar.gz
+      - run: curl https://ops.city/get.sh -sSfL | sh
       - run: 
           name: macbuild
           environment:
             NANOS_TARGET_ROOT: target-root
-          command: make test-noaccel
+          command: |
+            OPS_DIR=$HOME/.ops
+            PATH=$HOME/.ops/bin:$PATH
+            make test-noaccel
   
   nightly-build-mac:
     macos:

@@ -8,6 +8,9 @@ Makefile.local
 /test/go/.staging/*
 /test/go/image
 /test/runtime/soop.data
+.ruby
+test/e2e/go/main
+test/e2e/rust/main
 
 # Default build directory
 /output

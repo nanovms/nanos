@@ -1,0 +1,9 @@
+{
+    "Args": ["hi.js"],
+    "RunConfig": {
+        "Ports": [8083]
+    },
+    "Boot": "../../../output/boot/boot.img",
+    "Kernel": "../../../output/stage3/bin/stage3.img",
+    "Mkfs": "../../../output/mkfs/bin/mkfs"
+}
