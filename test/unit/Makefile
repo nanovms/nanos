@@ -1,6 +1,7 @@
 PROGRAMS= \
 	buffer_test \
 	id_heap_test \
+	memops_test \
 	network_test \
 	objcache_test \
 	parser_test \
@@ -20,6 +21,7 @@ SRCS-buffer_test= \
 	$(SRCDIR)/runtime/extra_prints.c \
 	$(SRCDIR)/runtime/format.c \
 	$(SRCDIR)/runtime/heap/id.c \
+	$(SRCDIR)/runtime/memops.c \
 	$(SRCDIR)/runtime/merge.c \
 	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/random.c \
@@ -40,6 +42,7 @@ SRCS-id_heap_test= \
 	$(SRCDIR)/runtime/extra_prints.c \
 	$(SRCDIR)/runtime/format.c \
 	$(SRCDIR)/runtime/heap/id.c \
+	$(SRCDIR)/runtime/memops.c \
 	$(SRCDIR)/runtime/merge.c \
 	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/random.c \
@@ -55,6 +58,25 @@ SRCS-id_heap_test= \
 	$(SRCDIR)/tfs/tlog.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c
 
+SRCS-memops_test= \
+	$(CURDIR)/memops_test.c \
+	$(SRCDIR)/runtime/bitmap.c \
+	$(SRCDIR)/runtime/buffer.c \
+	$(SRCDIR)/runtime/crypto/chacha.c \
+	$(SRCDIR)/runtime/extra_prints.c \
+	$(SRCDIR)/runtime/format.c \
+	$(SRCDIR)/runtime/heap/id.c \
+	$(SRCDIR)/runtime/memops.c \
+	$(SRCDIR)/runtime/pqueue.c \
+	$(SRCDIR)/runtime/random.c \
+	$(SRCDIR)/runtime/range.c \
+	$(SRCDIR)/runtime/runtime_init.c \
+	$(SRCDIR)/runtime/symbol.c \
+	$(SRCDIR)/runtime/table.c \
+	$(SRCDIR)/runtime/timer.c \
+	$(SRCDIR)/runtime/tuple.c \
+	$(SRCDIR)/unix_process/unix_process_runtime.c
+
 SRCS-network_test= \
 	$(CURDIR)/network_test.c \
 	$(SRCDIR)/runtime/bitmap.c \
@@ -62,6 +84,7 @@ SRCS-network_test= \
 	$(SRCDIR)/runtime/extra_prints.c \
 	$(SRCDIR)/runtime/format.c \
 	$(SRCDIR)/runtime/heap/id.c \
+	$(SRCDIR)/runtime/memops.c \
 	$(SRCDIR)/runtime/merge.c \
 	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/random.c \
@@ -89,6 +112,7 @@ SRCS-objcache_test= \
 	$(SRCDIR)/runtime/format.c \
 	$(SRCDIR)/runtime/heap/id.c \
 	$(SRCDIR)/runtime/heap/objcache.c \
+	$(SRCDIR)/runtime/memops.c \
 	$(SRCDIR)/runtime/merge.c \
 	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/random.c \
@@ -114,6 +138,7 @@ SRCS-parser_test= \
 	$(SRCDIR)/runtime/extra_prints.c \
 	$(SRCDIR)/runtime/format.c \
 	$(SRCDIR)/runtime/heap/id.c \
+	$(SRCDIR)/runtime/memops.c \
 	$(SRCDIR)/runtime/merge.c \
 	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/random.c \
@@ -134,6 +159,7 @@ SRCS-pqueue_test= \
 	$(SRCDIR)/runtime/extra_prints.c \
 	$(SRCDIR)/runtime/format.c \
 	$(SRCDIR)/runtime/heap/id.c \
+	$(SRCDIR)/runtime/memops.c \
 	$(SRCDIR)/runtime/merge.c \
 	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/random.c \
@@ -154,6 +180,7 @@ SRCS-range_test= \
 	$(SRCDIR)/runtime/extra_prints.c \
 	$(SRCDIR)/runtime/format.c \
 	$(SRCDIR)/runtime/heap/id.c \
+	$(SRCDIR)/runtime/memops.c \
 	$(SRCDIR)/runtime/merge.c \
 	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/random.c \
@@ -174,6 +201,7 @@ SRCS-random_test = \
 	$(SRCDIR)/runtime/extra_prints.c \
 	$(SRCDIR)/runtime/format.c \
 	$(SRCDIR)/runtime/heap/id.c \
+	$(SRCDIR)/runtime/memops.c \
 	$(SRCDIR)/runtime/merge.c \
 	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/random.c \
@@ -196,6 +224,7 @@ SRCS-table_test= \
 	$(SRCDIR)/runtime/extra_prints.c \
 	$(SRCDIR)/runtime/format.c \
 	$(SRCDIR)/runtime/heap/id.c \
+	$(SRCDIR)/runtime/memops.c \
 	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/random.c \
 	$(SRCDIR)/runtime/range.c \
@@ -214,6 +243,7 @@ SRCS-tuple_test= \
 	$(SRCDIR)/runtime/extra_prints.c \
 	$(SRCDIR)/runtime/format.c \
 	$(SRCDIR)/runtime/heap/id.c \
+	$(SRCDIR)/runtime/memops.c \
 	$(SRCDIR)/runtime/merge.c \
 	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/random.c \
@@ -234,6 +264,7 @@ SRCS-udp_test= \
 	$(SRCDIR)/runtime/extra_prints.c \
 	$(SRCDIR)/runtime/format.c \
 	$(SRCDIR)/runtime/heap/id.c \
+	$(SRCDIR)/runtime/memops.c \
 	$(SRCDIR)/runtime/merge.c \
 	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/random.c \
@@ -260,6 +291,7 @@ SRCS-vector_test= \
 	$(SRCDIR)/runtime/extra_prints.c \
 	$(SRCDIR)/runtime/format.c \
 	$(SRCDIR)/runtime/heap/id.c \
+	$(SRCDIR)/runtime/memops.c \
 	$(SRCDIR)/runtime/merge.c \
 	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/random.c \
