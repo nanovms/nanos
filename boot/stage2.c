@@ -5,6 +5,7 @@
 #include <region.h>
 #include <x86_64.h>
 #include <serial.h>
+#include <drivers/ata.h>
 
 #ifdef STAGE2_DEBUG
 # define stage2_debug rprintf
@@ -71,24 +72,26 @@ u64 random_u64()
 }
 
 // defined in service32.s
-extern void bios_tty_out(char);
+extern void bios_tty_write(char *s, bytes count);
 extern void bios_read_sectors(void *buffer, int start_sector, int sector_count);
 
 void console_write(char *s, bytes count)
 {
-    for (; count--; s++) {
-        // serial console
-        serial_putchar(*s);
+    // BIOS console
+    bios_tty_write(s, count);
 
-        // BIOS console
-        bios_tty_out(*s);
-        if (*s == '\n')
-            bios_tty_out('\r');
+    // serial console
+    for (; count--; s++) {
+        serial_putchar(*s);
     }
 }
 
-static void read_sectors(char *dest, u64 start_sector, u64 nsectors)
+static CLOSURE_1_3(stage2_bios_read, void, u64, void *, range, status_handler);
+static void stage2_bios_read(u64 offset, void *dest, range blocks, status_handler completion)
 {
+    u64 start_sector = (offset >> SECTOR_OFFSET) + blocks.start;
+    u64 nsectors = range_span(blocks);
+
     void *read_buffer = pointer_from_u64(SCRATCH_BASE);
     stage2_debug("%s: %p <- 0x%lx (0x%lx)\n", __func__, dest, start_sector, nsectors);
 
@@ -101,14 +104,38 @@ static void read_sectors(char *dest, u64 start_sector, u64 nsectors)
         start_sector += read_sectors;
         nsectors -= read_sectors;
     }
+
+    apply(completion, STATUS_OK);
 }
 
-static CLOSURE_1_3(stage2_read_disk, void, u64, void *, range, status_handler);
-static void stage2_read_disk(u64 offset, void *dest, range blocks, status_handler completion)
+static CLOSURE_2_3(stage2_ata_read, void, struct ata *, u64, void *, range, status_handler);
+static void stage2_ata_read(struct ata *dev, u64 offset, void *dest, range blocks, status_handler completion)
 {
-    assert(pad(offset, SECTOR_SIZE) == offset);
-    read_sectors(dest, (offset >> SECTOR_OFFSET) + blocks.start, range_span(blocks));
-    apply(completion, STATUS_OK);
+    stage2_debug("%s: %R (offset 0x%lx)\n", __func__, blocks, offset);
+
+    u64 sector_offset = (offset >> SECTOR_OFFSET);
+    blocks.start += sector_offset;
+    blocks.end += sector_offset;
+
+    ata_io_cmd(dev, ATA_READ48, dest, blocks, completion);
+}
+
+void kern_sleep(timestamp delta)
+{
+    // TODO: implement
+}
+
+static block_io get_stage2_disk_read(heap general, u64 fs_offset)
+{
+    assert(pad(fs_offset, SECTOR_SIZE) == fs_offset);
+
+    void *dev = ata_alloc(general);
+    if (!ata_probe(dev)) {
+        ata_dealloc(dev);
+        return closure(general, stage2_bios_read, fs_offset);
+    }
+
+    return closure(general, stage2_ata_read, dev, fs_offset);
 }
 
 static CLOSURE_0_3(stage2_empty_write, void, void *, range, status_handler);
@@ -208,6 +235,7 @@ static void filesystem_initialized(heap h, heap physical, tuple root, buffer_han
 
 void newstack()
 {
+    stage2_debug("%s\n", __func__);
     u32 fs_offset = SECTOR_SIZE + fsregion()->length; // MBR + stage2
     tuple root = allocate_tuple();
     heap h = heap_general(&kh);
@@ -217,7 +245,7 @@ void newstack()
                       SECTOR_SIZE,
                       1024 * MB, /* XXX change to infinity with new rtrie */
                       0,         /* ignored in boot */
-                      closure(h, stage2_read_disk, fs_offset),
+                      get_stage2_disk_read(h, fs_offset),
                       closure(h, stage2_empty_write),
                       root,
                       closure(h, filesystem_initialized, h, physical, root, bh));

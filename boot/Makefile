@@ -3,6 +3,7 @@ PROGRAMS=	stage2.elf
 SRCS-stage2.elf= \
 	$(CURDIR)/stage2.c \
 	$(CURDIR)/service32.s \
+	$(SRCDIR)/drivers/ata.c \
 	$(SRCDIR)/runtime/buffer.c \
 	$(SRCDIR)/runtime/extra_prints.c \
 	$(SRCDIR)/runtime/format.c \
@@ -25,6 +26,7 @@ SRCS-stage2.elf= \
 CFLAGS+=	$(KERNCFLAGS) -DBOOT -DPAGE_USE_FLUSH
 CFLAGS+= \
 	-I$(CURDIR) \
+	-I$(SRCDIR) \
 	-I$(SRCDIR)/tfs \
 	-I$(SRCDIR)/runtime \
 	-I$(SRCDIR)/x86_64

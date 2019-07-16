@@ -282,8 +282,8 @@ bios_read_sectors:
 	ret
 
 
-global bios_tty_out
-bios_tty_out:
+global bios_tty_write
+bios_tty_write:
 	; conform to x86_64 cdecl
 	push ebp
 	mov ebp, esp
@@ -292,14 +292,24 @@ bios_tty_out:
 	push esi
 	push edi
 
-	; save character
-	mov ebx, [ebp + 8]
+	; get arguments
+	mov esi, [ebp + 8]
+	mov ecx, [ebp + 12]
 
 	ENTER_REAL
-	mov ax, bx	; character
+	cld
 	mov ah, 0xe	; teletype output
 	xor bh, bh	; page 0
+.loop:
+	lodsb		; AL = character
 	int 0x10
+	cmp al, 0xa
+	jne .skip
+	mov al, 0xd
+	int 0x10
+.skip:
+	dec cx
+	jnz .loop
 	ENTER_PROTECTED
 
 	pop edi
