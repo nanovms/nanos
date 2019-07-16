@@ -6,6 +6,7 @@ SRCS-mkfs= \
 	$(SRCDIR)/runtime/extra_prints.c \
 	$(SRCDIR)/runtime/format.c \
 	$(SRCDIR)/runtime/heap/id.c \
+	$(SRCDIR)/runtime/memops.c \
 	$(SRCDIR)/runtime/merge.c \
 	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/random.c \
@@ -29,6 +30,7 @@ SRCS-dump= \
 	$(SRCDIR)/runtime/extra_prints.c \
 	$(SRCDIR)/runtime/format.c \
 	$(SRCDIR)/runtime/heap/id.c \
+	$(SRCDIR)/runtime/memops.c \
 	$(SRCDIR)/runtime/merge.c \
 	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/random.c \
