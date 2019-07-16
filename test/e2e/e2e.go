@@ -66,8 +66,9 @@ func testPackages(t *testing.T) {
 		request  string
 		elf      string
 		prebuild func(t *testing.T)
+		skip     bool
 	}{
-		{name: "python_3.6.7", pkg: "python_3.6.7", dir: "python_3.6.7", request: "http://0.0.0.0:8000"},
+		{name: "python_3.6.7", pkg: "python_3.6.7", dir: "python_3.6.7", request: "http://0.0.0.0:8000", skip: true},
 		{name: "node_v11.5.0", pkg: "node_v11.5.0", dir: "node_v11.5.0", request: "http://0.0.0.0:8083"},
 		{name: "nginx_1.15.6", pkg: "nginx_1.15.6", dir: "nginx_1.15.6", request: "http://0.0.0.0:8084"},
 		{name: "php_7.3.5", pkg: "php_7.3.5", dir: "php_7.3.5", request: "http://0.0.0.0:9501"},
@@ -77,6 +78,10 @@ func testPackages(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.skip {
+				t.Log("Skipping test")
+				return
+			}
 			var execcmd string
 			dir, err := os.Getwd()
 			if err != nil {
