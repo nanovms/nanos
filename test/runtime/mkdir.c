@@ -97,6 +97,24 @@ void _chdir(const char *path)
     printf("chdir(%s) => ", path);
     int r = chdir(path);
     printf("r = %d, errno = %d\n", r, errno);
+
+    int path_len = strlen(path);
+    char *cwd = malloc(path_len + 1);
+    if (!cwd) {
+        printf("ERROR - malloc() failed\n");
+        exit(EXIT_FAILURE);
+    }
+    char *ret = getcwd(cwd, path_len);
+    if (ret || (errno != ERANGE)) {
+        printf("ERROR - getcwd() didn't return ERANGE error\n");
+        exit(EXIT_FAILURE);
+    }
+    ret = getcwd(cwd, path_len + 1);
+    if (!ret || strcmp(cwd, path)) {
+        printf("ERROR - getcwd() didn't return expected directory\n");
+        exit(EXIT_FAILURE);
+    }
+    free(cwd);
 }
 
 void _fchdir(int fd)
@@ -247,6 +265,13 @@ fail:
 int main(int argc, char **argv)
 {
     setbuf(stdout, NULL);
+
+    char c;
+    char *cwd = getcwd(&c, 1);
+    if (cwd || (errno != ERANGE)) {
+        printf("ERROR - getcwd() didn't return ERANGE error\n");
+        exit(EXIT_FAILURE);
+    }
 
     _mkdir("/test", 0); check("/test");
     _mkdir("/blurb/test/deep", 0);
