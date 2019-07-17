@@ -3,8 +3,7 @@ jobs:
   build:
     docker:
       # specify the version
-      - image: circleci/golang:1.11
-    working_directory: /go/src/github.com/nanovms/nanos
+      - image: circleci/golang:1.12
     steps:
       - checkout
       - run: sudo apt-get update
@@ -20,8 +19,7 @@ jobs:
 
   nightly-build:
     docker:
-      - image: circleci/golang:1.11
-    working_directory: /go/src/github.com/nanovms/nanos
+      - image: circleci/golang:1.12
     steps:
       - checkout
       - run: sudo apt-get update
