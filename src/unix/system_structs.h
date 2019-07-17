@@ -269,14 +269,8 @@ struct rlimit {
 #define SIGIO		29
 
 
-typedef void __signalfn_t(int);
-typedef __signalfn_t *__sighandler_t;
-
-#define SIG_DFL	((__sighandler_t)0)	/* default signal handling */
-#define SIG_IGN	((__sighandler_t)1)	/* ignore signal */
-#define SIG_ERR	((__sighandler_t)-1)	/* error return from signal */
-
-#define SIGINFO_SIZE    128
+#define SIGINFO_SIZE        128
+#define SIGINFO_UNION_ALIGN 16
 
 typedef struct siginfo {
     u32 si_signo;
@@ -284,7 +278,7 @@ typedef struct siginfo {
     s32 si_code;
 
     union {
-        u8 pad[SIGINFO_SIZE - 3 * sizeof(int)];
+        u32 pad[(SIGINFO_SIZE - SIGINFO_UNION_ALIGN) / 4];
 
         struct {
             u32 pid;
@@ -347,6 +341,17 @@ typedef struct siginfo {
     } _sifields;
 } __attribute__((aligned(8))) siginfo_t;
 
+#define SI_USER     0
+#define SI_KERNEL   0x80
+#define SI_QUEUE    -1
+#define SI_TIMER    -2
+#define SI_MESGQ    -3
+#define SI_ASYNCIO  -4
+#define SI_SIGIO    -5
+#define SI_TKILL    -6
+#define SI_DETHREAD -7
+#define SI_ASYNCNL  -60
+
 #define SIGNALFD_SIGINFO_SIZE 128
 
 struct signalfd_siginfo {
@@ -393,19 +398,38 @@ struct pollfd {
 };
 
 #define NSIG 64
+#define RT_SIG_START 32
+
 typedef struct {
-    unsigned long sig[NSIG/sizeof(unsigned long)];
+    unsigned long sig[NSIG / (sizeof(unsigned long) * 8)];
 } sigset_t;
 
+typedef void __signalfn_t(int);
+typedef __signalfn_t *__sighandler_t;
+
+#define SIG_DFL	((__sighandler_t)0)	/* default signal handling */
+#define SIG_IGN	((__sighandler_t)1)	/* ignore signal */
+#define SIG_ERR	((__sighandler_t)-1)	/* error return from signal */
+
+typedef void (*__sigaction_t)(int, struct siginfo *, void *);
+
 struct sigaction {
-	union {
-	  __sighandler_t _sa_handler;
-	  void (*_sa_sigaction)(int, struct siginfo *, void *);
-	} _u;
-	sigset_t sa_mask;
-	unsigned long sa_flags;
-	void (*sa_restorer)(void);
+    void          *sa_handler;
+    unsigned long  sa_flags;
+    void          *sa_restorer;
+    sigset_t       sa_mask;
 };
+
+#define SA_NOCLDSTOP 0x00000001
+#define SA_NOCLDWAIT 0x00000002
+#define SA_SIGINFO   0x00000004
+#define SA_ONSTACK   0x08000000
+#define SA_RESTART   0x10000000
+#define SA_NODEFER   0x40000000
+#define SA_RESETHAND 0x80000000
+
+#define SA_NOMASK  SA_NODEFER
+#define SA_ONESHOT SA_RESETHAND
 
 typedef struct {
     void *ss_sp;

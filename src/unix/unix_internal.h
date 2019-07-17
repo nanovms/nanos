@@ -153,7 +153,7 @@ typedef struct thread {
     u64 sigpending;
     u64 sigsaved;            /* original mask saved on rt_sigsuspend */
     u64 rax_saved;           /* XXX hack */
-    vector queues;           /* vector  */
+    struct list sigheads[NSIG];
     u64 sigframe[FRAME_MAX];
 } *thread;
 
@@ -197,33 +197,36 @@ typedef struct file *file;
 
 struct syscall;
 
-/* XXX reorg */
 typedef struct process {
-    unix_heaps      uh;		/* non-thread-specific */
-    int             pid;
-    // i guess this should also be a heap, brk is so nasty
-    void           *brk;
-    heap            virtual;
-    heap            virtual_page;
-    heap            virtual32;    
-    heap            fdallocator;
-    filesystem      fs;         /* XXX should be underneath tuple operators */
-    tuple           process_root;
-    tuple           cwd; 
-    table           futices;
-    fault_handler   handler;
-    vector          threads;
-    struct syscall *syscalls;
-    vector          files;
-    rangemap        vareas;     /* available address space */
-    rangemap        vmaps;      /* process mappings */
-    boolean         sysctx;
-    timestamp       utime, stime;
-    timestamp       start_time;
-    u64             sigmask;
-    u64             sigpending;
-    __sighandler_t  sigacts[NSIG]; /* signal dispositions */
+    unix_heaps        uh;	/* non-thread-specific */
+    int               pid;
+    void             *brk;
+    heap              virtual;
+    heap              virtual_page;
+    heap              virtual32;
+    heap              fdallocator;
+    filesystem        fs;       /* XXX should be underneath tuple operators */
+    tuple             process_root;
+    tuple             cwd;
+    table             futices;
+    fault_handler     handler;
+    vector            threads;
+    struct syscall   *syscalls;
+    vector            files;
+    rangemap          vareas;   /* available address space */
+    rangemap          vmaps;    /* process mappings */
+    boolean           sysctx;
+    timestamp         utime, stime;
+    timestamp         start_time;
+    u64               sigmask;
+    u64               sigpending;
+    struct sigaction  sigactions[NSIG];
 } *process;
+
+typedef struct sigaction *sigaction;
+
+#define SIGACT_SIGINFO  0x00000001
+#define SIGACT_SIGNALFD 0x00000002 /* TODO */
 
 extern thread current;
 
@@ -362,7 +365,7 @@ void deallocate_blockq(blockq bq);
 sysreturn blockq_check(blockq bq, thread t, blockq_action a, boolean in_bh);
 void blockq_wake_one(blockq bq);
 void blockq_flush(blockq bq);
-void blockq_flush_thread(blockq bq, thread t);
+boolean blockq_flush_thread(blockq bq, thread t);
 void blockq_set_completion(blockq bq, io_completion completion, thread t,
         sysreturn rv);
 

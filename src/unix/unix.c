@@ -182,7 +182,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->start_time = now();
     p->sigmask = 0;
     p->sigpending = 0;
-    zero(p->sigacts, sizeof(p->sigacts));
+    zero(p->sigactions, sizeof(p->sigactions));
     return p;
 }
 

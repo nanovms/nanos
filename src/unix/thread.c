@@ -342,7 +342,12 @@ thread create_thread(process p)
     t->sigmask = 0;
     t->sigpending = 0;
     t->sigsaved = 0;
-    // XXX queues
+    for(int i = 0; i < NSIG; i += 4) {
+        list_init(&t->sigheads[i]);
+        list_init(&t->sigheads[i + 1]);
+        list_init(&t->sigheads[i + 2]);
+        list_init(&t->sigheads[i + 3]);
+    }
     // XXX sigframe
     return t;
 }

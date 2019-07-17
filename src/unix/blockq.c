@@ -158,23 +158,31 @@ sysreturn blockq_check(blockq bq, thread t, blockq_action a, boolean in_bh)
     }
 }
 
-void blockq_flush_thread(blockq bq, thread t)
+static inline void free_blockq_item(blockq bq, blockq_item bi)
 {
-//    blockq_debug("for \"%s\"\n", blockq_name(bq));
-    blockq_debug("bq %p, name %p\n", bq, blockq_name(bq));
-    /* XXX take irqsafe spinlock */
+    list_delete(&bi->l);
+    deallocate(bq->h, bi, sizeof(struct blockq_item));
+}
 
+boolean blockq_flush_thread(blockq bq, thread t)
+{
+    boolean unblocked = false;
+    blockq_debug("bq %p, name %p\n", bq, blockq_name(bq));
+
+    /* XXX take irqsafe spinlock */
     list_foreach(&bq->waiters_head, l) {
         blockq_item bi = struct_from_list(l, blockq_item, l);
         if (bi->t != t)
             continue;
         blockq_debug(" - applying %p:\n", bi->a);
         apply(bi->a, /* blocking */ true, /* nullify */ true);
+        free_blockq_item(bq, bi);
         blockq_apply_completion_locked(bq);
+        unblocked = true;
     }
     blockq_disable_timer(bq);
-
     /* XXX release lock */
+    return unblocked;
 }
 
 /* Wake all waiters and empty queue, typically for error conditions,
@@ -194,7 +202,7 @@ void blockq_flush(blockq bq)
             blockq_debug(" - applying %p:\n", bi->a);
             apply(bi->a, /* blocking */ true, /* nullify */ true);
         }
-        list_delete(l);
+        free_blockq_item(bq, bi);
         blockq_apply_completion_locked(bq);
     }
     blockq_disable_timer(bq);
@@ -216,7 +224,7 @@ void blockq_wake_one(blockq bq)
         sysreturn rv = apply(bi->a, true, false);
         blockq_debug("   - returned %ld\n", rv);
         if (rv != 0) {
-            list_delete(l);
+            free_blockq_item(bq, bi);
             blockq_apply_completion_locked(bq);
             
             /* clear timer if this was the last entry */

@@ -78,7 +78,7 @@ test test-noaccel: mkfs boot stage3
 	$(Q) $(MAKE) -C test test
 	$(Q) $(MAKE) runtime-tests$(subst test,,$@)
 
-RUNTIME_TESTS=	creat fst getdents getrandom hw hws mkdir pipe vsyscall write
+RUNTIME_TESTS=	creat fst getdents getrandom hw hws mkdir pipe signal vsyscall write
 
 .PHONY: runtime-tests runtime-tests-noaccel
 
