@@ -198,29 +198,31 @@ typedef struct file *file;
 struct syscall;
 
 typedef struct process {
-    unix_heaps        uh;	/* non-thread-specific */
-    int               pid;
-    void             *brk;
-    heap              virtual;
-    heap              virtual_page;
-    heap              virtual32;
-    heap              fdallocator;
-    filesystem        fs;       /* XXX should be underneath tuple operators */
-    tuple             process_root;
-    tuple             cwd;
-    table             futices;
-    fault_handler     handler;
-    vector            threads;
-    struct syscall   *syscalls;
-    vector            files;
-    rangemap          vareas;   /* available address space */
-    rangemap          vmaps;    /* process mappings */
-    boolean           sysctx;
-    timestamp         utime, stime;
-    timestamp         start_time;
-    u64               sigmask;
-    u64               sigpending;
-    struct sigaction  sigactions[NSIG];
+    unix_heaps      uh;         /* non-thread-specific */
+    int             pid;
+    void           *brk;
+    heap            virtual;
+    heap            virtual_page;
+    heap            virtual32;
+    heap            fdallocator;
+    filesystem      fs;         /* XXX should be underneath tuple operators */
+    tuple           process_root;
+    tuple           cwd;
+    table           futices;
+    fault_handler   handler;
+    vector          threads;
+    struct syscall *syscalls;
+    vector          files;
+    rangemap        vareas;     /* available address space */
+    rangemap        vmaps;      /* process mappings */
+    boolean         sysctx;
+    timestamp       utime, stime;
+    timestamp       start_time;
+
+    u64             sigpending; /* pending at process level */
+    u64             sigmask;    /* process-level masked */
+
+    struct sigaction sigactions[NSIG];
 } *process;
 
 typedef struct sigaction *sigaction;

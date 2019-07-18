@@ -112,6 +112,21 @@ static void test_rt_signal_queueing_handler(int sig, siginfo_t *si, void *uconte
     assert(sig == SIGRTMIN);
     assert(sig == si->si_signo);
     test_rt_caught++;
+
+    sigset_t sigset;
+
+    /* test rt_sigpending */
+    long rv = syscall(SYS_rt_sigpending, &sigset);
+    if (rv < 0)
+        fail_perror("sigpending");
+
+    if (test_rt_caught < TEST_RT_NQUEUE) {
+        if (!sigismember(&sigset, sig))
+            fail_error("sig %d should still be pending until we serviced the last signal\n", sig);
+    } else {
+        if (sigismember(&sigset, sig))
+            fail_error("sig %d should not be pending; all queued signals have been handled\n", sig);
+    }
 }
 
 static void * test_rt_signal_child(void * arg)

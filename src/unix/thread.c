@@ -316,6 +316,7 @@ void thread_sleep(thread t)
 void thread_wakeup(thread t)
 {
     thread_log(current, "wakeup %ld->%ld %p", current->tid, t->tid, t->frame[FRAME_RIP]);
+    t->syscall = -1;
     enqueue(runqueue, t->run);
 }
 

@@ -83,7 +83,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, getsid, 0);
     register_syscall(map, capget, 0);
     register_syscall(map, capset, 0);
-    register_syscall(map, rt_sigpending, 0);
     register_syscall(map, rt_sigtimedwait, 0);
     register_syscall(map, rt_sigqueueinfo, 0);
     register_syscall(map, rt_sigsuspend, 0);
@@ -1890,13 +1889,12 @@ static context syscall_frame;
 
 static void syscall_debug()
 {
-//    u64 *f = current->frame;
+    sysreturn rv = -ENOSYS;
     u64 *f = running_frame;     /* usually current->frame, except for sigreturn */
     int call = f[FRAME_VECTOR];
     if (call < 0 || call >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0])) {
         thread_log(current, "invalid syscall %d", call);
-        set_syscall_return(current, -ENOSYS);
-        return;
+        goto out;
     }
     current->syscall = call;
     void *debugsyscalls = table_find(current->p->process_root, sym(debugsyscalls));
@@ -1908,7 +1906,6 @@ static void syscall_debug()
             thread_log(current, "syscall %d", call);
     }
     sysreturn (*h)(u64, u64, u64, u64, u64, u64) = s->handler;
-    sysreturn res = -ENOSYS;
     if (h) {
         proc_enter_system(current->p);
 
@@ -1918,9 +1915,9 @@ static void syscall_debug()
         running_frame = syscall_frame;
         running_frame[FRAME_FAULT_HANDLER] = f[FRAME_FAULT_HANDLER];
 
-        res = h(f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]);
+        rv = h(f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]);
         if (debugsyscalls)
-            thread_log(current, "direct return: %ld, rsp 0x%lx", res, f[FRAME_RSP]);
+            thread_log(current, "direct return: %ld, rsp 0x%lx", rv, f[FRAME_RSP]);
         proc_enter_user(current->p);
         running_frame = saveframe;
     } else if (debugsyscalls) {
@@ -1929,7 +1926,9 @@ static void syscall_debug()
         else
             thread_log(current, "nosyscall %d", call);
     }
-    set_syscall_return(current, res);
+
+  out:
+    running_frame[FRAME_RAX] = rv;
     current->syscall = -1;
 
     dispatch_signals(current);

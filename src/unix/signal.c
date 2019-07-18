@@ -7,19 +7,31 @@
 #define sig_debug(x, ...)
 #endif
 
-/* TODO
+/* TODO:
 
-   restart_syscall ?
-   seccomp ?
-   
+   support for SA_RESTART
+   support for signalfd
+   blocking calls within sig handler
+   nested signal handlers
+
+   kill
+   sigqueue
    sigaltstack *
    signal *
-   signalfd
    sigpending *
-   rt_sigprocmask *
-   sigqueue ?
-   rt_sigreturn *
+   rt_sigprocmask
    sigsuspend
+   sigtimedwait / sigwaitinfo
+   rt_sigqueueinfo
+
+   add additional blockqs for:
+   - epoll_wait
+   - select_internal
+   - poll_internal
+   - futex
+   - nanosleep
+
+   core dump
 
    signal mask
    queueable / level?
@@ -60,7 +72,6 @@ static void __attribute__((section (".vdso"))) signal_trampoline(u32 signum,
                                                                  siginfo_t *siginfo,
                                                                  void *ucontext)
 {
-    /* XXX need to add mux for sigaction */
     if (siginfo) {
         ((__sigaction_t)handler)(signum, siginfo, ucontext);
     } else {
@@ -129,6 +140,7 @@ void setup_sigframe(thread t, int signum, struct siginfo *si, void * ucontext)
               t->sigframe[FRAME_RDI], t->sigframe[FRAME_RSI],
               t->sigframe[FRAME_RDX], t->sigframe[FRAME_RCX]);
 }
+
 /* XXX lock down / use access fns */
 void dispatch_signals(thread t)
 {
@@ -170,7 +182,8 @@ void dispatch_signals(thread t)
 
     // XXX convince me
     /* thread may have blocked while signals are still pending; flush in case */
-    blockq_flush_thread(t->blocked_on, t);
+    if (t->blocked_on)
+        blockq_flush_thread(t->blocked_on, t);
 
     /* dequeue siginfo */
     list l = list_get_next(get_sighead(t, signum));
@@ -197,6 +210,16 @@ void dispatch_signals(thread t)
     setup_sigframe(t, signum, &q->si, 0);
     deallocate(h, q, sizeof(struct queued_signal));
     running_frame = t->sigframe;
+}
+
+sysreturn rt_sigpending(sigset_t *set)
+{
+    sig_debug("set %p = 0x%lx\n", set, current->sigpending);
+    if (set)
+        *((u64 *)set) = current->sigpending;
+    else
+        return -EFAULT;
+    return 0;
 }
 
 sysreturn rt_sigreturn()
@@ -241,12 +264,27 @@ sysreturn rt_sigaction(int signum,
     sigaction sa = get_sigaction(signum);
 
     if (oldact)
-        *oldact = *sa;
+        runtime_memcpy(oldact, sa, sizeof(struct sigaction));
 
     if (!act)
         return 0;
 
-    /* we should sanitize values ... */
+    if (signum == SIGKILL || signum == SIGSTOP)
+        return -EINVAL;
+
+    /* XXX we should sanitize values ... */
+    if (act->sa_flags & SA_NOCLDSTOP)
+        msg_warn("Warning: SA_NOCLDSTOP unsupported.\n");
+
+    if (act->sa_flags & SA_NOCLDWAIT)
+        msg_warn("Warning: SA_NOCLDWAIT unsupported.\n");
+
+    if (act->sa_flags & SA_RESTART)
+        msg_warn("Warning: SA_RESTART unsupported.\n");
+
+    if (act->sa_flags & SA_RESETHAND)
+        msg_warn("Warning: SA_RESETHAND unsupported.\n");
+
     sig_debug("installing sigaction: handler %p, sa_mask 0x%lx, sa_flags 0x%lx\n",
               act->sa_handler, act->sa_mask.sig[0], act->sa_flags);
     runtime_memcpy(sa, act, sizeof(struct sigaction));
@@ -392,12 +430,13 @@ sysreturn pause(void)
 
 void register_signal_syscalls(struct syscall *map)
 {
-    register_syscall(map, rt_sigprocmask, rt_sigprocmask);
+    register_syscall(map, kill, kill);
+    register_syscall(map, pause, pause);
     register_syscall(map, rt_sigaction, rt_sigaction);
+    register_syscall(map, rt_sigpending, rt_sigpending);
+    register_syscall(map, rt_sigprocmask, rt_sigprocmask);
     register_syscall(map, rt_sigreturn, rt_sigreturn);
     register_syscall(map, sigaltstack, syscall_ignore);
     register_syscall(map, tgkill, tgkill);
     register_syscall(map, tkill, tkill);
-    register_syscall(map, kill, kill);
-    register_syscall(map, pause, pause);
 }
