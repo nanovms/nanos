@@ -400,6 +400,25 @@ void map(u64 virtual, physical p, int length, u64 flags, heap h)
     map_range(virtual, p, length, flags | PAGE_PRESENT, h);
 }
 
+void vremap(void* old_virtual, u64 old_size, u64 new_virtual, u64 flags, heap h)
+{
+    physical phys;
+    u64 crt_off = 0;
+    u64 stride = PAGESIZE;
+
+    while (crt_off < old_size)
+    {
+        phys = physical_from_virtual(pointer_from_u64(old_virtual + crt_off));
+        if (phys == INVALID_PHYSICAL)
+                continue;
+        
+        unmap(u64_from_pointer(old_virtual + crt_off), PAGESIZE, h);
+        map(new_virtual + crt_off, phys, PAGESIZE, flags, h);
+
+        crt_off += stride;
+    }
+}
+
 void unmap(u64 virtual, int length, heap h)
 {
     map_range(virtual, 0, length, 0, h);

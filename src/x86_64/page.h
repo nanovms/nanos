@@ -18,4 +18,6 @@
 #define PAGE_DEV_FLAGS (PAGE_WRITABLE | PAGE_WRITETHROUGH | PAGE_NO_EXEC)
 
 void map(u64 virtual, physical p, int length, u64 flags, heap h);
+void vremap(void *old_virtual, u64 old_size,
+            u64 new_virtual, u64 flags, heap h);
 void unmap(u64 virtual, int length, heap h);

@@ -206,15 +206,10 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
     }
     thread_log(current, "   new physical pages at 0x%lx, size %ld", dphys, dlen);
 
-    /* remove old mapping */
-    u64 oldphys = physical_from_virtual(old_address);
-    thread_log(current, "   old mapping at phys addr 0x%lx, unmapping", oldphys);
-    unmap(u64_from_pointer(old_address), old_size, pages);
-
-    /* map existing portion */
+    /* Remap existing portion to new address, preserving flags and
+       physical mappings. */
     u64 mapflags = page_map_flags(vm->flags);
-    thread_log(current, "   mapping existing portion at 0x%lx", vnew);
-    map(vnew, oldphys, old_size, mapflags, pages);
+    vremap(old_address, old_size, vnew, mapflags, pages);
 
     /* map new portion and zero */
     thread_log(current, "   mapping and zeroing new portion at 0x%lx", vnew + old_size);
