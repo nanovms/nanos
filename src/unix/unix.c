@@ -73,7 +73,7 @@ context default_fault_handler(thread t, context frame)
     if (table_find (current->p->process_root, sym(fault))) {
         console("starting gdb\n");
         init_tcp_gdb(heap_general(get_kernel_heaps()), current->p, 9090);
-        thread_sleep(current);
+        thread_sleep_uninterruptible();
     } else {
         halt("halt\n");
     }
@@ -180,8 +180,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->sysctx = false;
     p->utime = p->stime = 0;
     p->start_time = now();
-    p->sigmask = 0;
-    p->sigpending = 0;
+    init_sigstate(&p->signals);
     zero(p->sigactions, sizeof(p->sigactions));
     return p;
 }

@@ -63,11 +63,6 @@
 //#define BLOCKQ_DEBUG
 #ifdef BLOCKQ_DEBUG
 #define blockq_debug(x, ...) do {log_printf("  BQ", "%s: " x, __func__, ##__VA_ARGS__);} while(0)
-
-static inline char * blockq_name(blockq bq)
-{
-    return bq->name;
-}
 #else
 #define blockq_debug(x, ...)
 #endif
@@ -102,7 +97,13 @@ static inline void blockq_restart_timer_locked(blockq bq)
     bq->timeout = register_timer(bq->timeout_interval, closure(bq->h, blockq_wake_one, bq));
 }
 
-static void blockq_apply_completion_locked(blockq bq)
+static inline void free_blockq_item(blockq bq, blockq_item bi)
+{
+    list_delete(&bi->l);
+    deallocate(bq->h, bi, sizeof(struct blockq_item));
+}
+
+static void blockq_item_finish(blockq bq, blockq_item bi)
 {
     if (bq->completion) {
         io_completion completion = bq->completion;
@@ -111,6 +112,8 @@ static void blockq_apply_completion_locked(blockq bq)
         apply(completion, bq->completion_thread, bq->completion_rv);
         /* XXX acquire spinlock */
     }
+
+    free_blockq_item(bq, bi);
 }
 
 sysreturn blockq_check(blockq bq, thread t, blockq_action a, boolean in_bh)
@@ -152,16 +155,10 @@ sysreturn blockq_check(blockq bq, thread t, blockq_action a, boolean in_bh)
     t->blocked_on_action = a;
     /* XXX release spinlock */
     if (!in_bh) {
-        thread_sleep(t);        /* no return */
+        thread_sleep_interruptible();        /* no return */
     } else {
         return infinity;
     }
-}
-
-static inline void free_blockq_item(blockq bq, blockq_item bi)
-{
-    list_delete(&bi->l);
-    deallocate(bq->h, bi, sizeof(struct blockq_item));
 }
 
 boolean blockq_flush_thread(blockq bq, thread t)
@@ -176,8 +173,7 @@ boolean blockq_flush_thread(blockq bq, thread t)
             continue;
         blockq_debug(" - applying %p:\n", bi->a);
         apply(bi->a, /* blocking */ true, /* nullify */ true);
-        free_blockq_item(bq, bi);
-        blockq_apply_completion_locked(bq);
+        blockq_item_finish(bq, bi);
         unblocked = true;
     }
     blockq_disable_timer(bq);
@@ -202,8 +198,7 @@ void blockq_flush(blockq bq)
             blockq_debug(" - applying %p:\n", bi->a);
             apply(bi->a, /* blocking */ true, /* nullify */ true);
         }
-        free_blockq_item(bq, bi);
-        blockq_apply_completion_locked(bq);
+        blockq_item_finish(bq, bi);
     }
     blockq_disable_timer(bq);
     /* XXX release lock */
@@ -224,8 +219,7 @@ void blockq_wake_one(blockq bq)
         sysreturn rv = apply(bi->a, true, false);
         blockq_debug("   - returned %ld\n", rv);
         if (rv != 0) {
-            free_blockq_item(bq, bi);
-            blockq_apply_completion_locked(bq);
+            blockq_item_finish(bq, bi);
             
             /* clear timer if this was the last entry */
             if (list_empty(&bq->waiters_head))
@@ -239,7 +233,6 @@ void blockq_wake_one(blockq bq)
     }
 
     /* XXX release lock */
-    
 }
 
 void blockq_set_completion(blockq bq, io_completion completion, thread t,

@@ -41,7 +41,7 @@ static void * tgkill_test_pause(void * arg)
     fail_error("pause: unexpected retval %d\n", rv);
 }
 
-void test_tgkill(void)
+void test_tgkill_ignore(void)
 {
     int rv;
     pthread_t pt = 0;
@@ -52,7 +52,14 @@ void test_tgkill(void)
     if (child_tid == 0)
         fail_error("fail; no tid set from child\n");
 
-    sigtest_debug("spawned tid %d; sending SIGUSR1\n", child_tid);
+    sigtest_debug("spawned tid %d; sending SIGUSR1 (set to SIG_IGN)\n", child_tid);
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = SIG_IGN;
+    rv = sigaction(SIGUSR1, &sa, 0);
+    if (rv < 0)
+        fail_perror("test_tgkill_ignore: sigaction");
+
     rv = syscall(SYS_tgkill, 1, child_tid, SIGUSR1);
     if (rv < 0)
         fail_perror("tgkill");
@@ -191,7 +198,7 @@ int main(int argc, char * argv[])
     heap h = init_process_runtime();
     parse_arguments(h, argc, argv);
 
-    test_tgkill();
+    test_tgkill_ignore();
 
     test_signal_catch();
 

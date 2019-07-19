@@ -458,9 +458,8 @@ static void iov_transfer(
     }
     deallocate(h, progress, sizeof(*progress));
     set_syscall_return(t, rv);
-    if (bh) {
+    if (bh)
         thread_wakeup(t);
-    }
 }
 
 static sysreturn iov_internal(file f, io op, struct iovec *iov, int iovcnt)
@@ -645,7 +644,7 @@ static sysreturn sendfile(int out_fd, int in_fd, int *offset, bytes count)
 
     filesystem_read(current->p->fs, infile->n, buf, count, read_offset,
                 closure(h, sendfile_read_complete, h, current, infile, outfile, offset, buf));
-    thread_sleep(current);
+    thread_sleep_uninterruptible();
     return set_syscall_return(current,count); // bogus
 }
 
@@ -674,7 +673,7 @@ static sysreturn file_read(file f, fsfile fsf, void *dest, u64 length,
 
         /* XXX Presently only support blocking file reads... */
         if (!bh) {
-            thread_sleep(t);
+            thread_sleep_uninterruptible();
         }
         else {
             return infinity;
@@ -727,7 +726,7 @@ static sysreturn file_write(file f, fsfile fsf, void *dest, u64 length,
 
     /* XXX Presently only support blocking file writes... */
     if (!bh) {
-        thread_sleep(t);
+        thread_sleep_uninterruptible();
     }
     else {
         return infinity;
@@ -1125,9 +1124,8 @@ static sysreturn truncate_internal(tuple t, long length)
             current))) {
         /* Nothing to do. */
         return set_syscall_return(current, 0);
-    }
-    else {
-        thread_sleep(current);
+    } else {
+        thread_sleep_uninterruptible();
     }
 }
 
@@ -1174,9 +1172,8 @@ static sysreturn fsync(int fd)
             f))) {
         /* Nothing to sync. */
         return set_syscall_return(current, 0);
-    }
-    else {
-        thread_sleep(current);
+    } else {
+        thread_sleep_uninterruptible();
     }
 }
 
@@ -1475,7 +1472,7 @@ static sysreturn unlink_internal(tuple cwd, const char *pathname)
     filesystem_delete(current->p->fs, cwd, pathname,
             closure(heap_general(get_kernel_heaps()), file_delete_complete,
             current));
-    thread_sleep(current);
+    thread_sleep_uninterruptible();
 }
 
 static sysreturn rmdir_internal(tuple cwd, const char *pathname)
@@ -1499,7 +1496,7 @@ static sysreturn rmdir_internal(tuple cwd, const char *pathname)
     filesystem_delete(current->p->fs, cwd, pathname,
             closure(heap_general(get_kernel_heaps()), file_delete_complete,
             current));
-    thread_sleep(current);
+    thread_sleep_uninterruptible();
 }
 
 sysreturn unlink(const char *pathname)
@@ -1575,7 +1572,7 @@ static sysreturn rename_internal(tuple oldwd, const char *oldpath, tuple newwd,
     filesystem_rename(current->p->fs, oldwd, oldpath, newwd, newpath,
             closure(heap_general(get_kernel_heaps()), file_rename_complete,
             current));
-    thread_sleep(current);
+    thread_sleep_uninterruptible();
 }
 
 sysreturn rename(const char *oldpath, const char *newpath)
@@ -1618,7 +1615,7 @@ sysreturn renameat2(int olddirfd, const char *oldpath, int newdirfd,
         filesystem_exchange(current->p->fs, oldwd, oldpath, newwd, newpath,
                 closure(heap_general(get_kernel_heaps()), file_rename_complete,
                 current));
-        thread_sleep(current);
+        thread_sleep_uninterruptible();
     }
     else {
         if ((flags & RENAME_NOREPLACE) && resolve_cstring(newwd, newpath)) {
@@ -1719,9 +1716,7 @@ sysreturn getpid()
 
 sysreturn sched_yield()
 {
-    thread_wakeup(current);
-    thread_sleep(current);
-    return 0;
+    thread_yield();             /* noreturn */
 }
 
 void exit(int code)

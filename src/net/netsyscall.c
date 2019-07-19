@@ -390,9 +390,8 @@ static void recvmsg_complete(sock s, struct msghdr *msg, void *dest, u64 length,
     msg->msg_controllen = 0;
     msg->msg_flags = 0;
     set_syscall_return(t, rv);
-    if (blocked) {
+    if (blocked)
         thread_wakeup(t);
-    }
 }
 
 static CLOSURE_5_2(recvmsg_bh, sysreturn, sock, thread, void *, u64,
@@ -959,7 +958,6 @@ static err_t connect_tcp_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
    return ERR_OK;
 }
 
-/* XXX move to blockq */
 static inline int connect_tcp(sock s, const ip_addr_t* address, unsigned short port)
 {
     net_debug("sock %d, addr %x, port %d\n", s->fd, address->addr, port);
@@ -975,7 +973,7 @@ static inline int connect_tcp(sock s, const ip_addr_t* address, unsigned short p
     s->info.tcp.connect_bh = bh;
     int err = tcp_connect(lw, address, port, connect_tcp_complete);
     if (err == ERR_OK)
-	thread_sleep(current);
+	thread_sleep_uninterruptible(); /* XXX move to blockq */
     return err;
 }
 
@@ -1119,9 +1117,8 @@ static void sendmsg_complete(sock s, void *buf, u64 len, boolean blocked,
 {
     deallocate(s->h, buf, len);
     set_syscall_return(t, rv);
-    if (blocked) {
+    if (blocked)
         thread_wakeup(t);
-    }
 }
 
 sysreturn sendmsg(int sockfd, const struct msghdr *msg, int flags)
@@ -1176,16 +1173,16 @@ static sysreturn sendmmsg_tcp_bh(sock s, thread t, void *buf, u64 len, int flags
         if (s->msg_count == vlen) {
             break;
         }
-        rv = sendmsg_prepare(s, &msgvec[s->msg_count].msg_hdr, flags, &buf,
-                &len);
+        rv = sendmsg_prepare(s, &msgvec[s->msg_count].msg_hdr, flags, &buf, &len);
         if (rv > 0) {
             completion = closure(s->h, sendmmsg_buf_complete, s, buf, len);
             rv = socket_write_tcp_bh(s, t, buf, len, completion, true, nullify);
         }
     }
-    if (blocked) {
+
+    if (blocked)
         thread_wakeup(t);
-    }
+
     return set_syscall_return(t, rv);
 }
 

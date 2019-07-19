@@ -243,7 +243,6 @@ struct rlimit {
 #define SIGILL		 4
 #define SIGTRAP		 5
 #define SIGABRT		 6
-#define SIGIOT		 6
 #define SIGBUS		 7
 #define SIGFPE		 8
 #define SIGKILL		 9
@@ -267,7 +266,8 @@ struct rlimit {
 #define SIGPROF		27
 #define SIGWINCH	28
 #define SIGIO		29
-
+#define SIGPWR          30
+#define SIGSYS          31
 
 #define SIGINFO_SIZE        128
 #define SIGINFO_UNION_ALIGN 16

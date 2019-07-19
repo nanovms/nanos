@@ -101,7 +101,9 @@ typedef struct unix_heaps {
 typedef closure_type(io_completion, void, thread t, sysreturn rv);
 
 #define BLOCKQ_NAME_MAX 20
+typedef closure_type(blockq_action, sysreturn, boolean /* blocking */, boolean /* nullify */);
 
+/* queue of threads waiting for a resource */
 typedef struct blockq {
     heap h;
     /* spinlock lock; */
@@ -115,7 +117,34 @@ typedef struct blockq {
     sysreturn completion_rv;
 } *blockq;
 
-typedef closure_type(blockq_action, sysreturn, boolean /* blocking */, boolean /* nullify */);
+static inline char * blockq_name(blockq bq)
+{
+    return bq->name;
+}
+
+/* pending and masked signals for a given thread or process */
+typedef struct sigstate {
+    /* these should be bitmaps, but time is of the essence, and presently NSIG=64 */
+    u64         sigpending;     /* pending and not yet dispatched */
+    u64         sigmask;        /* masked or "blocked" signals are set */
+    u64         sigsaved;       /* original mask saved on rt_sigsuspend */
+    struct list sigheads[NSIG];
+} *sigstate;
+
+static inline void init_sigstate(sigstate ss)
+{
+    ss->sigpending = 0;
+    ss->sigmask = 0;
+    ss->sigsaved = 0;
+
+    for(int i = 0; i < NSIG; i += 4) {
+        list_init(&ss->sigheads[i]);
+        list_init(&ss->sigheads[i + 1]);
+        list_init(&ss->sigheads[i + 2]);
+        list_init(&ss->sigheads[i + 3]);
+    }
+}
+
 typedef struct epoll *epoll;
 typedef struct thread {
     // if we use an array typedef its fragile
@@ -140,20 +169,14 @@ typedef struct thread {
     thunk run;
     queue log[64];
 
-    /* blocking info */
+    /* blockq thread is waiting on, INVALID_ADDRESS for uninterruptible */
     blockq blocked_on;
-    blockq_action blocked_on_action;
+    blockq_action blocked_on_action; /* saved for ease of removal */
+    blockq dummy_blockq; /* for pause(2) */
 
-    blockq dummy_blockq;        /* for pause(2) */
-
-    /* signal internal - preferably bitmaps would be used here, but
-       for time's sake and the fact that _NSIG is presently 64 in
-       Linux, just use u64s for now... */
-    u64 sigmask;
-    u64 sigpending;
-    u64 sigsaved;            /* original mask saved on rt_sigsuspend */
+    struct sigstate signals;
+    sigstate dispatch_sigstate; /* saved sigstate while signal handler in flight */
     u64 rax_saved;           /* XXX hack */
-    struct list sigheads[NSIG];
     u64 sigframe[FRAME_MAX];
 } *thread;
 
@@ -198,31 +221,28 @@ typedef struct file *file;
 struct syscall;
 
 typedef struct process {
-    unix_heaps      uh;         /* non-thread-specific */
-    int             pid;
-    void           *brk;
-    heap            virtual;
-    heap            virtual_page;
-    heap            virtual32;
-    heap            fdallocator;
-    filesystem      fs;         /* XXX should be underneath tuple operators */
-    tuple           process_root;
-    tuple           cwd;
-    table           futices;
-    fault_handler   handler;
-    vector          threads;
-    struct syscall *syscalls;
-    vector          files;
-    rangemap        vareas;     /* available address space */
-    rangemap        vmaps;      /* process mappings */
-    boolean         sysctx;
-    timestamp       utime, stime;
-    timestamp       start_time;
-
-    u64             sigpending; /* pending at process level */
-    u64             sigmask;    /* process-level masked */
-
-    struct sigaction sigactions[NSIG];
+    unix_heaps        uh;       /* non-thread-specific */
+    int               pid;
+    void             *brk;
+    heap              virtual;
+    heap              virtual_page;
+    heap              virtual32;
+    heap              fdallocator;
+    filesystem        fs;       /* XXX should be underneath tuple operators */
+    tuple             process_root;
+    tuple             cwd;
+    table             futices;
+    fault_handler     handler;
+    vector            threads;
+    struct syscall   *syscalls;
+    vector            files;
+    rangemap          vareas;   /* available address space */
+    rangemap          vmaps;    /* process mappings */
+    boolean           sysctx;
+    timestamp         utime, stime;
+    timestamp         start_time;
+    struct sigstate   signals;
+    struct sigaction  sigactions[NSIG];
 } *process;
 
 typedef struct sigaction *sigaction;
@@ -315,14 +335,37 @@ boolean unix_fault_page(u64 vaddr, context frame);
 
 void thread_log_internal(thread t, const char *desc, ...);
 #define thread_log(__t, __desc, ...) thread_log_internal(__t, __desc, ##__VA_ARGS__)
-// this should always be current
-void thread_sleep(thread) __attribute__((noreturn));
+
+void thread_sleep_interruptible(void) __attribute__((noreturn));
+void thread_sleep_uninterruptible(void) __attribute__((noreturn));
+void thread_yield(void) __attribute__((noreturn));
 void thread_wakeup(thread);
+boolean thread_attempt_interrupt(thread t);
+
+static inline boolean thread_in_interruptible_sleep(thread t)
+{
+    return t->blocked_on && t->blocked_on != INVALID_ADDRESS;
+}
+
+static inline boolean thread_in_uninterruptible_sleep(thread t)
+{
+    return t->blocked_on == INVALID_ADDRESS;
+}
+
+static inline boolean thread_is_runnable(thread t)
+{
+    return t->blocked_on == 0;
+}
 
 static inline sysreturn set_syscall_return(thread t, sysreturn val)
 {
     t->frame[FRAME_RAX] = val;
     return val;
+}
+
+static inline sysreturn get_syscall_return(thread t)
+{
+    return t->frame[FRAME_RAX];
 }
 
 static inline sysreturn set_syscall_error(thread t, s32 val)

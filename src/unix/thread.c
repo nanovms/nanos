@@ -51,6 +51,13 @@ sysreturn arch_prctl(int code, unsigned long addr)
     return 0;
 }
 
+static inline void thread_make_runnable(thread t)
+{
+    t->blocked_on = 0;
+    t->syscall = -1;
+    enqueue(runqueue, t->run);
+}
+
 sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, unsigned long newtls)
 {
     thread_log(current, "clone: flags %lx, child_stack %p, ptid %p, ctid %p, newtls %lx",
@@ -75,7 +82,7 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, un
         *ptid = t->tid;
     if (flags & CLONE_CHILD_CLEARTID)
         t->clear_tid = ctid;
-    thread_wakeup(t);
+    thread_make_runnable(t);
     return t->tid;
 }
 
@@ -160,7 +167,7 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
                 register_futex_timer(current, f, timeout);
             // atomic 
             enqueue(f->waiters, current);
-            thread_sleep(current);
+            thread_sleep_uninterruptible(); /* XXX move to blockq */
         }
         return -EAGAIN;
             
@@ -246,7 +253,7 @@ static sysreturn futex(int *uaddr, int futex_op, int val,
             if (timeout)
                 register_futex_timer(current, f, timeout);                          
             enqueue(f->waiters, current);
-            thread_sleep(current);
+            thread_sleep_uninterruptible(); /* XXX move to blockq */
         }
         return -EAGAIN;
 
@@ -296,6 +303,9 @@ void run_thread(thread t)
     proc_enter_user(current->p);
     running_frame = t->frame;
 
+    /* cover wake-before-sleep situations (e.g. sched yield, fs ops that don't go to disk, etc.) */
+    current->blocked_on = 0;
+
     /* check if we have a pending signal */
     dispatch_signals(t);
 
@@ -303,21 +313,51 @@ void run_thread(thread t)
     IRETURN(running_frame);
 }
 
-// it might be easier, if a little skeezy, to use the return value
-// to genericize the handling of suspended threads. given that there
-// are already conventions (i.e. negative errors) on the interface
-void thread_sleep(thread t)
+void thread_sleep_interruptible(void)
 {
-    // config from the filesystem
-    thread_log(t, "sleep",  0);
+    assert(current->blocked_on);
+    thread_log(current, "sleep interruptible (on \"%s\")", blockq_name(current->blocked_on));
+    runloop();
+}
+
+void thread_sleep_uninterruptible(void)
+{
+    assert(!current->blocked_on);
+    current->blocked_on = INVALID_ADDRESS;
+    thread_log(current, "sleep uninterruptible");
+    runloop();
+}
+
+void thread_yield(void)
+{
+    thread_log(current, "yield %d \%rip 0x%lx", current->tid, current->frame[FRAME_RIP]);
+    assert(!current->blocked_on);
+    current->syscall = -1;
+    set_syscall_return(current, 0);
+    enqueue(runqueue, current->run);
     runloop();
 }
 
 void thread_wakeup(thread t)
 {
-    thread_log(current, "wakeup %ld->%ld %p", current->tid, t->tid, t->frame[FRAME_RIP]);
-    t->syscall = -1;
-    enqueue(runqueue, t->run);
+    thread_log(current, "%s: %ld->%ld blocked_on %p, rip 0x%lx", __func__, current->tid, t->tid,
+               t->blocked_on, t->frame[FRAME_RIP]);
+    thread_make_runnable(t);
+}
+
+boolean thread_attempt_interrupt(thread t)
+{
+    thread_log(current, "%s: tid %d\n", __func__, t->tid);
+    if (!thread_in_interruptible_sleep(t)) {
+        thread_log(current, "uninterruptible or already running");
+        return false;
+    }
+
+    /* flush pending blockq */
+    thread_log(current, "... interrupting blocked thread %d\n", t->tid);
+    assert(blockq_flush_thread(t->blocked_on, t));
+    assert(thread_is_runnable(t));
+    return true;
 }
 
 thread create_thread(process p)
@@ -340,15 +380,9 @@ thread create_thread(process p)
     t->blocked_on = 0;
     t->blocked_on_action = 0;
     t->dummy_blockq = allocate_blockq(h, "dummy", 1, 0);
-    t->sigmask = 0;
-    t->sigpending = 0;
-    t->sigsaved = 0;
-    for(int i = 0; i < NSIG; i += 4) {
-        list_init(&t->sigheads[i]);
-        list_init(&t->sigheads[i + 1]);
-        list_init(&t->sigheads[i + 2]);
-        list_init(&t->sigheads[i + 3]);
-    }
+    init_sigstate(&t->signals);
+    t->dispatch_sigstate = 0;
+
     // XXX sigframe
     return t;
 }
