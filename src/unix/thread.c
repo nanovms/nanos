@@ -330,7 +330,7 @@ void thread_sleep_uninterruptible(void)
 
 void thread_yield(void)
 {
-    thread_log(current, "yield %d \%rip 0x%lx", current->tid, current->frame[FRAME_RIP]);
+    thread_log(current, "yield %d, RIP=0x%lx", current->tid, current->frame[FRAME_RIP]);
     assert(!current->blocked_on);
     current->syscall = -1;
     set_syscall_return(current, 0);
@@ -340,7 +340,7 @@ void thread_yield(void)
 
 void thread_wakeup(thread t)
 {
-    thread_log(current, "%s: %ld->%ld blocked_on %p, rip 0x%lx", __func__, current->tid, t->tid,
+    thread_log(current, "%s: %ld->%ld blocked_on %p, RIP=0x%lx", __func__, current->tid, t->tid,
                t->blocked_on, t->frame[FRAME_RIP]);
     thread_make_runnable(t);
 }
@@ -387,6 +387,7 @@ thread create_thread(process p)
     return t;
 }
 
+/* XXX this is seriously next */
 void exit_thread(thread t)
 {
     if (t->clear_tid) {
@@ -394,9 +395,12 @@ void exit_thread(thread t)
         futex(t->clear_tid, FUTEX_WAKE, 1, 0, 0, 0);
     }
 
+    /* Like an uninterruptible sleep for all eternity. */
+    t->blocked_on = INVALID_ADDRESS;
+
     /* TODO: remove also from p->threads (but it is not currently used) */
-    heap h = heap_general((kernel_heaps)t->p->uh);
-    deallocate(h, t, sizeof(struct thread));
+//    heap h = heap_general((kernel_heaps)t->p->uh);
+//    deallocate(h, t, sizeof(struct thread));
 }
 
 void init_threads(process p)

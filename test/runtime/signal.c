@@ -118,6 +118,8 @@ static void test_rt_signal_queueing_handler(int sig, siginfo_t *si, void *uconte
                   sig, si->si_signo, si->si_errno, si->si_code, test_rt_caught);
     assert(sig == SIGRTMIN);
     assert(sig == si->si_signo);
+    assert(si->si_code == SI_QUEUE);
+    assert(si->si_value.sival_int == test_rt_caught);
     test_rt_caught++;
 
     sigset_t sigset;
@@ -168,16 +170,24 @@ void test_rt_signal(void)
     if (child_tid == 0)
         fail_error("fail; no tid set from child\n");
 
+    sigset_t ss;
+    sigemptyset(&ss);
+    sigaddset(&ss, SIGRTMIN);
+    int rv = sigprocmask(SIG_BLOCK, &ss, 0);
+    if (rv < 0)
+        fail_perror("sigprocmask");
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_sigaction = test_rt_signal_queueing_handler;
     sa.sa_flags |= SA_SIGINFO;
-    int rv = sigaction(SIGRTMIN, &sa, 0);
+    rv = sigaction(SIGRTMIN, &sa, 0);
     if (rv < 0)
         fail_perror("test_signal_catch: sigaction");
 
     for (int i = 0; i < TEST_RT_NQUEUE; i++) {
-        rv = syscall(SYS_tgkill, 1, child_tid, SIGRTMIN);
+        union sigval sv;
+        sv.sival_int = i;
+        rv = sigqueue(getpid(), SIGRTMIN, sv);
         if (rv < 0)
             fail_perror("signal catch tgkill");
     }
@@ -188,6 +198,46 @@ void test_rt_signal(void)
 
     if (retval != (void*)EXIT_SUCCESS)
         fail_error("tgkill_test_pause child failed\n");
+}
+
+
+static boolean test_kill_caught = false;
+
+static void test_kill_handler(int sig, siginfo_t *si, void *ucontext)
+{
+    assert(si);
+    sigtest_debug("sig %d, si->signo %d, si->errno %d, si->code %d\n",
+                  sig, si->si_signo, si->si_errno, si->si_code);
+    assert(sig == SIGRTMIN);
+    assert(sig == si->si_signo);
+    test_kill_caught = true;
+}
+
+void test_kill(void)
+{
+    sigtest_debug("");
+
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = test_kill_handler;
+    sa.sa_flags |= SA_SIGINFO;
+    int rv = sigaction(SIGRTMIN, &sa, 0);
+    if (rv < 0)
+        fail_perror("test_signal_catch: sigaction");
+
+    sigset_t ss;
+    sigemptyset(&ss);
+    sigaddset(&ss, SIGRTMIN);
+    rv = sigprocmask(SIG_UNBLOCK, &ss, 0);
+    if (rv < 0)
+        fail_perror("sigprocmask");
+
+    rv = syscall(SYS_kill, getpid(), SIGRTMIN);
+    if (rv < 0)
+        fail_perror("signal catch tgkill");
+
+    if (!test_kill_caught)
+        fail_error("test_kill: signal not caught");
 }
     
 table parse_arguments(heap h, int argc, char **argv);
@@ -203,6 +253,8 @@ int main(int argc, char * argv[])
     test_signal_catch();
 
     test_rt_signal();
+
+    test_kill();
 
     printf("signal test passed\n");
 }

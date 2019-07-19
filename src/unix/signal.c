@@ -14,15 +14,9 @@
    blocking calls within sig handler
    nested signal handlers
 
-   kill
-   sigqueue
-   sigaltstack *
-   signal *
-   sigpending *
-   rt_sigprocmask
+   sigaltstack
    sigsuspend
    sigtimedwait / sigwaitinfo
-   rt_sigqueueinfo
 
    add additional blockqs for:
    - epoll_wait
@@ -72,9 +66,29 @@ static inline int select_signal_from_masked(u64 masked)
     return lsb(masked) + 1;
 }
 
+static inline u64 normalize_mask(u64 mask)
+{
+    return mask & ~(mask_from_sig(SIGKILL) | mask_from_sig(SIGSTOP));
+}
+
 static inline u64 sigstate_get_mask(sigstate ss)
 {
-    return ss->sigmask & ~(mask_from_sig(SIGKILL) | mask_from_sig(SIGSTOP));
+    return normalize_mask(ss->sigmask);
+}
+
+static inline void sigstate_set_mask(sigstate ss, u64 mask)
+{
+    ss->sigmask = normalize_mask(mask);
+}
+
+static inline void sigstate_block(sigstate ss, u64 mask)
+{
+    ss->sigmask |= normalize_mask(mask);
+}
+
+static inline void sigstate_unblock(sigstate ss, u64 mask)
+{
+    ss->sigmask &= ~mask;
 }
 
 static inline u64 sigstate_get_pending(sigstate ss)
@@ -109,10 +123,10 @@ static inline void sigstate_restore(sigstate ss)
     ss->sigsaved = 0;
 }
 
-static queued_signal sigstate_get_signal(sigstate ss)
+static queued_signal sigstate_get_signal(sigstate ss, u64 aux_mask)
 {
     sig_debug("sigstate %p\n", ss);
-    u64 masked = sigstate_get_pending_masked(ss);
+    u64 masked = sigstate_get_pending_masked(ss) & ~aux_mask;
     if (masked == 0)
         return INVALID_ADDRESS;
 
@@ -295,11 +309,31 @@ sysreturn rt_sigaction(int signum,
     return 0;
 }
 
-sysreturn rt_sigprocmask(int how, const sigset_t *set, sigset_t *oldset, u64 sigsetsize)
+sysreturn rt_sigprocmask(int how, const u64 *set, u64 *oldset, u64 sigsetsize)
 {
-    if (oldset)
-        runtime_memset((void *) oldset, 0, sigsetsize);
+    if (sigsetsize != (NSIG / 8)) {
+        msg_err("sigsetsize (%ld) != NSIG (%ld)\n", sigsetsize, NSIG);
+        return -EINVAL;
+    }
 
+    if (oldset)
+        *oldset = sigstate_get_mask(&current->signals);
+
+    if (set) {
+        switch (how) {
+        case SIG_BLOCK:
+            sigstate_block(&current->signals, *set);
+            break;
+        case SIG_UNBLOCK:
+            sigstate_unblock(&current->signals, *set);
+            break;
+        case SIG_SETMASK:
+            sigstate_set_mask(&current->signals, *set);
+            break;
+        default:
+            return -EINVAL;
+        }
+    }
     return 0;
 }
 
@@ -329,11 +363,6 @@ sysreturn tgkill(int tgid, int tid, int sig)
     return 0;
 }
 
-sysreturn tkill(int tid, int sig)
-{
-    return tgkill(0, tid, sig);
-}
-
 sysreturn kill(int pid, int sig)
 {
     sig_debug("pid %d, sig %d\n", pid, sig);
@@ -342,10 +371,36 @@ sysreturn kill(int pid, int sig)
     if (pid != current->p->pid)
         return -ESRCH;
 
+    if (sig == 0)
+        return 0;
+
     struct siginfo si;
     init_siginfo(&si, sig, SI_USER);
+    si.sifields.kill.pid = current->p->pid;
+    si.sifields.kill.uid = 0;
     deliver_signal_to_process(current->p, &si);
     return 0;
+}
+
+sysreturn rt_sigqueueinfo(int pid, int sig, siginfo_t *info)
+{
+    sig_debug("pid %d, sig %d, info %p\n", pid, sig, info);
+
+    if (pid != current->p->pid)
+        return -ESRCH;
+
+    if (sig == 0)
+        return 0;
+
+    /* XXX need to further sanitize */
+    info->si_signo = sig;
+    deliver_signal_to_process(current->p, info);
+    return 0;
+}
+
+sysreturn tkill(int tid, int sig)
+{
+    return tgkill(1, tid, sig);
 }
 
 static CLOSURE_1_2(pause_bh, sysreturn,
@@ -382,6 +437,7 @@ void register_signal_syscalls(struct syscall *map)
     register_syscall(map, rt_sigaction, rt_sigaction);
     register_syscall(map, rt_sigpending, rt_sigpending);
     register_syscall(map, rt_sigprocmask, rt_sigprocmask);
+    register_syscall(map, rt_sigqueueinfo, rt_sigqueueinfo);
     register_syscall(map, rt_sigreturn, rt_sigreturn);
     register_syscall(map, sigaltstack, syscall_ignore);
     register_syscall(map, tgkill, tgkill);
@@ -471,10 +527,10 @@ void dispatch_signals(thread t)
 
     /* procure a pending signal from the thread or, failing that, the process */
     sigstate ss = &t->signals;
-    queued_signal qs = sigstate_get_signal(ss);
+    queued_signal qs = sigstate_get_signal(ss, 0);
     if (qs == INVALID_ADDRESS) {
         ss = &t->p->signals;
-        qs = sigstate_get_signal(ss);
+        qs = sigstate_get_signal(ss, sigstate_get_mask(&t->signals)); /* include thread mask */
         if (qs == INVALID_ADDRESS) {
             sig_debug("tid %d: nothing to process\n", t->tid);
             return;

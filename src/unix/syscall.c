@@ -84,7 +84,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, capget, 0);
     register_syscall(map, capset, 0);
     register_syscall(map, rt_sigtimedwait, 0);
-    register_syscall(map, rt_sigqueueinfo, 0);
     register_syscall(map, rt_sigsuspend, 0);
     register_syscall(map, utime, 0);
     register_syscall(map, mknod, 0);
