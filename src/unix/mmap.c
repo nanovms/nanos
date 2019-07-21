@@ -143,8 +143,9 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
 {
     kernel_heaps kh = get_kernel_heaps();
     process p = current->p;
+    u64 old_addr = u64_from_pointer(old_address);
 
-    thread_log(current, "mremap: old_address %p, old_size %ld, new_size %ld, flags 0x%x, new_address %p",
+    thread_log(current, "mremap: old_address %p, old_size 0x%lx, new_size 0x%lx, flags 0x%x, new_address %p",
 	       old_address, old_size, new_size, flags, new_address);
 
     if ((flags & MREMAP_MAYMOVE) == 0) {
@@ -157,7 +158,7 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
         return -ENOMEM;
     }
 
-    if ((u64_from_pointer(old_address) & MASK(PAGELOG)) ||
+    if ((old_addr & MASK(PAGELOG)) ||
         (flags & ~(MREMAP_MAYMOVE | MREMAP_FIXED)) ||
         new_size == 0)
         return -EINVAL;
@@ -182,7 +183,7 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
     /* remove old mapping, preserving attributes
      * XXX should verify entire given range
      */
-    vmap old_vm = (vmap)rangemap_lookup(p->vmaps, u64_from_pointer(old_address));
+    vmap old_vm = (vmap)rangemap_lookup(p->vmaps, old_addr);
     if (old_vm == INVALID_ADDRESS)
         return -EFAULT;
     u64 vmflags = old_vm->flags;
@@ -206,18 +207,15 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
     }
     thread_log(current, "   new physical pages at 0x%lx, size %ld", dphys, dlen);
 
-    /* remove old mapping */
-    u64 oldphys = physical_from_virtual(old_address);
-    thread_log(current, "   old mapping at phys addr 0x%lx, unmapping", oldphys);
-    unmap(u64_from_pointer(old_address), old_size, pages);
-
-    /* map existing portion */
-    u64 mapflags = page_map_flags(vm->flags);
-    thread_log(current, "   mapping existing portion at 0x%lx", vnew);
-    map(vnew, oldphys, old_size, mapflags, pages);
+    /* remap existing portion */
+    thread_log(current, "   remapping existing portion at 0x%lx (old_addr 0x%lx, size 0x%lx)",
+               vnew, old_addr, old_size);
+    remap_pages(vnew, old_addr, old_size, pages);
 
     /* map new portion and zero */
-    thread_log(current, "   mapping and zeroing new portion at 0x%lx", vnew + old_size);
+    u64 mapflags = page_map_flags(vmflags);
+    thread_log(current, "   mapping and zeroing new portion at 0x%lx, page flags 0x%lx",
+               vnew + old_size, mapflags);
     map(vnew + old_size, dphys, dlen, mapflags, pages);
     zero(pointer_from_u64(vnew + old_size), dlen);
 

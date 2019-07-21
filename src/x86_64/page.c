@@ -16,10 +16,20 @@ typedef u64 *page;
 
 static const int level_shift[5] = { -1, PT1, PT2, PT3, PT4 };
 
-static inline page page_from_pte(u64 pte)
+static inline u64 phys_from_pte(u64 pte)
 {
     /* page directory pointer base address [51:12] */
-    return (page)pointer_from_u64(pte & (MASK(52) & ~PAGEMASK));
+    return pte & (MASK(52) & ~PAGEMASK);
+}
+
+static inline page page_from_pte(u64 pte)
+{
+    return (page)pointer_from_u64(phys_from_pte(pte));
+}
+
+static inline u64 flags_from_pte(u64 pte)
+{
+    return pte & PAGE_FLAGS_MASK;
 }
 
 static inline u64 pindex(u64 x, u64 offset)
@@ -140,10 +150,10 @@ static void print_level(int level)
 {
     int i;
     for (i = 0; i < level - 1; i++)
-	serial_out(' ');
-    serial_out('0' + level);
+	rprintf(" ");
+    rprintf("%d", level);
     for (i = 0; i < 5 - level; i++)
-	serial_out(' ');
+	rprintf(" ");
 }
 #endif
 
@@ -223,7 +233,8 @@ static inline boolean map_page(page base, u64 v, physical p, heap h,
 	return false;
     if (invalidate_entry) {
         page_invalidate(v);
-        *invalidate = true;
+        if (invalidate)
+            *invalidate = true;
     }
     return true;
 }
@@ -310,10 +321,51 @@ void update_map_flags(u64 vaddr, u64 length, u64 flags)
     traverse_range(vaddr, length, closure(transient, update_pte_flags, flags));
 }
 
+static CLOSURE_3_2(remap_page, void, u64, u64, heap, u64, u64 *);
+static void remap_page(u64 new, u64 old, heap h, u64 curr, u64 * pte)
+{
+    u64 offset = curr - old;
+    u64 entry = *pte;
+    u64 new_curr = new + offset;
+    u64 phys = phys_from_pte(entry);
+    u64 flags = flags_from_pte(entry);
+#ifdef PTE_DEBUG
+    rprintf("remap_page: old curr 0x%lx, phys 0x%lx, new curr 0x%lx, pte 0x%lx, *pte 0x%lx, flags 0x%lx\n",
+            curr, phys, new_curr, pte, *pte, flags);
+#endif
+
+    /* seems like this path could be simplified / re-written using traverse... */
+    map_page(pagebase(), new_curr, phys, h, (*pte & PAGE_2M_SIZE) != 0, flags, 0);
+
+    /* reset old entry */
+    *pte = 0;
+
+    /* invalidate old mapping (map_page takes care of new)  */
+    page_invalidate(curr);
+}
+
+/* We're just going to do forward traversal, for we don't yet need to
+   support overlapping moves. Should that become necessary (e.g. to
+   support MREMAP_FIXED in mremap(2) without depending on
+   MREMAP_MAYMOVE), write a "traverse_range_reverse" to walk pages
+   from high address to low (like memcpy).
+*/
+void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length, heap h)
+{
+#ifdef PAGE_DEBUG
+    rprintf("remap_pages: vaddr_new 0x%lx, vaddr_old 0x%lx, length 0x%lx\n", vaddr_new, vaddr_old, length);
+#endif
+    if (vaddr_new == vaddr_old)
+        return;
+    assert(range_empty(range_intersection(irange(vaddr_new, vaddr_new + length),
+                                          irange(vaddr_old, vaddr_old + length))));
+    traverse_range(vaddr_old, length, closure(transient, remap_page, vaddr_new, vaddr_old, h));
+}
+
 static CLOSURE_0_2(zero_page, void, u64, u64 *);
 static void zero_page(u64 addr, u64 * pte)
 {
-    zero(pointer_from_u64(addr), *pte & PAGE_2M_SIZE ? PAGE_2M_SIZE : PAGESIZE);
+    zero(pointer_from_u64(addr), *pte & PAGE_2M_SIZE ? PAGESIZE_2M : PAGESIZE);
 }
 
 void zero_mapped_pages(u64 vaddr, u64 length)
@@ -324,9 +376,10 @@ void zero_mapped_pages(u64 vaddr, u64 length)
 static CLOSURE_1_2(unmap_page, void, range_handler, u64, u64 *);
 void unmap_page(range_handler rh, u64 vaddr, u64 * pte)
 {
-    int pagesize = *pte & PAGE_2M_SIZE ? PAGE_2M_SIZE : PAGESIZE;
-    u64 phys = *pte & ~PAGE_FLAGS_MASK;
+    int pagesize = *pte & PAGE_2M_SIZE ? PAGESIZE_2M : PAGESIZE;
+    u64 phys = phys_from_pte(*pte);
     *pte = 0;
+    page_invalidate(vaddr);
     range p = irange(phys, phys + pagesize);
     apply(rh, p);
 }
