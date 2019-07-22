@@ -313,6 +313,57 @@ static inline tuple resolve_cstring_parent(tuple cwd, const char *f)
     return parent;
 }
 
+static int file_get_path(tuple n, char *buf, u64 len)
+{
+    if (len < 2) {
+        return -1;
+    }
+    tuple c = children(n);
+    if (!c) {   /* Retrieving path of non-directory tuples is not supported. */
+        return -1;
+    }
+    buf[0] = '\0';
+    int cur_len = 1;
+next:
+    table_foreach(c, k, v) {
+        char *name = cstring(symbol_string(k));
+        if (!runtime_strcmp(name, "..")) {
+            if (v == n) {   /* this is the root directory */
+                if (cur_len == 1) {
+                    buf[0] = '/';
+                    buf[1] = '\0';
+                    cur_len = 2;
+                }
+                c = 0;
+            }
+            else {
+                c = children(v);
+            }
+            if (!c) {
+                goto done;
+            }
+            table_foreach(c, k, v) {
+                if (v == n) {
+                    char *name = cstring(symbol_string(k));
+                    int name_len = runtime_strlen(name);
+                    if (len < 1 + name_len + cur_len) {
+                        return -1;
+                    }
+                    runtime_memcpy(buf + 1 + name_len, buf, cur_len);
+                    buf[0] = '/';
+                    runtime_memcpy(buf + 1, name, name_len);
+                    cur_len += 1 + name_len;
+                    break;
+                }
+            }
+            n = v;
+            goto next;
+        }
+    }
+done:
+    return cur_len;
+}
+
 /* Check if fp1 is a (direct or indirect) ancestor if fp2. */
 static inline boolean filepath_is_ancestor(tuple wd1, const char *fp1,
         tuple wd2, const char *fp2)
@@ -1321,13 +1372,11 @@ sysreturn prlimit64(int pid, int resource, const struct rlimit *new_limit, struc
 
 static sysreturn getcwd(char *buf, u64 length)
 {
-    static const char cwd[] = "/";
-    int cwd_len = sizeof(cwd);
+    int cwd_len = file_get_path(current->p->cwd, buf, length);
 
-    if (length < cwd_len)
+    if (cwd_len < 0)
         return set_syscall_error(current, ERANGE);
 
-    runtime_memcpy(buf, cwd, cwd_len);
     return cwd_len;
 }
 

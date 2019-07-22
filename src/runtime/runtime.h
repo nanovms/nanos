@@ -35,25 +35,11 @@ extern void print_stack_from_here();
     } while(0)
 #endif
 
-static inline void runtime_memcpy(void *a, const void *b, bytes len)
-{
-    for (int i = 0; i < len; i++) ((u8 *)a)[i] = ((u8 *)b)[i];
-}
+void runtime_memcpy(void *a, const void *b, bytes len);
 
-static inline void runtime_memset(u8 *a, u8 b, bytes len)
-{
-    for (int i = 0; i < len; i++) ((u8 *)a)[i] = b;
-}
+void runtime_memset(u8 *a, u8 b, bytes len);
 
-static inline int runtime_memcmp(const void *a, const void *b, bytes len)
-{
-    for (int i = 0; i < len; i++) {
-        int res = ((signed char *) a)[i] - ((signed char *) b)[i];
-        if (res != 0)
-            return res;
-    }
-    return 0;
-}
+int runtime_memcmp(const void *a, const void *b, bytes len);
 
 static inline int runtime_strlen(const char *a)
 {
@@ -85,29 +71,9 @@ static inline void console(char *s)
 
 #define check_flags_and_clear(x, f) ({boolean match = ((x) & (f)) != 0; (x) &= ~(f); match;})
 
-#if 0
-// this...seems to have a fault (?).. it may be the interrupt
-// machinery
 static inline void zero(void *x, bytes length)
 {
-    u64 *start = pointer_from_u64(pad(u64_from_pointer(x), 8));
-    u64 first = u64_from_pointer((void *)start - x);
-    if (first > length) first = length;
-    u64 aligned = (length - first) >>3;
-    u8 *end = (u8 *)(start + first+aligned);
-    u64 final = length - aligned*8 - first;
-
-    for (int i =0; i < first; i++) *(u8 *)(x + i) = 0;
-    // rep, movent
-    for (int i =0; i < aligned; i++) start[i] = 0;
-    for (int i =0; i < final; i++) end[i] = 0;        
-}
-#endif
-
-static inline void zero(void *x, bytes length)
-{
-    for (int i = 0; i < length; i++)
-        ((u8 *)x)[i] = 0;
+    runtime_memset(x, 0, length);
 }
 
 typedef struct heap *heap;
