@@ -112,6 +112,7 @@ SRCS-signal= \
 	$(SRCDIR)/runtime/buffer.c \
 	$(SRCDIR)/runtime/extra_prints.c \
 	$(SRCDIR)/runtime/format.c \
+	$(SRCDIR)/runtime/memops.c \
 	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/random.c \
 	$(SRCDIR)/runtime/range.c \
