@@ -81,8 +81,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, setfsuid, 0);
     register_syscall(map, setfsgid, 0);
     register_syscall(map, getsid, 0);
-    register_syscall(map, capget, 0);
-    register_syscall(map, capset, 0);
     register_syscall(map, rt_sigtimedwait, 0);
     register_syscall(map, utime, 0);
     register_syscall(map, mknod, 0);
@@ -1758,6 +1756,14 @@ sysreturn sched_getaffinity(int pid, u64 cpusetsize, cpu_set_t *mask)
     return sizeof(mask->mask[0]);
 }
 
+sysreturn capget(cap_user_header_t hdrp, cap_user_data_t datap)
+{
+    if (datap) {
+        zero(datap, sizeof(*datap));
+    }
+    return 0;
+}
+
 sysreturn prctl(int option, u64 arg2, u64 arg3, u64 arg4, u64 arg5)
 {
     thread_log(current, "prctl: option %d, arg2 0x%lx, arg3 0x%lx, arg4 0x%lx, arg5 0x%lx",
@@ -1861,6 +1867,8 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, setgroups, syscall_ignore);
     register_syscall(map, setuid, syscall_ignore);
     register_syscall(map, setgid, syscall_ignore);
+    register_syscall(map, capget, capget);
+    register_syscall(map, capset, syscall_ignore);
     register_syscall(map, prctl, prctl);
     register_syscall(map, sysinfo, sysinfo);
     register_syscall(map, umask, umask);
