@@ -80,6 +80,17 @@ typedef struct {
     u64 mask[CPU_SET_WORDS];
 } cpu_set_t;
 
+typedef struct user_cap_header {
+    u32 version;
+    int pid;
+} *cap_user_header_t;
+
+typedef struct user_cap_data {
+    u32 effective;
+    u32 permitted;
+    u32 inheritable;
+} *cap_user_data_t;
+
 /* unix-specific memory objects and ids */
 typedef struct unix_heaps {
     struct kernel_heaps kh;	/* must be first */
