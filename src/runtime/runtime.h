@@ -202,6 +202,11 @@ void dump_ptes(void *x);
 void update_map_flags(u64 vaddr, u64 length, u64 flags);
 void zero_mapped_pages(u64 vaddr, u64 length);
 void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh);
+static inline void unmap_pages(u64 virtual, u64 length)
+{
+    unmap_pages_with_handler(virtual, length, 0);
+}
+
 void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length, heap h);
 
 typedef closure_type(buffer_handler, void, buffer);
