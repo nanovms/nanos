@@ -76,6 +76,7 @@ SRCS-pipe= \
 	$(SRCDIR)/runtime/buffer.c \
 	$(SRCDIR)/runtime/extra_prints.c \
 	$(SRCDIR)/runtime/format.c \
+	$(SRCDIR)/runtime/memops.c \
 	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/random.c \
 	$(SRCDIR)/runtime/range.c \
@@ -130,6 +131,7 @@ SRCS-udploop= \
 	$(SRCDIR)/runtime/heap/debug_heap.c \
 	$(SRCDIR)/runtime/heap/objcache.c \
 	$(SRCDIR)/runtime/heap/mcache.c \
+	$(SRCDIR)/runtime/memops.c \
 	$(SRCDIR)/runtime/merge.c \
 	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/random.c \
@@ -172,6 +174,7 @@ SRCS-web= \
 	$(SRCDIR)/runtime/heap/debug_heap.c \
 	$(SRCDIR)/runtime/heap/objcache.c \
 	$(SRCDIR)/runtime/heap/mcache.c \
+	$(SRCDIR)/runtime/memops.c \
 	$(SRCDIR)/runtime/merge.c \
 	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/random.c \
