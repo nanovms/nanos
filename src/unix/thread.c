@@ -398,7 +398,7 @@ void exit_thread(thread t)
     /* Like an uninterruptible sleep for all eternity. */
     t->blocked_on = INVALID_ADDRESS;
 
-    /* TODO: remove also from p->threads (but it is not currently used) */
+    vector_set(t->p->threads, t->tid - 1, 0);
 //    heap h = heap_general((kernel_heaps)t->p->uh);
 //    deallocate(h, t, sizeof(struct thread));
 }

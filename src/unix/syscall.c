@@ -84,7 +84,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, capget, 0);
     register_syscall(map, capset, 0);
     register_syscall(map, rt_sigtimedwait, 0);
-    register_syscall(map, rt_sigsuspend, 0);
     register_syscall(map, utime, 0);
     register_syscall(map, mknod, 0);
     register_syscall(map, uselib, 0);
@@ -216,7 +215,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, inotify_init1, 0);
     register_syscall(map, preadv, 0);
     register_syscall(map, pwritev, 0);
-    register_syscall(map, rt_tgsigqueueinfo, 0);
     register_syscall(map, perf_event_open, 0);
     register_syscall(map, recvmmsg, 0);
     register_syscall(map, fanotify_init, 0);

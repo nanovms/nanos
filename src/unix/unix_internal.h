@@ -125,25 +125,14 @@ static inline char * blockq_name(blockq bq)
 /* pending and masked signals for a given thread or process */
 typedef struct sigstate {
     /* these should be bitmaps, but time is of the essence, and presently NSIG=64 */
-    u64         sigpending;     /* pending and not yet dispatched */
-    u64         sigmask;        /* masked or "blocked" signals are set */
-    u64         sigsaved;       /* original mask saved on rt_sigsuspend */
-    struct list sigheads[NSIG];
+    u64         pending;        /* pending and not yet dispatched */
+    u64         mask;           /* masked or "blocked" signals are set */
+    u64         saved;          /* original mask saved on rt_sigsuspend or handler dispatch */
+    u64         ignored;        /* mask of signals set to SIG_IGN */
+    struct list heads[NSIG];
 } *sigstate;
 
-static inline void init_sigstate(sigstate ss)
-{
-    ss->sigpending = 0;
-    ss->sigmask = 0;
-    ss->sigsaved = 0;
-
-    for(int i = 0; i < NSIG; i += 4) {
-        list_init(&ss->sigheads[i]);
-        list_init(&ss->sigheads[i + 1]);
-        list_init(&ss->sigheads[i + 2]);
-        list_init(&ss->sigheads[i + 3]);
-    }
-}
+void init_sigstate(sigstate ss);
 
 typedef struct epoll *epoll;
 typedef struct thread {
