@@ -1773,7 +1773,7 @@ sysreturn sysinfo(struct sysinfo *info)
 
     kernel_heaps kh = get_kernel_heaps();
     runtime_memset((u8 *) info, 0, sizeof(*info));
-    info->uptime = uptime();
+    info->uptime = sec_from_timestamp(uptime());
     info->totalram = id_heap_total(kh->physical);
     info->freeram = info->totalram < kh->physical->allocated ? 0 : info->totalram - kh->physical->allocated;
     info->procs = 1;
