@@ -2,6 +2,10 @@
 
 [![CircleCI](https://circleci.com/gh/nanovms/nanos.svg?style=svg)](https://circleci.com/gh/nanovms/nanos)
 
+<p align="center">
+  <img src="https://repository-images.githubusercontent.com/115159616/44eb1980-a6f4-11e9-9e7b-df7adf662967" style="width:200px;"/>
+</p>
+
 Nanos is a new kernel designed to run one and only one application in a
 virtualized environment. It has several constraints on it compared to a
 general purpose operating system such as Windows or Linux - namely it's
