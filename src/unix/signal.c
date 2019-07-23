@@ -122,7 +122,7 @@ static inline boolean sigstate_is_pending(sigstate ss, int sig)
 
 static inline list sigstate_get_sighead(sigstate ss, int signum)
 {
-    assert(signum > 0 && signum <= 64);
+    assert(signum > 0 && signum <= NSIG);
     return &ss->heads[signum - 1];
 }
 
@@ -168,12 +168,8 @@ void init_sigstate(sigstate ss)
     ss->saved = 0;
     ss->ignored = mask_from_sig(SIGCHLD) | mask_from_sig(SIGURG) | mask_from_sig(SIGWINCH);
 
-    for(int i = 0; i < NSIG; i += 4) {
+    for(int i = 0; i < NSIG; i++)
         list_init(&ss->heads[i]);
-        list_init(&ss->heads[i + 1]);
-        list_init(&ss->heads[i + 2]);
-        list_init(&ss->heads[i + 3]);
-    }
 }
 
 static inline u64 get_dispatchable_signals(thread t)
@@ -205,7 +201,7 @@ static void deliver_signal(sigstate ss, struct siginfo *info)
     int sig = info->si_signo;
 
     /* check if we can post */
-    if (info->si_signo < RT_SIG_START && sigstate_is_pending(ss, sig)) {
+    if (sig < RT_SIG_START && sigstate_is_pending(ss, sig)) {
         /* Standard signal already posted. Unless a particular signal
            would allow the updating of posted siginfo, just return here. */
         sig_debug("already posted; ignore\n");
@@ -331,11 +327,6 @@ sysreturn rt_sigaction(int signum,
     if (sigsetsize != (NSIG / 8))
         return -EINVAL;
 
-    if (signum > NSIG) {
-        msg_err("signum %d greater than NSIG\n", signum);
-        return -EINVAL;
-    }
-
     sigaction sa = get_sigaction(signum);
 
     if (oldact)
@@ -450,6 +441,9 @@ sysreturn tgkill(int tgid, int tid, int sig)
     if (tid <= 0 || sig < 0 || sig > NSIG)
         return -EINVAL;
 
+    if (sig == 0)
+        return 0;               /* always permitted */
+
     thread t;
     sig_debug("%d, %p\n", vector_length(current->p->threads),
               vector_get(current->p->threads, tid - 1));
@@ -471,39 +465,47 @@ sysreturn kill(int pid, int sig)
     if (pid != current->p->pid)
         return -ESRCH;
 
-    if (sig == 0)
-        return 0;
-
     if (sig < 0 || sig > NSIG)
         return -EINVAL;
 
+    if (sig == 0)
+        return 0;               /* always permitted */
+
     struct siginfo si;
     init_siginfo(&si, sig, SI_USER);
-    si.sifields.kill.pid = current->p->pid;
+    si.sifields.kill.pid = pid;
     si.sifields.kill.uid = 0;
     deliver_signal_to_process(current->p, &si);
     return 0;
 }
 
-sysreturn rt_sigqueueinfo(int tgid, int sig, siginfo_t *uinfo)
+static inline sysreturn sigqueueinfo_sanitize_args(int tgid, int sig, siginfo_t *uinfo)
 {
-    sig_debug("tgid (pid) %d, sig %d, uinfo %p, si_code %d\n", tgid, sig, uinfo, uinfo->si_code);
-
     if (!uinfo)
         return -EFAULT;
 
     if (tgid != current->p->pid)
         return -ESRCH;
 
-    if (sig == 0)
-        return 0;
-
     if (sig < 0 || sig > NSIG)
         return -EINVAL;
+
+    if (sig == 0)
+        return 0;               /* always permitted */
 
     if (uinfo->si_code >= 0 || uinfo->si_code == SI_TKILL)
         return -EPERM;
 
+    return 1;
+}
+
+sysreturn rt_sigqueueinfo(int tgid, int sig, siginfo_t *uinfo)
+{
+    sig_debug("tgid (pid) %d, sig %d, uinfo %p, si_code %d\n", tgid, sig, uinfo, uinfo->si_code);
+
+    sysreturn rv = sigqueueinfo_sanitize_args(tgid, sig, uinfo);
+    if (rv <= 0)
+        return rv;
     uinfo->si_signo = sig;
     deliver_signal_to_process(current->p, uinfo);
     return 0;
@@ -513,20 +515,9 @@ sysreturn rt_tgsigqueueinfo(int tgid, int tid, int sig, siginfo_t *uinfo)
 {
     sig_debug("tgid (pid) %d, sig %d, uinfo %p\n", tgid, sig, uinfo);
 
-    if (!uinfo)
-        return -EFAULT;
-
-    if (tgid != current->p->pid)
-        return -ESRCH;
-
-    if (sig == 0)
-        return 0;
-
-    if (sig < 0 || sig > NSIG)
-        return -EINVAL;
-
-    if (uinfo->si_code >= 0 || uinfo->si_code == SI_TKILL)
-        return -EPERM;
+    sysreturn rv = sigqueueinfo_sanitize_args(tgid, sig, uinfo);
+    if (rv <= 0)
+        return rv;
 
     thread t;
     sig_debug("%d, %p\n", vector_length(current->p->threads),

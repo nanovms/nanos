@@ -378,7 +378,6 @@ thread create_thread(process p)
     t->run = closure(h, run_thread, t);
     vector_push(p->threads, t);
     t->blocked_on = 0;
-    t->blocked_on_action = 0;
     t->dummy_blockq = allocate_blockq(h, "dummy", 1, 0);
     init_sigstate(&t->signals);
     t->dispatch_sigstate = 0;

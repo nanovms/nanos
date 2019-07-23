@@ -119,6 +119,7 @@ static void blockq_item_finish(blockq bq, blockq_item bi)
 sysreturn blockq_check(blockq bq, thread t, blockq_action a, boolean in_bh)
 {
     assert(t);
+    assert(a);
     blockq_debug("%p \"%s\", tid %ld, action %p, apply:\n", bq, blockq_name(bq), t->tid, a);
     /* XXX irqsafe mutex/spinlock
 
@@ -152,7 +153,6 @@ sysreturn blockq_check(blockq bq, thread t, blockq_action a, boolean in_bh)
 
     blockq_debug(" - check requires block, sleeping\n");
     t->blocked_on = bq;
-    t->blocked_on_action = a;
     /* XXX release spinlock */
     if (!in_bh) {
         thread_sleep_interruptible();        /* no return */
@@ -194,10 +194,8 @@ void blockq_flush(blockq bq)
     /* XXX take irqsafe spinlock */
     list_foreach(&bq->waiters_head, l) {
         blockq_item bi = struct_from_list(l, blockq_item, l);
-        if (bi->a) {
-            blockq_debug(" - applying %p:\n", bi->a);
-            apply(bi->a, /* blocking */ true, /* nullify */ true);
-        }
+        blockq_debug(" - applying %p:\n", bi->a);
+        apply(bi->a, /* blocking */ true, /* nullify */ true);
         blockq_item_finish(bq, bi);
     }
     blockq_disable_timer(bq);
@@ -215,21 +213,19 @@ void blockq_wake_one(blockq bq)
     blockq_item bi = struct_from_list(l, blockq_item, l);
     blockq_debug("bq %p, bi %p, action %p, tid %d\n", bq, bi, bi->a, bi->t->tid);
 
-    if (bi->a) {
-        sysreturn rv = apply(bi->a, true, false);
-        blockq_debug("   - returned %ld\n", rv);
-        if (rv != 0) {
-            blockq_item_finish(bq, bi);
-            
-            /* clear timer if this was the last entry */
-            if (list_empty(&bq->waiters_head))
-                blockq_disable_timer(bq);
-            
-            /* action sets return value */
-        } else if (bq->timeout) {
-            /* leave at head of queue and reset timer */
-            blockq_restart_timer_locked(bq);
-        }
+    sysreturn rv = apply(bi->a, true, false);
+    blockq_debug("   - returned %ld\n", rv);
+    if (rv != 0) {
+        blockq_item_finish(bq, bi);
+
+        /* clear timer if this was the last entry */
+        if (list_empty(&bq->waiters_head))
+            blockq_disable_timer(bq);
+
+        /* action sets return value */
+    } else if (bq->timeout) {
+        /* leave at head of queue and reset timer */
+        blockq_restart_timer_locked(bq);
     }
 
     /* XXX release lock */

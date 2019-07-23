@@ -160,7 +160,6 @@ typedef struct thread {
 
     /* blockq thread is waiting on, INVALID_ADDRESS for uninterruptible */
     blockq blocked_on;
-    blockq_action blocked_on_action; /* saved for ease of removal */
     blockq dummy_blockq; /* for pause(2) */
 
     struct sigstate signals;
