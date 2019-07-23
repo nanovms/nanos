@@ -263,19 +263,27 @@ static inline tuple resolve_cstring(tuple cwd, const char *f)
 
     buffer a = little_stack_buffer(NAME_MAX);
     char y;
-    while ((y = *f++)) {
+    int nbytes;
+
+    while ((y = *f)) {
         if (y == '/') {
             if (buffer_length(a)) {
                 t = lookup(t, intern(a));
                 if (!t)
                     return t;
                 buffer_clear(a);
-            }                
+            }
+            f++;
         } else {
-            push_character(a, y);
+            nbytes = push_utf8_character(a, f);
+            if (!nbytes) {
+                thread_log(current, "Invalid UTF-8 sequence.\n");
+                return 0;
+            }
+            f += nbytes;
         }
     }
-    
+
     if (buffer_length(a)) {
         t = lookup(t, intern(a));
     }
@@ -289,7 +297,9 @@ static inline tuple resolve_cstring_parent(tuple cwd, const char *f)
     tuple parent = 0;
     buffer a = little_stack_buffer(NAME_MAX);
     char y;
-    while ((y = *f++)) {
+    int nbytes;
+    
+    while ((y = *f)) {
         if (y == '/') {
             if (buffer_length(a)) {
                 if (!t) {
@@ -299,9 +309,15 @@ static inline tuple resolve_cstring_parent(tuple cwd, const char *f)
                 t = lookup(parent, intern(a));
                 buffer_clear(a);
             }
+            f++;
         }
         else {
-            push_character(a, y);
+            nbytes = push_utf8_character(a, f);
+            if (!nbytes) {
+                thread_log(current, "Invalid UTF-8 sequence.\n");
+                return 0;
+            }
+            f += nbytes;
         }
     }
     if (buffer_length(a)) {
@@ -375,7 +391,9 @@ static inline boolean filepath_is_ancestor(tuple wd1, const char *fp1,
     tuple t2 = (*fp2 == '/' ? filesystem_getroot(current->p->fs) : wd2);
     buffer a = little_stack_buffer(NAME_MAX);
     char y;
-    while ((y = *fp2++)) {
+    int nbytes;
+    
+    while ((y = *fp2)) {
         if (y == '/') {
             if (buffer_length(a)) {
                 if (t2 == t1) {
@@ -387,9 +405,15 @@ static inline boolean filepath_is_ancestor(tuple wd1, const char *fp1,
                 }
                 buffer_clear(a);
             }
+            fp2++;
         }
         else {
-            push_character(a, y);
+            nbytes = push_utf8_character(a, fp2);
+            if (!nbytes) {
+                thread_log(current, "Invalid UTF-8 sequence.\n");
+                return 0;
+            }
+            fp2 += nbytes;
         }
     }
     if (buffer_length(a) && (t2 == t1)) {

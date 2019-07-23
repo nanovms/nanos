@@ -40,7 +40,7 @@ static int inline string_character_length(char *s) {
     for (character __i; __i = pop_character(__s), __i != CHARACTER_INVALID;)
 
 
-static inline character utf8_decode(u8 *x, int *count)
+static inline character utf8_decode(const u8 *x, int *count)
 {
     if ((x[0] & 0xf0) == 0xf0) {
         *count = 4;
@@ -67,7 +67,6 @@ static inline character utf8_decode(u8 *x, int *count)
     return *x;
 }
 
-
 static inline void push_character(string s, character c)
 {
     if (c<0x80) {
@@ -86,6 +85,23 @@ static inline void push_character(string s, character c)
         buffer_write_byte(s, 0x80 | (c&0x3f));
     }
 }
+
+/**
+ * Push an UTF-8 character from a sequence of bytes p and return the
+ * number of bytes consumed from p.
+ */
+static inline int push_utf8_character(string s, const char *p)
+{
+    int nbytes = 0;
+    u32 crt_char;
+
+    crt_char = utf8_decode((const u8 *)p, &nbytes);
+
+    push_character(s, crt_char);
+
+    return nbytes;
+}
+
 
 // xxx - check
 #define CHARACTER_INVALID 0xfffffffful
