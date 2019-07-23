@@ -1468,6 +1468,9 @@ sysreturn getsockopt(int sockfd, int level, int optname, void *optval, socklen_t
     case SO_TYPE:
         ret_optval.val = s->type;
         break;
+    case SO_SNDBUF:
+        ret_optval.val = 2048;  /* minimum value for this option in Linux */
+        break;
     default:
         msg_warn("getsockopt unimplemented optname: fd %d, level %d, optname %d\n",
             sockfd, level, optname);
