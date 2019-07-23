@@ -377,6 +377,7 @@ typedef u32 gid_t;
 
 /* set/getsockopt optnames */
 #define SO_TYPE 3
+#define SO_SNDBUF   7
 
 
 /* eventfd flags */
