@@ -1,0 +1,15 @@
+(
+    #64 bit elf to boot from host
+    children:(kernel:(contents:(host:output/stage3/bin/stage3.img))
+              #user program
+	      signal:(contents:(host:output/test/runtime/bin/signal))
+	      )
+    # filesystem path to elf for kernel to run
+    program:/signal
+#    trace:t
+#    debugsyscalls:t
+#    futex_trace:t
+#    fault:t
+    arguments:[test]
+    environment:(USER:bobby PWD:/)
+)

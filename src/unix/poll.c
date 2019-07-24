@@ -415,7 +415,7 @@ sysreturn epoll_wait(int epfd,
     }
     epoll_debug("   sleeping...\n");
     w->sleeping = true;
-    thread_sleep(current);
+    thread_sleep_uninterruptible(); /* XXX move to blockq */
     return 0;			/* suppress warning */
 }
 
@@ -691,7 +691,7 @@ static sysreturn select_internal(int nfds,
     }
     epoll_debug("   sleeping...\n");
     w->sleeping = true;
-    thread_sleep(current);
+    thread_sleep_uninterruptible(); /* XXX move to blockq */
     return 0;			/* suppress warning */
 }
 
@@ -840,7 +840,7 @@ check_rv_timeout:
     }
     epoll_debug("   sleeping...\n");
     w->sleeping = true;
-    thread_sleep(current);
+    thread_sleep_uninterruptible(); /* XXX move to blockq */
     return 0; /* suppress warning */
 }
 

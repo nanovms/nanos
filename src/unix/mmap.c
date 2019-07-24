@@ -604,7 +604,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     buffer b = allocate_buffer(mh, pad(len, mh->pagesize));
     filesystem_read(p->fs, f->n, buffer_ref(b, 0), len, offset,
                     closure(h, mmap_read_complete, current, where, len, mapped, b, page_map_flags(vmflags)));
-    runloop();
+    thread_sleep_uninterruptible();
 }
 
 static CLOSURE_1_1(dealloc_phys_page, void, heap, range);

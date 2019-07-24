@@ -243,7 +243,6 @@ struct rlimit {
 #define SIGILL		 4
 #define SIGTRAP		 5
 #define SIGABRT		 6
-#define SIGIOT		 6
 #define SIGBUS		 7
 #define SIGFPE		 8
 #define SIGKILL		 9
@@ -267,20 +266,125 @@ struct rlimit {
 #define SIGPROF		27
 #define SIGWINCH	28
 #define SIGIO		29
+#define SIGPWR          30
+#define SIGSYS          31
 
+#define SIGINFO_SIZE        128
+#define SIGINFO_UNION_ALIGN 16
 
-typedef void __signalfn_t(int);
-typedef __signalfn_t *__sighandler_t;
+typedef struct siginfo {
+    u32 si_signo;
+    s32 si_errno;
+    s32 si_code;
 
-#define SIG_DFL	((__sighandler_t)0)	/* default signal handling */
-#define SIG_IGN	((__sighandler_t)1)	/* ignore signal */
-#define SIG_ERR	((__sighandler_t)-1)	/* error return from signal */
+    union {
+        u32 pad[(SIGINFO_SIZE - SIGINFO_UNION_ALIGN) / 4];
 
-struct siginfo {
-    int si_signo;
-    int si_errno;
-    int si_code;
-    // plus big hairy union...we dont plan on delivering any of these at the moment
+        struct {
+            u32 pid;
+            u32 uid;
+        } kill;
+
+        struct {
+            u32 tid;
+            u32 overrun;
+            u64 sigval;
+            int sys_private;
+        } timer;
+
+        struct {
+            u32 pid;
+            u32 uid;
+            u64 sigval;
+        } rt;
+        
+        struct {
+            u32 pid;
+            u32 uid;
+            s32 status;
+            u32 utime;
+            u32 stime;
+        } sigchld;
+        
+        struct {
+            u64 addr; /* faulting insn/memory ref. */
+            
+            union {
+                /* BUS_MCEERR_AR / BUS_MCEERR_A0 */
+                short addr_lsb; /* LSB of the reported address */
+
+                /* SEGV_BNDERR */
+                struct {
+                    u64 dummy;
+                    u64 lower;
+                    u64 upper;
+                } addr_bnd;
+
+                /* SEGV_PKUERR */
+                struct {
+                    u64 dummy;
+                    u32 pkey;
+                } addr_pkey;
+            };
+        } sigfault;
+        
+        struct {
+            u64 band;
+            u32 fd;
+        } sigpoll;
+        
+        struct {
+            u64 call_addr;
+            s32 syscall;
+            u32 arch;
+        } sigsys;
+    } sifields;
+} __attribute__((aligned(8))) siginfo_t;
+
+#define SI_USER     0
+#define SI_KERNEL   0x80
+#define SI_QUEUE    -1
+#define SI_TIMER    -2
+#define SI_MESGQ    -3
+#define SI_ASYNCIO  -4
+#define SI_SIGIO    -5
+#define SI_TKILL    -6
+#define SI_DETHREAD -7
+#define SI_ASYNCNL  -60
+
+#define SIGNALFD_SIGINFO_SIZE 128
+
+struct signalfd_siginfo {
+    u32 ssi_signo;
+    s32 ssi_errno;
+    s32 ssi_code;
+    u32 ssi_pid;
+    u32 ssi_uid;
+    s32 ssi_fd;
+    u32 ssi_tid;
+    u32 ssi_band;
+
+    /* 32 */
+    u32 ssi_overrun;
+    u32 ssi_trapno;
+    s32 ssi_status;
+    s32 ssi_int;
+    u64 ssi_ptr;
+    u64 ssi_utime;
+
+    /* 64 */
+    u64 ssi_stime;
+    u64 ssi_addr;
+    u16 ssi_addr_lsb;
+    u16 pad2;
+    s32 ssi_syscall;
+    u64 ssi_call_addr;
+
+    /* 96 */
+    u32 ssi_arch;
+
+    /* 100 */
+    u8 pad[SIGNALFD_SIGINFO_SIZE - 100];
 };
 
 typedef u64 fd_set;
@@ -294,19 +398,51 @@ struct pollfd {
 };
 
 #define NSIG 64
+#define RT_SIG_START 32
+
 typedef struct {
-    unsigned long sig[NSIG/sizeof(unsigned long)];
+    unsigned long sig[NSIG / (sizeof(unsigned long) * 8)];
 } sigset_t;
 
+typedef void __signalfn_t(int);
+typedef __signalfn_t *__sighandler_t;
+
+#define SIG_DFL	((__sighandler_t)0)	/* default signal handling */
+#define SIG_IGN	((__sighandler_t)1)	/* ignore signal */
+#define SIG_ERR	((__sighandler_t)-1)	/* error return from signal */
+
+typedef void (*__sigaction_t)(int, struct siginfo *, void *);
+
 struct sigaction {
-	union {
-	  __sighandler_t _sa_handler;
-	  void (*_sa_sigaction)(int, struct siginfo *, void *);
-	} _u;
-	sigset_t sa_mask;
-	unsigned long sa_flags;
-	void (*sa_restorer)(void);
+    void          *sa_handler;
+    unsigned long  sa_flags;
+    void          *sa_restorer;
+    sigset_t       sa_mask;
 };
+
+#define SA_NOCLDSTOP 0x00000001
+#define SA_NOCLDWAIT 0x00000002
+#define SA_SIGINFO   0x00000004
+#define SA_ONSTACK   0x08000000
+#define SA_RESTART   0x10000000
+#define SA_NODEFER   0x40000000
+#define SA_RESETHAND 0x80000000
+
+#define SA_NOMASK  SA_NODEFER
+#define SA_ONESHOT SA_RESETHAND
+
+#define SIG_BLOCK   0
+#define SIG_UNBLOCK 1
+#define SIG_SETMASK 2
+
+typedef struct {
+    void *ss_sp;
+    u32 ss_flags;
+    u64 ss_size;
+} stack_t;
+
+#define SS_ONSTACK      1
+#define SS_DISABLE      2
 
 typedef s64 time_t;
 

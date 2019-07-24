@@ -111,25 +111,32 @@ static sysreturn pipe_close(pipe_file pf)
     return 0;
 }
 
-static CLOSURE_5_1(pipe_read_bh, sysreturn,
-        pipe_file, thread, void *, u64, io_completion,
-        boolean);
+static CLOSURE_5_2(pipe_read_bh, sysreturn,
+                   pipe_file, thread, void *, u64, io_completion,
+                   boolean, boolean);
 static sysreturn pipe_read_bh(pipe_file pf, thread t, void *dest, u64 length,
-        io_completion completion, boolean blocked)
+                              io_completion completion, boolean blocked, boolean nullify)
 {
+    int rv;
+
+    if (nullify) {
+        rv = -EINTR;
+        goto out;
+    }
+
     buffer b = pf->pipe->data;
-    int real_length = MIN(buffer_length(b), length);
-    if (real_length == 0) {
+    rv = MIN(buffer_length(b), length);
+    if (rv == 0) {
         if (pf->pipe->files[PIPE_WRITE].fd == -1)
             goto out;
         if (pf->f.flags & O_NONBLOCK) {
-            real_length = -EAGAIN;
+            rv = -EAGAIN;
             goto out;
         }
         return infinity;
     }
 
-    buffer_read(b, dest, real_length);
+    buffer_read(b, dest, rv);
     pipe_notify_writer(pf, EPOLLOUT);
 
     // If we have consumed all of the buffer, reset it. This might prevent future writes to allocte new buffer
@@ -140,9 +147,9 @@ static sysreturn pipe_read_bh(pipe_file pf, thread t, void *dest, u64 length,
     }
   out:
     if (blocked)
-        blockq_set_completion(pf->bq, completion, t, real_length);
+        blockq_set_completion(pf->bq, completion, t, rv);
 
-    return real_length;
+    return rv;
 }
 
 static CLOSURE_1_6(pipe_read, sysreturn,
@@ -156,16 +163,22 @@ static sysreturn pipe_read(pipe_file pf, void *dest, u64 length, u64 offset_arg,
 
     blockq_action ba = closure(pf->pipe->h, pipe_read_bh, pf, t, dest, length,
             completion);
-    return blockq_check(pf->bq, !bh ? t : 0, ba);
+    return blockq_check(pf->bq, t, ba, bh);
 }
 
-static CLOSURE_5_1(pipe_write_bh, sysreturn,
-        pipe_file, thread, void *, u64, io_completion,
-        boolean);
+static CLOSURE_5_2(pipe_write_bh, sysreturn,
+                   pipe_file, thread, void *, u64, io_completion,
+                   boolean, boolean);
 static sysreturn pipe_write_bh(pipe_file pf, thread t, void *dest, u64 length,
-        io_completion completion, boolean blocked)
+                               io_completion completion, boolean blocked, boolean nullify)
 {
     sysreturn rv = 0;
+
+    if (nullify) {
+        rv = -EINTR;
+        goto out;
+    }
+
     pipe p = pf->pipe;
     buffer b = p->data;
     u64 avail = p->max_size - buffer_length(b);
@@ -208,7 +221,7 @@ static sysreturn pipe_write(pipe_file pf, void * dest, u64 length, u64 offset,
 
     blockq_action ba = closure(pf->pipe->h, pipe_write_bh, pf, t, dest, length,
             completion);
-    return blockq_check(pf->bq, !bh ? t : 0, ba);
+    return blockq_check(pf->bq, t, ba, bh);
 }
 
 static CLOSURE_1_0(pipe_read_events, u32, pipe_file);

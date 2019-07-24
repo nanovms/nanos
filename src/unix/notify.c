@@ -31,6 +31,7 @@ void deallocate_notify_set(notify_set s)
 
 notify_entry notify_add(notify_set s, u32 eventmask, event_handler eh)
 {
+    // XXX make cache
     notify_entry n = allocate(s->h, sizeof(struct notify_entry));
     if (n == INVALID_ADDRESS)
         return n;
@@ -51,42 +52,25 @@ void notify_remove(notify_set s, notify_entry e)
 void notify_dispatch(notify_set s, u32 events)
 {
     /* XXX take mutex */
-    list l = list_get_next(&s->entries);
-    if (!l)
-        return;
-
-    /* XXX not using list foreach because of intermediate
-       deletes... make a macro for that */
-    do {
+    list_foreach(&s->entries, l) {
         notify_entry n = struct_from_list(l, notify_entry, l);
-        list next = list_get_next(l);
 
         /* no guarantee that a transition is represented here; event
            handler needs to keep track itself if edge trigger is used */
         assert(n->eh);
         apply(n->eh, events & n->eventmask);
-
-        l = next;
-    } while(l != &s->entries);
+    }
     /* XXX release mutex */
 }
 
 void notify_release(notify_set s)
 {
     /* XXX take mutex */
-    list l = list_get_next(&s->entries);
-    if (!l)
-	return;
-
-    /* XXX not using list foreach because of intermediate
-       deletes... make a macro for that */
-    do {
+    list_foreach(&s->entries, l) {
         notify_entry n = struct_from_list(l, notify_entry, l);
-        list next = list_get_next(l);
         apply(n->eh, NOTIFY_EVENTS_RELEASE);
         list_delete(l);
         deallocate(s->h, n, sizeof(struct notify_entry));
-        l = next;
-    } while(l != &s->entries);
+    }
     /* XXX release mutex */
 }
