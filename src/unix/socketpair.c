@@ -112,15 +112,20 @@ static inline void sockpair_notify_writer(sockpair_socket s, int events)
     }
 }
 
-static CLOSURE_5_1(sockpair_read_bh, sysreturn,
-        sockpair_socket, thread, void *, u64, io_completion,
-        boolean);
+static CLOSURE_5_2(sockpair_read_bh, sysreturn,
+                   sockpair_socket, thread, void *, u64, io_completion,
+                   boolean, boolean);
 static sysreturn sockpair_read_bh(sockpair_socket s, thread t, void *dest,
-        u64 length, io_completion completion, boolean blocked)
+                                  u64 length, io_completion completion, boolean blocked, boolean nullify)
 {
     buffer b = s->sockpair->data;
     int real_length;
     int dgram_length;
+
+    if (nullify) {
+        real_length = -EINTR;
+        goto out;
+    }
 
     if (s->sockpair->type == SOCK_STREAM) {
         real_length = MIN(buffer_length(b), length);
@@ -173,17 +178,22 @@ static sysreturn sockpair_read(sockpair_socket s, void *dest, u64 length,
 
     blockq_action ba = closure(s->sockpair->h, sockpair_read_bh, s, t,
             dest, length, completion);
-    return blockq_check(s->read_bq, !bh ? t : 0, ba);
+    return blockq_check(s->read_bq, t, ba, bh);
 }
 
-static CLOSURE_5_1(sockpair_write_bh, sysreturn,
+static CLOSURE_5_2(sockpair_write_bh, sysreturn,
         sockpair_socket, thread, void *, u64, io_completion,
-        boolean);
+                   boolean, boolean);
 static sysreturn sockpair_write_bh(sockpair_socket s, thread t, void *dest,
-        u64 length, io_completion completion, boolean blocked)
+                                   u64 length, io_completion completion, boolean blocked, boolean nullify)
 {
     sysreturn rv = 0;
     buffer b = s->sockpair->data;
+
+    if (nullify) {
+        rv = -EINTR;
+        goto out;
+    }
 
     if (s->peer->fd == -1) {
         rv = -EPIPE;
@@ -227,7 +237,7 @@ static sysreturn sockpair_write(sockpair_socket s, void * dest, u64 length,
 
     blockq_action ba = closure(s->sockpair->h, sockpair_write_bh, s, t,
             dest, length, completion);
-    return blockq_check(s->write_bq, !bh ? t : 0, ba);
+    return blockq_check(s->write_bq, t, ba, bh);
 }
 
 static CLOSURE_1_0(sockpair_events, u32, sockpair_socket);

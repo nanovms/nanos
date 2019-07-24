@@ -98,6 +98,42 @@ typedef struct unix_heaps {
     heap processes;
 } *unix_heaps;
 
+typedef closure_type(io_completion, void, thread t, sysreturn rv);
+
+#define BLOCKQ_NAME_MAX 20
+typedef closure_type(blockq_action, sysreturn, boolean /* blocking */, boolean /* nullify */);
+
+/* queue of threads waiting for a resource */
+typedef struct blockq {
+    heap h;
+    /* spinlock lock; */
+    struct list waiters_head;
+    queue waiters;              /* queue of blockq_actions */
+    char name[BLOCKQ_NAME_MAX]; /* for debug */
+    timer timeout;              /* timeout to protect against stuck queue scenarios */
+    timestamp timeout_interval;
+    io_completion completion;
+    thread completion_thread;
+    sysreturn completion_rv;
+} *blockq;
+
+static inline char * blockq_name(blockq bq)
+{
+    return bq->name;
+}
+
+/* pending and masked signals for a given thread or process */
+typedef struct sigstate {
+    /* these should be bitmaps, but time is of the essence, and presently NSIG=64 */
+    u64         pending;        /* pending and not yet dispatched */
+    u64         mask;           /* masked or "blocked" signals are set */
+    u64         saved;          /* original mask saved on rt_sigsuspend or handler dispatch */
+    u64         ignored;        /* mask of signals set to SIG_IGN */
+    struct list heads[NSIG];
+} *sigstate;
+
+void init_sigstate(sigstate ss);
+
 typedef struct epoll *epoll;
 typedef struct thread {
     // if we use an array typedef its fragile
@@ -121,9 +157,17 @@ typedef struct thread {
 
     thunk run;
     queue log[64];
+
+    /* blockq thread is waiting on, INVALID_ADDRESS for uninterruptible */
+    blockq blocked_on;
+    blockq dummy_blockq; /* for pause(2) */
+
+    struct sigstate signals;
+    sigstate dispatch_sigstate; /* saved sigstate while signal handler in flight */
+    u64 rax_saved;           /* XXX hack */
+    u64 sigframe[FRAME_MAX];
 } *thread;
 
-typedef closure_type(io_completion, void, thread t, sysreturn rv);
 typedef closure_type(io, sysreturn, void *buf, u64 length, u64 offset, thread t,
         boolean bh, io_completion completion);
 
@@ -165,29 +209,34 @@ typedef struct file *file;
 struct syscall;
 
 typedef struct process {
-    unix_heaps uh;		/* non-thread-specific */
-    int pid;
-    // i guess this should also be a heap, brk is so nasty
-    void *brk;
-    heap virtual;
-    heap virtual_page;
-    heap virtual32;    
-    heap fdallocator;
-    filesystem fs;	/* XXX should be underneath tuple operators */
-    tuple process_root;
-    tuple cwd; 
-    table futices;
-    fault_handler handler;
-    vector threads;
-    u64 sigmask;
-    struct syscall *syscalls;
-    vector files;
-    rangemap vareas;               /* available address space */
-    rangemap vmaps;                /* process mappings */
-    boolean sysctx;
-    timestamp utime, stime;
-    timestamp start_time;
+    unix_heaps        uh;       /* non-thread-specific */
+    int               pid;
+    void             *brk;
+    heap              virtual;
+    heap              virtual_page;
+    heap              virtual32;
+    heap              fdallocator;
+    filesystem        fs;       /* XXX should be underneath tuple operators */
+    tuple             process_root;
+    tuple             cwd;
+    table             futices;
+    fault_handler     handler;
+    vector            threads;
+    struct syscall   *syscalls;
+    vector            files;
+    rangemap          vareas;   /* available address space */
+    rangemap          vmaps;    /* process mappings */
+    boolean           sysctx;
+    timestamp         utime, stime;
+    timestamp         start_time;
+    struct sigstate   signals;
+    struct sigaction  sigactions[NSIG];
 } *process;
+
+typedef struct sigaction *sigaction;
+
+#define SIGACT_SIGINFO  0x00000001
+#define SIGACT_SIGNALFD 0x00000002 /* TODO */
 
 extern thread current;
 
@@ -246,6 +295,8 @@ static inline time_t time_t_from_time(timestamp t)
     return t / TIMESTAMP_SECOND;
 }
 
+void dispatch_signals(thread t);
+
 void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *name);
 
 #define register_syscall(m, n, f) _register_syscall(m, SYS_##n, f, #n)
@@ -272,14 +323,37 @@ boolean unix_fault_page(u64 vaddr, context frame);
 
 void thread_log_internal(thread t, const char *desc, ...);
 #define thread_log(__t, __desc, ...) thread_log_internal(__t, __desc, ##__VA_ARGS__)
-// this should always be current
-void thread_sleep(thread) __attribute__((noreturn));
+
+void thread_sleep_interruptible(void) __attribute__((noreturn));
+void thread_sleep_uninterruptible(void) __attribute__((noreturn));
+void thread_yield(void) __attribute__((noreturn));
 void thread_wakeup(thread);
+boolean thread_attempt_interrupt(thread t);
+
+static inline boolean thread_in_interruptible_sleep(thread t)
+{
+    return t->blocked_on && t->blocked_on != INVALID_ADDRESS;
+}
+
+static inline boolean thread_in_uninterruptible_sleep(thread t)
+{
+    return t->blocked_on == INVALID_ADDRESS;
+}
+
+static inline boolean thread_is_runnable(thread t)
+{
+    return t->blocked_on == 0;
+}
 
 static inline sysreturn set_syscall_return(thread t, sysreturn val)
 {
     t->frame[FRAME_RAX] = val;
     return val;
+}
+
+static inline sysreturn get_syscall_return(thread t)
+{
+    return t->frame[FRAME_RAX];
 }
 
 static inline sysreturn set_syscall_error(thread t, s32 val)
@@ -318,27 +392,13 @@ sysreturn spec_write(file f, void *dest, u64 length, u64 offset_arg, thread t,
         boolean bh, io_completion completion);
 u32 spec_events(file f);
 
-#define BLOCKQ_NAME_MAX 20
-
-typedef struct blockq {
-    heap h;
-    /* spinlock lock; */
-    queue waiters;              /* queue of blockq_actions */
-    char name[BLOCKQ_NAME_MAX]; /* for debug */
-    timer timeout;              /* timeout to protect against stuck queue scenarios */
-    timestamp timeout_interval;
-    io_completion completion;
-    thread completion_thread;
-    sysreturn completion_rv;
-} *blockq;
-
-typedef closure_type(blockq_action, sysreturn, boolean);
 
 blockq allocate_blockq(heap h, char * name, u64 size, timestamp timeout_interval);
 void deallocate_blockq(blockq bq);
-sysreturn blockq_check(blockq bq, thread t, blockq_action a);
+sysreturn blockq_check(blockq bq, thread t, blockq_action a, boolean in_bh);
 void blockq_wake_one(blockq bq);
 void blockq_flush(blockq bq);
+boolean blockq_flush_thread(blockq bq, thread t);
 void blockq_set_completion(blockq bq, io_completion completion, thread t,
         sysreturn rv);
 

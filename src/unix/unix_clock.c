@@ -21,7 +21,7 @@ sysreturn nanosleep(const struct timespec* req, struct timespec* rem)
     // and we sleep for the whole duration before waking up.
     register_timer(time_from_timespec(req),
 		closure(heap_general(get_kernel_heaps()), nanosleep_timeout, current, 0));
-    thread_sleep(current); 
+    thread_sleep_uninterruptible(); /* XXX move to blockq */
     return 0;
 }
 
@@ -48,7 +48,25 @@ sysreturn times(struct tms *buf)
 sysreturn clock_gettime(clockid_t clk_id, struct timespec *tp)
 {
     thread_log(current, "clock_gettime: clk_id %d", clk_id);
-    timespec_from_time(tp, now());
+    timestamp t;
+    switch (clk_id) {
+    case CLOCK_REALTIME:
+    case CLOCK_REALTIME_COARSE:
+        t = now();
+        break;
+    case CLOCK_PROCESS_CPUTIME_ID:
+        t = proc_utime(current->p) + proc_stime(current->p);
+        break;
+    case CLOCK_MONOTONIC:
+    case CLOCK_MONOTONIC_COARSE:
+    case CLOCK_MONOTONIC_RAW:
+        t = uptime();
+        break;
+    default:
+        msg_warn("clock id %d not supported\n", clk_id);
+        return -EINVAL;
+    }
+    timespec_from_time(tp, t);
     return 0;
 }
 

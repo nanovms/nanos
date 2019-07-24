@@ -34,12 +34,10 @@ sysreturn close(int fd);
 
 void register_other_syscalls(struct syscall *map)
 {
-    register_syscall(map, rt_sigreturn, 0);
     register_syscall(map, msync, 0);
     register_syscall(map, shmget, 0);
     register_syscall(map, shmat, 0);
     register_syscall(map, shmctl, 0);
-    register_syscall(map, pause, 0);
     register_syscall(map, getitimer, 0);
     register_syscall(map, alarm, 0);
     register_syscall(map, setitimer, 0);
@@ -47,7 +45,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, vfork, 0);
     register_syscall(map, execve, 0);
     register_syscall(map, wait4, syscall_ignore);
-    register_syscall(map, kill, 0);
     register_syscall(map, semget, 0);
     register_syscall(map, semop, 0);
     register_syscall(map, semctl, 0);
@@ -86,10 +83,7 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, getsid, 0);
     register_syscall(map, capget, 0);
     register_syscall(map, capset, 0);
-    register_syscall(map, rt_sigpending, 0);
     register_syscall(map, rt_sigtimedwait, 0);
-    register_syscall(map, rt_sigqueueinfo, 0);
-    register_syscall(map, rt_sigsuspend, 0);
     register_syscall(map, utime, 0);
     register_syscall(map, mknod, 0);
     register_syscall(map, uselib, 0);
@@ -154,7 +148,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, removexattr, 0);
     register_syscall(map, lremovexattr, 0);
     register_syscall(map, fremovexattr, 0);
-    register_syscall(map, tkill, 0);
     register_syscall(map, set_thread_area, 0);
     register_syscall(map, io_setup, 0);
     register_syscall(map, io_destroy, 0);
@@ -175,7 +168,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, timer_getoverrun, 0);
     register_syscall(map, timer_delete, 0);
     register_syscall(map, clock_settime, 0);
-    register_syscall(map, tgkill, 0);
     register_syscall(map, utimes, 0);
     register_syscall(map, vserver, 0);
     register_syscall(map, mbind, 0);
@@ -223,7 +215,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, inotify_init1, 0);
     register_syscall(map, preadv, 0);
     register_syscall(map, pwritev, 0);
-    register_syscall(map, rt_tgsigqueueinfo, 0);
     register_syscall(map, perf_event_open, 0);
     register_syscall(map, recvmmsg, 0);
     register_syscall(map, fanotify_init, 0);
@@ -263,19 +254,27 @@ static inline tuple resolve_cstring(tuple cwd, const char *f)
 
     buffer a = little_stack_buffer(NAME_MAX);
     char y;
-    while ((y = *f++)) {
+    int nbytes;
+
+    while ((y = *f)) {
         if (y == '/') {
             if (buffer_length(a)) {
                 t = lookup(t, intern(a));
                 if (!t)
                     return t;
                 buffer_clear(a);
-            }                
+            }
+            f++;
         } else {
-            push_character(a, y);
+            nbytes = push_utf8_character(a, f);
+            if (!nbytes) {
+                thread_log(current, "Invalid UTF-8 sequence.\n");
+                return 0;
+            }
+            f += nbytes;
         }
     }
-    
+
     if (buffer_length(a)) {
         t = lookup(t, intern(a));
     }
@@ -289,7 +288,9 @@ static inline tuple resolve_cstring_parent(tuple cwd, const char *f)
     tuple parent = 0;
     buffer a = little_stack_buffer(NAME_MAX);
     char y;
-    while ((y = *f++)) {
+    int nbytes;
+    
+    while ((y = *f)) {
         if (y == '/') {
             if (buffer_length(a)) {
                 if (!t) {
@@ -299,9 +300,15 @@ static inline tuple resolve_cstring_parent(tuple cwd, const char *f)
                 t = lookup(parent, intern(a));
                 buffer_clear(a);
             }
+            f++;
         }
         else {
-            push_character(a, y);
+            nbytes = push_utf8_character(a, f);
+            if (!nbytes) {
+                thread_log(current, "Invalid UTF-8 sequence.\n");
+                return 0;
+            }
+            f += nbytes;
         }
     }
     if (buffer_length(a)) {
@@ -375,7 +382,9 @@ static inline boolean filepath_is_ancestor(tuple wd1, const char *fp1,
     tuple t2 = (*fp2 == '/' ? filesystem_getroot(current->p->fs) : wd2);
     buffer a = little_stack_buffer(NAME_MAX);
     char y;
-    while ((y = *fp2++)) {
+    int nbytes;
+    
+    while ((y = *fp2)) {
         if (y == '/') {
             if (buffer_length(a)) {
                 if (t2 == t1) {
@@ -387,9 +396,15 @@ static inline boolean filepath_is_ancestor(tuple wd1, const char *fp1,
                 }
                 buffer_clear(a);
             }
+            fp2++;
         }
         else {
-            push_character(a, y);
+            nbytes = push_utf8_character(a, fp2);
+            if (!nbytes) {
+                thread_log(current, "Invalid UTF-8 sequence.\n");
+                return 0;
+            }
+            fp2 += nbytes;
         }
     }
     if (buffer_length(a) && (t2 == t1)) {
@@ -440,9 +455,8 @@ static void iov_transfer(
     }
     deallocate(h, progress, sizeof(*progress));
     set_syscall_return(t, rv);
-    if (bh) {
+    if (bh)
         thread_wakeup(t);
-    }
 }
 
 static sysreturn iov_internal(file f, io op, struct iovec *iov, int iovcnt)
@@ -627,7 +641,7 @@ static sysreturn sendfile(int out_fd, int in_fd, int *offset, bytes count)
 
     filesystem_read(current->p->fs, infile->n, buf, count, read_offset,
                 closure(h, sendfile_read_complete, h, current, infile, outfile, offset, buf));
-    thread_sleep(current);
+    thread_sleep_uninterruptible();
     return set_syscall_return(current,count); // bogus
 }
 
@@ -656,7 +670,7 @@ static sysreturn file_read(file f, fsfile fsf, void *dest, u64 length,
 
         /* XXX Presently only support blocking file reads... */
         if (!bh) {
-            thread_sleep(t);
+            thread_sleep_uninterruptible();
         }
         else {
             return infinity;
@@ -709,7 +723,7 @@ static sysreturn file_write(file f, fsfile fsf, void *dest, u64 length,
 
     /* XXX Presently only support blocking file writes... */
     if (!bh) {
-        thread_sleep(t);
+        thread_sleep_uninterruptible();
     }
     else {
         return infinity;
@@ -1107,9 +1121,8 @@ static sysreturn truncate_internal(tuple t, long length)
             current))) {
         /* Nothing to do. */
         return set_syscall_return(current, 0);
-    }
-    else {
-        thread_sleep(current);
+    } else {
+        thread_sleep_uninterruptible();
     }
 }
 
@@ -1156,9 +1169,8 @@ static sysreturn fsync(int fd)
             f))) {
         /* Nothing to sync. */
         return set_syscall_return(current, 0);
-    }
-    else {
-        thread_sleep(current);
+    } else {
+        thread_sleep_uninterruptible();
     }
 }
 
@@ -1457,7 +1469,7 @@ static sysreturn unlink_internal(tuple cwd, const char *pathname)
     filesystem_delete(current->p->fs, cwd, pathname,
             closure(heap_general(get_kernel_heaps()), file_delete_complete,
             current));
-    thread_sleep(current);
+    thread_sleep_uninterruptible();
 }
 
 static sysreturn rmdir_internal(tuple cwd, const char *pathname)
@@ -1481,7 +1493,7 @@ static sysreturn rmdir_internal(tuple cwd, const char *pathname)
     filesystem_delete(current->p->fs, cwd, pathname,
             closure(heap_general(get_kernel_heaps()), file_delete_complete,
             current));
-    thread_sleep(current);
+    thread_sleep_uninterruptible();
 }
 
 sysreturn unlink(const char *pathname)
@@ -1557,7 +1569,7 @@ static sysreturn rename_internal(tuple oldwd, const char *oldpath, tuple newwd,
     filesystem_rename(current->p->fs, oldwd, oldpath, newwd, newpath,
             closure(heap_general(get_kernel_heaps()), file_rename_complete,
             current));
-    thread_sleep(current);
+    thread_sleep_uninterruptible();
 }
 
 sysreturn rename(const char *oldpath, const char *newpath)
@@ -1600,7 +1612,7 @@ sysreturn renameat2(int olddirfd, const char *oldpath, int newdirfd,
         filesystem_exchange(current->p->fs, oldwd, oldpath, newwd, newpath,
                 closure(heap_general(get_kernel_heaps()), file_rename_complete,
                 current));
-        thread_sleep(current);
+        thread_sleep_uninterruptible();
     }
     else {
         if ((flags & RENAME_NOREPLACE) && resolve_cstring(newwd, newpath)) {
@@ -1701,9 +1713,7 @@ sysreturn getpid()
 
 sysreturn sched_yield()
 {
-    thread_wakeup(current);
-    thread_sleep(current);
-    return 0;
+    thread_yield();             /* noreturn */
 }
 
 void exit(int code)
@@ -1773,7 +1783,7 @@ sysreturn sysinfo(struct sysinfo *info)
 
     kernel_heaps kh = get_kernel_heaps();
     runtime_memset((u8 *) info, 0, sizeof(*info));
-    info->uptime = uptime();
+    info->uptime = sec_from_timestamp(uptime());
     info->totalram = id_heap_total(kh->physical);
     info->freeram = info->totalram < kh->physical->allocated ? 0 : info->totalram - kh->physical->allocated;
     info->procs = 1;
@@ -1871,12 +1881,12 @@ static context syscall_frame;
 
 static void syscall_debug()
 {
-    u64 *f = current->frame;
+    sysreturn rv = -ENOSYS;
+    u64 *f = running_frame;     /* usually current->frame, except for sigreturn */
     int call = f[FRAME_VECTOR];
     if (call < 0 || call >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0])) {
         thread_log(current, "invalid syscall %d", call);
-        set_syscall_return(current, -ENOSYS);
-        return;
+        goto out;
     }
     current->syscall = call;
     void *debugsyscalls = table_find(current->p->process_root, sym(debugsyscalls));
@@ -1888,7 +1898,6 @@ static void syscall_debug()
             thread_log(current, "syscall %d", call);
     }
     sysreturn (*h)(u64, u64, u64, u64, u64, u64) = s->handler;
-    sysreturn res = -ENOSYS;
     if (h) {
         proc_enter_system(current->p);
 
@@ -1898,9 +1907,9 @@ static void syscall_debug()
         running_frame = syscall_frame;
         running_frame[FRAME_FAULT_HANDLER] = f[FRAME_FAULT_HANDLER];
 
-        res = h(f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]);
+        rv = h(f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]);
         if (debugsyscalls)
-            thread_log(current, "direct return: %ld, rsp 0x%lx", res, f[FRAME_RSP]);
+            thread_log(current, "direct return: %ld, rsp 0x%lx", rv, f[FRAME_RSP]);
         proc_enter_user(current->p);
         running_frame = saveframe;
     } else if (debugsyscalls) {
@@ -1909,8 +1918,12 @@ static void syscall_debug()
         else
             thread_log(current, "nosyscall %d", call);
     }
-    set_syscall_return(current, res);
+
+  out:
+    running_frame[FRAME_RAX] = rv;
     current->syscall = -1;
+
+    dispatch_signals(current);
 }
 
 boolean syscall_notrace(int syscall)
