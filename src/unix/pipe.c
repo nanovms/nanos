@@ -130,7 +130,7 @@ static sysreturn pipe_read_bh(pipe_file pf, thread t, void *dest, u64 length,
         if (pf->pipe->files[PIPE_WRITE].fd == -1)
             goto out;
         if (pf->f.flags & O_NONBLOCK) {
-            real_length = -EAGAIN;
+            rv = -EAGAIN;
             goto out;
         }
         return infinity;
