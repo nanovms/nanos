@@ -2,10 +2,12 @@ package e2e
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -58,6 +60,23 @@ func rustPrebuild(t *testing.T) {
 	}
 }
 
+func retryRequest(t *testing.T, request string, attempts int, delay time.Duration) (*http.Response, error) {
+	resp, err := http.Get(request)
+	if err != nil {
+		if strings.Contains(err.Error(), "connection reset by peer") ||
+			strings.Contains(err.Error(), "connection refused") ||
+			strings.Contains(err.Error(), "EOF") {
+			if attempts--; attempts > 0 {
+				time.Sleep(delay)
+				return retryRequest(t, request, attempts, delay * 2)
+			}
+			return resp, errors.New("unable to reach server after multiple attempts");
+		}
+		return resp, err
+	}
+	return resp, nil
+}
+
 func testPackages(t *testing.T) {
 	var tests = []struct {
 		name     string
@@ -107,9 +126,8 @@ func testPackages(t *testing.T) {
 				t.Logf("Output: %v", buffer)
 				t.Fatal(err)
 			}
-			time.Sleep(time.Second * 10)
 			for count := 0; count <= 5; count++ {
-				resp, err := http.Get(tt.request)
+				resp, err := retryRequest(t, tt.request, 5, time.Second)
 				if err != nil {
 					t.Logf("Output: %v", buffer)
 					t.Fatal(err)
