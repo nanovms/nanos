@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -37,7 +38,7 @@ func KillProcess(command *exec.Cmd) {
 }
 
 func goPrebuild(t *testing.T) {
-	effect, err := exec.Command("/bin/bash", "-c", "go build main.go").CombinedOutput()
+	effect, err := exec.Command("/bin/bash", "-c", "GOOS=linux GOARCH=amd64 go build main.go").CombinedOutput()
 	if err != nil {
 		t.Log(effect)
 		t.Fatal(err)
@@ -89,6 +90,7 @@ func testPackages(t *testing.T) {
 		elf      string
 		prebuild func(t *testing.T)
 		skip     bool
+		nocross  bool
 	}{
 		{name: "python_3.6.7", pkg: "python_3.6.7", dir: "python_3.6.7", request: "http://0.0.0.0:8000"},
 		{name: "node_v11.5.0", pkg: "node_v11.5.0", dir: "node_v11.5.0", request: "http://0.0.0.0:8083"},
@@ -96,7 +98,7 @@ func testPackages(t *testing.T) {
 		{name: "php_7.3.5", pkg: "php_7.3.5", dir: "php_7.3.5", request: "http://0.0.0.0:9501"},
 		{name: "ruby_2.5.1", pkg: "ruby_2.5.1", dir: "ruby_2.5.1", request: "http://0.0.0.0:4567", prebuild: rubyPrebuild},
 		{name: "go", dir: "go", request: "http://0.0.0.0:8080", elf: "main", prebuild: goPrebuild},
-		{name: "rust", dir: "rust", request: "http://0.0.0.0:8080", elf: "main", prebuild: rustPrebuild},
+		{name: "rust", dir: "rust", request: "http://0.0.0.0:8080", elf: "main", prebuild: rustPrebuild, nocross: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -104,7 +106,13 @@ func testPackages(t *testing.T) {
 				t.Log("Skipping test")
 				return
 			}
-			var execcmd string
+			if tt.nocross {
+				if runtime.GOOS != "linux" {
+					t.Log(tt.name, ": no cross compile for", runtime.GOOS, "platform, skipping test")
+					return
+				}
+			}
+                        var execcmd string
 			dir, err := os.Getwd()
 			if err != nil {
 				t.Fatal(err)
