@@ -62,19 +62,22 @@ func rustPrebuild(t *testing.T) {
 
 func retryRequest(t *testing.T, request string, attempts int, delay time.Duration) (*http.Response, error) {
 	resp, err := http.Get(request)
-	if err != nil {
-		if strings.Contains(err.Error(), "connection reset by peer") ||
-			strings.Contains(err.Error(), "connection refused") ||
-			strings.Contains(err.Error(), "EOF") {
-			if attempts--; attempts > 0 {
-				time.Sleep(delay)
-				return retryRequest(t, request, attempts, delay * 2)
-			}
-			return resp, errors.New("unable to reach server after multiple attempts");
-		}
+	if err == nil {
+		return resp, nil
+	}
+
+	if !(strings.Contains(err.Error(), "connection reset by peer") ||
+		strings.Contains(err.Error(), "connection refused") ||
+		strings.Contains(err.Error(), "EOF")) {
 		return resp, err
 	}
-	return resp, nil
+
+	if attempts--; attempts > 0 {
+		time.Sleep(delay)
+		return retryRequest(t, request, attempts, delay * 2)
+	}
+
+	return resp, errors.New("unable to reach server after multiple attempts");
 }
 
 func testPackages(t *testing.T) {
@@ -127,7 +130,12 @@ func testPackages(t *testing.T) {
 				t.Fatal(err)
 			}
 			for count := 0; count <= 5; count++ {
-				resp, err := retryRequest(t, tt.request, 5, time.Second)
+				var resp *http.Response
+				if count == 0 {
+					resp, err = retryRequest(t, tt.request, 5, time.Second * 2)
+				} else {
+					resp, err = http.Get(tt.request)
+				}
 				if err != nil {
 					t.Logf("Output: %v", buffer)
 					t.Fatal(err)
