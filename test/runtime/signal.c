@@ -277,7 +277,6 @@ void test_rt_sigqueueinfo(void)
 static volatile int rt_sigsuspend_handler_reached;
 static volatile int rt_sigsuspend_handler_2_reached;
 static volatile int rt_sigsuspend_next_sig;
-static volatile int rt_sigsuspend_caught_on_unmask;
 
 static void test_rt_sigsuspend_handler(int sig, siginfo_t *si, void *ucontext)
 {
