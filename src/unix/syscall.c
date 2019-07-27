@@ -81,8 +81,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, setfsuid, 0);
     register_syscall(map, setfsgid, 0);
     register_syscall(map, getsid, 0);
-    register_syscall(map, capget, 0);
-    register_syscall(map, capset, 0);
     register_syscall(map, rt_sigtimedwait, 0);
     register_syscall(map, utime, 0);
     register_syscall(map, mknod, 0);
@@ -582,67 +580,63 @@ static void file_op_complete(thread t, file f, fsfile fsf,
 }
 
 static CLOSURE_5_2(sendfile_complete, void,
-        heap, file, int *, void *, bytes,
+        heap, int *, void *, bytes, boolean,
         thread, sysreturn);
-static void sendfile_complete(heap h, file in, int *offset, void *buf,
-        bytes len, thread t, sysreturn rv)
+static void sendfile_complete(heap h, int *offset, void *buf,
+        bytes len, boolean bh, thread t, sysreturn rv)
 {
     if (rv > 0) {
-        if (!offset) {
-            in->offset += rv;
-        } else {
+        if (offset) {
              *offset += rv;
         }
     }
     deallocate(h, buf, len);
     set_syscall_return(t, rv);
-    thread_wakeup(t);
-}
-
-static CLOSURE_6_2(sendfile_read_complete, void, heap, thread, file, fdesc, int*, void*, status, bytes);
-static void sendfile_read_complete(heap h, thread t, file in, fdesc out, int* offset, void* buf, status s, bytes length)
-{
-    sysreturn rv;
-    io_completion completion = closure(h, sendfile_complete, h, in, offset,
-            buf, length);
-    if (is_ok(s)) {
-        rv = apply(out->write, buf, length, 0, t, true, completion);
-    } else {
-        rv = -EIO;
+    if (bh) {
+        thread_wakeup(t);
     }
-    apply(completion, t, rv);
 }
 
-// in_fd need to a regular file.
+static CLOSURE_6_2(sendfile_read_complete, void,
+        heap, fdesc, int *, void *, bytes, boolean,
+        thread, sysreturn);
+static void sendfile_read_complete(heap h, fdesc out, int *offset, void *buf,
+        bytes length, boolean bh, thread t, sysreturn rv)
+{
+    if (rv > 0) {
+        io_completion completion = closure(h, sendfile_complete, h, offset, buf,
+                length, true);
+        rv = apply(out->write, buf, rv, 0, t, bh, completion);
+    }
+    if (rv == infinity) {
+        return;
+    }
+    sendfile_complete(h, offset, buf, length, bh, t, rv);
+}
+
 static sysreturn sendfile(int out_fd, int in_fd, int *offset, bytes count)
 {
-    file infile = resolve_fd(current->p, in_fd);
+    fdesc infile = resolve_fd(current->p, in_fd);
     fdesc outfile = resolve_fd(current->p, out_fd);
     heap h = heap_general(get_kernel_heaps());
 
-    // infile need to a regular file
-    if (!table_find(current->p->process_root, infile->n)) {
-        return set_syscall_error(current, ENOSYS);
-    }
-
-    if (!infile->f.read || !outfile->write)
-        return set_syscall_error(current, EINVAL);
-    
-    if ((infile->offset + count) > infile->length)
+    if (!infile->read || !outfile->write)
         return set_syscall_error(current, EINVAL);
     
     void *buf = allocate(h, count);
     u64 read_offset = 0;
     if(!offset) {
-        read_offset = infile->offset;
+        read_offset = infinity;
     } else  {
         read_offset = *offset;
     }
 
-    filesystem_read(current->p->fs, infile->n, buf, count, read_offset,
-                closure(h, sendfile_read_complete, h, current, infile, outfile, offset, buf));
-    thread_sleep_uninterruptible();
-    return set_syscall_return(current,count); // bogus
+    io_completion completion = closure(h, sendfile_read_complete, h, outfile,
+            offset, buf, count, true);
+    sysreturn rv = apply(infile->read, buf, count, read_offset, current, false,
+            completion);
+    sendfile_read_complete(h, outfile, offset, buf, count, false, current, rv);
+    return sysreturn_value(current);
 }
 
 
@@ -1758,6 +1752,14 @@ sysreturn sched_getaffinity(int pid, u64 cpusetsize, cpu_set_t *mask)
     return sizeof(mask->mask[0]);
 }
 
+sysreturn capget(cap_user_header_t hdrp, cap_user_data_t datap)
+{
+    if (datap) {
+        zero(datap, sizeof(*datap));
+    }
+    return 0;
+}
+
 sysreturn prctl(int option, u64 arg2, u64 arg3, u64 arg4, u64 arg5)
 {
     thread_log(current, "prctl: option %d, arg2 0x%lx, arg3 0x%lx, arg4 0x%lx, arg5 0x%lx",
@@ -1861,6 +1863,8 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, setgroups, syscall_ignore);
     register_syscall(map, setuid, syscall_ignore);
     register_syscall(map, setgid, syscall_ignore);
+    register_syscall(map, capget, capget);
+    register_syscall(map, capset, syscall_ignore);
     register_syscall(map, prctl, prctl);
     register_syscall(map, sysinfo, sysinfo);
     register_syscall(map, umask, umask);
