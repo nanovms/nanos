@@ -18,6 +18,7 @@
 #include <fcntl.h>
 #include <string.h>
 #include <errno.h>
+#include <math.h>
 
 /* Number of random bytes to output for test. */
 #define BSLEN 16384
@@ -113,7 +114,7 @@ static int ent_get_stats(char *path, struct ent_stat_entry *stats)
 {
     char ent_cmd[1024], ent_buf[1024];
     char *s;
-    int matched, nfield = 0, field_len, linenum;
+    int matched, nfield = 0, field_len, linenum = -1;
     FILE *f;
 
     snprintf(&ent_cmd[0], 1024, "ent -t %s", path);
@@ -135,7 +136,7 @@ static int ent_get_stats(char *path, struct ent_stat_entry *stats)
     do {
         field_len = strcspn(s, ",\n");
 
-        if (nfield == 0 || nfield == ENT_NSTATS + 1) {
+        if ((nfield % (ENT_NSTATS + 1)) == 0) {
             sscanf(s, "%d", &linenum);
             s += field_len;
             nfield++;
@@ -149,10 +150,11 @@ static int ent_get_stats(char *path, struct ent_stat_entry *stats)
         }
 
         if (linenum == 0)
-            snprintf(&stats[nfield + 1].key[0], field_len + 1, "%s", s);
+            snprintf(&stats[nfield].key[0], field_len + 1, "%s", s);
         else if (linenum == 1)
-            sscanf(s, "%lf", &stats[nfield - ENT_NSTATS].val);
-        else {
+            sscanf(s, "%lf", &stats[nfield - (ENT_NSTATS + 1)].val);
+        else if (linenum < 0) {
+            msg_err("unable to parse\n");
             pclose(f);
             return -1;
         }
@@ -214,7 +216,7 @@ static int ent_test(struct ent_stat_entry *stats)
         printf("Deviation from ideal value: %lf\n", mean_dev);
     }
 
-    if (abs(mean_dev) > MEAN_DEV_THRESH) {
+    if (fabs(mean_dev) > MEAN_DEV_THRESH) {
         msg_err("Mean deviation too large.\n");
         goto out_fail;
     }
@@ -230,7 +232,9 @@ int main(int argc, char **argv)
     char c;
     int err;
     int result = EXIT_SUCCESS;
-    struct ent_stat_entry stats[ENT_NSTATS];
+    struct ent_stat_entry stats[ENT_NSTATS + 1];
+
+    init_process_runtime();
 
     while ((c = getopt(argc, argv, ":s")) != -1)
     {
