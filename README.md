@@ -78,7 +78,7 @@ If you are planning on spending more than a day to fix something
 it's probably wise to approach the topic in an issue with your planned
 fix before commiting to work.
 
-Also, NanoVMs has paid kenrel engineers with internal roadmaps so it's
+Also, NanoVMs has paid kernel engineers with internal roadmaps so it's
 wise to check in with us first before grabbing a tkt. Tickets tagged
 'low-priority' have a lower probability of collision.
 
