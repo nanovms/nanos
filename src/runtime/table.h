@@ -1,4 +1,8 @@
 #pragma once
+
+/* Keep buckets bounded so that we can reliably use PAGESIZE mcache heaps for tables. */
+#define TABLE_MAX_BUCKETS       256
+
 typedef struct table *table;
 
 typedef u64 key;

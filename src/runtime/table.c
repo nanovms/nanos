@@ -55,8 +55,11 @@ static inline key position(int buckets, key x)
 static void resize_table(table z, int buckets)
 {
     assert((buckets & (buckets - 1)) == 0);
+    assert(buckets <= TABLE_MAX_BUCKETS);
     table t = valueof(z);
     entry *nentries = allocate_zero(t->h, buckets * sizeof(void *));
+    if (nentries == INVALID_ADDRESS)
+        halt("resize_table: allocate fail for %d buckets\n", buckets);
     for (int i = 0; i < t->buckets; i++) {
         for (entry n, j = t->entries[i]; j; j = n) {
             n = j->next;
@@ -115,7 +118,7 @@ void table_set(table z, void *c, void *v)
         n->next = 0;
         *e = n;
         
-        if (t->count++ > t->buckets) 
+        if (t->count++ > t->buckets && t->buckets < TABLE_MAX_BUCKETS / 2)
             resize_table(t, t->buckets*2);
     }
 }
