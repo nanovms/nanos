@@ -23,15 +23,15 @@ static inline char peek_char(buffer b)
     return(*(char *)buffer_ref(b, 0));
 }
 
-#define alloca_wrap_buffer(__b, __l) ({           \
-  buffer b = __builtin_alloca(sizeof(struct buffer));   \
-  b->contents =(void *) __b;                  \
-  b->end = b->length = __l;\
-  b->start  = 0;\
-  b->wrapped = true;\
-  b->h = 0;\
-  b;\
-  })
+#define alloca_wrap_buffer(__b, __l) ({                         \
+            buffer b = stack_allocate(sizeof(struct buffer));   \
+            b->contents = (void *) __b;                         \
+            b->end = b->length = __l;                           \
+            b->start  = 0;                                      \
+            b->wrapped = true;                                  \
+            b->h = 0;                                           \
+            b;                                                  \
+        })
 
 #define alloca_wrap(__z) alloca_wrap_buffer(buffer_ref(__z, 0), buffer_length(__z))
 
@@ -54,7 +54,7 @@ static inline void buffer_produce(buffer b, bytes s)
 
 static inline bytes buffer_length(buffer b)
 {
-    return(b->end - b->start);
+    return b->end - b->start;
 } 
 
 static inline void buffer_extend(buffer b, bytes len)
@@ -118,7 +118,7 @@ buffer allocate_buffer(heap h, bytes length);
 static inline void buffer_write(buffer b, const void *source, bytes length)
 {
     buffer_extend(b, length);
-    runtime_memcpy(buffer_ref(b, b->end-b->start), source, length);
+    runtime_memcpy(buffer_ref(b, buffer_length(b)), source, length);
     buffer_produce(b, length);
 }
 
@@ -135,14 +135,6 @@ static inline void push_buffer(buffer d, buffer s)
 {
     buffer_write(d, buffer_ref(s, 0), buffer_length(s));
 }
-
-
-void buffer_copy(buffer dest, bytes doff,
-                 buffer source, bytes soff,
-                 bytes length);
-
-void buffer_write(buffer b, const void *source, bytes length);
-boolean buffer_read(buffer b, void *dest, bytes length);
 
 void buffer_append(buffer b,
                    const void *body,
@@ -256,7 +248,10 @@ static inline boolean buffer_compare(void *za, void *zb)
          __i++)
              
 
-// alternate stack, real heap, say no to alloca
+/* Beware: such allocations on the stack persist until the calling
+   function returns to its caller, not necessarily at the end of the
+   block. Therefore, avoid using little_stack_buffer within loops or
+   in any case where it could blow the stack. */
 #define little_stack_buffer(__length)\
     ({\
     buffer __b = stack_allocate(sizeof(struct buffer));\

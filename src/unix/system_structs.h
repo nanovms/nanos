@@ -1,5 +1,9 @@
 // structs that live on the user-kernel boundary
 
+/* limits */
+#define NAME_MAX 255
+#define PATH_MAX 4096
+
 /* fields from linux asm/stat.h - 64-bit only */
 struct stat {
     /* 0 - 3 */

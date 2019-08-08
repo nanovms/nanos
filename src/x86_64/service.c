@@ -32,8 +32,8 @@ heap allocate_tagged_region(kernel_heaps kh, u64 tag)
     if (backed == INVALID_ADDRESS)
         return backed;
 
-    /* 16 bytes on low end (symbol), half page at high (256 table buckets)
-       XXX should verify this as build assert */
+    /* 16 bytes on low end (symbol), half page at high (256 table buckets) */
+    build_assert(TABLE_MAX_BUCKETS * sizeof(void *) <= 1 << 11);
     return allocate_mcache(h, backed, 4, 11, PAGESIZE);
 }
 

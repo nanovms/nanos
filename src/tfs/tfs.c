@@ -262,6 +262,8 @@ static void filesystem_read_internal(filesystem fs, fsfile f, buffer b, u64 leng
 void filesystem_read(filesystem fs, tuple t, void *dest, u64 length, u64 offset,
                      io_status_handler io_complete)
 {
+    tfs_debug("filesystem_read: t %v, dest %p, length %ld, offset %ld, completion %p\n",
+              t, dest, length, offset, io_complete);
     fsfile f;
     if (!(f = table_find(fs->files, t))) {
         tuple e = timm("result", "no such file %t", t);
@@ -293,6 +295,8 @@ static void read_entire_complete(buffer_handler bh, buffer b, status_handler sh,
 
 void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler c, status_handler sh)
 {
+    tfs_debug("filesystem_read_entire: t %v, bufheap %p, buffer_handler %p, status_handler %p\n",
+              t, bufheap, c, sh);
     fsfile f;
     if (!(f = table_find(fs->files, t))) {
         tuple e = timm("result", "no such file %t", t);

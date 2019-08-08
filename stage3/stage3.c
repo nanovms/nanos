@@ -11,11 +11,15 @@ static void read_program_complete(process kp, tuple root, buffer b)
         rprintf("read program complete: %p ", root);
         rprintf("gitversion: %s ", gitversion);
 
+        /* XXX - disable this until we can be assured that print_root
+           won't go haywire on a large manifest... */
+#if 0
         buffer b = allocate_buffer(transient, 64);
         print_root(b, root);
         buffer_print(b);
         deallocate_buffer(b);
         rprintf("\n");
+#endif
        
     }
     exec_elf(b, kp);
