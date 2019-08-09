@@ -1,5 +1,9 @@
 #include <runtime.h>
 
+/* Debug only: Enabling TABLE_PARANOIA will perform a (costly) table
+   integrity check with each affective operation. */
+//#define TABLE_PARANOIA
+
 #define EMPTY ((void *)0)
 
 boolean pointer_equal(void *a, void *b)
@@ -12,15 +16,20 @@ key identity_key(void *a)
     return u64_from_pointer(a);
 }
 
-/* TODO: Make optional for production */
-void table_check(table t, char *n)
+#ifdef TABLE_PARANOIA
+#define table_paranoia(t, n)    table_validate(t, n)
+#else
+#define table_paranoia(t, n)
+#endif
+
+void table_validate(table t, char *n)
 {
     void *last;
     for(int i = 0; i < t->buckets; i++) {
         for (entry j = t->entries[i]; last = j, j; j = j->next) {
             if (j == INVALID_ADDRESS) {
                 print_stack_from_here();
-                halt("table_check fail on %s: table %p, last %p\n", n, t, last);
+                halt("table_validate fail on %s: table %p, last %p\n", n, t, last);
             }
         }
     }
@@ -70,7 +79,7 @@ static void resize_table(table z, int buckets)
     }
     t->entries = nentries;
     t->buckets = buckets;
-    table_check(t, "resize");
+    table_paranoia(t, "resize");
 }
 
 void *table_find(table z, void *c)
@@ -98,7 +107,7 @@ void table_set(table z, void *c, void *v)
                 t->count--;
                 entry z = *e;
                 *e = (*e)->next;
-                table_check(t, "remove");
+                table_paranoia(t, "remove");
                 deallocate(t->h, z, sizeof(struct entry));
             } else {
                 (*e)->v = v;
@@ -118,8 +127,12 @@ void table_set(table z, void *c, void *v)
         n->next = 0;
         *e = n;
         
-        if (t->count++ > t->buckets && t->buckets < TABLE_MAX_BUCKETS / 2)
+        if (t->count++ > t->buckets && t->buckets <= TABLE_MAX_BUCKETS / 2) {
             resize_table(t, t->buckets*2);
+        } else {
+            /* resize will do a check */
+            table_paranoia(t, "add, no resize");
+        }
     }
 }
 

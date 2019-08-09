@@ -1,11 +1,6 @@
 #include <runtime.h>
 #include <stdlib.h>
 
-#define EXIT_SUCCESS 0
-#define EXIT_FAILURE 1
-
-#define TABLETEST_ELEM_COUNT	512
-
 static inline key silly_key(void *a)
 {
     return 0;
@@ -21,27 +16,35 @@ static inline boolean anything_equals(void *a, void* b)
     return true;
 }
 
-static boolean basic_table_tests(heap h, u64 (*key_function)(void *x))
+static boolean basic_table_tests(heap h, u64 (*key_function)(void *x), u64 n_elem)
 {
     table t = allocate_table(h, key_function, pointer_equal);
     u64 count;
+
+    table_validate(t, "basic_table_tests: alloc");
 
     if (table_elements(t) != 0) {
         msg_err("table_elements() not zero on empty table\n");
         return false;
     }
+
     table_foreach(t, n, v) {
         (void) n;
         (void) v;
         msg_err("table_foreach() on empty table\n");
         return false;
     }
-    for (count = 0; count < TABLETEST_ELEM_COUNT; count++) {
+
+    for (count = 0; count < n_elem; count++) {
         table_set(t, (void *)count, (void *)(count + 1));
     }
 
+    table_validate(t, "basic_table_tests: after fill");
+
     /* This should not add anything to the table. */
     table_set(t, (void *)count, 0);
+
+    table_validate(t, "basic_table_tests: after null set");
 
     count = 0;
     table_foreach(t, n, v) {
@@ -52,11 +55,13 @@ static boolean basic_table_tests(heap h, u64 (*key_function)(void *x))
         }
         count++;
     }
-    if (count != TABLETEST_ELEM_COUNT) {
+
+    if (count != n_elem) {
         msg_err("table_foreach() invalid iteration count %d\n", count);
         return false;
     }
-    for (count = 0; count < TABLETEST_ELEM_COUNT; count++) {
+
+    for (count = 0; count < n_elem; count++) {
         u64 v = (u64)table_find(t, (void *)count);
 
         if (!v) {
@@ -69,6 +74,7 @@ static boolean basic_table_tests(heap h, u64 (*key_function)(void *x))
             return false;
         }
     }
+
     if (table_find(t, (void *)count)) {
         msg_err("found unexpected element %d\n", count);
         return false;
@@ -80,59 +86,88 @@ static boolean basic_table_tests(heap h, u64 (*key_function)(void *x))
         msg_err("found unexpected element 0\n");
         return false;
     }
+
+    table_validate(t, "basic_table_tests: after remove one");
+
     count = table_elements(t);
-    if (count != TABLETEST_ELEM_COUNT - 1) {
+    if (count != n_elem - 1) {
         msg_err("invalid table_elements() %d, should be %d\n", count,
-                TABLETEST_ELEM_COUNT - 1);
+                n_elem - 1);
         return false;
     }
 
+    /* Remove the rest: first forward (skimming off top of each bucket) */
+    for (count = 1; count < (n_elem / 2); count++)
+        table_set(t, (void *)count, 0);
+
+    table_validate(t, "basic_table_tests: after remove forward");
+
+    /* ... and then backward (descend to bottom of each bucket) */
+    for (count = n_elem - 1; count >= (n_elem / 2); count--)
+        table_set(t, (void *)count, 0);
+
+    table_validate(t, "basic_table_tests: after remove backward");
+
+    count = table_elements(t);
+    if (count != 0) {
+        msg_err("invalid table_elements() %d, should be 0\n");
+        return false;
+    }
     return true;
 }
 
-static boolean one_elem_table_tests(heap h)
+static boolean one_elem_table_tests(heap h, u64 n_elem)
 {
     table t = allocate_table(h, silly_key, anything_equals);
     u64 count;
 
-    for (count = 0; count < TABLETEST_ELEM_COUNT; count++) {
+    table_validate(t, "one_elem_table_tests: after alloc");
+
+    for (count = 0; count < n_elem; count++) {
         table_set(t, (void *)count, (void *)(count + 1));
     }
+
+    table_validate(t, "one_elem_table_tests: after fill");
+
     count = 0;
     table_foreach(t, n, v) {
         if (n != 0) {
             msg_err("table_foreach() invalid name %d\n", (u64)n);
             return false;
         }
-        if ((u64)v != TABLETEST_ELEM_COUNT) {
+        if ((u64)v != n_elem) {
             msg_err("table_foreach() invalid value %d for name %d, "
-                    "should be %d\n", (u64)v, (u64)n, TABLETEST_ELEM_COUNT);
+                    "should be %d\n", (u64)v, (u64)n, n_elem);
             return false;
         }
         count++;
     }
+
     if (count != 1) {
         msg_err("table_foreach() invalid iteration count %d\n", count);
         return false;
     }
+
     count = table_elements(t);
     if (count != 1) {
         msg_err("invalid table_elements() %d, should be 1\n", count);
         return false;
     }
-    for (count = 0; count < TABLETEST_ELEM_COUNT; count++) {
+
+    for (count = 0; count < n_elem; count++) {
         u64 v = (u64)table_find(t, (void *)count);
 
         if (!v) {
             msg_err("element %d not found\n", count);
             return false;
         }
-        if (v != TABLETEST_ELEM_COUNT) {
+        if (v != n_elem) {
             msg_err("element %d invalid value %d, should be %d\n", count, v,
-                    TABLETEST_ELEM_COUNT);
+                    n_elem);
             return false;
         }
     }
+
     if (!table_find(t, (void *)count)) {
         msg_err("element %d not found\n", count);
         return false;
@@ -140,27 +175,38 @@ static boolean one_elem_table_tests(heap h)
     return true;
 }
 
+#define BASIC_ELEM_COUNT  512
+#define STRESS_ELEM_COUNT (1ull << 20)
+
 int main(int argc, char **argv)
 {
     heap h = init_process_runtime();
 
-    if (!basic_table_tests(h, identity_key)) {
+    if (!basic_table_tests(h, identity_key, BASIC_ELEM_COUNT)) {
         msg_err("Identity key table test failed\n");
         goto fail;
     }
-    if (!basic_table_tests(h, silly_key)) {
+
+    if (!basic_table_tests(h, silly_key, BASIC_ELEM_COUNT)) {
         msg_err("Silly key table test failed\n");
         goto fail;
     }
-    if (!basic_table_tests(h, less_silly_key)) {
+
+    if (!basic_table_tests(h, less_silly_key, BASIC_ELEM_COUNT)) {
         msg_err("Less silly key table test failed\n");
         goto fail;
     }
-    if (!one_elem_table_tests(h)) {
+
+    if (!one_elem_table_tests(h, BASIC_ELEM_COUNT)) {
         msg_err("One-element table test failed\n");
+        goto fail;
+    }
+
+    if (!basic_table_tests(h, identity_key, STRESS_ELEM_COUNT)) {
+        msg_err("Stress table test failed\n");
         goto fail;
     }
     exit(EXIT_SUCCESS);
 fail:
-	exit(EXIT_FAILURE);
+    exit(EXIT_FAILURE);
 }
