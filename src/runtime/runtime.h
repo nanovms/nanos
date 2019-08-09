@@ -35,6 +35,8 @@ extern void print_stack_from_here();
     } while(0)
 #endif
 
+#define build_assert(x) _Static_assert((x), "build assertion failure")
+
 void runtime_memcpy(void *a, const void *b, bytes len);
 
 void runtime_memset(u8 *a, u8 b, bytes len);
@@ -208,8 +210,7 @@ extern status_handler ignore_status;
 #define MB (KB*KB)
 #define GB (KB*MB)
 
-// fix transient - also should be legit to use the space between end and length w/o penalty
-#define cstring(__b) ({buffer n = little_stack_buffer(512); push_buffer(n, __b); push_u8(n, 0); n->contents;})
+#define cstring(b, t) ({buffer_clear(t); push_buffer((t), (b)); push_u8((t), 0); (char*)(t)->contents;})
 
 extern heap transient;
 

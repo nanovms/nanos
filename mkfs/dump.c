@@ -9,6 +9,7 @@
 #include <tfs.h>
 #include <errno.h>
 #include <string.h>
+#include <limits.h>
 
 static CLOSURE_1_3(bwrite, void, descriptor, void *, range, status_handler);
 static void bwrite(descriptor d, void * s, range blocks, status_handler c)
@@ -37,7 +38,8 @@ CLOSURE_1_1(write_file, void, buffer, buffer);
 void write_file(buffer path, buffer b)
 {
     // openat would be nicer really
-    char *z = cstring(path);
+    buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
+    char *z = cstring(path, tmpbuf);
     int fd = open(z, O_CREAT|O_WRONLY, 0644);
     ssize_t xfer, len = buffer_length(b);
     while (len > 0) {
@@ -57,9 +59,10 @@ void write_file(buffer path, buffer b)
 // isn't there an internal readdir?
 void readdir(filesystem fs, heap h, tuple w, buffer path)
 {
+    buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
     table_foreach(w, k, v) {
         if (k == sym(children)) {
-            mkdir(cstring(path), 0777);
+            mkdir(cstring(path, tmpbuf), 0777);
             table_foreach((tuple)v, k, vc) {
                 if (k == sym_this(".") || k == sym_this(".."))
                     continue;

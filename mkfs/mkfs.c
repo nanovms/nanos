@@ -31,6 +31,7 @@ static buffer read_stdin(heap h)
 buffer lookup_file(heap h, const char *target_root, buffer name, struct stat *st)
 {
     buffer target_name = NULL;
+    buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
 
     // try target_root
     if (target_root != NULL) {
@@ -47,7 +48,7 @@ buffer lookup_file(heap h, const char *target_root, buffer name, struct stat *st
                 buffer_write_byte(target_name, '/');
             buffer_write(target_name, n, len);
 
-            if (lstat(cstring(target_name), st) < 0) {
+            if (lstat(cstring(target_name, tmpbuf), st) < 0) {
                 if (errno != ENOENT)
                     halt("couldn't stat file %b: %s\n", target_name, strerror(errno));
 
@@ -61,7 +62,7 @@ buffer lookup_file(heap h, const char *target_root, buffer name, struct stat *st
                 return target_name;
             }
 
-            if ((len = readlink(cstring(target_name), path_buf, sizeof(path_buf))) < 0)
+            if ((len = readlink(cstring(target_name, tmpbuf), path_buf, sizeof(path_buf))) < 0)
                 halt("couldn't readlink file %b: %s\n", name, strerror(errno));
             if (path_buf[0] != '/') {
                 // relative symlinks are ok
@@ -74,7 +75,7 @@ buffer lookup_file(heap h, const char *target_root, buffer name, struct stat *st
         }
     }
 
-    if (stat(cstring(name), st) < 0)
+    if (stat(cstring(name, tmpbuf), st) < 0)
         halt("couldn't stat file %b: %s\n", name, strerror(errno));
     return target_name;
 }
@@ -90,7 +91,8 @@ void read_file(heap h, const char *target_root, buffer dest, buffer name)
         name = target_name;
     }
 
-    int fd = open(cstring(name), O_RDONLY);
+    buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
+    int fd = open(cstring(name, tmpbuf), O_RDONLY);
     if (fd < 0) halt("couldn't open file %b: %s\n", name, strerror(errno));
     u64 size = st.st_size;
     buffer_extend(dest, pad(st.st_size, SECTOR_SIZE));

@@ -329,9 +329,10 @@ static int file_get_path(tuple n, char *buf, u64 len)
     }
     buf[0] = '\0';
     int cur_len = 1;
+    buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
 next:
     table_foreach(c, k, v) {
-        char *name = cstring(symbol_string(k));
+        char *name = cstring(symbol_string(k), tmpbuf);
         if (!runtime_strcmp(name, "..")) {
             if (v == n) {   /* this is the root directory */
                 if (cur_len == 1) {
@@ -349,7 +350,7 @@ next:
             }
             table_foreach(c, k, v) {
                 if (v == n) {
-                    char *name = cstring(symbol_string(k));
+                    char *name = cstring(symbol_string(k), tmpbuf);
                     int name_len = runtime_strlen(name);
                     if (len < 1 + name_len + cur_len) {
                         return -1;
@@ -981,8 +982,9 @@ sysreturn getdents(int fd, struct linux_dirent *dirp, unsigned int count)
 
     int r = 0;
     int read_sofar = 0, written_sofar = 0;
+    buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
     table_foreach(c, k, v) {
-        char *p = cstring(symbol_string(k));
+        char *p = cstring(symbol_string(k), tmpbuf);
         r = try_write_dirent(f->n, dirp, p,
                     &read_sofar, &written_sofar, &f->offset, &count,
                     is_dir(v) ? DT_DIR : DT_REG);
@@ -1042,8 +1044,9 @@ sysreturn getdents64(int fd, struct linux_dirent64 *dirp, unsigned int count)
 
     int r = 0;
     int read_sofar = 0, written_sofar = 0;
+    buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
     table_foreach(c, k, v) {
-        char *p = cstring(symbol_string(k));
+        char *p = cstring(symbol_string(k), tmpbuf);
         r = try_write_dirent64(f->n, dirp, p,
                     &read_sofar, &written_sofar, &f->offset, &count,
                     is_dir(v) ? DT_DIR : DT_REG);
@@ -1476,8 +1479,9 @@ static sysreturn rmdir_internal(tuple cwd, const char *pathname)
         return set_syscall_error(current, ENOTDIR);
     }
     tuple c = children(n);
+    buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
     table_foreach(c, k, v) {
-        char *p = cstring(symbol_string(k));
+        char *p = cstring(symbol_string(k), tmpbuf);
 
         if (runtime_strcmp(p, ".") && runtime_strcmp(p, "..")) {
             thread_log(current, "%s: found entry '%s'", __func__, p);
@@ -1545,8 +1549,9 @@ static sysreturn rename_internal(tuple oldwd, const char *oldpath, tuple newwd,
             return set_syscall_error(current, EISDIR);
         }
         tuple c = children(new);
+        buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
         table_foreach(c, k, v) {
-            char *p = cstring(symbol_string(k));
+            char *p = cstring(symbol_string(k), tmpbuf);
 
             if (runtime_strcmp(p, ".") && runtime_strcmp(p, "..")) {
                 thread_log(current, "%s: found entry '%s'", __func__, p);

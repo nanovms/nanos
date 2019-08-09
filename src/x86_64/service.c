@@ -21,15 +21,20 @@ void startup(kernel_heaps kh,
              tuple root,
              filesystem fs);
 
-// xxx -this is handing out a page per object
 heap allocate_tagged_region(kernel_heaps kh, u64 tag)
 {
     heap h = heap_general(kh);
     heap pages = heap_pages(kh);
     heap physical = heap_physical(kh);
-    return physically_backed(h,
-                             create_id_heap(h, tag << va_tag_offset, 1ull<<va_tag_offset, physical->pagesize),
-                             physical, pages, physical->pagesize);
+    heap backed = physically_backed(h,
+                                    create_id_heap(h, tag << va_tag_offset, 1ull<<va_tag_offset, physical->pagesize),
+                                    physical, pages, physical->pagesize);
+    if (backed == INVALID_ADDRESS)
+        return backed;
+
+    /* 16 bytes on low end (symbol), half page at high (256 table buckets) */
+    build_assert(TABLE_MAX_BUCKETS * sizeof(void *) <= 1 << 11);
+    return allocate_mcache(h, backed, 4, 11, PAGESIZE);
 }
 
 #define BOOTSTRAP_REGION_SIZE_KB	2048
