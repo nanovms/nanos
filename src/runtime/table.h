@@ -1,7 +1,7 @@
 #pragma once
 
-/* Keep buckets bounded so that we can reliably use PAGESIZE mcache heaps for tables. */
-#define TABLE_MAX_BUCKETS       256
+/* Keep buckets bounded so that we can reliably use PAGESIZE_2M mcache heaps for tables. */
+#define TABLE_MAX_BUCKETS       131072
 
 typedef struct table *table;
 
@@ -24,6 +24,7 @@ struct table {
 };
 
 table allocate_table(heap h, key (*key_function)(void *x), boolean (*equal_function)(void *x, void *y));
+void table_validate(table t, char *n);
 int table_elements(table t);
 void *table_find(table t, void *c);
 //void *table_find_key (table t, void *c, void **kr);
