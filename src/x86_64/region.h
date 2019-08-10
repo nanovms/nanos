@@ -34,8 +34,6 @@ typedef struct region_heap {
     int type;
 } *region_heap;
 
-
-// fix complexity - rtrie
 static inline u64 allocate_region(heap h, bytes size)
 {
     region_heap rh = (region_heap)h;
@@ -57,6 +55,19 @@ static inline u64 allocate_region(heap h, bytes size)
 
     if (base == 0)
         return u64_from_pointer(INVALID_ADDRESS);
+
+    /* If this region intersects the kernel map, shrink the region
+       such that allocations begin below the kernel. */
+    u64 end = base + r->length;
+    if (end > KERNEL_RESERVE_START) {
+        if (base < KERNEL_RESERVE_START) {
+            r->length -= end - KERNEL_RESERVE_START;
+        } else {
+            /* Really we should just select the next region, but this
+               seems so unlikely... */
+            assert(base >= KERNEL_RESERVE_END);
+        }
+    }
 
     /* Carve allocations from top of region, mainly to get identity
        mappings out of the way of commonly-used areas in low memory. */

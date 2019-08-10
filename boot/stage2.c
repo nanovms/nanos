@@ -39,21 +39,21 @@ extern void run64(u32 entry);
 */
 #define WORKING_BASE 0x100000
 #define WORKING_LEN (4*MB)  /* arbitrary, must be enough for any fs meta */
-static u64 working = WORKING_BASE;
+
+static u64 working_p = WORKING_BASE;
+static u64 working_end = WORKING_BASE + WORKING_LEN;
 
 #define STACKLEN (8 * PAGESIZE)
 static struct heap workings;
 static struct kernel_heaps kh;
-static u32 stack;
+static u32 stackbase;
 
-// xxx - should have a general wrapper/analysis thingly
 static u64 stage2_allocator(heap h, bytes b)
 {
-    // tag requires 4 byte aligned addresses
-    u64 result = working;
-    working += pad(b, 4);
-    if (working > (WORKING_BASE + WORKING_LEN))
+    if (working_p + b > working_end)
         halt("stage2 working heap out of memory\n");
+    u64 result = working_p;
+    working_p += pad(b, 4);       /* tags require alignment */
     return result;
 }
 
@@ -151,33 +151,44 @@ void fail(status s)
     halt("filesystem_read_entire failed: %v\n", s);
 }
 
+static void setup_page_tables()
+{
+    stage2_debug("%s\n", __func__);
+
+    /* identity heap alloc */
+    heap working = heap_general(&kh);
+    heap physical = heap_physical(&kh);
+    u64 ident_phys = allocate_u64(physical, IDENTITY_HEAP_SIZE);
+    assert(ident_phys != INVALID_PHYSICAL);
+    create_region(ident_phys, IDENTITY_HEAP_SIZE, REGION_IDENTITY);
+
+    /* page table setup */
+    heap pages = region_allocator(working, PAGESIZE, REGION_IDENTITY);
+    void *vmbase = allocate_zero(pages, PAGESIZE);
+    kh.pages = pages;
+    mov_to_cr("cr3", vmbase);
+
+    /* initial map, page tables and stack */
+    map(0, 0, INITIAL_MAP_SIZE, PAGE_WRITABLE | PAGE_PRESENT, pages);
+    map(ident_phys, ident_phys, IDENTITY_HEAP_SIZE, PAGE_WRITABLE | PAGE_PRESENT, pages);
+    /* XXX try to nuke */ map(stackbase, stackbase, (u64)STACKLEN, PAGE_WRITABLE, pages);
+
+    /* allocate larger space for stage2 working (to accomodate tfs meta, etc.) */
+    working_p = allocate_u64(physical, STAGE2_WORKING_HEAP_SIZE);
+    assert(working_p != INVALID_PHYSICAL);
+    working_end = working_p + STAGE2_WORKING_HEAP_SIZE;
+    map(working_p, working_p, STAGE2_WORKING_HEAP_SIZE, PAGE_WRITABLE | PAGE_PRESENT, pages);
+}
+
 static CLOSURE_0_1(kernel_read_complete, void, buffer);
 static void __attribute__((noinline)) kernel_read_complete(buffer kb)
 {
     stage2_debug("%s\n", __func__);
-    heap physical = heap_physical(&kh);
-    heap working = heap_general(&kh);
 
-    // should be the intersection of the empty physical and virtual
-    // up to some limit, 2M aligned
-    u64 identity_length = 0x300000;
-    u64 pmem = allocate_u64(physical, identity_length);
-    heap pages = region_allocator(working, PAGESIZE, REGION_IDENTITY);
-    kh.pages = pages;
-    create_region(pmem, identity_length, REGION_IDENTITY);
-    void *vmbase = allocate_zero(pages, PAGESIZE);
-    mov_to_cr("cr3", vmbase);
-    map(pmem, pmem, identity_length, PAGE_WRITABLE | PAGE_PRESENT, pages);
-    // going to some trouble to set this up here, but its barely
-    // used in stage3
-    stack -= (STACKLEN - 4); /* XXX b0rk b0rk b0rk */
-    map(stack, stack, (u64)STACKLEN, PAGE_WRITABLE, pages);
-    map(0, 0, INITIAL_MAP_SIZE, PAGE_WRITABLE | PAGE_PRESENT, pages);
-
-    // stash away kernel elf image for use in stage3
+    /* save kernel elf image for use in stage3 (for symbol data) */
     create_region(u64_from_pointer(buffer_ref(kb, 0)), pad(buffer_length(kb), PAGESIZE), REGION_KERNIMAGE);
 
-    void *k = load_elf(kb, 0, pages, physical, false);
+    void *k = load_elf(kb, 0, heap_pages(&kh), heap_physical(&kh), false);
     if (!k) {
         halt("kernel elf parse failed\n");
     }
@@ -241,6 +252,9 @@ void newstack()
     heap h = heap_general(&kh);
     heap physical = heap_physical(&kh);
     buffer_handler bh = closure(h, kernel_read_complete);
+
+    setup_page_tables();
+
     create_filesystem(h,
                       SECTOR_SIZE,
                       1024 * MB, /* XXX change to infinity with new rtrie */
@@ -303,7 +317,7 @@ void centry()
     kh.physical = region_allocator(&workings, PAGESIZE, REGION_PHYSICAL);
     assert(kh.physical);
     
-    stack = allocate_u64(kh.physical, STACKLEN) + STACKLEN - 4;
-    asm("mov %0, %%esp": :"g"(stack));
+    stackbase = allocate_u64(kh.physical, STACKLEN);
+    asm("mov %0, %%esp": :"g"(stackbase + STACKLEN - 4));
     newstack();
 }
