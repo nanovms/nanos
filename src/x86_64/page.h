@@ -17,5 +17,21 @@
 #define PAGE_PROT_FLAGS (PAGE_NO_EXEC | PAGE_USER | PAGE_WRITABLE)
 #define PAGE_DEV_FLAGS (PAGE_WRITABLE | PAGE_WRITETHROUGH | PAGE_NO_EXEC)
 
-void map(u64 virtual, physical p, int length, u64 flags, heap h);
-void unmap(u64 virtual, int length, heap h);
+#ifndef physical_from_virtual
+physical physical_from_virtual(void *x);
+#endif
+
+void map(u64 virtual, physical p, u64 length, u64 flags, heap h);
+void unmap(u64 virtual, u64 length, heap h);
+void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh);
+
+static inline void unmap_pages(u64 virtual, u64 length)
+{
+    unmap_pages_with_handler(virtual, length, 0);
+}
+
+void update_map_flags(u64 vaddr, u64 length, u64 flags);
+void zero_mapped_pages(u64 vaddr, u64 length);
+void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length, heap h);
+
+void dump_ptes(void *x);

@@ -321,7 +321,7 @@ static boolean validate_entry(int level, u64 vaddr, u64 * entry)
 boolean validate_virtual(void * base, u64 length)
 {
     page_debug("base %p, length 0x%lx\n", base, length);
-    return traverse_entries(u64_from_pointer(base), length, closure(transient, validate_entry));
+    return traverse_entries(u64_from_pointer(base), length, stack_closure(validate_entry));
 }
 
 static CLOSURE_1_3(update_pte_flags, boolean, u64, int, u64, u64 *);
@@ -346,7 +346,7 @@ void update_map_flags(u64 vaddr, u64 length, u64 flags)
     flags &= ~PAGE_NO_FAT;
     page_debug("vaddr 0x%lx, length 0x%lx, flags 0x%lx\n", vaddr, length, flags);
 
-    traverse_entries(vaddr, length, closure(transient, update_pte_flags, flags));
+    traverse_entries(vaddr, length, stack_closure(update_pte_flags, flags));
 }
 
 static CLOSURE_3_3(remap_entry, boolean, u64, u64, heap, int, u64, u64 *);
@@ -389,8 +389,8 @@ static boolean remap_entry(u64 new, u64 old, heap h, int level, u64 curr, u64 * 
 }
 
 /* We're just going to do forward traversal, for we don't yet need to
-   support overlapping moves. Should that become necessary (e.g. to
-   support MREMAP_FIXED in mremap(2) without depending on
+   support overlapping moves. Should the latter become necessary
+   (e.g. to support MREMAP_FIXED in mremap(2) without depending on
    MREMAP_MAYMOVE), write a "traverse_entries_reverse" to walk pages
    from high address to low (like memcpy).
 */
@@ -401,7 +401,7 @@ void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length, heap h)
         return;
     assert(range_empty(range_intersection(irange(vaddr_new, vaddr_new + length),
                                           irange(vaddr_old, vaddr_old + length))));
-    traverse_entries(vaddr_old, length, closure(transient, remap_entry, vaddr_new, vaddr_old, h));
+    traverse_entries(vaddr_old, length, stack_closure(remap_entry, vaddr_new, vaddr_old, h));
 }
 
 static CLOSURE_0_3(zero_page, boolean, int, u64, u64 *);
@@ -420,7 +420,7 @@ static boolean zero_page(int level, u64 addr, u64 * entry)
 
 void zero_mapped_pages(u64 vaddr, u64 length)
 {
-    traverse_entries(vaddr, length, closure(transient, zero_page));
+    traverse_entries(vaddr, length, stack_closure(zero_page));
 }
 
 static CLOSURE_1_3(unmap_page, boolean, range_handler, int, u64, u64 *);
@@ -434,10 +434,11 @@ boolean unmap_page(range_handler rh, int level, u64 vaddr, u64 * entry)
 #endif
         *entry = 0;
         page_invalidate(vaddr);
-        u64 phys = phys_from_pte(old_entry);
-        range p = irange(phys, phys + (entry_is_fat(level, old_entry) ? PAGESIZE_2M : PAGESIZE));
-        if (rh)
+        if (rh) {
+            u64 phys = phys_from_pte(old_entry);
+            range p = irange(phys, phys + (entry_is_fat(level, old_entry) ? PAGESIZE_2M : PAGESIZE));
             apply(rh, p);
+        }
     }
     return true;
 }
@@ -445,13 +446,13 @@ boolean unmap_page(range_handler rh, int level, u64 vaddr, u64 * entry)
 void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh)
 {
     assert(!((virtual & PAGEMASK) || (length & PAGEMASK)));
-    traverse_entries(virtual, length, closure(transient, unmap_page, rh));
+    traverse_entries(virtual, length, stack_closure(unmap_page, rh));
 }
 
 // error processing
-static void map_range(u64 virtual, physical p, int length, u64 flags, heap h)
+static void map_range(u64 virtual, physical p, u64 length, u64 flags, heap h)
 {
-    int len = pad(length, PAGESIZE);
+    u64 len = pad(length, PAGESIZE);
     u64 vo = virtual;
     u64 po = p;
     page pb = pagebase();
@@ -494,8 +495,7 @@ static void map_range(u64 virtual, physical p, int length, u64 flags, heap h)
 	}
         int off = 1ull << (fat ? PT3 : PT4);
         vo += off;
-        if (po != INVALID_PHYSICAL)
-            po += off;
+        po += off;
         i += off;
     }
 #ifdef PAGE_DEBUG
@@ -506,12 +506,19 @@ static void map_range(u64 virtual, physical p, int length, u64 flags, heap h)
     memory_barrier();
 }
 
-void map(u64 virtual, physical p, int length, u64 flags, heap h)
+void map(u64 virtual, physical p, u64 length, u64 flags, heap h)
 {
     map_range(virtual, p, length, flags | PAGE_PRESENT, h);
 }
 
-void unmap(u64 virtual, int length, heap h)
+void unmap(u64 virtual, u64 length, heap h)
 {
-    map_range(virtual, 0, length, 0, h);
+#ifdef PAGE_DEBUG
+    console("unmap v: ");
+    print_u64(virtual);
+    console(", length: ");
+    print_u64(length);
+    console("\n");
+#endif
+    unmap_pages(virtual, length);
 }

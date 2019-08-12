@@ -163,19 +163,6 @@ typedef closure_type(thunk, void);
 #define PAGESIZE U64_FROM_BIT(PAGELOG)
 #define PAGELOG_2M 21
 #define PAGESIZE_2M U64_FROM_BIT(PAGELOG_2M)
-#ifndef physical_from_virtual
-physical physical_from_virtual(void *x);
-#endif
-void dump_ptes(void *x);
-void update_map_flags(u64 vaddr, u64 length, u64 flags);
-void zero_mapped_pages(u64 vaddr, u64 length);
-void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh);
-static inline void unmap_pages(u64 virtual, u64 length)
-{
-    unmap_pages_with_handler(virtual, length, 0);
-}
-
-void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length, heap h);
 
 typedef closure_type(buffer_handler, void, buffer);
 typedef closure_type(block_io, void, void *, range, status_handler);

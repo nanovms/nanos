@@ -27,6 +27,7 @@
  */
 
 #include <x86_64.h>
+#include <page.h>
 
 #include "virtio_internal.h"
 

@@ -1,5 +1,6 @@
 #include <runtime.h>
 #include <x86_64.h>
+#include <page.h>
 #include "hpet.h"
 #include "rtc.h"
 
