@@ -87,7 +87,7 @@ void cblock()
     p("  return _name(^~);|", "@n->l%", "@r%");
     p("}|");
 
-    p("static _rettype (**_fill_##_name(struct _closure_##_name* n, heap h^))(void *~){|", ", _l% l%", ", _r%");
+    p("static _rettype (**_fill_##_name(struct _closure_##_name* n^))(void *~){|", ", _l% l%", ", _r%");
     p("  n->_apply = _apply_##_name;|");
     p("  n->name = #_name;|");
     for (int i = 0; i < nleft ; i++)  p("  n->l% = l%;|", i, i);
