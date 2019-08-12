@@ -263,7 +263,7 @@ void newstack()
 
     create_filesystem(h,
                       SECTOR_SIZE,
-                      1024 * MB, /* XXX change to infinity with new rtrie */
+                      infinity,
                       0,         /* ignored in boot */
                       get_stage2_disk_read(h, fs_offset),
                       closure(h, stage2_empty_write),

@@ -976,7 +976,7 @@ void create_filesystem(heap h,
     fs->alignment = alignment;
     fs->blocksize = SECTOR_SIZE;
 #ifndef BOOT
-    fs->storage = create_id_heap(h, 0, infinity, SECTOR_SIZE);
+    fs->storage = create_id_heap(h, 0, size, SECTOR_SIZE);
     assert(fs->storage != INVALID_ADDRESS);
     assert(id_heap_set_area(fs->storage, 0, INITIAL_LOG_SIZE, true, true));
 #endif
