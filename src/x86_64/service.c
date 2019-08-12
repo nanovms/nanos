@@ -154,7 +154,7 @@ static void read_kernel_syms()
     u64 kern_length;
 
     /* add kernel symbols */
-    for_regions(e)
+    for_regions(e) {
 	if (e->type == REGION_KERNIMAGE) {
 	    kern_base = e->base;
 	    kern_length = e->length;
@@ -169,6 +169,7 @@ static void read_kernel_syms()
             unmap(v, kern_length, heap_pages(&heaps));
 	    break;
 	}
+    }
     
     if (kern_base == INVALID_PHYSICAL) {
 	console("kernel elf image region not found; no debugging symbols\n");

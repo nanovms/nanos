@@ -8,15 +8,15 @@ struct region {
 
 typedef struct region *region;
 
+/* compute address of the e820 region records retrieved in stage1 - must match layout in stage1.s */
 #define regions ((region)pointer_from_u64(0x7c00 + 0x200 - (4 * 16 + 2) - sizeof(struct region)))
 #define for_regions(__r) for (region __r = regions; __r->type; __r -= 1)
 
-#define REGION_PHYSICAL 1 // available physical memory
-#define REGION_DEVICE 2   // e820 physical region configured for i/o
-#define REGION_VIRTUAL 3  // marks allocated instead of available regions
-#define REGION_IDENTITY 4 // use for page tables
-#define REGION_FILESYSTEM 5 // offset on disk for the filesystem, see if we can get disk info from the bios
-#define REGION_KERNIMAGE 6 // location of kernel elf image loaded by stage2
+#define REGION_PHYSICAL   1     /* available physical memory */
+#define REGION_DEVICE     2     /* e820 physical region configured for i/o */
+#define REGION_IDENTITY   4     /* use for page tables */
+#define REGION_FILESYSTEM 5     /* offset on disk for the filesystem, see if we can get disk info from the bios */
+#define REGION_KERNIMAGE  6     /* location of kernel elf image loaded by stage2 */
 
 static inline region create_region(u64 base, u64 length, int type)
 {
@@ -62,9 +62,13 @@ static inline u64 allocate_region(heap h, bytes size)
     if (end > KERNEL_RESERVE_START) {
         if (base < KERNEL_RESERVE_START) {
             r->length -= end - KERNEL_RESERVE_START;
+            if (end > KERNEL_RESERVE_END) {
+                /* Make a new region for any portion above the kernel map. */
+                create_region(KERNEL_RESERVE_END, end - KERNEL_RESERVE_END, REGION_PHYSICAL);
+            }
         } else {
-            /* Really we should just select the next region, but this
-               seems so unlikely... */
+            /* Really we should just select the next region, but it
+               seems unlikely that this would be false... */
             assert(base >= KERNEL_RESERVE_END);
         }
     }

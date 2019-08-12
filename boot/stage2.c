@@ -42,6 +42,7 @@ extern void run64(u32 entry);
 
 static u64 working_p = WORKING_BASE;
 static u64 working_end = WORKING_BASE + WORKING_LEN;
+static u64 working_saved_base;
 
 #define STACKLEN (8 * PAGESIZE)
 static struct heap workings;
@@ -171,13 +172,13 @@ static void setup_page_tables()
     /* initial map, page tables and stack */
     map(0, 0, INITIAL_MAP_SIZE, PAGE_WRITABLE | PAGE_PRESENT, pages);
     map(ident_phys, ident_phys, IDENTITY_HEAP_SIZE, PAGE_WRITABLE | PAGE_PRESENT, pages);
-    /* XXX try to nuke */ map(stackbase, stackbase, (u64)STACKLEN, PAGE_WRITABLE, pages);
+    map(stackbase, stackbase, (u64)STACKLEN, PAGE_WRITABLE, pages);
 
     /* allocate larger space for stage2 working (to accomodate tfs meta, etc.) */
     working_p = allocate_u64(physical, STAGE2_WORKING_HEAP_SIZE);
     assert(working_p != INVALID_PHYSICAL);
+    working_saved_base = working_p;
     working_end = working_p + STAGE2_WORKING_HEAP_SIZE;
-    map(working_p, working_p, STAGE2_WORKING_HEAP_SIZE, PAGE_WRITABLE | PAGE_PRESENT, pages);
 }
 
 static CLOSURE_0_1(kernel_read_complete, void, buffer);
@@ -192,6 +193,11 @@ static void __attribute__((noinline)) kernel_read_complete(buffer kb)
     if (!k) {
         halt("kernel elf parse failed\n");
     }
+
+    /* tell stage3 that pages from the stage2 working heap can be reclaimed */
+    assert(working_saved_base);
+    create_region(working_saved_base, STAGE2_WORKING_HEAP_SIZE, REGION_PHYSICAL);
+
     run64(u64_from_pointer(k));
 }
 
@@ -267,7 +273,6 @@ void newstack()
     halt("kernel failed to execute\n");
 }
 
-// consider passing region area as argument to disperse magic
 void centry()
 {
     workings.alloc = stage2_allocator;
@@ -318,6 +323,7 @@ void centry()
     assert(kh.physical);
     
     stackbase = allocate_u64(kh.physical, STACKLEN);
-    asm("mov %0, %%esp": :"g"(stackbase + STACKLEN - 4));
+    u32 stacktop = stackbase + STACKLEN - 4;
+    asm("mov %0, %%esp": :"g"(stacktop));
     newstack();
 }
