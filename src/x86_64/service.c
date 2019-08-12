@@ -274,7 +274,7 @@ static heap init_pages_id_heap(heap h)
 		halt("\nhalt");
 	    }
 
-#if KERNEL_DEBUG
+#ifdef STAGE3_REGION_DEBUG
 	    console("pages heap: ");
 	    print_u64(base);
 	    console(", length ");
@@ -294,7 +294,7 @@ static heap init_physical_id_heap(heap h)
 {
     heap physical = allocate_id_heap(h, PAGESIZE);
     boolean found = false;
-#if KERNEL_DEBUG
+#ifdef STAGE3_REGION_DEBUG
     console("physical memory:\n");
 #endif
     for_regions(e) {
@@ -308,7 +308,7 @@ static heap init_physical_id_heap(heap h)
 	    if (base >= end)
 		continue;
 	    u64 length = end - base;
-#if KERNEL_DEBUG
+#ifdef STAGE3_REGION_DEBUG
 	    console("   base ");
 	    print_u64(base);
 	    console(", length ");

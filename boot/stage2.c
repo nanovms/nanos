@@ -25,38 +25,17 @@ extern void run64(u32 entry);
  * 0x7e00..0x7fff - unused
  * 0x8000..       - stage2 code
  */
+
+#define EARLY_WORKING_SIZE   KB
+#define STACKLEN             (8 * PAGESIZE)
+
 #define REAL_MODE_STACK_SIZE 0x1000
-#define SCRATCH_BASE 0x500
-#define BOOT_BASE 0x7c00
-#define SCRATCH_LEN (BOOT_BASE - REAL_MODE_STACK_SIZE)
+#define SCRATCH_BASE         0x500
+#define BOOT_BASE            0x7c00
+#define SCRATCH_LEN          (BOOT_BASE - REAL_MODE_STACK_SIZE)
 
-/* We're placing the working heap base at the beginning of extended
-   memory. Use of this heap is tossed out in the move to stage3, thus
-   no mapping set up for it.
-
-   XXX grub support: Figure out how to probe areas used by grub modules, etc.
-   XXX can check e820 regions
-*/
-#define WORKING_BASE 0x100000
-#define WORKING_LEN (4*MB)  /* arbitrary, must be enough for any fs meta */
-
-static u64 working_p = WORKING_BASE;
-static u64 working_end = WORKING_BASE + WORKING_LEN;
-static u64 working_saved_base;
-
-#define STACKLEN (8 * PAGESIZE)
-static struct heap workings;
 static struct kernel_heaps kh;
 static u32 stackbase;
-
-static u64 stage2_allocator(heap h, bytes b)
-{
-    if (working_p + b > working_end)
-        halt("stage2 working heap out of memory\n");
-    u64 result = working_p;
-    working_p += pad(b, 4);       /* tags require alignment */
-    return result;
-}
 
 static u64 s[2] = { 0xa5a5beefa5a5cafe, 0xbeef55aaface55aa };
 
@@ -173,13 +152,9 @@ static void setup_page_tables()
     map(0, 0, INITIAL_MAP_SIZE, PAGE_WRITABLE | PAGE_PRESENT, pages);
     map(ident_phys, ident_phys, IDENTITY_HEAP_SIZE, PAGE_WRITABLE | PAGE_PRESENT, pages);
     map(stackbase, stackbase, (u64)STACKLEN, PAGE_WRITABLE, pages);
-
-    /* allocate larger space for stage2 working (to accomodate tfs meta, etc.) */
-    working_p = allocate_u64(physical, STAGE2_WORKING_HEAP_SIZE);
-    assert(working_p != INVALID_PHYSICAL);
-    working_saved_base = working_p;
-    working_end = working_p + STAGE2_WORKING_HEAP_SIZE;
 }
+
+static u64 working_saved_base;
 
 static CLOSURE_0_1(kernel_read_complete, void, buffer);
 static void __attribute__((noinline)) kernel_read_complete(buffer kb)
@@ -273,11 +248,34 @@ void newstack()
     halt("kernel failed to execute\n");
 }
 
+static struct heap working_heap;
+static u8 early_working[EARLY_WORKING_SIZE] __attribute__((aligned(8)));
+static u64 working_p;
+static u64 working_end;
+
+static u64 stage2_allocator(heap h, bytes b)
+{
+    if (working_p + b > working_end)
+        halt("stage2 working heap out of memory\n");
+    u64 result = working_p;
+    working_p += pad(b, 4);       /* tags require alignment */
+#ifdef DEBUG_STAGE2_ALLOC
+    console("stage2 alloc ");
+    print_u64(result);
+    console(", ");
+    print_u64(working_p);
+    console("\n");
+#endif
+    return result;
+}
+
 void centry()
 {
-    workings.alloc = stage2_allocator;
-    workings.dealloc = leak;
-    kh.general = &workings;
+    working_heap.alloc = stage2_allocator;
+    working_heap.dealloc = leak;
+    working_p = u64_from_pointer(early_working);
+    working_end = working_p + EARLY_WORKING_SIZE;
+    kh.general = &working_heap;
     init_runtime(&kh); /* we know only general is used */
     init_extra_prints();
     stage2_debug("%s\n", __func__);
@@ -319,10 +317,18 @@ void centry()
         }
     }
 
-    kh.physical = region_allocator(&workings, PAGESIZE, REGION_PHYSICAL);
+    kh.physical = region_allocator(&working_heap, PAGESIZE, REGION_PHYSICAL);
     assert(kh.physical);
-    
+
+    /* allocate stage2 (and early stage3) stack */
     stackbase = allocate_u64(kh.physical, STACKLEN);
+
+    /* allocate larger space for stage2 working (to accomodate tfs meta, etc.) */
+    working_p = allocate_u64(kh.physical, STAGE2_WORKING_HEAP_SIZE);
+    assert(working_p != INVALID_PHYSICAL);
+    working_saved_base = working_p;
+    working_end = working_p + STAGE2_WORKING_HEAP_SIZE;
+
     u32 stacktop = stackbase + STACKLEN - 4;
     asm("mov %0, %%esp": :"g"(stacktop));
     newstack();

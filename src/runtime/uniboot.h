@@ -39,9 +39,9 @@ static inline u16 tagof(void* v) {
 #define IDENTITY_HEAP_SIZE (128 * MB)
 
 /* the stage2 secondary working heap - this needs to be large enough
-   to accomodate all tfs allocations when loading the kernel, but it
-   doesn't need to stick around and can be recycled in stage3 */
-#define STAGE2_WORKING_HEAP_SIZE (32 * MB)
+   to accomodate all tfs allocations when loading the kernel - it gets
+   recycled in stage3, so be generous */
+#define STAGE2_WORKING_HEAP_SIZE (128 * MB)
 
 /* maximum buckets that can fit within a PAGESIZE_2M mcache */
 #define TABLE_MAX_BUCKETS 131072
