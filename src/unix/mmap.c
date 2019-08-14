@@ -176,7 +176,7 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
     u64 maplen = pad(new_size, vh->pagesize);
     u64 vnew = allocate_u64(vh, maplen);
     if (vnew == (u64)INVALID_ADDRESS) {
-        msg_err("failed to allocate virtual memory, size %ld", maplen);
+        msg_err("failed to allocate virtual memory, size %ld\n", maplen);
         return -ENOMEM;
     }
 
@@ -201,7 +201,7 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
     u64 dlen = maplen - old_size;
     u64 dphys = allocate_u64(physical, dlen);
     if (dphys == INVALID_PHYSICAL) {
-        msg_err("failed to allocate physical memory, size %ld", dlen);
+        msg_err("failed to allocate physical memory, size %ld\n", dlen);
         deallocate_u64(vh, vnew, maplen);
         return -ENOMEM;
     }
@@ -578,7 +578,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
         where = allocate_u64(vh, maplen);
         if (where == (u64)INVALID_ADDRESS) {
             /* We'll always want to know about low memory conditions, so just bark. */
-            msg_err("failed to allocate %s virtual memory, size 0x%lx",
+            msg_err("failed to allocate %s virtual memory, size 0x%lx\n",
                     is_32bit ? "32-bit" : "", len);
             return -ENOMEM;
         }
