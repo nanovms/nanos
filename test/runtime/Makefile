@@ -10,6 +10,7 @@ PROGRAMS= \
 	hwg \
 	hws \
 	mkdir \
+	mmap \
 	nullpage \
 	paging \
 	pipe \
@@ -56,6 +57,9 @@ SRCS-hw=		$(CURDIR)/hw.c
 
 SRCS-hws=		$(SRCS-hw)
 LDFLAGS-hws=		-static
+
+SRCS-mmap=		$(CURDIR)/mmap.c
+LDFLAGS-mmap=		-static
 
 SRCS-mkdir= \
 	$(CURDIR)/mkdir.c \
