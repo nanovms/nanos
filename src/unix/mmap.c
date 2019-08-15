@@ -222,19 +222,49 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
     return sysreturn_from_pointer(vnew);
 }
 
+#if 0
+/* No-op callback for rangemap_find_gaps ... */
+static CLOSURE_0_1(vmap_gap, void, range);
+static void vmap_gap(range r) 
+{
+    rprintf("Found gap: [0x%lx, 0x%lx)\n", r.start, r.end);
+}
+#endif
+
 static sysreturn mincore(void *addr, u64 length, u8 *vec)
 {
-    u64 where = u64_from_pointer(addr);
-    if (where & MASK(PAGELOG))
+    u64 start, i;
+
+    start = u64_from_pointer(addr);
+    if (start & MASK(PAGELOG))
         return -EINVAL;
 
-    if (validate_virtual(addr, length)) {
-        u32 vlen = pad(length, PAGESIZE) >> PAGELOG;
-        // presumably it wants the right valid bits set? - go doesn't seem to use it this way
-        for (int i = 0; i< vlen; i++) vec[i] = 1;
-        return 0;
+    length = pad(length, PAGESIZE);
+
+    /* XXX: we have no way to know whether there is unmapped memory in this range,
+     * since things like stack/heap/globals are not tracked
+     */
+#if 0
+    /* determine whether whole range is mapped; -ENOMEM if not */
+    {
+        heap h = heap_general(get_kernel_heaps());
+        rangemap pvmap = current->p->vmaps;
+        range r = { start, start + length };
+
+        rprintf("Searching for gaps in vrange [0x%lx, 0x%lx)\n",
+            start, start + length);
+
+        range_handler rh = closure(h, vmap_gap);
+        if (rangemap_range_find_gaps(pvmap, r, rh))
+            return -ENOMEM;
     }
-    return -ENOMEM;
+#endif
+
+    for (i = 0; i < (length >> PAGELOG); i++)
+        vec[i] = 0;
+
+    mincore_pages(start, length, vec);
+    return 0;
 }
 
 static CLOSURE_6_2(mmap_read_complete, void, thread, u64, u64, boolean, buffer, u64, status, bytes);
