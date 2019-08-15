@@ -33,5 +33,6 @@ static inline void unmap_pages(u64 virtual, u64 length)
 void update_map_flags(u64 vaddr, u64 length, u64 flags);
 void zero_mapped_pages(u64 vaddr, u64 length);
 void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length, heap h);
+void mincore_pages(u64 vaddr, u64 length, u8 * vec);
 
 void dump_ptes(void *x);
