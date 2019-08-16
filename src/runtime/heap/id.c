@@ -274,7 +274,6 @@ void id_heap_set_randomize(heap h, boolean randomize)
 
 u64 id_heap_alloc_subrange(heap h, bytes count, u64 start, u64 end)
 {
-    range subrange = irange(start, end);
     id_heap i = (id_heap)h;
 
     /* convert to pages */
