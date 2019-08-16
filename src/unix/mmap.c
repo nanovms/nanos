@@ -701,14 +701,32 @@ void mmap_process_init(process p)
 
     /* It may be more elegant to put these into a table... */
 
-    /* Low memory is fair game but untracked... */
-    add_varea(PAGESIZE, PROCESS_VIRTUAL_32_HEAP_START, 0, true);
+    /* Zero page is off-limits */
+    add_varea(0, PAGESIZE, 0, false);
 
-    /* Fixed mappings in virtual32 space; just reserve the area so future allocations won't collide */
-    add_varea(PROCESS_VIRTUAL_32_HEAP_START, PROCESS_VIRTUAL_32_HEAP_END, p->virtual32, true);
+    /* Low 2GB of 32-bit address space */
+    u64 identity_start = p->uh->kh.identity_reserved_start;
+    u64 identity_end = p->uh->kh.identity_reserved_end;
+    u64 top_2gb = MIN(KERNEL_RESERVE_START, identity_start);
+    add_varea(PAGESIZE, top_2gb, 0, true);
 
-    /* Kernel memory through the end of 2gb area */
-    add_varea(u64_from_pointer(&START), 0x80000000, 0, false);
+    /* top_2gb through end of 2gb area is reserved */
+    add_varea(top_2gb, 0x80000000, 0, false);
+
+    /* We haven't actually run into this, but it's technically
+       possible that a particular combination of e820 physical regions
+       would cause the identity heap to be carved out of the upper 2gb
+       of 32-bit space, so attempt to support such a case. */
+    u64 virtual32_end;
+    if (identity_start > 0x80000000) {
+        add_varea(identity_start, identity_end, 0, false);
+        virtual32_end = identity_start;
+    } else {
+        virtual32_end = 0x100000000;
+    }
+
+    /* virtual32 space for mmaps with MAP_32BIT */
+    add_varea(0x80000000, virtual32_end, p->virtual32, true);
 
     /* Reserved for kernel allocations */
     add_varea(HUGE_PAGESIZE, PROCESS_VIRTUAL_HEAP_START, 0, false);

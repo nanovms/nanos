@@ -24,11 +24,11 @@ void startup(kernel_heaps kh,
 heap allocate_tagged_region(kernel_heaps kh, u64 tag)
 {
     heap h = heap_general(kh);
-    heap pages = heap_pages(kh);
-    heap physical = heap_physical(kh);
-    heap backed = physically_backed(h,
-                                    create_id_heap(h, tag << va_tag_offset, 1ull<<va_tag_offset, physical->pagesize),
-                                    physical, pages, physical->pagesize);
+    heap p = heap_physical(kh);
+    heap v = create_id_heap(h, tag << va_tag_offset,
+                            U64_FROM_BIT(va_tag_offset), p->pagesize);
+    assert(v != INVALID_ADDRESS);
+    heap backed = physically_backed(h, v, p, heap_pages(kh), p->pagesize);
     if (backed == INVALID_ADDRESS)
         return backed;
 
@@ -261,9 +261,11 @@ static void __attribute__((noinline)) init_service_new_stack()
 
 static heap init_pages_id_heap(heap h)
 {
+    boolean found = false;
     heap pages = allocate_id_heap(h, PAGESIZE);
     for_regions(e) {
 	if (e->type == REGION_IDENTITY) {
+            assert(!found);     /* should only be one... */
 	    u64 base = e->base;
 	    u64 length = e->length;
 	    if ((base & (PAGESIZE-1)) | (length & (PAGESIZE-1))) {
@@ -283,11 +285,18 @@ static heap init_pages_id_heap(heap h)
 #endif
 	    if (!id_heap_add_range(pages, base, length))
 		halt("    - id_heap_add_range failed\n");
-	    return pages;
-	}
+	    found = true;
+	} else if (e->type == REGION_IDENTITY_RESERVED) {
+            assert(heaps.identity_reserved_start == 0);     /* should only be one... */
+            heaps.identity_reserved_start = e->base;
+            heaps.identity_reserved_end = e->base + e->length;
+        }
     }
-    halt("no identity region found; halt\n");
-    return INVALID_ADDRESS;	/* no warning */
+    if (!found)
+        halt("no identity region found; halt\n");
+    if (heaps.identity_reserved_start == 0)
+        halt("reserved identity region not found; halt\n");
+    return pages;
 }
 
 static heap init_physical_id_heap(heap h)

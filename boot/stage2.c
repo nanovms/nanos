@@ -141,6 +141,9 @@ static void setup_page_tables()
     u64 ident_phys = allocate_u64(physical, IDENTITY_HEAP_SIZE);
     assert(ident_phys != INVALID_PHYSICAL);
     create_region(ident_phys, IDENTITY_HEAP_SIZE, REGION_IDENTITY);
+    create_region(ident_phys, IDENTITY_HEAP_SIZE, REGION_IDENTITY_RESERVED);
+    stage2_debug("identity heap at [0x%lx,  0x%lx)\n",
+                 ident_phys, ident_phys + IDENTITY_HEAP_SIZE);
 
     /* page table setup */
     heap pages = region_allocator(working, PAGESIZE, REGION_IDENTITY);

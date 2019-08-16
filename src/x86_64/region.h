@@ -12,11 +12,12 @@ typedef struct region *region;
 #define regions ((region)pointer_from_u64(0x7c00 + 0x200 - (4 * 16 + 2) - sizeof(struct region)))
 #define for_regions(__r) for (region __r = regions; __r->type; __r -= 1)
 
-#define REGION_PHYSICAL   1     /* available physical memory */
-#define REGION_DEVICE     2     /* e820 physical region configured for i/o */
-#define REGION_IDENTITY   4     /* use for page tables */
-#define REGION_FILESYSTEM 5     /* offset on disk for the filesystem, see if we can get disk info from the bios */
-#define REGION_KERNIMAGE  6     /* location of kernel elf image loaded by stage2 */
+#define REGION_PHYSICAL          1 /* available physical memory */
+#define REGION_DEVICE            2 /* e820 physical region configured for i/o */
+#define REGION_IDENTITY          3 /* for page table allocations in stage2 and stage3 */
+#define REGION_IDENTITY_RESERVED 4 /* entire identity area which must be preserved in stage3 */
+#define REGION_FILESYSTEM        5 /* offset on disk for the filesystem, see if we can get disk info from the bios */
+#define REGION_KERNIMAGE         6 /* location of kernel elf image loaded by stage2 */
 
 static inline region create_region(u64 base, u64 length, int type)
 {

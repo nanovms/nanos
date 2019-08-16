@@ -158,8 +158,9 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
         assert(p->virtual_page != INVALID_ADDRESS);
         if (aslr)
             id_heap_set_randomize(p->virtual_page, true);
-        p->virtual32 = create_id_heap(h, PROCESS_VIRTUAL_32_HEAP_START,
-                                      PROCESS_VIRTUAL_32_HEAP_LENGTH, PAGESIZE);
+        u64 identity_start = uh->kh.identity_reserved_start;
+        u64 virtual32_end = identity_start > 0x80000000 ? identity_start : 0x100000000;
+        p->virtual32 = create_id_heap(h, 0x80000000, virtual32_end, PAGESIZE);
         assert(p->virtual32 != INVALID_ADDRESS);
         if (aslr)
             id_heap_set_randomize(p->virtual32, true);

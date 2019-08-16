@@ -31,7 +31,9 @@ static void physically_backed_dealloc(heap h, u64 x, bytes length)
 	return;
     }
 
-    deallocate(b->physical, physical_from_virtual(pointer_from_u64(x)), padlen);
+    u64 phys = physical_from_virtual(pointer_from_u64(x));
+    assert(phys != INVALID_PHYSICAL);
+    deallocate(b->physical, phys, padlen);
     deallocate(b->virtual, pointer_from_u64(x), padlen);
     unmap(x, padlen, b->pages);
 }
