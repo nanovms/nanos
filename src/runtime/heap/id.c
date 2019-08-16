@@ -8,7 +8,7 @@
 #endif
 
 typedef struct id_range {
-    struct rmnode n;
+    struct rmnode n;            /* range in pages */
     bitmap b;
     u64 next_bit;               /* for next-fit search */
 } *id_range;
@@ -38,32 +38,37 @@ static id_range id_add_range(id_heap i, u64 base, u64 length)
 {
     id_debug("base 0x%lx, end 0x%lx\n", base, base + length);
     /* -1 = unlimited; make maximum possible range */
-    if (length == -1ull) {
+    if (length == infinity) {
 	length -= base;
 	/* bitmap will round up to next 64 page boundary, don't wrap */
 	length &= ~((1ull << (page_order(i) + 6)) - 1);
     }
+
+    /* assert only page-sized and non-zero */
     assert(length >= page_size(i));
-    assert((length & page_mask(i)) == 0); /* multiple of pagesize */
+    assert((base & page_mask(i)) == 0);
+    assert((length & page_mask(i)) == 0);
 
     /* check that this won't overlap with an existing range */
+    u64 page_start = base >> page_order(i);
+    u64 pages = length >> page_order(i);
     id_range ir = allocate(i->meta, sizeof(struct id_range));
-    ir->n.r = irange(base, base + length);
+    ir->n.r = irange(page_start, page_start + pages);
+    id_debug("page range %R\n", ir->n.r);
     if (ir == INVALID_ADDRESS)
 	return ir;
     if (!rangemap_insert(i->ranges, &ir->n)) {
         msg_err("%s: range insertion failure; conflict with range %R\n", __func__, ir->n.r);
         goto fail;
     }
-    u64 bits = length >> page_order(i);
-    ir->b = allocate_bitmap(i->meta, bits);
+    ir->b = allocate_bitmap(i->meta, pages);
     if (ir->b == INVALID_ADDRESS) {
         msg_err("%s: failed to allocate bitmap for range %R\n", __func__, ir->n.r);
         goto fail;
     }
     ir->next_bit = 0;
     i->total += length;
-    id_debug("added range base 0x%lx, length 0x%lx\n", base, length);
+    id_debug("added range base 0x%lx, end 0x%lx (length 0x%lx)\n", base, base + length, length);
     return ir;
   fail:
     deallocate(i->meta, ir, sizeof(struct id_range));
@@ -83,6 +88,7 @@ static id_range id_get_backed_page(id_heap i)
 
 static u64 id_alloc_from_range(id_heap i, id_range r, u64 pages, range subrange)
 {
+    id_debug("id range %R, pages %ld, subrange %R\n", r->n.r, pages, subrange);
     u64 pages_rounded = U64_FROM_BIT(find_order(pages)); /* maintain 2^n alignment */
 
     /* find intersection, align start and end to 2^n and subtract range offset */
@@ -90,14 +96,18 @@ static u64 id_alloc_from_range(id_heap i, id_range r, u64 pages, range subrange)
     id_debug("intersection %R, pages_rounded %ld\n", ri, pages_rounded);
     if (range_empty(ri))
         return INVALID_PHYSICAL;
+
+    /* align search start (but not end, for pages may fit in a
+       non-power-of-2 remainder at the end of the range) and remove
+       id_range offset */
     ri.start = pad(ri.start, pages_rounded) - r->n.r.start;
-    ri.end = (ri.end & ~(pages_rounded - 1)) - r->n.r.start;
+    ri.end -= r->n.r.start;
     id_debug("after adjust %R\n", ri);
-    if (!range_valid(ri) || range_span(ri) < pages_rounded)
+    if (!range_valid(ri) || range_span(ri) < pages)
         return INVALID_PHYSICAL;
 
     /* check for randomization, else check for next fit */
-    u64 max_start = range_span(ri) - pages_rounded;
+    u64 max_start = range_span(ri) > pages_rounded ? (range_span(ri) & (pages_rounded - 1)) - 1 : 0;
     u64 start_bit = ri.start;
     if ((i->flags & ID_HEAP_FLAG_RANDOMIZE) && max_start > 0)
         start_bit += random_u64() % max_start;
@@ -111,14 +121,13 @@ static u64 id_alloc_from_range(id_heap i, id_range r, u64 pages, range subrange)
 	bit = bitmap_alloc_within_range(r->b, pages, ri.start, start_bit);
     if (bit == INVALID_PHYSICAL)
         return bit;
-    id_debug("... allocated bit %ld\n", bit);
-    r->next_bit = bit;
 
-    u64 offset = bit << page_order(i);
+    r->next_bit = bit;
     i->h.allocated += pages << page_order(i);
-    id_debug("heap %p, pages %ld: got offset (%ld << %ld = %lx)\t>%lx\n",
-             i, pages, bit, page_order(i), offset, r->n.r.start + offset);
-    return r->n.r.start + offset;
+    u64 result = (r->n.r.start + bit) << page_order(i);
+    id_debug("allocated bit %ld, range page start %ld, returning 0x%lx\n",
+             bit, r->n.r.start, result);
+    return result;
 }
 
 static u64 id_alloc(heap h, bytes count)
@@ -150,8 +159,8 @@ static void dealloc_from_range(id_heap i, range q, rmnode n)
     range ri = range_intersection(q, n->r);
     id_range r = (id_range)n;
 
-    int bit = (ri.start - n->r.start) >> page_order(i);
-    u64 pages = pages_from_bytes(i, range_span(ri));
+    int bit = ri.start - n->r.start;
+    u64 pages = range_span(ri);
     if (!bitmap_dealloc(r->b, bit, pages)) {
         msg_err("heap %p: bitmap dealloc for range %R failed; leaking\n", i, q);
         return;
@@ -172,13 +181,13 @@ static void id_dealloc(heap h, u64 a, bytes count)
     if (count == 0)
 	return;
 
-    range q = irange(a, a + count);
     if ((a & page_mask(i)) != 0 || (count & page_mask(i)) != 0) {
-        msg_err("heap %p: range %R not page-aligned; leaking\n", h, q);
+        msg_err("heap %p: a 0x%lx, count 0x%lx not page-aligned; leaking\n", h, a, count);
         return;
     }
 
-    rmnode_handler nh = closure(transient, dealloc_from_range, i, q);
+    range q = irange(a >> page_order(i), (a + count) >> page_order(i));
+    rmnode_handler nh = stack_closure(dealloc_from_range, i, q);
     if (!rangemap_range_lookup(i->ranges, q, nh))
         msg_err("heap %p: no match for range %R\n", h, q);
 }
@@ -232,8 +241,8 @@ static void set_intersection(id_heap i, range q, boolean * fail, boolean validat
     range ri = range_intersection(q, n->r);
     id_range r = (id_range)n;
 
-    int bit = (ri.start - n->r.start) >> page_order(i);
-    if (!bitmap_range_check_and_set(r->b, bit, pages_from_bytes(i, range_span(ri)), validate, allocate))
+    int bit = ri.start - n->r.start;
+    if (!bitmap_range_check_and_set(r->b, bit, range_span(ri), validate, allocate))
         *fail = true;
 }
 
@@ -243,9 +252,9 @@ boolean id_heap_set_area(heap h, u64 base, u64 length, boolean validate, boolean
     base &= ~page_mask(i);
     length = pad(length, page_mask(i));
 
-    range q = irange(base, base + length);
+    range q = irange(base >> page_order(i), (base + length) >> page_order(i));
     boolean fail = false;
-    rmnode_handler nh = closure(transient, set_intersection, i, q, &fail, validate, allocate);
+    rmnode_handler nh = stack_closure(set_intersection, i, q, &fail, validate, allocate);
     boolean result = rangemap_range_lookup(i->ranges, q, nh);
     return result && !fail;
 }
@@ -264,20 +273,18 @@ void id_heap_set_randomize(heap h, boolean randomize)
 
 u64 id_heap_alloc_subrange(heap h, bytes count, u64 start, u64 end)
 {
-    range subrange = irange(start, end);
     id_heap i = (id_heap)h;
-    if (count == 0 ||
-        !range_valid(subrange) || range_span(subrange) == 0 ||
+
+    /* convert to pages */
+    range subrange = irange(pad(start, page_size(i)) >> page_order(i),
+                            end == infinity ? infinity : end >> page_order(i));
+    id_debug("heap %p, count 0x%lx, start 0x%lx, end 0x%lx, page range %R\n",
+             h, count, start, end, subrange);
+    if (count == 0 || !range_valid(subrange) || range_span(subrange) == 0 ||
         subrange.start == infinity)
         return INVALID_PHYSICAL;
 
-    /* convert subrange to pages */
-    subrange.start = pad(subrange.start, page_size(i)) >> page_order(i);
-    if (subrange.end < infinity)
-        subrange.end = (subrange.end & ~page_mask(i)) >> page_order(i);
-
     u64 pages = pages_from_bytes(i, count);
-
     if (range_span(subrange) < pages)
         return INVALID_PHYSICAL;
 

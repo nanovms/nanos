@@ -3,10 +3,10 @@
 #define EXIT_FAILURE 1
 #define EXIT_SUCCESS 0
 
-#define MAX_PAGE_ORDER		12
-#define LENGTH_ORDER		16
-#define RANDOM_TEST_PASSES	100
-#define GTE_TEST_MAX		512
+#define MAX_PAGE_ORDER	     12
+#define LENGTH_ORDER	     16
+#define RANDOM_TEST_PASSES   100
+#define GTE_TEST_MAX	     512
 
 static boolean basic_test(heap h)
 {
@@ -238,6 +238,114 @@ static boolean alloc_gte_test(heap h)
     return true;
 }
 
+#define SUBRANGE_TEST_MIN         (8 * PAGESIZE)
+#define SUBRANGE_TEST_LENGTH      (16 * PAGESIZE)
+#define SUBRANGE_TEST_END         (SUBRANGE_TEST_MIN + SUBRANGE_TEST_LENGTH)
+#define SUBRANGE_TEST_INIT_ALLOCS 4
+
+static boolean alloc_subrange_test(heap h)
+{
+    build_assert((SUBRANGE_TEST_LENGTH % 4) == 0);
+
+    heap id = create_id_heap(h, SUBRANGE_TEST_MIN, SUBRANGE_TEST_LENGTH, PAGESIZE);
+    if (id == INVALID_ADDRESS) {
+        msg_err("cannot create heap\n");
+        return false;
+    }
+
+    /* these should fail */
+    if (id_heap_alloc_subrange(id, PAGESIZE, 0, SUBRANGE_TEST_MIN) != INVALID_PHYSICAL) {
+        msg_err("%s: should have failed for lower non-intersecting subrange\n", __func__);
+        return false;
+    }
+
+    if (id_heap_alloc_subrange(id, 1, SUBRANGE_TEST_END - PAGESIZE + 1,
+                               SUBRANGE_TEST_END + PAGESIZE) != INVALID_PHYSICAL) {
+        msg_err("%s: should have failed for upper non-intersecting subrange\n", __func__);
+        return false;
+    }
+
+    if (id_heap_alloc_subrange(id, PAGESIZE, SUBRANGE_TEST_MIN + PAGESIZE + 1,
+                               SUBRANGE_TEST_MIN + 2 * PAGESIZE + 1) != INVALID_PHYSICAL) {
+        msg_err("%s: should have failed for unaligned subrange\n", __func__);
+        return false;
+    }
+
+    int pages_remaining = SUBRANGE_TEST_LENGTH / PAGESIZE;
+    /* test alloc within unaligned range */
+    int alloc_size = 1;
+    int allocs = SUBRANGE_TEST_INIT_ALLOCS - 1; /* subtract skipped page from head align */
+    u64 expect = SUBRANGE_TEST_MIN + PAGESIZE;
+    u64 start = SUBRANGE_TEST_MIN + 1;
+    u64 end = SUBRANGE_TEST_MIN + (allocs + 1) * PAGESIZE + 1;
+    u64 res;
+    for (int i = 0; i < allocs; i++) {
+        if ((res = id_heap_alloc_subrange(id, alloc_size, start, end)) != expect) {
+            msg_err("%s: subrange alloc expected 0x%lx, got 0x%lx\n", __func__, expect, res);
+            return false;
+        }
+        pages_remaining--;
+        expect += PAGESIZE;
+    }
+    if ((res = id_heap_alloc_subrange(id, alloc_size, start, end)) != INVALID_PHYSICAL) {
+        msg_err("%s: superfluous subrange alloc should have failed, got 0x%lx\n", __func__, res);
+        return false;
+    }
+
+    /* test multi-page (but not power-of-2) alloc with range not multiple of alignment */
+    alloc_size = 3 * PAGESIZE;
+    allocs = ((SUBRANGE_TEST_LENGTH / PAGESIZE) - SUBRANGE_TEST_INIT_ALLOCS) / 4;
+    start = end - 1;
+    expect = pad(start, 4 * PAGESIZE);
+    end = expect + (allocs - 1) * (4 * PAGESIZE) + (3 * PAGESIZE);
+
+    for (int i = 0; i < allocs; i++) {
+        if ((res = id_heap_alloc_subrange(id, alloc_size, start, end)) != expect) {
+            msg_err("%s: multi-page subrange alloc expected 0x%lx, got 0x%lx\n", __func__, expect, res);
+            return false;
+        }
+        pages_remaining -= 3;
+        expect += 4 * PAGESIZE;
+    }
+    if ((res = id_heap_alloc_subrange(id, alloc_size, start, end)) != INVALID_PHYSICAL) {
+        msg_err("%s: multi-page superfluous subrange alloc should have failed, got 0x%lx\n", __func__, res);
+        return false;
+    }
+
+    /* we should have a remainder page for each 3-page alloc plus the skipped page above */
+    if (pages_remaining != allocs + 1) {
+        msg_err("%s: test bug, pages_remaining %d, should be %d\n", pages_remaining, allocs + 1);
+        return false;
+    }
+
+    for (int i = 0; i < pages_remaining; i++) {
+        switch (i) {
+        case 0:
+            expect -= PAGESIZE; /* next fit should pick up last remaining page */
+            break;
+        case 1:
+            expect = SUBRANGE_TEST_MIN; /* should wrap around and pick up skipped page from above */
+            break;
+        default:
+            expect = (15 * PAGESIZE) + 4 * (i - 2) * PAGESIZE;
+        }
+
+        if ((res = allocate_u64(id, PAGESIZE)) != expect) {
+            msg_err("%s: remainder alloc returned 0x%lx, should be 0x%lx\n", __func__, res, expect);
+            return false;
+        }
+    }
+
+    /* we should have exhausted the number space */
+    if ((res = allocate_u64(id, PAGESIZE)) != INVALID_PHYSICAL) {
+        msg_err("%s: should have exhausted number space, got 0x%lx\n", __func__, res);
+        return false;
+    }
+
+    id->destroy(id);
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     heap h = init_process_runtime();
@@ -255,6 +363,9 @@ int main(int argc, char **argv)
     }
 
     if (!alloc_gte_test(h))
+        goto fail;
+
+    if (!alloc_subrange_test(h))
         goto fail;
 
     msg_debug("test passed\n");

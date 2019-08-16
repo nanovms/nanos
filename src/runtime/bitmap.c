@@ -96,14 +96,19 @@ static inline u64 bitmap_alloc_internal(bitmap b, u64 nbits, u64 startbit, u64 e
 {
     int order = find_order(nbits);
     u64 stride = U64_FROM_BIT(order);
-    u64 * mapbase = bitmap_base(b);
-    u64 bit = startbit & ~MASK(order); /* start at alignment */
-
     endbit = MIN(endbit, b->maxbits);
+
+    u64 bit = pad(startbit, stride);
+    if (bit + nbits > endbit)
+        return INVALID_PHYSICAL;
+
+    u64 * mapbase = bitmap_base(b);
+
+    endbit -= nbits;
 
     if (nbits >= 64) {
         /* multi-word */
-        while (bit + nbits <= endbit) {
+        while (bit <= endbit) {
             if (bitmap_extend(b, bit + nbits))
                 mapbase = bitmap_base(b);
 
@@ -115,31 +120,31 @@ static inline u64 bitmap_alloc_internal(bitmap b, u64 nbits, u64 startbit, u64 e
             bit += stride;
         }
     } else {
-        int shift = bit & 63;   /* offset if startbit not on word align */
-        bit &= ~63;
-
-        /* allocations up to a word's worth of bits
-
-           XXX: add special case for (endbit & 63) */
-        for (; bit + nbits <= endbit; shift = 0, bit += 64) {
+        for (; bit <= endbit; bit += 64) {
+            /* get offset (for start bit, 0 otherwise) and align bit to word boundary */
+            int word_offset = bit & 63;
+            bit -= word_offset;
             if (bitmap_extend(b, bit + 64))
                 mapbase = bitmap_base(b);
 
-            u64 mask = MASK(nbits) << shift;
+            u64 mask = MASK(nbits) << word_offset;
             u64 bw = *pointer_from_bit(mapbase, bit);
 
             if (bw == -1ull)    /* skip full words */
                 continue;
 
             do {
+                if (bit + word_offset > endbit)
+                    return INVALID_PHYSICAL;
+
                 if ((bw & mask) == 0) {
-                    assert(for_range_in_map(mapbase, bit + shift, nbits, true, true));
-                    return bit + shift;
+                    assert(for_range_in_map(mapbase, bit + word_offset, nbits, true, true));
+                    return bit + word_offset;
                 }
 
                 mask <<= stride;
-                shift += stride;
-            } while (shift < 64);
+                word_offset += stride;
+            } while (word_offset < 64);
         }
     }
 
