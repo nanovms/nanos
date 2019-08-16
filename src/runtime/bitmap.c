@@ -92,12 +92,14 @@ boolean bitmap_range_check_and_set(bitmap b, u64 start, u64 nbits, boolean valid
         for_range_in_map(mapbase, start, nbits, true, set);
 }
 
-static u64 bitmap_alloc_internal(bitmap b, u64 nbits, u64 startbit, u64 endbit)
+static inline u64 bitmap_alloc_internal(bitmap b, u64 nbits, u64 startbit, u64 endbit)
 {
     int order = find_order(nbits);
     u64 stride = U64_FROM_BIT(order);
     u64 * mapbase = bitmap_base(b);
     u64 bit = startbit & ~MASK(order); /* start at alignment */
+
+    endbit = MIN(endbit, b->maxbits);
 
     if (nbits >= 64) {
         /* multi-word */
@@ -149,16 +151,9 @@ u64 bitmap_alloc(bitmap b, u64 nbits)
     return bitmap_alloc_internal(b, nbits, 0, b->maxbits);
 }
 
-/* Allocate size bits, beginning search at offset - for randomized and
-   next-fit allocations. offset will be aligned down to the lower
-   order boundary.
-*/
-u64 bitmap_alloc_with_offset(bitmap b, u64 size, u64 offset)
+u64 bitmap_alloc_within_range(bitmap b, u64 nbits, u64 start, u64 end)
 {
-    u64 bit = bitmap_alloc_internal(b, size, offset, b->maxbits);
-    if (bit == INVALID_PHYSICAL && offset > 0)
-        return bitmap_alloc_internal(b, size, 0, offset);
-    return bit;
+    return bitmap_alloc_internal(b, nbits, start, end);
 }
 
 boolean bitmap_dealloc(bitmap b, u64 bit, u64 size)

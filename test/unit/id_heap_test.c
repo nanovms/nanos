@@ -175,12 +175,12 @@ static boolean alloc_gte_test(heap h)
         msg_err("cannot create heap\n");
         return false;
     }
-    if (id_heap_alloc_gte(idh, GTE_TEST_MAX) != INVALID_PHYSICAL) {
+    if (id_heap_alloc_gte(idh, 1, GTE_TEST_MAX) != INVALID_PHYSICAL) {
         msg_err("allocation should have failed for id %ld\n", GTE_TEST_MAX);
         return false;
     }
     for (u64 id = 0; id < GTE_TEST_MAX; id++) {
-        u64 allocated = id_heap_alloc_gte(idh, id);
+        u64 allocated = id_heap_alloc_gte(idh, 1, id);
         if (allocated != id) {
             if (allocated == INVALID_PHYSICAL) {
                 msg_err("allocation failed for id %ld\n", id);
@@ -197,7 +197,7 @@ static boolean alloc_gte_test(heap h)
         deallocate_u64(idh, id, 1);
     }
     for (u64 id = GTE_TEST_MAX - 1; (s64)id >= 0; id--) {
-        u64 allocated = id_heap_alloc_gte(idh, id);
+        u64 allocated = id_heap_alloc_gte(idh, 1, id);
         if (allocated != id) {
             if (allocated == INVALID_PHYSICAL) {
                 msg_err("allocation failed for id %ld\n", id);
@@ -214,7 +214,7 @@ static boolean alloc_gte_test(heap h)
         deallocate_u64(idh, id, 1);
     }
     for (u64 id = 0; ; id++) {
-        u64 allocated = id_heap_alloc_gte(idh, 0);
+        u64 allocated = id_heap_alloc_gte(idh, 1, 0);
         if (allocated == INVALID_PHYSICAL) {
             if (id != GTE_TEST_MAX) {
                 msg_err("allocation failed for id %ld\n", id);
