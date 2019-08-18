@@ -6,11 +6,10 @@
 #include <unix.h>
 #include <x86_64.h>
 
-/* XXX kinda arbitrary, not sure where these came from or what correct
-   values should be */
-#define PROCESS_VIRTUAL_HEAP_START      0x7000000000ull
-#define PROCESS_VIRTUAL_HEAP_LENGTH     0x10000000000ull
-#define PROCESS_VIRTUAL_HEAP_END        (PROCESS_VIRTUAL_HEAP_START + PROCESS_VIRTUAL_HEAP_LENGTH - 1)
+/* area for mmaps abut the kernel tagged region */
+#define PROCESS_VIRTUAL_HEAP_START  0x7000000000ull
+#define PROCESS_VIRTUAL_HEAP_END    0x10000000000ull
+#define PROCESS_VIRTUAL_HEAP_LENGTH (PROCESS_VIRTUAL_HEAP_END - PROCESS_VIRTUAL_HEAP_START)
 
 typedef s64 sysreturn;
 
@@ -218,9 +217,9 @@ typedef struct process {
     unix_heaps        uh;       /* non-thread-specific */
     int               pid;
     void             *brk;
-    heap              virtual;
-    heap              virtual_page;
-    heap              virtual32;
+    heap              virtual;  /* huge virtual, parent of virtual_page */
+    heap              virtual_page; /* pagesized, default for mmaps */
+    heap              virtual32; /* for tracking low 32-bit space and MAP_32BIT maps */
     heap              fdallocator;
     filesystem        fs;       /* XXX should be underneath tuple operators */
     tuple             process_root;

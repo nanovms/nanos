@@ -25,12 +25,16 @@ heap allocate_tagged_region(kernel_heaps kh, u64 tag)
 {
     heap h = heap_general(kh);
     heap p = heap_physical(kh);
-    heap v = create_id_heap(h, tag << va_tag_offset,
-                            U64_FROM_BIT(va_tag_offset), p->pagesize);
+    u64 tag_base = tag << va_tag_offset;
+    u64 tag_length = U64_FROM_BIT(va_tag_offset);
+    heap v = create_id_heap(h, tag_base, tag_length, p->pagesize);
     assert(v != INVALID_ADDRESS);
     heap backed = physically_backed(h, v, p, heap_pages(kh), p->pagesize);
     if (backed == INVALID_ADDRESS)
         return backed;
+
+    /* reserve area in virtual_huge */
+    assert(id_heap_set_area(heap_virtual_huge(kh), tag_base, tag_length, true, true));
 
     /* tagged mcache range of 32 to 1M bytes (131072 table buckets) */
     build_assert(TABLE_MAX_BUCKETS * sizeof(void *) <= 1 << 20);
