@@ -219,12 +219,25 @@ u64 random_seed(void)
     return (u64)now();
 }
 
+static void reclaim_regions(void)
+{
+    for_regions(e) {
+        if (e->type == REGION_RECLAIM) {
+            unmap(e->base, e->length, heap_pages(&heaps));
+            if (!id_heap_add_range(heap_physical(&heaps), e->base, e->length))
+                halt("%s: add range for physical heap failed (%R)\n",
+                     __func__, irange(e->base, e->base + e->length));
+        }
+    }
+}
+
 static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = &heaps;
     heap misc = heap_general(kh);
     heap pages = heap_pages(kh);
 
+    reclaim_regions();          /* unmap and reclaim stage2 stack */
     init_runtime(kh);
     init_extra_prints();
     init_pci(kh);
@@ -259,7 +272,6 @@ static void __attribute__((noinline)) init_service_new_stack()
     /* Switch to stage3 GDT64, enable TSS and free up initial map */
     install_gdt64_and_tss();
     unmap(PAGESIZE, INITIAL_MAP_SIZE - PAGESIZE, pages);
-
     runloop();
 }
 

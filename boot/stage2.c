@@ -35,7 +35,8 @@ extern void run64(u32 entry);
 #define SCRATCH_LEN          (BOOT_BASE - REAL_MODE_STACK_SIZE)
 
 static struct kernel_heaps kh;
-static u32 stackbase;
+static u32 stack_base;
+static u32 identity_base;
 
 static u64 s[2] = { 0xa5a5beefa5a5cafe, 0xbeef55aaface55aa };
 
@@ -136,25 +137,20 @@ static void setup_page_tables()
     stage2_debug("%s\n", __func__);
 
     /* identity heap alloc */
-    heap working = heap_general(&kh);
-    heap physical = heap_physical(&kh);
-    u64 ident_phys = allocate_u64(physical, IDENTITY_HEAP_SIZE);
-    assert(ident_phys != INVALID_PHYSICAL);
-    create_region(ident_phys, IDENTITY_HEAP_SIZE, REGION_IDENTITY);
-    create_region(ident_phys, IDENTITY_HEAP_SIZE, REGION_IDENTITY_RESERVED);
-    stage2_debug("identity heap at [0x%lx,  0x%lx)\n",
-                 ident_phys, ident_phys + IDENTITY_HEAP_SIZE);
+    stage2_debug("identity heap at [0x%x,  0x%x)\n", identity_base, identity_base + IDENTITY_HEAP_SIZE);
+    create_region(identity_base, IDENTITY_HEAP_SIZE, REGION_IDENTITY);
+    create_region(identity_base, IDENTITY_HEAP_SIZE, REGION_IDENTITY_RESERVED);
+    heap pages = region_allocator(heap_general(&kh), PAGESIZE, REGION_IDENTITY);
+    kh.pages = pages;
 
     /* page table setup */
-    heap pages = region_allocator(working, PAGESIZE, REGION_IDENTITY);
     void *vmbase = allocate_zero(pages, PAGESIZE);
-    kh.pages = pages;
     mov_to_cr("cr3", vmbase);
 
     /* initial map, page tables and stack */
     map(0, 0, INITIAL_MAP_SIZE, PAGE_WRITABLE | PAGE_PRESENT, pages);
-    map(ident_phys, ident_phys, IDENTITY_HEAP_SIZE, PAGE_WRITABLE | PAGE_PRESENT, pages);
-    map(stackbase, stackbase, (u64)STACKLEN, PAGE_WRITABLE, pages);
+    map(identity_base, identity_base, IDENTITY_HEAP_SIZE, PAGE_WRITABLE | PAGE_PRESENT, pages);
+    map(stack_base, stack_base, (u64)STACKLEN, PAGE_WRITABLE, pages);
 }
 
 static u64 working_saved_base;
@@ -323,8 +319,14 @@ void centry()
     kh.physical = region_allocator(&working_heap, PAGESIZE, REGION_PHYSICAL);
     assert(kh.physical);
 
+    /* allocate identity region for page tables */
+    identity_base = allocate_u64(kh.physical, IDENTITY_HEAP_SIZE);
+    assert(identity_base != INVALID_PHYSICAL);
+
     /* allocate stage2 (and early stage3) stack */
-    stackbase = allocate_u64(kh.physical, STACKLEN);
+    stack_base = allocate_u64(kh.physical, STACKLEN);
+    assert(stack_base != INVALID_PHYSICAL);
+    create_region(stack_base, STACKLEN, REGION_RECLAIM);
 
     /* allocate larger space for stage2 working (to accomodate tfs meta, etc.) */
     working_p = allocate_u64(kh.physical, STAGE2_WORKING_HEAP_SIZE);
@@ -332,7 +334,7 @@ void centry()
     working_saved_base = working_p;
     working_end = working_p + STAGE2_WORKING_HEAP_SIZE;
 
-    u32 stacktop = stackbase + STACKLEN - 4;
+    u32 stacktop = stack_base + STACKLEN - 4;
     asm("mov %0, %%esp": :"g"(stacktop));
     newstack();
 }

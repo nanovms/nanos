@@ -684,8 +684,8 @@ void mmap_process_init(process p)
     add_varea(p, KERNEL_RESERVE_START, KERNEL_RESERVE_END, p->virtual32, false);
 
     /* but explicitly allow any maps in between */
-    u64 lowmem_map_end = MIN(KERNEL_RESERVE_START, identity_map.start);
-    add_varea(p, PAGESIZE, lowmem_map_end, p->virtual32, true);
+    p->lowmem_end = MIN(KERNEL_RESERVE_START, identity_map.start);
+    add_varea(p, PAGESIZE, p->lowmem_end, p->virtual32, true);
 
     /* reserve kernel huge page area */
     add_varea(p, HUGE_PAGESIZE, PROCESS_VIRTUAL_HEAP_START, 0, false);
