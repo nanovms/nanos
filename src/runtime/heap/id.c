@@ -107,7 +107,8 @@ static u64 id_alloc_from_range(id_heap i, id_range r, u64 pages, range subrange)
         return INVALID_PHYSICAL;
 
     /* check for randomization, else check for next fit */
-    u64 max_start = range_span(ri) > pages_rounded ? (range_span(ri) & (pages_rounded - 1)) - 1 : 0;
+    u64 max_start = range_span(ri) > pages_rounded ?
+        (range_span(ri) & ~(pages_rounded - 1)) - pages_rounded : 0;
     u64 start_bit = ri.start;
     if ((i->flags & ID_HEAP_FLAG_RANDOMIZE) && max_start > 0)
         start_bit += random_u64() % max_start;
