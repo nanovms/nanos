@@ -145,7 +145,6 @@ static void setup_page_tables()
 
     /* page table setup */
     void *vmbase = allocate_zero(pages, PAGESIZE);
-    kh.pages = pages;
     mov_to_cr("cr3", vmbase);
 
     /* initial map, page tables and stack */
