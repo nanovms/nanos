@@ -33,7 +33,7 @@ u64 allocate_fd(process p, void *f)
 
 u64 allocate_fd_gte(process p, u64 min, void *f)
 {
-    u64 fd = id_heap_alloc_gte(p->fdallocator, min);
+    u64 fd = id_heap_alloc_gte(p->fdallocator, 1, min);
     if (fd == INVALID_PHYSICAL) {
         msg_err("failed\n");
     }
