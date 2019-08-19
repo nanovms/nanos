@@ -155,6 +155,18 @@ static void setup_page_tables()
 
 static u64 working_saved_base;
 
+static CLOSURE_0_4(kernel_elf_map, void, u64, u64, u64, u64);
+static void kernel_elf_map(u64 vaddr, u64 paddr, u64 size, u64 flags)
+{
+    if (paddr == INVALID_PHYSICAL) {
+        /* bss */
+        paddr = allocate_u64(heap_physical(&kh), size);
+        assert(paddr != INVALID_PHYSICAL);
+        zero(pointer_from_u64(paddr), size);
+    }
+    map(vaddr, paddr, size, flags, heap_pages(&kh));
+}
+
 static CLOSURE_0_1(kernel_read_complete, void, buffer);
 static void __attribute__((noinline)) kernel_read_complete(buffer kb)
 {
@@ -163,7 +175,7 @@ static void __attribute__((noinline)) kernel_read_complete(buffer kb)
     /* save kernel elf image for use in stage3 (for symbol data) */
     create_region(u64_from_pointer(buffer_ref(kb, 0)), pad(buffer_length(kb), PAGESIZE), REGION_KERNIMAGE);
 
-    void *k = load_elf(kb, 0, heap_pages(&kh), heap_physical(&kh), false);
+    void *k = load_elf(kb, 0, stack_closure(kernel_elf_map));
     if (!k) {
         halt("kernel elf parse failed\n");
     }

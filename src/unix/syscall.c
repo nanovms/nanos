@@ -1396,14 +1396,19 @@ static sysreturn brk(void *x)
 
     if (x) {
         if (p->brk > x) {
+            /* on failure, return the current break */
+            if (u64_from_pointer(x) < p->heap_base)
+                goto fail;
             p->brk = x;
+            assert(adjust_vmap_range(p->vmaps, p->heap_map, irange(p->heap_base, u64_from_pointer(x))));
             // free
-        } else {
+        } else if (p->brk < x) {
             // I guess assuming we're aligned
             u64 alloc = pad(u64_from_pointer(x), PAGESIZE) - pad(u64_from_pointer(p->brk), PAGESIZE);
+            assert(adjust_vmap_range(p->vmaps, p->heap_map, irange(p->heap_base, u64_from_pointer(p->brk) + alloc)));
             u64 phys = allocate_u64(heap_physical(kh), alloc);
             if (phys == INVALID_PHYSICAL)
-                return -ENOMEM;
+                goto fail;
             /* XXX no exec configurable? */
             map(u64_from_pointer(p->brk), phys, alloc, PAGE_WRITABLE | PAGE_NO_EXEC | PAGE_USER , heap_pages(kh));
             // people shouldn't depend on this
@@ -1411,6 +1416,7 @@ static sysreturn brk(void *x)
             p->brk += alloc;         
         }
     }
+  fail:
     return sysreturn_from_pointer(p->brk);
 }
 

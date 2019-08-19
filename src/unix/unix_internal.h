@@ -21,6 +21,8 @@
 #define PROCESS_HEAP_ASLR_RANGE     (4 * MB)
 #define PROCESS_STACK_ASLR_RANGE    (4 * MB)
 
+#define VSYSCALL_BASE                   0xffffffffff600000ull
+
 typedef s64 sysreturn;
 
 // conditionalize
@@ -219,6 +221,19 @@ struct file {
     u64 length;
 };
 
+#define VMAP_FLAG_MMAP          1
+#define VMAP_FLAG_ANONYMOUS     2
+#define VMAP_FLAG_WRITABLE      4
+#define VMAP_FLAG_EXEC          8
+
+typedef struct vmap {
+    struct rmnode node;
+    u64 flags;
+} *vmap;
+
+vmap allocate_vmap(rangemap rm, range r, u64 flags);
+boolean adjust_vmap_range(rangemap rm, vmap v, range new);
+
 typedef struct file *file;
 
 struct syscall;
@@ -227,6 +242,7 @@ typedef struct process {
     unix_heaps        uh;       /* non-thread-specific */
     int               pid;
     void             *brk;
+    u64               heap_base;
     u64               lowmem_end; /* end of elf / heap / stack area (low 2gb below reserved) */
     heap              virtual;  /* huge virtual, parent of virtual_page */
     heap              virtual_page; /* pagesized, default for mmaps */
@@ -242,6 +258,8 @@ typedef struct process {
     vector            files;
     rangemap          vareas;   /* available address space */
     rangemap          vmaps;    /* process mappings */
+    vmap              stack_map;
+    vmap              heap_map;
     boolean           sysctx;
     timestamp         utime, stime;
     timestamp         start_time;
