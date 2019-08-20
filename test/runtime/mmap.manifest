@@ -8,7 +8,6 @@
     # filesystem path to elf for kernel to run
     program:/mmap
     fault:t
-    debugsyscalls:t
-    arguments:[]
+    arguments:[/mmap, basic]
     environment:(USER:bobby PWD:/)
 )
