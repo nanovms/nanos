@@ -14,6 +14,11 @@ typedef struct kernel_heaps {
        initialization. */
     heap pages;
 
+    /* Used by unix/mmap.c, these define the address space that is
+       blocked out by the identity heap. */
+    u64 identity_reserved_start;
+    u64 identity_reserved_end;
+
     /* Allocations of physical address space outside of pages are made
        from the physical id heap. */
     heap physical;
