@@ -33,7 +33,7 @@ u64 allocate_fd(process p, void *f)
 
 u64 allocate_fd_gte(process p, u64 min, void *f)
 {
-    u64 fd = id_heap_alloc_gte(p->fdallocator, min);
+    u64 fd = id_heap_alloc_gte(p->fdallocator, 1, min);
     if (fd == INVALID_PHYSICAL) {
         msg_err("failed\n");
     }
@@ -153,13 +153,16 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
         assert(p->virtual != INVALID_ADDRESS);
         assert(id_heap_set_area(heap_virtual_huge((kernel_heaps)uh),
                                 PROCESS_VIRTUAL_HEAP_START, PROCESS_VIRTUAL_HEAP_LENGTH,
-                                    true, true));
+                                true, true));
         p->virtual_page = create_id_heap_backed(h, p->virtual, PAGESIZE);
         assert(p->virtual_page != INVALID_ADDRESS);
         if (aslr)
             id_heap_set_randomize(p->virtual_page, true);
-        p->virtual32 = create_id_heap(h, PROCESS_VIRTUAL_32_HEAP_START,
-                                      PROCESS_VIRTUAL_32_HEAP_LENGTH, PAGESIZE);
+
+        /* This heap is used to track the lowest 32 bits of process
+           address space. Allocations are presently only made from the
+           top half for MAP_32BIT mappings. */
+        p->virtual32 = create_id_heap(h, 0, 0x100000000, PAGESIZE);
         assert(p->virtual32 != INVALID_ADDRESS);
         if (aslr)
             id_heap_set_randomize(p->virtual32, true);

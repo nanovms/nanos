@@ -6,14 +6,20 @@
 #include <unix.h>
 #include <x86_64.h>
 
-/* XXX kinda arbitrary, not sure where these came from or what correct
-   values should be */
-#define PROCESS_VIRTUAL_HEAP_START      0x7000000000ull
-#define PROCESS_VIRTUAL_HEAP_LENGTH     0x10000000000ull
-#define PROCESS_VIRTUAL_HEAP_END        (PROCESS_VIRTUAL_HEAP_START + PROCESS_VIRTUAL_HEAP_LENGTH - 1)
-#define PROCESS_VIRTUAL_32_HEAP_START   0x6f000000
-#define PROCESS_VIRTUAL_32_HEAP_LENGTH  0x10000000
-#define PROCESS_VIRTUAL_32_HEAP_END     (PROCESS_VIRTUAL_32_HEAP_START + PROCESS_VIRTUAL_32_HEAP_LENGTH - 1)
+/* area for mmaps abut the kernel tagged region */
+#define PROCESS_VIRTUAL_HEAP_START  0x7000000000ull
+#define PROCESS_VIRTUAL_HEAP_END    0x10000000000ull
+#define PROCESS_VIRTUAL_HEAP_LENGTH (PROCESS_VIRTUAL_HEAP_END - PROCESS_VIRTUAL_HEAP_START)
+
+#define PROCESS_STACK_SIZE          (2 * MB)
+
+/* restrict the area in which ELF segments can be placed */
+#define PROCESS_ELF_LOAD_END        (GB) /* 1gb hard upper limit */
+
+/* range of variation for various ASLR mappings; kind of arbitrary at this point */
+#define PROCESS_PIE_LOAD_ASLR_RANGE (4 * MB)
+#define PROCESS_HEAP_ASLR_RANGE     (4 * MB)
+#define PROCESS_STACK_ASLR_RANGE    (4 * MB)
 
 typedef s64 sysreturn;
 
@@ -221,9 +227,10 @@ typedef struct process {
     unix_heaps        uh;       /* non-thread-specific */
     int               pid;
     void             *brk;
-    heap              virtual;
-    heap              virtual_page;
-    heap              virtual32;
+    u64               lowmem_end; /* end of elf / heap / stack area (low 2gb below reserved) */
+    heap              virtual;  /* huge virtual, parent of virtual_page */
+    heap              virtual_page; /* pagesized, default for mmaps */
+    heap              virtual32; /* for tracking low 32-bit space and MAP_32BIT maps */
     heap              fdallocator;
     filesystem        fs;       /* XXX should be underneath tuple operators */
     tuple             process_root;
@@ -276,6 +283,12 @@ void deallocate_fd(process p, int fd);
 void init_vdso(heap, heap);
 
 void mmap_process_init(process p);
+
+static inline u64 get_aslr_offset(u64 range)
+{
+    assert((range & (range - 1)) == 0);
+    return random_u64() & ((range - 1) & ~MASK(PAGELOG));
+}
 
 static inline timestamp time_from_timeval(const struct timeval *t)
 {

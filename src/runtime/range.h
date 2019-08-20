@@ -100,3 +100,14 @@ static inline boolean range_equal(range a, range b)
 {
     return (a.start == b.start) && (a.end == b.end);
 }
+
+static inline boolean range_valid(range r)
+{
+    return r.start <= r.end;
+}
+
+static inline void range_add(range *r, s64 delta)
+{
+    r->start += delta;
+    r->end += delta;
+}

@@ -16,42 +16,6 @@ static boolean vmap_attr_equal(vmap a, vmap b)
     return a->flags == b->flags;
 }
 
-/* Page faults may be caused by:
-
-   - user program instructions
-
-   - syscall top halves accessing unmapped anonymous pages
-
-   - syscall bottom halves accessing unmapped anonymous pages (while
-     in the interrupt handler!)
-
-     - can consider manually faulting in user pages in top half to
-       avoid faults from interrupt handler; this is debatable
-
-   Therefore:
-
-   - allocating a physical page must be fast and safe at interrupt
-     level
-
-     - as elsewhere in the kernel, if/when we move from the bifurcated
-       runqueue / interrupt processing scheme, we need to put the
-       proper locks in place
-
-     - we can easily build a free list of physical pages
-
-       - also note that, given that id deallocations don't need to
-         match their source allocations, we can take any size
-         deallocation and bust it up into single pages to cache
-
-   - map() needs to be safe at interrupt and non-interrupt levels
-
-   - the page fault handler runs on its own stack (set as IST0 in
-     TSS), given that the user stack may live on an anonymous mapping
-     and need to have pages faulted in on its own behalf - otherwise
-     we eventually wind up with a triple fault as the CPU cannot push
-     onto the stack when invoking the exception handler
-*/
-
 static inline u64 page_map_flags(u64 vmflags)
 {
     u64 flags = PAGE_NO_FAT | PAGE_USER;
@@ -176,7 +140,7 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
     u64 maplen = pad(new_size, vh->pagesize);
     u64 vnew = allocate_u64(vh, maplen);
     if (vnew == (u64)INVALID_ADDRESS) {
-        msg_err("failed to allocate virtual memory, size %ld", maplen);
+        msg_err("failed to allocate virtual memory, size %ld\n", maplen);
         return -ENOMEM;
     }
 
@@ -201,7 +165,7 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
     u64 dlen = maplen - old_size;
     u64 dphys = allocate_u64(physical, dlen);
     if (dphys == INVALID_PHYSICAL) {
-        msg_err("failed to allocate physical memory, size %ld", dlen);
+        msg_err("failed to allocate physical memory, size %ld\n", dlen);
         deallocate_u64(vh, vnew, maplen);
         return -ENOMEM;
     }
@@ -384,7 +348,7 @@ static void vmap_attribute_update(heap h, rangemap pvmap, vmap q)
     assert((rq.end & MASK(PAGELOG)) == 0);
     assert(range_span(rq) > 0);
 
-    rmnode_handler nh = closure(h, vmap_attribute_update_intersection, h, pvmap, q);
+    rmnode_handler nh = stack_closure(vmap_attribute_update_intersection, h, pvmap, q);
     rangemap_range_lookup(pvmap, rq, nh);
 
     update_map_flags(rq.start, range_span(rq), page_map_flags(q->flags));
@@ -480,10 +444,10 @@ static void vmap_paint(heap h, rangemap pvmap, vmap q)
     assert((rq.end & MASK(PAGELOG)) == 0);
     assert(range_span(rq) > 0);
 
-    rmnode_handler nh = closure(h, vmap_paint_intersection, h, pvmap, q);
+    rmnode_handler nh = stack_closure(vmap_paint_intersection, h, pvmap, q);
     rangemap_range_lookup(pvmap, rq, nh);
 
-    range_handler rh = closure(h, vmap_paint_gap, h, pvmap, q);
+    range_handler rh = stack_closure(vmap_paint_gap, h, pvmap, q);
     rangemap_range_find_gaps(pvmap, rq, rh);
 
     update_map_flags(rq.start, range_span(rq), page_map_flags(q->flags));
@@ -533,7 +497,6 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     process p = current->p;
     kernel_heaps kh = get_kernel_heaps();
     heap h = heap_general(kh);
-    // its really unclear whether this should be extended or truncated
     u64 len = pad(size, PAGESIZE) & MASK(32);
     boolean mapped = false;
     thread_log(current, "mmap: target %p, size 0x%lx, prot 0x%x, flags 0x%x, fd %d, offset 0x%lx",
@@ -573,13 +536,16 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     /* Allocate from virtual heap if no address specified or hint unavailable */
     if (where == 0) {
         boolean is_32bit = flags & MAP_32BIT;
-        heap vh = is_32bit ? p->virtual32 : p->virtual_page;
-        u64 maplen = pad(len, vh->pagesize);
-        where = allocate_u64(vh, maplen);
+        u64 maplen = pad(len, PAGESIZE);
+        if (is_32bit) {
+            /* Allocate from top half of 32-bit address space. */
+            where = id_heap_alloc_subrange(p->virtual32, maplen, 0x80000000, 0x100000000);
+        } else {
+            where = allocate_u64(p->virtual_page, maplen);
+        }
         if (where == (u64)INVALID_ADDRESS) {
             /* We'll always want to know about low memory conditions, so just bark. */
-            msg_err("failed to allocate %s virtual memory, size 0x%lx",
-                    is_32bit ? "32-bit" : "", len);
+            msg_err("failed to allocate %s virtual memory, size 0x%lx\n", is_32bit ? "32-bit" : "", len);
             return -ENOMEM;
         }
     }
@@ -652,7 +618,7 @@ static void process_unmap_intersection(process p, range rq, rmnode node)
 
     /* unmap any mapped pages and return to physical heap */
     u64 len = range_span(ri);
-    unmap_pages_with_handler(ri.start, len, closure(heap_general(kh), dealloc_phys_page, heap_physical(kh)));
+    unmap_pages_with_handler(ri.start, len, stack_closure(dealloc_phys_page, heap_physical(kh)));
 
     /* return virtual mapping to heap, if any ... assuming a vmap cannot span heaps!
        XXX: this shouldn't be a lookup per, so consider stashing a link to varea or heap in vmap
@@ -665,7 +631,7 @@ static void process_unmap_intersection(process p, range rq, rmnode node)
 
 static void process_unmap_range(process p, range q)
 {
-    rmnode_handler nh = closure(transient, process_unmap_intersection, p, q);
+    rmnode_handler nh = stack_closure(process_unmap_intersection, p, q);
     rangemap_range_lookup(p->vmaps, q, nh);
 }
 
@@ -689,43 +655,57 @@ static sysreturn munmap(void *addr, u64 length)
 /* kernel start */
 extern void * START;
 
-#define add_varea(start, end, vheap, allow_fixed) \
-    assert(allocate_varea(h, p->vareas, irange(start, end), vheap, allow_fixed) != INVALID_ADDRESS);
+static void add_varea(process p, u64 start, u64 end, heap vheap, boolean allow_fixed)
+{
+    assert(allocate_varea(heap_general((kernel_heaps)p->uh), p->vareas, irange(start, end),
+                          vheap, allow_fixed) != INVALID_ADDRESS);
+
+    /* reserve area by marking as allocated */
+    if (vheap && !allow_fixed)
+        id_heap_set_area(vheap, start, end - start, true, true);
+}
 
 void mmap_process_init(process p)
 {
-    heap h = heap_general((kernel_heaps)p->uh);
+    kernel_heaps kh = &p->uh->kh;
+    heap h = heap_general(kh);
+    range identity_map = irange(kh->identity_reserved_start, kh->identity_reserved_end);
     p->vareas = allocate_rangemap(h);
     p->vmaps = allocate_rangemap(h);
     assert(p->vareas != INVALID_ADDRESS && p->vmaps != INVALID_ADDRESS);
 
-    /* It may be more elegant to put these into a table... */
+    /* zero page is off-limits */
+    add_varea(p, 0, PAGESIZE, p->virtual32, false);
 
-    /* Low memory is fair game but untracked... */
-    add_varea(PAGESIZE, PROCESS_VIRTUAL_32_HEAP_START, 0, true);
+    /* as is the identity heap */
+    add_varea(p, identity_map.start, identity_map.end, p->virtual32, false);
 
-    /* Fixed mappings in virtual32 space; just reserve the area so future allocations won't collide */
-    add_varea(PROCESS_VIRTUAL_32_HEAP_START, PROCESS_VIRTUAL_32_HEAP_END, p->virtual32, true);
+    /* and kernel */
+    add_varea(p, KERNEL_RESERVE_START, KERNEL_RESERVE_END, p->virtual32, false);
 
-    /* Kernel memory through the end of 2gb area */
-    add_varea(u64_from_pointer(&START), 0x80000000, 0, false);
+    /* but explicitly allow any maps in between */
+    p->lowmem_end = MIN(KERNEL_RESERVE_START, identity_map.start);
+    add_varea(p, PAGESIZE, p->lowmem_end, p->virtual32, true);
 
-    /* Reserved for kernel allocations */
-    add_varea(HUGE_PAGESIZE, PROCESS_VIRTUAL_HEAP_START, 0, false);
+    /* reserve kernel huge page area */
+    add_varea(p, HUGE_PAGESIZE, PROCESS_VIRTUAL_HEAP_START, 0, false);
 
-    /* Allow (tracked) reservations in p->virtual */
-    add_varea(PROCESS_VIRTUAL_HEAP_START, PROCESS_VIRTUAL_HEAP_END, p->virtual_page, true);
+    /* allow (tracked) reservations in p->virtual */
+    add_varea(p, PROCESS_VIRTUAL_HEAP_START, PROCESS_VIRTUAL_HEAP_END, p->virtual_page, true);
 
-    /* Reserved */
+    /* reserve end of p->virtual to user tag region */
     u64 user_va_tag_start = U64_FROM_BIT(user_va_tag_offset);
     u64 user_va_tag_end = user_va_tag_start * tag_max;
-    add_varea(PROCESS_VIRTUAL_HEAP_END, user_va_tag_start, 0, false);
+    add_varea(p, PROCESS_VIRTUAL_HEAP_END, user_va_tag_start, 0, false);
 
-    /* Allow mmaps in user va tag area (untracked) */
-    add_varea(user_va_tag_start, user_va_tag_end, 0, true);
+    /* allow untracked mmaps in user va tag area */
+    add_varea(p, user_va_tag_start, user_va_tag_end, 0, true);
 
-    /* Reserved */
-    add_varea(user_va_tag_end, U64_FROM_BIT(VIRTUAL_ADDRESS_BITS), 0, false);
+    /* reserve user va tag area from kernel perspective */
+    assert(id_heap_set_area(heap_virtual_huge(kh), user_va_tag_start, user_va_tag_end, true, true));
+
+    /* reserve remainder */
+    add_varea(p, user_va_tag_end, U64_FROM_BIT(VIRTUAL_ADDRESS_BITS), 0, false);
 }
 
 void register_mmap_syscalls(struct syscall *map)
