@@ -22,19 +22,27 @@
             ((char *)__s)[buffer_length(__b)] = '\0';                     \
             (char *)__s;})
 
-static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start, u64 va, tuple process_root)
+static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start, u64 va, tuple process_root, boolean aslr)
 {
-    exec_debug("build exec stack start %p, root %v\n", start, process_root);
+    exec_debug("build_exec_stack start %p, tid %d, va 0x%lx\n", start, t->tid, va);
 
-    u64 stack_size = 2*MB;
-    u64 * s = allocate(p->virtual32, stack_size);
-    assert(s != INVALID_ADDRESS);
-    u64 sphys = allocate_u64(heap_physical(get_kernel_heaps()), stack_size);
+    /* allocate process stack at top of lowmem */
+    u64 stack_start = p->lowmem_end - PROCESS_STACK_SIZE;
+    if (aslr)
+        stack_start = (stack_start - PROCESS_STACK_ASLR_RANGE) + get_aslr_offset(PROCESS_STACK_ASLR_RANGE);
+    assert(id_heap_set_area(p->virtual32, stack_start, PROCESS_STACK_SIZE, true, true));
+    p->stack_map = allocate_vmap(p->vmaps, irange(stack_start, stack_start + PROCESS_STACK_SIZE), VMAP_FLAG_WRITABLE);
+    assert(p->stack_map != INVALID_ADDRESS);
+
+    u64 * s = pointer_from_u64(stack_start);
+    u64 sphys = allocate_u64(heap_physical(get_kernel_heaps()), PROCESS_STACK_SIZE);
     assert(sphys != INVALID_PHYSICAL);
 
-    map(u64_from_pointer(s), sphys, stack_size, PAGE_WRITABLE | PAGE_NO_EXEC | PAGE_USER, heap_pages(get_kernel_heaps()));
+    exec_debug("stack allocated at %p, size 0x%lx, phys 0x%lx\n", s, PROCESS_STACK_SIZE, sphys);
+    map(u64_from_pointer(s), sphys, PROCESS_STACK_SIZE, PAGE_WRITABLE | PAGE_NO_EXEC | PAGE_USER,
+        heap_pages(get_kernel_heaps()));
 
-    s += stack_size >> 3;
+    s += PROCESS_STACK_SIZE >> 3;
 
     // argv ASCIIZ strings
     vector arguments = vector_from_tuple(transient, table_find(process_root, sym(arguments)));
@@ -121,12 +129,35 @@ static void load_interp_fail(status s)
     halt("read interp failed %v\n", s);
 }
 
+static CLOSURE_2_4(exec_elf_map, void, process, kernel_heaps, u64, u64, u64, u64);
+static void exec_elf_map(process p, kernel_heaps kh, u64 vaddr, u64 paddr, u64 size, u64 flags)
+{
+    u64 target = vaddr;
+    u64 vmflags = 0;
+    if ((flags & PAGE_NO_EXEC) == 0)
+        vmflags |= VMAP_FLAG_EXEC;
+    if (flags & PAGE_WRITABLE)
+        vmflags |= VMAP_FLAG_WRITABLE;
+
+    assert(allocate_vmap(p->vmaps, irange(target, target + size), vmflags) != INVALID_ADDRESS);
+    boolean is_bss = paddr == INVALID_PHYSICAL;
+    if (is_bss) {
+        /* bss */
+        paddr = allocate_u64(heap_physical(kh), size);
+        assert(paddr != INVALID_PHYSICAL);
+    }
+    map(target, paddr, size, flags | PAGE_USER, heap_pages(kh));
+    if (is_bss) {
+        zero(pointer_from_u64(target), size);
+    }
+}
 
 CLOSURE_2_1(load_interp_complete, void, thread, kernel_heaps, buffer);
 void load_interp_complete(thread t, kernel_heaps kh, buffer b)
 {
     u64 where = allocate_u64(heap_virtual_huge(kh), HUGE_PAGESIZE);
-    start_process(t, load_elf(b, where, heap_pages(kh), heap_physical(kh), true));
+    void * start = load_elf(b, where, stack_closure(exec_elf_map, t->p, kh));
+    start_process(t, start);
 }
 
 process exec_elf(buffer ex, process kp)
@@ -147,8 +178,7 @@ process exec_elf(buffer ex, process kp)
 
     exec_debug("exec_elf enter\n");
 
-    u64 load_start = infinity;
-    u64 load_end = 0;
+    range load_range = irange(infinity, 0);
     foreach_phdr(e, p) {
         if (p->p_type == PT_INTERP) {
             char *n = (void *)e + p->p_offset;
@@ -156,13 +186,15 @@ process exec_elf(buffer ex, process kp)
             if (!interp) 
                 halt("couldn't find program interpreter %s\n", n);
         } else if (p->p_type == PT_LOAD) {
-            if (p->p_vaddr < load_start)
-                load_start = p->p_vaddr;
+            if (p->p_vaddr < load_range.start)
+                load_range.start = p->p_vaddr;
             u64 segend = p->p_vaddr + p->p_memsz;
-            if (segend > load_end)
-                load_end = segend;
+            if (segend > load_range.end)
+                load_range.end = segend;
         }
     }
+
+    exec_debug("range of loadable segments prior to adjustment: %R\n", load_range);
 
     if (interp)
         exec_debug("interp: %t\n", interp);
@@ -172,23 +204,30 @@ process exec_elf(buffer ex, process kp)
         /* Have some PIE */
         load_offset = DEFAULT_PROG_ADDR;
         if (aslr) {
-            /* XXX Replace 27 with limit derived from kernel start. */
-            load_offset += (random_u64() & ~MASK(PAGELOG)) & MASK(27);
+            load_offset += get_aslr_offset(PROCESS_PIE_LOAD_ASLR_RANGE);
         }
         exec_debug("placing PIE at 0x%lx\n", load_offset);
-        load_start += load_offset;
-        load_end += load_offset;
+        range_add(&load_range, load_offset);
     }
 
-    exec_debug("load start 0x%lx, end 0x%lx, offset 0x%lx\n",
-               load_start, load_end, load_offset);
-    void * entry = load_elf(ex, load_offset, heap_pages(kh), heap_physical(kh), true);
-    /* if aslr, introduce 4M of variation to heap start ... kinda arbitrary */
-    u64 brk_offset = aslr ? (random_u64() & (MASK(22) & ~MASK(PAGELOG))) : 0;
-    proc->brk = pointer_from_u64(pad(load_end, PAGESIZE) + brk_offset);
-    exec_debug("entry %p, brk 0x%p\n", entry, proc->brk);
+    if (load_range.end > PROCESS_ELF_LOAD_END) {
+        halt("exec_elf failed: elf segment load range (%R) exceeds hard limit 0x%lx\n",
+             load_range, PROCESS_ELF_LOAD_END);
+    }
 
-    build_exec_stack(proc, t, e, entry, load_start, root);
+    exec_debug("offset 0x%lx, range after adjustment: %R, span 0x%lx\n",
+               load_offset, load_range, range_span(load_range));
+    void * entry = load_elf(ex, load_offset, stack_closure(exec_elf_map, proc, kh));
+
+    u64 brk_offset = aslr ? get_aslr_offset(PROCESS_HEAP_ASLR_RANGE) : 0;
+    u64 brk = pad(load_range.end, PAGESIZE) + brk_offset;
+    proc->brk = pointer_from_u64(brk);
+    proc->heap_base = brk;
+    proc->heap_map = allocate_vmap(proc->vmaps, irange(brk, brk), VMAP_FLAG_WRITABLE);
+    assert(proc->heap_map != INVALID_ADDRESS);
+    exec_debug("entry %p, brk %p (offset 0x%lx)\n", entry, proc->brk, brk_offset);
+
+    build_exec_stack(proc, t, e, entry, load_range.start, root, aslr);
 
     if (interp) {
         exec_debug("reading interp...\n");

@@ -5,8 +5,6 @@
 #include <page.h>
 #include <synth.h>
 
-static void *vsyscall_base = (void *)0xffffffffff600000ull;
-
 #define VSYSCALL_OFFSET_VGETTIMEOFDAY   0x000
 #define VSYSCALL_OFFSET_VTIME           0x400
 #define VSYSCALL_OFFSET_VGETCPU         0x800
@@ -22,8 +20,8 @@ extern void * vdso_end;
 void init_vdso(heap physical_pages, heap pages)
 {
     /* build vsyscall vectors */
-    map(u64_from_pointer(vsyscall_base), allocate_u64(physical_pages, PAGESIZE), PAGESIZE, PAGE_USER, pages);
-    buffer b = alloca_wrap_buffer(vsyscall_base, PAGESIZE);
+    map(VSYSCALL_BASE, allocate_u64(physical_pages, PAGESIZE), PAGESIZE, PAGE_USER, pages);
+    buffer b = alloca_wrap_buffer(pointer_from_u64(VSYSCALL_BASE), PAGESIZE);
     b->end = VSYSCALL_OFFSET_VGETTIMEOFDAY;
     mov_32_imm(b, 0, u64_from_pointer(vsyscall_gettimeofday));
     jump_indirect(b, 0);

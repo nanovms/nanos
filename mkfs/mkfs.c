@@ -336,7 +336,6 @@ int main(int argc, char **argv)
 
     heap h = init_process_runtime();
     descriptor out = open(image_path, O_CREAT|O_RDWR, 0644);
-    u64 fs_size = 100ull * MB;  /* XXX temp, change to infinity after rtrie/bitmap fix */
     if (out < 0) {
         halt("couldn't open output file %s: %s\n", image_path, strerror(errno));
     }
@@ -374,7 +373,7 @@ int main(int argc, char **argv)
     // fixing the size doesn't make sense in this context?
     create_filesystem(h,
                       SECTOR_SIZE,
-                      fs_size,
+                      infinity,
                       h,
                       closure(h, bread, out),
                       closure(h, bwrite, out, offset),

@@ -341,8 +341,6 @@ static void enable_lapic(heap pages)
     u64 lapic = 0xfee00000;
     
     map(u64_from_pointer(apic_base), lapic, PAGESIZE, PAGE_DEV_FLAGS, pages);
-    // xxx - no one is listening
-    create_region(u64_from_pointer(apic_base), PAGESIZE, REGION_VIRTUAL);
     
     // turn on the svr, then enable three lines
     apic_write(APIC_SPURIOUS, *(unsigned int *)(apic_base + APIC_SPURIOUS) | APIC_SW_ENABLE);
