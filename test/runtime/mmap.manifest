@@ -1,0 +1,14 @@
+(
+    #64 bit elf to boot from host
+    children:(
+	kernel:(contents:(host:output/stage3/bin/stage3.img))
+        mmap:(contents:(host:output/test/runtime/bin/mmap))
+	infile:(contents:(host:test/runtime/read_contents/hello))
+    )
+    # filesystem path to elf for kernel to run
+    program:/mmap
+    fault:t
+    debugsyscalls:t
+    arguments:[]
+    environment:(USER:bobby PWD:/)
+)
