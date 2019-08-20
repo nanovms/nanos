@@ -1,5 +1,7 @@
 #pragma once
 
+#include <runtime.h>
+
 #define INITIAL_MAP_SIZE (0xa000)
 
 #define PAGE_NO_EXEC       U64_FROM_BIT(63)
@@ -13,13 +15,52 @@
 #define PAGE_WRITABLE      0x0002
 #define PAGE_PRESENT       0x0001
 
+#define PAGEMASK           MASK(PAGELOG)
 #define PAGE_FLAGS_MASK    (PAGE_NO_EXEC | PAGEMASK)
-#define PAGE_PROT_FLAGS (PAGE_NO_EXEC | PAGE_USER | PAGE_WRITABLE)
-#define PAGE_DEV_FLAGS (PAGE_WRITABLE | PAGE_WRITETHROUGH | PAGE_NO_EXEC)
+#define PAGE_PROT_FLAGS    (PAGE_NO_EXEC | PAGE_USER | PAGE_WRITABLE)
+#define PAGE_DEV_FLAGS     (PAGE_WRITABLE | PAGE_WRITETHROUGH | PAGE_NO_EXEC)
 
 #ifndef physical_from_virtual
 physical physical_from_virtual(void *x);
 #endif
+
+typedef u64 *page;
+
+static inline u64 phys_from_pte(u64 pte)
+{
+    /* page directory pointer base address [51:12] */
+    return pte & (MASK(52) & ~PAGEMASK);
+}
+
+static inline page page_from_pte(u64 pte)
+{
+    return (page)pointer_from_u64(phys_from_pte(pte));
+}
+
+static inline u64 flags_from_pte(u64 pte)
+{
+    return pte & PAGE_FLAGS_MASK;
+}
+
+static inline u64 pindex(u64 x, u64 offset)
+{
+    return ((x >> offset) & MASK(9));
+}
+
+static inline boolean pentry_is_present(u64 entry)
+{
+    return (entry & PAGE_PRESENT) != 0;
+}
+
+static inline boolean pentry_is_fat(int level, u64 entry)
+{
+    return level == 3 && (entry & PAGE_2M_SIZE) != 0;
+}
+
+static inline boolean pentry_is_pte(int level, u64 entry)
+{
+    return level == 4 || pentry_is_fat(level, entry);
+}
 
 void map(u64 virtual, physical p, u64 length, u64 flags, heap h);
 void unmap(u64 virtual, u64 length, heap h);
@@ -36,3 +77,7 @@ void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length, heap h);
 void mincore_pages(u64 vaddr, u64 length, u8 * vec);
 
 void dump_ptes(void *x);
+
+typedef closure_type(entry_handler, boolean /* success */, int /* level */,
+        u64 /* vaddr */, u64 * /* entry */);
+boolean traverse_page_tables(u64 vaddr, u64 length, entry_handler eh);

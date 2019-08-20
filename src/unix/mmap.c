@@ -186,7 +186,7 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
     return sysreturn_from_pointer(vnew);
 }
 
-#if 0
+#if 1
 /* No-op callback for rangemap_find_gaps ... */
 static CLOSURE_0_1(vmap_gap, void, range);
 static void vmap_gap(range r) 
@@ -194,6 +194,28 @@ static void vmap_gap(range r)
     rprintf("Found gap: [0x%lx, 0x%lx)\n", r.start, r.end);
 }
 #endif
+
+static CLOSURE_3_3(mincore_fill_vec, boolean, u64, u64, u8 *, int, u64, u64 *);
+boolean mincore_fill_vec(u64 base, u64 nr_pgs, u8 * vec, int level, u64 addr, u64 * entry)
+{
+    u64 e = *entry;
+    u64 pgoff, i;
+
+    if (pentry_is_present(e)) {
+        pgoff = (addr - base) >> PAGELOG;
+
+        if (pentry_is_fat(level, e)) {
+            /* whole level is mapped */
+            for (i = 0; i < 512 && (pgoff + i < nr_pgs); i++) {
+                vec[pgoff + i] = 1;
+	    }
+        } else if (pentry_is_pte(level, e)) {
+            vec[pgoff] = 1;
+        }
+    }
+
+    return true;
+}
 
 static sysreturn mincore(void *addr, u64 length, u8 *vec)
 {
@@ -208,7 +230,7 @@ static sysreturn mincore(void *addr, u64 length, u8 *vec)
     /* XXX: we have no way to know whether there is unmapped memory in this range,
      * since things like stack/heap/globals are not tracked
      */
-#if 0
+#if 1
     /* determine whether whole range is mapped; -ENOMEM if not */
     {
         heap h = heap_general(get_kernel_heaps());
@@ -227,7 +249,9 @@ static sysreturn mincore(void *addr, u64 length, u8 *vec)
     for (i = 0; i < (length >> PAGELOG); i++)
         vec[i] = 0;
 
-    mincore_pages(start, length, vec);
+    traverse_page_tables(start, length,
+        stack_closure(mincore_fill_vec, start, length >> PAGELOG, vec)
+    );
     return 0;
 }
 
