@@ -105,3 +105,9 @@ static inline boolean range_valid(range r)
 {
     return r.start <= r.end;
 }
+
+static inline void range_add(range *r, s64 delta)
+{
+    r->start += delta;
+    r->end += delta;
+}

@@ -24,13 +24,17 @@ void startup(kernel_heaps kh,
 heap allocate_tagged_region(kernel_heaps kh, u64 tag)
 {
     heap h = heap_general(kh);
-    heap pages = heap_pages(kh);
-    heap physical = heap_physical(kh);
-    heap backed = physically_backed(h,
-                                    create_id_heap(h, tag << va_tag_offset, 1ull<<va_tag_offset, physical->pagesize),
-                                    physical, pages, physical->pagesize);
+    heap p = heap_physical(kh);
+    u64 tag_base = tag << va_tag_offset;
+    u64 tag_length = U64_FROM_BIT(va_tag_offset);
+    heap v = create_id_heap(h, tag_base, tag_length, p->pagesize);
+    assert(v != INVALID_ADDRESS);
+    heap backed = physically_backed(h, v, p, heap_pages(kh), p->pagesize);
     if (backed == INVALID_ADDRESS)
         return backed;
+
+    /* reserve area in virtual_huge */
+    assert(id_heap_set_area(heap_virtual_huge(kh), tag_base, tag_length, true, true));
 
     /* tagged mcache range of 32 to 1M bytes (131072 table buckets) */
     build_assert(TABLE_MAX_BUCKETS * sizeof(void *) <= 1 << 20);
@@ -154,7 +158,7 @@ static void read_kernel_syms()
     u64 kern_length;
 
     /* add kernel symbols */
-    for_regions(e)
+    for_regions(e) {
 	if (e->type == REGION_KERNIMAGE) {
 	    kern_base = e->base;
 	    kern_length = e->length;
@@ -169,6 +173,7 @@ static void read_kernel_syms()
             unmap(v, kern_length, heap_pages(&heaps));
 	    break;
 	}
+    }
     
     if (kern_base == INVALID_PHYSICAL) {
 	console("kernel elf image region not found; no debugging symbols\n");
@@ -214,12 +219,25 @@ u64 random_seed(void)
     return (u64)now();
 }
 
+static void reclaim_regions(void)
+{
+    for_regions(e) {
+        if (e->type == REGION_RECLAIM) {
+            unmap(e->base, e->length, heap_pages(&heaps));
+            if (!id_heap_add_range(heap_physical(&heaps), e->base, e->length))
+                halt("%s: add range for physical heap failed (%R)\n",
+                     __func__, irange(e->base, e->base + e->length));
+        }
+    }
+}
+
 static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = &heaps;
     heap misc = heap_general(kh);
     heap pages = heap_pages(kh);
 
+    reclaim_regions();          /* unmap and reclaim stage2 stack */
     init_runtime(kh);
     init_extra_prints();
     init_pci(kh);
@@ -254,15 +272,16 @@ static void __attribute__((noinline)) init_service_new_stack()
     /* Switch to stage3 GDT64, enable TSS and free up initial map */
     install_gdt64_and_tss();
     unmap(PAGESIZE, INITIAL_MAP_SIZE - PAGESIZE, pages);
-
     runloop();
 }
 
 static heap init_pages_id_heap(heap h)
 {
+    boolean found = false;
     heap pages = allocate_id_heap(h, PAGESIZE);
     for_regions(e) {
 	if (e->type == REGION_IDENTITY) {
+            assert(!found);     /* should only be one... */
 	    u64 base = e->base;
 	    u64 length = e->length;
 	    if ((base & (PAGESIZE-1)) | (length & (PAGESIZE-1))) {
@@ -273,7 +292,7 @@ static heap init_pages_id_heap(heap h)
 		halt("\nhalt");
 	    }
 
-#if KERNEL_DEBUG
+#ifdef STAGE3_REGION_DEBUG
 	    console("pages heap: ");
 	    print_u64(base);
 	    console(", length ");
@@ -282,18 +301,25 @@ static heap init_pages_id_heap(heap h)
 #endif
 	    if (!id_heap_add_range(pages, base, length))
 		halt("    - id_heap_add_range failed\n");
-	    return pages;
-	}
+	    found = true;
+	} else if (e->type == REGION_IDENTITY_RESERVED) {
+            assert(heaps.identity_reserved_start == 0);     /* should only be one... */
+            heaps.identity_reserved_start = e->base;
+            heaps.identity_reserved_end = e->base + e->length;
+        }
     }
-    halt("no identity region found; halt\n");
-    return INVALID_ADDRESS;	/* no warning */
+    if (!found)
+        halt("no identity region found; halt\n");
+    if (heaps.identity_reserved_start == 0)
+        halt("reserved identity region not found; halt\n");
+    return pages;
 }
 
 static heap init_physical_id_heap(heap h)
 {
     heap physical = allocate_id_heap(h, PAGESIZE);
     boolean found = false;
-#if KERNEL_DEBUG
+#ifdef STAGE3_REGION_DEBUG
     console("physical memory:\n");
 #endif
     for_regions(e) {
@@ -307,7 +333,7 @@ static heap init_physical_id_heap(heap h)
 	    if (base >= end)
 		continue;
 	    u64 length = end - base;
-#if KERNEL_DEBUG
+#ifdef STAGE3_REGION_DEBUG
 	    console("   base ");
 	    print_u64(base);
 	    console(", length ");
