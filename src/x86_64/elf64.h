@@ -172,7 +172,9 @@ typedef struct {
     for (int __i = 0; __i< __e->e_phnum; __i++)\
         for (Elf64_Phdr *__p = (void *)__e + __e->e_phoff + (__i * __e->e_phentsize); __p ; __p = 0) \
 
-void elf_symbols(buffer elf, closure_type(each, void, char *, u64, u64, u8));
-void *load_elf(buffer elf, u64 offset, heap pages, heap bss, boolean user);
+typedef closure_type(elf_map_handler, void, u64 /* vaddr */, u64 /* paddr, -1ull if bss */, u64 /* size */, u64 /* flags */);
+typedef closure_type(elf_sym_handler, void, char *, u64, u64, u8);
+void elf_symbols(buffer elf, elf_sym_handler each);
+void *load_elf(buffer elf, u64 load_offset, elf_map_handler mapper);
 
 #endif /* !_SYS_ELF64_H_ */
