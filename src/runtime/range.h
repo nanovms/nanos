@@ -100,3 +100,8 @@ static inline boolean range_equal(range a, range b)
 {
     return (a.start == b.start) && (a.end == b.end);
 }
+
+static inline boolean range_valid(range r)
+{
+    return r.start <= r.end;
+}
