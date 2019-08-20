@@ -521,7 +521,7 @@ static void mincore_test(void)
             }
         }
 
-        printf("  performing mincore on sparsely paged anonymous mmap (0x%lx)...\n,",
+        printf("  performing mincore on sparsely paged anonymous mmap (0x%lx)...\n",
             (unsigned long)addr);
         __mincore(addr, PAGESIZE*512, vec, expected);
 

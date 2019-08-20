@@ -214,9 +214,11 @@ boolean mincore_fill_vec(u64 base, u64 nr_pgs, u8 * vec, int level, u64 addr, u6
     return true;
 }
 
-/* No-op callback for rangemap_find_gaps ... */
-static CLOSURE_0_1(vmap_gap, void, range);
-static void vmap_gap(range r) {}
+static CLOSURE_0_1(mincore_vmap_gap, void, range);
+static void mincore_vmap_gap(range r)
+{
+    rprintf("mincore: found gap [0x%lx, 0x%lx)\n", r.start, r.end);
+}
 
 static sysreturn mincore(void *addr, u64 length, u8 *vec)
 {
@@ -230,15 +232,11 @@ static sysreturn mincore(void *addr, u64 length, u8 *vec)
     nr_pgs = length >> PAGELOG;
 
     /* -ENOMEM if any unmapped gaps in range */
-    {
-        heap h = heap_general(get_kernel_heaps());
-        rangemap pvmap = current->p->vmaps;
-        range r = { start, start + length };
-
-        range_handler rh = closure(h, vmap_gap);
-        if (rangemap_range_find_gaps(pvmap, r, rh))
-            return -ENOMEM;
-    }
+    if (rangemap_range_find_gaps(
+            current->p->vmaps, 
+            (range){start, start + length},
+            stack_closure(mincore_vmap_gap)))
+        return -ENOMEM;
 
     for (i = 0; i < nr_pgs; i++)
         vec[i] = 0;
