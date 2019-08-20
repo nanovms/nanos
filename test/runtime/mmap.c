@@ -65,15 +65,15 @@ static problem_size_t problem_size_intensive = {
     }
 };
 
-static problem_size_t problem_size;
+static problem_size_t * problem_size;
 
-#define __mmap_NR_MMAPS         problem_size.mmap.nr_mmaps
-#define __mmap_ALLOC_AT_A_TIME  problem_size.mmap.alloc_at_a_time
-#define __mremap_INIT_SIZE      problem_size.mremap.init_size
-#define __mremap_END_SIZE       problem_size.mremap.end_size
-#define __mremap_MOVE_INC       problem_size.mremap.move_inc
-#define __mremap_NR_INCS        problem_size.mremap.nr_incs
-#define __mremap_NR_MMAPS       problem_size.mremap.nr_mmaps
+#define __mmap_NR_MMAPS         problem_size->mmap.nr_mmaps
+#define __mmap_ALLOC_AT_A_TIME  problem_size->mmap.alloc_at_a_time
+#define __mremap_INIT_SIZE      problem_size->mremap.init_size
+#define __mremap_END_SIZE       problem_size->mremap.end_size
+#define __mremap_MOVE_INC       problem_size->mremap.move_inc
+#define __mremap_NR_INCS        problem_size->mremap.nr_incs
+#define __mremap_NR_MMAPS       problem_size->mremap.nr_mmaps
 /** end problem size stuff **/
 
 
@@ -641,11 +641,11 @@ int main(int argc, char * argv[])
      * XXX: change if/when we determine the subsystem should handle the
      * intensive cases 
      */
-    memcpy(&problem_size, &problem_size_basic, sizeof(problem_size_t));
+    problem_size = &problem_size_basic;
 
     if (argc == 2) {
         if (strcmp(argv[1], "intensive") == 0)
-            memcpy(&problem_size, &problem_size_intensive, sizeof(problem_size_t));
+            problem_size = &problem_size_intensive;
     }
 
     /* flush printfs immediately */
