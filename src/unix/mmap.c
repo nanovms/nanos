@@ -203,7 +203,7 @@ boolean mincore_fill_vec(u64 base, u64 nr_pgs, u8 * vec, int level, u64 addr, u6
 
         if (pt_entry_is_fat(level, e)) {
             /* whole level is mapped */
-            for (i = 0; i < 512 && (pgoff + i < nr_pgs); i++) {
+            for (i = 0; (i < 512) && (pgoff + i < nr_pgs); i++) {
                 vec[pgoff + i] = 1;
 	    }
         } else if (pt_entry_is_pte(level, e)) {
@@ -217,12 +217,15 @@ boolean mincore_fill_vec(u64 base, u64 nr_pgs, u8 * vec, int level, u64 addr, u6
 static CLOSURE_0_1(mincore_vmap_gap, void, range);
 static void mincore_vmap_gap(range r)
 {
-    rprintf("mincore: found gap [0x%lx, 0x%lx)\n", r.start, r.end);
+    thread_log(current, "   found gap [0x%lx, 0x%lx)\n", r.start, r.end);
 }
 
 static sysreturn mincore(void *addr, u64 length, u8 *vec)
 {
-    u64 start, i, nr_pgs;
+    u64 start, nr_pgs;
+
+    thread_log(current, "mincore: addr %p, length 0x%lx, vec %p",
+               addr, length, vec);
 
     start = u64_from_pointer(addr);
     if (start & MASK(PAGELOG))
@@ -238,9 +241,7 @@ static sysreturn mincore(void *addr, u64 length, u8 *vec)
             stack_closure(mincore_vmap_gap)))
         return -ENOMEM;
 
-    for (i = 0; i < nr_pgs; i++)
-        vec[i] = 0;
-
+    runtime_memset(vec, 0, nr_pgs);
     traverse_ptes(start, length,
         stack_closure(mincore_fill_vec, start, nr_pgs, vec)
     );
