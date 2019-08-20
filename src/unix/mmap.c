@@ -217,7 +217,7 @@ boolean mincore_fill_vec(u64 base, u64 nr_pgs, u8 * vec, int level, u64 addr, u6
 static CLOSURE_0_1(mincore_vmap_gap, void, range);
 static void mincore_vmap_gap(range r)
 {
-    thread_log(current, "   found gap [0x%lx, 0x%lx)\n", r.start, r.end);
+    thread_log(current, "   found gap [0x%lx, 0x%lx)", r.start, r.end);
 }
 
 static sysreturn mincore(void *addr, u64 length, u8 *vec)
