@@ -192,15 +192,61 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
     return sysreturn_from_pointer(vnew);
 }
 
+static CLOSURE_3_3(mincore_fill_vec, boolean, u64, u64, u8 *, int, u64, u64 *);
+boolean mincore_fill_vec(u64 base, u64 nr_pgs, u8 * vec, int level, u64 addr, u64 * entry)
+{
+    u64 e = *entry;
+    u64 pgoff, i;
+
+    if (pt_entry_is_present(e)) {
+        pgoff = (addr - base) >> PAGELOG;
+
+        if (pt_entry_is_fat(level, e)) {
+            /* whole level is mapped */
+            for (i = 0; i < 512 && (pgoff + i < nr_pgs); i++) {
+                vec[pgoff + i] = 1;
+	    }
+        } else if (pt_entry_is_pte(level, e)) {
+            vec[pgoff] = 1;
+        }
+    }
+
+    return true;
+}
+
+/* No-op callback for rangemap_find_gaps ... */
+static CLOSURE_0_1(vmap_gap, void, range);
+static void vmap_gap(range r) {}
+
 static sysreturn mincore(void *addr, u64 length, u8 *vec)
 {
-    if (validate_virtual(addr, length)) {
-        u32 vlen = pad(length, PAGESIZE) >> PAGELOG;
-        // presumably it wants the right valid bits set? - go doesn't seem to use it this way
-        for (int i = 0; i< vlen; i++) vec[i] = 1;
-        return 0;
+    u64 start, i, nr_pgs;
+
+    start = u64_from_pointer(addr);
+    if (start & MASK(PAGELOG))
+        return -EINVAL;
+
+    length = pad(length, PAGESIZE);
+    nr_pgs = length >> PAGELOG;
+
+    /* -ENOMEM if any unmapped gaps in range */
+    {
+        heap h = heap_general(get_kernel_heaps());
+        rangemap pvmap = current->p->vmaps;
+        range r = { start, start + length };
+
+        range_handler rh = closure(h, vmap_gap);
+        if (rangemap_range_find_gaps(pvmap, r, rh))
+            return -ENOMEM;
     }
-    return -ENOMEM;
+
+    for (i = 0; i < nr_pgs; i++)
+        vec[i] = 0;
+
+    traverse_ptes(start, length,
+        stack_closure(mincore_fill_vec, start, nr_pgs, vec)
+    );
+    return 0;
 }
 
 static CLOSURE_6_2(mmap_read_complete, void, thread, u64, u64, boolean, buffer, u64, status, bytes);
