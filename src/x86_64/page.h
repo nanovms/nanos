@@ -20,10 +20,6 @@
 #define PAGE_PROT_FLAGS    (PAGE_NO_EXEC | PAGE_USER | PAGE_WRITABLE)
 #define PAGE_DEV_FLAGS     (PAGE_WRITABLE | PAGE_WRITETHROUGH | PAGE_NO_EXEC)
 
-#ifndef physical_from_virtual
-physical physical_from_virtual(void *x);
-#endif
-
 typedef u64 *page;
 
 static inline u64 phys_from_pte(u64 pte)
@@ -47,20 +43,24 @@ static inline u64 pindex(u64 x, u64 offset)
     return ((x >> offset) & MASK(9));
 }
 
-static inline boolean pentry_is_present(u64 entry)
+static inline boolean pt_entry_is_present(u64 entry)
 {
     return (entry & PAGE_PRESENT) != 0;
 }
 
-static inline boolean pentry_is_fat(int level, u64 entry)
+static inline boolean pt_entry_is_fat(int level, u64 entry)
 {
     return level == 3 && (entry & PAGE_2M_SIZE) != 0;
 }
 
-static inline boolean pentry_is_pte(int level, u64 entry)
+static inline boolean pt_entry_is_pte(int level, u64 entry)
 {
-    return level == 4 || pentry_is_fat(level, entry);
+    return level == 4 || pt_entry_is_fat(level, entry);
 }
+
+#ifndef physical_from_virtual
+physical physical_from_virtual(void *x);
+#endif
 
 void map(u64 virtual, physical p, u64 length, u64 flags, heap h);
 void unmap(u64 virtual, u64 length, heap h);
@@ -80,4 +80,4 @@ void dump_ptes(void *x);
 
 typedef closure_type(entry_handler, boolean /* success */, int /* level */,
         u64 /* vaddr */, u64 * /* entry */);
-boolean traverse_page_tables(u64 vaddr, u64 length, entry_handler eh);
+boolean traverse_ptes(u64 vaddr, u64 length, entry_handler eh);

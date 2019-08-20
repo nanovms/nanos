@@ -183,7 +183,7 @@ static void sparse_anon_mmap_test(void)
 
     nr_freed = 0;
     for (i = 0; i < __mmap_NR_MMAPS/__mmap_ALLOC_AT_A_TIME; i++)  {
-                    for (j = 0; j < __mmap_ALLOC_AT_A_TIME; j++) {
+        for (j = 0; j < __mmap_ALLOC_AT_A_TIME; j++) {
             unsigned long size = gen_random_size();
             void * addr = mmap(
                 NULL, 
@@ -463,7 +463,7 @@ static void mincore_test(void)
             exit(EXIT_FAILURE);
         }
 
-        /* first attempt should fail */
+        /* demand paged --- not in core */
         expected[0] = 0;
         printf("  performing mincore on anonymous mmap (0x%lx)...\n",
             (unsigned long)addr);
@@ -471,17 +471,17 @@ static void mincore_test(void)
 
         /* page it in */
         memset(addr, 0, PAGESIZE);
-
-        /* must succeed now */
         expected[0] = 1;
         __mincore(addr, PAGESIZE, vec, expected);
 
         /* free it */
         __munmap(addr, PAGESIZE);
 
-        /* must fail again */
-        expected[0] = 0;
-        __mincore(addr, PAGESIZE, vec, expected);
+        /* mincore should fail now */
+        if (mincore(addr, PAGESIZE, vec) == 0) {
+            fprintf(stderr, "mincore succeeded when it should have failed\n");
+            exit(EXIT_FAILURE);
+        }
 
         __munmap(addr, PAGESIZE);
     }
@@ -617,15 +617,6 @@ void mremap_test(void)
             exit(EXIT_FAILURE);
         }
 
-        /* XXX: once mincore reimplementation is pushed, this
-         * check can be added back in */
-#if 0
-        /* ensure old map is invalid */
-        if (mincore(map_addr, map_size, vec) == 0) {
-            fprintf(stderr, "mincore succeeded when it should have failed\n");
-            exit(EXIT_FAILURE);
-        }
-#endif
         map_addr = tmp;
         map_size = new_size;
     }

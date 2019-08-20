@@ -192,30 +192,21 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
     return sysreturn_from_pointer(vnew);
 }
 
-#if 1
-/* No-op callback for rangemap_find_gaps ... */
-static CLOSURE_0_1(vmap_gap, void, range);
-static void vmap_gap(range r) 
-{
-    rprintf("Found gap: [0x%lx, 0x%lx)\n", r.start, r.end);
-}
-#endif
-
 static CLOSURE_3_3(mincore_fill_vec, boolean, u64, u64, u8 *, int, u64, u64 *);
 boolean mincore_fill_vec(u64 base, u64 nr_pgs, u8 * vec, int level, u64 addr, u64 * entry)
 {
     u64 e = *entry;
     u64 pgoff, i;
 
-    if (pentry_is_present(e)) {
+    if (pt_entry_is_present(e)) {
         pgoff = (addr - base) >> PAGELOG;
 
-        if (pentry_is_fat(level, e)) {
+        if (pt_entry_is_fat(level, e)) {
             /* whole level is mapped */
             for (i = 0; i < 512 && (pgoff + i < nr_pgs); i++) {
                 vec[pgoff + i] = 1;
 	    }
-        } else if (pentry_is_pte(level, e)) {
+        } else if (pt_entry_is_pte(level, e)) {
             vec[pgoff] = 1;
         }
     }
@@ -223,40 +214,37 @@ boolean mincore_fill_vec(u64 base, u64 nr_pgs, u8 * vec, int level, u64 addr, u6
     return true;
 }
 
+/* No-op callback for rangemap_find_gaps ... */
+static CLOSURE_0_1(vmap_gap, void, range);
+static void vmap_gap(range r) {}
+
 static sysreturn mincore(void *addr, u64 length, u8 *vec)
 {
-    u64 start, i;
+    u64 start, i, nr_pgs;
 
     start = u64_from_pointer(addr);
     if (start & MASK(PAGELOG))
         return -EINVAL;
 
     length = pad(length, PAGESIZE);
+    nr_pgs = length >> PAGELOG;
 
-    /* XXX: we have no way to know whether there is unmapped memory in this range,
-     * since things like stack/heap/globals are not tracked
-     */
-#if 1
-    /* determine whether whole range is mapped; -ENOMEM if not */
+    /* -ENOMEM if any unmapped gaps in range */
     {
         heap h = heap_general(get_kernel_heaps());
         rangemap pvmap = current->p->vmaps;
         range r = { start, start + length };
 
-        rprintf("Searching for gaps in vrange [0x%lx, 0x%lx)\n",
-            start, start + length);
-
         range_handler rh = closure(h, vmap_gap);
         if (rangemap_range_find_gaps(pvmap, r, rh))
             return -ENOMEM;
     }
-#endif
 
-    for (i = 0; i < (length >> PAGELOG); i++)
+    for (i = 0; i < nr_pgs; i++)
         vec[i] = 0;
 
-    traverse_page_tables(start, length,
-        stack_closure(mincore_fill_vec, start, length >> PAGELOG, vec)
+    traverse_ptes(start, length,
+        stack_closure(mincore_fill_vec, start, nr_pgs, vec)
     );
     return 0;
 }
