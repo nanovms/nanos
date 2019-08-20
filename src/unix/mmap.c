@@ -192,15 +192,60 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
     return sysreturn_from_pointer(vnew);
 }
 
+static CLOSURE_3_3(mincore_fill_vec, boolean, u64, u64, u8 *, int, u64, u64 *);
+boolean mincore_fill_vec(u64 base, u64 nr_pgs, u8 * vec, int level, u64 addr, u64 * entry)
+{
+    u64 e = *entry;
+    u64 pgoff, i;
+
+    if (pt_entry_is_present(e)) {
+        pgoff = (addr - base) >> PAGELOG;
+
+        if (pt_entry_is_fat(level, e)) {
+            /* whole level is mapped */
+            for (i = 0; (i < 512) && (pgoff + i < nr_pgs); i++) {
+                vec[pgoff + i] = 1;
+	    }
+        } else if (pt_entry_is_pte(level, e)) {
+            vec[pgoff] = 1;
+        }
+    }
+
+    return true;
+}
+
+static CLOSURE_0_1(mincore_vmap_gap, void, range);
+static void mincore_vmap_gap(range r)
+{
+    thread_log(current, "   found gap [0x%lx, 0x%lx)", r.start, r.end);
+}
+
 static sysreturn mincore(void *addr, u64 length, u8 *vec)
 {
-    if (validate_virtual(addr, length)) {
-        u32 vlen = pad(length, PAGESIZE) >> PAGELOG;
-        // presumably it wants the right valid bits set? - go doesn't seem to use it this way
-        for (int i = 0; i< vlen; i++) vec[i] = 1;
-        return 0;
-    }
-    return -ENOMEM;
+    u64 start, nr_pgs;
+
+    thread_log(current, "mincore: addr %p, length 0x%lx, vec %p",
+               addr, length, vec);
+
+    start = u64_from_pointer(addr);
+    if (start & MASK(PAGELOG))
+        return -EINVAL;
+
+    length = pad(length, PAGESIZE);
+    nr_pgs = length >> PAGELOG;
+
+    /* -ENOMEM if any unmapped gaps in range */
+    if (rangemap_range_find_gaps(
+            current->p->vmaps, 
+            (range){start, start + length},
+            stack_closure(mincore_vmap_gap)))
+        return -ENOMEM;
+
+    runtime_memset(vec, 0, nr_pgs);
+    traverse_ptes(start, length,
+        stack_closure(mincore_fill_vec, start, nr_pgs, vec)
+    );
+    return 0;
 }
 
 static CLOSURE_6_2(mmap_read_complete, void, thread, u64, u64, boolean, buffer, u64, status, bytes);
@@ -526,16 +571,19 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
             thread_log(current, "   attempt to map zero page");
             return -ENOMEM;
         }
+
+	/* Must be page-aligned */
+	if (where & MASK(PAGELOG)) {
+	    thread_log(current, "   attempt to map non-aligned FIXED address");
+	    return -EINVAL;
+	}
+
         /* A specified address is only allowed in certain areas. Programs may specify
            a fixed address to augment some existing mapping. */
         range q = irange(where, where + len);
         if (!mmap_reserve_range(p, q)) {
-            if (fixed) {
-                thread_log(current, "   fail: fixed address range %R outside of lowmem or virtual_page heap\n", q);
-                return -ENOMEM;
-            } else {
-                where = 0;
-            }
+	    thread_log(current, "   fail: fixed address range %R outside of lowmem or virtual_page heap\n", q);
+	    return -ENOMEM;
         }
     }
 
