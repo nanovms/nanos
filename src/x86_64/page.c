@@ -423,19 +423,20 @@ void zero_mapped_pages(u64 vaddr, u64 length)
     traverse_entries(vaddr, length, stack_closure(zero_page));
 }
 
-static CLOSURE_2_3(is_page_mapped, boolean, u64, u8 *, int, u64, u64 *);
-boolean is_page_mapped(u64 baseaddr, u8 * vec, int level, u64 addr, u64 * entry)
+static CLOSURE_3_3(is_page_mapped, boolean, u64, u64, u8 *, int, u64, u64 *);
+boolean is_page_mapped(u64 base, u64 nr_pgs, u8 * vec, int level, u64 addr, u64 * entry)
 {
     u64 e = *entry;
-    int pgoff, i;
+    u64 pgoff, i;
 
     if (entry_is_present(e)) {
-        pgoff = (addr - baseaddr) >> PAGELOG;
+        pgoff = (addr - base) >> PAGELOG;
 
         if (entry_is_fat(level, e)) {
             /* whole level is mapped */
-            for (i = 0; i < 512; i++)
+            for (i = 0; i < 512 && (pgoff + i < nr_pgs); i++) {
                 vec[pgoff + i] = 1;
+	    }
         } else if (entry_is_pte(level, e)) {
             vec[pgoff] = 1;
         }
@@ -446,7 +447,9 @@ boolean is_page_mapped(u64 baseaddr, u8 * vec, int level, u64 addr, u64 * entry)
 
 void mincore_pages(u64 vaddr, u64 length, u8 *vec)
 {
-    traverse_entries(vaddr, length, stack_closure(is_page_mapped, vaddr, vec));
+    traverse_entries(vaddr, length, 
+	stack_closure(is_page_mapped, vaddr, length >> PAGELOG, vec)
+    );
 }
 
 static CLOSURE_1_3(unmap_page, boolean, range_handler, int, u64, u64 *);

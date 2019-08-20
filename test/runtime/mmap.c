@@ -8,15 +8,74 @@
 #include <unistd.h>
 #include <string.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#include <runtime.h>
+#define PAGELOG         12
+#define PAGELOG_2M      21
+#define PAGESIZE        (1ULL << PAGELOG)
+#define PAGESIZE_2M     (1ULL << PAGELOG_2M)
 
-#define NR_MMAPS            3000
-#define ALLOC_AT_A_TIME     150
+/** Basic and intensive problem sizes **/
+typedef struct {
+    struct {
+        unsigned long nr_mmaps;
+        unsigned long alloc_at_a_time;
+    } mmap;
+
+    struct {
+        unsigned long init_size;
+        unsigned long end_size;
+        unsigned long move_inc;
+        unsigned long nr_incs;
+        unsigned long nr_mmaps;
+    } mremap;
+} problem_size_t;
+
+static problem_size_t problem_size_basic = {
+    .mmap = {
+        .nr_mmaps = 300,
+        .alloc_at_a_time = 15
+    },
+
+    .mremap = {
+        .init_size = (1ULL << 12),
+        .end_size  = (1ULL << 25),
+        .move_inc  = (1ULL << 20),
+        .nr_incs   = (1ULL << 5),
+        .nr_mmaps  = (1ULL << 9)
+    }
+};
+
+static problem_size_t problem_size_intensive = {
+    .mmap = {
+        .nr_mmaps = 3000,
+        .alloc_at_a_time = 150
+    },
+
+    .mremap = {
+        .init_size = (1ULL << 12),
+        .end_size  = (1ULL << 31),
+        .move_inc  = (1ULL << 21),
+        .nr_incs   = (1ULL << 10),
+        .nr_mmaps  = (1ULL << 9)
+    }
+};
+
+static problem_size_t problem_size;
+
+#define __mmap_NR_MMAPS         problem_size.mmap.nr_mmaps
+#define __mmap_ALLOC_AT_A_TIME  problem_size.mmap.alloc_at_a_time
+#define __mremap_INIT_SIZE      problem_size.mremap.init_size
+#define __mremap_END_SIZE       problem_size.mremap.end_size
+#define __mremap_MOVE_INC       problem_size.mremap.move_inc
+#define __mremap_NR_INCS        problem_size.mremap.nr_incs
+#define __mremap_NR_MMAPS       problem_size.mremap.nr_mmaps
+/** end problem size stuff **/
+
 
 typedef struct {
     void * addr;
@@ -116,15 +175,15 @@ static void sparse_anon_mmap_test(void)
     mmap_t * mmaps;
     int i, j, nr_freed, nr_to_free;
 
-    mmaps = malloc(sizeof(mmap_t) * NR_MMAPS);
+    mmaps = malloc(sizeof(mmap_t) * __mmap_NR_MMAPS);
     if (mmaps == NULL) {
         perror("malloc");
         exit(EXIT_FAILURE);
     }
 
     nr_freed = 0;
-    for (i = 0; i < NR_MMAPS/ALLOC_AT_A_TIME; i++)  {
-	            for (j = 0; j < ALLOC_AT_A_TIME; j++) {
+    for (i = 0; i < __mmap_NR_MMAPS/__mmap_ALLOC_AT_A_TIME; i++)  {
+                    for (j = 0; j < __mmap_ALLOC_AT_A_TIME; j++) {
             unsigned long size = gen_random_size();
             void * addr = mmap(
                 NULL, 
@@ -139,24 +198,24 @@ static void sparse_anon_mmap_test(void)
                 exit(EXIT_FAILURE);
             }
 
-            mmaps[i*ALLOC_AT_A_TIME + j].addr = addr;
-            mmaps[i*ALLOC_AT_A_TIME + j].size = size;
+            mmaps[i*__mmap_ALLOC_AT_A_TIME + j].addr = addr;
+            mmaps[i*__mmap_ALLOC_AT_A_TIME + j].size = size;
         }
 
         /* free some but not all of them */
         nr_to_free = rand() % (
-            ((i+1) * ALLOC_AT_A_TIME)
+            ((i+1) * __mmap_ALLOC_AT_A_TIME)
             - nr_freed
         );
 
-        for (j = 0; j < nr_to_free && (nr_freed+j) < NR_MMAPS; j++)
+        for (j = 0; j < nr_to_free && (nr_freed+j) < __mmap_NR_MMAPS; j++)
             do_munmap(mmaps[nr_freed + j].addr, mmaps[nr_freed + j].size); 
 
         nr_freed += nr_to_free;
     }
 
     /* free whatever's left */
-    while (nr_freed < NR_MMAPS) {
+    while (nr_freed < __mmap_NR_MMAPS) {
         do_munmap(mmaps[nr_freed].addr, mmaps[nr_freed].size); 
         nr_freed++;
     }
@@ -327,7 +386,7 @@ static void mmap_test(void)
 
 }
 
-static inline bool check_mincore_vec(u8 * vec, u8 * expected, int nr_pages)
+static inline bool check_mincore_vec(uint8_t * vec, uint8_t * expected, int nr_pages)
 {
     int i;
     for (i = 0; i < nr_pages; i++)
@@ -340,7 +399,8 @@ static inline bool check_mincore_vec(u8 * vec, u8 * expected, int nr_pages)
  * XXX: currently, mincore never returns -ENOMEM, but it does
  * set the vector entries to 0 for non-mapped memory
  */
-static void __mincore(void * addr, unsigned long length, u8 * vec, u8 * expected)
+static void __mincore(void * addr, unsigned long length, uint8_t * vec, 
+        uint8_t * expected)
 {
     int ret;
 
@@ -358,18 +418,18 @@ static void __mincore(void * addr, unsigned long length, u8 * vec, u8 * expected
 
 static void mincore_test(void)
 {
-    u8 * vec, * expected;
+    uint8_t * vec, * expected;
     void * addr;
 
     printf("** starting mincore tests\n");
 
-    vec = malloc(sizeof(u8));
+    vec = malloc(sizeof(uint8_t));
     if (vec == NULL) {
         perror("malloc failed");
         exit(EXIT_FAILURE);
     }
 
-    expected = malloc(sizeof(u8));
+    expected = malloc(sizeof(uint8_t));
     if (expected == NULL) {
         perror("malloc");
         exit(EXIT_FAILURE);
@@ -377,22 +437,24 @@ static void mincore_test(void)
 
     /* test something on the stack */
     expected[0] = 1;
-    printf("  performing mincore on stack address...\n");
-    addr = (void *)round_down_page(mincore_test);
+    addr = (void *)round_down_page(&vec);
+    printf("  performing mincore on stack address (0x%lx)...\n", 
+        (unsigned long)addr);
     __mincore(addr, PAGESIZE, vec, expected);
 
     /* test something on the heap */
-    printf("  performing mincore on heap address...\n");
     addr = (void *)round_down_page(vec);
+    printf("  performing mincore on heap address (0x%lx)...\n",
+        (unsigned long)addr);
     __mincore(addr, PAGESIZE, vec, expected);
 
     /* test initialized global */
-    printf("  performing mincore on initialized globals...\n");
     addr = (void *)round_down_page(zero_data);
+    printf("  performing mincore on initialized globals (0x%lx)...\n",
+        (unsigned long)addr);
     __mincore(addr, PAGESIZE, vec, expected);
 
     /* test something recently mmap'd/munmap'd */
-    printf("  performing mincore on anonymous mmap...\n");
     {
         addr = mmap(NULL, PAGESIZE, PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE,
                 -1, 0);
@@ -403,6 +465,8 @@ static void mincore_test(void)
 
         /* first attempt should fail */
         expected[0] = 0;
+        printf("  performing mincore on anonymous mmap (0x%lx)...\n",
+            (unsigned long)addr);
         __mincore(addr, PAGESIZE, vec, expected);
 
         /* page it in */
@@ -414,7 +478,7 @@ static void mincore_test(void)
 
         /* free it */
         __munmap(addr, PAGESIZE);
-        
+
         /* must fail again */
         expected[0] = 0;
         __mincore(addr, PAGESIZE, vec, expected);
@@ -426,17 +490,16 @@ static void mincore_test(void)
     free(expected);
 
     /* test a sparsely paged anonymous mmap */
-    printf("  performing mincore on sparse anonymous mmap...\n");
     {
-        u32 i = 0;
+        int i = 0;
 
-        vec = malloc(sizeof(u8) * 512);
+        vec = malloc(sizeof(uint8_t) * 512);
         if (vec == NULL) {
             perror("malloc failed");
             exit(EXIT_FAILURE);
         }
 
-        expected = malloc(sizeof(u8) * 512);
+        expected = malloc(sizeof(uint8_t) * 512);
         if (expected == NULL) {
             perror("malloc failed");
             exit(EXIT_FAILURE);
@@ -458,6 +521,8 @@ static void mincore_test(void)
             }
         }
 
+        printf("  performing mincore on sparsely paged anonymous mmap (0x%lx)...\n,",
+            (unsigned long)addr);
         __mincore(addr, PAGESIZE*512, vec, expected);
 
         __munmap(addr, PAGESIZE*512);
@@ -472,23 +537,17 @@ static void mincore_test(void)
 /*
  * mremap tests
  */
-#define MREMAP_INIT_SIZE    (1ULL << 12)
-#define MREMAP_END_SIZE     (1ULL << 31)
-#define MREMAP_MOVE_INC     (1ULL << 21)
-#define MREMAP_NR_INCS      (1ULL << 10)
-#define MREMAP_NR_MMAPS     (1ULL << 9)
-
 void mremap_test(void)
 {
     void * map_addr, * tmp;
     unsigned long map_size;
     mmap_t * mmaps;
-    u8 * vec;
+    uint8_t * vec;
     int i;
 
     printf("** starting mremap tests\n");
 
-    map_addr = mmap(NULL, MREMAP_INIT_SIZE, PROT_READ|PROT_WRITE,
+    map_addr = mmap(NULL, __mremap_INIT_SIZE, PROT_READ|PROT_WRITE,
             MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (map_addr == MAP_FAILED) {
         perror("mmap failed");
@@ -497,13 +556,13 @@ void mremap_test(void)
 
     /* ensure that MREMAP_MAYMOVE is needed and MREMAP_FIXED is invalid */
     {
-        tmp = mremap(map_addr, MREMAP_INIT_SIZE, MREMAP_INIT_SIZE*2, 0);
+        tmp = mremap(map_addr, __mremap_INIT_SIZE, __mremap_INIT_SIZE*2, 0);
         if (tmp != MAP_FAILED) {
             fprintf(stderr, "mremap succeeded without MREMAP_MAYMOVE??\n");
             exit(EXIT_FAILURE);
         }
 
-        tmp = mremap(map_addr, MREMAP_INIT_SIZE, MREMAP_INIT_SIZE*2, 
+        tmp = mremap(map_addr, __mremap_INIT_SIZE, __mremap_INIT_SIZE*2, 
                 MREMAP_MAYMOVE | MREMAP_FIXED, map_addr+PAGESIZE);
         if (tmp != MAP_FAILED) {
             fprintf(stderr, "mremap succeeded with MREMAP_FIXED??\n");
@@ -514,13 +573,13 @@ void mremap_test(void)
     /*
      * allocate a bunch of mmaps to create a fragmented address space
      */
-    mmaps = malloc(sizeof(mmap_t) * MREMAP_NR_MMAPS);
+    mmaps = malloc(sizeof(mmap_t) * __mremap_NR_MMAPS);
     if (mmaps == NULL) {
         perror("mmap failed");
         exit(EXIT_FAILURE);
     }
 
-    for (i = 0; i < MREMAP_NR_MMAPS; i++) {
+    for (i = 0; i < __mremap_NR_MMAPS; i++) {
         unsigned long size = gen_random_size();
         tmp = mmap(
             NULL, 
@@ -539,20 +598,18 @@ void mremap_test(void)
         mmaps[i].size = size;
     }
 
-    vec = malloc(sizeof(u8) * ((1ULL << MAX_SHIFT) >> PAGELOG)); 
+    vec = malloc(sizeof(uint8_t) * ((1ULL << MAX_SHIFT) >> PAGELOG)); 
     if (vec == NULL) {
         perror("malloc failed");
         exit(EXIT_FAILURE);
     }
 
     /* now, remap the inital mmap a bunch of times */ 
-    map_size = MREMAP_INIT_SIZE;
-    for (i = 0; i < MREMAP_NR_INCS; i++) {
+    map_size = __mremap_INIT_SIZE;
+    for (i = 0; i < __mremap_NR_INCS; i++) {
         /* round new_size to the next largest MREMAP_MOVE_INC boundary */
         unsigned long new_size = 
-                (i == 0) ? MREMAP_MOVE_INC : map_size+MREMAP_MOVE_INC;
-
-        printf("issuing %dth mremap\n", i);
+                (i == 0) ? __mremap_MOVE_INC : map_size+__mremap_MOVE_INC;
 
         tmp = mremap(map_addr, map_size, new_size, MREMAP_MAYMOVE, (void *)(unsigned long)i);
         if (tmp == MAP_FAILED) {
@@ -560,8 +617,8 @@ void mremap_test(void)
             exit(EXIT_FAILURE);
         }
 
-        printf("%dth mremap succeeded\n", i);
-
+        /* XXX: once mincore reimplementation is pushed, this
+         * check can be added back in */
 #if 0
         /* ensure old map is invalid */
         if (mincore(map_addr, map_size, vec) == 0) {
@@ -579,11 +636,26 @@ void mremap_test(void)
 
 int main(int argc, char * argv[])
 {
+    /*
+     * Set default problem size to basic
+     * XXX: change if/when we determine the subsystem should handle the
+     * intensive cases 
+     */
+    memcpy(&problem_size, &problem_size_basic, sizeof(problem_size_t));
+
+    if (argc == 2) {
+        if (strcmp(argv[1], "intensive") == 0)
+            memcpy(&problem_size, &problem_size_intensive, sizeof(problem_size_t));
+    }
+
+    /* flush printfs immediately */
     setbuf(stdout, NULL);
 
     mmap_test();
     mincore_test();
     mremap_test();
+
+    printf("\n**** all tests passed ****\n");
 
     exit(EXIT_SUCCESS);
 }
