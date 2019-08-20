@@ -16,7 +16,7 @@ static char *elf_string(buffer elf, Elf64_Shdr *string_section, u64 offset)
     if (((void*)ptr) + sizeof(type) > elf_end)    \
         goto out_elf_fail;
 
-void elf_symbols(buffer elf, closure_type(each, void, char *, u64, u64, u8))
+void elf_symbols(buffer elf, elf_sym_handler each)
 {
     char *symbol_string_name = ".strtab";
     void * elf_end = buffer_ref(elf, buffer_length(elf));
@@ -63,7 +63,7 @@ void elf_symbols(buffer elf, closure_type(each, void, char *, u64, u64, u8))
     msg_err("failed to parse elf file, len %d; check file image consistency\n", buffer_length(elf));
 }
 
-void *load_elf(buffer elf, u64 offset, heap pages, heap bss, boolean user)
+void *load_elf(buffer elf, u64 load_offset, elf_map_handler mapper)
 {
     void * elf_end = buffer_ref(elf, buffer_length(elf));
     Elf64_Ehdr *e = buffer_ref(elf, 0);
@@ -79,12 +79,12 @@ void *load_elf(buffer elf, u64 offset, heap pages, heap bss, boolean user)
             int ssize = pad(p->p_filesz + trim_offset, PAGESIZE);
 
             /* determine access permissions */
-            u64 flags = user ? PAGE_USER : 0;
+            u64 flags = 0;
             if ((p->p_flags & PF_X) == 0)
                 flags |= PAGE_NO_EXEC;
             if ((p->p_flags & PF_W))
                 flags |= PAGE_WRITABLE;
-            map(aligned + offset, phy, ssize, flags, pages);
+            apply(mapper, aligned + load_offset, phy, ssize, flags);
 
             // always zero up to the next aligned page start
             s64 bss_size = p->p_memsz - p->p_filesz;
@@ -95,7 +95,7 @@ void *load_elf(buffer elf, u64 offset, heap pages, heap bss, boolean user)
             else if (bss_size == 0)
                 continue;
 
-            u64 bss_start = p->p_vaddr + offset + p->p_filesz;
+            u64 bss_start = p->p_vaddr + load_offset + p->p_filesz;
             u64 initial_len = MIN(bss_size, pad(bss_start, PAGESIZE) - bss_start);
 
             /* vpzero does the right thing whether stage2 or 3... */
@@ -104,15 +104,11 @@ void *load_elf(buffer elf, u64 offset, heap pages, heap bss, boolean user)
             if (bss_size > initial_len) {
                 u64 pstart = bss_start + initial_len;
                 u64 psize = pad((bss_size - initial_len), PAGESIZE);
-                u64 phys = allocate_u64(bss, psize);
-                /* XXX other flags for bss? */
-                map(pstart, phys, psize, flags, pages);
-                vpzero(pointer_from_u64(pstart), phys, psize);
+                apply(mapper, pstart, INVALID_PHYSICAL, psize, flags);
             }
         }
     }
-    u64 entry = e->e_entry;
-    entry += offset; 
+    u64 entry = e->e_entry + load_offset;
     return pointer_from_u64(entry);
   out_elf_fail:
     msg_err("failed to parse elf file, len %d; check file image consistency\n", buffer_length(elf));
