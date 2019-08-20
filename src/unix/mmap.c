@@ -572,16 +572,19 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
             thread_log(current, "   attempt to map zero page");
             return -ENOMEM;
         }
+
+	/* Must be page-aligned */
+	if (where & MASK(PAGELOG)) {
+	    thread_log(current, "   attempt to map non-aligned FIXED address");
+	    return -EINVAL;
+	}
+
         /* A specified address is only allowed in certain areas. Programs may specify
            a fixed address to augment some existing mapping. */
         range q = irange(where, where + len);
         if (!mmap_reserve_range(p, q)) {
-            if (fixed) {
-                thread_log(current, "   fail: fixed address range %R outside of lowmem or virtual_page heap\n", q);
-                return -ENOMEM;
-            } else {
-                where = 0;
-            }
+	    thread_log(current, "   fail: fixed address range %R outside of lowmem or virtual_page heap\n", q);
+	    return -ENOMEM;
         }
     }
 
