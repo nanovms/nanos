@@ -35,8 +35,8 @@ extern void run64(u32 entry);
 #define SCRATCH_LEN          (BOOT_BASE - REAL_MODE_STACK_SIZE)
 
 static struct kernel_heaps kh;
-static u32 stack_base;
-static u32 identity_base;
+static u64 stack_base;
+static u64 identity_base;
 
 static u64 s[2] = { 0xa5a5beefa5a5cafe, 0xbeef55aaface55aa };
 
@@ -137,7 +137,7 @@ static void setup_page_tables()
     stage2_debug("%s\n", __func__);
 
     /* identity heap alloc */
-    stage2_debug("identity heap at [0x%x,  0x%x)\n", identity_base, identity_base + IDENTITY_HEAP_SIZE);
+    stage2_debug("identity heap at [0x%lx,  0x%lx)\n", identity_base, identity_base + IDENTITY_HEAP_SIZE);
     create_region(identity_base, IDENTITY_HEAP_SIZE, REGION_IDENTITY);
     create_region(identity_base, IDENTITY_HEAP_SIZE, REGION_IDENTITY_RESERVED);
     heap pages = region_allocator(heap_general(&kh), PAGESIZE, REGION_IDENTITY);
