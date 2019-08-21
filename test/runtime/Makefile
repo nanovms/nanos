@@ -58,7 +58,8 @@ SRCS-hw=		$(CURDIR)/hw.c
 SRCS-hws=		$(SRCS-hw)
 LDFLAGS-hws=		-static
 
-SRCS-mmap=		$(CURDIR)/mmap.c
+SRCS-mmap=		$(CURDIR)/mmap.c \
+			$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-mmap=		-static
 
 SRCS-mkdir= \
