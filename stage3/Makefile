@@ -59,6 +59,7 @@ SRCS-stage3.img= \
 	$(SRCDIR)/virtio/virtio_scsi.c \
 	$(SRCDIR)/virtio/virtqueue.c \
 	$(SRCDIR)/virtio/scsi.c \
+	$(SRCDIR)/xen/xen.c \
 	$(SRCDIR)/x86_64/backed_heap.c \
 	$(SRCDIR)/x86_64/breakpoint.c \
 	$(SRCDIR)/x86_64/clock.c \
@@ -107,6 +108,7 @@ CFLAGS+= \
 	-I$(SRCDIR)/runtime \
 	-I$(SRCDIR)/tfs \
 	-I$(SRCDIR)/unix \
+	-I$(SRCDIR)/xen \
 	-I$(SRCDIR)/x86_64 \
 	-I$(LWIPDIR)/src/include
 #CFLAGS+=	-DLWIPDIR_DEBUG -DEPOLL_DEBUG -DNETSYSCALL_DEBUG -DKERNEL_DEBUG

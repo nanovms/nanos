@@ -15,6 +15,8 @@ extern void start_interrupts(kernel_heaps kh);
 
 static struct kernel_heaps heaps;
 
+#define STAGE3_REGION_DEBUG
+
 // doesnt belong here
 CLOSURE_3_0(startup, void, kernel_heaps, tuple, filesystem);
 void startup(kernel_heaps kh,
@@ -231,30 +233,44 @@ static void reclaim_regions(void)
     }
 }
 
+void xen_detect_hypervisor(kernel_heaps kh);
+
 static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = &heaps;
     heap misc = heap_general(kh);
     heap pages = heap_pages(kh);
 
+    console("init_service_new_stack\n");
     reclaim_regions();          /* unmap and reclaim stage2 stack */
+    console("init_runtime\n");
     init_runtime(kh);
     init_extra_prints();
     init_pci(kh);
+    console("init_console\n");
     init_console(kh);
+    console("pci_discover\n");
     pci_discover(); // early PCI discover to configure VGA console
 
+    console("discover done\n");
     /* Unmap the first page so we catch faults on null pointer references. */
     unmap(0, PAGESIZE, pages);
 
     runqueue = allocate_queue(misc, 64);
     bhqueue = allocate_queue(misc, 2048); /* XXX will need something extensible really */
+    console("init_clock\n");
     init_clock(kh);
+    console("init_random\n");
     init_random();
     __stack_chk_guard_init();
+    console("start_interrupts\n");
     start_interrupts(kh);
     init_symtab(kh);
+    console("read_kernel_syms\n");
     read_kernel_syms();
+    console("xen_detect_hypervisor\n");
+    xen_detect_hypervisor(kh);
+    console("before init_net\n");
     init_net(kh);
     tuple root = allocate_tuple();
 
@@ -265,13 +281,16 @@ static void __attribute__((noinline)) init_service_new_stack()
     }
     if (fs_offset == 0)
         halt("filesystem region not found; halt\n");
+    console("before init_storage\n");
     init_storage(kh, closure(misc, attach_storage, root, fs_offset));
+    console("before init_virtio_network\n");
     init_virtio_network(kh);
     pci_discover(); // do PCI discover again for other devices
 
     /* Switch to stage3 GDT64, enable TSS and free up initial map */
     install_gdt64_and_tss();
     unmap(PAGESIZE, INITIAL_MAP_SIZE - PAGESIZE, pages);
+    console("before runloop\n");
     runloop();
 }
 

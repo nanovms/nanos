@@ -99,12 +99,16 @@ void init_clock(kernel_heaps kh)
     zero(vc, sizeof(struct pvclock_vcpu_time_info));
     vclock = vc;
 
+    console("before write msr\n");
+#if 0
     // add the enable bit 1
     write_msr(MSR_KVM_SYSTEM_TIME, physical_from_virtual(vc) | 1);
     memory_barrier();
-
+#endif
+    console("after write msr\n");
     /* if we can't get pvclock, fall back on HPET */
     if (vclock->system_time == 0) {
+        console("attempt init hpet\n");
         if (!init_hpet(heap_general(kh), heap_virtual_page(kh), heap_pages(kh))) {
             halt("HPET initialization failed; no timer source\n");
         }
