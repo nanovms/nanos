@@ -296,10 +296,16 @@ bios_tty_write:
 	mov esi, [ebp + 8]
 	mov ecx, [ebp + 12]
 
+	; get data segment of pointer
+	mov edx, esi
+	shr edx, 16
+	shl edx, 12
+
 	ENTER_REAL
 	cld
 	mov ah, 0xe	; teletype output
 	xor bh, bh	; page 0
+	mov ds, dx
 .loop:
 	lodsb		; AL = character
 	int 0x10
