@@ -10,12 +10,17 @@
 #include <drivers/console.h>
 #include <unix_internal.h>
 
+#define STAGE3_INIT_DEBUG
+#ifdef STAGE3_INIT_DEBUG
+#define init_debug(x) do {console("INIT: " x "\n");} while(0)
+#else
+#define init_debug(x)
+#endif
+
 extern void init_net(kernel_heaps kh);
 extern void start_interrupts(kernel_heaps kh);
 
 static struct kernel_heaps heaps;
-
-#define STAGE3_REGION_DEBUG
 
 // doesnt belong here
 CLOSURE_3_0(startup, void, kernel_heaps, tuple, filesystem);
@@ -233,7 +238,8 @@ static void reclaim_regions(void)
     }
 }
 
-void xen_detect_hypervisor(kernel_heaps kh);
+void xen_detect(kernel_heaps kh);
+boolean xen_detected(void);
 
 static void __attribute__((noinline)) init_service_new_stack()
 {
@@ -241,39 +247,45 @@ static void __attribute__((noinline)) init_service_new_stack()
     heap misc = heap_general(kh);
     heap pages = heap_pages(kh);
 
-    console("init_service_new_stack\n");
+    /* runtime and console init */
+    init_debug("in init_service_new_stack");
+    unmap(0, PAGESIZE, pages);  /* unmap zero page */
     reclaim_regions();          /* unmap and reclaim stage2 stack */
-    console("init_runtime\n");
+    init_debug("runtime");
     init_runtime(kh);
     init_extra_prints();
     init_pci(kh);
-    console("init_console\n");
     init_console(kh);
-    console("pci_discover\n");
+    init_symtab(kh);
+    read_kernel_syms();
+    init_debug("pci_discover (for VGA)");
     pci_discover(); // early PCI discover to configure VGA console
 
-    console("discover done\n");
-    /* Unmap the first page so we catch faults on null pointer references. */
-    unmap(0, PAGESIZE, pages);
-
+    /* scheduling queues init */
     runqueue = allocate_queue(misc, 64);
     bhqueue = allocate_queue(misc, 2048); /* XXX will need something extensible really */
-    console("init_clock\n");
+
+    /* xen */
+    init_debug("xen");
+    xen_detect(kh);
+    if (xen_detected())
+        init_debug("xen hypervisor detected");
+
+    /* clock, RNG, stack canaries */
+    init_debug("clock");
     init_clock(kh);
-    console("init_random\n");
+    init_debug("RNG");
     init_random();
     __stack_chk_guard_init();
-    console("start_interrupts\n");
-    start_interrupts(kh);
-    init_symtab(kh);
-    console("read_kernel_syms\n");
-    read_kernel_syms();
-    console("xen_detect_hypervisor\n");
-    xen_detect_hypervisor(kh);
-    console("before init_net\n");
-    init_net(kh);
-    tuple root = allocate_tuple();
 
+    /* interrupts */
+    init_debug("start_interrupts");
+    start_interrupts(kh);
+    init_debug("LWIP init");
+    init_net(kh);
+
+    init_debug("probe fs, register storage drivers");
+    tuple root = allocate_tuple();
     u64 fs_offset = 0;
     for_regions(e) {
         if (e->type == REGION_FILESYSTEM)
@@ -281,16 +293,17 @@ static void __attribute__((noinline)) init_service_new_stack()
     }
     if (fs_offset == 0)
         halt("filesystem region not found; halt\n");
-    console("before init_storage\n");
     init_storage(kh, closure(misc, attach_storage, root, fs_offset));
-    console("before init_virtio_network\n");
     init_virtio_network(kh);
+    init_debug("pci_discover (for virtio & ata)");
     pci_discover(); // do PCI discover again for other devices
 
     /* Switch to stage3 GDT64, enable TSS and free up initial map */
+    init_debug("install GDT64 and TSS");
     install_gdt64_and_tss();
     unmap(PAGESIZE, INITIAL_MAP_SIZE - PAGESIZE, pages);
-    console("before runloop\n");
+
+    init_debug("starting runloop");
     runloop();
 }
 
@@ -311,12 +324,12 @@ static heap init_pages_id_heap(heap h)
 		halt("\nhalt");
 	    }
 
-#ifdef STAGE3_REGION_DEBUG
-	    console("pages heap: ");
+#ifdef STAGE3_INIT_DEBUG
+	    console("INIT: pages heap: [");
 	    print_u64(base);
-	    console(", length ");
-	    print_u64(length);
-	    console("\n");
+	    console(", ");
+	    print_u64(base + length);
+	    console(")\n");
 #endif
 	    if (!id_heap_add_range(pages, base, length))
 		halt("    - id_heap_add_range failed\n");
@@ -338,9 +351,7 @@ static heap init_physical_id_heap(heap h)
 {
     heap physical = allocate_id_heap(h, PAGESIZE);
     boolean found = false;
-#ifdef STAGE3_REGION_DEBUG
-    console("physical memory:\n");
-#endif
+    init_debug("physical memory:");
     for_regions(e) {
 	if (e->type == REGION_PHYSICAL) {
 	    /* Align for 2M pages */
@@ -352,12 +363,12 @@ static heap init_physical_id_heap(heap h)
 	    if (base >= end)
 		continue;
 	    u64 length = end - base;
-#ifdef STAGE3_REGION_DEBUG
-	    console("   base ");
+#ifdef STAGE3_INIT_DEBUG
+	    console("INIT:  [");
 	    print_u64(base);
-	    console(", length ");
-	    print_u64(length);
-	    console("\n");
+	    console(", ");
+	    print_u64(base + length);
+	    console(")\n");
 #endif
 	    if (!id_heap_add_range(physical, base, length))
 		halt("    - id_heap_add_range failed\n");
@@ -396,6 +407,7 @@ static void init_kernel_heaps()
 // init linker set
 void init_service()
 {
+    init_debug("init_service");
     init_kernel_heaps();
     u64 stack_size = 32*PAGESIZE;
     u64 stack_location = allocate_u64(heap_backed(&heaps), stack_size);

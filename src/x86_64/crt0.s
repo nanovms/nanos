@@ -331,3 +331,9 @@ TSS:                            ; 64 bit TSS
         dw 0                    ; IOPB offset   0x64
         dw 0                    ; reserved      0x66
 .end:
+
+;; hypercall page used by xen
+align 4096
+global hypercall_page
+hypercall_page:
+        times 4096 db 0

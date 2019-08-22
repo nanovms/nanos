@@ -108,7 +108,6 @@ CFLAGS+= \
 	-I$(SRCDIR)/runtime \
 	-I$(SRCDIR)/tfs \
 	-I$(SRCDIR)/unix \
-	-I$(SRCDIR)/xen \
 	-I$(SRCDIR)/x86_64 \
 	-I$(LWIPDIR)/src/include
 #CFLAGS+=	-DLWIPDIR_DEBUG -DEPOLL_DEBUG -DNETSYSCALL_DEBUG -DKERNEL_DEBUG

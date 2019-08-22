@@ -4,12 +4,23 @@
 #include "hpet.h"
 #include "rtc.h"
 
+#define CLOCK_INIT_DEBUG
+#ifdef CLOCK_INIT_DEBUG
+#define clock_init_debug(x) do {console(" CLK: " x "\n");} while(0)
+#else
+#define clock_init_debug(x)
+#endif
+
 static volatile struct pvclock_vcpu_time_info *vclock = 0;
 
 static timestamp rtc_offset;
 
-#define CPUID_LEAF_4 0x40000001
-
+/* These should go in a KVM-specific area... */
+#define KVM_CPUID_SIGNATURE 0x40000000
+#define KVM_SIGNATURE_0 0x4b4d564b
+#define KVM_SIGNATURE_1 0x564b4d56
+#define KVM_SIGNATURE_2 0x0000004d
+#define KVM_CPUID_FEATURES 0x40000001
 #define MSR_KVM_SYSTEM_TIME 0x4b564d01
 
 struct pvclock_vcpu_time_info {
@@ -22,7 +33,6 @@ struct pvclock_vcpu_time_info {
     u8    flags;
     u8    pad[2];
 } __attribute__((__packed__));
-
 
 #define MSR_KVM_WALL_CLOCK 0x4b564d00
 struct pvclock_wall_clock {
@@ -88,30 +98,63 @@ void runloop_timer(timestamp duration)
     timer_function(duration);
 }
 
-void init_clock(kernel_heaps kh)
+static boolean probe_kvm(void)
 {
+    clock_init_debug("probing for KVM...");
+    u32 v[4];
+    cpuid(KVM_CPUID_SIGNATURE, 0, v);
+    if (!(v[1] == KVM_SIGNATURE_0 && v[2] == KVM_SIGNATURE_1 && v[3] == KVM_SIGNATURE_2)) {
+        clock_init_debug("no KVM signature match");
+        return false;
+    }
+    if (v[0] != KVM_CPUID_FEATURES) {
+        console("KVM probe fail: found signature but unrecognized features cpuid ");
+        print_u64(v[0]);
+        console("; check KVM version?\n");
+        return false;
+    }
+    return true;
+}
+
+static boolean probe_kvm_pvclock(kernel_heaps kh)
+{
+    if (!probe_kvm())
+        return false;
+
+    clock_init_debug("probing for KVM pvclock...");
     heap backed = heap_backed(kh);
-    // xxx - figure out how to deal with cpu id so we can
-    // test for the presence of this feature
-    // this is just used for rdtsc scaling, as both kvm and non-kvm are assumed
-    // to have hpet support
+    u32 v[4];
+    cpuid(KVM_CPUID_FEATURES, 0, v);
+    print_u64(v[0]);
+    if ((v[0] & (1 << 3)) == 0) {
+        clock_init_debug("no pvclock detected");
+        return false;
+    }
+    clock_init_debug("pvclock detected");
     struct pvclock_vcpu_time_info * vc = allocate(backed, backed->pagesize);
     zero(vc, sizeof(struct pvclock_vcpu_time_info));
-    vclock = vc;
-
-    console("before write msr\n");
-#if 0
-    // add the enable bit 1
-    write_msr(MSR_KVM_SYSTEM_TIME, physical_from_virtual(vc) | 1);
+    clock_init_debug("before write msr");
+    write_msr(MSR_KVM_SYSTEM_TIME, physical_from_virtual(vc) | /* enable */ 1);
     memory_barrier();
-#endif
-    console("after write msr\n");
+    clock_init_debug("after write msr");
+    if (vc->system_time == 0) {
+        /* noise, but we should know if this happens */
+        console("kvm pvclock probe failed: detected kvm pvclock, but system_time == 0\n");
+        return false;
+    }
+    vclock = vc;
+    return true;
+}
+
+void init_clock(kernel_heaps kh)
+{
     /* if we can't get pvclock, fall back on HPET */
-    if (vclock->system_time == 0) {
-        console("attempt init hpet\n");
+    if (!probe_kvm_pvclock(kh)) {
+        clock_init_debug("attempt init_hpet");
         if (!init_hpet(heap_general(kh), heap_virtual_page(kh), heap_pages(kh))) {
             halt("HPET initialization failed; no timer source\n");
         }
+        clock_init_debug("HPET detected");
         clock_function = now_hpet;
         timer_function = hpet_runloop_timer;
     } else {
