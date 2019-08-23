@@ -266,7 +266,7 @@ static void __attribute__((noinline)) init_service_new_stack()
     bhqueue = allocate_queue(misc, 2048); /* XXX will need something extensible really */
 
     /* xen */
-    init_debug("xen");
+    init_debug("probing for xen hypervisor");
     xen_detect(kh);
     if (xen_detected())
         init_debug("xen hypervisor detected");

@@ -125,7 +125,6 @@ static boolean probe_kvm_pvclock(kernel_heaps kh)
     heap backed = heap_backed(kh);
     u32 v[4];
     cpuid(KVM_CPUID_FEATURES, 0, v);
-    print_u64(v[0]);
     if ((v[0] & (1 << 3)) == 0) {
         clock_init_debug("no pvclock detected");
         return false;

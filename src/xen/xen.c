@@ -2,7 +2,6 @@
 #include <x86_64.h>
 #include <page.h>
 
-#define __XEN__
 typedef s8 int8_t;
 typedef u8 uint8_t;
 typedef u16 uint16_t;
@@ -19,12 +18,13 @@ typedef s64 int64_t;
 #include "hvm/params.h"
 #include "hvm/hvm_op.h"
 #include "io/xs_wire.h"
+#include "memory.h"
 
 #include "hypercall.h"
 
 #define XEN_DEBUG
 #ifdef XEN_DEBUG
-#define xen_init_debug(x, ...) do {rprintf(" XEN: " x "\n", __func__, ##__VA_ARGS__);} while(0)
+#define xen_init_debug(x, ...) do {rprintf(" XEN: " x "\n", ##__VA_ARGS__);} while(0)
 #else
 #define xen_init_debug(x, ...)
 #endif
@@ -36,7 +36,9 @@ typedef struct xen_info {
     u32 msr_base;
     u64 xenstore_paddr;
     u64 xenstore_evtchn;
+    /* XXX: volatile? where? */
     struct xenstore_domain_interface *xenstore_interface;
+    struct shared_info *shared_info;
 } *xen_info;
 
 extern u64 hypercall_page;
@@ -89,7 +91,7 @@ void xen_detect(kernel_heaps kh)
 
     /* install hypercall page */
     u64 hp_phys = physical_from_virtual(&hypercall_page);
-    xen_init_debug("hypercall_page: v %p, p 0x%lx", &hypercall_page, hp_phys);
+    xen_init_debug("hypercall_page: v 0x%lx, p 0x%lx", u64_from_pointer(&hypercall_page), hp_phys);
 
     /* we can assume that kernel bss is identity mapped... */
     write_msr(xi.msr_base, hp_phys);
@@ -103,9 +105,13 @@ void xen_detect(kernel_heaps kh)
         msg_err("failed to get xenstore page address (rv %ld)", rv);
         return;
     }
+    xi.xenstore_paddr = xen_hvm_param.value << PAGELOG;
 
-    u64 paddr = xen_hvm_param.value << PAGELOG;
-    xi.xenstore_paddr = paddr;
+    /* map xenstore interface page */
+    xi.xenstore_interface = allocate(heap_virtual_page(kh), PAGESIZE);
+    assert(xi.xenstore_interface != INVALID_ADDRESS);
+    map(u64_from_pointer(xi.xenstore_interface), xi.xenstore_paddr, PAGESIZE, 0, heap_pages(kh));
+    xen_init_debug("xenstore page mapped at %p", xi.xenstore_interface);
 
     xen_hvm_param.domid = DOMID_SELF;
     xen_hvm_param.index = HVM_PARAM_STORE_EVTCHN;
@@ -119,10 +125,78 @@ void xen_detect(kernel_heaps kh)
     xen_init_debug("xenstore page at phys 0x%lx, event channel %ld",
               xi.xenstore_paddr, xi.xenstore_evtchn);
 
-    xi.xenstore_interface = allocate(heap_virtual_page(kh), PAGESIZE);
-    assert(xi.xenstore_interface != INVALID_ADDRESS);
-    map(u64_from_pointer(xi.xenstore_interface), xi.xenstore_paddr, PAGESIZE, 0, heap_pages(kh));
-    xen_init_debug("xenstore page mapped at %p", xi.xenstore_interface);
-    return;
+    /* shared info page - taking page from identity heap, but could be backed as well */
+    xi.shared_info = allocate(heap_pages(kh), PAGESIZE);
+    assert(xi.shared_info != INVALID_ADDRESS);
+    xen_add_to_physmap_t xatp;
+    xatp.domid = DOMID_SELF;
+    xatp.space = XENMAPSPACE_shared_info;
+    xatp.idx = 0;
+    xatp.gpfn = u64_from_pointer(xi.shared_info) >> PAGELOG; /* identity heap, v == p */
+    xen_init_debug("shared info page: 0x%lx", u64_from_pointer(xi.shared_info));
+    rv = HYPERVISOR_memory_op(XENMEM_add_to_physmap, &xatp);
+    if (rv < 0) {
+        msg_err("failed to add shared info map\n");
+        deallocate(heap_pages(kh), xi.shared_info, PAGESIZE);
+        xi.shared_info = 0;
+        return;
+    }
+    xen_init_debug("xen initialization complete");
 }
 
+static inline void evtchn_send(evtchn_port_t port)
+{
+    evtchn_op_t op;
+    op.cmd = EVTCHNOP_send;
+    op.u.send.port = port;
+    HYPERVISOR_event_channel_op(&op);
+}
+
+/* returns bytes written; doesn't block */
+static u64 xenstore_write_internal(const void * data, u64 length)
+{
+    struct xenstore_domain_interface *xsdi = xi.xenstore_interface;
+    if (length == 0)
+        return 0;
+
+    u64 written = 0;
+    u64 flags = read_flags();
+    disable_interrupts();
+
+    do {
+        u64 produced = xsdi->req_prod - xsdi->req_cons;
+        assert(produced <= XENSTORE_RING_SIZE); /* too harsh? recoverable error? */
+        u64 offset = MASK_XENSTORE_IDX(xsdi->req_prod);
+        u64 navail = XENSTORE_RING_SIZE - MAX(produced, offset);
+        if (navail == 0)
+            goto out;
+        u64 nwrite = MIN(navail, length);
+        if (nwrite == 0)
+            continue;
+        runtime_memcpy(xsdi->req + offset, data, nwrite);
+        data += nwrite;
+        length -= nwrite;
+        read_barrier();     /* XXX verify */
+        xsdi->req_prod += nwrite;
+        read_barrier();
+        evtchn_send(xi.xenstore_evtchn);
+        written += nwrite;
+    } while (length > 0);
+
+  out:
+    irq_restore(flags);
+    return written;
+}
+
+boolean xenstore_write(enum xsd_sockmsg_type type, buffer buf)
+{
+    struct xsd_sockmsg msg;
+    msg.tx_id = 0;              /* XXX private, but only 32-bit */
+    msg.req_id = 0;
+    msg.type = type;
+    msg.len = buffer_length(buf);
+
+    xenstore_write_internal(&msg, sizeof(msg));
+    // XXX
+    return true;
+}
