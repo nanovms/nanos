@@ -259,7 +259,8 @@ err_t init_static_config(tuple root, struct netif *n) {
 void init_network_iface(tuple root) {
     struct netif *n = netif_find("en0");
     if (!n) {
-        halt("no network interface found\n");
+        rprintf("no network interface found\n");
+        return;
     }
     netif_set_default(n);
     if (ERR_OK != init_static_config(root, n)) {

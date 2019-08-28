@@ -238,8 +238,10 @@ static void reclaim_regions(void)
     }
 }
 
+// XXX move to internal .h
 void xen_detect(kernel_heaps kh);
 boolean xen_detected(void);
+void xenstore_directory(const char *path);
 
 static void __attribute__((noinline)) init_service_new_stack()
 {
@@ -265,12 +267,6 @@ static void __attribute__((noinline)) init_service_new_stack()
     runqueue = allocate_queue(misc, 64);
     bhqueue = allocate_queue(misc, 2048); /* XXX will need something extensible really */
 
-    /* xen */
-    init_debug("probing for xen hypervisor");
-    xen_detect(kh);
-    if (xen_detected())
-        init_debug("xen hypervisor detected");
-
     /* clock, RNG, stack canaries */
     init_debug("clock");
     init_clock(kh);
@@ -281,6 +277,17 @@ static void __attribute__((noinline)) init_service_new_stack()
     /* interrupts */
     init_debug("start_interrupts");
     start_interrupts(kh);
+
+    /* XXX - need to reorder clock init after hypervisor init */
+    /* xen */
+    init_debug("probing for xen hypervisor");
+    xen_detect(kh);
+    if (xen_detected()) {
+        init_debug("xen hypervisor detected");
+        xenstore_directory("device/vif");
+    }
+
+    /* networking */
     init_debug("LWIP init");
     init_net(kh);
 

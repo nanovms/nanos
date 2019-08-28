@@ -25,8 +25,8 @@ void bitmap_copy(bitmap dest, bitmap src);
 	 offset < b->mapbits; offset += 64, w = *++__wp)
 
 #define bitmap_word_foreach_set(w, bit, i, offset)			\
-    for (u64 __w = w, bit = lsb(__w), i = offset + bit; __w;		\
-	 __w &= ~(1ull << bit), bit = lsb(__w), i = offset + bit)
+    for (u64 __w = w, bit = lsb(__w), i = (offset) + (bit); __w;        \
+         __w &= ~(1ull << (bit)), bit = lsb(__w), i = (offset) + (bit))
 
 #define bitmap_foreach_set(b, i)					\
     bitmap_foreach_word(b, w, s) bitmap_word_foreach_set(w, __bit, i, s)
