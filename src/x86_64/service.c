@@ -241,7 +241,7 @@ static void reclaim_regions(void)
 // XXX move to internal .h
 void xen_detect(kernel_heaps kh);
 boolean xen_detected(void);
-void xenstore_directory(const char *path);
+status xen_probe_devices(void);
 
 static void __attribute__((noinline)) init_service_new_stack()
 {
@@ -284,7 +284,9 @@ static void __attribute__((noinline)) init_service_new_stack()
     xen_detect(kh);
     if (xen_detected()) {
         init_debug("xen hypervisor detected");
-        xenstore_directory("device/vif");
+        status s = xen_probe_devices();
+        if (!is_ok(s))
+            rprintf("xen probe failed: %v\n", s);
     }
 
     /* networking */

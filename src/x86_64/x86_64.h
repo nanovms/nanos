@@ -136,8 +136,8 @@ char *register_name(u64 code);
 static inline u64 read_flags(void)
 {
     u64 out;
-    asm("pushf");
-    asm("pop %0":"=g"(out));
+    asm volatile("pushfq");
+    asm volatile("popq %0":"=g"(out));
     return out;
 }
 
@@ -150,8 +150,13 @@ static inline u64 irq_disable_save(void)
 
 static inline void irq_restore(u64 flags)
 {
-    if ((flags & FLAG_INTERRUPT))
+    if ((flags & U64_FROM_BIT(FLAG_INTERRUPT)))
         enable_interrupts();
+}
+
+static inline void kern_pause(void)
+{
+    asm volatile("pause");
 }
 
 typedef struct queue *queue;
@@ -187,11 +192,11 @@ static inline void frame_pop(void)
     running_frame = pointer_from_u64(running_frame[FRAME_SAVED_FRAME]);
 }
 
-#define switch_stack(__s, __target) {                   \
-        asm ("mov %0, %%rdx": :"r"(__s):"%rdx");        \
-        asm ("mov %0, %%rax": :"r"(__target));          \
-        asm ("mov %%rdx, %%rsp"::);                     \
-        asm ("jmp *%%rax"::);                           \
+#define switch_stack(__s, __target) {                           \
+        asm volatile("mov %0, %%rdx": :"r"(__s):"%rdx");        \
+        asm volatile("mov %0, %%rax": :"r"(__target));          \
+        asm volatile("mov %%rdx, %%rsp"::);                     \
+        asm volatile("jmp *%%rax"::);                           \
     }
 
 void runloop() __attribute__((noreturn));

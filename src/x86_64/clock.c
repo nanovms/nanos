@@ -89,7 +89,7 @@ void kern_sleep(timestamp delta)
 {
     timestamp end = now() + delta;
     while (now() < end)
-        asm volatile("pause");
+        kern_pause();
 }
 
 /* system timer that is reserved for processing the global timer heap */
