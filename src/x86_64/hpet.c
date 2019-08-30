@@ -3,7 +3,6 @@
 #include <x86_64.h>
 #include <page.h>
 
-extern heap interrupt_vectors;
 static heap timers;
 #define HPET_TABLE_ADDRESS 0xfed00000ull
 #define HPET_MAXIMUM_INCREMENT_PERIOD 0x05F5E100ul /* 100ns */
@@ -121,7 +120,7 @@ static void timer_config(int timer, timestamp rate, thunk t, boolean periodic)
 {
     if (!hpet_interrupts[timer]) {
         u32 a, d;
-        hpet_interrupts[timer] = allocate_u64(interrupt_vectors, 1);
+        hpet_interrupts[timer] = allocate_interrupt();
         msi_format(&a, &d, hpet_interrupts[timer]);
         hpet->timers[timer].fsb_int = ((u64)a << 32) | d;
     }

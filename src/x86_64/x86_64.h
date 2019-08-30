@@ -129,10 +129,6 @@ void init_clock(kernel_heaps kh);
 boolean using_lapic_timer(void);
 void kern_sleep(timestamp delta);
 
-// tuples
-char *interrupt_name(u64 code);
-char *register_name(u64 code);
-
 static inline u64 read_flags(void)
 {
     u64 out;
@@ -215,5 +211,7 @@ struct queue {
 };
 
 void msi_format(u32 *address, u32 *data, int vector);
+
+u64 allocate_interrupt(void);
+void deallocate_interrupt(u64 irq);
 void register_interrupt(int vector, thunk t);
-extern heap interrupt_vectors;

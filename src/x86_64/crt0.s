@@ -108,14 +108,17 @@ geterr:
 
         interrupts equ 0x30
 
-global_data interrupt_size
-interrupt_size:
+global_data n_interrupt_vectors
+n_interrupt_vectors:
         dd interrupts
 .end:
+global_data interrupt_vector_size
+interrupt_vector_size:
+        dd interrupt1 - interrupt0
+.end:
 
-global interrupt0
-global interrupt1
-vectors:
+global interrupt_vectors
+interrupt_vectors:
         %assign i 0
         %rep interrupts
         interrupt %+ i:

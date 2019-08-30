@@ -4,41 +4,7 @@
 #include <page.h>
 #include <region.h>
 
-// coordinate with crt0
-extern u32 interrupt_size;
-extern void *interrupt0, *interrupt1;
-static u64 *idt;
-
-#define APIC_APICID 0x20
-#define APIC_APICVER 0x30
-#define APIC_TASKPRIOR 0x80
-#define APIC_EOI 0x0B0
-#define APIC_LDR 0x0D0
-#define APIC_DFR 0x0E0
-#define APIC_SPURIOUS 0x0F0
-#define APIC_ESR 0x280
-#define APIC_ICRL 0x300
-#define APIC_ICRH 0x310
-#define APIC_LVT_TMR 0x320
-#define APIC_LVT_PERF 0x340
-#define APIC_LVT_LINT0 0x350
-#define APIC_LVT_LINT1 0x360
-#define APIC_LVT_ERR 0x370
-#define APIC_TMRINITCNT 0x380
-#define APIC_TMRCURRCNT 0x390
-#define APIC_TMRDIV 0x3E0
-#define APIC_LAST 0x38F
-#define APIC_DISABLE 0x10000
-#define APIC_SW_ENABLE 0x100
-#define APIC_CPUFOCUS 0x200
-#define APIC_NMI 4<<8
-#define TMR_PERIODIC 0x20000
-#define TMR_TSC_DEADLINE 0x40000
-#define TMR_BASEDIV (1<< 20)
-    
-#define APIC_LVT_INTMASK 0x00010000
-
-// tuplify these mapping
+#define INTERRUPT_VECTOR_START 32 /* end of exceptions; defined by architecture */
 static char *interrupts[] = {
     "Divide by 0",
     "Reserved",
@@ -73,35 +39,11 @@ static char *interrupts[] = {
     "reserved 1e",
     "reserved 1f"};
 
-
-// we build the actual idt dynamically because the address
-// is scattered all over the 16 bytes, and it looks pretty
-// difficult, but maybe not impossible, to construct a relocation
-// to fill it in (by aligning the handler base, assigning
-// it a section, etc)
-
-
-char *interrupt_name(u64 s)
+static inline char *interrupt_name(u64 s)
 {
-    return s < 32 ? interrupts[s] : "";
+    return s < INTERRUPT_VECTOR_START ? interrupts[s] : "";
 }
 
-
-void write_idt(u64 *idt, int interrupt, void *hv, u64 ist)
-{
-    // huh, idt entries are virtual 
-    u64 h = u64_from_pointer(hv); 
-    u64 selector = 0x08;
-    u64 type_attr = 0x8e;
-        
-    u64 *target = (void *)(u64)(idt + 2*interrupt);
-        
-    target[0] = (h & MASK(16)) | (selector << 16) | (ist << 32) | (type_attr << 40)|
-        (((h>>16) & MASK(16))<<48);
-    target[1] = h >> 32; // rest must be zero
-}
-
-// tuplify and synthesize
 static char* textoreg[] = {
     "  rax", //0
     "  rbx", //1
@@ -130,15 +72,31 @@ static char* textoreg[] = {
     "vector", // 24
 };
 
-char *register_name(u64 s)
+static inline char *register_name(u64 s)
 {
-    return(textoreg[s]);
+    return textoreg[s];
+}
+
+static u64 *idt;
+
+static inline void *idt_from_interrupt(int interrupt)
+{
+    return pointer_from_u64((u64_from_pointer(idt) + 2 * sizeof(u64) * interrupt));
+}
+
+static void write_idt(int interrupt, u64 offset, u64 ist)
+{
+    u64 selector = 0x08;
+    u64 type_attr = 0x8e;
+    u64 *target = idt_from_interrupt(interrupt);
+
+    target[0] = ((selector << 16) | (offset & MASK(16)) | /* 31 - 0 */
+                 (((offset >> 16) & MASK(16)) << 48) | (type_attr << 40) | (ist << 32)); /* 63 - 32 */
+    target[1] = offset >> 32;   /*  95 - 64 */
 }
 
 static thunk *handlers;
 context running_frame;
-
-void *apic_base = (void *)0xfee00000;
 
 char * find_elf_sym(u64 a, u64 *offset, u64 *len);
 
@@ -235,33 +193,6 @@ void print_frame(context f)
     }
 }
 
-static inline void apic_write(int reg, u32 val)
-{
-    *(u32 *)(apic_base + reg) = val;
-}
-
-static inline u32 apic_read(int reg)
-{
-    return *(u32 *)(apic_base + reg);
-}
-
-static inline void apic_set(int reg, u32 v)
-{
-    apic_write(reg, apic_read(reg) | v);
-}
-
-static inline void apic_clear(int reg, u32 v)
-{
-    apic_write(reg, apic_read(reg) & ~v);
-}
-
-void lapic_eoi()
-{
-    write_barrier();
-    apic_write(APIC_EOI, 0);
-    write_barrier();
-}
-
 context miscframe;              /* for context save on interrupt */
 context intframe;               /* for context save on exception within interrupt */
 context bhframe;
@@ -285,6 +216,12 @@ void install_fallback_fault_handler(fault_handler h)
 
 void * bh_stack_top;
 
+extern u32 n_interrupt_vectors;
+extern u32 interrupt_vector_size;
+extern void * interrupt_vectors;
+
+extern void lapic_eoi(void);
+
 void common_handler()
 {
     int i = running_frame[FRAME_VECTOR];
@@ -297,7 +234,7 @@ void common_handler()
         console("exception during interrupt handling\n");
     }
 
-    if ((i < interrupt_size) && handlers[i]) {
+    if ((i < n_interrupt_vectors) && handlers[i]) {
         frame_push(intframe);   /* catch any spurious exceptions during int handling */
         apply(handlers[i]);
         lapic_eoi();
@@ -330,64 +267,22 @@ void common_handler()
     }
 }
 
-heap interrupt_vectors;
+static heap interrupt_vector_heap;
 
-// actually allocate the virtual  - put in the tree
-static void enable_lapic(heap pages)
+u64 allocate_interrupt(void)
 {
-    // there is an msr that moves the physical
-    u64 lapic = 0xfee00000;
-    
-    map(u64_from_pointer(apic_base), lapic, PAGESIZE, PAGE_DEV_FLAGS, pages);
-    
-    // turn on the svr, then enable three lines
-    apic_write(APIC_SPURIOUS, *(unsigned int *)(apic_base + APIC_SPURIOUS) | APIC_SW_ENABLE);
-    apic_write(APIC_LVT_LINT0, APIC_DISABLE);
-    apic_write(APIC_LVT_LINT1, APIC_DISABLE);
-    apic_write(APIC_LVT_ERR, allocate_u64(interrupt_vectors, 1));
+    return allocate_u64(interrupt_vector_heap, 1);
 }
 
+void deallocate_interrupt(u64 irq)
+{
+    deallocate_u64(interrupt_vector_heap, irq, 1);
+}
 
 void register_interrupt(int vector, thunk t)
 {
     handlers[vector] = t;
 }
-
-static u32 apic_timer_cal_sec;
-
-/* ugh, don't want to slow down the boot this much...see if we can
-   trim this some more */
-#define CALIBRATE_DURATION_MS 10
-void calibrate_lapic_timer()
-{
-    apic_write(APIC_TMRINITCNT, -1u);
-    kern_sleep(milliseconds(10));
-    u32 delta = -1u - apic_read(APIC_TMRCURRCNT);
-    apic_set(APIC_LVT_TMR, APIC_LVT_INTMASK);
-    apic_timer_cal_sec = (1000 / CALIBRATE_DURATION_MS) * delta;
-}
-
-void lapic_runloop_timer(timestamp interval)
-{
-    /* interval * apic_timer_cal_sec / second */
-    u32 cnt = (((u128)interval) * apic_timer_cal_sec) >> 32;
-    apic_clear(APIC_LVT_TMR, APIC_LVT_INTMASK);
-    apic_write(APIC_TMRINITCNT, cnt);
-}
-
-static CLOSURE_0_0(int_ignore, void);
-static void int_ignore(void) {}
-
-void configure_lapic_timer(heap h)
-{
-    apic_write(APIC_TMRDIV, 3 /* 16 */);
-    int v = allocate_u64(interrupt_vectors, 1);
-    apic_write(APIC_LVT_TMR, v); /* one shot */
-    register_interrupt(v, closure(h, int_ignore));
-    calibrate_lapic_timer();
-}
-
-extern u32 interrupt_size;
 
 #define FAULT_STACK_PAGES       8
 #define SYSCALL_STACK_PAGES     8
@@ -425,25 +320,23 @@ void * syscall_stack_top;
 #define IST_INTERRUPT 1         /* for all interrupts */
 #define IST_PAGEFAULT 2         /* page fault specific */
 
+extern void init_apic(kernel_heaps kh);
+
 void start_interrupts(kernel_heaps kh)
 {
-    // these are simple enough it would be better to just
-    // synthesize them
-    int delta = (u64)&interrupt1 - (u64)&interrupt0;
-    void *start = &interrupt0;
     heap general = heap_general(kh);
     heap pages = heap_pages(kh);
 
-    /* exception handlers */
-    handlers = allocate_zero(general, interrupt_size * sizeof(thunk));
+    /* Exception handlers */
+    handlers = allocate_zero(general, n_interrupt_vectors * sizeof(thunk));
     assert(handlers != INVALID_ADDRESS);
 
-    /* alternate frame storage */
+    /* Alternate frame storage */
     miscframe = allocate_frame(general);
     intframe = allocate_frame(general);
     bhframe = allocate_frame(general);
 
-    /* Page fault alternate stack. */
+    /* Page fault alternate stack */
     void * fault_stack_top = allocate_stack(pages, FAULT_STACK_PAGES);
     assert(fault_stack_top != INVALID_ADDRESS);
     set_ist(IST_PAGEFAULT, u64_from_pointer(fault_stack_top));
@@ -453,7 +346,7 @@ void start_interrupts(kernel_heaps kh)
     assert(int_stack_top != INVALID_ADDRESS);
     set_ist(IST_INTERRUPT, u64_from_pointer(int_stack_top));
 
-    /* syscall stack - this can be replaced later by a per-thread kernel stack */
+    /* Syscall stack */
     syscall_stack_top = allocate_stack(pages, SYSCALL_STACK_PAGES);
     assert(syscall_stack_top != INVALID_ADDRESS);
 
@@ -461,24 +354,25 @@ void start_interrupts(kernel_heaps kh)
     bh_stack_top = allocate_stack(pages, BH_STACK_PAGES);
     assert(bh_stack_top != INVALID_ADDRESS);
 
-    // architectural - end of exceptions
-    u32 vector_start = 0x20;
-    interrupt_vectors = create_id_heap(general, vector_start, interrupt_size - vector_start, 1);
-    // assuming contig gives us a page aligned, page padded identity map
+    interrupt_vector_heap = create_id_heap(general, INTERRUPT_VECTOR_START,
+                                           n_interrupt_vectors - INTERRUPT_VECTOR_START, 1);
+    assert(interrupt_vector_heap != INVALID_ADDRESS);
+
+    /* IDT setup */
     idt = allocate(pages, pages->pagesize);
 
-    for (int i = 0; i < 32; i++)
-        write_idt(idt, i, start + i * delta, i == 0xe ? IST_PAGEFAULT : 0);
+    u64 vector_base = u64_from_pointer(&interrupt_vectors);
+    for (int i = 0; i < INTERRUPT_VECTOR_START; i++)
+        write_idt(i, vector_base + i * interrupt_vector_size, i == 0xe ? IST_PAGEFAULT : 0);
     
-    for (int i = 32; i < interrupt_size; i++)
-        write_idt(idt, i, start + i * delta, IST_INTERRUPT);
+    for (int i = INTERRUPT_VECTOR_START; i < n_interrupt_vectors; i++)
+        write_idt(i, vector_base + i * interrupt_vector_size, IST_INTERRUPT);
 
-    u16 *dest = (u16 *)(idt + 2*interrupt_size);
-    dest[0] = 16*interrupt_size -1;
-    
-    *(u64 *)(dest + 1) = (u64)idt;// physical_from_virtual(idt);
-    asm("lidt %0": : "m"(*dest));
-    enable_lapic(pages);
-    if (using_lapic_timer())
-        configure_lapic_timer(general);
+    void *idt_desc = idt_from_interrupt(n_interrupt_vectors); /* placed after last entry */
+    *(u16*)idt_desc = 2 * sizeof(u64) * n_interrupt_vectors - 1;
+    *(u64*)(idt_desc + sizeof(u16)) = u64_from_pointer(idt);
+    asm("lidt %0": : "m"(*(u64*)idt_desc));
+
+    /* APIC initialization */
+    init_apic(kh);
 }

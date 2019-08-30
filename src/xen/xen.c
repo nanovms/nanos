@@ -2,6 +2,20 @@
 #include <x86_64.h>
 #include <page.h>
 
+//#define XEN_DEBUG
+#ifdef XEN_DEBUG
+#define xen_debug(x, ...) do {rprintf(" XEN: " x "\n", ##__VA_ARGS__);} while(0)
+#else
+#define xen_debug(x, ...)
+#endif
+
+//#define XENSTORE_DEBUG
+#ifdef XENSTORE_DEBUG
+#define xenstore_debug xen_debug
+#else
+#define xenstore_debug(x, ...)
+#endif
+
 typedef s8 int8_t;
 typedef u8 uint8_t;
 typedef u16 uint16_t;
@@ -27,20 +41,6 @@ typedef s64 int64_t;
 
 #include "hypercall.h"
 
-#define XEN_DEBUG
-#ifdef XEN_DEBUG
-#define xen_debug(x, ...) do {rprintf(" XEN: " x "\n", ##__VA_ARGS__);} while(0)
-#else
-#define xen_debug(x, ...)
-#endif
-
-//#define XENSTORE_DEBUG
-#ifdef XENSTORE_DEBUG
-#define xenstore_debug xen_debug
-#else
-#define xenstore_debug(x, ...)
-#endif
-
 #define XEN_STO
 typedef struct xen_info {
     heap    h;                  /* general heap for internal use */
@@ -62,7 +62,6 @@ typedef struct xen_info {
 static struct xen_info xi;
 
 extern u64 hypercall_page;
-extern heap interrupt_vectors;
 
 boolean xen_detected(void)
 {
@@ -112,7 +111,6 @@ static void xen_interrupt(void)
 static boolean xen_unmask_evtchn(u32 evtchn)
 {
     assert(evtchn > 0 && evtchn < EVTCHN_2L_NR_CHANNELS);
-    rprintf("unmasking evtchn %d\n", evtchn);
     evtchn_op_t eop;
     eop.cmd = EVTCHNOP_unmask;
     eop.u.unmask.port = evtchn;
@@ -237,7 +235,7 @@ void xen_detect(kernel_heaps kh)
     }
 
     /* set up interrupt handling path */
-    int irq = allocate_u64(interrupt_vectors, 1);
+    int irq = allocate_interrupt();
     xen_debug("interrupt vector %d; registering", irq);
     register_interrupt(irq, closure(heap_general(kh), xen_interrupt));
 

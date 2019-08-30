@@ -164,7 +164,7 @@ void msi_format(u32 *address, u32 *data, int vector)
 
 void pci_setup_msix(pci_dev dev, int msi_slot, thunk h)
 {
-    int v = allocate_u64(interrupt_vectors, 1);
+    int v = allocate_interrupt();
     register_interrupt(v, h);
 
     u32 a, d;

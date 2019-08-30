@@ -4,7 +4,7 @@
 #include "hpet.h"
 #include "rtc.h"
 
-#define CLOCK_INIT_DEBUG
+//#define CLOCK_INIT_DEBUG
 #ifdef CLOCK_INIT_DEBUG
 #define clock_init_debug(x) do {console(" CLK: " x "\n");} while(0)
 #else

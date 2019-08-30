@@ -10,7 +10,7 @@
 #include <drivers/console.h>
 #include <unix_internal.h>
 
-#define STAGE3_INIT_DEBUG
+//#define STAGE3_INIT_DEBUG
 #ifdef STAGE3_INIT_DEBUG
 #define init_debug(x) do {console("INIT: " x "\n");} while(0)
 #else
@@ -243,6 +243,9 @@ void xen_detect(kernel_heaps kh);
 boolean xen_detected(void);
 status xen_probe_devices(void);
 
+// XXX temporary
+void configure_lapic_timer(heap h);
+
 static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = &heaps;
@@ -288,6 +291,10 @@ static void __attribute__((noinline)) init_service_new_stack()
         if (!is_ok(s))
             rprintf("xen probe failed: %v\n", s);
     }
+
+    /* runloop timer - XXX temp */
+    if (using_lapic_timer())
+        configure_lapic_timer(misc);
 
     /* networking */
     init_debug("LWIP init");
