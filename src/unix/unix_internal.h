@@ -181,7 +181,6 @@ typedef struct thread {
 
     struct sigstate signals;
     sigstate dispatch_sigstate; /* saved sigstate while signal handler in flight */
-    u64 rax_saved;           /* XXX hack */
     u64 sigframe[FRAME_MAX];
 } *thread;
 
@@ -336,6 +335,8 @@ static inline time_t time_t_from_time(timestamp t)
 }
 
 void dispatch_signals(thread t);
+void deliver_signal_to_thread(thread t, struct siginfo *);
+void deliver_signal_to_process(process p, struct siginfo *);
 
 void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *name);
 

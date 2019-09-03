@@ -16,6 +16,23 @@ static inline u64 page_map_flags(u64 vmflags)
     return flags;
 }
 
+static void
+deliver_segv(u64 vaddr, s32 si_code)
+{
+    struct siginfo s = {
+        .si_signo = SIGSEGV,
+         /* man sigaction: "si_errno is generally unused on Linux" */
+        .si_errno = 0,
+        .si_code = si_code,
+        .sifields.sigfault = {
+            .addr = vaddr,
+        }
+    };
+
+    deliver_signal_to_thread(current, &s); 
+    thread_yield();
+}
+
 boolean unix_fault_page(u64 vaddr, context frame)
 {
     process p = current->p;
@@ -25,8 +42,8 @@ boolean unix_fault_page(u64 vaddr, context frame)
     if ((error_code & FRAME_ERROR_PF_P) == 0) {
         vmap vm = (vmap)rangemap_lookup(p->vmaps, vaddr);
         if (vm == INVALID_ADDRESS) {
-            msg_err("no vmap found for vaddr 0x%lx\n", vaddr);
-            return false;
+            deliver_segv(vaddr, SEGV_MAPERR);
+            return true;
         }
 
         u32 flags = VMAP_FLAG_MMAP | VMAP_FLAG_ANONYMOUS;
@@ -48,34 +65,39 @@ boolean unix_fault_page(u64 vaddr, context frame)
         return true;
     } else {
         /* page protection violation */
+        vmap vm = (vmap)rangemap_lookup(p->vmaps, vaddr);
+        if (vm == INVALID_ADDRESS) {
+            msg_err("page protection violation at 0x%lx: no vmap found\n", 
+                vaddr);
+            return false;
+        }
+#if 0
         rprintf("\nPage protection violation\naddr 0x%lx, rip 0x%lx, "
                 "error %s%s%s\n", vaddr, frame[FRAME_RIP],
                 (error_code & FRAME_ERROR_PF_RW) ? "W" : "R",
                 (error_code & FRAME_ERROR_PF_US) ? "U" : "S",
                 (error_code & FRAME_ERROR_PF_ID) ? "I" : "D");
-        vmap vm = (vmap)rangemap_lookup(p->vmaps, vaddr);
-        if (vm == INVALID_ADDRESS) {
-            rprintf("no vmap found address\n");
-        } else {
-            rprintf("matching vmap: range %R, flags: ", vm->node.r);
-            if (vm->flags & VMAP_FLAG_MMAP)
-                rprintf("mmap ");
-            if (vm->flags & VMAP_FLAG_ANONYMOUS)
-                rprintf("anonymous ");
-            if (vm->flags & VMAP_FLAG_WRITABLE)
-                rprintf("writable ");
-            if (vm->flags & VMAP_FLAG_EXEC)
-                rprintf("executable ");
-            rprintf("\n");
+
+        if (vm->flags & VMAP_FLAG_MMAP)
+            rprintf("mmap ");
+        if (vm->flags & VMAP_FLAG_ANONYMOUS)
+            rprintf("anonymous ");
+        if (vm->flags & VMAP_FLAG_WRITABLE)
+            rprintf("writable ");
+        if (vm->flags & VMAP_FLAG_EXEC)
+            rprintf("executable ");
+        rprintf("\n");
+#endif
+        if ((error_code & FRAME_ERROR_PF_RSV)) {
+            msg_err("bug: pte reserved\n");
+#ifndef BOOT
+            dump_ptes(pointer_from_u64(vaddr));
+#endif
+            return false;
         }
 
-#ifndef BOOT
-        dump_ptes(pointer_from_u64(vaddr));
-#endif
-
-        if ((error_code & FRAME_ERROR_PF_RSV))
-            rprintf("bug: pte reserved\n");
-        return false;
+        deliver_segv(vaddr, SEGV_ACCERR);
+        return true;
     }
 }
 

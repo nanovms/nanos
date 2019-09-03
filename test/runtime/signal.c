@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/syscall.h>
@@ -7,7 +8,10 @@
 #include <signal.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <pthread.h>
+
+#include <sys/ucontext.h>
 
 //#define SIGNALTEST_DEBUG
 #ifdef SIGNALTEST_DEBUG
@@ -404,9 +408,171 @@ void test_rt_sigsuspend(void)
         fail_error("child failed\n");
 }
 
+#define BAD_LOAD 0xBADF0000
+#define BAD_RIP  0x1000BADF
+
+#ifdef SIGNALTEST_DEBUG
+static inline void
+print_ucontext(void * ucontext)
+{
+    ucontext_t * context = ucontext;
+
+    printf("ucontext:\n"
+        "    R8:      0x%llx\n"
+        "    R9:      0x%llx\n"
+        "    R10:     0x%llx\n"
+        "    R11:     0x%llx\n"
+        "    R12:     0x%llx\n"
+        "    R13:     0x%llx\n"
+        "    R14:     0x%llx\n"
+        "    R15:     0x%llx\n"
+        "    RDI:     0x%llx\n"
+        "    RSI:     0x%llx\n"
+        "    RBP:     0x%llx\n"
+        "    RDX:     0x%llx\n"
+        "    RAX:     0x%llx\n"
+        "    RCX:     0x%llx\n"
+        "    RSP:     0x%llx\n"
+        "    RIP:     0x%llx\n"
+        "    EFL:     0x%llx\n"
+        "    CSGSFS:  0x%llx\n"
+        "    ERR:     0x%llx\n"
+        "    TRAPNO:  0x%llx\n"
+        "    OLDMASK: 0x%llx\n"
+        "    CR2:     0x%llx\n",
+        context->uc_mcontext.gregs[REG_R8],
+        context->uc_mcontext.gregs[REG_R9],
+        context->uc_mcontext.gregs[REG_R10],
+        context->uc_mcontext.gregs[REG_R11],
+        context->uc_mcontext.gregs[REG_R12],
+        context->uc_mcontext.gregs[REG_R13],
+        context->uc_mcontext.gregs[REG_R14],
+        context->uc_mcontext.gregs[REG_R15],
+        context->uc_mcontext.gregs[REG_RDI],
+        context->uc_mcontext.gregs[REG_RSI],
+        context->uc_mcontext.gregs[REG_RBP],
+        context->uc_mcontext.gregs[REG_RDX],
+        context->uc_mcontext.gregs[REG_RAX],
+        context->uc_mcontext.gregs[REG_RCX],
+        context->uc_mcontext.gregs[REG_RSP],
+        context->uc_mcontext.gregs[REG_RIP],
+        context->uc_mcontext.gregs[REG_EFL],
+        context->uc_mcontext.gregs[REG_CSGSFS],
+        context->uc_mcontext.gregs[REG_ERR],
+        context->uc_mcontext.gregs[REG_TRAPNO],
+        context->uc_mcontext.gregs[REG_OLDMASK],
+        context->uc_mcontext.gregs[REG_CR2]
+    );
+}
+#endif
+
+static bool
+child_should_die(void * ucontext)
+{
+    ucontext_t * context = ucontext;
+    return (context->uc_mcontext.gregs[REG_CR2] == BAD_RIP);
+}
+
+
+static void
+sigsegv_sigaction(int signo, siginfo_t * info, void * ucontext)
+{
+
+    if (signo != SIGSEGV)
+        fail_perror("  childtid: caught non SIGSEGV signal %d\n", signo);  
+
+    if (info->si_signo != signo)
+        fail_perror("  childtid: info->si_signo != signo\n");
+
+#ifdef SIGNALTEST_DEBUG
+    print_ucontext(ucontext);
+#endif
+
+    if ( (unsigned long)info->si_addr != 
+         ((ucontext_t *)ucontext)->uc_mcontext.gregs[REG_CR2]
+       )
+        fail_perror("  childtid: info-si_addr != CR2\n");
+
+    if (child_should_die(ucontext))
+        syscall(SYS_exit, 0);
+ 
+    /* update the RIP to something invalid */
+    ((ucontext_t *)ucontext)->uc_mcontext.gregs[REG_RIP] = BAD_RIP;
+}
+
+static void
+sigsegv_handler(int signo)
+{
+    if (signo != SIGSEGV)
+        fail_perror("  childtid: caught non SIGSEGV signal %d\n", signo);
+
+    syscall(SYS_exit, 0);
+}
+
+static void * 
+sigsegv_thread(void * arg)
+{
+    child_tid = syscall(SYS_gettid);
+    int * v = (int *)BAD_LOAD;
+
+    /* generate sigsegv */
+    *v = 1;
+    return NULL;
+}
+
+static void
+test_sigsegv(void)
+{
+    struct sigaction sa;
+    pthread_t pt;
+    void * retval;
+
+    /* first test ~SA_INFO */
+    {
+        memset(&sa, 0, sizeof(struct sigaction));
+        sa.sa_handler  = sigsegv_handler;
+        sigemptyset(&sa.sa_mask);
+
+        if (sigaction(SIGSEGV, &sa, NULL))
+            fail_perror("siggaction for SIGSEGV failed");
+
+        if (pthread_create(&pt, NULL, sigsegv_thread, NULL))
+            fail_perror("blocking test pthread_create");
+
+        sigtest_debug("yielding until child tid reported...\n");
+        yield_for(&child_tid);
+
+        if (pthread_join(pt, &retval))
+            fail_perror("blocking test pthread_join");
+    }
+
+    /* now test SA_INFO */
+    {
+        memset(&sa, 0, sizeof(struct sigaction));
+        sa.sa_sigaction = sigsegv_sigaction;
+        sa.sa_flags = SA_SIGINFO; 
+        sigemptyset(&sa.sa_mask);
+
+        if (sigaction(SIGSEGV, &sa, NULL))
+            fail_perror("siggaction for SIGSEGV failed");
+
+        if (pthread_create(&pt, NULL, sigsegv_thread, NULL))
+            fail_perror("blocking test pthread_create");
+
+        sigtest_debug("yielding until child tid reported...\n");
+        yield_for(&child_tid);
+
+        if (pthread_join(pt, &retval))
+            fail_perror("blocking test pthread_join");
+    }
+
+}
+
 int main(int argc, char * argv[])
 {
     setbuf(stdout, NULL);
+
+    test_sigsegv();
 
     test_signal_catch();
 

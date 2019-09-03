@@ -276,6 +276,24 @@ struct rlimit {
 #define SIGINFO_SIZE        128
 #define SIGINFO_UNION_ALIGN 16
 
+/*
+ * SIGSEGV si_codes
+ */
+#define SEGV_MAPERR 1   /* address not mapped to object */
+#define SEGV_ACCERR 2   /* invalid permissions for mapped object */
+//#ifdef __bfin__
+//# define SEGV_STACKFLOW 3   /* stack overflow */
+//#else
+# define SEGV_BNDERR    3   /* failed address bound checks */
+//#endif
+//#ifdef __ia64__
+//# define __SEGV_PSTKOVF 4   /* paragraph stack overflow */
+//#else
+# define SEGV_PKUERR    4   /* failed protection key checks */
+//#endif
+#define NSIGSEGV    4
+
+
 typedef struct siginfo {
     u32 si_signo;
     s32 si_errno;
@@ -435,6 +453,8 @@ struct sigaction {
 #define SA_NOMASK  SA_NODEFER
 #define SA_ONESHOT SA_RESETHAND
 
+#define SA_RESTORER  0x04000000
+
 #define SIG_BLOCK   0
 #define SIG_UNBLOCK 1
 #define SIG_SETMASK 2
@@ -447,6 +467,113 @@ typedef struct {
 
 #define SS_ONSTACK      1
 #define SS_DISABLE      2
+
+
+#define UC_FP_XSTATE            0x1
+#define UC_SIGCONTEXT_SS        0x2
+#define UC_STRICT_RESTORE_SS    0x4
+/*
+ * Bytes 464..511 in the current 512-byte layout of the FXSAVE/FXRSTOR frame
+ * are reserved for SW usage. On CPUs supporting XSAVE/XRSTOR, these bytes are
+ * used to extend the fpstate pointer in the sigcontext, which now includes the
+ * extended state information along with fpstate information.
+ *
+ * If sw_reserved.magic1 == FP_XSTATE_MAGIC1 then there's a
+ * sw_reserved.extended_size bytes large extended context area present. (The
+ * last 32-bit word of this extended area (at the
+ * fpstate+extended_size-FP_XSTATE_MAGIC2_SIZE address) is set to
+ * FP_XSTATE_MAGIC2 so that you can sanity check your size calculations.)
+ *
+ * This extended area typically grows with newer CPUs that have larger and
+ * larger XSAVE areas.
+ */
+struct _fpx_sw_bytes {
+    u32 magic1;
+    u32 extended_size;
+    u64 xfeatures;
+    u32 xstate_size;
+    u32 padding[7];
+};
+
+/*
+ * The 64-bit FPU frame. (FXSAVE format and later)
+ *
+ * Note1: If sw_reserved.magic1 == FP_XSTATE_MAGIC1 then the structure is
+ *        larger: 'struct _xstate'. Note that 'struct _xstate' embedds
+ *        'struct _fpstate' so that you can always assume the _fpstate portion
+ *        exists so that you can check the magic value.
+ *
+ * Note2: Reserved fields may someday contain valuable data. Always
+ *	  save/restore them when you change signal frames.
+ */
+struct _fpstate_64 {
+    u16 cwd;
+    u16 swd;
+    /* Note this is not the same as the 32-bit/x87/FSAVE twd: */
+    u16 twd;
+    u16 fop;
+    u64 rip;
+    u64 rdp;
+    u32 mxcsr;
+    u32 mxcsr_mask;
+    u32 st_space[32];
+    u32 xmm_space[64];
+    u32 reserved[12];
+    union {
+        u32 reserved3[12];
+        struct _fpx_sw_bytes sw_reserved;
+    };
+};
+
+struct sigcontext {
+    u64 r8;
+    u64 r9;
+    u64 r10;
+    u64 r11;
+    u64 r12;
+    u64 r13;
+    u64 r14;
+    u64 r15;
+    u64 rdi;
+    u64 rsi;
+    u64 rbp;
+    u64 rbx;
+    u64 rdx;
+    u64 rax;
+    u64 rcx;
+    u64 rsp;
+    u64 rip;
+    u64 eflags; /* RFLAGS */
+    u16 cs;
+    u16 fs;
+    u16 gs;
+    union {
+        u16 ss; /* If UC_SIGCONTEXT SS */
+        u16 __pad0; /* Alias name for old (!UC_SIGCONTEXT_SS) user-space */
+    };
+    u64 err;
+    u64 trapno;
+    u64 oldmask;
+    u64 cr2;
+    struct _fpstate *fpstate; /* Zero when no FPU context */
+    u64 reserved1[8];
+};
+
+struct ucontext {
+    unsigned long uc_flags;
+    struct ucontext * uc_link;
+    stack_t uc_stack;
+    struct sigcontext uc_mcontext;
+    sigset_t uc_sigmask;
+};
+
+struct rt_sigframe {
+    char *pretcode;
+    struct ucontext uc;
+    struct siginfo info;
+    /* fp state follows here */
+};
+
 
 typedef s64 time_t;
 
