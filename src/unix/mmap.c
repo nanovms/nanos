@@ -74,20 +74,14 @@ boolean unix_fault_page(u64 vaddr, context frame)
     u64 error_code = frame[FRAME_ERROR_CODE];
 
     vmap vm = (vmap)rangemap_lookup(p->vmaps, vaddr);
-    if (vm == INVALID_ADDRESS) {
-        if (error_code & FRAME_ERROR_PF_P) {
-            msg_err("page protection violation at 0x%lx: no vmap found\n", 
-                    vaddr);
-            return false;
-        }
 
+    /* no vmap --> send access violation */
+    if (vm == INVALID_ADDRESS) {
         deliver_segv(vaddr, SEGV_MAPERR); /* does not return */
         assert(0);
     }
 
-    /* we found a vmap -- must be a protection violation or 
-     * demand paging fault
-     */
+    /* vmap found, with protection violation set --> send prot violation */
     if (error_code & FRAME_ERROR_PF_P) {
         if (error_code & FRAME_ERROR_PF_RSV) {
             /* no SEGV on reserved PTEs */
@@ -114,8 +108,9 @@ boolean unix_fault_page(u64 vaddr, context frame)
         assert(0);
     }
 
-    /* do demand paging */
+    /* vmap, no prot violation --> demand paging */
     return do_demand_page(vm, vaddr);
+
 }
 
 vmap allocate_vmap(rangemap rm, range r, u64 flags)
