@@ -334,12 +334,7 @@ static void setup_ucontext(struct ucontext * uctx, struct sigaction * sa,
     mcontext->err = f[FRAME_ERROR_CODE];
     mcontext->trapno = f[FRAME_VECTOR];
     mcontext->oldmask = sa->sa_mask.sig[0];
-
-    /* XXX: this should probably come from somewhere in the 
-     * thread struct, as other signals are not likely to
-     * think of setting sigfault
-     */
-    mcontext->cr2 = si->sifields.sigfault.addr;
+    mcontext->cr2 = f[FRAME_CR2];
 }
 
 /*

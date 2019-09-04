@@ -222,10 +222,8 @@ void print_frame(context f)
 
     // page fault
     if (v == 14)  {
-        u64 fault_address;
-        mov_from_cr("cr2", fault_address);
         console("address: ");
-        print_u64_with_sym(fault_address);
+        print_u64_with_sym(f[FRAME_CR2]);
         console("\n");
     }
     
