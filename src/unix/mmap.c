@@ -1,6 +1,13 @@
 #include <unix_internal.h>
 #include <page.h>
 
+#define PF_DEBUG
+#ifdef PF_DEBUG
+#define pf_debug(x, ...) thread_log(current, x, ##__VA_ARGS__);
+#else
+#define pf_debug(x, ...)
+#endif
+
 static boolean vmap_attr_equal(vmap a, vmap b)
 {
     return a->flags == b->flags;
@@ -29,66 +36,61 @@ deliver_segv(u64 vaddr, s32 si_code)
         }
     };
 
+    pf_debug("delivering SIGSEGV; vaddr 0x%lx si_code %s",
+        vaddr, (si_code == SEGV_MAPERR) ? "SEGV_MAPPER" : "SEGV_ACCERR"
+    );
+
     deliver_signal_to_thread(current, &s); 
     thread_yield();
+}
+
+static boolean do_demand_page(vmap vm, u64 vaddr)
+{
+    u32 flags = VMAP_FLAG_MMAP | VMAP_FLAG_ANONYMOUS;
+    if ((vm->flags & flags) != flags) {
+        msg_err("vaddr 0x%lx matched vmap with invalid flags (0x%x)\n",
+                vaddr, vm->flags);
+        return false;
+    }
+
+    /* XXX make free list */
+    kernel_heaps kh = get_kernel_heaps();
+    u64 paddr = allocate_u64(heap_physical(kh), PAGESIZE);
+    if (paddr == INVALID_PHYSICAL) {
+        msg_err("cannot get physical page; OOM\n");
+        return false;
+    }
+
+    u64 vaddr_aligned = vaddr & ~MASK(PAGELOG);
+    map(vaddr_aligned, paddr, PAGESIZE, page_map_flags(vm->flags), heap_pages(kh));
+    zero(pointer_from_u64(vaddr_aligned), PAGESIZE);
+
+    return true;
 }
 
 boolean unix_fault_page(u64 vaddr, context frame)
 {
     process p = current->p;
-    kernel_heaps kh = get_kernel_heaps();
     u64 error_code = frame[FRAME_ERROR_CODE];
 
-    if ((error_code & FRAME_ERROR_PF_P) == 0) {
-        vmap vm = (vmap)rangemap_lookup(p->vmaps, vaddr);
-        if (vm == INVALID_ADDRESS) {
-            deliver_segv(vaddr, SEGV_MAPERR);
-            return true;
-        }
-
-        u32 flags = VMAP_FLAG_MMAP | VMAP_FLAG_ANONYMOUS;
-        if ((vm->flags & flags) != flags) {
-            msg_err("vaddr 0x%lx matched vmap with invalid flags (0x%x)\n",
-                    vaddr, vm->flags);
-            return false;
-        }
-
-        /* XXX make free list */
-        u64 paddr = allocate_u64(heap_physical(kh), PAGESIZE);
-        if (paddr == INVALID_PHYSICAL) {
-            msg_err("cannot get physical page; OOM\n");
-            return false;
-        }
-        u64 vaddr_aligned = vaddr & ~MASK(PAGELOG);
-        map(vaddr_aligned, paddr, PAGESIZE, page_map_flags(vm->flags), heap_pages(kh));
-        zero(pointer_from_u64(vaddr_aligned), PAGESIZE);
-        return true;
-    } else {
-        /* page protection violation */
-        vmap vm = (vmap)rangemap_lookup(p->vmaps, vaddr);
-        if (vm == INVALID_ADDRESS) {
+    vmap vm = (vmap)rangemap_lookup(p->vmaps, vaddr);
+    if (vm == INVALID_ADDRESS) {
+        if (error_code & FRAME_ERROR_PF_P) {
             msg_err("page protection violation at 0x%lx: no vmap found\n", 
-                vaddr);
+                    vaddr);
             return false;
         }
-#if 0
-        rprintf("\nPage protection violation\naddr 0x%lx, rip 0x%lx, "
-                "error %s%s%s\n", vaddr, frame[FRAME_RIP],
-                (error_code & FRAME_ERROR_PF_RW) ? "W" : "R",
-                (error_code & FRAME_ERROR_PF_US) ? "U" : "S",
-                (error_code & FRAME_ERROR_PF_ID) ? "I" : "D");
 
-        if (vm->flags & VMAP_FLAG_MMAP)
-            rprintf("mmap ");
-        if (vm->flags & VMAP_FLAG_ANONYMOUS)
-            rprintf("anonymous ");
-        if (vm->flags & VMAP_FLAG_WRITABLE)
-            rprintf("writable ");
-        if (vm->flags & VMAP_FLAG_EXEC)
-            rprintf("executable ");
-        rprintf("\n");
-#endif
-        if ((error_code & FRAME_ERROR_PF_RSV)) {
+        deliver_segv(vaddr, SEGV_MAPERR); /* does not return */
+        assert(0);
+    }
+
+    /* we found a vmap -- must be a protection violation or 
+     * demand paging fault
+     */
+    if (error_code & FRAME_ERROR_PF_P) {
+        if (error_code & FRAME_ERROR_PF_RSV) {
+            /* no SEGV on reserved PTEs */
             msg_err("bug: pte reserved\n");
 #ifndef BOOT
             dump_ptes(pointer_from_u64(vaddr));
@@ -96,20 +98,24 @@ boolean unix_fault_page(u64 vaddr, context frame)
             return false;
         }
 
-        deliver_segv(vaddr, SEGV_ACCERR);
-        return true;
+        pf_debug("\npage protection violation\naddr 0x%lx, rip 0x%lx, "
+                "error %s%s%s vm->flags (%s%s%s%s)", 
+                vaddr, frame[FRAME_RIP],
+                (error_code & FRAME_ERROR_PF_RW) ? "W" : "R",
+                (error_code & FRAME_ERROR_PF_US) ? "U" : "S",
+                (error_code & FRAME_ERROR_PF_ID) ? "I" : "D",
+                (vm->flags & VMAP_FLAG_MMAP) ? "mmap " : "",
+                (vm->flags & VMAP_FLAG_ANONYMOUS) ? "anonymous " : "",
+                (vm->flags & VMAP_FLAG_WRITABLE) ? "writable " : "",
+                (vm->flags & VMAP_FLAG_EXEC) ? "executable " : ""
+        );
+
+        deliver_segv(vaddr, SEGV_ACCERR); /* does not return */
+        assert(0);
     }
-}
 
-static CLOSURE_0_1(dump_vmap, void, rmnode);
-static void dump_vmap(rmnode n)
-{
-    rprintf("%R, flags 0x%lx\n", n->r, ((vmap)n)->flags);
-}
-
-void dump_vmaps(rangemap rm)
-{
-    rangemap_range_lookup(rm, irange(0, infinity), stack_closure(dump_vmap));
+    /* do demand paging */
+    return do_demand_page(vm, vaddr);
 }
 
 vmap allocate_vmap(rangemap rm, range r, u64 flags)

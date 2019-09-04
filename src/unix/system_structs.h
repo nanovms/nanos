@@ -281,18 +281,9 @@ struct rlimit {
  */
 #define SEGV_MAPERR 1   /* address not mapped to object */
 #define SEGV_ACCERR 2   /* invalid permissions for mapped object */
-//#ifdef __bfin__
-//# define SEGV_STACKFLOW 3   /* stack overflow */
-//#else
 # define SEGV_BNDERR    3   /* failed address bound checks */
-//#endif
-//#ifdef __ia64__
-//# define __SEGV_PSTKOVF 4   /* paragraph stack overflow */
-//#else
 # define SEGV_PKUERR    4   /* failed protection key checks */
-//#endif
 #define NSIGSEGV    4
-
 
 typedef struct siginfo {
     u32 si_signo;
@@ -545,8 +536,32 @@ struct sigcontext {
     u64 rip;
     u64 eflags; /* RFLAGS */
     u16 cs;
-    u16 fs;
+    /*
+     * Prior to 2.5.64 ("[PATCH] x86-64 updates for 2.5.64-bk3"),
+     * Linux saved and restored fs and gs in these slots.  This
+     * was counterproductive, as fsbase and gsbase were never
+     * saved, so arch_prctl was presumably unreliable.
+     *
+     * These slots should never be reused without extreme caution:
+     *
+     *  - Some DOSEMU versions stash fs and gs in these slots manually,
+     *    thus overwriting anything the kernel expects to be preserved
+     *    in these slots.
+     *
+     *  - If these slots are ever needed for any other purpose,
+     *    there is some risk that very old 64-bit binaries could get
+     *    confused.  I doubt that many such binaries still work,
+     *    though, since the same patch in 2.5.64 also removed the
+     *    64-bit set_thread_area syscall, so it appears that there
+     *    is no TLS API beyond modify_ldt that works in both pre-
+     *    and post-2.5.64 kernels.
+     *
+     * If the kernel ever adds explicit fs, gs, fsbase, and gsbase
+     * save/restore, it will most likely need to be opt-in and use
+     * different context slots.
+     */
     u16 gs;
+    u16 fs;
     union {
         u16 ss; /* If UC_SIGCONTEXT SS */
         u16 __pad0; /* Alias name for old (!UC_SIGCONTEXT_SS) user-space */
