@@ -383,11 +383,11 @@ sysreturn rt_sigreturn(void)
     /* restore signal mask and saved context */
     reset_sigmask(t);
     restore_ucontext(&(frame->uc), t->frame);
+    running_frame = t->frame;
 
     sig_debug("switching to thread frame %p\n", running_frame);
 
     /* return - XXX or reschedule? */
-    running_frame = t->frame;
     IRETURN(running_frame);
     return 0;
 }
