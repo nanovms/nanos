@@ -298,17 +298,90 @@ static inline void reset_sigmask(thread t)
     t->dispatch_sigstate = 0;
 }
 
-sysreturn rt_sigreturn()
+/*
+ * Copy the context in frame 'f' to the ucontext *uctx
+ */
+static void setup_ucontext(struct ucontext * uctx, struct sigaction * sa, 
+            struct siginfo * si, context f)
 {
+    struct sigcontext * mcontext = &(uctx->uc_mcontext);
+
+    /* XXX for now we ignore everything but mcontext, incluing FP state ... */
+
+    runtime_memset((void *)uctx, 0, sizeof(struct ucontext));
+    mcontext->r8 = f[FRAME_R8];
+    mcontext->r9 = f[FRAME_R9];
+    mcontext->r10 = f[FRAME_R10];
+    mcontext->r11 = f[FRAME_R11];
+    mcontext->r12 = f[FRAME_R12];
+    mcontext->r13 = f[FRAME_R13];
+    mcontext->r14 = f[FRAME_R14];
+    mcontext->r15 = f[FRAME_R15];
+    mcontext->rdi = f[FRAME_RDI];
+    mcontext->rsi = f[FRAME_RSI];
+    mcontext->rbp = f[FRAME_RBP];
+    mcontext->rbx = f[FRAME_RBX];
+    mcontext->rdx = f[FRAME_RDX];
+    mcontext->rax = f[FRAME_RAX];
+    mcontext->rcx = f[FRAME_RCX];
+    mcontext->rsp = f[FRAME_RSP];
+    mcontext->rip = f[FRAME_RIP];
+    mcontext->eflags = f[FRAME_FLAGS];
+    mcontext->cs = f[FRAME_CS];
+    mcontext->fs = 0;
+    mcontext->gs = 0;
+    mcontext->ss = 0; /* FRAME[SS] if UC_SIGCONTEXT SS */
+    mcontext->err = f[FRAME_ERROR_CODE];
+    mcontext->trapno = f[FRAME_VECTOR];
+    mcontext->oldmask = sa->sa_mask.sig[0];
+    mcontext->cr2 = f[FRAME_CR2];
+}
+
+/*
+ * Copy the context from *uctx to the context in frame f
+ */
+static void restore_ucontext(struct ucontext * uctx, context f)
+{
+    struct sigcontext * mcontext = &(uctx->uc_mcontext);
+
+    f[FRAME_R8] = mcontext->r8;
+    f[FRAME_R9] = mcontext->r9;
+    f[FRAME_R10] = mcontext->r10;
+    f[FRAME_R11] = mcontext->r11;
+    f[FRAME_R12] = mcontext->r12;
+    f[FRAME_R13] = mcontext->r13;
+    f[FRAME_R14] = mcontext->r14;
+    f[FRAME_R15] = mcontext->r15;
+    f[FRAME_RDI] = mcontext->rdi;
+    f[FRAME_RSI] = mcontext->rsi;
+    f[FRAME_RBP] = mcontext->rbp;
+    f[FRAME_RBX] = mcontext->rbx;
+    f[FRAME_RDX] = mcontext->rdx;
+    f[FRAME_RAX] = mcontext->rax;
+    f[FRAME_RCX] = mcontext->rcx;
+    f[FRAME_RSP] = mcontext->rsp;
+    f[FRAME_RIP] = mcontext->rip;
+    f[FRAME_FLAGS] = mcontext->eflags;
+    f[FRAME_CS] = mcontext->cs;
+}
+
+
+sysreturn rt_sigreturn(void)
+{
+    struct rt_sigframe * frame;
     thread t = current;
-    sig_debug("tid %d\n", t->tid);
+
+    /* sigframe sits at top of the stack */
+    frame = (struct rt_sigframe *)(t->sigframe[FRAME_RSP]);
+    sig_debug("rt_sigreturn: frame:0x%lx\n", (unsigned long)frame);
 
     /* restore signal mask and saved context */
     reset_sigmask(t);
-    t->frame[FRAME_RAX] = t->rax_saved;
+    restore_ucontext(&(frame->uc), t->frame);
     running_frame = t->frame;
 
     sig_debug("switching to thread frame %p\n", running_frame);
+
     /* return - XXX or reschedule? */
     IRETURN(running_frame);
     return 0;
@@ -350,6 +423,12 @@ sysreturn rt_sigaction(int signum,
 
     if (act->sa_flags & SA_RESETHAND)
         msg_warn("Warning: SA_RESETHAND unsupported.\n");
+
+    /* libc should always set this on x64 ... */
+    if (!(act->sa_flags & SA_RESTORER)) {
+        msg_err("sigaction without SA_RESTORER not supported.\n");
+        return -EINVAL;
+    }
 
     /* update ignored mask */
     sigstate ss = &current->p->signals;
@@ -426,7 +505,6 @@ sysreturn rt_sigsuspend(const u64 * mask, u64 sigsetsize)
 
 sysreturn sigaltstack(const stack_t *ss, stack_t *oss)
 {
-
     return 0;
 }
 
@@ -577,11 +655,16 @@ void register_signal_syscalls(struct syscall *map)
     register_syscall(map, tkill, tkill);
 }
 
-/* guts of signal dispatch */
-
+/* guts of signal dispatch
+ *
+ * The unused argument is a result of the fact that we get back to
+ * userspace with sysret, which clobbers RCX. RCX is the 4th argument
+ * according to x64 calling convention
+ */
 static void __attribute__((section (".vdso"))) signal_trampoline(u32 signum,
                                                                  void *handler,
                                                                  siginfo_t *siginfo,
+                                                                 void *unused,
                                                                  void *ucontext)
 {
     if (siginfo) {
@@ -607,45 +690,50 @@ static void setup_sigframe(thread t, int signum, struct siginfo *si, void * ucon
      * to be carried over */
     runtime_memcpy(t->sigframe, t->frame, sizeof(u64) * FRAME_MAX);
 
-    /* XXX hack: stash %RAX which will get clobbered in a sig handler */
-    t->rax_saved = t->frame[FRAME_RAX];
-
     /* return to signal trampoline */
     t->sigframe[FRAME_RIP] = u64_from_pointer(signal_trampoline);
-
-    /* arguments to trampoline */
-    t->sigframe[FRAME_RDI] = signum;
-    t->sigframe[FRAME_RSI] = u64_from_pointer(sa->sa_handler);
 
     sig_debug("sa->sa_flags 0x%lx\n", sa->sa_flags);
 
     /* check for altstack */
     if (sa->sa_flags & SA_ONSTACK) {
         t->sigframe[FRAME_RSP] = 0; /* TODO */
+        halt("SA_ONSTACK ...\n");
     } else {
         /* must avoid redzone */
         t->sigframe[FRAME_RSP] -= 128;
     }
 
+    /* arguments to trampoline */
+    t->sigframe[FRAME_RDI] = signum;
+    t->sigframe[FRAME_RSI] = u64_from_pointer(sa->sa_handler);
+
+    /* copy siginfo + ucontext onto the stack */
     if (sa->sa_flags & SA_SIGINFO) {
-        /* place a siginfo on the stack */
+        struct ucontext * dest_uctx;
+        siginfo_t * dest_si;
+
         t->sigframe[FRAME_RSP] -= pad(sizeof(struct siginfo), 16);
-        siginfo_t * dest_si = pointer_from_u64(t->sigframe[FRAME_RSP]);
+        dest_si = pointer_from_u64(t->sigframe[FRAME_RSP]);
         sig_debug("copying siginfo to [%p, %p)\n", dest_si, ((void *)dest_si) + sizeof(struct siginfo));
         runtime_memcpy(dest_si, si, sizeof(struct siginfo));
         t->sigframe[FRAME_RDX] = t->sigframe[FRAME_RSP];
+
+        t->sigframe[FRAME_RSP] -= pad(sizeof(struct ucontext), 16);
+        dest_uctx = pointer_from_u64(t->sigframe[FRAME_RSP]);
+        sig_debug("copying ucontext to [%p, %p)\n", dest_uctx, ((void *)dest_uctx) + sizeof(struct ucontext));
+        setup_ucontext(dest_uctx, sa, si, t->frame);
+        t->sigframe[FRAME_R8] = t->sigframe[FRAME_RSP];
     } else {
         t->sigframe[FRAME_RDX] = 0;
+        t->sigframe[FRAME_R8]  = 0;
     }
 
-    /* XXX ucontext, revisit later */
-    t->sigframe[FRAME_RCX] = 0;
-
     sig_debug("sigframe tid %d, sig %d, rip 0x%lx, rsp 0x%lx, "
-              "rdi 0x%lx, rsi 0x%lx, rdx 0x%lx, rcx 0x%lx\n", t->tid, signum,
+              "rdi 0x%lx, rsi 0x%lx, rdx 0x%lx, r8 0x%lx\n", t->tid, signum,
               t->sigframe[FRAME_RIP], t->sigframe[FRAME_RSP],
               t->sigframe[FRAME_RDI], t->sigframe[FRAME_RSI],
-              t->sigframe[FRAME_RDX], t->sigframe[FRAME_RCX]);
+              t->sigframe[FRAME_RDX], t->sigframe[FRAME_R8]);
 }
 
 /* XXX lock down / use access fns */
@@ -699,7 +787,7 @@ void dispatch_signals(thread t)
         case SIGIO:
         case SIGPWR:
             msg_err("signal %d resulting in thread termination\n", signum);
-            halt("unimplemented");
+            halt("unimplemented signal\n");
             // exit_thread(t);
             break;
 
@@ -715,7 +803,7 @@ void dispatch_signals(thread t)
         case SIGXCPU:
         case SIGXFSZ:
             msg_err("signal %d resulting in core dump\n", signum);
-            halt("unimplemented");
+            halt("unimplemented signal\n");
             // core_dump(t);
             break;
 
@@ -725,7 +813,7 @@ void dispatch_signals(thread t)
         case SIGTTIN:
         case SIGTTOU:
             msg_err("signal %d resulting in thread stop\n", signum);
-            halt("unimplemented");
+            halt("unimplemented signal\n");
             // thread_stop(t);
             break;
 
