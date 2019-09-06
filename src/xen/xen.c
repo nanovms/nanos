@@ -38,46 +38,61 @@ typedef s64 int64_t;
 #include "features.h"
 #include "version.h"
 #include "vcpu.h"
-
 #include "hypercall.h"
+#include "grant_table.h"
 
-#define XEN_STO
-typedef struct xen_info {
+typedef struct xen_platform_info {
     heap    h;                  /* general heap for internal use */
+
+    /* version and features */
     u16     xen_major;
     u16     xen_minor;
     u32     last_leaf;
     u32     msr_base;
     u32     features;
+
+    /* event channel interface / PV interrupts */
+    volatile struct shared_info *shared_info;
+
+    /* xenstore page and event channel */
+    volatile struct xenstore_domain_interface *xenstore_interface;
     u64     xenstore_paddr;
     u64     xenstore_evtchn;
     vector  evtchn_handlers;
     tuple   device_tree;
+
+    /* grant table */
+    struct gtab {
+        vector pages;
+        u32 n_entries;
+        u16 max_pages;
+        grant_entry_v2_t *table;
+        heap entry_heap;
+    } gtab;
+
+    /* XXX could make generalized status */
     boolean initialized;
+} *xen_platform_info;
 
-    volatile struct xenstore_domain_interface *xenstore_interface;
-    volatile struct shared_info *shared_info;
-} *xen_info;
+struct xen_platform_info xen_info;
 
-static struct xen_info xi;
-
-extern u64 hypercall_page;
+boolean xen_feature_supported(int feature)
+{
+    return (xen_info.features & U64_FROM_BIT(feature)) != 0;
+}
 
 boolean xen_detected(void)
 {
-    return xi.initialized;
+    return xen_info.initialized;
 }
 
-static inline boolean xen_feature_supported(int feature)
-{
-    return (xi.features & U64_FROM_BIT(feature)) != 0;
-}
+extern u64 hypercall_page;
 
 static CLOSURE_0_0(xen_interrupt, void);
 static void xen_interrupt(void)
 {
-    volatile struct shared_info *si = xi.shared_info;
-    volatile struct vcpu_info *vci = &xi.shared_info->vcpu_info[0]; /* hardwired at this point */
+    volatile struct shared_info *si = xen_info.shared_info;
+    volatile struct vcpu_info *vci = &xen_info.shared_info->vcpu_info[0]; /* hardwired at this point */
 
 //    rprintf("in xen_interrupt ... %d\n", sizeof(si->evtchn_pending));
     while (vci->evtchn_upcall_pending) {
@@ -95,7 +110,7 @@ static void xen_interrupt(void)
 //            rprintf("at l2 offset 0x%lx, pending 0x%lx\n", l2_offset, l2_pending);
             bitmap_word_foreach_set(l2_pending, bit2, i2, l2_offset) {
                 (void)i2;
-                thunk handler = vector_get(xi.evtchn_handlers, i2);
+                thunk handler = vector_get(xen_info.evtchn_handlers, i2);
                 if (handler) {
                     rprintf("evtchn %d: applying handler %p\n", i2, handler);
                     apply(handler);
@@ -114,7 +129,7 @@ static boolean xen_unmask_evtchn(u32 evtchn)
     evtchn_op_t eop;
     eop.cmd = EVTCHNOP_unmask;
     eop.u.unmask.port = evtchn;
-    s64 rv = HYPERVISOR_event_channel_op(&eop);
+    int rv = HYPERVISOR_event_channel_op(&eop);
     if (rv != 0) {
         msg_err("failed to unmask evtchn %d; rv %ld\n", evtchn, rv);
         return false;
@@ -122,11 +137,90 @@ static boolean xen_unmask_evtchn(u32 evtchn)
     return true;
 }
 
+#define GTAB_RESERVED_ENTRIES 8
+
+static boolean xen_grant_init(kernel_heaps kh)
+{
+    struct gtab *gt = &xen_info.gtab;
+    struct gnttab_query_size qs;
+    qs.dom = DOMID_SELF;
+    int rv = HYPERVISOR_grant_table_op(GNTTABOP_query_size, &qs, 1);
+    if (rv < 0) {
+        msg_err("failed to query grant table size (rv %d)\n", rv);
+        return false;
+    }
+    if (qs.status != GNTST_okay) {
+        msg_err("grant table query returned error status %d\n", qs.status);
+        return false;
+    }
+    gt->n_entries = qs.max_nr_frames * (PAGESIZE / sizeof(grant_entry_v2_t));
+
+    /* On our current platforms, this is typically 32 pages / 128kB. */
+    gt->table = allocate(heap_backed(kh), qs.max_nr_frames * PAGESIZE);
+    if (gt->table == INVALID_ADDRESS) {
+        msg_err("failed to allocate grant table\n");
+        return false;
+    }
+
+    /* Allocate grant entry allocator. */
+    gt->entry_heap = create_id_heap(heap_general(kh), GTAB_RESERVED_ENTRIES,
+                                    gt->n_entries - GTAB_RESERVED_ENTRIES, 1);
+    if (gt->entry_heap == INVALID_ADDRESS) {
+        msg_err("failed to allocate grant table occupancy heap\n");
+        goto fail_dealloc_table;
+    }
+
+    /* We have this feature on the platforms we care about now, but we
+       can add support for the other case if need be. */
+    if (!xen_feature_supported(XENFEAT_auto_translated_physmap)) {
+        msg_err("auto translated physmap feature required\n");
+        goto fail_dealloc_heap;
+    }
+
+    /* Other implementations add a page at a time as required. For
+       simplicity, we're going to add them all on initialization. */
+    for (int p = 0; p < qs.max_nr_frames; p++) {
+        /* We know at the moment that backed is physically contiguous,
+           but best not to not assume in case this changes. */
+        u64 phys = physical_from_virtual(((void *)gt->table) + p * PAGESIZE);
+        struct xen_add_to_physmap xatp;
+        xatp.domid = DOMID_SELF;
+        xatp.space = XENMAPSPACE_grant_table;
+        xatp.idx = p;
+        xatp.gpfn = phys >> PAGELOG;
+        rv = HYPERVISOR_memory_op(XENMEM_add_to_physmap, &xatp);
+        if (rv < 0) {
+            msg_err("failed to add grant table page (rv %ld)\n", rv);
+            goto fail_dealloc_heap;
+        }
+    }
+    return true;
+  fail_dealloc_heap:
+    destroy_heap(gt->entry_heap);
+  fail_dealloc_table:
+    deallocate(heap_backed(kh), gt->table, qs.max_nr_frames * PAGESIZE);
+    return false;
+}
+
+/* returns 0 on alloc fail */
+grant_ref_t xen_grant_access(u16 domid, u64 phys, boolean readonly)
+{
+    struct gtab *gt = &xen_info.gtab;
+    grant_ref_t ref = allocate_u64(gt->entry_heap, 1);
+    if (ref == INVALID_PHYSICAL)
+        return 0;
+    gt->table[ref].hdr.domid = domid;
+    gt->table[ref].full_page.frame = phys >> PAGELOG;
+    write_barrier();
+    gt->table[ref].hdr.flags = GTF_permit_access | (readonly ? GTF_readonly : 0);
+    return ref;
+}
+
 void xen_detect(kernel_heaps kh)
 {
     u32 v[4];
-    xi.initialized = false;
-    xi.h = heap_general(kh);
+    xen_info.initialized = false;
+    xen_info.h = heap_general(kh);
     xen_debug("checking for xen cpuid leaves");
     cpuid(XEN_CPUID_FIRST_LEAF, 0, v);
     if (!(v[1] == XEN_CPUID_SIGNATURE_EBX &&
@@ -136,20 +230,20 @@ void xen_detect(kernel_heaps kh)
         return;
     }
 
-    xi.last_leaf = v[0];
+    xen_info.last_leaf = v[0];
 
     cpuid(XEN_CPUID_LEAF(1), 0, v);
-    xi.xen_major = v[0] >> 16;
-    xi.xen_minor = v[0] & MASK(16);
-    xen_debug("xen version %d.%d detected", xi.xen_major, xi.xen_minor);
+    xen_info.xen_major = v[0] >> 16;
+    xen_info.xen_minor = v[0] & MASK(16);
+    xen_debug("xen version %d.%d detected", xen_info.xen_major, xen_info.xen_minor);
 
     cpuid(XEN_CPUID_LEAF(2), 0, v);
     if (v[0] != 1) {
         msg_err("xen reporting %d hypercall pages; not supported\n", v[0]);
         return;
     }
-    xi.msr_base = v[1];
-    xen_debug("msr base 0x%x, features 1 0x%x, features 2 0x%x", xi.msr_base, v[2], v[3]);
+    xen_info.msr_base = v[1];
+    xen_debug("msr base 0x%x, features 1 0x%x, features 2 0x%x", xen_info.msr_base, v[2], v[3]);
 
 #if 0
     cpuid(XEN_CPUID_LEAF(3), 0, v);
@@ -169,19 +263,19 @@ void xen_detect(kernel_heaps kh)
     xen_debug("hypercall_page: v 0x%lx, p 0x%lx", u64_from_pointer(&hypercall_page), hp_phys);
 
     /* we can assume that kernel bss is identity mapped... */
-    write_msr(xi.msr_base, hp_phys);
+    write_msr(xen_info.msr_base, hp_phys);
 
     /* get xen features */
     build_assert(XENFEAT_NR_SUBMAPS == 1);
     struct xen_feature_info xfi;
     xfi.submap_idx = 0;
-    s64 rv = HYPERVISOR_xen_version(XENVER_get_features, &xfi);
+    int rv = HYPERVISOR_xen_version(XENVER_get_features, &xfi);
     if (rv < 0) {
         msg_err("failed to get xen features map (rv %ld)\n", rv);
         return;
     }
-    xi.features = xfi.submap;
-    xen_debug("reported features map 0x%x", xi.features);
+    xen_info.features = xfi.submap;
+    xen_debug("reported features map 0x%x", xen_info.features);
 
     /* get store page, map it, and retrieve event channel */
     xen_debug("retrieving xenstore page");
@@ -193,13 +287,13 @@ void xen_detect(kernel_heaps kh)
         msg_err("failed to get xenstore page address (rv %ld)\n", rv);
         return;
     }
-    xi.xenstore_paddr = xen_hvm_param.value << PAGELOG;
+    xen_info.xenstore_paddr = xen_hvm_param.value << PAGELOG;
 
     xen_debug("xenstore page at phys 0x%lx; allocating virtual page and mapping");
-    xi.xenstore_interface = allocate(heap_virtual_page(kh), PAGESIZE);
-    assert(xi.xenstore_interface != INVALID_ADDRESS);
-    map(u64_from_pointer(xi.xenstore_interface), xi.xenstore_paddr, PAGESIZE, 0, heap_pages(kh));
-    xen_debug("xenstore page mapped at %p", xi.xenstore_interface);
+    xen_info.xenstore_interface = allocate(heap_virtual_page(kh), PAGESIZE);
+    assert(xen_info.xenstore_interface != INVALID_ADDRESS);
+    map(u64_from_pointer(xen_info.xenstore_interface), xen_info.xenstore_paddr, PAGESIZE, 0, heap_pages(kh));
+    xen_debug("xenstore page mapped at %p", xen_info.xenstore_interface);
 
     xen_debug("retrieving store event channel");
     xen_hvm_param.domid = DOMID_SELF;
@@ -210,27 +304,27 @@ void xen_detect(kernel_heaps kh)
         return;
     }
 
-    xi.xenstore_evtchn = xen_hvm_param.value;
-    xen_debug("event channel %ld, allocating and mapping shared info page", xi.xenstore_evtchn);
+    xen_info.xenstore_evtchn = xen_hvm_param.value;
+    xen_debug("event channel %ld, allocating and mapping shared info page", xen_info.xenstore_evtchn);
 
     /* shared info page - taking page from identity heap, but could be backed as well */
-    xi.shared_info = allocate_zero(heap_pages(kh), PAGESIZE);
-    assert(xi.shared_info != INVALID_ADDRESS);
+    xen_info.shared_info = allocate_zero(heap_pages(kh), PAGESIZE);
+    assert(xen_info.shared_info != INVALID_ADDRESS);
     xen_add_to_physmap_t xatp;
     xatp.domid = DOMID_SELF;
     xatp.space = XENMAPSPACE_shared_info;
     xatp.idx = 0;
-    xatp.gpfn = u64_from_pointer(xi.shared_info) >> PAGELOG; /* identity heap, v == p */
+    xatp.gpfn = u64_from_pointer(xen_info.shared_info) >> PAGELOG; /* identity heap, v == p */
     rv = HYPERVISOR_memory_op(XENMEM_add_to_physmap, &xatp);
     if (rv < 0) {
         msg_err("failed to add shared info map (rv %ld)\n", rv);
         goto out_dealloc_shared_page;
     }
-    xen_debug("shared info page: 0x%lx", u64_from_pointer(xi.shared_info));
+    xen_debug("shared info page: 0x%lx", u64_from_pointer(xen_info.shared_info));
 
     if (!xen_feature_supported(XENFEAT_hvm_callback_vector)) {
         msg_err("HVM callback vector must be supported; xen setup failed (features mask 0x%x)\n",
-                xi.features);
+                xen_info.features);
         goto out_dealloc_shared_page;
     }
 
@@ -264,7 +358,7 @@ void xen_detect(kernel_heaps kh)
     /* register VCPU info */
     xen_debug("registering VCPU info");
     struct vcpu_register_vcpu_info vrvi;
-    u64 vci_pa = u64_from_pointer(xi.shared_info->vcpu_info); /* identity, pa == va */
+    u64 vci_pa = u64_from_pointer(xen_info.shared_info->vcpu_info); /* identity, pa == va */
     vrvi.mfn = vci_pa >> PAGELOG;
     vrvi.offset = vci_pa & (PAGESIZE - 1);
     rv = HYPERVISOR_vcpu_op(VCPUOP_register_vcpu_info, 0 /* vcpu0 */, &vrvi);
@@ -274,19 +368,24 @@ void xen_detect(kernel_heaps kh)
     }
 
     xen_debug("unmasking xenstore event channel");
-    xen_unmask_evtchn(xi.xenstore_evtchn);
+    xen_unmask_evtchn(xen_info.xenstore_evtchn);
 
-    xi.evtchn_handlers = allocate_vector(heap_general(kh), 1);
-    assert(xi.evtchn_handlers != INVALID_ADDRESS);
+    xen_info.evtchn_handlers = allocate_vector(heap_general(kh), 1);
+    assert(xen_info.evtchn_handlers != INVALID_ADDRESS);
+
+    if (!xen_grant_init(kh)) {
+        msg_err("failed to set up grant tables\n");
+        goto out_unregister_irq;
+    }
 
     xen_debug("xen initialization complete");
-    xi.initialized = true;
+    xen_info.initialized = true;
     return;
   out_unregister_irq:
     register_interrupt(irq, 0);
   out_dealloc_shared_page:
-    deallocate(heap_pages(kh), xi.shared_info, PAGESIZE);
-    xi.shared_info = 0;
+    deallocate(heap_pages(kh), xen_info.shared_info, PAGESIZE);
+    xen_info.shared_info = 0;
 }
 
 static inline int evtchn_send(evtchn_port_t port)
@@ -300,7 +399,7 @@ static inline int evtchn_send(evtchn_port_t port)
 /* returns bytes written; doesn't block */
 static s64 xenstore_write_internal(const void * data, s64 length)
 {
-    volatile struct xenstore_domain_interface *xsdi = xi.xenstore_interface;
+    volatile struct xenstore_domain_interface *xsdi = xen_info.xenstore_interface;
     if (length == 0)
         return 0;
     assert(length > 0);
@@ -321,10 +420,10 @@ static s64 xenstore_write_internal(const void * data, s64 length)
         runtime_memcpy((void*)(xsdi->req + offset), data, nwrite);
         data += nwrite;
         length -= nwrite;
-        read_barrier();     /* XXX verify */
+        write_barrier();
         xsdi->req_prod += nwrite;
-        read_barrier();
-        int rv = evtchn_send(xi.xenstore_evtchn);
+        write_barrier();
+        int rv = evtchn_send(xen_info.xenstore_evtchn);
         if (rv < 0) {
             result = rv;
             goto out;
@@ -339,7 +438,7 @@ static s64 xenstore_write_internal(const void * data, s64 length)
 
 static s64 xenstore_read_internal(buffer b, s64 length)
 {
-    volatile struct xenstore_domain_interface *xsdi = xi.xenstore_interface;
+    volatile struct xenstore_domain_interface *xsdi = xen_info.xenstore_interface;
     if (length == 0)
         return 0;
     assert(length > 0);
@@ -357,13 +456,13 @@ static s64 xenstore_read_internal(buffer b, s64 length)
         u64 nread = MIN(navail, length);
         if (nread == 0)
             continue;
-        read_barrier();     /* XXX verify */
+        read_barrier();
         buffer_write(b, (void*)(xsdi->rsp + offset), nread);
         length -= nread;
-        read_barrier();     /* XXX verify */
+        write_barrier();
         xsdi->rsp_cons += nread;
-        read_barrier();
-        int rv = evtchn_send(xi.xenstore_evtchn);
+        write_barrier();
+        int rv = evtchn_send(xen_info.xenstore_evtchn);
         if (rv < 0) {
             result = rv;
             goto out;
@@ -421,7 +520,7 @@ status xenstore_sync_transaction(enum xsd_sockmsg_type type, buffer request, buf
 {
     status s = STATUS_OK;
     struct xsd_sockmsg msg;
-    buffer rbuf = allocate_buffer(xi.h, PAGESIZE); // XXX
+    buffer rbuf = allocate_buffer(xen_info.h, PAGESIZE); // XXX
     assert(rbuf != INVALID_ADDRESS);
 
     xenstore_debug("%s: type %d, request %p, response %p", __func__, type, request, response);
@@ -466,12 +565,12 @@ status xenstore_request(enum xsd_sockmsg_type type, const char *path, buffer res
 {
     xenstore_debug("%s: type %d, path \"%s\"", __func__, type, path);
 //    buffer req = alloca_wrap_buffer(path, runtime_strlen(path) + 1);
-    buffer req = wrap_buffer(xi.h, (void*)path, runtime_strlen(path) + 1);
+    buffer req = wrap_buffer(xen_info.h, (void*)path, runtime_strlen(path) + 1);
     status s = xenstore_sync_transaction(type, req, response);
     if (!is_ok(s))
         goto out_dealloc;
   out_dealloc:
-    unwrap_buffer(xi.h, req);
+    unwrap_buffer(xen_info.h, req);
     return s;
 }
 
@@ -522,13 +621,16 @@ static status traverse_directory(heap h, const char * path, tuple node)
 status xen_probe_devices(void)
 {
     xen_debug("probing xen device tree from xenstored");
-    assert(xi.device_tree == 0);
+    assert(xen_info.device_tree == 0);
     tuple node = allocate_tuple();
-    xi.device_tree = node;
 
-    status s = traverse_directory(xi.h, "device", node);
-    if (!is_ok(s))
+    status s = traverse_directory(xen_info.h, "device", node);
+    if (!is_ok(s)) {
+        /* deallocate_tuple */
         return s;
+    }
+    xen_info.device_tree = node;
     xen_debug("success; result: %v\n", node);
     return s;
 }
+
