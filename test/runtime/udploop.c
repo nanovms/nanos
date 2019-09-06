@@ -25,8 +25,9 @@ int main(int argc, char ** argv)
     value v = table_find(t, sym(port));
     char buf[BUFLEN];
 
-    if (v) {
-	lport = (u16)u64_from_value(v);
+    u64 result;
+    if (v && u64_from_value(v, &result)) {
+	lport = result;
     }
     rprintf("using local port %d\n", lport);
 

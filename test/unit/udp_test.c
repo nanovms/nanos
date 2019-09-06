@@ -3,12 +3,7 @@
 
 #include <errno.h>
 #include <string.h>
-
-// XXX lame - please fix
-//#include <stdlib.h>
-void exit(int status);
-#define EXIT_FAILURE 1
-#define EXIT_SUCCESS 0
+#include <stdlib.h>
 
 #include <unistd.h>
 #include <arpa/inet.h>
@@ -45,13 +40,14 @@ int main(int argc, char ** argv)
 
     u16 lport = DEFAULT_LOCAL_PORT;
     value v = table_find(t, sym(localport));
-    if (v)
-	lport = (u16)u64_from_value(v);
+    u64 result;
+    if (v && u64_from_value(v, &result))
+	lport = result;
 
     int iterations = DEFAULT_LOCAL_ITERATIONS;
     v = table_find(t, sym(iterations));
-    if (v)
-	iterations = (int)u64_from_value(v);
+    if (v && u64_from_value(v, &result))
+        iterations = result;
 
     int fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (fd < 0)

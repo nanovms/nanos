@@ -146,7 +146,7 @@ void log_read_complete(log tl, status_handler sh, status s)
                     tlog_debug("   found fsfile %p\n", f);
                 }
             } else if (k == sym(filelength)) {
-                filelength = u64_from_value(v);
+                assert(u64_from_value(v, &filelength));
             }
         }
         
