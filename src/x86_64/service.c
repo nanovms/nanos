@@ -242,6 +242,7 @@ static void reclaim_regions(void)
 void xen_detect(kernel_heaps kh);
 boolean xen_detected(void);
 status xen_probe_devices(void);
+void init_xen_network(kernel_heaps kh);
 
 // XXX temporary
 void configure_lapic_timer(heap h);
@@ -285,12 +286,6 @@ static void __attribute__((noinline)) init_service_new_stack()
     /* xen */
     init_debug("probing for xen hypervisor");
     xen_detect(kh);
-    if (xen_detected()) {
-        init_debug("xen hypervisor detected");
-        status s = xen_probe_devices();
-        if (!is_ok(s))
-            rprintf("xen probe failed: %v\n", s);
-    }
 
     /* runloop timer - XXX temp */
     if (using_lapic_timer())
@@ -310,6 +305,16 @@ static void __attribute__((noinline)) init_service_new_stack()
     if (fs_offset == 0)
         halt("filesystem region not found; halt\n");
     init_storage(kh, closure(misc, attach_storage, root, fs_offset));
+
+    /* Probe for PV devices */
+    if (xen_detected()) {
+        init_debug("xen hypervisor detected");
+        init_xen_network(kh);
+        status s = xen_probe_devices();
+        if (!is_ok(s))
+            rprintf("xen probe failed: %v\n", s);
+    }
+
     init_virtio_network(kh);
     init_debug("pci_discover (for virtio & ata)");
     pci_discover(); // do PCI discover again for other devices

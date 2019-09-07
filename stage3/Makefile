@@ -60,6 +60,7 @@ SRCS-stage3.img= \
 	$(SRCDIR)/virtio/virtqueue.c \
 	$(SRCDIR)/virtio/scsi.c \
 	$(SRCDIR)/xen/xen.c \
+	$(SRCDIR)/xen/xennet.c \
 	$(SRCDIR)/x86_64/apic.c \
 	$(SRCDIR)/x86_64/backed_heap.c \
 	$(SRCDIR)/x86_64/breakpoint.c \
