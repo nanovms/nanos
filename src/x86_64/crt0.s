@@ -35,8 +35,10 @@ interrupt_common:
         mov [rbx+FRAME_R14*8], r14
         mov [rbx+FRAME_R15*8], r15
 
-        mov r15, cr2
-        mov [rbx+FRAME_CR2*8], r15 
+        push rdi
+        mov rdi, cr2
+        mov [rbx+FRAME_CR2*8], rdi
+        pop rdi
 
         pop rax            ; rbx
         mov [rbx+FRAME_RBX*8], rax
