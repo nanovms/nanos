@@ -58,9 +58,7 @@ context default_fault_handler(thread t, context frame)
     */
     if (frame[FRAME_VECTOR] == 14) {
         /* XXX move this to x86_64 */
-        u64 fault_address;
-        mov_from_cr("cr2", fault_address);
-        if (unix_fault_page(fault_address, frame))
+        if (unix_fault_page(frame[FRAME_CR2], frame))
             return frame;
     }
 
