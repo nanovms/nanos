@@ -25,8 +25,8 @@ static inline char peek_char(buffer b)
 
 #define alloca_wrap_buffer(__b, __l) ({                         \
             buffer b = stack_allocate(sizeof(struct buffer));   \
-            b->contents = (void *) __b;                         \
-            b->end = b->length = __l;                           \
+            b->contents = (void *) (__b);                       \
+            b->end = b->length = (__l);                         \
             b->start  = 0;                                      \
             b->wrapped = true;                                  \
             b->h = 0;                                           \

@@ -25,6 +25,11 @@ static inline int vector_length(vector v)
     return buffer_length(v)/sizeof(void *);
 }
 
+static inline void vector_clear(vector v)
+{
+    v->start = v->end = 0;
+}
+
 static inline void *vector_delete(vector v, int offset)
 {
     void *res;

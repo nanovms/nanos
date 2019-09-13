@@ -63,7 +63,6 @@ typedef struct vnet {
 typedef struct xpbuf
 {
     struct pbuf_custom p;
-    buffer b;
     vnet vn;
 } *xpbuf;
 
@@ -236,6 +235,7 @@ void init_virtio_network(kernel_heaps kh)
     register_pci_driver(closure(h, virtio_net_probe, h, heap_backed(kh)));
 }
 
+/* XXX move these to a general net area */
 err_t init_static_config(tuple root, struct netif *n) {
     ip4_addr_t ip;
     ip4_addr_t netmask;

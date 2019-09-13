@@ -42,7 +42,7 @@ typedef struct xen_platform_info {
         vector pages;
         u32 n_entries;
         u16 max_pages;
-        grant_entry_v2_t *table;
+        grant_entry_v1_t *table;
         heap entry_heap;
     } gtab;
 
@@ -89,7 +89,7 @@ static void xen_interrupt(void)
     volatile struct shared_info *si = xen_info.shared_info;
     volatile struct vcpu_info *vci = &xen_info.shared_info->vcpu_info[0]; /* hardwired at this point */
 
-//    rprintf("in xen_interrupt ... %d\n", sizeof(si->evtchn_pending));
+    rprintf("in xen_interrupt ... %d\n", sizeof(si->evtchn_pending));
     while (vci->evtchn_upcall_pending) {
         vci->evtchn_upcall_pending = 0;
         u64 l1_pending = __sync_lock_test_and_set(&vci->evtchn_pending_sel, 0); /* XXX check asm */
@@ -105,6 +105,7 @@ static void xen_interrupt(void)
 //            rprintf("at l2 offset 0x%lx, pending 0x%lx\n", l2_offset, l2_pending);
             bitmap_word_foreach_set(l2_pending, bit2, i2, l2_offset) {
                 (void)i2;
+                rprintf("int %d pending\n", i2);
                 thunk handler = vector_get(xen_info.evtchn_handlers, i2);
                 if (handler) {
                     rprintf("evtchn %d: applying handler %p\n", i2, handler);
@@ -118,18 +119,18 @@ static void xen_interrupt(void)
     }
 }
 
-static boolean xen_unmask_evtchn(u32 evtchn)
+void xen_register_evtchn_handler(evtchn_port_t evtchn, thunk handler)
+{
+    vector_set(xen_info.evtchn_handlers, evtchn, handler);
+}
+
+int xen_unmask_evtchn(evtchn_port_t evtchn)
 {
     assert(evtchn > 0 && evtchn < EVTCHN_2L_NR_CHANNELS);
     evtchn_op_t eop;
     eop.cmd = EVTCHNOP_unmask;
     eop.u.unmask.port = evtchn;
-    int rv = HYPERVISOR_event_channel_op(&eop);
-    if (rv != 0) {
-        msg_err("failed to unmask evtchn %d; rv %ld\n", evtchn, rv);
-        return false;
-    }
-    return true;
+    return HYPERVISOR_event_channel_op(&eop);
 }
 
 #define GTAB_RESERVED_ENTRIES 8
@@ -151,14 +152,15 @@ static boolean xen_grant_init(kernel_heaps kh)
     gt->n_entries = qs.max_nr_frames * (PAGESIZE / sizeof(grant_entry_v2_t));
 
     /* On our current platforms, this is typically 32 pages / 128kB. */
-    gt->table = allocate(heap_backed(kh), qs.max_nr_frames * PAGESIZE);
+    gt->table = allocate_zero(heap_backed(kh), qs.max_nr_frames * PAGESIZE);
     if (gt->table == INVALID_ADDRESS) {
         msg_err("failed to allocate grant table\n");
         return false;
     }
+    rprintf("table v 0x%lx, p 0x%lx\n", gt->table, physical_from_virtual(gt->table));
 
     /* Allocate grant entry allocator. */
-    gt->entry_heap = create_id_heap(heap_general(kh), GTAB_RESERVED_ENTRIES,
+    gt->entry_heap = create_id_heap(heap_general(kh), GTAB_RESERVED_ENTRIES + 1,
                                     gt->n_entries - GTAB_RESERVED_ENTRIES, 1);
     if (gt->entry_heap == INVALID_ADDRESS) {
         msg_err("failed to allocate grant table occupancy heap\n");
@@ -183,6 +185,7 @@ static boolean xen_grant_init(kernel_heaps kh)
         xatp.space = XENMAPSPACE_grant_table;
         xatp.idx = p;
         xatp.gpfn = phys >> PAGELOG;
+        rprintf("grant page %d, gpfn %x\n", xatp.idx, xatp.gpfn);
         rv = HYPERVISOR_memory_op(XENMEM_add_to_physmap, &xatp);
         if (rv < 0) {
             msg_err("failed to add grant table page (rv %ld)\n", rv);
@@ -198,17 +201,24 @@ static boolean xen_grant_init(kernel_heaps kh)
 }
 
 /* returns 0 on alloc fail */
-grant_ref_t xen_grant_access(u16 domid, u64 phys, boolean readonly)
+/* optimization: create a gntref free list / fifo of sorts */
+grant_ref_t xen_grant_page_access(u16 domid, u64 phys, boolean readonly)
 {
     struct gtab *gt = &xen_info.gtab;
     grant_ref_t ref = allocate_u64(gt->entry_heap, 1);
     if (ref == INVALID_PHYSICAL)
         return 0;
-    gt->table[ref].hdr.domid = domid;
-    gt->table[ref].full_page.frame = phys >> PAGELOG;
+    gt->table[ref].domid = domid;
+    gt->table[ref].frame = phys >> PAGELOG;
     write_barrier();
-    gt->table[ref].hdr.flags = GTF_permit_access | (readonly ? GTF_readonly : 0);
+    gt->table[ref].flags = GTF_permit_access | (readonly ? GTF_readonly : 0);
     return ref;
+}
+
+void xen_revoke_page_access(grant_ref_t ref)
+{
+    xen_info.gtab.table[ref].flags = 0;
+    memory_barrier();
 }
 
 void xen_detect(kernel_heaps kh)
@@ -363,7 +373,7 @@ void xen_detect(kernel_heaps kh)
     }
 
     xen_debug("unmasking xenstore event channel");
-    xen_unmask_evtchn(xen_info.xenstore_evtchn);
+    assert(xen_unmask_evtchn(xen_info.xenstore_evtchn) == 0);
 
     xen_info.evtchn_handlers = allocate_vector(heap_general(kh), 1);
     assert(xen_info.evtchn_handlers != INVALID_ADDRESS);
@@ -384,11 +394,27 @@ void xen_detect(kernel_heaps kh)
     xen_info.shared_info = 0;
 }
 
-static inline int evtchn_send(evtchn_port_t port)
+status xen_allocate_evtchn(domid_t other_id, evtchn_port_t *evtchn)
+{
+    evtchn_op_t op;
+    op.cmd = EVTCHNOP_alloc_unbound;
+    op.u.alloc_unbound.dom = DOMID_SELF;
+    op.u.alloc_unbound.remote_dom = other_id;
+    op.u.alloc_unbound.port = 0;
+    int rv = HYPERVISOR_event_channel_op(&op);
+    if (rv == 0) {
+        *evtchn = op.u.alloc_unbound.port;
+        return STATUS_OK;
+    } else {
+        return timm("result", "allocate evtchn failed (%d)", rv);
+    }
+}
+
+int xen_notify_evtchn(evtchn_port_t evtchn)
 {
     evtchn_op_t op;
     op.cmd = EVTCHNOP_send;
-    op.u.send.port = port;
+    op.u.send.port = evtchn;
     return HYPERVISOR_event_channel_op(&op);
 }
 
@@ -419,7 +445,7 @@ static s64 xenstore_write_internal(const void * data, s64 length)
         write_barrier();
         xsdi->req_prod += nwrite;
         write_barrier();
-        int rv = evtchn_send(xen_info.xenstore_evtchn);
+        int rv = xen_notify_evtchn(xen_info.xenstore_evtchn);
         if (rv < 0) {
             result = rv;
             goto out;
@@ -458,7 +484,7 @@ static s64 xenstore_read_internal(buffer b, s64 length)
         write_barrier();
         xsdi->rsp_cons += nread;
         write_barrier();
-        int rv = evtchn_send(xen_info.xenstore_evtchn);
+        int rv = xen_notify_evtchn(xen_info.xenstore_evtchn);
         if (rv < 0) {
             result = rv;
             goto out;
@@ -513,24 +539,26 @@ static inline status xenstore_sync_read(buffer b, s64 length)
 }
 
 /* Note that both request and response buffers enclose a zero terminator. */
-status xenstore_sync_request(enum xsd_sockmsg_type type, buffer request, buffer response)
+status xenstore_sync_request(u32 tx_id, enum xsd_sockmsg_type type, buffer request, buffer response)
 {
     status s = STATUS_OK;
     struct xsd_sockmsg msg;
     buffer rbuf = allocate_buffer(xen_info.h, PAGESIZE); // XXX
     assert(rbuf != INVALID_ADDRESS);
+    u32 len = request ? buffer_length(request) : 1;
+    void * data = request ? buffer_ref(request, 0) : "";
 
-    xenstore_debug("%s: type %d, request %p, response %p", __func__, type, request, response);
-    msg.tx_id = 0;              /* XXX private, but only 32-bit */
+    xenstore_debug("%s: tx_id %d, type %d, request %p, response %p", __func__, tx_id, type, request, response);
+    msg.tx_id = tx_id;
     msg.req_id = 0;
     msg.type = type;
-    msg.len = buffer_length(request);
+    msg.len = len;
 
     /* send request */
     s = xenstore_sync_write(&msg, sizeof(msg));
     if (!is_ok(s))
         goto out_dealloc;
-    s = xenstore_sync_write(buffer_ref(request, 0), buffer_length(request));
+    s = xenstore_sync_write(data, len);
     if (!is_ok(s))
         goto out_dealloc;
 
@@ -558,12 +586,106 @@ status xenstore_sync_request(enum xsd_sockmsg_type type, buffer request, buffer 
     return s;
 }
 
+status xenstore_transaction_start(u32 *tx_id)
+{
+    buffer response = allocate_buffer(xen_info.h, 16);
+    status s = xenstore_sync_request(0, XS_TRANSACTION_START, 0, response);
+    if (!is_ok(s))
+        goto out;
+    u64 val;
+    if (!u64_from_value(response, &val)) {
+        s = timm("result", "%s: failed to parse response \"%b\"", __func__, response);
+        goto out;
+    }
+    *tx_id = val;
+  out:
+    deallocate_buffer(response);
+    return s;
+}
+
+status xenstore_transaction_end(u32 tx_id, boolean abort)
+{
+    buffer request = alloca_wrap_buffer(abort ? "F" : "T", 2);
+    buffer response = allocate_buffer(xen_info.h, 8); /* for error capture */
+    status s = xenstore_sync_request(tx_id, XS_TRANSACTION_END, request, response);
+    deallocate_buffer(response);
+    return s;
+}
+
+status xenstore_sync_printf(u32 tx_id, buffer path, const char *node, const char *format, ...)
+{
+    buffer request = allocate_buffer(xen_info.h, PAGESIZE);
+    push_buffer(request, path);
+    push_u8(request, '/');
+    buffer_write(request, node, runtime_strlen(node));
+    push_u8(request, 0);
+    vlist a;
+    vstart(a, format);
+    buffer bf = alloca_wrap_buffer(format, runtime_strlen(format));
+    vbprintf(request, bf, &a);
+//    push_u8(request, 0);
+    rprintf("%s: request: \"%b\"\n", __func__, request);
+
+    buffer response = allocate_buffer(xen_info.h, 8); /* for error capture */
+    status s = xenstore_sync_request(tx_id, XS_WRITE, request, response);
+    deallocate_buffer(request);
+    deallocate_buffer(response);
+    return s;
+}
+
+status xenstore_read_u64(u32 tx_id, buffer path, const char *node, u64 *result)
+{
+    buffer request = allocate_buffer(xen_info.h, 64);
+    push_buffer(request, path);
+    push_u8(request, '/');
+    buffer_write(request, node, runtime_strlen(node));
+    push_u8(request, 0);
+
+    buffer response = allocate_buffer(xen_info.h, 16);
+    status s = xenstore_sync_request(tx_id, XS_READ, request, response);
+    if (!is_ok(s))
+        goto out;
+    u64 val;
+    if (!u64_from_value(response, &val)) {
+        s = timm("result", "%s: unable to parse int from response \"%b\"", __func__, response);
+        goto out;
+    }
+    *result = val;
+  out:
+    deallocate_buffer(request);
+    deallocate_buffer(response);
+    return s;
+}
+
+status xenbus_get_state(buffer path, XenbusState *state)
+{
+    assert(path);
+    u64 val;
+    status s = xenstore_read_u64(0, path, "state", &val);
+    if (!is_ok(s))
+        *state = XenbusStateUnknown;
+    *state = val;
+    return s;
+}
+
+status xenbus_set_state(u32 tx_id, buffer path, XenbusState newstate)
+{
+    XenbusState oldstate;
+    status s = xenbus_get_state(path, &oldstate);
+    if (!is_ok(s))
+        return s;
+    rprintf("%s: old  %d, new %d\n", __func__, oldstate, newstate);
+    if (oldstate == newstate)
+        return STATUS_OK;
+    return xenstore_sync_printf(tx_id, path, "state", "%d", newstate);
+}
+
 static status traverse_directory_internal(heap h, buffer path, tuple *parent)
 {
     xenstore_debug("%s: path \"%s\"", __func__, path);
     buffer response = allocate_buffer(h, PAGESIZE);
 
-    status s = xenstore_sync_request(XS_DIRECTORY, path, response);
+    status s = xenstore_sync_request(0, XS_DIRECTORY, path, response);
     if (!is_ok(s))
         goto out; /* XXX should add context to status */
 
@@ -577,7 +699,7 @@ static status traverse_directory_internal(heap h, buffer path, tuple *parent)
     buffer splice = allocate_buffer(h, buffer_length(path) + 16);
     buffer_write(splice, buffer_ref(path, 0), buffer_length(path) - 1);
     push_u8(splice, '/');
-    bytes splice_saved_end = splice->end;    /* XXX kind of a violation; add to buffer interface here */
+    bytes splice_saved_end = splice->end;    /* XXX violation; amend buffer interface */
 
     do {
         char * child = buffer_ref(response, 0);
@@ -593,7 +715,7 @@ static status traverse_directory_internal(heap h, buffer path, tuple *parent)
             /* leaf node, read content */
             buffer leaf_value = allocate_buffer(h, 8);
             assert(leaf_value != INVALID_ADDRESS); /* XXX iron out inconsistencies */
-            s = xenstore_sync_request(XS_READ, splice, leaf_value);
+            s = xenstore_sync_request(0, XS_READ, splice, leaf_value);
             if (!is_ok(s)) {
                 deallocate_buffer(leaf_value);
                 goto out_slice;
@@ -628,18 +750,7 @@ status xen_probe_devices(void)
         return timm("result", "failed to parse directory");
 
     xen_info.device_tree = node;
-    xen_debug("success; result: %v\n", node);
-
-#if 0
-    buffer buf = allocate_buffer(xen_info.h, PAGESIZE);
-    char * path = "/local/domain/0/backend/vif/306/0/state";
-    s = xenstore_sync_request(XS_READ, alloca_wrap_buffer(path, runtime_strlen(path) + 1), buf);
-    if (!is_ok(s)) {
-        rprintf("backed read failed: %v\n", s);
-    } else {
-        rprintf("succeeded: %b\n", buf);
-    }
-#endif
+    xen_debug("success; result: %v", node);
 
     table_foreach(node, k, v) {
         if (tagof(v) != tag_tuple)
@@ -647,16 +758,19 @@ status xen_probe_devices(void)
         list_foreach(&xen_info.driver_list, l) {
             xen_driver xd = struct_from_list(l, xen_driver, l);
             /* XXX must be a cleaner way to compare symbols? */
-            string s = symbol_string(k);
-            if (runtime_memcmp(buffer_ref(s, 0), xd->name, MIN(buffer_length(s), XEN_DRIVER_NAME_MAX)))
+            string name = symbol_string(k);
+            if (runtime_memcmp(buffer_ref(name, 0), xd->name, MIN(buffer_length(name), XEN_DRIVER_NAME_MAX)))
                 continue;
             table_foreach(v, k2, v2) {
                 u64 id;
                 if (!u64_from_value(symbol_string(k2), &id)) {
                     return timm("result", "failed to parse device id \"%v\"", symbol_string(k2));
                 }
-                xen_debug("driver match, id %d, value %v\n", id, v2);
-                apply(xd->probe, (int)id, v2);
+                xen_debug("driver match, id %d, value %v", id, v2);
+                /* XXX check result, dealloc on fail */
+                buffer frontend = allocate_buffer(xen_info.h, buffer_length(name) + 10);
+                bprintf(frontend, "device/%b/%d", name, id);
+                apply(xd->probe, (int)id, frontend, v2);
             }
         }
     }
