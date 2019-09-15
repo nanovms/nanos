@@ -170,23 +170,22 @@ static void xennet_return_txbuf(xennet_dev xd, xennet_txbuf txb)
     irq_restore(flags);
 }
 
-void xennet_transmit_reclaim(xennet_dev xd)
+static void xennet_service_tx_ring(xennet_dev xd)
 {
     int more;
 
     do {
         RING_IDX cons = xd->tx_ring.rsp_cons;
         RING_IDX prod = xd->tx_ring.sring->rsp_prod;
-        read_barrier();
+        memory_barrier();
         xennet_debug("%s: cons %d, prod %d", __func__, cons, prod);
 
         while (cons < prod) {
-            u16 idx = cons & (XENNET_TX_RING_SIZE - 1);
             netif_tx_response_t *tx = RING_GET_RESPONSE(&xd->tx_ring, cons);
-            xennet_txpage txp = xd->txpages[idx];
+            xennet_txpage txp = xd->txpages[tx->id];
             assert(txp);
             assert(txp->gntref != GRANT_INVALID);
-            xd->txpages[idx] = 0;
+            xd->txpages[tx->id] = 0;
             xen_revoke_page_access(txp->gntref);
             txp->gntref = GRANT_INVALID;
 
@@ -195,10 +194,9 @@ void xennet_transmit_reclaim(xennet_dev xd)
                 xennet_return_txbuf(xd, txp->txb);
             }
 
-            assert(tx->id == idx);
             if (tx->status != NETIF_RSP_OKAY) {
-                /* XXX error, drop counters */
-                rprintf("tx resp id %d, status %d\n", idx, tx->status);
+                /* XXX counters */
+                msg_err("cons %d, tx resp id %d, status %d\n", cons, tx->id, tx->status);
             }
 
             cons++;
@@ -213,8 +211,10 @@ static xennet_txpage xennet_fill_tx_request(xennet_dev xd, netif_tx_request_t *t
 {
     /* XXX spin lock */
     list l = list_get_next(&xd->tx_pending);
-    if (!l)
+    if (!l) {
+        xennet_debug("tx pending empty");
         return 0;
+    }
     xennet_txbuf txb = struct_from_list(l, xennet_txbuf, l);
     xennet_txpage txp = buffer_ref(txb->pages, sizeof(struct xennet_txpage) * txb->nextpage);
     tx->offset = txp->offset;
@@ -236,10 +236,8 @@ static xennet_txpage xennet_fill_tx_request(xennet_dev xd, netif_tx_request_t *t
     return txp;
 }
 
-static void xennet_service_tx_ring(xennet_dev xd)
+static void xennet_populate_tx_ring(xennet_dev xd)
 {
-    xennet_transmit_reclaim(xd);
-
     RING_IDX prod = xd->tx_ring.req_prod_pvt;
     RING_IDX prod_end = xd->tx_ring.rsp_cons + XENNET_TX_RING_SIZE;
 
@@ -251,23 +249,19 @@ static void xennet_service_tx_ring(xennet_dev xd)
         xd->txpages[idx] = xennet_fill_tx_request(xd, tx, idx);
         if (!xd->txpages[idx])
             break;
-        rprintf("prod %d: txp %p, offset %d, size %d, id %d, flags %x, gref %d\n",
-                prod, xd->txpages[idx], tx->offset, tx->size, tx->id, tx->flags, tx->gref);
-        rprintf("cons %d\n", xd->tx_ring.rsp_cons);
+        xennet_debug("   prod %d: txp %p, offset %d, size %d, id %d, flags %x, gref %d",
+                     prod, xd->txpages[idx], tx->offset, tx->size, tx->id, tx->flags, tx->gref);
         prod++;
     }
     xd->tx_ring.req_prod_pvt = prod;
     xennet_debug("queueing done");
-    rprintf("cons %d\n", xd->tx_ring.rsp_cons);
 
     write_barrier();
 
     int notify;
     RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&xd->tx_ring, notify);
-    if (notify) {
-        rprintf("tx notify\n");
+    if (notify)
         xen_notify_evtchn(xd->evtchn);
-    }
 }
 
 static xennet_txbuf xennet_get_txbuf(xennet_dev xd)
@@ -334,14 +328,6 @@ static err_t xennet_linkoutput(struct netif *netif, struct pbuf *p)
     xennet_dev xd = (xennet_dev)netif->state;
     xennet_debug("%s: id %d, pbuf %p", __func__, xd->if_id, p);
 
-#if 0
-    XenbusState state;
-    status s = xenbus_get_state(xd->backend, &state);
-    if (is_ok(s)) {
-        xennet_debug("backend state: %d", state);
-    }
-#endif
-
     xennet_txbuf txb = xennet_get_txbuf(xd);
     pbuf_ref(p);
     txb->p = p;
@@ -363,7 +349,10 @@ static err_t xennet_linkoutput(struct netif *netif, struct pbuf *p)
 
     LINK_STATS_INC(link.xmit);
 
-    xennet_service_tx_ring(xd);
+    /* really should just be a mask of xen int or tx int if we ever split */
+    flags = irq_disable_save();
+    xennet_populate_tx_ring(xd);
+    irq_restore(flags);
 
     return ERR_OK;
 }
@@ -401,50 +390,6 @@ static void xennet_return_rxbuf(struct pbuf *p)
     list_delete(&xrp->l);
     list_insert_before(&xrp->xd->rx_free, &xrp->l);
     irq_restore(flags);
-}
-
-static void xennet_service_rx_ring(xennet_dev xd)
-{
-    int more;
-
-    do {
-        RING_IDX cons = xd->rx_ring.rsp_cons;
-        RING_IDX prod = xd->rx_ring.sring->rsp_prod;
-        read_barrier();
-        xennet_debug("%s: cons %d, prod %d", __func__, cons, prod);
-    
-        while (cons < prod) {
-            u16 idx = cons & (XENNET_RX_RING_SIZE - 1);
-            netif_rx_response_t *rx = RING_GET_RESPONSE(&xd->rx_ring, cons);
-            xennet_rxbuf rxb = xd->rxbufs[idx];
-            assert(rxb);
-            assert(rxb->gntref != GRANT_INVALID);
-            xd->rxbufs[idx] = 0;
-            xen_revoke_page_access(rxb->gntref);
-            rxb->gntref = GRANT_INVALID;
-
-            assert(rx->id == idx);
-            assert(rx->status >= 0);
-            assert(rx->offset + rx->status <= PAGESIZE);
-
-            rprintf("RX flags %x, status %d, offset %d, buf:\n%X",
-                    rx->flags, rx->status, rx->offset,
-                    alloca_wrap_buffer(rxb->p.pbuf.payload, rx->status + rx->offset));
-            rxb->p.pbuf.len = rx->status;
-            rxb->p.pbuf.tot_len = rx->status;
-            rxb->p.pbuf.payload += rx->offset;
-
-            if (xd->netif->input(&rxb->p.pbuf, xd->netif) != ERR_OK) {
-                msg_err("rx drop by stack\n");
-                xennet_return_rxbuf(&rxb->p.pbuf);
-            }
-
-            cons++;
-        }
-        write_barrier();
-        xd->rx_ring.rsp_cons = cons;
-        RING_FINAL_CHECK_FOR_RESPONSES(&xd->rx_ring, more);
-    } while (more);
 }
 
 static xennet_rxbuf xennet_get_rxbuf(xennet_dev xd)
@@ -496,7 +441,6 @@ static void xennet_populate_rx_ring(xennet_dev xd)
     while (prod < prod_end) {
         xennet_rxbuf rxb = xennet_get_rxbuf(xd);
         assert(rxb != INVALID_ADDRESS); /* XXX */
-
         u16 idx = prod & (XENNET_RX_RING_SIZE - 1);
         assert(!xd->rxbufs[idx]);
         xd->rxbufs[idx] = rxb;
@@ -518,21 +462,62 @@ static void xennet_populate_rx_ring(xennet_dev xd)
 
     int notify;
     RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&xd->rx_ring, notify);
-    if (notify) {
-        rprintf("rx notify\n");
+    if (notify)
         xen_notify_evtchn(xd->evtchn);
-    }
+}
+
+static void xennet_service_rx_ring(xennet_dev xd)
+{
+    int more;
+
+    do {
+        RING_IDX cons = xd->rx_ring.rsp_cons;
+        RING_IDX prod = xd->rx_ring.sring->rsp_prod;
+        read_barrier();
+        xennet_debug("%s: cons %d, prod %d", __func__, cons, prod);
+
+        while (cons < prod) {
+            netif_rx_response_t *rx = RING_GET_RESPONSE(&xd->rx_ring, cons);
+            xennet_rxbuf rxb = xd->rxbufs[rx->id];
+            assert(rxb);
+            assert(rxb->gntref != GRANT_INVALID);
+            xd->rxbufs[rx->id] = 0;
+            xen_revoke_page_access(rxb->gntref);
+            rxb->gntref = GRANT_INVALID;
+
+            assert(rx->status >= 0);
+            assert(rx->offset + rx->status <= PAGESIZE);
+
+            xennet_debug("   RX flags %x, status %d, offset %d, buf:\n%X",
+                         rx->flags, rx->status, rx->offset,
+                         alloca_wrap_buffer(rxb->p.pbuf.payload, rx->status + rx->offset));
+            rxb->p.pbuf.len = rx->status;
+            rxb->p.pbuf.tot_len = rx->status;
+            rxb->p.pbuf.payload += rx->offset;
+
+            if (xd->netif->input(&rxb->p.pbuf, xd->netif) != ERR_OK) {
+                msg_err("rx drop by stack\n");
+                xennet_return_rxbuf(&rxb->p.pbuf);
+            }
+
+            cons++;
+        }
+        write_barrier();
+        xd->rx_ring.rsp_cons = cons;
+        RING_FINAL_CHECK_FOR_RESPONSES(&xd->rx_ring, more);
+    } while (more);
 }
 
 static CLOSURE_1_0(xennet_event_handler, void, xennet_dev);
 static void xennet_event_handler(xennet_dev xd)
 {
+    xennet_service_tx_ring(xd);
+    xennet_populate_tx_ring(xd);
     xennet_service_rx_ring(xd);
     xennet_populate_rx_ring(xd);
     int rv = xen_unmask_evtchn(xd->evtchn);
-    if (rv != 0) {
-        rprintf("%s: failed to unmask evtchn %d, rv %d\n", xd->evtchn, rv);
-    }
+    if (rv != 0)
+        halt("%s: failed to unmask evtchn %d, rv %d\n", xd->evtchn, rv);
 }
 
 static status xennet_enable(xennet_dev xd)

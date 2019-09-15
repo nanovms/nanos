@@ -84,7 +84,7 @@ void msi_map_vector(int slot, int msislot, int vector);
 
 static inline void write_barrier()
 {
-    asm volatile("sfence");
+    asm volatile("sfence" ::: "memory");
 }
 
 static inline void read_barrier()

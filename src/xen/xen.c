@@ -10,10 +10,17 @@
 #endif
 
 //#define XENSTORE_DEBUG
-#ifdef XENSTORE_DEBUG
+#if defined(XENSTORE_DEBUG) && defined(XEN_DEBUG)
 #define xenstore_debug xen_debug
 #else
 #define xenstore_debug(x, ...)
+#endif
+
+//#define XEN_INT_DEBUG
+#if defined(XEN_INT_DEBUG) && defined(XEN_DEBUG)
+#define xenint_debug xen_debug
+#else
+#define xenint_debug(x, ...)
 #endif
 
 #include "xen_internal.h"
@@ -89,34 +96,33 @@ static void xen_interrupt(void)
     volatile struct shared_info *si = xen_info.shared_info;
     volatile struct vcpu_info *vci = &xen_info.shared_info->vcpu_info[0]; /* hardwired at this point */
 
-    rprintf("in xen_interrupt ... %d\n", sizeof(si->evtchn_pending));
+    xenint_debug("xen_interrupt enter");
     while (vci->evtchn_upcall_pending) {
         vci->evtchn_upcall_pending = 0;
         u64 l1_pending = __sync_lock_test_and_set(&vci->evtchn_pending_sel, 0); /* XXX check asm */
         /* this may not process in the right order, or it might not matter - care later */
         bitmap_word_foreach_set(l1_pending, bit1, i1, 0) {
             (void)i1;
-//            rprintf("bit1 %d, pending 0x%lx, mask 0x%lx\n", bit1, si->evtchn_pending[bit1], si->evtchn_mask[bit1]);
             /* TODO: any per-cpu event mask would be also applied here... */
             u64 l2_pending = si->evtchn_pending[bit1] & ~si->evtchn_mask[bit1];
             __sync_or_and_fetch(&si->evtchn_mask[bit1], l2_pending);
             __sync_and_and_fetch(&si->evtchn_pending[bit1], ~l2_pending);
             u64 l2_offset = bit1 << 6;
-//            rprintf("at l2 offset 0x%lx, pending 0x%lx\n", l2_offset, l2_pending);
             bitmap_word_foreach_set(l2_pending, bit2, i2, l2_offset) {
                 (void)i2;
-                rprintf("int %d pending\n", i2);
+                xenint_debug("  int %d pending", i2);
                 thunk handler = vector_get(xen_info.evtchn_handlers, i2);
                 if (handler) {
-                    rprintf("evtchn %d: applying handler %p\n", i2, handler);
+                    xenint_debug("  evtchn %d: applying handler %p", i2, handler);
                     apply(handler);
                 } else {
                     /* XXX we have an issue with seemingly spurious interrupts at evtchn >= 2048... */
-//                    rprintf("evtchn %d: spurious interrupt\n", i2);
+                    xenint_debug("  evtchn %d: spurious interrupt", i2);
                 }
             }
         }
     }
+    xenint_debug("xen_interrupt exit");
 }
 
 void xen_register_evtchn_handler(evtchn_port_t evtchn, thunk handler)
@@ -157,7 +163,7 @@ static boolean xen_grant_init(kernel_heaps kh)
         msg_err("failed to allocate grant table\n");
         return false;
     }
-    rprintf("table v 0x%lx, p 0x%lx\n", gt->table, physical_from_virtual(gt->table));
+    xen_debug("%s: table v 0x%lx, p 0x%lx", __func__, gt->table, physical_from_virtual(gt->table));
 
     /* Allocate grant entry allocator. */
     gt->entry_heap = create_id_heap(heap_general(kh), GTAB_RESERVED_ENTRIES + 1,
@@ -185,7 +191,7 @@ static boolean xen_grant_init(kernel_heaps kh)
         xatp.space = XENMAPSPACE_grant_table;
         xatp.idx = p;
         xatp.gpfn = phys >> PAGELOG;
-        rprintf("grant page %d, gpfn %x\n", xatp.idx, xatp.gpfn);
+        xen_debug("grant page %d, gpfn %x", xatp.idx, xatp.gpfn);
         rv = HYPERVISOR_memory_op(XENMEM_add_to_physmap, &xatp);
         if (rv < 0) {
             msg_err("failed to add grant table page (rv %ld)\n", rv);
@@ -346,19 +352,6 @@ void xen_detect(kernel_heaps kh)
         msg_err("failed to register event channel interrupt vector (rv %ld)\n", rv);
         goto out_unregister_irq;
     }
-
-#if 0
-    /* NetBSD re-reads the set value; not clear why... */
-    xen_hvm_param.domid = DOMID_SELF;
-    xen_hvm_param.index = HVM_PARAM_CALLBACK_IRQ;
-    xen_hvm_param.value = 0;
-    rv = HYPERVISOR_hvm_op(HVMOP_get_param, &xen_hvm_param);
-    if (rv < 0) {
-        msg_err("failed to retrieve event channel interrupt vector (rv %ld)\n", rv);
-        goto out_unregister_irq;
-    }
-    xen_debug("returned 0x%lx", xen_hvm_param.value);
-#endif
 
     /* register VCPU info */
     xen_debug("registering VCPU info");
@@ -623,8 +616,7 @@ status xenstore_sync_printf(u32 tx_id, buffer path, const char *node, const char
     vstart(a, format);
     buffer bf = alloca_wrap_buffer(format, runtime_strlen(format));
     vbprintf(request, bf, &a);
-//    push_u8(request, 0);
-    rprintf("%s: request: \"%b\"\n", __func__, request);
+    xenstore_debug("%s: request: \"%b\"", __func__, request);
 
     buffer response = allocate_buffer(xen_info.h, 8); /* for error capture */
     status s = xenstore_sync_request(tx_id, XS_WRITE, request, response);
@@ -674,7 +666,7 @@ status xenbus_set_state(u32 tx_id, buffer path, XenbusState newstate)
     status s = xenbus_get_state(path, &oldstate);
     if (!is_ok(s))
         return s;
-    rprintf("%s: old  %d, new %d\n", __func__, oldstate, newstate);
+    xen_debug("%s: old  %d, new %d", __func__, oldstate, newstate);
     if (oldstate == newstate)
         return STATUS_OK;
     return xenstore_sync_printf(tx_id, path, "state", "%d", newstate);
