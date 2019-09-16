@@ -225,6 +225,12 @@ static xennet_tx_buf xennet_get_txbuf(xennet_dev xd)
     return txb;
 }
 
+static CLOSURE_1_0(xennet_tx_buf_finish, void, struct pbuf *);
+static void xennet_tx_buf_finish(struct pbuf *p)
+{
+    pbuf_free(p);
+}
+
 static void xennet_service_tx_ring(xennet_dev xd)
 {
     int more;
@@ -245,7 +251,7 @@ static void xennet_service_tx_ring(xennet_dev xd)
             txp->gntref = GRANT_INVALID;
 
             if (txp->end) {
-                pbuf_free(txb->p);
+                enqueue(bhqueue, closure(xd->h, xennet_tx_buf_finish, txb->p));
                 xennet_return_txbuf(xd, txb);
             }
 
@@ -498,6 +504,15 @@ static void xennet_populate_rx_ring(xennet_dev xd)
         xen_notify_evtchn(xd->evtchn);
 }
 
+static CLOSURE_2_0(xennet_rx_buf_finish, void, xennet_dev, struct pbuf *);
+static void xennet_rx_buf_finish(xennet_dev xd, struct pbuf *p)
+{
+    if (xd->netif->input(p, xd->netif) != ERR_OK) {
+        msg_err("rx drop by stack\n");
+        xennet_return_rxbuf(p);
+    }
+}
+
 static void xennet_service_rx_ring(xennet_dev xd)
 {
     int more;
@@ -527,11 +542,7 @@ static void xennet_service_rx_ring(xennet_dev xd)
             rxb->p.pbuf.tot_len = rx->status;
             rxb->p.pbuf.payload += rx->offset;
 
-            if (xd->netif->input(&rxb->p.pbuf, xd->netif) != ERR_OK) {
-                msg_err("rx drop by stack\n");
-                xennet_return_rxbuf(&rxb->p.pbuf);
-            }
-
+            enqueue(bhqueue, closure(xd->h, xennet_rx_buf_finish, xd, &rxb->p.pbuf));
             cons++;
         }
         write_barrier();
