@@ -211,20 +211,22 @@ static boolean xen_grant_init(kernel_heaps kh)
 grant_ref_t xen_grant_page_access(u16 domid, u64 phys, boolean readonly)
 {
     struct gtab *gt = &xen_info.gtab;
-    grant_ref_t ref = allocate_u64(gt->entry_heap, 1);
+    u64 ref = allocate_u64(gt->entry_heap, 1);
     if (ref == INVALID_PHYSICAL)
         return 0;
     gt->table[ref].domid = domid;
     gt->table[ref].frame = phys >> PAGELOG;
     write_barrier();
     gt->table[ref].flags = GTF_permit_access | (readonly ? GTF_readonly : 0);
-    return ref;
+    return (grant_ref_t)ref;
 }
 
 void xen_revoke_page_access(grant_ref_t ref)
 {
+    assert(ref > 8 && ref != -1);
     xen_info.gtab.table[ref].flags = 0;
     memory_barrier();
+    deallocate_u64(xen_info.gtab.entry_heap, ref, 1);
 }
 
 void xen_detect(kernel_heaps kh)

@@ -69,7 +69,6 @@ typedef struct xennet_tx_page {
     u64 paddr;
     u16 offset;
     u16 len;
-    u16 idx;
     boolean end;                /* of frame */
     grant_ref_t gntref;
 } *xennet_tx_page;
@@ -180,7 +179,9 @@ static inline int xennet_tx_page_idx_from_id(u32 id)
 
 static inline xennet_tx_page xennet_get_tx_page(xennet_tx_buf txb, int idx)
 {
-    return (xennet_tx_page)buffer_ref(txb->pages, sizeof(struct xennet_tx_page) * idx);
+    u64 offset = idx * sizeof(struct xennet_tx_page);
+    assert(offset < buffer_length(txb->pages));
+    return (xennet_tx_page)buffer_ref(txb->pages, offset);
 }
 
 static void xennet_return_txbuf(xennet_dev xd, xennet_tx_buf txb)
@@ -240,7 +241,6 @@ static void xennet_service_tx_ring(xennet_dev xd)
             assert(txb);
             xennet_tx_page txp = xennet_get_tx_page(txb, xennet_tx_page_idx_from_id(tx->id));
             assert(txp);
-            assert(txp->gntref != GRANT_INVALID);
             xen_revoke_page_access(txp->gntref);
             txp->gntref = GRANT_INVALID;
 
@@ -275,7 +275,7 @@ static xennet_tx_page xennet_fill_tx_request(xennet_dev xd, netif_tx_request_t *
     tx->flags = txp->end ? 0 : NETTXF_more_data;
     tx->id = xennet_form_tx_id(txb, txb->nextpage);
     tx->size = txp->len;
-    tx->gref = xen_grant_page_access(xd->backend_id, txp->paddr, true);
+    tx->gref = txp->gntref = xen_grant_page_access(xd->backend_id, txp->paddr, true);
     assert(tx->gref);          /* XXX */
 
     if (txp->end) {
@@ -331,13 +331,15 @@ static void xennet_tx_buf_add_pages(xennet_tx_buf txb, struct pbuf *p)
 
         xennet_tx_page txp;
         do {
-            assert ((vpage & (PAGESIZE - 1)) == 0); // XXX temp
+            assert((vpage & (PAGESIZE - 1)) == 0); // XXX temp
             extend_total(txb->pages, sizeof(struct xennet_tx_page) * (txb->npages + 1));
-            txp = buffer_ref(txb->pages, sizeof(struct xennet_tx_page) * txb->npages);
+            txp = xennet_get_tx_page(txb, txb->npages);
             txp->paddr = physical_from_virtual(pointer_from_u64(vpage));
             assert(txp->paddr != INVALID_PHYSICAL);
             txp->offset = offset;
             txp->len = len;
+            txp->end = false;
+            txp->gntref = GRANT_INVALID;
             txb->npages++;
             vpage += PAGESIZE;
             offset = 0;
