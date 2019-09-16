@@ -2,7 +2,7 @@
 #include <x86_64.h>
 #include <page.h>
 
-#define XEN_DEBUG
+//#define XEN_DEBUG
 #ifdef XEN_DEBUG
 #define xen_debug(x, ...) do {rprintf(" XEN: " x "\n", ##__VA_ARGS__);} while(0)
 #else

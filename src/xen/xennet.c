@@ -1,8 +1,14 @@
+/* TODO
+   - reorg source layout
+   - don't need xennet_ before each static function
+
+*/
+
 #include <runtime.h>
 #include <x86_64.h>
 #include <page.h>
 
-#define XENNET_DEBUG
+//#define XENNET_DEBUG
 #ifdef XENNET_DEBUG
 #define xennet_debug(x, ...) do {rprintf("XNET: " x "\n", ##__VA_ARGS__);} while(0)
 #else
@@ -38,35 +44,35 @@ struct xennet_dev;
 
 typedef struct xennet_dev *xennet_dev;
 
-typedef struct xennet_rxbuf {
+typedef struct xennet_rx_buf {
     struct pbuf_custom p;       /* must be first field */
     struct list l;              /* rx_free or rx_inuse */
     xennet_dev xd;
     void * buf;                 /* virtual */
     u64 paddr;
-    u16 idx;
+    u32 idx;
     grant_ref_t gntref;
-} *xennet_rxbuf;
+} *xennet_rx_buf;
 
-typedef struct xennet_txbuf {
+typedef struct xennet_tx_buf {
     struct pbuf *p;
     struct list l;
+    u32 idx;
     u16 frags_queued;
     u16 start_idx;
     u16 npages;
     u16 nextpage;
     buffer pages;               /* array of xennet_txpages */
-} *xennet_txbuf;
+} *xennet_tx_buf;
 
-typedef struct xennet_txpage {
-    xennet_txbuf txb;
+typedef struct xennet_tx_page {
     u64 paddr;
     u16 offset;
     u16 len;
     u16 idx;
     boolean end;                /* of frame */
     grant_ref_t gntref;
-} *xennet_txpage;
+} *xennet_tx_page;
     
 struct xennet_dev {
     heap h;
@@ -81,8 +87,8 @@ struct xennet_dev {
     netif_rx_front_ring_t rx_ring;
     netif_tx_front_ring_t tx_ring;
 
-    xennet_rxbuf  rxbufs[XENNET_RX_RING_SIZE];
-    xennet_txpage txpages[XENNET_TX_RING_SIZE];
+    vector rxbufs;
+    vector txbufs;
 
     evtchn_port_t evtchn;
     grant_ref_t tx_ring_gntref;
@@ -156,7 +162,28 @@ static status xennet_inform_backend(xennet_dev xd)
                 " while writing to node \"%s\"", __func__, s, node);
 }
 
-static void xennet_return_txbuf(xennet_dev xd, xennet_txbuf txb)
+static inline u32 xennet_form_tx_id(xennet_tx_buf txb, int pageidx)
+{
+    assert(pageidx < 256);
+    return (txb->idx << 8) + pageidx;
+}
+
+static inline xennet_tx_buf xennet_tx_buf_from_id(xennet_dev xd, u32 id)
+{
+    return vector_get(xd->txbufs, id >> 8);
+}
+
+static inline int xennet_tx_page_idx_from_id(u32 id)
+{
+    return id & 0xff;
+}
+
+static inline xennet_tx_page xennet_get_tx_page(xennet_tx_buf txb, int idx)
+{
+    return (xennet_tx_page)buffer_ref(txb->pages, sizeof(struct xennet_tx_page) * idx);
+}
+
+static void xennet_return_txbuf(xennet_dev xd, xennet_tx_buf txb)
 {
     txb->p = 0;
     txb->frags_queued = 0;
@@ -168,6 +195,33 @@ static void xennet_return_txbuf(xennet_dev xd, xennet_txbuf txb)
     list_delete(&txb->l);
     list_insert_before(&xd->tx_free, &txb->l);
     irq_restore(flags);
+}
+
+static xennet_tx_buf xennet_get_txbuf(xennet_dev xd)
+{
+    u64 flags = irq_disable_save();
+    list l = list_get_next(&xd->tx_free);
+    if (l) {
+        list_delete(l);
+        irq_restore(flags);
+        return struct_from_list(l, xennet_tx_buf, l);
+    }
+    irq_restore(flags);
+
+    /* allocate new buffer */
+    xennet_tx_buf txb = allocate(xd->h, sizeof(struct xennet_tx_buf));
+    if (txb == INVALID_ADDRESS)
+        return txb;
+    txb->p = 0;
+    list_init(&txb->l);
+    txb->idx = vector_length(xd->txbufs);
+    txb->frags_queued = 0;
+    txb->start_idx = -1;
+    txb->npages = 0;
+    txb->nextpage = 0;
+    txb->pages = allocate_buffer(xd->h, sizeof(struct xennet_tx_page) * 4);
+    vector_push(xd->txbufs, txb);
+    return txb;
 }
 
 static void xennet_service_tx_ring(xennet_dev xd)
@@ -182,23 +236,23 @@ static void xennet_service_tx_ring(xennet_dev xd)
 
         while (cons < prod) {
             netif_tx_response_t *tx = RING_GET_RESPONSE(&xd->tx_ring, cons);
-            xennet_txpage txp = xd->txpages[tx->id];
+            xennet_tx_buf txb = xennet_tx_buf_from_id(xd, tx->id);
+            assert(txb);
+            xennet_tx_page txp = xennet_get_tx_page(txb, xennet_tx_page_idx_from_id(tx->id));
             assert(txp);
             assert(txp->gntref != GRANT_INVALID);
-            xd->txpages[tx->id] = 0;
             xen_revoke_page_access(txp->gntref);
             txp->gntref = GRANT_INVALID;
 
             if (txp->end) {
-                pbuf_free(txp->txb->p);
-                xennet_return_txbuf(xd, txp->txb);
+                pbuf_free(txb->p);
+                xennet_return_txbuf(xd, txb);
             }
 
             if (tx->status != NETIF_RSP_OKAY) {
                 /* XXX counters */
                 msg_err("cons %d, tx resp id %d, status %d\n", cons, tx->id, tx->status);
             }
-
             cons++;
         }
         write_barrier();
@@ -207,7 +261,7 @@ static void xennet_service_tx_ring(xennet_dev xd)
     } while (more);
 }
 
-static xennet_txpage xennet_fill_tx_request(xennet_dev xd, netif_tx_request_t *tx, u16 idx)
+static xennet_tx_page xennet_fill_tx_request(xennet_dev xd, netif_tx_request_t *tx)
 {
     /* XXX spin lock */
     list l = list_get_next(&xd->tx_pending);
@@ -215,11 +269,11 @@ static xennet_txpage xennet_fill_tx_request(xennet_dev xd, netif_tx_request_t *t
         xennet_debug("tx pending empty");
         return 0;
     }
-    xennet_txbuf txb = struct_from_list(l, xennet_txbuf, l);
-    xennet_txpage txp = buffer_ref(txb->pages, sizeof(struct xennet_txpage) * txb->nextpage);
+    xennet_tx_buf txb = struct_from_list(l, xennet_tx_buf, l);
+    xennet_tx_page txp = xennet_get_tx_page(txb, txb->nextpage);
     tx->offset = txp->offset;
     tx->flags = txp->end ? 0 : NETTXF_more_data;
-    tx->id = idx;
+    tx->id = xennet_form_tx_id(txb, txb->nextpage);
     tx->size = txp->len;
     tx->gref = xen_grant_page_access(xd->backend_id, txp->paddr, true);
     assert(tx->gref);          /* XXX */
@@ -243,14 +297,12 @@ static void xennet_populate_tx_ring(xennet_dev xd)
 
     xennet_debug("%s: prod %d, prod_end %d", __func__, prod, prod_end);
     while (prod < prod_end) {
-        u16 idx = prod & (XENNET_TX_RING_SIZE - 1);
         netif_tx_request_t *tx = RING_GET_REQUEST(&xd->tx_ring, prod);
-        assert(!xd->txpages[idx]);
-        xd->txpages[idx] = xennet_fill_tx_request(xd, tx, idx);
-        if (!xd->txpages[idx])
+        xennet_tx_page txp = xennet_fill_tx_request(xd, tx);
+        if (!txp)
             break;
         xennet_debug("   prod %d: txp %p, offset %d, size %d, id %d, flags %x, gref %d",
-                     prod, xd->txpages[idx], tx->offset, tx->size, tx->id, tx->flags, tx->gref);
+                     prod, txp, tx->offset, tx->size, tx->id, tx->flags, tx->gref);
         prod++;
     }
     xd->tx_ring.req_prod_pvt = prod;
@@ -264,36 +316,11 @@ static void xennet_populate_tx_ring(xennet_dev xd)
         xen_notify_evtchn(xd->evtchn);
 }
 
-static xennet_txbuf xennet_get_txbuf(xennet_dev xd)
-{
-    u64 flags = irq_disable_save();
-    list l = list_get_next(&xd->tx_free);
-    if (l) {
-        list_delete(l);
-        irq_restore(flags);
-        return struct_from_list(l, xennet_txbuf, l);
-    }
-    irq_restore(flags);
-
-    /* allocate new buffer */
-    xennet_txbuf txb = allocate(xd->h, sizeof(struct xennet_txbuf));
-    if (txb == INVALID_ADDRESS)
-        return txb;
-    txb->p = 0;
-    list_init(&txb->l);
-    txb->frags_queued = 0;
-    txb->start_idx = -1;
-    txb->npages = 0;
-    txb->nextpage = 0;
-    txb->pages = allocate_buffer(xd->h, sizeof(struct xennet_txpage) * 4);
-    return txb;
-}
-
 /* We could just walk the pages using pointers in the txb, but we need
    somewhere to stash the phys addrs and grant references anyway, so
    just build an array of page descriptors.
 */
-static void xennet_txbuf_add_pages(xennet_txbuf txb, struct pbuf *p)
+static void xennet_tx_buf_add_pages(xennet_tx_buf txb, struct pbuf *p)
 {
     for (struct pbuf *q = p; q != 0; q = q->next) {
         u64 va = u64_from_pointer(q->payload);
@@ -302,12 +329,11 @@ static void xennet_txbuf_add_pages(xennet_txbuf txb, struct pbuf *p)
         u64 offset = va & PAGEMASK;
         u64 len = MIN(PAGESIZE - offset, remain);
 
-        xennet_txpage txp;
+        xennet_tx_page txp;
         do {
             assert ((vpage & (PAGESIZE - 1)) == 0); // XXX temp
-            extend_total(txb->pages, sizeof(struct xennet_txpage) * (txb->npages + 1));
-            txp = buffer_ref(txb->pages, sizeof(struct xennet_txpage) * txb->npages);
-            txp->txb = txb;
+            extend_total(txb->pages, sizeof(struct xennet_tx_page) * (txb->npages + 1));
+            txp = buffer_ref(txb->pages, sizeof(struct xennet_tx_page) * txb->npages);
             txp->paddr = physical_from_virtual(pointer_from_u64(vpage));
             assert(txp->paddr != INVALID_PHYSICAL);
             txp->offset = offset;
@@ -328,10 +354,10 @@ static err_t xennet_linkoutput(struct netif *netif, struct pbuf *p)
     xennet_dev xd = (xennet_dev)netif->state;
     xennet_debug("%s: id %d, pbuf %p", __func__, xd->if_id, p);
 
-    xennet_txbuf txb = xennet_get_txbuf(xd);
+    xennet_tx_buf txb = xennet_get_txbuf(xd);
     pbuf_ref(p);
     txb->p = p;
-    xennet_txbuf_add_pages(txb, p);
+    xennet_tx_buf_add_pages(txb, p);
 
     u64 flags = irq_disable_save();
     list_insert_before(&xd->tx_pending, &txb->l);
@@ -384,7 +410,7 @@ static err_t xennet_netif_init(struct netif *netif)
 
 static void xennet_return_rxbuf(struct pbuf *p)
 {
-    xennet_rxbuf xrp = (xennet_rxbuf)p;
+    xennet_rx_buf xrp = (xennet_rx_buf)p;
     /* XXX reset fields */
     u64 flags = irq_disable_save();
     list_delete(&xrp->l);
@@ -392,7 +418,7 @@ static void xennet_return_rxbuf(struct pbuf *p)
     irq_restore(flags);
 }
 
-static xennet_rxbuf xennet_get_rxbuf(xennet_dev xd)
+static xennet_rx_buf xennet_get_rxbuf(xennet_dev xd)
 {
     u64 flags = irq_disable_save();
     list l = list_get_next(&xd->rx_free);
@@ -400,24 +426,31 @@ static xennet_rxbuf xennet_get_rxbuf(xennet_dev xd)
         list_delete(l);
         list_insert_before(&xd->rx_inuse, l);
         irq_restore(flags);
-        /* XXX reset headers / lwIP */
-        return struct_from_list(l, xennet_rxbuf, l);
+        xennet_rx_buf rxb = struct_from_list(l, xennet_rx_buf, l);
+        rxb->gntref = GRANT_INVALID;
+        pbuf_alloced_custom(PBUF_RAW,
+                            xd->rxbuflen,
+                            PBUF_REF,
+                            &rxb->p,
+                            rxb->buf,
+                            xd->rxbuflen);
+        return rxb;
     }
     irq_restore(flags);
 
     /* allocate new buffer */
-    xennet_rxbuf rxb = allocate(xd->h, sizeof(struct xennet_rxbuf));
+    xennet_rx_buf rxb = allocate(xd->h, sizeof(struct xennet_rx_buf));
     if (rxb == INVALID_ADDRESS)
         return rxb;
     rxb->xd = xd;
     rxb->buf = allocate(xd->contiguous, PAGESIZE); /* XXX multiple for large mtu */
     if (rxb->buf == INVALID_ADDRESS) {
-        deallocate(xd->h, rxb, sizeof(struct xennet_rxbuf));
+        deallocate(xd->h, rxb, sizeof(struct xennet_rx_buf));
         return INVALID_ADDRESS;
     }
     rxb->paddr = physical_from_virtual(rxb->buf);
     assert(rxb->paddr != INVALID_PHYSICAL);
-    rxb->idx = -1;
+    rxb->idx = vector_length(xd->rxbufs);
     rxb->gntref = GRANT_INVALID;
     rxb->p.custom_free_function = xennet_return_rxbuf;
     pbuf_alloced_custom(PBUF_RAW,
@@ -428,6 +461,7 @@ static xennet_rxbuf xennet_get_rxbuf(xennet_dev xd)
                         xd->rxbuflen);
     flags = irq_disable_save();
     list_insert_before(&xd->rx_inuse, &rxb->l);
+    vector_push(xd->rxbufs, rxb);
     irq_restore(flags);
     return rxb;
 }
@@ -439,17 +473,13 @@ static void xennet_populate_rx_ring(xennet_dev xd)
 
     xennet_debug("%s: prod %d, prod_end %d", __func__, prod, prod_end);
     while (prod < prod_end) {
-        xennet_rxbuf rxb = xennet_get_rxbuf(xd);
+        xennet_rx_buf rxb = xennet_get_rxbuf(xd);
         assert(rxb != INVALID_ADDRESS); /* XXX */
-        u16 idx = prod & (XENNET_RX_RING_SIZE - 1);
-        assert(!xd->rxbufs[idx]);
-        xd->rxbufs[idx] = rxb;
-        rxb->idx = idx;
         rxb->gntref = xen_grant_page_access(xd->backend_id, rxb->paddr, false);
         assert(rxb->gntref);    /* XXX how to handle depletion? */
 
         netif_rx_request_t *rx = RING_GET_REQUEST(&xd->rx_ring, prod);
-        rx->id = idx;
+        rx->id = rxb->idx;
         rx->pad = 0;
         rx->gref = rxb->gntref;
         
@@ -473,15 +503,15 @@ static void xennet_service_rx_ring(xennet_dev xd)
     do {
         RING_IDX cons = xd->rx_ring.rsp_cons;
         RING_IDX prod = xd->rx_ring.sring->rsp_prod;
+        assert(prod - cons < XENNET_RX_RING_SIZE);
         read_barrier();
         xennet_debug("%s: cons %d, prod %d", __func__, cons, prod);
 
         while (cons < prod) {
             netif_rx_response_t *rx = RING_GET_RESPONSE(&xd->rx_ring, cons);
-            xennet_rxbuf rxb = xd->rxbufs[rx->id];
+            xennet_rx_buf rxb = vector_get(xd->rxbufs, rx->id);
             assert(rxb);
             assert(rxb->gntref != GRANT_INVALID);
-            xd->rxbufs[rx->id] = 0;
             xen_revoke_page_access(rxb->gntref);
             rxb->gntref = GRANT_INVALID;
 
@@ -551,9 +581,6 @@ static status xennet_enable(xennet_dev xd)
     SHARED_RING_INIT(tx_ring);
     FRONT_RING_INIT(&xd->tx_ring, tx_ring, PAGESIZE);
 
-    zero(xd->rxbufs, sizeof(xd->rxbufs));
-    zero(xd->txpages, sizeof(xd->txpages));
-    
     u64 phys = physical_from_virtual(rx_ring);
     xd->rx_ring_gntref = xen_grant_page_access(xd->backend_id, phys, false);
     phys = physical_from_virtual(tx_ring);
@@ -685,6 +712,8 @@ static status xennet_attach(kernel_heaps kh, int id, buffer frontend, tuple meta
 #endif
     xennet_debug("MTU %d", xd->mtu);
 
+    xd->rxbufs = allocate_vector(h, 2 * XENNET_RX_RING_SIZE);
+    xd->txbufs = allocate_vector(h, 2 * XENNET_TX_RING_SIZE);
     /* figure rx buffer size */
     xd->rxbuflen = sizeof(struct eth_hdr) + sizeof(struct eth_vlan_hdr) + xd->mtu;
 
