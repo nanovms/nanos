@@ -65,7 +65,7 @@ chacha20_randomstir(struct chacha20_s *chacha20, timestamp t)
     }
 
     u64 now_sec = sec_from_timestamp(t);
-    u64 now_usec = usec_from_timestamp(t);
+    u64 now_usec = usec_from_timestamp(truncate_seconds(t));
 
     chacha_keysetup(&chacha20->ctx, key, CHACHA20_KEYBYTES*8);
     chacha_ivsetup(&chacha20->ctx, (u8 *) &now_sec, (u8 *) &now_usec);

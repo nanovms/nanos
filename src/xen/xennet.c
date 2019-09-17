@@ -772,7 +772,7 @@ static boolean xennet_probe(kernel_heaps kh, int id, buffer frontend, tuple meta
     return true;
 }
 
-void init_xen_network(kernel_heaps kh)
+void init_xennet(kernel_heaps kh)
 {
     register_xen_driver("vif", closure(heap_general(kh), xennet_probe, kh));
 }

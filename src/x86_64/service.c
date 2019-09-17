@@ -9,6 +9,8 @@
 #include <drivers/storage.h>
 #include <drivers/console.h>
 #include <unix_internal.h>
+#include <kvm_platform.h>
+#include <xen_platform.h>
 
 //#define STAGE3_INIT_DEBUG
 #ifdef STAGE3_INIT_DEBUG
@@ -238,15 +240,6 @@ static void reclaim_regions(void)
     }
 }
 
-// XXX move to internal .h
-void xen_detect(kernel_heaps kh);
-boolean xen_detected(void);
-status xen_probe_devices(void);
-void init_xen_network(kernel_heaps kh);
-
-// XXX temporary
-void configure_lapic_timer(heap h);
-
 static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = &heaps;
@@ -271,25 +264,31 @@ static void __attribute__((noinline)) init_service_new_stack()
     runqueue = allocate_queue(misc, 64);
     bhqueue = allocate_queue(misc, 2048); /* XXX will need something extensible really */
 
-    /* clock, RNG, stack canaries */
-    init_debug("clock");
-    init_clock(kh);
-    init_debug("RNG");
-    init_random();
-    __stack_chk_guard_init();
-
     /* interrupts */
     init_debug("start_interrupts");
     start_interrupts(kh);
 
-    /* XXX - need to reorder clock init after hypervisor init */
-    /* xen */
-    init_debug("probing for xen hypervisor");
-    xen_detect(kh);
+    /* platform detection and early init */
+    init_debug("probing for KVM");
+    if (!kvm_detect(kh)) {
+        init_debug("probing for Xen hypervisor");
+        if (!xen_detect(kh)) {
+            init_debug("neither KVM nor Xen detected; assuming qemu full emulation");
+            if (!init_hpet(kh)) {
+                halt("HPET initialization failed; no timer source\n");
+            }
+        } else {
+            init_debug("xen hypervisor detected");
+        }
+    } else {
+        init_debug("KVM detected");
+    }
 
-    /* runloop timer - XXX temp */
-    if (using_lapic_timer())
-        configure_lapic_timer(misc);
+    /* clock, RNG, stack canaries */
+    init_clock();
+    init_debug("RNG");
+    init_random();
+    __stack_chk_guard_init();
 
     /* networking */
     init_debug("LWIP init");
@@ -308,14 +307,17 @@ static void __attribute__((noinline)) init_service_new_stack()
 
     /* Probe for PV devices */
     if (xen_detected()) {
-        init_debug("xen hypervisor detected");
-        init_xen_network(kh);
+        init_debug("probing for Xen PV network...");
+        init_xennet(kh);
         status s = xen_probe_devices();
         if (!is_ok(s))
             rprintf("xen probe failed: %v\n", s);
+    } else {
+        init_debug("probing for virtio PV network...");
+        /* qemu virtio */
+        init_virtio_network(kh);
     }
 
-    init_virtio_network(kh);
     init_debug("pci_discover (for virtio & ata)");
     pci_discover(); // do PCI discover again for other devices
 

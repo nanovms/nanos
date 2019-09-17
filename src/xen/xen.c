@@ -1,6 +1,7 @@
 #include <runtime.h>
 #include <x86_64.h>
 #include <page.h>
+#include <pvclock.h>
 
 //#define XEN_DEBUG
 #ifdef XEN_DEBUG
@@ -40,9 +41,9 @@ typedef struct xen_platform_info {
 
     /* xenstore page and event channel */
     volatile struct xenstore_domain_interface *xenstore_interface;
-    u64    xenstore_paddr;
-    u64    xenstore_evtchn;
-    vector evtchn_handlers;
+    u64           xenstore_paddr;
+    evtchn_port_t xenstore_evtchn;
+    vector        evtchn_handlers;
 
     /* grant table */
     struct gtab {
@@ -57,6 +58,9 @@ typedef struct xen_platform_info {
     tuple       device_tree;
     struct list xenbus_list;
     struct list driver_list;
+
+    /* timer */
+    evtchn_port_t timer_evtchn;
 
     /* XXX could make generalized status */
     boolean initialized;
@@ -194,7 +198,7 @@ static boolean xen_grant_init(kernel_heaps kh)
         xen_debug("grant page %d, gpfn %x", xatp.idx, xatp.gpfn);
         rv = HYPERVISOR_memory_op(XENMEM_add_to_physmap, &xatp);
         if (rv < 0) {
-            msg_err("failed to add grant table page (rv %ld)\n", rv);
+            msg_err("failed to add grant table page (rv %d)\n", rv);
             goto fail_dealloc_heap;
         }
     }
@@ -229,7 +233,44 @@ void xen_revoke_page_access(grant_ref_t ref)
     deallocate_u64(xen_info.gtab.entry_heap, ref, 1);
 }
 
-void xen_detect(kernel_heaps kh)
+static u64 now_ns(void)
+{
+    volatile struct pvclock_vcpu_time_info *vclock =
+        (volatile struct pvclock_vcpu_time_info *)&xen_info.shared_info->vcpu_info[0].time;
+    u64 r = rdtsc();
+    u64 delta = r - vclock->tsc_timestamp;
+    if (vclock->tsc_shift < 0) {
+        delta >>= -vclock->tsc_shift;
+    } else {
+        delta <<= vclock->tsc_shift;
+    }
+    return vclock->system_time +
+        (((u128)delta * vclock->tsc_to_system_mul) >> 32);
+}
+
+/* Reportedly, Xen timers can fire up to 100us early. */
+#define XEN_TIMER_SLOP_NS 100000
+
+static CLOSURE_0_1(xen_runloop_timer, void, timestamp);
+static void xen_runloop_timer(timestamp duration)
+{
+    u64 n = now_ns();
+    u64 expiry = n + MAX(nsec_from_timestamp(duration), XEN_TIMER_SLOP_NS);
+    xen_debug("%s: now %ld, expiry %ld", __func__ n, expiry);
+    int rv = HYPERVISOR_set_timer_op(expiry);
+    if (rv != 0) {
+        msg_err("failed; rv %d\n", rv);
+    }
+}
+
+static CLOSURE_0_0(xen_runloop_timer_handler, void);
+static void xen_runloop_timer_handler(void)
+{
+    xen_debug("%s", __func__);
+    assert(xen_unmask_evtchn(xen_info.timer_evtchn) == 0);
+}
+
+boolean xen_detect(kernel_heaps kh)
 {
     u32 v[4];
     xen_info.initialized = false;
@@ -240,7 +281,7 @@ void xen_detect(kernel_heaps kh)
           v[2] == XEN_CPUID_SIGNATURE_ECX &&
           v[3] == XEN_CPUID_SIGNATURE_EDX)) {
         xen_debug("no signature match; xen not detected");
-        return;
+        return false;
     }
 
     xen_info.last_leaf = v[0];
@@ -253,7 +294,7 @@ void xen_detect(kernel_heaps kh)
     cpuid(XEN_CPUID_LEAF(2), 0, v);
     if (v[0] != 1) {
         msg_err("xen reporting %d hypercall pages; not supported\n", v[0]);
-        return;
+        return false;
     }
     xen_info.msr_base = v[1];
     xen_debug("msr base 0x%x, features 1 0x%x, features 2 0x%x", xen_info.msr_base, v[2], v[3]);
@@ -284,11 +325,16 @@ void xen_detect(kernel_heaps kh)
     xfi.submap_idx = 0;
     int rv = HYPERVISOR_xen_version(XENVER_get_features, &xfi);
     if (rv < 0) {
-        msg_err("failed to get xen features map (rv %ld)\n", rv);
-        return;
+        msg_err("failed to get xen features map (rv %d)\n", rv);
+        return false;
     }
     xen_info.features = xfi.submap;
     xen_debug("reported features map 0x%x", xen_info.features);
+
+    if (!xen_feature_supported(XENFEAT_hvm_safe_pvclock)) {
+        msg_err("failed to init; XENFEAT_hvm_safe_pvclock required\n");
+        return false;
+    }
 
     /* get store page, map it, and retrieve event channel */
     xen_debug("retrieving xenstore page");
@@ -297,8 +343,8 @@ void xen_detect(kernel_heaps kh)
     xen_hvm_param.index = HVM_PARAM_STORE_PFN;
     rv = HYPERVISOR_hvm_op(HVMOP_get_param, &xen_hvm_param);
     if (rv < 0) {
-        msg_err("failed to get xenstore page address (rv %ld)\n", rv);
-        return;
+        msg_err("failed to get xenstore page address (rv %d)\n", rv);
+        return false;
     }
     xen_info.xenstore_paddr = xen_hvm_param.value << PAGELOG;
 
@@ -313,8 +359,8 @@ void xen_detect(kernel_heaps kh)
     xen_hvm_param.index = HVM_PARAM_STORE_EVTCHN;
     rv = HYPERVISOR_hvm_op(HVMOP_get_param, &xen_hvm_param);
     if (rv < 0) {
-        msg_err("failed to get xenstore event channel (rv %ld)\n", rv);
-        return;
+        msg_err("failed to get xenstore event channel (rv %d)\n", rv);
+        return false;
     }
 
     xen_info.xenstore_evtchn = xen_hvm_param.value;
@@ -330,7 +376,7 @@ void xen_detect(kernel_heaps kh)
     xatp.gpfn = u64_from_pointer(xen_info.shared_info) >> PAGELOG; /* identity heap, v == p */
     rv = HYPERVISOR_memory_op(XENMEM_add_to_physmap, &xatp);
     if (rv < 0) {
-        msg_err("failed to add shared info map (rv %ld)\n", rv);
+        msg_err("failed to add shared info map (rv %d)\n", rv);
         goto out_dealloc_shared_page;
     }
     xen_debug("shared info page: 0x%lx", u64_from_pointer(xen_info.shared_info));
@@ -344,14 +390,14 @@ void xen_detect(kernel_heaps kh)
     /* set up interrupt handling path */
     int irq = allocate_interrupt();
     xen_debug("interrupt vector %d; registering", irq);
-    register_interrupt(irq, closure(heap_general(kh), xen_interrupt));
+    register_interrupt(irq, closure(xen_info.h, xen_interrupt));
 
     xen_hvm_param.domid = DOMID_SELF;
     xen_hvm_param.index = HVM_PARAM_CALLBACK_IRQ;
     xen_hvm_param.value = (2ull << 56) | irq;
     rv = HYPERVISOR_hvm_op(HVMOP_set_param, &xen_hvm_param);
     if (rv < 0) {
-        msg_err("failed to register event channel interrupt vector (rv %ld)\n", rv);
+        msg_err("failed to register event channel interrupt vector (rv %d)\n", rv);
         goto out_unregister_irq;
     }
 
@@ -363,15 +409,42 @@ void xen_detect(kernel_heaps kh)
     vrvi.offset = vci_pa & (PAGESIZE - 1);
     rv = HYPERVISOR_vcpu_op(VCPUOP_register_vcpu_info, 0 /* vcpu0 */, &vrvi);
     if (rv < 0) {
-        msg_err("failed to register vcpu info (rv %ld)\n", rv);
+        msg_err("failed to register vcpu info (rv %d)\n", rv);
         goto out_unregister_irq;
     }
 
+    xen_info.evtchn_handlers = allocate_vector(xen_info.h, 1);
+    assert(xen_info.evtchn_handlers != INVALID_ADDRESS);
+
+    /* timer setup */
+    xen_debug("stopping periodic tick timer...");
+    /* attempt to disable periodic (tick) timer; won't work in older Xens... */
+    rv = HYPERVISOR_vcpu_op(VCPUOP_stop_periodic_timer, 0 /* vcpu0 */, 0);
+    if (rv < 0) {
+        msg_err("unable to stop periodic timer (rv %d)\n", rv);
+        goto out_unregister_irq;
+    }
+    register_platform_clock_timer(closure(xen_info.h, xen_runloop_timer));
+
+    evtchn_op_t eop;
+    eop.cmd = EVTCHNOP_bind_virq;
+    eop.u.bind_virq.virq = VIRQ_TIMER;
+    eop.u.bind_virq.vcpu = 0;
+    rv = HYPERVISOR_event_channel_op(&eop);
+    if (rv < 0) {
+        msg_err("failed to bind virtual timer IRQ (rv %d)\n", rv);
+        goto out_unregister_irq;
+    }
+    xen_info.timer_evtchn = eop.u.bind_virq.port;
+    xen_debug("timer event channel %d", xen_info.timer_evtchn);
+    xen_register_evtchn_handler(xen_info.timer_evtchn, closure(xen_info.h, xen_runloop_timer_handler));
+    assert(xen_unmask_evtchn(xen_info.timer_evtchn) == 0);
+
+    /* register pvclock (feature verified above) */
+    init_pvclock(xen_info.h, (struct pvclock_vcpu_time_info *)&xen_info.shared_info->vcpu_info[0].time);
+
     xen_debug("unmasking xenstore event channel");
     assert(xen_unmask_evtchn(xen_info.xenstore_evtchn) == 0);
-
-    xen_info.evtchn_handlers = allocate_vector(heap_general(kh), 1);
-    assert(xen_info.evtchn_handlers != INVALID_ADDRESS);
 
     if (!xen_grant_init(kh)) {
         msg_err("failed to set up grant tables\n");
@@ -381,12 +454,13 @@ void xen_detect(kernel_heaps kh)
     xen_debug("xen initialization complete");
     list_init(&xen_info.driver_list);
     xen_info.initialized = true;
-    return;
+    return true;
   out_unregister_irq:
     register_interrupt(irq, 0);
   out_dealloc_shared_page:
     deallocate(heap_pages(kh), xen_info.shared_info, PAGESIZE);
     xen_info.shared_info = 0;
+    return false;
 }
 
 status xen_allocate_evtchn(domid_t other_id, evtchn_port_t *evtchn)

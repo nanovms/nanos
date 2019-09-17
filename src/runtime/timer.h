@@ -46,18 +46,22 @@ static inline timestamp femtoseconds(u64 fs)
     return fs / (QUADRILLION >> 32);
 }
 
-// without seconds component
-static inline u64 nsec_from_timestamp(timestamp n)
+static inline timestamp truncate_seconds(timestamp t)
 {
-    return ((n & MASK(32)) * BILLION) / TIMESTAMP_SECOND;
+    return t & MASK(32);
 }
 
-static inline u64 usec_from_timestamp(timestamp n)
+static inline u64 nsec_from_timestamp(timestamp t)
 {
-    return ((n & MASK(32)) * MILLION) / TIMESTAMP_SECOND;
+    return (t * BILLION) / TIMESTAMP_SECOND;
 }
 
-static inline u64 sec_from_timestamp(timestamp n)
+static inline u64 usec_from_timestamp(timestamp t)
 {
-    return n / TIMESTAMP_SECOND;
+    return (t * MILLION) / TIMESTAMP_SECOND;
+}
+
+static inline u64 sec_from_timestamp(timestamp t)
+{
+    return t / TIMESTAMP_SECOND;
 }

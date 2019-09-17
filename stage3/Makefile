@@ -72,6 +72,7 @@ SRCS-stage3.img= \
 	$(SRCDIR)/x86_64/kvm_platform.c \
 	$(SRCDIR)/x86_64/page.c \
 	$(SRCDIR)/x86_64/pci.c \
+	$(SRCDIR)/x86_64/pvclock.c \
 	$(SRCDIR)/x86_64/queue.c \
 	$(SRCDIR)/x86_64/rtc.c \
 	$(SRCDIR)/x86_64/serial.c \

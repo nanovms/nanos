@@ -125,8 +125,14 @@ static inline u64 rdtsc(void)
     return (((u64)a) | (((u64)d) << 32));
 }
 
-void init_clock(kernel_heaps kh);
-boolean using_lapic_timer(void);
+typedef closure_type(clock_now, timestamp);
+typedef closure_type(clock_timer, void, timestamp);
+
+void register_platform_clock_now(clock_now cn);
+void register_platform_clock_timer(clock_timer ct);
+
+void init_clock(void);
+boolean init_hpet(kernel_heaps kh);
 void kern_sleep(timestamp delta);
 
 static inline u64 read_flags(void)

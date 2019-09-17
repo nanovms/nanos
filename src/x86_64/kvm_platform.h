@@ -18,3 +18,5 @@ static inline void QEMU_HALT(u8 code)
 
     while (1);
 }
+
+boolean kvm_detect(kernel_heaps kh);

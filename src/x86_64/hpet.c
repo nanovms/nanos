@@ -3,7 +3,6 @@
 #include <x86_64.h>
 #include <page.h>
 
-static heap timers;
 #define HPET_TABLE_ADDRESS 0xfed00000ull
 #define HPET_MAXIMUM_INCREMENT_PERIOD 0x05F5E100ul /* 100ns */
 
@@ -148,55 +147,45 @@ static void timer_config(int timer, timestamp rate, thunk t, boolean periodic)
     hpet->timers[timer].comparator = comparator;
 }
 
-// allocate timers .. right now its at most 1 one-shot and periodic,
-// because we dont want to wire up the free
-void hpet_timer(timestamp rate, thunk t)
-{
-    timer_config(0, rate, t, false);
-}
-
-void hpet_periodic_timer(timestamp rate, thunk t)
-{
-    timer_config(1, rate, t, true);
-}
-
-void hpet_runloop_timer(timestamp duration)
+static CLOSURE_0_1(hpet_runloop_timer, void, timestamp);
+static void hpet_runloop_timer(timestamp duration)
 {
     timer_config(0, duration, ignore, false);
 }
 
-timestamp now_hpet()
+static CLOSURE_0_0(hpet_now, timestamp);
+static timestamp hpet_now()
 {
     return (((u128)hpet_main_counter()) * hpet_period_scaled_32) >> 32;
 }
 
-boolean init_hpet(heap misc, heap virtual_pagesized, heap pages) {
-    void * hpet_page = allocate(virtual_pagesized, PAGESIZE);
+boolean init_hpet(kernel_heaps kh) {
+    void * hpet_page = allocate(heap_virtual_page(kh), PAGESIZE);
     if (hpet_page == INVALID_ADDRESS) {
-        console("ERROR: Can't allocate page to map HPET registers\n");
+        msg_err("failed to allocate page for HPET\n");
         return false;
     }
 
-    map(u64_from_pointer(hpet_page), HPET_TABLE_ADDRESS, PAGESIZE, PAGE_DEV_FLAGS, pages);
+    map(u64_from_pointer(hpet_page), HPET_TABLE_ADDRESS, PAGESIZE, PAGE_DEV_FLAGS, heap_pages(kh));
     hpet = (struct HPETMemoryMap*)hpet_page;
 
     u64 femtoperiod = field_from_u64(hpet->capid, HPET_CAPID_COUNTER_CLOCK_PERIOD);
     if ((femtoperiod > HPET_MAXIMUM_INCREMENT_PERIOD) || !femtoperiod) {
-        console("ERROR: Can't initialize HPET\n");
+        msg_err("failed to initialize HPET; invalid femtoperiod\n");
         return false;
     }
 
     /* femtoperiod < 2^32 by definition */
     hpet_period_scaled_32 = femtoseconds(femtoperiod << 32);
-
-    timers = create_id_heap(misc, 0, field_from_u64(hpet->capid, HPET_CAPID_NUM_TIM_CAP) + 1, 1);
     hpet_config_set(hpet_config_get() | U64_FROM_BIT(HPET_CONF_ENABLE_CNF_SHIFT));
     u64 prev = hpet_main_counter();
     for (int i = 0; i < 10; i ++) {
         if (prev == hpet_main_counter())
             continue;
+        register_platform_clock_now(closure(heap_general(kh), hpet_now));
+        register_platform_clock_timer(closure(heap_general(kh), hpet_runloop_timer));
         return true;
     }
-    console("Error: No increment HPET main counter\n");
+    msg_err("failed to initialize HPET; main counter not incrementing\n");
     return false;
 }
