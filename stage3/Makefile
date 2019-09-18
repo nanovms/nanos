@@ -112,6 +112,7 @@ CFLAGS+= \
 	-I$(SRCDIR)/tfs \
 	-I$(SRCDIR)/unix \
 	-I$(SRCDIR)/x86_64 \
+	-I$(SRCDIR)/xen/public \
 	-I$(LWIPDIR)/src/include
 #CFLAGS+=	-DLWIPDIR_DEBUG -DEPOLL_DEBUG -DNETSYSCALL_DEBUG -DKERNEL_DEBUG
 AFLAGS+=	-felf64 -I$(OBJDIR)/

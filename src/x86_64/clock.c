@@ -3,13 +3,6 @@
 #include <page.h>
 #include "rtc.h"
 
-//#define CLOCK_INIT_DEBUG
-#ifdef CLOCK_INIT_DEBUG
-#define clock_init_debug(x) do {console(" CLK: " x "\n");} while(0)
-#else
-#define clock_init_debug(x)
-#endif
-
 static timestamp rtc_offset;
 
 typedef __uint128_t u128;
