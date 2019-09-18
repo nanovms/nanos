@@ -28,17 +28,23 @@ static inline timestamp seconds(u64 n)
 
 static inline timestamp milliseconds(u64 n)
 {
-    return seconds(n) / THOUSAND;
+    u64 sec = n / THOUSAND;
+    n -= sec * THOUSAND;
+    return seconds(sec) + (seconds(n) / THOUSAND);
 }
 
 static inline timestamp microseconds(u64 n)
 {
-    return seconds(n) / MILLION;
+    u64 sec = n / MILLION;
+    n -= sec * MILLION;
+    return seconds(sec) + (seconds(n) / MILLION);
 }
 
 static inline timestamp nanoseconds(u64 n)
 {
-    return seconds(n) / BILLION;
+    u64 sec = n / BILLION;
+    n -= sec * BILLION;
+    return seconds(sec) + (seconds(n) / BILLION);
 }
 
 static inline timestamp femtoseconds(u64 fs)
@@ -51,17 +57,22 @@ static inline timestamp truncate_seconds(timestamp t)
     return t & MASK(32);
 }
 
-static inline u64 nsec_from_timestamp(timestamp t)
-{
-    return (t * BILLION) / TIMESTAMP_SECOND;
-}
-
-static inline u64 usec_from_timestamp(timestamp t)
-{
-    return (t * MILLION) / TIMESTAMP_SECOND;
-}
-
 static inline u64 sec_from_timestamp(timestamp t)
 {
     return t / TIMESTAMP_SECOND;
 }
+
+static inline u64 nsec_from_timestamp(timestamp t)
+{
+    u64 sec = sec_from_timestamp(t);
+    return (sec * BILLION) +
+        ((truncate_seconds(t) * BILLION) / TIMESTAMP_SECOND);
+}
+
+static inline u64 usec_from_timestamp(timestamp t)
+{
+    u64 sec = sec_from_timestamp(t);
+    return (sec * MILLION) +
+        ((truncate_seconds(t) * MILLION) / TIMESTAMP_SECOND);
+}
+

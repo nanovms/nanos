@@ -2,28 +2,38 @@
 #include <x86_64.h>
 #include <pvclock.h>
 
-static CLOSURE_1_0(pvclock_now, timestamp, volatile struct pvclock_vcpu_time_info *);
-static timestamp pvclock_now(volatile struct pvclock_vcpu_time_info *vclock)
+static volatile struct pvclock_vcpu_time_info *vclock;
+
+u64 pvclock_now_ns(void)
 {
-    u64 r = rdtsc();
-    u64 delta = r - vclock->tsc_timestamp;
-    if (vclock->tsc_shift < 0) {
-        delta >>= -vclock->tsc_shift;
-    } else {
-        delta <<= vclock->tsc_shift;
-    }
-    // ok - a 64 bit number (?) multiplied by a 32 bit number yields
-    // a 96 bit result, chuck the bottom 32 bits
-    u64 nsec = vclock->system_time +
+    u32 version;
+    u64 result;
+
+    do {
+        version = vclock->version & ~1; // XXX why mask?
+        read_barrier();
+        u64 delta = rdtsc() - vclock->tsc_timestamp;
+        if (vclock->tsc_shift < 0) {
+            delta >>= -vclock->tsc_shift;
+        } else {
+            delta <<= vclock->tsc_shift;
+        }
+        result = vclock->system_time +
             (((u128)delta * vclock->tsc_to_system_mul) >> 32);
-    u64 sec = nsec / BILLION;
-    nsec -= sec * BILLION;
-    timestamp out = seconds(sec) + nanoseconds(nsec);
-    return out;
+        read_barrier();
+    } while (version != vclock->version);
+    return result;
 }
 
-void init_pvclock(heap h, struct pvclock_vcpu_time_info *pvclock)
+CLOSURE_0_0(pvclock_now, timestamp);
+timestamp pvclock_now(void)
 {
-    assert(pvclock);
-    register_platform_clock_now(closure(h, pvclock_now, pvclock));
+    return nanoseconds(pvclock_now_ns());
+}
+
+void init_pvclock(heap h, struct pvclock_vcpu_time_info *vti)
+{
+    assert(vti);
+    vclock = vti;
+    register_platform_clock_now(closure(h, pvclock_now));
 }

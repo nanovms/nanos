@@ -15,4 +15,6 @@ struct pvclock_wall_clock {
     u32   nsec;
 } __attribute__((__packed__));
 
+u64 pvclock_now_ns(void);
+timestamp pvclock_now(void);
 void init_pvclock(heap h, struct pvclock_vcpu_time_info *pvclock);

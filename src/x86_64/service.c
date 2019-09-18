@@ -279,6 +279,10 @@ static void __attribute__((noinline)) init_service_new_stack()
             }
         } else {
             init_debug("xen hypervisor detected");
+            /* XXX temporary: We're falling back to HPET until we get PV timer working correctly. */
+            if (!init_hpet(kh)) {
+                halt("HPET initialization failed; no timer source\n");
+            }
         }
     } else {
         init_debug("KVM detected");

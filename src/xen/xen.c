@@ -233,30 +233,15 @@ void xen_revoke_page_access(grant_ref_t ref)
     deallocate_u64(xen_info.gtab.entry_heap, ref, 1);
 }
 
-static u64 now_ns(void)
-{
-    volatile struct pvclock_vcpu_time_info *vclock =
-        (volatile struct pvclock_vcpu_time_info *)&xen_info.shared_info->vcpu_info[0].time;
-    u64 r = rdtsc();
-    u64 delta = r - vclock->tsc_timestamp;
-    if (vclock->tsc_shift < 0) {
-        delta >>= -vclock->tsc_shift;
-    } else {
-        delta <<= vclock->tsc_shift;
-    }
-    return vclock->system_time +
-        (((u128)delta * vclock->tsc_to_system_mul) >> 32);
-}
-
 /* Reportedly, Xen timers can fire up to 100us early. */
 #define XEN_TIMER_SLOP_NS 100000
-
 static CLOSURE_0_1(xen_runloop_timer, void, timestamp);
 static void xen_runloop_timer(timestamp duration)
 {
-    u64 n = now_ns();
+    u64 n = pvclock_now_ns();
     u64 expiry = n + MAX(nsec_from_timestamp(duration), XEN_TIMER_SLOP_NS);
-    xen_debug("%s: now %ld, expiry %ld", __func__ n, expiry);
+
+    rprintf("%s: now %T, expiry %T\n", __func__, nanoseconds(n), nanoseconds(expiry));
     int rv = HYPERVISOR_set_timer_op(expiry);
     if (rv != 0) {
         msg_err("failed; rv %d\n", rv);
@@ -266,7 +251,7 @@ static void xen_runloop_timer(timestamp duration)
 static CLOSURE_0_0(xen_runloop_timer_handler, void);
 static void xen_runloop_timer_handler(void)
 {
-    xen_debug("%s", __func__);
+    rprintf("%s: now %T\n", __func__, nanoseconds(pvclock_now_ns()));
     assert(xen_unmask_evtchn(xen_info.timer_evtchn) == 0);
 }
 
@@ -424,7 +409,9 @@ boolean xen_detect(kernel_heaps kh)
         msg_err("unable to stop periodic timer (rv %d)\n", rv);
         goto out_unregister_irq;
     }
-    register_platform_clock_timer(closure(xen_info.h, xen_runloop_timer));
+// XXX - disabled due to incorrect behavior on t2
+//    register_platform_clock_timer(closure(xen_info.h, xen_runloop_timer));
+    closure(xen_info.h, xen_runloop_timer);
 
     evtchn_op_t eop;
     eop.cmd = EVTCHNOP_bind_virq;
@@ -441,7 +428,9 @@ boolean xen_detect(kernel_heaps kh)
     assert(xen_unmask_evtchn(xen_info.timer_evtchn) == 0);
 
     /* register pvclock (feature verified above) */
-    init_pvclock(xen_info.h, (struct pvclock_vcpu_time_info *)&xen_info.shared_info->vcpu_info[0].time);
+
+// XXX - disabled until pv timer is working
+// init_pvclock(xen_info.h, (struct pvclock_vcpu_time_info *)&xen_info.shared_info->vcpu_info[0].time);
 
     xen_debug("unmasking xenstore event channel");
     assert(xen_unmask_evtchn(xen_info.xenstore_evtchn) == 0);
