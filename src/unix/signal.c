@@ -703,8 +703,8 @@ static void setup_sigframe(thread t, int signum, struct siginfo *si, void * ucon
         t->sigframe[FRAME_RSP] = 0; /* TODO */
         halt("SA_ONSTACK ...\n");
     } else {
-        /* must avoid redzone */
-        t->sigframe[FRAME_RSP] -= 128;
+        /* 16-byte alignment; avoid redzone */
+        t->sigframe[FRAME_RSP] = (t->sigframe[FRAME_RSP] & ~15) - 128;
     }
 
     /* arguments to trampoline */
