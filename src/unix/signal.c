@@ -369,15 +369,18 @@ static void restore_ucontext(struct ucontext * uctx, context f)
 sysreturn rt_sigreturn(void)
 {
     struct rt_sigframe * frame;
+    sigaction sa;
     thread t = current;
 
     /* sigframe sits at top of the stack */
     frame = (struct rt_sigframe *)(t->sigframe[FRAME_RSP]);
     sig_debug("rt_sigreturn: frame:0x%lx\n", (unsigned long)frame);
+    sa = get_sigaction(frame->info.si_signo);
 
-    /* restore signal mask and saved context */
+    /* restore signal mask and saved context, if applicable */
     reset_sigmask(t);
-    restore_ucontext(&(frame->uc), t->frame);
+    if (sa->sa_flags & SA_SIGINFO)
+        restore_ucontext(&(frame->uc), t->frame);
     running_frame = t->frame;
 
     sig_debug("switching to thread frame %p\n", running_frame);
@@ -700,8 +703,8 @@ static void setup_sigframe(thread t, int signum, struct siginfo *si, void * ucon
         t->sigframe[FRAME_RSP] = 0; /* TODO */
         halt("SA_ONSTACK ...\n");
     } else {
-        /* must avoid redzone */
-        t->sigframe[FRAME_RSP] -= 128;
+        /* 16-byte alignment; avoid redzone */
+        t->sigframe[FRAME_RSP] = (t->sigframe[FRAME_RSP] & ~15) - 128;
     }
 
     /* arguments to trampoline */
