@@ -13,6 +13,9 @@
 
 #include <sys/ucontext.h>
 
+/* #970: avoid getpid() with threads unless you know you have a newish glibc */
+#define __getpid() syscall(SYS_getpid)
+
 //#define SIGNALTEST_DEBUG
 #ifdef SIGNALTEST_DEBUG
 #define sigtest_debug(x, ...) do {printf("%s: " x, __func__, ##__VA_ARGS__);} while(0)
@@ -79,7 +82,7 @@ void test_signal_catch(void)
     if (rv < 0)
         fail_perror("test_signal_catch: sigaction");
 
-    rv = syscall(SYS_tgkill, getpid(), child_tid, SIGUSR1);
+    rv = syscall(SYS_tgkill, __getpid(), child_tid, SIGUSR1);
     if (rv < 0)
         fail_perror("signal catch tgkill");
 
@@ -189,7 +192,7 @@ void test_rt_signal(void)
     for (int i = 0; i < TEST_RT_NQUEUE; i++) {
         union sigval sv;
         sv.sival_int = i;
-        rv = sigqueue(getpid(), SIGRTMIN, sv);
+        rv = sigqueue(__getpid(), SIGRTMIN, sv);
         if (rv < 0)
             fail_perror("signal catch sigqueue");
     }
@@ -237,7 +240,7 @@ void test_kill(void)
     if (rv < 0)
         fail_perror("sigprocmask");
 
-    rv = syscall(SYS_kill, getpid(), SIGRTMIN);
+    rv = syscall(SYS_kill, __getpid(), SIGRTMIN);
     if (rv < 0)
         fail_perror("signal catch kill");
 
@@ -268,9 +271,9 @@ void test_rt_sigqueueinfo(void)
     siginfo_t si;
     memset(&si, 0, sizeof(siginfo_t));
     si.si_code = SI_MESGQ;
-    si.si_pid = getpid();
+    si.si_pid = __getpid();
     si.si_uid = getuid();
-    rv = syscall(SYS_rt_sigqueueinfo, getpid(), SIGRTMIN, &si);
+    rv = syscall(SYS_rt_sigqueueinfo, __getpid(), SIGRTMIN, &si);
     if (rv < 0)
         fail_perror("sigqueueinfo for SIGRTMIN");
 
@@ -377,18 +380,18 @@ void test_rt_sigsuspend(void)
     siginfo_t si;
     memset(&si, 0, sizeof(siginfo_t));
     si.si_code = SI_MESGQ;
-    si.si_pid = getpid();
+    si.si_pid = __getpid();
     si.si_uid = getuid();
-    rv = syscall(SYS_rt_tgsigqueueinfo, getpid(), child_tid, SIGRTMIN, &si);
+    rv = syscall(SYS_rt_tgsigqueueinfo, __getpid(), child_tid, SIGRTMIN, &si);
     if (rv < 0)
         fail_perror("tgsigqueueinfo for SIGRTMIN");
 
     /* queue SIGRTMIN + 1; should not be caught until second sigsuspend */
     memset(&si, 0, sizeof(siginfo_t));
     si.si_code = SI_MESGQ;
-    si.si_pid = getpid();
+    si.si_pid = __getpid();
     si.si_uid = getuid();
-    rv = syscall(SYS_rt_tgsigqueueinfo, getpid(), child_tid, SIGRTMIN + 1, &si);
+    rv = syscall(SYS_rt_tgsigqueueinfo, __getpid(), child_tid, SIGRTMIN + 1, &si);
     if (rv < 0)
         fail_perror("tgsigqueueinfo for SIGRTMIN");
 
