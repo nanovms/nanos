@@ -687,10 +687,10 @@ static void setup_sigframe(thread t, int signum, struct siginfo *si, void * ucon
     frame->pretcode = sa->sa_restorer;
 
     if (sa->sa_flags & SA_SIGINFO) {
-        runtime_memcpy(&(frame->info), si, sizeof(struct siginfo));
-        setup_ucontext(&(frame->uc), sa, si, t->frame);
-        t->sigframe[FRAME_RSI] = (u64)&(frame->info);
-        t->sigframe[FRAME_RDX]  = (u64)&(frame->uc);
+        runtime_memcpy(&frame->info, si, sizeof(struct siginfo));
+        setup_ucontext(&frame->uc, sa, si, t->frame);
+        t->sigframe[FRAME_RSI] = u64_from_pointer(&frame->info);
+        t->sigframe[FRAME_RDX] = u64_from_pointer(&frame->uc);
     } else {
         t->sigframe[FRAME_RSI] = 0;
         t->sigframe[FRAME_RDX] = 0;
