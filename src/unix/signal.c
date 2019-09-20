@@ -368,12 +368,12 @@ static void restore_ucontext(struct ucontext * uctx, context f)
 
 sysreturn rt_sigreturn(void)
 {
-    struct rt_sigframe * frame;
+    struct rt_sigframe *frame;
     sigaction sa;
     thread t = current;
 
-    /* sigframe sits at top of the stack */
-    frame = (struct rt_sigframe *)(t->sigframe[FRAME_RSP]);
+    /* sigframe sits at %rsp minus the return address word (pretcode) */
+    frame = (struct rt_sigframe *)(t->sigframe[FRAME_RSP] - sizeof(u64));
     sig_debug("rt_sigreturn: frame:0x%lx\n", (unsigned long)frame);
     sa = get_sigaction(frame->info.si_signo);
 
@@ -658,31 +658,6 @@ void register_signal_syscalls(struct syscall *map)
     register_syscall(map, tkill, tkill);
 }
 
-/* guts of signal dispatch
- *
- * The unused argument is a result of the fact that we get back to
- * userspace with sysret, which clobbers RCX. RCX is the 4th argument
- * according to x64 calling convention
- */
-static void __attribute__((section (".vdso"))) signal_trampoline(u32 signum,
-                                                                 void *handler,
-                                                                 siginfo_t *siginfo,
-                                                                 void *unused,
-                                                                 void *ucontext)
-{
-    if (siginfo) {
-        ((__sigaction_t)handler)(signum, siginfo, ucontext);
-    } else {
-        ((__sighandler_t)handler)(signum);
-    }
-
-    sysreturn rv;
-    asm volatile("syscall" : "=a" (rv) : "0" (SYS_rt_sigreturn) : "memory");
-
-    /* shouldn't return */
-    assert(0);
-}
-
 static void setup_sigframe(thread t, int signum, struct siginfo *si, void * ucontext)
 {
     sigaction sa = get_sigaction(signum);
@@ -693,44 +668,37 @@ static void setup_sigframe(thread t, int signum, struct siginfo *si, void * ucon
      * to be carried over */
     runtime_memcpy(t->sigframe, t->frame, sizeof(u64) * FRAME_MAX);
 
-    /* return to signal trampoline */
-    t->sigframe[FRAME_RIP] = u64_from_pointer(signal_trampoline);
-
     sig_debug("sa->sa_flags 0x%lx\n", sa->sa_flags);
 
     /* check for altstack */
     if (sa->sa_flags & SA_ONSTACK) {
         t->sigframe[FRAME_RSP] = 0; /* TODO */
         halt("SA_ONSTACK ...\n");
-    } else {
-        /* 16-byte alignment; avoid redzone */
-        t->sigframe[FRAME_RSP] = (t->sigframe[FRAME_RSP] & ~15) - 128;
     }
 
-    /* arguments to trampoline */
-    t->sigframe[FRAME_RDI] = signum;
-    t->sigframe[FRAME_RSI] = u64_from_pointer(sa->sa_handler);
+    /* 16-byte alignment; avoid redzone */
+    t->sigframe[FRAME_RSP] = (t->sigframe[FRAME_RSP] & ~15) - 128;
 
-    /* copy siginfo + ucontext onto the stack */
+    /* create space for rt_sigframe */
+    t->sigframe[FRAME_RSP] -= pad(sizeof(struct rt_sigframe), 16);
+
+    /* setup sigframe for user sig trampoline */
+    struct rt_sigframe *frame = (struct rt_sigframe *)t->sigframe[FRAME_RSP];
+    frame->pretcode = sa->sa_restorer;
+
     if (sa->sa_flags & SA_SIGINFO) {
-        struct ucontext * dest_uctx;
-        siginfo_t * dest_si;
-
-        t->sigframe[FRAME_RSP] -= pad(sizeof(struct siginfo), 16);
-        dest_si = pointer_from_u64(t->sigframe[FRAME_RSP]);
-        sig_debug("copying siginfo to [%p, %p)\n", dest_si, ((void *)dest_si) + sizeof(struct siginfo));
-        runtime_memcpy(dest_si, si, sizeof(struct siginfo));
-        t->sigframe[FRAME_RDX] = t->sigframe[FRAME_RSP];
-
-        t->sigframe[FRAME_RSP] -= pad(sizeof(struct ucontext), 16);
-        dest_uctx = pointer_from_u64(t->sigframe[FRAME_RSP]);
-        sig_debug("copying ucontext to [%p, %p)\n", dest_uctx, ((void *)dest_uctx) + sizeof(struct ucontext));
-        setup_ucontext(dest_uctx, sa, si, t->frame);
-        t->sigframe[FRAME_R8] = t->sigframe[FRAME_RSP];
+        runtime_memcpy(&frame->info, si, sizeof(struct siginfo));
+        setup_ucontext(&frame->uc, sa, si, t->frame);
+        t->sigframe[FRAME_RSI] = u64_from_pointer(&frame->info);
+        t->sigframe[FRAME_RDX] = u64_from_pointer(&frame->uc);
     } else {
+        t->sigframe[FRAME_RSI] = 0;
         t->sigframe[FRAME_RDX] = 0;
-        t->sigframe[FRAME_R8]  = 0;
     }
+
+    /* setup regs for signal handler */
+    t->sigframe[FRAME_RIP] = u64_from_pointer(sa->sa_handler);
+    t->sigframe[FRAME_RDI] = signum;
 
     sig_debug("sigframe tid %d, sig %d, rip 0x%lx, rsp 0x%lx, "
               "rdi 0x%lx, rsi 0x%lx, rdx 0x%lx, r8 0x%lx\n", t->tid, signum,
@@ -837,7 +805,7 @@ void dispatch_signals(thread t)
     sig_debug("switching to sigframe: tid %d, sig %d, sigaction %p\n", t->tid, signum, sa);
     setup_sigframe(t, signum, &qs->si, 0);
 
-    /* clean up and proceed to trampoline */
+    /* clean up and proceed to handler */
     free_queued_signal(qs);
     running_frame = t->sigframe;
     return;
