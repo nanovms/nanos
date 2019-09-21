@@ -15,4 +15,22 @@
     __closure(0, stack_allocate(sizeof(struct _closure_##__name)), \
               sizeof(struct _closure_##__name), __name, ##__VA_ARGS__)
 
+void _apply_dealloc(void);
+
+#define _apply_setup(z) \
+    asm volatile("push %0" :: "r" (z)); \
+    asm volatile("push %0" :: "r" (&_apply_dealloc));
+
+struct _closure_common {
+    char *name;
+    heap h;
+    bytes size;
+};
+
+#define return_without_dealloc                   \
+    u64 discard0, discard1;                      \
+    asm volatile("pop %0" : "=r" (discard0));    \
+    asm volatile("pop %0" : "=r" (discard1));    \
+    return
+
 #include <closure_templates.h>
