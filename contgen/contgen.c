@@ -76,8 +76,8 @@ void cblock()
     p("_rettype _name(^~);|", "@_l%", "@_r%");
 
     p("struct _closure_##_name{|");
-    p("  struct _closure_common c;|");
     p("  _rettype (*_apply)(void *~);|", ", _r%");
+    p("  struct _closure_common c;|");
     for (int i = 0; i < nleft ; i++)  p("  _l% l%;|", i, i);
     p("};|");
 
@@ -89,10 +89,10 @@ void cblock()
     p("}|");
 
     p("static _rettype (**_fill_##_name(heap h, struct _closure_##_name* n, bytes s^))(void *~){|", ", _l% l%", ", _r%");
+    p("  n->_apply = _apply_##_name;|");
     p("  n->c.name = #_name;|");
     p("  n->c.h = h;|");
     p("  n->c.size = s;|");
-    p("  n->_apply = _apply_##_name;|");
     for (int i = 0; i < nleft ; i++)  p("  n->l% = l%;|", i, i);
     p("  return (_rettype (**)(void *~))n;|", ", _r%");
     p("}\n\n");

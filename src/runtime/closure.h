@@ -18,8 +18,7 @@
 void _apply_dealloc(void);
 
 #define _apply_setup(z) \
-    asm volatile("push %0" :: "r" (z)); \
-    asm volatile("push %0" :: "r" (&_apply_dealloc));
+    asm volatile("push %0; push %1" :: "r" (z), "r" (&_apply_dealloc));
 
 struct _closure_common {
     char *name;
@@ -27,10 +26,9 @@ struct _closure_common {
     bytes size;
 };
 
-#define return_without_dealloc                   \
-    u64 discard0, discard1;                      \
-    asm volatile("pop %0" : "=r" (discard0));    \
-    asm volatile("pop %0" : "=r" (discard1));    \
+#define closure_return_nodealloc                                        \
+    u64 discard0, discard1;                                             \
+    asm volatile("pop %0; pop %1" : "=r" (discard0), "=r" (discard1));  \
     return
 
 #include <closure_templates.h>
