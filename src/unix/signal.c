@@ -658,7 +658,7 @@ void register_signal_syscalls(struct syscall *map)
     register_syscall(map, tkill, tkill);
 }
 
-static void setup_sigframe(thread t, int signum, struct siginfo *si, void * ucontext)
+static void setup_sigframe(thread t, int signum, struct siginfo *si)
 {
     sigaction sa = get_sigaction(signum);
 
@@ -803,7 +803,7 @@ void dispatch_signals(thread t)
 
     /* set up and switch to the signal context */
     sig_debug("switching to sigframe: tid %d, sig %d, sigaction %p\n", t->tid, signum, sa);
-    setup_sigframe(t, signum, &qs->si, 0);
+    setup_sigframe(t, signum, &qs->si);
 
     /* clean up and proceed to handler */
     free_queued_signal(qs);
