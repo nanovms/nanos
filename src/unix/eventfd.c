@@ -2,8 +2,6 @@
 
 #define EFD_COUNTER_MAX 0xFFFFFFFFFFFFFFFEULL
 
-#define EFD_BLOCKQ_LEN  32
-
 struct efd {
     struct fdesc f; /* must be first */
     int fd;
@@ -146,9 +144,15 @@ int do_eventfd2(unsigned int count, int flags)
     efd = allocate(h, sizeof(*efd));
     if (efd == INVALID_ADDRESS) {
         msg_err("failed to allocate eventfd structure\n");
-        return -ENOMEM;
+        goto err_efd;
     }
+
     efd->fd = allocate_fd(current->p, efd);
+    if (efd->fd == INVALID_PHYSICAL) {
+        msg_err("failed to allocate fd\n");
+        goto err_fd;
+    }
+
     init_fdesc(h, &efd->f, 0);
     efd->f.flags = flags;
     efd->f.read = closure(h, efd_read, efd);
@@ -156,8 +160,28 @@ int do_eventfd2(unsigned int count, int flags)
     efd->f.events = closure(h, efd_events, efd);
     efd->f.close = closure(h, efd_close, efd);
     efd->h = h;
-    efd->read_bq = allocate_blockq(h, "eventfd read", EFD_BLOCKQ_LEN, 0);
-    efd->write_bq = allocate_blockq(h, "eventfd write", EFD_BLOCKQ_LEN, 0);
+
+    efd->read_bq = allocate_blockq(h, "eventfd read");
+    if (efd->read_bq == INVALID_ADDRESS) {
+        msg_err("failed to allocated blockq\n");
+        goto err_read_bq;
+    }
+
+    efd->write_bq = allocate_blockq(h, "eventfd write");
+    if (efd->write_bq == INVALID_ADDRESS) {
+        msg_err("failed to allocate blockq\n");
+        goto err_write_bq;
+    }
+
     efd->counter = count;
     return efd->fd;
+
+err_write_bq:
+    deallocate_blockq(efd->read_bq);
+err_read_bq:
+    deallocate_fd(current->p, efd->fd);
+err_fd:
+    deallocate(h, efd, sizeof(*efd));
+err_efd:
+    return set_syscall_error(current, ENOMEM);
 }

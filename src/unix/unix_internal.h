@@ -116,27 +116,24 @@ typedef struct unix_heaps {
 } *unix_heaps;
 
 typedef closure_type(io_completion, void, thread t, sysreturn rv);
-
-#define BLOCKQ_NAME_MAX 20
 typedef closure_type(blockq_action, sysreturn, boolean /* blocking */, boolean /* nullify */);
 
-/* queue of threads waiting for a resource */
-typedef struct blockq {
-    heap h;
-    /* spinlock lock; */
-    struct list waiters_head;
-    queue waiters;              /* queue of blockq_actions */
-    char name[BLOCKQ_NAME_MAX]; /* for debug */
-    timer timeout;              /* timeout to protect against stuck queue scenarios */
-    timestamp timeout_interval;
-    io_completion completion;
-    thread completion_thread;
-    sysreturn completion_rv;
-} *blockq;
+struct blockq;
+typedef struct blockq * blockq;
 
-static inline char * blockq_name(blockq bq)
+blockq allocate_blockq(heap h, char * name);
+void deallocate_blockq(blockq bq);
+const char * blockq_name(blockq bq);
+thread blockq_wake_one(blockq bq);
+void blockq_flush(blockq bq);
+boolean blockq_flush_thread(blockq bq, thread t);
+void blockq_set_completion(blockq bq, io_completion completion, thread t,
+                           sysreturn rv);
+sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_bh, 
+                               timestamp timeout);
+static inline sysreturn blockq_check(blockq bq, thread t, blockq_action a, boolean in_bh)
 {
-    return bq->name;
+    return blockq_check_timeout(bq, t, a, in_bh, 0);
 }
 
 /* pending and masked signals for a given thread or process */
@@ -432,16 +429,6 @@ sysreturn spec_read(file f, void *dest, u64 length, u64 offset_arg, thread t,
 sysreturn spec_write(file f, void *dest, u64 length, u64 offset_arg, thread t,
         boolean bh, io_completion completion);
 u32 spec_events(file f);
-
-
-blockq allocate_blockq(heap h, char * name, u64 size, timestamp timeout_interval);
-void deallocate_blockq(blockq bq);
-sysreturn blockq_check(blockq bq, thread t, blockq_action a, boolean in_bh);
-void blockq_wake_one(blockq bq);
-void blockq_flush(blockq bq);
-boolean blockq_flush_thread(blockq bq, thread t);
-void blockq_set_completion(blockq bq, io_completion completion, thread t,
-        sysreturn rv);
 
 /* Values to pass as first argument to prctl() */
 #define PR_SET_NAME    15               /* Set process name */

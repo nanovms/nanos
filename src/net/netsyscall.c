@@ -728,19 +728,23 @@ static void udp_input_lower(void *z, struct udp_pcb *pcb, struct pbuf *p,
     wakeup_sock(s, WAKEUP_SOCK_RX);
 }
 
-#define SOCK_BLOCKQ_LEN 32
 static int allocate_sock(process p, int type, u32 flags, sock * rs)
 {
-    sock s = unix_cache_alloc(get_unix_heaps(), socket);
+    sock s;
+    int fd;
+
+    s = unix_cache_alloc(get_unix_heaps(), socket);
     if (s == INVALID_ADDRESS) {
 	msg_err("failed to allocate struct sock\n");
-	return -ENOMEM;
+        goto err_sock;
     }
-    int fd = allocate_fd(p, s);
+
+    fd = allocate_fd(p, s);
     if (fd == INVALID_PHYSICAL) {
-	unix_cache_free(get_unix_heaps(), socket, s);
-	return -EMFILE;
+        msg_err("failed to allocate fd\n");
+        goto err_fd;
     }
+
     heap h = heap_general(get_kernel_heaps());
     init_fdesc(h, &s->f, FDESC_TYPE_SOCKET);
     s->f.read = closure(h, socket_read, s);
@@ -752,13 +756,39 @@ static int allocate_sock(process p, int type, u32 flags, sock * rs)
     s->type = type;
     s->p = p;
     s->h = h;
-    s->incoming = allocate_queue(h, SOCK_QUEUE_LEN);
-    s->rxbq = allocate_blockq(h, "sock receive", SOCK_BLOCKQ_LEN, 0 /* XXX */);
-    s->txbq = allocate_blockq(h, "sock transmit", SOCK_BLOCKQ_LEN, 0 /* XXX */);
     s->fd = fd;
+
+    s->incoming = allocate_queue(h, SOCK_QUEUE_LEN);
+    if (s->incoming == INVALID_ADDRESS) {
+        msg_err("failed to allocate queue\n");
+        goto err_queue;
+    }
+
+    s->rxbq = allocate_blockq(h, "sock receive");
+    if (s->rxbq == INVALID_ADDRESS) {
+        msg_err("failed to allocate blockq\n");
+        goto err_rx;
+    }
+    s->txbq = allocate_blockq(h, "sock transmit");
+    if (s->txbq == INVALID_ADDRESS) {
+        msg_err("failed to allocate blockq\n");
+        goto err_tx;
+    }
+
     set_lwip_error(s, ERR_OK);
     *rs = s;
     return fd;
+
+err_tx:
+    deallocate_blockq(s->rxbq);
+err_rx:
+    deallocate_queue(s->incoming);
+err_queue:
+    deallocate_fd(p, fd);
+err_fd:
+    unix_cache_free(get_unix_heaps(), socket, s);
+err_sock:
+    return -ENOMEM;
 }
 
 static int allocate_tcp_sock(process p, struct tcp_pcb *pcb, u32 flags)

@@ -1,6 +1,7 @@
 #include <unix_internal.h>
 #include <buffer.h>
 
+//#define PIPE_DEBUG
 #ifdef PIPE_DEBUG
 #define pipe_debug(x, ...) do {log_printf("PIPE", x, ##__VA_ARGS__);} while(0)
 #else
@@ -25,7 +26,7 @@ struct pipe_file {
 
 struct pipe {
     struct pipe_file files[2];
-    process p;
+    process proc;
     heap h;
     u64 ref_cnt;
     u64 max_size;               /* XXX: can change with F_SETPIPE_SZ */
@@ -75,12 +76,33 @@ static inline void pipe_notify_writer(pipe_file pf, int events)
     }
 }
 
+static void pipe_file_release(pipe_file pf)
+{
+    release_fdesc(&(pf->f));
+
+    if (pf->fd > 0) {
+        /* sys_close could have deallocated fds already */
+        if (resolve_fd_noret(pf->pipe->proc, pf->fd))
+            deallocate_fd(pf->pipe->proc, pf->fd);
+
+        pf->fd = -1;
+    }
+
+    if (pf->bq != INVALID_ADDRESS) {
+        deallocate_blockq(pf->bq);
+        pf->bq = INVALID_ADDRESS;
+    }
+}
+
 static void pipe_release(pipe p)
 {
     if (!p->ref_cnt || (fetch_and_add(&p->ref_cnt, -1) == 1)) {
         pipe_debug("%s(%p): deallocating pipe\n", __func__, p);
         if (p->data != INVALID_ADDRESS)
             deallocate_buffer(p->data);
+
+        pipe_file_release(&(p->files[PIPE_READ]));
+        pipe_file_release(&(p->files[PIPE_WRITE]));
 
         unix_cache_free(get_unix_heaps(), pipe, p);
     }
@@ -97,9 +119,7 @@ static inline void pipe_dealloc_end(pipe p, pipe_file pf)
             pipe_notify_reader(pf, EPOLLIN | EPOLLHUP);
             pipe_debug("%s(%p): reader notified\n", __func__, p);
         }
-        deallocate_blockq(pf->bq);
-        release_fdesc(&pf->f);
-        pf->fd = -1;
+
         pipe_release(p);
     }
 }
@@ -244,8 +264,6 @@ static u32 pipe_write_events(pipe_file pf)
     return events;
 }
 
-#define PIPE_BLOCKQ_LEN         32
-
 int do_pipe2(int fds[2], int flags)
 {
     unix_heaps uh = get_unix_heaps();
@@ -264,41 +282,81 @@ int do_pipe2(int fds[2], int flags)
         return -EOPNOTSUPP;
     }
 
-    pipe->data = INVALID_ADDRESS;
-    pipe->files[PIPE_READ].fd = -1;
-    pipe->files[PIPE_WRITE].fd = -1;
     pipe->h = heap_general((kernel_heaps)uh);
-    pipe->p = current->p;
+    pipe->data = INVALID_ADDRESS;
+    pipe->proc = current->p;
+
+    pipe->files[PIPE_READ].fd = -1;
     pipe->files[PIPE_READ].pipe = pipe;
+    pipe->files[PIPE_READ].bq = INVALID_ADDRESS;
+
+    pipe->files[PIPE_WRITE].fd = -1;
     pipe->files[PIPE_WRITE].pipe = pipe;
+    pipe->files[PIPE_WRITE].bq = INVALID_ADDRESS;
+
     pipe->ref_cnt = 0;
     pipe->max_size = DEFAULT_PIPE_MAX_SIZE;
+
     pipe->data = allocate_buffer(pipe->h, INITIAL_PIPE_DATA_SIZE);
     if (pipe->data == INVALID_ADDRESS) {
         msg_err("failed to allocate pipe's data buffer\n");
-        pipe_release(pipe);
-        return -ENOMEM;
+        goto err;
     }
 
-    pipe_file reader = &pipe->files[PIPE_READ];
-    reader->fd = fds[PIPE_READ] = allocate_fd(pipe->p, reader);
-    init_fdesc(pipe->h, &reader->f, FDESC_TYPE_PIPE);
-    reader->bq = allocate_blockq(pipe->h, "pipe read", PIPE_BLOCKQ_LEN, 0);
-    reader->f.read = closure(pipe->h, pipe_read, reader);
-    reader->f.close = closure(pipe->h, pipe_close, reader);
-    reader->f.events = closure(pipe->h, pipe_read_events, reader);
-    reader->f.flags = (flags & O_NONBLOCK) | O_RDONLY;
+    /* init reader */
+    {
+        pipe_file reader = &pipe->files[PIPE_READ];
+        init_fdesc(pipe->h, &reader->f, FDESC_TYPE_PIPE);
 
-    pipe_file writer = &pipe->files[PIPE_WRITE];
-    init_fdesc(pipe->h, &writer->f, FDESC_TYPE_PIPE);
-    writer->fd = fds[PIPE_WRITE] = allocate_fd(pipe->p, writer);
-    writer->bq = allocate_blockq(pipe->h, "pipe write", PIPE_BLOCKQ_LEN, 0);
-    writer->f.write = closure(pipe->h, pipe_write, writer);
-    writer->f.close = closure(pipe->h, pipe_close, writer);
-    writer->f.events = closure(pipe->h, pipe_write_events, writer);
-    writer->f.flags = (flags & O_NONBLOCK) | O_WRONLY;
+        reader->fd = fds[PIPE_READ] = allocate_fd(pipe->proc, reader);
+        if (reader->fd == INVALID_PHYSICAL) {
+            msg_err("failed to allocate fd\n");
+            goto err;
+        }
+
+        rprintf("allocated read fd %d\n", reader->fd);
+
+        reader->f.read = closure(pipe->h, pipe_read, reader);
+        reader->f.close = closure(pipe->h, pipe_close, reader);
+        reader->f.events = closure(pipe->h, pipe_read_events, reader);
+        reader->f.flags = (flags & O_NONBLOCK) | O_RDONLY;
+
+        reader->bq = allocate_blockq(pipe->h, "pipe read");
+        if (reader->bq == INVALID_ADDRESS) {
+            msg_err("failed to allocate blockq\n");
+            goto err;
+        }
+    }
+
+    /* init writer */
+    {
+        pipe_file writer = &pipe->files[PIPE_WRITE];
+        init_fdesc(pipe->h, &writer->f, FDESC_TYPE_PIPE);
+
+        writer->fd = fds[PIPE_WRITE] = allocate_fd(pipe->proc, writer);
+        if (writer->fd == INVALID_PHYSICAL) {
+            msg_err("failed to allocate fd\n");
+            goto err;
+        }
+
+        rprintf("allocated write fd %d\n", writer->fd);
+
+        writer->f.write = closure(pipe->h, pipe_write, writer);
+        writer->f.close = closure(pipe->h, pipe_close, writer);
+        writer->f.events = closure(pipe->h, pipe_write_events, writer);
+        writer->f.flags = (flags & O_NONBLOCK) | O_WRONLY;
+
+        writer->bq = allocate_blockq(pipe->h, "pipe write");
+        if (writer->bq == INVALID_ADDRESS) {
+            msg_err("failed to allocate blockq\n");
+            goto err;
+        }
+    }
 
     pipe->ref_cnt = 2;
-
     return 0;
+
+err:
+    pipe_release(pipe);
+    return -ENOMEM;
 }
