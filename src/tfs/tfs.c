@@ -888,7 +888,7 @@ fs_status filesystem_creat(filesystem fs, tuple cwd, const char *fp, boolean per
     fsfile f = allocate_fsfile(fs, dir);
     fsfile_set_length(f, 0);
 
-    return filesystem_mkentry(fs, cwd, fp, dir, persistent, false);
+    return filesystem_mkentry(fs, cwd, fp, dir, persistent, true);
 }
 
 void filesystem_delete(filesystem fs, tuple cwd, const char *fp,
