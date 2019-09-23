@@ -122,7 +122,9 @@ static void timer_config(int timer, timestamp rate, thunk t, boolean periodic)
         hpet_interrupts[timer] = allocate_interrupt();
         msi_format(&a, &d, hpet_interrupts[timer]);
         hpet->timers[timer].fsb_int = ((u64)a << 32) | d;
+        register_interrupt(hpet_interrupts[timer], t);
     }
+
     u64 c = TCONF(FSB_EN_CNF) | TCONF(32MODE_CNF) | TCONF(INT_ENB_CNF);
     if (periodic) {
         if ((hpet->timers[timer].config & TCONF(PER_INT_CAP)) == 0) {
@@ -132,8 +134,6 @@ static void timer_config(int timer, timestamp rate, thunk t, boolean periodic)
 	c |= TCONF(VAL_SET_CNF) | TCONF(TYPE_CNF);
     }
     hpet->timers[timer].config = c;
-    // assume that overwrite is ok
-    register_interrupt(hpet_interrupts[timer], t);
 
     /* We don't have __udivti3, so there's some loss of precision with
        seconds, otherwise use:

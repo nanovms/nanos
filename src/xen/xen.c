@@ -333,7 +333,7 @@ boolean xen_detect(kernel_heaps kh)
     }
     xen_info.xenstore_paddr = xen_hvm_param.value << PAGELOG;
 
-    xen_debug("xenstore page at phys 0x%lx; allocating virtual page and mapping");
+    xen_debug("xenstore page at phys 0x%lx; allocating virtual page and mapping", xen_info.xenstore_paddr);
     xen_info.xenstore_interface = allocate(heap_virtual_page(kh), PAGESIZE);
     assert(xen_info.xenstore_interface != INVALID_ADDRESS);
     map(u64_from_pointer(xen_info.xenstore_interface), xen_info.xenstore_paddr, PAGESIZE, 0, heap_pages(kh));
@@ -445,7 +445,7 @@ boolean xen_detect(kernel_heaps kh)
     xen_info.initialized = true;
     return true;
   out_unregister_irq:
-    register_interrupt(irq, 0);
+    unregister_interrupt(irq);
   out_dealloc_shared_page:
     deallocate(heap_pages(kh), xen_info.shared_info, PAGESIZE);
     xen_info.shared_info = 0;

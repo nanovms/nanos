@@ -280,7 +280,17 @@ void deallocate_interrupt(u64 irq)
 
 void register_interrupt(int vector, thunk t)
 {
+    if (handlers[vector])
+        halt("%s: handler for vector %d already registered (%p)\n",
+             __func__, vector, handlers[vector]);
     handlers[vector] = t;
+}
+
+void unregister_interrupt(int vector)
+{
+    if (!handlers[vector])
+        halt("%s: no handler registered for vector %d\n", __func__, vector);
+    handlers[vector] = 0;
 }
 
 #define FAULT_STACK_PAGES       8
