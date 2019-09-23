@@ -314,8 +314,6 @@ int do_pipe2(int fds[2], int flags)
             goto err;
         }
 
-        rprintf("allocated read fd %d\n", reader->fd);
-
         reader->f.read = closure(pipe->h, pipe_read, reader);
         reader->f.close = closure(pipe->h, pipe_close, reader);
         reader->f.events = closure(pipe->h, pipe_read_events, reader);
@@ -338,8 +336,6 @@ int do_pipe2(int fds[2], int flags)
             msg_err("failed to allocate fd\n");
             goto err;
         }
-
-        rprintf("allocated write fd %d\n", writer->fd);
 
         writer->f.write = closure(pipe->h, pipe_write, writer);
         writer->f.close = closure(pipe->h, pipe_close, writer);

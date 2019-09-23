@@ -82,7 +82,7 @@ typedef struct blockq_item {
     thread t;           /* waiting thread */
     timer timeout;      /* timer for this item (could be zero) */
     blockq_action a;    /* action to test for resource avail. */
-    struct list l;      /* embedding on blockq->waiters_list */
+    struct list l;      /* embedding on blockq->waiters_head */
 } *blockq_item;
 
 static inline void free_blockq_item(blockq bq, blockq_item bi)
@@ -136,7 +136,7 @@ static void blockq_apply_bi_locked(blockq bq, blockq_item bi,
     */
 
     /* IOW, the bi is done if the user tells us its done (or, on a nullify
-     * we'll just force it
+     * we'll just force it)
      */
     if (nullify || (rv != infinity))
         blockq_item_finish(bq, bi);
