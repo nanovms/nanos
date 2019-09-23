@@ -155,11 +155,7 @@ static void post_receive(vnet vn)
     vqmsg_commit(vn->rxq, m, closure(vn->dev->general, input, x));
 }
 
-static void status_callback(struct netif *netif)
-{
-    u8 *n = (u8 *)&netif->ip_addr;
-    rprintf("assigned: %d.%d.%d.%d\n", n[0], n[1], n[2], n[3]);
-}
+void lwip_status_callback(struct netif *netif);
 
 static err_t virtioif_init(struct netif *netif)
 {
@@ -171,7 +167,7 @@ static err_t virtioif_init(struct netif *netif)
     netif->output = etharp_output;
     netif->linkoutput = low_level_output;
     netif->hwaddr_len = ETHARP_HWADDR_LEN;
-    netif->status_callback = status_callback;
+    netif->status_callback = lwip_status_callback;
     for (int i = 0; i < ETHER_ADDR_LEN; i++) 
         netif->hwaddr[i] =  in8(vn->dev->base + VIRTIO_MSI_DEVICE_CONFIG + i);
     netif->mtu = 1500;

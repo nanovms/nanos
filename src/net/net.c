@@ -68,6 +68,12 @@ void lwip_deallocate(void *x)
     deallocate(lwip_heap, x, -1ull);
 }
 
+void lwip_status_callback(struct netif *netif)
+{
+    u8 *n = (u8 *)&netif->ip_addr;
+    rprintf("assigned: %d.%d.%d.%d\n", n[0], n[1], n[2], n[3]);
+}
+
 extern void lwip_init();
 
 void init_net(kernel_heaps kh)

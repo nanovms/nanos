@@ -1,9 +1,3 @@
-/* TODO
-   - reorg source layout
-   - don't need xennet_ before each static function
-
-*/
-
 #include <runtime.h>
 #include <x86_64.h>
 #include <page.h>
@@ -391,12 +385,7 @@ static err_t xennet_linkoutput(struct netif *netif, struct pbuf *p)
     return ERR_OK;
 }
 
-/* XXX make common? */
-static void status_callback(struct netif *netif)
-{
-    u8 *n = (u8 *)&netif->ip_addr;
-    rprintf("assigned: %d.%d.%d.%d\n", n[0], n[1], n[2], n[3]);
-}
+void lwip_status_callback(struct netif *netif);
 
 static err_t xennet_netif_init(struct netif *netif)
 {
@@ -407,7 +396,7 @@ static err_t xennet_netif_init(struct netif *netif)
     netif->output = etharp_output;
     netif->linkoutput = xennet_linkoutput;
     netif->hwaddr_len = ETHARP_HWADDR_LEN;
-    netif->status_callback = status_callback;
+    netif->status_callback = lwip_status_callback;
     runtime_memcpy(netif->hwaddr, xd->mac, ETHARP_HWADDR_LEN);
     netif->mtu = xd->mtu;
 
@@ -419,7 +408,6 @@ static err_t xennet_netif_init(struct netif *netif)
 static void xennet_return_rxbuf(struct pbuf *p)
 {
     xennet_rx_buf xrp = (xennet_rx_buf)p;
-    /* XXX reset fields */
     u64 flags = irq_disable_save();
     list_delete(&xrp->l);
     list_insert_before(&xrp->xd->rx_free, &xrp->l);
