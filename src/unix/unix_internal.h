@@ -414,8 +414,11 @@ static inline void syscall_io_complete(thread t, sysreturn rv)
 #define resolve_fd_noret(__p, __fd) vector_get(__p->files, __fd)
 #define resolve_fd(__p, __fd) ({void *f ; if (!(f = resolve_fd_noret(__p, __fd))) return set_syscall_error(current, EBADF); f;})
 
-void init_threads(process p);
 void init_syscalls();
+void init_threads(process p);
+void init_futices(process p);
+
+sysreturn futex(int *uaddr, int futex_op, int val, u64 val2, int *uaddr2, int val3);
 
 int do_pipe2(int fds[2], int flags);
 
