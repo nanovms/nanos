@@ -60,6 +60,9 @@ SRCS-stage3.img= \
 	$(SRCDIR)/virtio/virtio_scsi.c \
 	$(SRCDIR)/virtio/virtqueue.c \
 	$(SRCDIR)/virtio/scsi.c \
+	$(SRCDIR)/xen/xen.c \
+	$(SRCDIR)/xen/xennet.c \
+	$(SRCDIR)/x86_64/apic.c \
 	$(SRCDIR)/x86_64/backed_heap.c \
 	$(SRCDIR)/x86_64/breakpoint.c \
 	$(SRCDIR)/x86_64/clock.c \
@@ -70,6 +73,7 @@ SRCS-stage3.img= \
 	$(SRCDIR)/x86_64/kvm_platform.c \
 	$(SRCDIR)/x86_64/page.c \
 	$(SRCDIR)/x86_64/pci.c \
+	$(SRCDIR)/x86_64/pvclock.c \
 	$(SRCDIR)/x86_64/queue.c \
 	$(SRCDIR)/x86_64/rtc.c \
 	$(SRCDIR)/x86_64/serial.c \
@@ -109,6 +113,7 @@ CFLAGS+= \
 	-I$(SRCDIR)/tfs \
 	-I$(SRCDIR)/unix \
 	-I$(SRCDIR)/x86_64 \
+	-I$(SRCDIR)/xen/public \
 	-I$(LWIPDIR)/src/include
 #CFLAGS+=	-DLWIPDIR_DEBUG -DEPOLL_DEBUG -DNETSYSCALL_DEBUG -DKERNEL_DEBUG
 AFLAGS+=	-felf64 -I$(OBJDIR)/

@@ -84,7 +84,7 @@ void msi_map_vector(int slot, int msislot, int vector);
 
 static inline void write_barrier()
 {
-    asm volatile("sfence");
+    asm volatile("sfence" ::: "memory");
 }
 
 static inline void read_barrier()
@@ -125,19 +125,21 @@ static inline u64 rdtsc(void)
     return (((u64)a) | (((u64)d) << 32));
 }
 
-void init_clock(kernel_heaps kh);
-boolean using_lapic_timer(void);
-void kern_sleep(timestamp delta);
+typedef closure_type(clock_now, timestamp);
+typedef closure_type(clock_timer, void, timestamp);
 
-// tuples
-char *interrupt_name(u64 code);
-char *register_name(u64 code);
+void register_platform_clock_now(clock_now cn);
+void register_platform_clock_timer(clock_timer ct);
+
+void init_clock(void);
+boolean init_hpet(kernel_heaps kh);
+void kern_sleep(timestamp delta);
 
 static inline u64 read_flags(void)
 {
     u64 out;
-    asm("pushf");
-    asm("pop %0":"=g"(out));
+    asm volatile("pushfq");
+    asm volatile("popq %0":"=g"(out));
     return out;
 }
 
@@ -150,8 +152,13 @@ static inline u64 irq_disable_save(void)
 
 static inline void irq_restore(u64 flags)
 {
-    if ((flags & FLAG_INTERRUPT))
+    if ((flags & U64_FROM_BIT(FLAG_INTERRUPT)))
         enable_interrupts();
+}
+
+static inline void kern_pause(void)
+{
+    asm volatile("pause");
 }
 
 typedef struct queue *queue;
@@ -187,11 +194,11 @@ static inline void frame_pop(void)
     running_frame = pointer_from_u64(running_frame[FRAME_SAVED_FRAME]);
 }
 
-#define switch_stack(__s, __target) {                   \
-        asm ("mov %0, %%rdx": :"r"(__s):"%rdx");        \
-        asm ("mov %0, %%rax": :"r"(__target));          \
-        asm ("mov %%rdx, %%rsp"::);                     \
-        asm ("jmp *%%rax"::);                           \
+#define switch_stack(__s, __target) {                           \
+        asm volatile("mov %0, %%rdx": :"r"(__s):"%rdx");        \
+        asm volatile("mov %0, %%rax": :"r"(__target));          \
+        asm volatile("mov %%rdx, %%rsp"::);                     \
+        asm volatile("jmp *%%rax"::);                           \
     }
 
 void runloop() __attribute__((noreturn));
@@ -210,5 +217,8 @@ struct queue {
 };
 
 void msi_format(u32 *address, u32 *data, int vector);
+
+u64 allocate_interrupt(void);
+void deallocate_interrupt(u64 irq);
 void register_interrupt(int vector, thunk t);
-extern heap interrupt_vectors;
+void unregister_interrupt(int vector);

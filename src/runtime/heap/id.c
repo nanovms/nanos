@@ -251,7 +251,7 @@ boolean id_heap_set_area(heap h, u64 base, u64 length, boolean validate, boolean
 {
     id_heap i = (id_heap)h;
     base &= ~page_mask(i);
-    length = pad(length, page_mask(i));
+    length = pad(length, page_size(i));
 
     range q = irange(base >> page_order(i), (base + length) >> page_order(i));
     boolean fail = false;

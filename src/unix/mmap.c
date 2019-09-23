@@ -73,6 +73,10 @@ boolean unix_fault_page(u64 vaddr, context frame)
     process p = current->p;
     u64 error_code = frame[FRAME_ERROR_CODE];
 
+    if (p->vmaps == INVALID_ADDRESS) {
+        msg_err("fault on vaddr 0x%lx before vmap setup\n", vaddr);
+        return false;
+    }
     vmap vm = (vmap)rangemap_lookup(p->vmaps, vaddr);
 
     /* no vmap --> send access violation */

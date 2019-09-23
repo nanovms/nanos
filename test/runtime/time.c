@@ -13,6 +13,7 @@ main()
     clock_t uptime, uptime_prev;
     int i;
 
+    setbuf(stdout, NULL);
     memset(&tms_prev, 0, sizeof(tms_prev));
     uptime_prev = 0;
     for (i = 0; i < 10; i++) {
@@ -23,7 +24,7 @@ main()
         printf("gettimeofday: tv_sec = %lu, tv_usec = %lu\n", tv.tv_sec, tv.tv_usec);
 
         t = time(NULL);
-        printf("time: retval = %ld\n", t);
+        printf("time: retval = %ld\n%s", t, ctime(&t));
 
         t = time(&t2);
         printf("time: retval = %ld, out = %ld\n", t, t2);

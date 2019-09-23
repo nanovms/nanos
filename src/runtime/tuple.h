@@ -17,11 +17,9 @@ void encode_eav(buffer dest, table dictionary, tuple e, symbol a, value v);
 
 // seriously reconsider types allowed in tuples.. in particular simple
 // ints have an anambiguous translation back and forth to strings (?)
-static inline u64 u64_from_value(value v)
+static inline boolean u64_from_value(value v, u64 *result)
 {
-    u64 result;
-    parse_int(alloca_wrap((buffer)v), 10, &result);
-    return result;
+    return parse_int(alloca_wrap((buffer)v), 10, result);
 }
 
 static inline value value_from_u64(heap h, u64 v)

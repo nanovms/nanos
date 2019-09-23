@@ -155,8 +155,10 @@ static void exec_elf_map(process p, kernel_heaps kh, u64 vaddr, u64 paddr, u64 s
 CLOSURE_2_1(load_interp_complete, void, thread, kernel_heaps, buffer);
 void load_interp_complete(thread t, kernel_heaps kh, buffer b)
 {
+    exec_debug("interpreter load complete, reading elf\n");
     u64 where = allocate_u64(heap_virtual_huge(kh), HUGE_PAGESIZE);
     void * start = load_elf(b, where, stack_closure(exec_elf_map, t->p, kh));
+    exec_debug("starting process tid %d, start %p\n", t->tid, start);
     start_process(t, start);
 }
 

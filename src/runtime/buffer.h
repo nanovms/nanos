@@ -25,15 +25,15 @@ static inline char peek_char(buffer b)
 
 #define alloca_wrap_buffer(__b, __l) ({                         \
             buffer b = stack_allocate(sizeof(struct buffer));   \
-            b->contents = (void *) __b;                         \
-            b->end = b->length = __l;                           \
+            b->contents = (void *) (__b);                       \
+            b->end = b->length = (__l);                         \
             b->start  = 0;                                      \
             b->wrapped = true;                                  \
             b->h = 0;                                           \
             b;                                                  \
         })
 
-#define alloca_wrap(__z) alloca_wrap_buffer(buffer_ref(__z, 0), buffer_length(__z))
+#define alloca_wrap(__z) alloca_wrap_buffer(buffer_ref((__z), 0), buffer_length(__z))
 
 #define byte(__b, __i) *(u8 *)((__b)->contents + (__b)->start + (__i))
 
@@ -57,11 +57,16 @@ static inline bytes buffer_length(buffer b)
     return b->end - b->start;
 } 
 
+static inline boolean buffer_is_wrapped(buffer b)
+{
+    return b->wrapped;
+}
+
 static inline void buffer_extend(buffer b, bytes len)
 {
     // xxx - pad to pagesize
     if (b->length < (b->end + len)) {
-        assert(!b->wrapped);    /* wrapped buffers can't be extended */
+        assert(!buffer_is_wrapped(b));    /* wrapped buffers can't be extended */
         int oldlen = b->length;
         b->length = 2*((b->end-b->start)+len);
         void *new = allocate(b->h, b->length);
@@ -85,7 +90,6 @@ static inline void extend_total(buffer b, int offset)
         b->end = offset;
     }
 }
-
 
 static inline buffer wrap_buffer(heap h,
                                  void *body,
@@ -130,10 +134,18 @@ static inline boolean buffer_read(buffer b, void *dest, bytes length)
     return(true);
 }
 
-
 static inline void push_buffer(buffer d, buffer s)
 {
     buffer_write(d, buffer_ref(s, 0), buffer_length(s));
+}
+
+static inline buffer clone_buffer(heap h, buffer b)
+{
+    buffer new = allocate_buffer(h, buffer_length(b));
+    if (new == INVALID_ADDRESS)
+        return new;
+    push_buffer(new, b);
+    return new;
 }
 
 void buffer_append(buffer b,
@@ -141,31 +153,31 @@ void buffer_append(buffer b,
                    bytes length);
 
 // little endian variants
-#define WRITE_BE(bits)\
-   static inline void buffer_write_be##bits(buffer b, u64 x)   \
-  {                                                            \
-      u64 k = x;                                               \
-      int len = bits>>3;                                       \
-      buffer_extend(b, len);                                   \
-      u8 *n = buffer_ref(b, b->end);                                 \
-      for (int i = len-1; i >= 0; i--) {                       \
-          n[i] = k & 0xff;                                     \
-          k >>= 8;                                             \
-      }                                                        \
-      b->end += len;                                           \
-  }
+#define WRITE_BE(bits)                                          \
+    static inline void buffer_write_be##bits(buffer b, u64 x)   \
+    {                                                           \
+        u64 k = (x);                                            \
+        int len = bits>>3;                                      \
+        buffer_extend((b), len);                                \
+        u8 *n = buffer_ref((b), (b)->end);                      \
+        for (int i = len-1; i >= 0; i--) {                      \
+            n[i] = k & 0xff;                                    \
+            k >>= 8;                                            \
+        }                                                       \
+        b->end += len;                                          \
+    }
 
-#define READ_BE(bits)                                            \
-    static inline u64 buffer_read_be##bits(buffer b)             \
-    {                                                            \
-        u64 k = 0;                                               \
-        int len = bits>>3;                                       \
-        u8 *n = buffer_ref(b, 0);                                      \
-        for (int i = 0; i < len; i++) {                          \
-            k = (k << 8) | (*n++);                               \
-        }                                                        \
-        b->start +=len;                                          \
-        return(k);                                               \
+#define READ_BE(bits)                                   \
+    static inline u64 buffer_read_be##bits(buffer b)    \
+    {                                                   \
+        u64 k = 0;                                      \
+        int len = bits>>3;                              \
+        u8 *n = buffer_ref((b), 0);                     \
+        for (int i = 0; i < len; i++) {                 \
+            k = (k << 8) | (*n++);                      \
+        }                                               \
+        (b)->start +=len;                               \
+        return(k);                                      \
     }
 
 WRITE_BE(64)
@@ -242,34 +254,34 @@ static inline boolean buffer_compare(void *za, void *zb)
 
 
 // the ascii subset..utf8 me
-#define foreach_character(__i, __c, __s)                   \
-    for (u32 __i = 0, __c, __limit = buffer_length(__s);   \
-         __c = *(u8 *)buffer_ref(__s, __i), __i<__limit;   \
-         __i++)
+#define foreach_character(__i, __c, __s)                                \
+    for (u32 __i = 0, __c, __limit = buffer_length(__s);                \
+         __c = *(u8 *)buffer_ref((__s), (__i)), (__i) < __limit;        \
+         (__i)++)
              
 
 /* Beware: such allocations on the stack persist until the calling
    function returns to its caller, not necessarily at the end of the
    block. Therefore, avoid using little_stack_buffer within loops or
    in any case where it could blow the stack. */
-#define little_stack_buffer(__length)\
-    ({\
-    buffer __b = stack_allocate(sizeof(struct buffer));\
-    __b->contents = stack_allocate(__length);\
-    __b->start = 0;\
-    __b->end = 0;\
-    __b->length = __length;\
-    __b->wrapped = true; /* it's not wrapped, but we don't want a resize */\
-    __b;\
-   })
+#define little_stack_buffer(__length)                                   \
+    ({                                                                  \
+        buffer __b = stack_allocate(sizeof(struct buffer));             \
+        __b->contents = stack_allocate(__length);                       \
+        __b->start = 0;                                                 \
+        __b->end = 0;                                                   \
+        __b->length = (__length);                                       \
+        __b->wrapped = true; /* it's not wrapped, but we don't want a resize */ \
+        __b;                                                            \
+    })
 
     
-#define staticbuffer(__n) ({ \
-    static struct buffer b;\
-    b.contents = __n;\
-    b.start = 0;\
-    b.end = sizeof(__n) -1;\
-    &b;})
+#define staticbuffer(__n) ({                    \
+            static struct buffer b;             \
+            b.contents = (__n);                 \
+            b.start = 0;                        \
+            b.end = sizeof(__n) -1;             \
+            &b;})
 
 static inline u8 pop_u8(buffer b)
 {

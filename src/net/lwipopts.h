@@ -77,13 +77,13 @@ typedef u64_t ptrdiff_t;
 typedef unsigned long mem_ptr_t;
 
 // format specifiers
-#define X8_F "c"		/* not actually hex */
+#define X8_F "2x"		/* not actually hex */
 #define U16_F "d"
 #define S16_F "d"
 #define X16_F "d"
 #define U32_F "d"
 #define S32_F "d"
-#define X32_F "P"
+#define X32_F "8x"
 #define SZT_F "d"
 
 // some ifdef rot

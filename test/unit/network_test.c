@@ -113,9 +113,10 @@ table parse_arguments(heap h, int argc, char **argv);
 
 u64 extract_u64_with_default(tuple t, symbol n, u64 otherwise)
 {
+    u64 result;
     value v = table_find(t, n);
-    if (v) {
-        return u64_from_value(v);
+    if (v && u64_from_value(v, &result)) {
+        return result;
     }
     return otherwise;
 }

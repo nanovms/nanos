@@ -108,14 +108,17 @@ geterr:
 
         interrupts equ 0x30
 
-global_data interrupt_size
-interrupt_size:
+global_data n_interrupt_vectors
+n_interrupt_vectors:
         dd interrupts
 .end:
+global_data interrupt_vector_size
+interrupt_vector_size:
+        dd interrupt1 - interrupt0
+.end:
 
-global interrupt0
-global interrupt1
-vectors:
+global interrupt_vectors
+interrupt_vectors:
         %assign i 0
         %rep interrupts
         interrupt %+ i:
@@ -331,3 +334,9 @@ TSS:                            ; 64 bit TSS
         dw 0                    ; IOPB offset   0x64
         dw 0                    ; reserved      0x66
 .end:
+
+;; hypercall page used by xen
+align 4096
+global hypercall_page
+hypercall_page:
+        times 4096 db 0

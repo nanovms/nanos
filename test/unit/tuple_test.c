@@ -40,13 +40,15 @@ boolean all_tests(heap h)
     // value <-> U64
     u64 u1 = 777;
     value val = value_from_u64(h, u1);
-    u64 u2 = u64_from_value(val);
+    u64 u2;
+    test_assert(u64_from_value(val, &u2));
     test_assert(u1 == u2);//rprintf("u1=%d,u2=%d\n",u1, u2);
 
     // tuple find
     for (u64 j1 = 0; j1 < COUNT_ELM; j1++){
         value v2 = table_find(t1, intern_u64(j1));
-        u64 j2 = u64_from_value(v2);
+        u64 j2;
+        test_assert(u64_from_value(v2, &j2));
         u64 j3 = j1 * 10;
         test_assert(j3 == j2);//rprintf("j3=%d,j2=%d\n",j3, j2);
     }

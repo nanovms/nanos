@@ -312,7 +312,7 @@ static inline timestamp time_from_timeval(const struct timeval *t)
 static inline void timeval_from_time(struct timeval *d, timestamp t)
 {
     d->tv_sec = t / TIMESTAMP_SECOND;
-    d->tv_usec = usec_from_timestamp(t);
+    d->tv_usec = usec_from_timestamp(truncate_seconds(t));
 }
 
 static inline timestamp time_from_timespec(const struct timespec *t)
@@ -323,7 +323,7 @@ static inline timestamp time_from_timespec(const struct timespec *t)
 static inline void timespec_from_time(struct timespec *ts, timestamp t)
 {
     ts->ts_sec = t / TIMESTAMP_SECOND;
-    ts->ts_nsec = nsec_from_timestamp(t);
+    ts->ts_nsec = nsec_from_timestamp(truncate_seconds(t));
 }
 
 static inline time_t time_t_from_time(timestamp t)
