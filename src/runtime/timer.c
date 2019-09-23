@@ -30,31 +30,36 @@ void remove_timer(timer t)
     t->disable = true;
 }
 
-timer register_timer(timestamp interval, thunk n)
+static timer __register_timer(timestamp interval, thunk n, boolean periodic)
 {
     timer t=(timer)allocate(theap, sizeof(struct timer));
+    if (t == INVALID_ADDRESS) {
+        msg_err("failed to allocate timer\n");
+        return INVALID_ADDRESS;
+    }
 
-    t->t= n;
-    t->interval = 0;
+    t->t = n;
     t->disable = false;
     t->w = now() + interval;
+    t->interval = (periodic) ? interval : 0;
     pqueue_insert(timers, t);
-    timer_debug("register one-shot timer: %p %p\n", t, t->interval);
+
+    timer_debug("register %s timer: %p %p\n", 
+        (periodic) ? "periodic" : "one-shot" : t, t->interval);
+
     return(t);
+}
+
+timer register_timer(timestamp interval, thunk n)
+{
+    return __register_timer(interval, n, false);
 }
 
 timer register_periodic_timer(timestamp interval, thunk n)
 {
-    timer t=(timer)allocate(theap, sizeof(struct timer));
-    t->t = n;
-    t->disable = false;
-    t->interval = interval;    
-    t->w = now() + t->interval;
-    pqueue_insert(timers, t);
-    timer_debug("register periodic %p %p\n", t, t->interval);
-    return(t);
+    return __register_timer(interval, n, true);
 }
-
+    
 /* Presently called with ints off. Address thread safety with
    pqueue before using with ints enabled.
 */

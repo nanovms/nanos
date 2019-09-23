@@ -2,11 +2,8 @@
 #include <unix_internal.h>
 #include <buffer.h>
 
-#define SOCKPAIR_BUF_MAX_SIZE   (16 * PAGESIZE)
-
-#define SOCKPAIR_DGRAM_MAX_COUNT    64
-
-#define SOCKPAIR_BLOCKQ_LEN 32
+#define SOCKPAIR_BUF_MAX_SIZE           (16 * PAGESIZE)
+#define SOCKPAIR_DGRAM_MAX_COUNT        64
 
 struct sockpair;
 
@@ -332,14 +329,12 @@ sysreturn socketpair(int domain, int type, int protocol, int sv[2]) {
             msg_err("failed to allocate socketpair file descriptor\n");
             break;
         }
-        s->read_bq = allocate_blockq(sockpair->h, "socketpair read",
-                SOCKPAIR_BLOCKQ_LEN, 0);
+        s->read_bq = allocate_blockq(sockpair->h, "socketpair read");
         if (s->read_bq == INVALID_ADDRESS) {
             msg_err("failed to allocate socketpair read block queue\n");
             break;
         }
-        s->write_bq = allocate_blockq(sockpair->h, "socketpair write",
-                SOCKPAIR_BLOCKQ_LEN, 0);
+        s->write_bq = allocate_blockq(sockpair->h, "socketpair write");
         if (s->write_bq == INVALID_ADDRESS) {
             msg_err("failed to allocate socketpair write block queue\n");
             break;

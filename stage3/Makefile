@@ -40,6 +40,7 @@ SRCS-stage3.img= \
 	$(SRCDIR)/unix/blockq.c \
 	$(SRCDIR)/unix/exec.c \
 	$(SRCDIR)/unix/eventfd.c \
+	$(SRCDIR)/unix/futex.c \
 	$(SRCDIR)/unix/mktime.c \
 	$(SRCDIR)/unix/mmap.c \
 	$(SRCDIR)/unix/notify.c \
