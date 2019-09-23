@@ -3,6 +3,7 @@
 #include <kvm_platform.h>
 #include <page.h>
 #include <region.h>
+#include <apic.h>
 
 #define INTERRUPT_VECTOR_START 32 /* end of exceptions; defined by architecture */
 static char *interrupts[] = {
@@ -220,8 +221,6 @@ extern u32 n_interrupt_vectors;
 extern u32 interrupt_vector_size;
 extern void * interrupt_vectors;
 
-extern void lapic_eoi(void);
-
 void common_handler()
 {
     int i = running_frame[FRAME_VECTOR];
@@ -319,8 +318,6 @@ void * syscall_stack_top;
 
 #define IST_INTERRUPT 1         /* for all interrupts */
 #define IST_PAGEFAULT 2         /* page fault specific */
-
-extern void init_apic(kernel_heaps kh);
 
 void start_interrupts(kernel_heaps kh)
 {

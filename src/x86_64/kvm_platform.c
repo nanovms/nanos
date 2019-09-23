@@ -3,6 +3,7 @@
 #include <page.h>
 #include <pvclock.h>
 #include <kvm_platform.h>
+#include <apic.h>
 
 //#define KVM_DEBUG
 #ifdef KVM_DEBUG
@@ -65,10 +66,7 @@ static boolean probe_kvm_pvclock(kernel_heaps kh)
     return true;
 }
 
-extern void lapic_runloop_timer(timestamp interval);
 CLOSURE_0_1(lapic_runloop_timer, void, timestamp);
-
-void configure_lapic_timer(heap h);
 
 boolean kvm_detect(kernel_heaps kh)
 {
