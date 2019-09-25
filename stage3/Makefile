@@ -123,7 +123,6 @@ CLEANFILES+=	$(foreach f,gitversion.c frame.inc stage3.dis stage3.img,$(OBJDIR)/
 CLEANDIRS+=	$(foreach d,output src vendor vendor/lwip vendor/lwip/src,$(OBJDIR)/$d)
 
 OBJDUMPFLAGS=	-d -S -M intel-mnemonic
-GITFLAGS+=	--depth 1 http://git.savannah.nongnu.org/git/lwip.git -b STABLE-2_0_3_RELEASE
 
 msg_objdump=	OBJDUMP	$@
 cmd_objdump=	$(OBJDUMP) $(OBJDUMPFLAGS) $(OBJDUMPFLAGS_$(@F)) $< $< >$@
@@ -149,8 +148,6 @@ $(PROG-stage3.img): linker_script
 
 $(OBJDIR)/gitversion.c: $(ROOTDIR)/.git/index $(ROOTDIR)/.git/HEAD
 	$(call cmd,version)
-
-$(OBJS-stage3.img): $(LWIPDIR)/.vendored
 
 $(OBJDIR)/src/x86_64/crt0.o: $(OBJDIR)/frame.inc
 

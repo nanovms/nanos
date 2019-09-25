@@ -15,6 +15,9 @@ IMAGE=		$(OUTDIR)/image/disk.raw
 CLEANFILES+=	$(IMAGE)
 CLEANDIRS+=	$(OUTDIR)/image
 
+LWIPDIR=	$(VENDORDIR)/lwip
+GITFLAGS+=	--depth 1 https://github.com/nanovms/lwip.git -b STABLE-2_0_3_RELEASE
+
 # GCE
 GCLOUD= 	gcloud
 GSUTIL=		gsutil
@@ -32,6 +35,8 @@ AWS_S3_BUCKET=	nanos-test
 AWS_AMI_IMAGE=	nanos-$(TARGET)
 
 all: image
+
+include rules.mk
 
 .PHONY: image release contgen mkfs boot stage3 target stage distclean
 
@@ -51,7 +56,10 @@ release: mkfs boot stage3
 contgen:
 	$(Q) $(MAKE) -C $@
 
-mkfs boot stage3: contgen
+mkfs boot: contgen
+	$(Q) $(MAKE) -C $@
+
+stage3: $(LWIPDIR)/.vendored contgen
 	$(Q) $(MAKE) -C $@
 
 target: contgen
@@ -178,8 +186,6 @@ create-ec2-snapshot: upload-ec2-image
 			status_message=`$(ECHO) "$$json" | $(JQ) -r ".ImportSnapshotTasks[0].SnapshotTaskDetail.StatusMessage?"`; \
 			$(PRINTF) "$(CLEAR_LINE)Task $$import_task_id: $$status_message ($$progress%%)"; \
 		done
-
-include rules.mk
 
 ifeq ($(UNAME_s),Darwin)
 REL_OS=		darwin
