@@ -1,12 +1,16 @@
-#pragma once
 typedef table tuple;
-
 typedef struct encoder *encoder;
 typedef struct dencoder *dencoder;
 
 void init_tuples(heap theap);
 void print_tuple(buffer b, tuple t);
 void print_root(buffer b, tuple t);
+
+tuple allocate_tuple();
+static inline void deallocate_tuple(tuple t)
+{
+    deallocate_table(t);
+}
 
 void encode_tuple(buffer dest, table dictionary, tuple t);
 

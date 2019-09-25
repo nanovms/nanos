@@ -63,11 +63,11 @@ void deallocate_table(table t)
         entry e = t->entries[i];
         if (!e)
             continue;
-        while (e) {
+        do {
             entry next = e->next;
             deallocate(t->h, e, sizeof(struct entry));
             e = next;
-        }
+        } while(e);
     }
     deallocate(t->h, t->entries, t->buckets * sizeof(void *));
     deallocate(t->h, t, sizeof(struct table));

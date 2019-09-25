@@ -15,6 +15,4 @@ string symbol_string(symbol s);
     (intern(alloca_wrap_buffer(name, runtime_strlen(name))))
 
 table symbol_table();
-typedef table tuple;
-tuple allocate_tuple();
 key key_from_symbol(void *z);

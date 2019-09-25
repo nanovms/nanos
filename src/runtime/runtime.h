@@ -153,10 +153,10 @@ typedef closure_type(thunk, void);
 
 #include <list.h>
 #include <bitmap.h>
+#include <tuple.h>
 #include <status.h>
 #include <pqueue.h>
 #include <timer.h>
-#include <tuple.h>
 #include <range.h>
 
 #define PAGELOG 12
