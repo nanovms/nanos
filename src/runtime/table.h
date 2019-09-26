@@ -1,5 +1,3 @@
-#pragma once
-
 typedef struct table *table;
 
 typedef u64 key;
@@ -21,6 +19,7 @@ struct table {
 };
 
 table allocate_table(heap h, key (*key_function)(void *x), boolean (*equal_function)(void *x, void *y));
+void deallocate_table(table t);
 void table_validate(table t, char *n);
 int table_elements(table t);
 void *table_find(table t, void *c);

@@ -33,11 +33,14 @@ u64 random_seed()
 
 static void malloc_free(heap h, u64 z, bytes length)
 {
+    assert(h->allocated >= length);
+    h->allocated -= length;
     free(pointer_from_u64(z));
 }
 
 static u64 malloc_alloc(heap h, bytes s)
 {
+    h->allocated += s;
     return (u64)malloc(s);
 }
 

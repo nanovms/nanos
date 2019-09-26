@@ -56,6 +56,23 @@ table allocate_table(heap h, u64 (*key_function)(void *x), boolean (*equals_func
     halt("allocation failure in allocate_table\n");
 }
 
+void deallocate_table(table t)
+{
+    table_paranoia(t, "deallocate");
+    for(int i = 0; i < t->buckets; i++) {
+        entry e = t->entries[i];
+        if (!e)
+            continue;
+        do {
+            entry next = e->next;
+            deallocate(t->h, e, sizeof(struct entry));
+            e = next;
+        } while(e);
+    }
+    deallocate(t->h, t->entries, t->buckets * sizeof(void *));
+    deallocate(t->h, t, sizeof(struct table));
+}
+
 static inline key position(int buckets, key x)
 {
     return x & (buckets-1);
@@ -77,6 +94,7 @@ static void resize_table(table z, int buckets)
             nentries[km] = j;
         }
     }
+    deallocate(t->h, t->entries, t->buckets * sizeof(void *));
     t->entries = nentries;
     t->buckets = buckets;
     table_paranoia(t, "resize");
