@@ -149,7 +149,7 @@ static status xennet_inform_backend(xennet_dev xd)
     node = "transaction end";
     s = xenstore_transaction_end(tx_id, false);
     if (!is_ok(s)) {
-        value v = table_find(s, "errno");
+        value v = table_find(s, sym(errno));
         if (v) {
             if (!runtime_strcmp("EAGAIN", buffer_ref((buffer)v, 0))) {
                 deallocate_tuple(s);
