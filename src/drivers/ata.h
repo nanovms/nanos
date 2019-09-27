@@ -92,3 +92,4 @@ u64 ata_get_capacity(struct ata *);
 #define ATA_SET_MAX_ADDRESS             0xf9    /* set max address */
 
 void ata_io_cmd(void *dev, int cmd, void *buf, range blocks, status_handler s);
+block_io create_ata_io(heap h, void * dev, int cmd);

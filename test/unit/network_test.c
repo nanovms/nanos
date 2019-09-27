@@ -25,23 +25,16 @@ static void print_stats(stats s)
     rprintf("c: %d active: %d req: %d resp: %d\r", s->connections, s->active, s->requests, s->responses);
 }
 
-static CLOSURE_7_1(value_in, void,
-                   heap, buffer_handler, u64 *, status_handler, thunk, stats, tuple, 
-                   value);
-
-static void value_in(heap h,
-                     buffer_handler out,
-                     u64 *count,
-                     status_handler completed,
-                     thunk newconn,
-                     stats s,
-                     tuple req, 
-                     value v)
+closure_function(7, 1, void, value_in,
+                 heap, h, buffer_handler, out, u64 *, count, status_handler, completed, thunk, newconn, stats, s, tuple, req,
+                 value, v)
 {
+    stats s = bound(s);
     s->responses++;
 
     static timestamp last;
     timestamp t = now();
+    u64 *count = bound(count);
 
     if ((t - last) > (1ull<<32)){
         last = t;
@@ -50,18 +43,18 @@ static void value_in(heap h,
     
     if (*count == 0) {
         if (s->connections < total_connections) 
-            apply(newconn);
+            apply(bound(newconn));
     }
     int window = 1;
     for (int i = 0; i < window; i++) {
         *count = *count + 1;
         if (*count < requests_per_connection) {
-            send_request(h, s, out, req);
+            send_request(bound(h), s, bound(out), bound(req));
         } else {
             s->active--;
-            apply(out, 0);
-            h->destroy(h); // wrapper?
-            apply(completed, 0);
+            apply(bound(out), 0);
+            destroy_heap(bound(h));
+            apply(bound(completed), 0);
             return;
         }
     }
@@ -69,12 +62,13 @@ static void value_in(heap h,
 
 heap make_tiny_heap(heap parent);
 
-static CLOSURE_5_1(newconn, buffer_handler, heap, thunk, stats, tuple, status_handler,  
-                   buffer_handler);
-static buffer_handler newconn(heap h, thunk newconn, stats s, tuple t, status_handler sth,
-                           buffer_handler out)
+closure_function(5, 1, buffer_handler, newconn,
+                 heap, h, thunk, newconn, stats, s, tuple, t, status_handler, sth,
+                 buffer_handler, out)
 {
-    heap pages = allocate_mmapheap(h, 4096);
+    stats s = bound(s);
+    tuple t = bound(t);
+    heap pages = allocate_mmapheap(bound(h), 4096);
     heap c = make_tiny_heap(pages);
     u64 *count = allocate_zero(c, sizeof(u64));
     s->connections++;
@@ -82,28 +76,30 @@ static buffer_handler newconn(heap h, thunk newconn, stats s, tuple t, status_ha
     send_request(c, s, out, t);
     send_request(c, s, out, t);
     send_request(c, s, out, t);
-    return allocate_http_parser(c, closure(c, value_in, c, out, count, sth, newconn, s, t));
+    return allocate_http_parser(c, closure(c, value_in, c, out, count, bound(sth), bound(newconn), s, t));
 
 }
 
-static CLOSURE_8_0(startconn, void, heap, notifier, merge, buffer, thunk *, stats, status_handler, tuple);
-static void startconn(heap h, notifier n, merge m, buffer target, thunk *self, stats s, status_handler err, tuple req)
+closure_function(8, 0, void, startconn,
+                 heap, h, notifier, n, merge, m, buffer, target, thunk *, self, stats, s, status_handler, err, tuple, req)
 {
-    status_handler sth = apply_merge(m);
-    connection(h, n, target, closure(h, newconn, h, *self, s, req, sth), err);
+    heap h = bound(h);
+    status_handler sth = apply_merge(bound(m));
+    connection(h, bound(n), bound(target), closure(h, newconn, h, *bound(self), bound(s), bound(req), sth), bound(err));
 }
 
-CLOSURE_0_1(connection_error, void, status);
-void connection_error(status s)
+closure_function(0, 1, void, connection_error,
+                 status, s)
 {
     rprintf("connection error! %v\n", s);
     exit(1);
 }
 
-CLOSURE_1_1(finished, void, stats, status);
-void finished(stats st, status s)
+closure_function(1, 1, void, finished,
+                 stats, st,
+                 status, s)
 {
-    print_stats(st);
+    print_stats(bound(st));
     rprintf("\n");
     exit(0);
 }

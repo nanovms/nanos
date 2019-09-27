@@ -115,26 +115,28 @@ void read_file(heap h, const char *target_root, buffer dest, buffer name)
 heap malloc_allocator();
 
 tuple root;
-CLOSURE_1_1(finish, void, heap, void*);
-void finish(heap h, void *v)
+closure_function(1, 1, void, finish,
+                 heap, h,
+                 void *, v)
 {
     root = v;
 }
 
-CLOSURE_0_1(perr, void, string);
-void perr(string s)
+closure_function(0, 1, void, perr,
+                 string, s)
 {
     rprintf("parse error %b\n", s);
 }
 
-static CLOSURE_2_3(bwrite, void, descriptor, ssize_t, void *, range, status_handler);
-static void bwrite(descriptor d, ssize_t offset, void * s, range blocks, status_handler c)
+closure_function(2, 3, void, bwrite,
+                 descriptor, d, ssize_t, offset,
+                 void *, s, range, blocks, status_handler, c)
 {
     ssize_t start = blocks.start << SECTOR_OFFSET;
     ssize_t size = range_span(blocks) << SECTOR_OFFSET;
     ssize_t total = 0;
     while (total < size) {
-        ssize_t rv = pwrite(d, s + total, size - total, offset + start + total);
+        ssize_t rv = pwrite(bound(d), s + total, size - total, bound(offset) + start + total);
         if (rv < 0 && errno != EINTR) {
             apply(c, timm("error", "pwrite error: %s", strerror(errno)));
             return;
@@ -144,14 +146,15 @@ static void bwrite(descriptor d, ssize_t offset, void * s, range blocks, status_
     apply(c, STATUS_OK);
 }
 
-static CLOSURE_1_3(bread, void, descriptor, void *, range, status_handler);
-static void bread(descriptor d, void *source, range blocks, status_handler completion)
+closure_function(1, 3, void, bread,
+                 descriptor, d,
+                 void *, source, range, blocks, status_handler, completion)
 {
     apply(completion, timm("error", "empty file"));
 }
 
-static CLOSURE_0_1(err, void, status);
-static void err(status s)
+closure_function(0, 1, void, err,
+                 status, s)
 {
     rprintf("reported error\n");
 }
@@ -194,14 +197,16 @@ static value translate(heap h, vector worklist,
 
 extern heap init_process_runtime();
 
-static CLOSURE_3_2(fsc, void, heap, descriptor, const char *, filesystem, status);
-static void fsc(heap h, descriptor out, const char *target_root, filesystem fs, status s)
+closure_function(3, 2, void, fsc,
+                 heap, h, descriptor, out, const char *, target_root,
+                 filesystem, fs, status, s)
 {
     if (!root)
         exit(1);
 
+    heap h = bound(h);
     vector worklist = allocate_vector(h, 10);
-    tuple md = translate(h, worklist, target_root, fs, root, closure(h, err));
+    tuple md = translate(h, worklist, bound(target_root), fs, root, closure(h, err));
 
     rprintf("metadata ");
     buffer b = allocate_buffer(transient, 64);
@@ -214,7 +219,7 @@ static void fsc(heap h, descriptor out, const char *target_root, filesystem fs, 
     vector i;
     vector_foreach(worklist, i) {
         tuple f = vector_get(i, 0);        
-        buffer contents = get_file_contents(h, target_root, vector_get(i, 1));
+        buffer contents = get_file_contents(h, bound(target_root), vector_get(i, 1));
         if (contents) {
             allocate_fsfile(fs, f);
             filesystem_write(fs, f, contents, 0, ignore_io_status);

@@ -4,9 +4,11 @@
 #include <gdb.h>
 #include <virtio/virtio.h>
 
-static CLOSURE_2_1(read_program_complete, void, process, tuple, buffer);
-static void read_program_complete(process kp, tuple root, buffer b)
+closure_function(2, 1, void, read_program_complete,
+                 process, kp, tuple, root,
+                 buffer, b)
 {
+    tuple root = bound(root);
     if (table_find(root, sym(trace))) {
         rprintf("read program complete: %p ", root);
         rprintf("gitversion: %s ", gitversion);
@@ -22,19 +24,22 @@ static void read_program_complete(process kp, tuple root, buffer b)
 #endif
        
     }
-    exec_elf(b, kp);
+    exec_elf(b, bound(kp));
 }
 
-static CLOSURE_0_1(read_program_fail, void, status);
-static void read_program_fail(status s)
+closure_function(0, 1, void, read_program_fail,
+                 status, s)
 {
     halt("read program failed %v\n", s);
 }
 
-void startup(kernel_heaps kh,
-             tuple root,
-             filesystem fs)
+closure_function(3, 0, void, startup,
+                 kernel_heaps, kh, tuple, root, filesystem, fs)
 {
+    kernel_heaps kh = bound(kh);
+    tuple root = bound(root);
+    filesystem fs = bound(fs);
+
     /* kernel process is used as a handle for unix */
     process kp = init_unix(kh, root, fs);
     if (kp == INVALID_ADDRESS) {
@@ -48,3 +53,7 @@ void startup(kernel_heaps kh,
     filesystem_read_entire(fs, pro, heap_backed(kh), pg, closure(general, read_program_fail));
 }
 
+thunk create_init(kernel_heaps kh, tuple root, filesystem fs)
+{
+    return closure(heap_general(kh), startup, kh, root, fs);
+}

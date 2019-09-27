@@ -31,8 +31,9 @@ if (strcmp(s1, s2) != 0) { \
 } while (0)
 
 tuple root;
-CLOSURE_1_1(finish, void, heap, void*);
-void finish(heap h, void *v)
+closure_function(1, 1, void, finish,
+                 heap, h,
+                 void *, v)
 {
     root = v;
 }
@@ -42,8 +43,8 @@ string last_error;
 
 parser p;
 
-CLOSURE_0_1(perr, void, string);
-void perr(string s)
+closure_function(0, 1, void, perr,
+                 string, s)
 {
     errors_count++;
     last_error = s; // TODO: copy string here

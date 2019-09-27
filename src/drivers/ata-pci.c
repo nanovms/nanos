@@ -73,11 +73,11 @@ static struct ata *ata_pci_alloc(heap general, pci_dev d)
     return dev;
 }
 
-CLOSURE_2_3(ata_io_cmd, void, void *, int, void *, range, status_handler);
-
-static CLOSURE_2_1(ata_pci_probe, boolean, heap, storage_attach, pci_dev);
-static boolean ata_pci_probe(heap general, storage_attach a, pci_dev d)
+closure_function(2, 1, boolean, ata_pci_probe,
+                 heap, general, storage_attach, a,
+                 pci_dev, d)
 {
+    heap general = bound(general);
     if (pci_get_class(d) != PCIC_STORAGE || pci_get_subclass(d) != PCIS_STORAGE_IDE)
         return false;
 
@@ -88,9 +88,9 @@ static boolean ata_pci_probe(heap general, storage_attach a, pci_dev d)
     }
 
     // attach
-    block_io in = closure(general, ata_io_cmd, dev, ATA_READ48);
-    block_io out = closure(general, ata_io_cmd, dev, ATA_WRITE48);
-    apply(a, in, out, ata_get_capacity(dev));
+    block_io in = create_ata_io(general, dev, ATA_READ48);
+    block_io out = create_ata_io(general, dev, ATA_WRITE48);
+    apply(bound(a), in, out, ata_get_capacity(dev));
     return true;
 }
 

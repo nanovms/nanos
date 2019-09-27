@@ -7,11 +7,11 @@ sysreturn gettimeofday(struct timeval *tv, void *tz)
     return 0;
 }
 
-static CLOSURE_2_0(nanosleep_timeout, void, thread, boolean *);
-static void nanosleep_timeout(thread t, boolean *dead)
+closure_function(2, 0, void, nanosleep_timeout,
+                 thread, t, boolean *, dead)
 {
-    set_syscall_return(t, 0);
-    thread_wakeup(t);
+    set_syscall_return(bound(t), 0);
+    thread_wakeup(bound(t));
 }
 
 sysreturn nanosleep(const struct timespec* req, struct timespec* rem)

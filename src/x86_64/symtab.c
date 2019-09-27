@@ -22,8 +22,8 @@ static inline elfsym allocate_elfsym(range r, char * name)
     return es;
 }
 
-CLOSURE_0_4(elf_symtable_add, void, char *, u64, u64, u8);
-void elf_symtable_add(char * name, u64 a, u64 len, u8 info)
+closure_function(0, 4, void, elf_symtable_add,
+                 char *, name, u64, a, u64, len, u8, info)
 {
     int type = ELF64_ST_TYPE(info);
 

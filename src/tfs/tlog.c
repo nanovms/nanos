@@ -22,14 +22,15 @@ typedef struct log {
     heap h;
 } *log;
 
-static CLOSURE_1_1(log_write_completion, void, vector, status);
-static void log_write_completion(vector v, status s)
+closure_function(1, 1, void, log_write_completion,
+                 vector, v,
+                 status, s)
 {
     // reclaim the buffer now and the vector...make it a whole thing
     status_handler i;
-    int len = vector_length(v);
+    int len = vector_length(bound(v));
     for (int count = 0; count < len; count++) {
-        i = vector_delete(v, 0);
+        i = vector_delete(bound(v), 0);
         apply(i, s);
     }
 }
@@ -105,9 +106,12 @@ void log_write(log tl, tuple t, status_handler sh)
     tl->dirty = true;
 }
 
-CLOSURE_2_1(log_read_complete, void, log, status_handler, status);
-void log_read_complete(log tl, status_handler sh, status s)
+closure_function(2, 1, void, log_read_complete,
+                 log, tl, status_handler, sh,
+                 status, s)
 {
+    log tl = bound(tl);
+    status_handler sh = bound(sh);
     buffer b = tl->staging;
     u8 frame = 0;
 

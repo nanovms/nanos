@@ -66,8 +66,6 @@ static boolean probe_kvm_pvclock(kernel_heaps kh)
     return true;
 }
 
-CLOSURE_0_1(lapic_runloop_timer, void, timestamp);
-
 boolean kvm_detect(kernel_heaps kh)
 {
     kvm_debug("probing for KVM...");
@@ -86,7 +84,8 @@ boolean kvm_detect(kernel_heaps kh)
         return false;
     }
     heap h = heap_general(kh);
-    register_platform_clock_timer(closure(h, lapic_runloop_timer));
+    assert(lapic_runloop_timer);
+    register_platform_clock_timer(lapic_runloop_timer);
     configure_lapic_timer(h);
     return true;
 }

@@ -2,7 +2,7 @@
 
 void initialize_buffer();
 
-define_closure(0, 0, void, ignore_body) {}
+closure_function(0, 0, void, ignore_body) {}
 thunk ignore;
 status_handler ignore_status;
 static char *hex_digits="0123456789abcdef";

@@ -27,13 +27,13 @@ static struct net_lwip_timer net_lwip_timers[] = {
 
 /* We could dispatch lwip timer callbacks as thunks, but breaking it
    out here gives us a single point of entry for debugging. */
-static CLOSURE_2_0(dispatch_lwip_timer, void, lwip_cyclic_timer_handler, const char *);
-void dispatch_lwip_timer(lwip_cyclic_timer_handler handler, const char * name)
+closure_function(2, 0, void, dispatch_lwip_timer,
+                 lwip_cyclic_timer_handler, handler, const char *, name)
 {
 #ifdef LWIP_DEBUG
-    lwip_debug("dispatching timer for %s\n", name);
+    lwip_debug("dispatching timer for %s\n", bound(name));
 #endif
-    handler();
+    bound(handler)();
 }
 
 void sys_timeouts_init(void)

@@ -3,18 +3,20 @@
 #include <socket_user.h>
 #include <sys/epoll.h>
 
-
-static CLOSURE_2_1(each_request, void, heap, buffer_handler, value);
-static void each_request(heap h, buffer_handler out, value v)
+closure_function(2, 1, void, each_request,
+                 heap, h, buffer_handler, out,
+                 value, v)
 {
-    send_http_response(out,
+    send_http_response(bound(out),
                        timm("ContentType", "text/html"),
-                       aprintf(h, "unibooty!"));
+                       aprintf(bound(h), "unibooty!"));
 }
 
-CLOSURE_1_1(conn, buffer_handler, heap, buffer_handler);
-buffer_handler conn(heap h, buffer_handler out)
+closure_function(1, 1, buffer_handler, conn,
+                 heap, h,
+                 buffer_handler, out)
 {
+    heap h = bound(h);
     return allocate_http_parser(h, closure(h, each_request, h, out));
 }
 

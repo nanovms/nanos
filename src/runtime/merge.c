@@ -10,7 +10,9 @@ struct merge {
    status last_status;
 };
 
-define_closure(1, 1, void, merge_join, merge, m, status, s)
+closure_function(1, 1, void, merge_join,
+                 merge, m,
+                 status, s)
 {
     merge m = bound(m);
     if (s != STATUS_OK)
@@ -23,7 +25,8 @@ define_closure(1, 1, void, merge_join, merge, m, status, s)
     }
 }
 
-define_closure(2, 0, status_handler, merge_add, merge, m, status_handler, sh)
+closure_function(2, 0, status_handler, merge_add,
+                 merge, m, status_handler, sh)
 {
     fetch_and_add(&bound(m)->count, 1);
     return bound(sh);

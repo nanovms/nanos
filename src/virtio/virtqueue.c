@@ -144,17 +144,18 @@ void vqmsg_commit(virtqueue vq, vqmsg m, vqfinish completion)
     virtqueue_fill(vq);
 }
 
-static CLOSURE_2_0(vq_complete, void, vqfinish, u16);
-static void vq_complete(vqfinish f, u16 len)
+closure_function(2, 0, void, vq_complete,
+                 vqfinish, f, u16, len)
 {
-    apply(f, len);
+    apply(bound(f), bound(len));
 }
 
-static CLOSURE_1_0(vq_interrupt, void, virtqueue);
-static void vq_interrupt(virtqueue vq)
+closure_function(1, 0, void, vq_interrupt,
+                 virtqueue, vq)
 {
     // ensure we see up-to-date used->idx (updated by host)
     memory_barrier();
+    virtqueue vq = bound(vq);
     virtqueue_debug_verbose("%s: ENTRY: vq %p: entries %d, last_used_idx %d, used->idx %d, desc_idx %d\n",
         __func__, vq, vq->entries, vq->last_used_idx, vq->used->idx, vq->desc_idx);
     

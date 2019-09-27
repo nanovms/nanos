@@ -66,7 +66,8 @@ static void calibrate_lapic_timer()
     apic_timer_cal_sec = (1000 / CALIBRATE_DURATION_MS) * delta;
 }
 
-void lapic_runloop_timer(timestamp interval)
+closure_function(0, 1, void, lapic_timer,
+                 timestamp, interval)
 {
     /* interval * apic_timer_cal_sec / second */
     u32 cnt = (((u128)interval) * apic_timer_cal_sec) >> 32;
@@ -74,8 +75,7 @@ void lapic_runloop_timer(timestamp interval)
     apic_write(APIC_TMRINITCNT, cnt);
 }
 
-static CLOSURE_0_0(int_ignore, void);
-static void int_ignore(void) {}
+closure_function(0, 0, void, int_ignore) {}
 
 void configure_lapic_timer(heap h)
 {
@@ -93,6 +93,8 @@ void lapic_eoi(void)
     write_barrier();
 }
 
+clock_timer lapic_runloop_timer;
+
 void init_apic(kernel_heaps kh)
 {
     apic_vbase = allocate_u64(heap_virtual_page(kh), PAGESIZE);
@@ -108,4 +110,7 @@ void init_apic(kernel_heaps kh)
     u64 lvt_err_irq = allocate_interrupt();
     assert(lvt_err_irq != INVALID_PHYSICAL);
     apic_write(APIC_LVT_ERR, lvt_err_irq);
+
+    /* runloop timer */
+    lapic_runloop_timer = closure(heap_general(kh), lapic_timer);
 }

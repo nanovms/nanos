@@ -146,9 +146,10 @@ boolean register_epollfd(epollfd efd, event_handler eh)
     return true;
 }
 
-static CLOSURE_1_0(epoll_close, sysreturn, epoll);
-static sysreturn epoll_close(epoll e)
+closure_function(1, 0, sysreturn, epoll_close,
+                 epoll, e)
 {
+    epoll e = bound(e);
     epoll_debug("e %p\n", e);
     bitmap_foreach_set(e->fds, fd) {
 	epollfd efd = vector_get(e->events, fd);
@@ -215,7 +216,6 @@ static void epoll_blocked_release(epoll_blocked w)
     }
 }
 
-static CLOSURE_2_0(epoll_blocked_finish, void, epoll_blocked, boolean);
 static void epoll_blocked_finish(epoll_blocked w, boolean timedout)
 {
 #ifdef EPOLL_DEBUG
@@ -281,6 +281,12 @@ static void epoll_blocked_finish(epoll_blocked w, boolean timedout)
     }
 }
 
+closure_function(2, 0, void, epoll_blocked_finish_cfn,
+                 epoll_blocked, w, boolean, timedout)
+{
+    epoll_blocked_finish(bound(w), bound(timedout));
+}
+
 static inline u32 report_from_notify_events(epollfd efd, u32 events)
 {
     boolean edge_detect = (efd->eventmask & EPOLLET) != 0;
@@ -296,9 +302,11 @@ static inline u32 report_from_notify_events(epollfd efd, u32 events)
     return edge_detect ? ~efd->lastevents & events : events;
 }
 
-static CLOSURE_1_1(epoll_wait_notify, void, epollfd, u32);
-static void epoll_wait_notify(epollfd efd, u32 events)
+closure_function(1, 1, void, epoll_wait_notify,
+                 epollfd, efd,
+                 u32, events)
 {
+    epollfd efd = bound(efd);
     list l = list_get_next(&efd->e->blocked_head);
 
     if (events == NOTIFY_EVENTS_RELEASE) {
@@ -409,7 +417,7 @@ sysreturn epoll_wait(int epfd,
     }
 
     if (timeout > 0) {
-	w->timeout = register_timer(milliseconds(timeout), closure(h, epoll_blocked_finish, w, true));
+	w->timeout = register_timer(milliseconds(timeout), closure(h, epoll_blocked_finish_cfn, w, true));
 	fetch_and_add(&w->refcnt, 1);
 	epoll_debug("   registered timer %p\n", w->timeout);
     }
@@ -498,9 +506,11 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 #define POLLFDMASK_WRITE	(EPOLLOUT | EPOLLHUP | EPOLLERR)
 #define POLLFDMASK_EXCEPT	(EPOLLPRI)
 
-static CLOSURE_1_1(select_notify, void, epollfd, u32);
-static void select_notify(epollfd efd, u32 events)
+closure_function(1, 1, void, select_notify,
+                 epollfd, efd,
+                 u32, events)
 {
+    epollfd efd = bound(efd);
     list l = list_get_next(&efd->e->blocked_head);
 
     if (events == NOTIFY_EVENTS_RELEASE) {
@@ -685,7 +695,7 @@ static sysreturn select_internal(int nfds,
     }
 
     if (timeout != infinity) {
-	w->timeout = register_timer(timeout, closure(h, epoll_blocked_finish, w, true));
+	w->timeout = register_timer(timeout, closure(h, epoll_blocked_finish_cfn, w, true));
 	fetch_and_add(&w->refcnt, 1);
 	epoll_debug("   registered timer %p\n", w->timeout);
     }
@@ -711,9 +721,11 @@ sysreturn select(int nfds,
     return select_internal(nfds, readfds, writefds, exceptfds, timeout ? time_from_timeval(timeout) : infinity, 0);
 }
 
-static CLOSURE_1_1(poll_notify, void, epollfd, u32);
-static void poll_notify(epollfd efd, u32 events)
+closure_function(1, 1, void, poll_notify,
+                 epollfd, efd,
+                 u32, events)
 {
+    epollfd efd = bound(efd);
     list l = list_get_next(&efd->e->blocked_head);
 
     if (events == NOTIFY_EVENTS_RELEASE) {
@@ -834,7 +846,7 @@ check_rv_timeout:
     }
 
     if (timeout != infinity) {
-        w->timeout = register_timer(timeout, closure(h, epoll_blocked_finish, w, true));
+        w->timeout = register_timer(timeout, closure(h, epoll_blocked_finish_cfn, w, true));
         fetch_and_add(&w->refcnt, 1);
         epoll_debug("   registered timer %p\n", w->timeout);
     }

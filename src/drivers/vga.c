@@ -171,20 +171,21 @@ static void vga_console_write(void *_d, char *s, bytes count)
     vga_set_cursor(d, d->cur_x, d->cur_y);
 }
 
-static CLOSURE_3_1(vga_pci_probe, boolean, heap, heap, console_attach, pci_dev);
-static boolean vga_pci_probe(heap general, heap pages, console_attach a, pci_dev _d)
+closure_function(3, 1, boolean, vga_pci_probe,
+                 heap, general, heap, pages, console_attach, a,
+                 pci_dev, _d)
 {
     if (pci_get_class(_d) != PCIC_DISPLAY)
         return false;
 
     vga_debug("%s: VGA PCI\n", __func__);
-    struct vga_console_driver *d = allocate(general, sizeof(*d));
+    struct vga_console_driver *d = allocate(bound(general), sizeof(*d));
     assert(d != INVALID_ADDRESS);
     d->c.write = vga_console_write;
     d->crtc_addr = 0x3d4;
     d->buffer = pointer_from_u64(VGA_BUF_BASE);
     d->buffer_size = VGA_BUF_SIZE / sizeof(*d->buffer);
-    map(u64_from_pointer(d->buffer), VGA_BUF_BASE, VGA_BUF_SIZE, PAGE_DEV_FLAGS, pages);
+    map(u64_from_pointer(d->buffer), VGA_BUF_BASE, VGA_BUF_SIZE, PAGE_DEV_FLAGS, bound(pages));
     // assume VGA mode 3 upon initialization
     d->width = 80;
     d->height = 25;
@@ -195,7 +196,7 @@ static boolean vga_pci_probe(heap general, heap pages, console_attach a, pci_dev
     vga_debug("%s: max buffer lines %d\n", __func__, d->max_lines);
     vga_set_offset(d, d->y_offset);
 
-    apply(a, &d->c);
+    apply(bound(a), &d->c);
     return true;
 }
 

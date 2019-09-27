@@ -429,54 +429,62 @@ static void register_descriptor(heap h, notifier n, descriptor f, thunk each)
     notifier_register(n, f, EPOLLIN|EPOLLHUP, each);
 }
 
-static CLOSURE_4_0(connection_input, void, heap, descriptor, notifier, buffer_handler);
-static void connection_input(heap h, descriptor f, notifier n, buffer_handler p)
+closure_function(4, 0, void, connection_input,
+                 heap, h, descriptor, f, notifier, n, buffer_handler, p)
 {
     // can reuse?
-    buffer b = allocate_buffer(h, 512);
+    descriptor f = bound(f);
+    buffer b = allocate_buffer(bound(h), 512);
     int res = read(f, b->contents, b->length);
     if (res > 0) {
         b->end = res;
-        apply(p, b);
+        apply(bound(p), b);
 	return;
     }
     if (res < 0 && errno != ENOTCONN)
 	rprintf("read error: %s (%d)\n", strerror(errno), errno);
-    notifier_reset_fd(n, f);
+    notifier_reset_fd(bound(n), f);
     close(f);
-    apply(p, 0);        // should pass status
+    apply(bound(p), 0);        // should pass status
 }
 
 
-static CLOSURE_2_1(connection_output, void, descriptor, notifier, buffer);
-static void connection_output(descriptor c, notifier n, buffer b)
+closure_function(2, 1, void, connection_output,
+                 descriptor, c, notifier, n,
+                 buffer, b)
 {
+    descriptor c = bound(c);
     if (b)  {
         igr(write(c, b->contents, buffer_length(b)));
     } else {
-	notifier_reset_fd(n, c);
+	notifier_reset_fd(bound(n), c);
         close(c);
     }
 }
 
-static CLOSURE_4_0(accepting, void, heap, notifier, descriptor, new_connection);
-static void accepting(heap h, notifier n, descriptor c, new_connection nc )
+closure_function(4, 0, void, accepting,
+                 heap, h, notifier, n, descriptor, c, new_connection, nc)
 {
+    heap h = bound(h);
+    notifier n = bound(n);
     struct sockaddr_in where;
     socklen_t len = sizeof(struct sockaddr_in);
-    int s = accept(c, (struct sockaddr *)&where, &len);
+    int s = accept(bound(c), (struct sockaddr *)&where, &len);
     if (s < 0 ) halt("accept %s\n", strerror(errno));
     buffer_handler out = closure(h, connection_output, s, n);
-    buffer_handler in = apply(nc, out);
+    buffer_handler in = apply(bound(nc), out);
     register_descriptor(h, n, s, closure(h, connection_input, h, s, n, in));
 }
 
 
-static CLOSURE_4_0(connection_start, void, heap, descriptor, notifier, new_connection);
-void connection_start(heap h, descriptor s, notifier n, new_connection c)
+closure_function(4, 0, void, connection_start,
+                 heap, h, descriptor, s, notifier, n, new_connection, c)
 {
+    heap h = bound(h);
+    descriptor s = bound(s);
+    notifier n = bound(n);
     buffer_handler out = closure(h, connection_output, s, n);
-    buffer_handler input = apply(c, out);
+    buffer_handler input = apply(bound(c), out);
     // dont stay for write
     notifier_reset_fd(n, s);
     register_descriptor(h, n, s, closure(h, connection_input, h, s, n, input));

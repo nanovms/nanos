@@ -1,13 +1,13 @@
 #include <runtime.h>
 #include <stdlib.h>
 
-define_closure(0, 0, u64, test0)
+closure_function(0, 0, u64, test0)
 {
     rprintf("test0\n");
     return 0xdeadbeef;
 }
 
-define_closure(0, 0, void, test1)
+closure_function(0, 0, void, test1)
 {
     rprintf("test1, self = %p\n", __self);
 }

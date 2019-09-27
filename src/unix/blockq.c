@@ -148,9 +148,12 @@ static void blockq_apply_bi_locked(blockq bq, blockq_item bi,
  * Invoke its action and remove it from the list of waiters,
  * if applicable
  */
-CLOSURE_2_0(blockq_item_timeout, void, blockq, blockq_item)
-void blockq_item_timeout(blockq bq, blockq_item bi)
+closure_function(2, 0, void, blockq_item_timeout,
+                 blockq, bq, blockq_item, bi)
 {
+    blockq bq = bound(bq);
+    blockq_item bi = bound(bi);
+
     blockq_debug("bq %p (\"%s\") bi %p (tid:%ld)\n",
         bq, blockq_name(bq), bi, bi->t->tid);
 

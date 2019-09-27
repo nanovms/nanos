@@ -154,9 +154,9 @@ static u64 id_alloc(heap h, bytes count)
     return INVALID_PHYSICAL;
 }
 
-define_closure(2, 1, void, dealloc_from_range,
-               id_heap, i, range, q,
-               rmnode, n)
+closure_function(2, 1, void, dealloc_from_range,
+                 id_heap, i, range, q,
+                 rmnode, n)
 {
     id_heap i = bound(i);
     range q = bound(q);
@@ -239,9 +239,9 @@ boolean id_heap_add_range(heap h, u64 base, u64 length)
     return id_add_range((id_heap)h, base, length) != INVALID_ADDRESS;
 }
 
-define_closure(4, 1, void, set_intersection,
-               range, q, boolean *, fail, boolean, validate, boolean, allocate,
-               rmnode, n)
+closure_function(4, 1, void, set_intersection,
+                 range, q, boolean *, fail, boolean, validate, boolean, allocate,
+                 rmnode, n)
 {
     range ri = range_intersection(bound(q), n->r);
     id_range r = (id_range)n;
