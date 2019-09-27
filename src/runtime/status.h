@@ -34,11 +34,16 @@ static inline tuple timm_internal(char *first, ...)
 // fix for zero argument case
 #define timm(first, ...)  timm_internal(first, __VA_ARGS__, INVALID_ADDRESS)
 
+// build up status chain
+#define timm_up(sd, first, ...)                     \
+    ({                                              \
+        tuple __up = timm(first, __VA_ARGS__);      \
+        table_set(__up, sym(down), sd);             \
+        __up;                                       \
+    })
+
 #define STATUS_OK ((tuple)0)
 static inline boolean is_ok(status s)
 {
     return (s == STATUS_OK);
 }
-
-
-

@@ -555,16 +555,6 @@ static s64 xenstore_read_internal(buffer b, s64 length)
     return result;
 }
 
-/*
-   xenstore_transaction - Take a buffer of data to write to the
-      xenstore as well as a buffer to fill with the response
-      data. Call the status handler with the status of the operation.
-
-   xenstore_sync_transaction - same as xenstore_transaction but
-      without asynchronous blocking; returns status
-
-*/
-
 static inline status xenstore_sync_write(const void *data, s64 length)
 {
     if (length > 0) {
@@ -636,7 +626,8 @@ status xenstore_sync_request(u32 tx_id, enum xsd_sockmsg_type type, buffer reque
     }
 
     if (rmsg->type == XS_ERROR) {
-        s = timm("result", "xen store error response: \"%s\"", buffer_ref(response, 0));
+        s = timm("result", "xen store error",
+                 "errno", "%s", buffer_ref(response, 0));
         goto out_dealloc;
     }
   out_dealloc:
