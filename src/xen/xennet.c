@@ -99,7 +99,7 @@ struct xennet_dev {
     struct list tx_free;
 };
 
-#define XENNET_INFORM_BACKEND_RETRIES 128
+#define XENNET_INFORM_BACKEND_RETRIES 1024
 
 static status xennet_inform_backend(xennet_dev xd)
 {
@@ -154,19 +154,19 @@ static status xennet_inform_backend(xennet_dev xd)
             if (!runtime_strcmp("EAGAIN", buffer_ref((buffer)v, 0))) {
                 deallocate_tuple(s);
                 if (retries-- == 0) {
-                    s = timm("result", "%s failed: transaction end returned EAGAIN after %d tries",
+                    return timm("result", "%s failed: transaction end returned EAGAIN after %d tries",
                              __func__, XENNET_INFORM_BACKEND_RETRIES);
-                    goto abort;
                 }
                 goto again;
             }
         }
-        goto abort;
+        return timm_up(s, "result", "%s: transaction end failed", __func__);
     }
     return s;
   abort:
     xenstore_transaction_end(tx_id, true);
-    return timm("result", "%s: transaction aborted; step \"%s\" failed with error \"%v\"", __func__, node, s);
+    return timm_up(s, "result", "%s: transaction aborted; step \"%s\" failed",
+                   __func__, node);
 }
 
 static inline u32 xennet_form_tx_id(xennet_tx_buf txb, int pageidx)
