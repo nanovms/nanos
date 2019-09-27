@@ -10,9 +10,9 @@ struct merge {
    status last_status;
 };
 
-static CLOSURE_1_1(merge_join, void, merge, status);
-static void merge_join(merge m, status s)
+define_closure(1, 1, void, merge_join, merge, m, status, s)
 {
+    merge m = bound(m);
     if (s != STATUS_OK)
         m->last_status = s; // last failed status
 
@@ -23,11 +23,10 @@ static void merge_join(merge m, status s)
     }
 }
 
-static CLOSURE_2_0(merge_add, status_handler, merge, status_handler);
-static status_handler merge_add(merge m, status_handler sh)
+define_closure(2, 0, status_handler, merge_add, merge, m, status_handler, sh)
 {
-    fetch_and_add(&m->count, 1);
-    return sh;
+    fetch_and_add(&bound(m)->count, 1);
+    return bound(sh);
 }
 
 merge allocate_merge(heap h, status_handler completion)

@@ -21,7 +21,7 @@ struct _closure_common {
     bytes size;
 };
 
-#define upvalue(name) (__self->name)
+#define bound(name) (__self->name)
 #define __closure_name(nl, nr) CLOSURE_ ## nl ## _ ## nr
 #define define_closure(nl, nr, ...) __closure_name(nl, nr)(__VA_ARGS__)
 
