@@ -338,12 +338,12 @@ CFLAGS+=	-I$(SRCDIR)/runtime \
 CLEANDIRS+=	$(OBJDIR)/test
 
 # gcov support
-#CFLAGS+=	-fprofile-arcs -ftest-coverage
-#LDFLAGS+=	-fprofile-arcs
-#GCDAFILES=	$(sort $(foreach p,$(PROGRAMS),$(patsubst %.o,%.gcda,$(OBJS-$p))))
-#GCOVFILES=	$(sort $(foreach p,$(PROGRAMS),$(patsubst %.o,%.gcno,$(OBJS-$p))))
-#GCOVFILES+=	$(GCDAFILES) $(OBJDIR)/gcov-tests.info
-#CLEANFILES+=	$(GCOVFILES)
+CFLAGS+=	-fprofile-arcs -ftest-coverage
+LDFLAGS+=	-fprofile-arcs
+GCDAFILES=	$(sort $(foreach p,$(PROGRAMS),$(patsubst %.o,%.gcda,$(OBJS-$p))))
+GCOVFILES=	$(sort $(foreach p,$(PROGRAMS),$(patsubst %.o,%.gcno,$(OBJS-$p))))
+GCOVFILES+=	$(GCDAFILES) $(OBJDIR)/gcov-tests.info
+CLEANFILES+=	$(GCOVFILES)
 
 all: $(PROGRAMS)
 

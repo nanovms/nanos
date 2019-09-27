@@ -15,20 +15,14 @@
     __closure(0, stack_allocate(sizeof(struct _closure_##__name)), \
               sizeof(struct _closure_##__name), __name, ##__VA_ARGS__)
 
-void _apply_dealloc(void);
-
-#define _apply_setup(z) \
-    asm volatile("push %0; push %1" :: "r" (z), "r" (&_apply_dealloc));
-
 struct _closure_common {
     char *name;
     heap h;
     bytes size;
 };
 
-#define closure_return_nodealloc                                        \
-    u64 discard0, discard1;                                             \
-    asm volatile("pop %0; pop %1" : "=r" (discard0), "=r" (discard1));  \
-    return
+#define upvalue(name) (__self->name)
+#define __closure_name(nl, nr) CLOSURE_ ## nl ## _ ## nr
+#define define_closure(nl, nr, ...) __closure_name(nl, nr)(__VA_ARGS__)
 
 #include <closure_templates.h>
