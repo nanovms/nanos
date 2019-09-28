@@ -19,10 +19,15 @@ closure_function(1, 1, u64, test0,
 
 static boolean terminate_reached;
 
-closure_function(0, 2, void, test1,
+closure_function(1, 2, void, test1,
+                 int, count,
                  void *, self, boolean, terminate)
 {
     if (terminate) {
+        if (bound(count) != 1) {
+            msg_err("bound variable value mismatch\n");
+            exit(EXIT_FAILURE);
+        }
         terminate_reached = true;
         return;
     }
@@ -30,6 +35,7 @@ closure_function(0, 2, void, test1,
         msg_err("self mismatch: %p, %p, terminate %d\n", closure_self(), self, terminate);
         exit(EXIT_FAILURE);
     }
+    bound(count)++;
     apply(closure_self(), self, true);
 }
 
@@ -51,7 +57,7 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
     heap_occupancy = h->allocated;
-    test1_type t = closure(h, test1);
+    test1_type t = closure(h, test1, 0);
     apply(t, t, false);
     deallocate_closure(t);
     if (h->allocated > heap_occupancy) {
