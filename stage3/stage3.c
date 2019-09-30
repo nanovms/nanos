@@ -25,11 +25,13 @@ closure_function(2, 1, void, read_program_complete,
        
     }
     exec_elf(b, bound(kp));
+    closure_finish();
 }
 
 closure_function(0, 1, void, read_program_fail,
                  status, s)
 {
+    closure_finish();
     halt("read program failed %v\n", s);
 }
 
@@ -51,6 +53,7 @@ closure_function(3, 0, void, startup,
     tuple pro = resolve_path(root, split(general, p, '/'));
     init_network_iface(root);
     filesystem_read_entire(fs, pro, heap_backed(kh), pg, closure(general, read_program_fail));
+    closure_finish();
 }
 
 thunk create_init(kernel_heaps kh, tuple root, filesystem fs)

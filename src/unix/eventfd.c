@@ -44,6 +44,7 @@ closure_function(5, 2, sysreturn, efd_read_bh,
 out:
     if (blocked)
         blockq_set_completion(efd->read_bq, bound(completion), bound(t), rv);
+    closure_finish();
     return rv;
 }
 
@@ -87,6 +88,7 @@ closure_function(5, 2, sysreturn, efd_write_bh,
 out:
     if (blocked)
         blockq_set_completion(efd->write_bq, bound(completion), bound(t), rv);
+    closure_finish();
     return rv;
 }
 
@@ -122,6 +124,10 @@ closure_function(1, 0, sysreturn, efd_close,
     struct efd *efd = bound(efd);
     deallocate_blockq(efd->read_bq);
     deallocate_blockq(efd->write_bq);
+    deallocate_closure(efd->f.read);
+    deallocate_closure(efd->f.write);
+    deallocate_closure(efd->f.events);
+    deallocate_closure(efd->f.close);
     release_fdesc(&efd->f);
     deallocate(efd->h, efd, sizeof(*efd));
     return 0;

@@ -163,6 +163,7 @@ out:
     if (blocked) {
         blockq_set_completion(s->read_bq, bound(completion), t, real_length);
     }
+    closure_finish();
     return real_length;
 }
 
@@ -222,6 +223,7 @@ out:
     if (blocked) {
         blockq_set_completion(s->write_bq, bound(completion), bound(t), rv);
     }
+    closure_finish();
     return rv;
 }
 
@@ -271,6 +273,10 @@ static void sockpair_dealloc_sock(sockpair_socket s)
     if ((s->write_bq != 0) && (s->write_bq != INVALID_ADDRESS)) {
         deallocate_blockq(s->write_bq);
     }
+    deallocate_closure(s->f.read);
+    deallocate_closure(s->f.write);
+    deallocate_closure(s->f.events);
+    deallocate_closure(s->f.close);
     release_fdesc(&s->f);
 }
 
@@ -287,8 +293,10 @@ static void sockpair_release(struct sockpair *sockpair)
 closure_function(1, 0, sysreturn, sockpair_close,
                  sockpair_socket, s)
 {
+    struct sockpair *sockpair = bound(s)->sockpair;
     sockpair_dealloc_sock(bound(s));
-    sockpair_release(bound(s)->sockpair);
+    /* cannot access bound vars past this point */
+    sockpair_release(sockpair);
     return 0;
 }
 

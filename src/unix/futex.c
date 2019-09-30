@@ -101,8 +101,10 @@ closure_function(3, 2, sysreturn, futex_bh,
     else
         rv = 0; /* no timer expire + not us --> actual wakeup */
 
-    if (rv != infinity)
+    if (rv != infinity) {
         thread_wakeup(t);
+        closure_finish();
+    }
 
     return set_syscall_return(t, rv);
 }

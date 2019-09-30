@@ -114,10 +114,16 @@ static inline void pipe_dealloc_end(pipe p, pipe_file pf)
         if (&p->files[PIPE_READ] == pf) {
             pipe_notify_writer(pf, EPOLLHUP);
             pipe_debug("%s(%p): writer notified\n", __func__, p);
+            deallocate_closure(pf->f.read);
+            deallocate_closure(pf->f.close);
+            deallocate_closure(pf->f.events);
         }
         if (&p->files[PIPE_WRITE] == pf) {
             pipe_notify_reader(pf, EPOLLIN | EPOLLHUP);
             pipe_debug("%s(%p): reader notified\n", __func__, p);
+            deallocate_closure(pf->f.write);
+            deallocate_closure(pf->f.close);
+            deallocate_closure(pf->f.events);
         }
 
         pipe_release(p);
@@ -167,7 +173,7 @@ closure_function(5, 2, sysreturn, pipe_read_bh,
   out:
     if (blocked)
         blockq_set_completion(pf->bq, bound(completion), bound(t), rv);
-
+    closure_finish();
     return rv;
 }
 
@@ -225,7 +231,7 @@ closure_function(5, 2, sysreturn, pipe_write_bh,
   out:
     if (blocked)
         blockq_set_completion(pf->bq, bound(completion), bound(t), rv);
-
+    closure_finish();
     return rv;
 }
 

@@ -162,6 +162,7 @@ closure_function(2, 0, void, blockq_item_timeout,
     /* XXX take irqsafe spinlock */
     blockq_apply_bi_locked(bq, bi, true, false);
     /* XXX release lock */
+    closure_finish();
 }
 
 /*

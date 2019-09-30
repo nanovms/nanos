@@ -128,7 +128,7 @@ static void free_epollfd(epollfd efd)
     release_epollfd(efd);
 }
 
-boolean register_epollfd(epollfd efd, event_handler eh)
+static boolean register_epollfd(epollfd efd, event_handler eh)
 {
     if (efd->registered)
         return false;
@@ -157,6 +157,7 @@ closure_function(1, 0, sysreturn, epoll_close,
 	free_epollfd(efd);
     }
     deallocate_bitmap(e->fds);
+    deallocate_closure(e->f.close);
     release_fdesc(&e->f);
     unix_cache_free(get_unix_heaps(), epoll, e);
     return 0;
@@ -216,7 +217,7 @@ static void epoll_blocked_release(epoll_blocked w)
     }
 }
 
-static void epoll_blocked_finish(epoll_blocked w, boolean timedout)
+static void epoll_blocked_finish_internal(epoll_blocked w, boolean timedout)
 {
 #ifdef EPOLL_DEBUG
     epoll_debug("w %p, refcnt %ld\n", w, w->refcnt);
@@ -281,10 +282,11 @@ static void epoll_blocked_finish(epoll_blocked w, boolean timedout)
     }
 }
 
-closure_function(2, 0, void, epoll_blocked_finish_cfn,
+closure_function(2, 0, void, epoll_blocked_finish,
                  epoll_blocked, w, boolean, timedout)
 {
-    epoll_blocked_finish(bound(w), bound(timedout));
+    epoll_blocked_finish_internal(bound(w), bound(timedout));
+    closure_finish();
 }
 
 static inline u32 report_from_notify_events(epollfd efd, u32 events)
@@ -341,7 +343,7 @@ closure_function(1, 1, void, epoll_wait_notify,
 	    epoll_debug("   user_events null or full\n");
 	    return;
 	}
-	epoll_blocked_finish(w, false);
+	epoll_blocked_finish_internal(w, false);
     }
 }
 
@@ -417,7 +419,7 @@ sysreturn epoll_wait(int epfd,
     }
 
     if (timeout > 0) {
-	w->timeout = register_timer(milliseconds(timeout), closure(h, epoll_blocked_finish_cfn, w, true));
+	w->timeout = register_timer(milliseconds(timeout), closure(h, epoll_blocked_finish, w, true));
 	fetch_and_add(&w->refcnt, 1);
 	epoll_debug("   registered timer %p\n", w->timeout);
     }
@@ -543,7 +545,7 @@ closure_function(1, 1, void, select_notify,
 	if (count > 0) {
 	    fetch_and_add(&w->retcount, count);
 	    epoll_debug("   event on %d, events 0x%x\n", efd->fd, events);
-	    epoll_blocked_finish(w, false);
+	    epoll_blocked_finish_internal(w, false);
 	}
     }
 }
@@ -695,7 +697,7 @@ static sysreturn select_internal(int nfds,
     }
 
     if (timeout != infinity) {
-	w->timeout = register_timer(timeout, closure(h, epoll_blocked_finish_cfn, w, true));
+	w->timeout = register_timer(timeout, closure(h, epoll_blocked_finish, w, true));
 	fetch_and_add(&w->refcnt, 1);
 	epoll_debug("   registered timer %p\n", w->timeout);
     }
@@ -744,7 +746,7 @@ closure_function(1, 1, void, poll_notify,
         fetch_and_add(&w->poll_retcount, 1);
         pfd->revents = events;
         epoll_debug("   event on %d (%d), events 0x%x\n", efd->fd, pfd->fd, pfd->revents);
-        epoll_blocked_finish(w, false);
+        epoll_blocked_finish_internal(w, false);
     }
 }
 
@@ -846,7 +848,7 @@ check_rv_timeout:
     }
 
     if (timeout != infinity) {
-        w->timeout = register_timer(timeout, closure(h, epoll_blocked_finish_cfn, w, true));
+        w->timeout = register_timer(timeout, closure(h, epoll_blocked_finish, w, true));
         fetch_and_add(&w->refcnt, 1);
         epoll_debug("   registered timer %p\n", w->timeout);
     }
