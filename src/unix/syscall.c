@@ -572,6 +572,7 @@ closure_function(5, 2, void, file_op_complete,
         rv = -EIO;
     }
     apply(bound(completion), t, rv);
+    closure_finish();
 }
 
 static void sendfile_complete_internal(heap h, int * offset, void * buf, bytes len, boolean bh,
@@ -594,6 +595,7 @@ closure_function(5, 2, void, sendfile_complete,
                  thread, t, sysreturn, rv)
 {
     sendfile_complete_internal(bound(h), bound(offset), bound(buf), bound(len), bound(bh), t, rv);
+    closure_finish();
 }
 
 static void sendfile_read_complete_internal(heap h, fdesc out, int * offset, void * buf, bytes length, boolean bh,
@@ -615,6 +617,7 @@ closure_function(6, 2, void, sendfile_read_complete,
                  thread, t, sysreturn, rv)
 {
     sendfile_read_complete_internal(bound(h), bound(out), bound(offset), bound(buf), bound(length), bound(bh), t, rv);
+    closure_finish();
 }
 
 static sysreturn sendfile(int out_fd, int in_fd, int *offset, bytes count)
@@ -1105,6 +1108,7 @@ closure_function(1, 1, void, truncate_complete,
         set_syscall_error(t, EIO);
     }
     thread_wakeup(t);
+    closure_finish();
 }
 
 static sysreturn truncate_internal(tuple t, long length)
@@ -1163,6 +1167,7 @@ closure_function(2, 1, void, fsync_complete,
         set_syscall_error(t, EIO);
     }
     thread_wakeup(t);
+    closure_finish();
 }
 
 static sysreturn fsync(int fd)
@@ -1468,6 +1473,7 @@ closure_function(1, 1, void, file_delete_complete,
         set_syscall_error(t, EIO);
     }
     thread_wakeup(t);
+    closure_finish();
 }
 
 static sysreturn unlink_internal(tuple cwd, const char *pathname)
@@ -1551,6 +1557,7 @@ closure_function(1, 1, void, file_rename_complete,
         set_syscall_error(t, EIO);
     }
     thread_wakeup(t);
+    closure_finish();
 }
 
 static sysreturn rename_internal(tuple oldwd, const char *oldpath, tuple newwd,
