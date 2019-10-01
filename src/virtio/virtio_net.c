@@ -75,6 +75,7 @@ closure_function(1, 1, void, tx_complete,
     // path (?)
     // free me!
     pbuf_free(bound(p));
+    closure_finish();
 }
 
 
@@ -137,6 +138,7 @@ closure_function(1, 1, void, input,
     // we need to get a signal from the device side that there was
     // an underrun here to open up the window
     post_receive(vn);
+    closure_finish();
 }
 
 

@@ -73,7 +73,7 @@ char * find_elf_sym(u64 a, u64 *offset, u64 *len)
 void add_elf_syms(buffer b)
 {
     if (elf_symtable)
-	elf_symbols(b, closure(general, elf_symtable_add));
+	elf_symbols(b, stack_closure(elf_symtable_add));
     else
 	console("can't add ELF symbols; symtab not initialized\n");
 }

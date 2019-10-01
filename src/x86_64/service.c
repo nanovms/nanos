@@ -142,6 +142,7 @@ closure_function(1, 2, void, fsstarted,
 {
     assert(s == STATUS_OK);
     enqueue(runqueue, create_init(&heaps, bound(root), fs));
+    closure_finish();
 }
 
 closure_function(2, 3, void, attach_storage,
@@ -158,6 +159,7 @@ closure_function(2, 3, void, attach_storage,
                       closure(h, offset_block_io, bound(fs_offset), w),
                       bound(root),
                       closure(h, fsstarted, bound(root)));
+    closure_finish();
 }
 
 static void read_kernel_syms()

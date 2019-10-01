@@ -237,6 +237,7 @@ closure_function(1, 0, void, xennet_tx_buf_finish,
                  struct pbuf *, p)
 {
     pbuf_free(bound(p));
+    closure_finish();
 }
 
 static void xennet_service_tx_ring(xennet_dev xd)
@@ -515,6 +516,7 @@ closure_function(2, 0, void, xennet_rx_buf_finish,
         msg_err("rx drop by stack\n");
         xennet_return_rxbuf(p);
     }
+    closure_finish();
 }
 
 static void xennet_service_rx_ring(xennet_dev xd)

@@ -148,6 +148,7 @@ closure_function(2, 0, void, vq_complete,
                  vqfinish, f, u16, len)
 {
     apply(bound(f), bound(len));
+    closure_finish();
 }
 
 closure_function(1, 0, void, vq_interrupt,
