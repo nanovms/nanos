@@ -290,9 +290,7 @@ closure_function(6, 2, void, mmap_read_complete,
     if (!is_ok(s)) {
         deallocate_buffer(b);
         set_syscall_error(t, EACCES);
-        thread_wakeup(t);
-        closure_finish();
-	return;
+        goto out;
     }
 
     kernel_heaps kh = (kernel_heaps)&t->uh;
@@ -331,6 +329,7 @@ closure_function(6, 2, void, mmap_read_complete,
     }
 
     set_syscall_return(t, where);
+  out:
     thread_wakeup(t);
     closure_finish();
 }
