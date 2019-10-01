@@ -160,7 +160,6 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
         new_size == 0)
         return -EINVAL;
 
-    /* XXX should determine if we're extending a virtual32 allocation... */
     heap vh = p->virtual_page;
     heap physical = heap_physical(kh);
     heap pages = heap_pages(kh);
@@ -169,6 +168,33 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
     if (new_size <= old_size)
         return sysreturn_from_pointer(old_address);
 
+    /* verify we have a single vmap for the old address range */
+    vmap old_vm = (vmap)rangemap_lookup(p->vmaps, old_addr);
+    if ((old_vm == INVALID_ADDRESS) ||
+        (!range_contains(
+            old_vm->node.r,
+            irange(old_addr, old_addr + old_size)
+        )))
+        return -EFAULT;
+
+    /* XXX should determine if we're extending a virtual32 allocation...
+     * - for now only let the user move anon mmaps 
+     */
+    if (! ((old_vm->flags & VMAP_FLAG_MMAP) &&
+           (old_vm->flags & VMAP_FLAG_ANONYMOUS))
+       )
+    {
+        msg_err("mremap only supports anon mmap regions at the moment\n"); 
+        return -EINVAL;
+    }
+
+    /* remove old mapping, preserving attributes */
+    u64 vmflags = old_vm->flags;
+
+    /* we're moving the vmap to a new address region, so we can safely remove
+     * the old node entirely */
+    rangemap_remove_node(p->vmaps, &old_vm->node);
+
     /* new virtual allocation */
     u64 maplen = pad(new_size, vh->pagesize);
     u64 vnew = allocate_u64(vh, maplen);
@@ -176,15 +202,6 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
         msg_err("failed to allocate virtual memory, size %ld\n", maplen);
         return -ENOMEM;
     }
-
-    /* remove old mapping, preserving attributes
-     * XXX should verify entire given range
-     */
-    vmap old_vm = (vmap)rangemap_lookup(p->vmaps, old_addr);
-    if (old_vm == INVALID_ADDRESS)
-        return -EFAULT;
-    u64 vmflags = old_vm->flags;
-    rangemap_remove_node(p->vmaps, &old_vm->node);
 
     /* create new vm with old attributes */
     vmap vm = allocate_vmap(p->vmaps, irange(vnew, vnew + maplen), vmflags);
@@ -203,6 +220,12 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
         return -ENOMEM;
     }
     thread_log(current, "   new physical pages at 0x%lx, size %ld", dphys, dlen);
+
+    /*
+     * XXX : if we decide to handle MREMAP_FIXED, we'll need to be careful about
+     * making sure destination address ranges are unmapped before mapping over them
+     * here 
+     */
 
     /* remap existing portion */
     thread_log(current, "   remapping existing portion at 0x%lx (old_addr 0x%lx, size 0x%lx)",
