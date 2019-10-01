@@ -322,18 +322,8 @@ closure_function(3, 3, boolean, remap_entry,
                level, curr, phys, new_curr, entry, *entry, flags);
 #endif
 
-    /* transpose any unmapped gaps to target */
-    if (!pt_entry_is_present(oldentry)) {
-        u64 len = U64_FROM_BIT(level_shift[level]);
-#ifdef PAGE_UPDATE_DEBUG
-        page_debug("unmapping [0x%lx, 0x%lx)\n", new_curr, new_curr + len);
-#endif
-        unmap_pages(new_curr, len);
-        return true;
-    }
-
     /* only look at ptes at this point */
-    if (!pt_entry_is_pte(level, oldentry))
+    if (!pt_entry_is_present(oldentry) || !pt_entry_is_pte(level, oldentry))
         return true;
 
     /* transpose mapped page */
