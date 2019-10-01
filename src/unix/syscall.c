@@ -414,7 +414,7 @@ static inline boolean filepath_is_ancestor(tuple wd1, const char *fp1,
     return false;
 }
 
-/* XXX CLOSURE no need to create new closures now; fix */
+/* Seems this could be implemented using a merge? */
 static void iov_transfer_internal(heap h, file f, io op, struct iovec * iov, int iovcnt, struct iov_progress * progress, boolean bh, thread t, sysreturn rv);
 closure_function(7, 2, void, iov_transfer,
                  heap, h, file, f, io, op, struct iovec *, iov, int, iovcnt, struct iov_progress *, progress, boolean, bh,
