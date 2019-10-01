@@ -12,8 +12,6 @@ int computeSignal (int exceptionVector)
 
 static int sigval;
 
-static CLOSURE_1_1(gdb_handle_exception, context, gdb, context);
-
 static void reset_parser(gdb g)
 {
     g->checksum =0;
@@ -23,8 +21,11 @@ static void reset_parser(gdb g)
     g->sent_checksum = -1;
 }
 
-static context gdb_handle_exception (gdb g, context frame)
+closure_function(1, 1, context, gdb_handle_exception,
+                 gdb, g,
+                 context, frame)
 {
+    gdb g = bound(g);
     u64 exceptionVector = frame[FRAME_VECTOR];
     //     rprintf ("gdb exception: %ld %p [%p %p] %p %p\n", exceptionVector, g, frame, g->t->frame, frame[FRAME_RIP], *(u64 *)frame[FRAME_RIP]);
     sigval = computeSignal(exceptionVector);
@@ -307,9 +308,11 @@ static boolean handle_request(gdb g, buffer b, buffer output)
 
 #define ASCII_CONTROL_C 0x03
 // not completely reassembling (meaning we dont handle fragments?)
-static CLOSURE_1_1(gdbserver_input, void, gdb, buffer);
-static void gdbserver_input(gdb g, buffer b)
+closure_function(1, 1, void, gdbserver_input,
+                 gdb, g,
+                 buffer, b)
 {
+    gdb g = bound(g);
     char ch = '0';
     /* wait around for the start character, ignore all other characters */
     while (buffer_length(b) && ((ch = get_char(b)) != '$')) {

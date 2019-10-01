@@ -5,13 +5,14 @@ typedef struct tcpgdb{
     struct tcp_pcb *p;
 } *tcpgdb;
     
-static CLOSURE_1_1(gdb_send, void, tcpgdb, buffer);
-static void gdb_send(tcpgdb g, buffer b)
+closure_function(1, 1, void, gdb_send,
+                 tcpgdb, g,
+                 buffer, b)
 {
     //    u64 len = tcp_sndbuf(g->pcb);
     // flags can force a stack copy or toggle push
     // pool?
-    tcp_write(g->p, buffer_ref(b, 0), buffer_length(b), TCP_WRITE_FLAG_COPY);
+    tcp_write(bound(g)->p, buffer_ref(b, 0), buffer_length(b), TCP_WRITE_FLAG_COPY);
 }
 
 err_t gdb_input(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)

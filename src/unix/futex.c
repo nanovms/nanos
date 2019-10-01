@@ -84,11 +84,12 @@ static int futex_wake_many(struct futex * f, int val)
  *  -EINTR: if we're being nullified
  *  0: thread woken up
  */
-static CLOSURE_3_2(futex_bh, sysreturn, struct futex *, thread, timestamp,
-                   boolean, boolean);
-static sysreturn futex_bh(struct futex * f, thread t, timestamp ts,
-                          boolean blocked, boolean nullify)
+closure_function(3, 2, sysreturn, futex_bh,
+                 struct futex *, f, thread, t, timestamp, ts,
+                 boolean, blocked, boolean, nullify)
 {
+    thread t = bound(t);
+    timestamp ts = bound(ts);
     sysreturn rv;
 
     if (current == t)

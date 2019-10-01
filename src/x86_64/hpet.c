@@ -147,14 +147,13 @@ static void timer_config(int timer, timestamp rate, thunk t, boolean periodic)
     hpet->timers[timer].comparator = comparator;
 }
 
-static CLOSURE_0_1(hpet_runloop_timer, void, timestamp);
-static void hpet_runloop_timer(timestamp duration)
+closure_function(0, 1, void, hpet_runloop_timer,
+                 timestamp, duration)
 {
     timer_config(0, duration, ignore, false);
 }
 
-static CLOSURE_0_0(hpet_now, timestamp);
-static timestamp hpet_now()
+closure_function(0, 0, timestamp, hpet_now)
 {
     return (((u128)hpet_main_counter()) * hpet_period_scaled_32) >> 32;
 }

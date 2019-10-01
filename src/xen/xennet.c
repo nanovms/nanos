@@ -233,10 +233,10 @@ static xennet_tx_buf xennet_get_txbuf(xennet_dev xd)
     return txb;
 }
 
-static CLOSURE_1_0(xennet_tx_buf_finish, void, struct pbuf *);
-static void xennet_tx_buf_finish(struct pbuf *p)
+closure_function(1, 0, void, xennet_tx_buf_finish,
+                 struct pbuf *, p)
 {
-    pbuf_free(p);
+    pbuf_free(bound(p));
 }
 
 static void xennet_service_tx_ring(xennet_dev xd)
@@ -506,9 +506,11 @@ static void xennet_populate_rx_ring(xennet_dev xd)
         xen_notify_evtchn(xd->evtchn);
 }
 
-static CLOSURE_2_0(xennet_rx_buf_finish, void, xennet_dev, struct pbuf *);
-static void xennet_rx_buf_finish(xennet_dev xd, struct pbuf *p)
+closure_function(2, 0, void, xennet_rx_buf_finish,
+                 xennet_dev, xd, struct pbuf *, p)
 {
+    xennet_dev xd = bound(xd);
+    struct pbuf *p = bound(p);
     if (xd->netif->input(p, xd->netif) != ERR_OK) {
         msg_err("rx drop by stack\n");
         xennet_return_rxbuf(p);
@@ -553,9 +555,10 @@ static void xennet_service_rx_ring(xennet_dev xd)
     } while (more);
 }
 
-static CLOSURE_1_0(xennet_event_handler, void, xennet_dev);
-static void xennet_event_handler(xennet_dev xd)
+closure_function(1, 0, void, xennet_event_handler,
+                 xennet_dev, xd)
 {
+    xennet_dev xd = bound(xd);
     xennet_service_tx_ring(xd);
     xennet_populate_tx_ring(xd);
     xennet_service_rx_ring(xd);
@@ -762,11 +765,12 @@ static status xennet_attach(kernel_heaps kh, int id, buffer frontend, tuple meta
     return s;
 }
     
-static CLOSURE_1_3(xennet_probe, boolean, kernel_heaps, int, buffer, tuple);
-static boolean xennet_probe(kernel_heaps kh, int id, buffer frontend, tuple meta)
+closure_function(1, 3, boolean, xennet_probe,
+                 kernel_heaps, kh,
+                 int, id, buffer, frontend, tuple, meta)
 {
     xennet_debug("probe for id %d, meta: %v", id, meta);
-    status s = xennet_attach(kh, id, frontend, meta);
+    status s = xennet_attach(bound(kh), id, frontend, meta);
     if (!is_ok(s)) {
         msg_err("attach failed with status %v\n", s);
         return false;

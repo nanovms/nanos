@@ -25,8 +25,7 @@ u64 pvclock_now_ns(void)
     return result;
 }
 
-CLOSURE_0_0(pvclock_now, timestamp);
-timestamp pvclock_now(void)
+closure_function(0, 0, timestamp, pvclock_now)
 {
     return nanoseconds(pvclock_now_ns());
 }

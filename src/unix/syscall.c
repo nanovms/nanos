@@ -32,6 +32,8 @@ struct iov_progress {
 
 sysreturn close(int fd);
 
+io_completion syscall_io_complete;
+
 void register_other_syscalls(struct syscall *map)
 {
     register_syscall(map, msync, 0);
@@ -412,16 +414,16 @@ static inline boolean filepath_is_ancestor(tuple wd1, const char *fp1,
     return false;
 }
 
-static CLOSURE_0_2(syscall_io_complete, void,
-        thread, sysreturn);
+/* XXX CLOSURE no need to create new closures now; fix */
+static void iov_transfer_internal(heap h, file f, io op, struct iovec * iov, int iovcnt, struct iov_progress * progress, boolean bh, thread t, sysreturn rv);
+closure_function(7, 2, void, iov_transfer,
+                 heap, h, file, f, io, op, struct iovec *, iov, int, iovcnt, struct iov_progress *, progress, boolean, bh,
+                 thread, t, sysreturn, rv)
+{
+    iov_transfer_internal(bound(h), bound(f), bound(op), bound(iov), bound(iovcnt), bound(progress), bound(bh), t, rv);
+}
 
-static CLOSURE_7_2(
-        iov_transfer, void,
-        heap, file, io, struct iovec *, int, struct iov_progress *, boolean,
-        thread, sysreturn);
-static void iov_transfer(
-        heap h, file f, io op, struct iovec *iov, int iovcnt,
-        struct iov_progress *progress, boolean bh, thread t, sysreturn rv)
+static void iov_transfer_internal(heap h, file f, io op, struct iovec * iov, int iovcnt, struct iov_progress * progress, boolean bh, thread t, sysreturn rv)
 {
     boolean do_io = !bh;
     io_completion completion = closure(h, iov_transfer, h, f, op, iov, iovcnt,
@@ -466,7 +468,7 @@ static sysreturn iov_internal(file f, io op, struct iovec *iov, int iovcnt)
     heap h = heap_general(get_kernel_heaps());
     struct iov_progress *progress = allocate(h, sizeof(struct iov_progress));
     runtime_memset((void *)progress, 0, sizeof(*progress));
-    iov_transfer(h, f, op, iov, iovcnt, progress, false, current, 0);
+    iov_transfer_internal(h, f, op, iov, iovcnt, progress, false, current, 0);
     return sysreturn_value(current);
 }
 
@@ -475,11 +477,9 @@ sysreturn read(int fd, u8 *dest, bytes length)
     fdesc f = resolve_fd(current->p, fd);
     if (!f->read)
         return set_syscall_error(current, EINVAL);
-    io_completion completion = closure(heap_general(get_kernel_heaps()),
-            syscall_io_complete);
 
     /* use (and update) file offset */
-    return apply(f->read, dest, length, infinity, current, false, completion);
+    return apply(f->read, dest, length, infinity, current, false, syscall_io_complete);
 }
 
 sysreturn pread(int fd, u8 *dest, bytes length, s64 offset)
@@ -487,11 +487,9 @@ sysreturn pread(int fd, u8 *dest, bytes length, s64 offset)
     fdesc f = resolve_fd(current->p, fd);
     if (!f->read || offset < 0)
         return set_syscall_error(current, EINVAL);
-    io_completion completion = closure(heap_general(get_kernel_heaps()),
-            syscall_io_complete);
 
     /* use given offset with no file offset update */
-    return apply(f->read, dest, length, offset, current, false, completion);
+    return apply(f->read, dest, length, offset, current, false, syscall_io_complete);
 }
 
 sysreturn readv(int fd, struct iovec *iov, int iovcnt)
@@ -505,11 +503,9 @@ sysreturn write(int fd, u8 *body, bytes length)
     fdesc f = resolve_fd(current->p, fd);
     if (!f->write)
         return set_syscall_error(current, EINVAL);
-    io_completion completion = closure(heap_general(get_kernel_heaps()),
-            syscall_io_complete);
 
     /* use (and update) file offset */
-    return apply(f->write, body, length, infinity, current, false, completion);
+    return apply(f->write, body, length, infinity, current, false, syscall_io_complete);
 }
 
 sysreturn writev(int fd, struct iovec *iov, int iovcnt)
@@ -524,9 +520,7 @@ sysreturn pwrite(int fd, u8 *body, bytes length, s64 offset)
     if (!f->write || offset < 0)
         return set_syscall_error(current, EINVAL);
 
-    io_completion completion = closure(heap_general(get_kernel_heaps()),
-            syscall_io_complete);
-    return apply(f->write, body, length, offset, current, false, completion);
+    return apply(f->write, body, length, offset, current, false, syscall_io_complete);
 }
 
 sysreturn sysreturn_from_fs_status(fs_status s)
@@ -556,39 +550,36 @@ static boolean is_special(tuple n)
     return table_find(n, sym(special)) ? true : false;
 }
 
-static CLOSURE_5_2(file_op_complete, void,
-        thread, file, fsfile, boolean, io_completion,
-        status, bytes);
-static void file_op_complete(thread t, file f, fsfile fsf,
-        boolean is_file_offset, io_completion completion, status s,
-        bytes length)
+closure_function(5, 2, void, file_op_complete,
+                 thread, t, file, f, fsfile, fsf, boolean, is_file_offset, io_completion, completion,
+                 status, s, bytes, length)
 {
+    thread t = bound(t);
+    file f = bound(f);
+
     thread_log(t, "%s: len %d, status %v (%s)", __func__,
             length, s, is_ok(s) ? "OK" : "NOTOK");
     sysreturn rv;
     if (is_ok(s)) {
         /* if regular file, update length */
-        if (fsf)
-            f->length = fsfile_get_length(fsf);
-        if (is_file_offset) /* vs specified offset (pread) */
+        if (bound(fsf))
+            f->length = fsfile_get_length(bound(fsf));
+        if (bound(is_file_offset)) /* vs specified offset (pread) */
             f->offset += length;
         rv = length;
     } else {
         /* XXX should peek inside s and map to errno... */
         rv = -EIO;
     }
-    apply(completion, t, rv);
+    apply(bound(completion), t, rv);
 }
 
-static CLOSURE_5_2(sendfile_complete, void,
-        heap, int *, void *, bytes, boolean,
-        thread, sysreturn);
-static void sendfile_complete(heap h, int *offset, void *buf,
-        bytes len, boolean bh, thread t, sysreturn rv)
+static void sendfile_complete_internal(heap h, int * offset, void * buf, bytes len, boolean bh,
+                                       thread t, sysreturn rv)
 {
     if (rv > 0) {
         if (offset) {
-             *offset += rv;
+            *offset += rv;
         }
     }
     deallocate(h, buf, len);
@@ -598,11 +589,15 @@ static void sendfile_complete(heap h, int *offset, void *buf,
     }
 }
 
-static CLOSURE_6_2(sendfile_read_complete, void,
-        heap, fdesc, int *, void *, bytes, boolean,
-        thread, sysreturn);
-static void sendfile_read_complete(heap h, fdesc out, int *offset, void *buf,
-        bytes length, boolean bh, thread t, sysreturn rv)
+closure_function(5, 2, void, sendfile_complete,
+                 heap, h, int *, offset, void *, buf, bytes, len, boolean, bh,
+                 thread, t, sysreturn, rv)
+{
+    sendfile_complete_internal(bound(h), bound(offset), bound(buf), bound(len), bound(bh), t, rv);
+}
+
+static void sendfile_read_complete_internal(heap h, fdesc out, int * offset, void * buf, bytes length, boolean bh,
+                                            thread t, sysreturn rv)
 {
     if (rv > 0) {
         io_completion completion = closure(h, sendfile_complete, h, offset, buf,
@@ -612,7 +607,14 @@ static void sendfile_read_complete(heap h, fdesc out, int *offset, void *buf,
     if (rv == infinity) {
         return;
     }
-    sendfile_complete(h, offset, buf, length, bh, t, rv);
+    sendfile_complete_internal(h, offset, buf, length, bh, t, rv);
+}
+
+closure_function(6, 2, void, sendfile_read_complete,
+                 heap, h, fdesc, out, int *, offset, void *, buf, bytes, length, boolean, bh,
+                 thread, t, sysreturn, rv)
+{
+    sendfile_read_complete_internal(bound(h), bound(out), bound(offset), bound(buf), bound(length), bound(bh), t, rv);
 }
 
 static sysreturn sendfile(int out_fd, int in_fd, int *offset, bytes count)
@@ -636,17 +638,18 @@ static sysreturn sendfile(int out_fd, int in_fd, int *offset, bytes count)
             offset, buf, count, true);
     sysreturn rv = apply(infile->read, buf, count, read_offset, current, false,
             completion);
-    sendfile_read_complete(h, outfile, offset, buf, count, false, current, rv);
+    sendfile_read_complete_internal(h, outfile, offset, buf, count, false, current, rv);
     return sysreturn_value(current);
 }
 
 
-static CLOSURE_2_6(file_read, sysreturn,
-        file, fsfile,
-        void *, u64, u64, thread, boolean, io_completion);
-static sysreturn file_read(file f, fsfile fsf, void *dest, u64 length,
-        u64 offset_arg, thread t, boolean bh, io_completion completion)
+closure_function(2, 6, sysreturn, file_read,
+                 file, f, fsfile, fsf,
+                 void *, dest, u64, length, u64, offset_arg, thread, t, boolean, bh, io_completion, completion)
 {
+    file f = bound(f);
+    fsfile fsf = bound(fsf);
+
     boolean is_file_offset = offset_arg == infinity;
     u64 offset = is_file_offset ? f->offset : offset_arg;
     thread_log(t, "%s: f %p, dest %p, offset %ld (%s), length %ld, file length %ld",
@@ -678,12 +681,12 @@ static sysreturn file_read(file f, fsfile fsf, void *dest, u64 length,
 
 #define PAD_WRITES 0
 
-static CLOSURE_2_6(file_write, sysreturn,
-        file, fsfile,
-        void *, u64, u64, thread, boolean, io_completion);
-static sysreturn file_write(file f, fsfile fsf, void *dest, u64 length,
-        u64 offset_arg, thread t, boolean bh, io_completion completion)
+closure_function(2, 6, sysreturn, file_write,
+                 file, f, fsfile, fsf,
+                 void *, dest, u64, length, u64, offset_arg, thread, t, boolean, bh, io_completion, completion)
 {
+    file f = bound(f);
+    fsfile fsf = bound(fsf);
     boolean is_file_offset = offset_arg == infinity;
     u64 offset = is_file_offset ? f->offset : offset_arg;
     thread_log(t, "%s: f %p, dest %p, offset %ld (%s), length %ld, file length %ld",
@@ -725,16 +728,17 @@ static sysreturn file_write(file f, fsfile fsf, void *dest, u64 length,
     }
 }
 
-static CLOSURE_2_0(file_close, sysreturn, file, fsfile);
-static sysreturn file_close(file f, fsfile fsf)
+closure_function(2, 0, sysreturn, file_close,
+                 file, f, fsfile, fsf)
 {
-    unix_cache_free(get_unix_heaps(), file, f);
+    unix_cache_free(get_unix_heaps(), file, bound(f));
     return 0;
 }
 
-static CLOSURE_1_0(file_events, u32, file);
-static u32 file_events(file f)
+closure_function(1, 0, u32, file_events,
+                 file, f)
 {
+    file f = bound(f);
     u32 events;
     if (is_special(f->n)) {
         events = spec_events(f);
@@ -1088,9 +1092,11 @@ sysreturn fchdir(int dirfd)
     return set_syscall_return(current, 0);
 }
 
-static CLOSURE_1_1(truncate_complete, void, thread, status);
-static void truncate_complete(thread t, status s)
+closure_function(1, 1, void, truncate_complete,
+                 thread, t,
+                 status, s)
 {
+    thread t = bound(t);
     thread_log(current, "%s: status %v (%s)", __func__, s,
             is_ok(s) ? "OK" : "NOTOK");
     if (is_ok(s)) {
@@ -1144,9 +1150,11 @@ static sysreturn ftruncate(int fd, long length)
     return truncate_internal(f->n, length);
 }
 
-static CLOSURE_2_1(fsync_complete, void, thread, file, status);
-static void fsync_complete(thread t, file f, status s)
+closure_function(2, 1, void, fsync_complete,
+                 thread, t, file, f,
+                 status, s)
 {
+    thread t = bound(t);
     thread_log(current, "%s: status %v (%s)", __func__, s,
             is_ok(s) ? "OK" : "NOTOK");
     if (is_ok(s)) {
@@ -1446,9 +1454,11 @@ sysreturn readlinkat(int dirfd, const char *pathname, char *buf, u64 bufsiz)
     return set_syscall_error(current, EINVAL);
 }
 
-static CLOSURE_1_1(file_delete_complete, void, thread, status);
-static void file_delete_complete(thread t, status s)
+closure_function(1, 1, void, file_delete_complete,
+                 thread, t,
+                 status, s)
 {
+    thread t = bound(t);
     thread_log(current, "%s: status %v (%s)", __func__, s,
             is_ok(s) ? "OK" : "NOTOK");
     if (is_ok(s)) {
@@ -1527,9 +1537,11 @@ sysreturn rmdir(const char *pathname)
     return rmdir_internal(current->p->cwd, pathname);
 }
 
-static CLOSURE_1_1(file_rename_complete, void, thread, status);
-static void file_rename_complete(thread t, status s)
+closure_function(1, 1, void, file_rename_complete,
+                 thread, t,
+                 status, s)
 {
+    thread t = bound(t);
     thread_log(current, "%s: status %v (%s)", __func__, s,
             is_ok(s) ? "OK" : "NOTOK");
     if (is_ok(s)) {
@@ -1953,6 +1965,13 @@ boolean syscall_notrace(int syscall)
 // to find it.
 void *syscall;
 
+closure_function(0, 2, void, syscall_io_complete_cfn,
+                 thread, t, sysreturn, rv)
+{
+    set_syscall_return(t, rv);
+    thread_wakeup(t);
+}
+
 void init_syscalls()
 {
     //syscall = b->contents;
@@ -1960,6 +1979,7 @@ void init_syscalls()
     heap h = heap_general(get_kernel_heaps());
     syscall = syscall_debug;
     syscall_frame = allocate_frame(h);
+    syscall_io_complete = closure(h, syscall_io_complete_cfn);
 }
 
 void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *name)

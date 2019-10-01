@@ -11,20 +11,22 @@
 #include <string.h>
 #include <limits.h>
 
-static CLOSURE_1_3(bwrite, void, descriptor, void *, range, status_handler);
-static void bwrite(descriptor d, void * s, range blocks, status_handler c)
+closure_function(1, 3, void, bwrite,
+                 descriptor, d,
+                 void *, s, range, blocks, status_handler, c)
 {
 
 }
 
-static CLOSURE_2_3(bread, void, descriptor, u64, void *, range, status_handler);
-static void bread(descriptor d, u64 fs_offset, void *dest, range blocks, status_handler c)
+closure_function(2, 3, void, bread,
+                 descriptor, d, u64, fs_offset,
+                 void *, dest, range, blocks, status_handler, c)
 {
     ssize_t xfer, total = 0;
-    u64 offset = fs_offset + (blocks.start << SECTOR_OFFSET);
+    u64 offset = bound(fs_offset) + (blocks.start << SECTOR_OFFSET);
     u64 length = range_span(blocks) << SECTOR_OFFSET;
     while (total < length) {
-        xfer = pread(d, dest + total, length - total, offset + total);
+        xfer = pread(bound(d), dest + total, length - total, offset + total);
         if (xfer < 0 && errno != EINTR) {
             apply(c, timm("read-error", "%s", strerror(errno)));
             return;
@@ -34,12 +36,13 @@ static void bread(descriptor d, u64 fs_offset, void *dest, range blocks, status_
     apply(c, STATUS_OK);
 }
 
-CLOSURE_1_1(write_file, void, buffer, buffer);
-void write_file(buffer path, buffer b)
+closure_function(1, 1, void, write_file,
+                 buffer, path,
+                 buffer, b)
 {
     // openat would be nicer really
     buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
-    char *z = cstring(path, tmpbuf);
+    char *z = cstring(bound(path), tmpbuf);
     int fd = open(z, O_CREAT|O_WRONLY, 0644);
     ssize_t xfer, len = buffer_length(b);
     while (len > 0) {
@@ -74,21 +77,24 @@ void readdir(filesystem fs, heap h, tuple w, buffer path)
     }
 }
 
-static CLOSURE_3_2(fsc, void, heap, buffer, tuple, filesystem, status);
-static void fsc(heap h, buffer b, tuple root, filesystem fs, status s)
+closure_function(3, 2, void, fsc,
+                 heap, h, buffer, b, tuple, root,
+                 filesystem, fs, status, s)
 {
+    heap h = bound(h);
+
     if (!is_ok(s)) {
         rprintf("failed to initialize filesystem: %v\n", s);
         exit(EXIT_FAILURE);
     }
 
     buffer rb = allocate_buffer(h, PAGESIZE);
-    print_root(rb, root);
+    print_root(rb, bound(root));
     buffer_print(rb);
     rprintf("\n");
     deallocate_buffer(rb);
 
-    readdir(fs, h, root, b);
+    readdir(fs, h, bound(root), bound(b));
 }
 
 static u64 get_fs_offset(descriptor fd)

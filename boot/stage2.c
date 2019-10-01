@@ -67,9 +67,11 @@ void console_write(char *s, bytes count)
     }
 }
 
-static CLOSURE_1_3(stage2_bios_read, void, u64, void *, range, status_handler);
-static void stage2_bios_read(u64 offset, void *dest, range blocks, status_handler completion)
+closure_function(1, 3, void, stage2_bios_read,
+                 u64, offset,
+                 void *, dest, range, blocks, status_handler, completion)
 {
+    u64 offset = bound(offset);
     u64 start_sector = (offset >> SECTOR_OFFSET) + blocks.start;
     u64 nsectors = range_span(blocks);
 
@@ -89,16 +91,17 @@ static void stage2_bios_read(u64 offset, void *dest, range blocks, status_handle
     apply(completion, STATUS_OK);
 }
 
-static CLOSURE_2_3(stage2_ata_read, void, struct ata *, u64, void *, range, status_handler);
-static void stage2_ata_read(struct ata *dev, u64 offset, void *dest, range blocks, status_handler completion)
+closure_function(2, 3, void, stage2_ata_read,
+                 struct ata *, dev, u64, offset,
+                 void *, dest, range, blocks, status_handler, completion)
 {
-    stage2_debug("%s: %R (offset 0x%lx)\n", __func__, blocks, offset);
+    stage2_debug("%s: %R (offset 0x%lx)\n", __func__, blocks, bound(offset));
 
-    u64 sector_offset = (offset >> SECTOR_OFFSET);
+    u64 sector_offset = (bound(offset) >> SECTOR_OFFSET);
     blocks.start += sector_offset;
     blocks.end += sector_offset;
 
-    ata_io_cmd(dev, ATA_READ48, dest, blocks, completion);
+    ata_io_cmd(bound(dev), ATA_READ48, dest, blocks, completion);
 }
 
 void kern_sleep(timestamp delta)
@@ -119,15 +122,15 @@ static block_io get_stage2_disk_read(heap general, u64 fs_offset)
     return closure(general, stage2_ata_read, dev, fs_offset);
 }
 
-static CLOSURE_0_3(stage2_empty_write, void, void *, range, status_handler);
-static void stage2_empty_write(void * src, range blocks, status_handler completion)
+closure_function(0, 3, void, stage2_empty_write,
+                 void *, src, range, blocks, status_handler, completion)
 {
 }
 
 extern void init_extra_prints();
 
-CLOSURE_0_1(fail, void, status);
-void fail(status s)
+closure_function(0, 1, void, fail,
+                 status, s)
 {
     halt("filesystem_read_entire failed: %v\n", s);
 }
@@ -155,8 +158,8 @@ static void setup_page_tables()
 
 static u64 working_saved_base;
 
-static CLOSURE_0_4(kernel_elf_map, void, u64, u64, u64, u64);
-static void kernel_elf_map(u64 vaddr, u64 paddr, u64 size, u64 flags)
+closure_function(0, 4, void, kernel_elf_map,
+                 u64, vaddr, u64, paddr, u64, size, u64, flags)
 {
     if (paddr == INVALID_PHYSICAL) {
         /* bss */
@@ -167,8 +170,8 @@ static void kernel_elf_map(u64 vaddr, u64 paddr, u64 size, u64 flags)
     map(vaddr, paddr, size, flags, heap_pages(&kh));
 }
 
-static CLOSURE_0_1(kernel_read_complete, void, buffer);
-static void __attribute__((noinline)) kernel_read_complete(buffer kb)
+closure_function(0, 1, void, kernel_read_complete,
+                 buffer, kb)
 {
     stage2_debug("%s\n", __func__);
 
@@ -227,13 +230,14 @@ region fsregion()
 }
 
 
-static CLOSURE_4_2 (filesystem_initialized, void, heap, heap, tuple, buffer_handler, filesystem, status);
-static void filesystem_initialized(heap h, heap physical, tuple root, buffer_handler complete, filesystem fs, status s)
+closure_function(4, 2, void, filesystem_initialized,
+                 heap, h, heap, physical, tuple, root, buffer_handler, complete,
+                 filesystem, fs, status, s)
 {
-    filesystem_read_entire(fs, lookup(root, sym(kernel)),
-                           physical,
-                           complete, 
-                           closure(h, fail));
+    filesystem_read_entire(fs, lookup(bound(root), sym(kernel)),
+                           bound(physical),
+                           bound(complete),
+                           closure(bound(h), fail));
 }
 
 void newstack()

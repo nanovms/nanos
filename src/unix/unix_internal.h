@@ -121,6 +121,8 @@ typedef closure_type(blockq_action, sysreturn, boolean /* blocking */, boolean /
 struct blockq;
 typedef struct blockq * blockq;
 
+io_completion syscall_io_complete;
+
 blockq allocate_blockq(heap h, char * name);
 void deallocate_blockq(blockq bq);
 const char * blockq_name(blockq bq);
@@ -283,6 +285,8 @@ static inline kernel_heaps get_kernel_heaps()
 #define unix_cache_alloc(uh, c) ({ heap __c = uh->c ## _cache; allocate(__c, __c->pagesize); })
 #define unix_cache_free(uh, c, p) ({ heap __c = uh->c ## _cache; deallocate(__c, p, __c->pagesize); })
 
+fault_handler create_fault_handler(heap h, thread t);
+
 void init_fdesc(heap h, fdesc f, int type);
 
 void release_fdesc(fdesc f);
@@ -356,7 +360,6 @@ boolean pipe_init(unix_heaps uh);
 #define sysreturn_from_pointer(__x) ((s64)u64_from_pointer(__x));
 
 extern sysreturn syscall_ignore();
-context default_fault_handler(thread t, context frame);
 boolean unix_fault_page(u64 vaddr, context frame);
 
 void thread_log_internal(thread t, const char *desc, ...);
@@ -403,12 +406,6 @@ static inline sysreturn set_syscall_error(thread t, s32 val)
 static inline sysreturn sysreturn_value(thread t)
 {
     return (sysreturn)t->frame[FRAME_RAX];
-}
-
-static inline void syscall_io_complete(thread t, sysreturn rv)
-{
-    set_syscall_return(t, rv);
-    thread_wakeup(t);
 }
 
 #define resolve_fd_noret(__p, __fd) vector_get(__p->files, __fd)

@@ -219,30 +219,31 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
     return sysreturn_from_pointer(vnew);
 }
 
-static CLOSURE_3_3(mincore_fill_vec, boolean, u64, u64, u8 *, int, u64, u64 *);
-boolean mincore_fill_vec(u64 base, u64 nr_pgs, u8 * vec, int level, u64 addr, u64 * entry)
+closure_function(3, 3, boolean, mincore_fill_vec,
+                 u64, base, u64, nr_pgs, u8 *, vec,
+                 int, level, u64, addr, u64 *, entry)
 {
     u64 e = *entry;
     u64 pgoff, i;
 
     if (pt_entry_is_present(e)) {
-        pgoff = (addr - base) >> PAGELOG;
+        pgoff = (addr - bound(base)) >> PAGELOG;
 
         if (pt_entry_is_fat(level, e)) {
             /* whole level is mapped */
-            for (i = 0; (i < 512) && (pgoff + i < nr_pgs); i++) {
-                vec[pgoff + i] = 1;
+            for (i = 0; (i < 512) && (pgoff + i < bound(nr_pgs)); i++) {
+                bound(vec)[pgoff + i] = 1;
 	    }
         } else if (pt_entry_is_pte(level, e)) {
-            vec[pgoff] = 1;
+            bound(vec)[pgoff] = 1;
         }
     }
 
     return true;
 }
 
-static CLOSURE_0_1(mincore_vmap_gap, void, range);
-static void mincore_vmap_gap(range r)
+closure_function(0, 1, void, mincore_vmap_gap,
+                 range, r)
 {
     thread_log(current, "   found gap [0x%lx, 0x%lx)", r.start, r.end);
 }
@@ -275,9 +276,17 @@ static sysreturn mincore(void *addr, u64 length, u8 *vec)
     return 0;
 }
 
-static CLOSURE_6_2(mmap_read_complete, void, thread, u64, u64, boolean, buffer, u64, status, bytes);
-static void mmap_read_complete(thread t, u64 where, u64 mmap_len, boolean mapped, buffer b, u64 mapflags,
-                               status s, bytes length) {
+closure_function(6, 2, void, mmap_read_complete,
+                 thread, t, u64, where, u64, mmap_len, boolean, mapped, buffer, b, u64, mapflags,
+                 status, s, bytes, length)
+{
+    thread t = bound(t);
+    u64 where = bound(where);
+    u64 mmap_len = bound(mmap_len);
+    boolean mapped = bound(mapped);
+    buffer b = bound(b);
+    u64 mapflags = bound(mapflags);
+
     if (!is_ok(s)) {
         deallocate_buffer(b);
         set_syscall_error(t, EACCES);
@@ -325,8 +334,8 @@ static void mmap_read_complete(thread t, u64 where, u64 mmap_len, boolean mapped
 }
 
 #if 0
-static CLOSURE_0_1(vmap_dump_node, void, rmnode);
-static void vmap_dump_node(rmnode n)
+closure_function(0, 1, void, vmap_dump_node,
+                 rmnode, n)
 {
     vmap curr = (vmap)n;
     rprintf("  %R, %s%s%s%s\n", curr->node.r,
@@ -345,9 +354,13 @@ static void vmap_dump(rangemap pvmap)
 #endif
 
 /* XXX refactor */
-static CLOSURE_3_1(vmap_attribute_update_intersection, void, heap, rangemap, vmap, rmnode);
-static void vmap_attribute_update_intersection(heap h, rangemap pvmap, vmap q, rmnode node)
+closure_function(3, 1, void, vmap_attribute_update_intersection,
+                 heap, h, rangemap, pvmap, vmap, q,
+                 rmnode, node)
 {
+    rangemap pvmap = bound(pvmap);
+    vmap q = bound(q);
+
     vmap match = (vmap)node;
     if (vmap_attr_equal(q, match))
         return;
@@ -466,9 +479,13 @@ sysreturn mprotect(void * addr, u64 len, int prot)
    creating a new node if necessary. After this point, new nodes can
    be created using the gap fill.
  */
-static CLOSURE_3_1(vmap_paint_intersection, void, heap, rangemap, vmap, rmnode);
-static void vmap_paint_intersection(heap h, rangemap pvmap, vmap q, rmnode node)
+closure_function(3, 1, void, vmap_paint_intersection,
+                 heap, h, rangemap, pvmap, vmap, q,
+                 rmnode, node)
 {
+    rangemap pvmap = bound(pvmap);
+    vmap q = bound(q);
+
     vmap match = (vmap)node;
     if (vmap_attr_equal(q, match))
         return;
@@ -508,10 +525,11 @@ static void vmap_paint_intersection(heap h, rangemap pvmap, vmap q, rmnode node)
     }
 }
 
-static CLOSURE_3_1(vmap_paint_gap, void, heap, rangemap, vmap, range);
-static void vmap_paint_gap(heap h, rangemap pvmap, vmap q, range r)
+closure_function(3, 1, void, vmap_paint_gap,
+                 heap, h, rangemap, pvmap, vmap, q,
+                 range, r)
 {
-    vmap mt = allocate_vmap(pvmap, r, q->flags);
+    vmap mt = allocate_vmap(bound(pvmap), r, bound(q)->flags);
     assert(mt != INVALID_ADDRESS);
 }
 
@@ -654,26 +672,29 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     thread_sleep_uninterruptible();
 }
 
-static CLOSURE_1_1(dealloc_phys_page, void, heap, range);
-static void dealloc_phys_page(heap physical, range r)
+closure_function(1, 1, void, dealloc_phys_page,
+                 heap, physical,
+                 range, r)
 {
-    if (!id_heap_set_area(physical, r.start, range_span(r), true, false))
+    if (!id_heap_set_area(bound(physical), r.start, range_span(r), true, false))
         msg_err("some of physical range %R not allocated in heap\n", r);
 }
 
-static CLOSURE_2_1(process_unmap_intersection, void, process, range, rmnode);
-static void process_unmap_intersection(process p, range rq, rmnode node)
+closure_function(2, 1, void, process_unmap_intersection,
+                 process, p, range, rq,
+                 rmnode, node)
 {
+    process p = bound(p);
     kernel_heaps kh = get_kernel_heaps();
     vmap match = (vmap)node;
     range rn = node->r;
-    range ri = range_intersection(rq, rn);
+    range ri = range_intersection(bound(rq), rn);
 
     /* similar logic to attribute update above */
     boolean head = ri.start > rn.start;
     boolean tail = ri.end < rn.end;
 
-//    rprintf("unmap q %R, node %R, head %d, tail %d\n", rq, node->r, head, tail);
+//    rprintf("unmap q %R, node %R, head %d, tail %d\n", bound(rq), node->r, head, tail);
 
     if (head) {
         u64 rtend = rn.end;

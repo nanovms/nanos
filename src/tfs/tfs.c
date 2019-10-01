@@ -162,28 +162,28 @@ static void fs_deallocate_dma_buffer(filesystem fs, fs_dma_buf db)
     deallocate(fs->h, db, sizeof(struct fs_dma_buf));
 }
 
-static CLOSURE_4_1(fs_read_extent_complete, void, filesystem, fs_dma_buf, void *, status_handler, status);
-static void fs_read_extent_complete(filesystem fs, fs_dma_buf db, void * target, status_handler sh, status s)
+closure_function(4, 1, void, fs_read_extent_complete,
+                 filesystem, fs, fs_dma_buf, db, void *, target, status_handler, sh,
+                 status, s)
 {
+    fs_dma_buf db = bound(db);
     tfs_debug("fs_read_extent_complete: dma buf 0x%p, start_offset %ld, length %ld, target %p, status %v\n",
-              db->buf, db->start_offset, db->data_length, target, s);
+              db->buf, db->start_offset, db->data_length, bound(target), s);
 #ifndef BOOT
     if (is_ok(s))
-        runtime_memcpy(target, db->buf + db->start_offset, db->data_length);
+        runtime_memcpy(bound(target), db->buf + db->start_offset, db->data_length);
 #endif
-    fs_deallocate_dma_buffer(fs, db);
-    apply(sh, s);
+    fs_deallocate_dma_buffer(bound(fs), db);
+    apply(bound(sh), s);
 }
 
-static CLOSURE_4_1(fs_read_extent, void,
-                   filesystem, buffer, merge, range,
-                   rmnode);
-static void fs_read_extent(filesystem fs,
-                           buffer target,
-                           merge m,
-                           range q,
-                           rmnode node)
+closure_function(4, 1, void, fs_read_extent,
+                 filesystem, fs, buffer, target, merge, m, range, q,
+                 rmnode, node)
 {
+    filesystem fs = bound(fs);
+    buffer target = bound(target);
+    range q = bound(q);
     range i = range_intersection(q, node->r);
     u64 target_offset = i.start - q.start;
     void *target_start = buffer_ref(target, target_offset);
@@ -208,33 +208,37 @@ static void fs_read_extent(filesystem fs,
               q, node->r, db->blocks, db->start_offset, i,
               target_offset, target_start, db->data_length, (u64)fs->blocksize);
 
-    status_handler f = apply_merge(m);
+    status_handler f = apply_merge(bound(m));
     fetch_and_add(&target->end, db->data_length);
     status_handler copy = closure(fs->h, fs_read_extent_complete, fs, db, target_start, f);
     apply(fs->r, db->buf, db->blocks, copy);
 }
 
-static CLOSURE_3_1(fs_zero_hole, void, filesystem, buffer, range, range);
-void fs_zero_hole(filesystem fs, buffer target, range q, range z)
+closure_function(3, 1, void, fs_zero_hole,
+                 filesystem, fs, buffer, target, range, q,
+                 range, z)
 {
+    range q = bound(q);
     range i = range_intersection(q, z);
     u64 target_offset = i.start - q.start;
-    void * target_start = buffer_ref(target, target_offset);
+    void * target_start = buffer_ref(bound(target), target_offset);
     u64 length = range_span(i);
     tfs_debug("fs_zero_hole: i %R, target_start %p, length %ld\n", i, target_start, length);
     runtime_memset(target_start, 0, length);
-    fetch_and_add(&target->end, length);
+    fetch_and_add(&bound(target)->end, length);
 }
 
 io_status_handler ignore_io_status;
 
-static CLOSURE_3_1(filesystem_read_complete, void, heap, io_status_handler, buffer, status);
-static void filesystem_read_complete(heap h, io_status_handler c, buffer b, status s)
+closure_function(3, 1, void, filesystem_read_complete,
+                 heap, h, io_status_handler, c, buffer, b,
+                 status, s)
 {
+    buffer b = bound(b);
     tfs_debug("filesystem_read_complete: status %v, length %d\n", s, buffer_length(b));
     report_sha256(b);
-    apply(c, s, is_ok(s) ? buffer_length(b) : 0);
-    unwrap_buffer(h, b);
+    apply(bound(c), s, is_ok(s) ? buffer_length(b) : 0);
+    unwrap_buffer(bound(h), b);
 }
 
 static void filesystem_read_internal(filesystem fs, fsfile f, buffer b, u64 length, u64 offset,
@@ -279,17 +283,19 @@ void filesystem_read(filesystem fs, tuple t, void *dest, u64 length, u64 offset,
     filesystem_read_internal(fs, f, b, length, offset, sh);
 }
 
-static CLOSURE_3_1(read_entire_complete, void, buffer_handler, buffer, status_handler, status);
-static void read_entire_complete(buffer_handler bh, buffer b, status_handler sh, status s)
+closure_function(3, 1, void, read_entire_complete,
+                 buffer_handler, bh, buffer, b, status_handler, sh,
+                 status, s)
 {
+    buffer b = bound(b);
     tfs_debug("read_entire_complete: status %v, addr %p, length %d\n",
               s, buffer_ref(b, 0), buffer_length(b));
     if (is_ok(s)) {
         report_sha256(b);
-        apply(bh, b);
+        apply(bound(bh), b);
     } else {
         deallocate_buffer(b);
-        apply(sh, s);
+        apply(bound(sh), s);
     }
 }
 
@@ -318,19 +324,19 @@ void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler
  *            <--blocksize-->                    <--blocksize-->
  */
 
-static CLOSURE_3_1(fs_write_extent_complete, void, filesystem, fs_dma_buf, status_handler, status);
-static void fs_write_extent_complete(filesystem fs, fs_dma_buf db, status_handler sh, status s)
+closure_function(3, 1, void, fs_write_extent_complete,
+                 filesystem, fs, fs_dma_buf, db, status_handler, sh,
+                 status, s)
 {
     tfs_debug("fs_write_extent_complete: status %v\n", s);
-    fs_deallocate_dma_buffer(fs, db);
-    apply(sh, s);
+    fs_deallocate_dma_buffer(bound(fs), bound(db));
+    apply(bound(sh), s);
 }
 
 /* In theory these writes could be split up, allowing the aligned
    write to commence without waiting for head/tail reads. Not clear if
    it matters. */
-static CLOSURE_4_1(fs_write_extent_aligned, void, filesystem, fs_dma_buf, void *, status_handler, status);
-static void fs_write_extent_aligned(filesystem fs, fs_dma_buf db, void * source, status_handler sh, status s)
+void fs_write_extent_aligned(filesystem fs, fs_dma_buf db, void * source, status_handler sh, status s)
 {
     if (!is_ok(s)) {
         msg_err("read failed: %v\n", s);
@@ -343,6 +349,13 @@ static void fs_write_extent_aligned(filesystem fs, fs_dma_buf db, void * source,
     tfs_debug("   write from 0x%p to block range %R\n", db->buf, db->blocks);
     status_handler complete = closure(fs->h, fs_write_extent_complete, fs, db, sh);
     apply(fs->w, db->buf, db->blocks, complete);
+}
+
+closure_function(4, 1, void, fs_write_extent_aligned_closure,
+                 filesystem, fs, fs_dma_buf, db, void *, source, status_handler, sh,
+                 status, s)
+{
+    return fs_write_extent_aligned(bound(fs), bound(db), bound(source), bound(sh), s);
 }
 
 static void fs_write_extent_read_block(filesystem fs, fs_dma_buf db, u64 offset_block, status_handler sh)
@@ -389,7 +402,7 @@ static void fs_write_extent(filesystem fs, buffer source, merge m, range q, rmno
 
     status_handler sh = apply_merge(m);
     if (head || tail) {
-        merge m2 = allocate_merge(fs->h, closure(fs->h, fs_write_extent_aligned,
+        merge m2 = allocate_merge(fs->h, closure(fs->h, fs_write_extent_aligned_closure,
                                                  fs, db, source_start, sh));
         status_handler k = apply_merge(m2);
         if (head)
@@ -557,36 +570,40 @@ boolean set_extent_length(fsfile f, extent ex, u64 length, merge m)
     return true;
 }
 
-static CLOSURE_2_1(filesystem_write_meta_complete, void, range, io_status_handler, status);
-static void filesystem_write_meta_complete(range q, io_status_handler ish, status s)
+closure_function(2, 1, void, filesystem_write_meta_complete,
+                 range, q, io_status_handler, ish,
+                 status, s)
 {
+    range q = bound(q);
     u64 n = range_span(q);
     tfs_debug("%s: range %R, bytes %ld, status %v\n", __func__, q, n, s);
-    apply(ish, s, is_ok(s) ? n : 0);
+    apply(bound(ish), s, is_ok(s) ? n : 0);
 }
 
-static CLOSURE_5_1(filesystem_write_data_complete, void, fsfile, tuple, range, merge, status_handler, status);
-static void filesystem_write_data_complete(fsfile f, tuple t, range q, merge m_meta, status_handler m_sh,
-                                           status s)
+closure_function(5, 1, void, filesystem_write_data_complete,
+                 fsfile, f, tuple, t, range, q, merge, m_meta, status_handler, m_sh,
+                 status, s)
 {
+    fsfile f = bound(f);
+    range q = bound(q);
     filesystem fs = f->fs;
     tfs_debug("%s: range %R, status %v\n", __func__, q, s);
 
     if (!is_ok(s)) {
         /* XXX need to cancel meta update rather than just flush... */
         filesystem_flush_log(fs);
-        apply(m_sh, s);
+        apply(bound(m_sh), s);
         return;
     }
 
     if (fsfile_get_length(f) < q.end) {
         /* XXX bother updating resident filelength tuple? */
         fsfile_set_length(f, q.end);
-        filesystem_write_eav(fs, t, sym(filelength), value_from_u64(fs->h, q.end), apply_merge(m_meta));
+        filesystem_write_eav(fs, bound(t), sym(filelength), value_from_u64(fs->h, q.end), apply_merge(bound(m_meta)));
     }
 
     filesystem_flush_log(fs);
-    apply(m_sh, STATUS_OK);
+    apply(bound(m_sh), STATUS_OK);
 }
 
 /* Holes over the query range will be filled with extents before later
@@ -944,15 +961,17 @@ fsfile fsfile_from_node(filesystem fs, tuple n)
     return table_find(fs->files, n);
 }
 
-static CLOSURE_2_1(log_complete, void, filesystem_complete, filesystem, status);
-static void log_complete(filesystem_complete fc, filesystem fs, status s)
+closure_function(2, 1, void, log_complete,
+                 filesystem_complete, fc, filesystem, fs,
+                 status, s)
 {
+    filesystem fs = bound(fs);
     fixup_directory(fs->root, fs->root);
-    apply(fc, fs, s);
+    apply(bound(fc), fs, s);
 }
 
-static CLOSURE_0_2(ignore_io_body, void, status, bytes);
-static void ignore_io_body(status s, bytes length){}
+closure_function(0, 2, void, ignore_io,
+                 status, s, bytes, length) {}
 
 void create_filesystem(heap h,
                        u64 alignment,
@@ -965,7 +984,7 @@ void create_filesystem(heap h,
 {
     tfs_debug("create_filesystem: ...\n");
     filesystem fs = allocate(h, sizeof(struct filesystem));
-    ignore_io_status = closure(h, ignore_io_body);
+    ignore_io_status = closure(h, ignore_io);
     fs->files = allocate_table(h, identity_key, pointer_equal);
     fs->extents = allocate_table(h, identity_key, pointer_equal);
     fs->dma = dma;

@@ -69,9 +69,11 @@ static void reset_parser(http_parser p)
 // we're going to patch the connection together by looking at the
 // leftover bits in buffer...defer until we need to actually
 // switch protocols
-CLOSURE_1_1(http_recv, void, http_parser, buffer);
-void http_recv(http_parser p, buffer b)
+closure_function(1, 1, void, http_recv,
+                 http_parser, p,
+                 buffer, b)
 {
+    http_parser p = bound(p);
     int i;
 
     if (!b) {
