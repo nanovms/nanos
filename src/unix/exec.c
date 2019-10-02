@@ -126,6 +126,7 @@ closure_function(0, 1, void, load_interp_fail,
                  status, s)
 {
     console("interp fail\n");
+    closure_finish();
     halt("read interp failed %v\n", s);
 }
 
@@ -166,6 +167,7 @@ closure_function(2, 1, void, load_interp_complete,
     void * start = load_elf(b, where, stack_closure(exec_elf_map, t->p, kh));
     exec_debug("starting process tid %d, start %p\n", t->tid, start);
     start_process(t, start);
+    closure_finish();
 }
 
 process exec_elf(buffer ex, process kp)

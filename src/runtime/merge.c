@@ -21,7 +21,9 @@ closure_function(1, 1, void, merge_join,
     word n = fetch_and_add(&m->count, (word)-1);
     if (n == 1) {
         apply(m->completion, m->last_status);
+        deallocate_closure(m->apply);
         deallocate(m->h, m, sizeof(struct merge));
+        closure_finish();
     }
 }
 

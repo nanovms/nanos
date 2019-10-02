@@ -218,6 +218,9 @@ void exit_thread(thread t)
     t->blocked_on = INVALID_ADDRESS;
 
     vector_set(t->p->threads, t->tid - 1, 0);
+    fault_handler fh = pointer_from_u64(t->frame[FRAME_FAULT_HANDLER]);
+    deallocate_closure(fh);
+    deallocate_closure(t->run);
 //    heap h = heap_general((kernel_heaps)t->p->uh);
 //    deallocate(h, t, sizeof(struct thread));
 }

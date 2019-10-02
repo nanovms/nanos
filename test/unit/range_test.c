@@ -199,7 +199,7 @@ boolean basic_test(heap h)
 #endif
 
     /* range lookup */
-    rmnode_handler rh = closure(h, basic_test_validate);
+    rmnode_handler rh = stack_closure(basic_test_validate);
     rangemap_range_lookup(rm, irange(0, 26), rh);
     return true;
 

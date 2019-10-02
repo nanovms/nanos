@@ -313,8 +313,7 @@ closure_function(6, 2, void, mmap_read_complete,
     if (!is_ok(s)) {
         deallocate_buffer(b);
         set_syscall_error(t, EACCES);
-        thread_wakeup(t);
-	return;
+        goto out;
     }
 
     kernel_heaps kh = (kernel_heaps)&t->uh;
@@ -353,7 +352,9 @@ closure_function(6, 2, void, mmap_read_complete,
     }
 
     set_syscall_return(t, where);
+  out:
     thread_wakeup(t);
+    closure_finish();
 }
 
 #if 0
@@ -371,7 +372,7 @@ closure_function(0, 1, void, vmap_dump_node,
 static void vmap_dump(rangemap pvmap)
 {
     rprintf("vmap %p\n", pvmap);
-    rmnode_handler nh = closure(heap_general(get_kernel_heaps()), vmap_dump_node);
+    rmnode_handler nh = stack_closure(vmap_dump_node);
     rangemap_range_lookup(pvmap, (range){0, infinity}, nh);
 }
 #endif

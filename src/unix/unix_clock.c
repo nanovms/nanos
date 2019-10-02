@@ -12,6 +12,7 @@ closure_function(2, 0, void, nanosleep_timeout,
 {
     set_syscall_return(bound(t), 0);
     thread_wakeup(bound(t));
+    closure_finish();
 }
 
 sysreturn nanosleep(const struct timespec* req, struct timespec* rem)

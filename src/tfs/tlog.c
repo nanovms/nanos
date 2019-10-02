@@ -33,6 +33,7 @@ closure_function(1, 1, void, log_write_completion,
         i = vector_delete(bound(v), 0);
         apply(i, s);
     }
+    closure_finish();
 }
 
 // xxx  currently we cant take writes during the flush
@@ -118,6 +119,7 @@ closure_function(2, 1, void, log_read_complete,
     tlog_debug("log_read_complete: buffer len %d, status %v\n", buffer_length(b), s);
     if (!is_ok(s)) {
         apply(sh, s);
+        closure_finish();
         return;
     }
 
@@ -196,13 +198,12 @@ closure_function(2, 1, void, log_read_complete,
         if (tagof(v) == tag_tuple || tagof(v) == tag_symbol)
             table_set(newdict, v, k);
     }
-    // deallocate_table(tl->dictionary);
+    deallocate_table(tl->dictionary);
     tl->dictionary = newdict;
 #endif
 
     apply(sh, 0);
-    // something really strange is going on with the value of frame
-    //    if (frame != END_OF_LOG) halt("bad log tag %p\n", frame);    
+    closure_finish();
 }
 
 void read_log(log tl, u64 offset, u64 size, status_handler sh)

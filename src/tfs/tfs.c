@@ -175,6 +175,7 @@ closure_function(4, 1, void, fs_read_extent_complete,
 #endif
     fs_deallocate_dma_buffer(bound(fs), db);
     apply(bound(sh), s);
+    closure_finish();
 }
 
 closure_function(4, 1, void, fs_read_extent,
@@ -239,6 +240,7 @@ closure_function(3, 1, void, filesystem_read_complete,
     report_sha256(b);
     apply(bound(c), s, is_ok(s) ? buffer_length(b) : 0);
     unwrap_buffer(bound(h), b);
+    closure_finish();
 }
 
 static void filesystem_read_internal(filesystem fs, fsfile f, buffer b, u64 length, u64 offset,
@@ -255,10 +257,10 @@ static void filesystem_read_internal(filesystem fs, fsfile f, buffer b, u64 leng
     range total = irange(offset, offset + actual_length);
 
     /* read extent data */
-    rangemap_range_lookup(f->extentmap, total, closure(fs->h, fs_read_extent, fs, b, m, total));
+    rangemap_range_lookup(f->extentmap, total, stack_closure(fs_read_extent, fs, b, m, total));
 
     /* zero areas corresponding to file holes */
-    rangemap_range_find_gaps(f->extentmap, total, closure(fs->h, fs_zero_hole, fs, b, total));
+    rangemap_range_find_gaps(f->extentmap, total, stack_closure(fs_zero_hole, fs, b, total));
 
     apply(k, STATUS_OK);
 }
@@ -297,6 +299,7 @@ closure_function(3, 1, void, read_entire_complete,
         deallocate_buffer(b);
         apply(bound(sh), s);
     }
+    closure_finish();
 }
 
 void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler c, status_handler sh)
@@ -331,6 +334,7 @@ closure_function(3, 1, void, fs_write_extent_complete,
     tfs_debug("fs_write_extent_complete: status %v\n", s);
     fs_deallocate_dma_buffer(bound(fs), bound(db));
     apply(bound(sh), s);
+    closure_finish();
 }
 
 /* In theory these writes could be split up, allowing the aligned
@@ -355,7 +359,8 @@ closure_function(4, 1, void, fs_write_extent_aligned_closure,
                  filesystem, fs, fs_dma_buf, db, void *, source, status_handler, sh,
                  status, s)
 {
-    return fs_write_extent_aligned(bound(fs), bound(db), bound(source), bound(sh), s);
+    fs_write_extent_aligned(bound(fs), bound(db), bound(source), bound(sh), s);
+    closure_finish();
 }
 
 static void fs_write_extent_read_block(filesystem fs, fs_dma_buf db, u64 offset_block, status_handler sh)
@@ -578,6 +583,7 @@ closure_function(2, 1, void, filesystem_write_meta_complete,
     u64 n = range_span(q);
     tfs_debug("%s: range %R, bytes %ld, status %v\n", __func__, q, n, s);
     apply(bound(ish), s, is_ok(s) ? n : 0);
+    closure_finish();
 }
 
 closure_function(5, 1, void, filesystem_write_data_complete,
@@ -593,6 +599,7 @@ closure_function(5, 1, void, filesystem_write_data_complete,
         /* XXX need to cancel meta update rather than just flush... */
         filesystem_flush_log(fs);
         apply(bound(m_sh), s);
+        closure_finish();
         return;
     }
 
@@ -604,6 +611,7 @@ closure_function(5, 1, void, filesystem_write_data_complete,
 
     filesystem_flush_log(fs);
     apply(bound(m_sh), STATUS_OK);
+    closure_finish();
 }
 
 /* Holes over the query range will be filled with extents before later
@@ -968,6 +976,7 @@ closure_function(2, 1, void, log_complete,
     filesystem fs = bound(fs);
     fixup_directory(fs->root, fs->root);
     apply(bound(fc), fs, s);
+    closure_finish();
 }
 
 closure_function(0, 2, void, ignore_io,

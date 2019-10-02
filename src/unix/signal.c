@@ -481,6 +481,7 @@ closure_function(2, 2, sysreturn, rt_sigsuspend_bh,
     if (nullify || get_dispatchable_signals(t)) {
         if (blocked)
             thread_wakeup(t);
+        closure_finish();
         return set_syscall_return(t, -EINTR);
     }
 
@@ -627,6 +628,7 @@ closure_function(1, 2, sysreturn, pause_bh,
     if (nullify || get_dispatchable_signals(t)) {
         if (blocked)
             thread_wakeup(t);
+        closure_finish();
         return set_syscall_return(t, -EINTR);
     }
 

@@ -101,9 +101,8 @@ closure_function(4, 1, void, complete,
     if (*bound(result)) st = timm("result", "%d", *bound(result));
     apply(bound(f), st);
     deallocate_virtio_blk_req(bound(s), bound(req));
-    //    s->command->avail->flags &= ~VRING_AVAIL_F_NO_INTERRUPT;
-    // used isn't valid?
-    //    rprintf("used: %d\n",  s->command->vq_ring.used->idx);    
+    // s->command->avail->flags &= ~VRING_AVAIL_F_NO_INTERRUPT;
+    closure_finish();
 }
 
 static inline void storage_rw_internal(storage st, boolean write, void * buf,
