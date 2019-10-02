@@ -197,32 +197,49 @@ thread create_thread(process p)
     zero(t->frame, sizeof(t->frame));
     t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(create_fault_handler(h, t));
     t->run = closure(h, run_thread, t);
-    vector_push(p->threads, t);
     t->blocked_on = 0;
     init_sigstate(&t->signals);
     t->dispatch_sigstate = 0;
 
     // XXX sigframe
+    vector_set(p->threads, t->tid, t);
     return t;
 }
 
-/* XXX this is seriously next */
 void exit_thread(thread t)
 {
+    heap h = heap_general((kernel_heaps)t->p->uh);
+
+    assert(vector_length(t->p->threads) > t->tid);
+    vector_set(t->p->threads, t->tid, 0);
+
+    /* We might be exiting from the signal handler while dispatching a
+       signal on behalf of the process sigstate, so reset masks as if
+       we're returning from the signal handler. */
+    sigstate_thread_restore(t);
+
+    /* dequeue signals for thread */
+    sigstate_flush_queue(&t->signals);
+
+    /* Like an uninterruptible sleep for all eternity. */
+    t->blocked_on = INVALID_ADDRESS;
+
+    deallocate_closure(t->run);
+    t->run = INVALID_ADDRESS;
+    deallocate_closure((fault_handler)pointer_from_u64(t->frame[FRAME_FAULT_HANDLER]));
+
     if (t->clear_tid) {
         *t->clear_tid = 0;
         futex(t->clear_tid, FUTEX_WAKE, 1, 0, 0, 0);
     }
 
-    /* Like an uninterruptible sleep for all eternity. */
-    t->blocked_on = INVALID_ADDRESS;
+    /* XXX need to handle futex robust list */
 
-    vector_set(t->p->threads, t->tid - 1, 0);
-    fault_handler fh = pointer_from_u64(t->frame[FRAME_FAULT_HANDLER]);
-    deallocate_closure(fh);
-    deallocate_closure(t->run);
-//    heap h = heap_general((kernel_heaps)t->p->uh);
-//    deallocate(h, t, sizeof(struct thread));
+    /* XXX release select epoll */
+
+    blockq_flush(t->dummy_blockq);
+    deallocate_blockq(t->dummy_blockq);
+    deallocate(h, t, sizeof(struct thread));
 }
 
 void init_threads(process p)

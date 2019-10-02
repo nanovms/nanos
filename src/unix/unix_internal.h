@@ -148,8 +148,6 @@ typedef struct sigstate {
     struct list heads[NSIG];
 } *sigstate;
 
-void init_sigstate(sigstate ss);
-
 typedef struct epoll *epoll;
 typedef struct thread {
     // if we use an array typedef its fragile
@@ -333,6 +331,20 @@ static inline void timespec_from_time(struct timespec *ts, timestamp t)
 static inline time_t time_t_from_time(timestamp t)
 {
     return t / TIMESTAMP_SECOND;
+}
+
+void init_sigstate(sigstate ss);
+void sigstate_flush_queue(sigstate ss);
+void sigstate_reset_thread(thread t);
+
+static inline void sigstate_thread_restore(thread t)
+{
+    sigstate ss = t->dispatch_sigstate;
+    if (ss) {
+        t->dispatch_sigstate = 0;
+        ss->mask = ss->saved;
+        ss->saved = 0;
+    }
 }
 
 void dispatch_signals(thread t);
