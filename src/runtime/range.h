@@ -96,6 +96,11 @@ static inline boolean ranges_intersect(range a, range b)
     return !range_empty(range_intersection(a, b));
 }
 
+static inline boolean range_contains(range a, range b)
+{
+    return (a.start <= b.start) && (a.end >= b.end);
+}
+
 static inline boolean range_equal(range a, range b)
 {
     return (a.start == b.start) && (a.end == b.end);
