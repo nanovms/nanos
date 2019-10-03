@@ -56,19 +56,64 @@ struct epoll {
     struct fdesc f;             /* must be first */
     // xxx - multiple threads can block on the same e with epoll_wait
     struct list blocked_head;
+    u64 refcnt;
     heap h;
     vector events;		/* epollfds indexed by fd */
     int nfds;
     bitmap fds;			/* fds being watched / epollfd registered */
 };
     
-static epollfd epollfd_from_fd(epoll e, int fd)
+static epoll epoll_alloc_internal(void)
 {
-    if (!bitmap_get(e->fds, fd))
-	return INVALID_ADDRESS;
-    epollfd efd = vector_get(e->events, fd);
-    assert(efd);
-    return efd;
+    epoll e = unix_cache_alloc(get_unix_heaps(), epoll);
+    if (e == INVALID_ADDRESS)
+	return e;
+
+    list_init(&e->blocked_head);
+    e->refcnt = 1;
+    e->h = heap_general(get_kernel_heaps());
+    e->events = allocate_vector(e->h, 8);
+    if (e->events == INVALID_ADDRESS)
+	goto out_free_epoll;
+
+    e->nfds = 0;
+    e->fds = allocate_bitmap(e->h, infinity);
+    if (e->fds == INVALID_ADDRESS)
+	goto out_free_events;
+    epoll_debug("allocated epoll %p\n", e);
+    return e;
+  out_free_events:
+    deallocate_vector(e->events);
+  out_free_epoll:
+    unix_cache_free(get_unix_heaps(), epoll, e);
+    return INVALID_ADDRESS;
+}
+
+static void epoll_dealloc_internal(epoll e)
+{
+    epoll_debug("e %p\n", e);
+    deallocate_bitmap(e->fds);
+    deallocate_vector(e->events);
+    if (e->f.close && e->f.close != INVALID_ADDRESS)
+        deallocate_closure(e->f.close);
+    unix_cache_free(get_unix_heaps(), epoll, e);
+}
+
+static inline void reserve_epoll(epoll e)
+{
+    u64 r = fetch_and_add(&e->refcnt, 1);
+    (void)r;
+    epoll_debug("e %p, old refcnt %d\n", e, r);
+}
+
+static void release_epoll(epoll e)
+{
+    u64 r = fetch_and_add(&e->refcnt, -1);
+    epoll_debug("e %p, old refcnt %d\n", e, r);
+    assert(r > 0);
+    if (r != 1)
+        return;
+    epoll_dealloc_internal(e);
 }
 
 static epollfd alloc_epollfd(epoll e, int fd, u32 eventmask, u64 data)
@@ -85,6 +130,7 @@ static epollfd alloc_epollfd(epoll e, int fd, u32 eventmask, u64 data)
     efd->refcnt = 1;
     efd->registered = false;
     efd->zombie = false;
+    reserve_epoll(e);
     vector_set(e->events, fd, efd);
     bitmap_set(e->fds, fd, 1);
     if (fd >= e->nfds)
@@ -98,6 +144,7 @@ static void release_epollfd(epollfd efd)
     assert(efd->refcnt > 0);
     if (fetch_and_add(&efd->refcnt, -1) == 1) {
         epoll_debug("  deallocating efd %p\n", efd);
+        release_epoll(efd->e);
 	unix_cache_free(get_unix_heaps(), epollfd, efd);
     }
 }
@@ -147,20 +194,28 @@ static boolean register_epollfd(epollfd efd, event_handler eh)
     return true;
 }
 
+static void epoll_release_epollfds(epoll e)
+{
+    bitmap_foreach_set(e->fds, fd) {
+	epollfd efd = vector_get(e->events, fd);
+	assert(efd != 0 && efd != INVALID_ADDRESS);
+	free_epollfd(efd);
+    }
+}
+
+void epoll_finish(epoll e)
+{
+    epoll_debug("e %p\n", e);
+    epoll_release_epollfds(e);
+    release_epoll(e);
+}
+
 closure_function(1, 0, sysreturn, epoll_close,
                  epoll, e)
 {
     epoll e = bound(e);
-    epoll_debug("e %p\n", e);
-    bitmap_foreach_set(e->fds, fd) {
-	epollfd efd = vector_get(e->events, fd);
-	assert(efd != INVALID_ADDRESS);
-	free_epollfd(efd);
-    }
-    deallocate_bitmap(e->fds);
-    deallocate_closure(e->f.close);
     release_fdesc(&e->f);
-    unix_cache_free(get_unix_heaps(), epoll, e);
+    epoll_finish(e);
     return 0;
 }
 
@@ -168,38 +223,26 @@ sysreturn epoll_create(int flags)
 {
     sysreturn rv;
     epoll_debug("flags 0x%x\n", flags);
-    heap h = heap_general(get_kernel_heaps());
-    epoll e = unix_cache_alloc(get_unix_heaps(), epoll);
+    epoll e = epoll_alloc_internal();
     if (e == INVALID_ADDRESS)
-	return -ENOMEM;
+        return -ENOMEM;
     u64 fd = allocate_fd(current->p, e);
     if (fd == INVALID_PHYSICAL) {
 	rv = -EMFILE;
-	goto out_cache_free;
+	goto out_dealloc_epoll;
     }
-    init_fdesc(h, &e->f, FDESC_TYPE_EPOLL);
-    e->f.close = closure(h, epoll_close, e);
-    list_init(&e->blocked_head);
-    e->h = h;
-    e->events = allocate_vector(h, 8);
-    if (e->events == INVALID_ADDRESS) {
-	rv = -ENOMEM;
-	goto out_dealloc_fd;
-    }
-    e->nfds = 0;
-    e->fds = allocate_bitmap(h, infinity);
-    if (e->fds == INVALID_ADDRESS) {
-	rv = -ENOMEM;
-	goto out_free_events;
+    init_fdesc(e->h, &e->f, FDESC_TYPE_EPOLL);
+    e->f.close = closure(e->h, epoll_close, e);
+    if (e->f.close == INVALID_ADDRESS) {
+        rv = -ENOMEM;
+        goto out_dealloc_fd;
     }
     epoll_debug("   got fd %d\n", fd);
     return fd;
-  out_free_events:
-    deallocate_vector(e->events);
   out_dealloc_fd:
     deallocate_fd(current->p, fd);
-  out_cache_free:
-    unix_cache_free(get_unix_heaps(), epoll, e);
+  out_dealloc_epoll:
+    epoll_dealloc_internal(e);
     return rv;
 }
 
@@ -214,6 +257,7 @@ static void epoll_blocked_release(epoll_blocked w)
 	epoll_debug("   removed from epoll list\n");
     }
     if (fetch_and_add(&w->refcnt, -1) == 1) {
+	release_epoll(w->e);
 	unix_cache_free(get_unix_heaps(), epoll_blocked, w);
 	epoll_debug("   deallocated\n");
     }
@@ -361,6 +405,7 @@ static epoll_blocked alloc_epoll_blocked(epoll e)
     w->e = e;
     w->sleeping = false;
     w->timeout = 0;
+    reserve_epoll(e);
     list_insert_after(&e->blocked_head, &w->blocked_list); /* push */
     return w;
 }
@@ -430,6 +475,15 @@ sysreturn epoll_wait(int epfd,
     w->sleeping = true;
     thread_sleep_uninterruptible(); /* XXX move to blockq */
     return 0;			/* suppress warning */
+}
+
+static epollfd epollfd_from_fd(epoll e, int fd)
+{
+    if (!bitmap_get(e->fds, fd))
+	return INVALID_ADDRESS;
+    epollfd efd = vector_get(e->events, fd);
+    assert(efd);
+    return efd;
 }
 
 static sysreturn epoll_add_fd(epoll e, int fd, u32 events, u64 data)
@@ -554,21 +608,13 @@ closure_function(1, 1, void, select_notify,
     }
 }
 
-static epoll select_get_epoll()
+static inline epoll select_get_epoll(void)
 {
     epoll e = current->select_epoll;
     if (!e) {
-	file f = unix_cache_alloc(get_unix_heaps(), epoll);
-	if (f == INVALID_ADDRESS)
-	    return INVALID_ADDRESS;
- 	e = (epoll)f;
-	list_init(&e->blocked_head);
-	e->h = heap_general(get_kernel_heaps());
-	e->events = allocate_vector(e->h, 8);
-	assert(e->events != INVALID_ADDRESS);
-	e->fds = allocate_bitmap(e->h, infinity);
-	assert(e->fds != INVALID_ADDRESS);
-	current->select_epoll = e;
+        e = epoll_alloc_internal();
+        if (e != INVALID_ADDRESS)
+            current->select_epoll = e;
     }
     return e;
 }

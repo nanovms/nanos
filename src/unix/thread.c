@@ -235,7 +235,8 @@ void exit_thread(thread t)
 
     /* XXX need to handle futex robust list */
 
-    /* XXX release select epoll */
+    if (t->select_epoll)
+        epoll_finish(t->select_epoll);
 
     blockq_flush(t->dummy_blockq);
     deallocate_blockq(t->dummy_blockq);

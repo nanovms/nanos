@@ -217,6 +217,8 @@ struct file {
     u64 length;
 };
 
+void epoll_finish(epoll e);
+
 #define VMAP_FLAG_MMAP          1
 #define VMAP_FLAG_ANONYMOUS     2
 #define VMAP_FLAG_WRITABLE      4
