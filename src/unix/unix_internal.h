@@ -170,7 +170,6 @@ typedef struct thread {
     char name[16]; /* thread name */
 
     thunk run;
-    queue log[64];
 
     /* blockq thread is waiting on, INVALID_ADDRESS for uninterruptible */
     blockq blocked_on;
@@ -270,16 +269,18 @@ typedef struct sigaction *sigaction;
 #define SIGACT_SIGINFO  0x00000001
 #define SIGACT_SIGNALFD 0x00000002 /* TODO */
 
+extern thread dummy_thread;
 extern thread current;
 
 static inline unix_heaps get_unix_heaps()
 {
+    assert(current);
     return &current->uh;
 }
 
 static inline kernel_heaps get_kernel_heaps()
 {
-    return (kernel_heaps)&current->uh;
+    return (kernel_heaps)get_unix_heaps();
 }
 
 #define unix_cache_alloc(uh, c) ({ heap __c = uh->c ## _cache; allocate(__c, __c->pagesize); })

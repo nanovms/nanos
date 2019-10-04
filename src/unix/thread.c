@@ -1,5 +1,6 @@
 #include <unix_internal.h>
 
+thread dummy_thread;
 thread current;
 
 sysreturn gettid()
@@ -208,8 +209,6 @@ thread create_thread(process p)
 
 void exit_thread(thread t)
 {
-    heap h = heap_general((kernel_heaps)t->p->uh);
-
     assert(vector_length(t->p->threads) > t->tid);
     vector_set(t->p->threads, t->tid, 0);
 
@@ -221,26 +220,30 @@ void exit_thread(thread t)
     /* dequeue signals for thread */
     sigstate_flush_queue(&t->signals);
 
-    /* Like an uninterruptible sleep for all eternity. */
-    t->blocked_on = INVALID_ADDRESS;
+    /* We don't yet support forcible removal while in an uninterruptible wait. */
+    assert(t->blocked_on != INVALID_ADDRESS);
 
-    deallocate_closure(t->run);
-    t->run = INVALID_ADDRESS;
-    deallocate_closure((fault_handler)pointer_from_u64(t->frame[FRAME_FAULT_HANDLER]));
+    /* Kill received during interruptible wait. */
+    if (t->blocked_on)
+        blockq_flush_thread(t->blocked_on, t);
 
     if (t->clear_tid) {
         *t->clear_tid = 0;
         futex(t->clear_tid, FUTEX_WAKE, 1, 0, 0, 0);
     }
 
-    /* XXX need to handle futex robust list */
-
     if (t->select_epoll)
         epoll_finish(t->select_epoll);
 
+    /* XXX futex robust list needs implementing - wake up robust futexes here */
+
     blockq_flush(t->dummy_blockq);
     deallocate_blockq(t->dummy_blockq);
-    deallocate(h, t, sizeof(struct thread));
+    deallocate_closure(t->run);
+    deallocate_closure((fault_handler)pointer_from_u64(t->frame[FRAME_FAULT_HANDLER]));
+    deallocate(heap_general(get_kernel_heaps()), t, sizeof(struct thread));
+    current = dummy_thread;
+    running_frame = dummy_thread->frame;
 }
 
 void init_threads(process p)

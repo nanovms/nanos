@@ -262,7 +262,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
 	goto alloc_fail;
     set_syscall_handler(syscall_enter);
     process kernel_process = create_process(uh, root, fs);
-    current = create_thread(kernel_process);
+    current = dummy_thread = create_thread(kernel_process);
     running_frame = current->frame;
 
     /* Install a fault handler for use when anonymous pages are
