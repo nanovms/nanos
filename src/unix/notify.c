@@ -43,9 +43,11 @@ notify_entry notify_add(notify_set s, u32 eventmask, event_handler eh)
     return n;
 }
 
-void notify_remove(notify_set s, notify_entry e)
+void notify_remove(notify_set s, notify_entry e, boolean release)
 {
     list_delete(&e->l);
+    if (release)
+        apply(e->eh, NOTIFY_EVENTS_RELEASE);
     deallocate(s->h, e, sizeof(struct notify_entry));
 }
 

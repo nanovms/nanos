@@ -67,13 +67,15 @@ typedef struct xpbuf
 } *xpbuf;
 
 
-static CLOSURE_1_1(tx_complete, void, struct pbuf *, u64);
-static void tx_complete(struct pbuf *p, u64 len)
+closure_function(1, 1, void, tx_complete,
+                 struct pbuf *, p,
+                 u64, len)
 {
     // unfortunately we dont have control over the allocation
     // path (?)
     // free me!
-    pbuf_free(p);
+    pbuf_free(bound(p));
+    closure_finish();
 }
 
 
@@ -115,9 +117,11 @@ static void receive_buffer_release(struct pbuf *p)
 
 static void post_receive(vnet vn);
 
-static CLOSURE_1_1(input, void, xpbuf, u64);
-static void input(xpbuf x, u64 len)
+closure_function(1, 1, void, input,
+                 xpbuf, x,
+                 u64, len)
 {
+    xpbuf x = bound(x);
     vnet vn= x->vn;
     // under what conditions does a virtio queue give us zero?
     if (x != NULL) {
@@ -134,6 +138,7 @@ static void input(xpbuf x, u64 len)
     // we need to get a signal from the device side that there was
     // an underrun here to open up the window
     post_receive(vn);
+    closure_finish();
 }
 
 
@@ -215,13 +220,14 @@ static void virtio_net_attach(heap general, heap page_allocator, pci_dev d)
               ethernet_input);
 }
 
-static CLOSURE_2_1(virtio_net_probe, boolean, heap, heap, pci_dev);
-static boolean virtio_net_probe(heap general, heap page_allocator, pci_dev d)
+closure_function(2, 1, boolean, virtio_net_probe,
+                 heap, general, heap, page_allocator,
+                 pci_dev, d)
 {
     if (pci_get_vendor(d) != VIRTIO_PCI_VENDORID || pci_get_device(d) != VIRTIO_PCI_DEVICEID_NETWORK)
         return false;
 
-    virtio_net_attach(general, page_allocator, d);
+    virtio_net_attach(bound(general), bound(page_allocator), d);
     return true;
 }
 

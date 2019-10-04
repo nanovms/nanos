@@ -22,8 +22,8 @@ static inline elfsym allocate_elfsym(range r, char * name)
     return es;
 }
 
-CLOSURE_0_4(elf_symtable_add, void, char *, u64, u64, u8);
-void elf_symtable_add(char * name, u64 a, u64 len, u8 info)
+closure_function(0, 4, void, elf_symtable_add,
+                 char *, name, u64, a, u64, len, u8, info)
 {
     int type = ELF64_ST_TYPE(info);
 
@@ -73,7 +73,7 @@ char * find_elf_sym(u64 a, u64 *offset, u64 *len)
 void add_elf_syms(buffer b)
 {
     if (elf_symtable)
-	elf_symbols(b, closure(general, elf_symtable_add));
+	elf_symbols(b, stack_closure(elf_symtable_add));
     else
 	console("can't add ELF symbols; symtab not initialized\n");
 }

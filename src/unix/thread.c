@@ -2,8 +2,6 @@
 
 thread current;
 
-CLOSURE_1_1(default_fault_handler, context, thread, context);
-
 sysreturn gettid()
 {
     return current->tid;
@@ -104,10 +102,10 @@ void thread_log_internal(thread t, const char *desc, ...)
     }
 }
 
-
-CLOSURE_1_0(run_thread, void, thread);
-void run_thread(thread t)
+closure_function(1, 0, void, run_thread,
+                 thread, t)
 {
+    thread t = bound(t);
     current = t;
     thread_log(t, "run frame %p, RIP=%p", t->frame, t->frame[FRAME_RIP]);
     proc_enter_user(current->p);
@@ -197,7 +195,7 @@ thread create_thread(process p)
     t->clear_tid = 0;
     t->name[0] = '\0';
     zero(t->frame, sizeof(t->frame));
-    t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(closure(h, default_fault_handler, t));
+    t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(create_fault_handler(h, t));
     t->run = closure(h, run_thread, t);
     vector_push(p->threads, t);
     t->blocked_on = 0;
@@ -220,6 +218,9 @@ void exit_thread(thread t)
     t->blocked_on = INVALID_ADDRESS;
 
     vector_set(t->p->threads, t->tid - 1, 0);
+    fault_handler fh = pointer_from_u64(t->frame[FRAME_FAULT_HANDLER]);
+    deallocate_closure(fh);
+    deallocate_closure(t->run);
 //    heap h = heap_general((kernel_heaps)t->p->uh);
 //    deallocate(h, t, sizeof(struct thread));
 }

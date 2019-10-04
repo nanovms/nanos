@@ -49,8 +49,9 @@ void deallocate_fd(process p, int fd)
     deallocate_u64(p->fdallocator, fd, 1);
 }
 
-CLOSURE_1_1(default_fault_handler, context, thread, context);
-context default_fault_handler(thread t, context frame)
+closure_function(1, 1, context, default_fault_handler,
+                 thread, t,
+                 context, frame)
 {
     /* frame can be:
        - t->frame if user or syscall
@@ -78,27 +79,28 @@ context default_fault_handler(thread t, context frame)
     return frame;
 }
 
-static CLOSURE_0_6(dummy_read, sysreturn,
-        void *, u64, u64, thread, boolean, io_completion);
-static sysreturn dummy_read(void *dest, u64 length, u64 offset_arg, thread t,
-        boolean bh, io_completion completion)
+fault_handler create_fault_handler(heap h, thread t)
+{
+    return closure(h, default_fault_handler, t);
+}
+
+closure_function(0, 6, sysreturn, dummy_read,
+                 void *, dest, u64, length, u64, offset_arg, thread, t, boolean, bh, io_completion, completion)
 {
     thread_log(t, "%s: dest %p, length %ld, offset_arg %ld",
 	       __func__, dest, length, offset_arg);
     return 0;
 }
 
-static CLOSURE_1_0(std_close, sysreturn, file);
-static sysreturn std_close(file f)
+closure_function(1, 0, sysreturn, std_close,
+                 file, f)
 {
-    unix_cache_free(get_unix_heaps(), file, f);
+    unix_cache_free(get_unix_heaps(), file, bound(f));
     return 0;
 }
 
-static CLOSURE_0_6(stdout, sysreturn,
-        void*, u64, u64, thread, boolean, io_completion);
-static sysreturn stdout(void *d, u64 length, u64 offset, thread t, boolean bh,
-        io_completion completion)
+closure_function(0, 6, sysreturn, stdout,
+                 void*, d, u64, length, u64, offset, thread, t, boolean, bh, io_completion, completion)
 {
     console_write(d, length);
     return length;
@@ -272,7 +274,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
        to the relevant thread frame upon entering the bottom half
        routine.
     */
-    fault_handler fallback_handler = closure(h, default_fault_handler, current);
+    fault_handler fallback_handler = create_fault_handler(h, current);
     install_fallback_fault_handler(fallback_handler);
 
     init_vdso(heap_physical(kh), heap_pages(kh));

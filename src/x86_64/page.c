@@ -269,8 +269,8 @@ boolean traverse_ptes(u64 vaddr, u64 length, entry_handler ph)
     return true;
 }
 
-static CLOSURE_0_3(validate_entry, boolean, int, u64, u64 *);
-static boolean validate_entry(int level, u64 vaddr, u64 * entry)
+closure_function(0, 3, boolean, validate_entry,
+                 int, level, u64, vaddr, u64 *, entry)
 {
     return pt_entry_is_present(*entry);
 }
@@ -282,15 +282,16 @@ boolean validate_virtual(void * base, u64 length)
     return traverse_ptes(u64_from_pointer(base), length, stack_closure(validate_entry));
 }
 
-static CLOSURE_1_3(update_pte_flags, boolean, u64, int, u64, u64 *);
-static boolean update_pte_flags(u64 flags, int level, u64 addr, u64 * entry)
+closure_function(1, 3, boolean, update_pte_flags,
+                 u64, flags,
+                 int, level, u64, addr, u64 *, entry)
 {
     /* we only care about present ptes */
     u64 old = *entry;
     if (!pt_entry_is_present(old) || !pt_entry_is_pte(level, old))
         return true;
 
-    *entry = (old & ~PAGE_PROT_FLAGS) | flags;
+    *entry = (old & ~PAGE_PROT_FLAGS) | bound(flags);
 #ifdef PAGE_UPDATE_DEBUG
     page_debug("update 0x%lx: pte @ 0x%lx, 0x%lx -> 0x%lx\n", addr, entry, old, *entry);
 #endif
@@ -307,12 +308,13 @@ void update_map_flags(u64 vaddr, u64 length, u64 flags)
     traverse_ptes(vaddr, length, stack_closure(update_pte_flags, flags));
 }
 
-static CLOSURE_3_3(remap_entry, boolean, u64, u64, heap, int, u64, u64 *);
-static boolean remap_entry(u64 new, u64 old, heap h, int level, u64 curr, u64 * entry)
+closure_function(3, 3, boolean, remap_entry,
+                 u64, new, u64, old, heap, h,
+                 int, level, u64, curr, u64 *, entry)
 {
-    u64 offset = curr - old;
+    u64 offset = curr - bound(old);
     u64 oldentry = *entry;
-    u64 new_curr = new + offset;
+    u64 new_curr = bound(new) + offset;
     u64 phys = phys_from_pte(oldentry);
     u64 flags = flags_from_pte(oldentry);
 #ifdef PAGE_UPDATE_DEBUG
@@ -320,22 +322,12 @@ static boolean remap_entry(u64 new, u64 old, heap h, int level, u64 curr, u64 * 
                level, curr, phys, new_curr, entry, *entry, flags);
 #endif
 
-    /* transpose any unmapped gaps to target */
-    if (!pt_entry_is_present(oldentry)) {
-        u64 len = U64_FROM_BIT(level_shift[level]);
-#ifdef PAGE_UPDATE_DEBUG
-        page_debug("unmapping [0x%lx, 0x%lx)\n", new_curr, new_curr + len);
-#endif
-        unmap_pages(new_curr, len);
-        return true;
-    }
-
     /* only look at ptes at this point */
-    if (!pt_entry_is_pte(level, oldentry))
+    if (!pt_entry_is_present(oldentry) || !pt_entry_is_pte(level, oldentry))
         return true;
 
     /* transpose mapped page */
-    map_page(pagebase(), new_curr, phys, h, pt_entry_is_fat(level, oldentry), flags, 0);
+    map_page(pagebase(), new_curr, phys, bound(h), pt_entry_is_fat(level, oldentry), flags, 0);
 
     /* reset old entry */
     *entry = 0;
@@ -362,8 +354,8 @@ void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length, heap h)
     traverse_ptes(vaddr_old, length, stack_closure(remap_entry, vaddr_new, vaddr_old, h));
 }
 
-static CLOSURE_0_3(zero_page, boolean, int, u64, u64 *);
-static boolean zero_page(int level, u64 addr, u64 * entry)
+closure_function(0, 3, boolean, zero_page,
+                 int, level, u64, addr, u64 *, entry)
 {
     u64 e = *entry;
     if (pt_entry_is_present(e) && pt_entry_is_pte(level, e)) {
@@ -381,9 +373,11 @@ void zero_mapped_pages(u64 vaddr, u64 length)
     traverse_ptes(vaddr, length, stack_closure(zero_page));
 }
 
-static CLOSURE_1_3(unmap_page, boolean, range_handler, int, u64, u64 *);
-boolean unmap_page(range_handler rh, int level, u64 vaddr, u64 * entry)
+closure_function(1, 3, boolean, unmap_page,
+                 range_handler, rh,
+                 int, level, u64, vaddr, u64 *, entry)
 {
+    range_handler rh = bound(rh);
     u64 old_entry = *entry;
     if (pt_entry_is_present(old_entry) && pt_entry_is_pte(level, old_entry)) {
 #ifdef PAGE_UPDATE_DEBUG

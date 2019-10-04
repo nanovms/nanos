@@ -21,8 +21,8 @@ typedef struct test_node {
     int val;
 } *test_node;
 
-static CLOSURE_0_1(basic_test_validate, void, rmnode);
-static void basic_test_validate(rmnode node)
+closure_function(0, 1, void, basic_test_validate,
+                 rmnode, node)
 {
     static int count = 0;
     int nresults = sizeof(rm_results) / sizeof(struct rm_result);
@@ -199,7 +199,7 @@ boolean basic_test(heap h)
 #endif
 
     /* range lookup */
-    rmnode_handler rh = closure(h, basic_test_validate);
+    rmnode_handler rh = stack_closure(basic_test_validate);
     rangemap_range_lookup(rm, irange(0, 26), rh);
     return true;
 

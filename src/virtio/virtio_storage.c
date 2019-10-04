@@ -92,17 +92,17 @@ static void deallocate_virtio_blk_req(storage st, virtio_blk_req req)
                pad(sizeof(struct virtio_blk_req), st->v->contiguous->pagesize));
 }
 
-static CLOSURE_4_1(complete, void, storage, status_handler, u8 *, virtio_blk_req, u64);
-static void complete(storage s, status_handler f, u8 *result, virtio_blk_req req, u64 len)
+closure_function(4, 1, void, complete,
+                 storage, s, status_handler, f, u8 *, result, virtio_blk_req, req,
+                 u64, len)
 {
     status st = 0;
     // 1 is io error, 2 is unsupported operation
-    if (*result) st = timm("result", "%d", *result);
-    apply(f, st);
-    deallocate_virtio_blk_req(s, req);
-    //    s->command->avail->flags &= ~VRING_AVAIL_F_NO_INTERRUPT;
-    // used isn't valid?
-    //    rprintf("used: %d\n",  s->command->vq_ring.used->idx);    
+    if (*bound(result)) st = timm("result", "%d", *bound(result));
+    apply(bound(f), st);
+    deallocate_virtio_blk_req(bound(s), bound(req));
+    // s->command->avail->flags &= ~VRING_AVAIL_F_NO_INTERRUPT;
+    closure_finish();
 }
 
 static inline void storage_rw_internal(storage st, boolean write, void * buf,
@@ -142,16 +142,18 @@ static inline void storage_rw_internal(storage st, boolean write, void * buf,
     apply(sh, timm("result", "%s", err));
 }
 
-static CLOSURE_1_3(storage_write, void, storage, void *, range, status_handler);
-static void storage_write(storage st, void * source, range blocks, status_handler s)
+closure_function(1, 3, void, storage_write,
+                 storage, st,
+                 void *, source, range, blocks, status_handler, s)
 {
-    storage_rw_internal(st, true, source, blocks, s);
+    storage_rw_internal(bound(st), true, source, blocks, s);
 }
 
-static CLOSURE_1_3(storage_read, void, storage, void *, range, status_handler);
-static void storage_read(storage st, void * target, range blocks, status_handler s)
+closure_function(1, 3, void, storage_read,
+                 storage, st,
+                 void *, target, range, blocks, status_handler, s)
 {
-    storage_rw_internal(st, false, target, blocks, s);
+    storage_rw_internal(bound(st), false, target, blocks, s);
 }
 
 static void virtio_blk_attach(heap general, storage_attach a, heap page_allocator, heap pages, pci_dev d)
@@ -171,13 +173,14 @@ static void virtio_blk_attach(heap general, storage_attach a, heap page_allocato
     apply(a, in, out, s->capacity);
 }
 
-static CLOSURE_4_1(virtio_blk_probe, boolean, heap, storage_attach, heap, heap, pci_dev);
-static boolean virtio_blk_probe(heap general, storage_attach a, heap page_allocator, heap pages, pci_dev d)
+closure_function(4, 1, boolean, virtio_blk_probe,
+                 heap, general, storage_attach, a, heap, page_allocator, heap, pages,
+                 pci_dev, d)
 {
     if (pci_get_vendor(d) != VIRTIO_PCI_VENDORID || pci_get_device(d) != VIRTIO_PCI_DEVICEID_STORAGE)
         return false;
 
-    virtio_blk_attach(general, a, page_allocator, pages, d);
+    virtio_blk_attach(bound(general), bound(a), bound(page_allocator), bound(pages), d);
     return true;
 }
 

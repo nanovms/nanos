@@ -94,8 +94,7 @@ boolean xen_detected(void)
 
 extern u64 hypercall_page;
 
-static CLOSURE_0_0(xen_interrupt, void);
-static void xen_interrupt(void)
+closure_function(0, 0, void, xen_interrupt)
 {
     volatile struct shared_info *si = xen_info.shared_info;
     volatile struct vcpu_info *vci = &xen_info.shared_info->vcpu_info[0]; /* hardwired at this point */
@@ -235,8 +234,8 @@ void xen_revoke_page_access(grant_ref_t ref)
 
 /* Reportedly, Xen timers can fire up to 100us early. */
 #define XEN_TIMER_SLOP_NS 100000
-static CLOSURE_0_1(xen_runloop_timer, void, timestamp);
-static void xen_runloop_timer(timestamp duration)
+closure_function(0, 1, void, xen_runloop_timer,
+                 timestamp, duration)
 {
     u64 n = pvclock_now_ns();
     u64 expiry = n + MAX(nsec_from_timestamp(duration), XEN_TIMER_SLOP_NS);
@@ -248,8 +247,7 @@ static void xen_runloop_timer(timestamp duration)
     }
 }
 
-static CLOSURE_0_0(xen_runloop_timer_handler, void);
-static void xen_runloop_timer_handler(void)
+closure_function(0, 0, void, xen_runloop_timer_handler)
 {
     rprintf("%s: now %T\n", __func__, nanoseconds(pvclock_now_ns()));
     assert(xen_unmask_evtchn(xen_info.timer_evtchn) == 0);
@@ -555,16 +553,6 @@ static s64 xenstore_read_internal(buffer b, s64 length)
     return result;
 }
 
-/*
-   xenstore_transaction - Take a buffer of data to write to the
-      xenstore as well as a buffer to fill with the response
-      data. Call the status handler with the status of the operation.
-
-   xenstore_sync_transaction - same as xenstore_transaction but
-      without asynchronous blocking; returns status
-
-*/
-
 static inline status xenstore_sync_write(const void *data, s64 length)
 {
     if (length > 0) {
@@ -636,7 +624,8 @@ status xenstore_sync_request(u32 tx_id, enum xsd_sockmsg_type type, buffer reque
     }
 
     if (rmsg->type == XS_ERROR) {
-        s = timm("result", "xen store error response: \"%s\"", buffer_ref(response, 0));
+        s = timm("result", "xen store error",
+                 "errno", "%s", buffer_ref(response, 0));
         goto out_dealloc;
     }
   out_dealloc:

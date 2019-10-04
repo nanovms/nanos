@@ -114,29 +114,34 @@ static inline void pipe_dealloc_end(pipe p, pipe_file pf)
         if (&p->files[PIPE_READ] == pf) {
             pipe_notify_writer(pf, EPOLLHUP);
             pipe_debug("%s(%p): writer notified\n", __func__, p);
+            deallocate_closure(pf->f.read);
+            deallocate_closure(pf->f.close);
+            deallocate_closure(pf->f.events);
         }
         if (&p->files[PIPE_WRITE] == pf) {
             pipe_notify_reader(pf, EPOLLIN | EPOLLHUP);
             pipe_debug("%s(%p): reader notified\n", __func__, p);
+            deallocate_closure(pf->f.write);
+            deallocate_closure(pf->f.close);
+            deallocate_closure(pf->f.events);
         }
 
         pipe_release(p);
     }
 }
 
-static CLOSURE_1_0(pipe_close, sysreturn, pipe_file);
-static sysreturn pipe_close(pipe_file pf)
+closure_function(1, 0, sysreturn, pipe_close,
+                 pipe_file, pf)
 {
-    pipe_dealloc_end(pf->pipe, pf);
+    pipe_dealloc_end(bound(pf)->pipe, bound(pf));
     return 0;
 }
 
-static CLOSURE_5_2(pipe_read_bh, sysreturn,
-                   pipe_file, thread, void *, u64, io_completion,
-                   boolean, boolean);
-static sysreturn pipe_read_bh(pipe_file pf, thread t, void *dest, u64 length,
-                              io_completion completion, boolean blocked, boolean nullify)
+closure_function(5, 2, sysreturn, pipe_read_bh,
+                 pipe_file, pf, thread, t, void *, dest, u64, length, io_completion, completion,
+                 boolean, blocked, boolean, nullify)
 {
+    pipe_file pf = bound(pf);
     int rv;
 
     if (nullify) {
@@ -145,7 +150,7 @@ static sysreturn pipe_read_bh(pipe_file pf, thread t, void *dest, u64 length,
     }
 
     buffer b = pf->pipe->data;
-    rv = MIN(buffer_length(b), length);
+    rv = MIN(buffer_length(b), bound(length));
     if (rv == 0) {
         if (pf->pipe->files[PIPE_WRITE].fd == -1)
             goto out;
@@ -156,7 +161,7 @@ static sysreturn pipe_read_bh(pipe_file pf, thread t, void *dest, u64 length,
         return infinity;
     }
 
-    buffer_read(b, dest, rv);
+    buffer_read(b, bound(dest), rv);
     pipe_notify_writer(pf, EPOLLOUT);
 
     // If we have consumed all of the buffer, reset it. This might prevent future writes to allocte new buffer
@@ -167,17 +172,17 @@ static sysreturn pipe_read_bh(pipe_file pf, thread t, void *dest, u64 length,
     }
   out:
     if (blocked)
-        blockq_set_completion(pf->bq, completion, t, rv);
-
+        blockq_set_completion(pf->bq, bound(completion), bound(t), rv);
+    closure_finish();
     return rv;
 }
 
-static CLOSURE_1_6(pipe_read, sysreturn,
-        pipe_file,
-        void *, u64, u64, thread, boolean, io_completion);
-static sysreturn pipe_read(pipe_file pf, void *dest, u64 length, u64 offset_arg,
-        thread t, boolean bh, io_completion completion)
+closure_function(1, 6, sysreturn, pipe_read,
+                 pipe_file, pf,
+                 void *, dest, u64, length, u64, offset_arg, thread, t, boolean, bh, io_completion, completion)
 {
+    pipe_file pf = bound(pf);
+
     if (length == 0)
         return 0;
 
@@ -186,19 +191,19 @@ static sysreturn pipe_read(pipe_file pf, void *dest, u64 length, u64 offset_arg,
     return blockq_check(pf->bq, t, ba, bh);
 }
 
-static CLOSURE_5_2(pipe_write_bh, sysreturn,
-                   pipe_file, thread, void *, u64, io_completion,
-                   boolean, boolean);
-static sysreturn pipe_write_bh(pipe_file pf, thread t, void *dest, u64 length,
-                               io_completion completion, boolean blocked, boolean nullify)
+closure_function(5, 2, sysreturn, pipe_write_bh,
+                 pipe_file, pf, thread, t, void *, dest, u64, length, io_completion, completion,
+                 boolean, blocked, boolean, nullify)
 {
     sysreturn rv = 0;
+    pipe_file pf = bound(pf);
 
     if (nullify) {
         rv = -EINTR;
         goto out;
     }
 
+    u64 length = bound(length);
     pipe p = pf->pipe;
     buffer b = p->data;
     u64 avail = p->max_size - buffer_length(b);
@@ -216,7 +221,7 @@ static sysreturn pipe_write_bh(pipe_file pf, thread t, void *dest, u64 length,
     }
 
     u64 real_length = MIN(length, avail);
-    buffer_write(b, dest, real_length);
+    buffer_write(b, bound(dest), real_length);
     if (avail == length)
         notify_dispatch(pf->f.ns, 0); /* for edge trigger */
 
@@ -225,28 +230,28 @@ static sysreturn pipe_write_bh(pipe_file pf, thread t, void *dest, u64 length,
     rv = real_length;
   out:
     if (blocked)
-        blockq_set_completion(pf->bq, completion, t, rv);
-
+        blockq_set_completion(pf->bq, bound(completion), bound(t), rv);
+    closure_finish();
     return rv;
 }
 
-static CLOSURE_1_6(pipe_write, sysreturn,
-        pipe_file,
-        void *, u64, u64, thread, boolean, io_completion);
-static sysreturn pipe_write(pipe_file pf, void * dest, u64 length, u64 offset,
-        thread t, boolean bh, io_completion completion)
+closure_function(1, 6, sysreturn, pipe_write,
+                 pipe_file, pf,
+                 void *, dest, u64, length, u64, offset, thread, t, boolean, bh, io_completion, completion)
 {
     if (length == 0)
         return 0;
 
+    pipe_file pf = bound(pf);
     blockq_action ba = closure(pf->pipe->h, pipe_write_bh, pf, t, dest, length,
             completion);
     return blockq_check(pf->bq, t, ba, bh);
 }
 
-static CLOSURE_1_0(pipe_read_events, u32, pipe_file);
-static u32 pipe_read_events(pipe_file pf)
+closure_function(1, 0, u32, pipe_read_events,
+                 pipe_file, pf)
 {
+    pipe_file pf = bound(pf);
     assert(pf->f.read);
     u32 events = buffer_length(pf->pipe->data) ? EPOLLIN : 0;
     if (pf->pipe->files[PIPE_WRITE].fd == -1)
@@ -254,9 +259,10 @@ static u32 pipe_read_events(pipe_file pf)
     return events;
 }
 
-static CLOSURE_1_0(pipe_write_events, u32, pipe_file);
-static u32 pipe_write_events(pipe_file pf)
+closure_function(1, 0, u32, pipe_write_events,
+                 pipe_file, pf)
 {
+    pipe_file pf = bound(pf);
     assert(pf->f.write);
     u32 events = buffer_length(pf->pipe->data) < pf->pipe->max_size ? EPOLLOUT : 0;
     if (pf->pipe->files[PIPE_READ].fd == -1)

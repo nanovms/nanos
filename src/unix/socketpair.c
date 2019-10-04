@@ -109,12 +109,15 @@ static inline void sockpair_notify_writer(sockpair_socket s, int events)
     }
 }
 
-static CLOSURE_5_2(sockpair_read_bh, sysreturn,
-                   sockpair_socket, thread, void *, u64, io_completion,
-                   boolean, boolean);
-static sysreturn sockpair_read_bh(sockpair_socket s, thread t, void *dest,
-                                  u64 length, io_completion completion, boolean blocked, boolean nullify)
+closure_function(5, 2, sysreturn, sockpair_read_bh,
+                 sockpair_socket, s, thread, t, void *, dest, u64, length, io_completion, completion,
+                 boolean, blocked, boolean, nullify)
 {
+    sockpair_socket s = bound(s);
+    thread t = bound(t);
+    void * dest = bound(dest);
+    u64 length = bound(length);
+
     buffer b = s->sockpair->data;
     int real_length;
     int dgram_length;
@@ -158,17 +161,17 @@ static sysreturn sockpair_read_bh(sockpair_socket s, thread t, void *dest,
     }
 out:
     if (blocked) {
-        blockq_set_completion(s->read_bq, completion, t, real_length);
+        blockq_set_completion(s->read_bq, bound(completion), t, real_length);
     }
+    closure_finish();
     return real_length;
 }
 
-static CLOSURE_1_6(sockpair_read, sysreturn,
-        sockpair_socket,
-        void *, u64, u64, thread, boolean, io_completion);
-static sysreturn sockpair_read(sockpair_socket s, void *dest, u64 length,
-        u64 offset_arg, thread t, boolean bh, io_completion completion)
+closure_function(1, 6, sysreturn, sockpair_read,
+                 sockpair_socket, s,
+                 void *, dest, u64, length, u64, offset_arg, thread, t, boolean, bh, io_completion, completion)
 {
+    sockpair_socket s = bound(s);
     if (length == 0) {
         return 0;
     }
@@ -178,12 +181,13 @@ static sysreturn sockpair_read(sockpair_socket s, void *dest, u64 length,
     return blockq_check(s->read_bq, t, ba, bh);
 }
 
-static CLOSURE_5_2(sockpair_write_bh, sysreturn,
-        sockpair_socket, thread, void *, u64, io_completion,
-                   boolean, boolean);
-static sysreturn sockpair_write_bh(sockpair_socket s, thread t, void *dest,
-                                   u64 length, io_completion completion, boolean blocked, boolean nullify)
+closure_function(5, 2, sysreturn, sockpair_write_bh,
+                 sockpair_socket, s, thread, t, void *, dest, u64, length, io_completion, completion,
+                 boolean, blocked, boolean, nullify)
 {
+    sockpair_socket s = bound(s);
+    u64 length = bound(length);
+    
     sysreturn rv = 0;
     buffer b = s->sockpair->data;
 
@@ -209,7 +213,7 @@ static sysreturn sockpair_write_bh(sockpair_socket s, thread t, void *dest,
     }
 
     u64 real_length = MIN(length, avail);
-    buffer_write(b, dest, real_length);
+    buffer_write(b, bound(dest), real_length);
     if (s->sockpair->type == SOCK_DGRAM) {
         sockpair_dgram_set_len(s->sockpair, length);
     }
@@ -217,17 +221,17 @@ static sysreturn sockpair_write_bh(sockpair_socket s, thread t, void *dest,
     rv = real_length;
 out:
     if (blocked) {
-        blockq_set_completion(s->write_bq, completion, t, rv);
+        blockq_set_completion(s->write_bq, bound(completion), bound(t), rv);
     }
+    closure_finish();
     return rv;
 }
 
-static CLOSURE_1_6(sockpair_write, sysreturn,
-        sockpair_socket,
-        void *, u64, u64, thread, boolean, io_completion);
-static sysreturn sockpair_write(sockpair_socket s, void * dest, u64 length,
-        u64 offset, thread t, boolean bh, io_completion completion)
+closure_function(1, 6, sysreturn, sockpair_write,
+                 sockpair_socket, s,
+                 void *, dest, u64, length, u64, offset, thread, t, boolean, bh, io_completion, completion)
 {
+    sockpair_socket s = bound(s);
     if (length == 0) {
         return 0;
     }
@@ -237,9 +241,10 @@ static sysreturn sockpair_write(sockpair_socket s, void * dest, u64 length,
     return blockq_check(s->write_bq, t, ba, bh);
 }
 
-static CLOSURE_1_0(sockpair_events, u32, sockpair_socket);
-static u32 sockpair_events(sockpair_socket s)
+closure_function(1, 0, u32, sockpair_events,
+                 sockpair_socket, s)
 {
+    sockpair_socket s = bound(s);
     u32 events = 0;
     if (buffer_length(s->sockpair->data) != 0) {
         events |= EPOLLIN;
@@ -268,6 +273,10 @@ static void sockpair_dealloc_sock(sockpair_socket s)
     if ((s->write_bq != 0) && (s->write_bq != INVALID_ADDRESS)) {
         deallocate_blockq(s->write_bq);
     }
+    deallocate_closure(s->f.read);
+    deallocate_closure(s->f.write);
+    deallocate_closure(s->f.events);
+    deallocate_closure(s->f.close);
     release_fdesc(&s->f);
 }
 
@@ -281,11 +290,13 @@ static void sockpair_release(struct sockpair *sockpair)
     }
 }
 
-static CLOSURE_1_0(sockpair_close, sysreturn, sockpair_socket);
-static sysreturn sockpair_close(sockpair_socket s)
+closure_function(1, 0, sysreturn, sockpair_close,
+                 sockpair_socket, s)
 {
-    sockpair_dealloc_sock(s);
-    sockpair_release(s->sockpair);
+    struct sockpair *sockpair = bound(s)->sockpair;
+    sockpair_dealloc_sock(bound(s));
+    /* cannot access bound vars past this point */
+    sockpair_release(sockpair);
     return 0;
 }
 

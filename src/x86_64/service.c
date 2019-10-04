@@ -24,12 +24,6 @@ extern void start_interrupts(kernel_heaps kh);
 
 static struct kernel_heaps heaps;
 
-// doesnt belong here
-CLOSURE_3_0(startup, void, kernel_heaps, tuple, filesystem);
-void startup(kernel_heaps kh,
-             tuple root,
-             filesystem fs);
-
 heap allocate_tagged_region(kernel_heaps kh, u64 tag)
 {
     heap h = heap_general(kh);
@@ -114,11 +108,12 @@ void runloop()
 //#define MAX_BLOCK_IO_SIZE PAGE_SIZE
 #define MAX_BLOCK_IO_SIZE (256 * 1024)
 
-static CLOSURE_2_3(offset_block_io, void, u64, block_io, void *, range, status_handler);
-static void offset_block_io(u64 offset, block_io io, void *dest, range blocks, status_handler sh)
+closure_function(2, 3, void, offset_block_io,
+                 u64, offset, block_io, io,
+                 void *, dest, range, blocks, status_handler, sh)
 {
-    assert((offset & (SECTOR_SIZE - 1)) == 0);
-    u64 ds = offset >> SECTOR_OFFSET;
+    assert((bound(offset) & (SECTOR_SIZE - 1)) == 0);
+    u64 ds = bound(offset) >> SECTOR_OFFSET;
     blocks.start += ds;
     blocks.end += ds;
 
@@ -128,7 +123,7 @@ static void offset_block_io(u64 offset, block_io io, void *dest, range blocks, s
     status_handler k = apply_merge(m);
     while (blocks.start < blocks.end) {
         u64 span = MIN(range_span(blocks), MAX_BLOCK_IO_SIZE >> SECTOR_OFFSET);
-        apply(io, dest, irange(blocks.start, blocks.start + span), apply_merge(m));
+        apply(bound(io), dest, irange(blocks.start, blocks.start + span), apply_merge(m));
 
         // next block
         blocks.start += span;
@@ -137,17 +132,22 @@ static void offset_block_io(u64 offset, block_io io, void *dest, range blocks, s
     apply(k, STATUS_OK);
 }
 
+/* XXX some header reorg in order */
 void init_extra_prints(); 
+thunk create_init(kernel_heaps kh, tuple root, filesystem fs);
 
-static CLOSURE_1_2(fsstarted, void, tuple, filesystem, status);
-static void fsstarted(tuple root, filesystem fs, status s)
+closure_function(1, 2, void, fsstarted,
+                 tuple, root,
+                 filesystem, fs, status, s)
 {
     assert(s == STATUS_OK);
-    enqueue(runqueue, closure(heap_general(&heaps), startup, &heaps, root, fs));
+    enqueue(runqueue, create_init(&heaps, bound(root), fs));
+    closure_finish();
 }
 
-static CLOSURE_2_3(attach_storage, void, tuple, u64, block_io, block_io, u64);
-static void attach_storage(tuple root, u64 fs_offset, block_io r, block_io w, u64 length)
+closure_function(2, 3, void, attach_storage,
+                 tuple, root, u64, fs_offset,
+                 block_io, r, block_io, w, u64, length)
 {
     // with filesystem...should be hidden as functional handlers on the tuplespace
     heap h = heap_general(&heaps);
@@ -155,10 +155,11 @@ static void attach_storage(tuple root, u64 fs_offset, block_io r, block_io w, u6
                       SECTOR_SIZE,
                       length,
                       heap_backed(&heaps),
-                      closure(h, offset_block_io, fs_offset, r),
-                      closure(h, offset_block_io, fs_offset, w),
-                      root,
-                      closure(h, fsstarted, root));
+                      closure(h, offset_block_io, bound(fs_offset), r),
+                      closure(h, offset_block_io, bound(fs_offset), w),
+                      bound(root),
+                      closure(h, fsstarted, bound(root)));
+    closure_finish();
 }
 
 static void read_kernel_syms()

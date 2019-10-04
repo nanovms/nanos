@@ -471,16 +471,17 @@ sysreturn rt_sigprocmask(int how, const u64 *set, u64 *oldset, u64 sigsetsize)
     return 0;
 }
 
-static CLOSURE_2_2(rt_sigsuspend_bh, sysreturn,
-                   thread, u64,
-                   boolean, boolean);
-static sysreturn rt_sigsuspend_bh(thread t, u64 saved_mask, boolean blocked, boolean nullify)
+closure_function(2, 2, sysreturn, rt_sigsuspend_bh,
+                 thread, t, u64, saved_mask,
+                 boolean, blocked, boolean, nullify)
 {
-    sig_debug("tid %d, saved_mask 0x%lx blocked %d, nullify %d\n", t->tid, saved_mask, blocked, nullify);
+    thread t = bound(t);
+    sig_debug("tid %d, saved_mask 0x%lx blocked %d, nullify %d\n", t->tid, bound(saved_mask), blocked, nullify);
 
     if (nullify || get_dispatchable_signals(t)) {
         if (blocked)
             thread_wakeup(t);
+        closure_finish();
         return set_syscall_return(t, -EINTR);
     }
 
@@ -617,16 +618,17 @@ sysreturn tkill(int tid, int sig)
     return tgkill(1, tid, sig);
 }
 
-static CLOSURE_1_2(pause_bh, sysreturn,
-                   thread,
-                   boolean, boolean);
-static sysreturn pause_bh(thread t, boolean blocked, boolean nullify)
+closure_function(1, 2, sysreturn, pause_bh,
+                 thread, t,
+                 boolean, blocked, boolean, nullify)
 {
+    thread t = bound(t);
     sig_debug("tid %d, blocked %d, nullify %d\n", t->tid, blocked, nullify);
 
     if (nullify || get_dispatchable_signals(t)) {
         if (blocked)
             thread_wakeup(t);
+        closure_finish();
         return set_syscall_return(t, -EINTR);
     }
 

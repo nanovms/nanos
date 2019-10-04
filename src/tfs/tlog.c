@@ -22,16 +22,18 @@ typedef struct log {
     heap h;
 } *log;
 
-static CLOSURE_1_1(log_write_completion, void, vector, status);
-static void log_write_completion(vector v, status s)
+closure_function(1, 1, void, log_write_completion,
+                 vector, v,
+                 status, s)
 {
     // reclaim the buffer now and the vector...make it a whole thing
     status_handler i;
-    int len = vector_length(v);
+    int len = vector_length(bound(v));
     for (int count = 0; count < len; count++) {
-        i = vector_delete(v, 0);
+        i = vector_delete(bound(v), 0);
         apply(i, s);
     }
+    closure_finish();
 }
 
 // xxx  currently we cant take writes during the flush
@@ -105,15 +107,19 @@ void log_write(log tl, tuple t, status_handler sh)
     tl->dirty = true;
 }
 
-CLOSURE_2_1(log_read_complete, void, log, status_handler, status);
-void log_read_complete(log tl, status_handler sh, status s)
+closure_function(2, 1, void, log_read_complete,
+                 log, tl, status_handler, sh,
+                 status, s)
 {
+    log tl = bound(tl);
+    status_handler sh = bound(sh);
     buffer b = tl->staging;
     u8 frame = 0;
 
     tlog_debug("log_read_complete: buffer len %d, status %v\n", buffer_length(b), s);
     if (!is_ok(s)) {
         apply(sh, s);
+        closure_finish();
         return;
     }
 
@@ -192,13 +198,12 @@ void log_read_complete(log tl, status_handler sh, status s)
         if (tagof(v) == tag_tuple || tagof(v) == tag_symbol)
             table_set(newdict, v, k);
     }
-    // deallocate_table(tl->dictionary);
+    deallocate_table(tl->dictionary);
     tl->dictionary = newdict;
 #endif
 
     apply(sh, 0);
-    // something really strange is going on with the value of frame
-    //    if (frame != END_OF_LOG) halt("bad log tag %p\n", frame);    
+    closure_finish();
 }
 
 void read_log(log tl, u64 offset, u64 size, status_handler sh)

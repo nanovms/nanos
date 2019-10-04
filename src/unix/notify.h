@@ -15,7 +15,7 @@ void deallocate_notify_set(notify_set s);
 
 notify_entry notify_add(notify_set s, u32 eventmask, event_handler eh);
 
-void notify_remove(notify_set s, notify_entry e);
+void notify_remove(notify_set s, notify_entry e, boolean release);
 
 void notify_dispatch(notify_set s, u32 events);
 

@@ -122,16 +122,19 @@ void start_process(thread t, void *start)
     }
 }
 
-static CLOSURE_0_1(load_interp_fail, void, status);
-static void load_interp_fail(status s)
+closure_function(0, 1, void, load_interp_fail,
+                 status, s)
 {
     console("interp fail\n");
+    closure_finish();
     halt("read interp failed %v\n", s);
 }
 
-static CLOSURE_2_4(exec_elf_map, void, process, kernel_heaps, u64, u64, u64, u64);
-static void exec_elf_map(process p, kernel_heaps kh, u64 vaddr, u64 paddr, u64 size, u64 flags)
+closure_function(2, 4, void, exec_elf_map,
+                 process, p, kernel_heaps, kh,
+                 u64, vaddr, u64, paddr, u64, size, u64, flags)
 {
+    kernel_heaps kh = bound(kh);
     u64 target = vaddr;
     u64 vmflags = 0;
     if ((flags & PAGE_NO_EXEC) == 0)
@@ -139,7 +142,7 @@ static void exec_elf_map(process p, kernel_heaps kh, u64 vaddr, u64 paddr, u64 s
     if (flags & PAGE_WRITABLE)
         vmflags |= VMAP_FLAG_WRITABLE;
 
-    assert(allocate_vmap(p->vmaps, irange(target, target + size), vmflags) != INVALID_ADDRESS);
+    assert(allocate_vmap(bound(p)->vmaps, irange(target, target + size), vmflags) != INVALID_ADDRESS);
     boolean is_bss = paddr == INVALID_PHYSICAL;
     if (is_bss) {
         /* bss */
@@ -152,14 +155,19 @@ static void exec_elf_map(process p, kernel_heaps kh, u64 vaddr, u64 paddr, u64 s
     }
 }
 
-CLOSURE_2_1(load_interp_complete, void, thread, kernel_heaps, buffer);
-void load_interp_complete(thread t, kernel_heaps kh, buffer b)
+closure_function(2, 1, void, load_interp_complete,
+                 thread, t, kernel_heaps, kh,
+                 buffer, b)
 {
+    thread t = bound(t);
+    kernel_heaps kh = bound(kh);
+
     exec_debug("interpreter load complete, reading elf\n");
     u64 where = allocate_u64(heap_virtual_huge(kh), HUGE_PAGESIZE);
     void * start = load_elf(b, where, stack_closure(exec_elf_map, t->p, kh));
     exec_debug("starting process tid %d, start %p\n", t->tid, start);
     start_process(t, start);
+    closure_finish();
 }
 
 process exec_elf(buffer ex, process kp)

@@ -183,9 +183,9 @@ static int ata_io_loop(struct ata *dev, int cmd, void *buf, u64 nsectors)
     }
 }
 
-void ata_io_cmd(void *_dev, int cmd, void *buf, range blocks, status_handler s)
+void ata_io_cmd(void * _dev, int cmd, void * buf, range blocks, status_handler s)
 {
-    struct ata *dev = (struct ata *) _dev;
+    struct ata *dev = (struct ata *)_dev;
     const char *err;
 
     u64 lba = blocks.start;
@@ -231,6 +231,18 @@ timeout:
     err = "ata_io_cmd: device timeout";
     msg_err("%s\n", err);
     apply(s, timm("result", "%s", err));
+}
+
+closure_function(2, 3, void, ata_io_cmd_cfn,
+                 void *, _dev, int, cmd,
+                 void *, buf, range, blocks, status_handler, s)
+{
+    ata_io_cmd(bound(_dev), bound(cmd), buf, blocks, s);
+}
+
+block_io create_ata_io(heap h, void * dev, int cmd)
+{
+    return closure(h, ata_io_cmd_cfn, dev, cmd);
 }
 
 struct ata *ata_alloc(heap general)

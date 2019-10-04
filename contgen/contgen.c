@@ -31,7 +31,7 @@ void pi(char *fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);
-    for (char *i = fmt; *i ; i ++) {
+    for (char *i = fmt; *i ; i++) {
         int count = nright;
         switch (*i) {
         case '@':
@@ -52,10 +52,11 @@ void pi(char *fmt, ...)
         case '~':
             {
                 char *subformat = va_arg(ap, char *);
-                for (int i = 0 ; i< count; i++)  {
+                if (count == 0)
+                    break;
+                for (int i = 0 ; i < count; i++)
                     pi(subformat, i, i);
-                    twiggy = 1;
-                }
+                twiggy = 1;
                 break;
             }
         case '|':
@@ -72,27 +73,25 @@ void pi(char *fmt, ...)
 
 void cblock()
 {
-    p("#define CLOSURE_%_%(_name, _rettype^~)|", nleft, nright, ", _l%", ", _r%");
-    p("_rettype _name(^~);|", "@_l%", "@_r%");
+    p("#define CLOSURE_%_%(_rettype, _name^~)|", nleft, nright, ", _lt%, _ln%", ", _rt%, _rn%");
+    p("struct _closure_##_name;|");
+    p("static _rettype _name(struct _closure_##_name *~);|", ", _rt%");
 
-    p("struct _closure_##_name{|");
-    p("  _rettype (*_apply)(void *~);|", ", _r%");
-    p("  char *name;|");
-    for (int i = 0; i < nleft ; i++)  p("  _l% l%;|", i, i);
+    p("struct _closure_##_name {|");
+    p("  _rettype (*__apply)(struct _closure_##_name *~);|", ", _rt%");
+    p("  struct _closure_common __c;|");
+    for (int i = 0; i < nleft ; i++)  p("  _lt% _ln%;|", i, i);
     p("};|");
 
-    p("static _rettype _apply_##_name(void *z~){|", ", _r% r%");
-    if (nleft)
-        p("  struct _closure_##_name *n = z; |");
-    p("  return _name(^~);|", "@n->l%", "@r%");
+    p("static _rettype (**_fill_##_name(heap h, struct _closure_##_name* n, bytes s^))(void *~) {|", ", _lt% l%", ", _rt%");
+    p("  n->__apply = _name;|");
+    p("  n->__c.name = #_name;|");
+    p("  n->__c.h = h;|");
+    p("  n->__c.size = s;|");
+    for (int i = 0; i < nleft ; i++)  p("  n->_ln% = l%;|", i, i);
+    p("  return (_rettype (**)(void *~))n;|", ", _rt%");
     p("}|");
-
-    p("static _rettype (**_fill_##_name(struct _closure_##_name* n^))(void *~){|", ", _l% l%", ", _r%");
-    p("  n->_apply = _apply_##_name;|");
-    p("  n->name = #_name;|");
-    for (int i = 0; i < nleft ; i++)  p("  n->l% = l%;|", i, i);
-    p("  return (_rettype (**)(void *~))n;|", ", _r%");
-    p("}\n\n");
+    p("static _rettype _name(struct _closure_##_name *__self~)\n\n\n", ", _rt% _rn%");
 }
 
 int main(int argc, char **argv)

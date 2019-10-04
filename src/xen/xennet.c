@@ -99,60 +99,74 @@ struct xennet_dev {
     struct list tx_free;
 };
 
+#define XENNET_INFORM_BACKEND_RETRIES 1024
+
 static status xennet_inform_backend(xennet_dev xd)
 {
     status s = STATUS_OK;
     xennet_debug("%s: dev id %d", __func__, xd->if_id);
 
     u32 tx_id;
-    boolean again = false;
     char *node;
-    do {
-        s = xenstore_transaction_start(&tx_id);
-        if (!is_ok(s))
-            return s;
+    int retries = XENNET_INFORM_BACKEND_RETRIES;
 
-        node = "vifname";
-        s = xenstore_sync_printf(tx_id, xd->frontend, node, "vif%d", xd->if_id);
-        if (!is_ok(s))
-            goto abort;
+  again:
+    node = "transaction start";
+    s = xenstore_transaction_start(&tx_id);
+    if (!is_ok(s))
+        return s;
 
-        node = "rx-ring-ref";
-        s = xenstore_sync_printf(tx_id, xd->frontend, node, "%d", xd->rx_ring_gntref);
-        if (!is_ok(s))
-            goto abort;
+    node = "vifname";
+    s = xenstore_sync_printf(tx_id, xd->frontend, node, "vif%d", xd->if_id);
+    if (!is_ok(s))
+        goto abort;
 
-        node = "tx-ring-ref";
-        s = xenstore_sync_printf(tx_id, xd->frontend, node, "%d", xd->tx_ring_gntref);
-        if (!is_ok(s))
-            goto abort;
+    node = "rx-ring-ref";
+    s = xenstore_sync_printf(tx_id, xd->frontend, node, "%d", xd->rx_ring_gntref);
+    if (!is_ok(s))
+        goto abort;
 
-        node = "request-rx-copy";
-        s = xenstore_sync_printf(tx_id, xd->frontend, node, "%d", 1);
-        if (!is_ok(s))
-            goto abort;
+    node = "tx-ring-ref";
+    s = xenstore_sync_printf(tx_id, xd->frontend, node, "%d", xd->tx_ring_gntref);
+    if (!is_ok(s))
+        goto abort;
 
-        node = "feature-rx-notify";
-        s = xenstore_sync_printf(tx_id, xd->frontend, node, "%d", 1);
-        if (!is_ok(s))
-            goto abort;
+    node = "request-rx-copy";
+    s = xenstore_sync_printf(tx_id, xd->frontend, node, "%d", 1);
+    if (!is_ok(s))
+        goto abort;
 
-        node = "event-channel";
-        s = xenstore_sync_printf(tx_id, xd->frontend, node, "%d", xd->evtchn);
-        if (!is_ok(s))
-            goto abort;
+    node = "feature-rx-notify";
+    s = xenstore_sync_printf(tx_id, xd->frontend, node, "%d", 1);
+    if (!is_ok(s))
+        goto abort;
 
-        s = xenstore_transaction_end(tx_id, false);
-        if (!is_ok(s)) {
-            /* XXX check for EAGAIN */
-            goto abort;
+    node = "event-channel";
+    s = xenstore_sync_printf(tx_id, xd->frontend, node, "%d", xd->evtchn);
+    if (!is_ok(s))
+        goto abort;
+
+    node = "transaction end";
+    s = xenstore_transaction_end(tx_id, false);
+    if (!is_ok(s)) {
+        value v = table_find(s, sym(errno));
+        if (v) {
+            if (!runtime_strcmp("EAGAIN", buffer_ref((buffer)v, 0))) {
+                deallocate_tuple(s);
+                if (retries-- == 0) {
+                    return timm("result", "%s failed: transaction end returned EAGAIN after %d tries",
+                             __func__, XENNET_INFORM_BACKEND_RETRIES);
+                }
+                goto again;
+            }
         }
-    } while (again);
+        return timm_up(s, "result", "%s: transaction end failed", __func__);
+    }
     return s;
   abort:
     xenstore_transaction_end(tx_id, true);
-    return timm("result", "%s: transaction aborted; interim error \"%v\""
-                " while writing to node \"%s\"", __func__, s, node);
+    return timm_up(s, "result", "%s: transaction aborted; step \"%s\" failed",
+                   __func__, node);
 }
 
 static inline u32 xennet_form_tx_id(xennet_tx_buf txb, int pageidx)
@@ -219,10 +233,11 @@ static xennet_tx_buf xennet_get_txbuf(xennet_dev xd)
     return txb;
 }
 
-static CLOSURE_1_0(xennet_tx_buf_finish, void, struct pbuf *);
-static void xennet_tx_buf_finish(struct pbuf *p)
+closure_function(1, 0, void, xennet_tx_buf_finish,
+                 struct pbuf *, p)
 {
-    pbuf_free(p);
+    pbuf_free(bound(p));
+    closure_finish();
 }
 
 static void xennet_service_tx_ring(xennet_dev xd)
@@ -492,13 +507,16 @@ static void xennet_populate_rx_ring(xennet_dev xd)
         xen_notify_evtchn(xd->evtchn);
 }
 
-static CLOSURE_2_0(xennet_rx_buf_finish, void, xennet_dev, struct pbuf *);
-static void xennet_rx_buf_finish(xennet_dev xd, struct pbuf *p)
+closure_function(2, 0, void, xennet_rx_buf_finish,
+                 xennet_dev, xd, struct pbuf *, p)
 {
+    xennet_dev xd = bound(xd);
+    struct pbuf *p = bound(p);
     if (xd->netif->input(p, xd->netif) != ERR_OK) {
         msg_err("rx drop by stack\n");
         xennet_return_rxbuf(p);
     }
+    closure_finish();
 }
 
 static void xennet_service_rx_ring(xennet_dev xd)
@@ -539,9 +557,10 @@ static void xennet_service_rx_ring(xennet_dev xd)
     } while (more);
 }
 
-static CLOSURE_1_0(xennet_event_handler, void, xennet_dev);
-static void xennet_event_handler(xennet_dev xd)
+closure_function(1, 0, void, xennet_event_handler,
+                 xennet_dev, xd)
 {
+    xennet_dev xd = bound(xd);
     xennet_service_tx_ring(xd);
     xennet_populate_tx_ring(xd);
     xennet_service_rx_ring(xd);
@@ -748,11 +767,12 @@ static status xennet_attach(kernel_heaps kh, int id, buffer frontend, tuple meta
     return s;
 }
     
-static CLOSURE_1_3(xennet_probe, boolean, kernel_heaps, int, buffer, tuple);
-static boolean xennet_probe(kernel_heaps kh, int id, buffer frontend, tuple meta)
+closure_function(1, 3, boolean, xennet_probe,
+                 kernel_heaps, kh,
+                 int, id, buffer, frontend, tuple, meta)
 {
     xennet_debug("probe for id %d, meta: %v", id, meta);
-    status s = xennet_attach(kh, id, frontend, meta);
+    status s = xennet_attach(bound(kh), id, frontend, meta);
     if (!is_ok(s)) {
         msg_err("attach failed with status %v\n", s);
         return false;

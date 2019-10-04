@@ -25,8 +25,8 @@ void console_write(char *s, bytes count)
     }
 }
 
-static CLOSURE_0_1(attach_console, void, struct console_driver *)
-static void attach_console(struct console_driver *d)
+closure_function(0, 1, void, attach_console,
+                 struct console_driver *, d)
 {
     struct console_driver **pd;
 

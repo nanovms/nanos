@@ -10,24 +10,28 @@ struct merge {
    status last_status;
 };
 
-static CLOSURE_1_1(merge_join, void, merge, status);
-static void merge_join(merge m, status s)
+closure_function(1, 1, void, merge_join,
+                 merge, m,
+                 status, s)
 {
+    merge m = bound(m);
     if (s != STATUS_OK)
         m->last_status = s; // last failed status
 
     word n = fetch_and_add(&m->count, (word)-1);
     if (n == 1) {
         apply(m->completion, m->last_status);
+        deallocate_closure(m->apply);
         deallocate(m->h, m, sizeof(struct merge));
+        closure_finish();
     }
 }
 
-static CLOSURE_2_0(merge_add, status_handler, merge, status_handler);
-static status_handler merge_add(merge m, status_handler sh)
+closure_function(2, 0, status_handler, merge_add,
+                 merge, m, status_handler, sh)
 {
-    fetch_and_add(&m->count, 1);
-    return sh;
+    fetch_and_add(&bound(m)->count, 1);
+    return bound(sh);
 }
 
 merge allocate_merge(heap h, status_handler completion)
