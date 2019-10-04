@@ -692,6 +692,7 @@ static void setup_sigframe(thread t, int signum, struct siginfo *si)
         t->sigframe[FRAME_RSI] = u64_from_pointer(&frame->info);
         t->sigframe[FRAME_RDX] = u64_from_pointer(&frame->uc);
     } else {
+        frame->info.si_signo = si->si_signo;
         t->sigframe[FRAME_RSI] = 0;
         t->sigframe[FRAME_RDX] = 0;
     }
