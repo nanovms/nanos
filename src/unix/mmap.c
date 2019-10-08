@@ -1,11 +1,12 @@
 #include <unix_internal.h>
 #include <page.h>
 
-#define PF_DEBUG
-#ifdef PF_DEBUG
-#define pf_debug(x, ...) thread_log(current, x, ##__VA_ARGS__);
+#define PF_INFO
+#ifdef PF_INFO
+#define pf_info(x, ...) do { log_printf("  PF", "thread %d, " x "\n", current->tid, ##__VA_ARGS__); \
+        thread_log(current, x, ##__VA_ARGS__); } while(0)
 #else
-#define pf_debug(x, ...)
+#define pf_info(x, ...)
 #endif
 
 static boolean vmap_attr_equal(vmap a, vmap b)
@@ -36,7 +37,7 @@ deliver_segv(u64 vaddr, s32 si_code)
         }
     };
 
-    pf_debug("delivering SIGSEGV; vaddr 0x%lx si_code %s",
+    pf_info("delivering SIGSEGV; vaddr 0x%lx si_code %s",
         vaddr, (si_code == SEGV_MAPERR) ? "SEGV_MAPPER" : "SEGV_ACCERR"
     );
 
@@ -81,6 +82,7 @@ boolean unix_fault_page(u64 vaddr, context frame)
 
     /* no vmap --> send access violation */
     if (vm == INVALID_ADDRESS) {
+        pf_info("no vmap found for addr 0x%lx, rip 0x%lx", vaddr, frame[FRAME_RIP]);
         deliver_segv(vaddr, SEGV_MAPERR); /* does not return */
         assert(0);
     }
@@ -96,7 +98,7 @@ boolean unix_fault_page(u64 vaddr, context frame)
             return false;
         }
 
-        pf_debug("\npage protection violation\naddr 0x%lx, rip 0x%lx, "
+        pf_info("page protection violation\naddr 0x%lx, rip 0x%lx, "
                 "error %s%s%s vm->flags (%s%s%s%s)", 
                 vaddr, frame[FRAME_RIP],
                 (error_code & FRAME_ERROR_PF_RW) ? "W" : "R",

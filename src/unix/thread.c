@@ -169,6 +169,12 @@ boolean thread_attempt_interrupt(thread t)
     return true;
 }
 
+define_closure_function(1, 0, void, free_thread,
+                        thread, t)
+{
+    deallocate(heap_general(get_kernel_heaps()), bound(t), sizeof(struct thread));
+}
+
 thread create_thread(process p)
 {
     // heap I guess
@@ -191,6 +197,7 @@ thread create_thread(process p)
     t->p = p;
     t->syscall = -1;
     t->uh = *p->uh;
+    init_refcount(&t->refcount, fill_closure(&t->free, free_thread, t));
     t->select_epoll = 0;
     t->tid = tidcount++;
     t->clear_tid = 0;
@@ -239,11 +246,17 @@ void exit_thread(thread t)
 
     blockq_flush(t->dummy_blockq);
     deallocate_blockq(t->dummy_blockq);
+    t->dummy_blockq = INVALID_ADDRESS;
+
     deallocate_closure(t->run);
+    t->run = INVALID_ADDRESS;
+
     deallocate_closure((fault_handler)pointer_from_u64(t->frame[FRAME_FAULT_HANDLER]));
-    deallocate(heap_general(get_kernel_heaps()), t, sizeof(struct thread));
+    t->frame[FRAME_FAULT_HANDLER] = 0;
+
     current = dummy_thread;
     running_frame = dummy_thread->frame;
+    refcount_release(&t->refcount);
 }
 
 void init_threads(process p)

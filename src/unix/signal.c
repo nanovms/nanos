@@ -717,8 +717,6 @@ static void setup_sigframe(thread t, int signum, struct siginfo *si)
 /* XXX lock down / use access fns */
 void dispatch_signals(thread t)
 {
-    sig_debug("tid %d\n", t->tid);
-
     if (t->dispatch_sigstate) {
         /* sorry, no nested handling */
         return;
@@ -730,10 +728,8 @@ void dispatch_signals(thread t)
     if (qs == INVALID_ADDRESS) {
         ss = &t->p->signals;
         qs = sigstate_dequeue_signal(ss, sigstate_get_mask(&t->signals)); /* include thread mask */
-        if (qs == INVALID_ADDRESS) {
-            sig_debug("tid %d: nothing to process\n", t->tid);
+        if (qs == INVALID_ADDRESS)
             return;
-        }
     }
     t->dispatch_sigstate = ss;
 

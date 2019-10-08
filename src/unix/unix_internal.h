@@ -148,11 +148,14 @@ typedef struct sigstate {
     struct list heads[NSIG];
 } *sigstate;
 
+declare_closure_struct(1, 0, void, free_thread,
+                         thread, t);
 typedef struct epoll *epoll;
 typedef struct thread {
     // if we use an array typedef its fragile
     // there are likley assumptions that frame sits at the base of thread
     u64 frame[FRAME_MAX];
+    char name[16]; /* thread name */
     int syscall;
     process p;
 
@@ -164,10 +167,12 @@ typedef struct thread {
     */
     struct unix_heaps uh;
 
+    struct refcount refcount;
+    closure_struct(free_thread, free);
+
     epoll select_epoll;
     int *clear_tid;
     int tid;
-    char name[16]; /* thread name */
 
     thunk run;
 

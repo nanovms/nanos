@@ -17,14 +17,32 @@
     __closure(0, stack_allocate(sizeof(struct _closure_##__name)), \
               sizeof(struct _closure_##__name), __name, ##__VA_ARGS__)
 
+#define fill_closure(__p, __name, ...)\
+    __closure(0, (__p), sizeof(struct _closure_##__name), __name, ##__VA_ARGS__)
+
+#define closure_struct(__name, __field) struct _closure_##__name __field;
+
 struct _closure_common {
     char *name;
     heap h;
     bytes size;
 };
 
-#define __closure_define(nl, nr) CLOSURE_ ## nl ## _ ## nr
-#define closure_function(nl, nr, ...) __closure_define(nl, nr)(__VA_ARGS__)
+#define __closure_struct_declare(nl, nr) CLOSURE_STRUCT_ ## nl ## _ ## nr
+#define __closure_function_declare(nl, nr) CLOSURE_DECLARE_FUNCS_ ## nl ## _ ## nr
+#define __closure_define(nl, nr) CLOSURE_DEFINE_ ## nl ## _ ## nr
+
+#define closure_function(nl, nr, ...)                   \
+    __closure_struct_declare(nl, nr)(__VA_ARGS__)       \
+    __closure_function_declare(nl, nr)(__VA_ARGS__)     \
+    __closure_define(nl, nr)(__VA_ARGS__)
+
+/* use these for closures embedded within structs */
+#define declare_closure_struct(nl, nr, ...) __closure_struct_declare(nl, nr)(__VA_ARGS__)
+#define declare_closure_function(nl, nr, ...) __closure_function_declare(nl, nr)(__VA_ARGS__)
+#define define_closure_function(nl, nr, ...)            \
+    __closure_function_declare(nl, nr)(__VA_ARGS__)     \
+    __closure_define(nl, nr)(__VA_ARGS__)
 
 #define bound(v) (__self->v)
 #define closure_self() (&(__self->__apply))
