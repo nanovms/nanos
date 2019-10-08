@@ -46,6 +46,15 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start, u
 
     // argv ASCIIZ strings
     vector arguments = vector_from_tuple(transient, table_find(process_root, sym(arguments)));
+    if (!arguments)
+        arguments = allocate_vector(transient, 1);
+
+    if (vector_length(arguments) == 0) {
+        value p = table_find(process_root, sym(program));
+        assert(p);
+        vector_push(arguments, p);
+    }
+
     char **argv = stack_allocate(vector_length(arguments) * sizeof(u64));
     buffer a;
     int argv_len = 0;
@@ -62,6 +71,7 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start, u
         argv[argc++] = sp;
         sp += len + 1;
     }
+    deallocate_vector(arguments);
 
     // envp ASCIIZ strings
     tuple environment = table_find(process_root, sym(environment));
