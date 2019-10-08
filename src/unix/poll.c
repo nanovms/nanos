@@ -252,6 +252,15 @@ define_closure_function(1, 0, void, epoll_blocked_free,
     unix_cache_free(get_unix_heaps(), epoll_blocked, w);
 }
 
+static void epoll_blocked_release(epoll_blocked w)
+{
+    epoll_debug("w %p\n", w);
+    if (!list_empty(&w->blocked_list)) {
+        list_delete(&w->blocked_list);
+        list_init(&w->blocked_list);
+    }
+}
+
 static void epoll_blocked_finish_internal(epoll_blocked w, boolean timedout)
 {
 #ifdef EPOLL_DEBUG
@@ -263,11 +272,7 @@ static void epoll_blocked_finish_internal(epoll_blocked w, boolean timedout)
 #endif
     heap h = w->e->h;
 
-    if (!list_empty(&w->blocked_list)) {
-        list_delete(&w->blocked_list);
-        list_init(&w->blocked_list);
-        epoll_debug("   removed from epoll list\n");
-    }
+    epoll_blocked_release(w);
 
     if (w->sleeping) {
         w->sleeping = false;
@@ -395,6 +400,8 @@ static epoll_blocked alloc_epoll_blocked(epoll e)
     if (w == INVALID_ADDRESS)
 	return w;
     epoll_debug("w %p\n", w);
+
+    /* initial reservation released on thread wakeup (or direct return) */
     init_refcount(&w->refcount, fill_closure(&w->free, epoll_blocked_free, w));
     w->t = current;
     refcount_reserve(&w->t->refcount);
@@ -458,14 +465,15 @@ sysreturn epoll_wait(int epfd,
     int eventcount = w->user_events->end/sizeof(struct epoll_event);
     if (timeout == 0 || w->user_events->end) {
 	epoll_debug("   immediate return; eventcount %d\n", eventcount);
+        epoll_blocked_release(w);
 	refcount_release(&w->refcount);
         return eventcount;
     }
 
     if (timeout > 0) {
-	w->timeout = register_timer(milliseconds(timeout), closure(e->h, epoll_blocked_finish, w, true));
+        w->timeout = register_timer(milliseconds(timeout), closure(e->h, epoll_blocked_finish, w, true));
         refcount_reserve(&w->refcount);
-	epoll_debug("   registered timer %p\n", w->timeout);
+        epoll_debug("   registered timer %p\n", w->timeout);
     }
     epoll_debug("   sleeping...\n");
     w->sleeping = true;
@@ -735,9 +743,10 @@ static sysreturn select_internal(int nfds,
     rv = w->retcount;
   check_rv_timeout:
     if (timeout == 0 || rv != 0) {
-	epoll_debug("   immediate return; return %ld\n", rv);
-	refcount_release(&w->refcount);
-	return rv;
+        epoll_debug("   immediate return; return %ld\n", rv);
+        epoll_blocked_release(w);
+        refcount_release(&w->refcount);
+        return rv;
     }
 
     if (timeout != infinity) {
@@ -887,6 +896,7 @@ check_rv_timeout:
 
     if (timeout == 0 || rv) {
         epoll_debug("   immediate return; return %d\n", rv);
+        epoll_blocked_release(w);
         refcount_release(&w->refcount);
         return rv;
     }
