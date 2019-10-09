@@ -73,16 +73,18 @@ void pi(char *fmt, ...)
 
 void cblock()
 {
-    p("#define CLOSURE_%_%(_rettype, _name^~)|", nleft, nright, ", _lt%, _ln%", ", _rt%, _rn%");
-    p("struct _closure_##_name;|");
-    p("static _rettype _name(struct _closure_##_name *~);|", ", _rt%");
-
+    p("#define CLOSURE_STRUCT_%_%(_rettype, _name^~)|", nleft, nright, ", _lt%, _ln%", ", _rt%, _rn%");
     p("struct _closure_##_name {|");
     p("  _rettype (*__apply)(struct _closure_##_name *~);|", ", _rt%");
     p("  struct _closure_common __c;|");
     for (int i = 0; i < nleft ; i++)  p("  _lt% _ln%;|", i, i);
-    p("};|");
+    p("};\n\n");
 
+    p("#define CLOSURE_DECLARE_FUNCS_%_%(_rettype, _name^~)|", nleft, nright, ", _lt%, _ln%", ", _rt%, _rn%");
+    p("static _rettype (**_fill_##_name(heap h, struct _closure_##_name* n, bytes s^))(void *~);|", ", _lt% l%", ", _rt%");
+    p("static _rettype _name(struct _closure_##_name *~);\n\n", ", _rt%");
+
+    p("#define CLOSURE_DEFINE_%_%(_rettype, _name^~)|", nleft, nright, ", _lt%, _ln%", ", _rt%, _rn%");
     p("static _rettype (**_fill_##_name(heap h, struct _closure_##_name* n, bytes s^))(void *~) {|", ", _lt% l%", ", _rt%");
     p("  n->__apply = _name;|");
     p("  n->__c.name = #_name;|");

@@ -148,13 +148,14 @@ typedef struct sigstate {
     struct list heads[NSIG];
 } *sigstate;
 
-void init_sigstate(sigstate ss);
-
+declare_closure_struct(1, 0, void, free_thread,
+                         thread, t);
 typedef struct epoll *epoll;
 typedef struct thread {
     // if we use an array typedef its fragile
     // there are likley assumptions that frame sits at the base of thread
     u64 frame[FRAME_MAX];
+    char name[16]; /* thread name */
     int syscall;
     process p;
 
@@ -166,13 +167,14 @@ typedef struct thread {
     */
     struct unix_heaps uh;
 
+    struct refcount refcount;
+    closure_struct(free_thread, free);
+
     epoll select_epoll;
     int *clear_tid;
     int tid;
-    char name[16]; /* thread name */
 
     thunk run;
-    queue log[64];
 
     /* blockq thread is waiting on, INVALID_ADDRESS for uninterruptible */
     blockq blocked_on;
@@ -219,6 +221,8 @@ struct file {
     u64 offset;
     u64 length;
 };
+
+void epoll_finish(epoll e);
 
 #define VMAP_FLAG_MMAP          1
 #define VMAP_FLAG_ANONYMOUS     2
@@ -271,16 +275,18 @@ typedef struct sigaction *sigaction;
 #define SIGACT_SIGINFO  0x00000001
 #define SIGACT_SIGNALFD 0x00000002 /* TODO */
 
+extern thread dummy_thread;
 extern thread current;
 
 static inline unix_heaps get_unix_heaps()
 {
+    assert(current);
     return &current->uh;
 }
 
 static inline kernel_heaps get_kernel_heaps()
 {
-    return (kernel_heaps)&current->uh;
+    return (kernel_heaps)get_unix_heaps();
 }
 
 #define unix_cache_alloc(uh, c) ({ heap __c = uh->c ## _cache; allocate(__c, __c->pagesize); })
@@ -334,6 +340,20 @@ static inline void timespec_from_time(struct timespec *ts, timestamp t)
 static inline time_t time_t_from_time(timestamp t)
 {
     return t / TIMESTAMP_SECOND;
+}
+
+void init_sigstate(sigstate ss);
+void sigstate_flush_queue(sigstate ss);
+void sigstate_reset_thread(thread t);
+
+static inline void sigstate_thread_restore(thread t)
+{
+    sigstate ss = t->dispatch_sigstate;
+    if (ss) {
+        t->dispatch_sigstate = 0;
+        ss->mask = ss->saved;
+        ss->saved = 0;
+    }
 }
 
 void dispatch_signals(thread t);

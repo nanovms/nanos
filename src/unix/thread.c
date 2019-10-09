@@ -1,5 +1,6 @@
 #include <unix_internal.h>
 
+thread dummy_thread;
 thread current;
 
 sysreturn gettid()
@@ -168,6 +169,12 @@ boolean thread_attempt_interrupt(thread t)
     return true;
 }
 
+define_closure_function(1, 0, void, free_thread,
+                        thread, t)
+{
+    deallocate(heap_general(get_kernel_heaps()), bound(t), sizeof(struct thread));
+}
+
 thread create_thread(process p)
 {
     // heap I guess
@@ -190,6 +197,7 @@ thread create_thread(process p)
     t->p = p;
     t->syscall = -1;
     t->uh = *p->uh;
+    init_refcount(&t->refcount, init_closure(&t->free, free_thread, t));
     t->select_epoll = 0;
     t->tid = tidcount++;
     t->clear_tid = 0;
@@ -197,33 +205,59 @@ thread create_thread(process p)
     zero(t->frame, sizeof(t->frame));
     t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(create_fault_handler(h, t));
     t->run = closure(h, run_thread, t);
-    vector_push(p->threads, t);
     t->blocked_on = 0;
     init_sigstate(&t->signals);
     t->dispatch_sigstate = 0;
     t->active_signo = 0;
 
     // XXX sigframe
+    vector_set(p->threads, t->tid, t);
     return t;
 }
 
-/* XXX this is seriously next */
 void exit_thread(thread t)
 {
+    assert(vector_length(t->p->threads) > t->tid);
+    vector_set(t->p->threads, t->tid, 0);
+
+    /* We might be exiting from the signal handler while dispatching a
+       signal on behalf of the process sigstate, so reset masks as if
+       we're returning from the signal handler. */
+    sigstate_thread_restore(t);
+
+    /* dequeue signals for thread */
+    sigstate_flush_queue(&t->signals);
+
+    /* We don't yet support forcible removal while in an uninterruptible wait. */
+    assert(t->blocked_on != INVALID_ADDRESS);
+
+    /* Kill received during interruptible wait. */
+    if (t->blocked_on)
+        blockq_flush_thread(t->blocked_on, t);
+
     if (t->clear_tid) {
         *t->clear_tid = 0;
         futex(t->clear_tid, FUTEX_WAKE, 1, 0, 0, 0);
     }
 
-    /* Like an uninterruptible sleep for all eternity. */
-    t->blocked_on = INVALID_ADDRESS;
+    if (t->select_epoll)
+        epoll_finish(t->select_epoll);
 
-    vector_set(t->p->threads, t->tid - 1, 0);
-    fault_handler fh = pointer_from_u64(t->frame[FRAME_FAULT_HANDLER]);
-    deallocate_closure(fh);
+    /* XXX futex robust list needs implementing - wake up robust futexes here */
+
+    blockq_flush(t->dummy_blockq);
+    deallocate_blockq(t->dummy_blockq);
+    t->dummy_blockq = INVALID_ADDRESS;
+
     deallocate_closure(t->run);
-//    heap h = heap_general((kernel_heaps)t->p->uh);
-//    deallocate(h, t, sizeof(struct thread));
+    t->run = INVALID_ADDRESS;
+
+    deallocate_closure((fault_handler)pointer_from_u64(t->frame[FRAME_FAULT_HANDLER]));
+    t->frame[FRAME_FAULT_HANDLER] = 0;
+
+    current = dummy_thread;
+    running_frame = dummy_thread->frame;
+    refcount_release(&t->refcount);
 }
 
 void init_threads(process p)

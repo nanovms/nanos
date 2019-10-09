@@ -689,7 +689,7 @@ closure_function(1, 0, sysreturn, socket_close,
     deallocate_closure(s->f.events);
     deallocate_closure(s->f.ioctl);
     release_fdesc(&s->f);
-    unix_cache_free(get_unix_heaps(), socket, s);
+    unix_cache_free(s->p->uh, socket, s);
     return 0;
 }
 
@@ -759,7 +759,7 @@ static int allocate_sock(process p, int type, u32 flags, sock * rs)
     sock s;
     int fd;
 
-    s = unix_cache_alloc(get_unix_heaps(), socket);
+    s = unix_cache_alloc(p->uh, socket);
     if (s == INVALID_ADDRESS) {
 	msg_err("failed to allocate struct sock\n");
         goto err_sock;
@@ -771,7 +771,7 @@ static int allocate_sock(process p, int type, u32 flags, sock * rs)
         goto err_fd;
     }
 
-    heap h = heap_general(get_kernel_heaps());
+    heap h = heap_general((kernel_heaps)p->uh);
     init_fdesc(h, &s->f, FDESC_TYPE_SOCKET);
     s->f.read = closure(h, socket_read, s);
     s->f.write = closure(h, socket_write, s);
@@ -812,7 +812,7 @@ err_rx:
 err_queue:
     deallocate_fd(p, fd);
 err_fd:
-    unix_cache_free(get_unix_heaps(), socket, s);
+    unix_cache_free(p->uh, socket, s);
 err_sock:
     return -ENOMEM;
 }

@@ -81,6 +81,7 @@ boolean unix_fault_page(u64 vaddr, context frame)
 
     /* no vmap --> send access violation */
     if (vm == INVALID_ADDRESS) {
+        pf_debug("no vmap found for addr 0x%lx, rip 0x%lx", vaddr, frame[FRAME_RIP]);
         deliver_segv(vaddr, SEGV_MAPERR); /* does not return */
         assert(0);
     }
@@ -96,17 +97,16 @@ boolean unix_fault_page(u64 vaddr, context frame)
             return false;
         }
 
-        pf_debug("\npage protection violation\naddr 0x%lx, rip 0x%lx, "
-                "error %s%s%s vm->flags (%s%s%s%s)", 
-                vaddr, frame[FRAME_RIP],
-                (error_code & FRAME_ERROR_PF_RW) ? "W" : "R",
-                (error_code & FRAME_ERROR_PF_US) ? "U" : "S",
-                (error_code & FRAME_ERROR_PF_ID) ? "I" : "D",
-                (vm->flags & VMAP_FLAG_MMAP) ? "mmap " : "",
-                (vm->flags & VMAP_FLAG_ANONYMOUS) ? "anonymous " : "",
-                (vm->flags & VMAP_FLAG_WRITABLE) ? "writable " : "",
-                (vm->flags & VMAP_FLAG_EXEC) ? "executable " : ""
-        );
+        pf_debug("page protection violation\naddr 0x%lx, rip 0x%lx, "
+                 "error %s%s%s vm->flags (%s%s%s%s)", 
+                 vaddr, frame[FRAME_RIP],
+                 (error_code & FRAME_ERROR_PF_RW) ? "W" : "R",
+                 (error_code & FRAME_ERROR_PF_US) ? "U" : "S",
+                 (error_code & FRAME_ERROR_PF_ID) ? "I" : "D",
+                 (vm->flags & VMAP_FLAG_MMAP) ? "mmap " : "",
+                 (vm->flags & VMAP_FLAG_ANONYMOUS) ? "anonymous " : "",
+                 (vm->flags & VMAP_FLAG_WRITABLE) ? "writable " : "",
+                 (vm->flags & VMAP_FLAG_EXEC) ? "executable " : "");
 
         deliver_segv(vaddr, SEGV_ACCERR); /* does not return */
         assert(0);

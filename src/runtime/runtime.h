@@ -206,6 +206,8 @@ typedef struct merge *merge;
 merge allocate_merge(heap h, status_handler completion);
 status_handler apply_merge(merge m);
 
+#include <refcount.h>
+
 void __stack_chk_guard_init();
 
 #define _countof(a) (sizeof(a) / sizeof(*(a)))

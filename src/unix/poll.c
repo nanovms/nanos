@@ -6,14 +6,18 @@
 #define epoll_debug(x, ...)
 #endif
 
-typedef struct epoll *epoll;
+typedef struct epollfd *epollfd;
+
+declare_closure_struct(1, 0, void, epollfd_free,
+                       epollfd, efd);
 
 typedef struct epollfd {
     int fd;
     u32 eventmask;  /* epoll events registered - XXX need lock */
     u32 lastevents; /* retain last received events; for edge trigger */
     u64 data;	    /* may be multiple versions of data? */
-    u64 refcnt;
+    struct refcount refcount;
+    closure_struct(epollfd_free, free);
     epoll e;
     boolean registered;
     boolean zombie;		/* freed or masked by oneshot */
@@ -21,6 +25,9 @@ typedef struct epollfd {
 } *epollfd;
 
 typedef struct epoll_blocked *epoll_blocked;
+
+declare_closure_struct(1, 0, void, epoll_blocked_free,
+                       epoll_blocked, w);
 
 enum epoll_type {
     EPOLL_TYPE_SELECT,
@@ -30,10 +37,11 @@ enum epoll_type {
 
 struct epoll_blocked {
     epoll e;
-    u64 refcnt;
     thread t;
     boolean sleeping;
     enum epoll_type epoll_type;
+    struct refcount refcount;
+    closure_struct(epoll_blocked_free, free);
     timer timeout;
     union {
 	buffer user_events;
@@ -52,23 +60,66 @@ struct epoll_blocked {
     struct list blocked_list;
 };
 
+declare_closure_struct(1, 0, void, epoll_free,
+                       epoll, e);
+
+/* we call it an epoll, but these structs are used for select and poll too */
 struct epoll {
     struct fdesc f;             /* must be first */
-    // xxx - multiple threads can block on the same e with epoll_wait
-    struct list blocked_head;
+    struct list blocked_head;   /* an epoll_blocked per thread (in epoll_wait)  */
+    struct refcount refcount;
+    closure_struct(epoll_free, free);
     heap h;
     vector events;		/* epollfds indexed by fd */
     int nfds;
     bitmap fds;			/* fds being watched / epollfd registered */
 };
     
-static epollfd epollfd_from_fd(epoll e, int fd)
+define_closure_function(1, 0, void, epoll_free,
+                        epoll, e)
 {
-    if (!bitmap_get(e->fds, fd))
-	return INVALID_ADDRESS;
-    epollfd efd = vector_get(e->events, fd);
-    assert(efd);
-    return efd;
+    epoll e = bound(e);
+    epoll_debug("e %p\n", e);
+    deallocate_bitmap(e->fds);
+    deallocate_vector(e->events);
+    if (e->f.close && e->f.close != INVALID_ADDRESS)
+        deallocate_closure(e->f.close);
+    unix_cache_free(get_unix_heaps(), epoll, e);
+}
+
+static epoll epoll_alloc_internal(void)
+{
+    epoll e = unix_cache_alloc(get_unix_heaps(), epoll);
+    if (e == INVALID_ADDRESS)
+	return e;
+
+    list_init(&e->blocked_head);
+    init_refcount(&e->refcount, init_closure(&e->free, epoll_free, e));
+    e->h = heap_general(get_kernel_heaps());
+    e->events = allocate_vector(e->h, 8);
+    if (e->events == INVALID_ADDRESS)
+	goto out_free_epoll;
+
+    e->nfds = 0;
+    e->fds = allocate_bitmap(e->h, infinity);
+    if (e->fds == INVALID_ADDRESS)
+	goto out_free_events;
+    epoll_debug("allocated epoll %p\n", e);
+    return e;
+  out_free_events:
+    deallocate_vector(e->events);
+  out_free_epoll:
+    unix_cache_free(get_unix_heaps(), epoll, e);
+    return INVALID_ADDRESS;
+}
+
+define_closure_function(1, 0, void, epollfd_free,
+                        epollfd, efd)
+{
+    epollfd efd = bound(efd);
+    epoll_debug("fd %d\n", efd->fd);
+    refcount_release(&efd->e->refcount);
+    unix_cache_free(get_unix_heaps(), epollfd, efd);
 }
 
 static epollfd alloc_epollfd(epoll e, int fd, u32 eventmask, u64 data)
@@ -82,24 +133,15 @@ static epollfd alloc_epollfd(epoll e, int fd, u32 eventmask, u64 data)
     efd->lastevents = 0;
     efd->e = e;
     efd->data = data;
-    efd->refcnt = 1;
+    init_refcount(&efd->refcount, init_closure(&efd->free, epollfd_free, efd));
     efd->registered = false;
     efd->zombie = false;
     vector_set(e->events, fd, efd);
     bitmap_set(e->fds, fd, 1);
     if (fd >= e->nfds)
 	e->nfds = fd + 1;
+    refcount_reserve(&e->refcount);
     return efd;
-}
-
-static void release_epollfd(epollfd efd)
-{
-    epoll_debug("fd %d, refcnt %ld\n", efd->fd, efd->refcnt);
-    assert(efd->refcnt > 0);
-    if (fetch_and_add(&efd->refcnt, -1) == 1) {
-        epoll_debug("  deallocating efd %p\n", efd);
-	unix_cache_free(get_unix_heaps(), epollfd, efd);
-    }
 }
 
 static void unregister_epollfd(epollfd efd)
@@ -114,7 +156,7 @@ static void unregister_epollfd(epollfd efd)
     efd->notify_handle = 0;
 }
 
-static void free_epollfd(epollfd efd)
+static void release_epollfd(epollfd efd)
 {
     epoll e = efd->e;
     int fd = efd->fd;
@@ -122,11 +164,11 @@ static void free_epollfd(epollfd efd)
     assert(vector_get(e->events, fd) == efd);
     vector_set(e->events, fd, 0);
     bitmap_set(e->fds, fd, 0);
-    assert(efd->refcnt > 0);
     efd->zombie = true;
     if (efd->registered)
         unregister_epollfd(efd);
-    release_epollfd(efd);
+    refcount_release(&e->refcount);
+    refcount_release(&efd->refcount);
 }
 
 static boolean register_epollfd(epollfd efd, event_handler eh)
@@ -140,27 +182,35 @@ static boolean register_epollfd(epollfd efd, event_handler eh)
         return false; // XXX
     fdesc f = resolve_fd(current->p, efd->fd);
     efd->registered = true;
-    fetch_and_add(&efd->refcnt, 1);
+    refcount_reserve(&efd->refcount);
     epoll_debug("fd %d, eventmask 0x%x, handler %p\n", efd->fd, efd->eventmask, eh);
     efd->notify_handle = notify_add(f->ns, efd->eventmask | (EPOLLERR | EPOLLHUP), eh);
     assert(efd->notify_handle != INVALID_ADDRESS);
     return true;
 }
 
+static void epoll_release_epollfds(epoll e)
+{
+    bitmap_foreach_set(e->fds, fd) {
+	epollfd efd = vector_get(e->events, fd);
+	assert(efd != 0 && efd != INVALID_ADDRESS);
+	release_epollfd(efd);
+    }
+}
+
+void epoll_finish(epoll e)
+{
+    epoll_debug("e %p\n", e);
+    epoll_release_epollfds(e);
+    refcount_release(&e->refcount);
+}
+
 closure_function(1, 0, sysreturn, epoll_close,
                  epoll, e)
 {
     epoll e = bound(e);
-    epoll_debug("e %p\n", e);
-    bitmap_foreach_set(e->fds, fd) {
-	epollfd efd = vector_get(e->events, fd);
-	assert(efd != INVALID_ADDRESS);
-	free_epollfd(efd);
-    }
-    deallocate_bitmap(e->fds);
-    deallocate_closure(e->f.close);
     release_fdesc(&e->f);
-    unix_cache_free(get_unix_heaps(), epoll, e);
+    epoll_finish(e);
     return 0;
 }
 
@@ -168,67 +218,61 @@ sysreturn epoll_create(int flags)
 {
     sysreturn rv;
     epoll_debug("flags 0x%x\n", flags);
-    heap h = heap_general(get_kernel_heaps());
-    epoll e = unix_cache_alloc(get_unix_heaps(), epoll);
+    epoll e = epoll_alloc_internal();
     if (e == INVALID_ADDRESS)
-	return -ENOMEM;
+        return -ENOMEM;
     u64 fd = allocate_fd(current->p, e);
     if (fd == INVALID_PHYSICAL) {
 	rv = -EMFILE;
-	goto out_cache_free;
+	goto out_dealloc_epoll;
     }
-    init_fdesc(h, &e->f, FDESC_TYPE_EPOLL);
-    e->f.close = closure(h, epoll_close, e);
-    list_init(&e->blocked_head);
-    e->h = h;
-    e->events = allocate_vector(h, 8);
-    if (e->events == INVALID_ADDRESS) {
-	rv = -ENOMEM;
-	goto out_dealloc_fd;
-    }
-    e->nfds = 0;
-    e->fds = allocate_bitmap(h, infinity);
-    if (e->fds == INVALID_ADDRESS) {
-	rv = -ENOMEM;
-	goto out_free_events;
+    init_fdesc(e->h, &e->f, FDESC_TYPE_EPOLL);
+    e->f.close = closure(e->h, epoll_close, e);
+    if (e->f.close == INVALID_ADDRESS) {
+        rv = -ENOMEM;
+        goto out_dealloc_fd;
     }
     epoll_debug("   got fd %d\n", fd);
     return fd;
-  out_free_events:
-    deallocate_vector(e->events);
   out_dealloc_fd:
     deallocate_fd(current->p, fd);
-  out_cache_free:
-    unix_cache_free(get_unix_heaps(), epoll, e);
+  out_dealloc_epoll:
+    refcount_release(&e->refcount);
     return rv;
 }
 
 #define user_event_count(__w) (buffer_length(__w->user_events)/sizeof(struct epoll_event))
 
+define_closure_function(1, 0, void, epoll_blocked_free,
+                        epoll_blocked, w)
+{
+    epoll_blocked w = bound(w);
+    epoll_debug("w %p\n", w);
+    refcount_release(&w->e->refcount);
+    unix_cache_free(get_unix_heaps(), epoll_blocked, w);
+}
+
 static void epoll_blocked_release(epoll_blocked w)
 {
     epoll_debug("w %p\n", w);
     if (!list_empty(&w->blocked_list)) {
-	list_delete(&w->blocked_list);
+        list_delete(&w->blocked_list);
         list_init(&w->blocked_list);
-	epoll_debug("   removed from epoll list\n");
-    }
-    if (fetch_and_add(&w->refcnt, -1) == 1) {
-	unix_cache_free(get_unix_heaps(), epoll_blocked, w);
-	epoll_debug("   deallocated\n");
     }
 }
 
 static void epoll_blocked_finish_internal(epoll_blocked w, boolean timedout)
 {
 #ifdef EPOLL_DEBUG
-    epoll_debug("w %p, refcnt %ld\n", w, w->refcnt);
+    epoll_debug("w %p, refcnt %ld\n", w, w->refcount.c);
     if (w->sleeping)
 	epoll_debug("   sleeping\n");
     if (timedout)
 	epoll_debug("   timed out %p\n", w->timeout);
 #endif
     heap h = w->e->h;
+
+    epoll_blocked_release(w);
 
     if (w->sleeping) {
         w->sleeping = false;
@@ -272,13 +316,12 @@ static void epoll_blocked_finish_internal(epoll_blocked w, boolean timedout)
 	*/
 #ifdef EPOLL_DEBUG
 	if (w->timeout && !timedout)
-	    epoll_debug("      timer remains; refcount %ld\n", w->refcnt);
+	    epoll_debug("      timer remains; refcount %ld\n", w->refcount.c);
 #endif
-	epoll_blocked_release(w);
+	refcount_release(&w->refcount);
     } else if (timedout) {
 	epoll_debug("   timer expiry after syscall return; ignored\n");
-	assert(w->refcnt == 1);
-	epoll_blocked_release(w);
+	refcount_release(&w->refcount);
     } else {
 	epoll_debug("   in syscall or zombie event\n");
     }
@@ -356,9 +399,14 @@ static epoll_blocked alloc_epoll_blocked(epoll e)
     epoll_blocked w = unix_cache_alloc(get_unix_heaps(), epoll_blocked);
     if (w == INVALID_ADDRESS)
 	return w;
-    w->refcnt = 1;
+    epoll_debug("w %p\n", w);
+
+    /* initial reservation released on thread wakeup (or direct return) */
+    init_refcount(&w->refcount, init_closure(&w->free, epoll_blocked_free, w));
     w->t = current;
+    refcount_reserve(&w->t->refcount);
     w->e = e;
+    refcount_reserve(&e->refcount);
     w->sleeping = false;
     w->timeout = 0;
     list_insert_after(&e->blocked_head, &w->blocked_list); /* push */
@@ -404,7 +452,7 @@ sysreturn epoll_wait(int epfd,
         fdesc f = resolve_fd_noret(current->p, efd->fd);
         if (!f) {
             epoll_debug("   x fd %d\n", efd->fd);
-            free_epollfd(efd);
+            release_epollfd(efd);
             continue;
         }
 
@@ -417,19 +465,35 @@ sysreturn epoll_wait(int epfd,
     int eventcount = w->user_events->end/sizeof(struct epoll_event);
     if (timeout == 0 || w->user_events->end) {
 	epoll_debug("   immediate return; eventcount %d\n", eventcount);
-	epoll_blocked_release(w);
+        epoll_blocked_release(w);
+	refcount_release(&w->refcount);
         return eventcount;
     }
 
     if (timeout > 0) {
-	w->timeout = register_timer(milliseconds(timeout), closure(e->h, epoll_blocked_finish, w, true));
-	fetch_and_add(&w->refcnt, 1);
-	epoll_debug("   registered timer %p\n", w->timeout);
+        w->timeout = register_timer(milliseconds(timeout), closure(e->h, epoll_blocked_finish, w, true));
+        if (w->timeout == INVALID_ADDRESS) {
+            epoll_debug("   failed to register timer\n");
+            epoll_blocked_release(w);
+            refcount_release(&w->refcount);
+            return -ENOMEM;
+        }
+        refcount_reserve(&w->refcount);
+        epoll_debug("   registered timer %p\n", w->timeout);
     }
     epoll_debug("   sleeping...\n");
     w->sleeping = true;
     thread_sleep_uninterruptible(); /* XXX move to blockq */
     return 0;			/* suppress warning */
+}
+
+static epollfd epollfd_from_fd(epoll e, int fd)
+{
+    if (!bitmap_get(e->fds, fd))
+	return INVALID_ADDRESS;
+    epollfd efd = vector_get(e->events, fd);
+    assert(efd);
+    return efd;
 }
 
 static sysreturn epoll_add_fd(epoll e, int fd, u32 events, u64 data)
@@ -465,7 +529,7 @@ static sysreturn remove_fd(epoll e, int fd)
     if (efd == INVALID_ADDRESS) {
         return -ENOENT;
     }
-    free_epollfd(efd);
+    release_epollfd(efd);
     return 0;
 }
 
@@ -554,21 +618,13 @@ closure_function(1, 1, void, select_notify,
     }
 }
 
-static epoll select_get_epoll()
+static inline epoll select_get_epoll(void)
 {
     epoll e = current->select_epoll;
     if (!e) {
-	file f = unix_cache_alloc(get_unix_heaps(), epoll);
-	if (f == INVALID_ADDRESS)
-	    return INVALID_ADDRESS;
- 	e = (epoll)f;
-	list_init(&e->blocked_head);
-	e->h = heap_general(get_kernel_heaps());
-	e->events = allocate_vector(e->h, 8);
-	assert(e->events != INVALID_ADDRESS);
-	e->fds = allocate_bitmap(e->h, infinity);
-	assert(e->fds != INVALID_ADDRESS);
-	current->select_epoll = e;
+        e = epoll_alloc_internal();
+        if (e != INVALID_ADDRESS)
+            current->select_epoll = e;
     }
     return e;
 }
@@ -646,7 +702,7 @@ static sysreturn select_internal(int nfds,
             fdesc f = resolve_fd_noret(current->p, efd->fd);
             if (!f) {
                 epoll_debug("   x fd %d\n", efd->fd);
-                free_epollfd(efd);
+                release_epollfd(efd);
                 continue;
             }
 
@@ -668,7 +724,7 @@ static sysreturn select_internal(int nfds,
                 if (efd->registered) {
                     epoll_debug("   replacing\n");
                     /* make into zombie; kind of brutal...need removal */
-                    free_epollfd(efd);
+                    release_epollfd(efd);
                     efd = alloc_epollfd(e, fd, eventmask, 0);
                     assert(efd != INVALID_ADDRESS);
 		} else {
@@ -693,14 +749,15 @@ static sysreturn select_internal(int nfds,
     rv = w->retcount;
   check_rv_timeout:
     if (timeout == 0 || rv != 0) {
-	epoll_debug("   immediate return; return %ld\n", rv);
-	epoll_blocked_release(w);
-	return rv;
+        epoll_debug("   immediate return; return %ld\n", rv);
+        epoll_blocked_release(w);
+        refcount_release(&w->refcount);
+        return rv;
     }
 
     if (timeout != infinity) {
 	w->timeout = register_timer(timeout, closure(e->h, epoll_blocked_finish, w, true));
-	fetch_and_add(&w->refcnt, 1);
+        refcount_reserve(&w->refcount);
 	epoll_debug("   registered timer %p\n", w->timeout);
     }
     epoll_debug("   sleeping...\n");
@@ -793,7 +850,7 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
             } else {
                 if (efd->eventmask != pfd->events || efd->data != i) {
                     epoll_debug("   = fd %d (replacing)\n", pfd->fd);
-                    free_epollfd(efd);
+                    release_epollfd(efd);
                     efd = alloc_epollfd(e, pfd->fd, pfd->events, i);
                     assert(efd != INVALID_ADDRESS);
                     register_epollfd(efd, closure(e->h, poll_notify, efd));
@@ -820,11 +877,11 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
         fdesc f = resolve_fd_noret(current->p, efd->fd);
         if (!f) {
             epoll_debug("   x fd %d\n", pfd->fd);
-            free_epollfd(efd);
+            release_epollfd(efd);
             continue;
         }
 
-        fetch_and_add(&efd->refcnt, 1);
+        refcount_reserve(&efd->refcount);
         epoll_debug("   register fd %d, eventmask 0x%x, applying check\n",
             efd->fd, efd->eventmask);
         check_fdesc(f);
@@ -835,7 +892,7 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
         epoll_debug("   - fd %d\n", fd);
         epollfd efd = epollfd_from_fd(e, fd);
         assert(efd != INVALID_ADDRESS);
-        free_epollfd(efd);
+        release_epollfd(efd);
     }
 
     rv = w->poll_retcount;
@@ -846,12 +903,13 @@ check_rv_timeout:
     if (timeout == 0 || rv) {
         epoll_debug("   immediate return; return %d\n", rv);
         epoll_blocked_release(w);
+        refcount_release(&w->refcount);
         return rv;
     }
 
     if (timeout != infinity) {
         w->timeout = register_timer(timeout, closure(e->h, epoll_blocked_finish, w, true));
-        fetch_and_add(&w->refcnt, 1);
+        refcount_reserve(&w->refcount);
         epoll_debug("   registered timer %p\n", w->timeout);
     }
     epoll_debug("   sleeping...\n");

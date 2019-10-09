@@ -126,12 +126,6 @@ static inline list sigstate_get_sighead(sigstate ss, int signum)
     return &ss->heads[signum - 1];
 }
 
-static inline void sigstate_restore(sigstate ss)
-{
-    ss->mask = ss->saved;
-    ss->saved = 0;
-}
-
 static queued_signal sigstate_dequeue_signal(sigstate ss, u64 aux_mask)
 {
     sig_debug("sigstate %p\n", ss);
@@ -159,6 +153,22 @@ static queued_signal sigstate_dequeue_signal(sigstate ss, u64 aux_mask)
     if (list_empty(head))
         ss->pending &= ~sigword;
     return qs;
+}
+
+void sigstate_flush_queue(sigstate ss)
+{
+    heap h = heap_general(get_kernel_heaps());
+    sig_debug("sigstate %p\n", ss);
+    for (int signum = 1; signum <= NSIG; signum++) {
+        list l = list_get_next(sigstate_get_sighead(ss, signum));
+        while (l) {
+            queued_signal qs = struct_from_list(l, queued_signal, l);
+            list n = list_get_next(l);
+            list_delete(l);
+            deallocate(h, qs, sizeof(struct queued_signal));
+            l = n;
+        }
+    }
 }
 
 void init_sigstate(sigstate ss)
@@ -291,13 +301,6 @@ sysreturn rt_sigpending(u64 *set, u64 sigsetsize)
     return 0;
 }
 
-static inline void reset_sigmask(thread t)
-{
-    assert(t->dispatch_sigstate);
-    sigstate_restore(t->dispatch_sigstate);
-    t->dispatch_sigstate = 0;
-}
-
 /*
  * Copy the context in frame 'f' to the ucontext *uctx
  */
@@ -372,6 +375,8 @@ sysreturn rt_sigreturn(void)
     sigaction sa;
     thread t = current;
 
+    assert(t->dispatch_sigstate);
+
     /* sigframe sits at %rsp minus the return address word (pretcode) */
     frame = (struct rt_sigframe *)(t->sigframe[FRAME_RSP] - sizeof(u64));
     sig_debug("rt_sigreturn: frame:0x%lx\n", (unsigned long)frame);
@@ -381,7 +386,7 @@ sysreturn rt_sigreturn(void)
     t->active_signo = 0;
 
     /* restore signal mask and saved context, if applicable */
-    reset_sigmask(t);
+    sigstate_thread_restore(t);
     if (sa->sa_flags & SA_SIGINFO)
         restore_ucontext(&(frame->uc), t->frame);
     running_frame = t->frame;
@@ -531,9 +536,9 @@ sysreturn tgkill(int tgid, int tid, int sig)
 
     thread t;
     sig_debug("%d, %p\n", vector_length(current->p->threads),
-              vector_get(current->p->threads, tid - 1));
-    if (tid > vector_length(current->p->threads) ||
-        !(t = vector_get(current->p->threads, tid - 1)))
+              vector_get(current->p->threads, tid));
+    if (tid >= vector_length(current->p->threads) ||
+        !(t = vector_get(current->p->threads, tid)))
         return -ESRCH;
 
     struct siginfo si;
@@ -606,9 +611,9 @@ sysreturn rt_tgsigqueueinfo(int tgid, int tid, int sig, siginfo_t *uinfo)
 
     thread t;
     sig_debug("%d, %p\n", vector_length(current->p->threads),
-              vector_get(current->p->threads, tid - 1));
-    if (tid > vector_length(current->p->threads) ||
-        !(t = vector_get(current->p->threads, tid - 1)))
+              vector_get(current->p->threads, tid));
+    if (tid >= vector_length(current->p->threads) ||
+        !(t = vector_get(current->p->threads, tid)))
         return -ESRCH;
 
     uinfo->si_signo = sig;
@@ -718,8 +723,6 @@ static void setup_sigframe(thread t, int signum, struct siginfo *si)
 /* XXX lock down / use access fns */
 void dispatch_signals(thread t)
 {
-    sig_debug("tid %d\n", t->tid);
-
     if (t->dispatch_sigstate) {
         /* sorry, no nested handling */
         return;
@@ -731,10 +734,8 @@ void dispatch_signals(thread t)
     if (qs == INVALID_ADDRESS) {
         ss = &t->p->signals;
         qs = sigstate_dequeue_signal(ss, sigstate_get_mask(&t->signals)); /* include thread mask */
-        if (qs == INVALID_ADDRESS) {
-            sig_debug("tid %d: nothing to process\n", t->tid);
+        if (qs == INVALID_ADDRESS)
             return;
-        }
     }
     t->dispatch_sigstate = ss;
 
@@ -819,5 +820,5 @@ void dispatch_signals(thread t)
     return;
   ignore:
     sig_debug("ignoring signal %d\n", signum);
-    reset_sigmask(t);
+    sigstate_thread_restore(t);
 }
