@@ -472,6 +472,12 @@ sysreturn epoll_wait(int epfd,
 
     if (timeout > 0) {
         w->timeout = register_timer(milliseconds(timeout), closure(e->h, epoll_blocked_finish, w, true));
+        if (w->timeout == INVALID_ADDRESS) {
+            epoll_debug("   failed to register timer\n");
+            epoll_blocked_release(w);
+            refcount_release(&w->refcount);
+            return -ENOMEM;
+        }
         refcount_reserve(&w->refcount);
         epoll_debug("   registered timer %p\n", w->timeout);
     }
