@@ -380,7 +380,10 @@ sysreturn rt_sigreturn(void)
     /* sigframe sits at %rsp minus the return address word (pretcode) */
     frame = (struct rt_sigframe *)(t->sigframe[FRAME_RSP] - sizeof(u64));
     sig_debug("rt_sigreturn: frame:0x%lx\n", (unsigned long)frame);
-    sa = get_sigaction(frame->info.si_signo);
+
+    /* safer to query via thread variable */
+    sa = get_sigaction(t->active_signo);
+    t->active_signo = 0;
 
     /* restore signal mask and saved context, if applicable */
     sigstate_thread_restore(t);
@@ -706,6 +709,9 @@ static void setup_sigframe(thread t, int signum, struct siginfo *si)
     /* setup regs for signal handler */
     t->sigframe[FRAME_RIP] = u64_from_pointer(sa->sa_handler);
     t->sigframe[FRAME_RDI] = signum;
+
+    /* save signo for safer sigreturn */
+    t->active_signo = signum;
 
     sig_debug("sigframe tid %d, sig %d, rip 0x%lx, rsp 0x%lx, "
               "rdi 0x%lx, rsi 0x%lx, rdx 0x%lx, r8 0x%lx\n", t->tid, signum,

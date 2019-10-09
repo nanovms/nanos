@@ -183,6 +183,7 @@ typedef struct thread {
     struct sigstate signals;
     sigstate dispatch_sigstate; /* saved sigstate while signal handler in flight */
     u64 sigframe[FRAME_MAX];
+    u16 active_signo;
 } *thread;
 
 typedef closure_type(io, sysreturn, void *buf, u64 length, u64 offset, thread t,

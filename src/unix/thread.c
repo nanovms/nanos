@@ -208,6 +208,7 @@ thread create_thread(process p)
     t->blocked_on = 0;
     init_sigstate(&t->signals);
     t->dispatch_sigstate = 0;
+    t->active_signo = 0;
 
     // XXX sigframe
     vector_set(p->threads, t->tid, t);
