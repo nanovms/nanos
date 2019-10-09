@@ -94,7 +94,7 @@ static epoll epoll_alloc_internal(void)
 	return e;
 
     list_init(&e->blocked_head);
-    init_refcount(&e->refcount, fill_closure(&e->free, epoll_free, e));
+    init_refcount(&e->refcount, init_closure(&e->free, epoll_free, e));
     e->h = heap_general(get_kernel_heaps());
     e->events = allocate_vector(e->h, 8);
     if (e->events == INVALID_ADDRESS)
@@ -133,7 +133,7 @@ static epollfd alloc_epollfd(epoll e, int fd, u32 eventmask, u64 data)
     efd->lastevents = 0;
     efd->e = e;
     efd->data = data;
-    init_refcount(&efd->refcount, fill_closure(&efd->free, epollfd_free, efd));
+    init_refcount(&efd->refcount, init_closure(&efd->free, epollfd_free, efd));
     efd->registered = false;
     efd->zombie = false;
     vector_set(e->events, fd, efd);
@@ -402,7 +402,7 @@ static epoll_blocked alloc_epoll_blocked(epoll e)
     epoll_debug("w %p\n", w);
 
     /* initial reservation released on thread wakeup (or direct return) */
-    init_refcount(&w->refcount, fill_closure(&w->free, epoll_blocked_free, w));
+    init_refcount(&w->refcount, init_closure(&w->free, epoll_blocked_free, w));
     w->t = current;
     refcount_reserve(&w->t->refcount);
     w->e = e;

@@ -17,7 +17,7 @@
     __closure(0, stack_allocate(sizeof(struct _closure_##__name)), \
               sizeof(struct _closure_##__name), __name, ##__VA_ARGS__)
 
-#define fill_closure(__p, __name, ...)\
+#define init_closure(__p, __name, ...)                                  \
     __closure(0, (__p), sizeof(struct _closure_##__name), __name, ##__VA_ARGS__)
 
 #define closure_struct(__name, __field) struct _closure_##__name __field;
