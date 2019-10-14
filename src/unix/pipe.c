@@ -137,9 +137,9 @@ closure_function(1, 0, sysreturn, pipe_close,
     return 0;
 }
 
-closure_function(5, 2, sysreturn, pipe_read_bh,
+closure_function(5, 3, sysreturn, pipe_read_bh,
                  pipe_file, pf, thread, t, void *, dest, u64, length, io_completion, completion,
-                 boolean, blocked, boolean, nullify)
+                 boolean, blocked, boolean, nullify, boolean, timedout)
 {
     pipe_file pf = bound(pf);
     int rv;
@@ -191,9 +191,9 @@ closure_function(1, 6, sysreturn, pipe_read,
     return blockq_check(pf->bq, t, ba, bh);
 }
 
-closure_function(5, 2, sysreturn, pipe_write_bh,
+closure_function(5, 3, sysreturn, pipe_write_bh,
                  pipe_file, pf, thread, t, void *, dest, u64, length, io_completion, completion,
-                 boolean, blocked, boolean, nullify)
+                 boolean, blocked, boolean, nullify, boolean, timedout)
 {
     sysreturn rv = 0;
     pipe_file pf = bound(pf);

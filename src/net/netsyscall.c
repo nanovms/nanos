@@ -367,9 +367,9 @@ static sysreturn sock_read_bh_internal(sock s, thread t, void * dest, u64 length
     return rv;
 }
 
-closure_function(7, 2, sysreturn, sock_read_bh,
+closure_function(7, 3, sysreturn, sock_read_bh,
                  sock, s, thread, t, void *, dest, u64, length, struct sockaddr *, src_addr, socklen_t *, addrlen, io_completion, completion,
-                 boolean, blocked, boolean, nullify)
+                 boolean, blocked, boolean, nullify, boolean, timedout)
 {
     sysreturn rv = sock_read_bh_internal(bound(s), bound(t), bound(dest), bound(length), bound(src_addr), bound(addrlen), bound(completion), blocked, nullify);
     if (rv != infinity)
@@ -406,9 +406,9 @@ closure_function(5, 2, void, recvmsg_complete,
     closure_finish();
 }
 
-closure_function(5, 2, sysreturn, recvmsg_bh,
+closure_function(5, 3, sysreturn, recvmsg_bh,
                  sock, s, thread, t, void *, dest, u64, length, struct msghdr *, msg,
-                 boolean, blocked, boolean, nullify)
+                 boolean, blocked, boolean, nullify, boolean, timedout)
 {
     io_completion completion = closure(bound(s)->h, recvmsg_complete, bound(s), bound(msg), bound(dest),
                                        bound(length), true);
@@ -517,9 +517,9 @@ static sysreturn socket_write_tcp_bh_internal(sock s, thread t, void * buf, u64 
     return rv;
 }
 
-closure_function(5, 2, sysreturn, socket_write_tcp_bh,
+closure_function(5, 3, sysreturn, socket_write_tcp_bh,
                  sock, s, thread, t, void *, buf, u64, remain, io_completion, completion,
-                 boolean, blocked, boolean, nullify)
+                 boolean, blocked, boolean, nullify, boolean, timedout)
 {
     sysreturn rv = socket_write_tcp_bh_internal(bound(s), bound(t), bound(buf), bound(remain), bound(completion),
                                                 blocked, nullify);
@@ -1210,9 +1210,9 @@ closure_function(3, 2, void, sendmmsg_buf_complete,
     closure_finish();
 }
 
-closure_function(7, 2, sysreturn, sendmmsg_tcp_bh,
+closure_function(7, 3, sysreturn, sendmmsg_tcp_bh,
                  sock, s, thread, t, void *, buf, u64, len, int, flags, struct mmsghdr *, msgvec, unsigned int, vlen,
-                 boolean, blocked, boolean, nullify)
+                 boolean, blocked, boolean, nullify, boolean, timedout)
 {
     sock s = bound(s);
     thread t = bound(t);
@@ -1403,9 +1403,9 @@ sysreturn listen(int sockfd, int backlog)
     return 0;    
 }
 
-closure_function(5, 2, sysreturn, accept_bh,
+closure_function(5, 3, sysreturn, accept_bh,
                  sock, s, thread, t, struct sockaddr *, addr, socklen_t *, addrlen, int, flags,
-                 boolean, blocked, boolean, nullify)
+                 boolean, blocked, boolean, nullify, boolean, timedout)
 {
     sock s = bound(s);
     thread t = bound(t);

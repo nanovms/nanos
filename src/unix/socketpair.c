@@ -109,9 +109,9 @@ static inline void sockpair_notify_writer(sockpair_socket s, int events)
     }
 }
 
-closure_function(5, 2, sysreturn, sockpair_read_bh,
+closure_function(5, 3, sysreturn, sockpair_read_bh,
                  sockpair_socket, s, thread, t, void *, dest, u64, length, io_completion, completion,
-                 boolean, blocked, boolean, nullify)
+                 boolean, blocked, boolean, nullify, boolean, timedout)
 {
     sockpair_socket s = bound(s);
     thread t = bound(t);
@@ -181,9 +181,9 @@ closure_function(1, 6, sysreturn, sockpair_read,
     return blockq_check(s->read_bq, t, ba, bh);
 }
 
-closure_function(5, 2, sysreturn, sockpair_write_bh,
+closure_function(5, 3, sysreturn, sockpair_write_bh,
                  sockpair_socket, s, thread, t, void *, dest, u64, length, io_completion, completion,
-                 boolean, blocked, boolean, nullify)
+                 boolean, blocked, boolean, nullify, boolean, timedout)
 {
     sockpair_socket s = bound(s);
     u64 length = bound(length);

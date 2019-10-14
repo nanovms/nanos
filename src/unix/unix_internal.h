@@ -116,7 +116,8 @@ typedef struct unix_heaps {
 } *unix_heaps;
 
 typedef closure_type(io_completion, void, thread t, sysreturn rv);
-typedef closure_type(blockq_action, sysreturn, boolean /* blocking */, boolean /* nullify */);
+typedef closure_type(blockq_action, sysreturn, boolean /* blocking */,
+                     boolean /* nullify */, boolean /* timedout */);
 
 struct blockq;
 typedef struct blockq * blockq;

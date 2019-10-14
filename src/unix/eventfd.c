@@ -10,9 +10,9 @@ struct efd {
     u64 counter;
 };
 
-closure_function(5, 2, sysreturn, efd_read_bh,
+closure_function(5, 3, sysreturn, efd_read_bh,
                  struct efd *, efd, thread, t, void *, buf, u64, length, io_completion, completion,
-                 boolean, blocked, boolean, nullify)
+                 boolean, blocked, boolean, nullify, boolean, timedout)
 {
     struct efd *efd = bound(efd);
     sysreturn rv = sizeof(efd->counter);
@@ -61,9 +61,9 @@ closure_function(1, 6, sysreturn, efd_read,
     return blockq_check(bound(efd)->read_bq, t, ba, bh);
 }
 
-closure_function(5, 2, sysreturn, efd_write_bh,
+closure_function(5, 3, sysreturn, efd_write_bh,
                  struct efd *, efd, thread, t, void *, buf, u64, length, io_completion, completion,
-                 boolean, blocked, boolean, nullify)
+                 boolean, blocked, boolean, nullify, boolean, timedout)
 {
     struct efd *efd = bound(efd);
     sysreturn rv = sizeof(efd->counter);

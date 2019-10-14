@@ -84,19 +84,18 @@ static int futex_wake_many(struct futex * f, int val)
  *  -EINTR: if we're being nullified
  *  0: thread woken up
  */
-closure_function(3, 2, sysreturn, futex_bh,
-                 struct futex *, f, thread, t, timestamp, ts,
-                 boolean, blocked, boolean, nullify)
+closure_function(2, 3, sysreturn, futex_bh,
+                 struct futex *, f, thread, t,
+                 boolean, blocked, boolean, nullify, boolean, timedout)
 {
     thread t = bound(t);
-    timestamp ts = bound(ts);
     sysreturn rv;
 
     if (current == t)
         rv = infinity;
     else if (nullify)
         rv = -EINTR;
-    else if (ts > 0 && ts < now()) /* has timer expired */
+    else if (timedout)
         rv = -ETIMEDOUT;
     else
         rv = 0; /* no timer expire + not us --> actual wakeup */
@@ -153,7 +152,7 @@ sysreturn futex(int *uaddr, int futex_op, int val,
         set_syscall_return(current, 0);
 
         return blockq_check_timeout(f->bq, current, 
-            closure(f->h, futex_bh, f, current, ts),
+            closure(f->h, futex_bh, f, current),
             false, ts
         );
     }
@@ -195,7 +194,7 @@ sysreturn futex(int *uaddr, int futex_op, int val,
              * whether this should be used or not
              */
              (void)blockq_check_timeout(f2->bq, w,
-                closure(f2->h, futex_bh, f2, w, ts),
+                closure(f2->h, futex_bh, f2, w),
                 false, ts
              );
         }
@@ -261,7 +260,7 @@ sysreturn futex(int *uaddr, int futex_op, int val,
         set_syscall_return(current, 0);
         // TODO: timeout should be absolute based on CLOCK_REALTIME
         return blockq_check_timeout(f->bq, current, 
-            closure(f->h, futex_bh, f, current, ts),
+            closure(f->h, futex_bh, f, current),
             false, ts
         );
     }

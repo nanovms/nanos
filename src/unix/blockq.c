@@ -115,17 +115,18 @@ static void blockq_item_finish(blockq bq, blockq_item bi)
  * Apply blockq_item action with lock held
  */
 static void blockq_apply_bi_locked(blockq bq, blockq_item bi,
-                                   boolean blocked, boolean nullify)
+                                   boolean blocked, boolean nullify, boolean timedout)
 {
     sysreturn rv;
 
-    blockq_debug("bq %p (\"%s\") bi %p (tid:%ld) blocked %s nullify %s\n",
-        bq, blockq_name(bq), bi, bi->t->tid,
-        (blocked) ? "true" : "false",
-        (nullify) ? "true" : "false"
+    blockq_debug("bq %p (\"%s\") bi %p (tid:%ld) blocked %s nullify %s timedout %s\n",
+                 bq, blockq_name(bq), bi, bi->t->tid,
+                 blocked ? "true" : "false",
+                 nullify ? "true" : "false",
+                 timedout ? "true" : "false"
     );
 
-    rv = apply(bi->a, blocked, nullify);
+    rv = apply(bi->a, blocked, nullify, timedout);
     blockq_debug("   - returned %ld\n", rv);
 
    /*
@@ -141,6 +142,8 @@ static void blockq_apply_bi_locked(blockq bq, blockq_item bi,
      */
     if (nullify || (rv != infinity))
         blockq_item_finish(bq, bi);
+
+    /* XXX - Re-register timer if rv == infinity? */
 }
 
 /*
@@ -161,7 +164,7 @@ closure_function(2, 0, void, blockq_item_timeout,
     bi->timeout = 0;
 
     /* XXX take irqsafe spinlock */
-    blockq_apply_bi_locked(bq, bi, true, false);
+    blockq_apply_bi_locked(bq, bi, true, false, true);
     /* XXX release lock */
     closure_finish();
 }
@@ -187,7 +190,7 @@ thread blockq_wake_one(blockq bq)
         return INVALID_ADDRESS;
 
     bi = struct_from_list(l, blockq_item, l);
-    blockq_apply_bi_locked(bq, bi, true, false);
+    blockq_apply_bi_locked(bq, bi, true, false, false);
 
     /* XXX release lock */
 
@@ -212,7 +215,7 @@ sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a,
        Before we switch on another CPU thread, insert IRQ-safe
        spinlock.
     */
-    sysreturn rv = apply(a, false, false);
+    sysreturn rv = apply(a, false, false, false);
     if (rv != infinity) {
         /* XXX release spinlock */
         blockq_debug(" - direct return: %ld\n", rv);
@@ -270,7 +273,7 @@ boolean blockq_flush_thread(blockq bq, thread t)
         if (bi->t != t)
             continue;
 
-        blockq_apply_bi_locked(bq, bi, true, true);
+        blockq_apply_bi_locked(bq, bi, true, true, false);
         unblocked = true;
     }
 
@@ -291,7 +294,7 @@ void blockq_flush(blockq bq)
     /* XXX take irqsafe spinlock */
     list_foreach(&bq->waiters_head, l) {
         blockq_item bi = struct_from_list(l, blockq_item, l);
-        blockq_apply_bi_locked(bq, bi, true, true);
+        blockq_apply_bi_locked(bq, bi, true, true, false);
     }
     /* XXX release lock */
 }

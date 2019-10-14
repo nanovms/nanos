@@ -479,9 +479,9 @@ sysreturn rt_sigprocmask(int how, const u64 *set, u64 *oldset, u64 sigsetsize)
     return 0;
 }
 
-closure_function(2, 2, sysreturn, rt_sigsuspend_bh,
+closure_function(2, 3, sysreturn, rt_sigsuspend_bh,
                  thread, t, u64, saved_mask,
-                 boolean, blocked, boolean, nullify)
+                 boolean, blocked, boolean, nullify, boolean, timedout)
 {
     thread t = bound(t);
     sig_debug("tid %d, saved_mask 0x%lx blocked %d, nullify %d\n", t->tid, bound(saved_mask), blocked, nullify);
@@ -626,9 +626,9 @@ sysreturn tkill(int tid, int sig)
     return tgkill(1, tid, sig);
 }
 
-closure_function(1, 2, sysreturn, pause_bh,
+closure_function(1, 3, sysreturn, pause_bh,
                  thread, t,
-                 boolean, blocked, boolean, nullify)
+                 boolean, blocked, boolean, nullify, boolean, timedout)
 {
     thread t = bound(t);
     sig_debug("tid %d, blocked %d, nullify %d\n", t->tid, blocked, nullify);
