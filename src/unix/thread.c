@@ -187,8 +187,8 @@ thread create_thread(process p)
         return INVALID_ADDRESS;
     }
 
-    t->dummy_blockq = allocate_blockq(h, "dummy");
-    if (t->dummy_blockq == INVALID_ADDRESS) {
+    t->thread_bq = allocate_blockq(h, "thread");
+    if (t->thread_bq == INVALID_ADDRESS) {
         msg_err("failed to allocate blockq\n");
         deallocate(h, t, sizeof(struct thread));
         return INVALID_ADDRESS;
@@ -245,9 +245,9 @@ void exit_thread(thread t)
 
     /* XXX futex robust list needs implementing - wake up robust futexes here */
 
-    blockq_flush(t->dummy_blockq);
-    deallocate_blockq(t->dummy_blockq);
-    t->dummy_blockq = INVALID_ADDRESS;
+    blockq_flush(t->thread_bq);
+    deallocate_blockq(t->thread_bq);
+    t->thread_bq = INVALID_ADDRESS;
 
     deallocate_closure(t->run);
     t->run = INVALID_ADDRESS;

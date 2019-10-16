@@ -179,7 +179,9 @@ typedef struct thread {
 
     /* blockq thread is waiting on, INVALID_ADDRESS for uninterruptible */
     blockq blocked_on;
-    blockq dummy_blockq; /* for pause(2) */
+
+    /* for waiting on thread-specific conditions rather than a resource */
+    blockq thread_bq;
 
     struct sigstate signals;
     sigstate dispatch_sigstate; /* saved sigstate while signal handler in flight */

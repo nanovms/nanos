@@ -512,7 +512,7 @@ sysreturn rt_sigsuspend(const u64 * mask, u64 sigsetsize)
     blockq_action ba = closure(h, rt_sigsuspend_bh, t, orig_mask);
     t->signals.saved = orig_mask;
     sigstate_set_mask(&t->signals, *mask);
-    return blockq_check(t->dummy_blockq, t, ba, false);
+    return blockq_check(t->thread_bq, t, ba, false);
 }
 
 sysreturn sigaltstack(const stack_t *ss, stack_t *oss)
@@ -649,7 +649,7 @@ sysreturn pause(void)
     sig_debug("tid %d, blocking...\n", current->tid);
     heap h = heap_general(get_kernel_heaps());
     blockq_action ba = closure(h, pause_bh, current);
-    return blockq_check(current->dummy_blockq, current, ba, false);
+    return blockq_check(current->thread_bq, current, ba, false);
 }
 
 void register_signal_syscalls(struct syscall *map)
