@@ -18,7 +18,8 @@ closure_function(4, 3, sysreturn, nanosleep_bh,
     sysreturn rv = 0;
     if (nullify) {
         if (bound(rem)) {
-            timespec_from_time(bound(rem), elapsed);
+            timestamp remain = elapsed < bound(interval) ? bound(interval) - elapsed : 0;
+            timespec_from_time(bound(rem), remain);
             rv = -EINTR;
             goto out;
         }
