@@ -74,16 +74,22 @@ boolean unix_fault_page(u64 vaddr, context frame)
     u64 error_code = frame[FRAME_ERROR_CODE];
 
     if (p->vmaps == INVALID_ADDRESS) {
-        msg_err("fault on vaddr 0x%lx before vmap setup\n", vaddr);
+        rprintf("\n%s mode (null vmaps): ", (error_code & FRAME_ERROR_PF_US) ? "User" : "Kernel");
         return false;
     }
+
     vmap vm = (vmap)rangemap_lookup(p->vmaps, vaddr);
 
     /* no vmap --> send access violation */
     if (vm == INVALID_ADDRESS) {
-        pf_debug("no vmap found for addr 0x%lx, rip 0x%lx", vaddr, frame[FRAME_RIP]);
-        deliver_segv(vaddr, SEGV_MAPERR); /* does not return */
-        assert(0);
+        if (error_code & FRAME_ERROR_PF_US) {
+            pf_debug("no vmap found for addr 0x%lx, rip 0x%lx", vaddr, frame[FRAME_RIP]);
+            deliver_segv(vaddr, SEGV_MAPERR); /* does not return */
+            assert(0);
+        } else {
+            rprintf("\nKernel mode: ");
+            return false;
+        }
     }
 
     /* vmap found, with protection violation set --> send prot violation */

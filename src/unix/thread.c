@@ -149,8 +149,9 @@ void thread_yield(void)
 
 void thread_wakeup(thread t)
 {
-    thread_log(current, "%s: %ld->%ld blocked_on %p, RIP=0x%lx", __func__, current->tid, t->tid,
-               t->blocked_on, t->frame[FRAME_RIP]);
+    thread_log(current, "%s: %ld->%ld blocked_on %s, RIP=0x%lx", __func__, current->tid, t->tid,
+               t->blocked_on ? (t->blocked_on != INVALID_ADDRESS ? blockq_name(t->blocked_on) : "uninterruptible") :
+               "(null)", t->frame[FRAME_RIP]);
     thread_make_runnable(t);
 }
 

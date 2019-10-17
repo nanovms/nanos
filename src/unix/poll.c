@@ -349,11 +349,12 @@ closure_function(3, 3, sysreturn, epoll_wait_bh,
                  boolean, blocked, boolean, nullify, boolean, timedout)
 {
     sysreturn rv;
+    thread t = bound(t);
     epoll_blocked w = bound(w);
     int eventcount = user_event_count(w);
 
     epoll_debug("w %p on tid %d, blockable %d, blocked %d, nullify %d, timedout %d, event count %d\n",
-                w, bound(t)->tid, bound(blockable), blocked, nullify, timedout, eventcount);
+                w, t->tid, bound(blockable), blocked, nullify, timedout, eventcount);
 
     if (!bound(blockable) || timedout || eventcount) {
         rv = eventcount;
@@ -370,12 +371,13 @@ closure_function(3, 3, sysreturn, epoll_wait_bh,
     return infinity;
   out_wakeup:
     if (blocked)
-        thread_wakeup(bound(t));
+        thread_wakeup(t);
     unwrap_buffer(w->e->h, w->user_events);
     w->user_events = 0;
     epoll_debug("   pre refcnt %ld, returning %ld\n", w->refcount.c, rv);
     epoll_blocked_release(w);
-    return set_syscall_return(bound(t), rv);
+    closure_finish();
+    return set_syscall_return(t, rv);
 }
 
 /* Depending on the epoll flags given, we may:
@@ -563,9 +565,10 @@ closure_function(3, 3, sysreturn, select_bh,
                  boolean, blocked, boolean, nullify, boolean, timedout)
 {
     sysreturn rv;
+    thread t = bound(t);
     epoll_blocked w = bound(w);
     epoll_debug("w %p on tid %d, blockable %d, blocked %d, nullify %d, timedout %d, retcount %ld\n",
-                w, bound(t)->tid, bound(blockable), blocked, nullify, timedout, w->retcount);
+                w, t->tid, bound(blockable), blocked, nullify, timedout, w->retcount);
 
     if (!bound(blockable) || timedout || w->retcount) {
         /* XXX error checking? */
@@ -591,8 +594,9 @@ closure_function(3, 3, sysreturn, select_bh,
     w->rset = w->wset = w->eset = 0;
     epoll_blocked_release(w);
     if (blocked)
-        thread_wakeup(bound(t));
-    return set_syscall_return(bound(t), rv);
+        thread_wakeup(t);
+    closure_finish();
+    return set_syscall_return(t, rv);
 }
 
 static inline epoll select_get_epoll(void)
@@ -777,9 +781,10 @@ closure_function(3, 3, sysreturn, poll_bh,
                  boolean, blocked, boolean, nullify, boolean, timedout)
 {
     sysreturn rv;
+    thread t = bound(t);
     epoll_blocked w = bound(w);
     epoll_debug("w %p on tid %d, blockable %d, blocked %d, nullify %d, timedout %d, poll_retcount %d\n",
-                w, bound(t)->tid, bound(blockable), blocked, nullify, timedout, w->poll_retcount);
+                w, t->tid, bound(blockable), blocked, nullify, timedout, w->poll_retcount);
 
     if (!bound(blockable) || timedout || w->poll_retcount) {
         /* XXX error checking? */
@@ -799,8 +804,9 @@ closure_function(3, 3, sysreturn, poll_bh,
     w->poll_fds = 0;
     epoll_blocked_release(w);
     if (blocked)
-        thread_wakeup(bound(t));
-    return set_syscall_return(bound(t), rv);
+        thread_wakeup(t);
+    closure_finish();
+    return set_syscall_return(t, rv);
 }
 
 static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,

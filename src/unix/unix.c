@@ -63,13 +63,10 @@ closure_function(1, 1, context, default_fault_handler,
             return frame;
     }
 
-    console("Unhandled: ");
-    print_u64(frame[FRAME_VECTOR]);
-    console("\n");
     print_frame(frame);
     print_stack(frame);
 
-    if (table_find (current->p->process_root, sym(fault))) {
+    if (table_find(current->p->process_root, sym(fault))) {
         console("starting gdb\n");
         init_tcp_gdb(heap_general(get_kernel_heaps()), current->p, 9090);
         thread_sleep_uninterruptible();
