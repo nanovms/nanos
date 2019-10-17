@@ -156,14 +156,14 @@ void thread_wakeup(thread t)
 
 boolean thread_attempt_interrupt(thread t)
 {
-    thread_log(current, "%s: tid %d\n", __func__, t->tid);
+    thread_log(current, "%s: tid %d", __func__, t->tid);
     if (!thread_in_interruptible_sleep(t)) {
         thread_log(current, "uninterruptible or already running");
         return false;
     }
 
     /* flush pending blockq */
-    thread_log(current, "... interrupting blocked thread %d\n", t->tid);
+    thread_log(current, "... interrupting blocked thread %d", t->tid);
     assert(blockq_flush_thread(t->blocked_on, t));
     assert(thread_is_runnable(t));
     return true;
@@ -217,6 +217,8 @@ thread create_thread(process p)
 
 void exit_thread(thread t)
 {
+    thread_log(current, "exit_thread");
+
     assert(vector_length(t->p->threads) > t->tid);
     vector_set(t->p->threads, t->tid, 0);
 

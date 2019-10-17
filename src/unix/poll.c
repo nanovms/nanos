@@ -151,6 +151,7 @@ static void unregister_epollfd(epollfd efd)
     notify_remove(f->ns, efd->notify_handle, true);
     efd->registered = false;
     efd->notify_handle = 0;
+    refcount_release(&efd->refcount); /* registration */
 }
 
 static void release_epollfd(epollfd efd)
@@ -164,7 +165,7 @@ static void release_epollfd(epollfd efd)
     efd->zombie = true;
     if (efd->registered)
         unregister_epollfd(efd);
-    refcount_release(&efd->refcount); /* registration and alloc */
+    refcount_release(&efd->refcount); /* alloc */
 }
 
 /* XXX maybe merge alloc and registration */
