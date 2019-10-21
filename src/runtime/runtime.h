@@ -141,8 +141,10 @@ typedef void *value;
 #define tag_symbol (1ull)
 #define tag_tuple (2ull)
 #define tag_string (3ull)
-#define tag_buffer_promise (4ull) //?
-#define tag_max (5ull)
+#define tag_method_rewind (4ull)
+#define tag_buffer (5ull)
+#define tag_vector (6ull)
+#define tag_max (7ull)
 
 #include <symbol.h>
 
