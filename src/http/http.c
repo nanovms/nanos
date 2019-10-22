@@ -75,15 +75,13 @@ closure_function(1, 1, void, http_recv,
 {
     http_parser p = bound(p);
     int i;
+    tuple start_line;
 
+    /* content may be delimited by close rather than content length */
     if (!b) {
-        // its allowed(?) to not specify content length and
-        // frame the body with a close (seems wrong)
-        if (p->state == STATE_BODY) {
-            rprintf("setting content -> %v\n", p->word);
-            table_set(p->header, sym(content), p->word);
-            apply(p->each, p->header);
-        }
+        if (p->state == STATE_BODY)
+            goto content_finish;
+        /* XXX status */
         return;
     }
     
@@ -94,9 +92,6 @@ closure_function(1, 1, void, http_recv,
             switch (x){
             case '\r':
                 p->state = STATE_HEADER;
-                vector_push(p->start_line, p->word);
-                p->word = allocate_buffer(p->h, 0);                
-                break;                
             case ' ':
                 vector_push(p->start_line, p->word);
                 p->word = allocate_buffer(p->h, 0);
@@ -116,15 +111,22 @@ closure_function(1, 1, void, http_recv,
             case '\r':
                 p->state = STATE_BODY;
                 break;
+            case '\n':
+            case ':':
+                break;
             default:
                 push_u8(p->word, x);
             }
             break;
             
         case STATE_VALUE:
-            if (x == '\r')  {
-                if (p->s == sym(Content-Length))  
-                    parse_int(p->word, 10, &p->content_length);
+            if (x == '\r') {
+                if (p->s == sym(Content-Length)) {
+                    if (!parse_int(p->word, 10, &p->content_length))
+                        msg_err("failed to parse content length\n");
+                    else
+                        rprintf("content length %ld\n", p->content_length);
+                }
                 rprintf("setting %v -> %v\n", p->s, p->word);
                 table_set(p->header, p->s, p->word);
                 p->word = allocate_buffer(p->h, 0);                
@@ -138,14 +140,28 @@ closure_function(1, 1, void, http_recv,
             push_u8(p->word, x);            
             --p->content_length;
         }
-        
-        if ((p->state == STATE_BODY) && (p->content_length == 0)) {
-            rprintf("setting 2 content -> %v\n", p->word);
-            table_set(p->header, sym(content), wrap_buffer(p->h, buffer_ref(p->word, 0), buffer_length(p->word)));
-            apply(p->each, p->header);
-            reset_parser(p);
-        }
+
+        if ((p->state == STATE_BODY) && (p->content_length == 0))
+            goto content_finish;
     }
+
+  content_finish:
+    // XXX change from vector to tuple
+    start_line = allocate_tuple();
+    for (u64 i = 0; i < vector_length(p->start_line); i++) {
+        buffer a = vector_get(p->start_line, i);
+        rprintf("adding %d: %b\n", i, a);
+        table_set(start_line, intern_u64(i), a);
+    }
+    rprintf("setting startline -> %v\n", start_line);
+    table_set(p->header, sym(startline), start_line);
+    rprintf("setting content -> %v\n", p->word);
+    // XXX wrap?
+    //    table_set(p->header, sym(content), wrap_buffer(p->h, buffer_ref(p->word, 0), buffer_length(p->word)));
+    table_set(p->header, sym(content), p->word);
+    apply(p->each, p->header);
+    reset_parser(p);
+    rprintf("done\n");
 }
 
 

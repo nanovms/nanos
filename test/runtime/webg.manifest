@@ -14,7 +14,7 @@
 #    futex_trace:t
     socktest:t
     http:t
-    fault:t
+#    fault:t
     arguments:[webg longargument]
     environment:(USER:bobby PWD:password)
 )
