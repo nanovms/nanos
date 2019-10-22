@@ -157,9 +157,9 @@ LDFLAGS-time=		-static
 
 SRCS-udploop= \
 	$(CURDIR)/udploop.c \
+	$(SRCDIR)/http/http.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c \
 	$(SRCDIR)/unix_process/mmap_heap.c \
-	$(SRCDIR)/unix_process/http.c \
 	$(SRCDIR)/unix_process/socket_user.c \
 	$(SRCDIR)/unix_process/tiny_heap.c \
 	$(SRCDIR)/runtime/bitmap.c \
@@ -200,9 +200,9 @@ LDFLAGS-vsyscall=	 -static
 
 SRCS-web= \
 	$(CURDIR)/web.c \
+	$(SRCDIR)/http/http.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c \
 	$(SRCDIR)/unix_process/mmap_heap.c \
-	$(SRCDIR)/unix_process/http.c \
 	$(SRCDIR)/unix_process/socket_user.c \
 	$(SRCDIR)/unix_process/tiny_heap.c \
 	$(SRCDIR)/runtime/bitmap.c \
@@ -249,7 +249,8 @@ SRCS-readv = \
 LDFLAGS-readv=		-static
 
 CFLAGS+=	-DENABLE_MSG_DEBUG
-CFLAGS+=	-I$(SRCDIR)/runtime \
+CFLAGS+=	-I$(SRCDIR)/http \
+		-I$(SRCDIR)/runtime \
 		-I$(SRCDIR)/unix \
 		-I$(SRCDIR)/unix_process \
 		-I$(SRCDIR)/x86_64

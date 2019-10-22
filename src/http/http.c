@@ -60,7 +60,7 @@ void send_http_response(buffer_handler out,
 static void reset_parser(http_parser p)
 {
     p->state = STATE_START_LINE;
-    p->header = allocate_table(p->h, key_from_symbol, pointer_equal);
+    p->header = allocate_tuple();
     p->word = allocate_buffer(p->h, 10);
     p->start_line = allocate_vector(p->h, 3);
     p->content_length = 0;
@@ -80,6 +80,7 @@ closure_function(1, 1, void, http_recv,
         // its allowed(?) to not specify content length and
         // frame the body with a close (seems wrong)
         if (p->state == STATE_BODY) {
+            rprintf("setting content -> %v\n", p->word);
             table_set(p->header, sym(content), p->word);
             apply(p->each, p->header);
         }
@@ -124,6 +125,7 @@ closure_function(1, 1, void, http_recv,
             if (x == '\r')  {
                 if (p->s == sym(Content-Length))  
                     parse_int(p->word, 10, &p->content_length);
+                rprintf("setting %v -> %v\n", p->s, p->word);
                 table_set(p->header, p->s, p->word);
                 p->word = allocate_buffer(p->h, 0);                
                 p->state = STATE_HEADER;
@@ -138,6 +140,7 @@ closure_function(1, 1, void, http_recv,
         }
         
         if ((p->state == STATE_BODY) && (p->content_length == 0)) {
+            rprintf("setting 2 content -> %v\n", p->word);
             table_set(p->header, sym(content), wrap_buffer(p->h, buffer_ref(p->word, 0), buffer_length(p->word)));
             apply(p->each, p->header);
             reset_parser(p);

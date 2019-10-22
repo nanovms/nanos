@@ -2,6 +2,7 @@
 #include <tfs.h>
 #include <unix.h>
 #include <net.h>
+#include <http.h>
 #include <gdb.h>
 #include <virtio/virtio.h>
 
@@ -36,6 +37,7 @@ closure_function(0, 1, void, read_program_fail,
     halt("read program failed %v\n", s);
 }
 
+/* raw tcp socket test */
 closure_function(2, 1, void, test_recv,
                  heap, h,
                  buffer_handler, out,
@@ -53,7 +55,7 @@ closure_function(2, 1, void, test_recv,
         apply(out, 0);
 }
 
-closure_function(1, 1, buffer_handler, each_connection,
+closure_function(1, 1, buffer_handler, each_socktest_connection,
                  heap, h,
                  buffer_handler, out)
 {
@@ -63,6 +65,24 @@ closure_function(1, 1, buffer_handler, each_connection,
     bprintf(response, "hi thanks for coming\r\n");
     apply(out, response);
     return closure(h, test_recv, h, out);
+}
+
+closure_function(2, 1, void, each_http_request,
+                 heap, h, buffer_handler, out,
+                 value, v)
+{
+    send_http_response(bound(out),
+                       timm("ContentType", "text/html"),
+                       aprintf(bound(h), "value: %v\r\n", v));
+}
+
+/* http debug test */
+closure_function(1, 1, buffer_handler, each_http_connection,
+                 heap, h,
+                 buffer_handler, out)
+{
+    heap h = bound(h);
+    return allocate_http_parser(h, closure(h, each_http_request, h, out));
 }
 
 closure_function(3, 0, void, startup,
@@ -81,8 +101,13 @@ closure_function(3, 0, void, startup,
     buffer_handler pg = closure(general, read_program_complete, kp, root);
 
     if (table_find(root, sym(socktest))) {
-        listen_port(general, 8079, closure(general, each_connection, general));
+        listen_port(general, 8079, closure(general, each_socktest_connection, general));
         rprintf("socktest start 8079\n");
+    }
+
+    if (table_find(root, sym(http))) {
+        listen_port(general, 9090, closure(general, each_http_connection, general));
+        rprintf("Debug server started on port 9090\n");
     }
 
     value p = table_find(root, sym(program));
