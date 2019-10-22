@@ -71,9 +71,29 @@ closure_function(2, 1, void, each_http_request,
                  heap, h, buffer_handler, out,
                  value, v)
 {
-    send_http_response(bound(out),
-                       timm("ContentType", "text/html"),
-                       aprintf(bound(h), "value: %v\r\n", v));
+    /* later make this generic in http */
+    tuple start_line = table_find(v, sym(startline));
+    if (!start_line)
+        goto not_found;
+    value method = table_find(start_line, sym(0));
+    if (!method)
+        goto not_found;
+    /* XXX type */
+    rprintf("method: %b\n", method);
+    if (buffer_compare((buffer)method, wrap_buffer_cstring(bound(h), "GET"))) {
+        // resolve request-uri to tuple, or some registered handler?
+        send_http_response(bound(out),
+                           timm("ContentType", "text/html"),
+                           aprintf(bound(h), "value: %v\r\n", v));
+    } else {
+        goto not_found;
+    }
+
+    return;
+  not_found:
+    // XXX 404
+    rprintf("not found\n");
+    return;
 }
 
 /* http debug test */

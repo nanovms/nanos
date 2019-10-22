@@ -48,13 +48,15 @@ void send_http_response(buffer_handler out,
 
     // status from t
     buffer d = allocate_buffer(transient, 1000);
-    bprintf (d, "HTTP/1.1 200 OK\r\n");
+    bprintf(d, "HTTP/1.1 200 OK\r\n");
     table_foreach(t, k, v) each_header(d, k, v);
-    each_header(d, sym(Content-Length), aprintf(transient, "%d", c->end));
+    if (c)
+        each_header(d, sym(Content-Length), aprintf(transient, "%d", c->end));
     bprintf(d, "\r\n");
     apply(out, d);
-    apply(out, c);
-    
+    if (c)
+        apply(out, c);
+    deallocate_buffer(d);
 }
 
 static void reset_parser(http_parser p)
