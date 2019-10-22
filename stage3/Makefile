@@ -12,6 +12,7 @@ SRCS-stage3.img= \
 	$(SRCDIR)/gdb/gdbstub.c \
 	$(SRCDIR)/gdb/gdbtcp.c \
 	$(SRCDIR)/gdb/gdbutil.c \
+	$(SRCDIR)/net/direct.c \
 	$(SRCDIR)/net/net.c \
 	$(SRCDIR)/net/netsyscall.c \
 	$(SRCDIR)/runtime/bitmap.c \

@@ -11,7 +11,8 @@
     # put all the tracing arguments in subtree
 #    trace:t
 #    debugsyscalls:t
-#    futex_trace:t    
+#    futex_trace:t
+    socktest:t
     fault:t
     arguments:[webg longargument]
     environment:(USER:bobby PWD:password)
