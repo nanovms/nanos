@@ -1,6 +1,6 @@
 #include <runtime.h>
 #include <lwip.h>
-#include <tfs.h> // XXX fix 
+#include <tfs.h> // XXX fix
 #include <unix.h>
 #include <net.h>
 
