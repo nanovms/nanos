@@ -734,7 +734,15 @@ closure_function(2, 6, sysreturn, file_write,
 closure_function(2, 0, sysreturn, file_close,
                  file, f, fsfile, fsf)
 {
-    unix_cache_free(get_unix_heaps(), file, bound(f));
+    sysreturn ret = 0;
+    file f = bound(f);
+
+    if (is_special(f->n)) {
+        ret = spec_close(f);
+    }
+        
+    if (ret == 0)
+        unix_cache_free(get_unix_heaps(), file, f);
     return 0;
 }
 
@@ -824,6 +832,18 @@ sysreturn open_internal(tuple cwd, const char *name, int flags, int mode)
     f->n = n;
     f->length = length;
     f->offset = (flags & O_APPEND) ? length : 0;
+
+    if (is_special(f->n)) {
+        int spec_ret = spec_open(f);
+        if (spec_ret != 0) {
+            assert(spec_ret < 0);
+            thread_log(current, "spec_open failed (%d)\n", spec_ret);
+            deallocate_fd(current->p, fd);
+            unix_cache_free(uh, file, f);
+            return set_syscall_return(current, spec_ret);
+        }
+    }
+
     thread_log(current, "   fd %d, length %ld, offset %ld", fd, f->length, f->offset);
     return fd;
 }
