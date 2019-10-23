@@ -4,6 +4,7 @@ PROGRAMS= \
 	creat \
 	eventfd \
 	fst \
+	ftrace \
 	getdents \
 	getrandom \
 	hw \
@@ -45,6 +46,12 @@ SRCS-eventfd= \
 
 LDFLAGS-eventfd=	-static
 LIBS-eventfd=		-lpthread
+
+SRCS-ftrace= \
+	$(CURDIR)/ftrace.c \
+	$(SRCDIR)/unix_process/ssp.c
+
+LDFLAGS-ftrace=	-static
 
 SRCS-getdents=		$(CURDIR)/getdents.c
 LDFLAGS-getdents=	-static

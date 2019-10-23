@@ -1,4 +1,5 @@
 #include <unix_internal.h>
+#include <ftrace.h>
 
 typedef struct special_file {
     const char *path;
@@ -70,6 +71,7 @@ static special_file special_files[] = {
     { "/dev/urandom", .read = urandom_read, .write = 0, .events = urandom_events },
     { "/dev/null", .read = null_read, .write = null_write, .events = null_events },
     { "/sys/devices/system/cpu/online", .read = cpu_online_read, .write = null_write, .events = cpu_online_events },
+    FTRACE_SPECIAL_FILES
 };
 
 void register_special_files(process p)

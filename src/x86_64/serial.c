@@ -18,6 +18,8 @@ static boolean is_transmit_empty() {
     return in8(BASE + 5) & 0x20;
 }
 
+/* This floods the ftrace buffers when user is outputting lots of data */
+__attribute__((no_instrument_function))
 void serial_putchar(char c)
 {
     while (!is_transmit_empty())
