@@ -15,11 +15,11 @@ static inline void timm_term(table t, char *n, vlist *a)
 }
 
 // if the format strings and subsequent arguments dont line up, this whole thing goes sideways
-static inline tuple timm_internal(char *first, ...)
+static inline tuple timm_internal(tuple t, char *first, ...)
 {
     vlist e;
     vstart(e, first);
-    tuple t = allocate_tuple();
+    assert(t != INVALID_ADDRESS);
 
     // deal with the mandatory first argument
     if (first != INVALID_ADDRESS) {
@@ -32,7 +32,9 @@ static inline tuple timm_internal(char *first, ...)
 }
 
 // fix for zero argument case
-#define timm(first, ...)  timm_internal(first, __VA_ARGS__, INVALID_ADDRESS)
+#define timm(first, ...)  timm_internal(allocate_tuple(), first, __VA_ARGS__, INVALID_ADDRESS)
+
+#define timm_append(s, first, ...)  timm_internal(s, first, __VA_ARGS__, INVALID_ADDRESS)
 
 // build up status chain
 #define timm_up(sd, first, ...)                     \

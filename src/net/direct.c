@@ -78,15 +78,39 @@ static err_t direct_accept(void *z, struct tcp_pcb *pcb, err_t b)
     return ERR_OK;
 }
 
-void listen_port(heap h, u16 port, connection_handler c)
+status listen_port(heap h, u16 port, connection_handler c)
 {
-    direct g = allocate(h, sizeof(struct direct));
-    g->p = tcp_new_ip_type(IPADDR_TYPE_ANY);
-    g->h = h;
-    g->new = c;
-    tcp_bind(g->p, IP_ANY_TYPE, port);
-    g->p = tcp_listen(g->p);
-    tcp_arg(g->p, g);
-    tcp_err(g->p, direct_listen_err);
-    tcp_accept(g->p, direct_accept);    
+    status s = STATUS_OK;
+    char *op;
+    err_t err = ERR_OK;
+    direct d = allocate(h, sizeof(struct direct));
+    if (d == INVALID_ADDRESS) {
+        op = "allocate";
+        goto fail;
+    }
+    d->p = tcp_new_ip_type(IPADDR_TYPE_ANY);
+    if (!d->p) {
+        op = "tcp_new_ip_type";
+        goto fail_dealloc;
+    }
+    d->h = h;
+    d->new = c;
+
+    err = tcp_bind(d->p, IP_ANY_TYPE, port);
+    if (err != ERR_OK) {
+        op = "tcp_bind";
+        goto fail_dealloc;
+    }
+    d->p = tcp_listen(d->p);
+    tcp_arg(d->p, d);
+    tcp_err(d->p, direct_listen_err);
+    tcp_accept(d->p, direct_accept);
+    return s;
+  fail_dealloc:
+    deallocate(h, d, sizeof(struct direct));
+  fail:
+    s = timm("result", "%s: %s failed", __func__, op);
+    if (err != ERR_OK)
+        timm_append(s, "lwip_error", "%d", err);
+    return s;
 }

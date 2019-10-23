@@ -62,48 +62,24 @@ closure_function(1, 1, buffer_handler, each_socktest_connection,
                  buffer_handler, out)
 {
     heap h = bound(h);
-//    return allocate_http_parser(h, closure(h, each_request, h, out);
     buffer response = allocate_buffer(h, 1024);
     bprintf(response, "hi thanks for coming\r\n");
     apply(out, response);
     return closure(h, test_recv, h, out);
 }
 
-closure_function(2, 1, void, each_http_request,
-                 heap, h, buffer_handler, out,
-                 value, v)
-{
-    /* later make this generic in http */
-    tuple start_line = table_find(v, sym(startline));
-    if (!start_line)
-        goto not_found;
-    value method = table_find(start_line, sym(0));
-    if (!method)
-        goto not_found;
-    /* XXX type */
-    rprintf("method: %b\n", method);
-    if (buffer_compare((buffer)method, wrap_buffer_cstring(bound(h), "GET"))) {
-        // resolve request-uri to tuple, or some registered handler?
-        send_http_response(bound(out),
-                           timm("ContentType", "text/html"),
-                           aprintf(bound(h), "value: %v\r\n", v));
-    } else {
-        goto not_found;
-    }
-
-    return;
-  not_found:
-    // XXX 404
-    rprintf("not found\n");
-}
-
 /* http debug test */
-closure_function(1, 1, buffer_handler, each_http_connection,
+closure_function(1, 3, void, each_test_request,
                  heap, h,
-                 buffer_handler, out)
+                 http_method, m, buffer_handler, out, value, v)
 {
     heap h = bound(h);
-    return allocate_http_parser(h, closure(h, each_http_request, h, out));
+    rprintf("test %s request via http: %v\n", http_request_methods[m], v);
+    /* XXX alloc issues - confirm that handlers fully consume (and deallocate) buffers */
+    status s = send_http_response(out, timm("ContentType", "text/html"),
+                                  aprintf(h, "test %s request: %v\r\n", http_request_methods[m], v));
+    if (!is_ok(s))
+        msg_err("output buffer handler failed: %v\n", s);
 }
 
 closure_function(3, 0, void, startup,
@@ -126,8 +102,14 @@ closure_function(3, 0, void, startup,
         rprintf("socktest start 8079\n");
     }
 
+    http_listener hl = allocate_http_listener(general, 9090);
+    assert(hl != INVALID_ADDRESS);
+    http_register_uri_handler(hl, "test", closure(general, each_test_request, general));
+
     if (table_find(root, sym(http))) {
-        listen_port(general, 9090, closure(general, each_http_connection, general));
+        status s = listen_port(general, 9090, connection_handler_from_http_listener(hl));
+        if (!is_ok(s))
+            halt("listen_port failed for http listener: %v\n", s);
         rprintf("Debug server started on port 9090\n");
     }
 

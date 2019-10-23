@@ -165,6 +165,7 @@ typedef closure_type(thunk, void);
 #define PAGESIZE_2M U64_FROM_BIT(PAGELOG_2M)
 
 typedef closure_type(buffer_handler, status, buffer);
+typedef closure_type(connection_handler, buffer_handler, buffer_handler);
 typedef closure_type(block_io, void, void *, range, status_handler);
 
 // should be  (parser, parser, character)
