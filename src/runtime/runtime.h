@@ -164,7 +164,7 @@ typedef closure_type(thunk, void);
 #define PAGELOG_2M 21
 #define PAGESIZE_2M U64_FROM_BIT(PAGELOG_2M)
 
-typedef closure_type(buffer_handler, void, buffer);
+typedef closure_type(buffer_handler, status, buffer);
 typedef closure_type(block_io, void, void *, range, status_handler);
 
 // should be  (parser, parser, character)
@@ -186,7 +186,6 @@ typedef struct signature {
 
 void init_runtime(kernel_heaps kh);
 heap allocate_tagged_region(kernel_heaps kh, u64 tag);
-typedef closure_type(buffer_promise, void, buffer_handler);
 
 extern thunk ignore;
 extern status_handler ignore_status;

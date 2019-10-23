@@ -170,7 +170,7 @@ closure_function(0, 4, void, kernel_elf_map,
     map(vaddr, paddr, size, flags, heap_pages(&kh));
 }
 
-closure_function(0, 1, void, kernel_read_complete,
+closure_function(0, 1, status, kernel_read_complete,
                  buffer, kb)
 {
     stage2_debug("%s\n", __func__);
@@ -188,6 +188,7 @@ closure_function(0, 1, void, kernel_read_complete,
     create_region(working_saved_base, STAGE2_WORKING_HEAP_SIZE, REGION_PHYSICAL);
 
     run64(u64_from_pointer(k));
+    halt("failed to start long mode\n");
 }
 
 typedef struct tagged_allocator {

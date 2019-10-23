@@ -308,7 +308,7 @@ static boolean handle_request(gdb g, buffer b, buffer output)
 
 #define ASCII_CONTROL_C 0x03
 // not completely reassembling (meaning we dont handle fragments?)
-closure_function(1, 1, void, gdbserver_input,
+closure_function(1, 1, status, gdbserver_input,
                  gdb, g,
                  buffer, b)
 {
@@ -319,7 +319,7 @@ closure_function(1, 1, void, gdbserver_input,
         if (ch == ASCII_CONTROL_C) { //wth?
         //        gdb_handle_exception(g, 1, g->registers);
             rprintf ("control-c\n");
-            return;
+            return STATUS_OK;
         }
     }
  retry:
@@ -357,8 +357,9 @@ closure_function(1, 1, void, gdbserver_input,
 
         }
         reset_parser(g);            
-        return;
+        return STATUS_OK;
     }
+    return STATUS_OK;
 }
 
 buffer_handler init_gdb(heap h,

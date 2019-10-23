@@ -6,7 +6,7 @@
 #include <gdb.h>
 #include <virtio/virtio.h>
 
-closure_function(2, 1, void, read_program_complete,
+closure_function(2, 1, status, read_program_complete,
                  process, kp, tuple, root,
                  buffer, b)
 {
@@ -28,6 +28,7 @@ closure_function(2, 1, void, read_program_complete,
     }
     exec_elf(b, bound(kp));
     closure_finish();
+    return STATUS_OK;
 }
 
 closure_function(0, 1, void, read_program_fail,
@@ -38,7 +39,7 @@ closure_function(0, 1, void, read_program_fail,
 }
 
 /* raw tcp socket test */
-closure_function(2, 1, void, test_recv,
+closure_function(2, 1, status, test_recv,
                  heap, h,
                  buffer_handler, out,
                  buffer, b)
@@ -47,12 +48,13 @@ closure_function(2, 1, void, test_recv,
     buffer_handler out = bound(out);
     if (!b) {
         rprintf("remote closed\n");
-        return;
+        return STATUS_OK;
     }
     bprintf(response, "read: %b", b);
     apply(out, response);
     if (*((u8*)buffer_ref(b, 0)) == 'q')
         apply(out, 0);
+    return STATUS_OK;
 }
 
 closure_function(1, 1, buffer_handler, each_socktest_connection,
@@ -93,7 +95,6 @@ closure_function(2, 1, void, each_http_request,
   not_found:
     // XXX 404
     rprintf("not found\n");
-    return;
 }
 
 /* http debug test */

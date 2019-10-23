@@ -31,32 +31,43 @@ void http_header(buffer dest, tuple t)
     bprintf(dest, "\r\n");    
 }
 
-void http_request(heap h, buffer_handler bh, tuple headers)
+status http_request(heap h, buffer_handler bh, tuple headers)
 {
     buffer b = allocate_buffer(h, 100);
     buffer url = table_find(headers, sym(url));
     bprintf(b, "GET %b HTTP/1.1\r\n", url);
     http_header(b, headers);
-    apply(bh, b);
+    status s = apply(bh, b);
+    if (!is_ok(s))
+        return timm_up(s, "result", "%s failed to send", __func__);
+    return STATUS_OK;
 }
 
 // xxx - other http streaming interfaces are less straightforward
-void send_http_response(buffer_handler out,
-                        tuple t,
-                        buffer c)
+status send_http_response(buffer_handler out,
+                          tuple t,
+                          buffer c)
 {
-
-    // status from t
+    status s;
+    // XXX get http status from t
     buffer d = allocate_buffer(transient, 1000);
     bprintf(d, "HTTP/1.1 200 OK\r\n");
     table_foreach(t, k, v) each_header(d, k, v);
     if (c)
         each_header(d, sym(Content-Length), aprintf(transient, "%d", c->end));
     bprintf(d, "\r\n");
-    apply(out, d);
-    if (c)
-        apply(out, c);
+    s = apply(out, d);
+    if (!is_ok(s))
+        goto out_fail;
+    if (c) {
+        s = apply(out, c);
+        if (!is_ok(s))
+            goto out_fail;
+    }
     deallocate_buffer(d);
+    return STATUS_OK;
+  out_fail:
+    return timm_up(s, "%s failed to send", __func__);
 }
 
 static void reset_parser(http_parser p)
@@ -71,7 +82,7 @@ static void reset_parser(http_parser p)
 // we're going to patch the connection together by looking at the
 // leftover bits in buffer...defer until we need to actually
 // switch protocols
-closure_function(1, 1, void, http_recv,
+closure_function(1, 1, status, http_recv,
                  http_parser, p,
                  buffer, b)
 {
@@ -83,8 +94,7 @@ closure_function(1, 1, void, http_recv,
     if (!b) {
         if (p->state == STATE_BODY)
             goto content_finish;
-        /* XXX status */
-        return;
+        return timm("result", "http_recv: connection closed before finished parsing");
     }
     
     for (i = b->start ; i < b->end; i ++) {
@@ -164,8 +174,8 @@ closure_function(1, 1, void, http_recv,
     apply(p->each, p->header);
     reset_parser(p);
     rprintf("done\n");
+    return STATUS_OK;
 }
-
 
 buffer_handler allocate_http_parser(heap h, value_handler each)
 {
@@ -175,6 +185,3 @@ buffer_handler allocate_http_parser(heap h, value_handler each)
     reset_parser(p);
     return closure(h, http_recv, p);
 }
-
-
-
