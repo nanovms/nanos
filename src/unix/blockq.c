@@ -10,7 +10,7 @@
    added to the blockq's waiters queue, an optional timeout is set,
    the lock is released and the thread is finally blocked.
 
-   blockq_wake(), meant to be safe for calling from interrupt context,
+   blockq_wake_one(), meant to be safe for calling from interrupt context,
    takes the blockq lock (really a no-op until SMP support) and
    attempts to apply the action at the head of the waiters queue. If
    it returns infinity, it is left at the head of the queue, the lock is
