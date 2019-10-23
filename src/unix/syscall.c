@@ -711,12 +711,12 @@ closure_function(2, 6, sysreturn, file_write,
     runtime_memset(buf, 0, final_length);
     runtime_memcpy(buf, dest, length);
 
+    if (is_special(f->n)) {
+        return spec_write(f, buf, length, offset, t, bh, completion);
+    }
+
     buffer b = wrap_buffer(h, buf, final_length);
     thread_log(t, "%s: b_ref: %p", __func__, buffer_ref(b, 0));
-
-    if (is_special(f->n)) {
-        return spec_write(f, b, length, offset, t, bh, completion);
-    }
 
     filesystem_write(t->p->fs, f->n, b, offset,
                      closure(h, file_op_complete, t, f, fsf, is_file_offset,
