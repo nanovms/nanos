@@ -41,6 +41,7 @@ void init_vdso(heap physical_pages, heap pages)
     update_map_flags(vs, len, PAGE_USER);
 }
 
+__attribute__((no_instrument_function))
 sysreturn __attribute__((section (".vdso"))) vsyscall_gettimeofday(struct timeval *x, void *tz)
 {
     /* XXX a vdso-safe version of "timeval_from_time(x, now())" will
@@ -50,6 +51,7 @@ sysreturn __attribute__((section (".vdso"))) vsyscall_gettimeofday(struct timeva
     return rv;
 }
 
+__attribute__((no_instrument_function))
 sysreturn __attribute__((section (".vdso"))) vsyscall_time(time_t *tloc)
 {
     sysreturn rv;
@@ -57,6 +59,7 @@ sysreturn __attribute__((section (".vdso"))) vsyscall_time(time_t *tloc)
     return rv;
 }
 
+__attribute__((no_instrument_function))
 sysreturn __attribute__((section (".vdso"))) vsyscall_getcpu(u32 * cpu, u32 * node, void * tcache /* deprecated */)
 {
     if (cpu)

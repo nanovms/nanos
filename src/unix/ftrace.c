@@ -982,7 +982,7 @@ closure_function(7, 1, sysreturn, trace_pipe_read_bh,
     if (rv == 0) {
         if (!(flags & BLOCKQ_ACTION_BLOCKED))
             rbuf_wait(rbuf);
-        rv = infinity;
+        rv = BLOCKQ_BLOCK_REQUIRED;
         goto out;
     }
 
