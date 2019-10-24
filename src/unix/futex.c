@@ -79,29 +79,28 @@ static int futex_wake_many(struct futex * f, int val)
  * to timeout/signal delivery/etc., or by another thread in sys_futex
  *
  * Return:
- *  infinity: timer still active
+ *  BLOCKQ_BLOCK_REQUIRED: timer still active
  *  -ETIMEDOUT: if we timed out
  *  -EINTR: if we're being nullified
  *  0: thread woken up
  */
-closure_function(3, 2, sysreturn, futex_bh,
-                 struct futex *, f, thread, t, timestamp, ts,
-                 boolean, blocked, boolean, nullify)
+closure_function(2, 1, sysreturn, futex_bh,
+                 struct futex *, f, thread, t,
+                 u64, flags)
 {
     thread t = bound(t);
-    timestamp ts = bound(ts);
     sysreturn rv;
 
     if (current == t)
-        rv = infinity;
-    else if (nullify)
+        rv = BLOCKQ_BLOCK_REQUIRED;
+    else if (flags & BLOCKQ_ACTION_NULLIFY)
         rv = -EINTR;
-    else if (ts > 0 && ts < now()) /* has timer expired */
+    else if (flags & BLOCKQ_ACTION_TIMEDOUT)
         rv = -ETIMEDOUT;
     else
         rv = 0; /* no timer expire + not us --> actual wakeup */
 
-    if (rv != infinity) {
+    if (rv != BLOCKQ_BLOCK_REQUIRED) {
         thread_wakeup(t);
         closure_finish();
     }
@@ -153,7 +152,7 @@ sysreturn futex(int *uaddr, int futex_op, int val,
         set_syscall_return(current, 0);
 
         return blockq_check_timeout(f->bq, current, 
-            closure(f->h, futex_bh, f, current, ts),
+            closure(f->h, futex_bh, f, current),
             false, ts
         );
     }
@@ -195,7 +194,7 @@ sysreturn futex(int *uaddr, int futex_op, int val,
              * whether this should be used or not
              */
              (void)blockq_check_timeout(f2->bq, w,
-                closure(f2->h, futex_bh, f2, w, ts),
+                closure(f2->h, futex_bh, f2, w),
                 false, ts
              );
         }
@@ -261,7 +260,7 @@ sysreturn futex(int *uaddr, int futex_op, int val,
         set_syscall_return(current, 0);
         // TODO: timeout should be absolute based on CLOCK_REALTIME
         return blockq_check_timeout(f->bq, current, 
-            closure(f->h, futex_bh, f, current, ts),
+            closure(f->h, futex_bh, f, current),
             false, ts
         );
     }

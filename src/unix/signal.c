@@ -479,22 +479,23 @@ sysreturn rt_sigprocmask(int how, const u64 *set, u64 *oldset, u64 sigsetsize)
     return 0;
 }
 
-closure_function(2, 2, sysreturn, rt_sigsuspend_bh,
+closure_function(2, 1, sysreturn, rt_sigsuspend_bh,
                  thread, t, u64, saved_mask,
-                 boolean, blocked, boolean, nullify)
+                 u64, flags)
 {
     thread t = bound(t);
-    sig_debug("tid %d, saved_mask 0x%lx blocked %d, nullify %d\n", t->tid, bound(saved_mask), blocked, nullify);
+    sig_debug("tid %d, saved_mask 0x%lx blocked %d, nullify %d\n",
+              t->tid, bound(saved_mask), flags & BLOCKQ_ACTION_BLOCKED, flags & BLOCKQ_ACTION_NULLIFY);
 
-    if (nullify || get_dispatchable_signals(t)) {
-        if (blocked)
+    if ((flags & BLOCKQ_ACTION_NULLIFY) || get_dispatchable_signals(t)) {
+        if (flags & BLOCKQ_ACTION_BLOCKED)
             thread_wakeup(t);
         closure_finish();
         return set_syscall_return(t, -EINTR);
     }
 
     sig_debug("-> block\n");
-    return infinity;
+    return BLOCKQ_BLOCK_REQUIRED;
 }
 
 sysreturn rt_sigsuspend(const u64 * mask, u64 sigsetsize)
@@ -512,7 +513,7 @@ sysreturn rt_sigsuspend(const u64 * mask, u64 sigsetsize)
     blockq_action ba = closure(h, rt_sigsuspend_bh, t, orig_mask);
     t->signals.saved = orig_mask;
     sigstate_set_mask(&t->signals, *mask);
-    return blockq_check(t->dummy_blockq, t, ba, false);
+    return blockq_check(t->thread_bq, t, ba, false);
 }
 
 sysreturn sigaltstack(const stack_t *ss, stack_t *oss)
@@ -626,22 +627,22 @@ sysreturn tkill(int tid, int sig)
     return tgkill(1, tid, sig);
 }
 
-closure_function(1, 2, sysreturn, pause_bh,
+closure_function(1, 1, sysreturn, pause_bh,
                  thread, t,
-                 boolean, blocked, boolean, nullify)
+                 u64, flags)
 {
     thread t = bound(t);
-    sig_debug("tid %d, blocked %d, nullify %d\n", t->tid, blocked, nullify);
+    sig_debug("tid %d, flags 0x%lx\n", t->tid, flags);
 
-    if (nullify || get_dispatchable_signals(t)) {
-        if (blocked)
+    if ((flags & BLOCKQ_ACTION_NULLIFY) || get_dispatchable_signals(t)) {
+        if (flags & BLOCKQ_ACTION_BLOCKED)
             thread_wakeup(t);
         closure_finish();
         return set_syscall_return(t, -EINTR);
     }
 
     sig_debug("-> block\n");
-    return infinity;
+    return BLOCKQ_BLOCK_REQUIRED;
 }
 
 sysreturn pause(void)
@@ -649,7 +650,7 @@ sysreturn pause(void)
     sig_debug("tid %d, blocking...\n", current->tid);
     heap h = heap_general(get_kernel_heaps());
     blockq_action ba = closure(h, pause_bh, current);
-    return blockq_check(current->dummy_blockq, current, ba, false);
+    return blockq_check(current->thread_bq, current, ba, false);
 }
 
 void register_signal_syscalls(struct syscall *map)

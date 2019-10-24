@@ -7,23 +7,41 @@ sysreturn gettimeofday(struct timeval *tv, void *tz)
     return 0;
 }
 
-closure_function(2, 0, void, nanosleep_timeout,
-                 thread, t, boolean *, dead)
+closure_function(4, 1, sysreturn, nanosleep_bh,
+                 thread, t, timestamp, start, timestamp, interval, struct timespec*, rem,
+                 u64, flags)
 {
-    set_syscall_return(bound(t), 0);
-    thread_wakeup(bound(t));
+    thread t = bound(t);
+    timestamp elapsed = now() - bound(start); /* XXX parameterize */
+    thread_log(t, "%s: start %T, interval %T, rem %p, elapsed %T, flags 0x%lx",
+               __func__, bound(start), bound(interval), bound(rem), elapsed, flags);
+    sysreturn rv = 0;
+    if (flags & BLOCKQ_ACTION_NULLIFY) {
+        if (bound(rem)) {
+            timestamp remain = elapsed < bound(interval) ? bound(interval) - elapsed : 0;
+            timespec_from_time(bound(rem), remain);
+            rv = -EINTR;
+            goto out;
+        }
+    }
+
+    if (!(flags & BLOCKQ_ACTION_TIMEDOUT) && elapsed < bound(interval))
+        return BLOCKQ_BLOCK_REQUIRED;
+  out:
+    if (flags & BLOCKQ_ACTION_BLOCKED)
+        thread_wakeup(t);
     closure_finish();
+    return set_syscall_return(t, rv);
 }
 
 sysreturn nanosleep(const struct timespec* req, struct timespec* rem)
 {
-    // nanosleep is interpretable and the remaining
-    // time is put in rem, but for now this is non interpretable
-    // and we sleep for the whole duration before waking up.
-    register_timer(time_from_timespec(req),
-		closure(heap_general(get_kernel_heaps()), nanosleep_timeout, current, 0));
-    thread_sleep_uninterruptible(); /* XXX move to blockq */
-    return 0;
+    timestamp start = now(); /* XXX parameterize later for clock_nanosleep */
+    timestamp interval = time_from_timespec(req);
+    thread_log(current, "nanosleep: req %p (%T) rem %p, now %T", req, interval, rem, start);
+    return blockq_check_timeout(current->thread_bq, current,
+                                closure(heap_general(get_kernel_heaps()), nanosleep_bh, current, start, interval, rem),
+                                false, time_from_timespec(req));
 }
 
 sysreturn sys_time(time_t *tloc)
