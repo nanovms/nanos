@@ -6,8 +6,11 @@
 ;; save callee rip and rbp 
 %define SAVE_FRAME_SIZE (8 + 16)
 
+;; must be an even number larger than the largest GPR in the thread frame
+%define FRAME_REG_CNT 18
+
 ;; size of stack used to save mcount regs in save_mcount_regs
-%define SAVE_REG_SIZE (FRAME_MAX*8 + SAVE_FRAME_SIZE)
+%define SAVE_REG_SIZE (FRAME_REG_CNT*8 + SAVE_FRAME_SIZE)
 
 ;; size of mcount call
 %define MCOUNT_INSN_SIZE 5
