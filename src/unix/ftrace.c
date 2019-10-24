@@ -958,10 +958,10 @@ do_trace_pipe_read(struct ftrace_printer * p, struct rbuf * rbuf, void * buf,
     return len;
 }
 
-closure_function(7, 2, sysreturn, trace_pipe_read_bh,
+closure_function(7, 1, sysreturn, trace_pipe_read_bh,
                  file, f, struct ftrace_printer *, p, struct rbuf *, rbuf,
                  void *, buf, u64, length, u64, offset, thread, t,
-                 boolean, blocked, boolean, nullify)
+				 u64, flags)
 {
     thread t = bound(t);
     file f = bound(f);
@@ -970,8 +970,8 @@ closure_function(7, 2, sysreturn, trace_pipe_read_bh,
 
     rbuf_disable(rbuf);
 
-    if (nullify) {
-        rv = -EINTR;
+    if (flags & BLOCKQ_ACTION_NULLIFY) {
+		rv = -EINTR;
         goto finish;
     }
 
@@ -980,14 +980,14 @@ closure_function(7, 2, sysreturn, trace_pipe_read_bh,
     );
 
     if (rv == 0) {
-        if (!blocked)
+        if (!(flags & BLOCKQ_ACTION_BLOCKED))
             rbuf_wait(rbuf);
         rv = infinity;
         goto out;
     }
 
 finish:
-    if (blocked) {
+    if (flags & BLOCKQ_ACTION_BLOCKED) {
         if (rv > 0) {
             f->offset += rv; /* XXX major hack, don't know how to do things like
                               * this without sleepable kernel contexts */
