@@ -80,7 +80,7 @@ closure_function(2, 1, status, test_recv,
     return STATUS_OK;
 }
 
-closure_function(1, 1, buffer_handler, each_socktest_connection,
+closure_function(1, 1, buffer_handler, each_telnet_connection,
                  heap, h,
                  buffer_handler, out)
 {
@@ -121,8 +121,8 @@ closure_function(3, 0, void, startup,
     heap general = heap_general(kh);
     buffer_handler pg = closure(general, read_program_complete, kp, root);
 
-    if (table_find(root, sym(socktest))) {
-        listen_port(general, 9090, closure(general, each_socktest_connection, general));
+    if (table_find(root, sym(telnet))) {
+        listen_port(general, 9090, closure(general, each_telnet_connection, general));
         rprintf("Debug telnet server started on port 9090\n");
     }
 

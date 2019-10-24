@@ -12,7 +12,7 @@
 #    trace:t
 #    debugsyscalls:t
 #    futex_trace:t
-#    socktest:t
+#    telnet:t
 #    http:t
 #    fault:t
     arguments:[webg longargument]
