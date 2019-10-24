@@ -86,11 +86,13 @@ void cblock()
 
     p("#define CLOSURE_DEFINE_%_%(_rettype, _name^~)|", nleft, nright, ", _lt%, _ln%", ", _rt%, _rn%");
     p("static _rettype (**_fill_##_name(heap h, struct _closure_##_name* n, bytes s^))(void *~) {|", ", _lt% l%", ", _rt%");
-    p("  n->__apply = _name;|");
-    p("  n->__c.name = #_name;|");
-    p("  n->__c.h = h;|");
-    p("  n->__c.size = s;|");
+    p("  if (n != INVALID_ADDRESS) {|");
+    p("    n->__apply = _name;|");
+    p("    n->__c.name = #_name;|");
+    p("    n->__c.h = h;|");
+    p("    n->__c.size = s;|");
     for (int i = 0; i < nleft ; i++)  p("  n->_ln% = l%;|", i, i);
+    p("  }|");
     p("  return (_rettype (**)(void *~))n;|", ", _rt%");
     p("}|");
     p("static _rettype _name(struct _closure_##_name *__self~)\n\n\n", ", _rt% _rn%");
