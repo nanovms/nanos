@@ -119,6 +119,12 @@ typedef struct unix_heaps {
 #define BLOCKQ_ACTION_NULLIFY  2
 #define BLOCKQ_ACTION_TIMEDOUT 4
 
+/* indicate that the blocked thread requires further blocking
+
+   note that this value must not alias any legitimate syscall return
+   value (i.e. -errno) */
+#define BLOCKQ_BLOCK_REQUIRED (0xffffffff00000000ull) /* outside the range of int errno */
+
 typedef closure_type(io_completion, void, thread t, sysreturn rv);
 typedef closure_type(blockq_action, sysreturn, u64 flags);
 

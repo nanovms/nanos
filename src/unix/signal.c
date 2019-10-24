@@ -495,7 +495,7 @@ closure_function(2, 1, sysreturn, rt_sigsuspend_bh,
     }
 
     sig_debug("-> block\n");
-    return infinity;
+    return BLOCKQ_BLOCK_REQUIRED;
 }
 
 sysreturn rt_sigsuspend(const u64 * mask, u64 sigsetsize)
@@ -642,7 +642,7 @@ closure_function(1, 1, sysreturn, pause_bh,
     }
 
     sig_debug("-> block\n");
-    return infinity;
+    return BLOCKQ_BLOCK_REQUIRED;
 }
 
 sysreturn pause(void)

@@ -300,7 +300,7 @@ static sysreturn sock_read_bh_internal(sock s, thread t, void * dest, u64 length
             rv = -EAGAIN;
             goto out;
         }
-        return infinity;               /* back to chewing more cud */
+        return BLOCKQ_BLOCK_REQUIRED;               /* back to chewing more cud */
     }
 
     if (src_addr) {
@@ -368,7 +368,7 @@ closure_function(7, 1, sysreturn, sock_read_bh,
                  u64, flags)
 {
     sysreturn rv = sock_read_bh_internal(bound(s), bound(t), bound(dest), bound(length), bound(src_addr), bound(addrlen), bound(completion), flags);
-    if (rv != infinity)
+    if (rv != BLOCKQ_BLOCK_REQUIRED)
         closure_finish();
     return rv;
 }
@@ -410,7 +410,7 @@ closure_function(5, 1, sysreturn, recvmsg_bh,
                                        bound(length), true);
     sysreturn rv = sock_read_bh_internal(bound(s), bound(t), bound(dest), bound(length), bound(msg)->msg_name,
                                          &bound(msg)->msg_namelen, completion, flags);
-    if (rv != infinity)
+    if (rv != BLOCKQ_BLOCK_REQUIRED)
         closure_finish();
     return rv;
 }
@@ -467,7 +467,7 @@ static sysreturn socket_write_tcp_bh_internal(sock s, thread t, void * buf, u64 
             goto out;
         } else {
             net_debug(" send buf full, sleep\n");
-            return infinity;           /* block again */
+            return BLOCKQ_BLOCK_REQUIRED;           /* block again */
         }
     }
 
@@ -520,7 +520,7 @@ closure_function(5, 1, sysreturn, socket_write_tcp_bh,
     sysreturn rv = socket_write_tcp_bh_internal(bound(s), bound(t), bound(buf), bound(remain), bound(completion),
                                                 (flags & BLOCKQ_ACTION_BLOCKED) != 0,
                                                 (flags & BLOCKQ_ACTION_NULLIFY) != 0);
-    if (rv != infinity)
+    if (rv != BLOCKQ_BLOCK_REQUIRED)
         closure_finish();
     return rv;
 }
@@ -1007,7 +1007,7 @@ closure_function(2, 1, sysreturn, connect_tcp_bh,
     }
 
     if (s->info.tcp.state == TCP_SOCK_IN_CONNECTION)
-        return infinity;
+        return BLOCKQ_BLOCK_REQUIRED;
     assert(s->info.tcp.state == TCP_SOCK_OPEN);
     rv = lwip_to_errno(err);
   out:
@@ -1255,7 +1255,7 @@ closure_function(7, 1, sysreturn, sendmmsg_tcp_bh,
     sysreturn rv = socket_write_tcp_bh_internal(s, t, buf, len, completion, true, nullify);
 
     while (true) {
-        if (rv == infinity) {
+        if (rv == BLOCKQ_BLOCK_REQUIRED) {
             return rv;
         }
         else if (rv <= 0) {
@@ -1460,7 +1460,7 @@ closure_function(5, 1, sysreturn, accept_bh,
             rv = -EAGAIN;
             goto out;
         }
-        return infinity;               /* block */
+        return BLOCKQ_BLOCK_REQUIRED;               /* block */
     }
 
     net_debug("child sock %d\n", sn->fd);

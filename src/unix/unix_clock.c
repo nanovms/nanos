@@ -26,7 +26,7 @@ closure_function(4, 1, sysreturn, nanosleep_bh,
     }
 
     if (!(flags & BLOCKQ_ACTION_TIMEDOUT) && elapsed < bound(interval))
-        return infinity;
+        return BLOCKQ_BLOCK_REQUIRED;
   out:
     if (flags & BLOCKQ_ACTION_BLOCKED)
         thread_wakeup(t);

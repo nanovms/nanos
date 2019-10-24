@@ -423,6 +423,9 @@ closure_function(7, 2, void, iov_transfer,
     iov_transfer_internal(bound(h), bound(f), bound(op), bound(iov), bound(iovcnt), bound(progress), bound(bh), t, rv);
 }
 
+/* borrow this value from blockq - something that won't clobber a legitimate syscall return value */
+#define SYSRETURN_KEEP_BLOCKING BLOCKQ_BLOCK_REQUIRED
+
 static void iov_transfer_internal(heap h, file f, io op, struct iovec * iov, int iovcnt, struct iov_progress * progress, boolean bh, thread t, sysreturn rv)
 {
     boolean do_io = !bh;
@@ -438,7 +441,7 @@ static void iov_transfer_internal(heap h, file f, io op, struct iovec * iov, int
                     bh ? " BH" : "");
             rv = apply(op, iov[progress->count].iov_base, len, f->offset, t, bh,
                     completion);
-            if (rv == infinity) {
+            if (rv == SYSRETURN_KEEP_BLOCKING) {
                 return;
             }
         }
@@ -606,7 +609,7 @@ static void sendfile_read_complete_internal(heap h, fdesc out, int * offset, voi
                 length, true);
         rv = apply(out->write, buf, rv, 0, t, bh, completion);
     }
-    if (rv == infinity) {
+    if (rv == SYSRETURN_KEEP_BLOCKING) {
         return;
     }
     sendfile_complete_internal(h, offset, buf, length, bh, t, rv);
@@ -672,9 +675,8 @@ closure_function(2, 6, sysreturn, file_read,
         /* XXX Presently only support blocking file reads... */
         if (!bh) {
             thread_sleep_uninterruptible();
-        }
-        else {
-            return infinity;
+        } else {
+            return SYSRETURN_KEEP_BLOCKING;
         }
     } else {
         /* XXX special handling for holes will need to go here */
@@ -725,9 +727,8 @@ closure_function(2, 6, sysreturn, file_write,
     /* XXX Presently only support blocking file writes... */
     if (!bh) {
         thread_sleep_uninterruptible();
-    }
-    else {
-        return infinity;
+    } else {
+        return SYSRETURN_KEEP_BLOCKING;
     }
 }
 

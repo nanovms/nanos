@@ -27,7 +27,7 @@ closure_function(5, 1, sysreturn, efd_read_bh,
             rv = -EAGAIN;
             goto out;
         }
-        return infinity;
+        return BLOCKQ_BLOCK_REQUIRED;
     }
     if (efd->f.flags & EFD_SEMAPHORE) {
         u64 readVal = 1;
@@ -80,7 +80,7 @@ closure_function(5, 1, sysreturn, efd_write_bh,
             rv = -EAGAIN;
             goto out;
         }
-        return infinity;
+        return BLOCKQ_BLOCK_REQUIRED;
     }
     efd->counter += counter;
     blockq_wake_one(efd->read_bq);

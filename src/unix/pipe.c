@@ -158,7 +158,7 @@ closure_function(5, 1, sysreturn, pipe_read_bh,
             rv = -EAGAIN;
             goto out;
         }
-        return infinity;
+        return BLOCKQ_BLOCK_REQUIRED;
     }
 
     buffer_read(b, bound(dest), rv);
@@ -217,7 +217,7 @@ closure_function(5, 1, sysreturn, pipe_write_bh,
             rv = -EAGAIN;
             goto out;
         }
-        return infinity;
+        return BLOCKQ_BLOCK_REQUIRED;
     }
 
     u64 real_length = MIN(length, avail);

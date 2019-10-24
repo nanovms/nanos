@@ -79,7 +79,7 @@ static int futex_wake_many(struct futex * f, int val)
  * to timeout/signal delivery/etc., or by another thread in sys_futex
  *
  * Return:
- *  infinity: timer still active
+ *  BLOCKQ_BLOCK_REQUIRED: timer still active
  *  -ETIMEDOUT: if we timed out
  *  -EINTR: if we're being nullified
  *  0: thread woken up
@@ -92,7 +92,7 @@ closure_function(2, 1, sysreturn, futex_bh,
     sysreturn rv;
 
     if (current == t)
-        rv = infinity;
+        rv = BLOCKQ_BLOCK_REQUIRED;
     else if (flags & BLOCKQ_ACTION_NULLIFY)
         rv = -EINTR;
     else if (flags & BLOCKQ_ACTION_TIMEDOUT)
@@ -100,7 +100,7 @@ closure_function(2, 1, sysreturn, futex_bh,
     else
         rv = 0; /* no timer expire + not us --> actual wakeup */
 
-    if (rv != infinity) {
+    if (rv != BLOCKQ_BLOCK_REQUIRED) {
         thread_wakeup(t);
         closure_finish();
     }

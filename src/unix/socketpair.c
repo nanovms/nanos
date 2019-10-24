@@ -142,7 +142,7 @@ closure_function(5, 1, sysreturn, sockpair_read_bh,
             real_length = -EAGAIN;
             goto out;
         }
-        return infinity;
+        return BLOCKQ_BLOCK_REQUIRED;
     }
     if (s->sockpair->type == SOCK_STREAM) {
         buffer_read(b, dest, real_length);
@@ -209,7 +209,7 @@ closure_function(5, 1, sysreturn, sockpair_write_bh,
             rv = -EAGAIN;
             goto out;
         }
-        return infinity;
+        return BLOCKQ_BLOCK_REQUIRED;
     }
 
     u64 real_length = MIN(length, avail);
