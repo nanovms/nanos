@@ -457,6 +457,8 @@ sysreturn socketpair(int domain, int type, int protocol, int sv[2]);
 int do_eventfd2(unsigned int count, int flags);
 
 void register_special_files(process p);
+sysreturn spec_open(file f);
+sysreturn spec_close(file f);
 sysreturn spec_read(file f, void *dest, u64 length, u64 offset_arg, thread t,
         boolean bh, io_completion completion);
 sysreturn spec_write(file f, void *dest, u64 length, u64 offset_arg, thread t,

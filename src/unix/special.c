@@ -1,7 +1,10 @@
 #include <unix_internal.h>
+#include <ftrace.h>
 
 typedef struct special_file {
     const char *path;
+    sysreturn (*open)(file f);
+    sysreturn (*close)(file f);
     sysreturn (*read)(file f, void *dest, u64 length, u64 offset);
     sysreturn (*write)(file f, void *dest, u64 length, u64 offset);
     u32 (*events)(file f);
@@ -68,6 +71,7 @@ static special_file special_files[] = {
     { "/dev/urandom", .read = urandom_read, .write = 0, .events = urandom_events },
     { "/dev/null", .read = null_read, .write = null_write, .events = null_events },
     { "/sys/devices/system/cpu/online", .read = cpu_online_read, .write = null_write, .events = cpu_online_events },
+    FTRACE_SPECIAL_FILES
 };
 
 void register_special_files(process p)
@@ -93,6 +97,32 @@ get_special(file f)
     buffer b = table_find(f->n, sym(special));
     assert(b);
     return (special_file *) buffer_ref(b, 0);
+}
+
+sysreturn
+spec_open(file f)
+{
+    special_file *sf = get_special(f);
+    assert(sf);
+
+    thread_log(current, "spec_open: %s", sf->path);
+    if (sf->open)
+        return sf->open(f);
+
+    return 0;
+}
+
+sysreturn
+spec_close(file f)
+{
+    special_file *sf = get_special(f);
+    assert(sf);
+
+    thread_log(current, "spec_close: %s", sf->path);
+    if (sf->close)
+        return sf->close(f);
+
+    return 0;
 }
 
 sysreturn

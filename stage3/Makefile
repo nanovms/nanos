@@ -115,6 +115,15 @@ CFLAGS+= \
 	-I$(SRCDIR)/x86_64 \
 	-I$(SRCDIR)/xen/public \
 	-I$(LWIPDIR)/src/include
+
+# Enable tracing by specifying TRACE=ftrace on command line
+ifeq ($(TRACE),ftrace)
+SRCS-stage3.img+= \
+	$(SRCDIR)/unix/ftrace.c \
+	$(SRCDIR)/x86_64/ftrace.s
+CFLAGS+= -DCONFIG_FTRACE -pg
+endif
+	
 #CFLAGS+=	-DLWIPDIR_DEBUG -DEPOLL_DEBUG -DNETSYSCALL_DEBUG -DKERNEL_DEBUG
 AFLAGS+=	-felf64 -I$(OBJDIR)/
 LDFLAGS+=	$(KERNLDFLAGS) -T linker_script

@@ -1,4 +1,5 @@
 #include <unix_internal.h>
+#include <ftrace.h>
 #include <buffer.h>
 #include <gdb.h>
 
@@ -283,6 +284,10 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
 	goto alloc_fail;
     register_net_syscalls(linux_syscalls);
 #endif
+
+    if (ftrace_init(uh, fs))
+	goto alloc_fail;
+
     register_signal_syscalls(linux_syscalls);
     register_mmap_syscalls(linux_syscalls);
     register_thread_syscalls(linux_syscalls);
