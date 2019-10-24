@@ -37,7 +37,7 @@ extern __current_ftrace_graph_return
     mov rbp, rsp
  
     ;; we add enough stack to save all the regs, but only need those
-    ;; needed and potentially clobbered by mcount
+    ;; potentially clobbered by mcount
     sub rsp, (SAVE_REG_SIZE - SAVE_FRAME_SIZE)
 
     mov [rsp+FRAME_RAX*8], rax

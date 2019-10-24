@@ -40,7 +40,6 @@ SRCS-stage3.img= \
 	$(SRCDIR)/unix/blockq.c \
 	$(SRCDIR)/unix/exec.c \
 	$(SRCDIR)/unix/eventfd.c \
-	$(SRCDIR)/unix/ftrace.c \
 	$(SRCDIR)/unix/futex.c \
 	$(SRCDIR)/unix/mktime.c \
 	$(SRCDIR)/unix/mmap.c \
@@ -69,7 +68,6 @@ SRCS-stage3.img= \
 	$(SRCDIR)/x86_64/clock.c \
 	$(SRCDIR)/x86_64/crt0.s \
 	$(SRCDIR)/x86_64/elf.c \
-	$(SRCDIR)/x86_64/ftrace.s \
 	$(SRCDIR)/x86_64/hpet.c \
 	$(SRCDIR)/x86_64/interrupt.c \
 	$(SRCDIR)/x86_64/kvm_platform.c \
@@ -120,6 +118,9 @@ CFLAGS+= \
 
 # Enable tracing by specifying TRACE=ftrace on command line
 ifeq ($(TRACE),ftrace)
+SRCS-stage3.img+= \
+	$(SRCDIR)/unix/ftrace.c \
+	$(SRCDIR)/x86_64/ftrace.s
 CFLAGS+= -DCONFIG_FTRACE -pg
 endif
 	

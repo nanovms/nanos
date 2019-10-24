@@ -4,8 +4,6 @@
 #include <x86_64.h>
 #include <symtab.h>
 
-#ifdef CONFIG_FTRACE
-
 /* 1MB default size for the user's trace array */
 #define DEFAULT_TRACE_ARRAY_SIZE        (1ULL << 20)
 #define DEFAULT_TRACE_ARRAY_SIZE_KB     (DEFAULT_TRACE_ARRAY_SIZE >> 10)
@@ -1099,5 +1097,3 @@ void
 ftrace_deinit(void)
 {
 }
-
-#endif /* CONFIG_FTRACE */
