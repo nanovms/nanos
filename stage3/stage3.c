@@ -38,6 +38,21 @@ closure_function(0, 1, void, read_program_fail,
     halt("read program failed %v\n", s);
 }
 
+/* XXX Note: temporarily putting these connection tests here until we
+   get tracing hooked up... */
+
+/* limited to 1M on general heap at the moment... */
+#define BULK_TEST_BUFSIZ (1ull << 20)
+static buffer bulk_test_buffer(heap h)
+{
+    buffer b = allocate_buffer(h, BULK_TEST_BUFSIZ);
+    for (int i = 0; i < (BULK_TEST_BUFSIZ / 10); i += 8) {
+        bprintf(b, "%8d %8d %8d %8d %8d %8d %8d %8d\r\n",
+                i, i + 1, i + 2, i + 3, i + 4, i + 5, i + 6, i + 7);
+    }
+    return b;
+}
+
 /* raw tcp socket test */
 closure_function(2, 1, status, test_recv,
                  heap, h,
@@ -52,8 +67,16 @@ closure_function(2, 1, status, test_recv,
     }
     bprintf(response, "read: %b", b);
     apply(out, response);
-    if (*((u8*)buffer_ref(b, 0)) == 'q')
+    switch (*((u8*)buffer_ref(b, 0))) {
+    case 'q':
+        rprintf("remote sent quit\n");
         apply(out, 0);
+        break;
+    case 'b':
+        rprintf("remote requested bulk buffer\n");
+        apply(out, bulk_test_buffer(bound(h)));
+        break;
+    }
     return STATUS_OK;
 }
 
@@ -77,7 +100,7 @@ closure_function(1, 3, void, each_test_request,
     rprintf("test %s request via http: %v\n", http_request_methods[m], v);
     /* XXX alloc issues - confirm that handlers fully consume (and deallocate) buffers */
     status s = send_http_response(out, timm("ContentType", "text/html"),
-                                  aprintf(h, "test %s request: %v\r\n", http_request_methods[m], v));
+                                  bulk_test_buffer(h));
     if (!is_ok(s))
         msg_err("output buffer handler failed: %v\n", s);
 }
@@ -98,8 +121,8 @@ closure_function(3, 0, void, startup,
     buffer_handler pg = closure(general, read_program_complete, kp, root);
 
     if (table_find(root, sym(socktest))) {
-        listen_port(general, 8079, closure(general, each_socktest_connection, general));
-        rprintf("socktest start 8079\n");
+        listen_port(general, 9090, closure(general, each_socktest_connection, general));
+        rprintf("socktest start 9090\n");
     }
 
     http_listener hl = allocate_http_listener(general, 9090);

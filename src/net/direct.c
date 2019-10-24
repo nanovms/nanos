@@ -1,8 +1,9 @@
 #include <runtime.h>
 #include <lwip.h>
-#include <tfs.h> // XXX fix
+#include <tfs.h> // XXX fix headers
 #include <unix.h>
 #include <net.h>
+#include <x86_64.h>
 
 typedef struct direct {
     connection_handler new;
@@ -34,7 +35,11 @@ static boolean direct_conn_send_internal(direct_conn dc)
     while ((next = list_get_next(&dc->sendq_head))) {
         qbuf q = struct_from_list(next, qbuf, l);
         if (!q->b) {
-            /* XXX */
+            /* close connection - should check error, but would need status handler... */
+            tcp_close(dc->p);
+            list_delete(&q->l);
+            deallocate(dc->d->h, q, sizeof(struct qbuf));
+            return true;
         }
 
         int avail = tcp_sndbuf(dc->p);
@@ -73,8 +78,12 @@ closure_function(1, 0, void, direct_conn_send_bh,
                  direct_conn, dc)
 {
     if (direct_conn_send_internal(bound(dc))) {
+//        rprintf("finished\n");
         closure_finish();
         return;
+    } else {
+//        rprintf("re-enqueue\n");
+        enqueue(deferqueue, closure_self());
     }
 }
 
@@ -84,30 +93,21 @@ closure_function(1, 1, status, direct_conn_send,
 {
     status s = STATUS_OK;
     direct_conn dc = bound(dc);
-    err_t err;
-    if (!b) {
-        /* XXX let sendq flush, refcount release on dc? */
-
-        /* close connection */
-        err = tcp_close(dc->p);
-        if (err != ERR_OK)
-            s = timm("result", "%s: tcp_close returned with error %d", __func__, err);
-    }
 
     /* enqueue qbuf, even if !b */
     qbuf q = allocate(dc->d->h, sizeof(struct qbuf));
     if (q == INVALID_ADDRESS) {
         s = timm("result", "%s: failed to allocate qbuf", __func__);
     } else {
-        q->b = b;               /* even if null; indicates EOF */
+        /* queue even if b == 0 (acts as close connection command) */
+        q->b = b;
         list_insert_before(&dc->sendq_head, &q->l);
         if (!direct_conn_send_internal(dc)) {
             thunk t = closure(dc->d->h, direct_conn_send_bh, dc);
-            /* XXX need some way to persist on bhqueue */
-            (void)t;
+            enqueue(deferqueue, t);
+            /* XXX should set a timer for maximum delay */
         }
     }
-
     return s;
 }
 
