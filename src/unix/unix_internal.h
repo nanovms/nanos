@@ -115,9 +115,12 @@ typedef struct unix_heaps {
     heap processes;
 } *unix_heaps;
 
+#define BLOCKQ_ACTION_BLOCKED  1
+#define BLOCKQ_ACTION_NULLIFY  2
+#define BLOCKQ_ACTION_TIMEDOUT 4
+
 typedef closure_type(io_completion, void, thread t, sysreturn rv);
-typedef closure_type(blockq_action, sysreturn, boolean /* blocking */,
-                     boolean /* nullify */, boolean /* timedout */);
+typedef closure_type(blockq_action, sysreturn, u64 flags);
 
 struct blockq;
 typedef struct blockq * blockq;

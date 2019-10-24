@@ -344,24 +344,24 @@ static void check_fdesc(fdesc f)
 /* It would be nice to devise a way to allow a poll waiter to continue
    to collect events between wakeup (first event) and running. */
 
-closure_function(3, 3, sysreturn, epoll_wait_bh,
+closure_function(3, 1, sysreturn, epoll_wait_bh,
                  epoll_blocked, w, thread, t, boolean, blockable,
-                 boolean, blocked, boolean, nullify, boolean, timedout)
+                 u64, flags)
 {
     sysreturn rv;
     thread t = bound(t);
     epoll_blocked w = bound(w);
     int eventcount = user_event_count(w);
 
-    epoll_debug("w %p on tid %d, blockable %d, blocked %d, nullify %d, timedout %d, event count %d\n",
-                w, t->tid, bound(blockable), blocked, nullify, timedout, eventcount);
+    epoll_debug("w %p on tid %d, blockable %d, flags 0x%lx, event count %d\n",
+                w, t->tid, bound(blockable), flags, eventcount);
 
-    if (!bound(blockable) || timedout || eventcount) {
+    if (!bound(blockable) || (flags & BLOCKQ_ACTION_TIMEDOUT) || eventcount) {
         rv = eventcount;
         goto out_wakeup;
     }
 
-    if (nullify) {
+    if (flags & BLOCKQ_ACTION_NULLIFY) {
         /* XXX verify */
         rv = -EAGAIN;
         goto out_wakeup;
@@ -370,7 +370,7 @@ closure_function(3, 3, sysreturn, epoll_wait_bh,
     epoll_debug("  continue blocking\n");
     return infinity;
   out_wakeup:
-    if (blocked)
+    if (flags & BLOCKQ_ACTION_BLOCKED)
         thread_wakeup(t);
     unwrap_buffer(w->e->h, w->user_events);
     w->user_events = 0;
@@ -560,23 +560,23 @@ closure_function(1, 1, void, select_notify,
     }
 }
 
-closure_function(3, 3, sysreturn, select_bh,
+closure_function(3, 1, sysreturn, select_bh,
                  epoll_blocked, w, thread, t, boolean, blockable,
-                 boolean, blocked, boolean, nullify, boolean, timedout)
+                 u64, flags)
 {
     sysreturn rv;
     thread t = bound(t);
     epoll_blocked w = bound(w);
-    epoll_debug("w %p on tid %d, blockable %d, blocked %d, nullify %d, timedout %d, retcount %ld\n",
-                w, t->tid, bound(blockable), blocked, nullify, timedout, w->retcount);
+    epoll_debug("w %p on tid %d, blockable %d, flags 0x%lx, retcount %ld\n",
+                w, t->tid, bound(blockable), flags, w->retcount);
 
-    if (!bound(blockable) || timedout || w->retcount) {
+    if (!bound(blockable) || (flags & BLOCKQ_ACTION_TIMEDOUT) || w->retcount) {
         /* XXX error checking? */
         rv = w->retcount;
         goto out_wakeup;
     }
 
-    if (nullify) {
+    if (flags & BLOCKQ_ACTION_NULLIFY) {
         /* XXX verify */
         rv = -EAGAIN;
         goto out_wakeup;
@@ -593,7 +593,7 @@ closure_function(3, 3, sysreturn, select_bh,
     w->nfds = 0;
     w->rset = w->wset = w->eset = 0;
     epoll_blocked_release(w);
-    if (blocked)
+    if (flags & BLOCKQ_ACTION_BLOCKED)
         thread_wakeup(t);
     closure_finish();
     return set_syscall_return(t, rv);
@@ -776,23 +776,23 @@ closure_function(1, 1, void, poll_notify,
     }
 }
 
-closure_function(3, 3, sysreturn, poll_bh,
+closure_function(3, 1, sysreturn, poll_bh,
                  epoll_blocked, w, thread, t, boolean, blockable,
-                 boolean, blocked, boolean, nullify, boolean, timedout)
+                 u64, flags)
 {
     sysreturn rv;
     thread t = bound(t);
     epoll_blocked w = bound(w);
-    epoll_debug("w %p on tid %d, blockable %d, blocked %d, nullify %d, timedout %d, poll_retcount %d\n",
-                w, t->tid, bound(blockable), blocked, nullify, timedout, w->poll_retcount);
+    epoll_debug("w %p on tid %d, blockable %d, flags 0x%lx, poll_retcount %d\n",
+                w, t->tid, bound(blockable), flags, w->poll_retcount);
 
-    if (!bound(blockable) || timedout || w->poll_retcount) {
+    if (!bound(blockable) || (flags & BLOCKQ_ACTION_TIMEDOUT) || w->poll_retcount) {
         /* XXX error checking? */
         rv = w->poll_retcount;
         goto out_wakeup;
     }
 
-    if (nullify) {
+    if (flags & BLOCKQ_ACTION_NULLIFY) {
         /* XXX verify */
         rv = -EAGAIN;
         goto out_wakeup;
@@ -803,7 +803,7 @@ closure_function(3, 3, sysreturn, poll_bh,
     unwrap_buffer(w->e->h, w->poll_fds);
     w->poll_fds = 0;
     epoll_blocked_release(w);
-    if (blocked)
+    if (flags & BLOCKQ_ACTION_BLOCKED)
         thread_wakeup(t);
     closure_finish();
     return set_syscall_return(t, rv);

@@ -10,14 +10,14 @@ struct efd {
     u64 counter;
 };
 
-closure_function(5, 3, sysreturn, efd_read_bh,
+closure_function(5, 1, sysreturn, efd_read_bh,
                  struct efd *, efd, thread, t, void *, buf, u64, length, io_completion, completion,
-                 boolean, blocked, boolean, nullify, boolean, timedout)
+                 u64, flags)
 {
     struct efd *efd = bound(efd);
     sysreturn rv = sizeof(efd->counter);
 
-    if (nullify) {
+    if (flags & BLOCKQ_ACTION_NULLIFY) {
         rv = -EINTR;
         goto out;
     }
@@ -42,7 +42,7 @@ closure_function(5, 3, sysreturn, efd_read_bh,
     blockq_wake_one(efd->write_bq);
     notify_dispatch(efd->f.ns, EPOLLOUT);
 out:
-    if (blocked)
+    if (flags & BLOCKQ_ACTION_BLOCKED)
         blockq_set_completion(efd->read_bq, bound(completion), bound(t), rv);
     closure_finish();
     return rv;
@@ -61,15 +61,15 @@ closure_function(1, 6, sysreturn, efd_read,
     return blockq_check(bound(efd)->read_bq, t, ba, bh);
 }
 
-closure_function(5, 3, sysreturn, efd_write_bh,
+closure_function(5, 1, sysreturn, efd_write_bh,
                  struct efd *, efd, thread, t, void *, buf, u64, length, io_completion, completion,
-                 boolean, blocked, boolean, nullify, boolean, timedout)
+                 u64, flags)
 {
     struct efd *efd = bound(efd);
     sysreturn rv = sizeof(efd->counter);
     u64 counter;
 
-    if (nullify) {
+    if (flags & BLOCKQ_ACTION_NULLIFY) {
         rv = -EINTR;
         goto out;
     }
@@ -86,7 +86,7 @@ closure_function(5, 3, sysreturn, efd_write_bh,
     blockq_wake_one(efd->read_bq);
     notify_dispatch(efd->f.ns, EPOLLIN);
 out:
-    if (blocked)
+    if (flags & BLOCKQ_ACTION_BLOCKED)
         blockq_set_completion(efd->write_bq, bound(completion), bound(t), rv);
     closure_finish();
     return rv;

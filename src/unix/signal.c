@@ -479,15 +479,16 @@ sysreturn rt_sigprocmask(int how, const u64 *set, u64 *oldset, u64 sigsetsize)
     return 0;
 }
 
-closure_function(2, 3, sysreturn, rt_sigsuspend_bh,
+closure_function(2, 1, sysreturn, rt_sigsuspend_bh,
                  thread, t, u64, saved_mask,
-                 boolean, blocked, boolean, nullify, boolean, timedout)
+                 u64, flags)
 {
     thread t = bound(t);
-    sig_debug("tid %d, saved_mask 0x%lx blocked %d, nullify %d\n", t->tid, bound(saved_mask), blocked, nullify);
+    sig_debug("tid %d, saved_mask 0x%lx blocked %d, nullify %d\n",
+              t->tid, bound(saved_mask), flags & BLOCKQ_ACTION_BLOCKED, flags & BLOCKQ_ACTION_NULLIFY);
 
-    if (nullify || get_dispatchable_signals(t)) {
-        if (blocked)
+    if ((flags & BLOCKQ_ACTION_NULLIFY) || get_dispatchable_signals(t)) {
+        if (flags & BLOCKQ_ACTION_BLOCKED)
             thread_wakeup(t);
         closure_finish();
         return set_syscall_return(t, -EINTR);
@@ -626,15 +627,15 @@ sysreturn tkill(int tid, int sig)
     return tgkill(1, tid, sig);
 }
 
-closure_function(1, 3, sysreturn, pause_bh,
+closure_function(1, 1, sysreturn, pause_bh,
                  thread, t,
-                 boolean, blocked, boolean, nullify, boolean, timedout)
+                 u64, flags)
 {
     thread t = bound(t);
-    sig_debug("tid %d, blocked %d, nullify %d\n", t->tid, blocked, nullify);
+    sig_debug("tid %d, flags 0x%lx\n", t->tid, flags);
 
-    if (nullify || get_dispatchable_signals(t)) {
-        if (blocked)
+    if ((flags & BLOCKQ_ACTION_NULLIFY) || get_dispatchable_signals(t)) {
+        if (flags & BLOCKQ_ACTION_BLOCKED)
             thread_wakeup(t);
         closure_finish();
         return set_syscall_return(t, -EINTR);

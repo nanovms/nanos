@@ -137,14 +137,14 @@ closure_function(1, 0, sysreturn, pipe_close,
     return 0;
 }
 
-closure_function(5, 3, sysreturn, pipe_read_bh,
+closure_function(5, 1, sysreturn, pipe_read_bh,
                  pipe_file, pf, thread, t, void *, dest, u64, length, io_completion, completion,
-                 boolean, blocked, boolean, nullify, boolean, timedout)
+                 u64, flags)
 {
     pipe_file pf = bound(pf);
     int rv;
 
-    if (nullify) {
+    if (flags & BLOCKQ_ACTION_NULLIFY) {
         rv = -EINTR;
         goto out;
     }
@@ -171,7 +171,7 @@ closure_function(5, 3, sysreturn, pipe_read_bh,
         notify_dispatch(pf->f.ns, 0); /* for edge trigger */
     }
   out:
-    if (blocked)
+    if (flags & BLOCKQ_ACTION_BLOCKED)
         blockq_set_completion(pf->bq, bound(completion), bound(t), rv);
     closure_finish();
     return rv;
@@ -187,18 +187,18 @@ closure_function(1, 6, sysreturn, pipe_read,
         return 0;
 
     blockq_action ba = closure(pf->pipe->h, pipe_read_bh, pf, t, dest, length,
-            completion);
+                               completion);
     return blockq_check(pf->bq, t, ba, bh);
 }
 
-closure_function(5, 3, sysreturn, pipe_write_bh,
+closure_function(5, 1, sysreturn, pipe_write_bh,
                  pipe_file, pf, thread, t, void *, dest, u64, length, io_completion, completion,
-                 boolean, blocked, boolean, nullify, boolean, timedout)
+                 u64, flags)
 {
     sysreturn rv = 0;
     pipe_file pf = bound(pf);
 
-    if (nullify) {
+    if (flags & BLOCKQ_ACTION_NULLIFY) {
         rv = -EINTR;
         goto out;
     }
@@ -229,7 +229,7 @@ closure_function(5, 3, sysreturn, pipe_write_bh,
 
     rv = real_length;
   out:
-    if (blocked)
+    if (flags & BLOCKQ_ACTION_BLOCKED)
         blockq_set_completion(pf->bq, bound(completion), bound(t), rv);
     closure_finish();
     return rv;

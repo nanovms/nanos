@@ -109,9 +109,9 @@ static inline void sockpair_notify_writer(sockpair_socket s, int events)
     }
 }
 
-closure_function(5, 3, sysreturn, sockpair_read_bh,
+closure_function(5, 1, sysreturn, sockpair_read_bh,
                  sockpair_socket, s, thread, t, void *, dest, u64, length, io_completion, completion,
-                 boolean, blocked, boolean, nullify, boolean, timedout)
+                 u64, flags)
 {
     sockpair_socket s = bound(s);
     thread t = bound(t);
@@ -122,7 +122,7 @@ closure_function(5, 3, sysreturn, sockpair_read_bh,
     int real_length;
     int dgram_length;
 
-    if (nullify) {
+    if (flags & BLOCKQ_ACTION_NULLIFY) {
         real_length = -EINTR;
         goto out;
     }
@@ -160,7 +160,7 @@ closure_function(5, 3, sysreturn, sockpair_read_bh,
         }
     }
 out:
-    if (blocked) {
+    if (flags & BLOCKQ_ACTION_BLOCKED) {
         blockq_set_completion(s->read_bq, bound(completion), t, real_length);
     }
     closure_finish();
@@ -181,9 +181,9 @@ closure_function(1, 6, sysreturn, sockpair_read,
     return blockq_check(s->read_bq, t, ba, bh);
 }
 
-closure_function(5, 3, sysreturn, sockpair_write_bh,
+closure_function(5, 1, sysreturn, sockpair_write_bh,
                  sockpair_socket, s, thread, t, void *, dest, u64, length, io_completion, completion,
-                 boolean, blocked, boolean, nullify, boolean, timedout)
+                 u64, flags)
 {
     sockpair_socket s = bound(s);
     u64 length = bound(length);
@@ -191,7 +191,7 @@ closure_function(5, 3, sysreturn, sockpair_write_bh,
     sysreturn rv = 0;
     buffer b = s->sockpair->data;
 
-    if (nullify) {
+    if (flags & BLOCKQ_ACTION_NULLIFY) {
         rv = -EINTR;
         goto out;
     }
@@ -220,9 +220,9 @@ closure_function(5, 3, sysreturn, sockpair_write_bh,
     sockpair_notify_reader(s->peer, EPOLLIN);
     rv = real_length;
 out:
-    if (blocked) {
+    if (flags & BLOCKQ_ACTION_BLOCKED)
         blockq_set_completion(s->write_bq, bound(completion), bound(t), rv);
-    }
+
     closure_finish();
     return rv;
 }

@@ -84,18 +84,18 @@ static int futex_wake_many(struct futex * f, int val)
  *  -EINTR: if we're being nullified
  *  0: thread woken up
  */
-closure_function(2, 3, sysreturn, futex_bh,
+closure_function(2, 1, sysreturn, futex_bh,
                  struct futex *, f, thread, t,
-                 boolean, blocked, boolean, nullify, boolean, timedout)
+                 u64, flags)
 {
     thread t = bound(t);
     sysreturn rv;
 
     if (current == t)
         rv = infinity;
-    else if (nullify)
+    else if (flags & BLOCKQ_ACTION_NULLIFY)
         rv = -EINTR;
-    else if (timedout)
+    else if (flags & BLOCKQ_ACTION_TIMEDOUT)
         rv = -ETIMEDOUT;
     else
         rv = 0; /* no timer expire + not us --> actual wakeup */

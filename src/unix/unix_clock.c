@@ -7,16 +7,16 @@ sysreturn gettimeofday(struct timeval *tv, void *tz)
     return 0;
 }
 
-closure_function(4, 3, sysreturn, nanosleep_bh,
+closure_function(4, 1, sysreturn, nanosleep_bh,
                  thread, t, timestamp, start, timestamp, interval, struct timespec*, rem,
-                 boolean, blocked, boolean, nullify, boolean, timedout)
+                 u64, flags)
 {
     thread t = bound(t);
     timestamp elapsed = now() - bound(start); /* XXX parameterize */
-    thread_log(t, "%s: start %T, interval %T, rem %p, elapsed %T, blocked %d, nullify %d, timedout %d",
-               __func__, bound(start), bound(interval), bound(rem), elapsed, blocked, nullify, timedout);
+    thread_log(t, "%s: start %T, interval %T, rem %p, elapsed %T, flags 0x%lx",
+               __func__, bound(start), bound(interval), bound(rem), elapsed, flags);
     sysreturn rv = 0;
-    if (nullify) {
+    if (flags & BLOCKQ_ACTION_NULLIFY) {
         if (bound(rem)) {
             timestamp remain = elapsed < bound(interval) ? bound(interval) - elapsed : 0;
             timespec_from_time(bound(rem), remain);
@@ -25,10 +25,10 @@ closure_function(4, 3, sysreturn, nanosleep_bh,
         }
     }
 
-    if (!timedout && elapsed < bound(interval))
+    if (!(flags & BLOCKQ_ACTION_TIMEDOUT) && elapsed < bound(interval))
         return infinity;
   out:
-    if (blocked)
+    if (flags & BLOCKQ_ACTION_BLOCKED)
         thread_wakeup(t);
     closure_finish();
     return set_syscall_return(t, rv);
