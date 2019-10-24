@@ -50,10 +50,17 @@ status send_http_response(buffer_handler out,
                           buffer c)
 {
     status s;
-    // XXX get http status from t
     buffer d = allocate_buffer(transient, 1000);
-    bprintf(d, "HTTP/1.1 200 OK\r\n");
-    table_foreach(t, k, v) each_header(d, k, v);
+    bprintf(d, "HTTP/1.1 ");
+    value v;
+    symbol ss = sym(status);
+    if ((v = table_find(t, ss)))
+        bprintf(d, "%b\r\n", (buffer)v);
+    else
+        bprintf(d, "200 OK\r\n");
+    table_foreach(t, k, v)
+        if (k != ss)
+            each_header(d, k, v);
     if (c)
         each_header(d, sym(Content-Length), aprintf(transient, "%d", c->end));
     bprintf(d, "\r\n");
@@ -262,8 +269,9 @@ closure_function(2, 1, void, each_http_request,
         }
     }
   not_found:
-    // XXX send 404
-    rprintf("not found\n");
+    send_http_response(bound(out), timm("status", "404 Not Found"),
+                       aprintf(hl->h, "<html><head><title>404 Not Found</title></head>"
+                               "<body><h1>Not Found</h1></body></html>\r\n"));
 }
 
 closure_function(1, 1, buffer_handler, each_http_connection,

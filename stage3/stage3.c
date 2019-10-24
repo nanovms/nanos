@@ -62,18 +62,18 @@ closure_function(2, 1, status, test_recv,
     buffer response = allocate_buffer(bound(h), 1024);
     buffer_handler out = bound(out);
     if (!b) {
-        rprintf("remote closed\n");
+        rprintf("telnet: remote closed\n");
         return STATUS_OK;
     }
     bprintf(response, "read: %b", b);
     apply(out, response);
     switch (*((u8*)buffer_ref(b, 0))) {
     case 'q':
-        rprintf("remote sent quit\n");
+        rprintf("telnet: remote sent quit\n");
         apply(out, 0);
         break;
     case 'b':
-        rprintf("remote requested bulk buffer\n");
+        rprintf("telnet: remote requested bulk buffer\n");
         apply(out, bulk_test_buffer(bound(h)));
         break;
     }
@@ -86,7 +86,8 @@ closure_function(1, 1, buffer_handler, each_socktest_connection,
 {
     heap h = bound(h);
     buffer response = allocate_buffer(h, 1024);
-    bprintf(response, "hi thanks for coming\r\n");
+    rprintf("telnet: connection\n");
+    bprintf(response, "nanos telnet test interface\r\n");
     apply(out, response);
     return closure(h, test_recv, h, out);
 }
@@ -97,7 +98,7 @@ closure_function(1, 3, void, each_test_request,
                  http_method, m, buffer_handler, out, value, v)
 {
     heap h = bound(h);
-    rprintf("test %s request via http: %v\n", http_request_methods[m], v);
+    rprintf("http: %s request via http: %v\n", http_request_methods[m], v);
     /* XXX alloc issues - confirm that handlers fully consume (and deallocate) buffers */
     status s = send_http_response(out, timm("ContentType", "text/html"),
                                   bulk_test_buffer(h));
@@ -122,7 +123,7 @@ closure_function(3, 0, void, startup,
 
     if (table_find(root, sym(socktest))) {
         listen_port(general, 9090, closure(general, each_socktest_connection, general));
-        rprintf("socktest start 9090\n");
+        rprintf("Debug telnet server started on port 9090\n");
     }
 
     http_listener hl = allocate_http_listener(general, 9090);
@@ -133,7 +134,7 @@ closure_function(3, 0, void, startup,
         status s = listen_port(general, 9090, connection_handler_from_http_listener(hl));
         if (!is_ok(s))
             halt("listen_port failed for http listener: %v\n", s);
-        rprintf("Debug server started on port 9090\n");
+        rprintf("Debug http server started on port 9090\n");
     }
 
     value p = table_find(root, sym(program));
