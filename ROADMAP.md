@@ -8,7 +8,6 @@ just to reduce questions.
 It should not be assumed that the architecture is 'set' based on this
 roadmap. We have many other features that might appear down the road.
 
-- [] AWS T series support
-- [] AWS C series support
-- [] Signals
-- [] SMP
+- [ ] AWS C series support
+- [ ] SMP
+- [ ] ESX
