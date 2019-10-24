@@ -149,21 +149,22 @@ void thread_yield(void)
 
 void thread_wakeup(thread t)
 {
-    thread_log(current, "%s: %ld->%ld blocked_on %p, RIP=0x%lx", __func__, current->tid, t->tid,
-               t->blocked_on, t->frame[FRAME_RIP]);
+    thread_log(current, "%s: %ld->%ld blocked_on %s, RIP=0x%lx", __func__, current->tid, t->tid,
+               t->blocked_on ? (t->blocked_on != INVALID_ADDRESS ? blockq_name(t->blocked_on) : "uninterruptible") :
+               "(null)", t->frame[FRAME_RIP]);
     thread_make_runnable(t);
 }
 
 boolean thread_attempt_interrupt(thread t)
 {
-    thread_log(current, "%s: tid %d\n", __func__, t->tid);
+    thread_log(current, "%s: tid %d", __func__, t->tid);
     if (!thread_in_interruptible_sleep(t)) {
         thread_log(current, "uninterruptible or already running");
         return false;
     }
 
     /* flush pending blockq */
-    thread_log(current, "... interrupting blocked thread %d\n", t->tid);
+    thread_log(current, "... interrupting blocked thread %d", t->tid);
     assert(blockq_flush_thread(t->blocked_on, t));
     assert(thread_is_runnable(t));
     return true;
@@ -187,8 +188,8 @@ thread create_thread(process p)
         return INVALID_ADDRESS;
     }
 
-    t->dummy_blockq = allocate_blockq(h, "dummy");
-    if (t->dummy_blockq == INVALID_ADDRESS) {
+    t->thread_bq = allocate_blockq(h, "thread");
+    if (t->thread_bq == INVALID_ADDRESS) {
         msg_err("failed to allocate blockq\n");
         deallocate(h, t, sizeof(struct thread));
         return INVALID_ADDRESS;
@@ -217,6 +218,8 @@ thread create_thread(process p)
 
 void exit_thread(thread t)
 {
+    thread_log(current, "exit_thread");
+
     assert(vector_length(t->p->threads) > t->tid);
     vector_set(t->p->threads, t->tid, 0);
 
@@ -245,9 +248,9 @@ void exit_thread(thread t)
 
     /* XXX futex robust list needs implementing - wake up robust futexes here */
 
-    blockq_flush(t->dummy_blockq);
-    deallocate_blockq(t->dummy_blockq);
-    t->dummy_blockq = INVALID_ADDRESS;
+    blockq_flush(t->thread_bq);
+    deallocate_blockq(t->thread_bq);
+    t->thread_bq = INVALID_ADDRESS;
 
     deallocate_closure(t->run);
     t->run = INVALID_ADDRESS;

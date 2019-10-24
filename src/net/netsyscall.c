@@ -10,6 +10,13 @@
 #include <lwip/udp.h>
 #include <net_system_structs.h>
 
+//#define NETSYSCALL_DEBUG
+#ifdef NETSYSCALL_DEBUG
+#define net_debug(x, ...) do {log_printf(" NET", "%s: " x, __func__, ##__VA_ARGS__);} while(0)
+#else
+#define net_debug(x, ...)
+#endif
+
 #define SIOCGIFCONF 0x8912
 #define SIOCGIFADDR 0x8915
 
@@ -93,16 +100,15 @@ enum tcp_socket_state {
     TCP_SOCK_UNDEFINED = 0,
     TCP_SOCK_CREATED = 1,
     TCP_SOCK_IN_CONNECTION = 2,
-    TCP_SOCK_OPEN = 3,
-    TCP_SOCK_LISTENING = 4,
+    TCP_SOCK_ABORTING_CONNECTION = 3,
+    TCP_SOCK_OPEN = 4,
+    TCP_SOCK_LISTENING = 5,
 };
 
 enum udp_socket_state {
     UDP_SOCK_UNDEFINED = 0,
     UDP_SOCK_CREATED = 1,
 };
-
-typedef closure_type(lwip_status_handler, void, err_t);
 
 typedef struct sock {
     struct fdesc f;              /* must be first */
@@ -119,7 +125,6 @@ typedef struct sock {
 	struct {
 	    struct tcp_pcb *lw;
 	    enum tcp_socket_state state; // half open?
-            lwip_status_handler connect_bh;
 	} tcp;
 	struct {
 	    struct udp_pcb *lw;
@@ -127,14 +132,6 @@ typedef struct sock {
 	} udp;
     } info;
 } *sock;
-
-//#define NETSYSCALL_DEBUG
-
-#ifdef NETSYSCALL_DEBUG
-#define net_debug(x, ...) do {log_printf(" NET", "%s: " x, __func__, ##__VA_ARGS__);} while(0)
-#else
-#define net_debug(x, ...)
-#endif
 
 closure_function(1, 0, u32, socket_events,
                  sock, s)
@@ -242,9 +239,9 @@ static inline s64 lwip_to_errno(s8 err)
     case ERR_VAL: return -EINVAL;
     case ERR_WOULDBLOCK: return -EAGAIN;
     case ERR_USE: return -EBUSY;
-    case ERR_ALREADY: return -EBUSY;
-    case ERR_ISCONN: return -EINVAL;
-    case ERR_CONN: return -EINVAL;
+    case ERR_ALREADY: return -EALREADY;
+    case ERR_ISCONN: return -EISCONN;
+    case ERR_CONN: return -ENOTCONN;
     case ERR_IF: return -EINVAL;
     case ERR_ABRT: return -EINVAL;
     case ERR_RST: return -EINVAL;
@@ -267,18 +264,17 @@ struct udp_entry {
 };
 
 static sysreturn sock_read_bh_internal(sock s, thread t, void * dest, u64 length, struct sockaddr * src_addr,
-                                       socklen_t * addrlen, io_completion completion,
-                                       boolean blocked, boolean nullify)
+                                       socklen_t * addrlen, io_completion completion, u64 flags)
 {
     /* called with corresponding blockq lock held */
     sysreturn rv = 0;
     err_t err = get_lwip_error(s);
-    net_debug("sock %d, thread %ld, dest %p, len %ld, blocked %d, lwip err %d\n",
-	      s->fd, t->tid, dest, length, blocked, err);
+    net_debug("sock %d, thread %ld, dest %p, len %ld, flags 0x%lx, lwip err %d\n",
+	      s->fd, t->tid, dest, length, flags, err);
     assert(length > 0);
     assert(s->type == SOCK_STREAM || s->type == SOCK_DGRAM);
 
-    if (nullify) {
+    if (flags & BLOCKQ_ACTION_NULLIFY) {
         rv = -EINTR;
         goto out;
     }
@@ -304,7 +300,7 @@ static sysreturn sock_read_bh_internal(sock s, thread t, void * dest, u64 length
             rv = -EAGAIN;
             goto out;
         }
-        return infinity;               /* back to chewing more cud */
+        return BLOCKQ_BLOCK_REQUIRED;               /* back to chewing more cud */
     }
 
     if (src_addr) {
@@ -361,18 +357,18 @@ static sysreturn sock_read_bh_internal(sock s, thread t, void * dest, u64 length
 
     rv = xfer_total;
   out:
-    if (blocked)
+    if (flags & BLOCKQ_ACTION_BLOCKED)
         blockq_set_completion(s->rxbq, completion, t, rv);
     net_debug("   returning %ld\n", rv);
     return rv;
 }
 
-closure_function(7, 2, sysreturn, sock_read_bh,
+closure_function(7, 1, sysreturn, sock_read_bh,
                  sock, s, thread, t, void *, dest, u64, length, struct sockaddr *, src_addr, socklen_t *, addrlen, io_completion, completion,
-                 boolean, blocked, boolean, nullify)
+                 u64, flags)
 {
-    sysreturn rv = sock_read_bh_internal(bound(s), bound(t), bound(dest), bound(length), bound(src_addr), bound(addrlen), bound(completion), blocked, nullify);
-    if (rv != infinity)
+    sysreturn rv = sock_read_bh_internal(bound(s), bound(t), bound(dest), bound(length), bound(src_addr), bound(addrlen), bound(completion), flags);
+    if (rv != BLOCKQ_BLOCK_REQUIRED)
         closure_finish();
     return rv;
 }
@@ -406,15 +402,15 @@ closure_function(5, 2, void, recvmsg_complete,
     closure_finish();
 }
 
-closure_function(5, 2, sysreturn, recvmsg_bh,
+closure_function(5, 1, sysreturn, recvmsg_bh,
                  sock, s, thread, t, void *, dest, u64, length, struct msghdr *, msg,
-                 boolean, blocked, boolean, nullify)
+                 u64, flags)
 {
     io_completion completion = closure(bound(s)->h, recvmsg_complete, bound(s), bound(msg), bound(dest),
                                        bound(length), true);
     sysreturn rv = sock_read_bh_internal(bound(s), bound(t), bound(dest), bound(length), bound(msg)->msg_name,
-                                         &bound(msg)->msg_namelen, completion, blocked, nullify);
-    if (rv != infinity)
+                                         &bound(msg)->msg_namelen, completion, flags);
+    if (rv != BLOCKQ_BLOCK_REQUIRED)
         closure_finish();
     return rv;
 }
@@ -471,7 +467,7 @@ static sysreturn socket_write_tcp_bh_internal(sock s, thread t, void * buf, u64 
             goto out;
         } else {
             net_debug(" send buf full, sleep\n");
-            return infinity;           /* block again */
+            return BLOCKQ_BLOCK_REQUIRED;           /* block again */
         }
     }
 
@@ -517,13 +513,14 @@ static sysreturn socket_write_tcp_bh_internal(sock s, thread t, void * buf, u64 
     return rv;
 }
 
-closure_function(5, 2, sysreturn, socket_write_tcp_bh,
+closure_function(5, 1, sysreturn, socket_write_tcp_bh,
                  sock, s, thread, t, void *, buf, u64, remain, io_completion, completion,
-                 boolean, blocked, boolean, nullify)
+                 u64, flags)
 {
     sysreturn rv = socket_write_tcp_bh_internal(bound(s), bound(t), bound(buf), bound(remain), bound(completion),
-                                                blocked, nullify);
-    if (rv != infinity)
+                                                (flags & BLOCKQ_ACTION_BLOCKED) != 0,
+                                                (flags & BLOCKQ_ACTION_NULLIFY) != 0);
+    if (rv != BLOCKQ_BLOCK_REQUIRED)
         closure_finish();
     return rv;
 }
@@ -824,7 +821,6 @@ static int allocate_tcp_sock(process p, struct tcp_pcb *pcb, u32 flags)
     if (fd >= 0) {
 	s->info.tcp.lw = pcb;
 	s->info.tcp.state = TCP_SOCK_CREATED;
-        s->info.tcp.connect_bh = 0;
     }
     return fd;
 }
@@ -991,36 +987,68 @@ static err_t lwip_tcp_sent(void * arg, struct tcp_pcb * pcb, u16 len)
     return ERR_OK;
 }
 
-closure_function(1, 1, void, connect_tcp_bh,
-                 thread, t,
-                 err_t, lwip_status)
+closure_function(2, 1, sysreturn, connect_tcp_bh,
+                 sock, s, thread, t,
+                 u64, flags)
 {
+    sysreturn rv = 0;
+    sock s = bound(s);
     thread t = bound(t);
-    net_debug("thread %ld, lwip_status %d\n", t->tid, lwip_status);
-    set_syscall_return(t, lwip_to_errno(lwip_status));
-    thread_wakeup(t);
+    err_t err = get_lwip_error(s);
+
+    net_debug("sock %d, tcp state %d, thread %ld, lwip_status %d, flags 0x%lx\n",
+              s->fd, s->info.tcp.state, t->tid, err, flags);
+
+    if (flags & BLOCKQ_ACTION_NULLIFY) {
+        /* XXX spinlock */
+        s->info.tcp.state = TCP_SOCK_ABORTING_CONNECTION;
+        rv = -EINTR;
+        goto out;
+    }
+
+    if (s->info.tcp.state == TCP_SOCK_IN_CONNECTION)
+        return BLOCKQ_BLOCK_REQUIRED;
+    assert(s->info.tcp.state == TCP_SOCK_OPEN);
+    rv = lwip_to_errno(err);
+  out:
+    if (flags & BLOCKQ_ACTION_BLOCKED)
+        thread_wakeup(t);
     closure_finish();
+    return set_syscall_return(t, rv);
 }
 
 static err_t connect_tcp_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
 {
-   if (!arg) {
+   if (!arg)
       return ERR_OK;
-   }
    sock s = (sock)arg;
-   net_debug("sock %d, pcb %p, err %d\n", s->fd, tpcb, err);
+   net_debug("sock %d, tcp state %d, pcb %p, err %d\n", s->fd, s->info.tcp.state, tpcb, err);
+   if (s->info.tcp.state == TCP_SOCK_ABORTING_CONNECTION) {
+       s->info.tcp.state = TCP_SOCK_CREATED;
+       return ERR_ABRT;
+   }
    assert(s->info.tcp.state == TCP_SOCK_IN_CONNECTION);
-   assert(s->info.tcp.connect_bh);
-   s->info.tcp.state = TCP_SOCK_OPEN;
-   apply(s->info.tcp.connect_bh, err);
-   s->info.tcp.connect_bh = 0;
+   s->info.tcp.state = TCP_SOCK_OPEN; /* XXX state handling needs fixing; this could indicate an error as well */
+   set_lwip_error(s, err);
+   blockq_wake_one(s->rxbq);
    return ERR_OK;
 }
 
-static inline int connect_tcp(sock s, const ip_addr_t* address, unsigned short port)
+static inline err_t connect_tcp(sock s, const ip_addr_t* address, unsigned short port)
 {
-    net_debug("sock %d, addr %x, port %d\n", s->fd, address->addr, port);
-    lwip_status_handler bh = closure(s->h, connect_tcp_bh, current);
+    net_debug("sock %d, tcp state %d, addr %x, port %d\n", s->fd, s->info.tcp.state, address->addr, port);
+    switch (s->info.tcp.state) {
+    case TCP_SOCK_IN_CONNECTION:
+    case TCP_SOCK_ABORTING_CONNECTION:
+        return ERR_ALREADY;
+    case TCP_SOCK_OPEN:
+        return ERR_ISCONN;
+    case TCP_SOCK_CREATED:
+        break;
+    default:
+        msg_err("connect attempt while in state %d\n", s->info.tcp.state);
+        return ERR_VAL;
+    }
     struct tcp_pcb * lw = s->info.tcp.lw;
     tcp_arg(lw, s);
     tcp_recv(lw, tcp_input_lower);
@@ -1028,17 +1056,19 @@ static inline int connect_tcp(sock s, const ip_addr_t* address, unsigned short p
     tcp_sent(lw, lwip_tcp_sent);
     s->info.tcp.state = TCP_SOCK_IN_CONNECTION;
     set_lwip_error(s, ERR_OK);
-    assert(s->info.tcp.connect_bh == 0);
-    s->info.tcp.connect_bh = bh;
-    int err = tcp_connect(lw, address, port, connect_tcp_complete);
-    if (err == ERR_OK)
-	thread_sleep_uninterruptible(); /* XXX move to blockq */
-    return err;
+    err_t err = tcp_connect(lw, address, port, connect_tcp_complete);
+    if (err != ERR_OK)
+        return err;
+
+    sysreturn rv = blockq_check_timeout(s->rxbq, current, closure(s->h, connect_tcp_bh, s, current), false, 0);
+    /* should not return under normal cirucmstances */
+    msg_err("blockq check error: %ld\n", rv);
+    return ERR_OK;
 }
 
 sysreturn connect(int sockfd, struct sockaddr * addr, socklen_t addrlen)
 {
-    int err = ERR_OK;
+    err_t err = ERR_OK;
     sock s = resolve_fd(current->p, sockfd);
     if (!addr || addrlen < sizeof(struct sockaddr_in)) {
         return -EINVAL;
@@ -1210,22 +1240,22 @@ closure_function(3, 2, void, sendmmsg_buf_complete,
     closure_finish();
 }
 
-closure_function(7, 2, sysreturn, sendmmsg_tcp_bh,
+closure_function(7, 1, sysreturn, sendmmsg_tcp_bh,
                  sock, s, thread, t, void *, buf, u64, len, int, flags, struct mmsghdr *, msgvec, unsigned int, vlen,
-                 boolean, blocked, boolean, nullify)
+                 u64, flags)
 {
     sock s = bound(s);
     thread t = bound(t);
     void * buf = bound(buf);
     u64 len = bound(len);
     struct mmsghdr * msgvec = bound(msgvec);
+    boolean nullify = (flags & BLOCKQ_ACTION_NULLIFY) != 0;
 
-    io_completion completion = closure(s->h, sendmmsg_buf_complete, s, buf,
-                                       len);
+    io_completion completion = closure(s->h, sendmmsg_buf_complete, s, buf, len);
     sysreturn rv = socket_write_tcp_bh_internal(s, t, buf, len, completion, true, nullify);
 
     while (true) {
-        if (rv == infinity) {
+        if (rv == BLOCKQ_BLOCK_REQUIRED) {
             return rv;
         }
         else if (rv <= 0) {
@@ -1245,7 +1275,7 @@ closure_function(7, 2, sysreturn, sendmmsg_tcp_bh,
         }
     }
 
-    if (blocked)
+    if (flags & BLOCKQ_ACTION_BLOCKED)
         thread_wakeup(t);
 
     closure_finish();
@@ -1403,15 +1433,15 @@ sysreturn listen(int sockfd, int backlog)
     return 0;    
 }
 
-closure_function(5, 2, sysreturn, accept_bh,
+closure_function(5, 1, sysreturn, accept_bh,
                  sock, s, thread, t, struct sockaddr *, addr, socklen_t *, addrlen, int, flags,
-                 boolean, blocked, boolean, nullify)
+                 u64, flags)
 {
     sock s = bound(s);
     thread t = bound(t);
     sysreturn rv = 0;
 
-    if (nullify) {
+    if (flags & BLOCKQ_ACTION_NULLIFY) {
         rv = -EINTR;
         goto out;
     }
@@ -1430,7 +1460,7 @@ closure_function(5, 2, sysreturn, accept_bh,
             rv = -EAGAIN;
             goto out;
         }
-        return infinity;               /* block */
+        return BLOCKQ_BLOCK_REQUIRED;               /* block */
     }
 
     net_debug("child sock %d\n", sn->fd);
@@ -1450,7 +1480,7 @@ closure_function(5, 2, sysreturn, accept_bh,
 
     rv = sn->fd;
   out:
-    if (blocked)
+    if (flags & BLOCKQ_ACTION_BLOCKED)
         thread_wakeup(t);
 
     closure_finish();

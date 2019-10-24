@@ -115,8 +115,18 @@ typedef struct unix_heaps {
     heap processes;
 } *unix_heaps;
 
+#define BLOCKQ_ACTION_BLOCKED  1
+#define BLOCKQ_ACTION_NULLIFY  2
+#define BLOCKQ_ACTION_TIMEDOUT 4
+
+/* indicate that the blocked thread requires further blocking
+
+   note that this value must not alias any legitimate syscall return
+   value (i.e. -errno) */
+#define BLOCKQ_BLOCK_REQUIRED (0xffffffff00000000ull) /* outside the range of int errno */
+
 typedef closure_type(io_completion, void, thread t, sysreturn rv);
-typedef closure_type(blockq_action, sysreturn, boolean /* blocking */, boolean /* nullify */);
+typedef closure_type(blockq_action, sysreturn, u64 flags);
 
 struct blockq;
 typedef struct blockq * blockq;
@@ -178,7 +188,9 @@ typedef struct thread {
 
     /* blockq thread is waiting on, INVALID_ADDRESS for uninterruptible */
     blockq blocked_on;
-    blockq dummy_blockq; /* for pause(2) */
+
+    /* for waiting on thread-specific conditions rather than a resource */
+    blockq thread_bq;
 
     struct sigstate signals;
     sigstate dispatch_sigstate; /* saved sigstate while signal handler in flight */

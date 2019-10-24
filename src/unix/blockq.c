@@ -6,18 +6,20 @@
    while holding the blockq's lock. If it succeeds (rv >= 0), it will
    release the lock and return the result of the action to the
    caller. If rv is negative, an error condition is presumed, the lock
-   is released and rv is returned at once. If rv == infinity, the action gets
-   added to the blockq's waiters queue, an optional timeout is set,
-   the lock is released and the thread is finally blocked.
+   is released and rv is returned at once. If rv ==
+   BLOCKQ_BLOCK_REQUIRED, the action gets added to the blockq's
+   waiters queue, an optional timeout is set, the lock is released and
+   the thread is finally blocked.
 
    blockq_wake(), meant to be safe for calling from interrupt context,
    takes the blockq lock (really a no-op until SMP support) and
    attempts to apply the action at the head of the waiters queue. If
-   it returns infinity, it is left at the head of the queue, the lock is
-   released and waiting resumes, otherwise it causes the action to be removed
-   from the queue, and the lock released. In either case, the call returns to
-   the caller. It is up to the action to apply results to the thread frame and
-   call thread_wakeup() as necessary.
+   it returns BLOCKQ_BLOCK_REQUIRED, it is left at the head of the
+   queue, the lock is released and waiting resumes, otherwise it
+   causes the action to be removed from the queue, and the lock
+   released. In either case, the call returns to the caller. It is up
+   to the action to apply results to the thread frame and call
+   thread_wakeup() as necessary.
 
    The action must adhere to the following:
 
@@ -45,8 +47,9 @@
    In the existing cases right now, the action return value semantics
    mirror those of the syscall itself. Of course, the blocking code
    may interpret this return value as necessary, provided that a value
-   >= 0 represents success (no further blocking required), == infinity
-   indicates blocking required, and < 0 an error condition (and return).
+   >= 0 represents success (no further blocking required), ==
+   BLOCKQ_BLOCK_REQUIRED indicates blocking required, and < 0 an error
+   condition (and return).
 
    Note also that this presently serializes requests and handles them
    in that order alone. The action at the head of the queue must
@@ -114,33 +117,35 @@ static void blockq_item_finish(blockq bq, blockq_item bi)
 /*
  * Apply blockq_item action with lock held
  */
-static void blockq_apply_bi_locked(blockq bq, blockq_item bi,
-                                   boolean blocked, boolean nullify)
+static void blockq_apply_bi_locked(blockq bq, blockq_item bi, u64 flags)
 {
     sysreturn rv;
 
-    blockq_debug("bq %p (\"%s\") bi %p (tid:%ld) blocked %s nullify %s\n",
-        bq, blockq_name(bq), bi, bi->t->tid,
-        (blocked) ? "true" : "false",
-        (nullify) ? "true" : "false"
-    );
+    blockq_debug("bq %p (\"%s\") bi %p (tid:%ld) %s %s %s\n",
+                 bq, blockq_name(bq), bi, bi->t->tid,
+                 (flags & BLOCKQ_ACTION_BLOCKED) ? "blocked " : "",
+                 (flags & BLOCKQ_ACTION_NULLIFY) ? "nullify " : "",
+                 (flags & BLOCKQ_ACTION_TIMEDOUT) ? "timedout" : "");
 
-    rv = apply(bi->a, blocked, nullify);
+    rv = apply(bi->a, flags);
     blockq_debug("   - returned %ld\n", rv);
 
    /*
-    *  In the existing cases right now, the action return value semantics
-    *  mirror those of the syscall itself. Of course, the blocking code
-    *  may interpret this return value as necessary, provided that a value
-    *  >= 0 represents success (no further blocking required), == infinity
-    *  indicates blocking required, and < 0 an error condition (and return).
+    *  In the existing cases right now, the action return value
+    *  semantics mirror those of the syscall itself. Of course, the
+    *  blocking code may interpret this return value as necessary,
+    *  provided that a value >= 0 represents success (no further
+    *  blocking required), == BLOCKQ_BLOCK_REQUIRED indicates blocking
+    *  required, and < 0 an error condition (and return).
     */
 
     /* IOW, the bi is done if the user tells us its done (or, on a nullify
      * we'll just force it)
      */
-    if (nullify || (rv != infinity))
+    if ((flags & BLOCKQ_ACTION_NULLIFY) || (rv != BLOCKQ_BLOCK_REQUIRED))
         blockq_item_finish(bq, bi);
+
+    /* XXX - Re-register timer if rv == BLOCKQ_BLOCK_REQUIRED? */
 }
 
 /*
@@ -161,7 +166,7 @@ closure_function(2, 0, void, blockq_item_timeout,
     bi->timeout = 0;
 
     /* XXX take irqsafe spinlock */
-    blockq_apply_bi_locked(bq, bi, true, false);
+    blockq_apply_bi_locked(bq, bi, BLOCKQ_ACTION_BLOCKED | BLOCKQ_ACTION_TIMEDOUT);
     /* XXX release lock */
     closure_finish();
 }
@@ -187,7 +192,7 @@ thread blockq_wake_one(blockq bq)
         return INVALID_ADDRESS;
 
     bi = struct_from_list(l, blockq_item, l);
-    blockq_apply_bi_locked(bq, bi, true, false);
+    blockq_apply_bi_locked(bq, bi, BLOCKQ_ACTION_BLOCKED);
 
     /* XXX release lock */
 
@@ -212,8 +217,8 @@ sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a,
        Before we switch on another CPU thread, insert IRQ-safe
        spinlock.
     */
-    sysreturn rv = apply(a, false, false);
-    if (rv != infinity) {
+    sysreturn rv = apply(a, 0);
+    if (rv != BLOCKQ_BLOCK_REQUIRED) {
         /* XXX release spinlock */
         blockq_debug(" - direct return: %ld\n", rv);
         return rv;
@@ -252,7 +257,7 @@ sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a,
      * return now
      */
     if (in_bh || (current != t))
-        return infinity;
+        return BLOCKQ_BLOCK_REQUIRED;
 
     thread_sleep_interruptible();  /* no return */
     assert(0);
@@ -270,7 +275,7 @@ boolean blockq_flush_thread(blockq bq, thread t)
         if (bi->t != t)
             continue;
 
-        blockq_apply_bi_locked(bq, bi, true, true);
+        blockq_apply_bi_locked(bq, bi, BLOCKQ_ACTION_BLOCKED | BLOCKQ_ACTION_NULLIFY);
         unblocked = true;
     }
 
@@ -291,7 +296,7 @@ void blockq_flush(blockq bq)
     /* XXX take irqsafe spinlock */
     list_foreach(&bq->waiters_head, l) {
         blockq_item bi = struct_from_list(l, blockq_item, l);
-        blockq_apply_bi_locked(bq, bi, true, true);
+        blockq_apply_bi_locked(bq, bi, BLOCKQ_ACTION_BLOCKED | BLOCKQ_ACTION_NULLIFY);
     }
     /* XXX release lock */
 }

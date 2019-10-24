@@ -9,11 +9,9 @@
 
 #define closure(__h, __name, ...) ({                                    \
     struct _closure_##__name * __n = allocate(__h, sizeof(struct _closure_##__name)); \
-    (__n == INVALID_ADDRESS ? INVALID_ADDRESS :                         \
-        __closure(__h, __n,                                             \
-                  sizeof(struct _closure_##__name), __name, ##__VA_ARGS__));})
+    __closure(__h, __n, sizeof(struct _closure_##__name), __name, ##__VA_ARGS__);})
 
-#define stack_closure(__name, ...)\
+#define stack_closure(__name, ...)                                 \
     __closure(0, stack_allocate(sizeof(struct _closure_##__name)), \
               sizeof(struct _closure_##__name), __name, ##__VA_ARGS__)
 
