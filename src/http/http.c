@@ -65,7 +65,6 @@ status send_http_response(buffer_handler out,
         if (!is_ok(s))
             goto out_fail;
     }
-    deallocate_buffer(d);
     return STATUS_OK;
   out_fail:
     return timm_up(s, "%s failed to send", __func__);

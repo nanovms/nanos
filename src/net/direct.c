@@ -8,40 +8,123 @@ typedef struct direct {
     connection_handler new;
     struct tcp_pcb *p;
     heap h;
+    struct list conn_head;
 } *direct;
 
-closure_function(1, 1, status, direct_send,
-                 struct tcp_pcb *, pcb,
-                 buffer, b)
+typedef struct direct_conn {
+    direct d;
+    struct list l;              /* direct list */
+    struct tcp_pcb *p;
+    struct list sendq_head;
+    buffer_handler receive_bh;
+    err_t pending_err;          /* lwIP */
+} *direct_conn;
+
+/* suppose this could store a completion if a client needs it */
+typedef struct qbuf {
+    struct list l;
+    buffer b;
+} *qbuf;
+
+/* return true if sendq empty */
+static boolean direct_conn_send_internal(direct_conn dc)
 {
-    err_t err;
-    if (!b) {
-        /* close connection */
-        err = tcp_close(bound(pcb));
-        if (err != ERR_OK)
-            return timm("result", "%s: tcp_close returned with error %d", __func__, err);
-        return STATUS_OK;
+    list next;
+
+    while ((next = list_get_next(&dc->sendq_head))) {
+        qbuf q = struct_from_list(next, qbuf, l);
+        if (!q->b) {
+            /* XXX */
+        }
+
+        int avail = tcp_sndbuf(dc->p);
+        if (avail == 0)
+            return false;
+
+        int write_len = MIN(avail, buffer_length(q->b));
+        /* Fix interface: can send with PSH flag clear
+           (TCP_WRITE_FLAG_MORE) if we know more data is on the way... */
+//        rprintf("write %p, len %d\n", buffer_ref(q->b, 0), write_len);
+        err_t err = tcp_write(dc->p, buffer_ref(q->b, 0), write_len, TCP_WRITE_FLAG_COPY);
+        if (err == ERR_MEM)
+            return false;
+
+        /* should handle some other way */
+        if (err != ERR_OK) {
+            /* XXX */
+            return false;
+        }
+
+        /* XXX tcp_output */
+        buffer_consume(q->b, write_len);
+//        rprintf("buf len now %d\n", buffer_length(q->b));
+
+        /* pop off qbuf if work finished, else loop around to attempt to send more */
+        if (!q->b || buffer_length(q->b) == 0) {
+            deallocate_buffer(q->b);
+            list_delete(&q->l);
+            deallocate(dc->d->h, q, sizeof(struct qbuf));
+        }
     }
-    /* Fix interface: can send with PSH flag clear
-       (TCP_WRITE_FLAG_MORE) if we know more data is on the way... */
-    err = tcp_write(bound(pcb), buffer_ref(b, 0), buffer_length(b), TCP_WRITE_FLAG_COPY);
-    if (err != ERR_OK)
-        return timm("result", "%s: tcp_write returned with error %d", __func__, err);
-    return STATUS_OK;
+    return true;
 }
 
-err_t direct_input(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
+closure_function(1, 0, void, direct_conn_send_bh,
+                 direct_conn, dc)
 {
-    buffer_handler bh = z;
+    if (direct_conn_send_internal(bound(dc))) {
+        closure_finish();
+        return;
+    }
+}
+
+closure_function(1, 1, status, direct_conn_send,
+                 direct_conn, dc,
+                 buffer, b)
+{
+    status s = STATUS_OK;
+    direct_conn dc = bound(dc);
+    err_t err;
+    if (!b) {
+        /* XXX let sendq flush, refcount release on dc? */
+
+        /* close connection */
+        err = tcp_close(dc->p);
+        if (err != ERR_OK)
+            s = timm("result", "%s: tcp_close returned with error %d", __func__, err);
+    }
+
+    /* enqueue qbuf, even if !b */
+    qbuf q = allocate(dc->d->h, sizeof(struct qbuf));
+    if (q == INVALID_ADDRESS) {
+        s = timm("result", "%s: failed to allocate qbuf", __func__);
+    } else {
+        q->b = b;               /* even if null; indicates EOF */
+        list_insert_before(&dc->sendq_head, &q->l);
+        if (!direct_conn_send_internal(dc)) {
+            thunk t = closure(dc->d->h, direct_conn_send_bh, dc);
+            /* XXX need some way to persist on bhqueue */
+            (void)t;
+        }
+    }
+
+    return s;
+}
+
+err_t direct_conn_input(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
+{
+    direct_conn dc = z;
     status s;
+    /* XXX err */
     if (p) {
         /* handler must consume entire buffer */
-        s = apply(bh, alloca_wrap_buffer(p->payload, p->len));
+        s = apply(dc->receive_bh, alloca_wrap_buffer(p->payload, p->len));
         tcp_recved(pcb, p->len);
     } else {
         /* connection closed */
-        s = apply(bh, 0);
+        s = apply(dc->receive_bh, 0);
     }
+
     if (!is_ok(s)) {
         /* report here? handler should be able to dispatch error... */
         msg_err("handler failed with status %v; aborting connection\n", s);
@@ -50,32 +133,45 @@ err_t direct_input(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
     return ERR_OK;
 }
 
-/* XXX store error and report later */
 static void direct_conn_err(void *z, err_t err)
 {
-    buffer_handler bh = z;
-    rprintf("%s: bh %p, err %d\n", __func__, bh, err);
+    direct_conn dc = z;
+    rprintf("%s: dc %p, err %d\n", __func__, dc, err);
+    dc->pending_err = err;
 }
 
 static void direct_listen_err(void *z, err_t err)
 {
-    direct g = z;
-    rprintf("%s: g %p, err %d\n", __func__, g, err);
+    direct d = z;
+    rprintf("%s: d %p, err %d\n", __func__, d, err);
+    /* XXX TODO */
 }
 
 /* XXX per-connection descriptor as tcp arg? */
 static err_t direct_accept(void *z, struct tcp_pcb *pcb, err_t b)
 {
-    direct g = z;
-    buffer_handler bh = apply(g->new, closure(g->h, direct_send, pcb));
-    if (bh == INVALID_ADDRESS) {
-        msg_err("failed to establish direct connection\n");
-        return ERR_ABRT;
-    }
-    tcp_arg(pcb, bh);
+    direct d = z;
+    direct_conn dc = allocate(d->h, sizeof(struct direct_conn));
+    if (dc == INVALID_ADDRESS)
+        goto fail;
+    dc->d = d;
+    dc->p = pcb;
+    list_init(&dc->sendq_head);
+    buffer_handler bh = apply(d->new, closure(d->h, direct_conn_send, dc));
+    if (bh == INVALID_ADDRESS)
+        goto fail_dealloc;
+    dc->receive_bh = bh;
+    dc->pending_err = ERR_OK;
+    list_insert_before(&d->conn_head, &dc->l);
+    tcp_arg(pcb, dc);
     tcp_err(pcb, direct_conn_err);
-    tcp_recv(pcb, direct_input);
+    tcp_recv(pcb, direct_conn_input);
     return ERR_OK;
+  fail_dealloc:
+    deallocate(d->h, dc, sizeof(struct direct_conn));
+  fail:
+    msg_err("failed to establish direct connection\n");
+    return ERR_ABRT;
 }
 
 status listen_port(heap h, u16 port, connection_handler c)
@@ -88,13 +184,14 @@ status listen_port(heap h, u16 port, connection_handler c)
         op = "allocate";
         goto fail;
     }
+    d->new = c;
     d->p = tcp_new_ip_type(IPADDR_TYPE_ANY);
     if (!d->p) {
         op = "tcp_new_ip_type";
         goto fail_dealloc;
     }
     d->h = h;
-    d->new = c;
+    list_init(&d->conn_head);
 
     err = tcp_bind(d->p, IP_ANY_TYPE, port);
     if (err != ERR_OK) {
