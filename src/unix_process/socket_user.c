@@ -449,7 +449,7 @@ closure_function(4, 0, void, connection_input,
 }
 
 
-closure_function(2, 1, void, connection_output,
+closure_function(2, 1, status, connection_output,
                  descriptor, c, notifier, n,
                  buffer, b)
 {
@@ -460,6 +460,7 @@ closure_function(2, 1, void, connection_output,
 	notifier_reset_fd(bound(n), c);
         close(c);
     }
+    return STATUS_OK;           /* pff */
 }
 
 closure_function(4, 0, void, accepting,

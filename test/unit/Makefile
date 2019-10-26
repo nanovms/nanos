@@ -101,6 +101,7 @@ SRCS-memops_test= \
 
 SRCS-network_test= \
 	$(CURDIR)/network_test.c \
+	$(SRCDIR)/http/http.c \
 	$(SRCDIR)/runtime/bitmap.c \
 	$(SRCDIR)/runtime/buffer.c \
 	$(SRCDIR)/runtime/extra_prints.c \
@@ -122,7 +123,6 @@ SRCS-network_test= \
 	$(SRCDIR)/tfs/tlog.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c \
 	$(SRCDIR)/unix_process/mmap_heap.c \
-	$(SRCDIR)/unix_process/http.c \
 	$(SRCDIR)/unix_process/socket_user.c \
 	$(SRCDIR)/unix_process/tiny_heap.c
 
@@ -281,6 +281,7 @@ SRCS-tuple_test= \
 
 SRCS-udp_test= \
 	$(CURDIR)/udp_test.c \
+	$(SRCDIR)/http/http.c \
 	$(SRCDIR)/runtime/bitmap.c \
 	$(SRCDIR)/runtime/buffer.c \
 	$(SRCDIR)/runtime/extra_prints.c \
@@ -302,7 +303,6 @@ SRCS-udp_test= \
 	$(SRCDIR)/tfs/tlog.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c \
 	$(SRCDIR)/unix_process/mmap_heap.c \
-	$(SRCDIR)/unix_process/http.c \
 	$(SRCDIR)/unix_process/socket_user.c \
 	$(SRCDIR)/unix_process/tiny_heap.c
 
@@ -328,7 +328,8 @@ SRCS-vector_test= \
 	$(SRCDIR)/unix_process/unix_process_runtime.c
 
 
-CFLAGS+=	-I$(SRCDIR)/runtime \
+CFLAGS+=	-I$(SRCDIR)/http \
+		-I$(SRCDIR)/runtime \
 		-I$(SRCDIR)/tfs \
 		-I$(SRCDIR)/unix_process \
 		-I$(SRCDIR)/unix \

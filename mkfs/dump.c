@@ -36,7 +36,7 @@ closure_function(2, 3, void, bread,
     apply(c, STATUS_OK);
 }
 
-closure_function(1, 1, void, write_file,
+closure_function(1, 1, status, write_file,
                  buffer, path,
                  buffer, b)
 {
@@ -56,6 +56,7 @@ closure_function(1, 1, void, write_file,
         buffer_consume(b, xfer);
     }
     close(fd);
+    return STATUS_OK;
 }
 
 // h just for extending path

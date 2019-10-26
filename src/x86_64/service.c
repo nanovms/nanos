@@ -58,8 +58,9 @@ static u64 bootstrap_alloc(heap h, bytes length)
     return result;
 }
 
-queue runqueue;
-queue bhqueue;
+queue runqueue;                 /* dispatched in runloop */
+queue bhqueue;                  /* dispatched to exhaustion in process_bhqueue */
+queue deferqueue;               /* same as bhqueue, but only for previously queued items */
 
 static void timer_update(void)
 {
@@ -74,8 +75,17 @@ void process_bhqueue()
 {
     /* XXX - we're on bh frame & stack; re-enable ints here */
     thunk t;
-    while((t = dequeue(bhqueue))) {
+    int defer_waiters = queue_length(deferqueue);
+    while ((t = dequeue(bhqueue))) {
         apply(t);
+    }
+
+    /* only process deferred items that were queued prior to call -
+       this allows bhqueue and deferqueue waiters to re-schedule for
+       subsequent bh processing */
+    while (defer_waiters > 0 && (t = dequeue(deferqueue))) {
+        apply(t);
+        defer_waiters--;
     }
 
     timer_update();
@@ -263,7 +273,9 @@ static void __attribute__((noinline)) init_service_new_stack()
 
     /* scheduling queues init */
     runqueue = allocate_queue(misc, 64);
-    bhqueue = allocate_queue(misc, 2048); /* XXX will need something extensible really */
+    /* XXX bhqueue is large to accomodate vq completions; explore batch processing on vq side */
+    bhqueue = allocate_queue(misc, 2048);
+    deferqueue = allocate_queue(misc, 64);
 
     /* interrupts */
     init_debug("start_interrupts");

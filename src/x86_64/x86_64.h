@@ -164,6 +164,7 @@ static inline void kern_pause(void)
 typedef struct queue *queue;
 extern queue runqueue;
 extern queue bhqueue;
+extern queue deferqueue;
 
 heap physically_backed(heap meta, heap virtual, heap physical, heap pages, u64 pagesize);
 void physically_backed_dealloc_virtual(heap h, u64 x, bytes length);

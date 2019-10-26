@@ -165,7 +165,7 @@ closure_function(2, 4, void, exec_elf_map,
     }
 }
 
-closure_function(2, 1, void, load_interp_complete,
+closure_function(2, 1, status, load_interp_complete,
                  thread, t, kernel_heaps, kh,
                  buffer, b)
 {
@@ -178,6 +178,7 @@ closure_function(2, 1, void, load_interp_complete,
     exec_debug("starting process tid %d, start %p\n", t->tid, start);
     start_process(t, start);
     closure_finish();
+    return STATUS_OK;
 }
 
 process exec_elf(buffer ex, process kp)

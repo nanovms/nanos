@@ -9,8 +9,10 @@ static inline vector vector_from_tuple(heap h, tuple n)
         return 0;
 
     vector r = allocate_vector(h, 100); //table_elements(n));
+    if (r == INVALID_ADDRESS)
+        return r;
+
     void *x;
-    
     for (int i = 0; (x = table_find(n, intern_u64(i))); i++)
         vector_push(r, x);
     
@@ -20,9 +22,11 @@ static inline vector vector_from_tuple(heap h, tuple n)
 // destructive
 static inline tuple tuple_from_vector(vector v)
 {
-    tuple t = allocate_tuple();
     void *p;
     int i = 0;
+    tuple t = allocate_tuple();
+    if (t == INVALID_ADDRESS)
+        return t;
 
     // reversal?
     while ((p = vector_pop(v))) 

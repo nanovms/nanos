@@ -1,10 +1,12 @@
 #include <runtime.h>
 #include <tfs.h>
 #include <unix.h>
+#include <net.h>
+#include <http.h>
 #include <gdb.h>
 #include <virtio/virtio.h>
 
-closure_function(2, 1, void, read_program_complete,
+closure_function(2, 1, status, read_program_complete,
                  process, kp, tuple, root,
                  buffer, b)
 {
@@ -26,6 +28,7 @@ closure_function(2, 1, void, read_program_complete,
     }
     exec_elf(b, bound(kp));
     closure_finish();
+    return STATUS_OK;
 }
 
 closure_function(0, 1, void, read_program_fail,
@@ -33,6 +36,74 @@ closure_function(0, 1, void, read_program_fail,
 {
     closure_finish();
     halt("read program failed %v\n", s);
+}
+
+/* XXX Note: temporarily putting these connection tests here until we
+   get tracing hooked up... */
+
+/* limited to 1M on general heap at the moment... */
+#define BULK_TEST_BUFSIZ (1ull << 20)
+static buffer bulk_test_buffer(heap h)
+{
+    buffer b = allocate_buffer(h, BULK_TEST_BUFSIZ);
+    for (int i = 0; i < (BULK_TEST_BUFSIZ / 10); i += 8) {
+        bprintf(b, "%8d %8d %8d %8d %8d %8d %8d %8d\r\n",
+                i, i + 1, i + 2, i + 3, i + 4, i + 5, i + 6, i + 7);
+    }
+    return b;
+}
+
+/* raw tcp socket test */
+closure_function(2, 1, status, test_recv,
+                 heap, h,
+                 buffer_handler, out,
+                 buffer, b)
+{
+    buffer response = allocate_buffer(bound(h), 1024);
+    buffer_handler out = bound(out);
+    if (!b) {
+        rprintf("telnet: remote closed\n");
+        return STATUS_OK;
+    }
+    bprintf(response, "read: %b", b);
+    apply(out, response);
+    switch (*((u8*)buffer_ref(b, 0))) {
+    case 'q':
+        rprintf("telnet: remote sent quit\n");
+        apply(out, 0);
+        break;
+    case 'b':
+        rprintf("telnet: remote requested bulk buffer\n");
+        apply(out, bulk_test_buffer(bound(h)));
+        break;
+    }
+    return STATUS_OK;
+}
+
+closure_function(1, 1, buffer_handler, each_telnet_connection,
+                 heap, h,
+                 buffer_handler, out)
+{
+    heap h = bound(h);
+    buffer response = allocate_buffer(h, 1024);
+    rprintf("telnet: connection\n");
+    bprintf(response, "nanos telnet test interface\r\n");
+    apply(out, response);
+    return closure(h, test_recv, h, out);
+}
+
+/* http debug test */
+closure_function(1, 3, void, each_test_request,
+                 heap, h,
+                 http_method, m, buffer_handler, out, value, v)
+{
+    heap h = bound(h);
+    rprintf("http: %s request via http: %v\n", http_request_methods[m], v);
+    /* XXX alloc issues - confirm that handlers fully consume (and deallocate) buffers */
+    status s = send_http_response(out, timm("ContentType", "text/html"),
+                                  bulk_test_buffer(h));
+    if (!is_ok(s))
+        msg_err("output buffer handler failed: %v\n", s);
 }
 
 closure_function(3, 0, void, startup,
@@ -49,6 +120,23 @@ closure_function(3, 0, void, startup,
     }
     heap general = heap_general(kh);
     buffer_handler pg = closure(general, read_program_complete, kp, root);
+
+    if (table_find(root, sym(telnet))) {
+        listen_port(general, 9090, closure(general, each_telnet_connection, general));
+        rprintf("Debug telnet server started on port 9090\n");
+    }
+
+    http_listener hl = allocate_http_listener(general, 9090);
+    assert(hl != INVALID_ADDRESS);
+    http_register_uri_handler(hl, "test", closure(general, each_test_request, general));
+
+    if (table_find(root, sym(http))) {
+        status s = listen_port(general, 9090, connection_handler_from_http_listener(hl));
+        if (!is_ok(s))
+            halt("listen_port failed for http listener: %v\n", s);
+        rprintf("Debug http server started on port 9090\n");
+    }
+
     value p = table_find(root, sym(program));
     assert(p);
     tuple pro = resolve_path(root, split(general, p, '/'));
