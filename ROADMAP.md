@@ -11,3 +11,4 @@ roadmap. We have many other features that might appear down the road.
 - [ ] AWS C series support
 - [ ] SMP
 - [ ] ESX
+- [ ] Hyper-V
