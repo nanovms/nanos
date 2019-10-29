@@ -35,6 +35,7 @@ SRCS-stage3.img= \
 	$(SRCDIR)/runtime/table.c \
 	$(SRCDIR)/runtime/timer.c \
 	$(SRCDIR)/runtime/tuple.c \
+	$(SRCDIR)/runtime/tuple_parser.c \
 	$(SRCDIR)/runtime/string.c \
 	$(SRCDIR)/runtime/crypto/chacha.c \
 	$(SRCDIR)/tfs/tfs.c \

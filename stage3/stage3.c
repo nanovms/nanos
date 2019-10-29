@@ -53,43 +53,139 @@ static buffer bulk_test_buffer(heap h)
     return b;
 }
 
+closure_function(2, 1, void, debugport_value_set,
+                 tuple, parent, symbol, k,
+                 void *, v)
+{
+    rprintf("%s: parent %p, value %v\n", __func__, bound(parent), v);
+    table_set(bound(parent), bound(k), v);
+}
+
+closure_function(1, 1, void, debugport_parse_error,
+                 buffer, orig,
+                 buffer, err)
+{
+    rprintf("%s: error %b\n", __func__, err);
+}
+
 /* raw tcp socket test */
-closure_function(2, 1, status, test_recv,
+closure_function(3, 1, status, debugport_recv,
                  heap, h,
+                 tuple, root,
                  buffer_handler, out,
                  buffer, b)
 {
-    buffer response = allocate_buffer(bound(h), 1024);
+    heap h = bound(h);
+    buffer response = allocate_buffer(h, 1024);
     buffer_handler out = bound(out);
     if (!b) {
-        rprintf("telnet: remote closed\n");
+        rprintf("debugport: remote closed\n");
         return STATUS_OK;
     }
-    bprintf(response, "read: %b", b);
     apply(out, response);
+
+    int len;
+    char *str, *end;
+    value v;
+
+    /* sadly this really needs to be a state machine / parser */
     switch (*((u8*)buffer_ref(b, 0))) {
     case 'q':
-        rprintf("telnet: remote sent quit\n");
+        rprintf("debugport: remote sent quit\n");
         apply(out, 0);
         break;
     case 'b':
-        rprintf("telnet: remote requested bulk buffer\n");
-        apply(out, bulk_test_buffer(bound(h)));
+        rprintf("debugport: remote requested bulk buffer\n");
+        apply(out, bulk_test_buffer(h));
+        break;
+    case '?':
+        buffer_consume(b, 1);
+        len = buffer_length(b);
+        str = buffer_ref(b, 0);
+        end = runtime_strchr(str, '\r');
+        if (!end) {
+            buffer_consume(b, len);
+            apply(out, aprintf(h, "failed to parse get\r\n"));
+            break;
+        }
+        *end = '\0';
+
+        rprintf("debugport: remote requested value of ");
+        if (str[0] != '\0') {
+            rprintf("symbol \"%s\"\n", str);
+            v = table_find(bound(root), sym_this(str));
+            if (!v) {
+                apply(out, aprintf(h, "symbol \"%s\" not found\r\n", str));
+            } else {
+                apply(out, aprintf(h, "(%s: %v)\r\n", str, v));
+            }
+        } else {
+            /* no key -> assume root requested */
+            rprintf("root\n");
+            apply(out, aprintf(h, "<root>: %v\r\n", bound(root)));
+        }
+        buffer_consume(b, len);
+        break;
+    case '!':
+        buffer_consume(b, 1);
+        len = buffer_length(b);
+        str = buffer_ref(b, 0);
+        end = runtime_strchr(str, ' ');
+        if (!end) {
+            buffer_consume(b, len);
+            end = runtime_strchr(str, '\r');
+            if (!end || str == end) {
+                apply(out, aprintf(h, "failed to parse symbol\r\n"));
+                break;
+            }
+
+            *end = '\0';
+            symbol k = sym_this(str); /* XXX path resolve */
+            rprintf("debugport: unset %s\n", str);
+            table_set(bound(root), k, 0);
+            break;
+        }
+
+        *end = '\0';
+        rprintf("debugport: remote setting value of %s\n", str);
+        symbol k = sym_this(str);
+
+        buffer_consume(b, runtime_strlen(str) + 1);
+        len = buffer_length(b);
+        str = buffer_ref(b, 0);
+        end = runtime_strchr(str, '\r');
+        if (!end || str == end) {
+            buffer_consume(b, len);
+            apply(out, aprintf(h, "failed to parse value\r\n"));
+            break;
+        }
+        *end = '\0';
+        int slen = runtime_strlen(str);
+        buffer bt = allocate_buffer(h, slen);
+        buffer_write(bt, str, slen);
+        buffer_consume(b, len);
+
+        parser p = tuple_parser(h, closure(transient, debugport_value_set, bound(root), k),
+                                closure(transient, debugport_parse_error, bt));
+        assert(p != INVALID_ADDRESS);
+        parser_feed(p, bt);
+        deallocate_buffer(bt);
         break;
     }
     return STATUS_OK;
 }
 
-closure_function(1, 1, buffer_handler, each_telnet_connection,
+closure_function(2, 1, buffer_handler, debugport_connection,
                  heap, h,
+                 tuple, root,
                  buffer_handler, out)
 {
     heap h = bound(h);
     buffer response = allocate_buffer(h, 1024);
-    rprintf("telnet: connection\n");
-    bprintf(response, "nanos telnet test interface\r\n");
+    rprintf("debugport: connection\n");
+//    bprintf(response, "nanos telnet test interface\r\n");
     apply(out, response);
-    return closure(h, test_recv, h, out);
+    return closure(h, debugport_recv, h, bound(root), out);
 }
 
 /* http debug test */
@@ -151,8 +247,8 @@ closure_function(3, 0, void, startup,
     heap general = heap_general(kh);
     buffer_handler pg = closure(general, read_program_complete, kp, root);
 
-    if (table_find(root, sym(telnet))) {
-        listen_port(general, 9090, closure(general, each_telnet_connection, general));
+    if (table_find(root, sym(debugport))) {
+        listen_port(general, 9090, closure(general, debugport_connection, general, root));
         rprintf("Debug telnet server started on port 9090\n");
     }
 

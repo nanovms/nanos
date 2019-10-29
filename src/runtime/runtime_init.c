@@ -53,7 +53,15 @@ static void format_number(buffer dest, struct formatter_state *s, vlist *a)
 
 static void format_buffer(buffer dest, struct formatter_state *s, vlist *ap)
 {
-    push_buffer(dest, varg(*ap, buffer));
+    buffer b = varg(*ap, buffer);
+    int len = buffer_length(b);
+    for (int i = 0; i < len; i++) {
+        u8 c = *(u8 *)buffer_ref(b, i);
+        if (c >= ' ' && c <= '~')
+            push_u8(dest, c);
+        else
+            bprintf(dest, "\\x%2x", c);
+    }
 }
 
 static void format_character(buffer dest, struct formatter_state *s, vlist *a)

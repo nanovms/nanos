@@ -51,12 +51,21 @@ void print_tuple(buffer b, tuple z)
         if (sub) {
             push_character(b, ' ');
         }
-        bprintf(b, "%b:", symbol_string((symbol)n));
-        // xxx print value
-        if (tagof(v) == tag_tuple) {
-            print_tuple(b, v);
+        string s = symbol_string((symbol)n);
+
+        /* XXX kludge until we have cycle detection... */
+        if (buffer_compare(s, alloca_wrap_buffer("..", 2))) {
+            bprintf(b, "..: <parent>");
+        } else if (buffer_compare(s, alloca_wrap_buffer(".", 1))) {
+            bprintf(b, ".: <self>");
         } else {
-            bprintf(b, "%b", v);
+            bprintf(b, "%b:", s);
+            // xxx print value
+            if (tagof(v) == tag_tuple) {
+                print_tuple(b, v);
+            } else {
+                bprintf(b, "%b", v);
+            }
         }
         sub = true;
     }
