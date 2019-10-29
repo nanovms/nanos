@@ -135,7 +135,18 @@ err_t direct_conn_input(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 
 static void direct_conn_err(void *z, err_t err)
 {
+    status s;
     direct_conn dc = z;
+    switch (err) {
+    case ERR_ABRT:
+    case ERR_RST:
+    case ERR_CLSD:
+        /* connection closed */
+        s = apply(dc->receive_bh, 0);
+        if (!is_ok(s))
+            rprintf("%s: failed to close: %v\n", __func__, s);
+        return;
+    }
     rprintf("%s: dc %p, err %d\n", __func__, dc, err);
     dc->pending_err = err;
 }

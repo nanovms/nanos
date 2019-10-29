@@ -20,6 +20,9 @@ status http_request(heap h, buffer_handler bh, tuple headers);
 status send_http_response(buffer_handler out,
                           tuple t,
                           buffer c);
+status send_http_chunk(buffer_handler out, buffer c);
+status send_http_chunked_response(buffer_handler out, tuple t);
+status send_http_response(buffer_handler out, tuple t, buffer c);
 
 extern const char *http_request_methods[];
 
