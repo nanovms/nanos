@@ -442,7 +442,8 @@ function_print_entry(struct ftrace_printer * p, struct rbuf_entry * entry)
     {
         int tid, blanks;
 
-        for (tid = entry->tid, blanks = TRACE_PID_WIDTH;
+        for (tid = entry->tid, 
+             blanks = (tid) ? TRACE_PID_WIDTH : TRACE_PID_WIDTH-1;
              tid > 0;
              tid /= 10)
         {
