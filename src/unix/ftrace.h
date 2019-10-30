@@ -8,7 +8,7 @@
 #define FTRACE_TRACE_DIR                "/sys/kernel/debug/tracing"
 #define FTRACE_TRACER_DIR(tracer)       FTRACE_TRACE_DIR "/" #tracer
 
-#define FTRACE_TRACE_PORT				9090
+#define FTRACE_TRACE_PORT               9090
 #define FTRACE_TRACE_URI                "ftrace"
 
 typedef sysreturn (ftrace_open_fn)(file);

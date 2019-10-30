@@ -51,10 +51,10 @@ struct rbuf {
  * buffers to userspace/http response handlers
  *
  * This is also needed to persist rbuf contents across multiple destructive
- * read calls are issued (e.g., if the user reads 4KB of data, it's very likely
- * that the last line of text is going to split an rbuf entry, and we need to
- * maintain at least that half line of data in the buffer b for the liekly
- * subsequent call to read with an incremented offset
+ * reads; e.g., if the user reads 4KB of data, it's very likely that the last
+ * line of text is going to split an rbuf entry, and we need to maintain at
+ * least that half line of data in the buffer b for the likely subsequent call
+ * to read with an incremented offset
  */
 struct ftrace_printer {
     buffer b;
@@ -80,8 +80,6 @@ struct ftrace_tracer {
     void (*trace_fn)(unsigned long, unsigned long);
     void (*mcount_update)(void);
     void (*print_fn)(struct ftrace_printer * p, struct rbuf * rbuf); 
-
-    /* XXX what else */
 };
 
 struct ftrace_routine {
@@ -940,7 +938,7 @@ FTRACE_FN(trace_clock, write)(file f, void * buf, u64 length, u64 offset)
 u32
 FTRACE_FN(trace_clock, events)(file f)
 {
-    return EPOLLOUT;
+    return EPOLLIN;
 }
 
 /*
@@ -1349,7 +1347,7 @@ closure_function(0, 3, void, ftrace_http_request,
     default:
         ftrace_send_http_no_method(handler, method);
         break;
-    }    
+    } 
 }
 
 static int
