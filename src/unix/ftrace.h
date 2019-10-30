@@ -8,6 +8,9 @@
 #define FTRACE_TRACE_DIR                "/sys/kernel/debug/tracing"
 #define FTRACE_TRACER_DIR(tracer)       FTRACE_TRACE_DIR "/" #tracer
 
+#define FTRACE_TRACE_PORT				9090
+#define FTRACE_TRACE_URI                "ftrace"
+
 typedef sysreturn (ftrace_open_fn)(file);
 typedef sysreturn (ftrace_close_fn)(file);
 typedef sysreturn (ftrace_read_fn)(file, void *, u64, u64);
@@ -31,7 +34,7 @@ ftrace_close_nop(file f)
 #define FTRACE_FN(name, operation)\
     FTRACE_EVALUATOR( FTRACE_EVALUATOR(ftrace, name), operation)
 
-#define FTRACE_PROTOTYPES(name)\
+#define FTRACE_SPECIAL_PROTOTYPES(name)\
     ftrace_open_fn FTRACE_FN(name, open);\
     ftrace_close_fn FTRACE_FN(name, close);\
     ftrace_read_fn FTRACE_FN(name, read);\
@@ -68,12 +71,12 @@ ftrace_close_nop(file f)
     FTRACE_SPECIAL_FILE_OC(trace),\
     FTRACE_SPECIAL_FILE_OC(trace_pipe)\
 
-FTRACE_PROTOTYPES(available_tracers);
-FTRACE_PROTOTYPES(current_tracer);
-FTRACE_PROTOTYPES(trace_clock);
-FTRACE_PROTOTYPES(trace_pipe);
-FTRACE_PROTOTYPES(trace);
-FTRACE_PROTOTYPES(tracing_on);
+FTRACE_SPECIAL_PROTOTYPES(available_tracers);
+FTRACE_SPECIAL_PROTOTYPES(current_tracer);
+FTRACE_SPECIAL_PROTOTYPES(trace_clock);
+FTRACE_SPECIAL_PROTOTYPES(trace_pipe);
+FTRACE_SPECIAL_PROTOTYPES(trace);
+FTRACE_SPECIAL_PROTOTYPES(tracing_on);
 
 extern void ftrace_stub(unsigned long, unsigned long);
 typedef void (*ftrace_func_t)(unsigned long, unsigned long);

@@ -3,22 +3,28 @@
 #include <ftrace.h>
 #include <x86_64.h>
 #include <symtab.h>
+#include <http.h>
 
 /* 1MB default size for the user's trace array */
 #define DEFAULT_TRACE_ARRAY_SIZE        (1ULL << 20)
 #define DEFAULT_TRACE_ARRAY_SIZE_KB     (DEFAULT_TRACE_ARRAY_SIZE >> 10)
 
-#define TRACE_TASK_WIDTH                15
-#define TRACE_PID_WIDTH                 5
+#define TRACE_TASK_WIDTH    15
+#define TRACE_PID_WIDTH     5
 
-/* prevent buffers from growing to unbounded sizes */
-#define TRACE_PRINTER_INIT_SIZE         (1ULL << 12) /* 4KB */
-#define TRACE_PRINTER_FLUSH_SIZE        (1ULL << 18) /* 256KB */
+/* 4KB; will grow dynamically */
+#define TRACE_PRINTER_INIT_SIZE (1ULL << 12)
+
+/* MAX size: larger than 1MB buffers not currently supported on general heap */
+#define TRACE_PRINTER_MAX_SIZE  (1ULL << 19)
 
 static heap ftrace_heap;
 
 /* whether or not to write into the ring buffer */
 static boolean tracing_on = false;
+
+/* http listener */
+static http_listener ftrace_hl;
 
 struct rbuf_entry {
     unsigned long ip;
@@ -33,31 +39,36 @@ struct rbuf {
     struct rbuf_entry * trace_array;
     unsigned long count; /* current number of unconsumed items */
     unsigned long total_written; /* total items ever written */
-    unsigned long max_entries; /* size of buffer */
+    unsigned long size;
     unsigned long read_idx;
     unsigned long write_idx;
 
     unsigned long disable_cnt;
     unsigned long wait_cnt;
-    timer trace_timer;
-    blockq bq;
 };
 
-/* This structure is designed to simply the process of efficiently
- * writing buffers to userspace when the user issues multiple reads
- * with changing offsets
+/* This structure is designed to simply the process of efficiently flushing
+ * buffers to userspace/http response handlers
  *
- * This is also needed to persist rbuf contents across calls to read
- * when destructive reads are issued (e.g., if the user reads 4KB of
- * data, it's very likely that the last line of text is going to
- * split an rbuf entry, and we need to maintain at least that half
- * line of data in the buffer b for the liekly subsequent call to
- * read with an incremented offset
+ * This is also needed to persist rbuf contents across multiple destructive
+ * read calls are issued (e.g., if the user reads 4KB of data, it's very likely
+ * that the last line of text is going to split an rbuf entry, and we need to
+ * maintain at least that half line of data in the buffer b for the liekly
+ * subsequent call to read with an incremented offset
  */
 struct ftrace_printer {
     buffer b;
     u64 local_offset;
+    u64 max_size; /* stop printing if the buffer reaches this size */
+
+    /* listed below */
+    unsigned long flags;
 };
+
+#define TRACE_FLAG_FILE         0x1 /* file based access */
+#define TRACE_FLAG_HTTP         0x2 /* http based access */
+#define TRACE_FLAG_HEADER       0x4 /* print a header along with the data */
+#define TRACE_FLAG_DESTRUCTIVE  0x8 /* reads consume the buffer data */
 
 struct ftrace_tracer {
     /* human readable */
@@ -68,13 +79,22 @@ struct ftrace_tracer {
      */
     void (*trace_fn)(unsigned long, unsigned long);
     void (*mcount_update)(void);
-
-    /* return number of bytes written to user */
-    u64 (*print_fn)(struct ftrace_printer * p, struct rbuf * rbuf,
-                    boolean header, boolean destructive,
-                    void * buf, u64 length, u64 offset);
+    void (*print_fn)(struct ftrace_printer * p, struct rbuf * rbuf); 
 
     /* XXX what else */
+};
+
+struct ftrace_routine {
+    /* human readable */
+    const char * relative_uri;
+
+    /* some routines need a specific printer */
+    struct ftrace_printer * printer;
+
+    sysreturn (*init_fn)(struct ftrace_printer * p, u64 flags);
+    sysreturn (*deinit_fn)(struct ftrace_printer * p);
+    sysreturn (*get_fn)(struct ftrace_printer * p);
+    sysreturn (*put_fn)(struct ftrace_printer * p);
 };
 
 /*
@@ -88,7 +108,7 @@ struct ftrace_tracer {
  *
  * return: number of bytes written
  */
-static inline u64
+static u64
 write_to_user_offset(buffer b, void * buf, u64 length, u64 buffer_offset)
 {
     u64 len = (u64)buffer_length(b);
@@ -105,25 +125,55 @@ write_to_user_offset(buffer b, void * buf, u64 length, u64 buffer_offset)
     return len;
 }
 
-#define printer_offset(p)           (p)->local_offset
-#define printer_set_offset(p, o)    (p)->local_offset = o
 #define printer_buffer(p)           (p)->b
 #define printer_length(p)           (u64)buffer_length(printer_buffer(p))
+#define printer_size(p)             (p)->max_size
+
+static inline void
+printer_set_size(struct ftrace_printer * p, u64 size)
+{
+    if (size > TRACE_PRINTER_MAX_SIZE)
+        size = TRACE_PRINTER_MAX_SIZE;
+
+    p->max_size = size;
+}
+
+static int
+printer_init(struct ftrace_printer * p, unsigned long flags)
+{
+    p->b = allocate_buffer(ftrace_heap, TRACE_PRINTER_INIT_SIZE);
+    if (p->b == INVALID_ADDRESS) {
+        msg_err("failed to allocate ftrace buffer\n");
+        return -1;
+    }
+
+    p->local_offset = 0;
+    p->flags = flags;
+    return 0;
+}
+
+static void 
+printer_deinit(struct ftrace_printer * p)
+{
+    /* HTTP based freeing is done somewhere within the http/tcp/udp code?? */
+    if (p->flags & TRACE_FLAG_FILE)
+        deallocate_buffer(p->b);
+}
 
 /*
  * Set the printer's local offset
  */
-static inline void
+static void
 printer_reset(struct ftrace_printer * p, u64 offset)
 {
-    u64 poff = printer_offset(p);
+    u64 poff = p->local_offset;
 
     if (offset < poff)
         buffer_clear(printer_buffer(p));
     else
         buffer_consume(printer_buffer(p), offset - poff);
 
-    printer_set_offset(p, offset);
+    p->local_offset = offset;
 }
 
 /*
@@ -132,14 +182,13 @@ printer_reset(struct ftrace_printer * p, u64 offset)
  * if the user offset is higher than anything the printer covers, drop
  * the data and update the printer's local offset
  */
-static inline u64
-printer_write_to_user_offset(struct ftrace_printer * p, void * buf, u64 len,
-                             u64 offset)
+static u64
+printer_flush_user(struct ftrace_printer * p, void * buf, u64 len, u64 offset)
 {
     u64 ret;
     u64 poff, plen, pend;
 
-    poff = printer_offset(p);
+    poff = p->local_offset;
     plen = printer_length(p);
     pend = poff + plen;
 
@@ -212,32 +261,8 @@ printer_print_sym(struct ftrace_printer * p, unsigned long ip)
         printer_write(p, "<< unknown symbol >>");
 }
 
-static inline u64
-printer_print_entry(struct ftrace_printer * p, struct rbuf_entry * entry,
-                    void (*print_entry)(
-                        struct ftrace_printer *,
-                        struct rbuf_entry *
-                    ),
-                    void * buf, u64 length, u64 offset)
-{
-    u64 len;
 
-    print_entry(p, entry);
-
-    /* no need to print every line to userspace individually, but
-     * prevent the buffer from growing overly large with this check
-     */
-    len = printer_length(p);
-    if (len < TRACE_PRINTER_FLUSH_SIZE)
-        return 0;
-
-    /* flush to user and reset the printer to the new offset */
-    return printer_write_to_user_offset(
-        p, buf, length, offset
-    );
-}
-
-#define rbuf_next_idx(r, idx)   (idx == r->max_entries - 1) ? 0 : idx + 1
+#define rbuf_next_idx(r, idx)   (idx == r->size - 1) ? 0 : idx + 1
 #define rbuf_next_write_idx(r)  rbuf_next_idx(r, r->write_idx)
 #define rbuf_next_read_idx(r)   rbuf_next_idx(r, r->read_idx)
 
@@ -258,10 +283,6 @@ rbuf_reset(struct rbuf * rbuf)
     rbuf->total_written = 0;
     rbuf->disable_cnt = 0;
     rbuf->wait_cnt = 0;
-    rbuf->trace_timer = 0;
-
-    /* wake any waiters */
-    while (blockq_wake_one(rbuf->bq) != INVALID_ADDRESS);
 }
 
 static int
@@ -269,19 +290,11 @@ rbuf_init(struct rbuf * rbuf, unsigned long buffer_size_kb)
 {
     unsigned long buffer_size = buffer_size_kb << 10;
 
-    rbuf->max_entries = buffer_size / sizeof(struct rbuf_entry);
+    rbuf->size = buffer_size / sizeof(struct rbuf_entry);
     rbuf->trace_array = allocate(ftrace_heap,
-            sizeof(struct rbuf_entry) * rbuf->max_entries);
+            sizeof(struct rbuf_entry) * rbuf->size);
     if (rbuf->trace_array == INVALID_ADDRESS) {
         msg_err("failed to allocate ftrace trace array\n");
-        return -ENOMEM;
-    }
-
-    rbuf->bq = allocate_blockq(ftrace_heap, "ftrace_rbuf");
-    if (rbuf->bq == INVALID_ADDRESS) {
-        msg_err("failed to allocate ftrace blockq\n");
-        deallocate(ftrace_heap, rbuf->trace_array,
-            sizeof(struct rbuf_entry) * rbuf->max_entries);
         return -ENOMEM;
     }
 
@@ -331,14 +344,15 @@ rbuf_has_waiters(struct rbuf * rbuf)
 static inline boolean
 __rbuf_acquire_write_entry(struct rbuf * rbuf, struct rbuf_entry ** acquired)
 {
-
-    if (rbuf->count == rbuf->max_entries)
+    if (rbuf->count == rbuf->size - 1)
         return false;
 
-    rbuf->write_idx = rbuf_next_write_idx(rbuf);
     *acquired = &(rbuf->trace_array[rbuf->write_idx]);
+
+    rbuf->write_idx = rbuf_next_write_idx(rbuf);
     rbuf->count++;
     rbuf->total_written++;
+
     return true;
 }
 
@@ -349,8 +363,9 @@ __rbuf_acquire_read_entry(struct rbuf * rbuf, struct rbuf_entry ** acquired)
     if (rbuf->count == 0)
         return false;
 
-    rbuf->read_idx = rbuf_next_read_idx(rbuf);
     *acquired = &(rbuf->trace_array[rbuf->read_idx]);
+
+    rbuf->read_idx = rbuf_next_read_idx(rbuf);
     rbuf->count--;
     return true;
 }
@@ -381,13 +396,10 @@ nop_set_mcount(void)
     __current_ftrace_graph_return = ftrace_stub;
 }
 
-static u64
-nop_print(struct ftrace_printer * p, struct rbuf * rbuf, boolean header,
-          boolean destructive, void * buf, u64 length, u64 offset)
+static void 
+nop_print(struct ftrace_printer * p, struct rbuf * rbuf)
 {
-    u64 written = 0;
-
-    if (header) {
+    if (p->flags & TRACE_FLAG_HEADER) {
         printer_write(p, "# tracer: nop\n");
         printer_write(p, "#\n");
         printer_write(p,
@@ -398,41 +410,6 @@ nop_print(struct ftrace_printer * p, struct rbuf * rbuf, boolean header,
         printer_write(p, "#           TASK-PID   CPU#     TIMESTAMP  FUNCTION\n");
         printer_write(p, "#              | |       |         |         |\n");
     }
-
-    /* flush the printer */
-    written = printer_write_to_user_offset(
-        p,
-        buf,
-        length,
-        offset
-    );
-
-    return written;
-}
-
-closure_function(1, 0, void, rbuf_wake_all_fn,
-                 struct rbuf *, rbuf)
-{
-    struct rbuf * rbuf = bound(rbuf);
-
-    blockq_wake_one(rbuf->bq);
-    rbuf->trace_timer = 0;
-    closure_finish();
-}
-
-/*
- * There must be a better way than this .... 
- */
-static inline void
-rbuf_wake_all_deferred(struct rbuf * rbuf)
-{
-    if (!rbuf_has_waiters(rbuf) || rbuf->trace_timer != 0)
-        return;
-
-    rbuf->trace_timer = register_timer(
-        0, closure(ftrace_heap, rbuf_wake_all_fn, rbuf)
-    );
-    assert(rbuf->trace_timer != 0);
 }
 
 /*
@@ -463,9 +440,6 @@ function_trace(unsigned long ip, unsigned long parent_ip)
     entry->tsc = rdtsc();
     runtime_memcpy(entry->name, current->name, 15);
 
-    /* wake any waiters */
-    rbuf_wake_all_deferred(&global_rbuf);
-
 out_enable:
     rbuf_unlock(&global_rbuf);
     rbuf_enable(&global_rbuf);
@@ -482,7 +456,7 @@ function_set_mcount(void)
 }
 
 static inline void
-do_function_print_entry(struct ftrace_printer * p, struct rbuf_entry * entry)
+function_print_entry(struct ftrace_printer * p, struct rbuf_entry * entry)
 {
     printer_write(p, " ");
     printer_print_right_adjusted(p, entry->name, TRACE_TASK_WIDTH);
@@ -518,69 +492,41 @@ do_function_print_entry(struct ftrace_printer * p, struct rbuf_entry * entry)
     printer_write(p, "\n");
 }
 
-static u64
-function_print_nondestructive(struct ftrace_printer * p, struct rbuf * rbuf,
-                              void * buf, u64 length, u64 offset)
+static void
+function_print_nondestructive(struct ftrace_printer * p, struct rbuf * rbuf)
 {
     struct rbuf_entry * entry;
     unsigned long idx;
-    u64 written, total;
-
-    written = total = 0;
 
     for (idx  = rbuf->read_idx;
          idx != rbuf->write_idx;
          idx  = rbuf_next_idx(rbuf, idx))
     {
-        entry   = &(rbuf->trace_array[idx]);
-        written = printer_print_entry(p, entry,
-            do_function_print_entry,
-            buf + total,
-            length - total,
-            offset + total
-        );
+        entry = &(rbuf->trace_array[idx]);
+        function_print_entry(p, entry);
 
-        total += written;
-        if (total == length)
+        if (printer_length(p) >= printer_size(p))
             break;
     }
-
-    return total;
 }
 
-static u64
-function_print_destructive(struct ftrace_printer * p, struct rbuf * rbuf,
-                           void * buf, u64 length, u64 offset)
+static void
+function_print_destructive(struct ftrace_printer * p, struct rbuf * rbuf)
 {
     struct rbuf_entry * entry;
-    u64 written, total;
-
-    written = total = 0;
 
     while (__rbuf_acquire_read_entry(rbuf, &entry)) {
-        written = printer_print_entry(p, entry,
-            do_function_print_entry,
-            buf + total,
-            length - total,
-            offset + total
-        );
-
-        total += written;
-        if (total == length)
+        function_print_entry(p, entry);
+        if (printer_length(p) >= printer_size(p))
             break;
     }
-
-    return total;
 }
 
-static u64
-function_print(struct ftrace_printer * p, struct rbuf * rbuf, boolean header,
-               boolean destructive, void * buf, u64 length, u64 offset)
+static void 
+function_print(struct ftrace_printer * p, struct rbuf * rbuf)
 
 {
-    u64 written;
-
-    if (header) {
+    if (p->flags & TRACE_FLAG_HEADER) {
         printer_write(p, "# tracer: function\n");
         printer_write(p, "#\n");
         printer_write(p,
@@ -592,25 +538,10 @@ function_print(struct ftrace_printer * p, struct rbuf * rbuf, boolean header,
         printer_write(p, "#              | |       |         |         |\n");
     }
 
-    if (destructive)
-        written = function_print_destructive(p, rbuf, buf, length, offset);
+    if (p->flags & TRACE_FLAG_DESTRUCTIVE)
+        function_print_destructive(p, rbuf);
     else
-        written = function_print_nondestructive(p, rbuf, buf, length, offset);
-
-    /* if we've already written the length, we're done */
-    assert(written <= length);
-    if (written == length)
-        return written;
-
-    /* flush the printer */
-    written += printer_write_to_user_offset(
-        p,
-        buf + written,
-        length - written,
-        offset + written
-    );
-
-    return written;
+        function_print_nondestructive(p, rbuf);
 }
 
 /*
@@ -633,12 +564,10 @@ function_graph_set_mcount(void)
     __current_ftrace_graph_return = function_graph_trace;
 }
 
-static u64
-function_graph_print(struct ftrace_printer * p, struct rbuf * rbuf,
-                     boolean header, boolean destructive, void * buf, u64 length,
-                     u64 offset)
+static void
+function_graph_print(struct ftrace_printer * p, struct rbuf * rbuf)
 {
-    if (header) {
+    if (p->flags & TRACE_FLAG_HEADER) {
         printer_write(p, "# tracer: function_graph\n");
         printer_write(p, "#\n");
         printer_write(p, "# CPU  DURATION                  FUNCTION CALLS\n");
@@ -646,10 +575,6 @@ function_graph_print(struct ftrace_printer * p, struct rbuf * rbuf,
     }
 
     /* TODO */
-
-    return printer_write_to_user_offset(
-        p, buf, length, offset
-    );
 }
 
 #define FTRACE_TRACER(_name, _trace_fn, _mcount_update, _print_fn)\
@@ -676,38 +601,45 @@ tracer_list[] = {
 /* currently running tracer */
 struct ftrace_tracer * current_tracer = &(tracer_list[0]);
 
+/**** Start interface operations ****/
 
-/**** Start file operations ****/
-
-/*
- * available_tracers callbacks
- */
-
-/* write space-delimited list of tracer names */
-sysreturn
-FTRACE_FN(available_tracers, read)(file f, void * buf, u64 length, u64 offset)
+static sysreturn
+FTRACE_FN(available_tracers, get)(struct ftrace_printer * p)
 {
     int i;
-    u64 len;
-    buffer b;
-
-    b = allocate_buffer(ftrace_heap, 0);
-    if (b == INVALID_ADDRESS)
-        return -ENOMEM;
 
     for (i = 0; i < FTRACE_NR_TRACERS; i++) {
         struct ftrace_tracer * tracer = &(tracer_list[i]);
 
         if (i)
-            bprintf(b , " ");
-        bprintf(b, tracer->name);
+            printer_write(p, " ");
+        printer_write(p, tracer->name);
     }
 
-    bprintf(b, "\n");
+    printer_write(p, "\n");
+    return 0;
+}
 
-    len = write_to_user_offset(b, buf, length, offset);
-    deallocate_buffer(b);
-    return len;
+
+/* write space-delimited list of tracer names */
+sysreturn
+FTRACE_FN(available_tracers, read)(file f, void * buf, u64 length, u64 offset)
+{
+    sysreturn ret;
+    struct ftrace_printer p;
+
+    if (printer_init(&p, TRACE_FLAG_FILE))
+        return -ENOMEM;
+
+    ret = FTRACE_FN(available_tracers, get)(&p);
+    if (ret != 0)
+        goto out;
+
+    ret = printer_flush_user(&p, buf, length, offset);
+
+out:
+    printer_deinit(&p);
+    return ret;
 }
 
 sysreturn
@@ -726,50 +658,86 @@ FTRACE_FN(available_tracers, events)(file f)
  * current_tracer callbacks
  */
 
-/* write name of current tracer */
+static sysreturn
+FTRACE_FN(current_tracer, get)(struct ftrace_printer * p)
+{
+    printer_write(p, "%s\n", current_tracer->name);
+    return 0;
+}
+
+static sysreturn
+FTRACE_FN(current_tracer, put)(struct ftrace_printer * p)
+{
+    int i;
+    char * str;
+    int ret;
+
+    str = allocate(ftrace_heap, printer_length(p) + 1);
+    if (str == INVALID_ADDRESS)
+        return -ENOMEM;
+
+    runtime_memcpy(str, buffer_ref(printer_buffer(p), 0), printer_length(p));
+    str[printer_length(p)] = '\0';
+
+    for (i = 0; i < FTRACE_NR_TRACERS; i++) {
+        struct ftrace_tracer * tracer = &(tracer_list[i]);
+
+        if (runtime_strcmp(tracer->name, str) == 0) {
+            current_tracer = tracer;
+            current_tracer->mcount_update();
+            ret = 0;
+            goto out;
+        }
+    }
+
+    ret = -EFAULT;
+
+out:
+    deallocate(ftrace_heap, str, printer_length(p) + 1);
+    return ret;
+}
+
 sysreturn
 FTRACE_FN(current_tracer, read)(file f, void * buf, u64 length, u64 offset)
 {
-    u64 len;
-    buffer b;
+    sysreturn ret;
+    struct ftrace_printer p;
 
-    b = allocate_buffer(ftrace_heap, 0);
-    if (b == INVALID_ADDRESS)
+    if (printer_init(&p, TRACE_FLAG_FILE))
         return -ENOMEM;
 
-    bprintf(b, "%s\n", current_tracer->name);
+    ret = FTRACE_FN(current_tracer, get)(&p);
+    if (ret != 0)
+        goto out;
 
-    len = write_to_user_offset(b, buf, length, offset);
-    deallocate_buffer(b);
-    return len;
+    ret = printer_flush_user(&p, buf, length, offset);
+
+out:
+    printer_deinit(&p);
+    return ret;
 }
 
 sysreturn
 FTRACE_FN(current_tracer, write)(file f, void * buf, u64 length, u64 offset)
 {
-    int i;
-    char * str;
+    sysreturn ret;
+    struct ftrace_printer p;
 
     /* write with an offset > 0 doesn't make much sense here */
     if (offset > 0)
         return 0;
 
-    str = (char *)buf;
+    if (printer_init(&p, TRACE_FLAG_FILE))
+        return -ENOMEM;
 
-    for (i = 0; i < FTRACE_NR_TRACERS; i++) {
-        struct ftrace_tracer * tracer = &(tracer_list[i]);
-        int len = runtime_strlen(tracer->name);
+    buffer_write(printer_buffer(&p), buf, length);
+    ret = FTRACE_FN(current_tracer, put)(&p);
+    printer_deinit(&p);
 
-        if ((length == len) &&
-            (runtime_strcmp(tracer->name, str) == 0))
-        {
-            current_tracer = tracer;
-            current_tracer->mcount_update();
-            return length;
-        }
-    }
+    if (ret != 0)
+        return ret;
 
-    return 0;
+    return length;
 }
 
 u32
@@ -790,64 +758,141 @@ FTRACE_FN(current_tracer, events)(file f)
 static struct ftrace_printer trace_printer;
 static boolean trace_is_open = false;
 
-sysreturn
-FTRACE_FN(trace, open)(file f)
+static sysreturn
+FTRACE_FN(trace, init)(struct ftrace_printer * p, u64 flags)
 {
+     int ret;
+
     if (trace_is_open)
         return -EBUSY;
 
-    trace_printer.b = allocate_buffer(ftrace_heap, TRACE_PRINTER_INIT_SIZE);
-    if (trace_printer.b == INVALID_ADDRESS) {
-        msg_err("failed to allocate ftrace buffer\n");
+    ret = printer_init(p, flags | TRACE_FLAG_HEADER);
+    if (ret != 0)
         return -ENOMEM;
-    }
 
     rbuf_disable(&global_rbuf);
     trace_is_open = true;
+
     return 0;
+}
+
+static sysreturn
+FTRACE_FN(trace, deinit)(struct ftrace_printer * p)
+{
+    assert(trace_is_open);
+    trace_is_open = false;
+    rbuf_enable(&global_rbuf);
+    printer_deinit(p);
+    return 0;
+}
+
+sysreturn
+FTRACE_FN(trace, open)(file f)
+{
+    return FTRACE_FN(trace, init)(&trace_printer, TRACE_FLAG_FILE);
 }
 
 sysreturn
 FTRACE_FN(trace, close)(file f)
 {
-    assert(trace_is_open);
-    trace_is_open = false;
-    rbuf_enable(&global_rbuf);
-    deallocate_buffer(trace_printer.b);
-    return 0;
+    return FTRACE_FN(trace, deinit)(&trace_printer);
 }
 
-sysreturn
-FTRACE_FN(trace, read)(file f, void * buf, u64 length, u64 offset)
+static sysreturn
+FTRACE_FN(trace, get)(struct ftrace_printer * p)
 {
-    u64 len;
-
-    /* trace reads are non-destructive, so we'll regenerate anything that
-     * is still sitting in the printer */
-    printer_reset(&trace_printer, 0);
-
     rbuf_lock(&global_rbuf);
     {
-        len = current_tracer->print_fn(&trace_printer, &global_rbuf,
-            true, false, buf, length, offset
-        );
+        current_tracer->print_fn(p, &global_rbuf);
     }
     rbuf_unlock(&global_rbuf);
 
-    return len;
+    return 0;
 }
 
-sysreturn
-FTRACE_FN(trace, write)(file f, void * buf, u64 length, u64 offset)
+static sysreturn
+FTRACE_FN(trace, put)(struct ftrace_printer * p)
 {
-    printer_reset(&trace_printer, 0);
-
     /* writes clear the trace buffer */
     rbuf_lock(&global_rbuf);
     {
         rbuf_reset(&global_rbuf);
     }
     rbuf_unlock(&global_rbuf);
+
+    return 0;
+}
+
+/* 32 KB: amount of data we will readahead on all queries of trace data. This
+ * is especailly necessary for non-destructive reads, long sequences of which
+ * would otherwise require us to re-generate a lot of buffer entries on every
+ * system call
+ */
+#define TRACE_READ_GRANULARITY  (1ULL << 15)
+
+static u64
+get_trace_readahead_size(u64 length, u64 offset)
+{
+    /* the amount we'll necessarily need to read just to serve "length" bytes */
+    u64 toread = length + offset;
+    return toread + TRACE_READ_GRANULARITY; 
+}
+
+/* see if we can serve a read from the existing trace buffer */
+static boolean
+printer_can_serve_read(struct ftrace_printer * p, u64 length, u64 offset)
+{
+    u64 pend, uend;
+
+    /* user _could_ have moved its offset back, I suppose */
+    if (offset < p->local_offset)
+        return false;
+
+    pend = p->local_offset + printer_length(p);
+    uend = offset + length;
+
+    /* does printer reach past what the user wants? */
+    if (pend >= uend)
+        return true;
+
+    return false;
+}
+
+sysreturn
+FTRACE_FN(trace, read)(file f, void * buf, u64 length, u64 offset)
+{
+    sysreturn ret;
+
+    /* see if we can handle this with the pre-generated printer data */
+    if (printer_can_serve_read(&trace_printer, length, offset)) {
+        ret = printer_flush_user(&trace_printer, buf, length, offset);
+        assert(ret == length);
+        return ret;
+    }
+
+    /* ... gotta re-generate it */
+    printer_reset(&trace_printer, 0);
+
+    /* set the max size of the printer to the amount that we want */
+    printer_set_size(&trace_printer, get_trace_readahead_size(length, offset));
+
+    ret = FTRACE_FN(trace, get)(&trace_printer);
+    if (ret != 0)
+        return ret;
+    
+    return printer_flush_user(&trace_printer, buf, length, offset);
+}
+
+sysreturn
+FTRACE_FN(trace, write)(file f, void * buf, u64 length, u64 offset)
+{
+    sysreturn ret;
+
+    printer_reset(&trace_printer, 0);
+
+    ret = FTRACE_FN(trace, put)(&trace_printer);
+    if (ret != 0)
+        return ret;
 
     return length;
 }
@@ -858,52 +903,44 @@ FTRACE_FN(trace, events)(file f)
     return EPOLLIN | EPOLLOUT;
 }
 
+static sysreturn
+FTRACE_FN(trace_clock, get)(struct ftrace_printer * p)
+{
+    printer_write(p, "x86-tsc\n");
+    return 0;
+}
+
 /*
  * trace_clock callbacks
  */
 sysreturn
 FTRACE_FN(trace_clock, read)(file f, void * buf, u64 length, u64 offset)
 {
-    int len;
-    buffer b;
-
-    b = allocate_buffer(ftrace_heap, 0);
-    if (b == INVALID_ADDRESS)
+    sysreturn ret;
+    struct ftrace_printer p;
+        
+    if (printer_init(&p, TRACE_FLAG_FILE))
         return -ENOMEM;
 
-    bprintf(b, "x86-tsc\n");
+    ret = FTRACE_FN(trace_clock, get)(&p);
+    if (ret != 0)
+        return ret;
 
-    len = write_to_user_offset(b, buf, length, offset);
-    deallocate_buffer(b);
-
-    return len;
+    ret = printer_flush_user(&p, buf, length, offset);
+    printer_deinit(&p);
+    return ret;
 }
 
 sysreturn
 FTRACE_FN(trace_clock, write)(file f, void * buf, u64 length, u64 offset)
 {
-    char * str;
-    int len;
-
-    /* write with an offset > 0 doesn't make much sense here */
-    if (offset > 0)
-        return 0;
-
-    str = (char *)buf;
-    len = runtime_strlen("x86-tsc");
-    if ((len == length) &&
-        (runtime_strcmp("x86-tsc", str) == 0))
-    {
-        return length;
-    }
-
-    return -EINVAL;
+    return 0;
 }
 
 u32
 FTRACE_FN(trace_clock, events)(file f)
 {
-    return EPOLLIN | EPOLLOUT;
+    return EPOLLOUT;
 }
 
 /*
@@ -915,105 +952,75 @@ FTRACE_FN(trace_clock, events)(file f)
 static struct ftrace_printer trace_pipe_printer;
 static boolean trace_pipe_is_open = false;
 
-sysreturn
-FTRACE_FN(trace_pipe, open)(file f)
+
+/* having trace_pipe open does not disable tracing, but 
+ * to prevent this from running forever we've got to disable
+ * it here 
+ */
+static sysreturn
+FTRACE_FN(trace_pipe, init)(struct ftrace_printer * p, u64 flags)
 {
     if (trace_pipe_is_open)
         return -EBUSY;
 
-    trace_pipe_printer.b = allocate_buffer(ftrace_heap, TRACE_PRINTER_INIT_SIZE);
-    if (trace_pipe_printer.b == INVALID_ADDRESS) {
-        msg_err("failed to allocate ftrace buffer\n");
+    if (printer_init(p, flags | TRACE_FLAG_DESTRUCTIVE))
         return -ENOMEM;
-    }
 
-    printer_reset(&trace_pipe_printer, 0);
     trace_pipe_is_open = true;
     return 0;
+}
+
+static sysreturn
+FTRACE_FN(trace_pipe, deinit)(struct ftrace_printer * p)
+{
+    assert(trace_pipe_is_open);
+    trace_pipe_is_open = false;
+    printer_deinit(p);
+    return 0;
+}
+
+static sysreturn
+FTRACE_FN(trace_pipe, get)(struct ftrace_printer * p)
+{
+    rbuf_disable(&global_rbuf);
+    rbuf_lock(&global_rbuf);
+    {
+        current_tracer->print_fn(p, &global_rbuf);
+    }
+    rbuf_unlock(&global_rbuf);
+    rbuf_enable(&global_rbuf);
+    return 0;
+}
+
+sysreturn
+FTRACE_FN(trace_pipe, open)(file f)
+{
+    return FTRACE_FN(trace_pipe, init)(&trace_pipe_printer, TRACE_FLAG_FILE);
 }
 
 sysreturn
 FTRACE_FN(trace_pipe, close)(file f)
 {
-    assert(trace_pipe_is_open);
-    trace_pipe_is_open = false;
-    deallocate_buffer(trace_pipe_printer.b);
-    return 0;
-}
-
-static sysreturn
-do_trace_pipe_read(struct ftrace_printer * p, struct rbuf * rbuf, void * buf,
-                   u64 length, u64 offset)
-{
-    u64 len;
-
-    rbuf_lock(rbuf);
-    {
-        len = current_tracer->print_fn(p, rbuf,
-            false, true, buf, length, offset
-        );
-    }
-    rbuf_unlock(rbuf);
-
-    return len;
-}
-
-closure_function(7, 1, sysreturn, trace_pipe_read_bh,
-                 file, f, struct ftrace_printer *, p, struct rbuf *, rbuf,
-                 void *, buf, u64, length, u64, offset, thread, t,
-				 u64, flags)
-{
-    thread t = bound(t);
-    file f = bound(f);
-    struct rbuf * rbuf = bound(rbuf);
-    sysreturn rv;
-
-    rbuf_disable(rbuf);
-
-    if (flags & BLOCKQ_ACTION_NULLIFY) {
-		rv = -EINTR;
-        goto finish;
-    }
-
-    rv = do_trace_pipe_read(
-        bound(p), rbuf, bound(buf), bound(length), bound(offset)
-    );
-
-    if (rv == 0) {
-        if (!(flags & BLOCKQ_ACTION_BLOCKED))
-            rbuf_wait(rbuf);
-        rv = BLOCKQ_BLOCK_REQUIRED;
-        goto out;
-    }
-
-finish:
-    if (flags & BLOCKQ_ACTION_BLOCKED) {
-        if (rv > 0) {
-            f->offset += rv; /* XXX major hack, don't know how to do things like
-                              * this without sleepable kernel contexts */
-        }
-        thread_wakeup(t);
-        rbuf_release(rbuf);
-    }
-    closure_finish();
-out:
-    rbuf_enable(rbuf);
-    return set_syscall_return(t, rv);
+    return FTRACE_FN(trace_pipe, deinit)(&trace_pipe_printer);
 }
 
 sysreturn
 FTRACE_FN(trace_pipe, read)(file f, void * buf, u64 length, u64 offset)
 {
-    printer_reset(&trace_pipe_printer, offset);
+    sysreturn ret;
 
-    return blockq_check(
-        global_rbuf.bq,
-        current,
-        closure(ftrace_heap, trace_pipe_read_bh,
-            f, &trace_pipe_printer, &global_rbuf, buf, length, offset, current
-        ),
-        false
-    );
+    /* destructive -- no nead to do any readahead */
+    printer_reset(&trace_pipe_printer, offset);
+    printer_set_size(&trace_pipe_printer, length);
+
+    ret = FTRACE_FN(trace_pipe, get)(&trace_pipe_printer);
+    if (ret != 0)
+        return ret;
+
+    if (printer_length(&trace_pipe_printer) == 0)
+        return -EAGAIN;
+
+    return printer_flush_user(&trace_pipe_printer, buf, length, offset);
 }
 
 sysreturn
@@ -1039,27 +1046,50 @@ FTRACE_FN(trace_pipe, events)(file f)
 /*
  * tracing_on callbacks
  */
+static sysreturn
+FTRACE_FN(tracing_on, get)(struct ftrace_printer * p)
+{
+    printer_write(p, "%d\n", (tracing_on) ? 1 : 0);
+    return 0;
+}
+
+static sysreturn
+FTRACE_FN(tracing_on, put)(struct ftrace_printer * p)
+{
+    char * str = (char *)buffer_ref(printer_buffer(p), 0);
+    if (str[0] == '0')
+        tracing_on = false;
+    else if (str[0]== '1')
+        tracing_on = true;
+    else
+        return -EINVAL;
+
+    return 0;
+}
+
 sysreturn
 FTRACE_FN(tracing_on, read)(file f, void * buf, u64 length, u64 offset)
 {
-    u64 len;
-    buffer b;
+    sysreturn ret;
+    struct ftrace_printer p;
 
-    b = allocate_buffer(ftrace_heap, 0);
-    if (b == INVALID_ADDRESS)
+    if (printer_init(&p, TRACE_FLAG_FILE))
         return -ENOMEM;
 
-    bprintf(b, "%d\n", (tracing_on) ? 1 : 0);
+    ret = FTRACE_FN(tracing_on, get)(&p);
+    if (ret != 0)
+        return ret;
 
-    len = write_to_user_offset(b, buf, length, offset);
-    deallocate_buffer(b);
-    return len;
+    ret = printer_flush_user(&p, buf, length, offset);
+    printer_deinit(&p);
+    return ret;
 }
 
 sysreturn
 FTRACE_FN(tracing_on, write)(file f, void * buf, u64 length, u64 offset)
 {
-    char * str;
+    sysreturn ret;
+    struct ftrace_printer p;
 
     /* write with an offset > 0 doesn't make much sense here */
     if (offset > 0)
@@ -1068,15 +1098,17 @@ FTRACE_FN(tracing_on, write)(file f, void * buf, u64 length, u64 offset)
     if (length != 1)
         return -EINVAL;
 
-    str = (char *)buf;
-    if (str[0] == '0')
-        tracing_on = false;
-    else if (str[0]== '1')
-        tracing_on = true;
-    else
-        return -EINVAL;
+    if (printer_init(&p, TRACE_FLAG_FILE))
+        return -ENOMEM;
 
-    return 1;
+    buffer_write(printer_buffer(&p), buf, length);
+    ret = FTRACE_FN(tracing_on, put)(&p);
+    printer_deinit(&p);
+
+    if (ret != 0)
+        return ret;
+
+    return length;
 }
 
 u32
@@ -1085,15 +1117,296 @@ FTRACE_FN(tracing_on, events)(file f)
     return EPOLLIN | EPOLLOUT;
 }
 
+#define _INIT(name)     FTRACE_FN(name, init) 
+#define _DEINIT(name)   FTRACE_FN(name, deinit) 
+#define _GET(name)      FTRACE_FN(name, get)
+#define _PUT(name)      FTRACE_FN(name, put)
+
+#define FTRACE_ROUTINE(a, b, c, d, e, f)\
+{\
+    .relative_uri = a,\
+    .init_fn = b,\
+    .deinit_fn = c,\
+    .get_fn = d,\
+    .put_fn = e,\
+    .printer = f\
+}
+
+static struct ftrace_routine
+routine_list[] = {
+    FTRACE_ROUTINE(
+        "available_tracers", 0, 0, _GET(available_tracers), 0, 0
+    ),
+    FTRACE_ROUTINE(
+        "current_tracer", 0, 0, _GET(current_tracer), _PUT(current_tracer), 0
+    ),
+    FTRACE_ROUTINE(
+        "trace_clock", 0, 0, _GET(trace_clock), 0, 0
+    ),
+    FTRACE_ROUTINE(
+        "tracing_on", 0, 0, _GET(tracing_on), _PUT(tracing_on), 0
+    ),
+    FTRACE_ROUTINE(
+        "trace", _INIT(trace), _DEINIT(trace), _GET(trace), _PUT(trace), 
+        &trace_printer
+    ),
+    FTRACE_ROUTINE(
+        "trace_pipe", _INIT(trace_pipe), _DEINIT(trace_pipe), _GET(trace_pipe),
+        0, &trace_pipe_printer
+    )
+};
+#define FTRACE_NR_ROUTINES (sizeof(routine_list) / sizeof(struct ftrace_routine))
+
+static int
+ftrace_find_routine(const char * relative_uri, struct ftrace_routine ** routine_p)
+{
+    int i;
+
+    for (i = 0; i < FTRACE_NR_ROUTINES; i++) {
+        struct ftrace_routine * routine = &(routine_list[i]);
+
+        if (runtime_strcmp(routine->relative_uri, relative_uri) == 0) {
+            *routine_p = routine;
+            return 0;
+        }
+    }
+
+    return -EINVAL;
+}
+
+static buffer
+format_usage_buffer(void)
+{
+    buffer b = allocate_buffer(ftrace_heap, 128);
+
+    bprintf(b, "ftrace files available:\n");
+    bprintf(b, "\tTODO list them out\n");
+
+    return b;
+}
+
+static void 
+ftrace_send_http_response(buffer_handler handler, buffer b)
+{
+    status s;
+
+    s = send_http_response(handler, timm("ContentType", "text/html"), b);
+    if (!is_ok(s))
+        msg_err("ftrace: failed to send HTTP response\n");
+}
+
+static void
+ftrace_send_http_uri_not_found(buffer_handler handler)
+{
+    status s;
+
+    s = send_http_response(handler, timm("status", "404 Not Found"),
+           aprintf(ftrace_heap, "<html><head><title>404 Not Found</title></head>"
+                   "<body><h1>Not Found</h1></body></html>\r\n")
+    );
+    if (!is_ok(s))
+        msg_err("ftrace: failed to send HTTP response\n");
+}
+
+static void
+ftrace_send_http_no_method(buffer_handler handler, http_method method)
+{
+    status s;
+
+    s = send_http_response(handler, timm("status", "501 Not Implemented"),
+           aprintf(ftrace_heap, "<html><head><title>501 Not Implemented</title></head>"
+                   "<body><h1>Not Implemented</h1></body></html>\r\n")
+    );
+    if (!is_ok(s))
+        msg_err("ftrace: failed to send HTTP response\n");
+}
+
+static void
+ftrace_send_http_server_error(buffer_handler handler)
+{
+    status s;
+
+    s = send_http_response(handler, timm("status", "500 Internal Server Error"),
+           aprintf(ftrace_heap, "<html><head><title>500 Internal Server Error</title></head>"
+                   "<body><h1>Internal Server Error</h1></body></html>\r\n")
+    );
+    if (!is_ok(s))
+        msg_err("ftrace: failed to send HTTP response\n");
+}
+
+static void
+__ftrace_do_http_method(buffer_handler handler, struct ftrace_routine * routine,
+                        boolean is_put, buffer put_data)
+{
+    sysreturn ret;
+    struct ftrace_printer local_p;
+    struct ftrace_printer * p;
+    boolean local_printer;
+
+    /* init */
+    if (routine->init_fn) {
+        assert(routine->printer);
+        ret = routine->init_fn(routine->printer, TRACE_FLAG_HTTP);
+        if (ret != 0)
+            goto internal_err;
+
+        local_printer = false;
+        p = routine->printer;
+    } else {
+        ret = printer_init(&local_p, TRACE_FLAG_HTTP);
+        if (ret != 0)
+            goto internal_err;
+
+        local_printer = true;
+        p = &local_p;
+    }
+
+    /* no caching for now -- maybe we'll need lengths/offsets at some point ... */
+    printer_reset(p, 0);
+
+    /* set the max size of the printer to the largest possible */
+    printer_set_size(p, TRACE_PRINTER_MAX_SIZE);
+
+    /* get/put */
+    if (is_put) {
+        printer_write(p, buffer_ref(put_data, 0));
+        ret = routine->put_fn(p);
+        if (ret != 0)
+            goto internal_err_deinit;
+    } else {
+        ret = routine->get_fn(p);
+        if (ret != 0)
+            goto internal_err_deinit;
+    }
+
+    /* all good -- format the response with the printer data */
+    ftrace_send_http_response(handler, printer_buffer(p));
+
+internal_err_deinit:
+    if (routine->deinit_fn) {
+        /* deinit without init? */
+        assert(routine->init_fn);
+        (void)routine->deinit_fn(p);
+    }
+
+    if (local_printer)
+        printer_deinit(p);
+
+internal_err:
+    if (ret != 0)
+        ftrace_send_http_server_error(handler);
+}
+
+
+static void
+ftrace_do_http_get(buffer_handler handler, struct ftrace_routine * routine)
+{
+    __ftrace_do_http_method(handler, routine, false, 0);
+}
+
+
+static void
+ftrace_do_http_put(buffer_handler handler, struct ftrace_routine * routine,
+                   buffer put_data)
+{
+    __ftrace_do_http_method(handler, routine, true, put_data);
+}
+
+closure_function(0, 3, void, ftrace_http_request,
+                 http_method, method, buffer_handler, handler, value, val)
+{
+    buffer relative_uri;
+    struct ftrace_routine * routine;
+    int ret;
+
+    relative_uri = table_find(val, sym(relative_uri)); 
+    if (relative_uri == 0) {
+        ftrace_send_http_response(handler, format_usage_buffer());
+        return;
+    }
+
+    ret = ftrace_find_routine(buffer_ref(relative_uri, 0), &routine);
+    if (ret != 0) {
+        ftrace_send_http_uri_not_found(handler);
+        return;
+    }
+
+    switch (method) {
+    case HTTP_REQUEST_METHOD_GET:
+        assert(routine->get_fn);
+        ftrace_do_http_get(handler, routine);
+        break;
+
+    case HTTP_REQUEST_METHOD_PUT:
+        /* XXX: no PUT support yet */ 
+        if (1 || !routine->put_fn)
+            goto no_method;
+
+        ftrace_do_http_put(handler, routine, 0);
+        break;
+
+    no_method:
+    default:
+        ftrace_send_http_no_method(handler, method);
+        break;
+    }    
+}
+
+static int
+init_http_listener(void)
+{
+    status s;
+
+    ftrace_hl = allocate_http_listener(ftrace_heap, FTRACE_TRACE_PORT);
+    if (ftrace_hl == INVALID_ADDRESS) {
+        msg_err("could not allocate ftrace HTTP listener\n");
+        return -1;
+    }
+
+    http_register_uri_handler(
+        ftrace_hl, 
+        FTRACE_TRACE_URI, 
+        closure(ftrace_heap, ftrace_http_request)
+    );
+
+    s = listen_port(ftrace_heap, FTRACE_TRACE_PORT, 
+        connection_handler_from_http_listener(ftrace_hl)
+    );
+    if (!is_ok(s)) {
+        msg_err("listen_port(port=%d) failed for ftrace HTTP listener\n",
+            FTRACE_TRACE_PORT
+        );
+        deallocate_http_listener(ftrace_heap, ftrace_hl);
+        return -1;
+    }
+
+    return 0;
+}
+
 int
 ftrace_init(unix_heaps uh, filesystem fs)
 {
+    int ret;
+
     ftrace_heap = heap_general(&(uh->kh));
+
+    /* init http listener */
+    ret = init_http_listener();
+    if (ret != 0)
+        return ret;
+
     rbuf_init(&global_rbuf, DEFAULT_TRACE_ARRAY_SIZE_KB);
+
+    /* XXX: remove once we have http PUT support */
+    current_tracer = &(tracer_list[1]);
+    current_tracer->mcount_update();
+    tracing_on = true;
+
     return 0;
 }
 
 void
 ftrace_deinit(void)
 {
+    deallocate_http_listener(ftrace_heap, ftrace_hl);
 }
