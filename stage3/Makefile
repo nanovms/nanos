@@ -126,12 +126,12 @@ SRCS-stage3.img+= \
 	$(SRCDIR)/x86_64/ftrace.s
 CFLAGS+= -DCONFIG_FTRACE -pg
 endif
-	
+
 #CFLAGS+=	-DLWIPDIR_DEBUG -DEPOLL_DEBUG -DNETSYSCALL_DEBUG -DKERNEL_DEBUG
 AFLAGS+=	-felf64 -I$(OBJDIR)/
 LDFLAGS+=	$(KERNLDFLAGS) -T linker_script
 
-CLEANFILES+=	$(foreach f,gitversion.c frame.inc stage3.dis stage3.img,$(OBJDIR)/$f)
+CLEANFILES+=	$(foreach f,gitversion.c frame.inc stage3.dis stage3.img src/unix/ftrace.* src/x86_64/ftrace.*,$(OBJDIR)/$f)
 CLEANDIRS+=	$(foreach d,output src vendor vendor/lwip vendor/lwip/src,$(OBJDIR)/$d)
 
 OBJDUMPFLAGS=	-d -S -M intel-mnemonic
