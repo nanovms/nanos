@@ -33,6 +33,8 @@ static inline char peek_char(buffer b)
             b;                                                  \
         })
 
+#define alloca_wrap_cstring(__x) alloca_wrap_buffer((__x), runtime_strlen(__x))
+
 #define alloca_wrap(__z) alloca_wrap_buffer(buffer_ref((__z), 0), buffer_length(__z))
 
 #define byte(__b, __i) *(u8 *)((__b)->contents + (__b)->start + (__i))
@@ -253,6 +255,17 @@ static inline boolean buffer_compare(void *za, void *zb)
     return true;
 }
 
+static inline boolean buffer_compare_with_cstring(buffer b, const char *x)
+{
+    int len = buffer_length(b);
+    for (int i = 0; i < len; i++) {
+        if (byte(b, i) != x[i])
+            return false;
+        if (x[i] == '\0')       /* must terminate */
+            return i == len - 1;
+    }
+    return x[len] == '\0';
+}
 
 // the ascii subset..utf8 me
 #define foreach_character(__i, __c, __s)                                \

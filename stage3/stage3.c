@@ -97,13 +97,41 @@ closure_function(1, 3, void, each_test_request,
                  heap, h,
                  http_method, m, buffer_handler, out, value, v)
 {
+    status s = STATUS_OK;
+    bytes total = 0;
     heap h = bound(h);
     rprintf("http: %s request via http: %v\n", http_request_methods[m], v);
-    /* XXX alloc issues - confirm that handlers fully consume (and deallocate) buffers */
-    status s = send_http_response(out, timm("ContentType", "text/html"),
-                                  bulk_test_buffer(h));
-    if (!is_ok(s))
-        msg_err("output buffer handler failed: %v\n", s);
+    buffer u = table_find(v, sym(relative_uri));
+    if (u && buffer_compare_with_cstring(u, "chunk")) {
+        rprintf("chunked response\n");
+        s = send_http_chunked_response(out, timm("Content-Type", "text/html"));
+
+        if (!is_ok(s))
+            goto out_fail;
+
+        for (int i = 0; i < 10; i++) {
+            buffer b = bulk_test_buffer(h);
+            total += buffer_length(b);
+            s = send_http_chunk(out, b);
+            if (!is_ok(s))
+                goto out_fail;
+        }
+
+        s = send_http_chunk(out, 0);
+        if (!is_ok(s))
+            goto out_fail;
+    } else {
+        buffer b = bulk_test_buffer(h);
+        total += buffer_length(b);
+        s = send_http_response(out, timm("Content-Type", "text/html"), b);
+        if (!is_ok(s))
+            goto out_fail;
+    }
+
+    rprintf("sent %d bytes\n", total);
+    return;
+  out_fail:
+    msg_err("output buffer handler failed: %v\n", s);
 }
 
 closure_function(3, 0, void, startup,
