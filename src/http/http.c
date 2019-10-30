@@ -377,3 +377,8 @@ http_listener allocate_http_listener(heap h, u16 port)
     list_init(&hl->registrants);
     return hl;
 }
+
+void deallocate_http_listener(heap h, http_listener hl)
+{
+    deallocate(h, hl, sizeof(struct http_listener));
+}

@@ -93,6 +93,7 @@ closure_function(1, 1, buffer_handler, each_telnet_connection,
 }
 
 /* http debug test */
+#if 0
 closure_function(1, 3, void, each_test_request,
                  heap, h,
                  http_method, m, buffer_handler, out, value, v)
@@ -133,6 +134,7 @@ closure_function(1, 3, void, each_test_request,
   out_fail:
     msg_err("output buffer handler failed: %v\n", s);
 }
+#endif
 
 closure_function(3, 0, void, startup,
                  kernel_heaps, kh, tuple, root, filesystem, fs)
@@ -154,6 +156,7 @@ closure_function(3, 0, void, startup,
         rprintf("Debug telnet server started on port 9090\n");
     }
 
+#if 0
     http_listener hl = allocate_http_listener(general, 9090);
     assert(hl != INVALID_ADDRESS);
     http_register_uri_handler(hl, "test", closure(general, each_test_request, general));
@@ -164,7 +167,7 @@ closure_function(3, 0, void, startup,
             halt("listen_port failed for http listener: %v\n", s);
         rprintf("Debug http server started on port 9090\n");
     }
-
+#endif
     value p = table_find(root, sym(program));
     assert(p);
     tuple pro = resolve_path(root, split(general, p, '/'));
