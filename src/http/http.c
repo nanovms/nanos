@@ -18,14 +18,13 @@ typedef struct http_parser {
     u64 content_length;
 } *http_parser;
 
-//CLOSURE_1_2(each_header, void, buffer, symbol, value);
-void each_header(buffer dest, symbol n, value v)
+static void each_header(buffer dest, symbol n, value v)
 {
     if (n != sym(url))
         bprintf(dest, "%v: %v\r\n", n, v);
 }
 
-void http_header(buffer dest, tuple t)
+static void http_header(buffer dest, tuple t)
 {
     // asynch in new world
     table_foreach(t, k , v) each_header(dest, k, v);
@@ -39,18 +38,17 @@ status http_request(heap h, buffer_handler bh, tuple headers)
     bprintf(b, "GET %b HTTP/1.1\r\n", url);
     http_header(b, headers);
     status s = apply(bh, b);
-    if (!is_ok(s))
+    if (!is_ok(s)) {
+        deallocate_buffer(b);
         return timm_up(s, "result", "%s failed to send", __func__);
+    }
     return STATUS_OK;
 }
 
-// xxx - other http streaming interfaces are less straightforward
-status send_http_response(buffer_handler out,
-                          tuple t,
-                          buffer c)
+static status send_http_headers(buffer_handler out, tuple t)
 {
     status s;
-    buffer d = allocate_buffer(transient, 1000);
+    buffer d = allocate_buffer(transient, 128);
     bprintf(d, "HTTP/1.1 ");
     value v;
     symbol ss = sym(status);
@@ -58,19 +56,84 @@ status send_http_response(buffer_handler out,
         bprintf(d, "%b\r\n", (buffer)v);
     else
         bprintf(d, "200 OK\r\n");
-    table_foreach(t, k, v)
+
+    /* destructive */
+    table_foreach(t, k, v) {
         if (k != ss)
             each_header(d, k, v);
-    if (c)
-        each_header(d, sym(Content-Length), aprintf(transient, "%d", c->end));
+        if (v) {
+            /* XXX assert tag type */
+            deallocate_buffer((buffer)v);
+        }
+    }
+    deallocate_tuple(t);
     bprintf(d, "\r\n");
+
+    s = apply(out, d);
+    if (!is_ok(s)) {
+        deallocate_buffer(d);
+        return timm_up(s, "%s failed to send", __func__);
+    }
+    return STATUS_OK;
+}
+
+/* consumes c, c == 0 indicates terminate */
+status send_http_chunk(buffer_handler out, buffer c)
+{
+    if (c)
+        assert(!buffer_is_wrapped(c));
+
+    status s = STATUS_OK;
+    buffer d = allocate_buffer(transient, 32);
+    int len = c ? buffer_length(c) : 0;
+    bprintf(d, "%x\r\n", len);
     s = apply(out, d);
     if (!is_ok(s))
         goto out_fail;
+
+    if (!c)
+        c = allocate_buffer(transient, 2);
+
+    bprintf(c, "\r\n");
+    s = apply(out, c);
+    if (!is_ok(s))
+        goto out_fail;
+
+    /* could support trailers... */
+    return s;
+  out_fail:
+    s = timm_up(s, "%s: failed to send", __func__);
+    return s;
+}
+
+/* consumes t */
+status send_http_chunked_response(buffer_handler out, tuple t)
+{
+    table_set(t, sym(Transfer-Encoding), aprintf(transient, "chunked"));
+    status s = send_http_headers(out, t);
+    if (!is_ok(s))
+        return timm_up(s, "%s failed to send", __func__);
+    return s;
+}
+
+/* consumes t and c */
+status send_http_response(buffer_handler out, tuple t, buffer c)
+{
+    if (c) {
+        assert(!buffer_is_wrapped(c));
+        table_set(t, sym(Content-Length), aprintf(transient, "%d", buffer_length(c)));
+    }
+
+    status s = send_http_headers(out, t);
+    if (!is_ok(s))
+        goto out_fail;
+
     if (c) {
         s = apply(out, c);
-        if (!is_ok(s))
+        if (!is_ok(s)) {
+            deallocate_buffer(c);
             goto out_fail;
+        }
     }
     return STATUS_OK;
   out_fail:
