@@ -42,9 +42,7 @@ struct rbuf {
     unsigned long size;
     unsigned long read_idx;
     unsigned long write_idx;
-
     unsigned long disable_cnt;
-    unsigned long wait_cnt;
 };
 
 /* This structure is designed to simply the process of efficiently flushing
@@ -280,7 +278,6 @@ rbuf_reset(struct rbuf * rbuf)
     rbuf->write_idx = 0;
     rbuf->total_written = 0;
     rbuf->disable_cnt = 0;
-    rbuf->wait_cnt = 0;
 }
 
 static int
@@ -317,25 +314,6 @@ static inline boolean
 rbuf_enabled(struct rbuf * rbuf)
 {
     return (rbuf->disable_cnt == 0);
-}
-
-static inline void
-rbuf_wait(struct rbuf * rbuf)
-{
-    rbuf->wait_cnt++;
-}
-
-static inline void
-rbuf_release(struct rbuf * rbuf)
-{
-    assert(rbuf->wait_cnt);
-    rbuf->wait_cnt--;
-}
-
-static inline boolean
-rbuf_has_waiters(struct rbuf * rbuf)
-{
-    return (rbuf->wait_cnt != 0);
 }
 
 /* must be locked before calling */
