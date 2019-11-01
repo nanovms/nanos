@@ -6,7 +6,7 @@
 #include <http.h>
 
 /* 1MB default size for the user's trace array */
-#define DEFAULT_TRACE_ARRAY_SIZE        (1ULL << 20)
+#define DEFAULT_TRACE_ARRAY_SIZE        (64ULL << 20)
 #define DEFAULT_TRACE_ARRAY_SIZE_KB     (DEFAULT_TRACE_ARRAY_SIZE >> 10)
 
 #define TRACE_TASK_WIDTH    15
@@ -19,6 +19,7 @@
 #define TRACE_PRINTER_MAX_SIZE  (1ULL << 19)
 
 static heap ftrace_heap;
+static heap rbuf_heap;
 
 /* whether or not to write into the ring buffer */
 static boolean tracing_on = false;
@@ -296,7 +297,7 @@ rbuf_init(struct rbuf * rbuf, unsigned long buffer_size_kb)
     unsigned long buffer_size = buffer_size_kb << 10;
 
     rbuf->size = buffer_size / sizeof(struct rbuf_entry);
-    rbuf->trace_array = allocate(ftrace_heap,
+    rbuf->trace_array = allocate(rbuf_heap,
             sizeof(struct rbuf_entry) * rbuf->size);
     if (rbuf->trace_array == INVALID_ADDRESS) {
         msg_err("failed to allocate ftrace trace array\n");
@@ -496,7 +497,6 @@ function_print_nondestructive(struct ftrace_printer * p, struct rbuf * rbuf)
         need_flush = true;
 
         if (printer_length(p) >= printer_size(p)) {
-            rprintf("flush next %ld, write_idx %ld\n", next, rbuf->write_idx);
             s = apply(p->flush, next == rbuf->write_idx);
             if (!is_ok(s))
                 goto out_fail;
@@ -505,7 +505,6 @@ function_print_nondestructive(struct ftrace_printer * p, struct rbuf * rbuf)
     }
 
     if (need_flush) {
-        rprintf("final flush\n");
         s = apply(p->flush, true);
         if (!is_ok(s))
             goto out_fail;
@@ -788,7 +787,6 @@ FTRACE_FN(trace, deinit)(struct ftrace_printer * p)
     assert(trace_is_open);
     trace_is_open = false;
     rbuf_enable(&global_rbuf);
-    rprintf("TRACE DEINIT: %ld\n", global_rbuf.disable_cnt);
     printer_deinit(p);
     return 0;
 }
@@ -1197,7 +1195,6 @@ closure_function(2, 1, status, ftrace_http_send_buffer,
                  struct ftrace_printer *, p, buffer_handler, out,
                  boolean, finished)
 {
-    rprintf("flush, finished %d\n", finished);
     struct ftrace_printer * p = bound(p);
     status s = send_http_chunk(bound(out), printer_buffer(p));
     if (!is_ok(s))
@@ -1431,6 +1428,7 @@ ftrace_init(unix_heaps uh, filesystem fs)
     int ret;
 
     ftrace_heap = heap_general(&(uh->kh));
+    rbuf_heap = heap_backed(&(uh->kh));
 
     /* init http listener */
     ret = init_http_listener();

@@ -54,6 +54,12 @@ static boolean direct_conn_send_internal(direct_conn dc)
         if (err == ERR_MEM)
             return false;
 
+        err = tcp_output(dc->p);
+        if (err != ERR_OK) {
+            msg_err("tcp_output failed with %d\n", err);
+            return false;
+        }
+
         /* should handle some other way */
         if (err != ERR_OK) {
             /* XXX */
