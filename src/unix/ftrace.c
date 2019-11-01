@@ -45,7 +45,7 @@ struct rbuf {
     unsigned long disable_cnt;
 };
 
-/* This structure is designed to simply the process of efficiently flushing
+/* This structure is designed to simplify the process of efficiently flushing
  * buffers to userspace/http response handlers
  *
  * This is also needed to persist rbuf contents across multiple destructive
@@ -54,8 +54,12 @@ struct rbuf {
  * least that half line of data in the buffer b for the likely subsequent call
  * to read with an incremented offset
  */
+
+typedef closure_type(printer_flush, status, boolean);
+
 struct ftrace_printer {
     buffer b;
+    printer_flush flush;
     u64 local_offset;
     u64 max_size; /* stop printing if the buffer reaches this size */
 
@@ -132,6 +136,12 @@ printer_set_size(struct ftrace_printer * p, u64 size)
         size = TRACE_PRINTER_MAX_SIZE;
 
     p->max_size = size;
+}
+
+static inline void
+printer_set_printer_flush(struct ftrace_printer * p, printer_flush flush)
+{
+    p->flush = flush;
 }
 
 static int
@@ -472,19 +482,38 @@ function_print_entry(struct ftrace_printer * p, struct rbuf_entry * entry)
 static void
 function_print_nondestructive(struct ftrace_printer * p, struct rbuf * rbuf)
 {
+    status s = STATUS_OK;
     struct rbuf_entry * entry;
-    unsigned long idx;
+    unsigned long idx, next;
+    boolean need_flush = false;
 
     for (idx  = rbuf->read_idx;
-         idx != rbuf->write_idx;
-         idx  = rbuf_next_idx(rbuf, idx))
+         next = rbuf_next_idx(rbuf, idx), idx != rbuf->write_idx;
+         idx  = next)
     {
         entry = &(rbuf->trace_array[idx]);
         function_print_entry(p, entry);
+        need_flush = true;
 
-        if (printer_length(p) >= printer_size(p))
-            break;
+        if (printer_length(p) >= printer_size(p)) {
+            rprintf("flush next %ld, write_idx %ld\n", next, rbuf->write_idx);
+            s = apply(p->flush, next == rbuf->write_idx);
+            if (!is_ok(s))
+                goto out_fail;
+            need_flush = false;
+        }
     }
+
+    if (need_flush) {
+        rprintf("final flush\n");
+        s = apply(p->flush, true);
+        if (!is_ok(s))
+            goto out_fail;
+    }
+
+    return;
+  out_fail:
+    msg_err("printer flush failed with %v\n", s);
 }
 
 static void
@@ -759,6 +788,7 @@ FTRACE_FN(trace, deinit)(struct ftrace_printer * p)
     assert(trace_is_open);
     trace_is_open = false;
     rbuf_enable(&global_rbuf);
+    rprintf("TRACE DEINIT: %ld\n", global_rbuf.disable_cnt);
     printer_deinit(p);
     return 0;
 }
@@ -1162,6 +1192,40 @@ format_usage_buffer(void)
     return b;
 }
 
+/* assumes locks held */
+closure_function(2, 1, status, ftrace_http_send_buffer,
+                 struct ftrace_printer *, p, buffer_handler, out,
+                 boolean, finished)
+{
+    rprintf("flush, finished %d\n", finished);
+    struct ftrace_printer * p = bound(p);
+    status s = send_http_chunk(bound(out), printer_buffer(p));
+    if (!is_ok(s))
+        goto out_fail;
+    if (finished) {
+        s = send_http_chunk(bound(out), 0);
+        closure_finish();
+        if (!is_ok(s))
+            goto out_fail;
+        return STATUS_OK;
+    }
+    if (printer_init(p, p->flags) < 0)
+        return timm("result", "%s: failed to allocate buffer", __func__);
+    return STATUS_OK;
+  out_fail:
+    return timm_up(s, "%s: failed to send HTTP chunk", __func__);
+}
+
+static void
+ftrace_send_http_chunked_response(buffer_handler handler)
+{
+    status s;
+
+    s = send_http_chunked_response(handler, timm("ContentType", "text/html"));
+    if (!is_ok(s))
+        msg_err("ftrace: failed to send HTTP response\n");
+}
+
 static void 
 ftrace_send_http_response(buffer_handler handler, buffer b)
 {
@@ -1250,14 +1314,15 @@ __ftrace_do_http_method(buffer_handler handler, struct ftrace_routine * routine,
         ret = routine->put_fn(p);
         if (ret != 0)
             goto internal_err_deinit;
+        ftrace_send_http_response(handler, printer_buffer(p));
     } else {
+        ftrace_send_http_chunked_response(handler);
+        printer_set_printer_flush(p, closure(ftrace_heap, ftrace_http_send_buffer, p, handler));
         ret = routine->get_fn(p);
+        /* XXX redo */
         if (ret != 0)
             goto internal_err_deinit;
     }
-
-    /* all good -- format the response with the printer data */
-    ftrace_send_http_response(handler, printer_buffer(p));
 
 internal_err_deinit:
     if (routine->deinit_fn) {
