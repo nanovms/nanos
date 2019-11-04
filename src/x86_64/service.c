@@ -99,8 +99,8 @@ void runloop()
 {
     thunk t;
 
-    while (1) {
-        while ((t = dequeue(runqueue))) {
+    while(1) {
+        while((t = dequeue(runqueue))) {
             apply(t);
             disable_interrupts();
         }
