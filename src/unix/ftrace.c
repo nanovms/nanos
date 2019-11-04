@@ -44,7 +44,7 @@ struct rbuf {
     unsigned long read_idx;
     unsigned long local_idx;    /* index while iterating (but not consuming) */
     unsigned long write_idx;
-    unsigned long disable_cnt;
+    word disable_cnt;
 };
 
 /* This structure is designed to simplify the process of efficiently flushing
@@ -303,14 +303,13 @@ rbuf_init(struct rbuf * rbuf, unsigned long buffer_size_kb)
 static inline void
 rbuf_disable(struct rbuf * rbuf)
 {
-    rbuf->disable_cnt++;
+    fetch_and_add(&rbuf->disable_cnt, 1);
 }
 
 static inline void
 rbuf_enable(struct rbuf * rbuf)
 {
-    assert(rbuf->disable_cnt);
-    rbuf->disable_cnt--;
+    assert(fetch_and_add(&rbuf->disable_cnt, -1) > 0);
 }
 
 static inline boolean
@@ -750,13 +749,10 @@ static boolean trace_is_open = false;
 static sysreturn
 FTRACE_FN(trace, init)(struct ftrace_printer * p, u64 flags)
 {
-    int ret;
-
     if (trace_is_open)
         return -EBUSY;
 
-    ret = printer_init(p, flags | TRACE_FLAG_HEADER);
-    if (ret != 0)
+    if (printer_init(p, flags | TRACE_FLAG_HEADER))
         return -ENOMEM;
 
     rbuf_disable(&global_rbuf);
@@ -771,8 +767,9 @@ FTRACE_FN(trace, deinit)(struct ftrace_printer * p)
 {
     assert(trace_is_open);
     trace_is_open = false;
-    rbuf_enable(&global_rbuf);
     printer_deinit(p);
+    global_rbuf.local_idx = -1ull;
+    rbuf_enable(&global_rbuf);
     return 0;
 }
 
@@ -959,6 +956,7 @@ FTRACE_FN(trace_pipe, init)(struct ftrace_printer * p, u64 flags)
     if (printer_init(p, flags | TRACE_FLAG_DESTRUCTIVE))
         return -ENOMEM;
 
+    rbuf_disable(&global_rbuf);
     global_rbuf.local_idx = global_rbuf.read_idx;
     trace_pipe_is_open = true;
     return 0;
@@ -970,21 +968,23 @@ FTRACE_FN(trace_pipe, deinit)(struct ftrace_printer * p)
     assert(trace_pipe_is_open);
     trace_pipe_is_open = false;
     printer_deinit(p);
+    global_rbuf.local_idx = -1ull;
+    rbuf_enable(&global_rbuf);
     return 0;
 }
 
 static sysreturn
 FTRACE_FN(trace_pipe, get)(struct ftrace_printer * p)
 {
-    rbuf_disable(&global_rbuf);
+    sysreturn rv = 0;
+
     rbuf_lock(&global_rbuf);
     {
         if (current_tracer->print_fn(p, &global_rbuf))
-            return 1;           /* more to print */
+            rv = 1;             /* more to print */
     }
     rbuf_unlock(&global_rbuf);
-    rbuf_enable(&global_rbuf);
-    return 0;
+    return rv;
 }
 
 sysreturn
@@ -1153,14 +1153,14 @@ routine_list[] = {
 #define FTRACE_NR_ROUTINES (sizeof(routine_list) / sizeof(struct ftrace_routine))
 
 static int
-ftrace_find_routine(const char * relative_uri, struct ftrace_routine ** routine_p)
+ftrace_find_routine(buffer relative_uri, struct ftrace_routine ** routine_p)
 {
     int i;
 
     for (i = 0; i < FTRACE_NR_ROUTINES; i++) {
         struct ftrace_routine * routine = &(routine_list[i]);
 
-        if (runtime_strcmp(routine->relative_uri, relative_uri) == 0) {
+        if (buffer_compare_with_cstring(relative_uri, routine->relative_uri)) {
             *routine_p = routine;
             return 0;
         }
@@ -1258,6 +1258,8 @@ __ftrace_send_http_chunk_internal(struct ftrace_routine * routine, struct ftrace
         goto send_http_chunk_failed;
 
     if (ret == 0) {
+        s = send_http_chunk(out, 0);
+
         if (routine->deinit_fn) {
             /* deinit without init? */
             assert(routine->init_fn);
@@ -1267,7 +1269,6 @@ __ftrace_send_http_chunk_internal(struct ftrace_routine * routine, struct ftrace
         if (local_printer)
             printer_deinit(p);
 
-        s = send_http_chunk(out, 0);
         if (!is_ok(s))
             goto send_http_chunk_failed;
         return false;
@@ -1386,7 +1387,7 @@ closure_function(0, 3, void, ftrace_http_request,
         return;
     }
 
-    ret = ftrace_find_routine(buffer_ref(relative_uri, 0), &routine);
+    ret = ftrace_find_routine(relative_uri, &routine);
     if (ret != 0) {
         ftrace_send_http_uri_not_found(handler);
         return;
