@@ -99,10 +99,12 @@ void runloop()
 {
     thunk t;
 
-    while(1) {
-        while((t = dequeue(runqueue))) {
+    while (1) {
+        int waiters = queue_length(runqueue);
+        while (waiters > 0 && (t = dequeue(runqueue))) {
             apply(t);
             disable_interrupts();
+            waiters--;
         }
         if (current) {
             proc_pause(current->p);

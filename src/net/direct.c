@@ -14,6 +14,7 @@ typedef struct direct {
 
 typedef struct direct_conn {
     direct d;
+    boolean running;            /* background processing started */
     struct list l;              /* direct list */
     struct tcp_pcb *p;
     struct list sendq_head;
@@ -66,13 +67,13 @@ static boolean direct_conn_send_internal(direct_conn dc)
             return false;
         }
 
-        /* XXX tcp_output */
         buffer_consume(q->b, write_len);
 //        rprintf("buf len now %d\n", buffer_length(q->b));
 
         /* pop off qbuf if work finished, else loop around to attempt to send more */
         if (!q->b || buffer_length(q->b) == 0) {
-            deallocate_buffer(q->b);
+            if (q->b)
+                deallocate_buffer(q->b);
             list_delete(&q->l);
             deallocate(dc->d->h, q, sizeof(struct qbuf));
         }
@@ -85,8 +86,8 @@ closure_function(1, 0, void, direct_conn_send_bh,
 {
     if (direct_conn_send_internal(bound(dc))) {
 //        rprintf("finished\n");
+        bound(dc)->running = false;
         closure_finish();
-        return;
     } else {
 //        rprintf("re-enqueue\n");
         enqueue(deferqueue, closure_self());
@@ -107,11 +108,15 @@ closure_function(1, 1, status, direct_conn_send,
     } else {
         /* queue even if b == 0 (acts as close connection command) */
         q->b = b;
-        list_insert_before(&dc->sendq_head, &q->l);
+        u64 flags = irq_disable_save();
+        list_insert_before(&dc->sendq_head, &q->l); /* really need CAS version */
+        irq_restore(flags);
         if (!direct_conn_send_internal(dc)) {
-            thunk t = closure(dc->d->h, direct_conn_send_bh, dc);
-            enqueue(deferqueue, t);
-            /* XXX should set a timer for maximum delay */
+            if (!dc->running) {
+                thunk t = closure(dc->d->h, direct_conn_send_bh, dc);
+                dc->running = true;
+                assert(enqueue(deferqueue, t));
+            }
         }
     }
     return s;
@@ -172,6 +177,7 @@ static err_t direct_accept(void *z, struct tcp_pcb *pcb, err_t b)
     if (dc == INVALID_ADDRESS)
         goto fail;
     dc->d = d;
+    dc->running = false;
     dc->p = pcb;
     list_init(&dc->sendq_head);
     buffer_handler bh = apply(d->new, closure(d->h, direct_conn_send, dc));

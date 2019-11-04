@@ -42,6 +42,7 @@ struct rbuf {
     unsigned long total_written; /* total items ever written */
     unsigned long size;
     unsigned long read_idx;
+    unsigned long local_idx;    /* index while iterating (but not consuming) */
     unsigned long write_idx;
     unsigned long disable_cnt;
 };
@@ -56,11 +57,8 @@ struct rbuf {
  * to read with an incremented offset
  */
 
-typedef closure_type(printer_flush, status, boolean);
-
 struct ftrace_printer {
     buffer b;
-    printer_flush flush;
     u64 local_offset;
     u64 max_size; /* stop printing if the buffer reaches this size */
 
@@ -82,7 +80,7 @@ struct ftrace_tracer {
      */
     void (*trace_fn)(unsigned long, unsigned long);
     void (*mcount_update)(void);
-    void (*print_fn)(struct ftrace_printer * p, struct rbuf * rbuf); 
+    boolean (*print_fn)(struct ftrace_printer * p, struct rbuf * rbuf);
 };
 
 struct ftrace_routine {
@@ -137,12 +135,6 @@ printer_set_size(struct ftrace_printer * p, u64 size)
         size = TRACE_PRINTER_MAX_SIZE;
 
     p->max_size = size;
-}
-
-static inline void
-printer_set_printer_flush(struct ftrace_printer * p, printer_flush flush)
-{
-    p->flush = flush;
 }
 
 static int
@@ -383,7 +375,7 @@ nop_set_mcount(void)
     __current_ftrace_graph_return = ftrace_stub;
 }
 
-static void 
+static boolean
 nop_print(struct ftrace_printer * p, struct rbuf * rbuf)
 {
     if (p->flags & TRACE_FLAG_HEADER) {
@@ -397,6 +389,8 @@ nop_print(struct ftrace_printer * p, struct rbuf * rbuf)
         printer_write(p, "#           TASK-PID   CPU#     TIMESTAMP  FUNCTION\n");
         printer_write(p, "#              | |       |         |         |\n");
     }
+
+    return false;
 }
 
 /*
@@ -480,42 +474,27 @@ function_print_entry(struct ftrace_printer * p, struct rbuf_entry * entry)
     printer_write(p, "\n");
 }
 
-static void
+static boolean
 function_print_nondestructive(struct ftrace_printer * p, struct rbuf * rbuf)
 {
-    status s = STATUS_OK;
     struct rbuf_entry * entry;
-    unsigned long idx, next;
-    boolean need_flush = false;
+    unsigned long idx;
 
-    for (idx  = rbuf->read_idx;
-         next = rbuf_next_idx(rbuf, idx), idx != rbuf->write_idx;
-         idx  = next)
+    for (idx  = rbuf->local_idx;
+         idx != rbuf->write_idx;
+         idx  = rbuf_next_idx(rbuf, idx))
     {
         entry = &(rbuf->trace_array[idx]);
         function_print_entry(p, entry);
-        need_flush = true;
-
-        if (printer_length(p) >= printer_size(p)) {
-            s = apply(p->flush, next == rbuf->write_idx);
-            if (!is_ok(s))
-                goto out_fail;
-            need_flush = false;
-        }
+        if (printer_length(p) >= printer_size(p))
+            break;
     }
+    rbuf->local_idx = idx;
 
-    if (need_flush) {
-        s = apply(p->flush, true);
-        if (!is_ok(s))
-            goto out_fail;
-    }
-
-    return;
-  out_fail:
-    msg_err("printer flush failed with %v\n", s);
+    return idx != rbuf->write_idx; /* more */
 }
 
-static void
+static boolean
 function_print_destructive(struct ftrace_printer * p, struct rbuf * rbuf)
 {
     struct rbuf_entry * entry;
@@ -525,9 +504,11 @@ function_print_destructive(struct ftrace_printer * p, struct rbuf * rbuf)
         if (printer_length(p) >= printer_size(p))
             break;
     }
+
+    return rbuf->count > 0;     /* more */
 }
 
-static void 
+static boolean
 function_print(struct ftrace_printer * p, struct rbuf * rbuf)
 
 {
@@ -541,12 +522,13 @@ function_print(struct ftrace_printer * p, struct rbuf * rbuf)
         printer_write(p, "#\n");
         printer_write(p, "#           TASK-PID   CPU#     TIMESTAMP  FUNCTION\n");
         printer_write(p, "#              | |       |         |         |\n");
+        p->flags &= ~TRACE_FLAG_HEADER;
     }
 
     if (p->flags & TRACE_FLAG_DESTRUCTIVE)
-        function_print_destructive(p, rbuf);
+        return function_print_destructive(p, rbuf);
     else
-        function_print_nondestructive(p, rbuf);
+        return function_print_nondestructive(p, rbuf);
 }
 
 /*
@@ -569,7 +551,7 @@ function_graph_set_mcount(void)
     __current_ftrace_graph_return = function_graph_trace;
 }
 
-static void
+static boolean
 function_graph_print(struct ftrace_printer * p, struct rbuf * rbuf)
 {
     if (p->flags & TRACE_FLAG_HEADER) {
@@ -577,9 +559,11 @@ function_graph_print(struct ftrace_printer * p, struct rbuf * rbuf)
         printer_write(p, "#\n");
         printer_write(p, "# CPU  DURATION                  FUNCTION CALLS\n");
         printer_write(p, "# |     |   |                     |   |   |   |\n");
+        p->flags &= ~TRACE_FLAG_HEADER;
     }
 
     /* TODO */
+    return false;
 }
 
 #define FTRACE_TRACER(_name, _trace_fn, _mcount_update, _print_fn)\
@@ -766,7 +750,7 @@ static boolean trace_is_open = false;
 static sysreturn
 FTRACE_FN(trace, init)(struct ftrace_printer * p, u64 flags)
 {
-     int ret;
+    int ret;
 
     if (trace_is_open)
         return -EBUSY;
@@ -776,6 +760,7 @@ FTRACE_FN(trace, init)(struct ftrace_printer * p, u64 flags)
         return -ENOMEM;
 
     rbuf_disable(&global_rbuf);
+    global_rbuf.local_idx = global_rbuf.read_idx;
     trace_is_open = true;
 
     return 0;
@@ -806,13 +791,16 @@ FTRACE_FN(trace, close)(file f)
 static sysreturn
 FTRACE_FN(trace, get)(struct ftrace_printer * p)
 {
+    sysreturn rv = 0;
+
     rbuf_lock(&global_rbuf);
     {
-        current_tracer->print_fn(p, &global_rbuf);
+        if (current_tracer->print_fn(p, &global_rbuf))
+            rv = 1;             /* more to print */
     }
     rbuf_unlock(&global_rbuf);
 
-    return 0;
+    return rv;
 }
 
 static sysreturn
@@ -882,7 +870,7 @@ FTRACE_FN(trace, read)(file f, void * buf, u64 length, u64 offset)
     printer_set_size(&trace_printer, get_trace_readahead_size(length, offset));
 
     ret = FTRACE_FN(trace, get)(&trace_printer);
-    if (ret != 0)
+    if (ret < 0)
         return ret;
     
     return printer_flush_user(&trace_printer, buf, length, offset);
@@ -971,6 +959,7 @@ FTRACE_FN(trace_pipe, init)(struct ftrace_printer * p, u64 flags)
     if (printer_init(p, flags | TRACE_FLAG_DESTRUCTIVE))
         return -ENOMEM;
 
+    global_rbuf.local_idx = global_rbuf.read_idx;
     trace_pipe_is_open = true;
     return 0;
 }
@@ -990,7 +979,8 @@ FTRACE_FN(trace_pipe, get)(struct ftrace_printer * p)
     rbuf_disable(&global_rbuf);
     rbuf_lock(&global_rbuf);
     {
-        current_tracer->print_fn(p, &global_rbuf);
+        if (current_tracer->print_fn(p, &global_rbuf))
+            return 1;           /* more to print */
     }
     rbuf_unlock(&global_rbuf);
     rbuf_enable(&global_rbuf);
@@ -1190,29 +1180,6 @@ format_usage_buffer(void)
     return b;
 }
 
-/* assumes locks held */
-closure_function(2, 1, status, ftrace_http_send_buffer,
-                 struct ftrace_printer *, p, buffer_handler, out,
-                 boolean, finished)
-{
-    struct ftrace_printer * p = bound(p);
-    status s = send_http_chunk(bound(out), printer_buffer(p));
-    if (!is_ok(s))
-        goto out_fail;
-    if (finished) {
-        s = send_http_chunk(bound(out), 0);
-        closure_finish();
-        if (!is_ok(s))
-            goto out_fail;
-        return STATUS_OK;
-    }
-    if (printer_init(p, p->flags) < 0)
-        return timm("result", "%s: failed to allocate buffer", __func__);
-    return STATUS_OK;
-  out_fail:
-    return timm_up(s, "%s: failed to send HTTP chunk", __func__);
-}
-
 static void
 ftrace_send_http_chunked_response(buffer_handler handler)
 {
@@ -1272,8 +1239,66 @@ ftrace_send_http_server_error(buffer_handler handler)
         msg_err("ftrace: failed to send HTTP response\n");
 }
 
+
+static boolean
+__ftrace_send_http_chunk_internal(struct ftrace_routine * routine, struct ftrace_printer * p,
+                                  boolean local_printer, buffer_handler out)
+{
+    sysreturn ret;
+    ret = routine->get_fn(p);
+
+    /* no real error handling for http get here */
+    if (ret < 0) {
+        msg_err("%s: get failed with %d\n", __func__, ret);
+        return false;
+    }
+
+    status s = send_http_chunk(out, printer_buffer(p));
+    if (!is_ok(s))
+        goto send_http_chunk_failed;
+
+    if (ret == 0) {
+        if (routine->deinit_fn) {
+            /* deinit without init? */
+            assert(routine->init_fn);
+            (void)routine->deinit_fn(p);
+        }
+
+        if (local_printer)
+            printer_deinit(p);
+
+        s = send_http_chunk(out, 0);
+        if (!is_ok(s))
+            goto send_http_chunk_failed;
+        return false;
+    }
+
+    /* reset printer for next chunk */
+    if (printer_init(p, p->flags) < 0) {
+        msg_err("%s: printer_init failed (alloc)\n", __func__);
+        return false;
+    }
+
+    /* ret > 0, so more to send */
+    return true;
+  send_http_chunk_failed:
+    msg_err("%s: send_http_chunk failed with %v\n", __func__, s);
+    return false;
+}
+
+/* simultaneous requests might present issues, so ... don't do them?? */
+closure_function(4, 0, void, __ftrace_send_http_chunk,
+                 struct ftrace_routine *, routine, struct ftrace_printer *, p, boolean, local_printer, buffer_handler, out)
+{
+    if (__ftrace_send_http_chunk_internal(bound(routine), bound(p), bound(local_printer), bound(out))) {
+        assert(enqueue(runqueue, closure_self()));
+    } else {
+        closure_finish();
+    }
+}
+
 static void
-__ftrace_do_http_method(buffer_handler handler, struct ftrace_routine * routine,
+__ftrace_do_http_method(buffer_handler out, struct ftrace_routine * routine,
                         boolean is_put, buffer put_data)
 {
     sysreturn ret;
@@ -1309,31 +1334,28 @@ __ftrace_do_http_method(buffer_handler handler, struct ftrace_routine * routine,
     if (is_put) {
         printer_write(p, buffer_ref(put_data, 0));
         ret = routine->put_fn(p);
-        if (ret != 0)
-            goto internal_err_deinit;
-        ftrace_send_http_response(handler, printer_buffer(p));
+        if (ret != 0) {
+            if (routine->deinit_fn) {
+                /* deinit without init? */
+                assert(routine->init_fn);
+                (void)routine->deinit_fn(p);
+            }
+
+            if (local_printer)
+                printer_deinit(p);
+        }
+        ftrace_send_http_response(out, printer_buffer(p));
     } else {
-        ftrace_send_http_chunked_response(handler);
-        printer_set_printer_flush(p, closure(ftrace_heap, ftrace_http_send_buffer, p, handler));
-        ret = routine->get_fn(p);
-        /* XXX redo */
-        if (ret != 0)
-            goto internal_err_deinit;
+        ftrace_send_http_chunked_response(out);
+        if (__ftrace_send_http_chunk_internal(routine, p, local_printer, out)) {
+            thunk t = closure(ftrace_heap, __ftrace_send_http_chunk, routine, p, local_printer, out);
+            assert(enqueue(runqueue, t));
+        }
     }
-
-internal_err_deinit:
-    if (routine->deinit_fn) {
-        /* deinit without init? */
-        assert(routine->init_fn);
-        (void)routine->deinit_fn(p);
-    }
-
-    if (local_printer)
-        printer_deinit(p);
-
+    return;
 internal_err:
     if (ret != 0)
-        ftrace_send_http_server_error(handler);
+        ftrace_send_http_server_error(out);
 }
 
 
