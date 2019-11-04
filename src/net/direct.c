@@ -5,6 +5,13 @@
 #include <net.h>
 #include <x86_64.h>
 
+//#define DIRECT_DEBUG
+#ifdef DIRECT_DEBUG
+#define direct_debug(x, ...) do {log_printf("DNET", "%s: " x, __func__, ##__VA_ARGS__);} while(0)
+#else
+#define direct_debug(x, ...)
+#endif
+
 typedef struct direct {
     connection_handler new;
     struct tcp_pcb *p;
@@ -31,12 +38,14 @@ typedef struct qbuf {
 /* return true if sendq empty */
 static boolean direct_conn_send_internal(direct_conn dc)
 {
+    direct_debug("dc %p\n", dc);
     list next;
 
     while ((next = list_get_next(&dc->sendq_head))) {
         qbuf q = struct_from_list(next, qbuf, l);
         if (!q->b) {
             /* close connection - should check error, but would need status handler... */
+            direct_debug("connection close by sender\n");
             tcp_close(dc->p);
             list_delete(&q->l);
             deallocate(dc->d->h, q, sizeof(struct qbuf));
@@ -50,7 +59,7 @@ static boolean direct_conn_send_internal(direct_conn dc)
         int write_len = MIN(avail, buffer_length(q->b));
         /* Fix interface: can send with PSH flag clear
            (TCP_WRITE_FLAG_MORE) if we know more data is on the way... */
-//        rprintf("write %p, len %d\n", buffer_ref(q->b, 0), write_len);
+        direct_debug("write %p, len %d\n", buffer_ref(q->b, 0), write_len);
         err_t err = tcp_write(dc->p, buffer_ref(q->b, 0), write_len, TCP_WRITE_FLAG_COPY);
         if (err == ERR_MEM)
             return false;
@@ -68,7 +77,7 @@ static boolean direct_conn_send_internal(direct_conn dc)
         }
 
         buffer_consume(q->b, write_len);
-//        rprintf("buf len now %d\n", buffer_length(q->b));
+        direct_debug("remaining %d\n", buffer_length(q->b));
 
         /* pop off qbuf if work finished, else loop around to attempt to send more */
         if (!q->b || buffer_length(q->b) == 0) {
@@ -85,11 +94,11 @@ closure_function(1, 0, void, direct_conn_send_bh,
                  direct_conn, dc)
 {
     if (direct_conn_send_internal(bound(dc))) {
-//        rprintf("finished\n");
+        direct_debug("finished\n");
         bound(dc)->running = false;
         closure_finish();
     } else {
-//        rprintf("re-enqueue\n");
+        direct_debug("re-enqueue\n");
         enqueue(deferqueue, closure_self());
     }
 }
@@ -98,6 +107,7 @@ closure_function(1, 1, status, direct_conn_send,
                  direct_conn, dc,
                  buffer, b)
 {
+    direct_debug("dc %p, b %p, len %ld\n", bound(dc), b, b ? buffer_length(b) : 0);
     status s = STATUS_OK;
     direct_conn dc = bound(dc);
 
@@ -124,6 +134,7 @@ closure_function(1, 1, status, direct_conn_send,
 
 err_t direct_conn_input(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 {
+    direct_debug("dc %p, pcb %p, pbuf %p, err %d\n", z, pcb, p, err);
     direct_conn dc = z;
     status s;
     /* XXX err */
@@ -146,6 +157,7 @@ err_t direct_conn_input(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 
 static void direct_conn_err(void *z, err_t err)
 {
+    direct_debug("dc %p, err %d\n", z, err);
     status s;
     direct_conn dc = z;
     switch (err) {
@@ -169,9 +181,9 @@ static void direct_listen_err(void *z, err_t err)
     /* XXX TODO */
 }
 
-/* XXX per-connection descriptor as tcp arg? */
 static err_t direct_accept(void *z, struct tcp_pcb *pcb, err_t b)
 {
+    direct_debug("d %p, pcb %p, err %d\n", z, pcb, b);
     direct d = z;
     direct_conn dc = allocate(d->h, sizeof(struct direct_conn));
     if (dc == INVALID_ADDRESS)
@@ -199,6 +211,7 @@ static err_t direct_accept(void *z, struct tcp_pcb *pcb, err_t b)
 
 status listen_port(heap h, u16 port, connection_handler c)
 {
+    direct_debug("port %d, c %p\n", port, c);
     status s = STATUS_OK;
     char *op;
     err_t err = ERR_OK;
