@@ -814,7 +814,7 @@ FTRACE_FN(trace, put)(struct ftrace_printer * p)
 }
 
 /* 32 KB: amount of data we will readahead on all queries of trace data. This
- * is especailly necessary for non-destructive reads, long sequences of which
+ * is especially necessary for non-destructive reads, long sequences of which
  * would otherwise require us to re-generate a lot of buffer entries on every
  * system call
  */
@@ -1287,12 +1287,14 @@ __ftrace_send_http_chunk_internal(struct ftrace_routine * routine, struct ftrace
     return false;
 }
 
+#define SEND_HTTP_CHUNK_INTERVAL_MS     (milliseconds(75))
+
 /* simultaneous requests might present issues, so ... don't do them?? */
 closure_function(4, 0, void, __ftrace_send_http_chunk,
                  struct ftrace_routine *, routine, struct ftrace_printer *, p, boolean, local_printer, buffer_handler, out)
 {
     if (__ftrace_send_http_chunk_internal(bound(routine), bound(p), bound(local_printer), bound(out))) {
-        assert(enqueue(runqueue, closure_self()));
+        register_timer(SEND_HTTP_CHUNK_INTERVAL_MS, (thunk)closure_self());
     } else {
         closure_finish();
     }
@@ -1350,7 +1352,7 @@ __ftrace_do_http_method(buffer_handler out, struct ftrace_routine * routine,
         ftrace_send_http_chunked_response(out);
         if (__ftrace_send_http_chunk_internal(routine, p, local_printer, out)) {
             thunk t = closure(ftrace_heap, __ftrace_send_http_chunk, routine, p, local_printer, out);
-            assert(enqueue(runqueue, t));
+            register_timer(SEND_HTTP_CHUNK_INTERVAL_MS, t);
         }
     }
     return;
