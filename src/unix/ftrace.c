@@ -6,7 +6,7 @@
 #include <http.h>
 
 /* 1MB default size for the user's trace array */
-#define DEFAULT_TRACE_ARRAY_SIZE        (1ULL << 20)
+#define DEFAULT_TRACE_ARRAY_SIZE        (64ULL << 20)
 #define DEFAULT_TRACE_ARRAY_SIZE_KB     (DEFAULT_TRACE_ARRAY_SIZE >> 10)
 
 #define TRACE_TASK_WIDTH    15
@@ -19,6 +19,7 @@
 #define TRACE_PRINTER_MAX_SIZE  (1ULL << 19)
 
 static heap ftrace_heap;
+static heap rbuf_heap;
 
 /* whether or not to write into the ring buffer */
 static boolean tracing_on = false;
@@ -41,11 +42,12 @@ struct rbuf {
     unsigned long total_written; /* total items ever written */
     unsigned long size;
     unsigned long read_idx;
+    unsigned long local_idx;    /* index while iterating (but not consuming) */
     unsigned long write_idx;
-    unsigned long disable_cnt;
+    word disable_cnt;
 };
 
-/* This structure is designed to simply the process of efficiently flushing
+/* This structure is designed to simplify the process of efficiently flushing
  * buffers to userspace/http response handlers
  *
  * This is also needed to persist rbuf contents across multiple destructive
@@ -54,6 +56,7 @@ struct rbuf {
  * least that half line of data in the buffer b for the likely subsequent call
  * to read with an incremented offset
  */
+
 struct ftrace_printer {
     buffer b;
     u64 local_offset;
@@ -77,7 +80,7 @@ struct ftrace_tracer {
      */
     void (*trace_fn)(unsigned long, unsigned long);
     void (*mcount_update)(void);
-    void (*print_fn)(struct ftrace_printer * p, struct rbuf * rbuf); 
+    boolean (*print_fn)(struct ftrace_printer * p, struct rbuf * rbuf);
 };
 
 struct ftrace_routine {
@@ -286,7 +289,7 @@ rbuf_init(struct rbuf * rbuf, unsigned long buffer_size_kb)
     unsigned long buffer_size = buffer_size_kb << 10;
 
     rbuf->size = buffer_size / sizeof(struct rbuf_entry);
-    rbuf->trace_array = allocate(ftrace_heap,
+    rbuf->trace_array = allocate(rbuf_heap,
             sizeof(struct rbuf_entry) * rbuf->size);
     if (rbuf->trace_array == INVALID_ADDRESS) {
         msg_err("failed to allocate ftrace trace array\n");
@@ -300,14 +303,13 @@ rbuf_init(struct rbuf * rbuf, unsigned long buffer_size_kb)
 static inline void
 rbuf_disable(struct rbuf * rbuf)
 {
-    rbuf->disable_cnt++;
+    fetch_and_add(&rbuf->disable_cnt, 1);
 }
 
 static inline void
 rbuf_enable(struct rbuf * rbuf)
 {
-    assert(rbuf->disable_cnt);
-    rbuf->disable_cnt--;
+    assert(fetch_and_add(&rbuf->disable_cnt, -1) > 0);
 }
 
 static inline boolean
@@ -372,7 +374,7 @@ nop_set_mcount(void)
     __current_ftrace_graph_return = ftrace_stub;
 }
 
-static void 
+static boolean
 nop_print(struct ftrace_printer * p, struct rbuf * rbuf)
 {
     if (p->flags & TRACE_FLAG_HEADER) {
@@ -386,6 +388,8 @@ nop_print(struct ftrace_printer * p, struct rbuf * rbuf)
         printer_write(p, "#           TASK-PID   CPU#     TIMESTAMP  FUNCTION\n");
         printer_write(p, "#              | |       |         |         |\n");
     }
+
+    return false;
 }
 
 /*
@@ -469,25 +473,27 @@ function_print_entry(struct ftrace_printer * p, struct rbuf_entry * entry)
     printer_write(p, "\n");
 }
 
-static void
+static boolean
 function_print_nondestructive(struct ftrace_printer * p, struct rbuf * rbuf)
 {
     struct rbuf_entry * entry;
     unsigned long idx;
 
-    for (idx  = rbuf->read_idx;
+    for (idx  = rbuf->local_idx;
          idx != rbuf->write_idx;
          idx  = rbuf_next_idx(rbuf, idx))
     {
         entry = &(rbuf->trace_array[idx]);
         function_print_entry(p, entry);
-
         if (printer_length(p) >= printer_size(p))
             break;
     }
+    rbuf->local_idx = idx;
+
+    return idx != rbuf->write_idx; /* more */
 }
 
-static void
+static boolean
 function_print_destructive(struct ftrace_printer * p, struct rbuf * rbuf)
 {
     struct rbuf_entry * entry;
@@ -497,9 +503,11 @@ function_print_destructive(struct ftrace_printer * p, struct rbuf * rbuf)
         if (printer_length(p) >= printer_size(p))
             break;
     }
+
+    return rbuf->count > 0;     /* more */
 }
 
-static void 
+static boolean
 function_print(struct ftrace_printer * p, struct rbuf * rbuf)
 
 {
@@ -513,12 +521,13 @@ function_print(struct ftrace_printer * p, struct rbuf * rbuf)
         printer_write(p, "#\n");
         printer_write(p, "#           TASK-PID   CPU#     TIMESTAMP  FUNCTION\n");
         printer_write(p, "#              | |       |         |         |\n");
+        p->flags &= ~TRACE_FLAG_HEADER;
     }
 
     if (p->flags & TRACE_FLAG_DESTRUCTIVE)
-        function_print_destructive(p, rbuf);
+        return function_print_destructive(p, rbuf);
     else
-        function_print_nondestructive(p, rbuf);
+        return function_print_nondestructive(p, rbuf);
 }
 
 /*
@@ -541,7 +550,7 @@ function_graph_set_mcount(void)
     __current_ftrace_graph_return = function_graph_trace;
 }
 
-static void
+static boolean
 function_graph_print(struct ftrace_printer * p, struct rbuf * rbuf)
 {
     if (p->flags & TRACE_FLAG_HEADER) {
@@ -549,9 +558,11 @@ function_graph_print(struct ftrace_printer * p, struct rbuf * rbuf)
         printer_write(p, "#\n");
         printer_write(p, "# CPU  DURATION                  FUNCTION CALLS\n");
         printer_write(p, "# |     |   |                     |   |   |   |\n");
+        p->flags &= ~TRACE_FLAG_HEADER;
     }
 
     /* TODO */
+    return false;
 }
 
 #define FTRACE_TRACER(_name, _trace_fn, _mcount_update, _print_fn)\
@@ -738,16 +749,14 @@ static boolean trace_is_open = false;
 static sysreturn
 FTRACE_FN(trace, init)(struct ftrace_printer * p, u64 flags)
 {
-     int ret;
-
     if (trace_is_open)
         return -EBUSY;
 
-    ret = printer_init(p, flags | TRACE_FLAG_HEADER);
-    if (ret != 0)
+    if (printer_init(p, flags | TRACE_FLAG_HEADER))
         return -ENOMEM;
 
     rbuf_disable(&global_rbuf);
+    global_rbuf.local_idx = global_rbuf.read_idx;
     trace_is_open = true;
 
     return 0;
@@ -758,8 +767,9 @@ FTRACE_FN(trace, deinit)(struct ftrace_printer * p)
 {
     assert(trace_is_open);
     trace_is_open = false;
-    rbuf_enable(&global_rbuf);
     printer_deinit(p);
+    global_rbuf.local_idx = -1ull;
+    rbuf_enable(&global_rbuf);
     return 0;
 }
 
@@ -778,13 +788,16 @@ FTRACE_FN(trace, close)(file f)
 static sysreturn
 FTRACE_FN(trace, get)(struct ftrace_printer * p)
 {
+    sysreturn rv = 0;
+
     rbuf_lock(&global_rbuf);
     {
-        current_tracer->print_fn(p, &global_rbuf);
+        if (current_tracer->print_fn(p, &global_rbuf))
+            rv = 1;             /* more to print */
     }
     rbuf_unlock(&global_rbuf);
 
-    return 0;
+    return rv;
 }
 
 static sysreturn
@@ -801,7 +814,7 @@ FTRACE_FN(trace, put)(struct ftrace_printer * p)
 }
 
 /* 32 KB: amount of data we will readahead on all queries of trace data. This
- * is especailly necessary for non-destructive reads, long sequences of which
+ * is especially necessary for non-destructive reads, long sequences of which
  * would otherwise require us to re-generate a lot of buffer entries on every
  * system call
  */
@@ -854,7 +867,7 @@ FTRACE_FN(trace, read)(file f, void * buf, u64 length, u64 offset)
     printer_set_size(&trace_printer, get_trace_readahead_size(length, offset));
 
     ret = FTRACE_FN(trace, get)(&trace_printer);
-    if (ret != 0)
+    if (ret < 0)
         return ret;
     
     return printer_flush_user(&trace_printer, buf, length, offset);
@@ -943,6 +956,8 @@ FTRACE_FN(trace_pipe, init)(struct ftrace_printer * p, u64 flags)
     if (printer_init(p, flags | TRACE_FLAG_DESTRUCTIVE))
         return -ENOMEM;
 
+    rbuf_disable(&global_rbuf);
+    global_rbuf.local_idx = global_rbuf.read_idx;
     trace_pipe_is_open = true;
     return 0;
 }
@@ -953,20 +968,23 @@ FTRACE_FN(trace_pipe, deinit)(struct ftrace_printer * p)
     assert(trace_pipe_is_open);
     trace_pipe_is_open = false;
     printer_deinit(p);
+    global_rbuf.local_idx = -1ull;
+    rbuf_enable(&global_rbuf);
     return 0;
 }
 
 static sysreturn
 FTRACE_FN(trace_pipe, get)(struct ftrace_printer * p)
 {
-    rbuf_disable(&global_rbuf);
+    sysreturn rv = 0;
+
     rbuf_lock(&global_rbuf);
     {
-        current_tracer->print_fn(p, &global_rbuf);
+        if (current_tracer->print_fn(p, &global_rbuf))
+            rv = 1;             /* more to print */
     }
     rbuf_unlock(&global_rbuf);
-    rbuf_enable(&global_rbuf);
-    return 0;
+    return rv;
 }
 
 sysreturn
@@ -1135,14 +1153,14 @@ routine_list[] = {
 #define FTRACE_NR_ROUTINES (sizeof(routine_list) / sizeof(struct ftrace_routine))
 
 static int
-ftrace_find_routine(const char * relative_uri, struct ftrace_routine ** routine_p)
+ftrace_find_routine(buffer relative_uri, struct ftrace_routine ** routine_p)
 {
     int i;
 
     for (i = 0; i < FTRACE_NR_ROUTINES; i++) {
         struct ftrace_routine * routine = &(routine_list[i]);
 
-        if (runtime_strcmp(routine->relative_uri, relative_uri) == 0) {
+        if (buffer_compare_with_cstring(relative_uri, routine->relative_uri)) {
             *routine_p = routine;
             return 0;
         }
@@ -1160,6 +1178,16 @@ format_usage_buffer(void)
     bprintf(b, "\tTODO list them out\n");
 
     return b;
+}
+
+static void
+ftrace_send_http_chunked_response(buffer_handler handler)
+{
+    status s;
+
+    s = send_http_chunked_response(handler, timm("ContentType", "text/html"));
+    if (!is_ok(s))
+        msg_err("ftrace: failed to send HTTP response\n");
 }
 
 static void 
@@ -1211,8 +1239,69 @@ ftrace_send_http_server_error(buffer_handler handler)
         msg_err("ftrace: failed to send HTTP response\n");
 }
 
+
+static boolean
+__ftrace_send_http_chunk_internal(struct ftrace_routine * routine, struct ftrace_printer * p,
+                                  boolean local_printer, buffer_handler out)
+{
+    sysreturn ret;
+    ret = routine->get_fn(p);
+
+    /* no real error handling for http get here */
+    if (ret < 0) {
+        msg_err("%s: get failed with %d\n", __func__, ret);
+        return false;
+    }
+
+    status s = send_http_chunk(out, printer_buffer(p));
+    if (!is_ok(s))
+        goto send_http_chunk_failed;
+
+    if (ret == 0) {
+        s = send_http_chunk(out, 0);
+
+        if (routine->deinit_fn) {
+            /* deinit without init? */
+            assert(routine->init_fn);
+            (void)routine->deinit_fn(p);
+        }
+
+        if (local_printer)
+            printer_deinit(p);
+
+        if (!is_ok(s))
+            goto send_http_chunk_failed;
+        return false;
+    }
+
+    /* reset printer for next chunk */
+    if (printer_init(p, p->flags) < 0) {
+        msg_err("%s: printer_init failed (alloc)\n", __func__);
+        return false;
+    }
+
+    /* ret > 0, so more to send */
+    return true;
+  send_http_chunk_failed:
+    msg_err("%s: send_http_chunk failed with %v\n", __func__, s);
+    return false;
+}
+
+#define SEND_HTTP_CHUNK_INTERVAL_MS     (milliseconds(75))
+
+/* simultaneous requests might present issues, so ... don't do them?? */
+closure_function(4, 0, void, __ftrace_send_http_chunk,
+                 struct ftrace_routine *, routine, struct ftrace_printer *, p, boolean, local_printer, buffer_handler, out)
+{
+    if (__ftrace_send_http_chunk_internal(bound(routine), bound(p), bound(local_printer), bound(out))) {
+        register_timer(SEND_HTTP_CHUNK_INTERVAL_MS, (thunk)closure_self());
+    } else {
+        closure_finish();
+    }
+}
+
 static void
-__ftrace_do_http_method(buffer_handler handler, struct ftrace_routine * routine,
+__ftrace_do_http_method(buffer_handler out, struct ftrace_routine * routine,
                         boolean is_put, buffer put_data)
 {
     sysreturn ret;
@@ -1248,30 +1337,28 @@ __ftrace_do_http_method(buffer_handler handler, struct ftrace_routine * routine,
     if (is_put) {
         printer_write(p, buffer_ref(put_data, 0));
         ret = routine->put_fn(p);
-        if (ret != 0)
-            goto internal_err_deinit;
+        if (ret != 0) {
+            if (routine->deinit_fn) {
+                /* deinit without init? */
+                assert(routine->init_fn);
+                (void)routine->deinit_fn(p);
+            }
+
+            if (local_printer)
+                printer_deinit(p);
+        }
+        ftrace_send_http_response(out, printer_buffer(p));
     } else {
-        ret = routine->get_fn(p);
-        if (ret != 0)
-            goto internal_err_deinit;
+        ftrace_send_http_chunked_response(out);
+        if (__ftrace_send_http_chunk_internal(routine, p, local_printer, out)) {
+            thunk t = closure(ftrace_heap, __ftrace_send_http_chunk, routine, p, local_printer, out);
+            register_timer(SEND_HTTP_CHUNK_INTERVAL_MS, t);
+        }
     }
-
-    /* all good -- format the response with the printer data */
-    ftrace_send_http_response(handler, printer_buffer(p));
-
-internal_err_deinit:
-    if (routine->deinit_fn) {
-        /* deinit without init? */
-        assert(routine->init_fn);
-        (void)routine->deinit_fn(p);
-    }
-
-    if (local_printer)
-        printer_deinit(p);
-
+    return;
 internal_err:
     if (ret != 0)
-        ftrace_send_http_server_error(handler);
+        ftrace_send_http_server_error(out);
 }
 
 
@@ -1302,7 +1389,7 @@ closure_function(0, 3, void, ftrace_http_request,
         return;
     }
 
-    ret = ftrace_find_routine(buffer_ref(relative_uri, 0), &routine);
+    ret = ftrace_find_routine(relative_uri, &routine);
     if (ret != 0) {
         ftrace_send_http_uri_not_found(handler);
         return;
@@ -1366,6 +1453,7 @@ ftrace_init(unix_heaps uh, filesystem fs)
     int ret;
 
     ftrace_heap = heap_general(&(uh->kh));
+    rbuf_heap = heap_backed(&(uh->kh));
 
     /* init http listener */
     ret = init_http_listener();
