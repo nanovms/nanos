@@ -138,13 +138,13 @@ struct ftrace_routine {
 struct ftrace_graph_entry {
     unsigned long retaddr; /* retaddr in caller */
     unsigned long func; /* function being traced */
-    unsigned long overrun; /* XXX do we use? */
-    unsigned long entry_ts; /* entry timestamp */
-    unsigned long return_ts; /* return timestamp */
+    timestamp entry_ts; /* entry timestamp */
+    timestamp return_ts; /* return timestamp */
     unsigned long fp; /* frame pointer (just used for sanity checking) */
-    //unsigned long * retp; /* address of where retaddr sits on the stack */
     unsigned short depth; /* depth on the call stack */
     unsigned short has_child; /* did this function call anything? */
+    //unsigned long overrun; /* XXX do we use? */
+    //unsigned long * retp; /* address of where retaddr sits on the stack */
 };
 
 extern void ftrace_stub(unsigned long, unsigned long);
