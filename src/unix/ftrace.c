@@ -154,8 +154,8 @@ typedef void (*ftrace_graph_entry_t)(struct ftrace_graph_entry * );
 typedef void (*ftrace_graph_return_t)(struct ftrace_graph_entry *);
 
 /*
- * These three pointers are queried by mcount() to determine if we've tracing
- * is enabled for function, function_graph, or neither
+ * These three pointers are queried by mcount() to determine if tracing is
+ * enabled for function, function_graph, or neither
  *
  * They should be set to these stubs, or the associated trace function if
  * active
