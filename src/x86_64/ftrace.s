@@ -92,7 +92,6 @@ extern ftrace_return_to_handler
 %endmacro
 
 global ftrace_stub
-global ftrace_graph_entry_stub
 global mcount
 global return_to_handler
 
@@ -108,9 +107,6 @@ mcount:
 
 ;; fall through to ret
 ftrace_stub:
-    ret
-
-ftrace_graph_entry_stub:
     ret
 
 do_trace:
