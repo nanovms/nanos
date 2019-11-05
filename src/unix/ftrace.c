@@ -1828,12 +1828,14 @@ extern void return_to_handler(void);
  * init_unix()
  *
  * We save the original return address as well as the frame_pointer on the
- * current thread structure; when our return stub function (return_to_handler)
- * is invokes ftrace_return_to_handler() (implemented below), which
- * queries the original return address from the thread structure and jumps
- * directly to it
+ * current thread structure before redirecting the return path to a stub
+ * function, return_to_handler (defined in ftrace.s). return_to_handler invokes
+ * ftrace_return_to_handler(), defined below, which queries the original return
+ * address from the thread structure and jumps directly to it after recording
+ * whatever tracing info it needs
  *
- * The frame pointer is just passed so we can sanity check it on function return
+ * The frame pointer is just passed so we can sanity check it on function
+ * return
  */
 __attribute__((no_instrument_function))
 void
