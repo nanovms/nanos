@@ -384,10 +384,10 @@ static void
 rbuf_reset(struct rbuf * rbuf)
 {
     rbuf->count = 0;
+    rbuf->local_idx = 0;
     rbuf->read_idx = 0;
     rbuf->write_idx = 0;
     rbuf->total_written = 0;
-    rbuf->disable_cnt = 0;
 }
 
 static int
@@ -404,6 +404,10 @@ rbuf_init(struct rbuf * rbuf, unsigned long buffer_size_kb)
     }
 
     rbuf_reset(rbuf);
+
+    /* start out disabled */
+    rbuf->disable_cnt = 1;
+
     return 0;
 }
 
@@ -495,9 +499,6 @@ function_trace(unsigned long ip, unsigned long parent_ip)
     struct rbuf_entry * entry;
     struct rbuf_entry_function * func;
 
-    if (!tracing_on || !rbuf_enabled(&global_rbuf))
-        return;
-
     /* disable any more events while we're in here */
     rbuf_disable(&global_rbuf);
 
@@ -515,13 +516,12 @@ function_trace(unsigned long ip, unsigned long parent_ip)
     func->ts = rdtsc();
     runtime_memcpy(func->name, current->name, 15);
 
-out_enable:
-    rbuf_unlock(&global_rbuf);
     rbuf_enable(&global_rbuf);
+    rbuf_unlock(&global_rbuf);
     return;
 drop:
     /* XXX count the drop */
-    goto out_enable;
+    return;
 }
 
 __attribute__((no_instrument_function))
@@ -599,12 +599,6 @@ function_graph_trace_switch(thread out, thread in)
     struct rbuf_entry * entry;
     struct rbuf_entry_switch * sw;
 
-    /* this isn't possible at the moment, but with SMP or interruptible kernel
-     * code it would be
-     */
-    if (!tracing_on)
-        return;
-
     rbuf_lock(&global_rbuf);
     if (!__rbuf_acquire_write_entry(&global_rbuf, &entry))
         goto drop;
@@ -634,12 +628,6 @@ function_graph_trace_entry(struct ftrace_graph_entry * stack_entry)
     struct rbuf_entry * entry;
     struct rbuf_entry_function_graph * graph;
 
-    /* this isn't possible at the moment, but with SMP or interruptible kernel
-     * code it would be
-     */
-    if (!tracing_on)
-        return;
-
     rbuf_lock(&global_rbuf);
     if (!__rbuf_acquire_write_entry(&global_rbuf, &entry))
         goto drop;
@@ -668,12 +656,6 @@ function_graph_trace_return(struct ftrace_graph_entry * stack_entry)
 {
     struct rbuf_entry * entry;
     struct rbuf_entry_function_graph * graph;
-
-    /* this isn't possible at the moment, but with SMP or interruptible kernel
-     * code it would be
-     */
-    if (!tracing_on)
-        return;
 
     rbuf_lock(&global_rbuf);
     if (!__rbuf_acquire_write_entry(&global_rbuf, &entry))
@@ -807,7 +789,6 @@ ftrace_print_rbuf_nondestructive(struct ftrace_printer * p, struct rbuf * rbuf,
     {
         entry = &(rbuf->trace_array[idx]);
         tracer->print_entry_fn(p, entry);
-
         if (printer_length(p) >= printer_size(p))
             break;
     }
@@ -861,6 +842,8 @@ tracer_list[] = {
         function_graph_print_header, function_graph_print_entry
     )
 };
+#define FTRACE_FUNCTION_IDX 1
+#define FTRACE_FUNCTION_GRAPH_IDX 2
 #define FTRACE_NR_TRACERS (sizeof(tracer_list) / sizeof(struct ftrace_tracer))
 
 /**** Start interface operations ****/
@@ -946,9 +929,13 @@ FTRACE_FN(current_tracer, put)(struct ftrace_printer * p)
 
         if (runtime_strcmp(tracer->name, str) == 0) {
             if (tracer != current_tracer) {
-                current_tracer->mcount_toggle(false);
+                rbuf_disable(&global_rbuf);
+
+                /* clear the rbuf */
+                rbuf_reset(&global_rbuf);
                 current_tracer = tracer;
-                current_tracer->mcount_toggle(true);
+
+                rbuf_enable(&global_rbuf);
             }
             ret = 0;
             goto out;
@@ -1286,9 +1273,10 @@ FTRACE_FN(trace_pipe, read)(file f, void * buf, u64 length, u64 offset)
     printer_set_size(&trace_pipe_printer, length);
 
     ret = FTRACE_FN(trace_pipe, get)(&trace_pipe_printer);
-    if (ret != 0)
+    if (ret < 0)
         return ret;
 
+    /* this is supposed to block, just send -EAGAIN */
     if (printer_length(&trace_pipe_printer) == 0)
         return -EAGAIN;
 
@@ -1329,12 +1317,22 @@ static sysreturn
 FTRACE_FN(tracing_on, put)(struct ftrace_printer * p)
 {
     char * str = (char *)buffer_ref(printer_buffer(p), 0);
+    boolean old;
+
+    old = tracing_on;
     if (str[0] == '0')
         tracing_on = false;
     else if (str[0]== '1')
         tracing_on = true;
     else
         return -EINVAL;
+
+    if (old != tracing_on) {
+        if (tracing_on)
+            rbuf_enable(&global_rbuf);
+        else
+            rbuf_disable(&global_rbuf);
+    }
 
     return 0;
 }
@@ -1739,6 +1737,8 @@ init_http_listener(void)
         return -1;
     }
 
+    rprintf("started DEBUG http listener on port %d\n", FTRACE_TRACE_PORT);
+
     return 0;
 }
 
@@ -1804,6 +1804,9 @@ ftrace_thread_switch(thread out, thread in)
 {
     in->graph_idx = 0;
 
+    if (!rbuf_enabled(&global_rbuf))
+        return;
+
     /* generate a ctx switch event if we're running function graph */
     rbuf_disable(&global_rbuf);
     if (runtime_strcmp(current_tracer->name, "function_graph") == 0)
@@ -1847,7 +1850,7 @@ prepare_ftrace_return(unsigned long self, unsigned long * parent,
     int depth;
 
     /* does user want tracing */
-    if (!tracing_on || !rbuf_enabled(&global_rbuf))
+    if (!rbuf_enabled(&global_rbuf))
         return;
 
     rbuf_disable(&global_rbuf);
@@ -1918,8 +1921,11 @@ ftrace_return_to_handler(unsigned long frame_pointer)
     stack_ent->return_ts = now();
     retaddr = stack_ent->retaddr;
 
-    /* invoke the graph return fn */
-    function_graph_trace_return(stack_ent);
+    /* it's possible the current tracer changed after we modified some return
+     * addresses, and one of those returns is hitting now ...
+     */
+    if (current_tracer == &tracer_list[FTRACE_FUNCTION_GRAPH_IDX])
+        function_graph_trace_return(stack_ent);
 
     rbuf_enable(&global_rbuf);
 
@@ -1931,8 +1937,7 @@ ftrace_return_to_handler(unsigned long frame_pointer)
 void
 ftrace_enable(void)
 {
-    current_tracer->mcount_toggle(false);
-    current_tracer = &(tracer_list[2]);
-    current_tracer->mcount_toggle(true);
+    current_tracer = &(tracer_list[FTRACE_FUNCTION_GRAPH_IDX]);
+    rbuf_enable(&global_rbuf);
     tracing_on = true;
 }
