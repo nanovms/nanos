@@ -4,7 +4,6 @@
 #include <x86_64.h>
 #include <symtab.h>
 #include <http.h>
-#include <list.h>
 
 /* 64MB default size for the user's trace array */
 #define DEFAULT_TRACE_ARRAY_SIZE        (64ULL << 20)
