@@ -946,7 +946,7 @@ FTRACE_FN(current_tracer, put)(struct ftrace_printer * p)
 
         if (runtime_strcmp(tracer->name, str) == 0) {
             if (tracer != current_tracer) {
-                tracer->mcount_toggle(false);
+                current_tracer->mcount_toggle(false);
                 current_tracer = tracer;
                 current_tracer->mcount_toggle(true);
             }
