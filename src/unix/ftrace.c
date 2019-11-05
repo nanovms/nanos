@@ -150,8 +150,7 @@ struct ftrace_graph_entry {
 extern void ftrace_stub(unsigned long, unsigned long);
 
 typedef void (*ftrace_function_t)(unsigned long, unsigned long);
-typedef void (*ftrace_graph_entry_t)(struct ftrace_graph_entry * );
-typedef void (*ftrace_graph_return_t)(struct ftrace_graph_entry *);
+typedef void (*ftrace_graph_t)(struct ftrace_graph_entry * );
 
 /*
  * These three pointers are queried by mcount() to determine if tracing is
@@ -162,10 +161,8 @@ typedef void (*ftrace_graph_return_t)(struct ftrace_graph_entry *);
  */
 
 ftrace_function_t  __ftrace_function_fn = ftrace_stub;
-ftrace_graph_entry_t  __ftrace_graph_entry_fn
-        = (ftrace_graph_entry_t)ftrace_stub;
-ftrace_graph_return_t __ftrace_graph_return_fn
-        = (ftrace_graph_return_t)ftrace_stub;
+ftrace_graph_t  __ftrace_graph_entry_fn = (ftrace_graph_t)ftrace_stub;
+ftrace_graph_t __ftrace_graph_return_fn = (ftrace_graph_t)ftrace_stub;
 
 
 /* just a single rbuf for now, though this might need to be per-cpu once we
@@ -473,8 +470,8 @@ static void
 nop_toggle(boolean enable)
 {
     __ftrace_function_fn = ftrace_stub;
-    __ftrace_graph_entry_fn = (ftrace_graph_entry_t)ftrace_stub;
-    __ftrace_graph_return_fn = (ftrace_graph_return_t)ftrace_stub;
+    __ftrace_graph_entry_fn = (ftrace_graph_t)ftrace_stub;
+    __ftrace_graph_return_fn = (ftrace_graph_t)ftrace_stub;
 }
 
 static void
@@ -710,8 +707,8 @@ function_graph_toggle(boolean enable)
         __ftrace_graph_entry_fn = function_graph_trace_entry;
         __ftrace_graph_return_fn = function_graph_trace_return;
     } else {
-        __ftrace_graph_entry_fn = (ftrace_graph_entry_t)ftrace_stub;
-        __ftrace_graph_return_fn = (ftrace_graph_return_t)ftrace_stub;
+        __ftrace_graph_entry_fn = (ftrace_graph_t)ftrace_stub;
+        __ftrace_graph_return_fn = (ftrace_graph_t)ftrace_stub;
     }
 }
 
