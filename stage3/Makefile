@@ -1,5 +1,5 @@
 LWIPDIR=	$(VENDORDIR)/lwip
-
+	
 PROGRAMS=	stage3.img
 SRCS-stage3.img= \
 	$(CURDIR)/stage3.c \
@@ -121,10 +121,10 @@ CFLAGS+= \
 
 # Enable tracing by specifying TRACE=ftrace on command line
 ifeq ($(TRACE),ftrace)
+CFLAGS+= -DCONFIG_FTRACE -pg
 SRCS-stage3.img+= \
 	$(SRCDIR)/unix/ftrace.c \
 	$(SRCDIR)/x86_64/ftrace.s
-CFLAGS+= -DCONFIG_FTRACE -pg
 endif
 
 #CFLAGS+=	-DLWIPDIR_DEBUG -DEPOLL_DEBUG -DNETSYSCALL_DEBUG -DKERNEL_DEBUG

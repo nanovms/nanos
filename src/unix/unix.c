@@ -258,10 +258,17 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
 	goto alloc_fail;
     if (!pipe_init(uh))
 	goto alloc_fail;
+
+    if (ftrace_init(uh, fs))
+	goto alloc_fail;
+
     set_syscall_handler(syscall_enter);
     process kernel_process = create_process(uh, root, fs);
     current = dummy_thread = create_thread(kernel_process);
     running_frame = current->frame;
+
+    /* XXX remove once we have http PUT support */
+    ftrace_enable();
 
     /* Install a fault handler for use when anonymous pages are
        faulted in within the interrupt handler (e.g. syscall bottom
@@ -284,9 +291,6 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
 	goto alloc_fail;
     register_net_syscalls(linux_syscalls);
 #endif
-
-    if (ftrace_init(uh, fs))
-	goto alloc_fail;
 
     register_signal_syscalls(linux_syscalls);
     register_mmap_syscalls(linux_syscalls);

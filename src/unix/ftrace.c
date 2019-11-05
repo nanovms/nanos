@@ -4,8 +4,9 @@
 #include <x86_64.h>
 #include <symtab.h>
 #include <http.h>
+#include <list.h>
 
-/* 1MB default size for the user's trace array */
+/* 64MB default size for the user's trace array */
 #define DEFAULT_TRACE_ARRAY_SIZE        (64ULL << 20)
 #define DEFAULT_TRACE_ARRAY_SIZE_KB     (DEFAULT_TRACE_ARRAY_SIZE >> 10)
 
@@ -15,8 +16,14 @@
 /* 4KB; will grow dynamically */
 #define TRACE_PRINTER_INIT_SIZE (1ULL << 12)
 
-/* MAX size: larger than 1MB buffers not currently supported on general heap */
-#define TRACE_PRINTER_MAX_SIZE  (1ULL << 19)
+/* Larger than 1MB buffers not currently supported on general heap */
+#define TRACE_PRINTER_MAX_SIZE  (1ULL << 18)
+
+/* Special context switch event */
+#define TRACE_GRAPH_SWITCH_DEPTH (unsigned short)(-1)
+
+/* can't trace depths longer than this ... */
+#define FTRACE_RETFUNC_DEPTH 64
 
 static heap ftrace_heap;
 static heap rbuf_heap;
@@ -24,16 +31,45 @@ static heap rbuf_heap;
 /* whether or not to write into the ring buffer */
 static boolean tracing_on = false;
 
+/* currently running tracer */
+struct ftrace_tracer * current_tracer = 0;
+
 /* http listener */
 static http_listener ftrace_hl;
 
-struct rbuf_entry {
+struct rbuf_entry_function {
     unsigned long ip;
     unsigned long parent_ip;
-    unsigned long tsc;
+    unsigned long ts; /* XXX only supports tsc at the moment */
     unsigned short cpu;
     int tid;
-    char name[15]; /* unfortunate but safer than accessing a thread pointer */
+    char name[15];
+};
+
+struct rbuf_entry_function_graph {
+    unsigned short depth; /* must be first */
+    unsigned long ip;
+    timestamp duration;
+    unsigned short cpu;
+    unsigned short has_child;
+    char name[15];
+};
+
+struct rbuf_entry_switch {
+    unsigned short depth; /* must be first */
+    unsigned short cpu;
+    int tid_in;
+    int tid_out;
+    char name_in[15];
+    char name_out[15];
+};
+
+struct rbuf_entry {
+    union {
+        struct rbuf_entry_function func;
+        struct rbuf_entry_function_graph graph;
+        struct rbuf_entry_switch sw;
+    };
 };
 
 struct rbuf {
@@ -77,10 +113,13 @@ struct ftrace_tracer {
 
     /* trace_fn must be marked as 'no_instrument_function' or else you're gonna
      * blow up the call stack and crash
+     *
+     * mcount_toggle should be as well as a performance optimization
      */
     void (*trace_fn)(unsigned long, unsigned long);
-    void (*mcount_update)(void);
-    boolean (*print_fn)(struct ftrace_printer * p, struct rbuf * rbuf);
+    void (*mcount_toggle)(boolean enable);
+    void (*print_header_fn)(struct ftrace_printer * p, struct rbuf * r);
+    void (*print_entry_fn)(struct ftrace_printer * p, struct rbuf_entry * e);
 };
 
 struct ftrace_routine {
@@ -95,6 +134,46 @@ struct ftrace_routine {
     sysreturn (*get_fn)(struct ftrace_printer * p);
     sysreturn (*put_fn)(struct ftrace_printer * p);
 };
+
+/* Structure for function_graph tracing */
+struct ftrace_graph_entry {
+    unsigned long retaddr; /* retaddr in caller */
+    unsigned long func; /* function being traced */
+    unsigned long overrun; /* XXX do we use? */
+    unsigned long entry_ts; /* entry timestamp */
+    unsigned long return_ts; /* return timestamp */
+    unsigned long fp; /* frame pointer (just used for sanity checking) */
+    //unsigned long * retp; /* address of where retaddr sits on the stack */
+    unsigned short depth; /* depth on the call stack */
+    unsigned short has_child; /* did this function call anything? */
+};
+
+extern void ftrace_stub(unsigned long, unsigned long);
+
+typedef void (*ftrace_function_t)(unsigned long, unsigned long);
+typedef void (*ftrace_graph_entry_t)(struct ftrace_graph_entry * );
+typedef void (*ftrace_graph_return_t)(struct ftrace_graph_entry *);
+
+/*
+ * These three pointers are queried by mcount() to determine if we've tracing
+ * is enabled for function, function_graph, or neither
+ *
+ * They should be set to these stubs, or the associated trace function if
+ * active
+ */
+
+ftrace_function_t  __ftrace_function_fn = ftrace_stub;
+ftrace_graph_entry_t  __ftrace_graph_entry_fn
+        = (ftrace_graph_entry_t)ftrace_stub;
+ftrace_graph_return_t __ftrace_graph_return_fn
+        = (ftrace_graph_return_t)ftrace_stub;
+
+
+/* just a single rbuf for now, though this might need to be per-cpu once we
+ * have smp
+ */
+static struct rbuf global_rbuf;
+
 
 /*
  * helper to write a buffer to userspace, paying attention
@@ -151,7 +230,7 @@ printer_init(struct ftrace_printer * p, unsigned long flags)
     return 0;
 }
 
-static void 
+static void
 printer_deinit(struct ftrace_printer * p)
 {
     /* HTTP based freeing is done somewhere within the http/tcp/udp code?? */
@@ -247,19 +326,51 @@ printer_print_right_adjusted(struct ftrace_printer * p, char * str,
     printer_write(p, str);
 }
 
+static inline char *
+function_name(unsigned long ip)
+{
+    u64 offset, len;
+    return find_elf_sym(ip, &offset, &len);
+}
+
 static inline void
 printer_print_sym(struct ftrace_printer * p, unsigned long ip)
 {
-    char * name;
-    u64 offset, len;
-
-    name = find_elf_sym(ip, &offset, &len);
+    char * name = function_name(ip);
     if (name)
         printer_write(p, name);
     else
         printer_write(p, "<< unknown symbol >>");
 }
 
+/* write timestamp in "num" to the printer using at most "width" spaces */
+static inline void
+printer_print_duration_usec(struct ftrace_printer * p, timestamp num, u16 width)
+{
+    u64 usec, nsec;
+
+    /* this is kind of nasty, but would rather not do memory allocation on every
+     * invocation of this function
+     */
+    static buffer b = 0;
+
+    if (b == 0) {
+        b = allocate_buffer(ftrace_heap, 128);
+        assert(b != INVALID_ADDRESS);
+    }
+
+    usec = usec_from_timestamp(num);
+    nsec = nsec_from_timestamp(num);
+    bprintf(b, "%ld.%ld", usec, nsec);
+
+    /* truncate the buffer after "width" digits */
+    ((char *)buffer_ref(b, 0))[width] = '\0';
+    printer_write(p, (char *)buffer_ref(b, 0));
+
+    printer_write(p, " us");
+
+    buffer_clear(b);
+}
 
 #define rbuf_next_idx(r, idx)   (idx == r->size - 1) ? 0 : idx + 1
 #define rbuf_next_write_idx(r)  rbuf_next_idx(r, r->write_idx)
@@ -303,13 +414,18 @@ rbuf_init(struct rbuf * rbuf, unsigned long buffer_size_kb)
 static inline void
 rbuf_disable(struct rbuf * rbuf)
 {
-    fetch_and_add(&rbuf->disable_cnt, 1);
+    /* disable mcount on first disable */
+    if (fetch_and_add(&rbuf->disable_cnt, 1) == 0)
+        current_tracer->mcount_toggle(false);
 }
 
 static inline void
 rbuf_enable(struct rbuf * rbuf)
 {
-    assert(fetch_and_add(&rbuf->disable_cnt, -1) > 0);
+    /* enable mcount on last enable */
+    assert(rbuf->disable_cnt > 0);
+    if (fetch_and_add(&rbuf->disable_cnt, -1) == 1)
+        current_tracer->mcount_toggle(true);
 }
 
 static inline boolean
@@ -322,8 +438,10 @@ rbuf_enabled(struct rbuf * rbuf)
 static inline boolean
 __rbuf_acquire_write_entry(struct rbuf * rbuf, struct rbuf_entry ** acquired)
 {
-    if (rbuf->count == rbuf->size - 1)
+    if (rbuf->count == rbuf->size - 1) {
+        assert(1==0);
         return false;
+    }
 
     *acquired = &(rbuf->trace_array[rbuf->write_idx]);
 
@@ -348,60 +466,38 @@ __rbuf_acquire_read_entry(struct rbuf * rbuf, struct rbuf_entry ** acquired)
     return true;
 }
 
-/*
- * These two pointers are queried by mcount() to determine if we've currently
- * enabled tracing
- *
- * They should be set to ftrace_stub to disable tracing, or the associated
- * trace function if active
- */
-ftrace_func_t __current_ftrace_trace_fn = ftrace_stub;
-ftrace_func_t __current_ftrace_graph_return = ftrace_stub;
-
-/* just a single rbuf for now, though this might need to be per-cpu once we
- * have smp
- */
-static struct rbuf global_rbuf;
-
-
 /*** Start tracer callbacks */
 
 /* nop tracer */
+__attribute__((no_instrument_function))
 static void
-nop_set_mcount(void)
+nop_toggle(boolean enable)
 {
-    __current_ftrace_trace_fn = ftrace_stub;
-    __current_ftrace_graph_return = ftrace_stub;
+    __ftrace_function_fn = ftrace_stub;
+    __ftrace_graph_entry_fn = (ftrace_graph_entry_t)ftrace_stub;
+    __ftrace_graph_return_fn = (ftrace_graph_return_t)ftrace_stub;
 }
 
-static boolean
-nop_print(struct ftrace_printer * p, struct rbuf * rbuf)
+static void
+nop_print_header(struct ftrace_printer * p, struct rbuf * rbuf)
 {
-    if (p->flags & TRACE_FLAG_HEADER) {
-        printer_write(p, "# tracer: nop\n");
-        printer_write(p, "#\n");
-        printer_write(p,
-            "# entries-in-buffer/entries-written: %ld/%ld    #P:%d\n",
-            global_rbuf.count, global_rbuf.total_written, 1
-        );
-        printer_write(p, "#\n");
-        printer_write(p, "#           TASK-PID   CPU#     TIMESTAMP  FUNCTION\n");
-        printer_write(p, "#              | |       |         |         |\n");
-    }
-
-    return false;
+    printer_write(p, "# tracer: nop\n");
+    printer_write(p, "#\n");
+    printer_write(p,
+        "# entries-in-buffer/entries-written: %ld/%ld    #P:%d\n",
+        global_rbuf.count, global_rbuf.total_written, 1
+    );
+    printer_write(p, "#\n");
+    printer_write(p, "#           TASK-PID   CPU#     TIMESTAMP  FUNCTION\n");
+    printer_write(p, "#              | |       |         |         |\n");
 }
 
-/*
- * Be careful modifying this function.
- *
- * Anything it calls __must__ be marked no_instrument_function
- * or inlined
- */
-__attribute__((no_instrument_function)) static void
+__attribute__((no_instrument_function))
+static void
 function_trace(unsigned long ip, unsigned long parent_ip)
 {
     struct rbuf_entry * entry;
+    struct rbuf_entry_function * func;
 
     if (!tracing_on || !rbuf_enabled(&global_rbuf))
         return;
@@ -413,12 +509,15 @@ function_trace(unsigned long ip, unsigned long parent_ip)
     if (!__rbuf_acquire_write_entry(&global_rbuf, &entry))
         goto drop;
 
-    entry->cpu = 0;
-    entry->tid = current->tid;
-    entry->ip = ip;
-    entry->parent_ip = parent_ip;
-    entry->tsc = rdtsc();
-    runtime_memcpy(entry->name, current->name, 15);
+    func = &(entry->func);
+    func->cpu = 0;
+    func->tid = current->tid;
+    func->ip = ip;
+    func->parent_ip = parent_ip;
+
+    /* XXX function tracer just supports tsc for now */
+    func->ts = rdtsc();
+    runtime_memcpy(func->name, current->name, 15);
 
 out_enable:
     rbuf_unlock(&global_rbuf);
@@ -429,24 +528,45 @@ drop:
     goto out_enable;
 }
 
+__attribute__((no_instrument_function))
 static void
-function_set_mcount(void)
+function_toggle(boolean enable)
 {
-    __current_ftrace_trace_fn = function_trace;
+    if (enable)
+        __ftrace_function_fn = function_trace;
+    else
+        __ftrace_function_fn = ftrace_stub;
 }
 
-static inline void
+static void
+function_print_header(struct ftrace_printer * p, struct rbuf * rbuf)
+
+{
+    printer_write(p, "# tracer: function\n");
+    printer_write(p, "#\n");
+    printer_write(p,
+        "# entries-in-buffer/entries-written: %ld/%ld    #P:%d\n",
+        global_rbuf.count, global_rbuf.total_written, 1
+    );
+    printer_write(p, "#\n");
+    printer_write(p, "#           TASK-PID   CPU#     TIMESTAMP  FUNCTION\n");
+    printer_write(p, "#              | |       |         |         |\n");
+}
+
+static void
 function_print_entry(struct ftrace_printer * p, struct rbuf_entry * entry)
 {
+    struct rbuf_entry_function * func = &(entry->func);
+
     printer_write(p, " ");
-    printer_print_right_adjusted(p, entry->name, TRACE_TASK_WIDTH);
-    printer_write(p, "-%d", entry->tid);
+    printer_print_right_adjusted(p, func->name, TRACE_TASK_WIDTH);
+    printer_write(p, "-%d", func->tid);
 
     /* pad with spaces as needed */
     {
         int tid, blanks;
 
-        for (tid = entry->tid, 
+        for (tid = func->tid,
              blanks = (tid) ? TRACE_PID_WIDTH : TRACE_PID_WIDTH-1;
              tid > 0;
              tid /= 10)
@@ -459,22 +579,228 @@ function_print_entry(struct ftrace_printer * p, struct rbuf_entry * entry)
     }
 
     /* CPU number */
-    assert(entry->cpu == 0);
+    assert(func->cpu == 0);
     printer_write(p, " [000] ");
 
     /* timestamp */
-    printer_write(p, " %ld: ", entry->tsc);
+    printer_write(p, " %ld: ", func->ts);
 
     /* function and parent */
-    printer_print_sym(p, entry->ip);
+    printer_print_sym(p, func->ip);
     printer_write(p, " <-");
-    printer_print_sym(p, entry->parent_ip);
+    printer_print_sym(p, func->parent_ip);
+
+    printer_write(p, "\n");
+}
+
+/*
+ * This must always called with rbuf already disabled
+ */
+__attribute__((no_instrument_function))
+static void
+function_graph_trace_switch(thread out, thread in)
+{
+    struct rbuf_entry * entry;
+    struct rbuf_entry_switch * sw;
+
+    /* this isn't possible at the moment, but with SMP or interruptible kernel
+     * code it would be
+     */
+    if (!tracing_on)
+        return;
+
+    rbuf_lock(&global_rbuf);
+    if (!__rbuf_acquire_write_entry(&global_rbuf, &entry))
+        goto drop;
+
+    sw = &(entry->sw);
+    sw->depth = TRACE_GRAPH_SWITCH_DEPTH;
+    sw->cpu = 0;
+    sw->tid_in = in->tid;
+    sw->tid_out = out->tid;
+    runtime_memcpy(sw->name_in, in->name, 15);
+    runtime_memcpy(sw->name_out, out->name, 15);
+
+    rbuf_unlock(&global_rbuf);
+    return;
+drop:
+    /* XXX count the drop */
+    return;
+}
+
+/*
+ * This must always called with rbuf already disabled
+ */
+__attribute__((no_instrument_function))
+static void
+function_graph_trace_entry(struct ftrace_graph_entry * stack_entry)
+{
+    struct rbuf_entry * entry;
+    struct rbuf_entry_function_graph * graph;
+
+    /* this isn't possible at the moment, but with SMP or interruptible kernel
+     * code it would be
+     */
+    if (!tracing_on)
+        return;
+
+    rbuf_lock(&global_rbuf);
+    if (!__rbuf_acquire_write_entry(&global_rbuf, &entry))
+        goto drop;
+
+    graph = &(entry->graph);
+    graph->ip = stack_entry->func;
+    graph->duration = 0;
+    graph->cpu = 0;
+    graph->depth = stack_entry->depth;
+    graph->has_child = 1;
+    runtime_memcpy(graph->name, current->name, 15);
+
+    rbuf_unlock(&global_rbuf);
+    return;
+drop:
+    /* XXX count the drop */
+    return;
+}
+
+/*
+ * This must always called with rbuf already disabled
+ */
+__attribute__((no_instrument_function))
+static void
+function_graph_trace_return(struct ftrace_graph_entry * stack_entry)
+{
+    struct rbuf_entry * entry;
+    struct rbuf_entry_function_graph * graph;
+
+    /* this isn't possible at the moment, but with SMP or interruptible kernel
+     * code it would be
+     */
+    if (!tracing_on)
+        return;
+
+    rbuf_lock(&global_rbuf);
+    if (!__rbuf_acquire_write_entry(&global_rbuf, &entry))
+        goto drop;
+
+    graph = &(entry->graph);
+    graph->depth = stack_entry->depth;
+    graph->ip = stack_entry->func;
+    graph->duration = (stack_entry->return_ts - stack_entry->entry_ts);
+    graph->cpu = 0;
+    graph->has_child = stack_entry->has_child;
+
+    /* only need the name if we have no children, otherwise
+      * we already have it in the entry call
+      */
+    if (!graph->has_child)
+        runtime_memcpy(graph->name, current->name, 15);
+
+    rbuf_unlock(&global_rbuf);
+    return;
+drop:
+    /* XXX count the drop */
+    return;
+}
+
+__attribute__((no_instrument_function))
+static void
+function_graph_toggle(boolean enable)
+{
+    if (enable) {
+        __ftrace_graph_entry_fn = function_graph_trace_entry;
+        __ftrace_graph_return_fn = function_graph_trace_return;
+    } else {
+        __ftrace_graph_entry_fn = (ftrace_graph_entry_t)ftrace_stub;
+        __ftrace_graph_return_fn = (ftrace_graph_return_t)ftrace_stub;
+    }
+}
+
+static void
+print_switch_event(struct ftrace_printer * p, struct rbuf_entry_switch * sw)
+{
+    printer_write(p, "------------------------------------------\n");
+    printer_write(p, " %d) %s-%d  => %s-%d\n",
+        sw->cpu,
+        runtime_strlen(sw->name_out) ? sw->name_out : "tid",
+        sw->tid_out,
+        runtime_strlen(sw->name_in) ? sw->name_in : "tid",
+        sw->tid_in
+    );
+    printer_write(p, "------------------------------------------\n");
+}
+
+static void
+function_graph_print_entry(struct ftrace_printer * p,
+                           struct rbuf_entry * entry)
+{
+    struct rbuf_entry_function_graph * graph = &(entry->graph);
+
+    /* check for special switch event */
+    if (graph->depth == TRACE_GRAPH_SWITCH_DEPTH) {
+        print_switch_event(p, &(entry->sw));
+        return;
+    }
+
+    printer_write(p, " %d) ", graph->cpu);
+
+    /* XXX symbol */
+    printer_write(p, "  ");
+
+    /* duration */
+    if (graph->duration)
+        printer_print_duration_usec(p, graph->duration, 8);
+    else
+        printer_write(p, "           ");
+
+    printer_write(p, " |  ");
+
+    /* 2 spaces per depth */
+    {
+        int d;
+        for (d = 0; d < graph->depth; d++) {
+            printer_write(p, "  ");
+        }
+    }
+
+    /* if return_ts is 0, this is an graph of a function
+     * with children
+     */
+    if (graph->duration == 0) {
+        /* function graph */
+        assert(graph->has_child);
+        printer_write(p, "%s() {", function_name(graph->ip));
+    } else {
+        /* either a close of a function that called something, or
+         * an graph+return wihout children */
+        if (graph->has_child) {
+            printer_write(p, "}");
+        } else {
+            printer_write(p, "%s();", function_name(graph->ip));
+        }
+    }
 
     printer_write(p, "\n");
 }
 
 static boolean
-function_print_nondestructive(struct ftrace_printer * p, struct rbuf * rbuf)
+ftrace_print_rbuf_destructive(struct ftrace_printer * p, struct rbuf * rbuf,
+                              struct ftrace_tracer * tracer)
+{
+    struct rbuf_entry * entry;
+
+    while (__rbuf_acquire_read_entry(rbuf, &entry)) {
+        tracer->print_entry_fn(p, entry);
+        if (printer_length(p) >= printer_size(p))
+            break;
+    }
+
+    return rbuf->count > 0;     /* more */
+}
+
+static boolean
+ftrace_print_rbuf_nondestructive(struct ftrace_printer * p, struct rbuf * rbuf,
+                                 struct ftrace_tracer * tracer)
 {
     struct rbuf_entry * entry;
     unsigned long idx;
@@ -484,110 +810,62 @@ function_print_nondestructive(struct ftrace_printer * p, struct rbuf * rbuf)
          idx  = rbuf_next_idx(rbuf, idx))
     {
         entry = &(rbuf->trace_array[idx]);
-        function_print_entry(p, entry);
+        tracer->print_entry_fn(p, entry);
+
         if (printer_length(p) >= printer_size(p))
             break;
     }
-    rbuf->local_idx = idx;
 
+    rbuf->local_idx = idx;
     return idx != rbuf->write_idx; /* more */
 }
 
-static boolean
-function_print_destructive(struct ftrace_printer * p, struct rbuf * rbuf)
+static void
+function_graph_print_header(struct ftrace_printer * p, struct rbuf * rbuf)
 {
-    struct rbuf_entry * entry;
-
-    while (__rbuf_acquire_read_entry(rbuf, &entry)) {
-        function_print_entry(p, entry);
-        if (printer_length(p) >= printer_size(p))
-            break;
-    }
-
-    return rbuf->count > 0;     /* more */
+    printer_write(p, "# tracer: function_graph\n");
+    printer_write(p, "#\n");
+    printer_write(p, "# CPU  DURATION                  FUNCTION CALLS\n");
+    printer_write(p, "# |     |   |                     |   |   |   |\n");
 }
 
 static boolean
-function_print(struct ftrace_printer * p, struct rbuf * rbuf)
-
+ftrace_print_rbuf(struct ftrace_printer * p, struct rbuf * rbuf,
+                  struct ftrace_tracer * tracer)
 {
-    if (p->flags & TRACE_FLAG_HEADER) {
-        printer_write(p, "# tracer: function\n");
-        printer_write(p, "#\n");
-        printer_write(p,
-            "# entries-in-buffer/entries-written: %ld/%ld    #P:%d\n",
-            global_rbuf.count, global_rbuf.total_written, 1
-        );
-        printer_write(p, "#\n");
-        printer_write(p, "#           TASK-PID   CPU#     TIMESTAMP  FUNCTION\n");
-        printer_write(p, "#              | |       |         |         |\n");
-        p->flags &= ~TRACE_FLAG_HEADER;
-    }
+    if (p->flags & TRACE_FLAG_HEADER)
+        if (tracer->print_header_fn)
+            tracer->print_header_fn(p, rbuf);
+
+    if (!tracer->print_entry_fn)
+        return false;
 
     if (p->flags & TRACE_FLAG_DESTRUCTIVE)
-        return function_print_destructive(p, rbuf);
+        return ftrace_print_rbuf_destructive(p, rbuf, tracer);
     else
-        return function_print_nondestructive(p, rbuf);
+        return ftrace_print_rbuf_nondestructive(p, rbuf, tracer);
 }
 
-/*
- * Be careful modifying this function.
- *
- * Anything it calls __must__ be marked no_instrument_function
- * or inlined
- */
-__attribute__((no_instrument_function)) static void
-function_graph_trace(unsigned long ip, unsigned long parent_ip)
-{
-    if (!tracing_on)
-        return;
-}
-
-static void
-function_graph_set_mcount(void)
-{
-    __current_ftrace_trace_fn = ftrace_stub;
-    __current_ftrace_graph_return = function_graph_trace;
-}
-
-static boolean
-function_graph_print(struct ftrace_printer * p, struct rbuf * rbuf)
-{
-    if (p->flags & TRACE_FLAG_HEADER) {
-        printer_write(p, "# tracer: function_graph\n");
-        printer_write(p, "#\n");
-        printer_write(p, "# CPU  DURATION                  FUNCTION CALLS\n");
-        printer_write(p, "# |     |   |                     |   |   |   |\n");
-        p->flags &= ~TRACE_FLAG_HEADER;
-    }
-
-    /* TODO */
-    return false;
-}
-
-#define FTRACE_TRACER(_name, _trace_fn, _mcount_update, _print_fn)\
+#define FTRACE_TRACER(_name, _mcount_toggle, _header_fn, _entry_fn)\
 {\
     .name = _name,\
-    .trace_fn = _trace_fn,\
-    .mcount_update = _mcount_update,\
-    .print_fn = _print_fn\
+    .mcount_toggle = _mcount_toggle,\
+    .print_header_fn = _header_fn,\
+    .print_entry_fn = _entry_fn\
 }
 static struct ftrace_tracer
 tracer_list[] = {
     /* nop must be first */
-    FTRACE_TRACER("nop", ftrace_stub, nop_set_mcount, nop_print
+    FTRACE_TRACER("nop", nop_toggle, nop_print_header, 0
     ),
-    FTRACE_TRACER("function", function_trace, function_set_mcount,
-            function_print
+    FTRACE_TRACER("function", function_toggle, function_print_header,
+        function_print_entry
     ),
-    FTRACE_TRACER("function_graph", function_graph_trace,
-            function_graph_set_mcount, function_graph_print
+    FTRACE_TRACER("function_graph", function_graph_toggle,
+        function_graph_print_header, function_graph_print_entry
     )
 };
 #define FTRACE_NR_TRACERS (sizeof(tracer_list) / sizeof(struct ftrace_tracer))
-
-/* currently running tracer */
-struct ftrace_tracer * current_tracer = &(tracer_list[0]);
 
 /**** Start interface operations ****/
 
@@ -671,8 +949,11 @@ FTRACE_FN(current_tracer, put)(struct ftrace_printer * p)
         struct ftrace_tracer * tracer = &(tracer_list[i]);
 
         if (runtime_strcmp(tracer->name, str) == 0) {
-            current_tracer = tracer;
-            current_tracer->mcount_update();
+            if (tracer != current_tracer) {
+                tracer->mcount_toggle(false);
+                current_tracer = tracer;
+                current_tracer->mcount_toggle(true);
+            }
             ret = 0;
             goto out;
         }
@@ -792,7 +1073,7 @@ FTRACE_FN(trace, get)(struct ftrace_printer * p)
 
     rbuf_lock(&global_rbuf);
     {
-        if (current_tracer->print_fn(p, &global_rbuf))
+        if (ftrace_print_rbuf(p, &global_rbuf, current_tracer))
             rv = 1;             /* more to print */
     }
     rbuf_unlock(&global_rbuf);
@@ -825,7 +1106,7 @@ get_trace_readahead_size(u64 length, u64 offset)
 {
     /* the amount we'll necessarily need to read just to serve "length" bytes */
     u64 toread = length + offset;
-    return toread + TRACE_READ_GRANULARITY; 
+    return toread + TRACE_READ_GRANULARITY;
 }
 
 /* see if we can serve a read from the existing trace buffer */
@@ -869,7 +1150,7 @@ FTRACE_FN(trace, read)(file f, void * buf, u64 length, u64 offset)
     ret = FTRACE_FN(trace, get)(&trace_printer);
     if (ret < 0)
         return ret;
-    
+
     return printer_flush_user(&trace_printer, buf, length, offset);
 }
 
@@ -908,7 +1189,7 @@ FTRACE_FN(trace_clock, read)(file f, void * buf, u64 length, u64 offset)
 {
     sysreturn ret;
     struct ftrace_printer p;
-        
+
     if (printer_init(&p, TRACE_FLAG_FILE))
         return -ENOMEM;
 
@@ -942,11 +1223,6 @@ FTRACE_FN(trace_clock, events)(file f)
 static struct ftrace_printer trace_pipe_printer;
 static boolean trace_pipe_is_open = false;
 
-
-/* having trace_pipe open does not disable tracing, but 
- * to prevent this from running forever we've got to disable
- * it here 
- */
 static sysreturn
 FTRACE_FN(trace_pipe, init)(struct ftrace_printer * p, u64 flags)
 {
@@ -956,7 +1232,6 @@ FTRACE_FN(trace_pipe, init)(struct ftrace_printer * p, u64 flags)
     if (printer_init(p, flags | TRACE_FLAG_DESTRUCTIVE))
         return -ENOMEM;
 
-    rbuf_disable(&global_rbuf);
     global_rbuf.local_idx = global_rbuf.read_idx;
     trace_pipe_is_open = true;
     return 0;
@@ -969,21 +1244,27 @@ FTRACE_FN(trace_pipe, deinit)(struct ftrace_printer * p)
     trace_pipe_is_open = false;
     printer_deinit(p);
     global_rbuf.local_idx = -1ull;
-    rbuf_enable(&global_rbuf);
     return 0;
 }
 
+/* having trace_pipe open does not disable tracing, but
+ * to prevent this from running forever we've got to disable
+ * it here
+ */
 static sysreturn
 FTRACE_FN(trace_pipe, get)(struct ftrace_printer * p)
 {
     sysreturn rv = 0;
 
+    rbuf_disable(&global_rbuf);
     rbuf_lock(&global_rbuf);
     {
-        if (current_tracer->print_fn(p, &global_rbuf))
+        if (ftrace_print_rbuf(p, &global_rbuf, current_tracer))
             rv = 1;             /* more to print */
     }
     rbuf_unlock(&global_rbuf);
+    rbuf_enable(&global_rbuf);
+
     return rv;
 }
 
@@ -1112,8 +1393,8 @@ FTRACE_FN(tracing_on, events)(file f)
     return EPOLLIN | EPOLLOUT;
 }
 
-#define _INIT(name)     FTRACE_FN(name, init) 
-#define _DEINIT(name)   FTRACE_FN(name, deinit) 
+#define _INIT(name)     FTRACE_FN(name, init)
+#define _DEINIT(name)   FTRACE_FN(name, deinit)
 #define _GET(name)      FTRACE_FN(name, get)
 #define _PUT(name)      FTRACE_FN(name, put)
 
@@ -1142,7 +1423,7 @@ routine_list[] = {
         "tracing_on", 0, 0, _GET(tracing_on), _PUT(tracing_on), 0
     ),
     FTRACE_ROUTINE(
-        "trace", _INIT(trace), _DEINIT(trace), _GET(trace), _PUT(trace), 
+        "trace", _INIT(trace), _DEINIT(trace), _GET(trace), _PUT(trace),
         &trace_printer
     ),
     FTRACE_ROUTINE(
@@ -1190,7 +1471,7 @@ ftrace_send_http_chunked_response(buffer_handler handler)
         msg_err("ftrace: failed to send HTTP response\n");
 }
 
-static void 
+static void
 ftrace_send_http_response(buffer_handler handler, buffer b)
 {
     status s;
@@ -1257,32 +1538,39 @@ __ftrace_send_http_chunk_internal(struct ftrace_routine * routine, struct ftrace
     if (!is_ok(s))
         goto send_http_chunk_failed;
 
-    if (ret == 0) {
-        s = send_http_chunk(out, 0);
-
-        if (routine->deinit_fn) {
-            /* deinit without init? */
-            assert(routine->init_fn);
-            (void)routine->deinit_fn(p);
+    if (ret) {
+        /* reset printer for next chunk */
+        p->flags &= ~TRACE_FLAG_HEADER;
+        if (printer_init(p, p->flags) < 0) {
+            msg_err("%s: printer_init failed (alloc)\n", __func__);
+            return false;
         }
 
-        if (local_printer)
-            printer_deinit(p);
-
-        if (!is_ok(s))
-            goto send_http_chunk_failed;
-        return false;
+        /* ret > 0, so more to send */
+        return true;
     }
 
-    /* reset printer for next chunk */
-    if (printer_init(p, p->flags) < 0) {
-        msg_err("%s: printer_init failed (alloc)\n", __func__);
-        return false;
+    /* no more data --> done */
+    s = send_http_chunk(out, 0);
+
+    if (routine->deinit_fn) {
+        /* deinit without init? */
+        assert(routine->init_fn);
+        (void)routine->deinit_fn(p);
     }
 
-    /* ret > 0, so more to send */
-    return true;
-  send_http_chunk_failed:
+    if (local_printer)
+        printer_deinit(p);
+
+    if (!is_ok(s))
+        goto send_http_chunk_failed;
+
+    /* XXX re-enable tracing --- ideally this would move to a completion handler */
+    rbuf_enable(&global_rbuf);
+
+    return false;
+
+send_http_chunk_failed:
     msg_err("%s: send_http_chunk failed with %v\n", __func__, s);
     return false;
 }
@@ -1291,9 +1579,12 @@ __ftrace_send_http_chunk_internal(struct ftrace_routine * routine, struct ftrace
 
 /* simultaneous requests might present issues, so ... don't do them?? */
 closure_function(4, 0, void, __ftrace_send_http_chunk,
-                 struct ftrace_routine *, routine, struct ftrace_printer *, p, boolean, local_printer, buffer_handler, out)
+                 struct ftrace_routine *, routine, struct ftrace_printer *, p,
+                 boolean, local_printer, buffer_handler, out)
 {
-    if (__ftrace_send_http_chunk_internal(bound(routine), bound(p), bound(local_printer), bound(out))) {
+    if (__ftrace_send_http_chunk_internal(bound(routine), bound(p),
+            bound(local_printer), bound(out)))
+    {
         register_timer(SEND_HTTP_CHUNK_INTERVAL_MS, (thunk)closure_self());
     } else {
         closure_finish();
@@ -1333,6 +1624,9 @@ __ftrace_do_http_method(buffer_handler out, struct ftrace_routine * routine,
     /* set the max size of the printer to the largest possible */
     printer_set_size(p, TRACE_PRINTER_MAX_SIZE);
 
+    /* XXX disable any more tracing while we're spooling this out ... */
+    rbuf_disable(&global_rbuf);
+
     /* get/put */
     if (is_put) {
         printer_write(p, buffer_ref(put_data, 0));
@@ -1346,21 +1640,26 @@ __ftrace_do_http_method(buffer_handler out, struct ftrace_routine * routine,
 
             if (local_printer)
                 printer_deinit(p);
+
+            goto internal_err;
         }
         ftrace_send_http_response(out, printer_buffer(p));
     } else {
         ftrace_send_http_chunked_response(out);
-        if (__ftrace_send_http_chunk_internal(routine, p, local_printer, out)) {
-            thunk t = closure(ftrace_heap, __ftrace_send_http_chunk, routine, p, local_printer, out);
+        if (__ftrace_send_http_chunk_internal(routine, p, local_printer, out))
+        {
+            thunk t = closure(ftrace_heap, __ftrace_send_http_chunk, routine,
+                p, local_printer, out);
             register_timer(SEND_HTTP_CHUNK_INTERVAL_MS, t);
         }
     }
+
     return;
+
 internal_err:
     if (ret != 0)
         ftrace_send_http_server_error(out);
 }
-
 
 static void
 ftrace_do_http_get(buffer_handler handler, struct ftrace_routine * routine)
@@ -1383,7 +1682,7 @@ closure_function(0, 3, void, ftrace_http_request,
     struct ftrace_routine * routine;
     int ret;
 
-    relative_uri = table_find(val, sym(relative_uri)); 
+    relative_uri = table_find(val, sym(relative_uri));
     if (relative_uri == 0) {
         ftrace_send_http_response(handler, format_usage_buffer());
         return;
@@ -1402,7 +1701,7 @@ closure_function(0, 3, void, ftrace_http_request,
         break;
 
     case HTTP_REQUEST_METHOD_PUT:
-        /* XXX: no PUT support yet */ 
+        /* XXX: no PUT support yet */
         if (1 || !routine->put_fn)
             goto no_method;
 
@@ -1413,7 +1712,7 @@ closure_function(0, 3, void, ftrace_http_request,
     default:
         ftrace_send_http_no_method(handler, method);
         break;
-    } 
+    }
 }
 
 static int
@@ -1428,12 +1727,12 @@ init_http_listener(void)
     }
 
     http_register_uri_handler(
-        ftrace_hl, 
-        FTRACE_TRACE_URI, 
+        ftrace_hl,
+        FTRACE_TRACE_URI,
         closure(ftrace_heap, ftrace_http_request)
     );
 
-    s = listen_port(ftrace_heap, FTRACE_TRACE_PORT, 
+    s = listen_port(ftrace_heap, FTRACE_TRACE_PORT,
         connection_handler_from_http_listener(ftrace_hl)
     );
     if (!is_ok(s)) {
@@ -1462,10 +1761,8 @@ ftrace_init(unix_heaps uh, filesystem fs)
 
     rbuf_init(&global_rbuf, DEFAULT_TRACE_ARRAY_SIZE_KB);
 
-    /* XXX: remove once we have http PUT support */
-    current_tracer = &(tracer_list[1]);
-    current_tracer->mcount_update();
-    tracing_on = true;
+    /* nop tracer */
+    current_tracer = &(tracer_list[0]);
 
     return 0;
 }
@@ -1474,4 +1771,170 @@ void
 ftrace_deinit(void)
 {
     deallocate_http_listener(ftrace_heap, ftrace_hl);
+}
+
+int
+ftrace_thread_init(thread t)
+{
+    t->graph_stack = allocate(ftrace_heap,
+        sizeof(struct ftrace_graph_entry) * FTRACE_RETFUNC_DEPTH
+    );
+    if (t->graph_stack == INVALID_ADDRESS) {
+        msg_err("failed to allocare ftrace return stack array\n");
+        return -ENOMEM;
+    }
+
+    t->graph_idx = 0;
+    return 0;
+}
+
+void
+ftrace_thread_deinit(thread t)
+{
+    deallocate(ftrace_heap, t->graph_stack,
+        sizeof(struct ftrace_graph_entry) * FTRACE_RETFUNC_DEPTH
+    );
+
+    t->graph_idx = 0;
+    t->graph_stack = 0;
+}
+
+/*
+ * Reset call stack for newly running thread and record the switch event
+ */
+__attribute__((no_instrument_function))
+void
+ftrace_thread_switch(thread out, thread in)
+{
+    in->graph_idx = 0;
+
+    /* generate a ctx switch event if we're running function graph */
+    rbuf_disable(&global_rbuf);
+    if (runtime_strcmp(current_tracer->name, "function_graph") == 0)
+        function_graph_trace_switch(out, in);
+    rbuf_enable(&global_rbuf);
+}
+
+/* defined in src/x86_64/ftrace.s */
+extern void return_to_handler(void);
+
+/*
+ * Assume init_unix calls mcache_alloc
+ * self  : IP in mcache_alloc() where mcount is invoked
+ * parent: stack address where return address sits (from mcache_alloc
+ *      back into init_unix; i.e., *parent is an address in init_unix)
+ * frame_pointer: frame_pointer during call to mcache_alloc()
+ *      - i.e., *(frame_pointer+8) is the return address to get back
+ *       from init_unix() to its own parent (in this case, startup())
+ *
+ * What this function does is moves *parent so that mcache_alloc() returns
+ * to a stub of ours that can record the time, before jumping back into
+ * init_unix()
+ *
+ * We save the original return address as well as the frame_pointer on the
+ * current thread structure; when our return stub function (return_to_handler)
+ * is invokes ftrace_return_to_handler() (implemented below), which
+ * queries the original return address from the thread structure and jumps
+ * directly to it
+ *
+ * The frame pointer is just passed so we can sanity check it on function return
+ */
+__attribute__((no_instrument_function))
+void
+prepare_ftrace_return(unsigned long self, unsigned long * parent,
+                      unsigned long frame_pointer)
+{
+    struct ftrace_graph_entry * stack_ent, * parent_ent;
+    unsigned long old;
+    int depth;
+
+    /* does user want tracing */
+    if (!tracing_on || !rbuf_enabled(&global_rbuf))
+        return;
+
+    rbuf_disable(&global_rbuf);
+
+    if (current->graph_idx == FTRACE_RETFUNC_DEPTH) {
+        /* We could just drop it, but let's yell because a call stack this long
+         * in kernel code is asking for a stack overflow
+         */
+        halt("Encountered function call at depth %d!!\n",
+            FTRACE_RETFUNC_DEPTH
+        );
+    }
+
+    /* swap our stub in at retaddr to interpose function return path */
+    old = *parent;
+    *parent = (unsigned long)&return_to_handler;
+
+    /* save and increment depth */
+    depth = current->graph_idx++;
+    stack_ent = &(current->graph_stack[depth]);
+    stack_ent->retaddr = old;
+    stack_ent->func = self;
+    stack_ent->entry_ts = now();
+    stack_ent->fp = frame_pointer;
+    stack_ent->depth = depth;
+    stack_ent->has_child = 0;
+    //stack_ent->retp = parent;
+
+    /* whatever called us has a child */
+    if (depth > 0) {
+        parent_ent = &(current->graph_stack[depth - 1]);
+
+        /* push parent onto rbuf if this is the first function it's called */
+        if (parent_ent->has_child == 0) {
+            parent_ent->has_child = 1;
+            function_graph_trace_entry(parent_ent);
+        }
+    }
+
+    rbuf_enable(&global_rbuf);
+}
+
+/* easier to catch with gdb when this has its own function */
+static void frame_halt(struct ftrace_graph_entry * entry, unsigned long fp2)
+{
+    halt("ftrace: bad frame pointer (0x%lx != 0x%lx); this is a BUG\n"
+          " entry->func = %p\n",
+        entry->fp, fp2, entry->func
+    );
+}
+
+__attribute__((no_instrument_function))
+unsigned long
+ftrace_return_to_handler(unsigned long frame_pointer)
+{
+    struct ftrace_graph_entry * stack_ent;
+    unsigned long retaddr;
+
+    rbuf_disable(&global_rbuf);
+
+    /* restore and decrement depth */
+    stack_ent = &(current->graph_stack[--current->graph_idx]);
+
+    /* sanity check frame pointer */
+    if (stack_ent->fp != frame_pointer)
+        frame_halt(stack_ent, frame_pointer);
+
+    stack_ent->return_ts = now();
+    retaddr = stack_ent->retaddr;
+
+    /* invoke the graph return fn */
+    function_graph_trace_return(stack_ent);
+
+    rbuf_enable(&global_rbuf);
+
+    return retaddr;
+}
+
+
+/* XXX: remove once we have http PUT support */
+void
+ftrace_enable(void)
+{
+    current_tracer->mcount_toggle(false);
+    current_tracer = &(tracer_list[2]);
+    current_tracer->mcount_toggle(true);
+    tracing_on = true;
 }

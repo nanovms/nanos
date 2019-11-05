@@ -368,7 +368,7 @@ static void restore_ucontext(struct ucontext * uctx, context f)
     f[FRAME_CS] = mcontext->cs;
 }
 
-
+__attribute__((no_instrument_function))
 sysreturn rt_sigreturn(void)
 {
     struct rt_sigframe *frame;
