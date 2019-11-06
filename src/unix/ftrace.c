@@ -438,10 +438,8 @@ rbuf_enabled(struct rbuf * rbuf)
 static inline boolean
 __rbuf_acquire_write_entry(struct rbuf * rbuf, struct rbuf_entry ** acquired)
 {
-    if (rbuf->count == rbuf->size - 1) {
-        assert(1==0);
+    if (rbuf->count == rbuf->size - 1)
         return false;
-    }
 
     *acquired = &(rbuf->trace_array[rbuf->write_idx]);
 
