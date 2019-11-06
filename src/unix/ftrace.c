@@ -341,7 +341,7 @@ printer_print_sym(struct ftrace_printer * p, unsigned long ip)
 /* write timestamp in "num" in usecs to the printer as follows:
  * "<usec>.<remainder> us"
  *
- * The whole string should consume width bytes -- this will be 
+ * The whole string should consume width bytes -- this will be
  * accomplished either by truncating the usec/remainder, or padding
  * blank spaces after the us
  */
@@ -358,9 +358,9 @@ printer_print_duration_usec(struct ftrace_printer * p, timestamp num, u16 width)
     /* print a symbol to highlight the timescale */
     printer_write(p, "%s ",
         (usec >= 100000) ? "@" :
-        (usec >= 10000)  ? "*" : 
-        (usec >= 1000)   ? "#" : 
-        (usec >= 100)    ? "!" : 
+        (usec >= 10000)  ? "*" :
+        (usec >= 1000)   ? "#" :
+        (usec >= 100)    ? "!" :
         (usec >= 10)     ? "+" : " "
     );
 
