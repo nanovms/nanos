@@ -16,7 +16,7 @@
 #define TRACE_PRINTER_INIT_SIZE (1ULL << 12)
 
 /* Larger than 1MB buffers not currently supported on general heap */
-#define TRACE_PRINTER_MAX_SIZE  (1ULL << 18)
+#define TRACE_PRINTER_MAX_SIZE  (1ULL << 19)
 
 /* Special context switch event */
 #define TRACE_GRAPH_SWITCH_DEPTH (unsigned short)(-1)
