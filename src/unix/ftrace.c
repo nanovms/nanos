@@ -51,7 +51,6 @@ struct rbuf_entry_function_graph {
     timestamp duration;
     unsigned short cpu;
     unsigned short has_child;
-    char name[15];
 };
 
 struct rbuf_entry_switch {
@@ -339,33 +338,56 @@ printer_print_sym(struct ftrace_printer * p, unsigned long ip)
         printer_write(p, "<< unknown symbol >>");
 }
 
-/* write timestamp in "num" to the printer using at most "width" spaces */
+/* write timestamp in "num" in usecs to the printer as follows:
+ * "<usec>.<remainder> us"
+ *
+ * The whole string should consume width bytes -- this will be 
+ * accomplished either by truncating the usec/remainder, or padding
+ * blank spaces after the us
+ */
 static inline void
 printer_print_duration_usec(struct ftrace_printer * p, timestamp num, u16 width)
 {
-    u64 usec, nsec;
+    buffer b = little_stack_buffer(64);
+    u64 usec, nsec, len;
 
-    /* this is kind of nasty, but would rather not do memory allocation on every
-     * invocation of this function
-     */
-    static buffer b = 0;
-
-    if (b == 0) {
-        b = allocate_buffer(ftrace_heap, 128);
-        assert(b != INVALID_ADDRESS);
-    }
-
-    usec = usec_from_timestamp(num);
     nsec = nsec_from_timestamp(num);
-    bprintf(b, "%ld.%ld", usec, nsec);
+    usec = nsec / THOUSAND;
+    nsec = nsec % THOUSAND;
 
-    /* truncate the buffer after "width" digits */
-    ((char *)buffer_ref(b, 0))[width] = '\0';
-    printer_write(p, (char *)buffer_ref(b, 0));
+    /* print a symbol to highlight the timescale */
+    printer_write(p, "%s ",
+        (usec >= 100000) ? "@" :
+        (usec >= 10000)  ? "*" : 
+        (usec >= 1000)   ? "#" : 
+        (usec >= 100)    ? "!" : 
+        (usec >= 10)     ? "+" : " "
+    );
 
-    printer_write(p, " us");
+    bprintf(b, "%ld.", usec);
 
-    buffer_clear(b);
+    /* add in leading 0s */
+    if (nsec < 100)
+        bprintf(b, "0");
+    if (nsec < 10)
+        bprintf(b, "0");
+
+    bprintf(b, "%ld", nsec);
+
+    /* truncate the buffer after "width"-3 digits */
+    len = buffer_length(b);
+    if (len > width - 3)
+        ((char *)buffer_ref(b, width-3))[0] = '\0';
+    else
+        ((char *)buffer_ref(b, len))[0] = '\0';
+
+    printer_write(p, "%s us", (char *)buffer_ref(b, 0));
+
+    /* add spaces if needed */
+    while (len < width - 3) {
+        printer_write(p, " ");
+        len++;
+    }
 }
 
 #define rbuf_next_idx(r, idx)   (idx == r->size - 1) ? 0 : idx + 1
@@ -636,7 +658,6 @@ function_graph_trace_entry(struct ftrace_graph_entry * stack_entry)
     graph->cpu = 0;
     graph->depth = stack_entry->depth;
     graph->has_child = 1;
-    runtime_memcpy(graph->name, current->name, 15);
 
     rbuf_unlock(&global_rbuf);
     return;
@@ -665,12 +686,6 @@ function_graph_trace_return(struct ftrace_graph_entry * stack_entry)
     graph->duration = (stack_entry->return_ts - stack_entry->entry_ts);
     graph->cpu = 0;
     graph->has_child = stack_entry->has_child;
-
-    /* only need the name if we have no children, otherwise
-      * we already have it in the entry call
-      */
-    if (!graph->has_child)
-        runtime_memcpy(graph->name, current->name, 15);
 
     rbuf_unlock(&global_rbuf);
     return;
@@ -720,14 +735,11 @@ function_graph_print_entry(struct ftrace_printer * p,
 
     printer_write(p, " %d) ", graph->cpu);
 
-    /* XXX symbol */
-    printer_write(p, "  ");
-
     /* duration */
     if (graph->duration)
-        printer_print_duration_usec(p, graph->duration, 8);
+        printer_print_duration_usec(p, graph->duration, 11);
     else
-        printer_write(p, "           ");
+        printer_write(p, "             ");
 
     printer_write(p, " |  ");
 
