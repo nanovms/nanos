@@ -267,6 +267,9 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     current = dummy_thread = create_thread(kernel_process);
     running_frame = current->frame;
 
+    runtime_memcpy(dummy_thread->name, "dummy_thread",
+        sizeof(dummy_thread->name));
+
     /* XXX remove once we have http PUT support */
     ftrace_enable();
 

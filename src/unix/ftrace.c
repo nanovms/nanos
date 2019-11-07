@@ -42,7 +42,7 @@ struct rbuf_entry_function {
     unsigned long ts; /* XXX only supports tsc at the moment */
     unsigned short cpu;
     int tid;
-    char name[15];
+    symbol sym_name;
 };
 
 struct rbuf_entry_function_graph {
@@ -50,7 +50,8 @@ struct rbuf_entry_function_graph {
     unsigned long ip;
     timestamp duration;
     unsigned short cpu;
-    unsigned short has_child;
+    unsigned char has_child;
+    unsigned char flush;
 };
 
 struct rbuf_entry_switch {
@@ -58,8 +59,8 @@ struct rbuf_entry_switch {
     unsigned short cpu;
     int tid_in;
     int tid_out;
-    char name_in[15];
-    char name_out[15];
+    symbol sym_name_in;
+    symbol sym_name_out;
 };
 
 struct rbuf_entry {
@@ -141,7 +142,8 @@ struct ftrace_graph_entry {
     timestamp return_ts; /* return timestamp */
     unsigned long fp; /* frame pointer (just used for sanity checking) */
     unsigned short depth; /* depth on the call stack */
-    unsigned short has_child; /* did this function call anything? */
+    unsigned char has_child; /* did this function call anything? */
+    unsigned char flush; /* expicitly flushed during reschedule event */
     //unsigned long overrun; /* XXX do we use? */
     //unsigned long * retp; /* address of where retaddr sits on the stack */
 };
@@ -534,7 +536,11 @@ function_trace(unsigned long ip, unsigned long parent_ip)
 
     /* XXX function tracer just supports tsc for now */
     func->ts = rdtsc();
-    runtime_memcpy(func->name, current->name, 15);
+
+    if (current->name[0] != '\0')
+        func->sym_name = intern(alloca_wrap_cstring(current->name));
+    else
+        func->sym_name = 0;
 
     rbuf_enable(&global_rbuf);
     rbuf_unlock(&global_rbuf);
@@ -572,10 +578,14 @@ function_print_header(struct ftrace_printer * p, struct rbuf * rbuf)
 static void
 function_print_entry(struct ftrace_printer * p, struct rbuf_entry * entry)
 {
+    buffer b = little_stack_buffer(16);
     struct rbuf_entry_function * func = &(entry->func);
+    char * name = (func->sym_name)
+        ? cstring(symbol_string(func->sym_name), b)
+        : "tid";
 
     printer_write(p, " ");
-    printer_print_right_adjusted(p, func->name, TRACE_TASK_WIDTH);
+    printer_print_right_adjusted(p, name, TRACE_TASK_WIDTH);
     printer_write(p, "-%d", func->tid);
 
     /* pad with spaces as needed */
@@ -628,8 +638,16 @@ function_graph_trace_switch(thread out, thread in)
     sw->cpu = 0;
     sw->tid_in = in->tid;
     sw->tid_out = out->tid;
-    runtime_memcpy(sw->name_in, in->name, 15);
-    runtime_memcpy(sw->name_out, out->name, 15);
+
+    if (in->name[0] != '\0')
+        sw->sym_name_in = intern(alloca_wrap_cstring(in->name));
+    else
+        sw->sym_name_in = 0;
+
+    if (out->name[0] != '\0')
+        sw->sym_name_out = intern(alloca_wrap_cstring(out->name));
+    else
+        sw->sym_name_out = 0;
 
     rbuf_unlock(&global_rbuf);
     return;
@@ -686,6 +704,7 @@ function_graph_trace_return(struct ftrace_graph_entry * stack_entry)
     graph->duration = (stack_entry->return_ts - stack_entry->entry_ts);
     graph->cpu = 0;
     graph->has_child = stack_entry->has_child;
+    graph->flush = stack_entry->flush;
 
     rbuf_unlock(&global_rbuf);
     return;
@@ -710,12 +729,20 @@ function_graph_toggle(boolean enable)
 static void
 print_switch_event(struct ftrace_printer * p, struct rbuf_entry_switch * sw)
 {
+    char * name_in, * name_out;
+    buffer b = little_stack_buffer(16);
+
+    name_in = (sw->sym_name_in)
+        ? cstring(symbol_string(sw->sym_name_in), b) : "tid";
+    name_out = (sw->sym_name_out)
+        ? cstring(symbol_string(sw->sym_name_out), b) : "tid";
+
     printer_write(p, "------------------------------------------\n");
     printer_write(p, " %d) %s-%d  => %s-%d\n",
         sw->cpu,
-        runtime_strlen(sw->name_out) ? sw->name_out : "tid",
+        runtime_strlen(name_out) ? name_out : "tid",
         sw->tid_out,
-        runtime_strlen(sw->name_in) ? sw->name_in : "tid",
+        runtime_strlen(name_in) ? name_in : "tid",
         sw->tid_in
     );
     printer_write(p, "------------------------------------------\n");
@@ -763,6 +790,9 @@ function_graph_print_entry(struct ftrace_printer * p,
          * an graph+return wihout children */
         if (graph->has_child) {
             printer_write(p, "}");
+            if (graph->flush) {
+                printer_write(p, " */ %s */", function_name(graph->ip));
+            }
         } else {
             printer_write(p, "%s();", function_name(graph->ip));
         }
@@ -1806,21 +1836,34 @@ ftrace_thread_deinit(thread t)
 }
 
 /*
- * Reset call stack for newly running thread and record the switch event
+ * Record the switch event, and record completion times for any functions
+ * on the incoming thread's call stack
  */
 __attribute__((no_instrument_function))
 void
 ftrace_thread_switch(thread out, thread in)
 {
-    in->graph_idx = 0;
-
-    if (!rbuf_enabled(&global_rbuf))
+    if (!rbuf_enabled(&global_rbuf) ||
+        (current_tracer != &tracer_list[FTRACE_FUNCTION_GRAPH_IDX]))
+    {
+        in->graph_idx = 0;
         return;
+    }
 
-    /* generate a ctx switch event if we're running function graph */
     rbuf_disable(&global_rbuf);
-    if (runtime_strcmp(current_tracer->name, "function_graph") == 0)
-        function_graph_trace_switch(out, in);
+
+    /* generate a ctx switch event */
+    function_graph_trace_switch(out, in);
+
+    /* complete any outstanding function calls for incoming thread */
+    while (in->graph_idx > 0) {
+        struct ftrace_graph_entry * stack_ent =
+                &(in->graph_stack[--in->graph_idx]);
+        stack_ent->return_ts = now();
+        stack_ent->flush = 1;
+        function_graph_trace_return(stack_ent);
+    }
+
     rbuf_enable(&global_rbuf);
 }
 
@@ -1929,6 +1972,7 @@ ftrace_return_to_handler(unsigned long frame_pointer)
         frame_halt(stack_ent, frame_pointer);
 
     stack_ent->return_ts = now();
+    stack_ent->flush = 0;
     retaddr = stack_ent->retaddr;
 
     /* it's possible the current tracer changed after we modified some return
@@ -1938,9 +1982,9 @@ ftrace_return_to_handler(unsigned long frame_pointer)
         function_graph_trace_return(stack_ent);
 
     rbuf_enable(&global_rbuf);
-
     return retaddr;
 }
+
 
 
 /* XXX: remove once we have http PUT support */

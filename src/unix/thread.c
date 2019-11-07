@@ -110,6 +110,10 @@ closure_function(1, 0, void, run_thread,
     thread t = bound(t);
     thread old = current;
     current = t;
+
+    /* ftrace needs to know about the context switch */
+    ftrace_thread_switch(old, current);
+
     thread_log(t, "run frame %p, RIP=%p", t->frame, t->frame[FRAME_RIP]);
     proc_enter_user(current->p);
     running_frame = t->frame;
@@ -120,18 +124,26 @@ closure_function(1, 0, void, run_thread,
     /* check if we have a pending signal */
     dispatch_signals(t);
 
-    /* ftrace needs to know about the context switch */
-    ftrace_thread_switch(old, current);
-
     running_frame[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
     IRETURN(running_frame);
+}
+
+__attribute__((noreturn))
+__attribute__((no_instrument_function))
+static void switch_and_runloop(void)
+{
+    thread old = current;
+    current = dummy_thread;
+    running_frame = dummy_thread->frame;
+    ftrace_thread_switch(old, current);
+    runloop();
 }
 
 void thread_sleep_interruptible(void)
 {
     assert(current->blocked_on);
     thread_log(current, "sleep interruptible (on \"%s\")", blockq_name(current->blocked_on));
-    runloop();
+    switch_and_runloop();
 }
 
 void thread_sleep_uninterruptible(void)
@@ -139,7 +151,7 @@ void thread_sleep_uninterruptible(void)
     assert(!current->blocked_on);
     current->blocked_on = INVALID_ADDRESS;
     thread_log(current, "sleep uninterruptible");
-    runloop();
+    switch_and_runloop();
 }
 
 void thread_yield(void)
@@ -149,7 +161,7 @@ void thread_yield(void)
     current->syscall = -1;
     set_syscall_return(current, 0);
     enqueue(runqueue, current->run);
-    runloop();
+    switch_and_runloop();
 }
 
 void thread_wakeup(thread t)
