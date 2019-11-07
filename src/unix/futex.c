@@ -112,7 +112,6 @@ static timestamp get_timeout_timestamp(int futex_op, u64 val2)
 {
     switch (futex_op) {
     case FUTEX_WAIT:
-    case FUTEX_CMP_REQUEUE:
     case FUTEX_WAIT_BITSET:
         return (val2) 
             ? time_from_timespec((struct timespec *)pointer_from_u64(val2)) 
@@ -156,14 +155,14 @@ sysreturn futex(int *uaddr, int futex_op, int val,
             false, ts
         );
     }
-            
+
     case FUTEX_WAKE: {
         if (verbose)
             thread_log(current, "futex_wake [%ld %p %d] %d",
                 current->tid, uaddr, *uaddr, val);
         return set_syscall_return(current, futex_wake_many(f, val));
     }
-        
+
     case FUTEX_CMP_REQUEUE: {
         int wake1, wake2;
         struct futex * f2;
