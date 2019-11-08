@@ -162,6 +162,8 @@ typedef struct sigstate {
 declare_closure_struct(1, 0, void, free_thread,
                          thread, t);
 typedef struct epoll *epoll;
+struct ftrace_graph_entry;
+
 typedef struct thread {
     // if we use an array typedef its fragile
     // there are likley assumptions that frame sits at the base of thread
@@ -200,6 +202,11 @@ typedef struct thread {
     sigstate dispatch_sigstate; /* saved sigstate while signal handler in flight */
     u64 sigframe[FRAME_MAX];
     u16 active_signo;
+
+#ifdef CONFIG_FTRACE
+    int graph_idx;
+    struct ftrace_graph_entry * graph_stack;
+#endif
 } *thread;
 
 typedef closure_type(io, sysreturn, void *buf, u64 length, u64 offset, thread t,
@@ -482,4 +489,3 @@ u32 spec_events(file f);
 /* getrandom(2) flags */
 #define GRND_NONBLOCK               1
 #define GRND_RANDOM                 2
-

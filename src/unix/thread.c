@@ -1,4 +1,5 @@
 #include <unix_internal.h>
+#include <ftrace.h>
 
 thread dummy_thread;
 thread current;
@@ -107,7 +108,12 @@ closure_function(1, 0, void, run_thread,
                  thread, t)
 {
     thread t = bound(t);
+    thread old = current;
     current = t;
+
+    /* ftrace needs to know about the switch event */
+    ftrace_thread_switch(old, current);
+
     thread_log(t, "run frame %p, RIP=%p", t->frame, t->frame[FRAME_RIP]);
     proc_enter_user(current->p);
     running_frame = t->frame;
@@ -216,11 +222,19 @@ thread create_thread(process p)
     t->dispatch_sigstate = 0;
     t->active_signo = 0;
 
+    if (ftrace_thread_init(t)) {
+        msg_err("failed to init ftrace state for thread\n");
+        deallocate_blockq(t->thread_bq);
+        deallocate(h, t, sizeof(struct thread));
+        return INVALID_ADDRESS;
+    }
+
     // XXX sigframe
     vector_set(p->threads, t->tid, t);
     return t;
 }
 
+__attribute__((no_instrument_function))
 void exit_thread(thread t)
 {
     thread_log(current, "exit_thread");
@@ -262,6 +276,8 @@ void exit_thread(thread t)
 
     deallocate_closure((fault_handler)pointer_from_u64(t->frame[FRAME_FAULT_HANDLER]));
     t->frame[FRAME_FAULT_HANDLER] = 0;
+
+    ftrace_thread_deinit(t);
 
     current = dummy_thread;
     running_frame = dummy_thread->frame;

@@ -26,7 +26,7 @@
 #define FTRACE_TRACING_ON       TRACE_DIR "/tracing_on"
 #define FTRACE_TRACE_PIPE       TRACE_DIR "/trace_pipe"
 
-#define BUF_SIZE 4096
+#define BUF_SIZE 128
 
 static void
 open_and_read_max(const char  * fname,
@@ -141,9 +141,10 @@ int main(int argc, char * argv[])
     printf("<<<< end trace data\n");
     printf("\n\n");
 
+    open_and_write(FTRACE_CURRENT, "function_graph");
+
     printf(">>>> trace_pipe data:\n");
-    //open_and_read_max(FTRACE_TRACE_PIPE, 100);
-    open_and_read_max(FTRACE_TRACE_PIPE, 10000);
+    open_and_read_max(FTRACE_TRACE_PIPE, 100);
 
     printf("\n<<<< end trace_pipe data:\n");
 
