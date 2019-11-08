@@ -117,12 +117,36 @@ static inline void set_page_write_protect(boolean enable)
     mov_to_cr("cr0", cr0);
 }
 
-static inline u64 rdtsc(void)
+extern u8 platform_has_rdtscp;
+
+static inline u64 __rdtscp(void)
 {
     u32 a, d;
-    asm volatile("cpuid" ::: "%rax", "%rbx", "%rcx", "%rdx"); /* serialize execution */
+    asm volatile("rdtscp" : "=a" (a), "=d" (d));
+    return (((u64)a) | (((u64)d) << 32));
+}
+
+static inline u64 __rdtsc(void)
+{
+    u32 a, d;
     asm volatile("rdtsc" : "=a" (a), "=d" (d));
     return (((u64)a) | (((u64)d) << 32));
+}
+
+static inline u64 rdtsc(void)
+{
+    if (platform_has_rdtscp)
+        return __rdtscp();
+    return __rdtsc();
+}
+
+static inline u64 rdtsc_precise(void)
+{
+    if (platform_has_rdtscp)
+        return __rdtscp();
+
+    asm volatile("cpuid" ::: "%rax", "%rbx", "%rcx", "%rdx"); /* serialize execution */
+    return __rdtsc();
 }
 
 typedef closure_type(clock_now, timestamp);
