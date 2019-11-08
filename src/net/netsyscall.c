@@ -177,6 +177,11 @@ static err_t get_lwip_error(sock s)
     return s->lwip_error;
 }
 
+static err_t get_and_clear_lwip_error(sock s)
+{
+    return __atomic_exchange_n(&s->lwip_error, ERR_OK, __ATOMIC_ACQUIRE);
+}
+
 #define WAKEUP_SOCK_RX          0x00000001
 #define WAKEUP_SOCK_TX          0x00000002
 #define WAKEUP_SOCK_EXCEPT      0x00000004 /* flush, and thus implies rx & tx */
@@ -1563,17 +1568,24 @@ sysreturn getsockopt(int sockfd, int level, int optname, void *optval, socklen_t
         int val;
     } ret_optval;
 
+    /* Only socket options supported at the moment... */
+    if (level != 1)
+        return -EOPNOTSUPP;
+
     switch (optname) {
     case SO_TYPE:
         ret_optval.val = s->type;
+        break;
+    case SO_ERROR:
+        ret_optval.val = -lwip_to_errno(get_and_clear_lwip_error(s));
         break;
     case SO_SNDBUF:
         ret_optval.val = 2048;  /* minimum value for this option in Linux */
         break;
     default:
-        msg_warn("getsockopt unimplemented optname: fd %d, level %d, optname %d\n",
+        msg_err("getsockopt unimplemented optname: fd %d, level %d, optname %d\n",
             sockfd, level, optname);
-        return set_syscall_error(current, ENOPROTOOPT);
+        return -ENOPROTOOPT;
     }
 
     if (optval && optlen) {

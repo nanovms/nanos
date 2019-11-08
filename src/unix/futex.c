@@ -74,6 +74,18 @@ static int futex_wake_many(struct futex * f, int val)
     return nr_woken;
 }
 
+boolean futex_wake_many_by_uaddr(process p, int *uaddr, int val)
+{
+    struct futex * f;
+
+    f = table_find(p->futices, (void *)uaddr);
+    if (!f)
+        return false;
+
+    futex_wake_many(f, val);
+    return true;
+}
+
 /*
  * futex_bh is invoked either by the bh processor in response
  * to timeout/signal delivery/etc., or by another thread in sys_futex
@@ -100,6 +112,8 @@ closure_function(2, 1, sysreturn, futex_bh,
     else
         rv = 0; /* no timer expire + not us --> actual wakeup */
 
+    thread_log(t, "%s: struct futex: %p, flags 0x%lx, rv %ld\n", __func__, bound(f), flags, rv);
+
     if (rv != BLOCKQ_BLOCK_REQUIRED) {
         thread_wakeup(t);
         closure_finish();
@@ -112,7 +126,6 @@ static timestamp get_timeout_timestamp(int futex_op, u64 val2)
 {
     switch (futex_op) {
     case FUTEX_WAIT:
-    case FUTEX_CMP_REQUEUE:
     case FUTEX_WAIT_BITSET:
         return (val2) 
             ? time_from_timespec((struct timespec *)pointer_from_u64(val2)) 
@@ -156,50 +169,37 @@ sysreturn futex(int *uaddr, int futex_op, int val,
             false, ts
         );
     }
-            
+
     case FUTEX_WAKE: {
         if (verbose)
             thread_log(current, "futex_wake [%ld %p %d] %d",
                 current->tid, uaddr, *uaddr, val);
         return set_syscall_return(current, futex_wake_many(f, val));
     }
-        
+
     case FUTEX_CMP_REQUEUE: {
-        int wake1, wake2;
-        struct futex * f2;
-        thread w;
+        int woken, requeued;
 
         if (verbose)
-            thread_log(current, "futex_cmp_requeue [%ld %p %d] %d %p %d",
-                current->tid, uaddr, *uaddr, val3, uaddr2, *uaddr2);
+            thread_log(current, "futex_cmp_requeue [%ld %p %d] val: %d val2: %d uaddr2: %p %d val3: %d",
+                       current->tid, uaddr, *uaddr, val, val2, uaddr2, *uaddr2, val3);
 
         if (*uaddr != val3)
             return set_syscall_error(current, EAGAIN);
 
-        wake1 = futex_wake_many(f, val);
-        for (wake2 = 0, f2 = INVALID_ADDRESS; wake2 < val2; wake2++) {
-            w = futex_wake_one(f);
-            if (w == INVALID_ADDRESS)
-                break;
+        woken = futex_wake_many(f, val);
 
-            if (f2 == INVALID_ADDRESS) {
-                f2 = soft_create_futex(current->p, u64_from_pointer(uaddr2));
-                if (f2 == INVALID_ADDRESS)
-                    return set_syscall_error(current, ENOMEM);
-            }
-
-            /* XXX -- what if w has a timeout registered on the old f? should it move
-             * to f2??
-             * we use the new timeout value, though from man futex it's not clear
-             * whether this should be used or not
-             */
-             (void)blockq_check_timeout(f2->bq, w,
-                closure(f2->h, futex_bh, f2, w),
-                false, ts
-             );
+        requeued = 0;
+        if (val2 > 0) {
+            struct futex * new = soft_create_futex(current->p, u64_from_pointer(uaddr2));
+            if (new == INVALID_ADDRESS)
+                return set_syscall_error(current, ENOMEM);
+            int requeued = blockq_transfer_waiters(new->bq, f->bq, val2);
+            if (verbose)
+                thread_log(current, " awoken: %d, re-queued %d", woken, requeued);
         }
 
-        return set_syscall_return(current, wake1 + wake2);
+        return set_syscall_return(current, woken + requeued);
     }
 
     case FUTEX_WAKE_OP: {

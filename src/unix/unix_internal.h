@@ -147,6 +147,7 @@ static inline sysreturn blockq_check(blockq bq, thread t, blockq_action a, boole
 {
     return blockq_check_timeout(bq, t, a, in_bh, 0);
 }
+int blockq_transfer_waiters(blockq dest, blockq src, int n);
 
 /* pending and masked signals for a given thread or process */
 typedef struct sigstate {
@@ -190,6 +191,9 @@ typedef struct thread {
 
     /* blockq thread is waiting on, INVALID_ADDRESS for uninterruptible */
     blockq blocked_on;
+
+    /* set by file op completion; used to detect if blocking is necessary */
+    boolean file_op_complete;
 
     /* for waiting on thread-specific conditions rather than a resource */
     blockq thread_bq;
@@ -456,6 +460,12 @@ void init_threads(process p);
 void init_futices(process p);
 
 sysreturn futex(int *uaddr, int futex_op, int val, u64 val2, int *uaddr2, int val3);
+boolean futex_wake_many_by_uaddr(process p, int *uaddr, int val);
+
+static inline boolean futex_wake_one_by_uaddr(process p, int *uaddr)
+{
+    return futex_wake_many_by_uaddr(p, uaddr, 1);
+}
 
 int do_pipe2(int fds[2], int flags);
 

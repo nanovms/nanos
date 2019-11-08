@@ -130,6 +130,7 @@ closure_function(1, 0, void, run_thread,
 
 void thread_sleep_interruptible(void)
 {
+    disable_interrupts();
     assert(current->blocked_on);
     thread_log(current, "sleep interruptible (on \"%s\")", blockq_name(current->blocked_on));
     runloop();
@@ -137,6 +138,7 @@ void thread_sleep_interruptible(void)
 
 void thread_sleep_uninterruptible(void)
 {
+    disable_interrupts();
     assert(!current->blocked_on);
     current->blocked_on = INVALID_ADDRESS;
     thread_log(current, "sleep uninterruptible");
@@ -145,6 +147,7 @@ void thread_sleep_uninterruptible(void)
 
 void thread_yield(void)
 {
+    disable_interrupts();
     thread_log(current, "yield %d, RIP=0x%lx", current->tid, current->frame[FRAME_RIP]);
     assert(!current->blocked_on);
     current->syscall = -1;
@@ -158,6 +161,7 @@ void thread_wakeup(thread t)
     thread_log(current, "%s: %ld->%ld blocked_on %s, RIP=0x%lx", __func__, current->tid, t->tid,
                t->blocked_on ? (t->blocked_on != INVALID_ADDRESS ? blockq_name(t->blocked_on) : "uninterruptible") :
                "(null)", t->frame[FRAME_RIP]);
+    assert(t->blocked_on);
     thread_make_runnable(t);
 }
 
@@ -213,6 +217,7 @@ thread create_thread(process p)
     t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(create_fault_handler(h, t));
     t->run = closure(h, run_thread, t);
     t->blocked_on = 0;
+    t->file_op_complete = false;
     init_sigstate(&t->signals);
     t->dispatch_sigstate = 0;
     t->active_signo = 0;
@@ -254,7 +259,7 @@ void exit_thread(thread t)
 
     if (t->clear_tid) {
         *t->clear_tid = 0;
-        futex(t->clear_tid, FUTEX_WAKE, 1, 0, 0, 0);
+        futex_wake_one_by_uaddr(t->p, t->clear_tid); /* ignore errors */
     }
 
     if (t->select_epoll)

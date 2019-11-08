@@ -104,6 +104,16 @@ closure_function(0, 6, sysreturn, stdout,
     return length;
 }
 
+closure_function(0, 0, u32, std_output_events)
+{
+    return EPOLLOUT;
+}
+
+closure_function(0, 0, u32, std_input_events)
+{
+    return 0;
+}
+
 extern struct syscall *linux_syscalls;
 
 static boolean create_stdfiles(unix_heaps uh, process p)
@@ -131,6 +141,8 @@ static boolean create_stdfiles(unix_heaps uh, process p)
     in->f.write = out->f.write = err->f.write = closure(h, stdout);
     in->f.read = out->f.read = err->f.read = closure(h, dummy_read);
     in->f.flags = out->f.flags = err->f.flags = O_RDWR;
+    out->f.events = err->f.events = closure(h, std_output_events);
+    in->f.events = closure(h, std_input_events);
     return true;
 }
 
