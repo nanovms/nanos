@@ -15,30 +15,37 @@
 ;; size of mcount call
 %define MCOUNT_INSN_SIZE 5
 
-extern __current_ftrace_trace_fn
-extern __current_ftrace_graph_return
+extern __ftrace_function_fn
+extern __ftrace_graph_entry_fn
+extern __ftrace_graph_return_fn
+extern prepare_ftrace_return
+extern ftrace_return_to_handler
 
 ;; After this is called, the following registers contain:
-;;  %rdi - holds rip of tracee (address of function being traced)
-;;  %rsi - holds return address of tracee
+;;  %rdi - holds IP of tracee (address of function being traced)
+;;  %rsi - holds return address (caller of tracee)
 ;;  %rdx - holds the original %rbp
 ;;
 ;; and the stack will look like:
-;;  [            |             ]  <--- rsp
+;;  [            |             ]  <-- rsp
 ;;  [            |             ]
 ;;  [    <saved frame ctx>     ]
 ;;  [            |             ]
 ;;  [            |             ]
-;;  [           rbp            ]  <--- rbp
-;;  [   tracee function addr   ]  <--- moved into rdi and stored in stack(RIP)
-;;  [           rbp            ]  <--- moved into rdx and stored in stack(RBP)
-;;  [ tracee retaddr in parent ]  <--- moved into rsi 
+;;  [        saved rbp         ]  <-- rbp
+;;  [ retaddr (mcount->callee) ]
+;;  [        saved rbp         ]
+;;  [ retaddr (mcount->callee) ]
+;; 
 %macro save_mcount_regs 0
-    push rbp
-    push qword [rsp+8]
-    push rbp
+    push rbp ; save orig rbp
+
+    ;; setup the prologue to make it look like we are in the callee ;; rather
+    ;; than mcount
+    push qword [rsp+8] ; push return address to get back to callee
+    push rbp ; save orig rbp
     mov rbp, rsp
- 
+
     ;; we add enough stack to save all the regs, but only need those
     ;; potentially clobbered by mcount
     sub rsp, (SAVE_REG_SIZE - SAVE_FRAME_SIZE)
@@ -51,13 +58,13 @@ extern __current_ftrace_graph_return
     mov [rsp+FRAME_R8*8], r8
     mov [rsp+FRAME_R9*8], r9
 
-    ;; save original rbp
+    ;; save original rbp into rdx
     ;; XXX: Linux does this but rbp already points to the saved rbp ...
     ;; mov rdx, [rsp+(SAVE_REG_SIZE-8)]
     mov rdx, [rbp]
     mov [rsp+FRAME_RBP*8], rdx
 
-    ;; return address from parent into rsi
+    ;; return address (from callee back to caller) into rsi
     mov rsi, [rdx+8]
 
     ;; load rdi with tracee function address and save in rip on stack
@@ -86,16 +93,63 @@ extern __current_ftrace_graph_return
 
 global ftrace_stub
 global mcount
-mcount:
-    cmp qword [__current_ftrace_trace_fn], ftrace_stub
-    jnz trace
+global return_to_handler
 
+mcount:
+    cmp qword [__ftrace_function_fn], ftrace_stub
+    jnz do_trace
+
+    cmp qword [__ftrace_graph_return_fn], ftrace_stub
+    jnz trace_graph_caller
+
+    cmp qword [__ftrace_graph_entry_fn], ftrace_stub
+    jnz trace_graph_caller
+
+;; fall through to ret
 ftrace_stub:
     ret
 
-trace:
+do_trace:
     save_mcount_regs
-    mov r8, [__current_ftrace_trace_fn]
+    mov r8, [__ftrace_function_fn]
     call r8
     restore_mcount_regs
-    jmp ftrace_stub
+    ret
+
+trace_graph_caller:
+    save_mcount_regs
+
+    ;; args to prepare_ftrace_return are:
+    ;;   tracee (rdi)
+    ;;   pointer to where caller retaddr is on the stack (rsi)
+    ;;   original frame pointer in caller (rdx)
+
+    ;; rdx has the original rbp, which is 8 bytes below the retaddr
+    lea rsi, [rdx+8]
+
+    ;; At this point *rsi = (old rsi before the line above)
+
+    ;; need the saved RBP from the caller
+    mov rdx, [rdx]
+
+    call prepare_ftrace_return
+
+    restore_mcount_regs
+    ret
+
+return_to_handler:
+    sub rsp, 32
+    
+    mov [rsp], rax
+    mov [rsp+8], rdx
+    mov rdi, rbp
+
+    call ftrace_return_to_handler
+
+    mov rdi, rax
+    mov rdx, [rsp+8],
+    mov rax, [rsp]
+
+    add rsp, 32
+
+    jmp rdi

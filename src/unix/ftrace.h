@@ -78,10 +78,16 @@ FTRACE_SPECIAL_PROTOTYPES(trace_pipe);
 FTRACE_SPECIAL_PROTOTYPES(trace);
 FTRACE_SPECIAL_PROTOTYPES(tracing_on);
 
-extern void ftrace_stub(unsigned long, unsigned long);
-typedef void (*ftrace_func_t)(unsigned long, unsigned long);
 int ftrace_init(unix_heaps uh, filesystem fs);
 void ftrace_deinit(void);
+int ftrace_thread_init(thread t);
+void ftrace_thread_deinit(thread t);
+void ftrace_thread_switch(thread out, thread in);
+void ftrace_thread_noreturn(thread t);
+
+#define ftrace_thread_noreturn(t) ftrace_thread_switch(t, t)
+
+void ftrace_enable(void);
 
 #else
 
@@ -93,6 +99,28 @@ ftrace_init(unix_heaps uh, filesystem fs)
 
 static inline void
 ftrace_deinit(void)
+{}
+
+static inline int
+ftrace_thread_init(thread t)
+{
+    return 0;
+}
+
+static inline void
+ftrace_thread_deinit(thread t)
+{}
+
+static inline void
+ftrace_thread_switch(thread out, thread in)
+{}
+
+static inline void
+ftrace_thread_noreturn(thread t)
+{}
+
+static inline void 
+ftrace_enable(void)
 {}
 
 #define FTRACE_SPECIAL_FILES

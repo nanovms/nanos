@@ -1,4 +1,5 @@
 #include <unix_internal.h>
+#include <ftrace.h>
 
 //#define SIGNAL_DEBUG
 #ifdef SIGNAL_DEBUG
@@ -368,7 +369,6 @@ static void restore_ucontext(struct ucontext * uctx, context f)
     f[FRAME_CS] = mcontext->cs;
 }
 
-
 sysreturn rt_sigreturn(void)
 {
     struct rt_sigframe *frame;
@@ -392,6 +392,9 @@ sysreturn rt_sigreturn(void)
     running_frame = t->frame;
 
     sig_debug("switching to thread frame %p\n", running_frame);
+
+    /* ftrace needs to know that this call stack does not return */
+    ftrace_thread_noreturn(current);
 
     /* return - XXX or reschedule? */
     IRETURN(running_frame);
