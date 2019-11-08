@@ -145,7 +145,7 @@ static inline u64 rdtsc_precise(void)
     if (platform_has_rdtscp)
         return __rdtscp();
 
-    asm volatile("cpuid" ::: "%rax", "%rbx", "%rcx", "%rdx"); /* serialize execution */\
+    asm volatile("cpuid" ::: "%rax", "%rbx", "%rcx", "%rdx"); /* serialize execution */
     return __rdtsc();
 }
 
