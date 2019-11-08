@@ -578,6 +578,15 @@ closure_function(5, 2, void, file_op_complete,
     closure_finish();
 }
 
+static inline void file_op_maybe_wake(thread t)
+{
+    u64 flags = irq_disable_save(); /* mutex / spinlock later */
+    t->file_op_complete = true;
+    if (t->blocked_on)
+        thread_wakeup(t);
+    irq_restore(flags);
+}
+
 static void sendfile_complete_internal(heap h, int * offset, void * buf, bytes len, boolean bh,
                                        thread t, sysreturn rv)
 {
@@ -588,9 +597,8 @@ static void sendfile_complete_internal(heap h, int * offset, void * buf, bytes l
     }
     deallocate(h, buf, len);
     set_syscall_return(t, rv);
-    if (bh) {
-        thread_wakeup(t);
-    }
+    if (bh)
+        file_op_maybe_wake(t);
 }
 
 closure_function(5, 2, void, sendfile_complete,
@@ -648,6 +656,14 @@ static sysreturn sendfile(int out_fd, int in_fd, int *offset, bytes count)
     return sysreturn_value(current);
 }
 
+static inline void file_op_maybe_sleep(thread t)
+{
+    if (!t->file_op_complete) {
+        thread_sleep_uninterruptible();
+    } else {
+        t->file_op_complete = false;
+    }
+}
 
 closure_function(2, 6, sysreturn, file_read,
                  file, f, fsfile, fsf,
@@ -667,6 +683,7 @@ closure_function(2, 6, sysreturn, file_read,
     }
 
     if (offset < f->length) {
+        t->file_op_complete = false;
         filesystem_read(t->p->fs, f->n, dest, length, offset,
                         closure(heap_general(get_kernel_heaps()),
                                 file_op_complete, t, f, fsf, is_file_offset,
@@ -674,7 +691,9 @@ closure_function(2, 6, sysreturn, file_read,
 
         /* XXX Presently only support blocking file reads... */
         if (!bh) {
-            thread_sleep_uninterruptible();
+            /* no return on sleep, else direct return rax */
+            file_op_maybe_sleep(t);
+            return get_syscall_return(t);
         } else {
             return SYSRETURN_KEEP_BLOCKING;
         }
@@ -720,13 +739,16 @@ closure_function(2, 6, sysreturn, file_write,
     buffer b = wrap_buffer(h, buf, final_length);
     thread_log(t, "%s: b_ref: %p", __func__, buffer_ref(b, 0));
 
+    t->file_op_complete = false;
     filesystem_write(t->p->fs, f->n, b, offset,
                      closure(h, file_op_complete, t, f, fsf, is_file_offset,
                      completion));
 
     /* XXX Presently only support blocking file writes... */
     if (!bh) {
-        thread_sleep_uninterruptible();
+        /* no return on sleep, else direct return rax */
+        file_op_maybe_sleep(t);
+        return get_syscall_return(t);
     } else {
         return SYSRETURN_KEEP_BLOCKING;
     }
@@ -1997,7 +2019,7 @@ closure_function(0, 2, void, syscall_io_complete_cfn,
                  thread, t, sysreturn, rv)
 {
     set_syscall_return(t, rv);
-    thread_wakeup(t);
+    file_op_maybe_wake(t);
 }
 
 void init_syscalls()

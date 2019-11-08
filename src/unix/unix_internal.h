@@ -190,6 +190,9 @@ typedef struct thread {
     /* blockq thread is waiting on, INVALID_ADDRESS for uninterruptible */
     blockq blocked_on;
 
+    /* set by file op completion; used to detect if blocking is necessary */
+    boolean file_op_complete;
+
     /* for waiting on thread-specific conditions rather than a resource */
     blockq thread_bq;
 
