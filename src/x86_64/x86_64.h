@@ -119,14 +119,14 @@ static inline void set_page_write_protect(boolean enable)
 
 extern u8 platform_has_rdtscp;
 
-static inline u64 __rdtscp(void)
+static inline u64 _rdtscp(void)
 {
     u32 a, d;
     asm volatile("rdtscp" : "=a" (a), "=d" (d));
     return (((u64)a) | (((u64)d) << 32));
 }
 
-static inline u64 __rdtsc(void)
+static inline u64 _rdtsc(void)
 {
     u32 a, d;
     asm volatile("rdtsc" : "=a" (a), "=d" (d));
@@ -136,17 +136,17 @@ static inline u64 __rdtsc(void)
 static inline u64 rdtsc(void)
 {
     if (platform_has_rdtscp)
-        return __rdtscp();
-    return __rdtsc();
+        return _rdtscp();
+    return _rdtsc();
 }
 
 static inline u64 rdtsc_precise(void)
 {
     if (platform_has_rdtscp)
-        return __rdtscp();
+        return _rdtscp();
 
     asm volatile("cpuid" ::: "%rax", "%rbx", "%rcx", "%rdx"); /* serialize execution */
-    return __rdtsc();
+    return _rdtsc();
 }
 
 typedef closure_type(clock_now, timestamp);
