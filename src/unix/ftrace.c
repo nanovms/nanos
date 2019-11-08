@@ -24,6 +24,19 @@
 /* can't trace depths longer than this ... */
 #define FTRACE_RETFUNC_DEPTH 64
 
+/* special disable idx */
+#define FTRACE_THREAD_DISABLE_IDX (int)-1
+
+/* helper to create a buffer on the stack with a pointer to
+ * contents that exist elsewhere
+ */
+#define stack_buffer_name(__n) {\
+    .contents = (__n),\
+    .start = 0,\
+    .end = sizeof(__n)-1,\
+    .length = sizeof(__n)-1\
+};
+
 static heap ftrace_heap;
 static heap rbuf_heap;
 
@@ -170,7 +183,6 @@ ftrace_graph_t __ftrace_graph_return_fn = (ftrace_graph_t)ftrace_stub;
  * have smp
  */
 static struct rbuf global_rbuf;
-
 
 /*
  * helper to write a buffer to userspace, paying attention
@@ -491,8 +503,7 @@ __rbuf_acquire_read_entry(struct rbuf * rbuf, struct rbuf_entry ** acquired)
 /*** Start tracer callbacks */
 
 /* nop tracer */
-__attribute__((no_instrument_function))
-static void
+__attribute__((no_instrument_function)) static void
 nop_toggle(boolean enable)
 {
     __ftrace_function_fn = ftrace_stub;
@@ -514,8 +525,7 @@ nop_print_header(struct ftrace_printer * p, struct rbuf * rbuf)
     printer_write(p, "#              | |       |         |         |\n");
 }
 
-__attribute__((no_instrument_function))
-static void
+__attribute__((no_instrument_function)) static void
 function_trace(unsigned long ip, unsigned long parent_ip)
 {
     struct rbuf_entry * entry;
@@ -537,21 +547,23 @@ function_trace(unsigned long ip, unsigned long parent_ip)
     /* XXX function tracer just supports tsc for now */
     func->ts = rdtsc();
 
-    if (current->name[0] != '\0')
-        func->sym_name = intern(alloca_wrap_cstring(current->name));
+    /* alloca is broken here ... */
+    if (current->name[0] != '\0') {
+        struct buffer b = stack_buffer_name(current->name);
+        func->sym_name = intern(&b);
+    }
     else
         func->sym_name = 0;
 
-    rbuf_enable(&global_rbuf);
     rbuf_unlock(&global_rbuf);
+    rbuf_enable(&global_rbuf);
     return;
 drop:
     /* XXX count the drop */
     return;
 }
 
-__attribute__((no_instrument_function))
-static void
+__attribute__((no_instrument_function)) static void
 function_toggle(boolean enable)
 {
     if (enable)
@@ -622,8 +634,7 @@ function_print_entry(struct ftrace_printer * p, struct rbuf_entry * entry)
 /*
  * This must always called with rbuf already disabled
  */
-__attribute__((no_instrument_function))
-static void
+__attribute__((no_instrument_function)) static void
 function_graph_trace_switch(thread out, thread in)
 {
     struct rbuf_entry * entry;
@@ -639,14 +650,16 @@ function_graph_trace_switch(thread out, thread in)
     sw->tid_in = in->tid;
     sw->tid_out = out->tid;
 
-    if (in->name[0] != '\0')
-        sw->sym_name_in = intern(alloca_wrap_cstring(in->name));
-    else
+    if (in->name[0] != '\0') {
+        struct buffer b = stack_buffer_name(in->name);
+        sw->sym_name_in = intern(&b);
+    } else
         sw->sym_name_in = 0;
 
-    if (out->name[0] != '\0')
-        sw->sym_name_out = intern(alloca_wrap_cstring(out->name));
-    else
+    if (out->name[0] != '\0') {
+        struct buffer b = stack_buffer_name(out->name);
+        sw->sym_name_out = intern(&b);
+    } else
         sw->sym_name_out = 0;
 
     rbuf_unlock(&global_rbuf);
@@ -659,8 +672,7 @@ drop:
 /*
  * This must always called with rbuf already disabled
  */
-__attribute__((no_instrument_function))
-static void
+__attribute__((no_instrument_function)) static void
 function_graph_trace_entry(struct ftrace_graph_entry * stack_entry)
 {
     struct rbuf_entry * entry;
@@ -687,8 +699,7 @@ drop:
 /*
  * This must always called with rbuf already disabled
  */
-__attribute__((no_instrument_function))
-static void
+__attribute__((no_instrument_function)) static void
 function_graph_trace_return(struct ftrace_graph_entry * stack_entry)
 {
     struct rbuf_entry * entry;
@@ -713,8 +724,7 @@ drop:
     return;
 }
 
-__attribute__((no_instrument_function))
-static void
+__attribute__((no_instrument_function)) static void
 function_graph_toggle(boolean enable)
 {
     if (enable) {
@@ -790,9 +800,8 @@ function_graph_print_entry(struct ftrace_printer * p,
          * an graph+return wihout children */
         if (graph->has_child) {
             printer_write(p, "}");
-            if (graph->flush) {
+            if (graph->flush)
                 printer_write(p, " */ %s */", function_name(graph->ip));
-            }
         } else {
             printer_write(p, "%s();", function_name(graph->ip));
         }
@@ -1824,14 +1833,21 @@ ftrace_thread_init(thread t)
     return 0;
 }
 
-void
+__attribute__((no_instrument_function)) void
 ftrace_thread_deinit(thread t)
 {
+    /* complete the current call stack */
+    ftrace_thread_noreturn(t);
+
+    rbuf_disable(&global_rbuf);
+
     deallocate(ftrace_heap, t->graph_stack,
         sizeof(struct ftrace_graph_entry) * FTRACE_RETFUNC_DEPTH
     );
 
-    t->graph_idx = 0;
+    rbuf_enable(&global_rbuf);
+
+    t->graph_idx = FTRACE_THREAD_DISABLE_IDX;
     t->graph_stack = 0;
 }
 
@@ -1839,8 +1855,7 @@ ftrace_thread_deinit(thread t)
  * Record the switch event, and record completion times for any functions
  * on the incoming thread's call stack
  */
-__attribute__((no_instrument_function))
-void
+__attribute__((no_instrument_function)) void
 ftrace_thread_switch(thread out, thread in)
 {
     if (!rbuf_enabled(&global_rbuf) ||
@@ -1853,14 +1868,15 @@ ftrace_thread_switch(thread out, thread in)
     rbuf_disable(&global_rbuf);
 
     /* generate a ctx switch event */
-    function_graph_trace_switch(out, in);
+    if (out != in)
+        function_graph_trace_switch(out, in);
 
     /* complete any outstanding function calls for incoming thread */
     while (in->graph_idx > 0) {
         struct ftrace_graph_entry * stack_ent =
                 &(in->graph_stack[--in->graph_idx]);
         stack_ent->return_ts = now();
-        stack_ent->flush = 1;
+        stack_ent->flush = (out != in); /* just controls a printing option */
         function_graph_trace_return(stack_ent);
     }
 
@@ -1893,20 +1909,17 @@ extern void return_to_handler(void);
  * The frame pointer is just passed so we can sanity check it on function
  * return
  */
-__attribute__((no_instrument_function))
-void
+__attribute__((no_instrument_function)) void
 prepare_ftrace_return(unsigned long self, unsigned long * parent,
                       unsigned long frame_pointer)
 {
-    struct ftrace_graph_entry * stack_ent, * parent_ent;
+    struct ftrace_graph_entry * stack_ent;
     unsigned long old;
     int depth;
 
-    /* does user want tracing */
-    if (!rbuf_enabled(&global_rbuf))
+    if (!rbuf_enabled(&global_rbuf) ||
+        (current->graph_idx == FTRACE_THREAD_DISABLE_IDX))
         return;
-
-    rbuf_disable(&global_rbuf);
 
     if (current->graph_idx == FTRACE_RETFUNC_DEPTH) {
         /* We could just drop it, but let's yell because a call stack this long
@@ -1916,6 +1929,8 @@ prepare_ftrace_return(unsigned long self, unsigned long * parent,
             FTRACE_RETFUNC_DEPTH
         );
     }
+
+    rbuf_disable(&global_rbuf);
 
     /* swap our stub in at retaddr to interpose function return path */
     old = *parent;
@@ -1934,7 +1949,8 @@ prepare_ftrace_return(unsigned long self, unsigned long * parent,
 
     /* whatever called us has a child */
     if (depth > 0) {
-        parent_ent = &(current->graph_stack[depth - 1]);
+        struct ftrace_graph_entry * parent_ent =
+                &(current->graph_stack[depth - 1]);
 
         /* push parent onto rbuf if this is the first function it's called */
         if (parent_ent->has_child == 0) {
@@ -1955,8 +1971,7 @@ static void frame_halt(struct ftrace_graph_entry * entry, unsigned long fp2)
     );
 }
 
-__attribute__((no_instrument_function))
-unsigned long
+__attribute__((no_instrument_function)) unsigned long
 ftrace_return_to_handler(unsigned long frame_pointer)
 {
     struct ftrace_graph_entry * stack_ent;
@@ -1984,8 +1999,6 @@ ftrace_return_to_handler(unsigned long frame_pointer)
     rbuf_enable(&global_rbuf);
     return retaddr;
 }
-
-
 
 /* XXX: remove once we have http PUT support */
 void

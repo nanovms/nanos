@@ -83,6 +83,9 @@ void ftrace_deinit(void);
 int ftrace_thread_init(thread t);
 void ftrace_thread_deinit(thread t);
 void ftrace_thread_switch(thread out, thread in);
+void ftrace_thread_noreturn(thread t);
+
+#define ftrace_thread_noreturn(t) ftrace_thread_switch(t, t)
 
 void ftrace_enable(void);
 
@@ -109,7 +112,11 @@ ftrace_thread_deinit(thread t)
 {}
 
 static inline void
-ftrace_thread_switch(thread old, thread in)
+ftrace_thread_switch(thread out, thread in)
+{}
+
+static inline void
+ftrace_thread_noreturn(thread t)
 {}
 
 static inline void 
