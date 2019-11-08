@@ -10,6 +10,8 @@ typedef __uint128_t u128;
 static clock_now platform_now;
 static clock_timer platform_timer;
 
+u8 platform_has_rdtscp = 0;
+
 void register_platform_clock_now(clock_now cn)
 {
     platform_now = cn;
@@ -47,5 +49,11 @@ void runloop_timer(timestamp duration)
 
 void init_clock(void)
 {
+    /* detect rdtscp */
+    u32 regs[4];
+    cpuid(0x80000001, 0, regs);
+    if (regs[3] & U64_FROM_BIT(27))
+        platform_has_rdtscp = 1;
+
     rtc_offset = rtc_gettimeofday() << 32;
 }
