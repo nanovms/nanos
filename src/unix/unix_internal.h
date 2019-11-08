@@ -293,11 +293,6 @@ typedef struct process {
     struct sigaction  sigactions[NSIG];
 } *process;
 
-struct futex {
-    heap h;
-    blockq bq;
-};
-
 typedef struct sigaction *sigaction;
 
 #define SIGACT_SIGINFO  0x00000001
@@ -464,8 +459,13 @@ void init_syscalls();
 void init_threads(process p);
 void init_futices(process p);
 
-boolean futex_wake(process p, int *uaddr);
 sysreturn futex(int *uaddr, int futex_op, int val, u64 val2, int *uaddr2, int val3);
+boolean futex_wake_many_by_uaddr(process p, int *uaddr, int val);
+
+static inline boolean futex_wake_one_by_uaddr(process p, int *uaddr)
+{
+    return futex_wake_many_by_uaddr(p, uaddr, 1);
+}
 
 int do_pipe2(int fds[2], int flags);
 

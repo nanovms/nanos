@@ -1,5 +1,10 @@
 #include <unix_internal.h>
 
+struct futex {
+    heap h;
+    blockq bq;
+};
+
 static u64 futex_key_function(void *x)
 {
     return u64_from_pointer(x);
@@ -52,18 +57,6 @@ static thread futex_wake_one(struct futex * f)
     return w;
 }
 
-boolean futex_wake(process p, int *uaddr)
-{
-    struct futex * f;
-
-    f = table_find(p->futices, (void *)uaddr);
-    if (!f)
-        return false;
-
-    futex_wake_one(f);
-    return true;
-}
-
 /*
  * Wake up to 'val' waiters
  * Return the number woken
@@ -79,6 +72,18 @@ static int futex_wake_many(struct futex * f, int val)
     }
 
     return nr_woken;
+}
+
+boolean futex_wake_many_by_uaddr(process p, int *uaddr, int val)
+{
+    struct futex * f;
+
+    f = table_find(p->futices, (void *)uaddr);
+    if (!f)
+        return false;
+
+    futex_wake_many(f, val);
+    return true;
 }
 
 /*

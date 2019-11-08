@@ -259,7 +259,7 @@ void exit_thread(thread t)
 
     if (t->clear_tid) {
         *t->clear_tid = 0;
-        futex_wake(t->p, t->clear_tid); /* ignore errors */
+        futex_wake_one_by_uaddr(t->p, t->clear_tid); /* ignore errors */
     }
 
     if (t->select_epoll)
