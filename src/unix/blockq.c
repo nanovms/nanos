@@ -313,11 +313,13 @@ int blockq_transfer_waiters(blockq dest, blockq src, int n)
             break;
         blockq_item bi = struct_from_list(l, blockq_item, l);
         if (bi->timeout) {
-            /* XXX cancelling timer for now, but it should be restarted on new bq */
-            remove_timer(bi->timeout);
-            bi->timeout = 0;
+            timestamp remain = remove_timer(bi->timeout);
+            bi->timeout = remain == 0 ? 0 :
+                register_timer(remain, closure(dest->h, blockq_item_timeout, dest, bi));
         }
         list_delete(&bi->l);
+        assert(bi->t->blocked_on == src);
+        bi->t->blocked_on = dest;
         list_insert_before(&dest->waiters_head, &bi->l);
         transferred++;
     }
