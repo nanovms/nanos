@@ -152,6 +152,7 @@ void thread_wakeup(thread t)
     thread_log(current, "%s: %ld->%ld blocked_on %s, RIP=0x%lx", __func__, current->tid, t->tid,
                t->blocked_on ? (t->blocked_on != INVALID_ADDRESS ? blockq_name(t->blocked_on) : "uninterruptible") :
                "(null)", t->frame[FRAME_RIP]);
+    assert(t->blocked_on);
     thread_make_runnable(t);
 }
 
@@ -240,7 +241,7 @@ void exit_thread(thread t)
 
     if (t->clear_tid) {
         *t->clear_tid = 0;
-        futex(t->clear_tid, FUTEX_WAKE, 1, 0, 0, 0);
+        futex_wake(t->p, t->clear_tid); /* ignore errors */
     }
 
     if (t->select_epoll)

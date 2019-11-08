@@ -147,6 +147,7 @@ static inline sysreturn blockq_check(blockq bq, thread t, blockq_action a, boole
 {
     return blockq_check_timeout(bq, t, a, in_bh, 0);
 }
+int blockq_transfer_waiters(blockq dest, blockq src, int n);
 
 /* pending and masked signals for a given thread or process */
 typedef struct sigstate {
@@ -281,6 +282,11 @@ typedef struct process {
     struct sigstate   signals;
     struct sigaction  sigactions[NSIG];
 } *process;
+
+struct futex {
+    heap h;
+    blockq bq;
+};
 
 typedef struct sigaction *sigaction;
 
@@ -448,6 +454,7 @@ void init_syscalls();
 void init_threads(process p);
 void init_futices(process p);
 
+boolean futex_wake(process p, int *uaddr);
 sysreturn futex(int *uaddr, int futex_op, int val, u64 val2, int *uaddr2, int val3);
 
 int do_pipe2(int fds[2], int flags);

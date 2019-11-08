@@ -182,6 +182,7 @@ thread blockq_wake_one(blockq bq)
 {
     blockq_item bi;
     list l;
+    thread t;
 
     blockq_debug("%p (\"%s\") \n", bq, blockq_name(bq));
 
@@ -192,11 +193,12 @@ thread blockq_wake_one(blockq bq)
         return INVALID_ADDRESS;
 
     bi = struct_from_list(l, blockq_item, l);
+    t = bi->t;
     blockq_apply_bi_locked(bq, bi, BLOCKQ_ACTION_BLOCKED);
 
     /* XXX release lock */
 
-    return bi->t;
+    return t;
 }
 
 sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, 
@@ -299,6 +301,27 @@ void blockq_flush(blockq bq)
         blockq_apply_bi_locked(bq, bi, BLOCKQ_ACTION_BLOCKED | BLOCKQ_ACTION_NULLIFY);
     }
     /* XXX release lock */
+}
+
+int blockq_transfer_waiters(blockq dest, blockq src, int n)
+{
+    int transferred = 0;
+
+    /* XXX locks for dest and src */
+    list_foreach(&src->waiters_head, l) {
+        if (transferred >= n)
+            break;
+        blockq_item bi = struct_from_list(l, blockq_item, l);
+        if (bi->timeout) {
+            /* XXX cancelling timer for now, but it should be restarted on new bq */
+            remove_timer(bi->timeout);
+            bi->timeout = 0;
+        }
+        list_delete(&bi->l);
+        list_insert_before(&dest->waiters_head, &bi->l);
+        transferred++;
+    }
+    return transferred;
 }
 
 void blockq_set_completion(blockq bq, io_completion completion, thread t,
