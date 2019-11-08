@@ -25,9 +25,12 @@ static boolean timer_compare(void *za, void *zb)
     return(a->w > b->w);
 }
 
-void remove_timer(timer t)
+/* returns time remaining or 0 if elapsed */
+timestamp remove_timer(timer t)
 {
     t->disable = true;
+    timestamp n = now();
+    return t->w > n ? t->w - n : 0;
 }
 
 static timer __register_timer(timestamp interval, thunk n, boolean periodic)

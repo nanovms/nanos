@@ -4,7 +4,7 @@ typedef struct timer *timer;
 
 timer register_timer(timestamp, thunk n);
 timer register_periodic_timer(timestamp interval, thunk n);
-void remove_timer(timer t);
+timestamp remove_timer(timer t);
 void initialize_timers(kernel_heaps kh);
 timestamp parse_time();
 void print_timestamp(buffer, timestamp);
