@@ -111,7 +111,7 @@ closure_function(1, 0, void, run_thread,
     thread old = current;
     current = t;
 
-    /* ftrace needs to know about the context switch */
+    /* ftrace needs to know about the switch event */
     ftrace_thread_switch(old, current);
 
     thread_log(t, "run frame %p, RIP=%p", t->frame, t->frame[FRAME_RIP]);
@@ -128,22 +128,11 @@ closure_function(1, 0, void, run_thread,
     IRETURN(running_frame);
 }
 
-__attribute__((noreturn))
-__attribute__((no_instrument_function))
-static void switch_and_runloop(void)
-{
-    thread old = current;
-    current = dummy_thread;
-    running_frame = dummy_thread->frame;
-    ftrace_thread_switch(old, current);
-    runloop();
-}
-
 void thread_sleep_interruptible(void)
 {
     assert(current->blocked_on);
     thread_log(current, "sleep interruptible (on \"%s\")", blockq_name(current->blocked_on));
-    switch_and_runloop();
+    runloop();
 }
 
 void thread_sleep_uninterruptible(void)
@@ -151,7 +140,7 @@ void thread_sleep_uninterruptible(void)
     assert(!current->blocked_on);
     current->blocked_on = INVALID_ADDRESS;
     thread_log(current, "sleep uninterruptible");
-    switch_and_runloop();
+    runloop();
 }
 
 void thread_yield(void)
@@ -161,7 +150,7 @@ void thread_yield(void)
     current->syscall = -1;
     set_syscall_return(current, 0);
     enqueue(runqueue, current->run);
-    switch_and_runloop();
+    runloop();
 }
 
 void thread_wakeup(thread t)
@@ -240,11 +229,10 @@ thread create_thread(process p)
     return t;
 }
 
+__attribute__((no_instrument_function))
 void exit_thread(thread t)
 {
     thread_log(current, "exit_thread");
-
-    ftrace_thread_deinit(t);
 
     assert(vector_length(t->p->threads) > t->tid);
     vector_set(t->p->threads, t->tid, 0);
@@ -283,6 +271,8 @@ void exit_thread(thread t)
 
     deallocate_closure((fault_handler)pointer_from_u64(t->frame[FRAME_FAULT_HANDLER]));
     t->frame[FRAME_FAULT_HANDLER] = 0;
+
+    ftrace_thread_deinit(t);
 
     current = dummy_thread;
     running_frame = dummy_thread->frame;
