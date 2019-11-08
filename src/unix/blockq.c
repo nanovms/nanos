@@ -318,6 +318,8 @@ int blockq_transfer_waiters(blockq dest, blockq src, int n)
             bi->timeout = 0;
         }
         list_delete(&bi->l);
+        assert(bi->t->blocked_on == src);
+        bi->t->blocked_on = dest;
         list_insert_before(&dest->waiters_head, &bi->l);
         transferred++;
     }
