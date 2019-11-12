@@ -8,13 +8,13 @@ PROGRAMS= \
 	getdents \
 	getrandom \
 	hw \
-	hwg \
 	hws \
 	mkdir \
 	mmap \
 	nullpage \
 	paging \
 	pipe \
+	readv \
 	rename \
 	sendfile \
 	signal \
@@ -27,8 +27,7 @@ PROGRAMS= \
 	webg \
 	webs \
 	write \
-	writev \
-	readv
+	writev
 
 SRCS-dup= \
 	$(CURDIR)/dup.c \
