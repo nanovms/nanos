@@ -193,7 +193,7 @@ typedef struct thread {
     blockq blocked_on;
 
     /* set by file op completion; used to detect if blocking is necessary */
-    boolean file_op_complete;
+    boolean file_op_is_complete;
 
     /* for waiting on thread-specific conditions rather than a resource */
     blockq thread_bq;

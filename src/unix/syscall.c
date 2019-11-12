@@ -415,9 +415,9 @@ static inline boolean filepath_is_ancestor(tuple wd1, const char *fp1,
 }
 
 /* Seems this could be implemented using a merge? */
-static void iov_transfer_internal(heap h, file f, io op, struct iovec * iov, int iovcnt, struct iov_progress * progress, boolean bh, thread t, sysreturn rv);
+static void iov_transfer_internal(heap h, fdesc f, io op, struct iovec * iov, int iovcnt, struct iov_progress * progress, boolean bh, thread t, sysreturn rv);
 closure_function(7, 2, void, iov_transfer,
-                 heap, h, file, f, io, op, struct iovec *, iov, int, iovcnt, struct iov_progress *, progress, boolean, bh,
+                 heap, h, fdesc, f, io, op, struct iovec *, iov, int, iovcnt, struct iov_progress *, progress, boolean, bh,
                  thread, t, sysreturn, rv)
 {
     iov_transfer_internal(bound(h), bound(f), bound(op), bound(iov), bound(iovcnt), bound(progress), bound(bh), t, rv);
@@ -426,7 +426,7 @@ closure_function(7, 2, void, iov_transfer,
 /* borrow this value from blockq - something that won't clobber a legitimate syscall return value */
 #define SYSRETURN_KEEP_BLOCKING BLOCKQ_BLOCK_REQUIRED
 
-static void iov_transfer_internal(heap h, file f, io op, struct iovec * iov, int iovcnt, struct iov_progress * progress, boolean bh, thread t, sysreturn rv)
+static void iov_transfer_internal(heap h, fdesc f, io op, struct iovec * iov, int iovcnt, struct iov_progress * progress, boolean bh, thread t, sysreturn rv)
 {
     boolean do_io = !bh;
     io_completion completion = closure(h, iov_transfer, h, f, op, iov, iovcnt,
@@ -439,14 +439,13 @@ static void iov_transfer_internal(heap h, file f, io op, struct iovec * iov, int
         if (do_io) {
             thread_log(t, "%s %d/%d%s", __func__, progress->count + 1, iovcnt,
                     bh ? " BH" : "");
-            rv = apply(op, iov[progress->count].iov_base, len, f->offset, t, bh,
-                    completion);
+            rv = apply(op, iov[progress->count].iov_base, len, infinity /* file offset, if applicable */,
+                       t, bh, completion);
             if (rv == SYSRETURN_KEEP_BLOCKING) {
                 return;
             }
         }
         if (rv > 0) {
-            f->offset += rv;
             progress->total_len += rv;
         }
         if (rv != len) {
@@ -463,7 +462,7 @@ static void iov_transfer_internal(heap h, file f, io op, struct iovec * iov, int
         thread_wakeup(t);
 }
 
-static sysreturn iov_internal(file f, io op, struct iovec *iov, int iovcnt)
+static sysreturn iov_internal(fdesc f, io op, struct iovec *iov, int iovcnt)
 {
     if (!op || iovcnt < 0) {
         return set_syscall_error(current, EINVAL);
@@ -497,8 +496,8 @@ sysreturn pread(int fd, u8 *dest, bytes length, s64 offset)
 
 sysreturn readv(int fd, struct iovec *iov, int iovcnt)
 {
-    file f = resolve_fd(current->p, fd);
-    return iov_internal(f, f->f.read, iov, iovcnt);
+    fdesc f = resolve_fd(current->p, fd);
+    return iov_internal(f, f->read, iov, iovcnt);
 }
 
 sysreturn write(int fd, u8 *body, bytes length)
@@ -513,8 +512,8 @@ sysreturn write(int fd, u8 *body, bytes length)
 
 sysreturn writev(int fd, struct iovec *iov, int iovcnt)
 {
-    file f = resolve_fd(current->p, fd);
-    return iov_internal(f, f->f.write, iov, iovcnt);
+    fdesc f = resolve_fd(current->p, fd);
+    return iov_internal(f, f->write, iov, iovcnt);
 }
 
 sysreturn pwrite(int fd, u8 *body, bytes length, s64 offset)
@@ -581,7 +580,7 @@ closure_function(5, 2, void, file_op_complete,
 static inline void file_op_maybe_wake(thread t)
 {
     u64 flags = irq_disable_save(); /* mutex / spinlock later */
-    t->file_op_complete = true;
+    t->file_op_is_complete = true;
     if (t->blocked_on)
         thread_wakeup(t);
     irq_restore(flags);
@@ -658,10 +657,10 @@ static sysreturn sendfile(int out_fd, int in_fd, int *offset, bytes count)
 
 static inline void file_op_maybe_sleep(thread t)
 {
-    if (!t->file_op_complete) {
+    if (!t->file_op_is_complete) {
         thread_sleep_uninterruptible();
     } else {
-        t->file_op_complete = false;
+        t->file_op_is_complete = false;
     }
 }
 
@@ -683,7 +682,7 @@ closure_function(2, 6, sysreturn, file_read,
     }
 
     if (offset < f->length) {
-        t->file_op_complete = false;
+        t->file_op_is_complete = false;
         filesystem_read(t->p->fs, f->n, dest, length, offset,
                         closure(heap_general(get_kernel_heaps()),
                                 file_op_complete, t, f, fsf, is_file_offset,
@@ -739,7 +738,7 @@ closure_function(2, 6, sysreturn, file_write,
     buffer b = wrap_buffer(h, buf, final_length);
     thread_log(t, "%s: b_ref: %p", __func__, buffer_ref(b, 0));
 
-    t->file_op_complete = false;
+    t->file_op_is_complete = false;
     filesystem_write(t->p->fs, f->n, b, offset,
                      closure(h, file_op_complete, t, f, fsf, is_file_offset,
                      completion));

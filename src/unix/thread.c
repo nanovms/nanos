@@ -217,7 +217,7 @@ thread create_thread(process p)
     t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(create_fault_handler(h, t));
     t->run = closure(h, run_thread, t);
     t->blocked_on = 0;
-    t->file_op_complete = false;
+    t->file_op_is_complete = false;
     init_sigstate(&t->signals);
     t->dispatch_sigstate = 0;
     t->active_signo = 0;
