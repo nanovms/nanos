@@ -204,19 +204,6 @@ static void wakeup_sock(sock s, int flags)
     notify_sock(s);
 }
 
-static inline void error_message(sock s, err_t err) {
-    switch (err) {
-        case ERR_ABRT:
-            msg_warn("connection closed on fd %d due to tcp_abort or timer\n", s->fd);
-            break;
-        case ERR_RST:
-            msg_warn("connection closed on fd %d due to remote reset\n", s->fd);
-            break;
-        default:
-            msg_err("fd %d: unknown error %d\n", s->fd, err);
-    }
-}
-
 static void remote_sockaddr_in(sock s, struct sockaddr_in *sin)
 {
     sin->family = AF_INET;
@@ -938,42 +925,14 @@ sysreturn bind(int sockfd, struct sockaddr *addr, socklen_t addrlen)
     return lwip_to_errno(err);
 }
 
-void error_handler_tcp(void* arg, err_t err)
-{
-    if (!arg)
-        return;
-    sock s = (sock)arg;
-    net_debug("sock %d, err %d\n", s->fd, err);
-    if (!s || err == ERR_OK)
-	return;
-
-    /* Warning: Don't try to use the pcb. According to lwIP docs, it
-       may have been deallocated already. */
-    s->info.tcp.lw = 0;
-
-    error_message(s, err); // XXX nuke this
-
-    if (err == ERR_ABRT ||
-        err == ERR_RST ||
-        err == ERR_CLSD) {
-        set_lwip_error(s, err);
-        wakeup_sock(s, WAKEUP_SOCK_EXCEPT);
-    } else {
-        /* We have no context for any other errors at this point,
-           so bark and ignore... */
-        msg_err("unhandled lwIP error %d\n", err);
-    }
-}
-
-static void lwip_tcp_conn_err(void * z, err_t b) {
+static void lwip_tcp_conn_err(void * z, err_t err) {
     if (!z) {
         return;
     }
     sock s = z;
-    net_debug("sock %d, err %d\n", s->fd, b);
-    error_message(s, b);
+    net_debug("sock %d, err %d\n", s->fd, err);
     s->info.tcp.state = TCP_SOCK_UNDEFINED;
-    set_lwip_error(s, b);
+    set_lwip_error(s, err);
 
     /* Don't try to use the pcb, it may have been deallocated already. */
     s->info.tcp.lw = 0;
@@ -1057,7 +1016,7 @@ static inline err_t connect_tcp(sock s, const ip_addr_t* address, unsigned short
     struct tcp_pcb * lw = s->info.tcp.lw;
     tcp_arg(lw, s);
     tcp_recv(lw, tcp_input_lower);
-    tcp_err(lw, error_handler_tcp);
+    tcp_err(lw, lwip_tcp_conn_err);
     tcp_sent(lw, lwip_tcp_sent);
     s->info.tcp.state = TCP_SOCK_IN_CONNECTION;
     set_lwip_error(s, ERR_OK);
