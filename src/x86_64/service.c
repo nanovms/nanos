@@ -203,8 +203,8 @@ static void read_kernel_syms()
 
 extern void install_gdt64_and_tss();
 
-static boolean have_rdseed;
-static boolean have_rdrand;
+static boolean have_rdseed = false;
+static boolean have_rdrand = false;
 
 static boolean hw_seed(u64 * seed, boolean rdseed)
 {
