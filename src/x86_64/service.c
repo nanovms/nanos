@@ -203,20 +203,12 @@ static void read_kernel_syms()
 
 extern void install_gdt64_and_tss();
 
-static boolean try_hw_seed(u64 * seed, boolean rdseed)
+static boolean have_rdseed;
+static boolean have_rdrand;
+
+static boolean hw_seed(u64 * seed, boolean rdseed)
 {
     u64 c;
-    u32 v[4];
-    if (rdseed) {
-        cpuid(0x7, 0, v);
-        if ((v[1] & (1 << 18)) == 0) /* EBX.RDSEED */
-            return false;
-    } else {
-        cpuid(0x1, 0, v);
-        if ((v[2] & (1 << 30)) == 0) /* ECX.RDRAND */
-            return false;
-    }
-
     int attempts = 128; /* arbitrary */
     do {
         if (rdseed)
@@ -233,11 +225,22 @@ static boolean try_hw_seed(u64 * seed, boolean rdseed)
 u64 random_seed(void)
 {
     u64 seed = 0;
-    if (try_hw_seed(&seed, true))
+    if (have_rdseed && hw_seed(&seed, true))
         return seed;
-    if (try_hw_seed(&seed, false))
+    if (have_rdrand && hw_seed(&seed, false))
         return seed;
     return (u64)now();
+}
+
+static void init_hwrand(void)
+{
+    u32 v[4];
+    cpuid(0x7, 0, v);
+    if ((v[1] & (1 << 18))) /* EBX.RDSEED */
+        have_rdseed = true;
+    cpuid(0x1, 0, v);
+    if ((v[2] & (1 << 30))) /* ECX.RDRAND */
+        have_rdrand = true;
 }
 
 static void reclaim_regions(void)
@@ -305,6 +308,7 @@ static void __attribute__((noinline)) init_service_new_stack()
     /* clock, RNG, stack canaries */
     init_clock();
     init_debug("RNG");
+    init_hwrand();
     init_random();
     __stack_chk_guard_init();
 
