@@ -71,20 +71,18 @@ timestamp timer_check()
     timestamp here = 0;
     timer t = 0;
 
-    while ((t = pqueue_peek(timers)) &&
-           (here = now(), t->w < here)) {
-            pqueue_pop(timers);
-            if(!t->disable) {
-                apply(t->t);
-                if (t->interval) {
-                    t->w += t->interval;
-                    pqueue_insert(timers, t);
-                }
-            } else {
-                deallocate(theap, t, sizeof(struct timer));
-                t = 0;
+    while ((t = pqueue_peek(timers)) && (here = now(), t->w <= here)) {
+        pqueue_pop(timers);
+        if (!t->disable) {
+            apply(t->t);
+            if (t->interval) {
+                t->w += t->interval;
+                pqueue_insert(timers, t);
+                continue;
             }
         }
+        deallocate(theap, t, sizeof(struct timer));
+    }
     if (t) {
     	timestamp dt = t->w - here;
     	timer_debug("check returning dt: %d\n", dt);
