@@ -12,7 +12,8 @@ u64 pvclock_now_ns(void)
     u64 result;
 
     do {
-        version = vclock->version & ~1; /* mask enable */
+        /* mask update-in-progress so we don't match */
+        version = vclock->version & ~1;
         read_barrier();
         u64 delta = rdtsc() - vclock->tsc_timestamp;
         if (vclock->tsc_shift < 0) {
@@ -55,7 +56,8 @@ closure_function(0, 1, void, tsc_deadline_timer,
     u64 count = 0;
 
     do {
-        version = vclock->version & ~1; /* mask enable */
+        /* mask update-in-progress so we don't match */
+        version = vclock->version & ~1;
         read_barrier();
         timestamp subsec = truncate_seconds(interval);
         count = (nsec_from_timestamp(subsec) << 32) / vclock->tsc_to_system_mul;
