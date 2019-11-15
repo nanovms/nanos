@@ -31,6 +31,7 @@
 #define TMR_BASEDIV      (1 << 20)
 #define APIC_LVT_INTMASK 0x00010000
 
+static heap apic_heap = 0;
 static u64 apic_vbase;
 
 static inline void apic_write(int reg, u32 val)
@@ -77,15 +78,6 @@ closure_function(0, 1, void, lapic_timer,
 
 closure_function(0, 0, void, int_ignore) {}
 
-void configure_lapic_timer(heap h)
-{
-    apic_write(APIC_TMRDIV, 3 /* 16 */);
-    int v = allocate_interrupt();
-    apic_write(APIC_LVT_TMR, v); /* one shot */
-    register_interrupt(v, closure(h, int_ignore));
-    calibrate_lapic_timer();
-}
-
 void lapic_eoi(void)
 {
     write_barrier();
@@ -93,10 +85,29 @@ void lapic_eoi(void)
     write_barrier();
 }
 
-clock_timer lapic_runloop_timer;
+void lapic_set_tsc_deadline_mode(u32 v)
+{
+    assert(apic_vbase);
+    write_barrier();
+    apic_write(APIC_LVT_TMR, v | TMR_TSC_DEADLINE);
+    write_barrier();
+}
+
+clock_timer init_lapic_timer(void)
+{
+    assert(apic_vbase);
+    clock_timer ct = closure(apic_heap, lapic_timer);
+    apic_write(APIC_TMRDIV, 3 /* 16 */);
+    int v = allocate_interrupt();
+    apic_write(APIC_LVT_TMR, v); /* one shot */
+    register_interrupt(v, closure(apic_heap, int_ignore));
+    calibrate_lapic_timer();
+    return ct;
+}
 
 void init_apic(kernel_heaps kh)
 {
+    apic_heap = heap_general(kh);
     apic_vbase = allocate_u64(heap_virtual_page(kh), PAGESIZE);
     assert(apic_vbase != INVALID_PHYSICAL);
     map(apic_vbase, APIC_BASE, PAGESIZE, PAGE_DEV_FLAGS, heap_pages(kh));
@@ -110,7 +121,4 @@ void init_apic(kernel_heaps kh)
     u64 lvt_err_irq = allocate_interrupt();
     assert(lvt_err_irq != INVALID_PHYSICAL);
     apic_write(APIC_LVT_ERR, lvt_err_irq);
-
-    /* runloop timer */
-    lapic_runloop_timer = closure(heap_general(kh), lapic_timer);
 }
