@@ -359,7 +359,7 @@ closure_function(6, 2, void, mmap_read_complete,
 
     set_syscall_return(t, where);
   out:
-    thread_wakeup(t);
+    file_op_maybe_wake(t);
     closure_finish();
 }
 
@@ -697,9 +697,10 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
 
     heap mh = heap_backed(kh);
     buffer b = allocate_buffer(mh, pad(len, mh->pagesize));
+    file_op_begin(current);
     filesystem_read(p->fs, f->n, buffer_ref(b, 0), len, offset,
                     closure(h, mmap_read_complete, current, where, len, mapped, b, page_map_flags(vmflags)));
-    thread_sleep_uninterruptible();
+    return file_op_maybe_sleep(current);
 }
 
 closure_function(1, 1, void, dealloc_phys_page,
