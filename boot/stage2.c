@@ -104,9 +104,27 @@ closure_function(2, 3, void, stage2_ata_read,
     ata_io_cmd(bound(dev), ATA_READ48, dest, blocks, completion);
 }
 
+static inline u64 stage2_rdtsc(void)
+{
+    u32 a, d;
+    asm volatile("rdtsc" : "=a" (a), "=d" (d));
+    return (((u64)a) | (((u64)d) << 32));
+}
+
+/* This doesn't need to be accurate. We presently only use kern_sleep
+   in stage2 for ATA probe and command timeouts.
+
+   Treating the timestamp as a cycle count, where 1s == 2^32, would be
+   accurate if the TSC advances at 2^32 / s. Any rate less than that
+   (which is likely, unless we're on >4 GHz CPUs and the TSC advances
+   with CPU clock) would mean we are over-shooting the given interval,
+   but that's fine for stage2.
+*/
 void kern_sleep(timestamp delta)
 {
-    // TODO: implement
+    u64 end = stage2_rdtsc() + delta;
+    while (stage2_rdtsc() < end)
+        kern_pause();
 }
 
 static block_io get_stage2_disk_read(heap general, u64 fs_offset)
