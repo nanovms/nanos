@@ -619,7 +619,7 @@ closure_function(8, 2, void, sendfile_bh,
         goto out_complete;
     }
 
-    /* partial written; issue next */
+    /* partially written; issue next */
     s64 remain = bound(readlen) - bound(written);
     assert(remain > 0);
 

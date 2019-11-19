@@ -151,6 +151,8 @@ static inline sysreturn blockq_check(blockq bq, thread t, blockq_action a, boole
 
 static inline void blockq_handle_completion(blockq bq, u64 bq_flags, io_completion completion, thread t, sysreturn rv)
 {
+    if (!completion)
+        return;
     if (bq_flags & BLOCKQ_ACTION_BLOCKED) {
         blockq_set_completion(bq, completion, t, rv);
     } else {
