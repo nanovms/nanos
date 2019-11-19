@@ -593,52 +593,52 @@ closure_function(5, 2, void, file_op_complete,
     closure_finish();
 }
 
-static void sendfile_complete_internal(heap h, int * offset, void * buf, bytes len, boolean bh,
-                                       thread t, sysreturn rv)
-{
-    if (rv > 0) {
-        if (offset) {
-            *offset += rv;
-        }
-    }
-    deallocate(h, buf, len);
-    set_syscall_return(t, rv);
-    if (bh)
-        file_op_maybe_wake(t);
-}
-
-closure_function(5, 2, void, sendfile_complete,
-                 heap, h, int *, offset, void *, buf, bytes, len, boolean, bh,
+closure_function(8, 2, void, sendfile_bh,
+                 heap, h, fdesc, out, int *, offset, void *, buf, bytes, count, bytes, readlen, bytes, written, boolean, bh,
                  thread, t, sysreturn, rv)
 {
-    sendfile_complete_internal(bound(h), bound(offset), bound(buf), bound(len), bound(bh), t, rv);
-    closure_finish();
-}
+    thread_log(t, "%s: readlen %ld, written %ld, bh %d, rv %ld",
+               __func__, bound(readlen), bound(written), bound(bh), rv);
 
-static void sendfile_read_complete_internal(heap h, fdesc out, int * offset, void * buf, bytes length, boolean bh,
-                                            thread t, sysreturn rv)
-{
-    if (rv > 0) {
-        io_completion completion = closure(h, sendfile_complete, h, offset, buf,
-                length, true);
-        rv = apply(out->write, buf, rv, 0, t, bh, completion);
-    }
-    if (rv == SYSRETURN_CONTINUE_BLOCKING) {
+    /* !bh means read complete / initiating send */
+    if (!bound(bh)) {
+        if (rv <= 0)
+            goto out_complete;
+        bound(bh) = true;
+        bound(readlen) = rv;
+        if (bound(offset))
+            *bound(offset) += rv;
+        thread_log(t, "   write @ %p, len %d", bound(buf), rv);
+        apply(bound(out)->write, bound(buf), rv, 0, t, true, (io_completion)closure_self());
         return;
     }
-    sendfile_complete_internal(h, offset, buf, length, bh, t, rv);
-}
 
-closure_function(6, 2, void, sendfile_read_complete,
-                 heap, h, fdesc, out, int *, offset, void *, buf, bytes, length, boolean, bh,
-                 thread, t, sysreturn, rv)
-{
-    sendfile_read_complete_internal(bound(h), bound(out), bound(offset), bound(buf), bound(length), bound(bh), t, rv);
+    bound(written) += rv;
+    if (bound(written) == bound(readlen)) {
+        rv = bound(written);
+        goto out_complete;
+    }
+
+    /* partial written; issue next */
+    s64 remain = bound(readlen) - bound(written);
+    assert(remain > 0);
+
+    thread_log(t, "   write @ %p, remain %d", bound(buf) + bound(written), remain);
+    apply(bound(out)->write, bound(buf) + bound(written), remain,
+          0, t, bound(bh), (io_completion)closure_self());
+    return;
+out_complete:
+    deallocate(bound(h), bound(buf), bound(count));
+    set_syscall_return(t, rv);
+    if (bound(bh))
+        file_op_maybe_wake(t);
     closure_finish();
 }
 
 static sysreturn sendfile(int out_fd, int in_fd, int *offset, bytes count)
 {
+    thread_log(current, "%s: out %d, in %d, offset %p, *offset %d, count %ld",
+               __func__, out_fd, in_fd, offset, offset ? *offset : 0, count);
     fdesc infile = resolve_fd(current->p, in_fd);
     fdesc outfile = resolve_fd(current->p, out_fd);
     heap h = heap_general(get_kernel_heaps());
@@ -647,18 +647,8 @@ static sysreturn sendfile(int out_fd, int in_fd, int *offset, bytes count)
         return set_syscall_error(current, EINVAL);
     
     void *buf = allocate(h, count);
-    u64 read_offset = 0;
-    if(!offset) {
-        read_offset = infinity;
-    } else  {
-        read_offset = *offset;
-    }
-
-    io_completion completion = closure(h, sendfile_read_complete, h, outfile,
-            offset, buf, count, true);
-    sysreturn rv = apply(infile->read, buf, count, read_offset, current, false,
-            completion);
-    sendfile_read_complete_internal(h, outfile, offset, buf, count, false, current, rv);
+    io_completion read_complete = closure(h, sendfile_bh, h, outfile, offset, buf, count, 0, 0, false);
+    apply(infile->read, buf, count, offset ? *offset : infinity, current, false, read_complete);
     return sysreturn_value(current);
 }
 
