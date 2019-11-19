@@ -459,7 +459,7 @@ static void iov_transfer_internal(heap h, fdesc f, io op, struct iovec * iov, in
     deallocate(h, progress, sizeof(*progress));
     set_syscall_return(t, rv);
     if (bh)
-        thread_wakeup(t);
+        file_op_maybe_wake(t);
 }
 
 static sysreturn iov_internal(fdesc f, io op, struct iovec *iov, int iovcnt)
@@ -510,12 +510,6 @@ sysreturn write(int fd, u8 *body, bytes length)
     return apply(f->write, body, length, infinity, current, false, syscall_io_complete);
 }
 
-sysreturn writev(int fd, struct iovec *iov, int iovcnt)
-{
-    fdesc f = resolve_fd(current->p, fd);
-    return iov_internal(f, f->write, iov, iovcnt);
-}
-
 sysreturn pwrite(int fd, u8 *body, bytes length, s64 offset)
 {
     fdesc f = resolve_fd(current->p, fd);
@@ -523,6 +517,12 @@ sysreturn pwrite(int fd, u8 *body, bytes length, s64 offset)
         return set_syscall_error(current, EINVAL);
 
     return apply(f->write, body, length, offset, current, false, syscall_io_complete);
+}
+
+sysreturn writev(int fd, struct iovec *iov, int iovcnt)
+{
+    fdesc f = resolve_fd(current->p, fd);
+    return iov_internal(f, f->write, iov, iovcnt);
 }
 
 sysreturn sysreturn_from_fs_status(fs_status s)
@@ -575,15 +575,6 @@ closure_function(5, 2, void, file_op_complete,
     }
     apply(bound(completion), t, rv);
     closure_finish();
-}
-
-static inline void file_op_maybe_wake(thread t)
-{
-    u64 flags = irq_disable_save(); /* mutex / spinlock later */
-    t->file_op_is_complete = true;
-    if (t->blocked_on)
-        thread_wakeup(t);
-    irq_restore(flags);
 }
 
 static void sendfile_complete_internal(heap h, int * offset, void * buf, bytes len, boolean bh,
@@ -655,15 +646,6 @@ static sysreturn sendfile(int out_fd, int in_fd, int *offset, bytes count)
     return sysreturn_value(current);
 }
 
-static inline void file_op_maybe_sleep(thread t)
-{
-    if (!t->file_op_is_complete) {
-        thread_sleep_uninterruptible();
-    } else {
-        t->file_op_is_complete = false;
-    }
-}
-
 closure_function(2, 6, sysreturn, file_read,
                  file, f, fsfile, fsf,
                  void *, dest, u64, length, u64, offset_arg, thread, t, boolean, bh, io_completion, completion)
@@ -682,7 +664,7 @@ closure_function(2, 6, sysreturn, file_read,
     }
 
     if (offset < f->length) {
-        t->file_op_is_complete = false;
+        file_op_begin(t);
         filesystem_read(t->p->fs, f->n, dest, length, offset,
                         closure(heap_general(get_kernel_heaps()),
                                 file_op_complete, t, f, fsf, is_file_offset,
@@ -691,8 +673,7 @@ closure_function(2, 6, sysreturn, file_read,
         /* XXX Presently only support blocking file reads... */
         if (!bh) {
             /* no return on sleep, else direct return rax */
-            file_op_maybe_sleep(t);
-            return get_syscall_return(t);
+            return file_op_maybe_sleep(t);
         } else {
             return SYSRETURN_KEEP_BLOCKING;
         }
@@ -738,7 +719,7 @@ closure_function(2, 6, sysreturn, file_write,
     buffer b = wrap_buffer(h, buf, final_length);
     thread_log(t, "%s: b_ref: %p", __func__, buffer_ref(b, 0));
 
-    t->file_op_is_complete = false;
+    file_op_begin(t);
     filesystem_write(t->p->fs, f->n, b, offset,
                      closure(h, file_op_complete, t, f, fsf, is_file_offset,
                      completion));
@@ -746,8 +727,7 @@ closure_function(2, 6, sysreturn, file_write,
     /* XXX Presently only support blocking file writes... */
     if (!bh) {
         /* no return on sleep, else direct return rax */
-        file_op_maybe_sleep(t);
-        return get_syscall_return(t);
+        return file_op_maybe_sleep(t);
     } else {
         return SYSRETURN_KEEP_BLOCKING;
     }
@@ -1144,12 +1124,8 @@ closure_function(1, 1, void, truncate_complete,
     thread t = bound(t);
     thread_log(current, "%s: status %v (%s)", __func__, s,
             is_ok(s) ? "OK" : "NOTOK");
-    if (is_ok(s)) {
-        set_syscall_return(t, 0);
-    } else {
-        set_syscall_error(t, EIO);
-    }
-    thread_wakeup(t);
+    set_syscall_return(t, is_ok(s) ? 0 : -EIO);
+    file_op_maybe_wake(t);
     closure_finish();
 }
 
@@ -1165,14 +1141,14 @@ static sysreturn truncate_internal(tuple t, long length)
     if (!fsf) {
         return set_syscall_error(current, ENOENT);
     }
+    file_op_begin(current);
     if (filesystem_truncate(current->p->fs, fsf, length,
             closure(heap_general(get_kernel_heaps()), truncate_complete,
             current))) {
         /* Nothing to do. */
-        return set_syscall_return(current, 0);
-    } else {
-        thread_sleep_uninterruptible();
+        return 0;
     }
+    return file_op_maybe_sleep(current);
 }
 
 sysreturn truncate(const char *path, long length)
@@ -1203,12 +1179,8 @@ closure_function(2, 1, void, fsync_complete,
     thread t = bound(t);
     thread_log(current, "%s: status %v (%s)", __func__, s,
             is_ok(s) ? "OK" : "NOTOK");
-    if (is_ok(s)) {
-        set_syscall_return(t, 0);
-    } else {
-        set_syscall_error(t, EIO);
-    }
-    thread_wakeup(t);
+    set_syscall_return(t, is_ok(s) ? 0 : -EIO);
+    file_op_maybe_wake(t);
     closure_finish();
 }
 
@@ -1216,14 +1188,14 @@ static sysreturn fsync(int fd)
 {
     file f = resolve_fd(current->p, fd);
 
+    file_op_begin(current);
     if (filesystem_flush(current->p->fs, f->n,
             closure(heap_general(get_kernel_heaps()), fsync_complete, current,
             f))) {
         /* Nothing to sync. */
         return set_syscall_return(current, 0);
-    } else {
-        thread_sleep_uninterruptible();
     }
+    return file_op_maybe_sleep(current);
 }
 
 static sysreturn access(const char *name, int mode)
@@ -1514,7 +1486,7 @@ closure_function(1, 1, void, file_delete_complete,
     else {
         set_syscall_error(t, EIO);
     }
-    thread_wakeup(t);
+    file_op_maybe_wake(t);
     closure_finish();
 }
 
@@ -1527,10 +1499,11 @@ static sysreturn unlink_internal(tuple cwd, const char *pathname)
     if (is_dir(n)) {
         return set_syscall_error(current, EISDIR);
     }
+    file_op_begin(current);
     filesystem_delete(current->p->fs, cwd, pathname,
             closure(heap_general(get_kernel_heaps()), file_delete_complete,
             current));
-    thread_sleep_uninterruptible();
+    return file_op_maybe_sleep(current);
 }
 
 static sysreturn rmdir_internal(tuple cwd, const char *pathname)
@@ -1552,10 +1525,11 @@ static sysreturn rmdir_internal(tuple cwd, const char *pathname)
             return set_syscall_error(current, ENOTEMPTY);
         }
     }
+    file_op_begin(current);
     filesystem_delete(current->p->fs, cwd, pathname,
             closure(heap_general(get_kernel_heaps()), file_delete_complete,
             current));
-    thread_sleep_uninterruptible();
+    return file_op_maybe_sleep(current);
 }
 
 sysreturn unlink(const char *pathname)
@@ -1592,13 +1566,8 @@ closure_function(1, 1, void, file_rename_complete,
     thread t = bound(t);
     thread_log(current, "%s: status %v (%s)", __func__, s,
             is_ok(s) ? "OK" : "NOTOK");
-    if (is_ok(s)) {
-        set_syscall_return(t, 0);
-    }
-    else {
-        set_syscall_error(t, EIO);
-    }
-    thread_wakeup(t);
+    set_syscall_return(t, is_ok(s) ? 0 : -EIO);
+    file_op_maybe_wake(t);
     closure_finish();
 }
 
@@ -1632,10 +1601,11 @@ static sysreturn rename_internal(tuple oldwd, const char *oldpath, tuple newwd,
     if (filepath_is_ancestor(oldwd, oldpath, newwd, newpath)) {
         return set_syscall_error(current, EINVAL);
     }
+    file_op_begin(current);
     filesystem_rename(current->p->fs, oldwd, oldpath, newwd, newpath,
             closure(heap_general(get_kernel_heaps()), file_rename_complete,
             current));
-    thread_sleep_uninterruptible();
+    return file_op_maybe_sleep(current);
 }
 
 sysreturn rename(const char *oldpath, const char *newpath)
@@ -1675,10 +1645,11 @@ sysreturn renameat2(int olddirfd, const char *oldpath, int newdirfd,
         if (!old || !new) {
             return set_syscall_error(current, ENOENT);
         }
+        file_op_begin(current);
         filesystem_exchange(current->p->fs, oldwd, oldpath, newwd, newpath,
                 closure(heap_general(get_kernel_heaps()), file_rename_complete,
                 current));
-        thread_sleep_uninterruptible();
+        return file_op_maybe_sleep(current);
     }
     else {
         if ((flags & RENAME_NOREPLACE) && resolve_cstring(newwd, newpath)) {

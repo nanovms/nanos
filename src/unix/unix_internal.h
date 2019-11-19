@@ -452,6 +452,31 @@ static inline sysreturn sysreturn_value(thread t)
     return (sysreturn)t->frame[FRAME_RAX];
 }
 
+static inline void file_op_begin(thread t)
+{
+    t->file_op_is_complete = false;
+}
+
+static inline sysreturn file_op_maybe_sleep(thread t)
+{
+    u64 flags = irq_disable_save(); /* XXX mutex / spinlock */
+    if (!t->file_op_is_complete) {
+        /* leave ints disabled... */
+        thread_sleep_uninterruptible();
+    }
+    irq_restore(flags);
+    return get_syscall_return(t);
+}
+
+static inline void file_op_maybe_wake(thread t)
+{
+    u64 flags = irq_disable_save(); /* XXX mutex / spinlock */
+    t->file_op_is_complete = true;
+    if (t->blocked_on)
+        thread_wakeup(t);
+    irq_restore(flags);
+}
+
 #define resolve_fd_noret(__p, __fd) vector_get(__p->files, __fd)
 #define resolve_fd(__p, __fd) ({void *f ; if (!(f = resolve_fd_noret(__p, __fd))) return set_syscall_error(current, EBADF); f;})
 
