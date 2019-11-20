@@ -46,8 +46,7 @@ deliver_segv(u64 vaddr, s32 si_code)
 
 static boolean do_demand_page(vmap vm, u64 vaddr)
 {
-    u32 flags = VMAP_FLAG_MMAP | VMAP_FLAG_ANONYMOUS;
-    if ((vm->flags & flags) != flags) {
+    if ((vm->flags & VMAP_FLAG_MMAP) == 0) {
         msg_err("vaddr 0x%lx matched vmap with invalid flags (0x%x)\n",
                 vaddr, vm->flags);
         return false;
@@ -305,14 +304,20 @@ static sysreturn mincore(void *addr, u64 length, u8 *vec)
     return 0;
 }
 
-closure_function(6, 2, void, mmap_read_complete,
-                 thread, t, u64, where, u64, mmap_len, boolean, mapped, buffer, b, u64, mapflags,
+closure_function(1, 1, void, dealloc_phys_page,
+                 heap, physical,
+                 range, r)
+{
+    if (!id_heap_set_area(bound(physical), r.start, range_span(r), true, false))
+        msg_err("some of physical range %R not allocated in heap\n", r);
+}
+
+closure_function(5, 2, void, mmap_read_complete,
+                 thread, t, u64, where, u64, buf_len, buffer, b, u64, mapflags,
                  status, s, bytes, length)
 {
     thread t = bound(t);
     u64 where = bound(where);
-    u64 mmap_len = bound(mmap_len);
-    boolean mapped = bound(mapped);
     buffer b = bound(b);
     u64 mapflags = bound(mapflags);
 
@@ -324,38 +329,27 @@ closure_function(6, 2, void, mmap_read_complete,
 
     kernel_heaps kh = (kernel_heaps)&t->uh;
     heap pages = heap_pages(kh);
-    heap physical = heap_physical(kh);
 
-    // mutal misalignment?...discontiguous backing?
-    u64 length_padded = pad(length, PAGESIZE);
-    u64 p = physical_from_virtual(buffer_ref(b, 0));
-    if (mapped) {
-        update_map_flags(where, length, mapflags);
-        runtime_memcpy(pointer_from_u64(where), buffer_ref(b, 0), length);
-    } else {
-        map(where, p, length_padded, mapflags, pages);
-    }
+    u64 buf_len = bound(buf_len);
+    assert((buf_len & (PAGESIZE - 1)) == 0);
+    void * buf = buffer_ref(b, 0);
 
-    if (length < length_padded)
-        zero(pointer_from_u64(where + length), length_padded - length);
+    /* free existing pages */
+    unmap_pages_with_handler(where, buf_len, stack_closure(dealloc_phys_page, heap_physical(kh)));
 
-    if (length_padded < mmap_len) {
-        u64 bss = pad(mmap_len, PAGESIZE) - length_padded;
-        if (!mapped)
-            map(where + length_padded, allocate_u64(physical, bss), bss, mapflags, pages);
-        else
-            update_map_flags(where + length_padded, bss, mapflags);
-        zero(pointer_from_u64(where + length_padded), bss);
-    }
+    /* Note that we rely on the backed heap being physically
+       contiguous. If this behavior changes or faulted-in pages are
+       ever used, revise this to use the page walker. */
+    map(where, physical_from_virtual(buf), buf_len, mapflags, pages);
 
-    if (mapped) {
-        deallocate_buffer(b);
-    } else {
-        /* XXX This is gross. Either support this within the buffer interface or use something besides
-           a buffer... */
-        physically_backed_dealloc_virtual(b->h, u64_from_pointer(buffer_ref(b, 0)), pad(mmap_len, b->h->pagesize));
-        deallocate(b->h, b, sizeof(struct buffer));
-    }
+    /* zero pad */
+    if (length < buf_len)
+        zero(pointer_from_u64(where + length), buf_len - length);
+
+    /* XXX This is gross. Either support this within the buffer interface or use something besides
+       a buffer... */
+    physically_backed_dealloc_virtual(b->h, u64_from_pointer(buf), pad(bound(buf_len), b->h->pagesize));
+    deallocate(b->h, b, sizeof(struct buffer));
 
     set_syscall_return(t, where);
   out:
@@ -624,9 +618,8 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     kernel_heaps kh = get_kernel_heaps();
     heap h = heap_general(kh);
     u64 len = pad(size, PAGESIZE) & MASK(32);
-    boolean mapped = false;
-    thread_log(current, "mmap: target %p, size 0x%lx, prot 0x%x, flags 0x%x, fd %d, offset 0x%lx",
-	       target, size, prot, flags, fd, offset);
+    thread_log(current, "mmap: target %p, size 0x%lx, len 0x%lx, prot 0x%x, flags 0x%x, fd %d, offset 0x%lx",
+	       target, size, len, prot, flags, fd, offset);
 
     /* Determine vmap flags */
     u64 vmflags = VMAP_FLAG_MMAP;
@@ -686,29 +679,22 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     vmap_paint(h, p->vmaps, &q);
 
     if (flags & MAP_ANONYMOUS) {
-        thread_log(current, "   anon target: %s, 0x%lx, len: 0x%lx (given size: 0x%lx)",
-                   mapped ? "existing" : "new", where, len, size);
+        thread_log(current, "   anon target: 0x%lx, len: 0x%lx (given size: 0x%lx)", where, len, size);
+        /* If mmap this intersects an existing one, zero any mapped pages. */
         zero_mapped_pages(where, len);
         return where;
     }
 
     file f = resolve_fd(current->p, fd);
-    thread_log(current, "  read file at 0x%lx, %s map, blocking...", where, mapped ? "existing" : "new");
-
+    u64 flen = MIN(pad(f->length, PAGESIZE), len);
     heap mh = heap_backed(kh);
-    buffer b = allocate_buffer(mh, pad(len, mh->pagesize));
-    file_op_begin(current);
-    filesystem_read(p->fs, f->n, buffer_ref(b, 0), len, offset,
-                    closure(h, mmap_read_complete, current, where, len, mapped, b, page_map_flags(vmflags)));
-    return file_op_maybe_sleep(current);
-}
+    buffer b = allocate_buffer(mh, pad(flen, mh->pagesize));
 
-closure_function(1, 1, void, dealloc_phys_page,
-                 heap, physical,
-                 range, r)
-{
-    if (!id_heap_set_area(bound(physical), r.start, range_span(r), true, false))
-        msg_err("some of physical range %R not allocated in heap\n", r);
+    thread_log(current, "  read file at 0x%lx, flen %ld, blocking...", where, flen);
+    file_op_begin(current);
+    filesystem_read(p->fs, f->n, buffer_ref(b, 0), flen, offset,
+                    closure(h, mmap_read_complete, current, where, flen, b, page_map_flags(vmflags)));
+    return file_op_maybe_sleep(current);
 }
 
 closure_function(2, 1, void, process_unmap_intersection,
