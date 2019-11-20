@@ -119,11 +119,10 @@ typedef struct unix_heaps {
 #define BLOCKQ_ACTION_NULLIFY  2
 #define BLOCKQ_ACTION_TIMEDOUT 4
 
-/* indicate that the blocked thread requires further blocking
-
-   note that this value must not alias any legitimate syscall return
-   value (i.e. -errno) */
-#define BLOCKQ_BLOCK_REQUIRED (0xffffffff00000000ull) /* outside the range of int errno */
+/* This value must not alias any legitimate syscall return value (i.e. -errno). */
+#define SYSRETURN_INVALID           (0xffffffff00000000ull) /* outside the range of int errno */
+#define SYSRETURN_CONTINUE_BLOCKING SYSRETURN_INVALID
+#define BLOCKQ_BLOCK_REQUIRED       SYSRETURN_INVALID
 
 typedef closure_type(io_completion, void, thread t, sysreturn rv);
 typedef closure_type(blockq_action, sysreturn, u64 flags);
@@ -143,11 +142,23 @@ void blockq_set_completion(blockq bq, io_completion completion, thread t,
                            sysreturn rv);
 sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_bh, 
                                timestamp timeout);
+int blockq_transfer_waiters(blockq dest, blockq src, int n);
+
 static inline sysreturn blockq_check(blockq bq, thread t, blockq_action a, boolean in_bh)
 {
     return blockq_check_timeout(bq, t, a, in_bh, 0);
 }
-int blockq_transfer_waiters(blockq dest, blockq src, int n);
+
+static inline void blockq_handle_completion(blockq bq, u64 bq_flags, io_completion completion, thread t, sysreturn rv)
+{
+    if (!completion)
+        return;
+    if (bq_flags & BLOCKQ_ACTION_BLOCKED) {
+        blockq_set_completion(bq, completion, t, rv);
+    } else {
+        apply(completion, t, rv);
+    }
+}
 
 /* pending and masked signals for a given thread or process */
 typedef struct sigstate {
@@ -237,6 +248,8 @@ typedef struct fdesc {
     int flags;                  /* F_GETFD/F_SETFD flags */
     notify_set ns;
 } *fdesc;
+
+#define IOV_MAX 1024
 
 struct file {
     struct fdesc f;             /* must be first */

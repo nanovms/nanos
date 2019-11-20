@@ -349,9 +349,8 @@ static sysreturn sock_read_bh_internal(sock s, thread t, void * dest, u64 length
 
     rv = xfer_total;
   out:
-    if (flags & BLOCKQ_ACTION_BLOCKED)
-        blockq_set_completion(s->rxbq, completion, t, rv);
-    net_debug("   returning %ld\n", rv);
+    net_debug("   completion %p, rv %ld\n", completion, rv);
+    blockq_handle_completion(s->rxbq, flags, completion, t, rv);
     return rv;
 }
 
@@ -422,16 +421,15 @@ closure_function(1, 6, sysreturn, socket_read,
     return blockq_check(s->rxbq, t, ba, bh);
 }
 
-static sysreturn socket_write_tcp_bh_internal(sock s, thread t, void * buf, u64 remain, io_completion completion,
-                                              boolean blocked, boolean nullify)
+static sysreturn socket_write_tcp_bh_internal(sock s, thread t, void * buf, u64 remain, io_completion completion, u64 flags)
 {
     sysreturn rv = 0;
     err_t err = get_lwip_error(s);
-    net_debug("fd %d, thread %ld, buf %p, remain %ld, blocked %d, lwip err %d\n",
-              s->fd, t->tid, buf, remain, blocked, err);
+    net_debug("fd %d, thread %ld, buf %p, remain %ld, flags 0x%lx, lwip err %d\n",
+              s->fd, t->tid, buf, remain, flags, err);
     assert(remain > 0);
 
-    if (nullify) {
+    if (flags & BLOCKQ_ACTION_NULLIFY) {
         rv = -EINTR;
         goto out;
     }
@@ -453,7 +451,7 @@ static sysreturn socket_write_tcp_bh_internal(sock s, thread t, void * buf, u64 
     u64 avail = tcp_sndbuf(s->info.tcp.lw);
     if (avail == 0) {
       full:
-        if (!blocked && (s->f.flags & SOCK_NONBLOCK)) {
+        if ((flags & BLOCKQ_ACTION_BLOCKED) == 0 && (s->f.flags & SOCK_NONBLOCK)) {
             net_debug(" send buf full and non-blocking, return EAGAIN\n");
             rv = -EAGAIN;
             goto out;
@@ -499,9 +497,8 @@ static sysreturn socket_write_tcp_bh_internal(sock s, thread t, void * buf, u64 
         rv = lwip_to_errno(err);
     }
   out:
-    if (blocked)
-        blockq_set_completion(s->txbq, completion, t, rv);
-
+    net_debug("   completion %p, rv %ld\n", completion, rv);
+    blockq_handle_completion(s->txbq, flags, completion, t, rv);
     return rv;
 }
 
@@ -509,9 +506,7 @@ closure_function(5, 1, sysreturn, socket_write_tcp_bh,
                  sock, s, thread, t, void *, buf, u64, remain, io_completion, completion,
                  u64, flags)
 {
-    sysreturn rv = socket_write_tcp_bh_internal(bound(s), bound(t), bound(buf), bound(remain), bound(completion),
-                                                (flags & BLOCKQ_ACTION_BLOCKED) != 0,
-                                                (flags & BLOCKQ_ACTION_NULLIFY) != 0);
+    sysreturn rv = socket_write_tcp_bh_internal(bound(s), bound(t), bound(buf), bound(remain), bound(completion), flags);
     if (rv != BLOCKQ_BLOCK_REQUIRED)
         closure_finish();
     return rv;
@@ -1206,17 +1201,16 @@ closure_function(3, 2, void, sendmmsg_buf_complete,
 
 closure_function(7, 1, sysreturn, sendmmsg_tcp_bh,
                  sock, s, thread, t, void *, buf, u64, len, int, flags, struct mmsghdr *, msgvec, unsigned int, vlen,
-                 u64, flags)
+                 u64, bqflags)
 {
     sock s = bound(s);
     thread t = bound(t);
     void * buf = bound(buf);
     u64 len = bound(len);
     struct mmsghdr * msgvec = bound(msgvec);
-    boolean nullify = (flags & BLOCKQ_ACTION_NULLIFY) != 0;
 
     io_completion completion = closure(s->h, sendmmsg_buf_complete, s, buf, len);
-    sysreturn rv = socket_write_tcp_bh_internal(s, t, buf, len, completion, true, nullify);
+    sysreturn rv = socket_write_tcp_bh_internal(s, t, buf, len, completion, bqflags | BLOCKQ_ACTION_BLOCKED);
 
     while (true) {
         if (rv == BLOCKQ_BLOCK_REQUIRED) {
@@ -1235,11 +1229,11 @@ closure_function(7, 1, sysreturn, sendmmsg_tcp_bh,
         rv = sendmsg_prepare(s, &msgvec[s->msg_count].msg_hdr, bound(flags), &buf, &len);
         if (rv > 0) {
             completion = closure(s->h, sendmmsg_buf_complete, s, buf, len);
-            rv = socket_write_tcp_bh_internal(s, t, buf, len, completion, true, nullify);
+            rv = socket_write_tcp_bh_internal(s, t, buf, len, completion, bqflags | BLOCKQ_ACTION_BLOCKED);
         }
     }
 
-    if (flags & BLOCKQ_ACTION_BLOCKED)
+    if (bqflags & BLOCKQ_ACTION_BLOCKED)
         thread_wakeup(t);
 
     closure_finish();
@@ -1399,13 +1393,13 @@ sysreturn listen(int sockfd, int backlog)
 
 closure_function(5, 1, sysreturn, accept_bh,
                  sock, s, thread, t, struct sockaddr *, addr, socklen_t *, addrlen, int, flags,
-                 u64, flags)
+                 u64, bqflags)
 {
     sock s = bound(s);
     thread t = bound(t);
     sysreturn rv = 0;
 
-    if (flags & BLOCKQ_ACTION_NULLIFY) {
+    if (bqflags & BLOCKQ_ACTION_NULLIFY) {
         rv = -EINTR;
         goto out;
     }
@@ -1444,7 +1438,7 @@ closure_function(5, 1, sysreturn, accept_bh,
 
     rv = sn->fd;
   out:
-    if (flags & BLOCKQ_ACTION_BLOCKED)
+    if (bqflags & BLOCKQ_ACTION_BLOCKED)
         thread_wakeup(t);
 
     closure_finish();

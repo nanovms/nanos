@@ -87,6 +87,8 @@ closure_function(0, 6, sysreturn, dummy_read,
 {
     thread_log(t, "%s: dest %p, length %ld, offset_arg %ld",
 	       __func__, dest, length, offset_arg);
+    if (completion)
+        apply(completion, t, 0);
     return 0;
 }
 
@@ -101,6 +103,8 @@ closure_function(0, 6, sysreturn, stdout,
                  void*, d, u64, length, u64, offset, thread, t, boolean, bh, io_completion, completion)
 {
     console_write(d, length);
+    if (completion)
+        apply(completion, t, length);
     return length;
 }
 

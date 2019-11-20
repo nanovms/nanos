@@ -42,8 +42,7 @@ closure_function(5, 1, sysreturn, efd_read_bh,
     blockq_wake_one(efd->write_bq);
     notify_dispatch(efd->f.ns, EPOLLOUT);
 out:
-    if (flags & BLOCKQ_ACTION_BLOCKED)
-        blockq_set_completion(efd->read_bq, bound(completion), bound(t), rv);
+    blockq_handle_completion(efd->read_bq, flags, bound(completion), bound(t), rv);
     closure_finish();
     return rv;
 }
@@ -86,8 +85,7 @@ closure_function(5, 1, sysreturn, efd_write_bh,
     blockq_wake_one(efd->read_bq);
     notify_dispatch(efd->f.ns, EPOLLIN);
 out:
-    if (flags & BLOCKQ_ACTION_BLOCKED)
-        blockq_set_completion(efd->write_bq, bound(completion), bound(t), rv);
+    blockq_handle_completion(efd->write_bq, flags, bound(completion), bound(t), rv);
     closure_finish();
     return rv;
 }

@@ -171,8 +171,7 @@ closure_function(5, 1, sysreturn, pipe_read_bh,
         notify_dispatch(pf->f.ns, 0); /* for edge trigger */
     }
   out:
-    if (flags & BLOCKQ_ACTION_BLOCKED)
-        blockq_set_completion(pf->bq, bound(completion), bound(t), rv);
+    blockq_handle_completion(pf->bq, flags, bound(completion), bound(t), rv);
     closure_finish();
     return rv;
 }
@@ -229,8 +228,7 @@ closure_function(5, 1, sysreturn, pipe_write_bh,
 
     rv = real_length;
   out:
-    if (flags & BLOCKQ_ACTION_BLOCKED)
-        blockq_set_completion(pf->bq, bound(completion), bound(t), rv);
+    blockq_handle_completion(pf->bq, flags, bound(completion), bound(t), rv);
     closure_finish();
     return rv;
 }

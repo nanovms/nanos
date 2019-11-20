@@ -160,9 +160,7 @@ closure_function(5, 1, sysreturn, sockpair_read_bh,
         }
     }
 out:
-    if (flags & BLOCKQ_ACTION_BLOCKED) {
-        blockq_set_completion(s->read_bq, bound(completion), t, real_length);
-    }
+    blockq_handle_completion(s->read_bq, flags, bound(completion), t, real_length);
     closure_finish();
     return real_length;
 }
@@ -220,9 +218,7 @@ closure_function(5, 1, sysreturn, sockpair_write_bh,
     sockpair_notify_reader(s->peer, EPOLLIN);
     rv = real_length;
 out:
-    if (flags & BLOCKQ_ACTION_BLOCKED)
-        blockq_set_completion(s->write_bq, bound(completion), bound(t), rv);
-
+    blockq_handle_completion(s->write_bq, flags, bound(completion), bound(t), rv);
     closure_finish();
     return rv;
 }
