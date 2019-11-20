@@ -832,11 +832,11 @@ ftrace_print_rbuf_nondestructive(struct ftrace_printer * p, struct rbuf * rbuf,
     struct rbuf_entry * entry;
     unsigned long idx;
 
-    for (idx  = rbuf->local_idx;
-         idx != rbuf->write_idx;
-         idx  = rbuf_next_idx(rbuf, idx))
-    {
+    idx = rbuf->local_idx;
+    while (idx != rbuf->write_idx) {
         entry = &(rbuf->trace_array[idx]);
+        idx  = rbuf_next_idx(rbuf, idx);
+
         tracer->print_entry_fn(p, entry);
         if (printer_length(p) >= printer_size(p))
             break;
