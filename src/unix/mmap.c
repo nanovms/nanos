@@ -46,8 +46,7 @@ deliver_segv(u64 vaddr, s32 si_code)
 
 static boolean do_demand_page(vmap vm, u64 vaddr)
 {
-    u32 flags = VMAP_FLAG_MMAP | VMAP_FLAG_ANONYMOUS;
-    if ((vm->flags & flags) != flags) {
+    if ((vm->flags & VMAP_FLAG_MMAP) == 0) {
         msg_err("vaddr 0x%lx matched vmap with invalid flags (0x%x)\n",
                 vaddr, vm->flags);
         return false;
@@ -306,12 +305,11 @@ static sysreturn mincore(void *addr, u64 length, u8 *vec)
 }
 
 closure_function(6, 2, void, mmap_read_complete,
-                 thread, t, u64, where, u64, mmap_len, boolean, mapped, buffer, b, u64, mapflags,
+                 thread, t, u64, where, u64, buf_len, boolean, mapped, buffer, b, u64, mapflags,
                  status, s, bytes, length)
 {
     thread t = bound(t);
     u64 where = bound(where);
-    u64 mmap_len = bound(mmap_len);
     boolean mapped = bound(mapped);
     buffer b = bound(b);
     u64 mapflags = bound(mapflags);
@@ -343,7 +341,7 @@ closure_function(6, 2, void, mmap_read_complete,
     } else {
         /* XXX This is gross. Either support this within the buffer interface or use something besides
            a buffer... */
-        physically_backed_dealloc_virtual(b->h, u64_from_pointer(buffer_ref(b, 0)), pad(mmap_len, b->h->pagesize));
+        physically_backed_dealloc_virtual(b->h, u64_from_pointer(buffer_ref(b, 0)), pad(bound(buf_len), b->h->pagesize));
         deallocate(b->h, b, sizeof(struct buffer));
     }
 
@@ -670,36 +668,24 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     }
 
     /* Paint into process vmap */
+    struct vmap q;
+    q.flags = vmflags;
+    q.node.r = irange(where, where + len);
+    vmap_paint(h, p->vmaps, &q);
+
     if (flags & MAP_ANONYMOUS) {
         thread_log(current, "   anon target: %s, 0x%lx, len: 0x%lx (given size: 0x%lx)",
                    mapped ? "existing" : "new", where, len, size);
-        struct vmap q;
-        q.flags = vmflags;
-        q.node.r = irange(where, where + len);
-        vmap_paint(h, p->vmaps, &q);
-        zero_mapped_pages(where, len); // XXX?
         return where;
     }
 
     file f = resolve_fd(current->p, fd);
-    thread_log(current, "  read file at 0x%lx, %s map, blocking...", where, mapped ? "existing" : "new");
     u64 flen = MIN(pad(f->length, PAGESIZE), len);
-
-    /* Paint file portion */
-    struct vmap q;
-    q.flags = vmflags;
-    q.node.r = irange(where, where + flen);
-    vmap_paint(h, p->vmaps, &q);
-
-    /* And any remaining portion as anonymous (temporary until we have true file demand paging / write-back) */
-    if (flen < len) {
-        q.flags |= VMAP_FLAG_ANONYMOUS;
-        q.node.r = irange(where + flen, where + len);
-        vmap_paint(h, p->vmaps, &q);
-    }
-
     heap mh = heap_backed(kh);
     buffer b = allocate_buffer(mh, pad(flen, mh->pagesize));
+
+    thread_log(current, "  read file at 0x%lx, flen %ld, %s map, blocking...",
+               where, flen, mapped ? "existing" : "new");
     file_op_begin(current);
     filesystem_read(p->fs, f->n, buffer_ref(b, 0), flen, offset,
                     closure(h, mmap_read_complete, current, where, flen, mapped, b, page_map_flags(vmflags)));
