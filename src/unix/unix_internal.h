@@ -193,7 +193,7 @@ typedef struct thread {
     blockq blocked_on;
 
     /* set by file op completion; used to detect if blocking is necessary */
-    boolean file_op_complete;
+    boolean file_op_is_complete;
 
     /* for waiting on thread-specific conditions rather than a resource */
     blockq thread_bq;
@@ -450,6 +450,31 @@ static inline sysreturn set_syscall_error(thread t, s32 val)
 static inline sysreturn sysreturn_value(thread t)
 {
     return (sysreturn)t->frame[FRAME_RAX];
+}
+
+static inline void file_op_begin(thread t)
+{
+    t->file_op_is_complete = false;
+}
+
+static inline sysreturn file_op_maybe_sleep(thread t)
+{
+    u64 flags = irq_disable_save(); /* XXX mutex / spinlock */
+    if (!t->file_op_is_complete) {
+        /* leave ints disabled... */
+        thread_sleep_uninterruptible();
+    }
+    irq_restore(flags);
+    return get_syscall_return(t);
+}
+
+static inline void file_op_maybe_wake(thread t)
+{
+    u64 flags = irq_disable_save(); /* XXX mutex / spinlock */
+    t->file_op_is_complete = true;
+    if (t->blocked_on)
+        thread_wakeup(t);
+    irq_restore(flags);
 }
 
 #define resolve_fd_noret(__p, __fd) vector_get(__p->files, __fd)

@@ -83,9 +83,16 @@ boolean kvm_detect(kernel_heaps kh)
         msg_err("unable to probe pvclock\n");
         return false;
     }
-    heap h = heap_general(kh);
-    assert(lapic_runloop_timer);
-    register_platform_clock_timer(lapic_runloop_timer);
-    configure_lapic_timer(h);
+
+    clock_timer ct;
+    if ((ct = init_tsc_deadline_timer())) {
+        kvm_debug("TSC Deadline available");
+    } else if ((ct = init_lapic_timer())) {
+        kvm_debug("defaulting to (suboptimal) lapic timer");
+    } else {
+        halt("%s: no timer available\n", __func__);
+    }
+
+    register_platform_clock_timer(ct);
     return true;
 }
