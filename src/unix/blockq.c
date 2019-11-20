@@ -326,8 +326,7 @@ int blockq_transfer_waiters(blockq dest, blockq src, int n)
     return transferred;
 }
 
-void blockq_set_completion(blockq bq, io_completion completion, thread t,
-        sysreturn rv)
+void blockq_set_completion(blockq bq, io_completion completion, thread t, sysreturn rv)
 {
     bq->completion = completion;
     bq->completion_thread = t;
