@@ -324,7 +324,6 @@ closure_function(6, 2, void, mmap_read_complete,
 
     kernel_heaps kh = (kernel_heaps)&t->uh;
     heap pages = heap_pages(kh);
-    heap physical = heap_physical(kh);
 
     // mutal misalignment?...discontiguous backing?
     u64 length_padded = pad(length, PAGESIZE);
@@ -338,15 +337,6 @@ closure_function(6, 2, void, mmap_read_complete,
 
     if (length < length_padded)
         zero(pointer_from_u64(where + length), length_padded - length);
-
-    if (length_padded < mmap_len) {
-        u64 bss = pad(mmap_len, PAGESIZE) - length_padded;
-        if (!mapped)
-            map(where + length_padded, allocate_u64(physical, bss), bss, mapflags, pages);
-        else
-            update_map_flags(where + length_padded, bss, mapflags);
-        zero(pointer_from_u64(where + length_padded), bss);
-    }
 
     if (mapped) {
         deallocate_buffer(b);
@@ -625,8 +615,8 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     heap h = heap_general(kh);
     u64 len = pad(size, PAGESIZE) & MASK(32);
     boolean mapped = false;
-    thread_log(current, "mmap: target %p, size 0x%lx, prot 0x%x, flags 0x%x, fd %d, offset 0x%lx",
-	       target, size, prot, flags, fd, offset);
+    thread_log(current, "mmap: target %p, size 0x%lx, len 0x%lx, prot 0x%x, flags 0x%x, fd %d, offset 0x%lx",
+	       target, size, len, prot, flags, fd, offset);
 
     /* Determine vmap flags */
     u64 vmflags = VMAP_FLAG_MMAP;
@@ -680,26 +670,39 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     }
 
     /* Paint into process vmap */
-    struct vmap q;
-    q.flags = vmflags;
-    q.node.r = irange(where, where + len);
-    vmap_paint(h, p->vmaps, &q);
-
     if (flags & MAP_ANONYMOUS) {
         thread_log(current, "   anon target: %s, 0x%lx, len: 0x%lx (given size: 0x%lx)",
                    mapped ? "existing" : "new", where, len, size);
-        zero_mapped_pages(where, len);
+        struct vmap q;
+        q.flags = vmflags;
+        q.node.r = irange(where, where + len);
+        vmap_paint(h, p->vmaps, &q);
+        zero_mapped_pages(where, len); // XXX?
         return where;
     }
 
     file f = resolve_fd(current->p, fd);
     thread_log(current, "  read file at 0x%lx, %s map, blocking...", where, mapped ? "existing" : "new");
+    u64 flen = MIN(pad(f->length, PAGESIZE), len);
+
+    /* Paint file portion */
+    struct vmap q;
+    q.flags = vmflags;
+    q.node.r = irange(where, where + flen);
+    vmap_paint(h, p->vmaps, &q);
+
+    /* And any remaining portion as anonymous (temporary until we have true file demand paging / write-back) */
+    if (flen < len) {
+        q.flags |= VMAP_FLAG_ANONYMOUS;
+        q.node.r = irange(where + flen, where + len);
+        vmap_paint(h, p->vmaps, &q);
+    }
 
     heap mh = heap_backed(kh);
-    buffer b = allocate_buffer(mh, pad(len, mh->pagesize));
+    buffer b = allocate_buffer(mh, pad(flen, mh->pagesize));
     file_op_begin(current);
-    filesystem_read(p->fs, f->n, buffer_ref(b, 0), len, offset,
-                    closure(h, mmap_read_complete, current, where, len, mapped, b, page_map_flags(vmflags)));
+    filesystem_read(p->fs, f->n, buffer_ref(b, 0), flen, offset,
+                    closure(h, mmap_read_complete, current, where, flen, mapped, b, page_map_flags(vmflags)));
     return file_op_maybe_sleep(current);
 }
 
