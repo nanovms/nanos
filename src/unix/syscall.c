@@ -55,7 +55,7 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, msgsnd, 0);
     register_syscall(map, msgrcv, 0);
     register_syscall(map, msgctl, 0);
-    register_syscall(map, flock, 0);
+    register_syscall(map, flock, syscall_ignore);
     register_syscall(map, fdatasync, 0);
     register_syscall(map, link, 0);
     register_syscall(map, symlink, 0);
