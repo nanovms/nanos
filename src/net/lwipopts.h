@@ -164,11 +164,17 @@ static inline int lwip_strncmp(const char *x, const char *y, unsigned long len)
     return 0;
 }
 
-#define memcpy(__a, __b, __c) lwip_memcpy(__a, __b, __c)
+#define MEMCPY(__a, __b, __c) lwip_memcpy(__a, __b, __c)
+#define SMEMCPY(__a, __b, __c) lwip_memcpy(__a, __b, __c)
 #define memcmp(__a, __b, __c) lwip_memcmp(__a, __b, __c)
 #define memset(__a, __b, __c) lwip_memset((void *)(__a), __b, __c)
+#define memmove(__a, __b, __c) lwip_memcpy(__a, __b, __c)
 #define strlen(__a) lwip_strlen((void *)__a)
 #define strncmp(__a, __b, __c) lwip_strncmp(__a, __b, __c)
+
+extern int lwip_atoi(const char *p);
+
+#define atoi(__a) lwip_atoi(__a)
 
 static inline void *calloc(size_t n, size_t s)
 {
@@ -176,3 +182,4 @@ static inline void *calloc(size_t n, size_t s)
     lwip_memset(x, 0, n*s);
     return x;
 }
+

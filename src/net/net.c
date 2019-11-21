@@ -74,6 +74,13 @@ void lwip_status_callback(struct netif *netif)
     rprintf("assigned: %d.%d.%d.%d\n", n[0], n[1], n[2], n[3]);
 }
 
+/* unsigned only ... don't imagine we'd have negative interface numbers! */
+int lwip_atoi(const char *p)
+{
+    u64 i;
+    return u64_from_value(alloca_wrap_cstring(p), &i) ? i : -1;
+}
+
 extern void lwip_init();
 
 void init_net(kernel_heaps kh)
