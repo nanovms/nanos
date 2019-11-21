@@ -81,6 +81,37 @@ int lwip_atoi(const char *p)
     return u64_from_value(alloca_wrap_cstring(p), &i) ? i : -1;
 }
 
+/* mildly unfortunate to add another level of indirection to resolve types
+   that are equivalent ... maybe a runtime types.h would be in order */
+void lwip_memcpy(void *a, const void *b, unsigned long len)
+{
+    runtime_memcpy(a, b, len);
+}
+
+int lwip_strlen(char *a)
+{
+    return runtime_strlen(a);
+}
+
+void lwip_memset(void *x, unsigned char v, unsigned long len)
+{
+    runtime_memset(x, v, len);
+}
+
+int lwip_memcmp(const void *x, const void *y, unsigned long len)
+{
+    return runtime_memcmp(x, y, len);
+}
+
+int lwip_strncmp(const char *x, const char *y, unsigned long len)
+{
+    for (int i = 0; i < len; i++) {
+        if ((*x) != (*y)) return -1;
+        if ((!*x) || (!*y)) return -1;
+    }
+    return 0;
+}
+
 extern void lwip_init();
 
 void init_net(kernel_heaps kh)
