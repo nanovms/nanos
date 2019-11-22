@@ -1,5 +1,4 @@
 LWIPDIR=	$(VENDORDIR)/lwip
-	
 PROGRAMS=	stage3.img
 SRCS-stage3.img= \
 	$(CURDIR)/stage3.c \
