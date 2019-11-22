@@ -125,7 +125,22 @@ typedef struct iovec {
 #define F_SETFD         2       /* Set file descriptor flags.  */
 #define F_GETFL         3       /* Get file status flags.  */
 #define F_SETFL         4       /* Set file status flags.  */
+#define F_GETLK         5       /* Get record locking info.  */
+#define F_SETLK         6       /* Set record locking info (non-blocking).  */
+#define F_SETLKW        7       /* Set record locking info (blocking).  */
 #define F_DUPFD_CLOEXEC (F_LINUX_SPECIFIC_BASE + 6)
+
+struct flock {
+    s16 l_type;
+    s16 l_whence;
+    u64 l_start;
+    u64 l_len;
+    u32 l_pid;
+};
+
+#define F_RDLCK         0
+#define F_WRLCK         1
+#define F_UNLCK         2
 
 #define FIONBIO		0x5421
 #define FIONCLEX        0x5450

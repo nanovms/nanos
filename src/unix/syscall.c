@@ -1693,6 +1693,14 @@ sysreturn fcntl(int fd, int cmd, int arg)
 
         f->flags = arg & ~O_CLOEXEC;
         return set_syscall_return(current, 0);
+    case F_GETLK:
+        if (arg) {
+            ((struct flock *)(long)arg)->l_type = F_UNLCK;
+        }
+        return set_syscall_return(current, 0);
+    case F_SETLK:
+    case F_SETLKW:
+        return set_syscall_return(current, 0);
     case F_DUPFD:
     case F_DUPFD_CLOEXEC: {
         if (arg < 0) {
