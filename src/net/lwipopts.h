@@ -126,49 +126,20 @@ static inline void lwip_free(void *x)
     lwip_deallocate(x);
 }
 
-
-// sad duplication
-static inline void lwip_memcpy(void *a, const void *b, unsigned long len)
-{
-    for (int i = 0; i < len; i++) ((unsigned char *)a)[i] = ((unsigned char *)b)[i];
-}
-
-static inline int lwip_strlen(char *a)
-{
-    int i = 0;
-    for (; *a; a++, i++);
-    return i;
-}
-
-static inline void lwip_memset(void *x, unsigned char v, unsigned long len)
-{
-    for (int i = 0; i < len; i++) ((unsigned char *)x)[i] = v;
-}
-
-// the #define isn't reaching ethernet.o
-static inline int lwip_memcmp(const void *x, const void *y, unsigned long len)
-{
-    for (int i = 0; i < len; i++) {
-        if (x < y) return -1;
-        if (x > y) return 1;        
-    }
-    return 0;
-}
-
-static inline int lwip_strncmp(const char *x, const char *y, unsigned long len)
-{
-    for (int i = 0; i < len; i++) {
-        if ((*x) != (*y)) return -1;
-        if ((!*x) || (!*y)) return -1;
-    }
-    return 0;
-}
+int lwip_atoi(const char *p);
+void lwip_memcpy(void *a, const void *b, unsigned long len);
+int lwip_strlen(char *a);
+void lwip_memset(void *x, unsigned char v, unsigned long len);
+int lwip_memcmp(const void *x, const void *y, unsigned long len);
+int lwip_strncmp(const char *x, const char *y, unsigned long len);
 
 #define memcpy(__a, __b, __c) lwip_memcpy(__a, __b, __c)
 #define memcmp(__a, __b, __c) lwip_memcmp(__a, __b, __c)
 #define memset(__a, __b, __c) lwip_memset((void *)(__a), __b, __c)
+#define memmove(__a, __b, __c) lwip_memcpy(__a, __b, __c)
 #define strlen(__a) lwip_strlen((void *)__a)
 #define strncmp(__a, __b, __c) lwip_strncmp(__a, __b, __c)
+#define atoi(__a) lwip_atoi(__a)
 
 static inline void *calloc(size_t n, size_t s)
 {
@@ -176,3 +147,4 @@ static inline void *calloc(size_t n, size_t s)
     lwip_memset(x, 0, n*s);
     return x;
 }
+

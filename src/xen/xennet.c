@@ -11,12 +11,7 @@
 
 #include "xen_internal.h"
 
-#define memset runtime_memset   /* for ring init in ring.h */
-#define xen_wmb write_barrier
-#define xen_mb memory_barrier
-#include "io/netif.h"
-#undef memset
-
+/* for ring init in ring.h */
 #include "lwip/opt.h"
 #include "lwip/def.h"
 #include "lwip/mem.h"
@@ -24,6 +19,12 @@
 #include "lwip/etharp.h"
 #include "lwip/snmp.h"
 #include "netif/ethernet.h"
+
+#undef memset                   /* ugh, lwIP */
+#define memset runtime_memset
+#define xen_wmb write_barrier
+#define xen_mb memory_barrier
+#include "io/netif.h"
 
 #define GRANT_INVALID -1
 

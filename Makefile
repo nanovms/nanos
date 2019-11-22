@@ -16,7 +16,7 @@ CLEANFILES+=	$(IMAGE)
 CLEANDIRS+=	$(OUTDIR)/image
 
 LWIPDIR=	$(VENDORDIR)/lwip
-GITFLAGS+=	--depth 1 https://github.com/nanovms/lwip.git -b STABLE-2_0_3_RELEASE
+GITFLAGS+=	--depth 1  https://github.com/nanovms/lwip.git -b STABLE-2_1_2_RELEASE
 
 # GCE
 GCLOUD= 	gcloud
