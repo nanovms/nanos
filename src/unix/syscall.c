@@ -1670,7 +1670,7 @@ sysreturn close(int fd)
     return 0;
 }
 
-sysreturn fcntl(int fd, int cmd, int arg)
+sysreturn fcntl(int fd, int cmd, u64 arg)
 {
     fdesc f = resolve_fd(current->p, fd);
 
@@ -1695,7 +1695,7 @@ sysreturn fcntl(int fd, int cmd, int arg)
         return set_syscall_return(current, 0);
     case F_GETLK:
         if (arg) {
-            ((struct flock *)(long)arg)->l_type = F_UNLCK;
+            ((struct flock *)arg)->l_type = F_UNLCK;
         }
         return set_syscall_return(current, 0);
     case F_SETLK:

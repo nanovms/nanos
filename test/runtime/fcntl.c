@@ -5,11 +5,11 @@
 #include <fcntl.h>
 #include <errno.h>
 
-/* expect = 0 for success, errno otherwise */
-void getlk(int fd, struct flock *lock, int expect)
+/* covers F_GETLK, F_SETLK, F_SETLKW; expect = 0 for success, errno otherwise */
+void test_lk(int fd, int cmd, struct flock *lock, int expect)
 {
-    printf("fcntl(%d, %d, %p) => ", fd, F_GETLK, lock);
-    int r = fcntl(fd, F_GETLK, lock);
+    printf("fcntl(%d, %d, %p) => ", fd, cmd, lock);
+    int r = fcntl(fd, cmd, lock);
     if (r < 0) {
         printf("%s\n", strerror(errno));
         if (errno != expect)
@@ -19,50 +19,10 @@ void getlk(int fd, struct flock *lock, int expect)
         if (expect)
             goto fail;
 
-        if (lock->l_type != F_UNLCK) {
-            printf("getlk expected F_UNLCK, instead got: %d\n", lock->l_type);
+        if ((cmd == F_GETLK) && (lock->l_type != F_UNLCK)) {
+            printf("F_GETLK expected F_UNLCK, instead got: %d\n", lock->l_type);
             goto fail;
         }
-    }
-    return;
-  fail:
-    printf("test failed\n");
-    exit(EXIT_FAILURE);
-}
-
-/* expect = 0 for success, errno otherwise */
-void setlk(int fd, struct flock *lock, int expect)
-{
-    printf("fcntl(%d, %d, %p) => ", fd, F_SETLK, lock);
-    int r = fcntl(fd, F_SETLK, lock);
-    if (r < 0) {
-        printf("%s\n", strerror(errno));
-        if (errno != expect)
-            goto fail;
-    } else {
-        printf("%d\n", r);
-        if (expect)
-            goto fail;
-    }
-    return;
-  fail:
-    printf("test failed\n");
-    exit(EXIT_FAILURE);
-}
-
-/* expect = 0 for success, errno otherwise */
-void setlkw(int fd, struct flock *lock, int expect)
-{
-    printf("fcntl(%d, %d, %p) => ", fd, F_SETLKW, lock);
-    int r = fcntl(fd, F_SETLKW, lock);
-    if (r < 0) {
-        printf("%s\n", strerror(errno));
-        if (errno != expect)
-            goto fail;
-    } else {
-        printf("%d\n", r);
-        if (expect)
-            goto fail;
     }
     return;
   fail:
@@ -80,9 +40,9 @@ int main(int argc, char **argv)
     lock.l_whence = SEEK_SET;
     lock.l_len    = 0;
 
-    getlk(fd, &lock, 0);
-    setlk(fd, &lock, 0);
-    setlkw(fd, &lock, 0);
+    test_lk(fd, F_GETLK,  &lock, 0);
+    test_lk(fd, F_SETLK,  &lock, 0);
+    test_lk(fd, F_SETLKW, &lock, 0);
 
     printf("test passed\n");
     return EXIT_SUCCESS;
