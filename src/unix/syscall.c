@@ -1674,7 +1674,7 @@ sysreturn close(int fd)
     return 0;
 }
 
-sysreturn fcntl(int fd, int cmd, int arg)
+sysreturn fcntl(int fd, int cmd, u64 arg)
 {
     fdesc f = resolve_fd(current->p, fd);
 
@@ -1696,6 +1696,14 @@ sysreturn fcntl(int fd, int cmd, int arg)
                 O_TRUNC);
 
         f->flags = arg & ~O_CLOEXEC;
+        return set_syscall_return(current, 0);
+    case F_GETLK:
+        if (arg) {
+            ((struct flock *)arg)->l_type = F_UNLCK;
+        }
+        return set_syscall_return(current, 0);
+    case F_SETLK:
+    case F_SETLKW:
         return set_syscall_return(current, 0);
     case F_DUPFD:
     case F_DUPFD_CLOEXEC: {

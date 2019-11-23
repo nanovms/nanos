@@ -3,6 +3,7 @@ PROGRAMS= \
 	dup \
 	creat \
 	eventfd \
+	fcntl \
 	fst \
 	ftrace \
 	getdents \
@@ -45,6 +46,11 @@ SRCS-eventfd= \
 
 LDFLAGS-eventfd=	-static
 LIBS-eventfd=		-lpthread
+
+SRCS-fcntl= \
+	$(CURDIR)/fcntl.c \
+	$(SRCDIR)/unix_process/ssp.c
+LDFLAGS-fcntl=		-static
 
 SRCS-ftrace= \
 	$(CURDIR)/ftrace.c \
