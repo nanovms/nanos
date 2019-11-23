@@ -51,7 +51,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, msgrcv, 0);
     register_syscall(map, msgctl, 0);
     register_syscall(map, flock, syscall_ignore);
-    register_syscall(map, fdatasync, 0);
     register_syscall(map, link, 0);
     register_syscall(map, symlink, 0);
     register_syscall(map, chmod, syscall_ignore);
@@ -1157,7 +1156,7 @@ sysreturn truncate(const char *path, long length)
     return truncate_internal(t, length);
 }
 
-static sysreturn ftruncate(int fd, long length)
+sysreturn ftruncate(int fd, long length)
 {
     thread_log(current, "%s %d %d", __func__, fd, length);
     file f = resolve_fd(current->p, fd);
@@ -1180,7 +1179,7 @@ closure_function(2, 1, void, fsync_complete,
     closure_finish();
 }
 
-static sysreturn fsync(int fd)
+sysreturn fsync(int fd)
 {
     file f = resolve_fd(current->p, fd);
 
@@ -1194,7 +1193,12 @@ static sysreturn fsync(int fd)
     return file_op_maybe_sleep(current);
 }
 
-static sysreturn access(const char *name, int mode)
+sysreturn fdatasync(int fd)
+{
+    return fsync(fd);
+}
+
+sysreturn access(const char *name, int mode)
 {
     thread_log(current, "access: \"%s\", mode %d", name, mode);
     if (!resolve_cstring(current->p->cwd, name)) {
@@ -1864,6 +1868,7 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, writev, writev);
     register_syscall(map, truncate, truncate);
     register_syscall(map, ftruncate, ftruncate);
+    register_syscall(map, fdatasync, fdatasync);
     register_syscall(map, fsync, fsync);
     register_syscall(map, access, access);
     register_syscall(map, lseek, lseek);
