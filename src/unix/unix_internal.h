@@ -212,6 +212,11 @@ typedef struct thread {
     struct sigstate signals;
     sigstate dispatch_sigstate; /* saved sigstate while signal handler in flight */
     u64 sigframe[FRAME_MAX];
+
+    /* sigs that can wake thread regardless of mask or ignored
+       nonzero when in rt_sigtimedwait) */
+    u64 siginterest;
+
     u16 active_signo;
 
 #ifdef CONFIG_FTRACE
