@@ -85,7 +85,7 @@ static inline u64 get_effective_sigmask(thread t)
 
 static inline u64 get_effective_signals(thread t)
 {
-    return get_all_pending_signals(t) & get_effective_sigmask(t);
+    return get_all_pending_signals(t) & ~get_effective_sigmask(t);
 }
 
 static inline void sigstate_set_pending(sigstate ss, int sig)

@@ -51,18 +51,21 @@ static queued_signal sigstate_dequeue_signal(sigstate ss, int signum)
 static queued_signal dequeue_signal(thread t, u64 sigmask, boolean save_and_mask)
 {
     sig_debug("tid %d, sigmask 0x%lx, save %d\n", t->tid, sigmask, save_and_mask);
-    u64 masked = get_all_pending_signals(t) & sigmask;
+    u64 masked = get_all_pending_signals(t) & ~sigmask;
     if (masked == 0)
         return INVALID_ADDRESS;
 
     int signum = select_signal_from_masked(masked);
     if (!signum)
         return INVALID_ADDRESS;
-    u64 mask = mask_from_sig(signum);
 
+    u64 mask = mask_from_sig(signum);
     sigstate ss = (sigstate_get_pending(&t->signals) & mask) ? &t->signals : &t->p->signals;
     queued_signal qs = sigstate_dequeue_signal(ss, signum);
     assert(qs != INVALID_ADDRESS);
+
+    sig_debug(" -> selected sig %d, dequeued from %s\n",
+              signum, ss == &t->signals ? "thread" : "process");
 
     /* for actual signal handling - bypassed if dispatching via rt_sigtimedwait */
     if (save_and_mask) {
@@ -70,8 +73,7 @@ static queued_signal dequeue_signal(thread t, u64 sigmask, boolean save_and_mask
         if (ss->saved == 0)      /* rt_sigsuspend may provide one */
             ss->saved = ss->mask;
         ss->mask |= mask_from_sig(signum) | sa->sa_mask.sig[0];
-        sig_debug("sig %d, now sigsaved 0x%lx, sigmask 0x%lx\n",
-                  signum, ss->saved, ss->mask);
+        sig_debug(" -> saved 0x%lx, mask 0x%lx\n", ss->saved, ss->mask);
         t->dispatch_sigstate = ss;
     }
     
@@ -149,10 +151,10 @@ void deliver_signal_to_thread(thread t, struct siginfo *info)
         return;
     }
     deliver_signal(&t->signals, info);
-    sig_debug("... pending now 0x%lx\n", sigstate_get_pending(&t->signals));
 
     /* queue for delivery */
     u64 pending_masked = get_effective_signals(t);
+    sig_debug("... effective signals 0x%lx\n", pending_masked);
     if (pending_masked) {
         sig_debug("masked = 0x%lx; attempting to interrupt thread\n", pending_masked);
         if (!thread_attempt_interrupt(t))
@@ -459,14 +461,13 @@ sysreturn tgkill(int tgid, int tid, int sig)
         return 0;               /* always permitted */
 
     thread t;
-    sig_debug("%d, %p\n", vector_length(current->p->threads),
-              vector_get(current->p->threads, tid));
     if (tid >= vector_length(current->p->threads) ||
         !(t = vector_get(current->p->threads, tid)))
         return -ESRCH;
 
     struct siginfo si;
     init_siginfo(&si, sig, SI_TKILL);
+    sig_debug(" -> delivering to thread\n");
     deliver_signal_to_thread(t, &si);
     return 0;
 }
@@ -592,7 +593,7 @@ closure_function(4, 1, sysreturn, rt_sigtimedwait_bh,
     }
 
     sysreturn rv;
-    queued_signal qs = dequeue_signal(t, t->siginterest, false);
+    queued_signal qs = dequeue_signal(t, ~t->siginterest, false);
     if (qs == INVALID_ADDRESS) {
         if (!blocked) {
             const struct timespec * ts = bound(timeout);
