@@ -1674,7 +1674,7 @@ sysreturn close(int fd)
     return 0;
 }
 
-sysreturn fcntl(int fd, int cmd, u64 arg)
+sysreturn fcntl(int fd, int cmd, s64 arg)
 {
     fdesc f = resolve_fd(current->p, fd);
 
