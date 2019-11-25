@@ -35,8 +35,9 @@ static volatile int child_tid;
 static void yield_for(volatile int * v)
 {
     int tries = 128;
+    struct timespec t = {tv_sec: 0, tv_nsec: 1000};
     while (!*v && tries-- > 0)
-        sched_yield();
+        nanosleep(&t, 0);
     if (!*v)
         fail_error("timed out");
 }
@@ -571,6 +572,81 @@ test_sigsegv(void)
 
 }
 
+static void test_rt_sigtimedwait_handler(int sig, siginfo_t *si, void *ucontext)
+{
+    sigtest_debug("reached\n");
+    assert(sig == SIGRTMIN);
+#if 0
+    if (!rt_sigsuspend_next_sig) {
+        rt_sigsuspend_handler_reached = 1;
+    } else {
+        fail_error("signal should have been masked");
+    }
+#endif
+    fail_error("signal should have been masked");
+}
+
+static volatile int test_rt_sigtimedwait_caught = 0;
+
+static void * test_rt_sigtimedwait_child(void *arg)
+{
+    child_tid = syscall(SYS_gettid);
+    sigtest_debug("enter, tid %d\n", child_tid);
+    sigset_t ss;
+    siginfo_t si;
+    sigemptyset(&ss);
+    sigaddset(&ss, SIGRTMIN);
+    sigtest_debug("calling rt_sigtimedwait\n");
+    int rv = syscall(SYS_rt_sigtimedwait, &ss, &si, 0, 8);
+    sigtest_debug("rv %d\n", rv);
+    if (rv == SIGRTMIN) {
+        test_rt_sigtimedwait_caught = 1;
+    } else if (rv < 0) {
+        fail_error("rt_sigtimedwait returned with errno %d\n", errno);
+    }
+    return (void*)EXIT_SUCCESS;
+}
+
+void test_rt_sigtimedwait(void)
+{
+    sigtest_debug("\n");
+    child_tid = 0;
+    pthread_t pt = 0;
+    if (pthread_create(&pt, NULL, test_rt_sigtimedwait_child, NULL))
+        fail_perror("blocking test pthread_create");
+
+    sigtest_debug("yielding until child tid reported...\n");
+    yield_for(&child_tid);
+
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = test_rt_sigtimedwait_handler;
+    sa.sa_flags |= SA_SIGINFO;
+    int rv = sigaction(SIGRTMIN, &sa, 0);
+    if (rv < 0)
+        fail_perror("test_signal_catch: sigaction");
+
+    /* queue signal to SIGRTMIN handler; should be caught */
+    siginfo_t si;
+    memset(&si, 0, sizeof(siginfo_t));
+    si.si_code = SI_MESGQ;
+    si.si_pid = __getpid();
+    si.si_uid = getuid();
+    rv = syscall(SYS_rt_tgsigqueueinfo, __getpid(), child_tid, SIGRTMIN, &si);
+    if (rv < 0)
+        fail_perror("tgsigqueueinfo for SIGRTMIN");
+
+    sigtest_debug("waiting for child to catch signal...\n");
+    yield_for(&test_rt_sigtimedwait_caught);
+    sigtest_debug("waiting for child to exit...\n");
+    void * retval;
+    if (pthread_join(pt, &retval))
+        fail_perror("pthread_join");
+
+    if (retval != (void*)EXIT_SUCCESS)
+        fail_error("child failed\n");
+}
+
 int main(int argc, char * argv[])
 {
     setbuf(stdout, NULL);
@@ -586,6 +662,8 @@ int main(int argc, char * argv[])
     test_rt_sigqueueinfo();
 
     test_rt_sigsuspend();
+
+    test_rt_sigtimedwait();
 
     printf("signal test passed\n");
 }

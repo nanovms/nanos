@@ -77,7 +77,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, setfsuid, 0);
     register_syscall(map, setfsgid, 0);
     register_syscall(map, getsid, 0);
-    register_syscall(map, rt_sigtimedwait, 0);
     register_syscall(map, utime, 0);
     register_syscall(map, mknod, 0);
     register_syscall(map, uselib, 0);

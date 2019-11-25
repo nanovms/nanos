@@ -1,6 +1,5 @@
 #include <unix_internal.h>
 #include <ftrace.h>
-#include <signal.h>
 
 thread dummy_thread;
 thread current;
@@ -64,7 +63,7 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, un
     /* clone thread context up to FRAME_VECTOR */
     thread t = create_thread(current->p);
     runtime_memcpy(t->frame, current->frame, sizeof(u64) * FRAME_ERROR_CODE);
-    sigstate_set_mask(&t->signals, sigstate_get_mask(&current->signals));
+    thread_clone_sigmask(t, current);
 
     /* clone behaves like fork at the syscall level, returning 0 to the child */
     set_syscall_return(t, 0);
