@@ -571,38 +571,96 @@ test_sigsegv(void)
 
 }
 
+static int test_rt_sigtimedwait_handler_reached = 0;
+
 static void test_rt_sigtimedwait_handler(int sig, siginfo_t *si, void *ucontext)
 {
     sigtest_debug("reached\n");
     assert(sig == SIGRTMIN);
-#if 0
-    if (!rt_sigsuspend_next_sig) {
-        rt_sigsuspend_handler_reached = 1;
-    } else {
-        fail_error("signal should have been masked");
+    if (!test_rt_sigtimedwait_handler_reached) {
+        test_rt_sigtimedwait_handler_reached = 1;
+        return;
     }
-#endif
-    fail_error("signal should have been masked");
+    fail_error("signal should have been dispatched via rt_sigtimedwait "
+               "without a call to the handler");
 }
 
+static volatile int test_rt_sigtimedwait_intr = 0;
 static volatile int test_rt_sigtimedwait_caught = 0;
 
 static void * test_rt_sigtimedwait_child(void *arg)
 {
-    child_tid = syscall(SYS_gettid);
     sigtest_debug("enter, tid %d\n", child_tid);
     sigset_t ss;
     siginfo_t si;
     sigemptyset(&ss);
-    sigaddset(&ss, SIGRTMIN);
-    sigtest_debug("calling rt_sigtimedwait\n");
+
+    /* test interrupt by caught signal not in set */
+    sigtest_debug("calling rt_sigtimedwait with null set...\n");
+    child_tid = syscall(SYS_gettid);
     int rv = syscall(SYS_rt_sigtimedwait, &ss, &si, 0, 8);
-    sigtest_debug("rv %d\n", rv);
+    if (rv < 0 && errno == EINTR) {
+        if (!test_rt_sigtimedwait_handler_reached)
+            fail_error("rt_sigtimedwait returned EINTR, but handler not reached\n");
+        test_rt_sigtimedwait_intr = 1;
+        sigtest_debug("   interrupted, as expected\n");
+    } else {
+        fail_error("rt_sigtimedwait unexpected rv %d, errno %d\n", rv, errno);
+    }
+
+    /* test catching signal in set */
+    sigaddset(&ss, SIGRTMIN);
+    sigtest_debug("calling rt_sigtimedwait to catch signal...\n");
+    rv = syscall(SYS_rt_sigtimedwait, &ss, &si, 0, 8);
     if (rv == SIGRTMIN) {
+        sigtest_debug("   caught signal\n");
         test_rt_sigtimedwait_caught = 1;
     } else if (rv < 0) {
-        fail_error("rt_sigtimedwait returned with errno %d\n", errno);
+        fail_error("   rt_sigtimedwait unexpected errno %d\n", errno);
     }
+
+    /* test poll with nothing pending */
+    struct timespec t = { tv_sec: 0, tv_nsec: 0 };
+    sigtest_debug("calling rt_sigtimedwait to test poll...\n");
+    rv = syscall(SYS_rt_sigtimedwait, &ss, &si, &t, 8);
+    if (rv < 0 && errno == EAGAIN) {
+        sigtest_debug("   EAGAIN, as expected\n");
+    } else {
+        fail_error("rt_sigtimedwait returned rv %d, errno %d\n", rv, errno);
+    }
+
+    /* mask sig and set pending */
+    rv = sigprocmask(SIG_BLOCK, &ss, 0);
+    if (rv < 0)
+        fail_perror("sigprocmask");
+    memset(&si, 0, sizeof(siginfo_t));
+    si.si_code = SI_MESGQ;
+    si.si_pid = __getpid();
+    si.si_uid = getuid();
+    rv = syscall(SYS_rt_tgsigqueueinfo, __getpid(), child_tid, SIGRTMIN, &si);
+    if (rv < 0)
+        fail_perror("tgsigqueueinfo for SIGRTMIN");
+
+    /* test poll with pending */
+    sigtest_debug("calling rt_sigtimedwait to test poll...\n");
+    memset(&si, 0, sizeof(siginfo_t));
+    rv = syscall(SYS_rt_sigtimedwait, &ss, &si, &t, 8);
+    if (rv  == SIGRTMIN) {
+        sigtest_debug("   caught signal\n");
+    } else {
+        fail_error("rt_sigtimedwait returned rv %d, errno %d\n", rv, errno);
+    }
+
+    /* test timeout */
+    t.tv_sec = 1;
+    sigtest_debug("calling rt_sigtimedwait to test one second timeout...\n");
+    rv = syscall(SYS_rt_sigtimedwait, &ss, &si, &t, 8);
+    if (rv < 0 && errno == EAGAIN) {
+        sigtest_debug("   EAGAIN, as expected\n");
+    } else {
+        fail_error("rt_sigtimedwait returned rv %d, errno %d\n", rv, errno);
+    }
+
     return (void*)EXIT_SUCCESS;
 }
 
@@ -617,6 +675,9 @@ void test_rt_sigtimedwait(void)
     sigtest_debug("yielding until child tid reported...\n");
     yield_for(&child_tid);
 
+    /* 10ms delay to allow child to sleep before sending signal... */
+    struct timespec t = { tv_sec: 0, tv_nsec: 10000000 };
+    nanosleep(&t, 0);
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_sigaction = test_rt_sigtimedwait_handler;
@@ -635,8 +696,17 @@ void test_rt_sigtimedwait(void)
     if (rv < 0)
         fail_perror("tgsigqueueinfo for SIGRTMIN");
 
+    sigtest_debug("waiting for child to be interrupted...\n");
+    yield_for(&test_rt_sigtimedwait_intr);
+    nanosleep(&t, 0);
+
+    rv = syscall(SYS_rt_tgsigqueueinfo, __getpid(), child_tid, SIGRTMIN, &si);
+    if (rv < 0)
+        fail_perror("tgsigqueueinfo for SIGRTMIN");
+
     sigtest_debug("waiting for child to catch signal...\n");
     yield_for(&test_rt_sigtimedwait_caught);
+
     sigtest_debug("waiting for child to exit...\n");
     void * retval;
     if (pthread_join(pt, &retval))
