@@ -34,10 +34,9 @@ static volatile int child_tid;
 
 static void yield_for(volatile int * v)
 {
-    int tries = 128;
-    struct timespec t = {tv_sec: 0, tv_nsec: 1000};
+    int tries = 100000;
     while (!*v && tries-- > 0)
-        nanosleep(&t, 0);
+        sched_yield();
     if (!*v)
         fail_error("timed out");
 }
