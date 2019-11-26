@@ -106,7 +106,6 @@ static inline u64 sigstate_set_ignored(sigstate ss, u64 mask)
 
 static inline u64 get_all_pending_signals(thread t)
 {
-    // XXX ignored?
     return sigstate_get_pending(&t->signals) | sigstate_get_pending(&t->p->signals);
 }
 
@@ -258,6 +257,7 @@ void deliver_signal_to_thread(thread t, struct siginfo *info)
         return;
     }
     deliver_signal(&t->signals, info);
+    sig_debug("... pending now 0x%lx\n", sigstate_get_pending(&t->signals));
 
     /* queue for delivery */
     u64 pending_masked = get_effective_signals(t);
@@ -281,34 +281,27 @@ void deliver_signal_to_process(process p, struct siginfo *info)
     deliver_signal(&p->signals, info);
     sig_debug("... pending now 0x%lx\n", sigstate_get_pending(&p->signals));
 
-    /* XXX
-
-       don't really trust this scheme ...
-       if we end up waking a thread, move info from process to thread queue
-
-       if there's a runnable thread that can handle it - how do we
-       know it won't handle something else first?
-
-    */
-
-    /* if there isn't a thread awake that can handle this signal, try to wake one */
+    /* If a thread is set as runnable and can handle this signal, just return. */
     thread t, can_wake = 0;
     vector_foreach(current->p->threads, t) {
         if (!t)
             continue;
         if (thread_is_runnable(t)) {
             if ((sigword & sigstate_get_mask(&t->signals)) == 0) {
-                /* thread scheduled to run or running; no explicit wakeup needed */
-                sig_debug("thread %d running and able to handle sig %d; return\n", t->tid, sig);
+                /* thread scheduled to run or running; no explicit wakeup */
+                sig_debug("thread %d running and sig %d unmasked; return\n",
+                          t->tid, sig);
                 return;
             }
-        } else if (thread_in_interruptible_sleep(t) && (sigword & get_effective_sigmask(t)) == 0) {
+        } else if (thread_in_interruptible_sleep(t) &&
+                   (sigword & get_effective_sigmask(t)) == 0) {
             can_wake = t;
         }
     }
 
+    /* There's a chance a different thread could handle the pending process
+       signal first, so this could cause a spurious wakeup (EINTR) ... care? */
     if (can_wake) {
-        /* XXX: sure that another thread won't handle first? */
         sig_debug("attempting to interrupt thread %d\n", can_wake->tid);
         if (!thread_attempt_interrupt(t))
             sig_debug("failed to interrupt\n");
@@ -420,7 +413,7 @@ sysreturn rt_sigreturn(void)
         sig_debug("-> restore ucontext\n");
         restore_ucontext(&(frame->uc), t->frame);
     }
-    t->frame[FRAME_RAX] = t->saved_rax; // XXX
+    t->frame[FRAME_RAX] = t->saved_rax;
     running_frame = t->frame;
 
     sig_debug("switching to thread frame %p, rip 0x%lx, rax 0x%lx\n",
@@ -875,13 +868,6 @@ void dispatch_signals(thread t)
             goto ignore;
         }
     }
-
-#if 0
-    // XXX convince me
-    /* thread may have blocked while signals are still pending; flush in case */
-    if (t->blocked_on)
-        blockq_flush_thread(t->blocked_on, t);
-#endif
 
     /* set up and switch to the signal context */
     sig_debug("switching to sigframe: tid %d, sig %d, sigaction %p\n", t->tid, signum, sa);
