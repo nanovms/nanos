@@ -620,7 +620,7 @@ static void * test_rt_sigtimedwait_child(void *arg)
     }
 
     /* test poll with nothing pending */
-    struct timespec t = { tv_sec: 0, tv_nsec: 0 };
+    struct timespec t = { 0, 0 };
     sigtest_debug("calling rt_sigtimedwait to test poll...\n");
     rv = syscall(SYS_rt_sigtimedwait, &ss, &si, &t, 8);
     if (rv < 0 && errno == EAGAIN) {
@@ -676,7 +676,7 @@ void test_rt_sigtimedwait(void)
     yield_for(&child_tid);
 
     /* 10ms delay to allow child to sleep before sending signal... */
-    struct timespec t = { tv_sec: 0, tv_nsec: 10000000 };
+    struct timespec t = { 0, 10000000 };
     nanosleep(&t, 0);
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
