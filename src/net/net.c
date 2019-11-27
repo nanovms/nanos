@@ -41,7 +41,7 @@ void sys_timeouts_init(void)
     int n = sizeof(net_lwip_timers) / sizeof(struct net_lwip_timer);
     for (int i = 0; i < n; i++) {
         struct net_lwip_timer * t = (struct net_lwip_timer *)&net_lwip_timers[i];
-        register_periodic_timer(milliseconds(t->interval_ms),
+        register_periodic_timer(milliseconds(t->interval_ms), CLOCK_ID_MONOTONIC,
                                 closure(lwip_heap, dispatch_lwip_timer, t->handler, t->name));
 #ifdef LWIP_DEBUG
         lwip_debug("registered %s timer with period of %ld ms\n", t->name, t->interval_ms);

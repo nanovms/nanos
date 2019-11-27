@@ -43,9 +43,4 @@ static inline void register_platform_clock_now(clock_now cn)
     platform_monotonic_now = cn;
 }
 
-static inline void register_platform_clock_timer(clock_timer ct)
-{
-    platform_timer = ct;
-}
-
 u64 rtc_gettimeofday(void);

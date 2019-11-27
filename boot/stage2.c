@@ -40,6 +40,8 @@ static u64 identity_base;
 
 static u64 s[2] = { 0xa5a5beefa5a5cafe, 0xbeef55aaface55aa };
 
+timestamp rtc_offset = 0;
+
 u64 random_u64()
 {
     u64 s0 = s[0];

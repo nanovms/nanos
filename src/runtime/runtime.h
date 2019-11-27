@@ -156,9 +156,9 @@ typedef closure_type(thunk, void);
 #include <tuple.h>
 #include <status.h>
 #include <pqueue.h>
+#include <clock.h>
 #include <timer.h>
 #include <range.h>
-#include <clock.h>
 
 #define PAGELOG 12
 #define PAGESIZE U64_FROM_BIT(PAGELOG)

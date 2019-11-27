@@ -238,7 +238,7 @@ sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a,
     refcount_reserve(&t->refcount);
 
     if (timeout > 0) {
-        bi->timeout = register_timer(timeout,
+        bi->timeout = register_timer(timeout, CLOCK_ID_MONOTONIC,
                 closure(bq->h, blockq_item_timeout, bq, bi));
         if (bi->timeout == INVALID_ADDRESS) {
             msg_err("failed to allocate blockq timer\n");
@@ -315,7 +315,7 @@ int blockq_transfer_waiters(blockq dest, blockq src, int n)
         if (bi->timeout) {
             timestamp remain = remove_timer(bi->timeout);
             bi->timeout = remain == 0 ? 0 :
-                register_timer(remain, closure(dest->h, blockq_item_timeout, dest, bi));
+                register_timer(remain, CLOCK_ID_MONOTONIC, closure(dest->h, blockq_item_timeout, dest, bi));
         }
         list_delete(&bi->l);
         assert(bi->t->blocked_on == src);
