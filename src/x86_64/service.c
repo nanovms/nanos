@@ -229,7 +229,7 @@ u64 random_seed(void)
         return seed;
     if (have_rdrand && hw_seed(&seed, false))
         return seed;
-    return (u64)now();
+    return (u64)now(CLOCK_ID_MONOTONIC);
 }
 
 static void init_hwrand(void)

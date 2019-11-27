@@ -82,7 +82,7 @@ void log_vprintf(const char *prefix, const char *log_format, vlist *a)
     buffer b = alloca_wrap_buffer(buf, sizeof(buf));
     b->end = 0;
 
-    bprintf(b, "[%T] %s: ", now(), prefix);
+    bprintf(b, "[%T] %s: ", now(CLOCK_ID_BOOTTIME), prefix);
     buffer f = alloca_wrap_buffer(log_format, runtime_strlen(log_format));
     vbprintf(b, f, a);
     buffer_print(b);

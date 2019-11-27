@@ -1,6 +1,14 @@
 #pragma once
 typedef u64 timestamp;
 typedef struct timer *timer;
+typedef closure_type(clock_timer, void, timestamp);
+
+extern clock_timer platform_timer;
+
+static inline void runloop_timer(timestamp duration)
+{
+    apply(platform_timer, duration);
+}
 
 timer register_timer(timestamp, thunk n);
 timer register_periodic_timer(timestamp interval, thunk n);
@@ -9,9 +17,6 @@ void initialize_timers(kernel_heaps kh);
 timestamp parse_time();
 void print_timestamp(buffer, timestamp);
 timestamp timer_check();
-void runloop_timer(timestamp duration);
-timestamp now();
-timestamp uptime();
 
 #define THOUSAND (1000ull)
 #define MILLION (1000000ull)

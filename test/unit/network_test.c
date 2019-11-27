@@ -33,7 +33,7 @@ closure_function(7, 1, void, value_in,
     s->responses++;
 
     static timestamp last;
-    timestamp t = now();
+    timestamp t = now(CLOCK_ID_MONOTONIC);
     u64 *count = bound(count);
 
     if ((t - last) > (1ull<<32)){

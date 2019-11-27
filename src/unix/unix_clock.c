@@ -1,9 +1,8 @@
 #include <unix_internal.h>
 
-// callibration is an issue
 sysreturn gettimeofday(struct timeval *tv, void *tz)
 {
-    timeval_from_time(tv, now());
+    timeval_from_time(tv, now(CLOCK_ID_REALTIME));
     return 0;
 }
 
@@ -12,7 +11,7 @@ closure_function(4, 1, sysreturn, nanosleep_bh,
                  u64, flags)
 {
     thread t = bound(t);
-    timestamp elapsed = now() - bound(start); /* XXX parameterize */
+    timestamp elapsed = now(CLOCK_ID_MONOTONIC) - bound(start); /* XXX parameterize */
     thread_log(t, "%s: start %T, interval %T, rem %p, elapsed %T, flags 0x%lx",
                __func__, bound(start), bound(interval), bound(rem), elapsed, flags);
     sysreturn rv = 0;
@@ -36,7 +35,7 @@ closure_function(4, 1, sysreturn, nanosleep_bh,
 
 sysreturn nanosleep(const struct timespec* req, struct timespec* rem)
 {
-    timestamp start = now(); /* XXX parameterize later for clock_nanosleep */
+    timestamp start = now(CLOCK_ID_MONOTONIC); /* XXX parameterize later for clock_nanosleep */
     timestamp interval = time_from_timespec(req);
     thread_log(current, "nanosleep: req %p (%T) rem %p, now %T", req, interval, rem, start);
     return blockq_check_timeout(current->thread_bq, current,
@@ -46,7 +45,7 @@ sysreturn nanosleep(const struct timespec* req, struct timespec* rem)
 
 sysreturn sys_time(time_t *tloc)
 {
-    time_t t = time_t_from_time(now());
+    time_t t = time_t_from_time(now(CLOCK_ID_REALTIME));
 
     if (tloc)
         *tloc = t;
@@ -69,17 +68,17 @@ sysreturn clock_gettime(clockid_t clk_id, struct timespec *tp)
     thread_log(current, "clock_gettime: clk_id %d", clk_id);
     timestamp t;
     switch (clk_id) {
-    case CLOCK_REALTIME:
-    case CLOCK_REALTIME_COARSE:
-        t = now();
-        break;
-    case CLOCK_PROCESS_CPUTIME_ID:
-        t = proc_utime(current->p) + proc_stime(current->p);
-        break;
     case CLOCK_MONOTONIC:
     case CLOCK_MONOTONIC_COARSE:
     case CLOCK_MONOTONIC_RAW:
-        t = uptime();
+    case CLOCK_BOOTTIME:
+    case CLOCK_REALTIME:
+    case CLOCK_REALTIME_COARSE:
+        /* We depend on our system clock IDs to match the posix ones... */
+        t = now(clk_id);
+        break;
+    case CLOCK_PROCESS_CPUTIME_ID:
+        t = proc_utime(current->p) + proc_stime(current->p);
         break;
     default:
         msg_warn("clock id %d not supported\n", clk_id);

@@ -9,22 +9,21 @@
 /* Helper functions to ignore unused result (eliminate CC warning) */
 static inline void igr(int x) {}
 
-void *malloc(size_t size);
-void free(void *ptr);
-
 timestamp timeval_to_time(struct timeval *a)
 {
     return((((unsigned long long)a->tv_sec)<<32)|
            (((unsigned long long)a->tv_usec)<<32)/1000000);
 }
 
-timestamp now()
-{
-    struct timeval result;
+/* For unix target, just leave rtc offset as zero and treat
+   gettimeofday() as monotonic. We can revisit if we ever care about
+   truly monotonic time in unit test land. */
 
-    gettimeofday(&result,0);
-    return(timeval_to_time(&result));
-}
+timestamp rtc_offset = 0;
+clock_now platform_monotonic_now;
+
+void *malloc(size_t size);
+void free(void *ptr);
 
 u64 random_seed()
 {
@@ -78,10 +77,19 @@ static struct kernel_heaps heaps; /* really just for init_runtime() */
 
 extern void init_extra_prints();
 
+/* ignore clock id for unix tests */
+closure_function(0, 0, timestamp, unix_now)
+{
+    struct timeval result;
+    gettimeofday(&result,0);
+    return timeval_to_time(&result);
+}
+
 // 64 bit unix process
 heap init_process_runtime()
 {
     heaps.general = malloc_allocator();
+    platform_monotonic_now = closure(heaps.general, unix_now);
     init_random();
     init_runtime(&heaps);
     init_extra_prints();

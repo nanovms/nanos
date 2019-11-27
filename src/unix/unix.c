@@ -196,7 +196,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->syscalls = linux_syscalls;
     p->sysctx = false;
     p->utime = p->stime = 0;
-    p->start_time = now();
+    p->start_time = now(CLOCK_ID_MONOTONIC);
     init_sigstate(&p->signals);
     zero(p->sigactions, sizeof(p->sigactions));
     return p;
@@ -205,7 +205,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
 void proc_enter_user(process p)
 {
     if (p->sysctx) {
-        timestamp here = now();
+        timestamp here = now(CLOCK_ID_MONOTONIC);
         p->stime += here - p->start_time;
         p->sysctx = false;
         p->start_time = here;
@@ -215,7 +215,7 @@ void proc_enter_user(process p)
 void proc_enter_system(process p)
 {
     if (!p->sysctx) {
-        timestamp here = now();
+        timestamp here = now(CLOCK_ID_MONOTONIC);
         p->utime += here - p->start_time;
         p->sysctx = true;
         p->start_time = here;
@@ -224,7 +224,7 @@ void proc_enter_system(process p)
 
 void proc_pause(process p)
 {
-    timestamp here = now();
+    timestamp here = now(CLOCK_ID_MONOTONIC);
     if (p->sysctx) {
         p->stime += here - p->start_time;
     }
@@ -235,14 +235,14 @@ void proc_pause(process p)
 
 void proc_resume(process p)
 {
-    p->start_time = now();
+    p->start_time = now(CLOCK_ID_MONOTONIC);
 }
 
 timestamp proc_utime(process p)
 {
     timestamp utime = p->utime;
     if (!p->sysctx) {
-        utime += now() - p->start_time;
+        utime += now(CLOCK_ID_MONOTONIC) - p->start_time;
     }
     return utime;
 }
@@ -251,7 +251,7 @@ timestamp proc_stime(process p)
 {
     timestamp stime = p->stime;
     if (p->sysctx) {
-        stime += now() - p->start_time;
+        stime += now(CLOCK_ID_MONOTONIC) - p->start_time;
     }
     return stime;
 }

@@ -29,7 +29,7 @@ static boolean timer_compare(void *za, void *zb)
 timestamp remove_timer(timer t)
 {
     t->disable = true;
-    timestamp n = now();
+    timestamp n = now(CLOCK_ID_MONOTONIC);
     return t->w > n ? t->w - n : 0;
 }
 
@@ -43,7 +43,7 @@ static timer __register_timer(timestamp interval, thunk n, boolean periodic)
 
     t->t = n;
     t->disable = false;
-    t->w = now() + interval;
+    t->w = now(CLOCK_ID_MONOTONIC) + interval;
     t->interval = (periodic) ? interval : 0;
     pqueue_insert(timers, t);
 
@@ -71,7 +71,7 @@ timestamp timer_check()
     timestamp here = 0;
     timer t = 0;
 
-    while ((t = pqueue_peek(timers)) && (here = now(), t->w <= here)) {
+    while ((t = pqueue_peek(timers)) && (here = now(CLOCK_ID_MONOTONIC), t->w <= here)) {
         pqueue_pop(timers);
         if (!t->disable) {
             apply(t->t);

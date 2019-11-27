@@ -198,6 +198,9 @@ typedef int clockid_t;
 #define CLOCK_MONOTONIC_RAW         4
 #define CLOCK_REALTIME_COARSE       5
 #define CLOCK_MONOTONIC_COARSE      6
+#define CLOCK_BOOTTIME              7
+#define CLOCK_REALTIME_ALARM        8
+#define CLOCK_BOOTTIME_ALARM        9
 
 struct timespec {
 	u64 ts_sec;
