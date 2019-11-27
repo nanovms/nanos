@@ -210,8 +210,14 @@ typedef struct thread {
     blockq thread_bq;
 
     struct sigstate signals;
-    sigstate dispatch_sigstate; /* saved sigstate while signal handler in flight */
+    sigstate dispatch_sigstate; /* while signal handler in flight, save sigstate... */
+    u64 saved_rax;              /* ... and t->frame[FRAME_RAX] */
     u64 sigframe[FRAME_MAX];
+
+    /* sigs that can wake thread regardless of mask or ignored
+       nonzero when in rt_sigtimedwait) */
+    u64 siginterest;
+
     u16 active_signo;
 
 #ifdef CONFIG_FTRACE
@@ -381,6 +387,7 @@ static inline time_t time_t_from_time(timestamp t)
 void init_sigstate(sigstate ss);
 void sigstate_flush_queue(sigstate ss);
 void sigstate_reset_thread(thread t);
+void thread_clone_sigmask(thread dest, thread src);
 
 static inline void sigstate_thread_restore(thread t)
 {

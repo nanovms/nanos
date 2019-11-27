@@ -13,10 +13,8 @@
    support for SA_RESTART
    support for signalfd
    blocking calls within sig handler
-   nested signal handlers
 
    sigaltstack
-   sigtimedwait / sigwaitinfo
 
    add additional blockqs for:
    - epoll_wait
@@ -66,24 +64,24 @@ static inline int select_signal_from_masked(u64 masked)
     return lsb(masked) + 1;
 }
 
-static inline u64 normalize_mask(u64 mask)
+static inline u64 normalize_signal_mask(u64 mask)
 {
     return mask & ~(mask_from_sig(SIGKILL) | mask_from_sig(SIGSTOP));
 }
 
 static inline u64 sigstate_get_mask(sigstate ss)
 {
-    return normalize_mask(ss->mask);
+    return normalize_signal_mask(ss->mask);
 }
 
 static inline void sigstate_set_mask(sigstate ss, u64 mask)
 {
-    ss->mask = normalize_mask(mask);
+    ss->mask = mask;
 }
 
 static inline void sigstate_block(sigstate ss, u64 mask)
 {
-    ss->mask |= normalize_mask(mask);
+    ss->mask |= normalize_signal_mask(mask);
 }
 
 static inline void sigstate_unblock(sigstate ss, u64 mask)
@@ -103,12 +101,23 @@ static inline u64 sigstate_get_ignored(sigstate ss)
 
 static inline u64 sigstate_set_ignored(sigstate ss, u64 mask)
 {
-    return ss->ignored = normalize_mask(mask);
+    return ss->ignored = normalize_signal_mask(mask);
 }
 
-static inline u64 sigstate_get_pending_masked(sigstate ss, u64 aux_mask)
+static inline u64 get_all_pending_signals(thread t)
 {
-    return ss->pending & ~(sigstate_get_mask(ss) | sigstate_get_ignored(ss) | aux_mask);
+    return sigstate_get_pending(&t->signals) | sigstate_get_pending(&t->p->signals);
+}
+
+static inline u64 get_effective_sigmask(thread t)
+{
+    /* parent sigmask affects initial thread - otherwise ignored? */
+    return sigstate_get_mask(&t->signals) & ~t->siginterest;
+}
+
+static inline u64 get_effective_signals(thread t)
+{
+    return get_all_pending_signals(t) & ~get_effective_sigmask(t);
 }
 
 static inline void sigstate_set_pending(sigstate ss, int sig)
@@ -127,24 +136,13 @@ static inline list sigstate_get_sighead(sigstate ss, int signum)
     return &ss->heads[signum - 1];
 }
 
-static queued_signal sigstate_dequeue_signal(sigstate ss, u64 aux_mask)
+void thread_clone_sigmask(thread dest, thread src)
 {
-    sig_debug("sigstate %p\n", ss);
-    u64 masked = sigstate_get_pending_masked(ss, aux_mask);
-    if (masked == 0)
-        return INVALID_ADDRESS;
+    sigstate_set_mask(&dest->signals, sigstate_get_mask(&src->signals));
+}
 
-    int signum = select_signal_from_masked(masked);
-    if (!signum)
-        return INVALID_ADDRESS;
-    sigaction sa = get_sigaction(signum);
-    u64 sigword = mask_from_sig(signum);
-    if (ss->saved == 0)      /* rt_sigsuspend may provide one */
-        ss->saved = ss->mask;
-    ss->mask |= sigword | sa->sa_mask.sig[0];
-    sig_debug("sig %d, now sigsaved 0x%lx, sigmask 0x%lx\n",
-              signum, ss->saved, ss->mask);
-
+static queued_signal sigstate_dequeue_signal(sigstate ss, int signum)
+{
     /* dequeue siginfo */
     list head = sigstate_get_sighead(ss, signum);
     list l = list_get_next(head);
@@ -152,7 +150,40 @@ static queued_signal sigstate_dequeue_signal(sigstate ss, u64 aux_mask)
     queued_signal qs = struct_from_list(l, queued_signal, l);
     list_delete(l);
     if (list_empty(head))
-        ss->pending &= ~sigword;
+        ss->pending &= ~mask_from_sig(signum);
+    return qs;
+}
+
+/* select and dequeue a pending signal not masked by sigmask */
+static queued_signal dequeue_signal(thread t, u64 sigmask, boolean save_and_mask)
+{
+    sig_debug("tid %d, sigmask 0x%lx, save %d\n", t->tid, sigmask, save_and_mask);
+    u64 masked = get_all_pending_signals(t) & ~sigmask;
+    if (masked == 0)
+        return INVALID_ADDRESS;
+
+    int signum = select_signal_from_masked(masked);
+    if (!signum)
+        return INVALID_ADDRESS;
+
+    u64 mask = mask_from_sig(signum);
+    sigstate ss = (sigstate_get_pending(&t->signals) & mask) ? &t->signals : &t->p->signals;
+    queued_signal qs = sigstate_dequeue_signal(ss, signum);
+    assert(qs != INVALID_ADDRESS);
+
+    sig_debug("-> selected sig %d, dequeued from %s\n",
+              signum, ss == &t->signals ? "thread" : "process");
+
+    /* for actual signal handling - bypassed if dispatching via rt_sigtimedwait */
+    if (save_and_mask) {
+        sigaction sa = get_sigaction(signum);
+        if (ss->saved == 0)      /* rt_sigsuspend may provide one */
+            ss->saved = ss->mask;
+        ss->mask |= mask_from_sig(signum) | sa->sa_mask.sig[0];
+        sig_debug("-> saved 0x%lx, mask 0x%lx\n", ss->saved, ss->mask);
+        t->dispatch_sigstate = ss;
+    }
+    
     return qs;
 }
 
@@ -183,22 +214,9 @@ void init_sigstate(sigstate ss)
         list_init(&ss->heads[i]);
 }
 
-static inline u64 get_dispatchable_signals(thread t)
-{
-    u64 r = 0;
-    if (!(r = sigstate_get_pending_masked(&t->signals, sigstate_get_ignored(&t->p->signals))))
-        r = sigstate_get_pending_masked(&t->p->signals, sigstate_get_mask(&t->signals));
-    return r;
-}
-
 static inline void free_queued_signal(queued_signal qs)
 {
     deallocate(heap_general(get_kernel_heaps()), qs, sizeof(struct queued_signal));
-}
-
-static inline u64 get_thread_pending(thread t)
-{
-    return sigstate_get_pending_masked(&t->signals, sigstate_get_ignored(&t->p->signals));
 }
 
 static inline boolean sig_is_ignored(process p, int sig)
@@ -242,7 +260,8 @@ void deliver_signal_to_thread(thread t, struct siginfo *info)
     sig_debug("... pending now 0x%lx\n", sigstate_get_pending(&t->signals));
 
     /* queue for delivery */
-    u64 pending_masked = get_thread_pending(t);
+    u64 pending_masked = get_effective_signals(t);
+    sig_debug("... effective signals 0x%lx\n", pending_masked);
     if (pending_masked) {
         sig_debug("masked = 0x%lx; attempting to interrupt thread\n", pending_masked);
         if (!thread_attempt_interrupt(t))
@@ -253,6 +272,7 @@ void deliver_signal_to_thread(thread t, struct siginfo *info)
 void deliver_signal_to_process(process p, struct siginfo *info)
 {
     int sig = info->si_signo;
+    u64 sigword = mask_from_sig(sig);
     sig_debug("pid %d, sig %d\n", p->pid, sig);
     if (sig_is_ignored(p, sig)) {
         sig_debug("signal ignored; no queue\n");
@@ -261,22 +281,26 @@ void deliver_signal_to_process(process p, struct siginfo *info)
     deliver_signal(&p->signals, info);
     sig_debug("... pending now 0x%lx\n", sigstate_get_pending(&p->signals));
 
-    /* if there isn't a thread awake that can handle this signal, try to wake one */
+    /* If a thread is set as runnable and can handle this signal, just return. */
     thread t, can_wake = 0;
     vector_foreach(current->p->threads, t) {
         if (!t)
             continue;
-        if ((sigstate_get_mask(&t->signals) & mask_from_sig(sig)) == 0) {
-            if (thread_is_runnable(t)) {
-                sig_debug("thread %d running and able to handle sig %d; return\n", t->tid, sig);
-                /* nothing to do; let it run */
+        if (thread_is_runnable(t)) {
+            if ((sigword & sigstate_get_mask(&t->signals)) == 0) {
+                /* thread scheduled to run or running; no explicit wakeup */
+                sig_debug("thread %d running and sig %d unmasked; return\n",
+                          t->tid, sig);
                 return;
             }
-            if (thread_in_interruptible_sleep(t))
-                can_wake = t;   /* could attempt to randomize selection if we cared */
+        } else if (thread_in_interruptible_sleep(t) &&
+                   (sigword & get_effective_sigmask(t)) == 0) {
+            can_wake = t;
         }
     }
 
+    /* There's a chance a different thread could handle the pending process
+       signal first, so this could cause a spurious wakeup (EINTR) ... care? */
     if (can_wake) {
         sig_debug("attempting to interrupt thread %d\n", can_wake->tid);
         if (!thread_attempt_interrupt(t))
@@ -294,9 +318,7 @@ sysreturn rt_sigpending(u64 *set, u64 sigsetsize)
     if (!set)
         return -EFAULT;
 
-    u64 pending = sigstate_get_pending(&current->signals) |
-        sigstate_get_pending(&current->p->signals);
-
+    u64 pending = get_all_pending_signals(current);
     *set = pending;
     sig_debug("= 0x%lx\n", pending);
     return 0;
@@ -387,11 +409,15 @@ sysreturn rt_sigreturn(void)
 
     /* restore signal mask and saved context, if applicable */
     sigstate_thread_restore(t);
-    if (sa->sa_flags & SA_SIGINFO)
+    if (sa->sa_flags & SA_SIGINFO) {
+        sig_debug("-> restore ucontext\n");
         restore_ucontext(&(frame->uc), t->frame);
+    }
+    t->frame[FRAME_RAX] = t->saved_rax;
     running_frame = t->frame;
 
-    sig_debug("switching to thread frame %p\n", running_frame);
+    sig_debug("switching to thread frame %p, rip 0x%lx, rax 0x%lx\n",
+              running_frame, running_frame[FRAME_RIP], running_frame[FRAME_RAX]);
 
     /* ftrace needs to know that this call stack does not return */
     ftrace_thread_noreturn(current);
@@ -490,7 +516,7 @@ closure_function(2, 1, sysreturn, rt_sigsuspend_bh,
     sig_debug("tid %d, saved_mask 0x%lx blocked %d, nullify %d\n",
               t->tid, bound(saved_mask), flags & BLOCKQ_ACTION_BLOCKED, flags & BLOCKQ_ACTION_NULLIFY);
 
-    if ((flags & BLOCKQ_ACTION_NULLIFY) || get_dispatchable_signals(t)) {
+    if ((flags & BLOCKQ_ACTION_NULLIFY) || get_effective_signals(t)) {
         if (flags & BLOCKQ_ACTION_BLOCKED)
             thread_wakeup(t);
         closure_finish();
@@ -539,14 +565,13 @@ sysreturn tgkill(int tgid, int tid, int sig)
         return 0;               /* always permitted */
 
     thread t;
-    sig_debug("%d, %p\n", vector_length(current->p->threads),
-              vector_get(current->p->threads, tid));
     if (tid >= vector_length(current->p->threads) ||
         !(t = vector_get(current->p->threads, tid)))
         return -ESRCH;
 
     struct siginfo si;
     init_siginfo(&si, sig, SI_TKILL);
+    sig_debug("-> delivering to thread\n");
     deliver_signal_to_thread(t, &si);
     return 0;
 }
@@ -637,10 +662,13 @@ closure_function(1, 1, sysreturn, pause_bh,
     thread t = bound(t);
     sig_debug("tid %d, flags 0x%lx\n", t->tid, flags);
 
-    if ((flags & BLOCKQ_ACTION_NULLIFY) || get_dispatchable_signals(t)) {
-        if (flags & BLOCKQ_ACTION_BLOCKED)
+    if ((flags & BLOCKQ_ACTION_NULLIFY) || get_effective_signals(t)) {
+        if (flags & BLOCKQ_ACTION_BLOCKED) {
+            sig_debug("-> wakeup\n");
             thread_wakeup(t);
+        }
         closure_finish();
+        sig_debug("%p, %ld\n", t, t->frame[FRAME_RAX]);
         return set_syscall_return(t, -EINTR);
     }
 
@@ -650,26 +678,66 @@ closure_function(1, 1, sysreturn, pause_bh,
 
 sysreturn pause(void)
 {
-    sig_debug("tid %d, blocking...\n", current->tid);
+    sig_debug("tid %d\n", current->tid);
     heap h = heap_general(get_kernel_heaps());
     blockq_action ba = closure(h, pause_bh, current);
     return blockq_check(current->thread_bq, current, ba, false);
 }
 
-void register_signal_syscalls(struct syscall *map)
+closure_function(4, 1, sysreturn, rt_sigtimedwait_bh,
+                 thread, t, u64, interest, siginfo_t *, info, const struct timespec *, timeout,
+                 u64, flags)
 {
-    register_syscall(map, kill, kill);
-    register_syscall(map, pause, pause);
-    register_syscall(map, rt_sigaction, rt_sigaction);
-    register_syscall(map, rt_sigpending, rt_sigpending);
-    register_syscall(map, rt_sigprocmask, rt_sigprocmask);
-    register_syscall(map, rt_sigqueueinfo, rt_sigqueueinfo);
-    register_syscall(map, rt_tgsigqueueinfo, rt_tgsigqueueinfo);
-    register_syscall(map, rt_sigreturn, rt_sigreturn);
-    register_syscall(map, rt_sigsuspend, rt_sigsuspend);
-    register_syscall(map, sigaltstack, syscall_ignore);
-    register_syscall(map, tgkill, tgkill);
-    register_syscall(map, tkill, tkill);
+    thread t = bound(t);
+    u64 interest = bound(interest);
+    boolean blocked = (flags & BLOCKQ_ACTION_BLOCKED) != 0;
+
+    if (flags & BLOCKQ_ACTION_TIMEDOUT) {
+        assert(blocked);
+        thread_wakeup(t);
+        closure_finish();
+        return set_syscall_error(t, EAGAIN);
+    }
+
+    sysreturn rv;
+    queued_signal qs = dequeue_signal(t, ~t->siginterest, false);
+    if (qs == INVALID_ADDRESS) {
+        if (!blocked) {
+            const struct timespec * ts = bound(timeout);
+            if (ts && ts->ts_sec == 0 && ts->ts_nsec == 0) {
+                closure_finish();
+                return set_syscall_error(t, EAGAIN); /* poll */
+            }
+            sig_debug("-> block\n");
+            t->siginterest = interest;
+            return BLOCKQ_BLOCK_REQUIRED;
+        } else {
+            rv = -EINTR;
+        }
+    } else {
+        if (bound(info))
+            runtime_memcpy(bound(info), &qs->si, sizeof(struct siginfo));
+        rv = qs->si.si_signo;
+        free_queued_signal(qs);
+    }
+
+    if (blocked)
+        thread_wakeup(t);
+    closure_finish();
+    return set_syscall_return(t, rv);
+}
+
+sysreturn rt_sigtimedwait(const u64 * set, siginfo_t * info, const struct timespec * timeout, u64 sigsetsize)
+{
+    if (sigsetsize != (NSIG / 8))
+        return -EINVAL;
+    if (!set)
+        return -EFAULT;
+    sig_debug("tid %d, interest 0x%lx, info %p, timeout %p\n", current->tid, *set, info, timeout);
+    heap h = heap_general(get_kernel_heaps());
+    blockq_action ba = closure(h, rt_sigtimedwait_bh, current, *set, info, timeout);
+    timestamp t = timeout ? time_from_timespec(timeout) : 0;
+    return blockq_check_timeout(current->thread_bq, current, ba, false, t);
 }
 
 static void setup_sigframe(thread t, int signum, struct siginfo *si)
@@ -732,16 +800,10 @@ void dispatch_signals(thread t)
         return;
     }
 
-    /* procure a pending signal from the thread or, failing that, the process */
-    sigstate ss = &t->signals;
-    queued_signal qs = sigstate_dequeue_signal(ss, 0);
-    if (qs == INVALID_ADDRESS) {
-        ss = &t->p->signals;
-        qs = sigstate_dequeue_signal(ss, sigstate_get_mask(&t->signals)); /* include thread mask */
-        if (qs == INVALID_ADDRESS)
-            return;
-    }
-    t->dispatch_sigstate = ss;
+    /* dequeue (and thus reset) a pending signal, masking temporarily */
+    queued_signal qs = dequeue_signal(t, sigstate_get_mask(&t->signals), true);
+    if (qs == INVALID_ADDRESS)
+        return;
 
     /* act on signal disposition */
     int signum = qs->si.si_signo;
@@ -807,22 +869,33 @@ void dispatch_signals(thread t)
         }
     }
 
-#if 0
-    // XXX convince me
-    /* thread may have blocked while signals are still pending; flush in case */
-    if (t->blocked_on)
-        blockq_flush_thread(t->blocked_on, t);
-#endif
-
     /* set up and switch to the signal context */
     sig_debug("switching to sigframe: tid %d, sig %d, sigaction %p\n", t->tid, signum, sa);
     setup_sigframe(t, signum, &qs->si);
 
     /* clean up and proceed to handler */
     free_queued_signal(qs);
+    t->saved_rax = t->frame[FRAME_RAX];
     running_frame = t->sigframe;
     return;
   ignore:
     sig_debug("ignoring signal %d\n", signum);
     sigstate_thread_restore(t);
+}
+
+void register_signal_syscalls(struct syscall *map)
+{
+    register_syscall(map, kill, kill);
+    register_syscall(map, pause, pause);
+    register_syscall(map, rt_sigaction, rt_sigaction);
+    register_syscall(map, rt_sigpending, rt_sigpending);
+    register_syscall(map, rt_sigprocmask, rt_sigprocmask);
+    register_syscall(map, rt_sigqueueinfo, rt_sigqueueinfo);
+    register_syscall(map, rt_tgsigqueueinfo, rt_tgsigqueueinfo);
+    register_syscall(map, rt_sigreturn, rt_sigreturn);
+    register_syscall(map, rt_sigsuspend, rt_sigsuspend);
+    register_syscall(map, rt_sigtimedwait, rt_sigtimedwait);
+    register_syscall(map, sigaltstack, syscall_ignore);
+    register_syscall(map, tgkill, tgkill);
+    register_syscall(map, tkill, tkill);
 }
