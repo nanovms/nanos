@@ -737,7 +737,7 @@ sysreturn rt_sigtimedwait(const u64 * set, siginfo_t * info, const struct timesp
     heap h = heap_general(get_kernel_heaps());
     blockq_action ba = closure(h, rt_sigtimedwait_bh, current, *set, info, timeout);
     timestamp t = timeout ? time_from_timespec(timeout) : 0;
-    return blockq_check_timeout(current->thread_bq, current, ba, false, t);
+    return blockq_check_timeout(current->thread_bq, current, ba, false, t, CLOCK_ID_MONOTONIC);
 }
 
 static void setup_sigframe(thread t, int signum, struct siginfo *si)

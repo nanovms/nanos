@@ -201,6 +201,7 @@ typedef int clockid_t;
 #define CLOCK_BOOTTIME              7
 #define CLOCK_REALTIME_ALARM        8
 #define CLOCK_BOOTTIME_ALARM        9
+#define TIMER_ABSTIME               0x10
 
 struct timespec {
 	u64 ts_sec;

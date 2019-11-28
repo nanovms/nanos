@@ -6,12 +6,12 @@ sysreturn gettimeofday(struct timeval *tv, void *tz)
     return 0;
 }
 
-closure_function(4, 1, sysreturn, nanosleep_bh,
-                 thread, t, timestamp, start, timestamp, interval, struct timespec*, rem,
+closure_function(5, 1, sysreturn, nanosleep_bh,
+                 thread, t, timestamp, start, clock_id, id, timestamp, interval, struct timespec *, rem,
                  u64, flags)
 {
     thread t = bound(t);
-    timestamp elapsed = now(CLOCK_ID_MONOTONIC) - bound(start); /* XXX parameterize */
+    timestamp elapsed = now(bound(id)) - bound(start);
     thread_log(t, "%s: start %T, interval %T, rem %p, elapsed %T, flags 0x%lx",
                __func__, bound(start), bound(interval), bound(rem), elapsed, flags);
     sysreturn rv = 0;
@@ -33,14 +33,40 @@ closure_function(4, 1, sysreturn, nanosleep_bh,
     return set_syscall_return(t, rv);
 }
 
-sysreturn nanosleep(const struct timespec* req, struct timespec* rem)
+sysreturn nanosleep(const struct timespec *req, struct timespec *rem)
 {
-    timestamp start = now(CLOCK_ID_MONOTONIC); /* XXX parameterize later for clock_nanosleep */
     timestamp interval = time_from_timespec(req);
-    thread_log(current, "nanosleep: req %p (%T) rem %p, now %T", req, interval, rem, start);
+    timestamp tnow = now(CLOCK_ID_MONOTONIC);
+    thread_log(current, "nanosleep: req %p (%T) rem %p, now %T", req, interval, rem, tnow);
     return blockq_check_timeout(current->thread_bq, current,
-                                closure(heap_general(get_kernel_heaps()), nanosleep_bh, current, start, interval, rem),
-                                false, time_from_timespec(req));
+                                closure(heap_general(get_kernel_heaps()), nanosleep_bh,
+                                        current, tnow, CLOCK_ID_MONOTONIC, interval, rem),
+                                false, time_from_timespec(req), CLOCK_ID_MONOTONIC);
+}
+
+sysreturn clock_nanosleep(clockid_t _clock_id, int flags, const struct timespec *req,
+                          struct timespec *rem)
+{
+    timestamp treq = time_from_timespec(req);
+    clock_id id = (clock_id)_clock_id;
+
+    /* For improved accuracy, we could send absolute flag down the
+       pike to the timer register - for now just convert to relative. */
+    timestamp tnow = now(id);
+
+    thread_log(current, "clock_nanosleep: clock id %d, flags 0x%x, req %p (%T) rem %p, now %T",
+               id, flags, req, treq, rem, tnow);
+
+    if (flags & TIMER_ABSTIME) {
+        if (tnow >= treq)
+            return 0;
+        treq -= tnow;
+    }
+
+    return blockq_check_timeout(current->thread_bq, current,
+                                closure(heap_general(get_kernel_heaps()), nanosleep_bh,
+                                        current, tnow, id, treq, rem),
+                                false, time_from_timespec(req), id);
 }
 
 sysreturn sys_time(time_t *tloc)
@@ -92,6 +118,7 @@ void register_clock_syscalls(struct syscall *map)
 {
     register_syscall(map, clock_gettime, clock_gettime);
     register_syscall(map, clock_getres, syscall_ignore);
+    register_syscall(map, clock_nanosleep, clock_nanosleep);
     register_syscall(map, gettimeofday, gettimeofday);
     register_syscall(map, nanosleep, nanosleep);
     register_syscall(map, time, sys_time);
