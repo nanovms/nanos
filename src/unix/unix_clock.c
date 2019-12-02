@@ -35,6 +35,9 @@ closure_function(5, 1, sysreturn, nanosleep_bh,
 
 sysreturn nanosleep(const struct timespec *req, struct timespec *rem)
 {
+    if (!req)
+        return -EFAULT;
+
     timestamp interval = time_from_timespec(req);
     timestamp tnow = now(CLOCK_ID_MONOTONIC);
     thread_log(current, "nanosleep: req %p (%T) rem %p, now %T", req, interval, rem, tnow);
@@ -47,6 +50,18 @@ sysreturn nanosleep(const struct timespec *req, struct timespec *rem)
 sysreturn clock_nanosleep(clockid_t _clock_id, int flags, const struct timespec *req,
                           struct timespec *rem)
 {
+    if (!req)
+        return -EFAULT;
+
+    /* Report any attempted use of CLOCK_PROCESS_CPUTIME_ID */
+    if (_clock_id == CLOCK_PROCESS_CPUTIME_ID) {
+        rprintf("%s: CLOCK_PROCESS_CPUTIME_ID not yet supported\n", __func__);
+        return -EINVAL;
+    }
+
+    if (_clock_id != CLOCK_REALTIME && _clock_id != CLOCK_MONOTONIC)
+        return -EINVAL;
+
     timestamp treq = time_from_timespec(req);
     clock_id id = (clock_id)_clock_id;
 
@@ -65,8 +80,7 @@ sysreturn clock_nanosleep(clockid_t _clock_id, int flags, const struct timespec 
 
     return blockq_check_timeout(current->thread_bq, current,
                                 closure(heap_general(get_kernel_heaps()), nanosleep_bh,
-                                        current, tnow, id, treq, rem),
-                                false, time_from_timespec(req), id);
+                                        current, tnow, id, treq, rem), false, treq, id);
 }
 
 sysreturn sys_time(time_t *tloc)

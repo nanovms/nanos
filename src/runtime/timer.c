@@ -57,15 +57,16 @@ static timer __register_timer(timestamp interval, clock_id id, thunk n, boolean 
         return INVALID_ADDRESS;
     }
 
+    timestamp tn = now(id);
     t->t = n;
     t->disable = false;
-    t->expiry = now(id) + interval;
+    t->expiry = tn + interval;
     t->interval = (periodic) ? interval : 0;
     t->id = id;
     pqueue_insert(timers, t);
 
-    timer_debug("register %s timer: %p %p\n", 
-        (periodic) ? "periodic" : "one-shot" : t, t->interval);
+    timer_debug("register %s timer: %p, interval %T, now %T, expiry %T\n",
+                (periodic) ? "periodic" : "one-shot", t, interval, tn, t->expiry);
 
     return(t);
 }
