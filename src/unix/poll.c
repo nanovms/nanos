@@ -482,8 +482,13 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
     epoll_debug("epoll fd %d, op %d, fd %d\n", epfd, op, fd);
     fdesc f = resolve_fd(current->p, fd);
 
+    /* A valid event pointer is required for all operations but EPOLL_CTL_DEL */
+    if ((op != EPOLL_CTL_DEL) && !event) {
+        return set_syscall_error(current, EFAULT);
+    }
+
     /* EPOLLEXCLUSIVE not yet implemented */
-    if (event->events & EPOLLEXCLUSIVE) {
+    if (event && (event->events & EPOLLEXCLUSIVE)) {
         msg_err("add: EPOLLEXCLUSIVE not supported\n");
         return set_syscall_error(current, EINVAL);
     }
