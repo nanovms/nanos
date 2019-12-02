@@ -2,6 +2,7 @@
 PROGRAMS= \
 	dup \
 	creat \
+	epoll \
 	eventfd \
 	fcntl \
 	fst \
@@ -39,6 +40,11 @@ SRCS-creat= \
 	$(CURDIR)/creat.c \
 	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-creat=		-static
+
+SRCS-epoll= \
+	$(CURDIR)/epoll.c \
+	$(SRCDIR)/unix_process/ssp.c
+LDFLAGS-epoll=		-static
 
 SRCS-eventfd= \
 	$(CURDIR)/eventfd.c \
