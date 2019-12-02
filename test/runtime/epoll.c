@@ -20,10 +20,26 @@ void test_ctl()
 
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     event.data.fd = fd;
-    event.events = EPOLLIN | EPOLLOUT;
+    event.events = EPOLLIN;
+
+    if ((epoll_ctl(efd, EPOLL_CTL_ADD, fd, NULL) != -1) || (errno != EFAULT)) {
+        printf("NULL event pointer is not allowed for EPOLL_CTL_ADD\n");
+        goto fail;
+    }
 
     if (epoll_ctl(efd, EPOLL_CTL_ADD, fd, &event)) {
         printf("Cannot add descriptor to epoll\n");
+        goto fail;
+    }
+
+    if ((epoll_ctl(efd, EPOLL_CTL_MOD, fd, NULL) != -1) || (errno != EFAULT)) {
+        printf("NULL event pointer is not allowed for EPOLL_CTL_MOD\n");
+        goto fail;
+    }
+
+    event.events = EPOLLIN | EPOLLOUT;
+    if (epoll_ctl(efd, EPOLL_CTL_MOD, fd, &event)) {
+        printf("Cannot modify epoll settings for existing descriptor\n");
         goto fail;
     }
 
