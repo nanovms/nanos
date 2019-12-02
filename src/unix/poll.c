@@ -482,7 +482,7 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
     fdesc f = resolve_fd(current->p, fd);
 
     /* EPOLLEXCLUSIVE not yet implemented */
-    if (event->events & EPOLLEXCLUSIVE) {
+    if (event && (event->events & EPOLLEXCLUSIVE)) {
         msg_err("add: EPOLLEXCLUSIVE not supported\n");
         return set_syscall_error(current, EINVAL);
     }
