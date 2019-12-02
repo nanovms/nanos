@@ -65,13 +65,13 @@ sysreturn clock_nanosleep(clockid_t _clock_id, int flags, const struct timespec 
     timestamp treq = time_from_timespec(req);
     clock_id id = (clock_id)_clock_id;
 
-    /* For improved accuracy, we could send absolute flag down the
-       pike to the timer register - for now just convert to relative. */
     timestamp tnow = now(id);
 
     thread_log(current, "clock_nanosleep: clock id %d, flags 0x%x, req %p (%T) rem %p, now %T",
                id, flags, req, treq, rem, tnow);
 
+    /* For improved accuracy, we could send absolute flag down the
+       pike to the timer register - for now just convert to relative. */
     if (flags & TIMER_ABSTIME) {
         if (tnow >= treq)
             return 0;
