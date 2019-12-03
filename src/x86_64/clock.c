@@ -1,50 +1,19 @@
 #include <runtime.h>
 #include <x86_64.h>
 #include <page.h>
-#include "rtc.h"
-
-static timestamp rtc_offset;
 
 typedef __uint128_t u128;
 
-static clock_now platform_now;
-static clock_timer platform_timer;
-
+timestamp rtc_offset = 0;
+clock_now platform_monotonic_now;
+clock_timer platform_timer;
 u8 platform_has_rdtscp = 0;
 
-void register_platform_clock_now(clock_now cn)
+void kernel_delay(timestamp delta)
 {
-    platform_now = cn;
-}
-
-void register_platform_clock_timer(clock_timer ct)
-{
-    platform_timer = ct;
-}
-
-/* system time adjusted by rtc offset */
-timestamp now() {
-    assert(platform_now);
-    return rtc_offset + apply(platform_now);
-}
-
-timestamp uptime() {
-    assert(platform_now);
-    return apply(platform_now);
-}
-
-void kern_sleep(timestamp delta)
-{
-    timestamp end = now() + delta;
-    while (now() < end)
+    timestamp end = now(CLOCK_ID_MONOTONIC) + delta;
+    while (now(CLOCK_ID_MONOTONIC) < end)
         kern_pause();
-}
-
-/* system timer that is reserved for processing the global timer heap */
-void runloop_timer(timestamp duration)
-{
-    assert(platform_timer);
-    apply(platform_timer, duration);
 }
 
 void init_clock(void)

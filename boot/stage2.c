@@ -40,6 +40,8 @@ static u64 identity_base;
 
 static u64 s[2] = { 0xa5a5beefa5a5cafe, 0xbeef55aaface55aa };
 
+timestamp rtc_offset = 0;
+
 u64 random_u64()
 {
     u64 s0 = s[0];
@@ -120,7 +122,7 @@ static inline u64 stage2_rdtsc(void)
    with CPU clock) would mean we are over-shooting the given interval,
    but that's fine for stage2.
 */
-void kern_sleep(timestamp delta)
+void kernel_delay(timestamp delta)
 {
     u64 end = stage2_rdtsc() + delta;
     while (stage2_rdtsc() < end)

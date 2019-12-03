@@ -165,9 +165,8 @@ sysreturn futex(int *uaddr, int futex_op, int val,
         set_syscall_return(current, 0);
 
         return blockq_check_timeout(f->bq, current, 
-            closure(f->h, futex_bh, f, current),
-            false, ts
-        );
+                                    closure(f->h, futex_bh, f, current),
+                                    false, ts, CLOCK_ID_MONOTONIC);
     }
 
     case FUTEX_WAKE: {
@@ -260,9 +259,8 @@ sysreturn futex(int *uaddr, int futex_op, int val,
         set_syscall_return(current, 0);
         // TODO: timeout should be absolute based on CLOCK_REALTIME
         return blockq_check_timeout(f->bq, current, 
-            closure(f->h, futex_bh, f, current),
-            false, ts
-        );
+                                    closure(f->h, futex_bh, f, current),
+                                    false, ts, CLOCK_ID_MONOTONIC);
     }
 
     case FUTEX_REQUEUE: rprintf("futex_requeue not implemented\n"); break;

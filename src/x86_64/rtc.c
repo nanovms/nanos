@@ -2,7 +2,6 @@
 #include <io.h>
 
 #include "mktime.h"
-#include "rtc.h"
 
 #define RTC_COMMAND 0x70
 #define RTC_DATA 0x71
@@ -39,6 +38,7 @@ u64 rtc_gettimeofday(void) {
     tm.tm_mday = bcd2bin(rtc_read(RTC_DAY_OF_MONTH));
     tm.tm_mon = bcd2bin(rtc_read(RTC_MONTH));
     tm.tm_year = bcd2bin(rtc_read(RTC_YEAR)) + 2000;
+
 
     return mktime(&tm);
 }

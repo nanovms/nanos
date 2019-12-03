@@ -61,7 +61,7 @@ static u32 apic_timer_cal_sec;
 static void calibrate_lapic_timer()
 {
     apic_write(APIC_TMRINITCNT, -1u);
-    kern_sleep(milliseconds(10));
+    kernel_delay(milliseconds(10));
     u32 delta = -1u - apic_read(APIC_TMRCURRCNT);
     apic_set(APIC_LVT_TMR, APIC_LVT_INTMASK);
     apic_timer_cal_sec = (1000 / CALIBRATE_DURATION_MS) * delta;

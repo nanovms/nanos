@@ -156,6 +156,7 @@ typedef closure_type(thunk, void);
 #include <tuple.h>
 #include <status.h>
 #include <pqueue.h>
+#include <clock.h>
 #include <timer.h>
 #include <range.h>
 

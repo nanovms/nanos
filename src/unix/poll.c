@@ -426,7 +426,8 @@ sysreturn epoll_wait(int epfd,
 
     return blockq_check_timeout(w->t->thread_bq, current,
                                 closure(e->h, epoll_wait_bh, w, current, timeout != 0),
-                                false, timeout > 0 ? milliseconds(timeout) : 0);
+                                false, timeout > 0 ? milliseconds(timeout) : 0,
+                                CLOCK_ID_MONOTONIC);
 }
 
 static epollfd epollfd_from_fd(epoll e, int fd)
@@ -734,7 +735,8 @@ static sysreturn select_internal(int nfds,
   check_timeout:
     return blockq_check_timeout(w->t->thread_bq, current,
                                 closure(e->h, select_bh, w, current, timeout != 0),
-                                false, timeout != infinity ? timeout : 0);
+                                false, timeout != infinity ? timeout : 0,
+                                CLOCK_ID_MONOTONIC);
 }
 
 
@@ -897,7 +899,8 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
 
     return blockq_check_timeout(w->t->thread_bq, current,
                                 closure(e->h, poll_bh, w, current, timeout != 0),
-                                false, timeout != infinity ? timeout : 0);
+                                false, timeout != infinity ? timeout : 0,
+                                CLOCK_ID_MONOTONIC);
 }
 
 sysreturn ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *tmo_p, const sigset_t *sigmask)

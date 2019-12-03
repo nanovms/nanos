@@ -113,7 +113,7 @@ static int ata_wait(struct ata *dev, u8 mask)
     u8 status;
     int timeout = 0;
 
-    kern_sleep(microseconds(1));
+    kernel_delay(microseconds(1));
 
     /* wait at max 1 second for device to get !BUSY */
     while (timeout < 1000000) {
@@ -123,7 +123,7 @@ static int ata_wait(struct ata *dev, u8 mask)
         if (status == 0xff) {
             ata_out8(dev, ATA_DRIVE, ATA_D_IBM | ATA_DEV(dev->unit));
             timeout += 1000;
-            kern_sleep(microseconds(1000));
+            kernel_delay(microseconds(1000));
             continue;
         }
 
@@ -133,10 +133,10 @@ static int ata_wait(struct ata *dev, u8 mask)
 
         if (timeout > 1000) {
             timeout += 1000;
-            kern_sleep(microseconds(1000));
+            kernel_delay(microseconds(1000));
         } else {
             timeout += 10;
-            kern_sleep(microseconds(10));
+            kernel_delay(microseconds(10));
         }
     }
     if (timeout >= 1000000)
@@ -149,7 +149,7 @@ static int ata_wait(struct ata *dev, u8 mask)
     do {
         if ((status & mask) == mask)
             return (status & ATA_S_ERROR);
-        kern_sleep(microseconds(10));
+        kernel_delay(microseconds(10));
         status = ata_in8(dev, ATA_ALTSTAT);
     } while (timeout--);
     return -3;
@@ -271,9 +271,9 @@ boolean ata_probe(struct ata *dev)
 
     // reset controller (master is selected)
     ata_out8(dev, ATA_CONTROL, ATA_A_RESET);
-    kern_sleep(milliseconds(2));
+    kernel_delay(milliseconds(2));
     ata_out8(dev, ATA_CONTROL, 0);
-    kern_sleep(nanoseconds(400));
+    kernel_delay(nanoseconds(400));
 
     // disable interrupts
     ata_out8(dev, ATA_CONTROL, ATA_A_IDS);

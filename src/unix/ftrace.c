@@ -1628,7 +1628,7 @@ closure_function(4, 0, void, __ftrace_send_http_chunk,
     if (__ftrace_send_http_chunk_internal(bound(routine), bound(p),
             bound(local_printer), bound(out)))
     {
-        register_timer(SEND_HTTP_CHUNK_INTERVAL_MS, (thunk)closure_self());
+        register_timer(SEND_HTTP_CHUNK_INTERVAL_MS, CLOCK_ID_MONOTONIC, (thunk)closure_self());
     } else {
         closure_finish();
     }
@@ -1693,7 +1693,7 @@ __ftrace_do_http_method(buffer_handler out, struct ftrace_routine * routine,
         {
             thunk t = closure(ftrace_heap, __ftrace_send_http_chunk, routine,
                 p, local_printer, out);
-            register_timer(SEND_HTTP_CHUNK_INTERVAL_MS, t);
+            register_timer(SEND_HTTP_CHUNK_INTERVAL_MS, CLOCK_ID_MONOTONIC, t);
         }
     }
 
@@ -1875,7 +1875,7 @@ ftrace_thread_switch(thread out, thread in)
     while (in->graph_idx > 0) {
         struct ftrace_graph_entry * stack_ent =
                 &(in->graph_stack[--in->graph_idx]);
-        stack_ent->return_ts = now();
+        stack_ent->return_ts = now(CLOCK_ID_MONOTONIC);
         stack_ent->flush = (out != in); /* just controls a printing option */
         function_graph_trace_return(stack_ent);
     }
@@ -1941,7 +1941,7 @@ prepare_ftrace_return(unsigned long self, unsigned long * parent,
     stack_ent = &(current->graph_stack[depth]);
     stack_ent->retaddr = old;
     stack_ent->func = self;
-    stack_ent->entry_ts = now();
+    stack_ent->entry_ts = now(CLOCK_ID_MONOTONIC);
     stack_ent->fp = frame_pointer;
     stack_ent->depth = depth;
     stack_ent->has_child = 0;
@@ -1986,7 +1986,7 @@ ftrace_return_to_handler(unsigned long frame_pointer)
     if (stack_ent->fp != frame_pointer)
         frame_halt(stack_ent, frame_pointer);
 
-    stack_ent->return_ts = now();
+    stack_ent->return_ts = now(CLOCK_ID_MONOTONIC);
     stack_ent->flush = 0;
     retaddr = stack_ent->retaddr;
 

@@ -1019,7 +1019,7 @@ static inline err_t connect_tcp(sock s, const ip_addr_t* address, unsigned short
     if (err != ERR_OK)
         return err;
 
-    sysreturn rv = blockq_check_timeout(s->rxbq, current, closure(s->h, connect_tcp_bh, s, current), false, 0);
+    sysreturn rv = blockq_check(s->rxbq, current, closure(s->h, connect_tcp_bh, s, current), false);
     /* should not return under normal cirucmstances */
     msg_err("blockq check error: %ld\n", rv);
     return ERR_OK;

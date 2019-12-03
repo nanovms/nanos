@@ -149,16 +149,6 @@ static inline u64 rdtsc_precise(void)
     return _rdtsc();
 }
 
-typedef closure_type(clock_now, timestamp);
-typedef closure_type(clock_timer, void, timestamp);
-
-void register_platform_clock_now(clock_now cn);
-void register_platform_clock_timer(clock_timer ct);
-
-void init_clock(void);
-boolean init_hpet(kernel_heaps kh);
-void kern_sleep(timestamp delta);
-
 static inline u64 read_flags(void)
 {
     u64 out;
@@ -228,6 +218,10 @@ static inline void frame_pop(void)
 
 void runloop() __attribute__((noreturn));
 void kernel_sleep();
+void kernel_delay(timestamp delta);
+void init_clock(void);
+boolean init_hpet(kernel_heaps kh);
+
 void process_bhqueue();
 void install_fallback_fault_handler(fault_handler h);
 

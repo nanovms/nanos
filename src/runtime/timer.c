@@ -8,8 +8,9 @@
 
 struct timer {
     thunk t;
-    timestamp w;
+    timestamp expiry;
     timestamp interval;
+    clock_id id;
     boolean disable;
 };
 
@@ -17,23 +18,38 @@ struct timer {
 static pqueue timers;
 static heap theap;
 
+static inline timestamp expiry(timer t)
+{
+    switch (t->id) {
+    case CLOCK_ID_MONOTONIC:
+    case CLOCK_ID_MONOTONIC_RAW:
+    case CLOCK_ID_MONOTONIC_COARSE:
+    case CLOCK_ID_BOOTTIME:
+        return t->expiry;
+    case CLOCK_ID_REALTIME:
+    case CLOCK_ID_REALTIME_COARSE:
+        return t->expiry - rtc_offset;
+    default:
+        halt("expiry: clock id %d unsupported\n");
+    }
+}
+
 /* The lower time expiry is the higher priority. */
 static boolean timer_compare(void *za, void *zb)
 {
-    timer a = za;
-    timer b = zb;
-    return(a->w > b->w);
+    return expiry((timer)za) > expiry((timer)zb);
 }
 
 /* returns time remaining or 0 if elapsed */
 timestamp remove_timer(timer t)
 {
     t->disable = true;
-    timestamp n = now();
-    return t->w > n ? t->w - n : 0;
+    timestamp x = expiry(t);
+    timestamp n = now(CLOCK_ID_MONOTONIC);
+    return x > n ? x - n : 0;
 }
 
-static timer __register_timer(timestamp interval, thunk n, boolean periodic)
+static timer __register_timer(timestamp interval, clock_id id, thunk n, boolean periodic)
 {
     timer t=(timer)allocate(theap, sizeof(struct timer));
     if (t == INVALID_ADDRESS) {
@@ -41,26 +57,28 @@ static timer __register_timer(timestamp interval, thunk n, boolean periodic)
         return INVALID_ADDRESS;
     }
 
+    timestamp tn = now(id);
     t->t = n;
     t->disable = false;
-    t->w = now() + interval;
+    t->expiry = tn + interval;
     t->interval = (periodic) ? interval : 0;
+    t->id = id;
     pqueue_insert(timers, t);
 
-    timer_debug("register %s timer: %p %p\n", 
-        (periodic) ? "periodic" : "one-shot" : t, t->interval);
+    timer_debug("register %s timer: %p, interval %T, now %T, expiry %T\n",
+                (periodic) ? "periodic" : "one-shot", t, interval, tn, t->expiry);
 
     return(t);
 }
 
-timer register_timer(timestamp interval, thunk n)
+timer register_timer(timestamp interval, clock_id id, thunk n)
 {
-    return __register_timer(interval, n, false);
+    return __register_timer(interval, id, n, false);
 }
 
-timer register_periodic_timer(timestamp interval, thunk n)
+timer register_periodic_timer(timestamp interval, clock_id id, thunk n)
 {
-    return __register_timer(interval, n, true);
+    return __register_timer(interval, id, n, true);
 }
     
 /* Presently called with ints off. Address thread safety with
@@ -71,12 +89,12 @@ timestamp timer_check()
     timestamp here = 0;
     timer t = 0;
 
-    while ((t = pqueue_peek(timers)) && (here = now(), t->w <= here)) {
+    while ((t = pqueue_peek(timers)) && (here = now(CLOCK_ID_MONOTONIC), expiry(t) <= here)) {
         pqueue_pop(timers);
         if (!t->disable) {
             apply(t->t);
             if (t->interval) {
-                t->w += t->interval;
+                t->expiry += t->interval;
                 pqueue_insert(timers, t);
                 continue;
             }
@@ -84,7 +102,7 @@ timestamp timer_check()
         deallocate(theap, t, sizeof(struct timer));
     }
     if (t) {
-    	timestamp dt = t->w - here;
+    	timestamp dt = expiry(t) - here;
     	timer_debug("check returning dt: %d\n", dt);
     	return dt;
     }
