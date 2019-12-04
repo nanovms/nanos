@@ -52,10 +52,22 @@ void notify_remove(notify_set s, notify_entry e, boolean release)
 }
 
 // XXX poll waiters too
-void notify_entry_update_eventmask(notify_set s, notify_entry n, u64 eventmask)
+void notify_entry_update_eventmask(notify_entry n, u64 eventmask)
 {
     // XXX atomic
     n->eventmask = eventmask;
+}
+
+u64 notify_set_get_eventmask_union(notify_set s)
+{
+    u64 u = 0;
+    /* XXX take mutex */
+    list_foreach(&s->entries, l) {
+        notify_entry n = struct_from_list(l, notify_entry, l);
+        u |= n->eventmask;
+    }
+    /* XXX release mutex */
+    return u;
 }
 
 void notify_dispatch(notify_set s, u64 events)
