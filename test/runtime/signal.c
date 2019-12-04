@@ -605,7 +605,7 @@ static void * test_rt_sigtimedwait_child(void *arg)
         test_rt_sigtimedwait_intr = 1;
         sigtest_debug("   interrupted, as expected\n");
     } else {
-        fail_error("rt_sigtimedwait unexpected rv %d, errno %d\n", rv, errno);
+        fail_perror("rt_sigtimedwait 1");
     }
 
     /* test catching signal in set */
@@ -616,7 +616,7 @@ static void * test_rt_sigtimedwait_child(void *arg)
         sigtest_debug("   caught signal\n");
         test_rt_sigtimedwait_caught = 1;
     } else if (rv < 0) {
-        fail_error("   rt_sigtimedwait unexpected errno %d\n", errno);
+        fail_perror("rt_sigtimedwait 2");
     }
 
     /* test poll with nothing pending */
@@ -626,7 +626,7 @@ static void * test_rt_sigtimedwait_child(void *arg)
     if (rv < 0 && errno == EAGAIN) {
         sigtest_debug("   EAGAIN, as expected\n");
     } else {
-        fail_error("rt_sigtimedwait returned rv %d, errno %d\n", rv, errno);
+        fail_perror("rt_sigtimedwait 3");
     }
 
     /* mask sig and set pending */
@@ -648,7 +648,7 @@ static void * test_rt_sigtimedwait_child(void *arg)
     if (rv  == SIGRTMIN) {
         sigtest_debug("   caught signal\n");
     } else {
-        fail_error("rt_sigtimedwait returned rv %d, errno %d\n", rv, errno);
+        fail_perror("rt_sigtimedwait 4");
     }
 
     /* test timeout */
@@ -658,7 +658,7 @@ static void * test_rt_sigtimedwait_child(void *arg)
     if (rv < 0 && errno == EAGAIN) {
         sigtest_debug("   EAGAIN, as expected\n");
     } else {
-        fail_error("rt_sigtimedwait returned rv %d, errno %d\n", rv, errno);
+        fail_perror("rt_sigtimedwait 5");
     }
 
     return (void*)EXIT_SUCCESS;

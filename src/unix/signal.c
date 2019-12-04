@@ -242,6 +242,11 @@ static void deliver_signal(sigstate ss, struct siginfo *info)
     sig_debug("next prev %p, next %p\n", qs->l.next->prev, qs->l.next->next);
 }
 
+static inline void signalfd_dispatch(thread t, u64 pending)
+{
+    notify_dispatch(t->signalfds, pending);
+}
+
 void deliver_signal_to_thread(thread t, struct siginfo *info)
 {
     sig_debug("tid %d, sig %d\n", t->tid, info->si_signo);
@@ -249,17 +254,28 @@ void deliver_signal_to_thread(thread t, struct siginfo *info)
         sig_debug("signal ignored; no queue\n");
         return;
     }
+
+    /* queue to thread for delivery */
     deliver_signal(&t->signals, info);
     sig_debug("... pending now 0x%lx\n", sigstate_get_pending(&t->signals));
 
-    /* queue for delivery */
     u64 pending_masked = get_effective_signals(t);
     sig_debug("... effective signals 0x%lx\n", pending_masked);
-    if (pending_masked) {
-        sig_debug("masked = 0x%lx; attempting to interrupt thread\n", pending_masked);
-        if (!thread_attempt_interrupt(t))
-            sig_debug("failed to interrupt\n");
+    if (pending_masked == 0)
+        return;
+
+    /* attempt to wake via signalfd notify */
+    if (thread_in_interruptible_sleep(t))
+        signalfd_dispatch(t, pending_masked);
+
+    if (thread_is_runnable(t)) {
+        sig_debug("... thread runnable, no interrupt\n");
+        return;
     }
+
+    sig_debug("attempting to interrupt thread\n");
+    if (!thread_attempt_interrupt(t))
+        sig_debug("failed to interrupt\n");
 }
 
 void deliver_signal_to_process(process p, struct siginfo *info)
@@ -271,6 +287,8 @@ void deliver_signal_to_process(process p, struct siginfo *info)
         sig_debug("signal ignored; no queue\n");
         return;
     }
+
+    /* queue to process for delivery */
     deliver_signal(&p->signals, info);
     sig_debug("... pending now 0x%lx\n", sigstate_get_pending(&p->signals));
 
@@ -280,6 +298,10 @@ void deliver_signal_to_process(process p, struct siginfo *info)
         if (!t)
             continue;
         if (thread_is_runnable(t)) {
+            /* Note that we're only considering unmasked signals
+               (handlers) here, nothing in siginterest. The thread is
+               runnable, so it can't be blocked on rt_sigtimedwait or
+               a signalfd (poll wait or blocking read). */
             if ((sigword & sigstate_get_mask(&t->signals)) == 0) {
                 /* thread scheduled to run or running; no explicit wakeup */
                 sig_debug("thread %d running and sig %d unmasked; return\n",
@@ -288,6 +310,17 @@ void deliver_signal_to_process(process p, struct siginfo *info)
             }
         } else if (thread_in_interruptible_sleep(t) &&
                    (sigword & get_effective_sigmask(t)) == 0) {
+            /* First attempt to deliver via signalfd notify. If the
+               thread becomes runnable, we're done. Note that we check
+               only for this signal and all pending signals as in the
+               thread delivery. That is because our task is to wake up
+               a thread on behalf of this signal delivery, not just
+               wake up a thread that has any pending signals. */
+            signalfd_dispatch(t, sigword);
+            if (thread_is_runnable(t))
+                return;
+
+            /* Otherwise, it's a candidate for interrupting. */
             can_wake = t;
         }
     }
@@ -684,6 +717,7 @@ closure_function(4, 1, sysreturn, rt_sigtimedwait_bh,
     thread t = bound(t);
     u64 interest = bound(interest);
     boolean blocked = (flags & BLOCKQ_ACTION_BLOCKED) != 0;
+    boolean nullify = (flags & BLOCKQ_ACTION_NULLIFY) != 0;
 
     if (flags & BLOCKQ_ACTION_TIMEDOUT) {
         assert(blocked);
@@ -702,10 +736,12 @@ closure_function(4, 1, sysreturn, rt_sigtimedwait_bh,
                 return set_syscall_error(t, EAGAIN); /* poll */
             }
             sig_debug("-> block\n");
+            t->siginterest_saved = t->siginterest;
             t->siginterest = interest;
             return BLOCKQ_BLOCK_REQUIRED;
         } else {
-            rv = -EINTR;
+            /* XXX record spurious wakeups? */
+            rv = nullify ? -EINTR : BLOCKQ_BLOCK_REQUIRED;
         }
     } else {
         if (bound(info))
@@ -714,6 +750,7 @@ closure_function(4, 1, sysreturn, rt_sigtimedwait_bh,
         free_queued_signal(qs);
     }
 
+    t->siginterest = t->siginterest_saved;
     if (blocked)
         thread_wakeup(t);
     closure_finish();
@@ -775,18 +812,23 @@ closure_function(1, 1, void, signalfd_notify,
                  signal_fd, sfd,
                  u64, events)
 {
+    signal_fd sfd = bound(sfd);
     if (events == NOTIFY_EVENTS_RELEASE) {
         sig_debug("%d released\n", sfd->fd);
         closure_finish();
     }
 
-    signal_fd sfd = bound(sfd);
     if ((events & sfd->mask) == 0) {
         sig_debug("%d spurious notify\n", sfd->fd);
         return;
     }
     blockq_wake_one(sfd->bq);
     notify_dispatch(sfd->f.ns, EPOLLIN);
+}
+
+static void signalfd_update_siginterest(thread t)
+{
+    t->siginterest = notify_set_get_eventmask_union(t->signalfds);
 }
 
 static sysreturn allocate_signalfd(const u64 *mask, int flags)
@@ -821,6 +863,7 @@ static sysreturn allocate_signalfd(const u64 *mask, int flags)
     sfd->f.read = closure(h, signalfd_read, sfd);
     sfd->f.events = closure(h, signalfd_events, sfd);
     sfd->f.close = closure(h, signalfd_close, sfd);
+    signalfd_update_siginterest(current);
     return sfd->fd;
   err_mem_notify:
     deallocate_blockq(sfd->bq);
@@ -851,6 +894,7 @@ sysreturn signalfd4(int fd, const u64 *mask, u64 sigsetsize, int flags)
     /* update mask */
     sfd->mask = *mask;
     notify_entry_update_eventmask(sfd->n, sfd->mask);
+    signalfd_update_siginterest(current);
     return fd;
 }
 

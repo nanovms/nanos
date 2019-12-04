@@ -218,8 +218,9 @@ typedef struct thread {
     u64 sigframe[FRAME_MAX];
 
     /* sigs that can wake thread regardless of mask or ignored
-       nonzero when in rt_sigtimedwait) */
+       (nonzero when in rt_sigtimedwait or signalfds exist with active masks) */
     u64 siginterest;
+    u64 siginterest_saved;      /* stash signalfds interest while in rt_sigtimedwait */
 
     notify_set signalfds;
 
