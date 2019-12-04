@@ -150,8 +150,8 @@ static queued_signal sigstate_dequeue_signal(sigstate ss, int signum)
 /* select and dequeue a pending signal not masked by sigmask */
 static queued_signal dequeue_signal(thread t, u64 sigmask, boolean save_and_mask)
 {
-    sig_debug("tid %d, sigmask 0x%lx, save %d\n", t->tid, sigmask, save_and_mask);
     u64 masked = get_all_pending_signals(t) & ~sigmask;
+    sig_debug("tid %d, sigmask 0x%lx, save %d, masked 0x%lx\n", t->tid, sigmask, save_and_mask, masked);
     if (masked == 0)
         return INVALID_ADDRESS;
 
@@ -665,8 +665,6 @@ sysreturn rt_tgsigqueueinfo(int tgid, int tid, int sig, siginfo_t *uinfo)
         return rv;
 
     thread t;
-    sig_debug("%d, %p\n", vector_length(current->p->threads),
-              vector_get(current->p->threads, tid));
     if (tid >= vector_length(current->p->threads) ||
         !(t = vector_get(current->p->threads, tid)))
         return -ESRCH;
@@ -779,19 +777,137 @@ typedef struct signal_fd {
     notify_entry n;
 } *signal_fd;
 
+static void signalfd_siginfo_fill(struct signalfd_siginfo * si, queued_signal qs)
+{
+    si->ssi_signo = qs->si.si_signo;
+    si->ssi_errno = qs->si.si_errno;
+    si->ssi_code = qs->si.si_code;
+
+    switch(si->ssi_code) {
+    case SI_USER:
+        si->ssi_pid = qs->si.sifields.kill.pid;
+        si->ssi_uid = qs->si.sifields.kill.uid;
+        break;
+    case SI_KERNEL:
+        /* XXX ? */
+        break;
+    case SI_QUEUE:
+        break;
+    case SI_TIMER:
+        break;
+    case SI_MESGQ:
+        break;
+    case SI_ASYNCIO:
+        break;
+    case SI_SIGIO:
+        break;
+    case SI_TKILL:
+        break;
+    case SI_DETHREAD:
+        break;
+    case SI_ASYNCNL:
+        break;
+    }
+#if 0
+    u32 ssi_pid;
+
+    u32 ssi_uid;
+    s32 ssi_fd;
+    u32 ssi_tid;
+    u32 ssi_band;
+
+    /* 32 */
+    u32 ssi_overrun;
+    u32 ssi_trapno;
+    s32 ssi_status;
+    s32 ssi_int;
+
+    u64 ssi_ptr;
+    u64 ssi_utime;
+
+    /* 64 */
+    u64 ssi_stime;
+    u64 ssi_addr;
+
+    u16 ssi_addr_lsb;
+    u16 pad2;
+    s32 ssi_syscall;
+    u64 ssi_call_addr;
+
+    /* 96 */
+    u32 ssi_arch;
+#endif
+
+}
+
+closure_function(5, 1, sysreturn, signalfd_read_bh,
+                 signal_fd, sfd, thread, t, void *, dest, u64, length, io_completion, completion,
+                 u64, flags)
+{
+    signal_fd sfd = bound(sfd);
+    int max_infos = bound(length) / sizeof(struct signalfd_siginfo);
+    boolean blocked = (flags & BLOCKQ_ACTION_BLOCKED) != 0;
+
+    thread t = bound(t);
+    int ninfos = 0;
+    struct signalfd_siginfo * info = (struct signalfd_siginfo *)bound(dest);
+    sysreturn rv = 0;
+
+    sig_debug("fd %d, buf %p, length %ld, tid %d, flags 0x%lx\n",
+              sfd->fd, info, bound(length), t->tid, flags);
+
+    if (flags & BLOCKQ_ACTION_NULLIFY) {
+        assert(flags & BLOCKQ_ACTION_BLOCKED);
+        thread_wakeup(t);
+        closure_finish();
+        sig_debug("   -> EINTR\n");
+        return set_syscall_return(t, -EINTR);
+    }
+
+    while (ninfos < max_infos) {
+        queued_signal qs = dequeue_signal(t, ~sfd->mask, false);
+        if (qs == INVALID_ADDRESS) {
+            if (ninfos == 0) {
+                if (!blocked && (sfd->f.flags & SFD_NONBLOCK)) {
+                    rv = -EAGAIN;
+                    sig_debug("   -> EAGAIN\n");
+                    goto out;
+                }
+                sig_debug("   -> block\n");
+                return BLOCKQ_BLOCK_REQUIRED;
+            }
+            break;
+        }
+        sig_debug("   sig %d, errno %d, code %d\n", qs->si.si_signo, qs->si.si_errno, qs->si.si_code);
+        signalfd_siginfo_fill(info, qs);
+        info++;
+        ninfos++;
+    }
+
+    rv = ninfos * sizeof(struct signalfd_siginfo);
+    sig_debug("   %d infos, %ld bytes\n", ninfos, rv);
+  out:
+    blockq_handle_completion(sfd->bq, flags, bound(completion), t, rv);
+    closure_finish();
+    return rv;
+}
+
 closure_function(1, 6, sysreturn, signalfd_read,
                  signal_fd, sfd,
                  void *, buf, u64, length, u64, offset_arg, thread, t, boolean, bh, io_completion, completion)
 {
-
-    return 0;
+    if (length < sizeof(struct signalfd_siginfo))
+        return 0;
+    signal_fd sfd = bound(sfd);
+    sig_debug("fd %d, buf %p, length %ld, tid %d, bh %d\n", sfd->fd, buf, length, t->tid, bh);
+    blockq_action ba = closure(sfd->h, signalfd_read_bh, sfd, t, buf, length, completion);
+    return blockq_check(sfd->bq, t, ba, bh);
 }
 
 closure_function(1, 0, u32, signalfd_events,
                  signal_fd, sfd)
 {
-
-    return 0;
+    return (get_all_pending_signals(current) & bound(sfd)->mask) ? EPOLLIN : 0;
 }
 
 closure_function(1, 0, sysreturn, signalfd_close,
