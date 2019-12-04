@@ -700,7 +700,7 @@ closure_function(4, 1, sysreturn, rt_sigtimedwait_bh,
     }
 
     sysreturn rv;
-    queued_signal qs = dequeue_signal(t, ~t->siginterest, false);
+    queued_signal qs = dequeue_signal(t, ~interest, false);
     if (qs == INVALID_ADDRESS) {
         if (!blocked) {
             const struct timespec * ts = bound(timeout);
