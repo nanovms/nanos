@@ -3,24 +3,6 @@
 #include <buffer.h>
 #include <gdb.h>
 
-void init_fdesc(heap h, fdesc f, int type)
-{
-    f->read = 0;
-    f->write = 0;
-    f->close = 0;
-    f->events = 0;
-    f->ioctl = 0;
-    f->refcnt = 1;
-    f->type = type;
-    f->flags = 0;
-    f->ns = allocate_notify_set(h);
-}
-
-void release_fdesc(fdesc f)
-{
-    deallocate_notify_set(f->ns);
-}
-
 u64 allocate_fd(process p, void *f)
 {
     u64 fd = allocate_u64(p->fdallocator, 1);
