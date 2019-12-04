@@ -259,8 +259,9 @@ static void epoll_blocked_release(epoll_blocked w)
     refcount_release(&w->refcount);
 }
 
-static inline u32 report_from_notify_events(epollfd efd, u32 events)
+static inline u32 report_from_notify_events(epollfd efd, u64 notify_events)
 {
+    u32 events = (u32)notify_events;
     boolean edge_detect = (efd->eventmask & EPOLLET) != 0;
 
     /* catch falling edges for EPOLLET */
@@ -276,13 +277,13 @@ static inline u32 report_from_notify_events(epollfd efd, u32 events)
 
 closure_function(1, 1, void, epoll_wait_notify,
                  epollfd, efd,
-                 u32, events)
+                 u64, notify_events)
 {
     epollfd efd = bound(efd);
     list l = list_get_next(&efd->e->blocked_head);
 
     /* only path to freedom - even fd removals trigger release */
-    if (events == NOTIFY_EVENTS_RELEASE) {
+    if (notify_events == NOTIFY_EVENTS_RELEASE) {
         epoll_debug("efd->fd %d unregistered\n", efd->fd);
         efd->registered = false;
         closure_finish();
@@ -290,6 +291,7 @@ closure_function(1, 1, void, epoll_wait_notify,
     }
 
     epoll_blocked w = l ? struct_from_list(l, epoll_blocked, blocked_list) : 0;
+    u32 events = (u32)notify_events;
     u32 report = report_from_notify_events(efd, events);
     assert(efd->registered);
     epoll_debug("efd->fd %d, events 0x%x, report 0x%x, blocked %p, zombie %d\n",
@@ -525,12 +527,12 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 
 closure_function(1, 1, void, select_notify,
                  epollfd, efd,
-                 u32, events)
+                 u64, notify_events)
 {
     epollfd efd = bound(efd);
     list l = list_get_next(&efd->e->blocked_head);
 
-    if (events == NOTIFY_EVENTS_RELEASE) {
+    if (notify_events == NOTIFY_EVENTS_RELEASE) {
         epoll_debug("efd->fd %d unregistered\n", efd->fd);
         efd->registered = false;
         closure_finish();
@@ -538,6 +540,7 @@ closure_function(1, 1, void, select_notify,
     }
 
     epoll_blocked w = l ? struct_from_list(l, epoll_blocked, blocked_list) : 0;
+    u32 events = (u32)notify_events;
     epoll_debug("efd->fd %d, events 0x%x, blocked %p, zombie %d\n",
 	    efd->fd, events, w, efd->zombie);
 
@@ -757,12 +760,12 @@ sysreturn select(int nfds,
 
 closure_function(1, 1, void, poll_notify,
                  epollfd, efd,
-                 u32, events)
+                 u64, notify_events)
 {
     epollfd efd = bound(efd);
     list l = list_get_next(&efd->e->blocked_head);
 
-    if (events == NOTIFY_EVENTS_RELEASE) {
+    if (notify_events == NOTIFY_EVENTS_RELEASE) {
         epoll_debug("efd->fd %d unregistered\n", efd->fd);
         efd->registered = false;
         closure_finish();
@@ -770,6 +773,7 @@ closure_function(1, 1, void, poll_notify,
     }
 
     epoll_blocked w = l ? struct_from_list(l, epoll_blocked, blocked_list) : 0;
+    u32 events = (u32)notify_events;
     epoll_debug("efd->fd %d, events 0x%x, blocked %p, zombie %d\n",
             efd->fd, events, w, efd->zombie);
     assert(efd->registered);

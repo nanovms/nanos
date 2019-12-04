@@ -152,7 +152,7 @@ int do_eventfd2(unsigned int count, int flags)
         goto err_fd;
     }
 
-    init_fdesc(h, &efd->f, 0);
+    init_fdesc(h, &efd->f, FDESC_TYPE_EVENTFD);
     efd->f.flags = flags;
     efd->f.read = closure(h, efd_read, efd);
     efd->f.write = closure(h, efd_write, efd);

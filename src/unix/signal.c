@@ -16,13 +16,6 @@
 
    sigaltstack
 
-   add additional blockqs for:
-   - epoll_wait
-   - select_internal
-   - poll_internal
-   - futex
-   - nanosleep
-
    core dump
 
    signal mask
@@ -740,6 +733,132 @@ sysreturn rt_sigtimedwait(const u64 * set, siginfo_t * info, const struct timesp
     return blockq_check_timeout(current->thread_bq, current, ba, false, t, CLOCK_ID_MONOTONIC);
 }
 
+typedef struct signal_fd {
+    struct fdesc f; /* must be first */
+    int fd;
+    heap h;
+    blockq bq;
+    u64 mask;
+    notify_entry n;
+} *signal_fd;
+
+closure_function(1, 6, sysreturn, signalfd_read,
+                 signal_fd, sfd,
+                 void *, buf, u64, length, u64, offset_arg, thread, t, boolean, bh, io_completion, completion)
+{
+
+    return 0;
+}
+
+closure_function(1, 0, u32, signalfd_events,
+                 signal_fd, sfd)
+{
+
+    return 0;
+}
+
+closure_function(1, 0, sysreturn, signalfd_close,
+                 signal_fd, sfd)
+{
+    signal_fd sfd = bound(sfd);
+    deallocate_blockq(sfd->bq);
+    notify_remove(current->signalfds, sfd->n, true);
+    deallocate_closure(sfd->f.read);
+    deallocate_closure(sfd->f.events);
+    deallocate_closure(sfd->f.close);
+    release_fdesc(&sfd->f);
+    deallocate(sfd->h, sfd, sizeof(struct signal_fd));
+    return 0;
+}
+
+closure_function(1, 1, void, signalfd_notify,
+                 signal_fd, sfd,
+                 u64, events)
+{
+    if (events == NOTIFY_EVENTS_RELEASE) {
+        sig_debug("%d released\n", sfd->fd);
+        closure_finish();
+    }
+
+    signal_fd sfd = bound(sfd);
+    if ((events & sfd->mask) == 0) {
+        sig_debug("%d spurious notify\n", sfd->fd);
+        return;
+    }
+    blockq_wake_one(sfd->bq);
+    notify_dispatch(sfd->f.ns, EPOLLIN);
+}
+
+static sysreturn allocate_signalfd(const u64 *mask, int flags)
+{
+    heap h = heap_general(get_kernel_heaps());
+
+    signal_fd sfd = allocate(h, sizeof(struct signal_fd));
+    if (sfd == INVALID_ADDRESS)
+        goto err_mem;
+
+    u64 fd = allocate_fd(current->p, sfd);
+    if (fd == INVALID_PHYSICAL) {
+        deallocate(h, sfd, sizeof(struct signal_fd));
+        return -EMFILE;
+    }
+    sig_debug("allocate_signalfd: %d\n", fd);
+
+    sfd->fd = fd;
+    sfd->h = h;
+    init_fdesc(h, &sfd->f, FDESC_TYPE_SIGNALFD);
+
+    sfd->bq = allocate_blockq(h, "signalfd");
+    if (sfd->bq == INVALID_ADDRESS)
+        goto err_mem_bq;
+
+    sfd->mask = *mask;
+    sfd->n = notify_add(current->signalfds, sfd->mask, closure(h, signalfd_notify, sfd));
+    if (!sfd->n)
+        goto err_mem_notify;
+
+    sfd->f.flags = flags;
+    sfd->f.read = closure(h, signalfd_read, sfd);
+    sfd->f.events = closure(h, signalfd_events, sfd);
+    sfd->f.close = closure(h, signalfd_close, sfd);
+    return sfd->fd;
+  err_mem_notify:
+    deallocate_blockq(sfd->bq);
+  err_mem_bq:
+    deallocate_fd(current->p, sfd->fd);
+    deallocate(h, sfd, sizeof(*sfd));
+  err_mem:
+    msg_err("%s: failed to allocate\n", __func__);
+    return set_syscall_error(current, ENOMEM);
+}
+
+sysreturn signalfd4(int fd, const u64 *mask, u64 sigsetsize, int flags)
+{
+    if (sigsetsize != (NSIG / 8) ||
+        (flags & ~(SFD_CLOEXEC | SFD_NONBLOCK))) 
+        return -EINVAL;
+
+    if (!mask)
+        return -EFAULT;
+
+    if (fd == -1)
+        return allocate_signalfd(mask, flags);
+
+    signal_fd sfd = resolve_fd(current->p, fd); /* macro, may return EBADF */
+    if (fdesc_type(&sfd->f) != FDESC_TYPE_SIGNALFD)
+        return -EINVAL;
+
+    /* update mask */
+    sfd->mask = *mask;
+    notify_entry_update_eventmask(sfd->n, sfd->mask);
+    return fd;
+}
+
+sysreturn signalfd(int fd, const u64 *mask, u64 sigsetsize)
+{
+    return signalfd4(fd, mask, sigsetsize, 0);
+}
+
 static void setup_sigframe(thread t, int signum, struct siginfo *si)
 {
     sigaction sa = get_sigaction(signum);
@@ -896,6 +1015,8 @@ void register_signal_syscalls(struct syscall *map)
     register_syscall(map, rt_sigsuspend, rt_sigsuspend);
     register_syscall(map, rt_sigtimedwait, rt_sigtimedwait);
     register_syscall(map, sigaltstack, syscall_ignore);
+    register_syscall(map, signalfd, signalfd);
+    register_syscall(map, signalfd4, signalfd4);
     register_syscall(map, tgkill, tgkill);
     register_syscall(map, tkill, tkill);
 }

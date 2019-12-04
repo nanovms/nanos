@@ -1,7 +1,7 @@
 #include <unix_internal.h>
 
 struct notify_entry {
-    u32 eventmask;
+    u64 eventmask;
     event_handler eh;
     struct list l;
 };
@@ -29,7 +29,7 @@ void deallocate_notify_set(notify_set s)
     deallocate(s->h, s, sizeof(struct notify_set));
 }
 
-notify_entry notify_add(notify_set s, u32 eventmask, event_handler eh)
+notify_entry notify_add(notify_set s, u64 eventmask, event_handler eh)
 {
     // XXX make cache
     notify_entry n = allocate(s->h, sizeof(struct notify_entry));
@@ -51,7 +51,14 @@ void notify_remove(notify_set s, notify_entry e, boolean release)
     deallocate(s->h, e, sizeof(struct notify_entry));
 }
 
-void notify_dispatch(notify_set s, u32 events)
+// XXX poll waiters too
+void notify_entry_update_eventmask(notify_set s, notify_entry n, u64 eventmask)
+{
+    // XXX atomic
+    n->eventmask = eventmask;
+}
+
+void notify_dispatch(notify_set s, u64 events)
 {
     /* XXX take mutex */
     list_foreach(&s->entries, l) {

@@ -175,6 +175,8 @@ declare_closure_struct(1, 0, void, free_thread,
 typedef struct epoll *epoll;
 struct ftrace_graph_entry;
 
+#include <notify.h>
+
 typedef struct thread {
     // if we use an array typedef its fragile
     // there are likley assumptions that frame sits at the base of thread
@@ -209,6 +211,7 @@ typedef struct thread {
     /* for waiting on thread-specific conditions rather than a resource */
     blockq thread_bq;
 
+    /* signals pending and saved state */
     struct sigstate signals;
     sigstate dispatch_sigstate; /* while signal handler in flight, save sigstate... */
     u64 saved_rax;              /* ... and t->frame[FRAME_RAX] */
@@ -217,6 +220,8 @@ typedef struct thread {
     /* sigs that can wake thread regardless of mask or ignored
        nonzero when in rt_sigtimedwait) */
     u64 siginterest;
+
+    notify_set signalfds;
 
     u16 active_signo;
 
@@ -229,8 +234,6 @@ typedef struct thread {
 typedef closure_type(io, sysreturn, void *buf, u64 length, u64 offset, thread t,
         boolean bh, io_completion completion);
 
-#include <notify.h>
-
 #define FDESC_TYPE_REGULAR      1
 #define FDESC_TYPE_DIRECTORY    2
 #define FDESC_TYPE_SPECIAL      3
@@ -238,6 +241,9 @@ typedef closure_type(io, sysreturn, void *buf, u64 length, u64 offset, thread t,
 #define FDESC_TYPE_PIPE         5
 #define FDESC_TYPE_STDIO        6
 #define FDESC_TYPE_EPOLL        7
+#define FDESC_TYPE_EVENTFD      8
+#define FDESC_TYPE_SIGNALFD     9
+#define FDESC_TYPE_TIMERFD     10
 
 typedef struct fdesc {
     io read, write;
@@ -336,9 +342,28 @@ static inline kernel_heaps get_kernel_heaps()
 
 fault_handler create_fault_handler(heap h, thread t);
 
-void init_fdesc(heap h, fdesc f, int type);
+static inline void init_fdesc(heap h, fdesc f, int type)
+{
+    f->read = 0;
+    f->write = 0;
+    f->close = 0;
+    f->events = 0;
+    f->ioctl = 0;
+    f->refcnt = 1;
+    f->type = type;
+    f->flags = 0;
+    f->ns = allocate_notify_set(h);
+}
 
-void release_fdesc(fdesc f);
+static inline void release_fdesc(fdesc f)
+{
+    deallocate_notify_set(f->ns);
+}
+
+static inline int fdesc_type(fdesc f)
+{
+    return f->type;
+}
 
 u64 allocate_fd(process p, void *f);
 
