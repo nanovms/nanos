@@ -78,7 +78,7 @@ we do provide a few:
   ```
 
   Non-destructive reads return the ring buffer contents without clearing the
-  buffer. These are issed via:
+  buffer. These are issued via:
   
   ```
   wget localhost:9090/ftrace/trace
