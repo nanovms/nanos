@@ -2,7 +2,6 @@
 
 import os
 import sys
-import getopt
 import pandas as pd
 import plotly.graph_objs as go
 
