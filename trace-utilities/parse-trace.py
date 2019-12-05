@@ -4,7 +4,6 @@ import os
 import sys
 import re
 import csv
-import pandas as pd
 
 # dictionary of thread stacks
 thread_stacks = {}
