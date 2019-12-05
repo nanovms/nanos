@@ -13,6 +13,7 @@
 
 #include <sys/ucontext.h>
 #include <sys/signalfd.h>
+#include <sys/epoll.h>
 
 /* #970: avoid getpid() with threads unless you know you have a newish glibc */
 #define __getpid() syscall(SYS_getpid)
@@ -734,10 +735,12 @@ static void * test_signalfd_child(void *arg)
     if (fd < 0)
         fail_perror("signalfd");
 
+    sigaddset(&ss, SIGRTMIN + 1);
     int rv = sigprocmask(SIG_BLOCK, &ss, 0);
     if (rv < 0)
         fail_perror("sigprocmask");
 
+    /* basic read test */
     child_tid = syscall(SYS_gettid);
     sigtest_debug("enter, tid %d, fd %d\n", child_tid, fd);
     struct signalfd_siginfo si;
@@ -747,7 +750,61 @@ static void * test_signalfd_child(void *arg)
     if (rv < sizeof(struct signalfd_siginfo))
         fail_error("short read (%d)\n", rv);
     sigtest_debug("read sig %d, errno %d, code %d\n", si.ssi_signo, si.ssi_errno, si.ssi_code);
+
+    /* test non-blocking */
+    sigemptyset(&ss);
+    sigaddset(&ss, SIGRTMIN + 1);
+    int fd2 = signalfd(-1, &ss, SFD_NONBLOCK);
+    if (fd2 < 0)
+        fail_perror("signalfd 2");
+    sigtest_debug("nonblock fd %d, reading...\n", fd2);
+    rv = read(fd2, &si, sizeof(struct signalfd_siginfo));
+    if (rv >= 0 || errno != EAGAIN)
+        fail_error("second read should have returned EAGAIN (rv %d, errno %d)\n", rv, errno);
+
+    /* XXX test mask update */
+
+    /* poll wait test */
+    int epfd = epoll_create(1);
+    if (epfd < 0)
+        fail_perror("epoll_create");
+
+    struct epoll_event epev;
+    epev.events = EPOLLIN;
+    epev.data.fd = fd;
+    if (epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &epev) < 0)
+        fail_perror("epoll_ctl 1");
+    epev.data.fd = fd2;
+    if (epoll_ctl(epfd, EPOLL_CTL_ADD, fd2, &epev) < 0)
+        fail_perror("epoll_ctl 2");
+
     test_signalfd_caught = 1;
+
+    int rcvd = 0;
+    struct epoll_event rev[2];
+
+    /* XXX crash on thread exit with queued signals? */
+    while (rcvd != 3) {
+        sigtest_debug("   epoll_wait...\n");
+        int nfds = epoll_wait(epfd, rev, 2, 5000);
+        if (nfds < 0)
+            fail_perror("epoll_wait");
+        for (int i=0; i < nfds; i++) {
+            sigtest_debug("   fd %d events 0x%x\n", rev[i].data.fd, rev[i].events);
+            struct signalfd_siginfo si;
+            rv = read(rev[i].data.fd, &si, sizeof(struct signalfd_siginfo));
+            if (rv < 0)
+                fail_perror("read 2");
+            if (rv < sizeof(struct signalfd_siginfo))
+                fail_error("short read 2 (%d)\n", rv);
+            sigtest_debug("read sig %d, errno %d, code %d\n", si.ssi_signo, si.ssi_errno, si.ssi_code);
+            if (si.ssi_signo == SIGRTMIN)
+                rcvd |= 1;
+            else if (si.ssi_signo == SIGRTMIN + 1)
+                rcvd |= 2;
+        }
+    }
+    sigtest_debug("child exiting\n");
     return (void *)EXIT_SUCCESS;
 }
 
@@ -783,6 +840,23 @@ void test_signalfd(void)
         fail_perror("tgsigqueueinfo for SIGRTMIN");
 
     yield_for(&test_signalfd_caught);
+    sigtest_debug("sending signals for poll test...\n");
+    memset(&si, 0, sizeof(siginfo_t));
+    si.si_code = SI_MESGQ;
+    si.si_pid = __getpid();
+    si.si_uid = getuid();
+    rv = syscall(SYS_rt_tgsigqueueinfo, __getpid(), child_tid, SIGRTMIN, &si);
+    if (rv < 0)
+        fail_perror("tgsigqueueinfo for SIGRTMIN (poll)");
+
+    memset(&si, 0, sizeof(siginfo_t));
+    si.si_code = SI_MESGQ;
+    si.si_pid = __getpid();
+    si.si_uid = getuid();
+    rv = syscall(SYS_rt_tgsigqueueinfo, __getpid(), child_tid, SIGRTMIN + 1, &si);
+    if (rv < 0)
+        fail_perror("tgsigqueueinfo for SIGRTMIN + 1 (poll)");
+
     sigtest_debug("waiting for child to exit...\n");
     void * retval;
     if (pthread_join(pt, &retval))
