@@ -88,7 +88,7 @@ we do provide a few:
 
 We currently provide two scripts that make it easier to parse trace data.
 Currently, these scripts only support `function_graph` tracing (the default
-tracing mode). They are capable or parsing either `trace` or `trace_pipe`
+tracing mode). They are capable of parsing either `trace` or `trace_pipe`
 files.
 
 ### [parse-trace.py](parse-trace.py)
