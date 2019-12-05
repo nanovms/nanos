@@ -7,7 +7,7 @@ the resulting trace data.
 
 ## Enabling tracing
 
-To enable tracing, build nanos be specifying `TRACE=ftrace` on the make command; e.g.,
+To enable tracing, build nanos by specifying `TRACE=ftrace` on the make command; e.g.,
 
 ```make clean && make TRACE=ftrace TARGET=<target> run```
 
