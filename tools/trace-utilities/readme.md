@@ -69,7 +69,7 @@ we do provide a few:
   at 64MB. This buffer fills up relatively quickly, and once it is full, subsequent
   function calls will not generate trace data.
 
-  Trace data can either be queried destructively or non-destructively.
+  Trace data can be queried either destructively or non-destructively.
   Destructive queries return the data and remove it from the in-kernel ring
   buffer, thus allowing subsequent functions to be traced. These calls are issued via:
 
