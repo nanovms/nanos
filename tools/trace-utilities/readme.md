@@ -122,7 +122,7 @@ graph in your default web browser; e.g.,
   </p>
 
 By default, __all__ kernel functions will be shown here, including those that
-lead to either context switches or mode switches to userspace, and thus have
+sleep or lead to context switches and/or mode switches to userspace, and thus have
 __very__ long latencies (e.g., `kernel_sleep` as the big purple bar above). Data for such
 functions can be disabled by toggling it in the function list on the right, creating
 a more readable graph; e.g.,
