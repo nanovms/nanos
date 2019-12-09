@@ -83,7 +83,7 @@ jobs:
           environment:
             NANOS_TARGET_ROOT: target-root
           command: make
-
+      - run: brew upgrade python
       - run: curl -O https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-240.0.0-darwin-x86_64.tar.gz
       - run: tar xzf google-cloud-sdk*.tar.gz
       - run: ./google-cloud-sdk/install.sh -q
