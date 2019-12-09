@@ -207,7 +207,7 @@ static void pci_probe_device(pci_dev dev)
 void pci_discover()
 {
     // we dont actually need to do recursive discovery, qemu leaves it all on bus0 for us
-    for (int i = 0; i < 16; i++) {
+    for (int i = 0; i < 32; i++) {
         struct pci_dev _dev = { .bus = 0, .slot = i, .function = 0 };
         pci_dev dev = &_dev;
 
