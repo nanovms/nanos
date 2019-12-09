@@ -130,7 +130,7 @@ typedef closure_type(blockq_action, sysreturn, u64 flags);
 struct blockq;
 typedef struct blockq * blockq;
 
-io_completion syscall_io_complete;
+extern io_completion syscall_io_complete;
 
 blockq allocate_blockq(heap h, char * name);
 void deallocate_blockq(blockq bq);
