@@ -19,7 +19,7 @@ static boolean is_transmit_empty() {
 }
 
 /* This floods the ftrace buffers when user is outputting lots of data */
-__attribute__((no_instrument_function))
+NOTRACE
 void serial_putchar(char c)
 {
     while (!is_transmit_empty())
