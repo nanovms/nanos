@@ -163,6 +163,7 @@ struct flock {
 #define AT_EGID         14              /* Effective gid */
 #define AT_CLKTCK       17              /* Frequency of times() */
 #define AT_RANDOM       25   
+#define AT_SYSINFO_EHDR 33              /* Location of VDSO mapping */
 #define AT_FDCWD        -100            /* openat should use the current working directory.*/
 
 #define AT_SYMLINK_NOFOLLOW 0x100       /* Do not follow symbolic links.  */

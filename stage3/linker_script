@@ -20,11 +20,25 @@ SECTIONS
         *(.text)
         *(.text.*)
         . = ALIGN(4096);
-        vdso_start = .;
-        *(.vdso)        /* must be at end of section; we use text_end to determine its extent */
-        vdso_end = .;
+        vsyscall_start = .;
+        *(.vsyscall)        /* must be at end of section; we use text_end to determine its extent */
+        vsyscall_end = .;
     }
     text_end = .;
+
+    /* All kernel variables accessible to userspace
+     * Offsets from vvar_page must match the corresponding offsets specified
+     * in src/unix/vdso.lds
+     *
+     * We could look at generating them automatically, but for now it's easy enough
+     * to do it this way
+     */
+    .vvar : ALIGN(4096)
+    {
+        vvar_page = .; 
+        __vdso_vdso_dat = vvar_page + 128;
+        pvclock_page = vvar_page + 4096;
+    }
 
     .rodata : ALIGN(4096)
     {

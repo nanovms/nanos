@@ -117,37 +117,6 @@ static inline void set_page_write_protect(boolean enable)
     mov_to_cr("cr0", cr0);
 }
 
-extern u8 platform_has_rdtscp;
-
-static inline u64 _rdtscp(void)
-{
-    u32 a, d;
-    asm volatile("rdtscp" : "=a" (a), "=d" (d));
-    return (((u64)a) | (((u64)d) << 32));
-}
-
-static inline u64 _rdtsc(void)
-{
-    u32 a, d;
-    asm volatile("rdtsc" : "=a" (a), "=d" (d));
-    return (((u64)a) | (((u64)d) << 32));
-}
-
-static inline u64 rdtsc(void)
-{
-    if (platform_has_rdtscp)
-        return _rdtscp();
-    return _rdtsc();
-}
-
-static inline u64 rdtsc_precise(void)
-{
-    if (platform_has_rdtscp)
-        return _rdtscp();
-
-    asm volatile("cpuid" ::: "%rax", "%rbx", "%rcx", "%rdx"); /* serialize execution */
-    return _rdtsc();
-}
 
 static inline u64 read_flags(void)
 {
@@ -174,6 +143,9 @@ static inline void kern_pause(void)
 {
     asm volatile("pause");
 }
+
+u64 rdtsc(void);
+u64 rdtsc_precise(void);
 
 typedef struct queue *queue;
 extern queue runqueue;

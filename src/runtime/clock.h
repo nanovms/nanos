@@ -12,35 +12,21 @@ typedef enum {
     CLOCK_ID_BOOTTIME_ALARM,
 } clock_id;
 
+/* these are used for exporting vdso to userspace */
+typedef enum {
+    VDSO_CLOCK_SYSCALL = 0,
+    VDSO_CLOCK_HPET,
+    VDSO_CLOCK_TSC_STABLE,
+    VDSO_CLOCK_PVCLOCK,
+    VDSO_CLOCK_NRCLOCKS
+} vdso_clock_id;
+
 typedef closure_type(clock_now, timestamp);
 
 extern timestamp rtc_offset;
 extern clock_now platform_monotonic_now;
 
-static inline timestamp now(clock_id id)
-{
-    switch (id) {
-    case CLOCK_ID_MONOTONIC:
-    case CLOCK_ID_MONOTONIC_RAW:
-    case CLOCK_ID_MONOTONIC_COARSE:
-    case CLOCK_ID_BOOTTIME:
-        return apply(platform_monotonic_now);
-    case CLOCK_ID_REALTIME:
-    case CLOCK_ID_REALTIME_COARSE:
-        return apply(platform_monotonic_now) + rtc_offset;
-    default:
-        halt("now: unsupported clock id %d\n", id);
-    }
-}
-
-static inline timestamp uptime(void)
-{
-    return now(CLOCK_ID_BOOTTIME);
-}
-
-static inline void register_platform_clock_now(clock_now cn)
-{
-    platform_monotonic_now = cn;
-}
-
+timestamp now(clock_id id);
+timestamp uptime(void);
+void register_platform_clock_now(clock_now cn, vdso_clock_id);
 u64 rtc_gettimeofday(void);

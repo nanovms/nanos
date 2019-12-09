@@ -826,8 +826,34 @@ void mmap_process_init(process p)
     /* reserve remainder */
     add_varea(p, user_va_tag_end, U64_FROM_BIT(VIRTUAL_ADDRESS_BITS), 0, false);
 
+    /* randomly determine vdso/vvar base and track it */
+    {
+        u64 vdso_size, vvar_size, vvar_start;
+
+        vdso_size = VDSO_NR_PAGES * PAGESIZE;
+        vvar_size = VVAR_NR_PAGES * PAGESIZE;
+
+        p->vdso_base = allocate_u64(p->virtual_page, vdso_size + vvar_size);
+        assert(allocate_vmap(
+            p->vmaps,
+            irange(p->vdso_base, p->vdso_base + vdso_size/*+vvar_size*/),
+            VMAP_FLAG_EXEC
+        ) != INVALID_ADDRESS);
+
+        /* vvar goes right after the vdso */
+        vvar_start = p->vdso_base + vdso_size;
+        assert(allocate_vmap(
+            p->vmaps,
+            irange(vvar_start, vvar_start + vvar_size),
+            0
+        ) != INVALID_ADDRESS);
+    }
+
     /* Track vsyscall page */
-    assert(allocate_vmap(p->vmaps, irange(VSYSCALL_BASE, VSYSCALL_BASE + PAGESIZE), VMAP_FLAG_EXEC));
+    assert(
+        allocate_vmap(p->vmaps, irange(VSYSCALL_BASE, VSYSCALL_BASE + PAGESIZE), VMAP_FLAG_EXEC)
+        != INVALID_ADDRESS
+    );
 }
 
 void register_mmap_syscalls(struct syscall *map)

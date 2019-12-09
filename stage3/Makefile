@@ -54,6 +54,7 @@ SRCS-stage3.img= \
 	$(SRCDIR)/unix/unix_clock.c \
 	$(SRCDIR)/unix/unix.c \
 	$(SRCDIR)/unix/vdso.c \
+	$(SRCDIR)/unix/vdso-image.c \
 	$(SRCDIR)/unix/pipe.c \
 	$(SRCDIR)/virtio/virtio_net.c \
 	$(SRCDIR)/virtio/virtio_pci.c \
@@ -81,6 +82,7 @@ SRCS-stage3.img= \
 	$(SRCDIR)/x86_64/service.c \
 	$(SRCDIR)/x86_64/symtab.c \
 	$(SRCDIR)/x86_64/synth.c \
+	$(SRCDIR)/x86_64/vdso-now.c \
 	$(SRCS-lwip)
 SRCS-lwip= \
 	$(LWIPDIR)/src/core/def.c \
@@ -105,8 +107,8 @@ SRCS-lwip= \
 	$(LWIPDIR)/src/core/udp.c \
 	$(LWIPDIR)/src/api/err.c \
 	$(LWIPDIR)/src/netif/ethernet.c
-CFLAGS+=	$(KERNCFLAGS) -DSTAGE3
-CFLAGS+= \
+
+INCLUDES=\
 	-I$(SRCDIR) \
 	-I$(SRCDIR)/gdb \
 	-I$(SRCDIR)/http \
@@ -114,9 +116,13 @@ CFLAGS+= \
 	-I$(SRCDIR)/runtime \
 	-I$(SRCDIR)/tfs \
 	-I$(SRCDIR)/unix \
+	-I$(SRCDIR)/unix_process \
 	-I$(SRCDIR)/x86_64 \
 	-I$(SRCDIR)/xen/public \
 	-I$(LWIPDIR)/src/include
+
+CFLAGS+=$(KERNCFLAGS) -DSTAGE3
+CFLAGS+=$(INCLUDES)
 
 # Enable tracing by specifying TRACE=ftrace on command line
 ifeq ($(TRACE),ftrace)
@@ -130,10 +136,22 @@ endif
 AFLAGS+=	-felf64 -I$(OBJDIR)/
 LDFLAGS+=	$(KERNLDFLAGS) -T linker_script
 
-CLEANFILES+=	$(foreach f,gitversion.c frame.inc stage3.dis stage3.img src/unix/ftrace.* src/x86_64/ftrace.*,$(OBJDIR)/$f)
-CLEANDIRS+=	$(foreach d,output src vendor vendor/lwip vendor/lwip/src,$(OBJDIR)/$d)
-
+VDSO_OBJDIR=   $(OBJDIR)/vdso
+VDSO_SRCS=     $(SRCDIR)/x86_64/vdso.c $(SRCDIR)/x86_64/vdso-now.c $(SRCDIR)/x86_64/clock.c
+VDSOGEN_SRC=   $(SRCDIR)/x86_64/vdsogen.c
 OBJDUMPFLAGS=	-d -S -M intel-mnemonic
+
+CLEANFILES+=	$(foreach f,gitversion.c frame.inc stage3.dis stage3.img vdso/* src/unix/ftrace.* src/x86_64/ftrace.*,$(OBJDIR)/$f)
+CLEANDIRS+=	$(foreach d,output src vdso vendor vendor/lwip vendor/lwip/src,$(OBJDIR)/$d)
+
+msg_vdsogen_cc=    CC	$@
+cmd_vdsogen_cc=    $(CC) -o $@ $^
+
+msg_vdsogen=    VDSOGEN	$@
+cmd_vdsogen=    $(VDSO_OBJDIR)/vdsogen $(VDSO_OBJDIR)/vdso.so $@
+
+msg_vdso=       CC	$@
+cmd_vdso=       $(CC) -DBUILD_VDSO $(INCLUDES) -I$(OBJDIR) -nostdlib -fPIC -shared -Wl,--build-id=none -Wl,--hash-style=both -T$(SRCDIR)/x86_64/vdso.lds $(VDSO_SRCS) -o $@
 
 msg_objdump=	OBJDUMP	$@
 cmd_objdump=	$(OBJDUMP) $(OBJDUMPFLAGS) $(OBJDUMPFLAGS_$(@F)) $< $< >$@
@@ -155,7 +173,17 @@ stage3.dis: $(OBJDIR)/stage3.dis
 $(OBJDIR)/stage3.dis: $(PROG-stage3.img)
 	$(call cmd,objdump)
 
-$(PROG-stage3.img): linker_script
+$(VDSO_OBJDIR)/vdsogen: $(VDSOGEN_SRC)
+	@$(MKDIR) $(VDSO_OBJDIR)
+	$(call cmd,vdsogen_cc)
+
+$(VDSO_OBJDIR)/vdso.so: $(VDSO_SRCS) $(VDSO_OBJDIR)/vdsogen
+	$(call cmd,vdso)
+
+$(SRCDIR)/unix/vdso-image.c: $(VDSO_OBJDIR)/vdsogen $(VDSO_OBJDIR)/vdso.so
+	$(call cmd,vdsogen)
+
+$(PROG-stage3.img): linker_script $(SRCDIR)/unix/vdso-image.c
 
 $(OBJDIR)/gitversion.c: $(ROOTDIR)/.git/index $(ROOTDIR)/.git/HEAD
 	$(call cmd,version)

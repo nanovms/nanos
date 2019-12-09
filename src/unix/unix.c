@@ -2,6 +2,7 @@
 #include <ftrace.h>
 #include <buffer.h>
 #include <gdb.h>
+#include <vdso.h>
 
 void init_fdesc(heap h, fdesc f, int type)
 {
@@ -181,6 +182,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
         if (aslr)
             id_heap_set_randomize(p->virtual32, true);
         mmap_process_init(p);
+        init_vdso(p);
     } else {
         p->virtual = p->virtual_page = p->virtual32 = 0;
         p->vareas = p->vmaps = INVALID_ADDRESS;
@@ -301,7 +303,6 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     fault_handler fallback_handler = create_fault_handler(h, current);
     install_fallback_fault_handler(fallback_handler);
 
-    init_vdso(heap_physical(kh), heap_pages(kh));
     register_special_files(kernel_process);
     init_syscalls();
     register_file_syscalls(linux_syscalls);
