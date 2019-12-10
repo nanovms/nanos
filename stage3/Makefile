@@ -136,9 +136,14 @@ endif
 AFLAGS+=	-felf64 -I$(OBJDIR)/
 LDFLAGS+=	$(KERNLDFLAGS) -T linker_script
 
-VDSO_OBJDIR=   $(OBJDIR)/vdso
-VDSO_SRCS=     $(SRCDIR)/x86_64/vdso.c $(SRCDIR)/x86_64/vdso-now.c $(SRCDIR)/x86_64/clock.c
-VDSOGEN_SRC=   $(SRCDIR)/x86_64/vdsogen.c
+VDSO_SRCDIR=    $(SRCDIR)/x86_64
+VDSO_OBJDIR=    $(OBJDIR)/vdso
+VDSO_SRCS=      $(VDSO_SRCDIR)/vdso.c $(VDSO_SRCDIR)/x86_64/vdso-now.c $(VDSO_SRCDIR)/x86_64/clock.c
+VDSO_OBJS=      $(patsubst %.c,$(VDSO_OBJDIR)/%.o,$(notdir $(VDSO_SRCS)))
+VDSO_CFLAGS=    -DBUILD_VDSO -I$(INCLUDES) -I$(OBJDIR) -nostdlib -fPIC -c
+VDSO_LDFLAGS=   -shared --build-id=none --hash-style=both -T$(VDSO_SRCDIR)/vdso.lds
+VDSOGEN_SRC=    $(SRCDIR)/x86_64/vdsogen.c
+
 OBJDUMPFLAGS=	-d -S -M intel-mnemonic
 
 CLEANFILES+=	$(foreach f,gitversion.c frame.inc stage3.dis stage3.img vdso/* src/unix/ftrace.* src/x86_64/ftrace.*,$(OBJDIR)/$f)
@@ -150,8 +155,11 @@ cmd_vdsogen_cc=    $(CC) -o $@ $^
 msg_vdsogen=    VDSOGEN	$@
 cmd_vdsogen=    $(VDSO_OBJDIR)/vdsogen $(VDSO_OBJDIR)/vdso.so $@
 
-msg_vdso=       CC	$@
-cmd_vdso=       $(CC) -DBUILD_VDSO $(INCLUDES) -I$(OBJDIR) -nostdlib -fPIC -shared -Wl,--build-id=none -Wl,--hash-style=both -T$(SRCDIR)/x86_64/vdso.lds $(VDSO_SRCS) -o $@
+msg_vdso_cc=    CC	$@
+cmd_vdso_cc=    $(CC) $(VDSO_CFLAGS) $^ -o $@
+
+msg_vdso_ld=    LD	$@
+cmd_vdso_ld=    $(LD) $(VDSO_LDFLAGS) $(VDSO_OBJS) -o $@ 
 
 msg_objdump=	OBJDUMP	$@
 cmd_objdump=	$(OBJDUMP) $(OBJDUMPFLAGS) $(OBJDUMPFLAGS_$(@F)) $< $< >$@
@@ -177,8 +185,11 @@ $(VDSO_OBJDIR)/vdsogen: $(VDSOGEN_SRC)
 	@$(MKDIR) $(VDSO_OBJDIR)
 	$(call cmd,vdsogen_cc)
 
-$(VDSO_OBJDIR)/vdso.so: $(VDSO_SRCS) $(VDSO_OBJDIR)/vdsogen
-	$(call cmd,vdso)
+$(VDSO_OBJDIR)/%.o: $(SRCDIR)/x86_64/%.c
+	$(call cmd,vdso_cc)
+
+$(VDSO_OBJDIR)/vdso.so: $(VDSO_OBJS)
+	$(call cmd,vdso_ld)
 
 $(SRCDIR)/unix/vdso-image.c: $(VDSO_OBJDIR)/vdsogen $(VDSO_OBJDIR)/vdso.so
 	$(call cmd,vdsogen)
@@ -194,9 +205,12 @@ $(OBJDIR)/frame.inc: $(SRCDIR)/x86_64/frame.h
 	$(call cmd,sed)
 
 ifeq ($(UNAME_s),Darwin)
-CFLAGS+=	-target x86_64-elf
-LD=		x86_64-elf-ld
-OBJDUMP=	x86_64-elf-objdump
+ELF_TARGET      =-target x86_64-elf
+CFLAGS+=        $(ELF_TARGET)
+VDSO_CFLAGS+=   $(ELF_TARGET)
+VDSO_LDFLAGS+=  -undefined dynamic_lookup
+LD=             x86_64-elf-ld
+OBJDUMP=        x86_64-elf-objdump
 else
-LD=		ld
+LD=             ld
 endif
