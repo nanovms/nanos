@@ -753,7 +753,7 @@ static void * test_signalfd_child(void *arg)
 
     /* test non-blocking */
     sigemptyset(&ss);
-    sigaddset(&ss, SIGRTMIN + 1);
+    sigaddset(&ss, SIGRTMIN);
     int fd2 = signalfd(-1, &ss, SFD_NONBLOCK);
     if (fd2 < 0)
         fail_perror("signalfd 2");
@@ -762,7 +762,11 @@ static void * test_signalfd_child(void *arg)
     if (rv >= 0 || errno != EAGAIN)
         fail_error("second read should have returned EAGAIN (rv %d, errno %d)\n", rv, errno);
 
-    /* XXX test mask update */
+    /* test mask update */
+    sigemptyset(&ss);
+    sigaddset(&ss, SIGRTMIN + 1);
+    if (signalfd(fd, &ss, 0) < 0)
+        fail_perror("signalfd mask update");
 
     /* poll wait test */
     int epfd = epoll_create(1);
@@ -796,18 +800,27 @@ static void * test_signalfd_child(void *arg)
                 fail_perror("read 2");
             if (rv < sizeof(struct signalfd_siginfo))
                 fail_error("short read 2 (%d)\n", rv);
-            sigtest_debug("read sig %d, errno %d, code %d\n", si.ssi_signo, si.ssi_errno, si.ssi_code);
-            if (si.ssi_signo == SIGRTMIN)
+            sigtest_debug("   read sig %d, errno %d, code %d\n", si.ssi_signo, si.ssi_errno, si.ssi_code);
+            if (si.ssi_signo == SIGRTMIN && rev[i].data.fd == fd2) {
+                sigtest_debug("   SIGRTMIN\n");
                 rcvd |= 1;
-            else if (si.ssi_signo == SIGRTMIN + 1)
+            } else if (si.ssi_signo == SIGRTMIN + 1 && rev[i].data.fd == fd) {
+                sigtest_debug("   SIGRTMIN + 1 (mask update works)\n");
                 rcvd |= 2;
+            }
         }
     }
-    sigtest_debug("child exiting\n");
+
+    /* events should have cleared */
+    sigtest_debug("   test epoll_wait with no events...\n");
+    int nfds = epoll_wait(epfd, rev, 2, 0);
+    if (nfds != 0)
+        fail_error("epoll_wait test with no signal events failed (rv = %d)\n", nfds);
+
+    sigtest_debug("success; child exiting\n");
     return (void *)EXIT_SUCCESS;
 }
 
-/* XXX need to make signalfds process-wide */
 void test_signalfd(void)
 {
     sigtest_debug("\n");
