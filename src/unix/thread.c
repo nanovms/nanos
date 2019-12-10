@@ -220,7 +220,6 @@ thread create_thread(process p)
     t->file_op_is_complete = false;
     init_sigstate(&t->signals);
     t->dispatch_sigstate = 0;
-    t->siginterest = 0;
     t->active_signo = 0;
 
     if (ftrace_thread_init(t)) {
