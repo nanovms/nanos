@@ -97,6 +97,16 @@ static inline u64 sigstate_set_ignored(sigstate ss, u64 mask)
     return ss->ignored = normalize_signal_mask(mask);
 }
 
+static inline u64 sigstate_get_interest(sigstate ss)
+{
+    return ss->interest;
+}
+
+static inline void sigstate_set_interest(sigstate ss, u64 mask)
+{
+    ss->interest = mask;
+}
+
 static inline u64 get_all_pending_signals(thread t)
 {
     return sigstate_get_pending(&t->signals) | sigstate_get_pending(&t->p->signals);
@@ -104,8 +114,8 @@ static inline u64 get_all_pending_signals(thread t)
 
 static inline u64 get_effective_sigmask(thread t)
 {
-    /* parent sigmask affects initial thread - otherwise ignored? */
-    return sigstate_get_mask(&t->signals) & ~t->siginterest;
+    return sigstate_get_mask(&t->signals) &
+        ~(sigstate_get_interest(&t->signals) | sigstate_get_interest(&t->p->signals));
 }
 
 static inline u64 get_effective_signals(thread t)
@@ -202,6 +212,7 @@ void init_sigstate(sigstate ss)
     ss->mask = 0;
     ss->saved = 0;
     ss->ignored = mask_from_sig(SIGCHLD) | mask_from_sig(SIGURG) | mask_from_sig(SIGWINCH);
+    ss->interest = 0;
 
     for(int i = 0; i < NSIG; i++)
         list_init(&ss->heads[i]);
@@ -299,9 +310,10 @@ void deliver_signal_to_process(process p, struct siginfo *info)
             continue;
         if (thread_is_runnable(t)) {
             /* Note that we're only considering unmasked signals
-               (handlers) here, nothing in siginterest. The thread is
-               runnable, so it can't be blocked on rt_sigtimedwait or
-               a signalfd (poll wait or blocking read). */
+               (handlers) here, nothing in the interest masks. The
+               thread is runnable, so it can't be blocked on
+               rt_sigtimedwait or a signalfd (poll wait or blocking
+               read). */
             if ((sigword & sigstate_get_mask(&t->signals)) == 0) {
                 /* thread scheduled to run or running; no explicit wakeup */
                 sig_debug("thread %d running and sig %d unmasked; return\n",
@@ -734,8 +746,7 @@ closure_function(4, 1, sysreturn, rt_sigtimedwait_bh,
                 return set_syscall_error(t, EAGAIN); /* poll */
             }
             sig_debug("-> block\n");
-            t->siginterest_saved = t->siginterest;
-            t->siginterest = interest;
+            sigstate_set_interest(&t->signals, interest);
             return BLOCKQ_BLOCK_REQUIRED;
         } else {
             /* XXX record spurious wakeups? */
@@ -748,7 +759,6 @@ closure_function(4, 1, sysreturn, rt_sigtimedwait_bh,
         free_queued_signal(qs);
     }
 
-    t->siginterest = t->siginterest_saved;
     if (blocked)
         thread_wakeup(t);
     closure_finish();
@@ -946,7 +956,7 @@ closure_function(1, 2, void, signalfd_notify,
 
 static void signalfd_update_siginterest(thread t)
 {
-    t->siginterest = notify_get_eventmask_union(t->signalfds);
+    sigstate_set_interest(&t->p->signals, notify_get_eventmask_union(t->signalfds));
 }
 
 static sysreturn allocate_signalfd(const u64 *mask, int flags)
