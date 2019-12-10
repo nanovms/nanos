@@ -275,9 +275,10 @@ static inline u32 report_from_notify_events(epollfd efd, u64 notify_events)
     return edge_detect ? ~efd->lastevents & events : events;
 }
 
-closure_function(1, 1, void, epoll_wait_notify,
+closure_function(1, 2, void, epoll_wait_notify,
                  epollfd, efd,
-                 u64, notify_events)
+                 u64, notify_events,
+                 thread, t)
 {
     epollfd efd = bound(efd);
     list l = list_get_next(&efd->e->blocked_head);
@@ -298,27 +299,31 @@ closure_function(1, 1, void, epoll_wait_notify,
                 efd->fd, events, report, w, efd->zombie);
 
     /* XXX need to do some work to properly dole out to multiple epoll_waits (threads)... */
-    if (report && w && !efd->zombie) {
-	if (w->user_events && (w->user_events->length - w->user_events->end)) {
-	    struct epoll_event *e = buffer_ref(w->user_events, w->user_events->end);
-	    e->data = efd->data;
-	    e->events = report;
-	    w->user_events->end += sizeof(struct epoll_event);
-	    epoll_debug("   epoll_event %p, data 0x%lx, events 0x%x\n", e, e->data, e->events);
+    if (report == 0 || !w || efd->zombie)
+        return;
 
-            /* XXX check this */
-	    if (efd->eventmask & EPOLLONESHOT)
-		efd->zombie = true;
+    if (t && t != w->t)
+        return;
 
-            /* now that we've reported these events, update last */
-            efd->lastevents |= report;
-	} else {
-            /* XXX here we should advance to the next blocked head, probably */
-	    epoll_debug("   user_events null or full\n");
-	    return;
-	}
-	blockq_wake_one(w->t->thread_bq);
+    if (!w->user_events || (w->user_events->length - w->user_events->end) <= 0) {
+        /* XXX here we should advance to the next blocked head, probably */
+        epoll_debug("   user_events null or full\n");
+        return;
     }
+
+    struct epoll_event *e = buffer_ref(w->user_events, w->user_events->end);
+    e->data = efd->data;
+    e->events = report;
+    w->user_events->end += sizeof(struct epoll_event);
+    epoll_debug("   epoll_event %p, data 0x%lx, events 0x%x\n", e, e->data, e->events);
+
+    /* XXX check this */
+    if (efd->eventmask & EPOLLONESHOT)
+        efd->zombie = true;
+
+    /* now that we've reported these events, update last */
+    efd->lastevents |= report;
+    blockq_wake_one(w->t->thread_bq);
 }
 
 static epoll_blocked alloc_epoll_blocked(epoll e)
@@ -338,9 +343,9 @@ static epoll_blocked alloc_epoll_blocked(epoll e)
     return w;
 }
 
-static void check_fdesc(fdesc f)
+static void check_fdesc(fdesc f, thread t)
 {
-    notify_dispatch(f->ns, apply(f->events));
+    notify_dispatch_for_thread(f->ns, apply(f->events, t), t);
 }
 
 /* It would be nice to devise a way to allow a poll waiter to continue
@@ -423,7 +428,7 @@ sysreturn epoll_wait(int epfd,
         /* event transitions may in some cases need to be polled for
            (e.g. due to change in lwIP internal state), so request a check */
         if (efd->registered)
-            check_fdesc(f);
+            check_fdesc(f, current);
     }
 
     return blockq_check_timeout(w->t->thread_bq, current,
@@ -439,6 +444,22 @@ static epollfd epollfd_from_fd(epoll e, int fd)
     epollfd efd = vector_get(e->events, fd);
     assert(efd);
     return efd;
+}
+
+static void epollfd_update(epollfd efd, fdesc f)
+{
+    /* It may seem excessive to perform a check for all
+       waiters. However, thanks to thread-specific fd events (thanks
+       in turn to signalfd), we could have independent events for
+       multiple threads that require waking - even on the same fd. */
+
+    /* XXX take lock */
+    list_foreach(&efd->e->blocked_head, l) {
+        epoll_blocked w = struct_from_list(l, epoll_blocked, blocked_list);
+        epoll_debug("   posting check for blocked waiter (tid %d)\n", w->t->tid);
+        check_fdesc(f, w->t);
+    }
+    /* XXX release lock */
 }
 
 static sysreturn epoll_add_fd(epoll e, int fd, u32 events, u64 data)
@@ -458,12 +479,8 @@ static sysreturn epoll_add_fd(epoll e, int fd, u32 events, u64 data)
     assert(f);
     register_epollfd(efd, closure(e->h, epoll_wait_notify, efd));
 
-    /* apply check if we have a waiter */
-    if (!list_empty(&efd->e->blocked_head)) {
-        epoll_debug("   posting check for blocked waiter\n");
-        check_fdesc(f);
-    }
-
+    /* apply check(s) for any current waiters */
+    epollfd_update(efd, f);
     return 0;
 }
 
@@ -525,9 +542,10 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 #define POLLFDMASK_WRITE	(EPOLLOUT | EPOLLHUP | EPOLLERR)
 #define POLLFDMASK_EXCEPT	(EPOLLPRI)
 
-closure_function(1, 1, void, select_notify,
+closure_function(1, 2, void, select_notify,
                  epollfd, efd,
-                 u64, notify_events)
+                 u64, notify_events,
+                 thread, t)
 {
     epollfd efd = bound(efd);
     list l = list_get_next(&efd->e->blocked_head);
@@ -544,28 +562,32 @@ closure_function(1, 1, void, select_notify,
     epoll_debug("efd->fd %d, events 0x%x, blocked %p, zombie %d\n",
 	    efd->fd, events, w, efd->zombie);
 
-    if (!efd->zombie && w && efd->fd < w->nfds) {
-	assert(w->epoll_type == EPOLL_TYPE_SELECT);
-	int count = 0;
-	/* XXX need thread safe / cas bitmap ops */
-	/* trusting that notifier masked events */
-	if (events & POLLFDMASK_READ) {
-	    bitmap_set(w->rset, efd->fd, 1);
-	    count++;
-	}
-	if (events & POLLFDMASK_WRITE) {
-	    bitmap_set(w->wset, efd->fd, 1);
-	    count++;
-	}
-	if (events & POLLFDMASK_EXCEPT) {
-	    bitmap_set(w->eset, efd->fd, 1);
-	    count++;
-	}
-	if (count > 0) {
-	    fetch_and_add(&w->retcount, count);
-	    epoll_debug("   event on %d, events 0x%x\n", efd->fd, events);
-	    blockq_wake_one(w->t->thread_bq);
-	}
+    if (efd->zombie || !w || efd->fd >= w->nfds)
+        return;
+
+    if (t && t != w->t)
+        return;
+
+    assert(w->epoll_type == EPOLL_TYPE_SELECT);
+    int count = 0;
+    /* XXX need thread safe / cas bitmap ops */
+    /* trusting that notifier masked events */
+    if (events & POLLFDMASK_READ) {
+        bitmap_set(w->rset, efd->fd, 1);
+        count++;
+    }
+    if (events & POLLFDMASK_WRITE) {
+        bitmap_set(w->wset, efd->fd, 1);
+        count++;
+    }
+    if (events & POLLFDMASK_EXCEPT) {
+        bitmap_set(w->eset, efd->fd, 1);
+        count++;
+    }
+    if (count > 0) {
+        fetch_and_add(&w->retcount, count);
+        epoll_debug("   event on %d, events 0x%x\n", efd->fd, events);
+        blockq_wake_one(w->t->thread_bq);
     }
 }
 
@@ -725,7 +747,7 @@ static sysreturn select_internal(int nfds,
 	    if (!efd->registered)
                 register_epollfd(efd, closure(e->h, select_notify, efd));
 
-            check_fdesc(f);
+            check_fdesc(f, current);
 	}
 
 	if (readfds)
@@ -758,9 +780,10 @@ sysreturn select(int nfds,
     return select_internal(nfds, readfds, writefds, exceptfds, timeout ? time_from_timeval(timeout) : infinity, 0);
 }
 
-closure_function(1, 1, void, poll_notify,
+closure_function(1, 2, void, poll_notify,
                  epollfd, efd,
-                 u64, notify_events)
+                 u64, notify_events,
+                 thread, t)
 {
     epollfd efd = bound(efd);
     list l = list_get_next(&efd->e->blocked_head);
@@ -778,13 +801,17 @@ closure_function(1, 1, void, poll_notify,
             efd->fd, events, w, efd->zombie);
     assert(efd->registered);
 
-    if (events && w && !efd->zombie) {
-        struct pollfd *pfd = buffer_ref(w->poll_fds, efd->data * sizeof(struct pollfd));
-        fetch_and_add(&w->poll_retcount, 1);
-        pfd->revents = events;
-        epoll_debug("   event on %d (%d), events 0x%x\n", efd->fd, pfd->fd, pfd->revents);
-        blockq_wake_one(w->t->thread_bq);
-    }
+    if (events == 0 || !w || efd->zombie)
+        return;
+
+    if (t && t != w->t)
+        return;
+
+    struct pollfd *pfd = buffer_ref(w->poll_fds, efd->data * sizeof(struct pollfd));
+    fetch_and_add(&w->poll_retcount, 1);
+    pfd->revents = events;
+    epoll_debug("   event on %d (%d), events 0x%x\n", efd->fd, pfd->fd, pfd->revents);
+    blockq_wake_one(w->t->thread_bq);
 }
 
 closure_function(3, 1, sysreturn, poll_bh,
@@ -889,7 +916,7 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
 
         epoll_debug("   register fd %d, eventmask 0x%x, applying check\n",
             efd->fd, efd->eventmask);
-        check_fdesc(f);
+        check_fdesc(f, current);
     }
 
     /* clean efds */

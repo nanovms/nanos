@@ -201,6 +201,22 @@ thread blockq_wake_one(blockq bq)
     return t;
 }
 
+boolean blockq_wake_one_for_thread(blockq bq, thread t)
+{
+    blockq_debug("%p (\"%s\") \n", bq, blockq_name(bq));
+
+    /* XXX take irqsafe spinlock */
+    list_foreach(&bq->waiters_head, l) {
+        blockq_item bi = struct_from_list(l, blockq_item, l);
+        if (bi->t != t)
+            continue;
+        blockq_apply_bi_locked(bq, bi, BLOCKQ_ACTION_BLOCKED);
+        return true;
+    }
+    /* XXX release lock */
+    return false;
+}
+
 sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_bh,
                                timestamp timeout, clock_id id)
 {

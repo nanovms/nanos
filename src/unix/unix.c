@@ -90,12 +90,14 @@ closure_function(0, 6, sysreturn, stdout,
     return length;
 }
 
-closure_function(0, 0, u32, std_output_events)
+closure_function(0, 1, u32, std_output_events,
+                 thread, t /* ignore */)
 {
     return EPOLLOUT;
 }
 
-closure_function(0, 0, u32, std_input_events)
+closure_function(0, 1, u32, std_input_events,
+                 thread, t /* ignore */)
 {
     return 0;
 }

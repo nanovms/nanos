@@ -136,6 +136,7 @@ blockq allocate_blockq(heap h, char * name);
 void deallocate_blockq(blockq bq);
 const char * blockq_name(blockq bq);
 thread blockq_wake_one(blockq bq);
+boolean blockq_wake_one_for_thread(blockq bq, thread t);
 void blockq_flush(blockq bq);
 boolean blockq_flush_thread(blockq bq, thread t);
 void blockq_set_completion(blockq bq, io_completion completion, thread t,
@@ -248,7 +249,7 @@ typedef closure_type(io, sysreturn, void *buf, u64 length, u64 offset, thread t,
 
 typedef struct fdesc {
     io read, write;
-    closure_type(events, u32);
+    closure_type(events, u32, thread);
     closure_type(ioctl, sysreturn, unsigned long request, vlist ap);
 
     /* close() is assumed to not block the calling thread. If any implementation

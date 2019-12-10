@@ -103,8 +103,9 @@ closure_function(1, 6, sysreturn, efd_write,
     return blockq_check(bound(efd)->write_bq, t, ba, bh);
 }
 
-closure_function(1, 0, u32, efd_events,
-                 struct efd *, efd)
+closure_function(1, 1, u32, efd_events,
+                 struct efd *, efd,
+                 thread, t /* ignore */)
 {
     u32 events = 0;
     if (bound(efd)->counter != 0) {
