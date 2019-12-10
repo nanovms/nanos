@@ -205,7 +205,7 @@ $(OBJDIR)/frame.inc: $(SRCDIR)/x86_64/frame.h
 	$(call cmd,sed)
 
 ifeq ($(UNAME_s),Darwin)
-ELF_TARGET      =-target x86_64-elf
+ELF_TARGET=     -target x86_64-elf
 CFLAGS+=        $(ELF_TARGET)
 VDSO_CFLAGS+=   $(ELF_TARGET)
 VDSO_LDFLAGS+=  -undefined dynamic_lookup
