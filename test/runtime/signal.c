@@ -783,7 +783,6 @@ static void * test_signalfd_child(void *arg)
     int rcvd = 0;
     struct epoll_event rev[2];
 
-    /* XXX crash on thread exit with queued signals? */
     while (rcvd != 3) {
         sigtest_debug("   epoll_wait...\n");
         int nfds = epoll_wait(epfd, rev, 2, 5000);
