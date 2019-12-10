@@ -28,7 +28,7 @@ SECTIONS
 
     /* All kernel variables accessible to userspace
      * Offsets from vvar_page must match the corresponding offsets specified
-     * in src/unix/vdso.lds
+     * in src/x86_64/vdso.lds
      *
      * We could look at generating them automatically, but for now it's easy enough
      * to do it this way
