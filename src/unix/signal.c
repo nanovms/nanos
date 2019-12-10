@@ -190,18 +190,17 @@ static queued_signal dequeue_signal(thread t, u64 sigmask, boolean save_and_mask
     return qs;
 }
 
+static inline void free_queued_signal(queued_signal qs)
+{
+    deallocate(heap_general(get_kernel_heaps()), qs, sizeof(struct queued_signal));
+}
+
 void sigstate_flush_queue(sigstate ss)
 {
-    heap h = heap_general(get_kernel_heaps());
     sig_debug("sigstate %p\n", ss);
     for (int signum = 1; signum <= NSIG; signum++) {
-        list l = list_get_next(sigstate_get_sighead(ss, signum));
-        while (l) {
-            queued_signal qs = struct_from_list(l, queued_signal, l);
-            list n = list_get_next(l);
-            list_delete(l);
-            deallocate(h, qs, sizeof(struct queued_signal));
-            l = n;
+        list_foreach(sigstate_get_sighead(ss, signum), l) {
+            free_queued_signal(struct_from_list(l, queued_signal, l));
         }
     }
 }
@@ -216,11 +215,6 @@ void init_sigstate(sigstate ss)
 
     for(int i = 0; i < NSIG; i++)
         list_init(&ss->heads[i]);
-}
-
-static inline void free_queued_signal(queued_signal qs)
-{
-    deallocate(heap_general(get_kernel_heaps()), qs, sizeof(struct queued_signal));
 }
 
 static inline boolean sig_is_ignored(process p, int sig)
