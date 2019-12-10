@@ -125,3 +125,12 @@ Read more about Security [here](SECURITY.md).
 [Build Envs](https://github.com/nanovms/nanos/wiki/Build-Envs)
 
 [Reference Materials](https://github.com/nanovms/nanos/wiki/reference-materials)
+
+### Getting Help
+
+We run a public mailing list at:
+
+  nanos-users@nanovms.com
+
+for general questions. If you'd like more in-depth help reach out to the
+nanovms folks via drift or email engineering.
