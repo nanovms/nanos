@@ -13,7 +13,6 @@
 extern void * vsyscall_start;
 extern void * vsyscall_end;
 extern void * vvar_page;
-extern void * pvclock_page;
 
 /* auto-generated into vdso-image.c
  * contains the raw binary image of the VDSO ELF
@@ -83,7 +82,6 @@ void init_vdso(process p)
 
     /* sanity checks */
     assert(((unsigned long)&vvar_page & MASK(PAGELOG)) == 0);
-    assert(((unsigned long)&pvclock_page & MASK(PAGELOG)) == 0);
     assert(((unsigned long)vdso_raw & MASK(PAGELOG)) == 0);
 
     /* map single VDSO PT_LOAD segment, which contains the raw ELF binary */

@@ -37,7 +37,6 @@ SECTIONS
     {
         vvar_page = .; 
         __vdso_vdso_dat = vvar_page + 128;
-        pvclock_page = vvar_page + 4096;
     }
 
     .rodata : ALIGN(4096)
