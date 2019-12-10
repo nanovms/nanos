@@ -1,7 +1,9 @@
 typedef struct notify_set *notify_set;
 typedef struct notify_entry *notify_entry;
 
-typedef closure_type(event_handler, void, u64 events);
+/* notify handlers receive event changes, including falling edges,
+   which are relevant only for waiters on thread t if t is nonzero */
+typedef closure_type(event_handler, void, u64 events, thread t);
 
 /* NOTIFY_EVENTS_RELEASE is a special value of events to signal to the
    event_handler that a notify_set is being deallocated.
@@ -19,8 +21,10 @@ void notify_remove(notify_set s, notify_entry e, boolean release);
 
 void notify_entry_update_eventmask(notify_entry n, u64 eventmask);
 
-u64 notify_set_get_eventmask_union(notify_set s);
+u64 notify_get_eventmask_union(notify_set s);
 
 void notify_dispatch(notify_set s, u64 events);
+
+void notify_dispatch_for_thread(notify_set s, u64 events, thread t);
 
 void notify_release(notify_set s);

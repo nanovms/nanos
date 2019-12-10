@@ -244,7 +244,7 @@ static void deliver_signal(sigstate ss, struct siginfo *info)
 
 static inline void signalfd_dispatch(thread t, u64 pending)
 {
-    notify_dispatch(t->signalfds, pending);
+    notify_dispatch_for_thread(t->signalfds, pending, t);
 }
 
 void deliver_signal_to_thread(thread t, struct siginfo *info)
@@ -904,10 +904,11 @@ closure_function(1, 6, sysreturn, signalfd_read,
     return blockq_check(sfd->bq, t, ba, bh);
 }
 
-closure_function(1, 0, u32, signalfd_events,
-                 signal_fd, sfd)
+closure_function(1, 1, u32, signalfd_events,
+                 signal_fd, sfd,
+                 thread, t)
 {
-    return (get_all_pending_signals(current) & bound(sfd)->mask) ? EPOLLIN : 0;
+    return (get_all_pending_signals(t) & bound(sfd)->mask) ? EPOLLIN : 0;
 }
 
 closure_function(1, 0, sysreturn, signalfd_close,
@@ -924,9 +925,10 @@ closure_function(1, 0, sysreturn, signalfd_close,
     return 0;
 }
 
-closure_function(1, 1, void, signalfd_notify,
+closure_function(1, 2, void, signalfd_notify,
                  signal_fd, sfd,
-                 u64, events)
+                 u64, events,
+                 thread, t)
 {
     signal_fd sfd = bound(sfd);
     if (events == NOTIFY_EVENTS_RELEASE) {
@@ -938,13 +940,13 @@ closure_function(1, 1, void, signalfd_notify,
         sig_debug("%d spurious notify\n", sfd->fd);
         return;
     }
-    blockq_wake_one(sfd->bq);
-    notify_dispatch(sfd->f.ns, EPOLLIN);
+    blockq_wake_one_for_thread(sfd->bq, t);
+    notify_dispatch_for_thread(sfd->f.ns, EPOLLIN, t);
 }
 
 static void signalfd_update_siginterest(thread t)
 {
-    t->siginterest = notify_set_get_eventmask_union(t->signalfds);
+    t->siginterest = notify_get_eventmask_union(t->signalfds);
 }
 
 static sysreturn allocate_signalfd(const u64 *mask, int flags)

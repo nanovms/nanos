@@ -740,8 +740,9 @@ closure_function(2, 0, sysreturn, file_close,
     return 0;
 }
 
-closure_function(1, 0, u32, file_events,
-                 file, f)
+closure_function(1, 1, u32, file_events,
+                 file, f,
+                 thread, t /* ignore */)
 {
     file f = bound(f);
     u32 events;
