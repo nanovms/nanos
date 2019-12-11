@@ -19,13 +19,7 @@ timestamp timeval_to_time(struct timeval *a)
    gettimeofday() as monotonic. We can revisit if we ever care about
    truly monotonic time in unit test land. */
 
-timestamp rtc_offset = 0;
 clock_now platform_monotonic_now;
-
-timestamp now(clock_id id)
-{
-    return apply(platform_monotonic_now);
-}
 
 void *malloc(size_t size);
 void free(void *ptr);

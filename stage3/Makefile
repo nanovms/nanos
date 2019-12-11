@@ -138,7 +138,7 @@ LDFLAGS+=	$(KERNLDFLAGS) -T linker_script
 
 VDSO_SRCDIR=    $(SRCDIR)/x86_64
 VDSO_OBJDIR=    $(OBJDIR)/vdso
-VDSO_SRCS=      $(VDSO_SRCDIR)/vdso.c $(VDSO_SRCDIR)/x86_64/vdso-now.c $(VDSO_SRCDIR)/x86_64/clock.c
+VDSO_SRCS=      $(VDSO_SRCDIR)/vdso.c $(VDSO_SRCDIR)/x86_64/vdso-now.c
 VDSO_OBJS=      $(patsubst %.c,$(VDSO_OBJDIR)/%.o,$(notdir $(VDSO_SRCS)))
 VDSO_CFLAGS=    -DBUILD_VDSO -I$(INCLUDES) -I$(OBJDIR) -fPIC -c
 VDSO_LDFLAGS=   -nostdlib -fPIC -shared --build-id=none --hash-style=both --eh-frame-hdr -T$(VDSO_SRCDIR)/vdso.lds

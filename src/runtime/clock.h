@@ -22,11 +22,51 @@ typedef enum {
 } vdso_clock_id;
 
 typedef closure_type(clock_now, timestamp);
-
-extern timestamp rtc_offset;
 extern clock_now platform_monotonic_now;
 
-timestamp now(clock_id id);
-timestamp uptime(void);
-void register_platform_clock_now(clock_now cn, vdso_clock_id);
+#if defined(STAGE3) || defined(BUILD_VDSO)
+#include <vdso.h>
+#define __vdso_dat (&(VVAR_REF(vdso_dat)))
+#endif
+
+/* This is all kernel-only below here */
+static inline timestamp now(clock_id id)
+{
+#if defined(STAGE3) || defined(BUILD_VDSO)
+    u64 rtc_offset = __vdso_dat->rtc_offset;
+#else
+    u64 rtc_offset = 0;
+#endif
+
+    switch (id) {
+    case CLOCK_ID_MONOTONIC:
+    case CLOCK_ID_MONOTONIC_RAW:
+    case CLOCK_ID_MONOTONIC_COARSE:
+    case CLOCK_ID_BOOTTIME:
+        return apply(platform_monotonic_now);
+    case CLOCK_ID_REALTIME:
+    case CLOCK_ID_REALTIME_COARSE:
+        return apply(platform_monotonic_now) + rtc_offset;
+    default:
+        return 0;
+    }
+}
+
+static inline timestamp uptime(void)
+{
+    return now(CLOCK_ID_BOOTTIME);
+}
+
+static inline void register_platform_clock_now(clock_now cn, vdso_clock_id id)
+{
+    platform_monotonic_now = cn;
+#if defined(STAGE3) || defined(BUILD_VDSO)
+    __vdso_dat->clock_src = id;
+#endif
+}
+
+#if defined(STAGE3) || defined(BUILD_VDSO)
+#undef __vdso_dat
+#endif
+
 u64 rtc_gettimeofday(void);
