@@ -221,7 +221,7 @@ extern u32 n_interrupt_vectors;
 extern u32 interrupt_vector_size;
 extern void * interrupt_vectors;
 
-__attribute__((no_instrument_function))
+NOTRACE
 void common_handler()
 {
     int i = running_frame[FRAME_VECTOR];

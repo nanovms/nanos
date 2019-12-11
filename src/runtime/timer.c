@@ -18,6 +18,13 @@ struct timer {
 static pqueue timers;
 static heap theap;
 
+#if defined(STAGE3) || defined(BUILD_VDSO)
+#include <vdso.h>
+#define rtc_offset (&(VVAR_REF(vdso_dat)))->rtc_offset
+#else
+#define rtc_offset 0
+#endif
+
 static inline timestamp expiry(timer t)
 {
     switch (t->id) {

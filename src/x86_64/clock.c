@@ -1,13 +1,11 @@
 #include <runtime.h>
 #include <x86_64.h>
-#include <page.h>
+#include <vdso.h>
 
-typedef __uint128_t u128;
+#define __vdso_dat (&(VVAR_REF(vdso_dat)))
 
-timestamp rtc_offset = 0;
 clock_now platform_monotonic_now;
 clock_timer platform_timer;
-u8 platform_has_rdtscp = 0;
 
 void kernel_delay(timestamp delta)
 {
@@ -22,7 +20,7 @@ void init_clock(void)
     u32 regs[4];
     cpuid(0x80000001, 0, regs);
     if (regs[3] & U64_FROM_BIT(27))
-        platform_has_rdtscp = 1;
+        __vdso_dat->platform_has_rdtscp = 1;
 
-    rtc_offset = rtc_gettimeofday() << 32;
+    __vdso_dat->rtc_offset = rtc_gettimeofday() << 32;
 }

@@ -21,7 +21,14 @@
 #define PROCESS_HEAP_ASLR_RANGE     (4 * MB)
 #define PROCESS_STACK_ASLR_RANGE    (4 * MB)
 
-#define VSYSCALL_BASE                   0xffffffffff600000ull
+/* fixed address per deprecated API */
+#define VSYSCALL_BASE               0xffffffffff600000ull
+
+/* VDSO location is to be randomly determined at process creation */
+#define VDSO_NR_PAGES               2
+
+/* This will change if we add support for more clocktypes */
+#define VVAR_NR_PAGES               2
 
 typedef s64 sysreturn;
 
@@ -130,7 +137,7 @@ typedef closure_type(blockq_action, sysreturn, u64 flags);
 struct blockq;
 typedef struct blockq * blockq;
 
-io_completion syscall_io_complete;
+extern io_completion syscall_io_complete;
 
 blockq allocate_blockq(heap h, char * name);
 void deallocate_blockq(blockq bq);
@@ -291,6 +298,7 @@ typedef struct process {
     void             *brk;
     u64               heap_base;
     u64               lowmem_end; /* end of elf / heap / stack area (low 2gb below reserved) */
+    u64               vdso_base;
     heap              virtual;  /* huge virtual, parent of virtual_page */
     heap              virtual_page; /* pagesized, default for mmaps */
     heap              virtual32; /* for tracking low 32-bit space and MAP_32BIT maps */
@@ -368,7 +376,7 @@ u64 allocate_fd_gte(process p, u64 min, void *f);
 
 void deallocate_fd(process p, int fd);
 
-void init_vdso(heap, heap);
+void init_vdso(process p);
 
 void mmap_process_init(process p);
 
