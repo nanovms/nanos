@@ -44,6 +44,7 @@ static inline void init_siginfo(struct siginfo *si, int sig, s32 code)
 {
     zero(si, sizeof(struct siginfo));
     si->si_signo = sig;
+    si->si_errno = 0;
     si->si_code = code;
 }
 
@@ -318,7 +319,7 @@ void deliver_signal_to_process(process p, struct siginfo *info)
                    (sigword & get_effective_sigmask(t)) == 0) {
             /* First attempt to deliver via signalfd notify. If the
                thread becomes runnable, we're done. Note that we check
-               only for this signal and all pending signals as in the
+               only for this signal, not all pending signals as with
                thread delivery. That is because our task is to wake up
                a thread on behalf of this signal delivery, not just
                wake up a thread that has any pending signals. */
@@ -603,6 +604,8 @@ sysreturn tgkill(int tgid, int tid, int sig)
 
     struct siginfo si;
     init_siginfo(&si, sig, SI_TKILL);
+    si.sifields.rt.pid = tgid;
+    si.sifields.rt.uid = 0;
     sig_debug("-> delivering to thread\n");
     deliver_signal_to_thread(t, &si);
     return 0;
@@ -792,56 +795,27 @@ static void signalfd_siginfo_fill(struct signalfd_siginfo * si, queued_signal qs
         si->ssi_pid = qs->si.sifields.kill.pid;
         si->ssi_uid = qs->si.sifields.kill.uid;
         break;
-    case SI_KERNEL:
-        /* XXX ? */
-        break;
-    case SI_QUEUE:
-        break;
     case SI_TIMER:
-        break;
-    case SI_MESGQ:
-        break;
-    case SI_ASYNCIO:
+        si->ssi_tid = qs->si.sifields.timer.tid;
+        si->ssi_overrun = qs->si.sifields.timer.overrun;
+        si->ssi_ptr = (u64)qs->si.sifields.timer.sigval.val_ptr;
+        si->ssi_int = qs->si.sifields.timer.sigval.val_int;
         break;
     case SI_SIGIO:
+        si->ssi_band = qs->si.sifields.sigpoll.band;
+        si->ssi_fd = qs->si.sifields.sigpoll.fd;
         break;
+    case SI_MESGQ:
+    case SI_ASYNCIO:
     case SI_TKILL:
-        break;
     case SI_DETHREAD:
-        break;
     case SI_ASYNCNL:
+        si->ssi_pid = qs->si.sifields.rt.pid;
+        si->ssi_uid = qs->si.sifields.rt.uid;
+        si->ssi_ptr = (u64)qs->si.sifields.rt.sigval.val_ptr;
+        si->ssi_int = qs->si.sifields.rt.sigval.val_int;
         break;
     }
-#if 0
-    u32 ssi_pid;
-
-    u32 ssi_uid;
-    s32 ssi_fd;
-    u32 ssi_tid;
-    u32 ssi_band;
-
-    /* 32 */
-    u32 ssi_overrun;
-    u32 ssi_trapno;
-    s32 ssi_status;
-    s32 ssi_int;
-
-    u64 ssi_ptr;
-    u64 ssi_utime;
-
-    /* 64 */
-    u64 ssi_stime;
-    u64 ssi_addr;
-
-    u16 ssi_addr_lsb;
-    u16 pad2;
-    s32 ssi_syscall;
-    u64 ssi_call_addr;
-
-    /* 96 */
-    u32 ssi_arch;
-#endif
-
 }
 
 closure_function(5, 1, sysreturn, signalfd_read_bh,
