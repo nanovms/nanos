@@ -29,27 +29,12 @@ fallback_time(time_t * t)
 static sysreturn
 do_vdso_clock_gettime(clockid_t clk_id, struct timespec * tp)
 {
-    timestamp ts;
+    timestamp ts = vdso_now(clk_id);
+    if (ts == VDSO_NO_NOW)
+        return fallback_clock_gettime(clk_id, tp);
 
-    switch (clk_id) {
-    case CLOCK_ID_MONOTONIC:
-    case CLOCK_ID_MONOTONIC_RAW:
-    case CLOCK_ID_MONOTONIC_COARSE:
-    case CLOCK_ID_BOOTTIME:
-    case CLOCK_ID_REALTIME:
-    case CLOCK_ID_REALTIME_COARSE:
-        ts = vdso_now(clk_id);
-        if (ts == VDSO_NO_NOW)
-            break;
-
-        timespec_from_time(tp, ts);
-        return 0;
-
-    default:
-        break;
-    }
-
-    return fallback_clock_gettime(clk_id, tp);
+    timespec_from_time(tp, ts);
+    return 0;
 }
 
 static sysreturn
