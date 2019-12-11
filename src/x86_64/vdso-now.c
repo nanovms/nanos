@@ -52,13 +52,13 @@ vdso_pvclock_now_ns(volatile struct pvclock_vcpu_time_info * vclock)
     return result;
 }
 
-static timestamp
+static inline timestamp
 vdso_now_pvclock(void)
 {
     return nanoseconds(vdso_pvclock_now_ns(__vdso_pvclock));
 }
 
-static timestamp
+static inline timestamp
 vdso_now_none(void)
 {
     return VDSO_NO_NOW;
@@ -66,7 +66,7 @@ vdso_now_none(void)
 
 typedef timestamp (*vdso_now_fn)(void);
 
-static vdso_now_fn
+static inline vdso_now_fn
 vdso_get_now_fn(vdso_clock_id id)
 {
     switch (id) {
