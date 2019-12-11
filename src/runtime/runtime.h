@@ -3,8 +3,12 @@
 #if !defined(BOOT) && !defined(STAGE3)
 #include <unix_process_runtime.h>
 #endif
+
+#include <attributes.h>
+
 typedef u8 boolean;
 typedef u32 character;
+typedef u64 timestamp;
 
 #define true 1
 #define false 0
@@ -12,15 +16,13 @@ typedef u32 character;
 #define INVALID_PHYSICAL ((u64)infinity)
 #define INVALID_ADDRESS ((void *)infinity)
 
-typedef u64 timestamp;
-
 void console_write(char *s, bytes count);
 
 void print_u64(u64 s);
 
-extern void halt(char *format, ...) __attribute__((noreturn));
-extern void vm_exit(u8 code) __attribute__((noreturn));
-extern void print_stack_from_here();
+void halt(char *format, ...) __attribute__((noreturn));
+void vm_exit(u8 code) __attribute__((noreturn));
+void print_stack_from_here();
 
 // make into no-op for production
 #ifdef NO_ASSERT

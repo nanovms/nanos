@@ -58,7 +58,7 @@ static inline void deallocate_vector(vector v)
     deallocate_buffer((buffer)v);
 }
 
-static void vector_push(vector v, void *i)
+static inline void vector_push(vector v, void *i)
 {
     buffer_extend(v, sizeof(void *));
     runtime_memcpy(v->contents + v->end, &i, sizeof(void *));
@@ -72,7 +72,7 @@ static inline void *vector_peek(vector v)
     return *(void **)(v->contents + v->end - sizeof(void *));
 }
 
-static void *vector_pop(vector v)
+static inline void *vector_pop(vector v)
 {
     if ((v->end - v->start) < sizeof(void *))
         return 0;

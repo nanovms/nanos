@@ -71,7 +71,7 @@ static void timer_update(void)
 
 extern void interrupt_exit(void);
 
-__attribute__((no_instrument_function))
+NOTRACE
 void process_bhqueue()
 {
     /* XXX - we're on bh frame & stack; re-enable ints here */

@@ -236,7 +236,7 @@ thread create_thread(process p)
     return t;
 }
 
-__attribute__((no_instrument_function))
+NOTRACE 
 void exit_thread(thread t)
 {
     thread_log(current, "exit_thread");
@@ -279,7 +279,7 @@ void exit_thread(thread t)
     deallocate_closure((fault_handler)pointer_from_u64(t->frame[FRAME_FAULT_HANDLER]));
     t->frame[FRAME_FAULT_HANDLER] = 0;
 
-    ftrace_thread_deinit(t);
+    ftrace_thread_deinit(t, dummy_thread);
 
     current = dummy_thread;
     running_frame = dummy_thread->frame;

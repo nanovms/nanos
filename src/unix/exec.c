@@ -22,7 +22,8 @@
             ((char *)__s)[buffer_length(__b)] = '\0';                     \
             (char *)__s;})
 
-static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start, u64 va, tuple process_root, boolean aslr)
+static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
+        u64 va, tuple process_root, boolean aslr)
 {
     exec_debug("build_exec_stack start %p, tid %d, va 0x%lx\n", start, t->tid, va);
 
@@ -96,6 +97,7 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start, u
         {AT_PAGESZ, PAGESIZE},
         {AT_RANDOM, u64_from_pointer(s)},
         {AT_ENTRY, u64_from_pointer(start)},
+        {AT_SYSINFO_EHDR, p->vdso_base}
     };
     for (int i = 0; i < sizeof(auxp) / sizeof(auxp[0]); i++) {
         spush(s, auxp[i].val);
