@@ -1,6 +1,20 @@
 #pragma once
 typedef u64 timestamp;
 typedef struct timer *timer;
+
+declare_closure_struct(1, 0, void, timer_free,
+                       timer, t);
+
+struct timer {
+    clock_id id;
+    timestamp expiry;
+    timestamp interval;
+    boolean disabled;
+    thunk t;
+    struct refcount refcount;
+    closure_struct(timer_free, free);
+};
+
 typedef closure_type(clock_timer, void, timestamp);
 
 extern clock_timer platform_timer;
@@ -15,9 +29,47 @@ static inline void runloop_timer(timestamp duration)
     apply(platform_timer, duration);
 }
 
-timer register_timer(timestamp interval, clock_id id, thunk n);
-timer register_periodic_timer(timestamp interval, clock_id id, thunk n);
-timestamp remove_timer(timer t);
+timer register_timer(clock_id id, timestamp val, boolean absolute, timestamp interval, thunk n);
+
+#if defined(STAGE3) || defined(BUILD_VDSO)
+#include <vdso.h>
+#define __rtc_offset (&(VVAR_REF(vdso_dat)))->rtc_offset
+#else
+#define __rtc_offset 0
+#endif
+
+/* Convert to monotonic. Not clear yet how to map process and thread
+   times to monotonic scale. Should the process have its own timer heap? */
+static inline timestamp timer_expiry(timer t)
+{
+    switch (t->id) {
+    case CLOCK_ID_MONOTONIC:
+    case CLOCK_ID_MONOTONIC_RAW:
+    case CLOCK_ID_MONOTONIC_COARSE:
+    case CLOCK_ID_BOOTTIME:
+        return t->expiry;
+    case CLOCK_ID_REALTIME:
+    case CLOCK_ID_REALTIME_COARSE:
+        return t->expiry - __rtc_offset;
+    default:
+        halt("expiry: clock id %d unsupported\n"); /* XXX hmm */
+    }
+}
+#undef __rtc_offset
+
+/* returns time remaining or 0 if elapsed */
+static inline void remove_timer(timer t, timestamp *remain)
+{
+    assert(!t->disabled);
+    t->disabled = true;
+    if (remain) {
+        timestamp x = timer_expiry(t);
+        timestamp n = now(t->id);
+        *remain = x > n ? x - n : 0;
+    }
+    refcount_release(&t->refcount);
+}
+
 void initialize_timers(kernel_heaps kh);
 timestamp parse_time();
 void print_timestamp(buffer, timestamp);

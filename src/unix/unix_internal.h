@@ -149,12 +149,12 @@ boolean blockq_flush_thread(blockq bq, thread t);
 void blockq_set_completion(blockq bq, io_completion completion, thread t,
                            sysreturn rv);
 sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_bh, 
-                               timestamp timeout, clock_id id);
+                               clock_id id, timestamp timeout, boolean absolute);
 int blockq_transfer_waiters(blockq dest, blockq src, int n);
 
 static inline sysreturn blockq_check(blockq bq, thread t, blockq_action a, boolean in_bh)
 {
-    return blockq_check_timeout(bq, t, a, in_bh, 0, 0 /* n/a */);
+    return blockq_check_timeout(bq, t, a, in_bh, 0, 0, false);
 }
 
 static inline void blockq_handle_completion(blockq bq, u64 bq_flags, io_completion completion, thread t, sysreturn rv)
