@@ -6,88 +6,43 @@
 #define timer_debug(x, ...)
 #endif
 
-struct timer {
-    thunk t;
-    timestamp expiry;
-    timestamp interval;
-    clock_id id;
-    boolean disable;
-};
-
 // should pass a timer around
 static pqueue timers;
 static heap theap;
 
-#if defined(STAGE3) || defined(BUILD_VDSO)
-#include <vdso.h>
-#define rtc_offset (&(VVAR_REF(vdso_dat)))->rtc_offset
-#else
-#define rtc_offset 0
-#endif
-
-static inline timestamp expiry(timer t)
-{
-    switch (t->id) {
-    case CLOCK_ID_MONOTONIC:
-    case CLOCK_ID_MONOTONIC_RAW:
-    case CLOCK_ID_MONOTONIC_COARSE:
-    case CLOCK_ID_BOOTTIME:
-        return t->expiry;
-    case CLOCK_ID_REALTIME:
-    case CLOCK_ID_REALTIME_COARSE:
-        return t->expiry - rtc_offset;
-    default:
-        halt("expiry: clock id %d unsupported\n");
-    }
-}
-
 /* The lower time expiry is the higher priority. */
 static boolean timer_compare(void *za, void *zb)
 {
-    return expiry((timer)za) > expiry((timer)zb);
+    return timer_expiry((timer)za) > timer_expiry((timer)zb);
 }
 
-/* returns time remaining or 0 if elapsed */
-timestamp remove_timer(timer t)
+define_closure_function(1, 0, void, timer_free,
+                        timer, t)
 {
-    t->disable = true;
-    timestamp x = expiry(t);
-    timestamp n = now(CLOCK_ID_MONOTONIC);
-    return x > n ? x - n : 0;
+    deallocate(theap, bound(t), sizeof(struct timer));
 }
 
-static timer __register_timer(timestamp interval, clock_id id, thunk n, boolean periodic)
+timer register_timer(clock_id id, timestamp val, boolean absolute, timestamp interval, thunk n)
 {
-    timer t=(timer)allocate(theap, sizeof(struct timer));
+    timer t = allocate(theap, sizeof(struct timer));
     if (t == INVALID_ADDRESS) {
         msg_err("failed to allocate timer\n");
         return INVALID_ADDRESS;
     }
 
-    timestamp tn = now(id);
-    t->t = n;
-    t->disable = false;
-    t->expiry = tn + interval;
-    t->interval = (periodic) ? interval : 0;
     t->id = id;
+    t->expiry = absolute ? val : now(id) + val;
+    t->interval = interval;
+    t->disabled = false;
+    t->t = n;
+
+    /* one ref for consumer, one for pqueue */
+    init_refcount(&t->refcount, 2, init_closure(&t->free, timer_free, t));
     pqueue_insert(timers, t);
-
-    timer_debug("register %s timer: %p, interval %T, now %T, expiry %T\n",
-                (periodic) ? "periodic" : "one-shot", t, interval, tn, t->expiry);
-
-    return(t);
+    timer_debug("register timer: %p, expiry %T, interval %T, thunk %p\n", t->expiry, interval, t);
+    return t;
 }
 
-timer register_timer(timestamp interval, clock_id id, thunk n)
-{
-    return __register_timer(interval, id, n, false);
-}
-
-timer register_periodic_timer(timestamp interval, clock_id id, thunk n)
-{
-    return __register_timer(interval, id, n, true);
-}
-    
 /* Presently called with ints off. Address thread safety with
    pqueue before using with ints enabled.
 */
@@ -96,9 +51,10 @@ timestamp timer_check()
     timestamp here = 0;
     timer t = 0;
 
-    while ((t = pqueue_peek(timers)) && (here = now(CLOCK_ID_MONOTONIC), expiry(t) <= here)) {
+    while ((t = pqueue_peek(timers)) &&
+           (here = now(CLOCK_ID_MONOTONIC), timer_expiry(t) <= here)) {
         pqueue_pop(timers);
-        if (!t->disable) {
+        if (!t->disabled) {
             apply(t->t);
             if (t->interval) {
                 t->expiry += t->interval;
@@ -106,10 +62,11 @@ timestamp timer_check()
                 continue;
             }
         }
-        deallocate(theap, t, sizeof(struct timer));
+        refcount_release(&t->refcount);
     }
+
     if (t) {
-    	timestamp dt = expiry(t) - here;
+    	timestamp dt = timer_expiry(t) - here;
     	timer_debug("check returning dt: %d\n", dt);
     	return dt;
     }

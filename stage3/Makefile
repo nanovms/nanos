@@ -51,6 +51,7 @@ SRCS-stage3.img= \
 	$(SRCDIR)/unix/special.c \
 	$(SRCDIR)/unix/syscall.c \
 	$(SRCDIR)/unix/thread.c \
+	$(SRCDIR)/unix/timer.c \
 	$(SRCDIR)/unix/unix_clock.c \
 	$(SRCDIR)/unix/unix.c \
 	$(SRCDIR)/unix/vdso.c \

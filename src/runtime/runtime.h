@@ -159,6 +159,7 @@ typedef closure_type(thunk, void);
 #include <status.h>
 #include <pqueue.h>
 #include <clock.h>
+#include <refcount.h>
 #include <timer.h>
 #include <range.h>
 
@@ -208,8 +209,6 @@ typedef struct merge *merge;
 
 merge allocate_merge(heap h, status_handler completion);
 status_handler apply_merge(merge m);
-
-#include <refcount.h>
 
 void __stack_chk_guard_init();
 

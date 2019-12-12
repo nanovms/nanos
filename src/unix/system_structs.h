@@ -206,8 +206,25 @@ typedef int clockid_t;
 #define TIMER_ABSTIME               0x1
 
 struct timespec {
-	u64 ts_sec;
-	u64 ts_nsec;
+    u64 ts_sec;
+    u64 ts_nsec;
+};
+
+typedef s64 time_t;
+
+struct timeval {
+    time_t tv_sec;  /* seconds */
+    u64 tv_usec;    /* microseconds */
+};
+
+struct itimerspec {
+    struct timespec it_interval;
+    struct timespec it_value;
+};
+
+struct itimerval {
+    struct timeval it_interval;
+    struct timeval it_value;
 };
 
 // straight from linux
@@ -622,14 +639,6 @@ struct rt_sigframe {
     /* fp state follows here */
 };
 
-
-typedef s64 time_t;
-
-struct timeval {
-    time_t tv_sec;  /* seconds */
-    u64 tv_usec;    /* microseconds */
-};
-
 #define CLOCKS_PER_SEC  100
 
 typedef s64 clock_t;
@@ -710,6 +719,10 @@ typedef u32 gid_t;
 #define EFD_CLOEXEC     02000000
 #define EFD_NONBLOCK    00004000
 #define EFD_SEMAPHORE   00000001
+
+/* timerfd flags */
+#define TFD_CLOEXEC     O_CLOEXEC
+#define TFD_NONBLOCK    O_NONBLOCK
 
 /* renameat2 flags */
 #define RENAME_NOREPLACE    (1 << 0)

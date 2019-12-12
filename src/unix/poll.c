@@ -93,7 +93,7 @@ static epoll epoll_alloc_internal(void)
 	return e;
 
     list_init(&e->blocked_head);
-    init_refcount(&e->refcount, init_closure(&e->free, epoll_free, e));
+    init_refcount(&e->refcount, 1, init_closure(&e->free, epoll_free, e));
     e->h = heap_general(get_kernel_heaps());
     e->events = allocate_vector(e->h, 8);
     if (e->events == INVALID_ADDRESS)
@@ -132,7 +132,7 @@ static epollfd alloc_epollfd(epoll e, int fd, u32 eventmask, u64 data)
     efd->lastevents = 0;
     efd->e = e;
     efd->data = data;
-    init_refcount(&efd->refcount, init_closure(&efd->free, epollfd_free, efd));
+    init_refcount(&efd->refcount, 1, init_closure(&efd->free, epollfd_free, efd));
     efd->registered = false;
     efd->zombie = false;
     vector_set(e->events, fd, efd);
@@ -334,7 +334,7 @@ static epoll_blocked alloc_epoll_blocked(epoll e)
     epoll_debug("w %p\n", w);
 
     /* initial reservation released on thread wakeup (or direct return) */
-    init_refcount(&w->refcount, init_closure(&w->free, epoll_blocked_free, w));
+    init_refcount(&w->refcount, 1, init_closure(&w->free, epoll_blocked_free, w));
     w->t = current;
     refcount_reserve(&w->t->refcount);
     w->e = e;
@@ -432,9 +432,8 @@ sysreturn epoll_wait(int epfd,
     }
 
     return blockq_check_timeout(w->t->thread_bq, current,
-                                closure(e->h, epoll_wait_bh, w, current, timeout != 0),
-                                false, timeout > 0 ? milliseconds(timeout) : 0,
-                                CLOCK_ID_MONOTONIC);
+                                closure(e->h, epoll_wait_bh, w, current, timeout != 0), false,
+                                CLOCK_ID_MONOTONIC, timeout > 0 ? milliseconds(timeout) : 0, false);
 }
 
 static epollfd epollfd_from_fd(epoll e, int fd)
@@ -759,9 +758,8 @@ static sysreturn select_internal(int nfds,
     }
   check_timeout:
     return blockq_check_timeout(w->t->thread_bq, current,
-                                closure(e->h, select_bh, w, current, timeout != 0),
-                                false, timeout != infinity ? timeout : 0,
-                                CLOCK_ID_MONOTONIC);
+                                closure(e->h, select_bh, w, current, timeout != 0), false,
+                                CLOCK_ID_MONOTONIC, timeout != infinity ? timeout : 0, false);
 }
 
 
@@ -929,9 +927,8 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
     deallocate_bitmap(remove_efds);
 
     return blockq_check_timeout(w->t->thread_bq, current,
-                                closure(e->h, poll_bh, w, current, timeout != 0),
-                                false, timeout != infinity ? timeout : 0,
-                                CLOCK_ID_MONOTONIC);
+                                closure(e->h, poll_bh, w, current, timeout != 0), false,
+                                CLOCK_ID_MONOTONIC, timeout != infinity ? timeout : 0, false);
 }
 
 sysreturn ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *tmo_p, const sigset_t *sigmask)

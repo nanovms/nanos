@@ -100,7 +100,7 @@ static void blockq_item_finish(blockq bq, blockq_item bi)
         bq, blockq_name(bq), bi, bi->t->tid);
 
     if (bi->timeout)
-        remove_timer(bi->timeout);
+        remove_timer(bi->timeout, 0);
 
     if (bq->completion) {
         io_completion completion = bq->completion;
@@ -218,14 +218,14 @@ boolean blockq_wake_one_for_thread(blockq bq, thread t)
 }
 
 sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_bh,
-                               timestamp timeout, clock_id id)
+                               clock_id clkid, timestamp timeout, boolean absolute)
 {
     assert(t);
     assert(a);
     assert(!(in_bh && timeout)); /* no timeout checks in bh */
 
     blockq_debug("%p \"%s\", tid %ld, action %p, timeout %ld, clock_id %d\n",
-                 bq, blockq_name(bq), t->tid, a, timeout, clock_id);
+                 bq, blockq_name(bq), t->tid, a, timeout, clkid);
 
     /* XXX irqsafe mutex/spinlock
 
@@ -254,7 +254,7 @@ sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_
     refcount_reserve(&t->refcount);
 
     if (timeout > 0) {
-        bi->timeout = register_timer(timeout, id,
+        bi->timeout = register_timer(clkid, timeout, absolute, 0,
                                      closure(bq->h, blockq_item_timeout, bq, bi));
         if (bi->timeout == INVALID_ADDRESS) {
             msg_err("failed to allocate blockq timer\n");
@@ -329,9 +329,11 @@ int blockq_transfer_waiters(blockq dest, blockq src, int n)
             break;
         blockq_item bi = struct_from_list(l, blockq_item, l);
         if (bi->timeout) {
-            timestamp remain = remove_timer(bi->timeout);
+            timestamp remain;
+            remove_timer(bi->timeout, &remain);
             bi->timeout = remain == 0 ? 0 :
-                register_timer(remain, CLOCK_ID_MONOTONIC, closure(dest->h, blockq_item_timeout, dest, bi));
+                register_timer(CLOCK_ID_MONOTONIC, remain, false, 0,
+                               closure(dest->h, blockq_item_timeout, dest, bi));
         }
         list_delete(&bi->l);
         assert(bi->t->blocked_on == src);
