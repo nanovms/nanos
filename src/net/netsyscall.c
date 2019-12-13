@@ -133,8 +133,9 @@ typedef struct sock {
     } info;
 } *sock;
 
-closure_function(1, 0, u32, socket_events,
-                 sock, s)
+closure_function(1, 1, u32, socket_events,
+                 sock, s,
+                 thread, t /* ignore */)
 {
     sock s = bound(s);
     boolean in = queue_length(s->incoming) > 0;
@@ -159,7 +160,7 @@ closure_function(1, 0, u32, socket_events,
 
 static inline void notify_sock(sock s)
 {
-    u32 events = apply(s->f.events);
+    u32 events = apply(s->f.events, 0);
     net_debug("sock %d, events %lx\n", s->fd, events);
     notify_dispatch(s->f.ns, events);
 }

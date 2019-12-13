@@ -103,8 +103,9 @@ closure_function(1, 6, sysreturn, efd_write,
     return blockq_check(bound(efd)->write_bq, t, ba, bh);
 }
 
-closure_function(1, 0, u32, efd_events,
-                 struct efd *, efd)
+closure_function(1, 1, u32, efd_events,
+                 struct efd *, efd,
+                 thread, t /* ignore */)
 {
     u32 events = 0;
     if (bound(efd)->counter != 0) {
@@ -152,7 +153,7 @@ int do_eventfd2(unsigned int count, int flags)
         goto err_fd;
     }
 
-    init_fdesc(h, &efd->f, 0);
+    init_fdesc(h, &efd->f, FDESC_TYPE_EVENTFD);
     efd->f.flags = flags;
     efd->f.read = closure(h, efd_read, efd);
     efd->f.write = closure(h, efd_write, efd);

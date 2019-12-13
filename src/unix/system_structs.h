@@ -310,6 +310,11 @@ struct rlimit {
 # define SEGV_PKUERR    4   /* failed protection key checks */
 #define NSIGSEGV    4
 
+typedef struct sigval {
+    s32 val_int;
+    void * val_ptr;
+} sigval_t;
+
 typedef struct siginfo {
     u32 si_signo;
     s32 si_errno;
@@ -326,14 +331,14 @@ typedef struct siginfo {
         struct {
             u32 tid;
             u32 overrun;
-            u64 sigval;
+            sigval_t sigval;
             int sys_private;
         } timer;
 
         struct {
             u32 pid;
             u32 uid;
-            u64 sigval;
+            sigval_t sigval;
         } rt;
         
         struct {
@@ -397,6 +402,7 @@ struct signalfd_siginfo {
     s32 ssi_errno;
     s32 ssi_code;
     u32 ssi_pid;
+
     u32 ssi_uid;
     s32 ssi_fd;
     u32 ssi_tid;
@@ -407,12 +413,14 @@ struct signalfd_siginfo {
     u32 ssi_trapno;
     s32 ssi_status;
     s32 ssi_int;
+
     u64 ssi_ptr;
     u64 ssi_utime;
 
     /* 64 */
     u64 ssi_stime;
     u64 ssi_addr;
+
     u16 ssi_addr_lsb;
     u16 pad2;
     s32 ssi_syscall;
@@ -706,3 +714,7 @@ typedef u32 gid_t;
 /* renameat2 flags */
 #define RENAME_NOREPLACE    (1 << 0)
 #define RENAME_EXCHANGE     (1 << 1)
+
+/* signalfd flags */
+#define SFD_NONBLOCK O_NONBLOCK
+#define SFD_CLOEXEC  O_CLOEXEC

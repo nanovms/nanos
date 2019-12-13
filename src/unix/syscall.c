@@ -199,12 +199,10 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, vmsplice, 0);
     register_syscall(map, move_pages, 0);
     register_syscall(map, utimensat, 0);
-    register_syscall(map, signalfd, 0);
     register_syscall(map, timerfd_create, 0);
     register_syscall(map, fallocate, 0);
     register_syscall(map, timerfd_settime, 0);
     register_syscall(map, timerfd_gettime, 0);
-    register_syscall(map, signalfd4, 0);
     register_syscall(map, inotify_init1, 0);
     register_syscall(map, preadv, 0);
     register_syscall(map, pwritev, 0);
@@ -742,8 +740,9 @@ closure_function(2, 0, sysreturn, file_close,
     return 0;
 }
 
-closure_function(1, 0, u32, file_events,
-                 file, f)
+closure_function(1, 1, u32, file_events,
+                 file, f,
+                 thread, t /* ignore */)
 {
     file f = bound(f);
     u32 events;

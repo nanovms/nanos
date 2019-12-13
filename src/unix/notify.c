@@ -1,7 +1,7 @@
 #include <unix_internal.h>
 
 struct notify_entry {
-    u32 eventmask;
+    u64 eventmask;
     event_handler eh;
     struct list l;
 };
@@ -29,7 +29,7 @@ void deallocate_notify_set(notify_set s)
     deallocate(s->h, s, sizeof(struct notify_set));
 }
 
-notify_entry notify_add(notify_set s, u32 eventmask, event_handler eh)
+notify_entry notify_add(notify_set s, u64 eventmask, event_handler eh)
 {
     // XXX make cache
     notify_entry n = allocate(s->h, sizeof(struct notify_entry));
@@ -47,11 +47,30 @@ void notify_remove(notify_set s, notify_entry e, boolean release)
 {
     list_delete(&e->l);
     if (release)
-        apply(e->eh, NOTIFY_EVENTS_RELEASE);
+        apply(e->eh, NOTIFY_EVENTS_RELEASE, 0);
     deallocate(s->h, e, sizeof(struct notify_entry));
 }
 
-void notify_dispatch(notify_set s, u32 events)
+// XXX poll waiters too
+void notify_entry_update_eventmask(notify_entry n, u64 eventmask)
+{
+    // XXX atomic
+    n->eventmask = eventmask;
+}
+
+u64 notify_get_eventmask_union(notify_set s)
+{
+    u64 u = 0;
+    /* XXX take mutex */
+    list_foreach(&s->entries, l) {
+        notify_entry n = struct_from_list(l, notify_entry, l);
+        u |= n->eventmask;
+    }
+    /* XXX release mutex */
+    return u;
+}
+
+void notify_dispatch_for_thread(notify_set s, u64 events, thread t)
 {
     /* XXX take mutex */
     list_foreach(&s->entries, l) {
@@ -60,9 +79,14 @@ void notify_dispatch(notify_set s, u32 events)
         /* no guarantee that a transition is represented here; event
            handler needs to keep track itself if edge trigger is used */
         assert(n->eh);
-        apply(n->eh, events & n->eventmask);
+        apply(n->eh, events & n->eventmask, t);
     }
     /* XXX release mutex */
+}
+
+void notify_dispatch(notify_set s, u64 events)
+{
+    notify_dispatch_for_thread(s, events, 0);
 }
 
 void notify_release(notify_set s)
@@ -70,7 +94,7 @@ void notify_release(notify_set s)
     /* XXX take mutex */
     list_foreach(&s->entries, l) {
         notify_entry n = struct_from_list(l, notify_entry, l);
-        apply(n->eh, NOTIFY_EVENTS_RELEASE);
+        apply(n->eh, NOTIFY_EVENTS_RELEASE, 0);
         list_delete(l);
         deallocate(s->h, n, sizeof(struct notify_entry));
     }

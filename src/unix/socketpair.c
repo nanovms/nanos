@@ -237,8 +237,9 @@ closure_function(1, 6, sysreturn, sockpair_write,
     return blockq_check(s->write_bq, t, ba, bh);
 }
 
-closure_function(1, 0, u32, sockpair_events,
-                 sockpair_socket, s)
+closure_function(1, 1, u32, sockpair_events,
+                 sockpair_socket, s,
+                 thread, t /* ignore */)
 {
     sockpair_socket s = bound(s);
     u32 events = 0;
