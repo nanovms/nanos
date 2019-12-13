@@ -260,7 +260,8 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
 	goto alloc_fail;
     if (!pipe_init(uh))
 	goto alloc_fail;
-
+    if (!unix_timers_init(uh))
+        goto alloc_fail;
     if (ftrace_init(uh, fs))
 	goto alloc_fail;
 
@@ -301,6 +302,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     register_thread_syscalls(linux_syscalls);
     register_poll_syscalls(linux_syscalls);
     register_clock_syscalls(linux_syscalls);
+    register_timer_syscalls(linux_syscalls);
     register_other_syscalls(linux_syscalls);
     configure_syscalls(kernel_process);
     return kernel_process;
