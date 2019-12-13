@@ -404,7 +404,7 @@ static inline timestamp time_from_timespec(const struct timespec *t)
 
 static inline void timespec_from_time(struct timespec *ts, timestamp t)
 {
-    ts->ts_sec = t / TIMESTAMP_SECOND;
+    ts->ts_sec = sec_from_timestamp(t);
     ts->ts_nsec = nsec_from_timestamp(truncate_seconds(t));
 }
 
@@ -446,10 +446,16 @@ void register_mmap_syscalls(struct syscall *);
 void register_thread_syscalls(struct syscall *);
 void register_poll_syscalls(struct syscall *);
 void register_clock_syscalls(struct syscall *);
+void register_timer_syscalls(struct syscall *);
 void register_other_syscalls(struct syscall *);
+
+/* Call this routine if RTC offset should ever shift... */
+void notify_unix_timers_of_rtc_change(void);
 
 boolean poll_init(unix_heaps uh);
 boolean pipe_init(unix_heaps uh);
+boolean unix_timers_init(unix_heaps uh);
+
 #define sysreturn_from_pointer(__x) ((s64)u64_from_pointer(__x));
 
 extern sysreturn syscall_ignore();

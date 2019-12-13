@@ -7,6 +7,21 @@
 #include <unistd.h>
 #include <errno.h>
 #include <assert.h>
+#include <sys/timerfd.h>
+
+//#define TIMETEST_DEBUG
+#ifdef TIMETEST_DEBUG
+#define timetest_debug(x, ...) do {printf("%s: " x, __func__, ##__VA_ARGS__);} while(0)
+#else
+#define timetest_debug(x, ...)
+#endif
+
+#define timetest_err(x, ...) do {printf("%s: " x, __func__, ##__VA_ARGS__);} while(0)
+
+#define fail_perror(msg, ...) do { timetest_err(msg ": %s (%d)\n", ##__VA_ARGS__, strerror(errno), errno); \
+        exit(EXIT_FAILURE); } while(0)
+
+#define fail_error(msg, ...) do { timetest_err(msg, ##__VA_ARGS__); exit(EXIT_FAILURE); } while(0)
 
 #define BILLION 1000000000ull
 
@@ -35,6 +50,12 @@ static void validate_interval(unsigned long long nsec, struct timespec * start, 
     printf("   measured delta +%lld ns\n", elapsed - nsec);
 }
 
+static inline void timespec_from_nsec(struct timespec *ts, unsigned long long nsec)
+{
+    ts->tv_sec = nsec / BILLION;
+    ts->tv_nsec = nsec % BILLION;
+}
+
 static void test_clock_nanosleep(clockid_t clock_id, unsigned long long nsec)
 {
     struct timespec start, end, req, rem;
@@ -45,8 +66,7 @@ static void test_clock_nanosleep(clockid_t clock_id, unsigned long long nsec)
     printf("%s, clock_id %d, nsec %lld\n   relative test, start: ", __func__, clock_id, nsec);
     print_timespec(&start);
 
-    req.tv_sec = nsec / BILLION;
-    req.tv_nsec = nsec % BILLION;
+    timespec_from_nsec(&req, nsec);
     printf("\n      calling clock_nanosleep with req = ");
     print_timespec(&req);
     printf("\n");
@@ -97,8 +117,7 @@ static void test_nanosleep(unsigned long long nsec)
     printf("%s, nsec %lld\n   relative test, start: ", __func__, nsec);
     print_timespec(&start);
 
-    req.tv_sec = nsec / BILLION;
-    req.tv_nsec = nsec % BILLION;
+    timespec_from_nsec(&req, nsec);
     printf("\n      calling clock_nanosleep with req = ");
     print_timespec(&req);
     printf("\n");
@@ -169,6 +188,33 @@ void test_time_and_times(void)
     exit(EXIT_FAILURE);
 }
 
+void test_timerfd(clockid_t clkid, unsigned long long nsec)
+{
+    printf("timer_create\n");
+    int fd = timerfd_create(clkid, 0);
+    if (fd < 0)
+        fail_perror("timerfd_create");
+
+    // XXX gettime
+
+    /* simple periodic read test */
+    struct itimerspec its;
+    timespec_from_nsec(&its.it_interval, nsec);
+    timespec_from_nsec(&its.it_value, nsec);
+    if (timerfd_settime(fd, 0, &its, 0) < 0)
+        fail_perror("timerfd_settime");
+
+    for (int i=0; i < 10; i++) {
+        unsigned long long expirations = 0;
+        printf("   read\n");
+        int rv = read(fd, &expirations, sizeof(expirations));
+        if (rv < 0)
+            fail_perror("read");
+        printf("   -> %lld\n", expirations);
+    }
+    close(fd);
+}
+
 int
 main()
 {
@@ -180,6 +226,7 @@ main()
         test_clock_nanosleep(CLOCK_MONOTONIC, intervals[i]);
         test_clock_nanosleep(CLOCK_REALTIME, intervals[i]);
     }
+    test_timerfd(CLOCK_MONOTONIC, BILLION / 2);
     printf("time test passed\n");
     return EXIT_SUCCESS;
 }

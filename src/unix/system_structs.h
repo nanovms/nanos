@@ -101,9 +101,10 @@ typedef struct iovec {
 #define EOPNOTSUPP      95		/* Operation not supported */
 #define EISCONN         106
 #define ENOTCONN        107
-#define ETIMEDOUT       110     /* Connection timed out */
+#define ETIMEDOUT       110             /* Connection timed out */
 #define EALREADY        114
 #define EINPROGRESS     115
+#define ECANCELED       125             /* Used for timer cancel on RTC shift */
 
 #define O_RDONLY	00000000
 #define O_WRONLY	00000001
@@ -721,8 +722,10 @@ typedef u32 gid_t;
 #define EFD_SEMAPHORE   00000001
 
 /* timerfd flags */
-#define TFD_CLOEXEC     O_CLOEXEC
-#define TFD_NONBLOCK    O_NONBLOCK
+#define TFD_CLOEXEC             O_CLOEXEC
+#define TFD_NONBLOCK            O_NONBLOCK
+#define TFD_TIMER_ABSTIME       (1 << 0)
+#define TFD_TIMER_CANCEL_ON_SET (1 << 1)
 
 /* renameat2 flags */
 #define RENAME_NOREPLACE    (1 << 0)
