@@ -224,8 +224,9 @@ closure_function(1, 6, sysreturn, timerfd_read,
     return blockq_check(ut->info.timerfd.bq, t, ba, bh);
 }
 
-closure_function(1, 0, u32, timerfd_events,
-                 unix_timer, ut)
+closure_function(1, 1, u32, timerfd_events,
+                 unix_timer, ut,
+                 thread, t /* ignored */)
 {
     return bound(ut)->expirations > 0 ? EPOLLIN : 0;
 }
