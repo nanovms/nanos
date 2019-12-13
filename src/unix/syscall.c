@@ -200,7 +200,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, move_pages, 0);
     register_syscall(map, utimensat, 0);
     register_syscall(map, fallocate, 0);
-    register_syscall(map, signalfd4, 0);
     register_syscall(map, inotify_init1, 0);
     register_syscall(map, preadv, 0);
     register_syscall(map, pwritev, 0);
