@@ -36,8 +36,7 @@ timer register_timer(clock_id id, timestamp val, boolean absolute, timestamp int
     t->disabled = false;
     t->t = n;
 
-    /* one ref for consumer, one for pqueue */
-    init_refcount(&t->refcount, 2, init_closure(&t->free, timer_free, t));
+    init_refcount(&t->refcount, 1, init_closure(&t->free, timer_free, t));
     pqueue_insert(timers, t);
     timer_debug("register timer: %p, expiry %T, interval %T, thunk %p\n", t, t->expiry, interval, t);
     return t;

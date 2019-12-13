@@ -67,7 +67,6 @@ static inline void remove_timer(timer t, timestamp *remain)
         timestamp n = now(t->id);
         *remain = x > n ? x - n : 0;
     }
-    refcount_release(&t->refcount);
 }
 
 void initialize_timers(kernel_heaps kh);
