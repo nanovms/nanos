@@ -130,22 +130,11 @@ static void blockq_apply_bi_locked(blockq bq, blockq_item bi, u64 flags)
     rv = apply(bi->a, flags);
     blockq_debug("   - returned %ld\n", rv);
 
-   /*
-    *  In the existing cases right now, the action return value
-    *  semantics mirror those of the syscall itself. Of course, the
-    *  blocking code may interpret this return value as necessary,
-    *  provided that a value >= 0 represents success (no further
-    *  blocking required), == BLOCKQ_BLOCK_REQUIRED indicates blocking
-    *  required, and < 0 an error condition (and return).
-    */
-
-    /* IOW, the bi is done if the user tells us its done (or, on a nullify
-     * we'll just force it)
-     */
-    if ((flags & BLOCKQ_ACTION_NULLIFY) || (rv != BLOCKQ_BLOCK_REQUIRED))
+    /* If the blockq_action returns BLOCKQ_BLOCK_REQUIRED and neither
+       nullify or timeout are set in flags, continue blocking. */
+    if ((flags & (BLOCKQ_ACTION_NULLIFY | BLOCKQ_ACTION_TIMEDOUT)) ||
+        (rv != BLOCKQ_BLOCK_REQUIRED))
         blockq_item_finish(bq, bi);
-
-    /* XXX - Re-register timer if rv == BLOCKQ_BLOCK_REQUIRED? */
 }
 
 /*
@@ -330,10 +319,13 @@ int blockq_transfer_waiters(blockq dest, blockq src, int n)
         blockq_item bi = struct_from_list(l, blockq_item, l);
         if (bi->timeout) {
             timestamp remain;
+            thunk t = bi->timeout->t;
             remove_timer(bi->timeout, &remain);
             bi->timeout = remain == 0 ? 0 :
                 register_timer(CLOCK_ID_MONOTONIC, remain, false, 0,
                                closure(dest->h, blockq_item_timeout, dest, bi));
+            assert(t);
+            deallocate_closure(t);
         }
         list_delete(&bi->l);
         assert(bi->t->blocked_on == src);
