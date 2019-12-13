@@ -553,7 +553,7 @@ closure_function(2, 1, sysreturn, rt_sigsuspend_bh,
         if (flags & BLOCKQ_ACTION_BLOCKED)
             thread_wakeup(t);
         closure_finish();
-        return set_syscall_return(t, -EINTR);
+        return set_syscall_error(t, EINTR);
     }
 
     sig_debug("-> block\n");
@@ -702,7 +702,7 @@ closure_function(1, 1, sysreturn, pause_bh,
         }
         closure_finish();
         sig_debug("%p, %ld\n", t, t->frame[FRAME_RAX]);
-        return set_syscall_return(t, -EINTR);
+        return set_syscall_error(t, EINTR);
     }
 
     sig_debug("-> block\n");
@@ -835,11 +835,10 @@ closure_function(5, 1, sysreturn, signalfd_read_bh,
               sfd->fd, info, bound(length), t->tid, flags);
 
     if (flags & BLOCKQ_ACTION_NULLIFY) {
-        assert(flags & BLOCKQ_ACTION_BLOCKED);
-        thread_wakeup(t);
-        closure_finish();
+        assert(blocked);
+        rv = -EINTR;
         sig_debug("   -> EINTR\n");
-        return set_syscall_return(t, -EINTR);
+        goto out;
     }
 
     while (ninfos < max_infos) {
