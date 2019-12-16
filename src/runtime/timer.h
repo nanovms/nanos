@@ -1,6 +1,7 @@
 #pragma once
 typedef u64 timestamp;
 typedef struct timer *timer;
+typedef closure_type(timer_handler, void, u64);
 
 declare_closure_struct(1, 0, void, timer_free,
                        timer, t);
@@ -10,7 +11,7 @@ struct timer {
     timestamp expiry;
     timestamp interval;
     boolean disabled;
-    thunk t;
+    timer_handler t;
     struct refcount refcount;
     closure_struct(timer_free, free);
 };
@@ -29,7 +30,7 @@ static inline void runloop_timer(timestamp duration)
     apply(platform_timer, duration);
 }
 
-timer register_timer(clock_id id, timestamp val, boolean absolute, timestamp interval, thunk n);
+timer register_timer(clock_id id, timestamp val, boolean absolute, timestamp interval, timer_handler n);
 
 #if defined(STAGE3) || defined(BUILD_VDSO)
 #include <vdso.h>

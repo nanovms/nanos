@@ -143,8 +143,9 @@ static void blockq_apply_bi_locked(blockq bq, blockq_item bi, u64 flags)
  * Invoke its action and remove it from the list of waiters,
  * if applicable
  */
-closure_function(2, 0, void, blockq_item_timeout,
-                 blockq, bq, blockq_item, bi)
+closure_function(2, 1, void, blockq_item_timeout,
+                 blockq, bq, blockq_item, bi,
+                 u64, overruns /* ignored */)
 {
     blockq bq = bound(bq);
     blockq_item bi = bound(bi);
@@ -319,7 +320,7 @@ int blockq_transfer_waiters(blockq dest, blockq src, int n)
         blockq_item bi = struct_from_list(l, blockq_item, l);
         if (bi->timeout) {
             timestamp remain;
-            thunk t = bi->timeout->t;
+            timer_handler t = bi->timeout->t;
             remove_timer(bi->timeout, &remain);
             bi->timeout = remain == 0 ? 0 :
                 register_timer(CLOCK_ID_MONOTONIC, remain, false, 0,

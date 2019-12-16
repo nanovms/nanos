@@ -62,10 +62,13 @@ queue runqueue;                 /* dispatched in runloop */
 queue bhqueue;                  /* dispatched to exhaustion in process_bhqueue */
 queue deferqueue;               /* same as bhqueue, but only for previously queued items */
 
+static timestamp runloop_timer_min;
+static timestamp runloop_timer_max;
+
 static void timer_update(void)
 {
-    /* minimum runloop period - XXX move to a config header */
-    timestamp timeout = MIN(timer_check(), milliseconds(100) /* XXX config */);
+    /* find timer interval from timer heap, bound by configurable min and max */
+    timestamp timeout = MAX(MIN(timer_check(), runloop_timer_max), runloop_timer_min);
     runloop_timer(timeout);
 }
 
@@ -255,6 +258,12 @@ static void reclaim_regions(void)
     }
 }
 
+static void init_runloop_timer(void)
+{
+    runloop_timer_min = microseconds(RUNLOOP_TIMER_MIN_PERIOD_US);
+    runloop_timer_max = microseconds(RUNLOOP_TIMER_MAX_PERIOD_US);
+}
+
 static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = &heaps;
@@ -305,8 +314,9 @@ static void __attribute__((noinline)) init_service_new_stack()
         init_debug("KVM detected");
     }
 
-    /* clock, RNG, stack canaries */
+    /* clock, timer, RNG, stack canaries */
     init_clock();
+    init_runloop_timer();
     init_debug("RNG");
     init_hwrand();
     init_random();

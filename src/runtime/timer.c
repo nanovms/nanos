@@ -22,7 +22,7 @@ define_closure_function(1, 0, void, timer_free,
     deallocate(theap, bound(t), sizeof(struct timer));
 }
 
-timer register_timer(clock_id id, timestamp val, boolean absolute, timestamp interval, thunk n)
+timer register_timer(clock_id id, timestamp val, boolean absolute, timestamp interval, timer_handler n)
 {
     timer t = allocate(theap, sizeof(struct timer));
     if (t == INVALID_ADDRESS) {
@@ -38,27 +38,31 @@ timer register_timer(clock_id id, timestamp val, boolean absolute, timestamp int
 
     init_refcount(&t->refcount, 1, init_closure(&t->free, timer_free, t));
     pqueue_insert(timers, t);
-    timer_debug("register timer: %p, expiry %T, interval %T, thunk %p\n", t, t->expiry, interval, t);
+    timer_debug("register timer: %p, expiry %T, interval %T, handler %p\n", t, t->expiry, interval, n);
     return t;
 }
 
-/* Presently called with ints off. Address thread safety with
-   pqueue before using with ints enabled.
-*/
 timestamp timer_check()
 {
-    timestamp here = 0;
-    timer t = 0;
+    timer t;
+    s64 delta;
+    timestamp here = now(CLOCK_ID_MONOTONIC);
 
-    while ((t = pqueue_peek(timers)) &&
-           (here = now(CLOCK_ID_MONOTONIC), timer_expiry(t) <= here)) {
+    while ((t = pqueue_peek(timers)) && (delta = here - timer_expiry(t), delta >= 0)) {
         pqueue_pop(timers);
         if (!t->disabled) {
-            apply(t->t);
             if (t->interval) {
-                t->expiry += t->interval;
-                pqueue_insert(timers, t);
-                continue;
+                u64 overruns = 1;
+                if (delta > t->interval)
+                    overruns += delta / t->interval;
+                apply(t->t, overruns);
+                if (!t->disabled) {
+                    t->expiry += t->interval * overruns;
+                    pqueue_insert(timers, t);
+                    continue;
+                }
+            } else {
+                apply(t->t, 1);
             }
         }
         refcount_release(&t->refcount);

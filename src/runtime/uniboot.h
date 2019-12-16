@@ -46,4 +46,8 @@ static inline u16 tagof(void* v) {
 /* maximum buckets that can fit within a PAGESIZE_2M mcache */
 #define TABLE_MAX_BUCKETS 131072
 
+/* runloop timer minimum and maximum */
+#define RUNLOOP_TIMER_MAX_PERIOD_US     100000
+#define RUNLOOP_TIMER_MIN_PERIOD_US     10
+
 #include <x86.h>
