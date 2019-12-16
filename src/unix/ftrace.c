@@ -801,7 +801,7 @@ function_graph_print_entry(struct ftrace_printer * p,
         if (graph->has_child) {
             printer_write(p, "}");
             if (graph->flush)
-                printer_write(p, " */ %s */", function_name(graph->ip));
+                printer_write(p, " /* %s */", function_name(graph->ip));
         } else {
             printer_write(p, "%s();", function_name(graph->ip));
         }
