@@ -237,6 +237,7 @@ void test_timerfd(clockid_t clkid, unsigned long long nsec)
         fail_perror("read");
     if (expirations == 0)
         fail_error("read zero expirations\n");
+    timetest_debug("   + %lld\n", expirations);
 
     timerfd_check_disarmed(fd);
 
@@ -319,7 +320,7 @@ main()
 {
     setbuf(stdout, NULL);
     test_time_and_times();
-    unsigned long long intervals[] = { 1000, 1000000, BILLION, -1 };
+    unsigned long long intervals[] = { 1, 1000, 1000000, BILLION, 2 * BILLION, -1 };
     for (int i = 0; intervals[i] != -1; i++) {
         test_nanosleep(intervals[i]);
         test_clock_nanosleep(CLOCK_MONOTONIC, intervals[i]);

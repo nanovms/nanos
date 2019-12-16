@@ -18,7 +18,7 @@ typedef struct unix_timer {
     int type;
     clock_id cid;
     timer t;                    /* zero if disarmed */
-    u64 expirations;
+    u64 overruns;
 
     union {
         struct {
@@ -48,7 +48,7 @@ static unix_timer allocate_unix_timer(int type, clock_id cid)
     ut->type = type;
     ut->cid = cid;
     ut->t = 0;
-    ut->expirations = 0;
+    ut->overruns = 0;
     return ut;
 }
 
@@ -77,21 +77,23 @@ static inline void timerfd_remove_timer(unix_timer ut)
 {
     if (!ut->t)
         return;
-    thunk t = ut->t->t;
+    timer_handler t = ut->t->t;
     remove_timer(ut->t, 0);
     ut->t = 0;
     deallocate_closure(t);
 }
 
-closure_function(1, 0, void, timerfd_timer_expire,
-                 unix_timer, ut)
+closure_function(1, 1, void, timerfd_timer_expire,
+                 unix_timer, ut,
+                 u64, overruns)
 {
     unix_timer ut = bound(ut);
     assert(ut->t);
     assert(!ut->t->disabled);
 
-    fetch_and_add(&ut->expirations, 1); /* atomic really necessary? */
-    timer_debug("interval %ld, fd %d -> %d\n", ut->t->interval, ut->info.timerfd.fd, ut->expirations);
+    ut->overruns += overruns;
+    timer_debug("interval %ld, fd %d +%d -> %d\n", ut->t->interval,
+                ut->info.timerfd.fd, overruns, ut->overruns);
 
     blockq_wake_one(ut->info.timerfd.bq);
     notify_dispatch(ut->f.ns, EPOLLIN);
@@ -194,8 +196,8 @@ closure_function(5, 1, sysreturn, timerfd_read_bh,
         goto out;
     }
 
-    u64 expirations = ut->expirations;
-    if (expirations == 0) {
+    u64 overruns = ut->overruns;
+    if (overruns == 0) {
         if (!blocked && (ut->f.flags & TFD_NONBLOCK)) {
             rv = -EAGAIN;
             goto out;
@@ -203,10 +205,8 @@ closure_function(5, 1, sysreturn, timerfd_read_bh,
         timer_debug("   -> block\n");
         return BLOCKQ_BLOCK_REQUIRED;
     }
-
-    /* would do atomic swap were it not for ints disabled... */
-    *(u64*)bound(dest) = expirations;
-    ut->expirations = 0;
+    *(u64*)bound(dest) = overruns;
+    ut->overruns = 0;
   out:
     timer_debug("   -> returning %ld\n", rv);
     blockq_handle_completion(ut->info.timerfd.bq, flags, bound(completion), t, rv);
@@ -231,7 +231,7 @@ closure_function(1, 1, u32, timerfd_events,
                  unix_timer, ut,
                  thread, t /* ignored */)
 {
-    return bound(ut)->expirations > 0 ? EPOLLIN : 0;
+    return bound(ut)->overruns > 0 ? EPOLLIN : 0;
 }
 
 closure_function(1, 0, sysreturn, timerfd_close,
