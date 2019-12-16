@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <assert.h>
 #include <sys/timerfd.h>
+#include <sys/epoll.h>
 
 //#define TIMETEST_DEBUG
 #ifdef TIMETEST_DEBUG
@@ -54,6 +55,11 @@ static inline void timespec_from_nsec(struct timespec *ts, unsigned long long ns
 {
     ts->tv_sec = nsec / BILLION;
     ts->tv_nsec = nsec % BILLION;
+}
+
+static inline unsigned long long nsec_from_timespec(struct timespec *ts)
+{
+    return ts->tv_sec * BILLION + ts->tv_nsec;
 }
 
 static void test_clock_nanosleep(clockid_t clock_id, unsigned long long nsec)
@@ -188,30 +194,123 @@ void test_time_and_times(void)
     exit(EXIT_FAILURE);
 }
 
+static inline void timerfd_check_disarmed(int fd)
+{
+    struct itimerspec its;
+    int rv = timerfd_gettime(fd, &its);
+    if (rv < 0)
+        fail_perror("timerfd_gettime");
+    if (its.it_value.tv_sec != 0 || its.it_value.tv_nsec != 0)
+        fail_error("timerfd_gettime should have returned zero it_value for disarmed timer.\n");
+}
+
+static inline void timerfd_set(int fd, unsigned long long value, unsigned long long interval)
+{
+    struct itimerspec its;
+    timespec_from_nsec(&its.it_interval, interval);
+    timespec_from_nsec(&its.it_value, value);
+    if (timerfd_settime(fd, 0, &its, 0) < 0)
+        fail_perror("timerfd_settime");
+}
+
 void test_timerfd(clockid_t clkid, unsigned long long nsec)
 {
-    printf("timer_create\n");
+    printf("%s for clkid %d, %lld nsec\n", __func__, clkid, nsec);
     int fd = timerfd_create(clkid, 0);
     if (fd < 0)
         fail_perror("timerfd_create");
 
-    // XXX gettime
-
-    /* simple periodic read test */
-    struct itimerspec its;
-    timespec_from_nsec(&its.it_interval, nsec);
-    timespec_from_nsec(&its.it_value, nsec);
-    if (timerfd_settime(fd, 0, &its, 0) < 0)
-        fail_perror("timerfd_settime");
-
-    for (int i=0; i < 10; i++) {
-        unsigned long long expirations = 0;
-        printf("   read\n");
-        int rv = read(fd, &expirations, sizeof(expirations));
-        if (rv < 0)
-            fail_perror("read");
-        printf("   -> %lld\n", expirations);
+    int rv = timerfd_gettime(fd, 0);
+    if (rv >= 0 || errno != EFAULT) {
+        fail_error("timerfd_gettime with null curr_value should have failed with "
+                   "EFAULT (rv %d, errno %d)\n", rv, errno);
     }
+
+    timerfd_check_disarmed(fd);
+
+    timetest_debug("   one shot test...\n");
+    unsigned long long expirations = 0;
+    timerfd_set(fd, nsec, 0);
+
+    rv = read(fd, &expirations, sizeof(expirations));
+    if (rv < sizeof(expirations))
+        fail_perror("read");
+    if (expirations == 0)
+        fail_error("read zero expirations\n");
+
+    timerfd_check_disarmed(fd);
+
+    timetest_debug("   periodic test...\n");
+    struct itimerspec its;
+    timerfd_set(fd, nsec, nsec);
+
+    int nexpired = 0;
+    while (nexpired < 3) {
+        rv = timerfd_gettime(fd, &its);
+        if (rv < 0)
+            fail_perror("timerfd_gettime");
+        timetest_debug("   read at ");
+#ifdef TIMETEST_DEBUG
+        print_timespec(&its.it_value);
+        printf("\n");
+#endif
+        if (nsec_from_timespec(&its.it_value) > nsec)
+            fail_error("timer value greater than duration.\n");
+        rv = read(fd, &expirations, sizeof(expirations));
+        if (rv < sizeof(expirations))
+            fail_perror("read");
+        if (expirations == 0)
+            fail_error("read zero expirations\n");
+        timetest_debug("   + %lld\n", expirations);
+        nexpired += expirations;
+    }
+
+    timerfd_set(fd, 0, 0);
+    timerfd_check_disarmed(fd);
+
+    timetest_debug("   poll wait test...\n");
+    int epfd = epoll_create(1);
+    if (epfd < 0)
+        fail_perror("epoll_create");
+
+    struct epoll_event epev;
+    epev.events = EPOLLIN;
+    epev.data.fd = fd;
+    if (epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &epev) < 0)
+        fail_perror("epoll_ctl 1");
+
+    struct epoll_event rev;
+
+    timerfd_set(fd, nsec, nsec);
+
+    nexpired = 0;
+    while (nexpired < 3) {
+        timetest_debug("   epoll_wait...\n");
+        int nfds = epoll_wait(epfd, &rev, 1, 5000);
+        if (nfds < 0)
+            fail_perror("epoll_wait");
+        if (nfds == 0)
+            fail_error("epoll_wait timed out\n");
+        timetest_debug("   fd %d events 0x%x\n", rev.data.fd, rev.events);
+        rv = timerfd_gettime(fd, &its);
+        if (rv < 0)
+            fail_perror("timerfd_gettime");
+        timetest_debug("   read at ");
+#ifdef TIMETEST_DEBUG
+        print_timespec(&its.it_value);
+        printf("\n");
+#endif
+        rv = read(fd, &expirations, sizeof(expirations));
+        if (rv < sizeof(expirations))
+            fail_perror("read");
+        if (expirations == 0)
+            fail_error("read zero expirations\n");
+        nexpired += expirations;
+    }
+
+    timerfd_set(fd, 0, 0);
+    timerfd_check_disarmed(fd);
+    close(epfd);
     close(fd);
 }
 
@@ -220,13 +319,14 @@ main()
 {
     setbuf(stdout, NULL);
     test_time_and_times();
-    unsigned long long intervals[] = { 0, BILLION / 2, BILLION, -1 };
+    unsigned long long intervals[] = { 1000, 1000000, BILLION, -1 };
     for (int i = 0; intervals[i] != -1; i++) {
         test_nanosleep(intervals[i]);
         test_clock_nanosleep(CLOCK_MONOTONIC, intervals[i]);
         test_clock_nanosleep(CLOCK_REALTIME, intervals[i]);
+        test_timerfd(CLOCK_MONOTONIC, intervals[i]);
+        test_timerfd(CLOCK_REALTIME, intervals[i]);
     }
-    test_timerfd(CLOCK_MONOTONIC, BILLION / 2);
     printf("time test passed\n");
     return EXIT_SUCCESS;
 }

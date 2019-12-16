@@ -91,7 +91,7 @@ closure_function(1, 0, void, timerfd_timer_expire,
     assert(!ut->t->disabled);
 
     fetch_and_add(&ut->expirations, 1); /* atomic really necessary? */
-    timer_debug("fd %d -> %d\n", ut->info.timerfd.fd, ut->expirations);
+    timer_debug("interval %ld, fd %d -> %d\n", ut->t->interval, ut->info.timerfd.fd, ut->expirations);
 
     blockq_wake_one(ut->info.timerfd.bq);
     notify_dispatch(ut->f.ns, EPOLLIN);
@@ -140,7 +140,10 @@ sysreturn timerfd_settime(int fd, int flags,
     timestamp tinit = time_from_timespec(&new_value->it_value);
     timestamp interval = time_from_timespec(&new_value->it_interval);
 
-    timer t = register_timer(ut->cid, tinit, (flags & TFD_TIMER_ABSTIME) != 0, interval,
+    boolean absolute = (flags & TFD_TIMER_ABSTIME) != 0;
+    timer_debug("register timer: cid %d, init value %T, absolute %d, interval %T\n",
+                ut->cid, tinit, absolute, interval);
+    timer t = register_timer(ut->cid, tinit, absolute, interval,
                              closure(unix_timer_heap, timerfd_timer_expire, ut));
     if (t == INVALID_ADDRESS)
         return -ENOMEM;
@@ -284,13 +287,6 @@ sysreturn timerfd_create(int clockid, int flags)
     deallocate_unix_timer(ut);
     return -ENOMEM;
 }
-
-#if 0
-sysreturn timer_create(clockid_t clockid, struct sigevent *sevp, void **timerid)
-{
-
-}
-#endif
 
 void register_timer_syscalls(struct syscall *map)
 {
