@@ -233,8 +233,11 @@ void test_timerfd(clockid_t clkid, unsigned long long nsec)
     timerfd_set(fd, nsec, 0);
 
     rv = read(fd, &expirations, sizeof(expirations));
-    if (rv < sizeof(expirations))
+    printf("rv %d, errno %d\n", rv, errno);
+    if (rv < 0)
         fail_perror("read");
+    if (rv != sizeof(expirations))
+        fail_error("read returned unexpected value: %d\n", rv);
     if (expirations == 0)
         fail_error("read zero expirations\n");
     timetest_debug("   + %lld\n", expirations);

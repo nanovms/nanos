@@ -320,6 +320,8 @@ typedef struct process {
     timestamp         start_time;
     struct sigstate   signals;
     struct sigaction  sigactions[NSIG];
+    heap              posix_timer_ids;
+    vector            posix_timers; /* unix_timer by id */
 } *process;
 
 typedef struct sigaction *sigaction;
@@ -329,6 +331,22 @@ typedef struct sigaction *sigaction;
 
 extern thread dummy_thread;
 extern thread current;
+
+static inline thread thread_from_tid(process p, int tid)
+{
+    thread t = vector_get(p->threads, tid);
+    return t ? t : INVALID_ADDRESS;
+}
+
+static inline void thread_reserve(thread t)
+{
+    refcount_reserve(&t->refcount);
+}
+
+static inline void thread_release(thread t)
+{
+    refcount_release(&t->refcount);
+}
 
 static inline unix_heaps get_unix_heaps()
 {

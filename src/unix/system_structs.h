@@ -451,6 +451,28 @@ struct signalfd_siginfo {
     u8 pad[SIGNALFD_SIGINFO_SIZE - 100];
 };
 
+#define SIGEV_SIGNAL    0
+#define SIGEV_NONE      1
+#define SIGEV_THREAD    2
+#define SIGEV_THREAD_ID 4
+
+#define SIGEVENT_SIZE 64
+#define SIGEVENT_PAD_BYTES (SIGEVENT_SIZE - (sizeof(s32) * 2 + sizeof(sigval_t)))
+
+typedef struct sigevent {
+    sigval_t sigev_value;
+    s32 sigev_signo;
+    s32 sigev_notify;
+    union {
+        u32 pad[SIGEVENT_PAD_BYTES / sizeof(u32)];
+        u32 tid;
+        struct {
+            void (*function)(sigval_t);
+            void *attribute;
+        } sigev_thread;
+    } sigev_un;
+} sigevent_t;
+
 typedef u64 fd_set;
 
 typedef unsigned long int nfds_t;

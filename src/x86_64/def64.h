@@ -13,6 +13,15 @@ typedef __uint128_t u128;
 typedef u64 word;
 typedef u64 bytes;
 
+// XXX verify
+#define U32_MAX (~0u)
+#define S32_MAX ((s32)(U32_MAX >> 1))
+#define S32_MIN (-S32_MAX - 1)
+
+#define U64_MAX (~0ull)
+#define S64_MAX ((s64)(U64_MAX >> 1))
+#define S64_MIN (-S64_MAX - 1)
+
 #define pointer_from_u64(__a) ((void *)(__a))
 #define u64_from_pointer(__a) ((u64)(__a))
 // a super sad hack to allow us to write to the bss in elf.c as

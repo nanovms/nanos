@@ -598,8 +598,7 @@ sysreturn tgkill(int tgid, int tid, int sig)
         return 0;               /* always permitted */
 
     thread t;
-    if (tid >= vector_length(current->p->threads) ||
-        !(t = vector_get(current->p->threads, tid)))
+    if ((t = thread_from_tid(current->p, tid)) == INVALID_ADDRESS)
         return -ESRCH;
 
     struct siginfo si;
@@ -674,8 +673,7 @@ sysreturn rt_tgsigqueueinfo(int tgid, int tid, int sig, siginfo_t *uinfo)
         return rv;
 
     thread t;
-    if (tid >= vector_length(current->p->threads) ||
-        !(t = vector_get(current->p->threads, tid)))
+    if ((t = thread_from_tid(current->p, tid)) == INVALID_ADDRESS)
         return -ESRCH;
 
     uinfo->si_signo = sig;

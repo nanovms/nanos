@@ -246,6 +246,7 @@ define_closure_function(1, 0, void, epoll_blocked_free,
 {
     epoll_blocked w = bound(w);
     epoll_debug("w %p\n", w);
+    thread_release(w->t);
     refcount_release(&w->e->refcount);
     unix_cache_free(get_unix_heaps(), epoll_blocked, w);
 }
@@ -336,7 +337,7 @@ static epoll_blocked alloc_epoll_blocked(epoll e)
     /* initial reservation released on thread wakeup (or direct return) */
     init_refcount(&w->refcount, 1, init_closure(&w->free, epoll_blocked_free, w));
     w->t = current;
-    refcount_reserve(&w->t->refcount);
+    thread_reserve(w->t);
     w->e = e;
     refcount_reserve(&e->refcount);
     list_insert_after(&e->blocked_head, &w->blocked_list); /* push */

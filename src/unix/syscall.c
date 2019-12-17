@@ -155,11 +155,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, restart_syscall, 0);
     register_syscall(map, semtimedop, 0);
     register_syscall(map, fadvise64, 0);
-    register_syscall(map, timer_create, 0);
-    register_syscall(map, timer_settime, 0);
-    register_syscall(map, timer_gettime, 0);
-    register_syscall(map, timer_getoverrun, 0);
-    register_syscall(map, timer_delete, 0);
     register_syscall(map, clock_settime, 0);
     register_syscall(map, utimes, 0);
     register_syscall(map, vserver, 0);

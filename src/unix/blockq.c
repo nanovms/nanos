@@ -110,7 +110,7 @@ static void blockq_item_finish(blockq bq, blockq_item bi)
         /* XXX acquire spinlock */
     }
 
-    refcount_release(&bi->t->refcount);
+    thread_release(bi->t);
     free_blockq_item(bq, bi);
 }
 
@@ -241,7 +241,7 @@ sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_
 
     bi->a = a;
     bi->t = t;
-    refcount_reserve(&t->refcount);
+    thread_reserve(t);
 
     if (timeout > 0) {
         bi->timeout = register_timer(clkid, timeout, absolute, 0,

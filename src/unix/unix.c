@@ -185,6 +185,8 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->start_time = now(CLOCK_ID_MONOTONIC);
     init_sigstate(&p->signals);
     zero(p->sigactions, sizeof(p->sigactions));
+    p->posix_timer_ids = create_id_heap(h, 0, U32_MAX, 1);
+    p->posix_timers = allocate_vector(h, 8);
     return p;
 }
 
