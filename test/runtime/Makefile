@@ -165,6 +165,7 @@ SRCS-time= \
 	$(CURDIR)/time.c \
 	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-time=		-static
+LIBS-time=		-lrt -lpthread
 
 SRCS-udploop= \
 	$(CURDIR)/udploop.c \

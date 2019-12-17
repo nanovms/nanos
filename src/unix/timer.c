@@ -291,25 +291,28 @@ sysreturn timerfd_create(int clockid, int flags)
     return -ENOMEM;
 }
 
-static unix_timer posix_timer_from_timerid(u32 *timerid)
+static unix_timer posix_timer_from_timerid(u32 timerid)
 {
-    if (!timerid)
-        return INVALID_ADDRESS;
-    unix_timer ut = vector_get(current->p->posix_timers, *timerid);
+    unix_timer ut = vector_get(current->p->posix_timers, timerid);
     if (!ut)
         return INVALID_ADDRESS;
     return ut ? ut : INVALID_ADDRESS;
 }
 
+static s32 timer_overruns_s32(unix_timer ut)
+{
+    return ut->overruns > (u64)S32_MAX ? S32_MAX : (s32)ut->overruns;
+}
+
 /* XXX clear overruns here, or after delivery confirmed? */
 static void sigev_fill_siginfo(unix_timer ut, struct siginfo *si)
 {
-    zero(&si, sizeof(struct siginfo));
+    zero(si, sizeof(struct siginfo));
     si->si_signo = ut->info.posix.sevp.sigev_signo;
     si->si_errno = 0;
     si->si_code = SI_TIMER;
     si->sifields.timer.tid = ut->info.posix.id;
-    si->sifields.timer.overrun = ut->overruns;
+    si->sifields.timer.overrun = timer_overruns_s32(ut);
     ut->overruns = 0;
     si->sifields.timer.sigval = ut->info.posix.sevp.sigev_value;
 }
@@ -344,8 +347,8 @@ closure_function(1, 1, void, posix_timer_expire,
     assert(!ut->t->disabled);
 
     ut->overruns += overruns;
-    timer_debug("interval %ld, fd %d +%d -> %d\n", ut->t->interval,
-                ut->info.timerfd.fd, overruns, ut->overruns);
+    timer_debug("interval %ld, id %d +%d -> %d\n", ut->t->interval,
+                ut->info.posix.id, overruns, ut->overruns);
 
     sigev_deliver(ut);
 
@@ -353,7 +356,7 @@ closure_function(1, 1, void, posix_timer_expire,
         remove_unix_timer(ut);     /* deallocs closure for us */
 }
 
-sysreturn timer_settime(u32 *timerid, int flags,
+sysreturn timer_settime(u32 timerid, int flags,
                         const struct itimerspec *new_value,
                         struct itimerspec *old_value) {
     /* Linux doesn't validate flags? */
@@ -384,7 +387,7 @@ sysreturn timer_settime(u32 *timerid, int flags,
     return 0;
 }
 
-sysreturn timer_gettime(u32 *timerid, struct itimerspec *curr_value) {
+sysreturn timer_gettime(u32 timerid, struct itimerspec *curr_value) {
     if (!curr_value)
         return -EFAULT;
 
@@ -396,16 +399,16 @@ sysreturn timer_gettime(u32 *timerid, struct itimerspec *curr_value) {
     return 0;
 }
 
-sysreturn timer_getoverrun(u32 *timerid) {
+sysreturn timer_getoverrun(u32 timerid) {
     unix_timer ut = posix_timer_from_timerid(timerid);
     if (ut == INVALID_ADDRESS)
         return -EINVAL;
-    sysreturn rv = ut->overruns > (u64)S32_MAX ? S32_MAX : (s32)ut->overruns;
+    sysreturn rv = timer_overruns_s32(ut);
     ut->overruns = 0;
     return rv;
 }
 
-sysreturn timer_delete(u32 *timerid) {
+sysreturn timer_delete(u32 timerid) {
     unix_timer ut = posix_timer_from_timerid(timerid);
     if (ut == INVALID_ADDRESS)
         return -EINVAL;
@@ -471,7 +474,7 @@ sysreturn timer_create(int clockid, struct sigevent *sevp, u32 *timerid)
         default_sevp.sigev_notify = SIGEV_SIGNAL;
         default_sevp.sigev_signo = SIGALRM;
         zero(&default_sevp.sigev_value, sizeof(sigval_t));
-        default_sevp.sigev_value.val_int = id;
+        default_sevp.sigev_value.sival_int = id;
         sevp = &default_sevp;
     }
 

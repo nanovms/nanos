@@ -328,9 +328,9 @@ struct rlimit {
 # define SEGV_PKUERR    4   /* failed protection key checks */
 #define NSIGSEGV    4
 
-typedef struct sigval {
-    s32 val_int;
-    void * val_ptr;
+typedef union sigval {
+    s32 sival_int;
+    void * sival_ptr;
 } sigval_t;
 
 typedef struct siginfo {

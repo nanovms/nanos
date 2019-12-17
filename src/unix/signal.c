@@ -796,8 +796,8 @@ static void signalfd_siginfo_fill(struct signalfd_siginfo * si, queued_signal qs
     case SI_TIMER:
         si->ssi_tid = qs->si.sifields.timer.tid;
         si->ssi_overrun = qs->si.sifields.timer.overrun;
-        si->ssi_ptr = (u64)qs->si.sifields.timer.sigval.val_ptr;
-        si->ssi_int = qs->si.sifields.timer.sigval.val_int;
+        si->ssi_ptr = (u64)qs->si.sifields.timer.sigval.sival_ptr;
+        si->ssi_int = qs->si.sifields.timer.sigval.sival_int;
         break;
     case SI_SIGIO:
         si->ssi_band = qs->si.sifields.sigpoll.band;
@@ -810,8 +810,8 @@ static void signalfd_siginfo_fill(struct signalfd_siginfo * si, queued_signal qs
     case SI_ASYNCNL:
         si->ssi_pid = qs->si.sifields.rt.pid;
         si->ssi_uid = qs->si.sifields.rt.uid;
-        si->ssi_ptr = (u64)qs->si.sifields.rt.sigval.val_ptr;
-        si->ssi_int = qs->si.sifields.rt.sigval.val_int;
+        si->ssi_ptr = (u64)qs->si.sifields.rt.sigval.sival_ptr;
+        si->ssi_int = qs->si.sifields.rt.sigval.sival_int;
         break;
     }
 }
