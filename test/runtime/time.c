@@ -236,8 +236,9 @@ void test_timerfd(clockid_t clkid, unsigned long long nsec)
     unsigned long long expirations = 0;
     timerfd_set(fd, nsec, 0);
 
+    timetest_debug("   reading...\n");
     rv = read(fd, &expirations, sizeof(expirations));
-    printf("rv %d, errno %d\n", rv, errno);
+    timetest_debug("   rv %d, errno %d\n", rv, errno);
     if (rv < 0)
         fail_perror("read");
     if (rv != sizeof(expirations))
@@ -322,52 +323,52 @@ void test_timerfd(clockid_t clkid, unsigned long long nsec)
     close(fd);
 }
 
-void posix_timer_set(timer_t id, unsigned long long value, unsigned long long interval)
+void posix_timer_set(int id, unsigned long long value, unsigned long long interval)
 {
     struct itimerspec its;
     timespec_from_nsec(&its.it_interval, interval);
     timespec_from_nsec(&its.it_value, value);
-    if (timer_settime(id, 0, &its, 0) < 0)
+    if (syscall(SYS_timer_settime, id, 0, &its, 0) < 0)
         fail_perror("timer_settime");
 }
 
-static volatile int test_posix_timers_caught = 0;
+static volatile int test_posix_timers_caught;
 
 static void test_posix_timers_handler(int sig, siginfo_t *si, void *ucontext)
 {
     assert(si);
     timetest_debug("sig %d, si->signo %d, si->errno %d, si->code %d, tid %d, overrun %d\n",
                    sig, si->si_signo, si->si_errno, si->si_code, si->si_timerid, si->si_overrun);
-    assert(sig == SIGRTMIN);
+    assert(sig == SIGALRM);
     assert(sig == si->si_signo);
     assert(si->si_code == SI_TIMER);
-    test_posix_timers_caught = si->si_value.sival_int;
+// XXX    test_posix_timers_caught = si->si_value.sival_int;
+    test_posix_timers_caught = si->si_timerid;
 }
 
 static void yield_for(volatile int * v)
 {
     /* XXX add timeout */
-    while (!*v)
+    while (*v < 0)
         sched_yield();
 }
 
 void test_posix_timers(clockid_t clkid, unsigned long long nsec)
 {
     printf("%s for clkid %d, %lld nsec\n", __func__, clkid, nsec);
-    timer_t id;
 
-    test_posix_timers_caught = 0;
+    test_posix_timers_caught = -1;
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_sigaction = test_posix_timers_handler;
     sa.sa_flags |= SA_SIGINFO;
-    int rv = sigaction(SIGRTMIN, &sa, 0);
+    int rv = sigaction(SIGALRM, &sa, 0);
     if (rv < 0)
         fail_perror("test_signal_catch: sigaction");
 
     sigset_t ss;
     sigemptyset(&ss);
-    sigaddset(&ss, SIGRTMIN);
+    sigaddset(&ss, SIGALRM);
     rv = sigprocmask(SIG_UNBLOCK, &ss, 0);
     if (rv < 0)
         fail_perror("sigprocmask");
@@ -376,24 +377,48 @@ void test_posix_timers(clockid_t clkid, unsigned long long nsec)
     if (rv >= 0 || errno != EFAULT)
         fail_error("timer_create with null timerid should have failed with EFAULT (rv %d, errno %d)\n", rv, errno);
 
+    unsigned int id;
     timetest_debug("   process signal test...\n");
-    struct sigevent sev;
-    sev.sigev_notify = SIGEV_SIGNAL;
-    sev.sigev_signo = SIGRTMIN;
-    sev.sigev_value.sival_int = 1;
-    if (timer_create(clkid, &sev, &id) < 0)
+    if (syscall(SYS_timer_create, clkid, 0, &id) < 0)
         fail_perror("timer_create");
 
     posix_timer_set(id, nsec, 0);
     timetest_debug("   waiting for signal catch...\n");
     yield_for(&test_posix_timers_caught);
     timetest_debug("   caught\n");
-    if (test_posix_timers_caught != 1)
-        fail_error("timer sig caught but unexpected value (%d)\n", test_posix_timers_caught);
+    if (test_posix_timers_caught != id)
+        fail_error("timer sig caught for wrong timer id (%d)\n", test_posix_timers_caught);
 
-    /* XXX test default (null) sigevent */
+    timetest_debug("   periodic test...\n");
+    test_posix_timers_caught = -1;
+    posix_timer_set(id, nsec, nsec);
+    timetest_debug("   waiting for signal catch...\n");
+    yield_for(&test_posix_timers_caught);
+    timetest_debug("   caught\n");
+    if (test_posix_timers_caught != id)
+        fail_error("timer sig caught for wrong timer id (%d)\n", test_posix_timers_caught);
+    timetest_debug("   disarming timer\n");
+    posix_timer_set(id, 0, 0);
+
+    /* XXX test specified sigevent
+       struct sigevent sev;
+       sev.sigev_notify = SIGEV_SIGNAL;
+       sev.sigev_signo = SIGALRM;
+    */
 
     /* XXX test absolute */
+
+    if (syscall(SYS_timer_delete, id) < 0)
+        fail_perror("timer_delete");
+
+    /* sleep some arbitrary amount to catch any signals queued before disarm */
+    usleep(250);
+
+    sigemptyset(&ss);
+    sigaddset(&ss, SIGALRM);
+    rv = sigprocmask(SIG_BLOCK, &ss, 0);
+    if (rv < 0)
+        fail_perror("sigprocmask");
 }
 
 int
@@ -408,7 +433,6 @@ main()
         test_clock_nanosleep(CLOCK_REALTIME, intervals[i]);
         test_timerfd(CLOCK_MONOTONIC, intervals[i]);
         test_timerfd(CLOCK_REALTIME, intervals[i]);
-        test_timerfd(CLOCK_MONOTONIC, intervals[i]);
         test_posix_timers(CLOCK_MONOTONIC, intervals[i]);
         test_posix_timers(CLOCK_REALTIME, intervals[i]);
     }

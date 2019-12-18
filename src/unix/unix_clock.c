@@ -19,9 +19,9 @@ closure_function(5, 1, sysreturn, nanosleep_bh,
         if (bound(rem)) {
             timestamp remain = elapsed < bound(interval) ? bound(interval) - elapsed : 0;
             timespec_from_time(bound(rem), remain);
-            rv = -EINTR;
-            goto out;
         }
+        rv = -EINTR;
+        goto out;
     }
 
     if (!(flags & BLOCKQ_ACTION_TIMEDOUT) && elapsed < bound(interval))

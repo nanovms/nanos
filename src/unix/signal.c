@@ -11,17 +11,9 @@
 /* TODO:
 
    support for SA_RESTART
-   support for signalfd
    blocking calls within sig handler
-
    sigaltstack
-
    core dump
-
-   signal mask
-   queueable / level?
-
-   sig actions / defaults
  */
 
 typedef struct queued_signal {
@@ -228,16 +220,33 @@ static void deliver_signal(sigstate ss, struct siginfo *info)
     heap h = heap_general(get_kernel_heaps());
     int sig = info->si_signo;
 
-    /* check if we can post */
-    if (sig < RT_SIG_START && sigstate_is_pending(ss, sig)) {
-        /* Standard signal already posted. Unless a particular signal
-           would allow the updating of posted siginfo, just return here. */
-        sig_debug("already posted; ignore\n");
-        return;
+    /* Special handling for pending signals */
+    if (sigstate_is_pending(ss, sig)) {
+        /* If this is a timer event, attempt to find a queued info for
+           this timer and update the info (overrun) instead of
+           queueing another entry. */
+        if (info->si_code == SI_TIMER) {
+            list_foreach(sigstate_get_sighead(ss, sig), l) {
+                queued_signal qs = struct_from_list(l, queued_signal, l);
+                if (qs->si.si_code == SI_TIMER &&
+                    qs->si.sifields.timer.tid == info->sifields.timer.tid) {
+                    qs->si.sifields.timer.overrun += info->sifields.timer.overrun;
+                    sig_debug("timer update id %d, overrun %d\n",
+                              qs->si->sifields.timer.tid,
+                              qs->si->sifields.timer.overrun);
+                    return;
+                }
+            }
+        }
+
+        if (sig < RT_SIG_START) {
+            /* Not queueable and no info update; ignore */
+            sig_debug("already posted; ignore\n");
+            return;
+        }
     }
 
     sigstate_set_pending(ss, sig);
-
     queued_signal qs = allocate(h, sizeof(struct queued_signal));
     assert(qs != INVALID_ADDRESS);
     runtime_memcpy(&qs->si, info, sizeof(struct siginfo));
@@ -336,7 +345,7 @@ void deliver_signal_to_process(process p, struct siginfo *info)
        signal first, so this could cause a spurious wakeup (EINTR) ... care? */
     if (can_wake) {
         sig_debug("attempting to interrupt thread %d\n", can_wake->tid);
-        if (!thread_attempt_interrupt(t))
+        if (!thread_attempt_interrupt(can_wake))
             sig_debug("failed to interrupt\n");
     }
 }
