@@ -75,10 +75,11 @@ timestamp parse_time();
 void print_timestamp(buffer, timestamp);
 timestamp timer_check();
 
-#define THOUSAND (1000ull)
-#define MILLION (1000000ull)
-#define BILLION (1000000000ull)
-#define QUADRILLION (1000000000000000ull)
+#define THOUSAND         (1000ull)
+#define MILLION          (1000000ull)
+#define BILLION          (1000000000ull)
+#define TRILLION         (1000000000000ull)
+#define QUADRILLION      (1000000000000000ull)
 #define TIMESTAMP_SECOND (1ull << 32)
 
 // danger - truncation, should always be subsec
@@ -88,31 +89,29 @@ static inline timestamp seconds(u64 n)
     return n * TIMESTAMP_SECOND;
 }
 
-static inline timestamp milliseconds(u64 n)
-{
-    u64 sec = n / THOUSAND;
-    n -= sec * THOUSAND;
-    return seconds(sec) + (seconds(n) / THOUSAND);
-}
+#define TIMESTAMP_CONV_FN(name, factor)                         \
+    static inline timestamp name(u64 n)                         \
+    {                                                           \
+        if (n == 0)                                             \
+            return 0;                                           \
+        u64 sec = n / factor;                                   \
+        n -= sec * factor;                                      \
+        return seconds(sec) + (seconds(n) / factor) + 1;        \
+    }
 
-static inline timestamp microseconds(u64 n)
-{
-    u64 sec = n / MILLION;
-    n -= sec * MILLION;
-    return seconds(sec) + (seconds(n) / MILLION);
-}
+#define TIMESTAMP_CONV_FN_2(name, factor)       \
+    static inline timestamp name(u64 n)         \
+    {                                           \
+        if (n == 0)                             \
+            return 0;                           \
+        return n / (factor >> 32) + 1;          \
+    }
 
-static inline timestamp nanoseconds(u64 n)
-{
-    u64 sec = n / BILLION;
-    n -= sec * BILLION;
-    return seconds(sec) + (seconds(n) / BILLION);
-}
-
-static inline timestamp femtoseconds(u64 fs)
-{
-    return fs / (QUADRILLION >> 32);
-}
+TIMESTAMP_CONV_FN(milliseconds, THOUSAND)
+TIMESTAMP_CONV_FN(microseconds, MILLION)
+TIMESTAMP_CONV_FN(nanoseconds, BILLION)
+TIMESTAMP_CONV_FN_2(picoseconds, TRILLION)
+TIMESTAMP_CONV_FN_2(femtoseconds, QUADRILLION)
 
 static inline timestamp truncate_seconds(timestamp t)
 {

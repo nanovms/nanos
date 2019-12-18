@@ -52,9 +52,7 @@ timestamp timer_check()
         pqueue_pop(timers);
         if (!t->disabled) {
             if (t->interval) {
-                u64 overruns = 1;
-                if (delta > t->interval)
-                    overruns += delta / t->interval;
+                u64 overruns = delta > t->interval ? delta / t->interval + 1 : 1;
                 apply(t->t, overruns);
                 if (!t->disabled) {
                     t->expiry += t->interval * overruns;

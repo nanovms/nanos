@@ -12,12 +12,14 @@
 #include <sys/epoll.h>
 #include <signal.h>
 #include <sched.h>
+#include <pthread.h>
 
-//#define TIMETEST_DEBUG
+#define TIMETEST_DEBUG
 #ifdef TIMETEST_DEBUG
 #define timetest_debug(x, ...) do {printf("%s: " x, __func__, ##__VA_ARGS__);} while(0)
 #else
 #define timetest_debug(x, ...)
+#define pertest_debug(x, ...)
 #endif
 
 #define timetest_err(x, ...) do {printf("%s: " x, __func__, ##__VA_ARGS__);} while(0)
@@ -28,12 +30,29 @@
 #define fail_error(msg, ...) do { timetest_err(msg, ##__VA_ARGS__); exit(EXIT_FAILURE); } while(0)
 
 #define BILLION 1000000000ull
+#define N_INTERVALS 5
+#define N_CLOCKS 2
+
+static unsigned long long test_intervals[N_INTERVALS] = { 1, 1000, 1000000, BILLION, 2 * BILLION };
+static clockid_t test_clocks[N_CLOCKS] = { CLOCK_MONOTONIC, CLOCK_REALTIME };
+
+static inline void timespec_from_nsec(struct timespec *ts, unsigned long long nsec)
+{
+    ts->tv_sec = nsec ? nsec / BILLION : 0;
+    ts->tv_nsec = nsec ? (nsec % BILLION) + 1 : 0;
+}
+
+static inline unsigned long long nsec_from_timespec(struct timespec *ts)
+{
+    return ts->tv_sec * BILLION + ts->tv_nsec;
+}
 
 static void print_timespec(struct timespec * ts)
 {
     printf("%lld.%.9ld", (long long)ts->tv_sec, ts->tv_nsec);
 }
 
+/* XXX combine with below */
 static void validate_interval(unsigned long long nsec, struct timespec * start, struct timespec * end)
 {
     if (end->tv_sec < start->tv_sec ||
@@ -52,17 +71,6 @@ static void validate_interval(unsigned long long nsec, struct timespec * start, 
         exit(EXIT_FAILURE);
     }
     printf("   measured delta +%lld ns\n", elapsed - nsec);
-}
-
-static inline void timespec_from_nsec(struct timespec *ts, unsigned long long nsec)
-{
-    ts->tv_sec = nsec / BILLION;
-    ts->tv_nsec = nsec % BILLION;
-}
-
-static inline unsigned long long nsec_from_timespec(struct timespec *ts)
-{
-    return ts->tv_sec * BILLION + ts->tv_nsec;
 }
 
 static void test_clock_nanosleep(clockid_t clock_id, unsigned long long nsec)
@@ -144,7 +152,6 @@ static void test_nanosleep(unsigned long long nsec)
   out_nanosleep_fail:
     printf("   nanosleep failed: %d (%s)\n", errno, strerror(errno));
     exit(EXIT_FAILURE);
-
 }
 
 void test_time_and_times(void)
@@ -197,6 +204,55 @@ void test_time_and_times(void)
     exit(EXIT_FAILURE);
 }
 
+#define pertest_debug(x, ...) timetest_debug("test %d: " x, test_id, ##__VA_ARGS__);
+#define pertest_fail_perror(x, ...) fail_perror("test %d: " x, test_id, ##__VA_ARGS__);
+#define pertest_fail_error(x, ...) fail_error("test %d: " x, test_id, ##__VA_ARGS__);
+
+static inline long long delta_nsec(struct timespec *start, struct timespec *finish)
+{
+    long long delta;
+    delta = finish->tv_nsec - start->tv_nsec;
+    delta += (finish->tv_sec - start->tv_sec) * BILLION;
+    return delta;
+}
+
+struct timer_test {
+    /* test parameters */
+    int test_id;
+    clockid_t clock;
+    unsigned long long nsec;
+    long long overruns;
+    int absolute;
+
+    /* state */
+    union {
+        int fd;
+        int timerid;
+    };
+    pthread_t pt;
+    long long total_overruns;
+    struct timespec start;
+    struct timespec finish;
+};
+
+static inline void timerfd_set(int test_id, clockid_t clock_id, int fd, unsigned long long value,
+                               unsigned long long interval, int absolute)
+{
+    struct itimerspec its;
+    if (absolute) {
+        struct timespec n;
+        if (clock_gettime(clock_id, &n) < 0)
+            pertest_fail_perror("clock_gettime");
+        timespec_from_nsec(&its.it_value, value + n.tv_nsec);
+        its.it_value.tv_sec += n.tv_sec;
+    } else {
+        timespec_from_nsec(&its.it_value, value);
+    }
+    timespec_from_nsec(&its.it_interval, interval);
+    if (timerfd_settime(fd, absolute ? TFD_TIMER_ABSTIME : 0, &its, 0) < 0)
+        pertest_fail_perror("timerfd_settime");
+}
+
 static inline void timerfd_check_disarmed(int fd)
 {
     struct itimerspec its;
@@ -207,20 +263,77 @@ static inline void timerfd_check_disarmed(int fd)
         fail_error("timerfd_gettime should have returned zero it_value for disarmed timer.\n");
 }
 
-static inline void timerfd_set(int fd, unsigned long long value, unsigned long long interval)
+static void timerfd_test_start(struct timer_test *test)
 {
-    struct itimerspec its;
-    timespec_from_nsec(&its.it_interval, interval);
-    timespec_from_nsec(&its.it_value, value);
-    if (timerfd_settime(fd, 0, &its, 0) < 0)
-        fail_perror("timerfd_settime");
+    int test_id = test->test_id;
+    test->total_overruns = 0;
+    if (clock_gettime(test->clock, &test->start) < 0)
+        pertest_fail_perror("failed: clock_gettime");
+    timerfd_set(test->test_id, test->clock, test->fd, test->nsec,
+                test->overruns > 1 ? test->nsec : 0, test->absolute);
 }
 
-/* XXX test absolute */
-void test_timerfd(clockid_t clkid, unsigned long long nsec)
+static void timerfd_test_finish(struct timer_test *test)
 {
-    printf("%s for clkid %d, %lld nsec\n", __func__, clkid, nsec);
-    int fd = timerfd_create(clkid, 0);
+    int test_id = test->test_id;
+    if (clock_gettime(test->clock, &test->finish) < 0)
+        pertest_fail_perror("clock_gettime");
+    if (test->overruns > 1)
+        timerfd_set(test->test_id, test->clock, test->fd, 0, 0, 0);
+    timerfd_check_disarmed(test->fd);
+    long long duration = delta_nsec(&test->start, &test->finish);
+    assert(duration > 0);
+    long long per = duration / test->total_overruns;
+    long long delta = per - test->nsec;
+    pertest_debug("%lld overruns, delta %lld nsec\n", test->total_overruns, delta);
+    if (delta < 0)
+        pertest_fail_error("failed; negative delta (%lld nsec)\n", delta);
+}
+
+static int test_timerfd_fd_service(struct timer_test *test)
+{
+    int test_id = test->test_id;
+    unsigned long long overruns = 0;
+    int rv = read(test->fd, &overruns, sizeof(overruns));
+    if (rv < 0) {
+        if (errno == EINTR) {
+            pertest_debug("read returned with EINTR; continue\n");
+            return 0;
+        }
+        pertest_fail_perror("read");
+    }
+    if (rv != sizeof(overruns))
+        pertest_fail_error("read returned unexpected value: %d\n", rv);
+    if (overruns == 0)
+        pertest_fail_error("read zero overruns\n");
+    test->total_overruns += overruns;
+    pertest_debug("read %lld overruns, total %lld\n", overruns, test->total_overruns);
+    return test->total_overruns >= test->overruns;
+}
+
+static void * test_timerfd_thread(void * arg)
+{
+    struct timer_test *test = arg;
+    int test_id = test->test_id;
+    pertest_debug("enter: fd %d, clock %d, %lld nsec, %s, overruns %lld\n",
+                  test->fd, test->clock, test->nsec, test->absolute ? "absolute" : "relative",
+                  test->overruns);
+
+    timerfd_test_start(test);
+    while (test_timerfd_fd_service(test) == 0);
+    timerfd_test_finish(test);
+    pertest_debug("success\n");
+    return EXIT_SUCCESS;
+}
+
+static void test_timerfd(void)
+{
+    int ntests = N_CLOCKS * N_INTERVALS * 2 /* one shot, periodic */ * 2 /* absolute, relative */;
+    struct timer_test tests[N_CLOCKS][N_INTERVALS][2][2];
+
+    timetest_debug("%s\n", __func__);
+
+    int fd = timerfd_create(CLOCK_MONOTONIC /* matters not for interface test */, 0);
     if (fd < 0)
         fail_perror("timerfd_create");
 
@@ -231,194 +344,233 @@ void test_timerfd(clockid_t clkid, unsigned long long nsec)
     }
 
     timerfd_check_disarmed(fd);
+    close(fd);
 
-    timetest_debug("   one shot test...\n");
-    unsigned long long expirations = 0;
-    timerfd_set(fd, nsec, 0);
-
-    timetest_debug("   reading...\n");
-    rv = read(fd, &expirations, sizeof(expirations));
-    timetest_debug("   rv %d, errno %d\n", rv, errno);
-    if (rv < 0)
-        fail_perror("read");
-    if (rv != sizeof(expirations))
-        fail_error("read returned unexpected value: %d\n", rv);
-    if (expirations == 0)
-        fail_error("read zero expirations\n");
-    timetest_debug("   + %lld\n", expirations);
-
-    timerfd_check_disarmed(fd);
-
-    timetest_debug("   periodic test...\n");
-    struct itimerspec its;
-    timerfd_set(fd, nsec, nsec);
-
-    int nexpired = 0;
-    while (nexpired < 3) {
-        rv = timerfd_gettime(fd, &its);
-        if (rv < 0)
-            fail_perror("timerfd_gettime");
-        timetest_debug("   read at ");
-#ifdef TIMETEST_DEBUG
-        print_timespec(&its.it_value);
-        printf("\n");
-#endif
-        if (nsec_from_timespec(&its.it_value) > nsec)
-            fail_error("timer value greater than duration.\n");
-        rv = read(fd, &expirations, sizeof(expirations));
-        if (rv < sizeof(expirations))
-            fail_perror("read");
-        if (expirations == 0)
-            fail_error("read zero expirations\n");
-        timetest_debug("   + %lld\n", expirations);
-        nexpired += expirations;
+    timetest_debug("starting thread read test\n");
+    int id = 0;
+    for (int i = 0; i < N_CLOCKS; i++) {
+        for (int j = 0; j < N_INTERVALS; j++) {
+            for (int k = 0; k < 2; k++) {
+                for (int l = 0; l < 2; l++) {
+                    struct timer_test *test = &tests[i][j][k][l];
+                    test->test_id = id++;
+                    test->clock = test_clocks[i];
+                    test->nsec = test_intervals[j];
+                    test->overruns = k == 0 ? 1 : 3 /* XXX */;
+                    test->absolute = l;
+                    timetest_debug("starting test #%d: clock %d, nsec %lld, overruns %lld, absolute %d\n",
+                                   test->test_id, test->clock, test->nsec, test->overruns, test->absolute);
+                    test->fd = timerfd_create(test->clock, 0);
+                    if (test->fd < 0)
+                        fail_perror("test #%d failed: timerfd_create", test->test_id);
+                    if (pthread_create(&test->pt, NULL, test_timerfd_thread, test))
+                        fail_perror("pthread_create");
+                }
+            }
+        }
     }
 
-    timerfd_set(fd, 0, 0);
-    timerfd_check_disarmed(fd);
+    /* wait for threads to finish - don't care about order */
+    for (int i = 0; i < ntests; i++) {
+        struct timer_test *test = ((struct timer_test *)tests) + i;
+        void * retval;
+        if (pthread_join(test->pt, &retval))
+            fail_perror("pthread_join");
+    }
 
-    timetest_debug("   poll wait test...\n");
+    /* leave fds open and re-use */
+    timetest_debug("thread read test passed; starting poll test\n");
     int epfd = epoll_create(1);
     if (epfd < 0)
         fail_perror("epoll_create");
 
-    struct epoll_event epev;
-    epev.events = EPOLLIN;
-    epev.data.fd = fd;
-    if (epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &epev) < 0)
-        fail_perror("epoll_ctl 1");
+    for (int i = 0; i < ntests; i++) {
+        struct timer_test *test = ((struct timer_test *)tests) + i;
+        struct epoll_event epev;
+        epev.events = EPOLLIN;
+        epev.data.ptr = test;
+        if (epoll_ctl(epfd, EPOLL_CTL_ADD, test->fd, &epev) < 0)
+            fail_perror("epoll_ctl");
+        timerfd_test_start(test);
+    }
 
-    struct epoll_event rev;
-
-    timerfd_set(fd, nsec, nsec);
-
-    nexpired = 0;
-    while (nexpired < 3) {
-        timetest_debug("   epoll_wait...\n");
-        int nfds = epoll_wait(epfd, &rev, 1, 5000);
+    int tests_finished = 0;
+    while (tests_finished < ntests) {
+        struct epoll_event rev;
+        int nfds = epoll_wait(epfd, &rev, 1, 20000);
         if (nfds < 0)
             fail_perror("epoll_wait");
         if (nfds == 0)
             fail_error("epoll_wait timed out\n");
-        timetest_debug("   fd %d events 0x%x\n", rev.data.fd, rev.events);
-        rv = timerfd_gettime(fd, &its);
-        if (rv < 0)
-            fail_perror("timerfd_gettime");
-        timetest_debug("   read at ");
-#ifdef TIMETEST_DEBUG
-        print_timespec(&its.it_value);
-        printf("\n");
-#endif
-        rv = read(fd, &expirations, sizeof(expirations));
-        if (rv < sizeof(expirations))
-            fail_perror("read");
-        if (expirations == 0)
-            fail_error("read zero expirations\n");
-        nexpired += expirations;
-    }
 
-    timerfd_set(fd, 0, 0);
-    timerfd_check_disarmed(fd);
+        struct timer_test *test = rev.data.ptr;
+        int test_id = test->test_id;
+        if (rev.events & EPOLLIN) {
+            if (test_timerfd_fd_service(test)) {
+                pertest_debug("passed\n");
+                close(test->fd);
+                tests_finished++;
+            }
+        }
+    }
+    timetest_debug("passed\n");
     close(epfd);
-    close(fd);
 }
 
-void posix_timer_set(int id, unsigned long long value, unsigned long long interval)
+static volatile int posix_timers_finished;
+
+static void posix_timer_set(int test_id, clockid_t clock_id, int timerid, unsigned long long value,
+                            unsigned long long interval, struct timespec *abs_start)
 {
     struct itimerspec its;
     timespec_from_nsec(&its.it_interval, interval);
-    timespec_from_nsec(&its.it_value, value);
-    if (syscall(SYS_timer_settime, id, 0, &its, 0) < 0)
-        fail_perror("timer_settime");
+    if (abs_start) {
+        timespec_from_nsec(&its.it_value, value + abs_start->tv_nsec);
+        its.it_value.tv_sec += abs_start->tv_sec;
+    } else {
+        timespec_from_nsec(&its.it_value, value);
+    }
+#if 0
+    pertest_debug("timer_settime: timerid %d, absolute %d, value %ld s, %ld ns, interval %ld s, %ld ns\n",
+                  timerid, abs_start != 0, its.it_value.tv_sec, its.it_value.tv_nsec,
+                  its.it_interval.tv_sec, its.it_interval.tv_nsec);
+#endif
+    if (syscall(SYS_timer_settime, timerid, abs_start ? TIMER_ABSTIME : 0, &its, 0) < 0)
+        pertest_fail_perror("timer_settime");
 }
 
-static volatile int test_posix_timers_caught;
+static inline void posix_timer_check_disarmed(struct timer_test *test)
+{
+    int test_id = test->test_id;
+    struct itimerspec its;
+    int rv = syscall(SYS_timer_gettime, test->timerid, &its);
+    if (rv < 0)
+        pertest_fail_perror("timer_gettime");
+    if (its.it_value.tv_sec != 0 || its.it_value.tv_nsec != 0)
+        pertest_fail_error("timer_gettime should have returned zero it_value for disarmed timer.\n");
+}
 
-static void test_posix_timers_handler(int sig, siginfo_t *si, void *ucontext)
+static void posix_test_start(struct timer_test *test)
+{
+    int test_id = test->test_id;
+    test->total_overruns = 0;
+    if (clock_gettime(test->clock, &test->start) < 0)
+        pertest_fail_perror("failed: clock_gettime");
+    posix_timer_set(test->test_id, test->clock, test->timerid, test->nsec,
+                    test->overruns > 1 ? test->nsec : 0, test->absolute ? &test->start : 0);
+}
+
+static void posix_timer_cancel(struct timer_test *test)
+{
+    int test_id = test->test_id;
+    pertest_debug("cancel timerid %d\n", test->timerid);
+    struct itimerspec its;
+    memset(&its, 0, sizeof(struct itimerspec));
+    if (syscall(SYS_timer_settime, test->timerid, 0, &its, 0) < 0)
+        pertest_fail_perror("timer_settime");
+}
+
+static void posix_test_finish(struct timer_test *test)
+{
+    int test_id = test->test_id;
+    pertest_debug("a\n");
+    pertest_debug("b\n");
+    if (test->overruns > 1)
+        posix_timer_cancel(test);
+    if (clock_gettime(test->clock, &test->finish) < 0)
+        pertest_fail_perror("clock_gettime");
+    pertest_debug("c\n");
+    posix_timer_check_disarmed(test);
+    pertest_debug("d\n");
+    long long duration = delta_nsec(&test->start, &test->finish);
+    assert(duration > 0);
+    long long per = duration / test->total_overruns;
+    long long delta = per - test->nsec;
+    pertest_debug("duration %lld nsec, per %lld nsec\n", duration, per);
+    pertest_debug("%lld overruns, delta %lld nsec\n", test->total_overruns, delta);
+    if (delta < 0)
+        pertest_fail_error("failed; negative delta (%lld nsec)\n", delta);
+}
+
+static void posix_timers_sighandler(int sig, siginfo_t *si, void *ucontext)
 {
     assert(si);
-    timetest_debug("sig %d, si->signo %d, si->errno %d, si->code %d, tid %d, overrun %d\n",
-                   sig, si->si_signo, si->si_errno, si->si_code, si->si_timerid, si->si_overrun);
-    assert(sig == SIGALRM);
+    timetest_debug("sig %d, si->errno %d, si->code %d, tid %d, overrun %d\n",
+                   sig, si->si_errno, si->si_code, si->si_timerid, si->si_overrun);
+    assert(sig == SIGRTMIN);
     assert(sig == si->si_signo);
     assert(si->si_code == SI_TIMER);
-// XXX    test_posix_timers_caught = si->si_value.sival_int;
-    test_posix_timers_caught = si->si_timerid;
+    struct timer_test *test = si->si_value.sival_ptr;
+    int test_id = test->test_id;
+    if (test->total_overruns < 0) {
+        pertest_debug("expiry after cancel; ignore\n");
+        return;
+    }
+    test->total_overruns += si->si_overrun;
+    pertest_debug("read %d overruns, total %lld\n", si->si_overrun, test->total_overruns);
+    if (test->total_overruns >= test->overruns) {
+        posix_test_finish(test);
+        posix_timers_finished++;
+        pertest_debug("finished (total finished %d)\n", posix_timers_finished);
+        test->total_overruns = -1;
+    }
 }
 
-static void yield_for(volatile int * v)
+void test_posix_timers(void)
 {
-    /* XXX add timeout */
-    while (*v < 0)
-        sched_yield();
-}
+    int ntests = N_CLOCKS * N_INTERVALS * 2 /* one shot, periodic */ * 2 /* absolute, relative */;
+    struct timer_test tests[N_CLOCKS][N_INTERVALS][2][2];
 
-void test_posix_timers(clockid_t clkid, unsigned long long nsec)
-{
-    printf("%s for clkid %d, %lld nsec\n", __func__, clkid, nsec);
+    timetest_debug("%s\n", __func__);
+    posix_timers_finished = 0;
 
-    test_posix_timers_caught = -1;
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
-    sa.sa_sigaction = test_posix_timers_handler;
+    sa.sa_sigaction = posix_timers_sighandler;
     sa.sa_flags |= SA_SIGINFO;
-    int rv = sigaction(SIGALRM, &sa, 0);
+    int rv = sigaction(SIGRTMIN, &sa, 0);
     if (rv < 0)
         fail_perror("test_signal_catch: sigaction");
 
     sigset_t ss;
     sigemptyset(&ss);
-    sigaddset(&ss, SIGALRM);
+    sigaddset(&ss, SIGRTMIN);
     rv = sigprocmask(SIG_UNBLOCK, &ss, 0);
     if (rv < 0)
         fail_perror("sigprocmask");
 
-    rv = syscall(SYS_timer_create, clkid, 0, 0);
-    if (rv >= 0 || errno != EFAULT)
-        fail_error("timer_create with null timerid should have failed with EFAULT (rv %d, errno %d)\n", rv, errno);
+    timetest_debug("starting signal test\n");
+    int id = 0;
+    for (int i = 0; i < N_CLOCKS; i++) {
+        for (int j = 0; j < N_INTERVALS; j++) {
+            for (int k = 0; k < 2; k++) {
+                for (int l = 0; l < 2; l++) {
+                    struct timer_test *test = &tests[i][j][k][l];
+                    int test_id = id++;
+                    test->test_id = test_id;
+                    test->clock = test_clocks[i];
+                    test->nsec = test_intervals[j];
+                    test->overruns = k == 0 ? 1 : 3 /* XXX */;
+                    test->absolute = l;
+                    struct sigevent sev;
+                    sev.sigev_notify = SIGEV_SIGNAL;
+                    sev.sigev_signo = SIGRTMIN;
+                    sev.sigev_value.sival_ptr = test;
+                    if (syscall(SYS_timer_create, test->clock, &sev, &test->timerid) < 0)
+                        fail_perror("timer_create");
+                    pertest_debug("starting: timerid %d, clock %d, nsec %lld, overruns %lld, absolute %d\n",
+                                  test->timerid, test->clock, test->nsec, test->overruns, test->absolute);
+                    posix_test_start(test);
+                }
+            }
+        }
+    }
 
-    unsigned int id;
-    timetest_debug("   process signal test...\n");
-    if (syscall(SYS_timer_create, clkid, 0, &id) < 0)
-        fail_perror("timer_create");
+    while (posix_timers_finished < ntests)
+        usleep(500000);
 
-    posix_timer_set(id, nsec, 0);
-    timetest_debug("   waiting for signal catch...\n");
-    yield_for(&test_posix_timers_caught);
-    timetest_debug("   caught\n");
-    if (test_posix_timers_caught != id)
-        fail_error("timer sig caught for wrong timer id (%d)\n", test_posix_timers_caught);
-
-    timetest_debug("   periodic test...\n");
-    test_posix_timers_caught = -1;
-    posix_timer_set(id, nsec, nsec);
-    timetest_debug("   waiting for signal catch...\n");
-    yield_for(&test_posix_timers_caught);
-    timetest_debug("   caught\n");
-    if (test_posix_timers_caught != id)
-        fail_error("timer sig caught for wrong timer id (%d)\n", test_posix_timers_caught);
-    timetest_debug("   disarming timer\n");
-    posix_timer_set(id, 0, 0);
-
-    /* XXX test specified sigevent
-       struct sigevent sev;
-       sev.sigev_notify = SIGEV_SIGNAL;
-       sev.sigev_signo = SIGALRM;
-    */
-
-    /* XXX test absolute */
-
-    if (syscall(SYS_timer_delete, id) < 0)
-        fail_perror("timer_delete");
-
-    /* sleep some arbitrary amount to catch any signals queued before disarm */
-    usleep(250);
-
-    sigemptyset(&ss);
-    sigaddset(&ss, SIGALRM);
-    rv = sigprocmask(SIG_BLOCK, &ss, 0);
-    if (rv < 0)
-        fail_perror("sigprocmask");
+    /* XXX somehow suppress output from spurious signals after test finish... */
+    timetest_debug("signal test passed\n");
 }
 
 int
@@ -426,16 +578,13 @@ main()
 {
     setbuf(stdout, NULL);
     test_time_and_times();
-    unsigned long long intervals[] = { 1, 1000, 1000000, BILLION, 2 * BILLION, -1 };
-    for (int i = 0; intervals[i] != -1; i++) {
-        test_nanosleep(intervals[i]);
-        test_clock_nanosleep(CLOCK_MONOTONIC, intervals[i]);
-        test_clock_nanosleep(CLOCK_REALTIME, intervals[i]);
-        test_timerfd(CLOCK_MONOTONIC, intervals[i]);
-        test_timerfd(CLOCK_REALTIME, intervals[i]);
-        test_posix_timers(CLOCK_MONOTONIC, intervals[i]);
-        test_posix_timers(CLOCK_REALTIME, intervals[i]);
+    for (int i = 0; i < N_INTERVALS; i++) {
+        test_nanosleep(test_intervals[i]);
+        for (int j = 0; j < N_CLOCKS; j++)
+            test_clock_nanosleep(test_clocks[j], test_intervals[i]);
     }
+    test_timerfd();
+    test_posix_timers();
     printf("time test passed\n");
     return EXIT_SUCCESS;
 }

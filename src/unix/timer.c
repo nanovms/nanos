@@ -347,8 +347,8 @@ closure_function(1, 1, void, posix_timer_expire,
     assert(!ut->t->disabled);
 
     ut->overruns += overruns;
-    timer_debug("interval %ld, id %d +%d -> %d\n", ut->t->interval,
-                ut->info.posix.id, overruns, ut->overruns);
+    timer_debug("id %d, interval %ld, id %d +%d -> %d\n",
+                ut->info.posix.id, ut->t->interval, overruns, ut->overruns);
 
     sigev_deliver(ut);
 
