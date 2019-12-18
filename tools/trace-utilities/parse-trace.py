@@ -118,7 +118,7 @@ def parse_trace(trace):
     thread_stacks[current] = []
 
     with open(trace, 'r') as f:
-        for line in f.readlines():
+        for line in f:
             for p in parsers:
                 m = p.match(line)
                 if m:
