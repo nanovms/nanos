@@ -747,7 +747,7 @@ closure_function(4, 1, sysreturn, rt_sigtimedwait_bh,
     if (qs == INVALID_ADDRESS) {
         if (!blocked) {
             const struct timespec * ts = bound(timeout);
-            if (ts && ts->ts_sec == 0 && ts->ts_nsec == 0) {
+            if (ts && ts->tv_sec == 0 && ts->tv_nsec == 0) {
                 closure_finish();
                 return set_syscall_error(t, EAGAIN); /* poll */
             }

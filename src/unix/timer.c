@@ -1,5 +1,12 @@
 #include <unix_internal.h>
 
+/* TODO
+
+   - validation of timeval and timespecs parameters across board
+   - support for thread and process time(r)s
+   - support for SIGEV_THREAD
+*/
+
 //#define UNIX_TIMER_DEBUG
 #ifdef UNIX_TIMER_DEBUG
 #define timer_debug(x, ...) do {log_printf("UTMR", "%s: " x, __func__, ##__VA_ARGS__);} while(0)
@@ -15,6 +22,7 @@ enum unix_timer_type {
 
 typedef struct unix_timer {
     struct fdesc f;             /* used for timerfd only; must be first */
+    process p;
     int type;
     clock_id cid;
     timer t;                    /* zero if disarmed */
@@ -22,13 +30,15 @@ typedef struct unix_timer {
 
     union {
         struct {
+            struct siginfo si;
             int id;
             thread recipient;   /* INVALID_ADDRESS means deliver to process */
             struct sigevent sevp;
         } posix;
 
         struct {
-            int itimer_which;
+            struct siginfo si;
+            int which;
         } itimer;
 
         struct {
@@ -47,6 +57,7 @@ static unix_timer allocate_unix_timer(int type, clock_id cid)
     unix_timer ut = allocate(unix_timer_heap, sizeof(struct unix_timer));
     if (ut == INVALID_ADDRESS)
         return ut;
+    ut->p = current->p;
     ut->type = type;
     ut->cid = cid;
     ut->t = 0;
@@ -62,14 +73,19 @@ static void deallocate_unix_timer(unix_timer t)
 static void itimerspec_from_timer(unix_timer ut, struct itimerspec *i)
 {
     timestamp remain = 0, interval = 0;
-    if (ut->t) {
-        timer t = ut->t;
-        timestamp tnow = now(t->id);
-        remain = t->expiry > tnow ? t->expiry - tnow : 0;
-        interval = t->interval;
-    }
+    if (ut->t)
+        timer_get_remaining(ut->t, &remain, &interval);
     timespec_from_time(&i->it_value, remain);
     timespec_from_time(&i->it_interval, interval);
+}
+
+static void itimerval_from_timer(unix_timer ut, struct itimerval *i)
+{
+    timestamp remain = 0, interval = 0;
+    if (ut->t)
+        timer_get_remaining(ut->t, &remain, &interval);
+    timeval_from_time(&i->it_value, remain);
+    timeval_from_time(&i->it_interval, interval);
 }
 
 /* note that all of this assumes that the various timer operations are
@@ -142,7 +158,7 @@ sysreturn timerfd_settime(int fd, int flags,
     remove_unix_timer(ut);
     ut->overruns = 0;
 
-    if (new_value->it_value.ts_sec == 0 && new_value->it_value.ts_nsec == 0)
+    if (new_value->it_value.tv_sec == 0 && new_value->it_value.tv_nsec == 0)
         return 0;
 
     timestamp tinit = time_from_timespec(&new_value->it_value);
@@ -307,34 +323,27 @@ static s32 timer_overruns_s32(unix_timer ut)
     return (s32)MIN((u64)S32_MAX, ut->overruns);
 }
 
-/* XXX clear overruns here, or after delivery confirmed? */
-static void sigev_fill_siginfo(unix_timer ut, struct siginfo *si)
+static void sigev_update_siginfo(unix_timer ut)
 {
-    zero(si, sizeof(struct siginfo));
-    si->si_signo = ut->info.posix.sevp.sigev_signo;
-    si->si_errno = 0;
-    si->si_code = SI_TIMER;
-    si->sifields.timer.tid = ut->info.posix.id;
+    struct siginfo *si = &ut->info.posix.si;
     si->sifields.timer.overrun = timer_overruns_s32(ut);
     ut->overruns = 0;
-    si->sifields.timer.sigval = ut->info.posix.sevp.sigev_value;
 }
 
 static void sigev_deliver(unix_timer ut)
 {
     struct sigevent *sevp = &ut->info.posix.sevp;
-    struct siginfo si;
     switch (sevp->sigev_notify) {
     case SIGEV_NONE:
         break;
     case SIGEV_SIGNAL | SIGEV_THREAD_ID: /* flag or value? */
         assert(ut->info.posix.recipient != INVALID_ADDRESS);
-        sigev_fill_siginfo(ut, &si);
-        deliver_signal_to_thread(ut->info.posix.recipient, &si);
+        sigev_update_siginfo(ut);
+        deliver_signal_to_thread(ut->info.posix.recipient, &ut->info.posix.si);
         break;
     case SIGEV_SIGNAL:
-        sigev_fill_siginfo(ut, &si);
-        deliver_signal_to_process(current->p /* unikernel */, &si);
+        sigev_update_siginfo(ut);
+        deliver_signal_to_process(ut->p, &ut->info.posix.si);
         break;
     case SIGEV_THREAD:
         halt("SIGEV_THREAD not yet implemented.\n");
@@ -350,7 +359,7 @@ closure_function(1, 1, void, posix_timer_expire,
     assert(!ut->t->disabled);
 
     ut->overruns += overruns;
-    timer_debug("id %d, interval %ld, id %d +%d -> %d\n",
+    timer_debug("id %d, interval %ld, +%d -> %d\n",
                 ut->info.posix.id, ut->t->interval, overruns, ut->overruns);
 
     sigev_deliver(ut);
@@ -376,7 +385,7 @@ sysreturn timer_settime(u32 timerid, int flags,
     remove_unix_timer(ut);
     ut->overruns = 0;
 
-    if (new_value->it_value.ts_sec == 0 && new_value->it_value.ts_nsec == 0)
+    if (new_value->it_value.tv_sec == 0 && new_value->it_value.tv_nsec == 0)
         return 0;
 
     timestamp tinit = time_from_timespec(&new_value->it_value);
@@ -486,6 +495,11 @@ sysreturn timer_create(int clockid, struct sigevent *sevp, u32 *timerid)
     }
 
     unix_timer ut = allocate_unix_timer(UNIX_TIMER_TYPE_POSIX, clockid);
+    if (ut == INVALID_ADDRESS) {
+        deallocate_u64(p->posix_timer_ids, id, 1);
+        return -ENOMEM;
+    }
+
     ut->info.posix.id = id;
     *timerid = id;
     vector_set(p->posix_timers, id, ut);
@@ -493,7 +507,132 @@ sysreturn timer_create(int clockid, struct sigevent *sevp, u32 *timerid)
     ut->info.posix.recipient = recipient;
     if (recipient != INVALID_ADDRESS)
         thread_reserve(recipient);
+
+    struct siginfo *si = &ut->info.posix.si;
+    zero(si, sizeof(struct siginfo));
+    si->si_signo = sevp->sigev_signo;
+    si->si_code = SI_TIMER;
+    si->sifields.timer.tid = ut->info.posix.id;
+    si->sifields.timer.sigval = ut->info.posix.sevp.sigev_value;
     return 0;
+}
+
+sysreturn getitimer(int which, struct itimerval *curr_value)
+{
+    if (which == ITIMER_VIRTUAL || which == ITIMER_PROF) {
+        msg_err("timer type %d not yet supported\n");
+        return -EOPNOTSUPP;
+    } else if (which != ITIMER_REAL) {
+        return -EINVAL;
+    }
+
+    if (!curr_value)
+        return -EFAULT;
+
+    unix_timer ut = vector_get(current->p->itimers, which);
+    if (ut) {
+        itimerval_from_timer(ut, curr_value);
+    } else {
+        curr_value->it_value.tv_sec = curr_value->it_interval.tv_sec = 0;
+        curr_value->it_value.tv_usec = curr_value->it_interval.tv_usec = 0;
+    }
+    return 0;
+}
+
+closure_function(1, 1, void, itimer_expire,
+                 unix_timer, ut,
+                 u64, overruns)
+{
+    unix_timer ut = bound(ut);
+    assert(ut->t);
+    assert(!ut->t->disabled);
+
+    /* Ignore overruns. Only one itimer signal may be queued. */
+    timer_debug("which %d, interval %ld, overruns (ignored) %d\n",
+                ut->info.itimer.which, ut->t->interval, overruns);
+
+    deliver_signal_to_process(ut->p, &ut->info.itimer.si);
+
+    if (ut->t->interval == 0)
+        remove_unix_timer(ut);     /* deallocs closure for us */
+}
+
+sysreturn setitimer(int which, const struct itimerval *new_value,
+                    struct itimerval *old_value)
+{
+    clock_id clockid;
+    process p = current->p;
+
+    if (which == ITIMER_VIRTUAL || which == ITIMER_PROF) {
+        msg_err("timer type %d not yet supported\n");
+        return -EOPNOTSUPP;
+    } else if (which != ITIMER_REAL) {
+        return -EINVAL;
+    } else {
+        clockid = CLOCK_ID_REALTIME;
+    }
+
+    if (!new_value)
+        return -EFAULT;
+
+    unix_timer ut = vector_get(p->itimers, which);
+    if (!ut) {
+        ut = allocate_unix_timer(UNIX_TIMER_TYPE_ITIMER, clockid);
+        if (ut == INVALID_ADDRESS)
+            return -ENOMEM;
+        ut->info.itimer.which = which;
+        struct siginfo *si = &ut->info.itimer.si;
+        zero(si, sizeof(struct siginfo));
+        switch (which) {
+        case ITIMER_REAL:
+            si->si_signo = SIGALRM;
+            break;
+        case ITIMER_VIRTUAL:
+            si->si_signo = SIGVTALRM;
+            break;
+        case ITIMER_PROF:
+            si->si_signo = SIGPROF;
+            break;
+        }
+        si->si_code = SI_KERNEL;
+        vector_set(p->itimers, which, ut);
+    }
+
+    if (old_value)
+        itimerval_from_timer(ut, old_value);
+
+    remove_unix_timer(ut);
+
+    if (new_value->it_value.tv_sec == 0 && new_value->it_value.tv_usec == 0)
+        return 0;
+
+    timestamp tinit = time_from_timeval(&new_value->it_value);
+    timestamp interval = time_from_timeval(&new_value->it_interval);
+
+    timer_debug("register timer: clockid %d, init value %T, interval %T\n",
+                clockid, tinit, interval);
+    timer t = register_timer(clockid, tinit, false, interval,
+                             closure(unix_timer_heap, itimer_expire, ut));
+    if (t == INVALID_ADDRESS)
+        return -ENOMEM;
+
+    ut->t = t;
+    return 0;
+}
+
+sysreturn alarm(unsigned int seconds)
+{
+    struct itimerval new, old;
+    new.it_value.tv_sec = seconds;
+    new.it_value.tv_usec = 0;
+    new.it_interval.tv_sec = 0;
+    new.it_interval.tv_usec = 0;
+
+    if (setitimer(ITIMER_REAL, &new, &old) < 0)
+        return 0;               /* no errno here (uint retval), so default to 0? */
+    if (old.it_value.tv_sec == 0 && old.it_value.tv_usec != 0)
+        return 1;               /* 0 for disarmed timer only, so round up */
+    return old.it_value.tv_sec;
 }
 
 void register_timer_syscalls(struct syscall *map)
@@ -506,6 +645,9 @@ void register_timer_syscalls(struct syscall *map)
     register_syscall(map, timer_gettime, timer_gettime);
     register_syscall(map, timer_getoverrun, timer_getoverrun);
     register_syscall(map, timer_delete, timer_delete);
+    register_syscall(map, getitimer, getitimer);
+    register_syscall(map, setitimer, setitimer);
+    register_syscall(map, alarm, alarm);
 }
 
 boolean unix_timers_init(unix_heaps uh)

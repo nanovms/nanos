@@ -35,9 +35,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, shmget, 0);
     register_syscall(map, shmat, 0);
     register_syscall(map, shmctl, 0);
-    register_syscall(map, getitimer, 0);
-    register_syscall(map, alarm, 0);
-    register_syscall(map, setitimer, 0);
     register_syscall(map, fork, 0);
     register_syscall(map, vfork, 0);
     register_syscall(map, execve, 0);

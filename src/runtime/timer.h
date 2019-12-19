@@ -58,6 +58,13 @@ static inline timestamp timer_expiry(timer t)
 }
 #undef __rtc_offset
 
+static inline void timer_get_remaining(timer t, timestamp *remain, timestamp *interval)
+{
+    timestamp tnow = now(t->id);
+    *remain = t->expiry > tnow ? t->expiry - tnow : 0;
+    *interval = t->interval;
+}
+
 /* returns time remaining or 0 if elapsed */
 static inline void remove_timer(timer t, timestamp *remain)
 {

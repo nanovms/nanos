@@ -187,6 +187,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     zero(p->sigactions, sizeof(p->sigactions));
     p->posix_timer_ids = create_id_heap(h, 0, U32_MAX, 1);
     p->posix_timers = allocate_vector(h, 8);
+    p->itimers = allocate_vector(h, 3);
     return p;
 }
 

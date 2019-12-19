@@ -206,9 +206,13 @@ typedef int clockid_t;
 
 #define TIMER_ABSTIME               0x1
 
+#define ITIMER_REAL    0
+#define ITIMER_VIRTUAL 1
+#define ITIMER_PROF    2
+
 struct timespec {
-    u64 ts_sec;
-    u64 ts_nsec;
+    u64 tv_sec;
+    u64 tv_nsec;
 };
 
 typedef s64 time_t;

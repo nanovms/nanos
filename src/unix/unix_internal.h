@@ -321,7 +321,8 @@ typedef struct process {
     struct sigstate   signals;
     struct sigaction  sigactions[NSIG];
     heap              posix_timer_ids;
-    vector            posix_timers; /* unix_timer by id */
+    vector            posix_timers; /* unix_timer by timerid */
+    vector            itimers;      /* unix_timer by ITIMER_ type */
 } *process;
 
 typedef struct sigaction *sigaction;
@@ -417,13 +418,13 @@ static inline void timeval_from_time(struct timeval *d, timestamp t)
 
 static inline timestamp time_from_timespec(const struct timespec *t)
 {
-    return seconds(t->ts_sec) + nanoseconds(t->ts_nsec);
+    return seconds(t->tv_sec) + nanoseconds(t->tv_nsec);
 }
 
 static inline void timespec_from_time(struct timespec *ts, timestamp t)
 {
-    ts->ts_sec = sec_from_timestamp(t);
-    ts->ts_nsec = nsec_from_timestamp(truncate_seconds(t));
+    ts->tv_sec = sec_from_timestamp(t);
+    ts->tv_nsec = nsec_from_timestamp(truncate_seconds(t));
 }
 
 static inline time_t time_t_from_time(timestamp t)

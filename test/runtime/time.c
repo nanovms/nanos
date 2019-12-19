@@ -30,6 +30,7 @@
 #define fail_error(msg, ...) do { timetest_msg(msg, ##__VA_ARGS__); exit(EXIT_FAILURE); } while(0)
 
 #define SECOND_NSEC 1000000000ull
+#define SECOND_USEC 1000000ull
 #define N_INTERVALS 5
 #define N_CLOCKS 2
 
@@ -52,6 +53,12 @@ static inline void timespec_add_nsec(struct timespec *dest, struct timespec *op,
 static void print_timespec(struct timespec * ts)
 {
     printf("%lld.%.9ld", (long long)ts->tv_sec, ts->tv_nsec);
+}
+
+static inline void timeval_from_nsec(struct timeval *tv, unsigned long long nsec)
+{
+    tv->tv_sec = nsec ? nsec / SECOND_NSEC : 0;
+    tv->tv_usec = nsec ? (nsec % SECOND_NSEC) / 1000 : 0;
 }
 
 static inline long long delta_nsec(struct timespec *start, struct timespec *finish)
@@ -477,14 +484,33 @@ void test_posix_timers(void)
     int ntests = N_CLOCKS * N_INTERVALS * 2 /* one shot, periodic */ * 2 /* absolute, relative */;
     struct timer_test tests[N_CLOCKS][N_INTERVALS][2][2];
 
-    timetest_debug("%s\n", __func__);
+    timetest_msg("testing interface\n");
+    int rv = syscall(SYS_timer_create, CLOCK_MONOTONIC, 0, 0);
+    if (rv >= 0 || errno != EFAULT)
+        fail_error("timer_create with null timerid should have failed with "
+                   "EFAULT (rv %d, errno %d)\n", rv, errno);
+
+    int dummy_id;
+    if (syscall(SYS_timer_create, CLOCK_MONOTONIC, 0, &dummy_id) < 0)
+        fail_perror("timer_create with null sev");
+
+    rv = syscall(SYS_timer_gettime, dummy_id, 0);
+    if (rv >= 0 || errno != EFAULT)
+        fail_error("timer_gettime with null curr_value should have failed with "
+                   "EFAULT (rv %d, errno %d)\n", rv, errno);
+
+    rv = syscall(SYS_timer_settime, dummy_id, 0, 0);
+    if (rv >= 0 || errno != EFAULT)
+        fail_error("timer_gettime with null new_value should have failed with "
+                   "EFAULT (rv %d, errno %d)\n", rv, errno);
+
     posix_timers_finished = 0;
 
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_sigaction = posix_timers_sighandler;
     sa.sa_flags |= SA_SIGINFO;
-    int rv = sigaction(SIGRTMIN, &sa, 0);
+    rv = sigaction(SIGRTMIN, &sa, 0);
     if (rv < 0)
         fail_perror("test_signal_catch: sigaction");
 
@@ -495,7 +521,7 @@ void test_posix_timers(void)
     if (rv < 0)
         fail_perror("sigprocmask");
 
-    timetest_debug("starting signal test\n");
+    timetest_msg("starting signal test\n");
     int id = 0;
     for (int i = 0; i < N_CLOCKS; i++) {
         for (int j = 0; j < N_INTERVALS; j++) {
@@ -530,6 +556,162 @@ void test_posix_timers(void)
     timetest_debug("signal test passed\n");
 }
 
+/* XXX only ITIMER_REAL right now */
+#define N_WHICH 1
+
+/* add clock ids here when we support prof and vt */
+clockid_t itimer_clockids[N_WHICH] = { CLOCK_REALTIME };
+volatile int itimer_expect, itimer_which;
+volatile struct timespec itimer_finished;
+
+static void itimers_sighandler(int sig, siginfo_t *si, void *ucontext)
+{
+    assert(si);
+    timetest_debug("sig %d, si->errno %d, si->code %d\n", sig, si->si_errno, si->si_code);
+    assert(sig == SIGALRM);
+    assert(sig == si->si_signo);
+    assert(si->si_code == SI_KERNEL);
+    if (itimer_expect > 0) {
+        if (itimer_expect == 1) {
+            struct itimerval itv;
+            memset(&itv, 0, sizeof(struct itimerval));
+            if (syscall(SYS_setitimer, itimer_which, &itv, 0 /* XXX check old val */) < 0)
+                fail_perror("setitimer");
+            if (clock_gettime(itimer_clockids[itimer_which], (struct timespec*)&itimer_finished) < 0)
+                fail_perror("clock_gettime");
+        }
+        itimer_expect--;
+    } else {
+        timetest_debug("spurious signal\n");
+    }
+}
+
+void test_itimers(void)
+{
+    timetest_msg("testing itimer interface\n");
+
+    int rv = syscall(SYS_setitimer, ITIMER_REAL, 0, 0);
+    if (rv >= 0 || errno != EFAULT)
+        fail_error("setitimer with null new_value should have failed with "
+                   "EFAULT (rv %d, errno %d)\n", rv, errno);
+
+    rv = syscall(SYS_getitimer, ITIMER_REAL, 0);
+    if (rv >= 0 || errno != EFAULT)
+        fail_error("getitimer with null curr_value should have failed with "
+                   "EFAULT (rv %d, errno %d)\n", rv, errno);
+
+    struct itimerval itv;
+    memset(&itv, 0, sizeof(struct itimerval));
+    rv = syscall(SYS_setitimer, 3, &itv, 0);
+    if (rv >= 0 || errno != EINVAL)
+        fail_error("setitimer with invalid which should have failed with "
+                   "EINVAL (rv %d, errno %d)\n", rv, errno);
+
+    rv = syscall(SYS_getitimer, 3, &itv);
+    if (rv >= 0 || errno != EINVAL)
+        fail_error("getitimer with invalid which should have failed with "
+                   "EINVAL (rv %d, errno %d)\n", rv, errno);
+
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = itimers_sighandler;
+    sa.sa_flags |= SA_SIGINFO;
+    rv = sigaction(SIGALRM, &sa, 0);
+    if (rv < 0)
+        fail_perror("test_signal_catch: sigaction");
+
+    sigset_t ss;
+    sigemptyset(&ss);
+    sigaddset(&ss, SIGALRM);
+    rv = sigprocmask(SIG_UNBLOCK, &ss, 0);
+    if (rv < 0)
+        fail_perror("sigprocmask");
+
+    timetest_msg("starting itimer test\n");
+    for (int i = 0; i < N_WHICH; i++) {
+        for (int j = 1 /* skip 1ns */; j < N_INTERVALS; j++) {
+            for (int k = 0; k < 2; k++) {
+                struct timespec start;
+                timeval_from_nsec(&itv.it_value, test_intervals[j]);
+                timeval_from_nsec(&itv.it_interval, k == 0 ? 0 : test_intervals[j]);
+                timetest_debug("starting: which %d, interval %lld nsec, %s\n",
+                               i, test_intervals[j], k == 0 ? "one-shot" : "periodic");
+                int overruns = k == 0 ? 1 : 3 /* XXX */;
+                itimer_which = i;
+                itimer_expect = overruns;
+                if (clock_gettime(itimer_clockids[i], &start) < 0)
+                    fail_perror("clock_gettime");
+                if (syscall(SYS_setitimer, i, &itv, 0 /* XXX check old val */) < 0)
+                    fail_perror("setitimer");
+                while (itimer_expect > 0)
+                    usleep(50000); /* XXX ugh ... also need timeout */
+
+                long long delta = validate_interval(&start, (struct timespec*)&itimer_finished,
+                                                    overruns, test_intervals[j]);
+                if (delta < 0)
+                    fail_error("interval validation failed\n");
+                timetest_msg("test passed; delta %lld nsec\n", delta);
+            }
+        }
+    }
+    timetest_msg("itimer test passed\n");
+}
+
+volatile int alarm_received;
+volatile struct timespec alarm_finished;
+
+static void alarm_sighandler(int sig, siginfo_t *si, void *ucontext)
+{
+    assert(si);
+    timetest_debug("sig %d, si->errno %d, si->code %d\n", sig, si->si_errno, si->si_code);
+    assert(sig == SIGALRM);
+    assert(sig == si->si_signo);
+    assert(si->si_code == SI_KERNEL);
+    if (clock_gettime(CLOCK_REALTIME, (struct timespec*)&alarm_finished) < 0)
+        fail_perror("clock_gettime");
+    alarm_received = 1;
+}
+
+void test_alarm(void)
+{
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = alarm_sighandler;
+    sa.sa_flags |= SA_SIGINFO;
+    int rv = sigaction(SIGALRM, &sa, 0);
+    if (rv < 0)
+        fail_perror("test_signal_catch: sigaction");
+
+    sigset_t ss;
+    sigemptyset(&ss);
+    sigaddset(&ss, SIGALRM);
+    rv = sigprocmask(SIG_UNBLOCK, &ss, 0);
+    if (rv < 0)
+        fail_perror("sigprocmask");
+
+    alarm_received = 0;
+    unsigned int old = alarm(3);
+    if (old != 0)
+        fail_error("alarm timer should have been disarmed\n");
+
+    usleep(1000000);
+    struct timespec start;
+    if (clock_gettime(CLOCK_REALTIME, &start) < 0)
+        fail_perror("clock_gettime");
+    old = alarm(1);
+    if (old == 0)
+        fail_error("alarm timer should still be armed after usleep\n");
+
+    while (!alarm_received)
+        usleep(50000); /* XXX as above */
+
+    long long delta = validate_interval(&start, (struct timespec*)&alarm_finished,
+                                        1, SECOND_NSEC);
+    if (delta < 0)
+        fail_error("interval validation failed\n");
+    timetest_msg("test passed; delta %lld nsec\n", delta);
+}
+
 int
 main()
 {
@@ -542,6 +724,8 @@ main()
     }
     test_timerfd();
     test_posix_timers();
+    test_itimers();
+    test_alarm();
     printf("time test passed\n");
     return EXIT_SUCCESS;
 }
