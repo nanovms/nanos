@@ -230,7 +230,9 @@ static void deliver_signal(sigstate ss, struct siginfo *info)
                 queued_signal qs = struct_from_list(l, queued_signal, l);
                 if (qs->si.si_code == SI_TIMER &&
                     qs->si.sifields.timer.tid == info->sifields.timer.tid) {
-                    qs->si.sifields.timer.overrun += info->sifields.timer.overrun;
+                    u64 overruns = (u64)qs->si.sifields.timer.overrun +
+                        info->sifields.timer.overrun;
+                    qs->si.sifields.timer.overrun = MIN((u64)S32_MAX, overruns);
                     sig_debug("timer update id %d, overrun %d\n",
                               qs->si.sifields.timer.tid,
                               qs->si.sifields.timer.overrun);

@@ -42,7 +42,7 @@ timer register_timer(clock_id id, timestamp val, boolean absolute, timestamp int
     return t;
 }
 
-timestamp timer_check()
+timestamp timer_check(void)
 {
     timer t;
     s64 delta;
@@ -72,26 +72,6 @@ timestamp timer_check()
     	return dt;
     }
     return infinity;
-}
-
-timestamp parse_time(string b)
-{
-    u64 s = 0, frac = 0, fracnorm = 0;
-
-    foreach_character (_, c, b) {
-        if (c == '.')  {
-            fracnorm = 1;
-        } else {
-            if (fracnorm) {
-                frac = frac*10 + digit_of(c);
-                fracnorm *= 10;
-            } else s = s *10 + digit_of(c);
-        }
-    }
-    timestamp result = s << 32;
-
-    if (fracnorm) result |= (frac<<32)/fracnorm;
-    return(result);
 }
 
 void print_timestamp(string b, timestamp t)

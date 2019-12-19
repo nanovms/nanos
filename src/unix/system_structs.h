@@ -348,7 +348,7 @@ typedef struct siginfo {
 
         struct {
             u32 tid;
-            u32 overrun;
+            s32 overrun;
             sigval_t sigval;
             int sys_private;
         } timer;

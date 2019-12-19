@@ -71,9 +71,8 @@ static inline void remove_timer(timer t, timestamp *remain)
 }
 
 void initialize_timers(kernel_heaps kh);
-timestamp parse_time();
 void print_timestamp(buffer, timestamp);
-timestamp timer_check();
+timestamp timer_check(void);
 
 #define THOUSAND         (1000ull)
 #define MILLION          (1000000ull)

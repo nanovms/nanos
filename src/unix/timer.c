@@ -301,7 +301,7 @@ static unix_timer posix_timer_from_timerid(u32 timerid)
 
 static s32 timer_overruns_s32(unix_timer ut)
 {
-    return ut->overruns > (u64)S32_MAX ? S32_MAX : (s32)ut->overruns;
+    return (s32)MIN((u64)S32_MAX, ut->overruns);
 }
 
 /* XXX clear overruns here, or after delivery confirmed? */
