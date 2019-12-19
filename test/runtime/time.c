@@ -14,19 +14,20 @@
 #include <sched.h>
 #include <pthread.h>
 
-#define TIMETEST_DEBUG
+//#define TIMETEST_DEBUG
+
+#define timetest_msg(x, ...) do {printf("%s: " x, __func__, ##__VA_ARGS__);} while(0)
+
 #ifdef TIMETEST_DEBUG
-#define timetest_debug(x, ...) do {printf("%s: " x, __func__, ##__VA_ARGS__);} while(0)
+#define timetest_debug(x, ...) timetest_msg(x, ##__VA_ARGS__)
 #else
 #define timetest_debug(x, ...)
 #endif
 
-#define timetest_err(x, ...) do {printf("%s: " x, __func__, ##__VA_ARGS__);} while(0)
-
-#define fail_perror(msg, ...) do { timetest_err(msg ": %s (%d)\n", ##__VA_ARGS__, strerror(errno), errno); \
+#define fail_perror(msg, ...) do { timetest_msg(msg ": %s (%d)\n", ##__VA_ARGS__, strerror(errno), errno); \
         exit(EXIT_FAILURE); } while(0)
 
-#define fail_error(msg, ...) do { timetest_err(msg, ##__VA_ARGS__); exit(EXIT_FAILURE); } while(0)
+#define fail_error(msg, ...) do { timetest_msg(msg, ##__VA_ARGS__); exit(EXIT_FAILURE); } while(0)
 
 #define SECOND_NSEC 1000000000ull
 #define N_INTERVALS 5
@@ -41,171 +42,17 @@ static inline void timespec_from_nsec(struct timespec *ts, unsigned long long ns
     ts->tv_nsec = nsec ? (nsec % SECOND_NSEC) : 0;
 }
 
-static inline unsigned long long nsec_from_timespec(struct timespec *ts)
+static inline void timespec_add_nsec(struct timespec *dest, struct timespec *op,
+                                     unsigned long long nsec)
 {
-    return ts->tv_sec * SECOND_NSEC + ts->tv_nsec;
+    timespec_from_nsec(dest, op->tv_nsec + nsec);
+    dest->tv_sec += op->tv_sec;
 }
 
 static void print_timespec(struct timespec * ts)
 {
     printf("%lld.%.9ld", (long long)ts->tv_sec, ts->tv_nsec);
 }
-
-/* XXX combine with below */
-static void validate_interval(unsigned long long nsec, struct timespec * start, struct timespec * end)
-{
-    if (end->tv_sec < start->tv_sec ||
-        (end->tv_sec == start->tv_sec && end->tv_nsec < start->tv_nsec)) {
-        printf("failure; time went backwards: start ");
-        print_timespec(start);
-        printf(", end ");
-        print_timespec(end);
-        printf("\n");
-        exit(EXIT_FAILURE);
-    }
-
-    long long elapsed = (end->tv_sec - start->tv_sec) * SECOND_NSEC + (end->tv_nsec - start->tv_nsec);
-    if (elapsed < nsec) {
-        printf("failure; measured interval (%lld) less than requested (%lld)\n", elapsed, nsec);
-        exit(EXIT_FAILURE);
-    }
-    printf("   measured delta +%lld ns\n", elapsed - nsec);
-}
-
-static void test_clock_nanosleep(clockid_t clock_id, unsigned long long nsec)
-{
-    struct timespec start, end, req, rem;
-
-    /* check relative interval */
-    if (clock_gettime(clock_id, &start) < 0)
-        goto out_clock_gettime_fail;
-    printf("%s, clock_id %d, nsec %lld\n   relative test, start: ", __func__, clock_id, nsec);
-    print_timespec(&start);
-
-    timespec_from_nsec(&req, nsec);
-    printf("\n      calling clock_nanosleep with req = ");
-    print_timespec(&req);
-    printf("\n");
-    if (clock_nanosleep(clock_id, 0, &req, &rem) < 0)
-        goto out_clock_nanosleep_fail;
-
-    if (clock_gettime(clock_id, &end) < 0)
-        goto out_clock_gettime_fail;
-
-    validate_interval(nsec, &start, &end);
-
-    /* check absolute interval */
-    if (clock_gettime(clock_id, &start) < 0)
-        goto out_clock_gettime_fail;
-    printf("   absolute test, start: ");
-    print_timespec(&start);
-
-    unsigned long long ti = start.tv_nsec + nsec;
-    req.tv_nsec = ti % SECOND_NSEC;
-    req.tv_sec = start.tv_sec + (ti / SECOND_NSEC);
-    printf("\n      calling clock_nanosleep with absolute req = ");
-    print_timespec(&req);
-    printf("\n");
-
-    if (clock_nanosleep(clock_id, TIMER_ABSTIME, &req, &rem) < 0)
-        goto out_clock_nanosleep_fail;
-
-    if (clock_gettime(clock_id, &end) < 0)
-        goto out_clock_gettime_fail;
-
-    validate_interval(nsec, &start, &end);
-    return;
-  out_clock_gettime_fail:
-    printf("   clock_gettime (id %d) failed: %d (%s)\n", clock_id, errno, strerror(errno));
-    exit(EXIT_FAILURE);
-  out_clock_nanosleep_fail:
-    printf("   clock_nanosleep (id %d) failed: %d (%s)\n", clock_id, errno, strerror(errno));
-    exit(EXIT_FAILURE);
-}
-
-static void test_nanosleep(unsigned long long nsec)
-{
-    struct timespec start, end, req, rem;
-
-    /* Linux nanosleep measures against CLOCK_MONOTONIC (see nanosleep(2) man page) */
-    if (clock_gettime(CLOCK_MONOTONIC, &start) < 0)
-        goto out_clock_gettime_fail;
-    printf("%s, nsec %lld\n   relative test, start: ", __func__, nsec);
-    print_timespec(&start);
-
-    timespec_from_nsec(&req, nsec);
-    printf("\n      calling clock_nanosleep with req = ");
-    print_timespec(&req);
-    printf("\n");
-    if (nanosleep(&req, &rem) < 0)
-        goto out_nanosleep_fail;
-
-    if (clock_gettime(CLOCK_MONOTONIC, &end) < 0)
-        goto out_clock_gettime_fail;
-
-    validate_interval(nsec, &start, &end);
-    return;
-  out_clock_gettime_fail:
-    printf("   clock_gettime failed: %d (%s)\n", errno, strerror(errno));
-    exit(EXIT_FAILURE);
-  out_nanosleep_fail:
-    printf("   nanosleep failed: %d (%s)\n", errno, strerror(errno));
-    exit(EXIT_FAILURE);
-}
-
-void test_time_and_times(void)
-{
-    struct tms tms, tms_prev;
-    clock_t uptime, uptime_prev = 0;
-    int i;
-    memset(&tms_prev, 0, sizeof(tms_prev));
-
-    for (i = 0; i < 3; i++) {
-        time_t t = time(NULL);
-        assert(t != (time_t)-1);
-
-        time_t t2;
-        t = time(&t2);
-        assert(t == t2);
-        printf("%s", asctime(localtime(&t)));
-
-        struct timeval tv;
-        gettimeofday(&tv, NULL);
-        printf("   gettimeofday: %lu.%.6lu, ", tv.tv_sec, tv.tv_usec);
-
-        uptime = times(&tms);
-        if ((tms.tms_utime < tms_prev.tms_utime) ||
-            (tms.tms_stime < tms_prev.tms_stime) ||
-            (tms.tms_cutime < tms_prev.tms_cutime) ||
-            (tms.tms_cstime < tms_prev.tms_cstime) || (uptime < uptime_prev)) {
-            printf("times: non-monotonic values\n");
-            exit(EXIT_FAILURE);
-        }
-        memcpy(&tms_prev, &tms, sizeof(tms));
-        uptime_prev = uptime;
-
-        struct timespec tp;
-        printf("CLOCK_MONOTONIC: ");
-        if (clock_gettime(CLOCK_MONOTONIC, &tp) < 0)
-            goto out_clock_gettime_fail;
-        print_timespec(&tp);
-
-        printf(", CLOCK_REALTIME: ");
-        if (clock_gettime(CLOCK_REALTIME, &tp) < 0)
-            goto out_clock_gettime_fail;
-        print_timespec(&tp);
-        printf("\n");
-        sleep(1);
-    }
-    return;
-  out_clock_gettime_fail:
-    printf("clock_gettime (CLOCK_REALTIME) failed: %d (%s)\n", errno, strerror(errno));
-    exit(EXIT_FAILURE);
-}
-
-#define pertest_debug(x, ...) timetest_debug("test %d: " x, test->test_id, ##__VA_ARGS__);
-#define pertest_fail_perror(x, ...) fail_perror("test %d: " x, test->test_id, ##__VA_ARGS__);
-#define pertest_fail_error(x, ...) fail_error("test %d: " x, test->test_id, ##__VA_ARGS__);
 
 static inline long long delta_nsec(struct timespec *start, struct timespec *finish)
 {
@@ -214,6 +61,134 @@ static inline long long delta_nsec(struct timespec *start, struct timespec *fini
     delta += (finish->tv_sec - start->tv_sec) * SECOND_NSEC;
     return delta;
 }
+
+static long long validate_interval(struct timespec * start, struct timespec * finish,
+                                   unsigned long long intervals, unsigned long long nsec)
+{
+    long long duration = delta_nsec(start, finish);
+    if (duration < 0) {
+        timetest_msg("failed; negative duration: start ");
+        print_timespec(start);
+        printf(", end ");
+        print_timespec(finish);
+        printf("\n");
+        return -1;
+    }
+
+    timetest_debug("duration %lld nsec, %lld intervals\n", duration, intervals);
+    long long delta = (duration / intervals) - nsec;
+    if (delta < 0)
+        timetest_msg("failed; negative delta (%lld nsec)\n", delta);
+    return delta;
+}
+
+static void test_clock_nanosleep(clockid_t clock_id, unsigned long long nsec)
+{
+    struct timespec start, end, req, rem;
+    timetest_msg("clock_id %d, nsec %lld\n", clock_id, nsec);
+
+    /* check relative interval */
+    timetest_debug("relative test\n");
+    if (clock_gettime(clock_id, &start) < 0)
+        fail_perror("clock_gettime");
+    timespec_from_nsec(&req, nsec);
+    if (clock_nanosleep(clock_id, 0, &req, &rem) < 0)
+        fail_perror("clock_nanosleep");
+    if (clock_gettime(clock_id, &end) < 0)
+        fail_perror("clock_gettime");
+
+    long long delta = validate_interval(&start, &end, 1, nsec);
+    if (delta < 0)
+        fail_error("interval validation failed\n");
+    timetest_msg("relative test passed, delta %lld nsec\n", delta);
+
+    /* check absolute interval */
+    timetest_debug("absolute test\n");
+    if (clock_gettime(clock_id, &start) < 0)
+        fail_perror("clock_gettime");
+    timespec_add_nsec(&req, &start, nsec);
+    if (clock_nanosleep(clock_id, TIMER_ABSTIME, &req, &rem) < 0)
+        fail_perror("clock_nanosleep");
+    if (clock_gettime(clock_id, &end) < 0)
+        fail_perror("clock_gettime");
+
+    delta = validate_interval(&start, &end, 1, nsec);
+    if (delta < 0)
+        fail_error("interval validation failed\n");
+    timetest_msg("absolute test passed, delta %lld nsec\n", delta);
+
+    /* XXX need test for interrupt / check remaining */
+}
+
+static void test_nanosleep(unsigned long long nsec)
+{
+    struct timespec start, end, req, rem;
+    timetest_msg("nsec %lld\n", nsec);
+
+    /* Linux nanosleep measures against CLOCK_MONOTONIC (see nanosleep(2) man page) */
+    if (clock_gettime(CLOCK_MONOTONIC, &start) < 0)
+        fail_perror("clock_gettime");
+    timespec_from_nsec(&req, nsec);
+    if (nanosleep(&req, &rem) < 0)
+        fail_perror("nanosleep");
+    if (clock_gettime(CLOCK_MONOTONIC, &end) < 0)
+        fail_perror("clock_gettime");
+
+    long long delta = validate_interval(&start, &end, 1, nsec);
+    if (delta < 0)
+        fail_error("interval validation failed\n");
+    timetest_msg("test passed, delta %lld nsec\n", delta);
+
+    /* XXX need test for interrupt / check remaining */
+}
+
+void test_time_and_times(void)
+{
+    struct tms tms, tms_prev;
+    clock_t uptime, uptime_prev = 0;
+    memset(&tms_prev, 0, sizeof(tms_prev));
+
+    for (int i = 0; i < 4; i++) {
+        time_t t = time(NULL);
+        assert(t != (time_t)-1);
+
+        time_t t2;
+        t = time(&t2);
+        assert(t == t2);
+        timetest_msg("%s", asctime(localtime(&t)));
+
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+        timetest_msg("gettimeofday: %lu.%.6lu, ", tv.tv_sec, tv.tv_usec);
+
+        uptime = times(&tms);
+        if ((tms.tms_utime < tms_prev.tms_utime) ||
+            (tms.tms_stime < tms_prev.tms_stime) ||
+            (tms.tms_cutime < tms_prev.tms_cutime) ||
+            (tms.tms_cstime < tms_prev.tms_cstime) || (uptime < uptime_prev)) {
+            fail_error("non-monotonic values\n");
+        }
+        memcpy(&tms_prev, &tms, sizeof(tms));
+        uptime_prev = uptime;
+
+        struct timespec tp;
+        timetest_msg("CLOCK_MONOTONIC: ");
+        if (clock_gettime(CLOCK_MONOTONIC, &tp) < 0)
+            fail_perror("clock_gettime");
+        print_timespec(&tp);
+        printf("\n");
+        timetest_msg("CLOCK_REALTIME: ");
+        if (clock_gettime(CLOCK_REALTIME, &tp) < 0)
+            fail_perror("clock_gettime");
+        print_timespec(&tp);
+        printf("\n");
+        usleep(250000);
+    }
+}
+
+#define pertest_debug(x, ...) timetest_debug("test %d: " x, test->test_id, ##__VA_ARGS__);
+#define pertest_fail_perror(x, ...) fail_perror("test %d: " x, test->test_id, ##__VA_ARGS__);
+#define pertest_fail_error(x, ...) fail_error("test %d: " x, test->test_id, ##__VA_ARGS__);
 
 struct timer_test {
     /* test parameters */
@@ -242,8 +217,7 @@ static inline void timerfd_set(clockid_t clock_id, int fd, unsigned long long va
         struct timespec n;
         if (clock_gettime(clock_id, &n) < 0)
             fail_perror("clock_gettime");
-        timespec_from_nsec(&its.it_value, value + n.tv_nsec);
-        its.it_value.tv_sec += n.tv_sec;
+        timespec_add_nsec(&its.it_value, &n, value);
     } else {
         timespec_from_nsec(&its.it_value, value);
     }
@@ -278,13 +252,13 @@ static void timerfd_test_finish(struct timer_test *test)
     if (test->overruns > 1)
         timerfd_set(test->clock, test->fd, 0, 0, 0);
     timerfd_check_disarmed(test->fd);
-    long long duration = delta_nsec(&test->start, &test->finish);
-    assert(duration > 0);
-    long long per = duration / test->total_overruns;
-    long long delta = per - test->nsec;
-    pertest_debug("%lld overruns, delta %lld nsec\n", test->total_overruns, delta);
+    long long delta = validate_interval(&test->start, &test->finish,
+                                        test->total_overruns, test->nsec);
     if (delta < 0)
-        pertest_fail_error("failed; negative delta (%lld nsec)\n", delta);
+        pertest_fail_error("interval validation failed\n");
+    timetest_msg("%s clock id %d, nsec %lld, overruns %lld passed "
+                 "with delta %lld nsec\n", test->absolute ? "absolute" : "relative",
+                 test->clock, test->nsec, test->overruns, delta);
 }
 
 static int test_timerfd_fd_service(struct timer_test *test)
@@ -326,8 +300,7 @@ static void test_timerfd(void)
     int ntests = N_CLOCKS * N_INTERVALS * 2 /* one shot, periodic */ * 2 /* absolute, relative */;
     struct timer_test tests[N_CLOCKS][N_INTERVALS][2][2];
 
-    timetest_debug("%s\n", __func__);
-
+    timetest_msg("testing interface");
     int fd = timerfd_create(CLOCK_MONOTONIC /* matters not for interface test */, 0);
     if (fd < 0)
         fail_perror("timerfd_create");
@@ -341,7 +314,7 @@ static void test_timerfd(void)
     timerfd_check_disarmed(fd);
     close(fd);
 
-    timetest_debug("starting thread read test\n");
+    timetest_msg("starting blocking read tests\n");
     int id = 0;
     for (int i = 0; i < N_CLOCKS; i++) {
         for (int j = 0; j < N_INTERVALS; j++) {
@@ -372,9 +345,10 @@ static void test_timerfd(void)
         if (pthread_join(test->pt, &retval))
             fail_perror("pthread_join");
     }
+    timetest_msg("all blocking read tests passed\n");
 
     /* leave fds open and re-use */
-    timetest_debug("thread read test passed; starting poll test\n");
+    timetest_msg("starting poll read tests\n");
     int epfd = epoll_create(1);
     if (epfd < 0)
         fail_perror("epoll_create");
@@ -401,13 +375,13 @@ static void test_timerfd(void)
         struct timer_test *test = rev.data.ptr;
         if (rev.events & EPOLLIN) {
             if (test_timerfd_fd_service(test)) {
-                timetest_debug("test #%d passed\n", test->test_id);
+                timerfd_test_finish(test);
                 close(test->fd);
                 tests_finished++;
             }
         }
     }
-    timetest_debug("passed\n");
+    timetest_msg("all poll read tests passed\n");
     close(epfd);
 }
 
@@ -419,8 +393,7 @@ static void posix_timer_set(clockid_t clock_id, int timerid, unsigned long long 
     struct itimerspec its;
     timespec_from_nsec(&its.it_interval, interval);
     if (abs_start) {
-        timespec_from_nsec(&its.it_value, value + abs_start->tv_nsec);
-        its.it_value.tv_sec += abs_start->tv_sec;
+        timespec_add_nsec(&its.it_value, abs_start, value);
     } else {
         timespec_from_nsec(&its.it_value, value);
     }
@@ -467,14 +440,13 @@ static void posix_test_finish(struct timer_test *test)
     if (clock_gettime(test->clock, &test->finish) < 0)
         pertest_fail_perror("clock_gettime");
     posix_timer_check_disarmed(test);
-    long long duration = delta_nsec(&test->start, &test->finish);
-    assert(duration > 0);
-    long long per = duration / test->total_overruns;
-    long long delta = per - test->nsec;
-    pertest_debug("duration %lld nsec, per %lld nsec\n", duration, per);
-    pertest_debug("%lld overruns, delta %lld nsec\n", test->total_overruns, delta);
+    long long delta = validate_interval(&test->start, &test->finish,
+                                        test->total_overruns, test->nsec);
     if (delta < 0)
-        pertest_fail_error("failed; negative delta (%lld nsec)\n", delta);
+        pertest_fail_error("interval validation failed\n");
+    timetest_msg("%s clock id %d, nsec %lld, overruns %lld passed "
+                 "with delta %lld nsec\n", test->absolute ? "absolute" : "relative",
+                 test->clock, test->nsec, test->overruns, delta);
 }
 
 static void posix_timers_sighandler(int sig, siginfo_t *si, void *ucontext)

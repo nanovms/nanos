@@ -94,7 +94,7 @@ closure_function(1, 1, void, timerfd_timer_expire,
     assert(!ut->t->disabled);
 
     ut->overruns += overruns;
-    timer_debug("interval %ld, fd %d +%d -> %d\n", ut->t->interval,
+    timer_debug("interval %ld, fd %d, %d overruns -> %ld\n", ut->t->interval,
                 ut->info.timerfd.fd, overruns, ut->overruns);
 
     blockq_wake_one(ut->info.timerfd.bq);
@@ -140,10 +140,13 @@ sysreturn timerfd_settime(int fd, int flags,
 
     /* runtime timers are partly immutable; so cancel and re-create on set */
     remove_unix_timer(ut);
+    ut->overruns = 0;
+
+    if (new_value->it_value.ts_sec == 0 && new_value->it_value.ts_nsec == 0)
+        return 0;
 
     timestamp tinit = time_from_timespec(&new_value->it_value);
     timestamp interval = time_from_timespec(&new_value->it_interval);
-
     boolean absolute = (flags & TFD_TIMER_ABSTIME) != 0;
     timer_debug("register timer: cid %d, init value %T, absolute %d, interval %T\n",
                 ut->cid, tinit, absolute, interval);
@@ -371,6 +374,10 @@ sysreturn timer_settime(u32 timerid, int flags,
         itimerspec_from_timer(ut, old_value);
 
     remove_unix_timer(ut);
+    ut->overruns = 0;
+
+    if (new_value->it_value.ts_sec == 0 && new_value->it_value.ts_nsec == 0)
+        return 0;
 
     timestamp tinit = time_from_timespec(&new_value->it_value);
     timestamp interval = time_from_timespec(&new_value->it_interval);
