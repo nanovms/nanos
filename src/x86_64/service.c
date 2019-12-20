@@ -74,6 +74,9 @@ static void timer_update(void)
 
 extern void interrupt_exit(void);
 
+/* could make a generic hook/register if more users... */
+thunk unix_interrupt_checks;
+
 NOTRACE
 void process_bhqueue()
 {
@@ -96,6 +99,9 @@ void process_bhqueue()
 
     /* XXX - and disable before frame pop */
     frame_pop();
+
+    if (unix_interrupt_checks)
+        apply(unix_interrupt_checks);
     interrupt_exit();
 }
 
@@ -289,6 +295,7 @@ static void __attribute__((noinline)) init_service_new_stack()
     /* XXX bhqueue is large to accomodate vq completions; explore batch processing on vq side */
     bhqueue = allocate_queue(misc, 2048);
     deferqueue = allocate_queue(misc, 64);
+    unix_interrupt_checks = 0;
 
     /* interrupts */
     init_debug("start_interrupts");

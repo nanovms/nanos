@@ -245,6 +245,15 @@ timestamp proc_stime(process p)
     return stime;
 }
 
+extern thunk unix_interrupt_checks;
+closure_function(0, 0, void, do_interrupt_checks)
+{
+    /* If we're returning to the standard thread frame, check if we
+       can invoke any signal handlers. */
+    if (running_frame == current->frame)
+        dispatch_signals(current);
+}
+
 process init_unix(kernel_heaps kh, tuple root, filesystem fs)
 {
     heap h = heap_general(kh);
@@ -291,6 +300,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     fault_handler fallback_handler = create_fault_handler(h, current);
     install_fallback_fault_handler(fallback_handler);
 
+    unix_interrupt_checks = closure(h, do_interrupt_checks);
     register_special_files(kernel_process);
     init_syscalls();
     register_file_syscalls(linux_syscalls);

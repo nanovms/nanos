@@ -145,6 +145,12 @@ static queued_signal sigstate_dequeue_signal(sigstate ss, int signum)
     assert(l);
     queued_signal qs = struct_from_list(l, queued_signal, l);
     list_delete(l);
+#ifdef SIGNAL_DEBUG
+    int count = 0;
+    list_foreach(head, l)
+        count++;
+    sig_debug("dequeued sig #%d, remain %d\n", signum, count);
+#endif
     if (list_empty(head))
         ss->pending &= ~mask_from_sig(signum);
     return qs;
@@ -465,6 +471,9 @@ sysreturn rt_sigreturn(void)
 
     /* ftrace needs to know that this call stack does not return */
     ftrace_thread_noreturn(current);
+
+    /* see if we have more handlers to invoke */
+    dispatch_signals(current);
 
     /* return - XXX or reschedule? */
     IRETURN(running_frame);

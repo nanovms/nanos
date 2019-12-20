@@ -166,7 +166,7 @@ void test_time_and_times(void)
 
         struct timeval tv;
         gettimeofday(&tv, NULL);
-        timetest_msg("gettimeofday: %lu.%.6lu, ", tv.tv_sec, tv.tv_usec);
+        timetest_msg("gettimeofday: %lu.%.6lu\n", tv.tv_sec, tv.tv_usec);
 
         uptime = times(&tms);
         if ((tms.tms_utime < tms_prev.tms_utime) ||
@@ -193,6 +193,7 @@ void test_time_and_times(void)
     }
 }
 
+#define pertest_msg(x, ...) timetest_msg("test %d: " x, test->test_id, ##__VA_ARGS__);
 #define pertest_debug(x, ...) timetest_debug("test %d: " x, test->test_id, ##__VA_ARGS__);
 #define pertest_fail_perror(x, ...) fail_perror("test %d: " x, test->test_id, ##__VA_ARGS__);
 #define pertest_fail_error(x, ...) fail_error("test %d: " x, test->test_id, ##__VA_ARGS__);
@@ -451,9 +452,9 @@ static void posix_test_finish(struct timer_test *test)
                                         test->total_overruns, test->nsec);
     if (delta < 0)
         pertest_fail_error("interval validation failed\n");
-    timetest_msg("%s clock id %d, nsec %lld, overruns %lld passed "
-                 "with delta %lld nsec\n", test->absolute ? "absolute" : "relative",
-                 test->clock, test->nsec, test->overruns, delta);
+    pertest_msg("%s clock id %d, nsec %lld, overruns %lld passed "
+                "with delta %lld nsec\n", test->absolute ? "absolute" : "relative",
+                test->clock, test->nsec, test->overruns, delta);
 }
 
 static void posix_timers_sighandler(int sig, siginfo_t *si, void *ucontext)
@@ -473,9 +474,9 @@ static void posix_timers_sighandler(int sig, siginfo_t *si, void *ucontext)
     pertest_debug("read %d overruns, total %lld\n", si->si_overrun, test->total_overruns);
     if (test->total_overruns >= test->overruns) {
         posix_test_finish(test);
-        posix_timers_finished++;
         pertest_debug("finished (total finished %d)\n", posix_timers_finished);
         test->total_overruns = -1;
+        posix_timers_finished++;
     }
 }
 
@@ -552,8 +553,7 @@ void test_posix_timers(void)
     while (posix_timers_finished < ntests)
         usleep(500000);
 
-    /* XXX somehow suppress output from spurious signals after test finish... */
-    timetest_debug("signal test passed\n");
+    timetest_msg("signal test passed\n");
 }
 
 /* XXX only ITIMER_REAL right now */
@@ -634,7 +634,7 @@ void test_itimers(void)
                 struct timespec start;
                 timeval_from_nsec(&itv.it_value, test_intervals[j]);
                 timeval_from_nsec(&itv.it_interval, k == 0 ? 0 : test_intervals[j]);
-                timetest_debug("starting: which %d, interval %lld nsec, %s\n",
+                timetest_msg("starting: which %d, interval %lld nsec, %s\n",
                                i, test_intervals[j], k == 0 ? "one-shot" : "periodic");
                 int overruns = k == 0 ? 1 : 3 /* XXX */;
                 itimer_which = i;
