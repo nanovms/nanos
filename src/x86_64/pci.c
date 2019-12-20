@@ -55,7 +55,7 @@ struct pci_driver {
 static int pci_cfgenable(pci_dev dev, int reg, int bytes)
 {
     int dataport = 0;
-    
+
     if (dev->bus <= PCI_BUSMAX && dev->slot <= PCI_SLOTMAX && dev->function <= PCI_FUNCMAX &&
         (unsigned)reg <= PCI_REGMAX && bytes != 3 &&
         (unsigned)bytes <= 4 && (reg & (bytes - 1)) == 0) {
@@ -70,7 +70,7 @@ u32 pci_cfgread(pci_dev dev, int reg, int bytes)
 {
     u32 data = -1;
     int port;
-    
+
     port = pci_cfgenable(dev, reg, bytes);
     if (port != 0) {
         switch (bytes) {
@@ -100,7 +100,7 @@ u32 pci_readbar(pci_dev dev, int bid, u32 *length)
 void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
 {
     int port;
-    
+
     port = pci_cfgenable(dev, reg, bytes);
     if (port != 0) {
         switch (bytes) {
@@ -207,7 +207,7 @@ static void pci_probe_device(pci_dev dev)
 void pci_discover()
 {
     // we dont actually need to do recursive discovery, qemu leaves it all on bus0 for us
-    for (int i = 0; i < 16; i++) {
+    for (int i = 0; i <= PCI_SLOTMAX; i++) {
         struct pci_dev _dev = { .bus = 0, .slot = i, .function = 0 };
         pci_dev dev = &_dev;
 
