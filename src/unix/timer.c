@@ -357,8 +357,9 @@ closure_function(1, 1, void, posix_timer_expire,
     unix_timer ut = bound(ut);
     assert(ut->t);
     assert(!ut->t->disabled);
+    assert(overruns > 0);
 
-    ut->overruns += overruns;
+    ut->overruns += overruns - 1;
     timer_debug("id %d, interval %ld, +%d -> %d\n",
                 ut->info.posix.id, ut->t->interval, overruns, ut->overruns);
 
@@ -373,7 +374,7 @@ sysreturn timer_settime(u32 timerid, int flags,
                         struct itimerspec *old_value) {
     /* Linux doesn't validate flags? */
     if (!new_value)
-        return -EFAULT;
+        return -EINVAL;         /* usually EFAULT, but linux gives EINVAL */
 
     unix_timer ut = posix_timer_from_timerid(timerid);
     if (ut == INVALID_ADDRESS)
@@ -572,9 +573,6 @@ sysreturn setitimer(int which, const struct itimerval *new_value,
         clockid = CLOCK_ID_REALTIME;
     }
 
-    if (!new_value)
-        return -EFAULT;
-
     unix_timer ut = vector_get(p->itimers, which);
     if (!ut) {
         ut = allocate_unix_timer(UNIX_TIMER_TYPE_ITIMER, clockid);
@@ -603,7 +601,7 @@ sysreturn setitimer(int which, const struct itimerval *new_value,
 
     remove_unix_timer(ut);
 
-    if (new_value->it_value.tv_sec == 0 && new_value->it_value.tv_usec == 0)
+    if (!new_value || (new_value->it_value.tv_sec == 0 && new_value->it_value.tv_usec == 0))
         return 0;
 
     timestamp tinit = time_from_timeval(&new_value->it_value);

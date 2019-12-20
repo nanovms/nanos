@@ -470,7 +470,7 @@ static void posix_timers_sighandler(int sig, siginfo_t *si, void *ucontext)
         pertest_debug("expiry after cancel; ignore\n");
         return;
     }
-    test->total_overruns += si->si_overrun;
+    test->total_overruns += si->si_overrun + 1;
     pertest_debug("read %d overruns, total %lld\n", si->si_overrun, test->total_overruns);
     if (test->total_overruns >= test->overruns) {
         posix_test_finish(test);
@@ -500,10 +500,10 @@ void test_posix_timers(void)
         fail_error("timer_gettime with null curr_value should have failed with "
                    "EFAULT (rv %d, errno %d)\n", rv, errno);
 
-    rv = syscall(SYS_timer_settime, dummy_id, 0, 0);
-    if (rv >= 0 || errno != EFAULT)
-        fail_error("timer_gettime with null new_value should have failed with "
-                   "EFAULT (rv %d, errno %d)\n", rv, errno);
+    rv = syscall(SYS_timer_settime, dummy_id, 0, 0, 0);
+    if (rv >= 0 || errno != EINVAL)
+        fail_error("timer_settime with null new_value should have failed with "
+                   "EINVAL (rv %d, errno %d)\n", rv, errno);
 
     posix_timers_finished = 0;
 
@@ -554,6 +554,12 @@ void test_posix_timers(void)
         usleep(500000);
 
     timetest_msg("signal test passed\n");
+
+    sigemptyset(&ss);
+    sigaddset(&ss, SIGRTMIN);
+    rv = sigprocmask(SIG_BLOCK, &ss, 0);
+    if (rv < 0)
+        fail_perror("sigprocmask");
 }
 
 /* XXX only ITIMER_REAL right now */
@@ -591,9 +597,8 @@ void test_itimers(void)
     timetest_msg("testing itimer interface\n");
 
     int rv = syscall(SYS_setitimer, ITIMER_REAL, 0, 0);
-    if (rv >= 0 || errno != EFAULT)
-        fail_error("setitimer with null new_value should have failed with "
-                   "EFAULT (rv %d, errno %d)\n", rv, errno);
+    if (rv != 0)
+        fail_perror("setitimer with null new_value should have passed");
 
     rv = syscall(SYS_getitimer, ITIMER_REAL, 0);
     if (rv >= 0 || errno != EFAULT)
