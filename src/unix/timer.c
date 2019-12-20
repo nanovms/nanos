@@ -345,8 +345,9 @@ static void sigev_deliver(unix_timer ut)
         sigev_update_siginfo(ut);
         deliver_signal_to_process(ut->p, &ut->info.posix.si);
         break;
-    case SIGEV_THREAD:
-        halt("SIGEV_THREAD not yet implemented.\n");
+    default:
+        /* SIGEV_THREAD is a glibc thing; we should never see it. */
+        halt("%s: invalid sigev_notify %d\n", __func__, sevp->sigev_notify);
     }
 }
 
@@ -473,10 +474,9 @@ sysreturn timer_create(int clockid, struct sigevent *sevp, u32 *timerid)
                 return -EINVAL;
             break;
         case SIGEV_THREAD:
-            /* XXX ? */
-            msg_err("%s: SIGEV_THREAD not yet supported\n", __func__);
-            return -EOPNOTSUPP;
-            break;
+            /* should never see this, but bark if we do */
+            msg_err("%s: SIGEV_THREAD should be handled by libc / nptl\n", __func__);
+            return -EINVAL;
         default:
             return -EINVAL;
         }

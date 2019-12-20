@@ -1034,8 +1034,18 @@ static void setup_sigframe(thread t, int signum, struct siginfo *si)
         halt("SA_ONSTACK ...\n");
     }
 
-    /* 16-byte alignment; avoid redzone */
-    t->sigframe[FRAME_RSP] = (t->sigframe[FRAME_RSP] & ~15) - 128;
+    /* avoid redzone and align rsp
+
+       Note: We are actually aligning to 8 but not 16 bytes; the ABI
+       requires that stacks are aligned to 16 before a call, but the
+       sigframe return into the function takes the place of a call,
+       which would have pushed a return address. The function prologue
+       typically pushes the frame pointer on the stack, thus
+       re-aligning to 16 before executing the function body.
+    */
+    t->sigframe[FRAME_RSP] = ((t->sigframe[FRAME_RSP] & ~15)
+                              - 128 /* redzone */
+                              - 8 /* same effect as call pushing ra */);
 
     /* create space for rt_sigframe */
     t->sigframe[FRAME_RSP] -= pad(sizeof(struct rt_sigframe), 16);
