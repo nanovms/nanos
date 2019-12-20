@@ -44,7 +44,7 @@ static heap virtual_huge;
 static heap pages;
 
 // assume the single bus layout
-static u32 *msi_map[PCI_SLOTMAX];
+static u32 *msi_map[PCI_SLOTMAX + 1];
 
 struct pci_driver {
     pci_probe probe;
