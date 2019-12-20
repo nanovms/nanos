@@ -21,7 +21,14 @@
 #define PROCESS_HEAP_ASLR_RANGE     (4 * MB)
 #define PROCESS_STACK_ASLR_RANGE    (4 * MB)
 
-#define VSYSCALL_BASE                   0xffffffffff600000ull
+/* fixed address per deprecated API */
+#define VSYSCALL_BASE               0xffffffffff600000ull
+
+/* VDSO location is to be randomly determined at process creation */
+#define VDSO_NR_PAGES               2
+
+/* This will change if we add support for more clocktypes */
+#define VVAR_NR_PAGES               2
 
 typedef s64 sysreturn;
 
@@ -130,12 +137,13 @@ typedef closure_type(blockq_action, sysreturn, u64 flags);
 struct blockq;
 typedef struct blockq * blockq;
 
-io_completion syscall_io_complete;
+extern io_completion syscall_io_complete;
 
 blockq allocate_blockq(heap h, char * name);
 void deallocate_blockq(blockq bq);
 const char * blockq_name(blockq bq);
 thread blockq_wake_one(blockq bq);
+boolean blockq_wake_one_for_thread(blockq bq, thread t);
 void blockq_flush(blockq bq);
 boolean blockq_flush_thread(blockq bq, thread t);
 void blockq_set_completion(blockq bq, io_completion completion, thread t,
@@ -167,6 +175,7 @@ typedef struct sigstate {
     u64         mask;           /* masked or "blocked" signals are set */
     u64         saved;          /* original mask saved on rt_sigsuspend or handler dispatch */
     u64         ignored;        /* mask of signals set to SIG_IGN */
+    u64         interest;       /* signals of interest, regardless of mask or ignored */
     struct list heads[NSIG];
 } *sigstate;
 
@@ -174,6 +183,8 @@ declare_closure_struct(1, 0, void, free_thread,
                          thread, t);
 typedef struct epoll *epoll;
 struct ftrace_graph_entry;
+
+#include <notify.h>
 
 typedef struct thread {
     // if we use an array typedef its fragile
@@ -209,15 +220,12 @@ typedef struct thread {
     /* for waiting on thread-specific conditions rather than a resource */
     blockq thread_bq;
 
+    /* signals pending and saved state */
     struct sigstate signals;
     sigstate dispatch_sigstate; /* while signal handler in flight, save sigstate... */
     u64 saved_rax;              /* ... and t->frame[FRAME_RAX] */
     u64 sigframe[FRAME_MAX];
-
-    /* sigs that can wake thread regardless of mask or ignored
-       nonzero when in rt_sigtimedwait) */
-    u64 siginterest;
-
+    notify_set signalfds;
     u16 active_signo;
 
 #ifdef CONFIG_FTRACE
@@ -229,8 +237,6 @@ typedef struct thread {
 typedef closure_type(io, sysreturn, void *buf, u64 length, u64 offset, thread t,
         boolean bh, io_completion completion);
 
-#include <notify.h>
-
 #define FDESC_TYPE_REGULAR      1
 #define FDESC_TYPE_DIRECTORY    2
 #define FDESC_TYPE_SPECIAL      3
@@ -238,10 +244,13 @@ typedef closure_type(io, sysreturn, void *buf, u64 length, u64 offset, thread t,
 #define FDESC_TYPE_PIPE         5
 #define FDESC_TYPE_STDIO        6
 #define FDESC_TYPE_EPOLL        7
+#define FDESC_TYPE_EVENTFD      8
+#define FDESC_TYPE_SIGNALFD     9
+#define FDESC_TYPE_TIMERFD     10
 
 typedef struct fdesc {
     io read, write;
-    closure_type(events, u32);
+    closure_type(events, u32, thread);
     closure_type(ioctl, sysreturn, unsigned long request, vlist ap);
 
     /* close() is assumed to not block the calling thread. If any implementation
@@ -289,6 +298,7 @@ typedef struct process {
     void             *brk;
     u64               heap_base;
     u64               lowmem_end; /* end of elf / heap / stack area (low 2gb below reserved) */
+    u64               vdso_base;
     heap              virtual;  /* huge virtual, parent of virtual_page */
     heap              virtual_page; /* pagesized, default for mmaps */
     heap              virtual32; /* for tracking low 32-bit space and MAP_32BIT maps */
@@ -336,9 +346,28 @@ static inline kernel_heaps get_kernel_heaps()
 
 fault_handler create_fault_handler(heap h, thread t);
 
-void init_fdesc(heap h, fdesc f, int type);
+static inline void init_fdesc(heap h, fdesc f, int type)
+{
+    f->read = 0;
+    f->write = 0;
+    f->close = 0;
+    f->events = 0;
+    f->ioctl = 0;
+    f->refcnt = 1;
+    f->type = type;
+    f->flags = 0;
+    f->ns = allocate_notify_set(h);
+}
 
-void release_fdesc(fdesc f);
+static inline void release_fdesc(fdesc f)
+{
+    deallocate_notify_set(f->ns);
+}
+
+static inline int fdesc_type(fdesc f)
+{
+    return f->type;
+}
 
 u64 allocate_fd(process p, void *f);
 
@@ -347,7 +376,7 @@ u64 allocate_fd_gte(process p, u64 min, void *f);
 
 void deallocate_fd(process p, int fd);
 
-void init_vdso(heap, heap);
+void init_vdso(process p);
 
 void mmap_process_init(process p);
 

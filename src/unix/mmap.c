@@ -40,7 +40,7 @@ deliver_segv(u64 vaddr, s32 si_code)
         vaddr, (si_code == SEGV_MAPERR) ? "SEGV_MAPPER" : "SEGV_ACCERR"
     );
 
-    deliver_signal_to_thread(current, &s); 
+    deliver_signal_to_thread(current, &s);
     thread_yield();
 }
 
@@ -103,7 +103,7 @@ boolean unix_fault_page(u64 vaddr, context frame)
         }
 
         pf_debug("page protection violation\naddr 0x%lx, rip 0x%lx, "
-                 "error %s%s%s vm->flags (%s%s%s%s)", 
+                 "error %s%s%s vm->flags (%s%s%s%s)",
                  vaddr, frame[FRAME_RIP],
                  (error_code & FRAME_ERROR_PF_RW) ? "W" : "R",
                  (error_code & FRAME_ERROR_PF_US) ? "U" : "S",
@@ -183,13 +183,13 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
         return -EFAULT;
 
     /* XXX should determine if we're extending a virtual32 allocation...
-     * - for now only let the user move anon mmaps 
+     * - for now only let the user move anon mmaps
      */
     if (! ((old_vm->flags & VMAP_FLAG_MMAP) &&
            (old_vm->flags & VMAP_FLAG_ANONYMOUS))
        )
     {
-        msg_err("mremap only supports anon mmap regions at the moment\n"); 
+        msg_err("mremap only supports anon mmap regions at the moment\n");
         return -EINVAL;
     }
 
@@ -229,7 +229,7 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
     /*
      * XXX : if we decide to handle MREMAP_FIXED, we'll need to be careful about
      * making sure destination address ranges are unmapped before mapping over them
-     * here 
+     * here
      */
 
     /* remap existing portion */
@@ -292,7 +292,7 @@ static sysreturn mincore(void *addr, u64 length, u8 *vec)
 
     /* -ENOMEM if any unmapped gaps in range */
     if (rangemap_range_find_gaps(
-            current->p->vmaps, 
+            current->p->vmaps,
             (range){start, start + length},
             stack_closure(mincore_vmap_gap)))
         return -ENOMEM;
@@ -435,7 +435,7 @@ closure_function(3, 1, void, vmap_attribute_update_intersection,
         /* create node for intersection */
         vmap mh = allocate_vmap(pvmap, ri, newflags);
         assert(mh != INVALID_ADDRESS);
-        
+
         if (tail) {
             /* create node at tail end */
             range rt = { ri.end, rtend };
@@ -826,8 +826,34 @@ void mmap_process_init(process p)
     /* reserve remainder */
     add_varea(p, user_va_tag_end, U64_FROM_BIT(VIRTUAL_ADDRESS_BITS), 0, false);
 
+    /* randomly determine vdso/vvar base and track it */
+    {
+        u64 vdso_size, vvar_size, vvar_start;
+
+        vdso_size = VDSO_NR_PAGES * PAGESIZE;
+        vvar_size = VVAR_NR_PAGES * PAGESIZE;
+
+        p->vdso_base = allocate_u64(p->virtual_page, vdso_size + vvar_size);
+        assert(allocate_vmap(
+            p->vmaps,
+            irange(p->vdso_base, p->vdso_base + vdso_size/*+vvar_size*/),
+            VMAP_FLAG_EXEC
+        ) != INVALID_ADDRESS);
+
+        /* vvar goes right after the vdso */
+        vvar_start = p->vdso_base + vdso_size;
+        assert(allocate_vmap(
+            p->vmaps,
+            irange(vvar_start, vvar_start + vvar_size),
+            0
+        ) != INVALID_ADDRESS);
+    }
+
     /* Track vsyscall page */
-    assert(allocate_vmap(p->vmaps, irange(VSYSCALL_BASE, VSYSCALL_BASE + PAGESIZE), VMAP_FLAG_EXEC));
+    assert(
+        allocate_vmap(p->vmaps, irange(VSYSCALL_BASE, VSYSCALL_BASE + PAGESIZE), VMAP_FLAG_EXEC)
+        != INVALID_ADDRESS
+    );
 }
 
 void register_mmap_syscalls(struct syscall *map)

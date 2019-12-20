@@ -194,17 +194,16 @@ thread create_thread(process p)
     heap h = heap_general((kernel_heaps)p->uh);
 
     thread t = allocate(h, sizeof(struct thread));
-    if (t == INVALID_ADDRESS) {
-        msg_err("failed to allocate thread\n");
-        return INVALID_ADDRESS;
-    }
+    if (t == INVALID_ADDRESS)
+        goto fail;
 
     t->thread_bq = allocate_blockq(h, "thread");
-    if (t->thread_bq == INVALID_ADDRESS) {
-        msg_err("failed to allocate blockq\n");
-        deallocate(h, t, sizeof(struct thread));
-        return INVALID_ADDRESS;
-    }
+    if (t->thread_bq == INVALID_ADDRESS)
+        goto fail_bq;
+
+    t->signalfds = allocate_notify_set(h);
+    if (t->signalfds == INVALID_ADDRESS)
+        goto fail_sfds;
 
     t->p = p;
     t->syscall = -1;
@@ -221,7 +220,6 @@ thread create_thread(process p)
     t->file_op_is_complete = false;
     init_sigstate(&t->signals);
     t->dispatch_sigstate = 0;
-    t->siginterest = 0;
     t->active_signo = 0;
 
     if (ftrace_thread_init(t)) {
@@ -234,9 +232,16 @@ thread create_thread(process p)
     // XXX sigframe
     vector_set(p->threads, t->tid, t);
     return t;
+  fail_sfds:
+    deallocate_blockq(t->thread_bq);
+  fail_bq:
+    deallocate(h, t, sizeof(struct thread));
+  fail:
+    msg_err("%s: failed to allocate\n", __func__);
+    return INVALID_ADDRESS;
 }
 
-__attribute__((no_instrument_function))
+NOTRACE 
 void exit_thread(thread t)
 {
     thread_log(current, "exit_thread");
@@ -279,7 +284,7 @@ void exit_thread(thread t)
     deallocate_closure((fault_handler)pointer_from_u64(t->frame[FRAME_FAULT_HANDLER]));
     t->frame[FRAME_FAULT_HANDLER] = 0;
 
-    ftrace_thread_deinit(t);
+    ftrace_thread_deinit(t, dummy_thread);
 
     current = dummy_thread;
     running_frame = dummy_thread->frame;

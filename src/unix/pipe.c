@@ -246,8 +246,9 @@ closure_function(1, 6, sysreturn, pipe_write,
     return blockq_check(pf->bq, t, ba, bh);
 }
 
-closure_function(1, 0, u32, pipe_read_events,
-                 pipe_file, pf)
+closure_function(1, 1, u32, pipe_read_events,
+                 pipe_file, pf,
+                 thread, t /* ignore */)
 {
     pipe_file pf = bound(pf);
     assert(pf->f.read);
@@ -257,8 +258,9 @@ closure_function(1, 0, u32, pipe_read_events,
     return events;
 }
 
-closure_function(1, 0, u32, pipe_write_events,
-                 pipe_file, pf)
+closure_function(1, 1, u32, pipe_write_events,
+                 pipe_file, pf,
+                 thread, t /* ignore */)
 {
     pipe_file pf = bound(pf);
     assert(pf->f.write);

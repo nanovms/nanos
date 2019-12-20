@@ -181,7 +181,7 @@ boolean init_hpet(kernel_heaps kh) {
     for (int i = 0; i < 10; i ++) {
         if (prev == hpet_main_counter())
             continue;
-        register_platform_clock_now(closure(heap_general(kh), hpet_now));
+        register_platform_clock_now(closure(heap_general(kh), hpet_now), VDSO_CLOCK_HPET);
         register_platform_clock_timer(closure(heap_general(kh), hpet_runloop_timer));
         return true;
     }

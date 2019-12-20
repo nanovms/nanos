@@ -12,6 +12,8 @@
 #include <pthread.h>
 
 #include <sys/ucontext.h>
+#include <sys/signalfd.h>
+#include <sys/epoll.h>
 
 /* #970: avoid getpid() with threads unless you know you have a newish glibc */
 #define __getpid() syscall(SYS_getpid)
@@ -67,7 +69,7 @@ void test_signal_catch(void)
     pthread_t pt = 0;
     child_tid = 0;
     if (pthread_create(&pt, NULL, tgkill_test_pause, NULL))
-        fail_perror("blocking test pthread_create");
+        fail_perror("pthread_create");
 
     sigtest_debug("yielding until child tid reported...\n");
     yield_for(&child_tid);
@@ -170,7 +172,7 @@ void test_rt_signal(void)
     child_tid = 0;
     test_rt_signal_enable = 0;
     if (pthread_create(&pt, NULL, test_rt_signal_child, NULL))
-        fail_perror("blocking test pthread_create");
+        fail_perror("pthread_create");
 
     sigtest_debug("yielding until child tid reported...\n");
     yield_for(&child_tid);
@@ -356,7 +358,7 @@ void test_rt_sigsuspend(void)
     rt_sigsuspend_next_sig = 0;
     pthread_t pt = 0;
     if (pthread_create(&pt, NULL, test_rt_sigsuspend_child, NULL))
-        fail_perror("blocking test pthread_create");
+        fail_perror("pthread_create");
 
     sigtest_debug("yielding until child tid reported...\n");
     yield_for(&child_tid);
@@ -540,7 +542,7 @@ test_sigsegv(void)
             fail_perror("siggaction for SIGSEGV failed");
 
         if (pthread_create(&pt, NULL, sigsegv_thread, NULL))
-            fail_perror("blocking test pthread_create");
+            fail_perror("sigsegv_thread pthread_create");
 
         sigtest_debug("yielding until child tid reported...\n");
         yield_for(&child_tid);
@@ -560,7 +562,7 @@ test_sigsegv(void)
             fail_perror("siggaction for SIGSEGV failed");
 
         if (pthread_create(&pt, NULL, sigsegv_thread, NULL))
-            fail_perror("blocking test pthread_create");
+            fail_perror("sigsegv_thread pthread_create 2");
 
         sigtest_debug("yielding until child tid reported...\n");
         yield_for(&child_tid);
@@ -590,14 +592,13 @@ static volatile int test_rt_sigtimedwait_caught = 0;
 
 static void * test_rt_sigtimedwait_child(void *arg)
 {
-    sigtest_debug("enter, tid %d\n", child_tid);
     sigset_t ss;
     siginfo_t si;
     sigemptyset(&ss);
 
     /* test interrupt by caught signal not in set */
-    sigtest_debug("calling rt_sigtimedwait with null set...\n");
     child_tid = syscall(SYS_gettid);
+    sigtest_debug("tid %d, calling rt_sigtimedwait with null set...\n", child_tid);
     int rv = syscall(SYS_rt_sigtimedwait, &ss, &si, 0, 8);
     if (rv < 0 && errno == EINTR) {
         if (!test_rt_sigtimedwait_handler_reached)
@@ -605,7 +606,7 @@ static void * test_rt_sigtimedwait_child(void *arg)
         test_rt_sigtimedwait_intr = 1;
         sigtest_debug("   interrupted, as expected\n");
     } else {
-        fail_error("rt_sigtimedwait unexpected rv %d, errno %d\n", rv, errno);
+        fail_perror("rt_sigtimedwait 1");
     }
 
     /* test catching signal in set */
@@ -616,7 +617,7 @@ static void * test_rt_sigtimedwait_child(void *arg)
         sigtest_debug("   caught signal\n");
         test_rt_sigtimedwait_caught = 1;
     } else if (rv < 0) {
-        fail_error("   rt_sigtimedwait unexpected errno %d\n", errno);
+        fail_perror("rt_sigtimedwait 2");
     }
 
     /* test poll with nothing pending */
@@ -626,7 +627,7 @@ static void * test_rt_sigtimedwait_child(void *arg)
     if (rv < 0 && errno == EAGAIN) {
         sigtest_debug("   EAGAIN, as expected\n");
     } else {
-        fail_error("rt_sigtimedwait returned rv %d, errno %d\n", rv, errno);
+        fail_perror("rt_sigtimedwait 3");
     }
 
     /* mask sig and set pending */
@@ -648,7 +649,7 @@ static void * test_rt_sigtimedwait_child(void *arg)
     if (rv  == SIGRTMIN) {
         sigtest_debug("   caught signal\n");
     } else {
-        fail_error("rt_sigtimedwait returned rv %d, errno %d\n", rv, errno);
+        fail_perror("rt_sigtimedwait 4");
     }
 
     /* test timeout */
@@ -658,7 +659,7 @@ static void * test_rt_sigtimedwait_child(void *arg)
     if (rv < 0 && errno == EAGAIN) {
         sigtest_debug("   EAGAIN, as expected\n");
     } else {
-        fail_error("rt_sigtimedwait returned rv %d, errno %d\n", rv, errno);
+        fail_perror("rt_sigtimedwait 5");
     }
 
     return (void*)EXIT_SUCCESS;
@@ -670,7 +671,7 @@ void test_rt_sigtimedwait(void)
     child_tid = 0;
     pthread_t pt = 0;
     if (pthread_create(&pt, NULL, test_rt_sigtimedwait_child, NULL))
-        fail_perror("blocking test pthread_create");
+        fail_perror("pthread_create");
 
     sigtest_debug("yielding until child tid reported...\n");
     yield_for(&child_tid);
@@ -716,6 +717,167 @@ void test_rt_sigtimedwait(void)
         fail_error("child failed\n");
 }
 
+volatile int test_signalfd_caught = 0;
+
+static void test_signalfd_handler(int sig, siginfo_t *si, void *ucontext)
+{
+    sigtest_debug("reached\n");
+    fail_error("signal should have been dispatched to signalfd, not caught by sig handler\n");
+}
+
+static void * test_signalfd_child(void *arg)
+{
+    /* mask signal to make exclusive for signalfd */
+    sigset_t ss;
+    sigemptyset(&ss);
+    sigaddset(&ss, SIGRTMIN);
+    int fd = signalfd(-1, &ss, 0);
+    if (fd < 0)
+        fail_perror("signalfd");
+
+    sigaddset(&ss, SIGRTMIN + 1);
+    int rv = sigprocmask(SIG_BLOCK, &ss, 0);
+    if (rv < 0)
+        fail_perror("sigprocmask");
+
+    /* basic read test */
+    child_tid = syscall(SYS_gettid);
+    sigtest_debug("enter, tid %d, fd %d\n", child_tid, fd);
+    struct signalfd_siginfo si;
+    rv = read(fd, &si, sizeof(struct signalfd_siginfo));
+    if (rv < 0)
+        fail_perror("read");
+    if (rv < sizeof(struct signalfd_siginfo))
+        fail_error("short read (%d)\n", rv);
+    sigtest_debug("read sig %d, errno %d, code %d\n", si.ssi_signo, si.ssi_errno, si.ssi_code);
+
+    /* test non-blocking */
+    sigemptyset(&ss);
+    sigaddset(&ss, SIGRTMIN);
+    int fd2 = signalfd(-1, &ss, SFD_NONBLOCK);
+    if (fd2 < 0)
+        fail_perror("signalfd 2");
+    sigtest_debug("nonblock fd %d, reading...\n", fd2);
+    rv = read(fd2, &si, sizeof(struct signalfd_siginfo));
+    if (rv >= 0 || errno != EAGAIN)
+        fail_error("second read should have returned EAGAIN (rv %d, errno %d)\n", rv, errno);
+
+    /* test mask update */
+    sigemptyset(&ss);
+    sigaddset(&ss, SIGRTMIN + 1);
+    if (signalfd(fd, &ss, 0) < 0)
+        fail_perror("signalfd mask update");
+
+    /* poll wait test */
+    int epfd = epoll_create(1);
+    if (epfd < 0)
+        fail_perror("epoll_create");
+
+    struct epoll_event epev;
+    epev.events = EPOLLIN;
+    epev.data.fd = fd;
+    if (epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &epev) < 0)
+        fail_perror("epoll_ctl 1");
+    epev.data.fd = fd2;
+    if (epoll_ctl(epfd, EPOLL_CTL_ADD, fd2, &epev) < 0)
+        fail_perror("epoll_ctl 2");
+
+    test_signalfd_caught = 1;
+
+    int rcvd = 0;
+    struct epoll_event rev[2];
+
+    while (rcvd != 3) {
+        sigtest_debug("   epoll_wait...\n");
+        int nfds = epoll_wait(epfd, rev, 2, 5000);
+        if (nfds < 0)
+            fail_perror("epoll_wait");
+        for (int i=0; i < nfds; i++) {
+            sigtest_debug("   fd %d events 0x%x\n", rev[i].data.fd, rev[i].events);
+            struct signalfd_siginfo si;
+            rv = read(rev[i].data.fd, &si, sizeof(struct signalfd_siginfo));
+            if (rv < 0)
+                fail_perror("read 2");
+            if (rv < sizeof(struct signalfd_siginfo))
+                fail_error("short read 2 (%d)\n", rv);
+            sigtest_debug("   read sig %d, errno %d, code %d\n", si.ssi_signo, si.ssi_errno, si.ssi_code);
+            if (si.ssi_signo == SIGRTMIN && rev[i].data.fd == fd2) {
+                sigtest_debug("   SIGRTMIN\n");
+                rcvd |= 1;
+            } else if (si.ssi_signo == SIGRTMIN + 1 && rev[i].data.fd == fd) {
+                sigtest_debug("   SIGRTMIN + 1 (mask update works)\n");
+                rcvd |= 2;
+            }
+        }
+    }
+
+    /* events should have cleared */
+    sigtest_debug("   test epoll_wait with no events...\n");
+    int nfds = epoll_wait(epfd, rev, 2, 0);
+    if (nfds != 0)
+        fail_error("epoll_wait test with no signal events failed (rv = %d)\n", nfds);
+
+    sigtest_debug("success; child exiting\n");
+    return (void *)EXIT_SUCCESS;
+}
+
+void test_signalfd(void)
+{
+    sigtest_debug("\n");
+    child_tid = 0;
+
+    pthread_t pt = 0;
+    if (pthread_create(&pt, NULL, test_signalfd_child, NULL))
+        fail_perror("pthread_create");
+
+    sigtest_debug("yielding until child tid reported...\n");
+    yield_for(&child_tid);
+
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = test_signalfd_handler;
+    sa.sa_flags |= SA_SIGINFO;
+    int rv = sigaction(SIGRTMIN, &sa, 0);
+    if (rv < 0)
+        fail_perror("test_signal_catch: sigaction");
+
+    /* queue signal to SIGRTMIN handler; should handled via read */
+    siginfo_t si;
+    memset(&si, 0, sizeof(siginfo_t));
+    si.si_code = SI_MESGQ;
+    si.si_pid = __getpid();
+    si.si_uid = getuid();
+    rv = syscall(SYS_rt_tgsigqueueinfo, __getpid(), child_tid, SIGRTMIN, &si);
+    if (rv < 0)
+        fail_perror("tgsigqueueinfo for SIGRTMIN");
+
+    yield_for(&test_signalfd_caught);
+    sigtest_debug("sending signals for poll test...\n");
+    memset(&si, 0, sizeof(siginfo_t));
+    si.si_code = SI_MESGQ;
+    si.si_pid = __getpid();
+    si.si_uid = getuid();
+    rv = syscall(SYS_rt_tgsigqueueinfo, __getpid(), child_tid, SIGRTMIN, &si);
+    if (rv < 0)
+        fail_perror("tgsigqueueinfo for SIGRTMIN (poll)");
+
+    memset(&si, 0, sizeof(siginfo_t));
+    si.si_code = SI_MESGQ;
+    si.si_pid = __getpid();
+    si.si_uid = getuid();
+    rv = syscall(SYS_rt_tgsigqueueinfo, __getpid(), child_tid, SIGRTMIN + 1, &si);
+    if (rv < 0)
+        fail_perror("tgsigqueueinfo for SIGRTMIN + 1 (poll)");
+
+    sigtest_debug("waiting for child to exit...\n");
+    void * retval;
+    if (pthread_join(pt, &retval))
+        fail_perror("pthread_join");
+
+    if (retval != (void*)EXIT_SUCCESS)
+        fail_error("child failed\n");
+}
+
 int main(int argc, char * argv[])
 {
     setbuf(stdout, NULL);
@@ -733,6 +895,8 @@ int main(int argc, char * argv[])
     test_rt_sigsuspend();
 
     test_rt_sigtimedwait();
+
+    test_signalfd();
 
     printf("signal test passed\n");
 }

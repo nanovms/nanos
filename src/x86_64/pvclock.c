@@ -1,34 +1,16 @@
 #include <runtime.h>
-#include <x86_64.h>
 #include <pvclock.h>
 #include <apic.h>
+#include <page.h>
+#include <x86_64.h>
+#include <vdso.h>
 
 static heap pvclock_heap;
 static volatile struct pvclock_vcpu_time_info *vclock = 0;
 
 u64 pvclock_now_ns(void)
 {
-    u32 version;
-    u64 result;
-
-    do {
-        /* mask update-in-progress so we don't match */
-        version = vclock->version & ~1;
-        read_barrier();
-        u64 delta = rdtsc() - vclock->tsc_timestamp;
-        if (vclock->tsc_shift < 0) {
-            delta >>= -vclock->tsc_shift;
-        } else {
-            delta <<= vclock->tsc_shift;
-        }
-        /* when moving to SMP: if monotonicity flag is unset, we will
-           have to check for last reading and insure that time doesn't
-           regress */
-        result = vclock->system_time +
-            (((u128)delta * vclock->tsc_to_system_mul) >> 32);
-        read_barrier();
-    } while (version != vclock->version);
-    return result;
+    return vdso_pvclock_now_ns(vclock);
 }
 
 closure_function(0, 0, timestamp, pvclock_now)
@@ -41,7 +23,13 @@ void init_pvclock(heap h, struct pvclock_vcpu_time_info *vti)
     assert(vti);
     vclock = vti;
     pvclock_heap = h;
-    register_platform_clock_now(closure(h, pvclock_now));
+    register_platform_clock_now(closure(h, pvclock_now), VDSO_CLOCK_PVCLOCK);
+}
+
+physical pvclock_get_physaddr(void)
+{
+    return (vclock == 0) ? INVALID_PHYSICAL
+                         : physical_from_virtual((void *)vclock);
 }
 
 closure_function(0, 0, void, tsc_deadline_interrupt)
