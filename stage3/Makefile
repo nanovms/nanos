@@ -74,6 +74,7 @@ SRCS-stage3.img= \
 	$(SRCDIR)/x86_64/hpet.c \
 	$(SRCDIR)/x86_64/interrupt.c \
 	$(SRCDIR)/x86_64/kvm_platform.c \
+	$(SRCDIR)/x86_64/mp.c \
 	$(SRCDIR)/x86_64/page.c \
 	$(SRCDIR)/x86_64/pci.c \
 	$(SRCDIR)/x86_64/pvclock.c \
@@ -84,6 +85,7 @@ SRCS-stage3.img= \
 	$(SRCDIR)/x86_64/symtab.c \
 	$(SRCDIR)/x86_64/synth.c \
 	$(SRCDIR)/x86_64/vdso-now.c \
+	$(SRCDIR)/../boot/ap.s \
 	$(SRCS-lwip)
 SRCS-lwip= \
 	$(LWIPDIR)/src/core/def.c \
