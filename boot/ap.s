@@ -1,10 +1,5 @@
-;;; ; xxx xxx - this needs to be on a page boundary in the first megabyte of the address space!
+;;;  this needs to be plaved on a 4k boundary in the first megabyte of the address space
 ;;;  https://wiki.osdev.org/Entering_Long_Mode_Directly
-        
-;;;  ok. we'd love to just share symbols between stage3 and this guy. but the fact that
-;;; this starts out in real mode really throws the linker for the loop
-;;; so we put an offset at the end of the page to point to a config region
-;;; within which to place the gdt and cr3 data from the primary cpu
 
         bits 16
         align 4096
@@ -14,10 +9,8 @@
 global apinit
 
 apinit:
-        mov ax, 0x0
+        mov ax, cs
         mov ds, ax
-        mov ax, 1
-        mov [apinit_end-apinit], ax
         mov eax, 10100000b  ; Set the PAE and PGE bit.
         mov cr4, eax
         mov edx, [ap_pagetable-apinit]
@@ -29,8 +22,9 @@ apinit:
         mov ebx, cr0        ; Activate long mode -
         or ebx,0x80000001   ; - by enabling paging and protection simultaneously.
         mov cr0, ebx
-        lgdt [ap_gdt_pointer-apinit] 
-        jmp CODE_SEG:(LongMode-apinit)
+        o32 lgdt [ap_gdt_pointer-apinit]
+; pass this                      
+        jmp CODE_SEG:(LongMode-apinit + 0x8000)
 bits 64
 LongMode:
         mov ax, 0x10
@@ -46,6 +40,7 @@ global ap_gdt_pointer
 ap_gdt_pointer:
         dw 0      ; 16-bit Size (Limit) of GDT.
         dd 0      ; 32-bit Base Address of GDT. (CPU will zero extend to 64-bit)
+        dd 0      ; spill for 64 bit gdt write
         
 global ap_pagetable
 ap_pagetable:    

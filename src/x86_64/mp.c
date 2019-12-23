@@ -15,10 +15,8 @@ static void *setup(heap h, void *entry)
         apentry =  (void *)0x8000;
         map((u64)apentry, (u64)apentry, 4096, PAGE_WRITABLE, h);
     }
-    //u64 base = (u64)&ap_gdt_pointer;
-    //asm("sgdt %0": "=m"(base));
-    u64 pt= (u64)&ap_pagetable;
-    mov_from_cr("cr3", pt);
+    asm("sgdt %0": "=m"(ap_gdt_pointer));
+    mov_from_cr("cr3", ap_pagetable);
     ap_start_vector = entry;
     runtime_memcpy(apentry, &apinit, &apinit_end - &apinit);
     return(apentry);
@@ -38,6 +36,4 @@ void start_cpu(heap h, int index, void (*ap_entry)()) {
     kernel_delay(microseconds(200));
     apic_ipi(index, ICR_TYPE_STARTUP | vector);
     kernel_delay(microseconds(200));    
-    print_u64(apinit_end);
-    console("\n");
 }
