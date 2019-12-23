@@ -27,6 +27,7 @@ apinit:
         jmp CODE_SEG:(LongMode-apinit + 0x8000)
 bits 64
 LongMode:
+        ;; should get the data segment from a define..why are we setting these up even?
         mov ax, 0x10
         mov ds, ax
         mov es, ax
@@ -34,7 +35,8 @@ LongMode:
         mov gs, ax
         mov ss, ax
         mov rax,[ap_start_vector]
-        jmp [rax]
+        mov rsp,[ap_stack]
+        jmp rax
 
 global ap_gdt_pointer        
 ap_gdt_pointer:
@@ -49,6 +51,9 @@ ap_pagetable:
 global ap_start_vector
 ap_start_vector:
         dq 0
+global ap_stack
+ap_stack:
+        dq 0        
         
 global apinit_end
         

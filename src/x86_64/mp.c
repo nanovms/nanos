@@ -4,12 +4,12 @@
 
 static void *apentry = 0;
 extern u8 apinit, apinit_end;
-extern void *ap_pagetable, **ap_start_vector, *ap_gdt_pointer;
+extern void *ap_pagetable, *ap_start_vector, *ap_gdt_pointer, *ap_stack;
 
 #define ICR_TYPE_INIT         0x00000500
 #define ICR_TYPE_STARTUP      0x00000600
 
-static void *setup(heap h, void *entry)
+static void *setup(heap h, void *entry, void *rsp)
 {
     if (!apentry) {
         apentry =  (void *)0x8000;
@@ -18,6 +18,7 @@ static void *setup(heap h, void *entry)
     asm("sgdt %0": "=m"(ap_gdt_pointer));
     mov_from_cr("cr3", ap_pagetable);
     ap_start_vector = entry;
+    ap_stack = rsp;    
     runtime_memcpy(apentry, &apinit, &apinit_end - &apinit);
     return(apentry);
 }
@@ -25,9 +26,9 @@ static void *setup(heap h, void *entry)
 
 // do we have buffer-based marshalling routines
 #define field(__p, __length)
-void start_cpu(heap h, int index, void (*ap_entry)()) {
+void start_cpu(heap h, heap pages, int index, void (*ap_entry)()) {
     // we are modifying ap_entry in place without any serialization
-    void *x = setup(h, ap_entry);
+    void *x = setup(h, ap_entry, allocate_stack(pages, 16));
     u8 vector = (((u64)x) >> 12) & 0xff;
     
     apic_ipi(index, ICR_TYPE_INIT);
