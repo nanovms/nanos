@@ -1,5 +1,6 @@
 #include <x86_64.h>
 #include <page.h>
+#include <apic.h>
 
 #define APIC_BASE        0xfee00000ull
 
@@ -48,7 +49,14 @@ static inline u32 apic_read(int reg)
 // deconstruct
 void apic_ipi(u32 target, u64 icr)
 {
-    u64 w = icr | (((u64)target) << 56);
+    
+    u64 w;
+    
+    if (target == TARGET_EXCLUSIVE_BROADCAST) {
+        w = icr | ICR_DEST_ALL_EXC_SELF;
+    } else{
+        w = icr | (((u64)target) << 56);
+    }
     
     apic_write(APIC_ICRH, (w >> 32) & 0xffffffff);
     apic_write(APIC_ICRL, w & 0xffffffff);

@@ -15,6 +15,7 @@
 #define ICR_DEST_ALL          0x00080000
 #define ICR_DEST_ALL_EXC_SELF 0x000C0000
 
+#define TARGET_EXCLUSIVE_BROADCAST 0xfffffffful
     
 void lapic_eoi(void);
 void init_apic(kernel_heaps kh);

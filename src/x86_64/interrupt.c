@@ -80,9 +80,23 @@ static inline char *register_name(u64 s)
 
 static u64 *idt;
 
+extern u32 n_interrupt_vectors;
+extern u32 interrupt_vector_size;
+extern void * interrupt_vectors;
+
+
 static inline void *idt_from_interrupt(int interrupt)
 {
     return pointer_from_u64((u64_from_pointer(idt) + 2 * sizeof(u64) * interrupt));
+}
+
+void load_idt()
+{
+    /* placed after last entry - node that lidt doesn't really care where it is*/
+    void *idt_desc = idt_from_interrupt(n_interrupt_vectors); 
+    *(u16*)idt_desc = 2 * sizeof(u64) * n_interrupt_vectors - 1;
+    *(u64*)(idt_desc + sizeof(u16)) = u64_from_pointer(idt);
+    asm("lidt %0": : "m"(*(u64*)idt_desc));
 }
 
 static void write_idt(int interrupt, u64 offset, u64 ist)
@@ -216,10 +230,6 @@ void install_fallback_fault_handler(fault_handler h)
 }
 
 void * bh_stack_top;
-
-extern u32 n_interrupt_vectors;
-extern u32 interrupt_vector_size;
-extern void * interrupt_vectors;
 
 NOTRACE
 void common_handler()
@@ -376,11 +386,7 @@ void start_interrupts(kernel_heaps kh)
     for (int i = INTERRUPT_VECTOR_START; i < n_interrupt_vectors; i++)
         write_idt(i, vector_base + i * interrupt_vector_size, IST_INTERRUPT);
 
-    void *idt_desc = idt_from_interrupt(n_interrupt_vectors); /* placed after last entry */
-    *(u16*)idt_desc = 2 * sizeof(u64) * n_interrupt_vectors - 1;
-    *(u64*)(idt_desc + sizeof(u16)) = u64_from_pointer(idt);
-    asm("lidt %0": : "m"(*(u64*)idt_desc));
-
+    load_idt();
     /* APIC initialization */
     init_apic(kh);
 }
