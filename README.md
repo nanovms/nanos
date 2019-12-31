@@ -14,6 +14,10 @@ nor does it have the concept of users or remote administration via ssh.
 
 Read more about the Nanos Charter [here](CHARTER.md).
 
+### Getting Started
+
+Please use the [ops](https://ops.city) orchestrator to run your applications with Nanos unless you plan on hacking on Nanos itself.
+
 ### Building/Running
 
 It is highly encouraged to use [ops](https://github.com/nanovms/ops) to build and run your applications using Nanos unless you are planning
