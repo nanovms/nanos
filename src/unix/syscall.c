@@ -35,9 +35,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, shmget, 0);
     register_syscall(map, shmat, 0);
     register_syscall(map, shmctl, 0);
-    register_syscall(map, getitimer, 0);
-    register_syscall(map, alarm, 0);
-    register_syscall(map, setitimer, 0);
     register_syscall(map, fork, 0);
     register_syscall(map, vfork, 0);
     register_syscall(map, execve, 0);
@@ -155,11 +152,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, restart_syscall, 0);
     register_syscall(map, semtimedop, 0);
     register_syscall(map, fadvise64, 0);
-    register_syscall(map, timer_create, 0);
-    register_syscall(map, timer_settime, 0);
-    register_syscall(map, timer_gettime, 0);
-    register_syscall(map, timer_getoverrun, 0);
-    register_syscall(map, timer_delete, 0);
     register_syscall(map, clock_settime, 0);
     register_syscall(map, utimes, 0);
     register_syscall(map, vserver, 0);
@@ -199,10 +191,7 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, vmsplice, 0);
     register_syscall(map, move_pages, 0);
     register_syscall(map, utimensat, 0);
-    register_syscall(map, timerfd_create, 0);
     register_syscall(map, fallocate, 0);
-    register_syscall(map, timerfd_settime, 0);
-    register_syscall(map, timerfd_gettime, 0);
     register_syscall(map, inotify_init1, 0);
     register_syscall(map, preadv, 0);
     register_syscall(map, pwritev, 0);

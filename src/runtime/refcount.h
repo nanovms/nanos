@@ -4,9 +4,9 @@ typedef struct refcount {
     thunk completion;
 } *refcount;
 
-static inline void init_refcount(refcount r, thunk completion)
+static inline void init_refcount(refcount r, int c, thunk completion)
 {
-    r->c = 1;
+    r->c = c;
     r->completion = completion;
 }
 

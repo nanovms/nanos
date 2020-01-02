@@ -1628,7 +1628,7 @@ closure_function(4, 0, void, __ftrace_send_http_chunk,
     if (__ftrace_send_http_chunk_internal(bound(routine), bound(p),
             bound(local_printer), bound(out)))
     {
-        register_timer(SEND_HTTP_CHUNK_INTERVAL_MS, CLOCK_ID_MONOTONIC, (thunk)closure_self());
+        register_timer(CLOCK_ID_MONOTONIC, SEND_HTTP_CHUNK_INTERVAL_MS, false, 0, (thunk)closure_self());
     } else {
         closure_finish();
     }
@@ -1693,7 +1693,7 @@ __ftrace_do_http_method(buffer_handler out, struct ftrace_routine * routine,
         {
             thunk t = closure(ftrace_heap, __ftrace_send_http_chunk, routine,
                 p, local_printer, out);
-            register_timer(SEND_HTTP_CHUNK_INTERVAL_MS, CLOCK_ID_MONOTONIC, t);
+            register_timer(CLOCK_ID_MONOTONIC, SEND_HTTP_CHUNK_INTERVAL_MS, false, 0, t);
         }
     }
 

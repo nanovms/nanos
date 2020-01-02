@@ -149,12 +149,12 @@ boolean blockq_flush_thread(blockq bq, thread t);
 void blockq_set_completion(blockq bq, io_completion completion, thread t,
                            sysreturn rv);
 sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_bh, 
-                               timestamp timeout, clock_id id);
+                               clock_id id, timestamp timeout, boolean absolute);
 int blockq_transfer_waiters(blockq dest, blockq src, int n);
 
 static inline sysreturn blockq_check(blockq bq, thread t, blockq_action a, boolean in_bh)
 {
-    return blockq_check_timeout(bq, t, a, in_bh, 0, 0 /* n/a */);
+    return blockq_check_timeout(bq, t, a, in_bh, 0, 0, false);
 }
 
 static inline void blockq_handle_completion(blockq bq, u64 bq_flags, io_completion completion, thread t, sysreturn rv)
@@ -320,6 +320,9 @@ typedef struct process {
     timestamp         start_time;
     struct sigstate   signals;
     struct sigaction  sigactions[NSIG];
+    heap              posix_timer_ids;
+    vector            posix_timers; /* unix_timer by timerid */
+    vector            itimers;      /* unix_timer by ITIMER_ type */
 } *process;
 
 typedef struct sigaction *sigaction;
@@ -329,6 +332,22 @@ typedef struct sigaction *sigaction;
 
 extern thread dummy_thread;
 extern thread current;
+
+static inline thread thread_from_tid(process p, int tid)
+{
+    thread t = vector_get(p->threads, tid);
+    return t ? t : INVALID_ADDRESS;
+}
+
+static inline void thread_reserve(thread t)
+{
+    refcount_reserve(&t->refcount);
+}
+
+static inline void thread_release(thread t)
+{
+    refcount_release(&t->refcount);
+}
 
 static inline unix_heaps get_unix_heaps()
 {
@@ -399,13 +418,13 @@ static inline void timeval_from_time(struct timeval *d, timestamp t)
 
 static inline timestamp time_from_timespec(const struct timespec *t)
 {
-    return seconds(t->ts_sec) + nanoseconds(t->ts_nsec);
+    return seconds(t->tv_sec) + nanoseconds(t->tv_nsec);
 }
 
 static inline void timespec_from_time(struct timespec *ts, timestamp t)
 {
-    ts->ts_sec = t / TIMESTAMP_SECOND;
-    ts->ts_nsec = nsec_from_timestamp(truncate_seconds(t));
+    ts->tv_sec = sec_from_timestamp(t);
+    ts->tv_nsec = nsec_from_timestamp(truncate_seconds(t));
 }
 
 static inline time_t time_t_from_time(timestamp t)
@@ -446,10 +465,16 @@ void register_mmap_syscalls(struct syscall *);
 void register_thread_syscalls(struct syscall *);
 void register_poll_syscalls(struct syscall *);
 void register_clock_syscalls(struct syscall *);
+void register_timer_syscalls(struct syscall *);
 void register_other_syscalls(struct syscall *);
+
+/* Call this routine if RTC offset should ever shift... */
+void notify_unix_timers_of_rtc_change(void);
 
 boolean poll_init(unix_heaps uh);
 boolean pipe_init(unix_heaps uh);
+boolean unix_timers_init(unix_heaps uh);
+
 #define sysreturn_from_pointer(__x) ((s64)u64_from_pointer(__x));
 
 extern sysreturn syscall_ignore();

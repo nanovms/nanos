@@ -25,10 +25,9 @@ static struct net_lwip_timer net_lwip_timers[] = {
     {DHCP_FINE_TIMER_MSECS, dhcp_fine_tmr, "dhcp fine"},
 };
 
-/* We could dispatch lwip timer callbacks as thunks, but breaking it
-   out here gives us a single point of entry for debugging. */
-closure_function(2, 0, void, dispatch_lwip_timer,
-                 lwip_cyclic_timer_handler, handler, const char *, name)
+closure_function(2, 1, void, dispatch_lwip_timer,
+                 lwip_cyclic_timer_handler, handler, const char *, name,
+                 u64, overruns /* ignored */)
 {
 #ifdef LWIP_DEBUG
     lwip_debug("dispatching timer for %s\n", bound(name));
@@ -41,8 +40,9 @@ void sys_timeouts_init(void)
     int n = sizeof(net_lwip_timers) / sizeof(struct net_lwip_timer);
     for (int i = 0; i < n; i++) {
         struct net_lwip_timer * t = (struct net_lwip_timer *)&net_lwip_timers[i];
-        register_periodic_timer(milliseconds(t->interval_ms), CLOCK_ID_MONOTONIC,
-                                closure(lwip_heap, dispatch_lwip_timer, t->handler, t->name));
+        timestamp interval = milliseconds(t->interval_ms);
+        register_timer(CLOCK_ID_MONOTONIC, interval, false, interval,
+                       closure(lwip_heap, dispatch_lwip_timer, t->handler, t->name));
 #ifdef LWIP_DEBUG
         lwip_debug("registered %s timer with period of %ld ms\n", t->name, t->interval_ms);
 #endif

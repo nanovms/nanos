@@ -100,7 +100,7 @@ static void blockq_item_finish(blockq bq, blockq_item bi)
         bq, blockq_name(bq), bi, bi->t->tid);
 
     if (bi->timeout)
-        remove_timer(bi->timeout);
+        remove_timer(bi->timeout, 0);
 
     if (bq->completion) {
         io_completion completion = bq->completion;
@@ -110,7 +110,7 @@ static void blockq_item_finish(blockq bq, blockq_item bi)
         /* XXX acquire spinlock */
     }
 
-    refcount_release(&bi->t->refcount);
+    thread_release(bi->t);
     free_blockq_item(bq, bi);
 }
 
@@ -130,22 +130,11 @@ static void blockq_apply_bi_locked(blockq bq, blockq_item bi, u64 flags)
     rv = apply(bi->a, flags);
     blockq_debug("   - returned %ld\n", rv);
 
-   /*
-    *  In the existing cases right now, the action return value
-    *  semantics mirror those of the syscall itself. Of course, the
-    *  blocking code may interpret this return value as necessary,
-    *  provided that a value >= 0 represents success (no further
-    *  blocking required), == BLOCKQ_BLOCK_REQUIRED indicates blocking
-    *  required, and < 0 an error condition (and return).
-    */
-
-    /* IOW, the bi is done if the user tells us its done (or, on a nullify
-     * we'll just force it)
-     */
-    if ((flags & BLOCKQ_ACTION_NULLIFY) || (rv != BLOCKQ_BLOCK_REQUIRED))
+    /* If the blockq_action returns BLOCKQ_BLOCK_REQUIRED and neither
+       nullify or timeout are set in flags, continue blocking. */
+    if ((flags & (BLOCKQ_ACTION_NULLIFY | BLOCKQ_ACTION_TIMEDOUT)) ||
+        (rv != BLOCKQ_BLOCK_REQUIRED))
         blockq_item_finish(bq, bi);
-
-    /* XXX - Re-register timer if rv == BLOCKQ_BLOCK_REQUIRED? */
 }
 
 /*
@@ -154,8 +143,9 @@ static void blockq_apply_bi_locked(blockq bq, blockq_item bi, u64 flags)
  * Invoke its action and remove it from the list of waiters,
  * if applicable
  */
-closure_function(2, 0, void, blockq_item_timeout,
-                 blockq, bq, blockq_item, bi)
+closure_function(2, 1, void, blockq_item_timeout,
+                 blockq, bq, blockq_item, bi,
+                 u64, overruns /* ignored */)
 {
     blockq bq = bound(bq);
     blockq_item bi = bound(bi);
@@ -218,14 +208,14 @@ boolean blockq_wake_one_for_thread(blockq bq, thread t)
 }
 
 sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_bh,
-                               timestamp timeout, clock_id id)
+                               clock_id clkid, timestamp timeout, boolean absolute)
 {
     assert(t);
     assert(a);
     assert(!(in_bh && timeout)); /* no timeout checks in bh */
 
     blockq_debug("%p \"%s\", tid %ld, action %p, timeout %ld, clock_id %d\n",
-                 bq, blockq_name(bq), t->tid, a, timeout, clock_id);
+                 bq, blockq_name(bq), t->tid, a, timeout, clkid);
 
     /* XXX irqsafe mutex/spinlock
 
@@ -251,10 +241,10 @@ sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_
 
     bi->a = a;
     bi->t = t;
-    refcount_reserve(&t->refcount);
+    thread_reserve(t);
 
     if (timeout > 0) {
-        bi->timeout = register_timer(timeout, id,
+        bi->timeout = register_timer(clkid, timeout, absolute, 0,
                                      closure(bq->h, blockq_item_timeout, bq, bi));
         if (bi->timeout == INVALID_ADDRESS) {
             msg_err("failed to allocate blockq timer\n");
@@ -281,6 +271,7 @@ sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_
     assert(0);
 }
 
+/* XXX This deserves another pass; blockq_item should really just be embedded into thread. */
 boolean blockq_flush_thread(blockq bq, thread t)
 {
     boolean unblocked = false;
@@ -329,9 +320,14 @@ int blockq_transfer_waiters(blockq dest, blockq src, int n)
             break;
         blockq_item bi = struct_from_list(l, blockq_item, l);
         if (bi->timeout) {
-            timestamp remain = remove_timer(bi->timeout);
+            timestamp remain;
+            timer_handler t = bi->timeout->t;
+            remove_timer(bi->timeout, &remain);
             bi->timeout = remain == 0 ? 0 :
-                register_timer(remain, CLOCK_ID_MONOTONIC, closure(dest->h, blockq_item_timeout, dest, bi));
+                register_timer(CLOCK_ID_MONOTONIC, remain, false, 0,
+                               closure(dest->h, blockq_item_timeout, dest, bi));
+            assert(t);
+            deallocate_closure(t);
         }
         list_delete(&bi->l);
         assert(bi->t->blocked_on == src);

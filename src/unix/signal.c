@@ -11,17 +11,9 @@
 /* TODO:
 
    support for SA_RESTART
-   support for signalfd
    blocking calls within sig handler
-
    sigaltstack
-
    core dump
-
-   signal mask
-   queueable / level?
-
-   sig actions / defaults
  */
 
 typedef struct queued_signal {
@@ -153,6 +145,12 @@ static queued_signal sigstate_dequeue_signal(sigstate ss, int signum)
     assert(l);
     queued_signal qs = struct_from_list(l, queued_signal, l);
     list_delete(l);
+#ifdef SIGNAL_DEBUG
+    int count = 0;
+    list_foreach(head, l)
+        count++;
+    sig_debug("dequeued sig #%d, remain %d\n", signum, count);
+#endif
     if (list_empty(head))
         ss->pending &= ~mask_from_sig(signum);
     return qs;
@@ -228,16 +226,46 @@ static void deliver_signal(sigstate ss, struct siginfo *info)
     heap h = heap_general(get_kernel_heaps());
     int sig = info->si_signo;
 
-    /* check if we can post */
-    if (sig < RT_SIG_START && sigstate_is_pending(ss, sig)) {
-        /* Standard signal already posted. Unless a particular signal
-           would allow the updating of posted siginfo, just return here. */
-        sig_debug("already posted; ignore\n");
-        return;
+    /* Special handling for pending signals */
+    if (sigstate_is_pending(ss, sig)) {
+        /* If this is a timer event, attempt to find a queued info for
+           this timer and update the info (overrun) instead of
+           queueing another entry.
+
+           I'm kind of assuming that both 1) this won't happen at any
+           high rate in real-world use, and 2) the depth of queued
+           infos for a given rt signal would ever practically be more
+           than one (or a few if a timer is mixed with other
+           sources). But I could be wrong. If so, we could change over
+           to registering a "siginfo update" closure which will update
+           the overrun count after dequeueing the signal (just before
+           entering the handler or other dispatch method). This would
+           obviate any need to search for and update a queued info.
+        */
+        if (info->si_code == SI_TIMER) {
+            list_foreach(sigstate_get_sighead(ss, sig), l) {
+                queued_signal qs = struct_from_list(l, queued_signal, l);
+                if (qs->si.si_code == SI_TIMER &&
+                    qs->si.sifields.timer.tid == info->sifields.timer.tid) {
+                    u64 overruns = (u64)qs->si.sifields.timer.overrun +
+                        info->sifields.timer.overrun;
+                    qs->si.sifields.timer.overrun = MIN((u64)S32_MAX, overruns);
+                    sig_debug("timer update id %d, overrun %d\n",
+                              qs->si.sifields.timer.tid,
+                              qs->si.sifields.timer.overrun);
+                    return;
+                }
+            }
+        }
+
+        if (sig < RT_SIG_START) {
+            /* Not queueable and no info update; ignore */
+            sig_debug("already posted; ignore\n");
+            return;
+        }
     }
 
     sigstate_set_pending(ss, sig);
-
     queued_signal qs = allocate(h, sizeof(struct queued_signal));
     assert(qs != INVALID_ADDRESS);
     runtime_memcpy(&qs->si, info, sizeof(struct siginfo));
@@ -336,7 +364,7 @@ void deliver_signal_to_process(process p, struct siginfo *info)
        signal first, so this could cause a spurious wakeup (EINTR) ... care? */
     if (can_wake) {
         sig_debug("attempting to interrupt thread %d\n", can_wake->tid);
-        if (!thread_attempt_interrupt(t))
+        if (!thread_attempt_interrupt(can_wake))
             sig_debug("failed to interrupt\n");
     }
 }
@@ -454,6 +482,9 @@ sysreturn rt_sigreturn(void)
 
     /* ftrace needs to know that this call stack does not return */
     ftrace_thread_noreturn(current);
+
+    /* see if we have more handlers to invoke */
+    dispatch_signals(current);
 
     /* return - XXX or reschedule? */
     IRETURN(running_frame);
@@ -598,8 +629,7 @@ sysreturn tgkill(int tgid, int tid, int sig)
         return 0;               /* always permitted */
 
     thread t;
-    if (tid >= vector_length(current->p->threads) ||
-        !(t = vector_get(current->p->threads, tid)))
+    if ((t = thread_from_tid(current->p, tid)) == INVALID_ADDRESS)
         return -ESRCH;
 
     struct siginfo si;
@@ -674,8 +704,7 @@ sysreturn rt_tgsigqueueinfo(int tgid, int tid, int sig, siginfo_t *uinfo)
         return rv;
 
     thread t;
-    if (tid >= vector_length(current->p->threads) ||
-        !(t = vector_get(current->p->threads, tid)))
+    if ((t = thread_from_tid(current->p, tid)) == INVALID_ADDRESS)
         return -ESRCH;
 
     uinfo->si_signo = sig;
@@ -738,7 +767,7 @@ closure_function(4, 1, sysreturn, rt_sigtimedwait_bh,
     if (qs == INVALID_ADDRESS) {
         if (!blocked) {
             const struct timespec * ts = bound(timeout);
-            if (ts && ts->ts_sec == 0 && ts->ts_nsec == 0) {
+            if (ts && ts->tv_sec == 0 && ts->tv_nsec == 0) {
                 closure_finish();
                 return set_syscall_error(t, EAGAIN); /* poll */
             }
@@ -772,7 +801,7 @@ sysreturn rt_sigtimedwait(const u64 * set, siginfo_t * info, const struct timesp
     heap h = heap_general(get_kernel_heaps());
     blockq_action ba = closure(h, rt_sigtimedwait_bh, current, *set, info, timeout);
     timestamp t = timeout ? time_from_timespec(timeout) : 0;
-    return blockq_check_timeout(current->thread_bq, current, ba, false, t, CLOCK_ID_MONOTONIC);
+    return blockq_check_timeout(current->thread_bq, current, ba, false, CLOCK_ID_MONOTONIC, t, false);
 }
 
 typedef struct signal_fd {
@@ -798,8 +827,8 @@ static void signalfd_siginfo_fill(struct signalfd_siginfo * si, queued_signal qs
     case SI_TIMER:
         si->ssi_tid = qs->si.sifields.timer.tid;
         si->ssi_overrun = qs->si.sifields.timer.overrun;
-        si->ssi_ptr = (u64)qs->si.sifields.timer.sigval.val_ptr;
-        si->ssi_int = qs->si.sifields.timer.sigval.val_int;
+        si->ssi_ptr = (u64)qs->si.sifields.timer.sigval.sival_ptr;
+        si->ssi_int = qs->si.sifields.timer.sigval.sival_int;
         break;
     case SI_SIGIO:
         si->ssi_band = qs->si.sifields.sigpoll.band;
@@ -812,8 +841,8 @@ static void signalfd_siginfo_fill(struct signalfd_siginfo * si, queued_signal qs
     case SI_ASYNCNL:
         si->ssi_pid = qs->si.sifields.rt.pid;
         si->ssi_uid = qs->si.sifields.rt.uid;
-        si->ssi_ptr = (u64)qs->si.sifields.rt.sigval.val_ptr;
-        si->ssi_int = qs->si.sifields.rt.sigval.val_int;
+        si->ssi_ptr = (u64)qs->si.sifields.rt.sigval.sival_ptr;
+        si->ssi_int = qs->si.sifields.rt.sigval.sival_int;
         break;
     }
 }
@@ -1016,8 +1045,18 @@ static void setup_sigframe(thread t, int signum, struct siginfo *si)
         halt("SA_ONSTACK ...\n");
     }
 
-    /* 16-byte alignment; avoid redzone */
-    t->sigframe[FRAME_RSP] = (t->sigframe[FRAME_RSP] & ~15) - 128;
+    /* avoid redzone and align rsp
+
+       Note: We are actually aligning to 8 but not 16 bytes; the ABI
+       requires that stacks are aligned to 16 before a call, but the
+       sigframe return into the function takes the place of a call,
+       which would have pushed a return address. The function prologue
+       typically pushes the frame pointer on the stack, thus
+       re-aligning to 16 before executing the function body.
+    */
+    t->sigframe[FRAME_RSP] = ((t->sigframe[FRAME_RSP] & ~15)
+                              - 128 /* redzone */
+                              - 8 /* same effect as call pushing ra */);
 
     /* create space for rt_sigframe */
     t->sigframe[FRAME_RSP] -= pad(sizeof(struct rt_sigframe), 16);

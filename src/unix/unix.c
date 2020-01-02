@@ -185,6 +185,9 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->start_time = now(CLOCK_ID_MONOTONIC);
     init_sigstate(&p->signals);
     zero(p->sigactions, sizeof(p->sigactions));
+    p->posix_timer_ids = create_id_heap(h, 0, U32_MAX, 1);
+    p->posix_timers = allocate_vector(h, 8);
+    p->itimers = allocate_vector(h, 3);
     return p;
 }
 
@@ -242,6 +245,15 @@ timestamp proc_stime(process p)
     return stime;
 }
 
+extern thunk unix_interrupt_checks;
+closure_function(0, 0, void, do_interrupt_checks)
+{
+    /* If we're returning to the standard thread frame, check if we
+       can invoke any signal handlers. */
+    if (running_frame == current->frame)
+        dispatch_signals(current);
+}
+
 process init_unix(kernel_heaps kh, tuple root, filesystem fs)
 {
     heap h = heap_general(kh);
@@ -260,7 +272,8 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
 	goto alloc_fail;
     if (!pipe_init(uh))
 	goto alloc_fail;
-
+    if (!unix_timers_init(uh))
+        goto alloc_fail;
     if (ftrace_init(uh, fs))
 	goto alloc_fail;
 
@@ -287,6 +300,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     fault_handler fallback_handler = create_fault_handler(h, current);
     install_fallback_fault_handler(fallback_handler);
 
+    unix_interrupt_checks = closure(h, do_interrupt_checks);
     register_special_files(kernel_process);
     init_syscalls();
     register_file_syscalls(linux_syscalls);
@@ -301,6 +315,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     register_thread_syscalls(linux_syscalls);
     register_poll_syscalls(linux_syscalls);
     register_clock_syscalls(linux_syscalls);
+    register_timer_syscalls(linux_syscalls);
     register_other_syscalls(linux_syscalls);
     configure_syscalls(kernel_process);
     return kernel_process;

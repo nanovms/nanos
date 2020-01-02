@@ -208,7 +208,7 @@ thread create_thread(process p)
     t->p = p;
     t->syscall = -1;
     t->uh = *p->uh;
-    init_refcount(&t->refcount, init_closure(&t->free, free_thread, t));
+    init_refcount(&t->refcount, 1, init_closure(&t->free, free_thread, t));
     t->select_epoll = 0;
     t->tid = tidcount++;
     t->clear_tid = 0;

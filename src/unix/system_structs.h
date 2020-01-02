@@ -101,9 +101,10 @@ typedef struct iovec {
 #define EOPNOTSUPP      95		/* Operation not supported */
 #define EISCONN         106
 #define ENOTCONN        107
-#define ETIMEDOUT       110     /* Connection timed out */
+#define ETIMEDOUT       110             /* Connection timed out */
 #define EALREADY        114
 #define EINPROGRESS     115
+#define ECANCELED       125             /* Used for timer cancel on RTC shift */
 
 #define O_RDONLY	00000000
 #define O_WRONLY	00000001
@@ -205,9 +206,30 @@ typedef int clockid_t;
 
 #define TIMER_ABSTIME               0x1
 
+#define ITIMER_REAL    0
+#define ITIMER_VIRTUAL 1
+#define ITIMER_PROF    2
+
 struct timespec {
-	u64 ts_sec;
-	u64 ts_nsec;
+    u64 tv_sec;
+    u64 tv_nsec;
+};
+
+typedef s64 time_t;
+
+struct timeval {
+    time_t tv_sec;  /* seconds */
+    u64 tv_usec;    /* microseconds */
+};
+
+struct itimerspec {
+    struct timespec it_interval;
+    struct timespec it_value;
+};
+
+struct itimerval {
+    struct timeval it_interval;
+    struct timeval it_value;
 };
 
 // straight from linux
@@ -310,9 +332,9 @@ struct rlimit {
 # define SEGV_PKUERR    4   /* failed protection key checks */
 #define NSIGSEGV    4
 
-typedef struct sigval {
-    s32 val_int;
-    void * val_ptr;
+typedef union sigval {
+    s32 sival_int;
+    void * sival_ptr;
 } sigval_t;
 
 typedef struct siginfo {
@@ -330,7 +352,7 @@ typedef struct siginfo {
 
         struct {
             u32 tid;
-            u32 overrun;
+            s32 overrun;
             sigval_t sigval;
             int sys_private;
         } timer;
@@ -432,6 +454,28 @@ struct signalfd_siginfo {
     /* 100 */
     u8 pad[SIGNALFD_SIGINFO_SIZE - 100];
 };
+
+#define SIGEV_SIGNAL    0
+#define SIGEV_NONE      1
+#define SIGEV_THREAD    2
+#define SIGEV_THREAD_ID 4
+
+#define SIGEVENT_SIZE 64
+#define SIGEVENT_PAD_BYTES (SIGEVENT_SIZE - (sizeof(s32) * 2 + sizeof(sigval_t)))
+
+typedef struct sigevent {
+    sigval_t sigev_value;
+    s32 sigev_signo;
+    s32 sigev_notify;
+    union {
+        u32 pad[SIGEVENT_PAD_BYTES / sizeof(u32)];
+        u32 tid;
+        struct {
+            void (*function)(sigval_t);
+            void *attribute;
+        } sigev_thread;
+    } sigev_un;
+} sigevent_t;
 
 typedef u64 fd_set;
 
@@ -622,14 +666,6 @@ struct rt_sigframe {
     /* fp state follows here */
 };
 
-
-typedef s64 time_t;
-
-struct timeval {
-    time_t tv_sec;  /* seconds */
-    u64 tv_usec;    /* microseconds */
-};
-
 #define CLOCKS_PER_SEC  100
 
 typedef s64 clock_t;
@@ -710,6 +746,12 @@ typedef u32 gid_t;
 #define EFD_CLOEXEC     02000000
 #define EFD_NONBLOCK    00004000
 #define EFD_SEMAPHORE   00000001
+
+/* timerfd flags */
+#define TFD_CLOEXEC             O_CLOEXEC
+#define TFD_NONBLOCK            O_NONBLOCK
+#define TFD_TIMER_ABSTIME       (1 << 0)
+#define TFD_TIMER_CANCEL_ON_SET (1 << 1)
 
 /* renameat2 flags */
 #define RENAME_NOREPLACE    (1 << 0)
