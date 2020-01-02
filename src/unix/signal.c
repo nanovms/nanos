@@ -230,7 +230,18 @@ static void deliver_signal(sigstate ss, struct siginfo *info)
     if (sigstate_is_pending(ss, sig)) {
         /* If this is a timer event, attempt to find a queued info for
            this timer and update the info (overrun) instead of
-           queueing another entry. */
+           queueing another entry.
+
+           I'm kind of assuming that both 1) this won't happen at any
+           high rate in real-world use, and 2) the depth of queued
+           infos for a given rt signal would ever practically be more
+           than one (or a few if a timer is mixed with other
+           sources). But I could be wrong. If so, we could change over
+           to registering a "siginfo update" closure which will update
+           the overrun count after dequeueing the signal (just before
+           entering the handler or other dispatch method). This would
+           obviate any need to search for and update a queued info.
+        */
         if (info->si_code == SI_TIMER) {
             list_foreach(sigstate_get_sighead(ss, sig), l) {
                 queued_signal qs = struct_from_list(l, queued_signal, l);

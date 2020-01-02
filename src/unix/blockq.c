@@ -271,6 +271,7 @@ sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_
     assert(0);
 }
 
+/* XXX This deserves another pass; blockq_item should really just be embedded into thread. */
 boolean blockq_flush_thread(blockq bq, thread t)
 {
     boolean unblocked = false;

@@ -4,7 +4,6 @@
 
    - validation of timeval and timespecs parameters across board
    - support for thread and process time(r)s
-   - support for SIGEV_THREAD
 */
 
 //#define UNIX_TIMER_DEBUG
