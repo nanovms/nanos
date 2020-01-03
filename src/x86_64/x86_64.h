@@ -13,22 +13,24 @@
 
 #define CODE_SEGMENT_SELECTOR   8
 
-#define FS_MSR 0xc0000100
-#define GS_MSR 0xc0000101
-#define LSTAR 0xC0000082
-#define EFER_MSR 0xc0000080
-#define EFER_SCE   0x0001
-#define EFER_LME   0x0100
-#define EFER_LMA   0x0400
-#define EFER_NXE   0x0800
-#define EFER_SVME  0x1000
-#define EFER_LMSLE 0x2000
-#define EFER_FFXSR 0x4000
-#define EFER_TCE   0x8000
-#define STAR_MSR 0xc0000081
-#define LSTAR_MSR 0xc0000082
-#define SFMASK_MSR 0xc0000084
 #define TSC_DEADLINE_MSR 0x6e0
+
+#define EFER_MSR         0xc0000080
+#define EFER_SCE         0x0001
+#define EFER_LME         0x0100
+#define EFER_LMA         0x0400
+#define EFER_NXE         0x0800
+#define EFER_SVME        0x1000
+#define EFER_LMSLE       0x2000
+#define EFER_FFXSR       0x4000
+#define EFER_TCE         0x8000
+#define STAR_MSR         0xc0000081
+#define LSTAR_MSR        0xc0000082
+#define SFMASK_MSR       0xc0000084
+
+#define FS_MSR           0xc0000100
+#define GS_MSR           0xc0000101
+#define KERNEL_GS_MSR    0xc0000102
 
 #define C0_WP   0x00010000
 
@@ -272,3 +274,6 @@ static inline cpuinfo get_cpuinfo(void)
     // XXX read %gs
     return 0;
 }
+
+void kern_lock(void);
+void kern_unlock(void);

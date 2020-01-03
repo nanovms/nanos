@@ -6,7 +6,6 @@ static struct {
     u64 sem;
     u64 head;                   /* next to enqueue */
     u64 tail;                   /* next to dequeue */
-    u64 ring[];
 } kernlock;
 
 static u64 *kernlock_ring;
@@ -23,7 +22,7 @@ static inline void enqueue_cpu(int cpu)
     kernlock_ring[dest % kernlock.size] = cpu; /* cas for paranoia? */
 }
 
-void kernlock_lock(void)
+void kern_lock(void)
 {
     cpuinfo ci = get_cpuinfo();
     u64 s = fetch_and_add(&kernlock.sem, 1);
@@ -38,7 +37,7 @@ void kernlock_lock(void)
     }
 }
 
-void kernlock_unlock(void)
+void kern_unlock(void)
 {
     u64 s = fetch_and_add(&kernlock.sem, -1);
     assert(s > 0);
