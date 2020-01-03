@@ -253,3 +253,22 @@ void unregister_interrupt(int vector);
 void triple_fault(void) __attribute__((noreturn));
 void start_cpu(heap h, heap pages, int index, void (*ap_entry)());
 void * allocate_stack(heap pages, int npages);
+
+/* smp stuff */
+
+/* gs points to this */
+typedef struct cpuinfo {
+    int id;
+    volatile boolean ipi_pending;
+} *cpuinfo;
+
+static inline void wake_cpu(int cpu)
+{
+    // XXX send ipi
+}
+
+static inline cpuinfo get_cpuinfo(void)
+{
+    // XXX read %gs
+    return 0;
+}

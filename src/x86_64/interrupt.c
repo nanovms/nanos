@@ -200,9 +200,7 @@ context bhframe;
 
 void kernel_sleep()
 {
-    running_frame = miscframe;
-    enable_interrupts();
-    __asm__("hlt");
+    __asm__("sti; hlt" ::: "memory");
     disable_interrupts();
 }
 

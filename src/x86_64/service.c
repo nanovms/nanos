@@ -105,6 +105,8 @@ void process_bhqueue()
     interrupt_exit();
 }
 
+extern context miscframe;
+
 void runloop()
 {
     thunk t;
@@ -118,6 +120,7 @@ void runloop()
             proc_pause(current->p);
         }
         timer_update();
+        running_frame = miscframe;
         kernel_sleep();
         if (current) {
             proc_resume(current->p);
