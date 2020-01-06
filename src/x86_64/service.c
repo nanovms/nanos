@@ -2,6 +2,7 @@
 #include <pci.h>
 #include <tfs.h>
 #include <x86_64.h>
+#include <apic.h>
 #include <region.h>
 #include <page.h>
 #include <symtab.h>
@@ -285,6 +286,29 @@ void vm_exit(u8 code)
     }
 }
 
+static queue idle_cpu_queue;
+static void new_cpu()
+{
+    enqueue(idle_cpu_queue, pointer_from_u64((u64)apic_id()));
+    cpuinfo ci = get_cpuinfo();
+    ci->online = true;
+    __asm__("hlt");
+}
+
+/* XXX just for initial mp bringup... */
+#define MAX_CPUS 16
+
+struct cpuinfo cpuinfos[MAX_CPUS];
+
+static void init_cpuinfos(void)
+{
+    for (int i = 0; i < MAX_CPUS; i++) {
+        cpuinfos[i].id = i;
+        cpuinfos[i].online = false;
+        cpuinfos[i].ipi_wakeup = false;
+    }
+}
+
 static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = &heaps;
@@ -379,6 +403,10 @@ static void __attribute__((noinline)) init_service_new_stack()
     init_debug("install GDT64 and TSS");
     install_gdt64_and_tss();
     unmap(PAGESIZE, INITIAL_MAP_SIZE - PAGESIZE, pages);
+
+    init_cpuinfos();
+    idle_cpu_queue = allocate_queue(misc, 64);
+    start_cpu(misc, pages, TARGET_EXCLUSIVE_BROADCAST, new_cpu);
 
     init_debug("starting runloop");
     runloop();

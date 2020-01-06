@@ -25,3 +25,17 @@ clock_timer init_lapic_timer(void);
 void apic_ipi(u32 target, u64 icr);
 u32 apic_id();
 void enable_apic();
+
+static inline int this_cpu(void)
+{
+    /* XXX there's a whole scheme to interpreting the apic id (sdm
+       8.9.2), but we're fudging it for now... */
+
+    return apic_id() >> 24;
+}
+
+static inline cpuinfo get_cpuinfo(void)
+{
+    int cpu = this_cpu();
+    return &cpuinfos[cpu];
+}

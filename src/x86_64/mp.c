@@ -27,7 +27,7 @@ static void ap_new_stack()
     print_u64(apic_id());
     console("\n");
     ap_lock = 0;
-    __asm__("hlt");
+//    __asm__("hlt");
     start_callback();
 }
 

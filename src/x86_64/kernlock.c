@@ -1,5 +1,6 @@
 #include <runtime.h>
 #include <x86_64.h>
+#include <apic.h>
 
 static struct {
     u64 size;
@@ -30,9 +31,9 @@ void kern_lock(void)
 
     if (s > 0) {
         disable_interrupts();
-        ci->ipi_pending = false;
+        ci->ipi_wakeup = false;
         enqueue_cpu(ci->id);
-        while (!ci->ipi_pending)
+        while (!ci->ipi_wakeup)
             kernel_sleep();
     }
 }

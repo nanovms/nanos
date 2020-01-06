@@ -54,14 +54,14 @@ void apic_ipi(u32 target, u64 icr)
     
     if (target == TARGET_EXCLUSIVE_BROADCAST) {
         w = icr | ICR_DEST_ALL_EXC_SELF;
-    } else{
+    } else {
         w = icr | (((u64)target) << 56);
     }
     
     apic_write(APIC_ICRH, (w >> 32) & 0xffffffff);
     apic_write(APIC_ICRL, w & 0xffffffff);
-    for (int i = 0 ; i <100; i++ ){
-        if ((apic_read( APIC_ICRL) & (1<<12))== 0){
+    for (int i = 0 ; i < 100; i++) {
+        if ((apic_read(APIC_ICRL) & (1<<12)) == 0) {
             return;
         }
     }

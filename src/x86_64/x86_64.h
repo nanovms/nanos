@@ -261,7 +261,8 @@ void * allocate_stack(heap pages, int npages);
 /* gs points to this */
 typedef struct cpuinfo {
     int id;
-    volatile boolean ipi_pending;
+    boolean online;
+    volatile boolean ipi_wakeup;
 } *cpuinfo;
 
 static inline void wake_cpu(int cpu)
@@ -269,11 +270,7 @@ static inline void wake_cpu(int cpu)
     // XXX send ipi
 }
 
-static inline cpuinfo get_cpuinfo(void)
-{
-    // XXX read %gs
-    return 0;
-}
+extern struct cpuinfo cpuinfos[];
 
 void kern_lock(void);
 void kern_unlock(void);
