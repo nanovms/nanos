@@ -58,6 +58,8 @@ void apic_ipi(u32 target, u64 icr)
         w = icr | (((u64)target) << 56);
     }
     
+    rprintf("w: 0x%lx, icrl: 0x%x\n", w, apic_read(APIC_ICRL));
+
     apic_write(APIC_ICRH, (w >> 32) & 0xffffffff);
     apic_write(APIC_ICRL, w & 0xffffffff);
     for (int i = 0 ; i < 100; i++) {
@@ -71,7 +73,7 @@ void apic_ipi(u32 target, u64 icr)
 
 u32 apic_id()
 {
-    return apic_read(APIC_APICID);
+    return apic_read(APIC_APICID) >> 24;
 }
 
 static inline void apic_set(int reg, u32 v)

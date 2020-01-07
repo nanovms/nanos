@@ -50,4 +50,7 @@ static inline u16 tagof(void* v) {
 #define RUNLOOP_TIMER_MAX_PERIOD_US     100000
 #define RUNLOOP_TIMER_MIN_PERIOD_US     10
 
+/* XXX just for initial mp bringup... */
+#define MAX_CPUS 16
+
 #include <x86.h>

@@ -295,18 +295,27 @@ static void new_cpu()
     __asm__("hlt");
 }
 
-/* XXX just for initial mp bringup... */
-#define MAX_CPUS 16
-
 struct cpuinfo cpuinfos[MAX_CPUS];
 
-static void init_cpuinfos(void)
+static u64 ipi_vector;
+
+closure_function(0, 0, void, ipi_interrupt)
+{
+    cpuinfo ci = get_cpuinfo();
+    rprintf("got IPI interrupt on CPU %d\n", ci->id);
+}
+
+static void init_cpuinfos(kernel_heaps kh)
 {
     for (int i = 0; i < MAX_CPUS; i++) {
         cpuinfos[i].id = i;
         cpuinfos[i].online = false;
         cpuinfos[i].ipi_wakeup = false;
     }
+
+    ipi_vector = allocate_interrupt();
+    assert(ipi_vector != INVALID_PHYSICAL);
+    register_interrupt(ipi_vector, closure(heap_general(kh), ipi_interrupt));
 }
 
 static void __attribute__((noinline)) init_service_new_stack()
@@ -404,10 +413,14 @@ static void __attribute__((noinline)) init_service_new_stack()
     install_gdt64_and_tss();
     unmap(PAGESIZE, INITIAL_MAP_SIZE - PAGESIZE, pages);
 
-    init_cpuinfos();
+    init_cpuinfos(kh);
     idle_cpu_queue = allocate_queue(misc, 64);
     start_cpu(misc, pages, TARGET_EXCLUSIVE_BROADCAST, new_cpu);
 
+    kernel_delay(seconds(1));
+    // XXX
+    rprintf("ipi vector %d\n", ipi_vector);
+    apic_ipi(1, ipi_vector);
     init_debug("starting runloop");
     runloop();
 }

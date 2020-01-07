@@ -28,10 +28,8 @@ void enable_apic();
 
 static inline int this_cpu(void)
 {
-    /* XXX there's a whole scheme to interpreting the apic id (sdm
-       8.9.2), but we're fudging it for now... */
-
-    return apic_id() >> 24;
+    // for now, assume apic id == cpu num
+    return apic_id();
 }
 
 static inline cpuinfo get_cpuinfo(void)
