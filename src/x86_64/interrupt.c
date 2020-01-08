@@ -98,6 +98,7 @@ static void write_idt(int interrupt, u64 offset, u64 ist)
 
 static thunk *handlers;
 context running_frame;
+u32 spurious_int_vector;
 
 char * find_elf_sym(u64 a, u64 *offset, u64 *len);
 
@@ -198,7 +199,7 @@ context miscframe;              /* for context save on interrupt */
 context intframe;               /* for context save on exception within interrupt */
 context bhframe;
 
-void kernel_sleep()
+void kernel_sleep(void)
 {
     __asm__("sti; hlt" ::: "memory");
     disable_interrupts();
@@ -223,6 +224,19 @@ NOTRACE
 void common_handler()
 {
     int i = running_frame[FRAME_VECTOR];
+    cpuinfo ci = get_cpuinfo();
+
+    console("*");
+    
+    if (ci->id == 1) {
+        console("I ");
+        print_u64(i);
+        console("\n");
+    }
+
+    if (i == spurious_int_vector)
+        return;                 /* no EOI */
+
     boolean in_bh = running_frame == bhframe;
     boolean in_inthandler = running_frame == intframe;
     boolean in_usermode = (!in_inthandler && !in_bh) &&
@@ -341,6 +355,7 @@ void start_interrupts(kernel_heaps kh)
     miscframe = allocate_frame(general);
     intframe = allocate_frame(general);
     bhframe = allocate_frame(general);
+    running_frame = miscframe;
 
     /* Page fault alternate stack */
     void * fault_stack_top = allocate_stack(pages, FAULT_STACK_PAGES);
@@ -378,6 +393,9 @@ void start_interrupts(kernel_heaps kh)
     *(u16*)idt_desc = 2 * sizeof(u64) * n_interrupt_vectors - 1;
     *(u64*)(idt_desc + sizeof(u16)) = u64_from_pointer(idt);
     asm("lidt %0": : "m"(*(u64*)idt_desc));
+
+    spurious_int_vector = allocate_interrupt();
+    assert(spurious_int_vector != INVALID_PHYSICAL);
 
     /* APIC initialization */
     init_apic(kh);

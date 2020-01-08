@@ -58,7 +58,7 @@ void apic_ipi(u32 target, u64 icr)
         w = icr | (((u64)target) << 56);
     }
     
-    rprintf("w: 0x%lx, icrl: 0x%x\n", w, apic_read(APIC_ICRL));
+//    rprintf("w: 0x%lx, icrl: 0x%x\n", w, apic_read(APIC_ICRL));
 
     apic_write(APIC_ICRH, (w >> 32) & 0xffffffff);
     apic_write(APIC_ICRL, w & 0xffffffff);
@@ -137,6 +137,20 @@ clock_timer init_lapic_timer(void)
     return ct;
 }
 
+static u64 lvt_err_irq;
+extern u32 spurious_int_vector;
+
+void enable_apic(void)
+{
+    /* enable spurious interrupts */
+    apic_set(APIC_SPURIOUS, APIC_SW_ENABLE | spurious_int_vector);
+    apic_write(APIC_LVT_LINT0, APIC_DISABLE);
+    apic_write(APIC_LVT_LINT1, APIC_DISABLE);
+
+    /* set up error interrupt */
+    apic_write(APIC_LVT_ERR, lvt_err_irq);
+}
+
 void init_apic(kernel_heaps kh)
 {
     apic_heap = heap_general(kh);
@@ -144,13 +158,8 @@ void init_apic(kernel_heaps kh)
     assert(apic_vbase != INVALID_PHYSICAL);
     map(apic_vbase, APIC_BASE, PAGESIZE, PAGE_DEV_FLAGS, heap_pages(kh));
 
-    /* enable spurious interrupts */
-    apic_set(APIC_SPURIOUS, APIC_SW_ENABLE);
-    apic_write(APIC_LVT_LINT0, APIC_DISABLE);
-    apic_write(APIC_LVT_LINT1, APIC_DISABLE);
-
-    /* set up error interrupt */
-    u64 lvt_err_irq = allocate_interrupt();
+    lvt_err_irq = allocate_interrupt();
     assert(lvt_err_irq != INVALID_PHYSICAL);
-    apic_write(APIC_LVT_ERR, lvt_err_irq);
+
+    enable_apic();
 }

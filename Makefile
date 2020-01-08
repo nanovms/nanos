@@ -124,7 +124,7 @@ endif
 QEMU_TAP=	-netdev tap,id=n0,ifname=tap0,script=no,downscript=no
 QEMU_NET=	-device virtio-net,mac=7e:b8:7e:87:4a:ea,netdev=n0 $(QEMU_TAP)
 QEMU_USERNET=	-device virtio-net,netdev=n0 -netdev user,id=n0,hostfwd=tcp::8080-:8080,hostfwd=tcp::9090-:9090,hostfwd=udp::5309-:5309
-QEMU_FLAGS=
+QEMU_FLAGS=     -smp 2 -d int -D int.log
 
 QEMU_COMMON=	$(QEMU_MEMORY) $(QEMU_DISPLAY) $(QEMU_SERIAL) $(QEMU_STORAGE) -device isa-debug-exit -no-reboot $(QEMU_FLAGS)
 

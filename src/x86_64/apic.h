@@ -23,8 +23,9 @@ void init_apic(kernel_heaps kh);
 void lapic_set_tsc_deadline_mode(u32 v);
 clock_timer init_lapic_timer(void);
 void apic_ipi(u32 target, u64 icr);
-u32 apic_id();
-void enable_apic();
+u32 apic_id(void);
+void enable_apic(void);
+void enable_apic(void);
 
 static inline int this_cpu(void)
 {

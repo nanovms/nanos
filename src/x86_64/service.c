@@ -292,7 +292,9 @@ static void new_cpu()
     enqueue(idle_cpu_queue, pointer_from_u64((u64)apic_id()));
     cpuinfo ci = get_cpuinfo();
     ci->online = true;
-    __asm__("hlt");
+    while (1) {
+        kernel_sleep();
+    }
 }
 
 struct cpuinfo cpuinfos[MAX_CPUS];
@@ -417,11 +419,16 @@ static void __attribute__((noinline)) init_service_new_stack()
     idle_cpu_queue = allocate_queue(misc, 64);
     start_cpu(misc, pages, TARGET_EXCLUSIVE_BROADCAST, new_cpu);
 
-    kernel_delay(seconds(1));
     // XXX
-    rprintf("ipi vector %d\n", ipi_vector);
+    kernel_delay(seconds(1));
+    rprintf("send test ipi to id 1 (vector %d)\n", ipi_vector);
     apic_ipi(1, ipi_vector);
     init_debug("starting runloop");
+#if 1
+    rprintf("pause\n");
+    while (1)
+        kern_pause();
+#endif
     runloop();
 }
 

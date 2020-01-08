@@ -22,11 +22,12 @@ static void ap_new_stack()
     //    write_msr(IA32_APIC_BASE_MSR, 0xfee00000);
     //    x = read_msr(IA32_APIC_BASE_MSR);
     //    print_u64(x);
-    console(" ");    
-    //    enable_apic();
+    console(" ");
+    enable_apic();
     print_u64(apic_id());
     console("\n");
     ap_lock = 0;
+    enable_interrupts();
 //    __asm__("hlt");
     start_callback();
 }
