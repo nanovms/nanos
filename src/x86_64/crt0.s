@@ -245,7 +245,7 @@ install_gdt64_and_tss:
         mov rax, TSS
         imul rsi, rdi, 0x68
         add rax, rsi
-        imul rdi, rdi, 0x80
+        imul rdi, rdi, 0x10
         add rdi, GDT64.TSS
         mov [GDT64 + rdi + 2], ax
         shr rax, 0x10
