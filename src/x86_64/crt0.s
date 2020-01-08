@@ -108,6 +108,9 @@ geterr:
 
         interrupts equ 0x30
 
+        ;; until we can build gdt dynamically...
+        cpus equ 0x10
+
 global_data n_interrupt_vectors
 n_interrupt_vectors:
         dd interrupts
@@ -240,14 +243,17 @@ global_func install_gdt64_and_tss
 install_gdt64_and_tss:
         lgdt [GDT64.Pointer]
         mov rax, TSS
-        mov [GDT64 + GDT64.TSS + 2], ax
+        imul rsi, rdi, 0x68
+        add rax, rsi
+        imul rdi, rdi, 0x80
+        add rdi, GDT64.TSS
+        mov [GDT64 + rdi + 2], ax
         shr rax, 0x10
-        mov [GDT64 + GDT64.TSS + 4], al
-        mov [GDT64 + GDT64.TSS + 7], ah
+        mov [GDT64 + rdi + 4], al
+        mov [GDT64 + rdi + 7], ah
         shr rax, 0x10
-        mov [GDT64 + GDT64.TSS + 8], eax
-        mov rax, GDT64.TSS
-        ltr ax
+        mov [GDT64 + rdi + 8], eax
+        ltr di
         ret
 .end:
 
@@ -291,6 +297,7 @@ GDT64:  ; Global Descriptor Table (64-bit).
         db 00000000b ; Granularity.
         db 0         ; Base (high).
         .TSS: equ $ - GDT64     ; TSS descriptor (system segment descriptor - 64bit mode)
+%rep cpus
         dw (TSS.end - TSS)      ; Limit (low)
         dw 0                    ; Base [15:0] [fill in base at runtime, for I lack nasm sauce]
         db 0                    ; Base [23:16]
@@ -299,6 +306,7 @@ GDT64:  ; Global Descriptor Table (64-bit).
         db 0                    ; Base [31:24]
         dd 0                    ; Base [63:32]
         dd 0                    ; Reserved
+%endrep
         .Pointer:    ; The GDT-pointer.
         dw $ - GDT64 - 1    ; Limit.
         dq GDT64            ; 64 bit Base.
@@ -306,6 +314,7 @@ GDT64:  ; Global Descriptor Table (64-bit).
         align 16                ; XXX ??
 global_data TSS
 TSS:                            ; 64 bit TSS
+%rep cpus
         dd 0                    ; reserved      0x00
         dd 0                    ; RSP0 (low)    0x04
         dd 0                    ; RSP0 (high)   0x08
@@ -333,6 +342,7 @@ TSS:                            ; 64 bit TSS
         dd 0                    ; reserved      0x60
         dw 0                    ; IOPB offset   0x64
         dw 0                    ; reserved      0x66
+%endrep
 .end:
 
 ;; hypercall page used by xen

@@ -19,12 +19,16 @@ static void ap_new_stack()
     u64 x = read_msr(IA32_APIC_BASE_MSR);
     print_u64(x);
     console(" ");
-    //    write_msr(IA32_APIC_BASE_MSR, 0xfee00000);
-    //    x = read_msr(IA32_APIC_BASE_MSR);
-    //    print_u64(x);
-    console(" ");
+
+    u64 id = apic_id();
+    console("cpu ");
+    print_u64(id);
+    set_ist(id, IST_PAGEFAULT, u64_from_pointer(fault_stack_top));
+    set_ist(id, IST_INTERRUPT, u64_from_pointer(int_stack_top));
+    console(", install gdt ");
+    install_gdt64_and_tss(id);
+    console(", enable apic ");
     enable_apic();
-    print_u64(apic_id());
     console("\n");
     ap_lock = 0;
     enable_interrupts();
@@ -41,7 +45,6 @@ void ap_start()
     asm ("mov %0, %%rsp": :"m"(n));
     ap_new_stack();
 }
-
 
 void start_cpu(heap h, heap p, int index, void (*ap_entry)()) {
     pages = p ;

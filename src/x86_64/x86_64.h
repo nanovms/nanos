@@ -70,8 +70,6 @@ typedef u64 *context;
 
 extern context running_frame;
 
-extern void * syscall_stack_top;
-
 #define BREAKPOINT_INSTRUCTION 00
 #define BREAKPOINT_WRITE 01
 #define BREAKPOINT_IO 10
@@ -256,6 +254,16 @@ void triple_fault(void) __attribute__((noreturn));
 void start_cpu(heap h, heap pages, int index, void (*ap_entry)());
 void * allocate_stack(heap pages, int npages);
 void install_idt(void);
+
+#define IST_INTERRUPT 1         /* for all interrupts */
+#define IST_PAGEFAULT 2         /* page fault specific */
+
+void set_ist(int cpu, int i, u64 sp);
+void install_gdt64_and_tss(u64 cpu);
+
+extern void * syscall_stack_top;
+extern void * fault_stack_top;
+extern void * int_stack_top;
 
 /* smp stuff */
 

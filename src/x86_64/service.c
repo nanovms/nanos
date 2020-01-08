@@ -214,8 +214,6 @@ static void read_kernel_syms()
     }
 }
 
-extern void install_gdt64_and_tss();
-
 static boolean have_rdseed = false;
 static boolean have_rdrand = false;
 
@@ -412,7 +410,7 @@ static void __attribute__((noinline)) init_service_new_stack()
 
     /* Switch to stage3 GDT64, enable TSS and free up initial map */
     init_debug("install GDT64 and TSS");
-    install_gdt64_and_tss();
+    install_gdt64_and_tss(0);
     unmap(PAGESIZE, INITIAL_MAP_SIZE - PAGESIZE, pages);
 
     init_cpuinfos(kh);

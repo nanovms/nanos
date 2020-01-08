@@ -308,18 +308,19 @@ void unregister_interrupt(int vector)
 
 #define FAULT_STACK_PAGES       8
 #define SYSCALL_STACK_PAGES     8
+#define TSS_SIZE                0x68
 
 extern volatile void * TSS;
-static inline void write_tss_u64(int offset, u64 val)
+static inline void write_tss_u64(int cpu, int offset, u64 val)
 {
-    u64 * vec = (u64 *)(u64_from_pointer(&TSS) + offset);
+    u64 * vec = (u64 *)(u64_from_pointer(&TSS) + (TSS_SIZE * cpu) + offset);
     *vec = val;
 }
 
-static void set_ist(int i, u64 sp)
+void set_ist(int cpu, int i, u64 sp)
 {
     assert(i > 0 && i <= 7);
-    write_tss_u64(0x24 + (i - 1) * 8, sp);
+    write_tss_u64(cpu, 0x24 + (i - 1) * 8, sp);
 }
 
 context allocate_frame(heap h)
@@ -338,9 +339,8 @@ void * allocate_stack(heap pages, int npages)
 }
 
 void * syscall_stack_top;
-
-#define IST_INTERRUPT 1         /* for all interrupts */
-#define IST_PAGEFAULT 2         /* page fault specific */
+void * fault_stack_top;
+void * int_stack_top;
 
 void start_interrupts(kernel_heaps kh)
 {
@@ -358,14 +358,14 @@ void start_interrupts(kernel_heaps kh)
     running_frame = miscframe;
 
     /* Page fault alternate stack */
-    void * fault_stack_top = allocate_stack(pages, FAULT_STACK_PAGES);
+    fault_stack_top = allocate_stack(pages, FAULT_STACK_PAGES);
     assert(fault_stack_top != INVALID_ADDRESS);
-    set_ist(IST_PAGEFAULT, u64_from_pointer(fault_stack_top));
+    set_ist(0, IST_PAGEFAULT, u64_from_pointer(fault_stack_top));
 
     /* Interrupt handlers run on their own stack. */
-    void * int_stack_top = allocate_stack(pages, INT_STACK_PAGES);
+    int_stack_top = allocate_stack(pages, INT_STACK_PAGES);
     assert(int_stack_top != INVALID_ADDRESS);
-    set_ist(IST_INTERRUPT, u64_from_pointer(int_stack_top));
+    set_ist(0, IST_INTERRUPT, u64_from_pointer(int_stack_top));
 
     /* Syscall stack */
     syscall_stack_top = allocate_stack(pages, SYSCALL_STACK_PAGES);
