@@ -394,11 +394,15 @@ void start_interrupts(kernel_heaps kh)
     *(u64*)(idt_desc + sizeof(u16)) = u64_from_pointer(idt);
     asm("lidt %0": : "m"(*(u64*)idt_desc));
 
-    spurious_int_vector = allocate_interrupt();
-    assert(spurious_int_vector != INVALID_PHYSICAL);
+    u64 v = allocate_interrupt();
+    assert(v != INVALID_PHYSICAL);
+    spurious_int_vector = v;
 
     /* APIC initialization */
     init_apic(kh);
+
+    void * p = idt_from_interrupt(39);
+    rprintf("0x%x, 0x%lx\n", *(u16*)p, *(u64*)(p + sizeof(u16)));
 }
 
 void triple_fault(void)
