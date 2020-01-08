@@ -239,20 +239,23 @@ _start:
         hlt
 .end:
 
+%define TSS_SIZE 0x68
 global_func install_gdt64_and_tss
 install_gdt64_and_tss:
         lgdt [GDT64.Pointer]
         mov rax, TSS
-        imul rsi, rdi, 0x68
+        imul rsi, rdi, TSS_SIZE
         add rax, rsi
         imul rdi, rdi, 0x10
         add rdi, GDT64.TSS
-        mov [GDT64 + rdi + 2], ax
+        mov [GDT64 + rdi], word TSS_SIZE ; limit
+        mov [GDT64 + rdi + 2], ax   ; base [15:0]
         shr rax, 0x10
-        mov [GDT64 + rdi + 4], al
-        mov [GDT64 + rdi + 7], ah
+        mov [GDT64 + rdi + 4], al ; base [23:16]
+        mov [GDT64 + rdi + 5], byte 10001001b ; present, 64-bit TSS available
+        mov [GDT64 + rdi + 7], ah ; base [31:24]
         shr rax, 0x10
-        mov [GDT64 + rdi + 8], eax
+        mov [GDT64 + rdi + 8], eax ; base [63:32]
         ltr di
         ret
 .end:
@@ -298,14 +301,11 @@ GDT64:  ; Global Descriptor Table (64-bit).
         db 0         ; Base (high).
         .TSS: equ $ - GDT64     ; TSS descriptor (system segment descriptor - 64bit mode)
 %rep cpus
-        dw (TSS.end - TSS)      ; Limit (low)
-        dw 0                    ; Base [15:0] [fill in base at runtime, for I lack nasm sauce]
-        db 0                    ; Base [23:16]
-        db 10001001b            ; Present, long mode type available TSS
-        db 00000000b            ; byte granularity
-        db 0                    ; Base [31:24]
-        dd 0                    ; Base [63:32]
-        dd 0                    ; Reserved
+;; Filled in at runtime by install_gdt64_and_tss
+        dd 0
+        dd 0
+        dd 0
+        dd 0
 %endrep
         .Pointer:    ; The GDT-pointer.
         dw $ - GDT64 - 1    ; Limit.
