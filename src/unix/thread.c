@@ -117,7 +117,7 @@ closure_function(1, 0, void, run_thread,
 
     thread_log(t, "run frame %p, RIP=%p", t->frame, t->frame[FRAME_RIP]);
     proc_enter_user(current->p);
-    running_frame = t->frame;
+    set_running_frame(t->frame);
 
     /* cover wake-before-sleep situations (e.g. sched yield, fs ops that don't go to disk, etc.) */
     current->blocked_on = 0;
@@ -125,8 +125,10 @@ closure_function(1, 0, void, run_thread,
     /* check if we have a pending signal */
     dispatch_signals(t);
 
-    running_frame[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
-    IRETURN(running_frame);
+    /* running frame may have changed to signal handling frame */
+    context f = get_running_frame();
+    f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
+    IRETURN(f);
 }
 
 void thread_sleep_interruptible(void)
@@ -287,7 +289,7 @@ void exit_thread(thread t)
     ftrace_thread_deinit(t, dummy_thread);
 
     current = dummy_thread;
-    running_frame = dummy_thread->frame;
+    set_running_frame(dummy_thread->frame);
     refcount_release(&t->refcount);
 }
 

@@ -121,7 +121,7 @@ void runloop()
             proc_pause(current->p);
         }
         timer_update();
-        running_frame = miscframe;
+        set_running_frame(current_cpu()->misc_frame);
         kernel_sleep();
         if (current) {
             proc_resume(current->p);
@@ -307,16 +307,48 @@ closure_function(0, 0, void, ipi_interrupt)
 
 static void init_cpuinfos(kernel_heaps kh)
 {
+    heap h = heap_general(kh);
+    heap pages = heap_pages(kh);
+
+    /* We'd like the aps to allocate for themselves, but we don't have
+       per-cpu heaps just yet. */
     for (int i = 0; i < MAX_CPUS; i++) {
-        cpuinfos[i].id = i;
-        cpuinfos[i].online = false;
-        cpuinfos[i].ipi_wakeup = false;
+        cpuinfo ci = &cpuinfos[i];
+        ci->self = ci;
+
+        /* state */
+        ci->running_frame = 0;
+        ci->id = i;
+        ci->in_bh = false;
+        ci->in_int = false;
+        ci->online = false;
+        ci->ipi_wakeup = false;
+
+        /* frame and stacks */
+        ci->misc_frame = allocate_frame(h);
+        ci->bh_frame = allocate_frame(h);
+        ci->syscall_stack = allocate_stack(pages, SYSCALL_STACK_PAGES);
+        ci->fault_stack = allocate_stack(pages, FAULT_STACK_PAGES);
+        ci->int_stack = allocate_stack(pages, INT_STACK_PAGES);
+        ci->bh_stack = allocate_stack(pages, BH_STACK_PAGES);
     }
 
-    ipi_vector = allocate_interrupt();
-    assert(ipi_vector != INVALID_PHYSICAL);
-    register_interrupt(ipi_vector, closure(heap_general(kh), ipi_interrupt));
+    cpu_setgs(0);
 }
+
+#ifdef SMP_TEST
+static queue idle_cpu_queue;
+
+static void new_cpu()
+{
+    enqueue(idle_cpu_queue, pointer_from_u64((u64)apic_id()));
+    cpuinfo ci = get_cpuinfo();
+    ci->online = true;
+    while (1) {
+        kernel_sleep();
+    }
+}
+#endif
 
 static void __attribute__((noinline)) init_service_new_stack()
 {
@@ -344,6 +376,8 @@ static void __attribute__((noinline)) init_service_new_stack()
     bhqueue = allocate_queue(misc, 2048);
     deferqueue = allocate_queue(misc, 64);
     unix_interrupt_checks = 0;
+
+    init_cpuinfos(kh);
 
     /* interrupts */
     init_debug("start_interrupts");
@@ -413,20 +447,23 @@ static void __attribute__((noinline)) init_service_new_stack()
     install_gdt64_and_tss(0);
     unmap(PAGESIZE, INITIAL_MAP_SIZE - PAGESIZE, pages);
 
-    init_cpuinfos(kh);
+    /* XXX just a test */
+    ipi_vector = allocate_interrupt();
+    assert(ipi_vector != INVALID_PHYSICAL);
+    register_interrupt(ipi_vector, closure(heap_general(kh), ipi_interrupt));
+
+#ifdef SMP_TEST
     idle_cpu_queue = allocate_queue(misc, 64);
     start_cpu(misc, pages, TARGET_EXCLUSIVE_BROADCAST, new_cpu);
 
-    // XXX
     kernel_delay(seconds(1));
     rprintf("send test ipi to id 1 (vector %d)\n", ipi_vector);
     apic_ipi(1, ipi_vector);
-    init_debug("starting runloop");
-#if 1
     rprintf("pause\n");
     while (1)
         kern_pause();
 #endif
+    init_debug("starting runloop");
     runloop();
 }
 

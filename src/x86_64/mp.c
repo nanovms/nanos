@@ -23,8 +23,11 @@ static void ap_new_stack()
     u64 id = apic_id();
     console("cpu ");
     print_u64(id);
-    set_ist(id, IST_PAGEFAULT, u64_from_pointer(fault_stack_top));
-    set_ist(id, IST_INTERRUPT, u64_from_pointer(int_stack_top));
+    cpu_setgs(id);
+    cpuinfo ci = current_cpu();
+    set_ist(id, IST_PAGEFAULT, u64_from_pointer(ci->fault_stack));
+    set_ist(id, IST_INTERRUPT, u64_from_pointer(ci->int_stack));
+    set_running_frame(ci->misc_frame);
     console(", install gdt ");
     install_gdt64_and_tss(id);
     console(", enable apic ");

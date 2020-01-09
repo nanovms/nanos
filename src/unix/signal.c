@@ -475,10 +475,10 @@ sysreturn rt_sigreturn(void)
         restore_ucontext(&(frame->uc), t->frame);
     }
     t->frame[FRAME_RAX] = t->saved_rax;
-    running_frame = t->frame;
 
     sig_debug("switching to thread frame %p, rip 0x%lx, rax 0x%lx\n",
-              running_frame, running_frame[FRAME_RIP], running_frame[FRAME_RAX]);
+              t->frame, t->frame[FRAME_RIP], t->frame[FRAME_RAX]);
+    set_running_frame(t->frame);
 
     /* ftrace needs to know that this call stack does not return */
     ftrace_thread_noreturn(current);
@@ -487,7 +487,7 @@ sysreturn rt_sigreturn(void)
     dispatch_signals(current);
 
     /* return - XXX or reschedule? */
-    IRETURN(running_frame);
+    IRETURN(t->frame);
     return 0;
 }
 
@@ -1173,7 +1173,7 @@ void dispatch_signals(thread t)
     /* clean up and proceed to handler */
     free_queued_signal(qs);
     t->saved_rax = t->frame[FRAME_RAX];
-    running_frame = t->sigframe;
+    set_running_frame(t->sigframe);
     return;
   ignore:
     sig_debug("ignoring signal %d\n", signum);

@@ -9,17 +9,34 @@
         
 global_func _start
 extern  init_service
-extern  running_frame
-extern  syscall_stack_top
 
 %include "frame.inc"
         
 %define FS_MSR 0xc0000100
-        
+
+;; CS == 0x8 is kernel mode - no swapgs
+%macro check_swapgs 1
+        cmp qword [rsp + %1], 0x08
+        je %%skip
+        swapgs
+%%skip:
+%endmacro
+
+;; stack frame upon entry:
+;;
+;; ss
+;; rsp
+;; rflags
+;; cs
+;; rip
+;; vector <- rsp
+
 extern common_handler
 interrupt_common:
+        check_swapgs 16
         push rbx
-        mov rbx, [running_frame]
+        mov rbx, [gs:0]
+        mov rbx, [rbx+8]        ; running_frame
         mov [rbx+FRAME_RAX*8], rax
         mov [rbx+FRAME_RCX*8], rcx
         mov [rbx+FRAME_RDX*8], rdx
@@ -35,10 +52,14 @@ interrupt_common:
         mov [rbx+FRAME_R14*8], r14
         mov [rbx+FRAME_R15*8], r15
 
-        push rdi
+;; wtf was this?
+;        push rdi
+;        mov rdi, cr2
+;        mov [rbx+FRAME_CR2*8], rdi
+;        pop rdi
+
         mov rdi, cr2
         mov [rbx+FRAME_CR2*8], rdi
-        pop rdi
 
         pop rax            ; rbx
         mov [rbx+FRAME_RBX*8], rax
@@ -62,11 +83,13 @@ getrip:
         mov [rbx+FRAME_RSP*8], rax
         pop rax            ; ss         
         mov [rbx+FRAME_SS*8], rax
+        cld
         call common_handler
 
 global interrupt_exit
 interrupt_exit:
-        mov rbx, [running_frame]
+        mov rbx, [gs:0]
+        mov rbx, [rbx+8]        ; running_frame
 
         ; set fs selector to null before writing hidden base (for intel/no-accel)
         mov rax, 0
@@ -97,6 +120,7 @@ interrupt_exit:
         push qword [rbx+FRAME_CS*8]    ; cs
         push qword [rbx+FRAME_RIP*8]   ; rip
         mov rbx, [rbx+FRAME_RBX*8]
+        check_swapgs 8
         iretq
 
 global_func geterr
@@ -134,8 +158,10 @@ interrupt_vectors:
 extern syscall
 global_func syscall_enter
 syscall_enter:
+        swapgs
         push rax
-        mov rax, [running_frame]
+        mov rax, [gs:0]
+        mov rax, [rax+8]        ; running_frame
         mov [rax+FRAME_RBX*8], rbx
         pop rbx
         mov [rax+FRAME_VECTOR*8], rbx
@@ -155,9 +181,12 @@ syscall_enter:
         mov [rax+FRAME_RIP*8], rcx
         mov rax, syscall
         mov rax, [rax]
-        mov rsp, [syscall_stack_top]
+        mov rbx, [gs:0]
+        mov rsp, [rbx+16]       ; syscall_stack
+        cld
         call rax
-        mov rbx, [running_frame]
+        mov rbx, [gs:0]
+        mov rbx, [rbx+8]        ; running_frame
         ;; fall through to frame_return
 .end:
 
@@ -191,6 +220,7 @@ frame_return:
         mov rsp, [rax+FRAME_RSP*8]
         mov rcx, [rax+FRAME_RIP*8]
         mov rax, [rax+FRAME_RAX*8]
+        swapgs
         o64 sysret
 .end:
 

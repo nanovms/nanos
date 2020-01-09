@@ -68,7 +68,94 @@ static inline void disable_interrupts()
 
 typedef u64 *context;
 
-extern context running_frame;
+context allocate_frame(heap h);
+
+typedef struct cpuinfo {
+    /* For accessing cpuinfo via %gs:0; must be first */
+    void * self;
+
+    /* This points to the frame of the current, running context. Entry
+       points expect this to be the second (+8) field here. */
+    context running_frame;
+
+    /* syscall_enter switches to this stack before calling syscall. It
+       must be the third field (+16). */
+    void * syscall_stack;
+
+    /* common_handler switches to this stack when calling process_bhqueue */
+    void * bh_stack;
+
+    /* The default frame for when we're not in a thread or bh context. */
+    context misc_frame;
+
+    /* for bh processing, where page faults must be supported */
+    context bh_frame;
+
+    u32 id;
+    boolean in_bh;              /* temporary, probably bh will go away? */
+    boolean in_int;             /* to catch exceptions during int processing */
+    volatile boolean online;
+    volatile boolean ipi_wakeup;
+
+    /* The following fields are used rarely or only on initialization. */
+
+    /* stack for page faults, switched by hardware */
+    void * fault_stack;
+
+    /* stack for int handlers, switched by hardware */
+    void * int_stack;
+} *cpuinfo;
+
+extern struct cpuinfo cpuinfos[];
+
+static inline void cpu_setgs(int cpu)
+{
+    u64 addr = u64_from_pointer(&cpuinfos[cpu]);
+    write_msr(KERNEL_GS_MSR, 0); /* clear user GS */
+    write_msr(GS_MSR, addr);
+}
+
+static inline cpuinfo current_cpu(void)
+{
+    u64 addr;
+    asm("movq %%gs:0, %0":"=g"(addr));
+    return (cpuinfo)pointer_from_u64(addr);
+}
+
+static inline context get_running_frame(void)
+{
+    return current_cpu()->running_frame;
+}
+
+static inline void set_running_frame(context f)
+{
+    current_cpu()->running_frame = f;
+}
+
+static inline void frame_push(context new)
+{
+    new[FRAME_SAVED_FRAME] = u64_from_pointer(get_running_frame());
+    set_running_frame(new);
+}
+
+static inline void frame_push_keep_handler(context new)
+{
+    // XXX check asm for no gs repeat
+    new[FRAME_FAULT_HANDLER] = get_running_frame()[FRAME_FAULT_HANDLER];
+    frame_push(new);
+}
+
+static inline void frame_pop(void)
+{
+    set_running_frame(pointer_from_u64(get_running_frame()[FRAME_SAVED_FRAME]));
+}
+
+#define switch_stack(__s, __target) {                           \
+        asm volatile("mov %0, %%rdx": :"r"(__s):"%rdx");        \
+        asm volatile("mov %0, %%rax": :"r"(__target));          \
+        asm volatile("mov %%rdx, %%rsp"::);                     \
+        asm volatile("jmp *%%rax"::);                           \
+    }
 
 #define BREAKPOINT_INSTRUCTION 00
 #define BREAKPOINT_WRITE 01
@@ -204,26 +291,6 @@ int queue_length(queue q);
 queue allocate_queue(heap h, u64 size);
 void deallocate_queue(queue q);
 
-context allocate_frame(heap h);
-
-static inline void frame_push(context new)
-{
-    new[FRAME_SAVED_FRAME] = u64_from_pointer(running_frame);
-    running_frame = new;
-}
-
-static inline void frame_pop(void)
-{
-    running_frame = pointer_from_u64(running_frame[FRAME_SAVED_FRAME]);
-}
-
-#define switch_stack(__s, __target) {                           \
-        asm volatile("mov %0, %%rdx": :"r"(__s):"%rdx");        \
-        asm volatile("mov %0, %%rax": :"r"(__target));          \
-        asm volatile("mov %%rdx, %%rsp"::);                     \
-        asm volatile("jmp *%%rax"::);                           \
-    }
-
 void runloop() __attribute__((noreturn));
 void kernel_sleep();
 void kernel_delay(timestamp delta);
@@ -265,21 +332,10 @@ extern void * syscall_stack_top;
 extern void * fault_stack_top;
 extern void * int_stack_top;
 
-/* smp stuff */
-
-/* gs points to this */
-typedef struct cpuinfo {
-    int id;
-    boolean online;
-    volatile boolean ipi_wakeup;
-} *cpuinfo;
-
 static inline void wake_cpu(int cpu)
 {
     // XXX send ipi
 }
-
-extern struct cpuinfo cpuinfos[];
 
 void kern_lock(void);
 void kern_unlock(void);

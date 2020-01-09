@@ -1925,7 +1925,7 @@ static context syscall_frame;
 static void syscall_debug()
 {
     sysreturn rv = -ENOSYS;
-    u64 *f = running_frame;     /* usually current->frame, except for sigreturn */
+    context f = get_running_frame();     /* usually current->frame, except for sigreturn */
     int call = f[FRAME_VECTOR];
     if (call < 0 || call >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0])) {
         thread_log(current, "invalid syscall %d", call);
@@ -1946,15 +1946,16 @@ static void syscall_debug()
 
         /* exchange frames so that a fault won't clobber the syscall
            context, but retain the fault handler that has current enclosed */
-        context saveframe = running_frame;
-        running_frame = syscall_frame;
-        running_frame[FRAME_FAULT_HANDLER] = f[FRAME_FAULT_HANDLER];
+        // XXX check this asm k?
+        // make frame_{push,pop} a true stack-of-frames?
+        syscall_frame[FRAME_FAULT_HANDLER] = f[FRAME_FAULT_HANDLER];
+        set_running_frame(syscall_frame);
 
         rv = h(f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]);
         if (debugsyscalls)
             thread_log(current, "direct return: %ld, rsp 0x%lx", rv, f[FRAME_RSP]);
         proc_enter_user(current->p);
-        running_frame = saveframe;
+        set_running_frame(f);
     } else if (debugsyscalls) {
         if (s->name)
             thread_log(current, "nosyscall %s", s->name);
@@ -1963,9 +1964,8 @@ static void syscall_debug()
     }
 
   out:
-    running_frame[FRAME_RAX] = rv;
+    f[FRAME_RAX] = rv;
     current->syscall = -1;
-
     dispatch_signals(current);
 }
 
