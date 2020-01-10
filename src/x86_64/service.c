@@ -110,8 +110,6 @@ void process_bhqueue()
     interrupt_exit();
 }
 
-extern context miscframe;
-
 void runloop()
 {
     thunk t;

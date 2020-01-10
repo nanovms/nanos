@@ -328,10 +328,6 @@ void install_idt(void);
 void set_ist(int cpu, int i, u64 sp);
 void install_gdt64_and_tss(u64 cpu);
 
-extern void * syscall_stack_top;
-extern void * fault_stack_top;
-extern void * int_stack_top;
-
 static inline void wake_cpu(int cpu)
 {
     // XXX send ipi
