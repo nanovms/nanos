@@ -282,12 +282,6 @@ void vm_exit(u8 code)
     }
 }
 
-closure_function(0, 1, void, bail,
-                 u64, overruns /* ignore */)
-{
-    halt("later!\n");
-}
-
 static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = &heaps;
@@ -383,8 +377,6 @@ static void __attribute__((noinline)) init_service_new_stack()
     install_gdt64_and_tss();
     unmap(PAGESIZE, INITIAL_MAP_SIZE - PAGESIZE, pages);
 
-    register_timer(CLOCK_ID_MONOTONIC, seconds(60), false, 0,
-                   closure(misc, bail));
     init_debug("starting runloop");
     runloop();
 }
