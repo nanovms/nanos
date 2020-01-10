@@ -20,11 +20,6 @@
 #define KVM_MSR_SYSTEM_TIME 0x4b564d01
 #define KVM_MSR_WALL_CLOCK  0x4b564d00
 
-void vm_exit(u8 code)
-{
-    QEMU_HALT(code);
-}
-
 void halt(char *format, ...)
 {
     vlist a;

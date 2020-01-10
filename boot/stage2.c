@@ -4,6 +4,7 @@
 #include <page.h>
 #include <region.h>
 #include <x86_64.h>
+#include <kvm_platform.h>
 #include <serial.h>
 #include <drivers/ata.h>
 
@@ -250,7 +251,6 @@ region fsregion()
     halt("invalid filesystem offset\n");
 }
 
-
 closure_function(4, 2, void, filesystem_initialized,
                  heap, h, heap, physical, tuple, root, buffer_handler, complete,
                  filesystem, fs, status, s)
@@ -282,6 +282,11 @@ void newstack()
                       closure(h, filesystem_initialized, h, physical, root, bh));
     
     halt("kernel failed to execute\n");
+}
+
+void vm_exit(u8 code)
+{
+    QEMU_HALT(code);
 }
 
 static struct heap working_heap;

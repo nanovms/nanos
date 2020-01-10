@@ -384,3 +384,13 @@ void start_interrupts(kernel_heaps kh)
     /* APIC initialization */
     init_apic(kh);
 }
+
+void triple_fault(void)
+{
+    disable_interrupts();
+    /* zero table limit to induce triple fault */
+    void *idt_desc = idt_from_interrupt(n_interrupt_vectors);
+    *(u16*)idt_desc = 0;
+    asm volatile("lidt %0; int3": : "m"(*(u64*)idt_desc));
+    while (1);
+}

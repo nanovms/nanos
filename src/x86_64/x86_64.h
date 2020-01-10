@@ -227,6 +227,7 @@ static inline void frame_pop(void)
 void runloop() __attribute__((noreturn));
 void kernel_sleep();
 void kernel_delay(timestamp delta);
+
 void init_clock(void);
 boolean init_hpet(kernel_heaps kh);
 
@@ -249,3 +250,4 @@ u64 allocate_interrupt(void);
 void deallocate_interrupt(u64 irq);
 void register_interrupt(int vector, thunk t);
 void unregister_interrupt(int vector);
+void triple_fault(void) __attribute__((noreturn));
