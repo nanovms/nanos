@@ -6,6 +6,8 @@
 #include <apic.h>
 
 #define INTERRUPT_VECTOR_START 32 /* end of exceptions; defined by architecture */
+
+/* XXX expand on this and add names to register_interrupt */
 static char *interrupts[] = {
     "Divide by 0",
     "Reserved",
@@ -39,11 +41,6 @@ static char *interrupts[] = {
     "reserved 1d",
     "reserved 1e",
     "reserved 1f"};
-
-static inline char *interrupt_name(u64 s)
-{
-    return s < INTERRUPT_VECTOR_START ? interrupts[s] : "";
-}
 
 static char* textoreg[] = {
     "  rax", //0
@@ -164,12 +161,14 @@ void print_stack(context c)
 void print_frame(context f)
 {
     u64 v = f[FRAME_VECTOR];
-    console(interrupt_name(v));
-    console("\n");
-    console("interrupt: ");
+    console(" interrupt: ");
     print_u64(v);
-    console("\n");
-    console("frame: ");
+    if (v < INTERRUPT_VECTOR_START) {
+        console(" (");
+        console(interrupts[v]);
+        console(")");
+    }
+    console("\n     frame: ");
     print_u64_with_sym(u64_from_pointer(f));
     console("\n");    
 
@@ -181,11 +180,12 @@ void print_frame(context f)
 
     // page fault
     if (v == 14)  {
-        console("address: ");
+        console("   address: ");
         print_u64_with_sym(f[FRAME_CR2]);
         console("\n");
     }
     
+    console("\n");
     for (int j = 0; j < 24; j++) {
         console(register_name(j));
         console(": ");
@@ -203,8 +203,10 @@ void kernel_sleep(void)
 void install_fallback_fault_handler(fault_handler h)
 {
     /* lord this is gross */
-    for (int i = 0; i < MAX_CPUS; i++)
+    for (int i = 0; i < MAX_CPUS; i++) {
         cpuinfos[i].misc_frame[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
+        cpuinfos[i].bh_frame[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
+    }
 }
 
 extern u32 n_interrupt_vectors;
@@ -232,7 +234,7 @@ void common_handler()
     /* Unless there's some reason to handle a page fault within an
        interrupt handler, this should always be terminal. */
     if (ci->in_int) {
-        console("exception during interrupt handling: cpu ");
+        console("\nexception during interrupt handling: cpu ");
         print_u64(ci->id);
         console(", vector ");
         print_u64(i);
@@ -242,7 +244,7 @@ void common_handler()
     ci->in_int = true;
 
     if (i >= n_interrupt_vectors) {
-        console("exception for invalid interrupt vector: ");
+        console("\nexception for invalid interrupt vector: ");
         print_u64(i);
         console("\n");
         goto exit_fault;
@@ -258,7 +260,15 @@ void common_handler()
         if (fh) {
             set_running_frame(apply(fh, f));
         } else {
-            rprintf("no fault handler\n");
+            console("\nno fault handler for frame ");
+            print_u64(u64_from_pointer(f));
+            /* make a half attempt to identify it short of asking unix */
+            if (f == current_cpu()->misc_frame)
+                console(" (misc frame)\n");
+            else if (f == current_cpu()->bh_frame)
+                console(" (bh frame)\n");
+            else
+                console("\n");
             goto exit_fault;
         }
     }
@@ -279,7 +289,10 @@ void common_handler()
     }
     return;
   exit_fault:
-    // XXX need to terminate bsp somehow
+    // XXX need to terminate bsp if on ap
+    console("\n       cpu: ");
+    print_u64(ci->id);
+    console("\n");
     print_frame(f);
     print_stack(f);
     vm_exit(VM_EXIT_FAULT);
