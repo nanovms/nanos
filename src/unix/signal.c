@@ -487,7 +487,7 @@ sysreturn rt_sigreturn(void)
     dispatch_signals(current);
 
     /* return - XXX or reschedule? */
-    IRETURN(t->frame);
+    IRETURN(get_running_frame());
     return 0;
 }
 

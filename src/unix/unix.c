@@ -250,7 +250,7 @@ closure_function(0, 0, void, do_interrupt_checks)
 {
     /* If we're returning to the standard thread frame, check if we
        can invoke any signal handlers. */
-    if (current_cpu()->running_frame == current->frame)
+    if (get_running_frame() == current->frame)
         dispatch_signals(current);
 }
 
