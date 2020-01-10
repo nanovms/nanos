@@ -29,11 +29,10 @@ extern  init_service
 ;; rflags
 ;; cs
 ;; rip
+;; [error code - if vec 0xe or 0xd]
 ;; vector <- rsp
 
-extern common_handler
-interrupt_common:
-        check_swapgs 16
+%macro interrupt_common_top 0
         push rbx
         mov rbx, [gs:0]
         mov rbx, [rbx+8]        ; running_frame
@@ -51,28 +50,17 @@ interrupt_common:
         mov [rbx+FRAME_R13*8], r13
         mov [rbx+FRAME_R14*8], r14
         mov [rbx+FRAME_R15*8], r15
-
-;; wtf was this?
-;        push rdi
-;        mov rdi, cr2
-;        mov [rbx+FRAME_CR2*8], rdi
-;        pop rdi
-
         mov rdi, cr2
         mov [rbx+FRAME_CR2*8], rdi
-
         pop rax            ; rbx
         mov [rbx+FRAME_RBX*8], rax
         pop rax            ; vector
         mov [rbx+FRAME_VECTOR*8], rax
-        
-        ;;  could avoid this branch with a different inter layout - write as different handler
-        cmp rax, 0xe
-        je geterr
-        cmp rax, 0xd
-        je geterr
-        
-getrip:
+%endmacro
+
+extern common_handler
+
+%macro interrupt_common_bottom 0
         pop rax            ; eip
         mov [rbx+FRAME_RIP*8], rax
         pop rax            ; cs
@@ -85,6 +73,23 @@ getrip:
         mov [rbx+FRAME_SS*8], rax
         cld
         call common_handler
+%endmacro
+
+global interrupt_entry_with_ec
+interrupt_entry_with_ec:
+        check_swapgs 24
+        interrupt_common_top
+        pop rax
+        mov [rbx+FRAME_ERROR_CODE*8], rax
+        interrupt_common_bottom
+        jmp interrupt_exit
+
+global interrupt_entry
+interrupt_entry:
+        check_swapgs 16
+        interrupt_common_top
+        interrupt_common_bottom
+        ; fall through to interrupt_exit
 
 global interrupt_exit
 interrupt_exit:
@@ -123,13 +128,6 @@ interrupt_exit:
         check_swapgs 8
         iretq
 
-global_func geterr
-geterr:
-        pop rax
-        mov [rbx+FRAME_ERROR_CODE*8], rax
-        jmp getrip
-.end:
-
         interrupts equ 0x30
 
         ;; until we can build gdt dynamically...
@@ -146,13 +144,17 @@ interrupt_vector_size:
 
 global interrupt_vectors
 interrupt_vectors:
-        %assign i 0
-        %rep interrupts
+%assign i 0
+%rep interrupts
         interrupt %+ i:
         push qword i
-        jmp interrupt_common
-        %assign i i+1
-        %endrep
+%if (i == 0xe || i == 0xd)
+        jmp interrupt_entry_with_ec
+%else
+        jmp interrupt_entry
+%endif
+%assign i i+1
+%endrep
 
 ;; syscall save and restore doesn't always have to be a full frame
 extern syscall

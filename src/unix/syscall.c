@@ -1920,7 +1920,12 @@ struct syscall {
 static struct syscall _linux_syscalls[SYS_MAX];
 struct syscall *linux_syscalls = _linux_syscalls;
 
-static context syscall_frame;
+// this can actually change to the per-cpu miscframe; if the syscall
+// blocks, we don't really change contexts, but instead call runloop
+// and do other kernely stuff...in any case it really does need to be
+// per-cpu, as it's won't be encapsulated by the big lock as I thought
+
+context syscall_frame;
 
 static void syscall_debug()
 {

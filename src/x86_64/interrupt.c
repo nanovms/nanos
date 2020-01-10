@@ -274,6 +274,7 @@ void common_handler()
     ci->in_int = false;
     if (!ci->in_bh) {
         frame_push(ci->bh_frame);
+        ci->in_bh = true;
         switch_stack(ci->bh_stack, process_bhqueue);
     }
     return;

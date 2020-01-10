@@ -39,7 +39,7 @@ closure_function(1, 1, context, default_fault_handler,
 {
     /* frame can be:
        - t->frame if user or syscall
-       - miscframe in interrupt level
+       - ci->bh_frame if in bottom half operation
     */
     if (frame[FRAME_VECTOR] == 14) {
         /* XXX move this to x86_64 */

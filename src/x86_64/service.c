@@ -103,6 +103,8 @@ void process_bhqueue()
 
     if (unix_interrupt_checks)
         apply(unix_interrupt_checks);
+
+    current_cpu()->in_bh = false;
     interrupt_exit();
 }
 
