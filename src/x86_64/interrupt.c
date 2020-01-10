@@ -82,7 +82,13 @@ static inline void *idt_from_interrupt(int interrupt)
     return pointer_from_u64((u64_from_pointer(idt) + 2 * sizeof(u64) * interrupt));
 }
 
-static void write_idt(int interrupt, u64 offset, u64 ist)
+/* XXX Sigh...the noinline is a workaround for an issue where a clang
+   build on macos is somehow leading to incorrect IDT entries. This
+   needs more investigation.
+
+   https://github.com/nanovms/nanos/issues/1060
+*/
+static void __attribute__((noinline)) write_idt(int interrupt, u64 offset, u64 ist)
 {
     u64 selector = 0x08;
     u64 type_attr = 0x8e;
@@ -388,7 +394,7 @@ void start_interrupts(kernel_heaps kh)
     void *idt_desc = idt_from_interrupt(n_interrupt_vectors); /* placed after last entry */
     *(u16*)idt_desc = 2 * sizeof(u64) * n_interrupt_vectors - 1;
     *(u64*)(idt_desc + sizeof(u16)) = u64_from_pointer(idt);
-    asm("lidt %0": : "m"(*(u64*)idt_desc));
+    asm volatile("lidt %0": : "m"(*(u64*)idt_desc));
 
     u64 v = allocate_interrupt();
     assert(v != INVALID_PHYSICAL);
