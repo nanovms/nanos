@@ -270,6 +270,18 @@ static void init_runloop_timer(void)
     runloop_timer_max = microseconds(RUNLOOP_TIMER_MAX_PERIOD_US);
 }
 
+static tuple root;
+
+void vm_exit(u8 code)
+{
+    /* TODO MP: coordinate via IPIs */
+    if (root && table_find(root, sym(reboot_on_exit))) {
+        triple_fault();
+    } else {
+        QEMU_HALT(code);
+    }
+}
+
 static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = &heaps;
@@ -334,7 +346,7 @@ static void __attribute__((noinline)) init_service_new_stack()
     init_net(kh);
 
     init_debug("probe fs, register storage drivers");
-    tuple root = allocate_tuple();
+    root = allocate_tuple();
     u64 fs_offset = 0;
     for_regions(e) {
         if (e->type == REGION_FILESYSTEM)
