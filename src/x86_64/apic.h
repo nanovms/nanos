@@ -25,7 +25,6 @@ clock_timer init_lapic_timer(void);
 void apic_ipi(u32 target, u64 icr);
 u32 apic_id(void);
 void enable_apic(void);
-void enable_apic(void);
 
 static inline int this_cpu(void)
 {

@@ -12,7 +12,8 @@ extern  init_service
 
 %include "frame.inc"
         
-%define FS_MSR 0xc0000100
+%define FS_MSR        0xc0000100
+%define KERNEL_GS_MSR 0xc0000102
 
 ;; CS == 0x8 is kernel mode - no swapgs
 %macro check_swapgs 1
@@ -20,6 +21,20 @@ extern  init_service
         je %%skip
         swapgs
 %%skip:
+%endmacro
+
+;; rbx is frame
+%macro load_seg_base 1
+%if (%1 == FRAME_FS)
+        mov rax, [rbx+FRAME_FS*8]
+        mov rcx, FS_MSR
+%else
+        mov rax, [rbx+FRAME_GS*8]
+        mov rcx, KERNEL_GS_MSR
+%endif
+        mov rdx, rax
+        shr rdx, 0x20
+        wrmsr
 %endmacro
 
 ;; stack frame upon entry:
@@ -96,14 +111,8 @@ interrupt_exit:
         mov rbx, [gs:0]
         mov rbx, [rbx+8]        ; running_frame
 
-        ; set fs selector to null before writing hidden base (for intel/no-accel)
-        mov rax, 0
-        mov fs, rax
-        mov rax, [rbx+FRAME_FS*8]
-        mov rcx, FS_MSR
-        mov rdx, rax
-        shr rdx, 0x20
-        wrmsr ;; move fs, consider macro
+        load_seg_base FRAME_FS
+        load_seg_base FRAME_GS
 
         mov rax, [rbx+FRAME_RAX*8]
         mov rcx, [rbx+FRAME_RCX*8]
@@ -195,14 +204,8 @@ syscall_enter:
 ;; must follow syscall_enter
 global_func frame_return
 frame_return:
-        ; set fs selector to null before writing hidden base (for intel/no-accel)
-        mov rax, 0
-        mov fs, rax
-        mov rax, [rbx+FRAME_FS*8]
-        mov rcx, FS_MSR
-        mov rdx, rax
-        shr rdx, 0x20
-        wrmsr ;; move fs, consider macro
+        load_seg_base FRAME_FS
+        load_seg_base FRAME_GS
 
         mov rax, rbx
 
