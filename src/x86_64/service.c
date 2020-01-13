@@ -286,26 +286,7 @@ void vm_exit(u8 code)
     }
 }
 
-static queue idle_cpu_queue;
-static void new_cpu()
-{
-    enqueue(idle_cpu_queue, pointer_from_u64((u64)apic_id()));
-    cpuinfo ci = get_cpuinfo();
-    ci->online = true;
-    while (1) {
-        kernel_sleep();
-    }
-}
-
 struct cpuinfo cpuinfos[MAX_CPUS];
-
-static u64 ipi_vector;
-
-closure_function(0, 0, void, ipi_interrupt)
-{
-    cpuinfo ci = get_cpuinfo();
-    rprintf("got IPI interrupt on CPU %d\n", ci->id);
-}
 
 static void init_cpuinfos(kernel_heaps kh)
 {
@@ -339,6 +320,14 @@ static void init_cpuinfos(kernel_heaps kh)
 }
 
 #ifdef SMP_TEST
+static u64 ipi_vector;
+
+closure_function(0, 0, void, ipi_interrupt)
+{
+    cpuinfo ci = get_cpuinfo();
+    rprintf("got IPI interrupt on CPU %d\n", ci->id);
+}
+
 static queue idle_cpu_queue;
 
 static void new_cpu()
