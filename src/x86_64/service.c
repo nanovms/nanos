@@ -320,21 +320,21 @@ static void init_cpuinfos(kernel_heaps kh)
 }
 
 #ifdef SMP_TEST
+static queue idle_cpu_queue;
 static u64 ipi_vector;
+static u64 aps_online = 0;
 
 closure_function(0, 0, void, ipi_interrupt)
 {
     cpuinfo ci = get_cpuinfo();
-    rprintf("got IPI interrupt on CPU %d\n", ci->id);
+    ci->online = true;
+    fetch_and_add(&aps_online, 1);
 }
-
-static queue idle_cpu_queue;
 
 static void new_cpu()
 {
-    enqueue(idle_cpu_queue, pointer_from_u64((u64)apic_id()));
     cpuinfo ci = get_cpuinfo();
-    ci->online = true;
+    enqueue(idle_cpu_queue, pointer_from_u64((u64)ci->id));
     while (1) {
         kernel_sleep();
     }
@@ -368,6 +368,7 @@ static void __attribute__((noinline)) init_service_new_stack()
     deferqueue = allocate_queue(misc, 64);
     unix_interrupt_checks = 0;
 
+    init_debug("init_cpuinfos");
     init_cpuinfos(kh);
 
     /* interrupts */
@@ -448,11 +449,10 @@ static void __attribute__((noinline)) init_service_new_stack()
     start_cpu(misc, pages, TARGET_EXCLUSIVE_BROADCAST, new_cpu);
 
     kernel_delay(seconds(1));
-    rprintf("send test ipi to id 1 (vector %d)\n", ipi_vector);
-    apic_ipi(1, ipi_vector);
-    rprintf("pause\n");
-    while (1)
-        kern_pause();
+    for (int i = 1; i < MAX_CPUS; i++)
+        apic_ipi(i, ipi_vector);
+    kernel_delay(seconds(1));
+    rprintf("SMP test: %d APs online\n", aps_online);
 #endif
     init_debug("starting runloop");
     runloop();

@@ -118,7 +118,7 @@ static inline void cpu_setgs(int cpu)
 static inline cpuinfo current_cpu(void)
 {
     u64 addr;
-    asm("movq %%gs:0, %0":"=g"(addr));
+    asm volatile("movq %%gs:0, %0":"=g"(addr));
     return (cpuinfo)pointer_from_u64(addr);
 }
 

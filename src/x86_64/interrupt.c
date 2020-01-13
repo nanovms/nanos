@@ -228,12 +228,6 @@ void common_handler()
     context f = ci->running_frame;
     int i = f[FRAME_VECTOR];
 
-    if (current_cpu()->id == 1) {
-        console("I ");
-        print_u64(current_cpu()->id);
-        console("\n");
-    }
-
     if (i == spurious_int_vector)
         return;                 /* no EOI */
 
@@ -288,7 +282,9 @@ void common_handler()
     /* if the interrupt didn't occur during bottom half or int handler
        execution, switch context to bottom half processing */
     ci->in_int = false;
-    if (!ci->in_bh) {
+
+    /* bsp only right now */
+    if (ci->id == 0 && !ci->in_bh) {
         frame_push(ci->bh_frame);
         ci->in_bh = true;
         switch_stack(ci->bh_stack, process_bhqueue);

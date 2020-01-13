@@ -1,3 +1,5 @@
+//#define MP_DEBUG
+
 #include <x86_64.h>
 #include <apic.h>
 #include <page.h>
@@ -13,39 +15,40 @@ extern u64 ap_lock;
 static heap pages;
 static void (*start_callback)();
 
-static void ap_new_stack()
+#ifdef MP_DEBUG
+#define mp_debug(x) console(x)
+#define mp_debug_u64(x) print_u64(x)
+#else
+#define mp_debug(x)
+#define mp_debug_u64(x)
+#endif
+
+static void __attribute__((noinline)) ap_new_stack()
 {
-    console("start ");
-    u64 x = read_msr(IA32_APIC_BASE_MSR);
-    print_u64(x);
-    console(" ");
+    mp_debug("ap_new_stack for cpu ");
 
     u64 id = apic_id();
-    console("cpu ");
-    print_u64(id);
+    mp_debug_u64(id);
     cpu_setgs(id);
     cpuinfo ci = current_cpu();
+
     set_ist(id, IST_PAGEFAULT, u64_from_pointer(ci->fault_stack));
     set_ist(id, IST_INTERRUPT, u64_from_pointer(ci->int_stack));
     set_running_frame(ci->misc_frame);
-    console(", install gdt ");
+    mp_debug(", install gdt");
     install_gdt64_and_tss(id);
-    console(", enable apic ");
+    mp_debug(", enable apic");
     enable_apic();
-    console("\n");
+    mp_debug(", clear ap lock, enable ints, start_callback\n");
     ap_lock = 0;
     enable_interrupts();
-//    __asm__("hlt");
     start_callback();
 }
 
 void ap_start()
 {
-    //   console("start ");
-    //    print_u64(apic_id());
-    //       console("\n");
     void *n = allocate_stack(pages, 16);
-    asm ("mov %0, %%rsp": :"m"(n));
+    asm volatile("mov %0, %%rsp": :"m"(n));
     ap_new_stack();
 }
 
