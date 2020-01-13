@@ -25,11 +25,11 @@ extern  init_service
 
 ;; rbx is frame
 %macro load_seg_base 1
-%if (%1 == FRAME_FS)
-        mov rax, [rbx+FRAME_FS*8]
+%if (%1 == FRAME_FSBASE)
+        mov rax, [rbx+FRAME_FSBASE*8]
         mov rcx, FS_MSR
 %else
-        mov rax, [rbx+FRAME_GS*8]
+        mov rax, [rbx+FRAME_GSBASE*8]
         mov rcx, KERNEL_GS_MSR
 %endif
         mov rdx, rax
@@ -111,9 +111,19 @@ interrupt_exit:
         mov rbx, [gs:0]
         mov rbx, [rbx+8]        ; running_frame
 
-        load_seg_base FRAME_FS
-        load_seg_base FRAME_GS
+        push qword [rbx+FRAME_SS*8]    ; ss
+        push qword [rbx+FRAME_RSP*8]   ; rsp
+        push qword [rbx+FRAME_FLAGS*8] ; rflags
+        push qword [rbx+FRAME_CS*8]    ; cs
+        push qword [rbx+FRAME_RIP*8]   ; rip
 
+        ; before iret back to userspace, restore fs and gs base and swapgs
+        cmp qword [rsp + 8], 0x08
+        je .skip
+        load_seg_base FRAME_FSBASE
+        load_seg_base FRAME_GSBASE
+        swapgs
+.skip:
         mov rax, [rbx+FRAME_RAX*8]
         mov rcx, [rbx+FRAME_RCX*8]
         mov rdx, [rbx+FRAME_RDX*8]
@@ -128,13 +138,7 @@ interrupt_exit:
         mov r13, [rbx+FRAME_R13*8]
         mov r14, [rbx+FRAME_R14*8]
         mov r15, [rbx+FRAME_R15*8]
-        push qword [rbx+FRAME_SS*8]    ; ss
-        push qword [rbx+FRAME_RSP*8]   ; rsp
-        push qword [rbx+FRAME_FLAGS*8] ; rflags
-        push qword [rbx+FRAME_CS*8]    ; cs
-        push qword [rbx+FRAME_RIP*8]   ; rip
         mov rbx, [rbx+FRAME_RBX*8]
-        check_swapgs 8
         iretq
 
         interrupts equ 0x30
@@ -204,8 +208,8 @@ syscall_enter:
 ;; must follow syscall_enter
 global_func frame_return
 frame_return:
-        load_seg_base FRAME_FS
-        load_seg_base FRAME_GS
+        load_seg_base FRAME_FSBASE
+        load_seg_base FRAME_GSBASE
 
         mov rax, rbx
 

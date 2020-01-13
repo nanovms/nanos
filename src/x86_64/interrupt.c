@@ -43,31 +43,31 @@ static char *interrupts[] = {
     "reserved 1f"};
 
 static char* textoreg[] = {
-    "  rax", //0
-    "  rbx", //1
-    "  rcx", //2
-    "  rdx", //3
-    "  rsi", //4
-    "  rdi", //5
-    "  rbp", //6
-    "  rsp", //7
-    "   r8",  //8
-    "   r9",  //9
-    "  r10", //10
-    "  r11", //11
-    "  r12", //12
-    "  r13", //13
-    "  r14", //14
-    "  r15", //15
-    "  rip", //16
-    "flags", //17
-    "   ss",  //18
-    "   cs",  //19
-    "   ds",  //20
-    "   es",  //21
-    "   fs",  //22
-    "   gs",  //23
-    "vector", // 24
+    "   rax", //0
+    "   rbx", //1
+    "   rcx", //2
+    "   rdx", //3
+    "   rsi", //4
+    "   rdi", //5
+    "   rbp", //6
+    "   rsp", //7
+    "    r8", //8
+    "    r9", //9
+    "   r10", //10
+    "   r11", //11
+    "   r12", //12
+    "   r13", //13
+    "   r14", //14
+    "   r15", //15
+    "   rip", //16
+    "rflags", //17
+    "    ss", //18
+    "    cs", //19
+    "    ds", //20
+    "    es", //21
+    "fsbase", //22
+    "gsbase", //23
+    "vector", //24
 };
 
 static inline char *register_name(u64 s)
