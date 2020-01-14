@@ -119,6 +119,7 @@ static void test_rt_signal_queueing_handler(int sig, siginfo_t *si, void *uconte
     if (rv < 0)
         fail_perror("sigpending");
 
+    sigtest_debug("rt_sigpending returned %ld, sigset 0x%lx\n", rv, *(unsigned long *)&sigset);
     if (test_rt_caught < TEST_RT_NQUEUE) {
         if (!sigismember(&sigset, sig))
             fail_error("sig %d should still be pending until we serviced the last signal\n", sig);
@@ -140,10 +141,11 @@ static void * test_rt_signal_child(void * arg)
         fail_perror("sigprocmask");
     child_tid = syscall(SYS_gettid);
 
-    /* wait for master to queue up signals */
+    sigtest_debug("waiting for master to queue up signals\n");
     while (test_rt_signal_enable == 0)
         sched_yield();
 
+    sigtest_debug("capturing %d queued signals\n", TEST_RT_NQUEUE);
     for(;;) {
         sigset_t mask_ss;
         sigemptyset(&mask_ss);
@@ -153,8 +155,10 @@ static void * test_rt_signal_child(void * arg)
             return (void*)EXIT_FAILURE;
         }
         if (errno == EINTR) {
-            if (test_rt_caught < TEST_RT_NQUEUE)
+            if (test_rt_caught < TEST_RT_NQUEUE) {
+                sigtest_debug("test_rt_caught = %d, continuing\n", test_rt_caught);
                 continue;
+            }
             return (void*)EXIT_SUCCESS;
         } else {
             sigtest_err("sigsuspend: unexpected errno %d (%s)\n", errno, strerror(errno));

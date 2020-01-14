@@ -39,7 +39,7 @@ closure_function(1, 1, context, default_fault_handler,
 {
     /* frame can be:
        - t->frame if user or syscall
-       - miscframe in interrupt level
+       - ci->bh_frame if in bottom half operation
     */
     if (frame[FRAME_VECTOR] == 14) {
         /* XXX move this to x86_64 */
@@ -250,7 +250,7 @@ closure_function(0, 0, void, do_interrupt_checks)
 {
     /* If we're returning to the standard thread frame, check if we
        can invoke any signal handlers. */
-    if (running_frame == current->frame)
+    if (get_running_frame() == current->frame)
         dispatch_signals(current);
 }
 
@@ -280,7 +280,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     set_syscall_handler(syscall_enter);
     process kernel_process = create_process(uh, root, fs);
     current = dummy_thread = create_thread(kernel_process);
-    running_frame = current->frame;
+    set_running_frame(current->frame);
 
     runtime_memcpy(dummy_thread->name, "dummy_thread",
         sizeof(dummy_thread->name));

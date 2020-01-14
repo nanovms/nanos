@@ -1,5 +1,6 @@
 #include <x86_64.h>
 #include <page.h>
+#include <apic.h>
 
 #define APIC_BASE        0xfee00000ull
 
@@ -34,14 +35,43 @@
 static heap apic_heap = 0;
 static u64 apic_vbase;
 
+    
 static inline void apic_write(int reg, u32 val)
 {
-    *(u32 *)(apic_vbase + reg) = val;
+    *(volatile u32 *)(apic_vbase + reg) = val;
 }
 
 static inline u32 apic_read(int reg)
 {
-    return *(u32 *)(apic_vbase + reg);
+    return *(volatile u32 *)(apic_vbase + reg);
+}
+
+// deconstruct
+void apic_ipi(u32 target, u64 flags, u8 vector)
+{
+    u64 w;
+    u64 icr = (flags & ~0xff) | vector;
+    
+    if (target == TARGET_EXCLUSIVE_BROADCAST) {
+        w = icr | ICR_DEST_ALL_EXC_SELF;
+    } else {
+        w = icr | (((u64)target) << 56);
+    }
+    
+    apic_write(APIC_ICRH, (w >> 32) & 0xffffffff);
+    apic_write(APIC_ICRL, w & 0xffffffff);
+    for (int i = 0 ; i < 100; i++) {
+        if ((apic_read(APIC_ICRL) & (1<<12)) == 0) {
+            return;
+        }
+    }
+    console("ipi timed out\n");
+    return;
+}
+
+u32 apic_id()
+{
+    return apic_read(APIC_APICID) >> 24;
 }
 
 static inline void apic_set(int reg, u32 v)
@@ -105,6 +135,20 @@ clock_timer init_lapic_timer(void)
     return ct;
 }
 
+static u64 lvt_err_irq;
+extern u32 spurious_int_vector;
+
+void enable_apic(void)
+{
+    /* enable spurious interrupts */
+    apic_set(APIC_SPURIOUS, APIC_SW_ENABLE | spurious_int_vector);
+    apic_write(APIC_LVT_LINT0, APIC_DISABLE);
+    apic_write(APIC_LVT_LINT1, APIC_DISABLE);
+
+    /* set up error interrupt */
+    apic_write(APIC_LVT_ERR, lvt_err_irq);
+}
+
 void init_apic(kernel_heaps kh)
 {
     apic_heap = heap_general(kh);
@@ -112,13 +156,8 @@ void init_apic(kernel_heaps kh)
     assert(apic_vbase != INVALID_PHYSICAL);
     map(apic_vbase, APIC_BASE, PAGESIZE, PAGE_DEV_FLAGS, heap_pages(kh));
 
-    /* enable spurious interrupts */
-    apic_set(APIC_SPURIOUS, APIC_SW_ENABLE);
-    apic_write(APIC_LVT_LINT0, APIC_DISABLE);
-    apic_write(APIC_LVT_LINT1, APIC_DISABLE);
-
-    /* set up error interrupt */
-    u64 lvt_err_irq = allocate_interrupt();
+    lvt_err_irq = allocate_interrupt();
     assert(lvt_err_irq != INVALID_PHYSICAL);
-    apic_write(APIC_LVT_ERR, lvt_err_irq);
+
+    enable_apic();
 }

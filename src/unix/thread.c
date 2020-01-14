@@ -20,20 +20,20 @@ sysreturn arch_prctl(int code, unsigned long addr)
     thread_log(current, "arch_prctl: code 0x%x, addr 0x%lx", code, addr);
     switch (code) {
     case ARCH_SET_GS:
-        current->frame[FRAME_GS] = addr;
+        current->frame[FRAME_GSBASE] = addr;
         break;
     case ARCH_SET_FS:
-        current->frame[FRAME_FS] = addr;
+        current->frame[FRAME_FSBASE] = addr;
         return 0;
     case ARCH_GET_FS:
 	if (!addr)
             return set_syscall_error(current, EINVAL);
-	*(u64 *) addr = current->frame[FRAME_FS];
+	*(u64 *) addr = current->frame[FRAME_FSBASE];
         break;
     case ARCH_GET_GS:
 	if (!addr)
             return set_syscall_error(current, EINVAL);
-	*(u64 *) addr = current->frame[FRAME_GS];
+	*(u64 *) addr = current->frame[FRAME_GSBASE];
         break;
     default:
         return set_syscall_error(current, EINVAL);
@@ -68,7 +68,7 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, un
     /* clone behaves like fork at the syscall level, returning 0 to the child */
     set_syscall_return(t, 0);
     t->frame[FRAME_RSP]= u64_from_pointer(child_stack);
-    t->frame[FRAME_FS] = newtls;
+    t->frame[FRAME_FSBASE] = newtls;
     if (flags & CLONE_PARENT_SETTID)
         *ptid = t->tid;
     if (flags & CLONE_CHILD_CLEARTID)
@@ -117,7 +117,7 @@ closure_function(1, 0, void, run_thread,
 
     thread_log(t, "run frame %p, RIP=%p", t->frame, t->frame[FRAME_RIP]);
     proc_enter_user(current->p);
-    running_frame = t->frame;
+    set_running_frame(t->frame);
 
     /* cover wake-before-sleep situations (e.g. sched yield, fs ops that don't go to disk, etc.) */
     current->blocked_on = 0;
@@ -125,8 +125,10 @@ closure_function(1, 0, void, run_thread,
     /* check if we have a pending signal */
     dispatch_signals(t);
 
-    running_frame[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
-    IRETURN(running_frame);
+    /* running frame may have changed to signal handling frame */
+    context f = get_running_frame();
+    f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
+    IRETURN(f);
 }
 
 void thread_sleep_interruptible(void)
@@ -287,7 +289,7 @@ void exit_thread(thread t)
     ftrace_thread_deinit(t, dummy_thread);
 
     current = dummy_thread;
-    running_frame = dummy_thread->frame;
+    set_running_frame(dummy_thread->frame);
     refcount_release(&t->refcount);
 }
 

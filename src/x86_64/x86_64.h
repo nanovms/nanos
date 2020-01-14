@@ -13,22 +13,24 @@
 
 #define CODE_SEGMENT_SELECTOR   8
 
-#define FS_MSR 0xc0000100
-#define GS_MSR 0xc0000101
-#define LSTAR 0xC0000082
-#define EFER_MSR 0xc0000080
-#define EFER_SCE   0x0001
-#define EFER_LME   0x0100
-#define EFER_LMA   0x0400
-#define EFER_NXE   0x0800
-#define EFER_SVME  0x1000
-#define EFER_LMSLE 0x2000
-#define EFER_FFXSR 0x4000
-#define EFER_TCE   0x8000
-#define STAR_MSR 0xc0000081
-#define LSTAR_MSR 0xc0000082
-#define SFMASK_MSR 0xc0000084
 #define TSC_DEADLINE_MSR 0x6e0
+
+#define EFER_MSR         0xc0000080
+#define EFER_SCE         0x0001
+#define EFER_LME         0x0100
+#define EFER_LMA         0x0400
+#define EFER_NXE         0x0800
+#define EFER_SVME        0x1000
+#define EFER_LMSLE       0x2000
+#define EFER_FFXSR       0x4000
+#define EFER_TCE         0x8000
+#define STAR_MSR         0xc0000081
+#define LSTAR_MSR        0xc0000082
+#define SFMASK_MSR       0xc0000084
+
+#define FS_MSR           0xc0000100
+#define GS_MSR           0xc0000101
+#define KERNEL_GS_MSR    0xc0000102
 
 #define C0_WP   0x00010000
 
@@ -66,9 +68,94 @@ static inline void disable_interrupts()
 
 typedef u64 *context;
 
-extern context running_frame;
+context allocate_frame(heap h);
 
-extern void * syscall_stack_top;
+typedef struct cpuinfo {
+    /* For accessing cpuinfo via %gs:0; must be first */
+    void * self;
+
+    /* This points to the frame of the current, running context. Entry
+       points expect this to be the second (+8) field here. */
+    context running_frame;
+
+    /* syscall_enter switches to this stack before calling syscall. It
+       must be the third field (+16). */
+    void * syscall_stack;
+
+    /* common_handler switches to this stack when calling process_bhqueue */
+    void * bh_stack;
+
+    /* The default frame for when we're not in a thread or bh context. */
+    context misc_frame;
+
+    /* for bh processing, where page faults must be supported */
+    context bh_frame;
+
+    u32 id;
+    boolean in_bh;              /* temporary, probably bh will go away? */
+    boolean in_int;             /* to catch exceptions during int processing */
+    volatile boolean online;
+    volatile boolean ipi_wakeup;
+
+    /* The following fields are used rarely or only on initialization. */
+
+    /* stack for page faults, switched by hardware */
+    void * fault_stack;
+
+    /* stack for int handlers, switched by hardware */
+    void * int_stack;
+} *cpuinfo;
+
+extern struct cpuinfo cpuinfos[];
+
+static inline void cpu_setgs(int cpu)
+{
+    u64 addr = u64_from_pointer(&cpuinfos[cpu]);
+    write_msr(KERNEL_GS_MSR, 0); /* clear user GS */
+    write_msr(GS_MSR, addr);
+}
+
+static inline cpuinfo current_cpu(void)
+{
+    u64 addr;
+    asm volatile("movq %%gs:0, %0":"=r"(addr));
+    return (cpuinfo)pointer_from_u64(addr);
+}
+
+static inline context get_running_frame(void)
+{
+    return current_cpu()->running_frame;
+}
+
+static inline void set_running_frame(context f)
+{
+    current_cpu()->running_frame = f;
+}
+
+static inline void frame_push(context new)
+{
+    new[FRAME_SAVED_FRAME] = u64_from_pointer(get_running_frame());
+    set_running_frame(new);
+}
+
+static inline void frame_push_keep_handler(context new)
+{
+    // XXX check asm for no gs repeat
+    new[FRAME_FAULT_HANDLER] = get_running_frame()[FRAME_FAULT_HANDLER];
+    frame_push(new);
+}
+
+static inline void frame_pop(void)
+{
+    set_running_frame(pointer_from_u64(get_running_frame()[FRAME_SAVED_FRAME]));
+}
+
+#define switch_stack(__s, __target) {                           \
+        asm volatile("mov %0, %%rdx": :"r"(__s):"%rdx");        \
+        asm volatile("mov %0, %%rax": :"r"(__target));          \
+        asm volatile("mov %%rdx, %%rsp"::);                     \
+        asm volatile("jmp *%%rax"::);                           \
+    }
 
 #define BREAKPOINT_INSTRUCTION 00
 #define BREAKPOINT_WRITE 01
@@ -204,26 +291,6 @@ int queue_length(queue q);
 queue allocate_queue(heap h, u64 size);
 void deallocate_queue(queue q);
 
-context allocate_frame(heap h);
-
-static inline void frame_push(context new)
-{
-    new[FRAME_SAVED_FRAME] = u64_from_pointer(running_frame);
-    running_frame = new;
-}
-
-static inline void frame_pop(void)
-{
-    running_frame = pointer_from_u64(running_frame[FRAME_SAVED_FRAME]);
-}
-
-#define switch_stack(__s, __target) {                           \
-        asm volatile("mov %0, %%rdx": :"r"(__s):"%rdx");        \
-        asm volatile("mov %0, %%rax": :"r"(__target));          \
-        asm volatile("mov %%rdx, %%rsp"::);                     \
-        asm volatile("jmp *%%rax"::);                           \
-    }
-
 void runloop() __attribute__((noreturn));
 void kernel_sleep();
 void kernel_delay(timestamp delta);
@@ -251,3 +318,20 @@ void deallocate_interrupt(u64 irq);
 void register_interrupt(int vector, thunk t);
 void unregister_interrupt(int vector);
 void triple_fault(void) __attribute__((noreturn));
+void start_cpu(heap h, heap pages, int index, void (*ap_entry)());
+void * allocate_stack(heap pages, int npages);
+void install_idt(void);
+
+#define IST_INTERRUPT 1         /* for all interrupts */
+#define IST_PAGEFAULT 2         /* page fault specific */
+
+void set_ist(int cpu, int i, u64 sp);
+void install_gdt64_and_tss(u64 cpu);
+
+static inline void wake_cpu(int cpu)
+{
+    // XXX send ipi
+}
+
+void kern_lock(void);
+void kern_unlock(void);

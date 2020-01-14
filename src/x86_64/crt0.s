@@ -9,17 +9,48 @@
         
 global_func _start
 extern  init_service
-extern  running_frame
-extern  syscall_stack_top
 
 %include "frame.inc"
         
-%define FS_MSR 0xc0000100
-        
-extern common_handler
-interrupt_common:
+%define FS_MSR        0xc0000100
+%define KERNEL_GS_MSR 0xc0000102
+
+;; CS == 0x8 is kernel mode - no swapgs
+%macro check_swapgs 1
+        cmp qword [rsp + %1], 0x08
+        je %%skip
+        swapgs
+%%skip:
+%endmacro
+
+;; rbx is frame
+%macro load_seg_base 1
+%if (%1 == FRAME_FSBASE)
+        mov rax, [rbx+FRAME_FSBASE*8]
+        mov rcx, FS_MSR
+%else
+        mov rax, [rbx+FRAME_GSBASE*8]
+        mov rcx, KERNEL_GS_MSR
+%endif
+        mov rdx, rax
+        shr rdx, 0x20
+        wrmsr
+%endmacro
+
+;; stack frame upon entry:
+;;
+;; ss
+;; rsp
+;; rflags
+;; cs
+;; rip
+;; [error code - if vec 0xe or 0xd]
+;; vector <- rsp
+
+%macro interrupt_common_top 0
         push rbx
-        mov rbx, [running_frame]
+        mov rbx, [gs:0]
+        mov rbx, [rbx+8]        ; running_frame
         mov [rbx+FRAME_RAX*8], rax
         mov [rbx+FRAME_RCX*8], rcx
         mov [rbx+FRAME_RDX*8], rdx
@@ -34,24 +65,17 @@ interrupt_common:
         mov [rbx+FRAME_R13*8], r13
         mov [rbx+FRAME_R14*8], r14
         mov [rbx+FRAME_R15*8], r15
-
-        push rdi
         mov rdi, cr2
         mov [rbx+FRAME_CR2*8], rdi
-        pop rdi
-
         pop rax            ; rbx
         mov [rbx+FRAME_RBX*8], rax
         pop rax            ; vector
         mov [rbx+FRAME_VECTOR*8], rax
-        
-        ;;  could avoid this branch with a different inter layout - write as different handler
-        cmp rax, 0xe
-        je geterr
-        cmp rax, 0xd
-        je geterr
-        
-getrip:
+%endmacro
+
+extern common_handler
+
+%macro interrupt_common_bottom 0
         pop rax            ; eip
         mov [rbx+FRAME_RIP*8], rax
         pop rax            ; cs
@@ -62,21 +86,44 @@ getrip:
         mov [rbx+FRAME_RSP*8], rax
         pop rax            ; ss         
         mov [rbx+FRAME_SS*8], rax
+        cld
         call common_handler
+%endmacro
+
+global interrupt_entry_with_ec
+interrupt_entry_with_ec:
+        check_swapgs 24
+        interrupt_common_top
+        pop rax
+        mov [rbx+FRAME_ERROR_CODE*8], rax
+        interrupt_common_bottom
+        jmp interrupt_exit
+
+global interrupt_entry
+interrupt_entry:
+        check_swapgs 16
+        interrupt_common_top
+        interrupt_common_bottom
+        ; fall through to interrupt_exit
 
 global interrupt_exit
 interrupt_exit:
-        mov rbx, [running_frame]
+        mov rbx, [gs:0]
+        mov rbx, [rbx+8]        ; running_frame
 
-        ; set fs selector to null before writing hidden base (for intel/no-accel)
-        mov rax, 0
-        mov fs, rax
-        mov rax, [rbx+FRAME_FS*8]
-        mov rcx, FS_MSR
-        mov rdx, rax
-        shr rdx, 0x20
-        wrmsr ;; move fs, consider macro
+        push qword [rbx+FRAME_SS*8]    ; ss
+        push qword [rbx+FRAME_RSP*8]   ; rsp
+        push qword [rbx+FRAME_FLAGS*8] ; rflags
+        push qword [rbx+FRAME_CS*8]    ; cs
+        push qword [rbx+FRAME_RIP*8]   ; rip
 
+        ; before iret back to userspace, restore fs and gs base and swapgs
+        cmp qword [rsp + 8], 0x08
+        je .skip
+        load_seg_base FRAME_FSBASE
+        load_seg_base FRAME_GSBASE
+        swapgs
+.skip:
         mov rax, [rbx+FRAME_RAX*8]
         mov rcx, [rbx+FRAME_RCX*8]
         mov rdx, [rbx+FRAME_RDX*8]
@@ -91,22 +138,13 @@ interrupt_exit:
         mov r13, [rbx+FRAME_R13*8]
         mov r14, [rbx+FRAME_R14*8]
         mov r15, [rbx+FRAME_R15*8]
-        push qword [rbx+FRAME_SS*8]    ; ss
-        push qword [rbx+FRAME_RSP*8]   ; rsp
-        push qword [rbx+FRAME_FLAGS*8] ; rflags
-        push qword [rbx+FRAME_CS*8]    ; cs
-        push qword [rbx+FRAME_RIP*8]   ; rip
         mov rbx, [rbx+FRAME_RBX*8]
         iretq
 
-global_func geterr
-geterr:
-        pop rax
-        mov [rbx+FRAME_ERROR_CODE*8], rax
-        jmp getrip
-.end:
-
         interrupts equ 0x30
+
+        ;; until we can build gdt dynamically...
+        cpus equ 0x10
 
 global_data n_interrupt_vectors
 n_interrupt_vectors:
@@ -119,20 +157,26 @@ interrupt_vector_size:
 
 global interrupt_vectors
 interrupt_vectors:
-        %assign i 0
-        %rep interrupts
+%assign i 0
+%rep interrupts
         interrupt %+ i:
         push qword i
-        jmp interrupt_common
-        %assign i i+1
-        %endrep
+%if (i == 0xe || i == 0xd)
+        jmp interrupt_entry_with_ec
+%else
+        jmp interrupt_entry
+%endif
+%assign i i+1
+%endrep
 
 ;; syscall save and restore doesn't always have to be a full frame
 extern syscall
 global_func syscall_enter
 syscall_enter:
+        swapgs
         push rax
-        mov rax, [running_frame]
+        mov rax, [gs:0]
+        mov rax, [rax+8]        ; running_frame
         mov [rax+FRAME_RBX*8], rbx
         pop rbx
         mov [rax+FRAME_VECTOR*8], rbx
@@ -152,23 +196,20 @@ syscall_enter:
         mov [rax+FRAME_RIP*8], rcx
         mov rax, syscall
         mov rax, [rax]
-        mov rsp, [syscall_stack_top]
+        mov rbx, [gs:0]
+        mov rsp, [rbx+16]       ; syscall_stack
+        cld
         call rax
-        mov rbx, [running_frame]
+        mov rbx, [gs:0]
+        mov rbx, [rbx+8]        ; running_frame
         ;; fall through to frame_return
 .end:
 
 ;; must follow syscall_enter
 global_func frame_return
 frame_return:
-        ; set fs selector to null before writing hidden base (for intel/no-accel)
-        mov rax, 0
-        mov fs, rax
-        mov rax, [rbx+FRAME_FS*8]
-        mov rcx, FS_MSR
-        mov rdx, rax
-        shr rdx, 0x20
-        wrmsr ;; move fs, consider macro
+        load_seg_base FRAME_FSBASE
+        load_seg_base FRAME_GSBASE
 
         mov rax, rbx
 
@@ -188,6 +229,7 @@ frame_return:
         mov rsp, [rax+FRAME_RSP*8]
         mov rcx, [rax+FRAME_RIP*8]
         mov rax, [rax+FRAME_RAX*8]
+        swapgs
         o64 sysret
 .end:
 
@@ -236,18 +278,24 @@ _start:
         hlt
 .end:
 
+%define TSS_SIZE 0x68
 global_func install_gdt64_and_tss
 install_gdt64_and_tss:
         lgdt [GDT64.Pointer]
         mov rax, TSS
-        mov [GDT64 + GDT64.TSS + 2], ax
+        imul rsi, rdi, TSS_SIZE
+        add rax, rsi
+        imul rdi, rdi, 0x10
+        add rdi, GDT64.TSS
+        mov [GDT64 + rdi], word TSS_SIZE ; limit
+        mov [GDT64 + rdi + 2], ax   ; base [15:0]
         shr rax, 0x10
-        mov [GDT64 + GDT64.TSS + 4], al
-        mov [GDT64 + GDT64.TSS + 7], ah
+        mov [GDT64 + rdi + 4], al ; base [23:16]
+        mov [GDT64 + rdi + 5], byte 10001001b ; present, 64-bit TSS available
+        mov [GDT64 + rdi + 7], ah ; base [31:24]
         shr rax, 0x10
-        mov [GDT64 + GDT64.TSS + 8], eax
-        mov rax, GDT64.TSS
-        ltr ax
+        mov [GDT64 + rdi + 8], eax ; base [63:32]
+        ltr di
         ret
 .end:
 
@@ -291,14 +339,13 @@ GDT64:  ; Global Descriptor Table (64-bit).
         db 00000000b ; Granularity.
         db 0         ; Base (high).
         .TSS: equ $ - GDT64     ; TSS descriptor (system segment descriptor - 64bit mode)
-        dw (TSS.end - TSS)      ; Limit (low)
-        dw 0                    ; Base [15:0] [fill in base at runtime, for I lack nasm sauce]
-        db 0                    ; Base [23:16]
-        db 10001001b            ; Present, long mode type available TSS
-        db 00000000b            ; byte granularity
-        db 0                    ; Base [31:24]
-        dd 0                    ; Base [63:32]
-        dd 0                    ; Reserved
+%rep cpus
+;; Filled in at runtime by install_gdt64_and_tss
+        dd 0
+        dd 0
+        dd 0
+        dd 0
+%endrep
         .Pointer:    ; The GDT-pointer.
         dw $ - GDT64 - 1    ; Limit.
         dq GDT64            ; 64 bit Base.
@@ -306,6 +353,7 @@ GDT64:  ; Global Descriptor Table (64-bit).
         align 16                ; XXX ??
 global_data TSS
 TSS:                            ; 64 bit TSS
+%rep cpus
         dd 0                    ; reserved      0x00
         dd 0                    ; RSP0 (low)    0x04
         dd 0                    ; RSP0 (high)   0x08
@@ -333,6 +381,7 @@ TSS:                            ; 64 bit TSS
         dd 0                    ; reserved      0x60
         dw 0                    ; IOPB offset   0x64
         dw 0                    ; reserved      0x66
+%endrep
 .end:
 
 ;; hypercall page used by xen

@@ -2,6 +2,7 @@
 #include <pci.h>
 #include <tfs.h>
 #include <x86_64.h>
+#include <apic.h>
 #include <region.h>
 #include <page.h>
 #include <symtab.h>
@@ -11,6 +12,8 @@
 #include <unix_internal.h>
 #include <kvm_platform.h>
 #include <xen_platform.h>
+
+//#define SMP_TEST
 
 //#define STAGE3_INIT_DEBUG
 #ifdef STAGE3_INIT_DEBUG
@@ -102,6 +105,8 @@ void process_bhqueue()
 
     if (unix_interrupt_checks)
         apply(unix_interrupt_checks);
+
+    current_cpu()->in_bh = false;
     interrupt_exit();
 }
 
@@ -118,6 +123,7 @@ void runloop()
             proc_pause(current->p);
         }
         timer_update();
+        set_running_frame(current_cpu()->misc_frame);
         kernel_sleep();
         if (current) {
             proc_resume(current->p);
@@ -210,8 +216,6 @@ static void read_kernel_syms()
     }
 }
 
-extern void install_gdt64_and_tss();
-
 static boolean have_rdseed = false;
 static boolean have_rdrand = false;
 
@@ -282,6 +286,61 @@ void vm_exit(u8 code)
     }
 }
 
+struct cpuinfo cpuinfos[MAX_CPUS];
+
+static void init_cpuinfos(kernel_heaps kh)
+{
+    heap h = heap_general(kh);
+    heap pages = heap_pages(kh);
+
+    /* We'd like the aps to allocate for themselves, but we don't have
+       per-cpu heaps just yet. */
+    for (int i = 0; i < MAX_CPUS; i++) {
+        cpuinfo ci = &cpuinfos[i];
+        ci->self = ci;
+
+        /* state */
+        ci->running_frame = 0;
+        ci->id = i;
+        ci->in_bh = false;
+        ci->in_int = false;
+        ci->online = false;
+        ci->ipi_wakeup = false;
+
+        /* frame and stacks */
+        ci->misc_frame = allocate_frame(h);
+        ci->bh_frame = allocate_frame(h);
+        ci->syscall_stack = allocate_stack(pages, SYSCALL_STACK_PAGES);
+        ci->fault_stack = allocate_stack(pages, FAULT_STACK_PAGES);
+        ci->int_stack = allocate_stack(pages, INT_STACK_PAGES);
+        ci->bh_stack = allocate_stack(pages, BH_STACK_PAGES);
+    }
+
+    cpu_setgs(0);
+}
+
+#ifdef SMP_TEST
+static queue idle_cpu_queue;
+static u64 ipi_vector;
+static u64 aps_online = 0;
+
+closure_function(0, 0, void, ipi_interrupt)
+{
+    cpuinfo ci = get_cpuinfo();
+    ci->online = true;
+    fetch_and_add(&aps_online, 1);
+}
+
+static void new_cpu()
+{
+    cpuinfo ci = get_cpuinfo();
+    enqueue(idle_cpu_queue, pointer_from_u64((u64)ci->id));
+    while (1) {
+        kernel_sleep();
+    }
+}
+#endif
+
 static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = &heaps;
@@ -308,6 +367,9 @@ static void __attribute__((noinline)) init_service_new_stack()
     bhqueue = allocate_queue(misc, 2048);
     deferqueue = allocate_queue(misc, 64);
     unix_interrupt_checks = 0;
+
+    init_debug("init_cpuinfos");
+    init_cpuinfos(kh);
 
     /* interrupts */
     init_debug("start_interrupts");
@@ -374,9 +436,24 @@ static void __attribute__((noinline)) init_service_new_stack()
 
     /* Switch to stage3 GDT64, enable TSS and free up initial map */
     init_debug("install GDT64 and TSS");
-    install_gdt64_and_tss();
+    install_gdt64_and_tss(0);
     unmap(PAGESIZE, INITIAL_MAP_SIZE - PAGESIZE, pages);
 
+#ifdef SMP_TEST
+    ipi_vector = allocate_interrupt();
+    assert(ipi_vector != INVALID_PHYSICAL);
+    register_interrupt(ipi_vector, closure(heap_general(kh), ipi_interrupt));
+
+    init_debug("performing SMP test");
+    idle_cpu_queue = allocate_queue(misc, 64);
+    start_cpu(misc, pages, TARGET_EXCLUSIVE_BROADCAST, new_cpu);
+
+    kernel_delay(seconds(1));
+    for (int i = 1; i < MAX_CPUS; i++)
+        apic_ipi(i, 0, ipi_vector);
+    kernel_delay(seconds(1));
+    rprintf("SMP test: %d APs online\n", aps_online);
+#endif
     init_debug("starting runloop");
     runloop();
 }
@@ -487,6 +564,5 @@ void init_service()
     u64 stack_location = allocate_u64(heap_backed(&heaps), stack_size);
     stack_location += stack_size - STACK_ALIGNMENT;
     *(u64 *)stack_location = 0;
-    asm ("mov %0, %%rsp": :"m"(stack_location));
-    init_service_new_stack();
+    switch_stack(stack_location, init_service_new_stack);
 }

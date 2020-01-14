@@ -41,7 +41,6 @@ deliver_segv(u64 vaddr, s32 si_code)
     );
 
     deliver_signal_to_thread(current, &s);
-    thread_yield();
 }
 
 static boolean do_demand_page(vmap vm, u64 vaddr)
@@ -83,8 +82,8 @@ boolean unix_fault_page(u64 vaddr, context frame)
     if (vm == INVALID_ADDRESS) {
         if (error_code & FRAME_ERROR_PF_US) {
             pf_debug("no vmap found for addr 0x%lx, rip 0x%lx", vaddr, frame[FRAME_RIP]);
-            deliver_segv(vaddr, SEGV_MAPERR); /* does not return */
-            assert(0);
+            deliver_segv(vaddr, SEGV_MAPERR);
+            return true;
         } else {
             rprintf("\nKernel mode: ");
             return false;
@@ -113,13 +112,12 @@ boolean unix_fault_page(u64 vaddr, context frame)
                  (vm->flags & VMAP_FLAG_WRITABLE) ? "writable " : "",
                  (vm->flags & VMAP_FLAG_EXEC) ? "executable " : "");
 
-        deliver_segv(vaddr, SEGV_ACCERR); /* does not return */
-        assert(0);
+        deliver_segv(vaddr, SEGV_ACCERR);
+        return true;
     }
 
     /* vmap, no prot violation --> demand paging */
     return do_demand_page(vm, vaddr);
-
 }
 
 vmap allocate_vmap(rangemap rm, range r, u64 flags)

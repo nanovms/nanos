@@ -21,8 +21,8 @@
 #define FRAME_CS 19
 #define FRAME_DS 20
 #define FRAME_ES 21
-#define FRAME_FS 22
-#define FRAME_GS 23
+#define FRAME_FSBASE 22
+#define FRAME_GSBASE 23
 
 #define FRAME_VECTOR 24
 

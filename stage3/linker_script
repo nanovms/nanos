@@ -4,6 +4,9 @@ ENTRY(_start)
 
 SECTIONS
 {
+    . = 0;
+    AP_BOOT_PAGE = .;
+
     . = 0x7f000000;
     START = .;
 
