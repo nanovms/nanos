@@ -450,7 +450,7 @@ static void __attribute__((noinline)) init_service_new_stack()
 
     kernel_delay(seconds(1));
     for (int i = 1; i < MAX_CPUS; i++)
-        apic_ipi(i, ipi_vector);
+        apic_ipi(i, 0, ipi_vector);
     kernel_delay(seconds(1));
     rprintf("SMP test: %d APs online\n", aps_online);
 #endif

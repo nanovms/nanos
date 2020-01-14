@@ -44,9 +44,9 @@ LongMode:
 spin:   lock xchg [ap_lock], rbx
         test rbx, 1
         jne spin
-        mov rsp,[ap_stack]
+        mov rsp, [ap_stack]
         mov rax, ap_start
-        jmp rax  ;; its generating a relative jump...but we moved this code..alot
+        jmp rax   ; avoid relative jump as this code is repositioned
 
 global ap_gdt_pointer        
 ap_gdt_pointer:

@@ -1951,7 +1951,6 @@ static void syscall_debug()
 
         /* exchange frames so that a fault won't clobber the syscall
            context, but retain the fault handler that has current enclosed */
-        // XXX check this asm k?
         // make frame_{push,pop} a true stack-of-frames?
         syscall_frame[FRAME_FAULT_HANDLER] = f[FRAME_FAULT_HANDLER];
         set_running_frame(syscall_frame);

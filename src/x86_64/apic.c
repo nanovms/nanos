@@ -47,10 +47,10 @@ static inline u32 apic_read(int reg)
 }
 
 // deconstruct
-void apic_ipi(u32 target, u64 icr)
+void apic_ipi(u32 target, u64 flags, u8 vector)
 {
-    
     u64 w;
+    u64 icr = (flags & ~0xff) | vector;
     
     if (target == TARGET_EXCLUSIVE_BROADCAST) {
         w = icr | ICR_DEST_ALL_EXC_SELF;
@@ -58,8 +58,6 @@ void apic_ipi(u32 target, u64 icr)
         w = icr | (((u64)target) << 56);
     }
     
-//    rprintf("w: 0x%lx, icrl: 0x%x\n", w, apic_read(APIC_ICRL));
-
     apic_write(APIC_ICRH, (w >> 32) & 0xffffffff);
     apic_write(APIC_ICRL, w & 0xffffffff);
     for (int i = 0 ; i < 100; i++) {

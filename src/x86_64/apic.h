@@ -22,7 +22,7 @@ void lapic_eoi(void);
 void init_apic(kernel_heaps kh);
 void lapic_set_tsc_deadline_mode(u32 v);
 clock_timer init_lapic_timer(void);
-void apic_ipi(u32 target, u64 icr);
+void apic_ipi(u32 target, u64 flags, u8 vector);
 u32 apic_id(void);
 void enable_apic(void);
 

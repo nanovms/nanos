@@ -68,10 +68,10 @@ void start_cpu(heap h, heap p, int index, void (*ap_entry)()) {
     runtime_memcpy(apboot, &apinit, &apinit_end - &apinit);
     u8 vector = (((u64)apboot) >> 12) & 0xff;
     
-    apic_ipi(index, ICR_TYPE_INIT);
+    apic_ipi(index, ICR_TYPE_INIT, 0);
     kernel_delay(microseconds(10));
-    apic_ipi(index, ICR_TYPE_STARTUP | vector);
+    apic_ipi(index, ICR_TYPE_STARTUP, vector);
     kernel_delay(microseconds(200));
-    apic_ipi(index, ICR_TYPE_STARTUP | vector);
+    apic_ipi(index, ICR_TYPE_STARTUP, vector);
     kernel_delay(microseconds(200));    
 }
