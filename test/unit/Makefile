@@ -217,6 +217,8 @@ SRCS-queue_test= \
 	$(SRCDIR)/runtime/crypto/chacha.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c
 
+LIBS-queue_test=	-lpthread
+
 SRCS-range_test= \
 	$(CURDIR)/range_test.c \
 	$(SRCDIR)/runtime/bitmap.c \

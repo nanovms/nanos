@@ -7,10 +7,10 @@
 */
 
 typedef struct queue {
-    u64 prod_head;
-    u64 prod_tail;
-    u64 cons_head;
-    u64 cons_tail;
+    volatile u64 prod_head;
+    volatile u64 prod_tail;
+    volatile u64 cons_head;
+    volatile u64 cons_tail;
     void ** d;
     int order;
     int pad0;
@@ -25,15 +25,16 @@ typedef struct queue {
 
 static inline boolean _enqueue_common(queue q, void *p, boolean multi)
 {
-    u64 head, next;
+    u64 head, next, tail;
 
     /* reserve producer slot */
     do {
         head = q->prod_head;
+        tail = q->cons_tail;
         next = head + 1;
-        if ((head - q->cons_tail) == _queue_size(q))
-            return false;       /* full */
-        _queue_assert(head - q->cons_tail < _queue_size(q));
+        if ((head - tail) == _queue_size(q))
+            return false; /* full */
+        _queue_assert(head - tail < _queue_size(q));
     } while (!__sync_bool_compare_and_swap(&q->prod_head, head, next));
 
     /* save data */
@@ -54,14 +55,16 @@ static inline boolean _enqueue_common(queue q, void *p, boolean multi)
 
 static inline void * _dequeue_common(queue q, boolean multi)
 {
-    u64 head, next;
+    u64 head, next, tail;
 
     /* reserve consumer slot */
     do {
         head = q->cons_head;
+        tail = q->prod_tail;
         next = head + 1;
-        if (head == q->prod_tail)
-            return INVALID_ADDRESS;       /* empty */
+        if (head == tail)
+            return INVALID_ADDRESS; /* empty */
+        _queue_assert(head - tail > 0);
     } while (!__sync_bool_compare_and_swap(&q->cons_head, head, next));
 
     /* retrieve data */
@@ -132,6 +135,7 @@ static inline void queue_init(queue q, int order, void ** buf)
     q->order = order;
     q->d = buf;
     q->h = 0;
+    write_barrier();
 }
 
 #define _queue_data_size(o) ((1ull << (o)) * sizeof(void *))
