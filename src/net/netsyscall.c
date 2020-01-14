@@ -284,7 +284,7 @@ static sysreturn sock_read_bh_internal(sock s, thread t, void * dest, u64 length
 
     /* check if we actually have data */
     void * p = queue_peek(s->incoming);
-    if (!p) {
+    if (p == INVALID_ADDRESS) {
         if (s->type == SOCK_STREAM && s->info.tcp.lw->state != ESTABLISHED) {
             rv = 0;
             goto out;
@@ -1414,7 +1414,7 @@ closure_function(5, 1, sysreturn, accept_bh,
     }
 
     sock sn = dequeue(s->incoming);
-    if (!sn) {
+    if (sn == INVALID_ADDRESS) {
         if (s->f.flags & SOCK_NONBLOCK) {
             rv = -EAGAIN;
             goto out;

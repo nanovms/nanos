@@ -31,9 +31,9 @@ static inline boolean _enqueue_common(queue q, void *p, boolean multi)
     do {
         head = q->prod_head;
         next = head + 1;
-        _queue_assert(next - q->cons_tail < _queue_size(q));
-        if ((next - q->cons_tail) == _queue_size(q))
+        if ((head - q->cons_tail) == _queue_size(q))
             return false;       /* full */
+        _queue_assert(head - q->cons_tail < _queue_size(q));
     } while (!__sync_bool_compare_and_swap(&q->prod_head, head, next));
 
     /* save data */
@@ -41,7 +41,7 @@ static inline boolean _enqueue_common(queue q, void *p, boolean multi)
 
     write_barrier();
 
-    /* multi-producer: wait for previous enqueues to commit before we do */
+    /* multi-producer: wait for previous enqueues to commit */
     if (multi) {
         while (q->prod_tail != head)
             _queue_pause();
@@ -61,7 +61,7 @@ static inline void * _dequeue_common(queue q, boolean multi)
         head = q->cons_head;
         next = head + 1;
         if (head == q->prod_tail)
-            return false;       /* empty */
+            return INVALID_ADDRESS;       /* empty */
     } while (!__sync_bool_compare_and_swap(&q->cons_head, head, next));
 
     /* retrieve data */
@@ -69,11 +69,13 @@ static inline void * _dequeue_common(queue q, boolean multi)
 
     read_barrier();
 
+    /* multi-consumer: wait for previous dequeues to commit */
     if (multi) {
         while (q->cons_tail != head)
             _queue_pause();
     }
 
+    /* commit */
     q->cons_tail = next;
     return p;
 }
@@ -118,7 +120,7 @@ static inline boolean queue_full(queue q)
 /* only safe with lock - can we dispose of this? */
 static inline void *queue_peek(queue q)
 {
-    return q->prod_tail > q->cons_head ? q->d[_queue_idx(q, q->cons_head)] : 0;
+    return q->prod_tail > q->cons_head ? q->d[_queue_idx(q, q->cons_head)] : INVALID_ADDRESS;
 }
 
 static inline void queue_init(queue q, int order, void ** buf)
@@ -142,6 +144,8 @@ static inline queue allocate_queue(heap h, u64 size)
         return INVALID_ADDRESS;
     int order = find_order(size);
     queue q = allocate(h, _queue_alloc_size(order));
+    if (q == INVALID_ADDRESS)
+        return q;
     void *buf = ((void *)q) + sizeof(struct queue);
     zero(buf, _queue_data_size(order));
     queue_init(q, order, buf);
