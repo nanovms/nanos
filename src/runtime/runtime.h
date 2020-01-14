@@ -162,6 +162,7 @@ typedef closure_type(thunk, void);
 #include <refcount.h>
 #include <timer.h>
 #include <range.h>
+#include <queue.h>
 
 #define PAGELOG 12
 #define PAGESIZE U64_FROM_BIT(PAGELOG)
