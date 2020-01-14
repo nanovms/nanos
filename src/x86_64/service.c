@@ -564,6 +564,5 @@ void init_service()
     u64 stack_location = allocate_u64(heap_backed(&heaps), stack_size);
     stack_location += stack_size - STACK_ALIGNMENT;
     *(u64 *)stack_location = 0;
-    asm ("mov %0, %%rsp": :"m"(stack_location));
-    init_service_new_stack();
+    switch_stack(stack_location, init_service_new_stack);
 }

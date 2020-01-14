@@ -48,8 +48,7 @@ static void __attribute__((noinline)) ap_new_stack()
 void ap_start()
 {
     void *n = allocate_stack(pages, 16);
-    asm volatile("mov %0, %%rsp": :"m"(n));
-    ap_new_stack();
+    switch_stack(n, ap_new_stack);
 }
 
 void start_cpu(heap h, heap p, int index, void (*ap_entry)()) {
