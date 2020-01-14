@@ -34,6 +34,12 @@ static inline u16 tagof(void* v) {
 #define KERNEL_RESERVE_START 0x7f000000
 #define KERNEL_RESERVE_END   0x80000000
 
+extern void * AP_BOOT_PAGE;
+
+/* AP boot page */
+#define AP_BOOT_START u64_from_pointer(&AP_BOOT_PAGE)
+#define AP_BOOT_END (AP_BOOT_START + PAGESIZE)
+
 /* identity-mapped space for page tables - we can shrink this if we
    ever make the page table code aware of mappings (e.g. virt_from_phys) */
 #define IDENTITY_HEAP_SIZE (128 * MB)

@@ -86,7 +86,7 @@ SRCS-stage3.img= \
 	$(SRCDIR)/x86_64/symtab.c \
 	$(SRCDIR)/x86_64/synth.c \
 	$(SRCDIR)/x86_64/vdso-now.c \
-	$(SRCDIR)/../boot/ap.s \
+	$(SRCDIR)/x86_64/ap.s \
 	$(SRCS-lwip)
 SRCS-lwip= \
 	$(LWIPDIR)/src/core/def.c \

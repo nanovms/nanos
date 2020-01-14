@@ -1,4 +1,4 @@
-;;;  this needs to be plaved on a 4k boundary in the first megabyte of the address space
+;;;  this needs to be placed on a 4k boundary in the first megabyte of the address space
 ;;;  https://wiki.osdev.org/Entering_Long_Mode_Directly
 
         bits 16
@@ -6,6 +6,7 @@
         %define CODE_SEG     0x0008 
         %define DATA_SEG     0x0010
 
+        extern AP_BOOT_PAGE
         extern ap_start
 global apinit
 
@@ -22,11 +23,11 @@ apinit:
         wrmsr
         mov ebx, cr0        ; Activate long mode -
         or ebx,0x80000001   ; - by enabling paging and protection simultaneously.
-        ;; xxx clear the em bit
+        and ebx, ~0x4       ; clear EM
         mov cr0, ebx
         o32 lgdt [ap_gdt_pointer-apinit]
         ; get this value out of the cs register and do an indirect jump
-        jmp CODE_SEG:(LongMode-apinit + 0x8000)
+        jmp CODE_SEG:(AP_BOOT_PAGE + LongMode - apinit)
 bits 64
 LongMode:
         ;; should get the data segment from a define..why are we setting these up even?

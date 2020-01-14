@@ -4,7 +4,7 @@
 #include <apic.h>
 #include <page.h>
 
-static void *apboot = 0;
+static void *apboot = INVALID_ADDRESS;
 extern u8 apinit, apinit_end;
 extern void *ap_pagetable, *ap_start_vector, *ap_gdt_pointer, *ap_idt_pointer, *ap_stack;
 extern u64 ap_lock;
@@ -53,11 +53,11 @@ void ap_start()
 }
 
 void start_cpu(heap h, heap p, int index, void (*ap_entry)()) {
-    pages = p ;
+    pages = p;
     start_callback = ap_entry;
-    if (!apboot) {
-        apboot =  (void *)0x8000;
-        map((u64)apboot, (u64)apboot, 4096, PAGE_WRITABLE, h);
+    if (apboot == INVALID_ADDRESS) {
+        apboot = pointer_from_u64(AP_BOOT_START);
+        map((u64)apboot, (u64)apboot, PAGESIZE, PAGE_WRITABLE, h);
     }
     asm("sgdt %0": "=m"(ap_gdt_pointer));
     asm("sidt %0": "=m"(ap_idt_pointer));    
