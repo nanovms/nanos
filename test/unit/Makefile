@@ -206,6 +206,7 @@ SRCS-queue_test= \
 	$(SRCDIR)/runtime/memops.c \
 	$(SRCDIR)/runtime/merge.c \
 	$(SRCDIR)/runtime/pqueue.c \
+	$(SRCDIR)/runtime/queue.c \
 	$(SRCDIR)/runtime/random.c \
 	$(SRCDIR)/runtime/range.c \
 	$(SRCDIR)/runtime/runtime_init.c \

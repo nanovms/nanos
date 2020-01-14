@@ -126,6 +126,9 @@ static inline void *queue_peek(queue q)
     return q->prod_tail > q->cons_head ? q->d[_queue_idx(q, q->cons_head)] : INVALID_ADDRESS;
 }
 
+#define _queue_data_size(o) ((1ull << (o)) * sizeof(void *))
+#define _queue_alloc_size(o) (sizeof(struct queue) + _queue_data_size(o))
+
 static inline void queue_init(queue q, int order, void ** buf)
 {
     q->prod_head = 0;
@@ -135,30 +138,11 @@ static inline void queue_init(queue q, int order, void ** buf)
     q->order = order;
     q->d = buf;
     q->h = 0;
+    zero(buf, _queue_data_size(order));
     write_barrier();
 }
 
-#define _queue_data_size(o) ((1ull << (o)) * sizeof(void *))
-#define _queue_alloc_size(o) (sizeof(struct queue) + _queue_data_size(o))
-
 /* will round up size to next power-of-2 */
-static inline queue allocate_queue(heap h, u64 size)
-{
-    if (size == 0)
-        return INVALID_ADDRESS;
-    int order = find_order(size);
-    queue q = allocate(h, _queue_alloc_size(order));
-    if (q == INVALID_ADDRESS)
-        return q;
-    void *buf = ((void *)q) + sizeof(struct queue);
-    zero(buf, _queue_data_size(order));
-    queue_init(q, order, buf);
-    q->h = h;
-    return q;
-}
+queue allocate_queue(heap h, u64 size);
 
-static inline void deallocate_queue(queue q)
-{
-    if (q->h)
-        deallocate(q->h, q, _queue_alloc_size(q->order));
-}
+void deallocate_queue(queue q);
