@@ -2,86 +2,61 @@
 #include <x86_64.h>
 
 /* TODO:
-   - add paranoia build define
+   - queue paranoia mode
    - fix kernel headers in general (shouldn't need arch-specific include above)
-   - It might be possible to join prod_head and cons_tail into a
-     128-bit CAS if the architecture (and compiler) supports it. This
-     could resolve some of the transient queue full conditions noted
-     below.
 */
 
-#define QUEUE_FULL_RETRIES 3    /* move this */
-
 typedef struct queue {
-    volatile u64 prod_head;
-    volatile u64 prod_tail;
-    volatile u64 cons_head;
-    volatile u64 cons_tail;
+    volatile union {
+        struct {
+            u32 prod_head;
+            u32 cons_tail;
+        };
+        u64 prod_combined;
+    };
+    volatile union {
+        struct {
+            u32 cons_head;
+            u32 prod_tail;
+        };
+        u64 cons_combined;
+    };
     void ** d;
-    int order;
-    int pad0;
     heap h;
-    u64 pad1;                   /* cacheline-sized */
+    int order;
 } *queue;
 
-#define _queue_size(q) U64_FROM_BIT(q->order)
-#define _queue_idx(q, i) ((i) & MASK(q->order))
+#define _queue_size(q) (1ul << (q)->order)
+#define _queue_idx(q, i) ((i) & MASK((q)->order))
 #define _queue_assert(x) assert(x)
 #define _queue_pause kern_pause
+
+/* little endian */
+#define _head_from_combined(c) ((u32)((c) & MASK(32)))
+#define _tail_from_combined(c) ((u32)((c) >> 32))
 
 static inline boolean _enqueue_common(queue q, void *p, boolean multi)
 {
     if (p == INVALID_ADDRESS)
         return false;
 
-    u64 head, next, tail, size = _queue_size(q);
-    int retries = QUEUE_FULL_RETRIES;
+    u32 head, next, tail, size = _queue_size(q);
+    u64 pc;
 
   retry:
-    /* Enforce ordering here so that any interrupt, simultaneous
-       update or context switch (if in userspace) between the head
-       and tail reads could only result in an overestimate of the
-       queue length. */
-    tail = q->cons_tail;
-    read_barrier();
-
+    pc = q->prod_combined;
+    head = _head_from_combined(pc); /* prod_head */
+    tail = _tail_from_combined(pc); /* cons_tail */
+    if (head - tail == size)
+        return false; /* full */
+    _queue_assert(head - tail < size);
+    next = head + 1;
     if (multi) {
-        /* If we're multi-producer and the delta exceeds the queue
-           size, it's a dead giveaway that the head advanced since the
-           tail read, so retry unconditionally. */
-        head = q->prod_head;
-        if (head - tail > size)
+        if (!__sync_bool_compare_and_swap(&q->prod_head, head, next))
             goto retry;
     } else {
-        /* no reserve/commit in single variant; just ignore prod_head */
-        head = q->prod_tail;
-        _queue_assert(head - tail <= size);
+        q->prod_head = next;
     }
-
-    /* For either a single or multi-producer enqueue, if the delta
-       is exactly the queue size, there's a chance that tail
-       advanced since the head read and that the queue isn't
-       actually full, so retry there too (but only up to some
-       limit so that we don't spin unnecessarily on queue full).
-
-       This means that there's some very small chance that an
-       enqueue can fail when there is a free slot that could be
-       reserved. Either take the possibility of this transient
-       condition into account (likely the same remedy as for a
-       true queue full condition) or place a lock around queue
-       access. */
-    if (head - tail == size) {
-        if (retries-- > 0)
-            goto retry;
-        return false; /* full */
-    }
-    next = head + 1;
-
-    /* multi-producer: CAS on prod_head in an attempt to reserve a
-       slot in the queue. Note that this will catch any queue full
-       condition that may arise since previously reading head. */
-    if (multi && !__sync_bool_compare_and_swap(&q->prod_head, head, next))
-        goto retry;
 
     /* save data */
     q->d[_queue_idx(q, head)] = p;
@@ -100,27 +75,24 @@ static inline boolean _enqueue_common(queue q, void *p, boolean multi)
 
 static inline void * _dequeue_common(queue q, boolean multi)
 {
-    u64 head, next, tail;
+    u32 head, next, tail, size = _queue_size(q);
+    u64 cc;
 
   retry:
-    /* Enforce read ordering here so that we don't falsely detect
-       queue empty or see the consumer head pass the producer tail.
+    cc = q->cons_combined;
+    head = _head_from_combined(cc); /* cons_head */
+    tail = _tail_from_combined(cc); /* prod_tail */
 
-       As with enqueue, ignore cons_head if we're single-consumer.
-    */
-    head = q->cons_head;
-    read_barrier();
-    tail = q->prod_tail;
     if (head == tail)
         return INVALID_ADDRESS; /* empty */
-    _queue_assert(tail - head > 0);
+    _queue_assert(tail - head <= size);
     next = head + 1;
-
-    /* multi-producer: CAS on cons_head to reserve a slot to
-       consume. This also covers any queue empty condition that may
-       have arisen since the previous check. */
-    if (multi && !__sync_bool_compare_and_swap(&q->cons_head, head, next))
-        goto retry;
+    if (multi) {
+        if (!__sync_bool_compare_and_swap(&q->cons_head, head, next))
+            goto retry;
+    } else {
+        q->cons_head = next;
+    }
 
     /* retrieve data */
     void *p = q->d[_queue_idx(q, head)];
@@ -134,13 +106,6 @@ static inline void * _dequeue_common(queue q, boolean multi)
 
     /* commit */
     q->cons_tail = next;
-
-    /* single-producer: Though we don't need cons_head for the
-       dequeue, it is used in other functions to track queue length,
-       and they can't know which variant of dequeue is being used. So
-       keep a copy in cons_head too. */
-    if (!multi)
-        q->cons_head = next;
     return p;
 }
 
