@@ -31,6 +31,9 @@ typedef struct queue {
 
 static inline boolean _enqueue_common(queue q, void *p, boolean multi)
 {
+    if (p == INVALID_ADDRESS)
+        return false;
+
     u64 head, next, tail, size = _queue_size(q);
     int retries = QUEUE_FULL_RETRIES;
 
@@ -100,7 +103,7 @@ static inline void * _dequeue_common(queue q, boolean multi)
     u64 head, next, tail;
 
   retry:
-    /* Enfore read ordering here so that we don't falsely detect
+    /* Enforce read ordering here so that we don't falsely detect
        queue empty or see the consumer head pass the producer tail.
 
        As with enqueue, ignore cons_head if we're single-consumer.
