@@ -13,9 +13,13 @@
 #define queuetest_debug(x, ...)
 #endif
 
-#define QUEUETEST_ASSERT(x) do { if (!(x)) {                    \
-            printf("%s: assertion %s failed\n", __func__, #x); \
-            exit(EXIT_FAILURE); } } while(0)
+#define QUEUETEST_ASSERT(x)                                             \
+    do {                                                                \
+        if (!(x)) {                                                     \
+            printf("%s: assertion %s failed on line %d\n", __func__, #x, __LINE__); \
+            exit(EXIT_FAILURE);                                         \
+        }                                                               \
+    } while(0)
 
 #define fail_perror(msg, ...)                                           \
     do {                                                                \
@@ -62,6 +66,7 @@ static u64 find_free(void)
 static void * test_child(void *arg)
 {
     queue q = (queue)arg;
+
     do {
         if (!drain_and_exit) {
             int n_enqueue = random() % MAX_CONSECUTIVE_OPS;
@@ -92,11 +97,11 @@ static void * test_child(void *arg)
                 }
             }
             QUEUETEST_ASSERT(n < QUEUE_SIZE);
+            u64 o = fetch_and_add((u64*)&test_count, 1);
+            QUEUETEST_ASSERT(o < QUEUE_SIZE);
             u64 v = __atomic_exchange_n(&results[n], 0, __ATOMIC_RELEASE);
             if (v != 1)
                 fail_error("dequeued already-freed item\n");
-            u64 o = fetch_and_add((u64*)&test_count, 1);
-            QUEUETEST_ASSERT(o < QUEUE_SIZE);
         }
         queuetest_debug("...done\n");
     } while(1);
@@ -111,6 +116,7 @@ static void thread_test(void)
     test_count = QUEUE_SIZE;
     zero(results, QUEUE_SIZE * sizeof(u64));
     drain_and_exit = false;
+    write_barrier();
     queuetest_debug("spawning threads...\n");
     for (int i = 0; i < N_THREADS; i++) {
         if (pthread_create(&threads[i], NULL, test_child, q))
@@ -142,6 +148,7 @@ static inline u64 test_dequeue(queue q, boolean multi) {
 #define BASIC_TEST_RANDOM_PASSES 512
 static void basic_test(boolean multi)
 {
+    queuetest_debug("%s\n", multi ? "multi" : "single");
     zero(results, QUEUE_SIZE * sizeof(u64));
     queue q = allocate_queue(test_heap, QUEUE_SIZE);
     QUEUETEST_ASSERT(q != INVALID_ADDRESS);
@@ -203,8 +210,8 @@ static void basic_test(boolean multi)
 
 int main(int argc, char **argv)
 {
-    test_heap = init_process_runtime();
     setbuf(stdout, NULL);
+    test_heap = init_process_runtime();
     basic_test(false);
     basic_test(true);
     thread_test();

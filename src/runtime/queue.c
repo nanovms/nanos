@@ -1,5 +1,7 @@
 #include <runtime.h>
 
+#define _queue_alloc_size(o) (sizeof(struct queue) + queue_data_size(o))
+
 /* will round up size to next power-of-2 */
 queue allocate_queue(heap h, u64 size)
 {

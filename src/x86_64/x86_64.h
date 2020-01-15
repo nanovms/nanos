@@ -34,6 +34,11 @@
 
 #define FLAG_INTERRUPT 9
 
+static inline void compiler_barrier(void)
+{
+    asm volatile("" ::: "memory");
+}
+
 static inline void cpuid(u32 fn, u32 ecx, u32 * v)
 {
     asm volatile("cpuid" : "=a" (v[0]), "=b" (v[1]), "=c" (v[2]), "=d" (v[3]) : "0" (fn), "2" (ecx));
