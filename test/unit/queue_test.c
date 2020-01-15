@@ -6,6 +6,7 @@
 #include <string.h>
 #include <runtime.h>
 
+//#define PRINT_STATS
 //#define QUEUETEST_DEBUG
 #ifdef QUEUETEST_DEBUG
 #define queuetest_debug(x, ...) do { printf("%s: " x, __func__, ##__VA_ARGS__); } while(0)
@@ -36,30 +37,44 @@
 
 #define QUEUE_ORDER             (10)
 #define QUEUE_SIZE              (1ull << QUEUE_ORDER)
-#define N_THREADS               16
+#define RESULTS_VEC_SIZE        (2 * QUEUE_SIZE)
+#define N_THREADS               8
 #define INVALID                 (-1ull)
 #define THREAD_TEST_DURATION_US (5 << 20)
-#define MAX_CONSECUTIVE_OPS     (QUEUE_SIZE / (N_THREADS * 2))
+#define MAX_CONSECUTIVE_OPS     (QUEUE_SIZE / 2)
 
-static u64 results[QUEUE_SIZE];
+static u64 total_overflow = 0;
+static u64 total_underrun = 0;
+static u64 total_queued = 0;
+static u64 total_dequeued = 0;
+static u64 results[RESULTS_VEC_SIZE];
 static heap test_heap;
 
 static volatile boolean drain_and_exit;
-static volatile u64 test_count;
+static volatile u64 vec_count;
 
 /* we don't have a thread-safe id allocator, settle for brute force search */
 static u64 find_free(void)
 {
-    u64 n, start = random() % QUEUE_SIZE;
+    u64 n, start = random() % RESULTS_VEC_SIZE;
     u64 i = start;
     while ((n = __atomic_exchange_n(&results[i], 1, __ATOMIC_ACQUIRE)) == 1) {
-        i = (i + 1) % QUEUE_SIZE;
+        i = (i + 1) % RESULTS_VEC_SIZE;
         if (i == start)         /* full */
             return INVALID;
     }
-    u64 o = fetch_and_add((u64*)&test_count, -1);
+    u64 o = fetch_and_add((u64*)&vec_count, -1);
     QUEUETEST_ASSERT(o > 0);
     return i;
+}
+
+static void release(u64 n)
+{
+    u64 o = fetch_and_add((u64*)&vec_count, 1);
+    QUEUETEST_ASSERT(o < RESULTS_VEC_SIZE);
+    u64 v = __atomic_exchange_n(&results[n], 0, __ATOMIC_RELEASE);
+    if (v != 1)
+        fail_error("dequeued already-freed item\n");
 }
 
 /* take care - a lot of runtime isn't threadsafe */
@@ -77,8 +92,16 @@ static void * test_child(void *arg)
                    occupancy count, we can't be certain of the full
                    condition without taking a lock on the queue. Likewise,
                    if the enqueue fails, we can't verify full occupancy. */
-                if (n == INVALID || !enqueue(q, (void *)n))
+                if (n == INVALID) {
+                    printf("id underrun\n");
                     break;
+                }
+                if (!enqueue(q, (void *)n)) {
+                    fetch_and_add((u64*)&total_overflow, 1);
+                    release(n);
+                    break;
+                }
+                fetch_and_add((u64*)&total_queued, 1);
             }
             queuetest_debug("...done\n");
         }
@@ -93,15 +116,13 @@ static void * test_child(void *arg)
                     queuetest_debug("finished\n");
                     return (void *)EXIT_SUCCESS;
                 } else {
+                    fetch_and_add((u64*)&total_underrun, 1);
                     break;
                 }
             }
-            QUEUETEST_ASSERT(n < QUEUE_SIZE);
-            u64 o = fetch_and_add((u64*)&test_count, 1);
-            QUEUETEST_ASSERT(o < QUEUE_SIZE);
-            u64 v = __atomic_exchange_n(&results[n], 0, __ATOMIC_RELEASE);
-            if (v != 1)
-                fail_error("dequeued already-freed item\n");
+            QUEUETEST_ASSERT(n < RESULTS_VEC_SIZE);
+            release(n);
+            fetch_and_add((u64*)&total_dequeued, 1);
         }
         queuetest_debug("...done\n");
     } while(1);
@@ -113,8 +134,8 @@ static void thread_test(void)
     queue q = allocate_queue(test_heap, QUEUE_SIZE);
 
     /* spawn threads */
-    test_count = QUEUE_SIZE;
-    zero(results, QUEUE_SIZE * sizeof(u64));
+    vec_count = RESULTS_VEC_SIZE;
+    zero(results, RESULTS_VEC_SIZE * sizeof(u64));
     drain_and_exit = false;
     write_barrier();
     queuetest_debug("spawning threads...\n");
@@ -134,7 +155,14 @@ static void thread_test(void)
         if (retval != (void *)EXIT_SUCCESS)
             fail_error("child %d failed\n", i);
     }
-    QUEUETEST_ASSERT(test_count == QUEUE_SIZE);
+    QUEUETEST_ASSERT(vec_count == RESULTS_VEC_SIZE);
+    QUEUETEST_ASSERT(total_queued == total_dequeued);
+#ifdef PRINT_STATS
+    printf("total queued %lld\n", total_queued);
+    printf("total dequeued %lld\n", total_dequeued);
+    printf("total overflow %lld\n", total_overflow);
+    printf("total underrun %lld\n", total_underrun);
+#endif
 }
 
 static inline boolean test_enqueue(queue q, u64 i, boolean multi) {
@@ -180,15 +208,15 @@ static void basic_test(boolean multi)
     QUEUETEST_ASSERT(queue_length(q) == 0);
 
     /* some number of randomized passes to test ring wrap */
-    test_count = QUEUE_SIZE;
+    vec_count = QUEUE_SIZE;
     for (int pass = 0; pass < BASIC_TEST_RANDOM_PASSES; pass++) {
-        u64 n_enqueue = random() % test_count;
+        u64 n_enqueue = random() % vec_count;
         for (u64 i = 0; i < n_enqueue; i++) {
             u64 n = find_free();
             assert(n != INVALID);
             QUEUETEST_ASSERT(test_enqueue(q, n, multi));
         }
-        QUEUETEST_ASSERT(queue_length(q) == QUEUE_SIZE - test_count);
+        QUEUETEST_ASSERT(queue_length(q) == QUEUE_SIZE - vec_count);
         u64 n_dequeue = pass < (BASIC_TEST_RANDOM_PASSES - 1) ?
             random() % queue_length(q) : queue_length(q);
         for (u64 i = 0; i < n_dequeue; i++) {
@@ -196,10 +224,10 @@ static void basic_test(boolean multi)
             QUEUETEST_ASSERT(n != INVALID);
             QUEUETEST_ASSERT(results[n] == 1);
             results[n] = 0;
-            test_count++;
+            vec_count++;
         }
     }
-    QUEUETEST_ASSERT(test_count == QUEUE_SIZE);
+    QUEUETEST_ASSERT(vec_count == QUEUE_SIZE);
     QUEUETEST_ASSERT(queue_length(q) == 0);
     QUEUETEST_ASSERT(test_dequeue(q, multi) == INVALID);
     QUEUETEST_ASSERT(queue_peek(q) == INVALID_ADDRESS);
