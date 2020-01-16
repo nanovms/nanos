@@ -202,8 +202,14 @@ void print_frame(context f)
 
 void kernel_sleep(void)
 {
+    // we're going to cover up this race by checking the state in the interrupt
+    // handler...we shouldn't return here if we do get interrupted    
+    cpuinfo ci = get_cpuinfo();
+    ci->state = cpu_idle;
+    enqueue(idle_cpu_queue, pointer_from_u64((u64)ci->id));
+    // wmb() ?  interrupt would probably enforce that     
     __asm__("sti; hlt" ::: "memory");
-    disable_interrupts();
+    halt("return from kernel sleep");              
 }
 
 void install_fallback_fault_handler(fault_handler h)
@@ -233,7 +239,7 @@ void common_handler()
 
     /* Unless there's some reason to handle a page fault within an
        interrupt handler, this should always be terminal. */
-    if (ci->in_int) {
+    if (ci->state == cpu_interrupt) {
         console("\nexception during interrupt handling: cpu ");
         print_u64(ci->id);
         console(", vector ");
@@ -241,7 +247,7 @@ void common_handler()
         console("\n");
         goto exit_fault;
     }
-    ci->in_int = true;
+    ci->state = cpu_interrupt;
 
     if (i >= n_interrupt_vectors) {
         console("\nexception for invalid interrupt vector: ");
@@ -281,12 +287,13 @@ void common_handler()
 
     /* if the interrupt didn't occur during bottom half or int handler
        execution, switch context to bottom half processing */
-    ci->in_int = false;
+    ci->state = cpu_kernel;
 
     /* bsp only right now */
-    if (ci->id == 0 && !ci->in_bh) {
+
+    if (ci->id == 0 && (ci->state != cpu_kernel)) {
         frame_push(ci->bh_frame);
-        ci->in_bh = true;
+        ci->state = cpu_kernel;
         switch_stack(ci->bh_stack, process_bhqueue);
     }
     return;
