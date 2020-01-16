@@ -96,10 +96,7 @@ typedef struct cpuinfo {
     context bh_frame;
 
     u32 id;
-    boolean in_bh;              /* temporary, probably bh will go away? */
-    boolean in_int;             /* to catch exceptions during int processing */
-    volatile boolean online;
-    volatile boolean ipi_wakeup;
+    int state;
 
     /* The following fields are used rarely or only on initialization. */
 
@@ -109,6 +106,12 @@ typedef struct cpuinfo {
     /* stack for int handlers, switched by hardware */
     void * int_stack;
 } *cpuinfo;
+
+#define cpu_not_present 0
+#define cpu_idle 1
+#define cpu_kernel 2
+#define cpu_interrupt 3
+#define cpu_user 4
 
 extern struct cpuinfo cpuinfos[];
 
@@ -275,6 +278,8 @@ typedef struct queue *queue;
 extern queue runqueue;
 extern queue bhqueue;
 extern queue deferqueue;
+extern queue idle_cpu_queue;
+extern queue thread_queue;
 
 heap physically_backed(heap meta, heap virtual, heap physical, heap pages, u64 pagesize);
 void physically_backed_dealloc_virtual(heap h, u64 x, bytes length);
@@ -319,3 +324,4 @@ static inline void wake_cpu(int cpu)
 
 void kern_lock(void);
 void kern_unlock(void);
+void init_scheduler(heap);

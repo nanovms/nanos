@@ -13,7 +13,7 @@
 #include <kvm_platform.h>
 #include <xen_platform.h>
 
-//#define SMP_TEST
+#define SMP_TEST
 
 //#define STAGE3_INIT_DEBUG
 #ifdef STAGE3_INIT_DEBUG
@@ -59,79 +59,6 @@ static u64 bootstrap_alloc(heap h, bytes length)
     }
     bootstrap_base += length;
     return result;
-}
-
-queue runqueue;                 /* dispatched in runloop */
-queue bhqueue;                  /* dispatched to exhaustion in process_bhqueue */
-queue deferqueue;               /* same as bhqueue, but only for previously queued items */
-
-static timestamp runloop_timer_min;
-static timestamp runloop_timer_max;
-
-static void timer_update(void)
-{
-    /* find timer interval from timer heap, bound by configurable min and max */
-    timestamp timeout = MAX(MIN(timer_check(), runloop_timer_max), runloop_timer_min);
-    runloop_timer(timeout);
-}
-
-extern void interrupt_exit(void);
-
-/* could make a generic hook/register if more users... */
-thunk unix_interrupt_checks;
-
-NOTRACE
-void process_bhqueue()
-{
-    /* XXX - we're on bh frame & stack; re-enable ints here */
-    thunk t;
-    int defer_waiters = queue_length(deferqueue);
-    while ((t = dequeue(bhqueue)) != INVALID_ADDRESS) {
-        assert(t);
-        apply(t);
-    }
-
-    /* only process deferred items that were queued prior to call -
-       this allows bhqueue and deferqueue waiters to re-schedule for
-       subsequent bh processing */
-    while (defer_waiters > 0 && (t = dequeue(deferqueue)) != INVALID_ADDRESS) {
-        assert(t);
-        apply(t);
-        defer_waiters--;
-    }
-
-    timer_update();
-
-    /* XXX - and disable before frame pop */
-    frame_pop();
-
-    if (unix_interrupt_checks)
-        apply(unix_interrupt_checks);
-
-    current_cpu()->in_bh = false;
-    interrupt_exit();
-}
-
-void runloop()
-{
-    thunk t;
-
-    while(1) {
-        while((t = dequeue(runqueue)) != INVALID_ADDRESS) {
-            assert(t);
-            apply(t);
-            disable_interrupts();
-        }
-        if (current) {
-            proc_pause(current->p);
-        }
-        timer_update();
-        set_running_frame(current_cpu()->misc_frame);
-        kernel_sleep();
-        if (current) {
-            proc_resume(current->p);
-        }
-    }
 }
 
 //#define MAX_BLOCK_IO_SIZE PAGE_SIZE
@@ -271,12 +198,6 @@ static void reclaim_regions(void)
     }
 }
 
-static void init_runloop_timer(void)
-{
-    runloop_timer_min = microseconds(RUNLOOP_TIMER_MIN_PERIOD_US);
-    runloop_timer_max = microseconds(RUNLOOP_TIMER_MAX_PERIOD_US);
-}
-
 static tuple root;
 
 void vm_exit(u8 code)
@@ -305,10 +226,7 @@ static void init_cpuinfos(kernel_heaps kh)
         /* state */
         ci->running_frame = 0;
         ci->id = i;
-        ci->in_bh = false;
-        ci->in_int = false;
-        ci->online = false;
-        ci->ipi_wakeup = false;
+        ci->state = cpu_not_present;
 
         /* frame and stacks */
         ci->misc_frame = allocate_frame(h);
@@ -323,24 +241,12 @@ static void init_cpuinfos(kernel_heaps kh)
 }
 
 #ifdef SMP_TEST
-static queue idle_cpu_queue;
-static u64 ipi_vector;
 static u64 aps_online = 0;
-
-closure_function(0, 0, void, ipi_interrupt)
-{
-    cpuinfo ci = get_cpuinfo();
-    ci->online = true;
-    fetch_and_add(&aps_online, 1);
-}
 
 static void new_cpu()
 {
-    cpuinfo ci = get_cpuinfo();
-    enqueue(idle_cpu_queue, pointer_from_u64((u64)ci->id));
-    while (1) {
-        kernel_sleep();
-    }
+    fetch_and_add(&aps_online, 1);
+    kernel_sleep();
 }
 #endif
 
@@ -369,7 +275,6 @@ static void __attribute__((noinline)) init_service_new_stack()
     /* XXX bhqueue is large to accomodate vq completions; explore batch processing on vq side */
     bhqueue = allocate_queue(misc, 2048);
     deferqueue = allocate_queue(misc, 64);
-    unix_interrupt_checks = 0;
 
     init_debug("init_cpuinfos");
     init_cpuinfos(kh);
@@ -400,7 +305,7 @@ static void __attribute__((noinline)) init_service_new_stack()
 
     /* clock, timer, RNG, stack canaries */
     init_clock();
-    init_runloop_timer();
+    init_scheduler(misc);
     init_debug("RNG");
     init_hwrand();
     init_random();
@@ -443,19 +348,8 @@ static void __attribute__((noinline)) init_service_new_stack()
     unmap(PAGESIZE, INITIAL_MAP_SIZE - PAGESIZE, pages);
 
 #ifdef SMP_TEST
-    ipi_vector = allocate_interrupt();
-    assert(ipi_vector != INVALID_PHYSICAL);
-    register_interrupt(ipi_vector, closure(heap_general(kh), ipi_interrupt));
-
     init_debug("performing SMP test");
-    idle_cpu_queue = allocate_queue(misc, 64);
     start_cpu(misc, pages, TARGET_EXCLUSIVE_BROADCAST, new_cpu);
-
-    kernel_delay(seconds(1));
-    for (int i = 1; i < MAX_CPUS; i++)
-        apic_ipi(i, 0, ipi_vector);
-    kernel_delay(seconds(1));
-    rprintf("SMP test: %d APs online\n", aps_online);
 #endif
     init_debug("starting runloop");
     runloop();
