@@ -299,48 +299,61 @@ install_gdt64_and_tss:
         ret
 .end:
 
-        ;; set this crap up again so we can remove the stage2 one from low memory
-align 16                        ; necessary?
-GDT64:  ; Global Descriptor Table (64-bit).
-        ;;  xxx - clean this up with a macro
-        .Null: equ $ - GDT64 ; null descriptor
-        dw 0  ; Limit (low).
-        dw 0  ; Base (low).
-        db 0  ; Base (middle)
-        db 0  ; Access.
-        db 0  ; Granularity.
-        db 0  ; Base (high).
-        .Code: equ $ - GDT64 ; code descriptor - 0x08
-        dw 0  ; Limit (low).
-        dw 0  ; Base (low).
-        db 0  ; Base (middle)
-        db 10011010b    ; Access (exec/read).
-        db 00100000b    ; Granularity.
-        db 0            ; Base (high).
-        .Data: equ $ - GDT64 ; data descriptor - 0x10
-        dw 0         ; Limit (low).
-        dw 0         ; Base (low).
-        db 0         ; Base (middle)
-        db 10010010b ; Access (read/write).
-        db 00000000b ; Granularity.
-        db 0         ; Base (high).
-        .UserCode: equ $ - GDT64 ; user code descriptor (sysret into long mode) - 0x18
-        dw 0  ; Limit (low).
-        dw 0  ; Base (low).
-        db 0  ; Base (middle)
-        db 11111010b    ; Access (exec/read).
-        db 00100000b    ; Granularity.
-        db 0            ; Base (high).
-        .UserData: equ $ - GDT64 ; user data descriptor - 0x20
-        dw 0         ; Limit (low).
-        dw 0         ; Base (low).
-        db 0         ; Base (middle)
-        db 11110010b ; Access (read/write).
-        db 00000000b ; Granularity.
-        db 0         ; Base (high).
-        .TSS: equ $ - GDT64     ; TSS descriptor (system segment descriptor - 64bit mode)
+%define SEG_DESC_G          (1 << 23) ; Granularity
+%define SEG_DESC_DB         (1 << 22) ; Code: default size, Data: big
+%define SEG_DESC_L          (1 << 21) ; Code: Long (64-bit)
+%define SEG_DESC_AVL        (1 << 20) ; Available
+%define SEG_DESC_P          (1 << 15) ; Present
+%define SEG_DESC_DPL_SHIFT  13
+%define SEG_DESC_S          (1 << 12) ; Code/data (vs sys)
+%define SEG_DESC_CODE       (1 << 11) ; Code descriptor type (vs data)
+%define SEG_DESC_C          (1 << 10) ; Conforming
+%define SEG_DESC_RW         (1 << 9)  ; Code: readable, Data: writeable
+%define SEG_DESC_A          (1 << 8)  ; Accessed
+
+%define KERN_CODE_SEG_DESC  (SEG_DESC_L | SEG_DESC_P | SEG_DESC_S | SEG_DESC_CODE | SEG_DESC_RW)
+%define KERN_DATA_SEG_DESC  (SEG_DESC_P | SEG_DESC_S | SEG_DESC_RW)
+%define USER_CODE_SEG_DESC  (SEG_DESC_L | SEG_DESC_P | (3 << SEG_DESC_DPL_SHIFT) | SEG_DESC_S | SEG_DESC_CODE | SEG_DESC_RW)
+%define USER_DATA_SEG_DESC  (SEG_DESC_S | (3 << SEG_DESC_DPL_SHIFT) | SEG_DESC_P | SEG_DESC_RW)
+
+        ;; Global Descriptor Table (64-bit).
+align 16
+GDT64:
+        ;; 0x00: null descriptor - unused
+        .Null: equ $ - GDT64
+        dd 0
+        dd 0
+
+        ;; 0x08: kernel code descriptor
+        .Code: equ $ - GDT64
+        dd 0                       ; limit / base, unused in long mode
+        dd KERN_CODE_SEG_DESC
+
+        ;; 0x10: kernel data descriptor
+        .Data: equ $ - GDT64
+        dd 0
+        dd KERN_DATA_SEG_DESC
+
+        ;; 0x18: 32-bit user code descriptor
+        ;;       unused, but set as sysret base in STAR_MSR
+        .UserCode: equ $ - GDT64
+        dd 0
+        dd 0
+
+        ;; 0x20: user data descriptor
+        .UserData: equ $ - GDT64
+        dd 0
+        dd USER_DATA_SEG_DESC
+
+        ;; 0x28: 64-bit user code descriptor
+        .UserCode64: equ $ - GDT64
+        dd 0
+        dd USER_CODE_SEG_DESC
+
+        ;; TSS - per-cpu 64-bit system segment descriptors
+        ;; Filled in at runtime by install_gdt64_and_tss
+        .TSS: equ $ - GDT64
 %rep cpus
-;; Filled in at runtime by install_gdt64_and_tss
         dd 0
         dd 0
         dd 0
