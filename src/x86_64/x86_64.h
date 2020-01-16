@@ -1,7 +1,5 @@
 #pragma once
 
-#include <runtime.h>
-
 #define STACK_ALIGNMENT     16
 #define KERNEL_STACK_PAGES  32
 #define FAULT_STACK_PAGES   8
@@ -36,6 +34,11 @@
 #define C0_WP   0x00010000
 
 #define FLAG_INTERRUPT 9
+
+static inline void compiler_barrier(void)
+{
+    asm volatile("" ::: "memory");
+}
 
 static inline void cpuid(u32 fn, u32 ecx, u32 * v)
 {
@@ -282,13 +285,6 @@ typedef closure_type(fault_handler, context, context);
 
 void configure_timer(timestamp rate, thunk t);
 
-boolean enqueue(queue q, void *n);
-void *dequeue(queue q);
-void *queue_peek(queue q);
-int queue_length(queue q);
-queue allocate_queue(heap h, u64 size);
-void deallocate_queue(queue q);
-
 void runloop() __attribute__((noreturn));
 void kernel_sleep();
 void kernel_delay(timestamp delta);
@@ -298,16 +294,6 @@ boolean init_hpet(kernel_heaps kh);
 
 void process_bhqueue();
 void install_fallback_fault_handler(fault_handler h);
-
-// xxx - hide
-struct queue {
-    u64 count;
-    u64 write;
-    u64 read;
-    u64 size;
-    heap h;
-    void *buf[];
-};
 
 void msi_format(u32 *address, u32 *data, int vector);
 

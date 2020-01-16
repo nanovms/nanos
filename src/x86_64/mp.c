@@ -1,5 +1,6 @@
 //#define MP_DEBUG
 
+#include <runtime.h>
 #include <x86_64.h>
 #include <apic.h>
 #include <page.h>

@@ -86,14 +86,16 @@ void process_bhqueue()
     /* XXX - we're on bh frame & stack; re-enable ints here */
     thunk t;
     int defer_waiters = queue_length(deferqueue);
-    while ((t = dequeue(bhqueue))) {
+    while ((t = dequeue(bhqueue)) != INVALID_ADDRESS) {
+        assert(t);
         apply(t);
     }
 
     /* only process deferred items that were queued prior to call -
        this allows bhqueue and deferqueue waiters to re-schedule for
        subsequent bh processing */
-    while (defer_waiters > 0 && (t = dequeue(deferqueue))) {
+    while (defer_waiters > 0 && (t = dequeue(deferqueue)) != INVALID_ADDRESS) {
+        assert(t);
         apply(t);
         defer_waiters--;
     }
@@ -115,7 +117,8 @@ void runloop()
     thunk t;
 
     while(1) {
-        while((t = dequeue(runqueue))) {
+        while((t = dequeue(runqueue)) != INVALID_ADDRESS) {
+            assert(t);
             apply(t);
             disable_interrupts();
         }

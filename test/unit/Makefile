@@ -7,6 +7,7 @@ PROGRAMS= \
 	objcache_test \
 	parser_test \
 	pqueue_test \
+	queue_test \
 	range_test \
 	random_test \
 	table_test \
@@ -194,6 +195,30 @@ SRCS-pqueue_test= \
 	$(SRCDIR)/runtime/string.c \
 	$(SRCDIR)/runtime/crypto/chacha.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c
+
+SRCS-queue_test= \
+	$(CURDIR)/queue_test.c \
+	$(SRCDIR)/runtime/bitmap.c \
+	$(SRCDIR)/runtime/buffer.c \
+	$(SRCDIR)/runtime/extra_prints.c \
+	$(SRCDIR)/runtime/format.c \
+	$(SRCDIR)/runtime/heap/id.c \
+	$(SRCDIR)/runtime/memops.c \
+	$(SRCDIR)/runtime/merge.c \
+	$(SRCDIR)/runtime/pqueue.c \
+	$(SRCDIR)/runtime/queue.c \
+	$(SRCDIR)/runtime/random.c \
+	$(SRCDIR)/runtime/range.c \
+	$(SRCDIR)/runtime/runtime_init.c \
+	$(SRCDIR)/runtime/symbol.c \
+	$(SRCDIR)/runtime/table.c \
+	$(SRCDIR)/runtime/timer.c \
+	$(SRCDIR)/runtime/tuple.c \
+	$(SRCDIR)/runtime/string.c \
+	$(SRCDIR)/runtime/crypto/chacha.c \
+	$(SRCDIR)/unix_process/unix_process_runtime.c
+
+LIBS-queue_test=	-lpthread
 
 SRCS-range_test= \
 	$(CURDIR)/range_test.c \

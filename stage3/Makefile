@@ -26,6 +26,7 @@ SRCS-stage3.img= \
 	$(SRCDIR)/runtime/memops.c \
 	$(SRCDIR)/runtime/merge.c \
 	$(SRCDIR)/runtime/pqueue.c \
+	$(SRCDIR)/runtime/queue.c \
 	$(SRCDIR)/runtime/random.c \
 	$(SRCDIR)/runtime/range.c \
 	$(SRCDIR)/runtime/runtime_init.c \
@@ -78,7 +79,6 @@ SRCS-stage3.img= \
 	$(SRCDIR)/x86_64/page.c \
 	$(SRCDIR)/x86_64/pci.c \
 	$(SRCDIR)/x86_64/pvclock.c \
-	$(SRCDIR)/x86_64/queue.c \
 	$(SRCDIR)/x86_64/rtc.c \
 	$(SRCDIR)/x86_64/serial.c \
 	$(SRCDIR)/x86_64/service.c \

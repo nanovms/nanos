@@ -59,4 +59,7 @@ extern void * AP_BOOT_PAGE;
 /* XXX just for initial mp bringup... */
 #define MAX_CPUS 16
 
+/* could probably find progammatically via cpuid... */
+#define DEFAULT_CACHELINE_SIZE 64
+
 #include <x86.h>

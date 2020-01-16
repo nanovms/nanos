@@ -138,7 +138,7 @@ closure_function(1, 1, u32, socket_events,
                  thread, t /* ignore */)
 {
     sock s = bound(s);
-    boolean in = queue_length(s->incoming) > 0;
+    boolean in = !queue_empty(s->incoming);
 
     /* XXX socket state isn't giving a complete picture; needs to specify
        which transport ends are shut down */
@@ -284,7 +284,8 @@ static sysreturn sock_read_bh_internal(sock s, thread t, void * dest, u64 length
 
     /* check if we actually have data */
     void * p = queue_peek(s->incoming);
-    if (!p) {
+    if (p == INVALID_ADDRESS) {
+        assert(p);
         if (s->type == SOCK_STREAM && s->info.tcp.lw->state != ESTABLISHED) {
             rv = 0;
             goto out;
@@ -343,10 +344,10 @@ static sysreturn sock_read_bh_internal(sock s, thread t, void * dest, u64 length
                 deallocate(s->h, p, sizeof(struct udp_entry));
             pbuf_free(pbuf);
             p = queue_peek(s->incoming);
-            if (!p)
+            if (p == INVALID_ADDRESS)
                 notify_sock(s); /* reset a triggered EPOLLIN condition */
         }
-    } while(s->type == SOCK_STREAM && length > 0 && p); /* XXX simplify expression */
+    } while(s->type == SOCK_STREAM && length > 0 && p != INVALID_ADDRESS); /* XXX simplify expression */
 
     rv = xfer_total;
   out:
@@ -1414,7 +1415,7 @@ closure_function(5, 1, sysreturn, accept_bh,
     }
 
     sock sn = dequeue(s->incoming);
-    if (!sn) {
+    if (sn == INVALID_ADDRESS) {
         if (s->f.flags & SOCK_NONBLOCK) {
             rv = -EAGAIN;
             goto out;
