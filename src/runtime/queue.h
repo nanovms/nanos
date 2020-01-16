@@ -6,66 +6,60 @@
    - fix kernel headers in general (shouldn't need arch-specific include above)
 */
 
+union combined {
+    struct {
+        u32 head;
+        u32 tail;
+    };
+    u64 w;
+};
+
 typedef struct queue {
-    volatile union {
-        struct {
-            u32 prod_head;
-            u32 cons_tail;
-        };
-        u64 prod_combined;
-    };
-    volatile union {
-        struct {
-            u32 cons_head;
-            u32 prod_tail;
-        };
-        u64 cons_combined;
-    };
+    volatile union combined pc; /* prod_head, cons_tail */
+    volatile union combined cc; /* cons_head, prod_tail */
     void ** d;
     heap h;
     int order;
 } *queue;
+
+#define prod_head pc.head
+#define prod_tail cc.tail
+#define cons_head cc.head
+#define cons_tail pc.tail
 
 #define _queue_size(q) (1ul << (q)->order)
 #define _queue_idx(q, i) ((i) & MASK((q)->order))
 #define _queue_assert(x) assert(x)
 #define _queue_pause kern_pause
 
-struct combined {
-    u32 head;
-    u32 tail;
-};
-
 static inline boolean _enqueue_common(queue q, void *p, boolean multi)
 {
     if (p == INVALID_ADDRESS)
         return false;
 
-    u32 head, next, tail, size = _queue_size(q);
-    u64 pc;
+    u32 next, size = _queue_size(q);
+    union combined pc;
 
   retry:
-    pc = q->prod_combined;
-    head = ((struct combined *)&pc)->head; /* prod_head */
-    tail = ((struct combined *)&pc)->tail; /* cons_tail */
-    if (head - tail == size)
+    pc.w = q->pc.w;               /* prod_head, cons_tail */
+    if (pc.head - pc.tail == size)
         return false; /* full */
-    _queue_assert(head - tail < size);
-    next = head + 1;
+    _queue_assert(pc.head - pc.tail < size);
+    next = pc.head + 1;
     if (multi) {
-        if (!__sync_bool_compare_and_swap(&q->prod_head, head, next))
+        if (!__sync_bool_compare_and_swap(&q->prod_head, pc.head, next))
             goto retry;
     } else {
         q->prod_head = next;
     }
 
     /* save data */
-    q->d[_queue_idx(q, head)] = p;
+    q->d[_queue_idx(q, pc.head)] = p;
     write_barrier();
 
     /* multi-producer: wait for previous enqueues to commit */
     if (multi) {
-        while (q->prod_tail != head)
+        while (q->prod_tail != pc.head)
             _queue_pause();
     }
 
@@ -76,32 +70,30 @@ static inline boolean _enqueue_common(queue q, void *p, boolean multi)
 
 static inline void * _dequeue_common(queue q, boolean multi)
 {
-    u32 head, next, tail, size = _queue_size(q);
-    u64 cc;
+    u32 next, size = _queue_size(q);
+    union combined cc;
 
   retry:
-    cc = q->cons_combined;
-    head = ((struct combined *)&cc)->head; /* cons_head */
-    tail = ((struct combined *)&cc)->tail; /* prod_tail */
+    cc.w = q->cc.w;               /* cons_head, prod_tail */
 
-    if (head == tail)
+    if (cc.head == cc.tail)
         return INVALID_ADDRESS; /* empty */
-    _queue_assert(tail - head <= size);
-    next = head + 1;
+    _queue_assert(cc.tail - cc.head <= size);
+    next = cc.head + 1;
     if (multi) {
-        if (!__sync_bool_compare_and_swap(&q->cons_head, head, next))
+        if (!__sync_bool_compare_and_swap(&q->cons_head, cc.head, next))
             goto retry;
     } else {
         q->cons_head = next;
     }
 
     /* retrieve data */
-    void *p = q->d[_queue_idx(q, head)];
+    void *p = q->d[_queue_idx(q, cc.head)];
     read_barrier();
 
     /* multi-consumer: wait for previous dequeues to commit */
     if (multi) {
-        while (q->cons_tail != head)
+        while (q->cons_tail != cc.head)
             _queue_pause();
     }
 
