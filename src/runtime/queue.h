@@ -31,9 +31,10 @@ typedef struct queue {
 #define _queue_assert(x) assert(x)
 #define _queue_pause kern_pause
 
-/* little endian */
-#define _head_from_combined(c) ((u32)((c) & MASK(32)))
-#define _tail_from_combined(c) ((u32)((c) >> 32))
+struct combined {
+    u32 head;
+    u32 tail;
+};
 
 static inline boolean _enqueue_common(queue q, void *p, boolean multi)
 {
@@ -45,8 +46,8 @@ static inline boolean _enqueue_common(queue q, void *p, boolean multi)
 
   retry:
     pc = q->prod_combined;
-    head = _head_from_combined(pc); /* prod_head */
-    tail = _tail_from_combined(pc); /* cons_tail */
+    head = ((struct combined *)&pc)->head; /* prod_head */
+    tail = ((struct combined *)&pc)->tail; /* cons_tail */
     if (head - tail == size)
         return false; /* full */
     _queue_assert(head - tail < size);
@@ -80,8 +81,8 @@ static inline void * _dequeue_common(queue q, boolean multi)
 
   retry:
     cc = q->cons_combined;
-    head = _head_from_combined(cc); /* cons_head */
-    tail = _tail_from_combined(cc); /* prod_tail */
+    head = ((struct combined *)&cc)->head; /* cons_head */
+    tail = ((struct combined *)&cc)->tail; /* prod_tail */
 
     if (head == tail)
         return INVALID_ADDRESS; /* empty */

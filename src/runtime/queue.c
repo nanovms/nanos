@@ -1,6 +1,7 @@
 #include <runtime.h>
 
-#define _queue_alloc_size(o) (sizeof(struct queue) + queue_data_size(o))
+#define _queue_buf_offset    pad(sizeof(struct queue), DEFAULT_CACHELINE_SIZE)
+#define _queue_alloc_size(o) (_queue_buf_offset + queue_data_size(o))
 
 /* will round up size to next power-of-2 */
 queue allocate_queue(heap h, u64 size)
@@ -11,7 +12,7 @@ queue allocate_queue(heap h, u64 size)
     queue q = allocate(h, _queue_alloc_size(order));
     if (q == INVALID_ADDRESS)
         return q;
-    void *buf = ((void *)q) + sizeof(struct queue);
+    void *buf = ((void *)q) + _queue_buf_offset;
     queue_init(q, order, buf);
     q->h = h;
     return q;
