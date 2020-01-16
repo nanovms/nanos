@@ -11,7 +11,8 @@
 
 #define VIRTUAL_ADDRESS_BITS 48
 
-#define CODE_SEGMENT_SELECTOR   8
+#define KERNEL_CODE_SELECTOR 0x08
+#define USER_CODE32_SELECTOR 0x18
 
 #define TSC_DEADLINE_MSR 0x6e0
 
@@ -186,12 +187,9 @@ static inline void memory_barrier()
 
 static inline void set_syscall_handler(void *syscall_entry)
 {
-    u64 cs = CODE_SEGMENT_SELECTOR;
-
     write_msr(LSTAR_MSR, u64_from_pointer(syscall_entry));
-    // 48 is sysret cs, and ds is cs + 16...so fix the gdt for return
-    // 32 is syscall cs, and ds is cs + 8
-    write_msr(STAR_MSR, ((cs | 0x3)<<48) | (cs<<32));
+    u32 selectors = ((USER_CODE32_SELECTOR | 0x3) << 16) | KERNEL_CODE_SELECTOR;
+    write_msr(STAR_MSR, (u64)selectors << 32);
     write_msr(SFMASK_MSR, U64_FROM_BIT(FLAG_INTERRUPT));
     write_msr(EFER_MSR, read_msr(EFER_MSR) | EFER_SCE);
 }
