@@ -299,46 +299,52 @@ install_gdt64_and_tss:
         ret
 .end:
 
-        ;; set this crap up again so we can remove the stage2 one from low memory
-align 16                        ; necessary?
-GDT64:  ; Global Descriptor Table (64-bit).
-        ;;  xxx - clean this up with a macro
-        .Null: equ $ - GDT64 ; null descriptor
-        dw 0  ; Limit (low).
-        dw 0  ; Base (low).
-        db 0  ; Base (middle)
-        db 0  ; Access.
-        db 0  ; Granularity.
-        db 0  ; Base (high).
-        .Code: equ $ - GDT64 ; code descriptor - 0x08
-        dw 0  ; Limit (low).
-        dw 0  ; Base (low).
-        db 0  ; Base (middle)
-        db 10011010b    ; Access (exec/read).
-        db 00100000b    ; Granularity.
-        db 0            ; Base (high).
-        .Data: equ $ - GDT64 ; data descriptor - 0x10
+        ;; Global Descriptor Table (64-bit).
+align 16
+GDT64:
+        .Null: equ $ - GDT64       ; null
+        dw 0         ; Limit (low).
+        dw 0         ; Base (low).
+        db 0         ; Base (middle)
+        db 0         ; Access.
+        db 0         ; Granularity.
+        db 0         ; Base (high).
+        .Code: equ $ - GDT64       ; code - 0x08
+        dw 0         ; Limit (low).
+        dw 0         ; Base (low).
+        db 0         ; Base (middle)
+        db 10011010b ; Access (exec/read).
+        db 00100000b ; Granularity.
+        db 0         ; Base (high).
+        .Data: equ $ - GDT64       ; data - 0x10
         dw 0         ; Limit (low).
         dw 0         ; Base (low).
         db 0         ; Base (middle)
         db 10010010b ; Access (read/write).
         db 00000000b ; Granularity.
         db 0         ; Base (high).
-        .UserCode: equ $ - GDT64 ; user code descriptor (sysret into long mode) - 0x18
-        dw 0  ; Limit (low).
-        dw 0  ; Base (low).
-        db 0  ; Base (middle)
-        db 11111010b    ; Access (exec/read).
-        db 00100000b    ; Granularity.
-        db 0            ; Base (high).
-        .UserData: equ $ - GDT64 ; user data descriptor - 0x20
+        .UserCode: equ $ - GDT64   ; unused user code (32-bit mode) - 0x18
+        dw 0         ; Limit (low).
+        dw 0         ; Base (low).
+        db 0         ; Base (middle)
+        db 11111010b ; Access (exec/read).
+        db 00100000b ; Granularity.
+        db 0         ; Base (high).
+        .UserData: equ $ - GDT64   ; user data - 0x20
         dw 0         ; Limit (low).
         dw 0         ; Base (low).
         db 0         ; Base (middle)
         db 11110010b ; Access (read/write).
         db 00000000b ; Granularity.
         db 0         ; Base (high).
-        .TSS: equ $ - GDT64     ; TSS descriptor (system segment descriptor - 64bit mode)
+        .UserCode64: equ $ - GDT64 ; user code (sysret into long mode) - 0x28
+        dw 0         ; Limit (low).
+        dw 0         ; Base (low).
+        db 0         ; Base (middle)
+        db 11111010b ; Access (exec/read).
+        db 00100000b ; Granularity.
+        db 0         ; Base (high).
+        .TSS: equ $ - GDT64        ; TSS (system segment descriptor - 64bit mode)
 %rep cpus
 ;; Filled in at runtime by install_gdt64_and_tss
         dd 0

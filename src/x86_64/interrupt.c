@@ -273,12 +273,6 @@ void common_handler()
         }
     }
 
-    /* if we crossed privilege levels, reprogram SS and CS */
-    if (f[FRAME_SS] == 0x13) {
-        f[FRAME_SS] = 0x23;
-        f[FRAME_CS] = 0x1b;
-    }
-
     /* if the interrupt didn't occur during bottom half or int handler
        execution, switch context to bottom half processing */
     ci->in_int = false;
