@@ -80,6 +80,7 @@ SRCS-stage3.img= \
 	$(SRCDIR)/x86_64/pci.c \
 	$(SRCDIR)/x86_64/pvclock.c \
 	$(SRCDIR)/x86_64/rtc.c \
+	$(SRCDIR)/x86_64/schedule.c \
 	$(SRCDIR)/x86_64/serial.c \
 	$(SRCDIR)/x86_64/service.c \
 	$(SRCDIR)/x86_64/symtab.c \
