@@ -208,7 +208,6 @@ void kernel_sleep(void)
     ci->state = cpu_idle;
     enqueue(idle_cpu_queue, pointer_from_u64((u64)ci->id));
     // wmb() ?  interrupt would probably enforce that
-    rprintf("sleep %d\n", ci->id);
     __asm__("sti; hlt" ::: "memory");
     halt("return from kernel sleep");              
 }
