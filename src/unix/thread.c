@@ -40,11 +40,11 @@ sysreturn arch_prctl(int code, unsigned long addr)
     return 0;
 }
 
-static inline void thread_make_runnable(thread t)
+void thread_make_runnable(thread t)
 {
     t->blocked_on = 0;
     t->syscall = -1;
-    // dispatch signal?
+    // dispatch signal? - happens right now in thread_run
     enqueue(thread_queue, t->run);
 }
 
@@ -89,7 +89,7 @@ void register_thread_syscalls(struct syscall *map)
 
 void thread_log_internal(thread t, const char *desc, ...)
 {
-    if (table_find(t->p->process_root, sym(trace))) {
+    //    if (table_find(t->p->process_root, sym(trace))) {
         if (syscall_notrace(t->syscall))
             return;
         vlist ap;
@@ -102,7 +102,7 @@ void thread_log_internal(thread t, const char *desc, ...)
         vbprintf(b, f, &ap);
         push_u8(b, '\n');
         buffer_print(b);
-    }
+        //    }
 }
 
 closure_function(1, 0, void, run_thread,
@@ -280,7 +280,7 @@ void exit_thread(thread t)
     deallocate_blockq(t->thread_bq);
     t->thread_bq = INVALID_ADDRESS;
 
-    deallocate_closure(t->run);
+    deallocate_closure(t->run); // structure closure
     t->run = INVALID_ADDRESS;
 
     deallocate_closure((fault_handler)pointer_from_u64(t->frame[FRAME_FAULT_HANDLER]));

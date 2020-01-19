@@ -588,3 +588,5 @@ u32 spec_events(file f);
 /* getrandom(2) flags */
 #define GRND_NONBLOCK               1
 #define GRND_RANDOM                 2
+
+void thread_make_runnable(thread t);

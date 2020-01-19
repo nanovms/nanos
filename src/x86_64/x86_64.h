@@ -105,7 +105,7 @@ typedef struct cpuinfo {
     /* stack for int handlers, switched by hardware */
     void * int_stack;
 
-    /* leaky unix stuff */
+    /* leaky unix stuff - I guess this is really running_frame in disguise */
     void *current_thread;
 } *cpuinfo;
 

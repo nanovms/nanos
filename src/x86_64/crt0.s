@@ -107,6 +107,7 @@ interrupt_entry:
         interrupt_common_bottom
         ; no return
 
+        ; this is a parallel construction with IRETURN and frame_return 
         global interrupt_exit
         global interrupt_rbx_return
 interrupt_exit:

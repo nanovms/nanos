@@ -73,7 +73,7 @@ static u64 kernel_lock;
 
 static void run_thunk(thunk t, int cpustate)
 {
-    rprintf("run think %F\n", t);
+    rprintf("run thunk %F\n", t);
     // as we are walking by, if there is work to be done and an idle cpu,
     // get it to wake up and examine the queue
     if ((queue_length(idle_cpu_queue) > 0 ) &&
@@ -86,10 +86,12 @@ static void run_thunk(thunk t, int cpustate)
     }
         
     current_cpu()->state = cpustate;
-    rprintf("unlockin!");
     spin_unlock(&runloop_lock);
-    apply(t);        
-    halt("handler returned %d", cpustate);    
+    apply(t);
+    // do we want to enforce this? i kinda just want to collapse
+    // the stack and ensure that the thunk actually wanted to come back here
+    //  halt("handler returned %d", cpustate);
+    runloop();
 }
 
 // should we ever be in the user frame here? i .. guess so?
@@ -116,6 +118,7 @@ void runloop()
     
     spin_unlock(&runloop_lock);
     kernel_sleep();
+    halt("shouldn't be here");
 }    
 
 
