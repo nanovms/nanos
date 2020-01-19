@@ -207,7 +207,8 @@ void kernel_sleep(void)
     cpuinfo ci = get_cpuinfo();
     ci->state = cpu_idle;
     enqueue(idle_cpu_queue, pointer_from_u64((u64)ci->id));
-    // wmb() ?  interrupt would probably enforce that     
+    // wmb() ?  interrupt would probably enforce that
+    rprintf("sleep %d\n", ci->id);
     __asm__("sti; hlt" ::: "memory");
     halt("return from kernel sleep");              
 }
@@ -233,6 +234,10 @@ void common_handler()
     cpuinfo ci = current_cpu();
     context f = ci->running_frame;
     int i = f[FRAME_VECTOR];
+
+    f[FRAME_RUN] = f[FRAME_IRET]; // dont like this construction
+    
+    rprintf("interrupt %d %d %d\n", ci->id, ci->state, i);
 
     if (i == spurious_int_vector)
         return;                 /* no EOI */
@@ -345,9 +350,21 @@ void set_ist(int cpu, int i, u64 sp)
     write_tss_u64(cpu, 0x24 + (i - 1) * 8, sp);
 }
 
+
+extern void *interrupt_exit_rbx();
+closure_function(1, 0, void, fix_me_enter_frame_wrapper, void *, f)
+{
+    // we should change this to take rdi .. the asm doc is pretty explicit
+    // about not really excluding rbx from other allocations
+    register u64 rbx __asm__("%rbx") = u64_from_pointer(bound(f));
+    __asm__("jmp interrupt_rbx_return"::"r"(rbx));
+}
+    
+
 context allocate_frame(heap h)
 {
     context f = allocate_zero(h, FRAME_MAX * sizeof(u64));
+    f[FRAME_RUN] = u64_from_pointer(closure(h, fix_me_enter_frame_wrapper, f));
     assert(f != INVALID_ADDRESS);
     return f;
 }

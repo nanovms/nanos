@@ -39,4 +39,8 @@
 #define FRAME_SAVED_FRAME 29
 
 #define FRAME_CR2 30
-#define FRAME_MAX 31
+// dont like this construction
+#define FRAME_RUN 31
+#define FRAME_IRET 32
+#define FRAME_SYSRETURN 33 
+#define FRAME_MAX 34

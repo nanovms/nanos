@@ -5,9 +5,16 @@
 #include <lock.h>
 #include <apic.h>
 
+// currently defined in x86_64.h
+static char *state_strings[] = {
+    "not present",
+    "idle",
+    "kernel",
+    "interrupt",
+    "user",         
+};
 
 static int wakeup_vector;
-extern void interrupt_exit(void);
 
 /* could make a generic hook/register if more users... */
 thunk unix_interrupt_checks;
@@ -16,7 +23,7 @@ thunk unix_interrupt_checks;
 queue runqueue;                 /* kernel space from ?*/
 queue bhqueue;                  /* kernel from interrupt */
 queue deferqueue;               /* kernel kernel (?) */
-queue threadqueue;              /* kernel to user */
+queue thread_queue;              /* kernel to user */
 queue idle_cpu_queue;       
 
 static timestamp runloop_timer_min;
@@ -62,18 +69,24 @@ void process_bhqueue()
 }
 
 static u64 runloop_lock;
+static u64 kernel_lock;
 
 static void run_thunk(thunk t, int cpustate)
 {
+    rprintf("run think %F\n", t);
+    // as we are walking by, if there is work to be done and an idle cpu,
+    // get it to wake up and examine the queue
     if ((queue_length(idle_cpu_queue) > 0 ) &&
         ((queue_length(bhqueue) > 0) ||
          (queue_length(runqueue) > 0) ||
-         (queue_length(threadqueue) > 0))) {
+         (queue_length(thread_queue) > 0))) {
         cpuinfo r = dequeue(idle_cpu_queue);
-        apic_ipi(r->id, 0, wakeup_vector);
+        if (r != INVALID_ADDRESS) 
+            apic_ipi(r->id, 0, wakeup_vector);
     }
         
     current_cpu()->state = cpustate;
+    rprintf("unlockin!");
     spin_unlock(&runloop_lock);
     apply(t);        
     halt("handler returned %d", cpustate);    
@@ -84,20 +97,25 @@ void runloop()
 {
     thunk t;
 
+    rprintf("runloop %d %s r:%d b:%d t:%d\n", current_cpu()->id, state_strings[current_cpu()->state], queue_length(bhqueue), queue_length(runqueue), queue_length(thread_queue));
     disable_interrupts();
     spin_lock(&runloop_lock);
-    //deferqueue scheduled under here
-    if ((t = dequeue(bhqueue)) != INVALID_ADDRESS)
-        run_thunk(t, cpu_kernel);
+    if (spin_try(&kernel_lock)) {
+        //deferqueue scheduled under here
+        if ((t = dequeue(bhqueue)) != INVALID_ADDRESS)
+            run_thunk(t, cpu_kernel);
+        
+        if ((t = dequeue(runqueue)) != INVALID_ADDRESS) {
+            run_thunk(t, cpu_kernel);
+        }
+        spin_unlock(&kernel_lock);
+    }
 
-    if ((t = dequeue(runqueue)) != INVALID_ADDRESS) 
-        run_thunk(t, cpu_kernel);        
-
-    if ((t = dequeue(threadqueue)) != INVALID_ADDRESS) 
-        run_thunk(t, cpu_kernel);
-
+    if ((t = dequeue(thread_queue)) != INVALID_ADDRESS) 
+        run_thunk(t, cpu_user);
+    
+    spin_unlock(&runloop_lock);
     kernel_sleep();
-    while(1); // silence noreturn error
 }    
 
 
@@ -110,12 +128,19 @@ closure_function(0, 0, void, ipi_interrupt)
 void init_scheduler(heap h)
 {
     unix_interrupt_checks = 0;
+    runloop_lock = 0;
+    kernel_lock = 0;
     runloop_timer_min = microseconds(RUNLOOP_TIMER_MIN_PERIOD_US);
     runloop_timer_max = microseconds(RUNLOOP_TIMER_MAX_PERIOD_US);
     wakeup_vector = allocate_interrupt();
     register_interrupt(wakeup_vector, closure(h, ipi_interrupt));    
     assert(wakeup_vector != INVALID_PHYSICAL);    
     idle_cpu_queue = allocate_queue(h, MAX_CPUS);
-    
+    /* scheduling queues init */
+    runqueue = allocate_queue(h, 64);
+    /* XXX bhqueue is large to accomodate vq completions; explore batch processing on vq side */
+    bhqueue = allocate_queue(h, 2048);
+    deferqueue = allocate_queue(h, 64);
+    thread_queue = allocate_queue(h, 64);    
 }
 
