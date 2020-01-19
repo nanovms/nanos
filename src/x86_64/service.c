@@ -15,7 +15,7 @@
 
 #define SMP_TEST
 
-//#define STAGE3_INIT_DEBUG
+#define STAGE3_INIT_DEBUG
 #ifdef STAGE3_INIT_DEBUG
 #define init_debug(x) do {console("INIT: " x "\n");} while(0)
 #else
@@ -96,6 +96,7 @@ closure_function(1, 2, void, fsstarted,
                  tuple, root,
                  filesystem, fs, status, s)
 {
+    rprintf("fs started\n");
     assert(s == STATUS_OK);
     enqueue(runqueue, create_init(&heaps, bound(root), fs));
     closure_finish();
@@ -105,6 +106,7 @@ closure_function(2, 3, void, attach_storage,
                  tuple, root, u64, fs_offset,
                  block_io, r, block_io, w, u64, length)
 {
+    rprintf("attach storage\n");
     // with filesystem...should be hidden as functional handlers on the tuplespace
     heap h = heap_general(&heaps);
     create_filesystem(h,
@@ -270,18 +272,17 @@ static void __attribute__((noinline)) init_service_new_stack()
     init_debug("pci_discover (for VGA)");
     pci_discover(); // early PCI discover to configure VGA console
 
-    /* scheduling queues init */
-    runqueue = allocate_queue(misc, 64);
-    /* XXX bhqueue is large to accomodate vq completions; explore batch processing on vq side */
-    bhqueue = allocate_queue(misc, 2048);
-    deferqueue = allocate_queue(misc, 64);
-
     init_debug("init_cpuinfos");
     init_cpuinfos(kh);
+    current_cpu()->state = cpu_kernel;
 
     /* interrupts */
     init_debug("start_interrupts");
     start_interrupts(kh);
+    // xxx - we depend on interrupts being initialized in order to allocate the
+    // ipi..i guess this is safe because they are disabled?
+    init_debug("init_scheduler");    
+    init_scheduler(misc);
 
     /* platform detection and early init */
     init_debug("probing for KVM");
@@ -305,7 +306,6 @@ static void __attribute__((noinline)) init_service_new_stack()
 
     /* clock, timer, RNG, stack canaries */
     init_clock();
-    init_scheduler(misc);
     init_debug("RNG");
     init_hwrand();
     init_random();

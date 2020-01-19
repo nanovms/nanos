@@ -331,7 +331,7 @@ typedef struct sigaction *sigaction;
 #define SIGACT_SIGNALFD 0x00000002 /* TODO */
 
 extern thread dummy_thread;
-extern thread current;
+#define current ((thread)(current_cpu()->current_thread))
 
 static inline thread thread_from_tid(process p, int tid)
 {

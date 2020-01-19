@@ -88,6 +88,7 @@ extern common_handler
         mov [rbx+FRAME_SS*8], rax
         cld
         call common_handler
+        ; noreturn               
 %endmacro
 
 global interrupt_entry_with_ec
@@ -104,13 +105,14 @@ interrupt_entry:
         check_swapgs 16
         interrupt_common_top
         interrupt_common_bottom
-        ; fall through to interrupt_exit
+        ; no return
 
-global interrupt_exit
+        global interrupt_exit
+        global interrupt_rbx_return
 interrupt_exit:
         mov rbx, [gs:0]
         mov rbx, [rbx+8]        ; running_frame
-
+interrupt_rbx_return:   
         push qword [rbx+FRAME_SS*8]    ; ss
         push qword [rbx+FRAME_RSP*8]   ; rsp
         push qword [rbx+FRAME_FLAGS*8] ; rflags
