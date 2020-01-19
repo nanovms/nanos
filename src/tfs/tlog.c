@@ -208,11 +208,10 @@ closure_function(2, 1, void, log_read_complete,
 
 void read_log(log tl, u64 offset, u64 size, status_handler sh)
 {
-    rprintf("read log");
     tl->staging = allocate_buffer(tl->h, size);
     status_handler tlc = closure(tl->h, log_read_complete, tl, sh);
     range r = log_block_range(tl, tl->staging->length);
-    rprintf("blocks %R\n", r);
+    // rprintf("blocks %R\n", r);
     apply(tl->fs->r, tl->staging->contents, r, tlc);
 }
 

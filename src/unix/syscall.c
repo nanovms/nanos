@@ -1931,7 +1931,7 @@ static void syscall_debug()
 {
     context f = get_running_frame();     /* usually current->frame, except for sigreturn */
     int call = f[FRAME_VECTOR];
-    f[FRAME_RUN] = f[FRAME_SYSRETURN];
+    f[FRAME_RUN] = f[FRAME_SYSRETURN] = u64_from_pointer(((thread)current_cpu()->current_thread)->run);
     set_syscall_return((thread)f, -ENOSYS); // xx - not happy about this cast
     
     if (call < 0 || call >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0])) {
@@ -1972,6 +1972,7 @@ static void syscall_debug()
     current->syscall = -1;
     // i dont know that we actually want to defer this...its just easier for the moment to hew
     // to the general model and make exceptions later
+    rprintf("syscall complete %p\n", pointer_from_u64(f[FRAME_SYSRETURN]));
     enqueue(thread_queue, pointer_from_u64(f[FRAME_SYSRETURN]));
     runloop();
 }
