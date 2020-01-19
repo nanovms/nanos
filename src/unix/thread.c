@@ -2,7 +2,6 @@
 #include <ftrace.h>
 
 thread dummy_thread;
-thread current;
 
 sysreturn gettid()
 {
@@ -45,7 +44,8 @@ static inline void thread_make_runnable(thread t)
 {
     t->blocked_on = 0;
     t->syscall = -1;
-    enqueue(runqueue, t->run);
+    // dispatch signal?
+    enqueue(thread_queue, t->run);
 }
 
 sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, unsigned long newtls)
@@ -110,7 +110,7 @@ closure_function(1, 0, void, run_thread,
 {
     thread t = bound(t);
     thread old = current;
-    current = t;
+    current_cpu()->current_thread = t;
 
     /* ftrace needs to know about the switch event */
     ftrace_thread_switch(old, current);
@@ -288,7 +288,7 @@ void exit_thread(thread t)
 
     ftrace_thread_deinit(t, dummy_thread);
 
-    current = dummy_thread;
+    current_cpu()->current_thread = dummy_thread;
     set_running_frame(dummy_thread->frame);
     refcount_release(&t->refcount);
 }

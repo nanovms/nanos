@@ -1929,14 +1929,18 @@ context syscall_frame;
 
 static void syscall_debug()
 {
-    sysreturn rv = -ENOSYS;
     context f = get_running_frame();     /* usually current->frame, except for sigreturn */
     int call = f[FRAME_VECTOR];
+    f[FRAME_RUN] = f[FRAME_SYSRETURN];
+    set_syscall_return((thread)f, -ENOSYS); // xx - not happy about this cast
+    
     if (call < 0 || call >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0])) {
+        enqueue(thread_queue, pointer_from_u64(f[FRAME_SYSRETURN]));
         thread_log(current, "invalid syscall %d", call);
-        goto out;
+        runloop();
     }
     current->syscall = call;
+    // should we cache this for performance?
     void *debugsyscalls = table_find(current->p->process_root, sym(debugsyscalls));
     struct syscall *s = current->p->syscalls + call;
     if (debugsyscalls) {
@@ -1951,26 +1955,25 @@ static void syscall_debug()
 
         /* exchange frames so that a fault won't clobber the syscall
            context, but retain the fault handler that has current enclosed */
-        // make frame_{push,pop} a true stack-of-frames?
+        // make frame_{push,pop} a true stack-of-frames? - we shouldn't need to pop really?
         syscall_frame[FRAME_FAULT_HANDLER] = f[FRAME_FAULT_HANDLER];
         set_running_frame(syscall_frame);
 
-        rv = h(f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]);
+        sysreturn rv = h(f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]);
+        set_syscall_return(current, rv);
         if (debugsyscalls)
             thread_log(current, "direct return: %ld, rsp 0x%lx", rv, f[FRAME_RSP]);
-        proc_enter_user(current->p);
-        set_running_frame(f);
     } else if (debugsyscalls) {
         if (s->name)
             thread_log(current, "nosyscall %s", s->name);
         else
             thread_log(current, "nosyscall %d", call);
     }
-
-  out:
-    f[FRAME_RAX] = rv;
     current->syscall = -1;
-    dispatch_signals(current);
+    // i dont know that we actually want to defer this...its just easier for the moment to hew
+    // to the general model and make exceptions later
+    enqueue(thread_queue, pointer_from_u64(f[FRAME_SYSRETURN]));
+    runloop();
 }
 
 boolean syscall_notrace(int syscall)

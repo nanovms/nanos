@@ -153,6 +153,14 @@ static void format_range(buffer dest, struct formatter_state *s, vlist *a)
     bprintf(dest, "[0x%lx 0x%lx)", r.start, r.end);
 }
 
+static void format_closure(buffer dest, struct formatter_state *s, vlist *a)
+{
+    // xxx - we can probably do better here?
+    void **k = varg(*a, void **);
+    struct _closure_common *c = k[1];
+    bprintf(dest, "%s", &c->name);
+}
+
 void init_extra_prints()
 {
     register_format('t', format_tuple, 0);
@@ -161,4 +169,5 @@ void init_extra_prints()
     register_format('T', format_timestamp, 0);
     register_format('R', format_range, 0);
     register_format('C', format_csum_buffer, 0);
+    register_format('F', format_closure, 0);
 }

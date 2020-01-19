@@ -104,6 +104,9 @@ typedef struct cpuinfo {
 
     /* stack for int handlers, switched by hardware */
     void * int_stack;
+
+    /* leaky unix stuff */
+    void *current_thread;
 } *cpuinfo;
 
 #define cpu_not_present 0
@@ -293,7 +296,7 @@ typedef closure_type(fault_handler, context, context);
 void configure_timer(timestamp rate, thunk t);
 
 void runloop() __attribute__((noreturn));
-void kernel_sleep();
+void kernel_sleep() __attribute__((noreturn));
 void kernel_delay(timestamp delta);
 
 void init_clock(void);
@@ -327,3 +330,4 @@ static inline void wake_cpu(int cpu)
 void kern_lock(void);
 void kern_unlock(void);
 void init_scheduler(heap);
+extern void interrupt_exit(void);
