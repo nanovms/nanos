@@ -1,6 +1,6 @@
 #include <tfs_internal.h>
 
-#define TFS_DEBUG
+//#define TFS_DEBUG
 //#define TFS_REPORT_SHA256
 #if defined(TFS_DEBUG)
 #define tfs_debug(x, ...) do {rprintf("TFS: " x, ##__VA_ARGS__);} while(0)
@@ -973,10 +973,8 @@ closure_function(2, 1, void, log_complete,
                  filesystem_complete, fc, filesystem, fs,
                  status, s)
 {
-    rprintf("log complete\n");
     filesystem fs = bound(fs);
     fixup_directory(fs->root, fs->root);
-    rprintf("run complete\n");
     apply(bound(fc), fs, s);
     closure_finish();
 }
