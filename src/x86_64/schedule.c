@@ -73,7 +73,7 @@ static u64 kernel_lock;
 
 static void run_thunk(thunk t, int cpustate)
 {
-    rprintf("run thunk %F\n", t);
+    rprintf("%F\n", t);
     // as we are walking by, if there is work to be done and an idle cpu,
     // get it to wake up and examine the queue
     if ((queue_length(idle_cpu_queue) > 0 ) &&
@@ -99,7 +99,7 @@ void runloop()
 {
     thunk t;
 
-    rprintf("runloop %d %s r:%d b:%d t:%d\n", current_cpu()->id, state_strings[current_cpu()->state], queue_length(bhqueue), queue_length(runqueue), queue_length(thread_queue));
+    rprintf("runloop %d %s r:%d b:%d t:%d ", current_cpu()->id, state_strings[current_cpu()->state], queue_length(bhqueue), queue_length(runqueue), queue_length(thread_queue));
     disable_interrupts();
     spin_lock(&runloop_lock);
     if (spin_try(&kernel_lock)) {
@@ -115,7 +115,8 @@ void runloop()
 
     if ((t = dequeue(thread_queue)) != INVALID_ADDRESS) 
         run_thunk(t, cpu_user);
-    
+
+    rprintf("sleep\n");
     spin_unlock(&runloop_lock);
     kernel_sleep();
     halt("shouldn't be here");

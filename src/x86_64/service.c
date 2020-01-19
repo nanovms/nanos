@@ -96,7 +96,6 @@ closure_function(1, 2, void, fsstarted,
                  tuple, root,
                  filesystem, fs, status, s)
 {
-    rprintf("fs started\n");
     assert(s == STATUS_OK);
     enqueue(runqueue, create_init(&heaps, bound(root), fs));
     closure_finish();
@@ -106,7 +105,6 @@ closure_function(2, 3, void, attach_storage,
                  tuple, root, u64, fs_offset,
                  block_io, r, block_io, w, u64, length)
 {
-    rprintf("attach storage\n");
     // with filesystem...should be hidden as functional handlers on the tuplespace
     heap h = heap_general(&heaps);
     create_filesystem(h,
