@@ -230,7 +230,9 @@ static void init_cpuinfos(kernel_heaps kh)
 
         /* frame and stacks */
         ci->misc_frame = allocate_frame(h);
+        ci->misc_frame[FRAME_QUEUE] = u64_from_pointer(runqueue); // xxx 
         ci->bh_frame = allocate_frame(h);
+        ci->misc_frame[FRAME_QUEUE] = u64_from_pointer(runqueue);        
         ci->syscall_stack = allocate_stack(pages, SYSCALL_STACK_PAGES);
         ci->fault_stack = allocate_stack(pages, FAULT_STACK_PAGES);
         ci->int_stack = allocate_stack(pages, INT_STACK_PAGES);

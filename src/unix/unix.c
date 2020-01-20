@@ -33,7 +33,7 @@ void deallocate_fd(process p, int fd)
     deallocate_u64(p->fdallocator, fd, 1);
 }
 
-closure_function(1, 1, context, default_fault_handler,
+closure_function(1, 1, void, default_fault_handler,
                  thread, t,
                  context, frame)
 {
@@ -43,10 +43,14 @@ closure_function(1, 1, context, default_fault_handler,
     */
     if (frame[FRAME_VECTOR] == 14) {
         /* XXX move this to x86_64 */
-        if (unix_fault_page(frame[FRAME_CR2], frame))
-            return frame;
+        rprintf("unix fault page\n");
+        if (unix_fault_page(frame[FRAME_CR2], frame)) {
+            schedule_frame(frame);
+            return;
+        }
     }
 
+    rprintf("not handled %p\n", current_cpu());
     print_frame(frame);
     print_stack(frame);
 
@@ -57,7 +61,6 @@ closure_function(1, 1, context, default_fault_handler,
     } else {
         halt("halt\n");
     }
-    return frame;
 }
 
 fault_handler create_fault_handler(heap h, thread t)

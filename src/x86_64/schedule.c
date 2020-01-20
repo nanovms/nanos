@@ -6,7 +6,7 @@
 #include <apic.h>
 
 // currently defined in x86_64.h
-static char *state_strings[] = {
+static char *state_strings_backing[] = {
     "not present",
     "idle",
     "kernel",
@@ -14,6 +14,7 @@ static char *state_strings[] = {
     "user",         
 };
 
+char **state_strings = state_strings_backing;
 static int wakeup_vector;
 
 /* could make a generic hook/register if more users... */
@@ -35,6 +36,7 @@ static void timer_update(void)
     timestamp timeout = MAX(MIN(timer_check(), runloop_timer_max), runloop_timer_min);
     runloop_timer(timeout);
 }
+
 
 NOTRACE
 void process_bhqueue()
