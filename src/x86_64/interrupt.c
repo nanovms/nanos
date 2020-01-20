@@ -236,7 +236,7 @@ void common_handler()
 
     f[FRAME_RUN] = f[FRAME_IRET]; // dont like this construction
     
-    rprintf("interrupt %d %d %d\n", ci->id, ci->state, i);
+    rprintf("interrupt %d %s %d %p %p\n", ci->id, state_strings[ci->state], i, f, f[FRAME_IRET]);
 
     if (i == spurious_int_vector)
         return;                 /* no EOI */
@@ -268,11 +268,14 @@ void common_handler()
     } else {
         fault_handler fh = pointer_from_u64(f[FRAME_FAULT_HANDLER]);
         if (fh) {
-            set_running_frame(apply(fh, f));
+            // this was set_running_frame
+            apply(fh, f);
+            rprintf("do me\n");
         } else {
             console("\nno fault handler for frame ");
             print_u64(u64_from_pointer(f));
             /* make a half attempt to identify it short of asking unix */
+            /* we should just have a name here */
             if (f == current_cpu()->misc_frame)
                 console(" (misc frame)\n");
             else if (f == current_cpu()->bh_frame)
@@ -364,7 +367,7 @@ closure_function(1, 0, void, fix_me_enter_frame_wrapper, void *, f)
 context allocate_frame(heap h)
 {
     context f = allocate_zero(h, FRAME_MAX * sizeof(u64));
-    f[FRAME_RUN] = u64_from_pointer(closure(h, fix_me_enter_frame_wrapper, f));
+    f[FRAME_IRET] = u64_from_pointer(closure(h, fix_me_enter_frame_wrapper, f));
     assert(f != INVALID_ADDRESS);
     return f;
 }

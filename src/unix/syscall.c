@@ -1935,7 +1935,7 @@ static void syscall_debug()
     set_syscall_return((thread)f, -ENOSYS); // xx - not happy about this cast
     
     if (call < 0 || call >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0])) {
-        enqueue(thread_queue, pointer_from_u64(f[FRAME_SYSRETURN]));
+        schedule_frame(f);
         thread_log(current, "invalid syscall %d", call);
         runloop();
     }
@@ -1970,10 +1970,9 @@ static void syscall_debug()
             thread_log(current, "nosyscall %d", call);
     }
     current->syscall = -1;
-    // i dont know that we actually want to defer this...its just easier for the moment to hew
+    // i dont know that we actually want to defer the syscall return...its just easier for the moment to hew
     // to the general model and make exceptions later
-    rprintf("syscall complete %p\n", pointer_from_u64(f[FRAME_SYSRETURN]));
-    enqueue(thread_queue, pointer_from_u64(f[FRAME_SYSRETURN]));
+    schedule_frame(f);    
     runloop();
 }
 
