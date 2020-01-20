@@ -291,7 +291,7 @@ void physically_backed_dealloc_virtual(heap h, u64 x, bytes length);
 void print_stack(context c);
 void print_frame(context f);
 
-typedef closure_type(fault_handler, context, context);
+typedef closure_type(fault_handler, void, context);
 
 void configure_timer(timestamp rate, thunk t);
 
@@ -331,3 +331,8 @@ void kern_lock(void);
 void kern_unlock(void);
 void init_scheduler(heap);
 extern void interrupt_exit(void);
+extern char **state_strings;
+
+// static inline void schedule_frame(context f) stupid header deps
+#define schedule_frame(__f)  enqueue((queue)pointer_from_u64((__f)[FRAME_QUEUE]), pointer_from_u64((__f)[FRAME_RUN]))
+

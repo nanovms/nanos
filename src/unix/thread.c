@@ -45,7 +45,7 @@ void thread_make_runnable(thread t)
     t->blocked_on = 0;
     t->syscall = -1;
     // dispatch signal? - happens right now in thread_run
-    enqueue(thread_queue, t->run);
+    schedule_frame((context)t);
 }
 
 sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, unsigned long newtls)
@@ -155,7 +155,7 @@ void thread_yield(void)
     assert(!current->blocked_on);
     current->syscall = -1;
     set_syscall_return(current, 0);
-    enqueue(runqueue, current->run);
+    schedule_frame(current->frame);
     runloop();
 }
 
@@ -189,6 +189,18 @@ define_closure_function(1, 0, void, free_thread,
     deallocate(heap_general(get_kernel_heaps()), bound(t), sizeof(struct thread));
 }
 
+// XXX - dup with interrupt.c
+// this is a parallel construction with IRETURN and frame_return(?)
+extern void *interrupt_exit_rbx();
+closure_function(1, 0, void, fix_me_enter_frame_wrapper, void *, f)
+{
+    // we should change this to take rdi .. the asm doc is pretty explicit
+    // about not really excluding rbx from other allocations
+    register u64 rbx __asm__("%rbx") = u64_from_pointer(bound(f));
+    __asm__("jmp interrupt_rbx_return"::"r"(rbx));
+}
+
+
 thread create_thread(process p)
 {
     // heap I guess
@@ -217,6 +229,11 @@ thread create_thread(process p)
     t->name[0] = '\0';
     zero(t->frame, sizeof(t->frame));
     t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(create_fault_handler(h, t));
+    // xxx - dup with allocate_frame
+    t->frame[FRAME_IRET] = u64_from_pointer(closure(h, fix_me_enter_frame_wrapper, &t->frame));
+    t->frame[FRAME_QUEUE] = u64_from_pointer(thread_queue);
+    rprintf("user frame %p\n", t);
+    
     t->run = closure(h, run_thread, t);
     t->blocked_on = 0;
     t->file_op_is_complete = false;
