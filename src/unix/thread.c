@@ -40,6 +40,7 @@ sysreturn arch_prctl(int code, unsigned long addr)
     return 0;
 }
 
+// lets...get rid of this? 
 void thread_make_runnable(thread t)
 {
     t->blocked_on = 0;
@@ -122,13 +123,15 @@ closure_function(1, 0, void, run_thread,
     set_running_frame(t->frame);
 
     /* cover wake-before-sleep situations (e.g. sched yield, fs ops that don't go to disk, etc.) */
-    current->blocked_on = 0;
+    t->blocked_on = 0;
+    t->syscall = -1;
 
     /* check if we have a pending signal */
     dispatch_signals(t);
 
     /* running frame may have changed to signal handling frame */
     context f = get_running_frame();
+    //    thread_make_runnable();
     f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
     IRETURN(f);
 }
@@ -191,19 +194,6 @@ define_closure_function(1, 0, void, free_thread,
     deallocate(heap_general(get_kernel_heaps()), bound(t), sizeof(struct thread));
 }
 
-// XXX - dup with interrupt.c
-// this is a parallel construction with IRETURN and frame_return(?)
-extern void *interrupt_exit_rbx();
-closure_function(1, 0, void, fix_me_enter_frame_wrapper, void *, f)
-{
-    // we should change this to take rdi .. the asm doc is pretty explicit
-    // about not really excluding rbx from other allocations
-    rprintf("fame is: %p\n",  u64_from_pointer(bound(f)));
-    register u64 rbx __asm__("%rbx") = u64_from_pointer(bound(f));
-    __asm__("jmp interrupt_rbx_return"::"r"(rbx));
-}
-
-
 thread create_thread(process p)
 {
     // heap I guess
@@ -231,13 +221,12 @@ thread create_thread(process p)
     t->clear_tid = 0;
     t->name[0] = '\0';
     zero(t->frame, sizeof(t->frame));
+    t->run = closure(h, run_thread, t);
+    
     t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(create_fault_handler(h, t));
     // xxx - dup with allocate_frame
-    t->frame[FRAME_IRET] = u64_from_pointer(closure(h, fix_me_enter_frame_wrapper, &t->frame));
+    t->frame[FRAME_IRET] = u64_from_pointer(t->run);
     t->frame[FRAME_QUEUE] = u64_from_pointer(thread_queue);
-    rprintf("user frame %p\n", t);
-    
-    t->run = closure(h, run_thread, t);
     t->frame[FRAME_SYSRETURN] = u64_from_pointer(t->run);
     t->frame[FRAME_RUN] = t->frame[FRAME_SYSRETURN];
     
