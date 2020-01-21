@@ -44,7 +44,9 @@ void thread_make_runnable(thread t)
 {
     t->blocked_on = 0;
     t->syscall = -1;
-    // dispatch signal? - happens right now in thread_run
+    // setting this to FRAME_IRET just stalls rather than running the thread. would be nice
+    // to understand why
+    t->frame[FRAME_RUN] = t->frame[FRAME_SYSRETURN];
     schedule_frame((context)t);
 }
 
@@ -196,6 +198,7 @@ closure_function(1, 0, void, fix_me_enter_frame_wrapper, void *, f)
 {
     // we should change this to take rdi .. the asm doc is pretty explicit
     // about not really excluding rbx from other allocations
+    rprintf("fame is: %p\n",  u64_from_pointer(bound(f)));
     register u64 rbx __asm__("%rbx") = u64_from_pointer(bound(f));
     __asm__("jmp interrupt_rbx_return"::"r"(rbx));
 }
@@ -235,6 +238,8 @@ thread create_thread(process p)
     rprintf("user frame %p\n", t);
     
     t->run = closure(h, run_thread, t);
+    t->frame[FRAME_SYSRETURN] = u64_from_pointer(t->run);
+    
     t->blocked_on = 0;
     t->file_op_is_complete = false;
     init_sigstate(&t->signals);
@@ -305,8 +310,9 @@ void exit_thread(thread t)
 
     ftrace_thread_deinit(t, dummy_thread);
 
-    current_cpu()->current_thread = dummy_thread;
-    set_running_frame(dummy_thread->frame);
+    // not sure if serious - maybe ftrace needs this?
+    //    current_cpu()->current_thread = dummy_thread;
+    //    set_running_frame(dummy_thread->frame);
     refcount_release(&t->refcount);
 }
 
