@@ -46,7 +46,7 @@ void thread_make_runnable(thread t)
     t->syscall = -1;
     // setting this to FRAME_IRET just stalls rather than running the thread. would be nice
     // to understand why
-    t->frame[FRAME_RUN] = t->frame[FRAME_SYSRETURN];
+    //  t->frame[FRAME_RUN] = t->frame[FRAME_SYSRETURN];
     schedule_frame((context)t);
 }
 
@@ -239,6 +239,7 @@ thread create_thread(process p)
     
     t->run = closure(h, run_thread, t);
     t->frame[FRAME_SYSRETURN] = u64_from_pointer(t->run);
+    t->frame[FRAME_RUN] = t->frame[FRAME_SYSRETURN];
     
     t->blocked_on = 0;
     t->file_op_is_complete = false;

@@ -1942,6 +1942,7 @@ static void syscall_debug()
     current->syscall = call;
     // should we cache this for performance?
     void *debugsyscalls = table_find(current->p->process_root, sym(debugsyscalls));
+    debugsyscalls = (void *)1;
     struct syscall *s = current->p->syscalls + call;
     if (debugsyscalls) {
         if (s->name)
