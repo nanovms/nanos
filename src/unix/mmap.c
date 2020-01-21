@@ -784,6 +784,7 @@ static void add_varea(process p, u64 start, u64 end, heap vheap, boolean allow_f
 
 void mmap_process_init(process p)
 {
+    rprintf("map process init\n");
     kernel_heaps kh = &p->uh->kh;
     heap h = heap_general(kh);
     range identity_map = irange(kh->identity_reserved_start, kh->identity_reserved_end);
