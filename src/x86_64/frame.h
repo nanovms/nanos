@@ -35,13 +35,11 @@
 #define FRAME_ERROR_CODE 25
 #define FRAME_FAULT_HANDLER 26
 #define FRAME_STACK_TOP 27
-#define FRAME_STACK_BOTTOM 28 // ??
+#define FRAME_STACK_BOTTOM 28 /* ??*/
 #define FRAME_SAVED_FRAME 29
 
-// is this duped?
 #define FRAME_CR2 30
-// dont like this construction
-#define FRAME_RUN 31
+#define FRAME_RUN 31 /*dont like this construction */
 #define FRAME_IRET 32
 #define FRAME_SYSRETURN 33
 #define FRAME_QUEUE 34 
