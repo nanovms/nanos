@@ -62,6 +62,7 @@ closure_function(1, 2, parser, til_newline,
     return self;
 }
 
+// leaky; no finite lifespan
 closure_function(2, 2, parser, eat_whitespace,
                  heap, h, parser, finish,
                  parser, self, character, in)
@@ -72,10 +73,7 @@ closure_function(2, 2, parser, eat_whitespace,
     if (member(whitespace, in))
         return self;
 
-    parser f = bound(finish);
-    deallocate_closure(self);
-    closure_finish();
-    return apply(f, in);
+    return apply(bound(finish), in);
 }
 
 static parser ignore_whitespace(heap h, parser next)
@@ -166,6 +164,7 @@ closure_function(3, 1, parser, parse_value_string,
                  heap, h, completion, c, buffer, b,
                  character, in);
 
+// leaky; no finite lifespan
 closure_function(3, 1, parser, parse_value,
                  heap, h, completion, c, err_internal, err,
                  character, in)
@@ -189,10 +188,10 @@ closure_function(3, 1, parser, parse_value,
         q = ignore_whitespace(h, (parser)closure(h, parse_value_string, h, c, allocate_buffer(h, 8)));
         p = apply(q, in);
     }
-    closure_finish();
     return p;
 }
 
+// leaky; no finite lifespan
 closure_function(3, 1, parser, parse_tuple,
                  heap, h, completion, c, err_internal, err,
                  character, in)
@@ -206,7 +205,6 @@ closure_function(3, 1, parser, parse_tuple,
         p = apply(bound(err), aprintf(bound(h), "parse_tuple fail, leading char '%c'", in));
     else
         p = ignore_whitespace(h, combinate(h, closure(h, is_end_of_tuple, h, c, allocate_tuple(), err)));
-    closure_finish();
     return p;
 }
 
@@ -243,11 +241,10 @@ static parser is_end_of_tuple(struct _closure_is_end_of_tuple *__self, parser se
 {
     heap h = bound(h);
     if (in == ')') {
-        completion c = bound(c);
-        tuple t = bound(t);
+        parser p = apply(bound(c), bound(t));
         deallocate_closure(self);
         closure_finish();
-        return apply(c, t);
+        return p;
     }
 
     // XXX
@@ -268,11 +265,10 @@ static parser is_end_of_vector(struct _closure_is_end_of_vector *__self, parser 
         // doesnt handle whitespace before end
         return apply(ignore_whitespace(h, (parser)closure(h, parse_value, h, vc, bound(e))), in);
     }
-    completion c = bound(c);
-    tuple t = bound(t);
+    parser p = apply(bound(c), bound(t));
     deallocate_closure(self);
     closure_finish();
-    return apply(c, t);
+    return p;
 }
 
 static parser parse_value_string(struct _closure_parse_value_string *__self, character in)
@@ -300,26 +296,41 @@ closure_function(2, 1, parser, bridge_err,
 }
 
 closure_function(3, 1, parser, bridge_completion,
-                 heap, h, parse_finish, c, err_internal, err,
+                 parse_finish, c, err_internal, err, parser *, start,
                  void *, v)
 {
-    heap h = bound(h);
     apply(bound(c), v);
-    return ignore_whitespace(h, (parser)closure(h, parse_tuple, h, (completion)closure_self(), bound(err)));
+    return *bound(start);
+}
+
+static void init_parser(heap h)
+{
+    if (whitespace)
+        return;
+    whitespace = charset_from_string(h, " \n\t");
+    name_terminal = charset_from_string(h, "()[]");
+    value_terminal = charset_union(h, name_terminal, whitespace);
+    property_sigils = charset_from_string(h, ":|/"); // dot should be here
+    // variadic
+    name_terminal = charset_union(h, charset_union(h, name_terminal, property_sigils), whitespace);
 }
 
 parser tuple_parser(heap h, parse_finish c, parse_error err)
 {
-    if (!whitespace) whitespace = charset_from_string(h, " \n\t");
-    if (!name_terminal) name_terminal = charset_from_string(h, "()[]");
-    value_terminal = charset_union(h, name_terminal, whitespace);
-    if (!property_sigils) property_sigils = charset_from_string(h, ":|/"); // dot should be here
-    // variadic
-    name_terminal = charset_union(h, charset_union(h, name_terminal, property_sigils), whitespace);
-    // error close over line number
+    init_parser(h);
+    parser *p = allocate(h, sizeof(parser));
     err_internal k = closure(h, bridge_err, h, err);
-    completion bc = closure(h, bridge_completion, h, c, k);
-    return ignore_whitespace(h, (parser)closure(h, parse_tuple, h, bc, k));
+    completion bc = closure(h, bridge_completion, c, k, p);
+    return (*p = ignore_whitespace(h, (parser)closure(h, parse_tuple, h, bc, k)));
+}
+
+parser value_parser(heap h, parse_finish c, parse_error err)
+{
+    init_parser(h);
+    parser *p = allocate(h, sizeof(parser));
+    err_internal k = closure(h, bridge_err, h, err);
+    completion bc = closure(h, bridge_completion, c, k, p);
+    return (*p = ignore_whitespace(h, (parser)closure(h, parse_value, h, bc, k)));
 }
 
 parser parser_feed(parser p, buffer b)

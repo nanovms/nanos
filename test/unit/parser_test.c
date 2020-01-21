@@ -473,7 +473,7 @@ PARSE_TEST(single_closing_vector_bracket_test, "]")
 
 void init (heap h)
 {
-    p = tuple_parser(h, closure(h, finish, h), closure(h, perr));
+    p = value_parser(h, closure(h, finish, h), closure(h, perr));
 }
 
 typedef boolean (*test_func)(heap h);
