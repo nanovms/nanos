@@ -1931,7 +1931,7 @@ static void syscall_debug()
 {
     context f = get_running_frame();     /* usually current->frame, except for sigreturn */
     int call = f[FRAME_VECTOR];
-    f[FRAME_RUN] = f[FRAME_SYSRETURN] = u64_from_pointer(((thread)current_cpu()->current_thread)->run);
+    f[FRAME_RUN] = f[FRAME_SYSRETURN];
     set_syscall_return((thread)f, -ENOSYS); // xx - not happy about this cast
     
     if (call < 0 || call >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0])) {
