@@ -97,13 +97,36 @@ void thread_log_internal(thread t, const char *desc, ...)
         //    }
 }
 
-closure_function(1, 0, void, run_thread,
-                 thread, t)
+// this is a parallel construction with IRETURN and frame_return..fix
+extern void *interrupt_exit_rbx();
+static void fix_me_iret_wrapper(context f)
+{
+    // we should change this to take rdi .. the asm doc is pretty explicit
+    // about not really excluding rbx from other allocations
+    register u64 rbx __asm__("%rbx") = u64_from_pointer(f);
+    __asm__("jmp interrupt_rbx_return"::"r"(rbx));
+}
+
+// this is a parallel construction with IRETURN and frame_return..fix
+extern void *frame_return();
+static void fix_me_sysret_wrapper(context f)
+{
+    // we should change this to take rdi .. the asm doc is pretty explicit
+    // about not really excluding rbx from other allocations
+    register u64 rax __asm__("%rax") = u64_from_pointer(f);
+    __asm__("jmp frame_return"::"r"(rax));
+}
+
+typedef void (*restorer)(context);
+// actually start the thread
+closure_function(2, 0, void, run_thread,
+                 thread, t,
+                 restorer, restore_function)
 {
     thread t = bound(t);
     thread old = current;
     current_cpu()->current_thread = t;
-
+    rprintf("run thread\n");
     /* ftrace needs to know about the switch event */
     ftrace_thread_switch(old, current);
 
@@ -118,10 +141,11 @@ closure_function(1, 0, void, run_thread,
     /* check if we have a pending signal */
     dispatch_signals(t);
 
+    context f = current_cpu()->running_frame;
     /* running frame may have changed to signal handling frame */
-    context f = get_running_frame();
-    f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);    
-    schedule_frame(f);
+    f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
+    rprintf("run thread %p %p %F\n", t, f, f[FRAME_RUN]);
+    apply((thunk)pointer_from_u64(f[FRAME_RUN]));
 }
 
 void thread_sleep_interruptible(void)
@@ -209,13 +233,12 @@ thread create_thread(process p)
     t->clear_tid = 0;
     t->name[0] = '\0';
     zero(t->frame, sizeof(t->frame));
-    t->run = closure(h, run_thread, t);
     
     t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(create_fault_handler(h, t));
     // xxx - dup with allocate_frame
-    t->frame[FRAME_IRET] = u64_from_pointer(t->run);
     t->frame[FRAME_QUEUE] = u64_from_pointer(thread_queue);
-    t->frame[FRAME_SYSRETURN] = u64_from_pointer(t->run);
+    t->frame[FRAME_IRET] = u64_from_pointer(closure(h, run_thread, t, fix_me_iret_wrapper));
+    t->frame[FRAME_SYSRETURN] = u64_from_pointer(closure(h, run_thread, t, fix_me_sysret_wrapper));
     t->frame[FRAME_RUN] = t->frame[FRAME_SYSRETURN];
     
     t->blocked_on = 0;

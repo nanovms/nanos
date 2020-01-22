@@ -148,8 +148,12 @@ void vqmsg_commit(virtqueue vq, vqmsg m, vqfinish completion)
 closure_function(2, 0, void, vq_complete,
                  vqfinish, f, u16, len)
 {
+    rprintf("vq complete %F\n", bound(f));
     apply(bound(f), bound(len));
     closure_finish();
+    //reset stack
+    kern_unlock();
+    runloop();
 }
 
 closure_function(1, 0, void, vq_interrupt,

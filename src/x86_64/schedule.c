@@ -73,6 +73,12 @@ void process_bhqueue()
 static u64 runloop_lock;
 static u64 kernel_lock;
 
+void kern_unlock()
+{
+    spin_unlock(&kernel_lock);
+}
+
+
 static void run_thunk(thunk t, int cpustate)
 {
     rprintf("%F\n", t);
@@ -92,8 +98,7 @@ static void run_thunk(thunk t, int cpustate)
     apply(t);
     // do we want to enforce this? i kinda just want to collapse
     // the stack and ensure that the thunk actually wanted to come back here
-    //  halt("handler returned %d", cpustate);
-    runloop();
+    //    halt("handler returned %d", cpustate);
 }
 
 // should we ever be in the user frame here? i .. guess so?
@@ -106,14 +111,22 @@ void runloop()
     spin_lock(&runloop_lock);
     if (spin_try(&kernel_lock)) {
         //deferqueue scheduled under here
-        if ((t = dequeue(bhqueue)) != INVALID_ADDRESS)
+        if ((t = dequeue(bhqueue)) != INVALID_ADDRESS) {
             run_thunk(t, cpu_kernel);
+            rprintf("bh return\n");
+            kern_unlock();
+            runloop();
+            
+        }
         
         if ((t = dequeue(runqueue)) != INVALID_ADDRESS) {
             run_thunk(t, cpu_kernel);
+            rprintf("rq return\n");
+            kern_unlock();
+            runloop();            
         }
         spin_unlock(&kernel_lock);
-    } else rprintf("kenrel locko!\n");
+    }
 
     if ((t = dequeue(thread_queue)) != INVALID_ADDRESS) 
         run_thunk(t, cpu_user);
