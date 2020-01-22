@@ -40,17 +40,6 @@ sysreturn arch_prctl(int code, unsigned long addr)
     return 0;
 }
 
-// lets...get rid of this? 
-void thread_make_runnable(thread t)
-{
-    t->blocked_on = 0;
-    t->syscall = -1;
-    // setting this to FRAME_IRET just stalls rather than running the thread. would be nice
-    // to understand why
-    //  t->frame[FRAME_RUN] = t->frame[FRAME_SYSRETURN];
-    schedule_frame((context)t);
-}
-
 sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, unsigned long newtls)
 {
     thread_log(current, "clone: flags %lx, child_stack %p, ptid %p, ctid %p, newtls %lx",
@@ -76,7 +65,7 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, un
         *ptid = t->tid;
     if (flags & CLONE_CHILD_CLEARTID)
         t->clear_tid = ctid;
-    thread_make_runnable(t);
+    schedule_frame(&t->frame);
     return t->tid;
 }
 
@@ -131,9 +120,8 @@ closure_function(1, 0, void, run_thread,
 
     /* running frame may have changed to signal handling frame */
     context f = get_running_frame();
-    //    thread_make_runnable();
-    f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
-    IRETURN(f);
+    f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);    
+    schedule_frame(f);
 }
 
 void thread_sleep_interruptible(void)
@@ -170,7 +158,7 @@ void thread_wakeup(thread t)
                t->blocked_on ? (t->blocked_on != INVALID_ADDRESS ? blockq_name(t->blocked_on) : "uninterruptible") :
                "(null)", t->frame[FRAME_RIP]);
     assert(t->blocked_on);
-    thread_make_runnable(t);
+    schedule_frame((context)t);
 }
 
 boolean thread_attempt_interrupt(thread t)
