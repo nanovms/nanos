@@ -200,18 +200,6 @@ void print_frame(context f)
     }
 }
 
-void kernel_sleep(void)
-{
-    // we're going to cover up this race by checking the state in the interrupt
-    // handler...we shouldn't return here if we do get interrupted    
-    cpuinfo ci = get_cpuinfo();
-    ci->state = cpu_idle;
-    enqueue(idle_cpu_queue, pointer_from_u64((u64)ci->id));
-    // wmb() ?  interrupt would probably enforce that
-    __asm__("sti; hlt" ::: "memory");
-    halt("return from kernel sleep");              
-}
-
 void install_fallback_fault_handler(fault_handler h)
 {
     /* lord this is gross */

@@ -113,7 +113,7 @@ void runloop()
             run_thunk(t, cpu_kernel);
         }
         spin_unlock(&kernel_lock);
-    }
+    } else rprintf("kenrel locko!\n");
 
     if ((t = dequeue(thread_queue)) != INVALID_ADDRESS) 
         run_thunk(t, cpu_user);
@@ -148,5 +148,19 @@ void init_scheduler(heap h)
     bhqueue = allocate_queue(h, 2048);
     deferqueue = allocate_queue(h, 64);
     thread_queue = allocate_queue(h, 64);    
+}
+
+
+void kernel_sleep(void)
+{
+    // we're going to cover up this race by checking the state in the interrupt
+    // handler...we shouldn't return here if we do get interrupted    
+    cpuinfo ci = get_cpuinfo();
+    ci->state = cpu_idle;
+    spin_unlock(&kernel_lock); // ? 
+    enqueue(idle_cpu_queue, pointer_from_u64((u64)ci->id));
+    // wmb() ?  interrupt would probably enforce that
+    __asm__("sti; hlt" ::: "memory");
+    halt("return from kernel sleep");              
 }
 
