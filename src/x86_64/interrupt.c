@@ -328,7 +328,6 @@ void set_ist(int cpu, int i, u64 sp)
     write_tss_u64(cpu, 0x24 + (i - 1) * 8, sp);
 }
 
-
 // this is a parallel construction with IRETURN and frame_return(?)
 extern void *interrupt_exit_rbx();
 closure_function(1, 0, void, fix_me_enter_frame_wrapper, void *, f)

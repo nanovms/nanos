@@ -336,3 +336,4 @@ extern char **state_strings;
 // static inline void schedule_frame(context f) stupid header deps
 #define schedule_frame(__f)  enqueue((queue)pointer_from_u64((__f)[FRAME_QUEUE]), pointer_from_u64((__f)[FRAME_RUN]))
 
+void kernel_unlock();
