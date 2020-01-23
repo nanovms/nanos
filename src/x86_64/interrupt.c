@@ -233,17 +233,18 @@ void common_handler()
     if (i == spurious_int_vector)
         return;                 /* no EOI */
 
-    // kludge
-    if (f[FRAME_QUEUE] == u64_from_pointer(thread_queue)) {
-        // racy enqueue
+    /* enqueue an interrupted user thread, unless the page fault handler should take care of it */
+    if (ci->state == cpu_user && i != 0xe) {
         int_debug("int sched %F\n", f[FRAME_RUN]);
-        schedule_frame(f);
+        schedule_frame(f);        // racy enqueue from interrupt level? we weren't interrupting the kernel...
     }
 
-    /* Unless there's some reason to handle a page fault within an
-       interrupt handler, this should always be terminal. */
-    if (ci->state == cpu_interrupt) {
-        console("\nexception during interrupt handling: cpu ");
+    /* Unless there's some reason to handle a page fault in kernel or
+       interrupt modes, this should always be terminal. */
+    if (ci->state == cpu_interrupt ||
+        ci->state == cpu_kernel) {
+        console("\nexception in cpu state ");
+        console(state_strings[ci->state]);
         print_u64(ci->id);
         console(", vector ");
         print_u64(i);
