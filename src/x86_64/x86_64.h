@@ -122,9 +122,15 @@ typedef struct cpuinfo {
 
 extern struct cpuinfo cpuinfos[];
 
+static inline cpuinfo cpuinfo_from_id(int cpu)
+{
+    assert(cpu >= 0 && cpu < MAX_CPUS);
+    return &cpuinfos[cpu];
+}
+
 static inline void cpu_setgs(int cpu)
 {
-    u64 addr = u64_from_pointer(&cpuinfos[cpu]);
+    u64 addr = u64_from_pointer(cpuinfo_from_id(cpu));
     write_msr(KERNEL_GS_MSR, 0); /* clear user GS */
     write_msr(GS_MSR, addr);
 }

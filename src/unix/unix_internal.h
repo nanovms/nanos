@@ -42,8 +42,6 @@ typedef struct thread *thread;
 thread create_thread(process);
 void exit_thread(thread);
 
-void run(thread);
-
 // Taken from the manual pages
 // License: http://man7.org/linux/man-pages/man2/getdents.2.license.html
 struct linux_dirent {
@@ -208,8 +206,6 @@ typedef struct thread {
     epoll select_epoll;
     int *clear_tid;
     int tid;
-
-    thunk run;
 
     /* blockq thread is waiting on, INVALID_ADDRESS for uninterruptible */
     blockq blocked_on;

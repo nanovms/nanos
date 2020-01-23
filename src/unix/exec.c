@@ -4,7 +4,7 @@
 #include <gdb.h>
 #include <symtab.h>
 
-#define EXEC_DEBUG
+//#define EXEC_DEBUG
 #ifdef EXEC_DEBUG
 #define exec_debug(x, ...) do {log_printf("EXEC", x, ##__VA_ARGS__);} while(0)
 #else
@@ -125,7 +125,6 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
 void start_process(thread t, void *start)
 {
     t->frame[FRAME_RIP] = u64_from_pointer(start);
-    rprintf("start process: vmaps %p %p\n", t->p->vmaps, t);
     if (table_find(t->p->process_root, sym(gdb))) {
         console ("gdb!\n");
         init_tcp_gdb(heap_general(get_kernel_heaps()), t->p, 9090);

@@ -96,7 +96,8 @@ static void start_slave(gdb g, boolean stepping)
     }
 
     rprintf ("slave run %p %p %p %p %d\n", g, g->t, g->t->frame, g->t->frame[FRAME_RIP], stepping);
-    enqueue(runqueue, g->t->run);    
+    // XXX revisit
+    // enqueue(runqueue, g->t->run);
 }
 
 

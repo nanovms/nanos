@@ -154,7 +154,6 @@ closure_function(3, 1, void, virtio_scsi_request_complete,
 {
     virtio_scsi s = bound(s);
     virtio_scsi_request r = bound(r);
-    rprintf("scsi rc %F\n", bound(c));
     apply(bound(c), s, r);
     deallocate(s->v->contiguous, r, pad(sizeof(*r) + r->alloc_len, s->v->contiguous->pagesize));
     closure_finish();
@@ -220,7 +219,6 @@ closure_function(3, 2, void, virtio_scsi_io_done,
         st = timm("result", "status %d", resp->status);
     }
     apply(bound(sh), st);
-    rprintf("here\n");
     closure_finish();
     kern_unlock();
     runloop();
@@ -259,7 +257,6 @@ closure_function(2, 0, void, virtio_scsi_init_done,
     virtio_scsi s = bound(s);
     block_io in = closure(s->v->general, virtio_scsi_read, s);
     block_io out = closure(s->v->general, virtio_scsi_write, s);
-    rprintf("scsi init done: %F\n", bound(a));
     apply(bound(a), in, out, s->capacity);
     kern_unlock();
     runloop();
@@ -295,7 +292,6 @@ closure_function(3, 2, void, virtio_scsi_read_capacity_done,
     s->lun = lun;
     virtio_scsi_debug("%s: target %d, lun %d, block size 0x%lx, capacity 0x%lx\n",
         __func__, target, lun, s->block_size, s->capacity);
-    rprintf("trying to enq on runq\n");
 
     enqueue(runqueue, closure(s->v->general, virtio_scsi_init_done, s, bound(a)));
   out:
