@@ -1094,8 +1094,6 @@ context dispatch_signals(thread t)
     if (t->dispatch_sigstate)
         goto no_sig; /* sorry, no nested handling */
 
-
-
     /* dequeue (and thus reset) a pending signal, masking temporarily */
     queued_signal qs = dequeue_signal(t, sigstate_get_mask(&t->signals), true);
     if (qs == INVALID_ADDRESS)

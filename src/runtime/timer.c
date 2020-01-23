@@ -39,6 +39,7 @@ timer register_timer(clock_id id, timestamp val, boolean absolute, timestamp int
     init_refcount(&t->refcount, 1, init_closure(&t->free, timer_free, t));
     pqueue_insert(timers, t);
     timer_debug("register timer: %p, expiry %T, interval %T, handler %p\n", t, t->expiry, interval, n);
+    timer_schedule();
     return t;
 }
 

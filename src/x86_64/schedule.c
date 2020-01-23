@@ -5,6 +5,13 @@
 #include <lock.h>
 #include <apic.h>
 
+//#define SCHED_DEBUG
+#ifdef SCHED_DEBUG
+#define sched_debug(x, ...) do {log_printf("SCHED", x, ##__VA_ARGS__);} while(0)
+#else
+#define sched_debug(x, ...)
+#endif
+
 // currently defined in x86_64.h
 static char *state_strings_backing[] = {
     "not present",
@@ -20,7 +27,6 @@ static int wakeup_vector;
 /* could make a generic hook/register if more users... */
 thunk unix_interrupt_checks;
 
-
 queue runqueue;                 /* kernel space from ?*/
 queue bhqueue;                  /* kernel from interrupt */
 queue deferqueue;               /* kernel kernel (?) */
@@ -30,14 +36,28 @@ queue idle_cpu_queue;
 static timestamp runloop_timer_min;
 static timestamp runloop_timer_max;
 
-static void timer_update(void)
+static thunk timer_update;
+
+closure_function(0, 0, void, timer_update_internal)
 {
     /* find timer interval from timer heap, bound by configurable min and max */
     timestamp timeout = MAX(MIN(timer_check(), runloop_timer_max), runloop_timer_min);
     runloop_timer(timeout);
 }
 
+void timer_schedule(void)
+{
+    enqueue(bhqueue, timer_update);
+}
 
+closure_function(0, 0, void, timer_interrupt_internal)
+{
+    timer_schedule();
+}
+
+thunk timer_interrupt;
+
+#if 0
 NOTRACE
 void process_bhqueue()
 {
@@ -69,6 +89,7 @@ void process_bhqueue()
     current_cpu()->state = cpu_kernel; // ?? 
     interrupt_exit();
 }
+#endif
 
 static u64 runloop_lock;
 static u64 kernel_lock;
@@ -81,7 +102,7 @@ void kern_unlock()
 
 static void run_thunk(thunk t, int cpustate)
 {
-    rprintf("%F\n", t);
+    sched_debug("%F\n", t);
     // as we are walking by, if there is work to be done and an idle cpu,
     // get it to wake up and examine the queue
     if ((queue_length(idle_cpu_queue) > 0 ) &&
@@ -106,32 +127,32 @@ void runloop()
 {
     thunk t;
 
-    rprintf("runloop %d %s r:%d b:%d t:%d ", current_cpu()->id, state_strings[current_cpu()->state], queue_length(bhqueue), queue_length(runqueue), queue_length(thread_queue));
+    sched_debug("runloop %d %s b:%d r:%d t:%d ", current_cpu()->id, state_strings[current_cpu()->state], queue_length(bhqueue), queue_length(runqueue), queue_length(thread_queue));
     disable_interrupts();
     spin_lock(&runloop_lock);
     if (spin_try(&kernel_lock)) {
         //deferqueue scheduled under here
         if ((t = dequeue(bhqueue)) != INVALID_ADDRESS) {
             run_thunk(t, cpu_kernel);
-            rprintf("bh return\n");
-            kern_unlock();
-            runloop();
-            
+//            rprintf("bh return\n");
+//            kern_unlock();
+//            runloop();
         }
         
         if ((t = dequeue(runqueue)) != INVALID_ADDRESS) {
             run_thunk(t, cpu_kernel);
             rprintf("rq return\n");
-            kern_unlock();
-            runloop();            
+//            kern_unlock();
+//            runloop();
         }
-        spin_unlock(&kernel_lock);
+        kern_unlock();
+//        spin_unlock(&kernel_lock);
     }
 
     if ((t = dequeue(thread_queue)) != INVALID_ADDRESS) 
         run_thunk(t, cpu_user);
 
-    rprintf("sleep\n");
+    sched_debug("sleep\n");
     spin_unlock(&runloop_lock);
     kernel_sleep();
     halt("shouldn't be here");
@@ -149,6 +170,8 @@ void init_scheduler(heap h)
     unix_interrupt_checks = 0;
     runloop_lock = 0;
     kernel_lock = 0;
+    timer_update = closure(h, timer_update_internal);
+    timer_interrupt = closure(h, timer_interrupt_internal);
     runloop_timer_min = microseconds(RUNLOOP_TIMER_MIN_PERIOD_US);
     runloop_timer_max = microseconds(RUNLOOP_TIMER_MAX_PERIOD_US);
     wakeup_vector = allocate_interrupt();

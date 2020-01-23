@@ -5,6 +5,13 @@
 #include <region.h>
 #include <apic.h>
 
+//#define INT_DEBUG
+#ifdef INT_DEBUG
+#define int_debug(x, ...) do {log_printf("  INT", x, ##__VA_ARGS__);} while(0)
+#else
+#define int_debug(x, ...)
+#endif
+
 #define INTERRUPT_VECTOR_START 32 /* end of exceptions; defined by architecture */
 
 /* XXX expand on this and add names to register_interrupt */
@@ -222,10 +229,17 @@ void common_handler()
     context f = ci->running_frame;
     int i = f[FRAME_VECTOR];
 
-    rprintf("interrupt cpu %d %s i %d f %p rip 0x%lx\n", ci->id, state_strings[ci->state], i, f, f[FRAME_RIP]);
+    int_debug("interrupt cpu %d %s i %d f %p rip 0x%lx\n", ci->id, state_strings[ci->state], i, f, f[FRAME_RIP]);
 
     if (i == spurious_int_vector)
         return;                 /* no EOI */
+
+    // kludge
+    if (f[FRAME_QUEUE] == u64_from_pointer(thread_queue)) {
+        // racy enqueue
+        int_debug("int sched %F\n", f[FRAME_RUN]);
+        schedule_frame(f);
+    }
 
     /* Unless there's some reason to handle a page fault within an
        interrupt handler, this should always be terminal. */
@@ -256,7 +270,6 @@ void common_handler()
         if (fh) {
             // this was set_running_frame
             apply(fh, f);
-            rprintf("do me\n");
         } else {
             console("\nno fault handler for frame ");
             print_u64(u64_from_pointer(f));

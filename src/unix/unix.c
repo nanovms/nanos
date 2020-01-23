@@ -283,7 +283,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     process kernel_process = create_process(uh, root, fs);
     // was a dummy thread here?
     current_cpu()->current_thread = dummy_thread = create_thread(kernel_process);
-    set_running_frame(current->frame);
+//    set_running_frame(current->frame);
 
     runtime_memcpy(dummy_thread->name, "dummy_thread",
         sizeof(dummy_thread->name));

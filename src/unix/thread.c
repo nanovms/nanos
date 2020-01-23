@@ -81,7 +81,7 @@ void register_thread_syscalls(struct syscall *map)
 
 void thread_log_internal(thread t, const char *desc, ...)
 {
-    //    if (table_find(t->p->process_root, sym(trace))) {
+    if (table_find(t->p->process_root, sym(trace))) {
         if (syscall_notrace(t->syscall))
             return;
         vlist ap;
@@ -94,7 +94,7 @@ void thread_log_internal(thread t, const char *desc, ...)
         vbprintf(b, f, &ap);
         push_u8(b, '\n');
         buffer_print(b);
-        //    }
+    }
 }
 
 // actually start the thread
@@ -104,7 +104,7 @@ closure_function(1, 0, void, run_thread,
     thread t = bound(t);
     thread old = current;
     current_cpu()->current_thread = t;
-    rprintf("run thread\n");
+//    rprintf("run thread\n");
     /* ftrace needs to know about the switch event */
     ftrace_thread_switch(old, current);
 
@@ -118,7 +118,7 @@ closure_function(1, 0, void, run_thread,
     /* check if we have a pending signal */
     context f = dispatch_signals(t);
     f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
-    rprintf("run thread %p %p syscall %d %F\n", t, f, f[FRAME_IS_SYSCALL], f[FRAME_RUN]);
+//    rprintf("run thread %p %p syscall %d %F\n", t, f, f[FRAME_IS_SYSCALL], f[FRAME_RUN]);
     frame_return(f);
 }
 

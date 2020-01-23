@@ -296,6 +296,8 @@ void configure_timer(timestamp rate, thunk t);
 void runloop() __attribute__((noreturn));
 void kernel_sleep() __attribute__((noreturn));
 void kernel_delay(timestamp delta);
+void timer_schedule(void);      /* call from timer interrupt */
+extern thunk timer_interrupt;   /* or just use this generic handler */
 
 void init_clock(void);
 boolean init_hpet(kernel_heaps kh);
