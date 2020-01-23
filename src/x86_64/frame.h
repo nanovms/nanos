@@ -40,7 +40,6 @@
 
 #define FRAME_CR2 30
 #define FRAME_RUN 31 /*dont like this construction */
-#define FRAME_IRET 32
-#define FRAME_SYSRETURN 33
-#define FRAME_QUEUE 34 
-#define FRAME_MAX 35
+#define FRAME_IS_SYSCALL 32
+#define FRAME_QUEUE 33
+#define FRAME_MAX 34

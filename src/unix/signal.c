@@ -478,16 +478,15 @@ sysreturn rt_sigreturn(void)
 
     sig_debug("switching to thread frame %p, rip 0x%lx, rax 0x%lx\n",
               t->frame, t->frame[FRAME_RIP], t->frame[FRAME_RAX]);
-    set_running_frame(t->frame);
 
     /* ftrace needs to know that this call stack does not return */
     ftrace_thread_noreturn(current);
 
     /* see if we have more handlers to invoke */
-    dispatch_signals(current);
+    context f = dispatch_signals(current);
 
     /* return - XXX or reschedule? */
-    IRETURN(get_running_frame());
+    frame_return(f);
     return 0;
 }
 
@@ -1090,17 +1089,17 @@ static void setup_sigframe(thread t, int signum, struct siginfo *si)
 }
 
 /* XXX lock down / use access fns */
-void dispatch_signals(thread t)
+context dispatch_signals(thread t)
 {
-    if (t->dispatch_sigstate) {
-        /* sorry, no nested handling */
-        return;
-    }
+    if (t->dispatch_sigstate)
+        goto no_sig; /* sorry, no nested handling */
+
+
 
     /* dequeue (and thus reset) a pending signal, masking temporarily */
     queued_signal qs = dequeue_signal(t, sigstate_get_mask(&t->signals), true);
     if (qs == INVALID_ADDRESS)
-        return;
+        goto no_sig;
 
     /* act on signal disposition */
     int signum = qs->si.si_signo;
@@ -1173,11 +1172,12 @@ void dispatch_signals(thread t)
     /* clean up and proceed to handler */
     free_queued_signal(qs);
     t->saved_rax = t->frame[FRAME_RAX];
-    set_running_frame(t->sigframe);
-    return;
+    return t->sigframe;
   ignore:
     sig_debug("ignoring signal %d\n", signum);
     sigstate_thread_restore(t);
+  no_sig:
+    return t->frame;
 }
 
 void register_signal_syscalls(struct syscall *map)

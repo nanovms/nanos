@@ -23,13 +23,13 @@ extern  init_service
 %%skip:
 %endmacro
 
-;; rbx is frame
+;; rdi is frame
 %macro load_seg_base 1
 %if (%1 == FRAME_FSBASE)
-        mov rax, [rbx+FRAME_FSBASE*8]
+        mov rax, [rdi+FRAME_FSBASE*8]
         mov rcx, FS_MSR
 %else
-        mov rax, [rbx+FRAME_GSBASE*8]
+        mov rax, [rdi+FRAME_GSBASE*8]
         mov rcx, KERNEL_GS_MSR
 %endif
         mov rdx, rax
@@ -71,6 +71,7 @@ extern  init_service
         mov [rbx+FRAME_RBX*8], rax
         pop rax            ; vector
         mov [rbx+FRAME_VECTOR*8], rax
+        mov qword [rbx+FRAME_IS_SYSCALL*8], 0
 %endmacro
 
 extern common_handler
@@ -98,27 +99,29 @@ interrupt_entry_with_ec:
         pop rax
         mov [rbx+FRAME_ERROR_CODE*8], rax
         interrupt_common_bottom
-        jmp interrupt_exit
+        hlt                     ; no return
 
 global interrupt_entry
 interrupt_entry:
         check_swapgs 16
         interrupt_common_top
         interrupt_common_bottom
-        ; no return
+        hlt                     ; no return
 
-        ; this is a parallel construction with IRETURN and frame_return 
-        global interrupt_exit
-        global interrupt_rbx_return
-interrupt_exit:
+global frame_return
+frame_return:
         mov rbx, [gs:0]
-        mov rbx, [rbx+8]        ; running_frame
-interrupt_rbx_return:   
-        push qword [rbx+FRAME_SS*8]    ; ss
-        push qword [rbx+FRAME_RSP*8]   ; rsp
-        push qword [rbx+FRAME_FLAGS*8] ; rflags
-        push qword [rbx+FRAME_CS*8]    ; cs
-        push qword [rbx+FRAME_RIP*8]   ; rip
+        mov [rbx+8], rdi        ; save to ci->running_frame
+
+        ; really flags
+        test qword [rdi+FRAME_IS_SYSCALL*8], 1
+        jne syscall_return
+
+        push qword [rdi+FRAME_SS*8]    ; ss
+        push qword [rdi+FRAME_RSP*8]   ; rsp
+        push qword [rdi+FRAME_FLAGS*8] ; rflags
+        push qword [rdi+FRAME_CS*8]    ; cs
+        push qword [rdi+FRAME_RIP*8]   ; rip
 
         ; before iret back to userspace, restore fs and gs base and swapgs
         cmp qword [rsp + 8], 0x08
@@ -127,21 +130,21 @@ interrupt_rbx_return:
         load_seg_base FRAME_GSBASE
         swapgs
 .skip:
-        mov rax, [rbx+FRAME_RAX*8]
-        mov rcx, [rbx+FRAME_RCX*8]
-        mov rdx, [rbx+FRAME_RDX*8]
-        mov rbp, [rbx+FRAME_RBP*8]
-        mov rsi, [rbx+FRAME_RSI*8]
-        mov rdi, [rbx+FRAME_RDI*8]
-        mov r8, [rbx+FRAME_R8*8]
-        mov r9, [rbx+FRAME_R9*8]
-        mov r10, [rbx+FRAME_R10*8]
-        mov r11, [rbx+FRAME_R11*8]
-        mov r12, [rbx+FRAME_R12*8]
-        mov r13, [rbx+FRAME_R13*8]
-        mov r14, [rbx+FRAME_R14*8]
-        mov r15, [rbx+FRAME_R15*8]
-        mov rbx, [rbx+FRAME_RBX*8]
+        mov rax, [rdi+FRAME_RAX*8]
+        mov rbx, [rdi+FRAME_RBX*8]
+        mov rcx, [rdi+FRAME_RCX*8]
+        mov rdx, [rdi+FRAME_RDX*8]
+        mov rbp, [rdi+FRAME_RBP*8]
+        mov rsi, [rdi+FRAME_RSI*8]
+        mov r8, [rdi+FRAME_R8*8]
+        mov r9, [rdi+FRAME_R9*8]
+        mov r10, [rdi+FRAME_R10*8]
+        mov r11, [rdi+FRAME_R11*8]
+        mov r12, [rdi+FRAME_R12*8]
+        mov r13, [rdi+FRAME_R13*8]
+        mov r14, [rdi+FRAME_R14*8]
+        mov r15, [rdi+FRAME_R15*8]
+        mov rdi, [rdi+FRAME_RDI*8]
         iretq
 
         interrupts equ 0x30
@@ -197,41 +200,39 @@ syscall_enter:
         mov [rax+FRAME_R14*8], r14
         mov [rax+FRAME_R15*8], r15
         mov [rax+FRAME_RIP*8], rcx
+        mov qword [rax+FRAME_IS_SYSCALL*8], 1
         mov rax, syscall
         mov rax, [rax]
         mov rbx, [gs:0]
         mov rsp, [rbx+16]       ; syscall_stack
         cld
         call rax
-        mov rbx, [gs:0]
-        mov rbx, [rbx+8]        ; running_frame
+        mov rdi, [gs:0]
+        mov rdi, [rdi+8]        ; running_frame
         ;; fall through to frame_return
 .end:
 
 ;; must follow syscall_enter
-global_func frame_return
-frame_return:
+syscall_return:
         load_seg_base FRAME_FSBASE
         load_seg_base FRAME_GSBASE
 
-        mov rax, rbx
-
-        mov rbx, [rax+FRAME_RBX*8]
-        mov rdx, [rax+FRAME_RDX*8]
-        mov rbp, [rax+FRAME_RBP*8]
-        mov rsi, [rax+FRAME_RSI*8]
-        mov rdi, [rax+FRAME_RDI*8]
-        mov r8, [rax+FRAME_R8*8]
-        mov r9, [rax+FRAME_R9*8]
-        mov r10, [rax+FRAME_R10*8]
-        mov r11, [rax+FRAME_FLAGS*8] ; flags saved from r11 on syscall
-        mov r12, [rax+FRAME_R12*8]
-        mov r13, [rax+FRAME_R13*8]
-        mov r14, [rax+FRAME_R14*8]
-        mov r15, [rax+FRAME_R15*8]
-        mov rsp, [rax+FRAME_RSP*8]
-        mov rcx, [rax+FRAME_RIP*8]
-        mov rax, [rax+FRAME_RAX*8]
+        mov rax, [rdi+FRAME_RAX*8]
+        mov rbx, [rdi+FRAME_RBX*8]
+        mov rdx, [rdi+FRAME_RDX*8]
+        mov rbp, [rdi+FRAME_RBP*8]
+        mov rsi, [rdi+FRAME_RSI*8]
+        mov r8, [rdi+FRAME_R8*8]
+        mov r9, [rdi+FRAME_R9*8]
+        mov r10, [rdi+FRAME_R10*8]
+        mov r11, [rdi+FRAME_FLAGS*8] ; flags saved from r11 on syscall
+        mov r12, [rdi+FRAME_R12*8]
+        mov r13, [rdi+FRAME_R13*8]
+        mov r14, [rdi+FRAME_R14*8]
+        mov r15, [rdi+FRAME_R15*8]
+        mov rsp, [rdi+FRAME_RSP*8]
+        mov rcx, [rdi+FRAME_RIP*8]
+        mov rdi, [rdi+FRAME_RDI*8]
         swapgs
         o64 sysret
 .end:

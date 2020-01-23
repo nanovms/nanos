@@ -175,7 +175,7 @@ static inline void frame_pop(void)
 boolean breakpoint_insert(u64 a, u8 type, u8 length);
 boolean breakpoint_remove(u32 a);
 
-#define IRETURN(frame) asm volatile("mov %0, %%rbx"::"g"(frame)); asm("jmp frame_return")
+void frame_return(context frame) __attribute__((noreturn));
 
 void msi_map_vector(int slot, int msislot, int vector);
 
