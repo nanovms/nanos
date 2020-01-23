@@ -271,19 +271,7 @@ void common_handler()
             goto exit_fault;
         }
     }
-
-    /* if the interrupt didn't occur during bottom half or int handler
-       execution, switch context to bottom half processing */
-    ci->state = cpu_kernel;
-
-    /* bsp only right now */
-
-    if (ci->id == 0 && (ci->state != cpu_kernel)) {
-        frame_push(ci->bh_frame);
-        ci->state = cpu_kernel;
-        switch_stack(ci->bh_stack, process_bhqueue);
-    }
-    return;
+    runloop();
   exit_fault:
     // XXX need to terminate bsp if on ap
     console("\n       cpu: ");
