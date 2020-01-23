@@ -49,8 +49,7 @@ extern  init_service
 
 %macro interrupt_common_top 0
         push rbx
-        mov rbx, [gs:0]
-        mov rbx, [rbx+8]        ; running_frame
+        mov rbx, [gs:8]         ; running_frame
         mov [rbx+FRAME_RAX*8], rax
         mov [rbx+FRAME_RCX*8], rcx
         mov [rbx+FRAME_RDX*8], rdx
@@ -110,8 +109,7 @@ interrupt_entry:
 
 global frame_return
 frame_return:
-        mov rbx, [gs:0]
-        mov [rbx+8], rdi        ; save to ci->running_frame
+        mov [gs:8], rdi         ; save to ci->running_frame
 
         ; really flags
         test qword [rdi+FRAME_IS_SYSCALL*8], 1
@@ -180,35 +178,35 @@ extern syscall
 global_func syscall_enter
 syscall_enter:
         swapgs
-        push rax
-        mov rax, [gs:0]
-        mov rax, [rax+8]        ; running_frame
-        mov [rax+FRAME_RBX*8], rbx
-        pop rbx
-        mov [rax+FRAME_VECTOR*8], rbx
-        mov [rax+FRAME_RDX*8], rdx
-        mov [rax+FRAME_RBP*8], rbp
-        mov [rax+FRAME_RSP*8], rsp
-        mov [rax+FRAME_RSI*8], rsi
-        mov [rax+FRAME_RDI*8], rdi
-        mov [rax+FRAME_R8*8], r8
-        mov [rax+FRAME_R9*8], r9
-        mov [rax+FRAME_R10*8], r10
-        mov [rax+FRAME_FLAGS*8], r11
-        mov [rax+FRAME_R12*8], r12
-        mov [rax+FRAME_R13*8], r13
-        mov [rax+FRAME_R14*8], r14
-        mov [rax+FRAME_R15*8], r15
-        mov [rax+FRAME_RIP*8], rcx
-        mov qword [rax+FRAME_IS_SYSCALL*8], 1
-        mov rax, syscall
+        mov [gs:32], rdi        ; save rdi
+        mov rdi, [gs:8]         ; running_frame
+        mov [rdi+FRAME_VECTOR*8], rax
+        mov [rdi+FRAME_RBX*8], rbx
+        mov [rdi+FRAME_RDX*8], rdx
+        mov [rdi+FRAME_RBP*8], rbp
+        mov [rdi+FRAME_RSI*8], rsi
+        mov [rdi+FRAME_R8*8], r8
+        mov [rdi+FRAME_R9*8], r9
+        mov [rdi+FRAME_R10*8], r10
+        mov [rdi+FRAME_FLAGS*8], r11
+        mov [rdi+FRAME_R12*8], r12
+        mov [rdi+FRAME_R13*8], r13
+        mov [rdi+FRAME_R14*8], r14
+        mov [rdi+FRAME_R15*8], r15
+        mov [rdi+FRAME_RIP*8], rcx
+        mov rsi, rax
+        mov [rdi+FRAME_RSP*8], rsp
+        mov rax, [gs:32]
+        mov qword [rdi+FRAME_RDI*8], rax
+        mov qword [rdi+FRAME_IS_SYSCALL*8], 1
+        mov rax, syscall        ; (running_frame, call)
         mov rax, [rax]
-        mov rbx, [gs:0]
-        mov rsp, [rbx+16]       ; syscall_stack
+        mov rbx, [gs:16]
+        mov [gs:8], rbx         ; move to kernel frame
+        mov rsp, [gs:24]        ; and stack
         cld
         call rax
-        mov rdi, [gs:0]
-        mov rdi, [rdi+8]        ; running_frame
+        mov rdi, [gs:8]         ; running_frame
         ;; fall through to frame_return
 .end:
 

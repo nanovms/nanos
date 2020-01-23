@@ -209,10 +209,9 @@ void print_frame(context f)
 
 void install_fallback_fault_handler(fault_handler h)
 {
-    /* lord this is gross */
+    // XXX nuke this once we clear out kernel page faults
     for (int i = 0; i < MAX_CPUS; i++) {
-        cpuinfos[i].misc_frame[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
-        cpuinfos[i].bh_frame[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
+        cpuinfos[i].kernel_frame[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
     }
 }
 
@@ -275,12 +274,9 @@ void common_handler()
             print_u64(u64_from_pointer(f));
             /* make a half attempt to identify it short of asking unix */
             /* we should just have a name here */
-            if (f == current_cpu()->misc_frame)
-                console(" (misc frame)\n");
-            else if (f == current_cpu()->bh_frame)
-                console(" (bh frame)\n");
-            else
-                console("\n");
+            if (f == current_cpu()->kernel_frame)
+                console(" (kernel frame)");
+            console("\n");
             goto exit_fault;
         }
     }
@@ -322,8 +318,6 @@ void unregister_interrupt(int vector)
     handlers[vector] = 0;
 }
 
-#define FAULT_STACK_PAGES       8
-#define SYSCALL_STACK_PAGES     8
 #define TSS_SIZE                0x68
 
 extern volatile void * TSS;
@@ -392,7 +386,7 @@ void start_interrupts(kernel_heaps kh)
     spurious_int_vector = v;
 
     /* default running context */
-    set_running_frame(ci->misc_frame);
+    set_running_frame(ci->kernel_frame);
 
     /* APIC initialization */
     init_apic(kh);

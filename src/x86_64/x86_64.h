@@ -4,8 +4,6 @@
 #define KERNEL_STACK_PAGES  32
 #define FAULT_STACK_PAGES   8
 #define INT_STACK_PAGES     8
-#define BH_STACK_PAGES      8
-#define SYSCALL_STACK_PAGES 8
 
 #define VIRTUAL_ADDRESS_BITS 48
 
@@ -75,36 +73,42 @@ typedef u64 *context;
 context allocate_frame(heap h);
 
 typedef struct cpuinfo {
-    /* For accessing cpuinfo via %gs:0; must be first */
-    void * self;
+    /*** Fields accessed by low-level entry points. Don't move them. ***/
 
-    /* This points to the frame of the current, running context. Entry
-       points expect this to be the second (+8) field here. */
+    /* For accessing cpuinfo via %gs:0; must be first */
+    void *self;
+
+    /* This points to the frame of the current, running context. +8 */
     context running_frame;
 
-    /* syscall_enter switches to this stack before calling syscall. It
-       must be the third field (+16). */
-    void * syscall_stack;
+    /* Default frame installed at kernel entry points (init, syscall)
+       and calls to runloop. Used only to capture (terminal) faults
+       and never returned to. +16 */
+    context kernel_frame;
 
-    /* common_handler switches to this stack when calling process_bhqueue */
-    void * bh_stack;
+    /* Stack installed at kernel entry points and runloop. Offset +24. */
+    void * kernel_stack;
 
-    /* The default frame for when we're not in a thread or bh context. */
-    context misc_frame;
+    /* One temporary for syscall enter to use so that we don't need to touch the user stack. +32 */
+    u64 tmp;
 
-    /* for bh processing, where page faults must be supported */
-    context bh_frame;
+    /*** End of fields touched by kernel entries ***/
 
     u32 id;
     int state;
 
     /* The following fields are used rarely or only on initialization. */
 
-    /* stack for page faults, switched by hardware */
-    void * fault_stack;
+    /* Stack for page faults, switched by hardware
 
-    /* stack for int handlers, switched by hardware */
-    void * int_stack;
+       This could just be the kernel stack, but we might like to have
+       a safe stack to run on should we get a fault in kernel space,
+       or even in an interrupt handler. */
+    void *fault_stack;
+
+    /* Stack for exceptions (aside from page fault) and interrupts,
+       switched by hardware */
+    void *int_stack;
 
     /* leaky unix stuff - I guess this is really running_frame in disguise */
     void *current_thread;
@@ -142,30 +146,21 @@ static inline void set_running_frame(context f)
     current_cpu()->running_frame = f;
 }
 
-static inline void frame_push(context new)
-{
-    new[FRAME_SAVED_FRAME] = u64_from_pointer(get_running_frame());
-    set_running_frame(new);
-}
-
-static inline void frame_push_keep_handler(context new)
-{
-    // XXX check asm for no gs repeat
-    new[FRAME_FAULT_HANDLER] = get_running_frame()[FRAME_FAULT_HANDLER];
-    frame_push(new);
-}
-
-static inline void frame_pop(void)
-{
-    set_running_frame(pointer_from_u64(get_running_frame()[FRAME_SAVED_FRAME]));
-}
-
 #define switch_stack(__s, __target) {                           \
         asm volatile("mov %0, %%rdx": :"r"(__s):"%rdx");        \
         asm volatile("mov %0, %%rax": :"r"(__target));          \
         asm volatile("mov %%rdx, %%rsp"::);                     \
         asm volatile("jmp *%%rax"::);                           \
     }
+
+void runloop_internal() __attribute__((noreturn));
+
+static inline __attribute__((noreturn)) void runloop(void)
+{
+    set_running_frame(current_cpu()->kernel_frame);
+    switch_stack(current_cpu()->kernel_stack, runloop_internal);
+    while(1);                   /* kill warning */
+}
 
 #define BREAKPOINT_INSTRUCTION 00
 #define BREAKPOINT_WRITE 01
@@ -293,7 +288,6 @@ typedef closure_type(fault_handler, void, context);
 
 void configure_timer(timestamp rate, thunk t);
 
-void runloop() __attribute__((noreturn));
 void kernel_sleep() __attribute__((noreturn));
 void kernel_delay(timestamp delta);
 void timer_schedule(void);      /* call from timer interrupt */
@@ -334,6 +328,6 @@ extern void interrupt_exit(void);
 extern char **state_strings;
 
 // static inline void schedule_frame(context f) stupid header deps
-#define schedule_frame(__f)  enqueue((queue)pointer_from_u64((__f)[FRAME_QUEUE]), pointer_from_u64((__f)[FRAME_RUN]))
+#define schedule_frame(__f)  do { assert((__f)[FRAME_QUEUE] != INVALID_PHYSICAL); enqueue((queue)pointer_from_u64((__f)[FRAME_QUEUE]), pointer_from_u64((__f)[FRAME_RUN])); } while(0)
 
 void kernel_unlock();

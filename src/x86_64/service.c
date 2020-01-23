@@ -229,14 +229,11 @@ static void init_cpuinfos(kernel_heaps kh)
         ci->state = cpu_not_present;
 
         /* frame and stacks */
-        ci->misc_frame = allocate_frame(h);
-        ci->misc_frame[FRAME_QUEUE] = u64_from_pointer(runqueue); // xxx 
-        ci->bh_frame = allocate_frame(h);
-        ci->misc_frame[FRAME_QUEUE] = u64_from_pointer(runqueue);        
-        ci->syscall_stack = allocate_stack(pages, SYSCALL_STACK_PAGES);
+        ci->kernel_frame = allocate_frame(h);
+        ci->kernel_frame[FRAME_QUEUE] = INVALID_PHYSICAL; /* never schedule kernel */
+        ci->kernel_stack = allocate_stack(pages, KERNEL_STACK_PAGES);
         ci->fault_stack = allocate_stack(pages, FAULT_STACK_PAGES);
         ci->int_stack = allocate_stack(pages, INT_STACK_PAGES);
-        ci->bh_stack = allocate_stack(pages, BH_STACK_PAGES);
     }
 
     cpu_setgs(0);
