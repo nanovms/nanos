@@ -1920,17 +1920,11 @@ struct syscall {
 static struct syscall _linux_syscalls[SYS_MAX];
 struct syscall *linux_syscalls = _linux_syscalls;
 
-// this can actually change to the per-cpu miscframe; if the syscall
-// blocks, we don't really change contexts, but instead call runloop
-// and do other kernely stuff...in any case it really does need to be
-// per-cpu, as it's won't be encapsulated by the big lock as I thought
-
-context syscall_frame;
-
-static void syscall_debug()
+static void syscall_debug(context f, u64 call)
 {
-    context f = get_running_frame();     /* usually current->frame, except for sigreturn */
-    int call = f[FRAME_VECTOR];
+//    rprintf("SYSCALL f %p, rip 0x%lx, call %d\n", f, f[FRAME_RIP], call);
+
+    // XXX need thread mux to active frame (t->frame or t->sigframe)
     set_syscall_return((thread)f, -ENOSYS); // xx - not happy about this cast
     
     if (call < 0 || call >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0])) {
@@ -1951,12 +1945,6 @@ static void syscall_debug()
     sysreturn (*h)(u64, u64, u64, u64, u64, u64) = s->handler;
     if (h) {
         proc_enter_system(current->p);
-
-        /* exchange frames so that a fault won't clobber the syscall
-           context, but retain the fault handler that has current enclosed */
-        // make frame_{push,pop} a true stack-of-frames? - we shouldn't need to pop really?
-        syscall_frame[FRAME_FAULT_HANDLER] = f[FRAME_FAULT_HANDLER];
-        set_running_frame(syscall_frame);
 
         sysreturn rv = h(f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]);
         set_syscall_return(current, rv);
@@ -2000,7 +1988,6 @@ void init_syscalls()
     // debug the synthesized version later, at least we have the table dispatch
     heap h = heap_general(get_kernel_heaps());
     syscall = syscall_debug;
-    syscall_frame = allocate_frame(h);
     syscall_io_complete = closure(h, syscall_io_complete_cfn);
 }
 

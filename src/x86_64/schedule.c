@@ -99,10 +99,9 @@ void kern_unlock()
     spin_unlock(&kernel_lock);
 }
 
-
 static void run_thunk(thunk t, int cpustate)
 {
-    sched_debug("%F\n", t);
+    sched_debug(" run: %F state: %s\n", t, state_strings[cpustate]);
     // as we are walking by, if there is work to be done and an idle cpu,
     // get it to wake up and examine the queue
     if ((queue_length(idle_cpu_queue) > 0 ) &&
@@ -123,11 +122,11 @@ static void run_thunk(thunk t, int cpustate)
 }
 
 // should we ever be in the user frame here? i .. guess so?
-void runloop()
+void runloop_internal()
 {
     thunk t;
 
-    sched_debug("runloop %d %s b:%d r:%d t:%d ", current_cpu()->id, state_strings[current_cpu()->state], queue_length(bhqueue), queue_length(runqueue), queue_length(thread_queue));
+    sched_debug("runloop %d %s b:%d r:%d t:%d\n", current_cpu()->id, state_strings[current_cpu()->state], queue_length(bhqueue), queue_length(runqueue), queue_length(thread_queue));
     disable_interrupts();
     spin_lock(&runloop_lock);
     if (spin_try(&kernel_lock)) {

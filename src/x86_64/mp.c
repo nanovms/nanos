@@ -35,7 +35,7 @@ static void __attribute__((noinline)) ap_new_stack()
 
     set_ist(id, IST_PAGEFAULT, u64_from_pointer(ci->fault_stack));
     set_ist(id, IST_INTERRUPT, u64_from_pointer(ci->int_stack));
-    set_running_frame(ci->misc_frame);
+    set_running_frame(ci->kernel_frame);
     mp_debug(", install gdt");
     install_gdt64_and_tss(id);
     mp_debug(", enable apic");

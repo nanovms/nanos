@@ -65,7 +65,7 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, un
         *ptid = t->tid;
     if (flags & CLONE_CHILD_CLEARTID)
         t->clear_tid = ctid;
-    schedule_frame(&t->frame);
+    schedule_frame(t->frame);
     return t->tid;
 }
 
@@ -118,7 +118,7 @@ closure_function(1, 0, void, run_thread,
     /* check if we have a pending signal */
     context f = dispatch_signals(t);
     f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
-//    rprintf("run thread %p %p syscall %d %F\n", t, f, f[FRAME_IS_SYSCALL], f[FRAME_RUN]);
+//    rprintf("run thread %p %p syscall %d rip 0x%lx rsp 0x%lx %F\n", t, f, f[FRAME_IS_SYSCALL], f[FRAME_RIP], f[FRAME_RSP], f[FRAME_RUN]);
     frame_return(f);
 }
 
