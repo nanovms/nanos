@@ -38,13 +38,15 @@ closure_function(1, 1, void, default_fault_handler,
                  thread, t,
                  context, frame)
 {
-    /* frame can be:
-       - t->frame if user or syscall
-       - ci->bh_frame if in bottom half operation
-    */
     if (frame[FRAME_VECTOR] == 14) {
         /* XXX move this to x86_64 */
         if (unix_fault_page(frame[FRAME_CR2], frame)) {
+            /* Dirty hack until we get page faults out of the kernel:
+               If we're in the kernel context, return to the frame directly. */
+            if (frame == current_cpu()->kernel_frame) {
+                current_cpu()->state = cpu_kernel;
+                frame_return(frame);
+            }
             schedule_frame(frame);
             return;
         }
