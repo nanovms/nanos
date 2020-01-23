@@ -97,31 +97,9 @@ void thread_log_internal(thread t, const char *desc, ...)
         //    }
 }
 
-// this is a parallel construction with IRETURN and frame_return..fix
-extern void *interrupt_exit_rbx();
-static void fix_me_iret_wrapper(context f)
-{
-    // we should change this to take rdi .. the asm doc is pretty explicit
-    // about not really excluding rbx from other allocations
-    register u64 rbx __asm__("%rbx") = u64_from_pointer(f);
-    __asm__("jmp interrupt_rbx_return"::"r"(rbx));
-}
-
-// this is a parallel construction with IRETURN and frame_return..fix
-extern void *frame_return();
-static void fix_me_sysret_wrapper(context f)
-{
-    // we should change this to take rdi .. the asm doc is pretty explicit
-    // about not really excluding rbx from other allocations
-    register u64 rax __asm__("%rax") = u64_from_pointer(f);
-    __asm__("jmp frame_return"::"r"(rax));
-}
-
-typedef void (*restorer)(context);
 // actually start the thread
-closure_function(2, 0, void, run_thread,
-                 thread, t,
-                 restorer, restore_function)
+closure_function(1, 0, void, run_thread,
+                 thread, t)
 {
     thread t = bound(t);
     thread old = current;
@@ -132,20 +110,16 @@ closure_function(2, 0, void, run_thread,
 
     thread_log(t, "run frame %p, RIP=%p", t->frame, t->frame[FRAME_RIP]);
     proc_enter_user(current->p);
-    set_running_frame(t->frame);
 
     /* cover wake-before-sleep situations (e.g. sched yield, fs ops that don't go to disk, etc.) */
     t->blocked_on = 0;
     t->syscall = -1;
 
     /* check if we have a pending signal */
-    dispatch_signals(t);
-
-    context f = current_cpu()->running_frame;
-    /* running frame may have changed to signal handling frame */
+    context f = dispatch_signals(t);
     f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
-    rprintf("run thread %p %p %F\n", t, f, f[FRAME_RUN]);
-    apply((thunk)pointer_from_u64(f[FRAME_RUN]));
+    rprintf("run thread %p %p syscall %d %F\n", t, f, f[FRAME_IS_SYSCALL], f[FRAME_RUN]);
+    frame_return(f);
 }
 
 void thread_sleep_interruptible(void)
@@ -237,9 +211,8 @@ thread create_thread(process p)
     t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(create_fault_handler(h, t));
     // xxx - dup with allocate_frame
     t->frame[FRAME_QUEUE] = u64_from_pointer(thread_queue);
-    t->frame[FRAME_IRET] = u64_from_pointer(closure(h, run_thread, t, fix_me_iret_wrapper));
-    t->frame[FRAME_SYSRETURN] = u64_from_pointer(closure(h, run_thread, t, fix_me_sysret_wrapper));
-    t->frame[FRAME_RUN] = t->frame[FRAME_SYSRETURN];
+    t->frame[FRAME_IS_SYSCALL] = 1;
+    t->frame[FRAME_RUN] = u64_from_pointer(closure(h, run_thread, t));
     
     t->blocked_on = 0;
     t->file_op_is_complete = false;

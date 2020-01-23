@@ -447,7 +447,7 @@ static inline void sigstate_thread_restore(thread t)
     }
 }
 
-void dispatch_signals(thread t);
+context dispatch_signals(thread t);
 void deliver_signal_to_thread(thread t, struct siginfo *);
 void deliver_signal_to_process(process p, struct siginfo *);
 

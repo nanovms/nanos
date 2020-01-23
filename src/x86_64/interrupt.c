@@ -222,9 +222,7 @@ void common_handler()
     context f = ci->running_frame;
     int i = f[FRAME_VECTOR];
 
-    f[FRAME_RUN] = f[FRAME_IRET]; // dont like this construction
-    
-    rprintf("interrupt %d %s %d %p %p\n", ci->id, state_strings[ci->state], i, f, f[FRAME_IRET]);
+    rprintf("interrupt cpu %d %s i %d f %p rip 0x%lx\n", ci->id, state_strings[ci->state], i, f, f[FRAME_RIP]);
 
     if (i == spurious_int_vector)
         return;                 /* no EOI */
@@ -340,21 +338,9 @@ void set_ist(int cpu, int i, u64 sp)
     write_tss_u64(cpu, 0x24 + (i - 1) * 8, sp);
 }
 
-// this is a parallel construction with IRETURN and frame_return(?)
-extern void *interrupt_exit_rbx();
-closure_function(1, 0, void, fix_me_enter_frame_wrapper, void *, f)
-{
-    // we should change this to take rdi .. the asm doc is pretty explicit
-    // about not really excluding rbx from other allocations
-    register u64 rbx __asm__("%rbx") = u64_from_pointer(bound(f));
-    __asm__("jmp interrupt_rbx_return"::"r"(rbx));
-}
-    
-
 context allocate_frame(heap h)
 {
     context f = allocate_zero(h, FRAME_MAX * sizeof(u64));
-    f[FRAME_IRET] = u64_from_pointer(closure(h, fix_me_enter_frame_wrapper, f));
     assert(f != INVALID_ADDRESS);
     return f;
 }
