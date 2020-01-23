@@ -280,9 +280,6 @@ void exit_thread(thread t)
     deallocate_blockq(t->thread_bq);
     t->thread_bq = INVALID_ADDRESS;
 
-    deallocate_closure(t->run); // structure closure
-    t->run = INVALID_ADDRESS;
-
     deallocate_closure((fault_handler)pointer_from_u64(t->frame[FRAME_FAULT_HANDLER]));
     t->frame[FRAME_FAULT_HANDLER] = 0;
 

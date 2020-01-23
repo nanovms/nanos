@@ -13,13 +13,13 @@
 #include <kvm_platform.h>
 #include <xen_platform.h>
 
-#define SMP_TEST
+//#define SMP_TEST
 
-#define STAGE3_INIT_DEBUG
+//#define STAGE3_INIT_DEBUG
 #ifdef STAGE3_INIT_DEBUG
-#define init_debug(x) do {console("INIT: " x "\n");} while(0)
+#define init_debug(x, ...) do {rprintf("INIT: " x "\n", ##__VA_ARGS__);} while(0)
 #else
-#define init_debug(x)
+#define init_debug(x, ...)
 #endif
 
 extern void init_net(kernel_heaps kh);
@@ -220,7 +220,7 @@ static void init_cpuinfos(kernel_heaps kh)
     /* We'd like the aps to allocate for themselves, but we don't have
        per-cpu heaps just yet. */
     for (int i = 0; i < MAX_CPUS; i++) {
-        cpuinfo ci = &cpuinfos[i];
+        cpuinfo ci = cpuinfo_from_id(i);
         ci->self = ci;
 
         /* state */
@@ -230,10 +230,11 @@ static void init_cpuinfos(kernel_heaps kh)
 
         /* frame and stacks */
         ci->kernel_frame = allocate_frame(h);
-        ci->kernel_frame[FRAME_QUEUE] = INVALID_PHYSICAL; /* never schedule kernel */
         ci->kernel_stack = allocate_stack(pages, KERNEL_STACK_PAGES);
         ci->fault_stack = allocate_stack(pages, FAULT_STACK_PAGES);
         ci->int_stack = allocate_stack(pages, INT_STACK_PAGES);
+        init_debug("cpu %2d: kernel_frame %p, kernel_stack %p", i, ci->kernel_frame, ci->kernel_stack);
+        init_debug("        fault_stack  %p, int_stack    %p", ci->fault_stack, ci->int_stack);
     }
 
     cpu_setgs(0);

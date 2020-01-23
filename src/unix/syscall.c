@@ -1926,7 +1926,8 @@ static void syscall_debug(context f, u64 call)
 
     // XXX need thread mux to active frame (t->frame or t->sigframe)
     set_syscall_return((thread)f, -ENOSYS); // xx - not happy about this cast
-    
+    current_cpu()->state = cpu_kernel;
+
     if (call < 0 || call >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0])) {
         schedule_frame(f);
         thread_log(current, "invalid syscall %d", call);

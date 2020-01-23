@@ -211,7 +211,7 @@ void install_fallback_fault_handler(fault_handler h)
 {
     // XXX nuke this once we clear out kernel page faults
     for (int i = 0; i < MAX_CPUS; i++) {
-        cpuinfos[i].kernel_frame[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
+        cpuinfo_from_id(i)->kernel_frame[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
     }
 }
 
@@ -239,12 +239,20 @@ void common_handler()
         schedule_frame(f);        // racy enqueue from interrupt level? we weren't interrupting the kernel...
     }
 
-    /* Unless there's some reason to handle a page fault in kernel or
-       interrupt modes, this should always be terminal. */
-    if (ci->state == cpu_interrupt ||
-        ci->state == cpu_kernel) {
-        console("\nexception in cpu state ");
+    /* Unless there's some reason to handle a page fault in interrupt
+       mode, this should always be terminal.
+
+       This really should include kernel mode, too, but we're for the
+       time being allowing the kernel to take page faults...which
+       really isn't sustainable unless we want fine-grained locking
+       around the vmaps and page tables. Validating user buffers will
+       get rid of this requirement (and allow us to add the check for
+       cpu_kernel here too).
+    */
+    if (ci->state == cpu_interrupt) {
+        console("\nexception in ");
         console(state_strings[ci->state]);
+        console(" mode, cpu ");
         print_u64(ci->id);
         console(", vector ");
         print_u64(i);

@@ -108,9 +108,11 @@ static void run_thunk(thunk t, int cpustate)
         ((queue_length(bhqueue) > 0) ||
          (queue_length(runqueue) > 0) ||
          (queue_length(thread_queue) > 0))) {
-        cpuinfo r = dequeue(idle_cpu_queue);
-        if (r != INVALID_ADDRESS) 
-            apic_ipi(r->id, 0, wakeup_vector);
+        u64 cpu = u64_from_pointer(dequeue(idle_cpu_queue));
+        if (cpu != INVALID_PHYSICAL && cpu != current_cpu()->id) {
+            rprintf("sending wakeup ipi to %d\n", cpu);
+            apic_ipi(cpu, 0, wakeup_vector);
+        }
     }
         
     current_cpu()->state = cpustate;
@@ -133,19 +135,12 @@ void runloop_internal()
         //deferqueue scheduled under here
         if ((t = dequeue(bhqueue)) != INVALID_ADDRESS) {
             run_thunk(t, cpu_kernel);
-//            rprintf("bh return\n");
-//            kern_unlock();
-//            runloop();
         }
         
         if ((t = dequeue(runqueue)) != INVALID_ADDRESS) {
             run_thunk(t, cpu_kernel);
-            rprintf("rq return\n");
-//            kern_unlock();
-//            runloop();
         }
         kern_unlock();
-//        spin_unlock(&kernel_lock);
     }
 
     if ((t = dequeue(thread_queue)) != INVALID_ADDRESS) 
@@ -162,6 +157,12 @@ closure_function(0, 0, void, ipi_interrupt)
 {
     cpuinfo ci = get_cpuinfo();
     ci->state = cpu_kernel;
+}
+
+closure_function(1, 0, void, simple_frame_return,
+                 context, f)
+{
+    frame_return(bound(f));
 }
 
 void init_scheduler(heap h)
@@ -182,9 +183,18 @@ void init_scheduler(heap h)
     /* XXX bhqueue is large to accomodate vq completions; explore batch processing on vq side */
     bhqueue = allocate_queue(h, 2048);
     deferqueue = allocate_queue(h, 64);
-    thread_queue = allocate_queue(h, 64);    
-}
+    thread_queue = allocate_queue(h, 64);
 
+    /* We would like to not ever need to return to the kernel frame,
+       but we are for the time supporting page faults in the
+       kernel. As such, we need to fix up the kernel frames to allow
+       queueing from the fault handler. */
+    for (int i = 0; i < MAX_CPUS; i++) {
+        cpuinfo ci = cpuinfo_from_id(i);
+        ci->kernel_frame[FRAME_QUEUE] = u64_from_pointer(bhqueue);
+        ci->kernel_frame[FRAME_RUN] = u64_from_pointer(closure(h, simple_frame_return, ci->kernel_frame));
+    }
+}
 
 void kernel_sleep(void)
 {
