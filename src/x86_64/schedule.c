@@ -94,11 +94,14 @@ void runloop_internal()
     disable_interrupts();
     spin_lock(&runloop_lock);
     if (spin_try(&kernel_lock)) {
-        if ((t = dequeue(bhqueue)) != INVALID_ADDRESS) {
+        /* serve bhqueue to completion */
+        while ((t = dequeue(bhqueue)) != INVALID_ADDRESS) {
             run_thunk(t, cpu_kernel);
         }
-        
-        if ((t = dequeue(runqueue)) != INVALID_ADDRESS) {
+
+        /* serve existing, but not additionally queued (deferred), items on runqueue */
+        u64 n_rq = queue_length(runqueue);
+        while (n_rq-- > 0 && (t = dequeue(runqueue)) != INVALID_ADDRESS) {
             run_thunk(t, cpu_kernel);
         }
         kern_unlock();
@@ -164,7 +167,7 @@ void kernel_sleep(void)
     spin_unlock(&kernel_lock); // ? 
     enqueue(idle_cpu_queue, pointer_from_u64((u64)ci->id));
     // wmb() ?  interrupt would probably enforce that
-    __asm__("sti; hlt" ::: "memory");
+    asm volatile("sti; hlt" ::: "memory");
     halt("return from kernel sleep");              
 }
 

@@ -228,10 +228,10 @@ void common_handler()
     context f = ci->running_frame;
     int i = f[FRAME_VECTOR];
 
-    int_debug("interrupt cpu %d %s i %d f %p rip 0x%lx\n", ci->id, state_strings[ci->state], i, f, f[FRAME_RIP]);
+    int_debug("interrupt cpu %d %s i %d f %p rip 0x%lx cr2 0x%lx\n", ci->id, state_strings[ci->state], i, f, f[FRAME_RIP], f[FRAME_CR2]);
 
     if (i == spurious_int_vector)
-        return;                 /* no EOI */
+        runloop();                 /* no EOI */
 
     /* enqueue an interrupted user thread, unless the page fault handler should take care of it */
     if (ci->state == cpu_user && i != 0xe) {
