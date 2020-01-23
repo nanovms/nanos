@@ -145,7 +145,7 @@ closure_function(2, 0, void, run_thread,
     context f = current_cpu()->running_frame;
     /* running frame may have changed to signal handling frame */
     f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
-    f[FRAME_FLAGS] |= TRAP_FLAG;    
+    //    f[FRAME_FLAGS] |= TRAP_FLAG;    
     rprintf("run thread %p %p %p\n", t, f, f[FRAME_RIP]);
     bound(restore_function)(f);
 }
