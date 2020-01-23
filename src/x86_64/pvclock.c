@@ -32,11 +32,6 @@ physical pvclock_get_physaddr(void)
                          : physical_from_virtual((void *)vclock);
 }
 
-closure_function(0, 0, void, tsc_deadline_interrupt)
-{
-    /* debug here */
-}
-
 closure_function(0, 1, void, tsc_deadline_timer,
                  timestamp, interval)
 {
@@ -71,7 +66,7 @@ clock_timer init_tsc_deadline_timer(void)
 
     clock_timer ct = closure(pvclock_heap, tsc_deadline_timer);
     int irq = allocate_interrupt();
-    register_interrupt(irq, closure(pvclock_heap, tsc_deadline_interrupt));
+    register_interrupt(irq, timer_interrupt);
     lapic_set_tsc_deadline_mode(irq);
     return ct;
 }

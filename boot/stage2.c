@@ -55,6 +55,8 @@ u64 random_u64()
     return result;
 }
 
+void timer_schedule(void) { }   /* stub */
+
 // defined in service32.s
 extern void bios_tty_write(char *s, bytes count);
 extern void bios_read_sectors(void *buffer, int start_sector, int sector_count);

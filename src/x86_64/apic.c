@@ -107,8 +107,6 @@ closure_function(0, 1, void, lapic_timer,
     apic_write(APIC_TMRINITCNT, cnt);
 }
 
-closure_function(0, 0, void, int_ignore) {}
-
 void lapic_eoi(void)
 {
     write_barrier();
@@ -131,7 +129,7 @@ clock_timer init_lapic_timer(void)
     apic_write(APIC_TMRDIV, 3 /* 16 */);
     int v = allocate_interrupt();
     apic_write(APIC_LVT_TMR, v); /* one shot */
-    register_interrupt(v, closure(apic_heap, int_ignore));
+    register_interrupt(v, timer_interrupt);
     calibrate_lapic_timer();
     return ct;
 }

@@ -251,6 +251,7 @@ closure_function(0, 0, void, xen_runloop_timer_handler)
 {
     rprintf("%s: now %T\n", __func__, nanoseconds(pvclock_now_ns()));
     assert(xen_unmask_evtchn(xen_info.timer_evtchn) == 0);
+    timer_schedule();
 }
 
 boolean xen_detect(kernel_heaps kh)
