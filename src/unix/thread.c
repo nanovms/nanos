@@ -145,7 +145,7 @@ closure_function(2, 0, void, run_thread,
     /* running frame may have changed to signal handling frame */
     f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
     rprintf("run thread %p %p %F\n", t, f, f[FRAME_RUN]);
-    apply((thunk)pointer_from_u64(f[FRAME_RUN]));
+    bound(restore_function)(f);
 }
 
 void thread_sleep_interruptible(void)
