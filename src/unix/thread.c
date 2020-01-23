@@ -99,29 +99,37 @@ void thread_log_internal(thread t, const char *desc, ...)
     }
 }
 
-// actually start the thread
-closure_function(1, 0, void, run_thread,
-                 thread, t)
+static inline void run_thread_frame(thread t, boolean do_sigframe)
 {
-    thread t = bound(t);
     thread old = current;
     current_cpu()->current_thread = t;
-//    rprintf("run thread\n");
-    /* ftrace needs to know about the switch event */
-    ftrace_thread_switch(old, current);
-
-    thread_log(t, "run frame %p, RIP=%p", t->frame, t->frame[FRAME_RIP]);
+    ftrace_thread_switch(old, current);    /* ftrace needs to know about the switch event */
     proc_enter_user(current->p);
 
     /* cover wake-before-sleep situations (e.g. sched yield, fs ops that don't go to disk, etc.) */
     t->blocked_on = 0;
     t->syscall = -1;
 
-    /* check if we have a pending signal */
-    context f = dispatch_signals(t);
+    context f = do_sigframe ? t->sigframe : t->frame;
     f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
-//    rprintf("run thread %p %p syscall %d rip 0x%lx rsp 0x%lx %F\n", t, f, f[FRAME_IS_SYSCALL], f[FRAME_RIP], f[FRAME_RSP], f[FRAME_RUN]);
+    thread_log(t, "run %s frame %p, rip 0x%lx, rsp 0x%lx, rax 0x%lx, rflags 0x%lx, %s",
+               do_sigframe ? "sig handler" : "thread", f, f[FRAME_RIP], f[FRAME_RSP],
+               f[FRAME_RAX], f[FRAME_FLAGS], f[FRAME_IS_SYSCALL] ? "sysret" : "iret");
     frame_return(f);
+}
+
+closure_function(1, 0, void, run_thread,
+                 thread, t)
+{
+    run_thread_frame(bound(t), dispatch_signals(bound(t)));
+}
+
+closure_function(1, 0, void, run_sighandler,
+                 thread, t)
+{
+    /* syscall results saved in t->frame, even in signal handler */
+    bound(t)->sigframe[FRAME_RAX] = bound(t)->frame[FRAME_RAX];
+    run_thread_frame(bound(t), true);
 }
 
 void thread_sleep_interruptible(void)
@@ -211,13 +219,18 @@ thread create_thread(process p)
     t->clear_tid = 0;
     t->name[0] = '\0';
     zero(t->frame, sizeof(t->frame));
+    zero(t->sigframe, sizeof(t->frame));
     
     t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(create_fault_handler(h, t));
     // xxx - dup with allocate_frame
     t->frame[FRAME_QUEUE] = u64_from_pointer(thread_queue);
     t->frame[FRAME_IS_SYSCALL] = 1;
     t->frame[FRAME_RUN] = u64_from_pointer(closure(h, run_thread, t));
-    
+
+    t->sigframe[FRAME_FAULT_HANDLER] = t->frame[FRAME_FAULT_HANDLER];
+    t->sigframe[FRAME_QUEUE] = t->frame[FRAME_QUEUE];
+    t->sigframe[FRAME_RUN] = u64_from_pointer(closure(h, run_sighandler, t));
+
     t->blocked_on = 0;
     t->file_op_is_complete = false;
     init_sigstate(&t->signals);
@@ -280,8 +293,14 @@ void exit_thread(thread t)
     deallocate_blockq(t->thread_bq);
     t->thread_bq = INVALID_ADDRESS;
 
-    deallocate_closure((fault_handler)pointer_from_u64(t->frame[FRAME_FAULT_HANDLER]));
-    t->frame[FRAME_FAULT_HANDLER] = 0;
+    deallocate_closure(pointer_from_u64(t->frame[FRAME_RUN]));
+    deallocate_closure(pointer_from_u64(t->sigframe[FRAME_RUN]));
+    deallocate_closure(pointer_from_u64(t->frame[FRAME_FAULT_HANDLER]));
+    t->frame[FRAME_RUN] = INVALID_PHYSICAL;
+    t->frame[FRAME_QUEUE] = INVALID_PHYSICAL;
+    t->sigframe[FRAME_RUN] = INVALID_PHYSICAL;
+    t->sigframe[FRAME_QUEUE] = INVALID_PHYSICAL;
+    t->frame[FRAME_FAULT_HANDLER] = INVALID_PHYSICAL;
 
     ftrace_thread_deinit(t, dummy_thread);
 
