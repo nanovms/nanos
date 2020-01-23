@@ -113,12 +113,13 @@ static void fix_me_sysret_wrapper(context f)
 {
     // we should change this to take rdi .. the asm doc is pretty explicit
     // about not really excluding rbx from other allocations
-    register u64 rax __asm__("%rax") = u64_from_pointer(f);
-    __asm__("jmp frame_return"::"r"(rax));
+    register u64 rbx __asm__("%rbx") = u64_from_pointer(f);
+    __asm__("jmp frame_return"::"r"(rbx));
 }
 
+#define TRAP_FLAG 0x100
+
 typedef void (*restorer)(context);
-// actually start the thread
 closure_function(2, 0, void, run_thread,
                  thread, t,
                  restorer, restore_function)
@@ -144,7 +145,8 @@ closure_function(2, 0, void, run_thread,
     context f = current_cpu()->running_frame;
     /* running frame may have changed to signal handling frame */
     f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
-    rprintf("run thread %p %p %F\n", t, f, f[FRAME_RUN]);
+    f[FRAME_FLAGS] |= TRAP_FLAG;    
+    rprintf("run thread %p %p %p\n", t, f, f[FRAME_RIP]);
     bound(restore_function)(f);
 }
 
