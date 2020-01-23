@@ -99,7 +99,7 @@ closure_function(1, 0, void, direct_conn_send_bh,
         closure_finish();
     } else {
         direct_debug("re-enqueue\n");
-        enqueue(deferqueue, closure_self());
+        enqueue(runqueue, closure_self());
     }
 }
 
@@ -125,7 +125,7 @@ closure_function(1, 1, status, direct_conn_send,
             if (!dc->running) {
                 thunk t = closure(dc->d->h, direct_conn_send_bh, dc);
                 dc->running = true;
-                assert(enqueue(deferqueue, t));
+                assert(enqueue(runqueue, t));
             }
         }
     }

@@ -24,12 +24,8 @@ static char *state_strings_backing[] = {
 char **state_strings = state_strings_backing;
 static int wakeup_vector;
 
-/* could make a generic hook/register if more users... */
-thunk unix_interrupt_checks;
-
 queue runqueue;                 /* kernel space from ?*/
 queue bhqueue;                  /* kernel from interrupt */
-queue deferqueue;               /* kernel kernel (?) */
 queue thread_queue;              /* kernel to user */
 queue idle_cpu_queue;       
 
@@ -56,40 +52,6 @@ closure_function(0, 0, void, timer_interrupt_internal)
 }
 
 thunk timer_interrupt;
-
-#if 0
-NOTRACE
-void process_bhqueue()
-{
-    /* XXX - we're on bh frame & stack; re-enable ints here */
-    thunk t;
-    int defer_waiters = queue_length(deferqueue);
-    while ((t = dequeue(bhqueue)) != INVALID_ADDRESS) {
-        assert(t);
-        apply(t);
-    }
-
-    /* only process deferred items that were queued prior to call -
-       this allows bhqueue and deferqueue waiters to re-schedule for
-       subsequent bh processing */
-    while (defer_waiters > 0 && (t = dequeue(deferqueue)) != INVALID_ADDRESS) {
-        assert(t);
-        apply(t);
-        defer_waiters--;
-    }
-
-    timer_update();
-
-    /* XXX - and disable before frame pop */
-    frame_pop();
-
-    if (unix_interrupt_checks)
-        apply(unix_interrupt_checks);
-
-    current_cpu()->state = cpu_kernel; // ?? 
-    interrupt_exit();
-}
-#endif
 
 static u64 runloop_lock;
 static u64 kernel_lock;
@@ -132,7 +94,6 @@ void runloop_internal()
     disable_interrupts();
     spin_lock(&runloop_lock);
     if (spin_try(&kernel_lock)) {
-        //deferqueue scheduled under here
         if ((t = dequeue(bhqueue)) != INVALID_ADDRESS) {
             run_thunk(t, cpu_kernel);
         }
@@ -167,7 +128,6 @@ closure_function(1, 0, void, simple_frame_return,
 
 void init_scheduler(heap h)
 {
-    unix_interrupt_checks = 0;
     runloop_lock = 0;
     kernel_lock = 0;
     timer_update = closure(h, timer_update_internal);
@@ -182,7 +142,6 @@ void init_scheduler(heap h)
     runqueue = allocate_queue(h, 64);
     /* XXX bhqueue is large to accomodate vq completions; explore batch processing on vq side */
     bhqueue = allocate_queue(h, 2048);
-    deferqueue = allocate_queue(h, 64);
     thread_queue = allocate_queue(h, 64);
 
     /* We would like to not ever need to return to the kernel frame,

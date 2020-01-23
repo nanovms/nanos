@@ -443,7 +443,7 @@ static inline void sigstate_thread_restore(thread t)
     }
 }
 
-context dispatch_signals(thread t);
+boolean dispatch_signals(thread t);
 void deliver_signal_to_thread(thread t, struct siginfo *);
 void deliver_signal_to_process(process p, struct siginfo *);
 

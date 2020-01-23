@@ -151,7 +151,7 @@ static void * test_rt_signal_child(void * arg)
         sigemptyset(&mask_ss);
         int rv = syscall(SYS_rt_sigsuspend, &mask_ss, 8);
         if (rv >= 0) {
-            sigtest_err("call to rt_sigsuspend rv >= 0");
+            sigtest_err("call to rt_sigsuspend rv >= 0\n");
             return (void*)EXIT_FAILURE;
         }
         if (errno == EINTR) {
