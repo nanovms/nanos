@@ -65,6 +65,8 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, un
         *ptid = t->tid;
     if (flags & CLONE_CHILD_CLEARTID)
         t->clear_tid = ctid;
+    t->blocked_on = 0;
+    t->syscall = -1;
     schedule_frame(t->frame);
     return t->tid;
 }
@@ -156,6 +158,8 @@ void thread_wakeup(thread t)
                t->blocked_on ? (t->blocked_on != INVALID_ADDRESS ? blockq_name(t->blocked_on) : "uninterruptible") :
                "(null)", t->frame[FRAME_RIP]);
     assert(t->blocked_on);
+    t->blocked_on = 0;
+    t->syscall = -1;
     schedule_frame((context)t);
 }
 
