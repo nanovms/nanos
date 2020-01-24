@@ -47,6 +47,7 @@ void vtpci_set_status(vtpci dev, u8 status)
 }
 
 status vtpci_alloc_virtqueue(vtpci dev,
+                             const char *name,
                              int idx,
                              struct virtqueue **result)
 {
@@ -54,7 +55,7 @@ status vtpci_alloc_virtqueue(vtpci dev,
     out16(dev->base + VIRTIO_PCI_QUEUE_SEL, idx);    
     u16 size = in16(dev->base + VIRTIO_PCI_QUEUE_NUM);
     thunk handler;
-    status s = virtqueue_alloc(dev, idx, size, VIRTIO_PCI_VRING_ALIGN, &vq, &handler);
+    status s = virtqueue_alloc(dev, name, idx, size, VIRTIO_PCI_VRING_ALIGN, &vq, &handler);
     if (!is_ok(s)) return s;
     pci_setup_msix(dev->dev, idx, handler);
     out32(dev->base + VIRTIO_PCI_QUEUE_PFN, virtqueue_paddr(vq) >> VIRTIO_PCI_QUEUE_ADDR_SHIFT);
