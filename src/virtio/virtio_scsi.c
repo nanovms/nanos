@@ -220,8 +220,6 @@ closure_function(3, 2, void, virtio_scsi_io_done,
     }
     apply(bound(sh), st);
     closure_finish();
-    kern_unlock();
-    runloop();
 }
 
 static void virtio_scsi_io(virtio_scsi s, u8 cmd, void *buf, range blocks, status_handler sh)
@@ -258,8 +256,6 @@ closure_function(2, 0, void, virtio_scsi_init_done,
     block_io in = closure(s->v->general, virtio_scsi_read, s);
     block_io out = closure(s->v->general, virtio_scsi_write, s);
     apply(bound(a), in, out, s->capacity);
-    kern_unlock();
-    runloop();
     closure_finish();
 }
 
@@ -468,11 +464,11 @@ static void virtio_scsi_attach(heap general, storage_attach a, heap page_allocat
     s->max_lun = in32(s->v->base + VIRTIO_MSI_DEVICE_CONFIG + VIRTIO_SCSI_R_MAX_LUN);
     virtio_scsi_debug("max lun %d\n", s->max_lun);
 
-    status st = vtpci_alloc_virtqueue(s->v, 0, &s->command);
+    status st = vtpci_alloc_virtqueue(s->v, "virtio scsi command", 0, &s->command);
     assert(st == STATUS_OK);
-    st = vtpci_alloc_virtqueue(s->v, 1, &s->eventq);
+    st = vtpci_alloc_virtqueue(s->v, "virtio scsi event", 1, &s->eventq);
     assert(st == STATUS_OK);
-    st = vtpci_alloc_virtqueue(s->v, 2, &s->requestq);
+    st = vtpci_alloc_virtqueue(s->v, "virtio scsi request", 2, &s->requestq);
     assert(st == STATUS_OK);
 
     // On reset, the device MUST set sense_size to 96 and cdb_size to 32

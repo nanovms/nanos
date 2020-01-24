@@ -204,8 +204,8 @@ static void virtio_net_attach(heap general, heap page_allocator, pci_dev d)
     /* rx = 0, tx = 1, ctl = 2 by 
        page 53 of http://docs.oasis-open.org/virtio/virtio/v1.0/cs01/virtio-v1.0-cs01.pdf */
     vn->dev = dev;
-    vtpci_alloc_virtqueue(dev, 1, &vn->txq);
-    vtpci_alloc_virtqueue(dev, 0, &vn->rxq);
+    vtpci_alloc_virtqueue(dev, "virtio net tx", 1, &vn->txq);
+    vtpci_alloc_virtqueue(dev, "virtio net rx", 0, &vn->rxq);
     // just need 10 contig bytes really
     vn->empty = allocate(dev->contiguous, dev->contiguous->pagesize);
     for (int i = 0; i < NET_HEADER_LENGTH ; i++)  ((u8 *)vn->empty)[i] = 0;

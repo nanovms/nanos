@@ -43,6 +43,7 @@ typedef closure_type(vqfinish, void, u64);
 void vtpci_notify_virtqueue(vtpci sc, u16 queue);
 
 status virtqueue_alloc(vtpci dev,
+                       const char *name,
                        u16 queue,
                        u16 size,
                        int align,
