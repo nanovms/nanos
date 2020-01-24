@@ -54,7 +54,7 @@ extern void * AP_BOOT_PAGE;
 
 /* runloop timer minimum and maximum */
 #define RUNLOOP_TIMER_MAX_PERIOD_US     100000
-#define RUNLOOP_TIMER_MIN_PERIOD_US     10
+#define RUNLOOP_TIMER_MIN_PERIOD_US     1000
 
 /* XXX just for initial mp bringup... */
 #define MAX_CPUS 16

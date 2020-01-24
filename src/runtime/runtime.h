@@ -64,12 +64,10 @@ static inline void console(char *s)
 #define U64_FROM_BIT(x) (1ull<<(x))
 #define MASK(x) (U64_FROM_BIT(x)-1)
 
-#ifndef MIN
-#define MIN(x, y) ((x) < (y)? (x):(y))
-#endif
-#ifndef MAX
-#define MAX(x, y) ((x) > (y)? (x):(y))
-#endif
+#define __compare(x, y, op) ({ typeof(x) __x = (x); typeof(y) __y = (y); (__x op __y ? __x : __y);})
+
+#define MIN(x, y) __compare((x), (y), <)
+#define MAX(x, y) __compare((x), (y), >)
 
 #define offsetof(__t, __e) u64_from_pointer(&((__t)0)->__e)
 
