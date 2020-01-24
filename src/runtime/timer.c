@@ -54,6 +54,7 @@ timestamp timer_check(void)
         if (!t->disabled) {
             if (t->interval) {
                 u64 overruns = delta > t->interval ? delta / t->interval + 1 : 1;
+                timer_debug("apply %p (%F), overruns %ld\n", t, t->t, overruns);
                 apply(t->t, overruns);
                 if (!t->disabled) {
                     t->expiry += t->interval * overruns;

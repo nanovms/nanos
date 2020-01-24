@@ -3,7 +3,7 @@
 
 //#define SIGNAL_DEBUG
 #ifdef SIGNAL_DEBUG
-#define sig_debug(x, ...) do {log_printf(" SIG", "%s: " x, __func__, ##__VA_ARGS__);} while(0)
+#define sig_debug(x, ...) do {log_printf("  SIG", "%s: " x, __func__, ##__VA_ARGS__);} while(0)
 #else
 #define sig_debug(x, ...)
 #endif
