@@ -55,17 +55,21 @@ word pipelock_read(pipelock p)
     return k;
 }
 
+typedef struct loopy_activation_record {
+    pipelock *p;
+    int id;
+} *loopy_activation_record;
+
 void *loopy(void *z)
 {
-    pipelock *p = z;
-    // shutdown!
+    loopy_activation_record a = z;
     while (1) {
-        word v = pipelock_read(p[0]);
+        word v = pipelock_read(a->p[0]);
         if (v == pipe_exit) {
-            pipelock_write(p[1], v);
+            pipelock_write(a->p[1], v);
             pthread_exit(0);
         }
-        pipelock_write(p[1], v+1);
+        pipelock_write(a->p[1], v+a->id);
     }
 }
 
@@ -83,7 +87,7 @@ void *terminus(void *k)
         x += v;
     }
     // make a derivable function
-    if (x == 2161632) {
+    if (x == 2862230032) {
         exit(0);        
     }
     printf("%lld\n", x);
@@ -105,14 +109,17 @@ int main(int argc, char **argv)
         locks[i] = create_pipelock(1);
     pthread_create(&term , 0, terminus, locks[npipes-1]);
     for (int i = 0; i < nthreads; i ++)  {
-        int r = pthread_create(threads + i , 0, loopy, locks+i);
+        loopy_activation_record a = malloc(sizeof (loopy_activation_record));
+        a->p = locks+i;
+        a->id = i;
+        int r = pthread_create(threads + i , 0, loopy, a);
         if (r != 0)  {
             halt("pthread create error");
         }
     }
 
     for (int i = 1; i < 2048; i ++)
-        pipelock_write(locks[0], i);
+        pipelock_write(locks[0], i*i);
     
     pipelock_write(locks[0], pipe_exit);
     pause();
