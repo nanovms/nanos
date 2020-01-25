@@ -12,7 +12,6 @@ PROGRAMS= \
 	random_test \
 	table_test \
 	tuple_test \
-	thread_test \
 	udp_test \
 	vector_test
 SKIP_TEST=	network_test udp_test
@@ -113,9 +112,6 @@ SRCS-table_test= \
 	$(CURDIR)/table_test.c \
 	$(RUNTIME)\
 	$(SRCDIR)/unix_process/unix_process_runtime.c
-
-SRCS-thread_test= $(CURDIR)/thread_test.c
-LIBS-thread_test=	-lpthread
 
 SRCS-tuple_test= \
 	$(CURDIR)/tuple_test.c \
