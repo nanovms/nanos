@@ -86,7 +86,7 @@ test test-noaccel: mkfs boot stage3
 	$(Q) $(MAKE) -C test test
 	$(Q) $(MAKE) runtime-tests$(subst test,,$@)
 
-RUNTIME_TESTS=	creat epoll eventfd fcntl fst getdents getrandom hw hws mkdir mmap pipe readv rename sendfile signal socketpair time unlink vsyscall write writev
+RUNTIME_TESTS=	creat epoll eventfd fcntl fst getdents getrandom hw hws mkdir mmap pipe readv rename sendfile signal socketpair time unlink thread_test vsyscall write writev
 
 .PHONY: runtime-tests runtime-tests-noaccel
 
