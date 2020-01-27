@@ -1,6 +1,5 @@
 #include <runtime.h>
 // synthesize the parser
-typedef closure_type(selfparser, parser, parser, character);
 typedef closure_type(completion, parser, void *);
 typedef closure_type(err_internal, parser, buffer);
 
@@ -35,50 +34,35 @@ static charset charset_from_string(heap h, char *elements)
     return t;
 }
 
-// kind of a special case y combinator
-closure_function(2, 1, parser, selfinate,
-                 heap, h, selfparser, p,
-                 character, in)
-{
-    return apply(bound(p), (parser)closure_self(), in);
-}
-
-// this also has to be done on the return
-static parser combinate(heap h, selfparser p)
-{
-    return (parser)closure(h, selfinate, h, p);
-}
-
-closure_function(1, 2, parser, til_newline,
+closure_function(1, 1, parser, til_newline,
                  parser, finish,
-                 parser, self, character, in)
+                 character, in)
 {
     if (in == '\n') {
         parser f = bound(finish);
-        deallocate_closure(self);
         closure_finish();
         return f;
     }
-    return self;
+    return (parser)closure_self();
 }
 
 // leaky; no finite lifespan
-closure_function(2, 2, parser, eat_whitespace,
+closure_function(2, 1, parser, eat_whitespace,
                  heap, h, parser, finish,
-                 parser, self, character, in)
+                 character, in)
 {
     if (in == '#')
-        return combinate(bound(h), closure(bound(h), til_newline, self));
+        return (parser)closure(bound(h), til_newline, (parser)closure_self());
 
     if (member(whitespace, in))
-        return self;
+        return (parser)closure_self();
 
     return apply(bound(finish), in);
 }
 
 static parser ignore_whitespace(heap h, parser next)
 {
-    return combinate(h, closure(h, eat_whitespace, h, next));
+    return (parser)closure(h, eat_whitespace, h, next);
 }
 
 closure_function(3, 1, parser, escaped_character,
@@ -91,9 +75,9 @@ closure_function(3, 1, parser, escaped_character,
     return n;
 }
 
-closure_function(3, 2, parser, quoted_string,
+closure_function(3, 1, parser, quoted_string,
                  heap, h, completion, c, buffer, b,
-                 parser, self, character, in)
+                 character, in)
 {
     if (in == '"') {
         completion c = bound(c);
@@ -101,26 +85,25 @@ closure_function(3, 2, parser, quoted_string,
         closure_finish();
         return apply(c, b);
     } else if (in == '\\') {
-        return (parser)closure(bound(h), escaped_character, bound(h), bound(b), self);
+        return (parser)closure(bound(h), escaped_character, bound(h), bound(b), (parser)closure_self());
     }
     push_character(bound(b), in);
-    return self;
+    return (parser)closure_self();
 }
 
 
-closure_function(3, 2, parser, terminal,
+closure_function(3, 1, parser, terminal,
                  completion, c, charset, final, buffer, b,
-                 parser, self, character, in)
+                 character, in)
 {
     if (member(bound(final), in)) {
         // apply(apply(x)) calls x twice
         parser p = apply(bound(c), bound(b));
-        deallocate_closure(self);
         closure_finish();
         return apply(p, in);
     } else {
         push_character(bound(b), in);
-        return self;
+        return (parser)closure_self();
     }
 }
 
@@ -152,13 +135,13 @@ closure_function(3, 1, parser, dispatch_property,
 
 }
 
-closure_function(4, 2, parser, is_end_of_tuple,
+closure_function(4, 1, parser, is_end_of_tuple,
                  heap, h, completion, c, tuple, t, err_internal, e,
-                 parser, self, character, in);
+                 character, in);
 
-closure_function(5, 2, parser, is_end_of_vector,
+closure_function(5, 1, parser, is_end_of_vector,
                  heap, h, completion, c, tuple, t, err_internal, e, u64 *, index,
-                 parser, self, character, in);
+                 character, in);
 
 closure_function(3, 1, parser, parse_value_string,
                  heap, h, completion, c, buffer, b,
@@ -177,12 +160,12 @@ closure_function(3, 1, parser, parse_value,
 
     switch(in) {
     case '(':
-        p = ignore_whitespace(h, combinate(h, closure(h, is_end_of_tuple, h, c, allocate_tuple(), err)));
+        p = ignore_whitespace(h, (parser)closure(h, is_end_of_tuple, h, c, allocate_tuple(), err));
         break;
     case '[':
         i= allocate(h, sizeof(u64));
         *i = 0;
-        p = ignore_whitespace(h, combinate(h, closure(h, is_end_of_vector, h, c, allocate_tuple(), err, i)));
+        p = ignore_whitespace(h, (parser)closure(h, is_end_of_vector, h, c, allocate_tuple(), err, i));
         break;
     default:
         q = ignore_whitespace(h, (parser)closure(h, parse_value_string, h, c, allocate_buffer(h, 8)));
@@ -204,7 +187,7 @@ closure_function(3, 1, parser, parse_tuple,
     if (in != '(')
         p = apply(bound(err), aprintf(bound(h), "parse_tuple fail, leading char '%c'", in));
     else
-        p = ignore_whitespace(h, combinate(h, closure(h, is_end_of_tuple, h, c, allocate_tuple(), err)));
+        p = ignore_whitespace(h, (parser)closure(h, is_end_of_tuple, h, c, allocate_tuple(), err));
     return p;
 }
 
@@ -228,45 +211,42 @@ closure_function(3, 1, parser, parse_name,
     heap h = bound(h);
     parser p;
     if (in == '"') {
-        p = combinate(h, closure(h, quoted_string, h, bound(c), bound(b)));
+        p = (parser)closure(h, quoted_string, h, bound(c), bound(b));
     } else {
-        parser q = combinate(h, closure(h, terminal, bound(c), name_terminal, bound(b)));
+        parser q = (parser)closure(h, terminal, bound(c), name_terminal, bound(b));
         p = apply(q, in);
     }
     closure_finish();
     return p;
 }
 
-static parser is_end_of_tuple(struct _closure_is_end_of_tuple *__self, parser self, character in)
+static parser is_end_of_tuple(struct _closure_is_end_of_tuple *__self, character in)
 {
     heap h = bound(h);
     if (in == ')') {
         parser p = apply(bound(c), bound(t));
-        deallocate_closure(self);
         closure_finish();
         return p;
     }
 
-    // XXX
     parser *p = allocate(h, sizeof(parser));
-    parser cew = ignore_whitespace(h, self);
+    parser cew = ignore_whitespace(h, (parser)closure_self());
     completion nc = closure(h, name_complete, h, bound(t), cew, bound(e));
     *p = ignore_whitespace(h, (parser)closure(h, parse_name, h, nc, allocate_buffer(h, 100)));
     return apply(*p, in);
 }
 
-static parser is_end_of_vector(struct _closure_is_end_of_vector *__self, parser self, character in)
+static parser is_end_of_vector(struct _closure_is_end_of_vector *__self, character in)
 {
     heap h = bound(h);
     // keep index also
     if (in != ']') {
-        completion vc = closure(h, value_complete, bound(t), intern_u64(*bound(index)), self);
+        completion vc = closure(h, value_complete, bound(t), intern_u64(*bound(index)), (parser)closure_self());
         (*bound(index))++;
         // doesnt handle whitespace before end
         return apply(ignore_whitespace(h, (parser)closure(h, parse_value, h, vc, bound(e))), in);
     }
     parser p = apply(bound(c), bound(t));
-    deallocate_closure(self);
     closure_finish();
     return p;
 }
@@ -275,16 +255,16 @@ static parser parse_value_string(struct _closure_parse_value_string *__self, cha
 {
     heap h = bound(h);
     if (in == '"')
-        return combinate(h, closure(h, quoted_string, h, bound(c), bound(b)));
+        return (parser)closure(h, quoted_string, h, bound(c), bound(b));
 
-    return apply(combinate(h, closure(h, terminal, bound(c), value_terminal, bound(b))), in);
+    return (parser)apply(closure(h, terminal, bound(c), value_terminal, bound(b)), in);
 }
 
 // leaks; no end condition to free on
-closure_function(0, 2, parser, kill,
-                 parser, self, character, ig)
+closure_function(0, 1, parser, kill,
+                 character, ig)
 {
-    return self;
+    return (parser)closure_self();
 }
 
 closure_function(2, 1, parser, bridge_err,
@@ -292,7 +272,7 @@ closure_function(2, 1, parser, bridge_err,
                  buffer, b)
 {
     apply(bound(error), b);
-    return combinate(bound(h), closure(bound(h), kill));
+    return (parser)closure(bound(h), kill);
 }
 
 closure_function(3, 1, parser, bridge_completion,
