@@ -5,7 +5,7 @@
 #include <lock.h>
 #include <apic.h>
 
-//#define SCHED_DEBUG
+#define SCHED_DEBUG
 #ifdef SCHED_DEBUG
 #define sched_debug(x, ...) do {log_printf("SCHED", x, ##__VA_ARGS__);} while(0)
 #else
@@ -27,7 +27,7 @@ static int wakeup_vector;
 queue runqueue;                 /* kernel space from ?*/
 queue bhqueue;                  /* kernel from interrupt */
 queue thread_queue;              /* kernel to user */
-queue idle_cpu_queue;       
+u64 idle_cpu_mask;              /* xxx - limited to 64 aps. consider merging with bitmask */
 
 static timestamp runloop_timer_min;
 static timestamp runloop_timer_max;
@@ -66,13 +66,17 @@ static void run_thunk(thunk t, int cpustate)
     sched_debug(" run: %F state: %s\n", t, state_strings[cpustate]);
     // as we are walking by, if there is work to be done and an idle cpu,
     // get it to wake up and examine the queue
-    if ((queue_length(idle_cpu_queue) > 0 ) &&
+    if (idle_cpu_mask &&
         ((queue_length(bhqueue) > 0) ||
          (queue_length(runqueue) > 0) ||
          (queue_length(thread_queue) > 0))) {
-        u64 cpu = u64_from_pointer(dequeue(idle_cpu_queue));
+        // unfortunately, if idle cpu mask is zero (which can happen since this
+        // is racy), the result is the previous value ... so asm here 
+        u64 cpu = __builtin_clzll(idle_cpu_mask | 1);
+        // this really shouldn't ever be current_cpu() ? 
         if (cpu != INVALID_PHYSICAL && cpu != current_cpu()->id) {
-            rprintf("sending wakeup ipi to %d\n", cpu);
+            sched_debug("sending wakeup ipi to %d\n", cpu);
+            atomic_clear_bit(&idle_cpu_mask, cpu);
             apic_ipi(cpu, 0, wakeup_vector);
         }
     }
@@ -90,7 +94,7 @@ void runloop_internal()
 {
     thunk t;
 
-    sched_debug("runloop %d %s b:%d r:%d t:%d\n", current_cpu()->id, state_strings[current_cpu()->state], queue_length(bhqueue), queue_length(runqueue), queue_length(thread_queue));
+    sched_debug("runloop %d %s b:%d r:%d t:%d i:%d\n", current_cpu()->id, state_strings[current_cpu()->state], queue_length(bhqueue), queue_length(runqueue), queue_length(thread_queue), idle_cpu_mask);
     disable_interrupts();
     spin_lock(&runloop_lock);
     if (spin_try(&kernel_lock)) {
@@ -110,7 +114,6 @@ void runloop_internal()
     if ((t = dequeue(thread_queue)) != INVALID_ADDRESS) 
         run_thunk(t, cpu_user);
 
-    sched_debug("sleep\n");
     spin_unlock(&runloop_lock);
     kernel_sleep();
     halt("shouldn't be here");
@@ -120,7 +123,8 @@ void runloop_internal()
 closure_function(0, 0, void, ipi_interrupt)
 {
     cpuinfo ci = get_cpuinfo();
-    ci->state = cpu_kernel;
+    sched_debug("cpu %d wakes up\n", ci->id);
+    runloop();
 }
 
 closure_function(1, 0, void, simple_frame_return,
@@ -140,7 +144,6 @@ void init_scheduler(heap h)
     wakeup_vector = allocate_interrupt();
     register_interrupt(wakeup_vector, closure(h, ipi_interrupt));    
     assert(wakeup_vector != INVALID_PHYSICAL);    
-    idle_cpu_queue = allocate_queue(h, MAX_CPUS);
     /* scheduling queues init */
     runqueue = allocate_queue(h, 64);
     /* XXX bhqueue is large to accomodate vq completions; explore batch processing on vq side */
@@ -163,9 +166,10 @@ void kernel_sleep(void)
     // we're going to cover up this race by checking the state in the interrupt
     // handler...we shouldn't return here if we do get interrupted    
     cpuinfo ci = get_cpuinfo();
+    sched_debug("sleep %d\n", ci->id);
     ci->state = cpu_idle;
+    atomic_set_bit(&idle_cpu_mask, ci->id);
     spin_unlock(&kernel_lock); // ? 
-    enqueue(idle_cpu_queue, pointer_from_u64((u64)ci->id));
     // wmb() ?  interrupt would probably enforce that
     asm volatile("sti; hlt" ::: "memory");
     halt("return from kernel sleep");              

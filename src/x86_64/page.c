@@ -28,15 +28,6 @@ static inline page pagebase()
     return base;
 }
 
-#ifdef PAGE_USE_FLUSH
-static inline void flush_tlb()
-{
-    page base;
-    mov_from_cr("cr3", base);
-    mov_to_cr("cr3", base);
-}
-#endif
-
 // there is a def64 and def32 now
 #ifndef physical_from_virtual
 static inline page pt_lookup(page table, u64 t, unsigned int x)
@@ -64,7 +55,23 @@ physical physical_from_virtual(void *x)
 }
 #endif
 
+void flush_tlb()
+{
+    page base;
+    mov_from_cr("cr3", base);
+    mov_to_cr("cr3", base);
+}
+
+#ifdef BOOT
+void page_invalidate(u64 address, thunk completion)
+{
+    flush_tlb();
+    apply(completion);
+}
+#endif
+
 #ifndef BOOT
+
 static u64 dump_lookup(u64 base, u64 t, unsigned int x)
 {
     return page_from_pte(base)[pindex(t, x)];
@@ -195,16 +202,7 @@ static boolean force_entry(heap h, page b, u64 v, physical p, int level,
     }
 }
 
-static inline void page_invalidate(u64 v)
-{
-#ifdef PAGE_USE_FLUSH
-    /* It isn't efficient to do this for each page, but this option is
-       only used for stage2 and debugging... */
-    flush_tlb();
-#else
-    asm volatile("invlpg (%0)" :: "r" (v) : "memory");
-#endif
-}
+
 
 static inline boolean map_page(page base, u64 v, physical p, heap h,
                                boolean fat, u64 flags, boolean * invalidate)
@@ -217,7 +215,8 @@ static inline boolean map_page(page base, u64 v, physical p, heap h,
     if (!force_entry(h, base, v, p, 1, fat, flags, &invalidate_entry))
 	return false;
     if (invalidate_entry) {
-        page_invalidate(v);
+        // move this up to construct ranges?
+        page_invalidate(v, ignore);
         if (invalidate)
             *invalidate = true;
     }
@@ -295,7 +294,7 @@ closure_function(1, 3, boolean, update_pte_flags,
 #ifdef PAGE_UPDATE_DEBUG
     page_debug("update 0x%lx: pte @ 0x%lx, 0x%lx -> 0x%lx\n", addr, entry, old, *entry);
 #endif
-    page_invalidate(addr);
+    page_invalidate(addr, ignore);
     return true;
 }
 
@@ -333,7 +332,7 @@ closure_function(3, 3, boolean, remap_entry,
     *entry = 0;
 
     /* invalidate old mapping (map_page takes care of new)  */
-    page_invalidate(curr);
+    page_invalidate(curr, ignore);
 
     return true;
 }
@@ -385,7 +384,7 @@ closure_function(1, 3, boolean, unmap_page,
                    rh, level, vaddr, entry, *entry);
 #endif
         *entry = 0;
-        page_invalidate(vaddr);
+        page_invalidate(vaddr, ignore);
         if (rh) {
             u64 phys = phys_from_pte(old_entry);
             range p = irange(phys, phys + (pt_entry_is_fat(level, old_entry) ? PAGESIZE_2M : PAGESIZE));

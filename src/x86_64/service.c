@@ -13,9 +13,9 @@
 #include <kvm_platform.h>
 #include <xen_platform.h>
 
-//#define SMP_TEST
+#define SMP_TEST
 
-//#define STAGE3_INIT_DEBUG
+#define STAGE3_INIT_DEBUG
 #ifdef STAGE3_INIT_DEBUG
 #define init_debug(x, ...) do {rprintf("INIT: " x "\n", ##__VA_ARGS__);} while(0)
 #else
@@ -240,12 +240,14 @@ static void init_cpuinfos(kernel_heaps kh)
     cpu_setgs(0);
 }
 
+u64 total_processors = 1;
+
 #ifdef SMP_TEST
-static u64 aps_online = 0;
 
 static void new_cpu()
 {
-    fetch_and_add(&aps_online, 1);
+    init_debug("ap cpu %d\n", current_cpu()->id);
+    fetch_and_add(&total_processors, 1);
     kernel_sleep();
 }
 #endif
@@ -347,6 +349,7 @@ static void __attribute__((noinline)) init_service_new_stack()
 
 #ifdef SMP_TEST
     init_debug("performing SMP test");
+    init_flush();
     start_cpu(misc, pages, TARGET_EXCLUSIVE_BROADCAST, new_cpu);
 #endif
     init_debug("starting runloop");

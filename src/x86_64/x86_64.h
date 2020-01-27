@@ -337,3 +337,19 @@ extern char **state_strings;
 #define schedule_frame(__f)  do { assert((__f)[FRAME_QUEUE] != INVALID_PHYSICAL); enqueue((queue)pointer_from_u64((__f)[FRAME_QUEUE]), pointer_from_u64((__f)[FRAME_RUN])); } while(0)
 
 void kernel_unlock();
+// move to crt0? probably a little atomic library? we get the old value for free also
+// these dont need to be atomic since its under the runloop spinlock..except for the interrupt
+// wakeup
+static inline void atomic_set_bit(u64 *target, u64 bit)
+{
+    __asm__("btsq %1, %0": "+m"(*target): "r"(bit));
+}
+
+static inline void atomic_clear_bit(u64 *target, u64 bit)
+{
+    __asm__("btcq %1, %0": "+m"(*target):"r"(bit));
+}
+
+extern u64 idle_cpu_mask;
+extern u64 total_processors;
+

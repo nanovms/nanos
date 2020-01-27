@@ -227,6 +227,8 @@ void common_handler()
     cpuinfo ci = current_cpu();
     context f = ci->running_frame;
     int i = f[FRAME_VECTOR];
+    // if we were idle, we are no longer
+    atomic_clear_bit(&idle_cpu_mask, ci->id);
 
     int_debug("interrupt cpu %d %s i %d f %p rip 0x%lx cr2 0x%lx\n", ci->id, state_strings[ci->state], i, f, f[FRAME_RIP], f[FRAME_CR2]);
 

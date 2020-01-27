@@ -80,3 +80,6 @@ void dump_ptes(void *x);
 typedef closure_type(entry_handler, boolean /* success */, int /* level */,
         u64 /* vaddr */, u64 * /* entry */);
 boolean traverse_ptes(u64 vaddr, u64 length, entry_handler eh);
+void page_invalidate(u64 p, thunk completion);
+void flush_tlb();
+void init_flush();
