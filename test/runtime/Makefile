@@ -21,6 +21,7 @@ PROGRAMS= \
 	sendfile \
 	signal \
 	socketpair \
+	thread_test \
 	time \
 	udploop \
 	unlink \
@@ -160,6 +161,12 @@ SRCS-socketpair= \
 	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-socketpair=	-static
 LIBS-socketpair=	-lpthread
+
+SRCS-thread_test= \
+	$(SRCDIR)/unix_process/ssp.c\
+	$(CURDIR)/thread_test.c 
+LDFLAGS-thread_test=	-static
+LIBS-thread_test=	-lpthread
 
 SRCS-time= \
 	$(CURDIR)/time.c \
