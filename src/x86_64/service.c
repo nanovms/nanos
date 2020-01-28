@@ -15,7 +15,7 @@
 
 #define SMP_ENABLE
 
-//#define STAGE3_INIT_DEBUG
+#define STAGE3_INIT_DEBUG
 #ifdef STAGE3_INIT_DEBUG
 #define init_debug(x, ...) do {rprintf("INIT: " x "\n", ##__VA_ARGS__);} while(0)
 #else
@@ -227,6 +227,7 @@ static void init_cpuinfos(kernel_heaps kh)
         ci->running_frame = 0;
         ci->id = i;
         ci->state = cpu_not_present;
+        ci->have_kernel_lock = false;
 
         /* frame and stacks */
         ci->kernel_frame = allocate_frame(h);
@@ -245,8 +246,14 @@ static u64 aps_online = 0;
 
 static void new_cpu()
 {
+    cpuinfo ci = get_cpuinfo();
     fetch_and_add(&aps_online, 1);
-    kernel_sleep();
+    /* catch any spurious interrupts until we move over to runloop... */
+    while (1) {
+        ci->state = cpu_idle;
+        enqueue(idle_cpu_queue, pointer_from_u64((u64)ci->id));
+        asm volatile("sti; hlt" ::: "memory");
+    }
 }
 #endif
 
@@ -348,6 +355,8 @@ static void __attribute__((noinline)) init_service_new_stack()
 #ifdef SMP_ENABLE
     init_debug("starting APs");
     start_cpu(misc, pages, TARGET_EXCLUSIVE_BROADCAST, new_cpu);
+    kernel_delay(seconds(1));   /* temp, til we check tables to know what we have */
+    init_debug("total CPUs %d\n", aps_online + 1);
 #endif
     init_debug("starting runloop");
     runloop();

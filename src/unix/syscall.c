@@ -1931,7 +1931,9 @@ static void syscall_debug(context f, u64 call)
     set_syscall_return((thread)f, -ENOSYS); // xx - not happy about this cast
     current_cpu()->state = cpu_kernel;
 
-    spin_lock(&kernel_lock);
+    /* Should probably be a try with call to runloop on fail - with
+       some kind of special thunk for restore...? */
+    kern_lock();
 
     if (call < 0 || call >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0])) {
         schedule_frame(f);

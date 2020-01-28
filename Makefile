@@ -1,7 +1,7 @@
 SUBDIR=		contgen mkfs boot stage3 test
 
 # runtime tests / ready-to-use targets
-TARGET=		webg
+TARGET=		thread_test
 
 ifneq ($(NANOS_TARGET_ROOT),)
 TARGET_ROOT_OPT=	-r $(NANOS_TARGET_ROOT)

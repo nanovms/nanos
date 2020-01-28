@@ -5,11 +5,13 @@
 #include <lock.h>
 #include <apic.h>
 
-//#define SCHED_DEBUG
+/* Try to keep these within the confines of the runloop lock so we
+   don't create too much of a mess. */
+#define SCHED_DEBUG
 #ifdef SCHED_DEBUG
-#define sched_debug(x, ...) do {log_printf("SCHED", x, ##__VA_ARGS__);} while(0)
+#define sched_debug(x, ...) do {log_printf("SCHED", "[%2d] " x, ci->id, ##__VA_ARGS__);} while(0)
 #else
-#define sched_debug(x, ...)
+#define sched_debug(x, ...) (void)ci
 #endif
 
 // currently defined in x86_64.h
@@ -54,30 +56,58 @@ closure_function(0, 0, void, timer_interrupt_internal)
 thunk timer_interrupt;
 
 static u64 runloop_lock;
-u64 kernel_lock;
+static u64 kernel_lock;
+
+void kern_lock()
+{
+    cpuinfo ci = current_cpu();
+    spin_lock(&kernel_lock);
+    ci->have_kernel_lock = true;
+}
+
+boolean kern_try_lock()
+{
+    cpuinfo ci = current_cpu();
+    if (ci->have_kernel_lock)
+        return true;
+    if (!spin_try(&kernel_lock))
+        return false;
+    ci->have_kernel_lock = true;
+    return true;
+}
 
 void kern_unlock()
 {
+    cpuinfo ci = current_cpu();
+    assert(ci->have_kernel_lock);
+    ci->have_kernel_lock = false;
     spin_unlock(&kernel_lock);
 }
 
 static void run_thunk(thunk t, int cpustate)
 {
-    sched_debug(" run: %F state: %s\n", t, state_strings[cpustate]);
+    cpuinfo ci = current_cpu();
+    sched_debug("run_thunk: %F state: %s\n", t, state_strings[cpustate]);
     // as we are walking by, if there is work to be done and an idle cpu,
     // get it to wake up and examine the queue
     if ((queue_length(idle_cpu_queue) > 0 ) &&
         ((queue_length(bhqueue) > 0) ||
          (queue_length(runqueue) > 0) ||
          (queue_length(thread_queue) > 0))) {
-        u64 cpu = u64_from_pointer(dequeue(idle_cpu_queue));
-        if (cpu != INVALID_PHYSICAL && cpu != current_cpu()->id) {
-            rprintf("sending wakeup ipi to %d\n", cpu);
+        u64 cpu;
+
+        /* tmp, til this moves to bitmask */
+        do {
+            cpu = u64_from_pointer(dequeue(idle_cpu_queue));
+        } while (cpu == ci->id);
+
+        if (cpu != INVALID_PHYSICAL) {
+            sched_debug("run_thunk: sending wakeup ipi to %d\n", cpu);
             apic_ipi(cpu, 0, wakeup_vector);
         }
     }
         
-    current_cpu()->state = cpustate;
+    ci->state = cpustate;
     spin_unlock(&runloop_lock);
     apply(t);
     spin_lock(&runloop_lock);
@@ -89,13 +119,15 @@ static void run_thunk(thunk t, int cpustate)
 // should we ever be in the user frame here? i .. guess so?
 void runloop_internal()
 {
+    cpuinfo ci = current_cpu();
     thunk t;
 
-    sched_debug("runloop %d %s b:%d r:%d t:%d\n", current_cpu()->id, state_strings[current_cpu()->state], queue_length(bhqueue), queue_length(runqueue), queue_length(thread_queue));
-    spin_unlock(&kernel_lock);
     disable_interrupts();
     spin_lock(&runloop_lock);
-    if (spin_try(&kernel_lock)) {
+    sched_debug("runloop %s b:%d r:%d t:%d i:%d lock:%d\n", state_strings[ci->state],
+                queue_length(bhqueue), queue_length(runqueue), queue_length(thread_queue),
+                queue_length(idle_cpu_queue), ci->have_kernel_lock);
+    if (kern_try_lock()) {
         /* serve bhqueue to completion */
         while ((t = dequeue(bhqueue)) != INVALID_ADDRESS) {
             run_thunk(t, cpu_kernel);
@@ -166,7 +198,6 @@ void kernel_sleep(void)
     // handler...we shouldn't return here if we do get interrupted    
     cpuinfo ci = get_cpuinfo();
     ci->state = cpu_idle;
-    spin_unlock(&kernel_lock); // ? 
     enqueue(idle_cpu_queue, pointer_from_u64((u64)ci->id));
     // wmb() ?  interrupt would probably enforce that
     asm volatile("sti; hlt" ::: "memory");

@@ -96,6 +96,7 @@ typedef struct cpuinfo {
 
     u32 id;
     int state;
+    boolean have_kernel_lock;
 
     /* The following fields are used rarely or only on initialization. */
 
@@ -328,6 +329,7 @@ static inline void wake_cpu(int cpu)
 }
 
 void kern_lock(void);
+boolean kern_try_lock(void);
 void kern_unlock(void);
 void init_scheduler(heap);
 extern void interrupt_exit(void);
