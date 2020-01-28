@@ -54,7 +54,7 @@ closure_function(0, 0, void, timer_interrupt_internal)
 thunk timer_interrupt;
 
 static u64 runloop_lock;
-static u64 kernel_lock;
+u64 kernel_lock;
 
 void kern_unlock()
 {
@@ -80,6 +80,7 @@ static void run_thunk(thunk t, int cpustate)
     current_cpu()->state = cpustate;
     spin_unlock(&runloop_lock);
     apply(t);
+    spin_lock(&runloop_lock);
     // do we want to enforce this? i kinda just want to collapse
     // the stack and ensure that the thunk actually wanted to come back here
     //    halt("handler returned %d", cpustate);
@@ -91,6 +92,7 @@ void runloop_internal()
     thunk t;
 
     sched_debug("runloop %d %s b:%d r:%d t:%d\n", current_cpu()->id, state_strings[current_cpu()->state], queue_length(bhqueue), queue_length(runqueue), queue_length(thread_queue));
+    spin_unlock(&kernel_lock);
     disable_interrupts();
     spin_lock(&runloop_lock);
     if (spin_try(&kernel_lock)) {
