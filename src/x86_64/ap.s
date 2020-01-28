@@ -30,7 +30,7 @@ apinit:
         mov cr0, ebx
         mov ebx, cr4
         or ebx, 0x600       ; set osxmmexcpt and osfxsr
-        mov cr0, ebx
+        mov cr4, ebx
 
         o32 lgdt [ap_gdt_pointer-apinit]
         ; get this value out of the cs register and do an indirect jump
