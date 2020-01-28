@@ -34,9 +34,10 @@ LongMode:
         mov ax, 0x10
         mov ds, ax
         mov es, ax
+        mov ss, ax
+        xor ax, ax
         mov fs, ax
         mov gs, ax
-        mov ss, ax
         lidt [ap_idt_pointer]
         mov rbx, $1
         ; we serialize the processors coming in so they can temporarily use 
