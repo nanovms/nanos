@@ -13,7 +13,7 @@
 #include <kvm_platform.h>
 #include <xen_platform.h>
 
-//#define SMP_TEST
+#define SMP_ENABLE
 
 //#define STAGE3_INIT_DEBUG
 #ifdef STAGE3_INIT_DEBUG
@@ -240,7 +240,7 @@ static void init_cpuinfos(kernel_heaps kh)
     cpu_setgs(0);
 }
 
-#ifdef SMP_TEST
+#ifdef SMP_ENABLE
 static u64 aps_online = 0;
 
 static void new_cpu()
@@ -345,8 +345,8 @@ static void __attribute__((noinline)) init_service_new_stack()
     install_gdt64_and_tss(0);
     unmap(PAGESIZE, INITIAL_MAP_SIZE - PAGESIZE, pages);
 
-#ifdef SMP_TEST
-    init_debug("performing SMP test");
+#ifdef SMP_ENABLE
+    init_debug("starting APs");
     start_cpu(misc, pages, TARGET_EXCLUSIVE_BROADCAST, new_cpu);
 #endif
     init_debug("starting runloop");
