@@ -43,7 +43,9 @@ closure_function(1, 1, void, default_fault_handler,
         if (unix_fault_page(frame[FRAME_CR2], frame)) {
             /* Dirty hack until we get page faults out of the kernel:
                If we're in the kernel context, return to the frame directly. */
-            if (frame == current_cpu()->kernel_frame) {
+            boolean is_kernel = frame == current_cpu()->kernel_frame;
+            rprintf("PF %s 0x%lx, rip 0x%lx\n", is_kernel ? "kern" : "user", frame[FRAME_CR2], frame[FRAME_RIP]);
+            if (is_kernel) {
                 current_cpu()->state = cpu_kernel;
                 frame_return(frame);
             }
