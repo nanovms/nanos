@@ -7,8 +7,9 @@
 
 static void *apboot = INVALID_ADDRESS;
 extern u8 apinit, apinit_end;
-extern void *ap_pagetable, *ap_start_vector, *ap_gdt_pointer, *ap_idt_pointer, *ap_stack;
-extern u64 ap_lock;
+extern void *ap_pagetable, *ap_gdt_pointer, *ap_idt_pointer, *ap_stack;
+void *ap_stack;
+u64 ap_lock;
 
 #define ICR_TYPE_INIT         0x00000500
 #define ICR_TYPE_STARTUP      0x00000600
@@ -42,8 +43,8 @@ static void __attribute__((noinline)) ap_new_stack()
     enable_apic();
     set_syscall_handler(syscall_enter);
     mp_debug(", clear ap lock, enable ints, start_callback\n");
+    memory_barrier();
     ap_lock = 0;
-    enable_interrupts();
     start_callback();
 }
 
@@ -54,22 +55,24 @@ void ap_start()
 }
 
 void start_cpu(heap h, heap p, int index, void (*ap_entry)()) {
-    pages = p;
-    start_callback = ap_entry;
     if (apboot == INVALID_ADDRESS) {
+        pages = p;
+        start_callback = ap_entry;
         apboot = pointer_from_u64(AP_BOOT_START);
         map((u64)apboot, (u64)apboot, PAGESIZE, PAGE_WRITABLE, h);
-    }
-    asm("sgdt %0": "=m"(ap_gdt_pointer));
-    asm("sidt %0": "=m"(ap_idt_pointer));    
-    mov_from_cr("cr3", ap_pagetable);
-    // just one function call
-    void *rsp = allocate_stack(pages, 1);
-    ap_stack = rsp;
 
-    runtime_memcpy(apboot, &apinit, &apinit_end - &apinit);
+        asm("sgdt %0": "=m"(ap_gdt_pointer));
+        asm("sidt %0": "=m"(ap_idt_pointer));
+        mov_from_cr("cr3", ap_pagetable);
+        // just one function call
+
+        void *rsp = allocate_stack(pages, 4);
+        ap_stack = rsp;
+
+        runtime_memcpy(apboot, &apinit, &apinit_end - &apinit);
+    }
+
     u8 vector = (((u64)apboot) >> 12) & 0xff;
-    
     apic_ipi(index, ICR_TYPE_INIT, 0);
     kernel_delay(microseconds(10));
     apic_ipi(index, ICR_TYPE_STARTUP, vector);

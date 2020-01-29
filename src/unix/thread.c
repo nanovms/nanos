@@ -101,6 +101,7 @@ void thread_log_internal(thread t, const char *desc, ...)
 
 static inline void run_thread_frame(thread t, boolean do_sigframe)
 {
+    kern_lock();
     thread old = current;
     current_cpu()->current_thread = t;
     ftrace_thread_switch(old, current);    /* ftrace needs to know about the switch event */
