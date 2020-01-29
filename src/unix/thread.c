@@ -118,6 +118,7 @@ static inline void run_thread_frame(thread t, boolean do_sigframe)
                do_sigframe ? "sig handler" : "thread", current_cpu()->id, f, f[FRAME_RIP], f[FRAME_RSP],
                f[FRAME_RAX], f[FRAME_FLAGS], f[FRAME_CS], f[FRAME_IS_SYSCALL] ? "sysret" : "iret");
     kern_unlock();
+    current_cpu()->frcount++;
     frame_return(f);
 }
 

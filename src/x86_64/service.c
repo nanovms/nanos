@@ -203,6 +203,13 @@ static tuple root;
 
 void vm_exit(u8 code)
 {
+    rprintf("cpu\tframe returns\n");
+    for (int i = 0; i < MAX_CPUS; i++) {
+        cpuinfo ci = cpuinfo_from_id(i);
+        if (ci->frcount)
+            rprintf("%d\t%ld\n", i, ci->frcount);
+    }
+
     /* TODO MP: coordinate via IPIs */
     if (root && table_find(root, sym(reboot_on_exit))) {
         triple_fault();
@@ -229,6 +236,7 @@ static void init_cpuinfos(kernel_heaps kh)
         ci->id = i;
         ci->state = cpu_not_present;
         ci->have_kernel_lock = false;
+        ci->frcount = 0;
         /* frame and stacks */
         ci->kernel_frame = allocate_frame(h);
         ci->kernel_stack = allocate_stack(pages, KERNEL_STACK_PAGES);
@@ -348,8 +356,8 @@ static void __attribute__((noinline)) init_service_new_stack()
 #ifdef SMP_ENABLE
     init_debug("starting APs");
     start_cpu(misc, pages, TARGET_EXCLUSIVE_BROADCAST, new_cpu);
-    //    kernel_delay(seconds(1));   /* temp, til we check tables to know what we have */
-    //    init_debug("total CPUs %d\n", aps_online + 1);
+    kernel_delay(seconds(1));   /* temp, til we check tables to know what we have */
+    init_debug("total CPUs %d\n", total_processors);
 #endif
     init_debug("starting runloop");
     runloop();

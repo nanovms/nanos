@@ -97,6 +97,7 @@ typedef struct cpuinfo {
     u32 id;
     int state;
     boolean have_kernel_lock;
+    u64 frcount;
 
     /* The following fields are used rarely or only on initialization. */
 
@@ -344,12 +345,12 @@ void kernel_unlock();
 // wakeup
 static inline void atomic_set_bit(u64 *target, u64 bit)
 {
-    __asm__("lock btsq %1, %0": "+m"(*target): "r"(bit));
+    asm volatile("lock btsq %1, %0": "+m"(*target): "r"(bit) : "memory");
 }
 
 static inline void atomic_clear_bit(u64 *target, u64 bit)
 {
-    __asm__("lock btcq %1, %0": "+m"(*target):"r"(bit));
+    asm volatile("lock btcq %1, %0": "+m"(*target):"r"(bit) : "memory");
 }
 
 extern u64 idle_cpu_mask;

@@ -148,7 +148,6 @@ closure_function(0, 0, void, ipi_interrupt)
 {
     cpuinfo ci = get_cpuinfo();
     sched_debug("cpu %d wakes up\n", ci->id);
-    runloop();
 }
 
 void init_scheduler(heap h)
@@ -181,6 +180,6 @@ void kernel_sleep(void)
         kern_unlock();
     // wmb() ?  interrupt would probably enforce that
     asm volatile("sti; hlt" ::: "memory");
-    halt("return from kernel sleep");              
+    halt("cpu %d return from kernel sleep", ci->id);
 }
 

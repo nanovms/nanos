@@ -205,9 +205,7 @@ syscall_enter:
         mov [gs:8], rbx         ; move to kernel frame
         mov rsp, [gs:24]        ; and stack
         cld
-        call rax
-        mov rdi, [gs:8]         ; running_frame
-        ;; fall through to frame_return
+        jmp rax
 .end:
 
 ;; must follow syscall_enter
