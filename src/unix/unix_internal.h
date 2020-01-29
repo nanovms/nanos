@@ -228,6 +228,7 @@ typedef struct thread {
     int graph_idx;
     struct ftrace_graph_entry * graph_stack;
 #endif
+    thunk deferred_syscall; // can this be a closure_struct?
 } *thread;
 
 typedef closure_type(io, sysreturn, void *buf, u64 length, u64 offset, thread t,
@@ -584,4 +585,6 @@ u32 spec_events(file f);
 /* getrandom(2) flags */
 #define GRND_NONBLOCK               1
 #define GRND_RANDOM                 2
+
+void syscall_debug(context f);
 

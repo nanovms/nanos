@@ -42,4 +42,5 @@
 #define FRAME_RUN 31 /*dont like this construction */
 #define FRAME_IS_SYSCALL 32
 #define FRAME_QUEUE 33
-#define FRAME_MAX 34
+#define FRAME_FROZEN 34 /* tempoary debugging*/
+#define FRAME_MAX 35

@@ -99,7 +99,7 @@ static void run_thunk(thunk t, int cpustate)
         u64 cpu = __builtin_clzll(idle_cpu_mask | 1);
         // this really shouldn't ever be current_cpu() ? 
         if (cpu != INVALID_PHYSICAL && cpu != current_cpu()->id) {
-            sched_debug("sending wakeup ipi to %d\n", cpu);
+            sched_debug("sending wakeup ipi to %d %x\n", cpu, wakeup_vector);
             atomic_clear_bit(&idle_cpu_mask, cpu);
             apic_ipi(cpu, 0, wakeup_vector);
         }
@@ -120,7 +120,7 @@ void runloop_internal()
     thunk t;
 
     disable_interrupts();
-    sched_debug("runloop %s b:%d r:%d i:%x i:%d lock:%d\n", state_strings[ci->state],
+    sched_debug("runloop %s b:%d r:%d t:%d i:%x lock:%d\n", state_strings[ci->state],
                 queue_length(bhqueue), queue_length(runqueue), queue_length(thread_queue),
                 idle_cpu_mask, ci->have_kernel_lock);
     if (kern_try_lock()) {
@@ -148,7 +148,8 @@ closure_function(0, 0, void, ipi_interrupt)
 {
     cpuinfo ci = get_cpuinfo();
     sched_debug("cpu %d wakes up\n", ci->id);
-    runloop();
+    // interrupt gets us back to runloop
+    //    runloop();
 }
 
 void init_scheduler(heap h)
@@ -159,6 +160,8 @@ void init_scheduler(heap h)
     runloop_timer_min = microseconds(RUNLOOP_TIMER_MIN_PERIOD_US);
     runloop_timer_max = microseconds(RUNLOOP_TIMER_MAX_PERIOD_US);
     wakeup_vector = allocate_interrupt();
+    rprintf("wakeup vector: %x\n", wakeup_vector);
+
     register_interrupt(wakeup_vector, closure(h, ipi_interrupt));    
     assert(wakeup_vector != INVALID_PHYSICAL);    
     /* scheduling queues init */

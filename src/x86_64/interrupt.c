@@ -5,7 +5,7 @@
 #include <region.h>
 #include <apic.h>
 
-//#define INT_DEBUG
+#define INT_DEBUG
 #ifdef INT_DEBUG
 #define int_debug(x, ...) do {log_printf("  INT", x, ##__VA_ARGS__);} while(0)
 #else
@@ -226,6 +226,10 @@ void common_handler()
        fault while in an int handler...need to fix in interrupt_common */
     cpuinfo ci = current_cpu();
     context f = ci->running_frame;
+    if (f[FRAME_FROZEN]) {
+        rprintf("overwrite context\n");
+    }
+    f[FRAME_FROZEN] = 1;
     int i = f[FRAME_VECTOR];
     // if we were idle, we are no longer
     atomic_clear_bit(&idle_cpu_mask, ci->id);
@@ -234,14 +238,15 @@ void common_handler()
 
     int_debug("interrupt cpu %d %s i %d f %p rip 0x%lx cr2 0x%lx\n", ci->id, state_strings[ci->state], i, f, f[FRAME_RIP], f[FRAME_CR2]);
 
-    if (i == spurious_int_vector)
-        runloop();                 /* no EOI */
-
     /* enqueue an interrupted user thread, unless the page fault handler should take care of it */
+    // what about bh?
     if (ci->state == cpu_user && i != 0xe) {
         int_debug("int sched %F\n", f[FRAME_RUN]);
         schedule_frame(f);        // racy enqueue from interrupt level? we weren't interrupting the kernel...
     }
+
+    if (i == spurious_int_vector)
+        runloop();                 /* no EOI */
 
     /* Unless there's some reason to handle a page fault in interrupt
        mode, this should always be terminal.
@@ -397,9 +402,6 @@ void start_interrupts(kernel_heaps kh)
     u64 v = allocate_interrupt();
     assert(v != INVALID_PHYSICAL);
     spurious_int_vector = v;
-
-    /* default running context */
-    set_running_frame(ci->kernel_frame);
 
     /* APIC initialization */
     init_apic(kh);

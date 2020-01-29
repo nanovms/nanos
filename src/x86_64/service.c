@@ -245,6 +245,7 @@ u64 total_processors = 1;
 
 static void new_cpu()
 {
+    rprintf("newie %d\n", current_cpu()->id);
     fetch_and_add(&total_processors, 1);
     kernel_sleep();
 }
@@ -348,8 +349,8 @@ static void __attribute__((noinline)) init_service_new_stack()
 #ifdef SMP_ENABLE
     init_debug("starting APs");
     start_cpu(misc, pages, TARGET_EXCLUSIVE_BROADCAST, new_cpu);
-    //    kernel_delay(seconds(1));   /* temp, til we check tables to know what we have */
-    //    init_debug("total CPUs %d\n", aps_online + 1);
+    kernel_delay(seconds(1));   /* temp, til we check tables to know what we have */
+    init_debug("total CPUs %d\n", total_processors);
 #endif
     init_debug("starting runloop");
     runloop();

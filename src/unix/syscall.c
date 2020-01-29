@@ -1923,24 +1923,20 @@ struct syscall *linux_syscalls = _linux_syscalls;
 
 extern u64 kernel_lock;
 
-static void syscall_debug(context f, u64 call)
+void syscall_debug(context f)
 {
+    u64 call = f[FRAME_RAX];
 //    rprintf("SYSCALL f %p, rip 0x%lx, call %d\n", f, f[FRAME_RIP], call);
-
+    thread t = (thread)f;
     // XXX need thread mux to active frame (t->frame or t->sigframe)
-    set_syscall_return((thread)f, -ENOSYS); // xx - not happy about this cast
-    current_cpu()->state = cpu_kernel;
-
-    /* Should probably be a try with call to runloop on fail - with
-       some kind of special thunk for restore...? */
-    kern_lock();
+    set_syscall_return(t, -ENOSYS); // xx - not happy about this cast
 
     if (call < 0 || call >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0])) {
-        schedule_frame(f);
+        schedule_frame(t->frame);
         thread_log(current, "invalid syscall %d", call);
         runloop();
     }
-    current->syscall = call;
+    t->syscall = call;
     // should we cache this for performance?
     void *debugsyscalls = table_find(current->p->process_root, sym(debugsyscalls));
     struct syscall *s = current->p->syscalls + call;
@@ -1954,10 +1950,10 @@ static void syscall_debug(context f, u64 call)
     if (h) {
         proc_enter_system(current->p);
 
-        sysreturn rv = h(f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]);
+        sysreturn rv = h(t->frame[FRAME_RDI], t->frame[FRAME_RSI], t->frame[FRAME_RDX], t->frame[FRAME_R10], t->frame[FRAME_R8], t->frame[FRAME_R9]);
         set_syscall_return(current, rv);
         if (debugsyscalls)
-            thread_log(current, "direct return: %ld, rsp 0x%lx", rv, f[FRAME_RSP]);
+            thread_log(current, "direct return: %ld, rsp 0x%lx", rv, t->frame[FRAME_RSP]);
     } else if (debugsyscalls) {
         if (s->name)
             thread_log(current, "nosyscall %s", s->name);
@@ -1967,7 +1963,7 @@ static void syscall_debug(context f, u64 call)
     current->syscall = -1;
     // i dont know that we actually want to defer the syscall return...its just easier for the moment to hew
     // to the general model and make exceptions later
-    schedule_frame(f);    
+    schedule_frame(t->frame);    
     runloop();
 }
 
@@ -1990,12 +1986,28 @@ closure_function(0, 2, void, syscall_io_complete_cfn,
     file_op_maybe_wake(t);
 }
 
+// some validation can be moved up here
+static void syscall_schedule(context f, u64 call)
+{
+    // i guess we can't interfere with other uses of kernel frame
+    // because we're scheduled last...and i guess this
+    // will only get restored on this cpu? no..thats not
+    // true
+    set_running_frame(current_cpu()->kernel_frame);
+    if (kern_try_lock()) {
+        current_cpu()->state = cpu_kernel;
+        syscall_debug(f);
+    } else {
+        enqueue(runqueue, ((thread)f)->deferred_syscall);
+    }
+}
+
 void init_syscalls()
 {
     //syscall = b->contents;
     // debug the synthesized version later, at least we have the table dispatch
     heap h = heap_general(get_kernel_heaps());
-    syscall = syscall_debug;
+    syscall = syscall_schedule;
     syscall_io_complete = closure(h, syscall_io_complete_cfn);
 }
 

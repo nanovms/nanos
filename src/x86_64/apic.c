@@ -47,7 +47,6 @@ static inline u32 apic_read(int reg)
     return *(volatile u32 *)(apic_vbase + reg);
 }
 
-// deconstruct
 void apic_ipi(u32 target, u64 flags, u8 vector)
 {
     u64 w;
