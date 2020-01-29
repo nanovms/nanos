@@ -8,7 +8,7 @@
 
 /* Try to keep these within the confines of the runloop lock so we
    don't create too much of a mess. */
-#define SCHED_DEBUG
+//#define SCHED_DEBUG
 #ifdef SCHED_DEBUG
 #define sched_debug(x, ...) do {log_printf("SCHED", "[%2d] " x, ci->id, ##__VA_ARGS__);} while(0)
 #else
@@ -104,7 +104,6 @@ static void run_thunk(thunk t, int cpustate)
             apic_ipi(cpu, 0, wakeup_vector);
         }
     }
-        
 
     ci->state = cpustate;
     apply(t);
@@ -136,6 +135,7 @@ void runloop_internal()
         }
         kern_unlock();
     }
+
     if ((t = dequeue(thread_queue)) != INVALID_ADDRESS)
         run_thunk(t, cpu_user);
     

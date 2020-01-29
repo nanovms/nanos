@@ -27,7 +27,7 @@ void console_write(char *s, bytes count)
     for (struct console_driver **pd = console_drivers; *pd; pd++) {
         (*pd)->write(*pd, s, count);
     }
-    spin_unlock(&write_lock);    
+    spin_unlock(&write_lock);
 }
 
 closure_function(0, 1, void, attach_console,
