@@ -40,6 +40,7 @@ static void __attribute__((noinline)) ap_new_stack()
     install_gdt64_and_tss(id);
     mp_debug(", enable apic");
     enable_apic();
+    set_syscall_handler(syscall_enter);
     mp_debug(", clear ap lock, enable ints, start_callback\n");
     ap_lock = 0;
     enable_interrupts();
