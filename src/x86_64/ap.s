@@ -21,10 +21,17 @@ apinit:
         rdmsr
         or eax, 0x00000900  ; Set the LME bit and nxe
         wrmsr
+
+        ;; XXX this should be unified with stage2 centry
         mov ebx, cr0        ; Activate long mode -
         or ebx,0x80000001   ; - by enabling paging and protection simultaneously.
         and ebx, ~0x4       ; clear EM
+        or ebx, 0x2         ; set MP
         mov cr0, ebx
+        mov ebx, cr4
+        or ebx, 0x600       ; set osxmmexcpt and osfxsr
+        mov cr4, ebx
+
         o32 lgdt [ap_gdt_pointer-apinit]
         ; get this value out of the cs register and do an indirect jump
         jmp CODE_SEG:(AP_BOOT_PAGE + LongMode - apinit)
@@ -34,9 +41,10 @@ LongMode:
         mov ax, 0x10
         mov ds, ax
         mov es, ax
+        mov ss, ax
+        xor ax, ax
         mov fs, ax
         mov gs, ax
-        mov ss, ax
         lidt [ap_idt_pointer]
         mov rbx, $1
         ; we serialize the processors coming in so they can temporarily use 

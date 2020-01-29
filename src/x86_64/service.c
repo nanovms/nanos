@@ -13,7 +13,8 @@
 #include <kvm_platform.h>
 #include <xen_platform.h>
 
-#define SMP_TEST
+
+#define SMP_ENABLE
 
 #define STAGE3_INIT_DEBUG
 #ifdef STAGE3_INIT_DEBUG
@@ -227,7 +228,7 @@ static void init_cpuinfos(kernel_heaps kh)
         ci->running_frame = 0;
         ci->id = i;
         ci->state = cpu_not_present;
-
+        ci->have_kernel_lock = false;
         /* frame and stacks */
         ci->kernel_frame = allocate_frame(h);
         ci->kernel_stack = allocate_stack(pages, KERNEL_STACK_PAGES);
@@ -242,15 +243,12 @@ static void init_cpuinfos(kernel_heaps kh)
 
 u64 total_processors = 1;
 
-#ifdef SMP_TEST
-
 static void new_cpu()
 {
-    init_debug("ap cpu %d\n", current_cpu()->id);
     fetch_and_add(&total_processors, 1);
     kernel_sleep();
 }
-#endif
+
 
 static void __attribute__((noinline)) init_service_new_stack()
 {
@@ -260,10 +258,10 @@ static void __attribute__((noinline)) init_service_new_stack()
 
     /* runtime and console init */
     init_debug("in init_service_new_stack");
+    init_debug("runtime");    
+    init_runtime(kh);    
     unmap(0, PAGESIZE, pages);  /* unmap zero page */
     reclaim_regions();          /* unmap and reclaim stage2 stack */
-    init_debug("runtime");
-    init_runtime(kh);
     init_extra_prints();
     init_pci(kh);
     init_console(kh);
@@ -347,10 +345,11 @@ static void __attribute__((noinline)) init_service_new_stack()
     install_gdt64_and_tss(0);
     unmap(PAGESIZE, INITIAL_MAP_SIZE - PAGESIZE, pages);
 
-#ifdef SMP_TEST
-    init_debug("performing SMP test");
-    init_flush();
+#ifdef SMP_ENABLE
+    init_debug("starting APs");
     start_cpu(misc, pages, TARGET_EXCLUSIVE_BROADCAST, new_cpu);
+    //    kernel_delay(seconds(1));   /* temp, til we check tables to know what we have */
+    //    init_debug("total CPUs %d\n", aps_online + 1);
 #endif
     init_debug("starting runloop");
     runloop();

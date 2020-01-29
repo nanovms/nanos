@@ -232,6 +232,8 @@ void common_handler()
 
     int_debug("interrupt cpu %d %s i %d f %p rip 0x%lx cr2 0x%lx\n", ci->id, state_strings[ci->state], i, f, f[FRAME_RIP], f[FRAME_CR2]);
 
+    int_debug("interrupt cpu %d %s i %d f %p rip 0x%lx cr2 0x%lx\n", ci->id, state_strings[ci->state], i, f, f[FRAME_RIP], f[FRAME_CR2]);
+
     if (i == spurious_int_vector)
         runloop();                 /* no EOI */
 

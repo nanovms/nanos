@@ -112,9 +112,11 @@ static inline void run_thread_frame(thread t, boolean do_sigframe)
 
     context f = do_sigframe ? t->sigframe : t->frame;
     f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
-    thread_log(t, "run %s frame %p, rip 0x%lx, rsp 0x%lx, rax 0x%lx, rflags 0x%lx, %s",
-               do_sigframe ? "sig handler" : "thread", f, f[FRAME_RIP], f[FRAME_RSP],
-               f[FRAME_RAX], f[FRAME_FLAGS], f[FRAME_IS_SYSCALL] ? "sysret" : "iret");
+
+    thread_log(t, "run %s, cpu %d, frame %p, rip 0x%lx, rsp 0x%lx, rax 0x%lx, rflags 0x%lx, cs 0x%lx, %s",
+               do_sigframe ? "sig handler" : "thread", current_cpu()->id, f, f[FRAME_RIP], f[FRAME_RSP],
+               f[FRAME_RAX], f[FRAME_FLAGS], f[FRAME_CS], f[FRAME_IS_SYSCALL] ? "sysret" : "iret");
+    kern_unlock();
     frame_return(f);
 }
 

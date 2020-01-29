@@ -96,6 +96,7 @@ typedef struct cpuinfo {
 
     u32 id;
     int state;
+    boolean have_kernel_lock;
 
     /* The following fields are used rarely or only on initialization. */
 
@@ -328,6 +329,7 @@ static inline void wake_cpu(int cpu)
 }
 
 void kern_lock(void);
+boolean kern_try_lock(void);
 void kern_unlock(void);
 void init_scheduler(heap);
 extern void interrupt_exit(void);
@@ -342,14 +344,13 @@ void kernel_unlock();
 // wakeup
 static inline void atomic_set_bit(u64 *target, u64 bit)
 {
-    __asm__("btsq %1, %0": "+m"(*target): "r"(bit));
+    __asm__("lock btsq %1, %0": "+m"(*target): "r"(bit));
 }
 
 static inline void atomic_clear_bit(u64 *target, u64 bit)
 {
-    __asm__("btcq %1, %0": "+m"(*target):"r"(bit));
+    __asm__("lock btcq %1, %0": "+m"(*target):"r"(bit));
 }
 
 extern u64 idle_cpu_mask;
 extern u64 total_processors;
-

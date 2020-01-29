@@ -1,6 +1,7 @@
 #include <unix_internal.h>
 #include <metadata.h>
 #include <page.h>
+#include <lock.h>
 
 // lifted from linux UAPI
 #define DT_UNKNOWN	0
@@ -1920,6 +1921,8 @@ struct syscall {
 static struct syscall _linux_syscalls[SYS_MAX];
 struct syscall *linux_syscalls = _linux_syscalls;
 
+extern u64 kernel_lock;
+
 static void syscall_debug(context f, u64 call)
 {
 //    rprintf("SYSCALL f %p, rip 0x%lx, call %d\n", f, f[FRAME_RIP], call);
@@ -1927,6 +1930,10 @@ static void syscall_debug(context f, u64 call)
     // XXX need thread mux to active frame (t->frame or t->sigframe)
     set_syscall_return((thread)f, -ENOSYS); // xx - not happy about this cast
     current_cpu()->state = cpu_kernel;
+
+    /* Should probably be a try with call to runloop on fail - with
+       some kind of special thunk for restore...? */
+    kern_lock();
 
     if (call < 0 || call >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0])) {
         schedule_frame(f);
