@@ -248,12 +248,8 @@ static void new_cpu()
 {
     cpuinfo ci = get_cpuinfo();
     fetch_and_add(&aps_online, 1);
-    /* catch any spurious interrupts until we move over to runloop... */
-    while (1) {
-        ci->state = cpu_idle;
-        enqueue(idle_cpu_queue, pointer_from_u64((u64)ci->id));
-        asm volatile("sti; hlt" ::: "memory");
-    }
+    rprintf("cpu %d\n", ci->id);
+    kernel_sleep();
 }
 #endif
 
