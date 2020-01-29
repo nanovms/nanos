@@ -94,10 +94,9 @@ static void run_thunk(thunk t, int cpustate)
         ((queue_length(bhqueue) > 0) ||
          (queue_length(runqueue) > 0) ||
          (queue_length(thread_queue) > 0))) {
-        // unfortunately, if idle cpu mask is zero (which can happen since this
-        // is racy), the result is the previous value ... so asm here 
-        u64 cpu = __builtin_clzll(idle_cpu_mask | 1);
-        // this really shouldn't ever be current_cpu() ? 
+        /* racy, but matters not ... at worst spurious wakeup */
+        u64 mask_copy = idle_cpu_mask;
+        u64 cpu = msb(mask_copy);
         if (cpu != INVALID_PHYSICAL && cpu != current_cpu()->id) {
             sched_debug("sending wakeup ipi to %d\n", cpu);
             atomic_clear_bit(&idle_cpu_mask, cpu);
