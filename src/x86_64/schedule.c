@@ -144,15 +144,6 @@ void runloop_internal()
     halt("shouldn't be here");
 }    
 
-
-closure_function(0, 0, void, ipi_interrupt)
-{
-    cpuinfo ci = get_cpuinfo();
-    sched_debug("cpu %d wakes up\n", ci->id);
-    // interrupt gets us back to runloop
-    //    runloop();
-}
-
 void init_scheduler(heap h)
 {
     kernel_lock = 0;
@@ -161,7 +152,7 @@ void init_scheduler(heap h)
     runloop_timer_min = microseconds(RUNLOOP_TIMER_MIN_PERIOD_US);
     runloop_timer_max = microseconds(RUNLOOP_TIMER_MAX_PERIOD_US);
     wakeup_vector = allocate_interrupt();
-    register_interrupt(wakeup_vector, closure(h, ipi_interrupt));    
+    register_interrupt(wakeup_vector, ignore);
     assert(wakeup_vector != INVALID_PHYSICAL);    
     /* scheduling queues init */
     runqueue = allocate_queue(h, 64);
@@ -176,7 +167,7 @@ void kernel_sleep(void)
     // we're going to cover up this race by checking the state in the interrupt
     // handler...we shouldn't return here if we do get interrupted    
     cpuinfo ci = get_cpuinfo();
-    sched_debug("sleep %d\n", ci->id);
+    sched_debug("sleep\n");
     ci->state = cpu_idle;
     atomic_set_bit(&idle_cpu_mask, ci->id);
     if (ci->have_kernel_lock)

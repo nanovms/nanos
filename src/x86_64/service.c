@@ -14,7 +14,7 @@
 #include <xen_platform.h>
 
 
-// #define SMP_ENABLE
+#define SMP_ENABLE
 
 #define STAGE3_INIT_DEBUG
 #ifdef STAGE3_INIT_DEBUG

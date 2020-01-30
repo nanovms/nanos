@@ -110,7 +110,7 @@ interrupt_entry:
 global frame_return
 frame_return:
         mov [gs:8], rdi         ; save to ci->running_frame
-
+        mov qword [rdi+FRAME_FULL*8], 0
         ; really flags
         test qword [rdi+FRAME_IS_SYSCALL*8], 1
         jne syscall_return
@@ -128,8 +128,6 @@ frame_return:
         load_seg_base FRAME_GSBASE
         swapgs
 .skip:
-        xor rbx, rbx
-        mov [rdi+FRAME_FROZEN*8], rbx
         mov rax, [rdi+FRAME_RAX*8]
         mov rbx, [rdi+FRAME_RBX*8]
         mov rcx, [rdi+FRAME_RCX*8]

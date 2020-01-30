@@ -151,7 +151,6 @@ static inline context get_running_frame(void)
 
 static inline void set_running_frame(context f)
 {
-    f[FRAME_FROZEN] =0;
     current_cpu()->running_frame = f;
 }
 

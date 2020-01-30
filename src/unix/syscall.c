@@ -1925,7 +1925,7 @@ extern u64 kernel_lock;
 
 void syscall_debug(context f)
 {
-    u64 call = f[FRAME_RAX];
+    u64 call = f[FRAME_VECTOR];
 //    rprintf("SYSCALL f %p, rip 0x%lx, call %d\n", f, f[FRAME_RIP], call);
     thread t = (thread)f;
     // XXX need thread mux to active frame (t->frame or t->sigframe)
@@ -1939,7 +1939,6 @@ void syscall_debug(context f)
     t->syscall = call;
     // should we cache this for performance?
     void *debugsyscalls = table_find(current->p->process_root, sym(debugsyscalls));
-    debugsyscalls = (void *)true;
     struct syscall *s = current->p->syscalls + call;
     if (debugsyscalls) {
         if (s->name)

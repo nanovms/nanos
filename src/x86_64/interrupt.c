@@ -226,10 +226,8 @@ void common_handler()
        fault while in an int handler...need to fix in interrupt_common */
     cpuinfo ci = current_cpu();
     context f = ci->running_frame;
-    if (f[FRAME_FROZEN]) {
-        rprintf("overwrite context\n");
-    }
-    f[FRAME_FROZEN] = 1;
+    assert(!f[FRAME_FULL]);
+    f[FRAME_FULL] = true;
     int i = f[FRAME_VECTOR];
     // if we were idle, we are no longer
     atomic_clear_bit(&idle_cpu_mask, ci->id);
