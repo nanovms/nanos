@@ -128,6 +128,8 @@ frame_return:
         load_seg_base FRAME_GSBASE
         swapgs
 .skip:
+        xor rbx, rbx
+        mov [rdi+FRAME_FROZEN*8], rbx
         mov rax, [rdi+FRAME_RAX*8]
         mov rbx, [rdi+FRAME_RBX*8]
         mov rcx, [rdi+FRAME_RCX*8]
@@ -205,9 +207,7 @@ syscall_enter:
         mov [gs:8], rbx         ; move to kernel frame
         mov rsp, [gs:24]        ; and stack
         cld
-        call rax
-        mov rdi, [gs:8]         ; running_frame
-        ;; fall through to frame_return
+        jmp rax
 .end:
 
 ;; must follow syscall_enter

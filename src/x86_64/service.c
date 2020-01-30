@@ -14,7 +14,7 @@
 #include <xen_platform.h>
 
 
-#define SMP_ENABLE
+// #define SMP_ENABLE
 
 #define STAGE3_INIT_DEBUG
 #ifdef STAGE3_INIT_DEBUG
@@ -229,6 +229,7 @@ static void init_cpuinfos(kernel_heaps kh)
         ci->id = i;
         ci->state = cpu_not_present;
         ci->have_kernel_lock = false;
+        ci->frcount = 0;
         /* frame and stacks */
         ci->kernel_frame = allocate_frame(h);
         ci->kernel_stack = allocate_stack(pages, KERNEL_STACK_PAGES);
@@ -243,13 +244,13 @@ static void init_cpuinfos(kernel_heaps kh)
 
 u64 total_processors = 1;
 
+#ifdef SMP_ENABLE
 static void new_cpu()
 {
-    rprintf("newie %d\n", current_cpu()->id);
     fetch_and_add(&total_processors, 1);
     kernel_sleep();
 }
-
+#endif
 
 static void __attribute__((noinline)) init_service_new_stack()
 {
@@ -349,7 +350,7 @@ static void __attribute__((noinline)) init_service_new_stack()
 #ifdef SMP_ENABLE
     init_debug("starting APs");
     start_cpu(misc, pages, TARGET_EXCLUSIVE_BROADCAST, new_cpu);
-    kernel_delay(seconds(1));   /* temp, til we check tables to know what we have */
+    kernel_delay(milliseconds(200));   /* temp, til we check tables to know what we have */
     init_debug("total CPUs %d\n", total_processors);
 #endif
     init_debug("starting runloop");

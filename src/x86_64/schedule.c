@@ -8,7 +8,7 @@
 
 /* Try to keep these within the confines of the runloop lock so we
    don't create too much of a mess. */
-//#define SCHED_DEBUG
+#define SCHED_DEBUG
 #ifdef SCHED_DEBUG
 #define sched_debug(x, ...) do {log_printf("SCHED", "[%2d] " x, ci->id, ##__VA_ARGS__);} while(0)
 #else
@@ -95,8 +95,9 @@ static void run_thunk(thunk t, int cpustate)
          (queue_length(runqueue) > 0) ||
          (queue_length(thread_queue) > 0))) {
         // unfortunately, if idle cpu mask is zero (which can happen since this
-        // is racy), the result is the previous value ... so asm here 
-        u64 cpu = __builtin_clzll(idle_cpu_mask | 1);
+        // is racy), the result is the previous value ... so asm here
+        u64 mask_copy = idle_cpu_mask;
+        u64 cpu = msb(mask_copy);        
         // this really shouldn't ever be current_cpu() ? 
         if (cpu != INVALID_PHYSICAL && cpu != current_cpu()->id) {
             sched_debug("sending wakeup ipi to %d %x\n", cpu, wakeup_vector);
@@ -160,8 +161,6 @@ void init_scheduler(heap h)
     runloop_timer_min = microseconds(RUNLOOP_TIMER_MIN_PERIOD_US);
     runloop_timer_max = microseconds(RUNLOOP_TIMER_MAX_PERIOD_US);
     wakeup_vector = allocate_interrupt();
-    rprintf("wakeup vector: %x\n", wakeup_vector);
-
     register_interrupt(wakeup_vector, closure(h, ipi_interrupt));    
     assert(wakeup_vector != INVALID_PHYSICAL);    
     /* scheduling queues init */
@@ -184,6 +183,6 @@ void kernel_sleep(void)
         kern_unlock();
     // wmb() ?  interrupt would probably enforce that
     asm volatile("sti; hlt" ::: "memory");
-    halt("return from kernel sleep");              
+    halt("cpu %d return from kernel sleep", ci->id);    
 }
 

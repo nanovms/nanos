@@ -97,6 +97,7 @@ typedef struct cpuinfo {
     u32 id;
     int state;
     boolean have_kernel_lock;
+    u64 frcount;
 
     /* The following fields are used rarely or only on initialization. */
 
@@ -150,6 +151,7 @@ static inline context get_running_frame(void)
 
 static inline void set_running_frame(context f)
 {
+    f[FRAME_FROZEN] =0;
     current_cpu()->running_frame = f;
 }
 

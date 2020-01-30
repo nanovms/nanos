@@ -83,7 +83,7 @@ void register_thread_syscalls(struct syscall *map)
 
 void thread_log_internal(thread t, const char *desc, ...)
 {
-    if (table_find(t->p->process_root, sym(trace))) {
+    //    if (table_find(t->p->process_root, sym(trace))) {
         if (syscall_notrace(t->syscall))
             return;
         vlist ap;
@@ -96,7 +96,7 @@ void thread_log_internal(thread t, const char *desc, ...)
         vbprintf(b, f, &ap);
         push_u8(b, '\n');
         buffer_print(b);
-    }
+        //    }
 }
 
 static inline void run_thread_frame(thread t, boolean do_sigframe)
@@ -119,7 +119,6 @@ static inline void run_thread_frame(thread t, boolean do_sigframe)
                f[FRAME_RAX], f[FRAME_FLAGS], f[FRAME_CS], f[FRAME_IS_SYSCALL] ? "sysret" : "iret");
     if (current_cpu()->have_kernel_lock)
         kern_unlock();
-    set_running_frame(f); // xxx - wasn't here, please check
     frame_return(f);
 }
 
