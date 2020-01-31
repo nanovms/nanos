@@ -296,7 +296,7 @@ typedef closure_type(fault_handler, void, context);
 
 void configure_timer(timestamp rate, thunk t);
 
-void kernel_sleep() __attribute__((noreturn));
+void kernel_sleep();
 void kernel_delay(timestamp delta);
 void timer_schedule(void);      /* call from timer interrupt */
 extern thunk timer_interrupt;   /* or just use this generic handler */

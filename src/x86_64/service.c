@@ -15,6 +15,7 @@
 
 
 #define SMP_ENABLE
+#define SMP_DUMP_FRAME_RETURN_COUNT
 
 #define STAGE3_INIT_DEBUG
 #ifdef STAGE3_INIT_DEBUG
@@ -203,6 +204,15 @@ static tuple root;
 
 void vm_exit(u8 code)
 {
+#ifdef SMP_DUMP_FRAME_RETURN_COUNT
+    rprintf("cpu\tframe returns\n");
+    for (int i = 0; i < MAX_CPUS; i++) {
+        cpuinfo ci = cpuinfo_from_id(i);
+        if (ci->frcount)
+            rprintf("%d\t%ld\n", i, ci->frcount);
+    }
+#endif
+
     /* TODO MP: coordinate via IPIs */
     if (root && table_find(root, sym(reboot_on_exit))) {
         triple_fault();
@@ -248,7 +258,10 @@ u64 total_processors = 1;
 static void new_cpu()
 {
     fetch_and_add(&total_processors, 1);
-    kernel_sleep();
+    /* For some reason, we get a spurious wakeup from hlt on linux/kvm
+       after AP start. Spin here to cover it (before moving on to runloop). */
+    while (1)
+        kernel_sleep();
 }
 #endif
 

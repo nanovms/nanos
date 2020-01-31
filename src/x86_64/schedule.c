@@ -141,7 +141,7 @@ void runloop_internal()
         run_thunk(t, cpu_user);
     
     kernel_sleep();
-    halt("shouldn't be here");
+    halt("cpu %d return from kernel sleep", ci->id);
 }    
 
 void init_scheduler(heap h)
@@ -174,6 +174,5 @@ void kernel_sleep(void)
         kern_unlock();
     // wmb() ?  interrupt would probably enforce that
     asm volatile("sti; hlt" ::: "memory");
-    halt("cpu %d return from kernel sleep", ci->id);    
 }
 
