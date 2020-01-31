@@ -102,7 +102,7 @@ typedef struct virtqueue {
     u16 last_used_idx;          /* irq only */
     int max_queued;
     struct list msgqueue;
-    struct list servicequeue;
+    queue servicequeue;
     thunk service;
     vqmsg msgs[0];
 } *virtqueue;
@@ -162,7 +162,8 @@ closure_function(1, 0, void, vq_interrupt,
         __func__, vq, vq->entries, vq->last_used_idx, vq->used->idx, vq->desc_idx);
     
     int processed = 0;
-    assert(list_empty(&vq->servicequeue));
+    struct list q;
+    list_init(&q);
     while (vq->last_used_idx != vq->used->idx) {
         volatile struct vring_used_elem *uep = vq->used->ring + (vq->last_used_idx & (vq->entries - 1));
         virtqueue_debug_verbose("%s: vq %p: last_used_idx %d, id %d, len %d\n",
@@ -187,11 +188,17 @@ closure_function(1, 0, void, vq_interrupt,
         m->len = uep->len;
         vq->msgs[head] = 0;
         virtqueue_debug("add msg %p\n", m);
-        list_insert_before(&vq->servicequeue, &m->l);
+        list_insert_before(&q, &m->l);
     }
 
-    if (processed > 0)
+    if (processed > 0) {
+        /* a little trick ... collapse the list head for queueing */
+        list l = list_get_next(&q);
+        assert(l);
+        list_delete(&q);
+        assert(enqueue(vq->servicequeue, l));
         enqueue(bhqueue, vq->service);
+    }
 
     virtqueue_fill_irq(vq);
     virtqueue_debug("%s: EXIT: vq %p: processed %d, last_used_idx %d, desc_idx %d\n",
@@ -203,12 +210,17 @@ closure_function(1, 0, void, virtqueue_service_vqmsgs,
 {
     virtqueue vq = bound(vq);
     virtqueue_debug("%s enter, vq %s\n", __func__, vq->name);
-    list_foreach(&vq->servicequeue, l) {
-        vqmsg m = struct_from_list(l, vqmsg, l);
-        virtqueue_debug("  msg %p, competion %F, len %ld\n", m, m->completion, m->len);
-        apply(m->completion, m->len);
-        list_delete(l);
-        deallocate_vqmsg(vq, m);
+    list l;
+    while ((l = (list)dequeue(vq->servicequeue)) != INVALID_ADDRESS) {
+        struct list q;
+        list_insert_before(l, &q);
+        list_foreach(&q, p) {
+            vqmsg m = struct_from_list(p, vqmsg, l);
+            virtqueue_debug("  msg %p, competion %F, len %ld\n", m, m->completion, m->len);
+            apply(m->completion, m->len);
+            list_delete(p);
+            deallocate_vqmsg(vq, m);
+        }
     }
     virtqueue_debug("%s exit\n", __func__);
 }
@@ -240,7 +252,8 @@ status virtqueue_alloc(vtpci dev,
     vq->free_cnt = size;
     vq->max_queued = 0;
     list_init(&vq->msgqueue);
-    list_init(&vq->servicequeue);
+    vq->servicequeue = allocate_queue(dev->general, 512);
+    assert(vq->servicequeue != INVALID_ADDRESS);
     vq->service = closure(dev->general, virtqueue_service_vqmsgs, vq);
 
     if ((vq->ring_mem = allocate_zero(dev->contiguous, alloc)) == INVALID_ADDRESS) {
