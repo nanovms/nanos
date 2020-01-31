@@ -350,7 +350,7 @@ static inline void atomic_set_bit(u64 *target, u64 bit)
 
 static inline void atomic_clear_bit(u64 *target, u64 bit)
 {
-    asm volatile("lock btcq %1, %0": "+m"(*target):"r"(bit) : "memory");
+    asm volatile("lock btrq %1, %0": "+m"(*target):"r"(bit) : "memory");
 }
 
 extern u64 idle_cpu_mask;
