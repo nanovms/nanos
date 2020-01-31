@@ -198,9 +198,9 @@ define_closure_function(1, 0, void, free_thread,
 
 closure_function(1, 0, void, syscall_debug_wrap, context, f)
 {
+    current_cpu()->current_thread = bound(f);
     syscall_debug(bound(f));
 }
-
 
 thread create_thread(process p)
 {

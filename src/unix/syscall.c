@@ -1989,16 +1989,13 @@ closure_function(0, 2, void, syscall_io_complete_cfn,
 // some validation can be moved up here
 static void syscall_schedule(context f, u64 call)
 {
-    // i guess we can't interfere with other uses of kernel frame
-    // because we're scheduled last...and i guess this
-    // will only get restored on this cpu? no..thats not
-    // true
-    set_running_frame(current_cpu()->kernel_frame);
+    /* kernel context set on syscall entry */
     if (kern_try_lock()) {
         current_cpu()->state = cpu_kernel;
         syscall_debug(f);
     } else {
         enqueue(runqueue, ((thread)f)->deferred_syscall);
+        runloop();
     }
 }
 
