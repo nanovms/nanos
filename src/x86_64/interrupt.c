@@ -5,7 +5,7 @@
 #include <region.h>
 #include <apic.h>
 
-#define INT_DEBUG
+//#define INT_DEBUG
 #ifdef INT_DEBUG
 #define int_debug(x, ...) do {log_printf("  INT", x, ##__VA_ARGS__);} while(0)
 #else
@@ -226,8 +226,6 @@ void common_handler()
        fault while in an int handler...need to fix in interrupt_common */
     cpuinfo ci = current_cpu();
     context f = ci->running_frame;
-    assert(!f[FRAME_FULL]);
-    f[FRAME_FULL] = true;
     int i = f[FRAME_VECTOR];
     // if we were idle, we are no longer
     atomic_clear_bit(&idle_cpu_mask, ci->id);
@@ -242,7 +240,7 @@ void common_handler()
     }
 
     if (i == spurious_int_vector)
-        runloop();                 /* no EOI */
+        frame_return(f);        /* direct return, no EOI */
 
     /* Unless there's some reason to handle a page fault in interrupt
        mode, this should always be terminal.
@@ -255,21 +253,21 @@ void common_handler()
        cpu_kernel here too).
     */
     if (ci->state == cpu_interrupt) {
-        console("\nexception in ");
-        console(state_strings[ci->state]);
-        console(" mode, cpu ");
-        print_u64(ci->id);
-        console(", vector ");
-        print_u64(i);
-        console("\n");
+        console("\nexception during interrupt handling\n");
         goto exit_fault;
     }
     ci->state = cpu_interrupt;
 
+    if (f[FRAME_FULL]) {
+        console("\nframe ");
+        print_u64(u64_from_pointer(f));
+        console(" already full\n");
+        goto exit_fault;
+    }
+    f[FRAME_FULL] = true;
+
     if (i >= n_interrupt_vectors) {
-        console("\nexception for invalid interrupt vector: ");
-        print_u64(i);
-        console("\n");
+        console("\nexception for invalid interrupt vector\n");
         goto exit_fault;
     }
 
@@ -294,11 +292,17 @@ void common_handler()
             goto exit_fault;
         }
     }
+    if (f == current_cpu()->kernel_frame)
+        f[FRAME_FULL] = false;      /* no longer saving frame for anything */
     runloop();
   exit_fault:
     // XXX need to terminate bsp if on ap
-    console("\n       cpu: ");
+    console("cpu ");
     print_u64(ci->id);
+    console(", state ");
+    console(state_strings[ci->state]);
+    console(", vector ");
+    print_u64(i);
     console("\n");
     print_frame(f);
     print_stack(f);

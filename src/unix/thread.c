@@ -83,7 +83,7 @@ void register_thread_syscalls(struct syscall *map)
 
 void thread_log_internal(thread t, const char *desc, ...)
 {
-    //    if (table_find(t->p->process_root, sym(trace))) {
+    if (table_find(t->p->process_root, sym(trace))) {
         if (syscall_notrace(t->syscall))
             return;
         vlist ap;
@@ -96,7 +96,7 @@ void thread_log_internal(thread t, const char *desc, ...)
         vbprintf(b, f, &ap);
         push_u8(b, '\n');
         buffer_print(b);
-        //    }
+    }
 }
 
 static inline void run_thread_frame(thread t, boolean do_sigframe)
