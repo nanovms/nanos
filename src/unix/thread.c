@@ -241,7 +241,8 @@ thread create_thread(process p)
     t->sigframe[FRAME_FAULT_HANDLER] = t->frame[FRAME_FAULT_HANDLER];
     t->sigframe[FRAME_QUEUE] = t->frame[FRAME_QUEUE];
     t->sigframe[FRAME_RUN] = u64_from_pointer(closure(h, run_sighandler, t));
-
+    // xxx another max 64
+    t->affinity.mask[0] = MASK(total_processors);
     t->blocked_on = 0;
     t->file_op_is_complete = false;
     init_sigstate(&t->signals);

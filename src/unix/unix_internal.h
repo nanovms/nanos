@@ -85,8 +85,7 @@ struct sysinfo {
                         /* Padding to 64 bytes */
 };
 
-#define CPU_SET_SIZE    1024
-#define CPU_SET_WORDS   (CPU_SET_SIZE >> 6)
+#define CPU_SET_WORDS   (MAX_CPUS >> 6)
 typedef struct {
     u64 mask[CPU_SET_WORDS];
 } cpu_set_t;
@@ -229,6 +228,7 @@ typedef struct thread {
     struct ftrace_graph_entry * graph_stack;
 #endif
     thunk deferred_syscall; // can this be a closure_struct?
+    cpu_set_t affinity;    
 } *thread;
 
 typedef closure_type(io, sysreturn, void *buf, u64 length, u64 offset, thread t,

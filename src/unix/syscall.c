@@ -1783,11 +1783,35 @@ sysreturn eventfd2(unsigned int count, int flags)
     return do_eventfd2(count, flags);
 }
 
+static thread lookup_thread(int pid)
+{
+    thread t;
+    if (pid== 0) {
+        t = current;
+    } else {
+        if ((t = thread_from_tid(current->p, pid)) == INVALID_ADDRESS)
+            return 0;
+    }
+    return t;
+}
+
+sysreturn sched_setaffinity(int pid, u64 cpusetsize, cpu_set_t *mask)
+{
+    thread t;
+    if (!(t = lookup_thread(pid)) ||
+        (!mask || cpusetsize < sizeof(mask->mask[0])))
+            return set_syscall_error(current, EINVAL);                
+    runtime_memcpy(&t->affinity, mask, sizeof(mask->mask[0]));
+    return 0;
+}
+
 sysreturn sched_getaffinity(int pid, u64 cpusetsize, cpu_set_t *mask)
 {
-    if (!mask || cpusetsize < sizeof(mask->mask[0]))
-        return set_syscall_error(current, EINVAL);
-    mask->mask[0] = 1;      /* always cpu 0 */
+    thread t;
+    if (!(t = lookup_thread(pid)) ||
+        (!mask || cpusetsize < sizeof(mask->mask[0])))
+            return set_syscall_error(current, EINVAL);                    
+    runtime_memcpy(mask, &t->affinity, sizeof(mask->mask[0]));        
     return sizeof(mask->mask[0]);
 }
 
@@ -1896,7 +1920,7 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, fchdir, fchdir);
     register_syscall(map, newfstatat, newfstatat);
     register_syscall(map, sched_getaffinity, sched_getaffinity);
-    register_syscall(map, sched_setaffinity, syscall_ignore);
+    register_syscall(map, sched_setaffinity, sched_setaffinity);
     register_syscall(map, getuid, syscall_ignore);
     register_syscall(map, geteuid, syscall_ignore);
     register_syscall(map, chown, syscall_ignore);
