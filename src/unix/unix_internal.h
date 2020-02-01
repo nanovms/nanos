@@ -85,7 +85,7 @@ struct sysinfo {
                         /* Padding to 64 bytes */
 };
 
-#define CPU_SET_WORDS   (MAX_CPUS >> 6)
+#define CPU_SET_WORDS   (pad(MAX_CPUS, 64) >> 6)
 typedef struct {
     u64 mask[CPU_SET_WORDS];
 } cpu_set_t;
