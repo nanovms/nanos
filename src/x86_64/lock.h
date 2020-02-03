@@ -14,3 +14,22 @@ static inline void spin_unlock(u64 *loc) {
     compiler_barrier();
     *(volatile u64 *)loc = 0;
 }
+
+static inline u64 spin_lock_irq(u64 *loc)
+{
+    u64 flags = read_flags();
+    disable_interrupts();
+    spin_lock(loc);
+    return flags;
+}
+
+static inline void spin_unlock_irq(u64 *loc, u64 flags)
+{
+    spin_unlock(loc);
+    irq_restore(flags);
+}
+
+static inline void spin_lock_init(u64 *loc)
+{
+    *loc = 0;
+}
