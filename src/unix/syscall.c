@@ -1421,7 +1421,7 @@ static sysreturn brk(void *x)
             // I guess assuming we're aligned
             u64 alloc = pad(u64_from_pointer(x), PAGESIZE) - pad(u64_from_pointer(p->brk), PAGESIZE);
             assert(adjust_vmap_range(p->vmaps, p->heap_map, irange(p->heap_base, u64_from_pointer(p->brk) + alloc)));
-            u64 phys = allocate_u64(heap_physical(kh), alloc);
+            u64 phys = allocate_u64((heap)heap_physical(kh), alloc);
             if (phys == INVALID_PHYSICAL)
                 goto fail;
             /* XXX no exec configurable? */
@@ -1850,7 +1850,8 @@ sysreturn sysinfo(struct sysinfo *info)
     runtime_memset((u8 *) info, 0, sizeof(*info));
     info->uptime = sec_from_timestamp(uptime());
     info->totalram = id_heap_total(kh->physical);
-    info->freeram = info->totalram < kh->physical->allocated ? 0 : info->totalram - kh->physical->allocated;
+    u64 allocated = ((heap)kh->physical)->allocated;
+    info->freeram = info->totalram < allocated ? 0 : info->totalram - allocated;
     info->procs = 1;
     info->mem_unit = 1;
     return 0;

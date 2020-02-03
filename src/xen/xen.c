@@ -169,8 +169,8 @@ static boolean xen_grant_init(kernel_heaps kh)
     xen_debug("%s: table v 0x%lx, p 0x%lx", __func__, gt->table, physical_from_virtual(gt->table));
 
     /* Allocate grant entry allocator. */
-    gt->entry_heap = create_id_heap(heap_general(kh), GTAB_RESERVED_ENTRIES + 1,
-                                    gt->n_entries - GTAB_RESERVED_ENTRIES, 1);
+    gt->entry_heap = (heap)create_id_heap(heap_general(kh), GTAB_RESERVED_ENTRIES + 1,
+                                          gt->n_entries - GTAB_RESERVED_ENTRIES, 1);
     if (gt->entry_heap == INVALID_ADDRESS) {
         msg_err("failed to allocate grant table occupancy heap\n");
         goto fail_dealloc_table;
@@ -333,7 +333,7 @@ boolean xen_detect(kernel_heaps kh)
     xen_info.xenstore_paddr = xen_hvm_param.value << PAGELOG;
 
     xen_debug("xenstore page at phys 0x%lx; allocating virtual page and mapping", xen_info.xenstore_paddr);
-    xen_info.xenstore_interface = allocate(heap_virtual_page(kh), PAGESIZE);
+    xen_info.xenstore_interface = allocate((heap)heap_virtual_page(kh), PAGESIZE);
     assert(xen_info.xenstore_interface != INVALID_ADDRESS);
     map(u64_from_pointer(xen_info.xenstore_interface), xen_info.xenstore_paddr, PAGESIZE, 0, heap_pages(kh));
     xen_debug("xenstore page mapped at %p", xen_info.xenstore_interface);

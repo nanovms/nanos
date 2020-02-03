@@ -14,7 +14,7 @@ struct cbm {
 };
 
 typedef struct filesystem {
-    heap storage;
+    id_heap storage;
     struct cbm *free;
     heap h;
     int alignment;

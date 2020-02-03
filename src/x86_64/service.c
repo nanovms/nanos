@@ -32,10 +32,10 @@ static struct kernel_heaps heaps;
 heap allocate_tagged_region(kernel_heaps kh, u64 tag)
 {
     heap h = heap_general(kh);
-    heap p = heap_physical(kh);
+    heap p = (heap)heap_physical(kh);
     u64 tag_base = tag << va_tag_offset;
     u64 tag_length = U64_FROM_BIT(va_tag_offset);
-    heap v = create_id_heap(h, tag_base, tag_length, p->pagesize);
+    heap v = (heap)create_id_heap(h, tag_base, tag_length, p->pagesize);
     assert(v != INVALID_ADDRESS);
     heap backed = physically_backed(h, v, p, heap_pages(kh), p->pagesize);
     if (backed == INVALID_ADDRESS)
@@ -131,7 +131,7 @@ static void read_kernel_syms()
 	    kern_base = e->base;
 	    kern_length = e->length;
 
-	    u64 v = allocate_u64(heap_virtual_huge(&heaps), kern_length);
+	    u64 v = allocate_u64((heap)heap_virtual_huge(&heaps), kern_length);
 	    map(v, kern_base, kern_length, 0, heap_pages(&heaps));
 #ifdef ELF_SYMTAB_DEBUG
 	    rprintf("kernel ELF image at 0x%lx, length %ld, mapped at 0x%lx\n",
@@ -373,7 +373,7 @@ static void __attribute__((noinline)) init_service_new_stack()
 static heap init_pages_id_heap(heap h)
 {
     boolean found = false;
-    heap pages = allocate_id_heap(h, PAGESIZE);
+    id_heap pages = allocate_id_heap(h, PAGESIZE);
     for_regions(e) {
 	if (e->type == REGION_IDENTITY) {
             assert(!found);     /* should only be one... */
@@ -407,12 +407,12 @@ static heap init_pages_id_heap(heap h)
         halt("no identity region found; halt\n");
     if (heaps.identity_reserved_start == 0)
         halt("reserved identity region not found; halt\n");
-    return pages;
+    return (heap)pages;
 }
 
-static heap init_physical_id_heap(heap h)
+static id_heap init_physical_id_heap(heap h)
 {
-    heap physical = allocate_id_heap(h, PAGESIZE);
+    id_heap physical = allocate_id_heap(h, PAGESIZE);
     boolean found = false;
     init_debug("physical memory:");
     for_regions(e) {
@@ -457,10 +457,10 @@ static void init_kernel_heaps()
 				      (1ull<<VIRTUAL_ADDRESS_BITS)- HUGE_PAGESIZE, HUGE_PAGESIZE);
     assert(heaps.virtual_huge != INVALID_ADDRESS);
 
-    heaps.virtual_page = create_id_heap_backed(&bootstrap, heaps.virtual_huge, PAGESIZE);
+    heaps.virtual_page = create_id_heap_backed(&bootstrap, (heap)heaps.virtual_huge, PAGESIZE);
     assert(heaps.virtual_page != INVALID_ADDRESS);
 
-    heaps.backed = physically_backed(&bootstrap, heaps.virtual_page, heaps.physical, heaps.pages, PAGESIZE);
+    heaps.backed = physically_backed(&bootstrap, (heap)heaps.virtual_page, (heap)heaps.physical, heaps.pages, PAGESIZE);
     assert(heaps.backed != INVALID_ADDRESS);
 
     heaps.general = allocate_mcache(&bootstrap, heaps.backed, 5, 20, PAGESIZE_2M);

@@ -159,7 +159,7 @@ closure_function(0, 0, timestamp, hpet_now)
 }
 
 boolean init_hpet(kernel_heaps kh) {
-    void * hpet_page = allocate(heap_virtual_page(kh), PAGESIZE);
+    void *hpet_page = allocate((heap)heap_virtual_page(kh), PAGESIZE);
     if (hpet_page == INVALID_ADDRESS) {
         msg_err("failed to allocate page for HPET\n");
         return false;

@@ -433,7 +433,7 @@ sysreturn timer_delete(u32 timerid) {
         thread_release(ut->info.posix.recipient);
     process p = current->p;
     remove_unix_timer(ut);
-    deallocate_u64(p->posix_timer_ids, ut->info.posix.id, 1);
+    deallocate_u64((heap)p->posix_timer_ids, ut->info.posix.id, 1);
     vector_set(p->posix_timers, ut->info.posix.id, 0);
     deallocate_unix_timer(ut);
     return 0;
@@ -481,7 +481,7 @@ sysreturn timer_create(int clockid, struct sigevent *sevp, u32 *timerid)
         }
     }
 
-    u64 id = allocate_u64(p->posix_timer_ids, 1);
+    u64 id = allocate_u64((heap)p->posix_timer_ids, 1);
     if (id == INVALID_PHYSICAL)
         return -ENOMEM;
 
@@ -496,7 +496,7 @@ sysreturn timer_create(int clockid, struct sigevent *sevp, u32 *timerid)
 
     unix_timer ut = allocate_unix_timer(UNIX_TIMER_TYPE_POSIX, clockid);
     if (ut == INVALID_ADDRESS) {
-        deallocate_u64(p->posix_timer_ids, id, 1);
+        deallocate_u64((heap)p->posix_timer_ids, id, 1);
         return -ENOMEM;
     }
 

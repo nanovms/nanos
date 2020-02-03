@@ -150,7 +150,7 @@ void enable_apic(void)
 void init_apic(kernel_heaps kh)
 {
     apic_heap = heap_general(kh);
-    apic_vbase = allocate_u64(heap_virtual_page(kh), PAGESIZE);
+    apic_vbase = allocate_u64((heap)heap_virtual_page(kh), PAGESIZE);
     assert(apic_vbase != INVALID_PHYSICAL);
     map(apic_vbase, APIC_BASE, PAGESIZE, PAGE_DEV_FLAGS, heap_pages(kh));
 

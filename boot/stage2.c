@@ -186,7 +186,7 @@ closure_function(0, 4, void, kernel_elf_map,
 {
     if (paddr == INVALID_PHYSICAL) {
         /* bss */
-        paddr = allocate_u64(heap_physical(&kh), size);
+        paddr = allocate_u64(heap_backed(&kh), size);
         assert(paddr != INVALID_PHYSICAL);
         zero(pointer_from_u64(paddr), size);
     }
@@ -254,11 +254,11 @@ region fsregion()
 }
 
 closure_function(4, 2, void, filesystem_initialized,
-                 heap, h, heap, physical, tuple, root, buffer_handler, complete,
+                 heap, h, heap, backed, tuple, root, buffer_handler, complete,
                  filesystem, fs, status, s)
 {
     filesystem_read_entire(fs, lookup(bound(root), sym(kernel)),
-                           bound(physical),
+                           bound(backed),
                            bound(complete),
                            closure(bound(h), fail));
 }
@@ -269,7 +269,6 @@ void newstack()
     u32 fs_offset = SECTOR_SIZE + fsregion()->length; // MBR + stage2
     tuple root = allocate_tuple();
     heap h = heap_general(&kh);
-    heap physical = heap_physical(&kh);
     buffer_handler bh = closure(h, kernel_read_complete);
 
     setup_page_tables();
@@ -281,7 +280,7 @@ void newstack()
                       get_stage2_disk_read(h, fs_offset),
                       closure(h, stage2_empty_write),
                       root,
-                      closure(h, filesystem_initialized, h, physical, root, bh));
+                      closure(h, filesystem_initialized, h, heap_backed(&kh), root, bh));
     
     halt("kernel failed to execute\n");
 }
@@ -360,20 +359,20 @@ void centry()
         }
     }
 
-    kh.physical = region_allocator(&working_heap, PAGESIZE, REGION_PHYSICAL);
-    assert(kh.physical);
+    kh.backed = region_allocator(&working_heap, PAGESIZE, REGION_PHYSICAL);
+    assert(kh.backed != INVALID_ADDRESS);
 
     /* allocate identity region for page tables */
-    identity_base = allocate_u64(kh.physical, IDENTITY_HEAP_SIZE);
+    identity_base = allocate_u64(kh.backed, IDENTITY_HEAP_SIZE);
     assert(identity_base != INVALID_PHYSICAL);
 
     /* allocate stage2 (and early stage3) stack */
-    stack_base = allocate_u64(kh.physical, STACKLEN);
+    stack_base = allocate_u64(kh.backed, STACKLEN);
     assert(stack_base != INVALID_PHYSICAL);
     create_region(stack_base, STACKLEN, REGION_RECLAIM);
 
     /* allocate larger space for stage2 working (to accomodate tfs meta, etc.) */
-    working_p = allocate_u64(kh.physical, STAGE2_WORKING_HEAP_SIZE);
+    working_p = allocate_u64(kh.backed, STAGE2_WORKING_HEAP_SIZE);
     assert(working_p != INVALID_PHYSICAL);
     working_saved_base = working_p;
     working_end = working_p + STAGE2_WORKING_HEAP_SIZE;

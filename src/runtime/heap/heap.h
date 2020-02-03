@@ -9,16 +9,19 @@ struct heap {
     bytes allocated;
 };
 
+struct id_heap;
+typedef struct id_heap *id_heap;
+
 heap debug_heap(heap m, heap p);
-heap create_id_heap(heap h, u64 base, u64 length, bytes pagesize);
-heap create_id_heap_backed(heap h, heap parent, bytes pagesize);
-heap allocate_id_heap(heap h, bytes pagesize); /* id heap with no ranges */
-boolean id_heap_add_range(heap h, u64 base, u64 length);
-boolean id_heap_set_area(heap h, u64 base, u64 length, boolean validate, boolean allocate);
-u64 id_heap_total(heap h);
-void id_heap_set_randomize(heap h, boolean randomize);
-u64 id_heap_alloc_subrange(heap h, bytes count, u64 start, u64 end);
-static inline u64 id_heap_alloc_gte(heap h, bytes count, u64 min)
+id_heap create_id_heap(heap h, u64 base, u64 length, bytes pagesize);
+id_heap create_id_heap_backed(heap h, heap parent, bytes pagesize);
+id_heap allocate_id_heap(heap h, bytes pagesize); /* id heap with no ranges */
+boolean id_heap_add_range(id_heap h, u64 base, u64 length);
+boolean id_heap_set_area(id_heap h, u64 base, u64 length, boolean validate, boolean allocate);
+u64 id_heap_total(id_heap h);
+void id_heap_set_randomize(id_heap h, boolean randomize);
+u64 id_heap_alloc_subrange(id_heap h, bytes count, u64 start, u64 end);
+static inline u64 id_heap_alloc_gte(id_heap h, bytes count, u64 min)
 {
     return id_heap_alloc_subrange(h, count, min, infinity);
 }

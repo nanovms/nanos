@@ -116,7 +116,7 @@ typedef struct unix_heaps {
 #endif
 
     /* id heaps */
-    heap processes;
+    id_heap processes;
 } *unix_heaps;
 
 #define BLOCKQ_ACTION_BLOCKED  1
@@ -296,10 +296,10 @@ typedef struct process {
     u64               heap_base;
     u64               lowmem_end; /* end of elf / heap / stack area (low 2gb below reserved) */
     u64               vdso_base;
-    heap              virtual;  /* huge virtual, parent of virtual_page */
-    heap              virtual_page; /* pagesized, default for mmaps */
-    heap              virtual32; /* for tracking low 32-bit space and MAP_32BIT maps */
-    heap              fdallocator;
+    id_heap           virtual;  /* huge virtual, parent of virtual_page */
+    id_heap           virtual_page; /* pagesized, default for mmaps */
+    id_heap           virtual32; /* for tracking low 32-bit space and MAP_32BIT maps */
+    id_heap           fdallocator;
     filesystem        fs;       /* XXX should be underneath tuple operators */
     tuple             process_root;
     tuple             cwd;
@@ -317,7 +317,7 @@ typedef struct process {
     timestamp         start_time;
     struct sigstate   signals;
     struct sigaction  sigactions[NSIG];
-    heap              posix_timer_ids;
+    id_heap           posix_timer_ids;
     vector            posix_timers; /* unix_timer by timerid */
     vector            itimers;      /* unix_timer by ITIMER_ type */
 } *process;

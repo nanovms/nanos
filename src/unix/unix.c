@@ -6,7 +6,7 @@
 
 u64 allocate_fd(process p, void *f)
 {
-    u64 fd = allocate_u64(p->fdallocator, 1);
+    u64 fd = allocate_u64((heap)p->fdallocator, 1);
     if (fd == INVALID_PHYSICAL) {
 	msg_err("fail; maxed out\n");
 	return fd;
@@ -30,7 +30,7 @@ u64 allocate_fd_gte(process p, u64 min, void *f)
 void deallocate_fd(process p, int fd)
 {
     vector_set(p->files, fd, 0);
-    deallocate_u64(p->fdallocator, fd, 1);
+    deallocate_u64((heap)p->fdallocator, fd, 1);
 }
 
 // it so happens that f and frame should be the same number?
@@ -147,7 +147,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
 
     p->uh = uh;
     p->brk = 0;
-    p->pid = allocate_u64(uh->processes, 1);
+    p->pid = allocate_u64((heap)uh->processes, 1);
 
     /* don't need these for kernel process */
     if (p->pid > 1) {
@@ -157,7 +157,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
         assert(id_heap_set_area(heap_virtual_huge((kernel_heaps)uh),
                                 PROCESS_VIRTUAL_HEAP_START, PROCESS_VIRTUAL_HEAP_LENGTH,
                                 true, true));
-        p->virtual_page = create_id_heap_backed(h, p->virtual, PAGESIZE);
+        p->virtual_page = create_id_heap_backed(h, (heap)p->virtual, PAGESIZE);
         assert(p->virtual_page != INVALID_ADDRESS);
         if (aslr)
             id_heap_set_randomize(p->virtual_page, true);

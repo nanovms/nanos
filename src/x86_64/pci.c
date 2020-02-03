@@ -226,7 +226,7 @@ void pci_discover()
 void init_pci(kernel_heaps kh)
 {
     // should use the global node space
-    virtual_huge = heap_virtual_huge(kh);
+    virtual_huge = (heap)heap_virtual_huge(kh);
     pages = heap_pages(kh);
     drivers = allocate_vector(heap_general(kh), 8);
 }

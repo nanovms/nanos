@@ -53,7 +53,7 @@ static boolean do_demand_page(vmap vm, u64 vaddr)
 
     /* XXX make free list */
     kernel_heaps kh = get_kernel_heaps();
-    u64 paddr = allocate_u64(heap_physical(kh), PAGESIZE);
+    u64 paddr = allocate_u64((heap)heap_physical(kh), PAGESIZE);
     if (paddr == INVALID_PHYSICAL) {
         msg_err("cannot get physical page; OOM\n");
         return false;
@@ -163,8 +163,8 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
         new_size == 0)
         return -EINVAL;
 
-    heap vh = p->virtual_page;
-    heap physical = heap_physical(kh);
+    heap vh = (heap)p->virtual_page;
+    id_heap physical = heap_physical(kh);
     heap pages = heap_pages(kh);
 
     old_size = pad(old_size, vh->pagesize);
@@ -216,7 +216,7 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
 
     /* balance of physical allocation */
     u64 dlen = maplen - old_size;
-    u64 dphys = allocate_u64(physical, dlen);
+    u64 dphys = allocate_u64((heap)physical, dlen);
     if (dphys == INVALID_PHYSICAL) {
         msg_err("failed to allocate physical memory, size %ld\n", dlen);
         deallocate_u64(vh, vnew, maplen);
@@ -303,7 +303,7 @@ static sysreturn mincore(void *addr, u64 length, u8 *vec)
 }
 
 closure_function(1, 1, void, dealloc_phys_page,
-                 heap, physical,
+                 id_heap, physical,
                  range, r)
 {
     if (!id_heap_set_area(bound(physical), r.start, range_span(r), true, false))
@@ -573,11 +573,11 @@ static void vmap_paint(heap h, rangemap pvmap, vmap q)
 
 typedef struct varea {
     struct rmnode node;
-    heap h;
+    id_heap h;
     boolean allow_fixed;
 } * varea;
 
-static varea allocate_varea(heap h, rangemap vareas, range r, heap vh, boolean allow_fixed)
+static varea allocate_varea(heap h, rangemap vareas, range r, id_heap vh, boolean allow_fixed)
 {
     varea va = allocate(h, sizeof(struct varea));
     if (va == INVALID_ADDRESS)
@@ -661,7 +661,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
             /* Allocate from top half of 32-bit address space. */
             where = id_heap_alloc_subrange(p->virtual32, maplen, 0x80000000, 0x100000000);
         } else {
-            where = allocate_u64(p->virtual_page, maplen);
+            where = allocate_u64((heap)p->virtual_page, maplen);
         }
         if (where == (u64)INVALID_ADDRESS) {
             /* We'll always want to know about low memory conditions, so just bark. */
@@ -772,7 +772,7 @@ static sysreturn munmap(void *addr, u64 length)
 /* kernel start */
 extern void * START;
 
-static void add_varea(process p, u64 start, u64 end, heap vheap, boolean allow_fixed)
+static void add_varea(process p, u64 start, u64 end, id_heap vheap, boolean allow_fixed)
 {
     assert(allocate_varea(heap_general((kernel_heaps)p->uh), p->vareas, irange(start, end),
                           vheap, allow_fixed) != INVALID_ADDRESS);
@@ -831,7 +831,7 @@ void mmap_process_init(process p)
         vdso_size = VDSO_NR_PAGES * PAGESIZE;
         vvar_size = VVAR_NR_PAGES * PAGESIZE;
 
-        p->vdso_base = allocate_u64(p->virtual_page, vdso_size + vvar_size);
+        p->vdso_base = allocate_u64((heap)p->virtual_page, vdso_size + vvar_size);
         assert(allocate_vmap(
             p->vmaps,
             irange(p->vdso_base, p->vdso_base + vdso_size/*+vvar_size*/),

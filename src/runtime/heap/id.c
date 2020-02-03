@@ -208,7 +208,7 @@ static void id_destroy(heap h)
     deallocate(i->meta, i, sizeof(struct id_heap));
 }
 
-heap allocate_id_heap(heap h, bytes pagesize)
+id_heap allocate_id_heap(heap h, bytes pagesize)
 {
     assert((pagesize & (pagesize-1)) == 0); /* pagesize is power of 2 */
 
@@ -230,11 +230,11 @@ heap allocate_id_heap(heap h, bytes pagesize)
 	return INVALID_ADDRESS;
     }
     i->flags = 0;
-    return (heap)i;
+    return i;
 }
 
 /* external version */
-boolean id_heap_add_range(heap h, u64 base, u64 length)
+boolean id_heap_add_range(id_heap h, u64 base, u64 length)
 {
     return id_add_range((id_heap)h, base, length) != INVALID_ADDRESS;
 }
@@ -251,7 +251,7 @@ closure_function(4, 1, void, set_intersection,
         *bound(fail) = true;
 }
 
-boolean id_heap_set_area(heap h, u64 base, u64 length, boolean validate, boolean allocate)
+boolean id_heap_set_area(id_heap h, u64 base, u64 length, boolean validate, boolean allocate)
 {
     id_heap i = (id_heap)h;
     base &= ~page_mask(i);
@@ -264,19 +264,19 @@ boolean id_heap_set_area(heap h, u64 base, u64 length, boolean validate, boolean
     return result && !fail;
 }
 
-u64 id_heap_total(heap h)
+u64 id_heap_total(id_heap h)
 {
     id_heap i = (id_heap)h;
     return i->total;
 }
 
-void id_heap_set_randomize(heap h, boolean randomize)
+void id_heap_set_randomize(id_heap h, boolean randomize)
 {
     id_heap i = (id_heap)h;
     i->flags = randomize ? i->flags | ID_HEAP_FLAG_RANDOMIZE : i->flags & ~ID_HEAP_FLAG_RANDOMIZE;
 }
 
-u64 id_heap_alloc_subrange(heap h, bytes count, u64 start, u64 end)
+u64 id_heap_alloc_subrange(id_heap h, bytes count, u64 start, u64 end)
 {
     id_heap i = (id_heap)h;
 
@@ -304,7 +304,7 @@ u64 id_heap_alloc_subrange(heap h, bytes count, u64 start, u64 end)
     return INVALID_PHYSICAL;
 }
 
-heap create_id_heap(heap h, u64 base, u64 length, bytes pagesize)
+id_heap create_id_heap(heap h, u64 base, u64 length, bytes pagesize)
 {
     id_heap i = (id_heap)allocate_id_heap(h, pagesize);
     if (i == INVALID_ADDRESS)
@@ -316,10 +316,10 @@ heap create_id_heap(heap h, u64 base, u64 length, bytes pagesize)
 	id_destroy((heap)i);
 	return INVALID_ADDRESS;
     }
-    return ((heap)i);
+    return i;
 }
 
-heap create_id_heap_backed(heap h, heap parent, bytes pagesize)
+id_heap create_id_heap_backed(heap h, heap parent, bytes pagesize)
 {
     id_heap i = (id_heap)allocate_id_heap(h, pagesize);
     if (i == INVALID_ADDRESS)
@@ -333,5 +333,5 @@ heap create_id_heap_backed(heap h, heap parent, bytes pagesize)
 	id_destroy((heap)i);
 	return INVALID_ADDRESS;
     }
-    return ((heap)i);
+    return i;
 }
