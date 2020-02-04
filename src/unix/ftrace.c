@@ -1,7 +1,6 @@
-#include <runtime.h>
+#include <kernel.h>
 #include <unix_internal.h>
 #include <ftrace.h>
-#include <x86_64.h>
 #include <symtab.h>
 #include <http.h>
 

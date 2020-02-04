@@ -33,7 +33,6 @@ static inline void runloop_timer(timestamp duration)
 timer register_timer(clock_id id, timestamp val, boolean absolute, timestamp interval, timer_handler n);
 
 #if defined(STAGE3) || defined(BUILD_VDSO)
-#include <vdso.h>
 #define __rtc_offset (&(VVAR_REF(vdso_dat)))->rtc_offset
 #else
 #define __rtc_offset 0
@@ -77,7 +76,7 @@ static inline void remove_timer(timer t, timestamp *remain)
     }
 }
 
-void initialize_timers(kernel_heaps kh);
+void initialize_timers(heap h);
 void print_timestamp(buffer, timestamp);
 timestamp timer_check(void);
 
@@ -143,3 +142,4 @@ static inline u64 usec_from_timestamp(timestamp t)
         ((truncate_seconds(t) * MILLION) / TIMESTAMP_SECOND);
 }
 
+void timer_schedule(void);      /* call from timer interrupt */

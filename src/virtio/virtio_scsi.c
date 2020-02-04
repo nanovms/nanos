@@ -1,8 +1,6 @@
-#include <runtime.h>
-#include <x86_64.h>
+#include <kernel.h>
 #include <drivers/storage.h>
 #include <virtio/scsi.h>
-#include <x86_64.h>
 #include <io.h>
 
 #include "virtio_internal.h"

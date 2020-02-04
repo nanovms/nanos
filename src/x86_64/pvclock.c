@@ -1,9 +1,7 @@
-#include <runtime.h>
+#include <kernel.h>
 #include <pvclock.h>
 #include <page.h>
-#include <x86_64.h>
 #include <apic.h>
-#include <vdso.h>
 
 static heap pvclock_heap;
 static volatile struct pvclock_vcpu_time_info *vclock = 0;

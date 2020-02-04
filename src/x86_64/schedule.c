@@ -1,8 +1,6 @@
-#include <runtime.h>
-#include <x86_64.h>
+#include <kernel.h>
 #include <tfs.h> // needed for unix.h
 #include <unix.h> // some deps
-#include <lock.h>
 #include <apic.h>
 
 

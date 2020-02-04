@@ -1,7 +1,3 @@
-#pragma once
-
-#include <runtime.h>
-
 struct tm {
     int tm_year;
     u8 tm_mon;

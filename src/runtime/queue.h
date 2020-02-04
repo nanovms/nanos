@@ -1,6 +1,3 @@
-#include <runtime.h>
-#include <x86_64.h>
-
 /* TODO:
    - queue paranoia mode
    - fix kernel headers in general (shouldn't need arch-specific include above)

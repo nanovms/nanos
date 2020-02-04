@@ -1,8 +1,7 @@
-#include <runtime.h>
+#include <kernel.h>
 #include "console.h"
 #include "serial.h"
 #include "vga.h"
-#include "lock.h"
 
 static void serial_console_write(void *d, char *s, bytes count)
 {

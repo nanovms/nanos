@@ -29,16 +29,23 @@ u64 random_seed()
     return random();
 }
 
+static u64 bytes_allocated;
+
+static u64 allocated(heap h)
+{
+    return bytes_allocated;
+}
+
 static void malloc_free(heap h, u64 z, bytes length)
 {
-    assert(h->allocated >= length);
-    h->allocated -= length;
+    assert(bytes_allocated >= length);
+    bytes_allocated -= length;
     free(pointer_from_u64(z));
 }
 
 static u64 malloc_alloc(heap h, bytes s)
 {
-    h->allocated += s;
+    bytes_allocated += s;
     return (u64)malloc(s);
 }
 
@@ -49,7 +56,9 @@ heap malloc_allocator()
     h->dealloc = malloc_free;
     h->destroy = 0;
     h->pagesize = PAGESIZE;
-    h->allocated = 0;
+    h->allocated = allocated;
+    h->total = 0;
+    bytes_allocated = 0;
     return h;
 }
 
@@ -63,16 +72,13 @@ void halt(char *format, ...)
     exit(2);
 }
 
-heap allocate_tagged_region(kernel_heaps kh, u64 tag)
+static heap allocate_tagged_region(heap h, u64 tag)
 {
     u64 size = 256 * MB;
     void *region = mmap(pointer_from_u64(tag << va_tag_offset),
                         size, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_ANON | MAP_PRIVATE, -1, 0);
-    return (heap)create_id_heap(heap_general(kh), u64_from_pointer(region), size, 1);
+    return (heap)create_id_heap(h, u64_from_pointer(region), size, 1);
 }
-
-// xxx - not the kernel
-static struct kernel_heaps heaps; /* really just for init_runtime() */
 
 extern void init_extra_prints();
 
@@ -87,13 +93,15 @@ closure_function(0, 0, timestamp, unix_now)
 // 64 bit unix process
 heap init_process_runtime()
 {
-    heaps.general = malloc_allocator();
-    platform_monotonic_now = closure(heaps.general, unix_now);
+    heap h = malloc_allocator();
+    platform_monotonic_now = closure(h, unix_now);
     init_random();
-    init_runtime(&heaps);
+    init_runtime(h);
+    init_tuples(allocate_tagged_region(h, tag_tuple));
+    init_symbols(allocate_tagged_region(h, tag_symbol), h);
     init_extra_prints();
     signal(SIGPIPE, SIG_IGN);
-    return heaps.general;
+    return h;
 }
 
 void console_write(char *s, bytes count)

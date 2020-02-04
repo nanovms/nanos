@@ -1,3 +1,4 @@
+#include <kernel.h>
 #include <drivers/storage.h>
 #include <io.h>
 

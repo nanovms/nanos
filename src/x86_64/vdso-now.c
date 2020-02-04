@@ -8,11 +8,9 @@
  * with VDSO or marked static
  */
 
-#include <runtime.h>
-#include <x86_64.h>
+#include <kernel.h>
 #include <pvclock.h>
 #include <page.h>
-#include <vdso.h>
 
 #ifndef BUILD_VDSO
 VVAR_DEF(struct vdso_dat_struct, vdso_dat) = {

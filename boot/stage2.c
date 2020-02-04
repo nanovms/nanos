@@ -1,9 +1,8 @@
-#include <runtime.h>
+#include <kernel.h>
 #include <tfs.h>
 #include <elf64.h>
 #include <page.h>
 #include <region.h>
-#include <x86_64.h>
 #include <kvm_platform.h>
 #include <serial.h>
 #include <drivers/ata.h>
@@ -233,9 +232,8 @@ static void tagged_deallocate(heap h, u64 a, bytes length)
     deallocate_u64(ta->parent, a - 1, length + 1);
 }
 
-heap allocate_tagged_region(kernel_heaps kh, u64 tag)
+static heap allocate_tagged_region(heap h, u64 tag)
 {
-    heap h = heap_general(kh);
     tagged_allocator ta = allocate(h, sizeof(struct tagged_allocator));
     ta->h.alloc = tagged_allocate;
     ta->h.dealloc = tagged_deallocate;
@@ -318,7 +316,9 @@ void centry()
     working_p = u64_from_pointer(early_working);
     working_end = working_p + EARLY_WORKING_SIZE;
     kh.general = &working_heap;
-    init_runtime(&kh); /* we know only general is used */
+    init_runtime(&working_heap);
+    init_tuples(allocate_tagged_region(&working_heap, tag_tuple));
+    init_symbols(allocate_tagged_region(&working_heap, tag_symbol), &working_heap);
     init_extra_prints();
     stage2_debug("%s\n", __func__);
 

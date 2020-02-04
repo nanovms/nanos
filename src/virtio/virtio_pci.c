@@ -28,6 +28,7 @@
 
 /* Driver for the VirtIO PCI interface. */
 
+#include <kernel.h>
 #include "virtio_internal.h"
 
 #include <io.h>

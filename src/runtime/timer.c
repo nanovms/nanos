@@ -1,4 +1,5 @@
 #include <runtime.h>
+
 //#define TIMER_DEBUG
 #ifdef TIMER_DEBUG
 #define timer_debug(x, ...) do {log_printf("TIMER", x, ##__VA_ARGS__);} while(0)
@@ -96,9 +97,8 @@ void print_timestamp(string b, timestamp t)
     }
 }
 
-void initialize_timers(kernel_heaps kh)
+void initialize_timers(heap h)
 {
-    heap h = heap_general(kh);
     assert(!timers);
     timers = allocate_pqueue(h, timer_compare);
     theap = h;

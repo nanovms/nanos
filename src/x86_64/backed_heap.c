@@ -1,5 +1,4 @@
-#include <runtime.h>
-#include <x86_64.h>
+#include <kernel.h>
 #include <page.h>
 
 typedef struct backed {

@@ -104,8 +104,8 @@ boolean objcache_test(heap meta, heap parent, int objsize)
     if (!dealloc_vec(h, objsize, objs))
 	return false;
 
-    if (h->allocated > 0) {
-	msg_err("allocated (%d) should be 0; fail\n", h->allocated);
+    if (heap_allocated(h) > 0) {
+	msg_err("allocated (%d) should be 0; fail\n", heap_allocated(h));
 	return false;
     }
     h->destroy(h);
@@ -119,7 +119,7 @@ int main(int argc, char **argv)
 
     /* make a parent heap for pages */
     heap m = allocate_mmapheap(h, mmapsize);
-    heap pageheap = create_id_heap_backed(h, m, TEST_PAGESIZE);
+    heap pageheap = (heap)create_id_heap_backed(h, m, TEST_PAGESIZE);
 
     /* XXX test a range of sizes */
     if (!objcache_test(h, pageheap, 32))

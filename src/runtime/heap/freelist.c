@@ -2,10 +2,22 @@
 
 typedef struct freelist {
     struct heap h;
+    u64 count;
+    u64 total;
     heap parent;
     void *free;
     u64 size;
 } *freelist;
+
+static u64 freelist_allocated(heap h)
+{
+    return ((freelist)h)->count;
+}
+
+static u64 freelist_total(heap h)
+{
+    return ((freelist)h)->total;
+}
 
 static void freelist_deallocate(heap h, u64 x, bytes size)
 {
@@ -14,8 +26,8 @@ static void freelist_deallocate(heap h, u64 x, bytes size)
     f->free = pointer_from_u64(x);
     //    rprintf("freelist deallocate %p\n", x);
     size = MAX(size, sizeof(void *));
-    assert(h->allocated >= size);
-    h->allocated -= size;
+    assert(f->count >= size);
+    f->count -= size;
 }
 
 static u64 freelist_allocate(heap h, bytes size)
@@ -33,9 +45,10 @@ static u64 freelist_allocate(heap h, bytes size)
     }
 
     size = MAX(size, sizeof(void *));
-    h->allocated += size;
+    f->count += size;
     if (!f->free) {
         //        console("freelist spill\n");
+        f->total += size;
         return allocate_u64(f->parent, size);
     }
     //    console("freelist cached\n");
@@ -49,9 +62,13 @@ heap wrap_freelist(heap meta, heap parent, bytes size)
     freelist f = allocate(meta, sizeof(struct freelist));
     f->h.alloc = freelist_allocate;
     f->h.dealloc = freelist_deallocate;
-    f->parent = parent;
+    f->h.destroy = 0;
+    f->h.allocated = freelist_allocated;
+    f->h.total = freelist_total;
     f->h.pagesize = size; // not necessarily a power of two
-    f->h.allocated = 0;
+    f->count = 0;
+    f->total = 0;
+    f->parent = parent;
     f->free = 0;
     f->size = size;
     return ((heap)f);

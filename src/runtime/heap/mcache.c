@@ -16,6 +16,7 @@ typedef struct mcache {
     heap meta;
     vector caches;
     u64 pagesize;
+    u64 allocated;
 } *mcache;
 
 u64 mcache_alloc(heap h, bytes b)
@@ -45,7 +46,7 @@ u64 mcache_alloc(heap h, bytes b)
 #endif
 	    u64 a = allocate_u64(o, o->pagesize);
 	    if (a != INVALID_PHYSICAL)
-		h->allocated += o->pagesize;
+		m->allocated += o->pagesize;
 #ifdef MCACHE_DEBUG
 	    print_u64(a);
 	    console(", post validate...");
@@ -108,8 +109,8 @@ void mcache_dealloc(heap h, u64 a, bytes b)
 	halt("fail!\n");
 #endif
 
-    assert(h->allocated >= o->pagesize);
-    h->allocated -= o->pagesize;
+    assert(m->allocated >= o->pagesize);
+    m->allocated -= o->pagesize;
     deallocate(o, a, o->pagesize);
 #ifdef MCACHE_DEBUG
     console(", post validate...");
@@ -134,6 +135,11 @@ void destroy_mcache(heap h)
 	    o->destroy(o);
     }
     deallocate(m->meta, m, sizeof(struct mcache));
+}
+
+static u64 mcache_allocated(heap h)
+{
+    return ((mcache)h)->allocated;
 }
 
 heap allocate_mcache(heap meta, heap parent, int min_order, int max_order, bytes pagesize)
@@ -169,11 +175,13 @@ heap allocate_mcache(heap meta, heap parent, int min_order, int max_order, bytes
     m->h.dealloc = mcache_dealloc;
     m->h.destroy = destroy_mcache;
     m->h.pagesize = U64_FROM_BIT(min_order); /* default to smallest obj size */
-    m->h.allocated = 0;
+    m->h.allocated = mcache_allocated;
+    m->h.total = 0;
     m->meta = meta;
     m->parent = parent;
     m->caches = allocate_vector(meta, 1);
     m->pagesize = pagesize;
+    m->allocated = 0;
 
     for(int i=0, order = min_order; order <= max_order; i++, order++) {
 	u64 obj_size = U64_FROM_BIT(order);

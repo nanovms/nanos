@@ -161,8 +161,6 @@ static void objcache_deallocate(heap h, u64 x, bytes size)
 
     assert(o->alloced_objs > 0);
     o->alloced_objs--;
-    assert(h->allocated >= size);
-    h->allocated -= size;
 }
 
 static u64 objcache_allocate(heap h, bytes size)
@@ -221,7 +219,6 @@ static u64 objcache_allocate(heap h, bytes size)
 
     assert(o->alloced_objs <= o->total_objs);
     o->alloced_objs++;
-    h->allocated += size;
     msg_debug("returning obj %lx\n", obj);
     return obj;
 }
@@ -242,6 +239,18 @@ static void objcache_destroy(heap h)
 	deallocate_u64(o->parent, page_from_footer(o, f), page_size(o));
     foreach_page_footer(&o->full, f)
 	deallocate_u64(o->parent, page_from_footer(o, f), page_size(o));
+}
+
+static u64 objcache_allocated(heap h)
+{
+    objcache o = (objcache)h;
+    return o->alloced_objs * object_size(o);
+}
+
+static u64 objcache_total(heap h)
+{
+    objcache o = (objcache)h;
+    return o->total_objs * object_size(o);
 }
 
 heap objcache_from_object(u64 obj, bytes parent_pagesize)
@@ -425,7 +434,8 @@ heap allocate_objcache(heap meta, heap parent, bytes objsize, bytes pagesize)
     o->h.alloc = objcache_allocate;
     o->h.dealloc = objcache_deallocate;
     o->h.destroy = objcache_destroy;
-    o->h.allocated = 0;
+    o->h.allocated = objcache_allocated;
+    o->h.total = objcache_total;
     o->h.pagesize = objsize;
     o->parent = parent;
 

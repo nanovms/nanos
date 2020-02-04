@@ -16,7 +16,7 @@ static boolean basic_test(heap h)
     for (int page_order=0; page_order <= MAX_PAGE_ORDER; page_order++) {
 	u64 pagesize = U64_FROM_BIT(page_order);
 	u64 pages = length / pagesize;
-	heap id = create_id_heap(h, base, length, pagesize);
+	heap id = (heap)create_id_heap(h, base, length, pagesize);
 
 	msg_debug("*** allocated id heap %p at length %ld (%ld pages), pagesize %ld\n",
 		  id, pagesize * pages, pages, pagesize);
@@ -46,11 +46,11 @@ static boolean basic_test(heap h)
 		deallocate_u64(id, a, pagesize * n);
 	    }
 	}
-	if (id->allocated > 0) {
+	if (heap_allocated(id) > 0) {
 	    msg_err("heap allocated should be zero; fail\n");
 	    return false;
 	}
-	id->destroy(id);
+        destroy_heap(id);
     }
 
     return true;
@@ -73,7 +73,7 @@ static boolean random_test(heap h, heap rh, u64 page_order, int churn)
 
     zero(alloc_result_vec, VEC_LEN * sizeof(u64));
 
-    heap id = create_id_heap_backed(h, rh, pagesize);
+    heap id = (heap)create_id_heap_backed(h, rh, pagesize);
     msg_debug("*** allocated id heap %p, parent heap %p, pagesize %ld\n",
 	      id, rh, pagesize);
 
@@ -128,12 +128,11 @@ static boolean random_test(heap h, heap rh, u64 page_order, int churn)
 	}
     } while(churn-- > 0);
 
-    if (id->allocated > 0) {
-	msg_err("heap allocated (%d) should be zero; fail\n", id->allocated);
+    if (heap_allocated(id) > 0) {
+	msg_err("heap allocated (%d) should be zero; fail\n", heap_allocated(id));
 	return false;
     }
-    id->destroy(id);
-
+    destroy_heap(id);
     return true;
   fail:
     msg_err("test vector:\ni\t(alloc,\tresult)\n");
@@ -165,12 +164,13 @@ heap allocate_rangeheap(heap meta, bytes pagesize)
     h->dealloc = leak;
     h->pagesize = pagesize;
     h->allocated = 0;
+    h->total = 0;
     return h;
 }
 
 static boolean alloc_gte_test(heap h)
 {
-    heap idh = create_id_heap(h, 0, GTE_TEST_MAX, 1);
+    id_heap idh = create_id_heap(h, 0, GTE_TEST_MAX, 1);
     if (idh == INVALID_ADDRESS) {
         msg_err("cannot create heap\n");
         return false;
@@ -194,7 +194,7 @@ static boolean alloc_gte_test(heap h)
         }
     }
     for (u64 id = 0; id < GTE_TEST_MAX; id++) {
-        deallocate_u64(idh, id, 1);
+        deallocate_u64((heap)idh, id, 1);
     }
     for (u64 id = GTE_TEST_MAX - 1; (s64)id >= 0; id--) {
         u64 allocated = id_heap_alloc_gte(idh, 1, id);
@@ -211,7 +211,7 @@ static boolean alloc_gte_test(heap h)
         }
     }
     for (u64 id = 0; id < GTE_TEST_MAX; id++) {
-        deallocate_u64(idh, id, 1);
+        deallocate_u64((heap)idh, id, 1);
     }
     for (u64 id = 0; ; id++) {
         u64 allocated = id_heap_alloc_gte(idh, 1, 0);
@@ -228,13 +228,13 @@ static boolean alloc_gte_test(heap h)
         }
     }
     for (u64 id = GTE_TEST_MAX - 1; (s64)id >= 0; id--) {
-        deallocate_u64(idh, id, 1);
+        deallocate_u64((heap)idh, id, 1);
     }
-    if (idh->allocated > 0) {
-        msg_err("heap allocated is %d, should be zero\n", idh->allocated);
+    if (heap_allocated((heap)idh) > 0) {
+        msg_err("heap allocated is %d, should be zero\n", heap_allocated((heap)idh));
         return false;
     }
-    idh->destroy(idh);
+    destroy_heap((heap)idh);
     return true;
 }
 
@@ -247,7 +247,7 @@ static boolean alloc_subrange_test(heap h)
 {
     build_assert((SUBRANGE_TEST_LENGTH % 4) == 0);
 
-    heap id = create_id_heap(h, SUBRANGE_TEST_MIN, SUBRANGE_TEST_LENGTH, PAGESIZE);
+    id_heap id = create_id_heap(h, SUBRANGE_TEST_MIN, SUBRANGE_TEST_LENGTH, PAGESIZE);
     if (id == INVALID_ADDRESS) {
         msg_err("cannot create heap\n");
         return false;
@@ -330,19 +330,19 @@ static boolean alloc_subrange_test(heap h)
             expect = (15 * PAGESIZE) + 4 * (i - 2) * PAGESIZE;
         }
 
-        if ((res = allocate_u64(id, PAGESIZE)) != expect) {
+        if ((res = allocate_u64((heap)id, PAGESIZE)) != expect) {
             msg_err("%s: remainder alloc returned 0x%lx, should be 0x%lx\n", __func__, res, expect);
             return false;
         }
     }
 
     /* we should have exhausted the number space */
-    if ((res = allocate_u64(id, PAGESIZE)) != INVALID_PHYSICAL) {
+    if ((res = allocate_u64((heap)id, PAGESIZE)) != INVALID_PHYSICAL) {
         msg_err("%s: should have exhausted number space, got 0x%lx\n", __func__, res);
         return false;
     }
 
-    id->destroy(id);
+    destroy_heap((heap)id);
     return true;
 }
 

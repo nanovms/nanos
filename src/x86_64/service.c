@@ -1,7 +1,6 @@
-#include <runtime.h>
+#include <kernel.h>
 #include <pci.h>
 #include <tfs.h>
-#include <x86_64.h>
 #include <apic.h>
 #include <region.h>
 #include <page.h>
@@ -9,10 +8,8 @@
 #include <virtio/virtio.h>
 #include <drivers/storage.h>
 #include <drivers/console.h>
-#include <unix_internal.h>
 #include <kvm_platform.h>
 #include <xen_platform.h>
-
 
 #define SMP_ENABLE
 #define SMP_DUMP_FRAME_RETURN_COUNT
@@ -29,7 +26,7 @@ extern void start_interrupts(kernel_heaps kh);
 
 static struct kernel_heaps heaps;
 
-heap allocate_tagged_region(kernel_heaps kh, u64 tag)
+static heap allocate_tagged_region(kernel_heaps kh, u64 tag)
 {
     heap h = heap_general(kh);
     heap p = (heap)heap_physical(kh);
@@ -274,7 +271,9 @@ static void __attribute__((noinline)) init_service_new_stack()
     /* runtime and console init */
     init_debug("in init_service_new_stack");
     init_debug("runtime");    
-    init_runtime(kh);    
+    init_runtime(misc);
+    init_tuples(allocate_tagged_region(kh, tag_tuple));
+    init_symbols(allocate_tagged_region(kh, tag_symbol), misc);
     unmap(0, PAGESIZE, pages);  /* unmap zero page */
     reclaim_regions();          /* unmap and reclaim stage2 stack */
     init_extra_prints();
@@ -451,7 +450,14 @@ static void init_kernel_heaps()
     bootstrap.dealloc = leak;
 
     heaps.pages = init_pages_id_heap(&bootstrap);
-    heaps.physical = init_physical_id_heap(&bootstrap);
+
+    /* This returns a wrapped physical heap which takes an (irq-safe)
+       lock for each heap method. Not clear if this would be better as
+       some other (non-heap) interface.
+
+       XXX should we pass pages and forget needing it as a parameter?
+       why would it ever need to be a parameter as opposed to global? */
+    heaps.physical = init_page_tables(&bootstrap, init_physical_id_heap(&bootstrap));
 
     heaps.virtual_huge = create_id_heap(&bootstrap, HUGE_PAGESIZE,
 				      (1ull<<VIRTUAL_ADDRESS_BITS)- HUGE_PAGESIZE, HUGE_PAGESIZE);

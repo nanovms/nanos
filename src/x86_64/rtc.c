@@ -1,4 +1,4 @@
-#include <runtime.h>
+#include <kernel.h>
 #include <io.h>
 
 #include "mktime.h"

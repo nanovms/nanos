@@ -1,5 +1,4 @@
-#include <runtime.h>
-#include <x86_64.h>
+#include <kernel.h>
 #include <page.h>
 
 /* Would be nice to have one debug output with a mux to console for early init (i.e. before formatters enabled) */
@@ -19,6 +18,8 @@
 #define PT4 12
 
 static const int level_shift[5] = { -1, PT1, PT2, PT3, PT4 };
+
+
 
 static inline page pagebase()
 {
@@ -201,8 +202,6 @@ static boolean force_entry(heap h, page b, u64 v, physical p, int level,
 	}
     }
 }
-
-
 
 static inline boolean map_page(page base, u64 v, physical p, heap h,
                                boolean fat, u64 flags, boolean * invalidate)
@@ -472,4 +471,25 @@ void unmap(u64 virtual, u64 length, heap h)
     console("\n");
 #endif
     unmap_pages(virtual, length);
+}
+
+//static u64 page_lock;
+
+/* this happens even before moving to the new stack, so ... be cool */
+id_heap init_page_tables(heap h, id_heap physical)
+{
+#if 0
+    spin_lock_init(&page_lock);
+    id_heap i = allocate(h, sizeof(struct id_heap));
+    if (i == INVALID_ADDRESS)
+	return INVALID_ADDRESS;
+    i->h.alloc = wrap_alloc;
+    i->h.dealloc = wrap_dealloc;
+    i->h.pagesize = physical->h.pagesize;
+    i->h.destroy = 0;
+    i->h.allocated = physical->h.allocated;
+    i->h.total = physical->h.total;
+#else
+    return physical;
+#endif
 }

@@ -26,8 +26,7 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <runtime.h>
-#include <x86_64.h>
+#include <kernel.h>
 #include <page.h>
 
 #include "virtio_internal.h"

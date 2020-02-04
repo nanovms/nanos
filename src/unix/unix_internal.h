@@ -1,10 +1,10 @@
-#pragma once
-#include <runtime.h>
+/* main header for unix-specific kernel objects */
+
+#include <kernel.h>
 #include <syscalls.h>
 #include <system_structs.h>
 #include <tfs.h>
 #include <unix.h>
-#include <x86_64.h>
 
 /* area for mmaps abut the kernel tagged region */
 #define PROCESS_VIRTUAL_HEAP_START  0x7000000000ull

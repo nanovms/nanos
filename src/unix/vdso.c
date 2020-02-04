@@ -3,8 +3,6 @@
 #include <synth.h>
 #include <pvclock.h>
 
-#include <vdso.h>
-
 #define VSYSCALL_OFFSET_VGETTIMEOFDAY   0x000
 #define VSYSCALL_OFFSET_VTIME           0x400
 #define VSYSCALL_OFFSET_VGETCPU         0x800

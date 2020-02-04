@@ -1,6 +1,4 @@
-#include <runtime.h>
-#include <x86_64.h>
-#include <vdso.h>
+#include <kernel.h>
 
 #define __vdso_dat (&(VVAR_REF(vdso_dat)))
 

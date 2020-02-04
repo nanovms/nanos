@@ -1,7 +1,3 @@
-#pragma once
-
-#include <runtime.h>
-
 #define INITIAL_MAP_SIZE (0xa000)
 
 #define PAGE_NO_EXEC       U64_FROM_BIT(63)
@@ -83,3 +79,4 @@ boolean traverse_ptes(u64 vaddr, u64 length, entry_handler eh);
 void page_invalidate(u64 p, thunk completion);
 void flush_tlb();
 void init_flush();
+id_heap init_page_tables(heap h, id_heap physical);

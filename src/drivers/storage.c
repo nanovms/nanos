@@ -1,3 +1,4 @@
+#include <kernel.h>
 #include <virtio/virtio.h>
 #include <drivers/ata-pci.h>
 

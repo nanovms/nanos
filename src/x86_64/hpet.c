@@ -1,6 +1,5 @@
-#include <runtime.h>
+#include <kernel.h>
 #include <pci.h>
-#include <x86_64.h>
 #include <page.h>
 
 #define HPET_TABLE_ADDRESS 0xfed00000ull
