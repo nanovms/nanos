@@ -1,6 +1,14 @@
 #include <unix_internal.h>
 #include <ftrace.h>
 #include <gdb.h>
+#include <page.h>
+
+#define PF_DEBUG
+#ifdef PF_DEBUG
+#define pf_debug(x, ...) thread_log(current, x, ##__VA_ARGS__);
+#else
+#define pf_debug(x, ...)
+#endif
 
 u64 allocate_fd(process p, void *f)
 {
@@ -31,14 +39,81 @@ void deallocate_fd(process p, int fd)
     deallocate_u64((heap)p->fdallocator, fd, 1);
 }
 
+static void
+deliver_segv(u64 vaddr, s32 si_code)
+{
+    struct siginfo s = {
+        .si_signo = SIGSEGV,
+         /* man sigaction: "si_errno is generally unused on Linux" */
+        .si_errno = 0,
+        .si_code = si_code,
+        .sifields.sigfault = {
+            .addr = vaddr,
+        }
+    };
+
+    pf_debug("delivering SIGSEGV; vaddr 0x%lx si_code %s",
+        vaddr, (si_code == SEGV_MAPERR) ? "SEGV_MAPPER" : "SEGV_ACCERR"
+    );
+
+    deliver_signal_to_thread(current, &s);
+}
+
+static boolean handle_protection_fault(context frame, u64 vaddr, vmap vm)
+{
+    /* vmap found, with protection violation set --> send prot violation */
+    if (is_protection_fault(frame)) {
+        pf_debug("page protection violation\naddr 0x%lx, rip 0x%lx, "
+                 "error %s%s%s vm->flags (%s%s%s%s)",
+                 vaddr, frame_return_address(frame),
+                 is_write_fault(frame) ? "W" : "R",
+                 is_usermode_fault(frame) ? "U" : "S",
+                 is_instruction_fault(frame) ? "I" : "D",
+                 (vm->flags & VMAP_FLAG_MMAP) ? "mmap " : "",
+                 (vm->flags & VMAP_FLAG_ANONYMOUS) ? "anonymous " : "",
+                 (vm->flags & VMAP_FLAG_WRITABLE) ? "writable " : "",
+                 (vm->flags & VMAP_FLAG_EXEC) ? "executable " : "");
+
+        deliver_segv(vaddr, SEGV_ACCERR);
+        return true;
+    }
+    return false;
+}
+
 // it so happens that f and frame should be the same number?
 closure_function(1, 1, void, default_fault_handler,
                  thread, t,
                  context, frame)
 {
+    boolean user = is_usermode_fault(frame);
+
     if (frame[FRAME_VECTOR] == 14) {
-        /* XXX move this to x86_64 */
-        if (unix_fault_page(frame[FRAME_CR2], frame)) {
+        u64 vaddr = fault_address(frame);
+        vmap vm = vmap_from_vaddr(vaddr);
+        if (vm == INVALID_ADDRESS) {
+            if (user) {
+                pf_debug("no vmap found for addr 0x%lx, rip 0x%lx", vaddr, frame[FRAME_RIP]);
+                deliver_segv(vaddr, SEGV_MAPERR);
+                return;
+            } else {
+                rprintf("\nUnhandled page fault in kernel mode: ");
+                goto bug;
+            }
+        }
+
+        if (is_pte_error(frame)) {
+            /* no SEGV on reserved PTEs */
+            msg_err("bug: pte entries reserved or corrupt\n");
+#ifndef BOOT
+            dump_ptes(pointer_from_u64(vaddr));
+#endif
+            goto bug;
+        }
+
+        if (handle_protection_fault(frame, vaddr, vm))
+            return;
+
+        if (do_demand_page(fault_address(frame), vm)) {
             /* Dirty hack until we get page faults out of the kernel:
                If we're in the kernel context, return to the frame directly. */
             if (frame == current_cpu()->kernel_frame) {
@@ -50,6 +125,7 @@ closure_function(1, 1, void, default_fault_handler,
         }
     }
 
+  bug:
     print_frame(frame);
     print_stack(frame);
 

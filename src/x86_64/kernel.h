@@ -191,3 +191,40 @@ void kernel_unlock();
 
 extern u64 idle_cpu_mask;
 extern u64 total_processors;
+
+static inline boolean is_protection_fault(context f)
+{
+    return (f[FRAME_ERROR_CODE] & FRAME_ERROR_PF_P) != 0;
+}
+
+static inline boolean is_usermode_fault(context f)
+{
+    return (f[FRAME_ERROR_CODE] & FRAME_ERROR_PF_US) != 0;
+}
+
+static inline boolean is_write_fault(context f)
+{
+    return (f[FRAME_ERROR_CODE] & FRAME_ERROR_PF_RW) != 0;
+}
+
+static inline boolean is_instruction_fault(context f)
+{
+    return (f[FRAME_ERROR_CODE] & FRAME_ERROR_PF_ID) != 0;
+}
+
+/* page table integrity check? open to interpretation for other archs... */
+static inline boolean is_pte_error(context f)
+{
+    /* XXX check sdm before merging - seems suspicious */
+    return (is_protection_fault(f) && (f[FRAME_ERROR_CODE] & FRAME_ERROR_PF_RSV));
+}
+
+static inline u64 frame_return_address(context f)
+{
+    return f[FRAME_RIP];
+}
+
+static inline u64 fault_address(context f)
+{
+    return f[FRAME_CR2];
+}

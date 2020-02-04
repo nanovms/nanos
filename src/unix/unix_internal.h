@@ -479,7 +479,8 @@ boolean unix_timers_init(unix_heaps uh);
 #define sysreturn_from_pointer(__x) ((s64)u64_from_pointer(__x));
 
 extern sysreturn syscall_ignore();
-boolean unix_fault_page(u64 vaddr, context frame);
+boolean do_demand_page(u64 vaddr, vmap vm);
+vmap vmap_from_vaddr(u64 vaddr);
 
 void thread_log_internal(thread t, const char *desc, ...);
 #define thread_log(__t, __desc, ...) thread_log_internal(__t, __desc, ##__VA_ARGS__)

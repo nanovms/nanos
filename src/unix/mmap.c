@@ -1,13 +1,6 @@
 #include <unix_internal.h>
 #include <page.h>
 
-#define PF_DEBUG
-#ifdef PF_DEBUG
-#define pf_debug(x, ...) thread_log(current, x, ##__VA_ARGS__);
-#else
-#define pf_debug(x, ...)
-#endif
-
 static boolean vmap_attr_equal(vmap a, vmap b)
 {
     return a->flags == b->flags;
@@ -23,27 +16,7 @@ static inline u64 page_map_flags(u64 vmflags)
     return flags;
 }
 
-static void
-deliver_segv(u64 vaddr, s32 si_code)
-{
-    struct siginfo s = {
-        .si_signo = SIGSEGV,
-         /* man sigaction: "si_errno is generally unused on Linux" */
-        .si_errno = 0,
-        .si_code = si_code,
-        .sifields.sigfault = {
-            .addr = vaddr,
-        }
-    };
-
-    pf_debug("delivering SIGSEGV; vaddr 0x%lx si_code %s",
-        vaddr, (si_code == SEGV_MAPERR) ? "SEGV_MAPPER" : "SEGV_ACCERR"
-    );
-
-    deliver_signal_to_thread(current, &s);
-}
-
-static boolean do_demand_page(vmap vm, u64 vaddr)
+boolean do_demand_page(u64 vaddr, vmap vm)
 {
     if ((vm->flags & VMAP_FLAG_MMAP) == 0) {
         msg_err("vaddr 0x%lx matched vmap with invalid flags (0x%x)\n",
@@ -66,58 +39,11 @@ static boolean do_demand_page(vmap vm, u64 vaddr)
     return true;
 }
 
-boolean unix_fault_page(u64 vaddr, context frame)
+vmap vmap_from_vaddr(u64 vaddr)
 {
     process p = current->p;
-    u64 error_code = frame[FRAME_ERROR_CODE];
-
-    if (p->vmaps == INVALID_ADDRESS) {
-        rprintf("\n%s mode (null vmaps): ", (error_code & FRAME_ERROR_PF_US) ? "User" : "Kernel");
-        return false;
-    }
-
-    vmap vm = (vmap)rangemap_lookup(p->vmaps, vaddr);
-
-    /* no vmap --> send access violation */
-    if (vm == INVALID_ADDRESS) {
-        if (error_code & FRAME_ERROR_PF_US) {
-            pf_debug("no vmap found for addr 0x%lx, rip 0x%lx", vaddr, frame[FRAME_RIP]);
-            deliver_segv(vaddr, SEGV_MAPERR);
-            return true;
-        } else {
-            rprintf("\nKernel mode: ");
-            return false;
-        }
-    }
-
-    /* vmap found, with protection violation set --> send prot violation */
-    if (error_code & FRAME_ERROR_PF_P) {
-        if (error_code & FRAME_ERROR_PF_RSV) {
-            /* no SEGV on reserved PTEs */
-            msg_err("bug: pte reserved\n");
-#ifndef BOOT
-            dump_ptes(pointer_from_u64(vaddr));
-#endif
-            return false;
-        }
-
-        pf_debug("page protection violation\naddr 0x%lx, rip 0x%lx, "
-                 "error %s%s%s vm->flags (%s%s%s%s)",
-                 vaddr, frame[FRAME_RIP],
-                 (error_code & FRAME_ERROR_PF_RW) ? "W" : "R",
-                 (error_code & FRAME_ERROR_PF_US) ? "U" : "S",
-                 (error_code & FRAME_ERROR_PF_ID) ? "I" : "D",
-                 (vm->flags & VMAP_FLAG_MMAP) ? "mmap " : "",
-                 (vm->flags & VMAP_FLAG_ANONYMOUS) ? "anonymous " : "",
-                 (vm->flags & VMAP_FLAG_WRITABLE) ? "writable " : "",
-                 (vm->flags & VMAP_FLAG_EXEC) ? "executable " : "");
-
-        deliver_segv(vaddr, SEGV_ACCERR);
-        return true;
-    }
-
-    /* vmap, no prot violation --> demand paging */
-    return do_demand_page(vm, vaddr);
+    assert(p->vmaps != INVALID_ADDRESS);
+    return (vmap)rangemap_lookup(p->vmaps, vaddr);
 }
 
 vmap allocate_vmap(rangemap rm, range r, u64 flags)
