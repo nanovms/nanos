@@ -176,12 +176,15 @@ typedef struct sigstate {
     struct list heads[NSIG];
 } *sigstate;
 
-declare_closure_struct(1, 0, void, free_thread,
-                         thread, t);
 typedef struct epoll *epoll;
 struct ftrace_graph_entry;
 
 #include <notify.h>
+
+declare_closure_struct(1, 0, void, free_thread,
+                         thread, t);
+declare_closure_struct(1, 0, void, resume_syscall,
+                       thread, t);
 
 typedef struct thread {
     // if we use an array typedef its fragile
@@ -227,7 +230,8 @@ typedef struct thread {
     int graph_idx;
     struct ftrace_graph_entry * graph_stack;
 #endif
-    thunk deferred_syscall; // can this be a closure_struct?
+    closure_struct(resume_syscall, deferred_syscall);
+    context deferred_frame; /* could be frame or sigframe */
     cpu_set_t affinity;    
 } *thread;
 

@@ -1950,8 +1950,7 @@ void syscall_debug(context f)
 {
     u64 call = f[FRAME_VECTOR];
 //    rprintf("SYSCALL f %p, rip 0x%lx, call %d\n", f, f[FRAME_RIP], call);
-    thread t = (thread)f;
-    // XXX need thread mux to active frame (t->frame or t->sigframe)
+    thread t = current;
     set_syscall_return(t, -ENOSYS); // xx - not happy about this cast
 
     if (call < 0 || call >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0])) {
@@ -1986,7 +1985,7 @@ void syscall_debug(context f)
     current->syscall = -1;
     // i dont know that we actually want to defer the syscall return...its just easier for the moment to hew
     // to the general model and make exceptions later
-    schedule_frame(t->frame);    
+    schedule_frame(f);
     runloop();
 }
 
@@ -2017,7 +2016,8 @@ static void syscall_schedule(context f, u64 call)
         current_cpu()->state = cpu_kernel;
         syscall_debug(f);
     } else {
-        enqueue(runqueue, ((thread)f)->deferred_syscall);
+        current->deferred_frame = f;
+        enqueue(runqueue, &current->deferred_syscall);
         runloop();
     }
 }

@@ -114,9 +114,9 @@ static inline void run_thread_frame(thread t, boolean do_sigframe)
     context f = do_sigframe ? t->sigframe : t->frame;
     f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
 
-    thread_log(t, "run %s, cpu %d, frame %p, rip 0x%lx, rsp 0x%lx, rax 0x%lx, rflags 0x%lx, cs 0x%lx, %s",
+    thread_log(t, "run %s, cpu %d, frame %p, rip 0x%lx, rsp 0x%lx, rdi 0x%lx, rax 0x%lx, rflags 0x%lx, cs 0x%lx, %s",
                do_sigframe ? "sig handler" : "thread", current_cpu()->id, f, f[FRAME_RIP], f[FRAME_RSP],
-               f[FRAME_RAX], f[FRAME_FLAGS], f[FRAME_CS], f[FRAME_IS_SYSCALL] ? "sysret" : "iret");
+               f[FRAME_RDI], f[FRAME_RAX], f[FRAME_FLAGS], f[FRAME_CS], f[FRAME_IS_SYSCALL] ? "sysret" : "iret");
     if (current_cpu()->have_kernel_lock)
         kern_unlock();
     current_cpu()->frcount++;
@@ -197,10 +197,10 @@ define_closure_function(1, 0, void, free_thread,
     deallocate(heap_general(get_kernel_heaps()), bound(t), sizeof(struct thread));
 }
 
-closure_function(1, 0, void, syscall_debug_wrap, context, f)
+define_closure_function(1, 0, void, resume_syscall, thread, t)
 {
-    current_cpu()->current_thread = bound(f);
-    syscall_debug(bound(f));
+    current_cpu()->current_thread = bound(t);
+    syscall_debug(bound(t)->deferred_frame);
 }
 
 thread create_thread(process p)
@@ -248,7 +248,7 @@ thread create_thread(process p)
     init_sigstate(&t->signals);
     t->dispatch_sigstate = 0;
     t->active_signo = 0;
-    t->deferred_syscall = closure(h, syscall_debug_wrap, t->frame); // structure static?
+    init_closure(&t->deferred_syscall, resume_syscall, t);
     if (ftrace_thread_init(t)) {
         msg_err("failed to init ftrace state for thread\n");
         deallocate_blockq(t->thread_bq);
