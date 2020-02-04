@@ -61,6 +61,7 @@ physical physical_from_virtual(void *x);
 void map(u64 virtual, physical p, u64 length, u64 flags, heap h);
 void unmap(u64 virtual, u64 length, heap h);
 void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh);
+void unmap_and_free_phys(u64 virtual, u64 length);
 
 static inline void unmap_pages(u64 virtual, u64 length)
 {

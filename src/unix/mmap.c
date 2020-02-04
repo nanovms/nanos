@@ -302,14 +302,6 @@ static sysreturn mincore(void *addr, u64 length, u8 *vec)
     return 0;
 }
 
-closure_function(1, 1, void, dealloc_phys_page,
-                 id_heap, physical,
-                 range, r)
-{
-    if (!id_heap_set_area(bound(physical), r.start, range_span(r), true, false))
-        msg_err("some of physical range %R not allocated in heap\n", r);
-}
-
 closure_function(5, 2, void, mmap_read_complete,
                  thread, t, u64, where, u64, buf_len, buffer, b, u64, mapflags,
                  status, s, bytes, length)
@@ -333,7 +325,7 @@ closure_function(5, 2, void, mmap_read_complete,
     void * buf = buffer_ref(b, 0);
 
     /* free existing pages */
-    unmap_pages_with_handler(where, buf_len, stack_closure(dealloc_phys_page, heap_physical(kh)));
+    unmap_and_free_phys(where, buf_len);
 
     /* Note that we rely on the backed heap being physically
        contiguous. If this behavior changes or faulted-in pages are
@@ -700,7 +692,6 @@ closure_function(2, 1, void, process_unmap_intersection,
                  rmnode, node)
 {
     process p = bound(p);
-    kernel_heaps kh = get_kernel_heaps();
     vmap match = (vmap)node;
     range rn = node->r;
     range ri = range_intersection(bound(rq), rn);
@@ -735,7 +726,7 @@ closure_function(2, 1, void, process_unmap_intersection,
 
     /* unmap any mapped pages and return to physical heap */
     u64 len = range_span(ri);
-    unmap_pages_with_handler(ri.start, len, stack_closure(dealloc_phys_page, heap_physical(kh)));
+    unmap_and_free_phys(ri.start, len);
 
     /* return virtual mapping to heap, if any ... assuming a vmap cannot span heaps!
        XXX: this shouldn't be a lookup per, so consider stashing a link to varea or heap in vmap

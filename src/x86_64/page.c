@@ -423,6 +423,8 @@ closure_function(1, 3, boolean, unmap_page,
     return true;
 }
 
+/* Be warned: the page table lock is held when rh is called; don't try
+   to modify the page table while traversing it */
 void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh)
 {
     assert(!((virtual & PAGEMASK) || (length & PAGEMASK)));
@@ -508,6 +510,18 @@ void unmap(u64 virtual, u64 length, heap h)
 
 #ifdef STAGE3
 static id_heap phys_internal;
+
+closure_function(0, 1, void, dealloc_phys_page,
+                 range, r)
+{
+    if (!id_heap_set_area(phys_internal, r.start, range_span(r), true, false))
+        msg_err("some of physical range %R not allocated in heap\n", r);
+}
+
+void unmap_and_free_phys(u64 virtual, u64 length)
+{
+    unmap_pages_with_handler(virtual, length, stack_closure(dealloc_phys_page));
+}
 
 /* these methods would hook into free page list / epoch stuff... */
 static u64 wrap_alloc(heap h, bytes b)
