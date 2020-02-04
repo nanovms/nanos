@@ -1,6 +1,6 @@
 #include <kernel.h>
-#include "console.h"
 #include "serial.h"
+#include "console.h"
 #include "vga.h"
 
 static void serial_console_write(void *d, char *s, bytes count)

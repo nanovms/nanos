@@ -1,4 +1,3 @@
-#pragma once
 #include <lwip/init.h>
 #include <lwip/debug.h>
 #include <lwip/stats.h>

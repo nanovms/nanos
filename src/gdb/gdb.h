@@ -1,4 +1,3 @@
-#pragma once
 #define GDB 1
 
 // thunk service?

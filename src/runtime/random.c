@@ -26,7 +26,6 @@
  */
 
 #include <runtime.h>
-#include <buffer.h>
 #include <crypto/chacha.h>
 
 /*

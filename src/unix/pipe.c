@@ -1,5 +1,4 @@
 #include <unix_internal.h>
-#include <buffer.h>
 
 //#define PIPE_DEBUG
 #ifdef PIPE_DEBUG

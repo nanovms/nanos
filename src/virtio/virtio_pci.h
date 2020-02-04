@@ -35,9 +35,6 @@
  * $FreeBSD$
  */
 
-#pragma once
-
-#include <runtime/runtime.h>
 #include <pci.h>
 
 typedef struct vtpci *vtpci;

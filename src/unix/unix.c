@@ -1,6 +1,5 @@
 #include <unix_internal.h>
 #include <ftrace.h>
-#include <buffer.h>
 #include <gdb.h>
 
 u64 allocate_fd(process p, void *f)

@@ -1,5 +1,3 @@
-#pragma once
-
 #include <predef.h>
 
 #ifdef BOOT

@@ -1,5 +1,3 @@
-#pragma once
-
 struct region {
     u64 base;
     u64 length;

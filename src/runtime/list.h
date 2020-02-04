@@ -1,5 +1,3 @@
-#pragma once
-#include <runtime.h>
 typedef struct list {
     struct list * prev;
     struct list * next;

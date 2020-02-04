@@ -1,5 +1,3 @@
-#pragma once 
-
 struct pvclock_vcpu_time_info {
     u32   version;
     u32   pad0;

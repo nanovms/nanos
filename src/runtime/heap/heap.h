@@ -1,4 +1,3 @@
-#pragma once
 // should consider a drain function
 struct heap {
     struct table metadata;

@@ -1,4 +1,3 @@
-#pragma once
 #include <uniboot.h>
 #if !defined(BOOT) && !defined(STAGE3)
 #include <unix_process_runtime.h>

@@ -1,5 +1,4 @@
 #include <unix_internal.h>
-#include <metadata.h>
 #include <page.h>
 
 // lifted from linux UAPI

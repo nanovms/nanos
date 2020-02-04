@@ -1,5 +1,3 @@
-#pragma once
-
 extern void vbprintf(buffer s, buffer fmt, vlist *ap);
 
 extern void log_vprintf(const char *prefix, const char *log_format, vlist *a);

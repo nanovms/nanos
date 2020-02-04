@@ -1,4 +1,3 @@
-#pragma once
 typedef struct rangemap {
     heap h;
     struct list root;

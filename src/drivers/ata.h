@@ -1,5 +1,3 @@
-#pragma once
-
 struct ata;
 
 struct ata *ata_alloc(heap general);

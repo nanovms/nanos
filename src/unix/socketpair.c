@@ -1,6 +1,5 @@
 #include <net_system_structs.h>
 #include <unix_internal.h>
-#include <buffer.h>
 
 #define SOCKPAIR_BUF_MAX_SIZE           (16 * PAGESIZE)
 #define SOCKPAIR_DGRAM_MAX_COUNT        64

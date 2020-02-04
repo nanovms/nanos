@@ -1,5 +1,3 @@
-#pragma once
-
 #ifdef CONFIG_FTRACE
 
 #include <runtime.h>

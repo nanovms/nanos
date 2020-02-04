@@ -1,5 +1,3 @@
-#pragma once
-
 #include "virtio_pci.h"
 
 typedef struct virtqueue *virtqueue;

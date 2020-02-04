@@ -1,4 +1,3 @@
-#pragma once
 extern void init_symbols(heap h, heap init);
 typedef struct symbol *symbol;
 symbol intern(buffer);

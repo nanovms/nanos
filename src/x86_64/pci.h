@@ -1,5 +1,3 @@
-#pragma once
-
 /* PCI config register */
 #define PCIR_VENDOR     0x00
 #define PCIR_DEVICE     0x02
