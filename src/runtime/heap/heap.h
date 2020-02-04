@@ -54,7 +54,7 @@ static inline int subdivide(int quantum, int per, int s, int o)
             if (x != INVALID_ADDRESS) zero(x, __len);    \
             x; })
 
-#define destroy_heap(__h) do { (__h)->destroy(__h); } while(0)
+#define destroy_heap(__h) do { if (__h) (__h)->destroy(__h); } while(0)
 
 static inline void leak(heap h, u64 x, bytes length)
 {
