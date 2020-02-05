@@ -111,14 +111,6 @@ static inline void run_thread_frame(thread t, boolean do_sigframe)
     t->blocked_on = 0;
     t->syscall = -1;
 
-    /* rather abrupt to just halt...this should go do dump or recovery */
-    if (!do_sigframe && sigstate_is_pending(&t->signals, SIGSEGV))
-        halt("Unhandled SIGSEGV received by thread %d; terminating.\n", t->tid);
-
-    boolean is_sigkill = sigstate_is_pending(&t->signals, SIGKILL);
-    if (is_sigkill || sigstate_is_pending(&t->signals, SIGSTOP))
-        halt("%s received by thread %d; terminating.\n", is_sigkill ? "SIGKILL" : "SIGSTOP", t->tid);
-
     context f = do_sigframe ? t->sigframe : t->frame;
     f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
 
@@ -131,18 +123,52 @@ static inline void run_thread_frame(thread t, boolean do_sigframe)
     frame_return(f);
 }
 
+static inline void check_stop_conditions(thread t, boolean return_to_sighandler)
+{
+    context f = return_to_sighandler ? t->sigframe : t->frame;
+    char *cause;
+    u64 pending = sigstate_get_pending(&t->signals);
+    /* rather abrupt to just halt...this should go do dump or recovery */
+    if (pending & mask_from_sig(SIGSEGV)) {
+        void * handler = sigaction_from_sig(SIGSEGV)->sa_handler;
+
+        /* Terminate on uncaught SIGSEGV, or if triggered by signal handler. */
+        if (return_to_sighandler || (handler == SIG_IGN || handler == SIG_DFL)) {
+            cause = "Unhandled SIGSEGV";
+            goto terminate;
+        }
+    }
+
+    boolean is_sigkill = (pending & mask_from_sig(SIGKILL)) != 0;
+    if (is_sigkill || (pending & mask_from_sig(SIGSTOP))) {
+        cause = is_sigkill ? "SIGKILL" : "SIGSTOP";
+        goto terminate;
+    }
+    return;
+  terminate:
+    rprintf("\nProcess abort: %s received by thread %d\n\n", cause, t->tid);
+    print_frame(f);
+    print_stack(f);
+    halt("Terminating.\n");
+}
+
 closure_function(1, 0, void, run_thread,
                  thread, t)
 {
-    run_thread_frame(bound(t), dispatch_signals(bound(t)));
+    thread t = bound(t);
+    boolean do_sigframe = dispatch_signals(t);
+    check_stop_conditions(t, false);
+    run_thread_frame(t, do_sigframe);
 }
 
 closure_function(1, 0, void, run_sighandler,
                  thread, t)
 {
+    thread t = bound(t);
     /* syscall results saved in t->frame, even in signal handler */
-    bound(t)->sigframe[FRAME_RAX] = bound(t)->frame[FRAME_RAX];
-    run_thread_frame(bound(t), true);
+    t->sigframe[FRAME_RAX] = t->frame[FRAME_RAX];
+    check_stop_conditions(t, true);
+    run_thread_frame(t, true);
 }
 
 void thread_sleep_interruptible(void)

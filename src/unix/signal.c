@@ -21,11 +21,6 @@ typedef struct queued_signal {
     struct list l;
 } *queued_signal;
 
-static inline sigaction get_sigaction(int signum)
-{
-    return &current->p->sigactions[signum - 1];
-}
-
 static inline void init_siginfo(struct siginfo *si, int sig, s32 code)
 {
     zero(si, sizeof(struct siginfo));
@@ -67,11 +62,6 @@ static inline void sigstate_block(sigstate ss, u64 mask)
 static inline void sigstate_unblock(sigstate ss, u64 mask)
 {
     ss->mask &= ~mask;
-}
-
-static inline u64 sigstate_get_pending(sigstate ss)
-{
-    return ss->pending;
 }
 
 static inline u64 sigstate_get_ignored(sigstate ss)
@@ -167,7 +157,7 @@ static queued_signal dequeue_signal(thread t, u64 sigmask, boolean save_and_mask
 
     /* for actual signal handling - bypassed if dispatching via rt_sigtimedwait */
     if (save_and_mask) {
-        sigaction sa = get_sigaction(signum);
+        sigaction sa = sigaction_from_sig(signum);
         if (ss->saved == 0)      /* rt_sigsuspend may provide one */
             ss->saved = ss->mask;
         ss->mask |= mask_from_sig(signum) | sa->sa_mask.sig[0];
@@ -272,8 +262,10 @@ static inline void signalfd_dispatch(thread t, u64 pending)
 
 void deliver_signal_to_thread(thread t, struct siginfo *info)
 {
-    sig_debug("tid %d, sig %d\n", t->tid, info->si_signo);
-    if (sig_is_ignored(t->p, info->si_signo)) {
+    int sig = info->si_signo;
+    sig_debug("tid %d, sig %d\n", t->tid, sig);
+    if ((sig != SIGSEGV && sig != SIGKILL && sig != SIGSTOP) &&
+        sig_is_ignored(t->p, sig)) {
         sig_debug("signal ignored; no queue\n");
         return;
     }
@@ -454,7 +446,7 @@ sysreturn rt_sigreturn(void)
     sig_debug("rt_sigreturn: frame:0x%lx\n", (unsigned long)frame);
 
     /* safer to query via thread variable */
-    sa = get_sigaction(t->active_signo);
+    sa = sigaction_from_sig(t->active_signo);
     t->active_signo = 0;
 
     /* restore signal mask and saved context, if applicable */
@@ -491,7 +483,7 @@ sysreturn rt_sigaction(int signum,
     if (sigsetsize != (NSIG / 8))
         return -EINVAL;
 
-    sigaction sa = get_sigaction(signum);
+    sigaction sa = sigaction_from_sig(signum);
 
     if (oldact)
         runtime_memcpy(oldact, sa, sizeof(struct sigaction));
@@ -1016,7 +1008,7 @@ sysreturn signalfd(int fd, const u64 *mask, u64 sigsetsize)
 
 static void setup_sigframe(thread t, int signum, struct siginfo *si)
 {
-    sigaction sa = get_sigaction(signum);
+    sigaction sa = sigaction_from_sig(signum);
 
     assert(sizeof(struct siginfo) == 128);
 
@@ -1092,7 +1084,7 @@ boolean dispatch_signals(thread t)
 
     /* act on signal disposition */
     int signum = qs->si.si_signo;
-    sigaction sa = get_sigaction(signum);
+    sigaction sa = sigaction_from_sig(signum);
     void * handler = sa->sa_handler;
 
     sig_debug("dispatching signal %d; sigaction handler %p, sa_mask 0x%lx, sa_flags 0x%lx\n",

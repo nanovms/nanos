@@ -454,9 +454,19 @@ static inline u64 mask_from_sig(int sig)
     return U64_FROM_BIT(sig - 1);
 }
 
+static inline u64 sigstate_get_pending(sigstate ss)
+{
+    return ss->pending;
+}
+
 static inline boolean sigstate_is_pending(sigstate ss, int sig)
 {
     return (ss->pending & mask_from_sig(sig)) != 0;
+}
+
+static inline sigaction sigaction_from_sig(int signum)
+{
+    return &current->p->sigactions[signum - 1];
 }
 
 boolean dispatch_signals(thread t);
