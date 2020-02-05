@@ -448,6 +448,17 @@ static inline void sigstate_thread_restore(thread t)
     }
 }
 
+static inline u64 mask_from_sig(int sig)
+{
+    assert(sig > 0);
+    return U64_FROM_BIT(sig - 1);
+}
+
+static inline boolean sigstate_is_pending(sigstate ss, int sig)
+{
+    return (ss->pending & mask_from_sig(sig)) != 0;
+}
+
 boolean dispatch_signals(thread t);
 void deliver_signal_to_thread(thread t, struct siginfo *);
 void deliver_signal_to_process(process p, struct siginfo *);

@@ -21,12 +21,6 @@ typedef struct queued_signal {
     struct list l;
 } *queued_signal;
 
-static inline u64 mask_from_sig(int sig)
-{
-    assert(sig > 0);
-    return U64_FROM_BIT(sig - 1);
-}
-
 static inline sigaction get_sigaction(int signum)
 {
     return &current->p->sigactions[signum - 1];
@@ -119,11 +113,6 @@ static inline u64 get_effective_signals(thread t)
 static inline void sigstate_set_pending(sigstate ss, int sig)
 {
     ss->pending |= mask_from_sig(sig);
-}
-
-static inline boolean sigstate_is_pending(sigstate ss, int sig)
-{
-    return (ss->pending & mask_from_sig(sig)) != 0;
 }
 
 static inline list sigstate_get_sighead(sigstate ss, int signum)

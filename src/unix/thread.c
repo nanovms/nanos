@@ -111,6 +111,14 @@ static inline void run_thread_frame(thread t, boolean do_sigframe)
     t->blocked_on = 0;
     t->syscall = -1;
 
+    /* rather abrupt to just halt...this should go do dump or recovery */
+    if (!do_sigframe && sigstate_is_pending(&t->signals, SIGSEGV))
+        halt("Unhandled SIGSEGV received by thread %d; terminating.\n", t->tid);
+
+    boolean is_sigkill = sigstate_is_pending(&t->signals, SIGKILL);
+    if (is_sigkill || sigstate_is_pending(&t->signals, SIGSTOP))
+        halt("%s received by thread %d; terminating.\n", is_sigkill ? "SIGKILL" : "SIGSTOP", t->tid);
+
     context f = do_sigframe ? t->sigframe : t->frame;
     f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
 

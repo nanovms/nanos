@@ -94,7 +94,10 @@ closure_function(1, 1, void, default_fault_handler,
             if (user) {
                 pf_debug("no vmap found for addr 0x%lx, rip 0x%lx", vaddr, frame[FRAME_RIP]);
                 deliver_segv(vaddr, SEGV_MAPERR);
-                return;
+
+                /* schedule this thread to either run signal handler or terminate */
+                schedule_frame(frame);
+                runloop();
             } else {
                 rprintf("\nUnhandled page fault in kernel mode: ");
                 goto bug;
