@@ -58,7 +58,7 @@ status vtpci_alloc_virtqueue(vtpci dev,
     thunk handler;
     status s = virtqueue_alloc(dev, name, idx, size, VIRTIO_PCI_VRING_ALIGN, &vq, &handler);
     if (!is_ok(s)) return s;
-    pci_setup_msix(dev->dev, idx, handler);
+    pci_setup_msix(dev->dev, idx, handler, name);
     out32(dev->base + VIRTIO_PCI_QUEUE_PFN, virtqueue_paddr(vq) >> VIRTIO_PCI_QUEUE_ADDR_SHIFT);
     out16(dev->base + VIRTIO_MSI_QUEUE_VECTOR, idx);
     int check_idx = in16(dev->base + VIRTIO_MSI_QUEUE_VECTOR);

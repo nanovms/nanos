@@ -127,7 +127,7 @@ clock_timer init_lapic_timer(void)
     apic_write(APIC_TMRDIV, 3 /* 16 */);
     int v = allocate_interrupt();
     apic_write(APIC_LVT_TMR, v); /* one shot */
-    register_interrupt(v, timer_interrupt);
+    register_interrupt(v, timer_interrupt, "lapic timer");
     calibrate_lapic_timer();
     return ct;
 }

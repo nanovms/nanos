@@ -161,10 +161,10 @@ void msi_format(u32 *address, u32 *data, int vector)
     *data = (trigger << 15) | (level << 14) | (mode << 8) | vector;
 }
 
-void pci_setup_msix(pci_dev dev, int msi_slot, thunk h)
+void pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name)
 {
     int v = allocate_interrupt();
-    register_interrupt(v, h);
+    register_interrupt(v, h, name);
 
     u32 a, d;
     u32 vector_control = 0;

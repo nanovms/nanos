@@ -48,7 +48,7 @@ void init_flush(heap h)
 {
     flush_queue = allocate_queue(h, 128);
     flush_ipi = allocate_interrupt();
-    register_interrupt(flush_ipi, closure(h, flush_handler));
+    register_interrupt(flush_ipi, closure(h, flush_handler), "flush ipi");
     flush_heap = h; // xxx - not really
     initialized = true;
 }

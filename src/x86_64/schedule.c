@@ -150,7 +150,7 @@ void init_scheduler(heap h)
     runloop_timer_min = microseconds(RUNLOOP_TIMER_MIN_PERIOD_US);
     runloop_timer_max = microseconds(RUNLOOP_TIMER_MAX_PERIOD_US);
     wakeup_vector = allocate_interrupt();
-    register_interrupt(wakeup_vector, ignore);
+    register_interrupt(wakeup_vector, ignore, "wakeup ipi");
     assert(wakeup_vector != INVALID_PHYSICAL);    
     /* scheduling queues init */
     runqueue = allocate_queue(h, 64);

@@ -373,7 +373,7 @@ boolean xen_detect(kernel_heaps kh)
     /* set up interrupt handling path */
     int irq = allocate_interrupt();
     xen_debug("interrupt vector %d; registering", irq);
-    register_interrupt(irq, closure(xen_info.h, xen_interrupt));
+    register_interrupt(irq, closure(xen_info.h, xen_interrupt), "xen");
 
     xen_hvm_param.domid = DOMID_SELF;
     xen_hvm_param.index = HVM_PARAM_CALLBACK_IRQ;

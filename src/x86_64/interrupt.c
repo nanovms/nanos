@@ -12,9 +12,9 @@
 #endif
 
 #define INTERRUPT_VECTOR_START 32 /* end of exceptions; defined by architecture */
+#define MAX_INTERRUPT_VECTORS  256 /* as defined by architecture; we may have less */
 
-/* XXX expand on this and add names to register_interrupt */
-static char *interrupts[] = {
+static const char *interrupt_names[MAX_INTERRUPT_VECTORS] = {
     "Divide by 0",
     "Reserved",
     "NMI Interrupt",
@@ -177,7 +177,7 @@ void print_frame(context f)
     print_u64(v);
     if (v < INTERRUPT_VECTOR_START) {
         console(" (");
-        console(interrupts[v]);
+        console((char *)interrupt_names[v]);
         console(")");
     }
     console("\n     frame: ");
@@ -226,10 +226,18 @@ void common_handler()
     cpuinfo ci = current_cpu();
     context f = ci->running_frame;
     int i = f[FRAME_VECTOR];
+
+    if (i >= n_interrupt_vectors) {
+        console("\nexception for invalid interrupt vector\n");
+        goto exit_fault;
+    }
+
     // if we were idle, we are no longer
     atomic_clear_bit(&idle_cpu_mask, ci->id);
 
-    int_debug("interrupt cpu %d %s i %d f %p rip 0x%lx cr2 0x%lx\n", ci->id, state_strings[ci->state], i, f, f[FRAME_RIP], f[FRAME_CR2]);
+    int_debug("[%2d] # %d (%s), state %s, frame %p, rip 0x%lx, cr2 0x%lx\n",
+              ci->id, i, interrupt_names[i], state_strings[ci->state],
+              f, f[FRAME_RIP], f[FRAME_CR2]);
 
     /* enqueue an interrupted user thread, unless the page fault handler should take care of it */
     // what about bh?
@@ -264,11 +272,6 @@ void common_handler()
         goto exit_fault;
     }
     f[FRAME_FULL] = true;
-
-    if (i >= n_interrupt_vectors) {
-        console("\nexception for invalid interrupt vector\n");
-        goto exit_fault;
-    }
 
     /* invoke handler if available, else general fault handler */
     if (handlers[i]) {
@@ -320,12 +323,13 @@ void deallocate_interrupt(u64 irq)
     deallocate_u64(interrupt_vector_heap, irq, 1);
 }
 
-void register_interrupt(int vector, thunk t)
+void register_interrupt(int vector, thunk t, const char *name)
 {
     if (handlers[vector])
         halt("%s: handler for vector %d already registered (%p)\n",
              __func__, vector, handlers[vector]);
     handlers[vector] = t;
+    interrupt_names[vector] = name;
 }
 
 void unregister_interrupt(int vector)
@@ -333,6 +337,7 @@ void unregister_interrupt(int vector)
     if (!handlers[vector])
         halt("%s: no handler registered for vector %d\n", __func__, vector);
     handlers[vector] = 0;
+    interrupt_names[vector] = 0;
 }
 
 #define TSS_SIZE                0x68

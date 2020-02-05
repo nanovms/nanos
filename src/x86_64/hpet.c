@@ -121,7 +121,7 @@ static void timer_config(int timer, timestamp rate, thunk t, boolean periodic)
         hpet_interrupts[timer] = allocate_interrupt();
         msi_format(&a, &d, hpet_interrupts[timer]);
         hpet->timers[timer].fsb_int = ((u64)a << 32) | d;
-        register_interrupt(hpet_interrupts[timer], t);
+        register_interrupt(hpet_interrupts[timer], t, "hpet timer");
     }
 
     u64 c = TCONF(FSB_EN_CNF) | TCONF(32MODE_CNF) | TCONF(INT_ENB_CNF);

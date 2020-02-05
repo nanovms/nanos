@@ -66,7 +66,7 @@ u32 pci_readbar(pci_dev dev, int bid, u32 *length);
 void pci_discover();
 void pci_set_bus_master(pci_dev dev);
 void pci_enable_msix(pci_dev dev);
-void pci_setup_msix(pci_dev dev, int msi_slot, thunk h);
+void pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name);
 
 #define PCI_COMMAND_REGISTER 6
 

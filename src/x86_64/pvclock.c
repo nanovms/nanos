@@ -64,7 +64,7 @@ clock_timer init_tsc_deadline_timer(void)
 
     clock_timer ct = closure(pvclock_heap, tsc_deadline_timer);
     int irq = allocate_interrupt();
-    register_interrupt(irq, timer_interrupt);
+    register_interrupt(irq, timer_interrupt, "tsc deadline timer");
     lapic_set_tsc_deadline_mode(irq);
     return ct;
 }
