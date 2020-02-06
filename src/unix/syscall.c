@@ -1413,12 +1413,12 @@ static sysreturn brk(void *x)
             if (u64_from_pointer(x) < p->heap_base)
                 goto fail;
             p->brk = x;
-            assert(adjust_vmap_range(p->vmaps, p->heap_map, irange(p->heap_base, u64_from_pointer(x))));
+            assert(adjust_process_heap(p, irange(p->heap_base, u64_from_pointer(x))));
             // free
         } else if (p->brk < x) {
             // I guess assuming we're aligned
             u64 alloc = pad(u64_from_pointer(x), PAGESIZE) - pad(u64_from_pointer(p->brk), PAGESIZE);
-            assert(adjust_vmap_range(p->vmaps, p->heap_map, irange(p->heap_base, u64_from_pointer(p->brk) + alloc)));
+            assert(adjust_process_heap(p, irange(p->heap_base, u64_from_pointer(p->brk) + alloc)));
             u64 phys = allocate_u64((heap)heap_physical(kh), alloc);
             if (phys == INVALID_PHYSICAL)
                 goto fail;
