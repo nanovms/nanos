@@ -135,11 +135,11 @@ static inline void set_page_write_protect(boolean enable)
 }
 
 typedef struct queue *queue;
-extern queue runqueue;
 extern queue bhqueue;
-extern queue deferqueue;
+extern queue runqueue;
 extern queue idle_cpu_queue;
 extern queue thread_queue;
+timerheap runloop_timers;
 
 heap physically_backed(heap meta, heap virtual, heap physical, heap pages, u64 pagesize);
 void physically_backed_dealloc_virtual(heap h, u64 x, bytes length);
@@ -152,7 +152,6 @@ void configure_timer(timestamp rate, thunk t);
 
 void kernel_sleep();
 void kernel_delay(timestamp delta);
-extern thunk timer_interrupt;   /* or just use this generic handler */
 
 void init_clock(void);
 boolean init_hpet(kernel_heaps kh);

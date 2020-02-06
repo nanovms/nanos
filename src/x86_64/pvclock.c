@@ -54,17 +54,24 @@ closure_function(0, 1, void, tsc_deadline_timer,
     write_msr(TSC_DEADLINE_MSR, rdtsc() + count);
 }
 
-clock_timer init_tsc_deadline_timer(void)
+closure_function(1, 0, void, tsc_deadline_percpu_init,
+                 int, irq)
+{
+    lapic_set_tsc_deadline_mode(bound(irq));
+}
+
+boolean init_tsc_deadline_timer(clock_timer *ct, thunk *per_cpu_init)
 {
     u32 v[4];
     assert(vclock);
     cpuid(0x1, 0, v);
     if ((v[2] & (1 << 24)) == 0)
-        return 0;                    /* no TSC-Deadline */
+        return false;           /* no TSC-Deadline */
 
-    clock_timer ct = closure(pvclock_heap, tsc_deadline_timer);
+    *ct = closure(pvclock_heap, tsc_deadline_timer);
     int irq = allocate_interrupt();
-    register_interrupt(irq, timer_interrupt, "tsc deadline timer");
-    lapic_set_tsc_deadline_mode(irq);
-    return ct;
+    register_interrupt(irq, ignore, "tsc deadline timer");
+    *per_cpu_init = closure(pvclock_heap, tsc_deadline_percpu_init, irq);
+    apply(*per_cpu_init);
+    return true;
 }

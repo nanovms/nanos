@@ -79,14 +79,15 @@ boolean kvm_detect(kernel_heaps kh)
     }
 
     clock_timer ct;
-    if ((ct = init_tsc_deadline_timer())) {
+    thunk per_cpu_init;
+    if (init_tsc_deadline_timer(&ct, &per_cpu_init)) {
         kvm_debug("TSC Deadline available");
-    } else if ((ct = init_lapic_timer())) {
+    } else if (init_lapic_timer(&ct, &per_cpu_init)) {
         kvm_debug("defaulting to (suboptimal) lapic timer");
     } else {
         halt("%s: no timer available\n", __func__);
     }
 
-    register_platform_clock_timer(ct);
+    register_platform_clock_timer(ct, per_cpu_init);
     return true;
 }

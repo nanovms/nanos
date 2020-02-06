@@ -27,32 +27,12 @@ static int wakeup_vector;
 
 queue runqueue;                 /* kernel space from ?*/
 queue bhqueue;                  /* kernel from interrupt */
-queue thread_queue;              /* kernel to user */
+queue thread_queue;             /* kernel to user */
+timerheap runloop_timers;
 u64 idle_cpu_mask;              /* xxx - limited to 64 aps. consider merging with bitmask */
 
 static timestamp runloop_timer_min;
 static timestamp runloop_timer_max;
-
-static thunk timer_update;
-
-closure_function(0, 0, void, timer_update_internal)
-{
-    /* find timer interval from timer heap, bound by configurable min and max */
-    timestamp timeout = MAX(MIN(timer_check(), runloop_timer_max), runloop_timer_min);
-    runloop_timer(timeout);
-}
-
-void timer_schedule(void)
-{
-    enqueue(bhqueue, timer_update);
-}
-
-closure_function(0, 0, void, timer_interrupt_internal)
-{
-    timer_schedule();
-}
-
-thunk timer_interrupt;
 
 static u64 kernel_lock;
 
@@ -111,6 +91,14 @@ static void run_thunk(thunk t, int cpustate)
     //    halt("handler returned %d", cpustate);
 }
 
+static inline void update_timer(cpuinfo ci)
+{
+    s64 delta = timer_check(runloop_timers) - now(CLOCK_ID_MONOTONIC);
+    timestamp timeout = delta > (s64)runloop_timer_min ? MAX(delta, runloop_timer_max) : runloop_timer_min;
+    sched_debug("set platform timer: delta %lx, timeout %lx\n", delta, timeout);
+    runloop_timer(timeout);
+}
+
 // should we ever be in the user frame here? i .. guess so?
 void runloop_internal()
 {
@@ -122,6 +110,9 @@ void runloop_internal()
                 queue_length(bhqueue), queue_length(runqueue), queue_length(thread_queue),
                 idle_cpu_mask, ci->have_kernel_lock);
     if (kern_try_lock()) {
+        /* invoke expired timer callbacks */
+        timer_service(runloop_timers, now(CLOCK_ID_MONOTONIC));
+
         /* serve bhqueue to completion */
         while ((t = dequeue(bhqueue)) != INVALID_ADDRESS) {
             run_thunk(t, cpu_kernel);
@@ -132,32 +123,17 @@ void runloop_internal()
         while (n_rq-- > 0 && (t = dequeue(runqueue)) != INVALID_ADDRESS) {
             run_thunk(t, cpu_kernel);
         }
+
+        update_timer(ci);
         kern_unlock();
     }
 
     if ((t = dequeue(thread_queue)) != INVALID_ADDRESS)
         run_thunk(t, cpu_user);
-    
+
     kernel_sleep();
     halt("cpu %d return from kernel sleep", ci->id);
 }    
-
-void init_scheduler(heap h)
-{
-    kernel_lock = 0;
-    timer_update = closure(h, timer_update_internal);
-    timer_interrupt = closure(h, timer_interrupt_internal);
-    runloop_timer_min = microseconds(RUNLOOP_TIMER_MIN_PERIOD_US);
-    runloop_timer_max = microseconds(RUNLOOP_TIMER_MAX_PERIOD_US);
-    wakeup_vector = allocate_interrupt();
-    register_interrupt(wakeup_vector, ignore, "wakeup ipi");
-    assert(wakeup_vector != INVALID_PHYSICAL);    
-    /* scheduling queues init */
-    runqueue = allocate_queue(h, 64);
-    /* XXX bhqueue is large to accomodate vq completions; explore batch processing on vq side */
-    bhqueue = allocate_queue(h, 2048);
-    thread_queue = allocate_queue(h, 64);
-}
 
 // is kern lock held here?
 void kernel_sleep(void)
@@ -174,3 +150,18 @@ void kernel_sleep(void)
     asm volatile("sti; hlt" ::: "memory");
 }
 
+void init_scheduler(heap h)
+{
+    kernel_lock = 0;
+    runloop_timer_min = microseconds(RUNLOOP_TIMER_MIN_PERIOD_US);
+    runloop_timer_max = microseconds(RUNLOOP_TIMER_MAX_PERIOD_US);
+    wakeup_vector = allocate_interrupt();
+    register_interrupt(wakeup_vector, ignore, "wakeup ipi");
+    assert(wakeup_vector != INVALID_PHYSICAL);
+    /* scheduling queues init */
+    runqueue = allocate_queue(h, 64);
+    bhqueue = allocate_queue(h, 2048);
+    thread_queue = allocate_queue(h, 64);
+    runloop_timers = allocate_timerheap(h, "runloop");
+    assert(runloop_timers != INVALID_ADDRESS);
+}

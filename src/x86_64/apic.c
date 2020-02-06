@@ -96,15 +96,6 @@ static void calibrate_lapic_timer()
     apic_timer_cal_sec = (1000 / CALIBRATE_DURATION_MS) * delta;
 }
 
-closure_function(0, 1, void, lapic_timer,
-                 timestamp, interval)
-{
-    /* interval * apic_timer_cal_sec / second */
-    u32 cnt = (((u128)interval) * apic_timer_cal_sec) >> 32;
-    apic_clear(APIC_LVT_TMR, APIC_LVT_INTMASK);
-    apic_write(APIC_TMRINITCNT, cnt);
-}
-
 void lapic_eoi(void)
 {
     write_barrier();
@@ -120,16 +111,32 @@ void lapic_set_tsc_deadline_mode(u32 v)
     write_barrier();
 }
 
-clock_timer init_lapic_timer(void)
+closure_function(0, 1, void, lapic_timer,
+                 timestamp, interval)
+{
+    /* interval * apic_timer_cal_sec / second */
+    u32 cnt = (((u128)interval) * apic_timer_cal_sec) >> 32;
+    apic_clear(APIC_LVT_TMR, APIC_LVT_INTMASK);
+    apic_write(APIC_TMRINITCNT, cnt);
+}
+
+closure_function(1, 0, void, lapic_timer_percpu_init,
+                 int, irq)
+{
+    apic_write(APIC_TMRDIV, 3 /* 16 */);
+    apic_write(APIC_LVT_TMR, bound(irq)); /* one shot */
+}
+
+boolean init_lapic_timer(clock_timer *ct, thunk *per_cpu_init)
 {
     assert(apic_vbase);
-    clock_timer ct = closure(apic_heap, lapic_timer);
-    apic_write(APIC_TMRDIV, 3 /* 16 */);
+    *ct = closure(apic_heap, lapic_timer);
     int v = allocate_interrupt();
-    apic_write(APIC_LVT_TMR, v); /* one shot */
-    register_interrupt(v, timer_interrupt, "lapic timer");
+    register_interrupt(v, ignore, "lapic timer");
+    *per_cpu_init = closure(apic_heap, lapic_timer_percpu_init, v);
+    apply(*per_cpu_init);
     calibrate_lapic_timer();
-    return ct;
+    return true;
 }
 
 static u64 lvt_err_irq;

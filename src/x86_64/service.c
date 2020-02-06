@@ -255,6 +255,9 @@ u64 total_processors = 1;
 static void new_cpu()
 {
     fetch_and_add(&total_processors, 1);
+    if (platform_timer_percpu_init)
+        apply(platform_timer_percpu_init);
+
     /* For some reason, we get a spurious wakeup from hlt on linux/kvm
        after AP start. Spin here to cover it (before moving on to runloop). */
     while (1)
