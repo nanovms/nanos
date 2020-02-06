@@ -12,10 +12,14 @@
         extern ap_lock
 global apinit
 
+        %define CR4_PAE (1<<5)
+        %define CR4_PGE (1<<7)
+        %define CR4_XSAVE (1<<18)                
+        
 apinit:
         mov ax, cs
         mov ds, ax
-        mov eax, 10100000b  ; Set the PAE and PGE bit.
+        mov eax, CR4_PAE | CR4_PGE | CR4_XSAVE 
         mov cr4, eax
         mov edx, [ap_pagetable-apinit]
         mov cr3, edx        ; page table (relocated copy)

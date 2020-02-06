@@ -11,7 +11,7 @@ global_func _start
 extern  init_service
 
 %include "frame.inc"
-        
+%define FRAME_MAX 40            ; why aren't we getting this from frame.h
 %define FS_MSR        0xc0000100
 %define KERNEL_GS_MSR 0xc0000102
 
@@ -71,6 +71,9 @@ extern  init_service
         pop rax            ; vector
         mov [rbx+FRAME_VECTOR*8], rax
         mov qword [rbx+FRAME_IS_SYSCALL*8], 0
+        mov edx, 0xffffffff
+        mov eax, edx
+;        xsavec [rbx + FRAME_MAX]
 %endmacro
 
 extern common_handler
@@ -91,6 +94,18 @@ extern common_handler
         ; noreturn               
 %endmacro
 
+global xsave_frame_size
+xsave_frame_size :
+	push rcx
+	push rbx
+        mov rax, 0xd
+        mov rcx, 0x0
+        cpuid
+        mov rax, rbx
+        pop rbx
+        pop rcx            
+        ret
+        
 global interrupt_entry_with_ec
 interrupt_entry_with_ec:
         check_swapgs 24
@@ -128,6 +143,9 @@ frame_return:
         load_seg_base FRAME_GSBASE
         swapgs
 .skip:
+        mov edx, 0xffffffff
+        mov eax, edx        
+        xrstor [rdi+FRAME_MAX]
         mov rax, [rdi+FRAME_RAX*8]
         mov rbx, [rdi+FRAME_RBX*8]
         mov rcx, [rdi+FRAME_RCX*8]
@@ -200,6 +218,9 @@ syscall_enter:
         mov qword [rdi+FRAME_RDI*8], rax
         mov qword [rdi+FRAME_IS_SYSCALL*8], 1
         mov rax, syscall        ; (running_frame, call)
+        mov edx, 0xffffffff
+        mov eax, edx
+;        xsavec [rdi+FRAME_MAX]  ; we wouldn't have to do this if we could guarantee no other user thread ran before us
         mov rax, [rax]
         mov rbx, [gs:16]
         mov [gs:8], rbx         ; move to kernel frame
@@ -212,7 +233,9 @@ syscall_enter:
 syscall_return:
         load_seg_base FRAME_FSBASE
         load_seg_base FRAME_GSBASE
-
+        mov edx, 0xffffffff
+        mov eax, edx
+        xrstor  [rdi+FRAME_MAX] 
         mov rax, [rdi+FRAME_RAX*8]
         mov rbx, [rdi+FRAME_RBX*8]
         mov rdx, [rdi+FRAME_RDX*8]

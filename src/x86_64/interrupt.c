@@ -355,9 +355,12 @@ void set_ist(int cpu, int i, u64 sp)
     write_tss_u64(cpu, 0x24 + (i - 1) * 8, sp);
 }
 
+u64 xsave_frame_size();
+
 context allocate_frame(heap h)
 {
-    context f = allocate_zero(h, FRAME_MAX * sizeof(u64));
+    context f = allocate_zero(h, FRAME_MAX * sizeof(u64) + xsave_frame_size());
+    assert((u64_from_pointer(f) & 63 ) == 0);
     assert(f != INVALID_ADDRESS);
     return f;
 }

@@ -242,8 +242,8 @@ static void init_cpuinfos(kernel_heaps kh)
         ci->kernel_stack = allocate_stack(pages, KERNEL_STACK_PAGES);
         ci->fault_stack = allocate_stack(pages, FAULT_STACK_PAGES);
         ci->int_stack = allocate_stack(pages, INT_STACK_PAGES);
-        init_debug("cpu %2d: kernel_frame %p, kernel_stack %p", i, ci->kernel_frame, ci->kernel_stack);
-        init_debug("        fault_stack  %p, int_stack    %p", ci->fault_stack, ci->int_stack);
+        //        init_debug("cpu %2d: kernel_frame %p, kernel_stack %p", i, ci->kernel_frame, ci->kernel_stack);
+        //        init_debug("        fault_stack  %p, int_stack    %p", ci->fault_stack, ci->int_stack);
     }
 
     cpu_setgs(0);
