@@ -241,7 +241,7 @@ void common_handler()
 
     /* enqueue an interrupted user thread, unless the page fault handler should take care of it */
     // what about bh?
-    if (ci->state == cpu_user && i != 0xe) {
+    if (ci->state == cpu_user && i >= INTERRUPT_VECTOR_START) {
         int_debug("int sched %F\n", f[FRAME_RUN]);
         schedule_frame(f);        // racy enqueue from interrupt level? we weren't interrupting the kernel...
     }
@@ -276,7 +276,7 @@ void common_handler()
     /* invoke handler if available, else general fault handler */
     if (handlers[i]) {
         apply(handlers[i]);
-        if (i >= 32)
+        if (i >= INTERRUPT_VECTOR_START)
             lapic_eoi();
     } else {
         fault_handler fh = pointer_from_u64(f[FRAME_FAULT_HANDLER]);

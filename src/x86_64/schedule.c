@@ -111,6 +111,7 @@ void runloop_internal()
                 idle_cpu_mask, ci->have_kernel_lock);
     if (kern_try_lock()) {
         /* invoke expired timer callbacks */
+        ci->state = cpu_kernel;
         timer_service(runloop_timers, now(CLOCK_ID_MONOTONIC));
 
         /* serve bhqueue to completion */

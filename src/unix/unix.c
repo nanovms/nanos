@@ -351,11 +351,12 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
 
     set_syscall_handler(syscall_enter);
     process kernel_process = create_process(uh, root, fs);
-    // was a dummy thread here?
-    current_cpu()->current_thread = dummy_thread = create_thread(kernel_process);
-
+    dummy_thread = create_thread(kernel_process);
     runtime_memcpy(dummy_thread->name, "dummy_thread",
         sizeof(dummy_thread->name));
+
+    for (int i = 0; i < MAX_CPUS; i++)
+        cpuinfo_from_id(i)->current_thread = dummy_thread;
 
     /* XXX remove once we have http PUT support */
     ftrace_enable();

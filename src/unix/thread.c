@@ -350,9 +350,9 @@ void exit_thread(thread t)
 
     ftrace_thread_deinit(t, dummy_thread);
 
-    // not sure if serious - maybe ftrace needs this?
-    //    current_cpu()->current_thread = dummy_thread;
-    //    set_running_frame(dummy_thread->frame);
+    /* replace references to thread with placeholder */
+    current_cpu()->current_thread = dummy_thread;
+    set_running_frame(dummy_thread->frame);
     refcount_release(&t->refcount);
 }
 
