@@ -36,13 +36,26 @@ extern  init_service
         wrmsr
 %endmacro
 
+
+%macro load_extended_registers 1
+;        mov edx, 0xffffffff
+;        mov eax, edx        
+        fxrstor [%1+FRAME_EXTENDED_SAVE*8] 
+%endmacro
+        
+%macro save_extended_registers 1
+;        mov edx, 0xffffffff     ;
+;        mov eax, edx
+        fxsave [%1+FRAME_EXTENDED_SAVE*8]  ; we wouldn't have to do this if we could guarantee no other user thread ran before us
+%endmacro
+
+        
+      
 ;;;  helper so userspace can save a frame without
 ;;; 
 global xsave        
-xsave:  
-        mov edx, 0xffffffff
-        mov eax, edx
-        fxsave [rdi + FRAME_MAX*8]
+xsave:
+        save_extended_registers rdi
         ret
         
 ;; stack frame upon entry:
@@ -79,9 +92,7 @@ xsave:
         pop rax            ; vector
         mov [rbx+FRAME_VECTOR*8], rax
         mov qword [rbx+FRAME_IS_SYSCALL*8], 0
-        mov edx, 0xffffffff
-        mov eax, edx
-        fxsave [rbx + FRAME_MAX*8]
+        save_extended_registers rbx
 %endmacro
 
 extern common_handler
@@ -151,9 +162,7 @@ frame_return:
         load_seg_base FRAME_GSBASE
         swapgs
 .skip:
-        mov edx, 0xffffffff
-        mov eax, edx        
-        fxrstor [rdi+FRAME_MAX*8]
+        load_extended_registers rdi
         mov rax, [rdi+FRAME_RAX*8]
         mov rbx, [rdi+FRAME_RBX*8]
         mov rcx, [rdi+FRAME_RCX*8]
@@ -226,9 +235,7 @@ syscall_enter:
         mov qword [rdi+FRAME_RDI*8], rax
         mov qword [rdi+FRAME_IS_SYSCALL*8], 1
         mov rax, syscall        ; (running_frame, call)
-        mov edx, 0xffffffff
-        mov eax, edx
-        fxsave [rdi+FRAME_MAX*8]  ; we wouldn't have to do this if we could guarantee no other user thread ran before us
+        save_extended_registers rdi
         mov rax, [rax]
         mov rbx, [gs:16]
         mov [gs:8], rbx         ; move to kernel frame
@@ -241,9 +248,7 @@ syscall_enter:
 syscall_return:
         load_seg_base FRAME_FSBASE
         load_seg_base FRAME_GSBASE
-        mov edx, 0xffffffff
-        mov eax, edx
-        fxrstor  [rdi+FRAME_MAX *8] 
+        save_extended_registers rdi
         mov rax, [rdi+FRAME_RAX*8]
         mov rbx, [rdi+FRAME_RBX*8]
         mov rdx, [rdi+FRAME_RDX*8]
