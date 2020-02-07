@@ -210,11 +210,13 @@ static void remote_sockaddr_in(sock s, struct sockaddr_in *sin)
     sin->family = AF_INET;
     if (s->type == SOCK_STREAM) {
 	struct tcp_pcb * lw = s->info.tcp.lw;
+        assert(lw);
 	sin->port = ntohs(lw->remote_port);
 	sin->address = ip4_addr_get_u32(&lw->remote_ip);
     } else {
 	assert(s->type == SOCK_DGRAM);
 	struct udp_pcb * lw = s->info.udp.lw;
+        assert(lw);
 	sin->port = ntohs(lw->remote_port);
 	sin->address = ip4_addr_get_u32(&lw->remote_ip);
     }
@@ -1414,8 +1416,8 @@ closure_function(5, 1, sysreturn, accept_bh,
         goto out;
     }
 
-    sock sn = dequeue(s->incoming);
-    if (sn == INVALID_ADDRESS) {
+    sock child = dequeue(s->incoming);
+    if (child == INVALID_ADDRESS) {
         if (s->f.flags & SOCK_NONBLOCK) {
             rv = -EAGAIN;
             goto out;
@@ -1423,11 +1425,15 @@ closure_function(5, 1, sysreturn, accept_bh,
         return BLOCKQ_BLOCK_REQUIRED;               /* block */
     }
 
-    net_debug("child sock %d\n", sn->fd);
+    err_t child_err = get_lwip_error(child);
+    if (child_err != ERR_OK) {
+        rv = lwip_to_errno(child_err);
+        goto out;
+    }
 
-    sn->f.flags = bound(flags);
+    child->f.flags = bound(flags);
     if (bound(addr))
-        remote_sockaddr_in(sn, (struct sockaddr_in *)bound(addr));
+        remote_sockaddr_in(child, (struct sockaddr_in *)bound(addr));
     if (bound(addrlen))
         *bound(addrlen) = sizeof(struct sockaddr);
 
@@ -1436,20 +1442,21 @@ closure_function(5, 1, sysreturn, accept_bh,
         notify_sock(s);
 
     /* release slot in lwIP listen backlog */
-    tcp_backlog_accepted(sn->info.tcp.lw);
+    tcp_backlog_accepted(child->info.tcp.lw);
 
-    rv = sn->fd;
+    rv = child->fd;
   out:
+    set_syscall_return(t, rv);
     if (bqflags & BLOCKQ_ACTION_BLOCKED)
         thread_wakeup(t);
 
     closure_finish();
-    return set_syscall_return(t, rv);
+    return rv;
 }
 
 sysreturn accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 {
-    sock s = resolve_fd(current->p, sockfd);        
+    sock s = resolve_fd(current->p, sockfd);
     if (s->type != SOCK_STREAM)
 	return -EOPNOTSUPP;
     net_debug("sock %d, addr %p, addrlen %p, flags %x\n", sockfd, addr, addrlen, flags);
@@ -1469,6 +1476,7 @@ sysreturn accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 
 sysreturn getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 {
+    net_debug("sock %d, addr %p, addrlen %p\n", sockfd, addr, addrlen);
     sock s = resolve_fd(current->p, sockfd);
     struct sockaddr sa;
     zero(&sa, sizeof(sa));
