@@ -43,4 +43,4 @@
 #define FRAME_IS_SYSCALL 32
 #define FRAME_QUEUE 33
 #define FRAME_FULL 34 
-#define FRAME_MAX 40 /* this has to be padded to a 64 byte boundary for xsave */
+#define FRAME_MAX 40

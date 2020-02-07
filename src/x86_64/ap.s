@@ -14,6 +14,8 @@ global apinit
 
         %define CR4_PAE (1<<5)
         %define CR4_PGE (1<<7)
+        %define CR4_OSFXSR (1<<9)
+        %define CR4_OSXMMEXCPT (1<<10)        
         %define CR4_XSAVE (1<<18)                
         
 apinit:
@@ -35,7 +37,7 @@ apinit:
         or ebx, 0x2         ; set MP
         mov cr0, ebx
         mov ebx, cr4
-        or ebx, 0x600       ; set osxmmexcpt and osfxsr
+        or ebx, CR4_OSFXSR | CR4_OSXMMEXCPT
         mov cr4, ebx
 
         ;; load from relocated copy of gdt pointer
