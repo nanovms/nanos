@@ -87,9 +87,15 @@ closure_function(1, 1, void, default_fault_handler,
 {
     boolean user = is_usermode_fault(frame);
 
+    /* Really this should be the enclosed thread, but that won't fly
+       for kernel page faults on user pages. If we were ever to
+       support multiple processes, we may need to install current when
+       resuming deferred processing. */
+    process p = current->p;
+
     if (frame[FRAME_VECTOR] == 14) {
         u64 vaddr = fault_address(frame);
-        vmap vm = vmap_from_vaddr(vaddr);
+        vmap vm = vmap_from_vaddr(p, vaddr);
         if (vm == INVALID_ADDRESS) {
             if (user) {
                 pf_debug("no vmap found for addr 0x%lx, rip 0x%lx", vaddr, frame[FRAME_RIP]);
@@ -132,9 +138,9 @@ closure_function(1, 1, void, default_fault_handler,
     print_frame(frame);
     print_stack(frame);
 
-    if (table_find(current->p->process_root, sym(fault))) {
+    if (table_find(p->process_root, sym(fault))) {
         console("starting gdb\n");
-        init_tcp_gdb(heap_general(get_kernel_heaps()), current->p, 9090);
+        init_tcp_gdb(heap_general(get_kernel_heaps()), p, 9090);
         thread_sleep_uninterruptible();
     } else {
         halt("halt\n");
@@ -351,11 +357,12 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
 
     set_syscall_handler(syscall_enter);
     process kernel_process = create_process(uh, root, fs);
-    // was a dummy thread here?
-    current_cpu()->current_thread = dummy_thread = create_thread(kernel_process);
-
+    dummy_thread = create_thread(kernel_process);
     runtime_memcpy(dummy_thread->name, "dummy_thread",
         sizeof(dummy_thread->name));
+
+    for (int i = 0; i < MAX_CPUS; i++)
+        cpuinfo_from_id(i)->current_thread = dummy_thread;
 
     /* XXX remove once we have http PUT support */
     ftrace_enable();

@@ -165,7 +165,7 @@ sysreturn timerfd_settime(int fd, int flags,
     boolean absolute = (flags & TFD_TIMER_ABSTIME) != 0;
     timer_debug("register timer: cid %d, init value %T, absolute %d, interval %T\n",
                 ut->cid, tinit, absolute, interval);
-    timer t = register_timer(ut->cid, tinit, absolute, interval,
+    timer t = register_timer(runloop_timers, ut->cid, tinit, absolute, interval,
                              closure(unix_timer_heap, timerfd_timer_expire, ut));
     if (t == INVALID_ADDRESS)
         return -ENOMEM;
@@ -395,7 +395,7 @@ sysreturn timer_settime(u32 timerid, int flags,
     boolean absolute = (flags & TFD_TIMER_ABSTIME) != 0;
     timer_debug("register timer: cid %d, init value %T, absolute %d, interval %T\n",
                 ut->cid, tinit, absolute, interval);
-    timer t = register_timer(ut->cid, tinit, absolute, interval,
+    timer t = register_timer(runloop_timers, ut->cid, tinit, absolute, interval,
                              closure(unix_timer_heap, posix_timer_expire, ut));
     if (t == INVALID_ADDRESS)
         return -ENOMEM;
@@ -608,7 +608,7 @@ sysreturn setitimer(int which, const struct itimerval *new_value,
 
     timer_debug("register timer: clockid %d, init value %T, interval %T\n",
                 clockid, tinit, interval);
-    timer t = register_timer(clockid, tinit, false, interval,
+    timer t = register_timer(runloop_timers, clockid, tinit, false, interval,
                              closure(unix_timer_heap, itimer_expire, ut));
     if (t == INVALID_ADDRESS)
         return -ENOMEM;

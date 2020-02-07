@@ -146,5 +146,3 @@ void print_stack_from_here()
 {
     // empty for now
 }
-
-void timer_schedule(void) { }   /* stub */

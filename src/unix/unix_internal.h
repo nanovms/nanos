@@ -287,7 +287,7 @@ typedef struct vmap {
 } *vmap;
 
 vmap allocate_vmap(rangemap rm, range r, u64 flags);
-boolean adjust_vmap_range(rangemap rm, vmap v, range new);
+boolean adjust_process_heap(process p, range new);
 
 typedef struct file *file;
 
@@ -313,6 +313,7 @@ typedef struct process {
     struct syscall   *syscalls;
     vector            files;
     rangemap          vareas;   /* available address space */
+    u64               vmap_lock;
     rangemap          vmaps;    /* process mappings */
     vmap              stack_map;
     vmap              heap_map;
@@ -454,9 +455,19 @@ static inline u64 mask_from_sig(int sig)
     return U64_FROM_BIT(sig - 1);
 }
 
+static inline u64 sigstate_get_pending(sigstate ss)
+{
+    return ss->pending;
+}
+
 static inline boolean sigstate_is_pending(sigstate ss, int sig)
 {
     return (ss->pending & mask_from_sig(sig)) != 0;
+}
+
+static inline sigaction sigaction_from_sig(int signum)
+{
+    return &current->p->sigactions[signum - 1];
 }
 
 boolean dispatch_signals(thread t);
@@ -491,7 +502,7 @@ boolean unix_timers_init(unix_heaps uh);
 
 extern sysreturn syscall_ignore();
 boolean do_demand_page(u64 vaddr, vmap vm);
-vmap vmap_from_vaddr(u64 vaddr);
+vmap vmap_from_vaddr(process p, u64 vaddr);
 
 void thread_log_internal(thread t, const char *desc, ...);
 #define thread_log(__t, __desc, ...) thread_log_internal(__t, __desc, ##__VA_ARGS__)

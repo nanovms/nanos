@@ -575,6 +575,12 @@ test_sigsegv(void)
             fail_perror("blocking test pthread_join");
     }
 
+    memset(&sa, 0, sizeof(struct sigaction));
+    sa.sa_handler = SIG_IGN;
+    sigemptyset(&sa.sa_mask);
+
+    if (sigaction(SIGSEGV, &sa, NULL))
+        fail_perror("siggaction for SIGSEGV failed");
 }
 
 static int test_rt_sigtimedwait_handler_reached = 0;

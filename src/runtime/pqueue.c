@@ -52,7 +52,7 @@ void pqueue_insert(pqueue q, void *v)
 
 void *pqueue_pop(pqueue q)
 {
-    void *result = 0;
+    void *result = INVALID_ADDRESS;
 
     if (vector_length(q->body) > 0) {
         result = vector_get(q->body, 0);
@@ -62,13 +62,13 @@ void *pqueue_pop(pqueue q)
             heal(q, 1);
         }
     }
-    return(result);
+    return result;
 }
 
 void *pqueue_peek(pqueue q)
 {
     if (vector_length(q->body)) return(vector_get(q->body, 0));
-    return 0; // XXX INVALID_ADDRESS?
+    return INVALID_ADDRESS;
 }
 
 pqueue allocate_pqueue(heap h, boolean(*sort)(void *, void *))

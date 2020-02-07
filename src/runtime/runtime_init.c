@@ -96,7 +96,6 @@ void init_runtime(heap h)
     ignore = closure(h, ignore_body);
     ignore_status = (void*)ignore;
     errheap = h;
-    initialize_timers(h);
 }
 
 #define STACK_CHK_GUARD 0x595e9fbd94fda766
