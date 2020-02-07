@@ -137,7 +137,8 @@ static boolean create_stdfiles(unix_heaps uh, process p)
 
 process create_process(unix_heaps uh, tuple root, filesystem fs)
 {
-    heap h = heap_general((kernel_heaps)uh);
+    kernel_heaps kh = (kernel_heaps)uh;
+    heap h = heap_general(kh);
     process p = allocate(h, sizeof(struct process));
     boolean aslr = table_find(root, sym(noaslr)) == 0;
 
@@ -147,13 +148,12 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
 
     /* don't need these for kernel process */
     if (p->pid > 1) {
-        p->virtual = create_id_heap(h, PROCESS_VIRTUAL_HEAP_START,
+        p->virtual = create_id_heap(h, h, PROCESS_VIRTUAL_HEAP_START,
                                     PROCESS_VIRTUAL_HEAP_LENGTH, HUGE_PAGESIZE);
         assert(p->virtual != INVALID_ADDRESS);
-        assert(id_heap_set_area(heap_virtual_huge((kernel_heaps)uh),
-                                PROCESS_VIRTUAL_HEAP_START, PROCESS_VIRTUAL_HEAP_LENGTH,
-                                true, true));
-        p->virtual_page = create_id_heap_backed(h, p->virtual, PAGESIZE);
+        assert(id_heap_set_area(heap_virtual_huge(kh), PROCESS_VIRTUAL_HEAP_START,
+                                PROCESS_VIRTUAL_HEAP_LENGTH, true, true));
+        p->virtual_page = create_id_heap_backed(h, heap_backed(kh), p->virtual, PAGESIZE);
         assert(p->virtual_page != INVALID_ADDRESS);
         if (aslr)
             id_heap_set_randomize(p->virtual_page, true);
@@ -161,7 +161,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
         /* This heap is used to track the lowest 32 bits of process
            address space. Allocations are presently only made from the
            top half for MAP_32BIT mappings. */
-        p->virtual32 = create_id_heap(h, 0, 0x100000000, PAGESIZE);
+        p->virtual32 = create_id_heap(h, h, 0, 0x100000000, PAGESIZE);
         assert(p->virtual32 != INVALID_ADDRESS);
         if (aslr)
             id_heap_set_randomize(p->virtual32, true);
@@ -174,7 +174,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->fs = fs;
     p->cwd = root;
     p->process_root = root;
-    p->fdallocator = create_id_heap(h, 0, infinity, 1);
+    p->fdallocator = create_id_heap(h, h, 0, infinity, 1);
     p->files = allocate_vector(h, 64);
     zero(p->files, sizeof(p->files));
     create_stdfiles(uh, p);
@@ -185,7 +185,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->start_time = now(CLOCK_ID_MONOTONIC);
     init_sigstate(&p->signals);
     zero(p->sigactions, sizeof(p->sigactions));
-    p->posix_timer_ids = create_id_heap(h, 0, U32_MAX, 1);
+    p->posix_timer_ids = create_id_heap(h, h, 0, U32_MAX, 1);
     p->posix_timers = allocate_vector(h, 8);
     p->itimers = allocate_vector(h, 3);
     return p;
@@ -264,7 +264,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
 	return INVALID_ADDRESS;
 
     uh->kh = *kh;
-    uh->processes = create_id_heap(h, 1, 65535, 1);
+    uh->processes = create_id_heap(h, h, 1, 65535, 1);
     uh->file_cache = allocate_objcache(h, heap_backed(kh), sizeof(struct file), PAGESIZE);
     if (uh->file_cache == INVALID_ADDRESS)
 	goto alloc_fail;

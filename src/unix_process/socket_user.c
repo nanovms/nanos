@@ -47,9 +47,9 @@ typedef struct select_notifier {
 
 static inline void select_bitmaps_init(heap h, select_bitmaps * b)
 {
-    b->r = allocate_bitmap(h, infinity);
-    b->w = allocate_bitmap(h, infinity);
-    b->e = allocate_bitmap(h, infinity);
+    b->r = allocate_bitmap(h, h, infinity);
+    b->w = allocate_bitmap(h, h, infinity);
+    b->e = allocate_bitmap(h, h, infinity);
 }
 
 static boolean select_register(notifier n, descriptor f, u32 events, thunk a)

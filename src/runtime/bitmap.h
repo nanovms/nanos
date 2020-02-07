@@ -5,7 +5,8 @@
 typedef struct bitmap {
     u64 maxbits;
     u64 mapbits;
-    heap h;
+    heap meta;
+    heap map;
     buffer alloc_map;
 } *bitmap;
 
@@ -13,7 +14,7 @@ boolean bitmap_range_check_and_set(bitmap b, u64 start, u64 nbits, boolean valid
 u64 bitmap_alloc(bitmap b, u64 size);
 u64 bitmap_alloc_within_range(bitmap b, u64 nbits, u64 start, u64 end);
 boolean bitmap_dealloc(bitmap b, u64 bit, u64 size);
-bitmap allocate_bitmap(heap h, u64 length);
+bitmap allocate_bitmap(heap meta, heap map, u64 length);
 void deallocate_bitmap(bitmap b);
 bitmap bitmap_wrap(heap h, u64 * map, u64 length);
 void bitmap_unwrap(bitmap b);

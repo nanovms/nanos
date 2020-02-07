@@ -169,7 +169,8 @@ static boolean xen_grant_init(kernel_heaps kh)
     xen_debug("%s: table v 0x%lx, p 0x%lx", __func__, gt->table, physical_from_virtual(gt->table));
 
     /* Allocate grant entry allocator. */
-    gt->entry_heap = create_id_heap(heap_general(kh), GTAB_RESERVED_ENTRIES + 1,
+    heap h = heap_general(kh);
+    gt->entry_heap = create_id_heap(h, h, GTAB_RESERVED_ENTRIES + 1,
                                     gt->n_entries - GTAB_RESERVED_ENTRIES, 1);
     if (gt->entry_heap == INVALID_ADDRESS) {
         msg_err("failed to allocate grant table occupancy heap\n");
