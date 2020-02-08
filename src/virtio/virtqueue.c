@@ -103,6 +103,7 @@ typedef struct virtqueue {
     struct list msgqueue;
     queue servicequeue;
     thunk service;
+    thunk fill;
     vqmsg msgs[0];
 } *virtqueue;
 
@@ -141,7 +142,6 @@ void vqmsg_push(virtqueue vq, vqmsg m, void * addr, u32 len, boolean write)
 }
 
 static void virtqueue_fill(virtqueue vq);
-static void virtqueue_fill_irq(virtqueue vq);
 
 void vqmsg_commit(virtqueue vq, vqmsg m, vqfinish completion)
 {
@@ -177,7 +177,7 @@ closure_function(1, 0, void, vq_interrupt,
             d = vq->desc + d->next;
             dcount++;
         }
-        assert(dcount == m->count);
+        assert(dcount == m->count); // fail
         d->next = vq->desc_idx;
         vq->desc_idx = head;
 
@@ -199,7 +199,8 @@ closure_function(1, 0, void, vq_interrupt,
         enqueue(bhqueue, vq->service);
     }
 
-    virtqueue_fill_irq(vq);
+    enqueue(bhqueue, vq->fill);
+    //   virtqueue_fill_irq(vq);
     virtqueue_debug("%s: EXIT: vq %p: processed %d, last_used_idx %d, desc_idx %d\n",
         __func__, vq, processed, vq->last_used_idx, vq->desc_idx);
 }
@@ -222,6 +223,12 @@ closure_function(1, 0, void, virtqueue_service_vqmsgs,
         }
     }
     virtqueue_debug("%s exit\n", __func__);
+}
+
+closure_function(1, 0, void, virtqueue_fill_cont,
+                             virtqueue, vq)
+{
+    virtqueue_fill(bound(vq));
 }
 
 status virtqueue_alloc(vtpci dev,
@@ -254,6 +261,7 @@ status virtqueue_alloc(vtpci dev,
     vq->servicequeue = allocate_queue(dev->general, 512);
     assert(vq->servicequeue != INVALID_ADDRESS);
     vq->service = closure(dev->general, virtqueue_service_vqmsgs, vq);
+    vq->fill = closure(dev->general, virtqueue_fill_cont, vq);    
 
     if ((vq->ring_mem = allocate_zero(dev->contiguous, alloc)) == INVALID_ADDRESS) {
         deallocate(dev->general, vq, vq_alloc_size);
@@ -298,8 +306,7 @@ static int virtqueue_notify(virtqueue vq)
     return should_notify;
 }
 
-/* called from interrupt level or with ints disabled */
-static void virtqueue_fill_irq(virtqueue vq)
+static void virtqueue_fill(virtqueue vq)
 {
     virtqueue_debug_verbose("%s: ENTRY: vq %s: entries %d, desc_idx %d, avail->idx %d\n",
         __func__, vq->name, vq->entries, vq->desc_idx, vq->avail->idx);
@@ -350,7 +357,7 @@ static void virtqueue_fill_irq(virtqueue vq)
         vq->avail->idx++;
 
         list nn = list_get_next(n);
-        list_delete(n);
+        list_delete(n); // fail
         n = nn;
     }
 
@@ -362,10 +369,3 @@ static void virtqueue_fill_irq(virtqueue vq)
         __func__, vq->name, added, notified, vq->desc_idx);
 }
 
-static void virtqueue_fill(virtqueue vq)
-{
-    /* XXX same as irq for now, save/disable/restore later */
-    u64 flags = irq_disable_save();
-    virtqueue_fill_irq(vq);
-    irq_restore(flags);
-}

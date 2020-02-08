@@ -135,6 +135,7 @@ closure_function(1, 1, void, default_fault_handler,
     }
 
   bug:
+    rprintf("cpu: %d\n", current_cpu()->id);
     print_frame(frame);
     print_stack(frame);
 
