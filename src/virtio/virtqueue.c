@@ -103,6 +103,7 @@ typedef struct virtqueue {
     struct list msgqueue;
     queue servicequeue;
     thunk service;
+    u64 fill_lock;              /* XXX - tmp hack for smp */
     vqmsg msgs[0];
 } *virtqueue;
 
@@ -141,7 +142,6 @@ void vqmsg_push(virtqueue vq, vqmsg m, void * addr, u32 len, boolean write)
 }
 
 static void virtqueue_fill(virtqueue vq);
-static void virtqueue_fill_irq(virtqueue vq);
 
 void vqmsg_commit(virtqueue vq, vqmsg m, vqfinish completion)
 {
@@ -163,6 +163,7 @@ closure_function(1, 0, void, vq_interrupt,
     int processed = 0;
     struct list q;
     list_init(&q);
+    spin_lock(&vq->fill_lock);
     while (vq->last_used_idx != vq->used->idx) {
         volatile struct vring_used_elem *uep = vq->used->ring + (vq->last_used_idx & (vq->entries - 1));
         virtqueue_debug_verbose("%s: vq %p: last_used_idx %d, id %d, len %d\n",
@@ -189,6 +190,7 @@ closure_function(1, 0, void, vq_interrupt,
         virtqueue_debug("add msg %p\n", m);
         list_insert_before(&q, &m->l);
     }
+    spin_unlock(&vq->fill_lock);
 
     if (processed > 0) {
         /* a little trick ... collapse the list head for queueing */
@@ -199,7 +201,7 @@ closure_function(1, 0, void, vq_interrupt,
         enqueue(bhqueue, vq->service);
     }
 
-    virtqueue_fill_irq(vq);
+    virtqueue_fill(vq);
     virtqueue_debug("%s: EXIT: vq %p: processed %d, last_used_idx %d, desc_idx %d\n",
         __func__, vq, processed, vq->last_used_idx, vq->desc_idx);
 }
@@ -254,6 +256,7 @@ status virtqueue_alloc(vtpci dev,
     vq->servicequeue = allocate_queue(dev->general, 512);
     assert(vq->servicequeue != INVALID_ADDRESS);
     vq->service = closure(dev->general, virtqueue_service_vqmsgs, vq);
+    spin_lock_init(&vq->fill_lock);
 
     if ((vq->ring_mem = allocate_zero(dev->contiguous, alloc)) == INVALID_ADDRESS) {
         deallocate(dev->general, vq, vq_alloc_size);
@@ -299,12 +302,14 @@ static int virtqueue_notify(virtqueue vq)
 }
 
 /* called from interrupt level or with ints disabled */
-static void virtqueue_fill_irq(virtqueue vq)
+static void virtqueue_fill(virtqueue vq)
 {
     virtqueue_debug_verbose("%s: ENTRY: vq %s: entries %d, desc_idx %d, avail->idx %d\n",
         __func__, vq->name, vq->entries, vq->desc_idx, vq->avail->idx);
-    list n = list_get_next(&vq->msgqueue);
 
+    /* irqs already disabled */
+    spin_lock(&vq->fill_lock);
+    list n = list_get_next(&vq->msgqueue);
     u16 added = 0;
     while (n && n != &vq->msgqueue) {
         vqmsg m = struct_from_list(n, vqmsg, l);
@@ -358,14 +363,7 @@ static void virtqueue_fill_irq(virtqueue vq)
     if (added > 0)
         notified = virtqueue_notify(vq);
     (void) notified;
+    spin_unlock(&vq->fill_lock);
     virtqueue_debug("%s: EXIT: vq %s: added %d, notified %d, desc_idx %d\n",
         __func__, vq->name, added, notified, vq->desc_idx);
-}
-
-static void virtqueue_fill(virtqueue vq)
-{
-    /* XXX same as irq for now, save/disable/restore later */
-    u64 flags = irq_disable_save();
-    virtqueue_fill_irq(vq);
-    irq_restore(flags);
 }
