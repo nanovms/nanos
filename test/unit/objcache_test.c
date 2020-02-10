@@ -119,7 +119,7 @@ int main(int argc, char **argv)
 
     /* make a parent heap for pages */
     heap m = allocate_mmapheap(h, mmapsize);
-    heap pageheap = create_id_heap_backed(h, m, TEST_PAGESIZE);
+    heap pageheap = create_id_heap_backed(h, h, m, TEST_PAGESIZE);
 
     /* XXX test a range of sizes */
     if (!objcache_test(h, pageheap, 32))

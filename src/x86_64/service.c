@@ -33,7 +33,7 @@ heap allocate_tagged_region(kernel_heaps kh, u64 tag)
     heap p = heap_physical(kh);
     u64 tag_base = tag << va_tag_offset;
     u64 tag_length = U64_FROM_BIT(va_tag_offset);
-    heap v = create_id_heap(h, tag_base, tag_length, p->pagesize);
+    heap v = create_id_heap(h, heap_backed(kh), tag_base, tag_length, p->pagesize);
     assert(v != INVALID_ADDRESS);
     heap backed = physically_backed(h, v, p, heap_pages(kh), p->pagesize);
     if (backed == INVALID_ADDRESS)
@@ -464,7 +464,7 @@ static void __attribute__((noinline)) init_service_new_stack()
 static heap init_pages_id_heap(heap h)
 {
     boolean found = false;
-    heap pages = allocate_id_heap(h, PAGESIZE);
+    heap pages = allocate_id_heap(h, h, PAGESIZE);
     for_regions(e) {
 	if (e->type == REGION_IDENTITY) {
             assert(!found);     /* should only be one... */
@@ -503,7 +503,7 @@ static heap init_pages_id_heap(heap h)
 
 static heap init_physical_id_heap(heap h)
 {
-    heap physical = allocate_id_heap(h, PAGESIZE);
+    heap physical = allocate_id_heap(h, h, PAGESIZE);
     boolean found = false;
     init_debug("physical memory:");
     for_regions(e) {
@@ -544,11 +544,11 @@ static void init_kernel_heaps()
     heaps.pages = init_pages_id_heap(&bootstrap);
     heaps.physical = init_physical_id_heap(&bootstrap);
 
-    heaps.virtual_huge = create_id_heap(&bootstrap, HUGE_PAGESIZE,
+    heaps.virtual_huge = create_id_heap(&bootstrap, &bootstrap, HUGE_PAGESIZE,
 				      (1ull<<VIRTUAL_ADDRESS_BITS)- HUGE_PAGESIZE, HUGE_PAGESIZE);
     assert(heaps.virtual_huge != INVALID_ADDRESS);
 
-    heaps.virtual_page = create_id_heap_backed(&bootstrap, heaps.virtual_huge, PAGESIZE);
+    heaps.virtual_page = create_id_heap_backed(&bootstrap, &bootstrap, heaps.virtual_huge, PAGESIZE);
     assert(heaps.virtual_page != INVALID_ADDRESS);
 
     heaps.backed = physically_backed(&bootstrap, heaps.virtual_page, heaps.physical, heaps.pages, PAGESIZE);

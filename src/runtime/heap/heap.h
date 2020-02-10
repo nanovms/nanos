@@ -10,9 +10,9 @@ struct heap {
 };
 
 heap debug_heap(heap m, heap p);
-heap create_id_heap(heap h, u64 base, u64 length, bytes pagesize);
-heap create_id_heap_backed(heap h, heap parent, bytes pagesize);
-heap allocate_id_heap(heap h, bytes pagesize); /* id heap with no ranges */
+heap create_id_heap(heap meta, heap map, u64 base, u64 length, bytes pagesize);
+heap create_id_heap_backed(heap meta, heap map, heap parent, bytes pagesize);
+heap allocate_id_heap(heap meta, heap map, bytes pagesize); /* id heap with no ranges */
 boolean id_heap_add_range(heap h, u64 base, u64 length);
 boolean id_heap_set_area(heap h, u64 base, u64 length, boolean validate, boolean allocate);
 u64 id_heap_total(heap h);
