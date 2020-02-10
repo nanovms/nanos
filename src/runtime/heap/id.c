@@ -21,6 +21,7 @@ typedef struct id_heap {
     u64 total;
     u64 flags;
     heap meta;
+    heap map;
     heap parent;
     rangemap ranges;
 } *id_heap;
@@ -61,7 +62,7 @@ static id_range id_add_range(id_heap i, u64 base, u64 length)
         msg_err("%s: range insertion failure; conflict with range %R\n", __func__, ir->n.r);
         goto fail;
     }
-    ir->b = allocate_bitmap(i->meta, pages);
+    ir->b = allocate_bitmap(i->meta, i->map, pages);
     if (ir->b == INVALID_ADDRESS) {
         msg_err("%s: failed to allocate bitmap for range %R\n", __func__, ir->n.r);
         goto fail;
@@ -75,10 +76,12 @@ static id_range id_add_range(id_heap i, u64 base, u64 length)
     return INVALID_ADDRESS;
 }
 
-static id_range id_get_backed_page(id_heap i)
+static id_range id_get_backed_page(id_heap i, bytes count)
 {
-    u64 length = i->parent->pagesize;
+    u64 parent_pages = ((count - 1) / i->parent->pagesize) + 1;
+    u64 length = parent_pages * i->parent->pagesize;
     u64 base = allocate_u64(i->parent, length);
+    id_debug("length 0x%lx, base 0x%lx\n", length, base);
     if (base == INVALID_PHYSICAL)
 	return INVALID_ADDRESS;
     return id_add_range(i, base, length);
@@ -103,8 +106,11 @@ static u64 id_alloc_from_range(id_heap i, id_range r, u64 pages, range subrange)
     ri.start = pad(ri.start, pages_rounded) - r->n.r.start;
     ri.end -= r->n.r.start;
     id_debug("after adjust %R\n", ri);
-    if (!range_valid(ri) || range_span(ri) < pages)
+    if (!range_valid(ri) || range_span(ri) < pages) {
+        id_debug("range invalid %d, range_span(ri) %ld, pages %ld\n",
+                 range_valid(ri), range_span(ri), pages);
         return INVALID_PHYSICAL;
+    }
 
     /* check for randomization, else check for next fit */
     u64 max_start = range_span(ri) > pages_rounded ?
@@ -148,7 +154,7 @@ static u64 id_alloc(heap h, bytes count)
 
     /* All parent allocations are the same size, so if it doesn't fit
        the next one, fail. */
-    if (i->parent && (r = id_get_backed_page(i)) != INVALID_ADDRESS)
+    if (i->parent && (r = id_get_backed_page(i, count)) != INVALID_ADDRESS)
 	return id_alloc_from_range(i, r, pages, WHOLE_RANGE);
 
     return INVALID_PHYSICAL;
@@ -208,11 +214,11 @@ static void id_destroy(heap h)
     deallocate(i->meta, i, sizeof(struct id_heap));
 }
 
-heap allocate_id_heap(heap h, bytes pagesize)
+heap allocate_id_heap(heap meta, heap map, bytes pagesize)
 {
     assert((pagesize & (pagesize-1)) == 0); /* pagesize is power of 2 */
 
-    id_heap i = allocate(h, sizeof(struct id_heap));
+    id_heap i = allocate(meta, sizeof(struct id_heap));
     if (i == INVALID_ADDRESS)
 	return INVALID_ADDRESS;
     i->h.alloc = id_alloc;
@@ -222,11 +228,12 @@ heap allocate_id_heap(heap h, bytes pagesize)
     i->h.allocated = 0;
     i->page_order = msb(pagesize);
     i->total = 0;
-    i->meta = h;
+    i->meta = meta;
+    i->map = map;
     i->parent = 0;
-    i->ranges = allocate_rangemap(h);
+    i->ranges = allocate_rangemap(meta);
     if (i->ranges == INVALID_ADDRESS) {
-	deallocate(h, i, sizeof(struct id_heap));
+	deallocate(meta, i, sizeof(struct id_heap));
 	return INVALID_ADDRESS;
     }
     i->flags = 0;
@@ -304,9 +311,9 @@ u64 id_heap_alloc_subrange(heap h, bytes count, u64 start, u64 end)
     return INVALID_PHYSICAL;
 }
 
-heap create_id_heap(heap h, u64 base, u64 length, bytes pagesize)
+heap create_id_heap(heap meta, heap map, u64 base, u64 length, bytes pagesize)
 {
-    id_heap i = (id_heap)allocate_id_heap(h, pagesize);
+    id_heap i = (id_heap)allocate_id_heap(meta, map, pagesize);
     if (i == INVALID_ADDRESS)
 	return INVALID_ADDRESS;
 
@@ -319,9 +326,9 @@ heap create_id_heap(heap h, u64 base, u64 length, bytes pagesize)
     return ((heap)i);
 }
 
-heap create_id_heap_backed(heap h, heap parent, bytes pagesize)
+heap create_id_heap_backed(heap meta, heap map, heap parent, bytes pagesize)
 {
-    id_heap i = (id_heap)allocate_id_heap(h, pagesize);
+    id_heap i = (id_heap)allocate_id_heap(meta, map, pagesize);
     if (i == INVALID_ADDRESS)
 	return INVALID_ADDRESS;
     i->parent = parent;
@@ -329,7 +336,7 @@ heap create_id_heap_backed(heap h, heap parent, bytes pagesize)
     id_debug("heap %p, parent %p, pagesize %d\n", i, parent, pagesize);
 
     /* get initial address range from parent */
-    if (id_get_backed_page(i) == INVALID_ADDRESS) {
+    if (id_get_backed_page(i, 1) == INVALID_ADDRESS) {
 	id_destroy((heap)i);
 	return INVALID_ADDRESS;
     }

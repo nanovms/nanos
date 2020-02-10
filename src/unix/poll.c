@@ -100,7 +100,7 @@ static epoll epoll_alloc_internal(void)
 	goto out_free_epoll;
 
     e->nfds = 0;
-    e->fds = allocate_bitmap(e->h, infinity);
+    e->fds = allocate_bitmap(e->h, e->h, infinity);
     if (e->fds == INVALID_ADDRESS)
 	goto out_free_events;
     epoll_debug("allocated epoll %p\n", e);

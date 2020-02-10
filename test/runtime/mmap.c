@@ -331,11 +331,27 @@ static void mmap_flags_to_str(char * str, unsigned long str_len,
     }
 }
 
+#define LARGE_MMAP_SIZE (32ull << 30)
+
 static void mmap_test(void)
 {
     int seed, i;
 
     printf("** starting mmap tests\n");
+
+    printf("  performing large mmap...\n");
+    void * map_addr = mmap(NULL, LARGE_MMAP_SIZE, PROT_READ|PROT_WRITE,
+                           MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (map_addr == MAP_FAILED) {
+        perror("mmap failed");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("  and unmap...\n");
+    if (munmap(map_addr, LARGE_MMAP_SIZE)) {
+        perror("munmap failed");
+        exit(EXIT_FAILURE);
+    }
 
     srand(1);
     printf("  performing sparse_anon_mmap_test with seed=1...\n");

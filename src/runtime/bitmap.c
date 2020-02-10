@@ -190,13 +190,13 @@ boolean bitmap_dealloc(bitmap b, u64 bit, u64 size)
     return true;
 }
 
-static inline bitmap allocate_bitmap_internal(heap h, u64 length)
+static inline bitmap allocate_bitmap_internal(heap meta, u64 length)
 {
     assert(length > 0);
-    bitmap b = allocate(h, sizeof(struct bitmap));
+    bitmap b = allocate(meta, sizeof(struct bitmap));
     if (b == INVALID_ADDRESS)
 	return b;
-    b->h = h;
+    b->meta = meta;
     if (length == infinity)
 	length = -1ull << 6; /* don't pad to 0 */
     b->maxbits = length;
@@ -204,13 +204,14 @@ static inline bitmap allocate_bitmap_internal(heap h, u64 length)
     return b;
 }
 
-bitmap allocate_bitmap(heap h, u64 length)
+bitmap allocate_bitmap(heap meta, heap map, u64 length)
 {
-    bitmap b = allocate_bitmap_internal(h, length);
+    bitmap b = allocate_bitmap_internal(meta, length);
     if (b == INVALID_ADDRESS)
 	return b;
     u64 mapbytes = b->mapbits >> 3;
-    b->alloc_map = allocate_buffer(h, mapbytes);
+    b->map = map;
+    b->alloc_map = allocate_buffer(map, mapbytes);
     if (b->alloc_map == INVALID_ADDRESS)
 	return INVALID_ADDRESS;
     zero(bitmap_base(b), mapbytes);
@@ -222,7 +223,7 @@ void deallocate_bitmap(bitmap b)
 {
     if (b->alloc_map)
 	deallocate_buffer(b->alloc_map);
-    deallocate(b->h, b, sizeof(struct bitmap));
+    deallocate(b->meta, b, sizeof(struct bitmap));
 }
 
 bitmap bitmap_wrap(heap h, u64 * map, u64 length)
@@ -230,6 +231,7 @@ bitmap bitmap_wrap(heap h, u64 * map, u64 length)
     bitmap b = allocate_bitmap_internal(h, length);
     if (b == INVALID_ADDRESS)
 	return b;
+    b->map = 0;
     b->alloc_map = wrap_buffer(h, map, b->maxbits >> 3);
     if (b->alloc_map == INVALID_ADDRESS)
 	return INVALID_ADDRESS;
@@ -239,18 +241,22 @@ bitmap bitmap_wrap(heap h, u64 * map, u64 length)
 void bitmap_unwrap(bitmap b)
 {
     if (b->alloc_map)
-	unwrap_buffer(b->h, b->alloc_map);
-    deallocate(b->h, b, sizeof(struct bitmap));
+	unwrap_buffer(b->meta, b->alloc_map);
+    deallocate(b->meta, b, sizeof(struct bitmap));
 }
 
 bitmap bitmap_clone(bitmap b)
 {
-    bitmap c = allocate_bitmap_internal(b->h, b->maxbits);
+    if (!b->map)           /* no wrapped, we'd need refcounts and all that crap */
+        return INVALID_ADDRESS;
+    bitmap c = allocate_bitmap_internal(b->meta, b->maxbits);
     c->mapbits = b->mapbits;
     u64 mapbytes = c->mapbits >> 3;
-    c->alloc_map = allocate_buffer(b->h, mapbytes);
+    c->alloc_map = allocate_buffer(b->map, mapbytes);
     if (c->alloc_map == INVALID_ADDRESS)
 	return INVALID_ADDRESS;
+    c->map = b->map;
+    c->meta = b->meta;
     runtime_memcpy(buffer_ref(c->alloc_map, 0), buffer_ref(b->alloc_map, 0), mapbytes);
     buffer_produce(c->alloc_map, mapbytes);
     return c;
