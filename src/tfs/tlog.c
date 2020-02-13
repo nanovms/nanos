@@ -1,10 +1,5 @@
 /* TODO
-   x fix completion vector - reset or delete / replace
-   - add magic and version to each extension / remove special case for first
-   - figure MAX_VARINT_SIZE
-   - figure TFS_LOG_FILL_THRESHOLD
    - replace SECTOR_* with fs->block_size
-   - store current log size in tl, don't assume default
  */
 
 #include <tfs_internal.h>
@@ -17,6 +12,7 @@
 #define tlog_debug(x, ...)
 #endif
 
+#define TFS_MAGIC_BYTES 6
 static const char *tfs_magic = "NVMTFS";
 
 #define END_OF_LOG 1
@@ -27,12 +23,11 @@ static const char *tfs_magic = "NVMTFS";
 
 #define COMPLETION_QUEUE_SIZE 10
 
-#define MAX_VARINT_SIZE 10 /* XXX figure this out */
+#define MAX_VARINT_SIZE 10 /* to encode 64 significant bits */
 
-/* This is arbitrary, because we can't really know how much space an
-   encoded tuple or eav would require. We *might* be able to eliminate
-   this by parameterizing the expand function on buffer allocation. */
-#define TFS_LOG_FILL_THRESHOLD (TFS_LOG_DEFAULT_EXTENSION_SIZE - 128)
+#define TFS_EXTENSION_HEADER_BYTES (TFS_MAGIC_BYTES + 2 * MAX_VARINT_SIZE)
+#define TFS_EXTENSION_LINK_BYTES (1 + 2 * MAX_VARINT_SIZE)
+#define TFS_LOG_RESERVED_BYTES (TFS_EXTENSION_HEADER_BYTES + TFS_EXTENSION_LINK_BYTES)
 
 typedef struct log {
     filesystem fs;
@@ -154,7 +149,7 @@ closure_function(7, 1, void, log_extend_link,
 
 static void init_log_extension(buffer b, u64 sectors)
 {
-    push_buffer(b, alloca_wrap_cstring(tfs_magic));
+    push_buffer(b, alloca_wrap_buffer(tfs_magic, TFS_MAGIC_BYTES));
     push_varint(b, TFS_VERSION);
     push_varint(b, sectors);
 }
@@ -194,25 +189,28 @@ boolean log_extend(log tl, u64 size) {
     return true;
 }
 
-#define TUPLE_AVAILABLE_MAX_SIZE (1 + 2 * MAX_VARINT_SIZE)
+#define TUPLE_AVAILABLE_HEADER_SIZE (1 + 2 * MAX_VARINT_SIZE)
+#define TUPLE_AVAILABLE_MIN_SIZE (TUPLE_AVAILABLE_HEADER_SIZE + 32 /* arbitrary */)
 
 static inline void log_write_internal(log tl, status_handler sh)
 {
     u64 remaining = buffer_length(tl->tuple_staging);
     u64 written = 0;
+    u64 size;
 
     do {
-        if (tl->staging->end >= TFS_LOG_FILL_THRESHOLD) {
+        size = range_span(tl->sectors) << SECTOR_OFFSET;
+        u64 min = TFS_EXTENSION_LINK_BYTES + TUPLE_AVAILABLE_MIN_SIZE;
+        if (tl->staging->end + min >= size) {
             if (!log_extend(tl, TFS_LOG_DEFAULT_EXTENSION_SIZE)) {
                 apply(sh, timm("result", "log_write failed to extend log: out of storage"));
                 return;
             }
+            size = range_span(tl->sectors) << SECTOR_OFFSET;
         }
-        assert(tl->staging->end < TFS_LOG_FILL_THRESHOLD);
-        // XXX really should get size from tl
-        u64 avail = TFS_LOG_DEFAULT_EXTENSION_SIZE - tl->staging->end;
-        assert(avail > TUPLE_AVAILABLE_MAX_SIZE);
-        u64 length = MIN(avail - TUPLE_AVAILABLE_MAX_SIZE, remaining);
+        assert(tl->staging->end + min < size);
+        u64 avail = size - (tl->staging->end + TFS_EXTENSION_LINK_BYTES + TUPLE_AVAILABLE_HEADER_SIZE);
+        u64 length = MIN(avail, remaining);
         if (written == 0) {
             push_u8(tl->staging, TUPLE_AVAILABLE);
             push_varint(tl->staging, remaining);
@@ -308,12 +306,11 @@ closure_function(2, 1, void, log_read_complete,
 
     tlog_debug("-> new log extension, checking magic and version\n");
     if (!tl->extension_open) {
-        u64 len = runtime_strlen(tfs_magic);
-        if (runtime_memcmp(buffer_ref(b, 0), tfs_magic, len)) {
+        if (runtime_memcmp(buffer_ref(b, 0), tfs_magic, TFS_MAGIC_BYTES)) {
             s = timm("result", "tfs magic mismatch");
             goto out_apply_status;
         }
-        buffer_consume(b, len);
+        buffer_consume(b, TFS_MAGIC_BYTES);
         u64 version = pop_varint(b);
         if (version != TFS_VERSION) {
             s = timm("result", "tfs version mismatch (read %ld, build %ld)", version, TFS_VERSION);
