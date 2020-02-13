@@ -14,6 +14,7 @@ extern io_status_handler ignore_io_status;
 
 void create_filesystem(heap h,
                        u64 alignment,
+                       u64 blocksize,
                        u64 size,
                        heap dma,
                        block_io read,

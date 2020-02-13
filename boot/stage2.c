@@ -274,6 +274,7 @@ void newstack()
 
     create_filesystem(h,
                       SECTOR_SIZE,
+                      SECTOR_SIZE,
                       infinity,
                       0,         /* ignored in boot */
                       get_stage2_disk_read(h, fs_offset),

@@ -28,7 +28,7 @@ typedef struct filesystem {
     block_io w;
     log tl;
     tuple root;
-    bytes blocksize;
+    int blocksize_order;
 } *filesystem;
 
 void ingest_extent(fsfile f, symbol foff, tuple value);
@@ -43,3 +43,18 @@ void flush(filesystem fs, status_handler);
     
 typedef closure_type(buffer_status, buffer, status);
 fsfile allocate_fsfile(filesystem fs, tuple md);
+
+static inline u64 fs_blocksize(filesystem fs)
+{
+    return U64_FROM_BIT(fs->blocksize_order);
+}
+
+static inline u64 bytes_from_sectors(filesystem fs, u64 sectors)
+{
+    return sectors << fs->blocksize_order;
+}
+
+static inline u64 sector_from_offset(filesystem fs, bytes b)
+{
+    return b >> fs->blocksize_order;
+}

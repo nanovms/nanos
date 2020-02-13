@@ -182,6 +182,7 @@ closure_function(2, 3, void, attach_storage,
     heap h = heap_general(&heaps);
     create_filesystem(h,
                       SECTOR_SIZE,
+                      SECTOR_SIZE,
                       length,
                       heap_backed(&heaps),
                       closure(h, offset_block_io, bound(fs_offset), r),

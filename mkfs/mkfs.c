@@ -371,6 +371,7 @@ int main(int argc, char **argv)
     // fixing the size doesn't make sense in this context?
     create_filesystem(h,
                       SECTOR_SIZE,
+                      SECTOR_SIZE,
                       infinity,
                       h,
                       0, /* no read -> new fs */

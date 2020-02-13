@@ -142,6 +142,7 @@ int main(int argc, char **argv)
     tuple root = allocate_tuple();
     create_filesystem(h,
                       SECTOR_SIZE,
+                      SECTOR_SIZE,
                       infinity,
                       h,
                       closure(h, bread, fd, get_fs_offset(fd)),

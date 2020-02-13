@@ -1,7 +1,3 @@
-/* TODO
-   - replace SECTOR_* with fs->block_size
- */
-
 #include <tfs_internal.h>
 
 //#define TLOG_DEBUG
@@ -82,9 +78,9 @@ static void log_flush_internal(heap h, filesystem fs, buffer b, range log_range,
 #endif
 
     assert(buffer_length(b) > 0); /* END_OF_LOG, at least */
-    assert((b->start & MASK(SECTOR_OFFSET)) == 0);
-    u64 sector_start = log_range.start + (b->start >> SECTOR_OFFSET);
-    u64 sectors = (buffer_length(b) + (SECTOR_SIZE - 1)) >> SECTOR_OFFSET;
+    assert((b->start & MASK(fs->blocksize_order)) == 0);
+    u64 sector_start = log_range.start + sector_from_offset(fs, b->start);
+    u64 sectors = sector_from_offset(fs, buffer_length(b) + (fs_blocksize(fs) - 1));
     range write_range = irange(sector_start, sector_start + sectors);
     assert(range_contains(log_range, write_range));
 
@@ -94,7 +90,7 @@ static void log_flush_internal(heap h, filesystem fs, buffer b, range log_range,
     if (!release) {
         b->end -= 1;                /* next write removes END_OF_LOG */
         tlog_debug("log ext offset was %d (end %d)\n", b->start, b->end);
-        b->start = b->end & ~MASK(SECTOR_OFFSET); /* next storage write starting here */
+        b->start = b->end & ~MASK(fs->blocksize_order); /* next storage write starting here */
         tlog_debug("log ext offset now %d\n", b->start);
         assert(b->end >= b->start);
     }
@@ -161,8 +157,8 @@ boolean log_extend(log tl, u64 size) {
     u64 offset = allocate_u64(tl->fs->storage, size);
     if (offset == INVALID_PHYSICAL)
         return false;
-    offset >>= SECTOR_OFFSET;
-    u64 sectors = size >> SECTOR_OFFSET;
+    offset = sector_from_offset(tl->fs, offset);
+    u64 sectors = sector_from_offset(tl->fs, size);
     range r = irange(offset, offset + sectors);
     buffer nb = allocate_buffer(tl->h, size);
 
@@ -171,7 +167,7 @@ boolean log_extend(log tl, u64 size) {
     tlog_debug("new log extension sector range %R, sectors %d staging %p\n", r, sectors, nb);
     init_log_extension(nb, sectors);
     push_u8(nb, END_OF_LOG);
-    assert(buffer_length(nb) < SECTOR_SIZE);
+    assert(buffer_length(nb) < fs_blocksize(tl->fs));
     range wr = irange(offset, offset + 1);
 
     /* Somewhat dicey assumption that, as with other writes, this
@@ -192,6 +188,11 @@ boolean log_extend(log tl, u64 size) {
 #define TUPLE_AVAILABLE_HEADER_SIZE (1 + 2 * MAX_VARINT_SIZE)
 #define TUPLE_AVAILABLE_MIN_SIZE (TUPLE_AVAILABLE_HEADER_SIZE + 32 /* arbitrary */)
 
+static inline u64 log_size(log tl)
+{
+    return bytes_from_sectors(tl->fs, range_span(tl->sectors));
+}
+
 static inline void log_write_internal(log tl, status_handler sh)
 {
     u64 remaining = buffer_length(tl->tuple_staging);
@@ -199,14 +200,14 @@ static inline void log_write_internal(log tl, status_handler sh)
     u64 size;
 
     do {
-        size = range_span(tl->sectors) << SECTOR_OFFSET;
+        size = log_size(tl);
         u64 min = TFS_EXTENSION_LINK_BYTES + TUPLE_AVAILABLE_MIN_SIZE;
         if (tl->staging->end + min >= size) {
             if (!log_extend(tl, TFS_LOG_DEFAULT_EXTENSION_SIZE)) {
                 apply(sh, timm("result", "log_write failed to extend log: out of storage"));
                 return;
             }
-            size = range_span(tl->sectors) << SECTOR_OFFSET;
+            size = log_size(tl);
         }
         assert(tl->staging->end + min < size);
         u64 avail = size - (tl->staging->end + TFS_EXTENSION_LINK_BYTES + TUPLE_AVAILABLE_HEADER_SIZE);
@@ -341,7 +342,7 @@ closure_function(2, 1, void, log_read_complete,
             /* XXX validate against device */
             assert(tl->staging);
             buffer_clear(tl->staging);
-            extend_total(tl->staging, length << SECTOR_OFFSET);
+            extend_total(tl->staging, bytes_from_sectors(tl->fs, length));
             tl->sectors = r;
             tl->extension_open = false;
 
@@ -390,8 +391,6 @@ closure_function(2, 1, void, log_read_complete,
             }
         default:
             tlog_debug("-> unknown encoding type %d\n", frame);
-            b->end = SECTOR_SIZE;
-            tlog_debug("%X\n", b);
             s = timm("result", "unknown frame identifier 0x%x\n", frame);
             goto out_apply_status;
         }
@@ -450,14 +449,14 @@ closure_function(2, 1, void, log_read_complete,
 
 static boolean init_staging(log tl, status_handler sh)
 {
-    u64 size = range_span(tl->sectors) << SECTOR_OFFSET;
+    u64 size = log_size(tl);
     tl->staging = allocate_buffer(tl->h, size);
     tlog_debug("reading log extension, sectors %R, staging %p\n",
                tl->sectors, tl->staging);
 
 #ifndef BOOT
     /* reserve sectors in map */
-    if (!id_heap_set_area(tl->fs->storage, tl->sectors.start << SECTOR_OFFSET,
+    if (!id_heap_set_area(tl->fs->storage, bytes_from_sectors(tl->fs, tl->sectors.start),
                           size, true, true)) {
         const char *err = "failed to reserve sectors in allocation map";
         tlog_debug("%s\n", err);
@@ -484,7 +483,7 @@ log log_create(heap h, filesystem fs, status_handler sh)
     tlog_debug("log_create: heap %p, fs %p, sh %p\n", h, fs, sh);
     log tl = allocate(h, sizeof(struct log));
     tl->h = h;
-    tl->sectors = irange(0, TFS_LOG_DEFAULT_EXTENSION_SIZE >> SECTOR_OFFSET);
+    tl->sectors = irange(0, sector_from_offset(fs, TFS_LOG_DEFAULT_EXTENSION_SIZE));
     tl->fs = fs;
     tl->completions = allocate_vector(h, COMPLETION_QUEUE_SIZE);
     tl->dictionary = allocate_table(h, identity_key, pointer_equal);
