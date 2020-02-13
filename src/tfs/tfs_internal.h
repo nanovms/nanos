@@ -34,8 +34,6 @@ void ingest_extent(fsfile f, symbol foff, tuple value);
 log log_create(heap h, filesystem fs, status_handler sh);
 void log_write(log tl, tuple t, status_handler sh);
 void log_write_eav(log tl, tuple e, symbol a, value v, status_handler sh);
-
-#define INITIAL_LOG_SIZE (512*KB)
 void read_log(log tl, status_handler sh);
 void log_flush(log tl);
 boolean log_flush_complete(log tl, status_handler completion);

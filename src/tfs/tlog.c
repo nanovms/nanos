@@ -1,6 +1,7 @@
 #include <tfs_internal.h>
 
 //#define TLOG_DEBUG
+//#define TLOG_DEBUG_DUMP
 #ifdef TLOG_DEBUG
 #define tlog_debug(x, ...) do {rprintf("TLOG: " x, ##__VA_ARGS__);} while(0)
 #else
@@ -12,8 +13,17 @@
 #define END_OF_SEGMENT 3
 #define LOG_EXTENSION_LINK 4
 #define LOG_EXTENSION_HEADER 5
+#define TUPLE_EXTENDED 6
 
 #define COMPLETION_QUEUE_SIZE 10
+
+#define MAX_VARINT_SIZE 10 /* XXX figure this out */
+
+/* This is arbitrary, because we can't really know how much space an
+   encoded tuple or eav would require. We *might* be able to eliminate
+   this by parameterizing the expand function on buffer allocation. */
+#define TFS_LOG_FILL_THRESHOLD (TFS_LOG_DEFAULT_EXTENSION_SIZE - 128)
+
 typedef struct log {
     filesystem fs;
     vector completions;         /* XXX change to queue */
@@ -22,6 +32,8 @@ typedef struct log {
     /* sector offset, length and staging buffer of current extension */
     range sectors;
     buffer staging;
+    buffer tuple_staging;
+    u64 tuple_bytes_remain;
 
     int dirty;              /* cas boolean */
     heap h;
@@ -56,7 +68,7 @@ static void log_flush_internal(heap h, filesystem fs, buffer b, range log_range,
 {
     push_u8(b, END_OF_LOG);
 
-#ifdef TLOG_DEBUG
+#ifdef TLOG_DEBUG_DUMP
     u64 z = b->end;
     b->start = 0;
     b->end = 1024;
@@ -64,20 +76,22 @@ static void log_flush_internal(heap h, filesystem fs, buffer b, range log_range,
     b->end = z;
 #endif
 
-    u64 sector_start = b->start;
-    assert(sector_start < b->end); /* END_OF_LOG, at least */
-    assert((sector_start & MASK(SECTOR_OFFSET)) == 0);
-    sector_start = log_range.start + (sector_start >> SECTOR_OFFSET);
+    assert(buffer_length(b) > 0); /* END_OF_LOG, at least */
+    assert((b->start & MASK(SECTOR_OFFSET)) == 0);
+    u64 sector_start = log_range.start + (b->start >> SECTOR_OFFSET);
     u64 sectors = (buffer_length(b) + (SECTOR_SIZE - 1)) >> SECTOR_OFFSET;
     range write_range = irange(sector_start, sector_start + sectors);
     assert(range_contains(log_range, write_range));
 
-    apply(fs->w, buffer_ref(b, 0), write_range,
-          closure(h, log_write_completion, b, completions, release));
+    void *p = buffer_ref(b, 0);
+    tlog_debug("log_flush_internal: writing sectors %R, buffer addr %p\n", write_range, p);
+    apply(fs->w, p, write_range, closure(h, log_write_completion, b, completions, release));
     if (!release) {
         b->end -= 1;                /* next write removes END_OF_LOG */
-        tlog_debug("log ext offset was %d now %d\n", b->start, b->end);
+        tlog_debug("log ext offset was %d (end %d)\n", b->start, b->end);
         b->start += (sectors - 1) << SECTOR_OFFSET;        /* pick up next write here */
+        tlog_debug("log ext offset now %d\n", b->start);
+        assert(b->end > b->start);
     }
 }
 
@@ -110,6 +124,8 @@ closure_function(7, 1, void, log_extend_link,
                  vector, c,
                  status, s)
 {
+    tlog_debug("linking old extension to new and flushing\n");
+
     /* add link to close out old extension and commit */
     buffer b = bound(b);
     push_u8(b, LOG_EXTENSION_LINK);
@@ -120,19 +136,20 @@ closure_function(7, 1, void, log_extend_link,
     log_flush_internal(bound(h), bound(fs), b, bound(r), bound(c), true);
 }
 
-boolean log_extend(log tl) {
+boolean log_extend(log tl, u64 size) {
     tlog_debug("log_extend: tl %p\n", tl);
 
     /* allocate new log and write with end of log */
-    u64 offset = allocate_u64(tl->fs->storage, INITIAL_LOG_SIZE);
+    u64 offset = allocate_u64(tl->fs->storage, size);
     if (offset == INVALID_PHYSICAL)
         return false;
     offset >>= SECTOR_OFFSET;
-    u64 sectors = INITIAL_LOG_SIZE >> SECTOR_OFFSET;
+    u64 sectors = size >> SECTOR_OFFSET;
     range r = irange(offset, offset + sectors);
-    buffer nb = allocate_buffer(tl->h, INITIAL_LOG_SIZE);
+    buffer nb = allocate_buffer(tl->h, size);
 
     /* new log extension */
+    tl->dirty = true;
     tlog_debug("new log extension sector range %R, sectors %d staging %p\n", r, sectors, nb);
     push_u8(nb, LOG_EXTENSION_HEADER);
     push_varint(nb, sectors);
@@ -142,8 +159,9 @@ boolean log_extend(log tl) {
 
     /* Somewhat dicey assumption that, as with other writes, this
        buffer is not touched after return... */
-    tlog_debug("link old extension to new and switch over\n");
-    apply(tl->fs->w, buffer_ref(nb, 0), wr,
+    void *p = buffer_ref(nb, 0);
+    tlog_debug("log_extend: writing new extension, sectors %R, buffer %p\n", wr, p);
+    apply(tl->fs->w, p, wr,
           closure(tl->h, log_extend_link, offset, sectors, tl->h, tl->fs,
                   tl->staging, tl->sectors, tl->completions));
     nb->end -= 1;
@@ -154,50 +172,113 @@ boolean log_extend(log tl) {
     return true;
 }
 
-void log_write_eav(log tl, tuple e, symbol a, value v, status_handler sh)
+#define TUPLE_AVAILABLE_MAX_SIZE (1 + 2 * MAX_VARINT_SIZE)
+
+static inline void log_write_internal(log tl, status_handler sh)
 {
-    tlog_debug("log_write_eav: tl %p, e %p (%t), a \"%b\", v %v\n", tl, e, e, symbol_string(a), v);
-    if (tl->staging->end > INITIAL_LOG_SIZE - 32) {
-        if (!log_extend(tl)) {
-            apply(sh, timm("result", "log_write_eav failed to extend log: out of storage"));
-            return;
+    u64 remaining = buffer_length(tl->tuple_staging);
+    u64 written = 0;
+
+    do {
+        if (tl->staging->end >= TFS_LOG_FILL_THRESHOLD) {
+            if (!log_extend(tl, TFS_LOG_DEFAULT_EXTENSION_SIZE)) {
+                apply(sh, timm("result", "log_write failed to extend log: out of storage"));
+                return;
+            }
         }
-    }
-    push_u8(tl->staging, TUPLE_AVAILABLE);
-    encode_eav(tl->staging, tl->dictionary, e, a, v);
+        assert(tl->staging->end < TFS_LOG_FILL_THRESHOLD);
+        // XXX really should get size from tl
+        u64 avail = TFS_LOG_DEFAULT_EXTENSION_SIZE - tl->staging->end;
+        assert(avail > TUPLE_AVAILABLE_MAX_SIZE);
+        u64 length = MIN(avail - TUPLE_AVAILABLE_MAX_SIZE, remaining);
+        if (written == 0) {
+            push_u8(tl->staging, TUPLE_AVAILABLE);
+            push_varint(tl->staging, remaining);
+        } else {
+            push_u8(tl->staging, TUPLE_EXTENDED);
+        }
+        push_varint(tl->staging, length);
+        buffer_write(tl->staging, buffer_ref(tl->tuple_staging, 0), length);
+        buffer_consume(tl->tuple_staging, length);
+        remaining -= length;
+        written += length;
+    } while (remaining > 0);
+
+    /* assign completion to the last log extension flush */
     vector_push(tl->completions, sh);
     tl->dirty = true;
+}
+
+void log_write_eav(log tl, tuple e, symbol a, value v, status_handler sh)
+{
+    tlog_debug("log_write_eav: tl %p, e %p, a %p, v %p\n", tl, e, a, v);
+    encode_eav(tl->tuple_staging, tl->dictionary, e, a, v);
+    log_write_internal(tl, sh);
 }
 
 void log_write(log tl, tuple t, status_handler sh)
 {
-    tlog_debug("log_write: tl %p, t %p (%t)\n", tl, t, t);
-    if (tl->staging->end > INITIAL_LOG_SIZE - 32) {
-        if (!log_extend(tl)) {
-            apply(sh, timm("result", "log_write failed to extend log: out of storage"));
-            return;
+    tlog_debug("log_write: tl %p, t %p\n", tl, t);
+    encode_tuple(tl->tuple_staging, tl->dictionary, t);
+    log_write_internal(tl, sh);
+}
+
+static boolean log_parse_tuple(log tl, buffer b)
+{
+    tuple dv = decode_value(tl->h, tl->dictionary, b);
+    tlog_debug("   decoded %p\n", dv);
+    if (tagof(dv) != tag_tuple)
+        return false;
+
+    fsfile f = 0;
+    u64 filelength = infinity;
+    tuple t = (tuple)dv;
+
+    table_foreach(t, k, v) {
+        if (k == sym(extents)) {
+            tlog_debug("extents: %p\n", v);
+            /* don't know why this needs to be in fs, it's really tlog-specific */
+            if (!(f = table_find(tl->fs->extents, v))) {
+                f = allocate_fsfile(tl->fs, t);
+                table_set(tl->fs->extents, v, f);
+                tlog_debug("   created fsfile %p\n", f);
+            } else {
+                tlog_debug("   found fsfile %p\n", f);
+            }
+        } else if (k == sym(filelength)) {
+            assert(u64_from_value(v, &filelength));
         }
     }
-    push_u8(tl->staging, TUPLE_AVAILABLE);
-    // this should be incremental on root!
-    encode_tuple(tl->staging, tl->dictionary, t);
-    vector_push(tl->completions, sh);
-    tl->dirty = true;
+        
+    if (f && filelength != infinity) {
+        tlog_debug("   update fsfile length to %ld\n", filelength);
+        fsfile_set_length(f, filelength);
+    }
+
+    return true;
+}
+
+static inline void log_tuple_produce(log tl, buffer b, u64 length)
+{
+    buffer_write(tl->tuple_staging, buffer_ref(b, 0), length);
+    buffer_consume(b, length);
+    tl->tuple_bytes_remain -= length;
 }
 
 closure_function(2, 1, void, log_read_complete,
                  log, tl, status_handler, sh,
-                 status, s)
+                 status, read_status)
 {
     log tl = bound(tl);
+    status s = STATUS_OK;
     status_handler sh = bound(sh);
     buffer b = tl->staging;
     u8 frame = 0;
-    u64 sector, length;
+    u64 sector, length, tuple_length;
 
-    tlog_debug("log_read_complete: buffer len %d, status %v\n", buffer_length(b), s);
-    if (!is_ok(s)) {
-        apply(sh, s);
+    tlog_debug("log_read_complete: buffer len %d, status %p\n", buffer_length(b), read_status);
+    if (!is_ok(read_status)) {
+        apply(sh, timm_up(read_status, "result", "read failed"));
         closure_finish();
         return;
     }
@@ -219,9 +300,8 @@ closure_function(2, 1, void, log_read_complete,
             sector = pop_varint(b); /* XXX need to complete the error handling here */
             length = pop_varint(b);
             if (length == 0) {
-                apply(sh, timm("result", "zero-length extension\n"));
-                closure_finish();
-                return;
+                s = timm("result", "zero-length extension");
+                goto out_apply_status;
             }
             range r = irange(sector, sector + length);
 
@@ -233,50 +313,58 @@ closure_function(2, 1, void, log_read_complete,
 
             /* chain to next log extension, carrying status handler to end */
             read_log(tl, sh);
-            closure_finish();
-            return;
+            goto out;
         case TUPLE_AVAILABLE:
-            break;
-        default:
-            apply(sh, timm("result", "unknown frame identifier 0x%x\n", frame));
-            closure_finish();
-            return;
-        }
-        tuple dv = decode_value(tl->h, tl->dictionary, b);
-        tlog_debug("   decoded %p\n", dv);
-        if (tagof(dv) != tag_tuple)
-            continue;
-
-        fsfile f = 0;
-        u64 filelength = infinity;
-        tuple t = (tuple)dv;
-
-        table_foreach(t, k, v) {
-            if (k == sym(extents)) {
-                tlog_debug("extents: %p\n", v);
-                /* don't know why this needs to be in fs, it's really tlog-specific */
-                if (!(f = table_find(tl->fs->extents, v))) {
-                    f = allocate_fsfile(tl->fs, t);
-                    table_set(tl->fs->extents, v, f);
-                    tlog_debug("   created fsfile %p\n", f);
-                } else {
-                    tlog_debug("   found fsfile %p\n", f);
-                }
-            } else if (k == sym(filelength)) {
-                assert(u64_from_value(v, &filelength));
+            tlog_debug("-> tuple available\n");
+            if (tl->tuple_bytes_remain > 0) {
+                s = timm("result", "TUPLE_AVAILABLE read while already parsing tuple (%ld remaining)",
+                         tl->tuple_bytes_remain);
+                goto out_apply_status;
             }
-        }
-        
-        if (f && filelength != infinity) {
-            tlog_debug("   update fsfile length to %ld\n", filelength);
-            fsfile_set_length(f, filelength);
+            tuple_length = pop_varint(b);
+            length = pop_varint(b); /* of segment */
+            tlog_debug("tuple total length %ld, available %ld\n", tuple_length, length);
+            if (length > tuple_length || length + 1 > buffer_length(b)) {
+                s = timm("result", "TUPLE_AVAILABLE read with invalid or short available "
+                         "length (%ld, tuple_length: %ld, buffer length: %ld)",
+                         length, tuple_length, buffer_length(b));
+                goto out_apply_status;
+            }
+            if (length == tuple_length) {
+                /* read at once from log staging */
+                log_parse_tuple(tl, b);
+            } else {
+                /* this tuple is in installments */
+                buffer_clear(tl->tuple_staging);
+                tl->tuple_bytes_remain = tuple_length;
+                log_tuple_produce(tl, b, length);
+            }
+            break;
+        case TUPLE_EXTENDED:
+            tlog_debug("-> tuple extended data\n");
+            length = pop_varint(b);
+            if (length > tl->tuple_bytes_remain) {
+                s = timm("result", "TUPLE_EXTENDED read of length %ld, exceeding remainder %ld",
+                         length, tl->tuple_bytes_remain);
+                goto out_apply_status;
+            }
+            tlog_debug("need %ld, available %ld\n", tl->tuple_bytes_remain, length);
+            log_tuple_produce(tl, b, length);
+            if (tl->tuple_bytes_remain == 0) {
+                log_parse_tuple(tl, tl->tuple_staging);
+                buffer_clear(tl->tuple_staging);
+            }
+        default:
+            s = timm("result", "unknown frame identifier 0x%x\n", frame);
+            goto out_apply_status;
         }
     }
+
+    assert(frame == END_OF_LOG);
+    tlog_debug("-> end of log\n");
 
     /* the log must go on */
-    if (frame == END_OF_LOG) {
-        *(u8*)(b->contents + b->start - 1) = END_OF_SEGMENT;
-    }
+    *(u8*)(b->contents + b->start - 1) = END_OF_SEGMENT;
 
     /* mark end of log */
     b->end = b->start;
@@ -284,10 +372,10 @@ closure_function(2, 1, void, log_read_complete,
     tlog_debug("   log parse finished, end now at %d\n", b->end);
 
     /* XXX this will only work for reading the log a single time
-       through, but at present we're not using any incremental log updates */
+       through, but at present that's all we do */
     table_foreach(tl->fs->extents, t, f) {
         table_foreach(t, off, e) {
-            tlog_debug("   tlog ingesting sym %b, val %p\n", symbol_string(off), e);
+            tlog_debug("   tlog ingesting sym %p, val %p\n", symbol_string(off), e);
             ingest_extent((fsfile)f, off, e);
         }
     }
@@ -315,7 +403,10 @@ closure_function(2, 1, void, log_read_complete,
     tl->dictionary = newdict;
 #endif
 
-    apply(sh, 0);
+  out_apply_status:
+    buffer_clear(tl->tuple_staging);
+    apply(sh, s);
+  out:
     closure_finish();
 }
 
@@ -333,12 +424,13 @@ log log_create(heap h, filesystem fs, status_handler sh)
     tlog_debug("log_create: heap %p, fs %p, sh %p\n", h, fs, sh);
     log tl = allocate(h, sizeof(struct log));
     tl->h = h;
-    tl->sectors = irange(0, INITIAL_LOG_SIZE >> SECTOR_OFFSET);
+    tl->sectors = irange(0, TFS_LOG_DEFAULT_EXTENSION_SIZE >> SECTOR_OFFSET);
     tl->fs = fs;
     tl->completions = allocate_vector(h, COMPLETION_QUEUE_SIZE);
     tl->dictionary = allocate_table(h, identity_key, pointer_equal);
     tl->dirty = false;
     tl->staging = 0;
+    tl->tuple_staging = allocate_buffer(h, PAGESIZE /* arbitrary */);
     fs->tl = tl;
     read_log(tl, sh);
     return tl;

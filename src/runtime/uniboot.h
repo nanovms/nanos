@@ -62,4 +62,6 @@ extern void * AP_BOOT_PAGE;
 /* could probably find progammatically via cpuid... */
 #define DEFAULT_CACHELINE_SIZE 64
 
+#define TFS_LOG_DEFAULT_EXTENSION_SIZE (512*KB)
+
 #include <x86.h>
