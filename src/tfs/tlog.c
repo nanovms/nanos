@@ -89,9 +89,9 @@ static void log_flush_internal(heap h, filesystem fs, buffer b, range log_range,
     if (!release) {
         b->end -= 1;                /* next write removes END_OF_LOG */
         tlog_debug("log ext offset was %d (end %d)\n", b->start, b->end);
-        b->start += (sectors - 1) << SECTOR_OFFSET;        /* pick up next write here */
+        b->start = b->end & ~MASK(SECTOR_OFFSET); /* next storage write starting here */
         tlog_debug("log ext offset now %d\n", b->start);
-        assert(b->end > b->start);
+        assert(b->end >= b->start);
     }
 }
 
@@ -276,8 +276,9 @@ closure_function(2, 1, void, log_read_complete,
     u8 frame = 0;
     u64 sector, length, tuple_length;
 
-    tlog_debug("log_read_complete: buffer len %d, status %p\n", buffer_length(b), read_status);
+    tlog_debug("log_read_complete: buffer len %d, status %v\n", buffer_length(b), read_status);
     if (!is_ok(read_status)) {
+        tlog_debug("read failure\n");
         apply(sh, timm_up(read_status, "result", "read failed"));
         closure_finish();
         return;
@@ -355,6 +356,9 @@ closure_function(2, 1, void, log_read_complete,
                 buffer_clear(tl->tuple_staging);
             }
         default:
+            tlog_debug("-> unknown encoding type %d\n", frame);
+            b->end = SECTOR_SIZE;
+            tlog_debug("%X\n", b);
             s = timm("result", "unknown frame identifier 0x%x\n", frame);
             goto out_apply_status;
         }
@@ -415,6 +419,16 @@ void read_log(log tl, status_handler sh)
     u64 size = range_span(tl->sectors) << SECTOR_OFFSET;
     tl->staging = allocate_buffer(tl->h, size);
     tlog_debug("reading log extension, sectors %R, staging %p\n", tl->sectors, tl->staging);
+    /* reserve sectors in map */
+#ifndef BOOT
+    if (!id_heap_set_area(tl->fs->storage, tl->sectors.start << SECTOR_OFFSET,
+                          range_span(tl->sectors) << SECTOR_OFFSET, true, true)) {
+        const char *err = "failed to reserve sectors in allocation map";
+        tlog_debug("%s\n", err);
+        apply(sh, timm("result", "%s", err));
+        return;
+    }
+#endif
     status_handler tlc = closure(tl->h, log_read_complete, tl, sh);
     apply(tl->fs->r, tl->staging->contents, tl->sectors, tlc);
 }

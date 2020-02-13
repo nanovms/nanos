@@ -1006,7 +1006,6 @@ void create_filesystem(heap h,
 #ifndef BOOT
     fs->storage = create_id_heap(h, h, 0, size, SECTOR_SIZE);
     assert(fs->storage != INVALID_ADDRESS);
-    assert(id_heap_set_area(fs->storage, 0, TFS_LOG_DEFAULT_EXTENSION_SIZE, true, true));
 #endif
     fs->tl = log_create(h, fs, closure(h, log_complete, complete, fs));
 }
