@@ -1,3 +1,12 @@
+/* TODO
+   x fix completion vector - reset or delete / replace
+   - add magic and version to each extension / remove special case for first
+   - figure MAX_VARINT_SIZE
+   - figure TFS_LOG_FILL_THRESHOLD
+   - replace SECTOR_* with fs->block_size
+   - store current log size in tl, don't assume default
+ */
+
 #include <tfs_internal.h>
 
 //#define TLOG_DEBUG
@@ -26,7 +35,7 @@
 
 typedef struct log {
     filesystem fs;
-    vector completions;         /* XXX change to queue */
+    vector completions;
     table dictionary;
 
     /* sector offset, length and staging buffer of current extension */
@@ -41,22 +50,21 @@ typedef struct log {
 
 closure_function(3, 1, void, log_write_completion,
                  buffer, b,
-                 value, completions,
+                 vector, completions,
                  boolean, release,
                  status, s)
 {
     // reclaim the buffer now and the vector...make it a whole thing
-    status_handler i;
     vector v = bound(completions);
-    int len = vector_length(v);
-    for (int count = 0; count < len; count++) {
-        i = vector_delete(v, 0);
-        apply(i, s);
-    }
-    if (bound(release)) {
+    status_handler sh;
+
+    vector_foreach(v, sh)
+        apply(sh, s);
+
+    deallocate_vector(v);
+
+    if (bound(release))
         deallocate_buffer(bound(b));
-        deallocate_vector(v);
-    }
     closure_finish();
 }
 
@@ -97,23 +105,29 @@ static void log_flush_internal(heap h, filesystem fs, buffer b, range log_range,
 
 void log_flush(log tl)
 {
-    if (!__sync_bool_compare_and_swap(&tl->dirty, 1, 0))
+    if (!tl->dirty)
         return;
+    tl->dirty = false;
 
     tlog_debug("log_flush: log %p dirty\n", tl);
-    log_flush_internal(tl->h, tl->fs, tl->staging, tl->sectors, tl->completions, false);
+    vector c = tl->completions;
+    tl->completions = allocate_vector(tl->h, COMPLETION_QUEUE_SIZE);
+    log_flush_internal(tl->h, tl->fs, tl->staging, tl->sectors, c, false);
 }
 
-boolean log_flush_complete(log tl, status_handler completion)
+void log_flush_complete(log tl, status_handler completion)
 {
+    tlog_debug("log_flush_complete: log %p, completion %p, dirty %d\n",
+               tl, completion, tl->dirty);
     if (!tl->dirty) {
-        return true;
+        apply(completion, STATUS_OK);
+        return;
     }
     vector_push(tl->completions, completion);
     log_flush(tl);
-    return false;
 }
 
+/* complete linkage in (now disembodied - thus long arg list) previous extension */
 closure_function(7, 1, void, log_extend_link,
                  u64, offset,
                  u64, sectors,
