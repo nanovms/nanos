@@ -17,12 +17,13 @@
 #define tlog_debug(x, ...)
 #endif
 
+static const char *tfs_magic = "NVMTFS";
+
 #define END_OF_LOG 1
 #define TUPLE_AVAILABLE 2
-#define END_OF_SEGMENT 3
-#define LOG_EXTENSION_LINK 4
-#define LOG_EXTENSION_HEADER 5
-#define TUPLE_EXTENDED 6
+#define TUPLE_EXTENDED 3
+#define END_OF_SEGMENT 4
+#define LOG_EXTENSION_LINK 5
 
 #define COMPLETION_QUEUE_SIZE 10
 
@@ -43,6 +44,7 @@ typedef struct log {
     buffer staging;
     buffer tuple_staging;
     u64 tuple_bytes_remain;
+    boolean extension_open;
 
     int dirty;              /* cas boolean */
     heap h;
@@ -150,6 +152,13 @@ closure_function(7, 1, void, log_extend_link,
     log_flush_internal(bound(h), bound(fs), b, bound(r), bound(c), true);
 }
 
+static void init_log_extension(buffer b, u64 sectors)
+{
+    push_buffer(b, alloca_wrap_cstring(tfs_magic));
+    push_varint(b, TFS_VERSION);
+    push_varint(b, sectors);
+}
+
 boolean log_extend(log tl, u64 size) {
     tlog_debug("log_extend: tl %p\n", tl);
 
@@ -165,8 +174,7 @@ boolean log_extend(log tl, u64 size) {
     /* new log extension */
     tl->dirty = true;
     tlog_debug("new log extension sector range %R, sectors %d staging %p\n", r, sectors, nb);
-    push_u8(nb, LOG_EXTENSION_HEADER);
-    push_varint(nb, sectors);
+    init_log_extension(nb, sectors);
     push_u8(nb, END_OF_LOG);
     assert(buffer_length(nb) < SECTOR_SIZE);
     range wr = irange(offset, offset + 1);
@@ -298,17 +306,30 @@ closure_function(2, 1, void, log_read_complete,
         return;
     }
 
+    tlog_debug("-> new log extension, checking magic and version\n");
+    if (!tl->extension_open) {
+        u64 len = runtime_strlen(tfs_magic);
+        if (runtime_memcmp(buffer_ref(b, 0), tfs_magic, len)) {
+            s = timm("result", "tfs magic mismatch");
+            goto out_apply_status;
+        }
+        buffer_consume(b, len);
+        u64 version = pop_varint(b);
+        if (version != TFS_VERSION) {
+            s = timm("result", "tfs version mismatch (read %ld, build %ld)", version, TFS_VERSION);
+            goto out_apply_status;
+        }
+        /* XXX the length is really for validation...so hook it up */
+        length = pop_varint(b);
+        tlog_debug("%ld sectors\n", length);
+        tl->extension_open = true;
+    }
+
     /* need to check bounds */
     while ((frame = pop_u8(b)) != END_OF_LOG) {
         switch (frame) {
         case END_OF_SEGMENT:
             tlog_debug("-> segment boundary\n");
-            continue;
-        case LOG_EXTENSION_HEADER:
-            tlog_debug("-> extend header\n");
-            /* XXX the length is really for validation...so hook it up */
-            length = pop_varint(b);
-            tlog_debug("%ld sectors\n", length);
             continue;
         case LOG_EXTENSION_LINK:
             tlog_debug("-> extend link\n");
@@ -325,6 +346,7 @@ closure_function(2, 1, void, log_read_complete,
             buffer_clear(tl->staging);
             extend_total(tl->staging, length << SECTOR_OFFSET);
             tl->sectors = r;
+            tl->extension_open = false;
 
             /* chain to next log extension, carrying status handler to end */
             read_log(tl, sh);
@@ -422,27 +444,40 @@ closure_function(2, 1, void, log_read_complete,
 #endif
 
   out_apply_status:
+    tlog_debug("log_read_complete exit with status %v\n", s);
     buffer_clear(tl->tuple_staging);
     apply(sh, s);
   out:
     closure_finish();
 }
 
-void read_log(log tl, status_handler sh)
+static boolean init_staging(log tl, status_handler sh)
 {
     u64 size = range_span(tl->sectors) << SECTOR_OFFSET;
     tl->staging = allocate_buffer(tl->h, size);
-    tlog_debug("reading log extension, sectors %R, staging %p\n", tl->sectors, tl->staging);
-    /* reserve sectors in map */
+    tlog_debug("reading log extension, sectors %R, staging %p\n",
+               tl->sectors, tl->staging);
+
 #ifndef BOOT
+    /* reserve sectors in map */
     if (!id_heap_set_area(tl->fs->storage, tl->sectors.start << SECTOR_OFFSET,
-                          range_span(tl->sectors) << SECTOR_OFFSET, true, true)) {
+                          size, true, true)) {
         const char *err = "failed to reserve sectors in allocation map";
         tlog_debug("%s\n", err);
         apply(sh, timm("result", "%s", err));
-        return;
+        deallocate_buffer(tl->staging);
+        tl->staging = 0;
+        return false;
     }
 #endif
+    return true;
+}
+
+void read_log(log tl, status_handler sh)
+{
+    assert(!tl->extension_open);
+    if (!init_staging(tl, sh))
+        return;
     status_handler tlc = closure(tl->h, log_read_complete, tl, sh);
     apply(tl->fs->r, tl->staging->contents, tl->sectors, tlc);
 }
@@ -459,7 +494,23 @@ log log_create(heap h, filesystem fs, status_handler sh)
     tl->dirty = false;
     tl->staging = 0;
     tl->tuple_staging = allocate_buffer(h, PAGESIZE /* arbitrary */);
+    tl->tuple_bytes_remain = 0;
+    tl->extension_open = false;
     fs->tl = tl;
-    read_log(tl, sh);
+    if (fs->r) {
+        read_log(tl, sh);
+    } else {
+        /* mkfs */
+        if (!init_staging(tl, sh))
+            goto fail_dealloc;
+        init_log_extension(tl->staging, range_span(tl->sectors));
+        apply(sh, STATUS_OK);
+    }
     return tl;
+  fail_dealloc:
+    deallocate_vector(tl->completions);
+    deallocate_table(tl->dictionary);
+    deallocate_buffer(tl->tuple_staging);
+    deallocate(h, tl, sizeof(struct log));
+    return INVALID_ADDRESS;
 }

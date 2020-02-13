@@ -146,13 +146,6 @@ closure_function(2, 3, void, bwrite,
     apply(c, STATUS_OK);
 }
 
-closure_function(1, 3, void, bread,
-                 descriptor, d,
-                 void *, source, range, blocks, status_handler, completion)
-{
-    apply(completion, timm("error", "empty file"));
-}
-
 closure_function(0, 1, void, err,
                  status, s)
 {
@@ -380,7 +373,7 @@ int main(int argc, char **argv)
                       SECTOR_SIZE,
                       infinity,
                       h,
-                      closure(h, bread, out),
+                      0, /* no read -> new fs */
                       closure(h, bwrite, out, offset),
                       allocate_tuple(),
                       closure(h, fsc, h, out, target_root));

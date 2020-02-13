@@ -2,6 +2,8 @@
 #include <runtime.h>
 #include <tfs.h>
 
+#define TFS_VERSION 0x00000001
+
 // ok, we wanted to make the inode number extensional, but holes
 // and random access writes make that difficult, so this is stateful
 // with an inode
