@@ -299,7 +299,7 @@ closure_function(2, 1, void, log_read_complete,
 
     tlog_debug("log_read_complete: buffer len %d, status %v\n", buffer_length(b), read_status);
     if (!is_ok(read_status)) {
-        tlog_debug("read failure\n");
+        tlog_debug("read failure: %v\n", read_status);
         apply(sh, timm_up(read_status, "result", "read failed"));
         closure_finish();
         return;
@@ -389,9 +389,10 @@ closure_function(2, 1, void, log_read_complete,
                 log_parse_tuple(tl, tl->tuple_staging);
                 buffer_clear(tl->tuple_staging);
             }
+            break;
         default:
             tlog_debug("-> unknown encoding type %d\n", frame);
-            s = timm("result", "unknown frame identifier 0x%x\n", frame);
+            s = timm("result", "unknown frame identifier 0x%x", frame);
             goto out_apply_status;
         }
     }
@@ -449,8 +450,13 @@ closure_function(2, 1, void, log_read_complete,
 
 static boolean init_staging(log tl, status_handler sh)
 {
+    char *err;
     u64 size = log_size(tl);
     tl->staging = allocate_buffer(tl->h, size);
+    if (tl->staging == INVALID_ADDRESS) {
+        err = "failed to allocate staging buffer";
+        goto fail;
+    }
     tlog_debug("reading log extension, sectors %R, staging %p\n",
                tl->sectors, tl->staging);
 
@@ -458,15 +464,17 @@ static boolean init_staging(log tl, status_handler sh)
     /* reserve sectors in map */
     if (!id_heap_set_area(tl->fs->storage, bytes_from_sectors(tl->fs, tl->sectors.start),
                           size, true, true)) {
-        const char *err = "failed to reserve sectors in allocation map";
-        tlog_debug("%s\n", err);
-        apply(sh, timm("result", "%s", err));
-        deallocate_buffer(tl->staging);
-        tl->staging = 0;
-        return false;
+        err = "failed to reserve sectors in allocation map";
+        goto fail;
     }
 #endif
     return true;
+  fail:
+    tlog_debug("%s\n", err);
+    apply(sh, timm("result", "%s", err));
+    deallocate_buffer(tl->staging);
+    tl->staging = 0;
+    return false;
 }
 
 void read_log(log tl, status_handler sh)
@@ -482,11 +490,17 @@ log log_create(heap h, filesystem fs, status_handler sh)
 {
     tlog_debug("log_create: heap %p, fs %p, sh %p\n", h, fs, sh);
     log tl = allocate(h, sizeof(struct log));
+    if (tl == INVALID_ADDRESS)
+        return tl;
     tl->h = h;
     tl->sectors = irange(0, sector_from_offset(fs, TFS_LOG_DEFAULT_EXTENSION_SIZE));
     tl->fs = fs;
     tl->completions = allocate_vector(h, COMPLETION_QUEUE_SIZE);
+    if (tl->completions == INVALID_ADDRESS)
+        goto fail_dealloc_dict;
     tl->dictionary = allocate_table(h, identity_key, pointer_equal);
+    if (tl->dictionary == INVALID_ADDRESS)
+        goto fail_dealloc_tstage;
     tl->dirty = false;
     tl->staging = 0;
     tl->tuple_staging = allocate_buffer(h, PAGESIZE /* arbitrary */);
@@ -505,7 +519,9 @@ log log_create(heap h, filesystem fs, status_handler sh)
     return tl;
   fail_dealloc:
     deallocate_vector(tl->completions);
+  fail_dealloc_dict:
     deallocate_table(tl->dictionary);
+  fail_dealloc_tstage:
     deallocate_buffer(tl->tuple_staging);
     deallocate(h, tl, sizeof(struct log));
     return INVALID_ADDRESS;
