@@ -321,10 +321,6 @@ void unregister_interrupt(int vector)
     handlers[vector] = 0;
 }
 
-#define FAULT_STACK_PAGES       8
-#define SYSCALL_STACK_PAGES     8
-#define TSS_SIZE                0x68
-
 extern volatile void * TSS;
 static inline void write_tss_u64(int cpu, int offset, u64 val)
 {

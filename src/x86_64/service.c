@@ -169,7 +169,9 @@ closure_function(1, 2, void, fsstarted,
                  tuple, root,
                  filesystem, fs, status, s)
 {
-    assert(s == STATUS_OK);
+    if (!is_ok(s))
+        halt("unable to open filesystem: %v\n", s);
+
     enqueue(runqueue, create_init(&heaps, bound(root), fs));
     closure_finish();
 }

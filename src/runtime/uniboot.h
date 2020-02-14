@@ -49,6 +49,13 @@ extern void * AP_BOOT_PAGE;
    recycled in stage3, so be generous */
 #define STAGE2_WORKING_HEAP_SIZE (128 * MB)
 
+#define STAGE2_STACK_PAGES  32  /* stage2 stack is recycled, too */
+#define KERNEL_STACK_PAGES  32
+#define FAULT_STACK_PAGES   8
+#define INT_STACK_PAGES     8
+#define BH_STACK_PAGES      8
+#define SYSCALL_STACK_PAGES 8
+
 /* maximum buckets that can fit within a PAGESIZE_2M mcache */
 #define TABLE_MAX_BUCKETS 131072
 

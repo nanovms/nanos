@@ -8,6 +8,9 @@
 #include <serial.h>
 #include <drivers/ata.h>
 
+//#define STAGE2_DEBUG
+//#define DEBUG_STAGE2_ALLOC
+
 #ifdef STAGE2_DEBUG
 # define stage2_debug rprintf
 #else
@@ -28,7 +31,7 @@ extern void run64(u32 entry);
  */
 
 #define EARLY_WORKING_SIZE   KB
-#define STACKLEN             (8 * PAGESIZE)
+#define STACKLEN             (STAGE2_STACK_PAGES * PAGESIZE)
 
 #define REAL_MODE_STACK_SIZE 0x1000
 #define SCRATCH_BASE         0x500
@@ -182,9 +185,13 @@ static u64 working_saved_base;
 closure_function(0, 4, void, kernel_elf_map,
                  u64, vaddr, u64, paddr, u64, size, u64, flags)
 {
+    stage2_debug("%s: vaddr 0x%lx, paddr 0x%lx, size 0x%lx, flags 0x%lx\n",
+                 __func__, vaddr, paddr, size, flags);
+
     if (paddr == INVALID_PHYSICAL) {
         /* bss */
         paddr = allocate_u64(heap_physical(&kh), size);
+        stage2_debug("bss paddr 0x%lx, end 0x%lx\n", paddr, paddr + size);
         assert(paddr != INVALID_PHYSICAL);
         zero(pointer_from_u64(paddr), size);
     }
@@ -199,6 +206,7 @@ closure_function(0, 1, status, kernel_read_complete,
     /* save kernel elf image for use in stage3 (for symbol data) */
     create_region(u64_from_pointer(buffer_ref(kb, 0)), pad(buffer_length(kb), PAGESIZE), REGION_KERNIMAGE);
 
+    stage2_debug("%s: load_elf\n", __func__);
     void *k = load_elf(kb, 0, stack_closure(kernel_elf_map));
     if (!k) {
         halt("kernel elf parse failed\n");
@@ -208,6 +216,7 @@ closure_function(0, 1, status, kernel_read_complete,
     assert(working_saved_base);
     create_region(working_saved_base, STAGE2_WORKING_HEAP_SIZE, REGION_PHYSICAL);
 
+    stage2_debug("%s: run64, start address %p\n", __func__, k);
     run64(u64_from_pointer(k));
     halt("failed to start long mode\n");
 }
@@ -255,6 +264,8 @@ closure_function(4, 2, void, filesystem_initialized,
                  heap, h, heap, physical, tuple, root, buffer_handler, complete,
                  filesystem, fs, status, s)
 {
+    if (!is_ok(s))
+        halt("unable to open filesystem: %v\n", s);
     filesystem_read_entire(fs, lookup(bound(root), sym(kernel)),
                            bound(physical),
                            bound(complete),

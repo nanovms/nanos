@@ -1,11 +1,6 @@
 #pragma once
 
 #define STACK_ALIGNMENT     16
-#define KERNEL_STACK_PAGES  32
-#define FAULT_STACK_PAGES   8
-#define INT_STACK_PAGES     8
-#define BH_STACK_PAGES      8
-#define SYSCALL_STACK_PAGES 8
 
 #define VIRTUAL_ADDRESS_BITS 48
 
@@ -34,6 +29,8 @@
 #define C0_WP   0x00010000
 
 #define FLAG_INTERRUPT 9
+
+#define TSS_SIZE 0x68
 
 static inline void compiler_barrier(void)
 {
