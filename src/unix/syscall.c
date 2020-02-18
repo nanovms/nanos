@@ -1954,7 +1954,7 @@ void syscall_debug(context f)
     set_syscall_return(t, -ENOSYS); // xx - not happy about this cast
 
     if (call < 0 || call >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0])) {
-        schedule_frame(t->frame);
+        schedule_frame(f);
         thread_log(current, "invalid syscall %d", call);
         runloop();
     }
@@ -1972,10 +1972,10 @@ void syscall_debug(context f)
     if (h) {
         proc_enter_system(current->p);
 
-        sysreturn rv = h(t->frame[FRAME_RDI], t->frame[FRAME_RSI], t->frame[FRAME_RDX], t->frame[FRAME_R10], t->frame[FRAME_R8], t->frame[FRAME_R9]);
+        sysreturn rv = h(f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]);
         set_syscall_return(current, rv);
         if (debugsyscalls)
-            thread_log(current, "direct return: %ld, rsp 0x%lx", rv, t->frame[FRAME_RSP]);
+            thread_log(current, "direct return: %ld, rsp 0x%lx", rv, f[FRAME_RSP]);
     } else if (debugsyscalls) {
         if (s->name)
             thread_log(current, "nosyscall %s", s->name);
