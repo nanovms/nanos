@@ -16,12 +16,12 @@ global apinit
         %define CR4_PGE (1<<7)
         %define CR4_OSFXSR (1<<9)
         %define CR4_OSXMMEXCPT (1<<10)        
-        %define CR4_XSAVE (1<<18)                
+        %define CR4_OSXSAVE (1<<18)                
         
 apinit:
         mov ax, cs
         mov ds, ax
-        mov eax, CR4_PAE | CR4_PGE | CR4_XSAVE 
+        mov eax, CR4_PAE | CR4_PGE | CR4_OSXSAVE 
         mov cr4, eax
         mov edx, [ap_pagetable-apinit]
         mov cr3, edx        ; page table (relocated copy)

@@ -186,10 +186,14 @@ declare_closure_struct(1, 0, void, free_thread,
 declare_closure_struct(1, 0, void, resume_syscall,
                        thread, t);
 
+/* XXX probably should bite bullet and allocate these... */
+#define FRAME_MAX_PADDED ((FRAME_MAX + 15) & ~15)
+
 typedef struct thread {
     // if we use an array typedef its fragile
     // there are likley assumptions that frame sits at the base of thread
-    u64 frame[FRAME_MAX];
+    u64 frame[FRAME_MAX_PADDED];
+    u64 sigframe[FRAME_MAX];
     char name[16]; /* thread name */
     int syscall;
     process p;
@@ -222,7 +226,6 @@ typedef struct thread {
     struct sigstate signals;
     sigstate dispatch_sigstate; /* while signal handler in flight, save sigstate... */
     u64 saved_rax;              /* ... and t->frame[FRAME_RAX] */
-    u64 sigframe[FRAME_MAX];
     notify_set signalfds;
     u16 active_signo;
 

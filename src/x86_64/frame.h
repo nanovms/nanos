@@ -44,5 +44,5 @@
 #define FRAME_QUEUE 33
 #define FRAME_FULL 34 
 #define FRAME_EXTENDED_SAVE 40
-#define FRAME_MAX 104
+#define FRAME_MAX 104           /* XXX FXSAVE only */
 

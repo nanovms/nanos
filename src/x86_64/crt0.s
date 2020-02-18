@@ -248,7 +248,7 @@ syscall_enter:
 syscall_return:
         load_seg_base FRAME_FSBASE
         load_seg_base FRAME_GSBASE
-        save_extended_registers rdi
+        load_extended_registers rdi
         mov rax, [rdi+FRAME_RAX*8]
         mov rbx, [rdi+FRAME_RBX*8]
         mov rdx, [rdi+FRAME_RDX*8]

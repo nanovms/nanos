@@ -266,7 +266,7 @@ thread create_thread(process p)
     t->clear_tid = 0;
     t->name[0] = '\0';
     zero(t->frame, sizeof(t->frame));
-    zero(t->sigframe, sizeof(t->frame));
+    zero(t->sigframe, sizeof(t->sigframe));
     assert(!((u64_from_pointer(t)) & 63));
     t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(create_fault_handler(h, t));
     // xxx - dup with allocate_frame
@@ -279,7 +279,10 @@ thread create_thread(process p)
     
     t->sigframe[FRAME_FAULT_HANDLER] = t->frame[FRAME_FAULT_HANDLER];
     t->sigframe[FRAME_QUEUE] = t->frame[FRAME_QUEUE];
+    t->sigframe[FRAME_IS_SYSCALL] = 1;
     t->sigframe[FRAME_RUN] = u64_from_pointer(closure(h, run_sighandler, t));
+    xsave(t->sigframe);
+
     // xxx another max 64
     t->affinity.mask[0] = MASK(total_processors);
     t->blocked_on = 0;
