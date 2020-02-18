@@ -12,10 +12,16 @@
         extern ap_lock
 global apinit
 
+        %define CR4_PAE (1<<5)
+        %define CR4_PGE (1<<7)
+        %define CR4_OSFXSR (1<<9)
+        %define CR4_OSXMMEXCPT (1<<10)        
+        %define CR4_XSAVE (1<<18)                
+        
 apinit:
         mov ax, cs
         mov ds, ax
-        mov eax, 10100000b  ; Set the PAE and PGE bit.
+        mov eax, CR4_PAE | CR4_PGE | CR4_XSAVE 
         mov cr4, eax
         mov edx, [ap_pagetable-apinit]
         mov cr3, edx        ; page table (relocated copy)
@@ -31,7 +37,7 @@ apinit:
         or ebx, 0x2         ; set MP
         mov cr0, ebx
         mov ebx, cr4
-        or ebx, 0x600       ; set osxmmexcpt and osfxsr
+        or ebx, CR4_OSFXSR | CR4_OSXMMEXCPT
         mov cr4, ebx
 
         ;; load from relocated copy of gdt pointer

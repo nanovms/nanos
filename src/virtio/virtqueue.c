@@ -178,7 +178,7 @@ closure_function(1, 0, void, vq_interrupt,
             d = vq->desc + d->next;
             dcount++;
         }
-        assert(dcount == m->count);
+        assert(dcount == m->count); // fail
         d->next = vq->desc_idx;
         vq->desc_idx = head;
 
@@ -355,7 +355,7 @@ static void virtqueue_fill(virtqueue vq)
         vq->avail->idx++;
 
         list nn = list_get_next(n);
-        list_delete(n);
+        list_delete(n); // fail
         n = nn;
     }
 

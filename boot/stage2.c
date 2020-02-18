@@ -307,6 +307,10 @@ static u64 stage2_allocator(heap h, bytes b)
     return result;
 }
 
+#define CR4_OSFXSR (1<<9)
+#define CR4_OSXMMEXCPT (1<<10)
+#define CR4_XSAVE (1<<18)
+
 void centry()
 {
     working_heap.alloc = stage2_allocator;
@@ -323,10 +327,12 @@ void centry()
     u32 cr0, cr4;
     mov_from_cr("cr0", cr0);
     mov_from_cr("cr4", cr4);
+    // make a header
     cr0 &= ~(1<<2); // clear EM
     cr0 |= 1<<1; // set MP EM
-    cr4 |= 1<<9; // set osfxsr
-    cr4 |= 1<<10; // set osxmmexcpt
+    cr4 |= CR4_OSFXSR;
+    cr4 |= CR4_OSXMMEXCPT;
+    cr4 |= CR4_XSAVE;
 //    cr4 |= 1<<20; // set smep - use once we do kernel / user split
     mov_to_cr("cr0", cr0);
     mov_to_cr("cr4", cr4);    

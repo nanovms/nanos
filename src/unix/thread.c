@@ -237,6 +237,8 @@ define_closure_function(1, 0, void, resume_syscall, thread, t)
     syscall_debug(bound(t)->deferred_frame);
 }
 
+void xsave(void *);
+
 thread create_thread(process p)
 {
     // heap I guess
@@ -265,13 +267,16 @@ thread create_thread(process p)
     t->name[0] = '\0';
     zero(t->frame, sizeof(t->frame));
     zero(t->sigframe, sizeof(t->frame));
-    
+    assert(!((u64_from_pointer(t)) & 63));
     t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(create_fault_handler(h, t));
     // xxx - dup with allocate_frame
     t->frame[FRAME_QUEUE] = u64_from_pointer(thread_queue);
     t->frame[FRAME_IS_SYSCALL] = 1;
     t->frame[FRAME_RUN] = u64_from_pointer(closure(h, run_thread, t));
-
+    
+    // needed when using proper xsave to avoid encoding a frame parsable by xrstor
+    xsave(t);
+    
     t->sigframe[FRAME_FAULT_HANDLER] = t->frame[FRAME_FAULT_HANDLER];
     t->sigframe[FRAME_QUEUE] = t->frame[FRAME_QUEUE];
     t->sigframe[FRAME_RUN] = u64_from_pointer(closure(h, run_sighandler, t));
