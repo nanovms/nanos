@@ -990,6 +990,7 @@ void create_filesystem(heap h,
                        block_io read,
                        block_io write,
                        tuple root,
+                       boolean initialize,
                        filesystem_complete complete)
 {
     tfs_debug("create_filesystem: ...\n");
@@ -1009,7 +1010,7 @@ void create_filesystem(heap h,
     fs->storage = create_id_heap(h, h, 0, size, fs_blocksize(fs));
     assert(fs->storage != INVALID_ADDRESS);
 #endif
-    fs->tl = log_create(h, fs, closure(h, log_complete, complete, fs));
+    fs->tl = log_create(h, fs, initialize, closure(h, log_complete, complete, fs));
 }
 
 tuple filesystem_getroot(filesystem fs)

@@ -17,9 +17,10 @@ void create_filesystem(heap h,
                        u64 blocksize,
                        u64 size,
                        heap dma,
-                       block_io read,
+                       block_io read, /* read and write are optional */
                        block_io write,
                        tuple root,
+                       boolean initialize,
                        filesystem_complete complete);
 
 // there is a question as to whether tuple->fs file should be mapped inside out outside the filesystem

@@ -190,6 +190,7 @@ closure_function(2, 3, void, attach_storage,
                       closure(h, offset_block_io, bound(fs_offset), r),
                       closure(h, offset_block_io, bound(fs_offset), w),
                       bound(root),
+                      false,
                       closure(h, fsstarted, bound(root)));
     closure_finish();
 }

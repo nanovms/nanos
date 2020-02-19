@@ -486,7 +486,7 @@ void read_log(log tl, status_handler sh)
     apply(tl->fs->r, tl->staging->contents, tl->sectors, tlc);
 }
 
-log log_create(heap h, filesystem fs, status_handler sh)
+log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
 {
     tlog_debug("log_create: heap %p, fs %p, sh %p\n", h, fs, sh);
     log tl = allocate(h, sizeof(struct log));
@@ -507,14 +507,14 @@ log log_create(heap h, filesystem fs, status_handler sh)
     tl->tuple_bytes_remain = 0;
     tl->extension_open = false;
     fs->tl = tl;
-    if (fs->r) {
-        read_log(tl, sh);
-    } else {
+    if (initialize) {
         /* mkfs */
         if (!init_staging(tl, sh))
             goto fail_dealloc;
         init_log_extension(tl->staging, range_span(tl->sectors));
         apply(sh, STATUS_OK);
+    } else {
+        read_log(tl, sh);
     }
     return tl;
   fail_dealloc:

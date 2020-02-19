@@ -291,6 +291,7 @@ void newstack()
                       get_stage2_disk_read(h, fs_offset),
                       closure(h, stage2_empty_write),
                       root,
+                      false,
                       closure(h, filesystem_initialized, h, physical, root, bh));
     
     halt("kernel failed to execute\n");

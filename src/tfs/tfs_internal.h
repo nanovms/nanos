@@ -33,7 +33,7 @@ typedef struct filesystem {
 
 void ingest_extent(fsfile f, symbol foff, tuple value);
 
-log log_create(heap h, filesystem fs, status_handler sh);
+log log_create(heap h, filesystem fs, boolean initialize, status_handler sh);
 void log_write(log tl, tuple t, status_handler sh);
 void log_write_eav(log tl, tuple e, symbol a, value v, status_handler sh);
 void read_log(log tl, status_handler sh);

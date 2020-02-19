@@ -377,6 +377,7 @@ int main(int argc, char **argv)
                       0, /* no read -> new fs */
                       closure(h, bwrite, out, offset),
                       allocate_tuple(),
+                      true,
                       closure(h, fsc, h, out, target_root));
 
     if (bootimg_path != NULL)
