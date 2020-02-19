@@ -504,6 +504,15 @@ static inline boolean ingest_parse_int(tuple value, symbol s, u64 * i)
     return retval;
 }
 
+boolean filesystem_reserve_storage(filesystem fs, u64 start, u64 length)
+{
+#ifndef BOOT
+    if (fs->w)
+        return id_heap_set_area(fs->storage, start, length, true, true);
+#endif
+    return true;
+}
+
 void ingest_extent(fsfile f, symbol off, tuple value)
 {
     tfs_debug("ingest_extent: f %p, off %b, value %v\n", f, symbol_string(off), value);
@@ -515,13 +524,12 @@ void ingest_extent(fsfile f, symbol off, tuple value)
     assert(ingest_parse_int(value, sym(allocated), &allocated));
     tfs_debug("   file offset %ld, length %ld, block_start 0x%lx, allocated %ld\n",
               file_offset, length, block_start, allocated);
-#ifndef BOOT
-    if (!id_heap_set_area(f->fs->storage, block_start, allocated, true, true)) {
+
+    if (!filesystem_reserve_storage(f->fs, block_start, allocated)) {
         /* soft error... */
         msg_err("unable to reserve storage at start 0x%lx, len 0x%lx\n",
                 block_start, allocated);
     }
-#endif
     range r = irange(file_offset, file_offset + length);
     extent ex = allocate_extent(f->fs->h, r, block_start, allocated);
     if (ex == INVALID_ADDRESS)

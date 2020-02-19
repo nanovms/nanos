@@ -40,6 +40,7 @@ void read_log(log tl, status_handler sh);
 void log_flush(log tl);
 void log_flush_complete(log tl, status_handler completion);
 void flush(filesystem fs, status_handler);
+boolean filesystem_reserve_storage(filesystem fs, u64 start, u64 length);
     
 typedef closure_type(buffer_status, buffer, status);
 fsfile allocate_fsfile(filesystem fs, tuple md);

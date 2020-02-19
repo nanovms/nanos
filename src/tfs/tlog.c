@@ -170,8 +170,6 @@ boolean log_extend(log tl, u64 size) {
     assert(buffer_length(nb) < fs_blocksize(tl->fs));
     range wr = irange(offset, offset + 1);
 
-    /* Somewhat dicey assumption that, as with other writes, this
-       buffer is not touched after return... */
     void *p = buffer_ref(nb, 0);
     tlog_debug("log_extend: writing new extension, sectors %R, buffer %p\n", wr, p);
     apply(tl->fs->w, p, wr,
@@ -427,18 +425,18 @@ closure_function(2, 1, void, log_read_complete,
         }
     }
 
-#ifndef BOOT
-    /* Reverse pairs in dictionary so that we can use it for writing
-       the next log segment. */
-    table newdict = allocate_table(tl->h, identity_key, pointer_equal);
-    table_foreach(tl->dictionary, k, v) {
-        tlog_debug("   dict swap: k %p, v %p, type %d\n", k, v, tagof(v));
-        if (tagof(v) == tag_tuple || tagof(v) == tag_symbol)
-            table_set(newdict, v, k);
+    if (tl->fs->w) {
+        /* Reverse pairs in dictionary so that we can use it for writing
+           the next log segment. */
+        table newdict = allocate_table(tl->h, identity_key, pointer_equal);
+        table_foreach(tl->dictionary, k, v) {
+            tlog_debug("   dict swap: k %p, v %p, type %d\n", k, v, tagof(v));
+            if (tagof(v) == tag_tuple || tagof(v) == tag_symbol)
+                table_set(newdict, v, k);
+        }
+        deallocate_table(tl->dictionary);
+        tl->dictionary = newdict;
     }
-    deallocate_table(tl->dictionary);
-    tl->dictionary = newdict;
-#endif
 
   out_apply_status:
     tlog_debug("log_read_complete exit with status %v\n", s);
@@ -460,14 +458,11 @@ static boolean init_staging(log tl, status_handler sh)
     tlog_debug("reading log extension, sectors %R, staging %p\n",
                tl->sectors, tl->staging);
 
-#ifndef BOOT
     /* reserve sectors in map */
-    if (!id_heap_set_area(tl->fs->storage, bytes_from_sectors(tl->fs, tl->sectors.start),
-                          size, true, true)) {
+    if (!filesystem_reserve_storage(tl->fs, bytes_from_sectors(tl->fs, tl->sectors.start), size)) {
         err = "failed to reserve sectors in allocation map";
         goto fail;
     }
-#endif
     return true;
   fail:
     tlog_debug("%s\n", err);
