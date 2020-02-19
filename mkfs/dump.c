@@ -142,11 +142,13 @@ int main(int argc, char **argv)
     tuple root = allocate_tuple();
     create_filesystem(h,
                       SECTOR_SIZE,
+                      SECTOR_SIZE,
                       infinity,
                       h,
                       closure(h, bread, fd, get_fs_offset(fd)),
                       closure(h, bwrite, fd),
                       root,
+                      false,
                       closure(h, fsc, h, alloca_wrap_buffer(argv[2], runtime_strlen(argv[2])), root));
     return EXIT_SUCCESS;
 }

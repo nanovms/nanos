@@ -1171,12 +1171,9 @@ sysreturn fsync(int fd)
     file f = resolve_fd(current->p, fd);
 
     file_op_begin(current);
-    if (filesystem_flush(current->p->fs, f->n,
-            closure(heap_general(get_kernel_heaps()), fsync_complete, current,
-            f))) {
-        /* Nothing to sync. */
-        return set_syscall_return(current, 0);
-    }
+    filesystem_flush(current->p->fs, f->n,
+                     closure(heap_general(get_kernel_heaps()),
+                             fsync_complete, current, f));
     return file_op_maybe_sleep(current);
 }
 

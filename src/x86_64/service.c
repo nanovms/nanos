@@ -169,7 +169,9 @@ closure_function(1, 2, void, fsstarted,
                  tuple, root,
                  filesystem, fs, status, s)
 {
-    assert(s == STATUS_OK);
+    if (!is_ok(s))
+        halt("unable to open filesystem: %v\n", s);
+
     enqueue(runqueue, create_init(&heaps, bound(root), fs));
     closure_finish();
 }
@@ -182,11 +184,13 @@ closure_function(2, 3, void, attach_storage,
     heap h = heap_general(&heaps);
     create_filesystem(h,
                       SECTOR_SIZE,
+                      SECTOR_SIZE,
                       length,
                       heap_backed(&heaps),
                       closure(h, offset_block_io, bound(fs_offset), r),
                       closure(h, offset_block_io, bound(fs_offset), w),
                       bound(root),
+                      false,
                       closure(h, fsstarted, bound(root)));
     closure_finish();
 }
