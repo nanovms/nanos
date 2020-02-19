@@ -189,11 +189,14 @@ declare_closure_struct(1, 0, void, resume_syscall,
 /* XXX probably should bite bullet and allocate these... */
 #define FRAME_MAX_PADDED ((FRAME_MAX + 15) & ~15)
 
+#define thread_frame(t) ((t)->active_frame)
+#define set_thread_frame(t, f) do { (t)->active_frame = (f); } while(0)
+
 typedef struct thread {
-    // if we use an array typedef its fragile
-    // there are likley assumptions that frame sits at the base of thread
-    u64 frame[FRAME_MAX_PADDED];
-    u64 sigframe[FRAME_MAX];
+    u64 default_frame[FRAME_MAX_PADDED];
+    u64 sighandler_frame[FRAME_MAX];
+    u64 *active_frame;         /* mux between default and sighandler */
+
     char name[16]; /* thread name */
     int syscall;
     process p;
@@ -224,8 +227,7 @@ typedef struct thread {
 
     /* signals pending and saved state */
     struct sigstate signals;
-    sigstate dispatch_sigstate; /* while signal handler in flight, save sigstate... */
-    u64 saved_rax;              /* ... and t->frame[FRAME_RAX] */
+    sigstate dispatch_sigstate; /* while signal handler in flight, save sigstate */
     notify_set signalfds;
     u16 active_signo;
 
@@ -533,24 +535,24 @@ static inline boolean thread_is_runnable(thread t)
 
 static inline sysreturn set_syscall_return(thread t, sysreturn val)
 {
-    t->frame[FRAME_RAX] = val;
+    thread_frame(t)[FRAME_RAX] = val;
     return val;
 }
 
 static inline sysreturn get_syscall_return(thread t)
 {
-    return t->frame[FRAME_RAX];
+    return thread_frame(t)[FRAME_RAX];
 }
 
 static inline sysreturn set_syscall_error(thread t, s32 val)
 {
-    t->frame[FRAME_RAX] = (sysreturn)-val;
+    thread_frame(t)[FRAME_RAX] = (sysreturn)-val;
     return (sysreturn)-val;
 }
 
 static inline sysreturn sysreturn_value(thread t)
 {
-    return (sysreturn)t->frame[FRAME_RAX];
+    return (sysreturn)thread_frame(t)[FRAME_RAX];
 }
 
 static inline void file_op_begin(thread t)
