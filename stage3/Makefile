@@ -66,6 +66,7 @@ SRCS-stage3.img= \
 	$(SRCDIR)/virtio/scsi.c \
 	$(SRCDIR)/xen/xen.c \
 	$(SRCDIR)/xen/xennet.c \
+	$(SRCDIR)/x86_64/ap.s \
 	$(SRCDIR)/x86_64/apic.c \
 	$(SRCDIR)/x86_64/backed_heap.c \
 	$(SRCDIR)/x86_64/breakpoint.c \
@@ -87,7 +88,7 @@ SRCS-stage3.img= \
 	$(SRCDIR)/x86_64/symtab.c \
 	$(SRCDIR)/x86_64/synth.c \
 	$(SRCDIR)/x86_64/vdso-now.c \
-	$(SRCDIR)/x86_64/ap.s \
+	$(SRCDIR)/x86_64/xapic.c \
 	$(SRCS-lwip)
 SRCS-lwip= \
 	$(LWIPDIR)/src/core/def.c \

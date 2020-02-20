@@ -2,70 +2,27 @@
 #include <page.h>
 #include <apic.h>
 
-#define APIC_BASE        0xfee00000ull
+#define IA32_APIC_BASE      0x01b
+#define IA32_APIC_BASE_BSP  0x100
+#define IA32_APIC_BASE_EXTD 0x400
+#define IA32_APIC_BASE_EN   0x800
 
-#define APIC_APICID      0x20
-#define APIC_APICVER     0x30
-#define APIC_TASKPRIOR   0x80
-#define APIC_EOI         0x0B0
-#define APIC_LDR         0x0D0
-#define APIC_DFR         0x0E0
-#define APIC_SPURIOUS    0x0F0
-#define APIC_ESR         0x280
-#define APIC_ICRL        0x300
-#define APIC_ICRH        0x310
-#define APIC_LVT_TMR     0x320
-#define APIC_LVT_PERF    0x340
-#define APIC_LVT_LINT0   0x350
-#define APIC_LVT_LINT1   0x360
-#define APIC_LVT_ERR     0x370
-#define APIC_TMRINITCNT  0x380
-#define APIC_TMRCURRCNT  0x390
-#define APIC_TMRDIV      0x3E0
-#define APIC_LAST        0x38F
-#define APIC_DISABLE     0x10000
-#define APIC_SW_ENABLE   0x100
-#define APIC_CPUFOCUS    0x200
-#define APIC_NMI         (4 << 8)
-#define TMR_PERIODIC     0x20000
-#define TMR_TSC_DEADLINE 0x40000
-#define TMR_BASEDIV      (1 << 20)
-#define APIC_LVT_INTMASK 0x00010000
+static heap apic_heap;
+static apic_iface aif;
 
-static heap apic_heap = 0;
-static u64 apic_vbase;
-
-    
 static inline void apic_write(int reg, u32 val)
 {
-    *(volatile u32 *)(apic_vbase + reg) = val;
+    aif->write(aif, reg, val);
 }
 
 static inline u32 apic_read(int reg)
 {
-    return *(volatile u32 *)(apic_vbase + reg);
+    return aif->read(aif, reg);
 }
 
 void apic_ipi(u32 target, u64 flags, u8 vector)
 {
-    u64 w;
-    u64 icr = (flags & ~0xff) | vector;
-    
-    if (target == TARGET_EXCLUSIVE_BROADCAST) {
-        w = icr | ICR_DEST_ALL_EXC_SELF;
-    } else {
-        w = icr | (((u64)target) << 56);
-    }
-    
-    apic_write(APIC_ICRH, (w >> 32) & 0xffffffff);
-    apic_write(APIC_ICRL, w & 0xffffffff);
-    for (int i = 0 ; i < 100; i++) {
-        if ((apic_read(APIC_ICRL) & (1<<12)) == 0) {
-            return;
-        }
-    }
-    console("ipi timed out\n");
-    return;
+    aif->ipi(aif, target, flags, vector);
 }
 
 u32 apic_id()
@@ -105,7 +62,7 @@ void lapic_eoi(void)
 
 void lapic_set_tsc_deadline_mode(u32 v)
 {
-    assert(apic_vbase);
+    assert(aif);
     write_barrier();
     apic_write(APIC_LVT_TMR, v | TMR_TSC_DEADLINE);
     write_barrier();
@@ -129,7 +86,7 @@ closure_function(1, 0, void, lapic_timer_percpu_init,
 
 boolean init_lapic_timer(clock_timer *ct, thunk *per_cpu_init)
 {
-    assert(apic_vbase);
+    assert(aif);
     *ct = closure(apic_heap, lapic_timer);
     int v = allocate_interrupt();
     register_interrupt(v, ignore, "lapic timer");
@@ -153,12 +110,17 @@ void enable_apic(void)
     apic_write(APIC_LVT_ERR, lvt_err_irq);
 }
 
+extern struct apic_iface xapic_if;
+
 void init_apic(kernel_heaps kh)
 {
     apic_heap = heap_general(kh);
-    apic_vbase = allocate_u64((heap)heap_virtual_page(kh), PAGESIZE);
-    assert(apic_vbase != INVALID_PHYSICAL);
-    map(apic_vbase, APIC_BASE, PAGESIZE, PAGE_DEV_FLAGS, heap_pages(kh));
+
+    if (xapic_if.detect_and_init(&xapic_if, kh)) {
+        aif = &xapic_if;
+    } else {
+        halt("unable to initialize xapic interface, giving up\n");
+    }
 
     lvt_err_irq = allocate_interrupt();
     assert(lvt_err_irq != INVALID_PHYSICAL);
