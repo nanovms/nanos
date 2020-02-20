@@ -130,6 +130,18 @@ Read more about Security [here](SECURITY.md).
 
 [Reference Materials](https://github.com/nanovms/nanos/wiki/reference-materials)
 
+### Feedback
+
+How are you using Nanos? Take this very short survey and help us grow
+the project. It will take just a minute but help us out!
+
+[Feedback Form](https://ian377411.typeform.com/to/nm0soI)
+
+### Who is Using Nanos?
+
+If you are using Nanos for a project at your company or organization
+feel free to open up a PR and list your project/company below.
+
 ### Getting Help
 
 We run a public mailing list at:

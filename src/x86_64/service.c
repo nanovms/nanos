@@ -32,7 +32,7 @@ static heap allocate_tagged_region(kernel_heaps kh, u64 tag)
     heap p = (heap)heap_physical(kh);
     u64 tag_base = tag << va_tag_offset;
     u64 tag_length = U64_FROM_BIT(va_tag_offset);
-    heap v = (heap)create_id_heap(h, tag_base, tag_length, p->pagesize);
+    heap v = (heap)create_id_heap(h, heap_backed(kh), tag_base, tag_length, p->pagesize);
     assert(v != INVALID_ADDRESS);
     heap backed = physically_backed(h, v, p, heap_pages(kh), p->pagesize);
     if (backed == INVALID_ADDRESS)
@@ -95,7 +95,9 @@ closure_function(1, 2, void, fsstarted,
                  tuple, root,
                  filesystem, fs, status, s)
 {
-    assert(s == STATUS_OK);
+    if (!is_ok(s))
+        halt("unable to open filesystem: %v\n", s);
+
     enqueue(runqueue, create_init(&heaps, bound(root), fs));
     closure_finish();
 }
@@ -108,11 +110,13 @@ closure_function(2, 3, void, attach_storage,
     heap h = heap_general(&heaps);
     create_filesystem(h,
                       SECTOR_SIZE,
+                      SECTOR_SIZE,
                       length,
                       heap_backed(&heaps),
                       closure(h, offset_block_io, bound(fs_offset), r),
                       closure(h, offset_block_io, bound(fs_offset), w),
                       bound(root),
+                      false,
                       closure(h, fsstarted, bound(root)));
     closure_finish();
 }
@@ -375,7 +379,7 @@ static void __attribute__((noinline)) init_service_new_stack()
 static heap init_pages_id_heap(heap h)
 {
     boolean found = false;
-    id_heap pages = allocate_id_heap(h, PAGESIZE);
+    id_heap pages = allocate_id_heap(h, h, PAGESIZE);
     for_regions(e) {
 	if (e->type == REGION_IDENTITY) {
             assert(!found);     /* should only be one... */
@@ -414,7 +418,7 @@ static heap init_pages_id_heap(heap h)
 
 static id_heap init_physical_id_heap(heap h)
 {
-    id_heap physical = allocate_id_heap(h, PAGESIZE);
+    id_heap physical = allocate_id_heap(h, h, PAGESIZE);
     boolean found = false;
     init_debug("physical memory:");
     for_regions(e) {
@@ -462,11 +466,11 @@ static void init_kernel_heaps()
        why would it ever need to be a parameter as opposed to global? */
     heaps.physical = init_page_tables(&bootstrap, init_physical_id_heap(&bootstrap));
 
-    heaps.virtual_huge = create_id_heap(&bootstrap, HUGE_PAGESIZE,
+    heaps.virtual_huge = create_id_heap(&bootstrap, &bootstrap, HUGE_PAGESIZE,
 				      (1ull<<VIRTUAL_ADDRESS_BITS)- HUGE_PAGESIZE, HUGE_PAGESIZE);
     assert(heaps.virtual_huge != INVALID_ADDRESS);
 
-    heaps.virtual_page = create_id_heap_backed(&bootstrap, (heap)heaps.virtual_huge, PAGESIZE);
+    heaps.virtual_page = create_id_heap_backed(&bootstrap, &bootstrap, (heap)heaps.virtual_huge, PAGESIZE);
     assert(heaps.virtual_page != INVALID_ADDRESS);
 
     heaps.backed = physically_backed(&bootstrap, (heap)heaps.virtual_page, (heap)heaps.physical, heaps.pages, PAGESIZE);

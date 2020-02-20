@@ -129,7 +129,7 @@ static fs_dma_buf fs_allocate_dma_buffer(filesystem fs, extent e, range i)
     fs_dma_buf db = allocate(fs->h, sizeof(struct fs_dma_buf));
     if (db == INVALID_ADDRESS)
         return db;
-    bytes blocksize = fs->blocksize;
+    bytes blocksize = fs_blocksize(fs);
     bytes absolute = e->block_start + i.start - e->node.r.start;
     db->start_offset = absolute & (blocksize - 1);
     db->data_length = range_span(i);
@@ -207,7 +207,7 @@ closure_function(4, 1, void, fs_read_extent,
     tfs_debug("fs_read_extent: q %R, ex %R, blocks %R, start_offset %ld, i %R, "
               "target_offset %ld, target_start %p, length %ld, blocksize %ld\n",
               q, node->r, db->blocks, db->start_offset, i,
-              target_offset, target_start, db->data_length, (u64)fs->blocksize);
+              target_offset, target_start, db->data_length, fs_blocksize(fs));
 
     status_handler f = apply_merge(bound(m));
     fetch_and_add(&target->end, db->data_length);
@@ -313,7 +313,7 @@ void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler
         return;
     }
 
-    u64 length = pad(fsfile_get_length(f), fs->blocksize);
+    u64 length = pad(fsfile_get_length(f), fs_blocksize(fs));
     buffer b = allocate_buffer(bufheap, pad(length, bufheap->pagesize));
     filesystem_read_internal(fs, f, b, length, 0, closure(fs->h, read_entire_complete, c, b, sh));
 }
@@ -366,7 +366,7 @@ closure_function(4, 1, void, fs_write_extent_aligned_closure,
 static void fs_write_extent_read_block(filesystem fs, fs_dma_buf db, u64 offset_block, status_handler sh)
 {
     u64 absolute_block = db->blocks.start + offset_block;
-    void * buf = db->buf + (offset_block * fs->blocksize);
+    void * buf = db->buf + bytes_from_sectors(fs, offset_block);
     range r = irange(absolute_block, absolute_block + 1);
     tfs_debug("fs_write_extent_read_block: sector range %R, buf %p\n", r, buf);
     apply(fs->r, buf, r, sh);
@@ -397,7 +397,7 @@ static void fs_write_extent(filesystem fs, buffer source, merge m, range q, rmno
 
     /* Check for unaligned block writes and initiate reads for them.
        This would all be obviated by a diskcache. */
-    boolean tail_rmw = ((db->data_length + db->start_offset) & (fs->blocksize - 1)) != 0 &&
+    boolean tail_rmw = ((db->data_length + db->start_offset) & (fs_blocksize(fs) - 1)) != 0 &&
         (i.end != node->r.end); /* no need to rmw tail if we're at the end of the extent */
     boolean plural = range_span(db->blocks) > 1;
 
@@ -504,6 +504,15 @@ static inline boolean ingest_parse_int(tuple value, symbol s, u64 * i)
     return retval;
 }
 
+boolean filesystem_reserve_storage(filesystem fs, u64 start, u64 length)
+{
+#ifndef BOOT
+    if (fs->w)
+        return id_heap_set_area(fs->storage, start, length, true, true);
+#endif
+    return true;
+}
+
 void ingest_extent(fsfile f, symbol off, tuple value)
 {
     tfs_debug("ingest_extent: f %p, off %b, value %v\n", f, symbol_string(off), value);
@@ -515,13 +524,12 @@ void ingest_extent(fsfile f, symbol off, tuple value)
     assert(ingest_parse_int(value, sym(allocated), &allocated));
     tfs_debug("   file offset %ld, length %ld, block_start 0x%lx, allocated %ld\n",
               file_offset, length, block_start, allocated);
-#ifndef BOOT
-    if (!id_heap_set_area(f->fs->storage, block_start, allocated, true, true)) {
+
+    if (!filesystem_reserve_storage(f->fs, block_start, allocated)) {
         /* soft error... */
         msg_err("unable to reserve storage at start 0x%lx, len 0x%lx\n",
                 block_start, allocated);
     }
-#endif
     range r = irange(file_offset, file_offset + length);
     extent ex = allocate_extent(f->fs->h, r, block_start, allocated);
     if (ex == INVALID_ADDRESS)
@@ -730,14 +738,14 @@ boolean filesystem_truncate(filesystem fs, fsfile f, u64 len,
     return false;
 }
 
-boolean filesystem_flush(filesystem fs, tuple t, status_handler completion)
+void filesystem_flush(filesystem fs, tuple t, status_handler completion)
 {
     /* A write() call returns after everything is sent to disk, so nothing to
      * do here. The only work that might be pending is when directory entries
      * are modified, see do_mkentry(); to deal with that, flush the filesystem
      * log.
      */
-    return log_flush_complete(fs->tl, completion);
+    log_flush_complete(fs->tl, completion);
 }
 
 fsfile allocate_fsfile(filesystem fs, tuple md)
@@ -984,11 +992,13 @@ closure_function(0, 2, void, ignore_io,
 
 void create_filesystem(heap h,
                        u64 alignment,
+                       u64 blocksize,
                        u64 size,
                        heap dma,
                        block_io read,
                        block_io write,
                        tuple root,
+                       boolean initialize,
                        filesystem_complete complete)
 {
     tfs_debug("create_filesystem: ...\n");
@@ -1002,13 +1012,13 @@ void create_filesystem(heap h,
     fs->w = write;
     fs->root = root;
     fs->alignment = alignment;
-    fs->blocksize = SECTOR_SIZE;
+    assert((blocksize & (blocksize - 1)) == 0); /* power of 2 */
+    fs->blocksize_order = find_order(blocksize);
 #ifndef BOOT
-    fs->storage = create_id_heap(h, 0, size, SECTOR_SIZE);
+    fs->storage = create_id_heap(h, h, 0, size, fs_blocksize(fs));
     assert(fs->storage != INVALID_ADDRESS);
-    assert(id_heap_set_area(fs->storage, 0, INITIAL_LOG_SIZE, true, true));
 #endif
-    fs->tl = log_create(h, fs, closure(h, log_complete, complete, fs));
+    fs->tl = log_create(h, fs, initialize, closure(h, log_complete, complete, fs));
 }
 
 tuple filesystem_getroot(filesystem fs)

@@ -31,6 +31,8 @@
 
 #define FLAG_INTERRUPT 9
 
+#define TSS_SIZE 0x68
+
 static inline void compiler_barrier(void)
 {
     asm volatile("" ::: "memory");

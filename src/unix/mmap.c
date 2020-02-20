@@ -558,7 +558,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     process p = current->p;
     kernel_heaps kh = get_kernel_heaps();
     heap h = heap_general(kh);
-    u64 len = pad(size, PAGESIZE) & MASK(32);
+    u64 len = pad(size, PAGESIZE);
     thread_log(current, "mmap: target %p, size 0x%lx, len 0x%lx, prot 0x%x, flags 0x%x, fd %d, offset 0x%lx",
 	       target, size, len, prot, flags, fd, offset);
 

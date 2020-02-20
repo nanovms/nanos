@@ -10,13 +10,14 @@ typedef struct id_heap {
     u64 total;
     u64 flags;
     heap meta;
+    heap map;
     heap parent;
     rangemap ranges;
 } *id_heap;
 
-id_heap create_id_heap(heap h, u64 base, u64 length, bytes pagesize);
-id_heap create_id_heap_backed(heap h, heap parent, bytes pagesize);
-id_heap allocate_id_heap(heap h, bytes pagesize); /* id heap with no ranges */
+id_heap create_id_heap(heap meta, heap map, u64 base, u64 length, bytes pagesize);
+id_heap create_id_heap_backed(heap meta, heap map, heap parent, bytes pagesize);
+id_heap allocate_id_heap(heap meta, heap map, bytes pagesize); /* id heap with no ranges */
 #define id_heap_add_range(__h, __b, __l) ((__h)->add_range(__h, __b, __l))
 #define id_heap_set_area(__h, __b, __l, __v, __a) ((__h)->set_area(__h, __b, __l, __v, __a))
 #define id_heap_set_randomize(__h, __r) ((__h)->set_randomize(__h, __r))
