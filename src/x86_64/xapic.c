@@ -4,7 +4,7 @@
 
 //#define XAPIC_DEBUG
 #ifdef XAPIC_DEBUG
-#define xapic_debug(x, ...) do {log_printf("XAPIC", x, ##__VA_ARGS__);} while(0)
+#define xapic_debug(x, ...) do {rprintf("xAPIC: " x, ##__VA_ARGS__);} while(0)
 #else
 #define xapic_debug(x, ...)
 #endif
@@ -15,35 +15,28 @@
 #define APIC_ICRL        0x830
 #define APIC_ICRH        0x831
 
-typedef struct xapic_iface {
-    struct apic_iface i;
-    heap h;
-    u64 vbase;
-} *xapic_iface;
+#define APIC_ICRL_DELIVERY_STATUS (1 << 12)
 
-static int xapic_from_x2apic_reg(int reg)
+static u64 xapic_vbase;
+
+static u64 xapic_from_x2apic_reg(int reg)
 {
+    assert(reg < APIC_LIMIT);
     return (reg & 0xff) << 4;
 }
 
 static void xapic_write(apic_iface i, int reg, u64 val)
 {
     xapic_debug("write to reg 0x%x, val 0x%x\n", reg, val);
-    assert(reg < APIC_LIMIT);
     assert((val & ~MASK(32)) == 0); /* 32 bit only on xapic */
-    *(volatile u32 *)(((xapic_iface)i)->vbase +
-                      xapic_from_x2apic_reg(reg)) = (u32)val;
+    *(volatile u32 *)(xapic_vbase + xapic_from_x2apic_reg(reg)) = (u32)val;
 }
 
 static u64 xapic_read(apic_iface i, int reg)
 {
-//    rprintf("i %p, reg 0x%x -> 0x%x\n", i, reg, xapic_from_x2apic_reg(reg));
-    assert(reg < APIC_LIMIT);
-//    rprintf("addr %p\n", (volatile u32 *)(((xapic_iface)i)->vbase +
-//                                          xapic_from_x2apic_reg(reg)));
-    u32 d = *(volatile u32 *)(((xapic_iface)i)->vbase +
-                              xapic_from_x2apic_reg(reg));
-    xapic_debug("read from reg 0x%x: 0x%x\n", reg, d);
+    xapic_debug("read from reg 0x%x\n", reg);
+    u32 d = *(volatile u32 *)(xapic_vbase + xapic_from_x2apic_reg(reg));
+    xapic_debug(" -> read 0x%x\n", d);
     return d;
 }
 
@@ -64,21 +57,20 @@ static void xapic_ipi(apic_iface i, u32 target, u64 flags, u8 vector)
     xapic_write(i, APIC_ICRH, (w >> 32) & 0xffffffff);
     xapic_write(i, APIC_ICRL, w & 0xffffffff);
     for (int j = 0 ; j < XAPIC_READ_TIMEOUT_ITERS; j++) {
-        if ((xapic_read(i, APIC_ICRL) & (1<<12)) == 0)
+        if ((xapic_read(i, APIC_ICRL) & APIC_ICRL_DELIVERY_STATUS) == 0)
             return;
         kern_pause();
     }
     console("ipi timed out\n");
-    return;
 }
 
 static boolean detect_and_init(apic_iface i, kernel_heaps kh)
 {
-    xapic_iface xi = (xapic_iface)i;
     /* assume we have it in the catch-all case - must be detected last */
-    xi->vbase = allocate_u64((heap)heap_virtual_page(kh), PAGESIZE);
-    assert(xi->vbase != INVALID_PHYSICAL);
-    map(xi->vbase, APIC_BASE, PAGESIZE, PAGE_DEV_FLAGS, heap_pages(kh));
+    xapic_vbase = allocate_u64((heap)heap_virtual_page(kh), PAGESIZE);
+    assert(xapic_vbase != INVALID_PHYSICAL);
+    map(xapic_vbase, APIC_BASE, PAGESIZE, PAGE_DEV_FLAGS, heap_pages(kh));
+    xapic_debug("xAPIC mode initialized\n");
     return true;
 }
 

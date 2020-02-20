@@ -2,11 +2,6 @@
 #include <page.h>
 #include <apic.h>
 
-#define IA32_APIC_BASE      0x01b
-#define IA32_APIC_BASE_BSP  0x100
-#define IA32_APIC_BASE_EXTD 0x400
-#define IA32_APIC_BASE_EN   0x800
-
 static heap apic_heap;
 static apic_iface aif;
 
@@ -110,13 +105,15 @@ void enable_apic(void)
     apic_write(APIC_LVT_ERR, lvt_err_irq);
 }
 
-extern struct apic_iface xapic_if;
+extern struct apic_iface xapic_if, x2apic_if;
 
 void init_apic(kernel_heaps kh)
 {
     apic_heap = heap_general(kh);
 
-    if (xapic_if.detect_and_init(&xapic_if, kh)) {
+    if (x2apic_if.detect_and_init(&x2apic_if, kh)) {
+        aif = &x2apic_if;
+    } else if (xapic_if.detect_and_init(&xapic_if, kh)) {
         aif = &xapic_if;
     } else {
         halt("unable to initialize xapic interface, giving up\n");
