@@ -38,15 +38,15 @@ extern  init_service
 
 
 %macro load_extended_registers 1
-;        mov edx, 0xffffffff
-;        mov eax, edx        
-        fxrstor [%1+FRAME_EXTENDED_SAVE*8] 
+        mov edx, 0xffffffff
+        mov eax, edx        
+        xrstor [%1+FRAME_EXTENDED_SAVE*8] 
 %endmacro
         
 %macro save_extended_registers 1
-;        mov edx, 0xffffffff     ;
-;        mov eax, edx
-        fxsave [%1+FRAME_EXTENDED_SAVE*8]  ; we wouldn't have to do this if we could guarantee no other user thread ran before us
+        mov edx, 0xffffffff     ;
+        mov eax, edx
+        xsave [%1+FRAME_EXTENDED_SAVE*8]  ; we wouldn't have to do this if we could guarantee no other user thread ran before us
 %endmacro
 
         
@@ -234,8 +234,8 @@ syscall_enter:
         mov rax, [gs:32]
         mov qword [rdi+FRAME_RDI*8], rax
         mov qword [rdi+FRAME_IS_SYSCALL*8], 1
-        mov rax, syscall        ; (running_frame, call)
         save_extended_registers rdi
+        mov rax, syscall        ; (running_frame, call)
         mov rax, [rax]
         mov rbx, [gs:16]
         mov [gs:8], rbx         ; move to kernel frame

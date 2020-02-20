@@ -360,6 +360,7 @@ u64 xsave_frame_size();
 context allocate_frame(heap h)
 {
     context f = allocate_zero(h, FRAME_MAX * sizeof(u64) + xsave_frame_size());
+    //xsave(f); - would like to do this generically, but faults early?
     assert((u64_from_pointer(f) & 63 ) == 0);
     assert(f != INVALID_ADDRESS);
     return f;
