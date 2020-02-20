@@ -70,3 +70,5 @@ extern void * AP_BOOT_PAGE;
 #define TFS_LOG_DEFAULT_EXTENSION_SIZE (512*KB)
 
 #include <x86.h>
+void xsave(void *);
+

@@ -193,9 +193,9 @@ declare_closure_struct(1, 0, void, resume_syscall,
 #define set_thread_frame(t, f) do { (t)->active_frame = (f); } while(0)
 
 typedef struct thread {
-    u64 default_frame[FRAME_MAX_PADDED];
-    u64 sighandler_frame[FRAME_MAX];
-    u64 *active_frame;         /* mux between default and sighandler */
+    context default_frame;
+    context sighandler_frame;
+    context active_frame;         /* mux between default and sighandler */
 
     char name[16]; /* thread name */
     int syscall;

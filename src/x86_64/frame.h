@@ -40,9 +40,10 @@
 
 #define FRAME_CR2 30
 #define FRAME_RUN 31 /*dont like this construction */
-#define FRAME_IS_SYSCALL 32
+#define FRAME_IS_SYSCALL 32 
 #define FRAME_QUEUE 33
 #define FRAME_FULL 34 
+#define FRAME_THREAD 35
+#define FRAME_MAX 36 
 #define FRAME_EXTENDED_SAVE 40
-#define FRAME_MAX 104           /* XXX FXSAVE only */
 

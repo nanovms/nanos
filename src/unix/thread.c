@@ -50,8 +50,8 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, un
         return set_syscall_error(current, ENOSYS);
     }
 
-    /* clone thread context up to FRAME_VECTOR */
     thread t = create_thread(current->p);
+    /* clone thread context up to FRAME_VECTOR */
     runtime_memcpy(t->default_frame, current->default_frame, sizeof(u64) * FRAME_ERROR_CODE);
     thread_clone_sigmask(t, current);
 
@@ -129,7 +129,7 @@ static inline void check_stop_conditions(thread t)
 static inline void run_thread_frame(thread t)
 {
     check_stop_conditions(t);
-    kern_lock();
+    kern_lock(); // xx - make thread entry a separate exclusion region for performance
     thread old = current;
     current_cpu()->current_thread = t;
     ftrace_thread_switch(old, current);    /* ftrace needs to know about the switch event */
@@ -164,6 +164,16 @@ closure_function(1, 0, void, run_sighandler,
 {
     run_thread_frame(bound(t));
 }
+
+static void setup_thread_frame(heap h, context frame, thread t)
+{
+    frame[FRAME_FAULT_HANDLER] = u64_from_pointer(create_fault_handler(h, t));
+    frame[FRAME_QUEUE] = u64_from_pointer(thread_queue);
+    frame[FRAME_IS_SYSCALL] = 1;
+    frame[FRAME_CS] = 0x2b; // where is this defined?
+    frame[FRAME_THREAD] = u64_from_pointer(t);
+}
+
 
 void thread_sleep_interruptible(void)
 {
@@ -231,11 +241,8 @@ define_closure_function(1, 0, void, resume_syscall, thread, t)
     syscall_debug(bound(t)->deferred_frame);
 }
 
-void xsave(void *);
-
 thread create_thread(process p)
 {
-    // heap I guess
     static int tidcount = 0;
     heap h = heap_general((kernel_heaps)p->uh);
 
@@ -262,21 +269,14 @@ thread create_thread(process p)
     zero(t->default_frame, sizeof(t->default_frame));
     zero(t->sighandler_frame, sizeof(t->sighandler_frame));
     assert(!((u64_from_pointer(t)) & 63));
-    t->default_frame[FRAME_FAULT_HANDLER] = u64_from_pointer(create_fault_handler(h, t));
-    // xxx - dup with allocate_frame
-    t->default_frame[FRAME_QUEUE] = u64_from_pointer(thread_queue);
-    t->default_frame[FRAME_IS_SYSCALL] = 1;
+    t->default_frame = allocate_frame(h);
+    setup_thread_frame(h, t->default_frame, t);
     t->default_frame[FRAME_RUN] = u64_from_pointer(closure(h, run_thread, t));
-    
-    // needed when using proper xsave to avoid encoding a frame parsable by xrstor
-    xsave(t);
     set_thread_frame(t, t->default_frame);
     
-    t->sighandler_frame[FRAME_FAULT_HANDLER] = t->default_frame[FRAME_FAULT_HANDLER];
-    t->sighandler_frame[FRAME_QUEUE] = t->default_frame[FRAME_QUEUE];
-    t->sighandler_frame[FRAME_IS_SYSCALL] = 1;
-    t->sighandler_frame[FRAME_RUN] = u64_from_pointer(closure(h, run_sighandler, t));
-    xsave(t->sighandler_frame);
+    t->sighandler_frame = allocate_frame(h);
+    setup_thread_frame(h, t->sighandler_frame, t);
+    t->sighandler_frame[FRAME_RUN] = u64_from_pointer(closure(h, run_sighandler, t));    
 
     // xxx another max 64
     t->affinity.mask[0] = MASK(total_processors);
