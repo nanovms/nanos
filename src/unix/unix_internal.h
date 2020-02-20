@@ -338,6 +338,7 @@ typedef struct sigaction *sigaction;
 #define SIGACT_SIGNALFD 0x00000002 /* TODO */
 
 extern thread dummy_thread;
+// seems like we could extract this from the frame or remove the thread entry in the frame
 #define current ((thread)(current_cpu()->current_thread))
 
 static inline thread thread_from_tid(process p, int tid)

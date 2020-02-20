@@ -281,7 +281,6 @@ void common_handler()
     } else {
         fault_handler fh = pointer_from_u64(f[FRAME_FAULT_HANDLER]);
         if (fh) {
-            // this was set_running_frame
             apply(fh, f);
         } else {
             console("\nno fault handler for frame ");
@@ -360,7 +359,7 @@ u64 xsave_frame_size();
 context allocate_frame(heap h)
 {
     context f = allocate_zero(h, FRAME_MAX * sizeof(u64) + xsave_frame_size());
-    //xsave(f); - would like to do this generically, but faults early?
+    xsave(f);
     assert((u64_from_pointer(f) & 63 ) == 0);
     assert(f != INVALID_ADDRESS);
     return f;
