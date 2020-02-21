@@ -1019,9 +1019,16 @@ static void setup_sigframe(thread t, int signum, struct siginfo *si)
     t->sighandler_frame[FRAME_GSBASE] = t->default_frame[FRAME_GSBASE];
 
     /* check for altstack */
+    /* stack top and bottom? */
     if (sa->sa_flags & SA_ONSTACK) {
-        t->sighandler_frame[FRAME_RSP] = 0; /* TODO */
-        halt("SA_ONSTACK ...\n");
+        if (!t->signal_stack) {
+            t->signal_stack = allocate((heap)t->p->virtual_page, SIGNAL_STACK_SIZE);
+            if (t->signal_stack == INVALID_ADDRESS) {
+                // get back to syscall with ENOMEM
+                halt("couldn't allocate signal stack");
+            }
+        }
+        t->sighandler_frame[FRAME_RSP] = u64_from_pointer(t->signal_stack + SIGNAL_STACK_SIZE -16);
     } else {
         t->sighandler_frame[FRAME_RSP] = t->default_frame[FRAME_RSP];
     }

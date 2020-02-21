@@ -86,6 +86,7 @@ closure_function(1, 1, void, default_fault_handler,
                  context, frame)
 {
     boolean user = is_usermode_fault(frame);
+    // user = true;
 
     /* Really this should be the enclosed thread, but that won't fly
        for kernel page faults on user pages. If we were ever to

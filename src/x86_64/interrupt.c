@@ -356,12 +356,18 @@ void set_ist(int cpu, int i, u64 sp)
 
 u64 xsave_frame_size();
 
+void deallocate_frame(context f)
+{
+    deallocate((heap)pointer_from_u64(f[FRAME_HEAP]), f, FRAME_EXTENDED_SAVE * sizeof(u64) + xsave_frame_size());
+}
+
 context allocate_frame(heap h)
 {
-    context f = allocate_zero(h, FRAME_MAX * sizeof(u64) + xsave_frame_size());
-    xsave(f);
-    assert((u64_from_pointer(f) & 63 ) == 0);
+    context f = allocate_zero(h, FRAME_EXTENDED_SAVE * sizeof(u64) + xsave_frame_size());
     assert(f != INVALID_ADDRESS);
+    assert((u64_from_pointer(f) & 63 ) == 0);    
+    xsave(f);
+    f[FRAME_HEAP] = u64_from_pointer(h);
     return f;
 }
 

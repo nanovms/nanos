@@ -230,6 +230,7 @@ typedef struct thread {
     sigstate dispatch_sigstate; /* while signal handler in flight, save sigstate */
     notify_set signalfds;
     u16 active_signo;
+    void *signal_stack; // xxx top
 
 #ifdef CONFIG_FTRACE
     int graph_idx;
@@ -618,6 +619,8 @@ u32 spec_events(file f);
 /* getrandom(2) flags */
 #define GRND_NONBLOCK               1
 #define GRND_RANDOM                 2
+
+#define SIGNAL_STACK_SIZE 8192
 
 void syscall_debug(context f);
 
