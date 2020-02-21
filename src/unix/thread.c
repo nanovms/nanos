@@ -345,9 +345,6 @@ void exit_thread(thread t)
     deallocate_closure(pointer_from_u64(t->default_frame[FRAME_RUN]));
     deallocate_closure(pointer_from_u64(t->sighandler_frame[FRAME_RUN]));
     deallocate_closure(pointer_from_u64(t->default_frame[FRAME_FAULT_HANDLER]));
-    if (t->signal_stack) {
-        deallocate((heap)t->p->virtual_page, t->signal_stack, SIGNAL_STACK_SIZE);
-    }
     t->default_frame[FRAME_RUN] = INVALID_PHYSICAL;
     t->default_frame[FRAME_QUEUE] = INVALID_PHYSICAL;
     t->sighandler_frame[FRAME_RUN] = INVALID_PHYSICAL;

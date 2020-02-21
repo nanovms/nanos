@@ -125,7 +125,7 @@ xsave_frame_size :
         pop rcx            
         ret
 
-# would be nice to generate these cpuid functions
+# just write a generic one that takes rax, rcx and arguments and stores in a u64[3]
 global xsave_features
 xsave_features :
 	push rcx

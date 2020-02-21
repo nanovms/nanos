@@ -230,7 +230,8 @@ typedef struct thread {
     sigstate dispatch_sigstate; /* while signal handler in flight, save sigstate */
     notify_set signalfds;
     u16 active_signo;
-    void *signal_stack; // xxx top
+    void *signal_stack;
+    u64 signal_stack_length;
 
 #ifdef CONFIG_FTRACE
     int graph_idx;
