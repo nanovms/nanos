@@ -621,5 +621,7 @@ u32 spec_events(file f);
 #define GRND_NONBLOCK               1
 #define GRND_RANDOM                 2
 
+#define SIGNAL_STACK_SIZE 8192
+
 void syscall_debug(context f);
 

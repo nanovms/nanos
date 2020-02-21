@@ -266,13 +266,14 @@ thread create_thread(process p)
     t->tid = tidcount++;
     t->clear_tid = 0;
     t->name[0] = '\0';
-    assert(!((u64_from_pointer(t)) & 63));
+
     t->default_frame = allocate_frame(h);
     setup_thread_frame(h, t->default_frame, t);
     t->default_frame[FRAME_RUN] = u64_from_pointer(closure(h, run_thread, t));
     set_thread_frame(t, t->default_frame);
     
     t->sighandler_frame = allocate_frame(h);
+    t->signal_stack = 0;
     setup_thread_frame(h, t->sighandler_frame, t);
     t->sighandler_frame[FRAME_RUN] = u64_from_pointer(closure(h, run_sighandler, t));    
 
@@ -340,15 +341,20 @@ void exit_thread(thread t)
     deallocate_blockq(t->thread_bq);
     t->thread_bq = INVALID_ADDRESS;
 
+    /* consider having a thread heap that we can just discard ?*/
     deallocate_closure(pointer_from_u64(t->default_frame[FRAME_RUN]));
     deallocate_closure(pointer_from_u64(t->sighandler_frame[FRAME_RUN]));
     deallocate_closure(pointer_from_u64(t->default_frame[FRAME_FAULT_HANDLER]));
+    if (t->signal_stack) {
+        deallocate((heap)t->p->virtual_page, t->signal_stack, SIGNAL_STACK_SIZE);
+    }
     t->default_frame[FRAME_RUN] = INVALID_PHYSICAL;
     t->default_frame[FRAME_QUEUE] = INVALID_PHYSICAL;
     t->sighandler_frame[FRAME_RUN] = INVALID_PHYSICAL;
     t->sighandler_frame[FRAME_QUEUE] = INVALID_PHYSICAL;
     t->default_frame[FRAME_FAULT_HANDLER] = INVALID_PHYSICAL;
-    // xxx deallocate frames
+    deallocate_frame(t->default_frame);
+    deallocate_frame(t->sighandler_frame);
 
     ftrace_thread_deinit(t, dummy_thread);
 

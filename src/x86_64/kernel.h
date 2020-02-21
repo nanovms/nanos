@@ -11,6 +11,7 @@
 typedef u64 *context;
 
 context allocate_frame(heap h);
+void deallocate_frame(context);
 
 typedef struct cpuinfo {
     /*** Fields accessed by low-level entry points. Don't move them. ***/
