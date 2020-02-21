@@ -30,6 +30,7 @@ queue bhqueue;                  /* kernel from interrupt */
 queue thread_queue;             /* kernel to user */
 timerheap runloop_timers;
 u64 idle_cpu_mask;              /* xxx - limited to 64 aps. consider merging with bitmask */
+timestamp last_timer_update;
 
 static timestamp runloop_timer_min;
 static timestamp runloop_timer_max;
@@ -91,9 +92,14 @@ static void run_thunk(thunk t, int cpustate)
     //    halt("handler returned %d", cpustate);
 }
 
+/* called with kernel lock held */
 static inline void update_timer(cpuinfo ci)
 {
-    s64 delta = timer_check(runloop_timers) - now(CLOCK_ID_MONOTONIC);
+    timestamp next = timer_check(runloop_timers);
+    if (last_timer_update && next == last_timer_update)
+        return;
+    last_timer_update = next;
+    s64 delta = next - now(CLOCK_ID_MONOTONIC);
     timestamp timeout = delta > (s64)runloop_timer_min ? MAX(delta, runloop_timer_max) : runloop_timer_min;
     sched_debug("set platform timer: delta %lx, timeout %lx\n", delta, timeout);
     runloop_timer(timeout);
