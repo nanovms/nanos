@@ -40,6 +40,11 @@ static u64 xapic_read(apic_iface i, int reg)
     return d;
 }
 
+static u8 xapic_legacy_id(apic_iface i)
+{
+    return xapic_read(i, APIC_APICID) >> 24;
+}
+
 #define XAPIC_READ_TIMEOUT_ITERS 512 /* arbitrary */
 static void xapic_ipi(apic_iface i, u32 target, u64 flags, u8 vector)
 {
@@ -64,7 +69,7 @@ static void xapic_ipi(apic_iface i, u32 target, u64 flags, u8 vector)
     console("ipi timed out\n");
 }
 
-static boolean detect_and_init(apic_iface i, kernel_heaps kh)
+static boolean detect(apic_iface i, kernel_heaps kh)
 {
     /* assume we have it in the catch-all case - must be detected last */
     xapic_vbase = allocate_u64((heap)heap_virtual_page(kh), PAGESIZE);
@@ -76,9 +81,11 @@ static boolean detect_and_init(apic_iface i, kernel_heaps kh)
 
 struct apic_iface xapic_if = {
     "xapic",
+    xapic_legacy_id,
     xapic_write,
     xapic_read,
     xapic_ipi,
-    detect_and_init,
+    detect,
+    0,                          /* per_cpu_init, n/a */
 };
 

@@ -9,12 +9,10 @@
 #define x2apic_debug(x, ...)
 #endif
 
-#if 0
 #define IA32_APIC_BASE      0x01b
 #define IA32_APIC_BASE_BSP  0x100
 #define IA32_APIC_BASE_EXTD 0x400
 #define IA32_APIC_BASE_EN   0x800
-#endif
 
 static void inline check_reg(int reg)
 {
@@ -51,6 +49,11 @@ static u64 x2apic_read(apic_iface i, int reg)
     return d;
 }
 
+static u8 x2apic_legacy_id(apic_iface i)
+{
+    return x2apic_read(i, APIC_APICID) & 0xff;
+}
+
 #define XAPIC_READ_TIMEOUT_ITERS 512 /* arbitrary */
 static void x2apic_ipi(apic_iface i, u32 target, u64 flags, u8 vector)
 {
@@ -68,20 +71,31 @@ static void x2apic_ipi(apic_iface i, u32 target, u64 flags, u8 vector)
     x2apic_write(i, APIC_ICR, w);
 }
 
-static boolean detect_and_init(apic_iface i, kernel_heaps kh)
+static boolean detect(apic_iface i, kernel_heaps kh)
 {
     u32 v[4];
     cpuid(0x1, 0, v);
     if ((v[2] & (1 << 21)) == 0)
         return false;
-    x2apic_debug("x2APIC detected and initialized\n");
+    x2apic_debug("x2APIC detected\n");
     return true;
+}
+
+static void per_cpu_init(apic_iface i, boolean is_bsp)
+{
+    u32 d = IA32_APIC_BASE_EN | IA32_APIC_BASE_EXTD;
+    if (is_bsp)
+        d |= IA32_APIC_BASE_BSP;
+    x2apic_debug("per cpu init, is_bsp %d, writing 0x%x\n", is_bsp, d);
+    write_msr(IA32_APIC_BASE, d);
 }
 
 struct apic_iface x2apic_if = {
     "x2apic",
+    x2apic_legacy_id,
     x2apic_write,
     x2apic_read,
     x2apic_ipi,
-    detect_and_init,
+    detect,
+    per_cpu_init
 };

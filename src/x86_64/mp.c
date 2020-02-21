@@ -39,7 +39,7 @@ static void __attribute__((noinline)) ap_new_stack()
     mp_debug(", install gdt");
     install_gdt64_and_tss(id);
     mp_debug(", enable apic");
-    enable_apic();
+    apic_enable();
     set_syscall_handler(syscall_enter);
     mp_debug(", clear ap lock, enable ints, start_callback\n");
     memory_barrier();
@@ -49,6 +49,7 @@ static void __attribute__((noinline)) ap_new_stack()
 
 void ap_start()
 {
+    apic_per_cpu_init(false);
     switch_stack(get_cpuinfo()->kernel_stack, ap_new_stack);
 }
 

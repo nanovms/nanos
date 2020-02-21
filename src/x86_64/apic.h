@@ -50,10 +50,12 @@
 /* 64 bit data for x2apic, only 32 used for xapic */
 typedef struct apic_iface {
     const char *name;
+    u8 (*legacy_id)(struct apic_iface *);
     void (*write)(struct apic_iface *, int reg, u64 val);
     u64 (*read)(struct apic_iface *, int reg);       /* XXX 64 for x2? */
     void (*ipi)(struct apic_iface *, u32 target, u64 flags, u8 vector);
-    boolean (*detect_and_init)(struct apic_iface *, kernel_heaps kh);
+    boolean (*detect)(struct apic_iface *, kernel_heaps kh);
+    void (*per_cpu_init)(struct apic_iface *, boolean is_bsp);
 } *apic_iface;
 
 void lapic_eoi(void);
@@ -61,12 +63,20 @@ void init_apic(kernel_heaps kh);
 void lapic_set_tsc_deadline_mode(u32 v);
 boolean init_lapic_timer(clock_timer *ct, thunk *per_cpu_init);
 void apic_ipi(u32 target, u64 flags, u8 vector);
-u32 apic_id(void);
-void enable_apic(void);
+void apic_per_cpu_init(boolean is_bsp);
+void apic_enable(void);
+
+extern apic_iface apic_if;
+
+static inline u8 apic_id(void)
+{
+    assert(apic_if);
+    return apic_if->legacy_id(apic_if);
+}
 
 static inline int this_cpu(void)
 {
-    // for now, assume apic id == cpu num
+    // for now, assume legacy apic id == cpu num
     return apic_id();
 }
 
