@@ -266,8 +266,6 @@ thread create_thread(process p)
     t->tid = tidcount++;
     t->clear_tid = 0;
     t->name[0] = '\0';
-    zero(t->default_frame, sizeof(t->default_frame));
-    zero(t->sighandler_frame, sizeof(t->sighandler_frame));
     assert(!((u64_from_pointer(t)) & 63));
     t->default_frame = allocate_frame(h);
     setup_thread_frame(h, t->default_frame, t);
@@ -350,6 +348,7 @@ void exit_thread(thread t)
     t->sighandler_frame[FRAME_RUN] = INVALID_PHYSICAL;
     t->sighandler_frame[FRAME_QUEUE] = INVALID_PHYSICAL;
     t->default_frame[FRAME_FAULT_HANDLER] = INVALID_PHYSICAL;
+    // xxx deallocate frames
 
     ftrace_thread_deinit(t, dummy_thread);
 

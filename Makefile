@@ -101,6 +101,7 @@ runtime-tests runtime-tests-noaccel:
 QEMU=		qemu-system-x86_64
 DISPLAY=	none
 STORAGE=	virtio-scsi
+QEMU_CPU = -cpu Skylake-Client,+xsaves
 
 QEMU_MEMORY=	-m 2G
 ifeq ($(DISPLAY),none)
@@ -138,7 +139,7 @@ run-bridge: image
 	$(QEMU) $(QEMU_COMMON) $(QEMU_NET) $(QEMU_ACCEL) || exit $$(($$?>>1))
 
 run-noaccel: image
-	$(QEMU) $(QEMU_COMMON) $(QEMU_USERNET) || exit $$(($$?>>1))
+	$(QEMU) $(QEMU_COMMON) $(QEMU_USERNET) $(QEMU_CPU) || exit $$(($$?>>1))
 
 ##############################################################################
 # GCE
