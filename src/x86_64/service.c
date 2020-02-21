@@ -269,6 +269,9 @@ static void new_cpu()
 }
 #endif
 
+u64 xsave_features();
+u64 xsave_frame_size();
+
 static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = &heaps;
@@ -284,13 +287,15 @@ static void __attribute__((noinline)) init_service_new_stack()
     unmap(0, PAGESIZE, pages);  /* unmap zero page */
     reclaim_regions();          /* unmap and reclaim stage2 stack */
     init_extra_prints();
+    if (xsave_frame_size() == 0){
+        halt("xsave not supported");
+    }
     init_pci(kh);
     init_console(kh);
     init_symtab(kh);
     read_kernel_syms();
     init_debug("pci_discover (for VGA)");
     pci_discover(); // early PCI discover to configure VGA console
-
     init_debug("init_cpuinfos");
     init_cpuinfos(kh);
     current_cpu()->state = cpu_kernel;
