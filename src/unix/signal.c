@@ -12,7 +12,6 @@
 
    support for SA_RESTART
    blocking calls within sig handler
-   sigaltstack
    core dump
  */
 
@@ -591,6 +590,20 @@ sysreturn rt_sigsuspend(const u64 * mask, u64 sigsetsize)
 
 sysreturn sigaltstack(const stack_t *ss, stack_t *oss)
 {
+
+    thread t = current;
+    // xxx = validate ss, oss, ss_sp
+    oss->ss_sp = t->signal_stack;
+    oss->ss_size = t->signal_stack_length;
+    oss->ss_flags = 0;
+    // it doesn't seem possible to re-enable without setting
+    // a new stack....so we think this is a valid interpretation
+    if (ss->ss_flags & SS_DISABLE) {
+        t->signal_stack = 0;   
+    }  else {
+        t->signal_stack = ss->ss_sp;
+        t->signal_stack_length = ss->ss_size;
+    }
     return 0;
 }
 
@@ -1018,10 +1031,8 @@ static void setup_sigframe(thread t, int signum, struct siginfo *si)
     t->sighandler_frame[FRAME_FSBASE] = t->default_frame[FRAME_FSBASE];
     t->sighandler_frame[FRAME_GSBASE] = t->default_frame[FRAME_GSBASE];
 
-    /* check for altstack */
-    if (sa->sa_flags & SA_ONSTACK) {
-        t->sighandler_frame[FRAME_RSP] = 0; /* TODO */
-        halt("SA_ONSTACK ...\n");
+    if (sa->sa_flags & SA_ONSTACK && t->signal_stack) {
+        t->sighandler_frame[FRAME_RSP] = u64_from_pointer(t->signal_stack + t->signal_stack_length);
     } else {
         t->sighandler_frame[FRAME_RSP] = t->default_frame[FRAME_RSP];
     }

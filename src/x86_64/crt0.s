@@ -124,6 +124,18 @@ xsave_frame_size :
         pop rbx
         pop rcx            
         ret
+
+# just write a generic one that takes rax, rcx and arguments and stores in a u64[3]
+global xsave_features
+xsave_features :
+	push rcx
+	push rbx
+        mov rax, 0xd
+        mov rcx, 0x1
+        cpuid
+        pop rbx
+        pop rcx            
+        ret
         
 global interrupt_entry_with_ec
 interrupt_entry_with_ec:
