@@ -101,7 +101,7 @@ runtime-tests runtime-tests-noaccel:
 QEMU=		qemu-system-x86_64
 DISPLAY=	none
 STORAGE=	virtio-scsi
-QEMU_CPU = -cpu Skylake-Client,+xsaves
+QEMU_CPU=       -cpu max
 
 QEMU_MEMORY=	-m 2G
 ifeq ($(DISPLAY),none)

@@ -287,9 +287,11 @@ static void __attribute__((noinline)) init_service_new_stack()
     unmap(0, PAGESIZE, pages);  /* unmap zero page */
     reclaim_regions();          /* unmap and reclaim stage2 stack */
     init_extra_prints();
+#if 0 // XXX
     if (xsave_frame_size() == 0){
-        halt("xsave not supported");
+        halt("xsave not supported\n");
     }
+#endif
     init_pci(kh);
     init_console(kh);
     init_symtab(kh);

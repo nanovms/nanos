@@ -354,8 +354,6 @@ void set_ist(int cpu, int i, u64 sp)
     write_tss_u64(cpu, 0x24 + (i - 1) * 8, sp);
 }
 
-u64 xsave_frame_size();
-
 void deallocate_frame(context f)
 {
     deallocate((heap)pointer_from_u64(f[FRAME_HEAP]), f, FRAME_EXTENDED_SAVE * sizeof(u64) + xsave_frame_size());

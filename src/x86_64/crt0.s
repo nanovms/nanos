@@ -37,16 +37,18 @@ extern  init_service
 %endmacro
 
 
+;; XXX - stick with fx until we can choose according to capabilities -
+;; otherwise existing stuff breaks with ops, etc.
 %macro load_extended_registers 1
-        mov edx, 0xffffffff
-        mov eax, edx        
-        xrstor [%1+FRAME_EXTENDED_SAVE*8] 
+;        mov edx, 0xffffffff
+;        mov eax, edx
+        fxrstor [%1+FRAME_EXTENDED_SAVE*8]
 %endmacro
         
 %macro save_extended_registers 1
-        mov edx, 0xffffffff     ;
-        mov eax, edx
-        xsave [%1+FRAME_EXTENDED_SAVE*8]  ; we wouldn't have to do this if we could guarantee no other user thread ran before us
+;        mov edx, 0xffffffff
+;        mov eax, edx
+        fxsave [%1+FRAME_EXTENDED_SAVE*8]  ; we wouldn't have to do this if we could guarantee no other user thread ran before us
 %endmacro
 
         
@@ -112,18 +114,6 @@ extern common_handler
         call common_handler
         ; noreturn               
 %endmacro
-
-global xsave_frame_size
-xsave_frame_size :
-	push rcx
-	push rbx
-        mov rax, 0xd
-        mov rcx, 0x0
-        cpuid
-        mov rax, rbx
-        pop rbx
-        pop rcx            
-        ret
 
 # just write a generic one that takes rax, rcx and arguments and stores in a u64[3]
 global xsave_features

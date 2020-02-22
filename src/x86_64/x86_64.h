@@ -123,3 +123,14 @@ extern void write_xmsr(u64, u64);
         asm volatile("mov %%rdx, %%rsp"::);                     \
         asm volatile("jmp *%%rax"::);                           \
     }
+
+static inline u64 xsave_frame_size(void)
+{
+#if 0
+    u32 v[4];
+    cpuid(0xd, 0, v);
+    return v[1];
+#else
+    return 512;                 /* XXX fx only right now */
+#endif
+}
