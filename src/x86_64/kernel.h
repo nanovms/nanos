@@ -228,3 +228,5 @@ static inline u64 fault_address(context f)
 {
     return f[FRAME_CR2];
 }
+
+extern int shutdown_vector;

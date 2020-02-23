@@ -1,6 +1,7 @@
 /* main header for unix-specific kernel objects */
 
 #include <kernel.h>
+#include <apic.h>
 #include <syscalls.h>
 #include <system_structs.h>
 #include <tfs.h>
