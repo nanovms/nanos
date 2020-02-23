@@ -24,6 +24,7 @@ static char *state_strings_backing[] = {
 
 char **state_strings = state_strings_backing;
 static int wakeup_vector;
+int shutdown_vector;
 
 queue runqueue;                 /* kernel space from ?*/
 queue bhqueue;                  /* kernel from interrupt */
@@ -157,6 +158,11 @@ void kernel_sleep(void)
     asm volatile("sti; hlt" ::: "memory");
 }
 
+closure_function(0, 0, void, global_shutdown)
+{
+    __asm__("cli; hlt");
+}
+
 void init_scheduler(heap h)
 {
     kernel_lock = 0;
@@ -164,6 +170,8 @@ void init_scheduler(heap h)
     runloop_timer_max = microseconds(RUNLOOP_TIMER_MAX_PERIOD_US);
     wakeup_vector = allocate_interrupt();
     register_interrupt(wakeup_vector, ignore, "wakeup ipi");
+    shutdown_vector = allocate_interrupt();    
+    register_interrupt(shutdown_vector, closure(h, global_shutdown), "shutdown ipi");    
     assert(wakeup_vector != INVALID_PHYSICAL);
     /* scheduling queues init */
     runqueue = allocate_queue(h, 64);
