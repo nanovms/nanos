@@ -60,6 +60,7 @@ void virtqueue_set_max_queued(virtqueue, int);
 #define VRING_AVAIL_F_NO_INTERRUPT      1
 
 physical virtqueue_paddr(struct virtqueue *vq);
+u16 virtqueue_entries(virtqueue vq);
 
 typedef struct vqmsg *vqmsg;
 

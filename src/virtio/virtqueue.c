@@ -290,6 +290,11 @@ physical virtqueue_paddr(virtqueue vq)
     return (physical_from_virtual(vq->ring_mem));
 }
 
+u16 virtqueue_entries(virtqueue vq)
+{
+    return vq->entries;
+}
+
 static int virtqueue_notify(virtqueue vq)
 {
     // ensure used->flags update is visible to us

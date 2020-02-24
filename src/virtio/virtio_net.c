@@ -180,10 +180,8 @@ static err_t virtioif_init(struct netif *netif)
     /* don't set NETIF_FLAG_ETHARP if this device is not an ethernet one */
     netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_LINK_UP | NETIF_FLAG_UP;
 
-    // fix
-    post_receive(vn);
-    post_receive(vn);
-    post_receive(vn);
+    for (int i = 0; i < virtqueue_entries(vn->rxq); i++)
+        post_receive(vn);
     
     return ERR_OK;
 }
