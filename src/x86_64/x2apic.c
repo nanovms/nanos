@@ -24,27 +24,16 @@ static void x2apic_write(apic_iface i, int reg, u64 val)
 {
     x2apic_debug("write to reg 0x%x, val 0x%x\n", reg, val);
     check_reg(reg);
-    if (reg == APIC_ICR) {
-        //        u32 hi = val >> 32;
-        asm volatile("wrmsr" :: "a" (val), "c" (reg), "d" (val >> 32) : "memory");
-    } else {
-        asm volatile("wrmsr" :: "a" (val), "c" (reg) : "memory");
-    }
+    asm volatile("wrmsr" :: "a" (val), "c" (reg), "d" (val >> 32) : "memory");
 }
 
 static u64 x2apic_read(apic_iface i, int reg)
 {
     x2apic_debug("read from reg 0x%x\n", reg);
     check_reg(reg);
-    u64 d;
     u32 lo, hi;
-    if (reg == APIC_ICR) {
-        asm volatile("rdmsr" : "=a" (lo), "=d" (hi) : "c" (reg));
-        d = ((u64)hi) << 32 | (u64)lo;
-    } else {
-        asm volatile("rdmsr" : "=a" (lo) : "c" (reg));
-        d = (u64)lo;
-    }
+    asm volatile("rdmsr" : "=a" (lo), "=d" (hi) : "c" (reg));
+    u64 d = ((u64)hi) << 32 | lo;
     x2apic_debug(" -> read 0x%lx\n", d);
     return d;
 }
@@ -81,13 +70,13 @@ static boolean detect(apic_iface i, kernel_heaps kh)
     return true;
 }
 
-static void per_cpu_init(apic_iface i, boolean is_bsp)
+static void per_cpu_init(apic_iface i)
 {
     u32 d = IA32_APIC_BASE_EN | IA32_APIC_BASE_EXTD;
-    if (is_bsp)
-        d |= IA32_APIC_BASE_BSP;
     x2apic_debug("per cpu init, is_bsp %d, writing 0x%x\n", is_bsp, d);
     write_msr(IA32_APIC_BASE, d);
+    x2apic_debug("apic id %lx, apic ver %lx\n", x2apic_read(i, APIC_APICID),
+                 x2apic_read(i, APIC_APICVER));
 }
 
 struct apic_iface x2apic_if = {

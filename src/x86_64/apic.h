@@ -55,7 +55,7 @@ typedef struct apic_iface {
     u64 (*read)(struct apic_iface *, int reg);       /* XXX 64 for x2? */
     void (*ipi)(struct apic_iface *, u32 target, u64 flags, u8 vector);
     boolean (*detect)(struct apic_iface *, kernel_heaps kh);
-    void (*per_cpu_init)(struct apic_iface *, boolean is_bsp);
+    void (*per_cpu_init)(struct apic_iface *);
 } *apic_iface;
 
 void lapic_eoi(void);
@@ -63,7 +63,7 @@ void init_apic(kernel_heaps kh);
 void lapic_set_tsc_deadline_mode(u32 v);
 boolean init_lapic_timer(clock_timer *ct, thunk *per_cpu_init);
 void apic_ipi(u32 target, u64 flags, u8 vector);
-void apic_per_cpu_init(boolean is_bsp);
+void apic_per_cpu_init(void);
 void apic_enable(void);
 
 extern apic_iface apic_if;

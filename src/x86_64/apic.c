@@ -96,16 +96,16 @@ boolean init_lapic_timer(clock_timer *ct, thunk *per_cpu_init)
 static u64 lvt_err_irq;
 extern u32 spurious_int_vector;
 
-void apic_per_cpu_init(boolean is_bsp)
+void apic_per_cpu_init(void)
 {
     if (apic_if->per_cpu_init)
-        apic_if->per_cpu_init(apic_if, is_bsp);
+        apic_if->per_cpu_init(apic_if);
 }
 
 void apic_enable(void)
 {
     /* enable spurious interrupts */
-    apic_set(APIC_SPURIOUS, APIC_SW_ENABLE | spurious_int_vector);
+    apic_write(APIC_SPURIOUS, APIC_SW_ENABLE | spurious_int_vector);
     apic_write(APIC_LVT_LINT0, APIC_DISABLE);
     apic_write(APIC_LVT_LINT1, APIC_DISABLE);
 
@@ -118,7 +118,7 @@ extern struct apic_iface xapic_if, x2apic_if;
 void init_apic(kernel_heaps kh)
 {
     apic_heap = heap_general(kh);
-
+    apic_debug("detecting apic interface...\n");
     if (x2apic_if.detect(&x2apic_if, kh)) {
         apic_debug("using x2APIC interface\n");
         apic_if = &x2apic_if;
@@ -132,6 +132,6 @@ void init_apic(kernel_heaps kh)
     lvt_err_irq = allocate_interrupt();
     assert(lvt_err_irq != INVALID_PHYSICAL);
 
-    apic_per_cpu_init(true);
+    apic_per_cpu_init();
     apic_enable();
 }

@@ -49,7 +49,7 @@ static void __attribute__((noinline)) ap_new_stack()
 
 void ap_start()
 {
-    apic_per_cpu_init(false);
+    apic_per_cpu_init();
     switch_stack(get_cpuinfo()->kernel_stack, ap_new_stack);
 }
 
