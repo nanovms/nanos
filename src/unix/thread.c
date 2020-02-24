@@ -275,7 +275,7 @@ thread create_thread(process p)
     t->sighandler_frame = allocate_frame(h);
     t->signal_stack = 0;
     setup_thread_frame(h, t->sighandler_frame, t);
-    t->sighandler_frame[FRAME_RUN] = u64_from_pointer(closure(h, run_sighandler, t));    
+    t->sighandler_frame[FRAME_RUN] = u64_from_pointer(closure(h, run_sighandler, t));
 
     // xxx another max 64
     t->affinity.mask[0] = MASK(total_processors);

@@ -11,10 +11,10 @@
 #include <kvm_platform.h>
 #include <xen_platform.h>
 
-#define SMP_ENABLE
-#define SMP_DUMP_FRAME_RETURN_COUNT
+//#define SMP_ENABLE
+//#define SMP_DUMP_FRAME_RETURN_COUNT
 
-#define STAGE3_INIT_DEBUG
+//#define STAGE3_INIT_DEBUG
 #ifdef STAGE3_INIT_DEBUG
 #define init_debug(x, ...) do {rprintf("INIT: " x "\n", ##__VA_ARGS__);} while(0)
 #else
