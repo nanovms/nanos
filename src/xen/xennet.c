@@ -344,11 +344,12 @@ static xennet_tx_page xennet_fill_tx_request(xennet_dev xd, netif_tx_request_t *
 
 static void xennet_populate_tx_ring(xennet_dev xd)
 {
+    u64 flags = spin_lock_irq(&xd->tx_fill_lock);
+
     RING_IDX prod = xd->tx_ring.req_prod_pvt;
     RING_IDX prod_end = xd->tx_ring.rsp_cons + XENNET_TX_RING_SIZE;
-
     xennet_debug("%s: prod %d, prod_end %d", __func__, prod, prod_end);
-    u64 flags = spin_lock_irq(&xd->tx_fill_lock);
+
     while (prod < prod_end) {
         netif_tx_request_t *tx = RING_GET_REQUEST(&xd->tx_ring, prod);
         xennet_tx_page txp = xennet_fill_tx_request(xd, tx);
@@ -358,16 +359,16 @@ static void xennet_populate_tx_ring(xennet_dev xd)
                      prod, txp, tx->offset, tx->size, tx->id, tx->flags, tx->gref);
         prod++;
     }
-    spin_unlock_irq(&xd->tx_fill_lock, flags);
     xd->tx_ring.req_prod_pvt = prod;
-    xennet_debug("queueing done");
-
     write_barrier();
 
     int notify;
     RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&xd->tx_ring, notify);
     if (notify)
         xen_notify_evtchn(xd->evtchn);
+
+    spin_unlock_irq(&xd->tx_fill_lock, flags);
+    xennet_debug("queueing done");
 }
 
 /* We could just walk the pages using pointers in the txb, but we need
