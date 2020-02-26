@@ -139,11 +139,11 @@ void runloop_internal()
     if ((t = dequeue(thread_queue)) != INVALID_ADDRESS)
         run_thunk(t, cpu_user);
 
-    kernel_sleep();
-    halt("cpu %d return from kernel sleep", ci->id);
+    /* loop to absorb spurious wakeups from hlt - happens on some platforms (e.g. xen) */
+    while (1)
+        kernel_sleep();
 }    
 
-// is kern lock held here?
 void kernel_sleep(void)
 {
     // we're going to cover up this race by checking the state in the interrupt
