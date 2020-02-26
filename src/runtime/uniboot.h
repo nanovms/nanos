@@ -67,7 +67,13 @@ extern void * AP_BOOT_PAGE;
 /* could probably find progammatically via cpuid... */
 #define DEFAULT_CACHELINE_SIZE 64
 
+/* TFS stuff */
 #define TFS_LOG_DEFAULT_EXTENSION_SIZE (512*KB)
+
+/* Xen stuff */
+#define XENNET_INIT_RX_BUFFERS_FACTOR 4
+#define XENNET_RX_SERVICEQUEUE_DEPTH 512
+#define XENNET_TX_SERVICEQUEUE_DEPTH 512
 
 #include <x86.h>
 void xsave(void *);
