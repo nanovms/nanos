@@ -25,11 +25,10 @@
 /* fixed address per deprecated API */
 #define VSYSCALL_BASE               0xffffffffff600000ull
 
-/* VDSO location is to be randomly determined at process creation */
-#define VDSO_NR_PAGES               2
-
 /* This will change if we add support for more clocktypes */
 #define VVAR_NR_PAGES               2
+
+extern unsigned long vdso_raw_length;
 
 typedef s64 sysreturn;
 

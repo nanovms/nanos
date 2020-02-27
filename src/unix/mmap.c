@@ -775,7 +775,7 @@ void mmap_process_init(process p)
     /* randomly determine vdso/vvar base and track it */
     u64 vdso_size, vvar_size, vvar_start;
 
-    vdso_size = VDSO_NR_PAGES * PAGESIZE;
+    vdso_size = vdso_raw_length;
     vvar_size = VVAR_NR_PAGES * PAGESIZE;
 
     p->vdso_base = allocate_u64((heap)p->virtual_page, vdso_size + vvar_size);

@@ -20,6 +20,7 @@
 struct vdso_dat_struct {
     vdso_clock_id clock_src;
     timestamp rtc_offset;
+    u64 pvclock_offset;
     u8 platform_has_rdtscp;
 } __attribute((packed));
 

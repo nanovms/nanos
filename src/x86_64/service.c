@@ -309,9 +309,11 @@ static void __attribute__((noinline)) init_service_new_stack()
     // ipi..i guess this is safe because they are disabled?
     init_debug("init_scheduler");    
     init_scheduler(misc);
+    init_clock();               /* must precede platform init */
 
     /* platform detection and early init */
     init_debug("probing for KVM");
+
     if (!kvm_detect(kh)) {
         init_debug("probing for Xen hypervisor");
         if (!xen_detect(kh)) {
@@ -321,17 +323,12 @@ static void __attribute__((noinline)) init_service_new_stack()
             }
         } else {
             init_debug("xen hypervisor detected");
-            /* XXX temporary: We're falling back to HPET until we get PV timer working correctly. */
-            if (!init_hpet(kh)) {
-                halt("HPET initialization failed; no timer source\n");
-            }
         }
     } else {
         init_debug("KVM detected");
     }
 
-    /* clock, timer, RNG, stack canaries */
-    init_clock();
+    /* RNG, stack canaries */
     init_debug("RNG");
     init_hwrand();
     init_random();
