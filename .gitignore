@@ -2,9 +2,6 @@ Makefile.local
 /tags
 /TAGS
 
-# generated source files
-/src/unix/vdso-image.c
-
 # test artifacts
 /test/go/instance.img
 /test/go/image*
