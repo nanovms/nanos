@@ -107,10 +107,7 @@ void init_vdso(process p)
         vaddr = vaddr + size;
         size = PAGESIZE;
         paddr = pvclock_get_physaddr();
-        if (paddr == INVALID_PHYSICAL) {
-            msg_err("unable to get pvclock physical page\n");
-            __vdso_dat->clock_src = VDSO_CLOCK_SYSCALL;
-        } else {
+        if (paddr != INVALID_PHYSICAL) {
             __vdso_dat->pvclock_offset = paddr & PAGEMASK;
             map(vaddr, paddr & ~PAGEMASK, size, PAGE_USER | PAGE_NO_EXEC, pages);
         }
