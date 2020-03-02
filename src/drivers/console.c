@@ -18,7 +18,7 @@ struct console_driver *console_drivers[4] = {
     &serial_console_driver,
 };
 
-static u64 write_lock;
+static struct spinlock write_lock;
 
 void console_write(char *s, bytes count)
 {

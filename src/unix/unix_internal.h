@@ -320,7 +320,7 @@ typedef struct process {
     struct syscall   *syscalls;
     vector            files;
     rangemap          vareas;   /* available address space */
-    u64               vmap_lock;
+    struct spinlock   vmap_lock;
     rangemap          vmaps;    /* process mappings */
     vmap              stack_map;
     vmap              heap_map;

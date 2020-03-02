@@ -103,7 +103,7 @@ typedef struct virtqueue {
     struct list msgqueue;
     queue servicequeue;
     thunk service;
-    u64 fill_lock;              /* XXX - tmp hack for smp */
+    struct spinlock fill_lock;  /* XXX - tmp hack for smp */
     vqmsg msgs[0];
 } *virtqueue;
 

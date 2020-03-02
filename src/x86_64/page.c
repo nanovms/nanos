@@ -20,7 +20,7 @@
 static const int level_shift[5] = { -1, PT1, PT2, PT3, PT4 };
 
 #ifdef STAGE3
-static u64 pt_lock;
+static struct spinlock pt_lock;
 #define pagetable_lock() u64 _savedflags = spin_lock_irq(&pt_lock)
 #define pagetable_unlock() spin_unlock_irq(&pt_lock, _savedflags)
 #else

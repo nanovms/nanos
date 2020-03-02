@@ -36,7 +36,7 @@ timestamp last_timer_update;
 static timestamp runloop_timer_min;
 static timestamp runloop_timer_max;
 
-static u64 kernel_lock;
+static struct spinlock kernel_lock;
 
 void kern_lock()
 {
@@ -165,7 +165,7 @@ closure_function(0, 0, void, global_shutdown)
 
 void init_scheduler(heap h)
 {
-    kernel_lock = 0;
+    spin_lock_init(&kernel_lock);
     runloop_timer_min = microseconds(RUNLOOP_TIMER_MIN_PERIOD_US);
     runloop_timer_max = microseconds(RUNLOOP_TIMER_MAX_PERIOD_US);
     wakeup_vector = allocate_interrupt();

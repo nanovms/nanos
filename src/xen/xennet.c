@@ -89,14 +89,14 @@ struct xennet_dev {
     struct netif *netif;
     u16 rxbuflen;
 
-    u64 rx_fill_lock;
+    struct spinlock rx_fill_lock;
     vector rxbufs;
     struct list rx_free;
 
     thunk rx_service;           /* for bhqueue processing */
     queue rx_servicequeue;
 
-    u64 tx_fill_lock;
+    struct spinlock tx_fill_lock;
     vector txbufs;
     struct list tx_pending;     /* awaiting ring queueing (head may be partial) */
     struct list tx_free;
