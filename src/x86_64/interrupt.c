@@ -297,7 +297,6 @@ void common_handler()
         f[FRAME_FULL] = false;      /* no longer saving frame for anything */
     runloop();
   exit_fault:
-    // XXX need to terminate bsp if on ap
     console("cpu ");
     print_u64(ci->id);
     console(", state ");
@@ -307,6 +306,7 @@ void common_handler()
     console("\n");
     print_frame(f);
     print_stack(f);
+    apic_ipi(TARGET_EXCLUSIVE_BROADCAST, 0, shutdown_vector);
     vm_exit(VM_EXIT_FAULT);
 }
 
@@ -356,12 +356,12 @@ void set_ist(int cpu, int i, u64 sp)
 
 void deallocate_frame(context f)
 {
-    deallocate((heap)pointer_from_u64(f[FRAME_HEAP]), f, FRAME_EXTENDED_SAVE * sizeof(u64) + xsave_frame_size());
+    deallocate((heap)pointer_from_u64(f[FRAME_HEAP]), f, total_frame_size());
 }
 
 context allocate_frame(heap h)
 {
-    context f = allocate_zero(h, FRAME_EXTENDED_SAVE * sizeof(u64) + xsave_frame_size());
+    context f = allocate_zero(h, total_frame_size());
     assert(f != INVALID_ADDRESS);
     assert((u64_from_pointer(f) & 63) == 0);
     xsave(f);
@@ -376,7 +376,7 @@ void * allocate_stack(heap pages, int npages)
     return base + pages->pagesize * npages - STACK_ALIGNMENT;
 }
 
-void start_interrupts(kernel_heaps kh)
+void init_interrupts(kernel_heaps kh)
 {
     heap general = heap_general(kh);
     heap pages = heap_pages(kh);

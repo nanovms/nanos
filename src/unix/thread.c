@@ -53,6 +53,8 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, un
     thread t = create_thread(current->p);
     /* clone thread context up to FRAME_VECTOR */
     runtime_memcpy(t->default_frame, current->default_frame, sizeof(u64) * FRAME_ERROR_CODE);
+    runtime_memcpy(t->default_frame + FRAME_EXTENDED_SAVE, current->default_frame + FRAME_EXTENDED_SAVE,
+                   xsave_frame_size());
     thread_clone_sigmask(t, current);
 
     /* clone behaves like fork at the syscall level, returning 0 to the child */
@@ -151,29 +153,28 @@ static inline void run_thread_frame(thread t)
     frame_return(f);
 }
 
-closure_function(1, 0, void, run_thread,
-                 thread, t)
+define_closure_function(1, 0, void, run_thread,
+                        thread, t)
 {
     thread t = bound(t);
     dispatch_signals(t);
     run_thread_frame(t);
 }
 
-closure_function(1, 0, void, run_sighandler,
-                 thread, t)
+define_closure_function(1, 0, void, run_sighandler,
+                        thread, t)
 {
     run_thread_frame(bound(t));
 }
 
 static void setup_thread_frame(heap h, context frame, thread t)
 {
-    frame[FRAME_FAULT_HANDLER] = u64_from_pointer(create_fault_handler(h, t));
+    frame[FRAME_FAULT_HANDLER] = u64_from_pointer(&t->fault_handler);
     frame[FRAME_QUEUE] = u64_from_pointer(thread_queue);
     frame[FRAME_IS_SYSCALL] = 1;
     frame[FRAME_CS] = 0x2b; // where is this defined?
     frame[FRAME_THREAD] = u64_from_pointer(t);
 }
-
 
 void thread_sleep_interruptible(void)
 {
@@ -238,7 +239,7 @@ define_closure_function(1, 0, void, free_thread,
 define_closure_function(1, 0, void, resume_syscall, thread, t)
 {
     current_cpu()->current_thread = bound(t);
-    syscall_debug(bound(t)->deferred_frame);
+    syscall_debug(thread_frame(bound(t)));
 }
 
 thread create_thread(process p)
@@ -268,14 +269,15 @@ thread create_thread(process p)
     t->name[0] = '\0';
 
     t->default_frame = allocate_frame(h);
+    init_thread_fault_handler(t);
     setup_thread_frame(h, t->default_frame, t);
-    t->default_frame[FRAME_RUN] = u64_from_pointer(closure(h, run_thread, t));
+    t->default_frame[FRAME_RUN] = u64_from_pointer(init_closure(&t->run_thread, run_thread, t));
     set_thread_frame(t, t->default_frame);
     
     t->sighandler_frame = allocate_frame(h);
     t->signal_stack = 0;
     setup_thread_frame(h, t->sighandler_frame, t);
-    t->sighandler_frame[FRAME_RUN] = u64_from_pointer(closure(h, run_sighandler, t));
+    t->sighandler_frame[FRAME_RUN] = u64_from_pointer(init_closure(&t->run_sighandler, run_sighandler, t));
 
     // xxx another max 64
     t->affinity.mask[0] = MASK(total_processors);
@@ -342,9 +344,6 @@ void exit_thread(thread t)
     t->thread_bq = INVALID_ADDRESS;
 
     /* consider having a thread heap that we can just discard ?*/
-    deallocate_closure(pointer_from_u64(t->default_frame[FRAME_RUN]));
-    deallocate_closure(pointer_from_u64(t->sighandler_frame[FRAME_RUN]));
-    deallocate_closure(pointer_from_u64(t->default_frame[FRAME_FAULT_HANDLER]));
     if (t->signal_stack) {
         deallocate((heap)t->p->virtual_page, t->signal_stack, SIGNAL_STACK_SIZE);
     }

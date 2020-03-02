@@ -53,7 +53,7 @@ typedef struct cpuinfo {
        switched by hardware */
     void *int_stack;
 
-    /* leaky unix stuff - I guess this is really running_frame in disguise */
+    /* leaky unix stuff */
     void *current_thread;
 } *cpuinfo;
 
@@ -138,7 +138,6 @@ static inline void set_page_write_protect(boolean enable)
 typedef struct queue *queue;
 extern queue bhqueue;
 extern queue runqueue;
-extern queue idle_cpu_queue;
 extern queue thread_queue;
 timerheap runloop_timers;
 
@@ -227,6 +226,11 @@ static inline u64 frame_return_address(context f)
 static inline u64 fault_address(context f)
 {
     return f[FRAME_CR2];
+}
+
+static inline u64 total_frame_size(void)
+{
+    return FRAME_EXTENDED_SAVE * sizeof(u64) + xsave_frame_size();
 }
 
 extern int shutdown_vector;

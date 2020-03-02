@@ -71,7 +71,8 @@ static void xapic_ipi(apic_iface i, u32 target, u64 flags, u8 vector)
 
 static boolean detect(apic_iface i, kernel_heaps kh)
 {
-    /* assume we have it in the catch-all case - must be detected last */
+    /* not really a detect, but the default if x2apic isn't
+       available...so must be called last */
     xapic_vbase = allocate_u64((heap)heap_virtual_page(kh), PAGESIZE);
     assert(xapic_vbase != INVALID_PHYSICAL);
     map(xapic_vbase, APIC_BASE, PAGESIZE, PAGE_DEV_FLAGS, heap_pages(kh));

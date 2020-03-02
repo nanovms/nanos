@@ -22,7 +22,7 @@
 #endif
 
 extern void init_net(kernel_heaps kh);
-extern void start_interrupts(kernel_heaps kh);
+extern void init_interrupts(kernel_heaps kh);
 
 static struct kernel_heaps heaps;
 
@@ -229,6 +229,9 @@ static void init_cpuinfos(kernel_heaps kh)
     heap h = heap_general(kh);
     heap pages = heap_pages(kh);
 
+    /* We're stuck with a hard limit of 64 for now due to bitmask... */
+    build_assert(MAX_CPUS <= 64);
+
     /* We'd like the aps to allocate for themselves, but we don't have
        per-cpu heaps just yet. */
     for (int i = 0; i < MAX_CPUS; i++) {
@@ -303,8 +306,8 @@ static void __attribute__((noinline)) init_service_new_stack()
     current_cpu()->state = cpu_kernel;
 
     /* interrupts */
-    init_debug("start_interrupts");
-    start_interrupts(kh);
+    init_debug("init_interrupts");
+    init_interrupts(kh);
     // xxx - we depend on interrupts being initialized in order to allocate the
     // ipi..i guess this is safe because they are disabled?
     init_debug("init_scheduler");    

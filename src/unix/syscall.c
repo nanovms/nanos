@@ -2013,7 +2013,6 @@ static void syscall_schedule(context f, u64 call)
         current_cpu()->state = cpu_kernel;
         syscall_debug(f);
     } else {
-        current->deferred_frame = f;
         enqueue(runqueue, &current->deferred_syscall);
         runloop();
     }

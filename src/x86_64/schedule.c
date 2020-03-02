@@ -41,6 +41,7 @@ static struct spinlock kernel_lock;
 void kern_lock()
 {
     cpuinfo ci = current_cpu();
+    assert(ci->state != cpu_interrupt);
     spin_lock(&kernel_lock);
     ci->have_kernel_lock = true;
 }
@@ -48,6 +49,7 @@ void kern_lock()
 boolean kern_try_lock()
 {
     cpuinfo ci = current_cpu();
+    assert(ci->state != cpu_interrupt);
     if (ci->have_kernel_lock)
         return true;
     if (!spin_try(&kernel_lock))
@@ -59,7 +61,7 @@ boolean kern_try_lock()
 void kern_unlock()
 {
     cpuinfo ci = current_cpu();
-    assert(ci->have_kernel_lock);
+    assert(ci->state != cpu_interrupt);
     ci->have_kernel_lock = false;
     spin_unlock(&kernel_lock);
 }
@@ -106,16 +108,33 @@ static inline void update_timer(cpuinfo ci)
     runloop_timer(timeout);
 }
 
+void __attribute__((noreturn)) kernel_sleep(void)
+{
+    // we're going to cover up this race by checking the state in the interrupt
+    // handler...we shouldn't return here if we do get interrupted
+    cpuinfo ci = get_cpuinfo();
+    sched_debug("sleep\n");
+    ci->state = cpu_idle;
+    atomic_set_bit(&idle_cpu_mask, ci->id);
+    if (ci->have_kernel_lock)
+        kern_unlock();
+
+    /* loop to absorb spurious wakeups from hlt - happens on some platforms (e.g. xen) */
+    while (1)
+        asm volatile("sti; hlt" ::: "memory");
+}
+
 // should we ever be in the user frame here? i .. guess so?
-void runloop_internal()
+void __attribute__((noreturn)) runloop_internal()
 {
     cpuinfo ci = current_cpu();
     thunk t;
 
     disable_interrupts();
-    sched_debug("runloop %s b:%d r:%d t:%d i:%x lock:%d\n", state_strings[ci->state],
+    sched_debug("runloop from %s b:%d r:%d t:%d i:%x lock:%d\n", state_strings[ci->state],
                 queue_length(bhqueue), queue_length(runqueue), queue_length(thread_queue),
                 idle_cpu_mask, ci->have_kernel_lock);
+    ci->state = cpu_kernel;
     if (kern_try_lock()) {
         /* invoke expired timer callbacks */
         ci->state = cpu_kernel;
@@ -139,24 +158,8 @@ void runloop_internal()
     if ((t = dequeue(thread_queue)) != INVALID_ADDRESS)
         run_thunk(t, cpu_user);
 
-    /* loop to absorb spurious wakeups from hlt - happens on some platforms (e.g. xen) */
-    while (1)
-        kernel_sleep();
+    kernel_sleep();
 }    
-
-void kernel_sleep(void)
-{
-    // we're going to cover up this race by checking the state in the interrupt
-    // handler...we shouldn't return here if we do get interrupted    
-    cpuinfo ci = get_cpuinfo();
-    sched_debug("sleep\n");
-    ci->state = cpu_idle;
-    atomic_set_bit(&idle_cpu_mask, ci->id);
-    if (ci->have_kernel_lock)
-        kern_unlock();
-    // wmb() ?  interrupt would probably enforce that
-    asm volatile("sti; hlt" ::: "memory");
-}
 
 closure_function(0, 0, void, global_shutdown)
 {

@@ -81,9 +81,9 @@ static boolean handle_protection_fault(context frame, u64 vaddr, vmap vm)
 }
 
 // it so happens that f and frame should be the same number?
-closure_function(1, 1, void, default_fault_handler,
-                 thread, t,
-                 context, frame)
+define_closure_function(1, 1, void, default_fault_handler,
+                        thread, t,
+                        context, frame)
 {
     boolean user = is_usermode_fault(frame);
 
@@ -150,9 +150,9 @@ closure_function(1, 1, void, default_fault_handler,
     }
 }
 
-fault_handler create_fault_handler(heap h, thread t)
+void init_thread_fault_handler(thread t)
 {
-    return closure(h, default_fault_handler, t);
+    init_closure(&t->fault_handler, default_fault_handler, t);
 }
 
 closure_function(0, 6, sysreturn, dummy_read,
@@ -380,8 +380,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
        to the relevant thread frame upon entering the bottom half
        routine.
     */
-    fault_handler fallback_handler = create_fault_handler(h, current);
-    install_fallback_fault_handler(fallback_handler);
+    install_fallback_fault_handler((fault_handler)&dummy_thread->fault_handler);
 
     register_special_files(kernel_process);
     init_syscalls();

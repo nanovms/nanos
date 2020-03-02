@@ -182,9 +182,16 @@ struct ftrace_graph_entry;
 #include <notify.h>
 
 declare_closure_struct(1, 0, void, free_thread,
-                         thread, t);
+                       thread, t);
 declare_closure_struct(1, 0, void, resume_syscall,
                        thread, t);
+declare_closure_struct(1, 0, void, run_thread,
+                       thread, t);
+declare_closure_struct(1, 0, void, run_sighandler,
+                       thread, t);
+declare_closure_struct(1, 1, void, default_fault_handler,
+                       thread, t,
+                       context, frame);
 
 /* XXX probably should bite bullet and allocate these... */
 #define FRAME_MAX_PADDED ((FRAME_MAX + 15) & ~15)
@@ -211,6 +218,9 @@ typedef struct thread {
 
     struct refcount refcount;
     closure_struct(free_thread, free);
+    closure_struct(run_thread, run_thread);
+    closure_struct(run_sighandler, run_sighandler);
+    closure_struct(default_fault_handler, fault_handler);
 
     epoll select_epoll;
     int *clear_tid;
@@ -238,7 +248,6 @@ typedef struct thread {
     struct ftrace_graph_entry * graph_stack;
 #endif
     closure_struct(resume_syscall, deferred_syscall);
-    context deferred_frame; /* could be frame or sigframe */
     cpu_set_t affinity;    
 } *thread;
 
@@ -343,6 +352,8 @@ extern thread dummy_thread;
 // seems like we could extract this from the frame or remove the thread entry in the frame
 #define current ((thread)(current_cpu()->current_thread))
 
+void init_thread_fault_handler(thread t);
+
 static inline thread thread_from_tid(process p, int tid)
 {
     thread t = vector_get(p->threads, tid);
@@ -372,8 +383,6 @@ static inline kernel_heaps get_kernel_heaps()
 
 #define unix_cache_alloc(uh, c) ({ heap __c = uh->c ## _cache; allocate(__c, __c->pagesize); })
 #define unix_cache_free(uh, c, p) ({ heap __c = uh->c ## _cache; deallocate(__c, p, __c->pagesize); })
-
-fault_handler create_fault_handler(heap h, thread t);
 
 static inline void init_fdesc(heap h, fdesc f, int type)
 {
