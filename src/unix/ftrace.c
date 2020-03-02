@@ -1,7 +1,6 @@
-#include <runtime.h>
+#include <kernel.h>
 #include <unix_internal.h>
 #include <ftrace.h>
-#include <x86_64.h>
 #include <symtab.h>
 #include <http.h>
 
@@ -1621,14 +1620,15 @@ send_http_chunk_failed:
 #define SEND_HTTP_CHUNK_INTERVAL_MS     (milliseconds(75))
 
 /* simultaneous requests might present issues, so ... don't do them?? */
-closure_function(4, 0, void, __ftrace_send_http_chunk,
+closure_function(4, 1, void, __ftrace_send_http_chunk,
                  struct ftrace_routine *, routine, struct ftrace_printer *, p,
-                 boolean, local_printer, buffer_handler, out)
+                 boolean, local_printer, buffer_handler, out,
+                 u64, overruns /* ignored */)
 {
     if (__ftrace_send_http_chunk_internal(bound(routine), bound(p),
             bound(local_printer), bound(out)))
     {
-        register_timer(CLOCK_ID_MONOTONIC, SEND_HTTP_CHUNK_INTERVAL_MS, false, 0, (thunk)closure_self());
+        register_timer(runlooop_timers, CLOCK_ID_MONOTONIC, SEND_HTTP_CHUNK_INTERVAL_MS, false, 0, (timer_handler)closure_self());
     } else {
         closure_finish();
     }
@@ -1691,9 +1691,9 @@ __ftrace_do_http_method(buffer_handler out, struct ftrace_routine * routine,
         ftrace_send_http_chunked_response(out);
         if (__ftrace_send_http_chunk_internal(routine, p, local_printer, out))
         {
-            thunk t = closure(ftrace_heap, __ftrace_send_http_chunk, routine,
+            timer_handler t = closure(ftrace_heap, __ftrace_send_http_chunk, routine,
                 p, local_printer, out);
-            register_timer(CLOCK_ID_MONOTONIC, SEND_HTTP_CHUNK_INTERVAL_MS, false, 0, t);
+            register_timer(runloop_timers, CLOCK_ID_MONOTONIC, SEND_HTTP_CHUNK_INTERVAL_MS, false, 0, t);
         }
     }
 

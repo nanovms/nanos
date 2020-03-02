@@ -1,5 +1,4 @@
 #include <unix_internal.h>
-#include <metadata.h>
 #include <page.h>
 
 // lifted from linux UAPI
@@ -1411,13 +1410,13 @@ static sysreturn brk(void *x)
             if (u64_from_pointer(x) < p->heap_base)
                 goto fail;
             p->brk = x;
-            assert(adjust_vmap_range(p->vmaps, p->heap_map, irange(p->heap_base, u64_from_pointer(x))));
+            assert(adjust_process_heap(p, irange(p->heap_base, u64_from_pointer(x))));
             // free
         } else if (p->brk < x) {
             // I guess assuming we're aligned
             u64 alloc = pad(u64_from_pointer(x), PAGESIZE) - pad(u64_from_pointer(p->brk), PAGESIZE);
-            assert(adjust_vmap_range(p->vmaps, p->heap_map, irange(p->heap_base, u64_from_pointer(p->brk) + alloc)));
-            u64 phys = allocate_u64(heap_physical(kh), alloc);
+            assert(adjust_process_heap(p, irange(p->heap_base, u64_from_pointer(p->brk) + alloc)));
+            u64 phys = allocate_u64((heap)heap_physical(kh), alloc);
             if (phys == INVALID_PHYSICAL)
                 goto fail;
             /* XXX no exec configurable? */
@@ -1779,11 +1778,35 @@ sysreturn eventfd2(unsigned int count, int flags)
     return do_eventfd2(count, flags);
 }
 
+static thread lookup_thread(int pid)
+{
+    thread t;
+    if (pid== 0) {
+        t = current;
+    } else {
+        if ((t = thread_from_tid(current->p, pid)) == INVALID_ADDRESS)
+            return 0;
+    }
+    return t;
+}
+
+sysreturn sched_setaffinity(int pid, u64 cpusetsize, cpu_set_t *mask)
+{
+    thread t;
+    if (!(t = lookup_thread(pid)) ||
+        (!mask || cpusetsize < sizeof(mask->mask[0])))
+            return set_syscall_error(current, EINVAL);                
+    runtime_memcpy(&t->affinity, mask, sizeof(mask->mask[0]));
+    return 0;
+}
+
 sysreturn sched_getaffinity(int pid, u64 cpusetsize, cpu_set_t *mask)
 {
-    if (!mask || cpusetsize < sizeof(mask->mask[0]))
-        return set_syscall_error(current, EINVAL);
-    mask->mask[0] = 1;      /* always cpu 0 */
+    thread t;
+    if (!(t = lookup_thread(pid)) ||
+        (!mask || cpusetsize < sizeof(mask->mask[0])))
+            return set_syscall_error(current, EINVAL);                    
+    runtime_memcpy(mask, &t->affinity, sizeof(mask->mask[0]));        
     return sizeof(mask->mask[0]);
 }
 
@@ -1821,8 +1844,9 @@ sysreturn sysinfo(struct sysinfo *info)
     kernel_heaps kh = get_kernel_heaps();
     runtime_memset((u8 *) info, 0, sizeof(*info));
     info->uptime = sec_from_timestamp(uptime());
-    info->totalram = id_heap_total(kh->physical);
-    info->freeram = info->totalram < kh->physical->allocated ? 0 : info->totalram - kh->physical->allocated;
+    info->totalram = heap_total((heap)kh->physical);
+    u64 allocated = heap_allocated((heap)kh->physical);
+    info->freeram = info->totalram < allocated ? 0 : info->totalram - allocated;
     info->procs = 1;
     info->mem_unit = 1;
     return 0;
@@ -1892,7 +1916,7 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, fchdir, fchdir);
     register_syscall(map, newfstatat, newfstatat);
     register_syscall(map, sched_getaffinity, sched_getaffinity);
-    register_syscall(map, sched_setaffinity, syscall_ignore);
+    register_syscall(map, sched_setaffinity, sched_setaffinity);
     register_syscall(map, getuid, syscall_ignore);
     register_syscall(map, geteuid, syscall_ignore);
     register_syscall(map, chown, syscall_ignore);
@@ -1917,23 +1941,22 @@ struct syscall {
 static struct syscall _linux_syscalls[SYS_MAX];
 struct syscall *linux_syscalls = _linux_syscalls;
 
-// this can actually change to the per-cpu miscframe; if the syscall
-// blocks, we don't really change contexts, but instead call runloop
-// and do other kernely stuff...in any case it really does need to be
-// per-cpu, as it's won't be encapsulated by the big lock as I thought
+extern u64 kernel_lock;
 
-context syscall_frame;
-
-static void syscall_debug()
+void syscall_debug(context f)
 {
-    sysreturn rv = -ENOSYS;
-    context f = get_running_frame();     /* usually current->frame, except for sigreturn */
-    int call = f[FRAME_VECTOR];
+    u64 call = f[FRAME_VECTOR];
+//    rprintf("SYSCALL f %p, rip 0x%lx, call %d\n", f, f[FRAME_RIP], call);
+    thread t = current;
+    set_syscall_return(t, -ENOSYS); // xx - not happy about this cast
+
     if (call < 0 || call >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0])) {
+        schedule_frame(f);
         thread_log(current, "invalid syscall %d", call);
-        goto out;
+        runloop();
     }
-    current->syscall = call;
+    t->syscall = call;
+    // should we cache this for performance?
     void *debugsyscalls = table_find(current->p->process_root, sym(debugsyscalls));
     struct syscall *s = current->p->syscalls + call;
     if (debugsyscalls) {
@@ -1946,28 +1969,21 @@ static void syscall_debug()
     if (h) {
         proc_enter_system(current->p);
 
-        /* exchange frames so that a fault won't clobber the syscall
-           context, but retain the fault handler that has current enclosed */
-        // make frame_{push,pop} a true stack-of-frames?
-        syscall_frame[FRAME_FAULT_HANDLER] = f[FRAME_FAULT_HANDLER];
-        set_running_frame(syscall_frame);
-
-        rv = h(f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]);
+        sysreturn rv = h(f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]);
+        set_syscall_return(current, rv);
         if (debugsyscalls)
             thread_log(current, "direct return: %ld, rsp 0x%lx", rv, f[FRAME_RSP]);
-        proc_enter_user(current->p);
-        set_running_frame(f);
     } else if (debugsyscalls) {
         if (s->name)
             thread_log(current, "nosyscall %s", s->name);
         else
             thread_log(current, "nosyscall %d", call);
     }
-
-  out:
-    f[FRAME_RAX] = rv;
     current->syscall = -1;
-    dispatch_signals(current);
+    // i dont know that we actually want to defer the syscall return...its just easier for the moment to hew
+    // to the general model and make exceptions later
+    schedule_frame(f);
+    runloop();
 }
 
 boolean syscall_notrace(int syscall)
@@ -1989,13 +2005,25 @@ closure_function(0, 2, void, syscall_io_complete_cfn,
     file_op_maybe_wake(t);
 }
 
+// some validation can be moved up here
+static void syscall_schedule(context f, u64 call)
+{
+    /* kernel context set on syscall entry */
+    if (kern_try_lock()) {
+        current_cpu()->state = cpu_kernel;
+        syscall_debug(f);
+    } else {
+        enqueue(runqueue, &current->deferred_syscall);
+        runloop();
+    }
+}
+
 void init_syscalls()
 {
     //syscall = b->contents;
     // debug the synthesized version later, at least we have the table dispatch
     heap h = heap_general(get_kernel_heaps());
-    syscall = syscall_debug;
-    syscall_frame = allocate_frame(h);
+    syscall = syscall_schedule;
     syscall_io_complete = closure(h, syscall_io_complete_cfn);
 }
 

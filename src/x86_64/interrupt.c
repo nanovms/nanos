@@ -1,14 +1,20 @@
-#include <runtime.h>
-#include <x86_64.h>
+#include <kernel.h>
 #include <kvm_platform.h>
 #include <page.h>
 #include <region.h>
 #include <apic.h>
 
-#define INTERRUPT_VECTOR_START 32 /* end of exceptions; defined by architecture */
+//#define INT_DEBUG
+#ifdef INT_DEBUG
+#define int_debug(x, ...) do {log_printf("  INT", x, ##__VA_ARGS__);} while(0)
+#else
+#define int_debug(x, ...)
+#endif
 
-/* XXX expand on this and add names to register_interrupt */
-static char *interrupts[] = {
+#define INTERRUPT_VECTOR_START 32 /* end of exceptions; defined by architecture */
+#define MAX_INTERRUPT_VECTORS  256 /* as defined by architecture; we may have less */
+
+static const char *interrupt_names[MAX_INTERRUPT_VECTORS] = {
     "Divide by 0",
     "Reserved",
     "NMI Interrupt",
@@ -171,7 +177,7 @@ void print_frame(context f)
     print_u64(v);
     if (v < INTERRUPT_VECTOR_START) {
         console(" (");
-        console(interrupts[v]);
+        console((char *)interrupt_names[v]);
         console(")");
     }
     console("\n     frame: ");
@@ -200,18 +206,11 @@ void print_frame(context f)
     }
 }
 
-void kernel_sleep(void)
-{
-    __asm__("sti; hlt" ::: "memory");
-    disable_interrupts();
-}
-
 void install_fallback_fault_handler(fault_handler h)
 {
-    /* lord this is gross */
+    // XXX nuke this once we clear out kernel page faults
     for (int i = 0; i < MAX_CPUS; i++) {
-        cpuinfos[i].misc_frame[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
-        cpuinfos[i].bh_frame[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
+        cpuinfo_from_id(i)->kernel_frame[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
     }
 }
 
@@ -228,69 +227,86 @@ void common_handler()
     context f = ci->running_frame;
     int i = f[FRAME_VECTOR];
 
-    if (i == spurious_int_vector)
-        return;                 /* no EOI */
-
-    /* Unless there's some reason to handle a page fault within an
-       interrupt handler, this should always be terminal. */
-    if (ci->in_int) {
-        console("\nexception during interrupt handling: cpu ");
-        print_u64(ci->id);
-        console(", vector ");
-        print_u64(i);
-        console("\n");
-        goto exit_fault;
-    }
-    ci->in_int = true;
-
     if (i >= n_interrupt_vectors) {
-        console("\nexception for invalid interrupt vector: ");
-        print_u64(i);
-        console("\n");
+        console("\nexception for invalid interrupt vector\n");
         goto exit_fault;
     }
+
+    // if we were idle, we are no longer
+    atomic_clear_bit(&idle_cpu_mask, ci->id);
+
+    int_debug("[%2d] # %d (%s), state %s, frame %p, rip 0x%lx, cr2 0x%lx\n",
+              ci->id, i, interrupt_names[i], state_strings[ci->state],
+              f, f[FRAME_RIP], f[FRAME_CR2]);
+
+    /* enqueue an interrupted user thread, unless the page fault handler should take care of it */
+    // what about bh?
+    if (ci->state == cpu_user && i >= INTERRUPT_VECTOR_START) {
+        int_debug("int sched %F\n", f[FRAME_RUN]);
+        schedule_frame(f);        // racy enqueue from interrupt level? we weren't interrupting the kernel...
+    }
+
+    if (i == spurious_int_vector)
+        frame_return(f);        /* direct return, no EOI */
+
+    /* Unless there's some reason to handle a page fault in interrupt
+       mode, this should always be terminal.
+
+       This really should include kernel mode, too, but we're for the
+       time being allowing the kernel to take page faults...which
+       really isn't sustainable unless we want fine-grained locking
+       around the vmaps and page tables. Validating user buffers will
+       get rid of this requirement (and allow us to add the check for
+       cpu_kernel here too).
+    */
+    if (ci->state == cpu_interrupt) {
+        console("\nexception during interrupt handling\n");
+        goto exit_fault;
+    }
+    ci->state = cpu_interrupt;
+
+    if (f[FRAME_FULL]) {
+        console("\nframe ");
+        print_u64(u64_from_pointer(f));
+        console(" already full\n");
+        goto exit_fault;
+    }
+    f[FRAME_FULL] = true;
 
     /* invoke handler if available, else general fault handler */
     if (handlers[i]) {
         apply(handlers[i]);
-        if (i >= 32)
+        if (i >= INTERRUPT_VECTOR_START)
             lapic_eoi();
     } else {
         fault_handler fh = pointer_from_u64(f[FRAME_FAULT_HANDLER]);
         if (fh) {
-            set_running_frame(apply(fh, f));
+            apply(fh, f);
         } else {
             console("\nno fault handler for frame ");
             print_u64(u64_from_pointer(f));
             /* make a half attempt to identify it short of asking unix */
-            if (f == current_cpu()->misc_frame)
-                console(" (misc frame)\n");
-            else if (f == current_cpu()->bh_frame)
-                console(" (bh frame)\n");
-            else
-                console("\n");
+            /* we should just have a name here */
+            if (f == current_cpu()->kernel_frame)
+                console(" (kernel frame)");
+            console("\n");
             goto exit_fault;
         }
     }
-
-    /* if the interrupt didn't occur during bottom half or int handler
-       execution, switch context to bottom half processing */
-    ci->in_int = false;
-
-    /* bsp only right now */
-    if (ci->id == 0 && !ci->in_bh) {
-        frame_push(ci->bh_frame);
-        ci->in_bh = true;
-        switch_stack(ci->bh_stack, process_bhqueue);
-    }
-    return;
+    if (f == current_cpu()->kernel_frame)
+        f[FRAME_FULL] = false;      /* no longer saving frame for anything */
+    runloop();
   exit_fault:
-    // XXX need to terminate bsp if on ap
-    console("\n       cpu: ");
+    console("cpu ");
     print_u64(ci->id);
+    console(", state ");
+    console(state_strings[ci->state]);
+    console(", vector ");
+    print_u64(i);
     console("\n");
     print_frame(f);
     print_stack(f);
+    apic_ipi(TARGET_EXCLUSIVE_BROADCAST, 0, shutdown_vector);
     vm_exit(VM_EXIT_FAULT);
 }
 
@@ -306,12 +322,13 @@ void deallocate_interrupt(u64 irq)
     deallocate_u64(interrupt_vector_heap, irq, 1);
 }
 
-void register_interrupt(int vector, thunk t)
+void register_interrupt(int vector, thunk t, const char *name)
 {
     if (handlers[vector])
         halt("%s: handler for vector %d already registered (%p)\n",
              __func__, vector, handlers[vector]);
     handlers[vector] = t;
+    interrupt_names[vector] = name;
 }
 
 void unregister_interrupt(int vector)
@@ -319,7 +336,10 @@ void unregister_interrupt(int vector)
     if (!handlers[vector])
         halt("%s: no handler registered for vector %d\n", __func__, vector);
     handlers[vector] = 0;
+    interrupt_names[vector] = 0;
 }
+
+#define TSS_SIZE                0x68
 
 extern volatile void * TSS;
 static inline void write_tss_u64(int cpu, int offset, u64 val)
@@ -334,10 +354,18 @@ void set_ist(int cpu, int i, u64 sp)
     write_tss_u64(cpu, 0x24 + (i - 1) * 8, sp);
 }
 
+void deallocate_frame(context f)
+{
+    deallocate((heap)pointer_from_u64(f[FRAME_HEAP]), f, total_frame_size());
+}
+
 context allocate_frame(heap h)
 {
-    context f = allocate_zero(h, FRAME_MAX * sizeof(u64));
+    context f = allocate_zero(h, total_frame_size());
     assert(f != INVALID_ADDRESS);
+    assert((u64_from_pointer(f) & 63) == 0);
+    xsave(f);
+    f[FRAME_HEAP] = u64_from_pointer(h);
     return f;
 }
 
@@ -348,7 +376,7 @@ void * allocate_stack(heap pages, int npages)
     return base + pages->pagesize * npages - STACK_ALIGNMENT;
 }
 
-void start_interrupts(kernel_heaps kh)
+void init_interrupts(kernel_heaps kh)
 {
     heap general = heap_general(kh);
     heap pages = heap_pages(kh);
@@ -357,8 +385,8 @@ void start_interrupts(kernel_heaps kh)
     /* Exception handlers */
     handlers = allocate_zero(general, n_interrupt_vectors * sizeof(thunk));
     assert(handlers != INVALID_ADDRESS);
-    interrupt_vector_heap = create_id_heap(general, general, INTERRUPT_VECTOR_START,
-                                           n_interrupt_vectors - INTERRUPT_VECTOR_START, 1);
+    interrupt_vector_heap = (heap)create_id_heap(general, general, INTERRUPT_VECTOR_START,
+                                                 n_interrupt_vectors - INTERRUPT_VECTOR_START, 1);
     assert(interrupt_vector_heap != INVALID_ADDRESS);
 
     /* Page fault alternate stack */
@@ -385,9 +413,6 @@ void start_interrupts(kernel_heaps kh)
     u64 v = allocate_interrupt();
     assert(v != INVALID_PHYSICAL);
     spurious_int_vector = v;
-
-    /* default running context */
-    set_running_frame(ci->misc_frame);
 
     /* APIC initialization */
     init_apic(kh);

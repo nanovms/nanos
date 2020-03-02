@@ -18,7 +18,7 @@ static inline boolean anything_equals(void *a, void* b)
 
 static boolean basic_table_tests(heap h, u64 (*key_function)(void *x), u64 n_elem)
 {
-    u64 heap_occupancy = h->allocated;
+    u64 heap_occupancy = heap_allocated(h);
     table t = allocate_table(h, key_function, pointer_equal);
     u64 count;
 
@@ -116,8 +116,8 @@ static boolean basic_table_tests(heap h, u64 (*key_function)(void *x), u64 n_ele
     }
 
     deallocate_table(t);
-    if (h->allocated != heap_occupancy) {
-        msg_err("leak: h->allocated %ld, originally %ld\n", h->allocated, heap_occupancy);
+    if (heap_allocated(h) != heap_occupancy) {
+        msg_err("leak: heap_allocated(h) %ld, originally %ld\n", heap_allocated(h), heap_occupancy);
         return false;
     }
     return true;
@@ -125,7 +125,7 @@ static boolean basic_table_tests(heap h, u64 (*key_function)(void *x), u64 n_ele
 
 static boolean one_elem_table_tests(heap h, u64 n_elem)
 {
-    u64 heap_occupancy = h->allocated;
+    u64 heap_occupancy = heap_allocated(h);
     table t = allocate_table(h, silly_key, anything_equals);
     u64 count;
 
@@ -182,8 +182,8 @@ static boolean one_elem_table_tests(heap h, u64 n_elem)
     }
 
     deallocate_table(t);
-    if (h->allocated != heap_occupancy) {
-        msg_err("leak: h->allocated %ld, originally %ld\n", h->allocated, heap_occupancy);
+    if (heap_allocated(h) != heap_occupancy) {
+        msg_err("leak: heap_allocated(h) %ld, originally %ld\n", heap_allocated(h), heap_occupancy);
         return false;
     }
     return true;

@@ -11,8 +11,6 @@ Public domain.
 #ifndef CHACHA_H
 #define CHACHA_H
 
-#include <runtime.h>
-
 struct chacha_ctx {
 	u32 input[16];
 };

@@ -77,11 +77,7 @@ void vbprintf(buffer d, buffer fmt, vlist *ap)
 /* XXX the various debug stuff needs to be folded into one log facility...somewhere */
 void log_vprintf(const char *prefix, const char *log_format, vlist *a)
 {
-    static char buf[PAGESIZE * 4];
-
-    buffer b = alloca_wrap_buffer(buf, sizeof(buf));
-    b->end = 0;
-
+    buffer b = little_stack_buffer(1024);
     bprintf(b, "[%T] %s: ", now(CLOCK_ID_BOOTTIME), prefix);
     buffer f = alloca_wrap_buffer(log_format, runtime_strlen(log_format));
     vbprintf(b, f, a);
@@ -126,11 +122,8 @@ void bprintf(buffer b, const char *fmt, ...)
 
 void rprintf(const char *format, ...)
 {
-    static char buf[PAGESIZE * 4];
-
-    buffer b = alloca_wrap_buffer(buf, sizeof(buf));
-    b->end = 0;
-
+    /* What's a reasonable limit here? This needs to be reentrant. */
+    buffer b = little_stack_buffer(1024);
     vlist a;
     vstart(a, format);
     buffer f = alloca_wrap_buffer(format, runtime_strlen(format));

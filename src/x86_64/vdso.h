@@ -1,7 +1,3 @@
-#pragma once
-
-#include <runtime.h>
-
 #define VVAR_DEF(type, name) type name
 #define VVAR_REF(name) __vdso_ ## name
 #define VVAR_DECL(type, name) extern VVAR type __vdso_ ## name
@@ -24,6 +20,7 @@
 struct vdso_dat_struct {
     vdso_clock_id clock_src;
     timestamp rtc_offset;
+    u64 pvclock_offset;
     u8 platform_has_rdtscp;
 } __attribute((packed));
 

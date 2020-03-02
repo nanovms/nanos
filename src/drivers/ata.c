@@ -1,6 +1,5 @@
-#include <runtime/runtime.h>
+#include <kernel.h>
 #include <x86_64/io.h>
-#include <x86_64/x86_64.h>
 #include "ata.h"
 
 /*

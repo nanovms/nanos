@@ -1,12 +1,18 @@
 #include <unix_internal.h>
 #include <ftrace.h>
-#include <buffer.h>
 #include <gdb.h>
-#include <vdso.h>
+#include <page.h>
+
+#define PF_DEBUG
+#ifdef PF_DEBUG
+#define pf_debug(x, ...) thread_log(current, x, ##__VA_ARGS__);
+#else
+#define pf_debug(x, ...)
+#endif
 
 u64 allocate_fd(process p, void *f)
 {
-    u64 fd = allocate_u64(p->fdallocator, 1);
+    u64 fd = allocate_u64((heap)p->fdallocator, 1);
     if (fd == INVALID_PHYSICAL) {
 	msg_err("fail; maxed out\n");
 	return fd;
@@ -30,39 +36,123 @@ u64 allocate_fd_gte(process p, u64 min, void *f)
 void deallocate_fd(process p, int fd)
 {
     vector_set(p->files, fd, 0);
-    deallocate_u64(p->fdallocator, fd, 1);
+    deallocate_u64((heap)p->fdallocator, fd, 1);
 }
 
-closure_function(1, 1, context, default_fault_handler,
-                 thread, t,
-                 context, frame)
+static void
+deliver_segv(u64 vaddr, s32 si_code)
 {
-    /* frame can be:
-       - t->frame if user or syscall
-       - ci->bh_frame if in bottom half operation
-    */
+    struct siginfo s = {
+        .si_signo = SIGSEGV,
+         /* man sigaction: "si_errno is generally unused on Linux" */
+        .si_errno = 0,
+        .si_code = si_code,
+        .sifields.sigfault = {
+            .addr = vaddr,
+        }
+    };
+
+    pf_debug("delivering SIGSEGV; vaddr 0x%lx si_code %s",
+        vaddr, (si_code == SEGV_MAPERR) ? "SEGV_MAPPER" : "SEGV_ACCERR"
+    );
+
+    deliver_signal_to_thread(current, &s);
+}
+
+static boolean handle_protection_fault(context frame, u64 vaddr, vmap vm)
+{
+    /* vmap found, with protection violation set --> send prot violation */
+    if (is_protection_fault(frame)) {
+        pf_debug("page protection violation\naddr 0x%lx, rip 0x%lx, "
+                 "error %s%s%s vm->flags (%s%s%s%s)",
+                 vaddr, frame_return_address(frame),
+                 is_write_fault(frame) ? "W" : "R",
+                 is_usermode_fault(frame) ? "U" : "S",
+                 is_instruction_fault(frame) ? "I" : "D",
+                 (vm->flags & VMAP_FLAG_MMAP) ? "mmap " : "",
+                 (vm->flags & VMAP_FLAG_ANONYMOUS) ? "anonymous " : "",
+                 (vm->flags & VMAP_FLAG_WRITABLE) ? "writable " : "",
+                 (vm->flags & VMAP_FLAG_EXEC) ? "executable " : "");
+
+        deliver_segv(vaddr, SEGV_ACCERR);
+        return true;
+    }
+    return false;
+}
+
+// it so happens that f and frame should be the same number?
+define_closure_function(1, 1, void, default_fault_handler,
+                        thread, t,
+                        context, frame)
+{
+    boolean user = is_usermode_fault(frame);
+
+    /* Really this should be the enclosed thread, but that won't fly
+       for kernel page faults on user pages. If we were ever to
+       support multiple processes, we may need to install current when
+       resuming deferred processing. */
+    process p = current->p;
+
     if (frame[FRAME_VECTOR] == 14) {
-        /* XXX move this to x86_64 */
-        if (unix_fault_page(frame[FRAME_CR2], frame))
-            return frame;
+        u64 vaddr = fault_address(frame);
+        vmap vm = vmap_from_vaddr(p, vaddr);
+        if (vm == INVALID_ADDRESS) {
+            if (user) {
+                pf_debug("no vmap found for addr 0x%lx, rip 0x%lx", vaddr, frame[FRAME_RIP]);
+                deliver_segv(vaddr, SEGV_MAPERR);
+
+                /* schedule this thread to either run signal handler or terminate */
+                schedule_frame(frame);
+                runloop();
+            } else {
+                rprintf("\nUnhandled page fault in kernel mode: ");
+                goto bug;
+            }
+        }
+
+        if (is_pte_error(frame)) {
+            /* no SEGV on reserved PTEs */
+            msg_err("bug: pte entries reserved or corrupt\n");
+#ifndef BOOT
+            dump_ptes(pointer_from_u64(vaddr));
+#endif
+            goto bug;
+        }
+
+        if (handle_protection_fault(frame, vaddr, vm))
+            return;
+
+        if (do_demand_page(fault_address(frame), vm)) {
+            /* Dirty hack until we get page faults out of the kernel:
+               If we're in the kernel context, return to the frame directly. */
+            if (frame == current_cpu()->kernel_frame) {
+                current_cpu()->state = cpu_kernel;
+                frame_return(frame);
+            }
+            schedule_frame(frame);
+            return;
+        }
     }
 
+  bug:
+    // panic handling in a more central location?
+    apic_ipi(TARGET_EXCLUSIVE_BROADCAST, 0, shutdown_vector);
+    rprintf("cpu: %d\n", current_cpu()->id);
     print_frame(frame);
     print_stack(frame);
 
-    if (table_find(current->p->process_root, sym(fault))) {
+    if (table_find(p->process_root, sym(fault))) {
         console("starting gdb\n");
-        init_tcp_gdb(heap_general(get_kernel_heaps()), current->p, 9090);
+        init_tcp_gdb(heap_general(get_kernel_heaps()), p, 9090);
         thread_sleep_uninterruptible();
     } else {
         halt("halt\n");
     }
-    return frame;
 }
 
-fault_handler create_fault_handler(heap h, thread t)
+void init_thread_fault_handler(thread t)
 {
-    return closure(h, default_fault_handler, t);
+    init_closure(&t->fault_handler, default_fault_handler, t);
 }
 
 closure_function(0, 6, sysreturn, dummy_read,
@@ -144,16 +234,17 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
 
     p->uh = uh;
     p->brk = 0;
-    p->pid = allocate_u64(uh->processes, 1);
+    p->pid = allocate_u64((heap)uh->processes, 1);
 
     /* don't need these for kernel process */
     if (p->pid > 1) {
         p->virtual = create_id_heap(h, h, PROCESS_VIRTUAL_HEAP_START,
                                     PROCESS_VIRTUAL_HEAP_LENGTH, HUGE_PAGESIZE);
         assert(p->virtual != INVALID_ADDRESS);
-        assert(id_heap_set_area(heap_virtual_huge(kh), PROCESS_VIRTUAL_HEAP_START,
-                                PROCESS_VIRTUAL_HEAP_LENGTH, true, true));
-        p->virtual_page = create_id_heap_backed(h, heap_backed(kh), p->virtual, PAGESIZE);
+        assert(id_heap_set_area(heap_virtual_huge((kernel_heaps)uh),
+                                PROCESS_VIRTUAL_HEAP_START, PROCESS_VIRTUAL_HEAP_LENGTH,
+                                true, true));
+        p->virtual_page = create_id_heap_backed(h, heap_backed(kh), (heap)p->virtual, PAGESIZE);
         assert(p->virtual_page != INVALID_ADDRESS);
         if (aslr)
             id_heap_set_randomize(p->virtual_page, true);
@@ -245,15 +336,6 @@ timestamp proc_stime(process p)
     return stime;
 }
 
-extern thunk unix_interrupt_checks;
-closure_function(0, 0, void, do_interrupt_checks)
-{
-    /* If we're returning to the standard thread frame, check if we
-       can invoke any signal handlers. */
-    if (get_running_frame() == current->frame)
-        dispatch_signals(current);
-}
-
 process init_unix(kernel_heaps kh, tuple root, filesystem fs)
 {
     heap h = heap_general(kh);
@@ -279,11 +361,12 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
 
     set_syscall_handler(syscall_enter);
     process kernel_process = create_process(uh, root, fs);
-    current = dummy_thread = create_thread(kernel_process);
-    set_running_frame(current->frame);
-
+    dummy_thread = create_thread(kernel_process);
     runtime_memcpy(dummy_thread->name, "dummy_thread",
         sizeof(dummy_thread->name));
+
+    for (int i = 0; i < MAX_CPUS; i++)
+        cpuinfo_from_id(i)->current_thread = dummy_thread;
 
     /* XXX remove once we have http PUT support */
     ftrace_enable();
@@ -297,10 +380,8 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
        to the relevant thread frame upon entering the bottom half
        routine.
     */
-    fault_handler fallback_handler = create_fault_handler(h, current);
-    install_fallback_fault_handler(fallback_handler);
+    install_fallback_fault_handler((fault_handler)&dummy_thread->fault_handler);
 
-    unix_interrupt_checks = closure(h, do_interrupt_checks);
     register_special_files(kernel_process);
     init_syscalls();
     register_file_syscalls(linux_syscalls);

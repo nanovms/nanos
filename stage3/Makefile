@@ -56,7 +56,6 @@ SRCS-stage3.img= \
 	$(SRCDIR)/unix/unix_clock.c \
 	$(SRCDIR)/unix/unix.c \
 	$(SRCDIR)/unix/vdso.c \
-	$(SRCDIR)/unix/vdso-image.c \
 	$(SRCDIR)/unix/pipe.c \
 	$(SRCDIR)/virtio/virtio_net.c \
 	$(SRCDIR)/virtio/virtio_pci.c \
@@ -66,12 +65,14 @@ SRCS-stage3.img= \
 	$(SRCDIR)/virtio/scsi.c \
 	$(SRCDIR)/xen/xen.c \
 	$(SRCDIR)/xen/xennet.c \
+	$(SRCDIR)/x86_64/ap.s \
 	$(SRCDIR)/x86_64/apic.c \
 	$(SRCDIR)/x86_64/backed_heap.c \
 	$(SRCDIR)/x86_64/breakpoint.c \
 	$(SRCDIR)/x86_64/clock.c \
 	$(SRCDIR)/x86_64/crt0.s \
 	$(SRCDIR)/x86_64/elf.c \
+	$(SRCDIR)/x86_64/flush.c \
 	$(SRCDIR)/x86_64/hpet.c \
 	$(SRCDIR)/x86_64/interrupt.c \
 	$(SRCDIR)/x86_64/kvm_platform.c \
@@ -80,12 +81,15 @@ SRCS-stage3.img= \
 	$(SRCDIR)/x86_64/pci.c \
 	$(SRCDIR)/x86_64/pvclock.c \
 	$(SRCDIR)/x86_64/rtc.c \
+	$(SRCDIR)/x86_64/schedule.c \
 	$(SRCDIR)/x86_64/serial.c \
 	$(SRCDIR)/x86_64/service.c \
 	$(SRCDIR)/x86_64/symtab.c \
 	$(SRCDIR)/x86_64/synth.c \
 	$(SRCDIR)/x86_64/vdso-now.c \
-	$(SRCDIR)/x86_64/ap.s \
+	$(SRCDIR)/x86_64/x2apic.c \
+	$(SRCDIR)/x86_64/xapic.c \
+	$(VDSO_OBJDIR)/vdso-image.c \
 	$(SRCS-lwip)
 SRCS-lwip= \
 	$(LWIPDIR)/src/core/def.c \
@@ -141,25 +145,26 @@ LDFLAGS+=	$(KERNLDFLAGS) -T linker_script
 
 VDSO_SRCDIR=    $(SRCDIR)/x86_64
 VDSO_OBJDIR=    $(OBJDIR)/vdso
-VDSO_SRCS=      $(VDSO_SRCDIR)/vdso.c $(VDSO_SRCDIR)/x86_64/vdso-now.c
-VDSO_OBJS=      $(patsubst %.c,$(VDSO_OBJDIR)/%.o,$(notdir $(VDSO_SRCS)))
+VDSO_SRCS=      $(VDSO_SRCDIR)/vdso.c $(VDSO_SRCDIR)/vdso-now.c
+VDSO_OBJS=      $(patsubst $(ROOTDIR)/%.c,$(VDSO_OBJDIR)/%.o,$(VDSO_SRCS))
 VDSO_CFLAGS=    -DBUILD_VDSO -I$(INCLUDES) -I$(OBJDIR) -fPIC -c
 VDSO_LDFLAGS=   -nostdlib -fPIC -shared --build-id=none --hash-style=both --eh-frame-hdr -T$(VDSO_SRCDIR)/vdso.lds
 VDSOGEN_SRC=    $(SRCDIR)/x86_64/vdsogen.c
-
+VDSO_DEPS=      $(patsubst %.o,%.d,$(VDSO_OBJS))
 OBJDUMPFLAGS=	-d -S -M intel-mnemonic
 
-CLEANFILES+=	$(foreach f,gitversion.c frame.inc stage3.dis stage3.img vdso/* src/unix/ftrace.* src/x86_64/ftrace.*,$(OBJDIR)/$f)
-CLEANDIRS+=	$(foreach d,output src vdso vendor vendor/lwip vendor/lwip/src,$(OBJDIR)/$d)
+DEPFILES+=      $(VDSO_DEPS)
+CLEANFILES+=    $(foreach f,gitversion.c frame.inc stage3.dis stage3.img src/unix/ftrace.* src/x86_64/ftrace.*,$(OBJDIR)/$f) $(VDSO_OBJDIR)/vdsogen $(VDSO_OBJDIR)/vdso.so $(VDSO_OBJDIR)/vdso-image.c $(VDSO_OBJS) $(VDSO_DEPS)
+CLEANDIRS+=     $(foreach d,output src vdso/src/x86_64 vdso/src vdso vendor vendor/lwip vendor/lwip/src,$(OBJDIR)/$d)
 
-msg_vdsogen_cc=    CC	$@
-cmd_vdsogen_cc=    $(CC) -o $@ $^
+msg_vdsogen_cc= CC	$@
+cmd_vdsogen_cc= $(CC) -o $@ $^
 
 msg_vdsogen=    VDSOGEN	$@
 cmd_vdsogen=    $(VDSO_OBJDIR)/vdsogen $(VDSO_OBJDIR)/vdso.so $@
 
 msg_vdso_cc=    CC	$@
-cmd_vdso_cc=    $(CC) $(VDSO_CFLAGS) $^ -o $@
+cmd_vdso_cc=    $(CC) $(DEPFLAGS) $(VDSO_CFLAGS) -c $< -o $@
 
 msg_vdso_ld=    LD	$@
 cmd_vdso_ld=    $(LD) $(VDSO_LDFLAGS) $(VDSO_OBJS) -o $@ 
@@ -188,16 +193,17 @@ $(VDSO_OBJDIR)/vdsogen: $(VDSOGEN_SRC)
 	@$(MKDIR) $(VDSO_OBJDIR)
 	$(call cmd,vdsogen_cc)
 
-$(VDSO_OBJDIR)/%.o: $(SRCDIR)/x86_64/%.c
+$(VDSO_OBJDIR)/src/x86_64/%.o: $(VDSO_SRCDIR)/%.c
+	@$(MKDIR) $(dir $@)
 	$(call cmd,vdso_cc)
 
 $(VDSO_OBJDIR)/vdso.so: $(VDSO_OBJS)
 	$(call cmd,vdso_ld)
 
-$(SRCDIR)/unix/vdso-image.c: $(VDSO_OBJDIR)/vdsogen $(VDSO_OBJDIR)/vdso.so
+$(VDSO_OBJDIR)/vdso-image.c: $(VDSO_OBJDIR)/vdsogen $(VDSO_OBJDIR)/vdso.so
 	$(call cmd,vdsogen)
 
-$(PROG-stage3.img): linker_script $(SRCDIR)/unix/vdso-image.c
+$(PROG-stage3.img): linker_script $(VDSO_OBJDIR)/vdso-image.c
 
 $(OBJDIR)/gitversion.c: $(ROOTDIR)/.git/index $(ROOTDIR)/.git/HEAD
 	$(call cmd,version)

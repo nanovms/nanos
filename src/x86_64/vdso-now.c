@@ -8,23 +8,23 @@
  * with VDSO or marked static
  */
 
-#include <runtime.h>
-#include <x86_64.h>
+#include <kernel.h>
 #include <pvclock.h>
 #include <page.h>
-#include <vdso.h>
 
 #ifndef BUILD_VDSO
 VVAR_DEF(struct vdso_dat_struct, vdso_dat) = {
     .platform_has_rdtscp = 0,
     .rtc_offset = 0,
+    .pvclock_offset = 0,
     .clock_src = VDSO_CLOCK_SYSCALL
 };
 #endif
 
 #define __vdso_dat (&(VVAR_REF(vdso_dat)))
 extern VVAR void * pvclock_page;
-#define __vdso_pvclock ((volatile struct pvclock_vcpu_time_info *)&pvclock_page)
+#define __vdso_pvclock ((volatile struct pvclock_vcpu_time_info *)(((unsigned long)&pvclock_page) \
+                                                                   + __vdso_dat->pvclock_offset))
 
 VDSO u64
 vdso_pvclock_now_ns(volatile struct pvclock_vcpu_time_info * vclock)

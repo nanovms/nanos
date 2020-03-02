@@ -326,14 +326,16 @@ bios_tty_write:
 	ret
 
 
+        %define CR4_PAE (1<<5)
+        %define CR4_PGE (1<<7)
+        %define CR4_OSFXSR (1<<9)
+        %define CR4_OSXMMEXCPT (1<<10)        
+        %define CR4_OSXSAVE (1<<18)                
+        
 global run64        
 run64:
         mov eax, cr4     
-        or eax, 1 << 5     ;  PAE
-        or eax, 1 << 9     ;  osfxsr
-        or eax, 1 << 10    ;  osxmmexcpt
-;        or eax, 1 << 18    ;  OSXSAVE - faults on kvm
-        
+        or eax, CR4_PAE | CR4_OSFXSR | CR4_OSXMMEXCPT | CR4_OSXSAVE
         mov cr4, eax  
 
         mov ecx, 0xC0000080 ; EFER MSR.

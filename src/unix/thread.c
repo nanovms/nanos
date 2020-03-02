@@ -2,7 +2,6 @@
 #include <ftrace.h>
 
 thread dummy_thread;
-thread current;
 
 sysreturn gettid()
 {
@@ -20,20 +19,20 @@ sysreturn arch_prctl(int code, unsigned long addr)
     thread_log(current, "arch_prctl: code 0x%x, addr 0x%lx", code, addr);
     switch (code) {
     case ARCH_SET_GS:
-        current->frame[FRAME_GSBASE] = addr;
+        current->default_frame[FRAME_GSBASE] = addr;
         break;
     case ARCH_SET_FS:
-        current->frame[FRAME_FSBASE] = addr;
+        current->default_frame[FRAME_FSBASE] = addr;
         return 0;
     case ARCH_GET_FS:
 	if (!addr)
             return set_syscall_error(current, EINVAL);
-	*(u64 *) addr = current->frame[FRAME_FSBASE];
+	*(u64 *) addr = current->default_frame[FRAME_FSBASE];
         break;
     case ARCH_GET_GS:
 	if (!addr)
             return set_syscall_error(current, EINVAL);
-	*(u64 *) addr = current->frame[FRAME_GSBASE];
+	*(u64 *) addr = current->default_frame[FRAME_GSBASE];
         break;
     default:
         return set_syscall_error(current, EINVAL);
@@ -41,39 +40,34 @@ sysreturn arch_prctl(int code, unsigned long addr)
     return 0;
 }
 
-static inline void thread_make_runnable(thread t)
-{
-    t->blocked_on = 0;
-    t->syscall = -1;
-    enqueue(runqueue, t->run);
-}
-
 sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, unsigned long newtls)
 {
     thread_log(current, "clone: flags %lx, child_stack %p, ptid %p, ctid %p, newtls %lx",
         flags, child_stack, ptid, ctid, newtls);
 
-    if (!child_stack)   /* this is actually a fork() */
-    {
-        thread_log(current, "attempted to fork by passing "
-                   "null child stack, aborting.");
+    if (!child_stack) {   /* this is actually a fork() */
+        thread_log(current, "attempted to fork by passing null child stack, aborting.");
         return set_syscall_error(current, ENOSYS);
     }
 
-    /* clone thread context up to FRAME_VECTOR */
     thread t = create_thread(current->p);
-    runtime_memcpy(t->frame, current->frame, sizeof(u64) * FRAME_ERROR_CODE);
+    /* clone thread context up to FRAME_VECTOR */
+    runtime_memcpy(t->default_frame, current->default_frame, sizeof(u64) * FRAME_ERROR_CODE);
+    runtime_memcpy(t->default_frame + FRAME_EXTENDED_SAVE, current->default_frame + FRAME_EXTENDED_SAVE,
+                   xsave_frame_size());
     thread_clone_sigmask(t, current);
 
     /* clone behaves like fork at the syscall level, returning 0 to the child */
     set_syscall_return(t, 0);
-    t->frame[FRAME_RSP]= u64_from_pointer(child_stack);
-    t->frame[FRAME_FSBASE] = newtls;
+    t->default_frame[FRAME_RSP]= u64_from_pointer(child_stack);
+    t->default_frame[FRAME_FSBASE] = newtls;
     if (flags & CLONE_PARENT_SETTID)
         *ptid = t->tid;
     if (flags & CLONE_CHILD_CLEARTID)
         t->clear_tid = ctid;
-    thread_make_runnable(t);
+    t->blocked_on = 0;
+    t->syscall = -1;
+    schedule_frame(t->default_frame);
     return t->tid;
 }
 
@@ -105,30 +99,81 @@ void thread_log_internal(thread t, const char *desc, ...)
     }
 }
 
-closure_function(1, 0, void, run_thread,
-                 thread, t)
+static inline void check_stop_conditions(thread t)
 {
-    thread t = bound(t);
+    char *cause;
+    u64 pending = sigstate_get_pending(&t->signals);
+    boolean in_sighandler = thread_frame(t) == t->sighandler_frame;
+    /* rather abrupt to just halt...this should go do dump or recovery */
+    if (pending & mask_from_sig(SIGSEGV)) {
+        void * handler = sigaction_from_sig(SIGSEGV)->sa_handler;
+
+        /* Terminate on uncaught SIGSEGV, or if triggered by signal handler. */
+        if (in_sighandler || (handler == SIG_IGN || handler == SIG_DFL)) {
+            cause = "Unhandled SIGSEGV";
+            goto terminate;
+        }
+    }
+
+    boolean is_sigkill = (pending & mask_from_sig(SIGKILL)) != 0;
+    if (is_sigkill || (pending & mask_from_sig(SIGSTOP))) {
+        cause = is_sigkill ? "SIGKILL" : "SIGSTOP";
+        goto terminate;
+    }
+    return;
+  terminate:
+    rprintf("\nProcess abort: %s received by thread %d\n\n", cause, t->tid);
+    print_frame(thread_frame(t));
+    print_stack(thread_frame(t));
+    halt("Terminating.\n");
+}
+
+static inline void run_thread_frame(thread t)
+{
+    check_stop_conditions(t);
+    kern_lock(); // xx - make thread entry a separate exclusion region for performance
     thread old = current;
-    current = t;
-
-    /* ftrace needs to know about the switch event */
-    ftrace_thread_switch(old, current);
-
-    thread_log(t, "run frame %p, RIP=%p", t->frame, t->frame[FRAME_RIP]);
+    current_cpu()->current_thread = t;
+    ftrace_thread_switch(old, current);    /* ftrace needs to know about the switch event */
     proc_enter_user(current->p);
-    set_running_frame(t->frame);
 
     /* cover wake-before-sleep situations (e.g. sched yield, fs ops that don't go to disk, etc.) */
-    current->blocked_on = 0;
+    t->blocked_on = 0;
+    t->syscall = -1;
 
-    /* check if we have a pending signal */
-    dispatch_signals(t);
-
-    /* running frame may have changed to signal handling frame */
-    context f = get_running_frame();
+    context f = thread_frame(t);
     f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
-    IRETURN(f);
+
+    thread_log(t, "run %s, cpu %d, frame %p, rip 0x%lx, rsp 0x%lx, rdi 0x%lx, rax 0x%lx, rflags 0x%lx, cs 0x%lx, %s",
+               f == t->sighandler_frame ? "sig handler" : "thread", current_cpu()->id, f, f[FRAME_RIP], f[FRAME_RSP],
+               f[FRAME_RDI], f[FRAME_RAX], f[FRAME_FLAGS], f[FRAME_CS], f[FRAME_IS_SYSCALL] ? "sysret" : "iret");
+    if (current_cpu()->have_kernel_lock)
+        kern_unlock();
+    current_cpu()->frcount++;
+    frame_return(f);
+}
+
+define_closure_function(1, 0, void, run_thread,
+                        thread, t)
+{
+    thread t = bound(t);
+    dispatch_signals(t);
+    run_thread_frame(t);
+}
+
+define_closure_function(1, 0, void, run_sighandler,
+                        thread, t)
+{
+    run_thread_frame(bound(t));
+}
+
+static void setup_thread_frame(heap h, context frame, thread t)
+{
+    frame[FRAME_FAULT_HANDLER] = u64_from_pointer(&t->fault_handler);
+    frame[FRAME_QUEUE] = u64_from_pointer(thread_queue);
+    frame[FRAME_IS_SYSCALL] = 1;
+    frame[FRAME_CS] = 0x2b; // where is this defined?
+    frame[FRAME_THREAD] = u64_from_pointer(t);
 }
 
 void thread_sleep_interruptible(void)
@@ -151,11 +196,11 @@ void thread_sleep_uninterruptible(void)
 void thread_yield(void)
 {
     disable_interrupts();
-    thread_log(current, "yield %d, RIP=0x%lx", current->tid, current->frame[FRAME_RIP]);
+    thread_log(current, "yield %d, RIP=0x%lx", current->tid, thread_frame(current)[FRAME_RIP]);
     assert(!current->blocked_on);
     current->syscall = -1;
     set_syscall_return(current, 0);
-    enqueue(runqueue, current->run);
+    schedule_frame(thread_frame(current));
     runloop();
 }
 
@@ -163,9 +208,11 @@ void thread_wakeup(thread t)
 {
     thread_log(current, "%s: %ld->%ld blocked_on %s, RIP=0x%lx", __func__, current->tid, t->tid,
                t->blocked_on ? (t->blocked_on != INVALID_ADDRESS ? blockq_name(t->blocked_on) : "uninterruptible") :
-               "(null)", t->frame[FRAME_RIP]);
+               "(null)", thread_frame(t)[FRAME_RIP]);
     assert(t->blocked_on);
-    thread_make_runnable(t);
+    t->blocked_on = 0;
+    t->syscall = -1;
+    schedule_frame(thread_frame(t));
 }
 
 boolean thread_attempt_interrupt(thread t)
@@ -189,9 +236,14 @@ define_closure_function(1, 0, void, free_thread,
     deallocate(heap_general(get_kernel_heaps()), bound(t), sizeof(struct thread));
 }
 
+define_closure_function(1, 0, void, resume_syscall, thread, t)
+{
+    current_cpu()->current_thread = bound(t);
+    syscall_debug(thread_frame(bound(t)));
+}
+
 thread create_thread(process p)
 {
-    // heap I guess
     static int tidcount = 0;
     heap h = heap_general((kernel_heaps)p->uh);
 
@@ -215,15 +267,26 @@ thread create_thread(process p)
     t->tid = tidcount++;
     t->clear_tid = 0;
     t->name[0] = '\0';
-    zero(t->frame, sizeof(t->frame));
-    t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(create_fault_handler(h, t));
-    t->run = closure(h, run_thread, t);
+
+    t->default_frame = allocate_frame(h);
+    init_thread_fault_handler(t);
+    setup_thread_frame(h, t->default_frame, t);
+    t->default_frame[FRAME_RUN] = u64_from_pointer(init_closure(&t->run_thread, run_thread, t));
+    set_thread_frame(t, t->default_frame);
+    
+    t->sighandler_frame = allocate_frame(h);
+    t->signal_stack = 0;
+    setup_thread_frame(h, t->sighandler_frame, t);
+    t->sighandler_frame[FRAME_RUN] = u64_from_pointer(init_closure(&t->run_sighandler, run_sighandler, t));
+
+    // xxx another max 64
+    t->affinity.mask[0] = MASK(total_processors);
     t->blocked_on = 0;
     t->file_op_is_complete = false;
     init_sigstate(&t->signals);
     t->dispatch_sigstate = 0;
     t->active_signo = 0;
-
+    init_closure(&t->deferred_syscall, resume_syscall, t);
     if (ftrace_thread_init(t)) {
         msg_err("failed to init ftrace state for thread\n");
         deallocate_blockq(t->thread_bq);
@@ -280,16 +343,23 @@ void exit_thread(thread t)
     deallocate_blockq(t->thread_bq);
     t->thread_bq = INVALID_ADDRESS;
 
-    deallocate_closure(t->run);
-    t->run = INVALID_ADDRESS;
-
-    deallocate_closure((fault_handler)pointer_from_u64(t->frame[FRAME_FAULT_HANDLER]));
-    t->frame[FRAME_FAULT_HANDLER] = 0;
+    /* consider having a thread heap that we can just discard ?*/
+    if (t->signal_stack) {
+        deallocate((heap)t->p->virtual_page, t->signal_stack, SIGNAL_STACK_SIZE);
+    }
+    t->default_frame[FRAME_RUN] = INVALID_PHYSICAL;
+    t->default_frame[FRAME_QUEUE] = INVALID_PHYSICAL;
+    t->sighandler_frame[FRAME_RUN] = INVALID_PHYSICAL;
+    t->sighandler_frame[FRAME_QUEUE] = INVALID_PHYSICAL;
+    t->default_frame[FRAME_FAULT_HANDLER] = INVALID_PHYSICAL;
+    deallocate_frame(t->default_frame);
+    deallocate_frame(t->sighandler_frame);
 
     ftrace_thread_deinit(t, dummy_thread);
 
-    current = dummy_thread;
-    set_running_frame(dummy_thread->frame);
+    /* replace references to thread with placeholder */
+    current_cpu()->current_thread = dummy_thread;
+    set_running_frame(dummy_thread->default_frame);
     refcount_release(&t->refcount);
 }
 

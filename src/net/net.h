@@ -1,4 +1,3 @@
-#pragma once
 #define NET 1
 #define NET_SYSCALLS 1
 

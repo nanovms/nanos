@@ -27,7 +27,7 @@ closure_function(1, 1, context, gdb_handle_exception,
 {
     gdb g = bound(g);
     u64 exceptionVector = frame[FRAME_VECTOR];
-    //     rprintf ("gdb exception: %ld %p [%p %p] %p %p\n", exceptionVector, g, frame, g->t->frame, frame[FRAME_RIP], *(u64 *)frame[FRAME_RIP]);
+    //     rprintf ("gdb exception: %ld %p [%p %p] %p %p\n", exceptionVector, g, frame, thread_frame(g->t), frame[FRAME_RIP], *(u64 *)frame[FRAME_RIP]);
     sigval = computeSignal(exceptionVector);
     reset_buffer(g->output);
     /*
@@ -89,14 +89,15 @@ static void start_slave(gdb g, boolean stepping)
 {
     // a little more symbolic here please
     if (stepping) {
-        g->t->frame[FRAME_FLAGS] |= TRAP_FLAG;
+        thread_frame(g->t)[FRAME_FLAGS] |= TRAP_FLAG;
     } else {
-        g->t->frame[FRAME_FLAGS] &= ~TRAP_FLAG;
-        g->t->frame[FRAME_FLAGS] |= RESUME_FLAG;
+        thread_frame(g->t)[FRAME_FLAGS] &= ~TRAP_FLAG;
+        thread_frame(g->t)[FRAME_FLAGS] |= RESUME_FLAG;
     }
 
-    rprintf ("slave run %p %p %p %p %d\n", g, g->t, g->t->frame, g->t->frame[FRAME_RIP], stepping);
-    enqueue(runqueue, g->t->run);    
+    rprintf ("slave run %p %p %p %p %d\n", g, g->t, thread_frame(g->t), thread_frame(g->t)[FRAME_RIP], stepping);
+    // XXX revisit
+    // enqueue(runqueue, g->t->run);
 }
 
 
@@ -180,12 +181,12 @@ static boolean handle_request(gdb g, buffer b, buffer output)
         break;
         
     case 'g':		/* return the value of the CPU registers */
-        mem2hex (output, g->t->frame, 8*24);
+        mem2hex (output, thread_frame(g->t), 8*24);
         break;
 
     case 'G':		/* set the value of the CPU registers - return OK */
         // manifest constant
-        hex2mem (b, (char *) g->t->frame, 8*24);
+        hex2mem (b, (char *) thread_frame(g->t), 8*24);
         bprintf (output, "OK");
         break;
 
@@ -210,7 +211,7 @@ static boolean handle_request(gdb g, buffer b, buffer output)
             u64 regno;
             if (parse_int (b, 16, &regno) && (get_char(b) == '='))                
                 if (regno < FRAME_MAX) {
-                    hex2mem (b, g->t->frame + regno, 8);
+                    hex2mem (b, thread_frame(g->t) + regno, 8);
                     bprintf (output, "OK");
                     break;
                 }
@@ -253,7 +254,7 @@ static boolean handle_request(gdb g, buffer b, buffer output)
     case 'c':
         /* try to read optional parameter, pc unchanged if no parm */
         if (parse_int (b, 16, &addr))
-            g->t->frame[FRAME_RIP] = addr;
+            thread_frame(g->t)[FRAME_RIP] = addr;
         start_slave(g, stepping);
         break;
         
@@ -375,7 +376,7 @@ buffer_handler init_gdb(heap h,
     g->in = allocate_buffer(h, 256);
     g->h = h;
     g->t = vector_get(p->threads, 0);
-    g->t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(closure(h, gdb_handle_exception, g));
+    thread_frame(g->t)[FRAME_FAULT_HANDLER] = u64_from_pointer(closure(h, gdb_handle_exception, g));
     reset_parser(g);
     return closure(h, gdbserver_input, g);
 }

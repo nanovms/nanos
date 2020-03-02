@@ -3,8 +3,6 @@
 #include <synth.h>
 #include <pvclock.h>
 
-#include <vdso.h>
-
 #define VSYSCALL_OFFSET_VGETTIMEOFDAY   0x000
 #define VSYSCALL_OFFSET_VTIME           0x400
 #define VSYSCALL_OFFSET_VGETCPU         0x800
@@ -69,15 +67,16 @@ void init_vsyscall(heap phys, heap pages)
     update_map_flags(vs, len, PAGE_USER);
 }
 
+#define __vdso_dat (&(VVAR_REF(vdso_dat)))
+
 void init_vdso(process p)
 {
     kernel_heaps kh;
-    heap phys, pages;
+    heap pages;
     physical paddr;
     u64 vaddr, size;
 
     kh = &(p->uh->kh);
-    phys = heap_physical(kh);
     pages = heap_pages(kh);
 
     /* sanity checks */
@@ -86,8 +85,9 @@ void init_vdso(process p)
 
     /* map single VDSO PT_LOAD segment, which contains the raw ELF binary */
     {
-        vaddr = p->vdso_base; 
-        size = VDSO_NR_PAGES * PAGESIZE;
+        vaddr = p->vdso_base;
+        assert((vdso_raw_length & PAGEMASK) == 0);
+        size = vdso_raw_length;
         paddr = physical_from_virtual(vdso_raw);
         assert(paddr != INVALID_PHYSICAL);
         map(vaddr, paddr, size, PAGE_USER, pages);
@@ -107,10 +107,12 @@ void init_vdso(process p)
         vaddr = vaddr + size;
         size = PAGESIZE;
         paddr = pvclock_get_physaddr();
-        if (paddr != INVALID_PHYSICAL)
-            map(vaddr, paddr, size, PAGE_USER | PAGE_NO_EXEC, pages);
+        if (paddr != INVALID_PHYSICAL) {
+            __vdso_dat->pvclock_offset = paddr & PAGEMASK;
+            map(vaddr, paddr & ~PAGEMASK, size, PAGE_USER | PAGE_NO_EXEC, pages);
+        }
     }
 
     /* init legacy vsyscall mappings */
-    init_vsyscall(phys, pages);
+    init_vsyscall((heap)heap_physical(kh), pages);
 }

@@ -1,6 +1,5 @@
-#include <runtime.h>
+#include <kernel.h>
 #include <pci.h>
-#include <x86_64.h>
 #include <page.h>
 
 #define HPET_TABLE_ADDRESS 0xfed00000ull
@@ -122,7 +121,7 @@ static void timer_config(int timer, timestamp rate, thunk t, boolean periodic)
         hpet_interrupts[timer] = allocate_interrupt();
         msi_format(&a, &d, hpet_interrupts[timer]);
         hpet->timers[timer].fsb_int = ((u64)a << 32) | d;
-        register_interrupt(hpet_interrupts[timer], t);
+        register_interrupt(hpet_interrupts[timer], t, "hpet timer");
     }
 
     u64 c = TCONF(FSB_EN_CNF) | TCONF(32MODE_CNF) | TCONF(INT_ENB_CNF);
@@ -159,7 +158,7 @@ closure_function(0, 0, timestamp, hpet_now)
 }
 
 boolean init_hpet(kernel_heaps kh) {
-    void * hpet_page = allocate(heap_virtual_page(kh), PAGESIZE);
+    void *hpet_page = allocate((heap)heap_virtual_page(kh), PAGESIZE);
     if (hpet_page == INVALID_ADDRESS) {
         msg_err("failed to allocate page for HPET\n");
         return false;
@@ -182,7 +181,7 @@ boolean init_hpet(kernel_heaps kh) {
         if (prev == hpet_main_counter())
             continue;
         register_platform_clock_now(closure(heap_general(kh), hpet_now), VDSO_CLOCK_HPET);
-        register_platform_clock_timer(closure(heap_general(kh), hpet_runloop_timer));
+        register_platform_clock_timer(closure(heap_general(kh), hpet_runloop_timer), 0 /* no per-cpu init */);
         return true;
     }
     msg_err("failed to initialize HPET; main counter not incrementing\n");

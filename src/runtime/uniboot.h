@@ -1,5 +1,3 @@
-#pragma once
-
 #include <predef.h>
 
 #ifdef BOOT
@@ -61,7 +59,7 @@ extern void * AP_BOOT_PAGE;
 
 /* runloop timer minimum and maximum */
 #define RUNLOOP_TIMER_MAX_PERIOD_US     100000
-#define RUNLOOP_TIMER_MIN_PERIOD_US     10
+#define RUNLOOP_TIMER_MIN_PERIOD_US     1000
 
 /* XXX just for initial mp bringup... */
 #define MAX_CPUS 16
@@ -69,6 +67,14 @@ extern void * AP_BOOT_PAGE;
 /* could probably find progammatically via cpuid... */
 #define DEFAULT_CACHELINE_SIZE 64
 
+/* TFS stuff */
 #define TFS_LOG_DEFAULT_EXTENSION_SIZE (512*KB)
 
+/* Xen stuff */
+#define XENNET_INIT_RX_BUFFERS_FACTOR 4
+#define XENNET_RX_SERVICEQUEUE_DEPTH 512
+#define XENNET_TX_SERVICEQUEUE_DEPTH 512
+
 #include <x86.h>
+void xsave(void *);
+

@@ -1,4 +1,3 @@
-#pragma once
 #include <io.h>
 
 #define VM_EXIT_GDB 0x7d

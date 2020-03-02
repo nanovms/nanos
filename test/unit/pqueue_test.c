@@ -154,7 +154,7 @@ boolean random_test(heap h, int n, int passes)
             last = v;
         }
     }
-    if (pqueue_pop(q) != 0) {
+    if (pqueue_pop(q) != INVALID_ADDRESS) {
         msg = "queue should be empty but isn't";
         goto fail;
     }

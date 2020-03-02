@@ -1,5 +1,3 @@
-#pragma once
-
 typedef struct notifier {
     heap h;
     boolean (*_register)(struct notifier *n, descriptor f, u32 events, thunk a);

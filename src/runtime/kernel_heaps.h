@@ -21,14 +21,14 @@ typedef struct kernel_heaps {
 
     /* Allocations of physical address space outside of pages are made
        from the physical id heap. */
-    heap physical;
+    id_heap physical;
 
     /* These two id heaps manage virtual address space aside from
        pages and tagged regions. virtual_huge allocations are 2^32
        sized, whereas virtual_page (whose parent is virtual_huge) is
        for page-sized allocations. */
-    heap virtual_huge;
-    heap virtual_page;
+    id_heap virtual_huge;
+    id_heap virtual_page;
 
     /* Backed heap allocations in turn allocate from both virtual_page
        and physical, mapping the results together and returning the
@@ -56,17 +56,17 @@ static inline heap heap_pages(kernel_heaps heaps)
     return heaps->pages;
 }
 
-static inline heap heap_physical(kernel_heaps heaps)
+static inline id_heap heap_physical(kernel_heaps heaps)
 {
     return heaps->physical;
 }
 
-static inline heap heap_virtual_huge(kernel_heaps heaps)
+static inline id_heap heap_virtual_huge(kernel_heaps heaps)
 {
     return heaps->virtual_huge;
 }
 
-static inline heap heap_virtual_page(kernel_heaps heaps)
+static inline id_heap heap_virtual_page(kernel_heaps heaps)
 {
     return heaps->virtual_page;
 }

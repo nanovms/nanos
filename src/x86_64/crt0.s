@@ -11,7 +11,6 @@ global_func _start
 extern  init_service
 
 %include "frame.inc"
-        
 %define FS_MSR        0xc0000100
 %define KERNEL_GS_MSR 0xc0000102
 
@@ -23,13 +22,13 @@ extern  init_service
 %%skip:
 %endmacro
 
-;; rbx is frame
+;; rdi is frame
 %macro load_seg_base 1
 %if (%1 == FRAME_FSBASE)
-        mov rax, [rbx+FRAME_FSBASE*8]
+        mov rax, [rdi+FRAME_FSBASE*8]
         mov rcx, FS_MSR
 %else
-        mov rax, [rbx+FRAME_GSBASE*8]
+        mov rax, [rdi+FRAME_GSBASE*8]
         mov rcx, KERNEL_GS_MSR
 %endif
         mov rdx, rax
@@ -37,6 +36,30 @@ extern  init_service
         wrmsr
 %endmacro
 
+
+;; XXX - stick with fx until we can choose according to capabilities -
+;; otherwise existing stuff breaks with ops, etc.
+%macro load_extended_registers 1
+;        mov edx, 0xffffffff
+;        mov eax, edx
+        fxrstor [%1+FRAME_EXTENDED_SAVE*8]
+%endmacro
+        
+%macro save_extended_registers 1
+;        mov edx, 0xffffffff
+;        mov eax, edx
+        fxsave [%1+FRAME_EXTENDED_SAVE*8]  ; we wouldn't have to do this if we could guarantee no other user thread ran before us
+%endmacro
+
+        
+      
+;;;  helper so userspace can save a frame without
+;;; 
+global xsave        
+xsave:
+        save_extended_registers rdi
+        ret
+        
 ;; stack frame upon entry:
 ;;
 ;; ss
@@ -49,8 +72,7 @@ extern  init_service
 
 %macro interrupt_common_top 0
         push rbx
-        mov rbx, [gs:0]
-        mov rbx, [rbx+8]        ; running_frame
+        mov rbx, [gs:8]         ; running_frame
         mov [rbx+FRAME_RAX*8], rax
         mov [rbx+FRAME_RCX*8], rcx
         mov [rbx+FRAME_RDX*8], rdx
@@ -71,6 +93,8 @@ extern  init_service
         mov [rbx+FRAME_RBX*8], rax
         pop rax            ; vector
         mov [rbx+FRAME_VECTOR*8], rax
+        mov qword [rbx+FRAME_IS_SYSCALL*8], 0
+        save_extended_registers rbx
 %endmacro
 
 extern common_handler
@@ -88,8 +112,21 @@ extern common_handler
         mov [rbx+FRAME_SS*8], rax
         cld
         call common_handler
+        ; noreturn               
 %endmacro
 
+# just write a generic one that takes rax, rcx and arguments and stores in a u64[3]
+global xsave_features
+xsave_features :
+	push rcx
+	push rbx
+        mov rax, 0xd
+        mov rcx, 0x1
+        cpuid
+        pop rbx
+        pop rcx            
+        ret
+        
 global interrupt_entry_with_ec
 interrupt_entry_with_ec:
         check_swapgs 24
@@ -97,25 +134,28 @@ interrupt_entry_with_ec:
         pop rax
         mov [rbx+FRAME_ERROR_CODE*8], rax
         interrupt_common_bottom
-        jmp interrupt_exit
+        hlt                     ; no return
 
 global interrupt_entry
 interrupt_entry:
         check_swapgs 16
         interrupt_common_top
         interrupt_common_bottom
-        ; fall through to interrupt_exit
+        hlt                     ; no return
 
-global interrupt_exit
-interrupt_exit:
-        mov rbx, [gs:0]
-        mov rbx, [rbx+8]        ; running_frame
+global frame_return
+frame_return:
+        mov [gs:8], rdi         ; save to ci->running_frame
+        mov qword [rdi+FRAME_FULL*8], 0
+        ; really flags
+        test qword [rdi+FRAME_IS_SYSCALL*8], 1
+        jne syscall_return
 
-        push qword [rbx+FRAME_SS*8]    ; ss
-        push qword [rbx+FRAME_RSP*8]   ; rsp
-        push qword [rbx+FRAME_FLAGS*8] ; rflags
-        push qword [rbx+FRAME_CS*8]    ; cs
-        push qword [rbx+FRAME_RIP*8]   ; rip
+        push qword [rdi+FRAME_SS*8]    ; ss
+        push qword [rdi+FRAME_RSP*8]   ; rsp
+        push qword [rdi+FRAME_FLAGS*8] ; rflags
+        push qword [rdi+FRAME_CS*8]    ; cs
+        push qword [rdi+FRAME_RIP*8]   ; rip
 
         ; before iret back to userspace, restore fs and gs base and swapgs
         cmp qword [rsp + 8], 0x08
@@ -124,21 +164,22 @@ interrupt_exit:
         load_seg_base FRAME_GSBASE
         swapgs
 .skip:
-        mov rax, [rbx+FRAME_RAX*8]
-        mov rcx, [rbx+FRAME_RCX*8]
-        mov rdx, [rbx+FRAME_RDX*8]
-        mov rbp, [rbx+FRAME_RBP*8]
-        mov rsi, [rbx+FRAME_RSI*8]
-        mov rdi, [rbx+FRAME_RDI*8]
-        mov r8, [rbx+FRAME_R8*8]
-        mov r9, [rbx+FRAME_R9*8]
-        mov r10, [rbx+FRAME_R10*8]
-        mov r11, [rbx+FRAME_R11*8]
-        mov r12, [rbx+FRAME_R12*8]
-        mov r13, [rbx+FRAME_R13*8]
-        mov r14, [rbx+FRAME_R14*8]
-        mov r15, [rbx+FRAME_R15*8]
-        mov rbx, [rbx+FRAME_RBX*8]
+        load_extended_registers rdi
+        mov rax, [rdi+FRAME_RAX*8]
+        mov rbx, [rdi+FRAME_RBX*8]
+        mov rcx, [rdi+FRAME_RCX*8]
+        mov rdx, [rdi+FRAME_RDX*8]
+        mov rbp, [rdi+FRAME_RBP*8]
+        mov rsi, [rdi+FRAME_RSI*8]
+        mov r8, [rdi+FRAME_R8*8]
+        mov r9, [rdi+FRAME_R9*8]
+        mov r10, [rdi+FRAME_R10*8]
+        mov r11, [rdi+FRAME_R11*8]
+        mov r12, [rdi+FRAME_R12*8]
+        mov r13, [rdi+FRAME_R13*8]
+        mov r14, [rdi+FRAME_R14*8]
+        mov r15, [rdi+FRAME_R15*8]
+        mov rdi, [rdi+FRAME_RDI*8]
         iretq
 
         interrupts equ 0x30
@@ -174,61 +215,58 @@ extern syscall
 global_func syscall_enter
 syscall_enter:
         swapgs
-        push rax
-        mov rax, [gs:0]
-        mov rax, [rax+8]        ; running_frame
-        mov [rax+FRAME_RBX*8], rbx
-        pop rbx
-        mov [rax+FRAME_VECTOR*8], rbx
-        mov [rax+FRAME_RDX*8], rdx
-        mov [rax+FRAME_RBP*8], rbp
-        mov [rax+FRAME_RSP*8], rsp
-        mov [rax+FRAME_RSI*8], rsi
-        mov [rax+FRAME_RDI*8], rdi
-        mov [rax+FRAME_R8*8], r8
-        mov [rax+FRAME_R9*8], r9
-        mov [rax+FRAME_R10*8], r10
-        mov [rax+FRAME_FLAGS*8], r11
-        mov [rax+FRAME_R12*8], r12
-        mov [rax+FRAME_R13*8], r13
-        mov [rax+FRAME_R14*8], r14
-        mov [rax+FRAME_R15*8], r15
-        mov [rax+FRAME_RIP*8], rcx
-        mov rax, syscall
+        mov [gs:32], rdi        ; save rdi
+        mov rdi, [gs:8]         ; running_frame
+        mov [rdi+FRAME_VECTOR*8], rax
+        mov [rdi+FRAME_RBX*8], rbx
+        mov [rdi+FRAME_RDX*8], rdx
+        mov [rdi+FRAME_RBP*8], rbp
+        mov [rdi+FRAME_RSI*8], rsi
+        mov [rdi+FRAME_R8*8], r8
+        mov [rdi+FRAME_R9*8], r9
+        mov [rdi+FRAME_R10*8], r10
+        mov [rdi+FRAME_FLAGS*8], r11
+        mov [rdi+FRAME_R12*8], r12
+        mov [rdi+FRAME_R13*8], r13
+        mov [rdi+FRAME_R14*8], r14
+        mov [rdi+FRAME_R15*8], r15
+        mov [rdi+FRAME_RIP*8], rcx
+        mov rsi, rax
+        mov [rdi+FRAME_RSP*8], rsp
+        mov rax, [gs:32]
+        mov qword [rdi+FRAME_RDI*8], rax
+        mov qword [rdi+FRAME_IS_SYSCALL*8], 1
+        save_extended_registers rdi
+        mov rax, syscall        ; (running_frame, call)
         mov rax, [rax]
-        mov rbx, [gs:0]
-        mov rsp, [rbx+16]       ; syscall_stack
+        mov rbx, [gs:16]
+        mov [gs:8], rbx         ; move to kernel frame
+        mov rsp, [gs:24]        ; and stack
         cld
-        call rax
-        mov rbx, [gs:0]
-        mov rbx, [rbx+8]        ; running_frame
-        ;; fall through to frame_return
+        jmp rax
 .end:
 
 ;; must follow syscall_enter
-global_func frame_return
-frame_return:
+syscall_return:
         load_seg_base FRAME_FSBASE
         load_seg_base FRAME_GSBASE
-
-        mov rax, rbx
-
-        mov rbx, [rax+FRAME_RBX*8]
-        mov rdx, [rax+FRAME_RDX*8]
-        mov rbp, [rax+FRAME_RBP*8]
-        mov rsi, [rax+FRAME_RSI*8]
-        mov rdi, [rax+FRAME_RDI*8]
-        mov r8, [rax+FRAME_R8*8]
-        mov r9, [rax+FRAME_R9*8]
-        mov r10, [rax+FRAME_R10*8]
-        mov r11, [rax+FRAME_FLAGS*8] ; flags saved from r11 on syscall
-        mov r12, [rax+FRAME_R12*8]
-        mov r13, [rax+FRAME_R13*8]
-        mov r14, [rax+FRAME_R14*8]
-        mov r15, [rax+FRAME_R15*8]
-        mov rsp, [rax+FRAME_RSP*8]
-        mov rcx, [rax+FRAME_RIP*8]
-        mov rax, [rax+FRAME_RAX*8]
+        load_extended_registers rdi
+        mov rax, [rdi+FRAME_RAX*8]
+        mov rbx, [rdi+FRAME_RBX*8]
+        mov rdx, [rdi+FRAME_RDX*8]
+        mov rbp, [rdi+FRAME_RBP*8]
+        mov rsi, [rdi+FRAME_RSI*8]
+        mov r8, [rdi+FRAME_R8*8]
+        mov r9, [rdi+FRAME_R9*8]
+        mov r10, [rdi+FRAME_R10*8]
+        mov r11, [rdi+FRAME_FLAGS*8] ; flags saved from r11 on syscall
+        mov r12, [rdi+FRAME_R12*8]
+        mov r13, [rdi+FRAME_R13*8]
+        mov r14, [rdi+FRAME_R14*8]
+        mov r15, [rdi+FRAME_R15*8]
+        mov rsp, [rdi+FRAME_RSP*8]
+        mov rcx, [rdi+FRAME_RIP*8]
+        mov rdi, [rdi+FRAME_RDI*8]
         swapgs
         o64 sysret
 .end:

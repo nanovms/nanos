@@ -36,7 +36,7 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
     assert(p->stack_map != INVALID_ADDRESS);
 
     u64 * s = pointer_from_u64(stack_start);
-    u64 sphys = allocate_u64(heap_physical(get_kernel_heaps()), PROCESS_STACK_SIZE);
+    u64 sphys = allocate_u64((heap)heap_physical(get_kernel_heaps()), PROCESS_STACK_SIZE);
     assert(sphys != INVALID_PHYSICAL);
 
     exec_debug("stack allocated at %p, size 0x%lx, phys 0x%lx\n", s, PROCESS_STACK_SIZE, sphys);
@@ -119,18 +119,17 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
 
     // stack should be 16-byte aligned
     assert(pad(u64_from_pointer(s), STACK_ALIGNMENT) == u64_from_pointer(s));
-    t->frame[FRAME_RSP] = u64_from_pointer(s);
+    t->default_frame[FRAME_RSP] = u64_from_pointer(s);
 }
 
 void start_process(thread t, void *start)
 {
-    t->frame[FRAME_RIP] = u64_from_pointer(start);
-    
+    t->default_frame[FRAME_RIP] = u64_from_pointer(start);
     if (table_find(t->p->process_root, sym(gdb))) {
         console ("gdb!\n");
         init_tcp_gdb(heap_general(get_kernel_heaps()), t->p, 9090);
     } else {
-        enqueue(runqueue, t->run);
+        schedule_frame(t->default_frame);
     }
 }
 
@@ -158,7 +157,7 @@ closure_function(2, 4, void, exec_elf_map,
     boolean is_bss = paddr == INVALID_PHYSICAL;
     if (is_bss) {
         /* bss */
-        paddr = allocate_u64(heap_physical(kh), size);
+        paddr = allocate_u64((heap)heap_physical(kh), size);
         assert(paddr != INVALID_PHYSICAL);
     }
     map(target, paddr, size, flags | PAGE_USER, heap_pages(kh));
@@ -175,7 +174,7 @@ closure_function(2, 1, status, load_interp_complete,
     kernel_heaps kh = bound(kh);
 
     exec_debug("interpreter load complete, reading elf\n");
-    u64 where = allocate_u64(heap_virtual_huge(kh), HUGE_PAGESIZE);
+    u64 where = allocate_u64((heap)heap_virtual_huge(kh), HUGE_PAGESIZE);
     void * start = load_elf(b, where, stack_closure(exec_elf_map, t->p, kh));
     exec_debug("starting process tid %d, start %p\n", t->tid, start);
     start_process(t, start);

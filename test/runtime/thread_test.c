@@ -88,6 +88,7 @@ void *terminus(void *k)
     }
     // make a derivable function
     if (x == 2862230032) {
+        printf("passed\n");
         exit(0);        
     }
     printf("%lld\n", x);

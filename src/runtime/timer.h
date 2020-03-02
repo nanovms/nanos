@@ -1,10 +1,15 @@
-#pragma once
 typedef u64 timestamp;
 typedef struct timer *timer;
 typedef closure_type(timer_handler, void, u64);
 
-declare_closure_struct(1, 0, void, timer_free,
-                       timer, t);
+declare_closure_struct(2, 0, void, timer_free,
+                       timer, t, heap, h);
+
+typedef struct timerheap {
+    heap h;
+    pqueue pq;
+    const char *name;
+} *timerheap;
 
 struct timer {
     clock_id id;
@@ -19,10 +24,12 @@ struct timer {
 typedef closure_type(clock_timer, void, timestamp);
 
 extern clock_timer platform_timer;
+extern thunk platform_timer_percpu_init;
 
-static inline void register_platform_clock_timer(clock_timer ct)
+static inline void register_platform_clock_timer(clock_timer ct, thunk percpu_init)
 {
     platform_timer = ct;
+    platform_timer_percpu_init = percpu_init;
 }
 
 static inline void runloop_timer(timestamp duration)
@@ -30,10 +37,10 @@ static inline void runloop_timer(timestamp duration)
     apply(platform_timer, duration);
 }
 
-timer register_timer(clock_id id, timestamp val, boolean absolute, timestamp interval, timer_handler n);
+// XXX - maybe timerheap per clocktype, or separate for proc/thread timers
+timer register_timer(timerheap th, clock_id id, timestamp val, boolean absolute, timestamp interval, timer_handler n);
 
 #if defined(STAGE3) || defined(BUILD_VDSO)
-#include <vdso.h>
 #define __rtc_offset (&(VVAR_REF(vdso_dat)))->rtc_offset
 #else
 #define __rtc_offset 0
@@ -53,7 +60,7 @@ static inline timestamp timer_expiry(timer t)
     case CLOCK_ID_REALTIME_COARSE:
         return t->expiry - __rtc_offset;
     default:
-        halt("expiry: clock id %d unsupported\n"); /* XXX hmm */
+        halt("expiry: clock id %d unsupported\n", t->id); /* XXX hmm */
     }
 }
 #undef __rtc_offset
@@ -77,9 +84,21 @@ static inline void remove_timer(timer t, timestamp *remain)
     }
 }
 
-void initialize_timers(kernel_heaps kh);
+/* returns absolute expiry of root timer */
+static inline timestamp timer_check(timerheap th)
+{
+    timer t;
+    if ((t = pqueue_peek(th->pq))) {
+        timestamp e = timer_expiry(t);
+        /* -1ull is a valid timestamp but reserved value here */
+    	return e == infinity ? e - 1 : e;
+    }
+    return infinity;
+}
+
+timerheap allocate_timerheap(heap h, const char *name);
+void timer_service(timerheap th, timestamp here);
 void print_timestamp(buffer, timestamp);
-timestamp timer_check(void);
 
 #define THOUSAND         (1000ull)
 #define MILLION          (1000000ull)
@@ -142,4 +161,3 @@ static inline u64 usec_from_timestamp(timestamp t)
     return (sec * MILLION) +
         ((truncate_seconds(t) * MILLION) / TIMESTAMP_SECOND);
 }
-

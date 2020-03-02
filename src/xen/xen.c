@@ -1,5 +1,4 @@
-#include <runtime.h>
-#include <x86_64.h>
+#include <kernel.h>
 #include <page.h>
 #include <pvclock.h>
 
@@ -73,13 +72,6 @@ typedef struct xen_driver {
     xen_device_probe probe;
 } *xen_driver;
 
-#if 0
-typedef struct xenbus_device {
-    struct list l;
-    char *
-} *xenbus_device;
-#endif
-
 struct xen_platform_info xen_info;
 
 boolean xen_feature_supported(int feature)
@@ -108,6 +100,8 @@ closure_function(0, 0, void, xen_interrupt)
             (void)i1;
             /* TODO: any per-cpu event mask would be also applied here... */
             u64 l2_pending = si->evtchn_pending[bit1] & ~si->evtchn_mask[bit1];
+            xenint_debug("pending 0x%lx, mask 0x%lx, masked 0x%lx",
+                         si->evtchn_pending[bit1], si->evtchn_mask[bit1], l2_pending);
             __sync_or_and_fetch(&si->evtchn_mask[bit1], l2_pending);
             __sync_and_and_fetch(&si->evtchn_pending[bit1], ~l2_pending);
             u64 l2_offset = bit1 << 6;
@@ -170,8 +164,8 @@ static boolean xen_grant_init(kernel_heaps kh)
 
     /* Allocate grant entry allocator. */
     heap h = heap_general(kh);
-    gt->entry_heap = create_id_heap(h, h, GTAB_RESERVED_ENTRIES + 1,
-                                    gt->n_entries - GTAB_RESERVED_ENTRIES, 1);
+    gt->entry_heap = (heap)create_id_heap(h, h, GTAB_RESERVED_ENTRIES + 1,
+                                          gt->n_entries - GTAB_RESERVED_ENTRIES, 1);
     if (gt->entry_heap == INVALID_ADDRESS) {
         msg_err("failed to allocate grant table occupancy heap\n");
         goto fail_dealloc_table;
@@ -241,7 +235,7 @@ closure_function(0, 1, void, xen_runloop_timer,
     u64 n = pvclock_now_ns();
     u64 expiry = n + MAX(nsec_from_timestamp(duration), XEN_TIMER_SLOP_NS);
 
-    rprintf("%s: now %T, expiry %T\n", __func__, nanoseconds(n), nanoseconds(expiry));
+    xen_debug("%s: now %T, expiry %T", __func__, nanoseconds(n), nanoseconds(expiry));
     int rv = HYPERVISOR_set_timer_op(expiry);
     if (rv != 0) {
         msg_err("failed; rv %d\n", rv);
@@ -250,7 +244,7 @@ closure_function(0, 1, void, xen_runloop_timer,
 
 closure_function(0, 0, void, xen_runloop_timer_handler)
 {
-    rprintf("%s: now %T\n", __func__, nanoseconds(pvclock_now_ns()));
+    xen_debug("%s: now %T", __func__, nanoseconds(pvclock_now_ns()));
     assert(xen_unmask_evtchn(xen_info.timer_evtchn) == 0);
 }
 
@@ -333,7 +327,7 @@ boolean xen_detect(kernel_heaps kh)
     xen_info.xenstore_paddr = xen_hvm_param.value << PAGELOG;
 
     xen_debug("xenstore page at phys 0x%lx; allocating virtual page and mapping", xen_info.xenstore_paddr);
-    xen_info.xenstore_interface = allocate(heap_virtual_page(kh), PAGESIZE);
+    xen_info.xenstore_interface = allocate((heap)heap_virtual_page(kh), PAGESIZE);
     assert(xen_info.xenstore_interface != INVALID_ADDRESS);
     map(u64_from_pointer(xen_info.xenstore_interface), xen_info.xenstore_paddr, PAGESIZE, 0, heap_pages(kh));
     xen_debug("xenstore page mapped at %p", xen_info.xenstore_interface);
@@ -374,7 +368,7 @@ boolean xen_detect(kernel_heaps kh)
     /* set up interrupt handling path */
     int irq = allocate_interrupt();
     xen_debug("interrupt vector %d; registering", irq);
-    register_interrupt(irq, closure(xen_info.h, xen_interrupt));
+    register_interrupt(irq, closure(xen_info.h, xen_interrupt), "xen");
 
     xen_hvm_param.domid = DOMID_SELF;
     xen_hvm_param.index = HVM_PARAM_CALLBACK_IRQ;
@@ -401,16 +395,14 @@ boolean xen_detect(kernel_heaps kh)
     assert(xen_info.evtchn_handlers != INVALID_ADDRESS);
 
     /* timer setup */
-    xen_debug("stopping periodic tick timer...");
     /* attempt to disable periodic (tick) timer; won't work in older Xens... */
+    xen_debug("stopping periodic tick timer...");
     rv = HYPERVISOR_vcpu_op(VCPUOP_stop_periodic_timer, 0 /* vcpu0 */, 0);
     if (rv < 0) {
         msg_err("unable to stop periodic timer (rv %d)\n", rv);
         goto out_unregister_irq;
     }
-// XXX - disabled due to incorrect behavior on t2
-//    register_platform_clock_timer(closure(xen_info.h, xen_runloop_timer));
-    closure(xen_info.h, xen_runloop_timer);
+    register_platform_clock_timer(closure(xen_info.h, xen_runloop_timer), 0);
 
     evtchn_op_t eop;
     eop.cmd = EVTCHNOP_bind_virq;
@@ -427,9 +419,7 @@ boolean xen_detect(kernel_heaps kh)
     assert(xen_unmask_evtchn(xen_info.timer_evtchn) == 0);
 
     /* register pvclock (feature verified above) */
-
-// XXX - disabled until pv timer is working
-// init_pvclock(xen_info.h, (struct pvclock_vcpu_time_info *)&xen_info.shared_info->vcpu_info[0].time);
+    init_pvclock(xen_info.h, (struct pvclock_vcpu_time_info *)&xen_info.shared_info->vcpu_info[0].time);
 
     xen_debug("unmasking xenstore event channel");
     assert(xen_unmask_evtchn(xen_info.xenstore_evtchn) == 0);

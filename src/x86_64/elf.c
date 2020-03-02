@@ -1,4 +1,4 @@
-#include <runtime.h>
+#include <kernel.h>
 #include <elf64.h>
 #include <page.h>
 

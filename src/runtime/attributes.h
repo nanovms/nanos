@@ -1,5 +1,4 @@
 /* attributes for compiling+linking */
-#pragma once
 
 #define NOTRACE __attribute__((no_instrument_function))
 #define HIDDEN  __attribute__((visibility("hidden")))

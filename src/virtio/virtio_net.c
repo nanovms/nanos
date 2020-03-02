@@ -30,9 +30,8 @@
  *
  */
 
-
+#include <kernel.h>
 #include "lwip/opt.h"
-
 #include "lwip/def.h"
 #include "lwip/mem.h"
 #include "lwip/pbuf.h"
@@ -181,10 +180,8 @@ static err_t virtioif_init(struct netif *netif)
     /* don't set NETIF_FLAG_ETHARP if this device is not an ethernet one */
     netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_LINK_UP | NETIF_FLAG_UP;
 
-    // fix
-    post_receive(vn);
-    post_receive(vn);
-    post_receive(vn);
+    for (int i = 0; i < virtqueue_entries(vn->rxq); i++)
+        post_receive(vn);
     
     return ERR_OK;
 }
@@ -204,8 +201,8 @@ static void virtio_net_attach(heap general, heap page_allocator, pci_dev d)
     /* rx = 0, tx = 1, ctl = 2 by 
        page 53 of http://docs.oasis-open.org/virtio/virtio/v1.0/cs01/virtio-v1.0-cs01.pdf */
     vn->dev = dev;
-    vtpci_alloc_virtqueue(dev, 1, &vn->txq);
-    vtpci_alloc_virtqueue(dev, 0, &vn->rxq);
+    vtpci_alloc_virtqueue(dev, "virtio net tx", 1, &vn->txq);
+    vtpci_alloc_virtqueue(dev, "virtio net rx", 0, &vn->rxq);
     // just need 10 contig bytes really
     vn->empty = allocate(dev->contiguous, dev->contiguous->pagesize);
     for (int i = 0; i < NET_HEADER_LENGTH ; i++)  ((u8 *)vn->empty)[i] = 0;

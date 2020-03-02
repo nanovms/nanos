@@ -1,7 +1,3 @@
-#pragma once
-
-#include <runtime/runtime.h>
-
 /*
  * Status Byte
  */

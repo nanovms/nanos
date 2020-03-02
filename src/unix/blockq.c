@@ -244,7 +244,7 @@ sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_
     thread_reserve(t);
 
     if (timeout > 0) {
-        bi->timeout = register_timer(clkid, timeout, absolute, 0,
+        bi->timeout = register_timer(runloop_timers, clkid, timeout, absolute, 0,
                                      closure(bq->h, blockq_item_timeout, bq, bi));
         if (bi->timeout == INVALID_ADDRESS) {
             msg_err("failed to allocate blockq timer\n");
@@ -324,7 +324,7 @@ int blockq_transfer_waiters(blockq dest, blockq src, int n)
             timer_handler t = bi->timeout->t;
             remove_timer(bi->timeout, &remain);
             bi->timeout = remain == 0 ? 0 :
-                register_timer(CLOCK_ID_MONOTONIC, remain, false, 0,
+                register_timer(runloop_timers, CLOCK_ID_MONOTONIC, remain, false, 0,
                                closure(dest->h, blockq_item_timeout, dest, bi));
             assert(t);
             deallocate_closure(t);

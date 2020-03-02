@@ -35,9 +35,6 @@
  * $FreeBSD$
  */
 
-#pragma once
-
-#include <runtime/runtime.h>
 #include <pci.h>
 
 typedef struct vtpci *vtpci;
@@ -94,7 +91,7 @@ struct vtpci {
 #define VIRTIO_PCI_VRING_ALIGN	4096
 
 vtpci attach_vtpci(heap h, heap page_allocator, pci_dev d, u64 feature_mask);
-status vtpci_alloc_virtqueue(vtpci dev, int idx, struct virtqueue **result);
+status vtpci_alloc_virtqueue(vtpci dev, const char *name, int idx, struct virtqueue **result);
 void vtpci_set_status(vtpci dev, u8 status);
 
 /* VirtIO PCI vendor/device ID. */

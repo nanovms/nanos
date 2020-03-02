@@ -1,3 +1,4 @@
+#include <kernel.h>
 #include <drivers/storage.h>
 #include <io.h>
 
@@ -164,7 +165,7 @@ static void virtio_blk_attach(heap general, storage_attach a, heap page_allocato
     s->block_size = in32(s->v->base + VIRTIO_MSI_DEVICE_CONFIG + VIRTIO_BLK_R_BLOCK_SIZE);
     s->capacity = (in32(s->v->base + VIRTIO_MSI_DEVICE_CONFIG + VIRTIO_BLK_R_CAPACITY_LOW) |
 		   ((u64) in32(s->v->base + VIRTIO_MSI_DEVICE_CONFIG + VIRTIO_BLK_R_CAPACITY_HIGH) << 32)) * s->block_size;
-    vtpci_alloc_virtqueue(s->v, 0, &s->command);
+    vtpci_alloc_virtqueue(s->v, "virtio blk", 0, &s->command);
     // initialization complete
     vtpci_set_status(s->v, VIRTIO_CONFIG_STATUS_DRIVER_OK);
 

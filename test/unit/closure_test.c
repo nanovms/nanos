@@ -45,24 +45,24 @@ typedef closure_type(test1_type, void, void *, boolean);
 int main(int argc, char **argv)
 {
     heap h = init_process_runtime();
-    u64 heap_occupancy = h->allocated;
+    u64 heap_occupancy = heap_allocated(h);
     test0_type f = closure(h, test0, TEST_L);
     if (apply(f, TEST_R) != TEST_RV) {
         msg_err("return value mismatch\n");
         return EXIT_FAILURE;
     }
-    if (h->allocated > heap_occupancy) {
+    if (heap_allocated(h) > heap_occupancy) {
         msg_err("leak after closure_finish(): prev %ld, now %ld\n",
-                heap_occupancy, h->allocated);
+                heap_occupancy, heap_allocated(h));
         return EXIT_FAILURE;
     }
-    heap_occupancy = h->allocated;
+    heap_occupancy = heap_allocated(h);
     test1_type t = closure(h, test1, 0);
     apply(t, t, false);
     deallocate_closure(t);
-    if (h->allocated > heap_occupancy) {
+    if (heap_allocated(h) > heap_occupancy) {
         msg_err("leak after deallocate_closure(): prev %ld, now %ld\n",
-                heap_occupancy, h->allocated);
+                heap_occupancy, heap_allocated(h));
         return EXIT_FAILURE;
     }
     return EXIT_SUCCESS;

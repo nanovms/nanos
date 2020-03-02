@@ -101,6 +101,7 @@ runtime-tests runtime-tests-noaccel:
 QEMU=		qemu-system-x86_64
 DISPLAY=	none
 STORAGE=	virtio-scsi
+QEMU_CPU=       -cpu max
 
 QEMU_MEMORY=	-m 2G
 ifeq ($(DISPLAY),none)
@@ -125,8 +126,9 @@ QEMU_TAP=	-netdev tap,id=n0,ifname=tap0,script=no,downscript=no
 QEMU_NET=	-device virtio-net,mac=7e:b8:7e:87:4a:ea,netdev=n0 $(QEMU_TAP)
 QEMU_USERNET=	-device virtio-net,netdev=n0 -netdev user,id=n0,hostfwd=tcp::8080-:8080,hostfwd=tcp::9090-:9090,hostfwd=udp::5309-:5309
 QEMU_FLAGS=
-#QEMU_FLAGS+=    -smp 16
+#QEMU_FLAGS+=    -smp 4
 #QEMU_FLAGS+=    -d int -D int.log
+#QEMU_FLAGS+=    -s -S
 
 QEMU_COMMON=	$(QEMU_MEMORY) $(QEMU_DISPLAY) $(QEMU_SERIAL) $(QEMU_STORAGE) -device isa-debug-exit -no-reboot $(QEMU_FLAGS)
 
@@ -137,7 +139,7 @@ run-bridge: image
 	$(QEMU) $(QEMU_COMMON) $(QEMU_NET) $(QEMU_ACCEL) || exit $$(($$?>>1))
 
 run-noaccel: image
-	$(QEMU) $(QEMU_COMMON) $(QEMU_USERNET) || exit $$(($$?>>1))
+	$(QEMU) $(QEMU_COMMON) $(QEMU_USERNET) $(QEMU_CPU) || exit $$(($$?>>1))
 
 ##############################################################################
 # GCE
@@ -158,7 +160,7 @@ delete-gce-image:
 	- $(Q) $(GCLOUD) compute --project=$(GCE_PROJECT) images delete $(GCE_IMAGE) --quiet
 
 run-gce: delete-gce
-	$(Q) $(GCLOUD) compute --project=$(GCE_PROJECT) instances create $(GCE_INSTANCE) --machine-type=custom-1-2048 --image=nanos-$(TARGET) --image-project=$(GCE_PROJECT) --tags=nanos
+	$(Q) $(GCLOUD) compute --project=$(GCE_PROJECT) instances create $(GCE_INSTANCE) --machine-type=custom-1-2048 --image=$(GCE_IMAGE) --image-project=$(GCE_PROJECT) --tags=nanos
 	$(Q) $(MAKE) gce-console
 
 delete-gce:

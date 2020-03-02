@@ -1,6 +1,6 @@
-#include <runtime.h>
-#include "console.h"
+#include <kernel.h>
 #include "serial.h"
+#include "console.h"
 #include "vga.h"
 
 static void serial_console_write(void *d, char *s, bytes count)
@@ -18,11 +18,15 @@ struct console_driver *console_drivers[4] = {
     &serial_console_driver,
 };
 
+static struct spinlock write_lock;
+
 void console_write(char *s, bytes count)
 {
+    spin_lock(&write_lock);
     for (struct console_driver **pd = console_drivers; *pd; pd++) {
         (*pd)->write(*pd, s, count);
     }
+    spin_unlock(&write_lock);
 }
 
 closure_function(0, 1, void, attach_console,

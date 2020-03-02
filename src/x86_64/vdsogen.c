@@ -13,6 +13,8 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 
+#define PAGESIZE 4096
+
 #define die(fmt, args...) {\
     fprintf(stderr, fmt, ##args);\
     exit(EXIT_FAILURE);\
@@ -25,19 +27,19 @@ write_header(FILE * fp)
     fprintf(fp, " * - DO NOT MODIFY -\n");
     fprintf(fp, " */\n");
 
-    fprintf(fp, "unsigned char vdso_raw[8192] __attribute__((aligned (4096))) = {");
+    fprintf(fp, "unsigned char vdso_raw[] __attribute__((aligned (%d))) = {", PAGESIZE);
 }
 
 static void
-write_footer(FILE * fp)
+write_footer(FILE * fp, unsigned long total)
 {
     fprintf(fp, "\n");
     fprintf(fp, "};\n");
+    fprintf(fp, "unsigned long vdso_raw_length = %ld;\n", total);
 }
 
 int main(int argc, char ** argv)
 {
-    void * map;
     int fd;
     FILE * fp_out;
     unsigned long total;
@@ -53,10 +55,6 @@ int main(int argc, char ** argv)
 
     if (fstat(fd, &st) == -1)
         die("failed to stat %s: %s\n", argv[1], strerror(errno));
-
-    map = mmap(NULL, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
-    if (map == MAP_FAILED)
-        die("failed to mmap %s: %s\n", argv[1], strerror(errno));
 
     fp_out = fopen(argv[2], "w");
     if (fp_out == NULL)
@@ -85,9 +83,18 @@ int main(int argc, char ** argv)
         );
     }
 
-    write_footer(fp_out);
+    /* pad to multiple of page size */
+    unsigned long rem = total & (PAGESIZE - 1);
+    if (rem != 0) {
+        unsigned long end = total + (PAGESIZE - rem);
+        for (; total < end; total++) {
+            fprintf(fp_out, "%s0x00,%s", (total % 8 == 0) ? "\n    " : "",
+                    (total % 8 != 7) ? " " : "");
+        }
+    }
+
+    write_footer(fp_out, total);
     fclose(fp_out);
-    munmap(map, st.st_size);
     close(fd);
 
     exit(EXIT_SUCCESS);

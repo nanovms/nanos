@@ -1,8 +1,6 @@
-#include <runtime.h>
-#include <x86_64.h>
+#include <kernel.h>
 #include <drivers/storage.h>
 #include <virtio/scsi.h>
-#include <x86_64.h>
 #include <io.h>
 
 #include "virtio_internal.h"
@@ -464,11 +462,11 @@ static void virtio_scsi_attach(heap general, storage_attach a, heap page_allocat
     s->max_lun = in32(s->v->base + VIRTIO_MSI_DEVICE_CONFIG + VIRTIO_SCSI_R_MAX_LUN);
     virtio_scsi_debug("max lun %d\n", s->max_lun);
 
-    status st = vtpci_alloc_virtqueue(s->v, 0, &s->command);
+    status st = vtpci_alloc_virtqueue(s->v, "virtio scsi command", 0, &s->command);
     assert(st == STATUS_OK);
-    st = vtpci_alloc_virtqueue(s->v, 1, &s->eventq);
+    st = vtpci_alloc_virtqueue(s->v, "virtio scsi event", 1, &s->eventq);
     assert(st == STATUS_OK);
-    st = vtpci_alloc_virtqueue(s->v, 2, &s->requestq);
+    st = vtpci_alloc_virtqueue(s->v, "virtio scsi request", 2, &s->requestq);
     assert(st == STATUS_OK);
 
     // On reset, the device MUST set sense_size to 96 and cdb_size to 32

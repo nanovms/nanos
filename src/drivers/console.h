@@ -1,7 +1,3 @@
-#pragma once
-
-#include <runtime/runtime.h>
-
 struct console_driver {
     void (*write)(void *d, char *s, bytes count);
 };

@@ -1,10 +1,11 @@
-#pragma once
-#include <runtime.h>
+/* main header for unix-specific kernel objects */
+
+#include <kernel.h>
+#include <apic.h>
 #include <syscalls.h>
 #include <system_structs.h>
 #include <tfs.h>
 #include <unix.h>
-#include <x86_64.h>
 
 /* area for mmaps abut the kernel tagged region */
 #define PROCESS_VIRTUAL_HEAP_START  0x00800000000ull
@@ -24,11 +25,10 @@
 /* fixed address per deprecated API */
 #define VSYSCALL_BASE               0xffffffffff600000ull
 
-/* VDSO location is to be randomly determined at process creation */
-#define VDSO_NR_PAGES               2
-
 /* This will change if we add support for more clocktypes */
 #define VVAR_NR_PAGES               2
+
+extern unsigned long vdso_raw_length;
 
 typedef s64 sysreturn;
 
@@ -41,8 +41,6 @@ typedef struct thread *thread;
 
 thread create_thread(process);
 void exit_thread(thread);
-
-void run(thread);
 
 // Taken from the manual pages
 // License: http://man7.org/linux/man-pages/man2/getdents.2.license.html
@@ -87,8 +85,7 @@ struct sysinfo {
                         /* Padding to 64 bytes */
 };
 
-#define CPU_SET_SIZE    1024
-#define CPU_SET_WORDS   (CPU_SET_SIZE >> 6)
+#define CPU_SET_WORDS   (pad(MAX_CPUS, 64) >> 6)
 typedef struct {
     u64 mask[CPU_SET_WORDS];
 } cpu_set_t;
@@ -119,7 +116,7 @@ typedef struct unix_heaps {
 #endif
 
     /* id heaps */
-    heap processes;
+    id_heap processes;
 } *unix_heaps;
 
 #define BLOCKQ_ACTION_BLOCKED  1
@@ -179,17 +176,34 @@ typedef struct sigstate {
     struct list heads[NSIG];
 } *sigstate;
 
-declare_closure_struct(1, 0, void, free_thread,
-                         thread, t);
 typedef struct epoll *epoll;
 struct ftrace_graph_entry;
 
 #include <notify.h>
 
+declare_closure_struct(1, 0, void, free_thread,
+                       thread, t);
+declare_closure_struct(1, 0, void, resume_syscall,
+                       thread, t);
+declare_closure_struct(1, 0, void, run_thread,
+                       thread, t);
+declare_closure_struct(1, 0, void, run_sighandler,
+                       thread, t);
+declare_closure_struct(1, 1, void, default_fault_handler,
+                       thread, t,
+                       context, frame);
+
+/* XXX probably should bite bullet and allocate these... */
+#define FRAME_MAX_PADDED ((FRAME_MAX + 15) & ~15)
+
+#define thread_frame(t) ((t)->active_frame)
+#define set_thread_frame(t, f) do { (t)->active_frame = (f); } while(0)
+
 typedef struct thread {
-    // if we use an array typedef its fragile
-    // there are likley assumptions that frame sits at the base of thread
-    u64 frame[FRAME_MAX];
+    context default_frame;
+    context sighandler_frame;
+    context active_frame;         /* mux between default and sighandler */
+
     char name[16]; /* thread name */
     int syscall;
     process p;
@@ -204,12 +218,13 @@ typedef struct thread {
 
     struct refcount refcount;
     closure_struct(free_thread, free);
+    closure_struct(run_thread, run_thread);
+    closure_struct(run_sighandler, run_sighandler);
+    closure_struct(default_fault_handler, fault_handler);
 
     epoll select_epoll;
     int *clear_tid;
     int tid;
-
-    thunk run;
 
     /* blockq thread is waiting on, INVALID_ADDRESS for uninterruptible */
     blockq blocked_on;
@@ -222,16 +237,18 @@ typedef struct thread {
 
     /* signals pending and saved state */
     struct sigstate signals;
-    sigstate dispatch_sigstate; /* while signal handler in flight, save sigstate... */
-    u64 saved_rax;              /* ... and t->frame[FRAME_RAX] */
-    u64 sigframe[FRAME_MAX];
+    sigstate dispatch_sigstate; /* while signal handler in flight, save sigstate */
     notify_set signalfds;
     u16 active_signo;
+    void *signal_stack;
+    u64 signal_stack_length;
 
 #ifdef CONFIG_FTRACE
     int graph_idx;
     struct ftrace_graph_entry * graph_stack;
 #endif
+    closure_struct(resume_syscall, deferred_syscall);
+    cpu_set_t affinity;    
 } *thread;
 
 typedef closure_type(io, sysreturn, void *buf, u64 length, u64 offset, thread t,
@@ -286,7 +303,7 @@ typedef struct vmap {
 } *vmap;
 
 vmap allocate_vmap(rangemap rm, range r, u64 flags);
-boolean adjust_vmap_range(rangemap rm, vmap v, range new);
+boolean adjust_process_heap(process p, range new);
 
 typedef struct file *file;
 
@@ -299,10 +316,10 @@ typedef struct process {
     u64               heap_base;
     u64               lowmem_end; /* end of elf / heap / stack area (low 2gb below reserved) */
     u64               vdso_base;
-    heap              virtual;  /* huge virtual, parent of virtual_page */
-    heap              virtual_page; /* pagesized, default for mmaps */
-    heap              virtual32; /* for tracking low 32-bit space and MAP_32BIT maps */
-    heap              fdallocator;
+    id_heap           virtual;  /* huge virtual, parent of virtual_page */
+    id_heap           virtual_page; /* pagesized, default for mmaps */
+    id_heap           virtual32; /* for tracking low 32-bit space and MAP_32BIT maps */
+    id_heap           fdallocator;
     filesystem        fs;       /* XXX should be underneath tuple operators */
     tuple             process_root;
     tuple             cwd;
@@ -312,6 +329,7 @@ typedef struct process {
     struct syscall   *syscalls;
     vector            files;
     rangemap          vareas;   /* available address space */
+    struct spinlock   vmap_lock;
     rangemap          vmaps;    /* process mappings */
     vmap              stack_map;
     vmap              heap_map;
@@ -320,7 +338,7 @@ typedef struct process {
     timestamp         start_time;
     struct sigstate   signals;
     struct sigaction  sigactions[NSIG];
-    heap              posix_timer_ids;
+    id_heap           posix_timer_ids;
     vector            posix_timers; /* unix_timer by timerid */
     vector            itimers;      /* unix_timer by ITIMER_ type */
 } *process;
@@ -331,7 +349,10 @@ typedef struct sigaction *sigaction;
 #define SIGACT_SIGNALFD 0x00000002 /* TODO */
 
 extern thread dummy_thread;
-extern thread current;
+// seems like we could extract this from the frame or remove the thread entry in the frame
+#define current ((thread)(current_cpu()->current_thread))
+
+void init_thread_fault_handler(thread t);
 
 static inline thread thread_from_tid(process p, int tid)
 {
@@ -362,8 +383,6 @@ static inline kernel_heaps get_kernel_heaps()
 
 #define unix_cache_alloc(uh, c) ({ heap __c = uh->c ## _cache; allocate(__c, __c->pagesize); })
 #define unix_cache_free(uh, c, p) ({ heap __c = uh->c ## _cache; deallocate(__c, p, __c->pagesize); })
-
-fault_handler create_fault_handler(heap h, thread t);
 
 static inline void init_fdesc(heap h, fdesc f, int type)
 {
@@ -447,7 +466,28 @@ static inline void sigstate_thread_restore(thread t)
     }
 }
 
-void dispatch_signals(thread t);
+static inline u64 mask_from_sig(int sig)
+{
+    assert(sig > 0);
+    return U64_FROM_BIT(sig - 1);
+}
+
+static inline u64 sigstate_get_pending(sigstate ss)
+{
+    return ss->pending;
+}
+
+static inline boolean sigstate_is_pending(sigstate ss, int sig)
+{
+    return (ss->pending & mask_from_sig(sig)) != 0;
+}
+
+static inline sigaction sigaction_from_sig(int signum)
+{
+    return &current->p->sigactions[signum - 1];
+}
+
+boolean dispatch_signals(thread t);
 void deliver_signal_to_thread(thread t, struct siginfo *);
 void deliver_signal_to_process(process p, struct siginfo *);
 
@@ -478,7 +518,8 @@ boolean unix_timers_init(unix_heaps uh);
 #define sysreturn_from_pointer(__x) ((s64)u64_from_pointer(__x));
 
 extern sysreturn syscall_ignore();
-boolean unix_fault_page(u64 vaddr, context frame);
+boolean do_demand_page(u64 vaddr, vmap vm);
+vmap vmap_from_vaddr(process p, u64 vaddr);
 
 void thread_log_internal(thread t, const char *desc, ...);
 #define thread_log(__t, __desc, ...) thread_log_internal(__t, __desc, ##__VA_ARGS__)
@@ -506,24 +547,24 @@ static inline boolean thread_is_runnable(thread t)
 
 static inline sysreturn set_syscall_return(thread t, sysreturn val)
 {
-    t->frame[FRAME_RAX] = val;
+    thread_frame(t)[FRAME_RAX] = val;
     return val;
 }
 
 static inline sysreturn get_syscall_return(thread t)
 {
-    return t->frame[FRAME_RAX];
+    return thread_frame(t)[FRAME_RAX];
 }
 
 static inline sysreturn set_syscall_error(thread t, s32 val)
 {
-    t->frame[FRAME_RAX] = (sysreturn)-val;
+    thread_frame(t)[FRAME_RAX] = (sysreturn)-val;
     return (sysreturn)-val;
 }
 
 static inline sysreturn sysreturn_value(thread t)
 {
-    return (sysreturn)t->frame[FRAME_RAX];
+    return (sysreturn)thread_frame(t)[FRAME_RAX];
 }
 
 static inline void file_op_begin(thread t)
@@ -588,3 +629,8 @@ u32 spec_events(file f);
 /* getrandom(2) flags */
 #define GRND_NONBLOCK               1
 #define GRND_RANDOM                 2
+
+#define SIGNAL_STACK_SIZE 8192
+
+void syscall_debug(context f);
+

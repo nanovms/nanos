@@ -3,7 +3,7 @@
 
 //#define SIGNAL_DEBUG
 #ifdef SIGNAL_DEBUG
-#define sig_debug(x, ...) do {log_printf(" SIG", "%s: " x, __func__, ##__VA_ARGS__);} while(0)
+#define sig_debug(x, ...) do {log_printf("  SIG", "%s: " x, __func__, ##__VA_ARGS__);} while(0)
 #else
 #define sig_debug(x, ...)
 #endif
@@ -12,7 +12,6 @@
 
    support for SA_RESTART
    blocking calls within sig handler
-   sigaltstack
    core dump
  */
 
@@ -20,17 +19,6 @@ typedef struct queued_signal {
     struct siginfo si;
     struct list l;
 } *queued_signal;
-
-static inline u64 mask_from_sig(int sig)
-{
-    assert(sig > 0);
-    return U64_FROM_BIT(sig - 1);
-}
-
-static inline sigaction get_sigaction(int signum)
-{
-    return &current->p->sigactions[signum - 1];
-}
 
 static inline void init_siginfo(struct siginfo *si, int sig, s32 code)
 {
@@ -75,11 +63,6 @@ static inline void sigstate_unblock(sigstate ss, u64 mask)
     ss->mask &= ~mask;
 }
 
-static inline u64 sigstate_get_pending(sigstate ss)
-{
-    return ss->pending;
-}
-
 static inline u64 sigstate_get_ignored(sigstate ss)
 {
     return ss->ignored;
@@ -119,11 +102,6 @@ static inline u64 get_effective_signals(thread t)
 static inline void sigstate_set_pending(sigstate ss, int sig)
 {
     ss->pending |= mask_from_sig(sig);
-}
-
-static inline boolean sigstate_is_pending(sigstate ss, int sig)
-{
-    return (ss->pending & mask_from_sig(sig)) != 0;
 }
 
 static inline list sigstate_get_sighead(sigstate ss, int signum)
@@ -178,7 +156,7 @@ static queued_signal dequeue_signal(thread t, u64 sigmask, boolean save_and_mask
 
     /* for actual signal handling - bypassed if dispatching via rt_sigtimedwait */
     if (save_and_mask) {
-        sigaction sa = get_sigaction(signum);
+        sigaction sa = sigaction_from_sig(signum);
         if (ss->saved == 0)      /* rt_sigsuspend may provide one */
             ss->saved = ss->mask;
         ss->mask |= mask_from_sig(signum) | sa->sa_mask.sig[0];
@@ -283,8 +261,10 @@ static inline void signalfd_dispatch(thread t, u64 pending)
 
 void deliver_signal_to_thread(thread t, struct siginfo *info)
 {
-    sig_debug("tid %d, sig %d\n", t->tid, info->si_signo);
-    if (sig_is_ignored(t->p, info->si_signo)) {
+    int sig = info->si_signo;
+    sig_debug("tid %d, sig %d\n", t->tid, sig);
+    if ((sig != SIGSEGV && sig != SIGKILL && sig != SIGSTOP) &&
+        sig_is_ignored(t->p, sig)) {
         sig_debug("signal ignored; no queue\n");
         return;
     }
@@ -461,34 +441,33 @@ sysreturn rt_sigreturn(void)
     assert(t->dispatch_sigstate);
 
     /* sigframe sits at %rsp minus the return address word (pretcode) */
-    frame = (struct rt_sigframe *)(t->sigframe[FRAME_RSP] - sizeof(u64));
+    frame = (struct rt_sigframe *)(t->sighandler_frame[FRAME_RSP] - sizeof(u64));
     sig_debug("rt_sigreturn: frame:0x%lx\n", (unsigned long)frame);
 
     /* safer to query via thread variable */
-    sa = get_sigaction(t->active_signo);
+    sa = sigaction_from_sig(t->active_signo);
     t->active_signo = 0;
 
     /* restore signal mask and saved context, if applicable */
     sigstate_thread_restore(t);
     if (sa->sa_flags & SA_SIGINFO) {
         sig_debug("-> restore ucontext\n");
-        restore_ucontext(&(frame->uc), t->frame);
+        restore_ucontext(&(frame->uc), t->default_frame);
     }
-    t->frame[FRAME_RAX] = t->saved_rax;
-
-    sig_debug("switching to thread frame %p, rip 0x%lx, rax 0x%lx\n",
-              t->frame, t->frame[FRAME_RIP], t->frame[FRAME_RAX]);
-    set_running_frame(t->frame);
 
     /* ftrace needs to know that this call stack does not return */
-    ftrace_thread_noreturn(current);
+    ftrace_thread_noreturn(t);
 
     /* see if we have more handlers to invoke */
-    dispatch_signals(current);
+    if (!dispatch_signals(t))
+        set_thread_frame(t, t->default_frame);
 
-    /* return - XXX or reschedule? */
-    IRETURN(get_running_frame());
-    return 0;
+    context f = thread_frame(t);
+    sig_debug("switching to thread frame %p, rip 0x%lx, rax 0x%lx\n",
+              f, f[FRAME_RIP], f[FRAME_RAX]);
+
+    schedule_frame(f);
+    runloop();
 }
 
 sysreturn rt_sigaction(int signum,
@@ -504,7 +483,7 @@ sysreturn rt_sigaction(int signum,
     if (sigsetsize != (NSIG / 8))
         return -EINVAL;
 
-    sigaction sa = get_sigaction(signum);
+    sigaction sa = sigaction_from_sig(signum);
 
     if (oldact)
         runtime_memcpy(oldact, sa, sizeof(struct sigaction));
@@ -611,6 +590,20 @@ sysreturn rt_sigsuspend(const u64 * mask, u64 sigsetsize)
 
 sysreturn sigaltstack(const stack_t *ss, stack_t *oss)
 {
+
+    thread t = current;
+    // xxx = validate ss, oss, ss_sp
+    oss->ss_sp = t->signal_stack;
+    oss->ss_size = t->signal_stack_length;
+    oss->ss_flags = 0;
+    // it doesn't seem possible to re-enable without setting
+    // a new stack....so we think this is a valid interpretation
+    if (ss->ss_flags & SS_DISABLE) {
+        t->signal_stack = 0;   
+    }  else {
+        t->signal_stack = ss->ss_sp;
+        t->signal_stack_length = ss->ss_size;
+    }
     return 0;
 }
 
@@ -730,7 +723,6 @@ closure_function(1, 1, sysreturn, pause_bh,
             thread_wakeup(t);
         }
         closure_finish();
-        sig_debug("%p, %ld\n", t, t->frame[FRAME_RAX]);
         return set_syscall_error(t, EINTR);
     }
 
@@ -1029,20 +1021,20 @@ sysreturn signalfd(int fd, const u64 *mask, u64 sigsetsize)
 
 static void setup_sigframe(thread t, int signum, struct siginfo *si)
 {
-    sigaction sa = get_sigaction(signum);
+    sigaction sa = sigaction_from_sig(signum);
 
     assert(sizeof(struct siginfo) == 128);
 
-    /* XXX prob should zero most of this, but not sure yet what needs
-     * to be carried over */
-    runtime_memcpy(t->sigframe, t->frame, sizeof(u64) * FRAME_MAX);
-
     sig_debug("sa->sa_flags 0x%lx\n", sa->sa_flags);
 
-    /* check for altstack */
-    if (sa->sa_flags & SA_ONSTACK) {
-        t->sigframe[FRAME_RSP] = 0; /* TODO */
-        halt("SA_ONSTACK ...\n");
+    /* copy only what we really need */
+    t->sighandler_frame[FRAME_FSBASE] = t->default_frame[FRAME_FSBASE];
+    t->sighandler_frame[FRAME_GSBASE] = t->default_frame[FRAME_GSBASE];
+
+    if (sa->sa_flags & SA_ONSTACK && t->signal_stack) {
+        t->sighandler_frame[FRAME_RSP] = u64_from_pointer(t->signal_stack + t->signal_stack_length);
+    } else {
+        t->sighandler_frame[FRAME_RSP] = t->default_frame[FRAME_RSP];
     }
 
     /* avoid redzone and align rsp
@@ -1054,57 +1046,56 @@ static void setup_sigframe(thread t, int signum, struct siginfo *si)
        typically pushes the frame pointer on the stack, thus
        re-aligning to 16 before executing the function body.
     */
-    t->sigframe[FRAME_RSP] = ((t->sigframe[FRAME_RSP] & ~15)
-                              - 128 /* redzone */
-                              - 8 /* same effect as call pushing ra */);
+    t->sighandler_frame[FRAME_RSP] = ((t->sighandler_frame[FRAME_RSP] & ~15)
+                                      - 128 /* redzone */
+                                      - 8 /* same effect as call pushing ra */);
 
     /* create space for rt_sigframe */
-    t->sigframe[FRAME_RSP] -= pad(sizeof(struct rt_sigframe), 16);
+    t->sighandler_frame[FRAME_RSP] -= pad(sizeof(struct rt_sigframe), 16);
 
     /* setup sigframe for user sig trampoline */
-    struct rt_sigframe *frame = (struct rt_sigframe *)t->sigframe[FRAME_RSP];
+    struct rt_sigframe *frame = (struct rt_sigframe *)t->sighandler_frame[FRAME_RSP];
     frame->pretcode = sa->sa_restorer;
 
     if (sa->sa_flags & SA_SIGINFO) {
         runtime_memcpy(&frame->info, si, sizeof(struct siginfo));
-        setup_ucontext(&frame->uc, sa, si, t->frame);
-        t->sigframe[FRAME_RSI] = u64_from_pointer(&frame->info);
-        t->sigframe[FRAME_RDX] = u64_from_pointer(&frame->uc);
+        setup_ucontext(&frame->uc, sa, si, t->default_frame);
+        t->sighandler_frame[FRAME_RSI] = u64_from_pointer(&frame->info);
+        t->sighandler_frame[FRAME_RDX] = u64_from_pointer(&frame->uc);
     } else {
-        t->sigframe[FRAME_RSI] = 0;
-        t->sigframe[FRAME_RDX] = 0;
+        t->sighandler_frame[FRAME_RSI] = 0;
+        t->sighandler_frame[FRAME_RDX] = 0;
     }
 
     /* setup regs for signal handler */
-    t->sigframe[FRAME_RIP] = u64_from_pointer(sa->sa_handler);
-    t->sigframe[FRAME_RDI] = signum;
+    t->sighandler_frame[FRAME_RIP] = u64_from_pointer(sa->sa_handler);
+    t->sighandler_frame[FRAME_RDI] = signum;
+    t->sighandler_frame[FRAME_IS_SYSCALL] = 1;
 
     /* save signo for safer sigreturn */
     t->active_signo = signum;
 
     sig_debug("sigframe tid %d, sig %d, rip 0x%lx, rsp 0x%lx, "
               "rdi 0x%lx, rsi 0x%lx, rdx 0x%lx, r8 0x%lx\n", t->tid, signum,
-              t->sigframe[FRAME_RIP], t->sigframe[FRAME_RSP],
-              t->sigframe[FRAME_RDI], t->sigframe[FRAME_RSI],
-              t->sigframe[FRAME_RDX], t->sigframe[FRAME_R8]);
+              t->sighandler_frame[FRAME_RIP], t->sighandler_frame[FRAME_RSP],
+              t->sighandler_frame[FRAME_RDI], t->sighandler_frame[FRAME_RSI],
+              t->sighandler_frame[FRAME_RDX], t->sighandler_frame[FRAME_R8]);
 }
 
-/* XXX lock down / use access fns */
-void dispatch_signals(thread t)
+/* return true if t->sighandler_frame should be scheduled to run */
+boolean dispatch_signals(thread t)
 {
-    if (t->dispatch_sigstate) {
-        /* sorry, no nested handling */
-        return;
-    }
+    if (t->dispatch_sigstate)
+        goto no_sig; /* sorry, no nested handling */
 
     /* dequeue (and thus reset) a pending signal, masking temporarily */
     queued_signal qs = dequeue_signal(t, sigstate_get_mask(&t->signals), true);
     if (qs == INVALID_ADDRESS)
-        return;
+        goto no_sig;
 
     /* act on signal disposition */
     int signum = qs->si.si_signo;
-    sigaction sa = get_sigaction(signum);
+    sigaction sa = sigaction_from_sig(signum);
     void * handler = sa->sa_handler;
 
     sig_debug("dispatching signal %d; sigaction handler %p, sa_mask 0x%lx, sa_flags 0x%lx\n",
@@ -1172,12 +1163,13 @@ void dispatch_signals(thread t)
 
     /* clean up and proceed to handler */
     free_queued_signal(qs);
-    t->saved_rax = t->frame[FRAME_RAX];
-    set_running_frame(t->sigframe);
-    return;
+    set_thread_frame(t, t->sighandler_frame);
+    return true;
   ignore:
     sig_debug("ignoring signal %d\n", signum);
     sigstate_thread_restore(t);
+  no_sig:
+    return false;
 }
 
 void register_signal_syscalls(struct syscall *map)

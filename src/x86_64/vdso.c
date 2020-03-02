@@ -4,9 +4,7 @@
  * there shouldn't be any reason to modify this
  */
 
-#include <runtime.h>
 #include <unix_internal.h>
-#include <vdso.h>
 
 static sysreturn
 fallback_clock_gettime(clockid_t clk_id, struct timespec * tp)

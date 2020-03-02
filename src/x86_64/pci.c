@@ -1,8 +1,7 @@
-#include <runtime.h>
+#include <kernel.h>
 #include <pci.h>
 #include <page.h>
 #include <io.h>
-#include <x86_64.h>
 
 #ifdef PCI_DEBUG
 # define pci_debug rprintf
@@ -162,10 +161,10 @@ void msi_format(u32 *address, u32 *data, int vector)
     *data = (trigger << 15) | (level << 14) | (mode << 8) | vector;
 }
 
-void pci_setup_msix(pci_dev dev, int msi_slot, thunk h)
+void pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name)
 {
     int v = allocate_interrupt();
-    register_interrupt(v, h);
+    register_interrupt(v, h, name);
 
     u32 a, d;
     u32 vector_control = 0;
@@ -226,7 +225,7 @@ void pci_discover()
 void init_pci(kernel_heaps kh)
 {
     // should use the global node space
-    virtual_huge = heap_virtual_huge(kh);
+    virtual_huge = (heap)heap_virtual_huge(kh);
     pages = heap_pages(kh);
     drivers = allocate_vector(heap_general(kh), 8);
 }

@@ -154,7 +154,7 @@ boolean log_extend(log tl, u64 size) {
     tlog_debug("log_extend: tl %p\n", tl);
 
     /* allocate new log and write with end of log */
-    u64 offset = allocate_u64(tl->fs->storage, size);
+    u64 offset = allocate_u64((heap)tl->fs->storage, size);
     if (offset == INVALID_PHYSICAL)
         return false;
     offset = sector_from_offset(tl->fs, offset);

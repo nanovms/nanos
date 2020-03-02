@@ -461,7 +461,7 @@ static extent create_extent(fsfile f, range r, merge m)
     tfs_debug("create_extent: align %d, offset %ld, length %ld, alloc_order %ld, alloc_bytes %ld\n",
               alignment, r.start, length, alloc_order, alloc_bytes);
 
-    u64 block_start = allocate_u64(f->fs->storage, alloc_bytes);
+    u64 block_start = allocate_u64((heap)f->fs->storage, alloc_bytes);
     if (block_start == u64_from_pointer(INVALID_ADDRESS)) {
         msg_err("out of storage");
         return INVALID_ADDRESS;

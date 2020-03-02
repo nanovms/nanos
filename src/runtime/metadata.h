@@ -1,6 +1,3 @@
-#pragma once
-
-#include <list.h>
 #include <stringtok.h>
 
 static inline vector vector_from_tuple(heap h, tuple n)

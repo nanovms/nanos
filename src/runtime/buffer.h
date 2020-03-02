@@ -1,4 +1,3 @@
-#pragma once
 // consider -
 //   adding a stride
 //   going back to using bit offsets

@@ -1,4 +1,3 @@
-#pragma once
 typedef struct pqueue *pqueue;
 pqueue allocate_pqueue(heap h, boolean(*)(void *, void *));
 void deallocate_pqueue(pqueue q);

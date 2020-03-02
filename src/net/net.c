@@ -1,4 +1,4 @@
-#include <runtime.h>
+#include <kernel.h>
 #include <lwip.h>
 #include <lwip/priv/tcp_priv.h>
 
@@ -41,7 +41,7 @@ void sys_timeouts_init(void)
     for (int i = 0; i < n; i++) {
         struct net_lwip_timer * t = (struct net_lwip_timer *)&net_lwip_timers[i];
         timestamp interval = milliseconds(t->interval_ms);
-        register_timer(CLOCK_ID_MONOTONIC, interval, false, interval,
+        register_timer(runloop_timers, CLOCK_ID_MONOTONIC, interval, false, interval,
                        closure(lwip_heap, dispatch_lwip_timer, t->handler, t->name));
 #ifdef LWIP_DEBUG
         lwip_debug("registered %s timer with period of %ld ms\n", t->name, t->interval_ms);

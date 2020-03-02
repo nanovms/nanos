@@ -1,4 +1,3 @@
-#pragma once
 typedef u8 reg;
 
 void mov_64_imm(buffer b, reg r, u64 imm);

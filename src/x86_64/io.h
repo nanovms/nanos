@@ -1,4 +1,3 @@
-#pragma once
 static inline void out8(u32 port, u8 data)
 {
     __asm __volatile("outb %0, %w1" : : "a" (data), "Nd" (port));

@@ -1,5 +1,3 @@
-#pragma once
-
 #include <drivers/storage.h>
 
 void init_network_iface(tuple root);

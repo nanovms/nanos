@@ -1,5 +1,3 @@
-#pragma once
-
 #include "virtio_pci.h"
 
 typedef struct virtqueue *virtqueue;
@@ -43,6 +41,7 @@ typedef closure_type(vqfinish, void, u64);
 void vtpci_notify_virtqueue(vtpci sc, u16 queue);
 
 status virtqueue_alloc(vtpci dev,
+                       const char *name,
                        u16 queue,
                        u16 size,
                        int align,
@@ -61,6 +60,7 @@ void virtqueue_set_max_queued(virtqueue, int);
 #define VRING_AVAIL_F_NO_INTERRUPT      1
 
 physical virtqueue_paddr(struct virtqueue *vq);
+u16 virtqueue_entries(virtqueue vq);
 
 typedef struct vqmsg *vqmsg;
 
