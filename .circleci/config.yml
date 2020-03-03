@@ -53,7 +53,7 @@ jobs:
         xcode: "9.0" 
     steps:
       - checkout
-      - run: CI=1 /usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
+      - run: CI=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install.sh)"
       - run: brew update && brew install nasm go wget qemu ent
       - run: brew tap nanovms/homebrew-x86_64-elf
       - run: brew install x86_64-elf-binutils
@@ -73,7 +73,7 @@ jobs:
         xcode: "9.0" 
     steps:
       - checkout
-      - run: CI=1 /usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
+      - run: CI=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install.sh)"
       - run: brew update && brew install nasm go wget ent
       - run: brew tap nanovms/homebrew-x86_64-elf
       - run: brew install x86_64-elf-binutils
