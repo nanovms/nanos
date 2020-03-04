@@ -1,6 +1,6 @@
 version: 2
 jobs:
-  build:
+  nightly-build-mac:
     docker:
       # specify the version
       - image: circleci/golang:1.12
@@ -68,7 +68,7 @@ jobs:
             PATH=$HOME/.ops/bin:$PATH
             make test-noaccel
   
-  nightly-build-mac:
+  build:
     macos:
         xcode: "9.0" 
     steps:
