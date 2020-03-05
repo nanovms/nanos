@@ -1946,11 +1946,10 @@ extern u64 kernel_lock;
 void syscall_debug(context f)
 {
     u64 call = f[FRAME_VECTOR];
-//    rprintf("SYSCALL f %p, rip 0x%lx, call %d\n", f, f[FRAME_RIP], call);
     thread t = current;
-    set_syscall_return(t, -ENOSYS); // xx - not happy about this cast
+    set_syscall_return(t, -ENOSYS);
 
-    if (call < 0 || call >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0])) {
+    if (call >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0])) {
         schedule_frame(f);
         thread_log(current, "invalid syscall %d", call);
         runloop();
