@@ -40,8 +40,12 @@ static void format_number(buffer dest, struct formatter_state *s, vlist *a)
     s64 x;
     if (s->modifier == 'l')
         x = varg(*a, s64);
-    else
-        x = varg(*a, int);
+    else {
+        if (s->format == 'd')
+            x = varg(*a, int);
+        else
+            x = varg(*a, unsigned);
+    }
     if (s->format == 'd' && x < 0) {
 	/* emit sign & two's complement */
         push_u8(dest, '-');
