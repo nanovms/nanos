@@ -196,7 +196,7 @@ boolean vbprintf_tests(heap h)
 
     // %x
     u64 w = 0x1122334455667788;
-    VBPRINTF_TEST(b, "0 0 0 0 1234 0x1122334455667788", "%x %x %x %x %x 0x%lx", 0, 0, 0, 0, 0x1234, w);
+    VBPRINTF_TEST(b, "0 0 0 0 1234 0x1122334455667788 0xffffffff", "%x %x %x %x %x 0x%lx 0x%x", 0, 0, 0, 0, 0x1234, w, -1);
 
     // invalid format
     VBPRINTF_TEST(b, "[invalid format %y]", "%y", 0);
