@@ -180,4 +180,4 @@ for general questions. If you'd like more in-depth help reach out to the
 nanovms folks via drift or email engineering.
 
 If you need something done *now* or want immediate attention to an issue
-NanoVMs offers [offers paid support plans](https://nanovms.com/services/subscription).
+NanoVMs offers [paid support plans](https://nanovms.com/services/subscription).
