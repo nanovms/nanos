@@ -21,7 +21,7 @@ Please use the [ops](https://ops.city) orchestrator to run your applications wit
 ### Building/Running
 
 It is highly encouraged to use [ops](https://github.com/nanovms/ops) to build and run your applications using Nanos unless you are planning
-on modifying Nanos. OPS provides sensible defaults for most users and
+on modifying Nanos. [OPS](https://ops.city) provides sensible defaults for most users and
 incorporates our understanding of how to appropriately best use Nanos.
 It is also currently highly coupled to Nanos.
 
@@ -30,10 +30,38 @@ that you don't want hardware acceleration. For instance you can run
 Nanos in virtualbox on a mac but it will be slow and hard to configure.
 
 You can build and run on mac and linux. Nanos supports KVM on linux and
-HVF on osx currently for acceleration. OPS has facilities to deploy to
+HVF on osx currently for acceleration. [OPS](https://ops.city) has facilities to deploy to
 the public clouds (AWS/GCE).
 
-To build:
+#### Building From Source on a Mac
+
+Install Homebrew:
+```
+/usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
+```
+
+Grab Dependencies:
+
+This installs the correct toolchain and will install an up-to-date qemu.
+It is highly recommended to be running the latest qemu otherwise you
+might run into issues.
+
+```
+brew update && brew install nasm go wget ent
+brew tap nanovms/homebrew-x86_64-elf
+brew install x86_64-elf-binutils
+brew tap nanovms/homebrew-qemu
+brew install nanovms/homebrew-qemu/qemu
+```
+
+Create a Chroot:
+(this isn't absolutely necessary)
+```
+mkdir target-root && cd target-root && wget
+https://storage.googleapis.com/testmisc/target-root.tar.gz && tar xzf target-root.tar.gz
+```
+
+#### To build:
 ```
 make run no-accel
 ```
@@ -150,3 +178,6 @@ We run a public mailing list at:
 
 for general questions. If you'd like more in-depth help reach out to the
 nanovms folks via drift or email engineering.
+
+If you need something done *now* or want immediate attention to an issue
+NanoVMs offers [offers paid support plans](https://nanovms.com/services/subscription).
