@@ -6,7 +6,7 @@
 
 /* Try to keep these within the confines of the runloop lock so we
    don't create too much of a mess. */
-//#define SCHED_DEBUG
+#define SCHED_DEBUG
 #ifdef SCHED_DEBUG
 #define sched_debug(x, ...) do {log_printf("SCHED", "[%2d] " x, ci->id, ##__VA_ARGS__);} while(0)
 #else

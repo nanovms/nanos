@@ -186,7 +186,7 @@ closure_function(3, 1, boolean, vga_pci_probe,
     d->crtc_addr = 0x3d4;
     d->buffer = pointer_from_u64(VGA_BUF_BASE);
     d->buffer_size = VGA_BUF_SIZE / sizeof(*d->buffer);
-    map(u64_from_pointer(d->buffer), VGA_BUF_BASE, VGA_BUF_SIZE, PAGE_DEV_FLAGS, bound(pages));
+    map(u64_from_pointer(d->buffer), VGA_BUF_BASE, VGA_BUF_SIZE, PAGE_DEV_FLAGS, bound(pages), 0);
     // assume VGA mode 3 upon initialization
     d->width = 80;
     d->height = 25;

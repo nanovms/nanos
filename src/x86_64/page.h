@@ -58,11 +58,12 @@ static inline boolean pt_entry_is_pte(int level, u64 entry)
 physical physical_from_virtual(void *x);
 #endif
 
-void map(u64 virtual, physical p, u64 length, u64 flags, heap h);
+void map(u64 virtual, physical p, u64 length, u64 flags, heap h, boolean *dirty);
 void unmap(u64 virtual, u64 length, heap h);
 void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh);
 void unmap_and_free_phys(u64 virtual, u64 length);
 
+void tlb_flush_queue_completion(thunk);
 static inline void unmap_pages(u64 virtual, u64 length)
 {
     unmap_pages_with_handler(virtual, length, 0);
@@ -77,7 +78,8 @@ void dump_ptes(void *x);
 typedef closure_type(entry_handler, boolean /* success */, int /* level */,
         u64 /* vaddr */, u64 * /* entry */);
 boolean traverse_ptes(u64 vaddr, u64 length, entry_handler eh);
-void page_invalidate(u64 p, thunk completion);
+void page_invalidate(u64 p);
 void flush_tlb();
 void init_flush();
 id_heap init_page_tables(heap h, id_heap physical);
+

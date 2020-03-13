@@ -174,9 +174,9 @@ static void setup_page_tables()
     mov_to_cr("cr3", vmbase);
 
     /* initial map, page tables and stack */
-    map(0, 0, INITIAL_MAP_SIZE, PAGE_WRITABLE | PAGE_PRESENT, pages);
-    map(identity_base, identity_base, IDENTITY_HEAP_SIZE, PAGE_WRITABLE | PAGE_PRESENT, pages);
-    map(stack_base, stack_base, (u64)STACKLEN, PAGE_WRITABLE, pages);
+    map(0, 0, INITIAL_MAP_SIZE, PAGE_WRITABLE | PAGE_PRESENT, pages, 0);
+    map(identity_base, identity_base, IDENTITY_HEAP_SIZE, PAGE_WRITABLE | PAGE_PRESENT, pages, 0);
+    map(stack_base, stack_base, (u64)STACKLEN, PAGE_WRITABLE, pages, 0);
 }
 
 static u64 working_saved_base;
@@ -193,7 +193,7 @@ closure_function(0, 4, void, kernel_elf_map,
         assert(paddr != INVALID_PHYSICAL);
         zero(pointer_from_u64(paddr), size);
     }
-    map(vaddr, paddr, size, flags, heap_pages(&kh));
+    map(vaddr, paddr, size, flags, heap_pages(&kh), 0);
 }
 
 closure_function(0, 1, status, kernel_read_complete,

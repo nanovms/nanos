@@ -11,10 +11,10 @@
 #include <kvm_platform.h>
 #include <xen_platform.h>
 
-//#define SMP_ENABLE
+#define SMP_ENABLE
 //#define SMP_DUMP_FRAME_RETURN_COUNT
 
-//#define STAGE3_INIT_DEBUG
+#define STAGE3_INIT_DEBUG
 #ifdef STAGE3_INIT_DEBUG
 #define init_debug(x, ...) do {rprintf("INIT: " x "\n", ##__VA_ARGS__);} while(0)
 #else
@@ -133,7 +133,7 @@ static void read_kernel_syms()
 	    kern_length = e->length;
 
 	    u64 v = allocate_u64((heap)heap_virtual_huge(&heaps), kern_length);
-	    map(v, kern_base, kern_length, 0, heap_pages(&heaps));
+	    map(v, kern_base, kern_length, 0, heap_pages(&heaps), 0);
 #ifdef ELF_SYMTAB_DEBUG
 	    rprintf("kernel ELF image at 0x%lx, length %ld, mapped at 0x%lx\n",
 		    kern_base, kern_length, v);

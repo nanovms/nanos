@@ -140,7 +140,7 @@ void pci_enable_msix(pci_dev dev)
          len = pad(len, PAGESIZE);
          // ?? this is per device, so why is it global? - pass to probe?
          u8 *vector_table_ptr = allocate(virtual_huge, len);
-         map(u64_from_pointer(vector_table_ptr), vector_base, len, PAGE_DEV_FLAGS, pages);
+         map(u64_from_pointer(vector_table_ptr), vector_base, len, PAGE_DEV_FLAGS, pages, 0);
          msi_map[dev->slot] = (void *) (vector_table_ptr + (vector_table & ~0x7)); // table offset
          // qemu gets really* mad if you do this a 16 bit write
          pci_cfgwrite(dev, cp + 3, 1, 0x80);

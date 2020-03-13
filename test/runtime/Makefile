@@ -22,6 +22,7 @@ PROGRAMS= \
 	signal \
 	socketpair \
 	thread_test \
+	tlbflush \
 	time \
 	udploop \
 	unlink \
@@ -167,6 +168,12 @@ SRCS-thread_test= \
 	$(CURDIR)/thread_test.c 
 LDFLAGS-thread_test=	-static
 LIBS-thread_test=	-lpthread
+
+SRCS-tlbflush= \
+	$(CURDIR)/tlbflush.c\
+	$(SRCDIR)/unix_process/ssp.c
+LDFLAGS-tlbflush= -static
+LIBS-tlbflush=	-lpthread
 
 SRCS-time= \
 	$(CURDIR)/time.c \

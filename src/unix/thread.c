@@ -215,6 +215,11 @@ void thread_wakeup(thread t)
     schedule_frame(thread_frame(t));
 }
 
+define_closure_function(1, 0, void, queue_thread, thread, t)
+{
+    schedule_frame(thread_frame(bound(t)));    
+}
+
 boolean thread_attempt_interrupt(thread t)
 {
     thread_log(current, "%s: tid %d", __func__, t->tid);
@@ -287,6 +292,7 @@ thread create_thread(process p)
     t->dispatch_sigstate = 0;
     t->active_signo = 0;
     init_closure(&t->deferred_syscall, resume_syscall, t);
+    init_closure(&t->queue_thread, queue_thread, t);    
     if (ftrace_thread_init(t)) {
         msg_err("failed to init ftrace state for thread\n");
         deallocate_blockq(t->thread_bq);

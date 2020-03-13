@@ -4,14 +4,10 @@
 
 // in order to keep SMP_TEST conditionalized
 static boolean initialized = false;
-static queue flush_queue;
+static queue flush_completions;
+static queue flush_pages;
 static int flush_ipi;
 static heap flush_heap;
-
-typedef struct flush_entry {
-    struct refcount r;
-    u64 page; // or INVALID_ADDRESS for a full flush
-} *flush_entry;
 
 static void invalidate (u64 page)
 {
@@ -20,36 +16,41 @@ static void invalidate (u64 page)
 
 closure_function(0, 0, void, flush_handler)
 {
-    flush_entry f = queue_peek(flush_queue);
-    if (f->page == INVALID_PHYSICAL) {
+    // scan the whole business
+    u64 p = u64_from_pointer(queue_peek(flush_pages));
+    if (p == INVALID_PHYSICAL) {
         flush_tlb();
     } else {
-        invalidate(f->page);
+        invalidate(p);
     }
-    if (refcount_release(&f->r))
-        deallocate(flush_heap, dequeue(flush_queue), sizeof(struct flush_entry));
 }
 
-void page_invalidate(u64 p, thunk completion)
+void page_invalidate(u64 p)
 {
     if (initialized) {
-        flush_entry f = allocate(flush_heap, sizeof(struct flush_entry));
-        init_refcount(&f->r, total_processors, completion);
-        enqueue(flush_queue, f);
-        // we can choose to delay/amortize this
-        apic_ipi(TARGET_EXCLUSIVE_BROADCAST, 0, flush_ipi);        
+        p |= total_processors;
+        enqueue(flush_pages, pointer_from_u64(p));
     } else {
         invalidate(p);
-        apply(completion);
     }
 }
 
 void init_flush(heap h)
 {
-    flush_queue = allocate_queue(h, 128);
+    // really max threads (?)
+    flush_completions = allocate_queue(h, 128);
+    flush_pages = allocate_queue(h, 128);    
     flush_ipi = allocate_interrupt();
     register_interrupt(flush_ipi, closure(h, flush_handler), "flush ipi");
     flush_heap = h; // xxx - not really
     initialized = true;
 }
 
+void tlb_flush_queue_completion(thunk t)
+{
+    if (initialized) {
+        enqueue(flush_completions, t);
+    } else {
+        apply(t);
+    }
+}

@@ -81,10 +81,9 @@ void flush_tlb()
 }
 
 #ifdef BOOT
-void page_invalidate(u64 address, thunk completion)
+void page_invalidate(u64 address)
 {
     flush_tlb();
-    apply(completion);
 }
 #endif
 
@@ -225,7 +224,7 @@ static boolean force_entry(heap h, page b, u64 v, physical p, int level,
 
 /* called with lock held */
 static inline boolean map_page(page base, u64 v, physical p, heap h,
-                               boolean fat, u64 flags, boolean * invalidate)
+                               boolean fat, u64 flags, boolean *dirty)
 {
     boolean invalidate_entry = false;
 #ifdef PAGE_UPDATE_DEBUG
@@ -235,10 +234,9 @@ static inline boolean map_page(page base, u64 v, physical p, heap h,
     if (!force_entry(h, base, v, p, 1, fat, flags, &invalidate_entry))
 	return false;
     if (invalidate_entry) {
-        // move this up to construct ranges?
-        page_invalidate(v, ignore);
-        if (invalidate)
-            *invalidate = true;
+        page_invalidate(v);
+        if (dirty)
+            *dirty = true;
     }
     return true;
 }
@@ -320,7 +318,7 @@ closure_function(1, 3, boolean, update_pte_flags,
 #ifdef PAGE_UPDATE_DEBUG
     page_debug("update 0x%lx: pte @ 0x%lx, 0x%lx -> 0x%lx\n", addr, entry, old, *entry);
 #endif
-    page_invalidate(addr, ignore);
+    page_invalidate(addr);
     return true;
 }
 
@@ -359,7 +357,7 @@ closure_function(3, 3, boolean, remap_entry,
     *entry = 0;
 
     /* invalidate old mapping (map_page takes care of new)  */
-    page_invalidate(curr, ignore);
+    page_invalidate(curr);
 
     return true;
 }
@@ -370,6 +368,7 @@ closure_function(3, 3, boolean, remap_entry,
    MREMAP_MAYMOVE), write a "traverse_ptes_reverse" to walk pages
    from high address to low (like memcpy).
 */
+// always dirty
 void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length, heap h)
 {
     page_debug("vaddr_new 0x%lx, vaddr_old 0x%lx, length 0x%lx\n", vaddr_new, vaddr_old, length);
@@ -401,8 +400,9 @@ void zero_mapped_pages(u64 vaddr, u64 length)
 }
 
 /* called with lock held */
-closure_function(1, 3, boolean, unmap_page,
-                 range_handler, rh,
+// this is ... really always dirty?
+closure_function(2, 3, boolean, unmap_page,
+                 range_handler, rh, boolean *, dirty, 
                  int, level, u64, vaddr, u64 *, entry)
 {
     range_handler rh = bound(rh);
@@ -413,7 +413,8 @@ closure_function(1, 3, boolean, unmap_page,
                    rh, level, vaddr, entry, *entry);
 #endif
         *entry = 0;
-        page_invalidate(vaddr, ignore);
+        *bound(dirty) = true;
+        page_invalidate(vaddr);
         if (rh) {
             u64 phys = phys_from_pte(old_entry);
             range p = irange(phys, phys + (pt_entry_is_fat(level, old_entry) ? PAGESIZE_2M : PAGESIZE));
@@ -425,14 +426,16 @@ closure_function(1, 3, boolean, unmap_page,
 
 /* Be warned: the page table lock is held when rh is called; don't try
    to modify the page table while traversing it */
+// always dirty
 void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh)
 {
+    boolean dirty = false;
     assert(!((virtual & PAGEMASK) || (length & PAGEMASK)));
-    traverse_ptes(virtual, length, stack_closure(unmap_page, rh));
+    traverse_ptes(virtual, length, stack_closure(unmap_page, rh, &dirty));
 }
 
 // error processing
-static void map_range(u64 virtual, physical p, u64 length, u64 flags, heap h)
+static void map_range(u64 virtual, physical p, u64 length, u64 flags, heap h, boolean *dirty)
 {
     u64 len = pad(length, PAGESIZE);
     u64 vo = virtual;
@@ -486,14 +489,13 @@ static void map_range(u64 virtual, physical p, u64 length, u64 flags, heap h)
     if (invalidate && p)        /* don't care about invalidate on unmap */
         console("   - part of map caused invalidate\n");
 #endif
-
     memory_barrier();
     pagetable_unlock();
 }
 
-void map(u64 virtual, physical p, u64 length, u64 flags, heap h)
+void map(u64 virtual, physical p, u64 length, u64 flags, heap h, boolean *dirty)
 {
-    map_range(virtual, p, length, flags | PAGE_PRESENT, h);
+    map_range(virtual, p, length, flags | PAGE_PRESENT, h, dirty);
 }
 
 void unmap(u64 virtual, u64 length, heap h)

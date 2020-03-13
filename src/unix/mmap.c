@@ -36,7 +36,7 @@ boolean do_demand_page(u64 vaddr, vmap vm)
     }
 
     u64 vaddr_aligned = vaddr & ~MASK(PAGELOG);
-    map(vaddr_aligned, paddr, PAGESIZE, page_map_flags(vm->flags), heap_pages(kh));
+    map(vaddr_aligned, paddr, PAGESIZE, page_map_flags(vm->flags), heap_pages(kh), 0);
     zero(pointer_from_u64(vaddr_aligned), PAGESIZE);
 
     return true;
@@ -176,14 +176,17 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
     /* remap existing portion */
     thread_log(current, "   remapping existing portion at 0x%lx (old_addr 0x%lx, size 0x%lx)",
                vnew, old_addr, old_size);
+    // always dirty
     remap_pages(vnew, old_addr, old_size, pages);
 
     /* map new portion and zero */
     u64 mapflags = page_map_flags(vmflags);
     thread_log(current, "   mapping and zeroing new portion at 0x%lx, page flags 0x%lx",
                vnew + old_size, mapflags);
-    map(vnew + old_size, dphys, dlen, mapflags, pages);
+    map(vnew + old_size, dphys, dlen, mapflags, pages, 0);
     zero(pointer_from_u64(vnew + old_size), dlen);
+    // always dirty
+    tlb_flush_queue_completion(current->queue_thread_thunk);
     vmap_unlock(p);
     return sysreturn_from_pointer(vnew);
   unlock_out:
@@ -274,12 +277,14 @@ closure_function(5, 2, void, mmap_read_complete,
     void * buf = buffer_ref(b, 0);
 
     /* free existing pages */
+    // always dirty
     unmap_and_free_phys(where, buf_len);
 
     /* Note that we rely on the backed heap being physically
        contiguous. If this behavior changes or faulted-in pages are
        ever used, revise this to use the page walker. */
-    map(where, physical_from_virtual(buf), buf_len, mapflags, pages);
+    boolean dirty = false;
+    map(where, physical_from_virtual(buf), buf_len, mapflags, pages, &dirty);
 
     /* zero pad */
     if (length < buf_len)
@@ -641,8 +646,8 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
 }
 
 /* invoked with vmap lock taken */
-closure_function(2, 1, void, process_unmap_intersection,
-                 process, p, range, rq,
+closure_function(3, 1, void, process_unmap_intersection,
+                 process, p, range, rq, boolean *, dirty,
                  rmnode, node)
 {
     process p = bound(p);
@@ -680,6 +685,7 @@ closure_function(2, 1, void, process_unmap_intersection,
 
     /* unmap any mapped pages and return to physical heap */
     u64 len = range_span(ri);
+    // always dirty
     unmap_and_free_phys(ri.start, len);
 
     /* return virtual mapping to heap, if any ... assuming a vmap cannot span heaps!
@@ -693,8 +699,11 @@ closure_function(2, 1, void, process_unmap_intersection,
 
 static void process_unmap_range(process p, range q)
 {
+    boolean dirty = false;
     vmap_lock(p);
-    rmnode_handler nh = stack_closure(process_unmap_intersection, p, q);
+    rmnode_handler nh = stack_closure(process_unmap_intersection, p, q, &dirty);
+    if (dirty)
+        tlb_flush_queue_completion(current->queue_thread_thunk);        
     rangemap_range_lookup(p->vmaps, q, nh);
     vmap_unlock(p);
 }

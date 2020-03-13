@@ -189,6 +189,8 @@ declare_closure_struct(1, 0, void, run_thread,
                        thread, t);
 declare_closure_struct(1, 0, void, run_sighandler,
                        thread, t);
+declare_closure_struct(1, 0, void, queue_thread,
+                       thread, t);
 declare_closure_struct(1, 1, void, default_fault_handler,
                        thread, t,
                        context, frame);
@@ -221,7 +223,9 @@ typedef struct thread {
     closure_struct(run_thread, run_thread);
     closure_struct(run_sighandler, run_sighandler);
     closure_struct(default_fault_handler, fault_handler);
+    closure_struct(queue_thread, queue_thread);
 
+    thunk queue_thread_thunk;
     epoll select_epoll;
     int *clear_tid;
     int tid;

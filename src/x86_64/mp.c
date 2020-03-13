@@ -58,7 +58,7 @@ void start_cpu(heap h, heap p, int index, void (*ap_entry)()) {
         pages = p;
         start_callback = ap_entry;
         apboot = pointer_from_u64(AP_BOOT_START);
-        map((u64)apboot, (u64)apboot, PAGESIZE, PAGE_WRITABLE, h);
+        map((u64)apboot, (u64)apboot, PAGESIZE, PAGE_WRITABLE, h, 0);
 
         asm("sgdt %0": "=m"(ap_gdt_pointer));
         asm("sidt %0": "=m"(ap_idt_pointer));

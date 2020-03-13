@@ -4,7 +4,7 @@
     program:/tt
     arguments:[thread_test]
     environment:(USER:bobby PWD:/)
-#    trace:t
-#    debugsyscalls:t
+    trace:t
+    debugsyscalls:t
 #    futex_trace:t
 )
