@@ -440,6 +440,8 @@ sysreturn mprotect(void * addr, u64 len, int prot)
     process p = current->p;
     vmap_lock(p);
     vmap_attribute_update(h, p->vmaps, &q);
+    tlb_flush_queue_completion(current->queue_thread_thunk);
+    // i want you to sleep
     vmap_unlock(p);
     return 0;
 }

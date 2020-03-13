@@ -203,7 +203,6 @@ static void deliver_signal(sigstate ss, struct siginfo *info)
 {
     heap h = heap_general(get_kernel_heaps());
     int sig = info->si_signo;
-
     /* Special handling for pending signals */
     if (sigstate_is_pending(ss, sig)) {
         /* If this is a timer event, attempt to find a queued info for

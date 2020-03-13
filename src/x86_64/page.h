@@ -82,4 +82,5 @@ void page_invalidate(u64 p);
 void flush_tlb();
 void init_flush();
 id_heap init_page_tables(heap h, id_heap physical);
+void start_flush();
 
