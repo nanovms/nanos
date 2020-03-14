@@ -11,32 +11,35 @@ static heap flush_heap;
 static u64 entries_size = 32;
 static u64 *entries;
 // seperate cache lines?
-static u64 eread, ewrite;
+static u64 eread = 0, ewrite = 0;
 
 static void invalidate (u64 page)
 {
     asm volatile("invlpg (%0)" :: "r" (page) : "memory");            
 }
 
+#define entry(__i) (entries+(__i%entries_size))
+
 void ap_flush()
 {
-    rprintf("ap flush %d\n", current_cpu()->id);
-    
-    for (int i = eread ; i < ewrite;  i =(i + 1) % entries_size) {
-        u64 p = entries[i];
+    for (int i = eread ; i != ewrite;  i++){
+        //        rprintf ("service entry %d %d %p\n", i, current_cpu()->id, *entry(i));        
+        u64 p = *entry(i);
         if ((p & ~PAGEMASK) == (INVALID_PHYSICAL & ~PAGEMASK)) {
-            flush_tlb();
+            // dont want to take the page lock? i dont understand why this deadlocks, not cli?
+            page base;
+            mov_from_cr("cr3", base);
+            mov_to_cr("cr3", base);            
         } else {
             invalidate(p);
         }
-        // mask instead of refcnt? check if this the count before the operation or
-        // after
-        if ((fetch_and_add(entries + i, -1ull) & PAGEMASK) == 1) {
-            // serialized by the refcnt
+        // mask instead of refcnt? check if this the count before the operation or after
+        u64 r;
+        if ((r = (fetch_and_add(entry(i), -1ull) & PAGEMASK)) == 1) {
             eread++;
             if (eread == ewrite)  {
                 thunk k;
-                while ((k=dequeue(flush_completions))) {
+                while ((k=dequeue(flush_completions)) != INVALID_ADDRESS) {
                     apply(k);
                 }
             }
@@ -51,7 +54,6 @@ closure_function(0, 0, void, flush_handler)
 
 void start_flush()
 {
-    rprintf("start flush\n");
     apic_ipi(TARGET_EXCLUSIVE_BROADCAST, 0, flush_ipi);
     ap_flush();    
 }
@@ -61,17 +63,17 @@ void page_invalidate(u64 p)
 {
     if (initialized) {
         p |= total_processors;
-        int available = ((ewrite + entries_size)-eread)%entries_size; 
+        int available = entries_size - (ewrite -eread);
+
         if (available == 1) {
-            // set refcnt to 16 and make another sweep            
+            // set refcnt to 16 and make another sweep. safety? i dont
+            // think there is a real race here
+            // we really dont care about the other entries anymore            
+            *entry(ewrite-1) = (INVALID_PHYSICAL & ~PAGEMASK) | total_processors;
             start_flush();
         } else {
-            if (available < 2) {
-                entries[ewrite] = (INVALID_PHYSICAL & ~PAGEMASK) | total_processors;
-            } else {
-                entries[ewrite] = p | total_processors;
-            }
-            ewrite = (ewrite+1)%entries_size;
+            *entry(ewrite) = p | total_processors;
+            ewrite++;
         }
     } else {
         invalidate(p);
@@ -81,11 +83,9 @@ void page_invalidate(u64 p)
 void tlb_flush_queue_completion(thunk t)
 {
     if (initialized) {
-        rprintf("flush schedule\n");
         enqueue(flush_completions, t);
         start_flush();
     } else {
-        rprintf("flush not init\n");
         apply(t);
     }
 }
