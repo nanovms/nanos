@@ -134,3 +134,26 @@ static inline boolean parse_int(buffer b, u32 base, u64 *result)
   }
   return st;
 }
+
+static inline const u8 *utf8_find(const u8 *x, character c)
+{
+    int nbytes;
+
+    while (x && *x) {
+        if (utf8_decode(x, &nbytes) == c) return x;
+        x += nbytes;
+    }
+    return false;
+}
+
+static inline const u8 *utf8_find_r(const u8 *x, character c)
+{
+    int nbytes;
+    const u8 *found = false;
+
+    while (x && *x) {
+        if (utf8_decode(x, &nbytes) == c) found = x;
+        x += nbytes;
+    }
+    return found;
+}

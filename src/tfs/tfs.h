@@ -51,12 +51,12 @@ fs_status filesystem_mkentry(filesystem fs, tuple cwd, const char *fp, tuple ent
     boolean persistent, boolean recursive);
 fs_status filesystem_mkdir(filesystem fs, tuple cwd, const char *fp, boolean persistent);
 fs_status filesystem_creat(filesystem fs, tuple cwd, const char *fp, boolean persistent);
-void filesystem_delete(filesystem fs, tuple cwd, const char *fp,
+void filesystem_delete(filesystem fs, tuple parent, symbol sym,
     status_handler completion);
-void filesystem_rename(filesystem fs, tuple oldwd, const char *oldfp,
-        tuple newwd, const char *newfp, status_handler completion);
-void filesystem_exchange(filesystem fs, tuple wd1, const char *fp1,
-        tuple wd2, const char *fp2, status_handler completion);
+void filesystem_rename(filesystem fs, tuple oldparent, symbol oldsym,
+        tuple newparent, const char *newname, status_handler completion);
+void filesystem_exchange(filesystem fs, tuple parent1, symbol sym1,
+        tuple parent2, symbol sym2, status_handler completion);
 
 tuple filesystem_getroot(filesystem fs);
 extern const char *gitversion;

@@ -76,39 +76,6 @@ void filesystem_write_eav(filesystem fs, tuple t, symbol a, value v, status_hand
     log_write_eav(fs->tl, t, a, v, sh);
 }
 
-static symbol fs_get_parent_child(filesystem fs, tuple cwd, const char *fp,
-        tuple *parent, tuple *child)
-{
-    int fp_len = runtime_strlen(fp);
-    char *fp_copy = allocate(fs->h, fp_len + 1);
-    assert(fp_copy != INVALID_ADDRESS);
-    runtime_memcpy(fp_copy, fp, fp_len);
-    fp_copy[fp_len] = '\0';
-    char *token, *rest = fp_copy;
-    symbol child_sym = 0;
-    while ((token = runtime_strtok_r(rest, "/", &rest))) {
-        symbol s = sym_this(token);
-        tuple t = lookup(cwd, s);
-        if (*rest != '\0') {
-            if (!t) {   /* entry not found */
-                break;
-            }
-            cwd = t;
-            continue;
-        }
-        if (parent) {
-            *parent = cwd;
-        }
-        if (child) {
-            *child = t;
-        }
-        child_sym = s;
-        break;
-    }
-    deallocate(fs->h, fp_copy, fp_len + 1);
-    return child_sym;
-}
-
 /* This can evolve into / be replaced by a more general page / buffer
    chace interface. We should be able to maintain and recycle dma
    buffers for anything in the system, or at least virtio. These
@@ -924,52 +891,33 @@ fs_status filesystem_creat(filesystem fs, tuple cwd, const char *fp, boolean per
     return filesystem_mkentry(fs, cwd, fp, dir, persistent, false);
 }
 
-void filesystem_delete(filesystem fs, tuple cwd, const char *fp,
+void filesystem_delete(filesystem fs, tuple parent, symbol sym,
         status_handler completion)
 {
-    tuple parent;
-    symbol child_sym = fs_get_parent_child(fs, cwd, fp, &parent, 0);
-    if (!child_sym) {
-        return;
-    }
-    fs_set_dir_entry(fs, parent, child_sym, 0, completion);
+    fs_set_dir_entry(fs, parent, sym, 0, completion);
 }
 
-void filesystem_rename(filesystem fs, tuple oldwd, const char *oldfp,
-        tuple newwd, const char *newfp, status_handler completion)
+void filesystem_rename(filesystem fs, tuple oldparent, symbol oldsym,
+        tuple newparent, const char *newname, status_handler completion)
 {
-    tuple oldparent;
-    tuple t;
-    symbol oldchild_sym = fs_get_parent_child(fs, oldwd, oldfp, &oldparent, &t);
-    if (!oldchild_sym) {
-        return;
-    }
-    tuple newparent;
-    symbol newchild_sym = fs_get_parent_child(fs, newwd, newfp, &newparent, 0);
-    if (!newchild_sym) {
-        return;
-    }
-    fs_set_dir_entry(fs, oldparent, oldchild_sym, 0, 0);
+    tuple t = lookup(oldparent, oldsym);
+    assert(t);
+    symbol newchild_sym = sym_this(newname);
+    fs_set_dir_entry(fs, oldparent, oldsym, 0, 0);
     fs_set_dir_entry(fs, newparent, newchild_sym, t, completion);
 }
 
-void filesystem_exchange(filesystem fs, tuple wd1, const char *fp1,
-        tuple wd2, const char *fp2, status_handler completion)
+void filesystem_exchange(filesystem fs, tuple parent1, symbol sym1,
+        tuple parent2, symbol sym2, status_handler completion)
 {
-    tuple parent1;
     tuple child1;
-    symbol child1_sym = fs_get_parent_child(fs, wd1, fp1, &parent1, &child1);
-    if (!child1_sym) {
-        return;
-    }
-    tuple parent2;
+    child1 = lookup(parent1, sym1);
+    assert(child1);
     tuple child2;
-    symbol child2_sym = fs_get_parent_child(fs, wd2, fp2, &parent2, &child2);
-    if (!child2_sym) {
-        return;
-    }
-    fs_set_dir_entry(fs, parent1, child1_sym, child2, 0);
-    fs_set_dir_entry(fs, parent2, child2_sym, child1, completion);
+    child2 = lookup(parent2, sym2);
+    assert(child2);
+    fs_set_dir_entry(fs, parent1, sym1, child2, 0);
+    fs_set_dir_entry(fs, parent2, sym2, child1, completion);
 }
 
 fsfile fsfile_from_node(filesystem fs, tuple n)

@@ -1411,7 +1411,8 @@ closure_function(1, 1, void, file_delete_complete,
 static sysreturn unlink_internal(tuple cwd, const char *pathname)
 {
     tuple n;
-    int ret = resolve_cstring(cwd, pathname, &n, 0);
+    tuple parent;
+    int ret = resolve_cstring(cwd, pathname, &n, &parent);
     if (ret) {
         return set_syscall_return(current, ret);
     }
@@ -1419,7 +1420,7 @@ static sysreturn unlink_internal(tuple cwd, const char *pathname)
         return set_syscall_error(current, EISDIR);
     }
     file_op_begin(current);
-    filesystem_delete(current->p->fs, cwd, pathname,
+    filesystem_delete(current->p->fs, parent, lookup_sym(parent, n),
             closure(heap_general(get_kernel_heaps()), file_delete_complete,
             current));
     return file_op_maybe_sleep(current);
@@ -1428,7 +1429,8 @@ static sysreturn unlink_internal(tuple cwd, const char *pathname)
 static sysreturn rmdir_internal(tuple cwd, const char *pathname)
 {
     tuple n;
-    int ret = resolve_cstring(cwd, pathname, &n, 0);
+    tuple parent;
+    int ret = resolve_cstring(cwd, pathname, &n, &parent);
     if (ret) {
         return set_syscall_return(current, ret);
     }
@@ -1446,7 +1448,7 @@ static sysreturn rmdir_internal(tuple cwd, const char *pathname)
         }
     }
     file_op_begin(current);
-    filesystem_delete(current->p->fs, cwd, pathname,
+    filesystem_delete(current->p->fs, parent, lookup_sym(parent, n),
             closure(heap_general(get_kernel_heaps()), file_delete_complete,
             current));
     return file_op_maybe_sleep(current);
@@ -1499,7 +1501,8 @@ static sysreturn rename_internal(tuple oldwd, const char *oldpath, tuple newwd,
     }
     int ret;
     tuple old;
-    ret = resolve_cstring(oldwd, oldpath, &old, 0);
+    tuple oldparent;
+    ret = resolve_cstring(oldwd, oldpath, &old, &oldparent);
     if (ret) {
         return set_syscall_return(current, ret);
     }
@@ -1533,7 +1536,8 @@ static sysreturn rename_internal(tuple oldwd, const char *oldpath, tuple newwd,
         return set_syscall_error(current, EINVAL);
     }
     file_op_begin(current);
-    filesystem_rename(current->p->fs, oldwd, oldpath, newwd, newpath,
+    filesystem_rename(current->p->fs, oldparent, lookup_sym(oldparent, old),
+            newparent, filename_from_path(newpath),
             closure(heap_general(get_kernel_heaps()), file_rename_complete,
             current));
     return file_op_maybe_sleep(current);
@@ -1573,16 +1577,19 @@ sysreturn renameat2(int olddirfd, const char *oldpath, int newdirfd,
         }
         int ret;
         tuple old, new;
-        ret = resolve_cstring(oldwd, oldpath, &old, 0);
+        tuple oldparent, newparent;
+        ret = resolve_cstring(oldwd, oldpath, &old, &oldparent);
         if (ret) {
             return set_syscall_return(current, ret);
         }
-        ret = resolve_cstring(newwd, newpath, &new, 0);
+        ret = resolve_cstring(newwd, newpath, &new, &newparent);
         if (ret) {
             return set_syscall_return(current, ret);
         }
         file_op_begin(current);
-        filesystem_exchange(current->p->fs, oldwd, oldpath, newwd, newpath,
+        filesystem_exchange(current->p->fs, oldparent,
+                lookup_sym(oldparent, old), newparent,
+                lookup_sym(newparent, new),
                 closure(heap_general(get_kernel_heaps()), file_rename_complete,
                 current));
         return file_op_maybe_sleep(current);
