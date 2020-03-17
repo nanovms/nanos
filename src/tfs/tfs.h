@@ -49,8 +49,12 @@ typedef enum {
 
 fs_status filesystem_mkentry(filesystem fs, tuple cwd, const char *fp, tuple entry,
     boolean persistent, boolean recursive);
-fs_status filesystem_mkdir(filesystem fs, tuple cwd, const char *fp, boolean persistent);
-fs_status filesystem_creat(filesystem fs, tuple cwd, const char *fp, boolean persistent);
+fs_status filesystem_mkdirpath(filesystem fs, tuple cwd, const char *fp,
+        boolean persistent);
+tuple filesystem_mkdir(filesystem fs, tuple parent, const char *name,
+        status_handler completion);
+tuple filesystem_creat(filesystem fs, tuple parent, const char *name,
+        status_handler completion);
 void filesystem_delete(filesystem fs, tuple parent, symbol sym,
     status_handler completion);
 void filesystem_rename(filesystem fs, tuple oldparent, symbol oldsym,

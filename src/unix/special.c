@@ -88,7 +88,7 @@ void register_special_files(process p)
         filesystem_mkentry(p->fs, 0, sf->path, entry, false, true);
     }
 
-    filesystem_mkdir(p->fs, 0, "/sys/devices/system/cpu/cpu0", false);
+    filesystem_mkdirpath(p->fs, 0, "/sys/devices/system/cpu/cpu0", false);
 }
 
 static special_file *

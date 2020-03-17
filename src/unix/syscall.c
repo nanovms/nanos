@@ -454,23 +454,6 @@ sysreturn writev(int fd, struct iovec *iov, int iovcnt)
     return iov_op(f, f->write, iov, iovcnt, syscall_io_complete);
 }
 
-sysreturn sysreturn_from_fs_status(fs_status s)
-{
-    switch (s) {
-    case FS_STATUS_OK:
-        return 0;
-    case FS_STATUS_NOENT:
-        return -ENOENT;
-    case FS_STATUS_EXIST:
-        return -EEXIST;
-    case FS_STATUS_NOTDIR:
-        return -ENOTDIR;
-    default:
-        halt("status %d, update %s\n", s, __func__);
-        return 0;               /* suppress warn */
-    }
-}
-
 static boolean is_dir(tuple n)
 {
     return children(n) ? true : false;
@@ -688,20 +671,21 @@ sysreturn open_internal(tuple cwd, const char *name, int flags, int mode)
     heap h = heap_general(get_kernel_heaps());
     unix_heaps uh = get_unix_heaps();
     tuple n;
-    int ret = resolve_cstring(cwd, name, &n, 0);
+    tuple parent;
+    int ret = resolve_cstring(cwd, name, &n, &parent);
 
     if ((flags & O_CREAT)) {
         if (!ret && (flags & O_EXCL)) {
             thread_log(current, "\"%s\" opened with O_EXCL but already exists", name);
             return set_syscall_error(current, EEXIST);
-        } else if (ret) {
-            fs_status fs = filesystem_creat(current->p->fs, cwd, name, mode);
-            if (fs != FS_STATUS_OK)
-                return sysreturn_from_fs_status(fs);
-
-            /* XXX We could rearrange calls to return tuple instead of
-               status; though this serves as a sanity check. */
-            ret = resolve_cstring(cwd, name, &n, 0);
+        } else if ((ret == -ENOENT) && parent) {
+            n = filesystem_creat(current->p->fs, parent,
+                    filename_from_path(name), ignore_status);
+            if (n) {
+                ret = 0;
+            } else {
+                ret = -ENOMEM;
+            }
         }
     }
 
@@ -816,14 +800,35 @@ sysreturn dup3(int oldfd, int newfd, int flags)
     return dup2(oldfd, newfd);
 }
 
+closure_function(1, 1, void, mkdir_complete,
+                 thread, t,
+                 status, s)
+{
+    thread t = bound(t);
+    thread_log(current, "%s: status %v (%s)", __func__, s,
+            is_ok(s) ? "OK" : "NOTOK");
+    set_syscall_return(t, is_ok(s) ? 0 : -EIO);
+    file_op_maybe_wake(t);
+    closure_finish();
+}
+
+static sysreturn mkdir_internal(tuple cwd, const char *pathname, int mode)
+{
+    tuple parent;
+    int ret = resolve_cstring(cwd, pathname, 0, &parent);
+    if ((ret != -ENOENT) || !parent) {
+        return set_syscall_return(current, ret);
+    }
+    file_op_begin(current);
+    filesystem_mkdir(current->p->fs, parent, filename_from_path(pathname),
+            closure(heap_general(get_kernel_heaps()), mkdir_complete, current));
+    return file_op_maybe_sleep(current);
+}
+
 sysreturn mkdir(const char *pathname, int mode)
 {
     thread_log(current, "mkdir: \"%s\", mode 0x%x", pathname, mode);
-    if (pathname == 0)
-        return set_syscall_error(current, EINVAL);
-
-    fs_status fs = filesystem_mkdir(current->p->fs, current->p->cwd, pathname, true);
-    return sysreturn_from_fs_status(fs);
+    return mkdir_internal(current->p->cwd, pathname, mode);
 }
 
 /*
@@ -841,14 +846,10 @@ If pathname is absolute, then dirfd is ignore
 sysreturn mkdirat(int dirfd, char *pathname, int mode)
 {
     thread_log(current, "mkdirat: \"%s\", dirfd %d, mode 0x%x", pathname, dirfd, mode);
-    if (pathname == 0)
-        return set_syscall_error(current, EINVAL);
-
     tuple cwd;
     cwd = resolve_dir(dirfd, pathname);
 
-    fs_status fs = filesystem_mkdir(current->p->fs, cwd, pathname, true);
-    return sysreturn_from_fs_status(fs);
+    return mkdir_internal(cwd, pathname, mode);
 }
 
 sysreturn creat(const char *pathname, int mode)

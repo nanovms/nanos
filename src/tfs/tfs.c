@@ -708,9 +708,9 @@ boolean filesystem_truncate(filesystem fs, fsfile f, u64 len,
 void filesystem_flush(filesystem fs, tuple t, status_handler completion)
 {
     /* A write() call returns after everything is sent to disk, so nothing to
-     * do here. The only work that might be pending is when directory entries
-     * are modified, see do_mkentry(); to deal with that, flush the filesystem
-     * log.
+     * do here. The only work that might be pending is when a file is created,
+     * see the call to filesystem_creat() from unix/syscall.c; to deal with
+     * that, flush the filesystem log.
      */
     log_flush_complete(fs->tl, completion);
 }
@@ -864,7 +864,8 @@ fs_status filesystem_mkentry(filesystem fs, tuple cwd, const char *fp, tuple ent
     return status;
 }
 
-fs_status filesystem_mkdir(filesystem fs, tuple cwd, const char *fp, boolean persistent)
+fs_status filesystem_mkdirpath(filesystem fs, tuple cwd, const char *fp,
+        boolean persistent)
 {
     tuple dir = allocate_tuple();
     /* 'make it a folder' by attaching a children node to the tuple */
@@ -873,7 +874,17 @@ fs_status filesystem_mkdir(filesystem fs, tuple cwd, const char *fp, boolean per
     return filesystem_mkentry(fs, cwd, fp, dir, persistent, false);
 }
 
-fs_status filesystem_creat(filesystem fs, tuple cwd, const char *fp, boolean persistent)
+tuple filesystem_mkdir(filesystem fs, tuple parent, const char *name,
+        status_handler completion)
+{
+    tuple dir = allocate_tuple();
+    table_set(dir, sym(children), allocate_tuple());
+    fs_set_dir_entry(fs, parent, sym_this(name), dir, completion);
+    return dir;
+}
+
+tuple filesystem_creat(filesystem fs, tuple parent, const char *name,
+        status_handler completion)
 {
     tuple dir = allocate_tuple();
     static buffer off = 0;
@@ -888,7 +899,8 @@ fs_status filesystem_creat(filesystem fs, tuple cwd, const char *fp, boolean per
     fsfile f = allocate_fsfile(fs, dir);
     fsfile_set_length(f, 0);
 
-    return filesystem_mkentry(fs, cwd, fp, dir, persistent, false);
+    fs_set_dir_entry(fs, parent, sym_this(name), dir, completion);
+    return dir;
 }
 
 void filesystem_delete(filesystem fs, tuple parent, symbol sym,
