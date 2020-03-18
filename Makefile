@@ -99,11 +99,20 @@ runtime-tests runtime-tests-noaccel:
 .PHONY: run run-bridge run-nokvm
 
 QEMU=		qemu-system-x86_64
+MACHINE_TYPE=	q35
+QEMU_CPU=	-cpu max
 DISPLAY=	none
 STORAGE=	virtio-scsi
-QEMU_CPU=       -cpu max
+STORAGE_BUS=	,bus=pci.2,addr=0x0
+NETWORK=	virtio-net
+NETWORK_BUS=	,bus=pci.3,addr=0x0
 
+QEMU_MACHINE=	-machine $(MACHINE_TYPE)
 QEMU_MEMORY=	-m 2G
+QEMU_PCI=	-device pcie-root-port,port=0x10,chassis=1,id=pci.1,bus=$(PCI_BUS),multifunction=on,addr=0x3 \
+		-device pcie-root-port,port=0x11,chassis=2,id=pci.2,bus=$(PCI_BUS),addr=0x3.0x1 \
+		-device pcie-root-port,port=0x12,chassis=3,id=pci.3,bus=$(PCI_BUS),addr=0x3.0x2
+
 ifeq ($(DISPLAY),none)
 QEMU_DISPLAY=	-display none
 else ifeq ($(DISPLAY),vga)
@@ -114,23 +123,29 @@ endif
 QEMU_SERIAL=	-serial stdio
 QEMU_STORAGE=	-drive if=none,id=hd0,format=raw,file=$(IMAGE)
 ifeq ($(STORAGE),virtio-scsi)
-QEMU_STORAGE+=	-device virtio-scsi-pci,id=scsi0 -device scsi-hd,bus=scsi0.0,drive=hd0
+QEMU_STORAGE+=	-device virtio-scsi-pci$(STORAGE_BUS),id=scsi0 -device scsi-hd,bus=scsi0.0,drive=hd0
 else ifeq ($(STORAGE),virtio-blk)
-QEMU_STORAGE+=	-device virtio-blk,drive=hd0
+QEMU_STORAGE+=	-device virtio-blk-pci$(STORAGE_BUS),drive=hd0
 else ifeq ($(STORAGE),ide)
+MACHINE_TYPE=	pc # no AHCI support yet
 QEMU_STORAGE+=	-device ide-hd,bus=ide.0,drive=hd0
 else
 $(error Unsupported STORAGE=$(STORAGE))
 endif
+ifeq ($(MACHINE_TYPE),q35)
+PCI_BUS=	pcie.0
+else
+PCI_BUS=	pci.0
+endif
 QEMU_TAP=	-netdev tap,id=n0,ifname=tap0,script=no,downscript=no
-QEMU_NET=	-device virtio-net,mac=7e:b8:7e:87:4a:ea,netdev=n0 $(QEMU_TAP)
-QEMU_USERNET=	-device virtio-net,netdev=n0 -netdev user,id=n0,hostfwd=tcp::8080-:8080,hostfwd=tcp::9090-:9090,hostfwd=udp::5309-:5309
+QEMU_NET=	-device $(NETWORK)$(NETWORK_BUS),mac=7e:b8:7e:87:4a:ea,netdev=n0 $(QEMU_TAP)
+QEMU_USERNET=	-device $(NETWORK)$(NETWORK_BUS),netdev=n0 -netdev user,id=n0,hostfwd=tcp::8080-:8080,hostfwd=tcp::9090-:9090,hostfwd=udp::5309-:5309 -object filter-dump,id=filter0,netdev=n0,file=/tmp/nanos.pcap
 QEMU_FLAGS=
-#QEMU_FLAGS+=    -smp 4
-#QEMU_FLAGS+=    -d int -D int.log
-#QEMU_FLAGS+=    -s -S
+#QEMU_FLAGS+=	-smp 4
+#QEMU_FLAGS+=	-d int -D int.log
+#QEMU_FLAGS+=	-s -S
 
-QEMU_COMMON=	$(QEMU_MEMORY) $(QEMU_DISPLAY) $(QEMU_SERIAL) $(QEMU_STORAGE) -device isa-debug-exit -no-reboot $(QEMU_FLAGS)
+QEMU_COMMON=	$(QEMU_MACHINE) $(QEMU_MEMORY) $(QEMU_DISPLAY) $(QEMU_PCI) $(QEMU_SERIAL) $(QEMU_STORAGE) -device isa-debug-exit -no-reboot $(QEMU_FLAGS)
 
 run: image
 	$(QEMU) $(QEMU_COMMON) $(QEMU_USERNET) $(QEMU_ACCEL) || exit $$(($$?>>1))

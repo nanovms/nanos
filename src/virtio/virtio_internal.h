@@ -1,5 +1,22 @@
 #include "virtio_pci.h"
 
+/* VirtIO device IDs */
+#define VIRTIO_ID_NETWORK       1
+#define VIRTIO_ID_BLOCK         2
+#define VIRTIO_ID_CONSOLE       3
+#define VIRTIO_ID_ENTROPY       4
+#define VIRTIO_ID_BALLOON       5
+#define VIRTIO_ID_IOMEMORY      6
+#define VIRTIO_ID_RPMSG         7
+#define VIRTIO_ID_SCSI          8
+#define VIRTIO_ID_9P            9
+#define VIRTIO_ID_RPROC_SERIAL  11
+#define VIRTIO_ID_CAIF          12
+#define VIRTIO_ID_GPU           16
+#define VIRTIO_ID_INPUT         18
+#define VIRTIO_ID_VSOCK         19
+#define VIRTIO_ID_CRYPTO        20
+
 typedef struct virtqueue *virtqueue;
 
 typedef closure_type(vqfinish, void, u64);
@@ -19,10 +36,10 @@ typedef closure_type(vqfinish, void, u64);
 #define VIRTIO_F_NOTIFY_ON_EMPTY U64_FROM_BIT(24)
 
 /* Support for indirect buffer descriptors. */
-#define VIRTIO_RING_F_INDIRECT_DESC	U64_FROM_BIT(28)
+#define VIRTIO_F_RING_INDIRECT_DESC	U64_FROM_BIT(28)
 
 /* Support to suppress interrupt until specific index is reached. */
-#define VIRTIO_RING_F_EVENT_IDX		U64_FROM_BIT(29)
+#define VIRTIO_F_RING_EVENT_IDX		U64_FROM_BIT(29)
 
 /*
  * The guest should never negotiate this feature; it
@@ -38,12 +55,16 @@ typedef closure_type(vqfinish, void, u64);
 #define VIRTIO_TRANSPORT_F_START	28
 #define VIRTIO_TRANSPORT_F_END		32
 
-void vtpci_notify_virtqueue(vtpci sc, u16 queue);
+/* Modern device */
+#define VIRTIO_F_VERSION_1 U64_FROM_BIT(32)
+
+void vtpci_notify_virtqueue(vtpci sc, u16 queue, bytes notify_offset);
 
 status virtqueue_alloc(vtpci dev,
                        const char *name,
                        u16 queue,
                        u16 size,
+                       bytes notify_offset,
                        int align,
                        struct virtqueue **vqp,
                        thunk *t);
@@ -59,7 +80,9 @@ void virtqueue_set_max_queued(virtqueue, int);
  * simply an optimization.  */
 #define VRING_AVAIL_F_NO_INTERRUPT      1
 
-physical virtqueue_paddr(struct virtqueue *vq);
+physical virtqueue_desc_paddr(struct virtqueue *vq);
+physical virtqueue_avail_paddr(struct virtqueue *vq);
+physical virtqueue_used_paddr(struct virtqueue *vq);
 u16 virtqueue_entries(virtqueue vq);
 
 typedef struct vqmsg *vqmsg;

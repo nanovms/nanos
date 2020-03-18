@@ -47,10 +47,17 @@
 
 #include <io.h>
 
+#ifdef VIRTIO_NET_DEBUG
+# define virtio_net_debug rprintf
+#else
+# define virtio_net_debug(...) do { } while(0)
+#endif // defined(VIRTIO_NET_DEBUG)
+
 typedef struct vnet {
     vtpci dev;
     u16 port;
     heap rxbuffers;
+    bytes net_header_len;
     int rxbuflen;
     struct netif *n;
     struct virtqueue *txq;
@@ -84,7 +91,7 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
 
     vqmsg m = allocate_vqmsg(vn->txq);
     assert(m != INVALID_ADDRESS);
-    vqmsg_push(vn->txq, m, vn->empty, NET_HEADER_LENGTH, false);
+    vqmsg_push(vn->txq, m, vn->empty, vn->net_header_len, false);
 
     pbuf_ref(p);
 
@@ -120,19 +127,21 @@ closure_function(1, 1, void, input,
                  xpbuf, x,
                  u64, len)
 {
+    virtio_net_debug("%s: len %ld\n", __func__, len);
+
     xpbuf x = bound(x);
     vnet vn= x->vn;
     // under what conditions does a virtio queue give us zero?
     if (x != NULL) {
-        len -= NET_HEADER_LENGTH;
+        len -= vn->net_header_len;
         assert(len <= x->p.pbuf.len);
         x->p.pbuf.tot_len = x->p.pbuf.len = len;
-        x->p.pbuf.payload += NET_HEADER_LENGTH;
+        x->p.pbuf.payload += vn->net_header_len;
         if (vn->n->input(&x->p.pbuf, vn->n) != ERR_OK) {
             receive_buffer_release(&x->p.pbuf);
         }
     } else {
-        rprintf ("virtio null\n");
+        rprintf("virtio null\n");
     }
     // we need to get a signal from the device side that there was
     // an underrun here to open up the window
@@ -173,7 +182,11 @@ static err_t virtioif_init(struct netif *netif)
     netif->hwaddr_len = ETHARP_HWADDR_LEN;
     netif->status_callback = lwip_status_callback;
     for (int i = 0; i < ETHER_ADDR_LEN; i++) 
-        netif->hwaddr[i] =  in8(vn->dev->base + VIRTIO_MSI_DEVICE_CONFIG + i);
+        netif->hwaddr[i] = pci_bar_read_1(&vn->dev->device_config, i);
+    virtio_net_debug("%s: hwaddr %02x:%02x:%02x:%02x:%02x:%02x\n",
+        __func__,
+        netif->hwaddr[0], netif->hwaddr[1], netif->hwaddr[2],
+        netif->hwaddr[3], netif->hwaddr[4], netif->hwaddr[5]);
     netif->mtu = 1500;
 
     /* device capabilities */
@@ -195,7 +208,10 @@ static void virtio_net_attach(heap general, heap page_allocator, pci_dev d)
     vtpci dev = attach_vtpci(general, page_allocator, d, VIRTIO_NET_F_MAC);
     vnet vn = allocate(dev->general, sizeof(struct vnet));
     vn->n = allocate(dev->general, sizeof(struct netif));
-    vn->rxbuflen = NET_HEADER_LENGTH + sizeof(struct eth_hdr) + sizeof(struct eth_vlan_hdr) + 1500;
+    vn->net_header_len = vtpci_is_modern(dev) || (dev->features & VIRTIO_NET_F_MRG_RXBUF) != 0 ?
+        sizeof(struct virtio_net_hdr_mrg_rxbuf) : sizeof(struct virtio_net_hdr);
+    vn->rxbuflen = vn->net_header_len + sizeof(struct eth_hdr) + sizeof(struct eth_vlan_hdr) + 1500;
+    virtio_net_debug("%s: net_header_len %d, rxbuflen %d\n", __func__, vn->net_header_len, vn->rxbuflen);
     vn->rxbuffers = allocate_objcache(dev->general, page_allocator,
 				      vn->rxbuflen + sizeof(struct xpbuf), PAGESIZE_2M);
     /* rx = 0, tx = 1, ctl = 2 by 
@@ -203,9 +219,9 @@ static void virtio_net_attach(heap general, heap page_allocator, pci_dev d)
     vn->dev = dev;
     vtpci_alloc_virtqueue(dev, "virtio net tx", 1, &vn->txq);
     vtpci_alloc_virtqueue(dev, "virtio net rx", 0, &vn->rxq);
-    // just need 10 contig bytes really
+    // just need vn->net_header_len contig bytes really
     vn->empty = allocate(dev->contiguous, dev->contiguous->pagesize);
-    for (int i = 0; i < NET_HEADER_LENGTH ; i++)  ((u8 *)vn->empty)[i] = 0;
+    for (int i = 0; i < vn->net_header_len; i++)  ((u8 *)vn->empty)[i] = 0;
     vn->n->state = vn;
     // initialization complete
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER_OK);
@@ -221,7 +237,7 @@ closure_function(2, 1, boolean, virtio_net_probe,
                  heap, general, heap, page_allocator,
                  pci_dev, d)
 {
-    if (pci_get_vendor(d) != VIRTIO_PCI_VENDORID || pci_get_device(d) != VIRTIO_PCI_DEVICEID_NETWORK)
+    if (!vtpci_probe(d, VIRTIO_ID_NETWORK))
         return false;
 
     virtio_net_attach(bound(general), bound(page_allocator), d);
@@ -258,7 +274,7 @@ err_t init_static_config(tuple root, struct netif *n) {
 void init_network_iface(tuple root) {
     struct netif *n = netif_find("en0");
     if (!n) {
-        rprintf("no network interface found\n");
+        virtio_net_debug("no network interface found\n");
         return;
     }
     netif_set_default(n);

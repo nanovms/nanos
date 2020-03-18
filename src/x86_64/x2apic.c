@@ -73,7 +73,7 @@ static boolean detect(apic_iface i, kernel_heaps kh)
 static void per_cpu_init(apic_iface i)
 {
     u32 d = IA32_APIC_BASE_EN | IA32_APIC_BASE_EXTD;
-    x2apic_debug("per cpu init, is_bsp %d, writing 0x%x\n", is_bsp, d);
+    x2apic_debug("per cpu init, writing 0x%x\n", d);
     write_msr(IA32_APIC_BASE, d);
     x2apic_debug("apic id %lx, apic ver %lx\n", x2apic_read(i, APIC_APICID),
                  x2apic_read(i, APIC_APICVER));

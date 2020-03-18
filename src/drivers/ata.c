@@ -284,7 +284,7 @@ boolean ata_probe(struct ata *dev)
         return false;
     }
     if (ata_wait(dev, ATA_S_READY | ATA_S_DRQ) < 0) {
-        rprintf("%s: IDENTIFY timeout\n", __func__);
+        ata_debug("%s: IDENTIFY timeout\n", __func__);
         return false;
     }
     char buf[512];

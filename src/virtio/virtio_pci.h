@@ -39,12 +39,26 @@
 
 typedef struct vtpci *vtpci;
 
+enum {
+    VTPCI_REG_DEVICE_STATUS,
+    VTPCI_REG_QUEUE_SELECT,
+    VTPCI_REG_QUEUE_SIZE,
+    VTPCI_REG_QUEUE_MSIX_VECTOR,
+    VTPCI_REG_MAX
+};
+
 struct vtpci {
     struct pci_dev _dev;
     pci_dev dev;
+    int regs[VTPCI_REG_MAX];
+    bytes notify_offset_multiplier;
 
-    u64 base; //io region base
-    u64 features;
+    struct pci_bar common_config;  // common config
+    struct pci_bar notify_config;  // notify config
+    struct pci_bar device_config;  // device config
+
+    u64 dev_features;              // device features
+    u64 features;                  // negotiated features
 
     heap contiguous;
     heap general;
@@ -56,24 +70,6 @@ struct vtpci {
 
 /* VirtIO ABI version, this must match exactly. */
 #define VIRTIO_PCI_ABI_VERSION	0
-
-/*
- * VirtIO Header, located in BAR 0.
- */
-#define VIRTIO_PCI_HOST_FEATURES  0  /* host's supported features (32bit, RO)*/
-#define VIRTIO_PCI_GUEST_FEATURES 4  /* guest's supported features (32, RW) */
-#define VIRTIO_PCI_QUEUE_PFN      8  /* physical address of VQ (32, RW) */
-#define VIRTIO_PCI_QUEUE_NUM      12 /* number of ring entries (16, RO) */
-#define VIRTIO_PCI_QUEUE_SEL      14 /* current VQ selection (16, RW) */
-#define VIRTIO_PCI_QUEUE_NOTIFY	  16 /* notify host regarding VQ (16, RW) */
-#define VIRTIO_PCI_STATUS         18 /* device status register (8, RW) */
-#define VIRTIO_PCI_ISR            19 /* interrupt status register, reading
-				      * also clears the register (8, RO) */
-/* Only if MSIX is enabled: */
-#define VIRTIO_MSI_CONFIG_VECTOR  20 /* configuration change vector (16, RW) */
-#define VIRTIO_MSI_QUEUE_VECTOR   22 /* vector for selected VQ notifications
-					(16, RW) */
-#define VIRTIO_MSI_DEVICE_CONFIG  24
 
 /* The bit of the ISR which indicates a device has an interrupt. */
 #define VIRTIO_PCI_ISR_INTR	0x1
@@ -90,18 +86,15 @@ struct vtpci {
 #define VIRTIO_PCI_QUEUE_ADDR_SHIFT	12
 #define VIRTIO_PCI_VRING_ALIGN	4096
 
+boolean vtpci_probe(pci_dev d, int virtio_dev_id);
 vtpci attach_vtpci(heap h, heap page_allocator, pci_dev d, u64 feature_mask);
 status vtpci_alloc_virtqueue(vtpci dev, const char *name, int idx, struct virtqueue **result);
 void vtpci_set_status(vtpci dev, u8 status);
+boolean vtpci_is_modern(vtpci dev);
 
 /* VirtIO PCI vendor/device ID. */
 #define VIRTIO_PCI_VENDORID	0x1AF4
 #define VIRTIO_PCI_DEVICEID_MIN	0x1000
-#define VIRTIO_PCI_DEVICEID_MAX	0x103F
-#define VIRTIO_PCI_DEVICEID_NETWORK 0x1000
-#define VIRTIO_PCI_DEVICEID_STORAGE 0x1001
-#define VIRTIO_PCI_DEVICEID_BALLOON 0x1002
-#define VIRTIO_PCI_DEVICEID_CONSOLE 0x1003
-#define VIRTIO_PCI_DEVICEID_SCSI    0x1004
-#define VIRTIO_PCI_DEVICEID_ENTROPY 0x1005
-#define VIRTIO_PCI_DEVICEID_FILESYSTEM_9P 0x1009
+#define VIRTIO_PCI_DEVICEID_LEGACY_MAX	0x103F
+#define VIRTIO_PCI_DEVICEID_MODERN_MIN	0x1040
+#define VIRTIO_PCI_DEVICEID_MAX	0x107F
