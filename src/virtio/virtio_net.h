@@ -70,7 +70,7 @@ struct virtio_net_config {
 	 * Legal values are between 1 and 0x8000.
 	 */
 	u16	max_virtqueue_pairs;
-} __packed;
+} __attribute__((packed));
 
 /*
  * This is the first element of the scatter-gather list.  If you don't
@@ -90,9 +90,7 @@ struct virtio_net_hdr {
     u16 gso_size;	/* Bytes to append to hdr_len per frame */
     u16 csum_start;	/* Position to start checksumming from */
     u16 csum_offset;	/* Offset after that to place checksum */
-};
-
-#define NET_HEADER_LENGTH 10
+} __attribute__((packed));
 
 /*
  * This is the version of the header to use when the MRG_RXBUF
@@ -101,8 +99,7 @@ struct virtio_net_hdr {
 struct virtio_net_hdr_mrg_rxbuf {
     struct virtio_net_hdr hdr;
     u16 num_buffers;	/* Number of merged rx buffers */
-};
-
+} __attribute__((packed));
 
 /*
  * Control virtqueue data structures
@@ -114,7 +111,7 @@ struct virtio_net_hdr_mrg_rxbuf {
 struct virtio_net_ctrl_hdr {
     u8 class;
     u8 cmd;
-};
+} __attribute__((packed));
 
 #define VIRTIO_NET_OK	0
 #define VIRTIO_NET_ERR	1

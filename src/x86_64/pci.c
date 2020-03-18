@@ -35,15 +35,15 @@
 #define	PCI_MAXHDRTYPE	2
 
 #define PCIR_CAPABILITIES_POINTER   0x34
-#define PCI_CAPABILITY_MSIX 0x11
+
+/* Capability Register Offsets */
+#define PCICAP_ID       0x0
+#define PCICAP_NEXTPTR  0x1
 
 // use the global nodespace
 static vector drivers;
-static heap virtual_huge;
+static heap virtual_page;
 static heap pages;
-
-// assume the single bus layout
-static u32 *msi_map[PCI_SLOTMAX + 1];
 
 struct pci_driver {
     pci_probe probe;
@@ -87,13 +87,93 @@ u32 pci_cfgread(pci_dev dev, int reg, int bytes)
     return (data);
 }
 
-u32 pci_readbar(pci_dev dev, int bid, u32 *length)
+#define PCI_BAR_B_TYPE_MASK      0x1
+#define PCI_BAR_B_IOPORT_MASK    0x3
+#define PCI_BAR_B_MEMORY_MASK    0xf
+
+static u32 pci_bar_len(pci_dev dev, int bar)
 {
-    u32 base = pci_cfgread(dev, 0x10 + 4 *bid, 4);
-    pci_cfgwrite(dev, 0x10 + 4 *bid, 4, 0xffffffff);
-    *length = ~pci_cfgread(dev, 0x10 + 4 *bid, 4) + 1;
-    pci_cfgwrite(dev, 0x10 + 4 *bid, 4, base);
-    return base;
+    u32 orig = pci_cfgread(dev, 0x10 + 4 * bar, 4);
+    pci_cfgwrite(dev, 0x10 + 4 * bar, 4, 0xffffffff);
+    u32 len = pci_cfgread(dev, 0x10 + 4 * bar, 4);
+    pci_cfgwrite(dev, 0x10 + 4 * bar, 4, orig);
+    return len;
+}
+
+u64 pci_bar_size(pci_dev dev, struct pci_bar *b, int bar)
+{
+    u32 mask = b->type == PCI_BAR_MEMORY ? ~PCI_BAR_B_MEMORY_MASK : ~PCI_BAR_B_IOPORT_MASK;
+    u32 len_lo = pci_bar_len(dev, bar) & mask;
+    u32 len_hi = (b->flags & PCI_BAR_F_64BIT) ? pci_bar_len(dev, bar + 1) : 0xffffffff;
+    return ~(((u64) len_hi << 32) | len_lo) + 1;
+}
+
+void pci_bar_init(pci_dev dev, struct pci_bar *b, int bar, bytes offset, bytes length)
+{
+    u32 base = pci_cfgread(dev, 0x10 + 4 * bar, 4);
+    b->type = base & PCI_BAR_B_TYPE_MASK;
+
+    if (b->type == PCI_BAR_MEMORY) {
+        b->flags = base & PCI_BAR_B_MEMORY_MASK;
+        u32 addr_hi = (b->flags & PCI_BAR_F_64BIT) ? pci_cfgread(dev, 0x10 + 4 * (bar + 1), 4) : 0;
+        b->addr = ((u64) addr_hi << 32) | (base & ~PCI_BAR_B_MEMORY_MASK);
+    } else {
+        b->flags = 0;
+        b->addr = (base & ~PCI_BAR_B_IOPORT_MASK) + offset;
+    }
+    b->size = pci_bar_size(dev, b, bar);
+    pci_debug("%s: bar %d: type %d, addr 0x%lx, size 0x%lx, flags 0x%x\n",
+        __func__, bar, b->type, b->addr, b->size, b->flags);
+
+    if (b->type == PCI_BAR_MEMORY) {
+        // map memory
+        if (length == -1)
+            length = b->size - offset;
+        assert(offset + length <= b->size);
+        bytes len = pad(length, PAGESIZE);
+        b->vaddr = allocate(virtual_page, len);
+        pci_debug("%s: %p[0x%x] -> 0x%lx[0x%lx]+0x%x\n", __func__, b->vaddr, len, b->addr, b->size, offset);
+        map(u64_from_pointer(b->vaddr), b->addr + offset, len, PAGE_DEV_FLAGS, pages);
+    }
+}
+
+u8 pci_bar_read_1(struct pci_bar *b, u64 offset)
+{
+    return b->type == PCI_BAR_MEMORY ? *(u8 *) (b->vaddr + offset) : in8(b->addr + offset);
+}
+
+void pci_bar_write_1(struct pci_bar *b, u64 offset, u8 val)
+{
+    if (b->type == PCI_BAR_MEMORY)
+        *(u8 *) (b->vaddr + offset) = val;
+    else
+        out8(b->addr + offset, val);
+}
+
+u16 pci_bar_read_2(struct pci_bar *b, u64 offset)
+{
+    return b->type == PCI_BAR_MEMORY ? *(u16 *) (b->vaddr + offset) : in16(b->addr + offset);
+}
+
+void pci_bar_write_2(struct pci_bar *b, u64 offset, u16 val)
+{
+    if (b->type == PCI_BAR_MEMORY)
+        *(u16 *) (b->vaddr + offset) = val;
+    else
+        out16(b->addr + offset, val);
+}
+
+u32 pci_bar_read_4(struct pci_bar *b, u64 offset)
+{
+    return b->type == PCI_BAR_MEMORY ? *(u32 *) (b->vaddr + offset) : in32(b->addr + offset);
+}
+
+void pci_bar_write_4(struct pci_bar *b, u64 offset, u32 val)
+{
+    if (b->type == PCI_BAR_MEMORY)
+        *(u32 *) (b->vaddr + offset) = val;
+    else
+        out32(b->addr + offset, val);
 }
 
 void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
@@ -118,34 +198,53 @@ void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
 
 void pci_set_bus_master(pci_dev dev)
 {
-    u16 command = pci_cfgread(dev, PCI_COMMAND_REGISTER, 2);
-    command |= 4; // bus master
-    pci_cfgwrite(dev, PCI_COMMAND_REGISTER, 2, command);
+    u16 command = pci_cfgread(dev, PCIR_COMMAND, 2);
+    command |= PCIM_CMD_BUSMASTEREN;
+    pci_cfgwrite(dev, PCIR_COMMAND, 2, command);
+}
+
+static u32 _pci_find_cap(pci_dev dev, u8 cap, u32 cp)
+{
+    for (; cp != 0; cp = pci_cfgread(dev, cp + PCICAP_NEXTPTR, 1)) {
+        u8 c = pci_cfgread(dev, cp + PCICAP_ID, 1);
+        if (c == cap)
+            break;
+    }
+
+    return cp;
+}
+
+u32 pci_find_cap(pci_dev dev, u8 cap)
+{
+    return _pci_find_cap(dev, cap, pci_cfgread(dev, PCIR_CAPABILITIES_POINTER, 1));
+}
+
+u32 pci_find_next_cap(pci_dev dev, u8 cap, u32 cp)
+{
+    return _pci_find_cap(dev, cap, pci_cfgread(dev, cp + PCICAP_NEXTPTR, 1));
 }
 
 void pci_enable_msix(pci_dev dev)
 {
-     u32 cp = pci_cfgread(dev, PCIR_CAPABILITIES_POINTER, 1);
-     while (cp != 0) {
-         if (pci_cfgread(dev, cp, 1) != PCI_CAPABILITY_MSIX) {
-             // next cap
-	     cp = pci_cfgread(dev, cp + 1, 1);
-             continue;
-         }
+    u32 cp = pci_find_cap(dev, PCIY_MSIX);
+    if (cp == 0)
+        return;
 
-         u32 vector_table = pci_cfgread(dev, cp + 4, 4);
-         pci_cfgread(dev, cp + 8, 4);
-         u32 len;
-         u32 vector_base = pci_readbar(dev, vector_table & 0x7, &len);
-         len = pad(len, PAGESIZE);
-         // ?? this is per device, so why is it global? - pass to probe?
-         u8 *vector_table_ptr = allocate(virtual_huge, len);
-         map(u64_from_pointer(vector_table_ptr), vector_base, len, PAGE_DEV_FLAGS, pages);
-         msi_map[dev->slot] = (void *) (vector_table_ptr + (vector_table & ~0x7)); // table offset
-         // qemu gets really* mad if you do this a 16 bit write
-         pci_cfgwrite(dev, cp + 3, 1, 0x80);
-         break;
-     }
+    // map MSI-X table
+    u32 msix_table = pci_cfgread(dev, cp + 4, 4);
+    struct pci_bar b;
+    pci_bar_init(dev, &b, msix_table & 0x7, msix_table & ~0x7, -1);
+    dev->msix_table = (u32 *)b.vaddr;
+    pci_debug("%s: msix_config.msix_table 0x%x, msix_table %p\n", __func__, msix_table, dev->msix_table);
+
+    // enable MSI-X
+    u16 ctrl = pci_cfgread(dev, cp + 2, 2);
+    ctrl |= 0x8000;
+#ifdef PCI_DEBUG
+    int num_entries = ctrl & 0xff;
+#endif
+    pci_debug("%s: ctrl 0x%x, num entries %d\n", __func__, ctrl, num_entries);
+    pci_cfgwrite(dev, cp + 2, 2, ctrl);
 }
 
 void msi_format(u32 *address, u32 *data, int vector)
@@ -165,15 +264,16 @@ void pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name)
 {
     int v = allocate_interrupt();
     register_interrupt(v, h, name);
+    pci_debug("%s: msix_table %p, msi %d: int %d, %s\n", __func__, dev->msix_table, msi_slot, v, name);
 
     u32 a, d;
     u32 vector_control = 0;
     msi_format(&a, &d, v);
 
-    msi_map[dev->slot][msi_slot*4] = a;
-    msi_map[dev->slot][msi_slot*4 + 1] = 0;
-    msi_map[dev->slot][msi_slot*4 + 2] = d;
-    msi_map[dev->slot][msi_slot*4 + 3] = vector_control;
+    dev->msix_table[msi_slot*4] = a;
+    dev->msix_table[msi_slot*4 + 1] = 0;
+    dev->msix_table[msi_slot*4 + 2] = d;
+    dev->msix_table[msi_slot*4 + 3] = vector_control;
 }
 
 void register_pci_driver(pci_probe probe)
@@ -184,6 +284,8 @@ void register_pci_driver(pci_probe probe)
     vector_push(drivers, d);
 }
 
+static void pci_probe_bus(int bus);
+
 static void pci_probe_device(pci_dev dev)
 {
     u16 vendor = pci_get_vendor(dev);
@@ -192,10 +294,43 @@ static void pci_probe_device(pci_dev dev)
     pci_debug("%s: %02x:%02x:%x: %04x:%04x\n",
         __func__, dev->bus, dev->slot, dev->function, vendor, pci_get_device(dev));
 
+    // PCI-PCI bridge
+    u8 class = pci_get_class(dev);
+    u8 subclass = pci_get_subclass(dev);
+    if (class == PCIC_BRIDGE && subclass == PCIS_BRIDGE_PCI) {
+        u8 secbus = pci_cfgread(dev, PCIR_SECBUS_1, 1);
+        pci_debug("%s: %02x:%02x:%x: %04x:%04x: class %02x:%02x: secondary bus %02x\n",
+            __func__, dev->bus, dev->slot, dev->function, vendor, pci_get_device(dev),
+            class, subclass, secbus);
+        pci_probe_bus(secbus);
+        return;
+    }
+
+    // probe drivers
     struct pci_driver *d;
     vector_foreach(drivers, d) {
         if (!d->attached && apply(d->probe, dev)) {
             d->attached = true;
+        }
+    }
+}
+
+static void
+pci_probe_bus(int bus)
+{
+    pci_debug("%s: probing bus %02x\n", __func__, bus);
+    for (int i = 0; i <= PCI_SLOTMAX; i++) {
+        struct pci_dev _dev = { .bus = bus, .slot = i, .function = 0 };
+        pci_dev dev = &_dev;
+
+        pci_probe_device(dev);
+
+        // check multifunction devices
+        if (pci_get_hdrtype(dev) & PCIM_MFDEV) {
+            for (int f = 1; f <= PCI_FUNCMAX; f++) {
+                dev->function = f;
+                pci_probe_device(dev);
+            }
         }
     }
 }
@@ -205,19 +340,21 @@ static void pci_probe_device(pci_dev dev)
  */
 void pci_discover()
 {
-    // we dont actually need to do recursive discovery, qemu leaves it all on bus0 for us
-    for (int i = 0; i <= PCI_SLOTMAX; i++) {
-        struct pci_dev _dev = { .bus = 0, .slot = i, .function = 0 };
-        pci_dev dev = &_dev;
+    struct pci_dev _dev = { .bus = 0, .slot = 0, .function = 0 };
+    pci_dev dev = &_dev;
 
-        pci_probe_device(dev);
-
-        // check multifunction devices
-        if (pci_get_hdrtype(dev) & PCIM_MFDEV) {
-            for (int f = 1; f < 8; f++) {
-                dev->function = f;
-                pci_probe_device(dev);
-            }
+    if ((pci_get_hdrtype(dev) & PCIM_MFDEV) == 0) {
+        // single PCI host controller
+        pci_probe_bus(0);
+    } else {
+        // multiple PCI host controllers
+        for (int f = 1; f < 8; f++) {
+            dev->function = f;
+            u16 vendor = pci_get_vendor(dev);
+            pci_debug("%s: %02x:%02x:%x: %04x:%04x\n",
+                 __func__, dev->bus, dev->slot, dev->function, vendor, pci_get_device(dev));
+            if (vendor != 0xffff)
+                pci_probe_bus(f);
         }
     }
 }
@@ -225,7 +362,7 @@ void pci_discover()
 void init_pci(kernel_heaps kh)
 {
     // should use the global node space
-    virtual_huge = (heap)heap_virtual_huge(kh);
+    virtual_page = (heap)heap_virtual_page(kh);
     pages = heap_pages(kh);
     drivers = allocate_vector(heap_general(kh), 8);
 }

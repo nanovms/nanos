@@ -162,9 +162,10 @@ static void virtio_blk_attach(heap general, storage_attach a, heap page_allocato
     storage s = allocate(general, sizeof(struct storage));
     s->v = attach_vtpci(general, page_allocator, d, 0);
 
-    s->block_size = in32(s->v->base + VIRTIO_MSI_DEVICE_CONFIG + VIRTIO_BLK_R_BLOCK_SIZE);
-    s->capacity = (in32(s->v->base + VIRTIO_MSI_DEVICE_CONFIG + VIRTIO_BLK_R_CAPACITY_LOW) |
-		   ((u64) in32(s->v->base + VIRTIO_MSI_DEVICE_CONFIG + VIRTIO_BLK_R_CAPACITY_HIGH) << 32)) * s->block_size;
+    s->block_size = pci_bar_read_4(&s->v->device_config, VIRTIO_BLK_R_BLOCK_SIZE);
+    s->capacity = (pci_bar_read_4(&s->v->device_config, VIRTIO_BLK_R_CAPACITY_LOW) |
+		   ((u64) pci_bar_read_4(&s->v->device_config, VIRTIO_BLK_R_CAPACITY_HIGH) << 32)) * s->block_size;
+    virtio_blk_debug("%s: capacity 0x%lx, block size 0x%x\n", __func__, s->capacity, s->block_size);
     vtpci_alloc_virtqueue(s->v, "virtio blk", 0, &s->command);
     // initialization complete
     vtpci_set_status(s->v, VIRTIO_CONFIG_STATUS_DRIVER_OK);
@@ -178,7 +179,7 @@ closure_function(4, 1, boolean, virtio_blk_probe,
                  heap, general, storage_attach, a, heap, page_allocator, heap, pages,
                  pci_dev, d)
 {
-    if (pci_get_vendor(d) != VIRTIO_PCI_VENDORID || pci_get_device(d) != VIRTIO_PCI_DEVICEID_STORAGE)
+    if (!vtpci_probe(d, VIRTIO_ID_BLOCK))
         return false;
 
     virtio_blk_attach(bound(general), bound(a), bound(page_allocator), bound(pages), d);
