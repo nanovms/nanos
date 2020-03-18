@@ -264,6 +264,7 @@ typedef closure_type(io, sysreturn, void *buf, u64 length, u64 offset, thread t,
 #define FDESC_TYPE_EVENTFD      8
 #define FDESC_TYPE_SIGNALFD     9
 #define FDESC_TYPE_TIMERFD     10
+#define FDESC_TYPE_SYMLINK     11
 
 typedef struct fdesc {
     io read, write;

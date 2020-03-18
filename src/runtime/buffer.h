@@ -153,6 +153,14 @@ void buffer_append(buffer b,
                    const void *body,
                    bytes length);
 
+static inline buffer buffer_cstring(heap h, const char *x)
+{
+    int len = runtime_strlen(x);
+    buffer b = allocate_buffer(h, len);
+    buffer_append(b, x, len);
+    return b;
+}
+
 // little endian variants
 #define WRITE_BE(bits)                                          \
     static inline void buffer_write_be##bits(buffer b, u64 x)   \

@@ -95,6 +95,7 @@ typedef struct iovec {
 
 #define ENOSYS          38              /* Invalid system call number */
 #define ENOTEMPTY       39              /* Directory not empty */
+#define ELOOP           40              /* Too many symbolic links */
 #define ENOPROTOOPT     42              /* Protocol not available */
 
 #define EDESTADDRREQ    89		/* Destination address required */
@@ -116,7 +117,9 @@ typedef struct iovec {
 #define O_APPEND	00002000
 #define O_NONBLOCK	00004000
 #define O_DIRECT        00040000
+#define O_NOFOLLOW      00400000
 #define O_CLOEXEC       02000000
+#define O_PATH         010000000
 
 #define F_LINUX_SPECIFIC_BASE   0x400
 

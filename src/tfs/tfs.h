@@ -55,6 +55,8 @@ tuple filesystem_mkdir(filesystem fs, tuple parent, const char *name,
         status_handler completion);
 tuple filesystem_creat(filesystem fs, tuple parent, const char *name,
         status_handler completion);
+tuple filesystem_symlink(filesystem fs, tuple parent, const char *name,
+        const char *target, status_handler completion);
 void filesystem_delete(filesystem fs, tuple parent, symbol sym,
     status_handler completion);
 void filesystem_rename(filesystem fs, tuple oldparent, symbol oldsym,

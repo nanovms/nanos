@@ -13,18 +13,6 @@
 #define DT_SOCK		12
 #define DT_WHT		14
 
-#define resolve_dir(__dirfd, __path) ({ \
-    tuple cwd; \
-    if (*(__path) == '/') cwd = filesystem_getroot(current->p->fs); \
-    else if (__dirfd == AT_FDCWD) cwd = current->p->cwd; \
-    else { \
-        file f = resolve_fd(current->p, __dirfd); \
-        if (!is_dir(f->n)) return set_syscall_error(current, ENOTDIR); \
-        cwd = f->n; \
-    } \
-    cwd; \
-})
-
 sysreturn close(int fd);
 
 io_completion syscall_io_complete;
@@ -49,7 +37,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, msgctl, 0);
     register_syscall(map, flock, syscall_ignore);
     register_syscall(map, link, 0);
-    register_syscall(map, symlink, 0);
     register_syscall(map, chmod, syscall_ignore);
     register_syscall(map, fchmod, syscall_ignore);
     register_syscall(map, fchown, 0);
@@ -179,7 +166,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, fchownat, 0);
     register_syscall(map, futimesat, 0);
     register_syscall(map, linkat, 0);
-    register_syscall(map, symlinkat, 0);
     register_syscall(map, fchmodat, syscall_ignore);
     register_syscall(map, faccessat, 0);
     register_syscall(map, unshare, 0);
@@ -289,6 +275,7 @@ static inline boolean filepath_is_ancestor(tuple wd1, const char *fp1,
         return false;
     }
     tuple t2 = (*fp2 == '/' ? filesystem_getroot(current->p->fs) : wd2);
+    tuple p2 = t2;
     buffer a = little_stack_buffer(NAME_MAX);
     char y;
     int nbytes;
@@ -299,8 +286,12 @@ static inline boolean filepath_is_ancestor(tuple wd1, const char *fp1,
                 if (t2 == t1) {
                     return true;
                 }
+                p2 = t2;
                 t2 = lookup(t2, intern(a));
                 if (!t2) {
+                    return false;
+                }
+                if (filesystem_follow_links(t2, p2, &t2) < 0) {
                     return false;
                 }
                 buffer_clear(a);
@@ -452,11 +443,6 @@ sysreturn writev(int fd, struct iovec *iov, int iovcnt)
 {
     fdesc f = resolve_fd(current->p, fd);
     return iov_op(f, f->write, iov, iovcnt, syscall_io_complete);
-}
-
-static boolean is_dir(tuple n)
-{
-    return children(n) ? true : false;
 }
 
 static boolean is_special(tuple n)
@@ -660,10 +646,22 @@ static int file_type_from_tuple(tuple n)
 {
     if (is_dir(n))
         return FDESC_TYPE_DIRECTORY;
+    else if (is_symlink(n))
+        return FDESC_TYPE_SYMLINK;
     else if (is_special(n))
         return FDESC_TYPE_SPECIAL;
     else
         return FDESC_TYPE_REGULAR;
+}
+
+static int dt_from_tuple(tuple n)
+{
+    if (is_dir(n))
+        return DT_DIR;
+    else if (is_symlink(n))
+        return DT_LNK;
+    else
+        return DT_REG;
 }
 
 sysreturn open_internal(tuple cwd, const char *name, int flags, int mode)
@@ -672,8 +670,16 @@ sysreturn open_internal(tuple cwd, const char *name, int flags, int mode)
     unix_heaps uh = get_unix_heaps();
     tuple n;
     tuple parent;
-    int ret = resolve_cstring(cwd, name, &n, &parent);
+    int ret;
 
+    if (flags & O_NOFOLLOW) {
+        ret = resolve_cstring(cwd, name, &n, &parent);
+        if (!ret && is_symlink(n) && !(flags & O_PATH)) {
+            ret = -ELOOP;
+        }
+    } else {
+        ret = resolve_cstring_follow(cwd, name, &n, &parent);
+    }
     if ((flags & O_CREAT)) {
         if (!ret && (flags & O_EXCL)) {
             thread_log(current, "\"%s\" opened with O_EXCL but already exists", name);
@@ -924,7 +930,7 @@ sysreturn getdents(int fd, struct linux_dirent *dirp, unsigned int count)
         char *p = cstring(symbol_string(k), tmpbuf);
         r = try_write_dirent(f->n, dirp, p,
                     &read_sofar, &written_sofar, &f->offset, &count,
-                    is_dir(v) ? DT_DIR : DT_REG);
+                    dt_from_tuple(v));
         if (r < 0)
             goto done;
 
@@ -987,7 +993,7 @@ sysreturn getdents64(int fd, struct linux_dirent64 *dirp, unsigned int count)
         char *p = cstring(symbol_string(k), tmpbuf);
         r = try_write_dirent64(f->n, dirp, p,
                     &read_sofar, &written_sofar, &f->offset, &count,
-                    is_dir(v) ? DT_DIR : DT_REG);
+                    dt_from_tuple(v));
         if (r < 0)
             goto done;
 
@@ -1007,7 +1013,7 @@ sysreturn chdir(const char *path)
     int ret;
     tuple n;
 
-    ret = resolve_cstring(current->p->cwd, path, &n, 0);
+    ret = resolve_cstring_follow(current->p->cwd, path, &n, 0);
     if (ret) {
         return set_syscall_return(current, ret);
     }
@@ -1067,7 +1073,7 @@ sysreturn truncate(const char *path, long length)
 {
     thread_log(current, "%s \"%s\" %d", __func__, path, length);
     tuple t;
-    int ret = resolve_cstring(current->p->cwd, path, &t, 0);
+    int ret = resolve_cstring_follow(current->p->cwd, path, &t, 0);
     if (ret) {
         return set_syscall_return(current, ret);
     }
@@ -1116,7 +1122,7 @@ sysreturn fdatasync(int fd)
 sysreturn access(const char *name, int mode)
 {
     thread_log(current, "access: \"%s\", mode %d", name, mode);
-    int ret = resolve_cstring(current->p->cwd, name, 0, 0);
+    int ret = resolve_cstring_follow(current->p->cwd, name, 0, 0);
     if (ret) {
         return set_syscall_return(current, ret);
     }
@@ -1168,6 +1174,9 @@ static void fill_stat(int type, tuple n, struct stat *s)
     case FDESC_TYPE_EPOLL:
         s->st_mode = S_IFCHR;   /* XXX not clear - EBADF? */
         break;
+    case FDESC_TYPE_SYMLINK:
+        s->st_mode = S_IFLNK;
+        break;
     }
     s->st_dev = 0;
     s->st_ino = u64_from_pointer(n);
@@ -1190,12 +1199,17 @@ static sysreturn fstat(int fd, struct stat *s)
     return 0;
 }
 
-static sysreturn stat(const char *name, struct stat *buf)
+static sysreturn stat_internal(tuple cwd, const char *name, boolean follow,
+        struct stat *buf)
 {
-    thread_log(current, "stat: \"%s\", buf %p", name, buf);
     tuple n;
-    int ret = resolve_cstring(current->p->cwd, name, &n, 0);
+    int ret;
 
+    if (!follow) {
+        ret = resolve_cstring(cwd, name, &n, 0);
+    } else {
+        ret = resolve_cstring_follow(cwd, name, &n, 0);
+    }
     if (ret) {
         return set_syscall_return(current, ret);
     }
@@ -1204,31 +1218,29 @@ static sysreturn stat(const char *name, struct stat *buf)
     return 0;
 }
 
+static sysreturn stat(const char *name, struct stat *buf)
+{
+    thread_log(current, "stat: \"%s\", buf %p", name, buf);
+    return stat_internal(current->p->cwd, name, true, buf);
+}
+
+static sysreturn lstat(const char *name, struct stat *buf)
+{
+    thread_log(current, "lstat: \"%s\", buf %p", name, buf);
+    return stat_internal(current->p->cwd, name, false, buf);
+}
+
 static sysreturn newfstatat(int dfd, const char *name, struct stat *s, int flags)
 {
-    int ret;
     tuple n;
-
-    // if !relative or AT_FDCWD, just treat as normal stat
-    if ((*name == '/') || (dfd == AT_FDCWD))
-        return stat(name, s);
 
     // if relative, but AT_EMPTY_PATH set, works just like fstat()
     if (flags & AT_EMPTY_PATH)
         return fstat(dfd, s);
 
     // Else, if we have a fd of a directory, resolve name to it.
-    file f = resolve_fd(current->p, dfd);
-    if (!is_dir(f->n))
-        return set_syscall_error(current, ENOTDIR);
-    
-    ret = resolve_cstring(f->n, name, &n, 0);
-    if (ret) {
-        return set_syscall_return(current, ret);
-    }
-
-    fill_stat(file_type_from_tuple(n), n, s);
-    return 0;
+    n = resolve_dir(dfd, name);
+    return stat_internal(n, name, !(flags & AT_SYMLINK_NOFOLLOW), s);
 }
 
 sysreturn lseek(int fd, s64 offset, int whence)
@@ -1366,8 +1378,26 @@ static sysreturn brk(void *x)
     return sysreturn_from_pointer(p->brk);
 }
 
-// mkfs resolve all symbolic links, so we
-// have no symbolic links.
+static sysreturn readlink_internal(tuple cwd, const char *pathname, char *buf,
+        u64 bufsiz)
+{
+    tuple n;
+    int ret = resolve_cstring(cwd, pathname, &n, 0);
+    if (ret) {
+        return set_syscall_return(current, ret);
+    }
+    if (!is_symlink(n)) {
+        return set_syscall_error(current, EINVAL);
+    }
+    buffer target = linktarget(n);
+    bytes len = buffer_length(target);
+    if (bufsiz < len) {
+        len = bufsiz;
+    }
+    runtime_memcpy(buf, buffer_ref(target, 0), len);
+    return set_syscall_return(current, len);
+}
+
 sysreturn readlink(const char *pathname, char *buf, u64 bufsiz)
 {
     thread_log(current, "readlink: \"%s\"", pathname);
@@ -1383,13 +1413,14 @@ sysreturn readlink(const char *pathname, char *buf, u64 bufsiz)
         return retval;
     }
 
-    return set_syscall_error(current, EINVAL);
+    return readlink_internal(current->p->cwd, pathname, buf, bufsiz);
 }
 
 sysreturn readlinkat(int dirfd, const char *pathname, char *buf, u64 bufsiz)
 {
     thread_log(current, "readlinkat: \"%s\", dirfd %d", pathname, dirfd);
-    return set_syscall_error(current, EINVAL);
+    tuple cwd = resolve_dir(dirfd, pathname);
+    return readlink_internal(cwd, pathname, buf, bufsiz);
 }
 
 closure_function(1, 1, void, file_delete_complete,
@@ -1833,7 +1864,7 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, fstat, fstat);
     register_syscall(map, sendfile, sendfile);
     register_syscall(map, stat, stat);
-    register_syscall(map, lstat, stat);
+    register_syscall(map, lstat, lstat);
     register_syscall(map, readv, readv);
     register_syscall(map, writev, writev);
     register_syscall(map, truncate, truncate);
@@ -1845,6 +1876,8 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, fcntl, fcntl);
     register_syscall(map, ioctl, (sysreturn (*)())ioctl);
     register_syscall(map, getcwd, getcwd);
+    register_syscall(map, symlink, symlink);
+    register_syscall(map, symlinkat, symlinkat);
     register_syscall(map, readlink, readlink);
     register_syscall(map, readlinkat, readlinkat);
     register_syscall(map, unlink, unlink);

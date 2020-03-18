@@ -903,6 +903,15 @@ tuple filesystem_creat(filesystem fs, tuple parent, const char *name,
     return dir;
 }
 
+tuple filesystem_symlink(filesystem fs, tuple parent, const char *name,
+        const char *target, status_handler completion)
+{
+    tuple link = allocate_tuple();
+    table_set(link, sym(linktarget), buffer_cstring(fs->h, target));
+    fs_set_dir_entry(fs, parent, sym_this(name), link, completion);
+    return link;
+}
+
 void filesystem_delete(filesystem fs, tuple parent, symbol sym,
         status_handler completion)
 {
