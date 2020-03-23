@@ -733,6 +733,23 @@ struct epoll_event {
 
 typedef struct aux {u64 tag; u64 val;} *aux;
 
+struct statfs {
+    long f_type;
+    long f_bsize;
+    long f_blocks;
+    long f_bfree;
+    long f_bavail;
+    long f_files;
+    long f_ffree;
+    struct {
+        int val[2];
+    } f_fsid;
+    long f_namelen;
+    long f_frsize;
+    long f_flags;
+    long f_spare[4];
+};
+
 typedef u32 uid_t;
 typedef u32 gid_t;
 

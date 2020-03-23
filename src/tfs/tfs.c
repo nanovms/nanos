@@ -994,3 +994,18 @@ tuple filesystem_getroot(filesystem fs)
 {
     return fs->root;
 }
+
+u64 fs_blocksize(filesystem fs)
+{
+    return U64_FROM_BIT(fs->blocksize_order);
+}
+
+u64 fs_totalblocks(filesystem fs)
+{
+    return fs->storage->total >> fs->blocksize_order;
+}
+
+u64 fs_freeblocks(filesystem fs)
+{
+    return (fs->storage->total - fs->storage->allocated) >> fs->blocksize_order;
+}

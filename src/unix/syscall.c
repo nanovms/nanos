@@ -66,8 +66,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, uselib, 0);
     register_syscall(map, personality, 0);
     register_syscall(map, ustat, 0);
-    register_syscall(map, statfs, 0);
-    register_syscall(map, fstatfs, 0);
     register_syscall(map, sysfs, 0);
     register_syscall(map, getpriority, 0);
     register_syscall(map, setpriority, 0);
@@ -1927,6 +1925,8 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, prctl, prctl);
     register_syscall(map, sysinfo, sysinfo);
     register_syscall(map, umask, umask);
+    register_syscall(map, statfs, statfs);
+    register_syscall(map, fstatfs, fstatfs);
 }
 
 #define SYSCALL_F_NOTRACE 0x1

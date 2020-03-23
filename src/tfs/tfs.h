@@ -65,4 +65,9 @@ void filesystem_exchange(filesystem fs, tuple parent1, symbol sym1,
         tuple parent2, symbol sym2, status_handler completion);
 
 tuple filesystem_getroot(filesystem fs);
+
+u64 fs_blocksize(filesystem fs);
+u64 fs_totalblocks(filesystem fs);
+u64 fs_freeblocks(filesystem fs);
+
 extern const char *gitversion;

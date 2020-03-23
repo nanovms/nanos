@@ -44,11 +44,6 @@ boolean filesystem_reserve_storage(filesystem fs, u64 start, u64 length);
 typedef closure_type(buffer_status, buffer, status);
 fsfile allocate_fsfile(filesystem fs, tuple md);
 
-static inline u64 fs_blocksize(filesystem fs)
-{
-    return U64_FROM_BIT(fs->blocksize_order);
-}
-
 static inline u64 bytes_from_sectors(filesystem fs, u64 sectors)
 {
     return sectors << fs->blocksize_order;

@@ -152,3 +152,52 @@ sysreturn symlinkat(const char *target, int dirfd, const char *linkpath)
     tuple cwd = resolve_dir(dirfd, linkpath);
     return symlink_internal(cwd, linkpath, target);
 }
+
+static sysreturn statfs_internal(tuple t, struct statfs *buf)
+{
+    if (!buf) {
+        return set_syscall_error(current, EFAULT);
+    }
+    runtime_memset((u8 *) buf, 0, sizeof(*buf));
+    if (t) {
+        filesystem fs = current->p->fs;
+        buf->f_bsize = fs_blocksize(fs);
+        buf->f_blocks = fs_totalblocks(fs);
+        buf->f_bfree = buf->f_bavail = fs_freeblocks(fs);
+    } else {
+        buf->f_bsize = PAGESIZE;
+    }
+    buf->f_frsize = buf->f_bsize;
+    u64 id = u64_from_pointer(t);
+    buf->f_fsid.val[0] = (int) id;
+    buf->f_fsid.val[1] = (int) (id >> 32);
+    buf->f_namelen = NAME_MAX;
+    return set_syscall_return(current, 0);
+}
+
+sysreturn statfs(const char *path, struct statfs *buf)
+{
+    tuple t;
+    int ret = resolve_cstring(current->p->cwd, path, &t, 0);
+    if (ret) {
+        return set_syscall_return(current, ret);
+    }
+    return statfs_internal(t, buf);
+}
+
+sysreturn fstatfs(int fd, struct statfs *buf)
+{
+    fdesc desc = resolve_fd(current->p, fd);
+    file f;
+    switch (desc->type) {
+    case FDESC_TYPE_REGULAR:
+    case FDESC_TYPE_DIRECTORY:
+    case FDESC_TYPE_SYMLINK:
+        f = (file) desc;
+        break;
+    default:
+        f = 0;
+        break;
+    }
+    return statfs_internal(f ? f->n : 0, buf);
+}

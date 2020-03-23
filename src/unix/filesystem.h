@@ -58,3 +58,6 @@ int filesystem_follow_links(tuple link, tuple parent, tuple *target);
 
 sysreturn symlink(const char *target, const char *linkpath);
 sysreturn symlinkat(const char *target, int dirfd, const char *linkpath);
+
+sysreturn statfs(const char *path, struct statfs *buf);
+sysreturn fstatfs(int fd, struct statfs *buf);
