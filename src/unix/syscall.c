@@ -918,6 +918,8 @@ static int try_write_dirent(tuple root, struct linux_dirent *dirp, char *p,
 
 sysreturn getdents(int fd, struct linux_dirent *dirp, unsigned int count)
 {
+    if (!dirp)
+        return set_syscall_error(current, EFAULT);
     file f = resolve_fd(current->p, fd);
     tuple c = children(f->n);
     if (!c)
@@ -981,6 +983,8 @@ static int try_write_dirent64(tuple root, struct linux_dirent64 *dirp, char *p,
 
 sysreturn getdents64(int fd, struct linux_dirent64 *dirp, unsigned int count)
 {
+    if (!dirp)
+        return set_syscall_error(current, EFAULT);
     file f = resolve_fd(current->p, fd);
     tuple c = children(f->n);
     if (!c)
