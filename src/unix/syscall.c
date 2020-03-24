@@ -1166,6 +1166,7 @@ sysreturn openat(int dirfd, const char *name, int flags, int mode)
 
 static void fill_stat(int type, tuple n, struct stat *s)
 {
+    zero(s, sizeof(struct stat));
     switch (type) {
     case FDESC_TYPE_REGULAR:
         s->st_mode = S_IFREG | 0644;
@@ -1190,9 +1191,7 @@ static void fill_stat(int type, tuple n, struct stat *s)
         s->st_mode = S_IFLNK;
         break;
     }
-    s->st_dev = 0;
     s->st_ino = u64_from_pointer(n);
-    s->st_size = 0;
     if (type == FDESC_TYPE_REGULAR) {
         fsfile f = fsfile_from_node(current->p->fs, n);
         if (f)
@@ -1206,7 +1205,6 @@ static sysreturn fstat(int fd, struct stat *s)
 {
     thread_log(current, "fd %d, stat %p", fd, s);
     fdesc f = resolve_fd(current->p, fd);
-    zero(s, sizeof(struct stat));
     fill_stat(f->type, ((file)f)->n, s);
     return 0;
 }
