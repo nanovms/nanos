@@ -29,6 +29,17 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_ha
 boolean filesystem_truncate(filesystem fs, fsfile f, u64 len,
         status_handler completion);
 void filesystem_flush(filesystem fs, tuple t, status_handler completion);
+
+timestamp filesystem_get_atime(filesystem fs, tuple t);
+timestamp filesystem_get_mtime(filesystem fs, tuple t);
+void filesystem_set_atime(filesystem fs, tuple t, timestamp tim);
+void filesystem_set_mtime(filesystem fs, tuple t, timestamp tim);
+
+#define filesystem_update_atime(fs, t) \
+    filesystem_set_atime(fs, t, now(CLOCK_ID_REALTIME))
+#define filesystem_update_mtime(fs, t) \
+    filesystem_set_mtime(fs, t, now(CLOCK_ID_REALTIME))
+
 u64 fsfile_get_length(fsfile f);
 void fsfile_set_length(fsfile f, u64);
 fsfile fsfile_from_node(filesystem fs, tuple n);

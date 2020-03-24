@@ -715,6 +715,54 @@ void filesystem_flush(filesystem fs, tuple t, status_handler completion)
     log_flush_complete(fs->tl, completion);
 }
 
+static inline timestamp filesystem_get_time(filesystem fs, tuple t, symbol s)
+{
+    timestamp tim = 0;
+    value time_val = table_find(t, s);
+    if (time_val) {
+        u64_from_value(time_val, &tim);
+    }
+    return tim;
+}
+
+timestamp filesystem_get_atime(filesystem fs, tuple t)
+{
+    return filesystem_get_time(fs, t, sym(atime));
+}
+
+timestamp filesystem_get_mtime(filesystem fs, tuple t)
+{
+    return filesystem_get_time(fs, t, sym(mtime));
+}
+
+static inline void filesystem_set_time(filesystem fs, tuple t, symbol s,
+        timestamp tim)
+{
+    timestamp cur_time = 0;
+    value time_val = table_find(t, s);
+    if (time_val) {
+        u64_from_value(time_val, &cur_time);
+    }
+    if (tim != cur_time) {
+        if (time_val) {
+            deallocate_buffer(time_val);
+        }
+        time_val = value_from_u64(fs->h, tim);
+        assert(time_val);
+        table_set(t, s, time_val);
+    }
+}
+
+void filesystem_set_atime(filesystem fs, tuple t, timestamp tim)
+{
+    filesystem_set_time(fs, t, sym(atime), tim);
+}
+
+void filesystem_set_mtime(filesystem fs, tuple t, timestamp tim)
+{
+    filesystem_set_time(fs, t, sym(mtime), tim);
+}
+
 fsfile allocate_fsfile(filesystem fs, tuple md)
 {
     fsfile f = allocate(fs->h, sizeof(struct fsfile));
@@ -765,6 +813,16 @@ static void cleanup_directory(tuple dir)
             cleanup_directory(v);
         }
     }
+}
+
+static tuple fs_new_entry(filesystem fs)
+{
+    tuple t = allocate_tuple();
+    assert(t);
+    timestamp tim = now(CLOCK_ID_REALTIME);
+    filesystem_set_atime(fs, t, tim);
+    filesystem_set_mtime(fs, t, tim);
+    return t;
 }
 
 static void fs_set_dir_entry(filesystem fs, tuple parent, symbol name_sym,
@@ -828,7 +886,7 @@ fs_status filesystem_mkentry(filesystem fs, tuple cwd, const char *fp, tuple ent
             if (!final) {
                 if (recursive) {
                     /* create intermediate directory */
-                    tuple dir = allocate_tuple();
+                    tuple dir = fs_new_entry(fs);
                     table_set(dir, sym(children), allocate_tuple());
                     do_mkentry(fs, parent, token, dir, persistent);
 
@@ -867,7 +925,7 @@ fs_status filesystem_mkentry(filesystem fs, tuple cwd, const char *fp, tuple ent
 fs_status filesystem_mkdirpath(filesystem fs, tuple cwd, const char *fp,
         boolean persistent)
 {
-    tuple dir = allocate_tuple();
+    tuple dir = fs_new_entry(fs);
     /* 'make it a folder' by attaching a children node to the tuple */
     table_set(dir, sym(children), allocate_tuple());
 
@@ -877,7 +935,7 @@ fs_status filesystem_mkdirpath(filesystem fs, tuple cwd, const char *fp,
 tuple filesystem_mkdir(filesystem fs, tuple parent, const char *name,
         status_handler completion)
 {
-    tuple dir = allocate_tuple();
+    tuple dir = fs_new_entry(fs);
     table_set(dir, sym(children), allocate_tuple());
     fs_set_dir_entry(fs, parent, sym_this(name), dir, completion);
     return dir;
@@ -886,7 +944,7 @@ tuple filesystem_mkdir(filesystem fs, tuple parent, const char *name,
 tuple filesystem_creat(filesystem fs, tuple parent, const char *name,
         status_handler completion)
 {
-    tuple dir = allocate_tuple();
+    tuple dir = fs_new_entry(fs);
     static buffer off = 0;
 
     if (!off)
@@ -906,7 +964,7 @@ tuple filesystem_creat(filesystem fs, tuple parent, const char *name,
 tuple filesystem_symlink(filesystem fs, tuple parent, const char *name,
         const char *target, status_handler completion)
 {
-    tuple link = allocate_tuple();
+    tuple link = fs_new_entry(fs);
     table_set(link, sym(linktarget), buffer_cstring(fs->h, target));
     fs_set_dir_entry(fs, parent, sym_this(name), link, completion);
     return link;

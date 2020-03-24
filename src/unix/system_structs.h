@@ -118,6 +118,7 @@ typedef struct iovec {
 #define O_NONBLOCK	00004000
 #define O_DIRECT        00040000
 #define O_NOFOLLOW      00400000
+#define O_NOATIME       01000000
 #define O_CLOEXEC       02000000
 #define O_PATH         010000000
 
