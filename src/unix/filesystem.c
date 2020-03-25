@@ -153,6 +153,36 @@ sysreturn symlinkat(const char *target, int dirfd, const char *linkpath)
     return symlink_internal(cwd, linkpath, target);
 }
 
+static sysreturn utime_internal(const char *filename, timestamp actime,
+        timestamp modtime)
+{
+    tuple t;
+    int ret = resolve_cstring(current->p->cwd, filename, &t, 0);
+    if (ret) {
+        return set_syscall_return(current, ret);
+    }
+    filesystem_set_atime(current->p->fs, t, actime);
+    filesystem_set_mtime(current->p->fs, t, modtime);
+    return set_syscall_return(current, 0);
+}
+
+sysreturn utime(const char *filename, const struct utimbuf *times)
+{
+    timestamp atime = times ? seconds(times->actime) : now(CLOCK_ID_REALTIME);
+    timestamp mtime = times ? seconds(times->modtime) : now(CLOCK_ID_REALTIME);
+    return utime_internal(filename, atime, mtime);
+}
+
+sysreturn utimes(const char *filename, const struct timeval times[2])
+{
+    /* Sub-second precision is not supported. */
+    timestamp atime =
+            times ? time_from_timeval(&times[0]) : now(CLOCK_ID_REALTIME);
+    timestamp mtime =
+            times ? time_from_timeval(&times[1]) : now(CLOCK_ID_REALTIME);
+    return utime_internal(filename, atime, mtime);
+}
+
 static sysreturn statfs_internal(tuple t, struct statfs *buf)
 {
     if (!buf) {

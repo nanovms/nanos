@@ -236,6 +236,11 @@ struct itimerval {
     struct timeval it_value;
 };
 
+struct utimbuf {
+    time_t actime;   /* access time */
+    time_t modtime;  /* modification time */
+};
+
 // straight from linux
 #define FUTEX_WAIT		0
 #define FUTEX_WAKE		1

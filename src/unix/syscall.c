@@ -61,7 +61,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, setfsuid, 0);
     register_syscall(map, setfsgid, 0);
     register_syscall(map, getsid, 0);
-    register_syscall(map, utime, 0);
     register_syscall(map, mknod, 0);
     register_syscall(map, uselib, 0);
     register_syscall(map, personality, 0);
@@ -138,7 +137,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, semtimedop, 0);
     register_syscall(map, fadvise64, 0);
     register_syscall(map, clock_settime, 0);
-    register_syscall(map, utimes, 0);
     register_syscall(map, vserver, 0);
     register_syscall(map, mbind, 0);
     register_syscall(map, set_mempolicy, 0);
@@ -1958,6 +1956,8 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, creat, creat);
     register_syscall(map, chdir, chdir);
     register_syscall(map, fchdir, fchdir);
+    register_syscall(map, utime, utime);
+    register_syscall(map, utimes, utimes);
     register_syscall(map, newfstatat, newfstatat);
     register_syscall(map, sched_getaffinity, sched_getaffinity);
     register_syscall(map, sched_setaffinity, sched_setaffinity);

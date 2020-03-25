@@ -59,5 +59,8 @@ int filesystem_follow_links(tuple link, tuple parent, tuple *target);
 sysreturn symlink(const char *target, const char *linkpath);
 sysreturn symlinkat(const char *target, int dirfd, const char *linkpath);
 
+sysreturn utime(const char *filename, const struct utimbuf *times);
+sysreturn utimes(const char *filename, const struct timeval times[2]);
+
 sysreturn statfs(const char *path, struct statfs *buf);
 sysreturn fstatfs(int fd, struct statfs *buf);
