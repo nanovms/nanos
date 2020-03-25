@@ -579,8 +579,18 @@ closure_function(2, 6, sysreturn, file_write,
                length, f->length);
     heap h = heap_general(get_kernel_heaps());
 
-    u64 final_length = PAD_WRITES ? pad(length, SECTOR_SIZE) : length;
-    void *buf = allocate(h, final_length);
+    u64 final_length = 0;
+    void *buf = INVALID_ADDRESS;
+    while (length != 0) {
+        final_length = PAD_WRITES ? pad(length, SECTOR_SIZE) : length;
+        buf = allocate(h, final_length);
+        if (buf != INVALID_ADDRESS) {
+            break;
+        } else {
+            /* Couldn't allocate that much memory, retry with a smaller size. */
+            length >>= 1;
+        }
+    }
 
     /* XXX we shouldn't need to copy here, however if we at some point
        want to support non-blocking, we'll need to fix the unaligned
