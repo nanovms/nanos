@@ -48,6 +48,13 @@
 #define LWIP_NO_CTYPE_H 1
 
 #define LWIP_WND_SCALE 1
+#define TCP_MSS 1460            /* Assuming ethernet; may want to derive this */
+#define TCP_WND 65535
+#define TCP_SND_BUF 65535
+#define TCP_SND_QUEUELEN TCP_SNDQUEUELEN_OVERFLOW
+#define TCP_OVERSIZE TCP_MSS
+#define TCP_QUEUE_OOSEQ 1
+
 #define TCP_RCV_SCALE 0         /* XXX check */
 #define TCP_LISTEN_BACKLOG 1
 #define LWIP_DHCP 1
