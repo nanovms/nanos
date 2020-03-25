@@ -1205,7 +1205,19 @@ static sysreturn fstat(int fd, struct stat *s)
 {
     thread_log(current, "fd %d, stat %p", fd, s);
     fdesc f = resolve_fd(current->p, fd);
-    fill_stat(f->type, ((file)f)->n, s);
+    tuple n;
+    switch (f->type) {
+    case FDESC_TYPE_REGULAR:
+    case FDESC_TYPE_DIRECTORY:
+    case FDESC_TYPE_SPECIAL:
+    case FDESC_TYPE_SYMLINK:
+        n = ((file)f)->n;
+        break;
+    default:
+        n = 0;
+        break;
+    }
+    fill_stat(f->type, n, s);
     return 0;
 }
 
