@@ -133,7 +133,8 @@ void pci_bar_init(pci_dev dev, struct pci_bar *b, int bar, bytes offset, bytes l
         bytes len = pad(length, PAGESIZE);
         b->vaddr = allocate(virtual_page, len);
         pci_debug("%s: %p[0x%x] -> 0x%lx[0x%lx]+0x%x\n", __func__, b->vaddr, len, b->addr, b->size, offset);
-        map(u64_from_pointer(b->vaddr), b->addr + offset, len, PAGE_DEV_FLAGS, pages);
+        map(u64_from_pointer(b->vaddr), b->addr, len, PAGE_DEV_FLAGS, pages);
+        b->vaddr += offset;
     }
 }
 
