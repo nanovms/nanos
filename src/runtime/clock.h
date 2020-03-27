@@ -32,7 +32,7 @@ static inline u64
 _rdtscp(void)
 {
     u32 a, d;
-    asm volatile("rdtscp" : "=a" (a), "=d" (d));
+    asm volatile("rdtscp" : "=a" (a), "=d" (d) :: "%rcx");
     return (((u64)a) | (((u64)d) << 32));
 }
 
