@@ -158,13 +158,6 @@ closure_function(1, 1, u32, socket_events,
     return (in ? EPOLLIN | EPOLLRDNORM : 0) | EPOLLOUT | EPOLLWRNORM;
 }
 
-static inline void notify_sock(sock s)
-{
-    u32 events = apply(s->f.events, 0);
-    net_debug("sock %d, events %lx\n", s->fd, events);
-    notify_dispatch(s->f.ns, events);
-}
-
 /* May be called from irq/softirq */
 static void set_lwip_error(sock s, err_t err)
 {
@@ -202,7 +195,7 @@ static void wakeup_sock(sock s, int flags)
         if ((flags & WAKEUP_SOCK_TX))
             blockq_wake_one(s->txbq);
     }
-    notify_sock(s);
+    fdesc_notify_events(&s->f);
 }
 
 static void remote_sockaddr_in(sock s, struct sockaddr_in *sin)
@@ -347,7 +340,7 @@ static sysreturn sock_read_bh_internal(sock s, thread t, void * dest, u64 length
             pbuf_free(pbuf);
             p = queue_peek(s->incoming);
             if (p == INVALID_ADDRESS)
-                notify_sock(s); /* reset a triggered EPOLLIN condition */
+                fdesc_notify_events(&s->f); /* reset a triggered EPOLLIN condition */
         }
     } while(s->type == SOCK_STREAM && length > 0 && p != INVALID_ADDRESS); /* XXX simplify expression */
 
@@ -485,7 +478,7 @@ static sysreturn socket_write_tcp_bh_internal(sock s, thread t, void * buf, u64 
             net_debug(" tcp_write and tcp_output successful for %ld bytes\n", n);
             rv = n;
             if (n == avail) {
-                notify_sock(s); /* reset a triggered EPOLLOUT condition */
+                fdesc_notify_events(&s->f); /* reset a triggered EPOLLOUT condition */
             }
         } else {
             net_debug(" tcp_output() lwip error: %d\n", err);
@@ -1439,7 +1432,7 @@ closure_function(5, 1, sysreturn, accept_bh,
 
     /* report falling edge in case of edge trigger */
     if (queue_length(s->incoming) == 0)
-        notify_sock(s);
+        fdesc_notify_events(&s->f);
 
     /* release slot in lwIP listen backlog */
     tcp_backlog_accepted(child->info.tcp.lw);
