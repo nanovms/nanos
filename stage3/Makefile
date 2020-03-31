@@ -50,7 +50,6 @@ SRCS-stage3.img= \
 	$(SRCDIR)/unix/poll.c \
 	$(SRCDIR)/unix/signal.c \
 	$(SRCDIR)/unix/socket.c \
-	$(SRCDIR)/unix/socketpair.c \
 	$(SRCDIR)/unix/special.c \
 	$(SRCDIR)/unix/syscall.c \
 	$(SRCDIR)/unix/thread.c \

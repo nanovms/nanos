@@ -548,3 +548,34 @@ sysreturn unixsock_open(int type, int protocol) {
     }
     return s->sock.fd;
 }
+
+sysreturn socketpair(int domain, int type, int protocol, int sv[2]) {
+    unix_heaps uh = get_unix_heaps();
+    heap h = heap_general((kernel_heaps)uh);
+    unixsock s1, s2;
+
+    if (domain != AF_UNIX) {
+        return set_syscall_error(current, EAFNOSUPPORT);
+    }
+    if (((type & SOCK_TYPE_MASK) != SOCK_STREAM) &&
+            ((type & SOCK_TYPE_MASK) != SOCK_DGRAM)) {
+        return -ESOCKTNOSUPPORT;
+    }
+    if (!sv) {
+        return -EFAULT;
+    }
+    s1 = unixsock_alloc(h, type & SOCK_TYPE_MASK, type & ~SOCK_TYPE_MASK);
+    if (!s1) {
+        return -ENOMEM;
+    }
+    s2 = unixsock_alloc(h, type & SOCK_TYPE_MASK, type & ~SOCK_TYPE_MASK);
+    if (!s2) {
+        unixsock_dealloc(s1);
+        return -ENOMEM;
+    }
+    s1->peer = s2;
+    s2->peer = s1;
+    sv[0] = s1->sock.fd;
+    sv[1] = s2->sock.fd;
+    return 0;
+}
