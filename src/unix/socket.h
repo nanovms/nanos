@@ -73,3 +73,5 @@ static inline void socket_flush_q(struct sock *s)
     blockq_flush(s->rxbq);
     blockq_flush(s->txbq);
 }
+
+sysreturn unixsock_open(int type, int protocol);

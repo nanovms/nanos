@@ -110,6 +110,20 @@ int filesystem_follow_links(tuple link, tuple parent, tuple *target)
     }
 }
 
+int filesystem_add_tuple(const char *path, tuple t)
+{
+    tuple parent;
+    int ret = resolve_cstring(current->p->cwd, path, 0, &parent);
+    if (ret == 0) {
+        return -EEXIST;
+    }
+    if ((ret != -ENOENT) || !parent) {
+        return ret;
+    }
+    do_mkentry(current->p->fs, parent, filename_from_path(path), t, true);
+    return 0;
+}
+
 closure_function(1, 1, void, symlink_complete,
                  thread, t,
                  status, s)

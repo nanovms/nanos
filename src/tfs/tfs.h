@@ -58,6 +58,9 @@ typedef enum {
     FS_STATUS_NOTDIR,
 } fs_status;
 
+void do_mkentry(filesystem fs, tuple parent, const char *name, tuple entry,
+        boolean persistent);
+
 fs_status filesystem_mkentry(filesystem fs, tuple cwd, const char *fp, tuple entry,
     boolean persistent, boolean recursive);
 fs_status filesystem_mkdirpath(filesystem fs, tuple cwd, const char *fp,

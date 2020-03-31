@@ -848,7 +848,7 @@ static void fs_set_dir_entry(filesystem fs, tuple parent, symbol name_sym,
     }
 }
 
-static void do_mkentry(filesystem fs, tuple parent, const char *name, tuple entry, boolean persistent)
+void do_mkentry(filesystem fs, tuple parent, const char *name, tuple entry, boolean persistent)
 {
     symbol name_sym = sym_this(name);
     tuple c = children(parent);

@@ -821,7 +821,12 @@ static int allocate_udp_sock(process p, struct udp_pcb * pcb, u32 flags)
 
 sysreturn socket(int domain, int type, int protocol)
 {
-    if (domain != AF_INET) {
+    switch (domain) {
+    case AF_INET:
+        break;
+    case AF_UNIX:
+        return unixsock_open(type, protocol);
+    default:
         msg_warn("domain %d not supported\n", domain);
         return -EAFNOSUPPORT;
     }

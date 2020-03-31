@@ -25,6 +25,11 @@ static inline boolean is_symlink(tuple n)
     return linktarget(n) ? true : false;
 }
 
+static inline boolean is_socket(tuple n)
+{
+    return table_find(n, sym(socket)) ? true : false;
+}
+
 static inline symbol lookup_sym(tuple parent, tuple t)
 {
     void *c = children(parent);
@@ -55,6 +60,13 @@ int resolve_cstring_follow(tuple cwd, const char *f, tuple *entry,
         tuple *parent);
 
 int filesystem_follow_links(tuple link, tuple parent, tuple *target);
+
+int filesystem_add_tuple(const char *path, tuple t);
+
+static inline int filesystem_get_tuple(const char *path, tuple *t)
+{
+    return resolve_cstring(current->p->cwd, path, t, 0);
+}
 
 sysreturn symlink(const char *target, const char *linkpath);
 sysreturn symlinkat(const char *target, int dirfd, const char *linkpath);

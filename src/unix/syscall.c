@@ -678,6 +678,8 @@ static int file_type_from_tuple(tuple n)
         return FDESC_TYPE_SYMLINK;
     else if (is_special(n))
         return FDESC_TYPE_SPECIAL;
+    else if (is_socket(n))
+        return FDESC_TYPE_SOCKET;
     else
         return FDESC_TYPE_REGULAR;
 }
@@ -688,6 +690,8 @@ static int dt_from_tuple(tuple n)
         return DT_DIR;
     else if (is_symlink(n))
         return DT_LNK;
+    else if (is_socket(n))
+        return DT_SOCK;
     else
         return DT_REG;
 }
