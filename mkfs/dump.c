@@ -145,7 +145,7 @@ int main(int argc, char **argv)
                       SECTOR_SIZE,
                       infinity,
                       h,
-                      closure(h, bread, fd, get_fs_offset(fd)),
+                      sg_wrapped_block_reader(closure(h, bread, fd, get_fs_offset(fd)), SECTOR_OFFSET, h),
                       closure(h, bwrite, fd),
                       root,
                       false,

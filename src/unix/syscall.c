@@ -563,10 +563,10 @@ closure_function(2, 6, sysreturn, file_read,
             filesystem_update_atime(t->p->fs, f->n);
         }
         file_op_begin(t);
-        filesystem_read(t->p->fs, f->n, dest, length, offset,
-                        closure(heap_general(get_kernel_heaps()),
-                                file_op_complete, t, f, fsf, is_file_offset,
-                                completion));
+        filesystem_read_linear(t->p->fs, f->n, dest, length, offset,
+                               closure(heap_general(get_kernel_heaps()),
+                                       file_op_complete, t, f, fsf, is_file_offset,
+                                       completion));
 
         /* possible direct return in top half */
         return bh ? SYSRETURN_CONTINUE_BLOCKING : file_op_maybe_sleep(t);

@@ -35,7 +35,7 @@ closure_function(0, 4, void, elf_symtable_add,
     assert(elf_symtable);
 
     range r = irange(a, a + len);
-    boolean match = rangemap_range_lookup(elf_symtable, r, 0);
+    boolean match = rangemap_range_intersects(elf_symtable, r);
     if (match) {
 #ifdef ELF_SYMTAB_DEBUG
 	msg_err("\"%s\" %R would overlap in rangemap; skipping\n", name, r);

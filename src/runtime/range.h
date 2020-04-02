@@ -25,8 +25,11 @@ boolean rangemap_reinsert(rangemap rm, rmnode n, range k);
 boolean rangemap_remove_range(rangemap rm, range r);
 rmnode rangemap_lookup(rangemap rm, u64 point);
 rmnode rangemap_lookup_at_or_next(rangemap rm, u64 point);
-boolean rangemap_range_lookup(rangemap rm, range q, rmnode_handler nh);
-boolean rangemap_range_find_gaps(rangemap rm, range q, range_handler rh);
+boolean rangemap_range_intersects(rangemap rm, range q);
+boolean rangemap_range_lookup(rangemap rm, range q, rmnode_handler node_handler);
+boolean rangemap_range_lookup_with_gaps(rangemap rm, range q, rmnode_handler node_handler,
+                                        range_handler gap_handler);
+boolean rangemap_range_find_gaps(rangemap rm, range q, range_handler gap_handler);
 rangemap allocate_rangemap(heap h);
 void deallocate_rangemap(rangemap rm);
 
