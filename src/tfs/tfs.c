@@ -412,11 +412,11 @@ static tuple soft_create(filesystem fs, tuple t, symbol a, merge m)
 
 */
 
-static extent create_extent(fsfile f, range r, merge m)
+static extent create_extent(filesystem fs, range r)
 {
-    heap h = f->fs->h;
+    heap h = fs->h;
     u64 length = range_span(r);
-    u64 alignment = f->fs->alignment;
+    u64 alignment = fs->alignment;
     u64 alloc_order = find_order(pad(length, alignment));
     u64 alloc_bytes = MAX(1 << alloc_order, MIN_EXTENT_SIZE);
 
@@ -428,7 +428,7 @@ static extent create_extent(fsfile f, range r, merge m)
     tfs_debug("create_extent: align %d, offset %ld, length %ld, alloc_order %ld, alloc_bytes %ld\n",
               alignment, r.start, length, alloc_order, alloc_bytes);
 
-    u64 block_start = allocate_u64((heap)f->fs->storage, alloc_bytes);
+    u64 block_start = allocate_u64((heap)fs->storage, alloc_bytes);
     if (block_start == u64_from_pointer(INVALID_ADDRESS)) {
         msg_err("out of storage");
         return INVALID_ADDRESS;
@@ -439,19 +439,34 @@ static extent create_extent(fsfile f, range r, merge m)
     extent ex = allocate_extent(h, r, block_start, alloc_bytes);
     if (ex == INVALID_ADDRESS)
         halt("out of memory\n");
-    assert(rangemap_insert(f->extentmap, &ex->node));
+
+    return ex;
+}
+
+static void add_extent_to_file(fsfile f, extent ex, merge m)
+{
+    heap h = f->fs->h;
 
     // XXX encode this as an immediate bitstring
-    tuple e = timm("length", "%ld", length);
-    string offset = aprintf(h, "%ld", block_start);
+    tuple e = timm("length", "%ld", range_span(ex->node.r));
+    string offset = aprintf(h, "%ld", ex->block_start);
     table_set(e, sym(offset), offset);
-    string allocated = aprintf(h, "%ld", alloc_bytes);
+    string allocated = aprintf(h, "%ld", ex->allocated);
     table_set(e, sym(allocated), allocated);
-    symbol offs = intern_u64(r.start);
+    symbol offs = intern_u64(ex->node.r.start);
 
+    assert(rangemap_insert(f->extentmap, &ex->node));
     tuple extents = soft_create(f->fs, f->md, sym(extents), m);
     table_set(extents, offs, e);
     filesystem_write_eav(f->fs, extents, offs, e, apply_merge(m));
+}
+
+static extent fs_new_extent(fsfile f, range r, merge m)
+{
+    extent ex = create_extent(f->fs, r);
+    if (ex != INVALID_ADDRESS) {
+        add_extent_to_file(f, ex, m);
+    }
     return ex;
 }
 
@@ -658,7 +673,7 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_ha
                 /* create_extent will allocate a minimum of pagesize */
                 u64 length = MIN(MAX_EXTENT_SIZE, remain);
                 range r = irange(curr, curr + length);
-                extent ex = create_extent(f, r, m_meta);
+                extent ex = fs_new_extent(f, r, m_meta);
                 if (ex == INVALID_ADDRESS) {
                     msg_err("failed to create extent\n");
                     goto fail;
