@@ -9,6 +9,8 @@
 
 static heap theap;
 
+static value tnullval;
+
 // use runtime tags directly?
 #define type_tuple 1
 #define type_buffer 0
@@ -215,5 +217,10 @@ void encode_tuple(buffer dest, table dictionary, tuple t)
 void init_tuples(heap h)
 {
     theap = h;
+    tnullval = wrap_buffer_cstring(h, "");
 }
 
+value null_value(void)
+{
+    return tnullval;
+}

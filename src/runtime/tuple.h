@@ -32,3 +32,5 @@ static inline value value_from_u64(heap h, u64 v)
     print_number((buffer)result, v, 10, 0);
     return result;
 }
+
+value null_value(void);
