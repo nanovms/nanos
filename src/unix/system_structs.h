@@ -788,3 +788,10 @@ typedef u32 gid_t;
 /* signalfd flags */
 #define SFD_NONBLOCK O_NONBLOCK
 #define SFD_CLOEXEC  O_CLOEXEC
+
+/* fallocate flags */
+#define FALLOC_FL_KEEP_SIZE         0x01
+#define FALLOC_FL_PUNCH_HOLE        0x02
+#define FALLOC_FL_COLLAPSE_RANGE    0x08
+#define FALLOC_FL_ZERO_RANGE        0x10
+#define FALLOC_FL_INSERT_RANGE      0x20

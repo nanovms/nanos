@@ -4,6 +4,7 @@ PROGRAMS= \
 	creat \
 	epoll \
 	eventfd \
+	fallocate \
 	fcntl \
 	fst \
 	ftrace \
@@ -55,6 +56,12 @@ SRCS-eventfd= \
 
 LDFLAGS-eventfd=	-static
 LIBS-eventfd=		-lpthread
+
+SRCS-fallocate= \
+	$(CURDIR)/fallocate.c \
+	$(SRCDIR)/unix_process/ssp.c
+
+LDFLAGS-fallocate=	-static
 
 SRCS-fcntl= \
 	$(CURDIR)/fcntl.c \

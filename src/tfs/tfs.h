@@ -53,10 +53,19 @@ fsfile allocate_fsfile(filesystem fs, tuple md);
 
 typedef enum {
     FS_STATUS_OK = 0,
+    FS_STATUS_NOSPACE,
+    FS_STATUS_IOERR,
     FS_STATUS_NOENT,
     FS_STATUS_EXIST,
     FS_STATUS_NOTDIR,
 } fs_status;
+
+typedef closure_type(fs_status_handler, void, fsfile, fs_status);
+
+void filesystem_alloc(filesystem fs, tuple t, long offset, long len,
+        boolean keep_size, fs_status_handler completion);
+void filesystem_dealloc(filesystem fs, tuple t, long offset, long len,
+        fs_status_handler completion);
 
 void do_mkentry(filesystem fs, tuple parent, const char *name, tuple entry,
         boolean persistent);

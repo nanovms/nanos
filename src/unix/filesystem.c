@@ -3,6 +3,24 @@
 
 #define SYMLINK_HOPS_MAX    8
 
+static sysreturn sysreturn_from_fs_status(fs_status s)
+{
+    switch (s) {
+    case FS_STATUS_NOSPACE:
+        return -ENOSPC;
+    case FS_STATUS_IOERR:
+        return -EIO;
+    case FS_STATUS_NOENT:
+        return -ENOENT;
+    case FS_STATUS_EXIST:
+        return -EEXIST;
+    case FS_STATUS_NOTDIR:
+        return -ENOTDIR;
+    default:
+        return 0;
+    }
+}
+
 // fused buffer wrap, split, and resolve
 int resolve_cstring(tuple cwd, const char *f, tuple *entry, tuple *parent)
 {
@@ -122,6 +140,20 @@ int filesystem_add_tuple(const char *path, tuple t)
     }
     do_mkentry(current->p->fs, parent, filename_from_path(path), t, true);
     return 0;
+}
+
+closure_function(2, 2, void, fs_op_complete,
+                 thread, t, file, f,
+                 fsfile, fsf, fs_status, s)
+{
+    thread t = bound(t);
+    sysreturn ret = sysreturn_from_fs_status(s);
+    thread_log(current, "%s: %d", __func__, ret);
+
+    bound(f)->length = fsfile_get_length(fsf);
+    set_syscall_return(t, ret);
+    file_op_maybe_wake(t);
+    closure_finish();
 }
 
 closure_function(1, 1, void, symlink_complete,
@@ -244,4 +276,37 @@ sysreturn fstatfs(int fd, struct statfs *buf)
         break;
     }
     return statfs_internal(f ? f->n : 0, buf);
+}
+
+sysreturn fallocate(int fd, int mode, long offset, long len)
+{
+    fdesc desc = resolve_fd(current->p, fd);
+    if (desc->type != FDESC_TYPE_REGULAR) {
+        switch (desc->type) {
+        case FDESC_TYPE_PIPE:
+        case FDESC_TYPE_STDIO:
+            return -ESPIPE;
+        default:
+            return -ENODEV;
+        }
+    }
+
+    heap h = heap_general(get_kernel_heaps());
+    file f = (file) desc;
+    file_op_begin(current);
+    switch (mode) {
+    case 0:
+    case FALLOC_FL_KEEP_SIZE:
+        filesystem_alloc(current->p->fs, f->n, offset, len,
+                mode == FALLOC_FL_KEEP_SIZE,
+                closure(h, fs_op_complete, current, f));
+        break;
+    case FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE:
+        filesystem_dealloc(current->p->fs, f->n, offset, len,
+                closure(h, fs_op_complete, current, f));
+        break;
+    default:
+        set_syscall_error(current, EINVAL);
+    }
+    return file_op_maybe_sleep(current);
 }

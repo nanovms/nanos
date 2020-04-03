@@ -173,7 +173,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, vmsplice, 0);
     register_syscall(map, move_pages, 0);
     register_syscall(map, utimensat, 0);
-    register_syscall(map, fallocate, 0);
     register_syscall(map, inotify_init1, 0);
     register_syscall(map, preadv, 0);
     register_syscall(map, pwritev, 0);
@@ -1929,6 +1928,7 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, dup2, dup2);
     register_syscall(map, dup3, dup3);
     register_syscall(map, fstat, fstat);
+    register_syscall(map, fallocate, fallocate);
     register_syscall(map, sendfile, sendfile);
     register_syscall(map, stat, stat);
     register_syscall(map, lstat, lstat);

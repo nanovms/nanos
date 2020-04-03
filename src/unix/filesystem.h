@@ -76,3 +76,5 @@ sysreturn utimes(const char *filename, const struct timeval times[2]);
 
 sysreturn statfs(const char *path, struct statfs *buf);
 sysreturn fstatfs(int fd, struct statfs *buf);
+
+sysreturn fallocate(int fd, int mode, long offset, long len);

@@ -48,6 +48,15 @@ typedef struct extent {
     boolean uninited;
 } *extent;
 
+closure_function(2, 1, void, filesystem_op_complete,
+                 fsfile, f, fs_status_handler, sh,
+                 status, s)
+{
+    tfs_debug("%s: status %v\n", __func__, s);
+    apply(bound(sh), bound(f), is_ok(s) ? FS_STATUS_OK : FS_STATUS_IOERR);
+    closure_finish();
+}
+
 static inline extent allocate_extent(heap h, range init_range, u64 block_start, u64 allocated)
 {
     extent e = allocate(h, sizeof(struct extent));
@@ -416,6 +425,19 @@ static void fs_write_extent(filesystem fs, buffer source, merge m, range q, rmno
     fs_write_extent_aligned(fs, db, source_start, sh, STATUS_OK);
 }
 
+static void fs_zero_extent(filesystem fs, extent ex, range r, merge m)
+{
+    u64 len = range_span(r);
+    buffer source = allocate_buffer(fs->h, len);
+    if (source == INVALID_ADDRESS) {
+        apply(apply_merge(m), timm("result", "allocation failed"));
+        return;
+    }
+    zero(buffer_ref(source, 0), len);
+    buffer_produce(source, len);
+    fs_write_extent(fs, source, m, r, &ex->node);
+}
+
 // wrap in an interface
 static tuple soft_create(filesystem fs, tuple t, symbol a, merge m)
 {
@@ -471,6 +493,12 @@ static extent create_extent(filesystem fs, range r, boolean uninited)
     return ex;
 }
 
+static void destroy_extent(filesystem fs, extent ex)
+{
+    deallocate_u64((heap)fs->storage, ex->block_start, ex->allocated);
+    deallocate(fs->h, ex, sizeof(*ex));
+}
+
 static void add_extent_to_file(fsfile f, extent ex, merge m)
 {
     heap h = f->fs->h;
@@ -492,6 +520,28 @@ static void add_extent_to_file(fsfile f, extent ex, merge m)
     filesystem_write_eav(f->fs, extents, offs, e, apply_merge(m));
 }
 
+static void remove_extent_from_file(fsfile f, extent ex, merge m)
+{
+    tuple extents = table_find(f->md, sym(extents));
+    assert(extents);
+    symbol offs = intern_u64(ex->node.r.start);
+    tuple e = table_find(extents, offs);
+    string offset = table_find(e, sym(offset));
+    assert(offset);
+    deallocate_buffer(offset);
+    string allocated = table_find(e, sym(allocated));
+    assert(allocated);
+    deallocate_buffer(allocated);
+    buffer uninited = table_find(e, sym(uninited));
+    if (uninited) {
+        deallocate_buffer(uninited);
+    }
+    deallocate_tuple(e);
+    table_set(extents, offs, 0);
+    rangemap_remove_node(f->extentmap, &ex->node);
+    filesystem_write_eav(f->fs, extents, offs, 0, apply_merge(m));
+}
+
 static extent fs_new_extent(fsfile f, range r, boolean uninited, merge m)
 {
     extent ex = create_extent(f->fs, r, uninited);
@@ -499,6 +549,36 @@ static extent fs_new_extent(fsfile f, range r, boolean uninited, merge m)
         add_extent_to_file(f, ex, m);
     }
     return ex;
+}
+
+static boolean add_extents(filesystem fs, range i, rangemap rm)
+{
+    while (range_span(i) >= MAX_EXTENT_SIZE) {
+        range r = {.start = i.start, .end = i.start + MAX_EXTENT_SIZE};
+        extent ex = create_extent(fs, r, true);
+        if (ex == INVALID_ADDRESS) {
+            return false;
+        }
+        assert(rangemap_insert(rm, &ex->node));
+        i.start += MAX_EXTENT_SIZE;
+    }
+    if (range_span(i)) {
+        extent ex = create_extent(fs, i, true);
+        if (ex == INVALID_ADDRESS) {
+            return false;
+        }
+        assert(rangemap_insert(rm, &ex->node));
+    }
+    return true;
+}
+
+static void add_extents_to_file(fsfile f, rangemap rm, merge m)
+{
+    tfs_debug("%s: tuple %p\n", __func__, f->md);
+    list_foreach(&rm->root, l) {
+        rmnode node = struct_from_list(l, rmnode, l);
+        add_extent_to_file(f, (extent) node, m);
+    }
 }
 
 static inline boolean ingest_parse_int(tuple value, symbol s, u64 * i)
@@ -854,6 +934,102 @@ void link(tuple dir, fsfile f, buffer name)
     filesystem_flush_log(f->fs);
 }
 #endif
+
+void filesystem_alloc(filesystem fs, tuple t, long offset, long len,
+        boolean keep_size, fs_status_handler completion)
+{
+    fsfile f = table_find(fs->files, t);
+    assert(f);
+    tuple extents = table_find(t, sym(extents));
+    if (!extents) {
+        apply(completion, f, FS_STATUS_NOENT);
+        return;
+    }
+    range q = irange(offset, offset + len);
+    tfs_debug("%s: t %v, q %R%s\n", __func__, t, q,
+            keep_size ? " (keep size)" : "");
+
+    struct rangemap new_rm;
+    list_init(&new_rm.root);
+    fs_status status = FS_STATUS_OK;
+
+    u64 lastedge = q.start;
+    rmnode curr = rangemap_first_node(f->extentmap);
+    while (curr != INVALID_ADDRESS) {
+        u64 edge = curr->r.start;
+        range i = range_intersection(irange(lastedge, edge), q);
+        if (range_span(i)) {
+            if (!add_extents(fs, i, &new_rm)) {
+                status = FS_STATUS_NOSPACE;
+                goto error;
+            }
+        }
+        lastedge = curr->r.end;
+        curr = rangemap_next_node(f->extentmap, curr);
+    }
+
+    /* check for a gap between the last node and q.end */
+    range i = range_intersection(irange(lastedge, q.end), q);
+    if (range_span(i)) {
+        if (!add_extents(fs, i, &new_rm)) {
+            status = FS_STATUS_NOSPACE;
+            goto error;
+        }
+    }
+
+    merge m = allocate_merge(fs->h,
+            closure(fs->h, filesystem_op_complete, f, completion));
+    status_handler sh = apply_merge(m);
+    add_extents_to_file(f, &new_rm, m);
+    if (!keep_size && (q.end > fsfile_get_length(f))) {
+        fsfile_set_length(f, q.end);
+        filesystem_write_eav(fs, t, sym(filelength),
+                value_from_u64(fs->h, q.end), apply_merge(m));
+    }
+    filesystem_flush_log(fs);
+    apply(sh, STATUS_OK);
+    return;
+
+error:
+    list_foreach(&new_rm.root, l) {
+        rmnode n = struct_from_list(l, rmnode, l);
+        destroy_extent(fs, (extent) n);
+    }
+    apply(completion, f, status);
+}
+
+void filesystem_dealloc(filesystem fs, tuple t, long offset, long len,
+        fs_status_handler completion)
+{
+    fsfile f = table_find(fs->files, t);
+    assert(f);
+    tuple extents = table_find(t, sym(extents));
+    if (!extents) {
+        apply(completion, f, FS_STATUS_NOENT);
+        return;
+    }
+    range q = irange(offset, offset + len);
+    tfs_debug("%s: t %v, q %R\n", __func__, t, q);
+
+    merge m = allocate_merge(fs->h,
+            closure(fs->h, filesystem_op_complete, f, completion));
+    status_handler sh = apply_merge(m);
+    list_foreach(&f->extentmap->root, l) {
+        rmnode curr = struct_from_list(l, rmnode, l);
+        extent ex = (extent) curr;
+        if (range_contains(q, curr->r)) {
+            remove_extent_from_file(f, ex, m);
+            destroy_extent(fs, ex);
+            continue;
+        }
+        range i = range_intersection(curr->r, q);
+        if (range_span(i)) {
+            fs_zero_extent(fs, ex, i, m);
+        }
+    }
+    filesystem_flush_log(fs);
+    apply(sh, STATUS_OK);
+}
 
 void fixup_directory(tuple parent, tuple dir)
 {
