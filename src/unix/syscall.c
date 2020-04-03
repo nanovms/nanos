@@ -471,22 +471,38 @@ closure_function(5, 2, void, file_op_complete,
     closure_finish();
 }
 
-closure_function(8, 2, void, sendfile_bh,
-                 heap, h, fdesc, out, int *, offset, void *, buf, bytes, count, bytes, readlen, bytes, written, boolean, bh,
+closure_function(9, 2, void, sendfile_bh,
+                 heap, h, fdesc, in, fdesc, out, int *, offset, void *, buf, bytes, count, bytes, readlen, bytes, written, boolean, bh,
                  thread, t, sysreturn, rv)
 {
     thread_log(t, "%s: readlen %ld, written %ld, bh %d, rv %ld",
                __func__, bound(readlen), bound(written), bound(bh), rv);
 
+    if (rv <= 0) {
+        if (bound(bh) && rv == -EAGAIN) { /* result of a write */
+            if (!bound(offset) && bound(in)->type == FDESC_TYPE_REGULAR) {
+                /* rewind file offset ... another reason to create an sg read method */
+                file f_in = (file)bound(in);
+                s64 rewind = bound(count) - bound(written);
+                assert(rewind >= 0);
+                f_in->offset -= rewind;
+                thread_log(t, "   rewound %ld bytes to %ld", rewind, f_in->offset);
+            }
+            rv = bound(written) == 0 ? -EAGAIN : bound(written);
+            thread_log(t, "   write would block, returning %ld", rv);
+        } else {
+            thread_log(t, "   zero or error, rv %ld", rv);
+        }
+        goto out_complete;
+    }
+
     /* !bh means read complete / initiating send */
     if (!bound(bh)) {
-        if (rv <= 0)
-            goto out_complete;
         bound(bh) = true;
         bound(readlen) = rv;
         if (bound(offset))
             *bound(offset) += rv;
-        thread_log(t, "   write @ %p, len %d", bound(buf), rv);
+        thread_log(t, "   read %ld bytes, writing (@%p)", rv, bound(buf));
         apply(bound(out)->write, bound(buf), rv, 0, t, true, (io_completion)closure_self());
         return;
     }
@@ -501,9 +517,9 @@ closure_function(8, 2, void, sendfile_bh,
     s64 remain = bound(readlen) - bound(written);
     assert(remain > 0);
 
-    thread_log(t, "   write @ %p, remain %d", bound(buf) + bound(written), remain);
-    apply(bound(out)->write, bound(buf) + bound(written), remain,
-          0, t, bound(bh), (io_completion)closure_self());
+    void *target = bound(buf) + bound(written);
+    thread_log(t, "   continue writing %ld bytes (@%p)", remain, target);
+    apply(bound(out)->write, target, remain, 0, t, bound(bh), (io_completion)closure_self());
     return;
 out_complete:
     deallocate(bound(h), bound(buf), bound(count));
@@ -523,9 +539,9 @@ static sysreturn sendfile(int out_fd, int in_fd, int *offset, bytes count)
 
     if (!infile->read || !outfile->write)
         return set_syscall_error(current, EINVAL);
-    
+
     void *buf = allocate(h, count);
-    io_completion read_complete = closure(h, sendfile_bh, h, outfile, offset, buf, count, 0, 0, false);
+    io_completion read_complete = closure(h, sendfile_bh, h, infile, outfile, offset, buf, count, 0, 0, false);
     apply(infile->read, buf, count, offset ? *offset : infinity, current, false, read_complete);
     return sysreturn_value(current);
 }
