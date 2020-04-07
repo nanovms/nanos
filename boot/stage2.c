@@ -77,6 +77,7 @@ closure_function(1, 3, void, stage2_bios_read,
                  void *, dest, range, blocks, status_handler, completion)
 {
     u64 offset = bound(offset);
+    assert((offset & (SECTOR_SIZE - 1)) == 0);
     u64 start_sector = (offset >> SECTOR_OFFSET) + blocks.start;
     u64 nsectors = range_span(blocks);
 
@@ -96,17 +97,32 @@ closure_function(1, 3, void, stage2_bios_read,
     apply(completion, STATUS_OK);
 }
 
+#define MAX_BLOCK_IO_SIZE (64 * 1024)
+
 closure_function(2, 3, void, stage2_ata_read,
                  struct ata *, dev, u64, offset,
                  void *, dest, range, blocks, status_handler, completion)
 {
-    stage2_debug("%s: %R (offset 0x%lx)\n", __func__, blocks, bound(offset));
+    u64 offset = bound(offset);
+    stage2_debug("%s: %R (offset 0x%lx)\n", __func__, blocks, offset);
+    assert((offset & (SECTOR_SIZE - 1)) == 0);
+    u64 ds = offset >> SECTOR_OFFSET;
+    blocks.start += ds;
+    blocks.end += ds;
 
-    u64 sector_offset = (bound(offset) >> SECTOR_OFFSET);
-    blocks.start += sector_offset;
-    blocks.end += sector_offset;
+    // split I/O to MAX_BLOCK_IO_SIZE requests
+    heap h = heap_general(&kh);
+    merge m = allocate_merge(h, completion);
+    status_handler k = apply_merge(m);
+    while (blocks.start < blocks.end) {
+        u64 span = MIN(range_span(blocks), MAX_BLOCK_IO_SIZE >> SECTOR_OFFSET);
+        ata_io_cmd(bound(dev), ATA_READ48, dest, irange(blocks.start, blocks.start + span), apply_merge(m));
 
-    ata_io_cmd(bound(dev), ATA_READ48, dest, blocks, completion);
+        // next block
+        blocks.start += span;
+        dest = (char *) dest + (span << SECTOR_OFFSET);
+    }
+    apply(k, STATUS_OK);
 }
 
 static inline u64 stage2_rdtsc(void)
