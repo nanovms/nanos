@@ -88,7 +88,7 @@ readsectors:
 fsentry:
         dq stage2
         dq STAGE2SIZE
-        dd 0x5    ; REGION_FILESYSTEM - defined in src/x86_64/region.h
+        dd 12    ; REGION_FILESYSTEM - defined in src/x86_64/region.h
 .end:
 
 
