@@ -61,7 +61,7 @@ static u64 bootstrap_alloc(heap h, bytes length)
 }
 
 //#define MAX_BLOCK_IO_SIZE PAGE_SIZE
-#define MAX_BLOCK_IO_SIZE (256 * 1024)
+#define MAX_BLOCK_IO_SIZE (64 * 1024)
 
 closure_function(2, 3, void, offset_block_io,
                  u64, offset, block_io, io,
