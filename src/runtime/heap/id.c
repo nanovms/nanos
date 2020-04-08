@@ -254,7 +254,7 @@ static u64 alloc_subrange(id_heap i, bytes count, u64 start, u64 end)
     range subrange = irange(pad(start, page_size(i)) >> page_order(i),
                             end == infinity ? infinity : end >> page_order(i));
     id_debug("heap %p, count 0x%lx, start 0x%lx, end 0x%lx, page range %R\n",
-             h, count, start, end, subrange);
+             i, count, start, end, subrange);
     if (count == 0 || !range_valid(subrange) || range_span(subrange) == 0 ||
         subrange.start == infinity)
         return INVALID_PHYSICAL;
