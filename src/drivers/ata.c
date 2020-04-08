@@ -122,7 +122,13 @@ static int ata_wait(struct ata *dev, u8 mask)
 
         /* if drive fails status, reselect the drive and try again */
         if (status == 0xff) {
-            ata_out8(dev, ATA_DRIVE, ATA_D_IBM | ATA_DEV(dev->unit));
+            u8 sel = ATA_D_IBM | ATA_D_LBA | ATA_DEV(dev->unit);
+            ata_out8(dev, ATA_DRIVE, sel);
+            if (ata_in8(dev, ATA_DRIVE) != sel) {
+                /* drive missing */
+                return -1;
+            }
+
             timeout += 1000;
             kernel_delay(microseconds(1000));
             continue;
@@ -288,21 +294,26 @@ boolean ata_probe(struct ata *dev)
     dev->reg_port[ATA_STATUS] = dev->reg_port[ATA_COMMAND];
     dev->reg_port[ATA_ALTSTAT] = dev->reg_port[ATA_CONTROL];
 
-    // reset controller (master is selected)
+    // reset controller
     ata_out8(dev, ATA_CONTROL, ATA_A_RESET);
     kernel_delay(milliseconds(2));
     ata_out8(dev, ATA_CONTROL, 0);
     kernel_delay(nanoseconds(400));
+
+    // select primary master
+    u8 sel = ATA_D_IBM | ATA_D_LBA | ATA_DEV(dev->unit);
+    ata_out8(dev, ATA_DRIVE, sel);
+    if (ata_in8(dev, ATA_DRIVE) != sel) {
+        // drive does not exist
+        ata_debug("%s: drive does not exist\n", __func__);
+        return false;
+    }
 
     // disable interrupts
     ata_out8(dev, ATA_CONTROL, ATA_A_IDS);
 
     // identify
     ata_out8(dev, ATA_COMMAND, ATA_ATA_IDENTIFY);
-    if (ata_in8(dev, ATA_STATUS) == 0) {
-        // drive does not exist
-        return false;
-    }
     if (ata_wait(dev, ATA_S_READY | ATA_S_DRQ) < 0) {
         ata_debug("%s: IDENTIFY timeout\n", __func__);
         return false;
