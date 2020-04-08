@@ -40,7 +40,7 @@ void print_stack_from_here();
     do {                                            \
         if (!(x)) {                                 \
             print_stack_from_here();                \
-            halt("assertion %s failed in " __FILE__ ": %s() on line %d; halt\n", #x, __func__, __LINE__); \
+            halt("assertion " #x " failed in " __FILE__ ": %s() on line %d; halt\n", __func__, __LINE__); \
         }                                           \
     } while(0)
 #endif
