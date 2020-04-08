@@ -44,6 +44,9 @@ e820:	xor ebx, ebx
 	int 0x15
         test ebx, ebx
         jne .each
+	; zero out last entry type
+	sub edi, fsentry.end - fsentry
+	mov [edi + fsentry.type - fsentry], ebx
 	ret
         
 
@@ -86,9 +89,9 @@ readsectors:
 
 ;; tell stage2 what its size on disk is so we can find the filesystem
 fsentry:
-        dq stage2
-        dq STAGE2SIZE
-        dd 12    ; REGION_FILESYSTEM - defined in src/x86_64/region.h
+        .base	dq stage2
+        .length	dq STAGE2SIZE
+        .type	dd 12    ; REGION_FILESYSTEM - defined in src/x86_64/region.h
 .end:
 
 

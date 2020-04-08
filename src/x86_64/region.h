@@ -26,6 +26,7 @@ static inline region create_region(u64 base, u64 length, int type)
     r->base = base;
     r->length = length;
     r->type = type;
+    (r-1)->type = 0;
     return r;
 }
 
