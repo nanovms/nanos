@@ -92,6 +92,7 @@ typedef struct iovec {
 #define EMLINK          31              /* Too many links */
 #define EPIPE           32              /* Broken pipe */
 #define ERANGE          34              /* Math result not representable */
+#define ENAMETOOLONG    36              /* File name too long */
 
 #define ENOSYS          38              /* Invalid system call number */
 #define ENOTEMPTY       39              /* Directory not empty */
@@ -99,6 +100,7 @@ typedef struct iovec {
 #define ENOPROTOOPT     42              /* Protocol not available */
 
 #define EDESTADDRREQ    89		/* Destination address required */
+#define EMSGSIZE        90		/* Message too long */
 #define EOPNOTSUPP      95		/* Operation not supported */
 #define EISCONN         106
 #define ENOTCONN        107

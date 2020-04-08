@@ -49,7 +49,7 @@ SRCS-stage3.img= \
 	$(SRCDIR)/unix/notify.c \
 	$(SRCDIR)/unix/poll.c \
 	$(SRCDIR)/unix/signal.c \
-	$(SRCDIR)/unix/socketpair.c \
+	$(SRCDIR)/unix/socket.c \
 	$(SRCDIR)/unix/special.c \
 	$(SRCDIR)/unix/syscall.c \
 	$(SRCDIR)/unix/thread.c \

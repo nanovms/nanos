@@ -408,6 +408,12 @@ static inline int fdesc_type(fdesc f)
     return f->type;
 }
 
+static inline void fdesc_notify_events(fdesc f)
+{
+    u32 events = apply(f->events, 0);
+    notify_dispatch(f->ns, events);
+}
+
 u64 allocate_fd(process p, void *f);
 
 /* Allocate a file descriptor greater than or equal to min. */

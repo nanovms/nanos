@@ -25,6 +25,7 @@ PROGRAMS= \
 	thread_test \
 	time \
 	udploop \
+	unixsocket \
 	unlink \
 	vsyscall \
 	web \
@@ -212,6 +213,12 @@ SRCS-udploop= \
 	$(SRCDIR)/runtime/tuple.c \
 	$(SRCDIR)/runtime/crypto/chacha.c
 LDFLAGS-udploop=	 -static
+
+SRCS-unixsocket= \
+	$(CURDIR)/unixsocket.c \
+	$(SRCDIR)/unix_process/ssp.c
+LDFLAGS-unixsocket=	-static
+LIBS-unixsocket=	-lpthread
 
 SRCS-unlink= \
 	$(CURDIR)/unlink.c \
