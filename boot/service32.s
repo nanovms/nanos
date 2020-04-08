@@ -17,26 +17,26 @@ base equ 0x7c00
 
 %%prot16:
 	bits 16
-	mov ax, gdt32.data16
-	mov ss, ax			; 16-bit stack
-	mov ds, ax
-	mov es, ax
-	mov fs, ax
-	mov gs, ax
+	mov bx, gdt32.data16
+	mov ss, bx			; 16-bit stack
+	mov ds, bx
+	mov es, bx
+	mov fs, bx
+	mov gs, bx
 
 	;; change the processor mode flag
-	mov eax, cr0
-	and eax, ~1
-	mov cr0, eax			; enter real mode
+	mov ebx, cr0
+	and ebx, ~1
+	mov cr0, ebx			; enter real mode
 	jmp 0:%%real
 
 %%real:
-	xor ax, ax
-	mov ss, ax
-	mov ds, ax
-	mov es, ax
-	mov fs, ax
-	mov gs, ax
+	xor bx, bx
+	mov ss, bx
+	mov ds, bx
+	mov es, bx
+	mov fs, bx
+	mov gs, bx
 
 	mov sp, [real_sp]
 %endmacro
@@ -46,19 +46,19 @@ base equ 0x7c00
 ; assumes "bits 16" mode
 %macro ENTER_PROTECTED 0
 	;; change the processor mode flag
-	mov eax, cr0
-	or eax, 1
-	mov cr0, eax
+	mov ebx, cr0
+	or ebx, 1
+	mov cr0, ebx
 	jmp gdt32.code32:%%protected
 
 %%protected:
 	bits 32
-	mov ax, gdt32.data32
-	mov ss, ax
-	mov ds, ax
-	mov es, ax
-	mov fs, ax
-	mov gs, ax
+	mov bx, gdt32.data32
+	mov ss, bx
+	mov ds, bx
+	mov es, bx
+	mov fs, bx
+	mov gs, bx
 
 	mov esp, [protected_esp]
 %endmacro
@@ -170,11 +170,13 @@ bios_read_sectors:
 	mov ah, 0x42
 	mov dl, 0x80			; first drive
 	int 0x13
+	jc .error
 %else
 ; get disk parameters
 	mov ah, 8
 	mov dl, 0x80
 	int 0x13			; DH = heads - 1, CX[0:5] = spt, CX[8:15]CX[6:7] = cyls - 1
+	jc .error
 
 ; print result
 	TTY_OUT 'O'
@@ -265,11 +267,29 @@ bios_read_sectors:
 	mov dl, 0x80
 	mov bx, [dap.offset]
 	int 0x13
+	jc .error
 
 	add word [dap.offset], 512
 	inc dword [dap.lba]
 	dec word [dap.sector_count]
 	jnz .loop
+%endif
+	xor eax, eax
+	jmp short .exit
+
+.error:
+	mov bl, ah
+	xor eax, eax
+	mov al, bl
+
+.exit:
+%ifdef DEBUG
+	mov bx, ax
+	TTY_OUT '<'
+	TTY_OUT ':'
+	TTY_OUT_HEX bl
+	TTY_OUT_NL
+	mov ax, bx
 %endif
 
 	ENTER_PROTECTED

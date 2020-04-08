@@ -59,7 +59,7 @@ u64 random_u64()
 
 // defined in service32.s
 extern void bios_tty_write(char *s, bytes count);
-extern void bios_read_sectors(void *buffer, int start_sector, int sector_count);
+extern int bios_read_sectors(void *buffer, int start_sector, int sector_count);
 
 void console_write(char *s, bytes count)
 {
@@ -87,7 +87,9 @@ closure_function(1, 3, void, stage2_bios_read,
     while (nsectors > 0) {
         int read_sectors = MIN(nsectors, SCRATCH_LEN >> SECTOR_OFFSET);
         stage2_debug("bios_read_sectors: %p <- 0x%lx (0x%x)\n", dest, start_sector, read_sectors);
-        bios_read_sectors(read_buffer, start_sector, read_sectors);
+        int ret = bios_read_sectors(read_buffer, start_sector, read_sectors);
+        if (ret != 0)
+            halt("bios_read_sectors: error 0x%x\n", ret);
         runtime_memcpy(dest, read_buffer, read_sectors << SECTOR_OFFSET);
         dest += read_sectors << SECTOR_OFFSET;
         start_sector += read_sectors;
