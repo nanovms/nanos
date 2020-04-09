@@ -279,6 +279,8 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->posix_timer_ids = create_id_heap(h, h, 0, U32_MAX, 1);
     p->posix_timers = allocate_vector(h, 8);
     p->itimers = allocate_vector(h, 3);
+    p->aio_ids = create_id_heap(h, h, 0, S32_MAX, 1);
+    p->aio = allocate_vector(h, 8);
     return p;
 }
 

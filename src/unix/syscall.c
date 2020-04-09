@@ -123,10 +123,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, lremovexattr, 0);
     register_syscall(map, fremovexattr, 0);
     register_syscall(map, set_thread_area, 0);
-    register_syscall(map, io_setup, 0);
-    register_syscall(map, io_destroy, 0);
-    register_syscall(map, io_getevents, 0);
-    register_syscall(map, io_submit, 0);
     register_syscall(map, io_cancel, 0);
     register_syscall(map, get_thread_area, 0);
     register_syscall(map, lookup_dcookie, 0);
@@ -1926,6 +1922,10 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, ftruncate, ftruncate);
     register_syscall(map, fdatasync, fdatasync);
     register_syscall(map, fsync, fsync);
+    register_syscall(map, io_setup, io_setup);
+    register_syscall(map, io_submit, io_submit);
+    register_syscall(map, io_getevents, io_getevents);
+    register_syscall(map, io_destroy, io_destroy);
     register_syscall(map, access, access);
     register_syscall(map, lseek, lseek);
     register_syscall(map, fcntl, fcntl);

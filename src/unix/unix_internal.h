@@ -344,6 +344,8 @@ typedef struct process {
     id_heap           posix_timer_ids;
     vector            posix_timers; /* unix_timer by timerid */
     vector            itimers;      /* unix_timer by ITIMER_ type */
+    id_heap           aio_ids;
+    vector            aio;
 } *process;
 
 typedef struct sigaction *sigaction;
@@ -616,6 +618,12 @@ static inline boolean futex_wake_one_by_uaddr(process p, int *uaddr)
 {
     return futex_wake_many_by_uaddr(p, uaddr, 1);
 }
+
+sysreturn io_setup(unsigned int nr_events, aio_context_t *ctx_idp);
+sysreturn io_submit(aio_context_t ctx_id, long nr, struct iocb **iocbpp);
+sysreturn io_getevents(aio_context_t ctx_id, long min_nr, long nr,
+        struct io_event *events, struct timespec *timeout);
+sysreturn io_destroy(aio_context_t ctx_id);
 
 int do_pipe2(int fds[2], int flags);
 

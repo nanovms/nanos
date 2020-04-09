@@ -39,6 +39,7 @@ SRCS-stage3.img= \
 	$(SRCDIR)/runtime/crypto/chacha.c \
 	$(SRCDIR)/tfs/tfs.c \
 	$(SRCDIR)/tfs/tlog.c \
+	$(SRCDIR)/unix/aio.c \
 	$(SRCDIR)/unix/blockq.c \
 	$(SRCDIR)/unix/exec.c \
 	$(SRCDIR)/unix/eventfd.c \
