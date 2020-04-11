@@ -37,6 +37,50 @@ static u32 null_events(file f)
     return EPOLLOUT;
 }
 
+closure_function(1, 1, void, maps_handler,
+                 buffer, b,
+                 vmap, map)
+{
+    buffer b = bound(b);
+
+    /* All mappings are assumed to be readable and private; offset, device and
+     * inode are unknown. */
+    bprintf(b, "%16lx-%16lx r%c%cp 00000000 00:00 0", map->node.r.start,
+            map->node.r.end, (map->flags & VMAP_FLAG_WRITABLE) ? 'w' : '-',
+            (map->flags & VMAP_FLAG_EXEC) ? 'x' : '-');
+
+    /* File path is unknown; only stack and heap pseudo-paths are known. */
+    if (map == current->p->stack_map) {
+        buffer_write_cstring(b, "\t[stack]");
+    } else if (map == current->p->heap_map) {
+        buffer_write_cstring(b, "\t[heap]");
+    }
+
+    buffer_write_cstring(b, "\n");
+}
+
+static sysreturn maps_read(file f, void *dest, u64 length, u64 offset)
+{
+    heap h = heap_general(get_kernel_heaps());
+    buffer b = allocate_buffer(h, 512);
+    if (b == INVALID_ADDRESS) {
+        return -ENOMEM;
+    }
+    vmap_iterator(current->p, stack_closure(maps_handler, b));
+    if (offset >= buffer_length(b)) {
+        return 0;
+    }
+    length = MIN(length, buffer_length(b) - offset);
+    runtime_memcpy(dest, buffer_ref(b, offset), length);
+    deallocate_buffer(b);
+    return length;
+}
+
+static u32 maps_events(file f)
+{
+    return EPOLLIN;
+}
+
 static sysreturn text_read(const char *text, bytes text_len, file f, void *dest, u64 length, u64 offset)
 {
     if (text_len <= offset)
@@ -70,6 +114,7 @@ static u32 cpu_online_events(file f)
 static special_file special_files[] = {
     { "/dev/urandom", .read = urandom_read, .write = 0, .events = urandom_events },
     { "/dev/null", .read = null_read, .write = null_write, .events = null_events },
+    { "/proc/self/maps", .read = maps_read, .events = maps_events, },
     { "/sys/devices/system/cpu/online", .read = cpu_online_read, .write = null_write, .events = cpu_online_events },
     FTRACE_SPECIAL_FILES
 };

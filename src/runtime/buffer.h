@@ -127,6 +127,11 @@ static inline void buffer_write(buffer b, const void *source, bytes length)
     buffer_produce(b, length);
 }
 
+static inline void buffer_write_cstring(buffer b, const char *x)
+{
+    return buffer_write(b, x, runtime_strlen(x));
+}
+
 static inline boolean buffer_read(buffer b, void *dest, bytes length)
 {
     if (buffer_length(b) < length) return(false);

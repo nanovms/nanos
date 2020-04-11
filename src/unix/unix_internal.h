@@ -303,6 +303,8 @@ typedef struct vmap {
     u64 flags;
 } *vmap;
 
+typedef closure_type(vmap_handler, void, vmap);
+
 vmap allocate_vmap(rangemap rm, range r, u64 flags);
 boolean adjust_process_heap(process p, range new);
 
@@ -527,6 +529,7 @@ boolean unix_timers_init(unix_heaps uh);
 extern sysreturn syscall_ignore();
 boolean do_demand_page(u64 vaddr, vmap vm);
 vmap vmap_from_vaddr(process p, u64 vaddr);
+void vmap_iterator(process p, vmap_handler vmh);
 
 void thread_log_internal(thread t, const char *desc, ...);
 #define thread_log(__t, __desc, ...) thread_log_internal(__t, __desc, ##__VA_ARGS__)
