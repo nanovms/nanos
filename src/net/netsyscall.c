@@ -574,7 +574,7 @@ closure_function(1, 6, sysreturn, socket_write,
     return socket_write_internal(s, source, length, t, bh, completion);
 }
 
-closure_function(1, 2, sysreturn, socket_ioctl,
+closure_function(1, 2, sysreturn, netsock_ioctl,
                  netsock, s,
                  unsigned long, request, vlist, ap)
 {
@@ -632,18 +632,8 @@ closure_function(1, 2, sysreturn, socket_ioctl,
                 sizeof(ip4_addr_t));
         return 0;
     }
-    case FIONBIO: {
-        int opt = varg(ap, int);
-        if (opt) {
-            s->sock.f.flags |= SOCK_NONBLOCK;
-        }
-        else {
-            s->sock.f.flags &= ~SOCK_NONBLOCK;
-        }
-        return 0;
-    }
     default:
-        return -ENOSYS;
+        return socket_ioctl(&s->sock, request, ap);
     }
 }
 
@@ -775,7 +765,7 @@ static int allocate_sock(process p, int type, u32 flags, netsock * rs)
     s->sock.f.write = closure(h, socket_write, s);
     s->sock.f.close = closure(h, socket_close, s);
     s->sock.f.events = closure(h, socket_events, s);
-    s->sock.f.ioctl = closure(h, socket_ioctl, s);
+    s->sock.f.ioctl = closure(h, netsock_ioctl, s);
     s->p = p;
 
     s->incoming = allocate_queue(h, SOCK_QUEUE_LEN);
