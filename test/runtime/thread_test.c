@@ -75,7 +75,7 @@ void *loopy(void *z)
 
 void halt(char *message)
 {
-    write(1, message, strlen(message));
+    fputs(message, stderr);
     exit(-1);
 }
 
