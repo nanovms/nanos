@@ -532,10 +532,6 @@ static void remove_extent_from_file(fsfile f, extent ex, merge m)
     string allocated = table_find(e, sym(allocated));
     assert(allocated);
     deallocate_buffer(allocated);
-    buffer uninited = table_find(e, sym(uninited));
-    if (uninited) {
-        deallocate_buffer(uninited);
-    }
     deallocate_tuple(e);
     table_set(extents, offs, 0);
     rangemap_remove_node(f->extentmap, &ex->node);
