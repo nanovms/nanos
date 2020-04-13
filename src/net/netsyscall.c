@@ -362,7 +362,7 @@ closure_function(7, 1, sysreturn, sock_read_bh,
     return rv;
 }
 
-static void recvmsg_complete_internal(netsock s, struct msghdr * msg, void * dest, u64 length, boolean blocked,
+static void recvmsg_complete_internal(netsock s, struct msghdr * msg, void * dest, u64 length,
                                       thread t, sysreturn rv)
 {
     s64 offset = 0;
@@ -378,16 +378,14 @@ static void recvmsg_complete_internal(netsock s, struct msghdr * msg, void * des
     deallocate(s->sock.h, dest, length);
     msg->msg_controllen = 0;
     msg->msg_flags = 0;
-    set_syscall_return(t, rv);
-    if (blocked)
-        thread_wakeup(t);
+    apply(syscall_io_complete, t, rv);
 }
 
-closure_function(5, 2, void, recvmsg_complete,
-                 netsock, s, struct msghdr *, msg, void *, dest, u64, length, boolean, blocked,
+closure_function(4, 2, void, recvmsg_complete,
+                 netsock, s, struct msghdr *, msg, void *, dest, u64, length,
                  thread, t, sysreturn, rv)
 {
-    recvmsg_complete_internal(bound(s), bound(msg), bound(dest), bound(length), bound(blocked), t, rv);
+    recvmsg_complete_internal(bound(s), bound(msg), bound(dest), bound(length), t, rv);
     closure_finish();
 }
 
@@ -397,7 +395,7 @@ closure_function(5, 1, sysreturn, recvmsg_bh,
 {
     io_completion completion = closure(bound(s)->sock.h, recvmsg_complete,
                                        bound(s), bound(msg), bound(dest),
-                                       bound(length), true);
+                                       bound(length));
     sysreturn rv = sock_read_bh_internal(bound(s), bound(t), bound(dest), bound(length), bound(msg)->msg_name,
                                          &bound(msg)->msg_namelen, completion, flags);
     if (rv != BLOCKQ_BLOCK_REQUIRED)
@@ -542,15 +540,18 @@ static sysreturn socket_write_internal(struct sock *sock, void *source,
     sysreturn rv;
 
     if (sock->type == SOCK_STREAM) {
-	if (s->info.tcp.state != TCP_SOCK_OPEN) 		/* XXX maybe defer to lwip for connect state */
-	    return -EPIPE;
+	if (s->info.tcp.state != TCP_SOCK_OPEN) { /* XXX maybe defer to lwip for connect state */
+	    rv = -EPIPE;
+	    goto out;
+	}
+
         if (length == 0) {
             rv = 0;
             goto out;
         }
         blockq_action ba = closure(sock->h, socket_write_tcp_bh, s, t,
                                    source, length, completion);
-        rv = blockq_check(sock->txbq, t, ba, bh);
+        return blockq_check(sock->txbq, t, ba, bh);
     } else if (sock->type == SOCK_DGRAM) {
         rv = socket_write_udp(s, source, length);
     } else {
@@ -559,6 +560,7 @@ static sysreturn socket_write_internal(struct sock *sock, void *source,
     }
     net_debug("completed\n");
 out:
+    apply(completion, t, rv);
     return rv;
 }
 
@@ -1193,20 +1195,17 @@ static sysreturn sendmsg_prepare(struct sock *s, const struct msghdr *msg,
 }
 
 static void sendmsg_complete_internal(struct sock *s, void * buf, u64 len,
-                                      boolean blocked,
                                       thread t, sysreturn rv)
 {
     deallocate(s->h, buf, len);
-    set_syscall_return(t, rv);
-    if (blocked)
-        thread_wakeup(t);
+    apply(syscall_io_complete, t, rv);
 }
 
-closure_function(4, 2, void, sendmsg_complete,
-                 struct sock *, s, void *, buf, u64, len, boolean, blocked,
+closure_function(3, 2, void, sendmsg_complete,
+                 struct sock *, s, void *, buf, u64, len,
                  thread, t, sysreturn, rv)
 {
-    sendmsg_complete_internal(bound(s), bound(buf), bound(len), bound(blocked), t, rv);
+    sendmsg_complete_internal(bound(s), bound(buf), bound(len), t, rv);
     closure_finish();
 }
 
@@ -1222,11 +1221,8 @@ sysreturn sendmsg(int sockfd, const struct msghdr *msg, int flags)
     if (rv <= 0) {
         return set_syscall_return(current, rv);
     }
-    io_completion completion = closure(s->h, sendmsg_complete, s, buf, len,
-            true);
-    rv = socket_write_internal(s, buf, len, current, false, completion);
-    sendmsg_complete_internal(s, buf, len, false, current, rv);
-    return rv;
+    io_completion completion = closure(s->h, sendmsg_complete, s, buf, len);
+    return socket_write_internal(s, buf, len, current, false, completion);
 }
 
 closure_function(3, 2, void, sendmmsg_buf_complete,
@@ -1382,9 +1378,7 @@ sysreturn recvmsg(int sockfd, struct msghdr *msg, int flags)
     }
     blockq_action ba = closure(sock->h, recvmsg_bh, s, current, buf, total_len,
             msg);
-    sysreturn rv = blockq_check(sock->rxbq, current, ba, false);
-    recvmsg_complete_internal(s, msg, buf, total_len, false, current, rv);
-    return rv;
+    return blockq_check(sock->rxbq, current, ba, false);
 }
 
 static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t err)
