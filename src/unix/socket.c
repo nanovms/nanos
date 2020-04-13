@@ -235,6 +235,14 @@ closure_function(1, 1, u32, unixsock_events,
     return events;
 }
 
+closure_function(1, 2, sysreturn, unixsock_ioctl,
+                 unixsock, s,
+                 unsigned long, request, vlist, ap)
+{
+    unixsock s = bound(s);
+    return socket_ioctl(&s->sock, request, ap);
+}
+
 closure_function(1, 0, sysreturn, unixsock_close,
                  unixsock, s)
 {
@@ -512,6 +520,7 @@ static unixsock unixsock_alloc(heap h, int type, u32 flags)
     s->sock.f.read = closure(h, unixsock_read, s);
     s->sock.f.write = closure(h, unixsock_write, s);
     s->sock.f.events = closure(h, unixsock_events, s);
+    s->sock.f.ioctl = closure(h, unixsock_ioctl, s);
     s->sock.f.close = closure(h, unixsock_close, s);
     s->sock.bind = unixsock_bind;
     s->sock.listen = unixsock_listen;
