@@ -706,6 +706,11 @@ static sysreturn netsock_shutdown(struct sock *sock, int how)
             return -ENOTCONN;
         }
         tcp_shutdown(s->info.tcp.lw, shut_rx, shut_tx);
+        if (shut_rx && shut_tx) {
+            /* Shutting down both TX and RX is equivalent to calling
+             * tcp_close(), so the pcb should not be referenced anymore. */
+            s->info.tcp.lw = 0;
+        }
         break;
     case SOCK_DGRAM:
         return -ENOTCONN;
