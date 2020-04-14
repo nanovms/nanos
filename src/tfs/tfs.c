@@ -65,6 +65,7 @@ static inline extent allocate_extent(heap h, range init_range, u64 block_start, 
     rmnode_init(&e->node, init_range);
     e->block_start = block_start;
     e->allocated = allocated;
+    e->uninited = false;
     return e;
 }
 
