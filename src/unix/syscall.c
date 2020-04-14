@@ -1461,18 +1461,6 @@ static sysreturn readlink_internal(tuple cwd, const char *pathname, char *buf,
 sysreturn readlink(const char *pathname, char *buf, u64 bufsiz)
 {
     thread_log(current, "readlink: \"%s\"", pathname);
-
-    // special case for /proc/self/exe for $ORIGIN handling in ld-linux.so(8)
-    if (runtime_strcmp(pathname, "/proc/self/exe") == 0) {
-        value p = table_find(current->p->process_root, sym(program));
-        assert(p != 0);
-        sysreturn retval = MIN(bufsiz, buffer_length(p));
-        // readlink(2) does not NUL-terminate
-        runtime_memcpy(buf, buffer_ref(p, 0), retval);
-        thread_log(current, "readlink: returning \"%v\"", alloca_wrap_buffer(buf, retval));
-        return retval;
-    }
-
     return readlink_internal(current->p->cwd, pathname, buf, bufsiz);
 }
 

@@ -1,4 +1,5 @@
 #include <unix_internal.h>
+#include <filesystem.h>
 #include <ftrace.h>
 
 typedef struct special_file {
@@ -134,6 +135,21 @@ void register_special_files(process p)
     }
 
     filesystem_mkdirpath(p->fs, 0, "/sys/devices/system/cpu/cpu0", false);
+
+    tuple proc_self, proc_self_exe;
+    int ret = resolve_cstring(p->cwd, "/proc/self/exe", &proc_self_exe,
+            &proc_self);
+    if (ret == -ENOENT) {
+        assert(proc_self);
+        value program = table_find(p->process_root, sym(program));
+        assert(program);
+        buffer b = clone_buffer(h, program);
+        assert(b != INVALID_ADDRESS);
+        buffer_write_byte(b, '\0'); /* append string terminator character */
+        filesystem_symlink(p->fs, proc_self, "exe", buffer_ref(b, 0),
+                ignore_status);
+        deallocate_buffer(b);
+    }
 }
 
 static special_file *
