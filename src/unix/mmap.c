@@ -55,6 +55,17 @@ vmap vmap_from_vaddr(process p, u64 vaddr)
     return vm;
 }
 
+void vmap_iterator(process p, vmap_handler vmh)
+{
+    vmap_lock(p);
+    vmap vm = (vmap) rangemap_first_node(p->vmaps);
+    while (vm != INVALID_ADDRESS) {
+        apply(vmh, vm);
+        vm = (vmap) rangemap_next_node(p->vmaps, &vm->node);
+    }
+    vmap_unlock(p);
+}
+
 vmap allocate_vmap(rangemap rm, range r, u64 flags)
 {
     vmap vm = allocate(rm->h, sizeof(struct vmap));
