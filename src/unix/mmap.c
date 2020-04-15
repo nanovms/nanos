@@ -516,9 +516,9 @@ static void vmap_paint(heap h, rangemap pvmap, vmap q)
     assert((rq.end & MASK(PAGELOG)) == 0);
     assert(range_span(rq) > 0);
 
-    rmnode_handler nh = stack_closure(vmap_paint_intersection, h, pvmap, q);
-    range_handler rh = stack_closure(vmap_paint_gap, h, pvmap, q);
-    rangemap_range_lookup_with_gaps(pvmap, rq, nh, rh);
+    rangemap_range_lookup_with_gaps(pvmap, rq,
+                                    stack_closure(vmap_paint_intersection, h, pvmap, q),
+                                    stack_closure(vmap_paint_gap, h, pvmap, q));
 
     update_map_flags(rq.start, range_span(rq), page_map_flags(q->flags));
 }

@@ -1,29 +1,17 @@
-/* want to support:
+/* A scatter gather operation is a transaction that is divided into
+   smaller transactions - each with two phases: request and
+   completion. To begin, a transaction activation record and handle is
+   allocated with allocate_sg_list. A consumer makes a request using
+   the empty sg_list. On completion, the sg_list is filled with
+   scatter-gather buffer data. As the consumer consumes buffers
+   (sg_bufs), they are released with sg_buf_release - or the entire
+   list and any unconsumed buffers are released at once with
+   sg_list_release.
 
-   1) scatter gather request with the consumer owning/providing the
-      sg_vec but producer owning the frags/pages
-
-      - use of refcount to manage access to frags
-
-   ... but what if the requester passed an sg handler?
-      + release could be per request, not per page
-        - still is per page internally within pagecache
-          + but producer may take more optimal steps
-            1. e.g. allocate larger orders to backed heap and use ranges internally
-      + consumer can use refcount as well when sharing 
-
-      - the consumer supplying the sg list allows for an operation
-        that spans extents and pages neatly synthesizes into one
-        result list
-
-   Another way to look at it: the scatter gather operation is a
-   transaction that is divided into smaller transactions - each with
-   two phases: request and completion. To begin, a transaction
-   activation record is allocated along with an identifier. The front
-   side (consumer) makes a request using a pointer to the record
-   (sg_vec). The request handler takes a reference to the sg_vec 
-
-
+   A producing requester allocates the sg_list and populates it with
+   scatter-gather buffer data before initiating a request. It must
+   supply a refcount pointer for each buffer (which may all point to a
+   single refcount for the request, essentially acting as a merge).
 */
 
 typedef struct sg_buf {

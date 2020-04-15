@@ -486,7 +486,7 @@ static void log_read(log tl, status_handler sh)
         apply(sh, timm("result", "failed to allocate sg list"));
         return;
     }
-    range r = irange(tl->sectors.start << SECTOR_OFFSET, tl->sectors.end << SECTOR_OFFSET);
+    range r = range_lshift(tl->sectors, SECTOR_OFFSET);
     status_handler tlc = closure(tl->h, log_read_complete, tl, sg, range_span(r), sh);
     tlog_debug("%s: issuing sg read, sg %p, r %R, tlc %p\n", __func__, sg, r, tlc);
     apply(tl->fs->sg_r, sg, r, tlc);

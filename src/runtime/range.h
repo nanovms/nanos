@@ -33,6 +33,16 @@ boolean rangemap_range_find_gaps(rangemap rm, range q, range_handler gap_handler
 rangemap allocate_rangemap(heap h);
 void deallocate_rangemap(rangemap rm);
 
+static inline range range_rshift(range r, int order)
+{
+    return irange(r.start >> order, r.end >> order);
+}
+
+static inline range range_lshift(range r, int order)
+{
+    return irange(r.start << order, r.end << order);
+}
+
 static inline range range_from_rmnode(rmnode n)
 {
     return n->r;

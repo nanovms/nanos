@@ -10,7 +10,8 @@
 #define DEFAULT_SG_FRAGS 8
 
 static heap sg_heap;
-static struct list free_sg_lists; /* TODO spinlock */
+static struct list free_sg_lists;
+static struct spinlock sg_lock;   /* for free list */
 
 /* copy content of sg, up to limit bytes, into target, consuming and
    deallocating everything */
@@ -37,11 +38,14 @@ u64 sg_copy_to_buf_and_release(void *target, sg_list sg, u64 limit)
 
 sg_list allocate_sg_list(void)
 {
+    spin_lock(&sg_lock);
     list l = list_get_next(&free_sg_lists);
     if (l) {
         list_delete(l);
+        spin_unlock(&sg_lock);
         return struct_from_list(l, sg_list, l);
     }
+    spin_unlock(&sg_lock);
 
     sg_list sg = allocate(sg_heap, sizeof(struct sg_list));
     if (!sg)
@@ -60,7 +64,9 @@ void deallocate_sg_list(sg_list sg)
 {
     buffer_clear(sg->b);
     sg->count = 0;
+    spin_lock(&sg_lock);
     list_insert_after(&free_sg_lists, &sg->l);
+    spin_unlock(&sg_lock);
 }
 
 closure_function(4, 0, void, sg_wrapped_buf_release,
@@ -100,7 +106,7 @@ closure_function(3, 3, void, sg_wrapped_read,
     sgb->length = length;
     sgb->refcount = refcount;
     assert((q.start & MASK(block_order)) == 0);
-    range blocks = irange(q.start >> block_order, (q.start + padlen) >> block_order);
+    range blocks = range_rshift(irange(q.start, q.start + padlen), block_order);
     sg_debug("   reading into sgb %p, buf %p, blocks %R\n", sgb, buf, blocks);
     apply(bound(block_read), buf, blocks, sh);
 }
@@ -116,4 +122,5 @@ void init_sg(heap h)
     sg_debug("%s\n", __func__);
     sg_heap = h;
     list_init(&free_sg_lists);
+    spin_lock_init(&sg_lock);
 }

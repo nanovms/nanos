@@ -103,10 +103,6 @@ typedef struct fs_dma_buf {
     struct refcount refcount;
 } *fs_dma_buf;
 
-/* XXX TODO: eliminate extra copy by writing directly to pagecache
-   buffers (and let the pagecache know to do partial sector reads -
-   and not read for full sector writes */
-
 closure_function(2, 0, void, fs_release_dma_buffer,
                  filesystem, fs, fs_dma_buf, db)
 {
@@ -185,7 +181,7 @@ closure_function(4, 1, void, fs_read_extent,
         return;
     }
     bytes absolute = e->block_start + i.start - e->node.r.start;
-    range r = irange(absolute, absolute + len); /* XXX check sg partial end block */
+    range r = irange(absolute, absolute + len);
     tfs_debug("fs_read_extent (sg): sg %p, len %ld, q %R, i %R, r %R\n", bound(sg), len, q, i, r);
     apply(fs->sg_r, bound(sg), r, apply_merge(bound(m)));
 }
@@ -296,12 +292,18 @@ void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler
 
     u64 length = pad(fsfile_get_length(f), fs_blocksize(fs));
     buffer b = allocate_buffer(bufheap, pad(length, bufheap->pagesize));
+    if (b == INVALID_ADDRESS)
+        goto alloc_fail;
     sg_list sg = allocate_sg_list();
-    if (b == INVALID_ADDRESS || sg == INVALID_ADDRESS) {
-        apply(sh, timm("result", "allocation failure"));
-        return;
+    if (sg == INVALID_ADDRESS) {
+        deallocate_buffer(b);
+        goto alloc_fail;
     }
     filesystem_read_internal(fs, f, sg, length, 0, closure(fs->h, read_entire_complete, sg, c, b, length, sh));
+    return;
+  alloc_fail:
+    apply(sh, timm("result", "allocation failure"));
+    return;
 }
 
 /*
@@ -375,6 +377,8 @@ static void fs_write_extent_read_block(filesystem fs, fs_dma_buf db, u64 offset_
                                    fs, buf, sg, sh));
 }
 
+/* TODO: eliminate extra copy (and possibly head/tail reads) by
+   writing directly to pagecache buffers */
 static void fs_write_extent(filesystem fs, buffer source, merge m, range q, rmnode node)
 {
     range i = range_intersection(q, node->r);
@@ -502,7 +506,6 @@ static extent create_extent(filesystem fs, range r, boolean uninited)
     }
     tfs_debug("   block_start 0x%lx\n", block_start);
 
-    /* XXX this extend / alloc stuff is getting redone */
     extent ex = allocate_extent(h, r, block_start, alloc_bytes);
     if (ex == INVALID_ADDRESS)
         halt("out of memory\n");

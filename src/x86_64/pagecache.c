@@ -9,16 +9,6 @@
 #define pagecache_debug(x, ...)
 #endif
 
-static inline range blocks_from_bytes(range r, int block_order)
-{
-    return irange(r.start >> block_order, r.end >> block_order);
-}
-
-static inline range bytes_from_blocks(range r, int block_order)
-{
-    return irange(r.start << block_order, r.end << block_order);
-}
-
 static inline u64 pagecache_pagesize(pagecache pc)
 {
     return U64_FROM_BIT(pc->page_order);
@@ -83,12 +73,17 @@ closure_function(2, 1, void, read_page_complete,
     spin_lock(&pp->lock);
     assert(page_state(pp) == PAGECACHE_PAGESTATE_READING);
     if (!is_ok(s)) {
-        /* XXX policy? */
+        /* TODO need policy for capturing/reporting I/O errors... */
         msg_err("error reading page %R: %v\n", pp->node.r, s);
     } else {
         set_page_state(bound(pc), pp, PAGECACHE_PAGESTATE_NEW);
     }
-    spin_unlock(&pp->lock);    // XXX not correct, faking it with big kernel lock...
+
+    /* TODO We technically shouldn't be releasing the page lock here
+       if we are walking the completions vector, but for the time
+       being we are safe due to the big kernel lock. Maybe clone the
+       vector or replace with a new one? */
+    spin_unlock(&pp->lock);
     status_handler sh;
     vector_foreach(pp->completions, sh) {
         apply(sh, s);
@@ -108,7 +103,7 @@ static void read_page_blocks(pagecache pc, pagecache_page pp)
     }
 
     /* sg finally terminates to block io */
-    range blocks = blocks_from_bytes(irange(pp->node.r.start, end), pc->block_order);
+    range blocks = range_rshift(irange(pp->node.r.start, end), pc->block_order);
     pagecache_debug("%s: pc %p, pp %p, blocks %R, reading...\n", __func__, pc, pp, blocks);
     apply(pc->block_read, pp->kvirt, blocks, closure(pc->h, read_page_complete, pc, pp));
 }
@@ -151,7 +146,6 @@ static void pagecache_read_page_internal_locked(pagecache pc, pagecache_page pp,
     pagecache_debug("%s: pc %p, sg %p, q %R, m %p, r %R, pp %p, refcount %d, state %d\n",
                     __func__, pc, sg, q, m, r, pp, pp->refcount.c, state);
 
-    // XXX verify ok to have merge completion here
     if (!pagecache_page_touch_if_filled_locked(pc, pp))
         pagecache_page_fill_locked(pc, pp, apply_merge(m));
 
@@ -191,7 +185,7 @@ closure_function(2, 0, void, pagecache_page_release,
     spin_lock(&pc->lock);
     rangemap_remove_node(pc->pages, &pp->node);
     set_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_FREE);
-    /* XXX zero - where? */
+    zero(pp->kvirt, pagecache_pagesize(pc));
 
     spin_unlock(&pc->lock);
     /* leave closure intact and reuse */
@@ -243,7 +237,9 @@ static pagecache_page allocate_pagecache_page(pagecache pc)
 
 static void pagecache_page_insert_locked(pagecache pc, pagecache_page pp)
 {
+    spin_lock(&pc->lock);
     assert(rangemap_insert(pc->pages, &pp->node));
+    spin_unlock(&pc->lock);
 }
 
 /* populate missing pages, allocate buffers and install kernel mappings */
@@ -271,8 +267,7 @@ closure_function(4, 1, void, pagecache_read_gap,
     }
 }
 
-/* XXX need to make sure partial end block is ok */
-/* XXX rangemap -> single point tree lookup */
+/* TODO rangemap -> single point tree lookup */
 static boolean pagecache_read_internal(pagecache pc, sg_list sg, range q, status_handler completion)
 {
     pagecache_debug("%s: pc %p, sg %p, q %R, completion %p\n", __func__, pc, sg, q, completion);
@@ -302,8 +297,8 @@ closure_function(1, 3, void, pagecache_read_sg,
 /* TODO for pagecache writing:
 
    immediate:
+   * buffers being synced to storage can still be modified - re set to dirty
    - get rid of annoying write test output
-   - skip read for full page writes
    - don't wait for block write to apply write completion, but do track (and report) any write errors
 
    future:
@@ -324,13 +319,12 @@ static void pagecache_write_page_internal_locked(pagecache pc, pagecache_page pp
     pagecache_debug("%s: pc %p, pp %p, refcount %d, state %d, src %p, i %R, offset %d, len %d\n",
                     __func__, pc, pp, pp->refcount.c, state, src, i, page_offset, len);
 
-    assert(state == PAGECACHE_PAGESTATE_NEW ||
-           state == PAGECACHE_PAGESTATE_ACTIVE ||
-           state == PAGECACHE_PAGESTATE_DIRTY);
+    assert(state == PAGECACHE_PAGESTATE_ALLOC || state == PAGECACHE_PAGESTATE_NEW ||
+           state == PAGECACHE_PAGESTATE_ACTIVE || state == PAGECACHE_PAGESTATE_DIRTY);
 
     pagecache_debug("   copy %p <- %p %d bytes\n", dest, src, len);
     runtime_memcpy(dest, src, len);
-    range blocks = blocks_from_bytes(pp->node.r, pc->block_order);
+    range blocks = range_rshift(pp->node.r, pc->block_order);
     pagecache_debug("   write %p to block range %R\n", pp->kvirt, blocks);
     apply(pc->block_write, pp->kvirt, blocks, sh);
 }
@@ -399,9 +393,15 @@ closure_function(4, 1, void, pagecache_write_gap,
         pp->node.r = irange(offset, offset + pagesize);
         spin_lock(&pp->lock);
         pagecache_page_insert_locked(pc, pp);
-        pagecache_page_fill_locked(pc, pp, closure(pc->h, pagecache_write_page_filled,
-                                                   pc, pp, bound(buf), bound(q),
-                                                   apply_merge(bound(m))));
+
+        /* if this write covers the entire page, don't bother trying to fill it first */
+        if (range_span(range_intersection(pp->node.r, bound(q))) == pagesize) {
+            pagecache_write_page_internal_locked(pc, pp, bound(buf), bound(q), apply_merge(bound(m)));
+        } else {
+            pagecache_page_fill_locked(pc, pp, closure(pc->h, pagecache_write_page_filled,
+                                                       pc, pp, bound(buf), bound(q),
+                                                       apply_merge(bound(m))));
+        }
         spin_unlock(&pp->lock);
     }
 }
@@ -412,7 +412,7 @@ closure_function(1, 3, void, pagecache_write,
 {
     pagecache pc = bound(pc);
     pagecache_debug("%s: buf %p, sg %p, blocks %R, completion %p\n", __func__, pc, buf, blocks, sh);
-    range q = bytes_from_blocks(blocks, pc->block_order);
+    range q = range_lshift(blocks, pc->block_order);
     merge m = allocate_merge(pc->h, sh);
     status_handler k = apply_merge(m);
     rangemap_range_lookup_with_gaps(pc->pages, q,
