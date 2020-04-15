@@ -11,7 +11,28 @@
 
 static heap sg_heap;
 static struct list free_sg_lists;
-static struct spinlock sg_lock;   /* for free list */
+
+#ifndef BOOT
+static struct spinlock sg_spinlock;   /* for free list */
+static inline void sg_lock_init(void)
+{
+    spin_lock_init(&sg_spinlock);
+}
+
+static inline void sg_lock(void)
+{
+    spin_lock(&sg_spinlock);
+}
+
+static inline void sg_unlock(void)
+{
+    spin_unlock(&sg_spinlock);
+}
+#else
+#define sg_lock_init()
+#define sg_lock()
+#define sg_unlock()
+#endif
 
 /* copy content of sg, up to limit bytes, into target, consuming and
    deallocating everything */
@@ -38,14 +59,14 @@ u64 sg_copy_to_buf_and_release(void *target, sg_list sg, u64 limit)
 
 sg_list allocate_sg_list(void)
 {
-    spin_lock(&sg_lock);
+    sg_lock();
     list l = list_get_next(&free_sg_lists);
     if (l) {
         list_delete(l);
-        spin_unlock(&sg_lock);
+        sg_unlock();
         return struct_from_list(l, sg_list, l);
     }
-    spin_unlock(&sg_lock);
+    sg_unlock();
 
     sg_list sg = allocate(sg_heap, sizeof(struct sg_list));
     if (!sg)
@@ -64,9 +85,9 @@ void deallocate_sg_list(sg_list sg)
 {
     buffer_clear(sg->b);
     sg->count = 0;
-    spin_lock(&sg_lock);
+    sg_lock();
     list_insert_after(&free_sg_lists, &sg->l);
-    spin_unlock(&sg_lock);
+    sg_unlock();
 }
 
 closure_function(4, 0, void, sg_wrapped_buf_release,
@@ -122,5 +143,5 @@ void init_sg(heap h)
     sg_debug("%s\n", __func__);
     sg_heap = h;
     list_init(&free_sg_lists);
-    spin_lock_init(&sg_lock);
+    sg_lock_init();
 }

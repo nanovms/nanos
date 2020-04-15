@@ -99,6 +99,7 @@ heap init_process_runtime()
     init_runtime(h);
     init_tuples(allocate_tagged_region(h, tag_tuple));
     init_symbols(allocate_tagged_region(h, tag_symbol), h);
+    init_sg(h);
     init_extra_prints();
     signal(SIGPIPE, SIG_IGN);
     return h;
