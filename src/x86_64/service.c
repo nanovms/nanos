@@ -111,7 +111,7 @@ closure_function(2, 3, void, attach_storage,
     heap h = heap_general(&heaps);
     u64 offset = bound(fs_offset);
     length -= offset;
-    pagecache pc = allocate_pagecache(h, heap_backed(&heaps), length, PAGESIZE, SECTOR_SIZE,
+    pagecache pc = allocate_pagecache(h, heap_backed(&heaps), length, PAGESIZE_2M, SECTOR_SIZE,
                                       0 /* XXX mapper */,
                                       closure(h, offset_block_io, bound(fs_offset), r),
                                       closure(h, offset_block_io, bound(fs_offset), w));
