@@ -317,8 +317,10 @@ static void pagecache_write_page_internal_page_locked(pagecache pc, pagecache_pa
            state == PAGECACHE_PAGESTATE_ACTIVE || state == PAGECACHE_PAGESTATE_DIRTY);
 
     pagecache_debug("   copy %p <- %p %d bytes\n", dest, src, len);
+    assert(pp->node.r.start + len <= pc->length);
     runtime_memcpy(dest, src, len);
-    range blocks = range_rshift(pp->node.r, pc->block_order);
+    u64 end = MIN(pp->node.r.end, pc->length);
+    range blocks = range_rshift(irange(pp->node.r.start, end), pc->block_order);
     pagecache_debug("   write %p to block range %R\n", pp->kvirt, blocks);
     apply(pc->block_write, pp->kvirt, blocks, sh);
 }
@@ -387,7 +389,8 @@ closure_function(4, 1, void, pagecache_write_gap_cache_locked,
         }
 
         /* if this write covers the entire page, don't bother trying to fill it first */
-        if (range_span(range_intersection(pp->node.r, bound(q))) == pagesize) {
+        range i = range_intersection(pp->node.r, bound(q));
+        if (i.start == pp->node.r.start && i.end == MIN(pp->node.r.end, pc->length)) {
             spin_lock(&pp->lock);
             pagecache_write_page_internal_page_locked(pc, pp, bound(buf), bound(q), apply_merge(bound(m)));
             spin_unlock(&pp->lock);

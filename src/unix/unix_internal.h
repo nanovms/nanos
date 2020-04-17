@@ -253,6 +253,8 @@ typedef struct thread {
 
 typedef closure_type(io, sysreturn, void *buf, u64 length, u64 offset, thread t,
         boolean bh, io_completion completion);
+typedef closure_type(sg_io, sysreturn, sg_list sg, u64 length, u64 offset, thread t,
+        boolean bh, io_completion completion);
 
 #define FDESC_TYPE_REGULAR      1
 #define FDESC_TYPE_DIRECTORY    2
@@ -268,6 +270,7 @@ typedef closure_type(io, sysreturn, void *buf, u64 length, u64 offset, thread t,
 
 typedef struct fdesc {
     io read, write;
+    sg_io sg_read, sg_write;
     closure_type(events, u32, thread);
     closure_type(ioctl, sysreturn, unsigned long request, vlist ap);
 
@@ -393,6 +396,8 @@ static inline void init_fdesc(heap h, fdesc f, int type)
 {
     f->read = 0;
     f->write = 0;
+    f->sg_read = 0;
+    f->sg_write = 0;
     f->close = 0;
     f->events = 0;
     f->ioctl = 0;

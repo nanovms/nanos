@@ -67,7 +67,7 @@ static inline void sg_list_release(sg_list sg)
 }
 
 sg_list allocate_sg_list(void);
-void deallocate_sg_list(sg_list sgo);
+void deallocate_sg_list(sg_list sg);
 void init_sg(heap h);
 u64 sg_copy_to_buf_and_release(void *dest, sg_list src, u64 limit);
 sg_block_io sg_wrapped_block_reader(block_io bio, int block_order, heap backed);
