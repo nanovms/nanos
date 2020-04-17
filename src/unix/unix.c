@@ -81,7 +81,7 @@ static boolean handle_protection_fault(context frame, u64 vaddr, vmap vm)
 }
 
 // it so happens that f and frame should be the same number?
-define_closure_function(1, 1, void, default_fault_handler,
+define_closure_function(1, 1, context, default_fault_handler,
                         thread, t,
                         context, frame)
 {
@@ -120,17 +120,18 @@ define_closure_function(1, 1, void, default_fault_handler,
         }
 
         if (handle_protection_fault(frame, vaddr, vm))
-            return;
+            return 0;
 
         if (do_demand_page(fault_address(frame), vm)) {
             /* Dirty hack until we get page faults out of the kernel:
                If we're in the kernel context, return to the frame directly. */
             if (frame == current_cpu()->kernel_frame) {
                 current_cpu()->state = cpu_kernel;
+                return frame;
                 frame_return(frame);
             }
             schedule_frame(frame);
-            return;
+            return 0;
         }
     }
 

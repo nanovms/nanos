@@ -1,4 +1,3 @@
-#include <kernel.h>
 #include <unix_internal.h>
 #include <ftrace.h>
 #include <symtab.h>
@@ -1628,7 +1627,7 @@ closure_function(4, 1, void, __ftrace_send_http_chunk,
     if (__ftrace_send_http_chunk_internal(bound(routine), bound(p),
             bound(local_printer), bound(out)))
     {
-        register_timer(runlooop_timers, CLOCK_ID_MONOTONIC, SEND_HTTP_CHUNK_INTERVAL_MS, false, 0, (timer_handler)closure_self());
+        register_timer(runloop_timers, CLOCK_ID_MONOTONIC, SEND_HTTP_CHUNK_INTERVAL_MS, false, 0, (timer_handler)closure_self());
     } else {
         closure_finish();
     }
