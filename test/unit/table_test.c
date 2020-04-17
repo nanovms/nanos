@@ -181,6 +181,17 @@ static boolean one_elem_table_tests(heap h, u64 n_elem)
         return false;
     }
 
+    table_clear(t);
+    if (table_find(t, (void *)count)) {
+        msg_err("element found after table_clear()\n");
+        return false;
+    }
+    count = table_elements(t);
+    if (count != 0) {
+        msg_err("invalid table_elements() %d after table_clear()\n", count);
+        return false;
+    }
+
     deallocate_table(t);
     if (heap_allocated(h) != heap_occupancy) {
         msg_err("leak: heap_allocated(h) %ld, originally %ld\n", heap_allocated(h), heap_occupancy);
