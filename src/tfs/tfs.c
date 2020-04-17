@@ -533,7 +533,18 @@ static void remove_extent_from_file(fsfile f, extent ex, merge m)
     string allocated = table_find(e, sym(allocated));
     assert(allocated);
     deallocate_buffer(allocated);
-    deallocate_tuple(e);
+
+    /* This tuple is not deallocated because it is already referenced in the
+     * filesystem log and thus present in the dictionary. To avoid this leakage,
+     * we need additional functionalities in the filesystem log, e.g.:
+     * - being able to remove a dictionary entry without affecting the keys
+     * associated to the other (present and future) entries
+     * - being able to prune the log (and clean up the dictionary accordingly),
+     * to remove any log entries that are no longer relevant in the current
+     * status of the filesystem
+     */
+    clear_tuple(e);
+
     table_set(extents, offs, 0);
     rangemap_remove_node(f->extentmap, &ex->node);
     filesystem_write_eav(f->fs, extents, offs, 0, apply_merge(m));
@@ -671,7 +682,7 @@ boolean set_extent_length(fsfile f, extent ex, u64 length, merge m)
     /* update length in tuple and log */
     string v = aprintf(f->fs->h, "%ld", length);
     table_set(extent_tuple, sym(length), v);
-    filesystem_write_eav(f->fs, extents, offs, extent_tuple, apply_merge(m));
+    filesystem_write_eav(f->fs, extent_tuple, sym(length), v, apply_merge(m));
     return true;
 }
 
@@ -820,7 +831,7 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_ha
                     if (table_find(extent_tuple, sym(uninited))) {
                         tfs_debug("   removing uninited flag\n");
                         table_set(extent_tuple, sym(uninited), 0);
-                        filesystem_write_eav(f->fs, extents, offs, extent_tuple,
+                        filesystem_write_eav(f->fs, extent_tuple, sym(uninited), 0,
                                 apply_merge(m_meta));
                     }
                     e->uninited = false;
