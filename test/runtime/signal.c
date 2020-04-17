@@ -888,6 +888,99 @@ void test_signalfd(void)
         fail_error("child failed\n");
 }
 
+static uint8_t altstack[2048];
+
+static void test_sigaltstack_handler(int sig)
+{
+    stack_t ss, oss;
+
+    if (sigaltstack(NULL, &oss) < 0)
+        fail_perror("sigaltstack(NULL, &oss)");
+    if (!oss.ss_sp)
+        fail_error("oss.ss_sp 0\n");
+    if (!oss.ss_size)
+        fail_error("oss.ss_size 0\n");
+
+    ss.ss_flags = 0;
+    ss.ss_sp = altstack;
+    ss.ss_size = sizeof(altstack);
+    switch (sig) {
+    case SIGUSR1:
+        if (oss.ss_flags)
+            fail_error("SIGUSR1: flags 0x%x\n", oss.ss_flags);
+        if (sigaltstack(&ss, NULL) < 0)
+            fail_perror("sigaltstack(&ss, NULL)");
+        break;
+    case SIGUSR2:
+        if (oss.ss_flags != SS_ONSTACK)
+            fail_error("SIGUSR2: flags 0x%x\n", oss.ss_flags);
+        if (sigaltstack(&ss, NULL) == 0)
+            fail_error("sigaltstack() didn't fail\n");
+        if (errno != EPERM)
+            fail_perror("unexpected errno");
+        break;
+    }
+}
+
+void test_sigaltstack(void)
+{
+    stack_t ss, oss;
+    struct sigaction sa;
+
+    if (sigaltstack(NULL, &oss) < 0)
+        fail_perror("sigaltstack(NULL, &oss)");
+    if (!(oss.ss_flags & SS_DISABLE))
+        fail_error("oss.ss_flags 0x%x\n", oss.ss_flags);
+
+    ss.ss_flags = 0;
+    ss.ss_sp = altstack;
+    ss.ss_size = sizeof(altstack);
+    if (sigaltstack(&ss, NULL) < 0)
+        fail_perror("sigaltstack(&ss, NULL)");
+    if (sigaltstack(NULL, &oss) < 0)
+        fail_perror("sigaltstack(NULL, &oss)");
+    if (oss.ss_flags)
+        fail_error("oss.ss_flags 0x%x\n", oss.ss_flags);
+    if (oss.ss_sp != altstack)
+        fail_error("oss.ss_sp %p\n", oss.ss_sp);
+    if (oss.ss_size != sizeof(altstack))
+        fail_error("oss.ss_size %lu\n", oss.ss_size);
+
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = test_sigaltstack_handler;
+    if (sigaction(SIGUSR1, &sa, NULL) < 0)
+        fail_perror("sigaction(SIGUSR1)");
+    if (kill(__getpid(), SIGUSR1) < 0)
+        fail_perror("raise(SIGUSR1)");
+
+    sa.sa_flags |= SA_ONSTACK;
+    if (sigaction(SIGUSR2, &sa, NULL) < 0)
+        fail_perror("sigaction(SIGUSR2)");
+    if (kill(__getpid(), SIGUSR2))
+        fail_perror("raise(SIGUSR2)");
+
+    ss.ss_flags = SS_DISABLE;
+    if (sigaltstack(&ss, NULL) < 0)
+        fail_perror("sigaltstack(&ss, NULL)");
+    if (sigaltstack(NULL, &oss) < 0)
+        fail_perror("sigaltstack(NULL, &oss)");
+    if (!(oss.ss_flags & SS_DISABLE))
+        fail_error("oss.ss_flags 0x%x\n", oss.ss_flags);
+
+    ss.ss_flags = ~SS_DISABLE;
+    if (sigaltstack(&ss, NULL) == 0)
+        fail_error("sigaltstack() with invalid flags\n");
+    if (errno != EINVAL)
+        fail_perror("sigaltstack() with invalid flags");
+
+    ss.ss_flags = 0;
+    ss.ss_size = 1;
+    if (sigaltstack(&ss, NULL) == 0)
+        fail_error("sigaltstack() with small size\n");
+    if (errno != ENOMEM)
+        fail_perror("sigaltstack() with small size");
+}
+
 int main(int argc, char * argv[])
 {
     setbuf(stdout, NULL);
@@ -907,6 +1000,8 @@ int main(int argc, char * argv[])
     test_rt_sigtimedwait();
 
     test_signalfd();
+
+    test_sigaltstack();
 
     printf("signal test passed\n");
 }

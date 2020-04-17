@@ -547,6 +547,7 @@ typedef struct {
 #define SS_ONSTACK      1
 #define SS_DISABLE      2
 
+#define MINSIGSTKSZ     2048
 
 #define UC_FP_XSTATE            0x1
 #define UC_SIGCONTEXT_SS        0x2

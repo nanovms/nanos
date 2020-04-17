@@ -588,21 +588,45 @@ sysreturn rt_sigsuspend(const u64 * mask, u64 sigsetsize)
     return blockq_check(t->thread_bq, t, ba, false);
 }
 
+static boolean thread_is_on_altsigstack(thread t)
+{
+    return (t->active_signo &&
+            point_in_range(irange(u64_from_pointer(t->signal_stack),
+            u64_from_pointer(t->signal_stack + t->signal_stack_length)),
+            t->sighandler_frame[FRAME_RSP]));
+}
+
 sysreturn sigaltstack(const stack_t *ss, stack_t *oss)
 {
 
     thread t = current;
-    // xxx = validate ss, oss, ss_sp
-    oss->ss_sp = t->signal_stack;
-    oss->ss_size = t->signal_stack_length;
-    oss->ss_flags = 0;
+    if (oss) {
+        if (t->signal_stack) {
+            oss->ss_sp = t->signal_stack;
+            oss->ss_size = t->signal_stack_length;
+            oss->ss_flags = (thread_is_on_altsigstack(t) ? SS_ONSTACK : 0);
+        } else {
+            oss->ss_flags = SS_DISABLE;
+        }
+    }
     // it doesn't seem possible to re-enable without setting
     // a new stack....so we think this is a valid interpretation
-    if (ss->ss_flags & SS_DISABLE) {
-        t->signal_stack = 0;   
-    }  else {
-        t->signal_stack = ss->ss_sp;
-        t->signal_stack_length = ss->ss_size;
+    if (ss) {
+        if (thread_is_on_altsigstack(t)) {
+            return -EPERM;
+        }
+        if (ss->ss_flags & SS_DISABLE) {
+            t->signal_stack = 0;
+        } else {
+            if (ss->ss_flags) { /* unknown flags */
+                return -EINVAL;
+            }
+            if (ss->ss_size < MINSIGSTKSZ) {
+                return -ENOMEM;
+            }
+            t->signal_stack = ss->ss_sp;
+            t->signal_stack_length = ss->ss_size;
+        }
     }
     return 0;
 }
@@ -1184,7 +1208,7 @@ void register_signal_syscalls(struct syscall *map)
     register_syscall(map, rt_sigreturn, rt_sigreturn);
     register_syscall(map, rt_sigsuspend, rt_sigsuspend);
     register_syscall(map, rt_sigtimedwait, rt_sigtimedwait);
-    register_syscall(map, sigaltstack, syscall_ignore);
+    register_syscall(map, sigaltstack, sigaltstack);
     register_syscall(map, signalfd, signalfd);
     register_syscall(map, signalfd4, signalfd4);
     register_syscall(map, tgkill, tgkill);
