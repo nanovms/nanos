@@ -1,8 +1,5 @@
 #ifdef CONFIG_FTRACE
 
-#include <runtime.h>
-#include <unix_internal.h>
-
 #define FTRACE_TRACE_DIR                "/sys/kernel/debug/tracing"
 #define FTRACE_TRACER_DIR(tracer)       FTRACE_TRACE_DIR "/" #tracer
 

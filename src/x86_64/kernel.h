@@ -146,7 +146,7 @@ void physically_backed_dealloc_virtual(heap h, u64 x, bytes length);
 void print_stack(context c);
 void print_frame(context f);
 
-typedef closure_type(fault_handler, void, context);
+typedef closure_type(fault_handler, context, context);
 
 void configure_timer(timestamp rate, thunk t);
 

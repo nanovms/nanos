@@ -281,7 +281,9 @@ void common_handler()
     } else {
         fault_handler fh = pointer_from_u64(f[FRAME_FAULT_HANDLER]);
         if (fh) {
-            apply(fh, f);
+            context retframe = apply(fh, f);
+            if (retframe)
+                frame_return(retframe);
         } else {
             console("\nno fault handler for frame ");
             print_u64(u64_from_pointer(f));

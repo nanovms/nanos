@@ -108,7 +108,7 @@ static inline void update_timer(cpuinfo ci)
     runloop_timer(timeout);
 }
 
-void __attribute__((noreturn)) kernel_sleep(void)
+NOTRACE void __attribute__((noreturn)) kernel_sleep(void)
 {
     // we're going to cover up this race by checking the state in the interrupt
     // handler...we shouldn't return here if we do get interrupted
@@ -125,7 +125,7 @@ void __attribute__((noreturn)) kernel_sleep(void)
 }
 
 // should we ever be in the user frame here? i .. guess so?
-void __attribute__((noreturn)) runloop_internal()
+NOTRACE void __attribute__((noreturn)) runloop_internal()
 {
     cpuinfo ci = current_cpu();
     thunk t;

@@ -189,7 +189,7 @@ declare_closure_struct(1, 0, void, run_thread,
                        thread, t);
 declare_closure_struct(1, 0, void, run_sighandler,
                        thread, t);
-declare_closure_struct(1, 1, void, default_fault_handler,
+declare_closure_struct(1, 1, context, default_fault_handler,
                        thread, t,
                        context, frame);
 
