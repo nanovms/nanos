@@ -148,6 +148,8 @@ sysreturn futex(int *uaddr, int futex_op, int val,
     
     op = futex_op & 127; // chuck the private bit
     ts = get_timeout_timestamp(op, val2);
+    clock_id clkid = (futex_op & FUTEX_CLOCK_REALTIME) ? CLOCK_ID_REALTIME :
+            CLOCK_ID_MONOTONIC;
 
     switch (op) {
     case FUTEX_WAIT: {
@@ -163,7 +165,7 @@ sysreturn futex(int *uaddr, int futex_op, int val,
 
         return blockq_check_timeout(f->bq, current, 
                                     closure(f->h, futex_bh, f, current),
-                                    false, CLOCK_ID_MONOTONIC, ts, false);
+                                    false, clkid, ts, false);
     }
 
     case FUTEX_WAKE: {
@@ -254,10 +256,9 @@ sysreturn futex(int *uaddr, int futex_op, int val,
             return set_syscall_error(current, EAGAIN);
 
         set_syscall_return(current, 0);
-        // TODO: timeout should be absolute based on CLOCK_REALTIME
         return blockq_check_timeout(f->bq, current, 
                                     closure(f->h, futex_bh, f, current),
-                                    false, CLOCK_ID_MONOTONIC, ts, false);
+                                    false, clkid, ts, true);
     }
 
     case FUTEX_REQUEUE: rprintf("futex_requeue not implemented\n"); break;

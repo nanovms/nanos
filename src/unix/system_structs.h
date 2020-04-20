@@ -258,6 +258,8 @@ struct utimbuf {
 #define FUTEX_WAIT_REQUEUE_PI	11
 #define FUTEX_CMP_REQUEUE_PI	12
 
+#define FUTEX_CLOCK_REALTIME    (1 << 8)
+
 #define  FUTEX_OP_SET        0  /* uaddr2 = oparg; */
 #define  FUTEX_OP_ADD        1  /* uaddr2 += oparg; */
 #define  FUTEX_OP_OR         2  /* uaddr2 |= oparg; */
