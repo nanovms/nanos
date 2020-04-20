@@ -59,16 +59,7 @@ table allocate_table(heap h, u64 (*key_function)(void *x), boolean (*equals_func
 void deallocate_table(table t)
 {
     table_paranoia(t, "deallocate");
-    for(int i = 0; i < t->buckets; i++) {
-        entry e = t->entries[i];
-        if (!e)
-            continue;
-        do {
-            entry next = e->next;
-            deallocate(t->h, e, sizeof(struct entry));
-            e = next;
-        } while(e);
-    }
+    table_clear(t);
     deallocate(t->h, t->entries, t->buckets * sizeof(void *));
     deallocate(t->h, t, sizeof(struct table));
 }
@@ -158,4 +149,20 @@ int table_elements(table z)
 {
     table t = valueof(z);
     return(t->count);
+}
+
+void table_clear(table t)
+{
+    for(int i = 0; i < t->buckets; i++) {
+        entry e = t->entries[i];
+        if (!e)
+            continue;
+        do {
+            entry next = e->next;
+            deallocate(t->h, e, sizeof(struct entry));
+            e = next;
+        } while (e);
+        t->entries[i] = 0;
+    }
+    t->count = 0;
 }

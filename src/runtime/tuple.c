@@ -203,11 +203,16 @@ void encode_eav(buffer dest, table dictionary, tuple e, symbol a, value v)
     encode_value(dest, dictionary, v);
 }
 
-// immediate only
 void encode_tuple(buffer dest, table dictionary, tuple t)
 {
-    push_header(dest, immediate, type_tuple, t->count);
-    srecord(dictionary, t);
+    u64 d = u64_from_pointer(table_find(dictionary, t));
+    if (d) {
+        push_header(dest, reference, type_tuple, t->count);
+        push_varint(dest, d);
+    } else {
+        push_header(dest, immediate, type_tuple, t->count);
+        srecord(dictionary, t);
+    }
     table_foreach (t, n, v) {
         encode_symbol(dest, dictionary, n);
         encode_value(dest, dictionary, v);
