@@ -302,7 +302,7 @@ void newstack()
                       SECTOR_SIZE,
                       infinity,
                       0,         /* ignored in boot */
-                      get_stage2_disk_read(h, fs_offset),
+                      sg_wrapped_block_reader(get_stage2_disk_read(h, fs_offset), SECTOR_OFFSET, heap_backed(&kh)),
                       closure(h, stage2_empty_write),
                       root,
                       false,
@@ -351,6 +351,7 @@ void centry()
     init_runtime(&working_heap);
     init_tuples(allocate_tagged_region(&working_heap, tag_tuple));
     init_symbols(allocate_tagged_region(&working_heap, tag_symbol), &working_heap);
+    init_sg(&working_heap);
     init_extra_prints();
     stage2_debug("%s\n", __func__);
 

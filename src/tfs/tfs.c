@@ -100,7 +100,16 @@ typedef struct fs_dma_buf {
     range blocks;        /* in sectors, not bytes */
     u64 start_offset;    /* offset of query start within first block */
     u64 data_length;
+    struct refcount refcount;
 } *fs_dma_buf;
+
+closure_function(2, 0, void, fs_release_dma_buffer,
+                 filesystem, fs, fs_dma_buf, db)
+{
+    fs_dma_buf db = bound(db);
+    deallocate(bound(fs)->dma, db->buf, db->alloc_size);
+    deallocate(bound(fs)->h, db, sizeof(struct fs_dma_buf));
+}
 
 static fs_dma_buf fs_allocate_dma_buffer(filesystem fs, extent e, range i)
 {
@@ -129,107 +138,69 @@ static fs_dma_buf fs_allocate_dma_buffer(filesystem fs, extent e, range i)
 #else
     db->buf = 0;                /* fixed up by caller for stage2 */
 #endif
+    init_refcount(&db->refcount, 1, closure(fs->h, fs_release_dma_buffer, fs, db));
     return db;
 }
 
-static void fs_deallocate_dma_buffer(filesystem fs, fs_dma_buf db)
+static void fs_zero_pad_sg(filesystem fs, sg_list sg, u64 length)
 {
-#ifndef BOOT
-    deallocate(fs->dma, db->buf, db->alloc_size);
-#endif
-    deallocate(fs->h, db, sizeof(struct fs_dma_buf));
-}
+    static void *fs_zero_page;
+    static struct refcount fs_zero_page_refcount;
 
-closure_function(4, 1, void, fs_read_extent_complete,
-                 filesystem, fs, fs_dma_buf, db, void *, target, status_handler, sh,
-                 status, s)
-{
-    fs_dma_buf db = bound(db);
-    tfs_debug("fs_read_extent_complete: dma buf 0x%p, start_offset %ld, length %ld, target %p, status %v\n",
-              db->buf, db->start_offset, db->data_length, bound(target), s);
-#ifndef BOOT
-    if (is_ok(s))
-        runtime_memcpy(bound(target), db->buf + db->start_offset, db->data_length);
-#endif
-    fs_deallocate_dma_buffer(bound(fs), db);
-    apply(bound(sh), s);
-    closure_finish();
+    if (!fs_zero_page) {
+        init_refcount(&fs_zero_page_refcount, 1, 0);
+        assert(fs->dma);
+        fs_zero_page = allocate_zero(fs->dma, PAGESIZE);
+        assert(fs_zero_page != INVALID_ADDRESS);
+    }
+
+    sg_buf sgb;
+    while (length > 0) {
+        u64 n = MIN(length, PAGESIZE);
+        sgb = sg_list_tail_add(sg, n);
+        sgb->buf = fs_zero_page;
+        sgb->length = n;
+        sgb->refcount = &fs_zero_page_refcount;
+        refcount_reserve(&fs_zero_page_refcount);
+        length -= n;
+    }
 }
 
 closure_function(4, 1, void, fs_read_extent,
-                 filesystem, fs, buffer, target, merge, m, range, q,
+                 filesystem, fs, sg_list, sg, merge, m, range, q,
                  rmnode, node)
 {
     filesystem fs = bound(fs);
-    buffer target = bound(target);
     range q = bound(q);
     range i = range_intersection(q, node->r);
-    u64 length = range_span(i);
-    u64 target_offset = i.start - q.start;
-    void *target_start = buffer_ref(target, target_offset);
+    u64 len = range_span(i);
+    assert(len > 0);
     extent e = (extent)node;
-    status_handler f = apply_merge(bound(m));
-
     if (e->uninited) {
-        runtime_memset(target_start, 0, length);
-        fetch_and_add(&target->end, length);
-        apply(f, STATUS_OK);
+        fs_zero_pad_sg(bound(fs), bound(sg), len);
         return;
     }
-
-    /* get and init dma buf */
-    fs_dma_buf db = fs_allocate_dma_buffer(fs, e, i);
-    if (db == INVALID_ADDRESS) {
-        msg_err("failed; unable to allocate dma buffer, i span %ld bytes\n", length);
-        return;
-    }
-#ifdef BOOT
-    /* XXX To skip the copy in stage2, we're banking on the kernel
-       being loaded in its entirety, with no partial-block reads
-       (except the end, but that's fine). */
-    assert(i.start == node->r.start);
-    db->buf = target_start;
-#endif
-
-    tfs_debug("fs_read_extent: q %R, ex %R, blocks %R, start_offset %ld, i %R, "
-              "target_offset %ld, target_start %p, length %ld, blocksize %ld\n",
-              q, node->r, db->blocks, db->start_offset, i,
-              target_offset, target_start, db->data_length, fs_blocksize(fs));
-
-    fetch_and_add(&target->end, db->data_length);
-    status_handler copy = closure(fs->h, fs_read_extent_complete, fs, db, target_start, f);
-    apply(fs->r, db->buf, db->blocks, copy);
+    bytes absolute = e->block_start + i.start - e->node.r.start;
+    range r = irange(absolute, absolute + len);
+    tfs_debug("fs_read_extent (sg): sg %p, len %ld, q %R, i %R, r %R\n", bound(sg), len, q, i, r);
+    apply(fs->sg_r, bound(sg), r, apply_merge(bound(m)));
 }
 
+
 closure_function(3, 1, void, fs_zero_hole,
-                 filesystem, fs, buffer, target, range, q,
+                 filesystem, fs, sg_list, sg, range, q,
                  range, z)
 {
     range q = bound(q);
     range i = range_intersection(q, z);
-    u64 target_offset = i.start - q.start;
-    void * target_start = buffer_ref(bound(target), target_offset);
     u64 length = range_span(i);
-    tfs_debug("fs_zero_hole: i %R, target_start %p, length %ld\n", i, target_start, length);
-    runtime_memset(target_start, 0, length);
-    fetch_and_add(&bound(target)->end, length);
+    tfs_debug("fs_zero_hole: i %R, length %ld\n", i, length);
+    fs_zero_pad_sg(bound(fs), bound(sg), length);
 }
 
 io_status_handler ignore_io_status;
 
-closure_function(3, 1, void, filesystem_read_complete,
-                 heap, h, io_status_handler, c, buffer, b,
-                 status, s)
-{
-    buffer b = bound(b);
-    tfs_debug("filesystem_read_complete: status %v, length %d\n", s, buffer_length(b));
-    report_sha256(b);
-    apply(bound(c), s, is_ok(s) ? buffer_length(b) : 0);
-    unwrap_buffer(bound(h), b);
-    closure_finish();
-}
-
-static void filesystem_read_internal(filesystem fs, fsfile f, buffer b, u64 length, u64 offset,
+static void filesystem_read_internal(filesystem fs, fsfile f, sg_list sg, u64 length, u64 offset,
                                      status_handler sh)
 {
     merge m = allocate_merge(fs->h, sh);
@@ -242,43 +213,64 @@ static void filesystem_read_internal(filesystem fs, fsfile f, buffer b, u64 leng
     }
     range total = irange(offset, offset + actual_length);
 
-    /* read extent data */
-    rangemap_range_lookup(f->extentmap, total, stack_closure(fs_read_extent, fs, b, m, total));
-
-    /* zero areas corresponding to file holes */
-    rangemap_range_find_gaps(f->extentmap, total, stack_closure(fs_zero_hole, fs, b, total));
+    /* read extent data and zero gaps */
+    rangemap_range_lookup_with_gaps(f->extentmap, total,
+                                    stack_closure(fs_read_extent, fs, sg, m, total),
+                                    stack_closure(fs_zero_hole, fs, sg, total));
 
     apply(k, STATUS_OK);
 }
 
-void filesystem_read(filesystem fs, tuple t, void *dest, u64 length, u64 offset,
-                     io_status_handler io_complete)
+void filesystem_read_sg(filesystem fs, tuple t, sg_list sg,
+                        u64 length, u64 offset,
+                        status_handler sh)
 {
-    tfs_debug("filesystem_read: t %v, dest %p, length %ld, offset %ld, completion %p\n",
-              t, dest, length, offset, io_complete);
+    tfs_debug("%s: t %v, sg %p, length %ld, offset %ld, completion %p\n",
+              __func__, t, sg, length, offset, sh);
     fsfile f;
     if (!(f = table_find(fs->files, t))) {
         tuple e = timm("result", "no such file %t", t);
-        apply(io_complete, e, 0);
+        apply(sh, e);
         return;
     }
-
-    /* b->end will accumulate the read extent and hole lengths, thus
-       effectively handing a read length to the completion. */
-    buffer b = wrap_buffer(fs->h, dest, length);
-    b->end = b->start;
-    status_handler sh = closure(fs->h, filesystem_read_complete, fs->h, io_complete, b);
-    filesystem_read_internal(fs, f, b, length, offset, sh);
+    filesystem_read_internal(fs, f, sg, length, offset, sh);
 }
 
-closure_function(3, 1, void, read_entire_complete,
-                 buffer_handler, bh, buffer, b, status_handler, sh,
+/* TODO moving sg up to syscall level means eliminating this extra step */
+closure_function(4, 1, void, filesystem_read_complete,
+                 void *, dest, u64, limit, io_status_handler, io_complete, sg_list, sg,
+                 status, s)
+{
+    u64 count = 0;
+    if (is_ok(s)) {
+        count = sg_copy_to_buf_and_release(bound(dest), bound(sg), bound(limit));
+    }
+    apply(bound(io_complete), s, count);
+    closure_finish();
+}
+
+void filesystem_read_linear(filesystem fs, tuple t, void *dest,
+                            u64 length, u64 offset,
+                            io_status_handler io_complete)
+{
+    sg_list sg = allocate_sg_list();
+    if (sg == INVALID_ADDRESS) {
+        apply(io_complete, timm("result", "failed to allocate sg list"), 0);
+        return;
+    }
+    filesystem_read_sg(fs, t, sg, length, offset,
+                       closure(fs->h, filesystem_read_complete, dest, length, io_complete, sg));
+}
+
+closure_function(5, 1, void, read_entire_complete,
+                 sg_list, sg, buffer_handler, bh, buffer, b, u64, length, status_handler, sh,
                  status, s)
 {
     buffer b = bound(b);
-    tfs_debug("read_entire_complete: status %v, addr %p, length %d\n",
-              s, buffer_ref(b, 0), buffer_length(b));
+    tfs_debug("read_entire_complete: status %v, addr %p\n", s, buffer_ref(b, 0));
     if (is_ok(s)) {
+        u64 len = sg_copy_to_buf_and_release(buffer_ref(bound(b), 0), bound(sg), bound(length));
+        buffer_produce(b, len);
         report_sha256(b);
         apply(bound(bh), b);
     } else {
@@ -294,14 +286,24 @@ void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler
               t, bufheap, c, sh);
     fsfile f;
     if (!(f = table_find(fs->files, t))) {
-        tuple e = timm("result", "no such file %t", t);
-        apply(sh, e);
+        apply(sh, timm("result", "no such file %t", t));
         return;
     }
 
     u64 length = pad(fsfile_get_length(f), fs_blocksize(fs));
     buffer b = allocate_buffer(bufheap, pad(length, bufheap->pagesize));
-    filesystem_read_internal(fs, f, b, length, 0, closure(fs->h, read_entire_complete, c, b, sh));
+    if (b == INVALID_ADDRESS)
+        goto alloc_fail;
+    sg_list sg = allocate_sg_list();
+    if (sg == INVALID_ADDRESS) {
+        deallocate_buffer(b);
+        goto alloc_fail;
+    }
+    filesystem_read_internal(fs, f, sg, length, 0, closure(fs->h, read_entire_complete, sg, c, b, length, sh));
+    return;
+  alloc_fail:
+    apply(sh, timm("result", "allocation failure"));
+    return;
 }
 
 /*
@@ -318,7 +320,7 @@ closure_function(3, 1, void, fs_write_extent_complete,
                  status, s)
 {
     tfs_debug("fs_write_extent_complete: status %v\n", s);
-    fs_deallocate_dma_buffer(bound(fs), bound(db));
+    refcount_release(&bound(db)->refcount);
     apply(bound(sh), s);
     closure_finish();
 }
@@ -349,15 +351,34 @@ closure_function(4, 1, void, fs_write_extent_aligned_closure,
     closure_finish();
 }
 
+closure_function(4, 1, void, fs_write_extent_read_block_sg_complete,
+                 filesystem, fs, void *, buf, sg_list, sg, status_handler, sh,
+                 status, s)
+{
+    if (is_ok(s)) {
+        sg_copy_to_buf_and_release(bound(buf), bound(sg), fs_blocksize(bound(fs)));
+    }
+    apply(bound(sh), s);
+}
+
 static void fs_write_extent_read_block(filesystem fs, fs_dma_buf db, u64 offset_block, status_handler sh)
 {
     u64 absolute_block = db->blocks.start + offset_block;
     void * buf = db->buf + bytes_from_sectors(fs, offset_block);
-    range r = irange(absolute_block, absolute_block + 1);
-    tfs_debug("fs_write_extent_read_block: sector range %R, buf %p\n", r, buf);
-    apply(fs->r, buf, r, sh);
+    range r = irange(bytes_from_sectors(fs, absolute_block),
+                     bytes_from_sectors(fs, absolute_block + fs_blocksize(fs)));
+    tfs_debug("fs_write_extent_read_block (sg): sector range %R, buf %p\n", r, buf);
+    sg_list sg = allocate_sg_list();
+    if (sg == INVALID_ADDRESS) {
+        apply(sh, timm("result", "%s: failed to allocate sg list", __func__));
+        return;
+    }
+    apply(fs->sg_r, sg, r, closure(fs->h, fs_write_extent_read_block_sg_complete,
+                                   fs, buf, sg, sh));
 }
 
+/* TODO: eliminate extra copy (and possibly head/tail reads) by
+   writing directly to pagecache buffers */
 static void fs_write_extent(filesystem fs, buffer source, merge m, range q, rmnode node)
 {
     range i = range_intersection(q, node->r);
@@ -485,7 +506,6 @@ static extent create_extent(filesystem fs, range r, boolean uninited)
     }
     tfs_debug("   block_start 0x%lx\n", block_start);
 
-    /* XXX this extend / alloc stuff is getting redone */
     extent ex = allocate_extent(h, r, block_start, alloc_bytes);
     if (ex == INVALID_ADDRESS)
         halt("out of memory\n");
@@ -653,7 +673,7 @@ boolean set_extent_length(fsfile f, extent ex, u64 length, merge m)
     range r = ex->node.r;
     r.end = ex->node.r.start + length;
 
-    if (rangemap_range_lookup(f->extentmap, r, 0)) {
+    if (rangemap_range_intersects(f->extentmap, r)) {
         tfs_debug("failed: collides with existing extent\n");
         return false;
     }
@@ -1264,6 +1284,7 @@ closure_function(2, 1, void, log_complete,
                  filesystem_complete, fc, filesystem, fs,
                  status, s)
 {
+    tfs_debug("%s: complete %p, fs %p, status %v\n", __func__, bound(fc), bound(fs), s);
     filesystem fs = bound(fs);
     fixup_directory(fs->root, fs->root);
     apply(bound(fc), fs, s);
@@ -1278,23 +1299,25 @@ void create_filesystem(heap h,
                        u64 blocksize,
                        u64 size,
                        heap dma,
-                       block_io read,
+                       sg_block_io read,
                        block_io write,
                        tuple root,
                        boolean initialize,
                        filesystem_complete complete)
 {
-    tfs_debug("create_filesystem: ...\n");
+    tfs_debug("%s\n", __func__);
     filesystem fs = allocate(h, sizeof(struct filesystem));
+    assert(fs != INVALID_ADDRESS);
+    fs->h = h;
     ignore_io_status = closure(h, ignore_io);
     fs->files = allocate_table(h, identity_key, pointer_equal);
     fs->extents = allocate_table(h, identity_key, pointer_equal);
     fs->dma = dma;
-    fs->r = read;
-    fs->h = h;
+    fs->sg_r = read;
     fs->w = write;
     fs->root = root;
     fs->alignment = alignment;
+    fs->size = size;
     assert((blocksize & (blocksize - 1)) == 0); /* power of 2 */
     fs->blocksize_order = find_order(blocksize);
 #ifndef BOOT

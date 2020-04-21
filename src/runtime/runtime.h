@@ -180,7 +180,10 @@ typedef closure_type(thunk, void);
 
 typedef closure_type(buffer_handler, status, buffer);
 typedef closure_type(connection_handler, buffer_handler, buffer_handler);
+typedef closure_type(io_status_handler, void, status, bytes);
 typedef closure_type(block_io, void, void *, range, status_handler);
+
+#include <sg.h>
 
 // should be  (parser, parser, character)
 typedef closure_type(parser, void *, character);

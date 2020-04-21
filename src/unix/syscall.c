@@ -441,33 +441,47 @@ static boolean is_special(tuple n)
     return table_find(n, sym(special)) ? true : false;
 }
 
-closure_function(5, 2, void, file_op_complete,
-                 thread, t, file, f, fsfile, fsf, boolean, is_file_offset, io_completion, completion,
-                 status, s, bytes, length)
+static inline void file_op_complete_internal(thread t, file f, fsfile fsf, boolean is_file_offset,
+                                             io_completion completion, status s, bytes length)
 {
-    thread t = bound(t);
-    file f = bound(f);
-
     thread_log(t, "%s: len %d, status %v (%s)", __func__,
             length, s, is_ok(s) ? "OK" : "NOTOK");
     sysreturn rv;
     if (is_ok(s)) {
         /* if regular file, update length */
-        if (bound(fsf))
-            f->length = fsfile_get_length(bound(fsf));
-        if (bound(is_file_offset)) /* vs specified offset (pread) */
+        if (fsf)
+            f->length = fsfile_get_length(fsf);
+        if (is_file_offset) /* vs specified offset (pread) */
             f->offset += length;
         rv = length;
     } else {
-        /* XXX should peek inside s and map to errno... */
+        /* report these to console for now */
+        msg_err("file op failed with %v\n", s);
         rv = -EIO;
     }
-    apply(bound(completion), t, rv);
+    apply(completion, t, rv);
+}
+
+closure_function(5, 2, void, file_op_complete,
+                 thread, t, file, f, fsfile, fsf, boolean, is_file_offset, io_completion, completion,
+                 status, s, bytes, length)
+{
+    file_op_complete_internal(bound(t), bound(f), bound(fsf), bound(is_file_offset),
+                              bound(completion), s, length);
+    closure_finish();
+}
+
+closure_function(6, 1, void, file_op_complete_sg,
+                 thread, t, file, f, fsfile, fsf, sg_list, sg, boolean, is_file_offset, io_completion, completion,
+                 status, s)
+{
+    file_op_complete_internal(bound(t), bound(f), bound(fsf), bound(is_file_offset),
+                              bound(completion), s, bound(sg)->count);
     closure_finish();
 }
 
 closure_function(9, 2, void, sendfile_bh,
-                 heap, h, fdesc, in, fdesc, out, int *, offset, void *, buf, bytes, count, bytes, readlen, bytes, written, boolean, bh,
+                 fdesc, in, fdesc, out, int *, offset, sg_list, sg, sg_buf, cur_buf, bytes, count, bytes, readlen, bytes, written, boolean, bh,
                  thread, t, sysreturn, rv)
 {
     thread_log(t, "%s: readlen %ld, written %ld, bh %d, rv %ld",
@@ -491,54 +505,87 @@ closure_function(9, 2, void, sendfile_bh,
         goto out_complete;
     }
 
-    /* !bh means read complete / initiating send */
+    /* !bh means read complete (rv == bytes read) */
     if (!bound(bh)) {
         bound(bh) = true;
         bound(readlen) = rv;
+
+        /* this whole offset advance / rewind thing can go away if we
+           redo the io methods so that the file_op_complete* only
+           happens at the end of the chain, using only status_handlers
+           (io_status_handler for linear) in the middle */
         if (bound(offset))
             *bound(offset) += rv;
-        thread_log(t, "   read %ld bytes, writing (@%p)", rv, bound(buf));
-        apply(bound(out)->write, bound(buf), rv, 0, t, true, (io_completion)closure_self());
-        return;
+        bound(cur_buf) = sg_list_head_remove(bound(sg)); /* initial dequeue */
+        assert(bound(cur_buf) != INVALID_ADDRESS);
+        bound(cur_buf)->misc = 0; /* offset for our use */
+        thread_log(t, "   read %ld bytes\n", rv);
+    } else {
+        bound(written) += rv;
+        bound(cur_buf)->misc += rv;
+        assert(bound(cur_buf)->length >= rv);
+        if (bound(cur_buf)->misc == bound(cur_buf)->length) {
+            sg_buf_release(bound(cur_buf));
+            if (bound(written) == bound(readlen)) {
+                rv = bound(written);
+                goto out_complete;
+            }
+            bound(cur_buf) = sg_list_head_remove(bound(sg));
+            assert(bound(cur_buf) != INVALID_ADDRESS);
+            bound(cur_buf)->misc = 0; /* offset for our use */
+        }
     }
 
-    bound(written) += rv;
-    if (bound(written) == bound(readlen)) {
-        rv = bound(written);
-        goto out_complete;
-    }
-
-    /* partially written; issue next */
-    s64 remain = bound(readlen) - bound(written);
-    assert(remain > 0);
-
-    void *target = bound(buf) + bound(written);
-    thread_log(t, "   continue writing %ld bytes (@%p)", remain, target);
-    apply(bound(out)->write, target, remain, 0, t, bound(bh), (io_completion)closure_self());
+    /* issue next write */
+    assert(bound(cur_buf));
+    void *buf = bound(cur_buf)->buf + bound(cur_buf)->misc;
+    u32 n = bound(cur_buf)->length - bound(cur_buf)->misc;
+    thread_log(t, "   writing %d bytes from %p", rv, n, buf);
+    apply(bound(out)->write, buf, n, 0, t, true, (io_completion)closure_self());
     return;
 out_complete:
-    deallocate(bound(h), bound(buf), bound(count));
+    sg_list_release(bound(sg));
+    deallocate_sg_list(bound(sg));
     set_syscall_return(t, rv);
     if (bound(bh))
         file_op_maybe_wake(t);
     closure_finish();
 }
 
+/* Should be determined more intelligently based on available
+   buffering on output side, modulated by link capacity
+   (e.g. bandwidth delay product). Right now assuming the common mode
+   is tcp output with 64kB max window size... */
+
+#define SENDFILE_READ_MAX (64 * KB)
+
+/* requires infile to have sg_read method - so sendfile from special files isn't supported */
 static sysreturn sendfile(int out_fd, int in_fd, int *offset, bytes count)
 {
     thread_log(current, "%s: out %d, in %d, offset %p, *offset %d, count %ld",
                __func__, out_fd, in_fd, offset, offset ? *offset : 0, count);
     fdesc infile = resolve_fd(current->p, in_fd);
     fdesc outfile = resolve_fd(current->p, out_fd);
-    heap h = heap_general(get_kernel_heaps());
-
-    if (!infile->read || !outfile->write)
+    if (!infile->sg_read || !outfile->write)
         return set_syscall_error(current, EINVAL);
 
-    void *buf = allocate(h, count);
-    io_completion read_complete = closure(h, sendfile_bh, h, infile, outfile, offset, buf, count, 0, 0, false);
-    apply(infile->read, buf, count, offset ? *offset : infinity, current, false, read_complete);
+    sg_list sg = allocate_sg_list();
+    if (sg == INVALID_ADDRESS)
+        return set_syscall_error(current, ENOMEM);
+
+    u64 n = MIN(count, SENDFILE_READ_MAX);
+    io_completion read_complete = closure(heap_general(get_kernel_heaps()), sendfile_bh, infile, outfile,
+                                          offset, sg, 0, n, 0, 0, false);
+    apply(infile->sg_read, sg, n, offset ? *offset : infinity, current, false, read_complete);
     return sysreturn_value(current);
+}
+
+static void begin_file_read(thread t, file f)
+{
+    if ((f->length > 0) && !(f->f.flags & O_NOATIME)) {
+        filesystem_update_atime(t->p->fs, f->n);
+    }
+    file_op_begin(t);
 }
 
 closure_function(2, 6, sysreturn, file_read,
@@ -557,23 +604,47 @@ closure_function(2, 6, sysreturn, file_read,
     if (is_special(f->n)) {
         return spec_read(f, dest, length, offset, t, bh, completion);
     }
-
-    if (offset < f->length) {
-        if ((f->length > 0) && !(f->f.flags & O_NOATIME)) {
-            filesystem_update_atime(t->p->fs, f->n);
-        }
-        file_op_begin(t);
-        filesystem_read(t->p->fs, f->n, dest, length, offset,
-                        closure(heap_general(get_kernel_heaps()),
-                                file_op_complete, t, f, fsf, is_file_offset,
-                                completion));
-
-        /* possible direct return in top half */
-        return bh ? SYSRETURN_CONTINUE_BLOCKING : file_op_maybe_sleep(t);
-    } else {
-        /* XXX special handling for holes will need to go here */
+    if (offset >= f->length) {
         return 0;
     }
+    begin_file_read(t, f);
+    filesystem_read_linear(t->p->fs, f->n, dest, length, offset,
+                           closure(heap_general(get_kernel_heaps()),
+                                   file_op_complete, t, f, fsf, is_file_offset,
+                                   completion));
+
+    /* possible direct return in top half */
+    return bh ? SYSRETURN_CONTINUE_BLOCKING : file_op_maybe_sleep(t);
+}
+
+closure_function(2, 6, sysreturn, file_sg_read,
+                 file, f, fsfile, fsf,
+                 sg_list, sg, u64, length, u64, offset_arg, thread, t, boolean, bh, io_completion, completion)
+{
+    file f = bound(f);
+    fsfile fsf = bound(fsf);
+
+    boolean is_file_offset = offset_arg == infinity;
+    u64 offset = is_file_offset ? f->offset : offset_arg;
+    thread_log(t, "%s: f %p, sg %p, offset %ld (%s), length %ld, file length %ld",
+               __func__, f, sg, offset, is_file_offset ? "file" : "specified",
+               length, f->length);
+
+    /* TODO: special files not supported yet */
+    if (is_special(f->n)) {
+        apply(completion, t, -EIO);
+        goto out;
+    }
+
+    begin_file_read(t, f);
+    filesystem_read_sg(t->p->fs, f->n, sg, length, offset,
+                       closure(heap_general(get_kernel_heaps()),
+                               file_op_complete_sg, t, f, fsf, sg, is_file_offset,
+                               completion));
+
+  out:
+    /* possible direct return in top half */
+    return bh ? SYSRETURN_CONTINUE_BLOCKING : file_op_maybe_sleep(t);
 }
 
 #define PAD_WRITES 0
@@ -757,6 +828,7 @@ sysreturn open_internal(tuple cwd, const char *name, int flags, int mode)
     init_fdesc(h, &f->f, type);
     f->f.read = closure(h, file_read, f, fsf);
     f->f.write = closure(h, file_write, f, fsf);
+    f->f.sg_read = closure(h, file_sg_read, f, fsf);
     f->f.close = closure(h, file_close, f, fsf);
     f->f.events = closure(h, file_events, f);
     f->f.flags = flags;

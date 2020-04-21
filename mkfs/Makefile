@@ -17,6 +17,7 @@ SRCS-mkfs= \
 	$(SRCDIR)/runtime/timer.c \
 	$(SRCDIR)/runtime/tuple_parser.c \
 	$(SRCDIR)/runtime/tuple.c \
+	$(SRCDIR)/runtime/sg.c \
 	$(SRCDIR)/runtime/string.c \
 	$(SRCDIR)/runtime/sha256.c \
 	$(SRCDIR)/runtime/crypto/chacha.c \
@@ -40,6 +41,7 @@ SRCS-dump= \
 	$(SRCDIR)/runtime/table.c \
 	$(SRCDIR)/runtime/timer.c \
 	$(SRCDIR)/runtime/tuple.c \
+	$(SRCDIR)/runtime/sg.c \
 	$(SRCDIR)/runtime/string.c \
 	$(SRCDIR)/runtime/sha256.c \
 	$(SRCDIR)/runtime/crypto/chacha.c \

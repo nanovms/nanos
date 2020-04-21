@@ -102,46 +102,70 @@ rmnode rangemap_lookup_at_or_next(rangemap rm, u64 point)
     return INVALID_ADDRESS;
 }
 
-/* can be called with rh == 0 for true/false match */
-boolean rangemap_range_lookup(rangemap rm, range q, rmnode_handler nh)
+boolean rangemap_range_intersects(rangemap rm, range q)
 {
-    boolean match = false;
     list_foreach(&rm->root, i) {
         rmnode curr = struct_from_list(i, rmnode, l);
-        range i = range_intersection(curr->r, q);
+        if (!range_empty(range_intersection(curr->r, q)))
+            return true;
+    }
+    return false;
+}
 
-        if (!range_empty(i)) {
+/* inlined for optimized variants */
+static inline boolean rangemap_range_lookup_internal(rangemap rm, range q,
+                                                     rmnode_handler node_handler,
+                                                     range_handler gap_handler)
+{
+    boolean match = false;
+    u64 lastedge = q.start;
+    list_foreach(&rm->root, i) {
+        rmnode curr = struct_from_list(i, rmnode, l);
+
+        if (gap_handler) {
+            u64 edge = curr->r.start;
+            range i = range_intersection(irange(lastedge, edge), q);
+            if (range_span(i)) {
+                match = true;
+                apply(gap_handler, i);
+            }
+            lastedge = curr->r.end;
+        }
+
+        if (node_handler) {
+            range i = range_intersection(curr->r, q);
+            if (!range_empty(i)) {
+                match = true;
+                apply(node_handler, curr);
+            }
+        }
+    }
+
+    if (gap_handler) {
+        /* check for a gap between the last node and q.end */
+        range i = range_intersection(irange(lastedge, q.end), q);
+        if (range_span(i)) {
             match = true;
-            if (nh == 0)        /* abort search if match w/o handler */
-                return true;
-            apply(nh, curr);
+            apply(gap_handler, i);
         }
     }
     return match;
 }
 
-boolean rangemap_range_find_gaps(rangemap rm, range q, range_handler rh)
+boolean rangemap_range_lookup(rangemap rm, range q, rmnode_handler node_handler)
 {
-    boolean match = false;
-    u64 lastedge = q.start;
-    list_foreach(&rm->root, l) {
-        rmnode curr = struct_from_list(l, rmnode, l);
-        u64 edge = curr->r.start;
-        range i = range_intersection(irange(lastedge, edge), q);
-        if (range_span(i)) {
-            match = true;
-            apply(rh, i);
-        }
-        lastedge = curr->r.end;
-    }
+    return rangemap_range_lookup_internal(rm, q, node_handler, 0);
+}
 
-    /* check for a gap between the last node and q.end */
-    range i = range_intersection(irange(lastedge, q.end), q);
-    if (range_span(i)) {
-        match = true;
-        apply(rh, i);
-    }
-    return match;
+boolean rangemap_range_lookup_with_gaps(rangemap rm, range q, rmnode_handler node_handler,
+                                        range_handler gap_handler)
+{
+    return rangemap_range_lookup_internal(rm, q, node_handler, gap_handler);
+}
+
+boolean rangemap_range_find_gaps(rangemap rm, range q, range_handler gap_handler)
+{
+    return rangemap_range_lookup_internal(rm, q, 0, gap_handler);
 }
 
 rangemap allocate_rangemap(heap h)

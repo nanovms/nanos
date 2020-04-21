@@ -21,7 +21,8 @@ static inline boolean refcount_release(refcount r)
     if (n < 1)
         halt("%s: invalid count %ld\n", __func__, n);
     if (n == 1) {
-        apply(r->completion);
+        if (r->completion)
+            apply(r->completion);
         return true;
     }
     return false;

@@ -1,6 +1,7 @@
 #include <kernel.h>
 #include <pci.h>
 #include <tfs.h>
+#include <pagecache.h>
 #include <apic.h>
 #include <region.h>
 #include <page.h>
@@ -108,13 +109,21 @@ closure_function(2, 3, void, attach_storage,
 {
     // with filesystem...should be hidden as functional handlers on the tuplespace
     heap h = heap_general(&heaps);
+    u64 offset = bound(fs_offset);
+    length -= offset;
+    pagecache pc = allocate_pagecache(h, heap_backed(&heaps), length, PAGESIZE_2M, SECTOR_SIZE,
+                                      0 /* XXX mapper */,
+                                      closure(h, offset_block_io, bound(fs_offset), r),
+                                      closure(h, offset_block_io, bound(fs_offset), w));
+    if (pc == INVALID_ADDRESS)
+        halt("unable to create pagecache\n");
     create_filesystem(h,
                       SECTOR_SIZE,
                       SECTOR_SIZE,
                       length,
                       heap_backed(&heaps),
-                      closure(h, offset_block_io, bound(fs_offset), r),
-                      closure(h, offset_block_io, bound(fs_offset), w),
+                      pagecache_reader_sg(pc),
+                      pagecache_writer(pc),
                       bound(root),
                       false,
                       closure(h, fsstarted, bound(root)));
@@ -287,6 +296,7 @@ static void __attribute__((noinline)) init_service_new_stack()
     init_runtime(misc);
     init_tuples(allocate_tagged_region(kh, tag_tuple));
     init_symbols(allocate_tagged_region(kh, tag_symbol), misc);
+    init_sg(misc);
     unmap(0, PAGESIZE, pages);  /* unmap zero page */
     reclaim_regions();          /* unmap and reclaim stage2 stack */
     init_extra_prints();

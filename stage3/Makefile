@@ -30,6 +30,7 @@ SRCS-stage3.img= \
 	$(SRCDIR)/runtime/random.c \
 	$(SRCDIR)/runtime/range.c \
 	$(SRCDIR)/runtime/runtime_init.c \
+	$(SRCDIR)/runtime/sg.c \
 	$(SRCDIR)/runtime/sha256.c \
 	$(SRCDIR)/runtime/symbol.c \
 	$(SRCDIR)/runtime/table.c \
@@ -80,6 +81,7 @@ SRCS-stage3.img= \
 	$(SRCDIR)/x86_64/kvm_platform.c \
 	$(SRCDIR)/x86_64/mp.c \
 	$(SRCDIR)/x86_64/page.c \
+	$(SRCDIR)/x86_64/pagecache.c \
 	$(SRCDIR)/x86_64/pci.c \
 	$(SRCDIR)/x86_64/pvclock.c \
 	$(SRCDIR)/x86_64/rtc.c \

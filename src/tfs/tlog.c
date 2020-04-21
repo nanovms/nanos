@@ -284,25 +284,29 @@ static inline void log_tuple_produce(log tl, buffer b, u64 length)
     tl->tuple_bytes_remain -= length;
 }
 
-closure_function(2, 1, void, log_read_complete,
-                 log, tl, status_handler, sh,
+static void log_read(log tl, status_handler sh);
+
+closure_function(4, 1, void, log_read_complete,
+                 log, tl, sg_list, sg, u64, length, status_handler, sh,
                  status, read_status)
 {
     log tl = bound(tl);
     status s = STATUS_OK;
     status_handler sh = bound(sh);
-    buffer b = tl->staging;
     u8 frame = 0;
     u64 sector, length, tuple_length;
 
-    tlog_debug("log_read_complete: buffer len %d, status %v\n", buffer_length(b), read_status);
     if (!is_ok(read_status)) {
-        tlog_debug("read failure: %v\n", read_status);
+        tlog_debug("log_read failure: %v\n", read_status);
         apply(sh, timm_up(read_status, "result", "read failed"));
         closure_finish();
         return;
     }
 
+    sg_copy_to_buf_and_release(buffer_ref(tl->staging, 0), bound(sg), bound(length));
+
+    buffer b = tl->staging;
+    tlog_debug("log_read_complete: buffer len %d, status %v\n", buffer_length(b), read_status);
     tlog_debug("-> new log extension, checking magic and version\n");
     if (!tl->extension_open) {
         if (runtime_memcmp(buffer_ref(b, 0), tfs_magic, TFS_MAGIC_BYTES)) {
@@ -345,7 +349,7 @@ closure_function(2, 1, void, log_read_complete,
             tl->extension_open = false;
 
             /* chain to next log extension, carrying status handler to end */
-            read_log(tl, sh);
+            log_read(tl, sh);
             goto out;
         case TUPLE_AVAILABLE:
             tlog_debug("-> tuple available\n");
@@ -472,13 +476,20 @@ static boolean init_staging(log tl, status_handler sh)
     return false;
 }
 
-void read_log(log tl, status_handler sh)
+static void log_read(log tl, status_handler sh)
 {
     assert(!tl->extension_open);
     if (!init_staging(tl, sh))
         return;
-    status_handler tlc = closure(tl->h, log_read_complete, tl, sh);
-    apply(tl->fs->r, tl->staging->contents, tl->sectors, tlc);
+    sg_list sg = allocate_sg_list();
+    if (sg == INVALID_ADDRESS) {
+        apply(sh, timm("result", "failed to allocate sg list"));
+        return;
+    }
+    range r = range_lshift(tl->sectors, SECTOR_OFFSET);
+    status_handler tlc = closure(tl->h, log_read_complete, tl, sg, range_span(r), sh);
+    tlog_debug("%s: issuing sg read, sg %p, r %R, tlc %p\n", __func__, sg, r, tlc);
+    apply(tl->fs->sg_r, sg, r, tlc);
 }
 
 log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
@@ -509,7 +520,7 @@ log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
         init_log_extension(tl->staging, range_span(tl->sectors));
         apply(sh, STATUS_OK);
     } else {
-        read_log(tl, sh);
+        log_read(tl, sh);
     }
     return tl;
   fail_dealloc:

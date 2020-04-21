@@ -516,11 +516,8 @@ static void vmap_paint(heap h, rangemap pvmap, vmap q)
     assert((rq.end & MASK(PAGELOG)) == 0);
     assert(range_span(rq) > 0);
 
-    rmnode_handler nh = stack_closure(vmap_paint_intersection, h, pvmap, q);
-    rangemap_range_lookup(pvmap, rq, nh);
-
-    range_handler rh = stack_closure(vmap_paint_gap, h, pvmap, q);
-    rangemap_range_find_gaps(pvmap, rq, rh);
+    rangemap_range_lookup(pvmap, rq, stack_closure(vmap_paint_intersection, h, pvmap, q));
+    rangemap_range_find_gaps(pvmap, rq, stack_closure(vmap_paint_gap, h, pvmap, q));
 
     update_map_flags(rq.start, range_span(rq), page_map_flags(q->flags));
 }
@@ -646,8 +643,8 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
 
     thread_log(current, "  read file at 0x%lx, flen %ld, blocking...", where, flen);
     file_op_begin(current);
-    filesystem_read(p->fs, f->n, buffer_ref(b, 0), flen, offset,
-                    closure(h, mmap_read_complete, current, where, flen, b, page_map_flags(vmflags)));
+    filesystem_read_linear(p->fs, f->n, buffer_ref(b, 0), flen, offset,
+                           closure(h, mmap_read_complete, current, where, flen, b, page_map_flags(vmflags)));
     return file_op_maybe_sleep(current);
 }
 

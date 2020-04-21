@@ -121,6 +121,7 @@ SRCS-pipe= \
 	$(SRCDIR)/runtime/random.c \
 	$(SRCDIR)/runtime/range.c \
 	$(SRCDIR)/runtime/runtime_init.c \
+	$(SRCDIR)/runtime/sg.c \
 	$(SRCDIR)/runtime/string.c \
 	$(SRCDIR)/runtime/symbol.c \
 	$(SRCDIR)/runtime/table.c \
@@ -156,6 +157,7 @@ SRCS-signal= \
 	$(SRCDIR)/runtime/random.c \
 	$(SRCDIR)/runtime/range.c \
 	$(SRCDIR)/runtime/runtime_init.c \
+	$(SRCDIR)/runtime/sg.c \
 	$(SRCDIR)/runtime/string.c \
 	$(SRCDIR)/runtime/symbol.c \
 	$(SRCDIR)/runtime/table.c \
@@ -216,6 +218,7 @@ SRCS-udploop= \
 	$(SRCDIR)/runtime/random.c \
 	$(SRCDIR)/runtime/range.c \
 	$(SRCDIR)/runtime/runtime_init.c \
+	$(SRCDIR)/runtime/sg.c \
 	$(SRCDIR)/runtime/sha256.c \
 	$(SRCDIR)/runtime/signature.c \
 	$(SRCDIR)/runtime/string.c \
@@ -265,6 +268,7 @@ SRCS-web= \
 	$(SRCDIR)/runtime/random.c \
 	$(SRCDIR)/runtime/range.c \
 	$(SRCDIR)/runtime/runtime_init.c \
+	$(SRCDIR)/runtime/sg.c \
 	$(SRCDIR)/runtime/sha256.c \
 	$(SRCDIR)/runtime/signature.c \
 	$(SRCDIR)/runtime/string.c \
