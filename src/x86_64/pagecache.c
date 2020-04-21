@@ -19,30 +19,54 @@ static int page_state(pagecache_page pp)
     return pp->state_phys >> PAGECACHE_PAGESTATE_SHIFT;
 }
 
-static inline void set_page_state_cache_locked(pagecache pc, pagecache_page pp, int state)
+static inline void change_page_state_cache_locked(pagecache pc, pagecache_page pp, int state)
 {
     int old_state = page_state(pp);
     switch (state) {
+#if 0
+    /* Temporarily disabling use of free until we have a scheme to
+       keep and act on "refault" data */
     case PAGECACHE_PAGESTATE_FREE:
-        assert(old_state == PAGECACHE_PAGESTATE_NEW || old_state == PAGECACHE_PAGESTATE_ACTIVE);
+        assert(old_state == PAGECACHE_PAGESTATE_EVICTED);
+        list_insert_before(&pc->free.l, &pp->l);
+        pc->free.pages++;
+        break;
+#endif
+    case PAGECACHE_PAGESTATE_EVICTED:
+        if (old_state == PAGECACHE_PAGESTATE_NEW) {
+            pc->new.pages--;
+        } else {
+            assert(old_state == PAGECACHE_PAGESTATE_ACTIVE);
+            pc->active.pages--;
+        }
         list_delete(&pp->l);
-        list_insert_before(&pc->free, &pp->l);
+        /* caller must do release following state change to evicted */
         break;
     case PAGECACHE_PAGESTATE_ALLOC:
         assert(old_state == PAGECACHE_PAGESTATE_FREE);
+        list_delete(&pp->l);
+        pc->free.pages--;
         break;
     case PAGECACHE_PAGESTATE_READING:
         assert(old_state == PAGECACHE_PAGESTATE_ALLOC);
         break;
     case PAGECACHE_PAGESTATE_NEW:
-        /* later we can allow full page writes to move to new list after sync */
-        assert(old_state == PAGECACHE_PAGESTATE_READING);
-        list_insert_before(&pc->new, &pp->l);
+        if (old_state == PAGECACHE_PAGESTATE_ACTIVE) {
+            pc->active.pages--;
+            list_delete(&pp->l);
+        } else {
+            assert(old_state == PAGECACHE_PAGESTATE_READING ||
+                   old_state == PAGECACHE_PAGESTATE_WRITING);
+        }
+        pc->new.pages++;
+        list_insert_before(&pc->new.l, &pp->l);
         break;
     case PAGECACHE_PAGESTATE_ACTIVE:
         assert(old_state == PAGECACHE_PAGESTATE_NEW);
         list_delete(&pp->l);
-        list_insert_before(&pc->active, &pp->l);
+        pc->new.pages--;
+        pc->active.pages++;
+        list_insert_before(&pc->active.l, &pp->l);
         break;
     default:
         halt("%s: bad state %d, old %d\n", __func__, state, old_state);
@@ -70,7 +94,7 @@ closure_function(2, 1, void, read_page_complete,
            read issue) as some block devices (e.g. ATA) issue
            completions immediately, without blocking. */
         boolean unlocked = spin_try(&pc->lock);
-        set_page_state_cache_locked(bound(pc), pp, PAGECACHE_PAGESTATE_NEW);
+        change_page_state_cache_locked(bound(pc), pp, PAGECACHE_PAGESTATE_NEW);
         if (unlocked)
             spin_unlock(&pc->lock);
     }
@@ -88,6 +112,10 @@ closure_function(2, 1, void, read_page_complete,
     closure_finish();
 }
 
+/* As we're not doing backed mappings yet, we don't yet have soft
+   faults wired up; new -> active transitions occur as a result of sg
+   reads from fs.
+*/
 static boolean pagecache_page_touch_if_filled_cache_locked(pagecache pc, pagecache_page pp)
 {
     int state = page_state(pp);
@@ -99,10 +127,10 @@ static boolean pagecache_page_touch_if_filled_cache_locked(pagecache pc, pagecac
     /* move to bottom of active list */
     if (state == PAGECACHE_PAGESTATE_ACTIVE) {
         list_delete(&pp->l);
-        list_insert_before(&pc->active, &pp->l);
+        list_insert_before(&pc->active.l, &pp->l);
     } else if (state == PAGECACHE_PAGESTATE_NEW) {
         /* cache hit -> active */
-        set_page_state_cache_locked(pc, pp, PAGECACHE_PAGESTATE_ACTIVE);
+        change_page_state_cache_locked(pc, pp, PAGECACHE_PAGESTATE_ACTIVE);
     } else {
         assert(state == PAGECACHE_PAGESTATE_DIRTY);
     }
@@ -113,7 +141,7 @@ static void pagecache_page_fill_cache_locked(pagecache pc, pagecache_page pp, st
 {
     vector_push(pp->completions, sh);
     if (page_state(pp) == PAGECACHE_PAGESTATE_ALLOC) {
-        set_page_state_cache_locked(pc, pp, PAGECACHE_PAGESTATE_READING);
+        change_page_state_cache_locked(pc, pp, PAGECACHE_PAGESTATE_READING);
 
         /* zero pad anything extending past end of backing storage */
         u64 end = pp->node.r.end;
@@ -161,44 +189,88 @@ closure_function(4, 1, void, pagecache_read_page_cache_locked,
     pagecache_read_page_internal_cache_locked(bound(pc), pp, bound(sg), bound(q), bound(m));
 }
 
+static u64 evict_from_list_cache_locked(pagecache pc, struct pagelist *pl, u64 pages)
+{
+    u64 evicted = 0;
+    list_foreach(&pl->l, l) {
+        if (evicted >= pages)
+            break;
+
+        pagecache_page pp = struct_from_list(l, pagecache_page, l);
+        pagecache_debug("%s: list %s, release pp %R, state %d, count %ld\n", __func__,
+                        pl == &pc->new ? "new" : "active",
+                        pp->node.r, page_state(pp), pp->refcount.c);
+        change_page_state_cache_locked(pc, pp, PAGECACHE_PAGESTATE_EVICTED);
+        rangemap_remove_node(pc->pages, &pp->node);
+        refcount_release(&pp->refcount); /* eviction, as far as cache is concerned */
+        evicted++;
+    }
+    return evicted;
+}
+
+static void balance_page_lists_cache_locked(pagecache pc)
+{
+    /* balance active and new lists */
+    s64 dp = ((s64)pc->active.pages - (s64)pc->new.pages) / 2;
+    pagecache_debug("%s: active %ld, new %ld, dp %ld\n", __func__, pc->active.pages, pc->new.pages, dp);
+    list_foreach(&pc->active.l, l) {
+        if (dp <= 0)
+            break;
+        pagecache_page pp = struct_from_list(l, pagecache_page, l);
+        spin_lock(&pp->lock);
+        /* We don't presently have a notion of "time" in the cache, so
+           just cull unreferenced buffers in LRU fashion until active
+           pages are equivalent to new...loosely inspired by linux
+           approach. */
+        if (pp->refcount.c == 1) {
+            pagecache_debug("   pp %R -> new\n", pp->node.r);
+            change_page_state_cache_locked(pc, pp, PAGECACHE_PAGESTATE_NEW);
+            dp--;
+        }
+        spin_unlock(&pp->lock);
+    }
+}
+
+/* evict pages from new and active lists, then rebalance */
+static u64 evict_pages_cache_locked(pagecache pc, u64 pages)
+{
+    u64 evicted = evict_from_list_cache_locked(pc, &pc->new, pages);
+    if (evicted < pages) {
+        /* To fill the requested pages evictions, we are more
+           aggressive here, evicting even in-use pages (rc > 1) in the
+           active list. */
+        evicted += evict_from_list_cache_locked(pc, &pc->active, pages - evicted);
+    }
+    balance_page_lists_cache_locked(pc);
+    return evicted;
+}
+
 closure_function(2, 0, void, pagecache_page_release,
                  pagecache, pc, pagecache_page, pp)
 {
     pagecache_page pp = bound(pp);
     /* remove from existing list depending on state */
     int state = page_state(pp);
-    if (state != PAGECACHE_PAGESTATE_NEW || state != PAGECACHE_PAGESTATE_ACTIVE)
+    if (state != PAGECACHE_PAGESTATE_EVICTED)
         halt("%s: pc %p, pp %p, invalid state %d\n", __func__, bound(pc), pp, page_state(pp));
 
     pagecache pc = bound(pc);
-    spin_lock(&pc->lock);
-    rangemap_remove_node(pc->pages, &pp->node);
-    set_page_state_cache_locked(pc, pp, PAGECACHE_PAGESTATE_FREE);
-    zero(pp->kvirt, pagecache_pagesize(pc));
-    spin_unlock(&pc->lock);
-    /* leave closure intact and reuse */
+    deallocate(pc->backed, pp->kvirt, pagecache_pagesize(pc));
+    u64 pre = fetch_and_add(&pc->total_pages, -1);
+    assert(pre > 0);
+    pagecache_debug("%s: total pages now %ld\n", __func__, pre - 1);
+    closure_finish();
 }
 
 static pagecache_page allocate_pagecache_page_cache_locked(pagecache pc, range r)
 {
-    pagecache_page pp;
-    if (!list_empty(&pc->free)) {
-        list l = list_get_next(&pc->free);
-        assert(l);
-        pp = struct_from_list(l, pagecache_page, l);
-        list_delete(l);
-        set_page_state_cache_locked(pc, pp, PAGECACHE_PAGESTATE_ALLOC);
-        refcount_reserve(&pp->refcount);
-        goto pp_insert;
-    }
-
     /* allocate - later we can look at blocks of pages at a time */
     u64 pagesize = U64_FROM_BIT(pc->page_order);
     void *p = allocate(pc->backed, pagesize);
     if (p == INVALID_ADDRESS)
         return INVALID_ADDRESS;
 
-    pp = allocate(pc->h, sizeof(struct pagecache_page));
+    pagecache_page pp = allocate(pc->h, sizeof(struct pagecache_page));
     if (pp == INVALID_ADDRESS)
         goto fail_dealloc_backed;
 
@@ -207,15 +279,13 @@ static pagecache_page allocate_pagecache_page_cache_locked(pagecache pc, range r
     if (pp->completions == INVALID_ADDRESS)
         goto fail_dealloc_pp;
     pp->l.next = pp->l.prev = 0;
-
-    /* keeping physical for demand paging / multiple mappings */
     pp->state_phys = ((u64)PAGECACHE_PAGESTATE_ALLOC << PAGECACHE_PAGESTATE_SHIFT) |
         (physical_from_virtual(p) >> pc->page_order);
-    pp->kvirt = p;
     init_refcount(&pp->refcount, 1, closure(pc->h, pagecache_page_release, pc, pp));
-  pp_insert:
+    pp->kvirt = p;
     pp->node.r = r;
     assert(rangemap_insert(pc->pages, &pp->node));
+    fetch_and_add(&pc->total_pages, 1); /* decrement happens without cache lock */
     return pp;
   fail_dealloc_pp:
     deallocate(pc->h, pp, sizeof(struct pagecache_page));
@@ -413,6 +483,21 @@ closure_function(1, 3, void, pagecache_write,
     apply(sh, STATUS_OK);
 }
 
+static inline void page_list_init(struct pagelist *pl)
+{
+    list_init(&pl->l);
+    pl->pages = 0;
+}
+
+u64 pagecache_drain(pagecache pc, u64 drain_bytes)
+{
+    u64 pages = drain_bytes >> pc->page_order;
+    spin_lock(&pc->lock);
+    u64 evicted = evict_pages_cache_locked(pc, pages);
+    spin_unlock(&pc->lock);
+    return evicted << pc->page_order;
+}
+
 pagecache allocate_pagecache(heap general, heap backed,
                              u64 length, u64 pagesize, u64 block_size,
                              block_mapper mapper, block_io read, block_io write)
@@ -426,14 +511,15 @@ pagecache allocate_pagecache(heap general, heap backed,
         deallocate(general, pc->pages, sizeof(struct pagecache));
         return INVALID_ADDRESS;
     }
-    list_init(&pc->free);
-    list_init(&pc->new);
-    list_init(&pc->active);
-    list_init(&pc->dirty);
+    page_list_init(&pc->free);
+    page_list_init(&pc->new);
+    page_list_init(&pc->active);
+    page_list_init(&pc->dirty);
     pc->page_order = find_order(pagesize);
     assert(pagesize == U64_FROM_BIT(pc->page_order));
     pc->block_order = find_order(block_size);
     assert(block_size == U64_FROM_BIT(pc->block_order));
+    pc->total_pages = 0;
     pc->length = length;
     pc->h = general;
     pc->backed = backed;

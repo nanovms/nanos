@@ -1,3 +1,5 @@
+/* TODO: this file has become a garbage dump ... reorganize */
+
 #include <kernel.h>
 #include <pci.h>
 #include <tfs.h>
@@ -16,6 +18,8 @@
 //#define SMP_DUMP_FRAME_RETURN_COUNT
 
 //#define STAGE3_INIT_DEBUG
+//#define MM_DEBUG
+
 #ifdef STAGE3_INIT_DEBUG
 #define init_debug(x, ...) do {rprintf("INIT: " x "\n", ##__VA_ARGS__);} while(0)
 #else
@@ -103,6 +107,33 @@ closure_function(1, 2, void, fsstarted,
     closure_finish();
 }
 
+/* will become list I guess */
+static pagecache global_pagecache;
+
+/* This is very simplistic and uses a fixed drain threshold. This
+   should also take all cached data in system into account. For now we
+   just pick on the single pagecache... */
+
+#ifdef MM_DEBUG
+#define mm_debug(x, ...) do {rprintf("MM:   " x, ##__VA_ARGS__);} while(0)
+#else
+#define mm_debug(x, ...) do { } while(0)
+#endif
+void mm_service(void)
+{
+    if (!global_pagecache)
+        return;
+    heap p = (heap)heap_physical(&heaps);
+    u64 free = heap_total(p) - heap_allocated(p);
+    mm_debug("%s: total %ld, alloc %ld, free %ld\n", __func__, heap_total(p), heap_allocated(p), free);
+    if (free < CACHE_DRAIN_CUTOFF) {
+        u64 drain_bytes = CACHE_DRAIN_CUTOFF - free + PAGESIZE - 1;
+        u64 drained = pagecache_drain(global_pagecache, drain_bytes);
+        if (drained > 0)
+            mm_debug("   drained %ld / %ld requested...\n", drained, drain_bytes);
+    }
+}
+
 closure_function(2, 3, void, attach_storage,
                  tuple, root, u64, fs_offset,
                  block_io, r, block_io, w, u64, length)
@@ -117,6 +148,9 @@ closure_function(2, 3, void, attach_storage,
                                       closure(h, offset_block_io, bound(fs_offset), w));
     if (pc == INVALID_ADDRESS)
         halt("unable to create pagecache\n");
+
+    /* figure that later pagecaches will register themselves with backing - glue for now */
+    global_pagecache = pc;
     create_filesystem(h,
                       SECTOR_SIZE,
                       SECTOR_SIZE,
