@@ -171,7 +171,7 @@ static void aio_test_multiple()
         iocb_setup_pread(&iocbs[i], fd, read_buf + i * 8, 8, i * 8);
         iocbs[i].aio_data = (__u64) read_buf;
     }
-    test_assert(syscall(SYS_io_submit, ioc, 18, iocb_ptrs) == 8);
+    test_assert(syscall(SYS_io_submit, ioc, 8, iocb_ptrs) == 8);
     test_assert(syscall(SYS_io_getevents, ioc, 8, 8, evts, NULL) == 8);
     for (int i = 0; i < 8; i++) {
         test_assert(evts[i].data == (__u64) read_buf);
