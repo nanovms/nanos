@@ -14,11 +14,6 @@ static inline u64 pagecache_pagesize(pagecache pc)
     return U64_FROM_BIT(pc->page_order);
 }
 
-static inline u64 pagecache_blocksize(pagecache pc)
-{
-    return U64_FROM_BIT(pc->block_order);
-}
-
 static int page_state(pagecache_page pp)
 {
     return pp->state_phys >> PAGECACHE_PAGESTATE_SHIFT;
@@ -55,13 +50,6 @@ static inline void set_page_state_cache_locked(pagecache pc, pagecache_page pp, 
 
     pp->state_phys = (pp->state_phys & MASK(PAGECACHE_PAGESTATE_SHIFT)) |
         ((u64)state << PAGECACHE_PAGESTATE_SHIFT);
-}
-
-static inline void set_page_state(pagecache pc, pagecache_page pp, int state)
-{
-    spin_lock(&pc->lock);
-    set_page_state_cache_locked(pc, pp, state);
-    spin_unlock(&pc->lock);
 }
 
 /* Usually this completion is called without the cache lock held - exceptions noted below. */

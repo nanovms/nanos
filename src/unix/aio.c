@@ -225,7 +225,7 @@ inval:
 sysreturn io_submit(aio_context_t ctx_id, long nr, struct iocb **iocbpp)
 {
     struct aio *aio;
-    if (!ctx_id) {
+    if (!ctx_id || !iocbpp) {
         return -EFAULT;
     }
     if (!(aio = aio_from_ring(current->p, ctx_id))) {
