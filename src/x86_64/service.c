@@ -127,7 +127,7 @@ void mm_service(void)
     u64 free = heap_total(p) - heap_allocated(p);
     mm_debug("%s: total %ld, alloc %ld, free %ld\n", __func__, heap_total(p), heap_allocated(p), free);
     if (free < CACHE_DRAIN_CUTOFF) {
-        u64 drain_bytes = CACHE_DRAIN_CUTOFF - free + PAGESIZE - 1;
+        u64 drain_bytes = CACHE_DRAIN_CUTOFF - free;
         u64 drained = pagecache_drain(global_pagecache, drain_bytes);
         if (drained > 0)
             mm_debug("   drained %ld / %ld requested...\n", drained, drain_bytes);

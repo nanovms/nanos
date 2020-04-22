@@ -498,6 +498,7 @@ closure_function(9, 2, void, sendfile_bh,
                 thread_log(t, "   rewound %ld bytes to %ld", rewind, f_in->offset);
             }
             rv = bound(written) == 0 ? -EAGAIN : bound(written);
+            sg_buf_release(bound(cur_buf));
             thread_log(t, "   write would block, returning %ld", rv);
         } else {
             thread_log(t, "   zero or error, rv %ld", rv);
@@ -523,7 +524,6 @@ closure_function(9, 2, void, sendfile_bh,
     } else {
         bound(written) += rv;
         bound(cur_buf)->misc += rv;
-        assert(bound(cur_buf)->length >= rv);
         if (bound(cur_buf)->misc == bound(cur_buf)->length) {
             sg_buf_release(bound(cur_buf));
             if (bound(written) == bound(readlen)) {
@@ -534,6 +534,7 @@ closure_function(9, 2, void, sendfile_bh,
             assert(bound(cur_buf) != INVALID_ADDRESS);
             bound(cur_buf)->misc = 0; /* offset for our use */
         }
+        assert(bound(cur_buf)->misc < bound(cur_buf)->length);
     }
 
     /* issue next write */

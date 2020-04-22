@@ -491,7 +491,7 @@ static inline void page_list_init(struct pagelist *pl)
 
 u64 pagecache_drain(pagecache pc, u64 drain_bytes)
 {
-    u64 pages = drain_bytes >> pc->page_order;
+    u64 pages = pad(drain_bytes, pagecache_pagesize(pc)) >> pc->page_order;
     spin_lock(&pc->lock);
     u64 evicted = evict_pages_cache_locked(pc, pages);
     spin_unlock(&pc->lock);
