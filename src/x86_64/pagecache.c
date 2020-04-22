@@ -307,10 +307,9 @@ static void pagecache_write_page_internal_page_locked(pagecache pc, pagecache_pa
     pagecache_debug("   copy %p <- %p %d bytes\n", dest, src, len);
     assert(pp->node.r.start + len <= pc->length);
     runtime_memcpy(dest, src, len);
-    u64 end = MIN(pp->node.r.end, pc->length);
-    range blocks = range_rshift(irange(pp->node.r.start, end), pc->block_order);
-    pagecache_debug("   write %p to block range %R\n", pp->kvirt, blocks);
-    apply(pc->block_write, pp->kvirt, blocks, sh);
+    range blocks = range_rshift(i, pc->block_order);
+    pagecache_debug("   write %p to block range %R\n", dest, blocks);
+    apply(pc->block_write, dest, blocks, sh);
 }
 
 /* cache lock may or may not be held here */
