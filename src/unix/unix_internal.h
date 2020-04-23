@@ -320,7 +320,6 @@ typedef struct process {
     int               pid;
     void             *brk;
     u64               heap_base;
-    u64               lowmem_end; /* end of elf / heap / stack area (low 2gb below reserved) */
     u64               vdso_base;
     id_heap           virtual;  /* huge virtual, parent of virtual_page */
     id_heap           virtual_page; /* pagesized, default for mmaps */

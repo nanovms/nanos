@@ -141,7 +141,7 @@ extern queue runqueue;
 extern queue thread_queue;
 timerheap runloop_timers;
 
-heap physically_backed(heap meta, heap virtual, heap physical, heap pages, u64 pagesize);
+heap physically_backed(heap meta, heap virtual, heap physical, u64 pagesize);
 void physically_backed_dealloc_virtual(heap h, u64 x, bytes length);
 void print_stack(context c);
 void print_frame(context f);
@@ -166,8 +166,8 @@ void deallocate_interrupt(u64 irq);
 void register_interrupt(int vector, thunk t, const char *name);
 void unregister_interrupt(int vector);
 void triple_fault(void) __attribute__((noreturn));
-void start_cpu(heap h, heap pages, int index, void (*ap_entry)());
-void *allocate_stack(heap pages, int npages);
+void start_cpu(heap h, heap sheap, int index, void (*ap_entry)());
+void *allocate_stack(heap pages, u64 size);
 void install_idt(void);
 
 #define IST_INTERRUPT 1         /* for all interrupts */

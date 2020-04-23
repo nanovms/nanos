@@ -329,7 +329,7 @@ boolean xen_detect(kernel_heaps kh)
     xen_debug("xenstore page at phys 0x%lx; allocating virtual page and mapping", xen_info.xenstore_paddr);
     xen_info.xenstore_interface = allocate((heap)heap_virtual_page(kh), PAGESIZE);
     assert(xen_info.xenstore_interface != INVALID_ADDRESS);
-    map(u64_from_pointer(xen_info.xenstore_interface), xen_info.xenstore_paddr, PAGESIZE, 0, heap_pages(kh));
+    map(u64_from_pointer(xen_info.xenstore_interface), xen_info.xenstore_paddr, PAGESIZE, 0);
     xen_debug("xenstore page mapped at %p", xen_info.xenstore_interface);
 
     xen_debug("retrieving store event channel");
@@ -344,8 +344,9 @@ boolean xen_detect(kernel_heaps kh)
     xen_info.xenstore_evtchn = xen_hvm_param.value;
     xen_debug("event channel %ld, allocating and mapping shared info page", xen_info.xenstore_evtchn);
 
+    // XXX convert to backed
     /* shared info page - taking page from identity heap, but could be backed as well */
-    xen_info.shared_info = allocate_zero(heap_pages(kh), PAGESIZE);
+    xen_info.shared_info = allocate_zero(heap_backed(kh), PAGESIZE);
     assert(xen_info.shared_info != INVALID_ADDRESS);
     xen_add_to_physmap_t xatp;
     xatp.domid = DOMID_SELF;
@@ -436,7 +437,7 @@ boolean xen_detect(kernel_heaps kh)
   out_unregister_irq:
     unregister_interrupt(irq);
   out_dealloc_shared_page:
-    deallocate(heap_pages(kh), xen_info.shared_info, PAGESIZE);
+    deallocate(heap_backed(kh), xen_info.shared_info, PAGESIZE);
     xen_info.shared_info = 0;
     return false;
 }

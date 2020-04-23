@@ -14,7 +14,7 @@
 #define va_tag_offset user_va_tag_offset
 #endif
 
-static inline void* tag(void* v, u64 tval) {
+static inline void *tag(void* v, u64 tval) {
   return pointer_from_u64((tval << va_tag_offset) | u64_from_pointer(v));
 }
 
@@ -26,6 +26,10 @@ static inline u16 tagof(void* v) {
 
 #endif /* BOOT */
 
+#define KERNEL_BASE 0xffffffff80000000ull
+#define PAGES_BASE  0xffffffffc0000000ull
+
+// XXX nuke
 /* needed for physical region allocator, before we ever look at the
    elf - be sure that this matches the stage3 linker script
    (TODO: build time assert) */
@@ -38,21 +42,20 @@ extern void * AP_BOOT_PAGE;
 #define AP_BOOT_START u64_from_pointer(&AP_BOOT_PAGE)
 #define AP_BOOT_END (AP_BOOT_START + PAGESIZE)
 
-/* identity-mapped space for page tables - we can shrink this if we
-   ever make the page table code aware of mappings (e.g. virt_from_phys) */
-#define IDENTITY_HEAP_SIZE (128 * MB)
+/* identity-mapped space for initial page tables */
+#define INITIAL_PAGES_SIZE (64 * KB)
 
 /* the stage2 secondary working heap - this needs to be large enough
    to accomodate all tfs allocations when loading the kernel - it gets
    recycled in stage3, so be generous */
 #define STAGE2_WORKING_HEAP_SIZE (128 * MB)
 
-#define STAGE2_STACK_PAGES  32  /* stage2 stack is recycled, too */
-#define KERNEL_STACK_PAGES  32
-#define FAULT_STACK_PAGES   8
-#define INT_STACK_PAGES     8
-#define BH_STACK_PAGES      8
-#define SYSCALL_STACK_PAGES 8
+#define STAGE2_STACK_SIZE  (128 * KB)  /* stage2 stack is recycled, too */
+#define KERNEL_STACK_SIZE  (128 * KB)
+#define FAULT_STACK_SIZE   (32 * KB)
+#define INT_STACK_SIZE     (32 * KB)
+#define BH_STACK_SIZE      (32 * KB)
+#define SYSCALL_STACK_SIZE (32 * KB)
 
 /* maximum buckets that can fit within a PAGESIZE_2M mcache */
 #define TABLE_MAX_BUCKETS 131072

@@ -28,7 +28,7 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
     exec_debug("build_exec_stack start %p, tid %d, va 0x%lx\n", start, t->tid, va);
 
     /* allocate process stack at top of lowmem */
-    u64 stack_start = p->lowmem_end - PROCESS_STACK_SIZE;
+    u64 stack_start = 0x80000000 /* XXX */ - PROCESS_STACK_SIZE;
     if (aslr)
         stack_start = (stack_start - PROCESS_STACK_ASLR_RANGE) + get_aslr_offset(PROCESS_STACK_ASLR_RANGE);
     assert(id_heap_set_area(p->virtual32, stack_start, PROCESS_STACK_SIZE, true, true));
@@ -40,8 +40,7 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
     assert(sphys != INVALID_PHYSICAL);
 
     exec_debug("stack allocated at %p, size 0x%lx, phys 0x%lx\n", s, PROCESS_STACK_SIZE, sphys);
-    map(u64_from_pointer(s), sphys, PROCESS_STACK_SIZE, PAGE_WRITABLE | PAGE_NO_EXEC | PAGE_USER,
-        heap_pages(get_kernel_heaps()));
+    map(u64_from_pointer(s), sphys, PROCESS_STACK_SIZE, PAGE_WRITABLE | PAGE_NO_EXEC | PAGE_USER);
 
     s += PROCESS_STACK_SIZE >> 3;
 
@@ -160,7 +159,7 @@ closure_function(2, 4, void, exec_elf_map,
         paddr = allocate_u64((heap)heap_physical(kh), size);
         assert(paddr != INVALID_PHYSICAL);
     }
-    map(target, paddr, size, flags | PAGE_USER, heap_pages(kh));
+    map(target, paddr, size, flags | PAGE_USER);
     if (is_bss) {
         zero(pointer_from_u64(target), size);
     }

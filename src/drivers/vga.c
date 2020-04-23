@@ -172,8 +172,8 @@ static void vga_console_write(void *_d, char *s, bytes count)
     vga_set_cursor(d, d->cur_x, d->cur_y);
 }
 
-closure_function(3, 1, boolean, vga_pci_probe,
-                 heap, general, heap, pages, console_attach, a,
+closure_function(2, 1, boolean, vga_pci_probe,
+                 heap, general, console_attach, a,
                  pci_dev, _d)
 {
     if (pci_get_class(_d) != PCIC_DISPLAY)
@@ -186,7 +186,7 @@ closure_function(3, 1, boolean, vga_pci_probe,
     d->crtc_addr = 0x3d4;
     d->buffer = pointer_from_u64(VGA_BUF_BASE);
     d->buffer_size = VGA_BUF_SIZE / sizeof(*d->buffer);
-    map(u64_from_pointer(d->buffer), VGA_BUF_BASE, VGA_BUF_SIZE, PAGE_DEV_FLAGS, bound(pages));
+    map(u64_from_pointer(d->buffer), VGA_BUF_BASE, VGA_BUF_SIZE, PAGE_DEV_FLAGS);
     // assume VGA mode 3 upon initialization
     d->width = 80;
     d->height = 25;
@@ -204,5 +204,5 @@ closure_function(3, 1, boolean, vga_pci_probe,
 void vga_pci_register(kernel_heaps kh, console_attach a)
 {
     heap h = heap_general(kh);
-    register_pci_driver(closure(h, vga_pci_probe, h, heap_pages(kh), a));
+    register_pci_driver(closure(h, vga_pci_probe, h, a));
 }

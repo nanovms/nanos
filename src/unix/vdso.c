@@ -43,10 +43,10 @@ vsyscall_getcpu(unsigned * cpu, unsigned * node, void * tcache)
 /*
  * Init legacy vsyscall support
  */
-void init_vsyscall(heap phys, heap pages)
+void init_vsyscall(heap phys)
 {
     /* build vsyscall vectors */
-    map(VSYSCALL_BASE, allocate_u64(phys, PAGESIZE), PAGESIZE, PAGE_USER, pages);
+    map(VSYSCALL_BASE, allocate_u64(phys, PAGESIZE), PAGESIZE, PAGE_USER);
     buffer b = alloca_wrap_buffer(pointer_from_u64(VSYSCALL_BASE), PAGESIZE);
     b->end = VSYSCALL_OFFSET_VGETTIMEOFDAY;
     mov_32_imm(b, 0, u64_from_pointer(vsyscall_gettimeofday));
@@ -72,12 +72,10 @@ void init_vsyscall(heap phys, heap pages)
 void init_vdso(process p)
 {
     kernel_heaps kh;
-    heap pages;
     physical paddr;
     u64 vaddr, size;
 
     kh = &(p->uh->kh);
-    pages = heap_pages(kh);
 
     /* sanity checks */
     assert(((unsigned long)&vvar_page & MASK(PAGELOG)) == 0);
@@ -90,7 +88,7 @@ void init_vdso(process p)
         size = vdso_raw_length;
         paddr = physical_from_virtual(vdso_raw);
         assert(paddr != INVALID_PHYSICAL);
-        map(vaddr, paddr, size, PAGE_USER, pages);
+        map(vaddr, paddr, size, PAGE_USER);
     }
 
     /* map first vvar page, which contains various kernel data */
@@ -99,7 +97,7 @@ void init_vdso(process p)
         size = PAGESIZE;
         paddr = physical_from_virtual((void *)&vvar_page);
         assert(paddr != INVALID_PHYSICAL);
-        map(vaddr, paddr, size, PAGE_USER | PAGE_NO_EXEC, pages);
+        map(vaddr, paddr, size, PAGE_USER | PAGE_NO_EXEC);
     }
 
     /* map pvclock page */
@@ -109,10 +107,10 @@ void init_vdso(process p)
         paddr = pvclock_get_physaddr();
         if (paddr != INVALID_PHYSICAL) {
             __vdso_dat->pvclock_offset = paddr & PAGEMASK;
-            map(vaddr, paddr & ~PAGEMASK, size, PAGE_USER | PAGE_NO_EXEC, pages);
+            map(vaddr, paddr & ~PAGEMASK, size, PAGE_USER | PAGE_NO_EXEC);
         }
     }
 
     /* init legacy vsyscall mappings */
-    init_vsyscall((heap)heap_physical(kh), pages);
+    init_vsyscall((heap)heap_physical(kh));
 }
