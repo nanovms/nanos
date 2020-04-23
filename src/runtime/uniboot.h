@@ -75,6 +75,9 @@ extern void * AP_BOOT_PAGE;
 #define XENNET_RX_SERVICEQUEUE_DEPTH 512
 #define XENNET_TX_SERVICEQUEUE_DEPTH 512
 
+/* mm stuff */
+#define CACHE_DRAIN_CUTOFF (64 * MB)
+
 #include <x86.h>
 void xsave(void *);
 

@@ -8,9 +8,9 @@
    don't create too much of a mess. */
 //#define SCHED_DEBUG
 #ifdef SCHED_DEBUG
-#define sched_debug(x, ...) do {log_printf("SCHED", "[%2d] " x, ci->id, ##__VA_ARGS__);} while(0)
+#define sched_debug(x, ...) do {log_printf("SCHED", "[%2d] " x, current_cpu()->id, ##__VA_ARGS__);} while(0)
 #else
-#define sched_debug(x, ...) (void)ci
+#define sched_debug(x, ...)
 #endif
 
 // currently defined in x86_64.h
@@ -96,7 +96,7 @@ static void run_thunk(thunk t, int cpustate)
 }
 
 /* called with kernel lock held */
-static inline void update_timer(cpuinfo ci)
+static inline void update_timer(void)
 {
     timestamp next = timer_check(runloop_timers);
     if (last_timer_update && next == last_timer_update)
@@ -151,7 +151,10 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
             run_thunk(t, cpu_kernel);
         }
 
-        update_timer(ci);
+        /* should be a list of per-runloop checks - also low-pri background */
+        mm_service();
+        update_timer();
+
         kern_unlock();
     }
 

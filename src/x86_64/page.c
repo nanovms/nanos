@@ -570,6 +570,17 @@ static u64 wrap_alloc_subrange(id_heap i, bytes count, u64 start, u64 end)
     return r;
 }
 
+/* don't need lock for these */
+static u64 wrap_total(heap h)
+{
+    return phys_internal->total;
+}
+
+static u64 wrap_allocated(heap h)
+{
+    return phys_internal->allocated;
+}
+
 /* this happens even before moving to the new stack, so ... be cool */
 id_heap init_page_tables(heap h, id_heap physical)
 {
@@ -581,8 +592,8 @@ id_heap init_page_tables(heap h, id_heap physical)
     i->h.alloc = wrap_alloc;
     i->h.dealloc = wrap_dealloc;
     i->h.destroy = 0;
-    i->h.allocated = physical->h.allocated;
-    i->h.total = physical->h.total;
+    i->h.allocated = wrap_allocated;
+    i->h.total = wrap_total;
     i->h.pagesize = physical->h.pagesize;
     i->add_range = wrap_add_range;
     i->set_area = wrap_set_area;

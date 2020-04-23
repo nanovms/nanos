@@ -180,6 +180,8 @@ void kern_lock(void);
 boolean kern_try_lock(void);
 void kern_unlock(void);
 void init_scheduler(heap);
+void mm_service(void);
+
 extern void interrupt_exit(void);
 extern char **state_strings;
 
