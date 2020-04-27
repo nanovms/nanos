@@ -9,6 +9,7 @@
 #include <page.h>
 #include <symtab.h>
 #include <virtio/virtio.h>
+#include <vmware/vmxnet3.h>
 #include <drivers/storage.h>
 #include <drivers/console.h>
 #include <kvm_platform.h>
@@ -406,6 +407,7 @@ static void __attribute__((noinline)) init_service_new_stack()
         init_debug("probing for virtio PV network...");
         /* qemu virtio */
         init_virtio_network(kh);
+        init_vmxnet3_network(kh);
     }
 
     init_debug("pci_discover (for virtio & ata)");
