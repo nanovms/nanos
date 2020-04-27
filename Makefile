@@ -162,7 +162,7 @@ run-noaccel: image
 
 ##############################################################################
 # VMware
-CLEANFILES+=	$(OUTDIR)/image/disk.vmdk
+CLEANFILES+=	$(IMAGE:.raw=.vmdk)
 
 vmdk-image: image
 	$(Q) $(QEMU_IMG) convert -f raw -O vmdk -o subformat=streamOptimized $(IMAGE) $(IMAGE:.raw=.vmdk)
