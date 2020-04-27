@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 	"net"
+	"crypto/tls"
 )
 
 var count int64
@@ -24,6 +25,8 @@ func reqTestHandler(w http.ResponseWriter, r *http.Request) {
 	resp, err := http.Get("https://ops.city")
 	if err != nil {
 		fmt.Println(err)
+		fmt.Fprint(w, err)
+		return
 	}
 	defer resp.Body.Close()
 
@@ -80,6 +83,7 @@ func filePersistenceHandler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	port := "8080"
 
+	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	http.HandleFunc("/", handler)
 	http.HandleFunc("/req", reqTestHandler)
 	http.HandleFunc("/args", argsHandler)
