@@ -75,7 +75,7 @@ void halt(char *format, ...)
 static heap allocate_tagged_region(heap h, u64 tag)
 {
     u64 size = 256 * MB;
-    void *region = mmap(pointer_from_u64(tag << va_tag_offset),
+    void *region = mmap(pointer_from_u64(tag << VA_TAG_OFFSET),
                         size, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_ANON | MAP_PRIVATE, -1, 0);
     return (heap)create_id_heap(h, h, u64_from_pointer(region), size, 1);
 }

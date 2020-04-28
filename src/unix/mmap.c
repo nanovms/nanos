@@ -66,6 +66,24 @@ void vmap_iterator(process p, vmap_handler vmh)
     vmap_unlock(p);
 }
 
+closure_function(0, 1, void, vmap_dump_node,
+                 rmnode, n)
+{
+    vmap curr = (vmap)n;
+    rprintf("  %R, %s%s%s%s\n", curr->node.r,
+            (curr->flags & VMAP_FLAG_MMAP) ? "mmap " : "",
+            (curr->flags & VMAP_FLAG_ANONYMOUS) ? "anonymous " : "",
+            (curr->flags & VMAP_FLAG_WRITABLE) ? "writable " : "",
+            (curr->flags & VMAP_FLAG_EXEC) ? "exec " : "");
+}
+
+void vmap_dump(rangemap pvmap)
+{
+    rprintf("vmap %p\n", pvmap);
+    rmnode_handler nh = stack_closure(vmap_dump_node);
+    rangemap_range_lookup(pvmap, (range){0, infinity}, nh);
+}
+
 vmap allocate_vmap(rangemap rm, range r, u64 flags)
 {
     vmap vm = allocate(rm->h, sizeof(struct vmap));
@@ -612,7 +630,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
         }
         if (where == (u64)INVALID_ADDRESS) {
             /* We'll always want to know about low memory conditions, so just bark. */
-            msg_err("failed to allocate %s virtual memory, size 0x%lx\n", is_32bit ? "32-bit" : "", len);
+            msg_err("failed to allocate %svirtual memory, size 0x%lx\n", is_32bit ? "32-bit " : "", len);
             return -ENOMEM;
         }
     }
@@ -686,13 +704,15 @@ closure_function(2, 1, void, process_unmap_intersection,
     u64 len = range_span(ri);
     unmap_and_free_phys(ri.start, len);
 
+    /* TODO give this varea thing more scrutiny... */
+
     /* return virtual mapping to heap, if any ... assuming a vmap cannot span heaps!
        XXX: this shouldn't be a lookup per, so consider stashing a link to varea or heap in vmap
        though in practice these are small numbers... */
     varea v = (varea)rangemap_lookup(p->vareas, ri.start);
-    assert(v != INVALID_ADDRESS);
-    if (v->h)
+    if (v != INVALID_ADDRESS && v->h) {
         id_heap_set_area(v->h, ri.start, len, false, false);
+    }
 }
 
 static void process_unmap_range(process p, range q)
@@ -746,10 +766,10 @@ void mmap_process_init(process p)
     add_varea(p, 0, PAGESIZE, p->virtual32, false);
 
     /* allow (tracked) reservations in p->virtual */
-    add_varea(p, PROCESS_VIRTUAL_HEAP_START, PROCESS_VIRTUAL_HEAP_END, p->virtual_page, true);
+    add_varea(p, PROCESS_VIRTUAL_HEAP_START, PROCESS_VIRTUAL_HEAP_LIMIT, p->virtual_page, true);
 
     /* reserve end of p->virtual to user tag region */
-    u64 user_va_tag_start = U64_FROM_BIT(user_va_tag_offset);
+    u64 user_va_tag_start = U64_FROM_BIT(USER_VA_TAG_OFFSET);
     u64 user_va_tag_end = user_va_tag_start * tag_max;
 
     /* allow untracked mmaps in user va tag area */

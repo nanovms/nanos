@@ -88,13 +88,12 @@ static inline u64 pte_lookup_phys(u64 table, u64 vaddr, int offset)
     return table + (((vaddr >> offset) & MASK(9)) << 3);
 }
 
+#ifndef physical_from_virtual
 static inline u64 *pte_lookup_ptr(u64 table, u64 vaddr, int offset)
 {
     return pointer_from_pteaddr(pte_lookup_phys(table, vaddr, offset));
 }
 
-// there is a def64 and def32 now
-#ifndef physical_from_virtual
 static inline u64 page_lookup(u64 table, u64 vaddr, int offset)
 {
     u64 a = *pte_lookup_ptr(table, vaddr, offset);
@@ -146,7 +145,6 @@ void page_invalidate(u64 address, thunk completion)
 #endif
 
 #ifndef BOOT
-
 void dump_ptes(void *x)
 {
     pagetable_lock();
@@ -284,6 +282,7 @@ static inline boolean map_page(u64 base, u64 v, physical p,
     rprintf("force entry base 0x%p, v 0x%lx, p 0x%lx, fat %d, flags 0x%lx\n",
             base, v, p, fat, flags);
 #endif
+    v &= MASK(VIRTUAL_ADDRESS_BITS);
     if (!force_entry(base, v, p, 1, fat, flags, &invalidate_entry))
 	return false;
     if (invalidate_entry) {
@@ -295,53 +294,66 @@ static inline boolean map_page(u64 base, u64 v, physical p,
     return true;
 }
 
-static inline u64 pt_level_end(u64 p, int level)
-{
-    return (p & ~MASK(level)) + U64_FROM_BIT(level);
-}
+//#define TRAVERSE_PTES_DEBUG
 
-#define for_level(base, start, end, level, levelend)                    \
-    for (u64 addr ## level = start, next ## level, end ## level, * pte ## level; \
-         next ## level = pt_level_end(addr ## level, PT ## level),      \
-             end ## level = MIN(next ## level, end),                    \
-             pte ## level = pte_lookup_ptr(base, addr ## level, PT ## level), \
-             addr ## level >= start && addr ## level < levelend;              \
-         addr ## level = next ## level)
+#define PTE_ENTRIES U64_FROM_BIT(9)
+static boolean recurse_ptes(u64 pbase, int level, u64 vstart, u64 len, u64 laddr, entry_handler ph)
+{
+    int shift = level_shift[level];
+    u64 lsize = U64_FROM_BIT(shift);
+    u64 start_idx = vstart > laddr ? ((vstart - laddr) >> shift) : 0;
+    u64 x = vstart + len - laddr;
+    u64 end_idx = MIN(pad(x, lsize) >> shift, PTE_ENTRIES);
+    u64 offset = start_idx << shift;
+
+#ifdef TRAVERSE_PTES_DEBUG
+    rprintf("   pbase 0x%lx, level %d, shift %d, lsize 0x%lx, laddr 0x%lx,\n"
+            "      start_idx %ld, end_idx %ld, x 0x%lx, offset 0x%lx\n",
+            __func__, pbase, level, shift, lsize, laddr,
+            start_idx, end_idx, offset);
+#endif
+
+    assert(start_idx <= PTE_ENTRIES);
+    assert(end_idx <= PTE_ENTRIES);
+
+    // don't think MAX(vstart, laddr) is necessary...right?
+    for (u64 i = start_idx; i < end_idx; i++, offset += lsize) {
+        u64 addr = laddr + (i << shift);
+        if (addr & U64_FROM_BIT(47))
+            addr |= 0xffff000000000000; /* make canonical */
+        u64 pteaddr = pbase + (i * sizeof(u64));
+        u64 *pte = pointer_from_pteaddr(pteaddr);
+#ifdef TRAVERSE_PTES_DEBUG
+        rprintf("   idx %d, offset 0x%lx, addr 0x%lx, pteaddr 0x%lx, *pte %p\n",
+                i, offset, addr, pteaddr, *pte);
+#endif
+        if (!apply(ph, level, addr, pte))
+            return false;
+        if (!pt_entry_is_present(*pte))
+            continue;
+        if (level == 3 && (*pte & PAGE_2M_SIZE) != 0)
+            continue;
+        if (level < 4) {
+            if (!recurse_ptes(page_from_pte(*pte), level + 1, vstart, len,
+                              laddr + offset, ph))
+                return false;
+        }
+    }
+    return true;
+}
 
 boolean traverse_ptes(u64 vaddr, u64 length, entry_handler ph)
 {
-    u64 end = vaddr + length;
+#ifdef TRAVERSE_PTES_DEBUG
+    rprintf("traverse_ptes vaddr 0x%lx, length 0x%lx\n", vaddr, length);
+#endif
     pagetable_lock();
-    for_level(pagebase(), vaddr, end, 1, end) {
-        if (!apply(ph, 1, addr1, pte1))
-            goto fail;
-        if (!pt_entry_is_present(*pte1))
-            continue;
-        for_level(page_from_pte(*pte1), addr1, end, 2, end1) {
-            if (!apply(ph, 2, addr2, pte2))
-                goto fail;
-            if (!pt_entry_is_present(*pte2))
-                continue;
-            for_level(page_from_pte(*pte2), addr2, end, 3, end2) {
-                if (!apply(ph, 3, addr3, pte3))
-                    goto fail;
-                if (!pt_entry_is_present(*pte3))
-                    continue;
-                if ((*pte3 & PAGE_2M_SIZE) == 0) {
-                    for_level(page_from_pte(*pte3), addr3, end, 4, end3) {
-                        if (!apply(ph, 4, addr4, pte4))
-                            goto fail;
-                        (void)end4;
-                    }
-                }
-            }
-        }
-    }
+    boolean result = recurse_ptes(pagebase(), 1, vaddr & MASK(VIRTUAL_ADDRESS_BITS),
+                                  length, 0, ph);
+    if (!result)
+        rprintf("fail\n");
     pagetable_unlock();
-    return true;
-  fail:
-    pagetable_unlock();
-    return false;
+    return result;
 }
 
 /* called with lock held */

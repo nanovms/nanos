@@ -56,27 +56,6 @@ static inline u64 allocate_region(heap h, bytes size)
     if (base == 0)
         return u64_from_pointer(INVALID_ADDRESS);
 
-    // XXX nuke
-    /* If this region intersects the kernel map, shrink the region
-       such that allocations begin below the kernel. */
-    u64 end = base + r->length;
-    if (end > KERNEL_RESERVE_START) {
-        if (base < KERNEL_RESERVE_START) {
-            r->length -= end - KERNEL_RESERVE_START;
-            if (end > KERNEL_RESERVE_END) {
-                /* Make a new region for any portion above the kernel map. */
-                create_region(KERNEL_RESERVE_END, end - KERNEL_RESERVE_END, REGION_PHYSICAL);
-            }
-        } else {
-            /* Really we should just select the next region, but it
-               seems unlikely that this would be false... */
-            assert(base >= KERNEL_RESERVE_END);
-        }
-    }
-
-    // XXX nuke
-    /* Carve allocations from top of region, mainly to get identity
-       mappings out of the way of commonly-used areas in low memory. */
     u64 result = ((base + r->length) & ~MASK(PAGELOG)) - len;
     r->length = result - base;
     return result;

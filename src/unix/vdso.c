@@ -46,18 +46,20 @@ vsyscall_getcpu(unsigned * cpu, unsigned * node, void * tcache)
 void init_vsyscall(heap phys)
 {
     /* build vsyscall vectors */
-    map(VSYSCALL_BASE, allocate_u64(phys, PAGESIZE), PAGESIZE, PAGE_USER);
+    u64 p = allocate_u64(phys, PAGESIZE);
+    assert(p != INVALID_PHYSICAL);
+    map(VSYSCALL_BASE, p, PAGESIZE, PAGE_USER);
     buffer b = alloca_wrap_buffer(pointer_from_u64(VSYSCALL_BASE), PAGESIZE);
     b->end = VSYSCALL_OFFSET_VGETTIMEOFDAY;
-    mov_32_imm(b, 0, u64_from_pointer(vsyscall_gettimeofday));
+    mov_64_imm(b, 0, u64_from_pointer(vsyscall_gettimeofday));
     jump_indirect(b, 0);
 
     b->end = VSYSCALL_OFFSET_VTIME;
-    mov_32_imm(b, 0, u64_from_pointer(vsyscall_time));
+    mov_64_imm(b, 0, u64_from_pointer(vsyscall_time));
     jump_indirect(b, 0);
 
     b->end = VSYSCALL_OFFSET_VGETCPU;
-    mov_32_imm(b, 0, u64_from_pointer(vsyscall_getcpu));
+    mov_64_imm(b, 0, u64_from_pointer(vsyscall_getcpu));
     jump_indirect(b, 0);
 
     /* allow user execution for vsyscall pages */

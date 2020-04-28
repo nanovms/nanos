@@ -175,8 +175,7 @@ closure_function(0, 1, void, fail,
     halt("filesystem_read_entire failed: %v\n", s);
 }
 
-s64 pt_offset;
-region initial_pages_region;
+static region initial_pages_region;
 
 static void setup_page_tables()
 {

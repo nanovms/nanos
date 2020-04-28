@@ -34,8 +34,9 @@ static heap allocate_tagged_region(kernel_heaps kh, u64 tag)
 {
     heap h = heap_general(kh);
     heap p = (heap)heap_physical(kh);
-    u64 tag_base = tag << va_tag_offset;
-    u64 tag_length = U64_FROM_BIT(va_tag_offset);
+    assert(tag < U64_FROM_BIT(VA_TAG_WIDTH));
+    u64 tag_base = KMEM_BASE | (tag << VA_TAG_OFFSET);
+    u64 tag_length = U64_FROM_BIT(VA_TAG_OFFSET);
     heap v = (heap)create_id_heap(h, heap_backed(kh), tag_base, tag_length, p->pagesize);
     assert(v != INVALID_ADDRESS);
     heap backed = physically_backed(h, v, p, p->pagesize);
@@ -434,7 +435,7 @@ static range find_initial_pages(void)
             return irange(base, base + length);
         }
     }
-    halt("no identity region found; halt\n");
+    halt("no initial pages region found; halt\n");
 }
 
 static id_heap init_physical_id_heap(heap h)
@@ -447,7 +448,7 @@ static id_heap init_physical_id_heap(heap h)
 	    /* Align for 2M pages */
 	    u64 base = e->base;
 	    u64 end = base + e->length - 1;
-	    u64 page2m_mask = (2 << 20) - 1;
+	    u64 page2m_mask = MASK(PAGELOG_2M);
 	    base = (base + page2m_mask) & ~page2m_mask;
 	    end &= ~page2m_mask;
 	    if (base >= end)
@@ -477,19 +478,14 @@ static void init_kernel_heaps()
     bootstrap.alloc = bootstrap_alloc;
     bootstrap.dealloc = leak;
 
-    /* This returns a wrapped physical heap which takes an (irq-safe)
-       lock for each heap method. Not clear if this would be better as
-       some other (non-heap) interface. */
-    heaps.virtual_huge = create_id_heap(&bootstrap, &bootstrap, HUGE_PAGESIZE,
-                                        U64_FROM_BIT(VIRTUAL_ADDRESS_BITS) -
-                                        HUGE_PAGESIZE, HUGE_PAGESIZE);
+    heaps.virtual_huge = create_id_heap(&bootstrap, &bootstrap, KMEM_BASE,
+                                        KMEM_LIMIT - KMEM_BASE, HUGE_PAGESIZE);
     assert(heaps.virtual_huge != INVALID_ADDRESS);
 
     heaps.virtual_page = create_id_heap_backed(&bootstrap, &bootstrap, (heap)heaps.virtual_huge, PAGESIZE);
     assert(heaps.virtual_page != INVALID_ADDRESS);
 
-    range r = find_initial_pages();
-    heaps.physical = init_page_tables(&bootstrap, init_physical_id_heap(&bootstrap), r);
+    heaps.physical = init_page_tables(&bootstrap, init_physical_id_heap(&bootstrap), find_initial_pages());
     assert(heaps.physical != INVALID_ADDRESS);
 
     heaps.backed = physically_backed(&bootstrap, (heap)heaps.virtual_page, (heap)heaps.physical, PAGESIZE);
