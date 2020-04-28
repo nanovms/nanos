@@ -75,10 +75,10 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, sched_get_priority_max, 0);
     register_syscall(map, sched_get_priority_min, 0);
     register_syscall(map, sched_rr_get_interval, 0);
-    register_syscall(map, mlock, 0);
-    register_syscall(map, munlock, 0);
-    register_syscall(map, mlockall, 0);
-    register_syscall(map, munlockall, 0);
+    register_syscall(map, mlock, syscall_ignore);
+    register_syscall(map, munlock, syscall_ignore);
+    register_syscall(map, mlockall, syscall_ignore);
+    register_syscall(map, munlockall, syscall_ignore);
     register_syscall(map, vhangup, 0);
     register_syscall(map, modify_ldt, 0);
     register_syscall(map, pivot_root, 0);
@@ -195,7 +195,7 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, execveat, 0);
     register_syscall(map, userfaultfd, 0);
     register_syscall(map, membarrier, 0);
-    register_syscall(map, mlock2, 0);
+    register_syscall(map, mlock2, syscall_ignore);
     register_syscall(map, copy_file_range, 0);
     register_syscall(map, preadv2, 0);
     register_syscall(map, pwritev2, 0);
