@@ -716,8 +716,10 @@ closure_function(2, 0, sysreturn, file_close,
         ret = spec_close(f);
     }
         
-    if (ret == 0)
+    if (ret == 0) {
+        release_fdesc(&f->f);
         unix_cache_free(get_unix_heaps(), file, f);
+    }
     return 0;
 }
 
