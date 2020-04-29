@@ -775,7 +775,7 @@ void mmap_process_init(process p)
     /* allow untracked mmaps in user va tag area */
     add_varea(p, user_va_tag_start, user_va_tag_end, 0, true);
 
-    /* reserve kernel memory */
+    /* reserve kernel memory and non-canonical addresses */
     add_varea(p, U64_FROM_BIT(47), -1ull, 0, false);
 
     /* randomly determine vdso/vvar base and track it */

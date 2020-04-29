@@ -301,7 +301,7 @@ void newstack()
                       SECTOR_SIZE,
                       infinity,
                       0,         /* ignored in boot */
-                      sg_wrapped_block_reader(get_stage2_disk_read(h, fs_offset), SECTOR_OFFSET, heap_backed(&kh)),
+                      sg_wrapped_block_reader(get_stage2_disk_read(h, fs_offset), SECTOR_OFFSET, h),
                       closure(h, stage2_empty_write),
                       root,
                       false,

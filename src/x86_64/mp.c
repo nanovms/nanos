@@ -52,7 +52,7 @@ void ap_start()
     switch_stack(get_cpuinfo()->kernel_stack, ap_new_stack);
 }
 
-void start_cpu(heap h, heap hs, int index, void (*ap_entry)()) {
+void start_cpu(heap h, heap stackheap, int index, void (*ap_entry)()) {
     if (apboot == INVALID_ADDRESS) {
         start_callback = ap_entry;
         apboot = pointer_from_u64(AP_BOOT_START);
@@ -63,7 +63,7 @@ void start_cpu(heap h, heap hs, int index, void (*ap_entry)()) {
         mov_from_cr("cr3", ap_pagetable);
         // just one function call
 
-        void *rsp = allocate_stack(hs, 4 * PAGESIZE);
+        void *rsp = allocate_stack(stackheap, 4 * PAGESIZE);
         ap_stack = rsp;
 
         runtime_memcpy(apboot, &apinit, &apinit_end - &apinit);

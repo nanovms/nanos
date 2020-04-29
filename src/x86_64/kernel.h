@@ -166,7 +166,7 @@ void deallocate_interrupt(u64 irq);
 void register_interrupt(int vector, thunk t, const char *name);
 void unregister_interrupt(int vector);
 void triple_fault(void) __attribute__((noreturn));
-void start_cpu(heap h, heap sheap, int index, void (*ap_entry)());
+void start_cpu(heap h, heap stackheap, int index, void (*ap_entry)());
 void *allocate_stack(heap pages, u64 size);
 void install_idt(void);
 

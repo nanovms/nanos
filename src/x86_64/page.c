@@ -308,15 +308,13 @@ static boolean recurse_ptes(u64 pbase, int level, u64 vstart, u64 len, u64 laddr
 
 #ifdef TRAVERSE_PTES_DEBUG
     rprintf("   pbase 0x%lx, level %d, shift %d, lsize 0x%lx, laddr 0x%lx,\n"
-            "      start_idx %ld, end_idx %ld, x 0x%lx, offset 0x%lx\n",
-            __func__, pbase, level, shift, lsize, laddr,
-            start_idx, end_idx, offset);
+            "      start_idx %ld, end_idx %ld, offset 0x%lx\n",
+            pbase, level, shift, lsize, laddr, start_idx, end_idx, offset);
 #endif
 
     assert(start_idx <= PTE_ENTRIES);
     assert(end_idx <= PTE_ENTRIES);
 
-    // don't think MAX(vstart, laddr) is necessary...right?
     for (u64 i = start_idx; i < end_idx; i++, offset += lsize) {
         u64 addr = laddr + (i << shift);
         if (addr & U64_FROM_BIT(47))
