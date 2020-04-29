@@ -139,15 +139,18 @@ sysreturn timerfd_settime(int fd, int flags,
     if (flags & ~(TFD_TIMER_ABSTIME | TFD_TIMER_CANCEL_ON_SET))
         return -EINVAL;
 
-    if (!new_value)
+    if (!validate_user_memory(new_value, sizeof(struct itimerspec), false))
         return -EFAULT;
 
     unix_timer ut = resolve_fd(current->p, fd); /* macro, may return EBADF */
     if (ut->f.type != FDESC_TYPE_TIMERFD)
         return -EINVAL;
 
-    if (old_value)
+    if (old_value) {
+        if (!validate_user_memory(old_value, sizeof(struct itimerspec), true))
+            return -EFAULT;
         itimerspec_from_timer(ut, old_value);
+    }
 
     ut->info.timerfd.cancel_on_set =
         (ut->cid == CLOCK_REALTIME || ut->cid == CLOCK_REALTIME_ALARM) &&
@@ -180,7 +183,7 @@ sysreturn timerfd_gettime(int fd, struct itimerspec *curr_value)
     if (ut->f.type != FDESC_TYPE_TIMERFD)
         return -EINVAL;
 
-    if (!curr_value)
+    if (!validate_user_memory(curr_value, sizeof(struct itimerspec), true))
         return -EFAULT;
 
     itimerspec_from_timer(ut, curr_value);
@@ -373,7 +376,7 @@ sysreturn timer_settime(u32 timerid, int flags,
                         const struct itimerspec *new_value,
                         struct itimerspec *old_value) {
     /* Linux doesn't validate flags? */
-    if (!new_value)
+    if (!validate_user_memory(new_value, sizeof(struct itimerspec), false))
         return -EINVAL;         /* usually EFAULT, but linux gives EINVAL */
 
     unix_timer ut = posix_timer_from_timerid(timerid);
@@ -405,7 +408,7 @@ sysreturn timer_settime(u32 timerid, int flags,
 }
 
 sysreturn timer_gettime(u32 timerid, struct itimerspec *curr_value) {
-    if (!curr_value)
+    if (!validate_user_memory(curr_value, sizeof(struct itimerspec), true))
         return -EFAULT;
 
     unix_timer ut = posix_timer_from_timerid(timerid);
@@ -454,7 +457,7 @@ sysreturn timer_create(int clockid, struct sigevent *sevp, u32 *timerid)
         clockid != CLOCK_BOOTTIME_ALARM)
         return -EINVAL;
 
-    if (!timerid)
+    if (!validate_user_memory(timerid, sizeof(u32), true))
         return -EFAULT;
 
     process p = current->p;
@@ -526,7 +529,7 @@ sysreturn getitimer(int which, struct itimerval *curr_value)
         return -EINVAL;
     }
 
-    if (!curr_value)
+    if (!validate_user_memory(curr_value, sizeof(struct itimerval), true))
         return -EFAULT;
 
     unix_timer ut = vector_get(current->p->itimers, which);

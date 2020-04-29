@@ -35,7 +35,10 @@ closure_function(5, 1, sysreturn, nanosleep_bh,
 
 sysreturn nanosleep(const struct timespec *req, struct timespec *rem)
 {
-    if (!req)
+    if (!validate_user_memory(req, sizeof(struct timespec), false))
+        return -EFAULT;
+
+    if (rem && !validate_user_memory(rem, sizeof(struct timespec), true))
         return -EFAULT;
 
     timestamp interval = time_from_timespec(req);
@@ -50,7 +53,10 @@ sysreturn nanosleep(const struct timespec *req, struct timespec *rem)
 sysreturn clock_nanosleep(clockid_t _clock_id, int flags, const struct timespec *req,
                           struct timespec *rem)
 {
-    if (!req)
+    if (!validate_user_memory(req, sizeof(struct timespec), false))
+        return -EFAULT;
+
+    if (rem && !validate_user_memory(rem, sizeof(struct timespec), true))
         return -EFAULT;
 
     /* Report any attempted use of CLOCK_PROCESS_CPUTIME_ID */

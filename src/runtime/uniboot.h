@@ -4,6 +4,7 @@
 #define KERNEL_BASE 0xffffffff80000000ull
 #define KMEM_LIMIT  0xffffffff00000000ull
 #define PAGES_BASE  0xffffffffc0000000ull
+#define USER_LIMIT  0x0000800000000000ull
 
 #ifdef BOOT
 

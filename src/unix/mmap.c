@@ -778,7 +778,7 @@ void mmap_process_init(process p)
     add_varea(p, user_va_tag_start, user_va_tag_end, 0, true);
 
     /* reserve kernel memory and non-canonical addresses */
-    add_varea(p, U64_FROM_BIT(47), -1ull, 0, false);
+    add_varea(p, USER_LIMIT, -1ull, 0, false);
 
     /* randomly determine vdso/vvar base and track it */
     u64 vdso_size, vvar_size, vvar_start;

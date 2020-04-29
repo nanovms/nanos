@@ -356,7 +356,7 @@ sysreturn rt_sigpending(u64 *set, u64 sigsetsize)
     if (sigsetsize != (NSIG / 8))
         return -EINVAL;
 
-    if (!set)
+    if (!validate_user_memory(set, sigsetsize, true))
         return -EFAULT;
 
     u64 pending = get_all_pending_signals(current);
@@ -575,7 +575,7 @@ sysreturn rt_sigsuspend(const u64 * mask, u64 sigsetsize)
     if (sigsetsize != (NSIG / 8))
         return -EINVAL;
 
-    if (!mask)
+    if (!validate_user_memory(mask, sigsetsize, false))
         return -EFAULT;
 
     thread t = current;
@@ -682,7 +682,7 @@ sysreturn kill(int pid, int sig)
 
 static inline sysreturn sigqueueinfo_sanitize_args(int tgid, int sig, siginfo_t *uinfo)
 {
-    if (!uinfo)
+    if (!validate_user_memory(uinfo, sizeof(siginfo_t), false))
         return -EFAULT;
 
     if (tgid != current->p->pid)
@@ -811,7 +811,8 @@ sysreturn rt_sigtimedwait(const u64 * set, siginfo_t * info, const struct timesp
 {
     if (sigsetsize != (NSIG / 8))
         return -EINVAL;
-    if (!set)
+    if (!validate_user_memory(set, sizeof(sigsetsize), false) ||
+        (info && !validate_user_memory(info, sizeof(siginfo_t), true)))
         return -EFAULT;
     sig_debug("tid %d, interest 0x%lx, info %p, timeout %p\n", current->tid, *set, info, timeout);
     heap h = heap_general(get_kernel_heaps());
@@ -1021,7 +1022,7 @@ sysreturn signalfd4(int fd, const u64 *mask, u64 sigsetsize, int flags)
         (flags & ~(SFD_CLOEXEC | SFD_NONBLOCK))) 
         return -EINVAL;
 
-    if (!mask)
+    if (!validate_user_memory(mask, sigsetsize, false))
         return -EFAULT;
 
     if (fd == -1)

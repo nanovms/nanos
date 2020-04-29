@@ -973,11 +973,11 @@ sysreturn getrandom(void *buf, u64 buflen, unsigned int flags)
     heap h = heap_general(get_kernel_heaps());
     buffer b;
 
-    if (!buf)
-        return set_syscall_error(current, EFAULT);
-
     if (!buflen)
         return set_syscall_error(current, EINVAL);
+
+    if (!validate_user_memory(buf, buflen, true))
+        return set_syscall_error(current, EFAULT);
 
     if (flags & ~(GRND_NONBLOCK | GRND_RANDOM))
         return set_syscall_error(current, EINVAL);
@@ -1022,7 +1022,7 @@ static int try_write_dirent(tuple root, struct linux_dirent *dirp, char *p,
 
 sysreturn getdents(int fd, struct linux_dirent *dirp, unsigned int count)
 {
-    if (!dirp)
+    if (!validate_user_memory(dirp, count, true))
         return set_syscall_error(current, EFAULT);
     file f = resolve_fd(current->p, fd);
     tuple c = children(f->n);

@@ -502,7 +502,7 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
     fdesc f = resolve_fd(current->p, fd);
 
     /* A valid event pointer is required for all operations but EPOLL_CTL_DEL */
-    if ((op != EPOLL_CTL_DEL) && !event) {
+    if ((op != EPOLL_CTL_DEL) && !validate_user_memory(event, sizeof(struct epoll_event), false)) {
         return set_syscall_error(current, EFAULT);
     }
 

@@ -168,6 +168,7 @@ closure_function(1, 1, void, symlink_complete,
     closure_finish();
 }
 
+// TODO user string validation
 static sysreturn symlink_internal(tuple cwd, const char *path,
         const char *target)
 {
@@ -229,6 +230,7 @@ sysreturn utimes(const char *filename, const struct timeval times[2])
     return utime_internal(filename, atime, mtime);
 }
 
+// TODO user string validate
 static sysreturn statfs_internal(tuple t, struct statfs *buf)
 {
     if (!buf) {
