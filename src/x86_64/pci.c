@@ -43,7 +43,6 @@
 // use the global nodespace
 static vector drivers;
 static heap virtual_page;
-static heap pages;
 
 struct pci_driver {
     pci_probe probe;
@@ -134,7 +133,7 @@ void pci_bar_init(pci_dev dev, struct pci_bar *b, int bar, bytes offset, bytes l
         b->vaddr = allocate(virtual_page, len);
         pci_debug("%s: %p[0x%x] -> 0x%lx[0x%lx]+0x%x\n", __func__, b->vaddr, len, b->addr, b->size, offset);
         u64 pa = b->addr + offset;
-        map(u64_from_pointer(b->vaddr), pa & ~PAGEMASK, len, PAGE_DEV_FLAGS, pages);
+        map(u64_from_pointer(b->vaddr), pa & ~PAGEMASK, len, PAGE_DEV_FLAGS);
         b->vaddr += pa & PAGEMASK;
     }
 }
@@ -365,6 +364,5 @@ void init_pci(kernel_heaps kh)
 {
     // should use the global node space
     virtual_page = (heap)heap_virtual_page(kh);
-    pages = heap_pages(kh);
     drivers = allocate_vector(heap_general(kh), 8);
 }

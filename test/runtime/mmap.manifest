@@ -7,6 +7,9 @@
     )
     # filesystem path to elf for kernel to run
     program:/mmap
+#    trace:t
+#    debugsyscalls:t
+#    futex_trace:t
     fault:t
     arguments:[/mmap, basic]
     environment:(USER:bobby PWD:/)

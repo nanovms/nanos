@@ -90,7 +90,7 @@ sysreturn io_setup(unsigned int nr_events, aio_context_t *ctx_idp)
         return -ENOMEM;
     }
     map(u64_from_pointer(ctx), phys, alloc_size,
-            PAGE_WRITABLE | PAGE_NO_EXEC | PAGE_USER, heap_pages(kh));
+        PAGE_WRITABLE | PAGE_NO_EXEC | PAGE_USER);
 
     struct aio *aio = aio_alloc(current->p, kh, &ctx->id);
     assert(aio);
@@ -332,7 +332,7 @@ closure_function(1, 2, void, io_destroy_complete,
         u64 phys = physical_from_virtual(ring);
         u64 alloc_size = pad(sizeof(*ring) + aio->nr * sizeof(struct io_event),
                 PAGESIZE);
-        unmap(u64_from_pointer(ring), alloc_size, heap_pages(aio->kh));
+        unmap(u64_from_pointer(ring), alloc_size);
         deallocate_u64((heap) heap_physical(aio->kh), phys, alloc_size);
         deallocate(aio->vh, ring, alloc_size);
         aio_dealloc(current->p, aio, aio_id);

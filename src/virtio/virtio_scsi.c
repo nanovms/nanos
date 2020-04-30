@@ -429,7 +429,7 @@ static void virtio_scsi_report_luns(virtio_scsi s, storage_attach a, u16 target)
         closure(s->v->general, virtio_scsi_report_luns_done, a, target));
 }
 
-static void virtio_scsi_attach(heap general, storage_attach a, heap page_allocator, heap pages, pci_dev _dev)
+static void virtio_scsi_attach(heap general, storage_attach a, heap page_allocator, pci_dev _dev)
 {
     virtio_scsi s = allocate(general, sizeof(struct virtio_scsi));
     s->v = attach_vtpci(general, page_allocator, _dev, 0);
@@ -484,19 +484,19 @@ static void virtio_scsi_attach(heap general, storage_attach a, heap page_allocat
     virtio_scsi_report_luns(s, a, 0);
 }
 
-closure_function(4, 1, boolean, virtio_scsi_probe,
-                 heap, general, storage_attach, a, heap, page_allocator, heap, pages,
+closure_function(3, 1, boolean, virtio_scsi_probe,
+                 heap, general, storage_attach, a, heap, page_allocator,
                  pci_dev, d)
 {
     if (!vtpci_probe(d, VIRTIO_ID_SCSI))
         return false;
 
-    virtio_scsi_attach(bound(general), bound(a), bound(page_allocator), bound(pages), d);
+    virtio_scsi_attach(bound(general), bound(a), bound(page_allocator), d);
     return true;
 }
 
 void virtio_register_scsi(kernel_heaps kh, storage_attach a)
 {
     heap h = heap_general(kh);
-    register_pci_driver(closure(h, virtio_scsi_probe, h, a, heap_backed(kh), heap_pages(kh)));
+    register_pci_driver(closure(h, virtio_scsi_probe, h, a, heap_backed(kh)));
 }

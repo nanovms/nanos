@@ -7,10 +7,9 @@
 #include <tfs.h>
 #include <unix.h>
 
-/* area for mmaps abut the kernel tagged region */
-#define PROCESS_VIRTUAL_HEAP_START  0x00800000000ull
-#define PROCESS_VIRTUAL_HEAP_END    0x10000000000ull
-#define PROCESS_VIRTUAL_HEAP_LENGTH (PROCESS_VIRTUAL_HEAP_END - PROCESS_VIRTUAL_HEAP_START)
+#define PROCESS_VIRTUAL_HEAP_START  0x000100000000ull
+#define PROCESS_VIRTUAL_HEAP_LIMIT  U64_FROM_BIT(USER_VA_TAG_OFFSET)
+#define PROCESS_VIRTUAL_HEAP_LENGTH (PROCESS_VIRTUAL_HEAP_LIMIT - PROCESS_VIRTUAL_HEAP_START)
 
 #define PROCESS_STACK_SIZE          (2 * MB)
 
@@ -320,7 +319,6 @@ typedef struct process {
     int               pid;
     void             *brk;
     u64               heap_base;
-    u64               lowmem_end; /* end of elf / heap / stack area (low 2gb below reserved) */
     u64               vdso_base;
     id_heap           virtual;  /* huge virtual, parent of virtual_page */
     id_heap           virtual_page; /* pagesized, default for mmaps */

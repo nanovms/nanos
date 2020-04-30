@@ -16,29 +16,6 @@
 #define PAGE_PROT_FLAGS    (PAGE_NO_EXEC | PAGE_USER | PAGE_WRITABLE)
 #define PAGE_DEV_FLAGS     (PAGE_WRITABLE | PAGE_CACHE_DISABLE | PAGE_NO_EXEC)
 
-typedef u64 *page;
-
-static inline u64 phys_from_pte(u64 pte)
-{
-    /* page directory pointer base address [51:12] */
-    return pte & (MASK(52) & ~PAGEMASK);
-}
-
-static inline page page_from_pte(u64 pte)
-{
-    return (page)pointer_from_u64(phys_from_pte(pte));
-}
-
-static inline u64 flags_from_pte(u64 pte)
-{
-    return pte & PAGE_FLAGS_MASK;
-}
-
-static inline u64 pindex(u64 x, u64 offset)
-{
-    return ((x >> offset) & MASK(9));
-}
-
 static inline boolean pt_entry_is_present(u64 entry)
 {
     return (entry & PAGE_PRESENT) != 0;
@@ -58,8 +35,8 @@ static inline boolean pt_entry_is_pte(int level, u64 entry)
 physical physical_from_virtual(void *x);
 #endif
 
-void map(u64 virtual, physical p, u64 length, u64 flags, heap h);
-void unmap(u64 virtual, u64 length, heap h);
+void map(u64 virtual, physical p, u64 length, u64 flags);
+void unmap(u64 virtual, u64 length);
 void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh);
 void unmap_and_free_phys(u64 virtual, u64 length);
 
@@ -70,7 +47,7 @@ static inline void unmap_pages(u64 virtual, u64 length)
 
 void update_map_flags(u64 vaddr, u64 length, u64 flags);
 void zero_mapped_pages(u64 vaddr, u64 length);
-void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length, heap h);
+void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length);
 
 void dump_ptes(void *x);
 
@@ -80,4 +57,8 @@ boolean traverse_ptes(u64 vaddr, u64 length, entry_handler eh);
 void page_invalidate(u64 p, thunk completion);
 void flush_tlb();
 void init_flush();
-id_heap init_page_tables(heap h, id_heap physical);
+#ifdef STAGE3
+id_heap init_page_tables(heap h, id_heap physical, range initial_map);
+#else
+void init_page_tables(heap initial);
+#endif

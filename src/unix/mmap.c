@@ -36,7 +36,7 @@ boolean do_demand_page(u64 vaddr, vmap vm)
     }
 
     u64 vaddr_aligned = vaddr & ~MASK(PAGELOG);
-    map(vaddr_aligned, paddr, PAGESIZE, page_map_flags(vm->flags), heap_pages(kh));
+    map(vaddr_aligned, paddr, PAGESIZE, page_map_flags(vm->flags));
     zero(pointer_from_u64(vaddr_aligned), PAGESIZE);
 
     return true;
@@ -64,6 +64,24 @@ void vmap_iterator(process p, vmap_handler vmh)
         vm = (vmap) rangemap_next_node(p->vmaps, &vm->node);
     }
     vmap_unlock(p);
+}
+
+closure_function(0, 1, void, vmap_dump_node,
+                 rmnode, n)
+{
+    vmap curr = (vmap)n;
+    rprintf("  %R, %s%s%s%s\n", curr->node.r,
+            (curr->flags & VMAP_FLAG_MMAP) ? "mmap " : "",
+            (curr->flags & VMAP_FLAG_ANONYMOUS) ? "anonymous " : "",
+            (curr->flags & VMAP_FLAG_WRITABLE) ? "writable " : "",
+            (curr->flags & VMAP_FLAG_EXEC) ? "exec " : "");
+}
+
+void vmap_dump(rangemap pvmap)
+{
+    rprintf("vmap %p\n", pvmap);
+    rmnode_handler nh = stack_closure(vmap_dump_node);
+    rangemap_range_lookup(pvmap, (range){0, infinity}, nh);
 }
 
 vmap allocate_vmap(rangemap rm, range r, u64 flags)
@@ -115,7 +133,6 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
 
     heap vh = (heap)p->virtual_page;
     id_heap physical = heap_physical(kh);
-    heap pages = heap_pages(kh);
 
     old_size = pad(old_size, vh->pagesize);
     if (new_size <= old_size)
@@ -187,13 +204,13 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
     /* remap existing portion */
     thread_log(current, "   remapping existing portion at 0x%lx (old_addr 0x%lx, size 0x%lx)",
                vnew, old_addr, old_size);
-    remap_pages(vnew, old_addr, old_size, pages);
+    remap_pages(vnew, old_addr, old_size);
 
     /* map new portion and zero */
     u64 mapflags = page_map_flags(vmflags);
     thread_log(current, "   mapping and zeroing new portion at 0x%lx, page flags 0x%lx",
                vnew + old_size, mapflags);
-    map(vnew + old_size, dphys, dlen, mapflags, pages);
+    map(vnew + old_size, dphys, dlen, mapflags);
     zero(pointer_from_u64(vnew + old_size), dlen);
     vmap_unlock(p);
     return sysreturn_from_pointer(vnew);
@@ -277,9 +294,6 @@ closure_function(5, 2, void, mmap_read_complete,
         goto out;
     }
 
-    kernel_heaps kh = (kernel_heaps)&t->uh;
-    heap pages = heap_pages(kh);
-
     u64 buf_len = bound(buf_len);
     assert((buf_len & (PAGESIZE - 1)) == 0);
     void * buf = buffer_ref(b, 0);
@@ -290,7 +304,7 @@ closure_function(5, 2, void, mmap_read_complete,
     /* Note that we rely on the backed heap being physically
        contiguous. If this behavior changes or faulted-in pages are
        ever used, revise this to use the page walker. */
-    map(where, physical_from_virtual(buf), buf_len, mapflags, pages);
+    map(where, physical_from_virtual(buf), buf_len, mapflags);
 
     /* zero pad */
     if (length < buf_len)
@@ -616,7 +630,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
         }
         if (where == (u64)INVALID_ADDRESS) {
             /* We'll always want to know about low memory conditions, so just bark. */
-            msg_err("failed to allocate %s virtual memory, size 0x%lx\n", is_32bit ? "32-bit" : "", len);
+            msg_err("failed to allocate %svirtual memory, size 0x%lx\n", is_32bit ? "32-bit " : "", len);
             return -ENOMEM;
         }
     }
@@ -690,13 +704,15 @@ closure_function(2, 1, void, process_unmap_intersection,
     u64 len = range_span(ri);
     unmap_and_free_phys(ri.start, len);
 
+    /* TODO give this varea thing more scrutiny... */
+
     /* return virtual mapping to heap, if any ... assuming a vmap cannot span heaps!
        XXX: this shouldn't be a lookup per, so consider stashing a link to varea or heap in vmap
        though in practice these are small numbers... */
     varea v = (varea)rangemap_lookup(p->vareas, ri.start);
-    assert(v != INVALID_ADDRESS);
-    if (v->h)
+    if (v != INVALID_ADDRESS && v->h) {
         id_heap_set_area(v->h, ri.start, len, false, false);
+    }
 }
 
 static void process_unmap_range(process p, range q)
@@ -741,7 +757,6 @@ void mmap_process_init(process p)
 {
     kernel_heaps kh = &p->uh->kh;
     heap h = heap_general(kh);
-    range identity_map = irange(kh->identity_reserved_start, kh->identity_reserved_end);
     spin_lock_init(&p->vmap_lock);
     p->vareas = allocate_rangemap(h);
     p->vmaps = allocate_rangemap(h);
@@ -750,35 +765,18 @@ void mmap_process_init(process p)
     /* zero page is off-limits */
     add_varea(p, 0, PAGESIZE, p->virtual32, false);
 
-    /* as is the identity heap */
-    add_varea(p, identity_map.start, identity_map.end, p->virtual32, false);
-
-    /* and kernel */
-    add_varea(p, KERNEL_RESERVE_START, KERNEL_RESERVE_END, p->virtual32, false);
-
-    /* but explicitly allow any maps in between */
-    p->lowmem_end = MIN(KERNEL_RESERVE_START, identity_map.start);
-    add_varea(p, PAGESIZE, p->lowmem_end, p->virtual32, true);
-
-    /* reserve kernel huge page area */
-    add_varea(p, HUGE_PAGESIZE, PROCESS_VIRTUAL_HEAP_START, 0, false);
-
     /* allow (tracked) reservations in p->virtual */
-    add_varea(p, PROCESS_VIRTUAL_HEAP_START, PROCESS_VIRTUAL_HEAP_END, p->virtual_page, true);
+    add_varea(p, PROCESS_VIRTUAL_HEAP_START, PROCESS_VIRTUAL_HEAP_LIMIT, p->virtual_page, true);
 
     /* reserve end of p->virtual to user tag region */
-    u64 user_va_tag_start = U64_FROM_BIT(user_va_tag_offset);
+    u64 user_va_tag_start = U64_FROM_BIT(USER_VA_TAG_OFFSET);
     u64 user_va_tag_end = user_va_tag_start * tag_max;
-    add_varea(p, PROCESS_VIRTUAL_HEAP_END, user_va_tag_start, 0, false);
 
     /* allow untracked mmaps in user va tag area */
     add_varea(p, user_va_tag_start, user_va_tag_end, 0, true);
 
-    /* reserve user va tag area from kernel perspective */
-    assert(id_heap_set_area(heap_virtual_huge(kh), user_va_tag_start, user_va_tag_end, true, true));
-
-    /* reserve remainder */
-    add_varea(p, user_va_tag_end, U64_FROM_BIT(VIRTUAL_ADDRESS_BITS), 0, false);
+    /* reserve kernel memory and non-canonical addresses */
+    add_varea(p, U64_FROM_BIT(47), -1ull, 0, false);
 
     /* randomly determine vdso/vvar base and track it */
     u64 vdso_size, vvar_size, vvar_start;

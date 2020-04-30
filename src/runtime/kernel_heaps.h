@@ -9,11 +9,6 @@
 */
 
 typedef struct kernel_heaps {
-    /* The pages heap is an identity-mapped id heap used for
-       allocating pages for page tables and other uses during early
-       initialization. */
-    heap pages;
-
     /* Used by unix/mmap.c, these define the address space that is
        blocked out by the identity heap. */
     u64 identity_reserved_start;
@@ -49,11 +44,6 @@ typedef struct kernel_heaps {
 static inline heap heap_general(kernel_heaps heaps)
 {
     return heaps->general;
-}
-
-static inline heap heap_pages(kernel_heaps heaps)
-{
-    return heaps->pages;
 }
 
 static inline id_heap heap_physical(kernel_heaps heaps)
