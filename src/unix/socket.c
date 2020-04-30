@@ -272,12 +272,6 @@ closure_function(1, 0, sysreturn, unixsock_close,
 static sysreturn unixsock_bind(struct sock *sock, struct sockaddr *addr,
         socklen_t addrlen)
 {
-    /* not clear if this should be write, but a null terminator may be
-       installed below... */
-    if (!validate_user_memory(addr, addrlen, true)) {
-        return -EFAULT;
-    }
-
     unixsock s = (unixsock) sock;
     struct sockaddr_un *unixaddr = (struct sockaddr_un *) addr;
     if (s->fs_entry || (addrlen <= sizeof(unixaddr->sun_family))) {
@@ -300,6 +294,7 @@ static sysreturn unixsock_bind(struct sock *sock, struct sockaddr *addr,
         if (addrlen == sizeof(*unixaddr)) {
             return -ENAMETOOLONG;
         }
+        /* TODO: is this string not const? */
         unixaddr->sun_path[term] = '\0';
     }
 
@@ -380,9 +375,6 @@ out:
 static sysreturn unixsock_connect(struct sock *sock, struct sockaddr *addr,
         socklen_t addrlen)
 {
-    if (!validate_user_memory(addr, addrlen, false)) {
-        return -EFAULT;
-    }
     unixsock s = (unixsock) sock;
     if (unixsock_is_connecting(s)) {
         return -EALREADY;
@@ -472,11 +464,6 @@ static sysreturn unixsock_accept4(struct sock *sock, struct sockaddr *addr,
         socklen_t *addrlen, int flags)
 {
     unixsock s = (unixsock) sock;
-    if (addr) {
-        if (!validate_user_memory(addrlen, sizeof(socklen_t), true) ||
-            !validate_user_memory(addr, *addrlen, true))
-            return -EFAULT;
-    }
     if (!s->conn_q) {
         return -EINVAL;
     }

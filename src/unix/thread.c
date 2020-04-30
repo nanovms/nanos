@@ -10,6 +10,9 @@ sysreturn gettid()
 
 sysreturn set_tid_address(int *a)
 {
+    /* man page says this always succeeds, but... */
+    if (a && !validate_user_memory(a, sizeof(int), true))
+        return set_syscall_error(current, EFAULT);
     current->clear_tid = a;
     return current->tid;
 }
@@ -17,6 +20,15 @@ sysreturn set_tid_address(int *a)
 sysreturn arch_prctl(int code, unsigned long addr)
 {    
     thread_log(current, "arch_prctl: code 0x%x, addr 0x%lx", code, addr);
+    if ((code == ARCH_GET_FS || code == ARCH_GET_GS) &&
+        !validate_user_memory((void *)addr, sizeof(u64), true))
+        return set_syscall_error(current, EFAULT);
+
+    /* just validate the word at base */
+    if ((code == ARCH_SET_FS || code == ARCH_SET_GS) &&
+        !validate_user_memory((void *)addr, sizeof(u64), false))
+        return set_syscall_error(current, EFAULT);
+
     switch (code) {
     case ARCH_SET_GS:
         current->default_frame[FRAME_GSBASE] = addr;
@@ -25,13 +37,9 @@ sysreturn arch_prctl(int code, unsigned long addr)
         current->default_frame[FRAME_FSBASE] = addr;
         return 0;
     case ARCH_GET_FS:
-	if (!addr)
-            return set_syscall_error(current, EINVAL);
 	*(u64 *) addr = current->default_frame[FRAME_FSBASE];
         break;
     case ARCH_GET_GS:
-	if (!addr)
-            return set_syscall_error(current, EINVAL);
 	*(u64 *) addr = current->default_frame[FRAME_GSBASE];
         break;
     default:
@@ -50,6 +58,16 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, un
         return set_syscall_error(current, ENOSYS);
     }
 
+    /* no stack size given, just validate the top word */
+    if (!validate_user_memory(child_stack, sizeof(u64), true))
+        return set_syscall_error(current, EFAULT);
+
+    if (((flags & CLONE_PARENT_SETTID) &&
+         !validate_user_memory(ptid, sizeof(int), true)) ||
+        ((flags & CLONE_CHILD_CLEARTID) &&
+         !validate_user_memory(ctid, sizeof(int), true)))
+        return set_syscall_error(current, EFAULT);
+
     thread t = create_thread(current->p);
     /* clone thread context up to FRAME_VECTOR */
     runtime_memcpy(t->default_frame, current->default_frame, sizeof(u64) * FRAME_ERROR_CODE);
@@ -59,7 +77,7 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, un
 
     /* clone behaves like fork at the syscall level, returning 0 to the child */
     set_syscall_return(t, 0);
-    t->default_frame[FRAME_RSP]= u64_from_pointer(child_stack);
+    t->default_frame[FRAME_RSP] = u64_from_pointer(child_stack);
     t->default_frame[FRAME_FSBASE] = newtls;
     if (flags & CLONE_PARENT_SETTID)
         *ptid = t->tid;

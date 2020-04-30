@@ -383,8 +383,11 @@ sysreturn timer_settime(u32 timerid, int flags,
     if (ut == INVALID_ADDRESS)
         return -EINVAL;
 
-    if (old_value)
+    if (old_value) {
+        if (!validate_user_memory(old_value, sizeof(struct itimerspec), true))
+            return -EFAULT;
         itimerspec_from_timer(ut, old_value);
+    }
 
     remove_unix_timer(ut);
     ut->overruns = 0;
@@ -463,6 +466,8 @@ sysreturn timer_create(int clockid, struct sigevent *sevp, u32 *timerid)
     process p = current->p;
     thread recipient = INVALID_ADDRESS; /* default to process */
     if (sevp) {
+        if (!validate_user_memory(sevp, sizeof(struct sigevent), false))
+            return -EFAULT;
         switch (sevp->sigev_notify) {
         case SIGEV_NONE:
             break;
@@ -562,64 +567,10 @@ closure_function(1, 1, void, itimer_expire,
 
 #define USEC_LIMIT 999999
 
-sysreturn setitimer(int which, const struct itimerval *new_value,
-                    struct itimerval *old_value)
+static sysreturn setitimer_internal(unix_timer ut, int clockid,
+                                    const struct itimerval *new_value,
+                                    struct itimerval *old_value)
 {
-    clock_id clockid;
-    process p = current->p;
-
-    /* Since we are a unikernel, and ITIMER_REAL accounts for both
-       user and system time, we'll just treat it like an ITIMER_REAL.
-
-       This isn't entirely accurate because it accounts for system
-       time that isn't on behalf of running threads. A more accurate
-       method might be to create a timer heap per clock domain (in
-       this case timer heaps attached to the process itself). We are
-       presently limited by all timers mapping to monotonic system
-       time. */
-    if (which == ITIMER_VIRTUAL) {
-        msg_err("timer type %d not yet supported\n", which);
-        if (new_value) {
-            msg_err("   (it_value %T, it_interval %T)\n",
-                    time_from_timeval(&new_value->it_value),
-                    time_from_timeval(&new_value->it_interval));
-        }
-        return -EOPNOTSUPP;
-    } else if (which == ITIMER_REAL) {
-        clockid = CLOCK_ID_REALTIME;
-    } else if (which == ITIMER_PROF) {
-        clockid = CLOCK_ID_MONOTONIC;
-    } else {
-        return -EINVAL;
-    }
-
-    if (new_value && (new_value->it_value.tv_usec > USEC_LIMIT ||
-                      new_value->it_interval.tv_usec > USEC_LIMIT))
-        return -EINVAL;
-
-    unix_timer ut = vector_get(p->itimers, which);
-    if (!ut) {
-        ut = allocate_unix_timer(UNIX_TIMER_TYPE_ITIMER, clockid);
-        if (ut == INVALID_ADDRESS)
-            return -ENOMEM;
-        ut->info.itimer.which = which;
-        struct siginfo *si = &ut->info.itimer.si;
-        zero(si, sizeof(struct siginfo));
-        switch (which) {
-        case ITIMER_REAL:
-            si->si_signo = SIGALRM;
-            break;
-        case ITIMER_VIRTUAL:
-            si->si_signo = SIGVTALRM;
-            break;
-        case ITIMER_PROF:
-            si->si_signo = SIGPROF;
-            break;
-        }
-        si->si_code = SI_KERNEL;
-        vector_set(p->itimers, which, ut);
-    }
-
     if (old_value)
         itimerval_from_timer(ut, old_value);
 
@@ -642,6 +593,76 @@ sysreturn setitimer(int which, const struct itimerval *new_value,
     return 0;
 }
 
+static unix_timer unix_timer_from_itimer_index(process p, int which, clock_id clockid)
+{
+    unix_timer ut = vector_get(p->itimers, which);
+    if (!ut) {
+        ut = allocate_unix_timer(UNIX_TIMER_TYPE_ITIMER, clockid);
+        if (ut == INVALID_ADDRESS)
+            return ut;
+        ut->info.itimer.which = which;
+        struct siginfo *si = &ut->info.itimer.si;
+        zero(si, sizeof(struct siginfo));
+        switch (which) {
+        case ITIMER_REAL:
+            si->si_signo = SIGALRM;
+            break;
+        case ITIMER_VIRTUAL:
+            si->si_signo = SIGVTALRM;
+            break;
+        case ITIMER_PROF:
+            si->si_signo = SIGPROF;
+            break;
+        }
+        si->si_code = SI_KERNEL;
+        vector_set(p->itimers, which, ut);
+    }
+    return ut;
+}
+
+sysreturn setitimer(int which, const struct itimerval *new_value,
+                    struct itimerval *old_value)
+{
+    /* Since we are a unikernel, and ITIMER_REAL accounts for both
+       user and system time, we'll just treat it like an ITIMER_REAL.
+
+       This isn't entirely accurate because it accounts for system
+       time that isn't on behalf of running threads. A more accurate
+       method might be to create a timer heap per clock domain (in
+       this case timer heaps attached to the process itself). We are
+       presently limited by all timers mapping to monotonic system
+       time. */
+    clock_id clockid;
+    if (which == ITIMER_VIRTUAL) {
+        msg_err("timer type %d not yet supported\n", which);
+        if (new_value) {
+            msg_err("   (it_value %T, it_interval %T)\n",
+                    time_from_timeval(&new_value->it_value),
+                    time_from_timeval(&new_value->it_interval));
+        }
+        return -EOPNOTSUPP;
+    } else if (which == ITIMER_REAL) {
+        clockid = CLOCK_ID_REALTIME;
+    } else if (which == ITIMER_PROF) {
+        clockid = CLOCK_ID_MONOTONIC;
+    } else {
+        return -EINVAL;
+    }
+
+    if (new_value && (new_value->it_value.tv_usec > USEC_LIMIT ||
+                      new_value->it_interval.tv_usec > USEC_LIMIT))
+        return -EINVAL;
+
+    if (old_value && !validate_user_memory(old_value, sizeof(struct itimerval), true))
+        return -EFAULT;
+
+    unix_timer ut = unix_timer_from_itimer_index(current->p, which, clockid);
+    if (ut == INVALID_ADDRESS)
+        return -ENOMEM;
+
+    return setitimer_internal(ut, clockid, new_value, old_value);
+}
+
 sysreturn alarm(unsigned int seconds)
 {
     struct itimerval new, old;
@@ -650,7 +671,10 @@ sysreturn alarm(unsigned int seconds)
     new.it_interval.tv_sec = 0;
     new.it_interval.tv_usec = 0;
 
-    if (setitimer(ITIMER_REAL, &new, &old) < 0)
+    unix_timer ut = unix_timer_from_itimer_index(current->p, ITIMER_REAL, CLOCK_ID_MONOTONIC);
+    if (ut == INVALID_ADDRESS)
+        return 0;               /* TODO: no error return from alarm... */
+    if (setitimer_internal(ut, CLOCK_ID_REALTIME, &new, &old) < 0)
         return 0;               /* no errno here (uint retval), so default to 0? */
     if (old.it_value.tv_sec == 0 && old.it_value.tv_usec != 0)
         return 1;               /* 0 for disarmed timer only, so round up */

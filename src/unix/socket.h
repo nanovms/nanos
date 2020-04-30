@@ -80,6 +80,8 @@ static inline sysreturn socket_ioctl(struct sock *s, unsigned long request,
     switch (request) {
     case FIONBIO: {
         int *opt = varg(ap, int *);
+        if (!validate_user_memory(opt, sizeof(int), false))
+            return -EFAULT;
         if (*opt) {
             s->f.flags |= SOCK_NONBLOCK;
         }

@@ -226,7 +226,7 @@ sysreturn io_submit(aio_context_t ctx_id, long nr, struct iocb **iocbpp)
 {
     struct aio *aio;
     if (!validate_user_memory(ctx_id, sizeof(struct aio_ring), false) ||
-        !validate_user_memory(iocbpp, sizeof(struct iocb *), false)) {
+        !validate_user_memory(iocbpp, sizeof(struct iocb *) * nr, false)) {
         return -EFAULT;
     }
     if (!(aio = aio_from_ring(current->p, ctx_id))) {
@@ -363,7 +363,7 @@ static sysreturn io_destroy_internal(struct aio *aio, thread t, boolean in_bh)
 
 sysreturn io_destroy(aio_context_t ctx_id)
 {
-    if (!validate_user_memory(ctx_id, sizeof(struct aio_ring), true)) {
+    if (!validate_user_memory(ctx_id, sizeof(struct aio_ring), false)) {
         return -EFAULT;
     }
     struct aio *aio;

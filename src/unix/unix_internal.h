@@ -675,3 +675,5 @@ u32 spec_events(file f);
 
 void syscall_debug(context f);
 
+boolean validate_iovec(struct iovec *iov, u64 len, boolean write);
+boolean validate_user_string(const char *name);

@@ -262,11 +262,14 @@ static sysreturn mincore(void *addr, u64 length, u8 *vec)
     length = pad(length, PAGESIZE);
     nr_pgs = length >> PAGELOG;
 
+    if (!validate_user_memory(vec, nr_pgs, true))
+        return -EFAULT;
+
     /* -ENOMEM if any unmapped gaps in range */
     process p = current->p;
     vmap_lock(p);
     boolean found = rangemap_range_find_gaps(p->vmaps,
-                                             (range){start, start + length},
+                                             irange(start, start + length),
                                              stack_closure(mincore_vmap_gap));
     vmap_unlock(p);
     if (found)
@@ -420,17 +423,31 @@ closure_function(3, 1, void, vmap_attribute_update_intersection,
     }
 }
 
-static void vmap_attribute_update(heap h, rangemap pvmap, vmap q)
+closure_function(0, 1, void, vmap_attribute_update_gap,
+                 range, r)
+{
+    thread_log(current, "   found gap [0x%lx, 0x%lx)", r.start, r.end);
+}
+
+static boolean vmap_attribute_update(heap h, rangemap pvmap, vmap q)
 {
     range rq = q->node.r;
     assert((rq.start & MASK(PAGELOG)) == 0);
     assert((rq.end & MASK(PAGELOG)) == 0);
     assert(range_span(rq) > 0);
 
+    thread_log(current, "%s: validate %R", __func__, rq);
+    if (!validate_user_memory(pointer_from_u64(rq.start), range_span(rq), false) ||
+        rangemap_range_find_gaps(pvmap, rq, stack_closure(vmap_attribute_update_gap))) {
+        return false;
+    }
+
     rmnode_handler nh = stack_closure(vmap_attribute_update_intersection, h, pvmap, q);
-    rangemap_range_lookup(pvmap, rq, nh);
+    if (!rangemap_range_lookup(pvmap, rq, nh))
+        return false;
 
     update_map_flags(rq.start, range_span(rq), page_map_flags(q->flags));
+    return true;
 }
 
 sysreturn mprotect(void * addr, u64 len, int prot)
@@ -459,9 +476,9 @@ sysreturn mprotect(void * addr, u64 len, int prot)
 
     process p = current->p;
     vmap_lock(p);
-    vmap_attribute_update(h, p->vmaps, &q);
+    boolean result = vmap_attribute_update(h, p->vmaps, &q);
     vmap_unlock(p);
-    return 0;
+    return result ? 0 : -ENOMEM;
 }
 
 /* If we can re-use a node (range is exact match), just update the

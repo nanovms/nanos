@@ -304,6 +304,17 @@ static inline boolean filepath_is_ancestor(tuple wd1, const char *fp1,
     return false;
 }
 
+boolean validate_iovec(struct iovec *iov, u64 len, boolean write)
+{
+    if (!validate_user_memory(iov, sizeof(struct iovec) * len, false))
+        return false;
+    for (u64 i = 0; i < len; i++) {
+        if (!validate_user_memory(iov[i].iov_base, iov[i].iov_len, write))
+            return false;
+    }
+    return true;
+}
+
 struct iov_progress {
     boolean initialized;
     int curr;
@@ -387,6 +398,8 @@ static sysreturn iov_op(fdesc f, io op, struct iovec *iov, int iovcnt, io_comple
 
 sysreturn read(int fd, u8 *dest, bytes length)
 {
+    if (!validate_user_memory(dest, length, true))
+        return -EFAULT;
     fdesc f = resolve_fd(current->p, fd);
     if (!f->read)
         return set_syscall_error(current, EINVAL);
@@ -397,6 +410,8 @@ sysreturn read(int fd, u8 *dest, bytes length)
 
 sysreturn pread(int fd, u8 *dest, bytes length, s64 offset)
 {
+    if (!validate_user_memory(dest, length, true))
+        return -EFAULT;
     fdesc f = resolve_fd(current->p, fd);
     if (!f->read || offset < 0)
         return set_syscall_error(current, EINVAL);
@@ -407,12 +422,16 @@ sysreturn pread(int fd, u8 *dest, bytes length, s64 offset)
 
 sysreturn readv(int fd, struct iovec *iov, int iovcnt)
 {
+    if (!validate_iovec(iov, iovcnt, true))
+        return -EFAULT;
     fdesc f = resolve_fd(current->p, fd);
     return iov_op(f, f->read, iov, iovcnt, syscall_io_complete);
 }
 
 sysreturn write(int fd, u8 *body, bytes length)
 {
+    if (!validate_user_memory(body, length, false))
+        return -EFAULT;
     fdesc f = resolve_fd(current->p, fd);
     if (!f->write)
         return set_syscall_error(current, EINVAL);
@@ -423,6 +442,8 @@ sysreturn write(int fd, u8 *body, bytes length)
 
 sysreturn pwrite(int fd, u8 *body, bytes length, s64 offset)
 {
+    if (!validate_user_memory(body, length, false))
+        return -EFAULT;
     fdesc f = resolve_fd(current->p, fd);
     if (!f->write || offset < 0)
         return set_syscall_error(current, EINVAL);
@@ -432,6 +453,8 @@ sysreturn pwrite(int fd, u8 *body, bytes length, s64 offset)
 
 sysreturn writev(int fd, struct iovec *iov, int iovcnt)
 {
+    if (!validate_iovec(iov, iovcnt, false))
+        return -EFAULT;
     fdesc f = resolve_fd(current->p, fd);
     return iov_op(f, f->write, iov, iovcnt, syscall_io_complete);
 }
@@ -565,6 +588,8 @@ static sysreturn sendfile(int out_fd, int in_fd, int *offset, bytes count)
 {
     thread_log(current, "%s: out %d, in %d, offset %p, *offset %d, count %ld",
                __func__, out_fd, in_fd, offset, offset ? *offset : 0, count);
+    if (offset && !validate_user_memory(offset, sizeof(int), true))
+        return -EFAULT;
     fdesc infile = resolve_fd(current->p, in_fd);
     fdesc outfile = resolve_fd(current->p, out_fd);
     if (!infile->sg_read || !outfile->write)
@@ -765,6 +790,21 @@ static int dt_from_tuple(tuple n)
         return DT_REG;
 }
 
+boolean validate_user_string(const char *name)
+{
+    /* validate a page at a time */
+    u64 a = u64_from_pointer(name);
+    while (validate_user_memory(pointer_from_u64(a & ~PAGEMASK),
+                                PAGESIZE, false)) {
+        u64 lim = (a & ~PAGEMASK) + PAGESIZE;
+        while (a < lim) {
+            if (*(u8*)pointer_from_u64(a++) == '\0')
+                return true;
+        }
+    }
+    return false;
+}
+
 sysreturn open_internal(tuple cwd, const char *name, int flags, int mode)
 {
     heap h = heap_general(get_kernel_heaps());
@@ -772,6 +812,9 @@ sysreturn open_internal(tuple cwd, const char *name, int flags, int mode)
     tuple n;
     tuple parent;
     int ret;
+
+    if (!validate_user_string(name))
+        return -EFAULT;
 
     if (flags & O_NOFOLLOW) {
         ret = resolve_cstring(cwd, name, &n, &parent);
@@ -937,6 +980,8 @@ static sysreturn mkdir_internal(tuple cwd, const char *pathname, int mode)
 
 sysreturn mkdir(const char *pathname, int mode)
 {
+    if (!validate_user_string(pathname))
+        return -EFAULT;
     thread_log(current, "mkdir: \"%s\", mode 0x%x", pathname, mode);
     return mkdir_internal(current->p->cwd, pathname, mode);
 }
@@ -955,6 +1000,8 @@ If pathname is absolute, then dirfd is ignore
 */
 sysreturn mkdirat(int dirfd, char *pathname, int mode)
 {
+    if (!validate_user_string(pathname))
+        return -EFAULT;
     thread_log(current, "mkdirat: \"%s\", dirfd %d, mode 0x%x", pathname, dirfd, mode);
     tuple cwd;
     cwd = resolve_dir(dirfd, pathname);
@@ -1088,7 +1135,7 @@ static int try_write_dirent64(tuple root, struct linux_dirent64 *dirp, char *p,
 
 sysreturn getdents64(int fd, struct linux_dirent64 *dirp, unsigned int count)
 {
-    if (!dirp)
+    if (!validate_user_memory(dirp, count, true))
         return set_syscall_error(current, EFAULT);
     file f = resolve_fd(current->p, fd);
     tuple c = children(f->n);
@@ -1123,6 +1170,8 @@ sysreturn chdir(const char *path)
     int ret;
     tuple n;
 
+    if (!validate_user_string(path))
+        return set_syscall_error(current, EFAULT);
     ret = resolve_cstring_follow(current->p->cwd, path, &n, 0);
     if (ret) {
         return set_syscall_return(current, ret);
@@ -1188,6 +1237,8 @@ static sysreturn truncate_internal(file f, tuple t, long length)
 
 sysreturn truncate(const char *path, long length)
 {
+    if (!validate_user_string(path))
+        return -EFAULT;
     thread_log(current, "%s \"%s\" %d", __func__, path, length);
     tuple t;
     int ret = resolve_cstring_follow(current->p->cwd, path, &t, 0);
@@ -1238,6 +1289,8 @@ sysreturn fdatasync(int fd)
 
 sysreturn access(const char *name, int mode)
 {
+    if (!validate_user_string(name))
+        return -EFAULT;
     thread_log(current, "access: \"%s\", mode %d", name, mode);
     int ret = resolve_cstring_follow(current->p->cwd, name, 0, 0);
     if (ret) {
@@ -1318,6 +1371,8 @@ static void fill_stat(int type, tuple n, struct stat *s)
 static sysreturn fstat(int fd, struct stat *s)
 {
     thread_log(current, "fd %d, stat %p", fd, s);
+    if (!validate_user_memory(s, sizeof(struct stat), true))
+        return -EFAULT;
     fdesc f = resolve_fd(current->p, fd);
     tuple n;
     switch (f->type) {
@@ -1340,6 +1395,10 @@ static sysreturn stat_internal(tuple cwd, const char *name, boolean follow,
 {
     tuple n;
     int ret;
+
+    if (!validate_user_string(name) ||
+        !validate_user_memory(buf, sizeof(struct stat), true))
+        return -EFAULT;
 
     if (!follow) {
         ret = resolve_cstring(cwd, name, &n, 0);
@@ -1368,14 +1427,16 @@ static sysreturn lstat(const char *name, struct stat *buf)
 
 static sysreturn newfstatat(int dfd, const char *name, struct stat *s, int flags)
 {
-    tuple n;
+    if (!validate_user_string(name) ||
+        !validate_user_memory(s, sizeof(struct stat), true))
+        return -EFAULT;
 
     // if relative, but AT_EMPTY_PATH set, works just like fstat()
     if (flags & AT_EMPTY_PATH)
         return fstat(dfd, s);
 
     // Else, if we have a fd of a directory, resolve name to it.
-    n = resolve_dir(dfd, name);
+    tuple n = resolve_dir(dfd, name);
     return stat_internal(n, name, !(flags & AT_SYMLINK_NOFOLLOW), s);
 }
 
@@ -1420,6 +1481,9 @@ sysreturn uname(struct utsname *v)
     char version[] = "Nanos unikernel";
     char machine[] = "x86_64";
 
+    if (!validate_user_memory(v, sizeof(struct utsname), true))
+        return -EFAULT;
+
     runtime_memcpy(v->sysname, sysname, sizeof(sysname));
     runtime_memcpy(v->release, release, sizeof(release));
     runtime_memcpy(v->nodename, nodename, sizeof(nodename));
@@ -1439,16 +1503,15 @@ sysreturn getrlimit(int resource, struct rlimit *rlim)
 {
     thread_log(current, "getrlimit: resource %d, rlim %p", resource, rlim);
 
+    if (!validate_user_memory(rlim, sizeof(struct rlimit), true))
+        return -EFAULT;
+
     switch (resource) {
     case RLIMIT_STACK:
-        if (!rlim)
-            return set_syscall_error(current, EINVAL);
         rlim->rlim_cur = 2*1024*1024;
         rlim->rlim_max = 2*1024*1024;
         return 0;
     case RLIMIT_NOFILE:
-        if (!rlim)
-            return set_syscall_error(current, EINVAL);
         // we .. .dont really have one?
         rlim->rlim_cur = 65536;
         rlim->rlim_max = 65536;
@@ -1460,10 +1523,12 @@ sysreturn getrlimit(int resource, struct rlimit *rlim)
 
 sysreturn prlimit64(int pid, int resource, const struct rlimit *new_limit, struct rlimit *old_limit)
 {
-    thread_log(current, "getrlimit: pid %d, resource %d, new_limit %p, old_limit %p",
+    thread_log(current, "prlimit64: pid %d, resource %d, new_limit %p, old_limit %p",
         pid, resource, new_limit, old_limit);
 
-    if (old_limit != 0) {
+    if (old_limit) {
+        if (!validate_user_memory(old_limit, sizeof(struct rlimit), true))
+            return -EFAULT;
         sysreturn ret = getrlimit(resource, old_limit);
         if (ret < 0)
             return ret;
@@ -1475,6 +1540,8 @@ sysreturn prlimit64(int pid, int resource, const struct rlimit *new_limit, struc
 
 static sysreturn getcwd(char *buf, u64 length)
 {
+    if (!validate_user_memory(buf, length, true))
+        return -EFAULT;
     int cwd_len = file_get_path(current->p->cwd, buf, length);
 
     if (cwd_len < 0)
@@ -1517,6 +1584,9 @@ static sysreturn brk(void *x)
 static sysreturn readlink_internal(tuple cwd, const char *pathname, char *buf,
         u64 bufsiz)
 {
+    if (!validate_user_string(pathname) || !validate_user_memory(buf, bufsiz, true)) {
+        return set_syscall_error(current, EFAULT);
+    }
     tuple n;
     int ret = resolve_cstring(cwd, pathname, &n, 0);
     if (ret) {
@@ -1615,12 +1685,16 @@ static sysreturn rmdir_internal(tuple cwd, const char *pathname)
 
 sysreturn unlink(const char *pathname)
 {
+    if (!validate_user_string(pathname))
+        return -EFAULT;
     thread_log(current, "unlink %s", pathname);
     return unlink_internal(current->p->cwd, pathname);
 }
 
 sysreturn unlinkat(int dirfd, const char *pathname, int flags)
 {
+    if (!validate_user_string(pathname))
+        return -EFAULT;
     thread_log(current, "unlinkat %d %s 0x%x", dirfd, pathname, flags);
     if (flags & ~AT_REMOVEDIR) {
         return set_syscall_error(current, EINVAL);
@@ -1636,6 +1710,8 @@ sysreturn unlinkat(int dirfd, const char *pathname, int flags)
 
 sysreturn rmdir(const char *pathname)
 {
+    if (!validate_user_string(pathname))
+        return -EFAULT;
     thread_log(current, "rmdir %s", pathname);
     return rmdir_internal(current->p->cwd, pathname);
 }
@@ -1706,6 +1782,8 @@ static sysreturn rename_internal(tuple oldwd, const char *oldpath, tuple newwd,
 
 sysreturn rename(const char *oldpath, const char *newpath)
 {
+    if (!validate_user_string(oldpath) || !validate_user_string(newpath))
+        return -EFAULT;
     thread_log(current, "rename \"%s\" \"%s\"", oldpath, newpath);
     return rename_internal(current->p->cwd, oldpath, current->p->cwd, newpath);
 }
@@ -1713,6 +1791,8 @@ sysreturn rename(const char *oldpath, const char *newpath)
 sysreturn renameat(int olddirfd, const char *oldpath, int newdirfd,
         const char *newpath)
 {
+    if (!validate_user_string(oldpath) || !validate_user_string(newpath))
+        return -EFAULT;
     thread_log(current, "renameat %d \"%s\" %d \"%s\"", olddirfd, oldpath,
             newdirfd, newpath);
     tuple oldwd = resolve_dir(olddirfd, oldpath);
@@ -1723,6 +1803,8 @@ sysreturn renameat(int olddirfd, const char *oldpath, int newdirfd,
 sysreturn renameat2(int olddirfd, const char *oldpath, int newdirfd,
         const char *newpath, unsigned int flags)
 {
+    if (!validate_user_string(oldpath) || !validate_user_string(newpath))
+        return -EFAULT;
     thread_log(current, "renameat2 %d \"%s\" %d \"%s\", flags 0x%x", olddirfd,
             oldpath, newdirfd, newpath, flags);
     if ((flags & ~(RENAME_EXCHANGE | RENAME_NOREPLACE)) ||
@@ -1806,6 +1888,8 @@ sysreturn fcntl(int fd, int cmd, s64 arg)
         return set_syscall_return(current, 0);
     case F_GETLK:
         if (arg) {
+            if (!validate_user_memory(pointer_from_u64(arg), sizeof(struct flock), true))
+                return -EFAULT;
             ((struct flock *)arg)->l_type = F_UNLCK;
         }
         return set_syscall_return(current, 0);
@@ -1881,6 +1965,8 @@ sysreturn exit_group(int status)
 
 sysreturn pipe2(int fds[2], int flags)
 {
+    if (!validate_user_memory(fds, 2 * sizeof(int), true))
+        return set_syscall_error(current, EFAULT);
     if (flags & ~(O_CLOEXEC | O_NONBLOCK))
         return set_syscall_error(current, EINVAL);
 
@@ -1916,6 +2002,8 @@ static thread lookup_thread(int pid)
 
 sysreturn sched_setaffinity(int pid, u64 cpusetsize, cpu_set_t *mask)
 {
+    if (!validate_user_memory(mask, sizeof(mask->mask[0]), false))
+        return set_syscall_error(current, EFAULT);
     thread t;
     if (!(t = lookup_thread(pid)) ||
         (!mask || cpusetsize < sizeof(mask->mask[0])))
@@ -1926,6 +2014,8 @@ sysreturn sched_setaffinity(int pid, u64 cpusetsize, cpu_set_t *mask)
 
 sysreturn sched_getaffinity(int pid, u64 cpusetsize, cpu_set_t *mask)
 {
+    if (!validate_user_memory(mask, sizeof(mask->mask[0]), true))
+        return set_syscall_error(current, EFAULT);
     thread t;
     if (!(t = lookup_thread(pid)) ||
         (!mask || cpusetsize < sizeof(mask->mask[0])))
@@ -1937,6 +2027,8 @@ sysreturn sched_getaffinity(int pid, u64 cpusetsize, cpu_set_t *mask)
 sysreturn capget(cap_user_header_t hdrp, cap_user_data_t datap)
 {
     if (datap) {
+        if (!validate_user_memory(datap, sizeof(struct user_cap_data), true))
+            return -EFAULT;
         zero(datap, sizeof(*datap));
     }
     return 0;
@@ -1949,10 +2041,14 @@ sysreturn prctl(int option, u64 arg2, u64 arg3, u64 arg4, u64 arg5)
 
     switch (option) {
     case PR_SET_NAME:
+        if (!validate_user_string((void *)arg2))
+            return -EFAULT;
         runtime_memcpy(current->name, (void *) arg2, sizeof(current->name));
         current->name[sizeof(current->name) - 1] = '\0';
         break;
     case PR_GET_NAME:
+        if (!validate_user_memory((void *)arg2, sizeof(current->name), true))
+            return -EFAULT;
         runtime_memcpy((void *) arg2, current->name, sizeof(current->name));
         break;
     }
@@ -1962,8 +2058,8 @@ sysreturn prctl(int option, u64 arg2, u64 arg3, u64 arg4, u64 arg5)
 
 sysreturn sysinfo(struct sysinfo *info)
 {
-    if (info == 0)
-        return set_syscall_error(current, EINVAL);
+    if (!validate_user_memory(info, sizeof(struct sysinfo), true))
+        return set_syscall_error(current, EFAULT);
 
     kernel_heaps kh = get_kernel_heaps();
     runtime_memset((u8 *) info, 0, sizeof(*info));
@@ -1978,7 +2074,7 @@ sysreturn sysinfo(struct sysinfo *info)
 
 sysreturn umask(int mask)
 {
-	return mask;
+    return mask;
 }
 
 void register_file_syscalls(struct syscall *map)

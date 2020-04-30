@@ -485,11 +485,18 @@ sysreturn rt_sigaction(int signum,
 
     sigaction sa = sigaction_from_sig(signum);
 
-    if (oldact)
-        runtime_memcpy(oldact, sa, sizeof(struct sigaction));
+    if (oldact) {
+        if (validate_user_memory(oldact, sizeof(struct sigaction), true))
+            runtime_memcpy(oldact, sa, sizeof(struct sigaction));
+        else
+            return -EFAULT;
+    }
 
     if (!act)
         return 0;
+
+    if (!validate_user_memory(act, sizeof(struct sigaction), false))
+        return -EFAULT;
 
     if (signum == SIGKILL || signum == SIGSTOP)
         return -EINVAL;
@@ -530,10 +537,16 @@ sysreturn rt_sigprocmask(int how, const u64 *set, u64 *oldset, u64 sigsetsize)
     if (sigsetsize != (NSIG / 8))
         return -EINVAL;
 
-    if (oldset)
-        *oldset = sigstate_get_mask(&current->signals);
+    if (oldset) {
+        if (validate_user_memory(oldset, sigsetsize, true))
+            *oldset = sigstate_get_mask(&current->signals);
+        else
+            return -EFAULT;
+    }
 
     if (set) {
+        if (!validate_user_memory(set, sigsetsize, false))
+            return -EFAULT;
         switch (how) {
         case SIG_BLOCK:
             sigstate_block(&current->signals, *set);
@@ -598,9 +611,10 @@ static boolean thread_is_on_altsigstack(thread t)
 
 sysreturn sigaltstack(const stack_t *ss, stack_t *oss)
 {
-
     thread t = current;
     if (oss) {
+        if (!validate_user_memory(oss, sizeof(stack_t), true))
+            return -EFAULT;
         if (t->signal_stack) {
             oss->ss_sp = t->signal_stack;
             oss->ss_size = t->signal_stack_length;
@@ -612,6 +626,9 @@ sysreturn sigaltstack(const stack_t *ss, stack_t *oss)
     // it doesn't seem possible to re-enable without setting
     // a new stack....so we think this is a valid interpretation
     if (ss) {
+        if (!validate_user_memory(ss, sizeof(stack_t), false) ||
+            !validate_user_memory(ss->ss_sp, ss->ss_size, true))
+            return -EFAULT;
         if (thread_is_on_altsigstack(t)) {
             return -EPERM;
         }
@@ -682,7 +699,7 @@ sysreturn kill(int pid, int sig)
 
 static inline sysreturn sigqueueinfo_sanitize_args(int tgid, int sig, siginfo_t *uinfo)
 {
-    if (!validate_user_memory(uinfo, sizeof(siginfo_t), false))
+    if (!validate_user_memory(uinfo, sizeof(siginfo_t), true))
         return -EFAULT;
 
     if (tgid != current->p->pid)
@@ -811,8 +828,9 @@ sysreturn rt_sigtimedwait(const u64 * set, siginfo_t * info, const struct timesp
 {
     if (sigsetsize != (NSIG / 8))
         return -EINVAL;
-    if (!validate_user_memory(set, sizeof(sigsetsize), false) ||
-        (info && !validate_user_memory(info, sizeof(siginfo_t), true)))
+    if (!validate_user_memory(set, sigsetsize, false) ||
+        (info && !validate_user_memory(info, sizeof(siginfo_t), true)) ||
+        (timeout && !validate_user_memory(timeout, sizeof(struct timespec), false)))
         return -EFAULT;
     sig_debug("tid %d, interest 0x%lx, info %p, timeout %p\n", current->tid, *set, info, timeout);
     heap h = heap_general(get_kernel_heaps());
