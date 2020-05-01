@@ -75,10 +75,10 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, sched_get_priority_max, 0);
     register_syscall(map, sched_get_priority_min, 0);
     register_syscall(map, sched_rr_get_interval, 0);
-    register_syscall(map, mlock, 0);
-    register_syscall(map, munlock, 0);
-    register_syscall(map, mlockall, 0);
-    register_syscall(map, munlockall, 0);
+    register_syscall(map, mlock, syscall_ignore);
+    register_syscall(map, munlock, syscall_ignore);
+    register_syscall(map, mlockall, syscall_ignore);
+    register_syscall(map, munlockall, syscall_ignore);
     register_syscall(map, vhangup, 0);
     register_syscall(map, modify_ldt, 0);
     register_syscall(map, pivot_root, 0);
@@ -195,7 +195,7 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, execveat, 0);
     register_syscall(map, userfaultfd, 0);
     register_syscall(map, membarrier, 0);
-    register_syscall(map, mlock2, 0);
+    register_syscall(map, mlock2, syscall_ignore);
     register_syscall(map, copy_file_range, 0);
     register_syscall(map, preadv2, 0);
     register_syscall(map, pwritev2, 0);
@@ -716,8 +716,10 @@ closure_function(2, 0, sysreturn, file_close,
         ret = spec_close(f);
     }
         
-    if (ret == 0)
+    if (ret == 0) {
+        release_fdesc(&f->f);
         unix_cache_free(get_unix_heaps(), file, f);
+    }
     return 0;
 }
 
@@ -1496,7 +1498,7 @@ static sysreturn brk(void *x)
             if (phys == INVALID_PHYSICAL)
                 goto fail;
             /* XXX no exec configurable? */
-            map(u64_from_pointer(p->brk), phys, alloc, PAGE_WRITABLE | PAGE_NO_EXEC | PAGE_USER , heap_pages(kh));
+            map(u64_from_pointer(p->brk), phys, alloc, PAGE_WRITABLE | PAGE_NO_EXEC | PAGE_USER);
             // people shouldn't depend on this
             zero(p->brk, alloc);
             p->brk += alloc;         

@@ -164,7 +164,7 @@ boolean init_hpet(kernel_heaps kh) {
         return false;
     }
 
-    map(u64_from_pointer(hpet_page), HPET_TABLE_ADDRESS, PAGESIZE, PAGE_DEV_FLAGS, heap_pages(kh));
+    map(u64_from_pointer(hpet_page), HPET_TABLE_ADDRESS, PAGESIZE, PAGE_DEV_FLAGS);
     hpet = (struct HPETMemoryMap*)hpet_page;
 
     u64 femtoperiod = field_from_u64(hpet->capid, HPET_CAPID_COUNTER_CLOCK_PERIOD);

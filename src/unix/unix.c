@@ -239,12 +239,11 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
 
     /* don't need these for kernel process */
     if (p->pid > 1) {
-        p->virtual = create_id_heap(h, h, PROCESS_VIRTUAL_HEAP_START,
-                                    PROCESS_VIRTUAL_HEAP_LENGTH, HUGE_PAGESIZE);
+        /* start huge virtual at zero so that parent allocations abide
+           by alignment, but reserve lowest huge page for virtual32 */
+        p->virtual = create_id_heap(h, h, 0, PROCESS_VIRTUAL_HEAP_LIMIT, HUGE_PAGESIZE);
         assert(p->virtual != INVALID_ADDRESS);
-        assert(id_heap_set_area(heap_virtual_huge((kernel_heaps)uh),
-                                PROCESS_VIRTUAL_HEAP_START, PROCESS_VIRTUAL_HEAP_LENGTH,
-                                true, true));
+        assert(id_heap_set_area(p->virtual, 0, HUGE_PAGESIZE, true, true));
         p->virtual_page = create_id_heap_backed(h, heap_backed(kh), (heap)p->virtual, PAGESIZE);
         assert(p->virtual_page != INVALID_ADDRESS);
         if (aslr)

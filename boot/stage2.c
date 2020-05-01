@@ -30,7 +30,6 @@ extern void run64(u32 entry);
  */
 
 #define EARLY_WORKING_SIZE   KB
-#define STACKLEN             (STAGE2_STACK_PAGES * PAGESIZE)
 
 #define REAL_MODE_STACK_SIZE 0x1000
 #define SCRATCH_BASE         0x500
@@ -39,7 +38,7 @@ extern void run64(u32 entry);
 
 static struct kernel_heaps kh;
 static u64 stack_base;
-static u64 identity_base;
+static u64 initial_pages_base;
 
 static u64 s[2] = { 0xa5a5beefa5a5cafe, 0xbeef55aaface55aa };
 
@@ -176,25 +175,22 @@ closure_function(0, 1, void, fail,
     halt("filesystem_read_entire failed: %v\n", s);
 }
 
+static region initial_pages_region;
+
 static void setup_page_tables()
 {
     stage2_debug("%s\n", __func__);
 
-    /* identity heap alloc */
-    stage2_debug("identity heap at [0x%lx,  0x%lx)\n", identity_base, identity_base + IDENTITY_HEAP_SIZE);
-    create_region(identity_base, IDENTITY_HEAP_SIZE, REGION_IDENTITY);
-    create_region(identity_base, IDENTITY_HEAP_SIZE, REGION_IDENTITY_RESERVED);
-    heap pages = region_allocator(heap_general(&kh), PAGESIZE, REGION_IDENTITY);
-    kh.pages = pages;
-
-    /* page table setup */
-    void *vmbase = allocate_zero(pages, PAGESIZE);
-    mov_to_cr("cr3", vmbase);
+    /* initial page tables, carried into stage3 init */
+    stage2_debug("initial page tables at [0x%lx,  0x%lx)\n", initial_pages_base,
+                 initial_pages_base + INITIAL_PAGES_SIZE);
+    initial_pages_region = create_region(initial_pages_base, INITIAL_PAGES_SIZE, REGION_INITIAL_PAGES);
+    init_page_tables(region_allocator(heap_general(&kh), PAGESIZE, REGION_INITIAL_PAGES));
 
     /* initial map, page tables and stack */
-    map(0, 0, INITIAL_MAP_SIZE, PAGE_WRITABLE | PAGE_PRESENT, pages);
-    map(identity_base, identity_base, IDENTITY_HEAP_SIZE, PAGE_WRITABLE | PAGE_PRESENT, pages);
-    map(stack_base, stack_base, (u64)STACKLEN, PAGE_WRITABLE, pages);
+    map(0, 0, INITIAL_MAP_SIZE, PAGE_WRITABLE | PAGE_PRESENT);
+    map(PAGES_BASE, initial_pages_base, INITIAL_PAGES_SIZE, PAGE_WRITABLE | PAGE_PRESENT);
+    map(stack_base, stack_base, (u64)STAGE2_STACK_SIZE, PAGE_WRITABLE);
 }
 
 static u64 working_saved_base;
@@ -211,7 +207,7 @@ closure_function(0, 4, void, kernel_elf_map,
         assert(paddr != INVALID_PHYSICAL);
         zero(pointer_from_u64(paddr), size);
     }
-    map(vaddr, paddr, size, flags, heap_pages(&kh));
+    map(vaddr, paddr, size, flags);
 }
 
 closure_function(0, 1, status, kernel_read_complete,
@@ -222,6 +218,7 @@ closure_function(0, 1, status, kernel_read_complete,
     /* save kernel elf image for use in stage3 (for symbol data) */
     create_region(u64_from_pointer(buffer_ref(kb, 0)), pad(buffer_length(kb), PAGESIZE), REGION_KERNIMAGE);
 
+    /* truncate to 32-bit is ok; we'll move it up in setup64 */
     stage2_debug("%s: load_elf\n", __func__);
     void *k = load_elf(kb, 0, stack_closure(kernel_elf_map));
     if (!k) {
@@ -232,7 +229,9 @@ closure_function(0, 1, status, kernel_read_complete,
     assert(working_saved_base);
     create_region(working_saved_base, STAGE2_WORKING_HEAP_SIZE, REGION_PHYSICAL);
 
-    stage2_debug("%s: run64, start address %p\n", __func__, k);
+    /* reset initial pages length */
+    initial_pages_region->length = INITIAL_PAGES_SIZE;
+    stage2_debug("%s: run64, start address 0xffffffff%8lx\n", __func__, u64_from_pointer(k));
     run64(u64_from_pointer(k));
     halt("failed to start long mode\n");
 }
@@ -302,7 +301,7 @@ void newstack()
                       SECTOR_SIZE,
                       infinity,
                       0,         /* ignored in boot */
-                      sg_wrapped_block_reader(get_stage2_disk_read(h, fs_offset), SECTOR_OFFSET, heap_backed(&kh)),
+                      sg_wrapped_block_reader(get_stage2_disk_read(h, fs_offset), SECTOR_OFFSET, h),
                       closure(h, stage2_empty_write),
                       root,
                       false,
@@ -398,13 +397,13 @@ void centry()
     assert(kh.backed != INVALID_ADDRESS);
 
     /* allocate identity region for page tables */
-    identity_base = allocate_u64(kh.backed, IDENTITY_HEAP_SIZE);
-    assert(identity_base != INVALID_PHYSICAL);
+    initial_pages_base = allocate_u64(kh.backed, INITIAL_PAGES_SIZE);
+    assert(initial_pages_base != INVALID_PHYSICAL);
 
     /* allocate stage2 (and early stage3) stack */
-    stack_base = allocate_u64(kh.backed, STACKLEN);
+    stack_base = allocate_u64(kh.backed, STAGE2_STACK_SIZE);
     assert(stack_base != INVALID_PHYSICAL);
-    create_region(stack_base, STACKLEN, REGION_RECLAIM);
+    create_region(stack_base, STAGE2_STACK_SIZE, REGION_RECLAIM);
 
     /* allocate larger space for stage2 working (to accomodate tfs meta, etc.) */
     working_p = allocate_u64(kh.backed, STAGE2_WORKING_HEAP_SIZE);
@@ -412,7 +411,7 @@ void centry()
     working_saved_base = working_p;
     working_end = working_p + STAGE2_WORKING_HEAP_SIZE;
 
-    u32 stacktop = stack_base + STACKLEN - 4;
+    u32 stacktop = stack_base + STAGE2_STACK_SIZE - 4;
     asm("mov %0, %%esp": :"g"(stacktop));
     newstack();
 }

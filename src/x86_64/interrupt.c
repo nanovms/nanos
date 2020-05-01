@@ -371,17 +371,17 @@ context allocate_frame(heap h)
     return f;
 }
 
-void * allocate_stack(heap pages, int npages)
+void *allocate_stack(heap h, u64 size)
 {
-    void * base = allocate_zero(pages, pages->pagesize * npages);
+    u64 padsize = pad(size, h->pagesize);
+    void *base = allocate_zero(h, padsize);
     assert(base != INVALID_ADDRESS);
-    return base + pages->pagesize * npages - STACK_ALIGNMENT;
+    return base + padsize - STACK_ALIGNMENT;
 }
 
 void init_interrupts(kernel_heaps kh)
 {
     heap general = heap_general(kh);
-    heap pages = heap_pages(kh);
     cpuinfo ci = current_cpu();
 
     /* Exception handlers */
@@ -398,7 +398,7 @@ void init_interrupts(kernel_heaps kh)
     set_ist(0, IST_INTERRUPT, u64_from_pointer(ci->int_stack));
 
     /* IDT setup */
-    idt = allocate(pages, pages->pagesize);
+    idt = allocate(heap_backed(kh), heap_backed(kh)->pagesize);
 
     u64 vector_base = u64_from_pointer(&interrupt_vectors);
     for (int i = 0; i < INTERRUPT_VECTOR_START; i++)

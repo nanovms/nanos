@@ -75,7 +75,7 @@ static boolean detect(apic_iface i, kernel_heaps kh)
        available...so must be called last */
     xapic_vbase = allocate_u64((heap)heap_virtual_page(kh), PAGESIZE);
     assert(xapic_vbase != INVALID_PHYSICAL);
-    map(xapic_vbase, APIC_BASE, PAGESIZE, PAGE_DEV_FLAGS, heap_pages(kh));
+    map(xapic_vbase, APIC_BASE, PAGESIZE, PAGE_DEV_FLAGS);
     xapic_debug("xAPIC mode initialized\n");
     return true;
 }

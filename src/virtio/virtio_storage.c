@@ -157,7 +157,7 @@ closure_function(1, 3, void, storage_read,
     storage_rw_internal(bound(st), false, target, blocks, s);
 }
 
-static void virtio_blk_attach(heap general, storage_attach a, heap page_allocator, heap pages, pci_dev d)
+static void virtio_blk_attach(heap general, storage_attach a, heap page_allocator, pci_dev d)
 {
     storage s = allocate(general, sizeof(struct storage));
     s->v = attach_vtpci(general, page_allocator, d, 0);
@@ -175,19 +175,19 @@ static void virtio_blk_attach(heap general, storage_attach a, heap page_allocato
     apply(a, in, out, s->capacity);
 }
 
-closure_function(4, 1, boolean, virtio_blk_probe,
-                 heap, general, storage_attach, a, heap, page_allocator, heap, pages,
+closure_function(3, 1, boolean, virtio_blk_probe,
+                 heap, general, storage_attach, a, heap, page_allocator,
                  pci_dev, d)
 {
     if (!vtpci_probe(d, VIRTIO_ID_BLOCK))
         return false;
 
-    virtio_blk_attach(bound(general), bound(a), bound(page_allocator), bound(pages), d);
+    virtio_blk_attach(bound(general), bound(a), bound(page_allocator), d);
     return true;
 }
 
 void virtio_register_blk(kernel_heaps kh, storage_attach a)
 {
     heap h = heap_general(kh);
-    register_pci_driver(closure(h, virtio_blk_probe, h, a, heap_backed(kh), heap_pages(kh)));
+    register_pci_driver(closure(h, virtio_blk_probe, h, a, heap_backed(kh)));
 }

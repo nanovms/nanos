@@ -5,7 +5,6 @@ typedef struct backed {
     struct heap h;
     heap physical;
     heap virtual;
-    heap pages;
 } *backed;
 
 void physically_backed_dealloc_virtual(heap h, u64 x, bytes length)
@@ -18,7 +17,7 @@ void physically_backed_dealloc_virtual(heap h, u64 x, bytes length)
     }
 
     deallocate(b->virtual, pointer_from_u64(x), padlen);
-    unmap(x, padlen, b->pages);
+    unmap(x, padlen);
 }
 
 static void physically_backed_dealloc(heap h, u64 x, bytes length)
@@ -34,7 +33,7 @@ static void physically_backed_dealloc(heap h, u64 x, bytes length)
     assert(phys != INVALID_PHYSICAL);
     deallocate(b->physical, phys, padlen);
     deallocate(b->virtual, pointer_from_u64(x), padlen);
-    unmap(x, padlen, b->pages);
+    unmap(x, padlen);
 }
 
 static u64 physically_backed_alloc(heap h, bytes length)
@@ -46,21 +45,20 @@ static u64 physically_backed_alloc(heap h, bytes length)
     if (p != INVALID_PHYSICAL) {
         u64 v = allocate_u64(b->virtual, len);
         if (v != INVALID_PHYSICAL) {
-            map(v, p, len, PAGE_WRITABLE | PAGE_NO_EXEC, b->pages);
+            map(v, p, len, PAGE_WRITABLE | PAGE_NO_EXEC);
             return v;
         }
     }
     return INVALID_PHYSICAL; 
 }
 
-heap physically_backed(heap meta, heap virtual, heap physical, heap pages, u64 pagesize)
+heap physically_backed(heap meta, heap virtual, heap physical, u64 pagesize)
 {
     backed b = allocate(meta, sizeof(struct backed));
     b->h.alloc = physically_backed_alloc;
     b->h.dealloc = physically_backed_dealloc;
     b->physical = physical;
     b->virtual = virtual;
-    b->pages = pages;
     b->h.pagesize = pagesize;
     return (heap)b;
 }

@@ -695,6 +695,9 @@ static sysreturn netsock_shutdown(struct sock *sock, int how)
         if (s->info.tcp.state != TCP_SOCK_OPEN) {
             return -ENOTCONN;
         }
+        if (shut_rx && shut_tx) {
+            tcp_arg(s->info.tcp.lw, 0);
+        }
         tcp_shutdown(s->info.tcp.lw, shut_rx, shut_tx);
         if (shut_rx && shut_tx) {
             /* Shutting down both TX and RX is equivalent to calling

@@ -13,7 +13,6 @@ u64 ap_lock;
 #define ICR_TYPE_INIT         0x00000500
 #define ICR_TYPE_STARTUP      0x00000600
 
-static heap pages;
 static void (*start_callback)();
 
 #ifdef MP_DEBUG
@@ -53,19 +52,18 @@ void ap_start()
     switch_stack(get_cpuinfo()->kernel_stack, ap_new_stack);
 }
 
-void start_cpu(heap h, heap p, int index, void (*ap_entry)()) {
+void start_cpu(heap h, heap stackheap, int index, void (*ap_entry)()) {
     if (apboot == INVALID_ADDRESS) {
-        pages = p;
         start_callback = ap_entry;
         apboot = pointer_from_u64(AP_BOOT_START);
-        map((u64)apboot, (u64)apboot, PAGESIZE, PAGE_WRITABLE, h);
+        map((u64)apboot, (u64)apboot, PAGESIZE, PAGE_WRITABLE);
 
         asm("sgdt %0": "=m"(ap_gdt_pointer));
         asm("sidt %0": "=m"(ap_idt_pointer));
         mov_from_cr("cr3", ap_pagetable);
         // just one function call
 
-        void *rsp = allocate_stack(pages, 4);
+        void *rsp = allocate_stack(stackheap, 4 * PAGESIZE);
         ap_stack = rsp;
 
         runtime_memcpy(apboot, &apinit, &apinit_end - &apinit);

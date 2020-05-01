@@ -415,7 +415,7 @@ GDT64:  ; Global Descriptor Table (64-bit).
         dw $ - GDT64 - 1    ; Limit.
         dw GDT64, 0         ; 64 bit Base.
 
-        
+[BITS 64]
 setup64:
         mov ax, GDT64.Data 
         mov ds, ax     
@@ -423,5 +423,8 @@ setup64:
         mov ss, ax
         xor ax, ax
         mov fs, ax     
-        mov gs, ax    
-        jmp edx
+        mov gs, ax
+        mov eax, 0xffffffff
+        shl rax, 32
+        or rax, rdx
+        jmp rax

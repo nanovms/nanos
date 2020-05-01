@@ -1,21 +1,14 @@
 Memory Layout and Usage in the Nanos Kernel
 
-Aside from the fixed kernel image at 0x7f000000 and any loaded ELF
-segments with fixed addresses (e.g. non-PIE / loader), Nanos generally
-uses instances of a number of allocators, known as "heaps", to carve
-out areas of virtual and physical address space. Allocations of pure
-address space, without any presumed mappings, typically come from
-instances of the id heap, such as physical, virtual_huge (for
-2^32-sized allocations) and virtual_page (for pages). Large sections
-of virtual address space which would typically be fixed in an OS
-kernel are allocated from virtual_huge, often indirectly by a child
-heap of virtual_huge which serves up smaller allocations. This is all
-to say that large swaths of virtual memory are dynamically allocated
-and, as such, do not lend themselves to being described in a
-definitive memory map description. ** TODO: Virtual memory tracking
-will allow dumps of address space allocations with annotations. In
-other words, it will be possible to grab a list of all virtual memory
-allocations accompanied by descriptions/meta. **
+Aside from the fixed kernel image at 0xffffffff80000000 and any loaded
+ELF segments with fixed addresses (e.g. non-PIE / loader), Nanos
+generally uses instances of a number of allocators, known as "heaps",
+to carve out areas of virtual and physical address space. Allocations
+of unmapped address space typically come from instances of the id
+heap, such as physical, virtual_huge (for 2^32-sized allocations) and
+virtual_page (for pages). Large sections of virtual address space (in
+2^32 byte units) are allocated from virtual_huge, usually indirectly
+via the virtual_page child heap, which has a 4k base allocation size.
 
 For more information about the types of heaps used in the kernel, see
 src/runtime/kernel_heaps.h.
@@ -23,86 +16,86 @@ src/runtime/kernel_heaps.h.
 Stage 1/2 Memory Layout
 -----------------------
 - 32-bit address space is directly mapped
-- A new stack and identity heap are allocated from high physical
-  memory (while remaining within 32-bit space) using the region
+
+- The stack and initial page heap are allocated from physical memory
+  (while remaining within 32-bit space) using the region
   allocator. The location of these areas depend on the physical memory
   extents provided by the BIOS e820 call. Note that the region
   allocator actually shrinks the region from which the allocation was
   made. This is how stage3 is able to avoid clashing with allocations
   made in stage2.
-- Upon entering stage3, direct mapping is disabled and GDT64 is moved
-  into kernel data space
-
-low mem (not used in stage3):
-0x0000..0x03ff real mode IDT
-0x0400..0x04ff BDA (BIOS data area)
-0x0500..0x6bff bios_read_sectors() buffer
-0x6c00..0x7dff stage2 real mode stack
-0x7c00..0x7dff MBR (stage1)
-0x7e00..0x7fff unused
-0x8000..       stage2 code
-
-high mem (persists into stage3):
-
-  7ffe0000*   phys end
-  7fb95000*   identity heap (virtual == physical)
-
- ~7f227000    approx kernel end
-  7f000000    stage3 kernel image
-
-* = may vary depending on bios regions and code
-
-[...]
 
 low mem (dismantled in stage3):
-  00100000    temporarily used by stage2 for working heap
-  00008000    service32.s:_start, stage2, 16/32 GDT, GDT64, transition to 64-bit
-  00007c00    stage1 (boot) code base, e820 memory regions
-  00002000    scratch area for real mode BIOS I/O buffer
-  00000500    stack for real mode BIOS
 
-** TODO: stack could just come from identity heap
+0x0000..0x03ff real mode IDT
 
-** TODO: identity heap could be used just for stage2 into stage3
-   transition, upon which - after switching to the stage3 stack and a
-   new set of page tables - it would be destroyed altogether
+0x0400..0x04ff BDA (BIOS data area)
 
-   - To accomplish this, move stage2 physical region allocations back
-     to low region memory to eliminate risk of intersecting with
-     kernel image. While at it, have stage3 make a copy of the kernel
-     ELF symtab info for debugging and remove unnecessary map of the
-     whole image. Re-create page table entries and duplicate any other
-     necessary data to backed allocations. This will likely require
-     pre-allocating a pool of backed pages that are ready for use by
-     the page table code as well as using physical_from_virtual()
-     where necessary in said code.
+0x0500..0x6bff bios_read_sectors() buffer
+
+0x6c00..0x7dff stage2 real mode stack
+
+0x7c00..0x7dff MBR (stage1)
+
+0x7e00..0x7fff unused
+
+0x8000..       service32.s:_start, stage2, 16/32 GDT, GDT64, transition to 64-bit
+
+- Upon entering stage3, page tables are enabled and GDT64 is moved
+  into kernel data space. The initial map (0x0000 - 0xa000) and stage2
+  stack are unmapped and physical pages are reclaimed.
 
 Stage 3 Memory Usage
 --------------------
 
-  0000000100000000    first virtual_huge allocation
- ~000000007f227000    approx kernel end
-  000000007f000000    stage3 kernel image
+  ffffffffc0000000    PAGES_BASE - page table memory mapped here
+
+  ffffffff80000000    KERNEL_BASE - kernel image mapped here
+
+  ffffffff00000000    KMEM_LIMIT - top of kernel heap memory
+
+  ffff800000000000    KMEM_BASE - base of tagged kernel heap memory
+                      (and high canonical addresses)
+
+  00007fffffffffff    end of user memory and low canonical addresses
+
+  0000100000000000    end of mmap allocations, though fixed mappings
+                      can exist above (to accomodate tagged regions
+                      for user programs using nanos runtime)
+
+  0000000100000000    base of non-MAP_32BIT allocations
+
+  0000000080000000    base of MAP_32BIT allocations
+
+  000000007e000000    typical user stack allocation on exec; may vary
+                      with ASLR usage
+
+  0000000000001000    memory available for user program
+
   0000000000000000    unmapped zero page, to trigger a fault on null
                       pointer dereferences
 
-After transitioning into stage3, low memory resources from stage2 are
-freed up. Virtual address space is free below the kernel image.
-(Although the first page remains unmapped so that null pointer
-dereferences will trigger a page fault.) This space below 0x7f000000
-is reserved for use by the application program.
+Tagged Memory
+-------------
 
-The memory above the kernel space, and in particular the area from
-0x100000000 and up (>= 2^32), is allocated by the aforementioned heap
-instances. virtual_page (by way of parent virtual_huge) allocations
-start at this address and typically begin with the kernel ELF image
-(TODO: this was a kludge used to get its symbols - see above re: ELF
-symtab) and follow with a mixture of 2M and 4K page allocations,
-allocated either directly from the virtual_page heap or indirectly
-via the backed heap.
+Built explicitly for 64-bit platforms, Nanos makes use of large
+virtual address space by encoding type information into kernel memory
+addresses. This adds type introspection to the kernel for use
+programmatically as well as for external access to the kernel meta
+store, e.g. for management of configuration, counter collection,
+monitoring and debugging of live instances.
 
-To observe page table mappings, compile with PAGE_DEBUG defined and
-see the "map_range" output. TODO: There will be a more formal way to
-do this with VM tracking.
+An 8-bit tag, representing a kernel object type, is encoded in the
+address at bit offset VA_TAG_OFFSET. Tagged memory begins at
+KMEM_BASE.
 
-TODO: Add discussion about tagged virtual regions
+e.g.
+
+  base address        tag
+  ------------        ---
+
+  ffffff8000000000    0xff, containing kernel and pages
+
+  ffff808000000000    0x01
+
+  ffffbf8000000000    0x7f
