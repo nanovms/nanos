@@ -253,6 +253,12 @@ process exec_elf(buffer ex, process kp)
 
     build_exec_stack(proc, t, e, entry, load_range.start, root, aslr);
 
+    if (table_find(proc->process_root, sym(ingest_program_symbols))) {
+        exec_debug("ingesting symbols...\n");
+        add_elf_syms(ex);
+        exec_debug("...done\n");
+    }
+
     if (interp) {
         exec_debug("reading interp...\n");
         filesystem_read_entire(fs, interp, heap_backed(kh),
@@ -263,7 +269,6 @@ process exec_elf(buffer ex, process kp)
 
     exec_debug("starting process...\n");
     start_process(t, entry);
-    add_elf_syms(ex);
     return proc;    
 }
 
