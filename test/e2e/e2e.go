@@ -46,7 +46,7 @@ func goPrebuild(t *testing.T) {
 }
 
 func rubyPrebuild(t *testing.T) {
-	effect, err := exec.Command("/bin/bash", "-c", "mkdir -p .ruby && export GEM_HOME=.ruby && gem install sinatra --no-rdoc --no-ri").CombinedOutput()
+	effect, err := exec.Command("/bin/bash", "-c", "mkdir -p .ruby && export GEM_HOME=.ruby && if (gem install --help | grep -q -- \"--no-document\"); then gem install sinatra --no-document; else gem install sinatra --no-rdoc --no-ri; fi").CombinedOutput()
 	if err != nil {
 		t.Log(effect)
 		t.Fatal(err)
