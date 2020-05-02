@@ -652,6 +652,8 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
 
     file f = resolve_fd(p, fd);
     u64 flen = MIN(pad(f->length, PAGESIZE), len);
+    if (flen == 0)
+        return where;
     heap mh = heap_backed(kh);
     buffer b = allocate_buffer(mh, pad(flen, mh->pagesize));
 

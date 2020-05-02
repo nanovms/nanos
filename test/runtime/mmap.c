@@ -162,6 +162,32 @@ static void do_munmap(void * addr, unsigned long len)
         __munmap(addr, len);
 }
 
+static void mmap_newfile_test(void)
+{
+    int fd;
+    const size_t maplen = 1;
+    void *addr;
+
+    fd = open("new_file", O_CREAT | O_EXCL | O_WRONLY, S_IRUSR | S_IWUSR);
+    if (fd < 0) {
+        perror("new file open");
+        exit(EXIT_FAILURE);
+    }
+    addr = mmap(NULL, maplen, PROT_WRITE, MAP_PRIVATE, fd, 0);
+    if (addr == MAP_FAILED) {
+        perror("new file  mmap");
+        exit(EXIT_FAILURE);
+    }
+    if (munmap(addr, maplen) < 0) {
+        perror("new file  munmap");
+        exit(EXIT_FAILURE);
+    }
+    if (close(fd) < 0) {
+        perror("new file close");
+        exit(EXIT_FAILURE);
+    }
+}
+
 /*
  * Test correctness of virtual memory space tracking.
  *
@@ -338,6 +364,8 @@ static void mmap_test(void)
     int seed, i;
 
     printf("** starting mmap tests\n");
+
+    mmap_newfile_test();
 
     printf("  performing large mmap...\n");
     void * map_addr = mmap(NULL, LARGE_MMAP_SIZE, PROT_READ|PROT_WRITE,
