@@ -1145,19 +1145,25 @@ sysreturn fchdir(int dirfd)
     return set_syscall_return(current, 0);
 }
 
-closure_function(1, 1, void, truncate_complete,
-                 thread, t,
+closure_function(3, 1, void, truncate_complete,
+                 thread, t, file, f, fsfile, fsf,
                  status, s)
 {
     thread t = bound(t);
     thread_log(current, "%s: status %v (%s)", __func__, s,
             is_ok(s) ? "OK" : "NOTOK");
+    if (is_ok(s)) {
+        file f = bound(f);
+        if (f) {
+            f->length = fsfile_get_length(bound(fsf));
+        }
+    }
     set_syscall_return(t, is_ok(s) ? 0 : -EIO);
     file_op_maybe_wake(t);
     closure_finish();
 }
 
-static sysreturn truncate_internal(tuple t, long length)
+static sysreturn truncate_internal(file f, tuple t, long length)
 {
     if (is_dir(t)) {
         return set_syscall_error(current, EISDIR);
@@ -1172,7 +1178,7 @@ static sysreturn truncate_internal(tuple t, long length)
     file_op_begin(current);
     if (filesystem_truncate(current->p->fs, fsf, length,
             closure(heap_general(get_kernel_heaps()), truncate_complete,
-            current))) {
+            current, f, fsf))) {
         /* Nothing to do. */
         return 0;
     }
@@ -1188,7 +1194,7 @@ sysreturn truncate(const char *path, long length)
     if (ret) {
         return set_syscall_return(current, ret);
     }
-    return truncate_internal(t, length);
+    return truncate_internal(0, t, length);
 }
 
 sysreturn ftruncate(int fd, long length)
@@ -1199,7 +1205,7 @@ sysreturn ftruncate(int fd, long length)
             (f->f.type != FDESC_TYPE_REGULAR)) {
         return set_syscall_error(current, EINVAL);
     }
-    return truncate_internal(f->n, length);
+    return truncate_internal(f, f->n, length);
 }
 
 closure_function(2, 1, void, fsync_complete,

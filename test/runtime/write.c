@@ -208,6 +208,15 @@ void truncate_test()
         perror("ftruncate to BUFLEN / 2");
         exit(EXIT_FAILURE);
     }
+    rv = lseek(fd, 0, SEEK_END);
+    if (rv < 0) {
+        perror("lseek");
+        exit(EXIT_FAILURE);
+    }
+    if (rv != BUFLEN / 2) {
+        printf("unexpected file size %ld\n", rv);
+        exit(EXIT_FAILURE);
+    }
     close(fd);
 
     rv = stat("new_file", &s);
