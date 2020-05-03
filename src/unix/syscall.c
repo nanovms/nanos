@@ -1453,6 +1453,9 @@ sysreturn getrlimit(int resource, struct rlimit *rlim)
         rlim->rlim_cur = 65536;
         rlim->rlim_max = 65536;
         return 0;
+    case RLIMIT_AS:
+        rlim->rlim_cur = rlim->rlim_max = heap_total(&current->p->virtual->h);
+        return 0;
     }
 
     return set_syscall_error(current, EINVAL);
