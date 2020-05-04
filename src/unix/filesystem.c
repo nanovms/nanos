@@ -171,8 +171,8 @@ closure_function(1, 1, void, symlink_complete,
 static sysreturn symlink_internal(tuple cwd, const char *path,
         const char *target)
 {
-    if (!target) {
-        set_syscall_error(current, EFAULT);
+    if (!validate_user_string(path) || !validate_user_string(target)) {
+        return set_syscall_error(current, EFAULT);
     }
     tuple parent;
     int ret = resolve_cstring(cwd, path, 0, &parent);
@@ -214,6 +214,9 @@ static sysreturn utime_internal(const char *filename, timestamp actime,
 
 sysreturn utime(const char *filename, const struct utimbuf *times)
 {
+    if (!validate_user_string(filename) ||
+        !validate_user_memory(times, sizeof(struct utimbuf), false))
+        return set_syscall_error(current, EFAULT);
     timestamp atime = times ? seconds(times->actime) : now(CLOCK_ID_REALTIME);
     timestamp mtime = times ? seconds(times->modtime) : now(CLOCK_ID_REALTIME);
     return utime_internal(filename, atime, mtime);
@@ -221,6 +224,9 @@ sysreturn utime(const char *filename, const struct utimbuf *times)
 
 sysreturn utimes(const char *filename, const struct timeval times[2])
 {
+    if (!validate_user_string(filename) ||
+        !validate_user_memory(times, 2 * sizeof(struct timeval), false))
+        return set_syscall_error(current, EFAULT);
     /* Sub-second precision is not supported. */
     timestamp atime =
             times ? time_from_timeval(&times[0]) : now(CLOCK_ID_REALTIME);
@@ -253,6 +259,9 @@ static sysreturn statfs_internal(tuple t, struct statfs *buf)
 
 sysreturn statfs(const char *path, struct statfs *buf)
 {
+    if (!validate_user_string(path) ||
+        !validate_user_memory(buf, sizeof(struct statfs), true))
+        return set_syscall_error(current, EFAULT);
     tuple t;
     int ret = resolve_cstring(current->p->cwd, path, &t, 0);
     if (ret) {

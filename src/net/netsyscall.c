@@ -583,6 +583,8 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
     switch (request) {
     case SIOCGIFCONF: {
         struct ifconf *ifconf = varg(ap, struct ifconf *);
+        if (!validate_user_memory(ifconf, sizeof(struct ifconf), true))
+            return -EFAULT;
         if (ifconf->ifc.ifc_req == NULL) {
             ifconf->ifc_len = 0;
             for (struct netif *netif = netif_list; netif != NULL;
@@ -622,6 +624,8 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
     }
     case SIOCGIFADDR: {
         struct ifreq *ifreq = varg(ap, struct ifreq *);
+        if (!validate_user_memory(ifreq, sizeof(struct ifreq), true))
+            return -EFAULT;
         struct netif *netif = netif_find(ifreq->ifr_name);
         if (!netif) {
             return -ENODEV;
@@ -927,6 +931,9 @@ sysreturn bind(int sockfd, struct sockaddr *addr, socklen_t addrlen)
     if (!s->bind) {
         return -EOPNOTSUPP;
     }
+    if (!validate_user_memory(addr, addrlen, false)) {
+        return -EFAULT;
+    }
     return s->bind(s, addr, addrlen);
 }
 
@@ -1076,6 +1083,9 @@ sysreturn connect(int sockfd, struct sockaddr *addr, socklen_t addrlen)
     if (!sock->connect) {
         return -EOPNOTSUPP;
     }
+    if (!validate_user_memory(addr, addrlen, false)) {
+        return -EFAULT;
+    }
     return sock->connect(sock, addr, addrlen);
 }
 
@@ -1147,7 +1157,7 @@ static sysreturn netsock_sendto(struct sock *sock, void *buf, u64 len,
             syscall_io_complete);
 }
 
-sysreturn sendto(int sockfd, void * buf, u64 len, int flags,
+sysreturn sendto(int sockfd, void *buf, u64 len, int flags,
 		 struct sockaddr *dest_addr, socklen_t addrlen)
 {
     struct sock *sock = resolve_socket(current->p, sockfd);
@@ -1156,6 +1166,10 @@ sysreturn sendto(int sockfd, void * buf, u64 len, int flags,
 
     if (!sock->sendto) {
         return -EOPNOTSUPP;
+    }
+    if (!validate_user_memory(buf, len, false) ||
+        (dest_addr && !validate_user_memory(dest_addr, addrlen, false))) {
+        return -EFAULT;
     }
     return sock->sendto(sock, buf, len, flags, dest_addr, addrlen);
 }
@@ -1214,11 +1228,12 @@ sysreturn sendmsg(int sockfd, const struct msghdr *msg, int flags)
     u64 len;
     sysreturn rv;
 
-    net_debug("sock %d, type %d, flags 0x%x\n", s->fd, s->type, flags);
+    net_debug("sock %d, type %d, msg %p, flags 0x%x\n", s->fd, s->type, msg, flags);
+    if (!validate_user_memory(msg, sizeof(struct msghdr), false))
+        return -EFAULT;
     rv = sendmsg_prepare(s, msg, flags, &buf, &len);
-    if (rv <= 0) {
+    if (rv <= 0)
         return set_syscall_return(current, rv);
-    }
     io_completion completion = closure(s->h, sendmsg_complete, s, buf, len);
     return socket_write_internal(s, buf, len, current, false, completion);
 }
@@ -1274,6 +1289,17 @@ closure_function(7, 1, sysreturn, sendmmsg_tcp_bh,
     return set_syscall_return(t, rv);
 }
 
+static boolean validate_msghdr(struct msghdr *mh, boolean write)
+{
+    if (!validate_user_memory(mh, sizeof(struct msghdr), false))
+        return false;
+    if (mh->msg_name && !validate_user_memory(mh->msg_name, mh->msg_namelen, false))
+        return false;
+    if (mh->msg_control && !validate_user_memory(mh->msg_control, mh->msg_controllen, write))
+        return false;
+    return validate_iovec(mh->msg_iov, mh->msg_iovlen, write);
+}
+
 sysreturn sendmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
         int flags)
 {
@@ -1286,6 +1312,14 @@ sysreturn sendmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
     net_debug("sock %d, type %d, flags 0x%x, vlen %d\n", sock->fd, sock->type,
             flags,
             vlen);
+
+    if (!validate_user_memory(msgvec, vlen * sizeof(struct mmsghdr), true))
+        return -EFAULT;
+    for (int i = 0; i < vlen; i++) {
+        if (!validate_msghdr(&msgvec[i].msg_hdr, false))
+            return -EFAULT;
+    }
+
     for (sock->msg_count = 0; sock->msg_count < vlen; sock->msg_count++) {
         struct msghdr *msg_hdr = &msgvec[sock->msg_count].msg_hdr;
 
@@ -1345,9 +1379,13 @@ sysreturn recvfrom(int sockfd, void * buf, u64 len, int flags,
     net_debug("sock %d, type %d, thread %ld, buf %p, len %ld\n", sock->fd,
             sock->type, current->tid, buf, len);
 
-    if (!sock->recvfrom) {
+    if (!sock->recvfrom)
         return -EOPNOTSUPP;
-    }
+
+    if (src_addr && (!validate_user_memory(addrlen, sizeof(socklen_t), true) ||
+                     !validate_user_memory(src_addr, *addrlen, true)))
+        return -EFAULT;
+
     return sock->recvfrom(sock, buf, len, flags, src_addr, addrlen);
 }
 
@@ -1360,6 +1398,8 @@ sysreturn recvmsg(int sockfd, struct msghdr *msg, int flags)
 
     net_debug("sock %d, type %d, thread %ld\n", sock->fd, sock->type,
             current->tid);
+    if (!validate_msghdr(msg, true))
+        return -EFAULT;
     if ((sock->type == SOCK_STREAM) && (s->info.tcp.state != TCP_SOCK_OPEN)) {
         return set_syscall_error(current, ENOTCONN);
     }
@@ -1532,6 +1572,12 @@ sysreturn accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen,
     if (!sock->accept4) {
         return -EOPNOTSUPP;
     }
+
+    if (addr && (!validate_user_memory(addrlen, sizeof(socklen_t), true) ||
+                 !validate_user_memory(addr, *addrlen, true))) {
+        return -EFAULT;
+    }
+
     return sock->accept4(sock, addr, addrlen, flags);
 }
 
@@ -1543,6 +1589,9 @@ sysreturn accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 sysreturn getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 {
     net_debug("sock %d, addr %p, addrlen %p\n", sockfd, addr, addrlen);
+    if (!validate_user_memory(addrlen, sizeof(socklen_t), true) ||
+        !validate_user_memory(addr, *addrlen, true))
+        return -EFAULT;
     netsock s = resolve_fd(current->p, sockfd);
     struct sockaddr sa;
     zero(&sa, sizeof(sa));
@@ -1566,6 +1615,9 @@ sysreturn getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 
 sysreturn getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 {
+    if (!validate_user_memory(addrlen, sizeof(socklen_t), true) ||
+        !validate_user_memory(addr, *addrlen, true))
+        return -EFAULT;
     netsock s = resolve_fd(current->p, sockfd);
     struct sockaddr sa;
     zero(&sa, sizeof(sa));
@@ -1593,6 +1645,9 @@ sysreturn getsockopt(int sockfd, int level, int optname, void *optval, socklen_t
     net_debug("sock %d, type %d, thread %ld, level %d, optname %d\n, optlen %d\n",
         s->sock.fd, s->sock.type, current->tid, level, optname,
         optlen ? *optlen : -1);
+    if (!validate_user_memory(optlen, sizeof(socklen_t), true) ||
+        !validate_user_memory(optval, *optlen, true))
+        return -EFAULT;
 
     union {
         int val;

@@ -66,7 +66,7 @@ static inline struct aio *aio_from_ring(process p, aio_ring ring)
 
 sysreturn io_setup(unsigned int nr_events, aio_context_t *ctx_idp)
 {
-    if (!ctx_idp) {
+    if (!validate_user_memory(ctx_idp, sizeof(aio_context_t), true)) {
         return -EFAULT;
     }
     if (nr_events == 0) {
@@ -172,7 +172,7 @@ static unsigned int aio_avail_events(struct aio *aio)
 
 static sysreturn iocb_enqueue(struct aio *aio, struct iocb *iocb)
 {
-    if (!iocb) {
+    if (!validate_user_memory(iocb, sizeof(struct iocb), false)) {
         return -EFAULT;
     }
     thread_log(current, "%s: fd %d, op %d", __func__, iocb->aio_fildes,
@@ -225,7 +225,8 @@ inval:
 sysreturn io_submit(aio_context_t ctx_id, long nr, struct iocb **iocbpp)
 {
     struct aio *aio;
-    if (!ctx_id || !iocbpp) {
+    if (!validate_user_memory(ctx_id, sizeof(struct aio_ring), false) ||
+        !validate_user_memory(iocbpp, sizeof(struct iocb *) * nr, false)) {
         return -EFAULT;
     }
     if (!(aio = aio_from_ring(current->p, ctx_id))) {
@@ -298,7 +299,8 @@ out:
 sysreturn io_getevents(aio_context_t ctx_id, long min_nr, long nr,
         struct io_event *events, struct timespec *timeout)
 {
-    if (!ctx_id || !events) {
+    if (!validate_user_memory(ctx_id, sizeof(struct aio_ring), false) ||
+        !validate_user_memory(events, sizeof(struct io_event) * nr, true)) {
         return -EFAULT;
     }
     struct aio *aio;
@@ -361,7 +363,7 @@ static sysreturn io_destroy_internal(struct aio *aio, thread t, boolean in_bh)
 
 sysreturn io_destroy(aio_context_t ctx_id)
 {
-    if (!ctx_id) {
+    if (!validate_user_memory(ctx_id, sizeof(struct aio_ring), false)) {
         return -EFAULT;
     }
     struct aio *aio;

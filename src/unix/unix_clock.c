@@ -2,6 +2,8 @@
 
 sysreturn gettimeofday(struct timeval *tv, void *tz)
 {
+    if (!validate_user_memory(tv, sizeof(struct timeval), true))
+        return -EFAULT;
     timeval_from_time(tv, now(CLOCK_ID_REALTIME));
     return 0;
 }
@@ -35,7 +37,10 @@ closure_function(5, 1, sysreturn, nanosleep_bh,
 
 sysreturn nanosleep(const struct timespec *req, struct timespec *rem)
 {
-    if (!req)
+    if (!validate_user_memory(req, sizeof(struct timespec), false))
+        return -EFAULT;
+
+    if (rem && !validate_user_memory(rem, sizeof(struct timespec), true))
         return -EFAULT;
 
     timestamp interval = time_from_timespec(req);
@@ -50,7 +55,10 @@ sysreturn nanosleep(const struct timespec *req, struct timespec *rem)
 sysreturn clock_nanosleep(clockid_t _clock_id, int flags, const struct timespec *req,
                           struct timespec *rem)
 {
-    if (!req)
+    if (!validate_user_memory(req, sizeof(struct timespec), false))
+        return -EFAULT;
+
+    if (rem && !validate_user_memory(rem, sizeof(struct timespec), true))
         return -EFAULT;
 
     /* Report any attempted use of CLOCK_PROCESS_CPUTIME_ID */
@@ -77,6 +85,8 @@ sysreturn clock_nanosleep(clockid_t _clock_id, int flags, const struct timespec 
 
 sysreturn sys_time(time_t *tloc)
 {
+    if (tloc && !validate_user_memory(tloc, sizeof(time_t), true))
+        return -EFAULT;
     time_t t = time_t_from_time(now(CLOCK_ID_REALTIME));
 
     if (tloc)
@@ -86,6 +96,8 @@ sysreturn sys_time(time_t *tloc)
 
 sysreturn times(struct tms *buf)
 {
+    if (!validate_user_memory(buf, sizeof(struct tms), true))
+        return -EFAULT;
     buf->tms_utime = CLOCKS_PER_SEC * proc_utime(current->p) / TIMESTAMP_SECOND;
     buf->tms_stime = CLOCKS_PER_SEC * proc_stime(current->p) / TIMESTAMP_SECOND;
     buf->tms_cutime = buf->tms_cstime = 0;  /* there are no child processes */
@@ -97,7 +109,9 @@ sysreturn times(struct tms *buf)
 
 sysreturn clock_gettime(clockid_t clk_id, struct timespec *tp)
 {
-    thread_log(current, "clock_gettime: clk_id %d", clk_id);
+    thread_log(current, "clock_gettime: clk_id %d, tp %p", clk_id, tp);
+    if (!validate_user_memory(tp, sizeof(struct timespec), true))
+        return -EFAULT;
     timestamp t;
     switch (clk_id) {
     case CLOCK_MONOTONIC:

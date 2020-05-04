@@ -139,6 +139,8 @@ sysreturn futex(int *uaddr, int futex_op, int val,
     timestamp ts;
     int op;
 
+    if (!validate_user_memory(uaddr, sizeof(int), false))
+        return set_syscall_error(current, EFAULT);
     boolean verbose = table_find(current->p->process_root, sym(futex_trace))
         ? true : false;
 
@@ -178,6 +180,9 @@ sysreturn futex(int *uaddr, int futex_op, int val,
     case FUTEX_CMP_REQUEUE: {
         int woken, requeued;
 
+        if (!validate_user_memory(uaddr2, sizeof(int), false))
+            return set_syscall_error(current, EFAULT);
+
         if (verbose)
             thread_log(current, "futex_cmp_requeue [%ld %p %d] val: %d val2: %d uaddr2: %p %d val3: %d",
                        current->tid, uaddr, *uaddr, val, val2, uaddr2, *uaddr2, val3);
@@ -206,6 +211,9 @@ sysreturn futex(int *uaddr, int futex_op, int val,
         unsigned int cmp = (val3 >> 24) & MASK(4);
         unsigned int op = (val3 >> 28) & MASK(4);
         int oldval, wake1, wake2, c;
+
+        if (!validate_user_memory(uaddr2, sizeof(int), true))
+            return set_syscall_error(current, EFAULT);
 
         if (verbose) {
             thread_log(current, "futex_wake_op: [%ld %p %d] %p %d %d %d %d",

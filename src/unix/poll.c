@@ -401,6 +401,9 @@ sysreturn epoll_wait(int epfd,
                      int maxevents,
                      int timeout)
 {
+    if (!validate_user_memory(events, sizeof(struct epoll_event) * maxevents, true))
+        return -EFAULT;
+
     epoll e = resolve_fd(current->p, epfd);
     epoll_blocked w = alloc_epoll_blocked(e);
     if (w == INVALID_ADDRESS)
@@ -502,7 +505,7 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
     fdesc f = resolve_fd(current->p, fd);
 
     /* A valid event pointer is required for all operations but EPOLL_CTL_DEL */
-    if ((op != EPOLL_CTL_DEL) && !event) {
+    if ((op != EPOLL_CTL_DEL) && !validate_user_memory(event, sizeof(struct epoll_event), false)) {
         return set_syscall_error(current, EFAULT);
     }
 
@@ -648,6 +651,12 @@ static sysreturn select_internal(int nfds,
 {
     if (nfds == 0 && timeout == infinity)
         return 0;
+
+    u64 set_bytes = pad(nfds, 64) / 8;
+    if ((readfds && !validate_user_memory(readfds, set_bytes, true)) ||
+        (writefds && !validate_user_memory(writefds, set_bytes, true)) ||
+        (exceptfds && !validate_user_memory(exceptfds, set_bytes, true)))
+        return -EFAULT;
 
     epoll e = select_get_epoll();
     if (e == INVALID_ADDRESS)
@@ -850,13 +859,14 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
                                timestamp timeout,
                                const sigset_t * sigmask)
 {
+    if (!validate_user_memory(fds, sizeof(struct pollfd) * nfds, true))
+        return -EFAULT;
     epoll e = select_get_epoll();
     if (e == INVALID_ADDRESS)
         return -ENOMEM;
     epoll_blocked w = alloc_epoll_blocked(e);
     if (w == INVALID_ADDRESS)
         return -ENOMEM;
-
     epoll_debug("epoll nfds %ld, new blocked %p, timeout %d\n", nfds, w, timeout);
     w->epoll_type = EPOLL_TYPE_POLL;
     w->poll_fds = wrap_buffer(e->h, fds, nfds * sizeof(struct pollfd));

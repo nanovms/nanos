@@ -272,10 +272,6 @@ closure_function(1, 0, sysreturn, unixsock_close,
 static sysreturn unixsock_bind(struct sock *sock, struct sockaddr *addr,
         socklen_t addrlen)
 {
-    if (!addr) {
-        return -EFAULT;
-    }
-
     unixsock s = (unixsock) sock;
     struct sockaddr_un *unixaddr = (struct sockaddr_un *) addr;
     if (s->fs_entry || (addrlen <= sizeof(unixaddr->sun_family))) {
@@ -298,6 +294,7 @@ static sysreturn unixsock_bind(struct sock *sock, struct sockaddr *addr,
         if (addrlen == sizeof(*unixaddr)) {
             return -ENAMETOOLONG;
         }
+        /* TODO: is this string not const? */
         unixaddr->sun_path[term] = '\0';
     }
 
@@ -378,9 +375,6 @@ out:
 static sysreturn unixsock_connect(struct sock *sock, struct sockaddr *addr,
         socklen_t addrlen)
 {
-    if (!addr) {
-        return -EFAULT;
-    }
     unixsock s = (unixsock) sock;
     if (unixsock_is_connecting(s)) {
         return -EALREADY;
@@ -470,9 +464,6 @@ static sysreturn unixsock_accept4(struct sock *sock, struct sockaddr *addr,
         socklen_t *addrlen, int flags)
 {
     unixsock s = (unixsock) sock;
-    if (addr && !addrlen) {
-        return -EFAULT;
-    }
     if (!s->conn_q) {
         return -EINVAL;
     }
@@ -570,7 +561,7 @@ sysreturn socketpair(int domain, int type, int protocol, int sv[2]) {
             ((type & SOCK_TYPE_MASK) != SOCK_DGRAM)) {
         return -ESOCKTNOSUPPORT;
     }
-    if (!sv) {
+    if (!validate_user_memory(sv, 2 * sizeof(int), true)) {
         return -EFAULT;
     }
     s1 = unixsock_alloc(h, type & SOCK_TYPE_MASK, type & ~SOCK_TYPE_MASK);
