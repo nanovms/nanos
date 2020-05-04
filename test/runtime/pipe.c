@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include <fcntl.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/syscall.h>
@@ -22,8 +23,40 @@ int __pipe(int fildes[2])
 
 void basic_test(heap h, int * fds)
 {
+    int capacity;
+    int test_val = 0x12345678;
     const int BSIZE = 1000;
     ssize_t nbytes;
+
+    if (write(fds[1], &test_val, sizeof(test_val)) < 0)
+        handle_error("pipe write");
+    capacity = fcntl(fds[0], F_GETPIPE_SZ);
+    if (capacity < 0)
+        handle_error("F_GETPIPE_SZ");
+    nbytes = fcntl(fds[0], F_SETPIPE_SZ, 3 * capacity);
+    if (nbytes < 0)
+        handle_error("F_SETPIPE_SZ");
+    if (nbytes < 3 * capacity) {
+        printf("pipe capacity set error (%ld)\n", nbytes);
+        exit(EXIT_FAILURE);
+    }
+    capacity = nbytes;
+    nbytes = fcntl(fds[0], F_GETPIPE_SZ);
+    if (nbytes != capacity) {
+        printf("pipe capacity get error (fd 0, %ld)\n", nbytes);
+        exit(EXIT_FAILURE);
+    }
+    nbytes = fcntl(fds[1], F_GETPIPE_SZ);
+    if (nbytes != capacity) {
+        printf("pipe capacity get error (fd 1, %ld)\n", nbytes);
+        exit(EXIT_FAILURE);
+    }
+    nbytes = read(fds[0], &test_val, sizeof(test_val));
+    if ((nbytes != sizeof(test_val)) || (test_val != 0x12345678)) {
+        printf("pipe read error after set capacity (%ld, 0x%x)\n", nbytes,
+               test_val);
+        exit(EXIT_FAILURE);
+    }
 
     char *test_string = "This is a pipe test string!";
     int test_len = strlen(test_string);

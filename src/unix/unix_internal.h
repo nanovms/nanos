@@ -649,6 +649,8 @@ sysreturn io_getevents(aio_context_t ctx_id, long min_nr, long nr,
 sysreturn io_destroy(aio_context_t ctx_id);
 
 int do_pipe2(int fds[2], int flags);
+int pipe_set_capacity(fdesc f, int capacity);
+int pipe_get_capacity(fdesc f);
 
 sysreturn socketpair(int domain, int type, int protocol, int sv[2]);
 

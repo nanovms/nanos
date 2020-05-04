@@ -1915,6 +1915,18 @@ sysreturn fcntl(int fd, int cmd, s64 arg)
         fetch_and_add(&f->refcnt, 1);
         return set_syscall_return(current, newfd);
     }
+    case F_SETPIPE_SZ:
+        if (f->type == FDESC_TYPE_PIPE) {
+            return pipe_set_capacity(f, (int)arg);
+        } else {
+            return -EINVAL;
+        }
+    case F_GETPIPE_SZ:
+        if (f->type == FDESC_TYPE_PIPE) {
+            return pipe_get_capacity(f);
+        } else {
+            return -EINVAL;
+        }
     default:
         return set_syscall_error(current, ENOSYS);
     }

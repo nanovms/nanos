@@ -136,6 +136,8 @@ typedef struct iovec {
 #define F_SETLK         6       /* Set record locking info (non-blocking).  */
 #define F_SETLKW        7       /* Set record locking info (blocking).  */
 #define F_DUPFD_CLOEXEC (F_LINUX_SPECIFIC_BASE + 6)
+#define F_SETPIPE_SZ    (F_LINUX_SPECIFIC_BASE + 7)
+#define F_GETPIPE_SZ    (F_LINUX_SPECIFIC_BASE + 8)
 
 struct flock {
     s16 l_type;

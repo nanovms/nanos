@@ -8,6 +8,7 @@
 #endif
 
 #define INITIAL_PIPE_DATA_SIZE  100
+#define PIPE_MIN_CAPACITY       PAGESIZE
 #define DEFAULT_PIPE_MAX_SIZE   (16 * PAGESIZE) /* see pipe(7) */
 #define PIPE_READ               0
 #define PIPE_WRITE              1
@@ -28,7 +29,7 @@ struct pipe {
     process proc;
     heap h;
     u64 ref_cnt;
-    u64 max_size;               /* XXX: can change with F_SETPIPE_SZ */
+    u64 max_size;
     buffer data;
 };
 
@@ -360,4 +361,22 @@ int do_pipe2(int fds[2], int flags)
 err:
     pipe_release(pipe);
     return -ENOMEM;
+}
+
+int pipe_set_capacity(fdesc f, int capacity)
+{
+    pipe_file pf = (pipe_file)f;
+    pipe p = pf->pipe;
+    if (capacity < PIPE_MIN_CAPACITY)
+        capacity = PIPE_MIN_CAPACITY;
+    if (capacity < buffer_length(p->data))
+        return -EBUSY;
+    p->max_size = buffer_set_capacity(p->data, (bytes)capacity);
+    return (int)p->max_size;
+}
+
+int pipe_get_capacity(fdesc f)
+{
+    pipe_file pf = (pipe_file)f;
+    return (int)pf->pipe->max_size;
 }
