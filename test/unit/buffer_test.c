@@ -42,6 +42,14 @@ boolean basic_tests(heap h)
     push_varint(b, 0xdeadbeef);
     test_assert(pop_varint(b) == 0xdeadbeef);
     test_assert(buffer_length(b) == 0);
+
+    /* Buffer capacity */
+    buffer_write_cstring(b, test_str);
+    test_assert(buffer_set_capacity(b, 1) >= strlen(test_str));
+    test_assert(buffer_set_capacity(b, b->length) == b->length);
+    buffer_set_capacity(b, 3 * b->length);
+    test_assert(buffer_compare_with_cstring(b, test_str));
+
     /*
      * Validate wrap_buffer_cstring initialization, and contents
      */

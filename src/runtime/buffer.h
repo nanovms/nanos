@@ -63,20 +63,31 @@ static inline boolean buffer_is_wrapped(buffer b)
     return b->wrapped;
 }
 
+static inline bytes buffer_set_capacity(buffer b, bytes len)
+{
+    assert(!buffer_is_wrapped(b));  /* wrapped buffers can't be resized */
+    if (len < b->end - b->start)
+        len = b->end - b->start;
+    if (len != b->length) {
+        void *new = allocate(b->h, len);
+        if (new == INVALID_ADDRESS)
+            return b->length;
+        runtime_memcpy(new, b->contents + b->start, b->end - b->start);
+        deallocate(b->h, b->contents, b->length);
+        b->length = len;
+        b->end = b->end - b->start;
+        b->start = 0;
+        b->contents = new;
+    }
+    return len;
+}
+
 static inline void buffer_extend(buffer b, bytes len)
 {
     // xxx - pad to pagesize
     if (b->length < (b->end + len)) {
-        assert(!buffer_is_wrapped(b));    /* wrapped buffers can't be extended */
-        int oldlen = b->length;
-        b->length = 2*((b->end-b->start)+len);
-        void *new = allocate(b->h, b->length);
-        assert(new != INVALID_ADDRESS);
-        runtime_memcpy(new, b->contents + b->start, (b->end-b->start));
-        deallocate(b->h, b->contents, oldlen);
-        b->end = b->end - b->start;
-        b->start = 0;
-        b->contents = new;
+        bytes new_len = 2 * (b->end - b->start + len);
+        assert(buffer_set_capacity(b, new_len) == new_len);
     }
 }
 
