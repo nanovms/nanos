@@ -32,7 +32,7 @@ static void __attribute__((noinline)) ap_new_stack()
     cpu_setgs(id);
     cpuinfo ci = current_cpu();
 
-    set_ist(id, IST_PAGEFAULT, u64_from_pointer(ci->fault_stack));
+    set_ist(id, IST_EXCEPTION, u64_from_pointer(ci->exception_stack));
     set_ist(id, IST_INTERRUPT, u64_from_pointer(ci->int_stack));
     set_running_frame(ci->kernel_frame);
     mp_debug(", install gdt");

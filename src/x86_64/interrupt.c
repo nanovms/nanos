@@ -263,7 +263,6 @@ void common_handler()
         console("\nexception during interrupt handling\n");
         goto exit_fault;
     }
-    ci->state = cpu_interrupt;
 
     if (f[FRAME_FULL]) {
         console("\nframe ");
@@ -275,10 +274,12 @@ void common_handler()
 
     /* invoke handler if available, else general fault handler */
     if (handlers[i]) {
+        ci->state = cpu_interrupt;
         apply(handlers[i]);
         if (i >= INTERRUPT_VECTOR_START)
             lapic_eoi();
     } else {
+        /* fault handlers likely act on cpu state, so don't change it */
         fault_handler fh = pointer_from_u64(f[FRAME_FAULT_HANDLER]);
         if (fh) {
             context retframe = apply(fh, f);
@@ -391,18 +392,20 @@ void init_interrupts(kernel_heaps kh)
                                                  n_interrupt_vectors - INTERRUPT_VECTOR_START, 1);
     assert(interrupt_vector_heap != INVALID_ADDRESS);
 
-    /* Page fault alternate stack */
-    set_ist(0, IST_PAGEFAULT, u64_from_pointer(ci->fault_stack));
+    /* Separate stack to keep exceptions in interrupt handlers from
+       trashing the interrupt stack */
+    set_ist(0, IST_EXCEPTION, u64_from_pointer(ci->exception_stack));
 
-    /* Interrupt handlers run on their own stack. */
+    /* External interrupts (> 31) */
     set_ist(0, IST_INTERRUPT, u64_from_pointer(ci->int_stack));
 
     /* IDT setup */
     idt = allocate(heap_backed(kh), heap_backed(kh)->pagesize);
 
+    /* Rely on ISTs in lieu of TSS stack switch. */
     u64 vector_base = u64_from_pointer(&interrupt_vectors);
     for (int i = 0; i < INTERRUPT_VECTOR_START; i++)
-        write_idt(i, vector_base + i * interrupt_vector_size, i == 0xe ? IST_PAGEFAULT : 0);
+        write_idt(i, vector_base + i * interrupt_vector_size, IST_EXCEPTION);
     
     for (int i = INTERRUPT_VECTOR_START; i < n_interrupt_vectors; i++)
         write_idt(i, vector_base + i * interrupt_vector_size, IST_INTERRUPT);

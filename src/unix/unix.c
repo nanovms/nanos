@@ -103,7 +103,7 @@ define_closure_function(1, 1, context, default_fault_handler,
 
                 /* schedule this thread to either run signal handler or terminate */
                 schedule_frame(frame);
-                runloop();
+                return 0;
             } else {
                 rprintf("\nUnhandled page fault in kernel mode: ");
                 goto bug;
@@ -119,17 +119,25 @@ define_closure_function(1, 1, context, default_fault_handler,
             goto bug;
         }
 
-        if (handle_protection_fault(frame, vaddr, vm))
+        if (handle_protection_fault(frame, vaddr, vm)) {
+            schedule_frame(frame);
             return 0;
+        }
 
         if (do_demand_page(fault_address(frame), vm)) {
-            /* Dirty hack until we get page faults out of the kernel:
-               If we're in the kernel context, return to the frame directly. */
+            /* If we're in the kernel context, return to the frame directly. */
             if (frame == current_cpu()->kernel_frame) {
                 current_cpu()->state = cpu_kernel;
                 return frame;
                 frame_return(frame);
             }
+            schedule_frame(frame);
+            return 0;
+        }
+    } else if (frame[FRAME_VECTOR] == 13) {
+        if (current_cpu()->state == cpu_user) {
+            pf_debug("general protection fault in user mode, rip 0x%lxn", frame[FRAME_RIP]);
+            deliver_segv(0, SI_KERNEL);
             schedule_frame(frame);
             return 0;
         }
