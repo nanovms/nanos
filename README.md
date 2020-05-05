@@ -66,6 +66,24 @@ https://storage.googleapis.com/testmisc/target-root.tar.gz && tar xzf target-roo
 make run no-accel
 ```
 
+### Documentation
+
+You can find more documentation on the OPS [docs site](https://nanovms.gitbook.io/ops/)
+
+### Benchmarks
+
+In an effort for transparency and to collect, categorize, and document
+benchmarks we will start listing them here. The aims should be to be as
+reproducible and contain as much information as possible:
+
+[Go on GCloud](https://github.com/nanovms/nanos/wiki/go_gcloud): 18k req/sec
+
+[Rust on GCloud](https://github.com/nanovms/nanos/wiki/rust_gcloud): 22k req/sec
+
+[Node.JS on AWS](https://github.com/nanovms/nanos/wiki/nodejs_aws): 2k req/sec
+
+[Node.JS on GCloud](https://github.com/nanovms/nanos/wiki/nodejs_gcloud): 4k req/sec
+
 ### Tests
 
 To run tests:
