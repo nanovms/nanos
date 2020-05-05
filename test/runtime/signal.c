@@ -482,10 +482,13 @@ child_should_die(void * ucontext)
     return (context->uc_mcontext.gregs[REG_CR2] == BAD_RIP);
 }
 
-
 static void
 sigsegv_sigaction(int signo, siginfo_t * info, void * ucontext)
 {
+    static int iter = 0;
+
+    if (info->si_code != (iter == 0 ? SI_KERNEL : SEGV_MAPERR))
+        fail_perror("  childtid: wrong si_code %d for iter %d\n", info->si_code, iter);
 
     if (signo != SIGSEGV)
         fail_perror("  childtid: caught non SIGSEGV signal %d\n", signo);  
@@ -497,10 +500,10 @@ sigsegv_sigaction(int signo, siginfo_t * info, void * ucontext)
     print_ucontext(ucontext);
 #endif
 
-    if ( (unsigned long)info->si_addr != 
-         ((ucontext_t *)ucontext)->uc_mcontext.gregs[REG_CR2]
-       )
+    if (iter == 1 && (unsigned long)info->si_addr != ((ucontext_t *)ucontext)->uc_mcontext.gregs[REG_CR2])
         fail_perror("  childtid: info-si_addr != CR2\n");
+
+    iter++;
 
     if (child_should_die(ucontext))
         syscall(SYS_exit, 0);
@@ -522,10 +525,15 @@ static void *
 sigsegv_thread(void * arg)
 {
     child_tid = syscall(SYS_gettid);
-    int * v = (int *)BAD_LOAD;
+    if (arg == 0) {
+        int * v = (int *)BAD_LOAD;
 
-    /* generate sigsegv */
-    *v = 1;
+        /* generate sigsegv */
+        *v = 1;
+    } else {
+        /* should cause sigsegv as a result of general protection fault */
+        asm volatile("hlt");
+    }
     return NULL;
 }
 
@@ -539,13 +547,13 @@ test_sigsegv(void)
     /* first test ~SA_INFO */
     {
         memset(&sa, 0, sizeof(struct sigaction));
-        sa.sa_handler  = sigsegv_handler;
+        sa.sa_handler = sigsegv_handler;
         sigemptyset(&sa.sa_mask);
 
         if (sigaction(SIGSEGV, &sa, NULL))
             fail_perror("siggaction for SIGSEGV failed");
 
-        if (pthread_create(&pt, NULL, sigsegv_thread, NULL))
+        if (pthread_create(&pt, NULL, sigsegv_thread, (void *)0))
             fail_perror("sigsegv_thread pthread_create");
 
         sigtest_debug("yielding until child tid reported...\n");
@@ -555,7 +563,7 @@ test_sigsegv(void)
             fail_perror("blocking test pthread_join");
     }
 
-    /* now test SA_INFO */
+    /* test SA_INFO, illegal instruction / GP fault and bad RIP in ucontext */
     {
         memset(&sa, 0, sizeof(struct sigaction));
         sa.sa_sigaction = sigsegv_sigaction;
@@ -565,7 +573,7 @@ test_sigsegv(void)
         if (sigaction(SIGSEGV, &sa, NULL))
             fail_perror("siggaction for SIGSEGV failed");
 
-        if (pthread_create(&pt, NULL, sigsegv_thread, NULL))
+        if (pthread_create(&pt, NULL, sigsegv_thread, (void *)1))
             fail_perror("sigsegv_thread pthread_create 2");
 
         sigtest_debug("yielding until child tid reported...\n");

@@ -42,15 +42,10 @@ typedef struct cpuinfo {
 
     /* The following fields are used rarely or only on initialization. */
 
-    /* Stack for page faults, switched by hardware
+    /* Stack for exceptions (which may occur in interrupt handlers) */
+    void *exception_stack;
 
-       This could just be the kernel stack, but we might like to have
-       a safe stack to run on should we get a fault in kernel space,
-       or even in an interrupt handler. */
-    void *fault_stack;
-
-    /* Stack for exceptions (aside from page fault) and interrupts,
-       switched by hardware */
+    /* Stack for interrupts */
     void *int_stack;
 
     /* leaky unix stuff */
@@ -170,8 +165,8 @@ void start_cpu(heap h, heap stackheap, int index, void (*ap_entry)());
 void *allocate_stack(heap pages, u64 size);
 void install_idt(void);
 
-#define IST_INTERRUPT 1         /* for all interrupts */
-#define IST_PAGEFAULT 2         /* page fault specific */
+#define IST_EXCEPTION 1
+#define IST_INTERRUPT 2
 
 void set_ist(int cpu, int i, u64 sp);
 void install_gdt64_and_tss(u64 cpu);

@@ -291,7 +291,7 @@ static void init_cpuinfos(kernel_heaps kh)
         /* frame and stacks */
         ci->kernel_frame = allocate_frame(h);
         ci->kernel_stack = allocate_stack(backed, KERNEL_STACK_SIZE);
-        ci->fault_stack = allocate_stack(backed, FAULT_STACK_SIZE);
+        ci->exception_stack = allocate_stack(backed, EXCEPT_STACK_SIZE);
         ci->int_stack = allocate_stack(backed, INT_STACK_SIZE);
         //        init_debug("cpu %2d: kernel_frame %p, kernel_stack %p", i, ci->kernel_frame, ci->kernel_stack);
         //        init_debug("        fault_stack  %p, int_stack    %p", ci->fault_stack, ci->int_stack);
