@@ -35,6 +35,11 @@
   (__RD32(((PAGESIZE) - __builtin_offsetof(struct netif_tx_sring, ring)) / \
           sizeof(((struct netif_tx_sring *)0)->ring[0])))
 
+/* A TX request ID is composed of a tx_buf ID and a page ID; the number of bits
+ * reserved for the page ID is chosen so that it can accommodate the largest
+ * number of pages needed for a pbuf length of 0xFFFF bytes. */
+#define XENNET_TX_ID_SHIFT  5
+
 struct xennet_dev;
 
 typedef struct xennet_dev *xennet_dev;
@@ -175,20 +180,20 @@ static status xennet_inform_backend(xennet_dev xd)
                    __func__, node);
 }
 
-static inline u32 xennet_form_tx_id(xennet_tx_buf txb, int pageidx)
+static inline u16 xennet_form_tx_id(xennet_tx_buf txb, int pageidx)
 {
-    assert(pageidx < 256);
-    return (txb->idx << 8) + pageidx;
+    assert(pageidx < (1 << XENNET_TX_ID_SHIFT));
+    return (txb->idx << XENNET_TX_ID_SHIFT) + pageidx;
 }
 
-static inline xennet_tx_buf xennet_tx_buf_from_id(xennet_dev xd, u32 id)
+static inline xennet_tx_buf xennet_tx_buf_from_id(xennet_dev xd, u16 id)
 {
-    return vector_get(xd->txbufs, id >> 8);
+    return vector_get(xd->txbufs, id >> XENNET_TX_ID_SHIFT);
 }
 
-static inline int xennet_tx_page_idx_from_id(u32 id)
+static inline int xennet_tx_page_idx_from_id(u16 id)
 {
-    return id & 0xff;
+    return id & ((1 << XENNET_TX_ID_SHIFT) - 1);
 }
 
 static inline int xennet_get_n_tx_pages(xennet_tx_buf txb)
@@ -226,6 +231,9 @@ static xennet_tx_buf xennet_get_txbuf(xennet_dev xd)
         return struct_from_list(l, xennet_tx_buf, l);
     }
     spin_unlock_irq(&xd->tx_fill_lock, flags);
+
+    if (vector_length(xd->txbufs) > (0xFFFF >> XENNET_TX_ID_SHIFT))
+        return INVALID_ADDRESS;
 
     /* allocate new buffer */
     xennet_tx_buf txb = allocate(xd->h, sizeof(struct xennet_tx_buf));
@@ -412,6 +420,8 @@ static err_t xennet_linkoutput(struct netif *netif, struct pbuf *p)
     xennet_debug("%s: id %d, pbuf %p", __func__, xd->if_id, p);
 
     xennet_tx_buf txb = xennet_get_txbuf(xd);
+    if (txb == INVALID_ADDRESS)
+        return ERR_MEM;
     pbuf_ref(p);
     txb->p = p;
     xennet_tx_buf_add_pages(xd, txb, p);
