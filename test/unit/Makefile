@@ -10,6 +10,7 @@ PROGRAMS= \
 	queue_test \
 	range_test \
 	random_test \
+	rbtree_test \
 	table_test \
 	tuple_test \
 	udp_test \
@@ -27,6 +28,7 @@ RUNTIME = \
 	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/random.c \
 	$(SRCDIR)/runtime/range.c \
+	$(SRCDIR)/runtime/rbtree.c \
 	$(SRCDIR)/runtime/runtime_init.c \
 	$(SRCDIR)/runtime/sg.c \
 	$(SRCDIR)/runtime/symbol.c \
@@ -107,6 +109,11 @@ SRCS-random_test = \
 	$(RUNTIME)\
 	$(SRCDIR)/tfs/tfs.c \
 	$(SRCDIR)/tfs/tlog.c \
+	$(SRCDIR)/unix_process/unix_process_runtime.c
+
+SRCS-rbtree_test= \
+	$(CURDIR)/rbtree_test.c \
+	$(RUNTIME)\
 	$(SRCDIR)/unix_process/unix_process_runtime.c
 
 SRCS-table_test= \
