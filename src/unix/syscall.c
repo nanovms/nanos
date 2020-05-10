@@ -2215,7 +2215,7 @@ void syscall_debug(context f)
     }
     sysreturn (*h)(u64, u64, u64, u64, u64, u64) = s->handler;
     if (h) {
-        proc_enter_system(current->p);
+        thread_enter_system(current);
 
         sysreturn rv = h(f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]);
         set_syscall_return(current, rv);
@@ -2261,6 +2261,7 @@ static void syscall_schedule(context f, u64 call)
         current_cpu()->state = cpu_kernel;
         syscall_debug(f);
     } else {
+        thread_pause(current);
         enqueue(runqueue, &current->deferred_syscall);
         runloop();
     }

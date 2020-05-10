@@ -8,10 +8,13 @@ process create_process(unix_heaps uh, tuple root, filesystem fs);
 thread create_thread(process p);
 process exec_elf(buffer ex, process kernel_process);
 
-void proc_enter_user(process p);
-void proc_enter_system(process p);
-void proc_pause(process p);
-void proc_resume(process p);
+void thread_enter_user(thread out, thread in);
+void thread_enter_system(thread t);
+void thread_pause(thread t);
+void thread_resume(thread t);
 
 timestamp proc_utime(process p);
 timestamp proc_stime(process p);
+
+timestamp thread_utime(thread t);
+timestamp thread_stime(thread t);

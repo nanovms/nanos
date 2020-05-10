@@ -153,7 +153,7 @@ static inline void run_thread_frame(thread t)
     thread old = current;
     current_cpu()->current_thread = t;
     ftrace_thread_switch(old, current);    /* ftrace needs to know about the switch event */
-    proc_enter_user(current->p);
+    thread_enter_user(old, t);
 
     /* cover wake-before-sleep situations (e.g. sched yield, fs ops that don't go to disk, etc.) */
     t->blocked_on = 0;
@@ -257,6 +257,7 @@ define_closure_function(1, 0, void, free_thread,
 define_closure_function(1, 0, void, resume_syscall, thread, t)
 {
     current_cpu()->current_thread = bound(t);
+    thread_resume(bound(t));
     syscall_debug(thread_frame(bound(t)));
 }
 
@@ -311,6 +312,9 @@ thread create_thread(process p)
         deallocate(h, t, sizeof(struct thread));
         return INVALID_ADDRESS;
     }
+    t->sysctx = false;
+    t->utime = t->stime = 0;
+    t->start_time = now(CLOCK_ID_MONOTONIC);
 
     // XXX sigframe
     vector_set(p->threads, t->tid, t);

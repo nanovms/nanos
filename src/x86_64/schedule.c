@@ -160,6 +160,8 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
 
     if ((t = dequeue(thread_queue)) != INVALID_ADDRESS)
         run_thunk(t, cpu_user);
+    if (ci->current_thread)
+        thread_pause(ci->current_thread);
 
     kernel_sleep();
 }    
