@@ -603,8 +603,7 @@ static boolean add_extents(filesystem fs, range i, rangemap rm)
 static void add_extents_to_file(fsfile f, rangemap rm, merge m)
 {
     tfs_debug("%s: tuple %p\n", __func__, f->md);
-    list_foreach(&rm->root, l) {
-        rmnode node = struct_from_list(l, rmnode, l);
+    rangemap_foreach(rm, node) {
         add_extent_to_file(f, (extent) node, m);
     }
 }
@@ -694,6 +693,7 @@ boolean set_extent_length(fsfile f, extent ex, u64 length, merge m)
     /* re-insert in rangemap */
     rangemap_remove_node(f->extentmap, &ex->node);
 
+    ex->node.r = r; // XXX
     if (!rangemap_insert(f->extentmap, &ex->node)) {
         tfs_debug("failed: rangemap_insert failed\n");
         return false;
@@ -977,8 +977,9 @@ void filesystem_alloc(filesystem fs, tuple t, long offset, long len,
     tfs_debug("%s: t %v, q %R%s\n", __func__, t, q,
             keep_size ? " (keep size)" : "");
 
-    struct rangemap new_rm;
-    list_init(&new_rm.root);
+    /* XXX do we really need a temp rangemap here? */
+    rangemap new_rm = allocate_rangemap(fs->h);
+    assert(new_rm != INVALID_ADDRESS);
     fs_status status = FS_STATUS_OK;
 
     u64 lastedge = q.start;
@@ -987,7 +988,7 @@ void filesystem_alloc(filesystem fs, tuple t, long offset, long len,
         u64 edge = curr->r.start;
         range i = range_intersection(irange(lastedge, edge), q);
         if (range_span(i)) {
-            if (!add_extents(fs, i, &new_rm)) {
+            if (!add_extents(fs, i, new_rm)) {
                 status = FS_STATUS_NOSPACE;
                 goto error;
             }
@@ -999,7 +1000,7 @@ void filesystem_alloc(filesystem fs, tuple t, long offset, long len,
     /* check for a gap between the last node and q.end */
     range i = range_intersection(irange(lastedge, q.end), q);
     if (range_span(i)) {
-        if (!add_extents(fs, i, &new_rm)) {
+        if (!add_extents(fs, i, new_rm)) {
             status = FS_STATUS_NOSPACE;
             goto error;
         }
@@ -1008,7 +1009,7 @@ void filesystem_alloc(filesystem fs, tuple t, long offset, long len,
     merge m = allocate_merge(fs->h,
             closure(fs->h, filesystem_op_complete, f, completion));
     status_handler sh = apply_merge(m);
-    add_extents_to_file(f, &new_rm, m);
+    add_extents_to_file(f, new_rm, m);
     if (!keep_size && (q.end > fsfile_get_length(f))) {
         fsfile_set_length(f, q.end);
         filesystem_write_eav(fs, t, sym(filelength),
@@ -1016,14 +1017,16 @@ void filesystem_alloc(filesystem fs, tuple t, long offset, long len,
     }
     filesystem_flush_log(fs);
     apply(sh, STATUS_OK);
+    // XXX leaking temporary nodes
+    deallocate_rangemap(new_rm);
     return;
 
 error:
-    list_foreach(&new_rm.root, l) {
-        rmnode n = struct_from_list(l, rmnode, l);
+    rangemap_foreach(new_rm, n) {
         destroy_extent(fs, (extent) n);
     }
     apply(completion, f, status);
+    deallocate_rangemap(new_rm);
 }
 
 void filesystem_dealloc(filesystem fs, tuple t, long offset, long len,
@@ -1042,8 +1045,7 @@ void filesystem_dealloc(filesystem fs, tuple t, long offset, long len,
     merge m = allocate_merge(fs->h,
             closure(fs->h, filesystem_op_complete, f, completion));
     status_handler sh = apply_merge(m);
-    list_foreach(&f->extentmap->root, l) {
-        rmnode curr = struct_from_list(l, rmnode, l);
+    rangemap_foreach(f->extentmap, curr) {
         extent ex = (extent) curr;
         if (range_contains(q, curr->r)) {
             remove_extent_from_file(f, ex, m);

@@ -13,8 +13,8 @@ struct rm_result {
 
 /* XXX restore to original glory */
 static struct rm_result rm_results[] = {
-    { irange(15, 20), 1 },
-    { irange(20, 25), 3 } };
+    { irange(10, 20), 1 },
+    { irange(20, 30), 3 } };
 
 typedef struct test_node {
     struct rmnode node;
@@ -120,6 +120,7 @@ boolean basic_test(heap h)
         goto fail;
     }
 
+#if 0
     /* test partial delete (head trim) */
     if (!rangemap_remove_range(rm, (range){5, 15})) {
         msg = "remove 0 - no match";
@@ -161,7 +162,6 @@ boolean basic_test(heap h)
         goto fail;
     }
 
-#if 0
     /* test partial delete (hole trim) */
     rv = rangemap_remove_range(rm, (range){21, 24});
     if (!rv) {

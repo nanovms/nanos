@@ -1,6 +1,6 @@
 typedef struct rbnode *rbnode;
 struct rbnode {
-    u64 parent_color;           /* parent used for verification */
+    word parent_color;           /* parent used for verification */
     rbnode c[2];
 };
 
@@ -16,28 +16,24 @@ typedef struct rbtree {
     rbnode_handler print_key;
 } *rbtree;
 
-static inline void init_rbnode(rbnode n)
-{
-    n->parent_color = 0;
-    n->c[0] = n->c[1] = 0;
-}
-
 boolean rbtree_insert_node(rbtree t, rbnode n);
 
-boolean rbtree_delete_by_key(rbtree t, rbnode k);
+boolean rbtree_remove_by_key(rbtree t, rbnode k);
 
 /* Delete by node is really delete by key, because we need to perform
    transformations while decending the tree in order to do a safe
    removal - but we'll keep the call as part of the interface in case
    a more optimal solution arises later. */
-static inline void rbtree_delete_node(rbtree t, rbnode n)
+static inline void rbtree_remove_node(rbtree t, rbnode n)
 {
-    assert(rbtree_delete_by_key(t, n));
+    assert(rbtree_remove_by_key(t, n));
 }
 
 rbnode rbtree_lookup(rbtree t, rbnode k);
 
-rbtree allocate_rbtree(heap h, rb_key_compare key_compare, rb_augment augment, rbnode_handler print_key);
+void init_rbtree(rbtree t, rb_key_compare key_compare, rbnode_handler print_key);
+
+rbtree allocate_rbtree(heap h, rb_key_compare key_compare, rbnode_handler print_key);
 
 void deallocate_rbtree(rbtree rb);
 
@@ -56,8 +52,15 @@ static inline u64 rbtree_get_count(rbtree t)
     return t->count;
 }
 
+static inline void init_rbnode(rbnode n)
+{
+    n->parent_color = 0;
+    n->c[0] = n->c[1] = 0;
+}
+
 /* not for key nodes! */
 rbnode rbnode_get_prev(rbnode h);
 rbnode rbnode_get_next(rbnode h);
 
-rbnode rbtree_lookup_next_gte(rbtree t, rbnode k);
+rbnode rbtree_lookup_max_lte(rbtree t, rbnode k);
+rbnode rbtree_find_first(rbtree t);

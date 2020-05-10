@@ -29,6 +29,7 @@ SRCS-stage3.img= \
 	$(SRCDIR)/runtime/queue.c \
 	$(SRCDIR)/runtime/random.c \
 	$(SRCDIR)/runtime/range.c \
+	$(SRCDIR)/runtime/rbtree.c \
 	$(SRCDIR)/runtime/runtime_init.c \
 	$(SRCDIR)/runtime/sg.c \
 	$(SRCDIR)/runtime/sha256.c \

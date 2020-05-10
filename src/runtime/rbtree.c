@@ -32,12 +32,6 @@
 #define is_black_or_null(n) (!is_red(n)) /* a little more descriptive than !is_red... */
 #define is_leaf(n) (!child(n, left) && !child(n, right))
 
-static inline void augment_node(rbtree t, rbnode n)
-{
-    if (t->augment)
-        apply(t->augment, n);
-}
-
 static inline int compare_nodes(rbtree t, rbnode a, rbnode b)
 {
     assert(t->key_compare);
@@ -48,8 +42,6 @@ static inline int other(int side)
 {
     return right - side;
 }
-
-// XXX take augment into account here
 
 static inline rbnode rotate(int hand, rbnode h)
 {
@@ -131,26 +123,32 @@ rbnode rbtree_lookup(rbtree t, rbnode k)
     return INVALID_ADDRESS;
 }
 
-rbnode rbtree_lookup_next_gte(rbtree t, rbnode k)
+static rbnode max_lte_internal(rbtree t, rbnode h, rbnode k)
 {
-    rbnode h = t->root;
-    /* find largest <= k */
-    do {
-        if (!h)
-            return INVALID_ADDRESS;
-        int d = compare_nodes(t, k, h);
-        if (d == 0)
+    int d = compare_nodes(t, k, h);
+    if (d == 0)
+        return h;
+    if (d > 0) {                /* k > h */
+        if (!child(h, right))
             return h;
-        if (d > 0)
-            break;
-        h = child(h, left);
-    } while (1);
+        rbnode next = max_lte_internal(t, child(h, right), k);
+        if (next == INVALID_ADDRESS || compare_nodes(t, next, k) > 0) {
+            return h;
+        } else {
+            return next;
+        }
+    }
+    /* k < h */
+    if (!child(h, left))
+        return INVALID_ADDRESS;
+    return max_lte_internal(t, child(h, left), k);
+}
 
-    /* largest descendant <= k */
-    rbnode r;
-    while ((r = child(h, right)) && compare_nodes(t, k, r) <= 0)
-        h = r;
-    return h;
+rbnode rbtree_lookup_max_lte(rbtree t, rbnode k)
+{
+    if (!t->root)
+        return INVALID_ADDRESS;
+    return max_lte_internal(t, t->root, k);
 }
 
 static inline rbnode check_move_red(rbnode h, int hand)
@@ -217,7 +215,7 @@ static inline char char_from_delta(int d)
     return d == 0 ? '=' : (d < 0 ? '<' : '>');
 }
 
-static rbnode delete_internal(rbtree t, rbnode h, rbnode k, boolean *result)
+static rbnode remove_internal(rbtree t, rbnode h, rbnode k, boolean *result)
 {
     if (!h)
         return h;
@@ -229,7 +227,7 @@ static rbnode delete_internal(rbtree t, rbnode h, rbnode k, boolean *result)
 
         /* push red links down left spine */
         h = check_move_red(h, left);
-        child(h, left) = delete_internal(t, child(h, left), k, result);
+        child(h, left) = remove_internal(t, child(h, left), k, result);
         return fix_up(h);
     }
 
@@ -256,7 +254,7 @@ static rbnode delete_internal(rbtree t, rbnode h, rbnode k, boolean *result)
     if (d != 0) {
         if (!child(h, right))
             return h;           /* search failed */
-        child(h, right) = delete_internal(t, child(h, right), k, result);
+        child(h, right) = remove_internal(t, child(h, right), k, result);
         return fix_up(h);
     }
 
@@ -280,11 +278,11 @@ static rbnode delete_internal(rbtree t, rbnode h, rbnode k, boolean *result)
     return fix_up(h);
 }
 
-boolean rbtree_delete_by_key(rbtree t, rbnode k)
+boolean rbtree_remove_by_key(rbtree t, rbnode k)
 {
     boolean result = 0;
     rbtree_debug("t %p, k %p\n", t, k);
-    t->root = delete_internal(t, t->root, k, &result);
+    t->root = remove_internal(t, t->root, k, &result);
     if (t->root)
         set_color(t->root, black);
     if (result) {
@@ -312,7 +310,6 @@ static rbnode insert_node_internal(rbtree t, rbnode h, rbnode n, boolean *result
             child(h, hand) = insert_node_internal(t, hh, n, result);
         }
     }
-    rbtree_debug("   post h %p, n %p, result %d, fixup...\n", h, n, *result);
     h = fix_up(h);
     rbtree_debug("   head now %p\n", h);
     return h;
@@ -347,16 +344,17 @@ static void print_key(rbtree t, rbnode n)
 
 static void dump_node(rbtree t, rbnode n)
 {
-    rprintf(" %c ", is_red(n) ? 'r' : 'b');
     print_key(t, n);
     if (n) {
-        rprintf("\t-> ");
+        if (is_red(n))
+            rprintf(" <= ");
+        else
+            rprintf(" <- ");
+        rprintf("%p\n   L ", parent(n));
         print_key(t, child(n, left));
-        rprintf("\t");
+        rprintf("\n   R ");
         print_key(t, child(n, right));
-        rprintf("\t(addr: %p, p: ", n);
-        print_key(t, parent(n));
-        rprintf(")\n");
+        rprintf("\n");
     }
 }
 
@@ -413,7 +411,7 @@ boolean rbtree_traverse(rbtree t, int order, rbnode_handler rh)
 
 void rbtree_dump(rbtree t, int order)
 {
-    rbtree_traverse(t, RB_PREORDER, stack_closure(dump_internal, t));
+    rbtree_traverse(t, order, stack_closure(dump_internal, t));
 }
 
 static boolean validate_internal(rbtree t, rbnode n, u64 black_links, u64 *black_count)
@@ -492,19 +490,33 @@ boolean rbtree_validate(rbtree t)
     return validate_internal(t, t->root, 0, &black_count);
 }
 
-rbtree allocate_rbtree(heap h, rb_key_compare key_compare, rb_augment augment,
-                       rbnode_handler print_key)
+void init_rbtree(rbtree t, rb_key_compare key_compare, rbnode_handler print_key)
 {
-    rbtree t = allocate(h, sizeof(struct rbtree));
+    assert(t);
     t->root = 0;
     t->count = 0;
     t->key_compare = key_compare;
-    t->augment = augment;
     t->print_key = print_key;
+}
+
+rbtree allocate_rbtree(heap h, rb_key_compare key_compare,
+                       rbnode_handler print_key)
+{
+    rbtree t = allocate(h, sizeof(struct rbtree));
+    if (t == INVALID_ADDRESS)
+        return t;
+    init_rbtree(t, key_compare, print_key);
     return t;
 }
 
 void deallocate_rbtree(rbtree rb)
 {
-    // postorder traverse and delete notes
+    // postorder traverse and remove notes
+}
+
+rbnode rbtree_find_first(rbtree t)
+{
+    if (!t->root)
+        return INVALID_ADDRESS;
+    return find_limit(t->root, false);
 }

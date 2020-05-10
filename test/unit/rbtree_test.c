@@ -21,12 +21,6 @@ closure_function(0, 2, int, test_compare,
     return ta->key < tb->key ? -1 : (ta->key > tb->key ? 1 : 0);
 }
 
-closure_function(0, 1, void, test_augment,
-                 rbnode, n)
-{
-    rbtest_debug("augment %p\n", n);
-}
-
 closure_function(0, 1, boolean, dump_node,
                  rbnode, n)
 {
@@ -115,12 +109,12 @@ static boolean test_insert(heap h, rbtree t, int key, int value, boolean validat
     return r;
 }
 
-static boolean test_delete(heap h, rbtree t, int key, boolean expect)
+static boolean test_remove(heap h, rbtree t, int key, boolean expect)
 {
     struct testnode tk;
     tk.key = key;
     rbtest_debug("deleting by key %d\n", key);
-    boolean result = rbtree_delete_by_key(t, &tk.node);
+    boolean result = rbtree_remove_by_key(t, &tk.node);
     if (result != expect) {
         msg_err("delete failed (result %d)\n", result);
         return false;
@@ -157,9 +151,7 @@ static testnode test_lookup(rbtree t, int key)
 
 static boolean basic_test(heap h)
 {
-    rbtree t = allocate_rbtree(h, closure(h, test_compare),
-                               closure(h, test_augment),
-                               closure(h, dump_node));
+    rbtree t = allocate_rbtree(h, closure(h, test_compare), closure(h, dump_node));
     if (t == INVALID_ADDRESS) {
         msg_err("allocate_rbtree() failed\n");
         return false;
@@ -172,11 +164,11 @@ static boolean basic_test(heap h)
             return false;
     }
 
-    if (!test_delete(h, t, 11, false))
+    if (!test_remove(h, t, 11, false))
         return false;
 
     for (int i = 0; (k = insertion_keys[i]) != -1; i++) {
-        if (!test_delete(h, t, k, true))
+        if (!test_remove(h, t, k, true))
             return false;
     }
 #endif
@@ -199,7 +191,7 @@ static boolean basic_test(heap h)
     }
 #endif
     for (int i = 199; i >= 0; i--) {
-        if (!test_delete(h, t, i, true))
+        if (!test_remove(h, t, i, true))
             return false;
     }
 #endif
@@ -214,9 +206,7 @@ static boolean basic_test(heap h)
 static boolean random_test(heap h)
 {
     int vec[RANDOM_VECLEN];
-    rbtree t = allocate_rbtree(h, closure(h, test_compare),
-                               closure(h, test_augment),
-                               closure(h, dump_node));
+    rbtree t = allocate_rbtree(h, closure(h, test_compare), closure(h, dump_node));
     assert(rbtree_get_count(t) == 0);
     if (t == INVALID_ADDRESS) {
         msg_err("allocate_rbtree() failed\n");
@@ -249,9 +239,7 @@ static boolean random_test(heap h)
 //    test_dump(t);
 
     for (int i = 0; i < RANDOM_VECLEN; i++) {
-//        rprintf("delete %d:\n", vec[i]);
-        test_delete(h, t, vec[i], true);
-//        test_dump(t);
+        test_remove(h, t, vec[i], true);
     }
     assert(rbtree_get_count(t) == 0);
 
@@ -268,7 +256,6 @@ int main(int argc, char **argv)
     if (!random_test(h))
         goto fail;
 
-    rprintf("pass\n");
     msg_debug("test passed\n");
     exit(EXIT_SUCCESS);
   fail:

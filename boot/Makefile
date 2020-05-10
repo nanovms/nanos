@@ -9,6 +9,7 @@ SRCS-stage2.elf= \
 	$(SRCDIR)/runtime/format.c \
 	$(SRCDIR)/runtime/memops.c \
 	$(SRCDIR)/runtime/range.c \
+	$(SRCDIR)/runtime/rbtree.c \
 	$(SRCDIR)/runtime/runtime_init.c \
 	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/sg.c \
