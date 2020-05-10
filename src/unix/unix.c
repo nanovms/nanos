@@ -279,9 +279,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     create_stdfiles(uh, p);
     init_threads(p);
     p->syscalls = linux_syscalls;
-    p->sysctx = false;
     p->utime = p->stime = 0;
-    p->start_time = now(CLOCK_ID_MONOTONIC);
     init_sigstate(&p->signals);
     zero(p->sigactions, sizeof(p->sigactions));
     p->posix_timer_ids = create_id_heap(h, h, 0, U32_MAX, 1);
@@ -292,58 +290,89 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     return p;
 }
 
-void proc_enter_user(process p)
+void thread_enter_user(thread out, thread in)
 {
-    if (p->sysctx) {
+    if (out)
+        thread_pause(out);
+    thread_resume(in);
+    in->sysctx = false;
+}
+
+void thread_enter_system(thread t)
+{
+    if (!t->sysctx) {
         timestamp here = now(CLOCK_ID_MONOTONIC);
-        p->stime += here - p->start_time;
-        p->sysctx = false;
-        p->start_time = here;
+        timestamp diff = here - t->start_time;
+        fetch_and_add_64(&t->p->utime, diff);
+        t->utime += diff;
+        t->start_time = here;
+        t->sysctx = true;
     }
 }
 
-void proc_enter_system(process p)
+void thread_pause(thread t)
 {
-    if (!p->sysctx) {
-        timestamp here = now(CLOCK_ID_MONOTONIC);
-        p->utime += here - p->start_time;
-        p->sysctx = true;
-        p->start_time = here;
-    }
-}
-
-void proc_pause(process p)
-{
-    timestamp here = now(CLOCK_ID_MONOTONIC);
-    if (p->sysctx) {
-        p->stime += here - p->start_time;
+    process p = t->p;
+    timestamp diff = now(CLOCK_ID_MONOTONIC) - t->start_time;
+    if (t->sysctx) {
+        fetch_and_add_64(&p->stime, diff);
+        t->stime += diff;
     }
     else {
-        p->utime += here - p->start_time;
+        fetch_and_add_64(&p->utime, diff);
+        t->utime += diff;
     }
 }
 
-void proc_resume(process p)
+void thread_resume(thread t)
 {
-    p->start_time = now(CLOCK_ID_MONOTONIC);
+    t->start_time = now(CLOCK_ID_MONOTONIC);
+}
+
+static timestamp utime_updated(thread t)
+{
+    timestamp ts = t->utime;
+    if (!t->sysctx)
+        ts += now(CLOCK_ID_MONOTONIC) - t->start_time;
+    return ts;
+}
+
+static timestamp stime_updated(thread t)
+{
+    timestamp ts = t->stime;
+    if (t->sysctx)
+        ts += now(CLOCK_ID_MONOTONIC) - t->start_time;
+    return ts;
 }
 
 timestamp proc_utime(process p)
 {
     timestamp utime = p->utime;
-    if (!p->sysctx) {
-        utime += now(CLOCK_ID_MONOTONIC) - p->start_time;
-    }
+    thread t;
+    vector_foreach(p->threads, t)
+        if (t)
+            utime += utime_updated(t);
     return utime;
 }
 
 timestamp proc_stime(process p)
 {
     timestamp stime = p->stime;
-    if (p->sysctx) {
-        stime += now(CLOCK_ID_MONOTONIC) - p->start_time;
-    }
+    thread t;
+    vector_foreach(p->threads, t)
+        if (t)
+            stime += stime_updated(t);
     return stime;
+}
+
+timestamp thread_utime(thread t)
+{
+    return utime_updated(t);
+}
+
+timestamp thread_stime(thread t)
+{
+    return stime_updated(t);
 }
 
 process init_unix(kernel_heaps kh, tuple root, filesystem fs)

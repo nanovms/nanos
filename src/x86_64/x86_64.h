@@ -104,6 +104,11 @@ static inline void atomic_clear_bit(u64 *target, u64 bit)
     asm volatile("lock btrq %1, %0": "+m"(*target):"r"(bit) : "memory");
 }
 
+static inline u64 fetch_and_add_64(u64 *target, u64 num)
+{
+    return __sync_fetch_and_add(target, num);
+}
+
 #include <lock.h>
 
 extern u64 read_msr(u64);

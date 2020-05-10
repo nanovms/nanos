@@ -234,6 +234,10 @@ typedef struct thread {
     /* for waiting on thread-specific conditions rather than a resource */
     blockq thread_bq;
 
+    boolean sysctx;
+    timestamp utime, stime;
+    timestamp start_time;
+
     /* signals pending and saved state */
     struct sigstate signals;
     sigstate dispatch_sigstate; /* while signal handler in flight, save sigstate */
@@ -337,9 +341,7 @@ typedef struct process {
     rangemap          vmaps;    /* process mappings */
     vmap              stack_map;
     vmap              heap_map;
-    boolean           sysctx;
     timestamp         utime, stime;
-    timestamp         start_time;
     struct sigstate   signals;
     struct sigaction  sigactions[NSIG];
     id_heap           posix_timer_ids;
