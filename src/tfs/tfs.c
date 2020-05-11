@@ -520,6 +520,19 @@ static void destroy_extent(filesystem fs, extent ex)
     deallocate(fs->h, ex, sizeof(*ex));
 }
 
+closure_function(1, 1, void, destroy_extent_node,
+                 filesystem, fs,
+                 rmnode, n)
+{
+    destroy_extent(bound(fs), (extent)n);
+}
+
+closure_function(0, 1, void, assert_no_node,
+                 rmnode, n)
+{
+    halt("tfs: temporary rangemap not empty on dealloc\n");
+}
+
 static void add_extent_to_file(fsfile f, extent ex, merge m)
 {
     heap h = f->fs->h;
@@ -604,6 +617,7 @@ static void add_extents_to_file(fsfile f, rangemap rm, merge m)
 {
     tfs_debug("%s: tuple %p\n", __func__, f->md);
     rangemap_foreach(rm, node) {
+        rangemap_remove_node(rm, node);
         add_extent_to_file(f, (extent) node, m);
     }
 }
@@ -659,6 +673,7 @@ void ingest_extent(fsfile f, symbol off, tuple value)
     assert(rangemap_insert(f->extentmap, &ex->node));
 }
 
+#if 0 // XXX unused - can we nuke this?
 boolean set_extent_length(fsfile f, extent ex, u64 length, merge m)
 {
     tfs_debug("set_extent_length: range %R, allocated %ld, new length %ld\n",
@@ -691,10 +706,7 @@ boolean set_extent_length(fsfile f, extent ex, u64 length, merge m)
     }
 
     /* re-insert in rangemap */
-    rangemap_remove_node(f->extentmap, &ex->node);
-
-    ex->node.r = r; // XXX
-    if (!rangemap_insert(f->extentmap, &ex->node)) {
+    if (!rangemap_reinsert(f->extentmap, &ex->node, r)) {
         tfs_debug("failed: rangemap_insert failed\n");
         return false;
     }
@@ -705,6 +717,7 @@ boolean set_extent_length(fsfile f, extent ex, u64 length, merge m)
     filesystem_write_eav(f->fs, extent_tuple, sym(length), v, apply_merge(m));
     return true;
 }
+#endif
 
 closure_function(2, 1, void, filesystem_write_meta_complete,
                  range, q, io_status_handler, ish,
@@ -977,7 +990,6 @@ void filesystem_alloc(filesystem fs, tuple t, long offset, long len,
     tfs_debug("%s: t %v, q %R%s\n", __func__, t, q,
             keep_size ? " (keep size)" : "");
 
-    /* XXX do we really need a temp rangemap here? */
     rangemap new_rm = allocate_rangemap(fs->h);
     assert(new_rm != INVALID_ADDRESS);
     fs_status status = FS_STATUS_OK;
@@ -1017,16 +1029,12 @@ void filesystem_alloc(filesystem fs, tuple t, long offset, long len,
     }
     filesystem_flush_log(fs);
     apply(sh, STATUS_OK);
-    // XXX leaking temporary nodes
-    deallocate_rangemap(new_rm);
+    deallocate_rangemap(new_rm, stack_closure(assert_no_node));
     return;
 
 error:
-    rangemap_foreach(new_rm, n) {
-        destroy_extent(fs, (extent) n);
-    }
+    deallocate_rangemap(new_rm, stack_closure(destroy_extent_node, fs));
     apply(completion, f, status);
-    deallocate_rangemap(new_rm);
 }
 
 void filesystem_dealloc(filesystem fs, tuple t, long offset, long len,

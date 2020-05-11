@@ -32,7 +32,8 @@ boolean rangemap_range_lookup_with_gaps(rangemap rm, range q, rmnode_handler nod
 boolean rangemap_range_find_gaps(rangemap rm, range q, range_handler gap_handler);
 
 rangemap allocate_rangemap(heap h);
-void deallocate_rangemap(rangemap rm);
+void destruct_rangemap(rangemap rm, rmnode_handler destructor);
+void deallocate_rangemap(rangemap rm, rmnode_handler destructor);
 
 static inline range range_rshift(range r, int order)
 {
@@ -129,7 +130,7 @@ static inline void range_add(range *r, s64 delta)
              ((n) != INVALID_ADDRESS);                                  \
          (n) = __next)
 
-#define rangemap_foreach_range(rm, n, k)                                \
+#define rangemap_foreach_of_range(rm, n, k)                                \
     for (rmnode __next, (n) = rangemap_lookup_at_or_next(rm, (k)->r.start); \
          (__next = ((n) == INVALID_ADDRESS) ? 0 : rangemap_next_node(rm, n)), \
              ((n) != INVALID_ADDRESS &&                                 \

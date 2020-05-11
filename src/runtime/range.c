@@ -3,7 +3,7 @@
 boolean rangemap_insert(rangemap rm, rmnode n)
 {
     init_rbnode(&n->n);
-    rangemap_foreach_range(rm, curr, n) {
+    rangemap_foreach_of_range(rm, curr, n) {
         if (curr->r.start >= n->r.end)
             break;
         range i = range_intersection(curr->r, n->r);
@@ -14,11 +14,9 @@ boolean rangemap_insert(rangemap rm, rmnode n)
         }
     }
     if (!rbtree_insert_node(&rm->t, &n->n)) {
-        /* TODO maybe assert/halt here? */
-        msg_err("scan found no intersection but rb insert failed, node %p (%R)\n",
-                n, n->r);
         rbtree_dump(&rm->t, RB_PREORDER);
-        return false;
+        halt("scan found no intersection but rb insert failed, node %p (%R)\n",
+             n, n->r);
     }
     return true;
 }
@@ -30,12 +28,11 @@ boolean rangemap_reinsert(rangemap rm, rmnode n, range k)
     return rangemap_insert(rm, n);
 }
 
-#define ikey(point) {r: irange(point, point + 1)}
-
 rmnode rangemap_lookup(rangemap rm, u64 point)
 {
-    struct rmnode k = ikey(point);
-    rangemap_foreach_range(rm, curr, &k) {
+    struct rmnode k;
+    k.r = irange(point, point + 1);
+    rangemap_foreach_of_range(rm, curr, &k) {
         if (curr->r.start >= k.r.end)
             break;
         if (range_span(range_intersection(curr->r, k.r)))
@@ -47,7 +44,8 @@ rmnode rangemap_lookup(rangemap rm, u64 point)
 /* return either an exact match or the neighbor to the right */
 rmnode rangemap_lookup_at_or_next(rangemap rm, u64 point)
 {
-    struct rmnode k = ikey(point);
+    struct rmnode k;
+    k.r = irange(point, point + 1);
     if (!rm->t.root)
         return INVALID_ADDRESS;
     rmnode n = (rmnode)rbtree_lookup_max_lte(&rm->t, &k.n);
@@ -67,7 +65,7 @@ boolean rangemap_range_intersects(rangemap rm, range q)
 {
     struct rmnode k;
     k.r = q;
-    rangemap_foreach_range(rm, n, &k) {
+    rangemap_foreach_of_range(rm, n, &k) {
         if (!range_empty(range_intersection(n->r, q)))
             return true;
     }
@@ -83,7 +81,7 @@ static inline boolean rangemap_range_lookup_internal(rangemap rm, range q,
     u64 lastedge = q.start;
     struct rmnode k;
     k.r = q;
-    rangemap_foreach_range(rm, curr, &k) {
+    rangemap_foreach_of_range(rm, curr, &k) {
         if (gap_handler) {
             u64 edge = curr->r.start;
             range i = range_intersection(irange(lastedge, edge), q);
@@ -155,6 +153,22 @@ rangemap allocate_rangemap(heap h)
     return rm;
 }
 
-void deallocate_rangemap(rangemap r)
+closure_function(1, 1, boolean, destruct_rmnode,
+                 rmnode_handler, destructor,
+                 rbnode, n)
 {
+    apply(bound(destructor), (rmnode)n);
+    return true;
+}
+
+void destruct_rangemap(rangemap rm, rmnode_handler destructor)
+{
+    destruct_rbtree(&rm->t, stack_closure(destruct_rmnode, destructor));
+}
+
+void deallocate_rangemap(rangemap rm, rmnode_handler destructor)
+{
+    destruct_rangemap(rm, destructor);
+    if (rm->h)
+        deallocate(rm->h, rm, sizeof(struct rangemap));
 }

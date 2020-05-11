@@ -2,10 +2,14 @@
 
    https://www.cs.princeton.edu/~rs/talks/rb/LLRB.pdf
    https://www.cs.princeton.edu/~rs/talks/LLRB/RedBlack.pdf
+
+   TODO: consider adding augmentation for cheaper meta updates and
+         less work on collection
 */
 
 #include <runtime.h>
 
+//#define RBTREE_PARANOIA
 //#define RBTREE_DEBUG
 #ifdef RBTREE_DEBUG
 #define rbtree_debug(x, ...) do {rprintf("RBTREE %s: " x, __func__, ##__VA_ARGS__);} while(0)
@@ -26,8 +30,8 @@
 #define get_color(n) ((n)->parent_color & COLOR_MASK)
 #define set_color(n, c) do { (n)->parent_color = ((n)->parent_color & ~COLOR_MASK) | (c); } while(0)
 #define set_parent_and_color(n, p, c) do { (n)->parent_color = u64_from_pointer(p) | (c); } while(0)
-#define invert_color(n) do { (n)->parent_color ^= 1; } while(0)
-#define is_black(n) (get_color(n) == black) // XXX eliminate?
+#define invert_color(n) do { (n)->parent_color ^= COLOR_MASK; } while(0)
+#define is_black(n) (get_color(n) == black)
 #define is_red(n) ((n) && !is_black(n))
 #define is_black_or_null(n) (!is_red(n)) /* a little more descriptive than !is_red... */
 #define is_leaf(n) (!child(n, left) && !child(n, right))
@@ -101,6 +105,13 @@ static inline rbnode get_adjacent_inorder(rbnode h, int hand)
         find_ancestor_of_hand(h, hand);
 }
 
+rbnode rbtree_find_first(rbtree t)
+{
+    if (!t->root)
+        return INVALID_ADDRESS;
+    return find_limit(t->root, false);
+}
+
 rbnode rbnode_get_prev(rbnode h)
 {
     return get_adjacent_inorder(h, left);
@@ -157,12 +168,16 @@ static inline rbnode check_move_red(rbnode h, int hand)
     rbnode hh = child(h, hand);
     rbtree_debug("h %p, hand %d, hh %p\n", h, hand, hh);
     if (!hh || (is_black(hh) && is_black_or_null(child(hh, left)))) {
+        rbtree_debug("   color_flip\n");
         color_flip(h);
         rbnode ho = child(h, oh);
         if (!ho || is_black_or_null(child(ho, left)))
             return h;
-        if (hand == left)
+        rbtree_debug("   other left is red\n");
+        if (hand == left) {
+            rbtree_debug("   left hand, rotate right\n");
             child(h, right) = rotate(right, child(h, right));
+        }
         h = rotate(hand, h);
         color_flip(h);
     }
@@ -173,8 +188,7 @@ static inline rbnode check_move_red(rbnode h, int hand)
 static rbnode fix_up(rbnode h)
 {
     /* rotate right-leaning red links into left-leaning */
-//    if ((is_red(child(h, right))) && is_black_or_null(child(h, left))) {
-    if (is_red(child(h, right))) {
+    if (is_black_or_null(child(h, left)) && is_red(child(h, right))) {
         rbtree_debug("rl -> ll: %p\n", h);
         h = rotate(left, h);
         rbtree_debug("  head now %p\n", h);
@@ -184,7 +198,7 @@ static rbnode fix_up(rbnode h)
     if (is_red(child(h, left))) {
         rbnode lgc = child(child(h, left), left);
         if (is_red(lgc)) {
-            rbtree_debug("breakup reds (%p, %p)\n", child(h, left),
+            rbtree_debug("breakup consecutive reds (%p, %p)\n", child(h, left),
                          child(child(h, left), left));
             h = rotate(right, h);
             rbtree_debug("  head now %p\n", h);
@@ -192,8 +206,10 @@ static rbnode fix_up(rbnode h)
     }
 
     /* break up 4-nodes - leaving a 2-3 tree */
-    if (is_red(child(h, left)) && is_red(child(h, right)))
+    if (is_red(child(h, left)) && is_red(child(h, right))) {
+        rbtree_debug("break up 4-node\n");
         color_flip(h);
+    }
     return h;
 }
 
@@ -210,10 +226,12 @@ static rbnode remove_min(rbnode h, rbnode *removed)
     return fix_up(h);
 }
 
+#ifdef RBTREE_DEBUG
 static inline char char_from_delta(int d)
 {
     return d == 0 ? '=' : (d < 0 ? '<' : '>');
 }
+#endif
 
 static rbnode remove_internal(rbtree t, rbnode h, rbnode k, boolean *result)
 {
@@ -235,8 +253,10 @@ static rbnode remove_internal(rbtree t, rbnode h, rbnode k, boolean *result)
         return h;           /* search failed */
 
     /* rotate red to move down right spine */
-    if (is_red(child(h, left)))
+    if (is_red(child(h, left))) {
+        rbtree_debug("  left is red, rotate right\n");
         h = rotate(right, h);
+    }
     assert(h);
     d = compare_nodes(t, k, h);
     rbtree_debug("  compare2 h %p: %c, rt %p\n", h, char_from_delta(d), child(h, right));
@@ -289,6 +309,14 @@ boolean rbtree_remove_by_key(rbtree t, rbnode k)
         assert(t->count > 0);
         t->count--;
     }
+#ifdef RBTREE_PARANOIA
+    {
+        status s = rbtree_validate(t);
+        if (!is_ok(s)) {
+            halt("%s: validate check failed: %v\n", __func__, s);
+        }
+    }
+#endif
     return result;
 }
 
@@ -329,6 +357,14 @@ boolean rbtree_insert_node(rbtree t, rbnode n)
     set_color(t->root, black);
     if (result)
         t->count++;
+#ifdef RBTREE_PARANOIA
+    {
+        status s = rbtree_validate(t);
+        if (!is_ok(s)) {
+            halt("%s: validate check failed: %v\n", __func__, s);
+        }
+    }
+#endif
     return result;
 }
 
@@ -344,17 +380,19 @@ static void print_key(rbtree t, rbnode n)
 
 static void dump_node(rbtree t, rbnode n)
 {
+    rprintf("node %p\n", n);
     print_key(t, n);
     if (n) {
         if (is_red(n))
-            rprintf(" <= ");
+            rprintf(" <===");
         else
-            rprintf(" <- ");
-        rprintf("%p\n   L ", parent(n));
+            rprintf(" <---");
+        print_key(t, parent(n));
+        rprintf("\n   L ");
         print_key(t, child(n, left));
         rprintf("\n   R ");
         print_key(t, child(n, right));
-        rprintf("\n");
+        rprintf("\n\n");
     }
 }
 
@@ -414,80 +452,122 @@ void rbtree_dump(rbtree t, int order)
     rbtree_traverse(t, order, stack_closure(dump_internal, t));
 }
 
-static boolean validate_internal(rbtree t, rbnode n, u64 black_links, u64 *black_count)
+static status parent_child_check(rbtree t, rbnode p, int hand)
+{
+    rbnode c = child(p, hand);
+    char *hstr = hand == left ? "left" : "right";
+    if (!c)
+        return STATUS_OK;
+    if (parent(c) != p) {
+        dump_node(t, p);
+        return timm("result", "parent mismatch: %p, %s child %p, parent(child) %p",
+                    p, hstr, c, parent(c));
+    }
+    if (is_red(p) && is_red(c)) {
+        dump_node(t, p);
+        return timm("result", "both node %p and %s child %p are red",
+                    p, hstr, c);
+    }
+    return STATUS_OK;
+}
+
+/* traverse while testing for invariants:
+
+   - node child's parent link must point to node
+   - no consecutive red links
+   - no right-leaning 3-nodes
+   - number of black links from root is same for all leaves
+*/
+static status validate_tree_invariants(rbtree t, rbnode n, u64 black_links, u64 *black_count)
 {
     if (!n)
-        return true;
+        return STATUS_OK;
 
     rbnode nl = child(n, left);
     rbnode nr = child(n, right);
-//    rbtree_debug("n %p, l %p, r %p\n", n, nl, nr);
 
     if (!nl && !nr) {
         /* leaf checks */
-//        rbtree_debug("leaf, black_links %d, count %d\n", black_links, *black_count);
         if (*black_count != -1ull) {
             if (*black_count != black_links) {
-                rprintf("black line count mismatch\n");
-                return false;
+                return timm("result", "rbtree validate: black line count mismatch at leaf");
             }
         } else {
             *black_count = black_links;
         }
-        return true;
+        return STATUS_OK;
     }
 
     if (is_black_or_null(nl) && (nr && is_red(nr))) {
-        rprintf("right-leaning 3-node: ");
         dump_node(t, n);
-        return false;
+        return timm("result", "rbtree validate: right-leaning 3-node");
     }
 
-    // XXX refactor, return status
-    if (nl) {
-        if (parent(nl) != n) {
-            rprintf("parent of left child (%p) doesn't match self\n", parent(nl));
-            dump_node(t, n);
+    status s = parent_child_check(t, n, left);
+    if (!is_ok(s))
+        return s;
+    s = parent_child_check(t, n, right);
+    if (!is_ok(s))
+        return s;
+
+    if (nl)
+        s = validate_tree_invariants(t, nl, black_links + (is_black(nl) ? 1 : 0), black_count);
+    if (is_ok(s) && nr)
+        s = validate_tree_invariants(t, nr, black_links + (is_black(nr) ? 1 : 0), black_count);
+    return s;
+}
+
+/* we'd like to add a test for max lte here, but we don't have a way
+   to generate key nodes without creating another callback to user
+   ... so stress max lte in unit test */
+
+closure_function(2, 1, boolean, test_inorder_node,
+                 rbnode *, last, status *, result,
+                 rbnode, n)
+{
+    if (*bound(last) != 0) {
+        rbnode last = *bound(last);
+        rbnode prev = rbnode_get_prev(n);
+        if (prev != last) {
+            *bound(result) = timm("result", "prev of n %p doesn't match last %p\n", prev, last);
             return false;
         }
-        if (is_red(n) && is_red(nl)) {
-            rprintf("both node %p and left child %p are red\n", n, nl);
-            dump_node(t, n);
+        rbnode next = rbnode_get_next(last);
+        if (next != n) {
+            *bound(result) = timm("result", "next of last %p doesn't match node %p\n", next, n);
+            return false;
+        }
+    } else {
+        rbnode prev = rbnode_get_prev(n);
+        if (prev != INVALID_ADDRESS) {
+            *bound(result) = timm("result", "first element %p, prev %p, should be invalid\n", n, prev);
             return false;
         }
     }
-
-    if (nr) {
-        if (parent(nr) != n) {
-            rprintf("parent of right child (%p) doesn't match self\n", parent(nr));
-            dump_node(t, n);
-            return false;
-        }
-        if (is_red(n) && is_red(nr)) {
-            rprintf("both node %p and right child %p are red\n", n, nr);
-            dump_node(t, n);
-            return false;
-        }
-    }
-
-    if ((nl && !validate_internal(t, nl, black_links + (is_black(nl) ? 1 : 0), black_count)) ||
-        (nr && !validate_internal(t, nr, black_links + (is_black(nr) ? 1 : 0), black_count)))
-        return false;
-
+    *bound(last) = n;
     return true;
 }
 
-boolean rbtree_validate(rbtree t)
+static status test_inorder(rbtree t)
 {
-    /* traverse while testing for invariants:
+    rbnode last = 0;
+    status result = STATUS_OK;
+    rbtree_traverse(t, RB_INORDER, stack_closure(test_inorder_node, &last, &result));
+    if (is_ok(result)) {
+        if (last && rbnode_get_next(last) != INVALID_ADDRESS)
+            return timm("result", "next of last element should be invalid");
+    }
+    return result;
+}
 
-       - node child's parent link must point to node
-       - no consecutive red links
-       - no right-leaning 3-nodes
-       - number of black links from root is same for all leaves
-    */
+status rbtree_validate(rbtree t)
+{
     u64 black_count = -1ull;
-    return validate_internal(t, t->root, 0, &black_count);
+    status s = validate_tree_invariants(t, t->root, 0, &black_count);
+    if (!is_ok(s))
+        return s;
+
+    return test_inorder(t);
 }
 
 void init_rbtree(rbtree t, rb_key_compare key_compare, rbnode_handler print_key)
@@ -497,6 +577,7 @@ void init_rbtree(rbtree t, rb_key_compare key_compare, rbnode_handler print_key)
     t->count = 0;
     t->key_compare = key_compare;
     t->print_key = print_key;
+    t->h = 0;
 }
 
 rbtree allocate_rbtree(heap h, rb_key_compare key_compare,
@@ -506,17 +587,19 @@ rbtree allocate_rbtree(heap h, rb_key_compare key_compare,
     if (t == INVALID_ADDRESS)
         return t;
     init_rbtree(t, key_compare, print_key);
+    t->h = h;
     return t;
 }
 
-void deallocate_rbtree(rbtree rb)
+void destruct_rbtree(rbtree t, rbnode_handler destructor)
 {
-    // postorder traverse and remove notes
+    rbtree_traverse(t, RB_POSTORDER, destructor);
+    t->root = 0;
 }
 
-rbnode rbtree_find_first(rbtree t)
+void deallocate_rbtree(rbtree t, rbnode_handler destructor)
 {
-    if (!t->root)
-        return INVALID_ADDRESS;
-    return find_limit(t->root, false);
+    destruct_rbtree(t, destructor);
+    if (t->h)
+        deallocate(t->h, t, sizeof(struct rbtree));
 }
