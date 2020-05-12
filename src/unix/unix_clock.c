@@ -126,6 +126,9 @@ sysreturn clock_gettime(clockid_t clk_id, struct timespec *tp)
     case CLOCK_PROCESS_CPUTIME_ID:
         t = proc_utime(current->p) + proc_stime(current->p);
         break;
+    case CLOCK_THREAD_CPUTIME_ID:
+        t = thread_utime(current) + thread_stime(current);
+        break;
     default:
         msg_warn("clock id %d not supported\n", clk_id);
         return -EINVAL;
