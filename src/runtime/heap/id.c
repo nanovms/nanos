@@ -191,15 +191,19 @@ static void id_dealloc(heap h, u64 a, bytes count)
         msg_err("heap %p: no match for range %R\n", h, q);
 }
 
+closure_function(1, 1, void, destruct_id_range,
+                 id_heap, i,
+                 rmnode, n)
+{
+    id_range r = (id_range)n;
+    deallocate_bitmap(r->b);
+    deallocate(bound(i)->meta, r, sizeof(struct id_range));
+}
+
 static void id_destroy(heap h)
 {
     id_heap i = (id_heap)h;
-    id_range r = (id_range)rangemap_first_node(i->ranges);
-    while (r != INVALID_ADDRESS) {
-	deallocate_bitmap(r->b);
-        r = (id_range)rangemap_next_node(i->ranges, (rmnode)r);
-    }
-    deallocate_rangemap(i->ranges);
+    deallocate_rangemap(i->ranges, stack_closure(destruct_id_range, i));
     deallocate(i->meta, i, sizeof(struct id_heap));
 }
 

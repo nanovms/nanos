@@ -11,6 +11,7 @@ SRCS-mkfs= \
 	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/random.c \
 	$(SRCDIR)/runtime/range.c \
+	$(SRCDIR)/runtime/rbtree.c \
 	$(SRCDIR)/runtime/runtime_init.c \
 	$(SRCDIR)/runtime/symbol.c \
 	$(SRCDIR)/runtime/table.c \
@@ -36,6 +37,7 @@ SRCS-dump= \
 	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/random.c \
 	$(SRCDIR)/runtime/range.c \
+	$(SRCDIR)/runtime/rbtree.c \
 	$(SRCDIR)/runtime/runtime_init.c \
 	$(SRCDIR)/runtime/symbol.c \
 	$(SRCDIR)/runtime/table.c \

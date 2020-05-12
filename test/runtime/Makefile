@@ -120,6 +120,7 @@ SRCS-pipe= \
 	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/random.c \
 	$(SRCDIR)/runtime/range.c \
+	$(SRCDIR)/runtime/rbtree.c \
 	$(SRCDIR)/runtime/runtime_init.c \
 	$(SRCDIR)/runtime/sg.c \
 	$(SRCDIR)/runtime/string.c \
@@ -156,6 +157,7 @@ SRCS-signal= \
 	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/random.c \
 	$(SRCDIR)/runtime/range.c \
+	$(SRCDIR)/runtime/rbtree.c \
 	$(SRCDIR)/runtime/runtime_init.c \
 	$(SRCDIR)/runtime/sg.c \
 	$(SRCDIR)/runtime/string.c \
@@ -217,6 +219,7 @@ SRCS-udploop= \
 	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/random.c \
 	$(SRCDIR)/runtime/range.c \
+	$(SRCDIR)/runtime/rbtree.c \
 	$(SRCDIR)/runtime/runtime_init.c \
 	$(SRCDIR)/runtime/sg.c \
 	$(SRCDIR)/runtime/sha256.c \
@@ -267,6 +270,7 @@ SRCS-web= \
 	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/random.c \
 	$(SRCDIR)/runtime/range.c \
+	$(SRCDIR)/runtime/rbtree.c \
 	$(SRCDIR)/runtime/runtime_init.c \
 	$(SRCDIR)/runtime/sg.c \
 	$(SRCDIR)/runtime/sha256.c \

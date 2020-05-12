@@ -13,8 +13,8 @@ struct rm_result {
 
 /* XXX restore to original glory */
 static struct rm_result rm_results[] = {
-    { irange(15, 20), 1 },
-    { irange(20, 25), 3 } };
+    { irange(10, 20), 1 },
+    { irange(20, 30), 3 } };
 
 typedef struct test_node {
     struct rmnode node;
@@ -52,7 +52,12 @@ static test_node allocate_test_node(heap h, range r, int val)
     return tn;
 }
 
-/* XXX do node free */
+closure_function(1, 1, void, dealloc_test_node,
+                 heap, h,
+                 rmnode, n)
+{
+    deallocate(bound(h), n, sizeof(struct test_node));
+}
 
 boolean basic_test(heap h)
 {
@@ -120,91 +125,13 @@ boolean basic_test(heap h)
         goto fail;
     }
 
-    /* test partial delete (head trim) */
-    if (!rangemap_remove_range(rm, (range){5, 15})) {
-        msg = "remove 0 - no match";
-        goto fail;
-    }
-
-    /* should fail */
-    if (rangemap_lookup(rm, 14) != INVALID_ADDRESS) {
-        msg = "remove 0 - lookup 0";
-        goto fail;
-    }
-
-    /* pass */
-    if (rangemap_lookup(rm, 15) != &tn1->node) {
-        msg = "remove 0 - lookup 1";
-        goto fail;
-    }
-
-    /* test partial delete (tail trim) */
-    if (!rangemap_remove_range(rm, (range){25, 31})) {
-        msg = "remove 1 - no match";
-        goto fail;
-    }
-
-    /* should fail */
-    if (rangemap_lookup(rm, 25) != INVALID_ADDRESS) {
-        msg = "remove 1 - lookup 0";
-        goto fail;
-    }
-
-    if (rangemap_lookup(rm, 29) != INVALID_ADDRESS) {
-        msg = "remove 1 - lookup 1";
-        goto fail;
-    }
-
-    /* pass */
-    if (rangemap_lookup(rm, 24) != &tn3->node) {
-        msg = "remove 1 - lookup 2";
-        goto fail;
-    }
-
-#if 0
-    /* test partial delete (hole trim) */
-    rv = rangemap_remove_range(rm, (range){21, 24});
-    if (!rv) {
-        msg = "remove 2 - no match";
-        goto fail;
-    }
-
-    /* should fail */
-    if (rangemap_lookup(rm, 21, &r) != INVALID_ADDRESS) {
-        msg = "remove 2 - lookup 0";
-        goto fail;
-    }
-
-    if (rangemap_lookup(rm, 23, &r) != INVALID_ADDRESS) {
-        msg = "remove 2 - lookup 1";
-        goto fail;
-    }
-
-    /* pass */
-    v = rangemap_lookup(rm, 20, &r);
-    if (v != (void *)3 ||
-        r.start != 20 ||
-        r.end != 21) {
-        msg = "remove 2 - lookup 2";
-        goto fail;
-    }
-
-    v = rangemap_lookup(rm, 24, &r);
-    if (v != (void *)3 ||
-        r.start != 24 ||
-        r.end != 25) {
-        msg = "remove 2 - lookup 3";
-        goto fail;
-    }
-#endif
-
     /* range lookup */
     rmnode_handler rh = stack_closure(basic_test_validate);
     rangemap_range_lookup(rm, irange(0, 26), rh);
     return true;
 
   fail:
-    deallocate_rangemap(rm);
+    deallocate_rangemap(rm, stack_closure(dealloc_test_node, h));
     msg_err("rangemap basic test failed: %s\n", msg);
     return false;
 }

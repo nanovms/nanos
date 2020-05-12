@@ -1,6 +1,6 @@
 typedef struct rangemap {
     heap h;
-    struct list root;
+    struct rbtree t;
 } *rangemap;
 
 // [start, end)
@@ -9,8 +9,8 @@ typedef struct range {
 } range;
 
 typedef struct rmnode {
+    struct rbnode n;            /* must be first */
     range r;
-    struct list l;
 } *rmnode;
 
 #define irange(__s, __e)  (range){__s, __e}        
@@ -30,8 +30,10 @@ boolean rangemap_range_lookup(rangemap rm, range q, rmnode_handler node_handler)
 boolean rangemap_range_lookup_with_gaps(rangemap rm, range q, rmnode_handler node_handler,
                                         range_handler gap_handler);
 boolean rangemap_range_find_gaps(rangemap rm, range q, range_handler gap_handler);
+
 rangemap allocate_rangemap(heap h);
-void deallocate_rangemap(rangemap rm);
+void destruct_rangemap(rangemap rm, rmnode_handler destructor);
+void deallocate_rangemap(rangemap rm, rmnode_handler destructor);
 
 static inline range range_rshift(range r, int order)
 {
@@ -56,34 +58,27 @@ static inline void rmnode_set_range(rmnode n, range r)
 static inline void rmnode_init(rmnode n, range r)
 {
     rmnode_set_range(n, r);
-    list_init(&n->l);
+    init_rbnode(&n->n);
 }
 
 static inline rmnode rangemap_prev_node(rangemap rm, rmnode n)
 {
-    if (n->l.prev == &rm->root)
-        return INVALID_ADDRESS;
-    return struct_from_list(n->l.prev, rmnode, l);
+    return (rmnode)rbnode_get_prev(&n->n);
 }
 
 static inline rmnode rangemap_next_node(rangemap rm, rmnode n)
 {
-    if (n->l.next == &rm->root)
-        return INVALID_ADDRESS;
-    return struct_from_list(n->l.next, rmnode, l);
+    return (rmnode)rbnode_get_next(&n->n);
 }
 
 static inline rmnode rangemap_first_node(rangemap rm)
 {
-    if (rm->root.next == &rm->root)
-        return INVALID_ADDRESS;
-    else
-        return struct_from_list(rm->root.next, rmnode, l);
+    return (rmnode)rbtree_find_first(&rm->t);
 }
 
 static inline void rangemap_remove_node(rangemap rm, rmnode n)
 {
-    list_delete(&n->l);
+    rbtree_remove_node(&(rm->t), &n->n);
 }
 
 static inline range range_intersection(range a, range b)
@@ -128,3 +123,16 @@ static inline void range_add(range *r, s64 delta)
     r->start += delta;
     r->end += delta;
 }
+
+#define rangemap_foreach(rm, n)                                         \
+    for (rmnode __next, (n) = (rmnode)rbtree_find_first(&rm->t);        \
+         __next = ((n) == INVALID_ADDRESS) ? 0 : rangemap_next_node(rm, n), \
+             ((n) != INVALID_ADDRESS);                                  \
+         (n) = __next)
+
+#define rangemap_foreach_of_range(rm, n, k)                                \
+    for (rmnode __next, (n) = rangemap_lookup_at_or_next(rm, (k)->r.start); \
+         (__next = ((n) == INVALID_ADDRESS) ? 0 : rangemap_next_node(rm, n)), \
+             ((n) != INVALID_ADDRESS &&                                 \
+              range_span(range_intersection((k)->r, (n)->r)) > 0);      \
+         (n) = __next)

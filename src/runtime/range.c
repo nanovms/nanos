@@ -2,20 +2,22 @@
 
 boolean rangemap_insert(rangemap rm, rmnode n)
 {
-    list_foreach(&rm->root, l) {
-        rmnode curr = struct_from_list(l, rmnode, l);
+    init_rbnode(&n->n);
+    rangemap_foreach_of_range(rm, curr, n) {
+        if (curr->r.start >= n->r.end)
+            break;
         range i = range_intersection(curr->r, n->r);
         if (range_span(i)) {
-            /* XXX bark for now until we know we have all potential cases handled... */
-            msg_warn("attempt to insert %p (%R) but overlap with %p (%R)\n", n, n->r, curr, curr->r);
+            msg_warn("attempt to insert %p (%R) but overlap with %p (%R)\n",
+                     n, n->r, curr, curr->r);
             return false;
         }
-        if (curr->r.start > n->r.start) {
-            list_insert_before(l, &n->l);
-            return true;
-        }
     }
-    list_insert_before(&rm->root, &n->l);
+    if (!rbtree_insert_node(&rm->t, &n->n)) {
+        rbtree_dump(&rm->t, RB_PREORDER);
+        halt("scan found no intersection but rb insert failed, node %p (%R)\n",
+             n, n->r);
+    }
     return true;
 }
 
@@ -26,65 +28,14 @@ boolean rangemap_reinsert(rangemap rm, rmnode n, range k)
     return rangemap_insert(rm, n);
 }
 
-boolean rangemap_remove_range(rangemap rm, range k)
-{
-    boolean match = false;
-    list l = list_get_next(&rm->root);
-
-    while (l && l != &rm->root) {
-        rmnode curr = struct_from_list(l, rmnode, l);
-        list next = list_get_next(l);
-        range i = range_intersection(curr->r, k);
-
-        /* no intersection */
-        if (range_empty(i)) {
-            l = next;
-            continue;
-        }
-
-        match = true;
-
-        /* complete overlap (delete) */
-        if (range_equal(curr->r, i)) {
-            rangemap_remove_node(rm, curr);
-            l = next;
-            continue;
-        }
-
-        /* check for tail trim */
-        if (curr->r.start < i.start) {
-            /* check for hole */
-            if (curr->r.end > i.end) {
-                halt("unexpected hole trim: curr %R, key %R\n", curr->r, k);
-#if 0
-                /* XXX - I'm not positive that this is the right thing
-                   to do; take a closer look at what, if anything,
-                   would need benefit from this - plus this would
-                   violate any refcounts kept on behalf of opaque
-                   value. */
-                rmnode rn = allocate(rt->h, sizeof(struct rmnode));
-                rn->r.start = i.end;
-                rn->r.end = curr->r.end;
-                rn->value = curr->value; /* XXX this is perhaps most dubious */
-                msg_warn("unexpected hole trim: curr %R, key %R\n", curr->r, k);
-                list_insert_after(l, &rn->l);
-#endif
-            }
-            curr->r.end = i.start;
-        } else if (curr->r.end > i.end) { /* head trim */
-            curr->r.start = i.end;
-        }
-        l = next;               /* valid even if we inserted one */
-    }
-
-    return match;
-}
-
 rmnode rangemap_lookup(rangemap rm, u64 point)
 {
-    list_foreach(&rm->root, i) {
-        rmnode curr = struct_from_list(i, rmnode, l);
-        if (point_in_range(curr->r, point))
+    struct rmnode k;
+    k.r = irange(point, point + 1);
+    rangemap_foreach_of_range(rm, curr, &k) {
+        if (curr->r.start >= k.r.end)
+            break;
+        if (range_span(range_intersection(curr->r, k.r)))
             return curr;
     }
     return INVALID_ADDRESS;
@@ -93,20 +44,29 @@ rmnode rangemap_lookup(rangemap rm, u64 point)
 /* return either an exact match or the neighbor to the right */
 rmnode rangemap_lookup_at_or_next(rangemap rm, u64 point)
 {
-    list_foreach(&rm->root, i) {
-        rmnode curr = struct_from_list(i, rmnode, l);
-        if (point_in_range(curr->r, point) ||
-            curr->r.start > point)
-            return curr;
+    struct rmnode k;
+    k.r = irange(point, point + 1);
+    if (!rm->t.root)
+        return INVALID_ADDRESS;
+    rmnode n = (rmnode)rbtree_lookup_max_lte(&rm->t, &k.n);
+    if (n == INVALID_ADDRESS) {
+        n = (rmnode)rbtree_find_first(&rm->t);
+        assert(n);              /* already checked root */
     }
-    return INVALID_ADDRESS;
+
+    /* we use max lte because rbtree isn't aware of range ends...so we
+       may need to advance by one if the result end is less than k start */
+    while (n != INVALID_ADDRESS && n->r.end <= k.r.start)
+        n = rangemap_next_node(rm, n);
+    return n;
 }
 
 boolean rangemap_range_intersects(rangemap rm, range q)
 {
-    list_foreach(&rm->root, i) {
-        rmnode curr = struct_from_list(i, rmnode, l);
-        if (!range_empty(range_intersection(curr->r, q)))
+    struct rmnode k;
+    k.r = q;
+    rangemap_foreach_of_range(rm, n, &k) {
+        if (!range_empty(range_intersection(n->r, q)))
             return true;
     }
     return false;
@@ -119,9 +79,9 @@ static inline boolean rangemap_range_lookup_internal(rangemap rm, range q,
 {
     boolean match = false;
     u64 lastedge = q.start;
-    list_foreach(&rm->root, i) {
-        rmnode curr = struct_from_list(i, rmnode, l);
-
+    struct rmnode k;
+    k.r = q;
+    rangemap_foreach_of_range(rm, curr, &k) {
         if (gap_handler) {
             u64 edge = curr->r.start;
             range i = range_intersection(irange(lastedge, edge), q);
@@ -168,16 +128,47 @@ boolean rangemap_range_find_gaps(rangemap rm, range q, range_handler gap_handler
     return rangemap_range_lookup_internal(rm, q, 0, gap_handler);
 }
 
+closure_function(0, 2, int, rmnode_compare,
+                 rbnode, a, rbnode, b)
+{
+    u64 sa = ((rmnode)a)->r.start;
+    u64 sb = ((rmnode)b)->r.start;
+    return sa == sb ? 0 : (sa < sb ? -1 : 1);
+}
+
+closure_function(0, 1, boolean, print_key,
+                 rbnode, n)
+{
+    rprintf(" %R", ((rmnode)n)->r);
+    return true;
+}
+
 rangemap allocate_rangemap(heap h)
 {
     rangemap rm = allocate(h, sizeof(struct rangemap));
+    if (rm == INVALID_ADDRESS)
+        return rm;
     rm->h = h;
-    list_init(&rm->root);
+    init_rbtree(&rm->t, closure(h, rmnode_compare), closure(h, print_key));
     return rm;
 }
 
-void deallocate_rangemap(rangemap r)
+closure_function(1, 1, boolean, destruct_rmnode,
+                 rmnode_handler, destructor,
+                 rbnode, n)
 {
+    apply(bound(destructor), (rmnode)n);
+    return true;
 }
 
+void destruct_rangemap(rangemap rm, rmnode_handler destructor)
+{
+    destruct_rbtree(&rm->t, stack_closure(destruct_rmnode, destructor));
+}
 
+void deallocate_rangemap(rangemap rm, rmnode_handler destructor)
+{
+    destruct_rangemap(rm, destructor);
+    if (rm->h)
+        deallocate(rm->h, rm, sizeof(struct rangemap));
+}

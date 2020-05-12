@@ -167,6 +167,7 @@ typedef closure_type(thunk, void);
 #include <tuple.h>
 #include <status.h>
 #include <pqueue.h>
+#include <rbtree.h>
 #include <range.h>
 #include <queue.h>
 #include <refcount.h>
