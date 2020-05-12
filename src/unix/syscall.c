@@ -41,7 +41,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, fchmod, syscall_ignore);
     register_syscall(map, fchown, 0);
     register_syscall(map, lchown, 0);
-    register_syscall(map, getrusage, 0);
     register_syscall(map, ptrace, 0);
     register_syscall(map, syslog, 0);
     register_syscall(map, getgid, syscall_ignore);
@@ -1544,6 +1543,30 @@ sysreturn prlimit64(int pid, int resource, const struct rlimit *new_limit, struc
     return 0;
 }
 
+static sysreturn getrusage(int who, struct rusage *usage)
+{
+    thread_log(current, "%s: who %d", __func__, who);
+    if (!validate_user_memory(usage, sizeof(*usage), true))
+        return -EFAULT;
+    zero(usage, sizeof(*usage));
+    switch (who) {
+        case RUSAGE_SELF:
+            timeval_from_time(&usage->ru_utime, proc_utime(current->p));
+            timeval_from_time(&usage->ru_stime, proc_stime(current->p));
+            break;
+        case RUSAGE_CHILDREN:
+            /* There are no children. */
+            break;
+        case RUSAGE_THREAD:
+            timeval_from_time(&usage->ru_utime, thread_utime(current));
+            timeval_from_time(&usage->ru_stime, thread_stime(current));
+            break;
+        default:
+            return -EINVAL;
+    }
+    return 0;
+}
+
 static sysreturn getcwd(char *buf, u64 length)
 {
     if (!validate_user_memory(buf, length, true))
@@ -2143,6 +2166,7 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, getrlimit, getrlimit);
     register_syscall(map, setrlimit, setrlimit);
     register_syscall(map, prlimit64, prlimit64);
+    register_syscall(map, getrusage, getrusage);
     register_syscall(map, getpid, getpid);
     register_syscall(map, exit_group, exit_group);
     register_syscall(map, exit, (sysreturn (*)())exit);
