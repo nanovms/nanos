@@ -57,10 +57,10 @@ u64 random_u64()
 }
 
 // defined in service32.s
-extern void bios_tty_write(char *s, bytes count);
+extern void bios_tty_write(const char *s, bytes count);
 extern int bios_read_sectors(void *buffer, int start_sector, int sector_count);
 
-void console_write(char *s, bytes count)
+void console_write(const char *s, bytes count)
 {
     // BIOS console
     bios_tty_write(s, count);

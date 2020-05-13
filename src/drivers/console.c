@@ -3,7 +3,7 @@
 #include "console.h"
 #include "vga.h"
 
-static void serial_console_write(void *d, char *s, bytes count)
+static void serial_console_write(void *d, const char *s, bytes count)
 {
     for (; count--; s++) {
         serial_putchar(*s);
@@ -20,7 +20,7 @@ struct console_driver *console_drivers[4] = {
 
 static struct spinlock write_lock;
 
-void console_write(char *s, bytes count)
+void console_write(const char *s, bytes count)
 {
     spin_lock(&write_lock);
     for (struct console_driver **pd = console_drivers; *pd; pd++) {

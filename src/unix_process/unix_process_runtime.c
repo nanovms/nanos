@@ -105,7 +105,7 @@ heap init_process_runtime()
     return h;
 }
 
-void console_write(char *s, bytes count)
+void console_write(const char *s, bytes count)
 {
     igr(write(1, s, count));
 }
