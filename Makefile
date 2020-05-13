@@ -164,10 +164,19 @@ run-noaccel: image
 
 ##############################################################################
 # VMware
+
 CLEANFILES+=	$(IMAGE:.raw=.vmdk)
 
 vmdk-image: image
 	$(Q) $(QEMU_IMG) convert -f raw -O vmdk -o subformat=monolithicFlat $(IMAGE) $(IMAGE:.raw=.vmdk)
+
+##############################################################################
+# Hyper-V
+
+CLEANFILES+=	$(IMAGE:.raw=.vhdx)
+
+vhdx-image: image
+	$(Q) $(QEMU_IMG) convert -f raw -O vhdx -o subformat=dynamic $(IMAGE) $(IMAGE:.raw=.vhdx)
 
 ##############################################################################
 # GCE
