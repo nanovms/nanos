@@ -114,7 +114,7 @@ void pci_bar_init(pci_dev dev, struct pci_bar *b, int bar, bytes offset, bytes l
 
     if (b->type == PCI_BAR_MEMORY) {
         b->flags = base & PCI_BAR_B_MEMORY_MASK;
-        u32 addr_hi = (b->flags & PCI_BAR_F_64BIT) ? pci_cfgread(dev, 0x10 + 4 * (bar + 1), 4) : 0;
+        u32 addr_hi = (b->flags & PCI_BAR_F_64BIT) ? pci_cfgread(dev, PCIR_BAR(bar + 1), 4) : 0;
         b->addr = ((u64) addr_hi << 32) | (base & ~PCI_BAR_B_MEMORY_MASK);
     } else {
         b->flags = 0;
@@ -242,7 +242,7 @@ void pci_enable_msix(pci_dev dev)
     u16 ctrl = pci_cfgread(dev, cp + 2, 2);
     ctrl |= 0x8000;
 #ifdef PCI_DEBUG
-    int num_entries = ctrl & 0xff;
+    int num_entries = (ctrl & 0x7ff) + 1;
 #endif
     pci_debug("%s: ctrl 0x%x, num entries %d\n", __func__, ctrl, num_entries);
     pci_cfgwrite(dev, cp + 2, 2, ctrl);
