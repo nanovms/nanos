@@ -18,7 +18,7 @@
 #ifdef VMXNET3_NET_DEBUG
 # define vmxnet3_net_debug rprintf
 #else
-# define vmxnet3_net_debug(...) do { } while(0)
+# define vmxnet3_net_debug(...) do { } while (0)
 #endif // defined(VMXNET3_NET_DEBUG)
 
 typedef struct vmxnet3 {
@@ -39,15 +39,13 @@ typedef struct xpbuf
     struct list l;
 } *xpbuf;
 
-static void
-vmxnet3_interrupts_enable(vmxnet3_pci dev)
+static void vmxnet3_interrupts_enable(vmxnet3_pci dev)
 {
     struct vmxnet3_rxqueue *rxq = dev->vmx_rxq[0];
     pci_bar_write_4(&dev->bar0, VMXNET3_BAR0_IMASK(rxq->vxrxq_intr_idx), 0);
 }
 
-boolean
-vmxnet3_probe(pci_dev d)
+boolean vmxnet3_probe(pci_dev d)
 {
     if (pci_get_vendor(d) != VMXNET3_VMWARE_VENDOR_ID)
         return false;
@@ -59,22 +57,19 @@ vmxnet3_probe(pci_dev d)
     return true;
 }
 
-static void
-vmxnet3_write_cmd(vmxnet3_pci dev, u32 cmd)
+static void vmxnet3_write_cmd(vmxnet3_pci dev, u32 cmd)
 {
     pci_bar_write_4(&dev->bar1, VMXNET3_BAR1_CMD, cmd);
 }
 
-static u32
-vmxnet3_read_cmd(vmxnet3_pci dev, u32 cmd)
+static u32 vmxnet3_read_cmd(vmxnet3_pci dev, u32 cmd)
 {
     vmxnet3_write_cmd(dev, cmd);
     memory_barrier();
     return (pci_bar_read_4(&dev->bar1, VMXNET3_BAR1_CMD));
 }
 
-static void
-vmxnet3_alloc_mcast_table(vmxnet3_pci dev)
+static void vmxnet3_alloc_mcast_table(vmxnet3_pci dev)
 {
     struct vmxnet3_driver_shared *vmx_ds = dev->vmx_ds;
 
@@ -91,8 +86,7 @@ vmxnet3_alloc_mcast_table(vmxnet3_pci dev)
     vmx_ds->mcast_tablelen = mcast_table_size;
 }
 
-void
-init_vmxnet3_driver_shared(vmxnet3_pci dev)
+void init_vmxnet3_driver_shared(vmxnet3_pci dev)
 {
     struct vmxnet3_driver_shared *vmx_ds = dev->vmx_ds;
 
@@ -134,8 +128,7 @@ init_vmxnet3_driver_shared(vmxnet3_pci dev)
     vmxnet3_write_cmd(dev, VMXNET3_CMD_SET_RXMODE);
 }
 
-static void
-vmxnet3_interrupts_disable(vmxnet3_pci dev)
+static void vmxnet3_interrupts_disable(vmxnet3_pci dev)
 {
     struct vmxnet3_rxqueue *rxq = dev->vmx_rxq[0];
     struct vmxnet3_txqueue *txq = dev->vmx_txq[0];
@@ -143,8 +136,7 @@ vmxnet3_interrupts_disable(vmxnet3_pci dev)
     pci_bar_write_4(&dev->bar0, VMXNET3_BAR0_IMASK(txq->vxtxq_intr_idx), 1);
 }
 
-static void
-kick_pending(vmxnet3_pci dev)
+static void kick_pending(vmxnet3_pci dev)
 {
     struct vmxnet3_txqueue* vmx_txq = dev->vmx_txq[0];
     if (vmx_txq->vxtxq_ts->npending) {
@@ -153,8 +145,7 @@ kick_pending(vmxnet3_pci dev)
     }
 }
 
-static err_t
-low_level_output(struct netif *netif, struct pbuf *p)
+static err_t low_level_output(struct netif *netif, struct pbuf *p)
 {
     vmxnet3 vn = netif->state;
 
@@ -178,8 +169,7 @@ low_level_output(struct netif *netif, struct pbuf *p)
     return ERR_OK;
 }
 
-static void
-vmxnet3_get_mac(vmxnet3 vx)
+static void vmxnet3_get_mac(vmxnet3 vx)
 {
     u32 ml = vmxnet3_read_cmd(vx->dev, VMXNET3_CMD_GET_MACL);
     u32 mh = vmxnet3_read_cmd(vx->dev, VMXNET3_CMD_GET_MACH);
@@ -194,8 +184,7 @@ vmxnet3_get_mac(vmxnet3 vx)
     netif->hwaddr[5] = mh >> 8;
 }
 
-static void
-vmxnet3_check_version(vmxnet3_pci dev)
+static void vmxnet3_check_version(vmxnet3_pci dev)
 {
     u32 version = pci_bar_read_4(&dev->bar1, VMXNET3_BAR1_VRRS);
     if ((version & 0x01) == 0) {
@@ -212,8 +201,7 @@ vmxnet3_check_version(vmxnet3_pci dev)
 
 void lwip_status_callback(struct netif *netif);
 
-static err_t
-vmxif_init(struct netif *netif)
+static err_t vmxif_init(struct netif *netif)
 {
     vmxnet3 vn = netif->state;
     netif->hostname = "uniboot"; // from config
@@ -247,8 +235,7 @@ closure_function(1, 0, void, rx_interrupt,
     process_interrupt(vn);
 }
 
-static void
-receive_buffer_release(struct pbuf *p)
+static void receive_buffer_release(struct pbuf *p)
 {
     xpbuf x  = (void *)p;
     u64 flags = spin_lock_irq(&x->vn->rx_buflock);
@@ -281,8 +268,7 @@ closure_function(1, 0, void, vmxnet3_rx_service_bh,
 
 void vmxnet3_newbuf(vmxnet3 vdev, int rid);
 
-static void
-test_shared(vmxnet3 vn)
+static void test_shared(vmxnet3 vn)
 {
 
 #ifdef VMXNET3_NET_DEBUG
@@ -357,8 +343,7 @@ test_shared(vmxnet3 vn)
 #endif
 }
 
-static void
-vmxnet3_net_attach(heap general, heap page_allocator, pci_dev d)
+static void vmxnet3_net_attach(heap general, heap page_allocator, pci_dev d)
 {
     struct vmxnet3_pci *dev = allocate(general, sizeof(struct vmxnet3_pci));
     assert(dev != INVALID_ADDRESS);
@@ -449,15 +434,13 @@ closure_function(2, 1, boolean, vmxnet3_net_probe,
     return true;
 }
 
-void
-init_vmxnet3_network(kernel_heaps kh)
+void init_vmxnet3_network(kernel_heaps kh)
 {
     heap h = heap_general(kh);
     register_pci_driver(closure(h, vmxnet3_net_probe, h, heap_backed(kh)));
 }
 
-static void
-vmxnet3_discard(vmxnet3_pci dev, int rid, int idx)
+static void vmxnet3_discard(vmxnet3_pci dev, int rid, int idx)
 {
     struct vmxnet3_rxqueue *rxq = dev->vmx_rxq[0];
     struct vmxnet3_rxring *rxr = &rxq->vxrxq_cmd_ring[rid];
@@ -469,8 +452,7 @@ vmxnet3_discard(vmxnet3_pci dev, int rid, int idx)
     }
 }
 
-void
-vmxnet3_newbuf(vmxnet3 vdev, int rid)
+void vmxnet3_newbuf(vmxnet3 vdev, int rid)
 {
     vmxnet3_pci dev = vdev->dev;
     struct vmxnet3_rxqueue *rxq = dev->vmx_rxq[0];
@@ -505,16 +487,14 @@ vmxnet3_newbuf(vmxnet3 vdev, int rid)
     }
 }
 
-static inline void
-vmxnet3_newbuf_lock(vmxnet3 dev, int rid)
+static inline void vmxnet3_newbuf_lock(vmxnet3 dev, int rid)
 {
     spin_lock(&dev->rx_buflock);
     vmxnet3_newbuf(dev, rid);
     spin_unlock(&dev->rx_buflock);
 }
 
-void
-vmxnet3_receive(vmxnet3 vdev, struct list *l)
+void vmxnet3_receive(vmxnet3 vdev, struct list *l)
 {
     vmxnet3_pci dev = vdev->dev;
     struct vmxnet3_rxqueue *rxq = dev->vmx_rxq[0];
@@ -543,7 +523,7 @@ vmxnet3_receive(vmxnet3 vdev, struct list *l)
 
         assert(m != NULL);
 
-        while(rxr->vxrxr_refill_start != idx) {
+        while (rxr->vxrxr_refill_start != idx) {
             rxd[rxr->vxrxr_refill_start].gen = rxr->vxrxr_gen;
             if (++rxr->vxrxr_refill_start == rxr->vxrxr_ndesc) {
                 rxr->vxrxr_refill_start = 0;
@@ -611,15 +591,14 @@ next:
 
 }
 
-static void
-process_interrupt(vmxnet3 vn)
+static void process_interrupt(vmxnet3 vn)
 {
     vmxnet3_pci dev = vn->dev;
     struct list q;
     list_init(&q);
 
     vmxnet3_interrupts_disable(dev);
-    while(vmxnet3_rxq_available(dev)) {
+    while (vmxnet3_rxq_available(dev)) {
         vmxnet3_receive(vn, &q);
     }
     vmxnet3_interrupts_enable(dev);
