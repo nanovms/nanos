@@ -135,6 +135,8 @@ INCLUDES=\
 	-I$(SRCDIR)/xen/public \
 	-I$(LWIPDIR)/src/include
 
+AFLAGS+=-I$(SRCDIR)/x86_64
+
 CFLAGS+=$(KERNCFLAGS) -DSTAGE3 -mcmodel=kernel
 CFLAGS+=$(INCLUDES)
 

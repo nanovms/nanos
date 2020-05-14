@@ -14,6 +14,10 @@ extern  init_service
 %define FS_MSR        0xc0000100
 %define KERNEL_GS_MSR 0xc0000102
 
+%ifdef DEBUG
+%include "debug.inc"
+%endif
+
 ;; CS == 0x8 is kernel mode - no swapgs
 %macro check_swapgs 1
         cmp qword [rsp + %1], 0x08
