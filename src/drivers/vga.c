@@ -138,7 +138,7 @@ static void vga_newline(struct vga_console_driver *d)
     vga_set_offset(d, d->y_offset);
 }
 
-static void vga_console_write(void *_d, char *s, bytes count)
+static void vga_console_write(void *_d, const char *s, bytes count)
 {
     struct vga_console_driver *d = (struct vga_console_driver *) _d;
 

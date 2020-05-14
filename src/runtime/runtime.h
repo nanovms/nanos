@@ -24,7 +24,7 @@ typedef u64 timestamp;
 #define MB (KB*KB)
 #define GB (KB*MB)
 
-void console_write(char *s, bytes count);
+void console_write(const char *s, bytes count);
 
 void print_u64(u64 s);
 
@@ -60,7 +60,7 @@ static inline int runtime_strlen(const char *a)
     return i;
 }
 
-static inline void console(char *s)
+static inline void console(const char *s)
 {
     console_write(s, runtime_strlen(s));
 }
