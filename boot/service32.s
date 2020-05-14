@@ -129,7 +129,7 @@ dpt:
 
 %ifdef DEBUG
 bits 16
-%include "tty.inc"
+%include "debug.inc"
 bits 32
 %endif
 
@@ -156,12 +156,12 @@ bios_read_sectors:
 
 %ifdef DEBUG
 ; print DAP
-	TTY_OUT 'D'
-	TTY_OUT ':'
+	PUTSTRING 'D:'
+	xor ecx, ecx
 	mov cx, [dap]
-	mov si, dap
-	call tty_out_bytes
-	TTY_OUT_NL
+	mov esi, dap
+	call serial_out_bytes
+	PUTCHAR `\n`
 %endif
 
 %ifndef USE_AH02
@@ -179,13 +179,11 @@ bios_read_sectors:
 	jc .error
 
 ; print result
-	TTY_OUT 'O'
-	TTY_OUT ':'
-	TTY_OUT_HEX dh
-	TTY_OUT ':'
-	TTY_OUT_HEX ch
-	TTY_OUT_HEX cl
-	TTY_OUT_NL
+	PUTSTRING 'O:'
+	PUTBYTE dh
+	PUTCHAR ':'
+	PUTWORD cx
+	PUTCHAR `\n`
 
 ; convert to CHS
 	xor dl, dl
@@ -201,27 +199,19 @@ bios_read_sectors:
 	mov [dpt.cyls], cx
 
 ; print cyls:heads:spt
-	TTY_OUT 'P'
-	TTY_OUT ':'
-	TTY_OUT_HEX [dpt.cyls + 1]
-	TTY_OUT_HEX [dpt.cyls]
-	TTY_OUT ':'
-	TTY_OUT_HEX [dpt.heads + 1]
-	TTY_OUT_HEX [dpt.heads]
-	TTY_OUT ':'
-	TTY_OUT_HEX [dpt.spt + 1]
-	TTY_OUT_HEX [dpt.spt]
-	TTY_OUT_NL
+	PUTSTRING 'P:'
+	PUTWORD [dpt.cyls]
+	PUTCHAR ':'
+	PUTWORD [dpt.heads]
+	PUTCHAR ':'
+	PUTWORKD [dpt.spt]
+	PUTCHAR `\n`
 
 .loop:
 ; print LBA
-	TTY_OUT 'L'
-	TTY_OUT ':'
-	TTY_OUT_HEX [dap.lba+3]
-	TTY_OUT_HEX [dap.lba+2]
-	TTY_OUT_HEX [dap.lba+1]
-	TTY_OUT_HEX [dap.lba+0]
-	TTY_OUT_NL
+	PUTSTRING 'L:'
+	PUTDWORD [dap.lba]
+	PUTCHAR `\n`
 
 ; convert to LBA to CHS
 	mov ax, [dap.lba]
@@ -234,17 +224,13 @@ bios_read_sectors:
 	mov bx, ax			; CX = sector, DX = head, BX = cyl
 
 ; print CHS
-	TTY_OUT 'C'
-	TTY_OUT ':'
-	TTY_OUT_HEX bh
-	TTY_OUT_HEX bl
-	TTY_OUT ':'
-	TTY_OUT_HEX dh
-	TTY_OUT_HEX dl
-	TTY_OUT ':'
-	TTY_OUT_HEX ch
-	TTY_OUT_HEX cl
-	TTY_OUT_NL
+	PUTSTRING 'C:'
+	PUTWORD bx
+	PUTCHAR ':'
+	PUTWORD dx
+	PUTCHAR ':'
+	PUTWORD cx
+	PUTCHAR `\n`
 
 ; convert to AH = 02h args
 	mov dh, dl			; DH = head
@@ -254,13 +240,11 @@ bios_read_sectors:
 	or cx, bx			; CX[0:5] = sector, CX[6:7]CX[8:15] = cyl
 
 ; print args
-	TTY_OUT 'I'
-	TTY_OUT ':'
-	TTY_OUT_HEX dh
-	TTY_OUT ':'
-	TTY_OUT_HEX ch
-	TTY_OUT_HEX cl
-	TTY_OUT_NL
+	PUTSTRING 'I:'
+	PUTBYTE dh
+	PUTCHAR ':'
+	PUTWORD cx
+	PUTCHAR `\n`
 
 ; read from the disk
 	mov ax, 0x0201			; AH = 02h, sector count = 1
@@ -284,12 +268,9 @@ bios_read_sectors:
 
 .exit:
 %ifdef DEBUG
-	mov bx, ax
-	TTY_OUT '<'
-	TTY_OUT ':'
-	TTY_OUT_HEX bl
-	TTY_OUT_NL
-	mov ax, bx
+	PUTSTRING '<:'
+	PUTBYTE bl
+	PUTCHAR `\n`
 %endif
 
 	ENTER_PROTECTED

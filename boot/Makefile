@@ -34,7 +34,7 @@ CFLAGS+= \
 	-I$(SRCDIR)/runtime \
 	-I$(SRCDIR)/x86_64
 LDFLAGS+=	$(KERNLDFLAGS) -T linker_script
-AFLAGS+=	-felf
+AFLAGS+=	-I$(SRCDIR)/x86_64 -felf
 
 NASMFLAGS	= -l $@.lst -dSTAGE2SIZE=$(shell $(SIZE_CMD) $(OBJDIR)/stage2.pad)
 DDFLAGS		= bs=512 conv=sync
