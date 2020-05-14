@@ -193,6 +193,34 @@ void test_time_and_times(void)
     }
 }
 
+static void test_cputime(void)
+{
+    struct timespec thread_ts, proc_ts, tmp_ts;
+    long long thread_delta, proc_delta;
+
+    if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &thread_ts) < 0)
+        fail_perror("clock_gettime(CLOCK_THREAD_CPUTIME_ID)");
+    if (clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &proc_ts) < 0)
+        fail_perror("clock_gettime(CLOCK_PROCESS_CPUTIME_ID)");
+    if (delta_nsec(&thread_ts, &proc_ts) < 0)
+        fail_error("%s: process CPU time < thread CPU time\n", __func__);
+    do {
+        if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &tmp_ts) < 0)
+            fail_perror("clock_gettime(CLOCK_THREAD_CPUTIME_ID)");
+        thread_delta = delta_nsec(&thread_ts, &tmp_ts);
+        if (thread_delta < 0)
+            fail_error("%s: thread_delta %lld\n", __func__, thread_delta);
+        if (clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &tmp_ts) < 0)
+            fail_perror("clock_gettime(CLOCK_PROCESS_CPUTIME_ID)");
+        proc_delta = delta_nsec(&proc_ts, &tmp_ts);
+        if (proc_delta < 0)
+            fail_error("%s: proc_delta %lld\n", __func__, proc_delta);
+        if (proc_delta < thread_delta)
+            fail_error("%s: proc_delta %lld: thread_delta %lld\n", __func__,
+                       proc_delta, thread_delta);
+    } while ((thread_delta == 0) || (proc_delta == 0));
+}
+
 #define pertest_msg(x, ...) timetest_msg("test %d: " x, test->test_id, ##__VA_ARGS__);
 #define pertest_debug(x, ...) timetest_debug("test %d: " x, test->test_id, ##__VA_ARGS__);
 #define pertest_fail_perror(x, ...) fail_perror("test %d: " x, test->test_id, ##__VA_ARGS__);
@@ -730,6 +758,7 @@ main()
     test_timerfd();
     test_posix_timers();
     test_itimers();
+    test_cputime();
     test_alarm();
     printf("time test passed\n");
     return EXIT_SUCCESS;
