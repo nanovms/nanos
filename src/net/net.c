@@ -112,6 +112,71 @@ int lwip_strncmp(const char *x, const char *y, unsigned long len)
     return 0;
 }
 
+#define MAX_ADDR_LEN 20
+static boolean get_config_addr(tuple root, symbol s, ip4_addr_t *addr)
+{
+    value v = table_find(root, s);
+    if (!v || tagof(v) == tag_tuple)
+        return false;
+    int len = MIN(buffer_length((buffer)v), MAX_ADDR_LEN);
+    char str[MAX_ADDR_LEN + 1];
+    runtime_memcpy(str, buffer_ref((buffer)v, 0), len);
+    str[len] = '\0';
+    if (ip4addr_aton(str, addr) == 1)
+        return true;
+    return false;
+}
+
+static boolean get_static_config(tuple root, struct netif *n, boolean trace) {
+    ip4_addr_t ip;
+    ip4_addr_t netmask;
+    ip4_addr_t gw;
+
+    if (!get_config_addr(root, sym(ipaddr), &ip) ||
+        !get_config_addr(root, sym(gateway), &gw) ||
+        !get_config_addr(root, sym(netmask), &netmask))
+        return false;
+
+    if (trace) {
+        rprintf("NET: static IP config:\n");
+        rprintf(" address\t%s\n", ip4addr_ntoa(&ip));
+        rprintf(" netmask\t%s\n", ip4addr_ntoa(&netmask));
+        rprintf(" gateway\t%s\n", ip4addr_ntoa(&gw));
+    }
+    netif_set_addr(n, &ip, &netmask, &gw);
+    netif_set_up(n);
+    return true;
+}
+
+void init_network_iface(tuple root) {
+    struct netif *n = netif_find("en0");
+    if (!n) {
+        rprintf("no network interface found\n");
+        return;
+    }
+
+    boolean trace = table_find(root, sym(trace)) != 0;
+    value v = table_find(root, sym(mtu));
+    if (v) {
+        u64 mtu;
+        if (u64_from_value(v, &mtu)) {
+            if (mtu < U64_FROM_BIT(16)) {
+                if (trace)
+                    rprintf("NET: setting MTU for interface %c%c%d to %ld\n",
+                            n->name[0], n->name[1], n->num, mtu);
+                n->mtu = mtu;
+            } else {
+                msg_err("invalid MTU %ld; ignored\n", mtu);
+            }
+        }
+    }
+
+    netif_set_default(n);
+    if (!get_static_config(root, n, trace)) {
+        dhcp_start(n);
+    }
+}
+
 extern void lwip_init();
 
 void init_net(kernel_heaps kh)
