@@ -187,7 +187,15 @@ static err_t virtioif_init(struct netif *netif)
         __func__,
         netif->hwaddr[0], netif->hwaddr[1], netif->hwaddr[2],
         netif->hwaddr[3], netif->hwaddr[4], netif->hwaddr[5]);
-    netif->mtu = 1500;
+
+    /* We're defaulting to Google Cloud's maximum MTU so as to
+       minimize issues for new users. If you require an MTU of 1500
+       (or some other value) for your system, you may override it by
+       setting 'mtu' in the root tuple (see init_network_iface).
+
+       See https://cloud.google.com/compute/docs/troubleshooting/general-tips
+    */
+    netif->mtu = 1460;
 
     /* device capabilities */
     /* don't set NETIF_FLAG_ETHARP if this device is not an ethernet one */
@@ -248,37 +256,4 @@ void init_virtio_network(kernel_heaps kh)
 {
     heap h = heap_general(kh);
     register_pci_driver(closure(h, virtio_net_probe, h, heap_backed(kh)));
-}
-
-/* XXX move these to a general net area */
-err_t init_static_config(tuple root, struct netif *n) {
-    ip4_addr_t ip;
-    ip4_addr_t netmask;
-    ip4_addr_t gw;
-    value v;
-
-    if(!(v = table_find(root, sym(ipaddr)))) return ERR_ARG;
-    ip4addr_aton((char *)v, &ip);
-
-    if(!(v= table_find(root, sym(gateway)))) return ERR_ARG;
-    ip4addr_aton((char *)v, &gw);
-
-    if(!(v= table_find(root, sym(netmask)))) return ERR_ARG;
-    ip4addr_aton((char *)v, &netmask);
-    
-    netif_set_addr(n, &ip, &netmask, &gw);
-    netif_set_up(n); 
-    return ERR_OK;       
-}
-
-void init_network_iface(tuple root) {
-    struct netif *n = netif_find("en0");
-    if (!n) {
-        virtio_net_debug("no network interface found\n");
-        return;
-    }
-    netif_set_default(n);
-    if (ERR_OK != init_static_config(root, n)) {
-         dhcp_start(n);
-    } 
 }
