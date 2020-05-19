@@ -43,6 +43,13 @@ void test_ctl()
         goto fail;
     }
 
+    close(fd);
+    fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (epoll_ctl(efd, EPOLL_CTL_ADD, fd, &event)) {
+        printf("Cannot re-add descriptor to epoll\n");
+        goto fail;
+    }
+
     /* EPOLL_CTL_DEL must accept NULL for the event pointer */
     if (epoll_ctl(efd, EPOLL_CTL_DEL, fd, NULL)) {
         printf("Cannot remove descriptor from epoll\n");

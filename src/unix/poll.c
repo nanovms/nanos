@@ -467,17 +467,20 @@ static void epollfd_update(epollfd efd, fdesc f)
 
 static sysreturn epoll_add_fd(epoll e, int fd, u32 events, u64 data)
 {
-    if (epollfd_from_fd(e, fd) != INVALID_ADDRESS) {
+    epollfd efd = epollfd_from_fd(e, fd);
+    if ((efd != INVALID_ADDRESS) && efd->registered) {
         epoll_debug("   can't add fd %d to epoll %p; already exists\n", fd, e);
         return -EEXIST;
     }
 
     epoll_debug("   adding %d, events 0x%x, data 0x%lx\n", fd, events, data);
-    if (alloc_epollfd(e, fd, events | EPOLLERR | EPOLLHUP, data) == INVALID_ADDRESS)
-        return -ENOMEM;
-
-    epollfd efd = epollfd_from_fd(e, fd);
-    assert(efd != INVALID_ADDRESS);
+    if (efd == INVALID_ADDRESS) {
+        if (alloc_epollfd(e, fd, events | EPOLLERR | EPOLLHUP, data) ==
+                INVALID_ADDRESS)
+            return -ENOMEM;
+        efd = epollfd_from_fd(e, fd);
+        assert(efd != INVALID_ADDRESS);
+    }
     fdesc f = resolve_fd_noret(current->p, efd->fd);
     assert(f);
     register_epollfd(efd, closure(e->h, epoll_wait_notify, efd));
