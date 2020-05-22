@@ -3,7 +3,6 @@
 #include <unix.h> // some deps
 #include <apic.h>
 
-
 /* Try to keep these within the confines of the runloop lock so we
    don't create too much of a mess. */
 //#define SCHED_DEBUG
@@ -19,7 +18,8 @@ static char *state_strings_backing[] = {
     "idle",
     "kernel",
     "interrupt",
-    "user",         
+    "user",
+    "fault"
 };
 
 char **state_strings = state_strings_backing;
@@ -135,15 +135,19 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
                 queue_length(bhqueue), queue_length(runqueue), queue_length(thread_queue),
                 idle_cpu_mask, ci->have_kernel_lock);
     ci->state = cpu_kernel;
+
+    /* process interrupt bottom halves that don't require the kernel lock
+
+       storage request completions are handled here, which may be required to resume a
+       page fault for a suspended kernel frame (which is holding the lock) */
+    while ((t = dequeue(bhqueue)) != INVALID_ADDRESS) {
+        run_thunk(t, cpu_kernel);
+    }
+
     if (kern_try_lock()) {
         /* invoke expired timer callbacks */
         ci->state = cpu_kernel;
         timer_service(runloop_timers, now(CLOCK_ID_MONOTONIC));
-
-        /* serve bhqueue to completion */
-        while ((t = dequeue(bhqueue)) != INVALID_ADDRESS) {
-            run_thunk(t, cpu_kernel);
-        }
 
         /* serve existing, but not additionally queued (deferred), items on runqueue */
         u64 n_rq = queue_length(runqueue);
@@ -183,7 +187,7 @@ void init_scheduler(heap h)
     assert(wakeup_vector != INVALID_PHYSICAL);
     /* scheduling queues init */
     runqueue = allocate_queue(h, 64);
-    bhqueue = allocate_queue(h, 2048);
+    bhqueue = allocate_queue(h, 64);
     thread_queue = allocate_queue(h, 64);
     runloop_timers = allocate_timerheap(h, "runloop");
     assert(runloop_timers != INVALID_ADDRESS);

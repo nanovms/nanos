@@ -62,12 +62,13 @@ void vtpci_notify_virtqueue(vtpci sc, u16 queue, bytes notify_offset);
 
 status virtqueue_alloc(vtpci dev,
                        const char *name,
-                       u16 queue,
+                       u16 queue_index,
                        u16 size,
                        bytes notify_offset,
                        int align,
                        struct virtqueue **vqp,
-                       thunk *t);
+                       thunk *t,
+                       queue sched_queue);
 
 void virtqueue_set_max_queued(virtqueue, int);
 

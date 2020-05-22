@@ -9,6 +9,7 @@
 #    debugsyscalls:t
 #    futex_trace:t
     fault:t
-    arguments:[/]
+#    arguments:[write -b 100M]
+    arguments:[write]
     environment:(USER:bobby PWD:/)
 )

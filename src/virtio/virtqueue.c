@@ -78,7 +78,7 @@ struct vring_used {
 } __attribute__((packed));
 
 typedef struct vqmsg {
-    struct list l;              /* vq->msgqueue when queued, or chained for bh process */
+    struct list l;              /* vq->msg_queue when queued, or chained for bh process */
     union {
         u64 count;              /* descriptor count when queued */
         u64 len;                /* length on return */
@@ -103,9 +103,10 @@ typedef struct virtqueue {
     u16 desc_idx;               /* head of descriptor free list */
     u16 last_used_idx;          /* irq only */
     int max_queued;
-    struct list msgqueue;
-    queue servicequeue;
+    struct list msg_queue;
+    queue service_queue;
     thunk service;
+    queue sched_queue;
     struct spinlock fill_lock;  /* XXX - tmp hack for smp */
     vqmsg msgs[0];
 } *virtqueue;
@@ -150,7 +151,7 @@ void vqmsg_commit(virtqueue vq, vqmsg m, vqfinish completion)
 {
     m->completion = completion;
     /* XXX noirq */
-    list_push_back(&vq->msgqueue, &m->l);
+    list_push_back(&vq->msg_queue, &m->l);
     virtqueue_fill(vq);
 }
 
@@ -200,8 +201,8 @@ closure_function(1, 0, void, vq_interrupt,
         list l = list_get_next(&q);
         assert(l);
         list_delete(&q);
-        assert(enqueue(vq->servicequeue, l));
-        enqueue(bhqueue, vq->service);
+        assert(enqueue(vq->service_queue, l));
+        enqueue(vq->sched_queue, vq->service);
     }
 
     virtqueue_fill(vq);
@@ -215,7 +216,7 @@ closure_function(1, 0, void, virtqueue_service_vqmsgs,
     virtqueue vq = bound(vq);
     virtqueue_debug("%s enter, vq %s\n", __func__, vq->name);
     list l;
-    while ((l = (list)dequeue(vq->servicequeue)) != INVALID_ADDRESS) {
+    while ((l = (list)dequeue(vq->service_queue)) != INVALID_ADDRESS) {
         struct list q;
         list_insert_before(l, &q);
         list_foreach(&q, p) {
@@ -231,12 +232,13 @@ closure_function(1, 0, void, virtqueue_service_vqmsgs,
 
 status virtqueue_alloc(vtpci dev,
                        const char *name,
-                       u16 queue,
+                       u16 queue_index,
                        u16 size,
                        bytes notify_offset,
                        int align,
                        virtqueue *vqp,
-                       thunk *t)
+                       thunk *t,
+                       queue sched_queue)
 {
     u64 vq_alloc_size = sizeof(struct virtqueue) + size * sizeof(vqmsg);
     virtqueue vq = allocate(dev->general, vq_alloc_size);
@@ -250,16 +252,17 @@ status virtqueue_alloc(vtpci dev,
     vq->dev = dev;
     vq->name = name;
     virtqueue_debug("%s: vq %s: idx %d, size %d, alloc %d\n",
-                    __func__, vq->name, queue, size, alloc);
-    vq->queue_index = queue;
+                    __func__, vq->name, queue_index, size, alloc);
+    vq->queue_index = queue_index;
     vq->notify_offset = notify_offset;
     vq->entries = size;
     vq->free_cnt = size;
     vq->max_queued = 0;
-    list_init(&vq->msgqueue);
-    vq->servicequeue = allocate_queue(dev->general, 512);
-    assert(vq->servicequeue != INVALID_ADDRESS);
+    list_init(&vq->msg_queue);
+    vq->service_queue = allocate_queue(dev->general, 512); // XXX const
+    assert(vq->service_queue != INVALID_ADDRESS);
     vq->service = closure(dev->general, virtqueue_service_vqmsgs, vq);
+    vq->sched_queue = sched_queue;
     spin_lock_init(&vq->fill_lock);
 
     if ((vq->ring_mem = allocate_zero(dev->contiguous, alloc)) == INVALID_ADDRESS) {
@@ -328,9 +331,9 @@ static void virtqueue_fill(virtqueue vq)
 
     /* irqs already disabled */
     spin_lock(&vq->fill_lock);
-    list n = list_get_next(&vq->msgqueue);
+    list n = list_get_next(&vq->msg_queue);
     u16 added = 0;
-    while (n && n != &vq->msgqueue) {
+    while (n && n != &vq->msg_queue) {
         vqmsg m = struct_from_list(n, vqmsg, l);
         if (vq->free_cnt < m->count) {
             virtqueue_debug_verbose("%s: vq %s: queue full (vq->free_cnt %ld)\n",

@@ -185,6 +185,7 @@ static void vtpci_modern_write_8(struct pci_bar *b, bytes offset, u64 val)
 status vtpci_alloc_virtqueue(vtpci dev,
                              const char *name,
                              int idx,
+                             queue sched_queue,
                              struct virtqueue **result)
 {
     // allocate virtqueue
@@ -195,7 +196,7 @@ status vtpci_alloc_virtqueue(vtpci dev,
     bytes notify_offset = vtpci_is_modern(dev) ?
         pci_bar_read_2(&dev->common_config, VTPCI_R_QUEUE_NOTIFY_OFF) * dev->notify_offset_multiplier :
         VIRTIO_PCI_QUEUE_NOTIFY;
-    status s = virtqueue_alloc(dev, name, idx, size, notify_offset, VIRTIO_PCI_VRING_ALIGN, &vq, &handler);
+    status s = virtqueue_alloc(dev, name, idx, size, notify_offset, VIRTIO_PCI_VRING_ALIGN, &vq, &handler, sched_queue);
     if (!is_ok(s))
         return s;
 

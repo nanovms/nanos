@@ -80,12 +80,12 @@ static boolean handle_protection_fault(context frame, u64 vaddr, vmap vm)
     return false;
 }
 
-// it so happens that f and frame should be the same number?
 define_closure_function(1, 1, context, default_fault_handler,
                         thread, t,
                         context, frame)
 {
-    boolean user = is_usermode_fault(frame);
+    int fault_cpu_state = current_cpu()->state;
+    current_cpu()->state = cpu_fault;
 
     /* Really this should be the enclosed thread, but that won't fly
        for kernel page faults on user pages. If we were ever to
@@ -97,7 +97,7 @@ define_closure_function(1, 1, context, default_fault_handler,
         u64 vaddr = fault_address(frame);
         vmap vm = vmap_from_vaddr(p, vaddr);
         if (vm == INVALID_ADDRESS) {
-            if (user) {
+            if (is_usermode_fault(frame)) {
                 pf_debug("no vmap found for addr 0x%lx, rip 0x%lx", vaddr, frame[FRAME_RIP]);
                 deliver_segv(vaddr, SEGV_MAPERR);
 
@@ -124,18 +124,23 @@ define_closure_function(1, 1, context, default_fault_handler,
             return 0;
         }
 
+        /* Expand this for file-backed mappings:
+
+           - make page request to pagecache
+             - if blocked on read, split kernel frame and return 0 (runloop)
+             - if cache hit and mapping set, return frame
+         */
         if (do_demand_page(fault_address(frame), vm)) {
             /* If we're in the kernel context, return to the frame directly. */
-            if (frame == current_cpu()->kernel_frame) {
+            if (fault_cpu_state == cpu_kernel) {
                 current_cpu()->state = cpu_kernel;
                 return frame;
-                frame_return(frame);
             }
             schedule_frame(frame);
             return 0;
         }
     } else if (frame[FRAME_VECTOR] == 13) {
-        if (current_cpu()->state == cpu_user) {
+        if (fault_cpu_state == cpu_user) {
             pf_debug("general protection fault in user mode, rip 0x%lxn", frame[FRAME_RIP]);
             deliver_segv(0, SI_KERNEL);
             schedule_frame(frame);

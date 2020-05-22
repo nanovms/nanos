@@ -57,6 +57,7 @@ typedef struct cpuinfo {
 #define cpu_kernel 2
 #define cpu_interrupt 3
 #define cpu_user 4
+#define cpu_fault 5
 
 extern struct cpuinfo cpuinfos[];
 

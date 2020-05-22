@@ -149,6 +149,7 @@ static inline void check_stop_conditions(thread t)
 static inline void run_thread_frame(thread t)
 {
     check_stop_conditions(t);
+    // XXX fixme
     kern_lock(); // xx - make thread entry a separate exclusion region for performance
     thread old = current;
     current_cpu()->current_thread = t;

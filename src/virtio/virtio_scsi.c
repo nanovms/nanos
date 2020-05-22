@@ -125,13 +125,15 @@ closure_function(2, 1, void, virtio_scsi_event_complete,
                  virtio_scsi, s, virtio_scsi_event, e,
                  u64, len)
 {
-    virtio_scsi_debug("%s: event 0x%x\n", __func__, bound(e)->event);
+    // XXX what's going on here? seems to never get called...but would loop indefinitely if so?
+    rprintf("%s: event 0x%x\n", __func__, bound(e)->event);
     virtio_scsi_enqueue_event(bound(s), bound(e));
     closure_finish();
 }
 
 static void virtio_scsi_enqueue_event(virtio_scsi s, virtio_scsi_event e)
 {
+//    rprintf("%s: event 0x%x\n", __func__, e->event);
     vqfinish c = closure(s->v->general, virtio_scsi_event_complete, s, e);
     virtqueue vq = s->eventq;
     vqmsg m = allocate_vqmsg(vq);
@@ -146,6 +148,7 @@ static void virtio_scsi_enqueue_event(virtio_scsi s, virtio_scsi_event e)
 
 typedef closure_type(vsr_complete, void, virtio_scsi, virtio_scsi_request);
 
+/* XXX locks? */
 closure_function(3, 1, void, virtio_scsi_request_complete,
                  vsr_complete, c, virtio_scsi, s, virtio_scsi_request, r,
                  u64, len)
@@ -153,6 +156,7 @@ closure_function(3, 1, void, virtio_scsi_request_complete,
     virtio_scsi s = bound(s);
     virtio_scsi_request r = bound(r);
     apply(bound(c), s, r);
+    /* XXX would we ever return here if completion does frame return? */
     deallocate(s->v->contiguous, r, pad(sizeof(*r) + r->alloc_len, s->v->contiguous->pagesize));
     closure_finish();
 }
@@ -462,11 +466,11 @@ static void virtio_scsi_attach(heap general, storage_attach a, heap page_allocat
     s->max_lun = pci_bar_read_4(&s->v->device_config, VIRTIO_SCSI_R_MAX_LUN);
     virtio_scsi_debug("max lun %d\n", s->max_lun);
 
-    status st = vtpci_alloc_virtqueue(s->v, "virtio scsi command", 0, &s->command);
+    status st = vtpci_alloc_virtqueue(s->v, "virtio scsi command", 0, runqueue, &s->command);
     assert(st == STATUS_OK);
-    st = vtpci_alloc_virtqueue(s->v, "virtio scsi event", 1, &s->eventq);
+    st = vtpci_alloc_virtqueue(s->v, "virtio scsi event", 1, runqueue, &s->eventq);
     assert(st == STATUS_OK);
-    st = vtpci_alloc_virtqueue(s->v, "virtio scsi request", 2, &s->requestq);
+    st = vtpci_alloc_virtqueue(s->v, "virtio scsi request", 2, bhqueue, &s->requestq);
     assert(st == STATUS_OK);
 
     // On reset, the device MUST set sense_size to 96 and cdb_size to 32
