@@ -65,6 +65,14 @@ static inline void disable_interrupts()
     asm volatile("cli");
 }
 
+static inline u32 read_eflags(void)
+{
+    u32 out;
+    asm volatile("pushfd");
+    asm volatile("popl %0":"=g"(out));
+    return out;
+}
+
 static inline u64 read_flags(void)
 {
     u64 out;
