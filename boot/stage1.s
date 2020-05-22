@@ -9,7 +9,6 @@ init:
 	org base
 
 	;; set up our data segments
-	cli
 	xor ax, ax
 	mov ds, ax
 	mov es, ax
@@ -21,7 +20,7 @@ init:
 	mov ax, 0x00e3  	; AH = 0, AL = 9600 baud, 8N1
 	xor dx, dx
 	int 0x14
-        
+
         ;;;  disable 8259
         mov al, 0xff
         out 0xa1, al
@@ -30,6 +29,7 @@ init:
         call readsectors
 	call e820
 
+	cli
 	jmp 0:stage2
 
 

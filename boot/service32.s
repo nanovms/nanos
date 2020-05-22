@@ -143,6 +143,7 @@ bios_read_sectors:
 	push ebx
 	push esi
 	push edi
+	pushfd
 
 	; prepare dap
 	mov eax, [ebp + 8]
@@ -275,6 +276,7 @@ bios_read_sectors:
 
 	ENTER_PROTECTED
 
+	popfd
 	pop edi
 	pop esi
 	pop ebx
@@ -292,6 +294,7 @@ bios_tty_write:
 	push ebx
 	push esi
 	push edi
+	pushfd
 
 	; get arguments
 	mov esi, [ebp + 8]
@@ -319,6 +322,7 @@ bios_tty_write:
 	jnz .loop
 	ENTER_PROTECTED
 
+	popfd
 	pop edi
 	pop esi
 	pop ebx
