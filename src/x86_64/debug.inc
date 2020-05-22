@@ -26,6 +26,7 @@ serial_out:
 %endmacro
 
 
+%ifndef NO_SERIAL_OUT_HEX
 ; spoils dx
 serial_out_hex:
 	push ax
@@ -44,8 +45,10 @@ serial_out_hex:
 
 	pop ax
 	ret
+%endif
 
 
+%ifndef NO_SERIAL_OUT_BYTES
 serial_out_bytes:
 	push ax
 	push dx
@@ -60,6 +63,7 @@ serial_out_bytes:
 	pop dx
 	pop ax
 	ret
+%endif
 
 
 %macro PUTCHAR 1
