@@ -365,10 +365,6 @@ void exit_thread(thread t)
     deallocate_blockq(t->thread_bq);
     t->thread_bq = INVALID_ADDRESS;
 
-    /* consider having a thread heap that we can just discard ?*/
-    if (t->signal_stack) {
-        deallocate((heap)t->p->virtual_page, t->signal_stack, SIGNAL_STACK_SIZE);
-    }
     t->default_frame[FRAME_RUN] = INVALID_PHYSICAL;
     t->default_frame[FRAME_QUEUE] = INVALID_PHYSICAL;
     t->sighandler_frame[FRAME_RUN] = INVALID_PHYSICAL;
