@@ -32,7 +32,20 @@ struct sockaddr_in {
     u16 family;
     u16 port;
     u32 address;
+    u8 sin_zero[8];
 } *sockaddr_in;
+
+struct in6_addr {
+    u8 s6_addr[16];
+};
+
+struct sockaddr_in6 {
+    u16 family;
+    u16 port;
+    u32 sin6_flowinfo;
+    struct in6_addr sin6_addr;
+    u32 sin6_scope_id;
+};
 
 struct msghdr {
     void *msg_name;
@@ -109,6 +122,8 @@ typedef struct netsock {
     process p;
     queue incoming;
     err_t lwip_error;           /* lwIP error code; ERR_OK if normal */
+    int af; /* address family */
+    u8 ipv6only:1;
     union {
 	struct {
 	    struct tcp_pcb *lw;
@@ -197,21 +212,89 @@ static void wakeup_sock(netsock s, int flags)
     fdesc_notify_events(&s->sock.f);
 }
 
-static void remote_sockaddr_in(netsock s, struct sockaddr_in *sin)
+static inline void sockaddr_to_ip6addr(struct sockaddr_in6 *addr,
+                                       ip_addr_t *ip_addr)
 {
-    sin->family = AF_INET;
-    if (s->sock.type == SOCK_STREAM) {
-	struct tcp_pcb * lw = s->info.tcp.lw;
-        assert(lw);
-	sin->port = ntohs(lw->remote_port);
-	sin->address = ip4_addr_get_u32(&lw->remote_ip);
+    ip_addr->type = IPADDR_TYPE_V6;
+    runtime_memcpy(&ip_addr->u_addr.ip6, &addr->sin6_addr.s6_addr,
+        sizeof(addr->sin6_addr.s6_addr));
+}
+
+static inline void ip6addr_to_sockaddr(ip_addr_t *ip_addr,
+                                       struct sockaddr_in6 *addr)
+{
+    addr->family = AF_INET6;
+    runtime_memcpy(&addr->sin6_addr.s6_addr, &ip_addr->u_addr.ip6,
+        sizeof(addr->sin6_addr.s6_addr));
+}
+
+static sysreturn sockaddr_to_addrport(int af, struct sockaddr *addr,
+                                      socklen_t addrlen,
+                                      ip_addr_t *ip_addr, u16 *port)
+{
+    if (af == AF_INET) {
+        if (addrlen < sizeof(struct sockaddr_in))
+            return -EINVAL;
+        struct sockaddr_in *sin = (struct sockaddr_in *)addr;
+        ip_addr_set_ip4_u32(ip_addr, sin->address);
+        *port = ntohs(sin->port);
     } else {
-	assert(s->sock.type == SOCK_DGRAM);
-	struct udp_pcb * lw = s->info.udp.lw;
-        assert(lw);
-	sin->port = ntohs(lw->remote_port);
-	sin->address = ip4_addr_get_u32(&lw->remote_ip);
+        if (addrlen < sizeof(struct sockaddr_in6))
+            return -EINVAL;
+        struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)addr;
+        sockaddr_to_ip6addr(sin6, ip_addr);
+        *port = ntohs(sin6->port);
     }
+    return 0;
+}
+
+static void addrport_to_sockaddr(int af, ip_addr_t *ip_addr, u16 port,
+                                 struct sockaddr *addr, socklen_t *len)
+{
+    struct sockaddr_storage sa;
+    socklen_t addr_len;
+
+    zero(&sa, sizeof(sa));
+    if (af == AF_INET) {
+        struct sockaddr_in *sin = (struct sockaddr_in *)&sa;
+        sin->family = AF_INET;
+        sin->port = htons(port);
+        sin->address = ip_addr_get_ip4_u32(ip_addr);
+        addr_len = sizeof(struct sockaddr_in);
+    } else {
+        struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)&sa;
+        sin6->port = htons(port);
+        if (IP_IS_V4(ip_addr)) {
+            ip_addr_t ipv6_addr;
+            ip4_2_ipv4_mapped_ipv6(&ipv6_addr.u_addr.ip6, &ip_addr->u_addr.ip4);
+            ip6addr_to_sockaddr(&ipv6_addr, sin6);
+        } else
+            ip6addr_to_sockaddr(ip_addr, sin6);
+        sin6->sin6_flowinfo = 0;
+        sin6->sin6_scope_id = 0;
+        addr_len = sizeof(struct sockaddr_in6);
+    }
+    runtime_memcpy(addr, &sa, MIN(addr_len, *len));
+    *len = addr_len;
+}
+
+static void remote_sockaddr(netsock s, struct sockaddr *addr, socklen_t *len)
+{
+    ip_addr_t *ip_addr;
+    u16_t port;
+    if (s->sock.type == SOCK_STREAM) {
+        struct tcp_pcb *lw = s->info.tcp.lw;
+        assert(lw);
+        port = lw->remote_port;
+        ip_addr = &lw->remote_ip;
+    } else {
+        assert(s->sock.type == SOCK_DGRAM);
+        struct udp_pcb *lw = s->info.udp.lw;
+        assert(lw);
+        port = lw->remote_port;
+        ip_addr = &lw->remote_ip;
+    }
+    addrport_to_sockaddr(s->af, ip_addr, port, addr, len);
 }
 
 static inline s64 lwip_to_errno(s8 err)
@@ -246,7 +329,7 @@ static inline void pbuf_consume(struct pbuf *p, u64 length)
 
 struct udp_entry {
     struct pbuf * pbuf;
-    u32 raddr;
+    ip_addr_t raddr;
     u16 rport;
 };
 
@@ -294,21 +377,12 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
     }
 
     if (src_addr) {
-        struct sockaddr sa;
-        zero(&sa, sizeof(sa));
-        struct sockaddr_in * sin = (struct sockaddr_in *)&sa;
-        sin->family = AF_INET;
         if (s->sock.type == SOCK_STREAM) {
-	    sin->address = ip4_addr_get_u32(&s->info.tcp.lw->remote_ip);
-	    sin->port = htons(s->info.tcp.lw->remote_port);
+            remote_sockaddr(s, src_addr, addrlen);
         } else {
             struct udp_entry * e = p;
-            sin->address = e->raddr;
-            sin->port = htons(e->rport);
+            addrport_to_sockaddr(s->af, &e->raddr, e->rport, src_addr, addrlen);
         }
-        u32 len = MIN(sizeof(struct sockaddr), *addrlen);
-        *addrlen = sizeof(struct sockaddr);
-        runtime_memcpy(src_addr, sin, len);
     }
 
     u64 xfer_total = 0;
@@ -742,7 +816,7 @@ static void udp_input_lower(void *z, struct udp_pcb *pcb, struct pbuf *p,
 	struct udp_entry * e = allocate(s->sock.h, sizeof(*e));
 	assert(e != INVALID_ADDRESS);
 	e->pbuf = p;
-	e->raddr = ip4_addr_get_u32(addr);
+	runtime_memcpy(&e->raddr, addr, sizeof(ip_addr_t));
 	e->rport = port;
 	if (!enqueue(s->incoming, e))
 	    msg_err("incoming queue full\n");
@@ -788,6 +862,7 @@ static int allocate_sock(process p, int type, u32 flags, netsock * rs)
     s->sock.sendto = netsock_sendto;
     s->sock.recvfrom = netsock_recvfrom;
     s->sock.shutdown = netsock_shutdown;
+    s->ipv6only = 0;
     set_lwip_error(s, ERR_OK);
     *rs = s;
     return fd;
@@ -800,22 +875,24 @@ err_sock:
     return -ENOMEM;
 }
 
-static int allocate_tcp_sock(process p, struct tcp_pcb *pcb, u32 flags)
+static int allocate_tcp_sock(process p, int af, struct tcp_pcb *pcb, u32 flags)
 {
     netsock s;
     int fd = allocate_sock(p, SOCK_STREAM, flags, &s);
     if (fd >= 0) {
+	s->af = af;
 	s->info.tcp.lw = pcb;
 	s->info.tcp.state = TCP_SOCK_CREATED;
     }
     return fd;
 }
 
-static int allocate_udp_sock(process p, struct udp_pcb * pcb, u32 flags)
+static int allocate_udp_sock(process p, int af, struct udp_pcb *pcb, u32 flags)
 {
     netsock s;
     int fd = allocate_sock(p, SOCK_DGRAM, flags, &s);
     if (fd >= 0) {
+	s->af = af;
 	s->info.udp.lw = pcb;
 	s->info.udp.state = UDP_SOCK_CREATED;
 	udp_recv(pcb, udp_input_lower, s);
@@ -827,6 +904,7 @@ sysreturn socket(int domain, int type, int protocol)
 {
     switch (domain) {
     case AF_INET:
+    case AF_INET6:
         break;
     case AF_UNIX:
         return unixsock_open(type, protocol);
@@ -850,10 +928,14 @@ sysreturn socket(int domain, int type, int protocol)
     type &= SOCK_TYPE_MASK;
     if (type == SOCK_STREAM) {
         struct tcp_pcb *p;
-        if (!(p = tcp_new_ip_type(IPADDR_TYPE_ANY)))
+        /* In case of AF_INET6, listen to IPv4 and IPv6 (dual-stack)
+         * connections. */
+        if (!(p = tcp_new_ip_type((domain == AF_INET) ?
+                IPADDR_TYPE_V4: IPADDR_TYPE_ANY)))
             return -ENOMEM;
 
-        int fd = allocate_tcp_sock(current->p, p, nonblock ? SOCK_NONBLOCK : 0);
+        int fd = allocate_tcp_sock(current->p, domain, p,
+            nonblock ? SOCK_NONBLOCK : 0);
         net_debug("new tcp fd %d, pcb %p\n", fd, p);
         return fd;
     } else if (type == SOCK_DGRAM) {
@@ -861,7 +943,8 @@ sysreturn socket(int domain, int type, int protocol)
         if (!(p = udp_new()))
             return -ENOMEM;
 
-        int fd = allocate_udp_sock(current->p, p, nonblock ? SOCK_NONBLOCK : 0);
+        int fd = allocate_udp_sock(current->p, domain, p,
+            nonblock ? SOCK_NONBLOCK : 0);
         net_debug("new udp fd %d, pcb %p\n", fd, p);
         return fd;
     }
@@ -899,24 +982,27 @@ static err_t tcp_input_lower(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t
 static sysreturn netsock_bind(struct sock *sock, struct sockaddr *addr,
         socklen_t addrlen)
 {
-    if (!addr || addrlen < sizeof(struct sockaddr_in))
-	return -EINVAL;
     netsock s = (netsock) sock;
-    struct sockaddr_in *sin = (struct sockaddr_in *)addr;
-    ip_addr_t ipaddr = IPADDR4_INIT(sin->address);
+    ip_addr_t ipaddr;
+    u16 port;
+    sysreturn ret = sockaddr_to_addrport(s->af, addr, addrlen, &ipaddr, &port);
+    if (ret)
+        return ret;
+    if ((s->af == AF_INET6) && ip6_addr_isany(&ipaddr.u_addr.ip6) &&
+            !s->ipv6only)
+        /* Allow receiving both IPv4 and IPv6 packets (dual-stack support). */
+        IP_SET_TYPE(&ipaddr, IPADDR_TYPE_ANY);
     err_t err;
     if (sock->type == SOCK_STREAM) {
 	if (s->info.tcp.state == TCP_SOCK_OPEN)
 	    return -EINVAL;	/* already bound */
-        net_debug("calling tcp_bind, pcb %p, ip %x, port %d\n",
-                  s->info.tcp.lw, *(u32*)&ipaddr, ntohs(sin->port));
-	err = tcp_bind(s->info.tcp.lw, &ipaddr, ntohs(sin->port));
+	net_debug("calling tcp_bind, pcb %p, port %d\n", s->info.tcp.lw, port);
+	err = tcp_bind(s->info.tcp.lw, &ipaddr, port);
 	if (err == ERR_OK)
 	    s->info.tcp.state = TCP_SOCK_OPEN;
     } else if (sock->type == SOCK_DGRAM) {
-        net_debug("calling udp_bind, pcb %p, ip %x, port %d\n",
-                  s->info.udp.lw, *(u32*)&ipaddr, ntohs(sin->port));
-	err = udp_bind(s->info.udp.lw, &ipaddr, ntohs(sin->port));
+        net_debug("calling udp_bind, pcb %p, port %d\n", s->info.udp.lw, port);
+        err = udp_bind(s->info.udp.lw, &ipaddr, port);
     } else {
 	msg_warn("unsupported socket type %d\n", s->type);
 	return -EINVAL;
@@ -1014,8 +1100,8 @@ static err_t connect_tcp_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
 static inline err_t connect_tcp(netsock s, const ip_addr_t* address,
                                 unsigned short port)
 {
-    net_debug("sock %d, tcp state %d, addr %x, port %d\n", s->sock.fd,
-            s->info.tcp.state, address->addr, port);
+    net_debug("sock %d, tcp state %d, port %d\n", s->sock.fd,
+            s->info.tcp.state, port);
     switch (s->info.tcp.state) {
     case TCP_SOCK_IN_CONNECTION:
     case TCP_SOCK_ABORTING_CONNECTION:
@@ -1051,11 +1137,11 @@ static sysreturn netsock_connect(struct sock *sock, struct sockaddr *addr,
 {
     err_t err = ERR_OK;
     netsock s = (netsock) sock;
-    if (!addr || addrlen < sizeof(struct sockaddr_in)) {
-        return -EINVAL;
-    }
-    struct sockaddr_in * sin = (struct sockaddr_in*)addr;
-    ip_addr_t ipaddr = IPADDR4_INIT(sin->address);
+    ip_addr_t ipaddr;
+    u16 port;
+    sysreturn ret = sockaddr_to_addrport(s->af, addr, addrlen, &ipaddr, &port);
+    if (ret)
+        return ret;
     if (s->sock.type == SOCK_STREAM) {
         if (s->info.tcp.state == TCP_SOCK_IN_CONNECTION) {
             err = ERR_ALREADY;
@@ -1065,11 +1151,11 @@ static sysreturn netsock_connect(struct sock *sock, struct sockaddr *addr,
             msg_warn("attempt to connect on listening socket fd = %d; ignored\n", sockfd);
             err = ERR_ARG;
         } else {
-            err = connect_tcp(s, &ipaddr, ntohs(sin->port));
+            err = connect_tcp(s, &ipaddr, port);
         }
     } else if (s->sock.type == SOCK_DGRAM) {
 	/* Set remote endpoint */
-	err = udp_connect(s->info.udp.lw, &ipaddr, ntohs(sin->port));
+	err = udp_connect(s->info.udp.lw, &ipaddr, port);
     } else {
 	msg_err("can't connect on socket type %d\n", s->sock.type);
 	return -EINVAL;
@@ -1132,11 +1218,13 @@ static sysreturn sendto_prepare(struct sock *sock, int flags,
 
     /* Ignore dest if TCP */
     if (sock->type == SOCK_DGRAM && dest_addr) {
-	struct sockaddr_in * sin = (struct sockaddr_in *)dest_addr;
-	ip_addr_t ipaddr = IPADDR4_INIT(sin->address);
-	if (addrlen < sizeof(*sin))
-	    return -EINVAL;
-	err = udp_connect(s->info.udp.lw, &ipaddr, ntohs(sin->port));
+        ip_addr_t ipaddr;
+        u16 port;
+        sysreturn ret = sockaddr_to_addrport(s->af, dest_addr, addrlen,
+            &ipaddr, &port);
+        if (ret)
+            return ret;
+        err = udp_connect(s->info.udp.lw, &ipaddr, port);
         if (err != ERR_OK) {
             msg_err("udp_connect failed: %d\n", err);
             return lwip_to_errno(err);
@@ -1433,7 +1521,7 @@ static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t err)
     }
 
     /* XXX such a thing as nonblock inherited from listen socket? */
-    int fd = allocate_tcp_sock(s->p, lw, 0);
+    int fd = allocate_tcp_sock(s->p, s->af, lw, 0);
     if (fd < 0)
 	return ERR_MEM;
 
@@ -1526,9 +1614,7 @@ closure_function(5, 1, sysreturn, accept_bh,
 
     child->sock.f.flags = bound(flags);
     if (bound(addr))
-        remote_sockaddr_in(child, (struct sockaddr_in *)bound(addr));
-    if (bound(addrlen))
-        *bound(addrlen) = sizeof(struct sockaddr);
+        remote_sockaddr(child, bound(addr), bound(addrlen));
 
     /* report falling edge in case of edge trigger */
     if (queue_length(s->incoming) == 0)
@@ -1593,23 +1679,19 @@ sysreturn getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
         !validate_user_memory(addr, *addrlen, true))
         return -EFAULT;
     netsock s = resolve_fd(current->p, sockfd);
-    struct sockaddr sa;
-    zero(&sa, sizeof(sa));
-    struct sockaddr_in * sin = (struct sockaddr_in *)&sa;
-    sin->family = AF_INET;
+    ip_addr_t *ip_addr;
+    u16_t port;
     if (s->sock.type == SOCK_STREAM) {
-	sin->port = ntohs(s->info.tcp.lw->local_port);
-	sin->address = ip4_addr_get_u32(&s->info.tcp.lw->local_ip);
+        port = s->info.tcp.lw->local_port;
+        ip_addr = &s->info.tcp.lw->local_ip;
     } else if (s->sock.type == SOCK_DGRAM) {
-	sin->port = ntohs(s->info.udp.lw->local_port);
-	sin->address = ip4_addr_get_u32(&s->info.udp.lw->local_ip);
+        port = s->info.udp.lw->local_port;
+        ip_addr = &s->info.udp.lw->local_ip;
     } else {
-	msg_warn("not supported for socket type %d\n", s->type);
-	return -EINVAL;
+        msg_warn("not supported for socket type %d\n", s->sock.type);
+        return -EINVAL;
     }
-    u64 len = MIN(*addrlen, sizeof(struct sockaddr));
-    runtime_memcpy(addr, sin, len);
-    *addrlen = sizeof(struct sockaddr);
+    addrport_to_sockaddr(s->af, ip_addr, port, addr, addrlen);
     return 0;
 }
 
@@ -1619,13 +1701,8 @@ sysreturn getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
         !validate_user_memory(addr, *addrlen, true))
         return -EFAULT;
     netsock s = resolve_fd(current->p, sockfd);
-    struct sockaddr sa;
-    zero(&sa, sizeof(sa));
-    remote_sockaddr_in(s, (struct sockaddr_in *)&sa);
-    u64 len = MIN(*addrlen, sizeof(struct sockaddr));
-    runtime_memcpy(addr, &sa, len);
-    *addrlen = sizeof(struct sockaddr);
-    return 0;    
+    remote_sockaddr(s, addr, addrlen);
+    return 0;
 }
 
 sysreturn setsockopt(int sockfd,
@@ -1634,6 +1711,26 @@ sysreturn setsockopt(int sockfd,
                      void *optval,
                      socklen_t optlen)
 {
+    netsock s = resolve_fd(current->p, sockfd);
+    if (!validate_user_memory(optval, optlen, false))
+        return -EFAULT;
+    switch (level) {
+    case IPPROTO_IPV6:
+        switch (optname) {
+        case IPV6_V6ONLY:
+            if (optlen != sizeof(int))
+                return -EINVAL;
+            s->ipv6only = *((int *)optval);
+            break;
+        default:
+            goto unimplemented;
+        }
+        break;
+    default:
+        goto unimplemented;
+    }
+    return 0;
+unimplemented:
     msg_warn("setsockopt unimplemented: fd %d, level %d, optname %d\n",
 	    sockfd, level, optname);
     return 0;
@@ -1653,26 +1750,34 @@ sysreturn getsockopt(int sockfd, int level, int optname, void *optval, socklen_t
         int val;
     } ret_optval;
 
-    /* Only socket options supported at the moment... */
-    if (level != 1)
-        return -EOPNOTSUPP;
-
-    switch (optname) {
-    case SO_TYPE:
-        ret_optval.val = s->sock.type;
+    switch (level) {
+    case SOL_SOCKET:
+        switch (optname) {
+        case SO_TYPE:
+            ret_optval.val = s->sock.type;
+            break;
+        case SO_ERROR:
+            ret_optval.val = -lwip_to_errno(get_and_clear_lwip_error(s));
+            break;
+        case SO_SNDBUF:
+            ret_optval.val = 2048;  /* minimum value for this option in Linux */
+            break;
+        default:
+            goto unimplemented;
+        }
         break;
-    case SO_ERROR:
-        ret_optval.val = -lwip_to_errno(get_and_clear_lwip_error(s));
-        break;
-    case SO_SNDBUF:
-        ret_optval.val = 2048;  /* minimum value for this option in Linux */
+    case IPPROTO_IPV6:
+        switch (optname) {
+        case IPV6_V6ONLY:
+            ret_optval.val = s->ipv6only;
+            break;
+        default:
+            goto unimplemented;
+        }
         break;
     default:
-        msg_err("getsockopt unimplemented optname: fd %d, level %d, optname %d\n",
-            sockfd, level, optname);
-        return -ENOPROTOOPT;
+        return -EOPNOTSUPP;
     }
-
     if (optval && optlen) {
         int ret_optlen = MIN(*optlen, sizeof(ret_optval));
         runtime_memcpy(optval, &ret_optval, ret_optlen);
@@ -1680,6 +1785,10 @@ sysreturn getsockopt(int sockfd, int level, int optname, void *optval, socklen_t
     }
 
     return 0;
+unimplemented:
+    msg_err("getsockopt unimplemented optname: fd %d, level %d, optname %d\n",
+        sockfd, level, optname);
+    return -ENOPROTOOPT;
 }
 
 void register_net_syscalls(struct syscall *map)

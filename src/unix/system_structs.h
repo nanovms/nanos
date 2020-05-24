@@ -820,6 +820,10 @@ struct io_event {
 
 typedef struct aio_ring *aio_context_t;
 
+/* Socket option levels */
+#define SOL_SOCKET      1
+#define IPPROTO_IPV6    41
+
 /* set/getsockopt optnames */
 #define SO_DEBUG     1
 #define SO_REUSEADDR 2
@@ -827,6 +831,7 @@ typedef struct aio_ring *aio_context_t;
 #define SO_ERROR     4
 #define SO_SNDBUF    7
 
+#define IPV6_V6ONLY     26
 
 /* eventfd flags */
 #define EFD_CLOEXEC     02000000

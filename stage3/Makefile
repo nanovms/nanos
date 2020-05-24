@@ -109,6 +109,12 @@ SRCS-lwip= \
 	$(LWIPDIR)/src/core/ipv4/ip4_addr.c \
 	$(LWIPDIR)/src/core/ipv4/ip4_frag.c \
 	$(LWIPDIR)/src/core/ipv4/ip4.c \
+	$(LWIPDIR)/src/core/ipv6/icmp6.c \
+	$(LWIPDIR)/src/core/ipv6/ip6.c \
+	$(LWIPDIR)/src/core/ipv6/ip6_addr.c \
+	$(LWIPDIR)/src/core/ipv6/ip6_frag.c \
+	$(LWIPDIR)/src/core/ipv6/mld6.c \
+	$(LWIPDIR)/src/core/ipv6/nd6.c \
 	$(LWIPDIR)/src/core/mem.c \
 	$(LWIPDIR)/src/core/memp.c \
 	$(LWIPDIR)/src/core/netif.c \

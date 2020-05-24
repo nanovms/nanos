@@ -70,6 +70,9 @@ typedef unsigned long size_t;
 #define LWIP_TIMERS 1
 #define LWIP_TIMERS_CUSTOM 1
 #define LWIP_DHCP_BOOTP_FILE 1
+
+#define LWIP_IPV6   1
+
 typedef unsigned long u64_t;
 typedef unsigned u32_t;
 typedef int s32_t;

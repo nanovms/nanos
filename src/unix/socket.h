@@ -3,6 +3,11 @@ struct sockaddr {
     u8 sa_data[14];
 } *sockaddr;
 
+struct sockaddr_storage {
+    u16 family;
+    u8 ss_data[126];
+};
+
 typedef u32 socklen_t;
 
 struct sock {

@@ -27,6 +27,7 @@ enum protocol_type {
 
 #define AF_UNIX 1
 #define AF_INET 2
+#define AF_INET6    10
 
 
 // tuplify
