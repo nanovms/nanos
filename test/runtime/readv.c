@@ -20,7 +20,7 @@
         exit(EXIT_FAILURE); \
     }
 
-int main()
+void run_test(int iter)
 {
     struct iovec iovs[3];
     char onev[4], twov[4], threev[4];
@@ -61,7 +61,18 @@ int main()
     int curpos = rv;
     EXPECT_LONG_EQUAL(startpos + bytes_read, curpos);
 
-    printf("readv test PASSED\n");
+    printf("readv test %d PASSED\n", iter);
+}
 
-    return EXIT_SUCCESS;
+int main(int argc, char *argv[])
+{
+    int niter = 1;
+
+    if (argc > 1)
+        niter = atoi(argv[1]);
+
+    for (int i = 0; i < niter; i++)
+        run_test(i);
+
+    return 0;
 }
