@@ -79,6 +79,14 @@ static inline u8 pci_get_hdrtype(pci_dev dev)
 #define PCI_BAR_F_64BIT        U64_FROM_BIT(2)
 #define PCI_BAR_F_PREFETCHABLE U64_FROM_BIT(3)
 
+#define	PCIR_BARS       0x10
+#define	PCIR_BAR(x)     (PCIR_BARS + (x) * 4)
+#define	PCIR_MAX_BAR_0  5
+
+#define PCI_BAR_B_TYPE_MASK      0x1
+#define PCI_BAR_B_IOPORT_MASK    0x3
+#define PCI_BAR_B_MEMORY_MASK    0xf
+
 /*
  * PCI BAR
  */

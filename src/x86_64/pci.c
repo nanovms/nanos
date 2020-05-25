@@ -86,10 +86,6 @@ u32 pci_cfgread(pci_dev dev, int reg, int bytes)
     return (data);
 }
 
-#define PCI_BAR_B_TYPE_MASK      0x1
-#define PCI_BAR_B_IOPORT_MASK    0x3
-#define PCI_BAR_B_MEMORY_MASK    0xf
-
 static u32 pci_bar_len(pci_dev dev, int bar)
 {
     u32 orig = pci_cfgread(dev, 0x10 + 4 * bar, 4);
@@ -109,7 +105,7 @@ u64 pci_bar_size(pci_dev dev, struct pci_bar *b, int bar)
 
 void pci_bar_init(pci_dev dev, struct pci_bar *b, int bar, bytes offset, bytes length)
 {
-    u32 base = pci_cfgread(dev, 0x10 + 4 * bar, 4);
+    u32 base = pci_cfgread(dev, PCIR_BAR(bar), 4);
     b->type = base & PCI_BAR_B_TYPE_MASK;
 
     if (b->type == PCI_BAR_MEMORY) {

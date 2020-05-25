@@ -69,6 +69,7 @@ SRCS-stage3.img= \
 	$(SRCDIR)/virtio/scsi.c \
 	$(SRCDIR)/vmware/vmxnet3_net.c \
 	$(SRCDIR)/vmware/vmxnet3_queue.c \
+	$(SRCDIR)/vmware/pvscsi.c \
 	$(SRCDIR)/xen/xen.c \
 	$(SRCDIR)/xen/xennet.c \
 	$(SRCDIR)/x86_64/ap.s \

@@ -167,7 +167,7 @@ run-noaccel: image
 CLEANFILES+=	$(IMAGE:.raw=.vmdk)
 
 vmdk-image: image
-	$(Q) $(QEMU_IMG) convert -f raw -O vmdk -o subformat=streamOptimized $(IMAGE) $(IMAGE:.raw=.vmdk)
+	$(Q) $(QEMU_IMG) convert -f raw -O vmdk $(IMAGE) $(IMAGE:.raw=.vmdk)
 
 ##############################################################################
 # GCE
