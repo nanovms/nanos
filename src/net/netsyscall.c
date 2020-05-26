@@ -97,6 +97,11 @@ struct ifconf {
     } ifc;
 };
 
+struct linger {
+    int l_onoff;
+    int l_linger;
+};
+
 // xxx - what is the difference between IN_CONNECTION and open
 // nothing seems to track whether the tcp state is actually
 // connected
@@ -1771,19 +1776,33 @@ sysreturn getsockopt(int sockfd, int level, int optname, void *optval, socklen_t
 
     union {
         int val;
+        struct linger linger;
     } ret_optval;
+    int ret_optlen;
 
     switch (level) {
     case SOL_SOCKET:
         switch (optname) {
         case SO_TYPE:
             ret_optval.val = s->sock.type;
+            ret_optlen = sizeof(ret_optval.val);
             break;
         case SO_ERROR:
             ret_optval.val = -lwip_to_errno(get_and_clear_lwip_error(s));
+            ret_optlen = sizeof(ret_optval.val);
             break;
         case SO_SNDBUF:
             ret_optval.val = 2048;  /* minimum value for this option in Linux */
+            ret_optlen = sizeof(ret_optval.val);
+            break;
+        case SO_PRIORITY:
+            ret_optval.val = 0; /* default value in Linux */
+            ret_optlen = sizeof(ret_optval.val);
+            break;
+        case SO_LINGER:
+            ret_optval.linger.l_onoff = 0;
+            ret_optval.linger.l_linger = 0;
+            ret_optlen = sizeof(ret_optval.linger);
             break;
         default:
             goto unimplemented;
@@ -1793,6 +1812,7 @@ sysreturn getsockopt(int sockfd, int level, int optname, void *optval, socklen_t
         switch (optname) {
         case IPV6_V6ONLY:
             ret_optval.val = s->ipv6only;
+            ret_optlen = sizeof(ret_optval.val);
             break;
         default:
             goto unimplemented;
@@ -1802,7 +1822,7 @@ sysreturn getsockopt(int sockfd, int level, int optname, void *optval, socklen_t
         return -EOPNOTSUPP;
     }
     if (optval && optlen) {
-        int ret_optlen = MIN(*optlen, sizeof(ret_optval));
+        ret_optlen = MIN(*optlen, ret_optlen);
         runtime_memcpy(optval, &ret_optval, ret_optlen);
         *optlen = ret_optlen;
     }

@@ -830,6 +830,8 @@ typedef struct aio_ring *aio_context_t;
 #define SO_TYPE      3
 #define SO_ERROR     4
 #define SO_SNDBUF    7
+#define SO_PRIORITY  12
+#define SO_LINGER    13
 
 #define IPV6_V6ONLY     26
 
