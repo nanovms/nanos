@@ -308,7 +308,8 @@ boolean validate_iovec(struct iovec *iov, u64 len, boolean write)
     if (!validate_user_memory(iov, sizeof(struct iovec) * len, false))
         return false;
     for (u64 i = 0; i < len; i++) {
-        if (!validate_user_memory(iov[i].iov_base, iov[i].iov_len, write))
+        if ((iov[i].iov_len != 0) &&
+                !validate_user_memory(iov[i].iov_base, iov[i].iov_len, write))
             return false;
     }
     return true;
