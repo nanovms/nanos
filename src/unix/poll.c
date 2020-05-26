@@ -577,16 +577,15 @@ closure_function(1, 2, void, select_notify,
     assert(w->epoll_type == EPOLL_TYPE_SELECT);
     int count = 0;
     /* XXX need thread safe / cas bitmap ops */
-    /* trusting that notifier masked events */
-    if (events & POLLFDMASK_READ) {
+    if (w->rset && (events & POLLFDMASK_READ)) {
         bitmap_set(w->rset, efd->fd, 1);
         count++;
     }
-    if (events & POLLFDMASK_WRITE) {
+    if (w->wset && (events & POLLFDMASK_WRITE)) {
         bitmap_set(w->wset, efd->fd, 1);
         count++;
     }
-    if (events & POLLFDMASK_EXCEPT) {
+    if (w->eset && (events & POLLFDMASK_EXCEPT)) {
         bitmap_set(w->eset, efd->fd, 1);
         count++;
     }
