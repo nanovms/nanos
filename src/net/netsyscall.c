@@ -994,13 +994,13 @@ static sysreturn netsock_bind(struct sock *sock, struct sockaddr *addr,
         IP_SET_TYPE(&ipaddr, IPADDR_TYPE_ANY);
     err_t err;
     if (sock->type == SOCK_STREAM) {
-	if (s->info.tcp.state == TCP_SOCK_OPEN)
+	if (s->info.tcp.lw->local_port != 0)
 	    return -EINVAL;	/* already bound */
 	net_debug("calling tcp_bind, pcb %p, port %d\n", s->info.tcp.lw, port);
 	err = tcp_bind(s->info.tcp.lw, &ipaddr, port);
-	if (err == ERR_OK)
-	    s->info.tcp.state = TCP_SOCK_OPEN;
     } else if (sock->type == SOCK_DGRAM) {
+        if (s->info.udp.lw->local_port != 0)
+            return -EINVAL; /* already bound */
         net_debug("calling udp_bind, pcb %p, port %d\n", s->info.udp.lw, port);
         err = udp_bind(s->info.udp.lw, &ipaddr, port);
     } else {
