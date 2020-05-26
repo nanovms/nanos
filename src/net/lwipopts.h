@@ -63,6 +63,7 @@
 // and then cede if there is a collison? or at least
 // some other policy
 #define DHCP_DOES_ARP_CHECK 0
+#define LWIP_NETIF_LOOPBACK 1
 #define LWIP_NETIF_HOSTNAME 1
 #define MEMP_MEM_MALLOC 1
 typedef unsigned long size_t;

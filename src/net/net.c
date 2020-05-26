@@ -149,7 +149,7 @@ static boolean get_static_config(tuple root, struct netif *n, boolean trace) {
 }
 
 void init_network_iface(tuple root) {
-    struct netif *n = netif_find("en0");
+    struct netif *n = netif_find("en1");
     if (!n) {
         rprintf("no network interface found\n");
         return;

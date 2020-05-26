@@ -148,6 +148,24 @@ static sysreturn netsock_sendto(struct sock *sock, void *buf, u64 len,
 static sysreturn netsock_recvfrom(struct sock *sock, void *buf, u64 len,
         int flags, struct sockaddr *src_addr, socklen_t *addrlen);
 
+static thunk net_loop_poll;
+static boolean net_loop_poll_queued;
+
+closure_function(0, 0, void, netsock_poll) {
+    net_loop_poll_queued = false;
+    netif_poll_all();
+}
+
+static void netsock_check_loop(void)
+{
+    /* Not race-free, but the worst that can happen is that the thunk is
+     * enqueued more than once. */
+    if (!net_loop_poll_queued) {
+        net_loop_poll_queued = true;
+        enqueue(runqueue, net_loop_poll);
+    }
+}
+
 closure_function(1, 1, u32, socket_events,
                  netsock, s,
                  thread, t /* ignore */)
@@ -552,6 +570,7 @@ static sysreturn socket_write_tcp_bh_internal(netsock s, thread t, void * buf,
         err = tcp_output(s->info.tcp.lw);
         if (err == ERR_OK) {
             net_debug(" tcp_write and tcp_output successful for %ld bytes\n", n);
+            netsock_check_loop();
             rv = n;
             if (n == avail) {
                 fdesc_notify_events(&s->sock.f); /* reset a triggered EPOLLOUT condition */
@@ -603,6 +622,7 @@ static sysreturn socket_write_udp(netsock s, void *source, u64 length)
         net_debug("lwip error %d\n", err);
         return lwip_to_errno(err);
     }
+    netsock_check_loop();
     return length;
 }
 
@@ -731,6 +751,7 @@ closure_function(1, 0, sysreturn, socket_close,
         if (s->info.tcp.lw) {
             tcp_close(s->info.tcp.lw);
             tcp_arg(s->info.tcp.lw, 0);
+            netsock_check_loop();
         }
         break;
     case SOCK_DGRAM:
@@ -782,6 +803,7 @@ static sysreturn netsock_shutdown(struct sock *sock, int how)
              * tcp_close(), so the pcb should not be referenced anymore. */
             s->info.tcp.lw = 0;
         }
+        netsock_check_loop();
         break;
     case SOCK_DGRAM:
         return -ENOTCONN;
@@ -1124,6 +1146,7 @@ static inline err_t connect_tcp(netsock s, const ip_addr_t* address,
     err_t err = tcp_connect(lw, address, port, connect_tcp_complete);
     if (err != ERR_OK)
         return err;
+    netsock_check_loop();
 
     sysreturn rv = blockq_check(s->sock.rxbq, current,
             closure(s->sock.h, connect_tcp_bh, s, current), false);
@@ -1819,5 +1842,6 @@ boolean netsyscall_init(unix_heaps uh)
     if (socket_cache == INVALID_ADDRESS)
 	return false;
     uh->socket_cache = socket_cache;
+    net_loop_poll = closure(heap_general(kh), netsock_poll);
     return true;
 }
