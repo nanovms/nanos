@@ -24,6 +24,10 @@ typedef struct pagecache {
     block_io block_write;
     sg_block_io sg_read;
     block_io write;
+    block_sync write_sync;
+    u64 pages_writing;
+    vector sync_completions;    /* thunks to apply on completion of last write */
+    thunk sync_complete;
 } *pagecache;
 
 #define PAGECACHE_PAGESTATE_SHIFT   61
@@ -63,7 +67,13 @@ static inline block_io pagecache_writer(pagecache pc)
     return pc->write;
 }
 
+static inline block_sync pagecache_write_syncer(pagecache pc)
+{
+    return pc->write_sync;
+}
+
 u64 pagecache_drain(pagecache pc, u64 drain_bytes);
+
 pagecache allocate_pagecache(heap general, heap backed,
                              u64 length, u64 pagesize, u64 block_size,
                              block_mapper mapper, block_io read, block_io write);

@@ -898,14 +898,30 @@ boolean filesystem_truncate(filesystem fs, fsfile f, u64 len,
     return false;
 }
 
-void filesystem_flush(filesystem fs, tuple t, status_handler completion)
+closure_function(2, 0, void, write_sync_complete,
+                 status_handler, completion, status, s)
 {
-    /* A write() call returns after everything is sent to disk, so nothing to
-     * do here. The only work that might be pending is when a file is created,
-     * see the call to filesystem_creat() from unix/syscall.c; to deal with
-     * that, flush the filesystem log.
-     */
-    log_flush_complete(fs->tl, completion);
+    apply(bound(completion), bound(s));
+    closure_finish();
+}
+
+closure_function(2, 1, void, log_flush_completed,
+                 filesystem, fs, status_handler, completion,
+                 status, s)
+{
+    if (bound(fs)->write_sync) {
+        apply(bound(fs)->write_sync,
+              closure(bound(fs)->h, write_sync_complete, bound(completion), s));
+    } else {
+        apply(bound(completion), s);
+    }
+    closure_finish();
+}
+
+void filesystem_flush(filesystem fs, status_handler completion)
+{
+    // XXX name
+    log_flush_complete(fs->tl, closure(fs->h, log_flush_completed, fs, completion));
 }
 
 static inline timestamp filesystem_get_time(filesystem fs, tuple t, symbol s)
@@ -1311,6 +1327,7 @@ void create_filesystem(heap h,
                        heap dma,
                        sg_block_io read,
                        block_io write,
+                       block_sync write_sync,
                        tuple root,
                        boolean initialize,
                        filesystem_complete complete)
@@ -1325,6 +1342,7 @@ void create_filesystem(heap h,
     fs->dma = dma;
     fs->sg_r = read;
     fs->w = write;
+    fs->write_sync = write_sync;
     fs->root = root;
     fs->alignment = alignment;
     fs->size = size;

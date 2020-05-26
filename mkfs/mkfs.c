@@ -313,6 +313,35 @@ static void usage(const char *program_name)
            p);
 }
 
+boolean parse_size(const char *str, long long *size)
+{
+    char *endptr;
+    long long img_size = strtoll(str, &endptr, 0);
+    if (img_size <= 0)
+        return false;
+    switch (*endptr) {
+    case 'k':
+    case 'K':
+        img_size *= KB;
+        break;
+    case 'm':
+    case 'M':
+        img_size *= MB;
+        break;
+    case 'g':
+    case 'G':
+        img_size *= GB;
+        break;
+    case '\0':
+        break;
+    default:
+        return false;
+    }
+    img_size = pad(img_size, SECTOR_SIZE);
+    *size = img_size;
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     int c;
@@ -329,34 +358,11 @@ int main(int argc, char **argv)
             target_root = optarg;
             break;
         case 's': {
-            char *endptr;
-            img_size = strtoll(optarg, &endptr, 0);
-            if (img_size <= 0) {
-                printf("invalid image file size %lld\n", img_size);
+            if (!parse_size(optarg, &img_size)) {
+                printf("invalid image file size %s\n", optarg);
                 usage(argv[0]);
                 exit(1);
             }
-            switch (*endptr) {
-            case 'k':
-            case 'K':
-                img_size *= KB;
-                break;
-            case 'm':
-            case 'M':
-                img_size *= MB;
-                break;
-            case 'g':
-            case 'G':
-                img_size *= GB;
-                break;
-            case '\0':
-                break;
-            default:
-                printf("invalid image file size suffix '%s'\n", endptr);
-                usage(argv[0]);
-                exit(1);
-            }
-            img_size = pad(img_size, SECTOR_SIZE);
             break;
         }
         default:
@@ -404,7 +410,20 @@ int main(int argc, char **argv)
     parser p = tuple_parser(h, closure(h, finish, h), closure(h, perr));
     // this can be streaming
     parser_feed (p, read_stdin(h));
-    // fixing the size doesn't make sense in this context?
+
+    if (root) {
+        value v = table_find(root, sym(imagesize));
+        if (v && tagof(v) != tag_tuple) {
+            table_set(root, sym(imagesize), 0); /* consume it, kernel doesn't need it */
+            push_u8((buffer)v, 0);
+            char *s = buffer_ref((buffer)v, 0);
+            if (!parse_size(s, &img_size)) {
+                halt("invalid imagesize string \"%s\"\n", s);
+            }
+            deallocate_buffer((buffer)v);
+        }
+    }
+
     create_filesystem(h,
                       SECTOR_SIZE,
                       SECTOR_SIZE,
@@ -412,6 +431,7 @@ int main(int argc, char **argv)
                       h,
                       0, /* no read -> new fs */
                       closure(h, bwrite, out, offset),
+                      0, /* no write sync */
                       allocate_tuple(),
                       true,
                       closure(h, fsc, h, out, target_root));

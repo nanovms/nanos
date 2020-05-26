@@ -303,6 +303,7 @@ void newstack()
                       0,         /* ignored in boot */
                       sg_wrapped_block_reader(get_stage2_disk_read(h, fs_offset), SECTOR_OFFSET, h),
                       closure(h, stage2_empty_write),
+                      0, /* no write sync */
                       root,
                       false,
                       closure(h, filesystem_initialized, h, heap_backed(&kh), root, bh));

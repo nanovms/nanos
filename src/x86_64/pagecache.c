@@ -76,7 +76,37 @@ static inline void change_page_state_cache_locked(pagecache pc, pagecache_page p
         ((u64)state << PAGECACHE_PAGESTATE_SHIFT);
 }
 
-/* Usually this completion is called without the cache lock held - exceptions noted below. */
+closure_function(3, 0, void, service_read_page_completions,
+                 pagecache, pc, pagecache_page, pp, status, s)
+{
+    pagecache_debug("%s: pc %p, pp %p, status %v\n", __func__, bound(pc), bound(pp), bound(s));
+    pagecache_page pp = bound(pp);
+
+    /* seems kind of ridiculous...recycle these? */
+    spin_lock(&pp->lock);
+    vector cv = pp->completions;
+    pp->completions = allocate_vector(bound(pc)->h, 8);
+    spin_unlock(&pp->lock);
+
+    status_handler sh;
+    vector_foreach(cv, sh) {
+        apply(sh, bound(s));
+    }
+    deallocate_vector(cv);
+    closure_finish();
+}
+
+/* This is the completion from the block read, appied from bhqueue service.
+
+   TODO; Since a storage completion isn't always deferred and may be called directly by
+   the storage read (e.g. ATA driver currently), the cache lock may be held by the
+   block read caller. So we take the lock if we can but change the page state
+   anyhow. This isn't relevant right now because 1) with the big kernel lock there can't be
+   more than one processor making requests on the cache at a time, and 2) kernel code
+   runs with interrupts off, so kernel code that is operating on the cache can't be
+   interrupted or have a race with an access from the bottom half. But it will need to
+   be revised once these conditions change. */
+
 closure_function(2, 1, void, read_page_complete,
                  pagecache, pc, pagecache_page, pp,
                  status, s)
@@ -90,25 +120,14 @@ closure_function(2, 1, void, read_page_complete,
         /* TODO need policy for capturing/reporting I/O errors... */
         msg_err("error reading page %R: %v\n", pp->node.r, s);
     } else {
-        /* Sadly, the cache may already be locked here (covering block
-           read issue) as some block devices (e.g. ATA) issue
-           completions immediately, without blocking. */
+        /* See comment above */
         boolean unlocked = spin_try(&pc->lock);
         change_page_state_cache_locked(bound(pc), pp, PAGECACHE_PAGESTATE_NEW);
         if (unlocked)
             spin_unlock(&pc->lock);
     }
-
-    /* TODO We technically shouldn't be releasing the page lock here
-       if we are walking the completions vector, but for the time
-       being we are safe due to the big kernel lock. Maybe clone the
-       vector or replace with a new one? */
     spin_unlock(&pp->lock);
-    status_handler sh;
-    vector_foreach(pp->completions, sh) {
-        apply(sh, s);
-    }
-    vector_clear(pp->completions);
+    enqueue(runqueue, closure(pc->h, service_read_page_completions, pc, pp, s));
     closure_finish();
 }
 
@@ -347,16 +366,32 @@ closure_function(1, 3, void, pagecache_read_sg,
 
 /* TODO for pagecache writing:
 
-   immediate:
-   * buffers being synced to storage can still be modified - re set to dirty
-   - get rid of annoying write test output
-   - don't wait for block write to apply write completion, but do track (and report) any write errors
-
    future:
    - use the block mapper to convert between byte offset and block numbers
      - this paves the way for per-fsfile cache, bypassing tfs extent lookup
    - implement write-back
 */
+
+/* don't forget: not holding kernel lock here */
+closure_function(2, 1, void, pagecache_block_write_complete,
+                 pagecache, pc, pagecache_page, pp,
+                 status, s)
+{
+    pagecache pc = bound(pc);
+    u64 n = fetch_and_add(&pc->pages_writing, -1);
+    pagecache_debug("%s: pc %p, pp %p, pages_writing %ld\n", __func__, pc, bound(pp),
+                    pc->pages_writing);
+
+    if (!is_ok(s)) {
+        msg_err("write I/O failed for pp %p: %v\n", bound(pp), s);
+        /* XXX accounting, logging... */
+    }
+
+    if (n == 1 && vector_length(pc->sync_completions) > 0) {
+        enqueue(runqueue, pc->sync_complete);
+    }
+    closure_finish();
+}
 
 /* cache lock may or may not be held here */
 static void pagecache_write_page_internal_page_locked(pagecache pc, pagecache_page pp,
@@ -374,12 +409,17 @@ static void pagecache_write_page_internal_page_locked(pagecache pc, pagecache_pa
     assert(state == PAGECACHE_PAGESTATE_ALLOC || state == PAGECACHE_PAGESTATE_NEW ||
            state == PAGECACHE_PAGESTATE_ACTIVE || state == PAGECACHE_PAGESTATE_DIRTY);
 
+    /* write to cache buffer and commit to storage */
     pagecache_debug("   copy %p <- %p %d bytes\n", dest, src, len);
     assert(pp->node.r.start + len <= pc->length);
     runtime_memcpy(dest, src, len);
     range blocks = range_rshift(i, pc->block_order);
     pagecache_debug("   write %p to block range %R\n", dest, blocks);
-    apply(pc->block_write, dest, blocks, sh);
+    fetch_and_add(&pc->pages_writing, 1);
+    apply(pc->block_write, dest, blocks, closure(pc->h, pagecache_block_write_complete, pc, pp));
+
+    /* TODO check to see if an error was posted already... */
+    apply(sh, STATUS_OK);
 }
 
 /* cache lock may or may not be held here */
@@ -498,6 +538,38 @@ u64 pagecache_drain(pagecache pc, u64 drain_bytes)
     return evicted << pc->page_order;
 }
 
+/* holding lock throughout, so completions cannot do pagecache operations */
+closure_function(1, 0, void, pagecache_sync_complete,
+                 pagecache, pc)
+{
+    pagecache pc = bound(pc);
+    spin_lock(&pc->lock);
+    thunk c;
+    vector_foreach(pc->sync_completions, c) {
+        assert(c);
+        apply(c);
+    }
+    vector_clear(pc->sync_completions);
+    spin_unlock(&pc->lock);
+}
+
+// XXX could bh completions happen prematurely here?
+closure_function(1, 1, void, pagecache_write_sync,
+                 pagecache, pc,
+                 thunk, complete)
+{
+    pagecache pc = bound(pc);
+    assert(complete);
+    spin_lock(&pc->lock);
+    if (pc->pages_writing == 0) {
+        apply(complete);
+        goto out;
+    }
+    vector_push(pc->sync_completions, complete);
+  out:
+    spin_unlock(&pc->lock);
+}
+
 pagecache allocate_pagecache(heap general, heap backed,
                              u64 length, u64 pagesize, u64 block_size,
                              block_mapper mapper, block_io read, block_io write)
@@ -528,5 +600,10 @@ pagecache allocate_pagecache(heap general, heap backed,
     pc->block_write = write;
     pc->sg_read = closure(general, pagecache_read_sg, pc);
     pc->write = closure(general, pagecache_write, pc);
+    pc->write_sync = closure(general, pagecache_write_sync, pc);
+    pc->pages_writing = 0;
+    pc->sync_completions = allocate_vector(general, 8);
+    assert(pc->sync_completions != INVALID_ADDRESS);
+    pc->sync_complete = closure(general, pagecache_sync_complete, pc);
     return pc;
 }

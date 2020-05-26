@@ -20,6 +20,7 @@ typedef struct filesystem {
     heap dma;
     sg_block_io sg_r;
     block_io w;
+    block_sync write_sync;
     log tl;
     tuple root;
     int blocksize_order;
