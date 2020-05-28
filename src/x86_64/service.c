@@ -267,6 +267,25 @@ void vm_exit(u8 code)
     }
 }
 
+closure_function(1, 1, void, sync_complete,
+                 u8, code,
+                 status, s)
+{
+    vm_exit(bound(code));
+}
+
+void kernel_shutdown(int status)
+{
+    if (global_pagecache) {
+        block_sync bs = pagecache_syncer(global_pagecache);
+        if (bs) {
+            apply(bs, closure(heap_general(&heaps), sync_complete, status));
+            runloop();
+        }
+    }
+    vm_exit(status);
+}
+
 struct cpuinfo cpuinfos[MAX_CPUS];
 
 static void init_cpuinfos(kernel_heaps kh)

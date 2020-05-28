@@ -396,7 +396,6 @@ closure_function(1, 3, void, pagecache_read_sg,
    - implement write-back
 */
 
-/* completion likely from bhqueue service and without kernel lock */
 closure_function(2, 1, void, pagecache_write_page_merge_complete,
                  pagecache, pc, pagecache_page, pp,
                  status, s)
@@ -411,7 +410,6 @@ closure_function(2, 1, void, pagecache_write_page_merge_complete,
     closure_finish();
 }
 
-/* cache lock may or may not be held here */
 static void pagecache_write_page_internal(pagecache pc, pagecache_page pp,
                                           void *buf, range q, status_handler sh)
 {
@@ -446,7 +444,6 @@ static void pagecache_write_page_internal(pagecache pc, pagecache_page pp,
     apply(sh, STATUS_OK);
 }
 
-/* cache lock may or may not be held here */
 closure_function(5, 1, void, pagecache_write_io_check_complete,
                  pagecache, pc, pagecache_page, pp, void *, buf, range, q, status_handler, sh,
                  status, s)

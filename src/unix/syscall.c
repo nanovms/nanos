@@ -2012,7 +2012,12 @@ void exit(int code)
 
 sysreturn exit_group(int status)
 {
-    vm_exit(status);
+    thread t;
+    vector_foreach(current->p->threads, t) {
+        if (t)
+            exit_thread(t);
+    }
+    kernel_shutdown(status);
 }
 
 sysreturn pipe2(int fds[2], int flags)

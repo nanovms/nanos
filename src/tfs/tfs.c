@@ -898,30 +898,22 @@ boolean filesystem_truncate(filesystem fs, fsfile f, u64 len,
     return false;
 }
 
-closure_function(1, 1, void, cache_sync_complete,
-                 status_handler, completion,
+closure_function(3, 1, void, log_flush_completed,
+                 filesystem, fs, status_handler, completion, boolean, sync_complete,
                  status, s)
 {
-    apply(bound(completion), s);
-    closure_finish();
-}
-
-closure_function(2, 1, void, log_flush_completed,
-                 filesystem, fs, status_handler, completion,
-                 status, s)
-{
-    if (!is_ok(s) || !bound(fs)->cache_sync) {
-        apply(bound(completion), s);
+    if (is_ok(s) && !bound(sync_complete) && bound(fs)->cache_sync) {
+        bound(sync_complete) = true;
+        apply(bound(fs)->cache_sync, (status_handler)closure_self());
     } else {
-        apply(bound(fs)->cache_sync,
-              closure(bound(fs)->h, cache_sync_complete, bound(completion)));
+        apply(bound(completion), s);
+        closure_finish();
     }
-    closure_finish();
 }
 
 void filesystem_flush(filesystem fs, status_handler completion)
 {
-    log_flush(fs->tl, closure(fs->h, log_flush_completed, fs, completion));
+    log_flush(fs->tl, closure(fs->h, log_flush_completed, fs, completion, false));
 }
 
 static inline timestamp filesystem_get_time(filesystem fs, tuple t, symbol s)

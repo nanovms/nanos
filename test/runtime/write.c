@@ -444,7 +444,7 @@ void bulk_write_test(unsigned long long size)
         do {
             int rv = read(fd, p, bufremain);
             if (rv < 0) {
-                perror("bulk_write_test: write");
+                perror("bulk_write_test: read");
                 goto out_fail;
             }
             if (rv == 0) {

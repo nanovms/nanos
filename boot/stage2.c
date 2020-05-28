@@ -316,6 +316,11 @@ void vm_exit(u8 code)
     QEMU_HALT(code);
 }
 
+void kernel_shutdown(int status)
+{
+    vm_exit(status);
+}
+
 static struct heap working_heap;
 static u8 early_working[EARLY_WORKING_SIZE] __attribute__((aligned(8)));
 static u64 working_p;

@@ -145,6 +145,7 @@ INCLUDES=\
 AFLAGS+=-I$(SRCDIR)/x86_64
 
 CFLAGS+=$(KERNCFLAGS) -DSTAGE3 -mcmodel=kernel
+CFLAGS+=-Wno-address # lwIP build sadness
 CFLAGS+=$(INCLUDES)
 
 # Enable tracing by specifying TRACE=ftrace on command line
