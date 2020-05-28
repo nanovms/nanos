@@ -329,8 +329,8 @@ boolean ata_probe(struct ata *dev)
         runtime_memcpy(&sectors, buf + ATA_IDENT_MAX_LBA_EXT, sizeof(sectors));
     } else {
         u32 lba28_sectors;
-        runtime_memcpy(&lba28_sectors, buf + 120, sizeof(lba28_sectors));
-	sectors = lba28_sectors;
+        runtime_memcpy(&lba28_sectors, buf + ATA_IDENT_MAX_LBA, sizeof(lba28_sectors));
+        sectors = lba28_sectors;
     }
     dev->capacity = sectors * ATA_SECTOR_SIZE;
     for (int i = 0; i < sizeof(dev->model) - 1; i += 2) {
