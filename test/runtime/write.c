@@ -358,6 +358,21 @@ static inline void timerspec_sub(struct timespec *a, struct timespec *b, struct 
 
 #define BULK_WRITE_BUFLEN (64 << 10)
 
+static void print_op_stats(const char *op, struct timespec *start, struct timespec *end,
+                           unsigned long long bytes)
+{
+    struct timespec delta;
+    timerspec_sub(end, start, &delta);
+    printf("   %5s   %ld.%.9lds", op, delta.tv_sec, delta.tv_nsec);
+    if (bytes > 0) {
+        unsigned long long ns = delta.tv_sec * 1000000000ull + delta.tv_nsec;
+        unsigned long long kbps = (1000000000ull / 1024) * bytes / ns;
+        printf(" (%lld KB/s)\n", kbps);
+    } else {
+        printf("\n");
+    }
+}
+
 void bulk_write_test(unsigned long long size)
 {
     if (size == 0)
@@ -371,7 +386,7 @@ void bulk_write_test(unsigned long long size)
     }
 
     writetest_debug("starting bulk write test...\n");
-    struct timespec start, postwrite, delta;
+    struct timespec start;
     if (clock_gettime(CLOCK_MONOTONIC, &start) < 0) {
         perror("bulk_write_test: clock_gettime");
         goto out_fail;
@@ -397,13 +412,13 @@ void bulk_write_test(unsigned long long size)
         } while (bufremain > 0);
     } while (remain > 0);
 
+    struct timespec postwrite;
     if (clock_gettime(CLOCK_MONOTONIC, &postwrite) < 0) {
         perror("bulk_write_test: clock_gettime");
         goto out_fail;
     }
-    timerspec_sub(&postwrite, &start, &delta);
-    printf("bulk write test, size %llu KB:\n\twrite\t%ld.%.9lds\n", size >> 10,
-           delta.tv_sec, delta.tv_nsec);
+    printf("bulk write test, size %llu KB:\n", size >> 10);
+    print_op_stats("write", &start, &postwrite, 0);
 
     /* fsync */
     if (fsync(fd) < 0) {
@@ -416,8 +431,7 @@ void bulk_write_test(unsigned long long size)
         perror("bulk_write_test: clock_gettime");
         goto out_fail;
     }
-    timerspec_sub(&postsync, &postwrite, &delta);
-    printf("\tfsync\t%ld.%.9lds\n", delta.tv_sec, delta.tv_nsec);
+    print_op_stats("fsync", &postwrite, &postsync, 0);
 
     /* read / verify - we're not dropping cached data, so this isn't any kind of I/O test */
     _LSEEK(0, SEEK_SET);
@@ -455,8 +469,8 @@ void bulk_write_test(unsigned long long size)
         perror("bulk_write_test: clock_gettime");
         goto out_fail;
     }
-    timerspec_sub(&postread, &postsync, &delta);
-    printf("\tread\t%ld.%.9lds\n", delta.tv_sec, delta.tv_nsec);
+    print_op_stats("read", &postsync, &postread, 0);
+    print_op_stats("total", &start, &postread, size);
     close(fd);
     return;
   out_fail:

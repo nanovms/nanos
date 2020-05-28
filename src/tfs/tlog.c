@@ -96,28 +96,20 @@ static void log_flush_internal(heap h, filesystem fs, buffer b, range log_range,
     }
 }
 
-void log_flush(log tl)
+void log_flush(log tl, status_handler completion)
 {
-    if (!tl->dirty)
-        return;
-    tl->dirty = false;
-
-    tlog_debug("log_flush: log %p dirty\n", tl);
-    vector c = tl->completions;
-    tl->completions = allocate_vector(tl->h, COMPLETION_QUEUE_SIZE);
-    log_flush_internal(tl->h, tl->fs, tl->staging, tl->sectors, c, false);
-}
-
-void log_flush_complete(log tl, status_handler completion)
-{
-    tlog_debug("log_flush_complete: log %p, completion %p, dirty %d\n",
-               tl, completion, tl->dirty);
+    tlog_debug("log_flush: log %p, completion %p, dirty %d\n", tl, completion, tl->dirty);
     if (!tl->dirty) {
-        apply(completion, STATUS_OK);
+        if (completion)
+            apply(completion, STATUS_OK);
         return;
     }
-    vector_push(tl->completions, completion);
-    log_flush(tl);
+    tl->dirty = false;
+    vector c = tl->completions;
+    tl->completions = allocate_vector(tl->h, COMPLETION_QUEUE_SIZE);
+    if (completion)
+        vector_push(c, completion);
+    log_flush_internal(tl->h, tl->fs, tl->staging, tl->sectors, c, false);
 }
 
 /* complete linkage in (now disembodied - thus long arg list) previous extension */

@@ -17,7 +17,7 @@ void create_filesystem(heap h,
                        heap dma,
                        sg_block_io read,
                        block_io write,
-                       block_sync write_sync,
+                       block_sync cache_sync,
                        tuple root,
                        boolean initialize,
                        filesystem_complete complete);

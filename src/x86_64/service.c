@@ -159,7 +159,7 @@ closure_function(2, 3, void, attach_storage,
                       heap_backed(&heaps),
                       pagecache_reader_sg(pc),
                       pagecache_writer(pc),
-                      pagecache_write_syncer(pc),
+                      pagecache_syncer(pc),
                       bound(root),
                       false,
                       closure(h, fsstarted, bound(root)));

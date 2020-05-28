@@ -71,7 +71,7 @@ static inline extent allocate_extent(heap h, range init_range, u64 block_start, 
 
 static void filesystem_flush_log(filesystem fs)
 {
-    log_flush(fs->tl);
+    log_flush(fs->tl, 0);
 }
 
 /* XXX don't ignore status
@@ -898,10 +898,11 @@ boolean filesystem_truncate(filesystem fs, fsfile f, u64 len,
     return false;
 }
 
-closure_function(2, 0, void, write_sync_complete,
-                 status_handler, completion, status, s)
+closure_function(1, 1, void, cache_sync_complete,
+                 status_handler, completion,
+                 status, s)
 {
-    apply(bound(completion), bound(s));
+    apply(bound(completion), s);
     closure_finish();
 }
 
@@ -909,19 +910,18 @@ closure_function(2, 1, void, log_flush_completed,
                  filesystem, fs, status_handler, completion,
                  status, s)
 {
-    if (bound(fs)->write_sync) {
-        apply(bound(fs)->write_sync,
-              closure(bound(fs)->h, write_sync_complete, bound(completion), s));
-    } else {
+    if (!is_ok(s) || !bound(fs)->cache_sync) {
         apply(bound(completion), s);
+    } else {
+        apply(bound(fs)->cache_sync,
+              closure(bound(fs)->h, cache_sync_complete, bound(completion)));
     }
     closure_finish();
 }
 
 void filesystem_flush(filesystem fs, status_handler completion)
 {
-    // XXX name
-    log_flush_complete(fs->tl, closure(fs->h, log_flush_completed, fs, completion));
+    log_flush(fs->tl, closure(fs->h, log_flush_completed, fs, completion));
 }
 
 static inline timestamp filesystem_get_time(filesystem fs, tuple t, symbol s)
@@ -1327,7 +1327,7 @@ void create_filesystem(heap h,
                        heap dma,
                        sg_block_io read,
                        block_io write,
-                       block_sync write_sync,
+                       block_sync cache_sync,
                        tuple root,
                        boolean initialize,
                        filesystem_complete complete)
@@ -1342,7 +1342,7 @@ void create_filesystem(heap h,
     fs->dma = dma;
     fs->sg_r = read;
     fs->w = write;
-    fs->write_sync = write_sync;
+    fs->cache_sync = cache_sync;
     fs->root = root;
     fs->alignment = alignment;
     fs->size = size;

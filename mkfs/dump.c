@@ -147,7 +147,7 @@ int main(int argc, char **argv)
                       h,
                       sg_wrapped_block_reader(closure(h, bread, fd, get_fs_offset(fd)), SECTOR_OFFSET, h),
                       closure(h, bwrite, fd),
-                      0, /* no write sync */
+                      0, /* no sync */
                       root,
                       false,
                       closure(h, fsc, h, alloca_wrap_buffer(argv[2], runtime_strlen(argv[2])), root));
