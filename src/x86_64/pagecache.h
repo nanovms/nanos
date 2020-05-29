@@ -1,29 +1,49 @@
 /* cache index to volume index, in bytes */
 typedef closure_type(block_mapper, u64, u64);
 
-struct pagelist {
+typedef struct pagelist {
     struct list l;
     u64 pages;
-};
+} *pagelist;
 
 typedef struct pagecache {
+    u64 total_pages;
+    u64 length;                 /* hard limit */
     int page_order;
     int block_order;
-    struct spinlock lock;
+    heap h;
+    heap backed;
+
+    /* pages_lock covers traversal, insertions and removals
+       should be some kind of rw lock */
+    struct spinlock pages_lock;
     rangemap pages;
+
+    /* state_lock covers list access, page state changes and
+       alterations to page completion vecs */
+    struct spinlock state_lock;
     struct pagelist free;      /* see state descriptions */
     struct pagelist new;
     struct pagelist active;
+    struct pagelist writing;
     struct pagelist dirty;     /* phase 2 */
-    u64 total_pages;
-    u64 length;                 /* hard limit */
-    heap h;
-    heap backed;
+
+    /* fs callbacks */
     block_mapper mapper;
+
+    /* block device interface */
     block_io block_read;
     block_io block_write;
+
+    /* interface exposed to fs */
     sg_block_io sg_read;
     block_io write;
+    block_sync sync;
+
+    /* not under lock */
+    queue completion_vecs;
+    thunk service_completions;
+    boolean service_enqueued;
 } *pagecache;
 
 #define PAGECACHE_PAGESTATE_SHIFT   61
@@ -42,9 +62,9 @@ typedef struct pagecache_page {
     struct rmnode node;
     struct refcount refcount;
     struct list l;
-    struct spinlock lock;       /* cover changes to state / completions */
     void *kvirt;
     u64 state_phys;             /* state and physical page number */
+    merge write_merge;          /* completion merge for pending block writes */
     vector completions;         /* status_handlers */
 } *pagecache_page;
 
@@ -63,7 +83,13 @@ static inline block_io pagecache_writer(pagecache pc)
     return pc->write;
 }
 
+static inline block_sync pagecache_syncer(pagecache pc)
+{
+    return pc->sync;
+}
+
 u64 pagecache_drain(pagecache pc, u64 drain_bytes);
+
 pagecache allocate_pagecache(heap general, heap backed,
                              u64 length, u64 pagesize, u64 block_size,
                              block_mapper mapper, block_io read, block_io write);

@@ -20,6 +20,7 @@ typedef struct filesystem {
     heap dma;
     sg_block_io sg_r;
     block_io w;
+    block_sync cache_sync;
     log tl;
     tuple root;
     int blocksize_order;
@@ -30,8 +31,7 @@ void ingest_extent(fsfile f, symbol foff, tuple value);
 log log_create(heap h, filesystem fs, boolean initialize, status_handler sh);
 void log_write(log tl, tuple t, status_handler sh);
 void log_write_eav(log tl, tuple e, symbol a, value v, status_handler sh);
-void log_flush(log tl);
-void log_flush_complete(log tl, status_handler completion);
+void log_flush(log tl, status_handler completion);
 void flush(filesystem fs, status_handler);
 boolean filesystem_reserve_storage(filesystem fs, u64 start, u64 length);
     

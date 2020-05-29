@@ -29,6 +29,7 @@ void console_write(const char *s, bytes count);
 void print_u64(u64 s);
 
 void halt(char *format, ...) __attribute__((noreturn));
+void kernel_shutdown(int status) __attribute__((noreturn));
 void vm_exit(u8 code) __attribute__((noreturn));
 void print_stack_from_here();
 
@@ -183,6 +184,7 @@ typedef closure_type(buffer_handler, status, buffer);
 typedef closure_type(connection_handler, buffer_handler, buffer_handler);
 typedef closure_type(io_status_handler, void, status, bytes);
 typedef closure_type(block_io, void, void *, range, status_handler);
+typedef closure_type(block_sync, void, status_handler);
 
 #include <sg.h>
 

@@ -17,6 +17,7 @@ void create_filesystem(heap h,
                        heap dma,
                        sg_block_io read,
                        block_io write,
+                       block_sync cache_sync,
                        tuple root,
                        boolean initialize,
                        filesystem_complete complete);
@@ -28,7 +29,7 @@ void filesystem_read_linear(filesystem fs, tuple t, void *dest, u64 offset, u64 
 void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_handler completion);
 boolean filesystem_truncate(filesystem fs, fsfile f, u64 len,
         status_handler completion);
-void filesystem_flush(filesystem fs, tuple t, status_handler completion);
+void filesystem_flush(filesystem fs, status_handler completion);
 
 timestamp filesystem_get_atime(filesystem fs, tuple t);
 timestamp filesystem_get_mtime(filesystem fs, tuple t);

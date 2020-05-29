@@ -6,12 +6,22 @@
 #include <limits.h>
 #include <ctype.h>
 #include <errno.h>
+#include <time.h>
+#include <sys/time.h>
 #include <sys/eventfd.h>
 #include <sys/stat.h>
 
-#define BUFLEN 256
+//#define WRITETEST_DEBUG
+#ifdef WRITETEST_DEBUG
+#define writetest_debug(x, ...) do {printf("%s: " x, __func__, ##__VA_ARGS__);} while(0)
+#else
+#define writetest_debug(x, ...)
+#endif
 
-static char *str = "This seems to have worked.";
+#define BUFLEN 256
+#define DEFAULT_BULK_SIZE (20 << 20) /* 20M */
+
+static char *str = "I'm staying. Finishing my coffee. Enjoying my coffee.";
 
 #define _READ(b, l)                             \
     rv = read(fd, b, l);                        \
@@ -47,12 +57,12 @@ void basic_write_test()
     _READ(buf, BUFLEN);
 
     if (rv == 0)
-        printf("empty source file\n");
+        writetest_debug("empty source file\n");
 
     if (rv >= BUFLEN)
         rv = BUFLEN - 1;
     buf[rv] = '\0';
-    printf("original: \"%s\"\n", buf);
+    writetest_debug("original: \"%s\"\n", buf);
 
     _LSEEK(0, SEEK_SET);
 
@@ -71,14 +81,14 @@ void basic_write_test()
         goto out_fail;
     }
 
-    printf("new: \"%s\"\n", buf);
+    writetest_debug("new: \"%s\"\n", buf);
 
     if (strncmp(str, buf, strlen(str))) {
         printf("basic write fail: string mismatch\n");
         exit(EXIT_FAILURE);
     }
     close(fd);
-    printf("basic write test passed\n");
+    writetest_debug("basic write test passed\n");
     return;
   out_fail:
     close(fd);
@@ -147,7 +157,7 @@ void scatter_write_test(ssize_t buflen, int iterations, int max_writesize)
             n += rv;
         } while (n < rmost);
     }
-    printf("scatter write test passed\n");
+    writetest_debug("scatter write test passed\n");
     close(fd);
     return;
   out_fail:
@@ -166,25 +176,32 @@ void append_write_test()
     }
 
     /* XXX kinda stupid, this should use some known pattern and check it */
-    printf("existing content: \"");
+    writetest_debug("existing content: \"");
     do {
         _READ(tmp, BUFLEN);
+#ifdef WRITETEST_DEBUG
         for (int i = 0; i < rv; i++) {
             if (isalpha(tmp[i]))
                 putchar(tmp[i]);
             else
                 putchar('_');
         }
+        printf("\"\n");
+#endif
     } while (rv > 0);
-    printf("\"\nappending \"");
+    writetest_debug("appending \"");
 
     ssize_t len = _random() % (BUFLEN / 4);
     for (int i = 0; i < len; i++) {
         tmp[i] = 'a' + (_random() % 26);
+#ifdef WRITETEST_DEBUG
         putchar(tmp[i]);
+#endif
     }
 
+#ifdef WRITETEST_DEBUG
     printf("\"\n");
+#endif
     _WRITE(tmp, len);
     close(fd);
     return;
@@ -328,13 +345,220 @@ void truncate_test()
     exit(EXIT_FAILURE);
 }
 
+/* isn't this in a std include somewhere? */
+static inline void timerspec_sub(struct timespec *a, struct timespec *b, struct timespec *r)
+{
+    r->tv_sec = a->tv_sec - b->tv_sec;
+    r->tv_nsec = a->tv_nsec - b->tv_nsec;
+    if (a->tv_nsec < b->tv_nsec) {
+        r->tv_sec--;
+        r->tv_nsec += 1000000000ull;
+    }
+}
+
+#define BULK_WRITE_BUFLEN (64 << 10)
+
+static void print_op_stats(const char *op, struct timespec *start, struct timespec *end,
+                           unsigned long long bytes)
+{
+    struct timespec delta;
+    timerspec_sub(end, start, &delta);
+    printf("   %5s   %ld.%.9lds", op, delta.tv_sec, delta.tv_nsec);
+    if (bytes > 0) {
+        unsigned long long ns = delta.tv_sec * 1000000000ull + delta.tv_nsec;
+        unsigned long long kbps = (1000000000ull / 1024) * bytes / ns;
+        printf(" (%lld KB/s)\n", kbps);
+    } else {
+        printf("\n");
+    }
+}
+
+void bulk_write_test(unsigned long long size)
+{
+    if (size == 0)
+        return;
+
+    int rv, fd;
+    fd = open("new_file_2", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+    if (fd < 0) {
+        perror("bulk_write_test: open");
+        exit(EXIT_FAILURE);
+    }
+
+    writetest_debug("starting bulk write test...\n");
+    struct timespec start;
+    if (clock_gettime(CLOCK_MONOTONIC, &start) < 0) {
+        perror("bulk_write_test: clock_gettime");
+        goto out_fail;
+    }
+
+    unsigned char buf[BULK_WRITE_BUFLEN];
+    for (int i = 0; i < BULK_WRITE_BUFLEN; i++) {
+        buf[i] = i & 0xff;
+    }
+    unsigned long long remain = size;
+    do {
+        int bufremain = remain < BULK_WRITE_BUFLEN ? remain : BULK_WRITE_BUFLEN;
+        unsigned char *p = buf;
+        do {
+            int rv = write(fd, p, bufremain);
+            if (rv < 0) {
+                perror("bulk_write_test: write");
+                goto out_fail;
+            }
+            bufremain -= rv;
+            remain -= rv;
+            p += rv;
+        } while (bufremain > 0);
+    } while (remain > 0);
+
+    struct timespec postwrite;
+    if (clock_gettime(CLOCK_MONOTONIC, &postwrite) < 0) {
+        perror("bulk_write_test: clock_gettime");
+        goto out_fail;
+    }
+    printf("bulk write test, size %llu KB:\n", size >> 10);
+    print_op_stats("write", &start, &postwrite, 0);
+
+    /* fsync */
+    if (fsync(fd) < 0) {
+        perror("bulk_write_test: fsync");
+        goto out_fail;
+    }
+
+    struct timespec postsync;
+    if (clock_gettime(CLOCK_MONOTONIC, &postsync) < 0) {
+        perror("bulk_write_test: clock_gettime");
+        goto out_fail;
+    }
+    print_op_stats("fsync", &postwrite, &postsync, 0);
+
+    /* read / verify - we're not dropping cached data, so this isn't any kind of I/O test */
+    _LSEEK(0, SEEK_SET);
+    remain = size;
+    unsigned char readbuf[BULK_WRITE_BUFLEN];
+    do {
+        int readlen = remain < BULK_WRITE_BUFLEN ? remain : BULK_WRITE_BUFLEN;
+        int bufremain = readlen;
+        unsigned char *p = readbuf;
+        do {
+            int rv = read(fd, p, bufremain);
+            if (rv < 0) {
+                perror("bulk_write_test: read");
+                goto out_fail;
+            }
+            if (rv == 0) {
+                printf("premature EOF during read at offset %lld\n", size - remain + (readlen - bufremain));
+                goto out_fail;
+            }
+            bufremain -= rv;
+            p += rv;
+        } while (bufremain > 0);
+
+        for (int i = 0; i < readlen; i++) {
+            if (readbuf[i] != buf[i]) {
+                printf("read validate mismatch at offset %lld\n", size - remain + i);
+                goto out_fail;
+            }
+        }
+        remain -= readlen;
+    } while (remain > 0);
+
+    struct timespec postread;
+    if (clock_gettime(CLOCK_MONOTONIC, &postread) < 0) {
+        perror("bulk_write_test: clock_gettime");
+        goto out_fail;
+    }
+    print_op_stats("read", &postsync, &postread, 0);
+    print_op_stats("total", &start, &postread, size);
+    close(fd);
+    return;
+  out_fail:
+    close(fd);
+    exit(EXIT_FAILURE);
+}
+
+enum {
+    WRITE_OP_ALL,
+    WRITE_OP_BASIC_ONLY,
+    WRITE_OP_BULK_ONLY,
+};
+
+static void usage(const char *program_name)
+{
+    const char *p = strrchr(program_name, '/');
+    p = p != NULL ? p + 1 : program_name;
+    printf("Usage: %s [-b file-size]\n"
+           "\n"
+           "-b - run basic tests only (no bulk / performance tests)\n"
+           "-w - run bulk data write test only\n"
+           "-s - set bulk data size; size may be expressed by suffix\n"
+           "     (k or K for KB, m or M for MB, g or G for GB)\n",
+           p);
+}
+
 int main(int argc, char **argv)
 {
+    int c, op = WRITE_OP_ALL;
+    long long size = DEFAULT_BULK_SIZE;
+    char *endptr;
     setvbuf(stdout, NULL, _IOLBF, 0);
-    basic_write_test();
-    scatter_write_test(1 << 18, 64, 1 << 12);
-    append_write_test();
-    truncate_test();
+
+    while ((c = getopt(argc, argv, "hbws:")) != EOF) {
+        switch (c) {
+        case 'h':
+            usage(argv[0]);
+            break;
+        case 'b':
+            op = WRITE_OP_BASIC_ONLY;
+            break;
+        case 'w':
+            op = WRITE_OP_BULK_ONLY;
+            break;
+        case 's':
+            size = strtoll(optarg, &endptr, 0);
+            if (size <= 0) {
+                printf("invalid write file size %lld\n", size);
+                usage(argv[0]);
+                exit(1);
+            }
+            switch (*endptr) {
+            case 'k':
+            case 'K':
+                size <<= 10;
+                break;
+            case 'm':
+            case 'M':
+                size <<= 20;
+                break;
+            case 'g':
+            case 'G':
+                size <<= 30;
+                break;
+            case '\0':
+                break;
+            default:
+                printf("invalid write file size suffix '%s'\n", endptr);
+                usage(argv[0]);
+                exit(1);
+            }
+            break;
+        default:
+            usage(argv[0]);
+            break;
+        }
+    }
+
+    if (op == WRITE_OP_ALL || op == WRITE_OP_BASIC_ONLY) {
+        basic_write_test();
+        scatter_write_test(1 << 18, 64, 1 << 12);
+        append_write_test();
+        truncate_test();
+    }
+
+    if (op != WRITE_OP_BASIC_ONLY) {
+        bulk_write_test(size);
+    }
     printf("write test passed\n");
     return EXIT_SUCCESS;
 }

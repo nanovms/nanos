@@ -71,7 +71,7 @@ static inline extent allocate_extent(heap h, range init_range, u64 block_start, 
 
 static void filesystem_flush_log(filesystem fs)
 {
-    log_flush(fs->tl);
+    log_flush(fs->tl, 0);
 }
 
 /* XXX don't ignore status
@@ -898,14 +898,22 @@ boolean filesystem_truncate(filesystem fs, fsfile f, u64 len,
     return false;
 }
 
-void filesystem_flush(filesystem fs, tuple t, status_handler completion)
+closure_function(3, 1, void, log_flush_completed,
+                 filesystem, fs, status_handler, completion, boolean, sync_complete,
+                 status, s)
 {
-    /* A write() call returns after everything is sent to disk, so nothing to
-     * do here. The only work that might be pending is when a file is created,
-     * see the call to filesystem_creat() from unix/syscall.c; to deal with
-     * that, flush the filesystem log.
-     */
-    log_flush_complete(fs->tl, completion);
+    if (is_ok(s) && !bound(sync_complete) && bound(fs)->cache_sync) {
+        bound(sync_complete) = true;
+        apply(bound(fs)->cache_sync, (status_handler)closure_self());
+    } else {
+        apply(bound(completion), s);
+        closure_finish();
+    }
+}
+
+void filesystem_flush(filesystem fs, status_handler completion)
+{
+    log_flush(fs->tl, closure(fs->h, log_flush_completed, fs, completion, false));
 }
 
 static inline timestamp filesystem_get_time(filesystem fs, tuple t, symbol s)
@@ -1311,6 +1319,7 @@ void create_filesystem(heap h,
                        heap dma,
                        sg_block_io read,
                        block_io write,
+                       block_sync cache_sync,
                        tuple root,
                        boolean initialize,
                        filesystem_complete complete)
@@ -1325,6 +1334,7 @@ void create_filesystem(heap h,
     fs->dma = dma;
     fs->sg_r = read;
     fs->w = write;
+    fs->cache_sync = cache_sync;
     fs->root = root;
     fs->alignment = alignment;
     fs->size = size;

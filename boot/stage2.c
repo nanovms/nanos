@@ -303,6 +303,7 @@ void newstack()
                       0,         /* ignored in boot */
                       sg_wrapped_block_reader(get_stage2_disk_read(h, fs_offset), SECTOR_OFFSET, h),
                       closure(h, stage2_empty_write),
+                      0, /* no sync */
                       root,
                       false,
                       closure(h, filesystem_initialized, h, heap_backed(&kh), root, bh));
@@ -313,6 +314,11 @@ void newstack()
 void vm_exit(u8 code)
 {
     QEMU_HALT(code);
+}
+
+void kernel_shutdown(int status)
+{
+    vm_exit(status);
 }
 
 static struct heap working_heap;

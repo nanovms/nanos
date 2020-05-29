@@ -31,7 +31,7 @@ void halt(char *format, ...)
     vstart(a, format);
     vbprintf(b, &f, &a);
     buffer_print(b);
-    vm_exit(VM_EXIT_HALT);
+    kernel_shutdown(VM_EXIT_HALT);
 }
 
 static boolean probe_kvm_pvclock(kernel_heaps kh)

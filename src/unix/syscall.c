@@ -84,7 +84,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, _sysctl, 0);
     register_syscall(map, adjtimex, 0);
     register_syscall(map, chroot, 0);
-    register_syscall(map, sync, 0);
     register_syscall(map, acct, 0);
     register_syscall(map, settimeofday, 0);
     register_syscall(map, mount, 0);
@@ -178,7 +177,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, name_to_handle_at, 0);
     register_syscall(map, open_by_handle_at, 0);
     register_syscall(map, clock_adjtime, 0);
-    register_syscall(map, syncfs, 0);
     register_syscall(map, setns, 0);
     register_syscall(map, getcpu, 0);
     register_syscall(map, process_vm_readv, 0);
@@ -1259,8 +1257,8 @@ sysreturn ftruncate(int fd, long length)
     return truncate_internal(f, f->n, length);
 }
 
-closure_function(2, 1, void, fsync_complete,
-                 thread, t, file, f,
+closure_function(1, 1, void, sync_complete,
+                 thread, t,
                  status, s)
 {
     thread t = bound(t);
@@ -1271,15 +1269,27 @@ closure_function(2, 1, void, fsync_complete,
     closure_finish();
 }
 
+sysreturn sync(void)
+{
+    file_op_begin(current);
+    filesystem_flush(current->p->fs, closure(heap_general(get_kernel_heaps()),
+                                             sync_complete, current));
+    return file_op_maybe_sleep(current);
+}
+
+sysreturn syncfs(int fd)
+{
+    /* Resolve to check validity of fd. For multiple volume support,
+       this will give us the filesystem. */
+    resolve_fd(current->p, fd);
+    return sync();
+}
+
+/* We don't currently have a per-file flush, so flush all filesystem
+   writes for fsync and fdatasync. */
 sysreturn fsync(int fd)
 {
-    file f = resolve_fd(current->p, fd);
-
-    file_op_begin(current);
-    filesystem_flush(current->p->fs, f->n,
-                     closure(heap_general(get_kernel_heaps()),
-                             fsync_complete, current, f));
-    return file_op_maybe_sleep(current);
+    return syncfs(fd);
 }
 
 sysreturn fdatasync(int fd)
@@ -2002,7 +2012,12 @@ void exit(int code)
 
 sysreturn exit_group(int status)
 {
-    vm_exit(status);
+    thread t;
+    vector_foreach(current->p->threads, t) {
+        if (t)
+            exit_thread(t);
+    }
+    kernel_shutdown(status);
 }
 
 sysreturn pipe2(int fds[2], int flags)
@@ -2141,6 +2156,8 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, ftruncate, ftruncate);
     register_syscall(map, fdatasync, fdatasync);
     register_syscall(map, fsync, fsync);
+    register_syscall(map, sync, sync);
+    register_syscall(map, syncfs, syncfs);
     register_syscall(map, io_setup, io_setup);
     register_syscall(map, io_submit, io_submit);
     register_syscall(map, io_getevents, io_getevents);

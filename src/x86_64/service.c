@@ -159,6 +159,7 @@ closure_function(2, 3, void, attach_storage,
                       heap_backed(&heaps),
                       pagecache_reader_sg(pc),
                       pagecache_writer(pc),
+                      pagecache_syncer(pc),
                       bound(root),
                       false,
                       closure(h, fsstarted, bound(root)));
@@ -264,6 +265,25 @@ void vm_exit(u8 code)
     } else {
         QEMU_HALT(code);
     }
+}
+
+closure_function(1, 1, void, sync_complete,
+                 u8, code,
+                 status, s)
+{
+    vm_exit(bound(code));
+}
+
+void kernel_shutdown(int status)
+{
+    if (global_pagecache) {
+        block_sync bs = pagecache_syncer(global_pagecache);
+        if (bs) {
+            apply(bs, closure(heap_general(&heaps), sync_complete, status));
+            runloop();
+        }
+    }
+    vm_exit(status);
 }
 
 struct cpuinfo cpuinfos[MAX_CPUS];
