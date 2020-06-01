@@ -1,7 +1,28 @@
 typedef struct filesystem *filesystem;
-typedef struct fsfile *fsfile;
 
 typedef closure_type(filesystem_complete, void, filesystem, status);
+
+typedef struct fsfile {
+    rangemap extentmap;
+    filesystem fs;
+    u64 length;
+    tuple md;
+} *fsfile;
+
+static inline u64 fsfile_get_length(fsfile f)
+{
+    return f->length;
+}
+
+static inline void fsfile_set_length(fsfile f, u64 length)
+{
+    f->length = length;
+}
+
+static inline tuple fsfile_get_meta(fsfile f)
+{
+    return f->md;
+}
 
 extern io_status_handler ignore_io_status;
 
@@ -24,11 +45,10 @@ void create_filesystem(heap h,
 
 // there is a question as to whether tuple->fs file should be mapped inside out outside the filesystem
 // status
-void filesystem_read_sg(filesystem fs, tuple t, sg_list sg, u64 length, u64 offset, status_handler sh);
-void filesystem_read_linear(filesystem fs, tuple t, void *dest, u64 offset, u64 length, io_status_handler completion);
-void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_handler completion);
-boolean filesystem_truncate(filesystem fs, fsfile f, u64 len,
-        status_handler completion);
+void filesystem_read_sg(filesystem fs, fsfile f, sg_list sg, u64 length, u64 offset, status_handler sh);
+void filesystem_read_linear(filesystem fs, fsfile f, void *dest, u64 offset, u64 length, io_status_handler completion);
+void filesystem_write(filesystem fs, fsfile f, buffer b, u64 offset, io_status_handler completion);
+boolean filesystem_truncate(filesystem fs, fsfile f, u64 len, status_handler completion);
 void filesystem_flush(filesystem fs, status_handler completion);
 
 timestamp filesystem_get_atime(filesystem fs, tuple t);

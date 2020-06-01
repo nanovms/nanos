@@ -284,7 +284,7 @@ sysreturn fstatfs(int fd, struct statfs *buf)
         f = 0;
         break;
     }
-    return statfs_internal(f ? f->n : 0, buf);
+    return statfs_internal(f ? file_get_meta(f) : 0, buf);
 }
 
 sysreturn fallocate(int fd, int mode, long offset, long len)
@@ -306,12 +306,12 @@ sysreturn fallocate(int fd, int mode, long offset, long len)
     switch (mode) {
     case 0:
     case FALLOC_FL_KEEP_SIZE:
-        filesystem_alloc(current->p->fs, f->n, offset, len,
+        filesystem_alloc(current->p->fs, file_get_meta(f), offset, len,
                 mode == FALLOC_FL_KEEP_SIZE,
                 closure(h, fs_op_complete, current, f));
         break;
     case FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE:
-        filesystem_dealloc(current->p->fs, f->n, offset, len,
+        filesystem_dealloc(current->p->fs, file_get_meta(f), offset, len,
                 closure(h, fs_op_complete, current, f));
         break;
     default:

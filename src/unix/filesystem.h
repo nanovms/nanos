@@ -4,8 +4,9 @@
     else if (__dirfd == AT_FDCWD) cwd = current->p->cwd; \
     else { \
         file f = resolve_fd(current->p, __dirfd); \
-        if (!is_dir(f->n)) return set_syscall_error(current, ENOTDIR); \
-        cwd = f->n; \
+        tuple t = file_get_meta(f); \
+        if (!is_dir(t)) return set_syscall_error(current, ENOTDIR); \
+        cwd = t; \
     } \
     cwd; \
 })

@@ -626,7 +626,7 @@ static sysreturn sendfile(int out_fd, int in_fd, int *offset, bytes count)
 static void begin_file_read(thread t, file f)
 {
     if ((f->length > 0) && !(f->f.flags & O_NOATIME)) {
-        filesystem_update_atime(t->p->fs, f->n);
+        filesystem_update_atime(t->p->fs, file_get_meta(f));
     }
     file_op_begin(t);
 }
@@ -644,14 +644,14 @@ closure_function(2, 6, sysreturn, file_read,
                __func__, f, dest, offset, is_file_offset ? "file" : "specified",
                length, f->length);
 
-    if (is_special(f->n)) {
+    if (f->f.type == FDESC_TYPE_SPECIAL) {
         return spec_read(f, dest, length, offset, t, bh, completion);
     }
     if (offset >= f->length) {
         return io_complete(completion, t, 0);
     }
     begin_file_read(t, f);
-    filesystem_read_linear(t->p->fs, f->n, dest, length, offset,
+    filesystem_read_linear(t->p->fs, fsf, dest, length, offset,
                            closure(heap_general(get_kernel_heaps()),
                                    file_op_complete, t, f, fsf, is_file_offset,
                                    completion));
@@ -674,13 +674,13 @@ closure_function(2, 6, sysreturn, file_sg_read,
                length, f->length);
 
     /* TODO: special files not supported yet */
-    if (is_special(f->n)) {
+    if (f->f.type == FDESC_TYPE_SPECIAL) {
         apply(completion, t, -EIO);
         goto out;
     }
 
     begin_file_read(t, f);
-    filesystem_read_sg(t->p->fs, f->n, sg, length, offset,
+    filesystem_read_sg(t->p->fs, fsf, sg, length, offset,
                        closure(heap_general(get_kernel_heaps()),
                                file_op_complete_sg, t, f, fsf, sg, is_file_offset,
                                completion));
@@ -729,7 +729,7 @@ closure_function(2, 6, sysreturn, file_write,
     runtime_memset(buf, 0, final_length);
     runtime_memcpy(buf, dest, length);
 
-    if (is_special(f->n)) {
+    if (f->f.type == FDESC_TYPE_SPECIAL) {
         return spec_write(f, buf, length, offset, t, bh, completion);
     }
 
@@ -737,10 +737,10 @@ closure_function(2, 6, sysreturn, file_write,
     thread_log(t, "%s: b_ref: %p", __func__, buffer_ref(b, 0));
 
     if (final_length > 0) {
-        filesystem_update_mtime(t->p->fs, f->n);
+        filesystem_update_mtime(t->p->fs, file_get_meta(f));
     }
     file_op_begin(t);
-    filesystem_write(t->p->fs, f->n, b, offset,
+    filesystem_write(t->p->fs, fsf, b, offset,
                      closure(h, file_op_complete, t, f, fsf, is_file_offset,
                      completion));
 
@@ -755,7 +755,7 @@ closure_function(2, 2, sysreturn, file_close,
     sysreturn ret = 0;
     file f = bound(f);
 
-    if (is_special(f->n)) {
+    if (f->f.type == FDESC_TYPE_SPECIAL) {
         ret = spec_close(f);
     }
         
@@ -772,7 +772,7 @@ closure_function(1, 1, u32, file_events,
 {
     file f = bound(f);
     u32 events;
-    if (is_special(f->n)) {
+    if (f->f.type == FDESC_TYPE_SPECIAL) {
         events = spec_events(f);
     } else {
         /* XXX add nonblocking support */
@@ -896,11 +896,14 @@ sysreturn open_internal(tuple cwd, const char *name, int flags, int mode)
     f->f.close = closure(h, file_close, f, fsf);
     f->f.events = closure(h, file_events, f);
     f->f.flags = flags;
-    f->n = n;
+    if (type == FDESC_TYPE_REGULAR)
+        f->fsf = fsf;
+    else
+        f->meta = n;
     f->length = length;
     f->offset = (flags & O_APPEND) ? length : 0;
 
-    if (is_special(f->n)) {
+    if (type == FDESC_TYPE_SPECIAL) {
         int spec_ret = spec_open(f);
         if (spec_ret != 0) {
             assert(spec_ret < 0);
@@ -1094,7 +1097,7 @@ sysreturn getdents(int fd, struct linux_dirent *dirp, unsigned int count)
     if (!validate_user_memory(dirp, count, true))
         return set_syscall_error(current, EFAULT);
     file f = resolve_fd(current->p, fd);
-    tuple c = children(f->n);
+    tuple c = children(file_get_meta(f));
     if (!c)
         return -ENOTDIR;
 
@@ -1103,7 +1106,7 @@ sysreturn getdents(int fd, struct linux_dirent *dirp, unsigned int count)
     buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
     table_foreach(c, k, v) {
         char *p = cstring(symbol_string(k), tmpbuf);
-        r = try_write_dirent(f->n, dirp, p,
+        r = try_write_dirent(file_get_meta(f), dirp, p,
                     &read_sofar, &written_sofar, &f->offset, &count,
                     dt_from_tuple(v));
         if (r < 0)
@@ -1113,7 +1116,7 @@ sysreturn getdents(int fd, struct linux_dirent *dirp, unsigned int count)
     }
 
 done:
-    filesystem_update_atime(current->p->fs, f->n);
+    filesystem_update_atime(current->p->fs, file_get_meta(f));
     f->offset = read_sofar;
     if (r < 0 && written_sofar == 0)
         return -EINVAL;
@@ -1160,7 +1163,7 @@ sysreturn getdents64(int fd, struct linux_dirent64 *dirp, unsigned int count)
     if (!validate_user_memory(dirp, count, true))
         return set_syscall_error(current, EFAULT);
     file f = resolve_fd(current->p, fd);
-    tuple c = children(f->n);
+    tuple c = children(file_get_meta(f));
     if (!c)
         return -ENOTDIR;
 
@@ -1169,7 +1172,7 @@ sysreturn getdents64(int fd, struct linux_dirent64 *dirp, unsigned int count)
     buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
     table_foreach(c, k, v) {
         char *p = cstring(symbol_string(k), tmpbuf);
-        r = try_write_dirent64(f->n, dirp, p,
+        r = try_write_dirent64(file_get_meta(f), dirp, p,
                     &read_sofar, &written_sofar, &f->offset, &count,
                     dt_from_tuple(v));
         if (r < 0)
@@ -1179,7 +1182,7 @@ sysreturn getdents64(int fd, struct linux_dirent64 *dirp, unsigned int count)
     }
 
 done:
-    filesystem_update_atime(current->p->fs, f->n);
+    filesystem_update_atime(current->p->fs, file_get_meta(f));
     f->offset = read_sofar;
     if (r < 0 && written_sofar == 0)
         return -EINVAL;
@@ -1208,11 +1211,11 @@ sysreturn chdir(const char *path)
 sysreturn fchdir(int dirfd)
 {
     file f = resolve_fd(current->p, dirfd);
-    tuple children = table_find(f->n, sym(children));
+    tuple children = table_find(file_get_meta(f), sym(children));
     if (!children)
         return set_syscall_error(current, -ENOTDIR);
 
-    current->p->cwd = f->n;
+    current->p->cwd = file_get_meta(f);
     return set_syscall_return(current, 0);
 }
 
@@ -1278,7 +1281,7 @@ sysreturn ftruncate(int fd, long length)
             (f->f.type != FDESC_TYPE_REGULAR)) {
         return set_syscall_error(current, EINVAL);
     }
-    return truncate_internal(f, f->n, length);
+    return truncate_internal(f, file_get_meta(f), length);
 }
 
 closure_function(1, 1, void, sync_complete,
@@ -1414,7 +1417,7 @@ static sysreturn fstat(int fd, struct stat *s)
     case FDESC_TYPE_DIRECTORY:
     case FDESC_TYPE_SPECIAL:
     case FDESC_TYPE_SYMLINK:
-        n = ((file)f)->n;
+        n = file_get_meta((file)f);
         break;
     default:
         n = 0;

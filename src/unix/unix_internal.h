@@ -296,7 +296,10 @@ typedef struct fdesc {
 
 struct file {
     struct fdesc f;             /* must be first */
-    tuple n;
+    union {
+        fsfile fsf;             /* fsfile for regular files */
+        tuple meta;             /* meta tuple for others */
+    };
     u64 offset;
     u64 length;
 };
@@ -366,6 +369,16 @@ extern thread dummy_thread;
 #define current ((thread)(current_cpu()->current_thread))
 
 void init_thread_fault_handler(thread t);
+
+static inline fsfile file_get_fsfile(file f)
+{
+    return f->fsf;
+}
+
+static inline tuple file_get_meta(file f)
+{
+    return f->f.type == FDESC_TYPE_REGULAR ? fsfile_get_meta(f->fsf) : f->meta;
+}
 
 static inline thread thread_from_tid(process p, int tid)
 {

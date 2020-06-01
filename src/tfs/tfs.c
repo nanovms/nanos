@@ -23,23 +23,6 @@ static inline void report_sha256(buffer b)
 #define report_sha256(b)
 #endif
 
-struct fsfile {
-    rangemap extentmap;
-    filesystem fs;
-    u64 length;
-    tuple md;
-};
-
-u64 fsfile_get_length(fsfile f)
-{
-    return f->length;
-}
-
-void fsfile_set_length(fsfile f, u64 length)
-{
-    f->length = length;
-}
-
 /* range_from_rmnode for file extent range */
 typedef struct extent {
     struct rmnode node;
@@ -221,18 +204,12 @@ static void filesystem_read_internal(filesystem fs, fsfile f, sg_list sg, u64 le
     apply(k, STATUS_OK);
 }
 
-void filesystem_read_sg(filesystem fs, tuple t, sg_list sg,
+void filesystem_read_sg(filesystem fs, fsfile f, sg_list sg,
                         u64 length, u64 offset,
                         status_handler sh)
 {
-    tfs_debug("%s: t %v, sg %p, length %ld, offset %ld, completion %p\n",
+    tfs_debug("%s: fsfile %p, sg %p, length %ld, offset %ld, completion %p\n",
               __func__, t, sg, length, offset, sh);
-    fsfile f;
-    if (!(f = table_find(fs->files, t))) {
-        tuple e = timm("result", "no such file %t", t);
-        apply(sh, e);
-        return;
-    }
     filesystem_read_internal(fs, f, sg, length, offset, sh);
 }
 
@@ -249,7 +226,7 @@ closure_function(4, 1, void, filesystem_read_complete,
     closure_finish();
 }
 
-void filesystem_read_linear(filesystem fs, tuple t, void *dest,
+void filesystem_read_linear(filesystem fs, fsfile f, void *dest,
                             u64 length, u64 offset,
                             io_status_handler io_complete)
 {
@@ -258,7 +235,7 @@ void filesystem_read_linear(filesystem fs, tuple t, void *dest,
         apply(io_complete, timm("result", "failed to allocate sg list"), 0);
         return;
     }
-    filesystem_read_sg(fs, t, sg, length, offset,
+    filesystem_read_sg(fs, f, sg, length, offset,
                        closure(fs->h, filesystem_read_complete, dest, length, io_complete, sg));
 }
 
@@ -673,52 +650,6 @@ void ingest_extent(fsfile f, symbol off, tuple value)
     assert(rangemap_insert(f->extentmap, &ex->node));
 }
 
-#if 0 // XXX unused - can we nuke this?
-boolean set_extent_length(fsfile f, extent ex, u64 length, merge m)
-{
-    tfs_debug("set_extent_length: range %R, allocated %ld, new length %ld\n",
-              ex->node.r, ex->allocated, length);
-    if (length > ex->allocated) {
-        tfs_debug("failed: new length %ld > ex->allocated %ld\n",
-                  length, ex->allocated);
-        return false;
-    }
-
-    range r = ex->node.r;
-    r.end = ex->node.r.start + length;
-
-    if (rangemap_range_intersects(f->extentmap, r)) {
-        tfs_debug("failed: collides with existing extent\n");
-        return false;
-    }
-
-    tuple extents = table_find(f->md, sym(extents));
-    if (!extents) {
-        tfs_debug("failed: can't find extents in f->md\n");
-        return false;
-    }
-
-    symbol offs = intern_u64(r.start);
-    tuple extent_tuple = table_find(extents, offs);
-    if (!extent_tuple) {
-        tfs_debug("failed: can't find extent tuple\n");
-        return false;
-    }
-
-    /* re-insert in rangemap */
-    if (!rangemap_reinsert(f->extentmap, &ex->node, r)) {
-        tfs_debug("failed: rangemap_insert failed\n");
-        return false;
-    }
-
-    /* update length in tuple and log */
-    string v = aprintf(f->fs->h, "%ld", length);
-    table_set(extent_tuple, sym(length), v);
-    filesystem_write_eav(f->fs, extent_tuple, sym(length), v, apply_merge(m));
-    return true;
-}
-#endif
-
 closure_function(2, 1, void, filesystem_write_meta_complete,
                  range, q, io_status_handler, ish,
                  status, s)
@@ -730,8 +661,8 @@ closure_function(2, 1, void, filesystem_write_meta_complete,
     closure_finish();
 }
 
-closure_function(5, 1, void, filesystem_write_data_complete,
-                 fsfile, f, tuple, t, range, q, merge, m_meta, status_handler, m_sh,
+closure_function(4, 1, void, filesystem_write_data_complete,
+                 fsfile, f, range, q, merge, m_meta, status_handler, m_sh,
                  status, s)
 {
     fsfile f = bound(f);
@@ -750,7 +681,7 @@ closure_function(5, 1, void, filesystem_write_data_complete,
     if (fsfile_get_length(f) < q.end) {
         /* XXX bother updating resident filelength tuple? */
         fsfile_set_length(f, q.end);
-        filesystem_write_eav(fs, bound(t), sym(filelength), value_from_u64(fs->h, q.end), apply_merge(bound(m_meta)));
+        filesystem_write_eav(fs, f->md, sym(filelength), value_from_u64(fs->h, q.end), apply_merge(bound(m_meta)));
     }
 
     filesystem_flush_log(fs);
@@ -787,27 +718,21 @@ closure_function(5, 1, void, filesystem_write_data_complete,
 */
 
 /* XXX This needs to additionally block if a log flush is in flight. */
-void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_handler ish)
+void filesystem_write(filesystem fs, fsfile f, buffer b, u64 offset, io_status_handler ish)
 {
     u64 len = buffer_length(b);
     range q = irange(offset, offset + len);
     u64 curr = offset;
     tuple extents = 0;
 
-    fsfile f;
-    if (!(f = table_find(fs->files, t))) {
-        apply(ish, timm("result", "no such file %t", t), 0);
-        return;
-    }
-
-    tfs_debug("filesystem_write: tuple %p, buffer %p, q %R\n", t, b, q);
+    tfs_debug("filesystem_write: fsfile %p, buffer %p, q %R\n", f, b, q);
 
     rmnode node = rangemap_lookup_at_or_next(f->extentmap, q.start);
 
     /* meta merge completion is gated by data merge completion, thus the initial m_meta apply */
     merge m_meta = allocate_merge(fs->h, closure(fs->h, filesystem_write_meta_complete, q, ish));
     merge m_data = allocate_merge(fs->h, closure(fs->h, filesystem_write_data_complete,
-                                                 f, t, q, m_meta, apply_merge(m_meta)));
+                                                 f, q, m_meta, apply_merge(m_meta)));
 
     /* hold data merge open until all extent operations have been initiated */
     status_handler sh = apply_merge(m_data);
@@ -849,9 +774,9 @@ void filesystem_write(filesystem fs, tuple t, buffer b, u64 offset, io_status_ha
                 extent e = (extent)node;
                 if (e->uninited) {
                     if (!extents) {
-                        extents = table_find(t, sym(extents));
+                        extents = table_find(f->md, sym(extents));
                         if (!extents) {
-                            msg_err("no extents in tuple %t\n", t);
+                            msg_err("fsfile %p, no extents in tuple %t\n", f, f->md);
                             goto fail;
                         }
                     }

@@ -155,7 +155,7 @@ void register_special_files(process p)
 static special_file *
 get_special(file f)
 {
-    buffer b = table_find(f->n, sym(special));
+    buffer b = table_find(file_get_meta(f), sym(special));
     assert(b);
     return (special_file *) buffer_ref(b, 0);
 }

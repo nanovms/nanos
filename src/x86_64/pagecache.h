@@ -17,7 +17,7 @@ typedef struct pagecache {
     /* pages_lock covers traversal, insertions and removals
        should be some kind of rw lock */
     struct spinlock pages_lock;
-    rangemap pages;
+    struct rbtree pages;
 
     /* state_lock covers list access, page state changes and
        alterations to page completion vecs */
@@ -46,6 +46,13 @@ typedef struct pagecache {
     boolean service_enqueued;
 } *pagecache;
 
+typedef struct pagecache_node {
+    pagecache pc;
+    struct list l;              /* cache-wide node list */
+    struct spinlock pages_lock;
+    rbtree pages;
+} *pagecache_node;
+
 #define PAGECACHE_PAGESTATE_SHIFT   61
 
 #define PAGECACHE_PAGESTATE_FREE    0 /* unused, yet may remain in search tree and retain usage stats */
@@ -57,13 +64,22 @@ typedef struct pagecache {
 #define PAGECACHE_PAGESTATE_DIRTY   6 /* page not synced */
 #define PAGECACHE_PAGESTATE_WRITING 7 /* block writes in progress; back to tail of new on completion */
 
-/* TODO fix for block size > pagesize */
+/* presently assuming pages are contiguous on storage
+   TODO: - fix for block size > pagesize
+         - reorg for single cacheline
+         - move state to kvirt low order bits?
+*/
+
 typedef struct pagecache_page {
-    struct rmnode node;
-    struct refcount refcount;
-    struct list l;
+    struct rbnode node;         /* 3 */
+    struct refcount refcount;   /* 2 */
+    u64 offset;                 /* node offset in pages */
     void *kvirt;
     u64 state_phys;             /* state and physical page number */
+    /* end of first cacheline */
+
+    struct list l;
+    u64 backing;                /* backing offset in blocks */
     merge write_merge;          /* completion merge for pending block writes */
     vector completions;         /* status_handlers */
 } *pagecache_page;
