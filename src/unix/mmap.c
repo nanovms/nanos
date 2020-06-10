@@ -601,6 +601,9 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     thread_log(current, "mmap: target %p, size 0x%lx, len 0x%lx, prot 0x%x, flags 0x%x, fd %d, offset 0x%lx",
 	       target, size, len, prot, flags, fd, offset);
 
+    if (len == 0)
+        return -EINVAL;
+
     /* Determine vmap flags */
     u64 vmflags = VMAP_FLAG_MMAP;
     if ((flags & MAP_ANONYMOUS))
