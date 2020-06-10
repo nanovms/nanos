@@ -316,21 +316,29 @@ boolean validate_iovec(struct iovec *iov, u64 len, boolean write)
 
 struct iov_progress {
     boolean initialized;
+    boolean blocking;
+    u64 file_offset;
     int curr;
     u64 curr_offset;
     u64 total_len;
     io_completion completion;
 };
 
-closure_function(4, 2, void, iov_op_each_complete,
-                 io, op, struct iovec *, iov, int, iovcnt, struct iov_progress, progress,
+closure_function(5, 2, void, iov_op_each_complete,
+                 fdesc, f, boolean, write, struct iovec *, iov, int, iovcnt, struct iov_progress, progress,
                  thread, t, sysreturn, rv)
 {
     io_completion c;
     int iovcnt = bound(iovcnt);
     struct iov_progress * p = &bound(progress);
     struct iovec * iov = bound(iov);
+    fdesc f = bound(f);
+    boolean write = bound(write);
     thread_log(t, "%s: rv %ld, curr %d, iovcnt %d", __func__, rv, p->curr, iovcnt);
+
+    io op = write ? f->write : f->read;
+    if (!op)
+        rv = -EOPNOTSUPP;
 
     /* If these ops were truly atomic, we would have to rewind file
        state on failure... */
@@ -357,17 +365,20 @@ closure_function(4, 2, void, iov_op_each_complete,
         goto out_complete;
     }
 
-    boolean initialized = p->initialized;
     p->initialized = true;
+    boolean blocking = p->blocking;
+    p->blocking = false;
+    if (p->file_offset != infinity)
+        p->file_offset += rv;
 
     /* ...else issue the next request. */
-    thread_log(t, "   op: curr %d, offset %ld, @ %p, len %ld, init %d",
+    thread_log(t, "   op: curr %d, offset %ld, @ %p, len %ld, blocking %d",
                p->curr, p->curr_offset,
                iov[p->curr].iov_base + p->curr_offset,
-               iov[p->curr].iov_len - p->curr_offset, initialized);
-    apply(bound(op), iov[p->curr].iov_base + p->curr_offset,
+               iov[p->curr].iov_len - p->curr_offset, blocking);
+    apply(op, iov[p->curr].iov_base + p->curr_offset,
           iov[p->curr].iov_len - p->curr_offset,
-          infinity /* file offset */, t, initialized,
+          p->file_offset, t, !blocking,
           (io_completion)closure_self());
     return;
   out_complete:
@@ -376,23 +387,26 @@ closure_function(4, 2, void, iov_op_each_complete,
     apply(c, t, rv);
 }
 
-static sysreturn iov_op(fdesc f, io op, struct iovec *iov, int iovcnt, io_completion completion)
+void iov_op(fdesc f, boolean write, struct iovec *iov, int iovcnt, u64 offset,
+            boolean blocking, io_completion completion)
 {
     if (iovcnt < 0 || iovcnt > IOV_MAX)
-        return set_syscall_error(current, EINVAL);
+        apply(completion, current, -EINVAL);
     if (iovcnt == 0)
-        return 0;
+        apply(completion, current, 0);
 
     heap h = heap_general(get_kernel_heaps());
     struct iov_progress p;
     p.initialized = false;
+    p.blocking = blocking;
+    p.file_offset = offset;
     p.curr = 0;
     p.curr_offset = 0;
     p.total_len = 0;
     p.completion = completion;
-    io_completion each = closure(h, iov_op_each_complete, op, iov, iovcnt, p);
+    io_completion each = closure(h, iov_op_each_complete, f, write, iov, iovcnt,
+        p);
     apply(each, current, 0);
-    return get_syscall_return(current);
 }
 
 sysreturn read(int fd, u8 *dest, bytes length)
@@ -424,7 +438,8 @@ sysreturn readv(int fd, struct iovec *iov, int iovcnt)
     if (!validate_iovec(iov, iovcnt, true))
         return -EFAULT;
     fdesc f = resolve_fd(current->p, fd);
-    return iov_op(f, f->read, iov, iovcnt, syscall_io_complete);
+    iov_op(f, false, iov, iovcnt, infinity, true, syscall_io_complete);
+    return get_syscall_return(current);
 }
 
 sysreturn write(int fd, u8 *body, bytes length)
@@ -455,7 +470,8 @@ sysreturn writev(int fd, struct iovec *iov, int iovcnt)
     if (!validate_iovec(iov, iovcnt, false))
         return -EFAULT;
     fdesc f = resolve_fd(current->p, fd);
-    return iov_op(f, f->write, iov, iovcnt, syscall_io_complete);
+    iov_op(f, true, iov, iovcnt, infinity, true, syscall_io_complete);
+    return get_syscall_return(current);
 }
 
 static boolean is_special(tuple n)
