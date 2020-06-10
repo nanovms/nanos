@@ -277,6 +277,7 @@ typedef closure_type(sg_io, sysreturn, sg_list sg, u64 length, u64 offset, threa
 #define FDESC_TYPE_SIGNALFD     9
 #define FDESC_TYPE_TIMERFD     10
 #define FDESC_TYPE_SYMLINK     11
+#define FDESC_TYPE_IORING      12
 
 typedef struct fdesc {
     io read, write;
@@ -306,6 +307,7 @@ void epoll_finish(epoll e);
 #define VMAP_FLAG_ANONYMOUS     2
 #define VMAP_FLAG_WRITABLE      4
 #define VMAP_FLAG_EXEC          8
+#define VMAP_FLAG_PREALLOC     16
 
 typedef struct vmap {
     struct rmnode node;
@@ -672,6 +674,14 @@ sysreturn io_submit(aio_context_t ctx_id, long nr, struct iocb **iocbpp);
 sysreturn io_getevents(aio_context_t ctx_id, long min_nr, long nr,
         struct io_event *events, struct timespec *timeout);
 sysreturn io_destroy(aio_context_t ctx_id);
+
+sysreturn io_uring_setup(unsigned int entries, struct io_uring_params *params);
+sysreturn io_uring_mmap(fdesc desc, u64 len, u64 mapflags, u64 offset);
+sysreturn io_uring_enter(int fd, unsigned int to_submit,
+                         unsigned int min_complete, unsigned int flags,
+                         sigset_t *sig);
+sysreturn io_uring_register(int fd, unsigned int opcode, void *arg,
+                            unsigned int nr_args);
 
 int do_pipe2(int fds[2], int flags);
 int pipe_set_capacity(fdesc f, int capacity);

@@ -330,5 +330,8 @@
 #define SYS_pkey_mprotect			329
 #define SYS_pkey_alloc				330
 #define SYS_pkey_free				331
+#define SYS_io_uring_setup			425
+#define SYS_io_uring_enter			426
+#define SYS_io_uring_register			427
 
-#define SYS_MAX 332
+#define SYS_MAX 428

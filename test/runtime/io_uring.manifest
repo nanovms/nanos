@@ -1,0 +1,18 @@
+(
+    boot:(
+        children:(
+            kernel:(contents:(host:output/stage3/bin/stage3.img))
+        )
+    )
+    children:(
+        io_uring:(contents:(host:output/test/runtime/bin/io_uring))
+        etc:(children:(ld.so.cache:(contents:(host:/etc/ld.so.cache)) passwd:(contents:(host:/etc/passwd)) group:(contents:(host:/etc/group))))
+    )
+    program:/io_uring
+#    trace:t
+#    debugsyscalls:t
+#    futex_trace:t
+    fault:t
+    environment:()
+    imagesize:30M
+)

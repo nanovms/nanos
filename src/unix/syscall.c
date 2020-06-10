@@ -2243,6 +2243,9 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, umask, umask);
     register_syscall(map, statfs, statfs);
     register_syscall(map, fstatfs, fstatfs);
+    register_syscall(map, io_uring_setup, io_uring_setup);
+    register_syscall(map, io_uring_enter, io_uring_enter);
+    register_syscall(map, io_uring_register, io_uring_register);
 }
 
 #define SYSCALL_F_NOTRACE 0x1

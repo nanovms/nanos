@@ -47,6 +47,7 @@ SRCS-stage3.img= \
 	$(SRCDIR)/unix/eventfd.c \
 	$(SRCDIR)/unix/filesystem.c \
 	$(SRCDIR)/unix/futex.c \
+	$(SRCDIR)/unix/io_uring.c \
 	$(SRCDIR)/unix/mktime.c \
 	$(SRCDIR)/unix/mmap.c \
 	$(SRCDIR)/unix/notify.c \

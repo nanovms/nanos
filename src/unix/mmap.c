@@ -149,6 +149,12 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
         goto unlock_out;
     }
 
+    if (old_vm->flags & VMAP_FLAG_PREALLOC) {
+        /* Remapping pre-allocated memory regions is not supported. */
+        rv = -EINVAL;
+        goto unlock_out;
+    }
+
     /* XXX should determine if we're extending a virtual32 allocation...
      * - for now only let the user move anon mmaps
      */
@@ -624,6 +630,22 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
     boolean fixed = (flags & MAP_FIXED) != 0;
     u64 where = fixed ? u64_from_pointer(target) : 0;
 
+    if (!(flags & MAP_ANONYMOUS)) {
+        fdesc desc = resolve_fd(p, fd);
+        if (desc->type == FDESC_TYPE_IORING) {
+            sysreturn ret;
+            if (fixed)
+                ret = -ENOMEM;
+            else {
+                vmflags |= VMAP_FLAG_PREALLOC;
+                ret = io_uring_mmap(desc, len, page_map_flags(vmflags), offset);
+                if (ret > 0)
+                    vmap_paint(h, p, (u64)ret, len, vmflags);
+            }
+            return ret;
+        }
+    }
+
     if (fixed) {
         if (where == 0) {
             thread_log(current, "   attempt to map zero page");
@@ -723,9 +745,12 @@ closure_function(2, 1, void, process_unmap_intersection,
         rangemap_remove_node(p->vmaps, node);
     }
 
-    /* unmap any mapped pages and return to physical heap */
+    /* unmap any mapped pages and possibly return to physical heap */
     u64 len = range_span(ri);
-    unmap_and_free_phys(ri.start, len);
+    if (match->flags & VMAP_FLAG_PREALLOC)
+        unmap(ri.start, len);
+    else
+        unmap_and_free_phys(ri.start, len);
 
     /* TODO give this varea thing more scrutiny... */
 

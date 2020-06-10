@@ -13,6 +13,7 @@ PROGRAMS= \
 	getrandom \
 	hw \
 	hws \
+	io_uring \
 	mkdir \
 	mmap \
 	nullpage \
@@ -91,6 +92,11 @@ SRCS-hw=		$(CURDIR)/hw.c
 
 SRCS-hws=		$(SRCS-hw)
 LDFLAGS-hws=		-static
+
+SRCS-io_uring= \
+	$(CURDIR)/io_uring.c \
+	$(SRCDIR)/unix_process/ssp.c
+LDFLAGS-io_uring=	-static
 
 SRCS-mmap=		$(CURDIR)/mmap.c \
 			$(SRCDIR)/unix_process/ssp.c

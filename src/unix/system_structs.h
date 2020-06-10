@@ -99,6 +99,7 @@ typedef struct iovec {
 #define ELOOP           40              /* Too many symbolic links */
 #define ENOPROTOOPT     42              /* Protocol not available */
 
+#define ETIME           62		/* Timer expired */
 #define EDESTADDRREQ    89		/* Destination address required */
 #define EMSGSIZE        90		/* Message too long */
 #define EOPNOTSUPP      95		/* Operation not supported */
@@ -819,6 +820,39 @@ struct io_event {
 };
 
 typedef struct aio_ring *aio_context_t;
+
+struct io_sqring_offsets {
+    u32 head;
+    u32 tail;
+    u32 ring_mask;
+    u32 ring_entries;
+    u32 flags;
+    u32 dropped;
+    u32 array;
+    u32 resv[3];
+};
+
+struct io_cqring_offsets {
+    u32 head;
+    u32 tail;
+    u32 ring_mask;
+    u32 ring_entries;
+    u32 overflow;
+    u32 cqes;
+    u64 resv[2];
+};
+
+struct io_uring_params {
+    u32 sq_entries;
+    u32 cq_entries;
+    u32 flags;
+    u32 sq_thread_cpu;
+    u32 sq_thread_idle;
+    u32 features;
+    u32 resv[4];
+    struct io_sqring_offsets sq_off;
+    struct io_cqring_offsets cq_off;
+};
 
 /* Socket option levels */
 #define SOL_SOCKET      1

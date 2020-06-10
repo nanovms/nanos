@@ -72,3 +72,26 @@ static inline struct list *list_pop_back(struct list *list)
     list_delete(back);
     return back;
 }
+
+static inline boolean list_find(struct list *head, struct list *elem)
+{
+    list_foreach(head, e) {
+        if (e == elem)
+            return true;
+    }
+    return false;
+}
+
+/* Move all elements from source list to destination list. */
+static inline void list_move(struct list *dest, struct list *src)
+{
+    if (list_empty(src)) {
+        list_init(dest);
+        return;
+    }
+    dest->next = src->next;
+    dest->next->prev = dest;
+    dest->prev = src->prev;
+    dest->prev->next = dest;
+    list_init(src); /* make it an empty list */
+}
