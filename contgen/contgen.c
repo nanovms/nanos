@@ -96,6 +96,10 @@ void cblock()
     p("  return (_rettype (**)(void *~))n;|", ", _rt%");
     p("}|");
     p("static _rettype _name(struct _closure_##_name *__self~)\n\n\n", ", _rt% _rn%");
+
+    p("#define CLOSURE_SIMPLE_DEFINE_%_%(_rettype, _name^~)|", nleft, nright, ", _lt%, _ln%", ", _rt%, _rn%");
+    p("typedef _rettype (**_name##_func)(void *~);|", ", _rt%");
+    p("static _rettype _name(struct _closure_##_name *__self~)\n\n\n", ", _rt% _rn%");
 }
 
 int main(int argc, char **argv)
