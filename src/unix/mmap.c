@@ -540,17 +540,24 @@ closure_function(3, 1, void, vmap_paint_gap,
     assert(mt != INVALID_ADDRESS);
 }
 
-static void vmap_paint(heap h, rangemap pvmap, vmap q)
+/* Paint into process vmap */
+static void vmap_paint(heap h, process p, u64 where, u64 len, u64 vmflags)
 {
-    range rq = q->node.r;
+    range rq = irange(where, where + len);
     assert((rq.start & MASK(PAGELOG)) == 0);
     assert((rq.end & MASK(PAGELOG)) == 0);
     assert(range_span(rq) > 0);
+    struct vmap q;
+    q.node.r = rq;
+    q.flags = vmflags;
+    rangemap pvmap = p->vmaps;
 
-    rangemap_range_lookup(pvmap, rq, stack_closure(vmap_paint_intersection, h, pvmap, q));
-    rangemap_range_find_gaps(pvmap, rq, stack_closure(vmap_paint_gap, h, pvmap, q));
+    vmap_lock(p);
+    rangemap_range_lookup(pvmap, rq, stack_closure(vmap_paint_intersection, h, pvmap, &q));
+    rangemap_range_find_gaps(pvmap, rq, stack_closure(vmap_paint_gap, h, pvmap, &q));
 
-    update_map_flags(rq.start, range_span(rq), page_map_flags(q->flags));
+    update_map_flags(rq.start, range_span(rq), page_map_flags(vmflags));
+    vmap_unlock(p);
 }
 
 typedef struct varea {
@@ -655,13 +662,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
         }
     }
 
-    /* Paint into process vmap */
-    struct vmap q;
-    q.flags = vmflags;
-    q.node.r = irange(where, where + len);
-    vmap_lock(p);
-    vmap_paint(h, p->vmaps, &q);
-    vmap_unlock(p);
+    vmap_paint(h, p, where, len, vmflags);
 
     if (flags & MAP_ANONYMOUS) {
         thread_log(current, "   anon target: 0x%lx, len: 0x%lx (given size: 0x%lx)", where, len, size);
