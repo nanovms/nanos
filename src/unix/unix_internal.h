@@ -134,6 +134,7 @@ struct blockq;
 typedef struct blockq * blockq;
 
 extern io_completion syscall_io_complete;
+extern io_completion io_completion_ignore;
 
 static inline sysreturn io_complete(io_completion completion, thread t,
                                     sysreturn rv) {
@@ -282,11 +283,7 @@ typedef struct fdesc {
     sg_io sg_read, sg_write;
     closure_type(events, u32, thread);
     closure_type(ioctl, sysreturn, unsigned long request, vlist ap);
-
-    /* close() is assumed to not block the calling thread. If any implementation
-     * violates this assumption, the code in dup2() will need to be revisited.
-     */
-    closure_type(close, sysreturn);
+    closure_type(close, sysreturn, thread t, io_completion completion);
 
     u64 refcnt;
     int type;
@@ -421,6 +418,23 @@ static inline void release_fdesc(fdesc f)
 static inline int fdesc_type(fdesc f)
 {
     return f->type;
+}
+
+static inline fdesc fdesc_get(process p, int fd)
+{
+    /* XXX To ensure atomicity, we need a mutex that protects against concurrent
+     * access to fdesc vector; the same mutex will have to be taken at every fd
+     * number allocation/deallocation. */
+    fdesc f = vector_get(p->files, fd);
+    if (f)
+        fetch_and_add(&f->refcnt, 1);
+    return f;
+}
+
+static inline void fdesc_put(fdesc f)
+{
+    if (fetch_and_add(&f->refcnt, -1) == 1)
+        apply(f->close, 0, io_completion_ignore);
 }
 
 static inline void fdesc_notify_events(fdesc f)

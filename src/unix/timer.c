@@ -251,8 +251,9 @@ closure_function(1, 1, u32, timerfd_events,
     return bound(ut)->overruns > 0 ? EPOLLIN : 0;
 }
 
-closure_function(1, 0, sysreturn, timerfd_close,
-                 unix_timer, ut)
+closure_function(1, 2, sysreturn, timerfd_close,
+                 unix_timer, ut,
+                 thread, t, io_completion, completion)
 {
     unix_timer ut = bound(ut);
     remove_unix_timer(ut);
@@ -262,7 +263,7 @@ closure_function(1, 0, sysreturn, timerfd_close,
     deallocate_closure(ut->f.close);
     release_fdesc(&ut->f);
     deallocate_unix_timer(ut);
-    return 0;
+    return io_complete(completion, t, 0);
 }
 
 sysreturn timerfd_create(int clockid, int flags)

@@ -950,8 +950,9 @@ closure_function(1, 1, u32, signalfd_events,
     return (get_all_pending_signals(t) & bound(sfd)->mask) ? EPOLLIN : 0;
 }
 
-closure_function(1, 0, sysreturn, signalfd_close,
-                 signal_fd, sfd)
+closure_function(1, 2, sysreturn, signalfd_close,
+                 signal_fd, sfd,
+                 thread, t, io_completion, completion)
 {
     signal_fd sfd = bound(sfd);
     deallocate_blockq(sfd->bq);
@@ -961,7 +962,7 @@ closure_function(1, 0, sysreturn, signalfd_close,
     deallocate_closure(sfd->f.close);
     release_fdesc(&sfd->f);
     deallocate(sfd->h, sfd, sizeof(struct signal_fd));
-    return 0;
+    return io_complete(completion, t, 0);
 }
 
 closure_function(1, 2, void, signalfd_notify,

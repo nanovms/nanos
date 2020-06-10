@@ -16,6 +16,7 @@
 sysreturn close(int fd);
 
 io_completion syscall_io_complete;
+io_completion io_completion_ignore;
 
 void register_other_syscalls(struct syscall *map)
 {
@@ -729,8 +730,9 @@ closure_function(2, 6, sysreturn, file_write,
     return bh ? SYSRETURN_CONTINUE_BLOCKING : file_op_maybe_sleep(t);
 }
 
-closure_function(2, 0, sysreturn, file_close,
-                 file, f, fsfile, fsf)
+closure_function(2, 2, sysreturn, file_close,
+                 file, f, fsfile, fsf,
+                 thread, t, io_completion, completion)
 {
     sysreturn ret = 0;
     file f = bound(f);
@@ -743,7 +745,7 @@ closure_function(2, 0, sysreturn, file_close,
         release_fdesc(&f->f);
         unix_cache_free(get_unix_heaps(), file, f);
     }
-    return 0;
+    return io_complete(completion, t, 0);
 }
 
 closure_function(1, 1, u32, file_events,
@@ -921,16 +923,17 @@ sysreturn dup2(int oldfd, int newfd)
     thread_log(current, "%s: oldfd %d, newfd %d", __func__, oldfd, newfd);
     fdesc f = resolve_fd(current->p, oldfd);
     if (newfd != oldfd) {
-        if (resolve_fd_noret(current->p, newfd)) {
-            /* The code below assumes that close() never blocks the calling
-             * thread. If there is a close() implementation that potentially
-             * blocks, this will need to be revisited. */
-            close(newfd);
-        }
-        int fd = allocate_fd_gte(current->p, newfd, f);
-        if (fd != newfd) {
-            thread_log(current, "failed to reuse newfd");
-            return -EMFILE;
+        fdesc newf = fdesc_get(current->p, newfd);
+        if (newf) {
+            vector_set(current->p->files, newfd, f);
+            if (fetch_and_add(&newf->refcnt, -2) == 2)
+                apply(newf->close, current, io_completion_ignore);
+        } else {
+            newfd = allocate_fd_gte(current->p, newfd, f);
+            if (newfd == INVALID_PHYSICAL) {
+                thread_log(current, "  failed to use newfd");
+                return -EMFILE;
+            }
         }
         fetch_and_add(&f->refcnt, 1);
     }
@@ -1899,7 +1902,7 @@ sysreturn close(int fd)
 
     if (fetch_and_add(&f->refcnt, -1) == 1) {
         if (f->close)
-            return apply(f->close);
+            return apply(f->close, current, syscall_io_complete);
         msg_err("no close handler for fd %d\n", fd);
     }
 
@@ -2298,6 +2301,11 @@ closure_function(0, 2, void, syscall_io_complete_cfn,
     file_op_maybe_wake(t);
 }
 
+closure_function(0, 2, void, io_complete_ignore,
+                 thread, t, sysreturn, rv)
+{
+}
+
 // some validation can be moved up here
 static void syscall_schedule(context f, u64 call)
 {
@@ -2319,6 +2327,7 @@ void init_syscalls()
     heap h = heap_general(get_kernel_heaps());
     syscall = syscall_schedule;
     syscall_io_complete = closure(h, syscall_io_complete_cfn);
+    io_completion_ignore = closure(h, io_complete_ignore);
 }
 
 void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *name)

@@ -177,11 +177,12 @@ closure_function(0, 6, sysreturn, dummy_read,
     return 0;
 }
 
-closure_function(1, 0, sysreturn, std_close,
-                 file, f)
+closure_function(1, 2, sysreturn, std_close,
+                 file, f,
+                 thread, t, io_completion, completion)
 {
     unix_cache_free(get_unix_heaps(), file, bound(f));
-    return 0;
+    return io_complete(completion, t, 0);
 }
 
 closure_function(0, 6, sysreturn, stdout,

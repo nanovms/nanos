@@ -243,8 +243,9 @@ closure_function(1, 2, sysreturn, unixsock_ioctl,
     return socket_ioctl(&s->sock, request, ap);
 }
 
-closure_function(1, 0, sysreturn, unixsock_close,
-                 unixsock, s)
+closure_function(1, 2, sysreturn, unixsock_close,
+                 unixsock, s,
+                 thread, t, io_completion, completion)
 {
     unixsock s = bound(s);
     if (s->peer) {
@@ -266,7 +267,7 @@ closure_function(1, 0, sysreturn, unixsock_close,
         buffer_clear(table_find(s->fs_entry, sym(socket)));
     }
     unixsock_dealloc(s);
-    return 0;
+    return io_complete(completion, t, 0);
 }
 
 static sysreturn unixsock_bind(struct sock *sock, struct sockaddr *addr,

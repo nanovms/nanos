@@ -203,13 +203,14 @@ void epoll_finish(epoll e)
     refcount_release(&e->refcount);
 }
 
-closure_function(1, 0, sysreturn, epoll_close,
-                 epoll, e)
+closure_function(1, 2, sysreturn, epoll_close,
+                 epoll, e,
+                 thread, t, io_completion, completion)
 {
     epoll e = bound(e);
     release_fdesc(&e->f);
     epoll_finish(e);
-    return 0;
+    return io_complete(completion, t, 0);
 }
 
 sysreturn epoll_create(int flags)

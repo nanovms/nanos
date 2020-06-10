@@ -762,8 +762,9 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
 
 #define SOCK_QUEUE_LEN 128
 
-closure_function(1, 0, sysreturn, socket_close,
-                 netsock, s)
+closure_function(1, 2, sysreturn, socket_close,
+                 netsock, s,
+                 thread, t, io_completion, completion)
 {
     netsock s = bound(s);
     net_debug("sock %d, type %d\n", s->sock.fd, s->sock.type);
@@ -791,7 +792,7 @@ closure_function(1, 0, sysreturn, socket_close,
     deallocate_closure(s->sock.f.ioctl);
     socket_deinit(&s->sock);
     unix_cache_free(s->p->uh, socket, s);
-    return 0;
+    return io_complete(completion, t, 0);
 }
 
 static sysreturn netsock_shutdown(struct sock *sock, int how)

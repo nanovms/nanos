@@ -130,11 +130,12 @@ static inline void pipe_dealloc_end(pipe p, pipe_file pf)
     }
 }
 
-closure_function(1, 0, sysreturn, pipe_close,
-                 pipe_file, pf)
+closure_function(1, 2, sysreturn, pipe_close,
+                 pipe_file, pf,
+                 thread, t, io_completion, completion)
 {
     pipe_dealloc_end(bound(pf)->pipe, bound(pf));
-    return 0;
+    return io_complete(completion, t, 0);
 }
 
 closure_function(5, 1, sysreturn, pipe_read_bh,
