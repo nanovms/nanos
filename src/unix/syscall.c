@@ -360,7 +360,9 @@ closure_function(5, 2, void, iov_op_each_complete,
     }
 
     /* If we're done, return the total length... */
-    if (p->curr == iovcnt) {
+    if ((p->curr == iovcnt) || ((rv == 0) && p->initialized) ||
+            ((p->total_len != 0) && f->events &&
+            !(apply(f->events, t) & (write ? EPOLLOUT : EPOLLIN)))) {
         rv = p->total_len;
         goto out_complete;
     }
