@@ -52,7 +52,7 @@ closure_function(1, 6, sysreturn, efd_read,
                  void *, buf, u64, length, u64, offset_arg, thread, t, boolean, bh, io_completion, completion)
 {
     if (length < sizeof(u64)) {
-        return -EINVAL;
+        return io_complete(completion, t, -EINVAL);
     }
 
     blockq_action ba = closure(bound(efd)->h, efd_read_bh, bound(efd), t, buf, length,
@@ -95,7 +95,7 @@ closure_function(1, 6, sysreturn, efd_write,
                  void *, buf, u64, length, u64, offset, thread, t, boolean, bh, io_completion, completion)
 {
     if (length < sizeof(u64)) {
-        return -EINVAL;
+        return io_complete(completion, t, -EINVAL);
     }
 
     blockq_action ba = closure(bound(efd)->h, efd_write_bh, bound(efd), t, buf, length,

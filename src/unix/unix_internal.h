@@ -135,6 +135,12 @@ typedef struct blockq * blockq;
 
 extern io_completion syscall_io_complete;
 
+static inline sysreturn io_complete(io_completion completion, thread t,
+                                    sysreturn rv) {
+    apply(completion, t, rv);
+    return rv;
+}
+
 blockq allocate_blockq(heap h, char * name);
 void deallocate_blockq(blockq bq);
 const char * blockq_name(blockq bq);

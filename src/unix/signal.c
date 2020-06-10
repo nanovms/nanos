@@ -937,8 +937,6 @@ closure_function(1, 6, sysreturn, signalfd_read,
                  signal_fd, sfd,
                  void *, buf, u64, length, u64, offset_arg, thread, t, boolean, bh, io_completion, completion)
 {
-    if (length < sizeof(struct signalfd_siginfo))
-        return 0;
     signal_fd sfd = bound(sfd);
     sig_debug("fd %d, buf %p, length %ld, tid %d, bh %d\n", sfd->fd, buf, length, t->tid, bh);
     blockq_action ba = closure(sfd->h, signalfd_read_bh, sfd, t, buf, length, completion);

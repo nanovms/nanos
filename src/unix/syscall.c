@@ -629,7 +629,7 @@ closure_function(2, 6, sysreturn, file_read,
         return spec_read(f, dest, length, offset, t, bh, completion);
     }
     if (offset >= f->length) {
-        return 0;
+        return io_complete(completion, t, 0);
     }
     begin_file_read(t, f);
     filesystem_read_linear(t->p->fs, f->n, dest, length, offset,

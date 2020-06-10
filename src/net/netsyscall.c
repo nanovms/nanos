@@ -515,7 +515,7 @@ closure_function(1, 6, sysreturn, socket_read,
     net_debug("sock %d, type %d, thread %ld, dest %p, length %ld, offset %ld\n",
 	      s->sock.fd, s->sock.type, t->tid, dest, length, offset);
     if (s->sock.type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN)
-        return -ENOTCONN;
+        return io_complete(completion, t, -ENOTCONN);
 
     blockq_action ba = closure(s->sock.h, sock_read_bh, s, t, dest, length, 0,
             0, completion);

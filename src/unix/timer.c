@@ -202,12 +202,6 @@ closure_function(5, 1, sysreturn, timerfd_read_bh,
     timer_debug("fd %d, dest %p, length %ld, tid %d, flags 0x%lx\n",
                 ut->info.timerfd.fd, bound(dest), bound(length), t->tid, flags);
 
-    if (bound(length) < sizeof(u64)) {
-        assert(!blocked);
-        rv = -EINVAL;
-        goto out;
-    }
-
     if (flags & BLOCKQ_ACTION_NULLIFY) {
         assert(blocked);
         rv = -EINTR;
@@ -241,8 +235,8 @@ closure_function(1, 6, sysreturn, timerfd_read,
                  unix_timer, ut,
                  void *, dest, u64, length, u64, offset_arg, thread, t, boolean, bh, io_completion, completion)
 {
-    if (length == 0)
-        return 0;
+    if (length < sizeof(u64))
+        return io_complete(completion, t, -EINVAL);
     unix_timer ut = bound(ut);
     timer_debug("fd %d, dest %p, length %ld, tid %d, bh %d, completion %p\n", ut->info.timerfd.fd,
                 dest, length, t->tid, bh, completion);
