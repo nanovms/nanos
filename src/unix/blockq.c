@@ -261,7 +261,8 @@ sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_
 
     blockq_debug("queuing bi %p, a %p, tid %d\n", bi, bi->a, bi->t->tid);
     list_insert_before(&bq->waiters_head, &bi->l);
-    t->blocked_on = bq;
+    if (!in_bh)
+        t->blocked_on = bq;
 
     /* XXX release spinlock */
 
