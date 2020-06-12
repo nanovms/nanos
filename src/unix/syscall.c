@@ -39,8 +39,8 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, link, 0);
     register_syscall(map, chmod, syscall_ignore);
     register_syscall(map, fchmod, syscall_ignore);
-    register_syscall(map, fchown, 0);
-    register_syscall(map, lchown, 0);
+    register_syscall(map, fchown, syscall_ignore);
+    register_syscall(map, lchown, syscall_ignore);
     register_syscall(map, ptrace, 0);
     register_syscall(map, syslog, 0);
     register_syscall(map, getgid, syscall_ignore);
@@ -153,7 +153,7 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, inotify_rm_watch, 0);
     register_syscall(map, migrate_pages, 0);
     register_syscall(map, mknodat, 0);
-    register_syscall(map, fchownat, 0);
+    register_syscall(map, fchownat, syscall_ignore);
     register_syscall(map, futimesat, 0);
     register_syscall(map, linkat, 0);
     register_syscall(map, fchmodat, syscall_ignore);
