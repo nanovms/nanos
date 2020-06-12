@@ -11,6 +11,12 @@
 #include <string.h>
 #include <limits.h>
 
+#define DUMP_OPT_TREE  (1U << 0)
+
+#define TERM_COLOR_BLUE     94
+#define TERM_COLOR_CYAN     96
+#define TERM_COLOR_WHITE    97
+
 closure_function(1, 3, void, bwrite,
                  descriptor, d,
                  void *, s, range, blocks, status_handler, c)
@@ -78,8 +84,36 @@ void readdir(filesystem fs, heap h, tuple w, buffer path)
     }
 }
 
-closure_function(3, 2, void, fsc,
-                 heap, h, buffer, b, tuple, root,
+static void print_colored(int indent, int color, symbol s, boolean newline)
+{
+    while (indent--)
+        console("|   ");
+    buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
+    printf("\e[%dm%s\e[%dm%s", color, cstring(symbol_string(s), tmpbuf),
+           TERM_COLOR_WHITE, newline ? "\n" : "");
+}
+
+static void dump_fsentry(int indent, symbol name, tuple t)
+{
+    table c;
+    buffer target_buf;
+    if ((c = children(t))) {
+        print_colored(indent, TERM_COLOR_BLUE, name, true);
+        table_foreach((tuple)c, k, vc) {
+            if (k == sym_this(".") || k == sym_this(".."))
+                continue;
+            dump_fsentry(indent + 1, (symbol)k, (tuple)vc);
+        }
+    } else if ((target_buf = table_find(t, sym(linktarget)))) {
+        buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
+        print_colored(indent, TERM_COLOR_CYAN, name, false);
+        printf(" -> %s\n", cstring(target_buf, tmpbuf));
+    } else
+        print_colored(indent, TERM_COLOR_WHITE, name, true);
+}
+
+closure_function(4, 2, void, fsc,
+                 heap, h, buffer, b, tuple, root, unsigned int, options,
                  filesystem, fs, status, s)
 {
     heap h = bound(h);
@@ -89,13 +123,22 @@ closure_function(3, 2, void, fsc,
         exit(EXIT_FAILURE);
     }
 
+    tuple root = bound(root);
     buffer rb = allocate_buffer(h, PAGESIZE);
-    print_root(rb, bound(root));
+    print_root(rb, root);
     buffer_print(rb);
     rprintf("\n");
     deallocate_buffer(rb);
 
-    readdir(fs, h, bound(root), bound(b));
+    buffer b = bound(b);
+    if (b)
+        readdir(fs, h, root, b);
+
+    unsigned int options = bound(options);
+    if (options & DUMP_OPT_TREE)
+        dump_fsentry(0, sym_this("/"), root);
+
+    closure_finish();
 }
 
 static u64 get_fs_offset(descriptor fd)
@@ -123,18 +166,43 @@ static u64 get_fs_offset(descriptor fd)
     return fs_offset;
 }
 
+static void usage(const char *prog)
+{
+    const char *p = strrchr(prog, '/');
+    p = p != NULL ? p + 1 : prog;
+    fprintf(stderr, "Usage: %s [OPTION]... <fs image>\n", p);
+    fprintf(stderr, "Options:\n");
+    fprintf(stderr, "  -d <target dir>\tCopy filesystem contents from "
+            "<fs image> into <target dir>\n");
+    fprintf(stderr, "  -t\t\t\tDisplay filesystem from <fs image> as a tree\n");
+    exit(EXIT_FAILURE);
+}
+
 int main(int argc, char **argv)
 {
-    if (argc < 3) {
-        const char *p = strrchr(argv[0], '/');
-	p = p != NULL ? p + 1 : argv[0];
-        fprintf(stderr, "usage: %s <fs image> <target dir>\n", p);
-        exit(EXIT_FAILURE);
-    }
+    buffer target_dir = NULL;
+    int c;
+    unsigned int options = 0;
 
-    int fd = open(argv[1], O_RDONLY);
+    while ((c = getopt(argc, argv, "d:t")) != EOF) {
+        switch (c) {
+        case 'd':
+            target_dir = alloca_wrap_buffer(optarg, runtime_strlen(optarg));
+            break;
+        case 't':
+            options |= DUMP_OPT_TREE;
+            break;
+        default:
+            usage(argv[0]);
+        }
+    }
+    if (optind == argc)
+        usage(argv[0]);
+
+    int fd = open(argv[optind], O_RDONLY);
     if (fd < 0) {
-        fprintf(stderr, "couldn't open file %s: %s\n", argv[1], strerror(errno));
+        fprintf(stderr, "couldn't open file %s: %s\n", argv[optind],
+            strerror(errno));
         exit(EXIT_FAILURE);
     }
 
@@ -150,6 +218,6 @@ int main(int argc, char **argv)
                       0, /* no sync */
                       root,
                       false,
-                      closure(h, fsc, h, alloca_wrap_buffer(argv[2], runtime_strlen(argv[2])), root));
+                      closure(h, fsc, h, target_dir, root, options));
     return EXIT_SUCCESS;
 }
