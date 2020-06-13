@@ -12,11 +12,13 @@ static inline void *vector_get(vector v, int offset)
     return res;
 }
 
-static inline void vector_set(vector v, int offset, void *value)
+static inline boolean vector_set(vector v, int offset, void *value)
 {
     bytes base = v->start + offset * sizeof(void *);
-    extend_total(v, (offset + 1) *sizeof(void *));
+    if (!extend_total(v, (offset + 1) * sizeof(void *)))
+        return false;
     runtime_memcpy(v->contents + base, &value, sizeof(void *));
+    return true;
 }
 
 static inline int vector_length(vector v)

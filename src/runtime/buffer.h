@@ -82,25 +82,28 @@ static inline bytes buffer_set_capacity(buffer b, bytes len)
     return len;
 }
 
-static inline void buffer_extend(buffer b, bytes len)
+static inline boolean buffer_extend(buffer b, bytes len)
 {
     // xxx - pad to pagesize
     if (b->length < (b->end + len)) {
         bytes new_len = 2 * (b->end - b->start + len);
-        assert(buffer_set_capacity(b, new_len) == new_len);
+        return (buffer_set_capacity(b, new_len) == new_len);
     }
+    return true;
 }
 
-static inline void extend_total(buffer b, int offset)
+static inline boolean extend_total(buffer b, int offset)
 {
     if (offset > b->end) {
-        buffer_extend(b, offset - b->end);
+        if (!buffer_extend(b, offset - b->end))
+            return false;
         // shouldn't need to in all cases - this is to preserve
         // the idea of the vector as a mapping - we need a reliable
         // sigleton to denote an empty slot
         zero(b->contents + b->end, offset - b->end);
         b->end = offset;
     }
+    return true;
 }
 
 static inline buffer wrap_buffer(heap h,

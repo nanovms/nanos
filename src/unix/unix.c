@@ -17,7 +17,10 @@ u64 allocate_fd(process p, void *f)
 	msg_err("fail; maxed out\n");
 	return fd;
     }
-    vector_set(p->files, fd, f);
+    if (!vector_set(p->files, fd, f)) {
+        deallocate_u64((heap)p->fdallocator, fd, 1);
+        fd = INVALID_PHYSICAL;
+    }
     return fd;
 }
 
