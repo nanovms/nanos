@@ -81,9 +81,14 @@ struct blockq {
     sysreturn completion_rv;
 };
 
+declare_closure_struct(2, 1, void, blockq_item_timeout,
+    blockq, bq, struct blockq_item *, bi,
+    u64, overruns);
+
 typedef struct blockq_item {
     thread t;           /* waiting thread */
     timer timeout;      /* timer for this item (could be zero) */
+    closure_struct(blockq_item_timeout, timeout_func);
     blockq_action a;    /* action to test for resource avail. */
     struct list l;      /* embedding on blockq->waiters_head */
 } *blockq_item;
@@ -143,7 +148,7 @@ static void blockq_apply_bi_locked(blockq bq, blockq_item bi, u64 flags)
  * Invoke its action and remove it from the list of waiters,
  * if applicable
  */
-closure_function(2, 1, void, blockq_item_timeout,
+define_closure_function(2, 1, void, blockq_item_timeout,
                  blockq, bq, blockq_item, bi,
                  u64, overruns /* ignored */)
 {
@@ -158,7 +163,6 @@ closure_function(2, 1, void, blockq_item_timeout,
     /* XXX take irqsafe spinlock */
     blockq_apply_bi_locked(bq, bi, BLOCKQ_ACTION_BLOCKED | BLOCKQ_ACTION_TIMEDOUT);
     /* XXX release lock */
-    closure_finish();
 }
 
 /*
@@ -245,7 +249,7 @@ sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_
 
     if (timeout > 0) {
         bi->timeout = register_timer(runloop_timers, clkid, timeout, absolute, 0,
-                                     closure(bq->h, blockq_item_timeout, bq, bi));
+            init_closure(&bi->timeout_func, blockq_item_timeout, bq, bi));
         if (bi->timeout == INVALID_ADDRESS) {
             msg_err("failed to allocate blockq timer\n");
             deallocate(bq->h, bi, sizeof(struct blockq_item));
@@ -325,7 +329,8 @@ int blockq_transfer_waiters(blockq dest, blockq src, int n)
             remove_timer(bi->timeout, &remain);
             bi->timeout = remain == 0 ? 0 :
                 register_timer(runloop_timers, CLOCK_ID_MONOTONIC, remain, false, 0,
-                               closure(dest->h, blockq_item_timeout, dest, bi));
+                    init_closure(&bi->timeout_func, blockq_item_timeout, dest,
+                        bi));
             assert(t);
             deallocate_closure(t);
         }
