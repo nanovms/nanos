@@ -23,7 +23,13 @@ id_heap allocate_id_heap(heap meta, heap map, bytes pagesize); /* id heap with n
 #define id_heap_set_randomize(__h, __r) ((__h)->set_randomize(__h, __r))
 #define id_heap_alloc_subrange(__h, __c, __s, __e) ((__h)->alloc_subrange(__h, __c, __s, __e))
 
+/* Provides a hint as to what id should be allocated next. */
+void id_heap_set_next(id_heap h, u64 next);
+
+/* If count == 1, the return value is guaranteed to be the lowest-numbered
+ * non-allocated id starting from min. */
 static inline u64 id_heap_alloc_gte(id_heap h, bytes count, u64 min)
 {
+    id_heap_set_next(h, min);
     return id_heap_alloc_subrange(h, count, min, infinity);
 }

@@ -341,3 +341,14 @@ id_heap create_id_heap_backed(heap meta, heap map, heap parent, bytes pagesize)
     }
     return i;
 }
+
+void id_heap_set_next(id_heap h, u64 next)
+{
+    rangemap_foreach(h->ranges, n) {
+        id_range r = (id_range)n;
+        if (point_in_range(r->n.r, next))
+            r->next_bit = next;
+        else if (r->n.r.start > next)
+            r->next_bit = 0;
+    }
+}
