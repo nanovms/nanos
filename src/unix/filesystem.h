@@ -41,9 +41,14 @@ static inline symbol lookup_sym(tuple parent, tuple t)
     return false;
 }
 
+static inline char *path_find_last_delim(const char *path, unsigned int len)
+{
+    return (char *)utf8_findn_r((u8 *)path, len, '/');
+}
+
 static inline const char *filename_from_path(const char *path)
 {
-    const char *filename = (char *) utf8_find_r((u8 *) path, '/');
+    const char *filename = path_find_last_delim(path, PATH_MAX);
     if (!filename) {
         filename = path;
     } else {

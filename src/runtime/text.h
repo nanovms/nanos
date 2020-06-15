@@ -146,14 +146,17 @@ static inline const u8 *utf8_find(const u8 *x, character c)
     return false;
 }
 
-static inline const u8 *utf8_find_r(const u8 *x, character c)
+static inline const u8 *utf8_findn_r(const u8 *x, bytes n, character c)
 {
+    if (!x)
+        return false;
     int nbytes;
+    bytes offset = 0;
     const u8 *found = false;
 
-    while (x && *x) {
-        if (utf8_decode(x, &nbytes) == c) found = x;
-        x += nbytes;
+    while ((offset < n) && *(x + offset)) {
+        if (utf8_decode(x + offset, &nbytes) == c) found = x + offset;
+        offset += nbytes;
     }
     return found;
 }
