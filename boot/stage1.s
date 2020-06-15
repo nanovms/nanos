@@ -8,6 +8,11 @@ init:
 	bits 16
 	org base
 
+        ;; serial setup
+	mov ax, 0x00e3  	; AH = 0, AL = 9600 baud, 8N1
+	xor dx, dx
+	int 0x14
+
 	;; set up our data segments
 	xor ax, ax
 	mov ds, ax
@@ -15,11 +20,6 @@ init:
 
 	;; setting a20 allows us to address all of 'extended' memory
 	call seta20
-
-        ;;  serial setup?
-	mov ax, 0x00e3  	; AH = 0, AL = 9600 baud, 8N1
-	xor dx, dx
-	int 0x14
 
         ;;;  disable 8259
         mov al, 0xff
