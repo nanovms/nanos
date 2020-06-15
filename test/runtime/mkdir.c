@@ -77,6 +77,8 @@ void _mkdir(const char *path, int m)
     int dfd = open(path, O_RDONLY | O_DIRECTORY);
     if (dfd == -1) {
         printf("dfd = %d, for %s, errno = %d\n", dfd, path, errno);
+        if (!r) /* couldn't open the directory after having created it */
+            exit(EXIT_FAILURE);
     } else {
         close(dfd);
         printf("ok\n");
@@ -274,6 +276,7 @@ int main(int argc, char **argv)
     }
 
     _mkdir("/test", 0); check("/test");
+    _mkdir("/test_slash/", 0);
     _mkdir("/blurb/test/deep", 0);
     _mkdir("/test/subdir", 0); check("/test/subdir");
     _mkdir("/test/subdira", 0); check("/test/subdira");

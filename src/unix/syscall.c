@@ -969,9 +969,12 @@ static sysreturn mkdir_internal(tuple cwd, const char *pathname, int mode)
     if ((ret != -ENOENT) || !parent) {
         return set_syscall_return(current, ret);
     }
+    buffer b = little_stack_buffer(NAME_MAX + 1);
+    if (!dirname_from_path(b, pathname))
+        return -ENAMETOOLONG;
     filesystem_update_mtime(current->p->fs, parent);
     file_op_begin(current);
-    filesystem_mkdir(current->p->fs, parent, filename_from_path(pathname),
+    filesystem_mkdir(current->p->fs, parent, (char *)buffer_ref(b, 0),
             closure(heap_general(get_kernel_heaps()), mkdir_complete, current));
     return file_op_maybe_sleep(current);
 }
