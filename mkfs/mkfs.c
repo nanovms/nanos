@@ -12,6 +12,7 @@
 #include <limits.h>
 
 #include <region.h>
+#include <storage.h>
 
 static buffer read_stdin(heap h)
 {
@@ -221,35 +222,6 @@ closure_function(3, 2, void, fsc,
     }
 }
 
-struct partition_entry {
-    u8 active;
-    u8 chs_start[3];
-    u8 type;
-    u8 chs_end[3];
-    u32 lba_start;
-    u32 nsectors;
-} __attribute__((packed));
-
-#define SEC_PER_TRACK 63
-#define HEADS 255
-#define MAX_CYL 1023
-
-static void mbr_chs(u8 *chs, u64 offset)
-{
-    u64 cyl = ((offset / SECTOR_SIZE) / SEC_PER_TRACK) / HEADS;
-    u64 head = ((offset / SECTOR_SIZE) / SEC_PER_TRACK) % HEADS;
-    u64 sec = ((offset / SECTOR_SIZE) % SEC_PER_TRACK) + 1;
-    if (cyl > MAX_CYL) {
-        cyl = MAX_CYL;
-	head = 254;
-	sec = 63;
-    }
-
-    chs[0] = head;
-    chs[1] = (cyl >> 8) | sec;
-    chs[2] = cyl & 0xff;
-}
-
 static void write_mbr(descriptor f)
 {
     // get resulting size
@@ -281,14 +253,7 @@ static void write_mbr(descriptor f)
     u64 fs_offset = SECTOR_SIZE + r->length;
     assert(fs_offset % SECTOR_SIZE == 0);
     assert(total_size > fs_offset);
-
-    // create partition entry
-    e->active = 0x80;      // active, bootable
-    e->type = 0x83;        // any Linux filesystem
-    mbr_chs(e->chs_start, fs_offset);
-    mbr_chs(e->chs_end, total_size - SECTOR_SIZE);
-    e->lba_start = fs_offset / SECTOR_SIZE;
-    e->nsectors = (total_size - fs_offset) / SECTOR_SIZE;
+    partition_write(e, true, 0x83, fs_offset, total_size - fs_offset);
 
     // write MBR
     res = pwrite(f, buf, sizeof(buf), 0);
