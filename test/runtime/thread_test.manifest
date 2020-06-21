@@ -1,5 +1,10 @@
 (
-    children:(kernel:(contents:(host:output/stage3/bin/stage3.img))
+    boot:(
+        children:(
+            kernel:(contents:(host:output/stage3/bin/stage3.img))
+        )
+    )
+    children:(
 	      tt:(contents:(host:output/test/runtime/bin/thread_test)))
     program:/tt
     arguments:[thread_test]

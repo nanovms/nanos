@@ -1,5 +1,7 @@
 #include <predef.h>
 
+#define BOOTFS_SIZE (8 * MB)
+
 #define KMEM_BASE   0xffff800000000000ull
 #define KERNEL_BASE 0xffffffff80000000ull
 #define KMEM_LIMIT  0xffffffff00000000ull

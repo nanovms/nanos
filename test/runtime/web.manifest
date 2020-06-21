@@ -1,6 +1,10 @@
 (
+    boot:(
+        children:(
+            kernel:(contents:(host:output/stage3/bin/stage3.img))
+        )
+    )
     children:(
-        kernel:(contents:(host:output/stage3/bin/stage3.img))
         web:(contents:(host:output/test/runtime/bin/web))
 	etc:(children:(
             ld.so.cache:(contents:(host:/etc/ld.so.cache))

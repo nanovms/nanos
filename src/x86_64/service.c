@@ -7,6 +7,7 @@
 #include <apic.h>
 #include <region.h>
 #include <page.h>
+#include <storage.h>
 #include <symtab.h>
 #include <virtio/virtio.h>
 #include <vmware/vmxnet3.h>
@@ -407,13 +408,11 @@ static void __attribute__((noinline)) init_service_new_stack()
 
     init_debug("probe fs, register storage drivers");
     root = allocate_tuple();
-    u64 fs_offset = 0;
-    for_regions(e) {
-        if (e->type == REGION_FILESYSTEM)
-            fs_offset = SECTOR_SIZE + e->length;
-    }
-    if (fs_offset == 0)
-        halt("filesystem region not found; halt\n");
+    struct partition_entry *rootfs_part = partition_get(MBR_ADDRESS,
+        PARTITION_ROOTFS);
+    if (!rootfs_part)
+        halt("filesystem partition not found; halt\n");
+    u64 fs_offset = rootfs_part->lba_start * SECTOR_SIZE;
     init_storage(kh, closure(misc, attach_storage, root, fs_offset));
 
     /* Probe for PV devices */

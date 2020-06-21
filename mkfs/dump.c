@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <tfs.h>
+#include <storage.h>
 #include <errno.h>
 #include <string.h>
 #include <limits.h>
@@ -153,15 +154,15 @@ static u64 get_fs_offset(descriptor fd)
 
     // last two bytes should be MBR signature
     u16 *mbr_sig = (u16 *) (buf + sizeof(buf) - sizeof(*mbr_sig));
-    // FS region comes right before MBR partitions (see boot/stage1.s)
-    region r = (region) ((char *) mbr_sig - (4 * 16) - sizeof(*r));
+    struct partition_entry *rootfs_part = partition_get(buf, PARTITION_ROOTFS);
 
-    if (*mbr_sig != 0xaa55 || r->type != REGION_FILESYSTEM) {
+    if (*mbr_sig != 0xaa55 || rootfs_part->lba_start == 0 ||
+            rootfs_part->nsectors == 0) {
         // probably raw filesystem
         return 0;
     }
 
-    u64 fs_offset = SECTOR_SIZE + r->length;
+    u64 fs_offset = rootfs_part->lba_start * SECTOR_SIZE;
     rprintf("detected filesystem at 0x%lx\n", fs_offset);
     return fs_offset;
 }

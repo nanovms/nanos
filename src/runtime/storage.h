@@ -8,6 +8,7 @@ struct partition_entry {
 } __attribute__((packed));
 
 enum partition {
+    PARTITION_BOOTFS,
     PARTITION_ROOTFS,
 };
 

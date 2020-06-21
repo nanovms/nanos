@@ -191,10 +191,21 @@ static value translate(heap h, vector worklist,
 
 extern heap init_process_runtime();
 
-closure_function(3, 2, void, fsc,
-                 heap, h, descriptor, out, const char *, target_root,
+static io_status_handler mkfs_write_status;
+closure_function(0, 2, void, mkfs_write_handler,
+                 status, s, bytes, length)
+{
+    if (!is_ok(s)) {
+        rprintf("write failed with %v\n", s);
+        exit(1);
+    }
+}
+
+closure_function(4, 2, void, fsc,
+                 heap, h, descriptor, out, tuple, root, const char *, target_root,
                  filesystem, fs, status, s)
 {
+    tuple root = bound(root);
     if (!root)
         exit(1);
 
@@ -216,7 +227,7 @@ closure_function(3, 2, void, fsc,
         buffer contents = get_file_contents(h, bound(target_root), vector_get(i, 1));
         if (contents) {
             allocate_fsfile(fs, f);
-            filesystem_write(fs, f, contents, 0, ignore_io_status);
+            filesystem_write(fs, f, contents, 0, mkfs_write_status);
             deallocate_buffer(contents);
         }
     }
@@ -252,8 +263,14 @@ static void write_mbr(descriptor f)
         halt("invalid boot record (missing filesystem region) \n");
     u64 fs_offset = SECTOR_SIZE + r->length;
     assert(fs_offset % SECTOR_SIZE == 0);
+    u64 fs_size = BOOTFS_SIZE;
+    partition_write(&e[PARTITION_BOOTFS], true, 0x83, fs_offset, fs_size);
+
+    /* Root filesystem */
+    fs_offset += fs_size;
     assert(total_size > fs_offset);
-    partition_write(e, true, 0x83, fs_offset, total_size - fs_offset);
+    partition_write(&e[PARTITION_ROOTFS], true, 0x83, fs_offset,
+                    total_size - fs_offset);
 
     // write MBR
     res = pwrite(f, buf, sizeof(buf), 0);
@@ -376,6 +393,8 @@ int main(int argc, char **argv)
     // this can be streaming
     parser_feed (p, read_stdin(h));
 
+    mkfs_write_status = closure(h, mkfs_write_handler);
+
     if (root) {
         value v = table_find(root, sym(imagesize));
         if (v && tagof(v) != tag_tuple) {
@@ -387,6 +406,30 @@ int main(int argc, char **argv)
             }
             deallocate_buffer((buffer)v);
         }
+
+        tuple boot = table_find(root, sym(boot));
+        if (!boot) {
+            /* Look for kernel file in root filesystem, for backward
+             * compatibility. */
+            tuple c = children(root);
+            assert(c);
+            tuple kernel = table_find(c, sym(kernel));
+            if (kernel) {
+                boot = allocate_tuple();
+                c = allocate_tuple();
+                table_set(boot, sym(children), c);
+                table_set(c, sym(kernel), kernel);
+            }
+        }
+        if (!boot)
+            halt("boot FS not found\n");
+        create_filesystem(h, SECTOR_SIZE, SECTOR_SIZE, BOOTFS_SIZE, h, 0,
+                          closure(h, bwrite, out, offset), 0, allocate_tuple(),
+                          true, closure(h, fsc, h, out, boot, target_root));
+        offset += BOOTFS_SIZE;
+
+        /* Remove tuple from root, so it doesn't end up in the root FS. */
+        table_set(root, sym(boot), 0);
     }
 
     create_filesystem(h,
@@ -399,7 +442,7 @@ int main(int argc, char **argv)
                       0, /* no write sync */
                       allocate_tuple(),
                       true,
-                      closure(h, fsc, h, out, target_root));
+                      closure(h, fsc, h, out, root, target_root));
 
     if (img_size > 0) {
         off_t current_size = lseek(out, 0, SEEK_END);

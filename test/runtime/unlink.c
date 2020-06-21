@@ -102,7 +102,7 @@ int main(int argc, char **argv)
         printf("non-existing directory rmdir test failed\n");
         return EXIT_FAILURE;
     }
-    if ((rmdir("/kernel") == 0) || (errno != ENOTDIR)) {
+    if ((rmdir("/unlink") == 0) || (errno != ENOTDIR)) {
         printf("file rmdir test failed\n");
         return EXIT_FAILURE;
     }

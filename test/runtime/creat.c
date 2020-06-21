@@ -58,7 +58,7 @@ void check(const char *path, int expect)
 
 int main(int argc, char **argv)
 {
-    check("/kernel", 0);
+    check("/creat", 0);
     _creat("/test", 0, 0);
     check("/test", 0);
     _creat("/blurb/test/deep", 0, ENOENT);

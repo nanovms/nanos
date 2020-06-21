@@ -1,6 +1,11 @@
 (
     #64 bit elf to boot from host
-    children:(kernel:(contents:(host:output/stage3/bin/stage3.img))
+    boot:(
+        children:(
+            kernel:(contents:(host:output/stage3/bin/stage3.img))
+        )
+    )
+    children:(
               #user program
 	      aio:(contents:(host:output/test/runtime/bin/aio))
 	      )

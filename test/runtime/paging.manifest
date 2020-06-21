@@ -1,6 +1,10 @@
 (
+    boot:(
+        children:(
+            kernel:(contents:(host:output/stage3/bin/stage3.img))
+        )
+    )
     children:(
-        kernel:(contents:(host:output/stage3/bin/stage3.img))
         paging:(contents:(host:output/test/runtime/bin/paging))
     )
     program:/paging

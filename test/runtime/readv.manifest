@@ -1,6 +1,10 @@
 (
+    boot:(
+        children:(
+            kernel:(contents:(host:output/stage3/bin/stage3.img))
+        )
+    )
     children:(
-              kernel:(contents:(host:output/stage3/bin/stage3.img))
               readv:(contents:(host:output/test/runtime/bin/readv))
               hello:(contents:(host:test/runtime/read_contents/hello))
 	      )

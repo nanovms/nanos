@@ -1,7 +1,11 @@
 (
     #64 bit elf to boot from host
+    boot:(
+        children:(
+            kernel:(contents:(host:output/stage3/bin/stage3.img))
+        )
+    )
     children:(
-	kernel:(contents:(host:output/stage3/bin/stage3.img))
         ftrace:(contents:(host:output/test/runtime/bin/ftrace))
 	infile:(contents:(host:test/runtime/read_contents/hello))
     )
