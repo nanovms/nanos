@@ -1,6 +1,4 @@
 #include <kernel.h>
-#include <tfs.h> // needed for unix.h
-#include <unix.h> // some deps
 #include <apic.h>
 
 
@@ -160,8 +158,9 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
 
     if ((t = dequeue(thread_queue)) != INVALID_ADDRESS)
         run_thunk(t, cpu_user);
-    if (ci->current_thread)
-        thread_pause(ci->current_thread);
+// XXX redo with frame pause
+//    if (ci->current_thread)
+//        thread_pause(ci->current_thread);
 
     kernel_sleep();
 }    

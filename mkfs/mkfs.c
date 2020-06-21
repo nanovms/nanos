@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <sys/mman.h>
+#include <pagecache.h>
 #include <tfs.h>
 #include <dirent.h>
 #include <errno.h>
@@ -226,8 +227,9 @@ closure_function(4, 2, void, fsc,
         tuple f = vector_get(i, 0);        
         buffer contents = get_file_contents(h, bound(target_root), vector_get(i, 1));
         if (contents) {
-            allocate_fsfile(fs, f);
-            filesystem_write(fs, f, contents, 0, mkfs_write_status);
+            fsfile fsf = allocate_fsfile(fs, f);
+            filesystem_write_linear(fsf, buffer_ref(contents, 0), irangel(0, buffer_length(contents)),
+                                    mkfs_write_status);
             deallocate_buffer(contents);
         }
     }
@@ -389,6 +391,11 @@ int main(int argc, char **argv)
         }
     }
 
+    if (offset >= (1 << 16)) {
+        halt("boot image size (%d) exceeds 64KB; either trim stage2 or "
+             "update readsectors in stage1\n", offset);
+    }
+
     parser p = tuple_parser(h, closure(h, finish, h), closure(h, perr));
     // this can be streaming
     parser_feed (p, read_stdin(h));
@@ -432,6 +439,8 @@ int main(int argc, char **argv)
         table_set(root, sym(boot), 0);
     }
 
+    pagecache pc = allocate_pagecache(h, h, PAGESIZE);
+    assert(pc != INVALID_ADDRESS);
     create_filesystem(h,
                       SECTOR_SIZE,
                       SECTOR_SIZE,
@@ -439,7 +448,7 @@ int main(int argc, char **argv)
                       h,
                       0, /* no read -> new fs */
                       closure(h, bwrite, out, offset),
-                      0, /* no write sync */
+                      pc,
                       allocate_tuple(),
                       true,
                       closure(h, fsc, h, out, root, target_root));

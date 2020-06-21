@@ -559,12 +559,12 @@ closure_function(9, 2, void, sendfile_bh,
             *bound(offset) += rv;
         bound(cur_buf) = sg_list_head_remove(bound(sg)); /* initial dequeue */
         assert(bound(cur_buf) != INVALID_ADDRESS);
-        bound(cur_buf)->misc = 0; /* offset for our use */
+        bound(cur_buf)->offset = 0; /* offset for our use */
         thread_log(t, "   read %ld bytes\n", rv);
     } else {
         bound(written) += rv;
-        bound(cur_buf)->misc += rv;
-        if (bound(cur_buf)->misc == bound(cur_buf)->length) {
+        bound(cur_buf)->offset += rv;
+        if (bound(cur_buf)->offset == bound(cur_buf)->size) {
             sg_buf_release(bound(cur_buf));
             if (bound(written) == bound(readlen)) {
                 rv = bound(written);
@@ -572,15 +572,15 @@ closure_function(9, 2, void, sendfile_bh,
             }
             bound(cur_buf) = sg_list_head_remove(bound(sg));
             assert(bound(cur_buf) != INVALID_ADDRESS);
-            bound(cur_buf)->misc = 0; /* offset for our use */
+            bound(cur_buf)->offset = 0; /* offset for our use */
         }
-        assert(bound(cur_buf)->misc < bound(cur_buf)->length);
+        assert(bound(cur_buf)->offset < bound(cur_buf)->size);
     }
 
     /* issue next write */
     assert(bound(cur_buf));
-    void *buf = bound(cur_buf)->buf + bound(cur_buf)->misc;
-    u32 n = bound(cur_buf)->length - bound(cur_buf)->misc;
+    void *buf = bound(cur_buf)->buf + bound(cur_buf)->offset;
+    u32 n = bound(cur_buf)->size - bound(cur_buf)->offset;
     thread_log(t, "   writing %d bytes from %p", rv, n, buf);
     apply(bound(out)->write, buf, n, 0, t, true, (io_completion)closure_self());
     return;
@@ -651,7 +651,7 @@ closure_function(2, 6, sysreturn, file_read,
         return io_complete(completion, t, 0);
     }
     begin_file_read(t, f);
-    filesystem_read_linear(t->p->fs, fsf, dest, length, offset,
+    filesystem_read_linear(fsf, dest, irangel(offset, length),
                            closure(heap_general(get_kernel_heaps()),
                                    file_op_complete, t, f, fsf, is_file_offset,
                                    completion));
@@ -680,7 +680,7 @@ closure_function(2, 6, sysreturn, file_sg_read,
     }
 
     begin_file_read(t, f);
-    filesystem_read_sg(t->p->fs, fsf, sg, length, offset,
+    filesystem_read_sg(fsf, sg, irangel(offset, length),
                        closure(heap_general(get_kernel_heaps()),
                                file_op_complete_sg, t, f, fsf, sg, is_file_offset,
                                completion));
@@ -723,7 +723,9 @@ closure_function(2, 6, sysreturn, file_write,
        block rmw in the extent write (prob just break it up into
        aligned and unaligned portions, copying aligned data straight
        to dma buffer and stashing unaligned portions to be copied post
-       block read) */
+       block read)
+
+       can fix now */
 
     /* copy from userspace, XXX: check pointer safety */
     runtime_memset(buf, 0, final_length);
@@ -733,16 +735,16 @@ closure_function(2, 6, sysreturn, file_write,
         return spec_write(f, buf, length, offset, t, bh, completion);
     }
 
-    buffer b = wrap_buffer(h, buf, final_length);
-    thread_log(t, "%s: b_ref: %p", __func__, buffer_ref(b, 0));
+    thread_log(t, "%s: buf %p", __func__, buf);
 
     if (final_length > 0) {
         filesystem_update_mtime(t->p->fs, file_get_meta(f));
     }
     file_op_begin(t);
-    filesystem_write(t->p->fs, fsf, b, offset,
-                     closure(h, file_op_complete, t, f, fsf, is_file_offset,
-                     completion));
+    rprintf("WWW offset %ld, final_length %ld\n", offset, final_length);
+    filesystem_write_linear(fsf, buf, irangel(offset, final_length),
+                            closure(h, file_op_complete, t, f, fsf, is_file_offset,
+                                    completion));
 
     /* possible direct return in top half */
     return bh ? SYSRETURN_CONTINUE_BLOCKING : file_op_maybe_sleep(t);

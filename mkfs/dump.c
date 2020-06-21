@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <pagecache.h>
 #include <tfs.h>
 #include <storage.h>
 #include <errno.h>
@@ -17,13 +18,6 @@
 #define TERM_COLOR_BLUE     94
 #define TERM_COLOR_CYAN     96
 #define TERM_COLOR_WHITE    97
-
-closure_function(1, 3, void, bwrite,
-                 descriptor, d,
-                 void *, s, range, blocks, status_handler, c)
-{
-
-}
 
 closure_function(2, 3, void, bread,
                  descriptor, d, u64, fs_offset,
@@ -209,14 +203,16 @@ int main(int argc, char **argv)
 
     heap h = init_process_runtime();
     tuple root = allocate_tuple();
+    pagecache pc = allocate_pagecache(h, h, PAGESIZE);
+    assert(pc != INVALID_ADDRESS);
     create_filesystem(h,
                       SECTOR_SIZE,
                       SECTOR_SIZE,
                       infinity,
                       h,
-                      sg_wrapped_block_reader(closure(h, bread, fd, get_fs_offset(fd)), SECTOR_OFFSET, h),
-                      closure(h, bwrite, fd),
-                      0, /* no sync */
+                      closure(h, bread, fd, get_fs_offset(fd)),
+                      0, /* no write */
+                      pc,
                       root,
                       false,
                       closure(h, fsc, h, target_dir, root, options));

@@ -4,6 +4,7 @@
 #include <apic.h>
 #include <syscalls.h>
 #include <system_structs.h>
+#include <pagecache.h>
 #include <tfs.h>
 #include <unix.h>
 
@@ -34,6 +35,7 @@ typedef s64 sysreturn;
 // conditionalize
 // fix config/build, remove this include to take off network
 #include <net.h>
+boolean netsyscall_init(unix_heaps uh);
 
 typedef struct process *process;
 typedef struct thread *thread;
@@ -261,9 +263,9 @@ typedef struct thread {
     cpu_set_t affinity;    
 } *thread;
 
-typedef closure_type(io, sysreturn, void *buf, u64 length, u64 offset, thread t,
+typedef closure_type(file_io, sysreturn, void *buf, u64 length, u64 offset, thread t,
         boolean bh, io_completion completion);
-typedef closure_type(sg_io, sysreturn, sg_list sg, u64 length, u64 offset, thread t,
+typedef closure_type(sg_file_io, sysreturn, sg_list sg, u64 length, u64 offset, thread t,
         boolean bh, io_completion completion);
 
 #define FDESC_TYPE_REGULAR      1
@@ -280,8 +282,8 @@ typedef closure_type(sg_io, sysreturn, sg_list sg, u64 length, u64 offset, threa
 #define FDESC_TYPE_IORING      12
 
 typedef struct fdesc {
-    io read, write;
-    sg_io sg_read, sg_write;
+    file_io read, write;
+    sg_file_io sg_read, sg_write;
     closure_type(events, u32, thread);
     closure_type(ioctl, sysreturn, unsigned long request, vlist ap);
     closure_type(close, sysreturn, thread t, io_completion completion);

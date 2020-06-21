@@ -2,6 +2,7 @@
 
 #include <kernel.h>
 #include <pci.h>
+#include <pagecache.h>
 #include <tfs.h>
 #include <pagecache.h>
 #include <apic.h>
@@ -31,6 +32,7 @@ extern void init_net(kernel_heaps kh);
 extern void init_interrupts(kernel_heaps kh);
 
 static struct kernel_heaps heaps;
+static filesystem root_fs;
 
 static heap allocate_tagged_region(kernel_heaps kh, u64 tag)
 {
@@ -105,6 +107,7 @@ closure_function(1, 2, void, fsstarted,
     if (!is_ok(s))
         halt("unable to open filesystem: %v\n", s);
 
+    root_fs = fs;
     enqueue(runqueue, create_init(&heaps, bound(root), fs));
     closure_finish();
 }
@@ -144,10 +147,7 @@ closure_function(2, 3, void, attach_storage,
     heap h = heap_general(&heaps);
     u64 offset = bound(fs_offset);
     length -= offset;
-    pagecache pc = allocate_pagecache(h, heap_backed(&heaps), length, PAGESIZE_2M, SECTOR_SIZE,
-                                      0 /* XXX mapper */,
-                                      closure(h, offset_block_io, bound(fs_offset), r),
-                                      closure(h, offset_block_io, bound(fs_offset), w));
+    pagecache pc = allocate_pagecache(h, h, PAGESIZE);
     if (pc == INVALID_ADDRESS)
         halt("unable to create pagecache\n");
 
@@ -158,9 +158,9 @@ closure_function(2, 3, void, attach_storage,
                       SECTOR_SIZE,
                       length,
                       heap_backed(&heaps),
-                      pagecache_reader_sg(pc),
-                      pagecache_writer(pc),
-                      pagecache_syncer(pc),
+                      closure(h, offset_block_io, bound(fs_offset), r),
+                      closure(h, offset_block_io, bound(fs_offset), w),
+                      pc,
                       bound(root),
                       false,
                       closure(h, fsstarted, bound(root)));
@@ -278,11 +278,8 @@ closure_function(1, 1, void, sync_complete,
 void kernel_shutdown(int status)
 {
     if (global_pagecache) {
-        block_sync bs = pagecache_syncer(global_pagecache);
-        if (bs) {
-            apply(bs, closure(heap_general(&heaps), sync_complete, status));
-            runloop();
-        }
+        filesystem_flush(root_fs, closure(heap_general(&heaps), sync_complete, status));
+        runloop();
     }
     vm_exit(status);
 }

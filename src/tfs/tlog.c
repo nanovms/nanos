@@ -36,15 +36,23 @@ typedef struct log {
     buffer tuple_staging;
     u64 tuple_bytes_remain;
     boolean extension_open;
+    pagecache_node cache_node;
+    sg_io read;
+    sg_io write;
 
     int dirty;              /* cas boolean */
     heap h;
 } *log;
 
-closure_function(3, 1, void, log_write_completion,
-                 buffer, b,
-                 vector, completions,
-                 boolean, release,
+static inline u64 log_size(log tl)
+{
+    return bytes_from_sectors(tl->fs, range_span(tl->sectors));
+}
+
+// XXX split
+#ifndef BOOT
+closure_function(4, 1, void, log_write_completion,
+                 sg_list, sg, buffer, b, vector, completions, boolean, release,
                  status, s)
 {
     // reclaim the buffer now and the vector...make it a whole thing
@@ -58,6 +66,8 @@ closure_function(3, 1, void, log_write_completion,
 
     if (bound(release))
         deallocate_buffer(bound(b));
+
+    deallocate_sg_list(bound(sg));
     closure_finish();
 }
 
@@ -84,9 +94,17 @@ static void log_flush_internal(heap h, filesystem fs, buffer b, range log_range,
     range write_range = irange(sector_start, sector_start + sectors);
     assert(range_contains(log_range, write_range));
 
-    void *p = buffer_ref(b, 0);
-    tlog_debug("log_flush_internal: writing sectors %R, buffer addr %p\n", write_range, p);
-    apply(fs->w, p, write_range, closure(h, log_write_completion, b, completions, release));
+    sg_list sg = allocate_sg_list();
+    assert(sg != INVALID_ADDRESS); // XXX
+    range r = range_lshift(write_range, fs->blocksize_order);
+    sg_buf sgb = sg_list_tail_add(sg, buffer_length(b));
+    sgb->buf = buffer_ref(b, 0);
+    sgb->size = pad(buffer_length(b), fs_blocksize(fs)); /* b prealloced to blocksize multiple */
+    sgb->offset = 0;
+    sgb->refcount = 0;
+
+    tlog_debug("log_flush_internal: writing r %R, buffer addr %p\n", write_range, sgb->buf);
+    apply(fs->tl->write, sg, r, closure(h, log_write_completion, sg, b, completions, release));
     if (!release) {
         b->end -= 1;                /* next write removes END_OF_LOG */
         tlog_debug("log ext offset was %d (end %d)\n", b->start, b->end);
@@ -178,11 +196,6 @@ boolean log_extend(log tl, u64 size) {
 #define TUPLE_AVAILABLE_HEADER_SIZE (1 + 2 * MAX_VARINT_SIZE)
 #define TUPLE_AVAILABLE_MIN_SIZE (TUPLE_AVAILABLE_HEADER_SIZE + 32 /* arbitrary */)
 
-static inline u64 log_size(log tl)
-{
-    return bytes_from_sectors(tl->fs, range_span(tl->sectors));
-}
-
 static inline void log_write_internal(log tl, status_handler sh)
 {
     u64 remaining = buffer_length(tl->tuple_staging);
@@ -222,7 +235,7 @@ static inline void log_write_internal(log tl, status_handler sh)
 
 void log_write_eav(log tl, tuple e, symbol a, value v, status_handler sh)
 {
-    tlog_debug("log_write_eav: tl %p, e %p, a %p, v %p\n", tl, e, a, v);
+    tlog_debug("log_write_eav: tl %p, e %v, a %b, v %v\n", tl, e, symbol_string(a), v);
     encode_eav(tl->tuple_staging, tl->dictionary, e, a, v);
     log_write_internal(tl, sh);
 }
@@ -233,6 +246,8 @@ void log_write(log tl, tuple t, status_handler sh)
     encode_tuple(tl->tuple_staging, tl->dictionary, t);
     log_write_internal(tl, sh);
 }
+
+#endif /* !BOOT */
 
 static boolean log_parse_tuple(log tl, buffer b)
 {
@@ -295,9 +310,10 @@ closure_function(4, 1, void, log_read_complete,
         return;
     }
 
-    sg_copy_to_buf_and_release(buffer_ref(tl->staging, 0), bound(sg), bound(length));
-
+    /* staging is preallocated to size */
     buffer b = tl->staging;
+    u64 n = sg_copy_to_buf_and_release(buffer_ref(b, 0), bound(sg), bound(length));
+    buffer_produce(tl->staging, n);
     tlog_debug("log_read_complete: buffer len %d, status %v\n", buffer_length(b), read_status);
     tlog_debug("-> new log extension, checking magic and version\n");
     if (!tl->extension_open) {
@@ -481,7 +497,38 @@ static void log_read(log tl, status_handler sh)
     range r = range_lshift(tl->sectors, SECTOR_OFFSET);
     status_handler tlc = closure(tl->h, log_read_complete, tl, sg, range_span(r), sh);
     tlog_debug("%s: issuing sg read, sg %p, r %R, tlc %p\n", __func__, sg, r, tlc);
-    apply(tl->fs->sg_r, sg, r, tlc);
+    apply(tl->read, sg, r, tlc);
+}
+
+// TODO refactor
+closure_function(1, 3, void, log_storage_read,
+                 log, tl,
+                 sg_list, sg, range, q, status_handler, sh)
+{
+    filesystem fs = bound(tl)->fs;
+    merge m = allocate_merge(fs->h, sh);
+    status_handler k = apply_merge(m);
+    assert((q.start & MASK(fs->blocksize_order)) == 0);
+    assert((range_span(q) & MASK(fs->blocksize_order)) == 0);
+    range blocks = range_add(range_rshift(q, fs->blocksize_order), bound(tl)->sectors.start);
+    tlog_debug("%s: sg %p, q %R, blocks %R\n", __func__, sg, q, blocks);
+    filesystem_storage_op(fs, sg, m, blocks, fs->r);
+    apply(k, STATUS_OK);
+}
+
+closure_function(1, 3, void, log_storage_write,
+                 log, tl,
+                 sg_list, sg, range, q, status_handler, sh)
+{
+    filesystem fs = bound(tl)->fs;
+    merge m = allocate_merge(fs->h, sh);
+    status_handler k = apply_merge(m);
+    assert((q.start & MASK(fs->blocksize_order)) == 0);
+    assert((range_span(q) & MASK(fs->blocksize_order)) == 0);
+    range qb = range_add(range_rshift(q, fs->blocksize_order), bound(tl)->sectors.start);
+    tlog_debug("%s: q %R sg %p, blocks %R\n", __func__, q, sg, qb);
+    filesystem_storage_op(fs, sg, m, qb, fs->w);
+    apply(k, STATUS_OK);
 }
 
 log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
@@ -491,6 +538,15 @@ log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
     if (tl == INVALID_ADDRESS)
         return tl;
     tl->h = h;
+    tl->cache_node = pagecache_allocate_node(fs->pv,
+                                             closure(h, log_storage_read, tl),
+                                             closure(h, log_storage_write, tl));
+    if (tl->cache_node == INVALID_ADDRESS)
+        goto fail_dealloc_log;
+    // XXX was causing rmw?
+//    pagecache_set_node_length(tl->cache_node, TFS_LOG_DEFAULT_EXTENSION_SIZE);
+    tl->read = pagecache_node_get_reader(tl->cache_node);
+    tl->write = pagecache_node_get_writer(tl->cache_node);
     tl->sectors = irange(0, sector_from_offset(fs, TFS_LOG_DEFAULT_EXTENSION_SIZE));
     tl->fs = fs;
     tl->completions = allocate_vector(h, COMPLETION_QUEUE_SIZE);
@@ -506,21 +562,26 @@ log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
     tl->extension_open = false;
     fs->tl = tl;
     if (initialize) {
+#ifndef BOOT
         /* mkfs */
-        if (!init_staging(tl, sh))
-            goto fail_dealloc;
+        if (!init_staging(tl, sh)) {
+            deallocate_vector(tl->completions);
+            goto fail_dealloc_dict;
+        }
         init_log_extension(tl->staging, range_span(tl->sectors));
         apply(sh, STATUS_OK);
+#else
+        halt("no tlog write support\n");
+#endif
     } else {
         log_read(tl, sh);
     }
     return tl;
-  fail_dealloc:
-    deallocate_vector(tl->completions);
   fail_dealloc_dict:
     deallocate_table(tl->dictionary);
   fail_dealloc_tstage:
     deallocate_buffer(tl->tuple_staging);
+  fail_dealloc_log:
     deallocate(h, tl, sizeof(struct log));
     return INVALID_ADDRESS;
 }

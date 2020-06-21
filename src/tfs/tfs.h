@@ -2,12 +2,7 @@ typedef struct filesystem *filesystem;
 
 typedef closure_type(filesystem_complete, void, filesystem, status);
 
-typedef struct fsfile {
-    rangemap extentmap;
-    filesystem fs;
-    u64 length;
-    tuple md;
-} *fsfile;
+typedef struct fsfile *fsfile;
 
 static inline u64 fsfile_get_length(fsfile f)
 {
@@ -17,6 +12,7 @@ static inline u64 fsfile_get_length(fsfile f)
 static inline void fsfile_set_length(fsfile f, u64 length)
 {
     f->length = length;
+    pagecache_set_node_length(f->cache_node, length);
 }
 
 static inline tuple fsfile_get_meta(fsfile f)
@@ -36,18 +32,30 @@ void create_filesystem(heap h,
                        u64 blocksize,
                        u64 size,
                        heap dma,
-                       sg_block_io read,
+                       block_io read,
                        block_io write,
-                       block_sync cache_sync,
+                       pagecache pc,
                        tuple root,
                        boolean initialize,
                        filesystem_complete complete);
 
 // there is a question as to whether tuple->fs file should be mapped inside out outside the filesystem
 // status
-void filesystem_read_sg(filesystem fs, fsfile f, sg_list sg, u64 length, u64 offset, status_handler sh);
-void filesystem_read_linear(filesystem fs, fsfile f, void *dest, u64 offset, u64 length, io_status_handler completion);
-void filesystem_write(filesystem fs, fsfile f, buffer b, u64 offset, io_status_handler completion);
+
+static inline void filesystem_read_sg(fsfile f, sg_list sg, range q, status_handler completion)
+{
+    apply(f->read, sg, q, completion);
+}
+
+static inline void filesystem_write_sg(fsfile f, sg_list sg, range q, status_handler completion)
+{
+    apply(f->write, sg, q, completion);
+}
+
+/* deprecate these if we can */
+void filesystem_read_linear(fsfile f, void *dest, range q, io_status_handler completion);
+void filesystem_write_linear(fsfile f, void *src, range q, io_status_handler completion);
+
 boolean filesystem_truncate(filesystem fs, fsfile f, u64 len, status_handler completion);
 void filesystem_flush(filesystem fs, status_handler completion);
 

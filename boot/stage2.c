@@ -1,4 +1,5 @@
 #include <kernel.h>
+#include <pagecache.h>
 #include <tfs.h>
 #include <elf64.h>
 #include <page.h>
@@ -296,14 +297,16 @@ void newstack()
 
     setup_page_tables();
 
+    pagecache pc = allocate_pagecache(h, h, PAGESIZE);
+    assert(pc != INVALID_ADDRESS);
     create_filesystem(h,
                       SECTOR_SIZE,
                       SECTOR_SIZE,
                       infinity,
                       0,         /* ignored in boot */
-                      sg_wrapped_block_reader(get_stage2_disk_read(h, fs_offset), SECTOR_OFFSET, h),
+                      get_stage2_disk_read(h, fs_offset),
                       closure(h, stage2_empty_write),
-                      0, /* no sync */
+                      pc,
                       root,
                       false,
                       closure(h, filesystem_initialized, h, heap_backed(&kh), root, bh));

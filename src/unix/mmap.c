@@ -702,7 +702,7 @@ static sysreturn mmap(void *target, u64 size, int prot, int flags, int fd, u64 o
 
     thread_log(current, "  read file at 0x%lx, flen %ld, blocking...", where, flen);
     file_op_begin(current);
-    filesystem_read_linear(p->fs, file_get_fsfile(f), buffer_ref(b, 0), flen, offset,
+    filesystem_read_linear(file_get_fsfile(f), buffer_ref(b, 0), irangel(offset, flen),
                            closure(h, mmap_read_complete, current, where, flen, b, page_map_flags(vmflags)));
     return file_op_maybe_sleep(current);
 }

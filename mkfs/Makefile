@@ -24,7 +24,8 @@ SRCS-mkfs= \
 	$(SRCDIR)/runtime/crypto/chacha.c \
 	$(SRCDIR)/tfs/tfs.c \
 	$(SRCDIR)/tfs/tlog.c \
-	$(SRCDIR)/unix_process/unix_process_runtime.c
+	$(SRCDIR)/unix_process/unix_process_runtime.c \
+	$(SRCDIR)/x86_64/pagecache.c
 SRCS-dump= \
 	$(CURDIR)/dump.c \
 	$(SRCDIR)/runtime/bitmap.c \
@@ -49,7 +50,8 @@ SRCS-dump= \
 	$(SRCDIR)/runtime/crypto/chacha.c \
 	$(SRCDIR)/tfs/tfs.c \
 	$(SRCDIR)/tfs/tlog.c \
-	$(SRCDIR)/unix_process/unix_process_runtime.c
+	$(SRCDIR)/unix_process/unix_process_runtime.c \
+	$(SRCDIR)/x86_64/pagecache.c
 
 CFLAGS+=-I$(SRCDIR)/runtime \
 	-I$(SRCDIR)/tfs \
