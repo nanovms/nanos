@@ -616,8 +616,17 @@ closure_function(5, 1, sysreturn, socket_write_tcp_bh,
     return rv;
 }
 
-static sysreturn socket_write_udp(netsock s, void *source, u64 length)
+static sysreturn socket_write_udp(netsock s, void *source, u64 length,
+                                  struct sockaddr *dest_addr, socklen_t addrlen)
 {
+    ip_addr_t ipaddr;
+    u16 port;
+    if (dest_addr) {
+        sysreturn ret = sockaddr_to_addrport(s->sock.domain, dest_addr, addrlen,
+            &ipaddr, &port);
+        if (ret)
+            return ret;
+    }
     err_t err = ERR_OK;
 
     /* XXX check how much we can queue, maybe make udp bh */
@@ -629,7 +638,10 @@ static sysreturn socket_write_udp(netsock s, void *source, u64 length)
         return -ENOBUFS;
     }
     runtime_memcpy(pbuf->payload, source, length);
-    err = udp_send(s->info.udp.lw, pbuf);
+    if (dest_addr)
+        err = udp_sendto(s->info.udp.lw, pbuf, &ipaddr, port);
+    else
+        err = udp_send(s->info.udp.lw, pbuf);
     if (err != ERR_OK) {
         net_debug("lwip error %d\n", err);
         return lwip_to_errno(err);
@@ -640,6 +652,7 @@ static sysreturn socket_write_udp(netsock s, void *source, u64 length)
 
 static sysreturn socket_write_internal(struct sock *sock, void *source,
                                        u64 length,
+                                       struct sockaddr *dest_addr, socklen_t addrlen,
                                        thread t, boolean bh, io_completion completion)
 {
     netsock s = (netsock) sock;
@@ -659,7 +672,7 @@ static sysreturn socket_write_internal(struct sock *sock, void *source,
                                    source, length, completion);
         return blockq_check(sock->txbq, t, ba, bh);
     } else if (sock->type == SOCK_DGRAM) {
-        rv = socket_write_udp(s, source, length);
+        rv = socket_write_udp(s, source, length, dest_addr, addrlen);
     } else {
 	msg_err("socket type %d unsupported\n", sock->type);
 	rv = -EINVAL;
@@ -677,7 +690,7 @@ closure_function(1, 6, sysreturn, socket_write,
     struct sock *s = (struct sock *) bound(s);
     net_debug("sock %d, type %d, thread %ld, source %p, length %ld, offset %ld\n",
 	      s->fd, s->type, t->tid, source, length, offset);
-    return socket_write_internal(s, source, length, t, bh, completion);
+    return socket_write_internal(s, source, length, 0, 0, t, bh, completion);
 }
 
 closure_function(1, 2, sysreturn, netsock_ioctl,
@@ -1220,13 +1233,8 @@ sysreturn connect(int sockfd, struct sockaddr *addr, socklen_t addrlen)
 #define MSG_NOSIGNAL    0x00004000
 #define MSG_MORE        0x00008000
 
-static sysreturn sendto_prepare(struct sock *sock, int flags,
-        struct sockaddr *dest_addr,
-        socklen_t addrlen)
+static sysreturn sendto_prepare(struct sock *sock, int flags)
 {
-    netsock s = (netsock) sock;
-    int err = ERR_OK;
-
     /* Process flags */
     if (flags & MSG_CONFIRM)
 	msg_warn("MSG_CONFIRM unimplemented; ignored\n");
@@ -1251,32 +1259,17 @@ static sysreturn sendto_prepare(struct sock *sock, int flags,
     if (flags & MSG_OOB)
 	msg_warn("MSG_OOB unimplemented; ignored\n");
 
-    /* Ignore dest if TCP */
-    if (sock->type == SOCK_DGRAM && dest_addr) {
-        ip_addr_t ipaddr;
-        u16 port;
-        sysreturn ret = sockaddr_to_addrport(s->sock.domain, dest_addr, addrlen,
-            &ipaddr, &port);
-        if (ret)
-            return ret;
-        err = udp_connect(s->info.udp.lw, &ipaddr, port);
-        if (err != ERR_OK) {
-            msg_err("udp_connect failed: %d\n", err);
-            return lwip_to_errno(err);
-        }
-    }
-
     return 0;
 }
 
 static sysreturn netsock_sendto(struct sock *sock, void *buf, u64 len,
         int flags, struct sockaddr *dest_addr, socklen_t addrlen)
 {
-    sysreturn rv = sendto_prepare(sock, flags, dest_addr, addrlen);
+    sysreturn rv = sendto_prepare(sock, flags);
     if (rv < 0) {
         return set_syscall_return(current, rv);
     }
-    return socket_write_internal(sock, buf, len, current, false,
+    return socket_write_internal(sock, buf, len, dest_addr, addrlen, current, false,
             syscall_io_complete);
 }
 
@@ -1304,7 +1297,7 @@ static sysreturn sendmsg_prepare(struct sock *s, const struct msghdr *msg,
     sysreturn rv;
     size_t i;
 
-    rv = sendto_prepare(s, flags, msg->msg_name, msg->msg_namelen);
+    rv = sendto_prepare(s, flags);
     if (rv < 0) {
         return rv;
     }
@@ -1360,7 +1353,8 @@ sysreturn sendmsg(int sockfd, const struct msghdr *msg, int flags)
     if (rv <= 0)
         return set_syscall_return(current, rv);
     io_completion completion = closure(s->h, sendmsg_complete, s, buf, len);
-    return socket_write_internal(s, buf, len, current, false, completion);
+    return socket_write_internal(s, buf, len, msg->msg_name, msg->msg_namelen,
+        current, false, completion);
 }
 
 closure_function(3, 2, void, sendmmsg_buf_complete,
@@ -1469,7 +1463,8 @@ sysreturn sendmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
             rv = blockq_check(sock->txbq, current, ba, false);
             break;
         case SOCK_DGRAM:
-            rv = socket_write_udp(s, buf, len);
+            rv = socket_write_udp(s, buf, len, msg_hdr->msg_name,
+                msg_hdr->msg_namelen);
             break;
         }
         deallocate(sock->h, buf, len);
