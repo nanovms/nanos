@@ -170,6 +170,13 @@ static void netsock_check_loop(void)
     }
 }
 
+static netsock get_netsock(struct sock *sock)
+{
+    if ((sock->domain != AF_INET) && (sock->domain != AF_INET6))
+        return 0;
+    return (netsock)sock;
+}
+
 closure_function(1, 1, u32, socket_events,
                  netsock, s,
                  thread, t /* ignore */)
@@ -1340,6 +1347,8 @@ closure_function(3, 2, void, sendmsg_complete,
 sysreturn sendmsg(int sockfd, const struct msghdr *msg, int flags)
 {
     struct sock *s = resolve_socket(current->p, sockfd);
+    if (!get_netsock(s))
+        return -EOPNOTSUPP;
     void *buf;
     u64 len;
     sysreturn rv;
@@ -1423,7 +1432,9 @@ sysreturn sendmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
     u64 len;
     sysreturn rv = 0;
     struct sock *sock = resolve_socket(current->p, sockfd);
-    netsock s = (netsock) sock;
+    netsock s = get_netsock(sock);
+    if (!s)
+        return -EOPNOTSUPP;
 
     net_debug("sock %d, type %d, flags 0x%x, vlen %d\n", sock->fd, sock->type,
             flags,
@@ -1491,7 +1502,7 @@ static sysreturn netsock_recvfrom(struct sock *sock, void *buf, u64 len,
 sysreturn recvfrom(int sockfd, void * buf, u64 len, int flags,
 		   struct sockaddr *src_addr, socklen_t *addrlen)
 {
-    struct sock *sock = resolve_fd(current->p, sockfd);
+    struct sock *sock = resolve_socket(current->p, sockfd);
     net_debug("sock %d, type %d, thread %ld, buf %p, len %ld\n", sock->fd,
             sock->type, current->tid, buf, len);
 
@@ -1510,7 +1521,9 @@ sysreturn recvmsg(int sockfd, struct msghdr *msg, int flags)
     u64 total_len;
     u8 *buf;
     struct sock *sock = resolve_socket(current->p, sockfd);
-    netsock s = (netsock) sock;
+    netsock s = get_netsock(sock);
+    if (!s)
+        return -EOPNOTSUPP;
 
     net_debug("sock %d, type %d, thread %ld\n", sock->fd, sock->type,
             current->tid);
@@ -1706,7 +1719,10 @@ sysreturn getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
     if (!validate_user_memory(addrlen, sizeof(socklen_t), true) ||
         !validate_user_memory(addr, *addrlen, true))
         return -EFAULT;
-    netsock s = resolve_fd(current->p, sockfd);
+    struct sock *sock = resolve_socket(current->p, sockfd);
+    netsock s = get_netsock(sock);
+    if (!s)
+        return -EOPNOTSUPP;
     ip_addr_t *ip_addr;
     u16_t port;
     if (s->sock.type == SOCK_STREAM) {
@@ -1728,7 +1744,10 @@ sysreturn getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
     if (!validate_user_memory(addrlen, sizeof(socklen_t), true) ||
         !validate_user_memory(addr, *addrlen, true))
         return -EFAULT;
-    netsock s = resolve_fd(current->p, sockfd);
+    struct sock *sock = resolve_socket(current->p, sockfd);
+    netsock s = get_netsock(sock);
+    if (!s)
+        return -EOPNOTSUPP;
     remote_sockaddr(s, addr, addrlen);
     return 0;
 }
@@ -1739,7 +1758,10 @@ sysreturn setsockopt(int sockfd,
                      void *optval,
                      socklen_t optlen)
 {
-    netsock s = resolve_fd(current->p, sockfd);
+    struct sock *sock = resolve_socket(current->p, sockfd);
+    netsock s = get_netsock(sock);
+    if (!s)
+        return -EOPNOTSUPP;
     if (!validate_user_memory(optval, optlen, false))
         return -EFAULT;
     switch (level) {
@@ -1766,7 +1788,10 @@ unimplemented:
 
 sysreturn getsockopt(int sockfd, int level, int optname, void *optval, socklen_t *optlen)
 {
-    netsock s = resolve_fd(current->p, sockfd);
+    struct sock *sock = resolve_socket(current->p, sockfd);
+    netsock s = get_netsock(sock);
+    if (!s)
+        return -EOPNOTSUPP;
     net_debug("sock %d, type %d, thread %ld, level %d, optname %d\n, optlen %d\n",
         s->sock.fd, s->sock.type, current->tid, level, optname,
         optlen ? *optlen : -1);
