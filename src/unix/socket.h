@@ -33,7 +33,7 @@ struct sock {
     sysreturn (*shutdown)(struct sock *sock, int how);
 };
 
-static inline int socket_init(process p, heap h, int type, u32 flags,
+static inline int socket_init(process p, heap h, int domain, int type, u32 flags,
         struct sock *s)
 {
     runtime_memset((u8 *) s, 0, sizeof(*s));
@@ -54,6 +54,7 @@ static inline int socket_init(process p, heap h, int type, u32 flags,
     }
     init_fdesc(h, &s->f, FDESC_TYPE_SOCKET);
     s->f.flags = flags;
+    s->domain = domain;
     s->type = type;
     s->h = h;
     return s->fd;

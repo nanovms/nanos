@@ -127,7 +127,6 @@ typedef struct netsock {
     process p;
     queue incoming;
     err_t lwip_error;           /* lwIP error code; ERR_OK if normal */
-    int af; /* address family */
     u8 ipv6only:1;
     union {
 	struct {
@@ -317,7 +316,7 @@ static void remote_sockaddr(netsock s, struct sockaddr *addr, socklen_t *len)
         port = lw->remote_port;
         ip_addr = &lw->remote_ip;
     }
-    addrport_to_sockaddr(s->af, ip_addr, port, addr, len);
+    addrport_to_sockaddr(s->sock.domain, ip_addr, port, addr, len);
 }
 
 static inline s64 lwip_to_errno(s8 err)
@@ -404,7 +403,8 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
             remote_sockaddr(s, src_addr, addrlen);
         } else {
             struct udp_entry * e = p;
-            addrport_to_sockaddr(s->af, &e->raddr, e->rport, src_addr, addrlen);
+            addrport_to_sockaddr(s->sock.domain, &e->raddr, e->rport, src_addr,
+                                 addrlen);
         }
     }
 
@@ -853,7 +853,7 @@ static void udp_input_lower(void *z, struct udp_pcb *pcb, struct pbuf *p,
     wakeup_sock(s, WAKEUP_SOCK_RX);
 }
 
-static int allocate_sock(process p, int type, u32 flags, netsock * rs)
+static int allocate_sock(process p, int af, int type, u32 flags, netsock *rs)
 {
     netsock s;
     int fd;
@@ -865,7 +865,7 @@ static int allocate_sock(process p, int type, u32 flags, netsock * rs)
     }
 
     heap h = heap_general((kernel_heaps)p->uh);
-    fd = socket_init(p, h, type, flags, &s->sock);
+    fd = socket_init(p, h, af, type, flags, &s->sock);
     if (fd < 0) {
         goto err_fd;
     }
@@ -905,9 +905,8 @@ err_sock:
 static int allocate_tcp_sock(process p, int af, struct tcp_pcb *pcb, u32 flags)
 {
     netsock s;
-    int fd = allocate_sock(p, SOCK_STREAM, flags, &s);
+    int fd = allocate_sock(p, af, SOCK_STREAM, flags, &s);
     if (fd >= 0) {
-	s->af = af;
 	s->info.tcp.lw = pcb;
 	s->info.tcp.state = TCP_SOCK_CREATED;
     }
@@ -917,9 +916,8 @@ static int allocate_tcp_sock(process p, int af, struct tcp_pcb *pcb, u32 flags)
 static int allocate_udp_sock(process p, int af, struct udp_pcb *pcb, u32 flags)
 {
     netsock s;
-    int fd = allocate_sock(p, SOCK_DGRAM, flags, &s);
+    int fd = allocate_sock(p, af, SOCK_DGRAM, flags, &s);
     if (fd >= 0) {
-	s->af = af;
 	s->info.udp.lw = pcb;
 	s->info.udp.state = UDP_SOCK_CREATED;
 	udp_recv(pcb, udp_input_lower, s);
@@ -1012,10 +1010,11 @@ static sysreturn netsock_bind(struct sock *sock, struct sockaddr *addr,
     netsock s = (netsock) sock;
     ip_addr_t ipaddr;
     u16 port;
-    sysreturn ret = sockaddr_to_addrport(s->af, addr, addrlen, &ipaddr, &port);
+    sysreturn ret = sockaddr_to_addrport(s->sock.domain, addr, addrlen, &ipaddr,
+        &port);
     if (ret)
         return ret;
-    if ((s->af == AF_INET6) && ip6_addr_isany(&ipaddr.u_addr.ip6) &&
+    if ((s->sock.domain == AF_INET6) && ip6_addr_isany(&ipaddr.u_addr.ip6) &&
             !s->ipv6only)
         /* Allow receiving both IPv4 and IPv6 packets (dual-stack support). */
         IP_SET_TYPE(&ipaddr, IPADDR_TYPE_ANY);
@@ -1167,7 +1166,8 @@ static sysreturn netsock_connect(struct sock *sock, struct sockaddr *addr,
     netsock s = (netsock) sock;
     ip_addr_t ipaddr;
     u16 port;
-    sysreturn ret = sockaddr_to_addrport(s->af, addr, addrlen, &ipaddr, &port);
+    sysreturn ret = sockaddr_to_addrport(s->sock.domain, addr, addrlen, &ipaddr,
+        &port);
     if (ret)
         return ret;
     if (s->sock.type == SOCK_STREAM) {
@@ -1248,7 +1248,7 @@ static sysreturn sendto_prepare(struct sock *sock, int flags,
     if (sock->type == SOCK_DGRAM && dest_addr) {
         ip_addr_t ipaddr;
         u16 port;
-        sysreturn ret = sockaddr_to_addrport(s->af, dest_addr, addrlen,
+        sysreturn ret = sockaddr_to_addrport(s->sock.domain, dest_addr, addrlen,
             &ipaddr, &port);
         if (ret)
             return ret;
@@ -1549,7 +1549,7 @@ static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t err)
     }
 
     /* XXX such a thing as nonblock inherited from listen socket? */
-    int fd = allocate_tcp_sock(s->p, s->af, lw, 0);
+    int fd = allocate_tcp_sock(s->p, s->sock.domain, lw, 0);
     if (fd < 0)
 	return ERR_MEM;
 
@@ -1719,7 +1719,7 @@ sysreturn getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
         msg_warn("not supported for socket type %d\n", s->sock.type);
         return -EINVAL;
     }
-    addrport_to_sockaddr(s->af, ip_addr, port, addr, addrlen);
+    addrport_to_sockaddr(s->sock.domain, ip_addr, port, addr, addrlen);
     return 0;
 }
 
