@@ -1,9 +1,6 @@
 #include <tfs_internal.h>
 
-#ifdef STAGE3
-#define TFS_DEBUG
-#endif
-
+//#define TFS_DEBUG
 //#define TFS_REPORT_SHA256
 #if defined(TFS_DEBUG)
 #define tfs_debug(x, ...) do {rprintf("TFS: " x, ##__VA_ARGS__);} while(0)
@@ -25,6 +22,33 @@ static inline void report_sha256(buffer b)
 #else
 #define report_sha256(b)
 #endif
+
+u64 fsfile_get_length(fsfile f)
+{
+    return f->length;
+}
+
+void fsfile_set_length(fsfile f, u64 length)
+{
+    f->length = length;
+    pagecache_set_node_length(f->cache_node, length);
+}
+
+tuple fsfile_get_meta(fsfile f)
+{
+    return f->md;
+}
+
+// XXX change to method get
+void filesystem_read_sg(fsfile f, sg_list sg, range q, status_handler completion)
+{
+    apply(f->read, sg, q, completion);
+}
+
+void filesystem_write_sg(fsfile f, sg_list sg, range q, status_handler completion)
+{
+    apply(f->write, sg, q, completion);
+}
 
 static inline timestamp filesystem_get_time(filesystem fs, tuple t, symbol s)
 {
@@ -106,13 +130,13 @@ static inline boolean ingest_parse_int(tuple value, symbol s, u64 * i)
     return retval;
 }
 
-static inline extent allocate_extent(heap h, range init_range, u64 block_start, u64 allocated)
+static inline extent allocate_extent(heap h, range blocks, u64 start_block, u64 allocated)
 {
     extent e = allocate(h, sizeof(struct extent));
     if (e == INVALID_ADDRESS)
         return e;
-    rmnode_init(&e->node, init_range);
-    e->block_start = block_start;
+    rmnode_init(&e->node, blocks);
+    e->start_block = start_block;
     e->allocated = allocated;
     e->uninited = false;
     return e;
@@ -128,22 +152,22 @@ boolean filesystem_reserve_storage(filesystem fs, u64 start, u64 length)
 void ingest_extent(fsfile f, symbol off, tuple value)
 {
     tfs_debug("ingest_extent: f %p, off %b, value %v\n", f, symbol_string(off), value);
-    u64 length, file_offset, block_start, allocated;
+    u64 length, file_offset, start_block, allocated;
     assert(off);
     assert(parse_int(alloca_wrap(symbol_string(off)), 10, &file_offset));
     assert(ingest_parse_int(value, sym(length), &length));
-    assert(ingest_parse_int(value, sym(offset), &block_start));
+    assert(ingest_parse_int(value, sym(offset), &start_block));
     assert(ingest_parse_int(value, sym(allocated), &allocated));
-    tfs_debug("   file offset %ld, length %ld, block_start 0x%lx, allocated %ld\n",
-              file_offset, length, block_start, allocated);
+    tfs_debug("   file offset %ld, length %ld, start_block 0x%lx, allocated %ld\n",
+              file_offset, length, start_block, allocated);
 
-    if (!filesystem_reserve_storage(f->fs, block_start, allocated)) {
+    if (!filesystem_reserve_storage(f->fs, start_block, allocated)) {
         /* soft error... */
         msg_err("unable to reserve storage at start 0x%lx, len 0x%lx\n",
-                block_start, allocated);
+                start_block, allocated);
     }
-    range r = irange(file_offset, file_offset + length);
-    extent ex = allocate_extent(f->fs->h, r, block_start, allocated);
+    range r = irangel(file_offset, length);
+    extent ex = allocate_extent(f->fs->h, r, start_block, allocated);
     if (ex == INVALID_ADDRESS)
         halt("out of memory\n");
     if (table_find(value, sym(uninited)))
@@ -151,25 +175,23 @@ void ingest_extent(fsfile f, symbol off, tuple value)
     assert(rangemap_insert(f->extentmap, &ex->node));
 }
 
-// make sg == null be zero version
 void filesystem_storage_op(filesystem fs, sg_list sg, merge m, range blocks, block_io op)
 {
-    tfs_debug("%s: fs %p, sg %p, blocks %R, op %F\n", __func__, fs, sg, blocks, op);
+    tfs_debug("%s: fs %p, sg %p, sg size %ld, blocks %R, op %F\n", __func__,
+              fs, sg, sg->count, blocks, op);
+    assert(op);
     u64 blocks_remain = range_span(blocks);
     u64 offset = 0;
     do {
         sg_buf sgb = sg_list_head_peek(sg);
         assert(sgb != INVALID_ADDRESS);
         u64 avail = sgb->size - sgb->offset;
-#ifdef STAGE3
-        rprintf(" avail %ld\n", avail);
-#endif
         assert((avail & MASK(fs->blocksize_order)) == 0);
         u64 nblocks = MIN(avail >> fs->blocksize_order, blocks_remain);
         if (nblocks > 0) {
             u64 block_offset = blocks.start + offset;
             range q = irangel(block_offset, nblocks);
-            assert(range_span(q) + sgb->offset < PAGESIZE);
+            assert(range_span(q) + sgb->offset < U64_FROM_BIT(fs->page_order));
             apply(op, sgb->buf + sgb->offset, q, apply_merge(m));
             offset += nblocks;
             blocks_remain -= nblocks;
@@ -183,43 +205,51 @@ void filesystem_storage_op(filesystem fs, sg_list sg, merge m, range blocks, blo
     } while (blocks_remain > 0);
 }
 
-closure_function(4, 1, void, fs_read_extent,
-                 filesystem, fs, sg_list, sg, merge, m, range, q,
+void zero_blocks(filesystem fs, merge m, range blocks)
+{
+    int blocks_per_page = U64_FROM_BIT(fs->page_order - fs->blocksize_order);
+    tfs_debug("%s: fs %p, blocks %R\n", __func__, fs, blocks);
+    while (range_span(blocks) > 0) {
+        range r = irangel(blocks.start, MIN(range_span(blocks), blocks_per_page));
+        tfs_debug("   zero %R\n", r);
+        apply(fs->w, fs->zero_page, r, apply_merge(m));
+        blocks.start = r.end;
+    }
+}
+
+closure_function(4, 1, void, read_extent,
+                 filesystem, fs, sg_list, sg, merge, m, range, blocks,
                  rmnode, node)
 {
     filesystem fs = bound(fs);
     sg_list sg = bound(sg);
-    range i = range_intersection(bound(q), node->r);
     extent e = (extent)node;
+    range i = range_intersection(bound(blocks), node->r);
     u64 e_offset = i.start - node->r.start;
-    u64 data_len = pad(range_span(i), fs_blocksize(fs));
-    range blocks = range_rshift(irangel(e->block_start + e_offset, data_len),
-                                fs->blocksize_order);
-    tfs_debug("%s: e %p, uninited %d, sg %p m %p q %R, i %R, data_len %ld, blocks %R\n",
-              __func__, e, e->uninited, bound(sg), bound(m), bound(q), i, data_len, blocks);
-    // XXX
-    assert(!e->uninited);
-//    if (e->uninited) {
-//        zero(bound(buf), data_len);
-//        return;
-//    }
-    filesystem_storage_op(fs, sg, bound(m), blocks, fs->r);
+    u64 len = range_span(i);
+    range blocks = irangel(e->start_block + e_offset, len);
+    tfs_debug("%s: e %p, uninited %d, sg %p m %p blocks %R, i %R, len %ld, blocks %R\n",
+              __func__, e, e->uninited, bound(sg), bound(m), bound(blocks), i, len, blocks);
+    if (!e->uninited) {
+        filesystem_storage_op(fs, sg, bound(m), blocks, fs->r);
+    } else {
+        sg_zero_fill(sg, range_span(blocks) << fs->blocksize_order);
+    }
 }
 
-closure_function(3, 1, void, fs_zero_hole,
-                 filesystem, fs, sg_list, sg, range, q,
+closure_function(3, 1, void, zero_hole,
+                 filesystem, fs, sg_list, sg, range, blocks,
                  range, z)
 {
-    range q = bound(q);
-    range i = range_intersection(q, z);
-    u64 length = range_span(i);
-    tfs_debug("fs_zero_hole: i %R, length %ld\n", i, length);
+    range i = range_intersection(bound(blocks), z);
+    u64 length = range_span(i) << bound(fs)->blocksize_order;
+    tfs_debug("%s: i %R, length %ld\n", __func__, i, length);
     sg_zero_fill(bound(sg), length);
 }
 
 io_status_handler ignore_io_status;
 
-/* page-wise, no rmw */
+/* whole block reads, file length resolved in cache */
 closure_function(2, 3, void, filesystem_storage_read,
                  filesystem, fs, fsfile, f,
                  sg_list, sg, range, q, status_handler, sh)
@@ -228,11 +258,13 @@ closure_function(2, 3, void, filesystem_storage_read,
     fsfile f = bound(f);
     merge m = allocate_merge(fs->h, sh);
     status_handler k = apply_merge(m);
+    tfs_debug("%s: fsfile %p, sg %p, q %R, sh %F\n", __func__, f, sg, q, sh);
 
     /* read extent data and zero gaps */
-    rangemap_range_lookup_with_gaps(f->extentmap, q,
-                                    stack_closure(fs_read_extent, fs, sg, m, q),
-                                    stack_closure(fs_zero_hole, fs, sg, q));
+    range blocks = range_rshift_pad(q, fs->blocksize_order);
+    rangemap_range_lookup_with_gaps(f->extentmap, blocks,
+                                    stack_closure(read_extent, fs, sg, m, blocks),
+                                    stack_closure(zero_hole, fs, sg, blocks));
     apply(k, STATUS_OK);
 }
 
@@ -318,26 +350,26 @@ void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler
 
 */
 
-static extent create_extent(filesystem fs, range r, boolean uninited)
+static extent create_extent(filesystem fs, range blocks, boolean uninited)
 {
     // XXX align r start to block and zero-fill
     heap h = fs->h;
-    u64 length = range_span(r);
+    u64 length = range_span(blocks) << fs->blocksize_order;
     u64 alignment = fs->alignment;
     u64 alloc_order = find_order(pad(length, alignment));
     u64 alloc_bytes = MAX(1 << alloc_order, MIN_EXTENT_SIZE);
 
     tfs_debug("create_extent: align %d, offset %ld, length %ld, alloc_order %ld, alloc_bytes %ld\n",
-              alignment, r.start, length, alloc_order, alloc_bytes);
+              alignment, blocks.start, length, alloc_order, alloc_bytes);
 
-    u64 block_start = allocate_u64((heap)fs->storage, alloc_bytes);
-    if (block_start == u64_from_pointer(INVALID_ADDRESS)) {
+    u64 start_block = allocate_u64((heap)fs->storage, alloc_bytes);
+    if (start_block == u64_from_pointer(INVALID_ADDRESS)) {
         msg_err("out of storage");
         return INVALID_ADDRESS;
     }
-    tfs_debug("   block_start 0x%lx\n", block_start);
+    tfs_debug("   start_block 0x%lx\n", start_block);
 
-    extent ex = allocate_extent(h, r, block_start, alloc_bytes);
+    extent ex = allocate_extent(h, blocks, start_block, alloc_bytes);
     if (ex == INVALID_ADDRESS)
         halt("out of memory\n");
     ex->uninited = uninited;
@@ -347,7 +379,7 @@ static extent create_extent(filesystem fs, range r, boolean uninited)
 
 static void destroy_extent(filesystem fs, extent ex)
 {
-    deallocate_u64((heap)fs->storage, ex->block_start, ex->allocated);
+    deallocate_u64((heap)fs->storage, ex->start_block, ex->allocated);
     deallocate(fs->h, ex, sizeof(*ex));
 }
 
@@ -381,18 +413,15 @@ static void add_extent_to_file(fsfile f, extent ex, merge m)
     heap h = f->fs->h;
 
     // XXX encode this as an immediate bitstring
-    tuple e = timm("length", "%ld", range_span(ex->node.r));
-    string offset = aprintf(h, "%ld", ex->block_start);
-    table_set(e, sym(offset), offset);
-    string allocated = aprintf(h, "%ld", ex->allocated);
-    table_set(e, sym(allocated), allocated);
-    if (ex->uninited) {
+    tuple e = allocate_tuple();
+    table_set(e, sym(offset), value_from_u64(h, ex->start_block));
+    table_set(e, sym(length), value_from_u64(h, range_span(ex->node.r)));
+    table_set(e, sym(allocated), value_from_u64(h, ex->allocated));
+    if (ex->uninited)
         table_set(e, sym(uninited), null_value());
-    }
-    symbol offs = intern_u64(ex->node.r.start);
-
     assert(rangemap_insert(f->extentmap, &ex->node));
     tuple extents = soft_create(f->fs, f->md, sym(extents), m);
+    symbol offs = intern_u64(ex->node.r.start);
     table_set(extents, offs, e);
     filesystem_write_eav(f->fs, extents, offs, e, apply_merge(m));
 }
@@ -403,9 +432,13 @@ static void remove_extent_from_file(fsfile f, extent ex, merge m)
     assert(extents);
     symbol offs = intern_u64(ex->node.r.start);
     tuple e = table_find(extents, offs);
+    assert(e);
     string offset = table_find(e, sym(offset));
     assert(offset);
     deallocate_buffer(offset);
+    string length = table_find(e, sym(length));
+    assert(length);
+    deallocate_buffer(length);
     string allocated = table_find(e, sym(allocated));
     assert(allocated);
     deallocate_buffer(allocated);
@@ -419,6 +452,16 @@ static void remove_extent_from_file(fsfile f, extent ex, merge m)
      * to remove any log entries that are no longer relevant in the current
      * status of the filesystem
      */
+
+    /* might suggest we store a special value (invalid / zombie) that
+       acts as a terminator for the tuple in the log ... the
+       associated dictionary entry would remain allocated, and once
+       the log history has expired (when there is such a function) to
+       the point where the tuple is no longer referenced, the
+       associated entry is retired and the slot becomes free for use
+       again
+    */
+
     clear_tuple(e);
 
     table_set(extents, offs, 0);
@@ -456,44 +499,6 @@ static void add_extents_to_file(fsfile f, rangemap rm, merge m)
     }
 }
 
-#if 0
-static void fill_holes_for_range(filesystem fs, fsfile f, range q, merge m_meta)
-{
-    u64 curr = q.start;
-    rmnode prev = 0;
-    rmnode node = rangemap_lookup_at_or_next(f->extentmap, q.start);
-    do {
-        u64 limit = node != INVALID_ADDRESS ? node->r.start : q.end;
-        if (curr < limit) {
-#if 0
-            if (prev || (prev = rangemap_prev_node(f->extentmap, node))) {
-                /* expand previous extent if possible */
-                extent prev_extent = (extent)prev;
-                /* TODO */
-            }
-#endif
-            s64 remain = limit - curr;
-            do {
-                u64 length = MIN(MAX_EXTENT_SIZE, remain);
-                range r = irange(curr, curr + length);
-                extent ex = fs_new_extent(f, r, false, m_meta);
-                if (ex == INVALID_ADDRESS) {
-                    apply(apply_merge(m_meta), timm("result", "failed to create extent")));
-                    return;
-                }
-                tfs_debug("   writing new extent %R\n", r);
-                fs_write_extent(f->fs, src + (curr - q.start), m_data, q, &ex->node);
-                curr += length;
-                remain -= length;
-            } while (remain > 0);
-        }
-        last = node;
-        curr = node->r.end;
-        node = rangemap_next_node(f->extentmap, node);
-    } while (curr < q.end);
-}
-#endif
-
 /* XXX don't ignore status
        set fs dirty bit and flush at end of fs operation
 */
@@ -507,162 +512,89 @@ void filesystem_write_eav(filesystem fs, tuple t, symbol a, value v, status_hand
     log_write_eav(fs->tl, t, a, v, sh);
 }
 
-#if 0
-static void fs_zero_pad_sg(filesystem fs, sg_list sg, u64 length)
-{
-    static void *fs_zero_page;
-    static struct refcount fs_zero_page_refcount;
-
-    if (!fs_zero_page) {
-        init_refcount(&fs_zero_page_refcount, 1, 0);
-        assert(fs->dma);
-        fs_zero_page = allocate_zero(fs->dma, PAGESIZE);
-        assert(fs_zero_page != INVALID_ADDRESS);
-    }
-
-    sg_buf sgb;
-    while (length > 0) {
-        u64 n = MIN(length, PAGESIZE);
-        sgb = sg_list_tail_add(sg, n);
-        sgb->buf = fs_zero_page;
-        sgb->length = n;
-        sgb->refcount = &fs_zero_page_refcount;
-        refcount_reserve(&fs_zero_page_refcount);
-        length -= n;
-    }
-}
-#endif
-
 static void filesystem_flush_log(filesystem fs)
 {
     log_flush(fs->tl, 0);
 }
 
-// XXX we can probably do without this if flush is inevitable / forced
-closure_function(2, 1, void, filesystem_write_meta_complete,
-                 fsfile, f, status_handler, sh,
-                 status, s)
-{
-    tfs_debug("%s: fsfile %p, status %v\n", __func__, bound(f), s);
-    filesystem_flush_log(bound(f)->fs);
-    apply(bound(sh), s);
-    closure_finish();
-}
-
-closure_function(4, 1, void, filesystem_write_data_complete,
-                 fsfile, f, range, q, merge, m_meta, status_handler, m_sh,
-                 status, s)
-{
-    fsfile f = bound(f);
-    range q = bound(q);
-    filesystem fs = f->fs;
-    tfs_debug("%s: fsfile %p, range %R, status %v\n", __func__, f, q, s);
-
-    if (!is_ok(s)) {
-        /* XXX need to cancel meta update rather than just flush... */
-        filesystem_flush_log(fs);
-        apply(bound(m_sh), s);
-        closure_finish();
-        return;
-    }
-
-    if (fsfile_get_length(f) < q.end) {
-        /* XXX bother updating resident filelength tuple? */
-        fsfile_set_length(f, q.end);
-        filesystem_write_eav(fs, f->md, sym(filelength), value_from_u64(fs->h, q.end), apply_merge(bound(m_meta)));
-    }
-
-    filesystem_flush_log(fs);
-    apply(bound(m_sh), STATUS_OK);
-    closure_finish();
-}
-
-// TODO !sg should zero...
-static u64 write_extent(fsfile f, extent e, sg_list sg, range q, merge m)
+static u64 write_extent(fsfile f, extent ex, sg_list sg, range blocks, merge m)
 {
     filesystem fs = f->fs;
-    range i = range_intersection(q, node->r);
-    u64 e_offset = i.start - node->r.start;
-    u64 data_len = pad(range_span(i), fs_blocksize(fs));
-    range blocks = range_rshift(irangel(e->block_start + e_offset, data_len),
-                                fs->blocksize_order);
-    tfs_debug("%s: e %p, uninited %d, sg %p, sg len %ld, m %p, q %R, write blocks %R\n", __func__,
-              e, e->uninited, sg, sg->count, m, q, blocks);
+    range i = range_intersection(blocks, ex->node.r);
+    u64 e_offset = i.start - ex->node.r.start;
+    range r = irangel(ex->start_block + e_offset, range_span(i));
 
-    // TODO zero / uninited
-    assert(sg && !e->uninited);
+    tfs_debug("%s: ex %p, uninited %d, sg %p, m %p, blocks %R, write %R\n",
+              __func__, ex, ex->uninited, sg, m, blocks, r);
 
-    filesystem_storage_op(fs, sg, m, blocks, fs->w);
+    if (sg && !ex->uninited)
+        filesystem_storage_op(fs, sg, m, r, fs->w);
+    else
+        zero_blocks(fs, m, r);
     return i.end;
 }
 
-// XXX don't forget to round down start in create_extent
-static u64 fill_gap(fsfile f, sg_list sg, range r, range q, merge m)
+// TODO - the zero pad to block boundary on an unaligned write at end
+// of file needs to happen in pagecache write
+
+static extent new_extent(fsfile f, range blocks, merge m_meta)
 {
-    r = irangel(r.start, MIN(MAX_EXTENT_SIZE, range_span(r)));
-    extent ex = create_extent(f->fs, r, m_meta);
-    if (ex != INVALID_ADDRESS) {
-        add_extent_to_file(f, ex, m);
-    } else {
+    extent ex = create_extent(f->fs, blocks, false);
+    if (ex == INVALID_ADDRESS) {
         apply(apply_merge(m_meta), timm("result", "unable to allocate extent of range %R"));
-        return -1ull;
-    }
-    tfs_debug("   writing new extent %R\n", r);
-    fs_write_extent(f->fs, sg, m_data, q, &ex->node);
-    return r.end;
-}
-
-// how could we wait for all data writes to post before applying meta update?
-static void extend(fsfile f, extent e, sg_list sg, range *q, u64 limit, merge m_meta, merge m_data)
-{
-    u64 unused = e->allocated - range_span(e->node.r);
-    range r = irangel(e->node.r.end, unused);
-    range i = range_intersection(r, *q);
-    if (range_span(i) == 0)
-        return;
-    assert(q->start >= e->node.r.end);
-    range z = irange(e->node.r.end, q->start);
-    if (range_span(z) > 0) {
-        // XXX here's where we really need ranges to be block-based
-        write_extent(f, e, 0, z, m_data);
-    }
-    
-}
-
-closure_function(2, 3, void, filesystem_storage_write,
-                 filesystem, fs, fsfile, f,
-                 sg_list, sg, range, q, status_handler, complete)
-{
-    filesystem fs = bound(fs);
-    fsfile f = bound(f);
-
-    tfs_debug("%s: fsfile %p, q %R, sg %p, complete %F\n", __func__, f, q, sg, complete);
-    assert(range_span(q) > 0);
-    
-    /* meta merge completion is gated by data merge completion, thus the initial m_meta apply */
-    merge m_meta = allocate_merge(fs->h, closure(fs->h, filesystem_write_meta_complete,
-                                                 f, complete));
-    merge m_data = allocate_merge(fs->h, closure(fs->h, filesystem_write_data_complete,
-                                                 f, q, m_meta, apply_merge(m_meta)));
-
-    /* hold data merge open until all extent operations have been initiated */
-    status_handler sh = apply_merge(m_data);
-
-    rmnode prev;            /* prior to edge, but could be extended */
-    rmnode next;            /* intersecting or succeeding */
-    prev = rangemap_lookup_max_lte(f->extentmap, q.start);
-    if (prev == INVALID_ADDRESS) {
-        /* gap */
-        next = rangemap_first_node(f->extentmap);
-    } else if (prev->r.end > q.start) {
-        /* intersection */
-        next = prev;
-        prev = INVALID_ADDRESS;
     } else {
-        next = INVALID_ADDRESS;
+        add_extent_to_file(f, ex, m_meta);
     }
+    return ex;
+}
 
-    do {
+static u64 fill_gap(fsfile f, sg_list sg, range blocks, merge m_meta, merge m_data)
+{
+    blocks = irangel(blocks.start, MIN(MAX_EXTENT_SIZE >> f->fs->blocksize_order,
+                                       range_span(blocks)));
+    tfs_debug("   writing new extent blocks %R\n", blocks);
+    extent ex = new_extent(f, blocks, m_meta);
+    if (ex == INVALID_ADDRESS)
+        return -1ull;
+    write_extent(f, ex, sg, blocks, m_data);
+    return blocks.end;
+}
+
+static void update_extent_length(fsfile f, extent ex, u64 new_length, merge m)
+{
+    /* cheating; should be reinsert - update interface? */
+    ex->node.r = irangel(ex->node.r.start, new_length);
+    tuple extents = table_find(f->md, sym(extents));
+    assert(extents);
+    symbol offs = intern_u64(ex->node.r.start);
+    tuple e = table_find(extents, offs);
+    assert(e);
+    string length = table_find(e, sym(length));
+    assert(length);
+    deallocate_buffer(length);
+    value v = value_from_u64(f->fs->h, new_length);
+    table_set(e, sym(length), v);
+    filesystem_write_eav(f->fs, e, sym(length), v, apply_merge(m));
+}
+
+// integrity on fault: wait for all data writes to post before applying meta update?
+static u64 extend(fsfile f, extent ex, sg_list sg, range blocks, u64 limit, merge m_meta, merge m_data)
+{
+    u64 free = ex->allocated - range_span(ex->node.r);
+    range r = irangel(ex->node.r.end, free);
+    range i = range_intersection(r, blocks);
+    if (range_span(i) == 0)
+        return blocks.start;
+    assert(blocks.start >= ex->node.r.end); // XXX temp
+    update_extent_length(f, ex, i.end, m_meta);
+    range z = irange(ex->node.r.end, blocks.start);
+    if (range_span(z) > 0) {
+        write_extent(f, ex, 0, z, m_data);
+    }
+    write_extent(f, ex, sg, i, m_data);
+    return i.end;
+}
+
         /* cases:
 
            prev valid (no intersection, maybe extend)
@@ -704,45 +636,48 @@ closure_function(2, 3, void, filesystem_storage_write,
 
         */
 
-        /* try to extend previous extent */
-        u64 limit = next == INVALID_ADDRESS ? q.end : next->r.start;
-        if (prev != INVALID_ADDRESS && prev->r.end < limit) {
-            extend(f, prev, sg, &q, limit, m_meta, m_data);
-        }
-        
-        if (next != INVALID_ADDRESS) {
-            if (edge >= next->r.start) {
-                edge = write_extent(f, sg, m_data, q, &ex->node);
-            }
-        } else {
-
-        }
-
-        n = next;
-        next = rangemap_next_node(f->extentmap, n);
-    } while (n != INVALID_ADDRESS);
-
-    
-    /* create first (in order) extent
-           start case - assuming this folds with another, else break out */
-        u64 limit = next == INVALID_ADDRESS ? q.end : next->r.start;
-        edge = fill_gap(f, irange(edge, limit), q, m_meta);
-        if (edge == -1ull)
-            goto fail;
-    }
-    do {
-            if (n->r.end <= edge)
-                
-        }
-
-        u64 limit = n != INVALID_ADDRESS ? node->r.start : q.end;
-        if (edge < limit) {
-            
-
-        }
+// XXX we can probably do without this if flush is inevitable / forced
+closure_function(2, 1, void, filesystem_write_meta_complete,
+                 fsfile, f, status_handler, sh,
+                 status, s)
+{
+    tfs_debug("%s: fsfile %p, status %v\n", __func__, bound(f), s);
+    filesystem_flush_log(bound(f)->fs);
+    apply(bound(sh), s);
+    closure_finish();
 }
 
-#if 0
+closure_function(4, 1, void, filesystem_write_data_complete,
+                 fsfile, f, range, q, merge, m_meta, status_handler, m_sh,
+                 status, s)
+{
+    fsfile f = bound(f);
+    range q = bound(q);
+    filesystem fs = f->fs;
+    tfs_debug("%s: fsfile %p, range %R, status %v\n", __func__, f, q, s);
+
+    if (!is_ok(s)) {
+        /* XXX need to cancel meta update rather than just flush... */
+        filesystem_flush_log(fs);
+        apply(bound(m_sh), s);
+        closure_finish();
+        return;
+    }
+
+    if (fsfile_get_length(f) < q.end) {
+        fsfile_set_length(f, q.end);
+        tfs_debug("update length to %ld\n", q.end);
+        filesystem_write_eav(fs, f->md, sym(filelength), value_from_u64(fs->h, q.end),
+                             apply_merge(bound(m_meta)));
+    }
+
+    tfs_debug("flush\n");
+    filesystem_flush_log(fs);
+    tfs_debug("finish\n");
+    apply(bound(m_sh), STATUS_OK);
+    closure_finish();
+}
+
 /* XXX This needs to additionally block if a log flush is in flight.
    - or strong ordering of writes
 */
@@ -752,13 +687,11 @@ closure_function(2, 3, void, filesystem_storage_write,
 {
     filesystem fs = bound(fs);
     fsfile f = bound(f);
-    tuple extents = 0;
-    u64 curr = q.start; // XXX
-
-    tfs_debug("%s: fsfile %p, q %R, sg %p, complete %F\n", __func__, f, q, sg, complete);
     assert(range_span(q) > 0);
-    
-    rmnode node = rangemap_lookup_at_or_next(f->extentmap, q.start);
+    assert((q.start & MASK(fs->blocksize_order)) == 0);
+    range blocks = range_rshift_pad(q, fs->blocksize_order);
+    tfs_debug("%s: fsfile %p, q %R, blocks %R, sg %p, complete %F\n", __func__,
+              f, q, blocks, sg, complete);
 
     /* meta merge completion is gated by data merge completion, thus the initial m_meta apply */
     merge m_meta = allocate_merge(fs->h, closure(fs->h, filesystem_write_meta_complete,
@@ -768,80 +701,56 @@ closure_function(2, 3, void, filesystem_storage_write,
 
     /* hold data merge open until all extent operations have been initiated */
     status_handler sh = apply_merge(m_data);
+
+    rmnode prev;            /* prior to edge, but could be extended */
+    rmnode next;            /* intersecting or succeeding */
+    prev = rangemap_lookup_max_lte(f->extentmap, blocks.start);
+    if (prev == INVALID_ADDRESS) {
+        /* gap */
+        next = rangemap_first_node(f->extentmap);
+    } else if (prev->r.end > blocks.start) {
+        /* intersection */
+        next = prev;
+        prev = INVALID_ADDRESS;
+    } else {
+        next = INVALID_ADDRESS;
+    }
+
     do {
-        /* detect and fill any hole before extent (or to end) */
-        u64 limit = node != INVALID_ADDRESS ? node->r.start : q.end;
-        if (curr < limit) {
-            range hole = irange(curr, limit);
-            range fill = range_intersection(q, hole);
-
-            /* just doing min-sized extents for now */
-            s64 remain = range_span(fill);
-
-            do {
-                /* create_extent will allocate a minimum of pagesize */
-                u64 length = MIN(MAX_EXTENT_SIZE, remain);
-                range r = irange(curr, curr + length);
-                extent ex = fs_new_extent(f, r, false, m_meta);
-                if (ex == INVALID_ADDRESS) {
-                    msg_err("failed to create extent\n");
-                    goto fail;
-                }
-                tfs_debug("   writing new extent %R\n", r);
-                fs_write_extent(f->fs, sg, m_data, q, &ex->node);
-                curr += length;
-                remain -= length;
-            } while (remain > 0);
+        tfs_debug("   prev %p, next %p\n", prev, next);
+        /* try to extend prev */
+        u64 limit = next == INVALID_ADDRESS ? blocks.end : MIN(blocks.end, next->r.start);
+        if (prev != INVALID_ADDRESS && prev->r.end < limit) {
+            blocks.start = extend(f, (extent)prev, sg, blocks, limit, m_meta, m_data);
         }
 
-        if (node != INVALID_ADDRESS) {
-            /* check if we can expand this extent to cover more of query range */
-            // XXX
+        /* fill space */
+        tfs_debug("   fill start %ld, limit %ld\n", blocks.start, limit);
+        while (blocks.start < limit) {
+            u64 edge = fill_gap(f, sg, irange(blocks.start, limit), m_meta, m_data);
+            if (edge == -1ull)
+                goto out;         /* error status via meta merge */
+            blocks.start = edge;
+        }
 
-            /* overwrite any overlap with extent */
-            range i = range_intersection(q, node->r);
-            if (range_span(i)) {
-                tfs_debug("   updating extent at %R (intersection %R)\n", node->r, i);
-                fs_write_extent(f->fs, sg, m_data, q, node);
-                extent e = (extent)node;
-                if (e->uninited) {
-                    if (!extents) {
-                        extents = table_find(f->md, sym(extents));
-                        if (!extents) {
-                            msg_err("fsfile %p, no extents in tuple %t\n", f, f->md);
-                            goto fail;
-                        }
-                    }
-                    symbol offs = intern_u64(node->r.start);
-                    tuple extent_tuple = table_find(extents, offs);
-                    if (!extent_tuple) {
-                        msg_err("failed: can't find extent tuple\n");
-                        goto fail;
-                    }
-                    if (table_find(extent_tuple, sym(uninited))) {
-                        tfs_debug("   removing uninited flag\n");
-                        table_set(extent_tuple, sym(uninited), 0);
-                        filesystem_write_eav(f->fs, extent_tuple, sym(uninited), 0,
-                                apply_merge(m_meta));
-                    }
-                    e->uninited = false;
-                }
+        if (next != INVALID_ADDRESS) {
+            // XXX need extend here too
+            if (blocks.start >= next->r.start) {
+                blocks.start = write_extent(f, (extent)next, sg, blocks, m_data);
             }
-            curr = node->r.end;
-            node = rangemap_next_node(f->extentmap, node);
         }
-    } while(curr < q.end);
+        assert(blocks.start <= blocks.end); // XXX tmp
+        if (range_span(blocks) == 0)
+            goto out;
+        prev = next;
+        if (prev != INVALID_ADDRESS)
+            next = rangemap_next_node(f->extentmap, prev);
+    } while (range_span(blocks) > 0);
 
-    /* all data I/O has been queued */
-    apply(sh, STATUS_OK);
-    return;
-
-  fail:
-    /* apply merge fail */
-    apply(sh, timm("result", "write failed"));
-    return;
+    /* XXX do length update here rather than in data completion? */
+  out:
+    apply(sh, STATUS_OK);       /* error may have already been applied to merge */
 }
-#endif
 
 closure_function(3, 1, void, filesystem_write_complete,
                  sg_list, sg, u64, length, io_status_handler, io_complete,
@@ -972,7 +881,7 @@ error:
 }
 
 void filesystem_dealloc(filesystem fs, tuple t, long offset, long len,
-        fs_status_handler completion)
+                        fs_status_handler completion)
 {
     fsfile f = table_find(fs->files, t);
     assert(f);
@@ -981,22 +890,22 @@ void filesystem_dealloc(filesystem fs, tuple t, long offset, long len,
         apply(completion, f, FS_STATUS_NOENT);
         return;
     }
-    range q = irange(offset, offset + len);
-    tfs_debug("%s: t %v, q %R\n", __func__, t, q);
+    range blocks = range_rshift(irangel(offset, len), fs->blocksize_order);
+    tfs_debug("%s: t %v, q %R\n", __func__, t, blocks);
 
     merge m = allocate_merge(fs->h,
             closure(fs->h, filesystem_op_complete, f, completion));
     status_handler sh = apply_merge(m);
     rangemap_foreach(f->extentmap, curr) {
         extent ex = (extent) curr;
-        if (range_contains(q, curr->r)) {
+        if (range_contains(blocks, curr->r)) {
             remove_extent_from_file(f, ex, m);
             destroy_extent(fs, ex);
             continue;
         }
-        range i = range_intersection(curr->r, q);
+        range i = range_intersection(curr->r, blocks);
         if (range_span(i))
-            fs_write_extent(fs, 0, m, i, &ex->node); /* zero */
+            write_extent(f, ex, 0, i, m); /* zero */
     }
     filesystem_flush_log(fs);
     apply(sh, STATUS_OK);
@@ -1260,7 +1169,6 @@ void create_filesystem(heap h,
                        u64 alignment,
                        u64 blocksize,
                        u64 size,
-                       heap dma,
                        block_io read,
                        block_io write,
                        pagecache pc,
@@ -1275,11 +1183,13 @@ void create_filesystem(heap h,
     ignore_io_status = closure(h, ignore_io);
     fs->files = allocate_table(h, identity_key, pointer_equal);
     fs->extents = allocate_table(h, identity_key, pointer_equal);
-    fs->dma = dma;
+    fs->zero_page = pagecache_get_zero_page(pc);
+    assert(fs->zero_page);
     fs->r = read;
     fs->pc = pc;
     fs->root = root;
     fs->alignment = alignment;
+    fs->page_order = pagecache_get_page_order(pc);
     fs->size = size;
     assert((blocksize & (blocksize - 1)) == 0); /* power of 2 */
     fs->blocksize_order = find_order(blocksize);

@@ -13,10 +13,7 @@
 #include <pagecache.h>
 #include <pagecache_internal.h>
 
-#ifdef STAGE3
-#define PAGECACHE_DEBUG
-#endif
-
+//#define PAGECACHE_DEBUG
 #if defined(PAGECACHE_DEBUG)
 #define pagecache_debug(x, ...) do {rprintf("PGC: " x, ##__VA_ARGS__);} while(0)
 #else
@@ -218,6 +215,7 @@ static void touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page pp, 
     pagecache_volume pv = pn->pv;
     pagecache pc = pv->pc;
     spin_lock(&pc->state_lock);
+    pagecache_debug("%s: pn %p, pp %p, m %p, state %d\n", __func__, pn, pp, m, page_state(pp));
     switch (page_state(pp)) {
     case PAGECACHE_PAGESTATE_READING:
         enqueue_page_completion_statelocked(pc, pp, apply_merge(m));
@@ -239,7 +237,7 @@ static void touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page pp, 
 #endif
 
         /* issue page reads */
-        pagecache_debug("%s: pc %p, pp %p, r %R, reading...\n", __func__, pc, pp, r);
+        pagecache_debug("   pc %p, pp %p, r %R, reading...\n", pc, pp, r);
         sg_list sg = allocate_sg_list(); // XXX check
         sg_buf sgb = sg_list_tail_add(sg, cache_pagesize(pc));
         sgb->buf = pp->kvirt;
@@ -378,7 +376,7 @@ static void touch_page_by_num_nodelocked(pagecache_node pn, u64 n, merge m)
     touch_or_fill_page_nodelocked(pn, pp, m);
 }
 
-closure_function(5, 1, void, finish_write_nodelocked,
+closure_function(5, 1, void, write_sg_finish,
                  pagecache_node, pn, range, q, sg_list, sg, status_handler, completion, boolean, complete,
                  status, s)
 {
@@ -389,7 +387,6 @@ closure_function(5, 1, void, finish_write_nodelocked,
     int block_order = pn->pv->block_order;
     u64 pi = q.start >> page_order;
     u64 end = (q.end + MASK(pc->page_order)) >> page_order;
-    pagecache_page pp = page_lookup_nodelocked(pn, pi); /* XXX make fn */
 
     pagecache_debug("%s: pn %p, q %R, sg %p, complete %d, status %v\n", __func__, pn, q,
                     bound(sg), bound(complete), s);
@@ -398,6 +395,8 @@ closure_function(5, 1, void, finish_write_nodelocked,
         return;
     }
 
+    spin_lock(&pn->pages_lock);
+    pagecache_page pp = page_lookup_nodelocked(pn, pi);
     if (bound(complete)) {
         do {
             assert(pp != INVALID_ADDRESS && pp->offset == pi);
@@ -408,37 +407,51 @@ closure_function(5, 1, void, finish_write_nodelocked,
             pi++;
             pp = (pagecache_page)rbnode_get_next((rbnode)pp);
         } while (pi < end);
-        /* dealloc write sg */
         spin_unlock(&pn->pages_lock);
         closure_finish();
         return;
     }
 
     /* apply writes, allocating pages as needed */
+    merge m = allocate_merge(pc->h, bound(completion));
+    status_handler k = apply_merge(m);
     u64 page_offset = q.start & MASK(page_order);
     u64 block_offset = q.start & MASK(block_order);
+    range r = irange(q.start & ~MASK(block_order), q.end);
     sg_list write_sg = allocate_sg_list(); // XXX alloc check
+    if (write_sg == INVALID_ADDRESS) {
+        spin_unlock(&pn->pages_lock);
+        apply(k, timm("result", "failed to allocate write sg"));
+        closure_finish();
+        return;
+    }
     do {
         if (pp == INVALID_ADDRESS || pp->offset > pi) {
             pp = allocate_page_nodelocked(pn, pi);
             if (pp == INVALID_ADDRESS) {
-                apply(bound(completion), timm("result", "failed to allocate pagecache_page"));
                 spin_unlock(&pn->pages_lock);
+                apply(k, timm("result", "failed to allocate pagecache_page"));
+                sg_list_release(write_sg);
+                deallocate_sg_list(write_sg);
                 closure_finish();
-                // XXX dealloc write_sg
                 return;
             }
+
+            /* TODO zero any portions of the write either before or
+               after q that aren't aligned to a block boundary
+
+               fs will depend on this to implement file holes */
         }
         u64 copy_len = MIN(q.end - (pi << page_order), cache_pagesize(pc)) - page_offset;
-        u64 req_len = pad(copy_len, U64_FROM_BIT(block_order));
+        u64 req_len = pad(copy_len + block_offset, U64_FROM_BIT(block_order));
         sg_buf sgb = sg_list_tail_add(write_sg, req_len);
         sgb->buf = pp->kvirt;
         sgb->offset = page_offset - block_offset;
         sgb->size = sgb->offset + req_len;
 #if 0
-        rprintf(" copy_len %ld, req_len %ld, sgb->offset %d, sgb->size %d "
+        rprintf("   pi %ld, copy_len %ld, req_len %ld, sgb->offset %d, sgb->size %d "
                 "page_offset %ld, block_offset %ld\n",
-                copy_len, req_len, sgb->offset, sgb->size,
+                pi, copy_len, req_len, sgb->offset, sgb->size,
                 page_offset, block_offset);
 #endif
         sgb->refcount = &pp->refcount;
@@ -447,20 +460,21 @@ closure_function(5, 1, void, finish_write_nodelocked,
         assert(res == copy_len);
         spin_lock(&pc->state_lock);
         change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_WRITING);
+        enqueue_page_completion_statelocked(pc, pp, apply_merge(m));
         spin_unlock(&pc->state_lock);
         page_offset = 0;
         block_offset = 0;
         pi++;
         pp = (pagecache_page)rbnode_get_next((rbnode)pp);
     } while (pi < end);
+    spin_unlock(&pn->pages_lock);
 
     /* issue write */
     // XXX write_merge or alternative...
-    // XXX desk check end of range
-    range r = irange(q.start - block_offset, q.end + block_offset);
     bound(complete) = true;
-    pagecache_debug("   calling fs_write, range %R, sg %p\n", r, write_sg);
+    pagecache_debug("   calling fs_write, range %R, sg %p, count %ld\n", r, write_sg, write_sg->count);
     apply(pn->fs_write, write_sg, r, (status_handler)closure_self());
+    apply(k, STATUS_OK);
 }
 
 closure_function(1, 3, void, write_sg,
@@ -472,7 +486,7 @@ closure_function(1, 3, void, write_sg,
     pagecache_debug("%s: node %p, q %R, sg %p, completion %F\n", __func__, pn, q, sg, completion);
 
     /* prepare pages for writing */
-    merge m = allocate_merge(pc->h, closure(pc->h, finish_write_nodelocked, pn, q, sg, completion, false));
+    merge m = allocate_merge(pc->h, closure(pc->h, write_sg_finish, pn, q, sg, completion, false));
     status_handler sh = apply_merge(m);
 
     /* initiate reads for rmw start and/or end */
@@ -498,8 +512,7 @@ closure_function(1, 3, void, write_sg,
         spin_unlock(&pc->state_lock);
         pp = (pagecache_page)rbnode_get_next((rbnode)pp);
     }
-
-    /* node lock held through merge completion */
+    spin_unlock(&pn->pages_lock);
     apply(sh, STATUS_OK);
 }
 
@@ -563,10 +576,11 @@ closure_function(1, 3, void, read_sg,
     pagecache pc = pn->pv->pc;
     pagecache_debug("%s: node %p, q %R, sg %p, completion %F\n", __func__, pn, q, sg, completion);
 
-    // XXX bother with truncating to length?
     merge m = allocate_merge(pc->h, completion);
     status_handler sh = apply_merge(m);
     struct pagecache_page k;
+    if (q.end > pn->length)
+        q.end = pn->length;
     k.offset = q.start >> pc->page_order;
     u64 end = (q.end + MASK(pc->page_order)) >> pc->page_order;
     spin_lock(&pn->pages_lock);
@@ -668,6 +682,16 @@ void pagecache_sync_node(pagecache_node pn, status_handler sh)
     apply(sh, STATUS_OK);
 }
 
+void *pagecache_get_zero_page(pagecache pc)
+{
+    return pc->zero_page;
+}
+
+int pagecache_get_page_order(pagecache pc)
+{
+    return pc->page_order;
+}
+
 pagecache_volume pagecache_allocate_volume(pagecache pc, u64 length, int block_order)
 {
     pagecache_volume pv = allocate(pc->h, sizeof(struct pagecache_volume));
@@ -698,6 +722,12 @@ pagecache allocate_pagecache(heap general, heap contiguous, u64 pagesize)
     assert(pagesize == U64_FROM_BIT(pc->page_order));
     pc->h = general;
     pc->contiguous = contiguous;
+    pc->zero_page = allocate_zero(contiguous, pagesize);
+    if (pc->zero_page == INVALID_ADDRESS) {
+        msg_err("failed to allocate zero page\n");
+        deallocate(general, pc, sizeof(struct pagecache));
+        return INVALID_ADDRESS;
+    }
 
     spin_lock_init(&pc->state_lock);
     page_list_init(&pc->free);

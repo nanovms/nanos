@@ -209,7 +209,6 @@ int main(int argc, char **argv)
                       SECTOR_SIZE,
                       SECTOR_SIZE,
                       infinity,
-                      h,
                       closure(h, bread, fd, get_fs_offset(fd)),
                       0, /* no write */
                       pc,

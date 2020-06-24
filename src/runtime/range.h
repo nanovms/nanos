@@ -41,6 +41,11 @@ static inline range range_rshift(range r, int order)
     return irange(r.start >> order, r.end >> order);
 }
 
+static inline range range_rshift_pad(range r, int order)
+{
+    return irange(r.start >> order, (r.end + MASK(order)) >> order);
+}
+
 static inline range range_lshift(range r, int order)
 {
     return irange(r.start << order, r.end << order);

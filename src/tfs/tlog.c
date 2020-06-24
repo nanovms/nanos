@@ -58,7 +58,7 @@ closure_function(4, 1, void, log_write_completion,
     // reclaim the buffer now and the vector...make it a whole thing
     vector v = bound(completions);
     status_handler sh;
-
+    tlog_debug("%s: status %v\n", __func__, s);
     vector_foreach(v, sh)
         apply(sh, s);
 
@@ -235,7 +235,7 @@ static inline void log_write_internal(log tl, status_handler sh)
 
 void log_write_eav(log tl, tuple e, symbol a, value v, status_handler sh)
 {
-    tlog_debug("log_write_eav: tl %p, e %v, a %b, v %v\n", tl, e, symbol_string(a), v);
+    tlog_debug("log_write_eav: tl %p, e %p, a %b, v %p\n", tl, e, symbol_string(a), v);
     encode_eav(tl->tuple_staging, tl->dictionary, e, a, v);
     log_write_internal(tl, sh);
 }
@@ -500,35 +500,38 @@ static void log_read(log tl, status_handler sh)
     apply(tl->read, sg, r, tlc);
 }
 
-// TODO refactor
+static inline void log_storage_op(log tl, sg_list sg, range q, status_handler sh, block_io op)
+{
+    int order = tl->fs->blocksize_order;
+    assert((q.start & MASK(order)) == 0);
+    assert((range_span(q) & MASK(order)) == 0);
+    merge m = allocate_merge(tl->fs->h, sh);
+    status_handler k = apply_merge(m);
+    range blocks = range_add(range_rshift(q, order), tl->sectors.start);
+    tlog_debug("%s: sg %p, q %R, blocks %R, sh %F, op %F\n", __func__, sg, q, blocks, sh, op);
+    filesystem_storage_op(tl->fs, sg, m, blocks, op);
+    apply(k, STATUS_OK);
+}
+
 closure_function(1, 3, void, log_storage_read,
                  log, tl,
                  sg_list, sg, range, q, status_handler, sh)
 {
-    filesystem fs = bound(tl)->fs;
-    merge m = allocate_merge(fs->h, sh);
-    status_handler k = apply_merge(m);
-    assert((q.start & MASK(fs->blocksize_order)) == 0);
-    assert((range_span(q) & MASK(fs->blocksize_order)) == 0);
-    range blocks = range_add(range_rshift(q, fs->blocksize_order), bound(tl)->sectors.start);
-    tlog_debug("%s: sg %p, q %R, blocks %R\n", __func__, sg, q, blocks);
-    filesystem_storage_op(fs, sg, m, blocks, fs->r);
-    apply(k, STATUS_OK);
+    if (bound(tl)->fs->r) {
+        log_storage_op(bound(tl), sg, q, sh, bound(tl)->fs->r);
+    } else {
+        /* mkfs: zero-fill */
+        tlog_debug("%s: zero-fill sg %p, q %R, sh %F\n", sg, q, sh);
+        sg_zero_fill(sg, range_span(q));
+        apply(sh, STATUS_OK);
+    }
 }
 
 closure_function(1, 3, void, log_storage_write,
                  log, tl,
                  sg_list, sg, range, q, status_handler, sh)
 {
-    filesystem fs = bound(tl)->fs;
-    merge m = allocate_merge(fs->h, sh);
-    status_handler k = apply_merge(m);
-    assert((q.start & MASK(fs->blocksize_order)) == 0);
-    assert((range_span(q) & MASK(fs->blocksize_order)) == 0);
-    range qb = range_add(range_rshift(q, fs->blocksize_order), bound(tl)->sectors.start);
-    tlog_debug("%s: q %R sg %p, blocks %R\n", __func__, q, sg, qb);
-    filesystem_storage_op(fs, sg, m, qb, fs->w);
-    apply(k, STATUS_OK);
+    log_storage_op(bound(tl), sg, q, sh, bound(tl)->fs->w);
 }
 
 log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
@@ -543,8 +546,7 @@ log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
                                              closure(h, log_storage_write, tl));
     if (tl->cache_node == INVALID_ADDRESS)
         goto fail_dealloc_log;
-    // XXX was causing rmw?
-//    pagecache_set_node_length(tl->cache_node, TFS_LOG_DEFAULT_EXTENSION_SIZE);
+    pagecache_set_node_length(tl->cache_node, TFS_LOG_DEFAULT_EXTENSION_SIZE);
     tl->read = pagecache_node_get_reader(tl->cache_node);
     tl->write = pagecache_node_get_writer(tl->cache_node);
     tl->sectors = irange(0, sector_from_offset(fs, TFS_LOG_DEFAULT_EXTENSION_SIZE));

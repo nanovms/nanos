@@ -741,7 +741,6 @@ closure_function(2, 6, sysreturn, file_write,
         filesystem_update_mtime(t->p->fs, file_get_meta(f));
     }
     file_op_begin(t);
-    rprintf("WWW offset %ld, final_length %ld\n", offset, final_length);
     filesystem_write_linear(fsf, buf, irangel(offset, final_length),
                             closure(h, file_op_complete, t, f, fsf, is_file_offset,
                                     completion));

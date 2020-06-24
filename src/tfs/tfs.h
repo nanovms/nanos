@@ -4,21 +4,9 @@ typedef closure_type(filesystem_complete, void, filesystem, status);
 
 typedef struct fsfile *fsfile;
 
-static inline u64 fsfile_get_length(fsfile f)
-{
-    return f->length;
-}
-
-static inline void fsfile_set_length(fsfile f, u64 length)
-{
-    f->length = length;
-    pagecache_set_node_length(f->cache_node, length);
-}
-
-static inline tuple fsfile_get_meta(fsfile f)
-{
-    return f->md;
-}
+u64 fsfile_get_length(fsfile f);
+void fsfile_set_length(fsfile f, u64 length);
+tuple fsfile_get_meta(fsfile f);
 
 extern io_status_handler ignore_io_status;
 
@@ -31,7 +19,6 @@ void create_filesystem(heap h,
                        u64 alignment,
                        u64 blocksize,
                        u64 size,
-                       heap dma,
                        block_io read,
                        block_io write,
                        pagecache pc,
@@ -42,15 +29,10 @@ void create_filesystem(heap h,
 // there is a question as to whether tuple->fs file should be mapped inside out outside the filesystem
 // status
 
-static inline void filesystem_read_sg(fsfile f, sg_list sg, range q, status_handler completion)
-{
-    apply(f->read, sg, q, completion);
-}
+// turn these into method gets rather than call
+void filesystem_read_sg(fsfile f, sg_list sg, range q, status_handler completion);
 
-static inline void filesystem_write_sg(fsfile f, sg_list sg, range q, status_handler completion)
-{
-    apply(f->write, sg, q, completion);
-}
+void filesystem_write_sg(fsfile f, sg_list sg, range q, status_handler completion);
 
 /* deprecate these if we can */
 void filesystem_read_linear(fsfile f, void *dest, range q, io_status_handler completion);

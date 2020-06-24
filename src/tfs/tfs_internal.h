@@ -11,10 +11,12 @@ typedef struct filesystem {
     u64 size;
     heap h;
     int alignment;
+    int page_order;
     table files; // maps tuple to fsfile
     table extents; // maps extents
     closure_type(log, void, tuple);
     heap dma;
+    void *zero_page;
     block_io r;
     block_io w;
     pagecache pc;
@@ -36,8 +38,8 @@ typedef struct fsfile {
 
 typedef struct extent {
     /* these are in block units */
-    struct rmnode node;
-    u64 block_start;
+    struct rmnode node;         /* must be first */
+    u64 start_block;
     u64 allocated;
     boolean uninited;
 } *extent;

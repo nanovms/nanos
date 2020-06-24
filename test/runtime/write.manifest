@@ -9,8 +9,8 @@
               hello:(contents:(host:test/runtime/write_contents/hello))
 	      )
     program:/write
-    trace:t
-    debugsyscalls:t
+#    trace:t
+#    debugsyscalls:t
 #    futex_trace:t
     fault:t
     environment:(USER:bobby PWD:/)

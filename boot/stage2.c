@@ -303,7 +303,6 @@ void newstack()
                       SECTOR_SIZE,
                       SECTOR_SIZE,
                       infinity,
-                      0,         /* ignored in boot */
                       get_stage2_disk_read(h, fs_offset),
                       closure(h, stage2_empty_write),
                       pc,

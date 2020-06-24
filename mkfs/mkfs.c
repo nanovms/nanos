@@ -445,7 +445,6 @@ int main(int argc, char **argv)
                       SECTOR_SIZE,
                       SECTOR_SIZE,
                       infinity,
-                      h,
                       0, /* no read -> new fs */
                       closure(h, bwrite, out, offset),
                       pc,

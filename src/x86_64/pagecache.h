@@ -17,6 +17,10 @@ void pagecache_sync_node(pagecache_node pn, status_handler sh);
 
 void pagecache_sync_volume(pagecache_volume pv, status_handler sh);
 
+void *pagecache_get_zero_page(pagecache pc);
+
+int pagecache_get_page_order(pagecache pc);
+
 // TODO - not clear yet, maybe for range?
 void pagecache_invalidate_node(pagecache_node pn);
 
