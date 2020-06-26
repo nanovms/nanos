@@ -1,5 +1,20 @@
 #include <tfs_internal.h>
 
+/* new log writing plan:
+
+   no completions for tuple updates
+
+   - but a tuple update kicks off a flush timer (which gets
+     nullified if an explicit flush or log extend occurs)
+
+   log flushes continue to use completions
+
+*/
+
+#ifdef BOOT // XXX move
+#define TLOG_READ_ONLY
+#endif
+
 //#define TLOG_DEBUG
 //#define TLOG_DEBUG_DUMP
 #ifdef TLOG_DEBUG
@@ -25,86 +40,166 @@ static const char *tfs_magic = "NVMTFS";
 #define TFS_EXTENSION_LINK_BYTES (1 + 2 * MAX_VARINT_SIZE)
 #define TFS_LOG_RESERVED_BYTES (TFS_EXTENSION_HEADER_BYTES + TFS_EXTENSION_LINK_BYTES)
 
-typedef struct log {
-    filesystem fs;
-    vector completions;
-    table dictionary;
+typedef struct log *log;
+typedef struct log_ext *log_ext;
 
-    /* sector offset, length and staging buffer of current extension */
-    range sectors;
+declare_closure_struct(1, 0, void, log_ext_free,
+                       log_ext, ext);
+
+struct log_ext {
+    log tl;
     buffer staging;
-    buffer tuple_staging;
-    u64 tuple_bytes_remain;
-    boolean extension_open;
+    boolean open;
+
     pagecache_node cache_node;
+    range sectors;
     sg_io read;
     sg_io write;
+    struct refcount refcount;
+    closure_struct(log_ext_free, free);
+};
 
-    int dirty;              /* cas boolean */
+struct log {
     heap h;
-} *log;
+    filesystem fs;
+    table dictionary;
+    log_ext current;
+    buffer tuple_staging;
+    vector encoding_lengths;
+    u64 tuple_bytes_remain;
 
-static inline u64 log_size(log tl)
+    boolean dirty;
+    boolean flushing;
+    timer flush_timer;
+    vector flush_completions;
+};
+
+closure_function(0, 3, void, zero_fill,
+                 sg_list, sg, range, q, status_handler, sh)
 {
-    return bytes_from_sectors(tl->fs, range_span(tl->sectors));
+    tlog_debug("%s: zero-fill sg %p, q %R, sh %F\n", __func__, sg, q, sh);
+    sg_zero_fill(sg, range_span(q));
+    apply(sh, STATUS_OK);
 }
 
-// XXX split
-#ifndef BOOT
-closure_function(4, 1, void, log_write_completion,
-                 sg_list, sg, buffer, b, vector, completions, boolean, release,
+closure_function(3, 3, void, log_storage_op,
+                 filesystem, fs, u64, start_sector, block_io, op,
+                 sg_list, sg, range, q, status_handler, sh)
+{
+    int order = bound(fs)->blocksize_order;
+    assert((q.start & MASK(order)) == 0);
+    assert((range_span(q) & MASK(order)) == 0);
+    merge m = allocate_merge(bound(fs)->h, sh);
+    status_handler k = apply_merge(m);
+    range blocks = range_add(range_rshift(q, order), bound(start_sector));
+    tlog_debug("%s: sg %p, q %R, blocks %R, sh %F, op %F\n", __func__,
+               sg, q, blocks, sh, bound(op));
+    filesystem_storage_op(bound(fs), sg, m, blocks, bound(op));
+    apply(k, STATUS_OK);
+}
+
+define_closure_function(1, 0, void, log_ext_free,
+                        log_ext, ext)
+{
+    log_ext ext = bound(ext);
+    if (ext->staging)
+        deallocate_buffer(ext->staging);
+    pagecache_deallocate_node(ext->cache_node);
+    deallocate(ext->tl->h, ext, sizeof(struct log_ext));
+}
+
+static log_ext open_log_extension(log tl, range sectors)
+{
+    u64 size_bytes = range_span(sectors) << tl->fs->blocksize_order;
+    log_ext ext = allocate(tl->h, sizeof(struct log_ext));
+    if (ext == INVALID_ADDRESS)
+        return ext;
+    ext->tl = tl;
+    ext->staging = allocate_buffer(tl->h, size_bytes);
+    if (ext->staging == INVALID_ADDRESS)
+        goto fail_dealloc;
+    ext->open = false;
+    sg_io r_op = tl->fs->r ? closure(tl->h, log_storage_op, tl->fs, sectors.start, tl->fs->r) :
+        closure(tl->h, zero_fill);  /* mkfs */
+    sg_io w_op = closure(tl->h, log_storage_op, tl->fs, sectors.start, tl->fs->w);
+    ext->cache_node = pagecache_allocate_node(tl->fs->pv, r_op, w_op);
+    if (ext->cache_node == INVALID_ADDRESS)
+        goto fail_dealloc_staging;
+
+    pagecache_set_node_length(ext->cache_node, TFS_LOG_DEFAULT_EXTENSION_SIZE);
+    ext->sectors = sectors;
+    ext->read = pagecache_node_get_reader(ext->cache_node);
+    ext->write = pagecache_node_get_writer(ext->cache_node);
+    init_refcount(&ext->refcount, 1, init_closure(&ext->free, log_ext_free, ext));
+    return ext;
+  fail_dealloc_staging:
+    deallocate_buffer(ext->staging);
+  fail_dealloc:
+    deallocate(tl->h, ext, sizeof(struct log_ext));
+    return INVALID_ADDRESS;
+}
+
+static void close_log_extension(log_ext ext)
+{
+    refcount_release(&ext->refcount);
+}
+
+static void dump_staging(log_ext ext)
+{
+#ifdef TLOG_DEBUG_DUMP
+    buffer b = ext->staging;
+    u64 z = b->end;
+    rprintf("staging contains:\n");
+    for (int i = 0; i < 4; i++) {
+        b->start = i * 256;
+        b->end = b->start + 256;
+        rprintf("%X\n", b);
+    }
+    b->start = 0;
+    b->end = z;
+#endif
+}
+
+#ifndef TLOG_READ_ONLY
+closure_function(4, 1, void, flush_log_extension_complete,
+                 sg_list, sg, log_ext, ext, boolean, release, status_handler, complete,
                  status, s)
 {
-    // reclaim the buffer now and the vector...make it a whole thing
-    vector v = bound(completions);
-    status_handler sh;
+    log_ext ext = bound(ext);
     tlog_debug("%s: status %v\n", __func__, s);
-    vector_foreach(v, sh)
-        apply(sh, s);
-
-    deallocate_vector(v);
 
     if (bound(release))
-        deallocate_buffer(bound(b));
+        close_log_extension(ext);
 
     deallocate_sg_list(bound(sg));
+    apply(bound(complete), s);
     closure_finish();
 }
 
-// xxx  currently we cant take writes during the flush
-
-/* Avoid references to log, which may be in transition to a new extension. */
-static void log_flush_internal(heap h, filesystem fs, buffer b, range log_range,
-                               vector completions, boolean release)
+static void flush_log_extension(log_ext ext, boolean release, status_handler complete)
 {
+    filesystem fs = ext->tl->fs;
+    buffer b = ext->staging;
+    dump_staging(ext);
     push_u8(b, END_OF_LOG);
-
-#ifdef TLOG_DEBUG_DUMP
-    u64 z = b->end;
-    b->start = 0;
-    b->end = 1024;
-    rprintf("staging contains:\n%X\n", b);
-    b->end = z;
-#endif
-
     assert(buffer_length(b) > 0); /* END_OF_LOG, at least */
     assert((b->start & MASK(fs->blocksize_order)) == 0);
-    u64 sector_start = log_range.start + sector_from_offset(fs, b->start);
-    u64 sectors = sector_from_offset(fs, buffer_length(b) + (fs_blocksize(fs) - 1));
-    range write_range = irange(sector_start, sector_start + sectors);
-    assert(range_contains(log_range, write_range));
+    u64 sector_offset = sector_from_offset(fs, b->start);
+    u64 write_bytes = pad(buffer_length(b), fs_blocksize(fs));
+    assert(write_bytes <= bytes_from_sectors(fs, range_span(ext->sectors)));
 
     sg_list sg = allocate_sg_list();
-    assert(sg != INVALID_ADDRESS); // XXX
-    range r = range_lshift(write_range, fs->blocksize_order);
+    assert(sg != INVALID_ADDRESS);
     sg_buf sgb = sg_list_tail_add(sg, buffer_length(b));
     sgb->buf = buffer_ref(b, 0);
-    sgb->size = pad(buffer_length(b), fs_blocksize(fs)); /* b prealloced to blocksize multiple */
+    sgb->size = write_bytes; /* staging is prealloced to extension size */
     sgb->offset = 0;
     sgb->refcount = 0;
 
-    tlog_debug("log_flush_internal: writing r %R, buffer addr %p\n", write_range, sgb->buf);
-    apply(fs->tl->write, sg, r, closure(h, log_write_completion, sg, b, completions, release));
+    range r = irangel(sector_offset, write_bytes);
+    tlog_debug("%s: writing r %R, buffer addr %p\n", __func__, r, sgb->buf);
+    apply(ext->write, sg, r, closure(ext->tl->h, flush_log_extension_complete,
+                                     sg, ext, release, complete));
     if (!release) {
         b->end -= 1;                /* next write removes END_OF_LOG */
         tlog_debug("log ext offset was %d (end %d)\n", b->start, b->end);
@@ -112,6 +207,120 @@ static void log_flush_internal(heap h, filesystem fs, buffer b, range log_range,
         tlog_debug("log ext offset now %d\n", b->start);
         assert(b->end >= b->start);
     }
+}
+
+static void log_extension_init(log_ext ext)
+{
+    assert(!ext->open);
+    push_buffer(ext->staging, alloca_wrap_buffer(tfs_magic, TFS_MAGIC_BYTES));
+    push_varint(ext->staging, TFS_VERSION);
+    push_varint(ext->staging, range_span(ext->sectors));
+}
+
+/* complete linkage in (now disembodied - thus long arg list) previous extension */
+closure_function(3, 1, void, log_extend_link,
+                 log_ext, old_ext, range, sectors, status_handler, sh,
+                 status, s)
+{
+    tlog_debug("linking old extension to new and flushing\n");
+
+    /* add link to close out old extension and commit */
+    buffer b = bound(old_ext)->staging;
+    push_u8(b, LOG_EXTENSION_LINK);
+    push_varint(b, bound(sectors).start);
+    push_varint(b, range_span(bound(sectors)));
+
+    /* flush and dispose */
+    flush_log_extension(bound(old_ext), true, bound(sh));
+}
+
+// TODO re-test log extensions after update
+log_ext log_extend(log tl, u64 size, status_handler sh) {
+    tlog_debug("log_extend: tl %p, size 0x%lx\n", tl, size);
+
+    /* allocate new log and write with end of log */
+    size >>= tl->fs->blocksize_order;
+    u64 offset = allocate_u64((heap)tl->fs->storage, size);
+    if (offset == INVALID_PHYSICAL) {
+        // TODO should initiate flush of current extension before failing
+        return INVALID_ADDRESS;
+    }
+
+    /* new log extension */
+    range r = irangel(offset, size);
+    tlog_debug("new log extension sectors %R\n", r);
+    log_ext new_ext = open_log_extension(tl, r);
+
+    /* flush new extension and link on completion */
+    log_ext old_ext = tl->current;
+    log_extension_init(new_ext);
+    tl->current = new_ext;
+    flush_log_extension(new_ext, false, closure(tl->h, log_extend_link, old_ext, r, sh));
+    return new_ext;
+}
+
+#define TUPLE_AVAILABLE_HEADER_SIZE (1 + 2 * MAX_VARINT_SIZE)
+#define TUPLE_AVAILABLE_MIN_SIZE (TUPLE_AVAILABLE_HEADER_SIZE + 32 /* arbitrary */)
+
+static inline u64 log_size(log_ext ext)
+{
+    return bytes_from_sectors(ext->tl->fs, range_span(ext->sectors));
+}
+
+static inline boolean log_write_internal(log tl, merge m)
+{
+    log_ext ext = tl->current;
+    assert(ext);
+
+    int n = vector_length(tl->encoding_lengths);
+    for (int i = 0; i < n; i++) {
+        u64 size;
+        u64 written = 0;
+        u64 remaining = (u64)vector_get(tl->encoding_lengths, i);
+        assert(remaining > 0);
+        do {
+            assert(buffer_length(tl->tuple_staging) > 0);
+            size = log_size(ext);
+            u64 min = TFS_EXTENSION_LINK_BYTES + TUPLE_AVAILABLE_MIN_SIZE;
+            if (ext->staging->end + min >= size) {
+                ext = log_extend(tl, TFS_LOG_DEFAULT_EXTENSION_SIZE, apply_merge(m));
+                if (ext == INVALID_ADDRESS)
+                    return false;
+                size = log_size(ext);
+            }
+            assert(ext->staging->end + min < size);
+            u64 avail = size - (ext->staging->end + TFS_EXTENSION_LINK_BYTES + TUPLE_AVAILABLE_HEADER_SIZE);
+            u64 length = MIN(avail, remaining);
+            if (written == 0) {
+                push_u8(ext->staging, TUPLE_AVAILABLE);
+                push_varint(ext->staging, remaining);
+            } else {
+                push_u8(ext->staging, TUPLE_EXTENDED);
+            }
+            push_varint(ext->staging, length);
+            buffer_write(ext->staging, buffer_ref(tl->tuple_staging, 0), length);
+            buffer_consume(tl->tuple_staging, length);
+            remaining -= length;
+            written += length;
+        } while (remaining > 0);
+    }
+    vector_clear(tl->encoding_lengths);
+    return true;
+}
+
+closure_function(1, 1, void, log_flush_complete,
+                 log, tl,
+                 status, s)
+{
+    /* would need to move these to runqueue if a flush is ever invoked from a tfs op */
+    bound(tl)->dirty = false;
+    if (bound(tl)->flush_completions) {
+        status_handler sh;
+        vector_foreach(bound(tl)->flush_completions, sh)
+            apply(sh, s);
+    }
+    bound(tl)->flushing = false;
+    closure_finish();
 }
 
 void log_flush(log tl, status_handler completion)
@@ -122,132 +331,73 @@ void log_flush(log tl, status_handler completion)
             apply(completion, STATUS_OK);
         return;
     }
-    tl->dirty = false;
-    vector c = tl->completions;
-    tl->completions = allocate_vector(tl->h, COMPLETION_QUEUE_SIZE);
     if (completion)
-        vector_push(c, completion);
-    log_flush_internal(tl->h, tl->fs, tl->staging, tl->sectors, c, false);
+        vector_push(tl->flush_completions, completion);
+    if (tl->flushing)
+        return;
+    if (tl->flush_timer) {
+        remove_timer(tl->flush_timer, 0);
+        tl->flush_timer = 0;
+    }
+    tl->flushing = true;
+    merge m = allocate_merge(tl->h, closure(tl->h, log_flush_complete, tl));
+    status_handler sh = apply_merge(m);
+    if (!log_write_internal(tl, m)) {
+        apply(sh, timm("result", "log_write_internal failed"));
+        return;
+    }
+    flush_log_extension(tl->current, false, sh);
 }
 
-/* complete linkage in (now disembodied - thus long arg list) previous extension */
-closure_function(7, 1, void, log_extend_link,
-                 u64, offset,
-                 u64, sectors,
-                 heap, h,
-                 filesystem, fs,
-                 buffer, b,
-                 range, r,
-                 vector, c,
-                 status, s)
+#ifdef STAGE3
+closure_function(1, 1, void, log_flush_timer_expired,
+                 log, tl,
+                 u64, overruns /* ignored */)
 {
-    tlog_debug("linking old extension to new and flushing\n");
-
-    /* add link to close out old extension and commit */
-    buffer b = bound(b);
-    push_u8(b, LOG_EXTENSION_LINK);
-    push_varint(b, bound(offset));
-    push_varint(b, bound(sectors));
-
-    /* flush and dispose */
-    log_flush_internal(bound(h), bound(fs), b, bound(r), bound(c), true);
+    bound(tl)->flush_timer = 0;
+    log_flush(bound(tl), 0);
+    closure_finish();
 }
 
-static void init_log_extension(buffer b, u64 sectors)
+static void log_set_dirty(log tl)
 {
-    push_buffer(b, alloca_wrap_buffer(tfs_magic, TFS_MAGIC_BYTES));
-    push_varint(b, TFS_VERSION);
-    push_varint(b, sectors);
-}
-
-boolean log_extend(log tl, u64 size) {
-    tlog_debug("log_extend: tl %p\n", tl);
-
-    /* allocate new log and write with end of log */
-    u64 offset = allocate_u64((heap)tl->fs->storage, size);
-    if (offset == INVALID_PHYSICAL)
-        return false;
-    offset = sector_from_offset(tl->fs, offset);
-    u64 sectors = sector_from_offset(tl->fs, size);
-    range r = irange(offset, offset + sectors);
-    buffer nb = allocate_buffer(tl->h, size);
-
-    /* new log extension */
+    if (tl->dirty)
+        return;
     tl->dirty = true;
-    tlog_debug("new log extension sector range %R, sectors %d staging %p\n", r, sectors, nb);
-    init_log_extension(nb, sectors);
-    push_u8(nb, END_OF_LOG);
-    assert(buffer_length(nb) < fs_blocksize(tl->fs));
-    range wr = irange(offset, offset + 1);
-
-    void *p = buffer_ref(nb, 0);
-    tlog_debug("log_extend: writing new extension, sectors %R, buffer %p\n", wr, p);
-    apply(tl->fs->w, p, wr,
-          closure(tl->h, log_extend_link, offset, sectors, tl->h, tl->fs,
-                  tl->staging, tl->sectors, tl->completions));
-    nb->end -= 1;
-    tl->staging = nb;
-    tl->sectors = r;
-    tl->completions = allocate_vector(tl->h, COMPLETION_QUEUE_SIZE);
-    tl->dirty = false;
-    return true;
+    assert(!tl->flush_timer);
+    tl->flush_timer = register_timer(runloop_timers, CLOCK_ID_MONOTONIC,
+                                     seconds(TFS_LOG_FLUSH_PERIOD_SECONDS), false, 0,
+                                     closure(tl->h, log_flush_timer_expired, tl));
 }
-
-#define TUPLE_AVAILABLE_HEADER_SIZE (1 + 2 * MAX_VARINT_SIZE)
-#define TUPLE_AVAILABLE_MIN_SIZE (TUPLE_AVAILABLE_HEADER_SIZE + 32 /* arbitrary */)
-
-static inline void log_write_internal(log tl, status_handler sh)
+#else
+/* mkfs: flush on close */
+static void log_set_dirty(log tl)
 {
-    u64 remaining = buffer_length(tl->tuple_staging);
-    u64 written = 0;
-    u64 size;
-
-    do {
-        size = log_size(tl);
-        u64 min = TFS_EXTENSION_LINK_BYTES + TUPLE_AVAILABLE_MIN_SIZE;
-        if (tl->staging->end + min >= size) {
-            if (!log_extend(tl, TFS_LOG_DEFAULT_EXTENSION_SIZE)) {
-                apply(sh, timm("result", "log_write failed to extend log: out of storage"));
-                return;
-            }
-            size = log_size(tl);
-        }
-        assert(tl->staging->end + min < size);
-        u64 avail = size - (tl->staging->end + TFS_EXTENSION_LINK_BYTES + TUPLE_AVAILABLE_HEADER_SIZE);
-        u64 length = MIN(avail, remaining);
-        if (written == 0) {
-            push_u8(tl->staging, TUPLE_AVAILABLE);
-            push_varint(tl->staging, remaining);
-        } else {
-            push_u8(tl->staging, TUPLE_EXTENDED);
-        }
-        push_varint(tl->staging, length);
-        buffer_write(tl->staging, buffer_ref(tl->tuple_staging, 0), length);
-        buffer_consume(tl->tuple_staging, length);
-        remaining -= length;
-        written += length;
-    } while (remaining > 0);
-
-    /* assign completion to the last log extension flush */
-    vector_push(tl->completions, sh);
     tl->dirty = true;
 }
+#endif
 
-void log_write_eav(log tl, tuple e, symbol a, value v, status_handler sh)
+void log_write_eav(log tl, tuple e, symbol a, value v)
 {
     tlog_debug("log_write_eav: tl %p, e %p, a %b, v %p\n", tl, e, symbol_string(a), v);
+    u64 len = buffer_length(tl->tuple_staging);
     encode_eav(tl->tuple_staging, tl->dictionary, e, a, v);
-    log_write_internal(tl, sh);
+    len = buffer_length(tl->tuple_staging) - len;
+    vector_push(tl->encoding_lengths, (void *)len);
+    log_set_dirty(tl);
 }
 
-void log_write(log tl, tuple t, status_handler sh)
+void log_write(log tl, tuple t)
 {
     tlog_debug("log_write: tl %p, t %p\n", tl, t);
+    u64 len = buffer_length(tl->tuple_staging);
     encode_tuple(tl->tuple_staging, tl->dictionary, t);
-    log_write_internal(tl, sh);
+    len = buffer_length(tl->tuple_staging) - len;
+    vector_push(tl->encoding_lengths, (void *)len);
+    log_set_dirty(tl);
 }
 
-#endif /* !BOOT */
+#endif /* !TLOG_READ_ONLY */
 
 static boolean log_parse_tuple(log tl, buffer b)
 {
@@ -294,10 +444,11 @@ static inline void log_tuple_produce(log tl, buffer b, u64 length)
 static void log_read(log tl, status_handler sh);
 
 closure_function(4, 1, void, log_read_complete,
-                 log, tl, sg_list, sg, u64, length, status_handler, sh,
+                 log_ext, ext, sg_list, sg, u64, length, status_handler, sh,
                  status, read_status)
 {
-    log tl = bound(tl);
+    log_ext ext = bound(ext);
+    log tl = ext->tl;
     status s = STATUS_OK;
     status_handler sh = bound(sh);
     u8 frame = 0;
@@ -311,12 +462,13 @@ closure_function(4, 1, void, log_read_complete,
     }
 
     /* staging is preallocated to size */
-    buffer b = tl->staging;
+    buffer b = ext->staging;
     u64 n = sg_copy_to_buf_and_release(buffer_ref(b, 0), bound(sg), bound(length));
-    buffer_produce(tl->staging, n);
+    buffer_produce(b, n);
+    dump_staging(ext);
     tlog_debug("log_read_complete: buffer len %d, status %v\n", buffer_length(b), read_status);
     tlog_debug("-> new log extension, checking magic and version\n");
-    if (!tl->extension_open) {
+    if (!ext->open) {
         if (runtime_memcmp(buffer_ref(b, 0), tfs_magic, TFS_MAGIC_BYTES)) {
             s = timm("result", "tfs magic mismatch");
             goto out_apply_status;
@@ -330,7 +482,7 @@ closure_function(4, 1, void, log_read_complete,
         /* XXX the length is really for validation...so hook it up */
         length = pop_varint(b);
         tlog_debug("%ld sectors\n", length);
-        tl->extension_open = true;
+        ext->open = true;
     }
 
     /* need to check bounds */
@@ -347,15 +499,20 @@ closure_function(4, 1, void, log_read_complete,
                 s = timm("result", "zero-length extension");
                 goto out_apply_status;
             }
-            range r = irange(sector, sector + length);
-
-            /* XXX validate against device */
-            assert(tl->staging);
-            buffer_clear(tl->staging);
-            extend_total(tl->staging, bytes_from_sectors(tl->fs, length));
-            tl->sectors = r;
-            tl->extension_open = false;
-
+            range r = irangel(sector, length);
+            close_log_extension(ext);
+            ext = open_log_extension(tl, r);
+            if (ext == INVALID_ADDRESS) {
+                s = timm("result", "unable to open log extension");
+                goto out_apply_status;
+            }
+            tl->current = ext;
+#ifndef TLOG_READ_ONLY
+            if (!filesystem_reserve_storage(tl->fs, r)) {
+                s = timm("result", "failed to reserve sectors %R in log extension", r);
+                goto out_apply_status;
+            }
+#endif
             /* chain to next log extension, carrying status handler to end */
             log_read(tl, sh);
             goto out;
@@ -401,7 +558,7 @@ closure_function(4, 1, void, log_read_complete,
             }
             break;
         default:
-            tlog_debug("-> unknown encoding type %d\n", frame);
+            tlog_debug("-> unknown encoding type %d, offset %ld\n", frame, b->start);
             s = timm("result", "unknown frame identifier 0x%x", frame);
             goto out_apply_status;
         }
@@ -458,80 +615,20 @@ closure_function(4, 1, void, log_read_complete,
     closure_finish();
 }
 
-static boolean init_staging(log tl, status_handler sh)
-{
-    char *err;
-    u64 size = log_size(tl);
-    tl->staging = allocate_buffer(tl->h, size);
-    if (tl->staging == INVALID_ADDRESS) {
-        err = "failed to allocate staging buffer";
-        goto fail;
-    }
-    tlog_debug("reading log extension, sectors %R, staging %p\n",
-               tl->sectors, tl->staging);
-
-    /* reserve sectors in map */
-    if (!filesystem_reserve_storage(tl->fs, bytes_from_sectors(tl->fs, tl->sectors.start), size)) {
-        err = "failed to reserve sectors in allocation map";
-        goto fail;
-    }
-    return true;
-  fail:
-    tlog_debug("%s\n", err);
-    apply(sh, timm("result", "%s", err));
-    deallocate_buffer(tl->staging);
-    tl->staging = 0;
-    return false;
-}
-
 static void log_read(log tl, status_handler sh)
 {
-    assert(!tl->extension_open);
-    if (!init_staging(tl, sh))
-        return;
+    log_ext ext = tl->current;
+    assert(ext);
+    assert(!ext->open);
     sg_list sg = allocate_sg_list();
     if (sg == INVALID_ADDRESS) {
         apply(sh, timm("result", "failed to allocate sg list"));
         return;
     }
-    range r = range_lshift(tl->sectors, SECTOR_OFFSET);
-    status_handler tlc = closure(tl->h, log_read_complete, tl, sg, range_span(r), sh);
-    tlog_debug("%s: issuing sg read, sg %p, r %R, tlc %p\n", __func__, sg, r, tlc);
-    apply(tl->read, sg, r, tlc);
-}
-
-static inline void log_storage_op(log tl, sg_list sg, range q, status_handler sh, block_io op)
-{
-    int order = tl->fs->blocksize_order;
-    assert((q.start & MASK(order)) == 0);
-    assert((range_span(q) & MASK(order)) == 0);
-    merge m = allocate_merge(tl->fs->h, sh);
-    status_handler k = apply_merge(m);
-    range blocks = range_add(range_rshift(q, order), tl->sectors.start);
-    tlog_debug("%s: sg %p, q %R, blocks %R, sh %F, op %F\n", __func__, sg, q, blocks, sh, op);
-    filesystem_storage_op(tl->fs, sg, m, blocks, op);
-    apply(k, STATUS_OK);
-}
-
-closure_function(1, 3, void, log_storage_read,
-                 log, tl,
-                 sg_list, sg, range, q, status_handler, sh)
-{
-    if (bound(tl)->fs->r) {
-        log_storage_op(bound(tl), sg, q, sh, bound(tl)->fs->r);
-    } else {
-        /* mkfs: zero-fill */
-        tlog_debug("%s: zero-fill sg %p, q %R, sh %F\n", sg, q, sh);
-        sg_zero_fill(sg, range_span(q));
-        apply(sh, STATUS_OK);
-    }
-}
-
-closure_function(1, 3, void, log_storage_write,
-                 log, tl,
-                 sg_list, sg, range, q, status_handler, sh)
-{
-    log_storage_op(bound(tl), sg, q, sh, bound(tl)->fs->w);
+    range r = irangel(0, bytes_from_sectors(tl->fs, range_span(ext->sectors)));
+    status_handler tlc = closure(tl->h, log_read_complete, ext, sg, range_span(r), sh);
+    tlog_debug("%s: issuing sg read, sg %p, r %R\n", __func__, sg, r);
+    apply(ext->read, sg, r, tlc);
 }
 
 log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
@@ -541,48 +638,54 @@ log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
     if (tl == INVALID_ADDRESS)
         return tl;
     tl->h = h;
-    tl->cache_node = pagecache_allocate_node(fs->pv,
-                                             closure(h, log_storage_read, tl),
-                                             closure(h, log_storage_write, tl));
-    if (tl->cache_node == INVALID_ADDRESS)
-        goto fail_dealloc_log;
-    pagecache_set_node_length(tl->cache_node, TFS_LOG_DEFAULT_EXTENSION_SIZE);
-    tl->read = pagecache_node_get_reader(tl->cache_node);
-    tl->write = pagecache_node_get_writer(tl->cache_node);
-    tl->sectors = irange(0, sector_from_offset(fs, TFS_LOG_DEFAULT_EXTENSION_SIZE));
     tl->fs = fs;
-    tl->completions = allocate_vector(h, COMPLETION_QUEUE_SIZE);
-    if (tl->completions == INVALID_ADDRESS)
-        goto fail_dealloc_dict;
     tl->dictionary = allocate_table(h, identity_key, pointer_equal);
     if (tl->dictionary == INVALID_ADDRESS)
-        goto fail_dealloc_tstage;
-    tl->dirty = false;
-    tl->staging = 0;
+        goto fail_dealloc_log;
+    range sectors = irange(0, TFS_LOG_DEFAULT_EXTENSION_SIZE >> fs->blocksize_order);
+    tl->current = open_log_extension(tl, sectors);
+    if (tl->current == INVALID_ADDRESS)
+        goto fail_dealloc_dict;
+#ifndef TLOG_READ_ONLY
+    if (!filesystem_reserve_storage(tl->fs, sectors)) {
+        msg_err("failed to reserve sectors in allocation map");
+        goto fail_dealloc_current;
+    }
+#endif
     tl->tuple_staging = allocate_buffer(h, PAGESIZE /* arbitrary */);
+    if (tl->tuple_staging == INVALID_ADDRESS)
+        goto fail_dealloc_current; /* should unreserve sectors */
+    tl->encoding_lengths = allocate_vector(h, 512);
+    if (tl->encoding_lengths == INVALID_ADDRESS)
+        goto fail_dealloc_staging;
     tl->tuple_bytes_remain = 0;
-    tl->extension_open = false;
+    tl->dirty = false;
+    tl->flushing = false;
+    tl->flush_timer = 0;
+    tl->flush_completions = allocate_vector(tl->h, COMPLETION_QUEUE_SIZE);
+    if (tl->flush_completions == INVALID_ADDRESS)
+        goto fail_dealloc_encoding_lengths;
+
     fs->tl = tl;
     if (initialize) {
-#ifndef BOOT
-        /* mkfs */
-        if (!init_staging(tl, sh)) {
-            deallocate_vector(tl->completions);
-            goto fail_dealloc_dict;
-        }
-        init_log_extension(tl->staging, range_span(tl->sectors));
-        apply(sh, STATUS_OK);
-#else
+#ifdef TLOG_READ_ONLY
         halt("no tlog write support\n");
+#else
+        log_extension_init(tl->current);
+        apply(sh, STATUS_OK);
 #endif
     } else {
         log_read(tl, sh);
     }
     return tl;
+  fail_dealloc_encoding_lengths:
+    deallocate_vector(tl->encoding_lengths);
+  fail_dealloc_staging:
+    deallocate_buffer(tl->tuple_staging);
+  fail_dealloc_current:
+    refcount_release(&tl->current->refcount);
   fail_dealloc_dict:
     deallocate_table(tl->dictionary);
-  fail_dealloc_tstage:
-    deallocate_buffer(tl->tuple_staging);
   fail_dealloc_log:
     deallocate(h, tl, sizeof(struct log));
     return INVALID_ADDRESS;

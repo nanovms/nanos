@@ -207,7 +207,6 @@ int main(int argc, char **argv)
     assert(pc != INVALID_ADDRESS);
     create_filesystem(h,
                       SECTOR_SIZE,
-                      SECTOR_SIZE,
                       infinity,
                       closure(h, bread, fd, get_fs_offset(fd)),
                       0, /* no write */

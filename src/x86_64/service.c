@@ -155,7 +155,6 @@ closure_function(2, 3, void, attach_storage,
     global_pagecache = pc;
     create_filesystem(h,
                       SECTOR_SIZE,
-                      SECTOR_SIZE,
                       length,
                       closure(h, offset_block_io, bound(fs_offset), r),
                       closure(h, offset_block_io, bound(fs_offset), w),

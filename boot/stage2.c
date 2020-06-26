@@ -301,7 +301,6 @@ void newstack()
     assert(pc != INVALID_ADDRESS);
     create_filesystem(h,
                       SECTOR_SIZE,
-                      SECTOR_SIZE,
                       infinity,
                       get_stage2_disk_read(h, fs_offset),
                       closure(h, stage2_empty_write),

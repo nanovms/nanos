@@ -167,22 +167,28 @@ typedef struct pagecache_node {
 /* presently assuming pages are contiguous on storage
    TODO: - fix for block size > pagesize
          - reorg for single cacheline
-         - move state to kvirt low order bits?
 */
 
-typedef struct pagecache_page {
-    struct rbnode rbnode;       /* 3 */
-    struct refcount refcount;   /* 2 */
-    u64 offset;                 /* node offset in pages */
-    void *kvirt;
-    u64 state_phys;             /* state and physical page number */
+typedef struct pagecache_page *pagecache_page;
+
+declare_closure_struct(2, 0, void, pagecache_page_free,
+                       pagecache, pc, pagecache_page, pp);
+
+struct pagecache_page {
+    struct rbnode rbnode;
+    struct refcount refcount;   /* 24 */
+    u64 state_offset;           /* 40 - state and offset in pages */
+    void *kvirt;                /* 48 */
+    int write_count;            /* 56 */
+    int pad0;                   /* 60 */
     /* end of first cacheline */
 
     pagecache_node node;
     struct list l;
-    merge write_merge;          /* completion merge for pending block writes */
+    u64 phys;                   /* physical address */
     vector completions;         /* status_handlers */
-} *pagecache_page;
+    closure_struct(pagecache_page_free, free);
+};
 
 static inline void pagecache_release_page(pagecache_page pp)
 {

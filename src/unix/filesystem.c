@@ -156,18 +156,6 @@ closure_function(2, 2, void, fs_op_complete,
     closure_finish();
 }
 
-closure_function(1, 1, void, symlink_complete,
-                 thread, t,
-                 status, s)
-{
-    thread t = bound(t);
-    thread_log(current, "%s: status %v (%s)", __func__, s,
-            is_ok(s) ? "OK" : "NOTOK");
-    set_syscall_return(t, is_ok(s) ? 0 : -EIO);
-    file_op_maybe_wake(t);
-    closure_finish();
-}
-
 static sysreturn symlink_internal(tuple cwd, const char *path,
         const char *target)
 {
@@ -179,11 +167,8 @@ static sysreturn symlink_internal(tuple cwd, const char *path,
     if ((ret != -ENOENT) || !parent) {
         return set_syscall_return(current, ret);
     }
-    file_op_begin(current);
-    filesystem_symlink(current->p->fs, parent, filename_from_path(path), target,
-            closure(heap_general(get_kernel_heaps()), symlink_complete,
-            current));
-    return file_op_maybe_sleep(current);
+    filesystem_symlink(current->p->fs, parent, filename_from_path(path), target);
+    return set_syscall_return(current, 0);
 }
 
 sysreturn symlink(const char *target, const char *linkpath)

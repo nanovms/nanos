@@ -1,8 +1,12 @@
+#ifdef STAGE3
+#include <kernel.h>
+#else
 #include <runtime.h>
+#endif
 #include <pagecache.h>
 #include <tfs.h>
 
-#define TFS_VERSION 0x00000001
+#define TFS_VERSION 0x00000002
 
 typedef struct log *log;
 
@@ -10,7 +14,8 @@ typedef struct filesystem {
     id_heap storage;
     u64 size;
     heap h;
-    int alignment;
+    int blocksize_order;
+    int alignment_order;        /* in blocks */
     int page_order;
     table files; // maps tuple to fsfile
     table extents; // maps extents
@@ -23,7 +28,6 @@ typedef struct filesystem {
     pagecache_volume pv;
     log tl;
     tuple root;
-    int blocksize_order;
 } *filesystem;
 
 typedef struct fsfile {
@@ -47,11 +51,11 @@ typedef struct extent {
 void ingest_extent(fsfile f, symbol foff, tuple value);
 
 log log_create(heap h, filesystem fs, boolean initialize, status_handler sh);
-void log_write(log tl, tuple t, status_handler sh);
-void log_write_eav(log tl, tuple e, symbol a, value v, status_handler sh);
+void log_write(log tl, tuple t);
+void log_write_eav(log tl, tuple e, symbol a, value v);
 void log_flush(log tl, status_handler completion);
 void flush(filesystem fs, status_handler);
-boolean filesystem_reserve_storage(filesystem fs, u64 start, u64 length);
+boolean filesystem_reserve_storage(filesystem fs, range storage_blocks);
 void filesystem_storage_op(filesystem fs, sg_list sg, merge m, range blocks, block_io op);
     
 typedef closure_type(buffer_status, buffer, status);

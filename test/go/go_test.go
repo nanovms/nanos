@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nanovms/ops/lepton"
 )
@@ -114,6 +115,7 @@ func validateResponse(t *testing.T, finalImage string, expected string) {
 	if string(body) != expected {
 		t.Error("unexpected response" + string(body))
 	}
+	time.Sleep(time.Second * 3) // pause for fs flush - should make a request which exits server
 }
 
 func TestInstancePersistence(t *testing.T) {
