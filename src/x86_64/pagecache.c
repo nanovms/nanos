@@ -27,16 +27,6 @@ static inline u64 cache_pagesize(pagecache pc)
     return U64_FROM_BIT(pc->page_order);
 }
 
-static inline u64 cache_pagemask(pagecache pc)
-{
-    return MASK(pc->page_order);
-}
-
-static inline u64 volume_blocksize(pagecache_volume pc)
-{
-    return U64_FROM_BIT(pc->block_order);
-}
-
 static inline int page_state(pagecache_page pp)
 {
     return pp->state_offset >> PAGECACHE_PAGESTATE_SHIFT;
@@ -393,9 +383,10 @@ closure_function(5, 1, void, write_sg_finish,
     int block_order = pn->pv->block_order;
     u64 pi = q.start >> page_order;
     u64 end = (q.end + MASK(pc->page_order)) >> page_order;
+    sg_list sg = bound(sg);
 
     pagecache_debug("%s: pn %p, q %R, sg %p, complete %d, status %v\n", __func__, pn, q,
-                    bound(sg), bound(complete), s);
+                    sg, bound(complete), s);
     if (!is_ok(s)) {
         apply(bound(completion), s);
         return;
@@ -425,12 +416,17 @@ closure_function(5, 1, void, write_sg_finish,
     u64 offset = q.start & MASK(page_order);
     u64 block_offset = q.start & MASK(block_order);
     range r = irange(q.start & ~MASK(block_order), q.end);
-    sg_list write_sg = allocate_sg_list(); // XXX alloc check
-    if (write_sg == INVALID_ADDRESS) {
-        spin_unlock(&pn->pages_lock);
-        apply(bound(completion), timm("result", "failed to allocate write sg"));
-        closure_finish();
-        return;
+    sg_list write_sg;
+    if (sg) {
+        write_sg = allocate_sg_list();
+        if (write_sg == INVALID_ADDRESS) {
+            spin_unlock(&pn->pages_lock);
+            apply(bound(completion), timm("result", "failed to allocate write sg"));
+            closure_finish();
+            return;
+        }
+    } else {
+        write_sg = 0;
     }
     do {
         if (pp == INVALID_ADDRESS || page_offset(pp) > pi) {
@@ -438,8 +434,10 @@ closure_function(5, 1, void, write_sg_finish,
             if (pp == INVALID_ADDRESS) {
                 spin_unlock(&pn->pages_lock);
                 apply(bound(completion), timm("result", "failed to allocate pagecache_page"));
-                sg_list_release(write_sg);
-                deallocate_sg_list(write_sg);
+                if (write_sg) {
+                    sg_list_release(write_sg);
+                    deallocate_sg_list(write_sg);
+                }
                 closure_finish();
                 return;
             }
@@ -451,20 +449,18 @@ closure_function(5, 1, void, write_sg_finish,
         }
         u64 copy_len = MIN(q.end - (pi << page_order), cache_pagesize(pc)) - offset;
         u64 req_len = pad(copy_len + block_offset, U64_FROM_BIT(block_order));
-        sg_buf sgb = sg_list_tail_add(write_sg, req_len);
-        sgb->buf = pp->kvirt;
-        sgb->offset = offset - block_offset;
-        sgb->size = sgb->offset + req_len;
-#if 0
-        rprintf("   pi %ld, copy_len %ld, req_len %ld, sgb->offset %d, sgb->size %d "
-                "offset %ld, block_offset %ld\n",
-                pi, copy_len, req_len, sgb->offset, sgb->size,
-                offset, block_offset);
-#endif
-        sgb->refcount = &pp->refcount;
-        refcount_reserve(sgb->refcount);
-        u64 res = sg_copy_to_buf(pp->kvirt + offset, bound(sg), copy_len);
-        assert(res == copy_len);
+        if (write_sg) {
+            sg_buf sgb = sg_list_tail_add(write_sg, req_len);
+            sgb->buf = pp->kvirt;
+            sgb->offset = offset - block_offset;
+            sgb->size = sgb->offset + req_len;
+            sgb->refcount = &pp->refcount;
+            refcount_reserve(sgb->refcount);
+            u64 res = sg_copy_to_buf(pp->kvirt + offset, sg, copy_len);
+            assert(res == copy_len);
+        } else {
+            zero(pp->kvirt + offset, copy_len);
+        }
         spin_lock(&pc->state_lock);
         change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_WRITING);
         spin_unlock(&pc->state_lock);
@@ -477,7 +473,7 @@ closure_function(5, 1, void, write_sg_finish,
 
     /* issue write */
     bound(complete) = true;
-    pagecache_debug("   calling fs_write, range %R, sg %p, count %ld\n", r, write_sg, write_sg->count);
+    pagecache_debug("   calling fs_write, range %R, sg %p\n", r, write_sg);
     apply(pn->fs_write, write_sg, r, (status_handler)closure_self());
     apply(bound(completion), STATUS_OK);
 }

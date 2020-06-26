@@ -388,6 +388,12 @@ static extent create_extent(filesystem fs, range blocks, boolean uninited)
     return ex;
 }
 
+static void destroy_extent(filesystem fs, extent ex)
+{
+    deallocate_u64((heap)fs->storage, ex->start_block, ex->allocated);
+    deallocate(fs->h, ex, sizeof(*ex));
+}
+
 static void add_extent_to_file(fsfile f, extent ex)
 {
     heap h = f->fs->h;
@@ -531,7 +537,6 @@ static void update_extent_length(fsfile f, extent ex, u64 new_length)
 
 static u64 extend(fsfile f, extent ex, sg_list sg, range blocks, merge m)
 {
-    // XXX check gap here?
     u64 free = ex->allocated - range_span(ex->node.r);
     range r = irangel(ex->node.r.end, free);
     range i = range_intersection(r, blocks);
@@ -551,47 +556,6 @@ static u64 extend(fsfile f, extent ex, sg_list sg, range blocks, merge m)
     return i.end;
 }
 
-        /* cases:
-
-           prev valid (no intersection, maybe extend)
-
-                 qqqq
-           nnnn
-
-                qqqqq
-           nnnnn
-
-           next valid:
-
-             qqqqqq
-           nnnnnn
-
-           qqqqqq
-           nnnnnn
-
-           qqqqqq
-              nnnnnn
-
-           qqqqqq
-                 nnnnnn
-
-           qqqqqq
-                    nnnnnn
-
-         
-           - if next available:
-             find intersection, write, and trim q
-
-           1) next available and contains edge
-                 - fs_write_extent, advance and continue
-
-           2) 
-                 - try to extend prev
-                 - create extent to limit
-
-
-        */
-
 closure_function(2, 3, void, filesystem_storage_write,
                  filesystem, fs, fsfile, f,
                  sg_list, sg, range, q, status_handler, complete)
@@ -602,8 +566,8 @@ closure_function(2, 3, void, filesystem_storage_write,
     assert((q.start & MASK(fs->blocksize_order)) == 0);
     range blocks = range_rshift_pad(q, fs->blocksize_order);
     tfs_debug("%s: fsfile %p, q %R, blocks %R, sg %p, sg count 0x%lx, complete %F\n", __func__,
-              f, q, blocks, sg, sg->count, complete);
-    assert(sg->count >= range_span(blocks) << fs->blocksize_order);
+              f, q, blocks, sg, sg ? sg->count : 0, complete);
+    assert(!sg || sg->count >= range_span(blocks) << fs->blocksize_order);
 
     merge m = allocate_merge(fs->h, complete);
     status_handler sh = apply_merge(m);
@@ -625,36 +589,47 @@ closure_function(2, 3, void, filesystem_storage_write,
     status s = STATUS_OK;
     do {
         tfs_debug("   prev %p, next %p\n", prev, next);
-        /* try to extend prev */
         u64 limit = next == INVALID_ADDRESS ? blocks.end : MIN(blocks.end, next->r.start);
-        if (blocks.start < limit) {
-            if (prev != INVALID_ADDRESS && prev->r.end < limit) {
-                tfs_debug("   extent start 0x%lx, limit 0x%lx\n", blocks.start, limit);
-                blocks.start = extend(f, (extent)prev, sg, irange(blocks.start, limit), m);
-            }
-
-            /* fill space */
-            while (blocks.start < limit) {
-                tfs_debug("   fill start 0x%lx, limit 0x%lx\n", blocks.start, limit);
-                u64 edge = fill_gap(f, sg, irange(blocks.start, limit), m);
-                if (edge == -1ull) {
-                    s = timm("result", "unable to create extent");
-                    goto out;
+        if (sg) {
+            if (blocks.start < limit) {
+                /* try to extend previous node */
+                if (prev != INVALID_ADDRESS && prev->r.end < limit) {
+                    tfs_debug("   extent start 0x%lx, limit 0x%lx\n", blocks.start, limit);
+                    blocks.start = extend(f, (extent)prev, sg, irange(blocks.start, limit), m);
                 }
-                blocks.start = edge;
+
+                /* fill space */
+                while (blocks.start < limit) {
+                    tfs_debug("   fill start 0x%lx, limit 0x%lx\n", blocks.start, limit);
+                    u64 edge = fill_gap(f, sg, irange(blocks.start, limit), m);
+                    if (edge == -1ull) {
+                        s = timm("result", "unable to create extent");
+                        goto out;
+                    }
+                    blocks.start = edge;
+                }
             }
+        } else {
+            /* zero: skip to start of next node */
+            blocks.start = limit;
         }
 
+        prev = next;
         if (next != INVALID_ADDRESS) {
-            // XXX need extend here too
-            if (blocks.end > next->r.start) {
-                blocks.start = write_extent(f, (extent)next, sg, blocks, m);
+            extent ex = (extent)next;
+            next = rangemap_next_node(f->extentmap, next);
+
+            if (!sg && range_contains(blocks, ex->node.r)) {
+                blocks.start = ex->node.r.end;
+                remove_extent_from_file(f, ex);
+                destroy_extent(fs, ex);
+                prev = INVALID_ADDRESS; /* prev isn't used in zero, but just to be safe */
+            } else if (blocks.end > ex->node.r.start) {
+                /* TODO: improve write_extent to trim extent on zero */
+                blocks.start = write_extent(f, ex, sg, blocks, m);
             }
         }
         assert(blocks.start <= blocks.end); // XXX tmp
-        prev = next;
-        if (prev != INVALID_ADDRESS)
-            next = rangemap_next_node(f->extentmap, prev);
     } while (range_span(blocks) > 0);
 
     if (fsfile_get_length(f) < q.end) {
@@ -662,7 +637,6 @@ closure_function(2, 3, void, filesystem_storage_write,
         fsfile_set_length(f, q.end);
         log_write_eav(fs->tl, f->md, sym(filelength), value_from_u64(fs->h, q.end));
     }
-
   out:
     apply(sh, s);
 }
@@ -728,12 +702,6 @@ closure_function(2, 1, void, filesystem_op_complete,
     tfs_debug("%s: status %v\n", __func__, s);
     apply(bound(sh), bound(f), is_ok(s) ? FS_STATUS_OK : FS_STATUS_IOERR);
     closure_finish();
-}
-
-static void destroy_extent(filesystem fs, extent ex)
-{
-    deallocate_u64((heap)fs->storage, ex->start_block, ex->allocated);
-    deallocate(fs->h, ex, sizeof(*ex));
 }
 
 closure_function(1, 1, void, destroy_extent_node,
@@ -819,30 +787,10 @@ void filesystem_dealloc(filesystem fs, tuple t, long offset, long len,
 {
     fsfile f = table_find(fs->files, t);
     assert(f);
-    tuple extents = table_find(t, sym(extents));
-    if (!extents) {
-        apply(completion, f, FS_STATUS_NOENT);
-        return;
-    }
-    // XXX pad?
-    range blocks = range_rshift_pad(irangel(offset, len), fs->blocksize_order);
-    tfs_debug("%s: t %v, blocks %R\n", __func__, t, blocks);
-
-    merge m = allocate_merge(fs->h,
-            closure(fs->h, filesystem_op_complete, f, completion));
-    status_handler sh = apply_merge(m);
-    rangemap_foreach(f->extentmap, curr) {
-        extent ex = (extent) curr;
-        if (range_contains(blocks, curr->r)) {
-            remove_extent_from_file(f, ex);
-            destroy_extent(fs, ex);
-            continue;
-        }
-        range i = range_intersection(curr->r, blocks);
-        if (range_span(i))
-            write_extent(f, ex, 0, i, m); /* zero */
-    }
-    apply(sh, STATUS_OK);
+    /* A write with !sg indicates that the pagecache should zero the
+       range. The null sg is propagated to the storage write for
+       extent removal. */
+    filesystem_write_sg(f, 0, irangel(offset, len), closure(fs->h, filesystem_op_complete, f, completion));
 }
 
 static tuple fs_new_entry(filesystem fs)
