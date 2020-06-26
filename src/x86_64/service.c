@@ -17,7 +17,6 @@
 #include <kvm_platform.h>
 #include <xen_platform.h>
 
-//#define SMP_ENABLE
 //#define SMP_DUMP_FRAME_RETURN_COUNT
 
 //#define STAGE3_INIT_DEBUG
