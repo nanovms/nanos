@@ -148,7 +148,6 @@ define_closure_function(1, 1, context, default_fault_handler,
 
   bug:
     // panic handling in a more central location?
-    apic_ipi(TARGET_EXCLUSIVE_BROADCAST, 0, shutdown_vector);
     rprintf("cpu: %d\n", current_cpu()->id);
     print_frame(frame);
     print_stack(frame);

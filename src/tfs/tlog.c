@@ -184,7 +184,6 @@ static void flush_log_extension(log_ext ext, boolean release, status_handler com
     push_u8(b, END_OF_LOG);
     assert(buffer_length(b) > 0); /* END_OF_LOG, at least */
     assert((b->start & MASK(fs->blocksize_order)) == 0);
-    u64 sector_offset = sector_from_offset(fs, b->start);
     u64 write_bytes = pad(buffer_length(b), fs_blocksize(fs));
     assert(write_bytes <= bytes_from_sectors(fs, range_span(ext->sectors)));
 
@@ -196,7 +195,7 @@ static void flush_log_extension(log_ext ext, boolean release, status_handler com
     sgb->offset = 0;
     sgb->refcount = 0;
 
-    range r = irangel(sector_offset, write_bytes);
+    range r = irangel(b->start, write_bytes);
     tlog_debug("%s: writing r %R, buffer addr %p\n", __func__, r, sgb->buf);
     apply(ext->write, sg, r, closure(ext->tl->h, flush_log_extension_complete,
                                      sg, ext, release, complete));

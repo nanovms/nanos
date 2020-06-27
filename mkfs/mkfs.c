@@ -249,32 +249,11 @@ static void write_mbr(descriptor f)
         halt("could not write MBR (short write)\n");
 }
 
-closure_function(3, 1, void, flush_complete,
-                 descriptor, out, long long, img_size, boolean, write_mbr,
-                 status, s)
-{
-    if (bound(img_size) > 0) {
-        off_t current_size = lseek(bound(out), 0, SEEK_END);
-        if (current_size < 0) {
-            halt("could not get image size: %s\n", strerror(errno));
-        }
-        if (current_size < bound(img_size)) {
-            if (ftruncate(bound(out), bound(img_size))) {
-                halt("could not set image size: %s\n", strerror(errno));
-            }
-        }
-    }
-    if (bound(write_mbr))
-        write_mbr(bound(out));
-
-    close(bound(out));
-    closure_finish();
-}
-
-closure_function(5, 2, void, filesystem_created,
-                 heap, h, descriptor, out, const char *, target_root, long long, img_size, boolean, write_mbr,
+closure_function(4, 2, void, fsc,
+                 heap, h, descriptor, out, tuple, root, const char *, target_root,
                  filesystem, fs, status, s)
 {
+    tuple root = bound(root);
     if (!root)
         exit(1);
 
@@ -310,7 +289,7 @@ closure_function(5, 2, void, filesystem_created,
             }
         }
     }
-    filesystem_flush(fs, closure(h, flush_complete, bound(out), bound(img_size), bound(write_mbr)));
+    filesystem_flush(fs, ignore_status);
     closure_finish();
 }
 
@@ -462,8 +441,10 @@ int main(int argc, char **argv)
         }
         if (!boot)
             halt("boot FS not found\n");
-        create_filesystem(h, SECTOR_SIZE, SECTOR_SIZE, BOOTFS_SIZE, h, 0,
-                          closure(h, bwrite, out, offset), 0, allocate_tuple(),
+        pagecache pc = allocate_pagecache(h, h, PAGESIZE);
+        assert(pc != INVALID_ADDRESS);
+        create_filesystem(h, SECTOR_SIZE, BOOTFS_SIZE, 0,
+                          closure(h, bwrite, out, offset), pc, allocate_tuple(),
                           true, closure(h, fsc, h, out, boot, target_root));
         offset += BOOTFS_SIZE;
 
@@ -481,7 +462,22 @@ int main(int argc, char **argv)
                       pc,
                       allocate_tuple(),
                       true,
-                      closure(h, filesystem_created, h, out,
-                              target_root, img_size, bootimg_path != 0));
+                      closure(h, fsc, h, out, root, target_root));
+
+    if (img_size > 0) {
+        off_t current_size = lseek(out, 0, SEEK_END);
+        if (current_size < 0) {
+            halt("could not get image size: %s\n", strerror(errno));
+        }
+        if (current_size < img_size) {
+            if (ftruncate(out, img_size)) {
+                halt("could not set image size: %s\n", strerror(errno));
+            }
+        }
+    }
+    if (bootimg_path != NULL)
+        write_mbr(out);
+
+    close(out);
     exit(0);
 }

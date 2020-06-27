@@ -272,8 +272,11 @@ closure_function(1, 1, void, sync_complete,
     vm_exit(bound(code));
 }
 
+extern boolean shutting_down;
 void kernel_shutdown(int status)
 {
+    shutting_down = true;
+    apic_ipi(TARGET_EXCLUSIVE_BROADCAST, 0, shutdown_vector);
     if (global_pagecache) {
         filesystem_flush(root_fs, closure(heap_general(&heaps), sync_complete, status));
         runloop();
