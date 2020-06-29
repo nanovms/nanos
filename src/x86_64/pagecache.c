@@ -430,6 +430,7 @@ closure_function(5, 1, void, write_sg_finish,
     }
     do {
         if (pp == INVALID_ADDRESS || page_offset(pp) > pi) {
+            assert(offset == 0 && block_offset == 0); /* should never alloc for unaligned head */
             pp = allocate_page_nodelocked(pn, pi);
             if (pp == INVALID_ADDRESS) {
                 spin_unlock(&pn->pages_lock);
@@ -442,10 +443,19 @@ closure_function(5, 1, void, write_sg_finish,
                 return;
             }
 
-            /* TODO zero any portions of the write either before or
-               after q that aren't aligned to a block boundary
-
-               fs will depend on this to implement file holes */
+            /* When writing a new page at the end of a node whose length is not block-aligned, zero
+               the remaining portion of the last block. The filesystem will depend on this to properly
+               implement file holes. */
+            range i = range_intersection(byte_range_from_page(pc, pp), q);
+            u64 tail_offset = i.end & MASK(block_order);
+            if (tail_offset) {
+                u64 page_offset = i.end & MASK(page_order);
+                u64 len = U64_FROM_BIT(block_order) - tail_offset;
+                pagecache_debug("   zero unaligned end, i %R, page offset 0x%lx, len 0x%lx\n",
+                                i, page_offset, len);
+                assert(i.end == pn->length);
+                zero(pp->kvirt + page_offset, len);
+            }
         }
         u64 copy_len = MIN(q.end - (pi << page_order), cache_pagesize(pc)) - offset;
         u64 req_len = pad(copy_len + block_offset, U64_FROM_BIT(block_order));
@@ -491,6 +501,10 @@ closure_function(1, 3, void, write_sg,
         return;
     }
 
+    /* extend node length if writing past current end */
+    if (q.end > pn->length)
+        pn->length = q.end;
+
     /* prepare pages for writing */
     merge m = allocate_merge(pc->h, closure(pc->h, write_sg_finish, pn, q, sg, completion, false));
     status_handler sh = apply_merge(m);
@@ -505,7 +519,8 @@ closure_function(1, 3, void, write_sg,
         r.start++;
     }
     if (end_offset != 0 && (q.end < pn->length) && /* tail rmw */
-        !(range_span(q) < cache_pagesize(pc) && start_offset != 0) /* no double fill */) {
+        !((q.start & ~MASK(pc->page_order)) ==
+          (q.end & ~MASK(pc->page_order)) && start_offset != 0) /* no double fill */) {
         touch_page_by_num_nodelocked(pn, q.end >> pc->page_order, m);
     }
 
