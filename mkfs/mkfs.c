@@ -202,6 +202,50 @@ closure_function(0, 2, void, mkfs_write_handler,
     }
 }
 
+closure_function(4, 2, void, fsc,
+                 heap, h, descriptor, out, tuple, root, const char *, target_root,
+                 filesystem, fs, status, s)
+{
+    tuple root = bound(root);
+    if (!root)
+        exit(1);
+
+    heap h = bound(h);
+    vector worklist = allocate_vector(h, 10);
+    tuple md = translate(h, worklist, bound(target_root), fs, root, closure(h, err));
+
+    rprintf("metadata ");
+    buffer b = allocate_buffer(transient, 64);
+    print_tuple(b, md);
+    buffer_print(b);
+    deallocate_buffer(b);
+    rprintf("\n");
+
+    filesystem_write_tuple(fs, md);
+    vector i;
+    buffer off = 0;
+    vector_foreach(worklist, i) {
+        tuple f = vector_get(i, 0);
+        buffer contents = get_file_contents(h, bound(target_root), vector_get(i, 1));
+        if (contents) {
+            if (buffer_length(contents) > 0) {
+                fsfile fsf = allocate_fsfile(fs, f);
+                filesystem_write_linear(fsf, buffer_ref(contents, 0), irangel(0, buffer_length(contents)),
+                                        ignore_io_status);
+                deallocate_buffer(contents);
+            } else {
+                if (!off)
+                    off = wrap_buffer_cstring(h, "0");
+                /* make an empty file */
+                filesystem_write_eav(fs, f, sym(extents), allocate_tuple());
+                filesystem_write_eav(fs, f, sym(filelength), off);
+            }
+        }
+    }
+    filesystem_flush(fs, ignore_status);
+    closure_finish();
+}
+
 static void write_mbr(descriptor f)
 {
     // get resulting size
@@ -247,50 +291,6 @@ static void write_mbr(descriptor f)
         halt("could not write MBR: %s\n", strerror(errno));
     else if (res != sizeof(buf))
         halt("could not write MBR (short write)\n");
-}
-
-closure_function(4, 2, void, fsc,
-                 heap, h, descriptor, out, tuple, root, const char *, target_root,
-                 filesystem, fs, status, s)
-{
-    tuple root = bound(root);
-    if (!root)
-        exit(1);
-
-    heap h = bound(h);
-    vector worklist = allocate_vector(h, 10);
-    tuple md = translate(h, worklist, bound(target_root), fs, root, closure(h, err));
-
-    rprintf("metadata ");
-    buffer b = allocate_buffer(transient, 64);
-    print_tuple(b, md);
-    buffer_print(b);
-    deallocate_buffer(b);
-    rprintf("\n");
-
-    filesystem_write_tuple(fs, md);
-    vector i;
-    buffer off = 0;
-    vector_foreach(worklist, i) {
-        tuple f = vector_get(i, 0);
-        buffer contents = get_file_contents(h, bound(target_root), vector_get(i, 1));
-        if (contents) {
-            if (buffer_length(contents) > 0) {
-                fsfile fsf = allocate_fsfile(fs, f);
-                filesystem_write_linear(fsf, buffer_ref(contents, 0), irangel(0, buffer_length(contents)),
-                                        ignore_io_status);
-                deallocate_buffer(contents);
-            } else {
-                if (!off)
-                    off = wrap_buffer_cstring(h, "0");
-                /* make an empty file */
-                filesystem_write_eav(fs, f, sym(extents), allocate_tuple());
-                filesystem_write_eav(fs, f, sym(filelength), off);
-            }
-        }
-    }
-    filesystem_flush(fs, ignore_status);
-    closure_finish();
 }
 
 static void usage(const char *program_name)

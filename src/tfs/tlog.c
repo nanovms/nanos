@@ -1,16 +1,5 @@
 #include <tfs_internal.h>
 
-/* new log writing plan:
-
-   no completions for tuple updates
-
-   - but a tuple update kicks off a flush timer (which gets
-     nullified if an explicit flush or log extend occurs)
-
-   log flushes continue to use completions
-
-*/
-
 #ifdef BOOT // XXX move
 #define TLOG_READ_ONLY
 #endif
@@ -233,7 +222,6 @@ closure_function(3, 1, void, log_extend_link,
     flush_log_extension(bound(old_ext), true, bound(sh));
 }
 
-// TODO re-test log extensions after update
 log_ext log_extend(log tl, u64 size, status_handler sh) {
     tlog_debug("log_extend: tl %p, size 0x%lx\n", tl, size);
 
@@ -365,7 +353,7 @@ static void log_set_dirty(log tl)
     tl->dirty = true;
     assert(!tl->flush_timer);
     tl->flush_timer = register_timer(runloop_timers, CLOCK_ID_MONOTONIC,
-                                     seconds(TFS_LOG_FLUSH_PERIOD_SECONDS), false, 0,
+                                     seconds(TFS_LOG_FLUSH_DELAY_SECONDS), false, 0,
                                      closure(tl->h, log_flush_timer_expired, tl));
 }
 #else

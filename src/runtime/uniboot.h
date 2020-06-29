@@ -74,7 +74,7 @@ extern void * AP_BOOT_PAGE;
 
 /* TFS stuff */
 #define TFS_LOG_DEFAULT_EXTENSION_SIZE (512*KB)
-#define TFS_LOG_FLUSH_PERIOD_SECONDS 1
+#define TFS_LOG_FLUSH_DELAY_SECONDS 1
 
 /* Xen stuff */
 #define XENNET_INIT_RX_BUFFERS_FACTOR 4

@@ -7,6 +7,8 @@ typedef struct fsfile *fsfile;
 u64 fsfile_get_length(fsfile f);
 void fsfile_set_length(fsfile f, u64 length);
 tuple fsfile_get_meta(fsfile f);
+sg_io fsfile_get_reader(fsfile f);
+sg_io fsfile_get_writer(fsfile f);
 
 extern io_status_handler ignore_io_status;
 

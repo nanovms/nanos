@@ -43,7 +43,16 @@ tuple fsfile_get_meta(fsfile f)
     return f->md;
 }
 
-// XXX change to method get
+sg_io fsfile_get_reader(fsfile f)
+{
+    return f->read;
+}
+
+sg_io fsfile_get_writer(fsfile f)
+{
+    return f->write;
+}
+
 void filesystem_read_sg(fsfile f, sg_list sg, range q, status_handler completion)
 {
     apply(f->read, sg, q, completion);

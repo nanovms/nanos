@@ -34,12 +34,7 @@ static inline void sg_unlock(void)
 #define sg_unlock()
 #endif
 
-// XXX macrofy loop
-
-/*
-  #define sg_loop(sg, limit, buf, n)                                    \
-  for (sg_buf __sgb; (limit) > 0 && (__sgb = sg_list_head_peek(sg)) != INVALID_ADDRESS; ...
-*/
+/* TODO clean up redundant parts of loop with macros or static closures */
 
 /* copy content of sg, up to length bytes, into target, releasing consumed buffers */
 u64 sg_copy_to_buf(void *target, sg_list sg, u64 n)
@@ -49,7 +44,6 @@ u64 sg_copy_to_buf(void *target, sg_list sg, u64 n)
 
     sg_debug("%s: target %p, sg %p, length 0x%lx, count %ld\n", __func__, target, sg, length, sg->count);
     while (remain > 0 && (sgb = sg_list_head_peek(sg)) != INVALID_ADDRESS) {
-//        rprintf("sgb %p, len 0x%lx, offset 0x%lx\n", sgb, sgb->length, sgb->offset);
         assert(sgb->size > sgb->offset); /* invariant: no null-length bufs */
         u64 len = MIN(remain, sgb->size - sgb->offset);
         runtime_memcpy(target, sgb->buf + sgb->offset, len);
@@ -105,7 +99,6 @@ u64 sg_zero_fill(sg_list sg, u64 n)
    return n - remain;
 }
 
-// XXX stuff is changing, this might become obsolete...
 /* copy content of sg, up to limit bytes, into target, consuming and
    deallocating everything */
 u64 sg_copy_to_buf_and_release(void *target, sg_list sg, u64 n)

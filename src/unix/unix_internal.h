@@ -299,7 +299,11 @@ typedef struct fdesc {
 struct file {
     struct fdesc f;             /* must be first */
     union {
-        fsfile fsf;             /* fsfile for regular files */
+        struct {
+            fsfile fsf;         /* fsfile for regular files */
+            sg_io fs_read;
+            sg_io fs_write;
+        };
         tuple meta;             /* meta tuple for others */
     };
     u64 offset;

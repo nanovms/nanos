@@ -20,7 +20,13 @@
 #define pagecache_debug(x, ...)
 #endif
 
-#define MAX_PAGE_COMPLETION_VECS 128
+#ifdef BOOT
+#define PAGECACHE_READ_ONLY
+#endif
+
+/* TODO: Seems like this ought not to be so large ... but we're
+   queueing a ton with the polled ATA driver. There's only one queue globally anyhow. */
+#define MAX_PAGE_COMPLETION_VECS 16384
 
 static inline u64 cache_pagesize(pagecache pc)
 {
@@ -224,15 +230,6 @@ static void touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page pp, 
 
         range r = byte_range_from_page(pc, pp);
 
-#if 0
-        /* zero pad anything extending past end of backing storage */
-        // maybe not necessary depending on fs interface detail
-        if (r.end > pv->length) {
-            zero(pp->kvirt + (pv->length - r.start), r.end - pv->length);
-            r.end = pv->length;
-        }
-#endif
-
         /* issue page reads */
         pagecache_debug("   pc %p, pp %p, r %R, reading...\n", pc, pp, r);
         sg_list sg = allocate_sg_list(); // XXX check
@@ -310,8 +307,7 @@ static pagecache_page allocate_page_nodelocked(pagecache_node pn, u64 offset)
     return INVALID_ADDRESS;
 }
 
-/* TODO: lame; trying to cut down size for stage2 build */
-#ifndef BOOT
+#ifndef PAGECACHE_READ_ONLY
 static u64 evict_from_list_locked(pagecache pc, struct pagelist *pl, u64 pages)
 {
     u64 evicted = 0;
@@ -528,7 +524,6 @@ closure_function(1, 3, void, write_sg,
     pagecache_page pp = page_lookup_nodelocked(pn, r.start);
     while (pp != INVALID_ADDRESS && page_offset(pp) < r.end) {
         spin_lock(&pc->state_lock);
-        // XXX TODO seems like maybe the read completion / transition to NEW isn't happening?
         if (page_state(pp) == PAGECACHE_PAGESTATE_READING)
             enqueue_page_completion_statelocked(pc, pp, apply_merge(m));
         spin_unlock(&pc->state_lock);
@@ -560,7 +555,7 @@ u64 pagecache_drain(pagecache pc, u64 drain_bytes)
        objects around (which incidentally could be useful to keep
        refault data). */
 
-    // XXX race issue now
+    // XXX TODO This is a race issue on SMP now ... the locking scheme here needs to be rehashed
 //    spin_lock(&pc->pages_lock);
     spin_lock(&pc->state_lock);
     u64 evicted = evict_pages_locked(pc, pages);
@@ -588,7 +583,7 @@ void pagecache_sync_volume(pagecache_volume pv, status_handler complete)
     spin_unlock(&pc->state_lock);
     apply(complete, STATUS_OK);
 }
-#endif /* !BOOT */
+#endif /* !PAGECACHE_READ_ONLY */
 
 closure_function(1, 3, void, read_sg,
                  pagecache_node, pn,
@@ -695,7 +690,7 @@ pagecache_node pagecache_allocate_node(pagecache_volume pv, sg_io fs_read, sg_io
                 closure(h, pagecache_page_print_key, pv->pc));
     pn->length = 0;
     pn->cache_read = closure(h, read_sg, pn);
-#ifndef BOOT
+#ifndef PAGECACHE_READ_ONLY
     pn->cache_write = closure(h, write_sg, pn);
 #else
     pn->cache_write = 0;

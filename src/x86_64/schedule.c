@@ -1,6 +1,11 @@
 #include <kernel.h>
 #include <apic.h>
 
+// XXX these three should go away along with thread_pause below
+#include <pagecache.h>
+#include <tfs.h>
+#include <unix.h>
+
 
 /* Try to keep these within the confines of the runloop lock so we
    don't create too much of a mess. */
@@ -160,8 +165,8 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
     if (!shutting_down && (t = dequeue(thread_queue)) != INVALID_ADDRESS)
         run_thunk(t, cpu_user);
 // XXX redo with frame pause
-//    if (ci->current_thread)
-//        thread_pause(ci->current_thread);
+    if (ci->current_thread)
+        thread_pause(ci->current_thread);
 
     kernel_sleep();
 }    
