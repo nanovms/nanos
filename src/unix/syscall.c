@@ -336,7 +336,7 @@ closure_function(5, 2, void, iov_op_each_complete,
     boolean write = bound(write);
     thread_log(t, "%s: rv %ld, curr %d, iovcnt %d", __func__, rv, p->curr, iovcnt);
 
-    io op = write ? f->write : f->read;
+    file_io op = write ? f->write : f->read;
     if (!op)
         rv = -EOPNOTSUPP;
 
@@ -606,7 +606,7 @@ closure_function(7, 1, void, file_read_complete,
             f->offset += count;
         rv = count;
     } else {
-        rv = -EIO;
+        rv = sysreturn_from_fs_status_value(s);
     }
     apply(bound(completion), bound(t), rv);
     closure_finish();
@@ -706,7 +706,7 @@ closure_function(6, 1, void, file_write_complete,
             f->offset += bound(length);
         rv = bound(length);
     } else {
-        rv = -EIO;
+        rv = sysreturn_from_fs_status_value(s);
     }
     apply(bound(completion), bound(t), rv);
     closure_finish();

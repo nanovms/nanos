@@ -32,6 +32,7 @@ typedef struct pagecache_volume {
     struct list nodes;          /* head of pagecache_nodes */
     u64 length;                 /* end of volume */
     int block_order;
+    status write_error;         /* pending error from a previous write */
 } *pagecache_volume;
 
 typedef struct pagecache_node {

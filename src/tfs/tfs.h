@@ -70,6 +70,7 @@ typedef enum {
     FS_STATUS_NOENT,
     FS_STATUS_EXIST,
     FS_STATUS_NOTDIR,
+    FS_STATUS_NOMEM,
 } fs_status;
 
 typedef closure_type(fs_status_handler, void, fsfile, fs_status);

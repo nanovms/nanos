@@ -88,6 +88,8 @@ static inline boolean dirname_from_path(buffer dest, const char *path)
     return true;
 }
 
+sysreturn sysreturn_from_fs_status_value(status s);
+
 int resolve_cstring(tuple cwd, const char *f, tuple *entry, tuple *parent);
 
 /* Same as resolve_cstring(), except that if the entry is a symbolic link this

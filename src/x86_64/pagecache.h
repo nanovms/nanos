@@ -4,13 +4,6 @@ typedef struct pagecache_volume *pagecache_volume;
 
 typedef struct pagecache_node *pagecache_node;
 
-/* consider returning immediate result or status? */
-void pagecache_read_sg(pagecache_node pn, sg_list sg, range q, status_handler sh);
-
-void pagecache_write_sg(pagecache_node pn, sg_list sg, range q, status_handler sh);
-
-void pagecache_write(pagecache_node pn, void *buf, range q, status_handler sh);
-
 void pagecache_set_node_length(pagecache_node pn, u64 length);
 
 void pagecache_sync_node(pagecache_node pn, status_handler sh);

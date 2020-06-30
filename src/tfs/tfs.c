@@ -265,13 +265,13 @@ io_status_handler ignore_io_status;
 /* whole block reads, file length resolved in cache */
 closure_function(2, 3, void, filesystem_storage_read,
                  filesystem, fs, fsfile, f,
-                 sg_list, sg, range, q, status_handler, sh)
+                 sg_list, sg, range, q, status_handler, complete)
 {
     filesystem fs = bound(fs);
     fsfile f = bound(f);
-    merge m = allocate_merge(fs->h, sh);
+    merge m = allocate_merge(fs->h, complete);
     status_handler k = apply_merge(m);
-    tfs_debug("%s: fsfile %p, sg %p, q %R, sh %F\n", __func__, f, sg, q, sh);
+    tfs_debug("%s: fsfile %p, sg %p, q %R, sh %F\n", __func__, f, sg, q, complete)
 
     /* read extent data and zero gaps */
     range blocks = range_rshift_pad(q, fs->blocksize_order);
@@ -298,7 +298,8 @@ void filesystem_read_linear(fsfile f, void *dest, range q, io_status_handler io_
 {
     sg_list sg = allocate_sg_list();
     if (sg == INVALID_ADDRESS) {
-        apply(io_complete, timm("result", "failed to allocate sg list"), 0);
+        apply(io_complete, timm("result", "failed to allocate sg list",
+                                "fsstatus", "%d", FS_STATUS_NOMEM), 0);
         return;
     }
     filesystem_read_sg(f, sg, q, closure(f->fs->h, filesystem_read_complete,
@@ -329,7 +330,8 @@ void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler
               t, bufheap, c, sh);
     fsfile f;
     if (!(f = table_find(fs->files, t))) {
-        apply(sh, timm("result", "no such file %t", t));
+        apply(sh, timm("result", "no such file %t", t,
+                       "fsstatus", "%d", FS_STATUS_NOENT));
         return;
     }
 
@@ -347,7 +349,8 @@ void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler
                       closure(fs->h, read_entire_complete, sg, c, b, length, sh));
     return;
   alloc_fail:
-    apply(sh, timm("result", "allocation failure"));
+    apply(sh, timm("result", "allocation failure",
+                   "fsstatus", "%d", FS_STATUS_NOMEM));
     return;
 }
 
@@ -373,7 +376,7 @@ void filesystem_write_eav(filesystem fs, tuple t, symbol a, value v)
 
 */
 
-static extent create_extent(filesystem fs, range blocks, boolean uninited)
+static fs_status create_extent(filesystem fs, range blocks, boolean uninited, extent *ex)
 {
     heap h = fs->h;
     u64 nblocks = MAX(range_span(blocks), MIN_EXTENT_SIZE >> fs->blocksize_order);
@@ -383,18 +386,19 @@ static extent create_extent(filesystem fs, range blocks, boolean uninited)
 
     u64 start_block = allocate_u64((heap)fs->storage, nblocks);
     if (start_block == u64_from_pointer(INVALID_ADDRESS)) {
-        msg_err("out of storage allocating %ld blocks", nblocks);
-        return INVALID_ADDRESS;
+        /* In lieu of precise error handling up the stack, report here... */
+        msg_err("out of storage allocating %ld blocks\n", nblocks);
+        return FS_STATUS_NOSPACE;
     }
 
     range storage_blocks = irangel(start_block, nblocks);
     tfs_debug("   storage_blocks %R\n", storage_blocks);
-    extent ex = allocate_extent(h, blocks, storage_blocks);
-    if (ex == INVALID_ADDRESS)
-        halt("out of memory\n");
-    ex->uninited = uninited;
+    *ex = allocate_extent(h, blocks, storage_blocks);
+    if (*ex == INVALID_ADDRESS)
+        return FS_STATUS_NOMEM;
+    (*ex)->uninited = uninited;
 
-    return ex;
+    return FS_STATUS_OK;
 }
 
 static void destroy_extent(filesystem fs, extent ex)
@@ -474,25 +478,25 @@ static void remove_extent_from_file(fsfile f, extent ex)
     log_write_eav(f->fs->tl, extents, offs, 0);
 }
 
-static boolean add_extents(filesystem fs, range i, rangemap rm)
+static fs_status add_extents(filesystem fs, range i, rangemap rm)
 {
+    extent ex;
+    fs_status fss;
     while (range_span(i) >= MAX_EXTENT_SIZE) {
         range r = {.start = i.start, .end = i.start + MAX_EXTENT_SIZE};
-        extent ex = create_extent(fs, r, true);
-        if (ex == INVALID_ADDRESS) {
-            return false;
-        }
+        fss = create_extent(fs, r, true, &ex);
+        if (fss != FS_STATUS_OK)
+            return fss;
         assert(rangemap_insert(rm, &ex->node));
         i.start += MAX_EXTENT_SIZE;
     }
     if (range_span(i)) {
-        extent ex = create_extent(fs, i, true);
-        if (ex == INVALID_ADDRESS) {
-            return false;
-        }
+        fss = create_extent(fs, i, true, &ex);
+        if (fss != FS_STATUS_OK)
+            return fss;
         assert(rangemap_insert(rm, &ex->node));
     }
-    return true;
+    return FS_STATUS_OK;
 }
 
 static u64 write_extent(fsfile f, extent ex, sg_list sg, range blocks, merge m)
@@ -512,17 +516,19 @@ static u64 write_extent(fsfile f, extent ex, sg_list sg, range blocks, merge m)
     return i.end;
 }
 
-static u64 fill_gap(fsfile f, sg_list sg, range blocks, merge m)
+static fs_status fill_gap(fsfile f, sg_list sg, range blocks, merge m, u64 *edge)
 {
     blocks = irangel(blocks.start, MIN(MAX_EXTENT_SIZE >> f->fs->blocksize_order,
                                        range_span(blocks)));
     tfs_debug("   %s: writing new extent blocks %R\n", __func__, blocks);
-    extent ex = create_extent(f->fs, blocks, false);
-    if (ex == INVALID_ADDRESS)
-        return -1ull;
+    extent ex;
+    fs_status fss = create_extent(f->fs, blocks, false, &ex);
+    if (fss != FS_STATUS_OK)
+        return fss;
     add_extent_to_file(f, ex);
     write_extent(f, ex, sg, blocks, m);
-    return blocks.end;
+    *edge = blocks.end;
+    return FS_STATUS_OK;
 }
 
 static void update_extent_length(fsfile f, extent ex, u64 new_length)
@@ -610,12 +616,12 @@ closure_function(2, 3, void, filesystem_storage_write,
                 /* fill space */
                 while (blocks.start < limit) {
                     tfs_debug("   fill start 0x%lx, limit 0x%lx\n", blocks.start, limit);
-                    u64 edge = fill_gap(f, sg, irange(blocks.start, limit), m);
-                    if (edge == -1ull) {
-                        s = timm("result", "unable to create extent");
+                    fs_status fss = fill_gap(f, sg, irange(blocks.start, limit), m, &blocks.start);
+                    if (fss != FS_STATUS_OK) {
+                        s = timm("result", "unable to create extent",
+                                 "fsstatus", "%d", fss);
                         goto out;
                     }
-                    blocks.start = edge;
                 }
             }
         } else {
@@ -663,7 +669,8 @@ void filesystem_write_linear(fsfile f, void *src, range q, io_status_handler io_
 {
     sg_list sg = allocate_sg_list();
     if (sg == INVALID_ADDRESS) {
-        apply(io_complete, timm("result", "failed to allocate sg list"), 0);
+        apply(io_complete, timm("result", "failed to allocate sg list",
+                                "fsstatus", "%d", FS_STATUS_NOMEM), 0);
         return;
     }
     u64 length = range_span(q);
@@ -761,10 +768,9 @@ void filesystem_alloc(filesystem fs, tuple t, long offset, long len,
         u64 edge = curr->r.start;
         range i = range_intersection(irange(lastedge, edge), blocks);
         if (range_span(i)) {
-            if (!add_extents(fs, i, new_rm)) {
-                status = FS_STATUS_NOSPACE;
+            status = add_extents(fs, i, new_rm);
+            if (status != FS_STATUS_OK)
                 goto done;
-            }
         }
         lastedge = curr->r.end;
         curr = rangemap_next_node(f->extentmap, curr);
@@ -773,10 +779,9 @@ void filesystem_alloc(filesystem fs, tuple t, long offset, long len,
     /* check for a gap between the last node and blocks.end */
     range i = range_intersection(irange(lastedge, blocks.end), blocks);
     if (range_span(i)) {
-        if (!add_extents(fs, i, new_rm)) {
-            status = FS_STATUS_NOSPACE;
+        status = add_extents(fs, i, new_rm);
+        if (status != FS_STATUS_OK)
             goto done;
-        }
     }
 
     add_extents_to_file(f, new_rm);

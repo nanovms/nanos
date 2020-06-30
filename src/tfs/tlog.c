@@ -305,6 +305,7 @@ closure_function(1, 1, void, log_flush_complete,
         status_handler sh;
         vector_foreach(bound(tl)->flush_completions, sh)
             apply(sh, s);
+        vector_clear(bound(tl)->flush_completions);
     }
     bound(tl)->flushing = false;
     closure_finish();
@@ -312,7 +313,7 @@ closure_function(1, 1, void, log_flush_complete,
 
 void log_flush(log tl, status_handler completion)
 {
-    tlog_debug("log_flush: log %p, completion %p, dirty %d\n", tl, completion, tl->dirty);
+    tlog_debug("%s: log %p, completion %p, dirty %d\n", __func__, tl, completion, tl->dirty);
     if (!tl->dirty) {
         if (completion)
             apply(completion, STATUS_OK);

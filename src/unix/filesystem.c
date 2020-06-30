@@ -21,6 +21,22 @@ static sysreturn sysreturn_from_fs_status(fs_status s)
     }
 }
 
+sysreturn sysreturn_from_fs_status_value(status s)
+{
+    if (is_ok(s))
+        return 0;
+    value v = table_find(s, sym(fsstatus));
+    u64 fss;
+    sysreturn rv;
+
+    /* block r/w errors won't include an fs status, so assume I/O error if none found */
+    if (v && tagof(v) != tag_tuple && u64_from_value(v, &fss))
+        rv = sysreturn_from_fs_status(fss);
+    else
+        rv = -EIO;
+    return rv;
+}
+
 // fused buffer wrap, split, and resolve
 int resolve_cstring(tuple cwd, const char *f, tuple *entry, tuple *parent)
 {
