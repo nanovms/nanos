@@ -869,11 +869,8 @@ sysreturn open_internal(tuple cwd, const char *name, int flags, int mode)
     int type = file_type_from_tuple(n);
     if (type == FDESC_TYPE_REGULAR) {
         fsf = fsfile_from_node(current->p->fs, n);
-        if (!fsf) {
-            length = 0;
-        } else {
-            length = fsfile_get_length(fsf);
-        }
+        assert(fsf);
+        length = fsfile_get_length(fsf);
     }
 
     file f = unix_cache_alloc(uh, file);

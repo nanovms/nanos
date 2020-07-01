@@ -271,7 +271,7 @@ closure_function(2, 3, void, filesystem_storage_read,
     fsfile f = bound(f);
     merge m = allocate_merge(fs->h, complete);
     status_handler k = apply_merge(m);
-    tfs_debug("%s: fsfile %p, sg %p, q %R, sh %F\n", __func__, f, sg, q, complete)
+    tfs_debug("%s: fsfile %p, sg %p, q %R, sh %F\n", __func__, f, sg, q, complete);
 
     /* read extent data and zero gaps */
     range blocks = range_rshift_pad(q, fs->blocksize_order);
@@ -381,8 +381,7 @@ static fs_status create_extent(filesystem fs, range blocks, boolean uninited, ex
     heap h = fs->h;
     u64 nblocks = MAX(range_span(blocks), MIN_EXTENT_SIZE >> fs->blocksize_order);
 
-    tfs_debug("create_extent: align %d, offset %ld, nblocks %ld\n",
-              alignment, blocks.start, nblocks);
+    tfs_debug("create_extent: blocks %R, uninited %d, nblocks %ld\n", blocks, uninited, nblocks);
 
     u64 start_block = allocate_u64((heap)fs->storage, nblocks);
     if (start_block == u64_from_pointer(INVALID_ADDRESS)) {
@@ -953,6 +952,9 @@ tuple filesystem_creat(filesystem fs, tuple parent, const char *name)
     /* 'make it a file' by adding an empty extents list */
     table_set(dir, sym(extents), allocate_tuple());
     table_set(dir, sym(filelength), off);
+
+    /* record tuple independently so that tlog read can detect the new file */
+    log_write(fs->tl, dir);
 
     fsfile f = allocate_fsfile(fs, dir);
     fsfile_set_length(f, 0);

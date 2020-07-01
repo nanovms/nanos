@@ -390,7 +390,7 @@ void log_write(log tl, tuple t)
 static boolean log_parse_tuple(log tl, buffer b)
 {
     tuple dv = decode_value(tl->h, tl->dictionary, b);
-    tlog_debug("   decoded %p\n", dv);
+    tlog_debug("   decoded %v\n", dv);
     if (tagof(dv) != tag_tuple)
         return false;
 
