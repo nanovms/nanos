@@ -864,6 +864,7 @@ struct io_uring_params {
 #define SO_TYPE      3
 #define SO_ERROR     4
 #define SO_SNDBUF    7
+#define SO_RCVBUF    8
 #define SO_PRIORITY  12
 #define SO_LINGER    13
 

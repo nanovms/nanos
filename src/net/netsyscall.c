@@ -1813,6 +1813,7 @@ sysreturn getsockopt(int sockfd, int level, int optname, void *optval, socklen_t
             ret_optlen = sizeof(ret_optval.val);
             break;
         case SO_SNDBUF:
+        case SO_RCVBUF:
             ret_optval.val = 2048;  /* minimum value for this option in Linux */
             ret_optlen = sizeof(ret_optval.val);
             break;
