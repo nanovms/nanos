@@ -1541,6 +1541,11 @@ sysreturn getrlimit(int resource, struct rlimit *rlim)
         return -EFAULT;
 
     switch (resource) {
+    case RLIMIT_DATA:
+        /* not entirely accurate, but a reasonable approximation */
+        rlim->rlim_cur = rlim->rlim_max =
+                heap_total(&heap_physical(get_kernel_heaps())->h);
+        return 0;
     case RLIMIT_STACK:
         rlim->rlim_cur = 2*1024*1024;
         rlim->rlim_max = 2*1024*1024;
