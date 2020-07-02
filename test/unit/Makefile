@@ -51,8 +51,6 @@ SRCS-closure_test= \
 SRCS-id_heap_test= \
 	$(CURDIR)/id_heap_test.c \
 	$(RUNTIME)\
-	$(SRCDIR)/tfs/tfs.c \
-	$(SRCDIR)/tfs/tlog.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c
 
 SRCS-memops_test= \
@@ -64,8 +62,6 @@ SRCS-network_test= \
 	$(CURDIR)/network_test.c \
 	$(SRCDIR)/http/http.c \
 	$(RUNTIME)\
-	$(SRCDIR)/tfs/tfs.c \
-	$(SRCDIR)/tfs/tlog.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c \
 	$(SRCDIR)/unix_process/mmap_heap.c \
 	$(SRCDIR)/unix_process/socket_user.c \
@@ -75,8 +71,6 @@ SRCS-objcache_test= \
 	$(CURDIR)/objcache_test.c \
 	$(RUNTIME)\
 	$(SRCDIR)/runtime/heap/objcache.c \
-	$(SRCDIR)/tfs/tfs.c \
-	$(SRCDIR)/tfs/tlog.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c \
 	$(SRCDIR)/unix_process/mmap_heap.c
 
@@ -107,8 +101,6 @@ SRCS-range_test= \
 SRCS-random_test = \
 	$(CURDIR)/random_test.c \
 	$(RUNTIME)\
-	$(SRCDIR)/tfs/tfs.c \
-	$(SRCDIR)/tfs/tlog.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c
 
 SRCS-rbtree_test= \
@@ -130,8 +122,6 @@ SRCS-udp_test= \
 	$(CURDIR)/udp_test.c \
 	$(SRCDIR)/http/http.c \
 	$(RUNTIME)\
-	$(SRCDIR)/tfs/tfs.c \
-	$(SRCDIR)/tfs/tlog.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c \
 	$(SRCDIR)/unix_process/mmap_heap.c \
 	$(SRCDIR)/unix_process/socket_user.c \
@@ -145,7 +135,6 @@ SRCS-vector_test= \
 
 CFLAGS+=	-I$(SRCDIR)/http \
 		-I$(SRCDIR)/runtime \
-		-I$(SRCDIR)/tfs \
 		-I$(SRCDIR)/unix_process \
 		-I$(SRCDIR)/unix \
 		-I$(SRCDIR)/x86_64

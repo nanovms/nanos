@@ -1,7 +1,5 @@
 #include <kernel.h>
 #include <lwip.h>
-#include <tfs.h> // XXX fix headers
-#include <unix.h>
 #include <net.h>
 
 //#define DIRECT_DEBUG

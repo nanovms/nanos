@@ -14,7 +14,6 @@ boolean rangemap_insert(rangemap rm, rmnode n)
         }
     }
     if (!rbtree_insert_node(&rm->t, &n->n)) {
-        rbtree_dump(&rm->t, RB_PREORDER);
         halt("scan found no intersection but rb insert failed, node %p (%R)\n",
              n, n->r);
     }

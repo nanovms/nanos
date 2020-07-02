@@ -13,7 +13,8 @@ typedef struct rmnode {
     range r;
 } *rmnode;
 
-#define irange(__s, __e)  (range){__s, __e}        
+#define irange(__s, __e)  (range){__s, __e}
+#define irangel(__s, __l) (range){__s, (__s) + (__l)}
 #define point_in_range(__r, __p) ((__p >= __r.start) && (__p < __r.end))
 
 /* XXX might want to add a boolean return to abort op */
@@ -38,6 +39,11 @@ void deallocate_rangemap(rangemap rm, rmnode_handler destructor);
 static inline range range_rshift(range r, int order)
 {
     return irange(r.start >> order, r.end >> order);
+}
+
+static inline range range_rshift_pad(range r, int order)
+{
+    return irange(r.start >> order, (r.end + MASK(order)) >> order);
 }
 
 static inline range range_lshift(range r, int order)
@@ -74,6 +80,15 @@ static inline rmnode rangemap_next_node(rangemap rm, rmnode n)
 static inline rmnode rangemap_first_node(rangemap rm)
 {
     return (rmnode)rbtree_find_first(&rm->t);
+}
+
+static inline rmnode rangemap_lookup_max_lte(rangemap rm, u64 point)
+{
+    struct rmnode k;
+    k.r = irange(point, point + 1);
+    if (!rm->t.root)
+        return INVALID_ADDRESS;
+    return (rmnode)rbtree_lookup_max_lte(&rm->t, &k.n);
 }
 
 static inline void rangemap_remove_node(rangemap rm, rmnode n)
@@ -118,10 +133,11 @@ static inline boolean range_valid(range r)
     return r.start <= r.end;
 }
 
-static inline void range_add(range *r, s64 delta)
+static inline range range_add(range r, s64 delta)
 {
-    r->start += delta;
-    r->end += delta;
+    r.start += delta;
+    r.end += delta;
+    return r;
 }
 
 #define rangemap_foreach(rm, n)                                         \

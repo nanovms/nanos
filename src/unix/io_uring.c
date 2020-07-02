@@ -587,7 +587,7 @@ static void iour_rw(io_uring iour, fdesc f, boolean write, void *addr, u32 len,
     iour_debug("%s at %p, len %d, offset %ld", write ? "write" : "read", addr,
             len, offset);
     int err = 0;
-    io op = write ? f->write : f->read;
+    file_io op = write ? f->write : f->read;
     io_completion completion = 0;
     if (!op) {
         err = -EOPNOTSUPP;

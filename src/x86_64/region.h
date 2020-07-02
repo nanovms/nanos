@@ -39,7 +39,7 @@ static inline u64 allocate_region(heap h, bytes size)
     region_heap rh = (region_heap)h;
     u64 len = pad(size, h->pagesize);
     u64 base = 0;
-    region r;
+    region r = 0;
 
     /* Select the lowest physical region that's within 32-bit space. */
     for_regions(e) {
@@ -52,7 +52,7 @@ static inline u64 allocate_region(heap h, bytes size)
         r = e;
         break;
     }
-
+    assert(r != 0);
     if (base == 0)
         return u64_from_pointer(INVALID_ADDRESS);
 

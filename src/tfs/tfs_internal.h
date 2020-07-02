@@ -1,11 +1,12 @@
+#ifdef STAGE3
+#include <kernel.h>
+#else
 #include <runtime.h>
+#endif
+#include <pagecache.h>
 #include <tfs.h>
 
-#define TFS_VERSION 0x00000001
-
-// ok, we wanted to make the inode number extensional, but holes
-// and random access writes make that difficult, so this is stateful
-// with an inode
+#define TFS_VERSION 0x00000002
 
 typedef struct log *log;
 
@@ -13,27 +14,50 @@ typedef struct filesystem {
     id_heap storage;
     u64 size;
     heap h;
-    int alignment;
+    int blocksize_order;
+    int alignment_order;        /* in blocks */
+    int page_order;
     table files; // maps tuple to fsfile
     table extents; // maps extents
     closure_type(log, void, tuple);
     heap dma;
-    sg_block_io sg_r;
+    void *zero_page;
+    block_io r;
     block_io w;
-    block_sync cache_sync;
+    pagecache pc;
+    pagecache_volume pv;
     log tl;
     tuple root;
-    int blocksize_order;
 } *filesystem;
+
+typedef struct fsfile {
+    rangemap extentmap;
+    filesystem fs;
+    pagecache_node cache_node;
+    u64 length;
+    tuple md;
+    sg_io read;
+    sg_io write;
+} *fsfile;
+
+typedef struct extent {
+    /* these are in block units */
+    struct rmnode node;         /* must be first */
+    u64 start_block;
+    u64 allocated;
+    tuple md;                   /* shortcut to extent meta */
+    boolean uninited;
+} *extent;
 
 void ingest_extent(fsfile f, symbol foff, tuple value);
 
 log log_create(heap h, filesystem fs, boolean initialize, status_handler sh);
-void log_write(log tl, tuple t, status_handler sh);
-void log_write_eav(log tl, tuple e, symbol a, value v, status_handler sh);
+void log_write(log tl, tuple t);
+void log_write_eav(log tl, tuple e, symbol a, value v);
 void log_flush(log tl, status_handler completion);
 void flush(filesystem fs, status_handler);
-boolean filesystem_reserve_storage(filesystem fs, u64 start, u64 length);
+boolean filesystem_reserve_storage(filesystem fs, range storage_blocks);
+void filesystem_storage_op(filesystem fs, sg_list sg, merge m, range blocks, block_io op);
     
 typedef closure_type(buffer_status, buffer, status);
 fsfile allocate_fsfile(filesystem fs, tuple md);

@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#define _GNU_SOURCE
+#define __USE_GNU
 #include <fcntl.h>
 #include <string.h>
 #include <limits.h>
@@ -478,10 +480,99 @@ void bulk_write_test(unsigned long long size)
     exit(EXIT_FAILURE);
 }
 
+#define PERSIST_ALLOC_BYTES   8192
+#define PERSIST_PATTERN_START 701
+#define PERSIST_PATTERN_LEN   2048
+
+/* tests basic persistence, fallocate and filling of uninited extents */
+void persistence_write_test(void)
+{
+    const char *name = "persistence_test_file";
+    char *err;
+    struct stat s;
+    printf("persistence test: ");
+    int fd = -1;
+    int rv = stat(name, &s);
+    if (rv < 0) {
+        if (errno != ENOENT) {
+            err = "stat";
+            goto fail_perror;
+        }
+        printf("creating file\n");
+        fd = open(name, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+        if (fd < 0) {
+            err = "open";
+            goto fail_perror;
+        }
+        rv = fallocate(fd, 0, 0, PERSIST_ALLOC_BYTES);
+        if (rv < 0) {
+            err = "fallocate";
+            goto fail_perror;
+        }
+        rv = lseek(fd, PERSIST_PATTERN_START, SEEK_SET);
+        if (rv < 0) {
+            err = "lseek";
+            goto fail_perror;
+        }
+        char buf[PERSIST_PATTERN_LEN];
+        for (int i = 0; i < PERSIST_PATTERN_LEN; i++) {
+            buf[i] = 0xff;
+        }
+        rv = write(fd, buf, PERSIST_PATTERN_LEN);
+        if (rv < 0) {
+            err = "write";
+            goto fail_perror;
+        }
+        if (rv < PERSIST_PATTERN_LEN) {
+            printf("short write, length %d\n", rv);
+            goto fail;
+        }
+        close(fd);
+        return;
+    }
+    printf("file found; second pass\n");
+    if (s.st_size != PERSIST_ALLOC_BYTES) {
+        printf("invalid size %ld\n", s.st_size);
+        goto fail;
+    }
+    unsigned char buf[PERSIST_ALLOC_BYTES];
+    fd = open(name, O_RDONLY, 0);
+    if (fd < 0) {
+        err = "open";
+        goto fail_perror;
+    }
+    rv = read(fd, buf, PERSIST_ALLOC_BYTES);
+    if (rv < 0) {
+        err = "read";
+        goto fail_perror;
+    }
+    if (rv != PERSIST_ALLOC_BYTES) {
+        printf("short read, length %d\n", rv);
+        goto fail;
+    }
+    close(fd);
+    for (int i = 0; i < PERSIST_ALLOC_BYTES; i++) {
+        int z = i < PERSIST_PATTERN_START || i >= (PERSIST_PATTERN_START + PERSIST_PATTERN_LEN);
+        if ((z && buf[i] != 0) || (!z && buf[i] != 0xff)) {
+            printf("mismatch at index %d, expect 0x%.2x, read 0x%.2x\n",
+                   i, z ? 0 : 0xff, (unsigned char)buf[i]);
+            goto fail;
+        }
+    }
+    return;
+  fail_perror:
+    perror(err);
+  fail:
+    if (fd >= 0)
+        close(fd);
+    exit(EXIT_FAILURE);
+}
+
 enum {
     WRITE_OP_ALL,
     WRITE_OP_BASIC_ONLY,
     WRITE_OP_BULK_ONLY,
+    WRITE_OP_PERSISTENCE_ONLY
 };
 
 static void usage(const char *program_name)
@@ -491,6 +582,7 @@ static void usage(const char *program_name)
     printf("Usage: %s [-b file-size]\n"
            "\n"
            "-b - run basic tests only (no bulk / performance tests)\n"
+           "-p - run persistence test only\n"
            "-w - run bulk data write test only\n"
            "-s - set bulk data size; size may be expressed by suffix\n"
            "     (k or K for KB, m or M for MB, g or G for GB)\n",
@@ -504,7 +596,7 @@ int main(int argc, char **argv)
     char *endptr;
     setvbuf(stdout, NULL, _IOLBF, 0);
 
-    while ((c = getopt(argc, argv, "hbws:")) != EOF) {
+    while ((c = getopt(argc, argv, "hbws:p")) != EOF) {
         switch (c) {
         case 'h':
             usage(argv[0]);
@@ -514,6 +606,9 @@ int main(int argc, char **argv)
             break;
         case 'w':
             op = WRITE_OP_BULK_ONLY;
+            break;
+        case 'p':
+            op = WRITE_OP_PERSISTENCE_ONLY;
             break;
         case 's':
             size = strtoll(optarg, &endptr, 0);
@@ -556,9 +651,14 @@ int main(int argc, char **argv)
         truncate_test();
     }
 
-    if (op != WRITE_OP_BASIC_ONLY) {
+    if (op == WRITE_OP_ALL || op == WRITE_OP_BULK_ONLY) {
         bulk_write_test(size);
     }
+
+    if (op == WRITE_OP_PERSISTENCE_ONLY) {
+        persistence_write_test();
+    }
+
     printf("write test passed\n");
     return EXIT_SUCCESS;
 }

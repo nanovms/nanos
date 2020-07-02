@@ -1,7 +1,8 @@
 typedef struct spinlock {
-    u64 w;
+    word w;
 } *spinlock;
 
+#ifdef SMP_ENABLE
 static inline boolean spin_try(spinlock l) {
     u64 tmp = 1;
     /* Is it worth the compare and branch to skip a pause? */
@@ -18,6 +19,11 @@ static inline void spin_unlock(spinlock l) {
     compiler_barrier();
     *(volatile u64 *)&l->w = 0;
 }
+#else
+#define spin_try(x) (true)
+#define spin_lock(x) ((void)x)
+#define spin_unlock(x) ((void)x)
+#endif
 
 static inline u64 spin_lock_irq(spinlock l)
 {

@@ -22,6 +22,7 @@ SRCS-stage2.elf= \
 	$(SRCDIR)/x86_64/elf.c \
 	$(SRCDIR)/x86_64/kvm_platform.c \
 	$(SRCDIR)/x86_64/page.c \
+	$(SRCDIR)/x86_64/pagecache.c \
 	$(SRCDIR)/x86_64/serial.c \
 	$(SRCDIR)/tfs/tfs.c \
 	$(SRCDIR)/tfs/tlog.c

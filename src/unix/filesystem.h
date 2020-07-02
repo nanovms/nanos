@@ -4,8 +4,9 @@
     else if (__dirfd == AT_FDCWD) cwd = current->p->cwd; \
     else { \
         file f = resolve_fd(current->p, __dirfd); \
-        if (!is_dir(f->n)) return set_syscall_error(current, ENOTDIR); \
-        cwd = f->n; \
+        tuple t = file_get_meta(f); \
+        if (!is_dir(t)) return set_syscall_error(current, ENOTDIR); \
+        cwd = t; \
     } \
     cwd; \
 })
@@ -86,6 +87,8 @@ static inline boolean dirname_from_path(buffer dest, const char *path)
     push_u8(dest, '\0');
     return true;
 }
+
+sysreturn sysreturn_from_fs_status_value(status s);
 
 int resolve_cstring(tuple cwd, const char *f, tuple *entry, tuple *parent);
 

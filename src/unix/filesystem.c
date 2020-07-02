@@ -21,6 +21,22 @@ static sysreturn sysreturn_from_fs_status(fs_status s)
     }
 }
 
+sysreturn sysreturn_from_fs_status_value(status s)
+{
+    if (is_ok(s))
+        return 0;
+    value v = table_find(s, sym(fsstatus));
+    u64 fss;
+    sysreturn rv;
+
+    /* block r/w errors won't include an fs status, so assume I/O error if none found */
+    if (v && tagof(v) != tag_tuple && u64_from_value(v, &fss))
+        rv = sysreturn_from_fs_status(fss);
+    else
+        rv = -EIO;
+    return rv;
+}
+
 // fused buffer wrap, split, and resolve
 int resolve_cstring(tuple cwd, const char *f, tuple *entry, tuple *parent)
 {
@@ -156,18 +172,6 @@ closure_function(2, 2, void, fs_op_complete,
     closure_finish();
 }
 
-closure_function(1, 1, void, symlink_complete,
-                 thread, t,
-                 status, s)
-{
-    thread t = bound(t);
-    thread_log(current, "%s: status %v (%s)", __func__, s,
-            is_ok(s) ? "OK" : "NOTOK");
-    set_syscall_return(t, is_ok(s) ? 0 : -EIO);
-    file_op_maybe_wake(t);
-    closure_finish();
-}
-
 static sysreturn symlink_internal(tuple cwd, const char *path,
         const char *target)
 {
@@ -179,11 +183,8 @@ static sysreturn symlink_internal(tuple cwd, const char *path,
     if ((ret != -ENOENT) || !parent) {
         return set_syscall_return(current, ret);
     }
-    file_op_begin(current);
-    filesystem_symlink(current->p->fs, parent, filename_from_path(path), target,
-            closure(heap_general(get_kernel_heaps()), symlink_complete,
-            current));
-    return file_op_maybe_sleep(current);
+    filesystem_symlink(current->p->fs, parent, filename_from_path(path), target);
+    return set_syscall_return(current, 0);
 }
 
 sysreturn symlink(const char *target, const char *linkpath)
@@ -284,7 +285,7 @@ sysreturn fstatfs(int fd, struct statfs *buf)
         f = 0;
         break;
     }
-    return statfs_internal(f ? f->n : 0, buf);
+    return statfs_internal(f ? file_get_meta(f) : 0, buf);
 }
 
 sysreturn fallocate(int fd, int mode, long offset, long len)
@@ -306,12 +307,12 @@ sysreturn fallocate(int fd, int mode, long offset, long len)
     switch (mode) {
     case 0:
     case FALLOC_FL_KEEP_SIZE:
-        filesystem_alloc(current->p->fs, f->n, offset, len,
+        filesystem_alloc(current->p->fs, file_get_meta(f), offset, len,
                 mode == FALLOC_FL_KEEP_SIZE,
                 closure(h, fs_op_complete, current, f));
         break;
     case FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE:
-        filesystem_dealloc(current->p->fs, f->n, offset, len,
+        filesystem_dealloc(current->p->fs, file_get_meta(f), offset, len,
                 closure(h, fs_op_complete, current, f));
         break;
     default:

@@ -231,7 +231,7 @@ process exec_elf(buffer ex, process kp)
             load_offset += get_aslr_offset(PROCESS_PIE_LOAD_ASLR_RANGE);
         }
         exec_debug("placing PIE at 0x%lx\n", load_offset);
-        range_add(&load_range, load_offset);
+        load_range = range_add(load_range, load_offset);
     }
 
     if (load_range.end > PROCESS_ELF_LOAD_END) {
