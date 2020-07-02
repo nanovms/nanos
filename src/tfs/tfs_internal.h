@@ -45,6 +45,7 @@ typedef struct extent {
     struct rmnode node;         /* must be first */
     u64 start_block;
     u64 allocated;
+    tuple md;                   /* shortcut to extent meta */
     boolean uninited;
 } *extent;
 

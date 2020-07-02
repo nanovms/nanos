@@ -183,6 +183,7 @@ void ingest_extent(fsfile f, symbol off, tuple value)
     extent ex = allocate_extent(f->fs->h, r, storage_blocks);
     if (ex == INVALID_ADDRESS)
         halt("out of memory\n");
+    ex->md = value;
     if (table_find(value, sym(uninited)))
         ex->uninited = true;
     assert(rangemap_insert(f->extentmap, &ex->node));
@@ -218,7 +219,7 @@ void filesystem_storage_op(filesystem fs, sg_list sg, merge m, range blocks, blo
     } while (blocks_remain > 0);
 }
 
-void zero_blocks(filesystem fs, merge m, range blocks)
+void zero_blocks(filesystem fs, range blocks, merge m)
 {
     int blocks_per_page = U64_FROM_BIT(fs->page_order - fs->blocksize_order);
     tfs_debug("%s: fs %p, blocks %R\n", __func__, fs, blocks);
@@ -395,6 +396,7 @@ static fs_status create_extent(filesystem fs, range blocks, boolean uninited, ex
     *ex = allocate_extent(h, blocks, storage_blocks);
     if (*ex == INVALID_ADDRESS)
         return FS_STATUS_NOMEM;
+    (*ex)->md = 0;
     (*ex)->uninited = uninited;
 
     return FS_STATUS_OK;
@@ -412,6 +414,7 @@ static void add_extent_to_file(fsfile f, extent ex)
 
     // XXX encode this as an immediate bitstring
     tuple e = allocate_tuple();
+    ex->md = e;
     table_set(e, sym(offset), value_from_u64(h, ex->start_block));
     table_set(e, sym(length), value_from_u64(h, range_span(ex->node.r)));
     table_set(e, sym(allocated), value_from_u64(h, ex->allocated));
@@ -424,6 +427,7 @@ static void add_extent_to_file(fsfile f, extent ex)
     }
     tuple extents;
     symbol a = sym(extents);
+    assert(f->md);
     if (!(extents = table_find(f->md, a))) {
         extents = allocate_tuple();
         table_set(f->md, a, extents);
@@ -436,18 +440,14 @@ static void add_extent_to_file(fsfile f, extent ex)
 
 static void remove_extent_from_file(fsfile f, extent ex)
 {
-    tuple extents = table_find(f->md, sym(extents));
-    assert(extents);
-    symbol offs = intern_u64(ex->node.r.start);
-    tuple e = table_find(extents, offs);
-    assert(e);
-    string offset = table_find(e, sym(offset));
+    assert(ex->md);
+    string offset = table_find(ex->md, sym(offset));
     assert(offset);
     deallocate_buffer(offset);
-    string length = table_find(e, sym(length));
+    string length = table_find(ex->md, sym(length));
     assert(length);
     deallocate_buffer(length);
-    string allocated = table_find(e, sym(allocated));
+    string allocated = table_find(ex->md, sym(allocated));
     assert(allocated);
     deallocate_buffer(allocated);
 
@@ -470,11 +470,14 @@ static void remove_extent_from_file(fsfile f, extent ex)
        again
     */
 
-    clear_tuple(e);
-
+    tuple extents = table_find(f->md, sym(extents));
+    assert(extents);
+    clear_tuple(ex->md);
+    ex->md = 0;
+    symbol offs = intern_u64(ex->node.r.start);
     table_set(extents, offs, 0);
-    rangemap_remove_node(f->extentmap, &ex->node);
     log_write_eav(f->fs->tl, extents, offs, 0);
+    rangemap_remove_node(f->extentmap, &ex->node);
 }
 
 static fs_status add_extents(filesystem fs, range i, rangemap rm)
@@ -502,16 +505,31 @@ static u64 write_extent(fsfile f, extent ex, sg_list sg, range blocks, merge m)
 {
     filesystem fs = f->fs;
     range i = range_intersection(blocks, ex->node.r);
-    u64 e_offset = i.start - ex->node.r.start;
-    range r = irangel(ex->start_block + e_offset, range_span(i));
+    u64 data_offset = i.start - ex->node.r.start;
+    range r = irangel(ex->start_block + data_offset, range_span(i));
 
     tfs_debug("   %s: ex %p, uninited %d, sg %p, m %p, blocks %R, write %R\n",
               __func__, ex, ex->uninited, sg, m, blocks, r);
 
-    if (sg && !ex->uninited)
+    if (sg) {
+        if (ex->uninited) {
+            u64 data_end = i.end - ex->node.r.start;
+            u64 extent_end = range_span(ex->node.r);
+            if (data_offset > 0)
+                zero_blocks(fs, range_add(irange(0, data_offset), ex->start_block), m);
+            if (data_end < extent_end)
+                zero_blocks(fs, range_add(irange(data_end, extent_end), ex->start_block), m);
+            assert(ex->md);
+            symbol a = sym(uninited);
+            table_set(ex->md, a, 0);
+            filesystem_write_eav(f->fs, ex->md, a, 0);
+            ex->uninited = false;
+        }
         filesystem_storage_op(fs, sg, m, r, fs->w);
-    else
-        zero_blocks(fs, m, r);
+    } else {
+        if (!ex->uninited)
+            zero_blocks(fs, r, m);
+    }
     return i.end;
 }
 
@@ -536,17 +554,13 @@ static void update_extent_length(fsfile f, extent ex, u64 new_length)
     tfs_debug("   %s: was %R\n", __func__, ex->node.r);
     ex->node.r = irangel(ex->node.r.start, new_length);
     tfs_debug("   %s: now %R\n", __func__, ex->node.r);
-    tuple extents = table_find(f->md, sym(extents));
-    assert(extents);
-    symbol offs = intern_u64(ex->node.r.start);
-    tuple e = table_find(extents, offs);
-    assert(e);
-    string length = table_find(e, sym(length));
+    assert(ex->md);
+    string length = table_find(ex->md, sym(length));
     assert(length);
     deallocate_buffer(length);
     value v = value_from_u64(f->fs->h, new_length);
-    table_set(e, sym(length), v);
-    log_write_eav(f->fs->tl, e, sym(length), v);
+    table_set(ex->md, sym(length), v);
+    log_write_eav(f->fs->tl, ex->md, sym(length), v);
 }
 
 static u64 extend(fsfile f, extent ex, sg_list sg, range blocks, merge m)

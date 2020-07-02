@@ -13,6 +13,7 @@
 #    debugsyscalls:t
 #    futex_trace:t
     fault:t
+#    arguments:[write -p]
     environment:(USER:bobby PWD:/)
     imagesize:30M
 )
