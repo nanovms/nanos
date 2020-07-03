@@ -312,20 +312,24 @@ struct file {
 
 void epoll_finish(epoll e);
 
-#define VMAP_FLAG_MMAP          1
-#define VMAP_FLAG_ANONYMOUS     2
-#define VMAP_FLAG_WRITABLE      4
-#define VMAP_FLAG_EXEC          8
-#define VMAP_FLAG_PREALLOC     16
+#define VMAP_FLAG_MMAP          0x0001
+#define VMAP_FLAG_ANONYMOUS     0x0002
+#define VMAP_FLAG_WRITABLE      0x0004
+#define VMAP_FLAG_EXEC          0x0008
+#define VMAP_FLAG_PREALLOC      0x0010
+#define VMAP_FLAG_FILEBACKED    0x0020
+#define VMAP_FLAG_SHARED        0x0040 /* same semantics as unix */
 
 typedef struct vmap {
     struct rmnode node;
-    u64 flags;
+    u32 flags;
+    u32 offset;                 /* in pages */
+    pagecache_node cache_node;
 } *vmap;
 
 typedef closure_type(vmap_handler, void, vmap);
 
-vmap allocate_vmap(rangemap rm, range r, u64 flags);
+vmap allocate_vmap(rangemap rm, range r, vmap q);
 boolean adjust_process_heap(process p, range new);
 
 typedef struct file *file;
@@ -595,7 +599,7 @@ boolean unix_timers_init(unix_heaps uh);
 #define sysreturn_from_pointer(__x) ((s64)u64_from_pointer(__x));
 
 extern sysreturn syscall_ignore();
-boolean do_demand_page(u64 vaddr, vmap vm);
+boolean do_demand_page(u64 vaddr, vmap vm, context frame);
 vmap vmap_from_vaddr(process p, u64 vaddr);
 void vmap_iterator(process p, vmap_handler vmh);
 

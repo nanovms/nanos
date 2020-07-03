@@ -34,7 +34,7 @@ static void __attribute__((noinline)) ap_new_stack()
 
     set_ist(id, IST_EXCEPTION, u64_from_pointer(ci->exception_stack));
     set_ist(id, IST_INTERRUPT, u64_from_pointer(ci->int_stack));
-    set_running_frame(ci->kernel_frame);
+    set_running_frame(ci->kernel_context->frame);
     mp_debug(", install gdt");
     install_gdt64_and_tss(id);
     mp_debug(", enable apic");
@@ -49,7 +49,7 @@ static void __attribute__((noinline)) ap_new_stack()
 void ap_start()
 {
     apic_per_cpu_init();
-    switch_stack(get_cpuinfo()->kernel_stack, ap_new_stack);
+    switch_stack(stack_from_kernel_context(get_cpuinfo()->kernel_context), ap_new_stack);
 }
 
 void start_cpu(heap h, heap stackheap, int index, void (*ap_entry)()) {

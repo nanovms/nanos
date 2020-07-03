@@ -32,7 +32,11 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
     if (aslr)
         stack_start = (stack_start - PROCESS_STACK_ASLR_RANGE) + get_aslr_offset(PROCESS_STACK_ASLR_RANGE);
     assert(id_heap_set_area(p->virtual32, stack_start, PROCESS_STACK_SIZE, true, true));
-    p->stack_map = allocate_vmap(p->vmaps, irange(stack_start, stack_start + PROCESS_STACK_SIZE), VMAP_FLAG_WRITABLE);
+    struct vmap q;
+    q.flags = VMAP_FLAG_WRITABLE;
+    q.offset = 0;
+    q.cache_node = 0;
+    p->stack_map = allocate_vmap(p->vmaps, irange(stack_start, stack_start + PROCESS_STACK_SIZE), &q);
     assert(p->stack_map != INVALID_ADDRESS);
 
     u64 * s = pointer_from_u64(stack_start);
@@ -155,8 +159,12 @@ closure_function(2, 4, void, exec_elf_map,
     range r = irange(target, target + size);
     boolean is_bss = paddr == INVALID_PHYSICAL;
     exec_debug("%s: add to vmap: %R vmflags 0x%lx%s\n",
-               __func__, r, vmflags, is_bss ? "bss" : "");
-    assert(allocate_vmap(bound(p)->vmaps, r, vmflags) != INVALID_ADDRESS);
+               __func__, r, vmflags, is_bss ? " bss" : "");
+    struct vmap q;
+    q.flags = vmflags;
+    q.offset = 0;
+    q.cache_node = 0;
+    assert(allocate_vmap(bound(p)->vmaps, r, &q) != INVALID_ADDRESS);
     if (is_bss) {
         /* bss */
         paddr = allocate_u64((heap)heap_physical(kh), size);
@@ -247,7 +255,11 @@ process exec_elf(buffer ex, process kp)
     u64 brk = pad(load_range.end, PAGESIZE) + brk_offset;
     proc->brk = pointer_from_u64(brk);
     proc->heap_base = brk;
-    proc->heap_map = allocate_vmap(proc->vmaps, irange(brk, brk), VMAP_FLAG_WRITABLE);
+    struct vmap q;
+    q.flags = VMAP_FLAG_WRITABLE;
+    q.offset = 0;
+    q.cache_node = 0;
+    proc->heap_map = allocate_vmap(proc->vmaps, irange(brk, brk), &q);
     assert(proc->heap_map != INVALID_ADDRESS);
     exec_debug("entry %p, brk %p (offset 0x%lx)\n", entry, proc->brk, brk_offset);
 

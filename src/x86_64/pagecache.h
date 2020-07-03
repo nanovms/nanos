@@ -14,19 +14,22 @@ void *pagecache_get_zero_page(pagecache pc);
 
 int pagecache_get_page_order(pagecache pc);
 
-// TODO - not clear yet, maybe for range?
-void pagecache_invalidate_node(pagecache_node pn);
-
 u64 pagecache_drain(pagecache pc, u64 drain_bytes);
 
 pagecache_node pagecache_allocate_node(pagecache_volume pv, sg_io fs_read, sg_io fs_write);
 
-// TODO - closure dealloc
 void pagecache_deallocate_node(pagecache_node pn);
 
 sg_io pagecache_node_get_reader(pagecache_node pn);
 
 sg_io pagecache_node_get_writer(pagecache_node pn);
+
+/* !complete means to map only if present (synchronous) and return true, or false if fill required */
+boolean pagecache_map_page(pagecache_node pn, u64 offset_page, u64 vaddr, u64 flags, boolean shared,
+                           status_handler complete);
+
+// XXX
+void pagecache_unmap_page(pagecache_node pn, u64 offset_page, void *vaddr);
 
 pagecache_volume pagecache_allocate_volume(pagecache pc, u64 length, int block_order);
 
