@@ -75,6 +75,14 @@ SRCS-stage3.img= \
 	$(SRCDIR)/vmware/pvscsi.c \
 	$(SRCDIR)/xen/xen.c \
 	$(SRCDIR)/xen/xennet.c \
+	$(SRCDIR)/hyperv/vmbus/hyperv.c \
+	$(SRCDIR)/hyperv/vmbus/vmbus.c \
+	$(SRCDIR)/hyperv/vmbus/vmbus_br.c \
+	$(SRCDIR)/hyperv/vmbus/vmbus_chan.c \
+	$(SRCDIR)/hyperv/vmbus/vmbus_xact.c \
+	$(SRCDIR)/hyperv/netvsc/netvsc.c \
+	$(SRCDIR)/hyperv/netvsc/hv_net_vsc.c \
+	$(SRCDIR)/hyperv/netvsc/hv_rndis_filter.c \
 	$(SRCDIR)/x86_64/ap.s \
 	$(SRCDIR)/x86_64/apic.c \
 	$(SRCDIR)/x86_64/backed_heap.c \
@@ -144,6 +152,7 @@ INCLUDES=\
 	-I$(SRCDIR)/unix_process \
 	-I$(SRCDIR)/x86_64 \
 	-I$(SRCDIR)/xen/public \
+	-I$(SRCDIR)/hyperv/include \
 	-I$(LWIPDIR)/src/include
 
 AFLAGS+=-I$(SRCDIR)/x86_64
@@ -176,7 +185,7 @@ OBJDUMPFLAGS=	-d -S -M intel-mnemonic
 
 DEPFILES+=      $(VDSO_DEPS)
 CLEANFILES+=    $(foreach f,gitversion.c frame.inc stage3.dis stage3.img src/unix/ftrace.* src/x86_64/ftrace.*,$(OBJDIR)/$f) $(VDSO_OBJDIR)/vdsogen $(VDSO_OBJDIR)/vdso.so $(VDSO_OBJDIR)/vdso-image.c $(VDSO_OBJS) $(VDSO_DEPS)
-CLEANDIRS+=     $(foreach d,output src vdso/src/x86_64 vdso/src vdso vendor vendor/lwip vendor/lwip/src,$(OBJDIR)/$d)
+CLEANDIRS+=     $(foreach d,output src src/hyperv vdso/src/x86_64 vdso/src vdso vendor vendor/lwip vendor/lwip/src,$(OBJDIR)/$d)
 
 msg_vdsogen_cc= CC	$@
 cmd_vdsogen_cc= $(CC) -o $@ $^
