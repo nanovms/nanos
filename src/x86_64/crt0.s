@@ -446,7 +446,7 @@ TSS:                            ; 64 bit TSS
 %endrep
 .end:
 
-;; hypercall page used by xen
+;; hypercall page used by xen and hyper-v
 align 4096
 global hypercall_page
 hypercall_page:
