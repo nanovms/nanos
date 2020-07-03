@@ -215,6 +215,9 @@ void ata_io_cmd(void * _dev, int cmd, void * buf, range blocks, status_handler s
         else if (cmd == ATA_WRITE48)
             cmd = ATA_WRITE;
     }
+
+    // XXX: Hyper-V temp fix: ATA_WRITE48 command hangs
+    cmd = cmd == ATA_WRITE48 ? ATA_WRITE : cmd;
     ata_debug("%s: cmd 0x%x, blocks %R, sectors %d\n",
         __func__, cmd, blocks, nsectors);
 
