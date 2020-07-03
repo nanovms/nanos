@@ -83,7 +83,6 @@ static boolean handle_protection_fault(context frame, u64 vaddr, vmap vm)
     return false;
 }
 
-// it so happens that f and frame should be the same number?
 define_closure_function(1, 1, context, default_fault_handler,
                         thread, t,
                         context, frame)
@@ -127,19 +126,18 @@ define_closure_function(1, 1, context, default_fault_handler,
             return 0;
         }
 
-        if (do_demand_page(fault_address(frame), vm)) {
+        if (do_demand_page(fault_address(frame), vm, frame)) {
             /* If we're in the kernel context, return to the frame directly. */
-            if (frame == current_cpu()->kernel_frame) {
+            if (is_current_kernel_context(frame)) {
                 current_cpu()->state = cpu_kernel;
                 return frame;
-                frame_return(frame);
             }
             schedule_frame(frame);
             return 0;
         }
     } else if (frame[FRAME_VECTOR] == 13) {
         if (current_cpu()->state == cpu_user) {
-            pf_debug("general protection fault in user mode, rip 0x%lxn", frame[FRAME_RIP]);
+            pf_debug("general protection fault in user mode, rip 0x%lx", frame[FRAME_RIP]);
             deliver_segv(0, SI_KERNEL);
             schedule_frame(frame);
             return 0;

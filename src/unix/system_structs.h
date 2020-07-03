@@ -182,13 +182,16 @@ struct flock {
 #define AT_NO_AUTOMOUNT     0x800       /* Suppress terminal automount traversal */
 #define AT_EMPTY_PATH       0x1000      /* Allow empty relative pathname */
 
-#define MAP_FIXED 0x10
-#define MAP_ANONYMOUS 0x20
-#define MAP_PRIVATE	0x02
-#define MREMAP_MAYMOVE	1
-#define MREMAP_FIXED	2
-#define MAP_STACK	0x20000
-#define MAP_32BIT	0x40
+#define MAP_SHARED          0x01
+#define MAP_PRIVATE         0x02
+#define MAP_SHARED_VALIDATE 0x03
+#define MAP_TYPE_MASK       0x0f
+#define MAP_FIXED           0x10
+#define MAP_ANONYMOUS       0x20
+#define MREMAP_MAYMOVE      1
+#define MREMAP_FIXED        2
+#define MAP_STACK           0x20000
+#define MAP_32BIT           0x40
 
 #define PROT_READ       0x1
 #define PROT_WRITE      0x2

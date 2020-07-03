@@ -53,6 +53,11 @@ sg_io fsfile_get_writer(fsfile f)
     return f->write;
 }
 
+pagecache_node fsfile_get_cachenode(fsfile f)
+{
+    return f->cache_node;
+}
+
 void filesystem_read_sg(fsfile f, sg_list sg, range q, status_handler completion)
 {
     apply(f->read, sg, q, completion);

@@ -53,7 +53,7 @@ extern void * AP_BOOT_PAGE;
 #define STAGE2_WORKING_HEAP_SIZE (128 * MB)
 
 #define STAGE2_STACK_SIZE  (128 * KB)  /* stage2 stack is recycled, too */
-#define KERNEL_STACK_SIZE  (128 * KB)
+#define KERNEL_STACK_SIZE  (128 * KB)  /* must match value in crt0.s */
 #define EXCEPT_STACK_SIZE  (32 * KB)
 #define INT_STACK_SIZE     (32 * KB)
 #define BH_STACK_SIZE      (32 * KB)
