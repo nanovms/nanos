@@ -24,9 +24,9 @@ sg_io pagecache_node_get_reader(pagecache_node pn);
 
 sg_io pagecache_node_get_writer(pagecache_node pn);
 
-/* !complete means to map only if present (synchronous) and return true, or false if fill required */
-boolean pagecache_map_page(pagecache_node pn, u64 offset_page, u64 vaddr, u64 flags, boolean shared,
-                           status_handler complete);
+void pagecache_map_page(pagecache_node pn, u64 offset_page, u64 vaddr, u64 flags, boolean shared,
+                        status_handler complete);
+boolean pagecache_map_page_sync(pagecache_node pn, u64 offset_page, u64 vaddr, u64 flags, boolean shared);
 
 // XXX
 void pagecache_unmap_page(pagecache_node pn, u64 offset_page, void *vaddr);

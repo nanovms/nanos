@@ -213,36 +213,45 @@ static void enqueue_page_completion_statelocked(pagecache pc, pagecache_page pp,
     vector_push(pp->completions, sh);
 }
 
-static void touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page pp, merge m)
+static boolean touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page pp, merge m)
 {
     pagecache_volume pv = pn->pv;
     pagecache pc = pv->pc;
-    refcount_reserve(&pp->refcount);
+
     spin_lock(&pc->state_lock);
     pagecache_debug("%s: pn %p, pp %p, m %p, state %d\n", __func__, pn, pp, m, page_state(pp));
     switch (page_state(pp)) {
     case PAGECACHE_PAGESTATE_READING:
-        enqueue_page_completion_statelocked(pc, pp, apply_merge(m));
-        break;
+        if (m) {
+            enqueue_page_completion_statelocked(pc, pp, apply_merge(m));
+            refcount_reserve(&pp->refcount);
+        }
+        spin_unlock(&pc->state_lock);
+        return false;
     case PAGECACHE_PAGESTATE_ALLOC:
-        enqueue_page_completion_statelocked(pc, pp, apply_merge(m));
-        change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_READING);
+        if (m) {
+            enqueue_page_completion_statelocked(pc, pp, apply_merge(m));
+            change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_READING);
+            refcount_reserve(&pp->refcount);
+        }
         spin_unlock(&pc->state_lock);
 
-        range r = byte_range_from_page(pc, pp);
-
-        /* issue page reads */
-        pagecache_debug("   pc %p, pp %p, r %R, reading...\n", pc, pp, r);
-        sg_list sg = allocate_sg_list(); // XXX check
-        sg_buf sgb = sg_list_tail_add(sg, cache_pagesize(pc));
-        sgb->buf = pp->kvirt;
-        sgb->size = cache_pagesize(pc);
-        sgb->offset = 0;
-        sgb->refcount = &pp->refcount;
-        refcount_reserve(sgb->refcount);
-        apply(pn->fs_read, sg, r,
-              closure(pc->h, pagecache_read_page_complete, pc, pp, sg));
-        return;
+        if (m) {
+            /* issue page reads */
+            range r = byte_range_from_page(pc, pp);
+            pagecache_debug("   pc %p, pp %p, r %R, reading...\n", pc, pp, r);
+            sg_list sg = allocate_sg_list();
+            assert(sg != INVALID_ADDRESS);
+            sg_buf sgb = sg_list_tail_add(sg, cache_pagesize(pc));
+            sgb->buf = pp->kvirt;
+            sgb->size = cache_pagesize(pc);
+            sgb->offset = 0;
+            sgb->refcount = &pp->refcount;
+            refcount_reserve(sgb->refcount);
+            apply(pn->fs_read, sg, r,
+                  closure(pc->h, pagecache_read_page_complete, pc, pp, sg));
+        }
+        return false;
     case PAGECACHE_PAGESTATE_ACTIVE:
         /* move to bottom of active list */
         list_delete(&pp->l);
@@ -258,7 +267,9 @@ static void touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page pp, 
     default:
         halt("%s: invalid state %d\n", __func__, page_state(pp));
     }
+    refcount_reserve(&pp->refcount);
     spin_unlock(&pc->state_lock);
+    return true;
 }
 
 define_closure_function(2, 0, void, pagecache_page_free,
@@ -365,14 +376,13 @@ static pagecache_page page_lookup_or_alloc_nodelocked(pagecache_node pn, u64 n)
     return pp;
 }
 
-static void touch_page_by_num_nodelocked(pagecache_node pn, u64 n, merge m)
+static void touch_or_fill_page_by_num_nodelocked(pagecache_node pn, u64 n, merge m)
 {
     pagecache_page pp = page_lookup_or_alloc_nodelocked(pn, n);
-    if (pp == INVALID_ADDRESS) {
+    if (pp == INVALID_ADDRESS)
         apply(apply_merge(m), timm("result", "failed to allocate pagecache_page"));
-        return;
-    }
-    touch_or_fill_page_nodelocked(pn, pp, m);
+    else
+        touch_or_fill_page_nodelocked(pn, pp, m);
 }
 
 closure_function(5, 1, void, pagecache_write_sg_finish,
@@ -546,13 +556,13 @@ closure_function(1, 3, void, pagecache_write_sg,
     range r = range_rshift(q, pc->page_order);
     spin_lock(&pn->pages_lock);
     if (start_offset != 0) {
-        touch_page_by_num_nodelocked(pn, q.start >> pc->page_order, m);
+        touch_or_fill_page_by_num_nodelocked(pn, q.start >> pc->page_order, m);
         r.start++;
     }
     if (end_offset != 0 && (q.end < pn->length) && /* tail rmw */
         !((q.start & ~MASK(pc->page_order)) ==
           (q.end & ~MASK(pc->page_order)) && start_offset != 0) /* no double fill */) {
-        touch_page_by_num_nodelocked(pn, q.end >> pc->page_order, m);
+        touch_or_fill_page_by_num_nodelocked(pn, q.end >> pc->page_order, m);
     }
 
     /* scan whole pages, blocking for any pending reads */
@@ -668,31 +678,50 @@ closure_function(1, 3, void, pagecache_read_sg,
 
 
 #ifdef STAGE3
-closure_function(4, 1, void, map_page,
-                 pagecache_page, pp, u64, vaddr, u64, flags, status_handler, complete,
+static void map_page(pagecache_page pp, u64 vaddr, u64 flags, boolean shared)
+{
+    map(vaddr, pp->phys, PAGESIZE, flags);
+    // XXX take lock and add to table if shared
+}
+
+closure_function(5, 1, void, map_page_finish,
+                 pagecache_page, pp, u64, vaddr, u64, flags, boolean, shared, status_handler, complete,
                  status, s)
 {
-    if (is_ok(s)) {
-        map(bound(vaddr), bound(pp)->phys, PAGESIZE, bound(flags));
-        // XXX take lock and add to table
-    }
+    if (is_ok(s))
+        map_page(bound(pp), bound(vaddr), bound(flags), bound(shared));
     apply(bound(complete), s);
     closure_finish();
 }
 
-boolean pagecache_map_page(pagecache_node pn, u64 offset_page, u64 vaddr, u64 flags, boolean shared,
-                           status_handler complete)
+void pagecache_map_page(pagecache_node pn, u64 offset_page, u64 vaddr, u64 flags, boolean shared,
+                        status_handler complete)
 {
     heap h = pn->pv->pc->h;
     spin_lock(&pn->pages_lock);
     pagecache_page pp = page_lookup_or_alloc_nodelocked(pn, offset_page);
-    merge m = allocate_merge(h, closure(h, map_page, pp, vaddr, flags, complete));
+    merge m = allocate_merge(h, closure(h, map_page_finish, pp, vaddr, flags, shared, complete));
     status_handler k = apply_merge(m);
-    touch_page_by_num_nodelocked(pn, offset_page, m); /* XXX could change to sh / bool return */
-    /* TODO add to rm if shared */
+    touch_or_fill_page_by_num_nodelocked(pn, offset_page, m);
     spin_unlock(&pn->pages_lock);
     apply(k, STATUS_OK);
-    return true; // XXX
+}
+
+/* no-alloc / no-fill path, meant to be safe outside of kernel lock */
+boolean pagecache_map_page_sync(pagecache_node pn, u64 offset_page, u64 vaddr, u64 flags, boolean shared)
+{
+    boolean mapped = false;
+    spin_lock(&pn->pages_lock);
+    pagecache_page pp = page_lookup_nodelocked(pn, offset_page);
+    if (pp == INVALID_ADDRESS)
+        goto out;
+    if (touch_or_fill_page_nodelocked(pn, pp, 0)) {
+        mapped = true;
+        map_page(pp, vaddr, flags, shared);
+    }
+  out:
+    spin_unlock(&pn->pages_lock);
+    return mapped;
 }
 #endif
 

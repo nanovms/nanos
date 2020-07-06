@@ -66,8 +66,8 @@ static boolean handle_protection_fault(context frame, u64 vaddr, vmap vm)
 {
     /* vmap found, with protection violation set --> send prot violation */
     if (is_protection_fault(frame)) {
-        rprintf("page protection violation\naddr 0x%lx, rip 0x%lx, "
-                 "error %s%s%s vm->flags (%s%s%s%s)\n",
+        pf_debug("page protection violation\naddr 0x%lx, rip 0x%lx, "
+                 "error %s%s%s vm->flags (%s%s%s%s)",
                  vaddr, frame_return_address(frame),
                  is_write_fault(frame) ? "W" : "R",
                  is_usermode_fault(frame) ? "U" : "S",
@@ -100,12 +100,11 @@ define_closure_function(1, 1, context, default_fault_handler,
         vmap vm = vmap_from_vaddr(p, vaddr);
         if (vm == INVALID_ADDRESS) {
             if (user) {
-                rprintf("no vmap found for addr 0x%lx, rip 0x%lx\n", vaddr, frame[FRAME_RIP]);
+                pf_debug("no vmap found for addr 0x%lx, rip 0x%lx", vaddr, frame[FRAME_RIP]);
                 deliver_segv(vaddr, SEGV_MAPERR);
 
                 /* schedule this thread to either run signal handler or terminate */
-                goto bug;
-//                schedule_frame(frame);
+                schedule_frame(frame);
                 return 0;
             } else {
                 rprintf("\nUnhandled page fault in kernel mode: ");
@@ -138,7 +137,7 @@ define_closure_function(1, 1, context, default_fault_handler,
         }
     } else if (frame[FRAME_VECTOR] == 13) {
         if (current_cpu()->state == cpu_user) {
-            rprintf("general protection fault in user mode, rip 0x%lx\n", frame[FRAME_RIP]);
+            pf_debug("general protection fault in user mode, rip 0x%lx", frame[FRAME_RIP]);
             deliver_segv(0, SI_KERNEL);
             schedule_frame(frame);
             return 0;

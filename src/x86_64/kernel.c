@@ -75,6 +75,7 @@ void resume_kernel_context(kernel_context c)
 {
     spare_kernel_context = current_cpu()->kernel_context;
     current_cpu()->kernel_context = c;
+    frame_return(c->frame);
 }
 
 struct cpuinfo cpuinfos[MAX_CPUS];
