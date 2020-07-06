@@ -3,11 +3,12 @@
 #include <gdb.h>
 #include <page.h>
 
-#define PF_DEBUG
+//#define PF_DEBUG
 #ifdef PF_DEBUG
-#define pf_debug(x, ...) thread_log(current, x, ##__VA_ARGS__);
+#define pf_debug(x, ...) do {log_printf("FAULT", "[%2d] tid %2d " x "\n", current_cpu()->id, \
+                                        current->tid, ##__VA_ARGS__);} while(0)
 #else
-#define pf_debug(x, ...)
+#define pf_debug(x, ...) thread_log(current, x, ##__VA_ARGS__);
 #endif
 
 u64 allocate_fd(process p, void *f)
@@ -42,8 +43,7 @@ void deallocate_fd(process p, int fd)
     deallocate_u64((heap)p->fdallocator, fd, 1);
 }
 
-static void
-deliver_segv(u64 vaddr, s32 si_code)
+void deliver_segv(thread t, u64 vaddr, s32 si_code)
 {
     struct siginfo s = {
         .si_signo = SIGSEGV,
@@ -55,11 +55,17 @@ deliver_segv(u64 vaddr, s32 si_code)
         }
     };
 
-    pf_debug("delivering SIGSEGV; vaddr 0x%lx si_code %s",
-        vaddr, (si_code == SEGV_MAPERR) ? "SEGV_MAPPER" : "SEGV_ACCERR"
-    );
+    pf_debug("delivering SIGSEGV to thread %d; vaddr 0x%lx si_code %s",
+             t->tid, vaddr, (si_code == SEGV_MAPERR) ? "SEGV_MAPPER" : "SEGV_ACCERR");
 
-    deliver_signal_to_thread(current, &s);
+    deliver_signal_to_thread(t, &s);
+}
+
+const char *string_from_mmap_type(int type)
+{
+    return type == VMAP_MMAP_TYPE_ANONYMOUS ? "anonymous " :
+        (type == VMAP_MMAP_TYPE_FILEBACKED ? "filebacked " :
+         (type == VMAP_MMAP_TYPE_IORING ? "io_uring " : ""));
 }
 
 static boolean handle_protection_fault(context frame, u64 vaddr, vmap vm)
@@ -73,11 +79,11 @@ static boolean handle_protection_fault(context frame, u64 vaddr, vmap vm)
                  is_usermode_fault(frame) ? "U" : "S",
                  is_instruction_fault(frame) ? "I" : "D",
                  (vm->flags & VMAP_FLAG_MMAP) ? "mmap " : "",
-                 (vm->flags & VMAP_FLAG_ANONYMOUS) ? "anonymous " : "",
+                 string_from_mmap_type(vm->flags & VMAP_MMAP_TYPE_MASK),
                  (vm->flags & VMAP_FLAG_WRITABLE) ? "writable " : "",
                  (vm->flags & VMAP_FLAG_EXEC) ? "executable " : "");
 
-        deliver_segv(vaddr, SEGV_ACCERR);
+        deliver_segv(current, vaddr, SEGV_ACCERR);
         return true;
     }
     return false;
@@ -101,7 +107,7 @@ define_closure_function(1, 1, context, default_fault_handler,
         if (vm == INVALID_ADDRESS) {
             if (user) {
                 pf_debug("no vmap found for addr 0x%lx, rip 0x%lx", vaddr, frame[FRAME_RIP]);
-                deliver_segv(vaddr, SEGV_MAPERR);
+                deliver_segv(current, vaddr, SEGV_MAPERR);
 
                 /* schedule this thread to either run signal handler or terminate */
                 schedule_frame(frame);
@@ -138,7 +144,7 @@ define_closure_function(1, 1, context, default_fault_handler,
     } else if (frame[FRAME_VECTOR] == 13) {
         if (current_cpu()->state == cpu_user) {
             pf_debug("general protection fault in user mode, rip 0x%lx", frame[FRAME_RIP]);
-            deliver_segv(0, SI_KERNEL);
+            deliver_segv(current, 0, SI_KERNEL);
             schedule_frame(frame);
             return 0;
         }

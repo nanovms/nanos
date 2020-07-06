@@ -28,8 +28,7 @@ void pagecache_map_page(pagecache_node pn, u64 offset_page, u64 vaddr, u64 flags
                         status_handler complete);
 boolean pagecache_map_page_sync(pagecache_node pn, u64 offset_page, u64 vaddr, u64 flags, boolean shared);
 
-// XXX
-void pagecache_unmap_page(pagecache_node pn, u64 offset_page, void *vaddr);
+void pagecache_unmap_pages(pagecache_node pn, range v /* bytes */, u64 offset_page);
 
 pagecache_volume pagecache_allocate_volume(pagecache pc, u64 length, int block_order);
 

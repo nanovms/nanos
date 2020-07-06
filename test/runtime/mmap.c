@@ -14,10 +14,10 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#define PAGELOG         12
-#define PAGELOG_2M      21
-#define PAGESIZE        (1ULL << PAGELOG)
-#define PAGESIZE_2M     (1ULL << PAGELOG_2M)
+/* for sha */
+#include <runtime.h>
+
+#define handle_err(s) do { perror(s); exit(EXIT_FAILURE);} while(0)
 
 /** Basic and intensive problem sizes **/
 typedef struct {
@@ -669,6 +669,84 @@ void mremap_test(void)
     printf("** all mremap tests passed\n");
 }
 
+const unsigned char test_sha[2][32] = {
+    { 0xca, 0xde, 0xc7, 0x27, 0x1e, 0xaa, 0xd4, 0xc6,
+      0x85, 0xa9, 0xc2, 0xc0, 0x57, 0x86, 0xf8, 0x12,
+      0xf5, 0x9c, 0xb1, 0xa5, 0xd4, 0xaf, 0x36, 0xe5,
+      0x99, 0x1e, 0xd7, 0xf9, 0xa7, 0x57, 0x74, 0x59 },
+    { 0xa6, 0x74, 0x1f, 0xae, 0xe2, 0x29, 0x45, 0xb7,
+      0x0e, 0x17, 0x9d, 0xa3, 0xe3, 0x27, 0xf6, 0x45,
+      0xf2, 0x71, 0xb0, 0xc5, 0xef, 0x5c, 0xf6, 0xaa,
+      0x80, 0x9a, 0x0d, 0x33, 0x72, 0x3f, 0xec, 0x2d } };
+
+#define PAGE_SIZE 4096
+static void filebacked_test(heap h)
+{
+    int fd, rv;
+
+    printf("** starting file-backed tests\n");
+    fd = open("mapfile", O_RDWR);
+    if (fd < 0)
+        handle_err("open");
+
+    /* second page (to avoid readahead, if we implement it) */
+    void *p = mmap(NULL, PAGE_SIZE, PROT_READ, MAP_PRIVATE, fd, PAGE_SIZE);
+    if (p == (void *)-1ull)
+        handle_err("mmap mapfile, second page");
+    buffer b = alloca_wrap_buffer(p, PAGE_SIZE);
+    buffer test = alloca_wrap_buffer(test_sha[1], 32);
+    buffer sha = allocate_buffer(h, 32);
+    sha256(sha, b);
+    munmap(p, PAGE_SIZE);
+    if (!buffer_compare(sha, test)) {
+        rprintf("sha mismatch for faulted page: %X\n", sha);
+        close(fd);
+        exit(EXIT_FAILURE);
+    }
+    printf("** faulted page sum matched, start kernel fault test\n");
+
+    int out = open("foofile", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+    if (out < 0)
+        handle_err("open 2");
+
+    /* map first page of mapfile */
+    p = mmap(NULL, PAGE_SIZE, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (p == (void *)-1ull)
+        handle_err("mmap mapfile, first page");
+
+    /* induce kernel page fault by writing from mmaped area */
+    rv = write(out, p, PAGE_SIZE);
+    if (rv < 0)
+        handle_err("write");
+    if (rv < PAGE_SIZE)
+        printf("short read: %d\n", rv);
+    munmap(p, PAGE_SIZE);
+    close(out);
+    close(fd);
+
+    /* verify content - this should already be in the cache
+       (tests fault "direct" return) */
+    printf("** faulting write complete, checking contents\n");
+    fd = open("foofile", O_RDWR);
+    if (fd < 0)
+        handle_err("foofile for re-read");
+    p = mmap(NULL, PAGE_SIZE, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (p == (void *)-1ull)
+        handle_err("mmap foofile");
+    b = alloca_wrap_buffer(p, PAGE_SIZE);
+    test = alloca_wrap_buffer(test_sha[0], 32);
+    buffer_clear(sha);
+    sha256(sha, b);
+    munmap(p, PAGE_SIZE);
+    close(fd);
+    if (!buffer_compare(sha, test)) {
+        rprintf("sha mismatch for faulted page 2: %X\n", sha);
+        close(fd);
+        exit(EXIT_FAILURE);
+    }
+    printf("** all file-backed tests passed\n");
+}
+
 int main(int argc, char * argv[])
 {
     /*
@@ -689,6 +767,7 @@ int main(int argc, char * argv[])
     mmap_test();
     mincore_test();
     mremap_test();
+    filebacked_test(init_process_runtime());
 
     printf("\n**** all tests passed ****\n");
 

@@ -154,7 +154,16 @@ typedef struct queue *queue;
 extern queue bhqueue;
 extern queue runqueue;
 extern queue thread_queue;
-timerheap runloop_timers;
+extern timerheap runloop_timers;
+
+static inline void bhqueue_enqueue_irqsafe(thunk t)
+{
+    /* an interrupted enqueue and competing enqueue from int handler could cause a
+       deadlock; disable ints for safe enqueue from any context */
+    u64 flags = irq_disable_save();
+    enqueue(bhqueue, t);
+    irq_restore(flags);
+}
 
 heap physically_backed(heap meta, heap virtual, heap physical, u64 pagesize);
 void physically_backed_dealloc_virtual(heap h, u64 x, bytes length);
