@@ -723,6 +723,32 @@ boolean pagecache_map_page_sync(pagecache_node pn, u64 offset_page, u64 vaddr, u
     spin_unlock(&pn->pages_lock);
     return mapped;
 }
+
+closure_function(3, 3, boolean, pagecache_unmap_page,
+                 pagecache_node, pn, u64, vaddr_base, u64, offset_page,
+                 int, level, u64, vaddr, u64 *, entry)
+{
+    u64 old_entry = *entry;
+    if (pt_entry_is_present(old_entry) &&
+        pt_entry_is_pte(level, old_entry)) {
+        u64 pi = bound(offset_page) + ((vaddr - bound(vaddr_base)) >> PAGELOG);
+        pagecache_debug("   vaddr 0x%lx, pi 0x%lx\n", vaddr, pi);
+        *entry = 0;
+        page_invalidate(vaddr, ignore);
+        pagecache_page pp = page_lookup_nodelocked(bound(pn), pi);
+        assert(pp != INVALID_ADDRESS);
+        assert(pp->refcount.c > 1);
+        refcount_release(&pp->refcount);
+    }
+    return true;
+}
+
+void pagecache_unmap_pages(pagecache_node pn, range v /* bytes */, u64 offset_page)
+{
+    pagecache_debug("%s: pn %p, v %R, offset_page 0x%lx\n", __func__, pn, v, offset_page);
+    traverse_ptes(v.start, range_span(v), stack_closure(pagecache_unmap_page, pn,
+                                                        v.start, offset_page));
+}
 #endif
 
 closure_function(1, 1, boolean, pagecache_page_print_key,

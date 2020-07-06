@@ -203,8 +203,8 @@ declare_closure_struct(1, 1, context, default_fault_handler,
 declare_closure_struct(7, 0, void, thread_demand_file_page,
                        thread, t, context, frame, pagecache_node, pn, u64, offset_page,
                        u64, page_addr, u64, flags, boolean, shared);
-declare_closure_struct(2, 1, void, thread_demand_file_page_complete,
-                       thread, t, context, frame,
+declare_closure_struct(3, 1, void, thread_demand_file_page_complete,
+                       thread, t, context, frame, u64, vaddr,
                        status, s);
 
 /* XXX probably should bite bullet and allocate these... */
@@ -320,13 +320,18 @@ struct file {
 
 void epoll_finish(epoll e);
 
-#define VMAP_FLAG_MMAP          0x0001
-#define VMAP_FLAG_ANONYMOUS     0x0002
-#define VMAP_FLAG_WRITABLE      0x0004
-#define VMAP_FLAG_EXEC          0x0008
-#define VMAP_FLAG_PREALLOC      0x0010
-#define VMAP_FLAG_FILEBACKED    0x0020
-#define VMAP_FLAG_SHARED        0x0040 /* same semantics as unix */
+#define VMAP_FLAG_EXEC     0x0001
+#define VMAP_FLAG_WRITABLE 0x0002
+#define VMAP_FLAG_READABLE 0x0004
+
+#define VMAP_FLAG_MMAP     0x0010
+#define VMAP_FLAG_SHARED   0x0020 /* vs private; same semantics as unix */
+#define VMAP_FLAG_PREALLOC 0x0040
+
+#define VMAP_MMAP_TYPE_MASK       0x0f00
+#define VMAP_MMAP_TYPE_ANONYMOUS  0x0100
+#define VMAP_MMAP_TYPE_FILEBACKED 0x0200
+#define VMAP_MMAP_TYPE_IORING     0x0040
 
 typedef struct vmap {
     struct rmnode node;
@@ -334,6 +339,12 @@ typedef struct vmap {
     u32 offset;                 /* in pages */
     pagecache_node cache_node;
 } *vmap;
+
+typedef struct varea {
+    struct rmnode node;
+    id_heap h;
+    boolean allow_fixed;
+} *varea;
 
 #define ivmap(__f, __o, __c) (struct vmap){.flags = __f, .offset = __o, .cache_node = __c}
 typedef closure_type(vmap_handler, void, vmap);
@@ -580,6 +591,7 @@ static inline sigaction sigaction_from_sig(int signum)
 boolean dispatch_signals(thread t);
 void deliver_signal_to_thread(thread t, struct siginfo *);
 void deliver_signal_to_process(process p, struct siginfo *);
+void deliver_segv(thread t, u64 vaddr, s32 si_code);
 
 void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *name);
 
@@ -611,6 +623,7 @@ extern sysreturn syscall_ignore();
 boolean do_demand_page(u64 vaddr, vmap vm, context frame);
 vmap vmap_from_vaddr(process p, u64 vaddr);
 void vmap_iterator(process p, vmap_handler vmh);
+const char *string_from_mmap_type(int type);
 
 void thread_log_internal(thread t, const char *desc, ...);
 #define thread_log(__t, __desc, ...) thread_log_internal(__t, __desc, ##__VA_ARGS__)

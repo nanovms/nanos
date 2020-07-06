@@ -476,9 +476,9 @@ closure_function(1, 3, boolean, unmap_page,
         *entry = 0;
         page_invalidate(vaddr, ignore);
         if (rh) {
-            u64 phys = page_from_pte(old_entry);
-            range p = irange(phys, phys + (pt_entry_is_fat(level, old_entry) ? PAGESIZE_2M : PAGESIZE));
-            apply(rh, p);
+            apply(rh, irangel(page_from_pte(old_entry),
+                              (pt_entry_is_fat(level, old_entry) ?
+                               PAGESIZE_2M : PAGESIZE)));
         }
     }
     return true;
