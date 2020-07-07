@@ -18,6 +18,12 @@ static inline u64 page_map_flags(u64 vmflags)
     return flags;
 }
 
+static inline u32 new_offset_page(vmap match, u64 byte_offset)
+{
+    assert((byte_offset & PAGEMASK) == 0);
+    return match->offset_page + (byte_offset >> PAGELOG);
+}
+
 #define vmap_lock(p) u64 _savedflags = spin_lock_irq(&(p)->vmap_lock)
 #define vmap_unlock(p) spin_unlock_irq(&(p)->vmap_lock, _savedflags)
 
@@ -94,7 +100,7 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
         zero(pointer_from_u64(vaddr_aligned), PAGESIZE);
     } else if (mmap_type == VMAP_MMAP_TYPE_FILEBACKED) {
         u64 page_addr = vaddr & ~PAGEMASK;
-        u64 offset_page = ((page_addr - vm->node.r.start) >> PAGELOG) + vm->offset;
+        u64 offset_page = new_offset_page(vm, page_addr - vm->node.r.start);
         u64 flags = page_map_flags(vm->flags);
         boolean shared = (vm->flags & VMAP_FLAG_SHARED) != 0;
         pf_debug("   node %p (start 0x%lx), offset 0x%lx\n",
@@ -189,7 +195,7 @@ vmap allocate_vmap(rangemap rm, range q, struct vmap k)
         return vm;
     rmnode_init(&vm->node, q);
     vm->flags = k.flags;
-    vm->offset = k.offset;
+    vm->offset_page = k.offset_page;
     vm->cache_node = k.cache_node;
     if (!rangemap_insert(rm, &vm->node)) {
         deallocate(rm->h, vm, sizeof(struct vmap));
@@ -445,23 +451,26 @@ closure_function(4, 1, void, vmap_update_protections_intersection,
         assert(rangemap_reinsert(pvmap, node, irange(rn.start, ri.start)));
 
         /* create node for intersection */
-        assert(allocate_vmap(pvmap, ri, ivmap(newflags, match->offset + (ri.start - rn.start),
+        assert(allocate_vmap(pvmap, ri, ivmap(newflags,
+                                              new_offset_page(match, ri.start - rn.start),
                                               match->cache_node)) != INVALID_ADDRESS);
 
         if (tail) {
             /* create node at tail end */
             assert(allocate_vmap(pvmap, irange(ri.end, rn.end),
-                                ivmap(newflags, match->offset + (ri.end - rn.start),
+                                ivmap(newflags,
+                                      new_offset_page(match, ri.end - rn.start),
                                       match->cache_node)) != INVALID_ADDRESS);
         }
     } else if (tail) {
         /* move node start back */
-        assert(rangemap_reinsert(pvmap, node, irange(ri.end, node->r.end)));
-        match->offset += ri.end - node->r.start;
+        assert(rangemap_reinsert(pvmap, node, irange(ri.end, rn.end)));
+        match->offset_page = new_offset_page(match, ri.end - rn.start);
 
         /* create node for intersection */
         assert(allocate_vmap(pvmap, ri,
-                             ivmap(newflags, match->offset + (ri.start - rn.start),
+                             ivmap(newflags,
+                                   new_offset_page(match, ri.start - rn.start),
                                    match->cache_node)) != INVALID_ADDRESS);
     }
 }
@@ -544,17 +553,18 @@ closure_function(3, 1, void, vmap_remove_intersection,
             /* create node at tail end */
             assert(allocate_vmap(pvmap, irange(ri.end, rn.end),
                                  ivmap(match->flags,
-                                       match->offset + (ri.end - rn.start),
+                                       new_offset_page(match, ri.end - rn.start),
                                        match->cache_node)) != INVALID_ADDRESS);
         }
     } else {
         /* tail only: move node start back */
         rangemap_reinsert(pvmap, node, irange(ri.end, rn.end));
-        match->offset += ri.end - rn.start;
+        match->offset_page = new_offset_page(match, ri.end - rn.start);
     }
 
     if (bound(unmap)) {
-        struct vmap k = ivmap(match->flags, match->offset + (ri.start - rn.start),
+        struct vmap k = ivmap(match->flags,
+                              new_offset_page(match, ri.start - rn.start),
                               match->cache_node);
         k.node.r = ri;
         apply(bound(unmap), &k);
@@ -567,7 +577,8 @@ closure_function(4, 1, void, vmap_paint_gap,
 {
     vmap k = &bound(k);
     assert(allocate_vmap(bound(pvmap), r,
-                         ivmap(k->flags, k->offset + (r.start - bound(q).start),
+                         ivmap(k->flags,
+                               new_offset_page(k, r.start - bound(q).start),
                                k->cache_node)) != INVALID_ADDRESS);
 }
 
@@ -590,7 +601,7 @@ static void vmap_unmap_page_range(process p, vmap k)
         unmap_and_free_phys(r.start, len);
         break;
     case VMAP_MMAP_TYPE_FILEBACKED:
-        pagecache_unmap_pages(k->cache_node, r, k->offset);
+        pagecache_unmap_pages(k->cache_node, r, k->offset_page);
         break;
     case VMAP_MMAP_TYPE_IORING:
         unmap(r.start, len);
@@ -628,10 +639,10 @@ static void vmap_paint(heap h, process p, u64 where, u64 len, u32 vmflags,
     rangemap pvmap = p->vmaps;
 
     vmap_lock(p);
-    struct vmap k = ivmap(vmflags, offset_page, cache_node);
     vmap_handler vh = stack_closure(vmap_unmap, p);
     rangemap_range_lookup(pvmap, q, stack_closure(vmap_remove_intersection, pvmap, q, vh));
-    rangemap_range_find_gaps(pvmap, q, stack_closure(vmap_paint_gap, h, pvmap, q, k));
+    rangemap_range_find_gaps(pvmap, q, stack_closure(vmap_paint_gap, h, pvmap, q,
+                                                     ivmap(vmflags, offset_page, cache_node)));
 
     update_map_flags(q.start, range_span(q), page_map_flags(vmflags));
     vmap_unlock(p);

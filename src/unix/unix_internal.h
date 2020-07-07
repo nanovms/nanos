@@ -336,7 +336,7 @@ void epoll_finish(epoll e);
 typedef struct vmap {
     struct rmnode node;
     u32 flags;
-    u32 offset;                 /* in pages */
+    u32 offset_page;            /* page index */
     pagecache_node cache_node;
 } *vmap;
 
@@ -346,7 +346,7 @@ typedef struct varea {
     boolean allow_fixed;
 } *varea;
 
-#define ivmap(__f, __o, __c) (struct vmap){.flags = __f, .offset = __o, .cache_node = __c}
+#define ivmap(__f, __o, __c) (struct vmap){.flags = __f, .offset_page = __o, .cache_node = __c}
 typedef closure_type(vmap_handler, void, vmap);
 
 vmap allocate_vmap(rangemap rm, range r, struct vmap q);
