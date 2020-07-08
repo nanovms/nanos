@@ -27,6 +27,11 @@ static inline void report_sha256(buffer b)
 #define report_sha256(b)
 #endif
 
+pagecache_volume filesystem_get_pagecache_volume(filesystem fs)
+{
+    return fs->pv;
+}
+
 u64 fsfile_get_length(fsfile f)
 {
     return f->length;

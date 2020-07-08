@@ -626,27 +626,45 @@ u64 pagecache_drain(pagecache pc, u64 drain_bytes)
 
 static void pagecache_scan(pagecache pc);
 
-void pagecache_sync_volume(pagecache_volume pv, status_handler complete)
+/* TODO could encode completion to indicate completion on transition
+   to new rather than writing - otherwise we're completing on storage
+   request issuance, not completion - just for sync use */
+static void pagecache_finish_pending_writes(pagecache pc, pagecache_volume pv, pagecache_node pn,
+                                            status_handler complete)
 {
-    pagecache_debug("%s: broken, redo!\n", __func__);
-    pagecache pc = pv->pc;
-    assert(complete);
-
-    /* commit dirty pages */
-    pagecache_scan(pc);
-
     pagecache_page pp = 0;
     /* If writes are pending, tack completion onto the mostly recently written page. */
     spin_lock(&pc->state_lock);
-    if (!list_empty(&pc->writing.l)) {
-        list l = pc->writing.l.prev;
+    list_foreach_reverse(&pc->writing.l, l) {
         pp = struct_from_list(l, pagecache_page, l);
-        enqueue_page_completion_statelocked(pc, pp, complete);
-        spin_unlock(&pc->state_lock);
-        return;
+        if ((!pn || pp->node == pn) && (!pv || pp->node->pv == pv)) {
+            enqueue_page_completion_statelocked(pc, pp, complete);
+            spin_unlock(&pc->state_lock);
+            return;
+        }
     }
     spin_unlock(&pc->state_lock);
     apply(complete, STATUS_OK);
+}
+
+void pagecache_sync_volume(pagecache_volume pv, status_handler complete)
+{
+    pagecache_debug("%s: pv %p, complete %p (%F)\n", __func__, pv, complete, complete);
+    pagecache_scan(pv->pc);         /* commit dirty pages */
+    pagecache_finish_pending_writes(pv->pc, pv, 0, complete);
+}
+
+/* not quite sync; the caller takes care of committing dirty pages */
+void pagecache_node_finish_pending_writes(pagecache_node pn, status_handler complete)
+{
+    pagecache_debug("%s: pn %p, complete %p (%F)\n", __func__, pn, complete, complete);
+    pagecache_finish_pending_writes(pn->pv->pc, 0, pn, complete);
+}
+
+void pagecache_sync_node(pagecache_node pn, status_handler complete)
+{
+    pagecache_debug("%s: pn %p, complete %p (%F)\n", __func__, pn, complete, complete);
+    pagecache_finish_pending_writes(pn->pv->pc, 0, pn, complete);
 }
 #endif /* !PAGECACHE_READ_ONLY */
 
@@ -730,12 +748,21 @@ void pagecache_scan_shared_map(pagecache pc, pagecache_shared_map sm)
 
 void pagecache_scan_shared_mappings(pagecache pc)
 {
-    // XXX lock situation?
     pagecache_debug("%s\n", __func__);
     list_foreach(&pc->shared_maps, l) {
         pagecache_shared_map sm = struct_from_list(l, pagecache_shared_map, l);
         pagecache_debug("   shared map va %R, offset_page 0x%lx\n", sm->va, sm->offset_page);
         pagecache_scan_shared_map(pc, sm);
+    }
+}
+
+void pagecache_scan_node(pagecache_node pn)
+{
+    pagecache_debug("%s\n", __func__);
+    rangemap_foreach(pn->shared_maps, n) {
+        pagecache_shared_map sm = (pagecache_shared_map)n;
+        pagecache_debug("   shared map va %R, offset_page 0x%lx\n", n->r, sm->offset_page);
+        pagecache_scan_shared_map(pn->pv->pc, sm);
     }
 }
 
@@ -766,11 +793,10 @@ void pagecache_commit_dirty_pages(pagecache pc)
 {
     pagecache_debug("%s\n", __func__);
     spin_lock(&pc->state_lock);
-    list l = list_get_next(&pc->dirty.l);
 
     /* It might be more efficient to move these to a temporary list,
        issue writes and then resolve on merge completion... */
-    while (l) {
+    list_foreach(&pc->dirty.l, l) {
         pagecache_page pp = struct_from_list(l, pagecache_page, l);
         sg_list sg = allocate_sg_list();
         assert(sg != INVALID_ADDRESS);
@@ -787,7 +813,6 @@ void pagecache_commit_dirty_pages(pagecache pc)
               closure(pc->h, pagecache_commit_complete, pc, pp));
 
         spin_lock(&pc->state_lock);
-        l = list_get_next(&pc->dirty.l);
     }
     spin_unlock(&pc->state_lock);
 }
@@ -829,7 +854,7 @@ void pagecache_node_add_shared_map(pagecache_node pn, range q /* bytes */, u64 o
     spin_unlock(&pc->state_lock);
 }
 
-closure_function(2, 1, void, shared_page_intersection,
+closure_function(2, 1, void, close_shared_pages_intersection,
                  pagecache_node, pn, range, q,
                  rmnode, n)
 {
@@ -862,7 +887,8 @@ closure_function(2, 1, void, shared_page_intersection,
         if (tail) {
             /* create map at tail end */
             pagecache_node_add_shared_map(pn, irange(ri.end, rn.end),
-                                          sm->offset_page + ((ri.end - rn.start) >> pc->page_order));
+                                          sm->offset_page + ((ri.end - rn.start)
+                                                             >> pc->page_order));
         }
     } else {
         /* tail only: move map start back */
@@ -874,7 +900,26 @@ closure_function(2, 1, void, shared_page_intersection,
 void pagecache_node_close_shared_pages(pagecache_node pn, range q /* bytes */)
 {
     pagecache_debug("%s: node %p, q %R\n", __func__, pn, q);
-    rangemap_range_lookup(pn->shared_maps, q, stack_closure(shared_page_intersection, pn, q));
+    rangemap_range_lookup(pn->shared_maps, q,
+                          stack_closure(close_shared_pages_intersection, pn, q));
+}
+
+closure_function(1, 1, void, scan_shared_pages_intersection,
+                 pagecache, pc,
+                 rmnode, n)
+{
+    /* currently just scanning the whole map - it could be just a range,
+       but with scan and sync timers imminent, does it really matter? */
+    pagecache_shared_map sm = (pagecache_shared_map)n;
+    pagecache_debug("   map %p\n", sm);
+    pagecache_scan_shared_map(bound(pc), sm);
+}
+
+void pagecache_node_scan_shared_pages(pagecache_node pn, range q /* bytes */)
+{
+    pagecache_debug("%s: node %p, q %R\n", __func__, pn, q);
+    rangemap_range_lookup(pn->shared_maps, q,
+                          stack_closure(scan_shared_pages_intersection, pn->pv->pc));
 }
 
 /* cow
@@ -914,7 +959,7 @@ void pagecache_map_page(pagecache_node pn, u64 offset_page, u64 vaddr, u64 flags
 }
 
 /* no-alloc / no-fill path, meant to be safe outside of kernel lock */
-boolean pagecache_map_page_sync(pagecache_node pn, u64 offset_page, u64 vaddr, u64 flags, boolean shared)
+boolean pagecache_map_page_if_filled(pagecache_node pn, u64 offset_page, u64 vaddr, u64 flags, boolean shared)
 {
     boolean mapped = false;
     spin_lock(&pn->pages_lock);
@@ -1034,13 +1079,6 @@ pagecache_node pagecache_allocate_node(pagecache_volume pv, sg_io fs_read, sg_io
     pn->fs_read = fs_read;
     pn->fs_write = fs_write;
     return pn;
-}
-
-// XXX TODO
-void pagecache_sync_node(pagecache_node pn, status_handler sh)
-{
-    /* nop */
-    apply(sh, STATUS_OK);
 }
 
 void *pagecache_get_zero_page(pagecache pc)

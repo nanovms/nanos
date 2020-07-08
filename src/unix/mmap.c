@@ -122,7 +122,7 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
         } else {
             /* A user fault can happen outside of the kernel lock. We can try to touch an existing
                page, but we can't allocate anything, fill a page or start a storage operation. */
-            if (pagecache_map_page_sync(vm->cache_node, offset_page, page_addr, flags, shared)) {
+            if (pagecache_map_page_if_filled(vm->cache_node, offset_page, page_addr, flags, shared)) {
                 pf_debug("   immediate completion\n");
                 return true;
             }
@@ -681,6 +681,56 @@ static boolean mmap_reserve_range(process p, range q)
     return true;
 }
 
+closure_function(0, 1, void, msync_vmap,
+                 rmnode, n)
+{
+    vmap vm = (vmap)n;
+    if ((vm->flags & VMAP_FLAG_SHARED) &&
+        (vm->flags & VMAP_FLAG_MMAP) &&
+        (vm->flags & VMAP_MMAP_TYPE_MASK) == VMAP_MMAP_TYPE_FILEBACKED) {
+        assert(vm->cache_node);
+        pagecache_node_scan_shared_pages(vm->cache_node, n->r);
+    }
+}
+
+closure_function(1, 1, void, msync_gap,
+                 boolean *, have_gap,
+                 range, r)
+{
+    *bound(have_gap) = true;
+}
+
+static sysreturn msync(void *addr, u64 length, int flags)
+{
+    thread_log(current, "%s: addr %p, length 0x%lx, flags %x", __func__,
+               addr, length, flags);
+
+    if ((flags & ~(MS_ASYNC | MS_SYNC | MS_INVALIDATE)) ||
+        (flags & (MS_ASYNC | MS_SYNC)) == (MS_ASYNC | MS_SYNC))
+        return -EINVAL;
+
+    if (flags & MS_ASYNC)
+        return 0;               /* nop / default behavior */
+
+    /* TODO: Linux appears to only use this flag to test whether a map
+       is locked (and return -EBUSY if it is). We don't swap out
+       pages, so mlock is a stub for us. It's not clear if we will
+       later need to track locked status and test for this condition. */
+    if (flags & MS_INVALIDATE)
+        return 0;
+
+    process p = current->p;
+    range q = irangel(u64_from_pointer(addr), pad(length, PAGESIZE));
+    boolean have_gap = false;
+    rangemap_range_lookup_with_gaps(p->vmaps, q,
+                                    stack_closure(msync_vmap),
+                                    stack_closure(msync_gap, &have_gap));
+
+    /* TODO: while an fsync for some types of filesystems makes sense
+       here, it doesn't seem to be necessary for vbs...? */
+    return have_gap ? -ENOMEM : 0;
+}
+
 static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 offset)
 {
     process p = current->p;
@@ -893,6 +943,7 @@ void register_mmap_syscalls(struct syscall *map)
     register_syscall(map, mincore, mincore);
     register_syscall(map, mmap, mmap);
     register_syscall(map, mremap, mremap);
+    register_syscall(map, msync, msync);
     register_syscall(map, munmap, munmap);
     register_syscall(map, mprotect, mprotect);
     register_syscall(map, madvise, syscall_ignore);

@@ -6,9 +6,11 @@ typedef struct pagecache_node *pagecache_node;
 
 void pagecache_set_node_length(pagecache_node pn, u64 length);
 
-void pagecache_sync_node(pagecache_node pn, status_handler sh);
+void pagecache_node_finish_pending_writes(pagecache_node pn, status_handler complete);
 
-void pagecache_sync_volume(pagecache_volume pv, status_handler sh);
+void pagecache_sync_node(pagecache_node pn, status_handler complete);
+
+void pagecache_sync_volume(pagecache_volume pv, status_handler complete);
 
 void *pagecache_get_zero_page(pagecache pc);
 
@@ -26,7 +28,12 @@ sg_io pagecache_node_get_writer(pagecache_node pn);
 
 void pagecache_map_page(pagecache_node pn, u64 offset_page, u64 vaddr, u64 flags, boolean shared,
                         status_handler complete);
-boolean pagecache_map_page_sync(pagecache_node pn, u64 offset_page, u64 vaddr, u64 flags, boolean shared);
+
+boolean pagecache_map_page_if_filled(pagecache_node pn, u64 offset_page, u64 vaddr, u64 flags, boolean shared);
+
+void pagecache_node_scan_shared_pages(pagecache_node pn, range q /* bytes */);
+
+void pagecache_node_close_shared_pages(pagecache_node pn, range q /* bytes */);
 
 void pagecache_unmap_pages(pagecache_node pn, range v /* bytes */, u64 offset_page);
 

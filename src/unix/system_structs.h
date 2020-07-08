@@ -197,6 +197,11 @@ struct flock {
 #define PROT_WRITE      0x2
 #define PROT_EXEC       0x4
 
+/* msync */
+#define MS_ASYNC      1
+#define MS_INVALIDATE 2
+#define MS_SYNC       4
+
 // straight from linux
 #define ARCH_SET_GS 0x1001
 #define ARCH_SET_FS 0x1002

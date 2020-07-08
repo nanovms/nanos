@@ -9,6 +9,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <errno.h>
 
 #include <sys/mman.h>
 #include <sys/types.h>
@@ -751,12 +752,31 @@ static void filebacked_test(heap h)
     p = mmap(NULL, PAGESIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (p == (void *)-1ull)
         handle_err("mmap barfile");
+    void *p2 = mmap(NULL, PAGESIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (p2 == (void *)-1ull)
+        handle_err("mmap barfile 2");
     for (int i = 0; i < PAGESIZE; i++)
         *(unsigned char *)(p + i) = i % 256;
     buffer_clear(sha);
     b = alloca_wrap_buffer(p, PAGESIZE);
+    buffer b2 = alloca_wrap_buffer(p2, PAGESIZE);
+    if (!buffer_compare(b, b2)) {
+        printf("** fail: content of secondary shared mmap doesn't match primary\n");
+        exit(EXIT_FAILURE);
+    }
+    printf("** contents of secondary shared mapping matches primary, calling msync\n");
+
+    /* test invalid flags */
+    if (msync(p, PAGESIZE, MS_SYNC | MS_ASYNC) == 0 || errno != EINVAL) {
+        printf("msync: should have failed with EINVAL\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (msync(p, PAGESIZE, MS_SYNC) < 0)
+        handle_err("msync");
     sha256(sha, b);
     munmap(p, PAGESIZE);
+    munmap(p2, PAGESIZE);
     close(fd);
 
     /* TODO: need a way to invalidate some or all of the cache to

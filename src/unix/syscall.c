@@ -20,7 +20,6 @@ io_completion io_completion_ignore;
 
 void register_other_syscalls(struct syscall *map)
 {
-    register_syscall(map, msync, 0);
     register_syscall(map, shmget, 0);
     register_syscall(map, shmat, 0);
     register_syscall(map, shmctl, 0);
@@ -1250,13 +1249,20 @@ sysreturn ftruncate(int fd, long length)
     return truncate_internal(f, file_get_meta(f), length);
 }
 
-closure_function(1, 1, void, sync_complete,
-                 thread, t,
+closure_function(4, 1, void, sync_complete,
+                 filesystem, fs, thread, t, pagecache_node, pn, boolean, fs_flushed,
                  status, s)
 {
     thread t = bound(t);
-    thread_log(current, "%s: status %v (%s)", __func__, s,
-            is_ok(s) ? "OK" : "NOTOK");
+    thread_log(current, "%s: status %v, fs_flushed %d", __func__, s, bound(fs_flushed));
+    if (is_ok(s) && !bound(fs_flushed)) {
+        bound(fs_flushed) = true;
+        if (bound(pn))
+            pagecache_sync_node(bound(pn), (status_handler)closure_self());
+        else
+            pagecache_sync_volume(filesystem_get_pagecache_volume(bound(fs)), (status_handler)closure_self());
+        return;
+    }
     set_syscall_return(t, is_ok(s) ? 0 : -EIO);
     file_op_maybe_wake(t);
     closure_finish();
@@ -1266,23 +1272,35 @@ sysreturn sync(void)
 {
     file_op_begin(current);
     filesystem_flush(current->p->fs, closure(heap_general(get_kernel_heaps()),
-                                             sync_complete, current));
+                                             sync_complete, current->p->fs, current, 0, false));
     return file_op_maybe_sleep(current);
 }
 
 sysreturn syncfs(int fd)
 {
-    /* Resolve to check validity of fd. For multiple volume support,
-       this will give us the filesystem. */
+    /* Resolve to check validity of fd.
+       When multiple volume support is added, we could grab the fs from the fsfile... */
     resolve_fd(current->p, fd);
     return sync();
 }
 
-/* We don't currently have a per-file flush, so flush all filesystem
-   writes for fsync and fdatasync. */
 sysreturn fsync(int fd)
 {
-    return syncfs(fd);
+    fdesc f = resolve_fd(current->p, fd);
+    switch (f->type) {
+    case FDESC_TYPE_REGULAR:
+        assert(((file)f)->fsf);
+        file_op_begin(current);
+        filesystem_flush(current->p->fs,
+                         closure(heap_general(get_kernel_heaps()), sync_complete, current->p->fs,
+                                 current, fsfile_get_cachenode(((file)f)->fsf), false));
+        return file_op_maybe_sleep(current);
+    case FDESC_TYPE_DIRECTORY:
+    case FDESC_TYPE_SYMLINK:
+        return 0;
+    default:
+        return -EINVAL;
+    }
 }
 
 sysreturn fdatasync(int fd)
