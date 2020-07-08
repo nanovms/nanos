@@ -24,7 +24,14 @@
 #define GS_MSR           0xc0000101
 #define KERNEL_GS_MSR    0xc0000102
 
+#define C0_MP   0x00000002
+#define C0_EM   0x00000004
 #define C0_WP   0x00010000
+
+#define CR4_PAE         (1 << 5)
+#define CR4_OSFXSR      (1 << 9)
+#define CR4_OSXMMEXCPT  (1 << 10)
+#define CR4_OSXSAVE     (1 << 18)
 
 #define FLAG_INTERRUPT 9
 

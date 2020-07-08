@@ -343,10 +343,6 @@ static u64 stage2_allocator(heap h, bytes b)
     return result;
 }
 
-#define CR4_OSFXSR (1<<9)
-#define CR4_OSXMMEXCPT (1<<10)
-#define CR4_OSXSAVE (1<<18)
-
 void centry()
 {
     working_heap.alloc = stage2_allocator;
@@ -361,19 +357,6 @@ void centry()
     init_extra_prints();
     stage2_debug("%s\n", __func__);
 
-    u32 cr0, cr4;
-    mov_from_cr("cr0", cr0);
-    mov_from_cr("cr4", cr4);
-    // make a header
-    cr0 &= ~(1<<2); // clear EM
-    cr0 |= 1<<1; // set MP EM
-    cr4 |= CR4_OSFXSR;
-    cr4 |= CR4_OSXMMEXCPT;
-    cr4 |= CR4_OSXSAVE;
-//    cr4 |= 1<<20; // set smep - use once we do kernel / user split
-    mov_to_cr("cr0", cr0);
-    mov_to_cr("cr4", cr4);    
-
     /* Validate support for no-exec (NX) bits in ptes. */
     u32 v[4];
     cpuid(0x80000001, 0, v);
@@ -384,8 +367,7 @@ void centry()
            cookie for the page table code to mask out any attempt to
            set NX. Otherwise, a page fault for use of reserved bits
            will be thrown, or worse a sudden exit if a map() with NX
-           occurs before exception handler setup. NXE is set in
-           service32.s:run64. */
+           occurs before exception handler setup. NXE is set in stage3. */
         halt("halt: platform doesn't support no-exec page protection\n");
     }
 

@@ -664,6 +664,7 @@ static u64 pt_2m_alloc(heap h, bytes size)
 /* this happens even before moving to the new stack, so ... be cool */
 id_heap init_page_tables(heap h, id_heap physical, range initial_phys)
 {
+    write_msr(EFER_MSR, read_msr(EFER_MSR) | EFER_NXE);
     spin_lock_init(&pt_lock);
     phys_internal = physical;
     id_heap i = allocate(h, sizeof(struct id_heap));
