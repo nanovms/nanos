@@ -1,7 +1,6 @@
 #include <unix_internal.h>
 #include <ftrace.h>
 #include <gdb.h>
-#include <page.h>
 
 //#define PF_DEBUG
 #ifdef PF_DEBUG
@@ -63,17 +62,33 @@ void deliver_segv(thread t, u64 vaddr, s32 si_code)
 
 const char *string_from_mmap_type(int type)
 {
-    return type == VMAP_MMAP_TYPE_ANONYMOUS ? "anonymous " :
-        (type == VMAP_MMAP_TYPE_FILEBACKED ? "filebacked " :
-         (type == VMAP_MMAP_TYPE_IORING ? "io_uring " : ""));
+    return type == VMAP_MMAP_TYPE_ANONYMOUS ? "anonymous" :
+        (type == VMAP_MMAP_TYPE_FILEBACKED ? "filebacked" :
+         (type == VMAP_MMAP_TYPE_IORING ? "io_uring" : "unknown"));
 }
 
 static boolean handle_protection_fault(context frame, u64 vaddr, vmap vm)
 {
     /* vmap found, with protection violation set --> send prot violation */
     if (is_protection_fault(frame)) {
+        u64 flags = VMAP_FLAG_MMAP | VMAP_FLAG_WRITABLE;
+        if (is_write_fault(frame) && (vm->flags & flags) == flags &&
+            (vm->flags & VMAP_MMAP_TYPE_MASK) == VMAP_MMAP_TYPE_FILEBACKED) {
+            /* copy on write */
+            u64 vaddr_aligned = vaddr & ~MASK(PAGELOG);
+            u64 offset_page = vm->offset_page + ((vaddr_aligned - vm->node.r.start)
+                                                 >> PAGELOG);
+            pf_debug("copy-on-write for private map: vaddr 0x%lx, node %p, offset_page 0x%lx\n",
+                     vaddr, vm->cache_node, offset_page);
+            if (!pagecache_node_do_page_cow(vm->cache_node, offset_page, vaddr_aligned,
+                                            page_map_flags(vm->flags))) {
+                msg_err("cannot get physical page; OOM\n");
+                return false;
+            }
+            return true;
+        }
         pf_debug("page protection violation\naddr 0x%lx, rip 0x%lx, "
-                 "error %s%s%s vm->flags (%s%s%s%s)",
+                 "error %s%s%s vm->flags (%s%s %s%s)",
                  vaddr, frame_return_address(frame),
                  is_write_fault(frame) ? "W" : "R",
                  is_usermode_fault(frame) ? "U" : "S",
@@ -128,15 +143,18 @@ define_closure_function(1, 1, context, default_fault_handler,
         }
 
         if (handle_protection_fault(frame, vaddr, vm)) {
+            if (is_current_kernel_context(frame)) {
+                current_cpu()->state = cpu_kernel;
+                return frame;   /* direct return */
+            }
             schedule_frame(frame);
             return 0;
         }
 
         if (do_demand_page(fault_address(frame), vm, frame)) {
-            /* If we're in the kernel context, return to the frame directly. */
             if (is_current_kernel_context(frame)) {
                 current_cpu()->state = cpu_kernel;
-                return frame;
+                return frame;   /* direct return */
             }
             schedule_frame(frame);
             return 0;

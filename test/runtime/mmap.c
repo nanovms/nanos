@@ -699,7 +699,7 @@ static void filebacked_test(heap h)
     sha256(sha, b);
     munmap(p, PAGESIZE);
     if (!buffer_compare(sha, test)) {
-        rprintf("sha mismatch for faulted page: %X\n", sha);
+        rprintf("   sha mismatch for faulted page: %X\n", sha);
         close(fd);
         exit(EXIT_FAILURE);
     }
@@ -719,7 +719,7 @@ static void filebacked_test(heap h)
     if (rv < 0)
         handle_err("write");
     if (rv < PAGESIZE)
-        printf("short read: %d\n", rv);
+        printf("   short read: %d\n", rv);
     munmap(p, PAGESIZE);
     close(out);
     close(fd);
@@ -740,7 +740,7 @@ static void filebacked_test(heap h)
     munmap(p, PAGESIZE);
     close(fd);
     if (!buffer_compare(sha, test)) {
-        rprintf("sha mismatch for faulted page 2: %X\n", sha);
+        rprintf("   sha mismatch for faulted page 2: %X\n", sha);
         close(fd);
         exit(EXIT_FAILURE);
     }
@@ -761,14 +761,14 @@ static void filebacked_test(heap h)
     b = alloca_wrap_buffer(p, PAGESIZE);
     buffer b2 = alloca_wrap_buffer(p2, PAGESIZE);
     if (!buffer_compare(b, b2)) {
-        printf("** fail: content of secondary shared mmap doesn't match primary\n");
+        printf("   fail: content of secondary shared mmap doesn't match primary\n");
         exit(EXIT_FAILURE);
     }
     printf("** contents of secondary shared mapping matches primary, calling msync\n");
 
     /* test invalid flags */
     if (msync(p, PAGESIZE, MS_SYNC | MS_ASYNC) == 0 || errno != EINVAL) {
-        printf("msync: should have failed with EINVAL\n");
+        printf("   msync: should have failed with EINVAL\n");
         exit(EXIT_FAILURE);
     }
 
@@ -777,12 +777,45 @@ static void filebacked_test(heap h)
     sha256(sha, b);
     munmap(p, PAGESIZE);
     munmap(p2, PAGESIZE);
-    close(fd);
 
     /* TODO: need a way to invalidate some or all of the cache to
        re-read and test barfile contents - for now just dump sha sum
        so user can dump image and validate */
     rprintf("** wrote to barfile, sha256:\n%X", sha);
+    rprintf("** testing MAP_PRIVATE maps\n");
+
+    p = mmap(NULL, PAGESIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+    if (p == (void *)-1ull)
+        handle_err("mmap barfile 3");
+    p2 = mmap(NULL, PAGESIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+    if (p2 == (void *)-1ull)
+        handle_err("mmap barfile 4");
+
+    if (memcmp(p, p2, PAGESIZE)) {
+        printf("   mismatch comparing two maps of same file; should be identical\n");
+        exit(EXIT_FAILURE);
+    }
+
+    (*(unsigned char *)p2)++;
+
+    if (!memcmp(p, p2, PAGESIZE)) {
+        printf("   maps identical after write to one; should differ\n");
+        exit(EXIT_FAILURE);
+    }
+
+    munmap(p, PAGESIZE);
+    p = mmap(NULL, PAGESIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+    if (p == (void *)-1ull)
+        handle_err("mmap barfile 5");
+
+    if (!memcmp(p, p2, PAGESIZE)) {
+        printf("   maps identical after re-mapping unmodified one; should differ\n");
+        exit(EXIT_FAILURE);
+    }
+
+    munmap(p, PAGESIZE);
+    munmap(p2, PAGESIZE);
+    close(fd);
     printf("** all file-backed tests passed\n");
 }
 

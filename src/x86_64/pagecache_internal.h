@@ -12,6 +12,7 @@ typedef struct pagecache {
     int page_order;
     heap h;
     heap contiguous;
+    heap physical;
     void *zero_page;            /* for zero-fill dma */
 
     /* state_lock covers list access, page state changes and

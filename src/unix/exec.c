@@ -1,6 +1,5 @@
 #include <unix_internal.h>
 #include <elf64.h>
-#include <page.h>
 #include <gdb.h>
 #include <symtab.h>
 

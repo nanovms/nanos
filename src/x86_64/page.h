@@ -36,6 +36,12 @@ static inline boolean pt_entry_is_dirty(u64 entry)
     return (entry & PAGE_DIRTY) != 0;
 }
 
+static inline u64 page_from_pte(u64 pte)
+{
+    /* page directory pointer base address [51:12] */
+    return pte & (MASK(52) & ~PAGEMASK);
+}
+
 #ifndef physical_from_virtual
 physical physical_from_virtual(void *x);
 #endif

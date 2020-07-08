@@ -83,7 +83,7 @@ extern void * AP_BOOT_PAGE;
 
 /* mm stuff */
 #define PAGECACHE_DRAIN_CUTOFF (64 * MB)
-#define PAGECACHE_SCAN_PERIOD_SECONDS 1 // XXX temp
+#define PAGECACHE_SCAN_PERIOD_SECONDS 5
 
 #include <x86.h>
 void xsave(void *);

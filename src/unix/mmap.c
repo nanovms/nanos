@@ -1,5 +1,4 @@
 #include <unix_internal.h>
-#include <page.h>
 
 //#define PF_DEBUG
 #ifdef PF_DEBUG
@@ -7,16 +6,6 @@
 #else
 #define pf_debug(x, ...)
 #endif
-
-static inline u64 page_map_flags(u64 vmflags)
-{
-    u64 flags = PAGE_NO_FAT | PAGE_USER;
-    if ((vmflags & VMAP_FLAG_EXEC) == 0)
-        flags |= PAGE_NO_EXEC;
-    if ((vmflags & VMAP_FLAG_WRITABLE))
-        flags |= PAGE_WRITABLE;
-    return flags;
-}
 
 static inline u32 new_offset_page(vmap match, u64 byte_offset)
 {
@@ -64,12 +53,11 @@ define_closure_function(3, 1, void, thread_demand_file_page_complete,
     refcount_release(&bound(t)->refcount);
 }
 
-define_closure_function(7, 0, void, thread_demand_file_page,
-                        thread, t, context, frame, pagecache_node, pn, u64, offset_page, u64, page_addr,
-                        u64, flags, boolean, shared)
+define_closure_function(6, 0, void, thread_demand_file_page,
+                        thread, t, context, frame, pagecache_node, pn, u64, offset_page, u64, page_addr, u64, flags)
 {
     pagecache_map_page(bound(pn), bound(offset_page), bound(page_addr), bound(flags),
-                       bound(shared), (status_handler)&bound(t)->demand_file_page_complete);
+                       (status_handler)&bound(t)->demand_file_page_complete);
 }
 
 boolean do_demand_page(u64 vaddr, vmap vm, context frame)
@@ -82,7 +70,7 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
     }
 
     pf_debug("%s: %s, %s, vaddr 0x%16lx, vm flags 0x%2lx,\n", __func__,
-             in_kernel ? "kern" : "user", vm->flags & VMAP_FLAG_ANONYMOUS ? "anon" : "file",
+             in_kernel ? "kern" : "user", string_from_mmap_type(vm->flags & VMAP_MMAP_TYPE_MASK),
              vaddr, vm->flags);
     pf_debug("   vmap %p, frame %p\n", vm, frame);
 
@@ -101,8 +89,10 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
     } else if (mmap_type == VMAP_MMAP_TYPE_FILEBACKED) {
         u64 page_addr = vaddr & ~PAGEMASK;
         u64 offset_page = new_offset_page(vm, page_addr - vm->node.r.start);
-        u64 flags = page_map_flags(vm->flags);
         boolean shared = (vm->flags & VMAP_FLAG_SHARED) != 0;
+        u64 flags = page_map_flags(vm->flags);
+        if (!shared)
+            flags &= ~PAGE_WRITABLE; /* cow */
         pf_debug("   node %p (start 0x%lx), offset 0x%lx\n",
                  vm->cache_node, vm->node.r.start, offset_page << PAGELOG);
 
@@ -112,7 +102,7 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
                fill, allocate memory, etc. */
             assert(!faulting_kernel_context);
             kernel_demand_page_completed = false;
-            pagecache_map_page(vm->cache_node, offset_page, page_addr, flags, shared,
+            pagecache_map_page(vm->cache_node, offset_page, page_addr, flags,
                                closure(heap_general(get_kernel_heaps()), kernel_demand_pf_complete));
             if (kernel_demand_page_completed) {
                 pf_debug("   immediate completion\n");
@@ -122,7 +112,7 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
         } else {
             /* A user fault can happen outside of the kernel lock. We can try to touch an existing
                page, but we can't allocate anything, fill a page or start a storage operation. */
-            if (pagecache_map_page_if_filled(vm->cache_node, offset_page, page_addr, flags, shared)) {
+            if (pagecache_map_page_if_filled(vm->cache_node, offset_page, page_addr, flags)) {
                 pf_debug("   immediate completion\n");
                 return true;
             }
@@ -131,7 +121,7 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
             thread t = current;
             refcount_reserve(&t->refcount);
             init_closure(&t->demand_file_page, thread_demand_file_page, t, frame,
-                         vm->cache_node, offset_page, page_addr, flags, shared);
+                         vm->cache_node, offset_page, page_addr, flags);
             init_closure(&t->demand_file_page_complete, thread_demand_file_page_complete, t, frame, vaddr);
             enqueue(runqueue, &t->demand_file_page);
         }
@@ -174,7 +164,7 @@ closure_function(0, 1, void, vmap_dump_node,
                  rmnode, n)
 {
     vmap curr = (vmap)n;
-    rprintf("  %R, %s%s%s%s\n", curr->node.r,
+    rprintf("  %R, %s%s %s%s\n", curr->node.r,
             (curr->flags & VMAP_FLAG_MMAP) ? "mmap " : "",
             string_from_mmap_type(curr->flags & VMAP_MMAP_TYPE_MASK),
             (curr->flags & VMAP_FLAG_WRITABLE) ? "writable " : "",
@@ -663,18 +653,17 @@ static varea allocate_varea(heap h, rangemap vareas, range r, id_heap vh, boolea
     return va;
 }
 
-/* XXX defaulting to leniency; revisit */
+/* allow mappings outside of managed areas, but require range reserve to pass within one */
 static boolean mmap_reserve_range(process p, range q)
 {
-    /* XXX can tweak rangemap range lookup to terminate if a callback
-       fails...kind of tired of messing with that interface */
     varea a = (varea)rangemap_first_node(p->vareas);
     while (a != INVALID_ADDRESS) {
         if (ranges_intersect(q, a->node.r)) {
             if (!a->allow_fixed)
                 return false;
             if (a->h)
-                id_heap_set_area(a->h, q.start, range_span(q), false, true);
+                if (!id_heap_set_area(a->h, q.start, range_span(q), true, true))
+                    return false;
         }
         a = (varea)rangemap_next_node(p->vareas, (rmnode)a);
     }
@@ -689,7 +678,7 @@ closure_function(0, 1, void, msync_vmap,
         (vm->flags & VMAP_FLAG_MMAP) &&
         (vm->flags & VMAP_MMAP_TYPE_MASK) == VMAP_MMAP_TYPE_FILEBACKED) {
         assert(vm->cache_node);
-        pagecache_node_scan_shared_pages(vm->cache_node, n->r);
+        pagecache_node_scan_and_commit_shared_pages(vm->cache_node, n->r);
     }
 }
 
@@ -777,9 +766,13 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
 	    return -EINVAL;
 	}
 
+        /* Release intersecting portions of existing maps */
+        range q = irangel(where, len);
+        thread_log(current, "   fixed map %R, release intersections and reserve virtual space", q);
+        process_unmap_range(p, q);
+
         /* A specified address is only allowed in certain areas. Programs may specify
            a fixed address to augment some existing mapping. */
-        range q = irangel(where, len);
         if (!mmap_reserve_range(p, q)) {
 	    thread_log(current, "   fail: fixed address range %R outside of lowmem or virtual_page heap\n", q);
 	    return -ENOMEM;
@@ -804,28 +797,21 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
             return -EINVAL;
         }
     }
-
-    if (vmap_mmap_type == VMAP_MMAP_TYPE_ANONYMOUS ||
-        vmap_mmap_type == VMAP_MMAP_TYPE_FILEBACKED) {
-        if (!fixed) {
-            boolean is_32bit = (flags & MAP_32BIT) != 0; /* allocate from 32-bit address space */
-            where = is_32bit ? id_heap_alloc_subrange(p->virtual32, len, 0x80000000, 0x100000000) :
-                allocate_u64((heap)p->virtual_page, len);
-            if (where == (u64)INVALID_ADDRESS) {
-                /* We'll always want to know about low memory conditions, so just bark. */
-                msg_err("failed to allocate %svirtual memory, size 0x%lx\n",
-                        is_32bit ? "32-bit " : "", len);
-                return -ENOMEM;
-            }
-            thread_log(current, "   alloc: 0x%lx\n", where);
-        } else {
-            /* release anything we might overlap */
-            range r = irangel(where, len);
-            thread_log(current, "   unmapping range %R", r);
-            process_unmap_range(p, r);
-        }
-    }
     vmflags |= vmap_mmap_type;
+
+    if (!fixed && (vmap_mmap_type == VMAP_MMAP_TYPE_ANONYMOUS ||
+                   vmap_mmap_type == VMAP_MMAP_TYPE_FILEBACKED)) {
+        boolean is_32bit = (flags & MAP_32BIT) != 0; /* allocate from 32-bit address space */
+        where = is_32bit ? id_heap_alloc_subrange(p->virtual32, len, 0x80000000, 0x100000000) :
+            allocate_u64((heap)p->virtual_page, len);
+        if (where == (u64)INVALID_ADDRESS) {
+            /* We'll always want to know about low memory conditions, so just bark. */
+            msg_err("failed to allocate %svirtual memory, size 0x%lx\n",
+                    is_32bit ? "32-bit " : "", len);
+            return -ENOMEM;
+        }
+        thread_log(current, "   alloc: 0x%lx\n", where);
+    }
 
     sysreturn ret = where;
     switch (vmap_mmap_type) {

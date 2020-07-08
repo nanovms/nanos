@@ -5,6 +5,7 @@
 #include <syscalls.h>
 #include <system_structs.h>
 #include <pagecache.h>
+#include <page.h>
 #include <tfs.h>
 #include <unix.h>
 
@@ -348,6 +349,16 @@ typedef struct varea {
 
 #define ivmap(__f, __o, __c) (struct vmap){.flags = __f, .offset_page = __o, .cache_node = __c}
 typedef closure_type(vmap_handler, void, vmap);
+
+static inline u64 page_map_flags(u64 vmflags)
+{
+    u64 flags = PAGE_NO_FAT | PAGE_USER;
+    if ((vmflags & VMAP_FLAG_EXEC) == 0)
+        flags |= PAGE_NO_EXEC;
+    if ((vmflags & VMAP_FLAG_WRITABLE))
+        flags |= PAGE_WRITABLE;
+    return flags;
+}
 
 vmap allocate_vmap(rangemap rm, range r, struct vmap q);
 boolean adjust_process_heap(process p, range new);

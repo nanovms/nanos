@@ -146,7 +146,7 @@ closure_function(2, 3, void, attach_storage,
     heap h = heap_general(&heaps);
     u64 offset = bound(fs_offset);
     length -= offset;
-    pagecache pc = allocate_pagecache(h, h, PAGESIZE);
+    pagecache pc = allocate_pagecache(h, h, (heap)heap_physical(&heaps), PAGESIZE);
     if (pc == INVALID_ADDRESS)
         halt("unable to create pagecache\n");
 

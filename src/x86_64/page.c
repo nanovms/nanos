@@ -72,12 +72,6 @@ static inline u64 pteaddr_from_pointer(u64 *p)
 }
 #endif
 
-static inline u64 page_from_pte(u64 pte)
-{
-    /* page directory pointer base address [51:12] */
-    return pte & (MASK(52) & ~PAGEMASK);
-}
-
 static inline u64 flags_from_pte(u64 pte)
 {
     return pte & PAGE_FLAGS_MASK;

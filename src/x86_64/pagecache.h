@@ -26,12 +26,14 @@ sg_io pagecache_node_get_reader(pagecache_node pn);
 
 sg_io pagecache_node_get_writer(pagecache_node pn);
 
-void pagecache_map_page(pagecache_node pn, u64 offset_page, u64 vaddr, u64 flags, boolean shared,
+void pagecache_map_page(pagecache_node pn, u64 offset_page, u64 vaddr, u64 flags,
                         status_handler complete);
 
-boolean pagecache_map_page_if_filled(pagecache_node pn, u64 offset_page, u64 vaddr, u64 flags, boolean shared);
+boolean pagecache_map_page_if_filled(pagecache_node pn, u64 offset_page, u64 vaddr, u64 flags);
 
-void pagecache_node_scan_shared_pages(pagecache_node pn, range q /* bytes */);
+boolean pagecache_node_do_page_cow(pagecache_node pn, u64 offset_page, u64 vaddr, u64 flags);
+
+void pagecache_node_scan_and_commit_shared_pages(pagecache_node pn, range q /* bytes */);
 
 void pagecache_node_close_shared_pages(pagecache_node pn, range q /* bytes */);
 
@@ -41,6 +43,6 @@ void pagecache_node_add_shared_map(pagecache_node pn , range v /* bytes */, u64 
 
 pagecache_volume pagecache_allocate_volume(pagecache pc, u64 length, int block_order);
 
-pagecache allocate_pagecache(heap general, heap contiguous, u64 pagesize);
+pagecache allocate_pagecache(heap general, heap contiguous, heap physical, u64 pagesize);
 
 void deallocate_pagecache(pagecache pc);

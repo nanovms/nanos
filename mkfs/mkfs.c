@@ -441,7 +441,7 @@ int main(int argc, char **argv)
         }
         if (!boot)
             halt("boot FS not found\n");
-        pagecache pc = allocate_pagecache(h, h, PAGESIZE);
+        pagecache pc = allocate_pagecache(h, h, 0, PAGESIZE);
         assert(pc != INVALID_ADDRESS);
         create_filesystem(h, SECTOR_SIZE, BOOTFS_SIZE, 0,
                           closure(h, bwrite, out, offset), pc, allocate_tuple(),
@@ -452,7 +452,7 @@ int main(int argc, char **argv)
         table_set(root, sym(boot), 0);
     }
 
-    pagecache pc = allocate_pagecache(h, h, PAGESIZE);
+    pagecache pc = allocate_pagecache(h, h, 0, PAGESIZE);
     assert(pc != INVALID_ADDRESS);
     create_filesystem(h,
                       SECTOR_SIZE,
