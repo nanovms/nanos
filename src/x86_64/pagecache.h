@@ -30,6 +30,8 @@ boolean pagecache_map_page_sync(pagecache_node pn, u64 offset_page, u64 vaddr, u
 
 void pagecache_unmap_pages(pagecache_node pn, range v /* bytes */, u64 offset_page);
 
+void pagecache_node_add_shared_map(pagecache_node pn , range v /* bytes */, u64 offset_page);
+
 pagecache_volume pagecache_allocate_volume(pagecache pc, u64 length, int block_order);
 
 pagecache allocate_pagecache(heap general, heap contiguous, u64 pagesize);

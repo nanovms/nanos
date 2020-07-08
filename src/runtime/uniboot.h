@@ -82,7 +82,8 @@ extern void * AP_BOOT_PAGE;
 #define XENNET_TX_SERVICEQUEUE_DEPTH 512
 
 /* mm stuff */
-#define CACHE_DRAIN_CUTOFF (64 * MB)
+#define PAGECACHE_DRAIN_CUTOFF (64 * MB)
+#define PAGECACHE_SCAN_PERIOD_SECONDS 1 // XXX temp
 
 #include <x86.h>
 void xsave(void *);

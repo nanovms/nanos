@@ -105,6 +105,8 @@ static inline void change_page_state_locked(pagecache pc, pagecache_page pp, int
             pagelist_move(&pc->writing, &pc->new, pp);
         } else if (old_state == PAGECACHE_PAGESTATE_ACTIVE) {
             pagelist_move(&pc->writing, &pc->active, pp);
+        } else if (old_state == PAGECACHE_PAGESTATE_DIRTY) {
+            pagelist_move(&pc->writing, &pc->dirty, pp);
         } else if (old_state == PAGECACHE_PAGESTATE_WRITING) {
             /* write already pending, move to tail of queue */
             pagelist_touch(&pc->writing, pp);
@@ -127,6 +129,17 @@ static inline void change_page_state_locked(pagecache pc, pagecache_page pp, int
     case PAGECACHE_PAGESTATE_ACTIVE:
         assert(old_state == PAGECACHE_PAGESTATE_NEW);
         pagelist_move(&pc->active, &pc->new, pp);
+        break;
+    case PAGECACHE_PAGESTATE_DIRTY:
+        if (old_state == PAGECACHE_PAGESTATE_NEW) {
+            pagelist_move(&pc->dirty, &pc->new, pp);
+        } else if (old_state == PAGECACHE_PAGESTATE_ACTIVE) {
+            pagelist_move(&pc->dirty, &pc->active, pp);
+        } else {
+            assert(old_state == PAGECACHE_PAGESTATE_WRITING);
+            // XXX make allowance in write completion
+            pagelist_move(&pc->dirty, &pc->writing, pp);
+        }
         break;
     default:
         halt("%s: bad state %d, old %d\n", __func__, state, old_state);
@@ -431,7 +444,8 @@ closure_function(5, 1, void, pagecache_write_sg_finish,
             spin_lock(&pc->state_lock);
             assert(pp->write_count > 0);
             if (pp->write_count-- == 1) {
-                change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_NEW);
+                if (page_state(pp) != PAGECACHE_PAGESTATE_DIRTY)
+                    change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_NEW);
                 pagecache_page_queue_completions_locked(pc, pp, s);
             }
             spin_unlock(&pc->state_lock);
@@ -610,11 +624,16 @@ u64 pagecache_drain(pagecache pc, u64 drain_bytes)
     return evicted << pc->page_order;
 }
 
+static void pagecache_scan(pagecache pc);
+
 void pagecache_sync_volume(pagecache_volume pv, status_handler complete)
 {
     pagecache_debug("%s: broken, redo!\n", __func__);
     pagecache pc = pv->pc;
     assert(complete);
+
+    /* commit dirty pages */
+    pagecache_scan(pc);
 
     pagecache_page pp = 0;
     /* If writes are pending, tack completion onto the mostly recently written page. */
@@ -678,10 +697,197 @@ closure_function(1, 3, void, pagecache_read_sg,
 
 
 #ifdef STAGE3
+/* x86 */
+closure_function(2, 3, boolean, pagecache_check_dirty_page,
+                 pagecache, pc, pagecache_shared_map, sm,
+                 int, level, u64, vaddr, u64 *, entry)
+{
+    pagecache pc = bound(pc);
+    pagecache_shared_map sm = bound(sm);
+    u64 old_entry = *entry;
+    if (pt_entry_is_present(old_entry) &&
+        pt_entry_is_pte(level, old_entry) &&
+        pt_entry_is_dirty(old_entry)) {
+        u64 pi = sm->offset_page + ((vaddr - sm->n.r.start) >> PAGELOG);
+        pagecache_debug("   dirty: vaddr 0x%lx, pi 0x%lx\n", vaddr, pi);
+        *entry = old_entry & ~PAGE_DIRTY;
+        page_invalidate(vaddr, ignore);
+        pagecache_page pp = page_lookup_nodelocked(sm->pn, pi);
+        assert(pp != INVALID_ADDRESS);
+        spin_lock(&pc->state_lock);
+        assert(page_state(pp) != PAGECACHE_PAGESTATE_DIRTY); // XXX could we hit this twice?
+        change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_DIRTY);
+        spin_unlock(&pc->state_lock);
+    }
+    return true;
+}
+
+void pagecache_scan_shared_map(pagecache pc, pagecache_shared_map sm)
+{
+    traverse_ptes(sm->n.r.start, range_span(sm->n.r),
+                  stack_closure(pagecache_check_dirty_page, pc, sm));
+}
+
+void pagecache_scan_shared_mappings(pagecache pc)
+{
+    // XXX lock situation?
+    pagecache_debug("%s\n", __func__);
+    list_foreach(&pc->shared_maps, l) {
+        pagecache_shared_map sm = struct_from_list(l, pagecache_shared_map, l);
+        pagecache_debug("   shared map va %R, offset_page 0x%lx\n", sm->va, sm->offset_page);
+        pagecache_scan_shared_map(pc, sm);
+    }
+}
+
+closure_function(2, 1, void, pagecache_commit_complete,
+                 pagecache, pc, pagecache_page, pp,
+                 status, s)
+{
+    pagecache pc = bound(pc);
+    pagecache_page pp = bound(pp);
+    pagecache_debug("%s: pp %p, s %v\n", __func__, pp, s);
+    if (!is_ok(s)) {
+        pagecache_debug("%s: write_error now %v\n", __func__, s);
+        pp->node->pv->write_error = s;
+    }
+    spin_lock(&pc->state_lock);
+    assert(pp->write_count > 0);
+    if (pp->write_count-- == 1) {
+        // XXX walk though this again...seems we wouldn't be at last count if still dirty?
+        if (page_state(pp) != PAGECACHE_PAGESTATE_DIRTY)
+            change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_NEW);
+        pagecache_page_queue_completions_locked(pc, pp, s);
+    }
+    spin_unlock(&pc->state_lock);
+    closure_finish();
+}
+
+void pagecache_commit_dirty_pages(pagecache pc)
+{
+    pagecache_debug("%s\n", __func__);
+    spin_lock(&pc->state_lock);
+    list l = list_get_next(&pc->dirty.l);
+
+    /* It might be more efficient to move these to a temporary list,
+       issue writes and then resolve on merge completion... */
+    while (l) {
+        pagecache_page pp = struct_from_list(l, pagecache_page, l);
+        sg_list sg = allocate_sg_list();
+        assert(sg != INVALID_ADDRESS);
+        sg_buf sgb = sg_list_tail_add(sg, cache_pagesize(pc));
+        sgb->buf = pp->kvirt;
+        sgb->offset = 0;
+        sgb->size = cache_pagesize(pc);
+        sgb->refcount = &pp->refcount;
+        refcount_reserve(&pp->refcount);
+        change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_WRITING);
+        spin_unlock(&pc->state_lock);
+
+        apply(pp->node->fs_write, sg, irangel(page_offset(pp), cache_pagesize(pc)),
+              closure(pc->h, pagecache_commit_complete, pc, pp));
+
+        spin_lock(&pc->state_lock);
+        l = list_get_next(&pc->dirty.l);
+    }
+    spin_unlock(&pc->state_lock);
+}
+
+static void pagecache_scan(pagecache pc)
+{
+    if (pc->scan_in_progress)   /* unnecessary? */
+        return;
+    pc->scan_in_progress = true;
+    pagecache_scan_shared_mappings(pc);
+    pagecache_commit_dirty_pages(pc);
+}
+
+define_closure_function(1, 1, void, pagecache_scan_timer,
+                        pagecache, pc,
+                        u64, overruns /* ignored */)
+{
+    pagecache_scan(bound(pc));
+}
+
+/* TODO offset really should be in bytes for consistency */
+void pagecache_node_add_shared_map(pagecache_node pn, range q /* bytes */, u64 offset_page)
+{
+    pagecache pc = pn->pv->pc;
+    pagecache_shared_map sm = allocate(pc->h, sizeof(struct pagecache_shared_map));
+    assert(sm != INVALID_ADDRESS);
+    sm->n.r = q;
+    sm->pn = pn;
+    sm->offset_page = offset_page;
+    pagecache_debug("%s: pn %p, q %R, offset_page 0x%lx\n", __func__, pn, q, offset_page);
+    spin_lock(&pc->state_lock);
+    list_insert_before(&pc->shared_maps, &sm->l);
+    assert(rangemap_insert(pn->shared_maps, &sm->n));
+    if (!pc->scan_timer) {
+        timestamp t = seconds(PAGECACHE_SCAN_PERIOD_SECONDS);
+        pc->scan_timer = register_timer(runloop_timers, CLOCK_ID_MONOTONIC, t, false, t,
+                                        (timer_handler)&pc->do_scan_timer);
+    }
+    spin_unlock(&pc->state_lock);
+}
+
+closure_function(2, 1, void, shared_page_intersection,
+                 pagecache_node, pn, range, q,
+                 rmnode, n)
+{
+    pagecache_node pn = bound(pn);
+    pagecache pc = pn->pv->pc;
+    pagecache_shared_map sm = (pagecache_shared_map)n;
+    range rn = n->r;
+    range ri = range_intersection(bound(q), rn);
+    boolean head = ri.start > rn.start;
+    boolean tail = ri.end < rn.end;
+
+    pagecache_debug("   intersection %R, head %d, tail %d\n", ri, head, tail);
+
+    /* scan intersecting map regardless of editing */
+    pagecache_scan_shared_map(pc, sm);
+
+    if (!head && !tail) {
+        rangemap_remove_node(pn->shared_maps, n);
+        list_delete(&sm->l);
+        deallocate(pc->h, sm, sizeof(struct pagecache_shared_map));
+        if (list_empty(&pc->shared_maps)) {
+            pagecache_debug("   disable scan timer\n");
+            remove_timer(pc->scan_timer, 0);
+            pc->scan_timer = 0;
+        }
+    } else if (head) {
+        /* truncate map at start */
+        assert(rangemap_reinsert(pn->shared_maps, n, irange(rn.start, ri.start)));
+
+        if (tail) {
+            /* create map at tail end */
+            pagecache_node_add_shared_map(pn, irange(ri.end, rn.end),
+                                          sm->offset_page + ((ri.end - rn.start) >> pc->page_order));
+        }
+    } else {
+        /* tail only: move map start back */
+        assert(rangemap_reinsert(pn->shared_maps, n, irange(ri.end, rn.end)));
+        sm->offset_page += ((ri.end - rn.start) >> pc->page_order);
+    }
+}
+
+void pagecache_node_close_shared_pages(pagecache_node pn, range q /* bytes */)
+{
+    pagecache_debug("%s: node %p, q %R\n", __func__, pn, q);
+    rangemap_range_lookup(pn->shared_maps, q, stack_closure(shared_page_intersection, pn, q));
+}
+
+/* cow
+
+   always make private pages nowrite
+   on write pf but vmap writable and private
+   - alloc new page, like anonymous, but swap with existing pte
+   - return reference to pagecache (explicit unmap would be inefficient)
+ */
+
 static void map_page(pagecache_page pp, u64 vaddr, u64 flags, boolean shared)
 {
     map(vaddr, pp->phys, PAGESIZE, flags);
-    // XXX take lock and add to table if shared
 }
 
 closure_function(5, 1, void, map_page_finish,
@@ -724,6 +930,7 @@ boolean pagecache_map_page_sync(pagecache_node pn, u64 offset_page, u64 vaddr, u
     return mapped;
 }
 
+/* need to move these to x86-specific pc routines */
 closure_function(3, 3, boolean, pagecache_unmap_page,
                  pagecache_node, pn, u64, vaddr_base, u64, offset_page,
                  int, level, u64, vaddr, u64 *, entry)
@@ -743,12 +950,16 @@ closure_function(3, 3, boolean, pagecache_unmap_page,
     return true;
 }
 
-void pagecache_unmap_pages(pagecache_node pn, range v /* bytes */, u64 offset_page)
+void pagecache_unmap_pages(pagecache_node pn, range q /* bytes */, u64 offset_page)
 {
-    pagecache_debug("%s: pn %p, v %R, offset_page 0x%lx\n", __func__, pn, v, offset_page);
-    traverse_ptes(v.start, range_span(v), stack_closure(pagecache_unmap_page, pn,
-                                                        v.start, offset_page));
+    pagecache_debug("%s: pn %p, v %R, offset_page 0x%lx\n", __func__, pn, q, offset_page);
+    pagecache_node_close_shared_pages(pn, q);
+    traverse_ptes(q.start, range_span(q), stack_closure(pagecache_unmap_page, pn,
+                                                          q.start, offset_page));
 }
+
+#else
+void pagecache_scan(pagecache pc) {}
 #endif
 
 closure_function(1, 1, boolean, pagecache_page_print_key,
@@ -803,9 +1014,14 @@ pagecache_node pagecache_allocate_node(pagecache_volume pv, sg_io fs_read, sg_io
     pagecache_node pn = allocate(h, sizeof(struct pagecache_node));
     if (pn == INVALID_ADDRESS)
         return pn;
-    list_insert_before(&pv->nodes, &pn->l);
     pn->pv = pv;
+    pn->shared_maps = allocate_rangemap(h);
+    if (pn->shared_maps == INVALID_ADDRESS) {
+        deallocate(h, pn, sizeof(struct pagecache_node));
+        return INVALID_ADDRESS;
+    }
     spin_lock_init(&pn->pages_lock);
+    list_insert_before(&pv->nodes, &pn->l);
     init_rbtree(&pn->pages, closure(h, pagecache_page_compare),
                 closure(h, pagecache_page_print_key, pv->pc));
     pn->length = 0;
@@ -882,12 +1098,16 @@ pagecache allocate_pagecache(heap general, heap contiguous, u64 pagesize)
     page_list_init(&pc->writing);
     page_list_init(&pc->dirty);
     list_init(&pc->volumes);
+    list_init(&pc->shared_maps);
 
 #ifdef STAGE3
     pc->completion_vecs = allocate_queue(general, MAX_PAGE_COMPLETION_VECS);
     assert(pc->completion_vecs != INVALID_ADDRESS);
     pc->service_completions = closure(general, pagecache_service_completions, pc);
     pc->service_enqueued = false;
+    pc->scan_in_progress = false;
+    pc->scan_timer = 0;
+    init_closure(&pc->do_scan_timer, pagecache_scan_timer, pc);
 #endif
     return pc;
 }

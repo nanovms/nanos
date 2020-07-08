@@ -558,7 +558,7 @@ closure_function(3, 1, void, vmap_remove_intersection,
         }
     } else {
         /* tail only: move node start back */
-        rangemap_reinsert(pvmap, node, irange(ri.end, rn.end));
+        assert(rangemap_reinsert(pvmap, node, irange(ri.end, rn.end)));
         match->offset_page = new_offset_page(match, ri.end - rn.start);
     }
 
@@ -804,12 +804,16 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
             assert(f->fsf);
             pagecache_node node = fsfile_get_cachenode(f->fsf);
             thread_log(current, "   associated with cache node %p @ offset 0x%lx", node, offset);
-            vmap_paint(h, p, where, len, vmflags, node, offset >> PAGELOG);
+            u64 offset_page = offset >> PAGELOG;
+            if (vmflags & VMAP_FLAG_SHARED)
+                pagecache_node_add_shared_map(node, irangel(where, len), offset_page);
+            vmap_paint(h, p, where, len, vmflags, node, offset_page);
         }
         break;
     default:
         assert(0);
     }
+    thread_log(current, "   returning 0x%lx", ret);
     return ret;
 }
 

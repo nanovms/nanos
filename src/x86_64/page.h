@@ -31,6 +31,11 @@ static inline boolean pt_entry_is_pte(int level, u64 entry)
     return level == 4 || pt_entry_is_fat(level, entry);
 }
 
+static inline boolean pt_entry_is_dirty(u64 entry)
+{
+    return (entry & PAGE_DIRTY) != 0;
+}
+
 #ifndef physical_from_virtual
 physical physical_from_virtual(void *x);
 #endif

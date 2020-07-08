@@ -3,6 +3,10 @@ typedef struct pagelist {
     u64 pages;
 } *pagelist;
 
+declare_closure_struct(1, 1, void, pagecache_scan_timer,
+                       pagecache, pc,
+                       u64, overruns /* ignored */);
+
 typedef struct pagecache {
     word total_pages;
     int page_order;
@@ -19,11 +23,15 @@ typedef struct pagecache {
     struct pagelist writing;
     struct pagelist dirty;     /* phase 2 */
     struct list volumes;
+    struct list shared_maps;
 
     /* not under lock */
     queue completion_vecs;
     thunk service_completions;
     boolean service_enqueued;
+    boolean scan_in_progress;
+    timer scan_timer;
+    closure_struct(pagecache_scan_timer, do_scan_timer);
 } *pagecache;
 
 typedef struct pagecache_volume {
@@ -43,6 +51,7 @@ typedef struct pagecache_node {
        changing to a rw lock or semaphore */
     struct spinlock pages_lock;
     struct rbtree pages;
+    rangemap shared_maps;       /* shared mappings associated with this node */
     u64 length;
 
     sg_io cache_read;
@@ -50,6 +59,13 @@ typedef struct pagecache_node {
     sg_io fs_read;
     sg_io fs_write;
 } *pagecache_node;
+
+typedef struct pagecache_shared_map {
+    struct rmnode n;            /* pn->shared */
+    struct list l;              /* pc->shared_maps */
+    pagecache_node pn;
+    u64 offset_page;            /* file offset of va.start in pages */
+} *pagecache_shared_map;
 
 #define PAGECACHE_PAGESTATE_SHIFT   61
 

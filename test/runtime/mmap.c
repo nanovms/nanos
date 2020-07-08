@@ -679,7 +679,6 @@ const unsigned char test_sha[2][32] = {
       0xf2, 0x71, 0xb0, 0xc5, 0xef, 0x5c, 0xf6, 0xaa,
       0x80, 0x9a, 0x0d, 0x33, 0x72, 0x3f, 0xec, 0x2d } };
 
-#define PAGE_SIZE 4096
 static void filebacked_test(heap h)
 {
     int fd, rv;
@@ -690,14 +689,14 @@ static void filebacked_test(heap h)
         handle_err("open");
 
     /* second page (to avoid readahead, if we implement it) */
-    void *p = mmap(NULL, PAGE_SIZE, PROT_READ, MAP_PRIVATE, fd, PAGE_SIZE);
+    void *p = mmap(NULL, PAGESIZE, PROT_READ, MAP_PRIVATE, fd, PAGESIZE);
     if (p == (void *)-1ull)
         handle_err("mmap mapfile, second page");
-    buffer b = alloca_wrap_buffer(p, PAGE_SIZE);
+    buffer b = alloca_wrap_buffer(p, PAGESIZE);
     buffer test = alloca_wrap_buffer(test_sha[1], 32);
     buffer sha = allocate_buffer(h, 32);
     sha256(sha, b);
-    munmap(p, PAGE_SIZE);
+    munmap(p, PAGESIZE);
     if (!buffer_compare(sha, test)) {
         rprintf("sha mismatch for faulted page: %X\n", sha);
         close(fd);
@@ -710,17 +709,17 @@ static void filebacked_test(heap h)
         handle_err("open 2");
 
     /* map first page of mapfile */
-    p = mmap(NULL, PAGE_SIZE, PROT_READ, MAP_PRIVATE, fd, 0);
+    p = mmap(NULL, PAGESIZE, PROT_READ, MAP_PRIVATE, fd, 0);
     if (p == (void *)-1ull)
         handle_err("mmap mapfile, first page");
 
     /* induce kernel page fault by writing from mmaped area */
-    rv = write(out, p, PAGE_SIZE);
+    rv = write(out, p, PAGESIZE);
     if (rv < 0)
         handle_err("write");
-    if (rv < PAGE_SIZE)
+    if (rv < PAGESIZE)
         printf("short read: %d\n", rv);
-    munmap(p, PAGE_SIZE);
+    munmap(p, PAGESIZE);
     close(out);
     close(fd);
 
@@ -729,21 +728,41 @@ static void filebacked_test(heap h)
     printf("** faulting write complete, checking contents\n");
     fd = open("foofile", O_RDWR);
     if (fd < 0)
-        handle_err("foofile for re-read");
-    p = mmap(NULL, PAGE_SIZE, PROT_READ, MAP_PRIVATE, fd, 0);
+        handle_err("open foofile for re-read");
+    p = mmap(NULL, PAGESIZE, PROT_READ, MAP_PRIVATE, fd, 0);
     if (p == (void *)-1ull)
         handle_err("mmap foofile");
-    b = alloca_wrap_buffer(p, PAGE_SIZE);
+    b = alloca_wrap_buffer(p, PAGESIZE);
     test = alloca_wrap_buffer(test_sha[0], 32);
     buffer_clear(sha);
     sha256(sha, b);
-    munmap(p, PAGE_SIZE);
+    munmap(p, PAGESIZE);
     close(fd);
     if (!buffer_compare(sha, test)) {
         rprintf("sha mismatch for faulted page 2: %X\n", sha);
         close(fd);
         exit(EXIT_FAILURE);
     }
+
+    printf("** written page sum matched, starting shared map (write) test\n");
+    fd = open("barfile", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+    if (fd < 0)
+        handle_err("open barfile");
+    p = mmap(NULL, PAGESIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (p == (void *)-1ull)
+        handle_err("mmap barfile");
+    for (int i = 0; i < PAGESIZE; i++)
+        *(unsigned char *)(p + i) = i % 256;
+    buffer_clear(sha);
+    b = alloca_wrap_buffer(p, PAGESIZE);
+    sha256(sha, b);
+    munmap(p, PAGESIZE);
+    close(fd);
+
+    /* TODO: need a way to invalidate some or all of the cache to
+       re-read and test barfile contents - for now just dump sha sum
+       so user can dump image and validate */
+    rprintf("** wrote to barfile, sha256:\n%X", sha);
     printf("** all file-backed tests passed\n");
 }
 
