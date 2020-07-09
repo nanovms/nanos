@@ -17,6 +17,13 @@
 #include <kvm_platform.h>
 #include <xen_platform.h>
 
+#define BOOT_PARAM_OFFSET_E820_ENTRIES  0x01E8
+#define BOOT_PARAM_OFFSET_BOOT_FLAG     0x01FE
+#define BOOT_PARAM_OFFSET_HEADER        0x0202
+#define BOOT_PARAM_OFFSET_CMD_LINE_PTR  0x0228
+#define BOOT_PARAM_OFFSET_CMDLINE_SIZE  0x0238
+#define BOOT_PARAM_OFFSET_E820_TABLE    0x02D0
+
 //#define SMP_DUMP_FRAME_RETURN_COUNT
 
 //#define STAGE3_INIT_DEBUG
@@ -524,9 +531,118 @@ static void init_kernel_heaps()
     assert(heaps.general != INVALID_ADDRESS);
 }
 
-// init linker set
-void init_service()
+static void jump_to_virtual(u64 kernel_size, u64 *pdpt, u64 *pdt) {
+    /* Set up a temporary mapping of kernel code virtual address space, to be
+     * able to run from virtual addresses (which is needed to properly access
+     * things such as literal strings, static variables and function pointers).
+     */
+    assert(pdpt);
+    assert(pdt);
+    map_setup_2mbpages(KERNEL_BASE, KERNEL_BASE_PHYS,
+                       pad(kernel_size, PAGESIZE_2M) >> PAGELOG_2M,
+                       PAGE_WRITABLE, pdpt, pdt);
+
+    /* Jump to virtual address */
+    asm("movq $1f, %rdi \n\
+        jmp *%rdi \n\
+        1: \n");
+}
+
+static void cmdline_parse(const char *cmdline)
 {
+    init_debug("parsing cmdline");
+    const char *opt_end, *prefix_end;
+    while (*cmdline) {
+        opt_end = runtime_strchr(cmdline, ' ');
+        if (!opt_end)
+            opt_end = cmdline + runtime_strlen(cmdline);
+        prefix_end = runtime_strchr(cmdline, '.');
+        if (prefix_end && (prefix_end < opt_end)) {
+            int prefix_len = prefix_end - cmdline;
+            if ((prefix_len == sizeof("virtio_mmio") - 1) &&
+                    !runtime_memcmp(cmdline, "virtio_mmio", prefix_len))
+                virtio_mmio_parse(&heaps, prefix_end + 1,
+                    opt_end - (prefix_end + 1));
+        }
+        cmdline = opt_end + 1;
+    }
+}
+
+// init linker set
+void init_service(u64 rdi, u64 rsi)
+{
+    u8 *params = pointer_from_u64(rsi);
+    const char *cmdline = 0;
+    u32 cmdline_size;
+    if (params && (*(u16 *)(params + BOOT_PARAM_OFFSET_BOOT_FLAG) == 0xAA55) &&
+            (*(u32 *)(params + BOOT_PARAM_OFFSET_HEADER) == 0x53726448)) {
+        /* The kernel has been loaded directly by the hypervisor, without going
+         * through stage1 and stage2. */
+        u8 e820_entries = *(params + BOOT_PARAM_OFFSET_E820_ENTRIES);
+        region e820_r = (region)(params + BOOT_PARAM_OFFSET_E820_TABLE);
+        extern u8 END;
+        u64 kernel_size = u64_from_pointer(&END - KERNEL_BASE);
+        u64 *pdpt = 0;
+        u64 *pdt = 0;
+        for (u8 entry = 0; entry < e820_entries; entry++) {
+            region r = &e820_r[entry];
+            if (r->base == 0)
+                continue;
+            if ((r->type = REGION_PHYSICAL) && (r->base <= KERNEL_BASE_PHYS) &&
+                    (r->base + r->length > KERNEL_BASE_PHYS)) {
+                /* This is the memory region where the kernel has been loaded:
+                 * adjust the region boundaries so that the memory occupied by
+                 * the kernel code does not appear as free memory. */
+                u64 new_base = pad(KERNEL_BASE_PHYS + kernel_size, PAGESIZE);
+
+                /* Check that there is a gap between start of memory region and
+                 * start of kernel code, then use part of this gap as storage
+                 * for a set of temporary page tables that we need to set up an
+                 * initial mapping of the kernel virtual address space, and make
+                 * the remainder a new memory region. */
+                assert(KERNEL_BASE_PHYS - r->base >= 2 * PAGESIZE);
+                pdpt = pointer_from_u64(r->base);
+                pdt = pointer_from_u64(r->base + PAGESIZE);
+                create_region(r->base + 2 * PAGESIZE,
+                              KERNEL_BASE_PHYS - (r->base + 2 * PAGESIZE),
+                              r->type);
+
+                r->length -= new_base - r->base;
+                r->base = new_base;
+            }
+            create_region(r->base, r->length, r->type);
+        }
+        jump_to_virtual(kernel_size, pdpt, pdt);
+
+        cmdline = pointer_from_u64((u64)*((u32 *)(params +
+                BOOT_PARAM_OFFSET_CMD_LINE_PTR)));
+        cmdline_size = *((u32 *)(params + BOOT_PARAM_OFFSET_CMDLINE_SIZE));
+        if (u64_from_pointer(cmdline) + cmdline_size >= INITIAL_MAP_SIZE) {
+            /* Command line is outside the memory space we are going to map:
+             * move it at the beginning of the boot parameters (it's OK to
+             * overwrite the boot params, since we already parsed what we need).
+             */
+            assert(u64_from_pointer(params) + cmdline_size < MBR_ADDRESS);
+            runtime_memcpy(params, cmdline, cmdline_size);
+            params[cmdline_size] = '\0';
+            cmdline = (char *)params;
+        }
+
+        /* Set up initial mappings in the same way as stage2 does. */
+        struct region_heap rh;
+        region_heap_init(&rh, PAGESIZE, REGION_PHYSICAL);
+        u64 initial_pages_base = allocate_u64(&rh.h, INITIAL_PAGES_SIZE);
+        assert(initial_pages_base != INVALID_PHYSICAL);
+        region initial_pages_region = create_region(initial_pages_base,
+            INITIAL_PAGES_SIZE, REGION_INITIAL_PAGES);
+        heap pageheap = region_allocator(&rh.h, PAGESIZE, REGION_INITIAL_PAGES);
+        void *pgdir = bootstrap_page_tables(pageheap);
+        map(0, 0, INITIAL_MAP_SIZE, PAGE_WRITABLE);
+        map(PAGES_BASE, initial_pages_base, INITIAL_PAGES_SIZE, PAGE_WRITABLE);
+        map(KERNEL_BASE, KERNEL_BASE_PHYS, pad(kernel_size, PAGESIZE), 0);
+        initial_pages_region->length = INITIAL_PAGES_SIZE;
+        mov_to_cr("cr3", pgdir);
+    }
     u64 cr;
     mov_from_cr("cr0", cr);
     cr |= C0_MP;
@@ -537,6 +653,8 @@ void init_service()
     mov_to_cr("cr4", cr);
     init_debug("init_service");
     init_kernel_heaps();
+    if (cmdline)
+        cmdline_parse(cmdline);
     u64 stack_size = 32*PAGESIZE;
     u64 stack_location = allocate_u64(heap_backed(&heaps), stack_size);
     stack_location += stack_size - STACK_ALIGNMENT;

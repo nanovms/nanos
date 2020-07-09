@@ -43,6 +43,7 @@
 #include "lwip/timeouts.h"
 #include "netif/ethernet.h"
 #include "virtio_internal.h"
+#include "virtio_mmio.h"
 #include "virtio_net.h"
 #include "virtio_pci.h"
 
@@ -124,6 +125,54 @@ static void receive_buffer_release(struct pbuf *p)
 
 static void post_receive(vnet vn);
 
+static u16 vnet_csum(u8 *buf, u64 len)
+{
+    u64 sum = 0;
+    while (len >= sizeof(u64)) {
+        u64 s = *(u64 *)buf;
+        sum += s;
+        if (sum < s)
+            sum++;
+        buf += sizeof(u64);
+        len -= sizeof(u64);
+    }
+    if (len >= sizeof(u32)) {
+        u32 s = *(u32 *)buf;
+        sum += s;
+        if (sum < s)
+            sum++;
+        buf += sizeof(u32);
+        len -= sizeof(u32);
+    }
+    if (len >= sizeof(u16)) {
+        u16 s = *(u16 *)buf;
+        sum += s;
+        if (sum < s)
+            sum++;
+        buf += sizeof(u16);
+        len -= sizeof(u16);
+    }
+    if (len) {
+        u8 s = *buf;
+        sum += s;
+        if (sum < s)
+            sum++;
+    }
+
+    /* Fold down to 16 bits */
+    u32 s1 = sum;
+    u32 s2 = sum >> 32;
+    s1 += s2;
+    if (s1 < s2)
+        s1++;
+    u16 s3 = s1;
+    u16 s4 = s1 >> 16;
+    s3 += s4;
+    if (s3 < s4)
+        s3++;
+    return ~s3;
+}
+
 closure_function(1, 1, void, input,
                  xpbuf, x,
                  u64, len)
@@ -134,11 +183,24 @@ closure_function(1, 1, void, input,
     vnet vn= x->vn;
     // under what conditions does a virtio queue give us zero?
     if (x != NULL) {
+        struct virtio_net_hdr *hdr = (struct virtio_net_hdr *)x->p.pbuf.payload;
+        boolean err = false;
         len -= vn->net_header_len;
         assert(len <= x->p.pbuf.len);
         x->p.pbuf.tot_len = x->p.pbuf.len = len;
         x->p.pbuf.payload += vn->net_header_len;
-        if (vn->n->input(&x->p.pbuf, vn->n) != ERR_OK) {
+        if (hdr->flags & VIRTIO_NET_HDR_F_NEEDS_CSUM) {
+            if (hdr->csum_start + hdr->csum_offset <= len - sizeof(u16)) {
+                u16 csum = vnet_csum(x->p.pbuf.payload + hdr->csum_start,
+                    len - hdr->csum_start);
+                *(u16 *)(x->p.pbuf.payload + hdr->csum_start +
+                        hdr->csum_offset) = csum;
+            } else
+                err = true;
+        }
+        if (!err)
+            err = (vn->n->input(&x->p.pbuf, vn->n) != ERR_OK);
+        if (err) {
             receive_buffer_release(&x->p.pbuf);
         }
     } else {
@@ -255,9 +317,23 @@ closure_function(2, 1, boolean, vtpci_net_probe,
     return true;
 }
 
+closure_function(2, 1, void, vtmmio_net_probe,
+                 heap, general, heap, page_allocator,
+                 vtmmio, d)
+{
+    if ((vtmmio_get_u32(d, VTMMIO_OFFSET_DEVID) != VIRTIO_ID_NETWORK) ||
+            (d->memsize < VTMMIO_OFFSET_CONFIG +
+            sizeof(struct virtio_net_config)))
+        return;
+    if (attach_vtmmio(bound(general), bound(page_allocator), d,
+            VIRTIO_NET_F_MAC))
+        virtio_net_attach(&d->virtio_dev);
+}
+
 void init_virtio_network(kernel_heaps kh)
 {
     heap h = heap_general(kh);
     heap page_allocator = heap_backed(kh);
     register_pci_driver(closure(h, vtpci_net_probe, h, page_allocator));
+    vtmmio_probe_devs(stack_closure(vtmmio_net_probe, h, page_allocator));
 }

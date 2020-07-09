@@ -12,6 +12,7 @@
 #define PAGE_PRESENT       0x0001
 
 #define PAGEMASK           MASK(PAGELOG)
+#define PAGEMASK_2M        MASK(PAGELOG_2M)
 #define PAGE_FLAGS_MASK    (PAGE_NO_EXEC | PAGEMASK)
 #define PAGE_PROT_FLAGS    (PAGE_NO_EXEC | PAGE_USER | PAGE_WRITABLE)
 #define PAGE_DEV_FLAGS     (PAGE_WRITABLE | PAGE_CACHE_DISABLE | PAGE_NO_EXEC)
@@ -68,7 +69,10 @@ boolean traverse_ptes(u64 vaddr, u64 length, entry_handler eh);
 void page_invalidate(u64 p, thunk completion);
 void flush_tlb();
 void init_flush();
+void *bootstrap_page_tables(heap initial);
 #ifdef STAGE3
+void map_setup_2mbpages(u64 v, physical p, int pages, u64 flags,
+                        u64 *pdpt, u64 *pdt);
 id_heap init_page_tables(heap h, id_heap physical, range initial_map);
 #else
 void init_page_tables(heap initial);

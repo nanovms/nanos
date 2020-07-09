@@ -226,6 +226,7 @@ closure_function(0, 1, status, kernel_read_complete,
     if (!k) {
         halt("kernel elf parse failed\n");
     }
+    k += KERNEL_BASE - KERNEL_BASE_PHYS;
 
     /* tell stage3 that pages from the stage2 working heap can be reclaimed */
     assert(working_saved_base);

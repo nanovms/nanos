@@ -66,6 +66,7 @@ typedef struct vtdev {
     heap general;
 
     enum vtio_transport {
+        VTIO_TRANSPORT_MMIO,
         VTIO_TRANSPORT_PCI,
     } transport;
     vtdev_notify notify;

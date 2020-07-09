@@ -4,6 +4,7 @@
 #include <storage.h>
 
 #include "virtio_internal.h"
+#include "virtio_mmio.h"
 #include "virtio_pci.h"
 
 //#define VIRTIO_BLK_DEBUG
@@ -201,9 +202,23 @@ closure_function(3, 1, boolean, vtpci_blk_probe,
     return true;
 }
 
+closure_function(3, 1, void, vtmmio_blk_probe,
+                 heap, general, storage_attach, a, heap, page_allocator,
+                 vtmmio, d)
+{
+    if ((vtmmio_get_u32(d, VTMMIO_OFFSET_DEVID) != VIRTIO_ID_BLOCK) ||
+            (d->memsize < VTMMIO_OFFSET_CONFIG +
+            sizeof(struct virtio_blk_config)))
+        return;
+    heap general = bound(general);
+    if (attach_vtmmio(general, bound(page_allocator), d, VIRTIO_BLK_F_BLK_SIZE))
+        virtio_blk_attach(general, bound(a), (vtdev)d);
+}
+
 void virtio_register_blk(kernel_heaps kh, storage_attach a)
 {
     heap h = heap_general(kh);
     heap page_allocator = heap_backed(kh);
     register_pci_driver(closure(h, vtpci_blk_probe, h, a, page_allocator));
+    vtmmio_probe_devs(stack_closure(vtmmio_blk_probe, h, a, page_allocator));
 }

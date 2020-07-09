@@ -30,21 +30,18 @@ static heap pageheap;
 
 static const int level_shift[5] = { -1, PT1, PT2, PT3, PT4 };
 
-static inline u64 pagebase()
-{
-    static u64 *base;
-    if (base == 0)
-        mov_from_cr("cr3", base);
-    return u64_from_pointer(base);
-}
+static u64 pagebase;
+
+static u64 *(*pointer_from_pteaddr)(u64 pa);
+static u64 (*pteaddr_from_pointer)(u64 *p);
 
 #ifdef BOOT
-static inline u64 *pointer_from_pteaddr(u64 pa)
+static inline u64 *boot_pointer_from_pteaddr(u64 pa)
 {
     return (u64*)(u32)pa;
 }
 
-static inline u64 pteaddr_from_pointer(u64 *p)
+static inline u64 boot_pteaddr_from_pointer(u64 *p)
 {
     return (u64)(u32)p;
 }
@@ -52,7 +49,17 @@ static inline u64 pteaddr_from_pointer(u64 *p)
 static table pt_p2v;
 static range pt_initial_phys;
 
-static inline u64 *pointer_from_pteaddr(u64 pa)
+static inline u64 *boot_pointer_from_pteaddr(u64 pa)
+{
+    return (u64 *)pa;
+}
+
+static inline u64 boot_pteaddr_from_pointer(u64 *p)
+{
+    return (u64)p;
+}
+
+static inline u64 *kern_pointer_from_pteaddr(u64 pa)
 {
     if (point_in_range(pt_initial_phys, pa)) {
         u64 v = (pa - pt_initial_phys.start) + PAGES_BASE;
@@ -66,7 +73,7 @@ static inline u64 *pointer_from_pteaddr(u64 pa)
 }
 
 static physical physical_from_virtual_locked(void *x);
-static inline u64 pteaddr_from_pointer(u64 *p)
+static inline u64 kern_pteaddr_from_pointer(u64 *p)
 {
     return physical_from_virtual_locked(p);
 }
@@ -97,8 +104,7 @@ static inline u64 page_lookup(u64 table, u64 vaddr, int offset)
 static physical physical_from_virtual_locked(void *x)
 {
     u64 xt = u64_from_pointer(x);
-
-    u64 l3 = page_lookup(pagebase(), xt, PT1);
+    u64 l3 = page_lookup(pagebase, xt, PT1);
     if (!l3) return INVALID_PHYSICAL;
     u64 l2 = page_lookup(l3, xt, PT2);
     if (!l2) return INVALID_PHYSICAL;
@@ -145,7 +151,7 @@ void dump_ptes(void *x)
     u64 xt = u64_from_pointer(x);
 
     rprintf("dump_ptes 0x%lx\n", x);
-    u64 l1 = *pte_lookup_ptr(pagebase(), xt, PT1);
+    u64 l1 = *pte_lookup_ptr(pagebase, xt, PT1);
     rprintf("  l1: 0x%lx\n", l1);
     if (l1 & 1) {
         u64 l2 = *pte_lookup_ptr(l1, xt, PT2);
@@ -340,7 +346,7 @@ boolean traverse_ptes(u64 vaddr, u64 length, entry_handler ph)
     rprintf("traverse_ptes vaddr 0x%lx, length 0x%lx\n", vaddr, length);
 #endif
     pagetable_lock();
-    boolean result = recurse_ptes(pagebase(), 1, vaddr & MASK(VIRTUAL_ADDRESS_BITS),
+    boolean result = recurse_ptes(pagebase, 1, vaddr & MASK(VIRTUAL_ADDRESS_BITS),
                                   length, 0, ph);
     if (!result)
         rprintf("fail\n");
@@ -408,7 +414,7 @@ closure_function(2, 3, boolean, remap_entry,
         return true;
 
     /* transpose mapped page */
-    map_page(pagebase(), new_curr, phys, pt_entry_is_fat(level, oldentry), flags, 0);
+    map_page(pagebase, new_curr, phys, pt_entry_is_fat(level, oldentry), flags, 0);
 
     /* reset old entry */
     *entry = 0;
@@ -494,7 +500,7 @@ static void map_range(u64 virtual, physical p, u64 length, u64 flags)
     u64 po = p;
 
     pagetable_lock();
-    u64 pb = pagebase();
+    u64 pb = pagebase;
 
     /* may be extreme, but can't be careful enough */
     memory_barrier();
@@ -561,6 +567,20 @@ void unmap(u64 virtual, u64 length)
     console("\n");
 #endif
     unmap_pages(virtual, length);
+}
+
+void *bootstrap_page_tables(heap initial)
+{
+    /* page table setup */
+    pageheap = initial;
+    void *pgdir = allocate_zero(initial, PAGESIZE);
+    pagebase = u64_from_pointer(pgdir);
+    pointer_from_pteaddr = boot_pointer_from_pteaddr;
+    pteaddr_from_pointer = boot_pteaddr_from_pointer;
+#ifdef STAGE3
+    spin_lock_init(&pt_lock);
+#endif
+    return pgdir;
 }
 
 #ifdef STAGE3
@@ -655,16 +675,37 @@ static u64 pt_2m_alloc(heap h, bytes size)
         if (p == INVALID_PHYSICAL)
             halt("%s: failed to allocate 2M physical page\n", __func__);
         /* we depend the pmd already being installed to avoid an alloc here */
-        map_page(pagebase(), i, p, true, PAGE_WRITABLE | PAGE_PRESENT, 0);
+        map_page(pagebase, i, p, true, PAGE_WRITABLE | PAGE_PRESENT, 0);
         table_set(pt_p2v, (void *)p, (void *)i);
     }
     return v;
+}
+
+void map_setup_2mbpages(u64 v, physical p, int pages, u64 flags,
+                      u64 *pdpt, u64 *pdt)
+{
+    assert(!(v & PAGEMASK_2M));
+    assert(!(p & PAGEMASK_2M));
+    u64 *pml4;
+    mov_from_cr("cr3", pml4);
+    flags |= PAGE_PRESENT;
+    pml4[(v >> PT1) & MASK(9)] = u64_from_pointer(pdpt) | flags;
+    v &= MASK(PT1);
+    pdpt[v >> PT2] = u64_from_pointer(pdt) | flags;
+    v &= MASK(PT2);
+    assert(v + pages <= 512);
+    for (int i = 0; i < pages; i++)
+        pdt[v + i] = (p + (i << PAGELOG_2M)) | flags | PAGE_2M_SIZE;
+    memory_barrier();
 }
 
 /* this happens even before moving to the new stack, so ... be cool */
 id_heap init_page_tables(heap h, id_heap physical, range initial_phys)
 {
     write_msr(EFER_MSR, read_msr(EFER_MSR) | EFER_NXE);
+    mov_from_cr("cr3", pagebase);
+    pointer_from_pteaddr = kern_pointer_from_pteaddr;
+    pteaddr_from_pointer = kern_pteaddr_from_pointer;
     spin_lock_init(&pt_lock);
     phys_internal = physical;
     id_heap i = allocate(h, sizeof(struct id_heap));
@@ -704,9 +745,7 @@ id_heap init_page_tables(heap h, id_heap physical, range initial_phys)
 /* stage2 */
 void init_page_tables(heap initial)
 {
-    /* page table setup */
-    pageheap = initial;
-    void *vmbase = allocate_zero(initial, PAGESIZE);
+    void *vmbase = bootstrap_page_tables(initial);
     mov_to_cr("cr3", vmbase);
 }
 #endif

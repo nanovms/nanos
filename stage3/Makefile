@@ -63,6 +63,7 @@ SRCS-stage3.img= \
 	$(SRCDIR)/unix/vdso.c \
 	$(SRCDIR)/unix/pipe.c \
 	$(SRCDIR)/virtio/virtio.c \
+	$(SRCDIR)/virtio/virtio_mmio.c \
 	$(SRCDIR)/virtio/virtio_net.c \
 	$(SRCDIR)/virtio/virtio_pci.c \
 	$(SRCDIR)/virtio/virtio_storage.c \
@@ -161,7 +162,7 @@ endif
 
 #CFLAGS+=	-DLWIPDIR_DEBUG -DEPOLL_DEBUG -DNETSYSCALL_DEBUG -DKERNEL_DEBUG
 AFLAGS+=	-felf64 -I$(OBJDIR)/
-LDFLAGS+=	$(KERNLDFLAGS) -T linker_script
+LDFLAGS+=	$(KERNLDFLAGS) --undefined=_start -T linker_script
 
 VDSO_SRCDIR=    $(SRCDIR)/x86_64
 VDSO_OBJDIR=    $(OBJDIR)/vdso

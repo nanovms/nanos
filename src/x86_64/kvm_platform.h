@@ -12,6 +12,10 @@ static inline void QEMU_HALT(u8 code)
     out8(0x501, code);
 
     /* fallback (when no QEMU) */
+
+    /* Issue a CPU reset via port 0x64 of the PS/2 controller. */
+    out8(0x64, 0xfe);
+
     __asm__("cli");
     __asm__("hlt");
 

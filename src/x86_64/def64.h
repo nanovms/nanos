@@ -11,6 +11,10 @@ typedef __uint128_t u128;
 typedef u64 word;
 typedef u64 bytes;
 
+#define U16_MAX 0xFFFF
+#define S16_MAX ((s16)(U16_MAX >> 1))
+#define S16_MIN (-S16_MAX - 1)
+
 #define U32_MAX (~0u)
 #define S32_MAX ((s32)(U32_MAX >> 1))
 #define S32_MIN (-S32_MAX - 1)

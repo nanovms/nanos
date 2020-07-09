@@ -1,16 +1,20 @@
 OUTPUT_FORMAT("elf64-x86-64")
 
-ENTRY(_start)
+ENTRY(_phys_start)
 
 SECTIONS
 {
     . = 0;
     AP_BOOT_PAGE = .;
 
+    /* Physical addresses are only relevant in case of direct stage3 load. */
+    LOAD_OFFSET = START - 0x200000;     /* 0x200000 equals KERNEL_BASE_PHYS */
+    _phys_start = _start - LOAD_OFFSET; /* entry point physical adddress */
+
     . = 0xffffffff80000000;
     START = .;
 
-    .start ALIGN(4096):
+    .start ALIGN(4096): AT(ADDR(.start) - LOAD_OFFSET)
     {
         *(.start)
     }
@@ -18,7 +22,7 @@ SECTIONS
     /* the default linker aligns the file and text without throwing
        away a page..but for today...*/
     text_start = .;
-    .text : ALIGN(4096)
+    .text ALIGN(4096): AT(ADDR(.text) - LOAD_OFFSET)
     {
         *(.text)
         *(.text.*)
@@ -36,30 +40,31 @@ SECTIONS
      * We could look at generating them automatically, but for now it's easy enough
      * to do it this way
      */
-    .vvar : ALIGN(4096)
+    .vvar ALIGN(4096): AT(ADDR(.vvar) - LOAD_OFFSET)
     {
         vvar_page = .; 
         __vdso_vdso_dat = vvar_page + 128;
     }
 
-    .rodata : ALIGN(4096)
+    .rodata ALIGN(4096): AT(ADDR(.rodata) - LOAD_OFFSET)
     {
         *(.rodata)
         *(.rodata.*)
     }
 
-    .data : ALIGN(4096)
+    .data ALIGN(4096): AT(ADDR(.data) - LOAD_OFFSET)
     {
         *(.data)
         *(.data.*)
     }
 
     PROVIDE(bss_start = .);
-    .bss  ALIGN(32):
+    .bss  ALIGN(32): AT(ADDR(.bss) - LOAD_OFFSET)
     {
         *(.bss)
         *(.bss.*)
         *(COMMON)
     }
     PROVIDE(bss_end = .);
+    END = .;
 }
