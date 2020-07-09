@@ -1144,6 +1144,12 @@ pagecache_volume pagecache_allocate_volume(pagecache pc, u64 length, int block_o
     return pv;
 }
 
+void pagecache_dealloc_volume(pagecache_volume pv)
+{
+    list_delete(&pv->l);
+    deallocate(pv->pc->h, pv, sizeof(*pv));
+}
+
 static inline void page_list_init(struct pagelist *pl)
 {
     list_init(&pl->l);

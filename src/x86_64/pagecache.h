@@ -44,6 +44,7 @@ void pagecache_node_unmap_pages(pagecache_node pn, range v /* bytes */, u64 node
 void pagecache_node_add_shared_map(pagecache_node pn , range v /* bytes */, u64 node_offset);
 
 pagecache_volume pagecache_allocate_volume(pagecache pc, u64 length, int block_order);
+void pagecache_dealloc_volume(pagecache_volume pv);
 
 pagecache allocate_pagecache(heap general, heap contiguous, heap physical, u64 pagesize);
 

@@ -678,3 +678,13 @@ log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
     deallocate(h, tl, sizeof(struct log));
     return INVALID_ADDRESS;
 }
+
+void log_destroy(log tl)
+{
+    deallocate_vector(tl->flush_completions);
+    deallocate_vector(tl->encoding_lengths);
+    deallocate_buffer(tl->tuple_staging);
+    close_log_extension(tl->current);
+    deallocate_table(tl->dictionary);
+    deallocate(tl->h, tl, sizeof(*tl));
+}

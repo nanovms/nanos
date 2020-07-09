@@ -27,6 +27,7 @@ void create_filesystem(heap h,
                        tuple root,
                        boolean initialize,
                        filesystem_complete complete);
+void destroy_filesystem(filesystem fs);
 
 // there is a question as to whether tuple->fs file should be mapped inside out outside the filesystem
 // status

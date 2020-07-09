@@ -1090,7 +1090,8 @@ void create_filesystem(heap h,
     filesystem fs = allocate(h, sizeof(struct filesystem));
     assert(fs != INVALID_ADDRESS);
     fs->h = h;
-    ignore_io_status = closure(h, ignore_io);
+    if (!ignore_io_status)
+        ignore_io_status = closure(h, ignore_io);
     fs->files = allocate_table(h, identity_key, pointer_equal);
     fs->extents = allocate_table(h, identity_key, pointer_equal);
     fs->zero_page = pagecache_get_zero_page(pc);
@@ -1114,6 +1115,61 @@ void create_filesystem(heap h,
 #endif
     fs->tl = log_create(h, fs, initialize, closure(h, log_complete, complete, fs));
 }
+
+#ifndef BOOT
+
+closure_function(1, 1, void, dealloc_extent_node,
+                 filesystem, fs,
+                 rmnode, n)
+{
+    deallocate(bound(fs)->h, n, sizeof(struct extent));
+}
+
+void deallocate_fsfile(filesystem fs, fsfile f)
+{
+    deallocate_rangemap(f->extentmap, stack_closure(dealloc_extent_node, fs));
+    pagecache_deallocate_node(f->cache_node);
+    deallocate(fs->h, f, sizeof(*f));
+}
+
+/* This is only for freeing up a filesystem that is only read; any pending
+ * writes are not flushed). */
+void destroy_filesystem(filesystem fs)
+{
+    tfs_debug("%s %p\n", __func__, fs);
+    log_destroy(fs->tl);
+    pagecache_dealloc_volume(fs->pv);
+    deallocate_table(fs->extents);
+    table_foreach(fs->files, k, v) {
+        tuple f = k;
+        table_foreach(f, k, v) {
+            if (k == sym(extents)) {
+                table extents = v;
+                table_foreach(extents, k, v) {
+                    (void)k;
+                    tuple ex = v;
+                    table_foreach(ex, k, v) {
+                        if (k == sym(length) || k == sym(offset) ||
+                                k == sym(allocated))
+                            deallocate_buffer(v);
+                    }
+                    deallocate_tuple(ex);
+                }
+                deallocate_tuple(extents);
+            }
+            else if (k == sym(children))
+                deallocate_tuple(v);
+            else if (u64_from_pointer(v) >= KMEM_BASE)
+                deallocate_buffer(v);
+        }
+        deallocate_fsfile(fs, v);
+    }
+    deallocate_table(fs->files);
+    destroy_id_heap(fs->storage);
+    deallocate(fs->h, fs, sizeof(*fs));
+}
+
+#endif
 
 tuple filesystem_getroot(filesystem fs)
 {

@@ -55,6 +55,7 @@ log log_create(heap h, filesystem fs, boolean initialize, status_handler sh);
 void log_write(log tl, tuple t);
 void log_write_eav(log tl, tuple e, symbol a, value v);
 void log_flush(log tl, status_handler completion);
+void log_destroy(log tl);
 void flush(filesystem fs, status_handler);
 boolean filesystem_reserve_storage(filesystem fs, range storage_blocks);
 void filesystem_storage_op(filesystem fs, sg_list sg, merge m, range blocks, block_io op);
