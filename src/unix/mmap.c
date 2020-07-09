@@ -47,7 +47,7 @@ define_closure_function(3, 1, void, thread_demand_file_page_complete,
 {
     if (!is_ok(s)) {
         rprintf("%s: page fill failed with %v\n", __func__, s);
-        deliver_segv(bound(t), bound(vaddr), 0 /* no suitable code? */);
+        deliver_fault_signal(SIGBUS, bound(t), bound(vaddr), BUS_ADRERR);
     }
     schedule_frame(bound(frame));
     refcount_release(&bound(t)->refcount);
@@ -76,7 +76,6 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
 
     int mmap_type = vm->flags & VMAP_MMAP_TYPE_MASK;
     if (mmap_type == VMAP_MMAP_TYPE_ANONYMOUS) {
-        /* XXX make free list */
         u64 paddr = allocate_u64((heap)heap_physical(get_kernel_heaps()), PAGESIZE);
         if (paddr == INVALID_PHYSICAL) {
             msg_err("cannot get physical page; OOM\n");
@@ -95,6 +94,22 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
             flags &= ~PAGE_WRITABLE; /* cow */
         pf_debug("   node %p (start 0x%lx), offset 0x%lx\n",
                  vm->cache_node, vm->node.r.start, offset_page << PAGELOG);
+
+        u64 npages = (pagecache_get_node_length(vm->cache_node) + PAGEMASK) >> PAGELOG;
+        pf_debug("   map length 0x%lx\n", npages << PAGELOG);
+        if (offset_page >= npages) {
+            pf_debug("   extends past map limit 0x%lx; sending SIGBUS...\n", npages << PAGELOG);
+            if (in_kernel) {
+                /* It would be more graceful to let the kernel fault pass (perhaps using a dummy
+                   or zero page) and eventually deliver the SIGBUS to the offending thread. For now,
+                   assume this is an unrecoverable error and exit here. */
+                halt("%s: file-backed access in kernel mode outside of map range, "
+                     "node %p (start 0x%lx), offset 0x%lx\n", vm->cache_node,
+                     vm->node.r.start, offset_page << PAGELOG);
+            }
+            deliver_fault_signal(SIGBUS, current, vaddr, BUS_ADRERR);
+            return true;
+        }
 
         if (in_kernel) {
             /* Kernel-mode page faults are exclusively for faulting-in user pages within the confines
@@ -591,7 +606,7 @@ static void vmap_unmap_page_range(process p, vmap k)
         unmap_and_free_phys(r.start, len);
         break;
     case VMAP_MMAP_TYPE_FILEBACKED:
-        pagecache_unmap_pages(k->cache_node, r, k->offset_page);
+        pagecache_node_unmap_pages(k->cache_node, r, k->offset_page);
         break;
     case VMAP_MMAP_TYPE_IORING:
         unmap(r.start, len);
@@ -615,6 +630,31 @@ static void process_unmap_range(process p, range q)
     vmap_handler vh = stack_closure(vmap_unmap, p);
     rangemap_range_lookup(p->vmaps, q, stack_closure(vmap_remove_intersection,
                                                      p->vmaps, q, vh));
+    vmap_unlock(p);
+}
+
+/* don't truncate vmap; just unmap truncated pages */
+void truncate_file_maps(process p, fsfile f, u64 new_length)
+{
+    vmap_lock(p);
+    u64 padlen = pad(new_length, PAGESIZE);
+    pagecache_node pn = fsfile_get_cachenode(f);
+    rangemap_foreach(p->vmaps, n) {
+        vmap vm = (vmap)n;
+        /* an invalidate would be preferable to a sync... */
+        if (vm->cache_node != pn)
+            continue;
+        u64 vm_extent = (vm->offset_page << PAGELOG) + range_span(n->r);
+        s64 delta = vm_extent - padlen;
+        if (delta <= 0)
+            continue;
+        range v = irange(n->r.end - delta, n->r.end);
+        assert(v.start <= v.end);
+        u64 offset_page = vm->offset_page + ((v.start - n->r.start) >> PAGELOG);
+        pf_debug("%s: vmap %p, %R, delta 0x%lx, remove v %R, offset_page 0x%lx\n",
+                 __func__, vm, n->r, delta, v, offset_page);
+        pagecache_node_unmap_pages(pn, v, offset_page);
+    }
     vmap_unlock(p);
 }
 

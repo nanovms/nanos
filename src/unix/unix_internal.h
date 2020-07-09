@@ -602,7 +602,7 @@ static inline sigaction sigaction_from_sig(int signum)
 boolean dispatch_signals(thread t);
 void deliver_signal_to_thread(thread t, struct siginfo *);
 void deliver_signal_to_process(process p, struct siginfo *);
-void deliver_segv(thread t, u64 vaddr, s32 si_code);
+void deliver_fault_signal(u32 signo, thread t, u64 vaddr, s32 si_code);
 
 void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *name);
 
@@ -634,6 +634,7 @@ extern sysreturn syscall_ignore();
 boolean do_demand_page(u64 vaddr, vmap vm, context frame);
 vmap vmap_from_vaddr(process p, u64 vaddr);
 void vmap_iterator(process p, vmap_handler vmh);
+void truncate_file_maps(process p, fsfile f, u64 new_length);
 const char *string_from_mmap_type(int type);
 
 void thread_log_internal(thread t, const char *desc, ...);

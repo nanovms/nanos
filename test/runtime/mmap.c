@@ -6,6 +6,8 @@
 #include <time.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <setjmp.h>
+#include <signal.h>
 #include <string.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -169,7 +171,7 @@ static void mmap_newfile_test(void)
     const size_t maplen = 1;
     void *addr;
 
-    fd = open("new_file", O_CREAT | O_EXCL | O_RDWR, S_IRUSR | S_IWUSR);
+    fd = open("new_file", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
     if (fd < 0) {
         perror("new file open");
         exit(EXIT_FAILURE);
@@ -358,7 +360,8 @@ static void mmap_flags_to_str(char * str, unsigned long str_len,
     }
 }
 
-#define LARGE_MMAP_SIZE (32ull << 30)
+/* This used to be 32GB, which would not pass under Linux... */
+#define LARGE_MMAP_SIZE (4ull << 30)
 
 static void mmap_test(void)
 {
@@ -607,12 +610,15 @@ void mremap_test(void)
             exit(EXIT_FAILURE);
         }
 
+        /* Disabling this check for linux parity test... */
+#if 0
         tmp = mremap(map_addr, __mremap_INIT_SIZE, __mremap_INIT_SIZE*2, 
                 MREMAP_MAYMOVE | MREMAP_FIXED, map_addr+PAGESIZE);
         if (tmp != MAP_FAILED) {
             fprintf(stderr, "mremap succeeded with MREMAP_FIXED??\n");
             exit(EXIT_FAILURE);
         }
+#endif
     }
 
     /*
@@ -711,6 +717,10 @@ static void filebacked_test(heap h)
     if (out < 0)
         handle_err("open 2");
 
+    rv = ftruncate(out, PAGESIZE);
+    if (rv < 0)
+        handle_err("ftruncate for foofile");
+
     /* map first page of mapfile */
     p = mmap(NULL, PAGESIZE, PROT_READ, MAP_PRIVATE, fd, 0);
     if (p == (void *)-1ull)
@@ -751,6 +761,9 @@ static void filebacked_test(heap h)
     fd = open("barfile", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
     if (fd < 0)
         handle_err("open barfile");
+    rv = ftruncate(fd, PAGESIZE);
+    if (rv < 0)
+        handle_err("ftruncate for barfile");
     p = mmap(NULL, PAGESIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (p == (void *)-1ull)
         handle_err("mmap barfile");
@@ -823,6 +836,9 @@ static void filebacked_test(heap h)
     fd = open("bazfile", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
     if (fd < 0)
         handle_err("open bazfile");
+    rv = ftruncate(fd, WRITE_STRESS_FILESIZE);
+    if (rv < 0)
+        handle_err("ftruncate for foofile");
     p = mmap(NULL, WRITE_STRESS_FILESIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (p == (void *)-1ull)
         handle_err("mmap bazfile");
@@ -843,6 +859,72 @@ static void filebacked_test(heap h)
     munmap(p, WRITE_STRESS_FILESIZE);
     close(fd);
     printf("** all file-backed tests passed\n");
+}
+
+static volatile int expect_sigbus = 0;
+static sigjmp_buf sjb;
+
+static void handle_sigbus(int sig, siginfo_t *si, void *ucontext)
+{
+    printf("** received %s: sig %d, si_errno %d, si_code %d, addr 0x%lx\n",
+           strsignal(sig), sig, si->si_errno, si->si_code, (unsigned long)si->si_addr);
+    if (!expect_sigbus) {
+        printf("  not expected; test failed\n");
+        exit(EXIT_FAILURE);
+    }
+    if (sig != SIGBUS || si->si_code != BUS_ADRERR) {
+       printf("  unexpected signal or error code; test failed\n");
+        exit(EXIT_FAILURE);
+    }
+    siglongjmp(sjb, 1);
+}
+
+static void filebacked_sigbus_test(void)
+{
+    printf("** starting mmap SIGBUS test\n");
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = handle_sigbus;
+    sa.sa_flags |= SA_SIGINFO;
+    int rv = sigaction(SIGBUS, &sa, 0);
+    if (rv < 0)
+        handle_err("sigaction");
+
+    int out = open("busfile", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+    if (out < 0)
+        handle_err("open 2");
+
+    printf("** truncate file to two pages\n");
+    rv = ftruncate(out, PAGESIZE * 2);
+    if (rv < 0)
+        handle_err("ftruncate for foofile");
+
+    void *p = mmap(NULL, PAGESIZE * 2, PROT_READ | PROT_WRITE, MAP_PRIVATE, out, 0);
+    if (p == (void *)-1ull)
+        handle_err("mmap busfile");
+
+    printf("** write to both pages (should not cause fault)\n");
+    expect_sigbus = 0;
+    *(unsigned long *)p = 0;
+    *(unsigned long *)(p + PAGESIZE) = 0;
+
+    printf("** truncate to one page and write first page\n");
+    rv = ftruncate(out, PAGESIZE);
+    if (rv < 0)
+        handle_err("ftruncate for foofile");
+
+    *(unsigned long *)p = 0;
+    printf("** write to second page (should cause SIGBUS)\n");
+    if (sigsetjmp(sjb, 1)) {
+        printf("** SIGBUS test passed\n");
+        munmap(p, PAGESIZE);
+        close(out);
+    } else {
+        expect_sigbus = 1;
+        *(unsigned long *)(p + PAGESIZE) = 0;
+        printf("** failed; map access should have caused SIGBUS\n");
+        exit(EXIT_FAILURE);
+    }
 }
 
 int main(int argc, char * argv[])
@@ -866,6 +948,7 @@ int main(int argc, char * argv[])
     mincore_test();
     mremap_test();
     filebacked_test(init_process_runtime());
+    filebacked_sigbus_test();
 
     printf("\n**** all tests passed ****\n");
 

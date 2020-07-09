@@ -373,11 +373,21 @@ struct rusage {
 /*
  * SIGSEGV si_codes
  */
-#define SEGV_MAPERR 1   /* address not mapped to object */
-#define SEGV_ACCERR 2   /* invalid permissions for mapped object */
-# define SEGV_BNDERR    3   /* failed address bound checks */
-# define SEGV_PKUERR    4   /* failed protection key checks */
+#define SEGV_MAPERR 1           /* address not mapped to object */
+#define SEGV_ACCERR 2           /* invalid permissions for mapped object */
+#define SEGV_BNDERR 3           /* failed address bound checks */
+#define SEGV_PKUERR 4           /* failed protection key checks */
 #define NSIGSEGV    4
+
+/*
+ * SIGBUS si_codes
+ */
+#define BUS_ADRALN   1          /* alignment */
+#define BUS_ADRERR   2          /* non-existent */
+#define BUS_OBJERR   3
+#define BUS_MCERR_AR 4
+#define BUS_MCERR_AO 5
+#define NSIGBUS      5
 
 typedef union sigval {
     s32 sival_int;

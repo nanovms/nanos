@@ -42,10 +42,10 @@ void deallocate_fd(process p, int fd)
     deallocate_u64((heap)p->fdallocator, fd, 1);
 }
 
-void deliver_segv(thread t, u64 vaddr, s32 si_code)
+void deliver_fault_signal(u32 signo, thread t, u64 vaddr, s32 si_code)
 {
     struct siginfo s = {
-        .si_signo = SIGSEGV,
+        .si_signo = signo,
          /* man sigaction: "si_errno is generally unused on Linux" */
         .si_errno = 0,
         .si_code = si_code,
@@ -54,9 +54,9 @@ void deliver_segv(thread t, u64 vaddr, s32 si_code)
         }
     };
 
-    pf_debug("delivering SIGSEGV to thread %d; vaddr 0x%lx si_code %s",
-             t->tid, vaddr, (si_code == SEGV_MAPERR) ? "SEGV_MAPPER" : "SEGV_ACCERR");
-
+    assert(signo == SIGSEGV || signo == SIGBUS);
+    pf_debug("delivering %s to thread %d; vaddr 0x%lx si_code %d",
+             signo == SIGSEGV ? "SIGSEGV" : "SIGBUS", t->tid, vaddr, si_code);
     deliver_signal_to_thread(t, &s);
 }
 
@@ -98,7 +98,7 @@ static boolean handle_protection_fault(context frame, u64 vaddr, vmap vm)
                  (vm->flags & VMAP_FLAG_WRITABLE) ? "writable " : "",
                  (vm->flags & VMAP_FLAG_EXEC) ? "executable " : "");
 
-        deliver_segv(current, vaddr, SEGV_ACCERR);
+        deliver_fault_signal(SIGSEGV, current, vaddr, SEGV_ACCERR);
         return true;
     }
     return false;
@@ -122,7 +122,7 @@ define_closure_function(1, 1, context, default_fault_handler,
         if (vm == INVALID_ADDRESS) {
             if (user) {
                 pf_debug("no vmap found for addr 0x%lx, rip 0x%lx", vaddr, frame[FRAME_RIP]);
-                deliver_segv(current, vaddr, SEGV_MAPERR);
+                deliver_fault_signal(SIGSEGV, current, vaddr, SEGV_MAPERR);
 
                 /* schedule this thread to either run signal handler or terminate */
                 schedule_frame(frame);
@@ -162,7 +162,7 @@ define_closure_function(1, 1, context, default_fault_handler,
     } else if (frame[FRAME_VECTOR] == 13) {
         if (current_cpu()->state == cpu_user) {
             pf_debug("general protection fault in user mode, rip 0x%lx", frame[FRAME_RIP]);
-            deliver_segv(current, 0, SI_KERNEL);
+            deliver_fault_signal(SIGSEGV, current, 0, SI_KERNEL);
             schedule_frame(frame);
             return 0;
         }

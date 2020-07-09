@@ -1,5 +1,4 @@
 /* TODO:
-   - per node flush and purge
    - reinstate free list, keep refault counts
    - interface to physical free page list / shootdown epochs
 
@@ -1023,13 +1022,13 @@ closure_function(3, 3, boolean, pagecache_unmap_page_nodelocked,
     return true;
 }
 
-void pagecache_unmap_pages(pagecache_node pn, range q /* bytes */, u64 offset_page)
+void pagecache_node_unmap_pages(pagecache_node pn, range v /* bytes */, u64 offset_page)
 {
-    pagecache_debug("%s: pn %p, v %R, offset_page 0x%lx\n", __func__, pn, q, offset_page);
-    pagecache_node_close_shared_pages(pn, q);
+    pagecache_debug("%s: pn %p, v %R, offset_page 0x%lx\n", __func__, pn, v, offset_page);
+    pagecache_node_close_shared_pages(pn, v);
     spin_lock(&pn->pages_lock);
-    traverse_ptes(q.start, range_span(q), stack_closure(pagecache_unmap_page_nodelocked, pn,
-                                                          q.start, offset_page));
+    traverse_ptes(v.start, range_span(v), stack_closure(pagecache_unmap_page_nodelocked, pn,
+                                                        v.start, offset_page));
     spin_unlock(&pn->pages_lock);
 }
 #endif
@@ -1053,6 +1052,11 @@ closure_function(0, 2, int, pagecache_page_compare,
 void pagecache_set_node_length(pagecache_node pn, u64 length)
 {
     pn->length = length;
+}
+
+u64 pagecache_get_node_length(pagecache_node pn)
+{
+    return pn->length;
 }
 
 void pagecache_deallocate_node(pagecache_node pn)

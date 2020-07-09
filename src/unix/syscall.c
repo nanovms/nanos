@@ -1217,6 +1217,7 @@ static sysreturn truncate_internal(file f, tuple t, long length)
     if (!fsf) {
         return set_syscall_error(current, ENOENT);
     }
+    truncate_file_maps(current->p, fsf, length);
     if (!filesystem_truncate(current->p->fs, fsf, length)) {
         f->length = fsfile_get_length(fsf);
         filesystem_update_mtime(current->p->fs, t);
