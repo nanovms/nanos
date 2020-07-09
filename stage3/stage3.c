@@ -5,6 +5,7 @@
 #include <net.h>
 #include <http.h>
 #include <gdb.h>
+#include <symtab.h>
 #include <virtio/virtio.h>
 
 closure_function(2, 1, status, read_program_complete,
@@ -180,4 +181,41 @@ closure_function(3, 0, void, startup,
 thunk create_init(kernel_heaps kh, tuple root, filesystem fs)
 {
     return closure(heap_general(kh), startup, kh, root, fs);
+}
+
+closure_function(2, 1, status, kernel_read_complete,
+                 filesystem, fs, tuple, root,
+                 buffer, b)
+{
+    add_elf_syms(b);
+    deallocate_buffer(b);
+    destroy_filesystem(bound(fs));
+    deallocate_tuple(bound(root));
+    closure_finish();
+    return STATUS_OK;
+}
+
+closure_function(2, 2, void, bootfs_complete,
+                 kernel_heaps, kh, tuple, root,
+                 filesystem, fs, status, s)
+{
+    tuple root = bound(root);
+    tuple c = children(root);
+    assert(c);
+    table_foreach(c, k, v) {
+        if (!buffer_strcmp(symbol_string(k), "kernel")) {
+            kernel_heaps kh = bound(kh);
+            filesystem_read_entire(fs, v, heap_backed(kh),
+                                   closure(heap_general(kh),
+                                   kernel_read_complete, fs, bound(root)),
+                                   ignore_status);
+            break;
+        }
+    }
+    closure_finish();
+}
+
+filesystem_complete bootfs_handler(kernel_heaps kh, tuple root)
+{
+    return closure(heap_general(kh), bootfs_complete, kh, root);
 }

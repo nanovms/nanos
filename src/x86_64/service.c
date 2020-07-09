@@ -98,21 +98,39 @@ closure_function(2, 3, void, offset_block_io,
 /* XXX some header reorg in order */
 void init_extra_prints(); 
 thunk create_init(kernel_heaps kh, tuple root, filesystem fs);
+filesystem_complete bootfs_handler(kernel_heaps kh, tuple root);
 
-closure_function(1, 2, void, fsstarted,
-                 tuple, root,
+/* will become list I guess */
+static pagecache global_pagecache;
+
+closure_function(5, 2, void, fsstarted,
+                 heap, h, u8 *, mbr, block_io, r, block_io, w, tuple, root,
                  filesystem, fs, status, s)
 {
     if (!is_ok(s))
         halt("unable to open filesystem: %v\n", s);
 
+    heap h = bound(h);
+    u8 *mbr = bound(mbr);
+    if (mbr) {
+        struct partition_entry *bootfs_part;
+        if (table_find(bound(root), sym(ingest_kernel_symbols)) &&
+                (bootfs_part = partition_get(mbr, PARTITION_BOOTFS))) {
+            init_debug("loading boot filesystem");
+            tuple bootfs_root = allocate_tuple();
+            create_filesystem(h, SECTOR_SIZE,
+                              bootfs_part->nsectors * SECTOR_SIZE,
+                              closure(h, offset_block_io,
+                              bootfs_part->lba_start * SECTOR_SIZE, bound(r)),
+                              0, global_pagecache, bootfs_root, false,
+                              bootfs_handler(&heaps, bootfs_root));
+        }
+        deallocate(h, mbr, SECTOR_SIZE);
+    }
     root_fs = fs;
     enqueue(runqueue, create_init(&heaps, bound(root), fs));
     closure_finish();
 }
-
-/* will become list I guess */
-static pagecache global_pagecache;
 
 /* This is very simplistic and uses a fixed drain threshold. This
    should also take all cached data in system into account. For now we
@@ -156,9 +174,7 @@ static void rootfs_init(heap h, u8 *mbr, tuple root, u64 offset,
                       pc,
                       root,
                       false,
-                      closure(h, fsstarted, root));
-    if (mbr)
-        deallocate(h, mbr, SECTOR_SIZE);
+                      closure(h, fsstarted, h, mbr, r, w, root));
 }
 
 closure_function(6, 1, void, mbr_read,
@@ -217,10 +233,6 @@ static void read_kernel_syms()
             unmap(v, kern_length);
 	    break;
 	}
-    }
-    
-    if (kern_base == INVALID_PHYSICAL) {
-	console("kernel elf image region not found; no debugging symbols\n");
     }
 }
 
