@@ -146,11 +146,9 @@ static u64 get_fs_offset(descriptor fd)
 	exit(EXIT_FAILURE);
     }
 
-    // last two bytes should be MBR signature
-    u16 *mbr_sig = (u16 *) (buf + sizeof(buf) - sizeof(*mbr_sig));
     struct partition_entry *rootfs_part = partition_get(buf, PARTITION_ROOTFS);
 
-    if (*mbr_sig != 0xaa55 || rootfs_part->lba_start == 0 ||
+    if (rootfs_part->lba_start == 0 ||
             rootfs_part->nsectors == 0) {
         // probably raw filesystem
         return 0;

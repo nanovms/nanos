@@ -19,9 +19,16 @@ enum partition {
 #define HEADS 255
 #define MAX_CYL 1023
 
-#define partition_get(mbr, index)    \
-    (struct partition_entry *)((u64)(mbr) + SECTOR_SIZE - 2 - \
-    (4 - (index)) * sizeof(struct partition_entry))
+#define partition_get(mbr, index)    ({ \
+    u16 *mbr_sig = (u16 *)((u64)(mbr) + SECTOR_SIZE - sizeof(*mbr_sig));  \
+    struct partition_entry *e;  \
+    if (*mbr_sig == 0xaa55) \
+        e = (struct partition_entry *)((u64_from_pointer(mbr_sig)) -    \
+                (4 - (index)) * sizeof(struct partition_entry));    \
+    else    \
+        e = 0;  \
+    e;  \
+})
 
 static inline void mbr_chs(u8 *chs, u64 offset)
 {

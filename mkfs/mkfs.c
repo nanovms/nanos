@@ -262,13 +262,10 @@ static void write_mbr(descriptor f)
     else if (res != sizeof(buf))
         halt("could not read MBR (short read)\n");
 
-    // MBR signature
-    u16 *mbr_sig = (u16 *) (buf + sizeof(buf) - sizeof(*mbr_sig));
-    if (*mbr_sig != 0xaa55)
-        halt("invalid MBR signature\n");
-
     // first MBR partition entry
-    struct partition_entry *e = (struct partition_entry *) ((char *) mbr_sig - 4 * sizeof(*e));
+    struct partition_entry *e = partition_get(buf, 0);
+    if (!e)
+        halt("invalid MBR signature\n");
 
     // FS region comes right before MBR partitions (see boot/stage1.s)
     region r = (region) ((char *) e - sizeof(*r));
