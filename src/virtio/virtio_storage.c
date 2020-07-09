@@ -1,6 +1,7 @@
 #include <kernel.h>
 #include <drivers/storage.h>
 #include <io.h>
+#include <storage.h>
 
 #include "virtio_internal.h"
 #include "virtio_pci.h"
@@ -39,6 +40,15 @@ struct virtio_blk_config {
     } topology;
     u8 reserved;
 } __attribute__((packed));
+
+#define VIRTIO_BLK_F_SIZE_MAX   U64_FROM_BIT(1)
+#define VIRTIO_BLK_F_SEG_MAX    U64_FROM_BIT(2)
+#define VIRTIO_BLK_F_GEOMETRY   U64_FROM_BIT(4)
+#define VIRTIO_BLK_F_RO         U64_FROM_BIT(5)
+#define VIRTIO_BLK_F_BLK_SIZE   U64_FROM_BIT(6)
+#define VIRTIO_BLK_F_FLUSH      U64_FROM_BIT(9)
+#define VIRTIO_BLK_F_TOPOLOGY   U64_FROM_BIT(10)
+#define VIRTIO_BLK_F_CONFIG_WCE U64_FROM_BIT(11)
 
 #define VIRTIO_BLK_R_CAPACITY_LOW		(offsetof(struct virtio_blk_config *, capacity))
 #define VIRTIO_BLK_R_CAPACITY_HIGH		(offsetof(struct virtio_blk_config *, capacity) + 4)
@@ -163,7 +173,8 @@ static void virtio_blk_attach(heap general, storage_attach a, vtdev v)
     storage s = allocate(general, sizeof(struct storage));
     s->v = v;
 
-    s->block_size = vtdev_cfg_read_4(v, VIRTIO_BLK_R_BLOCK_SIZE);
+    s->block_size = (v->features & VIRTIO_BLK_F_BLK_SIZE) ?
+            vtdev_cfg_read_4(v, VIRTIO_BLK_R_BLOCK_SIZE) : SECTOR_SIZE;
     s->capacity = (vtdev_cfg_read_4(v, VIRTIO_BLK_R_CAPACITY_LOW) |
 		   ((u64) vtdev_cfg_read_4(v, VIRTIO_BLK_R_CAPACITY_HIGH) << 32)) * s->block_size;
     virtio_blk_debug("%s: capacity 0x%lx, block size 0x%x\n", __func__, s->capacity, s->block_size);
@@ -184,7 +195,8 @@ closure_function(3, 1, boolean, vtpci_blk_probe,
         return false;
 
     heap general = bound(general);
-    vtdev v = (vtdev)attach_vtpci(general, bound(page_allocator), d, 0);
+    vtdev v = (vtdev)attach_vtpci(general, bound(page_allocator), d,
+        VIRTIO_BLK_F_BLK_SIZE);
     virtio_blk_attach(general, bound(a), v);
     return true;
 }
