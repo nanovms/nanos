@@ -20,6 +20,7 @@ boolean basic_tests(heap h)
 {
     boolean failure = true;
     buffer wb = (buffer)0;
+    u32 test_int;
     char test_str[] =  "This is a test string";
     buffer b = allocate_buffer(h, 10);
     /*
@@ -38,10 +39,16 @@ boolean basic_tests(heap h)
         test_assert(pop_u8(b) == i);
     }
     buffer_write_le32(b, 0xdeadbeef);
+    test_int = 0xdeadbeef - 1;
+    test_assert(buffer_memcmp(b, &test_int, sizeof(test_int)) > 0);
+    test_int = 0xdeadbeef + 1;
+    test_assert(buffer_memcmp(b, &test_int, sizeof(test_int)) < 0);
     test_assert(buffer_read_le32(b) == 0xdeadbeef);
     push_varint(b, 0xdeadbeef);
     test_assert(pop_varint(b) == 0xdeadbeef);
     test_assert(buffer_length(b) == 0);
+    test_assert(buffer_memcmp(b, test_str, 0) == 0);
+    test_assert(buffer_strchr(b, '0') < 0);
 
     /* Buffer capacity */
     buffer_write_cstring(b, test_str);
@@ -49,6 +56,11 @@ boolean basic_tests(heap h)
     test_assert(buffer_set_capacity(b, b->length) == b->length);
     buffer_set_capacity(b, 3 * b->length);
     test_assert(buffer_compare_with_cstring(b, test_str));
+
+    test_assert(buffer_strcmp(b, test_str) == 0);
+    test_assert(buffer_memcmp(b, test_str, sizeof(test_str)) < 0);
+    test_assert(buffer_strchr(b, 't') == 10);
+    test_assert(buffer_strchr(b, 'u') < 0);
 
     /*
      * Validate wrap_buffer_cstring initialization, and contents

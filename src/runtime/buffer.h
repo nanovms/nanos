@@ -293,6 +293,36 @@ static inline boolean buffer_compare_with_cstring(buffer b, const char *x)
     return x[len] == '\0';
 }
 
+static inline int buffer_memcmp(buffer b, void *mem, bytes n)
+{
+    bytes len = buffer_length(b);
+    int ret = runtime_memcmp(buffer_ref(b, 0), mem, MIN(len, n));
+    if (ret)
+        return ret;
+    else if (len < n)
+        return -1;
+    else
+        return 0;
+}
+
+/* Can only be used with literal strings. */
+#define buffer_strcmp(b, str)   ({  \
+    int res = buffer_memcmp(b, str, sizeof(str) - 1);   \
+    if (!res && buffer_length(b) >= sizeof(str))    \
+        res = 1;    \
+    res;    \
+})
+
+static inline int buffer_strchr(buffer b, int c)
+{
+    bytes len = buffer_length(b);
+    for (bytes i = 0; i < len; i++) {
+        if (byte(b, i) == c)
+            return i;
+    }
+    return -1;
+}
+
 // the ascii subset..utf8 me
 #define foreach_character(__i, __c, __s)                                \
     for (u32 __i = 0, __c, __limit = buffer_length(__s);                \
