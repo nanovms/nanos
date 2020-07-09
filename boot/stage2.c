@@ -7,6 +7,7 @@
 #include <kvm_platform.h>
 #include <serial.h>
 #include <drivers/ata.h>
+#include <storage.h>
 
 //#define STAGE2_DEBUG
 //#define DEBUG_STAGE2_ALLOC
