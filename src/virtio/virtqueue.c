@@ -88,7 +88,7 @@ typedef struct vqmsg {
 } *vqmsg;
     
 typedef struct virtqueue {
-    vtpci dev;
+    vtdev dev;
     const char *name;
     u16 entries;
     u16 queue_index;
@@ -229,7 +229,7 @@ closure_function(1, 0, void, virtqueue_service_vqmsgs,
     virtqueue_debug("%s exit\n", __func__);
 }
 
-status virtqueue_alloc(vtpci dev,
+status virtqueue_alloc(vtdev dev,
                        const char *name,
                        u16 queue,
                        u16 size,
@@ -316,7 +316,7 @@ static int virtqueue_notify(virtqueue vq)
     memory_barrier();
     int should_notify = (vq->used->flags & VRING_USED_F_NO_NOTIFY) == 0;
     if (should_notify)
-        vtpci_notify_virtqueue(vq->dev, vq->queue_index, vq->notify_offset);
+        apply(vq->dev->notify, vq->queue_index, vq->notify_offset);
     return should_notify;
 }
 

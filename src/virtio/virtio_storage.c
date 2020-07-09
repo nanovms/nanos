@@ -3,6 +3,7 @@
 #include <io.h>
 
 #include "virtio_internal.h"
+#include "virtio_pci.h"
 
 //#define VIRTIO_BLK_DEBUG
 
@@ -71,7 +72,7 @@ struct virtio_blk_config {
 #endif /* defined(VIRTIO_BLK_DEBUG) */
 
 typedef struct storage {
-    vtpci v;
+    vtdev v;
     struct virtqueue *command;
     u64 capacity;
     u64 block_size;
@@ -157,37 +158,40 @@ closure_function(1, 3, void, storage_read,
     storage_rw_internal(bound(st), false, target, blocks, s);
 }
 
-static void virtio_blk_attach(heap general, storage_attach a, heap page_allocator, pci_dev d)
+static void virtio_blk_attach(heap general, storage_attach a, vtdev v)
 {
     storage s = allocate(general, sizeof(struct storage));
-    s->v = attach_vtpci(general, page_allocator, d, 0);
+    s->v = v;
 
-    s->block_size = pci_bar_read_4(&s->v->device_config, VIRTIO_BLK_R_BLOCK_SIZE);
-    s->capacity = (pci_bar_read_4(&s->v->device_config, VIRTIO_BLK_R_CAPACITY_LOW) |
-		   ((u64) pci_bar_read_4(&s->v->device_config, VIRTIO_BLK_R_CAPACITY_HIGH) << 32)) * s->block_size;
+    s->block_size = vtdev_cfg_read_4(v, VIRTIO_BLK_R_BLOCK_SIZE);
+    s->capacity = (vtdev_cfg_read_4(v, VIRTIO_BLK_R_CAPACITY_LOW) |
+		   ((u64) vtdev_cfg_read_4(v, VIRTIO_BLK_R_CAPACITY_HIGH) << 32)) * s->block_size;
     virtio_blk_debug("%s: capacity 0x%lx, block size 0x%x\n", __func__, s->capacity, s->block_size);
-    vtpci_alloc_virtqueue(s->v, "virtio blk", 0, &s->command);
+    virtio_alloc_virtqueue(v, "virtio blk", 0, &s->command);
     // initialization complete
-    vtpci_set_status(s->v, VIRTIO_CONFIG_STATUS_DRIVER_OK);
+    vtdev_set_status(v, VIRTIO_CONFIG_STATUS_DRIVER_OK);
 
     block_io in = closure(general, storage_read, s);
     block_io out = closure(general, storage_write, s);
     apply(a, in, out, s->capacity);
 }
 
-closure_function(3, 1, boolean, virtio_blk_probe,
+closure_function(3, 1, boolean, vtpci_blk_probe,
                  heap, general, storage_attach, a, heap, page_allocator,
                  pci_dev, d)
 {
     if (!vtpci_probe(d, VIRTIO_ID_BLOCK))
         return false;
 
-    virtio_blk_attach(bound(general), bound(a), bound(page_allocator), d);
+    heap general = bound(general);
+    vtdev v = (vtdev)attach_vtpci(general, bound(page_allocator), d, 0);
+    virtio_blk_attach(general, bound(a), v);
     return true;
 }
 
 void virtio_register_blk(kernel_heaps kh, storage_attach a)
 {
     heap h = heap_general(kh);
-    register_pci_driver(closure(h, virtio_blk_probe, h, a, heap_backed(kh)));
+    heap page_allocator = heap_backed(kh);
+    register_pci_driver(closure(h, vtpci_blk_probe, h, a, page_allocator));
 }

@@ -30,6 +30,7 @@
 
 #include <kernel.h>
 #include "virtio_internal.h"
+#include "virtio_pci.h"
 
 #include <io.h>
 
@@ -173,7 +174,7 @@ void vtpci_set_status(vtpci dev, u8 status)
 
 boolean vtpci_is_modern(vtpci dev)
 {
-    return (dev->features & VIRTIO_F_VERSION_1) != 0;
+    return (dev->virtio_dev.features & VIRTIO_F_VERSION_1) != 0;
 }
 
 static void vtpci_modern_write_8(struct pci_bar *b, bytes offset, u64 val)
@@ -195,7 +196,8 @@ status vtpci_alloc_virtqueue(vtpci dev,
     bytes notify_offset = vtpci_is_modern(dev) ?
         pci_bar_read_2(&dev->common_config, VTPCI_R_QUEUE_NOTIFY_OFF) * dev->notify_offset_multiplier :
         VIRTIO_PCI_QUEUE_NOTIFY;
-    status s = virtqueue_alloc(dev, name, idx, size, notify_offset, VIRTIO_PCI_VRING_ALIGN, &vq, &handler);
+    status s = virtqueue_alloc(&dev->virtio_dev, name, idx, size, notify_offset,
+        VIRTIO_PCI_VRING_ALIGN, &vq, &handler);
     if (!is_ok(s))
         return s;
 
@@ -218,12 +220,6 @@ status vtpci_alloc_virtqueue(vtpci dev,
 
     *result = vq;
     return STATUS_OK;
-}
-
-void vtpci_notify_virtqueue(vtpci dev, u16 queue, bytes notify_offset)
-{
-    virtio_pci_debug("%s: queue %d, notify_offset 0x%x\n", __func__, queue, notify_offset);
-    pci_bar_write_2(&dev->notify_config, notify_offset, queue);
 }
 
 static void vtpci_legacy_alloc_resources(vtpci dev)
@@ -277,9 +273,19 @@ static void vtpci_modern_alloc_resources(vtpci dev)
     vtpci_modern_find_cap(dev, VIRTIO_PCI_CAP_DEVICE_CFG, &dev->device_config);
 }
 
+define_closure_function(1, 2, void, vtpci_notify,
+                        vtpci, dev,
+                        u16, queue_index, bytes, notify_offset)
+{
+    virtio_pci_debug("%s: queue %d, notify_offset 0x%x\n", __func__,
+                     queue_index, notify_offset);
+    pci_bar_write_2(&bound(dev)->notify_config, notify_offset, queue_index);
+}
+
 vtpci attach_vtpci(heap h, heap page_allocator, pci_dev d, u64 feature_mask)
 {
     struct vtpci *dev = allocate(h, sizeof(struct vtpci));
+    vtdev virtio_dev = &dev->virtio_dev;
 
     boolean is_modern = pci_get_device(d) >= VIRTIO_PCI_DEVICEID_MODERN_MIN;
     if (is_modern)
@@ -306,28 +312,29 @@ vtpci attach_vtpci(heap h, heap page_allocator, pci_dev d, u64 feature_mask)
         f0 = pci_bar_read_4(&dev->common_config, VTPCI_R_DEVICE_FEATURE);
         pci_bar_write_4(&dev->common_config, VTPCI_R_DEVICE_FEATURE_SELECT, 1);
         f1 = pci_bar_read_4(&dev->common_config, VTPCI_R_DEVICE_FEATURE);
-        dev->dev_features = ((u64) f1 << 32) | f0;
+        virtio_dev->dev_features = ((u64) f1 << 32) | f0;
 
         // write negotiated features
-        dev->features = dev->dev_features & feature_mask;
+        virtio_dev->features = virtio_dev->dev_features & feature_mask;
         pci_bar_write_4(&dev->common_config, VTPCI_R_DRIVER_FEATURE_SELECT, 0);
-        pci_bar_write_4(&dev->common_config, VTPCI_R_DRIVER_FEATURE, dev->features & MASK(32));
+        pci_bar_write_4(&dev->common_config, VTPCI_R_DRIVER_FEATURE, virtio_dev->features & MASK(32));
         pci_bar_write_4(&dev->common_config, VTPCI_R_DRIVER_FEATURE_SELECT, 1);
-        pci_bar_write_4(&dev->common_config, VTPCI_R_DRIVER_FEATURE, dev->features >> 32);
+        pci_bar_write_4(&dev->common_config, VTPCI_R_DRIVER_FEATURE, virtio_dev->features >> 32);
     } else {
         // read device features
-        dev->dev_features = pci_bar_read_4(&dev->common_config, VIRTIO_PCI_HOST_FEATURES);
+        virtio_dev->dev_features = pci_bar_read_4(&dev->common_config, VIRTIO_PCI_HOST_FEATURES);
 
         // write negotiated features
-        dev->features = dev->dev_features & feature_mask;
-        pci_bar_write_4(&dev->common_config, VIRTIO_PCI_GUEST_FEATURES, dev->features & feature_mask);
+        virtio_dev->features = virtio_dev->dev_features & feature_mask;
+        pci_bar_write_4(&dev->common_config, VIRTIO_PCI_GUEST_FEATURES, virtio_dev->features & feature_mask);
     }
     virtio_pci_debug("%s: device features 0x%lx, negotiated features 0x%lx\n",
         __func__, dev->dev_features, dev->features);
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_FEATURE);
 
-    dev->general = h;
-    dev->contiguous = page_allocator;
+    init_closure(&dev->notify, vtpci_notify, dev);
+    dev->virtio_dev.notify = (vtdev_notify)&dev->notify;
+    virtio_attach(h, page_allocator, VTIO_TRANSPORT_PCI, virtio_dev);
 
     return dev;
 }

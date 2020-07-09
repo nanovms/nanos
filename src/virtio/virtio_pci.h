@@ -47,7 +47,12 @@ enum {
     VTPCI_REG_MAX
 };
 
+declare_closure_struct(1, 2, void, vtpci_notify,
+                       struct vtpci *, dev,
+                       u16, queue_index, bytes, notify_offset);
+
 struct vtpci {
+    struct vtdev virtio_dev; /* must be first */
     struct pci_dev _dev;
     pci_dev dev;
     int regs[VTPCI_REG_MAX];
@@ -57,12 +62,9 @@ struct vtpci {
     struct pci_bar notify_config;  // notify config
     struct pci_bar device_config;  // device config
 
-    u64 dev_features;              // device features
-    u64 features;                  // negotiated features
-
-    heap contiguous;
-    heap general;
     struct virtio_feature_desc	*vtpci_child_feat_desc;
+
+    closure_struct(vtpci_notify, notify);
 
     int vtpci_nvqs;
     struct virtqueue *vtpci_vqs;

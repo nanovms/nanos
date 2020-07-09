@@ -44,6 +44,7 @@
 #include "netif/ethernet.h"
 #include "virtio_internal.h"
 #include "virtio_net.h"
+#include "virtio_pci.h"
 
 #include <io.h>
 
@@ -54,7 +55,7 @@
 #endif // defined(VIRTIO_NET_DEBUG)
 
 typedef struct vnet {
-    vtpci dev;
+    vtdev dev;
     u16 port;
     heap rxbuffers;
     bytes net_header_len;
@@ -181,8 +182,7 @@ static err_t virtioif_init(struct netif *netif)
     netif->linkoutput = low_level_output;
     netif->hwaddr_len = ETHARP_HWADDR_LEN;
     netif->status_callback = lwip_status_callback;
-    for (int i = 0; i < ETHER_ADDR_LEN; i++) 
-        netif->hwaddr[i] = pci_bar_read_1(&vn->dev->device_config, i);
+    vtdev_cfg_read_mem(vn->dev, netif->hwaddr, ETHER_ADDR_LEN);
     virtio_net_debug("%s: hwaddr %02x:%02x:%02x:%02x:%02x:%02x\n",
         __func__,
         netif->hwaddr[0], netif->hwaddr[1], netif->hwaddr[2],
@@ -207,32 +207,34 @@ static err_t virtioif_init(struct netif *netif)
     return ERR_OK;
 }
 
-static void virtio_net_attach(heap general, heap page_allocator, pci_dev d)
+static void virtio_net_attach(vtdev dev)
 {
     //u32 badness = VIRTIO_F_BAD_FEATURE | VIRTIO_NET_F_CSUM | VIRTIO_NET_F_GUEST_CSUM |
     //    VIRTIO_NET_F_GUEST_TSO4 | VIRTIO_NET_F_GUEST_TSO6 |  VIRTIO_NET_F_GUEST_ECN|
     //    VIRTIO_NET_F_GUEST_UFO | VIRTIO_NET_F_CTRL_VLAN | VIRTIO_NET_F_MQ;
 
-    vtpci dev = attach_vtpci(general, page_allocator, d, VIRTIO_NET_F_MAC);
-    vnet vn = allocate(dev->general, sizeof(struct vnet));
-    vn->n = allocate(dev->general, sizeof(struct netif));
-    vn->net_header_len = vtpci_is_modern(dev) || (dev->features & VIRTIO_NET_F_MRG_RXBUF) != 0 ?
+    heap h = dev->general;
+    heap contiguous = dev->contiguous;
+    vnet vn = allocate(h, sizeof(struct vnet));
+    vn->n = allocate(h, sizeof(struct netif));
+    vn->net_header_len = (dev->features & VIRTIO_F_VERSION_1) ||
+        (dev->features & VIRTIO_NET_F_MRG_RXBUF) != 0 ?
         sizeof(struct virtio_net_hdr_mrg_rxbuf) : sizeof(struct virtio_net_hdr);
     vn->rxbuflen = vn->net_header_len + sizeof(struct eth_hdr) + sizeof(struct eth_vlan_hdr) + 1500;
     virtio_net_debug("%s: net_header_len %d, rxbuflen %d\n", __func__, vn->net_header_len, vn->rxbuflen);
-    vn->rxbuffers = allocate_objcache(dev->general, page_allocator,
+    vn->rxbuffers = allocate_objcache(h, contiguous,
 				      vn->rxbuflen + sizeof(struct xpbuf), PAGESIZE_2M);
     /* rx = 0, tx = 1, ctl = 2 by 
        page 53 of http://docs.oasis-open.org/virtio/virtio/v1.0/cs01/virtio-v1.0-cs01.pdf */
     vn->dev = dev;
-    vtpci_alloc_virtqueue(dev, "virtio net tx", 1, &vn->txq);
-    vtpci_alloc_virtqueue(dev, "virtio net rx", 0, &vn->rxq);
+    virtio_alloc_virtqueue(dev, "virtio net tx", 1, &vn->txq);
+    virtio_alloc_virtqueue(dev, "virtio net rx", 0, &vn->rxq);
     // just need vn->net_header_len contig bytes really
-    vn->empty = allocate(dev->contiguous, dev->contiguous->pagesize);
+    vn->empty = allocate(contiguous, contiguous->pagesize);
     for (int i = 0; i < vn->net_header_len; i++)  ((u8 *)vn->empty)[i] = 0;
     vn->n->state = vn;
     // initialization complete
-    vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER_OK);
+    vtdev_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER_OK);
 
     netif_add(vn->n,
               0, 0, 0, 
@@ -241,19 +243,21 @@ static void virtio_net_attach(heap general, heap page_allocator, pci_dev d)
               ethernet_input);
 }
 
-closure_function(2, 1, boolean, virtio_net_probe,
+closure_function(2, 1, boolean, vtpci_net_probe,
                  heap, general, heap, page_allocator,
                  pci_dev, d)
 {
     if (!vtpci_probe(d, VIRTIO_ID_NETWORK))
         return false;
-
-    virtio_net_attach(bound(general), bound(page_allocator), d);
+    vtpci dev = attach_vtpci(bound(general), bound(page_allocator), d,
+        VIRTIO_NET_F_MAC);
+    virtio_net_attach(&dev->virtio_dev);
     return true;
 }
 
 void init_virtio_network(kernel_heaps kh)
 {
     heap h = heap_general(kh);
-    register_pci_driver(closure(h, virtio_net_probe, h, heap_backed(kh)));
+    heap page_allocator = heap_backed(kh);
+    register_pci_driver(closure(h, vtpci_net_probe, h, page_allocator));
 }

@@ -1,5 +1,3 @@
-#include "virtio_pci.h"
-
 /* VirtIO device IDs */
 #define VIRTIO_ID_NETWORK       1
 #define VIRTIO_ID_BLOCK         2
@@ -58,9 +56,37 @@ typedef closure_type(vqfinish, void, u64);
 /* Modern device */
 #define VIRTIO_F_VERSION_1 U64_FROM_BIT(32)
 
-void vtpci_notify_virtqueue(vtpci sc, u16 queue, bytes notify_offset);
+typedef closure_type(vtdev_notify, void, u16 queue_index, bytes notify_offset);
 
-status virtqueue_alloc(vtpci dev,
+typedef struct vtdev {
+    u64 dev_features;              // device features
+    u64 features;                  // negotiated features
+
+    heap contiguous;
+    heap general;
+
+    enum vtio_transport {
+        VTIO_TRANSPORT_PCI,
+    } transport;
+    vtdev_notify notify;
+} *vtdev;
+
+u32 vtdev_cfg_read_4(vtdev dev, u64 offset);
+void vtdev_cfg_read_mem(vtdev dev, void *dest, bytes len);
+void vtdev_set_status(vtdev dev, u8 status);
+
+static inline void virtio_attach(heap h, heap page_allocator,
+                                 enum vtio_transport transport, vtdev d)
+{
+    d->general = h;
+    d->contiguous = page_allocator;
+    d->transport = transport;
+}
+
+status virtio_alloc_virtqueue(vtdev dev, const char *name, int idx,
+                              struct virtqueue **result);
+
+status virtqueue_alloc(vtdev dev,
                        const char *name,
                        u16 queue,
                        u16 size,
