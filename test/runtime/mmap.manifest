@@ -18,4 +18,5 @@
     fault:t
     arguments:[/mmap, basic]
     environment:(USER:bobby PWD:/)
+    imagesize:30M
 )

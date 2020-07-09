@@ -757,7 +757,7 @@ static void pagecache_scan_shared_mappings(pagecache pc)
     pagecache_debug("%s\n", __func__);
     list_foreach(&pc->shared_maps, l) {
         pagecache_shared_map sm = struct_from_list(l, pagecache_shared_map, l);
-        pagecache_debug("   shared map va %R, offset_page 0x%lx\n", sm->va, sm->offset_page);
+        pagecache_debug("   shared map va %R, offset_page 0x%lx\n", sm->n.r, sm->offset_page);
         pagecache_scan_shared_map(pc, sm);
     }
 }
@@ -814,7 +814,8 @@ void pagecache_commit_dirty_pages(pagecache pc)
         change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_WRITING);
         spin_unlock(&pc->state_lock);
 
-        apply(pp->node->fs_write, sg, irangel(page_offset(pp), cache_pagesize(pc)),
+        apply(pp->node->fs_write, sg,
+              irangel(page_offset(pp) << pc->page_order, cache_pagesize(pc)),
               closure(pc->h, pagecache_commit_complete, pc, pp));
 
         spin_lock(&pc->state_lock);

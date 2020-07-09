@@ -169,7 +169,7 @@ static void mmap_newfile_test(void)
     const size_t maplen = 1;
     void *addr;
 
-    fd = open("new_file", O_CREAT | O_EXCL | O_WRONLY, S_IRUSR | S_IWUSR);
+    fd = open("new_file", O_CREAT | O_EXCL | O_RDWR, S_IRUSR | S_IWUSR);
     if (fd < 0) {
         perror("new file open");
         exit(EXIT_FAILURE);
@@ -680,6 +680,8 @@ const unsigned char test_sha[2][32] = {
       0xf2, 0x71, 0xb0, 0xc5, 0xef, 0x5c, 0xf6, 0xaa,
       0x80, 0x9a, 0x0d, 0x33, 0x72, 0x3f, 0xec, 0x2d } };
 
+#define WRITE_STRESS_FILESIZE (10ull << 20)
+#define WRITE_STRESS_ITERATIONS WRITE_STRESS_FILESIZE
 static void filebacked_test(heap h)
 {
     int fd, rv;
@@ -815,6 +817,30 @@ static void filebacked_test(heap h)
 
     munmap(p, PAGESIZE);
     munmap(p2, PAGESIZE);
+    close(fd);
+
+    printf("** passed, starting MAP_SHARED write stress test\n");
+    fd = open("bazfile", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+    if (fd < 0)
+        handle_err("open bazfile");
+    p = mmap(NULL, WRITE_STRESS_FILESIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (p == (void *)-1ull)
+        handle_err("mmap bazfile");
+
+    for (int i = 0; i < WRITE_STRESS_ITERATIONS; i++) {
+        unsigned char *q = p + (rand() % WRITE_STRESS_FILESIZE);
+        *q = rand() % 256;
+    }
+    printf("** wrote test pattern, calling msync\n");
+    if (msync(p, WRITE_STRESS_FILESIZE, MS_SYNC) < 0)
+        handle_err("msync");
+
+    b = alloca_wrap_buffer(p, WRITE_STRESS_FILESIZE);
+    buffer_clear(sha);
+    sha256(sha, b);
+    rprintf("** bazfile sha256:\n%X", sha);
+
+    munmap(p, WRITE_STRESS_FILESIZE);
     close(fd);
     printf("** all file-backed tests passed\n");
 }
