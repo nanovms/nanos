@@ -138,13 +138,9 @@ void mm_service(void)
     }
 }
 
-closure_function(2, 3, void, attach_storage,
-                 tuple, root, u64, fs_offset,
-                 block_io, r, block_io, w, u64, length)
+static void rootfs_init(heap h, u8 *mbr, tuple root, u64 offset,
+                        block_io r, block_io w, u64 length)
 {
-    // with filesystem...should be hidden as functional handlers on the tuplespace
-    heap h = heap_general(&heaps);
-    u64 offset = bound(fs_offset);
     length -= offset;
     pagecache pc = allocate_pagecache(h, h, (heap)heap_physical(&heaps), PAGESIZE);
     if (pc == INVALID_ADDRESS)
@@ -155,12 +151,48 @@ closure_function(2, 3, void, attach_storage,
     create_filesystem(h,
                       SECTOR_SIZE,
                       length,
-                      closure(h, offset_block_io, bound(fs_offset), r),
-                      closure(h, offset_block_io, bound(fs_offset), w),
+                      closure(h, offset_block_io, offset, r),
+                      closure(h, offset_block_io, offset, w),
                       pc,
-                      bound(root),
+                      root,
                       false,
-                      closure(h, fsstarted, bound(root)));
+                      closure(h, fsstarted, root));
+    if (mbr)
+        deallocate(h, mbr, SECTOR_SIZE);
+}
+
+closure_function(6, 1, void, mbr_read,
+                 heap, h, u8 *, mbr, tuple, root, block_io, r, block_io, w, u64, length,
+                 status, s)
+{
+    if (!is_ok(s))
+        halt("unable to read partitions: %v\n", s);
+    heap h = bound(h);
+    u8 *mbr = bound(mbr);
+    struct partition_entry *rootfs_part = partition_get(mbr, PARTITION_ROOTFS);
+    if (!rootfs_part)
+        halt("filesystem partition not found\n");
+    else
+        rootfs_init(h, mbr, bound(root), rootfs_part->lba_start * SECTOR_SIZE,
+            bound(r), bound(w), bound(length));
+    closure_finish();
+}
+
+closure_function(2, 3, void, attach_storage,
+                 tuple, root, u64, fs_offset,
+                 block_io, r, block_io, w, u64, length)
+{
+    heap h = heap_general(&heaps);
+    tuple root = bound(root);
+    u64 offset = bound(fs_offset);
+    if (offset == 0) {
+        /* Read partition table from disk */
+        u8 *mbr = allocate(h, SECTOR_SIZE);
+        assert(mbr != INVALID_ADDRESS);
+        apply(r, mbr, irange(0, SECTOR_SIZE),
+              closure(h, mbr_read, h, mbr, root, r, w, length));
+    } else
+        rootfs_init(h, 0, root, offset, r, w, length);
     closure_finish();
 }
 
@@ -372,9 +404,11 @@ static void __attribute__((noinline)) init_service_new_stack()
     root = allocate_tuple();
     struct partition_entry *rootfs_part = partition_get(MBR_ADDRESS,
         PARTITION_ROOTFS);
+    u64 fs_offset;
     if (!rootfs_part)
-        halt("filesystem partition not found; halt\n");
-    u64 fs_offset = rootfs_part->lba_start * SECTOR_SIZE;
+        fs_offset = 0;
+    else
+        fs_offset = rootfs_part->lba_start * SECTOR_SIZE;
     init_storage(kh, closure(misc, attach_storage, root, fs_offset));
 
     /* Probe for PV devices */
