@@ -133,7 +133,7 @@ extern void *text_start;
 extern void *text_end;
 void __print_stack_with_rbp(u64 *rbp)
 {
-    for (unsigned int frame = 0; frame < 32; frame ++) {
+    for (unsigned int frame = 0; frame < 16; frame ++) {
         if ((u64) rbp < 4096ULL)
             break;
 
@@ -142,6 +142,8 @@ void __print_stack_with_rbp(u64 *rbp)
             break;
 
         u64 rip = rbp[1];
+        if (rip == 0)
+            break;
         rbp = (u64 *) rbp[0];
         print_u64_with_sym(rip);
         console("\n");
