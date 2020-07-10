@@ -202,7 +202,7 @@ declare_closure_struct(1, 1, context, default_fault_handler,
                        thread, t,
                        context, frame);
 declare_closure_struct(7, 0, void, thread_demand_file_page,
-                       thread, t, context, frame, pagecache_node, pn, u64, offset_page,
+                       thread, t, context, frame, pagecache_node, pn, u64, node_offset,
                        u64, page_addr, u64, flags, boolean, shared);
 declare_closure_struct(3, 1, void, thread_demand_file_page_complete,
                        thread, t, context, frame, u64, vaddr,
@@ -332,13 +332,13 @@ void epoll_finish(epoll e);
 #define VMAP_MMAP_TYPE_MASK       0x0f00
 #define VMAP_MMAP_TYPE_ANONYMOUS  0x0100
 #define VMAP_MMAP_TYPE_FILEBACKED 0x0200
-#define VMAP_MMAP_TYPE_IORING     0x0040
+#define VMAP_MMAP_TYPE_IORING     0x0400
 
 typedef struct vmap {
     struct rmnode node;
     u32 flags;
-    u32 offset_page;            /* page index */
     pagecache_node cache_node;
+    u64 node_offset;
 } *vmap;
 
 typedef struct varea {
@@ -347,7 +347,7 @@ typedef struct varea {
     boolean allow_fixed;
 } *varea;
 
-#define ivmap(__f, __o, __c) (struct vmap){.flags = __f, .offset_page = __o, .cache_node = __c}
+#define ivmap(__f, __o, __c) (struct vmap){.flags = __f, .node_offset = __o, .cache_node = __c}
 typedef closure_type(vmap_handler, void, vmap);
 
 static inline u64 page_map_flags(u64 vmflags)

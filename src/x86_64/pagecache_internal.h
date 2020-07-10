@@ -65,7 +65,7 @@ typedef struct pagecache_shared_map {
     struct rmnode n;            /* pn->shared */
     struct list l;              /* pc->shared_maps */
     pagecache_node pn;
-    u64 offset_page;            /* file offset of va.start in pages */
+    u64 node_offset;            /* file offset of va.start */
 } *pagecache_shared_map;
 
 #define PAGECACHE_PAGESTATE_SHIFT   61

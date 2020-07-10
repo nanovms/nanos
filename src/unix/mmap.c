@@ -7,12 +7,6 @@
 #define pf_debug(x, ...)
 #endif
 
-static inline u32 new_offset_page(vmap match, u64 byte_offset)
-{
-    assert((byte_offset & PAGEMASK) == 0);
-    return match->offset_page + (byte_offset >> PAGELOG);
-}
-
 #define vmap_lock(p) u64 _savedflags = spin_lock_irq(&(p)->vmap_lock)
 #define vmap_unlock(p) spin_unlock_irq(&(p)->vmap_lock, _savedflags)
 
@@ -41,6 +35,8 @@ closure_function(0, 1, void, kernel_demand_pf_complete,
     kernel_demand_page_completed = true;
 }
 
+static closure_struct(kernel_demand_pf_complete, do_kernel_demand_pf_complete);
+
 define_closure_function(3, 1, void, thread_demand_file_page_complete,
                         thread, t, context, frame, u64, vaddr,
                         status, s)
@@ -54,9 +50,9 @@ define_closure_function(3, 1, void, thread_demand_file_page_complete,
 }
 
 define_closure_function(6, 0, void, thread_demand_file_page,
-                        thread, t, context, frame, pagecache_node, pn, u64, offset_page, u64, page_addr, u64, flags)
+                        thread, t, context, frame, pagecache_node, pn, u64, node_offset, u64, page_addr, u64, flags)
 {
-    pagecache_map_page(bound(pn), bound(offset_page), bound(page_addr), bound(flags),
+    pagecache_map_page(bound(pn), bound(node_offset), bound(page_addr), bound(flags),
                        (status_handler)&bound(t)->demand_file_page_complete);
 }
 
@@ -87,25 +83,25 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
         zero(pointer_from_u64(vaddr_aligned), PAGESIZE);
     } else if (mmap_type == VMAP_MMAP_TYPE_FILEBACKED) {
         u64 page_addr = vaddr & ~PAGEMASK;
-        u64 offset_page = new_offset_page(vm, page_addr - vm->node.r.start);
+        u64 node_offset = vm->node_offset + (page_addr - vm->node.r.start);
         boolean shared = (vm->flags & VMAP_FLAG_SHARED) != 0;
         u64 flags = page_map_flags(vm->flags);
         if (!shared)
             flags &= ~PAGE_WRITABLE; /* cow */
         pf_debug("   node %p (start 0x%lx), offset 0x%lx\n",
-                 vm->cache_node, vm->node.r.start, offset_page << PAGELOG);
+                 vm->cache_node, vm->node.r.start, node_offset);
 
-        u64 npages = (pagecache_get_node_length(vm->cache_node) + PAGEMASK) >> PAGELOG;
-        pf_debug("   map length 0x%lx\n", npages << PAGELOG);
-        if (offset_page >= npages) {
-            pf_debug("   extends past map limit 0x%lx; sending SIGBUS...\n", npages << PAGELOG);
+        u64 padlen = pad(pagecache_get_node_length(vm->cache_node), PAGESIZE);
+        pf_debug("   map length 0x%lx\n", padlen);
+        if (node_offset >= padlen) {
+            pf_debug("   extends past map limit 0x%lx; sending SIGBUS...\n", padlen);
             if (in_kernel) {
                 /* It would be more graceful to let the kernel fault pass (perhaps using a dummy
                    or zero page) and eventually deliver the SIGBUS to the offending thread. For now,
                    assume this is an unrecoverable error and exit here. */
                 halt("%s: file-backed access in kernel mode outside of map range, "
                      "node %p (start 0x%lx), offset 0x%lx\n", vm->cache_node,
-                     vm->node.r.start, offset_page << PAGELOG);
+                     vm->node.r.start, node_offset);
             }
             deliver_fault_signal(SIGBUS, current, vaddr, BUS_ADRERR);
             return true;
@@ -117,8 +113,8 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
                fill, allocate memory, etc. */
             assert(!faulting_kernel_context);
             kernel_demand_page_completed = false;
-            pagecache_map_page(vm->cache_node, offset_page, page_addr, flags,
-                               closure(heap_general(get_kernel_heaps()), kernel_demand_pf_complete));
+            pagecache_map_page(vm->cache_node, node_offset, page_addr, flags,
+                               (status_handler)&do_kernel_demand_pf_complete);
             if (kernel_demand_page_completed) {
                 pf_debug("   immediate completion\n");
                 return true;
@@ -127,7 +123,7 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
         } else {
             /* A user fault can happen outside of the kernel lock. We can try to touch an existing
                page, but we can't allocate anything, fill a page or start a storage operation. */
-            if (pagecache_map_page_if_filled(vm->cache_node, offset_page, page_addr, flags)) {
+            if (pagecache_map_page_if_filled(vm->cache_node, node_offset, page_addr, flags)) {
                 pf_debug("   immediate completion\n");
                 return true;
             }
@@ -136,7 +132,7 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
             thread t = current;
             refcount_reserve(&t->refcount);
             init_closure(&t->demand_file_page, thread_demand_file_page, t, frame,
-                         vm->cache_node, offset_page, page_addr, flags);
+                         vm->cache_node, node_offset, page_addr, flags);
             init_closure(&t->demand_file_page_complete, thread_demand_file_page_complete, t, frame, vaddr);
             enqueue(runqueue, &t->demand_file_page);
         }
@@ -200,7 +196,7 @@ vmap allocate_vmap(rangemap rm, range q, struct vmap k)
         return vm;
     rmnode_init(&vm->node, q);
     vm->flags = k.flags;
-    vm->offset_page = k.offset_page;
+    vm->node_offset = k.node_offset;
     vm->cache_node = k.cache_node;
     if (!rangemap_insert(rm, &vm->node)) {
         deallocate(rm->h, vm, sizeof(struct vmap));
@@ -439,6 +435,7 @@ closure_function(4, 1, void, vmap_update_protections_intersection,
 
     range rn = node->r;
     range ri = range_intersection(bound(q), rn);
+    u64 node_offset = match->node_offset;
 
     boolean head = ri.start > rn.start;
     boolean tail = ri.end < rn.end;
@@ -457,25 +454,25 @@ closure_function(4, 1, void, vmap_update_protections_intersection,
 
         /* create node for intersection */
         assert(allocate_vmap(pvmap, ri, ivmap(newflags,
-                                              new_offset_page(match, ri.start - rn.start),
+                                              node_offset + (ri.start - rn.start),
                                               match->cache_node)) != INVALID_ADDRESS);
 
         if (tail) {
             /* create node at tail end */
             assert(allocate_vmap(pvmap, irange(ri.end, rn.end),
                                 ivmap(newflags,
-                                      new_offset_page(match, ri.end - rn.start),
+                                      node_offset + (ri.end - rn.start),
                                       match->cache_node)) != INVALID_ADDRESS);
         }
     } else if (tail) {
         /* move node start back */
         assert(rangemap_reinsert(pvmap, node, irange(ri.end, rn.end)));
-        match->offset_page = new_offset_page(match, ri.end - rn.start);
+        match->node_offset += ri.end - rn.start;
 
         /* create node for intersection */
         assert(allocate_vmap(pvmap, ri,
                              ivmap(newflags,
-                                   new_offset_page(match, ri.start - rn.start),
+                                   node_offset + (ri.start - rn.start),
                                    match->cache_node)) != INVALID_ADDRESS);
     }
 }
@@ -546,6 +543,7 @@ closure_function(3, 1, void, vmap_remove_intersection,
     /* trim match at both head and tail ends */
     boolean head = ri.start > rn.start;
     boolean tail = ri.end < rn.end;
+    u64 node_offset = match->node_offset;
 
     if (!head && !tail) {
         rangemap_remove_node(pvmap, node);
@@ -558,18 +556,18 @@ closure_function(3, 1, void, vmap_remove_intersection,
             /* create node at tail end */
             assert(allocate_vmap(pvmap, irange(ri.end, rn.end),
                                  ivmap(match->flags,
-                                       new_offset_page(match, ri.end - rn.start),
+                                       node_offset + (ri.end - rn.start),
                                        match->cache_node)) != INVALID_ADDRESS);
         }
     } else {
         /* tail only: move node start back */
         assert(rangemap_reinsert(pvmap, node, irange(ri.end, rn.end)));
-        match->offset_page = new_offset_page(match, ri.end - rn.start);
+        match->node_offset += ri.end - rn.start;
     }
 
     if (bound(unmap)) {
         struct vmap k = ivmap(match->flags,
-                              new_offset_page(match, ri.start - rn.start),
+                              node_offset + (ri.start - rn.start),
                               match->cache_node);
         k.node.r = ri;
         apply(bound(unmap), &k);
@@ -583,7 +581,7 @@ closure_function(4, 1, void, vmap_paint_gap,
     vmap k = &bound(k);
     assert(allocate_vmap(bound(pvmap), r,
                          ivmap(k->flags,
-                               new_offset_page(k, r.start - bound(q).start),
+                               k->node_offset + (r.start - bound(q).start),
                                k->cache_node)) != INVALID_ADDRESS);
 }
 
@@ -606,7 +604,7 @@ static void vmap_unmap_page_range(process p, vmap k)
         unmap_and_free_phys(r.start, len);
         break;
     case VMAP_MMAP_TYPE_FILEBACKED:
-        pagecache_node_unmap_pages(k->cache_node, r, k->offset_page);
+        pagecache_node_unmap_pages(k->cache_node, r, k->node_offset);
         break;
     case VMAP_MMAP_TYPE_IORING:
         unmap(r.start, len);
@@ -644,23 +642,23 @@ void truncate_file_maps(process p, fsfile f, u64 new_length)
         /* an invalidate would be preferable to a sync... */
         if (vm->cache_node != pn)
             continue;
-        u64 vm_extent = (vm->offset_page << PAGELOG) + range_span(n->r);
+        u64 vm_extent = vm->node_offset + range_span(n->r);
         s64 delta = vm_extent - padlen;
         if (delta <= 0)
             continue;
         range v = irange(n->r.end - delta, n->r.end);
         assert(v.start <= v.end);
-        u64 offset_page = vm->offset_page + ((v.start - n->r.start) >> PAGELOG);
-        pf_debug("%s: vmap %p, %R, delta 0x%lx, remove v %R, offset_page 0x%lx\n",
-                 __func__, vm, n->r, delta, v, offset_page);
-        pagecache_node_unmap_pages(pn, v, offset_page);
+        u64 node_offset = vm->node_offset + (v.start - n->r.start);
+        pf_debug("%s: vmap %p, %R, delta 0x%lx, remove v %R, node_offset 0x%lx\n",
+                 __func__, vm, n->r, delta, v, node_offset);
+        pagecache_node_unmap_pages(pn, v, node_offset);
     }
     vmap_unlock(p);
 }
 
 /* Paint into process vmap */
 static void vmap_paint(heap h, process p, u64 where, u64 len, u32 vmflags,
-                       pagecache_node cache_node, u32 offset_page)
+                       pagecache_node cache_node, u32 node_offset)
 {
     range q = irangel(where, len);
     assert((q.start & MASK(PAGELOG)) == 0);
@@ -672,7 +670,7 @@ static void vmap_paint(heap h, process p, u64 where, u64 len, u32 vmflags,
     vmap_handler vh = stack_closure(vmap_unmap, p);
     rangemap_range_lookup(pvmap, q, stack_closure(vmap_remove_intersection, pvmap, q, vh));
     rangemap_range_find_gaps(pvmap, q, stack_closure(vmap_paint_gap, h, pvmap, q,
-                                                     ivmap(vmflags, offset_page, cache_node)));
+                                                     ivmap(vmflags, node_offset, cache_node)));
 
     update_map_flags(q.start, range_span(q), page_map_flags(vmflags));
     vmap_unlock(p);
@@ -734,29 +732,30 @@ static sysreturn msync(void *addr, u64 length, int flags)
     thread_log(current, "%s: addr %p, length 0x%lx, flags %x", __func__,
                addr, length, flags);
 
+    int syncflags = MS_ASYNC | MS_SYNC;
     if ((flags & ~(MS_ASYNC | MS_SYNC | MS_INVALIDATE)) ||
-        (flags & (MS_ASYNC | MS_SYNC)) == (MS_ASYNC | MS_SYNC))
+        (flags & syncflags) == syncflags)
         return -EINVAL;
 
-    if (flags & MS_ASYNC)
-        return 0;               /* nop / default behavior */
-
-    /* TODO: Linux appears to only use this flag to test whether a map
-       is locked (and return -EBUSY if it is). We don't swap out
-       pages, so mlock is a stub for us. It's not clear if we will
-       later need to track locked status and test for this condition. */
-    if (flags & MS_INVALIDATE)
-        return 0;
-
-    process p = current->p;
-    range q = irangel(u64_from_pointer(addr), pad(length, PAGESIZE));
     boolean have_gap = false;
-    rangemap_range_lookup_with_gaps(p->vmaps, q,
-                                    stack_closure(msync_vmap),
-                                    stack_closure(msync_gap, &have_gap));
+    if (flags & MS_SYNC) {
+        range q = irangel(u64_from_pointer(addr), pad(length, PAGESIZE));
+        rangemap_range_lookup_with_gaps(current->p->vmaps, q,
+                                        stack_closure(msync_vmap),
+                                        stack_closure(msync_gap, &have_gap));
+    }
 
-    /* TODO: while an fsync for some types of filesystems makes sense
-       here, it doesn't seem to be necessary for vbs...? */
+    /* TODO: Linux appears to only use MS_INVALIDATE to test whether a
+       map is locked (and return -EBUSY if it is). We don't swap out
+       pages, so mlock is a stub for us. For now, assume that the safest
+       option here is to act as if all files are locked and return
+       -EBUSY - but this may need to be revisited. */
+    if (flags & MS_INVALIDATE)
+        return -EBUSY;
+
+    /* While an fsync for some types of filesystems makes sense here,
+       it doesn't seem to be necessary for block storage - unless some
+       use case would have an msync followed by a hard reset / poweroff. */
     return have_gap ? -ENOMEM : 0;
 }
 
@@ -880,10 +879,9 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
             assert(f->fsf);
             pagecache_node node = fsfile_get_cachenode(f->fsf);
             thread_log(current, "   associated with cache node %p @ offset 0x%lx", node, offset);
-            u64 offset_page = offset >> PAGELOG;
             if (vmflags & VMAP_FLAG_SHARED)
-                pagecache_node_add_shared_map(node, irangel(where, len), offset_page);
-            vmap_paint(h, p, where, len, vmflags, node, offset_page);
+                pagecache_node_add_shared_map(node, irangel(where, len), offset);
+            vmap_paint(h, p, where, len, vmflags, node, offset);
         }
         break;
     default:
@@ -962,6 +960,7 @@ void mmap_process_init(process p)
     assert(allocate_vmap(p->vmaps, irangel(VSYSCALL_BASE, PAGESIZE),
                          ivmap(VMAP_FLAG_EXEC, 0,0)) != INVALID_ADDRESS);
 
+    init_closure(&do_kernel_demand_pf_complete, kernel_demand_pf_complete);
 }
 
 void register_mmap_syscalls(struct syscall *map)

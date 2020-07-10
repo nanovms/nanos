@@ -76,11 +76,10 @@ static boolean handle_protection_fault(context frame, u64 vaddr, vmap vm)
             (vm->flags & VMAP_MMAP_TYPE_MASK) == VMAP_MMAP_TYPE_FILEBACKED) {
             /* copy on write */
             u64 vaddr_aligned = vaddr & ~MASK(PAGELOG);
-            u64 offset_page = vm->offset_page + ((vaddr_aligned - vm->node.r.start)
-                                                 >> PAGELOG);
-            pf_debug("copy-on-write for private map: vaddr 0x%lx, node %p, offset_page 0x%lx\n",
-                     vaddr, vm->cache_node, offset_page);
-            if (!pagecache_node_do_page_cow(vm->cache_node, offset_page, vaddr_aligned,
+            u64 node_offset = vm->node_offset + (vaddr_aligned - vm->node.r.start);
+            pf_debug("copy-on-write for private map: vaddr 0x%lx, node %p, node_offset 0x%lx\n",
+                     vaddr, vm->cache_node, node_offset);
+            if (!pagecache_node_do_page_cow(vm->cache_node, node_offset, vaddr_aligned,
                                             page_map_flags(vm->flags))) {
                 msg_err("cannot get physical page; OOM\n");
                 return false;

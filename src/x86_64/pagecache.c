@@ -731,7 +731,7 @@ closure_function(2, 3, boolean, pagecache_check_dirty_page,
     if (pt_entry_is_present(old_entry) &&
         pt_entry_is_pte(level, old_entry) &&
         pt_entry_is_dirty(old_entry)) {
-        u64 pi = sm->offset_page + ((vaddr - sm->n.r.start) >> PAGELOG);
+        u64 pi = (sm->node_offset + (vaddr - sm->n.r.start)) >> PAGELOG;
         pagecache_debug("   dirty: vaddr 0x%lx, pi 0x%lx\n", vaddr, pi);
         *entry = old_entry & ~PAGE_DIRTY;
         page_invalidate(vaddr, ignore);
@@ -756,7 +756,7 @@ static void pagecache_scan_shared_mappings(pagecache pc)
     pagecache_debug("%s\n", __func__);
     list_foreach(&pc->shared_maps, l) {
         pagecache_shared_map sm = struct_from_list(l, pagecache_shared_map, l);
-        pagecache_debug("   shared map va %R, offset_page 0x%lx\n", sm->n.r, sm->offset_page);
+        pagecache_debug("   shared map va %R, node_offset 0x%lx\n", sm->n.r, sm->node_offset);
         pagecache_scan_shared_map(pc, sm);
     }
 }
@@ -766,7 +766,7 @@ static void pagecache_scan_node(pagecache_node pn)
     pagecache_debug("%s\n", __func__);
     rangemap_foreach(pn->shared_maps, n) {
         pagecache_shared_map sm = (pagecache_shared_map)n;
-        pagecache_debug("   shared map va %R, offset_page 0x%lx\n", n->r, sm->offset_page);
+        pagecache_debug("   shared map va %R, node_offset 0x%lx\n", n->r, sm->node_offset);
         pagecache_scan_shared_map(pn->pv->pc, sm);
     }
 }
@@ -838,16 +838,15 @@ define_closure_function(1, 1, void, pagecache_scan_timer,
     pagecache_scan(bound(pc));
 }
 
-/* TODO offset really should be in bytes for consistency */
-void pagecache_node_add_shared_map(pagecache_node pn, range q /* bytes */, u64 offset_page)
+void pagecache_node_add_shared_map(pagecache_node pn, range q /* bytes */, u64 node_offset)
 {
     pagecache pc = pn->pv->pc;
     pagecache_shared_map sm = allocate(pc->h, sizeof(struct pagecache_shared_map));
     assert(sm != INVALID_ADDRESS);
     sm->n.r = q;
     sm->pn = pn;
-    sm->offset_page = offset_page;
-    pagecache_debug("%s: pn %p, q %R, offset_page 0x%lx\n", __func__, pn, q, offset_page);
+    sm->node_offset = node_offset;
+    pagecache_debug("%s: pn %p, q %R, node_offset 0x%lx\n", __func__, pn, q, node_offset);
     spin_lock(&pc->state_lock);
     list_insert_before(&pc->shared_maps, &sm->l);
     assert(rangemap_insert(pn->shared_maps, &sm->n));
@@ -892,13 +891,12 @@ closure_function(2, 1, void, close_shared_pages_intersection,
         if (tail) {
             /* create map at tail end */
             pagecache_node_add_shared_map(pn, irange(ri.end, rn.end),
-                                          sm->offset_page + ((ri.end - rn.start)
-                                                             >> pc->page_order));
+                                          sm->node_offset + (ri.end - rn.start));
         }
     } else {
         /* tail only: move map start back */
         assert(rangemap_reinsert(pn->shared_maps, n, irange(ri.end, rn.end)));
-        sm->offset_page += ((ri.end - rn.start) >> pc->page_order);
+        sm->node_offset += ri.end - rn.start;
     }
 }
 
@@ -928,16 +926,16 @@ void pagecache_node_scan_and_commit_shared_pages(pagecache_node pn, range q /* b
     pagecache_commit_dirty_pages(pn->pv->pc);
 }
 
-boolean pagecache_node_do_page_cow(pagecache_node pn, u64 offset_page, u64 vaddr, u64 flags)
+boolean pagecache_node_do_page_cow(pagecache_node pn, u64 node_offset, u64 vaddr, u64 flags)
 {
-    pagecache_debug("%s: node %p, offset_page 0x%lx, vaddr 0x%lx, flags 0x%lx\n",
-                    __func__, pn, offset_page, vaddr, flags);
+    pagecache_debug("%s: node %p, node_offset 0x%lx, vaddr 0x%lx, flags 0x%lx\n",
+                    __func__, pn, node_offset, vaddr, flags);
     pagecache pc = pn->pv->pc;
     u64 paddr = allocate_u64(pc->physical, PAGESIZE);
     if (paddr == INVALID_PHYSICAL)
         return false;
     spin_lock(&pn->pages_lock);
-    pagecache_page pp = page_lookup_nodelocked(pn, offset_page);
+    pagecache_page pp = page_lookup_nodelocked(pn, node_offset >> pc->page_order);
     assert(pp != INVALID_ADDRESS);
     /* just overwrite old pte */
     assert(flags & PAGE_WRITABLE);
@@ -963,26 +961,36 @@ closure_function(5, 1, void, map_page_finish,
     closure_finish();
 }
 
-void pagecache_map_page(pagecache_node pn, u64 offset_page, u64 vaddr, u64 flags,
+void pagecache_map_page(pagecache_node pn, u64 node_offset, u64 vaddr, u64 flags,
                         status_handler complete)
 {
     pagecache pc = pn->pv->pc;
     spin_lock(&pn->pages_lock);
-    pagecache_page pp = page_lookup_or_alloc_nodelocked(pn, offset_page);
+    u64 pi = node_offset >> pc->page_order;
+    pagecache_page pp = page_lookup_or_alloc_nodelocked(pn, pi);
+    pagecache_debug("%s: pn %p, node_offset 0x%lx, vaddr 0x%lx, flags 0x%lx, complete %F, pp %p\n",
+                    __func__, pn, node_offset, vaddr, flags, complete, pp);
+    if (pp == INVALID_ADDRESS) {
+        spin_unlock(&pn->pages_lock);
+        apply(complete, timm("result", "%s: unable to allocate pagecache page", __func__));
+        return;
+    }
     merge m = allocate_merge(pc->h, closure(pc->h, map_page_finish,
                                             pc, pp, vaddr, flags, complete));
     status_handler k = apply_merge(m);
-    touch_or_fill_page_by_num_nodelocked(pn, offset_page, m);
+    touch_or_fill_page_nodelocked(pn, pp, m);
     spin_unlock(&pn->pages_lock);
     apply(k, STATUS_OK);
 }
 
 /* no-alloc / no-fill path, meant to be safe outside of kernel lock */
-boolean pagecache_map_page_if_filled(pagecache_node pn, u64 offset_page, u64 vaddr, u64 flags)
+boolean pagecache_map_page_if_filled(pagecache_node pn, u64 node_offset, u64 vaddr, u64 flags)
 {
     boolean mapped = false;
     spin_lock(&pn->pages_lock);
-    pagecache_page pp = page_lookup_nodelocked(pn, offset_page);
+    pagecache_page pp = page_lookup_nodelocked(pn, node_offset >> pn->pv->pc->page_order);
+    pagecache_debug("%s: pn %p, node_offset 0x%lx, vaddr 0x%lx, flags 0x%lx, pp %p\n",
+                    __func__, pn, node_offset, vaddr, flags, pp);
     if (pp == INVALID_ADDRESS)
         goto out;
     if (touch_or_fill_page_nodelocked(pn, pp, 0)) {
@@ -996,13 +1004,13 @@ boolean pagecache_map_page_if_filled(pagecache_node pn, u64 offset_page, u64 vad
 
 /* need to move these to x86-specific pc routines */
 closure_function(3, 3, boolean, pagecache_unmap_page_nodelocked,
-                 pagecache_node, pn, u64, vaddr_base, u64, offset_page,
+                 pagecache_node, pn, u64, vaddr_base, u64, node_offset,
                  int, level, u64, vaddr, u64 *, entry)
 {
     u64 old_entry = *entry;
     if (pt_entry_is_present(old_entry) &&
         pt_entry_is_pte(level, old_entry)) {
-        u64 pi = bound(offset_page) + ((vaddr - bound(vaddr_base)) >> PAGELOG);
+        u64 pi = (bound(node_offset) + (vaddr - bound(vaddr_base))) >> PAGELOG;
         pagecache_debug("   vaddr 0x%lx, pi 0x%lx\n", vaddr, pi);
         *entry = 0;
         page_invalidate(vaddr, ignore);
@@ -1022,13 +1030,13 @@ closure_function(3, 3, boolean, pagecache_unmap_page_nodelocked,
     return true;
 }
 
-void pagecache_node_unmap_pages(pagecache_node pn, range v /* bytes */, u64 offset_page)
+void pagecache_node_unmap_pages(pagecache_node pn, range v /* bytes */, u64 node_offset)
 {
-    pagecache_debug("%s: pn %p, v %R, offset_page 0x%lx\n", __func__, pn, v, offset_page);
+    pagecache_debug("%s: pn %p, v %R, node_offset 0x%lx\n", __func__, pn, v, node_offset);
     pagecache_node_close_shared_pages(pn, v);
     spin_lock(&pn->pages_lock);
     traverse_ptes(v.start, range_span(v), stack_closure(pagecache_unmap_page_nodelocked, pn,
-                                                        v.start, offset_page));
+                                                        v.start, node_offset));
     spin_unlock(&pn->pages_lock);
 }
 #endif
