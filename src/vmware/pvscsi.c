@@ -438,7 +438,6 @@ closure_function(1, 0, void, pvscsi_rx_service_bh, pvscsi, dev)
         if (!pvscsi_action_io(dev, hcb))
             break;
         list_delete(i);
-        pvscsi_hcb_dealloc(dev, hcb);
     }
     spin_unlock(&dev->queue_lock);
 }
