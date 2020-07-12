@@ -6,6 +6,8 @@ typedef struct list {
 #define struct_from_list(l, s, f) ((s)pointer_from_u64(u64_from_pointer(l) - offsetof(s, f)))
 #define list_foreach(l, e) \
     for (list __next, e = list_begin(l); __next = e->next, e != list_end(l); e = __next)
+#define list_foreach_reverse(l, e) \
+    for (list __next, e = (l)->prev; __next = e->prev, e != (l); e = __next)
 
 static inline void list_init(struct list * head)
 {

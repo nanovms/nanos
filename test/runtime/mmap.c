@@ -6,18 +6,21 @@
 #include <time.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <setjmp.h>
+#include <signal.h>
 #include <string.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <errno.h>
 
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#define PAGELOG         12
-#define PAGELOG_2M      21
-#define PAGESIZE        (1ULL << PAGELOG)
-#define PAGESIZE_2M     (1ULL << PAGELOG_2M)
+/* for sha */
+#include <runtime.h>
+
+#define handle_err(s) do { perror(s); exit(EXIT_FAILURE);} while(0)
 
 /** Basic and intensive problem sizes **/
 typedef struct {
@@ -168,7 +171,7 @@ static void mmap_newfile_test(void)
     const size_t maplen = 1;
     void *addr;
 
-    fd = open("new_file", O_CREAT | O_EXCL | O_WRONLY, S_IRUSR | S_IWUSR);
+    fd = open("new_file", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
     if (fd < 0) {
         perror("new file open");
         exit(EXIT_FAILURE);
@@ -357,7 +360,8 @@ static void mmap_flags_to_str(char * str, unsigned long str_len,
     }
 }
 
-#define LARGE_MMAP_SIZE (32ull << 30)
+/* This used to be 32GB, which would not pass under Linux... */
+#define LARGE_MMAP_SIZE (4ull << 30)
 
 static void mmap_test(void)
 {
@@ -606,12 +610,15 @@ void mremap_test(void)
             exit(EXIT_FAILURE);
         }
 
+        /* Disabling this check for linux parity test... */
+#if 0
         tmp = mremap(map_addr, __mremap_INIT_SIZE, __mremap_INIT_SIZE*2, 
                 MREMAP_MAYMOVE | MREMAP_FIXED, map_addr+PAGESIZE);
         if (tmp != MAP_FAILED) {
             fprintf(stderr, "mremap succeeded with MREMAP_FIXED??\n");
             exit(EXIT_FAILURE);
         }
+#endif
     }
 
     /*
@@ -669,6 +676,279 @@ void mremap_test(void)
     printf("** all mremap tests passed\n");
 }
 
+const unsigned char test_sha[2][32] = {
+    { 0xca, 0xde, 0xc7, 0x27, 0x1e, 0xaa, 0xd4, 0xc6,
+      0x85, 0xa9, 0xc2, 0xc0, 0x57, 0x86, 0xf8, 0x12,
+      0xf5, 0x9c, 0xb1, 0xa5, 0xd4, 0xaf, 0x36, 0xe5,
+      0x99, 0x1e, 0xd7, 0xf9, 0xa7, 0x57, 0x74, 0x59 },
+    { 0xa6, 0x74, 0x1f, 0xae, 0xe2, 0x29, 0x45, 0xb7,
+      0x0e, 0x17, 0x9d, 0xa3, 0xe3, 0x27, 0xf6, 0x45,
+      0xf2, 0x71, 0xb0, 0xc5, 0xef, 0x5c, 0xf6, 0xaa,
+      0x80, 0x9a, 0x0d, 0x33, 0x72, 0x3f, 0xec, 0x2d } };
+
+#define WRITE_STRESS_FILESIZE (10ull << 20)
+#define WRITE_STRESS_ITERATIONS WRITE_STRESS_FILESIZE
+static void filebacked_test(heap h)
+{
+    int fd, rv;
+
+    printf("** starting file-backed tests\n");
+    fd = open("mapfile", O_RDWR);
+    if (fd < 0)
+        handle_err("open");
+
+    /* second page (to avoid readahead, if we implement it) */
+    void *p = mmap(NULL, PAGESIZE, PROT_READ, MAP_PRIVATE, fd, PAGESIZE);
+    if (p == (void *)-1ull)
+        handle_err("mmap mapfile, second page");
+    buffer b = alloca_wrap_buffer(p, PAGESIZE);
+    buffer test = alloca_wrap_buffer(test_sha[1], 32);
+    buffer sha = allocate_buffer(h, 32);
+    sha256(sha, b);
+    munmap(p, PAGESIZE);
+    if (!buffer_compare(sha, test)) {
+        rprintf("   sha mismatch for faulted page: %X\n", sha);
+        close(fd);
+        exit(EXIT_FAILURE);
+    }
+    printf("** faulted page sum matched, start kernel fault test\n");
+
+    int out = open("foofile", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+    if (out < 0)
+        handle_err("open 2");
+
+    rv = ftruncate(out, PAGESIZE);
+    if (rv < 0)
+        handle_err("ftruncate for foofile");
+
+    /* map first page of mapfile */
+    p = mmap(NULL, PAGESIZE, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (p == (void *)-1ull)
+        handle_err("mmap mapfile, first page");
+
+    /* induce kernel page fault by writing from mmaped area */
+    rv = write(out, p, PAGESIZE);
+    if (rv < 0)
+        handle_err("write");
+    if (rv < PAGESIZE)
+        printf("   short write: %d\n", rv);
+    munmap(p, PAGESIZE);
+    close(out);
+    close(fd);
+
+    /* verify content - this should already be in the cache
+       (tests fault "direct" return) */
+    printf("** faulting write complete, checking contents\n");
+    fd = open("foofile", O_RDWR);
+    if (fd < 0)
+        handle_err("open foofile for re-read");
+    p = mmap(NULL, PAGESIZE, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (p == (void *)-1ull)
+        handle_err("mmap foofile");
+    b = alloca_wrap_buffer(p, PAGESIZE);
+    test = alloca_wrap_buffer(test_sha[0], 32);
+    buffer_clear(sha);
+    sha256(sha, b);
+    munmap(p, PAGESIZE);
+    close(fd);
+    if (!buffer_compare(sha, test)) {
+        rprintf("   sha mismatch for faulted page 2: %X\n", sha);
+        close(fd);
+        exit(EXIT_FAILURE);
+    }
+
+    printf("** written page sum matched, starting shared map (write) test\n");
+    fd = open("barfile", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+    if (fd < 0)
+        handle_err("open barfile");
+    rv = ftruncate(fd, PAGESIZE);
+    if (rv < 0)
+        handle_err("ftruncate for barfile");
+    p = mmap(NULL, PAGESIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (p == (void *)-1ull)
+        handle_err("mmap barfile");
+    void *p2 = mmap(NULL, PAGESIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (p2 == (void *)-1ull)
+        handle_err("mmap barfile 2");
+    for (int i = 0; i < PAGESIZE; i++)
+        *(unsigned char *)(p + i) = i % 256;
+    buffer_clear(sha);
+    b = alloca_wrap_buffer(p, PAGESIZE);
+    buffer b2 = alloca_wrap_buffer(p2, PAGESIZE);
+    if (!buffer_compare(b, b2)) {
+        printf("   fail: content of secondary shared mmap doesn't match primary\n");
+        exit(EXIT_FAILURE);
+    }
+    printf("** contents of secondary shared mapping matches primary, calling msync\n");
+
+    /* test invalid flags */
+    if (msync(p, PAGESIZE, MS_SYNC | MS_ASYNC) == 0 || errno != EINVAL) {
+        printf("   msync: should have failed with EINVAL\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (msync(p, PAGESIZE, MS_SYNC) < 0)
+        handle_err("msync");
+    sha256(sha, b);
+    munmap(p, PAGESIZE);
+    munmap(p2, PAGESIZE);
+
+    /* TODO: need a way to invalidate some or all of the cache to
+       re-read and test barfile contents - for now just dump sha sum
+       so user can dump image and validate */
+    rprintf("** wrote to barfile, sha256:\n%X", sha);
+    rprintf("** testing MAP_PRIVATE maps\n");
+
+    p = mmap(NULL, PAGESIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+    if (p == (void *)-1ull)
+        handle_err("mmap barfile 3");
+    p2 = mmap(NULL, PAGESIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+    if (p2 == (void *)-1ull)
+        handle_err("mmap barfile 4");
+
+    if (memcmp(p, p2, PAGESIZE)) {
+        printf("   mismatch comparing two maps of same file; should be identical\n");
+        exit(EXIT_FAILURE);
+    }
+
+    (*(unsigned char *)p2)++;
+
+    if (!memcmp(p, p2, PAGESIZE)) {
+        printf("   maps identical after write to one; should differ\n");
+        exit(EXIT_FAILURE);
+    }
+
+    munmap(p, PAGESIZE);
+    p = mmap(NULL, PAGESIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+    if (p == (void *)-1ull)
+        handle_err("mmap barfile 5");
+
+    if (!memcmp(p, p2, PAGESIZE)) {
+        printf("   maps identical after re-mapping unmodified one; should differ\n");
+        exit(EXIT_FAILURE);
+    }
+
+    munmap(p, PAGESIZE);
+    munmap(p2, PAGESIZE);
+    close(fd);
+
+    printf("** passed, starting MAP_SHARED write stress test\n");
+    fd = open("bazfile", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+    if (fd < 0)
+        handle_err("open bazfile");
+    rv = ftruncate(fd, WRITE_STRESS_FILESIZE);
+    if (rv < 0)
+        handle_err("ftruncate for bazfile");
+    p = mmap(NULL, WRITE_STRESS_FILESIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (p == (void *)-1ull)
+        handle_err("mmap bazfile");
+
+    for (int i = 0; i < WRITE_STRESS_ITERATIONS; i++) {
+        unsigned char *q = p + (rand() % WRITE_STRESS_FILESIZE);
+        *q = rand() % 256;
+    }
+    printf("** wrote test pattern, calling msync\n");
+    if (msync(p, WRITE_STRESS_FILESIZE, MS_SYNC) < 0)
+        handle_err("msync");
+
+    b = alloca_wrap_buffer(p, WRITE_STRESS_FILESIZE);
+    buffer_clear(sha);
+    sha256(sha, b);
+    rprintf("** bazfile sha256:\n%X", sha);
+    munmap(p, WRITE_STRESS_FILESIZE);
+    close(fd);
+
+    printf("** testing partial unmaps (vmap edits)\n");
+    fd = open("unmapme", O_RDONLY);
+    if (fd < 0)
+        handle_err("open unmapme");
+    p = mmap(NULL, PAGESIZE * 5, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (p == (void *)-1ull)
+        handle_err("mmap unmapme");
+
+    printf("   offset unmap (head remain)\n");
+    munmap(p + (PAGESIZE * 4), PAGESIZE);
+
+    printf("   unmap at start (tail remain)\n");
+    (void)*((volatile unsigned long *)p); /* induce offset_page computation bug */
+    munmap(p, PAGESIZE);
+
+    printf("   unmap in middle (head and tail remain)\n");
+    munmap(p + (PAGESIZE * 2), PAGESIZE);
+
+    printf("   unmap of remaining, isolated pages (neither head nor tail)\n");
+    munmap(p + PAGESIZE, PAGESIZE);
+    munmap(p + (PAGESIZE * 3), PAGESIZE);
+    close(fd);
+    printf("** all file-backed tests passed\n");
+}
+
+static volatile int expect_sigbus = 0;
+static sigjmp_buf sjb;
+
+static void handle_sigbus(int sig, siginfo_t *si, void *ucontext)
+{
+    printf("** received %s: sig %d, si_errno %d, si_code %d, addr 0x%lx\n",
+           strsignal(sig), sig, si->si_errno, si->si_code, (unsigned long)si->si_addr);
+    if (!expect_sigbus) {
+        printf("  not expected; test failed\n");
+        exit(EXIT_FAILURE);
+    }
+    if (sig != SIGBUS || si->si_code != BUS_ADRERR) {
+       printf("  unexpected signal or error code; test failed\n");
+        exit(EXIT_FAILURE);
+    }
+    siglongjmp(sjb, 1);
+}
+
+static void filebacked_sigbus_test(void)
+{
+    printf("** starting mmap SIGBUS test\n");
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = handle_sigbus;
+    sa.sa_flags |= SA_SIGINFO;
+    int rv = sigaction(SIGBUS, &sa, 0);
+    if (rv < 0)
+        handle_err("sigaction");
+
+    int out = open("busfile", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+    if (out < 0)
+        handle_err("open for busfile");
+
+    printf("** truncate file to two pages\n");
+    rv = ftruncate(out, PAGESIZE * 2);
+    if (rv < 0)
+        handle_err("ftruncate for busfile");
+
+    void *p = mmap(NULL, PAGESIZE * 2, PROT_READ | PROT_WRITE, MAP_PRIVATE, out, 0);
+    if (p == (void *)-1ull)
+        handle_err("mmap busfile");
+
+    printf("** write to both pages (should not cause fault)\n");
+    expect_sigbus = 0;
+    *(unsigned long *)p = 0;
+    *(unsigned long *)(p + PAGESIZE) = 0;
+
+    printf("** truncate to one page and write first page\n");
+    rv = ftruncate(out, PAGESIZE);
+    if (rv < 0)
+        handle_err("ftruncate for busfile 2");
+
+    *(unsigned long *)p = 0;
+    printf("** write to second page (should cause SIGBUS)\n");
+    if (sigsetjmp(sjb, 1)) {
+        printf("** SIGBUS test passed\n");
+        munmap(p, PAGESIZE);
+        close(out);
+    } else {
+        expect_sigbus = 1;
+        *(unsigned long *)(p + PAGESIZE) = 0;
+        printf("** failed; map access should have caused SIGBUS\n");
+        exit(EXIT_FAILURE);
+    }
+}
+
 int main(int argc, char * argv[])
 {
     /*
@@ -689,6 +969,8 @@ int main(int argc, char * argv[])
     mmap_test();
     mincore_test();
     mremap_test();
+    filebacked_test(init_process_runtime());
+    filebacked_sigbus_test();
 
     printf("\n**** all tests passed ****\n");
 

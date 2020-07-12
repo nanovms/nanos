@@ -72,12 +72,6 @@ static inline u64 pteaddr_from_pointer(u64 *p)
 }
 #endif
 
-static inline u64 page_from_pte(u64 pte)
-{
-    /* page directory pointer base address [51:12] */
-    return pte & (MASK(52) & ~PAGEMASK);
-}
-
 static inline u64 flags_from_pte(u64 pte)
 {
     return pte & PAGE_FLAGS_MASK;
@@ -476,9 +470,9 @@ closure_function(1, 3, boolean, unmap_page,
         *entry = 0;
         page_invalidate(vaddr, ignore);
         if (rh) {
-            u64 phys = page_from_pte(old_entry);
-            range p = irange(phys, phys + (pt_entry_is_fat(level, old_entry) ? PAGESIZE_2M : PAGESIZE));
-            apply(rh, p);
+            apply(rh, irangel(page_from_pte(old_entry),
+                              (pt_entry_is_fat(level, old_entry) ?
+                               PAGESIZE_2M : PAGESIZE)));
         }
     }
     return true;

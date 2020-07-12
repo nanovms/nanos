@@ -144,14 +144,12 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
         ci->state = cpu_kernel;
         timer_service(runloop_timers, now(CLOCK_ID_MONOTONIC));
 
-        /* serve bhqueue to completion */
+        /* serve bhqueue and runqueue to completion */
         while ((t = dequeue(bhqueue)) != INVALID_ADDRESS) {
             run_thunk(t, cpu_kernel);
         }
 
-        /* serve existing, but not additionally queued (deferred), items on runqueue */
-        u64 n_rq = queue_length(runqueue);
-        while (n_rq-- > 0 && (t = dequeue(runqueue)) != INVALID_ADDRESS) {
+        while ((t = dequeue(runqueue)) != INVALID_ADDRESS) {
             run_thunk(t, cpu_kernel);
         }
 

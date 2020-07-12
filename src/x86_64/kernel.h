@@ -10,11 +10,15 @@
 
 typedef u64 *context;
 
-context allocate_frame(heap h);
-void deallocate_frame(context);
+#define KERNEL_STACK_WORDS (KERNEL_STACK_SIZE / sizeof(u64))
+typedef struct kernel_context {
+    u64 stackbase[KERNEL_STACK_WORDS];
+    u64 frame[0];
+} *kernel_context;
 
 typedef struct cpuinfo {
-    /*** Fields accessed by low-level entry points. Don't move them. ***/
+    /*** Fields accessed by low-level entry points. ***/
+    /* Don't move these without updating gs-relative accesses in crt0.s ***/
 
     /* For accessing cpuinfo via %gs:0; must be first */
     void *self;
@@ -22,15 +26,11 @@ typedef struct cpuinfo {
     /* This points to the frame of the current, running context. +8 */
     context running_frame;
 
-    /* Default frame installed at kernel entry points (init, syscall)
-       and calls to runloop. Used only to capture (terminal) faults
-       and never returned to. +16 */
-    context kernel_frame;
+    /* Default frame and stack installed at kernel entry points (init,
+       syscall) and calls to runloop. +16 */
+    kernel_context kernel_context;
 
-    /* Stack installed at kernel entry points and runloop. Offset +24. */
-    void * kernel_stack;
-
-    /* One temporary for syscall enter to use so that we don't need to touch the user stack. +32 */
+    /* One temporary for syscall enter to use so that we don't need to touch the user stack. +24 */
     u64 tmp;
 
     /*** End of fields touched by kernel entries ***/
@@ -80,6 +80,11 @@ static inline cpuinfo current_cpu(void)
     return (cpuinfo)pointer_from_u64(addr);
 }
 
+static inline boolean is_current_kernel_context(context f)
+{
+    return f == current_cpu()->kernel_context->frame;
+}
+
 static inline context get_running_frame(void)
 {
     return current_cpu()->running_frame;
@@ -90,12 +95,18 @@ static inline void set_running_frame(context f)
     current_cpu()->running_frame = f;
 }
 
+static inline void *stack_from_kernel_context(kernel_context c)
+{
+    return ((void*)c->stackbase) + KERNEL_STACK_SIZE - STACK_ALIGNMENT;
+}
+
 void runloop_internal() __attribute__((noreturn));
 
 static inline __attribute__((noreturn)) void runloop(void)
 {
-    set_running_frame(current_cpu()->kernel_frame);
-    switch_stack(current_cpu()->kernel_stack, runloop_internal);
+    set_running_frame(current_cpu()->kernel_context->frame);
+    switch_stack(stack_from_kernel_context(current_cpu()->kernel_context),
+                 runloop_internal);
     while(1);                   /* kill warning */
 }
 
@@ -107,6 +118,15 @@ static inline __attribute__((noreturn)) void runloop(void)
 boolean breakpoint_insert(u64 a, u8 type, u8 length);
 boolean breakpoint_remove(u32 a);
 
+context allocate_frame(heap h);
+void deallocate_frame(context);
+void *allocate_stack(heap h, u64 size);
+void deallocate_stack(heap h, u64 size, void *stack);
+kernel_context allocate_kernel_context(heap h);
+void deallocate_kernel_context(kernel_context c);
+void init_kernel_contexts(heap backed);
+kernel_context suspend_kernel_context(void);
+void resume_kernel_context(kernel_context c);
 void frame_return(context frame) __attribute__((noreturn));
 
 void msi_map_vector(int slot, int msislot, int vector);
@@ -134,7 +154,16 @@ typedef struct queue *queue;
 extern queue bhqueue;
 extern queue runqueue;
 extern queue thread_queue;
-timerheap runloop_timers;
+extern timerheap runloop_timers;
+
+static inline void bhqueue_enqueue_irqsafe(thunk t)
+{
+    /* an interrupted enqueue and competing enqueue from int handler could cause a
+       deadlock; disable ints for safe enqueue from any context */
+    u64 flags = irq_disable_save();
+    enqueue(bhqueue, t);
+    irq_restore(flags);
+}
 
 heap physically_backed(heap meta, heap virtual, heap physical, u64 pagesize);
 void physically_backed_dealloc_virtual(heap h, u64 x, bytes length);
@@ -162,7 +191,6 @@ void register_interrupt(int vector, thunk t, const char *name);
 void unregister_interrupt(int vector);
 void triple_fault(void) __attribute__((noreturn));
 void start_cpu(heap h, heap stackheap, int index, void (*ap_entry)());
-void *allocate_stack(heap pages, u64 size);
 void install_idt(void);
 
 #define IST_EXCEPTION 1

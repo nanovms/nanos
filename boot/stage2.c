@@ -297,7 +297,7 @@ void newstack()
 
     setup_page_tables();
 
-    pagecache pc = allocate_pagecache(h, h, PAGESIZE);
+    pagecache pc = allocate_pagecache(h, h, 0, PAGESIZE);
     assert(pc != INVALID_ADDRESS);
     create_filesystem(h,
                       SECTOR_SIZE,

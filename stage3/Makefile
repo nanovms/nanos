@@ -83,6 +83,7 @@ SRCS-stage3.img= \
 	$(SRCDIR)/x86_64/flush.c \
 	$(SRCDIR)/x86_64/hpet.c \
 	$(SRCDIR)/x86_64/interrupt.c \
+	$(SRCDIR)/x86_64/kernel.c \
 	$(SRCDIR)/x86_64/kvm_platform.c \
 	$(SRCDIR)/x86_64/mp.c \
 	$(SRCDIR)/x86_64/page.c \

@@ -5,6 +5,7 @@
 #include <syscalls.h>
 #include <system_structs.h>
 #include <pagecache.h>
+#include <page.h>
 #include <tfs.h>
 #include <unix.h>
 
@@ -200,6 +201,12 @@ declare_closure_struct(1, 0, void, run_sighandler,
 declare_closure_struct(1, 1, context, default_fault_handler,
                        thread, t,
                        context, frame);
+declare_closure_struct(7, 0, void, thread_demand_file_page,
+                       thread, t, context, frame, pagecache_node, pn, u64, node_offset,
+                       u64, page_addr, u64, flags, boolean, shared);
+declare_closure_struct(3, 1, void, thread_demand_file_page_complete,
+                       thread, t, context, frame, u64, vaddr,
+                       status, s);
 
 /* XXX probably should bite bullet and allocate these... */
 #define FRAME_MAX_PADDED ((FRAME_MAX + 15) & ~15)
@@ -229,6 +236,8 @@ typedef struct thread {
     closure_struct(run_thread, run_thread);
     closure_struct(run_sighandler, run_sighandler);
     closure_struct(default_fault_handler, fault_handler);
+    closure_struct(thread_demand_file_page, demand_file_page);
+    closure_struct(thread_demand_file_page_complete, demand_file_page_complete);
 
     epoll select_epoll;
     int *clear_tid;
@@ -312,20 +321,46 @@ struct file {
 
 void epoll_finish(epoll e);
 
-#define VMAP_FLAG_MMAP          1
-#define VMAP_FLAG_ANONYMOUS     2
-#define VMAP_FLAG_WRITABLE      4
-#define VMAP_FLAG_EXEC          8
-#define VMAP_FLAG_PREALLOC     16
+#define VMAP_FLAG_EXEC     0x0001
+#define VMAP_FLAG_WRITABLE 0x0002
+#define VMAP_FLAG_READABLE 0x0004
+
+#define VMAP_FLAG_MMAP     0x0010
+#define VMAP_FLAG_SHARED   0x0020 /* vs private; same semantics as unix */
+#define VMAP_FLAG_PREALLOC 0x0040
+
+#define VMAP_MMAP_TYPE_MASK       0x0f00
+#define VMAP_MMAP_TYPE_ANONYMOUS  0x0100
+#define VMAP_MMAP_TYPE_FILEBACKED 0x0200
+#define VMAP_MMAP_TYPE_IORING     0x0400
 
 typedef struct vmap {
     struct rmnode node;
-    u64 flags;
+    u32 flags;
+    pagecache_node cache_node;
+    u64 node_offset;
 } *vmap;
 
+typedef struct varea {
+    struct rmnode node;
+    id_heap h;
+    boolean allow_fixed;
+} *varea;
+
+#define ivmap(__f, __o, __c) (struct vmap){.flags = __f, .node_offset = __o, .cache_node = __c}
 typedef closure_type(vmap_handler, void, vmap);
 
-vmap allocate_vmap(rangemap rm, range r, u64 flags);
+static inline u64 page_map_flags(u64 vmflags)
+{
+    u64 flags = PAGE_NO_FAT | PAGE_USER;
+    if ((vmflags & VMAP_FLAG_EXEC) == 0)
+        flags |= PAGE_NO_EXEC;
+    if ((vmflags & VMAP_FLAG_WRITABLE))
+        flags |= PAGE_WRITABLE;
+    return flags;
+}
+
+vmap allocate_vmap(rangemap rm, range r, struct vmap q);
 boolean adjust_process_heap(process p, range new);
 
 typedef struct file *file;
@@ -567,6 +602,7 @@ static inline sigaction sigaction_from_sig(int signum)
 boolean dispatch_signals(thread t);
 void deliver_signal_to_thread(thread t, struct siginfo *);
 void deliver_signal_to_process(process p, struct siginfo *);
+void deliver_fault_signal(u32 signo, thread t, u64 vaddr, s32 si_code);
 
 void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *name);
 
@@ -595,9 +631,11 @@ boolean unix_timers_init(unix_heaps uh);
 #define sysreturn_from_pointer(__x) ((s64)u64_from_pointer(__x));
 
 extern sysreturn syscall_ignore();
-boolean do_demand_page(u64 vaddr, vmap vm);
+boolean do_demand_page(u64 vaddr, vmap vm, context frame);
 vmap vmap_from_vaddr(process p, u64 vaddr);
 void vmap_iterator(process p, vmap_handler vmh);
+void truncate_file_maps(process p, fsfile f, u64 new_length);
+const char *string_from_mmap_type(int type);
 
 void thread_log_internal(thread t, const char *desc, ...);
 #define thread_log(__t, __desc, ...) thread_log_internal(__t, __desc, ##__VA_ARGS__)
