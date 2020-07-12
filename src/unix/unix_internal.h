@@ -319,6 +319,8 @@ struct file {
     u64 length;
 };
 
+sysreturn ioctl_generic(fdesc f, unsigned long request, vlist ap);
+
 void epoll_finish(epoll e);
 
 #define VMAP_FLAG_EXEC     0x0001

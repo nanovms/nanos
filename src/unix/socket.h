@@ -83,22 +83,7 @@ static inline void socket_flush_q(struct sock *s)
 static inline sysreturn socket_ioctl(struct sock *s, unsigned long request,
         vlist ap)
 {
-    switch (request) {
-    case FIONBIO: {
-        int *opt = varg(ap, int *);
-        if (!validate_user_memory(opt, sizeof(int), false))
-            return -EFAULT;
-        if (*opt) {
-            s->f.flags |= SOCK_NONBLOCK;
-        }
-        else {
-            s->f.flags &= ~SOCK_NONBLOCK;
-        }
-        return 0;
-    }
-    default:
-        return -ENOSYS;
-    }
+    return ioctl_generic(&s->f, request, ap);
 }
 
 sysreturn unixsock_open(int type, int protocol);

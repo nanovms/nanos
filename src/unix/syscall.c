@@ -1941,27 +1941,45 @@ sysreturn fcntl(int fd, int cmd, s64 arg)
     }
 }
 
-sysreturn ioctl(int fd, unsigned long request, ...)
+sysreturn ioctl_generic(fdesc f, unsigned long request, vlist ap)
 {
-    // checks if fd is valid
-    fdesc f = resolve_fd(current->p, fd);
-
-    if (f->ioctl) {
-        vlist args;
-        vstart(args, request);
-        sysreturn rv = apply(f->ioctl, request, args);
-        vend(args);
-        return set_syscall_return(current, rv);
-    }
     switch (request) {
-    case FIONBIO:
+    case FIONBIO: {
+        int *opt = varg(ap, int *);
+        if (!validate_user_memory(opt, sizeof(int), false))
+            return -EFAULT;
+        if (*opt) {
+            f->flags |= O_NONBLOCK;
+        }
+        else {
+            f->flags &= ~O_NONBLOCK;
+        }
+        return 0;
+    }
     case FIONCLEX:
     case FIOCLEX:
         return 0;
     default:
-        thread_log(current, "ioctl: fd %d, request %x - not implemented", fd, request);
-        return set_syscall_error(current, ENOSYS);
+        return -ENOSYS;
     }
+}
+
+sysreturn ioctl(int fd, unsigned long request, ...)
+{
+    thread_log(current, "ioctl: fd %d, request 0x%x", fd, request);
+
+    // checks if fd is valid
+    fdesc f = resolve_fd(current->p, fd);
+
+    vlist args;
+    sysreturn rv;
+    vstart(args, request);
+    if (f->ioctl)
+        rv = apply(f->ioctl, request, args);
+    else
+        rv = ioctl_generic(f, request, args);
+    vend(args);
+    return rv;
 }
 
 sysreturn syscall_ignore()
