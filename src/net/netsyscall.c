@@ -733,7 +733,7 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
                     addr->family = AF_INET;
                     runtime_memcpy(&addr->address, netif_ip4_addr(netif),
                             sizeof(ip4_addr_t));
-                    len += sizeof(ifconf->ifc);
+                    len += sizeof(struct ifreq);
                     iface++;
                 }
             }
