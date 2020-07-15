@@ -340,11 +340,12 @@ SRCS-readv = \
 LDFLAGS-readv=		-static
 
 CFLAGS+=	-DENABLE_MSG_DEBUG
-CFLAGS+=	-I$(SRCDIR)/http \
+CFLAGS+=	-I$(ARCHDIR) \
+		-I$(SRCDIR)/http \
+		-I$(SRCDIR)/kernel \
 		-I$(SRCDIR)/runtime \
 		-I$(SRCDIR)/unix \
-		-I$(SRCDIR)/unix_process \
-		-I$(SRCDIR)/x86_64
+		-I$(SRCDIR)/unix_process
 
 CLEANDIRS+=	$(OBJDIR)/test
 

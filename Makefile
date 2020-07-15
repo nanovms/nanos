@@ -1,4 +1,4 @@
-SUBDIR=		contgen mkfs boot stage3 test
+SUBDIR=		boot stage3 test tools
 
 # runtime tests / ready-to-use targets
 TARGET=		webg
@@ -7,7 +7,7 @@ ifneq ($(NANOS_TARGET_ROOT),)
 TARGET_ROOT_OPT=	-r $(NANOS_TARGET_ROOT)
 endif
 
-MKFS=		$(OUTDIR)/mkfs/bin/mkfs
+MKFS=		$(OUTDIR)/tools/bin/mkfs
 BOOTIMG=	$(OUTDIR)/boot/boot.img
 STAGE3=		$(OUTDIR)/stage3/bin/stage3.img
 
@@ -56,10 +56,10 @@ release: mkfs boot stage3
 	$(CP) $(STAGE3) release
 	cd release && $(TAR) -czvf nanos-release-$(REL_OS)-${version}.tar.gz *
 
-contgen:
-	$(Q) $(MAKE) -C $@
+contgen mkfs vdsogen:
+	$(Q) $(MAKE) -C tools $@
 
-mkfs boot: contgen
+boot: contgen
 	$(Q) $(MAKE) -C $@
 
 stage3: $(LWIPDIR)/.vendored contgen

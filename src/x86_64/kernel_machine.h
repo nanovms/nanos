@@ -1,3 +1,7 @@
+#if !(defined(KERNEL) || defined(BOOT))
+#error must be in kernel or bootloader build
+#endif
+
 #define STACK_ALIGNMENT     16
 
 #define VIRTUAL_ADDRESS_BITS 48
@@ -36,26 +40,6 @@
 #define FLAG_INTERRUPT 9
 
 #define TSS_SIZE 0x68
-
-static inline void compiler_barrier(void)
-{
-    asm volatile("" ::: "memory");
-}
-
-static inline void write_barrier(void)
-{
-    asm volatile("sfence" ::: "memory");
-}
-
-static inline void read_barrier(void)
-{
-    asm volatile("lfence" ::: "memory");
-}
-
-static inline void memory_barrier(void)
-{
-    asm volatile("mfence" ::: "memory");
-}
 
 static inline void cpuid(u32 fn, u32 ecx, u32 * v)
 {
@@ -101,29 +85,6 @@ static inline void irq_restore(u64 flags)
         enable_interrupts();
 }
 
-static inline void kern_pause(void)
-{
-    asm volatile("pause");
-}
-
-// move to crt0? probably a little atomic library? we get the old value for free also
-// these dont need to be atomic since its under the runloop spinlock..except for the interrupt
-// wakeup
-static inline void atomic_set_bit(u64 *target, u64 bit)
-{
-    asm volatile("lock btsq %1, %0": "+m"(*target): "r"(bit) : "memory");
-}
-
-static inline void atomic_clear_bit(u64 *target, u64 bit)
-{
-    asm volatile("lock btrq %1, %0": "+m"(*target):"r"(bit) : "memory");
-}
-
-static inline u64 fetch_and_add_64(u64 *target, u64 num)
-{
-    return __sync_fetch_and_add(target, num);
-}
-
 #include <lock.h>
 
 extern u64 read_msr(u64);
@@ -140,6 +101,17 @@ extern void write_xmsr(u64, u64);
         asm volatile("mov %%rdx, %%rsp"::);                     \
         asm volatile("jmp *%%rax"::);                           \
     }
+
+/* for vdso */
+#define do_syscall(sysnr, rdi, rsi) ({\
+    sysreturn rv;\
+    asm("syscall"\
+        : "=a" (rv)\
+        : "0" (sysnr), "D" (rdi), "S"(rsi)\
+        : "memory"\
+    );\
+    rv;\
+})
 
 static inline u64 xsave_frame_size(void)
 {

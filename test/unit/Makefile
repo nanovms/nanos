@@ -133,11 +133,12 @@ SRCS-vector_test= \
 	$(SRCDIR)/unix_process/unix_process_runtime.c
 
 
-CFLAGS+=	-I$(SRCDIR)/http \
+CFLAGS+=	-I$(ARCHDIR) \
+		-I$(SRCDIR)/http \
+		-I$(SRCDIR)/kernel \
 		-I$(SRCDIR)/runtime \
 		-I$(SRCDIR)/unix_process \
 		-I$(SRCDIR)/unix \
-		-I$(SRCDIR)/x86_64
 #CFLAGS+=	-DENABLE_MSG_DEBUG -DID_HEAP_DEBUG
 
 CLEANDIRS+=	$(OBJDIR)/test

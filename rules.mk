@@ -6,14 +6,17 @@ SRCDIR=		$(ROOTDIR)/src
 OUTDIR=		$(ROOTDIR)/output
 OBJDIR=		$(subst $(ROOTDIR),$(OUTDIR),$(CURDIR))
 VENDORDIR=	$(ROOTDIR)/vendor
+TOOLDIR=	$(OUTDIR)/tools/bin
 UNAME_s=	$(shell uname -s)
+ARCH?=		$(shell uname -m)
+ARCHDIR=	$(SRCDIR)/$(ARCH)
 
 # To reveal verbose build messages, override Q= in command line.
 Q=		@
 
 ECHO=		echo
 CAT=		cat
-CC=		cc
+CC=		$(CROSS_COMPILE)gcc
 CP=		cp
 DD=		dd
 ifeq ($(UNAME_s),Darwin)
@@ -24,14 +27,18 @@ endif
 GIT=		git
 GO=		go
 MKDIR=		mkdir -p
-NASM=		nasm
+ifeq ($(ARCH),x86_64)
+AS=		nasm
+else
+AS=		$(CROSS_COMPILE)as
+endif
 LD=		$(CC)
 LN=		ln
 SED=		sed
-STRIP=		strip
+STRIP=		$(CROSS_COMPILE)strip
 TAR=		tar
-OBJCOPY=	objcopy
-OBJDUMP=	objdump
+OBJCOPY=	$(CROSS_COMPILE)objcopy
+OBJDUMP=	$(CROSS_COMPILE)objdump
 RM=		rm -f
 TOUCH=		touch
 
@@ -92,8 +99,8 @@ cmd_ld=		$(LD) $(LDFLAGS) $(LDFLAGS-$(@F)) $(OBJS_BEGIN) $(filter %.o,$^) $(LIBS
 msg_cc=		CC	$@
 cmd_cc=		$(CC) $(DEPFLAGS) $(CFLAGS) $(CFLAGS-$(<F)) -c $< -o $@
 
-msg_nasm=	NASM	$@
-cmd_nasm=	$(NASM) $(AFLAGS) $(AFLAGS-$(<F)) $< -o $@
+msg_as=		AS	$@
+cmd_as=		$(AS) $(AFLAGS) $(AFLAGS-$(<F)) $< -o $@
 
 msg_go=		GO	$@
 cmd_go=		$(GO_ENV) $(GO) build $(GOFLAGS) -o $@ $^
@@ -114,9 +121,7 @@ define build_program
 PROG-$1=	$(OBJDIR)/bin/$1
 OBJS-$1=	$$(foreach s,$$(filter %.c %.s,$$(SRCS-$1)),$$(call objfile,.o,$$s))
 OBJDIRS-$1=	$$(sort $$(dir $$(OBJS-$1)))
-ifneq ($$(filter $(SRCDIR)/runtime/%.c,$$(SRCS-$1)),)
 GENHEADERS-$1=	$(OBJDIR)/closure_templates.h
-endif
 DEPS-$1=	$$(patsubst %.o,%.d,$$(OBJS-$1))
 
 .PHONY: $1
@@ -144,16 +149,15 @@ endif
 ##############################################################################
 # closure_templates
 
-CONTGEN=	$(OUTDIR)/contgen/bin/contgen
+ifeq ($(CONTGEN),)
+CONTGEN=	$(OUTDIR)/tools/bin/contgen
+$(CONTGEN):
+	@$(MAKE) -C $(ROOTDIR)/tools contgen
+endif
 
 $(OBJDIR)/closure_templates.h: $(CONTGEN)
 	@$(MKDIR) $(dir $@)
 	$(call cmd,contgen)
-
-ifeq ($(filter contgen,$(PROGRAMS)),)
-$(CONTGEN):
-	@$(MAKE) -C $(ROOTDIR)/contgen
-endif
 
 ##############################################################################
 # clean
@@ -183,7 +187,7 @@ cleandepend:
 
 $(OBJDIR)/%.o: $(ROOTDIR)/%.s
 	@$(MKDIR) $(dir $@)
-	$(call cmd,nasm)
+	$(call cmd,as)
 
 $(OBJDIR)/%.o: $(ROOTDIR)/%.c $(OBJDIR)/%.d | $(sort $(GENHEADERS))
 	@$(MKDIR) $(dir $@)

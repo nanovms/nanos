@@ -18,7 +18,7 @@ func defaultConfig() lepton.Config {
 
 	c.Boot = "../../output/boot/boot.img"
 	c.Kernel = "../../output/stage3/bin/stage3.img"
-	c.Mkfs = "../../output/mkfs/bin/mkfs"
+	c.Mkfs = "../../output/tools/bin/mkfs"
 	c.NameServer = "8.8.8.8"
 
 	c.Env = make(map[string]string)

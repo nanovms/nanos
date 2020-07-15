@@ -2,7 +2,7 @@
 #if !defined(BOOT) && !defined(STAGE3)
 #include <unix_process_runtime.h>
 #endif
-
+#include <machine.h>
 #include <attributes.h>
 
 typedef u8 boolean;
@@ -158,9 +158,6 @@ typedef void *value;
 #include <closure.h>
 #include <closure_templates.h>
 typedef closure_type(thunk, void);
-
-/* architectural deps for data structures */
-#include <x86_64.h>
 
 /* data structures */
 #include <list.h>

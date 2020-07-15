@@ -7,8 +7,14 @@
      page fault fills can go to head of request queue
 */
 
+/* don't care for this ... but we're used in both kernel and other contexts ... maybe split up */
+#ifdef KERNEL
 #include <kernel.h>
 #include <page.h>
+#else
+#include <runtime.h>
+#endif
+
 #include <pagecache.h>
 #include <pagecache_internal.h>
 
@@ -70,6 +76,35 @@ static inline void pagelist_touch(pagelist pl, pagecache_page pp)
     list_delete(&pp->l);
     list_insert_before(&pl->l, &pp->l);
 }
+
+#ifdef KERNEL
+static inline void pagecache_lock_state(pagecache pc)
+{
+    spin_lock(&pc->state_lock);
+}
+
+static inline void pagecache_unlock_state(pagecache pc)
+{
+    spin_unlock(&pc->state_lock);
+}
+
+/* TODO revisit node locking */
+static inline void pagecache_lock_node(pagecache_node pn)
+{
+    spin_lock(&pn->pages_lock);
+}
+
+static inline void pagecache_unlock_node(pagecache_node pn)
+{
+    spin_unlock(&pn->pages_lock);
+}
+
+#else
+#define pagecache_lock_state(pc)
+#define pagecache_unlock_state(pc)
+#define pagecache_lock_node(pn)
+#define pagecache_unlock_node(pn)
+#endif
 
 static inline void change_page_state_locked(pagecache pc, pagecache_page pp, int state)
 {
@@ -207,10 +242,10 @@ closure_function(3, 1, void, pagecache_read_page_complete,
         /* TODO need policy for capturing/reporting I/O errors... */
         msg_err("error reading page 0x%lx: %v\n", page_offset(pp) << pc->page_order, s);
     }
-    spin_lock(&pc->state_lock);
+    pagecache_lock_state(pc);
     change_page_state_locked(bound(pc), pp, PAGECACHE_PAGESTATE_NEW);
     pagecache_page_queue_completions_locked(pc, pp, s);
-    spin_unlock(&pc->state_lock);
+    pagecache_unlock_state(pc);
     sg_list_release(bound(sg));
     deallocate_sg_list(bound(sg));
     closure_finish();
@@ -229,7 +264,7 @@ static boolean touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page p
     pagecache_volume pv = pn->pv;
     pagecache pc = pv->pc;
 
-    spin_lock(&pc->state_lock);
+    pagecache_lock_state(pc);
     pagecache_debug("%s: pn %p, pp %p, m %p, state %d\n", __func__, pn, pp, m, page_state(pp));
     switch (page_state(pp)) {
     case PAGECACHE_PAGESTATE_READING:
@@ -237,7 +272,7 @@ static boolean touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page p
             enqueue_page_completion_statelocked(pc, pp, apply_merge(m));
             refcount_reserve(&pp->refcount);
         }
-        spin_unlock(&pc->state_lock);
+        pagecache_unlock_state(pc);
         return false;
     case PAGECACHE_PAGESTATE_ALLOC:
         if (m) {
@@ -245,7 +280,7 @@ static boolean touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page p
             change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_READING);
             refcount_reserve(&pp->refcount);
         }
-        spin_unlock(&pc->state_lock);
+        pagecache_unlock_state(pc);
 
         if (m) {
             /* issue page reads */
@@ -279,7 +314,7 @@ static boolean touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page p
         halt("%s: invalid state %d\n", __func__, page_state(pp));
     }
     refcount_reserve(&pp->refcount);
-    spin_unlock(&pc->state_lock);
+    pagecache_unlock_state(pc);
     return true;
 }
 
@@ -320,7 +355,9 @@ static pagecache_page allocate_page_nodelocked(pagecache_node pn, u64 offset)
     pp->kvirt = p;
     pp->node = pn;
     pp->l.next = pp->l.prev = 0;
+#ifdef KERNEL
     pp->phys = physical_from_virtual(p);
+#endif
     pp->completions = 0;
     assert(rbtree_insert_node(&pn->pages, &pp->rbnode));
     fetch_and_add(&pc->total_pages, 1); /* decrement happens without cache lock */
@@ -412,7 +449,7 @@ closure_function(5, 1, void, pagecache_write_sg_finish,
     pagecache_debug("%s: pn %p, q %R, sg %p, complete %d, status %v\n", __func__, pn, q,
                     sg, bound(complete), s);
 
-    spin_lock(&pn->pages_lock);
+    pagecache_lock_node(pn);
     pagecache_page pp = page_lookup_nodelocked(pn, pi);
     if (bound(complete)) {
         /* TODO: We handle storage errors after the syscall write
@@ -439,19 +476,19 @@ closure_function(5, 1, void, pagecache_write_sg_finish,
 
         do {
             assert(pp != INVALID_ADDRESS && page_offset(pp) == pi);
-            spin_lock(&pc->state_lock);
+            pagecache_lock_state(pc);
             assert(pp->write_count > 0);
             if (pp->write_count-- == 1) {
                 if (page_state(pp) != PAGECACHE_PAGESTATE_DIRTY)
                     change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_NEW);
                 pagecache_page_queue_completions_locked(pc, pp, s);
             }
-            spin_unlock(&pc->state_lock);
+            pagecache_unlock_state(pc);
 // TODO            refcount_release(&pp->refcount);
             pi++;
             pp = (pagecache_page)rbnode_get_next((rbnode)pp);
         } while (pi < end);
-        spin_unlock(&pn->pages_lock);
+        pagecache_unlock_node(pn);
         closure_finish();
         return;
     }
@@ -464,7 +501,7 @@ closure_function(5, 1, void, pagecache_write_sg_finish,
     if (sg) {
         write_sg = allocate_sg_list();
         if (write_sg == INVALID_ADDRESS) {
-            spin_unlock(&pn->pages_lock);
+            pagecache_unlock_node(pn);
             apply(bound(completion), timm("result", "failed to allocate write sg"));
             closure_finish();
             return;
@@ -477,7 +514,7 @@ closure_function(5, 1, void, pagecache_write_sg_finish,
             assert(offset == 0 && block_offset == 0); /* should never alloc for unaligned head */
             pp = allocate_page_nodelocked(pn, pi);
             if (pp == INVALID_ADDRESS) {
-                spin_unlock(&pn->pages_lock);
+                pagecache_unlock_node(pn);
                 apply(bound(completion), timm("result", "failed to allocate pagecache_page"));
                 if (write_sg) {
                     sg_list_release(write_sg);
@@ -515,15 +552,15 @@ closure_function(5, 1, void, pagecache_write_sg_finish,
         } else {
             zero(pp->kvirt + offset, copy_len);
         }
-        spin_lock(&pc->state_lock);
+        pagecache_lock_state(pc);
         change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_WRITING);
-        spin_unlock(&pc->state_lock);
+        pagecache_unlock_state(pc);
         offset = 0;
         block_offset = 0;
         pi++;
         pp = (pagecache_page)rbnode_get_next((rbnode)pp);
     } while (pi < end);
-    spin_unlock(&pn->pages_lock);
+    pagecache_unlock_node(pn);
 
     /* issue write */
     bound(complete) = true;
@@ -566,7 +603,7 @@ closure_function(1, 3, void, pagecache_write_sg,
     u64 start_offset = q.start & MASK(pc->page_order);
     u64 end_offset = q.end & MASK(pc->page_order);
     range r = range_rshift(q, pc->page_order);
-    spin_lock(&pn->pages_lock);
+    pagecache_lock_node(pn);
     if (start_offset != 0) {
         touch_or_fill_page_by_num_nodelocked(pn, q.start >> pc->page_order, m);
         r.start++;
@@ -581,13 +618,13 @@ closure_function(1, 3, void, pagecache_write_sg,
     pagecache_page pp = page_lookup_nodelocked(pn, r.start);
     while (pp != INVALID_ADDRESS && page_offset(pp) < r.end) {
         refcount_reserve(&pp->refcount);
-        spin_lock(&pc->state_lock);
+        pagecache_lock_state(pc);
         if (page_state(pp) == PAGECACHE_PAGESTATE_READING)
             enqueue_page_completion_statelocked(pc, pp, apply_merge(m));
-        spin_unlock(&pc->state_lock);
+        pagecache_unlock_state(pc);
         pp = (pagecache_page)rbnode_get_next((rbnode)pp);
     }
-    spin_unlock(&pn->pages_lock);
+    pagecache_unlock_node(pn);
     apply(sh, STATUS_OK);
 }
 
@@ -615,9 +652,9 @@ u64 pagecache_drain(pagecache pc, u64 drain_bytes)
 
     // XXX TODO This is a race issue on SMP now ... the locking scheme here needs to be rehashed
 //    spin_lock(&pc->pages_lock);
-    spin_lock(&pc->state_lock);
+    pagecache_lock_state(pc);
     u64 evicted = evict_pages_locked(pc, pages);
-    spin_unlock(&pc->state_lock);
+    pagecache_unlock_state(pc);
 //    spin_unlock(&pc->pages_lock);
     return evicted << pc->page_order;
 }
@@ -630,16 +667,16 @@ static void pagecache_finish_pending_writes(pagecache pc, pagecache_volume pv, p
 {
     pagecache_page pp = 0;
     /* If writes are pending, tack completion onto the mostly recently written page. */
-    spin_lock(&pc->state_lock);
+    pagecache_lock_state(pc);
     list_foreach_reverse(&pc->writing.l, l) {
         pp = struct_from_list(l, pagecache_page, l);
         if ((!pn || pp->node == pn) && (!pv || pp->node->pv == pv)) {
             enqueue_page_completion_statelocked(pc, pp, complete);
-            spin_unlock(&pc->state_lock);
+            pagecache_unlock_state(pc);
             return;
         }
     }
-    spin_unlock(&pc->state_lock);
+    pagecache_unlock_state(pc);
     apply(complete, STATUS_OK);
 }
 
@@ -688,13 +725,13 @@ closure_function(1, 3, void, pagecache_read_sg,
         q.end = pn->length;
     k.state_offset = q.start >> pc->page_order;
     u64 end = (q.end + MASK(pc->page_order)) >> pc->page_order;
-    spin_lock(&pn->pages_lock);
+    pagecache_lock_node(pn);
     pagecache_page pp = (pagecache_page)rbtree_lookup(&pn->pages, &k.rbnode);
     for (u64 pi = k.state_offset; pi < end; pi++) {
         if (pp == INVALID_ADDRESS || page_offset(pp) > pi) {
             pp = allocate_page_nodelocked(pn, pi);
             if (pp == INVALID_ADDRESS) {
-                spin_unlock(&pn->pages_lock);
+                pagecache_unlock_node(pn);
                 apply(apply_merge(m), timm("result", "failed to allocate pagecache_page"));
                 return;
             }
@@ -712,7 +749,7 @@ closure_function(1, 3, void, pagecache_read_sg,
         touch_or_fill_page_nodelocked(pn, pp, m);
         pp = (pagecache_page)rbnode_get_next((rbnode)pp);
     }
-    spin_unlock(&pn->pages_lock);
+    pagecache_unlock_node(pn);
 
     /* finished issuing requests */
     apply(sh, STATUS_OK);
@@ -737,10 +774,10 @@ closure_function(2, 3, boolean, pagecache_check_dirty_page,
         page_invalidate(vaddr, ignore);
         pagecache_page pp = page_lookup_nodelocked(sm->pn, pi);
         assert(pp != INVALID_ADDRESS);
-        spin_lock(&pc->state_lock);
+        pagecache_lock_state(pc);
         if (page_state(pp) != PAGECACHE_PAGESTATE_DIRTY)
             change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_DIRTY);
-        spin_unlock(&pc->state_lock);
+        pagecache_unlock_state(pc);
     }
     return true;
 }
@@ -782,21 +819,21 @@ closure_function(2, 1, void, pagecache_commit_complete,
         pagecache_debug("%s: write_error now %v\n", __func__, s);
         pp->node->pv->write_error = s;
     }
-    spin_lock(&pc->state_lock);
+    pagecache_lock_state(pc);
     assert(pp->write_count > 0);
     if (pp->write_count-- == 1) {
         if (page_state(pp) != PAGECACHE_PAGESTATE_DIRTY)
             change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_NEW);
         pagecache_page_queue_completions_locked(pc, pp, s);
     }
-    spin_unlock(&pc->state_lock);
+    pagecache_unlock_state(pc);
     closure_finish();
 }
 
 void pagecache_commit_dirty_pages(pagecache pc)
 {
     pagecache_debug("%s\n", __func__);
-    spin_lock(&pc->state_lock);
+    pagecache_lock_state(pc);
 
     /* It might be more efficient to move these to a temporary list,
        issue writes and then resolve on merge completion... */
@@ -811,15 +848,15 @@ void pagecache_commit_dirty_pages(pagecache pc)
         sgb->refcount = &pp->refcount;
         refcount_reserve(&pp->refcount);
         change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_WRITING);
-        spin_unlock(&pc->state_lock);
+        pagecache_unlock_state(pc);
 
         apply(pp->node->fs_write, sg,
               irangel(page_offset(pp) << pc->page_order, cache_pagesize(pc)),
               closure(pc->h, pagecache_commit_complete, pc, pp));
 
-        spin_lock(&pc->state_lock);
+        pagecache_lock_state(pc);
     }
-    spin_unlock(&pc->state_lock);
+    pagecache_unlock_state(pc);
 }
 
 static void pagecache_scan(pagecache pc)
@@ -847,7 +884,7 @@ void pagecache_node_add_shared_map(pagecache_node pn, range q /* bytes */, u64 n
     sm->pn = pn;
     sm->node_offset = node_offset;
     pagecache_debug("%s: pn %p, q %R, node_offset 0x%lx\n", __func__, pn, q, node_offset);
-    spin_lock(&pc->state_lock);
+    pagecache_lock_state(pc);
     list_insert_before(&pc->shared_maps, &sm->l);
     assert(rangemap_insert(pn->shared_maps, &sm->n));
     if (!pc->scan_timer) {
@@ -855,7 +892,7 @@ void pagecache_node_add_shared_map(pagecache_node pn, range q /* bytes */, u64 n
         pc->scan_timer = register_timer(runloop_timers, CLOCK_ID_MONOTONIC, t, false, t,
                                         (timer_handler)&pc->do_scan_timer);
     }
-    spin_unlock(&pc->state_lock);
+    pagecache_unlock_state(pc);
 }
 
 closure_function(2, 1, void, close_shared_pages_intersection,
@@ -934,14 +971,14 @@ boolean pagecache_node_do_page_cow(pagecache_node pn, u64 node_offset, u64 vaddr
     u64 paddr = allocate_u64(pc->physical, PAGESIZE);
     if (paddr == INVALID_PHYSICAL)
         return false;
-    spin_lock(&pn->pages_lock);
+    pagecache_lock_node(pn);
     pagecache_page pp = page_lookup_nodelocked(pn, node_offset >> pc->page_order);
     assert(pp != INVALID_ADDRESS);
     /* just overwrite old pte */
     assert(flags & PAGE_WRITABLE);
     map(vaddr, paddr, cache_pagesize(pc), flags);
     runtime_memcpy(pointer_from_u64(vaddr), pp->kvirt, cache_pagesize(pc));
-    spin_unlock(&pn->pages_lock);
+    pagecache_unlock_node(pn);
     refcount_release(&pp->refcount);
     return true;
 }
@@ -965,13 +1002,13 @@ void pagecache_map_page(pagecache_node pn, u64 node_offset, u64 vaddr, u64 flags
                         status_handler complete)
 {
     pagecache pc = pn->pv->pc;
-    spin_lock(&pn->pages_lock);
+    pagecache_lock_node(pn);
     u64 pi = node_offset >> pc->page_order;
     pagecache_page pp = page_lookup_or_alloc_nodelocked(pn, pi);
     pagecache_debug("%s: pn %p, node_offset 0x%lx, vaddr 0x%lx, flags 0x%lx, complete %F, pp %p\n",
                     __func__, pn, node_offset, vaddr, flags, complete, pp);
     if (pp == INVALID_ADDRESS) {
-        spin_unlock(&pn->pages_lock);
+        pagecache_unlock_node(pn);
         apply(complete, timm("result", "%s: unable to allocate pagecache page", __func__));
         return;
     }
@@ -979,7 +1016,7 @@ void pagecache_map_page(pagecache_node pn, u64 node_offset, u64 vaddr, u64 flags
                                             pc, pp, vaddr, flags, complete));
     status_handler k = apply_merge(m);
     touch_or_fill_page_nodelocked(pn, pp, m);
-    spin_unlock(&pn->pages_lock);
+    pagecache_unlock_node(pn);
     apply(k, STATUS_OK);
 }
 
@@ -987,7 +1024,7 @@ void pagecache_map_page(pagecache_node pn, u64 node_offset, u64 vaddr, u64 flags
 boolean pagecache_map_page_if_filled(pagecache_node pn, u64 node_offset, u64 vaddr, u64 flags)
 {
     boolean mapped = false;
-    spin_lock(&pn->pages_lock);
+    pagecache_lock_node(pn);
     pagecache_page pp = page_lookup_nodelocked(pn, node_offset >> pn->pv->pc->page_order);
     pagecache_debug("%s: pn %p, node_offset 0x%lx, vaddr 0x%lx, flags 0x%lx, pp %p\n",
                     __func__, pn, node_offset, vaddr, flags, pp);
@@ -998,7 +1035,7 @@ boolean pagecache_map_page_if_filled(pagecache_node pn, u64 node_offset, u64 vad
         map_page(pn->pv->pc, pp, vaddr, flags);
     }
   out:
-    spin_unlock(&pn->pages_lock);
+    pagecache_unlock_node(pn);
     return mapped;
 }
 
@@ -1034,10 +1071,10 @@ void pagecache_node_unmap_pages(pagecache_node pn, range v /* bytes */, u64 node
 {
     pagecache_debug("%s: pn %p, v %R, node_offset 0x%lx\n", __func__, pn, v, node_offset);
     pagecache_node_close_shared_pages(pn, v);
-    spin_lock(&pn->pages_lock);
+    pagecache_lock_node(pn);
     traverse_ptes(v.start, range_span(v), stack_closure(pagecache_unmap_page_nodelocked, pn,
                                                         v.start, node_offset));
-    spin_unlock(&pn->pages_lock);
+    pagecache_unlock_node(pn);
 }
 #endif
 
@@ -1104,7 +1141,9 @@ pagecache_node pagecache_allocate_node(pagecache_volume pv, sg_io fs_read, sg_io
         deallocate(h, pn, sizeof(struct pagecache_node));
         return INVALID_ADDRESS;
     }
+#ifdef KERNEL
     spin_lock_init(&pn->pages_lock);
+#endif
     list_insert_before(&pv->nodes, &pn->l);
     init_rbtree(&pn->pages, closure(h, pagecache_page_compare),
                 closure(h, pagecache_page_print_key, pv->pc));
@@ -1175,7 +1214,9 @@ pagecache allocate_pagecache(heap general, heap contiguous, heap physical, u64 p
         return INVALID_ADDRESS;
     }
 
+#ifdef KERNEL
     spin_lock_init(&pc->state_lock);
+#endif
     page_list_init(&pc->free);
     page_list_init(&pc->new);
     page_list_init(&pc->active);

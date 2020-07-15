@@ -355,6 +355,9 @@ static void new_cpu()
 u64 xsave_features();
 u64 xsave_frame_size();
 
+/* XXX machine dep */
+#define MBR_ADDRESS 0x7c00
+
 static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = &heaps;
