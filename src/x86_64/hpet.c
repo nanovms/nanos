@@ -2,6 +2,8 @@
 #include <pci.h>
 #include <page.h>
 
+#include "apic.h"
+
 #define HPET_TABLE_ADDRESS 0xfed00000ull
 #define HPET_MAXIMUM_INCREMENT_PERIOD 0x05F5E100ul /* 100ns */
 
@@ -93,7 +95,10 @@ struct HPETMemoryMap {
 
 static volatile struct HPETMemoryMap* hpet;
 static timestamp hpet_period_scaled_32;
-static int hpet_interrupts[4];
+static struct hpet_timer_cfg {
+    int interrupt;
+    u64 config;
+} hpet_timers[4];
 
 static u64 hpet_config_get() __attribute__((noinline));
 
@@ -116,23 +121,46 @@ static u64 hpet_main_counter()
 
 static void timer_config(int timer, timestamp rate, thunk t, boolean periodic)
 {
-    if (!hpet_interrupts[timer]) {
-        u32 a, d;
-        hpet_interrupts[timer] = allocate_interrupt();
-        msi_format(&a, &d, hpet_interrupts[timer]);
-        hpet->timers[timer].fsb_int = ((u64)a << 32) | d;
-        register_interrupt(hpet_interrupts[timer], t, "hpet timer");
+    struct hpet_timer_cfg *tim = &hpet_timers[timer];
+    if (!tim->interrupt) {
+        tim->config = TCONF(32MODE_CNF) | TCONF(INT_ENB_CNF);
+        tim->interrupt = allocate_interrupt();
+        if (hpet->timers[timer].config & TCONF(FSB_INT_DEL_CAP)) {
+            u32 a, d;
+            msi_format(&a, &d, tim->interrupt);
+            hpet->timers[timer].fsb_int = ((u64)a << 32) | d;
+            tim->config |= TCONF(FSB_EN_CNF);
+        } else {
+            u32 route_cap = field_from_u64(hpet->timers[timer].config,
+                HPET_TIMER_CONFIG_INT_ROUTE_CAP);
+            int gsi = -1;
+            for (int i = 0; i < 32; i++) {
+                /* Avoid interrupt #2, which is the interrupt used by the I8254
+                 * timer (PIT), otherwise interrupts from the PIT will uselessly
+                 * wake up the CPU periodically. */
+                if ((i != 2) && (route_cap & (1 << i)) &&
+                        ioapic_int_is_free(i)) {
+                    gsi = i;
+                    break;
+                }
+            }
+            assert(gsi >= 0);
+            ioapic_set_int(gsi, tim->interrupt);
+            tim->config |= gsi << HPET_TIMER_CONFIG_INT_ROUTE_CNF_SHIFT;
+        }
+        register_interrupt(tim->interrupt, t, "hpet timer");
     }
 
-    u64 c = TCONF(FSB_EN_CNF) | TCONF(32MODE_CNF) | TCONF(INT_ENB_CNF);
     if (periodic) {
         if ((hpet->timers[timer].config & TCONF(PER_INT_CAP)) == 0) {
 	    console("HPET timer not capable of periodic interrupts.\n");
 	    return;
 	}
-	c |= TCONF(VAL_SET_CNF) | TCONF(TYPE_CNF);
+        tim->config |= TCONF(VAL_SET_CNF) | TCONF(TYPE_CNF);
+    } else {
+        tim->config &= ~(TCONF(VAL_SET_CNF) | TCONF(TYPE_CNF));
     }
-    hpet->timers[timer].config = c;
+    hpet->timers[timer].config = tim->config;
 
     /* We don't have __udivti3, so there's some loss of precision with
        seconds, otherwise use:

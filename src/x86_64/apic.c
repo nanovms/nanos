@@ -2,6 +2,23 @@
 #include <page.h>
 #include <apic.h>
 
+/* In theory, the MMIO base address of I/O APIC(s) should be retrieved from the
+ * ACPI MADT, but in practice the first I/O APIC is usually at the address
+ * below. */
+#define IOAPIC_MEMBASE  0xFEC00000ull
+
+#define IOAPIC_IOREGSEL 0x00
+#define IOAPIC_IOWIN    0x10
+
+#define IOAPIC_REG_ID       0x00
+#define IOAPIC_REG_VER      0x01
+#define IOAPIC_REG_PRIO     0x02
+#define IOAPIC_REG_REDIR    0x10
+
+#define IOAPIC_INT_MASK     16
+
+#define IOAPIC_REDIR_DEST   24
+
 //#define APIC_DEBUG
 #ifdef APIC_DEBUG
 #define apic_debug(x, ...) do {rprintf("APIC: " x, ##__VA_ARGS__);} while(0)
@@ -115,6 +132,46 @@ void apic_enable(void)
 
 extern struct apic_iface xapic_if, x2apic_if;
 
+static void *ioapic_vbase;
+
+static void ioapic_init(kernel_heaps kh, u64 membase)
+{
+    ioapic_vbase = allocate((heap)heap_virtual_page(kh), PAGESIZE);
+    assert(ioapic_vbase != INVALID_ADDRESS);
+    map(u64_from_pointer(ioapic_vbase), membase, PAGESIZE, PAGE_DEV_FLAGS);
+}
+
+static u32 ioapic_read(int reg)
+{
+    *(volatile u32 *)(ioapic_vbase + IOAPIC_IOREGSEL) = reg;
+    write_barrier();
+    return *(volatile u32 *)(ioapic_vbase + IOAPIC_IOWIN);
+}
+
+static void ioapic_write(int reg, u32 data)
+{
+    *(volatile u32 *)(ioapic_vbase + IOAPIC_IOREGSEL) = reg;
+    write_barrier();
+    *(volatile u32 *)(ioapic_vbase + IOAPIC_IOWIN) = data;
+}
+
+void ioapic_set_int(unsigned int gsi, u64 v)
+{
+    /* Fixed delivery mode, physical destination, active high polarity,
+     * edge-triggered. */
+    ioapic_write(IOAPIC_REG_REDIR + 2 * gsi + 1,
+        apic_id() << IOAPIC_REDIR_DEST);
+    ioapic_write(IOAPIC_REG_REDIR + 2 * gsi, v);
+}
+
+boolean ioapic_int_is_free(unsigned int gsi)
+{
+    unsigned int num_redir = (ioapic_read(IOAPIC_REG_VER) >> 16) & 0xFF;
+    if (gsi >= num_redir)
+        return false;
+    return !!(ioapic_read(IOAPIC_REG_REDIR + 2 * gsi) & (1 << IOAPIC_INT_MASK));
+}
+
 void init_apic(kernel_heaps kh)
 {
     apic_heap = heap_general(kh);
@@ -134,4 +191,5 @@ void init_apic(kernel_heaps kh)
 
     apic_per_cpu_init();
     apic_enable();
+    ioapic_init(kh, IOAPIC_MEMBASE);
 }

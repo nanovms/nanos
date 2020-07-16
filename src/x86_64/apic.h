@@ -66,6 +66,9 @@ void apic_ipi(u32 target, u64 flags, u8 vector);
 void apic_per_cpu_init(void);
 void apic_enable(void);
 
+void ioapic_set_int(unsigned int gsi, u64 v);
+boolean ioapic_int_is_free(unsigned int gsi);
+
 extern apic_iface apic_if;
 
 static inline u8 apic_id(void)
