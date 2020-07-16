@@ -134,6 +134,7 @@ SRCS-vector_test= \
 
 
 CFLAGS+=	-I$(ARCHDIR) \
+		-I$(SRCDIR) \
 		-I$(SRCDIR)/http \
 		-I$(SRCDIR)/kernel \
 		-I$(SRCDIR)/runtime \

@@ -1,9 +1,4 @@
 (
-    boot:(
-        children:(
-            kernel:(contents:(host:output/stage3/bin/stage3.img))
-        )
-    )
     children:(
         nullpage:(contents:(host:output/test/runtime/bin/nullpage))
     )

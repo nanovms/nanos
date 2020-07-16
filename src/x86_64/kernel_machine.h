@@ -2,6 +2,13 @@
 #error must be in kernel or bootloader build
 #endif
 
+#define MBR_ADDRESS 0x7c00
+
+#define KERNEL_BASE 0xffffffff80000000ull
+#define KMEM_LIMIT  0xffffffff00000000ull
+#define PAGES_BASE  0xffffffffc0000000ull
+
+#define KERNEL_BASE_PHYS 0x00200000ul
 #define STACK_ALIGNMENT     16
 
 #define VIRTUAL_ADDRESS_BITS 48
@@ -40,6 +47,11 @@
 #define FLAG_INTERRUPT 9
 
 #define TSS_SIZE 0x68
+
+/* AP boot page */
+extern void * AP_BOOT_PAGE;
+#define AP_BOOT_START u64_from_pointer(&AP_BOOT_PAGE)
+#define AP_BOOT_END (AP_BOOT_START + PAGESIZE)
 
 static inline void cpuid(u32 fn, u32 ecx, u32 * v)
 {

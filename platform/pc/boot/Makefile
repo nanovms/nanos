@@ -56,9 +56,10 @@ cmd_objcopy=	$(OBJCOPY) $(OBJCOPYFLAGS) $(OBJCOPYFLAGS_$(@F)) $< $@
 
 all: boot
 
-include ../rules.mk
+include ../../../rules.mk
 
 CLEANFILES+=	$(foreach f,boot.img stage1 stage1.lst stage2.pad stage2.bin stage2.strip,$(OBJDIR)/$f)
+CLEANDIRS+=     $(OBJDIR)/platform/pc $(OBJDIR)/platform
 
 .PHONY: boot
 

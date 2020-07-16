@@ -11,7 +11,12 @@ build: deps
 	$(GOBUILD)
 
 test: build
+	$(Q) $(MKDIR) $(OBJDIR)
+	$(Q) $(LN) -sf $(PLATFORMOBJDIR)/bin/kernel.img $(OBJDIR)/kernel.img
+	$(Q) $(LN) -sf $(PLATFORMOBJDIR)/boot/boot.img $(OBJDIR)/boot.img
 	$(GOTEST) -v
+
+CLEANFILES+=	$(OBJDIR)/kernel.img $(OBJDIR)/boot.img
 
 post-clean:
 	$(Q) $(GOCLEAN)

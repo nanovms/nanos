@@ -1,9 +1,10 @@
-#include <uniboot.h>
+#include <predef.h>
+#include <config.h>
+#include <machine.h>
+#include <attributes.h>
 #if !defined(BOOT) && !defined(STAGE3)
 #include <unix_process_runtime.h>
 #endif
-#include <machine.h>
-#include <attributes.h>
 
 typedef u8 boolean;
 typedef u32 character;

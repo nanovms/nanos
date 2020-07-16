@@ -1,10 +1,4 @@
 (
-    #64 bit elf to boot from host
-    boot:(
-        children:(
-            kernel:(contents:(host:output/stage3/bin/stage3.img))
-        )
-    )
     children:(
               #user program
 	      fcntl:(contents:(host:output/test/runtime/bin/fcntl))

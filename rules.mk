@@ -10,19 +10,24 @@ TOOLDIR=	$(OUTDIR)/tools/bin
 UNAME_s=	$(shell uname -s)
 ARCH?=		$(shell uname -m)
 ARCHDIR=	$(SRCDIR)/$(ARCH)
+PLATFORM?=	pc
+PLATFORMDIR=	$(ROOTDIR)/platform/$(PLATFORM)
+PLATFORMOBJDIR=	$(subst $(ROOTDIR),$(OUTDIR),$(PLATFORMDIR))
+IMAGE=		$(OUTDIR)/image/disk.raw
 
 # To reveal verbose build messages, override Q= in command line.
 Q=		@
 
 ECHO=		echo
 CAT=		cat
-CC=		$(CROSS_COMPILE)gcc
+# XXX llvm for darwin
 CP=		cp
 DD=		dd
 ifeq ($(UNAME_s),Darwin)
 GNUTAR=		gnutar
 else
 GNUTAR=		tar
+NATIVE_CC=	gcc
 endif
 GIT=		git
 GO=		go
@@ -32,6 +37,17 @@ AS=		nasm
 else
 AS=		$(CROSS_COMPILE)as
 endif
+
+ifneq ($(CROSS_COMPILE),)
+CC=		$(CROSS_COMPILE)gcc
+else
+ifeq ($(UNAME_s),Darwin)
+CC=		cc
+else
+CC=		gcc
+endif
+endif
+
 LD=		$(CC)
 LN=		ln
 SED=		sed
@@ -55,10 +71,13 @@ DEPFLAGS=	-MD -MP -MT $@
 
 KERNCFLAGS=	-nostdinc \
 		-fno-builtin \
-		-mno-sse \
-		-mno-sse2 \
 		-fdata-sections \
 		-ffunction-sections
+
+ifeq ($(ARCH),x86_64)
+KERNCFLAGS+=    -mno-sse \
+		-mno-sse2
+endif
 KERNCFLAGS+=	-fno-omit-frame-pointer
 KERNLDFLAGS=	--gc-sections -n
 

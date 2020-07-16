@@ -1,6 +1,6 @@
-ARCH=$(shell uname -m)
+override ARCH=$(shell uname -m)
+override CROSS_COMPILE=
 CONTGEN=$(OBJDIR)/bin/contgen
-CROSS_COMPILE=
 PROGRAMS=dump mkfs vdsogen
 
 SRCS-dump= \
@@ -61,6 +61,7 @@ SRCS-mkfs= \
 SRCS-vdsogen=	$(CURDIR)/vdsogen.c
 
 CFLAGS+=-I$(ARCHDIR) \
+	-I$(SRCDIR) \
 	-I$(SRCDIR)/kernel \
 	-I$(SRCDIR)/runtime \
 	-I$(SRCDIR)/tfs \
@@ -74,6 +75,6 @@ contgen: $(CONTGEN)
 
 $(CONTGEN): $(CURDIR)/contgen.c
 	@$(MKDIR) $(dir $@)
-	$(CC) $(CFLAGS) $< -o $@
+	$(CC) $(DEPFLAGS) -std=gnu11 -O3 $< -o $@
 
-CLEANFILES+=	$(CONTGEN)
+CLEANFILES+=	$(CONTGEN) $(TOOLDIR)/contgen.d

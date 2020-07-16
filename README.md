@@ -113,8 +113,8 @@ copy the 3 required files to an appropriate release:
 
 ```
 cp output/tools/bin/mkfs ~/.ops/0.1.17/.
-cp output/boot/boot.img ~/.ops/0.1.17/.
-cp output/stage3/bin/stage3.img ~/.ops/0.1.17/.
+cp output/platform/pc/boot/boot.img ~/.ops/0.1.17/.
+cp output/platform/pc/bin/kernel.img ~/.ops/0.1.17/.
 ```
 
 ### Contributing

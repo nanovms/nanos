@@ -298,6 +298,7 @@ static void usage(const char *program_name)
            "image-file < manifest-file\n"
            "\n"
            "-b	- specify boot image to prepend\n"
+           "-k	- specify kernel image\n"
            "-r	- specify target root\n"
            "-s	- specify minimum image file size; can be expressed in bytes, "
            "KB (with k or K suffix), MB (with m or M suffix), and GB (with g or"
@@ -338,13 +339,17 @@ int main(int argc, char **argv)
 {
     int c;
     const char *bootimg_path = NULL;
+    const char *kernelimg_path = NULL;
     const char *target_root = NULL;
     long long img_size = 0;
 
-    while ((c = getopt(argc, argv, "hb:r:s:")) != EOF) {
+    while ((c = getopt(argc, argv, "hb:k:r:s:")) != EOF) {
         switch (c) {
         case 'b':
             bootimg_path = optarg;
+            break;
+        case 'k':
+            kernelimg_path = optarg;
             break;
         case 'r':
             target_root = optarg;
@@ -423,7 +428,18 @@ int main(int argc, char **argv)
         }
 
         tuple boot = table_find(root, sym(boot));
-        if (!boot) {
+        if (kernelimg_path != NULL) {
+            if (!boot)
+                boot = allocate_tuple();
+            tuple children = find_or_allocate_tuple(boot, sym(children));
+            tuple kernel = find_or_allocate_tuple(children, sym(kernel));
+            tuple contents = find_or_allocate_tuple(kernel, sym(contents));
+            buffer b = alloca_wrap_buffer(kernelimg_path, runtime_strlen(kernelimg_path));
+            table_set(contents, sym(host), b);
+            table_set(kernel, sym(contents), contents);
+            table_set(children, sym(kernel), kernel);
+            table_set(boot, sym(children), children);
+        } else if (!boot) {
             /* Look for kernel file in root filesystem, for backward
              * compatibility. */
             tuple c = children(root);
@@ -437,7 +453,7 @@ int main(int argc, char **argv)
             }
         }
         if (!boot)
-            halt("boot FS not found\n");
+            halt("kernel or boot FS not specified\n");
         pagecache pc = allocate_pagecache(h, h, 0, PAGESIZE);
         assert(pc != INVALID_ADDRESS);
         create_filesystem(h, SECTOR_SIZE, BOOTFS_SIZE, 0,

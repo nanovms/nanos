@@ -1,0 +1,6 @@
+(
+    program:/dummy
+    fault:t
+    arguments:[webg poppy]
+    environment:(USER:bobby PWD:/)
+)

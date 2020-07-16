@@ -1,3 +1,33 @@
+#ifdef BOOT
+#include <def32.h>
+#else
+/* kernel or userland */
+#include <def64.h>
+
+#define KMEM_BASE   0xffff800000000000ull
+#define USER_LIMIT  0x0000800000000000ull
+
+#ifdef KERNEL
+#define VA_TAG_BASE   KMEM_BASE
+#define VA_TAG_OFFSET 39
+#define VA_TAG_WIDTH  8
+#else
+#define VA_TAG_BASE   0
+#define VA_TAG_OFFSET USER_VA_TAG_OFFSET
+#define VA_TAG_WIDTH  USER_VA_TAG_WIDTH
+#endif
+
+static inline void *tag(void* v, u64 tval) {
+    return pointer_from_u64(VA_TAG_BASE | (tval << VA_TAG_OFFSET) | u64_from_pointer(v));
+}
+
+static inline u16 tagof(void* v) {
+    return (u64_from_pointer(v) >> VA_TAG_OFFSET) & ((1ull << VA_TAG_WIDTH) - 1);
+}
+
+#define valueof(__x) (__x)
+#endif /* !BOOT */
+
 static inline void compiler_barrier(void)
 {
     asm volatile("" ::: "memory");

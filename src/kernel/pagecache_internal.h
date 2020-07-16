@@ -16,7 +16,7 @@ typedef struct pagecache {
     void *zero_page;            /* for zero-fill dma */
 
     /* state_lock covers list access, page state changes and
-       alterations to page completion vecs */#
+       alterations to page completion vecs */
 #ifdef KERNEL
     struct spinlock state_lock;
 #endif
