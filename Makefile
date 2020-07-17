@@ -179,6 +179,17 @@ vhdx-image: image
 	$(Q) $(QEMU_IMG) convert -f raw -O vhdx -o subformat=dynamic $(IMAGE) $(IMAGE:.raw=.vhdx)
 
 ##############################################################################
+# Azure (Hyper-V)
+
+CLEANFILES+=	$(IMAGE:.raw=.vhd)
+
+MIN_AZURE_IMG_SIZE=20971520
+
+vhd-image: image
+	$(Q) size=$$($(QEMU_IMG) info -f raw --output json $(IMAGE) | $(JQ) -r 'def roundup(x; y): (x + y - 1) / y | floor | . * y; fmax(.["virtual-size"]; $(MIN_AZURE_IMG_SIZE)) | roundup(.; 1048576)'); $(QEMU_IMG) resize -f raw $(IMAGE) $$size
+	$(Q) $(QEMU_IMG) convert -f raw -O vpc -o subformat=fixed,force_size $(IMAGE) $(IMAGE:.raw=.vhd)
+
+##############################################################################
 # GCE
 
 .PHONY: upload-gce-image gce-image delete-gce-image
