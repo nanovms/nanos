@@ -216,7 +216,7 @@ retry_send:
         netvsc_xmit_completion(packet);
 
         // TODO - error code?
-        netvsc_debug("%s: hv_rf_on_send() failed %d times, giving up\n", __func__, retries);
+        netvsc_debug("%s: hv_rf_on_send() failed %d times, giving up", __func__, retries);
         return ERR_TIMEOUT;
     }
 
@@ -282,15 +282,17 @@ netvsc_attach(kernel_heaps kh, hv_device* device)
               vmxif_init,
               ethernet_input);
 
-    netvsc_debug("%s: hwaddr %02x:%02x:%02x:%02x:%02x:%02x\n", __func__,
+    netvsc_debug("%s: hwaddr %02x:%02x:%02x:%02x:%02x:%02x", __func__,
                  netif->hwaddr[0], netif->hwaddr[1], netif->hwaddr[2],
                  netif->hwaddr[3], netif->hwaddr[4], netif->hwaddr[5]);
     return STATUS_OK;
 }
 
-closure_function(1, 1, boolean, netvsc_probe,
+closure_function(1, 3, boolean, netvsc_probe,
                  kernel_heaps, kh,
-                 struct hv_device*, device)
+                 struct hv_device*, device,
+                 storage_attach, unused,
+                 boolean*, unused1)
 {
     status s = netvsc_attach(bound(kh), device);
     if (!is_ok(s)) {

@@ -9,7 +9,7 @@
 
 //#define HYPERV_DEBUG
 #ifdef HYPERV_DEBUG
-#define hyperv_debug(x, ...) do { rprintf("HYPERV: " x, ##__VA_ARGS__); } while(0)
+#define hyperv_debug(x, ...) do { rprintf("HYPERV: " x "\n", ##__VA_ARGS__); } while(0)
 #else
 #define hyperv_debug(x, ...)
 #endif
@@ -106,10 +106,9 @@ hypercall_create(void)
      */
     hc = read_msr(MSR_HV_HYPERCALL);
     if ((hc & MSR_HV_HYPERCALL_ENABLE) == 0) {
-        rprintf("hyperv: Hypercall setup failed\n");
-        halt(false);
+        halt("hyperv: Hypercall setup failed\n");
     }
-    hyperv_debug("hyperv: Hypercall created\n");
+    hyperv_debug("hyperv: Hypercall created");
 }
 
 static u64
@@ -172,7 +171,7 @@ hyperv_detect(kernel_heaps kh) {
     cpuid(CPUID_LEAF_HV_IDENTITY, 0, v);
 #ifdef HYPERV_DEBUG
     u32 hyperv_ver_major = v[1] >> 16;
-    hyperv_debug("Hyper-V Version: %d.%d.%d [SP%d]\n",
+    hyperv_debug("Hyper-V Version: %d.%d.%d [SP%d]",
         hyperv_ver_major, v[1] & 0xffff, v[0], v[2]);
 #endif
 
@@ -227,10 +226,11 @@ init_vmbus(kernel_heaps kh)
     }
 
     init_netvsc(kh);
+    init_storvsc(kh);
 }
 
 status
-hyperv_probe_devices(void)
+hyperv_probe_devices(storage_attach a, boolean *storvsc_attached)
 {
     status s = vmbus_probe_channels(hyperv_info.vmbus, &hyperv_info.driver_list, &hyperv_info.vmbus_list);
     if (!is_ok(s))
@@ -241,10 +241,9 @@ hyperv_probe_devices(void)
             vmbus_driver xd = struct_from_list(l, vmbus_driver, l);
             hv_device *device = struct_from_list(nl, hv_device*, l);
             if (runtime_memcmp(&device->class_id, xd->type, sizeof(*xd->type))) {
-                hyperv_debug("driver do not match\n");
                 continue;
             }
-            apply(xd->probe, device);
+            apply(xd->probe, device, a, storvsc_attached);
         }
     }
     vmbus_set_poll_mode(hyperv_info.vmbus, false);

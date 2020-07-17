@@ -11,7 +11,7 @@
 #define NULL 0
 
 #ifdef VMBUS_DEBUG
-#define vmbus_debug(x, ...) do { rprintf("VMBUS: " x, ##__VA_ARGS__); } while(0)
+#define vmbus_debug(x, ...) do { rprintf("VMBUS: " x "\n", ##__VA_ARGS__); } while(0)
 #else
 #define vmbus_debug(x, ...)
 #endif
@@ -33,8 +33,6 @@ vmbus_chanmsg_handlers[VMBUS_CHANMSG_TYPE_MAX] = {
     VMBUS_CHANMSG_PROC_WAKEUP(CHOFFER_DONE),
     VMBUS_CHANMSG_PROC_WAKEUP(CONNECT_RESP)
 };
-
-#define nitems(x)   (sizeof((x)) / sizeof((x)[0]))
 
 #define VMBUS_GPADL_START       0xe1e10
 
@@ -198,7 +196,7 @@ vmbus_msghc_reset(struct vmbus_msghc *mh, size_t dsize)
         halt("invalid data size %zu", dsize);
 
     inprm = vmbus_xact_req_data(mh->mh_xact);
-    runtime_memset((void*)inprm, 0, HYPERCALL_POSTMSGIN_SIZE);
+    runtime_memset((u8 *)inprm, 0, HYPERCALL_POSTMSGIN_SIZE);
     inprm->hc_connid = VMBUS_CONNID_MESSAGE;
     inprm->hc_msgtype = HYPERV_MSGTYPE_CHANNEL;
     inprm->hc_dsize = dsize;
@@ -407,7 +405,7 @@ static boolean vmbus_connect(vmbus_dev dev, uint32_t version)
 
     req = vmbus_msghc_dataptr(mh);
     assert(req != INVALID_ADDRESS);
-    runtime_memset((void*)req, 0, sizeof(*req));
+    runtime_memset((u8 *)req, 0, sizeof(*req));
     req->chm_hdr.chm_type = VMBUS_CHANMSG_TYPE_CONNECT;
     req->chm_ver = version;
     req->chm_evtflags = dev->vmbus_evtflags_dma.hv_paddr;
@@ -442,13 +440,13 @@ static boolean vmbus_connect(vmbus_dev dev, uint32_t version)
 static boolean
 vmbus_init(vmbus_dev dev)
 {
-    for (int i = 0; i < nitems(vmbus_version); ++i) {
+    for (int i = 0; i < _countof(vmbus_version); ++i) {
 
         boolean done = vmbus_connect(dev, vmbus_version[i]);
         if (done) {
             vmbus_current_version = vmbus_version[i];
             dev->vmbus_version = vmbus_version[i];
-            vmbus_debug("version %d.%d\n",
+            vmbus_debug("version %d.%d",
                 VMBUS_VERSION_MAJOR(dev->vmbus_version),
                 VMBUS_VERSION_MINOR(dev->vmbus_version));
             return true;
@@ -465,7 +463,7 @@ vmbus_chanmsg_handle(vmbus_dev sc, const struct vmbus_message *msg)
 
     msg_type = ((const struct vmbus_chanmsg_hdr *)msg->msg_data)->chm_type;
     if (msg_type >= VMBUS_CHANMSG_TYPE_MAX) {
-        vmbus_debug("unknown message type 0x%x\n", msg_type);
+        vmbus_debug("unknown message type 0x%x", msg_type);
         return;
     }
 
@@ -550,7 +548,7 @@ vmbus_attach(kernel_heaps kh, vmbus_dev *result)
     dev->vmbus_pcpu[0].message_task = closure(dev->general, vmbus_msg_task_closure, dev);
 
     dev->vmbus_idtvec = allocate_interrupt();
-    vmbus_debug("interrupt vector %d; registering\n", dev->vmbus_idtvec);
+    vmbus_debug("interrupt vector %d; registering", dev->vmbus_idtvec);
     dev->vmbus_intr_handler = closure(dev->general, vmbus_interrupt, dev);
     register_interrupt(dev->vmbus_idtvec, dev->vmbus_intr_handler, "vmbus");
 
@@ -618,17 +616,17 @@ vmbus_probe_channels(vmbus_dev dev, const list driver_list, list nodes)
             const struct vmbus_chanmsg_choffer *offer = (const struct vmbus_chanmsg_choffer *)msg->msg_data;
 
             if (!vmbus_driver_registered(driver_list, &offer->chm_chtype)) {
-                vmbus_debug("Ignored choffer for device "GUID_FMT"\n", GUID_ARG(offer->chm_chtype.hv_guid));
+                vmbus_debug("Ignored choffer for device "GUID_FMT"", GUID_ARG(offer->chm_chtype.hv_guid));
                 continue;
             }
 
             struct vmbus_channel* new_channel = vmbus_chan_choffer_open_channel(dev, msg);
             if (!new_channel) {
-                vmbus_debug("Failure opening channel for device "GUID_FMT"; ignoring choffer\n",
+                vmbus_debug("Failure opening channel for device "GUID_FMT"; ignoring choffer",
                             GUID_ARG(offer->chm_chtype.hv_guid));
                 continue;
             }
-            vmbus_debug("Opened channel for device "GUID_FMT"\n", GUID_ARG(offer->chm_chtype.hv_guid));
+            vmbus_debug("Opened channel for device "GUID_FMT"", GUID_ARG(offer->chm_chtype.hv_guid));
             buffer hv_dev = allocate_buffer(dev->general, sizeof(struct hv_device));
             struct hv_device *device = buffer_ref(hv_dev, 0);
 
@@ -643,7 +641,7 @@ vmbus_probe_channels(vmbus_dev dev, const list driver_list, list nodes)
             vmbus_xact_deactivate(mh->mh_xact);
             break;
         } else {
-            vmbus_debug("unexpected offer response type %d\n", msg_type );
+            vmbus_debug("unexpected offer response type %d", msg_type );
             vmbus_xact_deactivate(mh->mh_xact);
             goto err_unexpected_offer;
         }
