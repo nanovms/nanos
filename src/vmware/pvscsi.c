@@ -14,6 +14,7 @@
 #define PVSCSI_DEFAULT_NUM_PAGES_REQ_RING 8
 #define PVSCSI_CDB_SIZE 16
 #define PVSCSI_SENSE_SIZE 256
+#define PVSCSI_RETRY_LIMIT  3
 
 struct pvscsi_hcb {
     struct pvscsi_ring_req_desc    *e;
@@ -145,9 +146,9 @@ static inline void pvscsi_action(pvscsi dev, struct pvscsi_hcb *hcb, u16 target,
     pvscsi_action_io_queued(dev, hcb, target, lun, hcb->data, hcb->alloc_len);
 }
 
-closure_function(5, 0, void, pvscsi_io_done,
+closure_function(6, 0, void, pvscsi_io_done,
                  status_handler, sh, void *, buf, u64, len,
-                 pvscsi, s, struct pvscsi_hcb *, hcb)
+                 pvscsi, s, struct pvscsi_hcb *, hcb, int, retries)
 {
     struct pvscsi_hcb *hcb = bound(hcb);
 
@@ -155,6 +156,27 @@ closure_function(5, 0, void, pvscsi_io_done,
     if (hcb->host_status != BTSTAT_SUCCESS) {
         st = timm("result", "response %d", hcb->host_status);
     } else if (hcb->scsi_status != SCSI_STATUS_OK) {
+        if ((hcb->scsi_status == SCSI_STATUS_BUSY) &&
+                (bound(retries++) < PVSCSI_RETRY_LIMIT)) {
+            pvscsi_debug("%s: scsi_status busy, retrying\n", __func__);
+
+            /* Clone the failed request and retry. */
+            pvscsi s = bound(s);
+            struct scsi_cdb_readwrite_16 *old_cdb =
+                    (struct scsi_cdb_readwrite_16 *)hcb->cdb;
+            u8 cmd = old_cdb->opcode;
+            struct pvscsi_hcb *r = pvscsi_hcb_alloc(s, s->target, s->lun, cmd);
+            struct scsi_cdb_readwrite_16 *new_cdb =
+                    (struct scsi_cdb_readwrite_16 *)r->cdb;
+            new_cdb->opcode = cmd;
+            new_cdb->addr = old_cdb->addr;
+            new_cdb->length = old_cdb->length;
+            bound(hcb) = r;
+            r->completion = (thunk)closure_self();
+            pvscsi_action_io_queued(s, r, s->target, s->lun, bound(buf),
+                                    bound(len));
+            return;
+        }
         rprintf("scsi_status not ok: %d\n", hcb->scsi_status);
         scsi_dump_sense(hcb->sense, sizeof(hcb->sense));
         st = timm("result", "status %d", hcb->scsi_status);
@@ -173,7 +195,8 @@ static void pvscsi_io(pvscsi dev, u8 cmd, void *buf, range blocks, status_handle
     cdb->length = htobe32(nblocks);
     pvscsi_debug("%s: cmd %d, blocks %R, addr 0x%016lx, length 0x%08x\n",
         __func__, cmd, blocks, cdb->addr, cdb->length);
-    r->completion = closure(dev->general, pvscsi_io_done, sh, buf, nblocks * dev->block_size, dev, r);
+    r->completion = closure(dev->general, pvscsi_io_done, sh, buf,
+        nblocks * dev->block_size, dev, r, 0);
     pvscsi_action_io_queued(dev, r, dev->target, dev->lun, buf, nblocks * dev->block_size);
 }
 
@@ -438,7 +461,6 @@ closure_function(1, 0, void, pvscsi_rx_service_bh, pvscsi, dev)
         if (!pvscsi_action_io(dev, hcb))
             break;
         list_delete(i);
-        pvscsi_hcb_dealloc(dev, hcb);
     }
     spin_unlock(&dev->queue_lock);
 }

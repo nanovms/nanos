@@ -1,13 +1,13 @@
 #include <unix_internal.h>
 #include <ftrace.h>
 #include <gdb.h>
-#include <page.h>
 
-#define PF_DEBUG
+//#define PF_DEBUG
 #ifdef PF_DEBUG
-#define pf_debug(x, ...) thread_log(current, x, ##__VA_ARGS__);
+#define pf_debug(x, ...) do {log_printf("FAULT", "[%2d] tid %2d " x "\n", current_cpu()->id, \
+                                        current->tid, ##__VA_ARGS__);} while(0)
 #else
-#define pf_debug(x, ...)
+#define pf_debug(x, ...) thread_log(current, x, ##__VA_ARGS__);
 #endif
 
 u64 allocate_fd(process p, void *f)
@@ -42,11 +42,10 @@ void deallocate_fd(process p, int fd)
     deallocate_u64((heap)p->fdallocator, fd, 1);
 }
 
-static void
-deliver_segv(u64 vaddr, s32 si_code)
+void deliver_fault_signal(u32 signo, thread t, u64 vaddr, s32 si_code)
 {
     struct siginfo s = {
-        .si_signo = SIGSEGV,
+        .si_signo = signo,
          /* man sigaction: "si_errno is generally unused on Linux" */
         .si_errno = 0,
         .si_code = si_code,
@@ -55,35 +54,55 @@ deliver_segv(u64 vaddr, s32 si_code)
         }
     };
 
-    pf_debug("delivering SIGSEGV; vaddr 0x%lx si_code %s",
-        vaddr, (si_code == SEGV_MAPERR) ? "SEGV_MAPPER" : "SEGV_ACCERR"
-    );
+    assert(signo == SIGSEGV || signo == SIGBUS);
+    pf_debug("delivering %s to thread %d; vaddr 0x%lx si_code %d",
+             signo == SIGSEGV ? "SIGSEGV" : "SIGBUS", t->tid, vaddr, si_code);
+    deliver_signal_to_thread(t, &s);
+}
 
-    deliver_signal_to_thread(current, &s);
+const char *string_from_mmap_type(int type)
+{
+    return type == VMAP_MMAP_TYPE_ANONYMOUS ? "anonymous" :
+        (type == VMAP_MMAP_TYPE_FILEBACKED ? "filebacked" :
+         (type == VMAP_MMAP_TYPE_IORING ? "io_uring" : "unknown"));
 }
 
 static boolean handle_protection_fault(context frame, u64 vaddr, vmap vm)
 {
     /* vmap found, with protection violation set --> send prot violation */
     if (is_protection_fault(frame)) {
+        u64 flags = VMAP_FLAG_MMAP | VMAP_FLAG_WRITABLE;
+        if (is_write_fault(frame) && (vm->flags & flags) == flags &&
+            (vm->flags & VMAP_MMAP_TYPE_MASK) == VMAP_MMAP_TYPE_FILEBACKED) {
+            /* copy on write */
+            u64 vaddr_aligned = vaddr & ~MASK(PAGELOG);
+            u64 node_offset = vm->node_offset + (vaddr_aligned - vm->node.r.start);
+            pf_debug("copy-on-write for private map: vaddr 0x%lx, node %p, node_offset 0x%lx\n",
+                     vaddr, vm->cache_node, node_offset);
+            if (!pagecache_node_do_page_cow(vm->cache_node, node_offset, vaddr_aligned,
+                                            page_map_flags(vm->flags))) {
+                msg_err("cannot get physical page; OOM\n");
+                return false;
+            }
+            return true;
+        }
         pf_debug("page protection violation\naddr 0x%lx, rip 0x%lx, "
-                 "error %s%s%s vm->flags (%s%s%s%s)",
+                 "error %s%s%s vm->flags (%s%s %s%s)",
                  vaddr, frame_return_address(frame),
                  is_write_fault(frame) ? "W" : "R",
                  is_usermode_fault(frame) ? "U" : "S",
                  is_instruction_fault(frame) ? "I" : "D",
                  (vm->flags & VMAP_FLAG_MMAP) ? "mmap " : "",
-                 (vm->flags & VMAP_FLAG_ANONYMOUS) ? "anonymous " : "",
+                 string_from_mmap_type(vm->flags & VMAP_MMAP_TYPE_MASK),
                  (vm->flags & VMAP_FLAG_WRITABLE) ? "writable " : "",
                  (vm->flags & VMAP_FLAG_EXEC) ? "executable " : "");
 
-        deliver_segv(vaddr, SEGV_ACCERR);
+        deliver_fault_signal(SIGSEGV, current, vaddr, SEGV_ACCERR);
         return true;
     }
     return false;
 }
 
-// it so happens that f and frame should be the same number?
 define_closure_function(1, 1, context, default_fault_handler,
                         thread, t,
                         context, frame)
@@ -102,7 +121,7 @@ define_closure_function(1, 1, context, default_fault_handler,
         if (vm == INVALID_ADDRESS) {
             if (user) {
                 pf_debug("no vmap found for addr 0x%lx, rip 0x%lx", vaddr, frame[FRAME_RIP]);
-                deliver_segv(vaddr, SEGV_MAPERR);
+                deliver_fault_signal(SIGSEGV, current, vaddr, SEGV_MAPERR);
 
                 /* schedule this thread to either run signal handler or terminate */
                 schedule_frame(frame);
@@ -123,24 +142,26 @@ define_closure_function(1, 1, context, default_fault_handler,
         }
 
         if (handle_protection_fault(frame, vaddr, vm)) {
+            if (is_current_kernel_context(frame)) {
+                current_cpu()->state = cpu_kernel;
+                return frame;   /* direct return */
+            }
             schedule_frame(frame);
             return 0;
         }
 
-        if (do_demand_page(fault_address(frame), vm)) {
-            /* If we're in the kernel context, return to the frame directly. */
-            if (frame == current_cpu()->kernel_frame) {
+        if (do_demand_page(fault_address(frame), vm, frame)) {
+            if (is_current_kernel_context(frame)) {
                 current_cpu()->state = cpu_kernel;
-                return frame;
-                frame_return(frame);
+                return frame;   /* direct return */
             }
             schedule_frame(frame);
             return 0;
         }
     } else if (frame[FRAME_VECTOR] == 13) {
         if (current_cpu()->state == cpu_user) {
-            pf_debug("general protection fault in user mode, rip 0x%lxn", frame[FRAME_RIP]);
-            deliver_segv(0, SI_KERNEL);
+            pf_debug("general protection fault in user mode, rip 0x%lx", frame[FRAME_RIP]);
+            deliver_fault_signal(SIGSEGV, current, 0, SI_KERNEL);
             schedule_frame(frame);
             return 0;
         }

@@ -4,11 +4,14 @@ typedef closure_type(filesystem_complete, void, filesystem, status);
 
 typedef struct fsfile *fsfile;
 
+pagecache_volume filesystem_get_pagecache_volume(filesystem fs);
+
 u64 fsfile_get_length(fsfile f);
 void fsfile_set_length(fsfile f, u64 length);
 tuple fsfile_get_meta(fsfile f);
 sg_io fsfile_get_reader(fsfile f);
 sg_io fsfile_get_writer(fsfile f);
+pagecache_node fsfile_get_cachenode(fsfile f);
 
 extern io_status_handler ignore_io_status;
 

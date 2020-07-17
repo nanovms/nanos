@@ -98,8 +98,33 @@ SRCS-io_uring= \
 	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-io_uring=	-static
 
-SRCS-mmap=		$(CURDIR)/mmap.c \
-			$(SRCDIR)/unix_process/ssp.c
+SRCS-mmap= \
+	$(CURDIR)/mmap.c \
+	$(SRCDIR)/unix_process/unix_process_runtime.c \
+	$(SRCDIR)/runtime/bitmap.c \
+	$(SRCDIR)/runtime/buffer.c \
+	$(SRCDIR)/runtime/extra_prints.c \
+	$(SRCDIR)/runtime/format.c \
+	$(SRCDIR)/runtime/memops.c \
+	$(SRCDIR)/runtime/pqueue.c \
+	$(SRCDIR)/runtime/random.c \
+	$(SRCDIR)/runtime/range.c \
+	$(SRCDIR)/runtime/rbtree.c \
+	$(SRCDIR)/runtime/runtime_init.c \
+	$(SRCDIR)/runtime/sg.c \
+	$(SRCDIR)/runtime/sha256.c \
+	$(SRCDIR)/runtime/string.c \
+	$(SRCDIR)/runtime/symbol.c \
+	$(SRCDIR)/runtime/table.c \
+	$(SRCDIR)/runtime/tuple_parser.c \
+	$(SRCDIR)/runtime/tuple.c \
+	$(SRCDIR)/runtime/timer.c \
+	$(SRCDIR)/runtime/crypto/chacha.c \
+	$(SRCDIR)/runtime/heap/id.c \
+	$(SRCDIR)/runtime/heap/freelist.c \
+	$(SRCDIR)/runtime/heap/debug_heap.c \
+	$(SRCDIR)/runtime/heap/objcache.c \
+	$(SRCDIR)/runtime/heap/mcache.c
 LDFLAGS-mmap=		-static
 
 SRCS-mkdir= \

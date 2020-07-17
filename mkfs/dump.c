@@ -203,7 +203,7 @@ int main(int argc, char **argv)
 
     heap h = init_process_runtime();
     tuple root = allocate_tuple();
-    pagecache pc = allocate_pagecache(h, h, PAGESIZE);
+    pagecache pc = allocate_pagecache(h, h, 0, PAGESIZE);
     assert(pc != INVALID_ADDRESS);
     create_filesystem(h,
                       SECTOR_SIZE,

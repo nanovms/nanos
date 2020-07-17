@@ -131,8 +131,8 @@ void mm_service(void)
     heap p = (heap)heap_physical(&heaps);
     u64 free = heap_total(p) - heap_allocated(p);
     mm_debug("%s: total %ld, alloc %ld, free %ld\n", __func__, heap_total(p), heap_allocated(p), free);
-    if (free < CACHE_DRAIN_CUTOFF) {
-        u64 drain_bytes = CACHE_DRAIN_CUTOFF - free;
+    if (free < PAGECACHE_DRAIN_CUTOFF) {
+        u64 drain_bytes = PAGECACHE_DRAIN_CUTOFF - free;
         u64 drained = pagecache_drain(global_pagecache, drain_bytes);
         if (drained > 0)
             mm_debug("   drained %ld / %ld requested...\n", drained, drain_bytes);
@@ -147,7 +147,7 @@ closure_function(2, 3, void, attach_storage,
     heap h = heap_general(&heaps);
     u64 offset = bound(fs_offset);
     length -= offset;
-    pagecache pc = allocate_pagecache(h, h, PAGESIZE);
+    pagecache pc = allocate_pagecache(h, h, (heap)heap_physical(&heaps), PAGESIZE);
     if (pc == INVALID_ADDRESS)
         halt("unable to create pagecache\n");
 
@@ -285,40 +285,6 @@ void kernel_shutdown(int status)
     vm_exit(status);
 }
 
-struct cpuinfo cpuinfos[MAX_CPUS];
-
-static void init_cpuinfos(kernel_heaps kh)
-{
-    heap h = heap_general(kh);
-    heap backed = heap_backed(kh);
-
-    /* We're stuck with a hard limit of 64 for now due to bitmask... */
-    build_assert(MAX_CPUS <= 64);
-
-    /* We'd like the aps to allocate for themselves, but we don't have
-       per-cpu heaps just yet. */
-    for (int i = 0; i < MAX_CPUS; i++) {
-        cpuinfo ci = cpuinfo_from_id(i);
-        ci->self = ci;
-
-        /* state */
-        ci->running_frame = 0;
-        ci->id = i;
-        ci->state = cpu_not_present;
-        ci->have_kernel_lock = false;
-        ci->frcount = 0;
-        /* frame and stacks */
-        ci->kernel_frame = allocate_frame(h);
-        ci->kernel_stack = allocate_stack(backed, KERNEL_STACK_SIZE);
-        ci->exception_stack = allocate_stack(backed, EXCEPT_STACK_SIZE);
-        ci->int_stack = allocate_stack(backed, INT_STACK_SIZE);
-        //        init_debug("cpu %2d: kernel_frame %p, kernel_stack %p", i, ci->kernel_frame, ci->kernel_stack);
-        //        init_debug("        fault_stack  %p, int_stack    %p", ci->fault_stack, ci->int_stack);
-    }
-
-    cpu_setgs(0);
-}
-
 u64 total_processors = 1;
 
 #ifdef SMP_ENABLE
@@ -342,6 +308,7 @@ static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = &heaps;
     heap misc = heap_general(kh);
+    heap backed = heap_backed(kh);
 
     /* runtime and console init */
     init_debug("in init_service_new_stack");
@@ -364,9 +331,7 @@ static void __attribute__((noinline)) init_service_new_stack()
     read_kernel_syms();
     init_debug("pci_discover (for VGA)");
     pci_discover(); // early PCI discover to configure VGA console
-    init_debug("init_cpuinfos");
-    init_cpuinfos(kh);
-    current_cpu()->state = cpu_kernel;
+    init_kernel_contexts(backed);
 
     /* interrupts */
     init_debug("init_interrupts");

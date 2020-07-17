@@ -182,17 +182,25 @@ struct flock {
 #define AT_NO_AUTOMOUNT     0x800       /* Suppress terminal automount traversal */
 #define AT_EMPTY_PATH       0x1000      /* Allow empty relative pathname */
 
-#define MAP_FIXED 0x10
-#define MAP_ANONYMOUS 0x20
-#define MAP_PRIVATE	0x02
-#define MREMAP_MAYMOVE	1
-#define MREMAP_FIXED	2
-#define MAP_STACK	0x20000
-#define MAP_32BIT	0x40
+#define MAP_SHARED          0x01
+#define MAP_PRIVATE         0x02
+#define MAP_SHARED_VALIDATE 0x03
+#define MAP_TYPE_MASK       0x0f
+#define MAP_FIXED           0x10
+#define MAP_ANONYMOUS       0x20
+#define MREMAP_MAYMOVE      1
+#define MREMAP_FIXED        2
+#define MAP_STACK           0x20000
+#define MAP_32BIT           0x40
 
 #define PROT_READ       0x1
 #define PROT_WRITE      0x2
 #define PROT_EXEC       0x4
+
+/* msync */
+#define MS_ASYNC      1
+#define MS_INVALIDATE 2
+#define MS_SYNC       4
 
 // straight from linux
 #define ARCH_SET_GS 0x1001
@@ -365,11 +373,21 @@ struct rusage {
 /*
  * SIGSEGV si_codes
  */
-#define SEGV_MAPERR 1   /* address not mapped to object */
-#define SEGV_ACCERR 2   /* invalid permissions for mapped object */
-# define SEGV_BNDERR    3   /* failed address bound checks */
-# define SEGV_PKUERR    4   /* failed protection key checks */
+#define SEGV_MAPERR 1           /* address not mapped to object */
+#define SEGV_ACCERR 2           /* invalid permissions for mapped object */
+#define SEGV_BNDERR 3           /* failed address bound checks */
+#define SEGV_PKUERR 4           /* failed protection key checks */
 #define NSIGSEGV    4
+
+/*
+ * SIGBUS si_codes
+ */
+#define BUS_ADRALN   1          /* alignment */
+#define BUS_ADRERR   2          /* non-existent */
+#define BUS_OBJERR   3
+#define BUS_MCERR_AR 4
+#define BUS_MCERR_AO 5
+#define NSIGBUS      5
 
 typedef union sigval {
     s32 sival_int;

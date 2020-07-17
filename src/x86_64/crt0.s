@@ -14,6 +14,11 @@ extern  init_service
 %define FS_MSR        0xc0000100
 %define KERNEL_GS_MSR 0xc0000102
 
+;; This needs to match the value in uniboot.h, unfortunately. We need
+;; some way to source constants from the same place, or at least make
+;; an asm include at build time...
+%define KERNEL_STACK_SIZE (128 << 10)
+
 %ifdef DEBUG
 %include "debug.inc"
 %endif
@@ -219,7 +224,7 @@ extern syscall
 global_func syscall_enter
 syscall_enter:
         swapgs
-        mov [gs:32], rdi        ; save rdi
+        mov [gs:24], rdi        ; save rdi
         mov rdi, [gs:8]         ; running_frame
         mov [rdi+FRAME_VECTOR*8], rax
         mov [rdi+FRAME_RBX*8], rbx
@@ -237,15 +242,17 @@ syscall_enter:
         mov [rdi+FRAME_RIP*8], rcx
         mov rsi, rax
         mov [rdi+FRAME_RSP*8], rsp
-        mov rax, [gs:32]
+        mov rax, [gs:24]
         mov qword [rdi+FRAME_RDI*8], rax
         mov qword [rdi+FRAME_IS_SYSCALL*8], 1
         save_extended_registers rdi
         mov rax, syscall        ; (running_frame, call)
         mov rax, [rax]
         mov rbx, [gs:16]
+        add rbx, KERNEL_STACK_SIZE
         mov [gs:8], rbx         ; move to kernel frame
-        mov rsp, [gs:24]        ; and stack
+        mov rsp, rbx            ; and stack
+        sub rsp, 0x10           ; align
         cld
         jmp rax
 .end:

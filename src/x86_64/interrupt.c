@@ -133,7 +133,7 @@ extern void *text_start;
 extern void *text_end;
 void __print_stack_with_rbp(u64 *rbp)
 {
-    for (unsigned int frame = 0; frame < 32; frame ++) {
+    for (unsigned int frame = 0; frame < 16; frame ++) {
         if ((u64) rbp < 4096ULL)
             break;
 
@@ -142,6 +142,8 @@ void __print_stack_with_rbp(u64 *rbp)
             break;
 
         u64 rip = rbp[1];
+        if (rip == 0)
+            break;
         rbp = (u64 *) rbp[0];
         print_u64_with_sym(rip);
         console("\n");
@@ -208,9 +210,9 @@ void print_frame(context f)
 
 void install_fallback_fault_handler(fault_handler h)
 {
-    // XXX nuke this once we clear out kernel page faults
+    // XXX reconstruct
     for (int i = 0; i < MAX_CPUS; i++) {
-        cpuinfo_from_id(i)->kernel_frame[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
+        cpuinfo_from_id(i)->kernel_context->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
     }
 }
 
@@ -290,13 +292,13 @@ void common_handler()
             print_u64(u64_from_pointer(f));
             /* make a half attempt to identify it short of asking unix */
             /* we should just have a name here */
-            if (f == current_cpu()->kernel_frame)
+            if (is_current_kernel_context(f))
                 console(" (kernel frame)");
             console("\n");
             goto exit_fault;
         }
     }
-    if (f == current_cpu()->kernel_frame)
+    if (is_current_kernel_context(f))
         f[FRAME_FULL] = false;      /* no longer saving frame for anything */
     runloop();
   exit_fault:
@@ -355,29 +357,6 @@ void set_ist(int cpu, int i, u64 sp)
 {
     assert(i > 0 && i <= 7);
     write_tss_u64(cpu, 0x24 + (i - 1) * 8, sp);
-}
-
-void deallocate_frame(context f)
-{
-    deallocate((heap)pointer_from_u64(f[FRAME_HEAP]), f, total_frame_size());
-}
-
-context allocate_frame(heap h)
-{
-    context f = allocate_zero(h, total_frame_size());
-    assert(f != INVALID_ADDRESS);
-    assert((u64_from_pointer(f) & 63) == 0);
-    xsave(f);
-    f[FRAME_HEAP] = u64_from_pointer(h);
-    return f;
-}
-
-void *allocate_stack(heap h, u64 size)
-{
-    u64 padsize = pad(size, h->pagesize);
-    void *base = allocate_zero(h, padsize);
-    assert(base != INVALID_ADDRESS);
-    return base + padsize - STACK_ALIGNMENT;
 }
 
 void init_interrupts(kernel_heaps kh)

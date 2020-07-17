@@ -8,6 +8,8 @@
     children:(
         mmap:(contents:(host:output/test/runtime/bin/mmap))
 	infile:(contents:(host:test/runtime/read_contents/hello))
+	mapfile:(contents:(host:test/runtime/read_contents/mapfile))
+	unmapme:(contents:(host:test/runtime/read_contents/unmapme))
     )
     # filesystem path to elf for kernel to run
     program:/mmap
@@ -17,4 +19,5 @@
     fault:t
     arguments:[/mmap, basic]
     environment:(USER:bobby PWD:/)
+    imagesize:30M
 )

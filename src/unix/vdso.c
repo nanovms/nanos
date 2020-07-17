@@ -1,5 +1,4 @@
 #include <unix_internal.h>
-#include <page.h>
 #include <synth.h>
 #include <pvclock.h>
 
