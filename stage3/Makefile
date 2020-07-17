@@ -83,6 +83,7 @@ SRCS-stage3.img= \
 	$(SRCDIR)/hyperv/netvsc/netvsc.c \
 	$(SRCDIR)/hyperv/netvsc/hv_net_vsc.c \
 	$(SRCDIR)/hyperv/netvsc/hv_rndis_filter.c \
+	$(SRCDIR)/hyperv/storvsc/storvsc.c \
 	$(SRCDIR)/x86_64/ap.s \
 	$(SRCDIR)/x86_64/apic.c \
 	$(SRCDIR)/x86_64/backed_heap.c \

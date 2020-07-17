@@ -180,7 +180,7 @@ vmbus_chan_open_br(struct vmbus_channel *chan, const struct vmbus_chan_br *cbr,
 
     chan->ch_cb = cb;
     chan->ch_cbarg = cbarg;
-    vmbus_chan_debug("OPEN_BR, cbarg = %x\n", chan->ch_cbarg);
+    vmbus_chan_debug("OPEN_BR, cbarg = %x", chan->ch_cbarg);
 
     vmbus_chan_update_evtflagcnt(vmbus, chan);
 
@@ -216,7 +216,7 @@ vmbus_chan_open_br(struct vmbus_channel *chan, const struct vmbus_chan_br *cbr,
     int error = 0;
     struct vmbus_msghc *mh = vmbus_msghc_get(vmbus, sizeof(*req));
     if (mh == NULL) {
-        vmbus_chan_debug("can not get msg hypercall for chopen(chan%d)\n",
+        vmbus_chan_debug("can not get msg hypercall for chopen(chan%d)",
             chan->ch_id);
         error = ENXIO;
         goto failed;
@@ -248,7 +248,7 @@ vmbus_chan_open_br(struct vmbus_channel *chan, const struct vmbus_chan_br *cbr,
              * Hypervisor does _not_ send response CHOPEN to
              * a revoked channel.
              */
-            vmbus_chan_debug("chan%d is revoked, when it is being opened\n",
+            vmbus_chan_debug("chan%d is revoked, when it is being opened",
                 chan->ch_id);
 
             /*
@@ -284,11 +284,11 @@ vmbus_chan_open_br(struct vmbus_channel *chan, const struct vmbus_chan_br *cbr,
     vmbus_msghc_put(vmbus, mh);
 
     if (status == 0) {
-        vmbus_chan_debug("chan%d opened\n", chan->ch_id);
+        vmbus_chan_debug("chan%d opened", chan->ch_id);
         return (0);
     }
 
-    vmbus_chan_debug("failed to open chan%d\n", chan->ch_id);
+    vmbus_chan_debug("failed to open chan%d", chan->ch_id);
     error = ENXIO;
 
 failed:
@@ -403,7 +403,7 @@ vmbus_chan_gpadl_connect(struct vmbus_channel *chan, bus_addr_t paddr,
     /* Done; commit the GPADL id. */
     *gpadl0 = gpadl;
 
-    vmbus_chan_debug("gpadl_conn(chan%d) succeeded\n", chan->ch_id);
+    vmbus_chan_debug("gpadl_conn(chan%d) succeeded", chan->ch_id);
 }
 
 /*
@@ -514,6 +514,46 @@ vmbus_chan_send_sglist(struct vmbus_channel *chan,
 }
 
 int
+vmbus_chan_send_prplist(struct vmbus_channel *chan,
+    struct vmbus_gpa_range *prp, int prp_cnt, void *data, int dlen,
+    uint64_t xactid)
+{
+    struct vmbus_chanpkt_prplist pkt;
+    int pktlen, pad_pktlen, hlen, error;
+    struct iovec iov[4];
+    boolean send_evt;
+    uint64_t pad = 0;
+
+    hlen = __offsetof(struct vmbus_chanpkt_prplist,
+        cp_range[0].gpa_page[prp_cnt]);
+    pktlen = hlen + dlen;
+    pad_pktlen = VMBUS_CHANPKT_TOTLEN(pktlen);
+    assert(pad_pktlen <= vmbus_txbr_maxpktsz(&chan->ch_txbr)); //invalid packet size
+
+    pkt.cp_hdr.cph_type = VMBUS_CHANPKT_TYPE_GPA;
+    pkt.cp_hdr.cph_flags = VMBUS_CHANPKT_FLAG_RC;
+    VMBUS_CHANPKT_SETLEN(pkt.cp_hdr.cph_hlen, hlen);
+    VMBUS_CHANPKT_SETLEN(pkt.cp_hdr.cph_tlen, pad_pktlen);
+    pkt.cp_hdr.cph_xactid = xactid;
+    pkt.cp_rsvd = 0;
+    pkt.cp_range_cnt = 1;
+
+    iov[0].iov_base = &pkt;
+    iov[0].iov_len = sizeof(pkt);
+    iov[1].iov_base = prp;
+    iov[1].iov_len = __offsetof(struct vmbus_gpa_range, gpa_page[prp_cnt]);
+    iov[2].iov_base = data;
+    iov[2].iov_len = dlen;
+    iov[3].iov_base = &pad;
+    iov[3].iov_len = pad_pktlen - pktlen;
+
+    error = vmbus_txbr_write(&chan->ch_txbr, iov, 4, &send_evt);
+    if (!error && send_evt)
+        vmbus_chan_signal_tx(chan);
+    return error;
+}
+
+int
 vmbus_chan_recv(struct vmbus_channel *chan, void *data, int *dlen0,
     uint64_t *xactid)
 {
@@ -525,12 +565,12 @@ vmbus_chan_recv(struct vmbus_channel *chan, void *data, int *dlen0,
         return (error);
 
     if (pkt.cph_hlen < VMBUS_CHANPKT_HLEN_MIN) {
-        vmbus_chan_debug("invalid hlen %d\n", pkt.cph_hlen);
+        vmbus_chan_debug("invalid hlen %d", pkt.cph_hlen);
         /* XXX this channel is dead actually. */
         return (EIO);
     }
     if (pkt.cph_hlen > pkt.cph_tlen) {
-        vmbus_chan_debug("invalid hlen %d and tlen %d\n",
+        vmbus_chan_debug("invalid hlen %d and tlen %d",
             pkt.cph_hlen, pkt.cph_tlen);
         /* XXX this channel is dead actually. */
         return (EIO);
@@ -567,12 +607,12 @@ vmbus_chan_recv_pkt(struct vmbus_channel *chan,
         return (error);
 
     if (pkt->cph_hlen < VMBUS_CHANPKT_HLEN_MIN) {
-        vmbus_chan_debug("invalid hlen %d\n", pkt->cph_hlen);
+        vmbus_chan_debug("invalid hlen %d", pkt->cph_hlen);
         /* XXX this channel is dead actually. */
         return (EIO);
     }
     if (pkt->cph_hlen > pkt->cph_tlen) {
-        vmbus_chan_debug("invalid hlen %d and tlen %d\n",
+        vmbus_chan_debug("invalid hlen %d and tlen %d",
             pkt->cph_hlen, pkt->cph_tlen);
         /* XXX this channel is dead actually. */
         return (EIO);
@@ -725,7 +765,7 @@ vmbus_chan_update_evtflagcnt(vmbus_dev sc,
         if (old_flag_cnt >= flag_cnt)
             break;
         if (atomic_cmpset32(flag_cnt_ptr, old_flag_cnt, flag_cnt)) {
-            vmbus_chan_debug("chan%d update cpu%d flag_cnt to %d\n",
+            vmbus_chan_debug("chan%d update cpu%d flag_cnt to %d",
                     chan->ch_id, chan->ch_cpuid, flag_cnt);
             break;
         }
@@ -788,10 +828,10 @@ vmbus_chan_add(struct vmbus_channel *newchan)
          * Chan0 will neither be processed nor should be offered;
          * skip it.
          */
-        vmbus_chan_debug("got chan0 offer, discard\n");
+        vmbus_chan_debug("got chan0 offer, discard");
         return EINVAL;
     } else if (newchan->ch_id >= VMBUS_CHAN_MAX) {
-        vmbus_chan_debug("invalid chan%d offer\n", newchan->ch_id);
+        vmbus_chan_debug("invalid chan%d offer", newchan->ch_id);
         return EINVAL;
     }
 
@@ -799,16 +839,18 @@ vmbus_chan_add(struct vmbus_channel *newchan)
     u64 flags = spin_lock_irq(&sc->vmbus_prichan_lock);
     list_foreach(&sc->vmbus_prichans, l) {
         assert(l);
-        prichan = struct_from_list(l, struct vmbus_channel *, ch_prilink);
+        struct vmbus_channel *ch = struct_from_list(l, struct vmbus_channel *, ch_prilink);
         /*
          * Sub-channel will have the same type GUID and instance
          * GUID as its primary channel.
          */
-        if (runtime_memcmp(&prichan->ch_guid_type, &newchan->ch_guid_type,
+        if (runtime_memcmp(&ch->ch_guid_type, &newchan->ch_guid_type,
             sizeof(struct hyperv_guid)) == 0 &&
-            runtime_memcmp(&prichan->ch_guid_inst, &newchan->ch_guid_inst,
-            sizeof(struct hyperv_guid)) == 0)
+            runtime_memcmp(&ch->ch_guid_inst, &newchan->ch_guid_inst,
+            sizeof(struct hyperv_guid)) == 0) {
+            prichan = ch;
             break;
+        }
     }
     if (VMBUS_CHAN_ISPRIMARY(newchan)) {
         if (prichan == NULL) {
@@ -818,13 +860,13 @@ vmbus_chan_add(struct vmbus_channel *newchan)
             goto done;
         } else {
             spin_unlock_irq(&sc->vmbus_prichan_lock, flags);
-            vmbus_chan_debug("duplicated primary chan%d\n", newchan->ch_id);
+            vmbus_chan_debug("duplicated primary chan%d", newchan->ch_id);
             return EINVAL;
         }
     } else { /* Sub-channel */
         if (prichan == NULL) {
             spin_unlock_irq(&sc->vmbus_prichan_lock, flags);
-            vmbus_chan_debug("no primary chan for chan%d\n", newchan->ch_id);
+            vmbus_chan_debug("no primary chan for chan%d", newchan->ch_id);
             return EINVAL;
         }
         /*
@@ -862,7 +904,7 @@ done:
     vmbus_chan_ins_list(sc, newchan);
     spin_unlock_irq(&sc->vmbus_chan_lock, flags);
 
-    vmbus_chan_debug("chan%d subidx%d offer\n", newchan->ch_id, newchan->ch_subidx);
+    vmbus_chan_debug("chan%d subidx%d offer", newchan->ch_id, newchan->ch_subidx);
 
     /* Select default cpu for this channel. */
     vmbus_chan_cpu_default(newchan);
@@ -884,7 +926,7 @@ vmbus_chan_cpu_set(struct vmbus_channel *chan, int cpu)
     chan->ch_cpuid = cpu;
     chan->ch_vcpuid = VMBUS_PCPU_GET(chan->ch_vmbus, vcpuid, cpu);
 
-    vmbus_chan_debug("chan%d assigned to cpu%d [vcpu%d]\n",
+    vmbus_chan_debug("chan%d assigned to cpu%d [vcpu%d]",
             chan->ch_id, chan->ch_cpuid, chan->ch_vcpuid);
 }
 
@@ -912,6 +954,7 @@ vmbus_chan_choffer_open_channel(vmbus_dev sc,
 
     chan->ch_id = offer->chm_chanid;
     chan->ch_subidx = offer->chm_subidx;
+    vmbus_chan_debug("offer ch_id %d ch_subidx %d", chan->ch_id, chan->ch_subidx);
     chan->ch_guid_type = offer->chm_chtype;
     chan->ch_guid_inst = offer->chm_chinst;
 
@@ -949,7 +992,7 @@ vmbus_chan_choffer_open_channel(vmbus_dev sc,
 
     int error = vmbus_chan_add(chan);
     if (error) {
-        vmbus_chan_debug("add chan%d failed: %d\n", chan->ch_id, error);
+        vmbus_chan_debug("add chan%d failed: %d", chan->ch_id, error);
         atomic_subtract32((u32*)&chan->ch_refs, 1);
         vmbus_chan_free(chan);
         chan = NULL;
@@ -961,7 +1004,7 @@ static void
 vmbus_chan_msgproc_chrescind(vmbus_dev sc,
     const struct vmbus_message *msg)
 {
-    vmbus_chan_debug("Channel removal ignored\n");
+    vmbus_chan_debug("Channel removal ignored");
 }
 
 void
@@ -976,6 +1019,19 @@ vmbus_chan_msgproc(vmbus_dev sc, const struct vmbus_message *msg)
     msg_proc = vmbus_chan_msgprocs[msg_type];
     if (msg_proc != NULL)
         msg_proc(sc, msg);
+}
+
+int
+vmbus_chan_prplist_nelem(int br_size, int prpcnt_max, int dlen_max)
+{
+    int elem_size;
+
+    elem_size = __offsetof(struct vmbus_chanpkt_prplist,
+        cp_range[0].gpa_page[prpcnt_max]);
+    elem_size += dlen_max;
+    elem_size = VMBUS_CHANPKT_TOTLEN(elem_size);
+
+    return (vmbus_br_nelem(br_size, elem_size));
 }
 
 bool

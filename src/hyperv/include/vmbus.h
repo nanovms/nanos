@@ -53,6 +53,8 @@
 #define VMBUS_CHAN_POLLHZ_MIN		100	/* 10ms interval */
 #define VMBUS_CHAN_POLLHZ_MAX		1000000	/* 1us interval */
 
+#define MAXCPU      1
+
 /*
  * GPA stuffs.
  */
@@ -161,8 +163,12 @@ int		vmbus_chan_send(struct vmbus_channel *chan, uint16_t type,
 int		vmbus_chan_send_sglist(struct vmbus_channel *chan,
 		    struct vmbus_gpa sg[], int sglen, void *data, int dlen,
 		    uint64_t xactid);
+int     vmbus_chan_send_prplist(struct vmbus_channel *chan,
+            struct vmbus_gpa_range *prp, int prp_cnt, void *data,
+            int dlen, uint64_t xactid);
 
 bool		vmbus_chan_is_revoked(const struct vmbus_channel *chan);
-
+int             vmbus_chan_prplist_nelem(int br_size, int prpcnt_max,
+                    int dlen_max);
 void           vmbus_chan_poll_messages(struct vmbus_channel *chan);
 #endif	/* !_VMBUS_H_ */

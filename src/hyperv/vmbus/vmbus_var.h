@@ -60,8 +60,6 @@ typedef void            (*vmbus_chanmsg_proc_t)(vmbus_dev,
 #define VMBUS_CHANMSG_PROC_WAKEUP(name) \
         VMBUS_CHANMSG_PROC(name, vmbus_msghc_wakeup)
 
-#define MAXCPU      1
-
 /*
  * CACHE_LINE_SIZE is the compile-time maximum cache line size for an
  * architecture.  It should be used with appropriate caution.

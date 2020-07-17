@@ -86,7 +86,7 @@ hv_request_wait_for_reply(rndis_request *request, rndis_device *device)
 static inline u64
 hv_get_phys_addr(void *virt)
 {
-    u64 ret = (physical_from_virtual(virt) | ((vm_offset_t) virt & PAGEMASK));
+    u64 ret = physical_from_virtual(virt);
     assert(ret != INVALID_PHYSICAL);
     return (ret);
 }
@@ -385,7 +385,7 @@ hv_rf_on_receive(struct hv_device *device, netvsc_packet *pkt)
         hv_rf_receive_indicate_status(rndis_dev, &rndis_mesg);
         break;
     default:
-        hyperv_rndis_debug("hv_rf_on_receive():  Unknown msg_type 0x%x\n",
+        hyperv_rndis_debug("hv_rf_on_receive():  Unknown msg_type 0x%x",
             rndis_mesg.ndis_msg_type);
         break;
     }
@@ -425,7 +425,7 @@ hv_rf_query_device(rndis_device *device, uint32_t oid, void *result,
     ret = hv_rf_send_request(device, request, REMOTE_NDIS_QUERY_MSG);
     if (ret != 0) {
         /* Fixme:  printf added */
-        hyperv_rndis_debug("RNDISFILTER request failed to Send!\n");
+        hyperv_rndis_debug("RNDISFILTER request failed to Send!");
         goto cleanup;
     }
 

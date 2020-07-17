@@ -2,6 +2,7 @@
 #define _HYPERV_INTERNAL_H_
 
 #include <system_structs.h>
+#include <drivers/storage.h>
 #include "ctassert.h"
 #include "atomic.h"
 
@@ -50,9 +51,10 @@ struct hyperv_guid;
 
 typedef struct hv_device hv_device;
 typedef void task_fn_t(void *context, int pending);
-typedef closure_type(vmbus_device_probe, boolean, hv_device*);
+typedef closure_type(vmbus_device_probe, boolean, hv_device*, storage_attach, boolean*);
 
 void register_vmbus_driver(const struct hyperv_guid *type, vmbus_device_probe probe);
 void init_netvsc(kernel_heaps kh);
+void init_storvsc(kernel_heaps kh);
 
 #endif //_HYPERV_INTERNAL_H_

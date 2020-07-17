@@ -178,7 +178,7 @@ hv_nv_init_rx_buffer_with_net_vsp(struct hv_device *device)
     /* Notify the NetVsp of the gpadl handle */
     init_pkt = &net_dev->channel_init_packet;
 
-    memset(init_pkt, 0, sizeof(nvsp_msg));
+    runtime_memset((u8 *)init_pkt, 0, sizeof(nvsp_msg));
 
     init_pkt->hdr.msg_type = nvsp_msg_1_type_send_rx_buf;
     init_pkt->msgs.vers_1_msgs.send_rx_buf.gpadl_handle =
@@ -398,7 +398,7 @@ hv_nv_destroy_send_buffer(netvsc_dev *net_dev)
     if (net_dev->send_section_size) {
         /* Send the revoke send buffer */
         revoke_pkt = &net_dev->revoke_packet;
-        memset(revoke_pkt, 0, sizeof(nvsp_msg));
+        runtime_memset((u8 *)revoke_pkt, 0, sizeof(nvsp_msg));
 
         revoke_pkt->hdr.msg_type =
             nvsp_msg_1_type_revoke_send_buf;
@@ -546,7 +546,7 @@ hv_nv_connect_to_vsp(struct hv_device *device)
     }
     net_dev->nvsp_version = nvsp_vers;
 
-    netvsc_debug("NVSP protocol: %d\n", net_dev->nvsp_version);
+    netvsc_debug("NVSP protocol: %d", net_dev->nvsp_version);
     /*
      * Set the MTU if supported by this NVSP protocol version
      * This needs to be right after the NVSP init message per Haiyang
@@ -559,7 +559,7 @@ hv_nv_connect_to_vsp(struct hv_device *device)
      */
     init_pkt = &net_dev->channel_init_packet;
 
-    memset(init_pkt, 0, sizeof(nvsp_msg));
+    runtime_memset((u8 *)init_pkt, 0, sizeof(nvsp_msg));
 
     /*
      * Updated to version 5.1, minimum, for VLAN per Haiyang
@@ -996,7 +996,7 @@ hv_nv_on_channel_callback(struct vmbus_channel *context, void *hv_device)
             /* Handle large packet */
             deallocate(device->device->general, buffer, bufferlen);
             buffer = allocate(device->device->general, bytes_rxed);
-            if (buffer == NULL) {
+            if (buffer == INVALID_ADDRESS) {
                 break;
             }
             bufferlen = bytes_rxed;

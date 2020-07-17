@@ -367,7 +367,7 @@ vmbus_xact_ctx_wakeup(struct vmbus_xact_ctx *ctx, const void *data, size_t dlen)
         vmbus_xact_save_resp(ctx->xc_active, data, dlen);
     } else {
         assert(ctx->xc_flags & VMBUS_XACT_CTXF_DESTROY); //no active xact pending
-        vmbus_xact_debug("vmbus: drop xact response\n");
+        vmbus_xact_debug("vmbus: drop xact response");
     }
     spin_unlock_irq(&ctx->xc_lock, flags);
 }

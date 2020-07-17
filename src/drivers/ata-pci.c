@@ -34,6 +34,8 @@
 #define ATA_SIS_ID              0x1039
 #define ATA_VIA_ID              0x1106
 
+#define PCI_PRODUCT_PIIX4       0x7111
+
 #ifdef ATA_DEBUG
 static const char *ata_pcivendor2str(pci_dev d)
 {
@@ -73,13 +75,22 @@ static struct ata *ata_pci_alloc(heap general, pci_dev d)
     return dev;
 }
 
-closure_function(2, 1, boolean, ata_pci_probe,
+closure_function(3, 1, boolean, ata_pci_probe,
                  heap, general, storage_attach, a,
+                 boolean, hyperv_storvsc_attached,
                  pci_dev, d)
 {
     heap general = bound(general);
     if (pci_get_class(d) != PCIC_STORAGE || pci_get_subclass(d) != PCIS_STORAGE_IDE)
         return false;
+
+    if (bound(hyperv_storvsc_attached) &&
+        pci_get_vendor(d) == ATA_INTEL_ID &&
+        pci_get_device(d) == PCI_PRODUCT_PIIX4) {
+        ata_debug("HyperV storvsc attached: ignore simulated ATA controller\n");
+        return false;
+    }
+
 
     struct ata *dev = ata_pci_alloc(general, d);
     if (!ata_probe(dev)) {
@@ -94,8 +105,8 @@ closure_function(2, 1, boolean, ata_pci_probe,
     return true;
 }
 
-void ata_pci_register(kernel_heaps kh, storage_attach a)
+void ata_pci_register(kernel_heaps kh, storage_attach a, boolean hyperv_storvsc_attached)
 {
     heap h = heap_general(kh);
-    register_pci_driver(closure(h, ata_pci_probe, h, a));
+    register_pci_driver(closure(h, ata_pci_probe, h, a, hyperv_storvsc_attached));
 }
