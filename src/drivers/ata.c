@@ -192,38 +192,16 @@ static int ata_io_loop(struct ata *dev, int cmd, void *buf, u64 nsectors)
     }
 }
 
-void ata_io_cmd(void * _dev, int cmd, void * buf, range blocks, status_handler s)
+static boolean ata_set_lba(struct ata *dev, u64 lba, u64 nsectors)
 {
-    struct ata *dev = (struct ata *)_dev;
-    const char *err;
+    // wait for device to become ready
+    if (ata_wait(dev, 0) < 0)
+        return false;
 
-    u64 lba = blocks.start;
-    u64 nsectors = range_span(blocks);
-    if (nsectors == 0) {
-        const char *err = "ata_io_cmd: zero blocks I/O";
-        apply(s, timm("result", "%s", err));
-        return;
-    }
     if (dev->command_sets & ATA_CS_LBA48) {
         assert(nsectors <= 65536);
         if (nsectors == 65536)
             nsectors = 0;
-    } else {
-        assert(nsectors <= 255);
-        if (cmd == ATA_READ48)
-            cmd = ATA_READ;
-        else if (cmd == ATA_WRITE48)
-            cmd = ATA_WRITE;
-    }
-    ata_debug("%s: cmd 0x%x, blocks %R, sectors %d\n",
-        __func__, cmd, blocks, nsectors);
-
-    // wait for device to become ready
-    if (ata_wait(dev, 0) < 0)
-        goto timeout;
-
-    // set LBA
-    if (dev->command_sets & ATA_CS_LBA48) {
         ata_out8(dev, ATA_COUNT, nsectors >> 8);
         ata_out8(dev, ATA_COUNT, nsectors);
         ata_out8(dev, ATA_CYL_MSB, lba >> 40);
@@ -234,12 +212,38 @@ void ata_io_cmd(void * _dev, int cmd, void * buf, range blocks, status_handler s
         ata_out8(dev, ATA_SECTOR, lba);
         ata_out8(dev, ATA_DRIVE, ATA_D_LBA | ATA_DEV(dev->unit));
     } else {
+        assert(nsectors <= 255);
         ata_out8(dev, ATA_COUNT, nsectors);
         ata_out8(dev, ATA_CYL_MSB, lba >> 16);
         ata_out8(dev, ATA_CYL_LSB, lba >> 8);
         ata_out8(dev, ATA_SECTOR, lba);
         ata_out8(dev, ATA_DRIVE, ATA_D_IBM | ATA_D_LBA | ATA_DEV(dev->unit) | ((lba >> 24) & 0x0f));
     }
+    return true;
+}
+
+void ata_io_cmd(void * _dev, int cmd, void * buf, range blocks, status_handler s)
+{
+    struct ata *dev = (struct ata *)_dev;
+    const char *err;
+
+    u64 lba = blocks.start;
+    u64 nsectors = range_span(blocks);
+    if (nsectors == 0) {
+        apply(s, timm("result", "ata_io_cmd: zero blocks I/O"));
+        return;
+    }
+    if (!(dev->command_sets & ATA_CS_LBA48)) {
+        if (cmd == ATA_READ48)
+            cmd = ATA_READ;
+        else if (cmd == ATA_WRITE48)
+            cmd = ATA_WRITE;
+    }
+    ata_debug("%s: cmd 0x%x, blocks %R, sectors %d\n",
+        __func__, cmd, blocks, nsectors);
+
+    if (!ata_set_lba(dev, lba, nsectors))
+        goto timeout;
 
     // send I/O command
     ata_out8(dev, ATA_COMMAND, cmd);
@@ -255,7 +259,7 @@ void ata_io_cmd(void * _dev, int cmd, void * buf, range blocks, status_handler s
 timeout:
     err = "ata_io_cmd: device timeout";
     msg_err("%s\n", err);
-    apply(s, timm("result", "%s", err));
+    apply(s, timm("result", err));
 }
 
 closure_function(2, 3, void, ata_io_cmd_cfn,
