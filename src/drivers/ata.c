@@ -81,6 +81,7 @@ struct ata {
     u16 capabilities;
     u32 command_sets;
     u64 capacity;
+    boolean irq_enabled;
 };
 
 static inline u8 ata_in8(struct ata *dev, int reg)
@@ -242,6 +243,10 @@ void ata_io_cmd(void * _dev, int cmd, void * buf, range blocks, status_handler s
     ata_debug("%s: cmd 0x%x, blocks %R, sectors %d\n",
         __func__, cmd, blocks, nsectors);
 
+    if (dev->irq_enabled) {
+        ata_out8(dev, ATA_CONTROL, ATA_A_IDS);
+        dev->irq_enabled = false;
+    }
     if (!ata_set_lba(dev, lba, nsectors))
         goto timeout;
 
@@ -260,6 +265,32 @@ timeout:
     err = "ata_io_cmd: device timeout";
     msg_err("%s\n", err);
     apply(s, timm("result", err));
+}
+
+boolean ata_io_cmd_dma(void *_dev, boolean write, range blocks)
+{
+    ata_debug("%s: %s at %R\n", __func__, write ? "write" : "read", blocks);
+    struct ata *dev = (struct ata *)_dev;
+    if (!ata_set_lba(dev, blocks.start, range_span(blocks)))
+        return false;
+    u8 cmd;
+    if (dev->command_sets & ATA_CS_LBA48)
+        cmd = (write ? ATA_WRITE_DMA48 : ATA_READ_DMA48);
+    else
+        cmd = (write ? ATA_WRITE_DMA : ATA_READ_DMA);
+    ata_out8(dev, ATA_COMMAND, cmd);
+    if (!dev->irq_enabled) {
+        ata_out8(dev, ATA_CONTROL, 0);
+        dev->irq_enabled = true;
+    }
+    return true;
+}
+
+boolean ata_clear_irq(void *_dev)
+{
+    struct ata *dev = (struct ata *)_dev;
+    u8 status = ata_in8(dev, ATA_STATUS);
+    return (status & (ATA_S_ERROR | ATA_S_DWF));
 }
 
 closure_function(2, 3, void, ata_io_cmd_cfn,
@@ -315,6 +346,7 @@ boolean ata_probe(struct ata *dev)
 
     // disable interrupts
     ata_out8(dev, ATA_CONTROL, ATA_A_IDS);
+    dev->irq_enabled = false;
 
     // identify
     ata_out8(dev, ATA_COMMAND, ATA_ATA_IDENTIFY);
