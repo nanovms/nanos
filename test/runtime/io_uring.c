@@ -764,7 +764,7 @@ static void iour_test_iovec(void)
     int fd;
     struct iour iour;
     uint8_t read_buf[BUF_SIZE], write_buf[BUF_SIZE];
-    const int chunk_len = 64;
+    const int chunk_len = 8;
     const int chunk_count = BUF_SIZE / chunk_len;
     struct iovec iov[chunk_count];
     struct io_uring_cqe *cqe;
