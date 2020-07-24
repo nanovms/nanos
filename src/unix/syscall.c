@@ -390,10 +390,15 @@ closure_function(5, 2, void, iov_op_each_complete,
 void iov_op(fdesc f, boolean write, struct iovec *iov, int iovcnt, u64 offset,
             boolean blocking, io_completion completion)
 {
-    if (iovcnt < 0 || iovcnt > IOV_MAX)
-        apply(completion, current, -EINVAL);
-    if (iovcnt == 0)
-        apply(completion, current, 0);
+    sysreturn rv;
+    if (iovcnt < 0 || iovcnt > IOV_MAX) {
+        rv = -EINVAL;
+        goto out;
+    }
+    if (iovcnt == 0) {
+        rv = 0;
+        goto out;
+    }
 
     heap h = heap_general(get_kernel_heaps());
     struct iov_progress p;
@@ -407,6 +412,9 @@ void iov_op(fdesc f, boolean write, struct iovec *iov, int iovcnt, u64 offset,
     io_completion each = closure(h, iov_op_each_complete, f, write, iov, iovcnt,
         p);
     apply(each, current, 0);
+    return;
+out:
+    apply(completion, current, rv);
 }
 
 sysreturn read(int fd, u8 *dest, bytes length)
