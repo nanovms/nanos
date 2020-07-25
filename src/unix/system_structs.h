@@ -152,7 +152,8 @@ struct flock {
 #define F_WRLCK         1
 #define F_UNLCK         2
 
-#define FIONBIO		0x5421
+#define FIONREAD        0x541b
+#define FIONBIO         0x5421
 #define FIONCLEX        0x5450
 #define FIOCLEX         0x5451
 

@@ -802,6 +802,32 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
                 sizeof(ip4_addr_t));
         return 0;
     }
+    case FIONREAD: {
+        int *nbytes = varg(ap, int *);
+        *nbytes = 0;
+        void *p = queue_peek(s->incoming);
+        if (p != INVALID_ADDRESS) {
+            struct pbuf *buf = 0;
+            switch (s->sock.type) {
+            case SOCK_STREAM:
+                /* For TCP, return the number of immediately readable bytes */
+                if (s->info.tcp.state == TCP_SOCK_OPEN)
+                    buf = p;
+                break;
+            case SOCK_DGRAM:
+                /* For UDP, return the size of the next datagram (if any) */
+                buf = ((struct udp_entry *)p)->pbuf;
+                break;
+            default:
+                break;
+            }
+            while (buf) {
+                *nbytes += (int)buf->len;
+                buf = buf->next;
+            }
+        }
+        return 0;
+    }
     default:
         return socket_ioctl(&s->sock, request, ap);
     }

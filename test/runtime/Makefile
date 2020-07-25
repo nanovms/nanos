@@ -16,6 +16,7 @@ PROGRAMS= \
 	io_uring \
 	mkdir \
 	mmap \
+	netsock \
 	nullpage \
 	paging \
 	pipe \
@@ -131,6 +132,12 @@ SRCS-mkdir= \
 	$(CURDIR)/mkdir.c \
 	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-mkdir=		-static
+
+SRCS-netsock= \
+	$(CURDIR)/netsock.c \
+	$(SRCDIR)/unix_process/ssp.c
+LDFLAGS-netsock=	-static
+LIBS-netsock=		-lpthread
 
 SRCS-nullpage=		$(CURDIR)/nullpage.c
 # use -O0 so that clang does not generate UD2 instruction for the code with undefined behavior
