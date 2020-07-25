@@ -734,27 +734,41 @@ closure_function(2, 6, sysreturn, file_sg_read,
     return bh ? SYSRETURN_CONTINUE_BLOCKING : file_op_maybe_sleep(t);
 }
 
+static void begin_file_write(thread t, file f, u64 len)
+{
+    if (len > 0)
+        filesystem_update_mtime(t->p->fs, file_get_meta(f));
+    file_op_begin(t);
+}
+
+static void file_write_complete_internal(thread t, file f, u64 len,
+                                         boolean is_file_offset,
+                                         io_completion completion, status s)
+{
+    sysreturn rv;
+    if (is_ok(s)) {
+        /* if regular file, update length */
+        if (f->fsf)
+            f->length = fsfile_get_length(f->fsf);
+        if (is_file_offset)
+            f->offset += len;
+        rv = len;
+    } else {
+        rv = sysreturn_from_fs_status_value(s);
+    }
+    apply(completion, t, rv);
+}
+
 closure_function(6, 1, void, file_write_complete,
                  thread, t, file, f, sg_list, sg, u64, length, boolean, is_file_offset, io_completion, completion,
                  status, s)
 {
     thread_log(bound(t), "%s: f %p, sg, %p, completion %F, status %v",
                __func__, bound(f), bound(sg), bound(completion), s);
-    sysreturn rv;
     sg_list_release(bound(sg));
     deallocate_sg_list(bound(sg));
-    if (is_ok(s)) {
-        file f = bound(f);
-        /* if regular file, update length */
-        if (f->fsf)
-            f->length = fsfile_get_length(f->fsf);
-        if (bound(is_file_offset)) /* vs specified offset (pread) */
-            f->offset += bound(length);
-        rv = bound(length);
-    } else {
-        rv = sysreturn_from_fs_status_value(s);
-    }
-    apply(bound(completion), bound(t), rv);
+    file_write_complete_internal(bound(t), bound(f), bound(length),
+                                 bound(is_file_offset), bound(completion), s);
     closure_finish();
 }
 
@@ -785,10 +799,7 @@ closure_function(2, 6, sysreturn, file_write,
     sgb->offset = 0;
     sgb->refcount = 0;
 
-    if (length > 0) {
-        filesystem_update_mtime(t->p->fs, file_get_meta(f));
-    }
-    file_op_begin(t);
+    begin_file_write(t, f, length);
     apply(f->fs_write, sg, irangel(offset, length), closure(h, file_write_complete,
                                                             t, f, sg, length, is_file_offset, completion));
     /* possible direct return in top half */
