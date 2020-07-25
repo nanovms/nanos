@@ -415,6 +415,39 @@ define_closure_function(2, 0, void, iov_bh,
     iov_op_each(bound(p), bound(t));
 }
 
+closure_function(4, 2, void, iov_read_complete,
+                 sg_list, sg, struct iovec *, iov, int, iovcnt, io_completion, completion,
+                 thread, t, sysreturn, rv)
+{
+    sg_list sg = bound(sg);
+    io_completion completion = bound(completion);
+    thread_log(t, "%s: sg %p, completion %F, rv %ld", __func__, sg, completion,
+               rv);
+    if (rv > 0) {
+        struct iovec *iov = bound(iov);
+        for (int i = 0; i < bound(iovcnt); i++) {
+            sg_copy_to_buf(iov[i].iov_base, sg, iov[i].iov_len);
+        }
+    }
+    deallocate_sg_list(sg);
+    apply(completion, t, rv);
+    closure_finish();
+}
+
+closure_function(2, 2, void, iov_write_complete,
+                 sg_list, sg, io_completion, completion,
+                 thread, t, sysreturn, rv)
+{
+    sg_list sg = bound(sg);
+    io_completion completion = bound(completion);
+    thread_log(t, "%s: sg %p, completion %F, rv %ld", __func__, sg, completion,
+               rv);
+    sg_list_release(sg);
+    deallocate_sg_list(sg);
+    apply(completion, t, rv);
+    closure_finish();
+}
+
 void iov_op(fdesc f, boolean write, struct iovec *iov, int iovcnt, u64 offset,
             boolean blocking, io_completion completion)
 {
@@ -429,6 +462,34 @@ void iov_op(fdesc f, boolean write, struct iovec *iov, int iovcnt, u64 offset,
     }
 
     heap h = heap_general(get_kernel_heaps());
+    if (write ? (f->sg_write != 0) : (f->sg_read != 0)) {
+        sg_list sg = allocate_sg_list();
+        if (sg == INVALID_ADDRESS) {
+            rv = -ENOMEM;
+            goto out;
+        }
+        io_completion iov_complete;
+        if (write) {
+            for (int i = 0; i < iovcnt; i++) {
+                u64 len = iov[i].iov_len;
+                if (len == 0)
+                    continue;
+                sg_buf sgb = sg_list_tail_add(sg, len);
+                sgb->buf = iov[i].iov_base;
+                sgb->size = len;
+                sgb->offset = 0;
+                sgb->refcount = 0;
+            }
+            iov_complete = closure(h, iov_write_complete, sg, completion);
+
+        } else {
+            iov_complete = closure(h, iov_read_complete, sg, iov, iovcnt,
+                completion);
+        }
+        apply(write ? f->sg_write : f->sg_read, sg, iov_total_len(iov, iovcnt),
+                offset, current, !blocking, iov_complete);
+        return;
+    }
     struct iov_progress *p = allocate(h, sizeof(struct iov_progress));
     if (p == INVALID_ADDRESS) {
         rv = -ENOMEM;
@@ -806,6 +867,52 @@ closure_function(2, 6, sysreturn, file_write,
     return bh ? SYSRETURN_CONTINUE_BLOCKING : file_op_maybe_sleep(t);
 }
 
+closure_function(5, 1, void, file_sg_write_complete,
+                 thread, t, file, f, u64, len, boolean, is_file_offset, io_completion, completion,
+                 status, s)
+{
+    thread t = bound(t);
+    file f = bound(f);
+    u64 len = bound(len);
+    io_completion completion = bound(completion);
+    thread_log(t, "%s: f %p, len %ld, completion %F, status %v",
+               __func__, f, len, completion, s);
+    file_write_complete_internal(t, f, len, bound(is_file_offset), completion,
+                                 s);
+    closure_finish();
+}
+
+closure_function(2, 6, sysreturn, file_sg_write,
+                 file, f, fsfile, fsf,
+                 sg_list, sg, u64, len, u64, offset_arg, thread, t, boolean, bh, io_completion, completion)
+{
+    file f = bound(f);
+    sysreturn rv;
+
+    /* TODO: special files not supported yet */
+    if (f->f.type == FDESC_TYPE_SPECIAL) {
+        rv = -EIO;
+        goto out;
+    }
+
+    boolean is_file_offset = offset_arg == infinity;
+    u64 offset = is_file_offset ? f->offset : offset_arg;
+    thread_log(t, "%s: f %p, sg %p, offset %ld (%s), len %ld, file length %ld",
+               __func__, f, sg, offset, is_file_offset ? "file" : "specified",
+               len, f->length);
+    status_handler sg_complete = closure(heap_general(get_kernel_heaps()),
+        file_sg_write_complete, t, f, len, is_file_offset, completion);
+    if (sg_complete == INVALID_ADDRESS) {
+        rv = -ENOMEM;
+        goto out;
+    }
+    begin_file_write(t, f, len);
+    apply(f->fs_write, sg, irangel(offset, len), sg_complete);
+    return bh ? SYSRETURN_CONTINUE_BLOCKING : file_op_maybe_sleep(t);
+  out:
+    return io_complete(completion, t, rv);
+}
+
 closure_function(2, 2, sysreturn, file_close,
                  file, f, fsfile, fsf,
                  thread, t, io_completion, completion)
@@ -947,6 +1054,7 @@ sysreturn open_internal(tuple cwd, const char *name, int flags, int mode)
     f->f.read = closure(h, file_read, f, fsf);
     f->f.write = closure(h, file_write, f, fsf);
     f->f.sg_read = closure(h, file_sg_read, f, fsf);
+    f->f.sg_write = closure(h, file_sg_write, f, fsf);
     f->f.close = closure(h, file_close, f, fsf);
     f->f.events = closure(h, file_events, f);
     f->f.flags = flags;

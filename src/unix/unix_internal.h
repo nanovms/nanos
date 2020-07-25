@@ -713,6 +713,14 @@ static inline void file_op_maybe_wake(thread t)
 void iov_op(fdesc f, boolean write, struct iovec *iov, int iovcnt, u64 offset,
             boolean blocking, io_completion completion);
 
+static inline u64 iov_total_len(struct iovec *iov, int iovcnt)
+{
+    u64 len = 0;
+    for (int i = 0; i < iovcnt; i++)
+        len += iov[i].iov_len;
+    return len;
+}
+
 #define resolve_fd_noret(__p, __fd) vector_get(__p->files, __fd)
 #define resolve_fd(__p, __fd) ({void *f ; if (!(f = resolve_fd_noret(__p, __fd))) return set_syscall_error(current, EBADF); f;})
 
