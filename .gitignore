@@ -3,6 +3,7 @@ Makefile.local
 /TAGS
 
 # test artifacts
+/test/go/go.sum
 /test/go/instance.img
 /test/go/image*
 /test/go/.staging/*
