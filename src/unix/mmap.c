@@ -460,7 +460,7 @@ closure_function(4, 1, void, vmap_update_protections_intersection,
         if (tail) {
             /* create node at tail end */
             assert(allocate_vmap(pvmap, irange(ri.end, rn.end),
-                                ivmap(newflags,
+                                ivmap(match->flags,
                                       node_offset + (ri.end - rn.start),
                                       match->cache_node)) != INVALID_ADDRESS);
         }

@@ -676,6 +676,35 @@ void mremap_test(void)
     printf("** all mremap tests passed\n");
 }
 
+void mprotect_test(void)
+{
+    u8 *addr;
+    int ret;
+
+    addr = mmap(NULL, 5 * PAGESIZE, PROT_READ | PROT_WRITE,
+            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (addr == MAP_FAILED)
+        handle_err("mprotect test: mmap");
+
+    /* To test that mprotect() touches the supplied address range only, remove
+     * write access to some pages and then write to neighboring pages. */
+    ret = mprotect(addr, PAGESIZE, PROT_NONE);
+    if (ret < 0)
+        handle_err("mprotect 1");
+    addr[PAGESIZE] = 0;
+    ret = mprotect(addr + 2 * PAGESIZE, PAGESIZE, PROT_NONE);
+    if (ret < 0)
+        handle_err("mprotect 2");
+    addr[2 * PAGESIZE - 1] = 0;
+    addr[3 * PAGESIZE] = 0;
+    ret = mprotect(addr + 4 * PAGESIZE, PAGESIZE, PROT_NONE);
+    if (ret < 0)
+        handle_err("mprotect 3");
+    addr[4 * PAGESIZE - 1] = 0;
+
+    __munmap(addr, 5 * PAGESIZE);
+}
+
 const unsigned char test_sha[2][32] = {
     { 0xca, 0xde, 0xc7, 0x27, 0x1e, 0xaa, 0xd4, 0xc6,
       0x85, 0xa9, 0xc2, 0xc0, 0x57, 0x86, 0xf8, 0x12,
@@ -969,6 +998,7 @@ int main(int argc, char * argv[])
     mmap_test();
     mincore_test();
     mremap_test();
+    mprotect_test();
     filebacked_test(init_process_runtime());
     filebacked_sigbus_test();
 
