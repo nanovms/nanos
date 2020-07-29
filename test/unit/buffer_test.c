@@ -62,6 +62,9 @@ boolean basic_tests(heap h)
     test_assert(buffer_strchr(b, 't') == 10);
     test_assert(buffer_strchr(b, 'u') < 0);
 
+    /* Create and then deallocate a wrapped buffer. */
+    deallocate_buffer(wrap_buffer_cstring(h, test_str));
+
     /*
      * Validate wrap_buffer_cstring initialization, and contents
      */

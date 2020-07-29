@@ -254,9 +254,9 @@ void print_byte(buffer b, u8 f);
 static inline void deallocate_buffer(buffer b)
 {
     heap h = b->h;
-    deallocate(h, b->contents, b->length);
     if (!b->wrapped)
-        deallocate(h, b, sizeof(struct buffer));
+        deallocate(h, b->contents, b->length);
+    deallocate(h, b, sizeof(struct buffer));
 }
 
 static inline void copy_descriptor(buffer d, buffer s)
