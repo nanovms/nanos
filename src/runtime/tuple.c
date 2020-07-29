@@ -39,6 +39,20 @@ tuple allocate_tuple()
     return tag(allocate_table(theap, key_from_symbol, pointer_equal), tag_tuple);
 }
 
+void destruct_tuple(tuple t)
+{
+    table_foreach(t, k, v) {
+        (void)k;
+        if (!v)
+            continue;
+        if (tagof(v) == tag_tuple)
+            destruct_tuple(v);
+        else
+            deallocate_buffer(v);
+    }
+    deallocate_tuple(t);
+}
+
 // header: immediate(1)
 //         type(1)
 //         varint encoded unsigned
