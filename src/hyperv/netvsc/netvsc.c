@@ -135,7 +135,7 @@ low_level_output(struct netif *netif, struct pbuf *p)
      * No longer reserving extra space for page buffers, as they
      * are already part of the netvsc_packet.
      */
-    uint8_t *buf = allocate(hn->general, NETVSC_NV_BUF_SIZE_NO_VLAN);
+    uint8_t *buf = allocate_zero(hn->general, NETVSC_NV_BUF_SIZE_NO_VLAN);
     assert(buf != INVALID_ADDRESS);
 
     netvsc_packet *packet = (netvsc_packet *)(buf + NETVSC_NV_PACKET_OFFSET_IN_BUF);
