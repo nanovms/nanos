@@ -17,6 +17,7 @@
 #include <kvm_platform.h>
 #include <xen_platform.h>
 #include <hyperv_platform.h>
+#include <hyperv/include/atomic.h>
 
 #define BOOT_PARAM_OFFSET_E820_ENTRIES  0x01E8
 #define BOOT_PARAM_OFFSET_BOOT_FLAG     0x01FE
@@ -395,6 +396,41 @@ static void __attribute__((noinline)) init_service_new_stack()
 
     /* platform detection and early init */
     init_debug("probing for KVM");
+
+#if 1
+    rprintf("atomics test\n");
+    volatile u32 x = 3;
+    int a = atomic_cmpset32(&x, 4, 5);
+    if (a)
+        rprintf("fail: atomic_cmpset32 should return zero on mismatch\n");
+    if (x != 3)
+        rprintf("fail: value should not have changed\n");
+    a = atomic_cmpset32(&x, 3, 5);
+    if (!a)
+        rprintf("fail: atomic_cmpset32 should return nonzero on exchange\n");
+    if (x != 5)
+        rprintf("fail: value should have changed to 5\n");
+
+    x = 8;
+    a = atomic_testandset32(&x, 0);
+    if (a)
+        rprintf("fail: atomic_testandset32 should have returned zero\n");
+    if (x != 9)
+        rprintf("fail: value should have been updated to 9\n");
+    a = atomic_testandset32(&x, 0);
+    if (!a)
+        rprintf("fail: atomic_testandset32 should return nonzero\n");
+
+    volatile u64 y = 3;
+    a = atomic_testandclear64(&y, 1);
+    if (!a)
+        rprintf("fail: atomic_testandclear64 should return nonzero\n");
+    if (y != 1)
+        rprintf("fail: value should have been updated to 1\n");
+    a = atomic_testandclear64(&y, 2);
+    if (a)
+        rprintf("fail: atomic_testandclear64 should have returned zero\n");
+#endif
 
     if (!kvm_detect(kh)) {
         init_debug("probing for Xen hypervisor");
