@@ -27,7 +27,7 @@
 int main()
 {
     struct iovec iovs[3];
-    size_t rv;
+    ssize_t rv;
     char buf[BUFLEN];
     char arr1[] = "This seems ", arr2[] = "to have ", arr3[] = "worked";
     char *str = "This seems to have worked";

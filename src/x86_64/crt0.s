@@ -124,7 +124,7 @@ extern common_handler
         ; noreturn               
 %endmacro
 
-# just write a generic one that takes rax, rcx and arguments and stores in a u64[3]
+;; just write a generic one that takes rax, rcx and arguments and stores in a u64[3]
 global xsave_features
 xsave_features :
 	push rcx

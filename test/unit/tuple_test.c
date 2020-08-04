@@ -81,7 +81,7 @@ boolean encode_decode_test(heap h)
 
     buffer buf = allocate_buffer(h, 128);
     bprintf(buf, "%t", t4);
-    test_assert(strncmp(buf->contents, "(1:200)", buf->length) == 0);
+    test_assert(strncmp(buf->contents, "(1:200)", buffer_length(buf)) == 0);
 
     // update tuple by removing an entry
     encode_eav(b3, tdict1, t3, intern_u64(1), 0);
