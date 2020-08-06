@@ -39,7 +39,7 @@ atomic_testandset32(volatile u32 *p, u32 v)
         __asm __volatile(
         "       " MPLOCKED "            "
         "       btsl    %2,%1 ;         "
-	"       sbb     %0,%0 ;         "
+        "       sbb     %0,%0 ;         "
         "# atomic_testandset_int"
         : "=r" (res),                   /* 0 */
           "+m" (*p)                     /* 1 */
@@ -149,8 +149,8 @@ atomic_cmpset##SIZE(volatile u##SIZE *dst, u##SIZE expect, u##SIZE src) \
         __asm __volatile(                               \
         "       " MPLOCKED "            "               \
         "       cmpxchg %3,%1 ; "                       \
-	"       lahf ; "                                \
-	"       andq $0x4000,%%rax ; "                  \
+        "       lahf ; "                                \
+        "       andq $0x4000,%%rax ; "                  \
         "# atomic_cmpset_" #SIZE "      "               \
         : "=a" (res),                   /* 0 */         \
           "+m" (*dst),                  /* 1 */         \

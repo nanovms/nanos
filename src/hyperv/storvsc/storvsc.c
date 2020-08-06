@@ -104,7 +104,6 @@ enum storvsc_request_type {
 };
 
 #define STORVSC_CDB_SIZE    16
-#define STORVSC_SENSE_SIZE  256
 
 struct storvsc_hcb {
     struct list links;
@@ -122,7 +121,7 @@ struct storvsc_hcb {
     u32 alloc_len;                     // allocated data length
     void *data;                       // allocated data
 
-    u8 sense[STORVSC_SENSE_SIZE];
+    u8 sense[SENSE_BUFFER_SIZE];
 };
 
 
@@ -1055,7 +1054,7 @@ static void create_storvsc_request(struct storvsc_hcb *hcb, struct hv_storvsc_re
     }
 
     reqp->sense_data     = &hcb->sense;
-    reqp->sense_info_len = sizeof(&hcb->sense);
+    reqp->sense_info_len = sizeof(hcb->sense);
 
     reqp->hcb = hcb;
 
