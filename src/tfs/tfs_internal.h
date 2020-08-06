@@ -52,8 +52,8 @@ typedef struct extent {
 void ingest_extent(fsfile f, symbol foff, tuple value);
 
 log log_create(heap h, filesystem fs, boolean initialize, status_handler sh);
-void log_write(log tl, tuple t);
-void log_write_eav(log tl, tuple e, symbol a, value v);
+boolean log_write(log tl, tuple t);
+boolean log_write_eav(log tl, tuple e, symbol a, value v);
 void log_flush(log tl, status_handler completion);
 void log_destroy(log tl);
 void flush(filesystem fs, status_handler);

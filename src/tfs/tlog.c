@@ -352,8 +352,12 @@ closure_function(1, 1, void, log_flush_timer_expired,
 
 static void log_set_dirty(log tl)
 {
-    if (tl->dirty)
+    if (tl->dirty) {
+        if (buffer_length(tl->tuple_staging) >= bytes_from_sectors(tl->fs,
+                range_span(tl->current->sectors)) / 2)
+            log_flush(tl, 0);
         return;
+    }
     tl->dirty = true;
     assert(!tl->flush_timer);
     tl->flush_timer = register_timer(runloop_timers, CLOCK_ID_MONOTONIC,
@@ -368,24 +372,30 @@ static void log_set_dirty(log tl)
 }
 #endif
 
-void log_write_eav(log tl, tuple e, symbol a, value v)
+boolean log_write_eav(log tl, tuple e, symbol a, value v)
 {
     tlog_debug("log_write_eav: tl %p, e %p, a %b, v %p\n", tl, e, symbol_string(a), v);
     u64 len = buffer_length(tl->tuple_staging);
+    if (len >= bytes_from_sectors(tl->fs, range_span(tl->current->sectors)))
+        return false;
     encode_eav(tl->tuple_staging, tl->dictionary, e, a, v);
     len = buffer_length(tl->tuple_staging) - len;
     vector_push(tl->encoding_lengths, (void *)len);
     log_set_dirty(tl);
+    return true;
 }
 
-void log_write(log tl, tuple t)
+boolean log_write(log tl, tuple t)
 {
     tlog_debug("log_write: tl %p, t %p\n", tl, t);
     u64 len = buffer_length(tl->tuple_staging);
+    if (len >= bytes_from_sectors(tl->fs, range_span(tl->current->sectors)))
+        return false;
     encode_tuple(tl->tuple_staging, tl->dictionary, t);
     len = buffer_length(tl->tuple_staging) - len;
     vector_push(tl->encoding_lengths, (void *)len);
     log_set_dirty(tl);
+    return true;
 }
 
 #endif /* !TLOG_READ_ONLY */

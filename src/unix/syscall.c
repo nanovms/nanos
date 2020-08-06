@@ -1151,9 +1151,12 @@ static sysreturn mkdir_internal(tuple cwd, const char *pathname, int mode)
     buffer b = little_stack_buffer(NAME_MAX + 1);
     if (!dirname_from_path(b, pathname))
         return -ENAMETOOLONG;
-    filesystem_update_mtime(current->p->fs, parent);
-    filesystem_mkdir(current->p->fs, parent, (char *)buffer_ref(b, 0));
-    return set_syscall_return(current, 0);
+    if (filesystem_mkdir(current->p->fs, parent, (char *)buffer_ref(b, 0))) {
+        filesystem_update_mtime(current->p->fs, parent);
+        return 0;
+    } else {
+        return -ENOSPC;
+    }
 }
 
 sysreturn mkdir(const char *pathname, int mode)
@@ -1384,12 +1387,16 @@ static sysreturn truncate_internal(file f, tuple t, long length)
     if (!fsf) {
         return set_syscall_error(current, ENOENT);
     }
-    truncate_file_maps(current->p, fsf, length);
-    if (!filesystem_truncate(current->p->fs, fsf, length)) {
-        f->length = fsfile_get_length(fsf);
+    if (length == fsfile_get_length(fsf))
+        return 0;
+    fs_status s = filesystem_truncate(current->p->fs, fsf, length);
+    if (s == FS_STATUS_OK) {
+        truncate_file_maps(current->p, fsf, length);
+        if (f)
+            f->length = length;
         filesystem_update_mtime(current->p->fs, t);
     }
-    return set_syscall_return(current, 0);
+    return sysreturn_from_fs_status(s);
 }
 
 sysreturn truncate(const char *path, long length)
@@ -1852,9 +1859,11 @@ static sysreturn unlink_internal(tuple cwd, const char *pathname)
     if (is_dir(n)) {
         return set_syscall_error(current, EISDIR);
     }
-    filesystem_update_mtime(current->p->fs, parent);
-    filesystem_delete(current->p->fs, parent, lookup_sym(parent, n));
-    return set_syscall_return(current, 0);
+    fs_status s = filesystem_delete(current->p->fs, parent,
+        lookup_sym(parent, n));
+    if (s == FS_STATUS_OK)
+        filesystem_update_mtime(current->p->fs, parent);
+    return sysreturn_from_fs_status(s);
 }
 
 static sysreturn rmdir_internal(tuple cwd, const char *pathname)
@@ -1878,9 +1887,11 @@ static sysreturn rmdir_internal(tuple cwd, const char *pathname)
             return set_syscall_error(current, ENOTEMPTY);
         }
     }
-    filesystem_update_mtime(current->p->fs, parent);
-    filesystem_delete(current->p->fs, parent, lookup_sym(parent, n));
-    return set_syscall_return(current, 0);
+    fs_status s = filesystem_delete(current->p->fs, parent,
+        lookup_sym(parent, n));
+    if (s == FS_STATUS_OK)
+        filesystem_update_mtime(current->p->fs, parent);
+    return sysreturn_from_fs_status(s);
 }
 
 sysreturn unlink(const char *pathname)
@@ -1958,11 +1969,15 @@ static sysreturn rename_internal(tuple oldwd, const char *oldpath, tuple newwd,
     if (filepath_is_ancestor(oldwd, oldpath, newwd, newpath)) {
         return set_syscall_error(current, EINVAL);
     }
-    filesystem_update_mtime(current->p->fs, oldparent);
-    filesystem_update_mtime(current->p->fs, newparent);
-    filesystem_rename(current->p->fs, oldparent, lookup_sym(oldparent, old),
-                      newparent, filename_from_path(newpath));
-    return set_syscall_return(current, 0);
+    if ((newparent == oldparent) && (new == old))
+        return 0;
+    fs_status s = filesystem_rename(current->p->fs, oldparent,
+        lookup_sym(oldparent, old), newparent, filename_from_path(newpath));
+    if (s == FS_STATUS_OK) {
+        filesystem_update_mtime(current->p->fs, oldparent);
+        filesystem_update_mtime(current->p->fs, newparent);
+    }
+    return sysreturn_from_fs_status(s);
 }
 
 sysreturn rename(const char *oldpath, const char *newpath)
@@ -2014,12 +2029,15 @@ sysreturn renameat2(int olddirfd, const char *oldpath, int newdirfd,
         if (ret) {
             return set_syscall_return(current, ret);
         }
-        filesystem_update_mtime(current->p->fs, oldparent);
-        filesystem_update_mtime(current->p->fs, newparent);
-        filesystem_exchange(current->p->fs, oldparent,
-                            lookup_sym(oldparent, old), newparent,
-                            lookup_sym(newparent, new));
-        return set_syscall_return(current, 0);
+        if ((newparent == oldparent) && (new == old))
+            return 0;
+        fs_status s = filesystem_exchange(current->p->fs, oldparent,
+            lookup_sym(oldparent, old), newparent, lookup_sym(newparent, new));
+        if (s == FS_STATUS_OK) {
+            filesystem_update_mtime(current->p->fs, oldparent);
+            filesystem_update_mtime(current->p->fs, newparent);
+        }
+        return sysreturn_from_fs_status(s);
     }
     else {
         if ((flags & RENAME_NOREPLACE) &&

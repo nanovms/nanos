@@ -3,7 +3,7 @@
 
 #define SYMLINK_HOPS_MAX    8
 
-static sysreturn sysreturn_from_fs_status(fs_status s)
+sysreturn sysreturn_from_fs_status(fs_status s)
 {
     switch (s) {
     case FS_STATUS_NOSPACE:
@@ -154,8 +154,8 @@ int filesystem_add_tuple(const char *path, tuple t)
     if ((ret != -ENOENT) || !parent) {
         return ret;
     }
-    do_mkentry(current->p->fs, parent, filename_from_path(path), t, true);
-    return 0;
+    return sysreturn_from_fs_status(do_mkentry(current->p->fs, parent,
+        filename_from_path(path), t, true));
 }
 
 closure_function(2, 2, void, fs_op_complete,
@@ -183,8 +183,11 @@ static sysreturn symlink_internal(tuple cwd, const char *path,
     if ((ret != -ENOENT) || !parent) {
         return set_syscall_return(current, ret);
     }
-    filesystem_symlink(current->p->fs, parent, filename_from_path(path), target);
-    return set_syscall_return(current, 0);
+    if (filesystem_symlink(current->p->fs, parent, filename_from_path(path),
+        target))
+        return 0;
+    else
+        return -ENOSPC;
 }
 
 sysreturn symlink(const char *target, const char *linkpath)
