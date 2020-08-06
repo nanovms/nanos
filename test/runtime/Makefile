@@ -353,7 +353,7 @@ all: $(PROGRAMS)
 include ../../rules.mk
 
 ifeq ($(UNAME_s),Darwin)
-CFLAGS+=	-target x86_64-elf --sysroot $(TARGET_ROOT)
+CFLAGS+=	-target x86_64-elf --sysroot $(TARGET_ROOT) -I $(TARGET_ROOT)/usr/include
 LD=		x86_64-elf-ld
 LDFLAGS+=	--sysroot=$(TARGET_ROOT)
 OBJS_BEGIN=	$(OBJS_CRTBEGIN)

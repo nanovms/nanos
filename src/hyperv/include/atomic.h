@@ -26,6 +26,7 @@ atomic_testandset32(volatile u32 *p, u32 v)
 {
         u8 res;
 
+#ifdef __GCC_ASM_FLAG_OUTPUTS__
         __asm __volatile(
         "       " MPLOCKED "            "
         "       btsl    %2,%1 ;         "
@@ -34,6 +35,17 @@ atomic_testandset32(volatile u32 *p, u32 v)
           "+m" (*p)                     /* 1 */
         : "Ir" (v & 0x1f)               /* 2 */
         : "cc");
+#else
+        __asm __volatile(
+        "       " MPLOCKED "            "
+        "       btsl    %2,%1 ;         "
+        "       sbb     %0,%0 ;         "
+        "# atomic_testandset_int"
+        : "=r" (res),                   /* 0 */
+          "+m" (*p)                     /* 1 */
+        : "Ir" (v & 0x1f)               /* 2 */
+        : "cc");
+#endif
         return (res);
 }
 
@@ -54,6 +66,7 @@ atomic_testandclear64(volatile u64 *p, u32 v)
 {
     unsigned char res;
 
+#ifdef __GCC_ASM_FLAG_OUTPUTS__
     __asm __volatile(
     "   " MPLOCKED "        "
     "   btrq    %2,%1 ;     "
@@ -62,6 +75,17 @@ atomic_testandclear64(volatile u64 *p, u32 v)
       "+m" (*p)         /* 1 */
     : "Jr" ((u64)(v & 0x3f)) /* 2 */
     : "cc");
+#else
+    __asm __volatile(
+    "   " MPLOCKED "        "
+    "   btrq    %2,%1 ;     "
+    "   sbb     %0,%0 ;     "
+    "# atomic_testandclear64"
+    : "=r" (res),        /* 0 */
+      "+m" (*p)         /* 1 */
+    : "Jr" ((u64)(v & 0x3f)) /* 2 */
+    : "cc");
+#endif
     return (res);
 }
 
@@ -98,6 +122,7 @@ ATOMIC_ASM(subtract, 32,   "subl %1,%0",  "ir",  v);
  *
  * Returns 0 on failure, non-zero on success.
  */
+#ifdef __GCC_ASM_FLAG_OUTPUTS__
 #define ATOMIC_CMPSET(SIZE)                             \
 static __inline int                                     \
 atomic_cmpset##SIZE(volatile u##SIZE *dst, u##SIZE expect, u##SIZE src) \
@@ -115,6 +140,26 @@ atomic_cmpset##SIZE(volatile u##SIZE *dst, u##SIZE expect, u##SIZE src) \
         : "memory", "cc");                              \
         return (res);                                   \
 }
+#else
+#define ATOMIC_CMPSET(SIZE)                             \
+static __inline int                                     \
+atomic_cmpset##SIZE(volatile u##SIZE *dst, u##SIZE expect, u##SIZE src) \
+{                                                       \
+        int res;                                        \
+        __asm __volatile(                               \
+        "       " MPLOCKED "            "               \
+        "       cmpxchg %3,%1 ; "                       \
+        "       lahf ; "                                \
+        "       andq $0x4000,%%rax ; "                  \
+        "# atomic_cmpset_" #SIZE "      "               \
+        : "=a" (res),                   /* 0 */         \
+          "+m" (*dst),                  /* 1 */         \
+          "+a" (expect)                 /* 2 */         \
+        : "r" (src)                     /* 3 */         \
+        : "memory", "cc");                              \
+        return (res);                                   \
+}
+#endif
 
 ATOMIC_CMPSET(32);
 
