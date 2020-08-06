@@ -270,9 +270,12 @@ static inline boolean log_write_internal(log tl, merge m)
             size = log_size(ext);
             u64 min = TFS_EXTENSION_LINK_BYTES + TUPLE_AVAILABLE_MIN_SIZE;
             if (ext->staging->end + min >= size) {
-                ext = log_extend(tl, TFS_LOG_DEFAULT_EXTENSION_SIZE, apply_merge(m));
-                if (ext == INVALID_ADDRESS)
+                status_handler sh = apply_merge(m);
+                ext = log_extend(tl, TFS_LOG_DEFAULT_EXTENSION_SIZE, sh);
+                if (ext == INVALID_ADDRESS) {
+                    apply(sh, timm("result", "failed to extend log"));
                     return false;
+                }
                 size = log_size(ext);
             }
             assert(ext->staging->end + min < size);
