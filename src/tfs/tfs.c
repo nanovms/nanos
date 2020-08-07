@@ -977,9 +977,6 @@ tuple filesystem_creat(filesystem fs, tuple parent, const char *name)
     table_set(dir, sym(extents), allocate_tuple());
     table_set(dir, sym(filelength), off);
 
-    /* record tuple independently so that tlog read can detect the new file */
-    log_write(fs->tl, dir);
-
     fsfile f = allocate_fsfile(fs, dir);
     fsfile_set_length(f, 0);
 

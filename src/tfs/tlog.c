@@ -390,16 +390,10 @@ void log_write(log tl, tuple t)
 
 #endif /* !TLOG_READ_ONLY */
 
-static boolean log_parse_tuple(log tl, buffer b)
+static void log_process_tuple(log tl, tuple t)
 {
-    tuple dv = decode_value(tl->h, tl->dictionary, b);
-    tlog_debug("   decoded %v\n", dv);
-    if (tagof(dv) != tag_tuple)
-        return false;
-
     fsfile f = 0;
     u64 filelength = infinity;
-    tuple t = (tuple)dv;
 
     table_foreach(t, k, v) {
         if (k == sym(extents)) {
@@ -414,6 +408,8 @@ static boolean log_parse_tuple(log tl, buffer b)
             }
         } else if (k == sym(filelength)) {
             assert(u64_from_value(v, &filelength));
+        } else if (tagof(v) == tag_tuple) {
+            log_process_tuple(tl, v);
         }
     }
         
@@ -421,7 +417,16 @@ static boolean log_parse_tuple(log tl, buffer b)
         tlog_debug("   update fsfile length to %ld\n", filelength);
         fsfile_set_length(f, filelength);
     }
+}
 
+static boolean log_parse_tuple(log tl, buffer b)
+{
+    tuple dv = decode_value(tl->h, tl->dictionary, b);
+    tlog_debug("   decoded %v\n", dv);
+    if (tagof(dv) != tag_tuple)
+        return false;
+
+    log_process_tuple(tl, (tuple)dv);
     return true;
 }
 
