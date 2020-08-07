@@ -46,6 +46,7 @@ include rules.mk
 image: mkfs boot stage3 target
 	@ echo "MKFS	$@"
 	@ $(MKDIR) $(dir $(IMAGE))
+	@ echo "TARGET_ROOT_OPT = " $(TARGET_ROOT_OPT)
 	$(Q) $(MKFS) $(TARGET_ROOT_OPT) -b $(BOOTIMG) $(IMAGE) <test/runtime/$(TARGET).manifest
 
 release: mkfs boot stage3
