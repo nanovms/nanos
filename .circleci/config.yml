@@ -62,7 +62,7 @@ jobs:
       - run: 
           name: macbuild
           environment:
-            NANOS_TARGET_ROOT: $HOME/project/target-root
+            NANOS_TARGET_ROOT: ~/project/target-root
           command: |
             OPS_DIR=$HOME/.ops
             PATH=$HOME/.ops/bin:$PATH
@@ -81,7 +81,7 @@ jobs:
       - run: 
           name: macbuild
           environment:
-            NANOS_TARGET_ROOT: $HOME/project/target-root
+            NANOS_TARGET_ROOT: ~/project/target-root
           command: make
       - run: brew upgrade python
       - run: curl -O https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-240.0.0-darwin-x86_64.tar.gz
