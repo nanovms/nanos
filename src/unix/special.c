@@ -124,6 +124,23 @@ void register_special_files(process p)
 {
     heap h = heap_general((kernel_heaps)p->uh);
 
+    tuple proc_self;
+    int ret = resolve_cstring(p->cwd, "/proc/self/exe", 0, &proc_self);
+    if (ret == -ENOENT) {
+        if (!proc_self) {
+            filesystem_mkdirpath(p->fs, 0, "/proc/self", true);
+            assert(resolve_cstring(p->cwd, "/proc/self", &proc_self, 0) == 0);
+        }
+        assert(proc_self);
+        value program = table_find(p->process_root, sym(program));
+        assert(program);
+        buffer b = clone_buffer(h, program);
+        assert(b != INVALID_ADDRESS);
+        buffer_write_byte(b, '\0'); /* append string terminator character */
+        filesystem_symlink(p->fs, proc_self, "exe", buffer_ref(b, 0));
+        deallocate_buffer(b);
+    }
+
     for (int i = 0; i < sizeof(special_files) / sizeof(special_files[0]); i++) {
         special_file *sf = special_files + i;
 
@@ -135,20 +152,6 @@ void register_special_files(process p)
     }
 
     filesystem_mkdirpath(p->fs, 0, "/sys/devices/system/cpu/cpu0", false);
-
-    tuple proc_self, proc_self_exe;
-    int ret = resolve_cstring(p->cwd, "/proc/self/exe", &proc_self_exe,
-            &proc_self);
-    if (ret == -ENOENT) {
-        assert(proc_self);
-        value program = table_find(p->process_root, sym(program));
-        assert(program);
-        buffer b = clone_buffer(h, program);
-        assert(b != INVALID_ADDRESS);
-        buffer_write_byte(b, '\0'); /* append string terminator character */
-        filesystem_symlink(p->fs, proc_self, "exe", buffer_ref(b, 0));
-        deallocate_buffer(b);
-    }
 }
 
 static special_file *

@@ -1010,7 +1010,7 @@ fs_status filesystem_mkdirpath(filesystem fs, tuple cwd, const char *fp,
     /* 'make it a folder' by attaching a children node to the tuple */
     table_set(dir, sym(children), allocate_tuple());
 
-    return filesystem_mkentry(fs, cwd, fp, dir, persistent, false);
+    return filesystem_mkentry(fs, cwd, fp, dir, persistent, true);
 }
 
 tuple filesystem_mkdir(filesystem fs, tuple parent, const char *name)
