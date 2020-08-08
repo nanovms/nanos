@@ -51,6 +51,7 @@ struct log_ext {
 struct log {
     heap h;
     filesystem fs;
+    table extents; // maps extent tuples to files
     table dictionary;
     log_ext current;
     buffer tuple_staging;
@@ -409,9 +410,9 @@ static void log_process_tuple(log tl, tuple t)
         if (k == sym(extents)) {
             tlog_debug("extents: %p\n", v);
             /* don't know why this needs to be in fs, it's really tlog-specific */
-            if (!(f = table_find(tl->fs->extents, v))) {
+            if (!(f = table_find(tl->extents, v))) {
                 f = allocate_fsfile(tl->fs, t);
-                table_set(tl->fs->extents, v, f);
+                table_set(tl->extents, v, f);
                 tlog_debug("   created fsfile %p\n", f);
             } else {
                 tlog_debug("   found fsfile %p\n", f);
@@ -581,14 +582,14 @@ closure_function(4, 1, void, log_read_complete,
     b->start = 0;
     tlog_debug("   log parse finished, end now at %d\n", b->end);
 
-    /* XXX this will only work for reading the log a single time
-       through, but at present that's all we do */
-    table_foreach(tl->fs->extents, t, f) {
+    table_foreach(tl->extents, t, f) {
         table_foreach(t, off, e) {
             tlog_debug("   tlog ingesting sym %p, val %p\n", symbol_string(off), e);
             ingest_extent((fsfile)f, off, e);
         }
     }
+    deallocate_table(tl->extents);  /* not needed anymore */
+    tl->extents = 0;
 
     // not sure we should be passing the root.. anyways, splat the
     // log root onto the given root
@@ -623,6 +624,14 @@ closure_function(4, 1, void, log_read_complete,
 
 static void log_read(log tl, status_handler sh)
 {
+    if (!tl->extents) {
+        tl->extents = allocate_table(tl->h, identity_key, pointer_equal);
+        if (tl->extents == INVALID_ADDRESS) {
+            tl->extents = 0;
+            apply(sh, timm("result", "failed to allocate extents table"));
+            return;
+        }
+    }
     log_ext ext = tl->current;
     assert(ext);
     assert(!ext->open);
@@ -671,6 +680,7 @@ log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
     tl->flush_completions = allocate_vector(tl->h, COMPLETION_QUEUE_SIZE);
     if (tl->flush_completions == INVALID_ADDRESS)
         goto fail_dealloc_encoding_lengths;
+    tl->extents = 0;
 
     fs->tl = tl;
     if (initialize) {
@@ -699,6 +709,8 @@ log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
 
 void log_destroy(log tl)
 {
+    if (tl->extents)
+        deallocate_table(tl->extents);
     deallocate_vector(tl->flush_completions);
     deallocate_vector(tl->encoding_lengths);
     deallocate_buffer(tl->tuple_staging);

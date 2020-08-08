@@ -18,7 +18,6 @@ typedef struct filesystem {
     int alignment_order;        /* in blocks */
     int page_order;
     table files; // maps tuple to fsfile
-    table extents; // maps extents
     closure_type(log, void, tuple);
     heap dma;
     void *zero_page;

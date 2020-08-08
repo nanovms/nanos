@@ -1165,7 +1165,6 @@ void create_filesystem(heap h,
     if (!ignore_io_status)
         ignore_io_status = closure(h, ignore_io);
     fs->files = allocate_table(h, identity_key, pointer_equal);
-    fs->extents = allocate_table(h, identity_key, pointer_equal);
     fs->zero_page = pagecache_get_zero_page(pc);
     assert(fs->zero_page);
     fs->r = read;
@@ -1211,7 +1210,6 @@ void destroy_filesystem(filesystem fs)
     tfs_debug("%s %p\n", __func__, fs);
     log_destroy(fs->tl);
     pagecache_dealloc_volume(fs->pv);
-    deallocate_table(fs->extents);
     table_foreach(fs->files, k, v) {
         tuple f = k;
         table_foreach(f, k, v) {
