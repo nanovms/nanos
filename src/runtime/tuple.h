@@ -49,5 +49,3 @@ static inline tuple find_or_allocate_tuple(tuple t, symbol s)
     assert(tagof(v) == tag_tuple);
     return (tuple)v;
 }
-
-value null_value(void);

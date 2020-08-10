@@ -447,7 +447,7 @@ static fs_status add_extent_to_file(fsfile f, extent ex)
     table_set(e, sym(length), value_from_u64(h, range_span(ex->node.r)));
     table_set(e, sym(allocated), value_from_u64(h, ex->allocated));
     if (ex->uninited)
-        table_set(e, sym(uninited), null_value());
+        table_set(e, sym(uninited), null_value);
     symbol offs = intern_u64(ex->node.r.start);
     fs_status s = filesystem_write_eav(f->fs, extents, offs, e);
     if (s != FS_STATUS_OK) {

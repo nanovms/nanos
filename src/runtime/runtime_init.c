@@ -5,6 +5,7 @@ void initialize_buffer();
 closure_function(0, 0, void, ignore_body) {}
 thunk ignore;
 status_handler ignore_status;
+value null_value;
 static char *hex_digits="0123456789abcdef";
 
 void print_u64(u64 s)
@@ -100,6 +101,7 @@ void init_runtime(heap h)
     ignore = closure(h, ignore_body);
     ignore_status = (void*)ignore;
     errheap = h;
+    null_value = wrap_buffer_cstring(h, "");
 }
 
 #define STACK_CHK_GUARD 0x595e9fbd94fda766

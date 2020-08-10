@@ -207,6 +207,7 @@ void init_runtime(heap h);
 
 extern thunk ignore;
 extern status_handler ignore_status;
+extern value null_value;
 
 #include <metadata.h>
 
