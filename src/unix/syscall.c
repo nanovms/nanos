@@ -925,6 +925,12 @@ closure_function(2, 2, sysreturn, file_close,
     }
         
     if (ret == 0) {
+        deallocate_closure(f->f.read);
+        deallocate_closure(f->f.write);
+        deallocate_closure(f->f.sg_read);
+        deallocate_closure(f->f.sg_write);
+        deallocate_closure(f->f.events);
+        deallocate_closure(f->f.close);
         release_fdesc(&f->f);
         unix_cache_free(get_unix_heaps(), file, f);
     }
