@@ -429,12 +429,12 @@ static boolean vmbus_connect(vmbus_dev dev, uint32_t version)
         kernel_delay(milliseconds(1));
     }
 
-    int done = ((const struct vmbus_chanmsg_connect_resp *)
-        msg->msg_data)->chm_done;
+    const struct vmbus_chanmsg_connect_resp *connect_resp =
+        (const struct vmbus_chanmsg_connect_resp *)msg->msg_data;
 
     vmbus_msghc_put(dev, mh);
 
-    return (done ? true : false);
+    return (connect_resp->chm_done ? true : false);
 }
 
 static boolean
@@ -459,9 +459,9 @@ static void
 vmbus_chanmsg_handle(vmbus_dev sc, const struct vmbus_message *msg)
 {
     vmbus_chanmsg_proc_t msg_proc;
-    uint32_t msg_type;
+    const struct vmbus_chanmsg_hdr *hdr = (const struct vmbus_chanmsg_hdr *)msg->msg_data;
+    uint32_t msg_type = hdr->chm_type;
 
-    msg_type = ((const struct vmbus_chanmsg_hdr *)msg->msg_data)->chm_type;
     if (msg_type >= VMBUS_CHANMSG_TYPE_MAX) {
         vmbus_debug("unknown message type 0x%x", msg_type);
         return;
@@ -609,7 +609,8 @@ vmbus_probe_channels(vmbus_dev dev, const list driver_list, list nodes)
             continue;
         }
 
-        u32 msg_type = ((const struct vmbus_chanmsg_hdr *)msg->msg_data)->chm_type;
+        const struct vmbus_chanmsg_hdr *hdr = (const struct vmbus_chanmsg_hdr *)msg->msg_data;
+        u32 msg_type = hdr->chm_type;
         /* Handle response */
         if (msg_type == VMBUS_CHANMSG_TYPE_CHOFFER) {
 

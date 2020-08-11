@@ -274,8 +274,9 @@ vmbus_chan_open_br(struct vmbus_channel *chan, const struct vmbus_chan_br *cbr,
     }
     uint32_t status;
     if (msg != NULL) {
-        status = ((const struct vmbus_chanmsg_chopen_resp *)
-            msg->msg_data)->chm_status;
+        const struct vmbus_chanmsg_chopen_resp *chan_resp =
+            (const struct vmbus_chanmsg_chopen_resp *)msg->msg_data;
+        status = chan_resp->chm_status;
     } else {
         /* XXX any non-0 value is ok here. */
         status = 0xff;
@@ -307,7 +308,6 @@ vmbus_chan_gpadl_connect(struct vmbus_channel *chan, bus_addr_t paddr,
     vmbus_dev dev = chan->ch_vmbus;
     struct vmbus_msghc *mh;
     struct vmbus_chanmsg_gpadl_conn *req;
-    const struct vmbus_message *msg;
     uint32_t gpadl, status;
 
     assert(*gpadl0 == 0); //GPADL is not zero
@@ -390,9 +390,10 @@ vmbus_chan_gpadl_connect(struct vmbus_channel *chan, bus_addr_t paddr,
     }
     assert(page_count == 0); //invalid page count %d", page_count
 
-    msg = vmbus_msghc_wait_result(dev, mh);
-    status = ((const struct vmbus_chanmsg_gpadl_connresp *)
-        msg->msg_data)->chm_status;
+    const struct vmbus_message *msg = vmbus_msghc_wait_result(dev, mh);
+    const struct vmbus_chanmsg_gpadl_connresp *connresp =
+        (const struct vmbus_chanmsg_gpadl_connresp *)msg->msg_data;
+    status = connresp->chm_status;
 
     vmbus_msghc_put(dev, mh);
 
@@ -1011,9 +1012,8 @@ void
 vmbus_chan_msgproc(vmbus_dev sc, const struct vmbus_message *msg)
 {
     vmbus_chanmsg_proc_t msg_proc;
-    uint32_t msg_type;
-
-    msg_type = ((const struct vmbus_chanmsg_hdr *)msg->msg_data)->chm_type;
+    const struct vmbus_chanmsg_hdr *hdr = (const struct vmbus_chanmsg_hdr *)msg->msg_data;
+    uint32_t msg_type = hdr->chm_type;
     assert(msg_type < VMBUS_CHANMSG_TYPE_MAX); //"invalid message type %u", msg_type
 
     msg_proc = vmbus_chan_msgprocs[msg_type];
