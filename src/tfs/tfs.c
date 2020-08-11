@@ -500,8 +500,8 @@ static void remove_extent_from_file(fsfile f, extent ex)
     clear_tuple(ex->md);
     ex->md = 0;
     symbol offs = intern_u64(ex->node.r.start);
+    filesystem_write_eav(f->fs, extents, offs, 0);
     table_set(extents, offs, 0);
-    log_write_eav(f->fs->tl, extents, offs, 0);
     rangemap_remove_node(f->extentmap, &ex->node);
 }
 

@@ -108,7 +108,8 @@ static void push_header(buffer b, boolean imm, u8 type, u64 length)
 // h is for buffer values, copy them out
 // would be nice to merge into a tuple dest, but it changes the loop and makes
 // it weird in the reference case
-value decode_value(heap h, tuple dictionary, buffer source)
+value decode_value(heap h, tuple dictionary, buffer source, u64 *total,
+                   u64 *obsolete)
 {
     u8 type;
     boolean imm;
@@ -142,8 +143,18 @@ value decode_value(heap h, tuple dictionary, buffer source)
                 s = table_find(dictionary, pointer_from_u64(nlen));
                 if (!s) halt("indirect symbol not found: 0x%lx, offset %d\n", nlen, source->start);
             }
-            value nv = decode_value(h, dictionary, source);
+            value nv = decode_value(h, dictionary, source, total, obsolete);
+            if (obsolete) {
+                value old_v = table_find(t, s);
+                if (old_v) {
+                    (*obsolete)++;
+                    if (!nv)
+                        (*obsolete)++;
+                }
+            }
             table_set(t, s, nv);
+            if (total)
+                (*total)++;
         }
         tuple_debug("decode_value: decoded tuple %t\n", t);
         return t;
@@ -179,14 +190,14 @@ void encode_symbol(buffer dest, table dictionary, symbol s)
     }
 }
 
-void encode_tuple(buffer dest, table dictionary, tuple t);
-void encode_value(buffer dest, table dictionary, value v)
+void encode_tuple(buffer dest, table dictionary, tuple t, u64 *total);
+void encode_value(buffer dest, table dictionary, value v, u64 *total)
 {
     if (!v) {
         push_header(dest, immediate, type_buffer, 0);
     }
     else if (tagof(v) == tag_tuple) {
-        encode_tuple(dest, dictionary, (tuple)v);
+        encode_tuple(dest, dictionary, (tuple)v, total);
     } else {
         push_header(dest, immediate, type_buffer, buffer_length((buffer)v));
         push_buffer(dest, (buffer)v);
@@ -195,7 +206,8 @@ void encode_value(buffer dest, table dictionary, value v)
 
 // could close over encoder!
 // these are special cases of a slightly more general scheme
-void encode_eav(buffer dest, table dictionary, tuple e, symbol a, value v)
+void encode_eav(buffer dest, table dictionary, tuple e, symbol a, value v,
+                u64 *obsolete)
 {
     // this can be push value really..dont need to assume that its already
     // been rooted - merge these two cases - maybe methodize the tuple interface
@@ -213,10 +225,18 @@ void encode_eav(buffer dest, table dictionary, tuple e, symbol a, value v)
     }
     tuple_debug("   encoding symbol \"%b\" with value %v\n", symbol_string(a), v);
     encode_symbol(dest, dictionary, a);
-    encode_value(dest, dictionary, v);
+    encode_value(dest, dictionary, v, 0);
+    if (obsolete) {
+        value old_v = table_find(e, a);
+        if (old_v) {
+            (*obsolete)++;
+            if (!v)
+                (*obsolete)++;
+        }
+    }
 }
 
-void encode_tuple(buffer dest, table dictionary, tuple t)
+void encode_tuple(buffer dest, table dictionary, tuple t, u64 *total)
 {
     tuple_debug("%s: dest %p, dictionary %p, tuple %p\n", __func__, dest, dictionary, t);
     u64 d = u64_from_pointer(table_find(dictionary, t));
@@ -230,7 +250,9 @@ void encode_tuple(buffer dest, table dictionary, tuple t)
     table_foreach (t, n, v) {
         tuple_debug("   tfe n %p, v %p, tag %d\n", n, v, tagof(v));
         encode_symbol(dest, dictionary, n);
-        encode_value(dest, dictionary, v);
+        encode_value(dest, dictionary, v, total);
+        if (total)
+            (*total)++;
     }        
 }
 

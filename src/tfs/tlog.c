@@ -53,6 +53,7 @@ struct log {
     filesystem fs;
     table extents; // maps extent tuples to files
     table dictionary;
+    u64 total_entries, obsolete_entries;
     log_ext current;
     buffer tuple_staging;
     vector encoding_lengths;
@@ -379,7 +380,8 @@ boolean log_write_eav(log tl, tuple e, symbol a, value v)
     u64 len = buffer_length(tl->tuple_staging);
     if (len >= bytes_from_sectors(tl->fs, range_span(tl->current->sectors)))
         return false;
-    encode_eav(tl->tuple_staging, tl->dictionary, e, a, v);
+    encode_eav(tl->tuple_staging, tl->dictionary, e, a, v, &tl->obsolete_entries);
+    tl->total_entries++;
     len = buffer_length(tl->tuple_staging) - len;
     vector_push(tl->encoding_lengths, (void *)len);
     log_set_dirty(tl);
@@ -392,7 +394,7 @@ boolean log_write(log tl, tuple t)
     u64 len = buffer_length(tl->tuple_staging);
     if (len >= bytes_from_sectors(tl->fs, range_span(tl->current->sectors)))
         return false;
-    encode_tuple(tl->tuple_staging, tl->dictionary, t);
+    encode_tuple(tl->tuple_staging, tl->dictionary, t, &tl->total_entries);
     len = buffer_length(tl->tuple_staging) - len;
     vector_push(tl->encoding_lengths, (void *)len);
     log_set_dirty(tl);
@@ -432,7 +434,8 @@ static void log_process_tuple(log tl, tuple t)
 
 static boolean log_parse_tuple(log tl, buffer b)
 {
-    tuple dv = decode_value(tl->h, tl->dictionary, b);
+    tuple dv = decode_value(tl->h, tl->dictionary, b, &tl->total_entries,
+        &tl->obsolete_entries);
     tlog_debug("   decoded %v\n", dv);
     if (tagof(dv) != tag_tuple)
         return false;
@@ -572,7 +575,8 @@ closure_function(4, 1, void, log_read_complete,
     }
 
     assert(frame == END_OF_LOG);
-    tlog_debug("-> end of log\n");
+    tlog_debug("-> end of log, %ld total entries (%ld obsolete)\n",
+               tl->total_entries, tl->obsolete_entries);
 
     /* the log must go on */
     *(u8*)(b->contents + b->start - 1) = END_OF_SEGMENT;
@@ -672,6 +676,7 @@ log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
     tl->flush_completions = allocate_vector(tl->h, COMPLETION_QUEUE_SIZE);
     if (tl->flush_completions == INVALID_ADDRESS)
         goto fail_dealloc_encoding_lengths;
+    tl->total_entries = tl->obsolete_entries = 0;
     tl->extents = 0;
 
     fs->tl = tl;

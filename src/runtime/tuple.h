@@ -19,12 +19,14 @@ static inline void clear_tuple(tuple t)
 
 void destruct_tuple(tuple t, boolean recursive);
 
-void encode_tuple(buffer dest, table dictionary, tuple t);
+void encode_tuple(buffer dest, table dictionary, tuple t, u64 *total);
 
 
 // h is for the bodies, the space for symbols and tuples are both implicit
-void *decode_value(heap h, tuple dictionary, buffer source);
-void encode_eav(buffer dest, table dictionary, tuple e, symbol a, value v);
+void *decode_value(heap h, tuple dictionary, buffer source, u64 *total,
+                   u64 *obsolete);
+void encode_eav(buffer dest, table dictionary, tuple e, symbol a, value v,
+                u64 *obsolete);
 
 // seriously reconsider types allowed in tuples.. in particular simple
 // ints have an anambiguous translation back and forth to strings (?)
