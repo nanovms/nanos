@@ -17,7 +17,7 @@ static inline void clear_tuple(tuple t)
     table_clear(t);
 }
 
-void destruct_tuple(tuple t);
+void destruct_tuple(tuple t, boolean recursive);
 
 void encode_tuple(buffer dest, table dictionary, tuple t);
 

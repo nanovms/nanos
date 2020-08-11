@@ -37,15 +37,16 @@ tuple allocate_tuple()
     return tag(allocate_table(theap, key_from_symbol, pointer_equal), tag_tuple);
 }
 
-void destruct_tuple(tuple t)
+void destruct_tuple(tuple t, boolean recursive)
 {
     table_foreach(t, k, v) {
         (void)k;
         if (!v)
             continue;
-        if (tagof(v) == tag_tuple)
-            destruct_tuple(v);
-        else if (v != null_value)
+        if (tagof(v) == tag_tuple) {
+            if (recursive)
+                destruct_tuple(v, true);
+        } else if (v != null_value)
             deallocate_buffer(v);
     }
     deallocate_tuple(t);

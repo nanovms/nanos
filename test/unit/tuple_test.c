@@ -35,7 +35,7 @@ boolean all_tests(heap h)
     }
     tuple t2 = tuple_from_vector(v1);
     test_assert(table_elements(t2) == COUNT_ELM);//rprintf("%t\n", t2);
-    destruct_tuple(t2);
+    destruct_tuple(t2, true);
     deallocate_vector(v1);
 
     // value <-> U64
@@ -56,7 +56,7 @@ boolean all_tests(heap h)
 
     failure = false;
 fail:
-    destruct_tuple(t1);
+    destruct_tuple(t1, true);
     return failure;
 }
 
@@ -88,10 +88,10 @@ boolean encode_decode_test(heap h)
     test_assert(decode_value(h, tdict2, b3) == t4);
     test_assert(!table_find(t4, intern_u64(1)));
 
-    destruct_tuple(t4);
+    destruct_tuple(t4, true);
     failure = false;
 fail:
-    destruct_tuple(t3);
+    destruct_tuple(t3, true);
     return failure;
 }
 
@@ -151,10 +151,10 @@ boolean encode_decode_lengthy_test(heap h)
     //rprintf("%t\n", t4);
     test_assert(t4->count == 1000);
 
-    destruct_tuple(t4);
+    destruct_tuple(t4, true);
     failure = false;
 fail:
-    destruct_tuple(t3);
+    destruct_tuple(t3, true);
     return failure;
 }
 

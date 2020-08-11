@@ -451,7 +451,7 @@ static fs_status add_extent_to_file(fsfile f, extent ex)
     symbol offs = intern_u64(ex->node.r.start);
     fs_status s = filesystem_write_eav(f->fs, extents, offs, e);
     if (s != FS_STATUS_OK) {
-        destruct_tuple(e);
+        destruct_tuple(e, true);
         return s;
     }
     table_set(extents, offs, e);
@@ -1021,7 +1021,7 @@ tuple filesystem_mkdir(filesystem fs, tuple parent, const char *name)
         return dir;
     } else {
         cleanup_directory(dir);
-        destruct_tuple(dir);
+        destruct_tuple(dir, true);
         return 0;
     }
 }
@@ -1044,7 +1044,7 @@ tuple filesystem_creat(filesystem fs, tuple parent, const char *name)
         fsfile f = allocate_fsfile(fs, dir);
         fsfile_set_length(f, 0);
     } else {
-        destruct_tuple(dir);
+        destruct_tuple(dir, true);
         return 0;
     }
 
@@ -1059,7 +1059,7 @@ tuple filesystem_symlink(filesystem fs, tuple parent, const char *name,
     if (fs_set_dir_entry(fs, parent, sym_this(name), link) == FS_STATUS_OK) {
         return link;
     } else {
-        destruct_tuple(link);
+        destruct_tuple(link, true);
         return 0;
     }
 }
