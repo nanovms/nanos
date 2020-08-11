@@ -591,15 +591,7 @@ closure_function(4, 1, void, log_read_complete,
     deallocate_table(tl->extents);  /* not needed anymore */
     tl->extents = 0;
 
-    // not sure we should be passing the root.. anyways, splat the
-    // log root onto the given root
-    table logroot = (table)table_find(tl->dictionary, pointer_from_u64(1));
-    if (logroot) {
-        // XXX prob better way
-        table_foreach (logroot, k, v) {
-            table_set(tl->fs->root, k, v);
-        }
-    }
+    tl->fs->root = (tuple)table_find(tl->dictionary, pointer_from_u64(1));
 
     if (tl->fs->w) {
         /* Reverse pairs in dictionary so that we can use it for writing
@@ -687,6 +679,7 @@ log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
 #ifdef TLOG_READ_ONLY
         halt("no tlog write support\n");
 #else
+        fs->root = allocate_tuple();
         log_extension_init(tl->current);
         apply(sh, STATUS_OK);
 #endif

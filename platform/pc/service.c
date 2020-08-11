@@ -106,13 +106,13 @@ closure_function(2, 3, void, offset_block_io,
 /* XXX some header reorg in order */
 void init_extra_prints(); 
 thunk create_init(kernel_heaps kh, tuple root, filesystem fs);
-filesystem_complete bootfs_handler(kernel_heaps kh, tuple root);
+filesystem_complete bootfs_handler(kernel_heaps kh);
 
 /* will become list I guess */
 static pagecache global_pagecache;
 
-closure_function(5, 2, void, fsstarted,
-                 heap, h, u8 *, mbr, block_io, r, block_io, w, tuple, root,
+closure_function(4, 2, void, fsstarted,
+                 heap, h, u8 *, mbr, block_io, r, block_io, w,
                  filesystem, fs, status, s)
 {
     if (!is_ok(s))
@@ -120,23 +120,23 @@ closure_function(5, 2, void, fsstarted,
 
     heap h = bound(h);
     u8 *mbr = bound(mbr);
+    tuple root = filesystem_getroot(fs);
     if (mbr) {
         struct partition_entry *bootfs_part;
-        if (table_find(bound(root), sym(ingest_kernel_symbols)) &&
+        if (table_find(root, sym(ingest_kernel_symbols)) &&
                 (bootfs_part = partition_get(mbr, PARTITION_BOOTFS))) {
             init_debug("loading boot filesystem");
-            tuple bootfs_root = allocate_tuple();
             create_filesystem(h, SECTOR_SIZE,
                               bootfs_part->nsectors * SECTOR_SIZE,
                               closure(h, offset_block_io,
                               bootfs_part->lba_start * SECTOR_SIZE, bound(r)),
-                              0, global_pagecache, bootfs_root, false,
-                              bootfs_handler(&heaps, bootfs_root));
+                              0, global_pagecache, false,
+                              bootfs_handler(&heaps));
         }
         deallocate(h, mbr, SECTOR_SIZE);
     }
     root_fs = fs;
-    enqueue(runqueue, create_init(&heaps, bound(root), fs));
+    enqueue(runqueue, create_init(&heaps, root, fs));
     closure_finish();
 }
 
@@ -164,7 +164,7 @@ void mm_service(void)
     }
 }
 
-static void rootfs_init(heap h, u8 *mbr, tuple root, u64 offset,
+static void rootfs_init(heap h, u8 *mbr, u64 offset,
                         block_io r, block_io w, u64 length)
 {
     length -= offset;
@@ -180,13 +180,12 @@ static void rootfs_init(heap h, u8 *mbr, tuple root, u64 offset,
                       closure(h, offset_block_io, offset, r),
                       closure(h, offset_block_io, offset, w),
                       pc,
-                      root,
                       false,
-                      closure(h, fsstarted, h, mbr, r, w, root));
+                      closure(h, fsstarted, h, mbr, r, w));
 }
 
-closure_function(6, 1, void, mbr_read,
-                 heap, h, u8 *, mbr, tuple, root, block_io, r, block_io, w, u64, length,
+closure_function(5, 1, void, mbr_read,
+                 heap, h, u8 *, mbr, block_io, r, block_io, w, u64, length,
                  status, s)
 {
     if (!is_ok(s))
@@ -197,26 +196,25 @@ closure_function(6, 1, void, mbr_read,
     if (!rootfs_part)
         halt("filesystem partition not found\n");
     else
-        rootfs_init(h, mbr, bound(root), rootfs_part->lba_start * SECTOR_SIZE,
+        rootfs_init(h, mbr, rootfs_part->lba_start * SECTOR_SIZE,
             bound(r), bound(w), bound(length));
     closure_finish();
 }
 
-closure_function(2, 3, void, attach_storage,
-                 tuple, root, u64, fs_offset,
+closure_function(1, 3, void, attach_storage,
+                 u64, fs_offset,
                  block_io, r, block_io, w, u64, length)
 {
     heap h = heap_general(&heaps);
-    tuple root = bound(root);
     u64 offset = bound(fs_offset);
     if (offset == 0) {
         /* Read partition table from disk */
         u8 *mbr = allocate(h, SECTOR_SIZE);
         assert(mbr != INVALID_ADDRESS);
         apply(r, mbr, irange(0, SECTOR_SIZE),
-              closure(h, mbr_read, h, mbr, root, r, w, length));
+              closure(h, mbr_read, h, mbr, r, w, length));
     } else
-        rootfs_init(h, 0, root, offset, r, w, length);
+        rootfs_init(h, 0, offset, r, w, length);
     closure_finish();
 }
 
@@ -296,8 +294,6 @@ static void reclaim_regions(void)
     }
 }
 
-static tuple root;
-
 void vm_exit(u8 code)
 {
 #ifdef SMP_DUMP_FRAME_RETURN_COUNT
@@ -310,6 +306,7 @@ void vm_exit(u8 code)
 #endif
 
     /* TODO MP: coordinate via IPIs */
+    tuple root = root_fs ? filesystem_getroot(root_fs) : 0;
     if (root && table_find(root, sym(reboot_on_exit))) {
         triple_fault();
     } else {
@@ -425,7 +422,6 @@ static void __attribute__((noinline)) init_service_new_stack()
     init_net(kh);
 
     init_debug("probe fs, register storage drivers");
-    root = allocate_tuple();
     struct partition_entry *rootfs_part = partition_get(MBR_ADDRESS,
         PARTITION_ROOTFS);
     u64 fs_offset;
@@ -433,7 +429,7 @@ static void __attribute__((noinline)) init_service_new_stack()
         fs_offset = 0;
     else
         fs_offset = rootfs_part->lba_start * SECTOR_SIZE;
-    storage_attach sa = closure(misc, attach_storage, root, fs_offset);
+    storage_attach sa = closure(misc, attach_storage, fs_offset);
 
     boolean hyperv_storvsc_attached = false;
     /* Probe for PV devices */

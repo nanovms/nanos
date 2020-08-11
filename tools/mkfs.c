@@ -457,7 +457,7 @@ int main(int argc, char **argv)
         pagecache pc = allocate_pagecache(h, h, 0, PAGESIZE);
         assert(pc != INVALID_ADDRESS);
         create_filesystem(h, SECTOR_SIZE, BOOTFS_SIZE, 0,
-                          closure(h, bwrite, out, offset), pc, allocate_tuple(),
+                          closure(h, bwrite, out, offset), pc,
                           true, closure(h, fsc, h, out, boot, target_root));
         offset += BOOTFS_SIZE;
 
@@ -473,7 +473,6 @@ int main(int argc, char **argv)
                       0, /* no read -> new fs */
                       closure(h, bwrite, out, offset),
                       pc,
-                      allocate_tuple(),
                       true,
                       closure(h, fsc, h, out, root, target_root));
 

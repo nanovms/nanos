@@ -106,8 +106,8 @@ static void dump_fsentry(int indent, symbol name, tuple t)
         print_colored(indent, TERM_COLOR_WHITE, name, true);
 }
 
-closure_function(4, 2, void, fsc,
-                 heap, h, buffer, b, tuple, root, unsigned int, options,
+closure_function(3, 2, void, fsc,
+                 heap, h, buffer, b, unsigned int, options,
                  filesystem, fs, status, s)
 {
     heap h = bound(h);
@@ -117,7 +117,7 @@ closure_function(4, 2, void, fsc,
         exit(EXIT_FAILURE);
     }
 
-    tuple root = bound(root);
+    tuple root = filesystem_getroot(fs);
     buffer rb = allocate_buffer(h, PAGESIZE);
     print_root(rb, root);
     buffer_print(rb);
@@ -199,7 +199,6 @@ int main(int argc, char **argv)
     }
 
     heap h = init_process_runtime();
-    tuple root = allocate_tuple();
     pagecache pc = allocate_pagecache(h, h, 0, PAGESIZE);
     assert(pc != INVALID_ADDRESS);
     create_filesystem(h,
@@ -208,8 +207,7 @@ int main(int argc, char **argv)
                       closure(h, bread, fd, get_fs_offset(fd)),
                       0, /* no write */
                       pc,
-                      root,
                       false,
-                      closure(h, fsc, h, target_dir, root, options));
+                      closure(h, fsc, h, target_dir, options));
     return EXIT_SUCCESS;
 }

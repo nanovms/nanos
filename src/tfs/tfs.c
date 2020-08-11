@@ -1139,7 +1139,8 @@ closure_function(2, 1, void, log_complete,
     tfs_debug("%s: complete %p, fs %p, status %v\n", __func__, bound(fc), bound(fs), s);
     filesystem fs = bound(fs);
 #ifndef TFS_READ_ONLY
-    fixup_directory(fs->root, fs->root);
+    if (is_ok(s))
+        fixup_directory(fs->root, fs->root);
 #endif
     apply(bound(fc), fs, s);
     closure_finish();
@@ -1154,7 +1155,6 @@ void create_filesystem(heap h,
                        block_io read,
                        block_io write,
                        pagecache pc,
-                       tuple root,
                        boolean initialize,
                        filesystem_complete complete)
 {
@@ -1169,7 +1169,7 @@ void create_filesystem(heap h,
     assert(fs->zero_page);
     fs->r = read;
     fs->pc = pc;
-    fs->root = root;
+    fs->root = 0;
     fs->page_order = pagecache_get_page_order(pc);
     fs->size = size;
     assert((blocksize & (blocksize - 1)) == 0);
@@ -1198,6 +1198,7 @@ closure_function(1, 1, void, dealloc_extent_node,
 
 void deallocate_fsfile(filesystem fs, fsfile f)
 {
+    table_set(fs->files, f->md, 0);
     deallocate_rangemap(f->extentmap, stack_closure(dealloc_extent_node, fs));
     pagecache_deallocate_node(f->cache_node);
     deallocate(fs->h, f, sizeof(*f));
@@ -1210,28 +1211,12 @@ void destroy_filesystem(filesystem fs)
     tfs_debug("%s %p\n", __func__, fs);
     log_destroy(fs->tl);
     pagecache_dealloc_volume(fs->pv);
+    if (fs->root) {
+        cleanup_directory(fs->root);
+        destruct_tuple(fs->root, true);
+    }
     table_foreach(fs->files, k, v) {
-        tuple f = k;
-        table_foreach(f, k, v) {
-            if (k == sym(extents)) {
-                table extents = v;
-                table_foreach(extents, k, v) {
-                    (void)k;
-                    tuple ex = v;
-                    table_foreach(ex, k, v) {
-                        if (k == sym(length) || k == sym(offset) ||
-                                k == sym(allocated))
-                            deallocate_buffer(v);
-                    }
-                    deallocate_tuple(ex);
-                }
-                deallocate_tuple(extents);
-            }
-            else if (k == sym(children))
-                deallocate_tuple(v);
-            else if (u64_from_pointer(v) >= KMEM_BASE)
-                deallocate_buffer(v);
-        }
+        (void)k;
         deallocate_fsfile(fs, v);
     }
     deallocate_table(fs->files);

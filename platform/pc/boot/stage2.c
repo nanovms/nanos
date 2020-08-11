@@ -279,13 +279,13 @@ region fsregion()
     halt("invalid filesystem offset\n");
 }
 
-closure_function(4, 2, void, filesystem_initialized,
-                 heap, h, heap, backed, tuple, root, buffer_handler, complete,
+closure_function(3, 2, void, filesystem_initialized,
+                 heap, h, heap, backed, buffer_handler, complete,
                  filesystem, fs, status, s)
 {
     if (!is_ok(s))
         halt("unable to open filesystem: %v\n", s);
-    filesystem_read_entire(fs, lookup(bound(root), sym(kernel)),
+    filesystem_read_entire(fs, lookup(filesystem_getroot(fs), sym(kernel)),
                            bound(backed),
                            bound(complete),
                            closure(bound(h), fail));
@@ -295,7 +295,6 @@ void newstack()
 {
     stage2_debug("%s\n", __func__);
     u32 fs_offset = SECTOR_SIZE + fsregion()->length; // MBR + stage2
-    tuple root = allocate_tuple();
     heap h = heap_general(&kh);
     buffer_handler bh = closure(h, kernel_read_complete);
 
@@ -309,9 +308,8 @@ void newstack()
                       get_stage2_disk_read(h, fs_offset),
                       closure(h, stage2_empty_write),
                       pc,
-                      root,
                       false,
-                      closure(h, filesystem_initialized, h, heap_backed(&kh), root, bh));
+                      closure(h, filesystem_initialized, h, heap_backed(&kh), bh));
     
     halt("kernel failed to execute\n");
 }
