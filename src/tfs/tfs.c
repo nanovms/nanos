@@ -1031,14 +1031,9 @@ fsfile allocate_fsfile(filesystem fs, tuple md);
 tuple filesystem_creat(filesystem fs, tuple parent, const char *name)
 {
     tuple dir = fs_new_entry(fs);
-    static buffer off = 0;
-
-    if (!off)
-        off = wrap_buffer_cstring(fs->h, "0");
 
     /* 'make it a file' by adding an empty extents list */
     table_set(dir, sym(extents), allocate_tuple());
-    table_set(dir, sym(filelength), off);
 
     if (fs_set_dir_entry(fs, parent, sym_this(name), dir) == FS_STATUS_OK) {
         fsfile f = allocate_fsfile(fs, dir);
