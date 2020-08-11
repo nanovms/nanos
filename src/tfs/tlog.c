@@ -1,4 +1,5 @@
 #include <tfs_internal.h>
+#include <storage.h>
 
 #ifdef BOOT // XXX move
 #define TLOG_READ_ONLY
@@ -135,6 +136,50 @@ static void close_log_extension(log_ext ext)
     refcount_release(&ext->refcount);
 }
 
+static log log_new(heap h, filesystem fs)
+{
+    tlog_debug("new log: heap %p, fs %p\n", h, fs);
+    log tl = allocate(h, sizeof(struct log));
+    if (tl == INVALID_ADDRESS)
+        return tl;
+    tl->h = h;
+    tl->fs = fs;
+    tl->dictionary = allocate_table(h, identity_key, pointer_equal);
+    if (tl->dictionary == INVALID_ADDRESS)
+        goto fail_dealloc_log;
+    range sectors = irange(0, TFS_LOG_INITIAL_SIZE >> fs->blocksize_order);
+    tl->current = open_log_extension(tl, sectors);
+    if (tl->current == INVALID_ADDRESS)
+        goto fail_dealloc_dict;
+    tl->tuple_staging = allocate_buffer(h, PAGESIZE /* arbitrary */);
+    if (tl->tuple_staging == INVALID_ADDRESS)
+        goto fail_dealloc_current;
+    tl->encoding_lengths = allocate_vector(h, 512);
+    if (tl->encoding_lengths == INVALID_ADDRESS)
+        goto fail_dealloc_staging;
+    tl->tuple_bytes_remain = 0;
+    tl->dirty = false;
+    tl->flushing = false;
+    tl->flush_timer = 0;
+    tl->flush_completions = allocate_vector(tl->h, COMPLETION_QUEUE_SIZE);
+    if (tl->flush_completions == INVALID_ADDRESS)
+        goto fail_dealloc_encoding_lengths;
+    tl->total_entries = tl->obsolete_entries = 0;
+    tl->extents = 0;
+    return tl;
+  fail_dealloc_encoding_lengths:
+    deallocate_vector(tl->encoding_lengths);
+  fail_dealloc_staging:
+    deallocate_buffer(tl->tuple_staging);
+  fail_dealloc_current:
+    refcount_release(&tl->current->refcount);
+  fail_dealloc_dict:
+    deallocate_table(tl->dictionary);
+  fail_dealloc_log:
+    deallocate(h, tl, sizeof(struct log));
+    return INVALID_ADDRESS;
+}
+
 static void dump_staging(log_ext ext)
 {
 #ifdef TLOG_DEBUG_DUMP
@@ -197,6 +242,18 @@ static void flush_log_extension(log_ext ext, boolean release, status_handler com
         tlog_debug("log ext offset now %d\n", b->start);
         assert(b->end >= b->start);
     }
+}
+
+static log_ext log_ext_new(log tl)
+{
+    filesystem fs = tl->fs;
+    u64 ext_size = TFS_LOG_DEFAULT_EXTENSION_SIZE >> fs->blocksize_order;
+    u64 ext_offset = allocate_u64((heap)fs->storage, ext_size);
+    if (ext_offset == INVALID_PHYSICAL)
+        return INVALID_ADDRESS;
+    range sectors = irangel(ext_offset, ext_size);
+    tlog_debug("new extension at %R\n", sectors);
+    return open_log_extension(tl, sectors);
 }
 
 static void log_extension_init(log_ext ext)
@@ -645,64 +702,33 @@ static void log_read(log tl, status_handler sh)
 log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
 {
     tlog_debug("log_create: heap %p, fs %p, sh %p\n", h, fs, sh);
-    log tl = allocate(h, sizeof(struct log));
+#ifndef TLOG_READ_ONLY
+    range sectors = irange(0, TFS_LOG_INITIAL_SIZE >> fs->blocksize_order);
+    if (!filesystem_reserve_storage(fs, sectors))
+        msg_err("failed to reserve sectors in allocation map");
+#endif
+    log tl = log_new(h, fs);
     if (tl == INVALID_ADDRESS)
         return tl;
-    tl->h = h;
-    tl->fs = fs;
-    tl->dictionary = allocate_table(h, identity_key, pointer_equal);
-    if (tl->dictionary == INVALID_ADDRESS)
-        goto fail_dealloc_log;
-    range sectors = irange(0, TFS_LOG_DEFAULT_EXTENSION_SIZE >> fs->blocksize_order);
-    tl->current = open_log_extension(tl, sectors);
-    if (tl->current == INVALID_ADDRESS)
-        goto fail_dealloc_dict;
-#ifndef TLOG_READ_ONLY
-    if (!filesystem_reserve_storage(tl->fs, sectors)) {
-        msg_err("failed to reserve sectors in allocation map");
-        goto fail_dealloc_current;
-    }
-#endif
-    tl->tuple_staging = allocate_buffer(h, PAGESIZE /* arbitrary */);
-    if (tl->tuple_staging == INVALID_ADDRESS)
-        goto fail_dealloc_current; /* should unreserve sectors */
-    tl->encoding_lengths = allocate_vector(h, 512);
-    if (tl->encoding_lengths == INVALID_ADDRESS)
-        goto fail_dealloc_staging;
-    tl->tuple_bytes_remain = 0;
-    tl->dirty = false;
-    tl->flushing = false;
-    tl->flush_timer = 0;
-    tl->flush_completions = allocate_vector(tl->h, COMPLETION_QUEUE_SIZE);
-    if (tl->flush_completions == INVALID_ADDRESS)
-        goto fail_dealloc_encoding_lengths;
-    tl->total_entries = tl->obsolete_entries = 0;
-    tl->extents = 0;
-
     fs->tl = tl;
     if (initialize) {
 #ifdef TLOG_READ_ONLY
         halt("no tlog write support\n");
 #else
         fs->root = allocate_tuple();
-        log_extension_init(tl->current);
-        apply(sh, STATUS_OK);
+        log_ext init_ext = tl->current;
+        log_extension_init(init_ext);
+        log_ext new_ext = log_ext_new(tl);
+        assert(new_ext != INVALID_ADDRESS);
+        log_extension_init(new_ext);
+        tl->current = new_ext;
+        apply(closure(tl->h, log_extend_link, init_ext, new_ext->sectors, sh),
+              STATUS_OK);
 #endif
     } else {
         log_read(tl, sh);
     }
     return tl;
-  fail_dealloc_encoding_lengths:
-    deallocate_vector(tl->encoding_lengths);
-  fail_dealloc_staging:
-    deallocate_buffer(tl->tuple_staging);
-  fail_dealloc_current:
-    refcount_release(&tl->current->refcount);
-  fail_dealloc_dict:
-    deallocate_table(tl->dictionary);
-  fail_dealloc_log:
-    deallocate(h, tl, sizeof(struct log));
-    return INVALID_ADDRESS;
 }
 
 void log_destroy(log tl)
