@@ -240,15 +240,23 @@ void encode_tuple(buffer dest, table dictionary, tuple t, u64 *total)
 {
     tuple_debug("%s: dest %p, dictionary %p, tuple %p\n", __func__, dest, dictionary, t);
     u64 d = u64_from_pointer(table_find(dictionary, t));
+    u64 count = t->count;
+    table_foreach (t, n, v) {
+        (void)n;
+        if ((tagof(v) == tag_tuple) && table_find(v, sym(no_encode)))
+            count--;
+    }
     if (d) {
-        push_header(dest, reference, type_tuple, t->count);
+        push_header(dest, reference, type_tuple, count);
         push_varint(dest, d);
     } else {
-        push_header(dest, immediate, type_tuple, t->count);
+        push_header(dest, immediate, type_tuple, count);
         srecord(dictionary, t);
     }
     table_foreach (t, n, v) {
         tuple_debug("   tfe n %p, v %p, tag %d\n", n, v, tagof(v));
+        if ((tagof(v) == tag_tuple) && table_find(v, sym(no_encode)))
+            continue;
         encode_symbol(dest, dictionary, n);
         encode_value(dest, dictionary, v, total);
         if (total)

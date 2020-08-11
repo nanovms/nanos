@@ -26,6 +26,7 @@ typedef struct filesystem {
     pagecache pc;
     pagecache_volume pv;
     log tl;
+    log temp_log;
     tuple root;
 } *filesystem;
 
@@ -59,6 +60,9 @@ void flush(filesystem fs, status_handler);
 boolean filesystem_reserve_storage(filesystem fs, range storage_blocks);
 void filesystem_storage_op(filesystem fs, sg_list sg, merge m, range blocks, block_io op);
     
+void filesystem_log_rebuild(filesystem fs, log new_tl, status_handler sh);
+void filesystem_log_rebuild_done(filesystem fs, log new_tl);
+
 typedef closure_type(buffer_status, buffer, status);
 fsfile allocate_fsfile(filesystem fs, tuple md);
 

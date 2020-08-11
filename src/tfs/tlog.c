@@ -49,12 +49,16 @@ struct log_ext {
     closure_struct(log_ext_free, free);
 };
 
+declare_closure_struct(1, 0, void, log_free,
+                       log, tl);
+
 struct log {
     heap h;
     filesystem fs;
     table extents; // maps extent tuples to files
     table dictionary;
     u64 total_entries, obsolete_entries;
+    rangemap extensions;
     log_ext current;
     buffer tuple_staging;
     vector encoding_lengths;
@@ -64,6 +68,9 @@ struct log {
     boolean flushing;
     timer flush_timer;
     vector flush_completions;
+    boolean compacting;
+    struct refcount refcount;
+    closure_struct(log_free, free);
 };
 
 closure_function(0, 3, void, zero_fill,
@@ -123,6 +130,17 @@ static log_ext open_log_extension(log tl, range sectors)
     ext->read = pagecache_node_get_reader(ext->cache_node);
     ext->write = pagecache_node_get_writer(ext->cache_node);
     init_refcount(&ext->refcount, 1, init_closure(&ext->free, log_ext_free, ext));
+#ifndef TLOG_READ_ONLY
+    if (sectors.start != 0) {
+        rmnode n = allocate(tl->h, sizeof(*n));
+        if (n == INVALID_ADDRESS) {
+            pagecache_deallocate_node(ext->cache_node);
+            goto fail_dealloc_staging;
+        }
+        rmnode_init(n, sectors);
+        rangemap_insert(tl->extensions, n);
+    }
+#endif
     return ext;
   fail_dealloc_staging:
     deallocate_buffer(ext->staging);
@@ -135,6 +153,24 @@ static void close_log_extension(log_ext ext)
 {
     refcount_release(&ext->refcount);
 }
+
+#ifndef TLOG_READ_ONLY
+
+closure_function(1, 1, void, log_dealloc_ext_node,
+                 log, tl,
+                 rmnode, n)
+{
+    deallocate(bound(tl)->h, n, sizeof(*n));
+}
+
+define_closure_function(1, 0, void, log_free,
+                        log, tl)
+{
+    tlog_debug("%s\n", __func__);
+    log_destroy(bound(tl));
+}
+
+#endif
 
 static log log_new(heap h, filesystem fs)
 {
@@ -166,6 +202,15 @@ static log log_new(heap h, filesystem fs)
         goto fail_dealloc_encoding_lengths;
     tl->total_entries = tl->obsolete_entries = 0;
     tl->extents = 0;
+#ifndef TLOG_READ_ONLY
+    tl->extensions = allocate_rangemap(h);
+    if (tl->extensions == INVALID_ADDRESS) {
+        deallocate_vector(tl->flush_completions);
+        goto fail_dealloc_encoding_lengths;
+    }
+    tl->compacting = false;
+    init_refcount(&tl->refcount, 1, init_closure(&tl->free, log_free, tl));
+#endif
     return tl;
   fail_dealloc_encoding_lengths:
     deallocate_vector(tl->encoding_lengths);
@@ -203,17 +248,17 @@ closure_function(4, 1, void, flush_log_extension_complete,
 {
     log_ext ext = bound(ext);
     tlog_debug("%s: status %v\n", __func__, s);
-
-    if (bound(release))
-        close_log_extension(ext);
-
     deallocate_sg_list(bound(sg));
     apply(bound(complete), s);
+    refcount_release(&ext->tl->refcount);
+    if (bound(release))
+        close_log_extension(ext);
     closure_finish();
 }
 
 static void flush_log_extension(log_ext ext, boolean release, status_handler complete)
 {
+    refcount_reserve(&ext->tl->refcount);
     filesystem fs = ext->tl->fs;
     buffer b = ext->staging;
     dump_staging(ext);
@@ -269,6 +314,12 @@ closure_function(3, 1, void, log_extend_link,
                  log_ext, old_ext, range, sectors, status_handler, sh,
                  status, s)
 {
+    status_handler sh = bound(sh);
+    if (!is_ok(s)) {
+        apply(sh, s);
+        goto out;
+    }
+
     tlog_debug("linking old extension to new and flushing\n");
 
     /* add link to close out old extension and commit */
@@ -278,7 +329,10 @@ closure_function(3, 1, void, log_extend_link,
     push_varint(b, range_span(bound(sectors)));
 
     /* flush and dispose */
-    flush_log_extension(bound(old_ext), true, bound(sh));
+    flush_log_extension(bound(old_ext), true, sh);
+
+  out:
+    closure_finish();
 }
 
 log_ext log_extend(log tl, u64 size, status_handler sh) {
@@ -373,6 +427,41 @@ closure_function(1, 1, void, log_flush_complete,
     closure_finish();
 }
 
+closure_function(2, 1, void, log_switch_complete,
+                 log, old_tl, log, new_tl,
+                 status, s)
+{
+    tlog_debug("%s: status %v\n", __func__, s);
+    log old_tl = bound(old_tl);
+    log new_tl = bound(new_tl);
+    filesystem fs = old_tl->fs;
+    log to_be_used, to_be_destroyed;
+    if (is_ok(s)) {
+        to_be_used = new_tl;
+        to_be_destroyed = old_tl;
+    } else {
+        old_tl->compacting = false;
+        to_be_used = old_tl;
+        to_be_destroyed = new_tl;
+    }
+    filesystem_log_rebuild_done(fs, to_be_used);
+    if (is_ok(s))
+        table_foreach(old_tl->dictionary, k, v) {
+            (void)v;
+            if ((tagof(k) == tag_tuple) && !table_find(new_tl->dictionary, k)) {
+                tlog_debug("  destroying tuple %p\n", __func__, k);
+                destruct_tuple(k, false);
+            }
+        }
+    rangemap_foreach(to_be_destroyed->extensions, ext) {
+        tlog_debug("  deallocating extension at %R\n", __func__, ext->r);
+        deallocate_u64((heap)fs->storage, ext->r.start, range_span(ext->r));
+    }
+    refcount_release(&to_be_destroyed->refcount);
+    timm_dealloc(s);
+    closure_finish();
+}
+
 void log_flush(log tl, status_handler completion)
 {
     tlog_debug("%s: log %p, completion %p, dirty %d\n", __func__, tl, completion, tl->dirty);
@@ -397,6 +486,40 @@ void log_flush(log tl, status_handler completion)
         return;
     }
     flush_log_extension(tl->current, false, sh);
+    if (!tl->compacting && (tl->obsolete_entries >= TFS_LOG_COMPACT_OBSOLETE) &&
+            (tl->total_entries <= TFS_LOG_COMPACT_RATIO * tl->obsolete_entries)) {
+        tlog_debug("%ld obsolete entries out of %ld, starting log compaction\n",
+            tl->obsolete_entries, tl->total_entries);
+        filesystem fs = tl->fs;
+        log new_tl = log_new(fs->h, fs);
+        if (new_tl == INVALID_ADDRESS)
+            return;
+        log_ext new_ext = log_ext_new(new_tl);
+        if (new_ext == INVALID_ADDRESS)
+            goto fail_log_destroy;
+        status_handler switch_complete = closure(new_tl->h, log_switch_complete,
+            tl, new_tl);
+        if (switch_complete == INVALID_ADDRESS)
+            goto fail_log_ext_close;
+        status_handler rebuild_complete = closure(tl->h, log_extend_link,
+            new_tl->current, new_ext->sectors, switch_complete);
+        if (rebuild_complete == INVALID_ADDRESS)
+            goto fail_log_dealloc_closure;
+        log_extension_init(new_tl->current);
+        log_extension_init(new_ext);
+        new_tl->current = new_ext;
+        tl->compacting = true;
+        filesystem_log_rebuild(fs, new_tl, rebuild_complete);
+        return;
+  fail_log_dealloc_closure:
+        deallocate_closure(switch_complete);
+  fail_log_ext_close:
+        close_log_extension(new_ext);
+        deallocate_u64((heap)fs->storage, new_ext->sectors.start,
+                       range_span(new_ext->sectors));
+  fail_log_destroy:
+        log_destroy(new_tl);
+    }
 }
 
 #ifdef STAGE3
@@ -733,9 +856,15 @@ log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
 
 void log_destroy(log tl)
 {
+    if (tl->flush_timer)
+        remove_timer(tl->flush_timer, 0);
     if (tl->extents)
         deallocate_table(tl->extents);
     deallocate_vector(tl->flush_completions);
+#ifndef TLOG_READ_ONLY
+    deallocate_rangemap(tl->extensions, stack_closure(log_dealloc_ext_node,
+        tl));
+#endif
     deallocate_vector(tl->encoding_lengths);
     deallocate_buffer(tl->tuple_staging);
     close_log_extension(tl->current);

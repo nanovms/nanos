@@ -368,7 +368,7 @@ void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler
 #ifndef TFS_READ_ONLY
 fs_status filesystem_write_tuple(filesystem fs, tuple t)
 {
-    if (log_write(fs->tl, t))
+    if (log_write(fs->tl, t) && (!fs->temp_log || log_write(fs->temp_log, t)))
         return FS_STATUS_OK;
     else
         return FS_STATUS_NOSPACE;
@@ -376,7 +376,8 @@ fs_status filesystem_write_tuple(filesystem fs, tuple t)
 
 fs_status filesystem_write_eav(filesystem fs, tuple t, symbol a, value v)
 {
-    if (log_write_eav(fs->tl, t, a, v))
+    if (log_write_eav(fs->tl, t, a, v) &&
+            (!fs->temp_log || log_write_eav(fs->temp_log, t, a, v)))
         return FS_STATUS_OK;
     else
         return FS_STATUS_NOSPACE;
@@ -465,40 +466,11 @@ static fs_status add_extent_to_file(fsfile f, extent ex)
 
 static void remove_extent_from_file(fsfile f, extent ex)
 {
-    assert(ex->md);
-    string offset = table_find(ex->md, sym(offset));
-    assert(offset);
-    deallocate_buffer(offset);
-    string length = table_find(ex->md, sym(length));
-    assert(length);
-    deallocate_buffer(length);
-    string allocated = table_find(ex->md, sym(allocated));
-    assert(allocated);
-    deallocate_buffer(allocated);
-
-    /* This tuple is not deallocated because it is already referenced in the
-     * filesystem log and thus present in the dictionary. To avoid this leakage,
-     * we need additional functionalities in the filesystem log, e.g.:
-     * - being able to remove a dictionary entry without affecting the keys
-     * associated to the other (present and future) entries
-     * - being able to prune the log (and clean up the dictionary accordingly),
-     * to remove any log entries that are no longer relevant in the current
-     * status of the filesystem
-     */
-
-    /* might suggest we store a special value (invalid / zombie) that
-       acts as a terminator for the tuple in the log ... the
-       associated dictionary entry would remain allocated, and once
-       the log history has expired (when there is such a function) to
-       the point where the tuple is no longer referenced, the
-       associated entry is retired and the slot becomes free for use
-       again
-    */
+    /* The tuple corresponding to this extent will be destroyed when the
+     * filesystem log is compacted. */
 
     tuple extents = table_find(f->md, sym(extents));
     assert(extents);
-    clear_tuple(ex->md);
-    ex->md = 0;
     symbol offs = intern_u64(ex->node.r.start);
     filesystem_write_eav(f->fs, extents, offs, 0);
     table_set(extents, offs, 0);
@@ -933,6 +905,7 @@ fs_status do_mkentry(filesystem fs, tuple parent, const char *name, tuple entry,
     if (persistent) {
         s = filesystem_write_eav(fs, c, name_sym, entry);
     } else {
+        table_set(entry, sym(no_encode), null_value);
         s = FS_STATUS_OK;
     }
 
@@ -1091,6 +1064,26 @@ fs_status filesystem_exchange(filesystem fs, tuple parent1, symbol sym1,
     return s;
 }
 
+void filesystem_log_rebuild(filesystem fs, log new_tl, status_handler sh)
+{
+    tfs_debug("%s(%F)\n", __func__, sh);
+    cleanup_directory(fs->root);
+    if (log_write(new_tl, fs->root)) {
+        fs->temp_log = new_tl;
+        log_flush(new_tl, sh);
+    } else {
+        apply(sh, timm("result", "failed to write log"));
+    }
+    fixup_directory(fs->root, fs->root);
+}
+
+void filesystem_log_rebuild_done(filesystem fs, log new_tl)
+{
+    tfs_debug("%s\n", __func__);
+    fs->tl = new_tl;
+    fs->temp_log = 0;
+}
+
 #endif /* !TFS_READ_ONLY */
 
 fsfile allocate_fsfile(filesystem fs, tuple md)
@@ -1175,6 +1168,7 @@ void create_filesystem(heap h,
     fs->w = write;
     fs->storage = create_id_heap(h, h, 0, size >> fs->blocksize_order, 1);
     assert(fs->storage != INVALID_ADDRESS);
+    fs->temp_log = 0;
 #else
     fs->w = 0;
     fs->storage = 0;

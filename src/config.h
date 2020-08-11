@@ -30,6 +30,11 @@
 #define TFS_LOG_INITIAL_SIZE           SECTOR_SIZE
 #define TFS_LOG_DEFAULT_EXTENSION_SIZE (512*KB)
 #define TFS_LOG_FLUSH_DELAY_SECONDS 1
+/* Minimum number of obsolete log entries needed to trigger a log compaction. */
+#define TFS_LOG_COMPACT_OBSOLETE   8192
+/* Log compaction is not triggered if the ratio between total entries and
+ * obsolete entries is above the constant below. */
+#define TFS_LOG_COMPACT_RATIO   2
 
 /* Xen stuff */
 #define XENNET_INIT_RX_BUFFERS_FACTOR 4
