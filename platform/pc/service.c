@@ -108,9 +108,6 @@ void init_extra_prints();
 thunk create_init(kernel_heaps kh, tuple root, filesystem fs);
 filesystem_complete bootfs_handler(kernel_heaps kh);
 
-/* will become list I guess */
-static pagecache global_pagecache;
-
 closure_function(4, 2, void, fsstarted,
                  heap, h, u8 *, mbr, block_io, r, block_io, w,
                  filesystem, fs, status, s)
@@ -130,7 +127,7 @@ closure_function(4, 2, void, fsstarted,
                               bootfs_part->nsectors * SECTOR_SIZE,
                               closure(h, offset_block_io,
                               bootfs_part->lba_start * SECTOR_SIZE, bound(r)),
-                              0, global_pagecache, false,
+                              0, false,
                               bootfs_handler(&heaps));
         }
         deallocate(h, mbr, SECTOR_SIZE);
@@ -151,14 +148,12 @@ closure_function(4, 2, void, fsstarted,
 #endif
 void mm_service(void)
 {
-    if (!global_pagecache)
-        return;
     heap p = (heap)heap_physical(&heaps);
     u64 free = heap_total(p) - heap_allocated(p);
     mm_debug("%s: total %ld, alloc %ld, free %ld\n", __func__, heap_total(p), heap_allocated(p), free);
     if (free < PAGECACHE_DRAIN_CUTOFF) {
         u64 drain_bytes = PAGECACHE_DRAIN_CUTOFF - free;
-        u64 drained = pagecache_drain(global_pagecache, drain_bytes);
+        u64 drained = pagecache_drain(drain_bytes);
         if (drained > 0)
             mm_debug("   drained %ld / %ld requested...\n", drained, drain_bytes);
     }
@@ -168,18 +163,11 @@ static void rootfs_init(heap h, u8 *mbr, u64 offset,
                         block_io r, block_io w, u64 length)
 {
     length -= offset;
-    pagecache pc = allocate_pagecache(h, h, (heap)heap_physical(&heaps), PAGESIZE);
-    if (pc == INVALID_ADDRESS)
-        halt("unable to create pagecache\n");
-
-    /* figure that later pagecaches will register themselves with backing - glue for now */
-    global_pagecache = pc;
     create_filesystem(h,
                       SECTOR_SIZE,
                       length,
                       closure(h, offset_block_io, offset, r),
                       closure(h, offset_block_io, offset, w),
-                      pc,
                       false,
                       closure(h, fsstarted, h, mbr, r, w));
 }
@@ -326,7 +314,7 @@ void kernel_shutdown(int status)
 {
     shutting_down = true;
     apic_ipi(TARGET_EXCLUSIVE_BROADCAST, 0, shutdown_vector);
-    if (global_pagecache) {
+    if (root_fs) {
         filesystem_flush(root_fs, closure(heap_general(&heaps), sync_complete, status));
         runloop();
     }
@@ -365,6 +353,7 @@ static void __attribute__((noinline)) init_service_new_stack()
     init_tuples(allocate_tagged_region(kh, tag_tuple));
     init_symbols(allocate_tagged_region(kh, tag_symbol), misc);
     init_sg(misc);
+    init_pagecache(misc, misc, (heap)heap_physical(kh), PAGESIZE);
     unmap(0, PAGESIZE);         /* unmap zero page */
     reclaim_regions();          /* unmap and reclaim stage2 stack */
     init_extra_prints();

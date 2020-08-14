@@ -23,7 +23,6 @@ typedef struct filesystem {
     void *zero_page;
     block_io r;
     block_io w;
-    pagecache pc;
     pagecache_volume pv;
     log tl;
     log temp_log;

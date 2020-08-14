@@ -413,6 +413,7 @@ int main(int argc, char **argv)
     // this can be streaming
     parser_feed (p, read_stdin(h));
 
+    init_pagecache(h, h, 0, PAGESIZE);
     mkfs_write_status = closure(h, mkfs_write_handler);
 
     if (root) {
@@ -454,10 +455,8 @@ int main(int argc, char **argv)
         }
         if (!boot)
             halt("kernel or boot FS not specified\n");
-        pagecache pc = allocate_pagecache(h, h, 0, PAGESIZE);
-        assert(pc != INVALID_ADDRESS);
         create_filesystem(h, SECTOR_SIZE, BOOTFS_SIZE, 0,
-                          closure(h, bwrite, out, offset), pc,
+                          closure(h, bwrite, out, offset),
                           true, closure(h, fsc, h, out, boot, target_root));
         offset += BOOTFS_SIZE;
 
@@ -465,14 +464,11 @@ int main(int argc, char **argv)
         table_set(root, sym(boot), 0);
     }
 
-    pagecache pc = allocate_pagecache(h, h, 0, PAGESIZE);
-    assert(pc != INVALID_ADDRESS);
     create_filesystem(h,
                       SECTOR_SIZE,
                       infinity,
                       0, /* no read -> new fs */
                       closure(h, bwrite, out, offset),
-                      pc,
                       true,
                       closure(h, fsc, h, out, root, target_root));
 

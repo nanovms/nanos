@@ -23,7 +23,6 @@ void create_filesystem(heap h,
                        u64 size,
                        block_io read,
                        block_io write,
-                       pagecache pc,
                        boolean initialize,
                        filesystem_complete complete);
 void destroy_filesystem(filesystem fs);

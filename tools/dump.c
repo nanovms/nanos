@@ -199,14 +199,12 @@ int main(int argc, char **argv)
     }
 
     heap h = init_process_runtime();
-    pagecache pc = allocate_pagecache(h, h, 0, PAGESIZE);
-    assert(pc != INVALID_ADDRESS);
+    init_pagecache(h, h, 0, PAGESIZE);
     create_filesystem(h,
                       SECTOR_SIZE,
                       infinity,
                       closure(h, bread, fd, get_fs_offset(fd)),
                       0, /* no write */
-                      pc,
                       false,
                       closure(h, fsc, h, target_dir, options));
     return EXIT_SUCCESS;
