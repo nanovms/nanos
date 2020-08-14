@@ -1137,6 +1137,11 @@ closure_function(2, 1, void, log_complete,
 closure_function(0, 2, void, ignore_io,
                  status, s, bytes, length) {}
 
+void filesystem_get_uuid(filesystem fs, u8 *uuid)
+{
+    runtime_memcpy(uuid, fs->uuid, UUID_LEN);
+}
+
 void create_filesystem(heap h,
                        u64 blocksize,
                        u64 size,

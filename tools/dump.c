@@ -117,8 +117,13 @@ closure_function(3, 2, void, fsc,
         exit(EXIT_FAILURE);
     }
 
+    u8 uuid[UUID_LEN];
+    filesystem_get_uuid(fs, uuid);
     tuple root = filesystem_getroot(fs);
     buffer rb = allocate_buffer(h, PAGESIZE);
+    bprintf(rb, "UUID: ");
+    print_uuid(rb, uuid);
+    bprintf(rb, "\nmetadata ");
     print_root(rb, root);
     buffer_print(rb);
     rprintf("\n");

@@ -18,6 +18,8 @@ extern io_status_handler ignore_io_status;
 #define MIN_EXTENT_SIZE PAGESIZE
 #define MAX_EXTENT_SIZE (1 * MB)
 
+void filesystem_get_uuid(filesystem fs, u8 *uuid);
+
 void create_filesystem(heap h,
                        u64 blocksize,
                        u64 size,

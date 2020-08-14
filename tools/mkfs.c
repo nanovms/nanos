@@ -214,8 +214,12 @@ closure_function(4, 2, void, fsc,
     vector worklist = allocate_vector(h, 10);
     tuple md = translate(h, worklist, bound(target_root), fs, root, closure(h, err));
 
-    rprintf("metadata ");
     buffer b = allocate_buffer(transient, 64);
+    u8 uuid[UUID_LEN];
+    filesystem_get_uuid(fs, uuid);
+    bprintf(b, "UUID: ");
+    print_uuid(b, uuid);
+    bprintf(b, "\nmetadata ");
     print_tuple(b, md);
     buffer_print(b);
     deallocate_buffer(b);

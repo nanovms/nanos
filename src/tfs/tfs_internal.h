@@ -6,7 +6,7 @@
 #include <pagecache.h>
 #include <tfs.h>
 
-#define TFS_VERSION 0x00000002
+#define TFS_VERSION 0x00000003
 
 typedef struct log *log;
 
@@ -17,6 +17,7 @@ typedef struct filesystem {
     int blocksize_order;
     int alignment_order;        /* in blocks */
     int page_order;
+    u8 uuid[UUID_LEN];
     table files; // maps tuple to fsfile
     closure_type(log, void, tuple);
     heap dma;

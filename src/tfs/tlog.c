@@ -631,6 +631,21 @@ static inline void log_tuple_produce(log tl, buffer b, u64 length)
     tl->tuple_bytes_remain -= length;
 }
 
+static status log_hdr_parse(buffer b, boolean first_ext, u64 *length, u8 *uuid)
+{
+    if (runtime_memcmp(buffer_ref(b, 0), tfs_magic, TFS_MAGIC_BYTES))
+        return timm("result", "tfs magic mismatch");
+    buffer_consume(b, TFS_MAGIC_BYTES);
+    u64 version = pop_varint(b);
+    if (version != TFS_VERSION)
+        return timm("result", "tfs version mismatch (read %ld, build %ld)",
+            version, TFS_VERSION);
+    *length = pop_varint(b);
+    if (first_ext)
+        buffer_read(b, uuid, UUID_LEN);
+    return STATUS_OK;
+}
+
 static void log_read(log tl, status_handler sh);
 
 closure_function(4, 1, void, log_read_complete,
@@ -659,18 +674,11 @@ closure_function(4, 1, void, log_read_complete,
     tlog_debug("log_read_complete: buffer len %d, status %v\n", buffer_length(b), read_status);
     tlog_debug("-> new log extension, checking magic and version\n");
     if (!ext->open) {
-        if (runtime_memcmp(buffer_ref(b, 0), tfs_magic, TFS_MAGIC_BYTES)) {
-            s = timm("result", "tfs magic mismatch");
+        length = 0;
+        s = log_hdr_parse(b, ext->sectors.start == 0, &length, tl->fs->uuid);
+        if (!is_ok(s))
             goto out_apply_status;
-        }
-        buffer_consume(b, TFS_MAGIC_BYTES);
-        u64 version = pop_varint(b);
-        if (version != TFS_VERSION) {
-            s = timm("result", "tfs version mismatch (read %ld, build %ld)", version, TFS_VERSION);
-            goto out_apply_status;
-        }
         /* XXX the length is really for validation...so hook it up */
-        length = pop_varint(b);
         tlog_debug("%ld sectors\n", length);
         ext->open = true;
     }
@@ -841,6 +849,9 @@ log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
         fs->root = allocate_tuple();
         log_ext init_ext = tl->current;
         log_extension_init(init_ext);
+        buffer uuid = alloca_wrap_buffer(fs->uuid, UUID_LEN);
+        random_buffer(uuid);
+        push_buffer(init_ext->staging, uuid);
         log_ext new_ext = log_ext_new(tl);
         assert(new_ext != INVALID_ADDRESS);
         log_extension_init(new_ext);
