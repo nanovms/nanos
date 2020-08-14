@@ -103,7 +103,7 @@ struct tagheap {
 static void tag_dealloc(heap h, u64 a, bytes s)
 {
     struct tagheap *th = (struct tagheap *)h;
-    tag_debug("%s: tag %d, a 0x%lx, s 0x%lx\n", __func__, th->vtag >> VA_TAG_OFFSET, a, s);
+    tag_debug("tag %d, a 0x%lx, s 0x%lx\n", th->vtag >> VA_TAG_OFFSET, a, s);
     deallocate_u64(th->mh, a & MASK(48), s);
 }
 
@@ -116,7 +116,7 @@ static u64 tag_alloc(heap h, bytes s)
     u64 a = u64_from_pointer(p);
     assert((a >> VA_TAG_OFFSET) == 0);
     a |= th->vtag;
-    tag_debug("%s: tag %d, s 0x%lx, a 0x%lx\n", __func__, th->vtag >> VA_TAG_OFFSET, s, a);
+    tag_debug("tag %d, s 0x%lx, a 0x%lx\n", th->vtag >> VA_TAG_OFFSET, s, a);
     return a;
 }
 
@@ -144,7 +144,7 @@ static heap allocate_tagged_region(heap h, u64 tag)
     th->h.pagesize = 32; // XXX
     th->h.allocated = 0;
     th->h.total = 0;
-    tag_debug("%s: tag %d, bits 0x%lx, heap %p\n", __func__, tag, th->vtag, th);
+    tag_debug("tag %d, bits 0x%lx, heap %p\n", tag, th->vtag, th);
     return &th->h;
 }
 #endif

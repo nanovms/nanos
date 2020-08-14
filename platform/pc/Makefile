@@ -3,7 +3,7 @@ LWIPDIR=	$(VENDORDIR)/lwip
 PROGRAMS=	kernel.img
 
 SRCS-kernel.img= \
-	$(CURDIR)/stage3.c \
+	$(CURDIR)/service.c \
 	$(OBJDIR)/gitversion.c \
 	$(SRCDIR)/drivers/ata.c \
 	$(SRCDIR)/drivers/ata-pci.c \
@@ -22,7 +22,7 @@ SRCS-kernel.img= \
 	$(SRCDIR)/kernel/pci.c \
 	$(SRCDIR)/kernel/pvclock.c \
 	$(SRCDIR)/kernel/schedule.c \
-	$(SRCDIR)/kernel/service.c \
+	$(SRCDIR)/kernel/stage3.c \
 	$(SRCDIR)/kernel/symtab.c \
 	$(SRCDIR)/kernel/vdso-now.c \
 	$(SRCDIR)/net/direct.c \
@@ -221,18 +221,15 @@ endif
 
 all: kernel.dis boot
 
-contgen:
+mkfs vdsogen:
 	$(Q) $(MAKE) -C $(ROOTDIR)/tools $@
 
-mkfs vdsogen: contgen
-	$(Q) $(MAKE) -C $(ROOTDIR)/tools $@
-
-boot: contgen
+boot:
 	$(Q) $(MAKE) -C boot
 
-kernel: contgen $(PROG-kernel.img) $(OBJDIR)/kernel.dis
+kernel: $(PROG-kernel.img) $(OBJDIR)/kernel.dis
 
-target: contgen
+target:
 ifeq ($(TARGET),)
 	@echo TARGET variable not specified
 	@false
@@ -243,7 +240,7 @@ ifneq ($(NANOS_TARGET_ROOT),)
 TARGET_ROOT_OPT=	-r $(NANOS_TARGET_ROOT)
 endif
 
-image: contgen mkfs boot kernel target
+image: mkfs boot kernel target
 ifeq ($(IMAGE),)
 	@echo IMAGE variable not specified
 	@false
@@ -275,7 +272,7 @@ $(VDSO_OBJDIR)/%.o: $(VDSO_SRCDIR)/%.c
 $(VDSO_OBJDIR)/vdso.so: $(VDSO_OBJS)
 	$(call cmd,vdso_ld)
 
-$(VDSO_OBJDIR)/vdso-image.c: contgen $(VDSOGEN) $(VDSO_OBJDIR)/vdso.so
+$(VDSO_OBJDIR)/vdso-image.c: $(VDSOGEN) $(VDSO_OBJDIR)/vdso.so
 	$(call cmd,vdsogen)
 
 $(PROG-kernel.img): linker_script $(VDSO_OBJDIR)/vdso-image.c

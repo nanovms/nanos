@@ -27,7 +27,6 @@ ifeq ($(UNAME_s),Darwin)
 GNUTAR=		gnutar
 else
 GNUTAR=		tar
-NATIVE_CC=	gcc
 endif
 GIT=		git
 GO=		go

@@ -144,12 +144,6 @@ static inline void memory_barrier(void)
 }
 
 #if 0
-static inline word fetch_and_add(word *variable, word value)
-{
-    asm volatile("lock; xadd %0, %1" : "+r" (value), "+m" (*variable) :: "memory", "cc");
-    return value;
-}
-
 static inline void atomic_set_bit(u64 *target, u64 bit)
 {
     asm volatile("lock btsq %1, %0": "+m"(*target): "r"(bit) : "memory");

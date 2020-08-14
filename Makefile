@@ -28,14 +28,31 @@ CLEAR_LINE=	[1K\r
 AWS_S3_BUCKET=	nanos-test
 AWS_AMI_IMAGE=	nanos-$(TARGET)
 
+MKFS=		$(TOOLDIR)/mkfs
+BOOTIMG=	$(PLATFORMOBJDIR)/boot/boot.img
+KERNEL=		$(PLATFORMOBJDIR)/bin/kernel.img
+
 all: image
 
 .PHONY: image release target distclean
 
 include rules.mk
 
-image: $(LWIPDIR)/.vendored contgen
+image: $(LWIPDIR)/.vendored mkfs
 	$(Q) $(MAKE) -C $(PLATFORMDIR) image TARGET=$(TARGET)
+
+release: mkfs
+	$(Q) $(MAKE) -C $(PLATFORMDIR) boot
+	$(Q) $(MAKE) -C $(PLATFORMDIR) kernel
+	$(Q) $(RM) -r release
+	$(Q) $(MKDIR) release
+	$(CP) $(MKFS) release
+	$(CP) $(BOOTIMG) release
+	$(CP) $(KERNEL) release
+	cd release && $(TAR) -czvf nanos-release-$(REL_OS)-${version}.tar.gz *
+
+target: contgen
+	$(Q) $(MAKE) -C test/runtime $(TARGET)
 
 distclean: clean
 	$(Q) $(RM) -rf $(VENDORDIR)
@@ -48,7 +65,7 @@ distclean: clean
 contgen mkfs:
 	$(Q) $(MAKE) -C tools $@
 
-test-all:
+test-all: contgen
 	$(Q) $(MAKE) -C test
 
 test test-noaccel: mkfs image
@@ -62,13 +79,13 @@ RUNTIME_TESTS=	aio creat dup epoll eventfd fallocate fcntl fst getdents getrando
 runtime-tests runtime-tests-noaccel: mkfs image
 	$(foreach t,$(RUNTIME_TESTS),$(call execute_command,$(Q) $(MAKE) run$(subst runtime-tests,,$@) TARGET=$t))
 
-run:
+run: contgen
 	$(Q) $(MAKE) -C $(PLATFORMDIR) TARGET=$(TARGET) run
 
-run-bridge:
+run-bridge: contgen
 	$(Q) $(MAKE) -C $(PLATFORMDIR) TARGET=$(TARGET) run-bridge
 
-run-noaccel:
+run-noaccel: contgen
 	$(Q) $(MAKE) -C $(PLATFORMDIR) TARGET=$(TARGET) run-noaccel
 
 ##############################################################################
@@ -147,3 +164,9 @@ create-ec2-snapshot: upload-ec2-image
 			status_message=`$(ECHO) "$$json" | $(JQ) -r ".ImportSnapshotTasks[0].SnapshotTaskDetail.StatusMessage?"`; \
 			$(PRINTF) "$(CLEAR_LINE)Task $$import_task_id: $$status_message ($$progress%%)"; \
 		done
+
+ifeq ($(UNAME_s),Darwin)
+REL_OS=         darwin
+else
+REL_OS=         linux
+endif
