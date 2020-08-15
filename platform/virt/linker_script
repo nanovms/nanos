@@ -1,0 +1,35 @@
+OUTPUT_FORMAT("elf64-littleaarch64")
+
+ENTRY(_start)
+
+SECTIONS
+{
+	. = 0x40000000;
+	__start = .;
+
+        text_start = .;
+	.text : ALIGN(4096)
+	{
+       	    *(.text)
+            *(.text.*)
+	}
+	text_end = .;
+
+	.data : ALIGN(4096)
+	{
+	    *(.data)
+            *(.data.*)
+	}
+
+	PROVIDE(bss_start = .);
+	.bss : ALIGN(32)
+       	{
+       	    *(.bss)
+            *(.bss.*)
+            *(COMMON)
+	}
+        PROVIDE(bss_end = .);
+
+	. = 0x41000000;      /* XXX temp stack, for test */
+	stack_top = .;
+}

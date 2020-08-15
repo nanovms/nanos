@@ -1,6 +1,9 @@
 Makefile.local
 /tags
 /TAGS
+/GTAGS
+/GPATH
+/GRTAGS
 
 # test artifacts
 /test/go/go.sum

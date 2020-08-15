@@ -1,5 +1,6 @@
 /* main header for kernel objects */
 #include <runtime.h>
+#include <kernel_machine.h>
 #include <kernel_heaps.h>
 
 // belong here? share with nasm
@@ -253,9 +254,12 @@ static inline u64 fault_address(context f)
     return f[FRAME_CR2];
 }
 
+/* TODO mach dep */
 static inline u64 total_frame_size(void)
 {
     return FRAME_EXTENDED_SAVE * sizeof(u64) + xsave_frame_size();
 }
+
+extern void xsave(context f);
 
 extern int shutdown_vector;

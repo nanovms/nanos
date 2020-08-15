@@ -1,9 +1,10 @@
-#include <uniboot.h>
+#include <predef.h>
+#include <config.h>
+#include <machine.h>
+#include <attributes.h>
 #if !defined(BOOT) && !defined(STAGE3)
 #include <unix_process_runtime.h>
 #endif
-
-#include <attributes.h>
 
 typedef u8 boolean;
 typedef u32 character;
@@ -158,9 +159,6 @@ typedef void *value;
 #include <closure.h>
 #include <closure_templates.h>
 typedef closure_type(thunk, void);
-
-/* architectural deps for data structures */
-#include <x86_64.h>
 
 /* data structures */
 #include <list.h>

@@ -219,6 +219,7 @@ void encode_eav(buffer dest, table dictionary, tuple e, symbol a, value v)
 
 void encode_tuple(buffer dest, table dictionary, tuple t)
 {
+    tuple_debug("%s: dest %p, dictionary %p, tuple %p\n", __func__, dest, dictionary, t);
     u64 d = u64_from_pointer(table_find(dictionary, t));
     if (d) {
         push_header(dest, reference, type_tuple, t->count);
@@ -228,6 +229,7 @@ void encode_tuple(buffer dest, table dictionary, tuple t)
         srecord(dictionary, t);
     }
     table_foreach (t, n, v) {
+        tuple_debug("   tfe n %p, v %p, tag %d\n", n, v, tagof(v));
         encode_symbol(dest, dictionary, n);
         encode_value(dest, dictionary, v);
     }        

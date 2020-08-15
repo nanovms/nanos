@@ -14,7 +14,7 @@ enum partition {
 
 #define SECTOR_OFFSET 9ULL
 #define SECTOR_SIZE (1ULL << SECTOR_OFFSET)
-
+#define BOOTFS_SIZE (8 * MB)
 #define SEC_PER_TRACK 63
 #define HEADS 255
 #define MAX_CYL 1023

@@ -3,7 +3,7 @@
     "RunConfig": {
         "Ports": [9501]
     },
-    "Boot": "../../../output/boot/boot.img",
-    "Kernel": "../../../output/stage3/bin/stage3.img",
-    "Mkfs": "../../../output/mkfs/bin/mkfs"
+    "Boot": "../../../output/test/e2e/boot.img",
+    "Kernel": "../../../output/test/e2e/kernel.img",
+    "Mkfs": "../../../output/tools/bin/mkfs"
 }

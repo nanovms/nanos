@@ -1,4 +1,8 @@
+#ifdef KERNEL
+#include <kernel.h>
+#else
 #include <runtime.h>
+#endif
 
 //#define SG_DEBUG
 #if defined(SG_DEBUG)
@@ -12,7 +16,7 @@
 static heap sg_heap;
 static struct list free_sg_lists;
 
-#ifndef BOOT
+#ifdef KERNEL
 static struct spinlock sg_spinlock;   /* for free list */
 static inline void sg_lock_init(void)
 {

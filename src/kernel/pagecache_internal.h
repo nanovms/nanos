@@ -17,7 +17,9 @@ typedef struct pagecache {
 
     /* state_lock covers list access, page state changes and
        alterations to page completion vecs */
+#ifdef KERNEL
     struct spinlock state_lock;
+#endif
     struct pagelist free;      /* see state descriptions */
     struct pagelist new;
     struct pagelist active;
@@ -50,7 +52,9 @@ typedef struct pagecache_node {
 
     /* pages_lock covers traversal, insertions and removals - consider
        changing to a rw lock or semaphore */
+#ifdef KERNEL
     struct spinlock pages_lock;
+#endif
     struct rbtree pages;
     rangemap shared_maps;       /* shared mappings associated with this node */
     u64 length;

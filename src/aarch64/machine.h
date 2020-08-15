@@ -11,10 +11,6 @@ typedef __uint128_t u128;
 typedef u64 word;
 typedef u64 bytes;
 
-#define U16_MAX 0xFFFF
-#define S16_MAX ((s16)(U16_MAX >> 1))
-#define S16_MIN (-S16_MAX - 1)
-
 #define U32_MAX (~0u)
 #define S32_MAX ((s32)(U32_MAX >> 1))
 #define S32_MIN (-S32_MAX - 1)
@@ -23,35 +19,25 @@ typedef u64 bytes;
 #define S64_MAX ((s64)(U64_MAX >> 1))
 #define S64_MIN (-S64_MAX - 1)
 
-#define USER_VA_TAG_OFFSET 44
-#define USER_VA_TAG_WIDTH  3
+#define USER_VA_TAG_OFFSET 56
+#define USER_VA_TAG_WIDTH  8
 
 #define pointer_from_u64(__a) ((void *)(__a))
 #define u64_from_pointer(__a) ((u64)(__a))
-// a super sad hack to allow us to write to the bss in elf.c as
-// phy instead of virt
-#define vpzero(__v, __p, __y) zero(pointer_from_u64(__v), __y)
-
 #define field_from_u64(u, f) (((u) >> f ## _SHIFT) & MASK(f ## _BITS))
 
-#define DIV(__x, __by, __q, __r){		\
-     register u64 a asm("rax");\
-     register u64 d asm("rdx");\
-     register u64 c asm("rcx");\
-     a = __x;\
-     c = __by;\
-     d = 0;\
-     asm("divq %%rcx":"=r"(a), "=r"(d): "r"(a),"r"(d),"r"(c));\
-     __q = a;\
-     __r = d;\
- }
+#define DIV(__x, __by, __q, __r) \
+    do { asm("udiv %0, %2, %3; msub %1, %0, %3, %2" :           \
+             "=&r"(__q), "=r"(__r) : "r"(__x), "r"(__by)); } while(0)
 
+#if 0
 #define ROL(__x, __b)\
      ({\
         __asm__("rolq %1, %0": "=g"(__x): "i" (__b));\
         __x;\
      })
-
+#endif
+  
 /* These are defined as functions to avoid multiple evaluation of x. */
 static inline u16
 __bswap16(u16 _x)
@@ -110,6 +96,25 @@ __bswap64(u64 _x)
 #define le64toh(x) (x)
 #endif
 
+#ifdef KERNEL
+#define VA_TAG_BASE   KMEM_BASE
+#define VA_TAG_OFFSET 39
+#define VA_TAG_WIDTH  8
+#else
+#define VA_TAG_BASE   0
+#define VA_TAG_OFFSET USER_VA_TAG_OFFSET
+#define VA_TAG_WIDTH  USER_VA_TAG_WIDTH
+#endif
+
+static inline void *tag(void* v, u64 tval) {
+    return pointer_from_u64(VA_TAG_BASE | (tval << VA_TAG_OFFSET) | u64_from_pointer(v));
+}
+
+static inline u16 tagof(void* v) {
+    return (u64_from_pointer(v) >> VA_TAG_OFFSET) & ((1ull << VA_TAG_WIDTH) - 1);
+}
+
+#define valueof(__x) (__x)
 /* returns -1 if x == 0, caller must check */
 static inline u64 msb(u64 x)
 {
@@ -119,4 +124,48 @@ static inline u64 msb(u64 x)
 static inline u64 lsb(u64 x)
 {
     return ((s64)__builtin_ffsll(x)) - 1;
+}
+
+
+static inline void compiler_barrier(void)
+{
+}
+
+static inline void write_barrier(void)
+{
+}
+
+static inline void read_barrier(void)
+{
+}
+
+static inline void memory_barrier(void)
+{
+}
+
+#if 0
+static inline void atomic_set_bit(u64 *target, u64 bit)
+{
+    asm volatile("lock btsq %1, %0": "+m"(*target): "r"(bit) : "memory");
+}
+
+static inline void atomic_clear_bit(u64 *target, u64 bit)
+{
+    asm volatile("lock btrq %1, %0": "+m"(*target):"r"(bit) : "memory");
+}
+#endif
+
+static inline word fetch_and_add(word *target, word num)
+{
+    return __sync_fetch_and_add(target, num);
+}
+
+static inline u64 fetch_and_add_64(u64 *target, u64 num)
+{
+    return __sync_fetch_and_add(target, num);
+}
+
+static inline void kern_pause(void)
+{
+  // XXX
 }

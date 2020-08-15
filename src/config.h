@@ -1,52 +1,3 @@
-#include <predef.h>
-
-#define BOOTFS_SIZE (8 * MB)
-
-#define KMEM_BASE   0xffff800000000000ull
-#define KERNEL_BASE 0xffffffff80000000ull
-#define KMEM_LIMIT  0xffffffff00000000ull
-#define PAGES_BASE  0xffffffffc0000000ull
-#define USER_LIMIT  0x0000800000000000ull
-
-/* Physical address where kernel ELF is loaded in case of direct stage3 load */
-#define KERNEL_BASE_PHYS    0x00200000ul
-
-#ifdef BOOT
-
-#include <def32.h>
-
-#else /* BOOT */
-
-#include <def64.h>
-#define USER_VA_TAG_OFFSET 44
-#ifdef STAGE3
-#define VA_TAG_BASE   KMEM_BASE
-#define VA_TAG_OFFSET 39
-#define VA_TAG_WIDTH  8
-#else
-#define VA_TAG_BASE   0
-#define VA_TAG_OFFSET USER_VA_TAG_OFFSET
-#define VA_TAG_WIDTH  3
-#endif
-
-static inline void *tag(void* v, u64 tval) {
-    return pointer_from_u64(VA_TAG_BASE | (tval << VA_TAG_OFFSET) | u64_from_pointer(v));
-}
-
-static inline u16 tagof(void* v) {
-    return (u64_from_pointer(v) >> VA_TAG_OFFSET) & ((1ull << VA_TAG_WIDTH) - 1);
-}
-
-#define valueof(__x) (__x)
-
-#endif /* BOOT */
-
-extern void * AP_BOOT_PAGE;
-
-/* AP boot page */
-#define AP_BOOT_START u64_from_pointer(&AP_BOOT_PAGE)
-#define AP_BOOT_END (AP_BOOT_START + PAGESIZE)
-
 /* identity-mapped space for initial page tables */
 #define INITIAL_PAGES_SIZE (64 * KB)
 
@@ -87,7 +38,3 @@ extern void * AP_BOOT_PAGE;
 /* mm stuff */
 #define PAGECACHE_DRAIN_CUTOFF (64 * MB)
 #define PAGECACHE_SCAN_PERIOD_SECONDS 5
-
-#include <x86.h>
-void xsave(void *);
-
