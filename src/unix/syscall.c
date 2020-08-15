@@ -260,43 +260,18 @@ static inline boolean filepath_is_ancestor(tuple wd1, const char *fp1,
     if (ret) {
         return false;
     }
-    tuple t2 = (*fp2 == '/' ? filesystem_getroot(current->p->fs) : wd2);
-    tuple p2 = t2;
-    buffer a = little_stack_buffer(NAME_MAX);
-    char y;
-    int nbytes;
-    
-    while ((y = *fp2)) {
-        if (y == '/') {
-            if (buffer_length(a)) {
-                if (t2 == t1) {
-                    return true;
-                }
-                p2 = t2;
-                t2 = lookup(t2, intern(a));
-                if (!t2) {
-                    return false;
-                }
-                if (filesystem_follow_links(t2, p2, &t2) < 0) {
-                    return false;
-                }
-                buffer_clear(a);
-            }
-            fp2++;
-        }
-        else {
-            nbytes = push_utf8_character(a, fp2);
-            if (!nbytes) {
-                thread_log(current, "Invalid UTF-8 sequence.\n");
-                return 0;
-            }
-            fp2 += nbytes;
-        }
+    tuple p2;
+    ret = resolve_cstring(wd2, fp2, 0, &p2);
+    if ((ret && (ret != -ENOENT)) || !p2) {
+        return false;
     }
-    if (buffer_length(a) && (t2 == t1)) {
-        return true;
+    while (p2 != t1) {
+        tuple p = lookup(p2, sym_this(".."));
+        if (p == p2)
+            return false;   /* we reached the filesystem root */
+        p2 = p;
     }
-    return false;
+    return true;
 }
 
 boolean validate_iovec(struct iovec *iov, u64 len, boolean write)
