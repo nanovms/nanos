@@ -298,16 +298,17 @@ static void usage(const char *program_name)
 {
     const char *p = strrchr(program_name, '/');
     p = p != NULL ? p + 1 : program_name;
-    printf("Usage: %s [-b boot-image] [-r target-root] [-s image-size] "
-           "image-file < manifest-file\n"
-           "\n"
-           "-b	- specify boot image to prepend\n"
-           "-k	- specify kernel image\n"
-           "-r	- specify target root\n"
-           "-s	- specify minimum image file size; can be expressed in bytes, "
-           "KB (with k or K suffix), MB (with m or M suffix), and GB (with g or"
-           " G suffix)\n",
-           p);
+    printf("Usage:\n%s [options] image-file < manifest-file\n"
+           "%s [options] -e image-file\n"
+           "Options:\n"
+           "-b boot-image	- specify boot image to prepend\n"
+           "-k kern-image	- specify kernel image\n"
+           "-r target-root	- specify target root\n"
+           "-s image-size	- specify minimum image file size; can be expressed"
+           " in bytes, KB (with k or K suffix), MB (with m or M suffix), and GB"
+           " (with g or G suffix)\n"
+           "-e              - create empty filesystem\n",
+           p, p);
 }
 
 boolean parse_size(const char *str, long long *size)
@@ -334,7 +335,6 @@ boolean parse_size(const char *str, long long *size)
     default:
         return false;
     }
-    img_size = pad(img_size, SECTOR_SIZE);
     *size = img_size;
     return true;
 }
@@ -346,9 +346,13 @@ int main(int argc, char **argv)
     const char *kernelimg_path = NULL;
     const char *target_root = NULL;
     long long img_size = 0;
+    boolean empty_fs = false;
 
-    while ((c = getopt(argc, argv, "hb:k:r:s:")) != EOF) {
+    while ((c = getopt(argc, argv, "eb:k:r:s:")) != EOF) {
         switch (c) {
+        case 'e':
+            empty_fs = true;
+            break;
         case 'b':
             bootimg_path = optarg;
             break;
@@ -413,14 +417,19 @@ int main(int argc, char **argv)
              "update readsectors in stage1\n", offset);
     }
 
-    parser p = tuple_parser(h, closure(h, finish, h), closure(h, perr));
-    // this can be streaming
-    parser_feed (p, read_stdin(h));
+    if (empty_fs) {
+        root = allocate_tuple();
+        table_set(root, sym(children), allocate_tuple());
+    } else {
+        parser p = tuple_parser(h, closure(h, finish, h), closure(h, perr));
+        // this can be streaming
+        parser_feed (p, read_stdin(h));
+    }
 
     init_pagecache(h, h, 0, PAGESIZE);
     mkfs_write_status = closure(h, mkfs_write_handler);
 
-    if (root) {
+    if (root && !empty_fs) {
         value v = table_find(root, sym(imagesize));
         if (v && tagof(v) != tag_tuple) {
             table_set(root, sym(imagesize), 0); /* consume it, kernel doesn't need it */
@@ -457,15 +466,17 @@ int main(int argc, char **argv)
                 table_set(c, sym(kernel), kernel);
             }
         }
-        if (!boot)
-            halt("kernel or boot FS not specified\n");
-        create_filesystem(h, SECTOR_SIZE, BOOTFS_SIZE, 0,
-                          closure(h, bwrite, out, offset),
-                          true, closure(h, fsc, h, out, boot, target_root));
-        offset += BOOTFS_SIZE;
+        if (boot) {
+            create_filesystem(h, SECTOR_SIZE, BOOTFS_SIZE, 0,
+                              closure(h, bwrite, out, offset),
+                              true, closure(h, fsc, h, out, boot, target_root));
+            offset += BOOTFS_SIZE;
 
-        /* Remove tuple from root, so it doesn't end up in the root FS. */
-        table_set(root, sym(boot), 0);
+            /* Remove tuple from root, so it doesn't end up in the root FS. */
+            table_set(root, sym(boot), 0);
+        } else if (bootimg_path) {
+            halt("kernel or boot FS not specified\n");
+        }
     }
 
     create_filesystem(h,
@@ -476,15 +487,16 @@ int main(int argc, char **argv)
                       true,
                       closure(h, fsc, h, out, root, target_root));
 
-    if (img_size > 0) {
-        off_t current_size = lseek(out, 0, SEEK_END);
-        if (current_size < 0) {
-            halt("could not get image size: %s\n", strerror(errno));
-        }
-        if (current_size < img_size) {
-            if (ftruncate(out, img_size)) {
-                halt("could not set image size: %s\n", strerror(errno));
-            }
+    off_t current_size = lseek(out, 0, SEEK_END);
+    if (current_size < 0) {
+        halt("could not get image size: %s\n", strerror(errno));
+    }
+    if (!img_size)
+        img_size = current_size;
+    img_size = pad(img_size, TFS_LOG_DEFAULT_EXTENSION_SIZE);
+    if (current_size < img_size) {
+        if (ftruncate(out, img_size)) {
+            halt("could not set image size: %s\n", strerror(errno));
         }
     }
     if (bootimg_path != NULL)

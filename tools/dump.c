@@ -152,7 +152,7 @@ static u64 get_fs_offset(descriptor fd)
 
     struct partition_entry *rootfs_part = partition_get(buf, PARTITION_ROOTFS);
 
-    if (rootfs_part->lba_start == 0 ||
+    if (!rootfs_part || rootfs_part->lba_start == 0 ||
             rootfs_part->nsectors == 0) {
         // probably raw filesystem
         return 0;
