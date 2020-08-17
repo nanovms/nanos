@@ -56,9 +56,9 @@ func TestNodeHelloWorld(t *testing.T) {
 	c.Args = append(c.Args, "js/hello.js")
 	c.RunConfig.Imagename = "image"
 	c.RunConfig.Memory = "2G"
-	c.Boot = "../../output/boot/boot.img"
-	c.Kernel = "../../output/stage3/bin/stage3.img"
-	c.Mkfs = "../../output/mkfs/bin/mkfs"
+	c.Boot = "../../output/test/go/boot.img"
+	c.Kernel = "../../output/test/go/kernel.img"
+	c.Mkfs = "../../output/tools/bin/mkfs"
 	c.Env = make(map[string]string)
 	c.RunConfig.Imagename = "image"
 

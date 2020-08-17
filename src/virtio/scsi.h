@@ -15,6 +15,10 @@
 
 /*
  * Fixed format sense data.
+ *
+ * For Hyper-V compatibility this structure omits extra_bytes field,
+ * see struct scsi_sense_data_extra
+ *
  */
 struct scsi_sense_data
 {
@@ -53,6 +57,13 @@ struct scsi_sense_data
 	u8 ascq;
 	u8 fru;
 	u8 sense_key_spec[3];
+} __attribute__((packed));
+
+/*
+ * Fixed format sense data with extra_bytes
+ */
+struct scsi_sense_data_extra {
+	struct scsi_sense_data sense;
 #define	SSD_SCS_VALID		0x80
 #define	SSD_FIELDPTR_CMD	0x40
 #define	SSD_BITPTR_VALID	0x08

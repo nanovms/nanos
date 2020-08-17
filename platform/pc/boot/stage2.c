@@ -1,4 +1,6 @@
-#include <kernel.h>
+#include <runtime.h>
+#include <kernel_machine.h>
+#include <kernel_heaps.h>
 #include <pagecache.h>
 #include <tfs.h>
 #include <elf64.h>

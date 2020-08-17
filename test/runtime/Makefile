@@ -340,18 +340,28 @@ SRCS-readv = \
 LDFLAGS-readv=		-static
 
 CFLAGS+=	-DENABLE_MSG_DEBUG
-CFLAGS+=	-I$(SRCDIR)/http \
+CFLAGS+=	-I$(ARCHDIR) \
+		-I$(SRCDIR) \
+		-I$(SRCDIR)/http \
+		-I$(SRCDIR)/kernel \
 		-I$(SRCDIR)/runtime \
 		-I$(SRCDIR)/unix \
-		-I$(SRCDIR)/unix_process \
-		-I$(SRCDIR)/x86_64
+		-I$(SRCDIR)/unix_process
 
 CLEANDIRS+=	$(OBJDIR)/test
 
 all: $(PROGRAMS)
 
+dummy:
+
+.PHONY: dummy
+
 include ../../rules.mk
 
+ifneq ($(CROSS_COMPILE),)
+CFLAGS+=	--sysroot $(TARGET_ROOT) -I$(TARGET_ROOT)/usr/include
+LDFLAGS+=	--sysroot=$(TARGET_ROOT) -L$(TARGET_ROOT)/usr/lib/$(ARCH)-linux-gnu
+else
 ifeq ($(UNAME_s),Darwin)
 CFLAGS+=	-target x86_64-elf --sysroot $(TARGET_ROOT) -I $(TARGET_ROOT)/usr/include
 LD=		x86_64-elf-ld
@@ -365,4 +375,14 @@ $(PROG-hw): OBJS_END=$(OBJS_CRTEND_D)
 
 $(PROG-web): OBJS_BEGIN=$(OBJS_CRTBEGIN_D)
 $(PROG-web): OBJS_END=$(OBJS_CRTEND_D)
+endif
+endif
+
+ifneq ($(CROSS_COMPILE),)
+GO_ENV=		GOOS=linux
+ifeq ($(ARCH),aarch64)
+GO_ENV+=	GOARCH=arm64
+else
+GO_ENV+=	GOARCH=$(ARCH)
+endif
 endif

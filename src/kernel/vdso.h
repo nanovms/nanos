@@ -4,16 +4,6 @@
 
 #define VDSO_NO_NOW (timestamp)-1
 
-#define do_syscall(sysnr, rdi, rsi) ({\
-    sysreturn rv;\
-    asm("syscall"\
-        : "=a" (rv)\
-        : "0" (sysnr), "D" (rdi), "S"(rsi)\
-        : "memory"\
-    );\
-    rv;\
-})
-
 /* An instance of this struct is shared between kernel and userspace
  * Make sure there are no pointers embedded in it
  */

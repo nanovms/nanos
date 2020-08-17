@@ -40,4 +40,14 @@ static inline value value_from_u64(heap h, u64 v)
     return result;
 }
 
+static inline tuple find_or_allocate_tuple(tuple t, symbol s)
+{
+    assert(tagof(t) == tag_tuple);
+    value v = table_find(t, s);
+    if (!v)
+        return allocate_tuple();
+    assert(tagof(v) == tag_tuple);
+    return (tuple)v;
+}
+
 value null_value(void);

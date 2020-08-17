@@ -4,6 +4,9 @@ SRCS-stage2.elf= \
 	$(CURDIR)/stage2.c \
 	$(CURDIR)/service32.s \
 	$(SRCDIR)/drivers/ata.c \
+	$(SRCDIR)/kernel/elf.c \
+	$(SRCDIR)/kernel/kvm_platform.c \
+	$(SRCDIR)/kernel/pagecache.c \
 	$(SRCDIR)/runtime/buffer.c \
 	$(SRCDIR)/runtime/extra_prints.c \
 	$(SRCDIR)/runtime/format.c \
@@ -19,10 +22,7 @@ SRCS-stage2.elf= \
 	$(SRCDIR)/runtime/tuple.c \
 	$(SRCDIR)/runtime/merge.c \
 	$(SRCDIR)/runtime/string.c \
-	$(SRCDIR)/x86_64/elf.c \
-	$(SRCDIR)/x86_64/kvm_platform.c \
 	$(SRCDIR)/x86_64/page.c \
-	$(SRCDIR)/x86_64/pagecache.c \
 	$(SRCDIR)/x86_64/serial.c \
 	$(SRCDIR)/tfs/tfs.c \
 	$(SRCDIR)/tfs/tlog.c
@@ -33,6 +33,7 @@ CFLAGS+= \
 	-I$(SRCDIR) \
 	-I$(SRCDIR)/tfs \
 	-I$(SRCDIR)/runtime \
+	-I$(SRCDIR)/kernel \
 	-I$(SRCDIR)/x86_64
 LDFLAGS+=	$(KERNLDFLAGS) -T linker_script
 AFLAGS+=	-I$(SRCDIR)/x86_64 -felf
@@ -45,7 +46,7 @@ msg_cat=	CAT	$@
 cmd_cat=	$(CAT) $^ > $@
 
 msg_nasm_ld=	NASM_LD	$@
-cmd_nasm_ld=	$(NASM) $(NASMFLAGS) $(NASMFLAGS_$(@F)) $< -o $@
+cmd_nasm_ld=	$(AS) $(NASMFLAGS) $(NASMFLAGS_$(@F)) $< -o $@
 
 msg_dd=		DD	$@
 cmd_dd=		$(DD) if=$< of=$@ $(DDFLAGS) $(DDFLAGS_$(@F))
@@ -55,9 +56,10 @@ cmd_objcopy=	$(OBJCOPY) $(OBJCOPYFLAGS) $(OBJCOPYFLAGS_$(@F)) $< $@
 
 all: boot
 
-include ../rules.mk
+include ../../../rules.mk
 
 CLEANFILES+=	$(foreach f,boot.img stage1 stage1.lst stage2.pad stage2.bin stage2.strip,$(OBJDIR)/$f)
+CLEANDIRS+=     $(OBJDIR)/platform/pc $(OBJDIR)/platform
 
 .PHONY: boot
 
@@ -87,7 +89,7 @@ STRIP=		x86_64-elf-strip
 OBJCOPY=	x86_64-elf-objcopy
 SIZE_CMD=	stat -f %z
 else
-LD=		ld
+LD=		$(CROSS_COMPILE)ld
 CFLAGS+=	-m32
 SIZE_CMD=	stat -c %s
 endif

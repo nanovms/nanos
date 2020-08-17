@@ -1,10 +1,22 @@
 #include <runtime.h>
 #include <unistd.h>
+#include <errno.h>
+#include <signal.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/mman.h>
 #include <sys/time.h>
-#include <string.h>
-#include <signal.h>
+
+#ifdef __aarch64__
+#include <sys/prctl.h>
+#endif
+
+//#define TAG_HEAP_DEBUG
+#ifdef TAG_HEAP_DEBUG
+#define tag_debug(x, ...) do {rprintf("%s: " x, __func__, ##__VA_ARGS__);} while(0)
+#else
+#define tag_debug(x, ...)
+#endif
 
 /* Helper functions to ignore unused result (eliminate CC warning) */
 static inline void igr(int x) {}
@@ -46,7 +58,8 @@ static void malloc_free(heap h, u64 z, bytes length)
 static u64 malloc_alloc(heap h, bytes s)
 {
     bytes_allocated += s;
-    return (u64)malloc(s);
+    void *p = malloc(s);
+    return p ? (u64)p : INVALID_PHYSICAL;
 }
 
 heap malloc_allocator()
@@ -72,6 +85,7 @@ void halt(char *format, ...)
     exit(2);
 }
 
+#ifndef __aarch64__
 static heap allocate_tagged_region(heap h, u64 tag)
 {
     u64 size = 256 * MB;
@@ -79,6 +93,61 @@ static heap allocate_tagged_region(heap h, u64 tag)
                         size, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_ANON | MAP_PRIVATE, -1, 0);
     return (heap)create_id_heap(h, h, u64_from_pointer(region), size, 1);
 }
+#else
+struct tagheap {
+    struct heap h;
+    heap mh;
+    u64 vtag;
+};
+
+static void tag_dealloc(heap h, u64 a, bytes s)
+{
+    struct tagheap *th = (struct tagheap *)h;
+    tag_debug("tag %d, a 0x%lx, s 0x%lx\n", th->vtag >> VA_TAG_OFFSET, a, s);
+    deallocate_u64(th->mh, a & MASK(48), s);
+}
+
+static u64 tag_alloc(heap h, bytes s)
+{
+    struct tagheap *th = (struct tagheap *)h;
+    void *p = allocate(th->mh, s);
+    if (p == INVALID_ADDRESS)
+        return INVALID_PHYSICAL;
+    u64 a = u64_from_pointer(p);
+    assert((a >> VA_TAG_OFFSET) == 0);
+    a |= th->vtag;
+    tag_debug("tag %d, s 0x%lx, a 0x%lx\n", th->vtag >> VA_TAG_OFFSET, s, a);
+    return a;
+}
+
+#define PR_SET_TAGGED_ADDR_CTRL      55
+#define PR_TAGGED_ADDR_ENABLE        (1UL << 0)
+
+static heap allocate_tagged_region(heap h, u64 tag)
+{
+    static boolean abi_init = false;
+    if (!abi_init) {
+        abi_init = true;
+        int rv = prctl(PR_SET_TAGGED_ADDR_CTRL, PR_TAGGED_ADDR_ENABLE, 0, 0, 0);
+        if (rv < 0)
+            halt("prctl failed on PR_SET_TAGGED_ADDR_CTRL %d (%s)\n", errno, strerror(errno));
+    }
+    struct tagheap *th = allocate(h, sizeof(struct tagheap));
+    if (th == INVALID_ADDRESS)
+        return INVALID_ADDRESS;
+    assert(tag < 256);
+    th->mh = h;
+    th->vtag = tag << VA_TAG_OFFSET;
+    th->h.alloc = tag_alloc;
+    th->h.dealloc = tag_dealloc;
+    th->h.destroy = 0;
+    th->h.pagesize = 32; // XXX
+    th->h.allocated = 0;
+    th->h.total = 0;
+    tag_debug("tag %d, bits 0x%lx, heap %p\n", tag, th->vtag, th);
+    return &th->h;
+}
+#endif
 
 extern void init_extra_prints();
 

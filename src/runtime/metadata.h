@@ -40,9 +40,11 @@ static inline tuple resolve_path(tuple n, vector v)
         if (buffer_length(i) == 0)
             continue;
         tuple c = table_find(n, sym(children));
-        assert(c);
+        if (!c)
+            return c;
         n = table_find(c, intern(i));
-        assert(n);
+        if (!n)
+            return n;
     }
     return n;
 }

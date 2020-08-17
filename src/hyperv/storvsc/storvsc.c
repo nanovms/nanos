@@ -614,7 +614,7 @@ static void hv_storvsc_on_channel_callback(struct vmbus_channel *channel, void *
         bytes_recvd = pad(VSTOR_PKT_SIZE, 8),
         ret = vmbus_chan_recv(channel, packet, (int*)&bytes_recvd,
             &request_id);
-        assert(ret != ENOBUFS); //storvsc recvbuf is not large enoughD"));
+        assert(ret != ENOBUFS); //storvsc recvbuf is not large enough
         /*
          * XXX check bytes_recvd to make sure that it contains
          * enough data
