@@ -899,7 +899,7 @@ static status storvsc_attach(kernel_heaps kh, hv_device* device, storage_attach 
 {
     heap h = heap_general(kh);
 
-    struct storvsc_softc *sc = allocate(h, sizeof(struct storvsc_softc));
+    struct storvsc_softc *sc = allocate_zero(h, sizeof(struct storvsc_softc));
     assert(sc != INVALID_ADDRESS);
 
     sc->general = h;
