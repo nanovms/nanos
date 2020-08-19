@@ -114,10 +114,16 @@ closure_function(4, 2, void, fsstarted,
 {
     if (!is_ok(s))
         halt("unable to open filesystem: %v\n", s);
+    if (root_fs)
+        halt("multiple root filesystems found\n");
 
     heap h = bound(h);
     u8 *mbr = bound(mbr);
     tuple root = filesystem_getroot(fs);
+    storage_set_root_fs(fs);
+    tuple mounts = table_find(root, sym(mounts));
+    if (mounts && (tagof(mounts) == tag_tuple))
+        storage_set_mountpoints(mounts);
     if (mbr) {
         struct partition_entry *bootfs_part;
         if (table_find(root, sym(ingest_kernel_symbols)) &&
@@ -176,34 +182,46 @@ closure_function(5, 1, void, mbr_read,
                  heap, h, u8 *, mbr, block_io, r, block_io, w, u64, length,
                  status, s)
 {
-    if (!is_ok(s))
-        halt("unable to read partitions: %v\n", s);
+    if (!is_ok(s)) {
+        msg_err("unable to read partitions: %v\n", s);
+        goto out;
+    }
     heap h = bound(h);
     u8 *mbr = bound(mbr);
     struct partition_entry *rootfs_part = partition_get(mbr, PARTITION_ROOTFS);
-    if (!rootfs_part)
-        halt("filesystem partition not found\n");
+    if (!rootfs_part) {
+        u8 uuid[UUID_LEN];
+        if (filesystem_probe(mbr, uuid))
+            volume_add(uuid, bound(r), bound(w), bound(length));
+        else
+            init_debug("unformatted storage device, ignoring");
+        deallocate(h, mbr, SECTOR_SIZE);
+    }
     else
         rootfs_init(h, mbr, rootfs_part->lba_start * SECTOR_SIZE,
             bound(r), bound(w), bound(length));
+  out:
     closure_finish();
 }
 
-closure_function(1, 3, void, attach_storage,
-                 u64, fs_offset,
+closure_function(0, 3, void, attach_storage,
                  block_io, r, block_io, w, u64, length)
 {
     heap h = heap_general(&heaps);
-    u64 offset = bound(fs_offset);
-    if (offset == 0) {
-        /* Read partition table from disk */
-        u8 *mbr = allocate(h, SECTOR_SIZE);
-        assert(mbr != INVALID_ADDRESS);
-        apply(r, mbr, irange(0, SECTOR_SIZE),
-              closure(h, mbr_read, h, mbr, r, w, length));
-    } else
-        rootfs_init(h, 0, offset, r, w, length);
-    closure_finish();
+
+    /* Look for partition table */
+    u8 *mbr = allocate(h, SECTOR_SIZE);
+    if (mbr == INVALID_ADDRESS) {
+        msg_err("cannot allocate memory for MBR sector\n");
+        return;
+    }
+    status_handler sh = closure(h, mbr_read, h, mbr, r, w, length);
+    if (sh == INVALID_ADDRESS) {
+        msg_err("cannot allocate MBR read closure\n");
+        deallocate(h, mbr, SECTOR_SIZE);
+        return;
+    }
+    apply(r, mbr, irange(0, SECTOR_SIZE), sh);
 }
 
 static void read_kernel_syms()
@@ -315,7 +333,7 @@ void kernel_shutdown(int status)
     shutting_down = true;
     apic_ipi(TARGET_EXCLUSIVE_BROADCAST, 0, shutdown_vector);
     if (root_fs) {
-        filesystem_flush(root_fs, closure(heap_general(&heaps), sync_complete, status));
+        storage_sync(closure(heap_general(&heaps), sync_complete, status));
         runloop();
     }
     vm_exit(status);
@@ -411,14 +429,8 @@ static void __attribute__((noinline)) init_service_new_stack()
     init_net(kh);
 
     init_debug("probe fs, register storage drivers");
-    struct partition_entry *rootfs_part = partition_get(MBR_ADDRESS,
-        PARTITION_ROOTFS);
-    u64 fs_offset;
-    if (!rootfs_part)
-        fs_offset = 0;
-    else
-        fs_offset = rootfs_part->lba_start * SECTOR_SIZE;
-    storage_attach sa = closure(misc, attach_storage, fs_offset);
+    init_volumes(misc);
+    storage_attach sa = closure(misc, attach_storage);
 
     boolean hyperv_storvsc_attached = false;
     /* Probe for PV devices */

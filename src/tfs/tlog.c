@@ -830,6 +830,16 @@ static void log_read(log tl, status_handler sh)
     apply(ext->read, sg, r, tlc);
 }
 
+boolean filesystem_probe(u8 *first_sector, u8 *uuid)
+{
+    u64 len;
+    status s = log_hdr_parse(alloca_wrap_buffer(first_sector, SECTOR_SIZE),
+        true, &len, uuid);
+    boolean success = is_ok(s);
+    timm_dealloc(s);
+    return success;
+}
+
 log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
 {
     tlog_debug("log_create: heap %p, fs %p, sh %p\n", h, fs, sh);

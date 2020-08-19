@@ -294,7 +294,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
         p->virtual = p->virtual_page = p->virtual32 = 0;
         p->vareas = p->vmaps = INVALID_ADDRESS;
     }
-    p->fs = fs;
+    p->root_fs = p->cwd_fs = fs;
     p->cwd = root;
     p->process_root = root;
     p->fdallocator = create_id_heap(h, h, 0, infinity, 1);
