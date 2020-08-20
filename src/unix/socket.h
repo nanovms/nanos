@@ -10,6 +10,16 @@ struct sockaddr_storage {
 
 typedef u32 socklen_t;
 
+struct msghdr {
+    void *msg_name;
+    socklen_t msg_namelen;
+    struct iovec *msg_iov;
+    u64 msg_iovlen;
+    void *msg_control;
+    u64 msg_controllen;
+    int msg_flags;
+};
+
 struct sock {
     struct fdesc f;              /* must be first */
     int fd;
@@ -30,6 +40,9 @@ struct sock {
              struct sockaddr *dest_addr, socklen_t addrlen);
     sysreturn (*recvfrom)(struct sock *sock, void *buf, u64 len, int flags,
              struct sockaddr *dest_addr, socklen_t *addrlen);
+    sysreturn (*sendmsg)(struct sock *sock, const struct msghdr *msg,
+            int flags);
+    sysreturn (*recvmsg)(struct sock *sock, struct msghdr *msg, int flags);
     sysreturn (*shutdown)(struct sock *sock, int how);
 };
 
@@ -84,6 +97,17 @@ static inline sysreturn socket_ioctl(struct sock *s, unsigned long request,
         vlist ap)
 {
     return ioctl_generic(&s->f, request, ap);
+}
+
+static inline boolean validate_msghdr(const struct msghdr *mh, boolean write)
+{
+    if (!validate_user_memory(mh, sizeof(struct msghdr), false))
+        return false;
+    if (mh->msg_name && !validate_user_memory(mh->msg_name, mh->msg_namelen, false))
+        return false;
+    if (mh->msg_control && !validate_user_memory(mh->msg_control, mh->msg_controllen, write))
+        return false;
+    return validate_iovec(mh->msg_iov, mh->msg_iovlen, write);
 }
 
 sysreturn unixsock_open(int type, int protocol);

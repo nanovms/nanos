@@ -15,6 +15,7 @@
 
 #define SMALLBUF_SIZE    8
 #define LARGEBUF_SIZE    8192
+#define IOV_LEN          8
 
 #define test_assert(expr) do { \
     if (!(expr)) { \
@@ -30,6 +31,8 @@ static void *uds_stream_server(void *arg)
     socklen_t addr_len = sizeof(addr);
     int client_fd;
     uint8_t readBuf[LARGEBUF_SIZE];
+    struct iovec iov[IOV_LEN];
+    struct msghdr msg;
     ssize_t nbytes, total;
 
     test_assert(accept(fd, (struct sockaddr *) &addr, NULL) == -1);
@@ -51,6 +54,23 @@ static void *uds_stream_server(void *arg)
         test_assert(recv(client_fd, readBuf, 1, 0) == 1);
         test_assert(readBuf[0] == (i & 0xFF));
     }
+
+    for (int i = 0; i < IOV_LEN; i++) {
+        iov[i].iov_base = &readBuf[i * LARGEBUF_SIZE / IOV_LEN];
+        iov[i].iov_len = LARGEBUF_SIZE / IOV_LEN;
+    }
+    memset(&msg, 0, sizeof(msg));
+    for (int i = 0; i < IOV_LEN; i += 2) {
+        msg.msg_iov = iov + i;
+        msg.msg_iovlen = 0;
+        test_assert(recvmsg(client_fd, &msg, 0) == 0);
+        msg.msg_iovlen = 2;
+        test_assert(recvmsg(client_fd, &msg, 0) == LARGEBUF_SIZE * 2 / IOV_LEN);
+    }
+    for (int i = 0; i < IOV_LEN; i++)
+        for (int j = 0; j < iov[i].iov_len; j++)
+            test_assert(*((uint8_t *)(iov[i].iov_base) + j) == (i & 0xFF));
+
     test_assert(close(client_fd) == 0);
     return NULL;
 }
@@ -63,6 +83,8 @@ static void uds_stream_test(void)
     struct stat s;
     pthread_t pt;
     uint8_t writeBuf[LARGEBUF_SIZE];
+    struct iovec iov[IOV_LEN];
+    struct msghdr msg;
     ssize_t nbytes, total;
 
     s1 = socket(AF_UNIX, SOCK_STREAM, 0);
@@ -120,6 +142,19 @@ static void uds_stream_test(void)
         test_assert(nbytes > 0);
         total += nbytes;
     } while (total < LARGEBUF_SIZE);
+
+    for (int i = 0; i < IOV_LEN; i++) {
+        iov[i].iov_base = &writeBuf[i * LARGEBUF_SIZE / IOV_LEN];
+        iov[i].iov_len = LARGEBUF_SIZE / IOV_LEN;
+        memset(iov[i].iov_base, i & 0xFF, iov[i].iov_len);
+    }
+    memset(&msg, 0, sizeof(msg));
+    msg.msg_iov = iov;
+    msg.msg_iovlen = 0;
+    test_assert(sendmsg(s2, &msg, 0) == 0);
+    msg.msg_iovlen = IOV_LEN;
+    test_assert(sendmsg(s2, &msg, 0) == LARGEBUF_SIZE);
+
     test_assert(pthread_join(pt, NULL) == 0);
 
     test_assert(recv(s2, writeBuf, 1, 0) == 0);

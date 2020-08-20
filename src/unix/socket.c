@@ -592,6 +592,65 @@ sysreturn unixsock_recvfrom(struct sock *sock, void *buf, u64 len, int flags,
             syscall_io_complete);
 }
 
+closure_function(1, 2, void, sendmsg_complete,
+                 sg_list, sg,
+                 thread, t, sysreturn, rv)
+{
+    sg_list sg = bound(sg);
+    deallocate_sg_list(sg);
+    apply(syscall_io_complete, t, rv);
+    closure_finish();
+}
+
+sysreturn unixsock_sendmsg(struct sock *sock, const struct msghdr *msg,
+        int flags)
+{
+    sg_list sg = allocate_sg_list();
+    if (sg == INVALID_ADDRESS)
+        return -ENOMEM;
+    if (!iov_to_sg(sg, msg->msg_iov, msg->msg_iovlen))
+        goto err_dealloc_sg;
+    io_completion complete = closure(sock->h, sendmsg_complete, sg);
+    if (complete == INVALID_ADDRESS)
+        goto err_dealloc_sg;
+    return apply(sock->f.sg_write, sg, sg->count, 0, current, false, complete);
+  err_dealloc_sg:
+    deallocate_sg_list(sg);
+    return -ENOMEM;
+}
+
+closure_function(3, 2, void, recvmsg_complete,
+                 sg_list, sg, struct iovec *, iov, int, iovlen,
+                 thread, t, sysreturn, rv)
+{
+    sg_list sg = bound(sg);
+    sg_to_iov(sg, bound(iov), bound(iovlen));
+    deallocate_sg_list(sg);
+    apply(syscall_io_complete, t, rv);
+    closure_finish();
+}
+
+sysreturn unixsock_recvmsg(struct sock *sock, struct msghdr *msg, int flags)
+{
+    sg_list sg = allocate_sg_list();
+    if (sg == INVALID_ADDRESS)
+        return -ENOMEM;
+    io_completion complete = closure(sock->h, recvmsg_complete, sg,
+        msg->msg_iov, msg->msg_iovlen);
+    if (complete == INVALID_ADDRESS)
+        goto err_dealloc_sg;
+
+    /* Non-connected sockets are not supported, so source address is not set. */
+    msg->msg_namelen = 0;
+
+    return apply(sock->f.sg_read, sg,
+        iov_total_len(msg->msg_iov, msg->msg_iovlen), 0, current, false,
+        complete);
+  err_dealloc_sg:
+    deallocate_sg_list(sg);
+    return -ENOMEM;
+}
+
 static unixsock unixsock_alloc(heap h, int type, u32 flags)
 {
     unixsock s = allocate(h, sizeof(*s));
@@ -621,6 +680,8 @@ static unixsock unixsock_alloc(heap h, int type, u32 flags)
     s->sock.accept4 = unixsock_accept4;
     s->sock.sendto = unixsock_sendto;
     s->sock.recvfrom = unixsock_recvfrom;
+    s->sock.sendmsg = unixsock_sendmsg;
+    s->sock.recvmsg = unixsock_recvmsg;
     s->fs_entry = 0;
     s->local_addr.sun_family = AF_UNIX;
     s->local_addr.sun_path[0] = '\0';

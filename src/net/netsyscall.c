@@ -56,16 +56,6 @@ struct sockaddr_in6 {
     u32 sin6_scope_id;
 };
 
-struct msghdr {
-    void *msg_name;
-    socklen_t msg_namelen;
-    struct iovec *msg_iov;
-    size_t msg_iovlen;
-    void *msg_control;
-    size_t msg_controllen;
-    int msg_flags;
-};
-
 struct mmsghdr {
     struct msghdr msg_hdr;
     unsigned int msg_len;
@@ -160,6 +150,10 @@ static sysreturn netsock_sendto(struct sock *sock, void *buf, u64 len,
         int flags, struct sockaddr *dest_addr, socklen_t addrlen);
 static sysreturn netsock_recvfrom(struct sock *sock, void *buf, u64 len,
         int flags, struct sockaddr *src_addr, socklen_t *addrlen);
+static sysreturn netsock_sendmsg(struct sock *sock, const struct msghdr *msg,
+                                 int flags);
+static sysreturn netsock_recvmsg(struct sock *sock, struct msghdr *msg,
+                                 int flags);
 
 static thunk net_loop_poll;
 static boolean net_loop_poll_queued;
@@ -982,6 +976,8 @@ static int allocate_sock(process p, int af, int type, u32 flags, netsock *rs)
     s->sock.accept4 = netsock_accept4;
     s->sock.sendto = netsock_sendto;
     s->sock.recvfrom = netsock_recvfrom;
+    s->sock.sendmsg = netsock_sendmsg;
+    s->sock.recvmsg = netsock_recvmsg;
     s->sock.shutdown = netsock_shutdown;
     s->ipv6only = 0;
     set_lwip_error(s, ERR_OK);
@@ -1411,24 +1407,31 @@ closure_function(3, 2, void, sendmsg_complete,
     closure_finish();
 }
 
-sysreturn sendmsg(int sockfd, const struct msghdr *msg, int flags)
+static sysreturn netsock_sendmsg(struct sock *s, const struct msghdr *msg,
+                                 int flags)
 {
-    struct sock *s = resolve_socket(current->p, sockfd);
-    if (!get_netsock(s))
-        return -EOPNOTSUPP;
     void *buf;
     u64 len;
     sysreturn rv;
 
-    net_debug("sock %d, type %d, msg %p, flags 0x%x\n", s->fd, s->type, msg, flags);
-    if (!validate_user_memory(msg, sizeof(struct msghdr), false))
-        return -EFAULT;
     rv = sendmsg_prepare(s, msg, flags, &buf, &len);
     if (rv <= 0)
         return set_syscall_return(current, rv);
     io_completion completion = closure(s->h, sendmsg_complete, s, buf, len);
     return socket_write_internal(s, buf, len, msg->msg_name, msg->msg_namelen,
         current, false, completion);
+}
+
+sysreturn sendmsg(int sockfd, const struct msghdr *msg, int flags)
+{
+    struct sock *s = resolve_socket(current->p, sockfd);
+    if (!s->sendmsg)
+        return -EOPNOTSUPP;
+
+    net_debug("sock %d, type %d, msg %p, flags 0x%x\n", s->fd, s->type, msg, flags);
+    if (!validate_msghdr(msg, false))
+        return -EFAULT;
+    return s->sendmsg(s, msg, flags);
 }
 
 closure_function(3, 2, void, sendmmsg_buf_complete,
@@ -1480,17 +1483,6 @@ closure_function(7, 1, sysreturn, sendmmsg_tcp_bh,
 
     closure_finish();
     return set_syscall_return(t, rv);
-}
-
-static boolean validate_msghdr(struct msghdr *mh, boolean write)
-{
-    if (!validate_user_memory(mh, sizeof(struct msghdr), false))
-        return false;
-    if (mh->msg_name && !validate_user_memory(mh->msg_name, mh->msg_namelen, false))
-        return false;
-    if (mh->msg_control && !validate_user_memory(mh->msg_control, mh->msg_controllen, write))
-        return false;
-    return validate_iovec(mh->msg_iov, mh->msg_iovlen, write);
 }
 
 sysreturn sendmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
@@ -1585,19 +1577,13 @@ sysreturn recvfrom(int sockfd, void * buf, u64 len, int flags,
     return sock->recvfrom(sock, buf, len, flags, src_addr, addrlen);
 }
 
-sysreturn recvmsg(int sockfd, struct msghdr *msg, int flags)
+static sysreturn netsock_recvmsg(struct sock *sock, struct msghdr *msg,
+                                 int flags)
 {
     u64 total_len;
     u8 *buf;
-    struct sock *sock = resolve_socket(current->p, sockfd);
-    netsock s = get_netsock(sock);
-    if (!s)
-        return -EOPNOTSUPP;
+    netsock s = (netsock) sock;
 
-    net_debug("sock %d, type %d, thread %ld\n", sock->fd, sock->type,
-            current->tid);
-    if (!validate_msghdr(msg, true))
-        return -EFAULT;
     if ((sock->type == SOCK_STREAM) && (s->info.tcp.state != TCP_SOCK_OPEN)) {
         return set_syscall_error(current, ENOTCONN);
     }
@@ -1615,6 +1601,18 @@ sysreturn recvmsg(int sockfd, struct msghdr *msg, int flags)
     blockq_action ba = closure(sock->h, recvmsg_bh, s, current, buf, total_len,
             msg);
     return blockq_check(sock->rxbq, current, ba, false);
+}
+
+sysreturn recvmsg(int sockfd, struct msghdr *msg, int flags)
+{
+    struct sock *s = resolve_socket(current->p, sockfd);
+    if (!s->recvmsg)
+        return -EOPNOTSUPP;
+
+    net_debug("sock %d, type %d, thread %ld\n", s->fd, s->type, current->tid);
+    if (!validate_msghdr(msg, true))
+        return -EFAULT;
+    return s->recvmsg(s, msg, flags);
 }
 
 static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t err)
