@@ -781,3 +781,27 @@ void syscall_debug(context f);
 
 boolean validate_iovec(struct iovec *iov, u64 len, boolean write);
 boolean validate_user_string(const char *name);
+
+static inline boolean iov_to_sg(sg_list sg, struct iovec *iov, int iovlen)
+{
+    for (int i = 0; i < iovlen; i++) {
+        u64 len = iov[i].iov_len;
+        if (len == 0)
+            continue;
+        sg_buf sgb = sg_list_tail_add(sg, len);
+        if (!sgb)
+            return false;
+        sgb->buf = iov[i].iov_base;
+        sgb->size = len;
+        sgb->offset = 0;
+        sgb->refcount = 0;
+    }
+    return true;
+}
+
+static inline void sg_to_iov(sg_list sg, struct iovec *iov, int iovlen)
+{
+    for (int i = 0; i < iovlen; i++)
+        if (sg_copy_to_buf(iov[i].iov_base, sg, iov[i].iov_len) == 0)
+            break;
+}

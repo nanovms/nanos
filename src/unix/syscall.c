@@ -424,10 +424,7 @@ closure_function(4, 2, void, iov_read_complete,
     thread_log(t, "%s: sg %p, completion %F, rv %ld", __func__, sg, completion,
                rv);
     if (rv > 0) {
-        struct iovec *iov = bound(iov);
-        for (int i = 0; i < bound(iovcnt); i++) {
-            sg_copy_to_buf(iov[i].iov_base, sg, iov[i].iov_len);
-        }
+        sg_to_iov(sg, bound(iov), bound(iovcnt));
     }
     deallocate_sg_list(sg);
     apply(completion, t, rv);
@@ -470,16 +467,7 @@ void iov_op(fdesc f, boolean write, struct iovec *iov, int iovcnt, u64 offset,
         }
         io_completion iov_complete;
         if (write) {
-            for (int i = 0; i < iovcnt; i++) {
-                u64 len = iov[i].iov_len;
-                if (len == 0)
-                    continue;
-                sg_buf sgb = sg_list_tail_add(sg, len);
-                sgb->buf = iov[i].iov_base;
-                sgb->size = len;
-                sgb->offset = 0;
-                sgb->refcount = 0;
-            }
+            iov_to_sg(sg, iov, iovcnt);
             iov_complete = closure(h, iov_write_complete, sg, completion);
 
         } else {
