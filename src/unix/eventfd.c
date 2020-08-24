@@ -6,6 +6,7 @@ struct efd {
     struct fdesc f; /* must be first */
     int fd;
     heap h;
+    int flags;
     blockq read_bq, write_bq;
     u64 counter;
 };
@@ -23,13 +24,13 @@ closure_function(5, 1, sysreturn, efd_read_bh,
     }
 
     if (efd->counter == 0) {
-        if (efd->f.flags & EFD_NONBLOCK) {
+        if (efd->flags & EFD_NONBLOCK) {
             rv = -EAGAIN;
             goto out;
         }
         return BLOCKQ_BLOCK_REQUIRED;
     }
-    if (efd->f.flags & EFD_SEMAPHORE) {
+    if (efd->flags & EFD_SEMAPHORE) {
         u64 readVal = 1;
 
         runtime_memcpy(bound(buf), &readVal, sizeof(readVal));
@@ -75,7 +76,7 @@ closure_function(5, 1, sysreturn, efd_write_bh,
 
     runtime_memcpy(&counter, bound(buf), sizeof(counter));
     if (counter > (EFD_COUNTER_MAX - efd->counter)) {
-        if (efd->f.flags & EFD_NONBLOCK) {
+        if (efd->flags & EFD_NONBLOCK) {
             rv = -EAGAIN;
             goto out;
         }
@@ -155,12 +156,13 @@ int do_eventfd2(unsigned int count, int flags)
     }
 
     init_fdesc(h, &efd->f, FDESC_TYPE_EVENTFD);
-    efd->f.flags = flags;
+    efd->f.flags = O_RDWR;
     efd->f.read = closure(h, efd_read, efd);
     efd->f.write = closure(h, efd_write, efd);
     efd->f.events = closure(h, efd_events, efd);
     efd->f.close = closure(h, efd_close, efd);
     efd->h = h;
+    efd->flags = flags;
 
     efd->read_bq = allocate_blockq(h, "eventfd read");
     if (efd->read_bq == INVALID_ADDRESS) {

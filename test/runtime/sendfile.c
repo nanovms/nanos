@@ -35,6 +35,42 @@ int main(int argc, char *argv[])
     char buf[BUF_LEN];
     char cmp_buf[BUF_LEN];
 
+    fd_in = open("infile", O_WRONLY);
+    if (fd_in < 0)
+        sf_err_goto(err_fdin, "open write-only: %s\n", strerror(errno));
+    fd_out = open("outfile", O_RDWR);
+    if (fd_out < 0)
+        sf_err_goto(err_fdout, "open outfile: %s\n", strerror(errno));
+    ret = sendfile(fd_out, fd_in, NULL, BUF_LEN);
+    if (ret != -1)
+        sf_err_goto(err_fop, "could sendfile() %d bytes from write-only file\n",
+            ret);
+    else if (errno != EBADF)
+        sf_err_goto(err_fdout, "[line %d] unexpected error: %s\n",  __LINE__,
+            strerror(errno));
+    if (close(fd_out) < 0)
+        sf_err_goto(err_fdout, "close outfile: %s\n", strerror(errno));
+    if (close(fd_in) < 0)
+        sf_err_goto(err_fdin, "close infile: %s\n", strerror(errno));
+
+    fd_in = open("infile", O_RDWR);
+    if (fd_in < 0)
+        sf_err_goto(err_fdin, "open infile: %s\n", strerror(errno));
+    fd_out = open("outfile", O_RDONLY);
+    if (fd_out < 0)
+        sf_err_goto(err_fdout, "open read-only: %s\n", strerror(errno));
+    ret = sendfile(fd_out, fd_in, NULL, BUF_LEN);
+    if (ret != -1)
+        sf_err_goto(err_fop, "could sendfile() %d bytes to read-only file\n",
+            ret);
+    else if (errno != EBADF)
+        sf_err_goto(err_fdout, "[line %d] unexpected error: %s\n",  __LINE__,
+            strerror(errno));
+    if (close(fd_out) < 0)
+        sf_err_goto(err_fdout, "close outfile: %s\n", strerror(errno));
+    if (close(fd_in) < 0)
+        sf_err_goto(err_fdin, "close infile: %s\n", strerror(errno));
+
     fd_in = open("infile", O_RDWR);
     if (fd_in == -1)
         sf_err_goto(err_fdin, "error %d opeing sendfile_test\n", errno);

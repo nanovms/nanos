@@ -418,6 +418,10 @@ void iov_op(fdesc f, boolean write, struct iovec *iov, int iovcnt, u64 offset,
             boolean blocking, io_completion completion)
 {
     sysreturn rv;
+    if ((write && !fdesc_is_writable(f)) || (!write && !fdesc_is_readable(f))) {
+        rv = -EBADF;
+        goto out;
+    }
     if (iovcnt < 0 || iovcnt > IOV_MAX) {
         rv = -EINVAL;
         goto out;
@@ -478,6 +482,8 @@ sysreturn read(int fd, u8 *dest, bytes length)
     if (!validate_user_memory(dest, length, true))
         return -EFAULT;
     fdesc f = resolve_fd(current->p, fd);
+    if (!fdesc_is_readable(f))
+        return -EBADF;
     if (!f->read)
         return set_syscall_error(current, EINVAL);
 
@@ -490,6 +496,8 @@ sysreturn pread(int fd, u8 *dest, bytes length, s64 offset)
     if (!validate_user_memory(dest, length, true))
         return -EFAULT;
     fdesc f = resolve_fd(current->p, fd);
+    if (!fdesc_is_readable(f))
+        return -EBADF;
     if (!f->read || offset < 0)
         return set_syscall_error(current, EINVAL);
 
@@ -512,6 +520,8 @@ sysreturn write(int fd, u8 *body, bytes length)
     if (!validate_user_memory(body, length, false))
         return -EFAULT;
     fdesc f = resolve_fd(current->p, fd);
+    if (!fdesc_is_writable(f))
+        return -EBADF;
     if (!f->write)
         return set_syscall_error(current, EINVAL);
 
@@ -524,6 +534,8 @@ sysreturn pwrite(int fd, u8 *body, bytes length, s64 offset)
     if (!validate_user_memory(body, length, false))
         return -EFAULT;
     fdesc f = resolve_fd(current->p, fd);
+    if (!fdesc_is_writable(f))
+        return -EBADF;
     if (!f->write || offset < 0)
         return set_syscall_error(current, EINVAL);
 
@@ -634,6 +646,8 @@ static sysreturn sendfile(int out_fd, int in_fd, int *offset, bytes count)
         return -EFAULT;
     fdesc infile = resolve_fd(current->p, in_fd);
     fdesc outfile = resolve_fd(current->p, out_fd);
+    if (!fdesc_is_readable(infile) || !fdesc_is_writable(outfile))
+        return -EBADF;
     if (!infile->sg_read || !outfile->write)
         return set_syscall_error(current, EINVAL);
 
@@ -989,6 +1003,18 @@ sysreturn open_internal(filesystem fs, tuple cwd, const char *name, int flags,
     if (ret) {
         thread_log(current, "\"%s\" - not found", name);
         return set_syscall_return(current, ret);
+    }
+
+    switch (flags & O_ACCMODE) {
+    case O_RDONLY:
+        break;
+    case O_WRONLY:
+    case O_RDWR:
+        if (!(file_meta_perms(current->p, n) & ACCESS_PERM_WRITE))
+            return -EACCES;
+        break;
+    default:
+        return -EINVAL;
     }
 
     u64 length = 0;
@@ -1382,6 +1408,8 @@ sysreturn truncate(const char *path, long length)
     if (ret) {
         return set_syscall_return(current, ret);
     }
+    if (!(file_meta_perms(current->p, t) & ACCESS_PERM_WRITE))
+        return -EACCES;
     return truncate_internal(fs, 0, t, length);
 }
 
@@ -1456,10 +1484,18 @@ sysreturn access(const char *name, int mode)
     if (!validate_user_string(name))
         return -EFAULT;
     thread_log(current, "access: \"%s\", mode %d", name, mode);
-    int ret = resolve_cstring_follow(0, current->p->cwd, name, 0, 0);
+    tuple m;
+    int ret = resolve_cstring_follow(0, current->p->cwd, name, &m, 0);
     if (ret) {
         return set_syscall_return(current, ret);
     }
+    if (mode == F_OK)
+        return 0;
+    u32 perms = file_meta_perms(current->p, m);
+    if (((mode & R_OK) && !(perms & ACCESS_PERM_READ)) ||
+            ((mode & W_OK) && !(perms & ACCESS_PERM_WRITE)) ||
+            ((mode & X_OK) && !(perms & ACCESS_PERM_EXEC)))
+        return -EACCES;
     return 0;
 }
 
@@ -2066,10 +2102,9 @@ sysreturn fcntl(int fd, int cmd, s64 arg)
         thread_log(current, "fcntl: fd %d, F_SETFL, %x", fd, arg);
 
         /* Ignore file access mode and file creation flags. */
-        arg &= ~(O_RDONLY | O_WRONLY | O_RDWR | O_CREAT | O_EXCL | O_NOCTTY |
-                O_TRUNC);
+        arg &= ~(O_ACCMODE | O_CREAT | O_EXCL | O_NOCTTY | O_TRUNC);
 
-        f->flags = arg & ~O_CLOEXEC;
+        f->flags = (f->flags & O_ACCMODE) | (arg & ~O_CLOEXEC);
         return set_syscall_return(current, 0);
     case F_GETLK:
         if (arg) {

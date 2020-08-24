@@ -101,6 +101,29 @@ static void aio_test_readwrite(void)
     test_assert(syscall(SYS_io_destroy, ioc) == 0);
 
     test_assert(close(fd) == 0);
+
+    ioc = 0;
+    test_assert(syscall(SYS_io_setup, 1, &ioc) == 0);
+
+    /* Try to write to a read-only file. */
+    fd = open("file_ro", O_RDONLY | O_CREAT, S_IRWXU);
+    test_assert(fd > 0);
+    iocb_setup_pwrite(&iocb, fd, write_buf, BUF_SIZE, 0);
+    test_assert(syscall(SYS_io_submit, ioc, 1, &iocbp) == -1);
+    test_assert(errno == EBADF);
+    test_assert(close(fd) == 0);
+    test_assert(unlink("file_ro") == 0);
+
+    /* Try to read from a write-only file. */
+    fd = open("file_wo", O_WRONLY | O_CREAT, S_IRWXU);
+    test_assert(fd > 0);
+    iocb_setup_pread(&iocb, fd, read_buf, BUF_SIZE, 0);
+    test_assert(syscall(SYS_io_submit, ioc, 1, &iocbp) == -1);
+    test_assert(errno == EBADF);
+    test_assert(close(fd) == 0);
+    test_assert(unlink("file_wo") == 0);
+
+    test_assert(syscall(SYS_io_destroy, ioc) == 0);
 }
 
 static void aio_test_eventfd(void)

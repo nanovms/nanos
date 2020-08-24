@@ -380,6 +380,8 @@ sysreturn fallocate(int fd, int mode, long offset, long len)
         default:
             return -ENODEV;
         }
+    } else if (!fdesc_is_writable(desc)) {
+        return -EBADF;
     }
 
     heap h = heap_general(get_kernel_heaps());

@@ -582,6 +582,26 @@ static void iour_test_readwrite(void)
     memset(&iour.params, 0, sizeof(iour.params));
     test_assert(iour_init(&iour, 1) == 0);
 
+    /* Try to write to a read-only file. */
+    fd = open("file_ro", O_RDONLY | O_CREAT, S_IRWXU);
+    test_assert(fd > 0);
+    iour_setup_write(&iour, fd, write_buf, BUF_SIZE, 0, 0);
+    test_assert(iour_submit(&iour, 1, 1) == 1);
+    cqe = iour_get_cqe(&iour);
+    test_assert(cqe && (cqe->res == -EBADF) && (cqe->user_data == 0));
+    test_assert(close(fd) == 0);
+    test_assert(unlink("file_ro") == 0);
+
+    /* Try to read from a write-only file. */
+    fd = open("file_wo", O_WRONLY | O_CREAT, S_IRWXU);
+    test_assert(fd > 0);
+    iour_setup_read(&iour, fd, read_buf, BUF_SIZE, 0, 0);
+    test_assert(iour_submit(&iour, 1, 1) == 1);
+    cqe = iour_get_cqe(&iour);
+    test_assert(cqe && (cqe->res == -EBADF) && (cqe->user_data == 0));
+    test_assert(close(fd) == 0);
+    test_assert(unlink("file_wo") == 0);
+
     fd = open("file_rw", O_RDWR | O_CREAT, S_IRWXU);
     test_assert(fd > 0);
 

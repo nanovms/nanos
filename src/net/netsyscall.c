@@ -1720,7 +1720,7 @@ closure_function(5, 1, sysreturn, accept_bh,
         goto out;
     }
 
-    child->sock.f.flags = bound(flags);
+    child->sock.f.flags |= bound(flags);
     if (bound(addr))
         remote_sockaddr(child, bound(addr), bound(addrlen));
 

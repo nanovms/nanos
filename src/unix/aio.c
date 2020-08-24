@@ -142,7 +142,7 @@ closure_function(4, 2, void, aio_complete,
     aio_unlock(aio);
     if (res_fd != AIO_RESFD_INVALID) {
         fdesc res = resolve_fd_noret(t->p, res_fd);
-        if (res && res->write) {
+        if (res && res->write && fdesc_is_writable(res)) {
             heap h = heap_general(aio->kh);
             u64 *efd_val = allocate(h, sizeof(*efd_val));
             *efd_val = 1;
@@ -194,31 +194,41 @@ static sysreturn iocb_enqueue(struct aio *aio, struct iocb *iocb)
     }
     io_completion completion = closure(heap_general(aio->kh), aio_complete, aio,
             iocb->aio_data, (u64) iocb, res_fd);
+    sysreturn rv;
     switch (iocb->aio_lio_opcode) {
     case IOCB_CMD_PREAD:
         if (!f->read) {
-            goto inval;
+            rv = -EINVAL;
+            goto error;
+        } else if (!fdesc_is_readable(f)) {
+            rv = -EBADF;
+            goto error;
         }
         apply(f->read, (void *) iocb->aio_buf, iocb->aio_nbytes,
                 iocb->aio_offset, current, true, completion);
         break;
     case IOCB_CMD_PWRITE:
         if (!f->write) {
-            goto inval;
+            rv = -EINVAL;
+            goto error;
+        } else if (!fdesc_is_writable(f)) {
+            rv = -EBADF;
+            goto error;
         }
         apply(f->write, (void *) iocb->aio_buf, iocb->aio_nbytes,
                 iocb->aio_offset, current, true, completion);
         break;
     default:
-        goto inval;
+        rv = -EINVAL;
+        goto error;
     }
     aio_lock(aio);
     aio->ongoing_ops++;
     aio_unlock(aio);
     return 0;
-inval:
+error:
     deallocate_closure(completion);
-    return -EINVAL;
+    return rv;
 }
 
 sysreturn io_submit(aio_context_t ctx_id, long nr, struct iocb **iocbpp)

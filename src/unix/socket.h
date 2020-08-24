@@ -66,7 +66,7 @@ static inline int socket_init(process p, heap h, int domain, int type, u32 flags
         goto err_tx;
     }
     init_fdesc(h, &s->f, FDESC_TYPE_SOCKET);
-    s->f.flags = flags;
+    s->f.flags = (flags & ~O_ACCMODE) | O_RDWR;
     s->domain = domain;
     s->type = type;
     s->h = h;
