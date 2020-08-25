@@ -106,7 +106,7 @@ To try a different target currently found in examples/ you can:
 2) add your code and set a target in examples/Makefile
 
 ```
-TARGET=mynewtarget make run
+make TARGET=mynewtarget run
 ```
 
 You may also wish to use [https://github.com/nanovms/ops](ops) to
