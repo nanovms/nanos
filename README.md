@@ -60,10 +60,12 @@ Create a Chroot:
 mkdir target-root && cd target-root && wget
 https://storage.googleapis.com/testmisc/target-root.tar.gz && tar xzf target-root.tar.gz
 ```
+You should also set the environment variable NANOS_TARGET_ROOT to the path of 
+target-root created above in order to create the example and test images.
 
 #### To build:
 ```
-make run no-accel
+make run-noaccel
 ```
 
 ### Documentation
