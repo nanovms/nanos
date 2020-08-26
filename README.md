@@ -63,7 +63,7 @@ https://storage.googleapis.com/testmisc/target-root.tar.gz && tar xzf target-roo
 
 #### To build:
 ```
-make run no-accel
+make run-noaccel
 ```
 
 ### Documentation
