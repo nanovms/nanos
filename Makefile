@@ -79,13 +79,13 @@ RUNTIME_TESTS=	aio creat dup epoll eventfd fallocate fcntl fst getdents getrando
 runtime-tests runtime-tests-noaccel: mkfs image
 	$(foreach t,$(RUNTIME_TESTS),$(call execute_command,$(Q) $(MAKE) run$(subst runtime-tests,,$@) TARGET=$t))
 
-run: contgen
+run: contgen image
 	$(Q) $(MAKE) -C $(PLATFORMDIR) TARGET=$(TARGET) run
 
-run-bridge: contgen
+run-bridge: contgen image
 	$(Q) $(MAKE) -C $(PLATFORMDIR) TARGET=$(TARGET) run-bridge
 
-run-noaccel: contgen
+run-noaccel: contgen image
 	$(Q) $(MAKE) -C $(PLATFORMDIR) TARGET=$(TARGET) run-noaccel
 
 ##############################################################################
