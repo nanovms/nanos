@@ -1,0 +1,14 @@
+(
+    children:(
+              #user program
+	      fadvise:(contents:(host:output/test/runtime/bin/fadvise))
+	      )
+    # filesystem path to elf for kernel to run
+    program:/fadvise
+#    trace:t
+#    debugsyscalls:t
+#    futex_trace:t
+    fault:t
+    arguments:[fadvise]
+    environment:()
+)
