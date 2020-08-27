@@ -72,7 +72,7 @@ test test-noaccel: mkfs image
 	$(Q) $(MAKE) -C test test
 	$(Q) $(MAKE) runtime-tests$(subst test,,$@)
 
-RUNTIME_TESTS=	aio creat dup epoll eventfd fallocate fcntl fst getdents getrandom hw hws io_uring mkdir mmap netsock pipe readv rename sendfile signal socketpair time unlink thread_test vsyscall write writev
+RUNTIME_TESTS=	aio creat dup epoll eventfd fadvise fallocate fcntl fst getdents getrandom hw hws io_uring mkdir mmap netsock pipe readv rename sendfile signal socketpair time unlink thread_test vsyscall write writev
 
 .PHONY: runtime-tests runtime-tests-noaccel
 
