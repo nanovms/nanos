@@ -128,7 +128,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, remap_file_pages, 0);
     register_syscall(map, restart_syscall, 0);
     register_syscall(map, semtimedop, 0);
-    register_syscall(map, fadvise64, 0);
     register_syscall(map, clock_settime, 0);
     register_syscall(map, vserver, 0);
     register_syscall(map, mbind, 0);
@@ -2319,6 +2318,7 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, dup3, dup3);
     register_syscall(map, fstat, fstat);
     register_syscall(map, fallocate, fallocate);
+    register_syscall(map, fadvise64, fadvise64);
     register_syscall(map, sendfile, sendfile);
     register_syscall(map, stat, stat);
     register_syscall(map, lstat, lstat);
