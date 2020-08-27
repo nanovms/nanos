@@ -179,6 +179,12 @@ define_closure_function(1, 0, void, run_thread,
     run_thread_frame(t);
 }
 
+define_closure_function(1, 0, void, pause_thread,
+                        thread, t)
+{
+    thread_pause(bound(t));
+}
+
 define_closure_function(1, 0, void, run_sighandler,
                         thread, t)
 {
@@ -291,6 +297,7 @@ thread create_thread(process p)
     init_thread_fault_handler(t);
     setup_thread_frame(h, t->default_frame, t);
     t->default_frame[FRAME_RUN] = u64_from_pointer(init_closure(&t->run_thread, run_thread, t));
+    t->default_frame[FRAME_PAUSE] = u64_from_pointer(init_closure(&t->pause_thread, pause_thread, t));
     set_thread_frame(t, t->default_frame);
     
     t->sighandler_frame = allocate_frame(h);
@@ -366,6 +373,7 @@ void exit_thread(thread t)
     t->thread_bq = INVALID_ADDRESS;
 
     t->default_frame[FRAME_RUN] = INVALID_PHYSICAL;
+    t->default_frame[FRAME_PAUSE] = INVALID_PHYSICAL;
     t->default_frame[FRAME_QUEUE] = INVALID_PHYSICAL;
     t->sighandler_frame[FRAME_RUN] = INVALID_PHYSICAL;
     t->sighandler_frame[FRAME_QUEUE] = INVALID_PHYSICAL;

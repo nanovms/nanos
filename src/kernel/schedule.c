@@ -162,9 +162,9 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
 
     if (!shutting_down && (t = dequeue(thread_queue)) != INVALID_ADDRESS)
         run_thunk(t, cpu_user);
-// XXX redo with frame pause
-    if (ci->current_thread)
-        thread_pause(ci->current_thread);
+
+    if ((t = pointer_from_u64(ci->running_frame[FRAME_PAUSE])) && t != INVALID_ADDRESS)
+        apply(t);
 
     kernel_sleep();
 }    
