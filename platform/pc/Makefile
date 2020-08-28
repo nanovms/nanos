@@ -93,6 +93,7 @@ SRCS-kernel.img= \
 	$(SRCDIR)/hyperv/vmbus/vmbus_br.c \
 	$(SRCDIR)/hyperv/vmbus/vmbus_chan.c \
 	$(SRCDIR)/hyperv/vmbus/vmbus_xact.c \
+	$(SRCDIR)/hyperv/vmbus/vmbus_et.c \
 	$(SRCDIR)/hyperv/netvsc/netvsc.c \
 	$(SRCDIR)/hyperv/netvsc/hv_net_vsc.c \
 	$(SRCDIR)/hyperv/netvsc/hv_rndis_filter.c \

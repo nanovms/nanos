@@ -53,6 +53,17 @@ rdtsc(void)
 }
 
 static inline u64
+rdtsc_ordered(void)
+{
+    if (__vdso_dat->platform_has_rdtscp)
+        return _rdtscp();
+
+    /* Now both AMD and Intel has lfence  */
+    __asm __volatile("lfence" : : : "memory");
+    return _rdtsc();
+}
+
+static inline u64
 rdtsc_precise(void)
 {
     if (__vdso_dat->platform_has_rdtscp)

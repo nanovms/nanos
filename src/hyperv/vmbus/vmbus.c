@@ -58,7 +58,7 @@ vmbus_handle_intr1(vmbus_dev sc, int cpu)
     if (msg->msg_type == HYPERV_MSGTYPE_TIMER_EXPIRED) {
         msg->msg_type = HYPERV_MSGTYPE_NONE;
 
-//        vmbus_et_intr(frame);
+        vmbus_et_intr();
 
         /*
          * Make sure the write to msg_type (i.e. set to
