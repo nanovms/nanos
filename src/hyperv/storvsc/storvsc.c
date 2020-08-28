@@ -59,14 +59,6 @@
 #define BTSTAT_SUCCESS 0
 #define BTSTAT_NOT_SUCCESS 1
 
-/*
- * This length is the initial inquiry length used by the probe code, as
- * well as the length necessary for scsi_print_inquiry() to function
- * correctly.  If either use requires a different length in the future,
- * the two values should be de-coupled.
- */
-#define SHORT_INQUIRY_LENGTH    36
-
 #define STORVSC_MAX_LUNS_PER_TARGET    (64)
 #define STORVSC_MAX_IO_REQUESTS        (STORVSC_MAX_LUNS_PER_TARGET * 2)
 #define BLKVSC_MAX_IDE_DISKS_PER_TARGET    (1)
@@ -674,7 +666,6 @@ closure_function(5, 0, void, storvsc_scsi_io_done,
     if (hcb->host_status != BTSTAT_SUCCESS) {
         st = timm("result", "response %d", hcb->host_status);
     } else if (hcb->scsi_status != SCSI_STATUS_OK) {
-        rprintf("scsi_status not ok: %d\n", hcb->scsi_status);
         scsi_dump_sense(hcb->sense, sizeof(hcb->sense));
         st = timm("result", "status %d", hcb->scsi_status);
     }
@@ -872,7 +863,8 @@ closure_function(4, 0, void, storvsc_report_luns_done,
         // inquiry
         struct storvsc_hcb *r = storvsc_hcb_alloc(sc, target, lun, SCSI_CMD_INQUIRY);
         struct scsi_cdb_inquiry *cdb = (struct scsi_cdb_inquiry *)r->cdb;
-        cdb->length = htobe16(r->alloc_len);
+        /* does not work on Azure A0/A1 instances if r->alloc_len is set */
+        cdb->length = htobe16(SHORT_INQUIRY_LENGTH);
         r->completion = closure(sc->general, storvsc_inquiry_done, bound(a), target, lun, sc, r);
         storvsc_action(sc, r, target, lun);
     }
