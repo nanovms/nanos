@@ -179,6 +179,12 @@ define_closure_function(1, 0, void, run_thread,
     run_thread_frame(t);
 }
 
+define_closure_function(1, 0, void, pause_thread,
+                        thread, t)
+{
+    thread_pause(bound(t));
+}
+
 define_closure_function(1, 0, void, run_sighandler,
                         thread, t)
 {
@@ -298,6 +304,7 @@ thread create_thread(process p)
     setup_thread_frame(h, t->sighandler_frame, t);
     t->sighandler_frame[FRAME_RUN] = u64_from_pointer(init_closure(&t->run_sighandler, run_sighandler, t));
 
+    t->thrd.pause = init_closure(&t->pause_thread, pause_thread, t);
     // xxx another max 64
     t->affinity.mask[0] = MASK(total_processors);
     t->blocked_on = 0;

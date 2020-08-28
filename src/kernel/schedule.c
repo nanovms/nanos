@@ -134,6 +134,12 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
     cpuinfo ci = current_cpu();
     thunk t;
 
+    if (ci->current_thread && ci->current_thread != INVALID_ADDRESS) {
+        nanos_thread nt = ci->current_thread;
+        if (nt->pause)
+            apply(nt->pause);
+        //ci->current_thread = INVALID_ADDRESS;
+    }
     disable_interrupts();
     sched_debug("runloop from %s b:%d r:%d t:%d i:%x lock:%d\n", state_strings[ci->state],
                 queue_length(bhqueue), queue_length(runqueue), queue_length(thread_queue),
@@ -162,9 +168,6 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
 
     if (!shutting_down && (t = dequeue(thread_queue)) != INVALID_ADDRESS)
         run_thunk(t, cpu_user);
-// XXX redo with frame pause
-    if (ci->current_thread)
-        thread_pause(ci->current_thread);
 
     kernel_sleep();
 }    
