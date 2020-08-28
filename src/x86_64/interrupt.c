@@ -108,27 +108,6 @@ static void __attribute__((noinline)) write_idt(int interrupt, u64 offset, u64 i
 static thunk *handlers;
 u32 spurious_int_vector;
 
-char * find_elf_sym(u64 a, u64 *offset, u64 *len);
-
-void print_u64_with_sym(u64 a)
-{
-    char * name;
-    u64 offset, len;
-
-    print_u64(a);
-
-    name = find_elf_sym(a, &offset, &len);
-    if (name) {
-	console("\t(");
-	console(name);
-	console(" + ");
-	print_u64(offset);
-        console("/");
-        print_u64(len);
-	console(")");
-    }
-}
-
 extern void *text_start;
 extern void *text_end;
 void __print_stack_with_rbp(u64 *rbp)

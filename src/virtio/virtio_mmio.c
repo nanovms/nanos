@@ -3,8 +3,11 @@
  * section 4.2 "Virtio Over MMIO". */
 
 #include <kernel.h>
-#include <apic.h>
 #include <page.h>
+
+#ifdef __x86_64__
+#include <apic.h>
+#endif
 
 #include "virtio_internal.h"
 #include "virtio_mmio.h"
@@ -182,7 +185,10 @@ status vtmmio_alloc_virtqueue(vtmmio dev, const char *name, int idx,
         register_interrupt(dev->irq_vector,
                            init_closure(&dev->irq_handler, vtmmio_irq, dev),
                            name);
+        // XXX arm
+#ifdef __x86_64__
         ioapic_set_int(dev->irq, dev->irq_vector);
+#endif
     }
     vector_push(dev->vq_handlers, handler);
     vtmmio_set_u32(dev, VTMMIO_OFFSET_QUEUENUM, size);

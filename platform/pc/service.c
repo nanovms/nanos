@@ -4,7 +4,6 @@
 #include <pci.h>
 #include <pagecache.h>
 #include <tfs.h>
-#include <pagecache.h>
 #include <apic.h>
 #include <region.h>
 #include <page.h>
@@ -18,6 +17,7 @@
 #include <kvm_platform.h>
 #include <xen_platform.h>
 #include <hyperv_platform.h>
+#include "serial.h"
 
 #define BOOT_PARAM_OFFSET_E820_ENTRIES  0x01E8
 #define BOOT_PARAM_OFFSET_BOOT_FLAG     0x01FE
@@ -42,6 +42,7 @@ extern void init_interrupts(kernel_heaps kh);
 static struct kernel_heaps heaps;
 static filesystem root_fs;
 
+// XXX arch, not platform specific
 static heap allocate_tagged_region(kernel_heaps kh, u64 tag)
 {
     heap h = heap_general(kh);
@@ -375,7 +376,7 @@ static void __attribute__((noinline)) init_service_new_stack()
 
     /* runtime and console init */
     init_debug("in init_service_new_stack");
-    init_debug("runtime");    
+    init_debug("runtime");
     init_runtime(misc);
     init_tuples(allocate_tagged_region(kh, tag_tuple));
     init_symbols(allocate_tagged_region(kh, tag_symbol), misc);
@@ -595,6 +596,9 @@ void init_service(u64 rdi, u64 rsi)
     u8 *params = pointer_from_u64(rsi);
     const char *cmdline = 0;
     u32 cmdline_size;
+
+    serial_init();
+
     if (params && (*(u16 *)(params + BOOT_PARAM_OFFSET_BOOT_FLAG) == 0xAA55) &&
             (*(u32 *)(params + BOOT_PARAM_OFFSET_HEADER) == 0x53726448)) {
         /* The kernel has been loaded directly by the hypervisor, without going

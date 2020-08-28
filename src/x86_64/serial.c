@@ -4,6 +4,7 @@
 
 #define BASE 0x3f8
 
+// XXX never gets called!
 void serial_init()
 {
     out8(BASE+3, 0x80); // dlab

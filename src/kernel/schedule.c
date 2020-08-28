@@ -1,5 +1,9 @@
 #include <kernel.h>
+
+// XXX make interface for ipi stuff
+#ifdef __x86_64__
 #include <apic.h>
+#endif
 
 
 /* Try to keep these within the confines of the runloop lock so we
@@ -83,7 +87,9 @@ static void run_thunk(thunk t, int cpustate)
         if (cpu != INVALID_PHYSICAL && cpu != current_cpu()->id) {
             sched_debug("sending wakeup ipi to %d %x\n", cpu, wakeup_vector);
             atomic_clear_bit(&idle_cpu_mask, cpu);
+#ifdef __x86_64__
             apic_ipi(cpu, 0, wakeup_vector);
+#endif
         }
     }
 
@@ -111,7 +117,8 @@ NOTRACE void __attribute__((noreturn)) kernel_sleep(void)
 {
     // we're going to cover up this race by checking the state in the interrupt
     // handler...we shouldn't return here if we do get interrupted
-    cpuinfo ci = get_cpuinfo();
+//    cpuinfo ci = get_cpuinfo();
+    cpuinfo ci = &cpuinfos[0];
     sched_debug("sleep\n");
     ci->state = cpu_idle;
     atomic_set_bit(&idle_cpu_mask, ci->id);
@@ -120,7 +127,8 @@ NOTRACE void __attribute__((noreturn)) kernel_sleep(void)
 
     /* loop to absorb spurious wakeups from hlt - happens on some platforms (e.g. xen) */
     while (1)
-        asm volatile("sti; hlt" ::: "memory");
+        ;
+//        asm volatile("sti; hlt" ::: "memory");
 }
 
 // should we ever be in the user frame here? i .. guess so?
@@ -170,7 +178,7 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
 
 closure_function(0, 0, void, global_shutdown)
 {
-    __asm__("cli; hlt");
+//    __asm__("cli; hlt");
 }
 
 void init_scheduler(heap h)

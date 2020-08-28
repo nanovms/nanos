@@ -14,6 +14,7 @@ struct formatter_state {
 // if we parameterize newline we can do some nicer formatting tricks
 typedef void (*formatter)(buffer dest, struct formatter_state *s, vlist *ap);
 void register_format(character c, formatter f, int accepts_long);
+void init_extra_prints(void);
 
 buffer aprintf(heap h, const char *fmt, ...);
 void bbprintf(buffer b, buffer fmt, ...);

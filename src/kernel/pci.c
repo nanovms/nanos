@@ -3,6 +3,7 @@
 #include <page.h>
 #include <io.h>
 
+#define PCI_DEBUG
 #ifdef PCI_DEBUG
 # define pci_debug rprintf
 #else
@@ -49,6 +50,7 @@ struct pci_driver {
     boolean attached;
 };
 
+#if 0
 /* enable configuration space accesses and return data port address */
 static int pci_cfgenable(pci_dev dev, int reg, int bytes)
 {
@@ -57,12 +59,21 @@ static int pci_cfgenable(pci_dev dev, int reg, int bytes)
     if (dev->bus <= PCI_BUSMAX && dev->slot <= PCI_SLOTMAX && dev->function <= PCI_FUNCMAX &&
         (unsigned)reg <= PCI_REGMAX && bytes != 3 &&
         (unsigned)bytes <= 4 && (reg & (bytes - 1)) == 0) {
-        out32(CONF1_ADDR_PORT, (1U << 31) | (dev->bus << 16) | (dev->slot << 11)
-              | (dev->function << 8) | (reg & ~0x03));
-        dataport = CONF1_DATA_PORT + (reg & 0x03);
+        u32 v = (1U << 31) | (dev->bus << 16) | (dev->slot << 11)
+            | (dev->function << 8) | (reg & ~0x03);
+        *(u32*)dev_base_pointer(PCIE_PIO) = v;
+        dataport = reg & 0x03;
     }
     return (dataport);
 }
+
+#define PIO_DATA (dev_base_pointer(PCIE_PIO) + sizeof(u32))
+#define in8(port) (*(u8*)(PIO_DATA + port))
+#define in16(port) (*(u16*)(PIO_DATA + port))
+#define in32(port) (*(u32*)(PIO_DATA + port))
+#define out8(port, source) (*(u8*)(PIO_DATA + port) = (source))
+#define out16(port, source) (*(u16*)(PIO_DATA + port) = (source))
+#define out32(port, source) (*(u32*)(PIO_DATA + port) = (source))
 
 u32 pci_cfgread(pci_dev dev, int reg, int bytes)
 {
@@ -85,6 +96,74 @@ u32 pci_cfgread(pci_dev dev, int reg, int bytes)
     }
     return (data);
 }
+
+void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
+{
+    int port;
+
+    port = pci_cfgenable(dev, reg, bytes);
+    if (port != 0) {
+        switch (bytes) {
+        case 1:
+            out8(port, source);
+            break;
+        case 2:
+            out16(port, source);
+            break;
+        case 4:
+            out32(port, source);
+            break;
+        }
+    }
+}
+#else
+
+/* ECAM */
+u32 pci_cfgread(pci_dev dev, int reg, int bytes)
+{
+    u32 data = -1;
+//    void *base = dev_base_pointer(PCIE_ECAM)
+    void *base = dev_base_pointer(PCIE_ECAM)
+        + (dev->bus << 20) + (dev->slot << 15) + (dev->function << 12) + reg;
+//    pci_debug("%s: dev %p, bus %d, reg %d, bytes %d, base 0x%lx\n", __func__,
+//              dev, dev->bus, reg, bytes, base);
+    switch (bytes) {
+    case 1:
+        data = *(u8*)base;
+        break;
+    case 2:
+        data = *(u16*)base;
+        break;
+    case 4:
+        data = *(u32*)base;
+        break;
+    }
+//    pci_debug("...data = 0x%x\n", data);
+    return data;
+}
+
+void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
+{
+    void *base = dev_base_pointer(PCIE_ECAM)
+        + (dev->bus << 20) + (dev->slot << 15) + (dev->function << 12) + reg;
+//    pci_debug("%s: dev %p, bus %d, reg %d, bytes %d, base 0x%lx, source 0x%x\n", __func__,
+//              dev, dev->bus, reg, bytes, base, source);
+    switch (bytes) {
+    case 1:
+        *(u8*)base = source;
+        break;
+    case 2:
+        *(u16*)base = source;
+        break;
+    case 4:
+        *(u32*)base = source;
+        break;
+    }
+//    pci_debug("...done\n");
+}
+
+
+#endif
 
 static u32 pci_bar_len(pci_dev dev, int bar)
 {
@@ -173,26 +252,6 @@ void pci_bar_write_4(struct pci_bar *b, u64 offset, u32 val)
         out32(b->addr + offset, val);
 }
 
-void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
-{
-    int port;
-
-    port = pci_cfgenable(dev, reg, bytes);
-    if (port != 0) {
-        switch (bytes) {
-        case 1:
-            out8(port, source);
-            break;
-        case 2:
-            out16(port, source);
-            break;
-        case 4:
-            out32(port, source);
-            break;
-        }
-    }
-}
-
 void pci_set_bus_master(pci_dev dev)
 {
     u16 command = pci_cfgread(dev, PCIR_COMMAND, 2);
@@ -230,6 +289,7 @@ void pci_enable_msix(pci_dev dev)
     // map MSI-X table
     u32 msix_table = pci_cfgread(dev, cp + 4, 4);
     struct pci_bar b;
+    b.vaddr = 0; // XXX warning
     pci_bar_init(dev, &b, msix_table & 0x7, msix_table & ~0x7, -1);
     dev->msix_table = (u32 *)b.vaddr;
     pci_debug("%s: msix_config.msix_table 0x%x, msix_table %p\n", __func__, msix_table, dev->msix_table);
@@ -263,6 +323,7 @@ void pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name)
     register_interrupt(v, h, name);
     pci_debug("%s: msix_table %p, msi %d: int %d, %s\n", __func__, dev->msix_table, msi_slot, v, name);
 
+#if 0
     u32 a, d;
     u32 vector_control = 0;
     msi_format(&a, &d, v);
@@ -271,6 +332,7 @@ void pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name)
     dev->msix_table[msi_slot*4 + 1] = 0;
     dev->msix_table[msi_slot*4 + 2] = d;
     dev->msix_table[msi_slot*4 + 3] = vector_control;
+#endif
 }
 
 void register_pci_driver(pci_probe probe)
@@ -299,17 +361,22 @@ static void pci_probe_device(pci_dev dev)
         pci_debug("%s: %02x:%02x:%x: %04x:%04x: class %02x:%02x: secondary bus %02x\n",
             __func__, dev->bus, dev->slot, dev->function, vendor, pci_get_device(dev),
             class, subclass, secbus);
-        pci_probe_bus(secbus);
+        // XXX, reading secbus 0
+        // pci_probe_bus(secbus);
         return;
     }
 
     // probe drivers
     struct pci_driver *d;
     vector_foreach(drivers, d) {
+        pci_debug(" driver %p / %F, attached %d\n", d, d->probe, d->attached);
         if (!d->attached && apply(d->probe, dev)) {
+            pci_debug("  dev %02x:%02x:%x: attached to %F\n", dev->bus, dev->slot, dev->function,
+                      d->probe);
             d->attached = true;
         }
     }
+    pci_debug("...end\n");
 }
 
 static void
@@ -341,6 +408,7 @@ void pci_discover()
     pci_dev dev = &_dev;
 
     if ((pci_get_hdrtype(dev) & PCIM_MFDEV) == 0) {
+        pci_debug("%s: single\n", __func__);
         // single PCI host controller
         pci_probe_bus(0);
     } else {

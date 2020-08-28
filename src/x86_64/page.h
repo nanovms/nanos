@@ -16,6 +16,7 @@
 #define PAGE_FLAGS_MASK    (PAGE_NO_EXEC | PAGEMASK)
 #define PAGE_PROT_FLAGS    (PAGE_NO_EXEC | PAGE_USER | PAGE_WRITABLE)
 #define PAGE_DEV_FLAGS     (PAGE_WRITABLE | PAGE_CACHE_DISABLE | PAGE_NO_EXEC)
+#define PAGE_BACKED_FLAGS  (PAGE_WRITABLE | PAGE_NO_EXEC)
 
 static inline boolean pt_entry_is_present(u64 entry)
 {

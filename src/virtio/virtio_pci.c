@@ -137,12 +137,16 @@ struct vtpci_common_config {
 
 boolean vtpci_probe(pci_dev d, int virtio_dev_id)
 {
-    if (pci_get_vendor(d) != VIRTIO_PCI_VENDORID)
+    rprintf("%s: vendor is 0x%x\n", __func__, pci_get_vendor(d));
+    if (pci_get_vendor(d) != VIRTIO_PCI_VENDORID) {
         return false;
+    }
 
     u16 device = pci_get_device(d);
-    if (device < VIRTIO_PCI_DEVICEID_MIN || device > VIRTIO_PCI_DEVICEID_MAX)
+    rprintf("   device is 0x%x\n", device);
+    if (device < VIRTIO_PCI_DEVICEID_MIN || device > VIRTIO_PCI_DEVICEID_MAX) {
         return false;
+    }
 
     if (device >= VIRTIO_PCI_DEVICEID_MODERN_MIN) {
         // modern device
@@ -150,6 +154,7 @@ boolean vtpci_probe(pci_dev d, int virtio_dev_id)
     }
 
     // legacy device
+    rprintf("subdev %d, virtio_dev_id %d\n", pci_get_subdevice(d), virtio_dev_id);
     return pci_get_subdevice(d) == virtio_dev_id;
 }
 
@@ -192,6 +197,7 @@ status vtpci_alloc_virtqueue(vtpci dev,
     struct virtqueue *vq;
     pci_bar_write_2(&dev->common_config, dev->regs[VTPCI_REG_QUEUE_SELECT], idx);
     u16 size = pci_bar_read_2(&dev->common_config, dev->regs[VTPCI_REG_QUEUE_SIZE]);
+    assert(size > 0);
     thunk handler;
     bytes notify_offset = vtpci_is_modern(dev) ?
         pci_bar_read_2(&dev->common_config, VTPCI_R_QUEUE_NOTIFY_OFF) * dev->notify_offset_multiplier :

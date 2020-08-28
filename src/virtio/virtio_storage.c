@@ -192,9 +192,11 @@ closure_function(3, 1, boolean, vtpci_blk_probe,
                  heap, general, storage_attach, a, heap, page_allocator,
                  pci_dev, d)
 {
+    rprintf("%s\n", __func__);
     if (!vtpci_probe(d, VIRTIO_ID_BLOCK))
         return false;
 
+    rprintf("%s: attaching\n", __func__);
     heap general = bound(general);
     vtdev v = (vtdev)attach_vtpci(general, bound(page_allocator), d,
         VIRTIO_BLK_F_BLK_SIZE);
@@ -206,10 +208,12 @@ closure_function(3, 1, void, vtmmio_blk_probe,
                  heap, general, storage_attach, a, heap, page_allocator,
                  vtmmio, d)
 {
+    rprintf("%s\n", __func__);
     if ((vtmmio_get_u32(d, VTMMIO_OFFSET_DEVID) != VIRTIO_ID_BLOCK) ||
             (d->memsize < VTMMIO_OFFSET_CONFIG +
             sizeof(struct virtio_blk_config)))
         return;
+    rprintf("%s: attaching\n", __func__);
     heap general = bound(general);
     if (attach_vtmmio(general, bound(page_allocator), d, VIRTIO_BLK_F_BLK_SIZE))
         virtio_blk_attach(general, bound(a), (vtdev)d);
@@ -217,6 +221,7 @@ closure_function(3, 1, void, vtmmio_blk_probe,
 
 void virtio_register_blk(kernel_heaps kh, storage_attach a)
 {
+    rprintf("%s\n", __func__);
     heap h = heap_general(kh);
     heap page_allocator = heap_backed(kh);
     register_pci_driver(closure(h, vtpci_blk_probe, h, a, page_allocator));

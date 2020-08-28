@@ -670,7 +670,7 @@ static u64 pt_2m_alloc(heap h, bytes size)
     pt_2m_next += len;
     assert(pt_2m_next >= PAGES_BASE);
 
-    for (u64 i = v; i < v + size; i += PAGESIZE_2M) {
+    for (u64 i = v; i < v + len; i += PAGESIZE_2M) {
         u64 p = allocate_u64((heap)phys_internal, PAGESIZE_2M);
         if (p == INVALID_PHYSICAL)
             halt("%s: failed to allocate 2M physical page\n", __func__);

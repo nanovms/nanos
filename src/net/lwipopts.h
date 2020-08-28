@@ -2,6 +2,7 @@
 #define LWIP_SOCKET 0
 #define LWIP_NETCONN 0
 #define ARP_QUEUEING 1
+//#define LWIP_DEBUG
 #ifdef LWIP_DEBUG
 #define LWIP_PLATFORM_DIAG(x) do {lwip_debug x;} while(0)
 #define LWIP_DBG_MIN_LEVEL		LWIP_DBG_LEVEL_ALL
@@ -80,7 +81,7 @@ typedef int s32_t;
 typedef unsigned char u8_t;
 typedef unsigned short u16_t;
 typedef short s16_t;
-typedef char s8_t;
+typedef signed char s8_t;
 typedef u16_t uint16_t;
 typedef void *sys_prot_t;
 typedef u64_t ptrdiff_t;

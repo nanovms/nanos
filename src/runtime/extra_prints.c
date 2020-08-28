@@ -172,7 +172,7 @@ static void format_closure(buffer dest, struct formatter_state *s, vlist *a)
     bprintf(dest, "%s", &c->name);
 }
 
-void init_extra_prints()
+void init_extra_prints(void)
 {
     register_format('t', format_tuple, 0);
     register_format('v', format_value, 0);

@@ -1,34 +1,66 @@
 OUTPUT_FORMAT("elf64-littleaarch64")
 
-ENTRY(_start)
+ENTRY(_phys_start)
 
 SECTIONS
 {
-	. = 0x40000000;
-	__start = .;
+        KERNEL_PHYSADDR = 0x40400000;
+        LOAD_OFFSET = START - KERNEL_PHYSADDR;
+        _phys_start = _start - LOAD_OFFSET; /* entry point physical adddress */
+
+        /* 0x40000000 - 0x401fffff: dtb
+           0x40200000 - 0x403fffff: initial pages */
+
+        . = 0xffffffff80000000;
+        START = .;
 
         text_start = .;
-	.text : ALIGN(4096)
+	.text ALIGN(4096): AT(ADDR(.text) - LOAD_OFFSET)
 	{
        	    *(.text)
             *(.text.*)
+            . = ALIGN(4096);
+            vsyscall_start = .;
+            *(.vsyscall)        /* must be at end of section; we use text_end to determine its extent */
+            vsyscall_end = .;
 	}
 	text_end = .;
 
-	.data : ALIGN(4096)
-	{
-	    *(.data)
-            *(.data.*)
-	}
+        /* All kernel variables accessible to userspace
+         * Offsets from vvar_page must match the corresponding offsets specified
+         * in src/x86_64/vdso.lds
+         *
+         * We could look at generating them automatically, but for now it's easy enough
+         * to do it this way
+         */
+        .vvar ALIGN(4096): AT(ADDR(.vvar) - LOAD_OFFSET)
+        {
+            vvar_page = .;
+            __vdso_vdso_dat = vvar_page + 128;
+        }
 
-	PROVIDE(bss_start = .);
-	.bss : ALIGN(32)
-       	{
-       	    *(.bss)
+        .rodata ALIGN(4096): AT(ADDR(.rodata) - LOAD_OFFSET)
+        {
+            *(.rodata)
+            *(.rodata.*)
+        }
+
+        .data ALIGN(4096): AT(ADDR(.data) - LOAD_OFFSET)
+        {
+            *(.data)
+            *(.data.*)
+        }
+
+        .bss  ALIGN(4096): AT(ADDR(.bss) - LOAD_OFFSET)
+        {
+            PROVIDE(bss_start = .);
+            *(.bss)
             *(.bss.*)
             *(COMMON)
-	}
+        }
+        . = ALIGN(32);
         PROVIDE(bss_end = .);
+        END = .;
 
 	. = 0x41000000;      /* XXX temp stack, for test */
 	stack_top = .;

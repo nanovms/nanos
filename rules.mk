@@ -137,7 +137,7 @@ cmd_vendor=	$(RM) -r $(@D) && $(GIT) clone $(GITFLAGS) $(@D) && $(TOUCH) $@
 
 define build_program
 PROG-$1=	$(OBJDIR)/bin/$1
-OBJS-$1=	$$(foreach s,$$(filter %.c %.s,$$(SRCS-$1)),$$(call objfile,.o,$$s))
+OBJS-$1=	$$(foreach s,$$(filter %.c %.s %.S,$$(SRCS-$1)),$$(call objfile,.o,$$s))
 OBJDIRS-$1=	$$(sort $$(dir $$(OBJS-$1)))
 GENHEADERS-$1=	$(OBJDIR)/closure_templates.h
 DEPS-$1=	$$(patsubst %.o,%.d,$$(OBJS-$1))
@@ -206,6 +206,11 @@ cleandepend:
 $(OBJDIR)/%.o: $(ROOTDIR)/%.s
 	@$(MKDIR) $(dir $@)
 	$(call cmd,as)
+
+# run .S files through gcc for preprocessing
+$(OBJDIR)/%.o: $(ROOTDIR)/%.S $(OBJDIR)/%.d | $(sort $(GENHEADERS))
+	@$(MKDIR) $(dir $@)
+	$(call cmd,cc)
 
 $(OBJDIR)/%.o: $(ROOTDIR)/%.c $(OBJDIR)/%.d | $(sort $(GENHEADERS))
 	@$(MKDIR) $(dir $@)
