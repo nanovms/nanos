@@ -75,6 +75,7 @@ static inline void console(const char *s)
 
 #define find_order(x) ((x) > 1 ? msb((x) - 1) + 1 : 0)
 
+#define U32_FROM_BIT(x) (1ul<<(x))
 #define U64_FROM_BIT(x) (1ull<<(x))
 #define MASK(x) (U64_FROM_BIT(x)-1)
 

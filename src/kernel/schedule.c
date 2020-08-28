@@ -1,7 +1,10 @@
 #include <kernel.h>
-#include <apic.h>
-#include <page.h>
 
+// XXX make interface for ipi stuff
+#ifdef __x86_64__
+#include <apic.h>
+#endif
+#include <page.h>
 
 /* Try to keep these within the confines of the runloop lock so we
    don't create too much of a mess. */
@@ -115,7 +118,8 @@ NOTRACE void __attribute__((noreturn)) kernel_sleep(void)
 
     /* loop to absorb spurious wakeups from hlt - happens on some platforms (e.g. xen) */
     while (1)
-        asm volatile("sti; hlt" ::: "memory");
+        ;
+//        asm volatile("sti; hlt" ::: "memory");
 }
 
 static void wakeup_cpu(u64 cpu)
@@ -251,7 +255,7 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
 
 closure_function(0, 0, void, global_shutdown)
 {
-    __asm__("cli; hlt");
+//    __asm__("cli; hlt");
 }
 
 void init_scheduler(heap h)

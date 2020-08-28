@@ -1,7 +1,7 @@
 /* main header for unix-specific kernel objects */
 
 #include <kernel.h>
-#include <apic.h>
+//#include <apic.h>
 #include <syscalls.h>
 #include <system_structs.h>
 #include <pagecache.h>
@@ -376,6 +376,8 @@ typedef struct varea {
 }
 typedef closure_type(vmap_handler, void, vmap);
 
+#ifdef __x86_64__
+/* XXX maybe a per-arch unix header...? */
 static inline u64 page_map_flags(u64 vmflags)
 {
     u64 flags = PAGE_NO_FAT | PAGE_USER;
@@ -385,6 +387,62 @@ static inline u64 page_map_flags(u64 vmflags)
         flags |= PAGE_WRITABLE;
     return flags;
 }
+
+static inline sysreturn set_syscall_return(thread t, sysreturn val)
+{
+    thread_frame(t)[FRAME_RAX] = val;
+    return val;
+}
+
+static inline sysreturn get_syscall_return(thread t)
+{
+    return thread_frame(t)[FRAME_RAX];
+}
+
+static inline sysreturn set_syscall_error(thread t, s32 val)
+{
+    thread_frame(t)[FRAME_RAX] = (sysreturn)-val;
+    return (sysreturn)-val;
+}
+
+static inline sysreturn sysreturn_value(thread t)
+{
+    return (sysreturn)thread_frame(t)[FRAME_RAX];
+}
+
+#endif
+
+#ifdef __aarch64__
+static inline u64 page_map_flags(u64 vmflags)
+{
+    // XXX stub
+    return 0;
+}
+
+static inline sysreturn set_syscall_return(thread t, sysreturn val)
+{
+    // XXX
+    return val;
+}
+
+static inline sysreturn get_syscall_return(thread t)
+{
+    // XXX
+    return 0;
+}
+
+static inline sysreturn set_syscall_error(thread t, s32 val)
+{
+    // XXX
+    return (sysreturn)-val;
+}
+
+static inline sysreturn sysreturn_value(thread t)
+{
+    // XXX
+    return 0;
+}
+#endif
 
 vmap allocate_vmap(rangemap rm, range r, struct vmap q);
 boolean adjust_process_heap(process p, range new);
@@ -780,29 +838,12 @@ static inline boolean thread_is_runnable(thread t)
     return t->blocked_on == 0;
 }
 
-static inline sysreturn set_syscall_return(thread t, sysreturn val)
+static inline void file_op_begin(thread t)
 {
-    thread_frame(t)[FRAME_RAX] = val;
-    return val;
+    t->file_op_is_complete = false;
 }
 
-static inline sysreturn get_syscall_return(thread t)
-{
-    return thread_frame(t)[FRAME_RAX];
-}
-
-static inline sysreturn set_syscall_error(thread t, s32 val)
-{
-    thread_frame(t)[FRAME_RAX] = (sysreturn)-val;
-    return (sysreturn)-val;
-}
-
-static inline sysreturn sysreturn_value(thread t)
-{
-    return (sysreturn)thread_frame(t)[FRAME_RAX];
-}
-
-static inline sysreturn thread_maybe_sleep_uninterruptible(thread t)
+static inline sysreturn file_op_maybe_sleep(thread t)
 {
     u64 flags = irq_disable_save(); /* XXX mutex / spinlock */
     if (!t->syscall_complete) {

@@ -79,6 +79,25 @@ void add_elf_syms(buffer b, u64 load_offset)
 	rputs("can't add ELF symbols; symtab not initialized\n");
 }
 
+void print_u64_with_sym(u64 a)
+{
+    char * name;
+    u64 offset, len;
+
+    print_u64(a);
+
+    name = find_elf_sym(a, &offset, &len);
+    if (name) {
+	console("\t(");
+	console(name);
+	console(" + ");
+	print_u64(offset);
+        console("/");
+        print_u64(len);
+	console(")");
+    }
+}
+
 void init_symtab(kernel_heaps kh)
 {
     general = heap_general(kh);

@@ -1,15 +1,19 @@
 typedef unsigned char u8;
-typedef char s8;
+typedef signed char s8;
 typedef unsigned short u16;
-typedef short s16;
+typedef signed short s16;
 typedef unsigned int u32;
-typedef int s32;
+typedef signed int s32;
 typedef unsigned long long u64;
-typedef long long s64;
+typedef signed long long s64;
 typedef __uint128_t u128;
 
 typedef u64 word;
 typedef u64 bytes;
+
+#define U16_MAX 0xFFFF
+#define S16_MAX ((s16)(U16_MAX >> 1))
+#define S16_MIN (-S16_MAX - 1)
 
 #define U32_MAX (~0u)
 #define S32_MAX ((s32)(U32_MAX >> 1))
@@ -22,9 +26,13 @@ typedef u64 bytes;
 #define USER_VA_TAG_OFFSET 56
 #define USER_VA_TAG_WIDTH  8
 
+/* XXX move to generic */
 #define pointer_from_u64(__a) ((void *)(__a))
 #define u64_from_pointer(__a) ((u64)(__a))
 #define field_from_u64(u, f) (((u) >> f ## _SHIFT) & MASK(f ## _BITS))
+#define clear_field(u, f) ((u) & ~(MASK(f ## _BITS) << f ## _SHIFT))
+#define u64_from_field(f, v) (((v) & MASK(f ## _BITS)) << f ## _SHIFT)
+#define mask_and_set_field(u, f, v) (clear_field(u, f) | u64_from_field(f, v))
 
 #define DIV(__x, __by, __q, __r) \
     do { asm("udiv %0, %2, %3; msub %1, %0, %3, %2" :           \
@@ -96,9 +104,13 @@ __bswap64(u64 _x)
 #define le64toh(x) (x)
 #endif
 
+#define USER_LIMIT  0x0008000000000000ull
+#define KMEM_BASE   0xffff000000000000ull
+#define KMEM_LIMIT  0xffffffff00000000ull
+
 #ifdef KERNEL
 #define VA_TAG_BASE   KMEM_BASE
-#define VA_TAG_OFFSET 39
+#define VA_TAG_OFFSET 56
 #define VA_TAG_WIDTH  8
 #else
 #define VA_TAG_BASE   0
@@ -143,17 +155,15 @@ static inline void memory_barrier(void)
 {
 }
 
-#if 0
 static inline void atomic_set_bit(u64 *target, u64 bit)
 {
-    asm volatile("lock btsq %1, %0": "+m"(*target): "r"(bit) : "memory");
+//    asm volatile("lock btsq %1, %0": "+m"(*target): "r"(bit) : "memory");
 }
 
 static inline void atomic_clear_bit(u64 *target, u64 bit)
 {
-    asm volatile("lock btrq %1, %0": "+m"(*target):"r"(bit) : "memory");
+//    asm volatile("lock btrq %1, %0": "+m"(*target):"r"(bit) : "memory");
 }
-#endif
 
 static inline word fetch_and_add(word *target, word num)
 {
