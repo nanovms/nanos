@@ -196,8 +196,6 @@ declare_closure_struct(1, 0, void, resume_syscall,
                        thread, t);
 declare_closure_struct(1, 0, void, run_thread,
                        thread, t);
-declare_closure_struct(1, 0, void, pause_thread,
-                        thread, t);
 declare_closure_struct(1, 0, void, run_sighandler,
                        thread, t);
 declare_closure_struct(1, 1, context, default_fault_handler,
@@ -236,7 +234,6 @@ typedef struct thread {
     struct refcount refcount;
     closure_struct(free_thread, free);
     closure_struct(run_thread, run_thread);
-    closure_struct(pause_thread, pause_thread);
     closure_struct(run_sighandler, run_sighandler);
     closure_struct(default_fault_handler, fault_handler);
     closure_struct(thread_demand_file_page, demand_file_page);
