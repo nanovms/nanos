@@ -263,10 +263,10 @@ void deliver_signal_to_thread(thread t, struct siginfo *info)
 {
     int sig = info->si_signo;
     sig_debug("tid %d, sig %d\n", t->tid, sig);
-    if ((sig != SIGSEGV && sig != SIGKILL && sig != SIGSTOP) &&
+    if ((sig != SIGSEGV && sig != SIGKILL && sig != SIGSTOP && sig != SIGFPE) &&
         sig_is_ignored(t->p, sig)) {
-        sig_debug("signal ignored; no queue\n");
-        return;
+      sig_debug("signal ignored; no queue\n");
+      return;
     }
 
     /* queue to thread for delivery */

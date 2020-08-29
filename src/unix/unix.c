@@ -54,9 +54,18 @@ void deliver_fault_signal(u32 signo, thread t, u64 vaddr, s32 si_code)
         }
     };
 
-    assert(signo == SIGSEGV || signo == SIGBUS);
-    pf_debug("delivering %s to thread %d; vaddr 0x%lx si_code %d",
-             signo == SIGSEGV ? "SIGSEGV" : "SIGBUS", t->tid, vaddr, si_code);
+    assert(signo == SIGSEGV || signo == SIGBUS || signo == SIGFPE);
+    switch (signo) {
+    case SIGSEGV:
+      pf_debug("delivering %s to thread %d; vaddr 0x%lx si_code %d", "SIGSEGV",
+               t->tid, vaddr, si_code);
+    case SIGBUS:
+      pf_debug("delivering %s to thread %d; vaddr 0x%lx si_code %d", "SIGBUS",
+               t->tid, vaddr, si_code);
+    case SIGFPE:
+      pf_debug("delivering %s to thread %d; vaddr 0x%lx si_code %d", "SIGFPE",
+               t->tid, vaddr, si_code);
+    }
     deliver_signal_to_thread(t, &s);
 }
 
@@ -114,27 +123,36 @@ define_closure_function(1, 1, context, default_fault_handler,
        support multiple processes, we may need to install current when
        resuming deferred processing. */
     process p = current->p;
+    if (frame[FRAME_VECTOR] == 0) {
+      if (current_cpu()->state == cpu_user) {
+        deliver_fault_signal(SIGFPE, current, 0, FPE_INTDIV);
+        schedule_frame(frame);
+        return 0;
+      } else {
+        rprintf("\nSIGFPE occurs in kernel mode\n");
+        goto bug;
+      }
+    } else if (frame[FRAME_VECTOR] == 14) {
+      u64 vaddr = fault_address(frame);
+      vmap vm = vmap_from_vaddr(p, vaddr);
+      if (vm == INVALID_ADDRESS) {
+        if (user) {
+          pf_debug("no vmap found for addr 0x%lx, rip 0x%lx", vaddr,
+                   frame[FRAME_RIP]);
+          deliver_fault_signal(SIGSEGV, current, vaddr, SEGV_MAPERR);
 
-    if (frame[FRAME_VECTOR] == 14) {
-        u64 vaddr = fault_address(frame);
-        vmap vm = vmap_from_vaddr(p, vaddr);
-        if (vm == INVALID_ADDRESS) {
-            if (user) {
-                pf_debug("no vmap found for addr 0x%lx, rip 0x%lx", vaddr, frame[FRAME_RIP]);
-                deliver_fault_signal(SIGSEGV, current, vaddr, SEGV_MAPERR);
-
-                /* schedule this thread to either run signal handler or terminate */
-                schedule_frame(frame);
-                return 0;
-            } else {
-                rprintf("\nUnhandled page fault in kernel mode: ");
-                goto bug;
-            }
+          /* schedule this thread to either run signal handler or terminate */
+          schedule_frame(frame);
+          return 0;
+        } else {
+          rprintf("\nUnhandled page fault in kernel mode: ");
+          goto bug;
         }
+      }
 
-        if (is_pte_error(frame)) {
-            /* no SEGV on reserved PTEs */
-            msg_err("bug: pte entries reserved or corrupt\n");
+      if (is_pte_error(frame)) {
+        /* no SEGV on reserved PTEs */
+        msg_err("bug: pte entries reserved or corrupt\n");
 #ifndef BOOT
             dump_ptes(pointer_from_u64(vaddr));
 #endif
@@ -159,12 +177,13 @@ define_closure_function(1, 1, context, default_fault_handler,
             return 0;
         }
     } else if (frame[FRAME_VECTOR] == 13) {
-        if (current_cpu()->state == cpu_user) {
-            pf_debug("general protection fault in user mode, rip 0x%lx", frame[FRAME_RIP]);
-            deliver_fault_signal(SIGSEGV, current, 0, SI_KERNEL);
-            schedule_frame(frame);
-            return 0;
-        }
+      if (current_cpu()->state == cpu_user) {
+        pf_debug("general protection fault in user mode, rip 0x%lx",
+                 frame[FRAME_RIP]);
+        deliver_fault_signal(SIGSEGV, current, 0, SI_KERNEL);
+        schedule_frame(frame);
+        return 0;
+      }
     }
 
   bug:
