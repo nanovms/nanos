@@ -10,6 +10,7 @@
 #include <page.h>
 #include <storage.h>
 #include <symtab.h>
+#include <unix.h>
 #include <virtio/virtio.h>
 #include <vmware/vmxnet3.h>
 #include <drivers/storage.h>
@@ -308,6 +309,14 @@ void vm_exit(u8 code)
         cpuinfo ci = cpuinfo_from_id(i);
         if (ci->frcount)
             rprintf("%d\t%ld\n", i, ci->frcount);
+    }
+#endif
+
+#ifdef DUMP_MEM_STATS
+    buffer b = allocate_buffer(heap_general(&heaps), 512);
+    if (b != INVALID_ADDRESS) {
+        dump_mem_stats(b);
+        buffer_print(b);
     }
 #endif
 
