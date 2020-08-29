@@ -60,10 +60,12 @@ Create a Chroot:
 mkdir target-root && cd target-root && wget
 https://storage.googleapis.com/testmisc/target-root.tar.gz && tar xzf target-root.tar.gz
 ```
+You should also set the environment variable NANOS_TARGET_ROOT to the path of 
+target-root created above in order to create the example and test images.
 
 #### To build:
 ```
-make run no-accel
+make run-noaccel
 ```
 
 ### Documentation
@@ -104,7 +106,7 @@ To try a different target currently found in examples/ you can:
 2) add your code and set a target in examples/Makefile
 
 ```
-TARGET=mynewtarget make run
+make TARGET=mynewtarget run
 ```
 
 You may also wish to use [https://github.com/nanovms/ops](ops) to

@@ -927,3 +927,11 @@ struct io_uring_params {
 #define FALLOC_FL_COLLAPSE_RANGE    0x08
 #define FALLOC_FL_ZERO_RANGE        0x10
 #define FALLOC_FL_INSERT_RANGE      0x20
+
+/* posix_fadvise advice types */
+#define POSIX_FADV_NORMAL       0
+#define POSIX_FADV_RANDOM       1
+#define POSIX_FADV_SEQUENTIAL   2
+#define POSIX_FADV_WILLNEED     3
+#define POSIX_FADV_DONTNEED     4
+#define POSIX_FADV_NOREUSE      5
