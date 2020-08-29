@@ -421,6 +421,10 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
         goto alloc_fail;
     if (ftrace_init(uh, fs))
 	goto alloc_fail;
+#ifdef NET
+    if (!netsyscall_init(uh))
+        goto alloc_fail;
+#endif
 
     set_syscall_handler(syscall_enter);
     process kernel_process = create_process(uh, root, fs);
@@ -449,8 +453,6 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     init_syscalls();
     register_file_syscalls(linux_syscalls);
 #ifdef NET
-    if (!netsyscall_init(uh))
-	goto alloc_fail;
     register_net_syscalls(linux_syscalls);
 #endif
 
