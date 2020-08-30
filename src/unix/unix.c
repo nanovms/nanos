@@ -54,7 +54,7 @@ void deliver_fault_signal(u32 signo, thread t, u64 vaddr, s32 si_code)
         }
     };
 
-    char *signame;
+    char *signame = "SIGSEGV";
     assert(signo == SIGSEGV || signo == SIGBUS || signo == SIGFPE);
     switch (signo) {
     case SIGSEGV:
