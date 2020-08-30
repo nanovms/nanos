@@ -59,10 +59,13 @@ void deliver_fault_signal(u32 signo, thread t, u64 vaddr, s32 si_code)
     switch (signo) {
     case SIGSEGV:
         signame = "SIGSEGV";
+        break;
     case SIGBUS:
         signame = "SIGBUS";
+        break;
     case SIGFPE:
         signame = "SIGFPE";
+        break;
     }
     pf_debug("delivering %s to thread %d; vaddr 0x%lx si_code %d", signame,
         t->tid, vaddr, si_code);
