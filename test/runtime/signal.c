@@ -590,57 +590,56 @@ test_sigsegv(void)
         fail_perror("siggaction for SIGSEGV failed");
 }
 
-static void sigfpe_handler(int signo) {
-  if (signo != SIGFPE)
-    fail_perror("  childtid: caught non SIGFPE signal %d\n", signo);
+static void sigfpe_handler(int signo)
+{
+    if (signo != SIGFPE)
+        fail_perror("  childtid: caught non SIGFPE signal %d\n", signo);
 
-  syscall(SYS_exit, 0);
+    syscall(SYS_exit, 0);
 }
 
-static void *sigfpe_thread(void *arg) {
-  child_tid = syscall(SYS_gettid);
-  if (arg == 0) {
+static void *sigfpe_thread(void *arg)
+{
+
+    child_tid = syscall(SYS_gettid);
 
     /* generate sigfpe */
-    asm volatile("push   %rax \t\n\
-                    xor     %rax, %rax \t\n\
-                    idiv    %rax \t\n\
-                    ");
-  } else {
-    asm volatile("hlt");
-  }
-  return NULL;
+    asm volatile("push    %rax \t\n\
+                xor     %rax, %rax \t\n\
+                idiv    %rax \t\n\
+                pop     %rax\t\n\
+                ");
+    return NULL;
 }
 
-static void test_sigfpe(void) {
-  struct sigaction sa;
-  pthread_t pt;
-  void *retval;
+static void test_sigfpe(void)
+{
+    struct sigaction sa;
+    pthread_t pt;
+    void *retval;
 
-  {
     memset(&sa, 0, sizeof(struct sigaction));
     sa.sa_handler = sigfpe_handler;
     sigemptyset(&sa.sa_mask);
 
     if (sigaction(SIGFPE, &sa, NULL))
-      fail_perror("sigaction for SIGFPE failed");
+        fail_perror("sigaction for SIGFPE failed");
 
     if (pthread_create(&pt, NULL, sigfpe_thread, (void *)0))
-      fail_perror("sigfpe_thread pthread_create");
+        fail_perror("sigfpe_thread pthread_create");
 
     sigtest_debug("yielding until child tid reported...\n");
     yield_for(&child_tid);
 
     if (pthread_join(pt, &retval))
-      fail_perror("blocking test pthread_join");
-  }
+        fail_perror("blocking test pthread_join");
 
-  memset(&sa, 0, sizeof(struct sigaction));
-  sa.sa_handler = SIG_IGN;
-  sigemptyset(&sa.sa_mask);
+    memset(&sa, 0, sizeof(struct sigaction));
+    sa.sa_handler = SIG_IGN;
+    sigemptyset(&sa.sa_mask);
 
-  if (sigaction(SIGFPE, &sa, NULL))
-    fail_perror("sigaction for SIGFPE failed");
+    if (sigaction(SIGFPE, &sa, NULL))
+        fail_perror("sigaction for SIGFPE failed");
 }
 
 static int test_rt_sigtimedwait_handler_reached = 0;
