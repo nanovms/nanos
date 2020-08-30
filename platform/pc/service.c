@@ -592,7 +592,7 @@ void init_service(u64 rdi, u64 rsi)
         u8 e820_entries = *(params + BOOT_PARAM_OFFSET_E820_ENTRIES);
         region e820_r = (region)(params + BOOT_PARAM_OFFSET_E820_TABLE);
         extern u8 END;
-        u64 kernel_size = u64_from_pointer(&END - KERNEL_BASE);
+        u64 kernel_size = u64_from_pointer(&END) - KERNEL_BASE;
         u64 *pdpt = 0;
         u64 *pdt = 0;
         for (u8 entry = 0; entry < e820_entries; entry++) {
