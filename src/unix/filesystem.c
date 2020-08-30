@@ -323,3 +323,29 @@ sysreturn fallocate(int fd, int mode, long offset, long len)
     }
     return file_op_maybe_sleep(current);
 }
+
+sysreturn fadvise64(int fd, s64 off, u64 len, int advice)
+{
+    fdesc desc = resolve_fd(current->p, fd);
+    if (desc->type != FDESC_TYPE_REGULAR) {
+        switch (desc->type) {
+        case FDESC_TYPE_PIPE:
+        case FDESC_TYPE_STDIO:
+            return -ESPIPE;
+        default:
+            return -EBADF;
+        }
+    }
+    switch (advice) {
+    case POSIX_FADV_NORMAL:
+    case POSIX_FADV_RANDOM:
+    case POSIX_FADV_SEQUENTIAL:
+    case POSIX_FADV_WILLNEED:
+    case POSIX_FADV_DONTNEED:
+    case POSIX_FADV_NOREUSE:
+        break;
+    default:
+        return -EINVAL;
+    }
+    return 0;
+}

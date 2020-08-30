@@ -6,6 +6,7 @@ PROGRAMS= \
 	epoll \
 	eventfd \
 	fallocate \
+	fadvise \
 	fcntl \
 	fst \
 	ftrace \
@@ -70,6 +71,12 @@ SRCS-fallocate= \
 	$(SRCDIR)/unix_process/ssp.c
 
 LDFLAGS-fallocate=	-static
+
+SRCS-fadvise= \
+	$(CURDIR)/fadvise.c \
+	$(SRCDIR)/unix_process/ssp.c
+
+LDFLAGS-fadvise=	-static
 
 SRCS-fcntl= \
 	$(CURDIR)/fcntl.c \
