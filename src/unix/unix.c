@@ -120,9 +120,7 @@ define_closure_function(1, 1, context, default_fault_handler,
        for kernel page faults on user pages. If we were ever to
        support multiple processes, we may need to install current when
        resuming deferred processing. */
-    // XXX
-    if (current != bound(t))
-        log_printf("DEBUGGG", "current and bound don't match: %p != %p\n", current, bound(t));
+    // XXX This seems too hacky
     process p;
     if (current == INVALID_ADDRESS)
         p = bound(t)->p;
