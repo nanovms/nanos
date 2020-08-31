@@ -421,6 +421,10 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
         goto alloc_fail;
     if (ftrace_init(uh, fs))
 	goto alloc_fail;
+#ifdef NET
+    if (!netsyscall_init(uh))
+        goto alloc_fail;
+#endif
 
     set_syscall_handler(syscall_enter);
     process kernel_process = create_process(uh, root, fs);
@@ -449,8 +453,6 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     init_syscalls();
     register_file_syscalls(linux_syscalls);
 #ifdef NET
-    if (!netsyscall_init(uh))
-	goto alloc_fail;
     register_net_syscalls(linux_syscalls);
 #endif
 
@@ -466,4 +468,34 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
   alloc_fail:
     msg_err("failed to allocate kernel objects\n");
     return INVALID_ADDRESS;
+}
+
+static void dump_heap_stats(buffer b, const char *name, heap h)
+{
+    bytes allocated = heap_allocated(h);
+    bytes total = heap_total(h);
+    if ((total != INVALID_PHYSICAL) && (total != 0)) {
+        bprintf(b, " %s: total %ld, allocated %ld (%d%%)\n", name, total,
+                allocated, 100 * allocated / total);
+    } else {
+        bprintf(b, " %s: allocated %ld\n", name, allocated);
+    }
+}
+
+void dump_mem_stats(buffer b)
+{
+    unix_heaps uh = get_unix_heaps();
+    kernel_heaps kh = &uh->kh;
+    bprintf(b, "Kernel heaps:\n");
+    dump_heap_stats(b, "general", heap_general(kh));
+    dump_heap_stats(b, "physical", (heap)heap_physical(kh));
+    dump_heap_stats(b, "virtual huge", (heap)heap_virtual_huge(kh));
+    dump_heap_stats(b, "virtual page", (heap)heap_virtual_page(kh));
+    bprintf(b, "Unix heaps:\n");
+    dump_heap_stats(b, "file cache", uh->file_cache);
+    dump_heap_stats(b, "epoll cache", uh->epoll_cache);
+    dump_heap_stats(b, "epollfd cache", uh->epollfd_cache);
+    dump_heap_stats(b, "epoll_blocked cache", uh->epoll_blocked_cache);
+    dump_heap_stats(b, "pipe cache", uh->pipe_cache);
+    dump_heap_stats(b, "socket cache", uh->socket_cache);
 }
