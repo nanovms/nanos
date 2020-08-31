@@ -415,15 +415,21 @@ typedef struct sigaction *sigaction;
 
 extern thread dummy_thread;
 // seems like we could extract this from the frame or remove the thread entry in the frame
-//#define current ((thread)(current_cpu()->current_thread))
+#ifdef CURRENT_DEBUG
 #define current _current(__func__)
 static inline thread _current(const char *caller) {
-    if (current_cpu()->current_thread == INVALID_ADDRESS && runtime_strcmp("run_thread_frame", caller) != 0 && runtime_strcmp("thread_wakeup", caller) != 0) {
+    if (current_cpu()->current_thread == INVALID_ADDRESS &&
+      runtime_strcmp("run_thread_frame", caller) != 0 &&
+      runtime_strcmp("thread_wakeup", caller) != 0) {
         log_printf("CURRENT", "invalid address returned to caller '%s'\n", caller);
         print_stack_from_here();
     }
     return (thread)(current_cpu()->current_thread);
 }
+#else
+#define current ((thread)(current_cpu()->current_thread))
+#endif
+
 
 void init_thread_fault_handler(thread t);
 
