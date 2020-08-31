@@ -133,15 +133,14 @@ define_closure_function(1, 1, context, default_fault_handler,
             schedule_frame(frame);
             return 0;
         } else {
-            rprintf("\nSIGFPE occurs in kernel mode\n");
+            rprintf("\nDivide by zero occurs in kernel mode\n");
             goto bug;
         }
     } else if (frame[FRAME_VECTOR] == 14) {
         vmap vm = vmap_from_vaddr(p, vaddr);
         if (vm == INVALID_ADDRESS) {
             if (user) {
-                pf_debug("no vmap found for addr 0x%lx, rip 0x%lx", vaddr,
-                    frame[FRAME_RIP]);
+                pf_debug("no vmap found for addr 0x%lx, rip 0x%lx", vaddr, frame[FRAME_RIP]);
                 deliver_fault_signal(SIGSEGV, current, vaddr, SEGV_MAPERR);
 
                 /* schedule this thread to either run signal handler or terminate */
@@ -181,8 +180,7 @@ define_closure_function(1, 1, context, default_fault_handler,
         }
     } else if (frame[FRAME_VECTOR] == 13) {
         if (current_cpu()->state == cpu_user) {
-            pf_debug("general protection fault in user mode, rip 0x%lx",
-                 frame[FRAME_RIP]);
+            pf_debug("general protection fault in user mode, rip 0x%lx", frame[FRAME_RIP]);
             deliver_fault_signal(SIGSEGV, current, 0, SI_KERNEL);
             schedule_frame(frame);
             return 0;
