@@ -251,6 +251,8 @@ void print_hex_buffer(buffer s, buffer b);
 
 void print_byte(buffer b, u8 f);
 
+void print_uuid(buffer b, u8 *uuid);
+
 static inline void deallocate_buffer(buffer b)
 {
     heap h = b->h;

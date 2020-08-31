@@ -97,6 +97,15 @@ struct scsi_cdb_inquiry
     u8 control;
 } __attribute__((packed));
 
+/*
+ * FreeBSD comment:
+ * This length is the initial inquiry length used by the probe code, as
+ * well as the length necessary for scsi_print_inquiry() to function
+ * correctly.  If either use requires a different length in the future,
+ * the two values should be de-coupled.
+ */
+#define SHORT_INQUIRY_LENGTH    36
+
 struct scsi_res_inquiry
 {
     u8 device;

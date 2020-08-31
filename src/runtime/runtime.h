@@ -25,6 +25,8 @@ typedef u64 timestamp;
 #define MB (KB*KB)
 #define GB (KB*MB)
 
+#define UUID_LEN    16
+
 void console_write(const char *s, bytes count);
 
 void print_u64(u64 s);

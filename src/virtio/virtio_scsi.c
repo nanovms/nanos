@@ -107,14 +107,17 @@ struct virtio_scsi {
 
     u16 max_target;
     u16 max_lun;
+};
 
+typedef struct virtio_scsi *virtio_scsi;
+
+typedef struct virtio_scsi_disk {
+    virtio_scsi scsi;
     u16 target;
     u16 lun;
     u64 capacity;
     u64 block_size;
-};
-
-typedef struct virtio_scsi *virtio_scsi;
+} *virtio_scsi_disk;
 
 /*
  * Event queue
@@ -211,8 +214,8 @@ closure_function(3, 2, void, virtio_scsi_io_done,
                  virtio_scsi, s, virtio_scsi_request, r)
 {
     struct virtio_scsi_resp_cmd *resp = &r->resp;
-    virtio_scsi_debug("%s: target %d, lun %d, response %d, status %d\n",
-        __func__, s->target, s->lun, resp->response, resp->status);
+    virtio_scsi_debug("%s: response %d, status %d\n", __func__, resp->response,
+                      resp->status);
 
     status st = 0;
     if (resp->response != VIRTIO_SCSI_S_OK) {
@@ -225,42 +228,45 @@ closure_function(3, 2, void, virtio_scsi_io_done,
     closure_finish();
 }
 
-static void virtio_scsi_io(virtio_scsi s, u8 cmd, void *buf, range blocks, status_handler sh)
+static void virtio_scsi_io(virtio_scsi_disk d, u8 cmd, void *buf, range blocks,
+                           status_handler sh)
 {
-    virtio_scsi_request r = virtio_scsi_alloc_request(s, s->target, s->lun, cmd);
+    virtio_scsi s = d->scsi;
+    virtio_scsi_request r = virtio_scsi_alloc_request(s, d->target, d->lun, cmd);
     struct scsi_cdb_readwrite_16 *cdb = (struct scsi_cdb_readwrite_16 *) r->req.cdb;
     u32 nblocks = range_span(blocks);
     cdb->addr = htobe64(blocks.start);
     cdb->length = htobe32(nblocks);
     virtio_scsi_debug("%s: cmd %d, blocks %R, addr 0x%016lx, length 0x%08x\n",
         __func__, cmd, blocks, cdb->addr, cdb->length);
-    virtio_scsi_enqueue_request(s, r, buf, nblocks * s->block_size,
+    virtio_scsi_enqueue_request(s, r, buf, nblocks * d->block_size,
         closure(s->v->virtio_dev.general, virtio_scsi_io_done, sh, buf,
-            nblocks * s->block_size));
+            nblocks * d->block_size));
 }
 
 closure_function(1, 3, void, virtio_scsi_write,
-                 virtio_scsi, s,
+                 virtio_scsi_disk, s,
                  void *, buf, range, blocks, status_handler, sh)
 {
     virtio_scsi_io(bound(s), SCSI_CMD_WRITE_16, buf, blocks, sh);
 }
 
 closure_function(1, 3, void, virtio_scsi_read,
-                 virtio_scsi, s,
+                 virtio_scsi_disk, s,
                  void *, buf, range, blocks, status_handler, sh)
 {
     virtio_scsi_io(bound(s), SCSI_CMD_READ_16, buf, blocks, sh);
 }
 
 closure_function(2, 0, void, virtio_scsi_init_done,
-                 virtio_scsi, s, storage_attach, a)
+                 virtio_scsi_disk, d, storage_attach, a)
 {
-    virtio_scsi s = bound(s);
+    virtio_scsi_disk d = bound(d);
+    virtio_scsi s = d->scsi;
     heap h = s->v->virtio_dev.general;
-    block_io in = closure(h, virtio_scsi_read, s);
-    block_io out = closure(h, virtio_scsi_write, s);
-    apply(bound(a), in, out, s->capacity);
+    block_io in = closure(h, virtio_scsi_read, d);
+    block_io out = closure(h, virtio_scsi_write, d);
+    apply(bound(a), in, out, d->capacity);
     closure_finish();
 }
 
@@ -279,41 +285,26 @@ closure_function(3, 2, void, virtio_scsi_read_capacity_done,
         scsi_dump_sense(resp->sense, sizeof(resp->sense));
         goto out;
     }
-
-    if (s->capacity > 0) {
-        // attach only first disk
+    virtio_scsi_disk d = allocate(s->v->virtio_dev.general, sizeof(*d));
+    if (d == INVALID_ADDRESS) {
+        msg_err("cannot allocate SCSI disk\n");
         goto out;
     }
 
     struct scsi_res_read_capacity_16 *res = (struct scsi_res_read_capacity_16 *) r->data;
     u64 sectors = be64toh(res->addr) + 1; // returns address of last sector
-    s->block_size = be32toh(res->length);
-    s->capacity = sectors * s->block_size;
-    s->target = target;
-    s->lun = lun;
+    d->block_size = be32toh(res->length);
+    d->capacity = sectors * d->block_size;
+    d->target = target;
+    d->lun = lun;
+    d->scsi = s;
     virtio_scsi_debug("%s: target %d, lun %d, block size 0x%lx, capacity 0x%lx\n",
-        __func__, target, lun, s->block_size, s->capacity);
+        __func__, target, lun, d->block_size, d->capacity);
 
     enqueue(runqueue, closure(s->v->virtio_dev.general, virtio_scsi_init_done,
-        s, bound(a)));
+        d, bound(a)));
   out:
     closure_finish();
-}
-
-static void virtio_scsi_report_luns(virtio_scsi s, storage_attach a, u16 target);
-
-static void virtio_scsi_next_target(virtio_scsi s, storage_attach a, u16 target)
-{
-    if (s->capacity > 0) {
-        // scan only until first disk is found
-        return;
-    }
-
-    if (target >= s->max_target)
-        return;
-
-    // scan next target
-    virtio_scsi_report_luns(s, a, target + 1);
 }
 
 closure_function(4, 2, void, virtio_scsi_test_unit_ready_done,
@@ -329,7 +320,6 @@ closure_function(4, 2, void, virtio_scsi_test_unit_ready_done,
     virtio_scsi_debug("%s: target %d, lun %d, response %d, status %d\n",
         __func__, target, lun, resp->response, resp->status);
     if (resp->response != VIRTIO_SCSI_S_OK) {
-        virtio_scsi_next_target(s, a, target);
         goto out;
     }
 
@@ -341,7 +331,6 @@ closure_function(4, 2, void, virtio_scsi_test_unit_ready_done,
                 closure(h, virtio_scsi_test_unit_ready_done, a, target, lun, retry_count + 1));
         } else {
             scsi_dump_sense(resp->sense, sizeof(resp->sense));
-            virtio_scsi_next_target(s, a, target);
         }
         goto out;
     }
@@ -369,7 +358,6 @@ closure_function(3, 2, void, virtio_scsi_inquiry_done,
     if (resp->response != VIRTIO_SCSI_S_OK || resp->status != SCSI_STATUS_OK) {
         if (resp->status != SCSI_STATUS_OK)
             scsi_dump_sense(resp->sense, sizeof(resp->sense));
-        virtio_scsi_next_target(s, bound(a), target);
         closure_finish();
         return;
     }
@@ -407,7 +395,6 @@ closure_function(2, 2, void, virtio_scsi_report_luns_done,
     if (resp->response != VIRTIO_SCSI_S_OK || resp->status != SCSI_STATUS_OK) {
         if (resp->status != SCSI_STATUS_OK)
             scsi_dump_sense(resp->sense, sizeof(resp->sense));
-        virtio_scsi_next_target(s, bound(a), target);
         closure_finish();
         return;
     }
@@ -492,7 +479,8 @@ static void virtio_scsi_attach(heap general, storage_attach a, heap page_allocat
         virtio_scsi_enqueue_event(s, s->events + i);
 
     // scan bus
-    virtio_scsi_report_luns(s, a, 0);
+    for (u16 target = 0; target <= s->max_target; target++)
+        virtio_scsi_report_luns(s, a, target);
 }
 
 closure_function(3, 1, boolean, virtio_scsi_probe,

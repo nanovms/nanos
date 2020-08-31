@@ -5,11 +5,19 @@
 #include <net.h>
 #include <http.h>
 #include <gdb.h>
+#include <storage.h>
 #include <symtab.h>
 #include <virtio/virtio.h>
 
-closure_function(2, 1, status, read_program_complete,
-                 process, kp, tuple, root,
+closure_function(2, 0, void, program_start,
+                 buffer, elf, process, kp)
+{
+    exec_elf(bound(elf), bound(kp));
+    closure_finish();
+}
+
+closure_function(3, 1, status, read_program_complete,
+                 heap, h, process, kp, tuple, root,
                  buffer, b)
 {
     tuple root = bound(root);
@@ -28,7 +36,7 @@ closure_function(2, 1, status, read_program_complete,
 #endif
        
     }
-    exec_elf(b, bound(kp));
+    storage_when_ready(closure(bound(h), program_start, b, bound(kp)));
     closure_finish();
     return STATUS_OK;
 }
@@ -151,7 +159,7 @@ closure_function(3, 0, void, startup,
 	halt("unable to initialize unix instance; halt\n");
     }
     heap general = heap_general(kh);
-    buffer_handler pg = closure(general, read_program_complete, kp, root);
+    buffer_handler pg = closure(general, read_program_complete, general, kp, root);
 
     if (table_find(root, sym(telnet))) {
         listen_port(general, 9090, closure(general, each_telnet_connection, general));

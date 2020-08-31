@@ -51,6 +51,9 @@ void vbprintf(buffer d, buffer fmt, vlist *ap)
                     invalid_format(d, fmt, start_idx, idx);
                 else
                     s.modifier = c;
+        } else if (c == '%') {
+            push_character(d, c);
+            s.state = 0;
             } else {
 		if ((c > 32) && (c < 128) &&
                     FORMATTER(c).f &&

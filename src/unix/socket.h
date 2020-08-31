@@ -1,4 +1,4 @@
-struct sockaddr {
+typedef struct sockaddr {
     u16 family;
     u8 sa_data[14];
 } *sockaddr;
