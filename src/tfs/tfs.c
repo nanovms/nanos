@@ -1137,12 +1137,16 @@ closure_function(2, 1, void, log_complete,
 closure_function(0, 2, void, ignore_io,
                  status, s, bytes, length) {}
 
+void filesystem_get_uuid(filesystem fs, u8 *uuid)
+{
+    runtime_memcpy(uuid, fs->uuid, UUID_LEN);
+}
+
 void create_filesystem(heap h,
                        u64 blocksize,
                        u64 size,
                        block_io read,
                        block_io write,
-                       pagecache pc,
                        boolean initialize,
                        filesystem_complete complete)
 {
@@ -1153,16 +1157,15 @@ void create_filesystem(heap h,
     if (!ignore_io_status)
         ignore_io_status = closure(h, ignore_io);
     fs->files = allocate_table(h, identity_key, pointer_equal);
-    fs->zero_page = pagecache_get_zero_page(pc);
+    fs->zero_page = pagecache_get_zero_page();
     assert(fs->zero_page);
     fs->r = read;
-    fs->pc = pc;
     fs->root = 0;
-    fs->page_order = pagecache_get_page_order(pc);
+    fs->page_order = pagecache_get_page_order();
     fs->size = size;
     assert((blocksize & (blocksize - 1)) == 0);
     fs->blocksize_order = find_order(blocksize);
-    fs->pv = pagecache_allocate_volume(pc, size, fs->blocksize_order);
+    fs->pv = pagecache_allocate_volume(size, fs->blocksize_order);
     assert(fs->pv != INVALID_ADDRESS);
 #ifndef TFS_READ_ONLY
     fs->w = write;

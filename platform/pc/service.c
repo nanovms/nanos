@@ -108,19 +108,22 @@ void init_extra_prints();
 thunk create_init(kernel_heaps kh, tuple root, filesystem fs);
 filesystem_complete bootfs_handler(kernel_heaps kh);
 
-/* will become list I guess */
-static pagecache global_pagecache;
-
 closure_function(4, 2, void, fsstarted,
                  heap, h, u8 *, mbr, block_io, r, block_io, w,
                  filesystem, fs, status, s)
 {
     if (!is_ok(s))
         halt("unable to open filesystem: %v\n", s);
+    if (root_fs)
+        halt("multiple root filesystems found\n");
 
     heap h = bound(h);
     u8 *mbr = bound(mbr);
     tuple root = filesystem_getroot(fs);
+    storage_set_root_fs(fs);
+    tuple mounts = table_find(root, sym(mounts));
+    if (mounts && (tagof(mounts) == tag_tuple))
+        storage_set_mountpoints(mounts);
     if (mbr) {
         struct partition_entry *bootfs_part;
         if (table_find(root, sym(ingest_kernel_symbols)) &&
@@ -130,7 +133,7 @@ closure_function(4, 2, void, fsstarted,
                               bootfs_part->nsectors * SECTOR_SIZE,
                               closure(h, offset_block_io,
                               bootfs_part->lba_start * SECTOR_SIZE, bound(r)),
-                              0, global_pagecache, false,
+                              0, false,
                               bootfs_handler(&heaps));
         }
         deallocate(h, mbr, SECTOR_SIZE);
@@ -151,14 +154,12 @@ closure_function(4, 2, void, fsstarted,
 #endif
 void mm_service(void)
 {
-    if (!global_pagecache)
-        return;
     heap p = (heap)heap_physical(&heaps);
     u64 free = heap_total(p) - heap_allocated(p);
     mm_debug("%s: total %ld, alloc %ld, free %ld\n", __func__, heap_total(p), heap_allocated(p), free);
     if (free < PAGECACHE_DRAIN_CUTOFF) {
         u64 drain_bytes = PAGECACHE_DRAIN_CUTOFF - free;
-        u64 drained = pagecache_drain(global_pagecache, drain_bytes);
+        u64 drained = pagecache_drain(drain_bytes);
         if (drained > 0)
             mm_debug("   drained %ld / %ld requested...\n", drained, drain_bytes);
     }
@@ -168,18 +169,11 @@ static void rootfs_init(heap h, u8 *mbr, u64 offset,
                         block_io r, block_io w, u64 length)
 {
     length -= offset;
-    pagecache pc = allocate_pagecache(h, h, (heap)heap_physical(&heaps), PAGESIZE);
-    if (pc == INVALID_ADDRESS)
-        halt("unable to create pagecache\n");
-
-    /* figure that later pagecaches will register themselves with backing - glue for now */
-    global_pagecache = pc;
     create_filesystem(h,
                       SECTOR_SIZE,
                       length,
                       closure(h, offset_block_io, offset, r),
                       closure(h, offset_block_io, offset, w),
-                      pc,
                       false,
                       closure(h, fsstarted, h, mbr, r, w));
 }
@@ -188,34 +182,46 @@ closure_function(5, 1, void, mbr_read,
                  heap, h, u8 *, mbr, block_io, r, block_io, w, u64, length,
                  status, s)
 {
-    if (!is_ok(s))
-        halt("unable to read partitions: %v\n", s);
+    if (!is_ok(s)) {
+        msg_err("unable to read partitions: %v\n", s);
+        goto out;
+    }
     heap h = bound(h);
     u8 *mbr = bound(mbr);
     struct partition_entry *rootfs_part = partition_get(mbr, PARTITION_ROOTFS);
-    if (!rootfs_part)
-        halt("filesystem partition not found\n");
+    if (!rootfs_part) {
+        u8 uuid[UUID_LEN];
+        if (filesystem_probe(mbr, uuid))
+            volume_add(uuid, bound(r), bound(w), bound(length));
+        else
+            init_debug("unformatted storage device, ignoring");
+        deallocate(h, mbr, SECTOR_SIZE);
+    }
     else
         rootfs_init(h, mbr, rootfs_part->lba_start * SECTOR_SIZE,
             bound(r), bound(w), bound(length));
+  out:
     closure_finish();
 }
 
-closure_function(1, 3, void, attach_storage,
-                 u64, fs_offset,
+closure_function(0, 3, void, attach_storage,
                  block_io, r, block_io, w, u64, length)
 {
     heap h = heap_general(&heaps);
-    u64 offset = bound(fs_offset);
-    if (offset == 0) {
-        /* Read partition table from disk */
-        u8 *mbr = allocate(h, SECTOR_SIZE);
-        assert(mbr != INVALID_ADDRESS);
-        apply(r, mbr, irange(0, SECTOR_SIZE),
-              closure(h, mbr_read, h, mbr, r, w, length));
-    } else
-        rootfs_init(h, 0, offset, r, w, length);
-    closure_finish();
+
+    /* Look for partition table */
+    u8 *mbr = allocate(h, SECTOR_SIZE);
+    if (mbr == INVALID_ADDRESS) {
+        msg_err("cannot allocate memory for MBR sector\n");
+        return;
+    }
+    status_handler sh = closure(h, mbr_read, h, mbr, r, w, length);
+    if (sh == INVALID_ADDRESS) {
+        msg_err("cannot allocate MBR read closure\n");
+        deallocate(h, mbr, SECTOR_SIZE);
+        return;
+    }
+    apply(r, mbr, irange(0, SECTOR_SIZE), sh);
 }
 
 static void read_kernel_syms()
@@ -326,8 +332,8 @@ void kernel_shutdown(int status)
 {
     shutting_down = true;
     apic_ipi(TARGET_EXCLUSIVE_BROADCAST, 0, shutdown_vector);
-    if (global_pagecache) {
-        filesystem_flush(root_fs, closure(heap_general(&heaps), sync_complete, status));
+    if (root_fs) {
+        storage_sync(closure(heap_general(&heaps), sync_complete, status));
         runloop();
     }
     vm_exit(status);
@@ -365,6 +371,7 @@ static void __attribute__((noinline)) init_service_new_stack()
     init_tuples(allocate_tagged_region(kh, tag_tuple));
     init_symbols(allocate_tagged_region(kh, tag_symbol), misc);
     init_sg(misc);
+    init_pagecache(misc, misc, (heap)heap_physical(kh), PAGESIZE);
     unmap(0, PAGESIZE);         /* unmap zero page */
     reclaim_regions();          /* unmap and reclaim stage2 stack */
     init_extra_prints();
@@ -422,14 +429,8 @@ static void __attribute__((noinline)) init_service_new_stack()
     init_net(kh);
 
     init_debug("probe fs, register storage drivers");
-    struct partition_entry *rootfs_part = partition_get(MBR_ADDRESS,
-        PARTITION_ROOTFS);
-    u64 fs_offset;
-    if (!rootfs_part)
-        fs_offset = 0;
-    else
-        fs_offset = rootfs_part->lba_start * SECTOR_SIZE;
-    storage_attach sa = closure(misc, attach_storage, fs_offset);
+    init_volumes(misc);
+    storage_attach sa = closure(misc, attach_storage);
 
     boolean hyperv_storvsc_attached = false;
     /* Probe for PV devices */

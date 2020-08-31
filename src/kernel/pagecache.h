@@ -1,5 +1,3 @@
-typedef struct pagecache *pagecache;
-
 typedef struct pagecache_volume *pagecache_volume;
 
 typedef struct pagecache_node *pagecache_node;
@@ -14,11 +12,11 @@ void pagecache_sync_node(pagecache_node pn, status_handler complete);
 
 void pagecache_sync_volume(pagecache_volume pv, status_handler complete);
 
-void *pagecache_get_zero_page(pagecache pc);
+void *pagecache_get_zero_page();
 
-int pagecache_get_page_order(pagecache pc);
+int pagecache_get_page_order();
 
-u64 pagecache_drain(pagecache pc, u64 drain_bytes);
+u64 pagecache_drain(u64 drain_bytes);
 
 pagecache_node pagecache_allocate_node(pagecache_volume pv, sg_io fs_read, sg_io fs_write);
 
@@ -43,9 +41,7 @@ void pagecache_node_unmap_pages(pagecache_node pn, range v /* bytes */, u64 node
 
 void pagecache_node_add_shared_map(pagecache_node pn , range v /* bytes */, u64 node_offset);
 
-pagecache_volume pagecache_allocate_volume(pagecache pc, u64 length, int block_order);
+pagecache_volume pagecache_allocate_volume(u64 length, int block_order);
 void pagecache_dealloc_volume(pagecache_volume pv);
 
-pagecache allocate_pagecache(heap general, heap contiguous, heap physical, u64 pagesize);
-
-void deallocate_pagecache(pagecache pc);
+void init_pagecache(heap general, heap contiguous, heap physical, u64 pagesize);

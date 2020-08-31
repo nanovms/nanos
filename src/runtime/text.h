@@ -11,6 +11,25 @@ static inline s8 digit_of(character x)
     return(-1);
 }
 
+static inline int byte_from_hex(character msn, character lsn)
+{
+    s8 n1, n2;
+    if (((n1 = digit_of(msn)) < 0) || ((n2 = digit_of(lsn)) < 0))
+        return -1;
+    return ((n1 << 4) | n2);
+}
+
+static inline int buf_hex_cmp(const u8 *buf, const char *hex, bytes n)
+{
+    for (bytes i = 0; i < n; i++) {
+        int b = byte_from_hex(hex[2 * i], hex[2 * i + 1]);
+        if (b < 0)
+            return b;
+        else if ((u8)b != buf[i])
+            return (buf[i] - b);
+    }
+    return 0;
+}
 
 static inline bytes utf8_length(unsigned char x)
 {

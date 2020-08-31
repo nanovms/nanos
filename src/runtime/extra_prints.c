@@ -33,6 +33,17 @@ void print_hex_buffer(buffer s, buffer b)
     push_u8(s, '\n');
 }
 
+void print_uuid(buffer b, u8 *uuid)
+{
+    /* UUID format: 00112233-4455-6677-8899-aabbccddeeff */
+    for (int i = 0; i < 4; i++)
+        bprintf(b, "%02x", uuid[i]);
+    bprintf(b, "-%02x%02x-%02x%02x-%02x%02x-", uuid[4], uuid[5], uuid[6],
+            uuid[7], uuid[8], uuid[9]);
+    for (int i = 10; i < 16; i++)
+        bprintf(b, "%02x", uuid[i]);
+}
+
 /* just a little tool for debugging */
 void print_csum_buffer(buffer s, buffer b)
 {

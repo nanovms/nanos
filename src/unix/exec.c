@@ -193,7 +193,7 @@ process exec_elf(buffer ex, process kp)
     unix_heaps uh = kp->uh;
     kernel_heaps kh = (kernel_heaps)uh;
     tuple root = kp->process_root;
-    filesystem fs = kp->fs;
+    filesystem fs = kp->root_fs;
     process proc = create_process(uh, root, fs);
     thread t = create_thread(proc);
     tuple interp = 0;

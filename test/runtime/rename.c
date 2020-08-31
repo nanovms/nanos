@@ -116,6 +116,10 @@ int main(int argc, char **argv)
 
     test_assert((rename("/dir1", "/dir1/dir2") < 0) && (errno == EINVAL));
 
+    test_assert(mkdir("dir1/dir2", 0) == 0);
+    test_assert(chdir("dir1/dir2") == 0);
+    test_assert(rename("..", "dir3") < 0);
+
     fd1 = open("/my_file", O_CREAT, S_IRWXU);
     test_assert(fd1 >= 0);
     close(fd1);

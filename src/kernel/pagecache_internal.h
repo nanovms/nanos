@@ -4,7 +4,7 @@ typedef struct pagelist {
 } *pagelist;
 
 declare_closure_struct(1, 1, void, pagecache_scan_timer,
-                       pagecache, pc,
+                       struct pagecache *, pc,
                        u64, overruns /* ignored */);
 
 typedef struct pagecache {
