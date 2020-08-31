@@ -10,6 +10,13 @@
 #define pf_debug(x, ...) thread_log(current, x, ##__VA_ARGS__);
 #endif
 
+static unix_heaps u_heap;
+
+unix_heaps get_unix_heaps()
+{
+    return u_heap;
+}
+
 u64 allocate_fd(process p, void *f)
 {
     u64 fd = allocate_u64((heap)p->fdallocator, 1);
@@ -113,7 +120,14 @@ define_closure_function(1, 1, context, default_fault_handler,
        for kernel page faults on user pages. If we were ever to
        support multiple processes, we may need to install current when
        resuming deferred processing. */
-    process p = current->p;
+    // XXX
+    if (current != bound(t))
+        log_printf("DEBUGGG", "current and bound don't match: %p != %p\n", current, bound(t));
+    process p;
+    if (current == INVALID_ADDRESS)
+        p = bound(t)->p;
+    else
+        p = current->p;
 
     if (frame[FRAME_VECTOR] == 14) {
         u64 vaddr = fault_address(frame);
@@ -314,10 +328,8 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     return p;
 }
 
-void thread_enter_user(thread out, thread in)
+void thread_enter_user(thread in)
 {
-    if (out)
-        thread_pause(out);
     thread_resume(in);
     in->sysctx = false;
 }
@@ -408,6 +420,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     if (uh == INVALID_ADDRESS)
 	return INVALID_ADDRESS;
 
+    u_heap = uh;
     uh->kh = *kh;
     uh->processes = create_id_heap(h, h, 1, 65535, 1);
     uh->file_cache = allocate_objcache(h, heap_backed(kh), sizeof(struct file), PAGESIZE);

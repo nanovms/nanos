@@ -8,7 +8,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs);
 thread create_thread(process p);
 process exec_elf(buffer ex, process kernel_process);
 
-void thread_enter_user(thread out, thread in);
+void thread_enter_user(thread in);
 void thread_enter_system(thread t);
 void thread_pause(thread t);
 void thread_resume(thread t);

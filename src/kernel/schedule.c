@@ -138,7 +138,7 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
         nanos_thread nt = ci->current_thread;
         if (nt->pause)
             apply(nt->pause);
-        //ci->current_thread = INVALID_ADDRESS;
+        ci->current_thread = INVALID_ADDRESS;
     }
     disable_interrupts();
     sched_debug("runloop from %s b:%d r:%d t:%d i:%x lock:%d\n", state_strings[ci->state],

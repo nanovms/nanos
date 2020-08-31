@@ -413,7 +413,15 @@ typedef struct sigaction *sigaction;
 
 extern thread dummy_thread;
 // seems like we could extract this from the frame or remove the thread entry in the frame
-#define current ((thread)(current_cpu()->current_thread))
+//#define current ((thread)(current_cpu()->current_thread))
+#define current _current(__func__)
+static inline thread _current(const char *caller) {
+    if (current_cpu()->current_thread == INVALID_ADDRESS && runtime_strcmp("run_thread_frame", caller) != 0 && runtime_strcmp("thread_wakeup", caller) != 0) {
+        log_printf("CURRENT", "invalid address returned to caller '%s'\n", caller);
+        print_stack_from_here();
+    }
+    return (thread)(current_cpu()->current_thread);
+}
 
 void init_thread_fault_handler(thread t);
 
@@ -443,11 +451,7 @@ static inline void thread_release(thread t)
     refcount_release(&t->refcount);
 }
 
-static inline unix_heaps get_unix_heaps()
-{
-    assert(current);
-    return &current->uh;
-}
+unix_heaps get_unix_heaps();
 
 static inline kernel_heaps get_kernel_heaps()
 {
@@ -600,9 +604,9 @@ static inline boolean sigstate_is_pending(sigstate ss, int sig)
     return (ss->pending & mask_from_sig(sig)) != 0;
 }
 
-static inline sigaction sigaction_from_sig(int signum)
+static inline sigaction sigaction_from_sig(thread t, int signum)
 {
-    return &current->p->sigactions[signum - 1];
+    return &t->p->sigactions[signum - 1];
 }
 
 boolean dispatch_signals(thread t);
@@ -644,7 +648,7 @@ void truncate_file_maps(process p, fsfile f, u64 new_length);
 const char *string_from_mmap_type(int type);
 
 void thread_log_internal(thread t, const char *desc, ...);
-#define thread_log(__t, __desc, ...) thread_log_internal(__t, __desc, ##__VA_ARGS__)
+#define thread_log(__t, __desc, ...) do {if (__t == INVALID_ADDRESS) break; thread_log_internal(__t, __desc, ##__VA_ARGS__);} while (0)
 
 void thread_sleep_interruptible(void) __attribute__((noreturn));
 void thread_sleep_uninterruptible(void) __attribute__((noreturn));
