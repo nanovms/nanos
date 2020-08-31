@@ -33,6 +33,8 @@
    queueing a ton with the polled ATA driver. There's only one queue globally anyhow. */
 #define MAX_PAGE_COMPLETION_VECS 16384
 
+static pagecache global_pagecache;
+
 static inline u64 cache_pagesize(pagecache pc)
 {
     return U64_FROM_BIT(pc->page_order);
@@ -642,8 +644,9 @@ static u64 evict_pages_locked(pagecache pc, u64 pages)
     return evicted;
 }
 
-u64 pagecache_drain(pagecache pc, u64 drain_bytes)
+u64 pagecache_drain(u64 drain_bytes)
 {
+    pagecache pc = global_pagecache;
     u64 pages = pad(drain_bytes, cache_pagesize(pc)) >> pc->page_order;
 
     /* We could avoid taking both locks here if we keep drained page
@@ -1159,18 +1162,19 @@ pagecache_node pagecache_allocate_node(pagecache_volume pv, sg_io fs_read, sg_io
     return pn;
 }
 
-void *pagecache_get_zero_page(pagecache pc)
+void *pagecache_get_zero_page(void)
 {
-    return pc->zero_page;
+    return global_pagecache->zero_page;
 }
 
-int pagecache_get_page_order(pagecache pc)
+int pagecache_get_page_order()
 {
-    return pc->page_order;
+    return global_pagecache->page_order;
 }
 
-pagecache_volume pagecache_allocate_volume(pagecache pc, u64 length, int block_order)
+pagecache_volume pagecache_allocate_volume(u64 length, int block_order)
 {
+    pagecache pc = global_pagecache;
     pagecache_volume pv = allocate(pc->h, sizeof(struct pagecache_volume));
     if (pv == INVALID_ADDRESS)
         return pv;
@@ -1195,11 +1199,10 @@ static inline void page_list_init(struct pagelist *pl)
     pl->pages = 0;
 }
 
-pagecache allocate_pagecache(heap general, heap contiguous, heap physical, u64 pagesize)
+void init_pagecache(heap general, heap contiguous, heap physical, u64 pagesize)
 {
     pagecache pc = allocate(general, sizeof(struct pagecache));
-    if (pc == INVALID_ADDRESS)
-        return pc;
+    assert (pc != INVALID_ADDRESS);
 
     pc->total_pages = 0;
     pc->page_order = find_order(pagesize);
@@ -1209,9 +1212,7 @@ pagecache allocate_pagecache(heap general, heap contiguous, heap physical, u64 p
     pc->physical = physical;
     pc->zero_page = allocate_zero(contiguous, pagesize);
     if (pc->zero_page == INVALID_ADDRESS) {
-        msg_err("failed to allocate zero page\n");
-        deallocate(general, pc, sizeof(struct pagecache));
-        return INVALID_ADDRESS;
+        halt("failed to allocate zero page\n");
     }
 
 #ifdef KERNEL
@@ -1234,5 +1235,5 @@ pagecache allocate_pagecache(heap general, heap contiguous, heap physical, u64 p
     pc->scan_timer = 0;
     init_closure(&pc->do_scan_timer, pagecache_scan_timer, pc);
 #endif
-    return pc;
+    global_pagecache = pc;
 }

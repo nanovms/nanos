@@ -307,6 +307,7 @@ typedef struct fdesc {
 
 struct file {
     struct fdesc f;             /* must be first */
+    filesystem fs;
     union {
         struct {
             fsfile fsf;         /* fsfile for regular files */
@@ -379,7 +380,8 @@ typedef struct process {
     id_heap           virtual_page; /* pagesized, default for mmaps */
     id_heap           virtual32; /* for tracking low 32-bit space and MAP_32BIT maps */
     id_heap           fdallocator;
-    filesystem        fs;       /* XXX should be underneath tuple operators */
+    filesystem        root_fs;
+    filesystem        cwd_fs;
     tuple             process_root;
     tuple             cwd;
     table             futices;

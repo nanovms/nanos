@@ -117,8 +117,13 @@ closure_function(3, 2, void, fsc,
         exit(EXIT_FAILURE);
     }
 
+    u8 uuid[UUID_LEN];
+    filesystem_get_uuid(fs, uuid);
     tuple root = filesystem_getroot(fs);
     buffer rb = allocate_buffer(h, PAGESIZE);
+    bprintf(rb, "UUID: ");
+    print_uuid(rb, uuid);
+    bprintf(rb, "\nmetadata ");
     print_root(rb, root);
     buffer_print(rb);
     rprintf("\n");
@@ -147,7 +152,7 @@ static u64 get_fs_offset(descriptor fd)
 
     struct partition_entry *rootfs_part = partition_get(buf, PARTITION_ROOTFS);
 
-    if (rootfs_part->lba_start == 0 ||
+    if (!rootfs_part || rootfs_part->lba_start == 0 ||
             rootfs_part->nsectors == 0) {
         // probably raw filesystem
         return 0;
@@ -199,14 +204,12 @@ int main(int argc, char **argv)
     }
 
     heap h = init_process_runtime();
-    pagecache pc = allocate_pagecache(h, h, 0, PAGESIZE);
-    assert(pc != INVALID_ADDRESS);
+    init_pagecache(h, h, 0, PAGESIZE);
     create_filesystem(h,
                       SECTOR_SIZE,
                       infinity,
                       closure(h, bread, fd, get_fs_offset(fd)),
                       0, /* no write */
-                      pc,
                       false,
                       closure(h, fsc, h, target_dir, options));
     return EXIT_SUCCESS;

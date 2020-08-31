@@ -32,9 +32,9 @@ MKFS=		$(TOOLDIR)/mkfs
 BOOTIMG=	$(PLATFORMOBJDIR)/boot/boot.img
 KERNEL=		$(PLATFORMOBJDIR)/bin/kernel.img
 
-all: image
+all: image tools
 
-.PHONY: image release target distclean
+.PHONY: image release target tools distclean
 
 include rules.mk
 
@@ -53,6 +53,9 @@ release: mkfs
 
 target: contgen
 	$(Q) $(MAKE) -C test/runtime $(TARGET)
+
+tools:
+	$(Q) $(MAKE) -C $@
 
 distclean: clean
 	$(Q) $(RM) -rf $(VENDORDIR)

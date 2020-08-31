@@ -125,11 +125,11 @@ void register_special_files(process p)
     heap h = heap_general((kernel_heaps)p->uh);
 
     tuple proc_self;
-    int ret = resolve_cstring(p->cwd, "/proc/self/exe", 0, &proc_self);
+    int ret = resolve_cstring(0, p->cwd, "/proc/self/exe", 0, &proc_self);
     if (ret == -ENOENT) {
         if (!proc_self) {
-            filesystem_mkdirpath(p->fs, 0, "/proc/self", true);
-            assert(resolve_cstring(p->cwd, "/proc/self", &proc_self, 0) == 0);
+            filesystem_mkdirpath(p->root_fs, 0, "/proc/self", true);
+            assert(resolve_cstring(0, p->cwd, "/proc/self", &proc_self, 0) == 0);
         }
         assert(proc_self);
         value program = table_find(p->process_root, sym(program));
@@ -137,7 +137,7 @@ void register_special_files(process p)
         buffer b = clone_buffer(h, program);
         assert(b != INVALID_ADDRESS);
         buffer_write_byte(b, '\0'); /* append string terminator character */
-        filesystem_symlink(p->fs, proc_self, "exe", buffer_ref(b, 0));
+        filesystem_symlink(p->root_fs, proc_self, "exe", buffer_ref(b, 0));
         deallocate_buffer(b);
     }
 
@@ -148,10 +148,10 @@ void register_special_files(process p)
         tuple entry = allocate_tuple();
         buffer b = wrap_buffer(h, sf, sizeof(*sf));
         table_set(entry, sym(special), b);
-        filesystem_mkentry(p->fs, 0, sf->path, entry, false, true);
+        filesystem_mkentry(p->root_fs, 0, sf->path, entry, false, true);
     }
 
-    filesystem_mkdirpath(p->fs, 0, "/sys/devices/system/cpu/cpu0", false);
+    filesystem_mkdirpath(p->root_fs, 0, "/sys/devices/system/cpu/cpu0", false);
 }
 
 static special_file *

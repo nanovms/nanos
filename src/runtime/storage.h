@@ -56,3 +56,15 @@ static inline void partition_write(struct partition_entry *e, boolean active,
     e->lba_start = offset / SECTOR_SIZE;
     e->nsectors = size / SECTOR_SIZE;
 }
+
+struct filesystem;
+
+void init_volumes(heap h);
+void storage_set_root_fs(struct filesystem *root_fs);
+void storage_set_mountpoints(tuple mounts);
+boolean volume_add(u8 *uuid, block_io r, block_io w, u64 size);
+void storage_when_ready(thunk complete);
+void storage_sync(status_handler sh);
+
+struct filesystem *storage_get_fs(tuple root);
+tuple storage_get_mountpoint(tuple root);

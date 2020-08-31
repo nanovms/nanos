@@ -23,6 +23,7 @@ SRCS-kernel.img= \
 	$(SRCDIR)/kernel/pvclock.c \
 	$(SRCDIR)/kernel/schedule.c \
 	$(SRCDIR)/kernel/stage3.c \
+	$(SRCDIR)/kernel/storage.c \
 	$(SRCDIR)/kernel/symtab.c \
 	$(SRCDIR)/kernel/vdso-now.c \
 	$(SRCDIR)/net/direct.c \

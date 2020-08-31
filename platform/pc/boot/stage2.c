@@ -300,14 +300,12 @@ void newstack()
 
     setup_page_tables();
 
-    pagecache pc = allocate_pagecache(h, h, 0, PAGESIZE);
-    assert(pc != INVALID_ADDRESS);
+    init_pagecache(h, h, 0, PAGESIZE);
     create_filesystem(h,
                       SECTOR_SIZE,
                       infinity,
                       get_stage2_disk_read(h, fs_offset),
                       closure(h, stage2_empty_write),
-                      pc,
                       false,
                       closure(h, filesystem_initialized, h, heap_backed(&kh), bh));
     
