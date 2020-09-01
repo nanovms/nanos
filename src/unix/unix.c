@@ -54,9 +54,21 @@ void deliver_fault_signal(u32 signo, thread t, u64 vaddr, s32 si_code)
         }
     };
 
-    assert(signo == SIGSEGV || signo == SIGBUS);
-    pf_debug("delivering %s to thread %d; vaddr 0x%lx si_code %d",
-             signo == SIGSEGV ? "SIGSEGV" : "SIGBUS", t->tid, vaddr, si_code);
+    char *signame = "SIGSEGV";
+    assert(signo == SIGSEGV || signo == SIGBUS || signo == SIGFPE);
+    switch (signo) {
+    case SIGSEGV:
+        signame = "SIGSEGV";
+        break;
+    case SIGBUS:
+        signame = "SIGBUS";
+        break;
+    case SIGFPE:
+        signame = "SIGFPE";
+        break;
+    }
+    pf_debug("delivering %s to thread %d; vaddr 0x%lx si_code %d", signame,
+        t->tid, vaddr, si_code);
     deliver_signal_to_thread(t, &s);
 }
 
@@ -114,9 +126,17 @@ define_closure_function(1, 1, context, default_fault_handler,
        support multiple processes, we may need to install current when
        resuming deferred processing. */
     process p = current->p;
-
-    if (frame[FRAME_VECTOR] == 14) {
-        u64 vaddr = fault_address(frame);
+    u64 vaddr = fault_address(frame);
+    if (frame[FRAME_VECTOR] == 0) {
+        if (current_cpu()->state == cpu_user) {
+            deliver_fault_signal(SIGFPE, current, vaddr, FPE_INTDIV);
+            schedule_frame(frame);
+            return 0;
+        } else {
+            rprintf("\nDivide by zero occurs in kernel mode\n");
+            goto bug;
+        }
+    } else if (frame[FRAME_VECTOR] == 14) {
         vmap vm = vmap_from_vaddr(p, vaddr);
         if (vm == INVALID_ADDRESS) {
             if (user) {
