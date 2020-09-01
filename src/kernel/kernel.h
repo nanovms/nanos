@@ -54,7 +54,7 @@ typedef struct cpuinfo {
     void *int_stack;
 
     /* pointer to nanos_thread (and target OS dependent stuff) */
-    void *current_thread;
+    nanos_thread current_thread;
 } *cpuinfo;
 
 #define cpu_not_present 0

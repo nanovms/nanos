@@ -153,7 +153,7 @@ static inline void run_thread_frame(thread t)
     check_stop_conditions(t);
     kern_lock(); // xx - make thread entry a separate exclusion region for performance
     thread old = current;
-    current_cpu()->current_thread = t;
+    current_cpu()->current_thread = (nanos_thread)t;
     ftrace_thread_switch(old, current);    /* ftrace needs to know about the switch event */
     thread_enter_user(t);
 
@@ -177,7 +177,7 @@ define_closure_function(1, 0, void, run_thread,
                         thread, t)
 {
     thread t = bound(t);
-    current_cpu()->current_thread = t;
+    current_cpu()->current_thread = (nanos_thread)t;
     dispatch_signals(t);
     run_thread_frame(t);
 }
@@ -265,7 +265,7 @@ define_closure_function(1, 0, void, free_thread,
 
 define_closure_function(1, 0, void, resume_syscall, thread, t)
 {
-    current_cpu()->current_thread = bound(t);
+    current_cpu()->current_thread = (nanos_thread)bound(t);
     thread_resume(bound(t));
     syscall_debug(thread_frame(bound(t)));
 }
@@ -386,7 +386,7 @@ void exit_thread(thread t)
     ftrace_thread_deinit(t, dummy_thread);
 
     /* replace references to thread with placeholder */
-    current_cpu()->current_thread = dummy_thread;
+    current_cpu()->current_thread = (nanos_thread)dummy_thread;
     set_running_frame(dummy_thread->default_frame);
     refcount_release(&t->refcount);
 }

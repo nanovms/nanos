@@ -134,8 +134,8 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
     cpuinfo ci = current_cpu();
     thunk t;
 
-    if (ci->current_thread && ci->current_thread != INVALID_ADDRESS) {
-        nanos_thread nt = ci->current_thread;
+    if (ci->current_thread != INVALID_ADDRESS) {
+        nanos_thread nt = (nanos_thread)ci->current_thread;
         if (nt->pause)
             apply(nt->pause);
         ci->current_thread = INVALID_ADDRESS;

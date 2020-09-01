@@ -465,7 +465,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
         sizeof(dummy_thread->name));
 
     for (int i = 0; i < MAX_CPUS; i++)
-        cpuinfo_from_id(i)->current_thread = dummy_thread;
+        cpuinfo_from_id(i)->current_thread = (nanos_thread)dummy_thread;
 
     /* XXX remove once we have http PUT support */
     ftrace_enable();
