@@ -213,7 +213,6 @@ void test_rt_signal(void)
         fail_error("tgkill_test_pause child failed\n");
 }
 
-
 static volatile int test_kill_caught;
 
 static void test_kill_handler(int sig, siginfo_t *si, void *ucontext)
@@ -589,6 +588,58 @@ test_sigsegv(void)
 
     if (sigaction(SIGSEGV, &sa, NULL))
         fail_perror("siggaction for SIGSEGV failed");
+}
+
+static void sigfpe_handler(int signo)
+{
+    if (signo != SIGFPE)
+        fail_perror("  childtid: caught non SIGFPE signal %d\n", signo);
+
+    syscall(SYS_exit, 0);
+}
+
+static void *sigfpe_thread(void *arg)
+{
+
+    child_tid = syscall(SYS_gettid);
+
+    /* generate sigfpe */
+    asm volatile("push    %rax \t\n\
+                xor     %rax, %rax \t\n\
+                idiv    %rax \t\n\
+                pop     %rax\t\n\
+                ");
+    return NULL;
+}
+
+static void test_sigfpe(void)
+{
+    struct sigaction sa;
+    pthread_t pt;
+    void *retval;
+
+    memset(&sa, 0, sizeof(struct sigaction));
+    sa.sa_handler = sigfpe_handler;
+    sigemptyset(&sa.sa_mask);
+
+    if (sigaction(SIGFPE, &sa, NULL))
+        fail_perror("sigaction for SIGFPE failed");
+
+    if (pthread_create(&pt, NULL, sigfpe_thread, (void *)0))
+        fail_perror("sigfpe_thread pthread_create");
+
+    sigtest_debug("yielding until child tid reported...\n");
+    yield_for(&child_tid);
+
+    if (pthread_join(pt, &retval))
+        fail_perror("blocking test pthread_join");
+
+    memset(&sa, 0, sizeof(struct sigaction));
+    sa.sa_handler = SIG_IGN;
+    sigemptyset(&sa.sa_mask);
+
+    if (sigaction(SIGFPE, &sa, NULL))
+        fail_perror("sigaction for SIGFPE failed");
 }
 
 static int test_rt_sigtimedwait_handler_reached = 0;
@@ -992,6 +1043,8 @@ void test_sigaltstack(void)
 int main(int argc, char * argv[])
 {
     setbuf(stdout, NULL);
+
+    test_sigfpe();
 
     test_sigsegv();
 
