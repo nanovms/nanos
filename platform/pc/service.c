@@ -10,6 +10,7 @@
 #include <page.h>
 #include <storage.h>
 #include <symtab.h>
+#include <unix.h>
 #include <virtio/virtio.h>
 #include <vmware/vmxnet3.h>
 #include <drivers/storage.h>
@@ -311,6 +312,14 @@ void vm_exit(u8 code)
     }
 #endif
 
+#ifdef DUMP_MEM_STATS
+    buffer b = allocate_buffer(heap_general(&heaps), 512);
+    if (b != INVALID_ADDRESS) {
+        dump_mem_stats(b);
+        buffer_print(b);
+    }
+#endif
+
     /* TODO MP: coordinate via IPIs */
     tuple root = root_fs ? filesystem_getroot(root_fs) : 0;
     if (root && table_find(root, sym(reboot_on_exit))) {
@@ -592,7 +601,7 @@ void init_service(u64 rdi, u64 rsi)
         u8 e820_entries = *(params + BOOT_PARAM_OFFSET_E820_ENTRIES);
         region e820_r = (region)(params + BOOT_PARAM_OFFSET_E820_TABLE);
         extern u8 END;
-        u64 kernel_size = u64_from_pointer(&END - KERNEL_BASE);
+        u64 kernel_size = u64_from_pointer(&END) - KERNEL_BASE;
         u64 *pdpt = 0;
         u64 *pdt = 0;
         for (u8 entry = 0; entry < e820_entries; entry++) {
