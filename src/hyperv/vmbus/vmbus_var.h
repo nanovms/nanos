@@ -144,4 +144,8 @@ status vmbus_attach(kernel_heaps kh, vmbus_dev *dev);
 status vmbus_probe_channels(vmbus_dev dev, const list deriver_list, list nodes);
 void vmbus_set_poll_mode(vmbus_dev dev, boolean);
 
+void            vmbus_et_intr(void);
+boolean         init_vmbus_et_timer(heap general, u32 hyperv_features, hyperv_tc64_t hyperv_tc64,
+                                    clock_timer *ct, thunk *per_cpu_init);
+
 #endif	/* !_VMBUS_VAR_H_ */

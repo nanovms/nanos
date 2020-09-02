@@ -163,4 +163,23 @@ atomic_cmpset##SIZE(volatile u##SIZE *dst, u##SIZE expect, u##SIZE src) \
 
 ATOMIC_CMPSET(32);
 
+#define ATOMIC_LOAD(SIZE)                               \
+static __inline u##SIZE                                 \
+atomic_load_acq##SIZE(volatile u##SIZE *p)              \
+{                                                       \
+    u##SIZE res;                                        \
+                                                        \
+    res = *p;                                           \
+    compiler_barrier();                                 \
+    return (res);                                       \
+}                                                       \
+
+ATOMIC_LOAD(32);
+
+static __inline void
+atomic_thread_fence_acq(void)
+{
+    compiler_barrier();
+}
+
 #endif //_ATOMIC_H_

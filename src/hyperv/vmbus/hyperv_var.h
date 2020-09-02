@@ -31,6 +31,7 @@
 
 uint64_t	hypercall_post_message(bus_addr_t msg_paddr);
 uint64_t	hypercall_signal_event(bus_addr_t monprm_paddr);
+uint64_t	hyperv_tc64_rdmsr(void);
 
 #define VMBUS_DRIVER_NAME_MAX 16
 typedef struct vmbus_driver {

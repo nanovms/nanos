@@ -35,13 +35,21 @@
      MSR_HV_GUESTID_OSID_FREEBSD |  \
      MSR_HV_GUESTID_OSTYPE_FREEBSD)
 
+#define CPUID_SSE2  0x04000000
+
 struct hypercall_ctx {
     void            *hc_addr;
     u64             hc_paddr;
 };
 
+struct hyperv_reftsc_ctx {
+    struct hyperv_reftsc    *tsc_ref;
+    struct hyperv_dma   tsc_ref_dma;
+};
+
 typedef struct hyperv_platform_info {
     heap general;                  /* general heap for internal use */
+    heap contiguous;               /* physically */
 
     u32 features;
 
@@ -50,8 +58,8 @@ typedef struct hyperv_platform_info {
     struct list driver_list;
 
     // clock
-    u64 boot_wall;
-    u64 boot_count;
+    struct hyperv_reftsc_ctx hyperv_ref_tsc;
+    hyperv_tc64_t hyperv_tc64;
 
     //hypercall
     struct hypercall_ctx hypercall_context;
@@ -111,7 +119,7 @@ hypercall_create(void)
     hyperv_debug("hyperv: Hypercall created");
 }
 
-static u64
+uint64_t
 hyperv_tc64_rdmsr(void)
 {
     return read_msr(MSR_HV_TIME_REF_COUNT);
@@ -131,15 +139,72 @@ hypercall_signal_event(bus_addr_t monprm_paddr)
         HYPERCALL_SIGNAL_EVENT, monprm_paddr, 0);
 }
 
-void
-hyperv_init_clock()
+static
+u64 read_hyperv_timer_tsc(void)
 {
-    hyperv_info.boot_wall = rtc_gettimeofday();
-    hyperv_info.boot_count = hyperv_tc64_rdmsr();
+    struct hyperv_reftsc *tsc_ref = hyperv_info.hyperv_ref_tsc.tsc_ref;
+    u32 seq;
+
+    while ((seq = atomic_load_acq32(&tsc_ref->tsc_seq)) != 0) {
+        u64 disc, ret, tsc;
+        u64 scale = tsc_ref->tsc_scale;
+        s64 ofs = tsc_ref->tsc_ofs;
+
+        /* rdtsc_ordered contains a load fence */
+        tsc = rdtsc_ordered();
+
+        /* ret = ((tsc * scale) >> 64) + ofs */
+        __asm__ __volatile__ ("mulq %3" :
+            "=d" (ret), "=a" (disc) :
+            "a" (tsc), "r" (scale));
+        ret += ofs;
+
+        atomic_thread_fence_acq();
+        if (tsc_ref->tsc_seq == seq)
+            return (ret);
+
+        /* Sequence changed; re-sync. */
+    }
+    /* Fallback to the generic timecounter, i.e. rdmsr. */
+    return hyperv_tc64_rdmsr();
 }
 
-closure_function(0, 0, timestamp, hyperv_clock_now) {
-    return hyperv_info.boot_wall + (hyperv_tc64_rdmsr() - hyperv_info.boot_count) * 100;
+
+void
+hyperv_init_clock(void)
+{
+    hyperv_info.hyperv_tc64 = hyperv_tc64_rdmsr;
+
+    u32 v[4];
+    cpuid(1, 0, v);
+
+    if ((hyperv_info.features &
+         (CPUID_HV_MSR_TIME_REFCNT | CPUID_HV_MSR_REFERENCE_TSC)) !=
+        (CPUID_HV_MSR_TIME_REFCNT | CPUID_HV_MSR_REFERENCE_TSC) ||
+        (v[3] & CPUID_SSE2) == 0) {   /* SSE2 for mfence/lfence */
+        hyperv_debug("Reference Time Stamp Counter not supported");
+        return;
+    }
+
+    hyperv_debug("Enabling Reference Time Stamp Counter support");
+    hyperv_info.hyperv_ref_tsc.tsc_ref = allocate_zero(hyperv_info.contiguous, sizeof(struct hyperv_reftsc));
+    assert(hyperv_info.hyperv_ref_tsc.tsc_ref != INVALID_ADDRESS);
+    hyperv_info.hyperv_ref_tsc.tsc_ref_dma.hv_paddr =
+        physical_from_virtual(hyperv_info.hyperv_ref_tsc.tsc_ref);
+    assert(hyperv_info.hyperv_ref_tsc.tsc_ref_dma.hv_paddr != INVALID_PHYSICAL);
+
+    u64 orig = read_msr(MSR_HV_REFERENCE_TSC);
+    u64 val = MSR_HV_REFTSC_ENABLE | (orig & MSR_HV_REFTSC_RSVD_MASK) |
+        ((hyperv_info.hyperv_ref_tsc.tsc_ref_dma.hv_paddr >> PAGELOG) <<
+         MSR_HV_REFTSC_PGSHIFT);
+    write_msr(MSR_HV_REFERENCE_TSC, val);
+
+    hyperv_info.hyperv_tc64 = read_hyperv_timer_tsc;
+}
+
+closure_function(0, 0, timestamp, hyperv_clock_now)
+{
+    return nanoseconds(hyperv_info.hyperv_tc64() * HYPERV_TIMER_NS_FACTOR);
 }
 
 boolean
@@ -147,6 +212,7 @@ hyperv_detect(kernel_heaps kh) {
     u32 v[4];
     hyperv_info.initialized = false;
     hyperv_info.general = heap_general(kh);
+    hyperv_info.contiguous = heap_backed(kh);
 
     cpuid(CPUID_LEAF_HV_MAXLEAF, 0, v);
     u32 maxleaf = v[0];
@@ -187,7 +253,12 @@ hyperv_detect(kernel_heaps kh) {
 
     clock_timer ct;
     thunk per_cpu_init;
-    if (!init_lapic_timer(&ct, &per_cpu_init)) {
+    if ( init_vmbus_et_timer(hyperv_info.general, hyperv_info.features, hyperv_info.hyperv_tc64,
+                            &ct, &per_cpu_init)) {
+        hyperv_debug("VMBUS ET timer available\n");
+    } else if (init_lapic_timer(&ct, &per_cpu_init)) {
+        hyperv_debug("defaulting to (suboptimal) lapic timer\n");
+    } else {
         halt("%s: no timer available\n", __func__);
     }
 

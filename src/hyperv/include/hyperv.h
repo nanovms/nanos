@@ -94,12 +94,6 @@ int			hyperv_guid2str(const struct hyperv_guid *, char *,
 			    size_t);
 
 /*
- * hyperv_tc64 could be NULL, if there were no suitable Hyper-V
- * specific timecounter.
- */
-extern hyperv_tc64_t	hyperv_tc64;
-
-/*
  * Vmbus version after negotiation with host.
  */
 extern uint32_t		vmbus_current_version;
