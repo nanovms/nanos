@@ -82,7 +82,7 @@
  *     |  |                         |  |
  *     | 1|            31           | 1| ...... # of segments
  */
-#define STORVSC_DATA_SEGCNT_MAX        33
+#define STORVSC_DATA_SEGCNT_MAX        66   /* 256KB maxio */
 #define STORVSC_DATA_SEGSZ_MAX        PAGE_SIZE
 #define STORVSC_DATA_SIZE_MAX        \
     ((STORVSC_DATA_SEGCNT_MAX - 1) * STORVSC_DATA_SEGSZ_MAX)
@@ -103,7 +103,7 @@ struct storvsc_hcb {
     u16 target;
     u16 lun;
     u32 data_len;
-    u64 data_addr;
+    void *data_addr;
 
     u8 cdb[STORVSC_CDB_SIZE];
     u16 host_status;
@@ -111,7 +111,7 @@ struct storvsc_hcb {
 
     thunk completion;
     u32 alloc_len;                     // allocated data length
-    void *data;                       // allocated data
+    void *data;                        // allocated data
 
     u8 sense[SENSE_BUFFER_SIZE];
 };
@@ -603,7 +603,7 @@ static void hv_storvsc_on_channel_callback(struct vmbus_channel *channel, void *
             }
         }
 
-        bytes_recvd = pad(VSTOR_PKT_SIZE, 8),
+        bytes_recvd = pad(VSTOR_PKT_SIZE, 8);
         ret = vmbus_chan_recv(channel, packet, (int*)&bytes_recvd,
             &request_id);
         assert(ret != ENOBUFS); //storvsc recvbuf is not large enough
@@ -923,8 +923,7 @@ static status storvsc_attach(kernel_heaps kh, hv_device* device, storage_attach 
     /* fill in driver specific properties */
     sc->hs_drv_props = &g_drv_props_table[stor_type];
     sc->hs_drv_props->drv_ringbuffer_size = HV_STORVSC_RINGBUFFER_SIZE;
-    sc->hs_drv_props->drv_max_ios_per_target =
-        MIN(STORVSC_MAX_IO, HV_STORVSC_MAX_IO);
+    sc->hs_drv_props->drv_max_ios_per_target = HV_STORVSC_MAX_IO;
     storvsc_debug("storvsc ringbuffer size: %d, max_io: %d",
                   sc->hs_drv_props->drv_ringbuffer_size,
                   sc->hs_drv_props->drv_max_ios_per_target);
@@ -981,8 +980,7 @@ static void storvsc_action_io_queued(struct storvsc_softc *sc, struct storvsc_hc
     if (!hcb->data_len) {
         hcb->data_addr = 0;
     } else {
-        hcb->data_addr = physical_from_virtual(buf);
-        assert(hcb->data_addr != INVALID_PHYSICAL);
+        hcb->data_addr = buf;
     }
     hcb->target = target;
     hcb->lun = lun;
@@ -1050,14 +1048,24 @@ static void create_storvsc_request(struct storvsc_hcb *hcb, struct hv_storvsc_re
 
     reqp->hcb = hcb;
 
-    if (hcb->data_len) {
-        struct storvsc_gpa_range *prplist = &reqp->prp_list;
-        prplist->gpa_range.gpa_len = hcb->data_len;
-        prplist->gpa_range.gpa_ofs = hcb->data_addr & PAGEMASK;
-        assert(prplist->gpa_range.gpa_ofs == 0);
-        prplist->gpa_page[0] = hcb->data_addr >> PAGELOG;
-        reqp->prp_cnt = 1;
+    uint32_t bytes_to_copy = hcb->data_len;
+    struct storvsc_gpa_range *prplist = &reqp->prp_list;
+    uint32_t pfn_num = 0;
+    while (bytes_to_copy != 0) {
+        u64 phys_addr = physical_from_virtual(hcb->data_addr + (hcb->data_len - bytes_to_copy));
+        assert(phys_addr != INVALID_PHYSICAL);
+        if (pfn_num == 0) {
+            prplist->gpa_range.gpa_len = hcb->data_len;
+            prplist->gpa_range.gpa_ofs = phys_addr & PAGEMASK;
+        }
+        prplist->gpa_page[pfn_num] = phys_addr >> PAGELOG;
+        int page_offset = phys_addr - page_from_pte(phys_addr);
+        int bytes = MIN(PAGESIZE - page_offset, bytes_to_copy);
+        bytes_to_copy -= bytes;
+        pfn_num++;
     }
+    reqp->prp_cnt = pfn_num;
+    assert(reqp->prp_cnt <= STORVSC_DATA_SEGCNT_MAX);
 }
 
 static uint32_t is_scsi_valid(const struct scsi_res_inquiry *inq_data)
@@ -1105,9 +1113,9 @@ static void storvsc_io_done(struct hv_storvsc_request *reqp)
              * host will inform VM through SRB status.
              */
             if (srb_status == SRB_STATUS_INVALID_LUN) {
-                    storvsc_debug("invalid LUN %d for op: %d", vm_srb->lun, opcode);
+                storvsc_debug("invalid LUN %d for op: %d", vm_srb->lun, opcode);
             } else {
-                    storvsc_debug("Unknown SRB flag: %d for op: %d", srb_status, opcode);
+                storvsc_debug("Unknown SRB flag: %d for op: %d", srb_status, opcode);
             }
             hcb->host_status = BTSTAT_NOT_SUCCESS;
         }
