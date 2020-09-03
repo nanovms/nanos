@@ -132,12 +132,7 @@ define_closure_function(1, 1, context, default_fault_handler,
        for kernel page faults on user pages. If we were ever to
        support multiple processes, we may need to install current when
        resuming deferred processing. */
-    // XXX This seems too hacky
-    process p;
-    if (current == INVALID_ADDRESS)
-        p = bound(t)->p;
-    else
-        p = current->p;
+    process p = current->p;
 
     u64 vaddr = fault_address(frame);
     if (frame[FRAME_VECTOR] == 0) {
