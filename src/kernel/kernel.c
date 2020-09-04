@@ -75,9 +75,6 @@ void resume_kernel_context(kernel_context c)
 {
     spare_kernel_context = current_cpu()->kernel_context;
     current_cpu()->kernel_context = c;
-    nanos_thread nt = pointer_from_u64(c->frame[FRAME_SYSCALL_THREAD]);
-    if (nt != INVALID_ADDRESS)
-        current_cpu()->current_thread = nt;
     frame_return(c->frame);
 }
 
