@@ -45,6 +45,8 @@
 #define FRAME_FULL 34 
 #define FRAME_THREAD 35
 #define FRAME_HEAP 36
-#define FRAME_MAX 37
+#define FRAME_SYSCALL_THREAD 37
+#define FRAME_MAX 38
+
 #define FRAME_EXTENDED_SAVE 40
 

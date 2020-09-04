@@ -201,6 +201,7 @@ static void setup_thread_frame(heap h, context frame, thread t)
     frame[FRAME_IS_SYSCALL] = 1;
     frame[FRAME_CS] = 0x2b; // where is this defined?
     frame[FRAME_THREAD] = u64_from_pointer(t);
+    frame[FRAME_SYSCALL_THREAD] = INVALID_PHYSICAL;
 }
 
 void thread_sleep_interruptible(void)

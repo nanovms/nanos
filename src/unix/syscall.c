@@ -661,6 +661,7 @@ closure_function(7, 1, void, file_read_complete,
                  status, s)
 {
     thread_log(bound(t), "%s: status %v", __func__, s);
+    current_cpu()->current_thread = (nanos_thread)bound(t);
     sysreturn rv;
     if (is_ok(s)) {
         file f = bound(f);
@@ -2423,6 +2424,7 @@ void syscall_debug(context f)
             thread_log(t, "syscall %d", call);
     }
     sysreturn (*h)(u64, u64, u64, u64, u64, u64) = s->handler;
+    current_cpu()->running_frame[FRAME_SYSCALL_THREAD] = u64_from_pointer(t);
     if (h) {
         thread_enter_system(t);
 
@@ -2436,6 +2438,7 @@ void syscall_debug(context f)
         else
             thread_log(t, "nosyscall %d", call);
     }
+    current_cpu()->running_frame[FRAME_SYSCALL_THREAD] = INVALID_PHYSICAL;
     t->syscall = -1;
     // i dont know that we actually want to defer the syscall return...its just easier for the moment to hew
     // to the general model and make exceptions later
