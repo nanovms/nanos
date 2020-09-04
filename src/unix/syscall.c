@@ -661,6 +661,7 @@ closure_function(7, 1, void, file_read_complete,
                  status, s)
 {
     thread_log(bound(t), "%s: status %v", __func__, s);
+    current_cpu()->current_thread = (nanos_thread)bound(t);
     sysreturn rv;
     if (is_ok(s)) {
         file f = bound(f);
