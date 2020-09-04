@@ -222,7 +222,7 @@ closure_function(0, 3, void, attach_storage,
         deallocate(h, mbr, SECTOR_SIZE);
         return;
     }
-    apply(r, mbr, irange(0, SECTOR_SIZE), sh);
+    apply(r, mbr, irange(0, 1), sh);
 }
 
 static void read_kernel_syms()
