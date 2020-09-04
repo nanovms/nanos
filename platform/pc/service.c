@@ -462,7 +462,7 @@ static void __attribute__((noinline)) init_service_new_stack()
         init_vmxnet3_network(kh);
     }
 
-    init_storage(kh, sa, hyperv_storvsc_attached);
+    init_storage(kh, sa, !hyperv_storvsc_attached);
 
     init_debug("pci_discover (for virtio & ata)");
     pci_discover(); // do PCI discover again for other devices
