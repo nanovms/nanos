@@ -717,6 +717,35 @@ status xenbus_set_state(u32 tx_id, buffer path, XenbusState newstate)
     return xenstore_sync_printf(tx_id, path, "state", "%d", newstate);
 }
 
+status xendev_attach(xen_dev xd, int id, buffer frontend, tuple meta)
+{
+    xd->if_id = id;
+    xd->frontend = frontend;
+    u64 val = infinity;
+    value v = table_find(meta, sym(backend-id));
+    if (v)
+        u64_from_value(v, &val);
+    if (val == infinity)
+        return timm("result", "unable to find backend-id");
+    xd->backend_id = val;
+    v = table_find(meta, sym(backend));
+    if (!v || tagof(v) == tag_tuple)
+        return timm("result", "unable to find backend path");
+    xd->backend = (buffer)v;
+
+    /* check if the backend is ready for us
+       XXX This should poll or, better yet, set up an asynchronous xenstore watch...
+     */
+    XenbusState state;
+    status s = xenbus_get_state(xd->backend, &state);
+    if (!is_ok(s))
+        return s;
+    if (state != XenbusStateInitWait)
+        return timm("result", "xennet %d backend not ready yet (state %d)", id, state);
+
+    return STATUS_OK;
+}
+
 static status traverse_directory_internal(heap h, buffer path, tuple *parent)
 {
     xenstore_debug("%s: path \"%s\"", __func__, path);

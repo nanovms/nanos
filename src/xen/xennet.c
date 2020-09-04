@@ -9,8 +9,6 @@
 #define xennet_debug(x, ...)
 #endif
 
-#include "xen_internal.h"
-
 /* for ring init in ring.h */
 #include "lwip/opt.h"
 #include "lwip/def.h"
@@ -21,9 +19,7 @@
 #include "netif/ethernet.h"
 
 #undef memset                   /* ugh, lwIP */
-#define memset runtime_memset
-#define xen_wmb write_barrier
-#define xen_mb memory_barrier
+#include "xen_internal.h"
 #include "io/netif.h"
 
 #define GRANT_INVALID -1
@@ -74,12 +70,9 @@ typedef struct xennet_tx_page {
 } *xennet_tx_page;
     
 struct xennet_dev {
+    struct xen_dev dev;
     heap h;
     heap contiguous;                /* physically */
-    int if_id;
-    domid_t backend_id;
-    buffer frontend;
-    buffer backend;
 
     u8 mac[ETHARP_HWADDR_LEN];
     u16 mtu;
@@ -112,9 +105,10 @@ struct xennet_dev {
 
 #define XENNET_INFORM_BACKEND_RETRIES 1024
 
-static status xennet_inform_backend(xennet_dev xd)
+static status xennet_inform_backend(xennet_dev xnd)
 {
     status s = STATUS_OK;
+    xen_dev xd = &xnd->dev;
     xennet_debug("%s: dev id %d", __func__, xd->if_id);
 
     u32 tx_id;
@@ -133,12 +127,12 @@ static status xennet_inform_backend(xennet_dev xd)
         goto abort;
 
     node = "rx-ring-ref";
-    s = xenstore_sync_printf(tx_id, xd->frontend, node, "%d", xd->rx_ring_gntref);
+    s = xenstore_sync_printf(tx_id, xd->frontend, node, "%d", xnd->rx_ring_gntref);
     if (!is_ok(s))
         goto abort;
 
     node = "tx-ring-ref";
-    s = xenstore_sync_printf(tx_id, xd->frontend, node, "%d", xd->tx_ring_gntref);
+    s = xenstore_sync_printf(tx_id, xd->frontend, node, "%d", xnd->tx_ring_gntref);
     if (!is_ok(s))
         goto abort;
 
@@ -153,7 +147,7 @@ static status xennet_inform_backend(xennet_dev xd)
         goto abort;
 
     node = "event-channel";
-    s = xenstore_sync_printf(tx_id, xd->frontend, node, "%d", xd->evtchn);
+    s = xenstore_sync_printf(tx_id, xd->frontend, node, "%d", xnd->evtchn);
     if (!is_ok(s))
         goto abort;
 
@@ -306,7 +300,7 @@ closure_function(1, 0, void, xennet_tx_service_bh,
                  xennet_dev, xd)
 {
     xennet_dev xd = bound(xd);
-    xennet_debug("%s: dev id %d", __func__, xd->if_id);
+    xennet_debug("%s: dev id %d", __func__, xd->dev.if_id);
     list l;
     while ((l = (list)dequeue(xd->tx_servicequeue)) != INVALID_ADDRESS) {
         struct list q;
@@ -399,7 +393,7 @@ static void xennet_tx_buf_add_pages(xennet_dev xd, xennet_tx_buf txb, struct pbu
             txp = xennet_get_tx_page(txb, txb->npages);
             txp->paddr = physical_from_virtual(pointer_from_u64(vpage));
             assert(txp->paddr != INVALID_PHYSICAL);
-            txp->gntref = xen_grant_page_access(xd->backend_id, txp->paddr, true);
+            txp->gntref = xen_grant_page_access(xd->dev.backend_id, txp->paddr, true);
             txp->offset = offset;
             txp->len = len;
             txp->end = false;
@@ -417,7 +411,7 @@ static void xennet_tx_buf_add_pages(xennet_dev xd, xennet_tx_buf txb, struct pbu
 static err_t xennet_linkoutput(struct netif *netif, struct pbuf *p)
 {
     xennet_dev xd = (xennet_dev)netif->state;
-    xennet_debug("%s: id %d, pbuf %p", __func__, xd->if_id, p);
+    xennet_debug("%s: id %d, pbuf %p", __func__, xd->dev.if_id, p);
 
     xennet_tx_buf txb = xennet_get_txbuf(xd);
     if (txb == INVALID_ADDRESS)
@@ -489,7 +483,7 @@ static xennet_rx_buf xennet_alloc_rxbuf(xennet_dev xd)
         goto out_dealloc_rxb;
     rxb->paddr = physical_from_virtual(rxb->buf);
     assert(rxb->paddr != INVALID_PHYSICAL);
-    rxb->gntref = xen_grant_page_access(xd->backend_id, rxb->paddr, false);
+    rxb->gntref = xen_grant_page_access(xd->dev.backend_id, rxb->paddr, false);
     if (!rxb->gntref)
         goto out_free_buf;
 
@@ -631,7 +625,7 @@ closure_function(1, 0, void, xennet_rx_service_bh,
                  xennet_dev, xd)
 {
     xennet_dev xd = bound(xd);
-    xennet_debug("%s: dev id %d", __func__, xd->if_id);
+    xennet_debug("%s: dev id %d", __func__, xd->dev.if_id);
     list l;
     while ((l = (list)dequeue(xd->rx_servicequeue)) != INVALID_ADDRESS) {
         struct list q;
@@ -667,11 +661,12 @@ closure_function(1, 0, void, xennet_event_handler,
 
 static status xennet_enable(xennet_dev xd)
 {
+    xen_dev xdev = &xd->dev;
     status s = STATUS_OK;
-    xennet_debug("%s: dev id %d", __func__, xd->if_id);
+    xennet_debug("%s: dev id %d", __func__, xdev->if_id);
 
     u64 val;
-    s = xenstore_read_u64(0, xd->backend, "feature-rx-copy", &val);
+    s = xenstore_read_u64(0, xdev->backend, "feature-rx-copy", &val);
     if (!is_ok(s)) {
         s = timm("result", "failed to verify presence of rx-copy feature: %v", s);
         return s;
@@ -697,15 +692,15 @@ static status xennet_enable(xennet_dev xd)
     FRONT_RING_INIT(&xd->tx_ring, tx_ring, PAGESIZE);
 
     u64 phys = physical_from_virtual(rx_ring);
-    xd->rx_ring_gntref = xen_grant_page_access(xd->backend_id, phys, false);
+    xd->rx_ring_gntref = xen_grant_page_access(xdev->backend_id, phys, false);
     phys = physical_from_virtual(tx_ring);
-    xd->tx_ring_gntref = xen_grant_page_access(xd->backend_id, phys, false);
+    xd->tx_ring_gntref = xen_grant_page_access(xdev->backend_id, phys, false);
     if (xd->rx_ring_gntref == 0 || xd->tx_ring_gntref == 0) {
         s = timm("result", "failed to obtain grant references for rings");
         goto out_dealloc;
     }
 
-    s = xen_allocate_evtchn(xd->backend_id, &xd->evtchn);
+    s = xen_allocate_evtchn(xdev->backend_id, &xd->evtchn);
     if (!is_ok(s))
         goto out_dealloc;
 
@@ -721,7 +716,7 @@ static status xennet_enable(xennet_dev xd)
     if (!is_ok(s))
         goto out_dealloc_rx_buffers;
 
-    s = xenbus_set_state(0, xd->frontend, XenbusStateConnected);
+    s = xenbus_set_state(0, xdev->frontend, XenbusStateConnected);
     if (!is_ok(s))
         goto out_dealloc_rx_buffers;
 
@@ -766,27 +761,6 @@ static status xennet_attach(kernel_heaps kh, int id, buffer frontend, tuple meta
 
     xd->h = heap_general(kh);
     xd->contiguous = heap_backed(kh);
-    xd->if_id = id;
-    xd->frontend = frontend;
-
-    u64 val = infinity;
-    v = table_find(meta, sym(backend-id));
-    if (v)
-        u64_from_value(v, &val);
-    if (val == infinity) {
-        s = timm("result", "unable to find backend-id");
-        goto out_dealloc_xd;
-    }
-    xd->backend_id = val;
-    xennet_debug("backend id is %d", xd->backend_id);
-
-    v = table_find(meta, sym(backend));
-    if (!v || tagof(v) == tag_tuple) {
-        s = timm("result", "unable to find backend path");
-        goto out_dealloc_xd;
-    }
-    xd->backend = (buffer)v;
-    xennet_debug("backend path is %b", xd->backend);
 
     xd->netif = allocate(h, sizeof(struct netif));
     assert(xd->netif != INVALID_ADDRESS);
@@ -844,18 +818,11 @@ static status xennet_attach(kernel_heaps kh, int id, buffer frontend, tuple meta
     assert(xd->tx_servicequeue != INVALID_ADDRESS);
     xd->tx_service = closure(h, xennet_tx_service_bh, xd);
 
-    /* check if the backend is ready for us
-       XXX This should poll or, better yet, set up an asynchronous xenstore watch...
-     */
-    XenbusState state;
-    s = xenbus_get_state(xd->backend, &state);
+    xen_dev xdev = &xd->dev;
+    s = xendev_attach(xdev, id, frontend, meta);
     if (!is_ok(s))
         goto out_dealloc_xd;
-
-    if (state != XenbusStateInitWait) {
-        s = timm("result", "xennet %d backend not ready yet (state %d)", id, state);
-        goto out_dealloc_xd;
-    }
+    xennet_debug("backend id %d, backend path %b", xdev->backend_id, xdev->backend);
 
     /* allocate rx buffers up front */
     for (int i = 0; i < XENNET_INIT_RX_BUFFERS_FACTOR * XENNET_RX_RING_SIZE; i++) {
