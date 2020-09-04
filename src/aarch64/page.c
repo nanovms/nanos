@@ -239,6 +239,8 @@ static boolean map_area(range v, u64 p, u64 flags)
     page_init_debug_u64(range_span(v));
     page_init_debug(", p ");
     page_init_debug_u64(p);
+    page_init_debug(", flags");
+    page_init_debug_u64(flags);
     page_init_debug("\n");
     
     /* select table based on v[55] */

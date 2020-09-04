@@ -117,8 +117,10 @@ NOTRACE void __attribute__((noreturn)) kernel_sleep(void)
     atomic_set_bit(&idle_cpu_mask, ci->id);
 
     /* loop to absorb spurious wakeups from hlt - happens on some platforms (e.g. xen) */
-    while (1)
-        ;
+    while (1) {
+        rprintf("...wfi...\n");
+        wait_for_interrupt();
+    }
 //        asm volatile("sti; hlt" ::: "memory");
 }
 
@@ -192,8 +194,9 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
             run_thunk(t, cpu_kernel);
 
         /* should be a list of per-runloop checks - also low-pri background */
-        mm_service();
+//        mm_service();
         timer_updated = update_timer();
+        update_timer();
 
         kern_unlock();
     }

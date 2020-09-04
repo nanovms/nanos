@@ -164,7 +164,7 @@ static id_heap init_physical_id_heap(heap h)
     start_debug("init_setup_stack: kernel size ");
     start_debug_u64(kernel_size);
 
-    u64 base = KERNEL_PHYS + kernel_size;
+    u64 base = pad(KERNEL_PHYS + kernel_size, PAGESIZE_2M);
     u64 end = 0x80000000; // XXX 1G fixed til we can parse tree
     start_debug("\nfree base ");
     start_debug_u64(base);
