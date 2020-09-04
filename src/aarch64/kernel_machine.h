@@ -137,19 +137,31 @@
             register u64 __t = u64_from_pointer(target);                \
             asm volatile("mov sp, %0; br %1" :: "r"(__s), "r"(__t)); })
 
-static inline void enable_interrupts() { }
+static inline void enable_interrupts(void)
+{
+    asm volatile("msr daifclr, #2");
+}
 
-static inline void disable_interrupts() { }
+static inline void disable_interrupts(void)
+{
+    asm volatile("msr daifset, #2");
+}
 
 static inline u64 irq_disable_save(void)
 {
-//    assert(0);
-    return 0;
+    register u32 daif;
+    asm volatile("mrs %0, daif; msr daifset, #2" : "=r"(daif));
+    return daif;
 }
 
 static inline void irq_restore(u64 flags)
 {
-//    assert(0);
+    asm volatile("msr daif, %0" :: "r"(flags));
+}
+
+static inline void wait_for_interrupt(void)
+{
+    asm volatile("dsb sy; wfi" ::: "memory");
 }
 
 #include <lock.h>

@@ -119,6 +119,21 @@ void print_frame(context f)
     }
 }
 
+#define STACK_TRACE_DEPTH       128
+void print_stack(context c)
+{
+    console("\nstack trace:\n");
+    u64 *x = pointer_from_u64(c[FRAME_SP]);
+//    u64 *top = pointer_from_u64(c[FRAME_STACK_TOP]);
+    for (u64 i = 0; i < STACK_TRACE_DEPTH && ((void*)x) < pointer_from_u64(0xffff000000020000ull); i++) {
+        print_u64(u64_from_pointer(x));
+        console(":   ");
+        print_u64_with_sym(*x++);
+        console("\n");
+    }
+    console("\n");
+}
+
 NOTRACE
 void synchronous_handler(void)
 {
@@ -127,6 +142,7 @@ void synchronous_handler(void)
     context f = ci->running_frame;
 
     print_frame(f);
+    print_stack(f);
     while(1);
 }
 
@@ -167,10 +183,14 @@ void register_interrupt(int vector, thunk t, const char *name)
              __func__, vector, handlers[vector]);
     handlers[vector] = t;
     interrupt_names[vector] = name;
+
+    // XXX make interface?
+    gic_enable_int(vector);
 }
 
 void unregister_interrupt(int vector)
 {
+    gic_disable_int(vector);
     if (!handlers[vector])
         halt("%s: no handler registered for vector %d\n", __func__, vector);
     handlers[vector] = 0;

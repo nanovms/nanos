@@ -179,7 +179,9 @@ void vtpci_set_status(vtpci dev, u8 status)
 
 boolean vtpci_is_modern(vtpci dev)
 {
-    return (dev->virtio_dev.features & VIRTIO_F_VERSION_1) != 0;
+    // XXX arm hack
+    //    return (dev->virtio_dev.features & VIRTIO_F_VERSION_1) != 0;
+    return true;
 }
 
 static void vtpci_modern_write_8(struct pci_bar *b, bytes offset, u64 val)
@@ -209,10 +211,12 @@ status vtpci_alloc_virtqueue(vtpci dev,
 
     // setup virtqueue MSI-X interrupt
     pci_setup_msix(dev->dev, idx, handler, name);
+#if 0 // XXX arm
     pci_bar_write_2(&dev->common_config, dev->regs[VTPCI_REG_QUEUE_MSIX_VECTOR], idx);
     int check_idx = pci_bar_read_2(&dev->common_config, dev->regs[VTPCI_REG_QUEUE_MSIX_VECTOR]);
     if (check_idx != idx)
         return timm("status", "cannot configure virtqueue MSI-X vector");
+#endif
 
     // queue ring
     if (vtpci_is_modern(dev)) {
@@ -293,7 +297,9 @@ vtpci attach_vtpci(heap h, heap page_allocator, pci_dev d, u64 feature_mask)
     struct vtpci *dev = allocate(h, sizeof(struct vtpci));
     vtdev virtio_dev = &dev->virtio_dev;
 
-    boolean is_modern = pci_get_device(d) >= VIRTIO_PCI_DEVICEID_MODERN_MIN;
+    // XXX arm
+    //    boolean is_modern = pci_get_device(d) >= VIRTIO_PCI_DEVICEID_MODERN_MIN;
+    boolean is_modern = true;
     if (is_modern)
         feature_mask |= VIRTIO_F_VERSION_1;
 
@@ -306,6 +312,7 @@ vtpci attach_vtpci(heap h, heap page_allocator, pci_dev d, u64 feature_mask)
     }
     pci_set_bus_master(dev->dev);
     pci_enable_msix(dev->dev);
+    pci_enable_io_and_memory(dev->dev);
 
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_RESET);
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_ACK);
@@ -335,7 +342,7 @@ vtpci attach_vtpci(heap h, heap page_allocator, pci_dev d, u64 feature_mask)
         pci_bar_write_4(&dev->common_config, VIRTIO_PCI_GUEST_FEATURES, virtio_dev->features & feature_mask);
     }
     virtio_pci_debug("%s: device features 0x%lx, negotiated features 0x%lx\n",
-        __func__, dev->dev_features, dev->features);
+        __func__, virtio_dev->dev_features, virtio_dev->features);
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_FEATURE);
 
     init_closure(&dev->notify, vtpci_notify, dev);

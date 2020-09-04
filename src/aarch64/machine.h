@@ -141,28 +141,38 @@ static inline u64 lsb(u64 x)
 
 static inline void compiler_barrier(void)
 {
+    asm volatile("" ::: "memory");
 }
 
 static inline void write_barrier(void)
 {
+    asm volatile("dmb st" ::: "memory");
 }
 
 static inline void read_barrier(void)
 {
+    asm volatile("dmb ld" ::: "memory");
 }
 
 static inline void memory_barrier(void)
 {
+    asm volatile("dmb sy" ::: "memory");
 }
 
 static inline void atomic_set_bit(u64 *target, u64 bit)
 {
-//    asm volatile("lock btsq %1, %0": "+m"(*target): "r"(bit) : "memory");
+    register u64 a = u64_from_pointer(target);
+    register u64 tmp, v = 1ull << bit;
+    // XXX verify ordering
+    asm volatile("ldset %0, %2, [%1]" : "=&r"(tmp) : "r"(a), "r"(v) : "memory");
 }
 
 static inline void atomic_clear_bit(u64 *target, u64 bit)
 {
-//    asm volatile("lock btrq %1, %0": "+m"(*target):"r"(bit) : "memory");
+    register u64 a = u64_from_pointer(target);
+    register u64 tmp, v = 1ull << bit;
+    // XXX verify ordering
+    asm volatile("ldclr %0, %2, [%1]" : "=&r"(tmp) : "r"(a), "r"(v) : "memory");
 }
 
 static inline word fetch_and_add(word *target, word num)
@@ -177,5 +187,5 @@ static inline u64 fetch_and_add_64(u64 *target, u64 num)
 
 static inline void kern_pause(void)
 {
-  // XXX
+    asm volatile("dsb sy; wfe" ::: "memory");
 }

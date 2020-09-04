@@ -3,7 +3,6 @@
 #include <page.h>
 #include <io.h>
 
-#define PCI_DEBUG
 #ifdef PCI_DEBUG
 # define pci_debug rprintf
 #else
@@ -50,7 +49,9 @@ struct pci_driver {
     boolean attached;
 };
 
+/* XXX platform vft? */
 #if 0
+
 /* enable configuration space accesses and return data port address */
 static int pci_cfgenable(pci_dev dev, int reg, int bytes)
 {
@@ -66,14 +67,6 @@ static int pci_cfgenable(pci_dev dev, int reg, int bytes)
     }
     return (dataport);
 }
-
-#define PIO_DATA (dev_base_pointer(PCIE_PIO) + sizeof(u32))
-#define in8(port) (*(u8*)(PIO_DATA + port))
-#define in16(port) (*(u16*)(PIO_DATA + port))
-#define in32(port) (*(u32*)(PIO_DATA + port))
-#define out8(port, source) (*(u8*)(PIO_DATA + port) = (source))
-#define out16(port, source) (*(u16*)(PIO_DATA + port) = (source))
-#define out32(port, source) (*(u32*)(PIO_DATA + port) = (source))
 
 u32 pci_cfgread(pci_dev dev, int reg, int bytes)
 {
@@ -122,11 +115,10 @@ void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
 u32 pci_cfgread(pci_dev dev, int reg, int bytes)
 {
     u32 data = -1;
-//    void *base = dev_base_pointer(PCIE_ECAM)
     void *base = dev_base_pointer(PCIE_ECAM)
         + (dev->bus << 20) + (dev->slot << 15) + (dev->function << 12) + reg;
-//    pci_debug("%s: dev %p, bus %d, reg %d, bytes %d, base 0x%lx\n", __func__,
-//              dev, dev->bus, reg, bytes, base);
+    pci_debug("%s: dev %p, bus %d, reg %d, bytes %d, base 0x%lx\n", __func__,
+              dev, dev->bus, reg, bytes, base);
     switch (bytes) {
     case 1:
         data = *(u8*)base;
@@ -138,7 +130,7 @@ u32 pci_cfgread(pci_dev dev, int reg, int bytes)
         data = *(u32*)base;
         break;
     }
-//    pci_debug("...data = 0x%x\n", data);
+    pci_debug("...data = 0x%x\n", data);
     return data;
 }
 
@@ -146,8 +138,8 @@ void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
 {
     void *base = dev_base_pointer(PCIE_ECAM)
         + (dev->bus << 20) + (dev->slot << 15) + (dev->function << 12) + reg;
-//    pci_debug("%s: dev %p, bus %d, reg %d, bytes %d, base 0x%lx, source 0x%x\n", __func__,
-//              dev, dev->bus, reg, bytes, base, source);
+    pci_debug("%s: dev %p, bus %d, reg %d, bytes %d, base 0x%lx, source 0x%x\n", __func__,
+              dev, dev->bus, reg, bytes, base, source);
     switch (bytes) {
     case 1:
         *(u8*)base = source;
@@ -159,11 +151,21 @@ void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
         *(u32*)base = source;
         break;
     }
-//    pci_debug("...done\n");
+    pci_debug("...done\n");
 }
 
 
 #endif
+
+/* mux on arch */
+//#define PIO_DATA (dev_base_pointer(PCIE_PIO) + sizeof(u32))
+#define PIO_DATA (dev_base_pointer(PCIE_PIO))
+#define in8(port) (*(u8*)(PIO_DATA + port))
+#define in16(port) (*(u16*)(PIO_DATA + port))
+#define in32(port) (*(u32*)(PIO_DATA + port))
+#define out8(port, source) (*(u8*)(PIO_DATA + port) = (source))
+#define out16(port, source) (*(u16*)(PIO_DATA + port) = (source))
+#define out32(port, source) (*(u32*)(PIO_DATA + port) = (source))
 
 static u32 pci_bar_len(pci_dev dev, int bar)
 {
@@ -185,19 +187,38 @@ u64 pci_bar_size(pci_dev dev, struct pci_bar *b, int bar)
 void pci_bar_init(pci_dev dev, struct pci_bar *b, int bar, bytes offset, bytes length)
 {
     u32 base = pci_cfgread(dev, PCIR_BAR(bar), 4);
+    pci_debug("%s: bus %d, slot %d, function %d, bar %d, base 0x%x\n", __func__,
+              dev->bus, dev->slot, dev->function, bar, base);
     b->type = base & PCI_BAR_B_TYPE_MASK;
 
     if (b->type == PCI_BAR_MEMORY) {
         b->flags = base & PCI_BAR_B_MEMORY_MASK;
-        u32 addr_hi = (b->flags & PCI_BAR_F_64BIT) ? pci_cfgread(dev, PCIR_BAR(bar + 1), 4) : 0;
-        b->addr = ((u64) addr_hi << 32) | (base & ~PCI_BAR_B_MEMORY_MASK);
+
+        /* XXX hack for virt platform: bars are not assigned, so just
+         * pick a place for them within the host controller range...find legit procedure */
+
+//        u32 addr_hi = (b->flags & PCI_BAR_F_64BIT) ? pci_cfgread(dev, PCIR_BAR(bar + 1), 4) : 0;
+//        b->addr = ((u64) addr_hi << 32) | (base & ~PCI_BAR_B_MEMORY_MASK);
+        u32 addr_hi = 0, addr_lo = 0;
+        if (b->flags & PCI_BAR_F_64BIT) {
+//            addr_hi = 0x80; // + bar;
+            pci_cfgwrite(dev, PCIR_BAR(bar + 1), 4, 0);
+//        } else {
+//            addr_lo = U64_FROM_BIT(32) /* XXX 1gb mem */ + (bar * U64_FROM_BIT(24));
+        }
+        /* XXX fixed for now, with device tree we can find highmem regions instead */
+        addr_lo = 0x10000000ul + (bar << 24);
+        pci_cfgwrite(dev, PCIR_BAR(bar), 4, addr_lo | b->flags);
+        b->addr = ((u64) addr_hi << 32) | addr_lo;
+        pci_debug("   mem: b->addr 0x%lx, flags 0x%lx\n", b->addr, b->flags);
     } else {
         b->flags = 0;
         b->addr = (base & ~PCI_BAR_B_IOPORT_MASK) + offset;
+        pci_debug("   i/o: addr 0x%x\n", __func__, b->addr);
     }
     b->size = pci_bar_size(dev, b, bar);
     pci_debug("%s: bar %d: type %d, addr 0x%lx, size 0x%lx, flags 0x%x\n",
-        __func__, bar, b->type, b->addr, b->size, b->flags);
+              __func__, bar, b->type, b->addr, b->size, b->flags);
 
     if (b->type == PCI_BAR_MEMORY) {
         // map memory
@@ -254,8 +275,17 @@ void pci_bar_write_4(struct pci_bar *b, u64 offset, u32 val)
 
 void pci_set_bus_master(pci_dev dev)
 {
+    pci_debug("%s\n", __func__);
     u16 command = pci_cfgread(dev, PCIR_COMMAND, 2);
     command |= PCIM_CMD_BUSMASTEREN;
+    pci_cfgwrite(dev, PCIR_COMMAND, 2, command);
+}
+
+void pci_enable_io_and_memory(pci_dev dev)
+{
+    pci_debug("%s\n", __func__);
+    u16 command = pci_cfgread(dev, PCIR_COMMAND, 2);
+    command |= PCIM_CMD_IOEN | PCIM_CMD_MEMORYEN;
     pci_cfgwrite(dev, PCIR_COMMAND, 2, command);
 }
 
@@ -361,6 +391,7 @@ static void pci_probe_device(pci_dev dev)
         pci_debug("%s: %02x:%02x:%x: %04x:%04x: class %02x:%02x: secondary bus %02x\n",
             __func__, dev->bus, dev->slot, dev->function, vendor, pci_get_device(dev),
             class, subclass, secbus);
+        (void)secbus;
         // XXX, reading secbus 0
         // pci_probe_bus(secbus);
         return;
@@ -371,12 +402,12 @@ static void pci_probe_device(pci_dev dev)
     vector_foreach(drivers, d) {
         pci_debug(" driver %p / %F, attached %d\n", d, d->probe, d->attached);
         if (!d->attached && apply(d->probe, dev)) {
+            pci_debug("  dev %p probe %p\n", dev, d->probe);
             pci_debug("  dev %02x:%02x:%x: attached to %F\n", dev->bus, dev->slot, dev->function,
                       d->probe);
             d->attached = true;
         }
     }
-    pci_debug("...end\n");
 }
 
 static void
@@ -387,12 +418,14 @@ pci_probe_bus(int bus)
         struct pci_dev _dev = { .bus = bus, .slot = i, .function = 0 };
         pci_dev dev = &_dev;
 
+        pci_debug("%s: begin probe for slot %d\n", __func__, i);
         pci_probe_device(dev);
 
         // check multifunction devices
         if (pci_get_hdrtype(dev) & PCIM_MFDEV) {
             for (int f = 1; f <= PCI_FUNCMAX; f++) {
                 dev->function = f;
+                pci_debug("%s:    begin probe for fn %d\n", __func__, f);
                 pci_probe_device(dev);
             }
         }

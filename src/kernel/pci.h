@@ -119,12 +119,15 @@ u32 pci_find_next_cap(pci_dev dev, u8 cap, u32 cp);
 
 void pci_discover();
 void pci_set_bus_master(pci_dev dev);
+void pci_enable_io_and_memory(pci_dev dev);
 void pci_enable_msix(pci_dev dev);
 void pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name);
 
 /* PCI config header registers for all devices */
 #define PCIR_COMMAND 0x04
 
+#define PCIM_CMD_IOEN           0x0001
+#define PCIM_CMD_MEMORYEN       0x0002
 #define PCIM_CMD_BUSMASTEREN    0x0004
 
 void init_pci(kernel_heaps kh);

@@ -134,7 +134,7 @@ void kernel_runtime_init(kernel_heaps kh)
     init_debug("pci_discover (for virtio & ata)");
     pci_discover(); // do PCI discover again for other devices
     init_debug("discover done");
-    *(u64*)0xdeadbeef = 0xfeedface;
-    while (1);
+
+    runloop();
 }
 

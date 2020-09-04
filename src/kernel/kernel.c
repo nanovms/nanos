@@ -56,6 +56,7 @@ kernel_context allocate_kernel_context(heap h)
     if (c == INVALID_ADDRESS)
         return c;
     init_frame(c->frame);
+    // XXX set stack top here?
     c->frame[FRAME_HEAP] = u64_from_pointer(h);
     return c;
 }
