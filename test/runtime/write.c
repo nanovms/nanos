@@ -212,7 +212,7 @@ void append_write_test()
     exit(EXIT_FAILURE);
 }
 
-void truncate_test()
+void truncate_test(const char *prog)
 {
     unsigned char tmp[BUFLEN];
     ssize_t rv;
@@ -341,10 +341,38 @@ void truncate_test()
     }
     close(fd);
 
+    if (truncate(prog, 0) == 0) {
+        printf("Could truncate program executable file\n");
+        exit(EXIT_FAILURE);
+    }
+
     return;
   out_fail:
     close(fd);
     exit(EXIT_FAILURE);
+}
+
+static void write_exec_test(const char *prog)
+{
+    int fd;
+
+    if (access(prog, W_OK) == 0) {
+        printf("Could access program executable file in write mode\n");
+        exit(EXIT_FAILURE);
+    } else if (errno != EACCES) {
+        perror("Unexpected error from access(prog, W_OK)");
+        exit(EXIT_FAILURE);
+    }
+    fd = open(prog, O_RDWR);
+    if (fd >= 0) {
+        printf("Could open program executable file for writing\n");
+        exit(EXIT_FAILURE);
+    }
+    fd = open(prog, O_WRONLY);
+    if (fd >= 0) {
+        printf("Could open program executable file in write-only mode\n");
+        exit(EXIT_FAILURE);
+    }
 }
 
 /* isn't this in a std include somewhere? */
@@ -648,7 +676,8 @@ int main(int argc, char **argv)
         basic_write_test();
         scatter_write_test(1 << 18, 64, 1 << 12);
         append_write_test();
-        truncate_test();
+        truncate_test(argv[0]);
+        write_exec_test(argv[0]);
     }
 
     if (op == WRITE_OP_ALL || op == WRITE_OP_BULK_ONLY) {

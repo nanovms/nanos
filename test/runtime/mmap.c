@@ -185,6 +185,14 @@ static void mmap_newfile_test(void)
         perror("new file  munmap");
         exit(EXIT_FAILURE);
     }
+    addr = mmap(NULL, maplen, PROT_EXEC, MAP_PRIVATE, fd, 0);
+    if (addr != MAP_FAILED) {
+        fprintf(stderr, "%s: could mmap non-executable file with exec access\n",
+            __func__);
+        exit(EXIT_FAILURE);
+    } else if (errno != EACCES) {
+        handle_err("exec-mmap non-executable file: unexpected error");
+    }
     if (close(fd) < 0) {
         perror("new file close");
         exit(EXIT_FAILURE);
@@ -382,6 +390,14 @@ static void mmap_test(void)
     printf("  and unmap...\n");
     if (munmap(map_addr, LARGE_MMAP_SIZE)) {
         perror("munmap failed");
+        exit(EXIT_FAILURE);
+    }
+
+    map_addr = mmap(NULL, LARGE_MMAP_SIZE, PROT_EXEC,
+        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (map_addr != MAP_FAILED) {
+        fprintf(stderr, "%s: could set up anonymous mapping with exec access\n",
+            __func__);
         exit(EXIT_FAILURE);
     }
 
@@ -709,6 +725,14 @@ void mprotect_test(void)
     if (ret < 0)
         handle_err("mprotect 3");
     addr[4 * PAGESIZE - 1] = 0;
+
+    if (mprotect(addr, PAGESIZE, PROT_EXEC) == 0) {
+        fprintf(stderr, "%s: could enable exec access on anonymous mapping\n",
+            __func__);
+        exit(EXIT_FAILURE);
+    } else if (errno != EACCES) {
+        handle_err("mprotect(PROT_EXEC): unexpected error");
+    }
 
     __munmap(addr, 5 * PAGESIZE);
 }

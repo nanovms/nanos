@@ -181,6 +181,8 @@ closure_function(3, 0, void, startup,
     value p = table_find(root, sym(program));
     assert(p);
     tuple pro = resolve_path(root, split(general, p, '/'));
+    if (table_find(root, sym(exec_protection)))
+        table_set(pro, sym(exec), null_value);  /* set executable flag */
     init_network_iface(root);
     filesystem_read_entire(fs, pro, heap_backed(kh), pg, closure(general, read_program_fail));
     closure_finish();

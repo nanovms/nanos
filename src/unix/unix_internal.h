@@ -428,6 +428,11 @@ extern thread dummy_thread;
 
 void init_thread_fault_handler(thread t);
 
+static inline boolean proc_is_exec_protected(process p)
+{
+    return !!table_find(p->process_root, sym(exec_protection));
+}
+
 static inline fsfile file_get_fsfile(file f)
 {
     return f->fsf;
@@ -450,11 +455,19 @@ static inline boolean fdesc_is_writable(fdesc f)
 
 static inline u32 anon_perms(process p)
 {
+    if (proc_is_exec_protected(p))
+        return (ACCESS_PERM_READ | ACCESS_PERM_WRITE);
     return ACCESS_PERM_ALL;
 }
 
 static inline u32 file_meta_perms(process p, tuple m)
 {
+    if (proc_is_exec_protected(p)) {
+        if (table_find(m, sym(exec)))
+            return (ACCESS_PERM_READ | ACCESS_PERM_EXEC);
+        else
+            return (ACCESS_PERM_READ | ACCESS_PERM_WRITE);
+    }
     return ACCESS_PERM_ALL;
 }
 
