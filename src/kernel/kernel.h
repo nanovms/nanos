@@ -17,6 +17,10 @@ typedef struct kernel_context {
     u64 frame[0];
 } *kernel_context;
 
+typedef struct nanos_thread {
+    thunk pause;
+} *nanos_thread;
+
 typedef struct cpuinfo {
     /*** Fields accessed by low-level entry points. ***/
     /* Don't move these without updating gs-relative accesses in crt0.s ***/
@@ -49,8 +53,8 @@ typedef struct cpuinfo {
     /* Stack for interrupts */
     void *int_stack;
 
-    /* leaky unix stuff */
-    void *current_thread;
+    /* pointer to nanos_thread (and target OS dependent stuff) */
+    nanos_thread current_thread;
 } *cpuinfo;
 
 #define cpu_not_present 0

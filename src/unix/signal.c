@@ -156,7 +156,7 @@ static queued_signal dequeue_signal(thread t, u64 sigmask, boolean save_and_mask
 
     /* for actual signal handling - bypassed if dispatching via rt_sigtimedwait */
     if (save_and_mask) {
-        sigaction sa = sigaction_from_sig(signum);
+        sigaction sa = sigaction_from_sig(t, signum);
         if (ss->saved == 0)      /* rt_sigsuspend may provide one */
             ss->saved = ss->mask;
         ss->mask |= mask_from_sig(signum) | sa->sa_mask.sig[0];
@@ -308,7 +308,7 @@ void deliver_signal_to_process(process p, struct siginfo *info)
 
     /* If a thread is set as runnable and can handle this signal, just return. */
     thread t, can_wake = 0;
-    vector_foreach(current->p->threads, t) {
+    vector_foreach(p->threads, t) {
         if (!t)
             continue;
         if (thread_is_runnable(t)) {
@@ -445,7 +445,7 @@ sysreturn rt_sigreturn(void)
     sig_debug("rt_sigreturn: frame:0x%lx\n", (unsigned long)frame);
 
     /* safer to query via thread variable */
-    sa = sigaction_from_sig(t->active_signo);
+    sa = sigaction_from_sig(t, t->active_signo);
     t->active_signo = 0;
 
     /* restore signal mask and saved context, if applicable */
@@ -483,7 +483,7 @@ sysreturn rt_sigaction(int signum,
     if (sigsetsize != (NSIG / 8))
         return -EINVAL;
 
-    sigaction sa = sigaction_from_sig(signum);
+    sigaction sa = sigaction_from_sig(current, signum);
 
     if (oldact) {
         if (validate_user_memory(oldact, sizeof(struct sigaction), true))
@@ -1063,7 +1063,7 @@ sysreturn signalfd(int fd, const u64 *mask, u64 sigsetsize)
 
 static void setup_sigframe(thread t, int signum, struct siginfo *si)
 {
-    sigaction sa = sigaction_from_sig(signum);
+    sigaction sa = sigaction_from_sig(t, signum);
 
     assert(sizeof(struct siginfo) == 128);
 
@@ -1137,7 +1137,7 @@ boolean dispatch_signals(thread t)
 
     /* act on signal disposition */
     int signum = qs->si.si_signo;
-    sigaction sa = sigaction_from_sig(signum);
+    sigaction sa = sigaction_from_sig(t, signum);
     void * handler = sa->sa_handler;
 
     sig_debug("dispatching signal %d; sigaction handler %p, sa_mask 0x%lx, sa_flags 0x%lx\n",

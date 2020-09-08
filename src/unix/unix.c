@@ -10,6 +10,13 @@
 #define pf_debug(x, ...) thread_log(current, x, ##__VA_ARGS__);
 #endif
 
+static unix_heaps u_heap;
+
+unix_heaps get_unix_heaps()
+{
+    return u_heap;
+}
+
 u64 allocate_fd(process p, void *f)
 {
     u64 fd = allocate_u64((heap)p->fdallocator, 1);
@@ -126,6 +133,7 @@ define_closure_function(1, 1, context, default_fault_handler,
        support multiple processes, we may need to install current when
        resuming deferred processing. */
     process p = current->p;
+
     u64 vaddr = fault_address(frame);
     if (frame[FRAME_VECTOR] == 0) {
         if (current_cpu()->state == cpu_user) {
@@ -334,10 +342,8 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     return p;
 }
 
-void thread_enter_user(thread out, thread in)
+void thread_enter_user(thread in)
 {
-    if (out)
-        thread_pause(out);
     thread_resume(in);
     in->sysctx = false;
 }
@@ -428,6 +434,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     if (uh == INVALID_ADDRESS)
 	return INVALID_ADDRESS;
 
+    u_heap = uh;
     uh->kh = *kh;
     uh->processes = create_id_heap(h, h, 1, 65535, 1);
     uh->file_cache = allocate_objcache(h, heap_backed(kh), sizeof(struct file), PAGESIZE);
@@ -453,7 +460,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
         sizeof(dummy_thread->name));
 
     for (int i = 0; i < MAX_CPUS; i++)
-        cpuinfo_from_id(i)->current_thread = dummy_thread;
+        cpuinfo_from_id(i)->current_thread = (nanos_thread)dummy_thread;
 
     /* XXX remove once we have http PUT support */
     ftrace_enable();

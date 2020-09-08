@@ -675,6 +675,7 @@ closure_function(7, 1, void, file_read_complete,
                  status, s)
 {
     thread_log(bound(t), "%s: status %v", __func__, s);
+    current_cpu()->current_thread = (nanos_thread)bound(t);
     sysreturn rv;
     if (is_ok(s)) {
         file f = bound(f);
@@ -2439,39 +2440,39 @@ extern u64 kernel_lock;
 void syscall_debug(context f)
 {
     u64 call = f[FRAME_VECTOR];
-    thread t = current;
+    thread t = pointer_from_u64(f[FRAME_THREAD]);
     set_syscall_return(t, -ENOSYS);
 
     if (call >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0])) {
         schedule_frame(f);
-        thread_log(current, "invalid syscall %d", call);
+        thread_log(t, "invalid syscall %d", call);
         runloop();
     }
     t->syscall = call;
     // should we cache this for performance?
-    void *debugsyscalls = table_find(current->p->process_root, sym(debugsyscalls));
-    struct syscall *s = current->p->syscalls + call;
+    void *debugsyscalls = table_find(t->p->process_root, sym(debugsyscalls));
+    struct syscall *s = t->p->syscalls + call;
     if (debugsyscalls) {
         if (s->name)
-            thread_log(current, s->name);
+            thread_log(t, s->name);
         else
-            thread_log(current, "syscall %d", call);
+            thread_log(t, "syscall %d", call);
     }
     sysreturn (*h)(u64, u64, u64, u64, u64, u64) = s->handler;
     if (h) {
-        thread_enter_system(current);
+        thread_enter_system(t);
 
         sysreturn rv = h(f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]);
-        set_syscall_return(current, rv);
+        set_syscall_return(t, rv);
         if (debugsyscalls)
-            thread_log(current, "direct return: %ld, rsp 0x%lx", rv, f[FRAME_RSP]);
+            thread_log(t, "direct return: %ld, rsp 0x%lx", rv, f[FRAME_RSP]);
     } else if (debugsyscalls) {
         if (s->name)
-            thread_log(current, "nosyscall %s", s->name);
+            thread_log(t, "nosyscall %s", s->name);
         else
-            thread_log(current, "nosyscall %d", call);
+            thread_log(t, "nosyscall %d", call);
     }
-    current->syscall = -1;
+    t->syscall = -1;
     // i dont know that we actually want to defer the syscall return...its just easier for the moment to hew
     // to the general model and make exceptions later
     schedule_frame(f);

@@ -1,11 +1,6 @@
 #include <kernel.h>
 #include <apic.h>
 
-// XXX these three should go away along with thread_pause below
-#include <pagecache.h>
-#include <tfs.h>
-#include <unix.h>
-
 
 /* Try to keep these within the confines of the runloop lock so we
    don't create too much of a mess. */
@@ -134,6 +129,13 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
     cpuinfo ci = current_cpu();
     thunk t;
 
+    if (ci->current_thread != INVALID_ADDRESS) {
+        nanos_thread nt = (nanos_thread)ci->current_thread;
+        if (nt->pause != INVALID_ADDRESS)
+            apply(nt->pause);
+        /* XXX disable until we have a better solution for deferred processing */
+        //ci->current_thread = INVALID_ADDRESS;
+    }
     disable_interrupts();
     sched_debug("runloop from %s b:%d r:%d t:%d i:%x lock:%d\n", state_strings[ci->state],
                 queue_length(bhqueue), queue_length(runqueue), queue_length(thread_queue),
@@ -162,9 +164,6 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
 
     if (!shutting_down && (t = dequeue(thread_queue)) != INVALID_ADDRESS)
         run_thunk(t, cpu_user);
-// XXX redo with frame pause
-    if (ci->current_thread)
-        thread_pause(ci->current_thread);
 
     kernel_sleep();
 }    

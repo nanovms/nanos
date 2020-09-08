@@ -101,6 +101,8 @@ void register_thread_syscalls(struct syscall *map)
 
 void thread_log_internal(thread t, const char *desc, ...)
 {
+    if (t == INVALID_ADDRESS)
+        return;
     if (table_find(t->p->process_root, sym(trace))) {
         if (syscall_notrace(t->syscall))
             return;
@@ -124,7 +126,7 @@ static inline void check_stop_conditions(thread t)
     boolean in_sighandler = thread_frame(t) == t->sighandler_frame;
     /* rather abrupt to just halt...this should go do dump or recovery */
     if (pending & mask_from_sig(SIGSEGV)) {
-        void * handler = sigaction_from_sig(SIGSEGV)->sa_handler;
+        void * handler = sigaction_from_sig(t, SIGSEGV)->sa_handler;
 
         /* Terminate on uncaught SIGSEGV, or if triggered by signal handler. */
         if (in_sighandler || (handler == SIG_IGN || handler == SIG_DFL)) {
@@ -151,9 +153,9 @@ static inline void run_thread_frame(thread t)
     check_stop_conditions(t);
     kern_lock(); // xx - make thread entry a separate exclusion region for performance
     thread old = current;
-    current_cpu()->current_thread = t;
+    current_cpu()->current_thread = (nanos_thread)t;
     ftrace_thread_switch(old, current);    /* ftrace needs to know about the switch event */
-    thread_enter_user(old, t);
+    thread_enter_user(t);
 
     /* cover wake-before-sleep situations (e.g. sched yield, fs ops that don't go to disk, etc.) */
     t->blocked_on = 0;
@@ -175,8 +177,15 @@ define_closure_function(1, 0, void, run_thread,
                         thread, t)
 {
     thread t = bound(t);
+    current_cpu()->current_thread = (nanos_thread)t;
     dispatch_signals(t);
     run_thread_frame(t);
+}
+
+define_closure_function(1, 0, void, pause_thread,
+                        thread, t)
+{
+    thread_pause(bound(t));
 }
 
 define_closure_function(1, 0, void, run_sighandler,
@@ -225,8 +234,8 @@ void thread_yield(void)
 void thread_wakeup(thread t)
 {
     thread_log(current, "%s: %ld->%ld blocked_on %s, RIP=0x%lx", __func__, current->tid, t->tid,
-               t->blocked_on ? (t->blocked_on != INVALID_ADDRESS ? blockq_name(t->blocked_on) : "uninterruptible") :
-               "(null)", thread_frame(t)[FRAME_RIP]);
+            t->blocked_on ? (t->blocked_on != INVALID_ADDRESS ? blockq_name(t->blocked_on) : "uninterruptible") :
+            "(null)", thread_frame(t)[FRAME_RIP]);
     assert(t->blocked_on);
     t->blocked_on = 0;
     t->syscall = -1;
@@ -256,7 +265,7 @@ define_closure_function(1, 0, void, free_thread,
 
 define_closure_function(1, 0, void, resume_syscall, thread, t)
 {
-    current_cpu()->current_thread = bound(t);
+    current_cpu()->current_thread = (nanos_thread)bound(t);
     thread_resume(bound(t));
     syscall_debug(thread_frame(bound(t)));
 }
@@ -298,6 +307,7 @@ thread create_thread(process p)
     setup_thread_frame(h, t->sighandler_frame, t);
     t->sighandler_frame[FRAME_RUN] = u64_from_pointer(init_closure(&t->run_sighandler, run_sighandler, t));
 
+    t->thrd.pause = init_closure(&t->pause_thread, pause_thread, t);
     // xxx another max 64
     t->affinity.mask[0] = MASK(total_processors);
     t->blocked_on = 0;
@@ -376,7 +386,7 @@ void exit_thread(thread t)
     ftrace_thread_deinit(t, dummy_thread);
 
     /* replace references to thread with placeholder */
-    current_cpu()->current_thread = dummy_thread;
+    current_cpu()->current_thread = (nanos_thread)dummy_thread;
     set_running_frame(dummy_thread->default_frame);
     refcount_release(&t->refcount);
 }
