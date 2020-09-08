@@ -1,11 +1,6 @@
 #include <kernel.h>
 #include <apic.h>
 
-// XXX these three should go away along with thread_pause below
-#include <pagecache.h>
-#include <tfs.h>
-#include <unix.h>
-
 
 /* Try to keep these within the confines of the runloop lock so we
    don't create too much of a mess. */
