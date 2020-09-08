@@ -97,6 +97,7 @@ static void init_cpuinfos(heap backed)
         ci->state = cpu_not_present;
         ci->have_kernel_lock = false;
         ci->frcount = 0;
+        ci->current_thread = INVALID_ADDRESS;
         /* frame and stacks */
         ci->kernel_context = allocate_kernel_context(backed);
         ci->exception_stack = allocate_stack(backed, EXCEPT_STACK_SIZE);
