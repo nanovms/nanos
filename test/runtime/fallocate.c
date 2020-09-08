@@ -26,6 +26,12 @@ int main(int argc, char **argv)
 
     test_assert((fallocate(0, 0, 0, 1) == -1) && (errno == ESPIPE));
 
+    fd = open("my_file", O_RDONLY | O_CREAT, S_IRWXU);
+    test_assert(fd > 0);
+    test_assert(fallocate(fd, FALLOC_FL_KEEP_SIZE, 0, 1) == -1);
+    test_assert(errno == EBADF);    /* the file is open in read-only mode */
+    test_assert(close(fd) == 0);
+
     fd = open("my_file", O_RDWR | O_CREAT, S_IRWXU);
     test_assert(fd > 0);
     test_assert(fallocate(fd, FALLOC_FL_KEEP_SIZE, 0, 1) == 0);

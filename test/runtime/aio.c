@@ -101,6 +101,29 @@ static void aio_test_readwrite(void)
     test_assert(syscall(SYS_io_destroy, ioc) == 0);
 
     test_assert(close(fd) == 0);
+
+    ioc = 0;
+    test_assert(syscall(SYS_io_setup, 1, &ioc) == 0);
+
+    /* Try to write to a read-only file. */
+    fd = open("file_ro", O_RDONLY | O_CREAT, S_IRWXU);
+    test_assert(fd > 0);
+    iocb_setup_pwrite(&iocb, fd, write_buf, BUF_SIZE, 0);
+    test_assert(syscall(SYS_io_submit, ioc, 1, &iocbp) == -1);
+    test_assert(errno == EBADF);
+    test_assert(close(fd) == 0);
+    test_assert(unlink("file_ro") == 0);
+
+    /* Try to read from a write-only file. */
+    fd = open("file_wo", O_WRONLY | O_CREAT, S_IRWXU);
+    test_assert(fd > 0);
+    iocb_setup_pread(&iocb, fd, read_buf, BUF_SIZE, 0);
+    test_assert(syscall(SYS_io_submit, ioc, 1, &iocbp) == -1);
+    test_assert(errno == EBADF);
+    test_assert(close(fd) == 0);
+    test_assert(unlink("file_wo") == 0);
+
+    test_assert(syscall(SYS_io_destroy, ioc) == 0);
 }
 
 static void aio_test_eventfd(void)
@@ -149,6 +172,7 @@ static void aio_test_multiple()
     struct iocb *iocb_ptrs[8];
     uint8_t read_buf[SMALLBUF_SIZE], write_buf[SMALLBUF_SIZE];
     struct io_event evts[8];
+    const int chunk_size = SMALLBUF_SIZE / 8;
 
     fd = open("file_mult", O_RDWR | O_CREAT, S_IRWXU);
     test_assert(fd > 0);
@@ -160,22 +184,24 @@ static void aio_test_multiple()
     }
     for (int i = 0; i < 8; i++) {
         iocb_ptrs[i] = &iocbs[i];
-        iocb_setup_pwrite(&iocbs[i], fd, write_buf + i * 8, 8, i * 8);
+        iocb_setup_pwrite(&iocbs[i], fd, write_buf + i * chunk_size, chunk_size,
+                          i * chunk_size);
         iocbs[i].aio_data = (__u64) write_buf;
     }
     test_assert(syscall(SYS_io_submit, ioc, 8, iocb_ptrs) == 8);
     test_assert(syscall(SYS_io_getevents, ioc, 8, 8, evts, NULL) == 8);
     for (int i = 0; i < 8; i++) {
         test_assert(evts[i].data == (__u64) write_buf);
-        test_assert(evts[i].res == 8);
-        iocb_setup_pread(&iocbs[i], fd, read_buf + i * 8, 8, i * 8);
+        test_assert(evts[i].res == chunk_size);
+        iocb_setup_pread(&iocbs[i], fd, read_buf + i * chunk_size, chunk_size,
+                         i * chunk_size);
         iocbs[i].aio_data = (__u64) read_buf;
     }
     test_assert(syscall(SYS_io_submit, ioc, 8, iocb_ptrs) == 8);
     test_assert(syscall(SYS_io_getevents, ioc, 8, 8, evts, NULL) == 8);
     for (int i = 0; i < 8; i++) {
         test_assert(evts[i].data == (__u64) read_buf);
-        test_assert(evts[i].res == 8);
+        test_assert(evts[i].res == chunk_size);
     }
     for (int i = 0; i < SMALLBUF_SIZE; i++) {
         test_assert(read_buf[i] == i);

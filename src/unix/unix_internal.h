@@ -328,6 +328,7 @@ sysreturn ioctl_generic(fdesc f, unsigned long request, vlist ap);
 
 void epoll_finish(epoll e);
 
+#define VMAP_FLAG_PROT_MASK 0x000f
 #define VMAP_FLAG_EXEC     0x0001
 #define VMAP_FLAG_WRITABLE 0x0002
 #define VMAP_FLAG_READABLE 0x0004
@@ -341,9 +342,16 @@ void epoll_finish(epoll e);
 #define VMAP_MMAP_TYPE_FILEBACKED 0x0200
 #define VMAP_MMAP_TYPE_IORING     0x0400
 
+#define ACCESS_PERM_READ    VMAP_FLAG_READABLE
+#define ACCESS_PERM_WRITE   VMAP_FLAG_WRITABLE
+#define ACCESS_PERM_EXEC    VMAP_FLAG_EXEC
+#define ACCESS_PERM_ALL     \
+    (ACCESS_PERM_READ | ACCESS_PERM_WRITE | ACCESS_PERM_EXEC)
+
 typedef struct vmap {
     struct rmnode node;
     u32 flags;
+    u32 allowed_flags;
     pagecache_node cache_node;
     u64 node_offset;
 } *vmap;
@@ -354,7 +362,12 @@ typedef struct varea {
     boolean allow_fixed;
 } *varea;
 
-#define ivmap(__f, __o, __c) (struct vmap){.flags = __f, .node_offset = __o, .cache_node = __c}
+#define ivmap(__f, __af, __o, __c) (struct vmap) {  \
+    .flags = __f,                                   \
+    .allowed_flags = __f | __af,                    \
+    .node_offset = __o,                             \
+    .cache_node = __c,                              \
+}
 typedef closure_type(vmap_handler, void, vmap);
 
 static inline u64 page_map_flags(u64 vmflags)
@@ -433,6 +446,11 @@ static inline thread _current(const char *caller) {
 
 void init_thread_fault_handler(thread t);
 
+static inline boolean proc_is_exec_protected(process p)
+{
+    return !!table_find(p->process_root, sym(exec_protection));
+}
+
 static inline fsfile file_get_fsfile(file f)
 {
     return f->fsf;
@@ -441,6 +459,44 @@ static inline fsfile file_get_fsfile(file f)
 static inline tuple file_get_meta(file f)
 {
     return f->f.type == FDESC_TYPE_REGULAR ? fsfile_get_meta(f->fsf) : f->meta;
+}
+
+static inline boolean fdesc_is_readable(fdesc f)
+{
+    return ((f->flags & O_ACCMODE) != O_WRONLY);
+}
+
+static inline boolean fdesc_is_writable(fdesc f)
+{
+    return ((f->flags & O_ACCMODE) != O_RDONLY);
+}
+
+static inline u32 anon_perms(process p)
+{
+    if (proc_is_exec_protected(p))
+        return (ACCESS_PERM_READ | ACCESS_PERM_WRITE);
+    return ACCESS_PERM_ALL;
+}
+
+static inline u32 file_meta_perms(process p, tuple m)
+{
+    if (proc_is_exec_protected(p)) {
+        if (table_find(m, sym(exec)))
+            return (ACCESS_PERM_READ | ACCESS_PERM_EXEC);
+        else
+            return (ACCESS_PERM_READ | ACCESS_PERM_WRITE);
+    }
+    return ACCESS_PERM_ALL;
+}
+
+static inline u32 file_perms(process p, file f)
+{
+    u32 perms = file_meta_perms(p, file_get_meta(f));
+    if (!fdesc_is_readable(&f->f))
+        perms &= ~ACCESS_PERM_READ;
+    if (!fdesc_is_writable(&f->f))
+        perms &= ~ACCESS_PERM_WRITE;
+    return perms;
 }
 
 static inline thread thread_from_tid(process p, int tid)

@@ -12,6 +12,22 @@
     } \
 } while (0)
 
+static void test_access_mode(int fd)
+{
+    int old_flags, access_mode, new_flags;
+
+    old_flags = fcntl(fd, F_GETFL);
+    test_assert(old_flags >= 0);
+    access_mode = old_flags & O_ACCMODE;
+
+    /* Try to change file access mode and verify that it does not change. */
+    access_mode = (access_mode == O_RDWR) ? O_RDONLY : O_RDWR;
+    new_flags = (old_flags & ~O_ACCMODE) | access_mode;
+    test_assert(fcntl(fd, F_SETFL, new_flags) == 0);
+    new_flags = fcntl(fd, F_GETFL);
+    test_assert((new_flags & O_ACCMODE) == (old_flags & O_ACCMODE));
+}
+
 /* covers F_GETLK, F_SETLK, F_SETLKW; expect = 0 for success, errno otherwise */
 void test_lk(int fd, int cmd, struct flock *lock, int expect)
 {
@@ -59,6 +75,8 @@ int main(int argc, char **argv)
 {
     struct flock lock;
     int fd = open("test", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+
+    test_access_mode(fd);
 
     lock.l_type   = F_WRLCK;
     lock.l_start  = 0;

@@ -1,3 +1,4 @@
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
@@ -101,6 +102,23 @@ int main()
     }
 
     close(fd);
+
+    fd = open("hello", O_RDONLY);
+    if (fd < 0) {
+        perror("open read-only");
+        exit(EXIT_FAILURE);
+    }
+    if (writev(fd, iovs, 3) != -1) {
+        printf("Could writev to read-only file\n");
+        exit(EXIT_FAILURE);
+    } else if (errno != EBADF) {
+        perror("writev to read-only file: unexpected error");
+        exit(EXIT_FAILURE);
+    }
+    if (close(fd) < 0) {
+        perror("close read-only");
+        exit(EXIT_FAILURE);
+    }
 
     printf("write test passed\n");
 

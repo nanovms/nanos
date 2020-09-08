@@ -13,5 +13,6 @@
     fault:t
     arguments:[/mmap, basic]
     environment:(USER:bobby PWD:/)
+    exec_protection:t
     imagesize:30M
 )

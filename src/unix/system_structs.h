@@ -113,6 +113,7 @@ typedef struct iovec {
 #define O_RDONLY	00000000
 #define O_WRONLY	00000001
 #define O_RDWR		00000002
+#define O_ACCMODE	00000003
 #define O_CREAT		00000100
 #define O_EXCL          00000200
 #define O_NOCTTY        00000400
@@ -139,6 +140,12 @@ typedef struct iovec {
 #define F_DUPFD_CLOEXEC (F_LINUX_SPECIFIC_BASE + 6)
 #define F_SETPIPE_SZ    (F_LINUX_SPECIFIC_BASE + 7)
 #define F_GETPIPE_SZ    (F_LINUX_SPECIFIC_BASE + 8)
+
+/* Values for 'mode' argument of access/faccessat syscalls */
+#define F_OK    0x0
+#define X_OK    0x1
+#define W_OK    0x2
+#define R_OK    0x4
 
 struct flock {
     s16 l_type;

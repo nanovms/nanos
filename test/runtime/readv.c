@@ -1,3 +1,4 @@
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
@@ -60,6 +61,28 @@ int main()
     }
     int curpos = rv;
     EXPECT_LONG_EQUAL(startpos + bytes_read, curpos);
+
+    if (close(fd) < 0) {
+        perror("close");
+        exit(EXIT_FAILURE);
+    }
+
+    fd = open("hello", O_WRONLY);
+    if (fd < 0) {
+        perror("open write-only");
+        exit(EXIT_FAILURE);
+    }
+    if (readv(fd, iovs, 3) != -1) {
+        printf("Could readv from write-only file\n");
+        exit(EXIT_FAILURE);
+    } else if (errno != EBADF) {
+        perror("readv from write-only file: unexpected error");
+        exit(EXIT_FAILURE);
+    }
+    if (close(fd) < 0) {
+        perror("close write-only");
+        exit(EXIT_FAILURE);
+    }
 
     printf("readv test PASSED\n");
 

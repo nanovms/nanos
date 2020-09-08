@@ -185,6 +185,14 @@ static void mmap_newfile_test(void)
         perror("new file  munmap");
         exit(EXIT_FAILURE);
     }
+    addr = mmap(NULL, maplen, PROT_EXEC, MAP_PRIVATE, fd, 0);
+    if (addr != MAP_FAILED) {
+        fprintf(stderr, "%s: could mmap non-executable file with exec access\n",
+            __func__);
+        exit(EXIT_FAILURE);
+    } else if (errno != EACCES) {
+        handle_err("exec-mmap non-executable file: unexpected error");
+    }
     if (close(fd) < 0) {
         perror("new file close");
         exit(EXIT_FAILURE);
@@ -382,6 +390,14 @@ static void mmap_test(void)
     printf("  and unmap...\n");
     if (munmap(map_addr, LARGE_MMAP_SIZE)) {
         perror("munmap failed");
+        exit(EXIT_FAILURE);
+    }
+
+    map_addr = mmap(NULL, LARGE_MMAP_SIZE, PROT_EXEC,
+        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (map_addr != MAP_FAILED) {
+        fprintf(stderr, "%s: could set up anonymous mapping with exec access\n",
+            __func__);
         exit(EXIT_FAILURE);
     }
 
@@ -681,6 +697,14 @@ void mprotect_test(void)
     u8 *addr;
     int ret;
 
+    if (mprotect(0, PAGESIZE, PROT_READ) == 0) {
+        fprintf(stderr, "%s: could enable read access to zero page\n",
+            __func__);
+        exit(EXIT_FAILURE);
+    } else if (errno != ENOMEM) {
+        handle_err("mprotect() to zero page: unexpected error");
+    }
+
     addr = mmap(NULL, 5 * PAGESIZE, PROT_READ | PROT_WRITE,
             MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (addr == MAP_FAILED)
@@ -701,6 +725,14 @@ void mprotect_test(void)
     if (ret < 0)
         handle_err("mprotect 3");
     addr[4 * PAGESIZE - 1] = 0;
+
+    if (mprotect(addr, PAGESIZE, PROT_EXEC) == 0) {
+        fprintf(stderr, "%s: could enable exec access on anonymous mapping\n",
+            __func__);
+        exit(EXIT_FAILURE);
+    } else if (errno != EACCES) {
+        handle_err("mprotect(PROT_EXEC): unexpected error");
+    }
 
     __munmap(addr, 5 * PAGESIZE);
 }
@@ -909,6 +941,22 @@ static void filebacked_test(heap h)
     munmap(p + PAGESIZE, PAGESIZE);
     munmap(p + (PAGESIZE * 3), PAGESIZE);
     close(fd);
+
+    fd = open("mapfile", O_RDONLY);
+    if (fd < 0)
+        handle_err("open read-only file");
+    if (mmap(NULL, PAGESIZE, PROT_WRITE, MAP_SHARED, fd, 0) != MAP_FAILED) {
+        fprintf(stderr, "%s: could mmap read-only file with write access\n",
+            __func__);
+        exit(EXIT_FAILURE);
+    }
+    p = mmap(NULL, PAGESIZE, PROT_WRITE, MAP_PRIVATE, fd, 0);
+    if (p == MAP_FAILED)
+        handle_err("set up private mmap with read-only file");
+    __munmap(p, PAGESIZE);
+    if (close(fd) < 0)
+        handle_err("close read-only file");
+
     printf("** all file-backed tests passed\n");
 }
 
