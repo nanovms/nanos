@@ -131,7 +131,7 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
 
     if (ci->current_thread != INVALID_ADDRESS) {
         nanos_thread nt = (nanos_thread)ci->current_thread;
-        if (nt->pause)
+        if (nt->pause != INVALID_ADDRESS)
             apply(nt->pause);
         /* XXX disable until we have a better solution for deferred processing */
         //ci->current_thread = INVALID_ADDRESS;
