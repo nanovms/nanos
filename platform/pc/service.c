@@ -591,6 +591,7 @@ static void cmdline_parse(const char *cmdline)
 // init linker set
 void init_service(u64 rdi, u64 rsi)
 {
+    init_debug("init_service");
     u8 *params = pointer_from_u64(rsi);
     const char *cmdline = 0;
     u32 cmdline_size;
@@ -669,9 +670,8 @@ void init_service(u64 rdi, u64 rsi)
     cr &= ~C0_EM;
     mov_to_cr("cr0", cr);
     mov_from_cr("cr4", cr);
-    cr |= CR4_OSFXSR | CR4_OSXMMEXCPT | CR4_OSXSAVE;
+    cr |= CR4_OSFXSR | CR4_OSXMMEXCPT /* | CR4_OSXSAVE */;
     mov_to_cr("cr4", cr);
-    init_debug("init_service");
     init_kernel_heaps();
     if (cmdline)
         cmdline_parse(cmdline);
