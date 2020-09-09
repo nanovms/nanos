@@ -161,7 +161,7 @@ INCLUDES=\
 	-I$(SRCDIR)/hyperv/include \
 	-I$(LWIPDIR)/src/include
 
-AFLAGS+=-I$(ARCHDIR)
+AFLAGS+=-I$(ARCHDIR)/
 
 CFLAGS+=$(KERNCFLAGS) -DSTAGE3 -DKERNEL -mcmodel=kernel
 CFLAGS+=-Wno-address # lwIP build sadness
