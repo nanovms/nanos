@@ -718,6 +718,7 @@ closure_function(2, 6, sysreturn, file_read,
     begin_file_read(t, f);
     apply(f->fs_read, sg, irangel(offset, length), closure(h, file_read_complete, t, sg, dest, length,
                                                            f, is_file_offset, completion));
+    file_readahead(f, offset, length);
     /* possible direct return in top half */
     return bh ? SYSRETURN_CONTINUE_BLOCKING : file_op_maybe_sleep(t);
 }
@@ -762,6 +763,7 @@ closure_function(2, 6, sysreturn, file_sg_read,
     begin_file_read(t, f);
     apply(f->fs_read, sg, irangel(offset, length), closure(h, file_sg_read_complete,
                                                            t, f, sg, is_file_offset, completion));
+    file_readahead(f, offset, length);
   out:
     /* possible direct return in top half */
     return bh ? SYSRETURN_CONTINUE_BLOCKING : file_op_maybe_sleep(t);
@@ -1056,6 +1058,7 @@ sysreturn open_internal(filesystem fs, tuple cwd, const char *name, int flags,
         assert(f->fs_read);
         f->fs_write = fsfile_get_writer(fsf);
         assert(f->fs_write);
+        f->fadv = POSIX_FADV_NORMAL;
     } else {
         f->meta = n;
     }

@@ -116,6 +116,11 @@ static inline int filesystem_get_tuple(const char *path, tuple *t)
     return resolve_cstring(0, current->p->cwd, path, t, 0);
 }
 
+/* Perform read-ahead following a userspace read request.
+ * offset and len arguments refer to the byte range being read from userspace,
+ * not to the range to be read ahead. */
+void file_readahead(file f, u64 offset, u64 len);
+
 sysreturn symlink(const char *target, const char *linkpath);
 sysreturn symlinkat(const char *target, int dirfd, const char *linkpath);
 

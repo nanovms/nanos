@@ -203,9 +203,8 @@ declare_closure_struct(1, 0, void, run_sighandler,
 declare_closure_struct(1, 1, context, default_fault_handler,
                        thread, t,
                        context, frame);
-declare_closure_struct(7, 0, void, thread_demand_file_page,
-                       thread, t, context, frame, pagecache_node, pn, u64, node_offset,
-                       u64, page_addr, u64, flags, boolean, shared);
+declare_closure_struct(5, 0, void, thread_demand_file_page,
+                       thread, t, struct vmap *, vm, u64, node_offset, u64, page_addr, u64, flags);
 declare_closure_struct(3, 1, void, thread_demand_file_page_complete,
                        thread, t, context, frame, u64, vaddr,
                        status, s);
@@ -309,6 +308,8 @@ typedef struct fdesc {
 
 #define IOV_MAX 1024
 
+#define FILE_READAHEAD_DEFAULT  (128 * KB)
+
 struct file {
     struct fdesc f;             /* must be first */
     filesystem fs;
@@ -317,6 +318,7 @@ struct file {
             fsfile fsf;         /* fsfile for regular files */
             sg_io fs_read;
             sg_io fs_write;
+            int fadv;           /* posix_fadvise advice */
         };
         tuple meta;             /* meta tuple for others */
     };
