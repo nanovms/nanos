@@ -102,6 +102,7 @@ struct pagecache_page {
     u64 phys;                   /* physical address */
     vector completions;         /* status_handlers */
     closure_struct(pagecache_page_free, free);
+    boolean evicted;
 };
 
 static inline void pagecache_release_page(pagecache_page pp)
