@@ -159,6 +159,7 @@ void msi_format(u32 *address, u32 *data, int vector);
 
 u64 allocate_interrupt(void);
 void deallocate_interrupt(u64 irq);
+boolean reserve_interrupt(u64 irq);
 void register_interrupt(int vector, thunk t, const char *name);
 void unregister_interrupt(int vector);
 

@@ -77,6 +77,7 @@ static inline void console(const char *s)
 
 #define U32_FROM_BIT(x) (1ul<<(x))
 #define U64_FROM_BIT(x) (1ull<<(x))
+#define MASK32(x) (U32_FROM_BIT(x)-1)
 #define MASK(x) (U64_FROM_BIT(x)-1)
 
 #define __compare(x, y, op) ({ typeof(x) __x = (x); typeof(y) __y = (y); (__x op __y ? __x : __y);})

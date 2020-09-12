@@ -119,7 +119,7 @@ static inline u8 pci_get_hdrtype(pci_dev dev)
 #define PCI_BAR_B_MEMORY_MASK    0xf
 
 /*
- * PCI BAR
+ * PCI BAR (TODO name? really segment thereof)
  */
 
 void pci_bar_init(pci_dev dev, struct pci_bar *b, int bar, bytes offset, bytes length);
@@ -156,6 +156,8 @@ static inline u32 *pci_msix_table(pci_dev dev)
 {
     return (u32 *)dev->msix_bar.vaddr;
 }
+
+void pci_setup_fixed_irq(pci_dev dev, int v, thunk h, const char *name);
 
 /* PCI config header registers for all devices */
 #define PCIR_COMMAND 0x04

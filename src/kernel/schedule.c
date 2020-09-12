@@ -116,12 +116,10 @@ NOTRACE void __attribute__((noreturn)) kernel_sleep(void)
     ci->state = cpu_idle;
     atomic_set_bit(&idle_cpu_mask, ci->id);
 
-    /* loop to absorb spurious wakeups from hlt - happens on some platforms (e.g. xen) */
     while (1) {
         rprintf("...wfi...\n");
         wait_for_interrupt();
     }
-//        asm volatile("sti; hlt" ::: "memory");
 }
 
 static void wakeup_cpu(u64 cpu)
