@@ -193,23 +193,8 @@ void pci_bar_init(pci_dev dev, struct pci_bar *b, int bar, bytes offset, bytes l
 
     if (b->type == PCI_BAR_MEMORY) {
         b->flags = base & PCI_BAR_B_MEMORY_MASK;
-
-        /* XXX hack for virt platform: bars are not assigned, so just
-         * pick a place for them within the host controller range...find legit procedure */
-
-//        u32 addr_hi = (b->flags & PCI_BAR_F_64BIT) ? pci_cfgread(dev, PCIR_BAR(bar + 1), 4) : 0;
-//        b->addr = ((u64) addr_hi << 32) | (base & ~PCI_BAR_B_MEMORY_MASK);
-        u32 addr_hi = 0, addr_lo = 0;
-        if (b->flags & PCI_BAR_F_64BIT) {
-//            addr_hi = 0x80; // + bar;
-            pci_cfgwrite(dev, PCIR_BAR(bar + 1), 4, 0);
-//        } else {
-//            addr_lo = U64_FROM_BIT(32) /* XXX 1gb mem */ + (bar * U64_FROM_BIT(24));
-        }
-        /* XXX fixed for now, with device tree we can find highmem regions instead */
-        addr_lo = 0x10000000ul + (bar << 24);
-        pci_cfgwrite(dev, PCIR_BAR(bar), 4, addr_lo | b->flags);
-        b->addr = ((u64) addr_hi << 32) | addr_lo;
+        u32 addr_hi = (b->flags & PCI_BAR_F_64BIT) ? pci_cfgread(dev, PCIR_BAR(bar + 1), 4) : 0;
+        b->addr = ((u64) addr_hi << 32) | (base & ~PCI_BAR_B_MEMORY_MASK);
         pci_debug("   mem: b->addr 0x%lx, flags 0x%lx\n", b->addr, b->flags);
     } else {
         b->flags = 0;
@@ -310,11 +295,11 @@ u32 pci_find_next_cap(pci_dev dev, u8 cap, u32 cp)
     return _pci_find_cap(dev, cap, pci_cfgread(dev, cp + PCICAP_NEXTPTR, 1));
 }
 
-void pci_enable_msix(pci_dev dev)
+boolean pci_detect_and_enable_msix(pci_dev dev)
 {
     u32 cp = pci_find_cap(dev, PCIY_MSIX);
     if (cp == 0)
-        return;
+        return false;
 
     // map MSI-X table
     u32 msix_table = pci_cfgread(dev, cp + 4, 4);
@@ -332,6 +317,7 @@ void pci_enable_msix(pci_dev dev)
 #endif
     pci_debug("%s: ctrl 0x%x, num entries %d\n", __func__, ctrl, num_entries);
     pci_cfgwrite(dev, cp + 2, 2, ctrl);
+    return true;
 }
 
 void msi_format(u32 *address, u32 *data, int vector)
@@ -345,6 +331,13 @@ void msi_format(u32 *address, u32 *data, int vector)
     u32 level = 0;          // trigger level: 0 - deassert, 1 - assert
     u32 trigger = 0;        // trigger mode: 0 - edge, 1 - level
     *data = (trigger << 15) | (level << 14) | (mode << 8) | vector;
+}
+
+void pci_setup_fixed_irq(pci_dev dev, int v, thunk h, const char *name)
+{
+    pci_debug("%s: dev %p, int %d, handler %F, name %s\n", __func__, dev, v, h, name);
+    assert(reserve_interrupt(v));
+    register_interrupt(v, h, name);
 }
 
 void pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name)

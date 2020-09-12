@@ -487,7 +487,7 @@ static void pvscsi_attach(heap general, storage_attach a, heap page_allocator, p
     assert(bar_found);
 
     pci_set_bus_master(dev->dev);
-    pci_enable_msix(dev->dev);
+    assert(pci_detect_and_enable_msix(dev->dev));
 
     // identify max targets
     pvscsi_write_cmd(dev, PVSCSI_CMD_GET_MAX_TARGETS, 0, 0);

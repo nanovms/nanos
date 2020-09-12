@@ -5,6 +5,7 @@ PROGRAMS=	kernel.elf
 WITHOUT_SSP=	1
 
 SRCS-kernel.elf= \
+$(OBJDIR)/gitversion.c \
 $(SRCDIR)/aarch64/clock.c \
 $(SRCDIR)/aarch64/crt0.S \
 $(SRCDIR)/aarch64/gic.c \
@@ -14,12 +15,17 @@ $(SRCDIR)/aarch64/serial.c \
 $(SRCDIR)/drivers/console.c \
 $(SRCDIR)/drivers/storage.c \
 $(SRCDIR)/kernel/backed_heap.c \
+$(SRCDIR)/kernel/elf.c \
 $(SRCDIR)/kernel/init.c \
 $(SRCDIR)/kernel/kernel.c \
 $(SRCDIR)/kernel/pci.c \
+$(SRCDIR)/kernel/pagecache.c \
 $(SRCDIR)/kernel/physheap.c \
 $(SRCDIR)/kernel/schedule.c \
+$(SRCDIR)/kernel/stage3.c \
 $(SRCDIR)/kernel/symtab.c \
+$(SRCDIR)/tfs/tfs.c \
+$(SRCDIR)/tfs/tlog.c \
 $(SRCDIR)/net/direct.c \
 $(SRCDIR)/net/net.c \
 $(SRCDIR)/net/netsyscall.c \
@@ -59,8 +65,6 @@ $(CURDIR)/start.c \
 $(SRCS-lwip)
 
 # SRCS-kernel.elf= \
-# 	$(CURDIR)/stage3.c \
-# 	$(OBJDIR)/gitversion.c \
 # 	$(SRCDIR)/drivers/ata.c \
 # 	$(SRCDIR)/drivers/ata-pci.c \
 # 	$(SRCDIR)/drivers/vga.c \
@@ -68,14 +72,10 @@ $(SRCS-lwip)
 # 	$(SRCDIR)/gdb/gdbtcp.c \
 # 	$(SRCDIR)/gdb/gdbutil.c \
 # 	$(SRCDIR)/http/http.c \
-# 	$(SRCDIR)/kernel/elf.c \
 # 	$(SRCDIR)/kernel/kvm_platform.c \
-# 	$(SRCDIR)/kernel/pagecache.c \
 # 	$(SRCDIR)/kernel/pvclock.c \
 # 	$(SRCDIR)/kernel/service.c \
 # 	$(SRCDIR)/kernel/vdso-now.c \
-# 	$(SRCDIR)/tfs/tfs.c \
-# 	$(SRCDIR)/tfs/tlog.c \
 # 	$(SRCDIR)/unix/aio.c \
 # 	$(SRCDIR)/unix/blockq.c \
 # 	$(SRCDIR)/unix/exec.c \
@@ -328,9 +328,6 @@ NETWORK=	virtio-net
 QEMU_MACHINE=	-machine $(MACHINE_TYPE) -machine gic-version=3
 QEMU_MEMORY=	-m 1G
 PCI_BUS=	pcie.0
-QEMU_PCI=	-device pcie-root-port,port=0x10,chassis=1,id=pci.1,bus=$(PCI_BUS),multifunction=on,addr=0x3 \
-		-device pcie-root-port,port=0x11,chassis=2,id=pci.2,bus=$(PCI_BUS),addr=0x3.0x1 \
-		-device pcie-root-port,port=0x12,chassis=3,id=pci.3,bus=$(PCI_BUS),addr=0x3.0x2
 QEMU_KERNEL=	-kernel $(PROG-kernel.elf)
 
 QEMU_DISPLAY=	-display none
@@ -347,6 +344,7 @@ else
 $(error Unsupported STORAGE=$(STORAGE))
 endif
 QEMU_TAP=	-netdev tap,id=n0,ifname=tap0,script=no,downscript=no
+#QEMU_NET=	-device $(NETWORK)$(NETWORK_BUS),mac=7e:b8:7e:87:4a:ea,netdev=n0,modern-pio-notify $(QEMU_TAP)
 QEMU_NET=	-device $(NETWORK)$(NETWORK_BUS),mac=7e:b8:7e:87:4a:ea,netdev=n0 $(QEMU_TAP)
 QEMU_USERNET=	-device $(NETWORK)$(NETWORK_BUS),netdev=n0 -netdev user,id=n0,hostfwd=tcp::8080-:8080,hostfwd=tcp::9090-:9090,hostfwd=udp::5309-:5309 -object filter-dump,id=filter0,netdev=n0,file=/tmp/nanos.pcap
 QEMU_FLAGS=	-machine highmem=off
@@ -355,7 +353,7 @@ QEMU_FLAGS=	-machine highmem=off
 QEMU_FLAGS+=	-d int -D int
 #QEMU_FLAGS+=	-s -S
 
-QEMU_COMMON=	$(QEMU_MACHINE) $(QEMU_MEMORY) $(QEMU_KERNEL) $(QEMU_DISPLAY) $(QEMU_SERIAL) $(QEMU_STORAGE) -no-reboot $(QEMU_FLAGS)
+QEMU_COMMON=	$(QEMU_MACHINE) $(QEMU_MEMORY) $(QEMU_KERNEL) $(QEMU_DISPLAY) $(QEMU_PCI) $(QEMU_SERIAL) $(QEMU_STORAGE) -no-reboot $(QEMU_FLAGS)
 
 run: image
 	$(QEMU) $(QEMU_COMMON) $(QEMU_USERNET) $(QEMU_ACCEL) || exit $$(($$?>>1))

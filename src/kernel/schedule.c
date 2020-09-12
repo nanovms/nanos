@@ -125,12 +125,10 @@ NOTRACE void __attribute__((noreturn)) kernel_sleep(void)
     if (ci->have_kernel_lock)
         kern_unlock();
 
-    /* loop to absorb spurious wakeups from hlt - happens on some platforms (e.g. xen) */
     while (1) {
         rprintf("...wfi...\n");
         wait_for_interrupt();
     }
-//        asm volatile("sti; hlt" ::: "memory");
 }
 
 // should we ever be in the user frame here? i .. guess so?

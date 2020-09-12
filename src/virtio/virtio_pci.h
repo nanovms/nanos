@@ -44,6 +44,7 @@ enum {
     VTPCI_REG_QUEUE_SELECT,
     VTPCI_REG_QUEUE_SIZE,
     VTPCI_REG_QUEUE_MSIX_VECTOR,
+    VTPCI_REG_ISR_STATUS,
     VTPCI_REG_MAX
 };
 
@@ -57,6 +58,7 @@ struct vtpci {
     pci_dev dev;
     int regs[VTPCI_REG_MAX];
     bytes notify_offset_multiplier;
+    boolean msix_enabled;
 
     struct pci_bar common_config;  // common config
     struct pci_bar notify_config;  // notify config

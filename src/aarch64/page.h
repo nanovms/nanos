@@ -140,8 +140,11 @@
                        MAIR_EL1(4, MAIR_EL1_NORM) |             \
                        MAIR_EL1(5, MAIR_EL1_NORM_WT))
 
-#define PAGE_BACKED_FLAGS 0 // XXX TODO
+/* XXX TODO revisit */
+#define PAGE_BACKED_FLAGS 0
 #define PAGE_DEV_FLAGS 0
+#define PAGE_NO_EXEC 0
+#define PAGE_WRITABLE 0
 
 void page_init_mmu(range init_pt, u64 vtarget);
 void map(u64 virtual, physical p, u64 length, u64 flags);

@@ -149,42 +149,72 @@ void synchronous_handler(void)
 NOTRACE
 void irq_handler(void)
 {
-    rprintf("%s\n", __func__);
+    int_debug("%s: enter\n", __func__);
+    u64 i = gic_dispatch_int();
+    if (i == INTID_NO_PENDING)
+        return;
+    cpuinfo ci = current_cpu();
+    context f = ci->running_frame;
+
+    int_debug("[%2d] # %d (%s), state %s, frame %p, elr 0x%lx, spsr_esr 0x%lx\n",
+              ci->id, i, interrupt_names[i], state_strings[ci->state],
+              f, f[FRAME_ELR], f[FRAME_SPSR_ESR]);
+
+    if (handlers[i]) {
+        int_debug("   invoking handler %F\n", handlers[i]);
+        ci->state = cpu_interrupt;
+        apply(handlers[i]);
+        int_debug("   eoi %d\n", i);
+        gic_eoi(i);
+    }
+
+    if (is_current_kernel_context(f))
+        f[FRAME_FULL] = false;
+    int_debug("   calling runloop\n");
+    runloop();
 }
 
 NOTRACE
 void serror_handler(void)
 {
-    rprintf("%s\n", __func__);
+    halt("%s\n", __func__);
 }
 
 NOTRACE
 void invalid_handler(void)
 {
-    rprintf("%s\n", __func__);
+    halt("%s\n", __func__);
 }
 
-static heap interrupt_vector_heap;
+static id_heap interrupt_vector_heap;
 
 u64 allocate_interrupt(void)
 {
-    return allocate_u64(interrupt_vector_heap, 1);
+    return allocate_u64((heap)interrupt_vector_heap, 1);
 }
 
 void deallocate_interrupt(u64 irq)
 {
-    deallocate_u64(interrupt_vector_heap, irq, 1);
+    deallocate_u64((heap)interrupt_vector_heap, irq, 1);
+}
+
+boolean reserve_interrupt(u64 irq)
+{
+    return id_heap_set_area(interrupt_vector_heap, irq, 1, true, true);
 }
 
 void register_interrupt(int vector, thunk t, const char *name)
 {
+    int_debug("%s: vector %d, thunk %p (%F), name %s\n",
+              __func__, vector, t, t, name);
     if (handlers[vector])
         halt("%s: handler for vector %d already registered (%p)\n",
              __func__, vector, handlers[vector]);
     handlers[vector] = t;
     interrupt_names[vector] = name;
 
-    // XXX make interface?
+    gic_set_int_priority(vector, 0);
+    gic_clear_pending_int(vector);
     gic_enable_int(vector);
 }
 
@@ -202,12 +232,10 @@ extern void *exception_vectors;
 void init_interrupts(kernel_heaps kh)
 {
     heap general = heap_general(kh);
-//    cpuinfo ci = current_cpu();
-
     handlers = allocate_zero(general, MAX_INTERRUPT_VECTORS * sizeof(thunk));
     assert(handlers != INVALID_ADDRESS);
-    interrupt_vector_heap = (heap)create_id_heap(general, general, INTERRUPT_VECTOR_START,
-                                                 MAX_INTERRUPT_VECTORS - INTERRUPT_VECTOR_START, 1);
+    interrupt_vector_heap = create_id_heap(general, general, INTERRUPT_VECTOR_START,
+                                           MAX_INTERRUPT_VECTORS - INTERRUPT_VECTOR_START, 1);
     assert(interrupt_vector_heap != INVALID_ADDRESS);
 
     /* set exception vector table base */

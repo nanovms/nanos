@@ -77,61 +77,6 @@
 #define ESR_ISS_DATA_ABRT_DFSC_BITS  6 /* data fault status code */
 #define ESR_ISS_DATA_ABRT_DFSC_SHIFT 0
 
-
-/* XXX move to gic.h */
-#define ICC_CTLR_EL1_ExtRange      U64_FROM_BIT(19)
-#define ICC_CTLR_EL1_RSS           U64_FROM_BIT(18)
-#define ICC_CTLR_EL1_A3V           U64_FROM_BIT(15)
-#define ICC_CTLR_EL1_SEIS          U64_FROM_BIT(14)
-#define ICC_CTLR_EL1_IDbits_BITS   3
-#define ICC_CTLR_EL1_IDbits_SHIFT  11
-#define ICC_CTLR_EL1_IDbits_16     0
-#define ICC_CTLR_EL1_IDbits_24     1
-#define ICC_CTLR_EL1_PRIbits_BITS  3
-#define ICC_CTLR_EL1_PRIbits_SHIFT 8
-#define ICC_CTLR_EL1_EOImode       U64_FROM_BIT(1)
-#define ICC_CTLR_EL1_CBPR          U64_FROM_BIT(0)
-
-#define INTID_NO_PENDING 1023
-
-/* GIC Distributor */
-#define GICD_CTLR          (*(volatile u32 *)(dev_base_pointer(GIC_DIST)))
-#define GICD_CTLR_DISABLE    0
-#define GICD_CTLR_ENABLEGRP0 1
-#define GICD_TYPER         (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0004))
-#define GICD_ITLinesNumber_BITS  5
-#define GICD_ITLinesNumber_SHIFT 0
-#define GICD_IIDR          (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0008))
-#define GICD_TYPER2        (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x000c))
-#define GICD_STATUSR       (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0010))
-#define GICD_SETSPI_NSR    (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0040))
-#define GICD_CLRSPI_NSR    (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0048))
-#define GICD_SETSPI_SR     (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0050))
-#define GICD_CLRSPI_SR     (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0058))
-#define GICD_IGROUPR(n)    (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0080 + 4 * (n)))
-#define GICD_ISENABLER(n)  (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0100 + 4 * (n)))
-#define GICD_ICENABLER(n)  (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0180 + 4 * (n)))
-#define GICD_INTS_PER_IENABLE_REG 32
-#define GICD_ISPENDR(n)    (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0200 + 4 * (n)))
-#define GICD_ICPENDR(n)    (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0280 + 4 * (n)))
-#define GICD_INTS_PER_IPEND_REG 32
-#define GICD_ISACTIVER(n)  (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0300 + 4 * (n)))
-#define GICD_ICACTIVER(n)  (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0380 + 4 * (n)))
-#define GICD_IPRIORITYR(n) (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0400 + 4 * (n)))
-#define GICD_INTS_PER_IPRIORITY_REG 4
-#define GICD_ITARGETSR(n)  (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0800 + 4 * (n)))
-#define GICD_INTS_PER_ITARGET_REG 4
-#define GICD_ICFGR(n)      (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0c00 + 4 * (n)))
-#define GICD_INTS_PER_ICFG_REG 16
-#define GICD_ICFGR_LEVEL 0
-#define GICD_ICFGR_EDGE  1
-#define GICD_IGRPMODR(n)   (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0d00 + 4 * (n)))
-#define GICD_NSACR(n)      (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0e00 + 4 * (n)))
-#define GICD_SGIR          (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0f00))
-#define GICD_CPENDSGIR(n)  (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0f10 + 4 * (n)))
-#define GICD_SPENDSGIR(n)  (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0f20 + 4 * (n)))
-
-
 #define switch_stack(s, target) ({ \
             register u64 __s = u64_from_pointer(s);                     \
             register u64 __t = u64_from_pointer(target);                \
@@ -159,10 +104,7 @@ static inline void irq_restore(u64 flags)
     asm volatile("msr daif, %0" :: "r"(flags));
 }
 
-static inline void wait_for_interrupt(void)
-{
-    asm volatile("dsb sy; wfi" ::: "memory");
-}
+#define vpzero(__v, __p, __y) zero(pointer_from_u64(__v), __y)
 
 #include <lock.h>
 
@@ -177,7 +119,7 @@ static inline void wait_for_interrupt(void)
 #define physical_from_virtual(v) ({                                     \
             register u64 __r;                                           \
             register u64 __x = u64_from_pointer(v);                     \
-            asm volatile("at S1E0R, %1; mrs %0, PAR_EL1" : "=r"(__r) : "r"(__x)); \
+            asm volatile("at S1E1R, %1; mrs %0, PAR_EL1" : "=r"(__r) : "r"(__x)); \
             (__r & (MASK(47) & ~MASK(12))) | (__x & MASK(12));})
 
 /* per-cpu info, saved contexts and stacks */
@@ -243,3 +185,11 @@ static inline u64 total_frame_size(void)
     // TODO extended save
     return FRAME_MAX * sizeof(u64);
 }
+
+static inline void wait_for_interrupt(void)
+{
+    disable_interrupts();
+    asm volatile("dsb sy; wfi" ::: "memory");
+    enable_interrupts();
+}
+

@@ -355,7 +355,7 @@ static void vmxnet3_net_attach(heap general, heap page_allocator, pci_dev d)
     pci_bar_init(dev->dev, &dev->bar1, 1, 0, -1);
 
     pci_set_bus_master(dev->dev);
-    pci_enable_msix(dev->dev);
+    assert(pci_detect_and_enable_msix(dev->dev));
 
     dev->general = general;
     dev->contiguous = page_allocator;

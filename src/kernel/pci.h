@@ -88,7 +88,7 @@ static inline u8 pci_get_hdrtype(pci_dev dev)
 #define PCI_BAR_B_MEMORY_MASK    0xf
 
 /*
- * PCI BAR
+ * PCI BAR (TODO name? really segment thereof)
  */
 struct pci_bar {
     u64 addr;
@@ -120,8 +120,9 @@ u32 pci_find_next_cap(pci_dev dev, u8 cap, u32 cp);
 void pci_discover();
 void pci_set_bus_master(pci_dev dev);
 void pci_enable_io_and_memory(pci_dev dev);
-void pci_enable_msix(pci_dev dev);
+boolean pci_detect_and_enable_msix(pci_dev dev);
 void pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name);
+void pci_setup_fixed_irq(pci_dev dev, int v, thunk h, const char *name);
 
 /* PCI config header registers for all devices */
 #define PCIR_COMMAND 0x04

@@ -45,8 +45,6 @@ static u64 physically_backed_alloc(heap h, bytes length)
     if (p != INVALID_PHYSICAL) {
         u64 v = allocate_u64(b->virtual, len);
         if (v != INVALID_PHYSICAL) {
-            rprintf("%s: v 0x%lx, p 0x%lx, flags 0x%lx\n",
-                    __func__, v, p, PAGE_BACKED_FLAGS);
             map(v, p, len, PAGE_BACKED_FLAGS);
             return v;
         }
