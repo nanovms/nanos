@@ -261,7 +261,6 @@ static boolean realloc_pagelocked(pagecache pc, pagecache_page pp)
     }
     assert(pp->refcount.c == 0);
     refcount_reserve(&pp->refcount);
-    assert(pp->refcount.c == 1);
     pp->write_count = 0;
     #ifdef KERNEL
     pp->phys = physical_from_virtual(pp->kvirt);
