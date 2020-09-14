@@ -345,14 +345,22 @@ closure_function(3, 3, boolean, mincore_fill_vec,
     u64 pgoff, i;
 
     if (pt_entry_is_present(e)) {
-        pgoff = (addr - bound(base)) >> PAGELOG;
-
         if (pt_entry_is_fat(level, e)) {
-            /* whole level is mapped */
-            for (i = 0; (i < 512) && (pgoff + i < bound(nr_pgs)); i++) {
-                bound(vec)[pgoff + i] = 1;
-	    }
+            /* have to handle starting in the middle of fat page */
+            u64 off, coff;
+            off = (addr & PAGEMASK_2M) >> PAGELOG;
+            if (addr > bound(base)) {
+                pgoff = (addr - bound(base)) >> PAGELOG;
+                coff = 0;
+            } else {
+                pgoff = 0;
+                coff = off;
+            }
+            for (i = 0; (i + coff < 512) && (pgoff + off + i < bound(nr_pgs)); i++) {
+                bound(vec)[pgoff + off + i] = 1;
+            }
         } else if (pt_entry_is_pte(level, e)) {
+            pgoff = (addr - bound(base)) >> PAGELOG;
             bound(vec)[pgoff] = 1;
         }
     }
