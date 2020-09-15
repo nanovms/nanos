@@ -354,25 +354,25 @@ static void check_fdesc(fdesc f, thread t)
    to collect events between wakeup (first event) and running. */
 
 closure_function(3, 1, sysreturn, epoll_wait_bh,
-                 epoll_blocked, w, thread, t, boolean, blockable,
+                 epoll_blocked, w, thread, t, timestamp, timeout,
                  u64, flags)
 {
     sysreturn rv;
     thread t = bound(t);
     epoll_blocked w = bound(w);
+    timestamp timeout = bound(timeout);
     int eventcount = user_event_count(w);
 
-    epoll_debug("w %p on tid %d, blockable %d, flags 0x%lx, event count %d\n",
-                w, t->tid, bound(blockable), flags, eventcount);
+    epoll_debug("w %p on tid %d, timeout %ld, flags 0x%lx, event count %d\n",
+                w, t->tid, timeout, flags, eventcount);
 
-    if (!bound(blockable) || (flags & BLOCKQ_ACTION_TIMEDOUT) || eventcount) {
+    if (!timeout || (flags & BLOCKQ_ACTION_TIMEDOUT) || eventcount) {
         rv = eventcount;
         goto out_wakeup;
     }
 
     if (flags & BLOCKQ_ACTION_NULLIFY) {
-        /* XXX verify */
-        rv = -EAGAIN;
+        rv = (timeout == infinity) ? -ERESTARTSYS : -EINTR;
         goto out_wakeup;
     }
 
@@ -434,9 +434,11 @@ sysreturn epoll_wait(int epfd,
             check_fdesc(f, current);
     }
 
+    timestamp ts = (timeout > 0) ? milliseconds(timeout) : 0;
     return blockq_check_timeout(w->t->thread_bq, current,
-                                closure(e->h, epoll_wait_bh, w, current, timeout != 0), false,
-                                CLOCK_ID_MONOTONIC, timeout > 0 ? milliseconds(timeout) : 0, false);
+                                closure(e->h, epoll_wait_bh, w, current,
+                                (timeout < 0) ? infinity : ts), false,
+                                CLOCK_ID_MONOTONIC, ts, false);
 }
 
 static epollfd epollfd_from_fd(epoll e, int fd)
@@ -596,24 +598,24 @@ closure_function(1, 2, void, select_notify,
 }
 
 closure_function(3, 1, sysreturn, select_bh,
-                 epoll_blocked, w, thread, t, boolean, blockable,
+                 epoll_blocked, w, thread, t, timestamp, timeout,
                  u64, flags)
 {
     sysreturn rv;
     thread t = bound(t);
     epoll_blocked w = bound(w);
-    epoll_debug("w %p on tid %d, blockable %d, flags 0x%lx, retcount %ld\n",
-                w, t->tid, bound(blockable), flags, w->retcount);
+    timestamp timeout = bound(timeout);
+    epoll_debug("w %p on tid %d, timeout %ld, flags 0x%lx, retcount %ld\n",
+                w, t->tid, timeout, flags, w->retcount);
 
-    if (!bound(blockable) || (flags & BLOCKQ_ACTION_TIMEDOUT) || w->retcount) {
+    if (!timeout || (flags & BLOCKQ_ACTION_TIMEDOUT) || w->retcount) {
         /* XXX error checking? */
         rv = w->retcount;
         goto out_wakeup;
     }
 
     if (flags & BLOCKQ_ACTION_NULLIFY) {
-        /* XXX verify */
-        rv = -EAGAIN;
+        rv = (timeout == infinity) ? -ERESTARTSYS : -EINTR;
         goto out_wakeup;
     }
 
@@ -767,7 +769,7 @@ static sysreturn select_internal(int nfds,
     }
   check_timeout:
     return blockq_check_timeout(w->t->thread_bq, current,
-                                closure(e->h, select_bh, w, current, timeout != 0), false,
+                                closure(e->h, select_bh, w, current, timeout), false,
                                 CLOCK_ID_MONOTONIC, timeout != infinity ? timeout : 0, false);
 }
 
@@ -822,24 +824,24 @@ closure_function(1, 2, void, poll_notify,
 }
 
 closure_function(3, 1, sysreturn, poll_bh,
-                 epoll_blocked, w, thread, t, boolean, blockable,
+                 epoll_blocked, w, thread, t, timestamp, timeout,
                  u64, flags)
 {
     sysreturn rv;
     thread t = bound(t);
     epoll_blocked w = bound(w);
-    epoll_debug("w %p on tid %d, blockable %d, flags 0x%lx, poll_retcount %d\n",
-                w, t->tid, bound(blockable), flags, w->poll_retcount);
+    timestamp timeout = bound(timeout);
+    epoll_debug("w %p on tid %d, timeout %ld, flags 0x%lx, poll_retcount %d\n",
+                w, t->tid, timeout, flags, w->poll_retcount);
 
-    if (!bound(blockable) || (flags & BLOCKQ_ACTION_TIMEDOUT) || w->poll_retcount) {
+    if (!timeout || (flags & BLOCKQ_ACTION_TIMEDOUT) || w->poll_retcount) {
         /* XXX error checking? */
         rv = w->poll_retcount;
         goto out_wakeup;
     }
 
     if (flags & BLOCKQ_ACTION_NULLIFY) {
-        /* XXX verify */
-        rv = -EAGAIN;
+        rv = (timeout == infinity) ? -ERESTARTSYS : -EINTR;
         goto out_wakeup;
     }
 
@@ -935,7 +937,7 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
     deallocate_bitmap(remove_efds);
 
     return blockq_check_timeout(w->t->thread_bq, current,
-                                closure(e->h, poll_bh, w, current, timeout != 0), false,
+                                closure(e->h, poll_bh, w, current, timeout), false,
                                 CLOCK_ID_MONOTONIC, timeout != infinity ? timeout : 0, false);
 }
 

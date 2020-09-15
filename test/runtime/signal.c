@@ -1040,6 +1040,90 @@ void test_sigaltstack(void)
         fail_perror("sigaltstack() with small size");
 }
 
+static void test_restart_handler(int sig)
+{
+    sigtest_debug("caught signal %d\n", sig);
+    assert(sig == SIGUSR1);
+}
+
+static void *test_restart_child(void *arg)
+{
+    int fd = (long)arg;
+    char buf[8];
+    int rv;
+
+    child_tid = syscall(SYS_gettid);
+    sigtest_debug("child enter, tid %d\n", child_tid);
+
+    /* Here read() should be restarted after the signal handler is run. */
+    rv = read(fd, buf, sizeof(buf));
+    if (rv < 0)
+        fail_perror("test_restart_child: read");
+    assert(rv == sizeof(buf));
+
+    child_tid = syscall(SYS_gettid);
+
+    /* Here read() should be interrupted by the signal. */
+    rv = read(fd, buf, sizeof(buf));
+    if (rv < 0) {
+        if (errno != EINTR)
+            fail_perror("test_restart_child: unexpected errno");
+    } else {
+        fail_error("test_restart_child: read() was not interrupted\n");
+    }
+
+    return NULL;
+}
+
+void test_restart(void)
+{
+    int fds[2] = {0,0};
+    int status;
+    pthread_t pt;
+    struct sigaction sa;
+    int rv;
+    char buf[8];
+
+    status = pipe(fds);
+    if (status < 0)
+        fail_perror("pipe");
+    child_tid = 0;
+    if (pthread_create(&pt, NULL, test_restart_child, (void *)(long)fds[0]))
+        fail_perror("pthread_create");
+    sigtest_debug("yielding until child tid reported...\n");
+    yield_for(&child_tid);
+
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = test_restart_handler;
+    sa.sa_flags = SA_RESTART;
+    rv = sigaction(SIGUSR1, &sa, 0);
+    if (rv < 0)
+        fail_perror("test_restart: sigaction");
+    rv = syscall(SYS_tgkill, __getpid(), child_tid, SIGUSR1);
+    if (rv < 0)
+        fail_perror("test_restart tgkill");
+    rv = write(fds[1], buf, sizeof(buf));
+    if (rv < 0)
+        fail_perror("test_restart: write");
+    assert(rv == sizeof(buf));
+
+    /* Wait for child thread to call read() again. */
+    child_tid = 0;
+    yield_for(&child_tid);
+
+    sa.sa_flags &= ~SA_RESTART;
+    rv = sigaction(SIGUSR1, &sa, 0);
+    if (rv < 0)
+        fail_perror("test_restart: sigaction");
+    rv = syscall(SYS_tgkill, __getpid(), child_tid, SIGUSR1);
+    if (rv < 0)
+        fail_perror("test_restart tgkill");
+
+    if (pthread_join(pt, NULL))
+        fail_perror("test_restart pthread_join");
+    assert((close(fds[0]) == 0) && (close(fds[1]) == 0));
+}
+
 int main(int argc, char * argv[])
 {
     setbuf(stdout, NULL);
@@ -1063,6 +1147,8 @@ int main(int argc, char * argv[])
     test_signalfd();
 
     test_sigaltstack();
+
+    test_restart();
 
     printf("signal test passed\n");
 }

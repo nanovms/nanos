@@ -378,7 +378,7 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
     assert(s->sock.type == SOCK_STREAM || s->sock.type == SOCK_DGRAM);
 
     if (flags & BLOCKQ_ACTION_NULLIFY) {
-        rv = -EINTR;
+        rv = -ERESTARTSYS;
         goto out;
     }
 
@@ -535,7 +535,7 @@ static sysreturn socket_write_tcp_bh_internal(netsock s, thread t, void * buf,
     assert(remain > 0);
 
     if (flags & BLOCKQ_ACTION_NULLIFY) {
-        rv = -EINTR;
+        rv = -ERESTARTSYS;
         goto out;
     }
 
@@ -1182,7 +1182,7 @@ closure_function(2, 1, sysreturn, connect_tcp_bh,
         /* XXX spinlock */
         if (rv == 0) {
             s->info.tcp.state = TCP_SOCK_ABORTING_CONNECTION;
-            rv = -EINTR;
+            rv = -ERESTARTSYS;
         }
         goto out;
     }
@@ -1689,7 +1689,7 @@ closure_function(5, 1, sysreturn, accept_bh,
     sysreturn rv = 0;
 
     if (bqflags & BLOCKQ_ACTION_NULLIFY) {
-        rv = -EINTR;
+        rv = -ERESTARTSYS;
         goto out;
     }
 

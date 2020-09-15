@@ -266,7 +266,7 @@ closure_function(7, 1, sysreturn, io_getevents_bh,
     aio_ring ring = aio->ring;
     sysreturn rv;
     if (flags & BLOCKQ_ACTION_NULLIFY) {
-        rv = -EINTR;
+        rv = (timeout == infinity) ? -ERESTARTSYS : -EINTR;
         goto out;
     }
 

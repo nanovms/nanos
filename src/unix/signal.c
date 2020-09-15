@@ -10,7 +10,6 @@
 
 /* TODO:
 
-   support for SA_RESTART
    blocking calls within sig handler
    core dump
  */
@@ -432,6 +431,22 @@ static void restore_ucontext(struct ucontext * uctx, context f)
     f[FRAME_CS] = mcontext->cs;
 }
 
+/* Does not return if a syscall is being restarted. */
+static void check_syscall_restart(thread t, sigaction sa)
+{
+    sysreturn rv = get_syscall_return(t);
+    if (rv == -ERESTARTSYS) {
+        if (sa->sa_flags & SA_RESTART) {
+            sig_debug("restarting syscall\n");
+            enqueue(runqueue, &t->deferred_syscall);
+            runloop();
+        } else {
+            sig_debug("interrupted syscall\n");
+            syscall_return(t, -EINTR);
+        }
+    }
+}
+
 sysreturn rt_sigreturn(void)
 {
     struct rt_sigframe *frame;
@@ -462,6 +477,7 @@ sysreturn rt_sigreturn(void)
     if (!dispatch_signals(t))
         set_thread_frame(t, t->default_frame);
 
+    check_syscall_restart(t, sa);
     context f = thread_frame(t);
     sig_debug("switching to thread frame %p, rip 0x%lx, rax 0x%lx\n",
               f, f[FRAME_RIP], f[FRAME_RAX]);
@@ -507,9 +523,6 @@ sysreturn rt_sigaction(int signum,
 
     if (act->sa_flags & SA_NOCLDWAIT)
         msg_warn("Warning: SA_NOCLDWAIT unsupported.\n");
-
-    if (act->sa_flags & SA_RESTART)
-        msg_warn("Warning: SA_RESTART unsupported.\n");
 
     if (act->sa_flags & SA_RESETHAND)
         msg_warn("Warning: SA_RESETHAND unsupported.\n");
@@ -891,7 +904,7 @@ closure_function(5, 1, sysreturn, signalfd_read_bh,
 
     if (flags & BLOCKQ_ACTION_NULLIFY) {
         assert(blocked);
-        rv = -EINTR;
+        rv = -ERESTARTSYS;
         sig_debug("   -> EINTR\n");
         goto out;
     }

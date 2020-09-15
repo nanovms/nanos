@@ -117,7 +117,7 @@ closure_function(6, 1, sysreturn, unixsock_read_bh,
     sysreturn rv;
 
     if ((flags & BLOCKQ_ACTION_NULLIFY) && s->peer) {
-        rv = -EINTR;
+        rv = -ERESTARTSYS;
         goto out;
     }
     shb = queue_peek(s->data);
@@ -241,7 +241,7 @@ closure_function(6, 1, sysreturn, unixsock_write_bh,
     sysreturn rv;
 
     if ((flags & BLOCKQ_ACTION_NULLIFY) && s->peer) {
-        rv = -EINTR;
+        rv = -ERESTARTSYS;
         goto out;
     }
     if (!s->peer) {
@@ -447,7 +447,7 @@ closure_function(2, 1, sysreturn, connect_bh,
     sysreturn rv;
 
     if ((bqflags & BLOCKQ_ACTION_NULLIFY) && s->connecting) {
-        rv = -EINTR;
+        rv = -ERESTARTSYS;
         goto out;
     }
     if (!s->connecting) {   /* the listening socket has been shut down */
@@ -520,7 +520,7 @@ closure_function(5, 1, sysreturn, accept_bh,
     sysreturn rv;
 
     if (bqflags & BLOCKQ_ACTION_NULLIFY) {
-        rv = -EINTR;
+        rv = -ERESTARTSYS;
         goto out;
     }
     unixsock child = dequeue(s->conn_q);

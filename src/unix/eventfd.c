@@ -19,7 +19,7 @@ closure_function(5, 1, sysreturn, efd_read_bh,
     sysreturn rv = sizeof(efd->counter);
 
     if (flags & BLOCKQ_ACTION_NULLIFY) {
-        rv = -EINTR;
+        rv = -ERESTARTSYS;
         goto out;
     }
 
@@ -70,7 +70,7 @@ closure_function(5, 1, sysreturn, efd_write_bh,
     u64 counter;
 
     if (flags & BLOCKQ_ACTION_NULLIFY) {
-        rv = -EINTR;
+        rv = -ERESTARTSYS;
         goto out;
     }
 

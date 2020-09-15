@@ -251,8 +251,7 @@ closure_function(3, 1, sysreturn, iour_close_bh,
     blockq bq = iour->bq;
     sysreturn rv;
     if (flags & BLOCKQ_ACTION_NULLIFY) {
-        rv = -EINTR;
-        iour->shutdown = true;
+        rv = -ERESTARTSYS;
         goto out;
     }
     if (iour->noncancelable_ops != 0) {
@@ -1010,7 +1009,7 @@ simple_closure_function(7, 1, sysreturn, iour_getevents_bh,
     blockq bq = iour->bq;
     sysreturn rv;
     if (flags & BLOCKQ_ACTION_NULLIFY) {
-        rv = -EINTR;
+        rv = -ERESTARTSYS;
         goto out;
     }
     iour_lock(iour);

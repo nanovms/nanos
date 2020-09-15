@@ -146,7 +146,7 @@ closure_function(5, 1, sysreturn, pipe_read_bh,
     int rv;
 
     if (flags & BLOCKQ_ACTION_NULLIFY) {
-        rv = -EINTR;
+        rv = -ERESTARTSYS;
         goto out;
     }
 
@@ -199,7 +199,7 @@ closure_function(5, 1, sysreturn, pipe_write_bh,
     pipe_file pf = bound(pf);
 
     if (flags & BLOCKQ_ACTION_NULLIFY) {
-        rv = -EINTR;
+        rv = -ERESTARTSYS;
         goto out;
     }
 

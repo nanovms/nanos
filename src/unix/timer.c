@@ -204,7 +204,7 @@ closure_function(5, 1, sysreturn, timerfd_read_bh,
 
     if (flags & BLOCKQ_ACTION_NULLIFY) {
         assert(blocked);
-        rv = -EINTR;
+        rv = -ERESTARTSYS;
         goto out;
     }
 
