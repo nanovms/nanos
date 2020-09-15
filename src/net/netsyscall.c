@@ -346,7 +346,7 @@ static inline s64 lwip_to_errno(s8 err)
     case ERR_CONN: return -ENOTCONN;
     case ERR_IF: return -EINVAL;
     case ERR_ABRT: return -EINVAL;
-    case ERR_RST: return -EINVAL;
+    case ERR_RST: return -ECONNRESET;
     case ERR_CLSD: return -EPIPE;
     case ERR_ARG: return -EINVAL;
     }
@@ -1177,17 +1177,19 @@ closure_function(2, 1, sysreturn, connect_tcp_bh,
     net_debug("sock %d, tcp state %d, thread %ld, lwip_status %d, flags 0x%lx\n",
               s->sock.fd, s->info.tcp.state, t->tid, err, flags);
 
+    rv = lwip_to_errno(err);
     if (flags & BLOCKQ_ACTION_NULLIFY) {
         /* XXX spinlock */
-        s->info.tcp.state = TCP_SOCK_ABORTING_CONNECTION;
-        rv = -EINTR;
+        if (rv == 0) {
+            s->info.tcp.state = TCP_SOCK_ABORTING_CONNECTION;
+            rv = -EINTR;
+        }
         goto out;
     }
 
     if (s->info.tcp.state == TCP_SOCK_IN_CONNECTION)
         return BLOCKQ_BLOCK_REQUIRED;
     assert(s->info.tcp.state == TCP_SOCK_OPEN);
-    rv = lwip_to_errno(err);
   out:
     closure_finish();
     return syscall_return(t, rv);
