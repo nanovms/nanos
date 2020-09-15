@@ -345,13 +345,13 @@ closure_function(3, 3, boolean, mincore_fill_vec,
     u64 pgoff, i;
 
     if (pt_entry_is_present(e)) {
-        if (addr < bound(base))
+        if (addr <= bound(base))
             pgoff = 0;
         else
             pgoff = ((addr - bound(base)) >> PAGELOG);
         if (pt_entry_is_fat(level, e)) {
-            u64 foff = (addr & PAGEMASK_2M) >> PAGELOG;
-            for (i = 0; (i < 512 - (pgoff ? 0 : foff)) && (pgoff + i < bound(nr_pgs)); i++)
+            u64 foff = pgoff ? 0 : (addr & PAGEMASK_2M) >> PAGELOG;
+            for (i = 0; (i < 512 - foff) && (pgoff + i < bound(nr_pgs)); i++)
                 bound(vec)[pgoff + i] = 1;
         } else if (pt_entry_is_pte(level, e)) {
             bound(vec)[pgoff] = 1;
