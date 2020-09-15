@@ -54,9 +54,6 @@ void init_extra_prints();
 thunk create_init(kernel_heaps kh, tuple root, filesystem fs);
 filesystem_complete bootfs_handler(kernel_heaps kh);
 
-/* will become list I guess */
-static pagecache global_pagecache;
-
 closure_function(4, 2, void, fsstarted,
                  kernel_heaps, kh, u8 *, mbr, block_io, r, block_io, w,
                  filesystem, fs, status, s)
@@ -77,8 +74,7 @@ closure_function(4, 2, void, fsstarted,
                               bootfs_part->nsectors * SECTOR_SIZE,
                               closure(h, offset_block_io,
                                       bound(kh), bootfs_part->lba_start * SECTOR_SIZE, bound(r)),
-                              0, global_pagecache, false,
-                              bootfs_handler(bound(kh)));
+                              0, false, bootfs_handler(bound(kh)));
         }
         deallocate(h, mbr, SECTOR_SIZE);
     }
@@ -115,21 +111,13 @@ void mm_service(heap phys)
 static void rootfs_init(kernel_heaps kh, u8 *mbr, u64 offset,
                         block_io r, block_io w, u64 length)
 {
-    length -= offset;
     heap h = heap_general(kh);
-    // XXX for contig too
-    pagecache pc = allocate_pagecache(h, h, (heap)heap_physical(kh), PAGESIZE);
-    if (pc == INVALID_ADDRESS)
-        halt("unable to create pagecache\n");
-
-    /* figure that later pagecaches will register themselves with backing - glue for now */
-    global_pagecache = pc;
+    length -= offset;
     create_filesystem(h,
                       SECTOR_SIZE,
                       length,
                       closure(h, offset_block_io, kh, offset, r),
                       closure(h, offset_block_io, kh, offset, w),
-                      pc,
                       false,
                       closure(h, fsstarted, kh, mbr, r, w));
 }
@@ -200,6 +188,7 @@ void kernel_runtime_init(kernel_heaps kh)
     init_debug("runtime");
     init_runtime(misc);
     init_sg(misc);
+    init_pagecache(misc, misc, (heap)heap_physical(kh), PAGESIZE);
     unmap(0, PAGESIZE);         /* unmap zero page */
 //    reclaim_regions();          /* unmap and reclaim stage2 stack */
     init_extra_prints();
