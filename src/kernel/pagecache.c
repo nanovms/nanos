@@ -347,7 +347,9 @@ define_closure_function(2, 0, void, pagecache_page_free,
     assert(pp->refcount.c == 0);
 
     pagecache pc = bound(pc);
+    pagecache_lock_state(pc);
     change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_FREE);
+    pagecache_unlock_state(pc);
     deallocate(pc->contiguous, pp->kvirt, cache_pagesize(pc));
     pp->kvirt = INVALID_ADDRESS;
     pp->phys = INVALID_PHYSICAL;
@@ -390,7 +392,7 @@ static pagecache_page allocate_page_nodelocked(pagecache_node pn, u64 offset)
 }
 
 #ifndef PAGECACHE_READ_ONLY
-static u64 evict_from_list_locked(pagecache pc, struct pagelist *pl, u64 pages)
+static u64 evict_from_list_locked(pagecache pc, struct pagelist *pl, vector evictlist, u64 pages)
 {
     u64 evicted = 0;
     list_foreach(&pl->l, l) {
@@ -405,7 +407,7 @@ static u64 evict_from_list_locked(pagecache pc, struct pagelist *pl, u64 pages)
                         pl == &pc->new ? "new" : "active", pp, byte_range_from_page(pc, pp),
                         page_state(pp), pp->refcount.c);
         pp->evicted = true;
-        refcount_release(&pp->refcount); /* eviction, as far as cache is concerned */
+        vector_push(evictlist, pp);
         evicted++;
     }
     return evicted;
@@ -660,34 +662,39 @@ closure_function(1, 3, void, pagecache_write_sg,
 }
 
 /* evict pages from new and active lists, then rebalance */
-static u64 evict_pages_locked(pagecache pc, u64 pages)
+static u64 evict_pages_locked(pagecache pc, u64 pages, vector evictlist)
 {
-    u64 evicted = evict_from_list_locked(pc, &pc->new, pages);
+    u64 evicted = evict_from_list_locked(pc, &pc->new, evictlist, pages);
     if (evicted < pages) {
         /* To fill the requested pages evictions, we are more
            aggressive here, evicting even in-use pages (rc > 1) in the
            active list. */
-        evicted += evict_from_list_locked(pc, &pc->active, pages - evicted);
+        evicted += evict_from_list_locked(pc, &pc->active, evictlist, pages - evicted);
     }
-    balance_page_lists_locked(pc);
     return evicted;
 }
 
 u64 pagecache_drain(u64 drain_bytes)
 {
+    pagecache_page pp;
     pagecache pc = global_pagecache;
     u64 pages = pad(drain_bytes, cache_pagesize(pc)) >> pc->page_order;
+    vector v;
 
-    /* We could avoid taking both locks here if we keep drained page
-       objects around (which incidentally could be useful to keep
-       refault data). */
-
-    // XXX TODO This is a race issue on SMP now ... the locking scheme here needs to be rehashed
-//    spin_lock(&pc->pages_lock);
+    /* XXX should try to allocate a smaller array if first fails */
+    if ((v = allocate_vector(pc->h, pages)) == INVALID_ADDRESS)
+        return 0;
     pagecache_lock_state(pc);
-    u64 evicted = evict_pages_locked(pc, pages);
+    u64 evicted = evict_pages_locked(pc, pages, v);
     pagecache_unlock_state(pc);
-//    spin_unlock(&pc->pages_lock);
+
+    while ((pp = vector_pop(v)))
+        refcount_release(&pp->refcount);
+    deallocate_vector(v);
+
+    pagecache_lock_state(pc);
+    balance_page_lists_locked(pc);
+    pagecache_unlock_state(pc);
     return evicted << pc->page_order;
 }
 
