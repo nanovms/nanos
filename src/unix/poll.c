@@ -379,14 +379,12 @@ closure_function(3, 1, sysreturn, epoll_wait_bh,
     epoll_debug("  continue blocking\n");
     return BLOCKQ_BLOCK_REQUIRED;
   out_wakeup:
-    if (flags & BLOCKQ_ACTION_BLOCKED)
-        thread_wakeup(t);
     unwrap_buffer(w->e->h, w->user_events);
     w->user_events = 0;
     epoll_debug("   pre refcnt %ld, returning %ld\n", w->refcount.c, rv);
     epoll_blocked_release(w);
     closure_finish();
-    return set_syscall_return(t, rv);
+    return syscall_return(t, rv);
 }
 
 /* Depending on the epoll flags given, we may:
@@ -630,10 +628,8 @@ closure_function(3, 1, sysreturn, select_bh,
     w->nfds = 0;
     w->rset = w->wset = w->eset = 0;
     epoll_blocked_release(w);
-    if (flags & BLOCKQ_ACTION_BLOCKED)
-        thread_wakeup(t);
     closure_finish();
-    return set_syscall_return(t, rv);
+    return syscall_return(t, rv);
 }
 
 static inline epoll select_get_epoll(void)
@@ -852,10 +848,8 @@ closure_function(3, 1, sysreturn, poll_bh,
     unwrap_buffer(w->e->h, w->poll_fds);
     w->poll_fds = 0;
     epoll_blocked_release(w);
-    if (flags & BLOCKQ_ACTION_BLOCKED)
-        thread_wakeup(t);
     closure_finish();
-    return set_syscall_return(t, rv);
+    return syscall_return(t, rv);
 }
 
 static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,

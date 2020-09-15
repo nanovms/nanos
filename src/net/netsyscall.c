@@ -1189,10 +1189,8 @@ closure_function(2, 1, sysreturn, connect_tcp_bh,
     assert(s->info.tcp.state == TCP_SOCK_OPEN);
     rv = lwip_to_errno(err);
   out:
-    if (flags & BLOCKQ_ACTION_BLOCKED)
-        thread_wakeup(t);
     closure_finish();
-    return set_syscall_return(t, rv);
+    return syscall_return(t, rv);
 }
 
 static err_t connect_tcp_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
@@ -1478,11 +1476,8 @@ closure_function(7, 1, sysreturn, sendmmsg_tcp_bh,
         }
     }
 
-    if (bqflags & BLOCKQ_ACTION_BLOCKED)
-        thread_wakeup(t);
-
     closure_finish();
-    return set_syscall_return(t, rv);
+    return syscall_return(t, rv);
 }
 
 sysreturn sendmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
@@ -1733,9 +1728,7 @@ closure_function(5, 1, sysreturn, accept_bh,
 
     rv = child->sock.fd;
   out:
-    set_syscall_return(t, rv);
-    if (bqflags & BLOCKQ_ACTION_BLOCKED)
-        thread_wakeup(t);
+    syscall_return(t, rv);
 
     closure_finish();
     return rv;

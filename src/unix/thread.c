@@ -311,7 +311,6 @@ thread create_thread(process p)
     // xxx another max 64
     t->affinity.mask[0] = MASK(total_processors);
     t->blocked_on = 0;
-    t->file_op_is_complete = false;
     init_sigstate(&t->signals);
     t->dispatch_sigstate = 0;
     t->active_signo = 0;

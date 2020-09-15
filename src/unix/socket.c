@@ -464,10 +464,7 @@ closure_function(2, 1, sysreturn, connect_bh,
     s->connecting = false;  /* connection has been established */
     rv = 0;
 out:
-    set_syscall_return(t, rv);
-    if (bqflags & BLOCKQ_ACTION_BLOCKED) {
-        thread_wakeup(t);
-    }
+    syscall_return(t, rv);
     closure_finish();
     return rv;
 }
@@ -552,10 +549,7 @@ closure_function(5, 1, sysreturn, accept_bh,
     child->peer->peer = child;
     unixsock_notify_writer(child->peer);
 out:
-    set_syscall_return(t, rv);
-    if (bqflags & BLOCKQ_ACTION_BLOCKED) {
-        thread_wakeup(t);
-    }
+    syscall_return(t, rv);
     closure_finish();
     return rv;
 }

@@ -249,8 +249,8 @@ typedef struct thread {
     /* blockq thread is waiting on, INVALID_ADDRESS for uninterruptible */
     blockq blocked_on;
 
-    /* set by file op completion; used to detect if blocking is necessary */
-    boolean file_op_is_complete;
+    /* set by syscall_return(); used to detect if blocking is necessary */
+    boolean syscall_complete;
 
     /* for waiting on thread-specific conditions rather than a resource */
     blockq thread_bq;
@@ -759,15 +759,10 @@ static inline sysreturn sysreturn_value(thread t)
     return (sysreturn)thread_frame(t)[FRAME_RAX];
 }
 
-static inline void file_op_begin(thread t)
-{
-    t->file_op_is_complete = false;
-}
-
-static inline sysreturn file_op_maybe_sleep(thread t)
+static inline sysreturn thread_maybe_sleep_uninterruptible(thread t)
 {
     u64 flags = irq_disable_save(); /* XXX mutex / spinlock */
-    if (!t->file_op_is_complete) {
+    if (!t->syscall_complete) {
         /* leave ints disabled... */
         thread_sleep_uninterruptible();
     }
@@ -775,13 +770,15 @@ static inline sysreturn file_op_maybe_sleep(thread t)
     return get_syscall_return(t);
 }
 
-static inline void file_op_maybe_wake(thread t)
+static inline sysreturn syscall_return(thread t, sysreturn val)
 {
+    set_syscall_return(t, val);
     u64 flags = irq_disable_save(); /* XXX mutex / spinlock */
-    t->file_op_is_complete = true;
+    t->syscall_complete = true;
     if (t->blocked_on)
         thread_wakeup(t);
     irq_restore(flags);
+    return val;
 }
 
 void iov_op(fdesc f, boolean write, struct iovec *iov, int iovcnt, u64 offset,

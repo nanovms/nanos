@@ -260,8 +260,7 @@ closure_function(2, 2, void, fs_op_complete,
     thread_log(current, "%s: %d", __func__, ret);
 
     bound(f)->length = fsfile_get_length(fsf);
-    set_syscall_return(t, ret);
-    file_op_maybe_wake(t);
+    syscall_return(t, ret);
     closure_finish();
 }
 
@@ -406,7 +405,6 @@ sysreturn fallocate(int fd, int mode, long offset, long len)
     file f = (file) desc;
     filesystem fs = f->fs;
     tuple t = fsfile_get_meta(f->fsf);
-    file_op_begin(current);
     switch (mode) {
     case 0:
     case FALLOC_FL_KEEP_SIZE:
@@ -421,7 +419,7 @@ sysreturn fallocate(int fd, int mode, long offset, long len)
     default:
         set_syscall_error(current, EINVAL);
     }
-    return file_op_maybe_sleep(current);
+    return thread_maybe_sleep_uninterruptible(current);
 }
 
 sysreturn fadvise64(int fd, s64 off, u64 len, int advice)

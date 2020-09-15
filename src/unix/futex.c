@@ -114,9 +114,8 @@ closure_function(2, 1, sysreturn, futex_bh,
         rv = 0; /* no timer expire + not us --> actual wakeup */
 
     thread_log(t, "%s: struct futex: %p, flags 0x%lx, rv %ld\n", __func__, bound(f), flags, rv);
-    thread_wakeup(t);
     closure_finish();
-    return set_syscall_return(t, rv);
+    return syscall_return(t, rv);
 }
 
 static timestamp get_timeout_timestamp(int futex_op, u64 val2)

@@ -510,9 +510,8 @@ sysreturn readv(int fd, struct iovec *iov, int iovcnt)
     if (!validate_iovec(iov, iovcnt, true))
         return -EFAULT;
     fdesc f = resolve_fd(current->p, fd);
-    file_op_begin(current);
     iov_op(f, false, iov, iovcnt, infinity, true, syscall_io_complete);
-    return file_op_maybe_sleep(current);
+    return thread_maybe_sleep_uninterruptible(current);
 }
 
 sysreturn write(int fd, u8 *body, bytes length)
@@ -547,9 +546,8 @@ sysreturn writev(int fd, struct iovec *iov, int iovcnt)
     if (!validate_iovec(iov, iovcnt, false))
         return -EFAULT;
     fdesc f = resolve_fd(current->p, fd);
-    file_op_begin(current);
     iov_op(f, true, iov, iovcnt, infinity, true, syscall_io_complete);
-    return file_op_maybe_sleep(current);
+    return thread_maybe_sleep_uninterruptible(current);
 }
 
 static boolean is_special(tuple n)
@@ -624,9 +622,7 @@ closure_function(9, 2, void, sendfile_bh,
 out_complete:
     sg_list_release(bound(sg));
     deallocate_sg_list(bound(sg));
-    set_syscall_return(t, rv);
-    if (bound(bh))
-        file_op_maybe_wake(t);
+    syscall_return(t, rv);
     closure_finish();
 }
 
@@ -667,7 +663,6 @@ static void begin_file_read(thread t, file f)
     if ((f->length > 0) && !(f->f.flags & O_NOATIME)) {
         filesystem_update_atime(f->fs, fsfile_get_meta(f->fsf));
     }
-    file_op_begin(t);
 }
 
 closure_function(7, 1, void, file_read_complete,
@@ -720,7 +715,7 @@ closure_function(2, 6, sysreturn, file_read,
                                                            f, is_file_offset, completion));
     file_readahead(f, offset, length);
     /* possible direct return in top half */
-    return bh ? SYSRETURN_CONTINUE_BLOCKING : file_op_maybe_sleep(t);
+    return bh ? SYSRETURN_CONTINUE_BLOCKING : thread_maybe_sleep_uninterruptible(t);
 }
 
 closure_function(5, 1, void, file_sg_read_complete,
@@ -766,14 +761,13 @@ closure_function(2, 6, sysreturn, file_sg_read,
     file_readahead(f, offset, length);
   out:
     /* possible direct return in top half */
-    return bh ? SYSRETURN_CONTINUE_BLOCKING : file_op_maybe_sleep(t);
+    return bh ? SYSRETURN_CONTINUE_BLOCKING : thread_maybe_sleep_uninterruptible(t);
 }
 
 static void begin_file_write(thread t, file f, u64 len)
 {
     if (len > 0)
         filesystem_update_mtime(f->fs, fsfile_get_meta(f->fsf));
-    file_op_begin(t);
 }
 
 static void file_write_complete_internal(thread t, file f, u64 len,
@@ -838,7 +832,7 @@ closure_function(2, 6, sysreturn, file_write,
     apply(f->fs_write, sg, irangel(offset, length), closure(h, file_write_complete,
                                                             t, f, sg, length, is_file_offset, completion));
     /* possible direct return in top half */
-    return bh ? SYSRETURN_CONTINUE_BLOCKING : file_op_maybe_sleep(t);
+    return bh ? SYSRETURN_CONTINUE_BLOCKING : thread_maybe_sleep_uninterruptible(t);
 }
 
 closure_function(5, 1, void, file_sg_write_complete,
@@ -882,7 +876,7 @@ closure_function(2, 6, sysreturn, file_sg_write,
     }
     begin_file_write(t, f, len);
     apply(f->fs_write, sg, irangel(offset, len), sg_complete);
-    return bh ? SYSRETURN_CONTINUE_BLOCKING : file_op_maybe_sleep(t);
+    return bh ? SYSRETURN_CONTINUE_BLOCKING : thread_maybe_sleep_uninterruptible(t);
   out:
     return io_complete(completion, t, rv);
 }
@@ -1434,8 +1428,7 @@ closure_function(1, 1, void, sync_complete,
 {
     thread t = bound(t);
     thread_log(current, "%s: status %v", __func__, s);
-    set_syscall_return(t, is_ok(s) ? 0 : -EIO);
-    file_op_maybe_wake(t);
+    syscall_return(t, is_ok(s) ? 0 : -EIO);
     closure_finish();
 }
 
@@ -1445,9 +1438,8 @@ sysreturn sync(void)
         current);
     if (sh == INVALID_ADDRESS)
         return -ENOMEM;
-    file_op_begin(current);
     storage_sync(sh);
-    return file_op_maybe_sleep(current);
+    return thread_maybe_sleep_uninterruptible(current);
 }
 
 sysreturn syncfs(int fd)
@@ -1464,12 +1456,11 @@ sysreturn fsync(int fd)
     switch (f->type) {
     case FDESC_TYPE_REGULAR:
         assert(((file)f)->fsf);
-        file_op_begin(current);
         filesystem_sync_node(((file)f)->fs,
                              fsfile_get_cachenode(((file)f)->fsf),
                              closure(heap_general(get_kernel_heaps()),
                                  sync_complete, current));
-        return file_op_maybe_sleep(current);
+        return thread_maybe_sleep_uninterruptible(current);
     case FDESC_TYPE_DIRECTORY:
     case FDESC_TYPE_SYMLINK:
         return 0;
@@ -2465,6 +2456,7 @@ void syscall_debug(context f)
     if (h) {
         thread_enter_system(t);
 
+        t->syscall_complete = false;
         sysreturn rv = h(f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]);
         set_syscall_return(t, rv);
         if (debugsyscalls)
@@ -2497,8 +2489,7 @@ void *syscall;
 closure_function(0, 2, void, syscall_io_complete_cfn,
                  thread, t, sysreturn, rv)
 {
-    set_syscall_return(t, rv);
-    file_op_maybe_wake(t);
+    syscall_return(t, rv);
 }
 
 closure_function(0, 2, void, io_complete_ignore,

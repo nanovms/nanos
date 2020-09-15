@@ -29,10 +29,8 @@ closure_function(5, 1, sysreturn, nanosleep_bh,
     if (!(flags & BLOCKQ_ACTION_TIMEDOUT) && elapsed < bound(interval))
         return BLOCKQ_BLOCK_REQUIRED;
   out:
-    if (flags & BLOCKQ_ACTION_BLOCKED)
-        thread_wakeup(t);
     closure_finish();
-    return set_syscall_return(t, rv);
+    return syscall_return(t, rv);
 }
 
 sysreturn nanosleep(const struct timespec *req, struct timespec *rem)

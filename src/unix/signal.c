@@ -573,10 +573,8 @@ closure_function(2, 1, sysreturn, rt_sigsuspend_bh,
               t->tid, bound(saved_mask), flags & BLOCKQ_ACTION_BLOCKED, flags & BLOCKQ_ACTION_NULLIFY);
 
     if ((flags & BLOCKQ_ACTION_NULLIFY) || get_effective_signals(t)) {
-        if (flags & BLOCKQ_ACTION_BLOCKED)
-            thread_wakeup(t);
         closure_finish();
-        return set_syscall_error(t, EINTR);
+        return syscall_return(t, -EINTR);
     }
 
     sig_debug("-> block\n");
@@ -759,12 +757,8 @@ closure_function(1, 1, sysreturn, pause_bh,
     sig_debug("tid %d, flags 0x%lx\n", t->tid, flags);
 
     if ((flags & BLOCKQ_ACTION_NULLIFY) || get_effective_signals(t)) {
-        if (flags & BLOCKQ_ACTION_BLOCKED) {
-            sig_debug("-> wakeup\n");
-            thread_wakeup(t);
-        }
         closure_finish();
-        return set_syscall_error(t, EINTR);
+        return syscall_return(t, -EINTR);
     }
 
     sig_debug("-> block\n");
@@ -790,9 +784,8 @@ closure_function(4, 1, sysreturn, rt_sigtimedwait_bh,
 
     if (flags & BLOCKQ_ACTION_TIMEDOUT) {
         assert(blocked);
-        thread_wakeup(t);
         closure_finish();
-        return set_syscall_error(t, EAGAIN);
+        return syscall_return(t, -EAGAIN);
     }
 
     sysreturn rv;
@@ -818,10 +811,8 @@ closure_function(4, 1, sysreturn, rt_sigtimedwait_bh,
         free_queued_signal(qs);
     }
 
-    if (blocked)
-        thread_wakeup(t);
     closure_finish();
-    return set_syscall_return(t, rv);
+    return syscall_return(t, rv);
 }
 
 sysreturn rt_sigtimedwait(const u64 * set, siginfo_t * info, const struct timespec * timeout, u64 sigsetsize)
