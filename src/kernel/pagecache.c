@@ -282,8 +282,8 @@ static boolean touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page p
     case PAGECACHE_PAGESTATE_READING:
         if (m) {
             enqueue_page_completion_statelocked(pc, pp, apply_merge(m));
-            refcount_reserve(&pp->refcount);
         }
+        refcount_reserve(&pp->refcount);
         pagecache_unlock_state(pc);
         return false;
     case PAGECACHE_PAGESTATE_FREE:
@@ -294,8 +294,8 @@ static boolean touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page p
         if (m) {
             enqueue_page_completion_statelocked(pc, pp, apply_merge(m));
             change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_READING);
-            refcount_reserve(&pp->refcount);
         }
+        refcount_reserve(&pp->refcount);
         pagecache_unlock_state(pc);
 
         if (m) {
@@ -1034,9 +1034,7 @@ boolean pagecache_node_do_page_cow(pagecache_node pn, u64 node_offset, u64 vaddr
 static void map_page(pagecache pc, pagecache_page pp, u64 vaddr, u64 flags)
 {
     assert(pp->refcount.c != 0);
-    refcount_reserve(&pp->refcount);
     assert(pp->kvirt != INVALID_ADDRESS);
-    assert(page_state(pp) != PAGECACHE_PAGESTATE_FREE);
     map(vaddr, pp->phys, cache_pagesize(pc), flags);
 }
 
@@ -1108,7 +1106,7 @@ closure_function(3, 3, boolean, pagecache_unmap_page_nodelocked,
         u64 phys = page_from_pte(old_entry);
         if (phys == pp->phys) {
             /* shared or cow */
-            assert(pp->refcount.c > 1);
+            assert(pp->refcount.c >= 1);
             refcount_release(&pp->refcount);
         } else {
             /* private copy */
