@@ -254,7 +254,9 @@ process exec_elf(buffer ex, process kp)
     assert(proc->heap_map != INVALID_ADDRESS);
     exec_debug("entry %p, brk %p (offset 0x%lx)\n", entry, proc->brk, brk_offset);
 
-    current_cpu()->current_thread = (nanos_thread)t;
+    /* XXX temporarily disable because it breaks ftrace. Will need to 
+       eventually deal with this for issue #1269 */
+    //current_cpu()->current_thread = (nanos_thread)t;
     build_exec_stack(proc, t, e, entry, load_range.start, root, aslr);
 
     if (table_find(proc->process_root, sym(ingest_program_symbols))) {
