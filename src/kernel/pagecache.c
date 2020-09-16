@@ -511,7 +511,7 @@ closure_function(5, 1, void, pagecache_write_sg_finish,
                 pagecache_page_queue_completions_locked(pc, pp, s);
             }
             pagecache_unlock_state(pc);
-// TODO            refcount_release(&pp->refcount);
+            refcount_release(&pp->refcount);
             pi++;
             pp = (pagecache_page)rbnode_get_next((rbnode)pp);
         } while (pi < end);
@@ -551,6 +551,7 @@ closure_function(5, 1, void, pagecache_write_sg_finish,
                 return;
             }
 
+            refcount_reserve(&pp->refcount);
             /* When writing a new page at the end of a node whose length is not block-aligned, zero
                the remaining portion of the last block. The filesystem will depend on this to properly
                implement file holes. */
