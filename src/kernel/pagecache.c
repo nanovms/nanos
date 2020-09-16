@@ -478,7 +478,7 @@ closure_function(5, 1, void, pagecache_write_sg_finish,
 
     pagecache_lock_node(pn);
     pagecache_page pp = page_lookup_nodelocked(pn, pi);
-    if (bound(complete)) {
+    if (!is_ok(s) || bound(complete)) {
         /* TODO: We handle storage errors after the syscall write
            completion has been applied. This means that storage
            allocation and I/O errors aren't being propagated back to
@@ -537,35 +537,7 @@ closure_function(5, 1, void, pagecache_write_sg_finish,
         write_sg = 0;
     }
     do {
-        if (pp == INVALID_ADDRESS || page_offset(pp) > pi) {
-            assert(offset == 0 && block_offset == 0); /* should never alloc for unaligned head */
-            pp = allocate_page_nodelocked(pn, pi);
-            if (pp == INVALID_ADDRESS) {
-                pagecache_unlock_node(pn);
-                apply(bound(completion), timm("result", "failed to allocate pagecache_page"));
-                if (write_sg) {
-                    sg_list_release(write_sg);
-                    deallocate_sg_list(write_sg);
-                }
-                closure_finish();
-                return;
-            }
-
-            refcount_reserve(&pp->refcount);
-            /* When writing a new page at the end of a node whose length is not block-aligned, zero
-               the remaining portion of the last block. The filesystem will depend on this to properly
-               implement file holes. */
-            range i = range_intersection(byte_range_from_page(pc, pp), q);
-            u64 tail_offset = i.end & MASK(block_order);
-            if (tail_offset) {
-                u64 page_offset = i.end & MASK(page_order);
-                u64 len = U64_FROM_BIT(block_order) - tail_offset;
-                pagecache_debug("   zero unaligned end, i %R, page offset 0x%lx, len 0x%lx\n",
-                                i, page_offset, len);
-                assert(i.end == pn->length);
-                zero(pp->kvirt + page_offset, len);
-            }
-        }
+        assert(pp != INVALID_ADDRESS && page_offset(pp) == pi);
         u64 copy_len = MIN(q.end - (pi << page_order), cache_pagesize(pc)) - offset;
         u64 req_len = pad(copy_len + block_offset, U64_FROM_BIT(block_order));
         if (write_sg) {
@@ -642,9 +614,31 @@ closure_function(1, 3, void, pagecache_write_sg,
         touch_or_fill_page_by_num_nodelocked(pn, q.end >> pc->page_order, m);
     }
 
-    /* scan whole pages, blocking for any pending reads */
-    pagecache_page pp = page_lookup_nodelocked(pn, r.start);
-    while (pp != INVALID_ADDRESS && page_offset(pp) < r.end) {
+    /* prepare whole pages, blocking for any pending reads */
+    for (u64 pi = r.start; pi <= r.end; pi++) {
+        pagecache_page pp = page_lookup_nodelocked(pn, pi);
+        if (pp == INVALID_ADDRESS) {
+            pp = allocate_page_nodelocked(pn, pi);
+            if (pp == INVALID_ADDRESS) {
+                pagecache_unlock_node(pn);
+                apply(completion, timm("result", "failed to allocate pagecache_page"));
+                return;
+            }
+
+            /* When writing a new page at the end of a node whose length is not block-aligned, zero
+               the remaining portion of the last block. The filesystem will depend on this to properly
+               implement file holes. */
+            range i = range_intersection(byte_range_from_page(pc, pp), q);
+            u64 tail_offset = i.end & MASK(pv->block_order);
+            if (tail_offset) {
+                u64 page_offset = i.end & MASK(pc->page_order);
+                u64 len = U64_FROM_BIT(pv->block_order) - tail_offset;
+                pagecache_debug("   zero unaligned end, i %R, page offset 0x%lx, len 0x%lx\n",
+                                i, page_offset, len);
+                assert(i.end == pn->length);
+                zero(pp->kvirt + page_offset, len);
+            }
+        }
         pagecache_lock_state(pc);
         if (page_state(pp) == PAGECACHE_PAGESTATE_FREE)
             realloc_pagelocked(pc, pp);
@@ -652,7 +646,6 @@ closure_function(1, 3, void, pagecache_write_sg,
         if (page_state(pp) == PAGECACHE_PAGESTATE_READING)
             enqueue_page_completion_statelocked(pc, pp, apply_merge(m));
         pagecache_unlock_state(pc);
-        pp = (pagecache_page)rbnode_get_next((rbnode)pp);
     }
     pagecache_unlock_node(pn);
     apply(sh, STATUS_OK);
