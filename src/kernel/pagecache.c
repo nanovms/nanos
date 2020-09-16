@@ -664,22 +664,31 @@ static u64 evict_pages_locked(pagecache pc, u64 pages, vector evictlist)
     return evicted;
 }
 
+#define DRAIN_ITER_MAX   128
+
 u64 pagecache_drain(u64 drain_bytes)
 {
     pagecache_page pp;
     pagecache pc = global_pagecache;
     u64 pages = pad(drain_bytes, cache_pagesize(pc)) >> pc->page_order;
     vector v;
+    u64 evicted = 0;
+    u64 lastevicted = 0;
 
-    /* XXX should try to allocate a smaller array if first fails */
-    if ((v = allocate_vector(pc->h, pages)) == INVALID_ADDRESS)
+    if ((v = allocate_vector(pc->h, DRAIN_ITER_MAX)) == INVALID_ADDRESS)
         return 0;
-    pagecache_lock_state(pc);
-    u64 evicted = evict_pages_locked(pc, pages, v);
-    pagecache_unlock_state(pc);
+    while (evicted < pages) {
+        pagecache_lock_state(pc);
+        evicted += evict_pages_locked(pc, MIN(pages, DRAIN_ITER_MAX), v);
+        pagecache_unlock_state(pc);
+        if (evicted == lastevicted)
+            break;
+        pages -= evicted - lastevicted;
+        lastevicted = evicted;
 
-    while ((pp = vector_pop(v)))
-        refcount_release(&pp->refcount);
+        while ((pp = vector_pop(v)))
+            refcount_release(&pp->refcount);
+    }
     deallocate_vector(v);
 
     pagecache_lock_state(pc);
