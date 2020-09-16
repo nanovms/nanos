@@ -61,12 +61,15 @@ typedef struct pvscsi {
     thunk intr_handler;
     thunk rx_service;
     queue rx_servicequeue;
+} *pvscsi;
 
+typedef struct pvscsi_disk {
+    pvscsi scsi;
     u16 target;
     u16 lun;
     u64 capacity;
     u64 block_size;
-} *pvscsi;
+} *pvscsi_disk;
 
 static void pvscsi_write_cmd(pvscsi dev, u32 cmd, void *data, u32 len)
 {
@@ -148,7 +151,7 @@ static inline void pvscsi_action(pvscsi dev, struct pvscsi_hcb *hcb, u16 target,
 
 closure_function(6, 0, void, pvscsi_io_done,
                  status_handler, sh, void *, buf, u64, len,
-                 pvscsi, s, struct pvscsi_hcb *, hcb, int, retries)
+                 pvscsi_disk, d, struct pvscsi_hcb *, hcb, int, retries)
 {
     struct pvscsi_hcb *hcb = bound(hcb);
 
@@ -161,11 +164,11 @@ closure_function(6, 0, void, pvscsi_io_done,
             pvscsi_debug("%s: scsi_status busy, retrying\n", __func__);
 
             /* Clone the failed request and retry. */
-            pvscsi s = bound(s);
+            pvscsi_disk d = bound(d);
             struct scsi_cdb_readwrite_16 *old_cdb =
                     (struct scsi_cdb_readwrite_16 *)hcb->cdb;
             u8 cmd = old_cdb->opcode;
-            struct pvscsi_hcb *r = pvscsi_hcb_alloc(s, s->target, s->lun, cmd);
+            struct pvscsi_hcb *r = pvscsi_hcb_alloc(d->scsi, d->target, d->lun, cmd);
             struct scsi_cdb_readwrite_16 *new_cdb =
                     (struct scsi_cdb_readwrite_16 *)r->cdb;
             new_cdb->opcode = cmd;
@@ -173,7 +176,7 @@ closure_function(6, 0, void, pvscsi_io_done,
             new_cdb->length = old_cdb->length;
             bound(hcb) = r;
             r->completion = (thunk)closure_self();
-            pvscsi_action_io_queued(s, r, s->target, s->lun, bound(buf),
+            pvscsi_action_io_queued(d->scsi, r, d->target, d->lun, bound(buf),
                                     bound(len));
             return;
         }
@@ -185,9 +188,10 @@ closure_function(6, 0, void, pvscsi_io_done,
     closure_finish();
 }
 
-static void pvscsi_io(pvscsi dev, u8 cmd, void *buf, range blocks, status_handler sh)
+static void pvscsi_io(pvscsi_disk disk, u8 cmd, void *buf, range blocks, status_handler sh)
 {
-    struct pvscsi_hcb *r = pvscsi_hcb_alloc(dev, dev->target, dev->lun, cmd);
+    pvscsi dev = disk->scsi;
+    struct pvscsi_hcb *r = pvscsi_hcb_alloc(dev, disk->target, disk->lun, cmd);
     struct scsi_cdb_readwrite_16 *cdb = (struct scsi_cdb_readwrite_16 *)r->cdb;
     cdb->opcode = cmd;
     u32 nblocks = range_span(blocks);
@@ -196,19 +200,19 @@ static void pvscsi_io(pvscsi dev, u8 cmd, void *buf, range blocks, status_handle
     pvscsi_debug("%s: cmd %d, blocks %R, addr 0x%016lx, length 0x%08x\n",
         __func__, cmd, blocks, cdb->addr, cdb->length);
     r->completion = closure(dev->general, pvscsi_io_done, sh, buf,
-        nblocks * dev->block_size, dev, r, 0);
-    pvscsi_action_io_queued(dev, r, dev->target, dev->lun, buf, nblocks * dev->block_size);
+        nblocks * disk->block_size, disk, r, 0);
+    pvscsi_action_io_queued(dev, r, disk->target, disk->lun, buf, nblocks * disk->block_size);
 }
 
 closure_function(1, 3, void, pvscsi_write,
-                 pvscsi, s,
+                 pvscsi_disk, s,
                  void *, buf, range, blocks, status_handler, sh)
 {
     pvscsi_io(bound(s), SCSI_CMD_WRITE_16, buf, blocks, sh);
 }
 
 closure_function(1, 3, void, pvscsi_read,
-                 pvscsi, s,
+                 pvscsi_disk, s,
                  void *, buf, range, blocks, status_handler, sh)
 {
     pvscsi_io(bound(s), SCSI_CMD_READ_16, buf, blocks, sh);
@@ -233,41 +237,27 @@ closure_function(5, 0, void, pvscsi_read_capacity_done,
         goto out;
     }
 
-    if (s->capacity > 0) {
-        // attach only first disk
+    pvscsi_disk d = allocate(s->general, sizeof(*d));
+    if (d == INVALID_ADDRESS) {
+        msg_err("cannot allocate PVSCSI disk\n");
         goto out;
     }
 
     struct scsi_res_read_capacity_16 *res = (struct scsi_res_read_capacity_16 *) hcb->data;
     u64 sectors = be64toh(res->addr) + 1; // returns address of last sector
-    s->block_size = be32toh(res->length);
-    s->capacity = sectors * s->block_size;
-    s->target = target;
-    s->lun = lun;
+    d->block_size = be32toh(res->length);
+    d->capacity = sectors * d->block_size;
+    d->target = target;
+    d->lun = lun;
+    d->scsi = s;
     pvscsi_debug("%s: target %d, lun %d, block size 0x%lx, capacity 0x%lx\n",
-        __func__, target, lun, s->block_size, s->capacity);
+        __func__, target, lun, d->block_size, d->capacity);
 
-    block_io in = closure(s->general, pvscsi_read, s);
-    block_io out = closure(s->general, pvscsi_write, s);
-    apply(bound(a), in, out, s->capacity);
+    block_io in = closure(s->general, pvscsi_read, d);
+    block_io out = closure(s->general, pvscsi_write, d);
+    apply(bound(a), in, out, d->capacity);
   out:
     closure_finish();
-}
-
-static void pvscsi_report_luns(pvscsi dev, storage_attach a, u16 target);
-
-static void pvscsi_next_target(pvscsi dev, storage_attach a, u16 target)
-{
-    if (dev->capacity > 0) {
-        // scan only until first disk is found
-        return;
-    }
-
-    if (target >= dev->max_targets)
-        return;
-
-    // scan next target
-    pvscsi_report_luns(dev, a, target + 1);
 }
 
 static void pvscsi_test_unit_ready(pvscsi dev, storage_attach a, u16 target, u16 lun, u16 retry_count);
@@ -286,7 +276,6 @@ closure_function(6, 0, void, pvscsi_test_unit_ready_done,
     pvscsi_debug("%s: target %d, lun %d, host_status %d, scsi_status %d\n",
         __func__, target, lun, hcb->host_status, hcb->scsi_status);
     if (hcb->host_status != BTSTAT_SUCCESS) {
-        pvscsi_next_target(dev, a, target);
         goto out;
     }
 
@@ -295,7 +284,6 @@ closure_function(6, 0, void, pvscsi_test_unit_ready_done,
             pvscsi_test_unit_ready(dev, a, target, lun, retry_count);
         } else {
             scsi_dump_sense(hcb->sense, sizeof(hcb->sense));
-            pvscsi_next_target(dev, a, target);
         }
         goto out;
     }
@@ -331,7 +319,6 @@ closure_function(5, 0, void, pvscsi_inquiry_done,
     if (hcb->host_status != BTSTAT_SUCCESS || hcb->scsi_status != SCSI_STATUS_OK) {
         if (hcb->scsi_status != SCSI_STATUS_OK)
             scsi_dump_sense(hcb->sense, sizeof(hcb->sense));
-        pvscsi_next_target(bound(s), bound(a), target);
         closure_finish();
         return;
     }
@@ -365,7 +352,6 @@ closure_function(4, 0, void, pvscsi_report_luns_done,
             scsi_dump_sense(hcb->sense, sizeof(hcb->sense));
         pvscsi_debug("%s: NOT SUCCESS: host_status %d, scsi_status %d\n", __func__, hcb->host_status,
                      hcb->scsi_status);
-        pvscsi_next_target(dev, bound(a), target);
         closure_finish();
         return;
     }
@@ -540,7 +526,8 @@ static void pvscsi_attach(heap general, storage_attach a, heap page_allocator, p
     pvscsi_reg_write(dev, PVSCSI_REG_OFFSET_INTR_MASK, PVSCSI_INTR_CMPL_MASK);
 
     // scan bus
-    pvscsi_report_luns(dev, a, 0);
+    for (u16 target = 0; target <= dev->max_targets; target++)
+        pvscsi_report_luns(dev, a, target);
 }
 
 boolean pvscsi_dev_probe(pci_dev d)

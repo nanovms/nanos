@@ -194,6 +194,24 @@ int filesystem_add_tuple(const char *path, tuple t)
         filename_from_path(path), t, true));
 }
 
+void file_readahead(file f, u64 offset, u64 len)
+{
+    u64 ra_size = 0;
+    switch (f->fadv) {
+    case POSIX_FADV_NORMAL:
+        ra_size = FILE_READAHEAD_DEFAULT;
+        break;
+    case POSIX_FADV_RANDOM: /* no read-ahead */
+        break;
+    case POSIX_FADV_SEQUENTIAL:
+        ra_size = 2 * FILE_READAHEAD_DEFAULT;
+        break;
+    }
+    if (ra_size > 0)
+        pagecache_node_fetch_pages(fsfile_get_cachenode(f->fsf),
+            irangel(offset + len, ra_size));
+}
+
 closure_function(4, 1, void, fs_sync_complete,
                  filesystem, fs, pagecache_node, pn, status_handler, sh, boolean, fs_flushed,
                  status, s)
@@ -418,11 +436,20 @@ sysreturn fadvise64(int fd, s64 off, u64 len, int advice)
             return -EBADF;
         }
     }
+    file f = (file)desc;
     switch (advice) {
     case POSIX_FADV_NORMAL:
     case POSIX_FADV_RANDOM:
     case POSIX_FADV_SEQUENTIAL:
-    case POSIX_FADV_WILLNEED:
+        f->fadv = advice;
+        break;
+    case POSIX_FADV_WILLNEED: {
+        pagecache_node pn = fsfile_get_cachenode(f->fsf);
+        range r = (len != 0) ? irangel(off, len) :
+                irange(off, pagecache_get_node_length(pn));
+        pagecache_node_fetch_pages(pn, r);
+        break;
+    }
     case POSIX_FADV_DONTNEED:
     case POSIX_FADV_NOREUSE:
         break;

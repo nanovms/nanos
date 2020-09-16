@@ -286,22 +286,14 @@ define_closure_function(1, 0, void, ata_pci_service,
     ata_pci_service_reqs(bound(apci));
 }
 
-closure_function(4, 1, boolean, ata_pci_probe,
+closure_function(3, 1, boolean, ata_pci_probe,
                  heap, general, heap, contiguous, storage_attach, a,
-                 boolean, hyperv_storvsc_attached,
                  pci_dev, d)
 {
     heap general = bound(general);
     heap contiguous = bound(contiguous);
     if (pci_get_class(d) != PCIC_STORAGE || pci_get_subclass(d) != PCIS_STORAGE_IDE)
         return false;
-
-    if (bound(hyperv_storvsc_attached) &&
-        pci_get_vendor(d) == ATA_INTEL_ID &&
-        pci_get_device(d) == PCI_PRODUCT_PIIX4) {
-        ata_debug("HyperV storvsc attached: ignore simulated ATA controller\n");
-        return false;
-    }
 
     ata_pci dev = ata_pci_alloc(general, contiguous, d);
     if (!ata_probe(dev->ata)) {
@@ -342,9 +334,8 @@ closure_function(4, 1, boolean, ata_pci_probe,
     return true;
 }
 
-void ata_pci_register(kernel_heaps kh, storage_attach a, boolean hyperv_storvsc_attached)
+void ata_pci_register(kernel_heaps kh, storage_attach a)
 {
     heap h = heap_general(kh);
-    register_pci_driver(closure(h, ata_pci_probe, h, heap_backed(kh), a,
-        hyperv_storvsc_attached));
+    register_pci_driver(closure(h, ata_pci_probe, h, heap_backed(kh), a));
 }
