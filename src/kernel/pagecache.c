@@ -986,6 +986,35 @@ boolean pagecache_node_do_page_cow(pagecache_node pn, u64 node_offset, u64 vaddr
     return true;
 }
 
+void pagecache_node_fetch_pages(pagecache_node pn, range r)
+{
+    pagecache_debug("%s: node %p, r %R\n", __func__, pn, r);
+    pagecache pc = pn->pv->pc;
+    merge m = allocate_merge(pc->h, ignore_status);
+    status_handler sh = apply_merge(m);
+    if (r.end > pn->length)
+        r.end = pn->length;
+    struct pagecache_page k;
+    k.state_offset = r.start >> pc->page_order;
+    u64 end = (r.end + MASK(pc->page_order)) >> pc->page_order;
+    pagecache_lock_node(pn);
+    pagecache_page pp = (pagecache_page)rbtree_lookup(&pn->pages, &k.rbnode);
+    for (u64 pi = k.state_offset; pi < end; pi++) {
+        if (pp == INVALID_ADDRESS || page_offset(pp) > pi) {
+            pagecache_debug(" allocating page at index %ld\n", pi);
+            pp = allocate_page_nodelocked(pn, pi);
+            if (pp == INVALID_ADDRESS) {
+                pagecache_debug(" cannot allocate page\n");
+                break;
+            }
+        }
+        touch_or_fill_page_nodelocked(pn, pp, m);
+        pp = (pagecache_page)rbnode_get_next((rbnode)pp);
+    }
+    pagecache_unlock_node(pn);
+    apply(sh, STATUS_OK);
+}
+
 static void map_page(pagecache pc, pagecache_page pp, u64 vaddr, u64 flags)
 {
     map(vaddr, pp->phys, cache_pagesize(pc), flags);

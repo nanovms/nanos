@@ -88,6 +88,7 @@ SRCS-kernel.img= \
 	$(SRCDIR)/vmware/vmxnet3_queue.c \
 	$(SRCDIR)/vmware/pvscsi.c \
 	$(SRCDIR)/xen/xen.c \
+	$(SRCDIR)/xen/xenblk.c \
 	$(SRCDIR)/xen/xennet.c \
 	$(SRCDIR)/hyperv/vmbus/hyperv.c \
 	$(SRCDIR)/hyperv/vmbus/vmbus.c \

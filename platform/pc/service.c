@@ -222,7 +222,7 @@ closure_function(0, 3, void, attach_storage,
         deallocate(h, mbr, SECTOR_SIZE);
         return;
     }
-    apply(r, mbr, irange(0, SECTOR_SIZE), sh);
+    apply(r, mbr, irange(0, 1), sh);
 }
 
 static void read_kernel_syms()
@@ -458,6 +458,7 @@ static void __attribute__((noinline)) init_service_new_stack()
     if (xen_detected()) {
         init_debug("probing for Xen PV network...");
         init_xennet(kh);
+        init_xenblk(kh, sa);
         status s = xen_probe_devices();
         if (!is_ok(s))
             rprintf("xen probe failed: %v\n", s);
@@ -474,7 +475,7 @@ static void __attribute__((noinline)) init_service_new_stack()
         init_vmxnet3_network(kh);
     }
 
-    init_storage(kh, sa, hyperv_storvsc_attached);
+    init_storage(kh, sa, !xen_detected() && !hyperv_storvsc_attached);
 
     init_debug("pci_discover (for virtio & ata)");
     pci_discover(); // do PCI discover again for other devices
