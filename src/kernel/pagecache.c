@@ -337,10 +337,6 @@ static boolean touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page p
 define_closure_function(2, 0, void, pagecache_page_free,
                         pagecache, pc, pagecache_page, pp)
 {
-    /*  Since the page state is changed here, the caller must lock the
-        release of the refcount. However, the refcount is used on some
-        sgb's which can't control the page state lock. XXX */
-
     pagecache_page pp = bound(pp);
     pagecache_debug("%s: pp %p state %d\n", __func__, pp, page_state(pp));
     assert(pp->write_count == 0);
@@ -889,7 +885,6 @@ void pagecache_commit_dirty_pages(pagecache pc)
         sgb->buf = pp->kvirt;
         sgb->offset = 0;
         sgb->size = cache_pagesize(pc);
-        /* XXX possible source of trouble if sgb->refcount is released outside of state lock */
         sgb->refcount = &pp->refcount;
         refcount_reserve(&pp->refcount);
         change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_WRITING);
