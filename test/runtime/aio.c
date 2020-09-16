@@ -141,6 +141,10 @@ static void aio_test_eventfd(void)
     test_assert(fd > 0);
     test_assert(syscall(SYS_io_setup, 1, &ioc) == 0);
 
+    /* Test zero-valued timeout (i.e. polling without blocking). */
+    ts.tv_sec = ts.tv_nsec = 0;
+    test_assert(syscall(SYS_io_getevents, ioc, 1, 1, &evt, &ts) == 0);
+
     iocb_setup_pwrite(&iocb, fd, "test", strlen("test"), 0);
     efd = eventfd(0, 0);
     test_assert(efd > 0);

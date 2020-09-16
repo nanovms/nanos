@@ -255,13 +255,14 @@ sysreturn io_submit(aio_context_t ctx_id, long nr, struct iocb **iocbpp)
     return io_ops;
 }
 
-closure_function(6, 1, sysreturn, io_getevents_bh,
-                 struct aio *, aio, long, min_nr, long, nr, struct io_event *, events, thread, t, io_completion, completion,
+closure_function(7, 1, sysreturn, io_getevents_bh,
+                 struct aio *, aio, long, min_nr, long, nr, struct io_event *, events, thread, t, timestamp, timeout, io_completion, completion,
                  u64, flags)
 {
     struct aio *aio = bound(aio);
     struct io_event *events = bound(events);
     thread t = bound(t);
+    timestamp timeout = bound(timeout);
     aio_ring ring = aio->ring;
     sysreturn rv;
     if (flags & BLOCKQ_ACTION_NULLIFY) {
@@ -293,7 +294,7 @@ closure_function(6, 1, sysreturn, io_getevents_bh,
     ring->head = head;
     ring->tail = tail;
     aio_unlock(aio);
-    if ((aio->copied_evts < bound(min_nr)) &&
+    if ((aio->copied_evts < bound(min_nr)) && (timeout != 0) &&
             !(flags & BLOCKQ_ACTION_TIMEDOUT)) {
         return BLOCKQ_BLOCK_REQUIRED;
     }
@@ -309,7 +310,8 @@ sysreturn io_getevents(aio_context_t ctx_id, long min_nr, long nr,
         struct io_event *events, struct timespec *timeout)
 {
     if (!validate_user_memory(ctx_id, sizeof(struct aio_ring), false) ||
-        !validate_user_memory(events, sizeof(struct io_event) * nr, true)) {
+        !validate_user_memory(events, sizeof(struct io_event) * nr, true) ||
+        (timeout && !validate_user_memory(timeout, sizeof(struct timespec), false))) {
         return -EFAULT;
     }
     struct aio *aio;
@@ -317,13 +319,13 @@ sysreturn io_getevents(aio_context_t ctx_id, long min_nr, long nr,
             !(aio = aio_from_ring(current->p, ctx_id))) {
         return -EINVAL;
     }
+    timestamp ts = timeout ? time_from_timespec(timeout) : infinity;
     aio->copied_evts = 0;
     aio->bq = current->thread_bq;
     return blockq_check_timeout(aio->bq, current,
             closure(heap_general(aio->kh), io_getevents_bh, aio, min_nr, nr,
-                    events, current, syscall_io_complete), false,
-            CLOCK_ID_MONOTONIC, timeout ? time_from_timespec(timeout) : 0,
-            false);
+                    events, current, ts, syscall_io_complete), false,
+            CLOCK_ID_MONOTONIC, (ts == infinity) ? 0 : ts, false);
 }
 
 static sysreturn io_destroy_internal(struct aio *aio, thread t, boolean in_bh);
@@ -363,7 +365,7 @@ static sysreturn io_destroy_internal(struct aio *aio, thread t, boolean in_bh)
         aio->bq = t->thread_bq;
         return blockq_check(aio->bq, t,
                 closure(heap_general(aio->kh), io_getevents_bh, aio,
-                        ongoing_ops, ongoing_ops, 0, t, completion), in_bh);
+                        ongoing_ops, ongoing_ops, 0, t, infinity, completion), in_bh);
     } else {
         apply(completion, t, 0);
         return 0;
