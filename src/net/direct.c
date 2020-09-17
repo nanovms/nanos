@@ -18,7 +18,7 @@ typedef struct direct {
 
 typedef struct direct_conn {
     direct d;
-    boolean running;            /* background processing started */
+    struct spinlock send_lock;
     struct list l;              /* direct list */
     struct tcp_pcb *p;
     struct list sendq_head;
@@ -33,11 +33,16 @@ typedef struct qbuf {
 } *qbuf;
 
 /* return true if sendq empty */
-static boolean direct_conn_send_internal(direct_conn dc)
+static void direct_conn_send_internal(direct_conn dc)
 {
     direct_debug("dc %p\n", dc);
     list next;
 
+    /* It appears TCP_EVENT_SENT is only called from tcp_input. If in
+       the future it could ever be invoked as a result of a call to
+       tcp_write or tcp_output, this will need to be revised to avoid
+       deadlock. */
+    spin_lock(&dc->send_lock);
     while ((next = list_get_next(&dc->sendq_head))) {
         qbuf q = struct_from_list(next, qbuf, l);
         if (!q->b) {
@@ -46,12 +51,12 @@ static boolean direct_conn_send_internal(direct_conn dc)
             tcp_close(dc->p);
             list_delete(&q->l);
             deallocate(dc->d->h, q, sizeof(struct qbuf));
-            return true;
+            break;
         }
 
         int avail = tcp_sndbuf(dc->p);
         if (avail == 0)
-            return false;
+            break;
 
         int write_len = MIN(avail, buffer_length(q->b));
         /* Fix interface: can send with PSH flag clear
@@ -59,18 +64,12 @@ static boolean direct_conn_send_internal(direct_conn dc)
         direct_debug("write %p, len %d\n", buffer_ref(q->b, 0), write_len);
         err_t err = tcp_write(dc->p, buffer_ref(q->b, 0), write_len, TCP_WRITE_FLAG_COPY);
         if (err == ERR_MEM)
-            return false;
+            break;
 
         err = tcp_output(dc->p);
         if (err != ERR_OK) {
             msg_err("tcp_output failed with %d\n", err);
-            return false;
-        }
-
-        /* should handle some other way */
-        if (err != ERR_OK) {
-            /* XXX */
-            return false;
+            break;
         }
 
         buffer_consume(q->b, write_len);
@@ -84,20 +83,14 @@ static boolean direct_conn_send_internal(direct_conn dc)
             deallocate(dc->d->h, q, sizeof(struct qbuf));
         }
     }
-    return true;
+    spin_unlock(&dc->send_lock);
 }
 
-closure_function(1, 0, void, direct_conn_send_bh,
-                 direct_conn, dc)
+static err_t direct_conn_sent(void *arg, struct tcp_pcb *pcb, u16 len)
 {
-    if (direct_conn_send_internal(bound(dc))) {
-        direct_debug("finished\n");
-        bound(dc)->running = false;
-        closure_finish();
-    } else {
-        direct_debug("re-enqueue\n");
-        enqueue(runqueue, closure_self());
-    }
+    assert(arg);
+    direct_conn_send_internal((direct_conn)arg);
+    return ERR_OK;
 }
 
 closure_function(1, 1, status, direct_conn_send,
@@ -118,13 +111,7 @@ closure_function(1, 1, status, direct_conn_send,
         u64 flags = irq_disable_save();
         list_insert_before(&dc->sendq_head, &q->l); /* really need CAS version */
         irq_restore(flags);
-        if (!direct_conn_send_internal(dc)) {
-            if (!dc->running) {
-                thunk t = closure(dc->d->h, direct_conn_send_bh, dc);
-                dc->running = true;
-                assert(enqueue(runqueue, t));
-            }
-        }
+        direct_conn_send_internal(dc);
     }
     return s;
 }
@@ -185,8 +172,8 @@ static err_t direct_accept(void *z, struct tcp_pcb *pcb, err_t b)
     direct_conn dc = allocate(d->h, sizeof(struct direct_conn));
     if (dc == INVALID_ADDRESS)
         goto fail;
+    spin_lock_init(&dc->send_lock);
     dc->d = d;
-    dc->running = false;
     dc->p = pcb;
     list_init(&dc->sendq_head);
     buffer_handler bh = apply(d->new, closure(d->h, direct_conn_send, dc));
@@ -198,6 +185,7 @@ static err_t direct_accept(void *z, struct tcp_pcb *pcb, err_t b)
     tcp_arg(pcb, dc);
     tcp_err(pcb, direct_conn_err);
     tcp_recv(pcb, direct_conn_input);
+    tcp_sent(pcb, direct_conn_sent);
     return ERR_OK;
   fail_dealloc:
     deallocate(d->h, dc, sizeof(struct direct_conn));
