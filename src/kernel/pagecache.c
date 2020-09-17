@@ -497,7 +497,7 @@ closure_function(5, 1, void, pagecache_write_sg_finish,
            exhaustion. */
 
         if (!is_ok(s)) {
-            pagecache_debug("%s: write_error now %v\n", __func__, s);
+            pagecache_debug("%s: %s error: %v\n", __func__, bound(complete) ? "write" : "read", s);
             pn->pv->write_error = s;
         }
 
@@ -673,19 +673,16 @@ u64 pagecache_drain(u64 drain_bytes)
     u64 pages = pad(drain_bytes, cache_pagesize(pc)) >> pc->page_order;
     vector v;
     u64 evicted = 0;
-    u64 lastevicted = 0;
 
     if ((v = allocate_vector(pc->h, DRAIN_ITER_MAX)) == INVALID_ADDRESS)
         return 0;
     while (evicted < pages) {
         pagecache_lock_state(pc);
-        evicted += evict_pages_locked(pc, MIN(pages, DRAIN_ITER_MAX), v);
+        u64 n = evict_pages_locked(pc, MIN(pages - evicted, DRAIN_ITER_MAX), v);
         pagecache_unlock_state(pc);
-        if (evicted == lastevicted)
+        if (n == 0)
             break;
-        pages -= evicted - lastevicted;
-        lastevicted = evicted;
-
+        evicted += n;
         while ((pp = vector_pop(v)))
             refcount_release(&pp->refcount);
     }
