@@ -49,11 +49,20 @@ define_closure_function(3, 1, void, thread_demand_file_page_complete,
     refcount_release(&bound(t)->refcount);
 }
 
-define_closure_function(6, 0, void, thread_demand_file_page,
-                        thread, t, context, frame, pagecache_node, pn, u64, node_offset, u64, page_addr, u64, flags)
+define_closure_function(5, 0, void, thread_demand_file_page,
+                        thread, t, vmap, vm, u64, node_offset, u64, page_addr, u64, flags)
 {
-    pagecache_map_page(bound(pn), bound(node_offset), bound(page_addr), bound(flags),
+    vmap vm = bound(vm);
+    pagecache_node pn = vm->cache_node;
+    pagecache_map_page(pn, bound(node_offset), bound(page_addr), bound(flags),
                        (status_handler)&bound(t)->demand_file_page_complete);
+    range ra = irange(bound(node_offset) + PAGESIZE,
+        vm->node_offset + range_span(vm->node.r));
+    if (range_valid(ra)) {
+        if (range_span(ra) > FILE_READAHEAD_DEFAULT)
+            ra.end = ra.start + FILE_READAHEAD_DEFAULT;
+        pagecache_node_fetch_pages(pn, ra);
+    }
 }
 
 boolean do_demand_page(u64 vaddr, vmap vm, context frame)
@@ -131,8 +140,8 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
             /* schedule a page fill for this thread */
             thread t = current;
             refcount_reserve(&t->refcount);
-            init_closure(&t->demand_file_page, thread_demand_file_page, t, frame,
-                         vm->cache_node, node_offset, page_addr, flags);
+            init_closure(&t->demand_file_page, thread_demand_file_page, t, vm,
+                         node_offset, page_addr, flags);
             init_closure(&t->demand_file_page_complete, thread_demand_file_page_complete, t, frame, vaddr);
             enqueue(runqueue, &t->demand_file_page);
         }

@@ -88,6 +88,7 @@ SRCS-kernel.img= \
 	$(SRCDIR)/vmware/vmxnet3_queue.c \
 	$(SRCDIR)/vmware/pvscsi.c \
 	$(SRCDIR)/xen/xen.c \
+	$(SRCDIR)/xen/xenblk.c \
 	$(SRCDIR)/xen/xennet.c \
 	$(SRCDIR)/hyperv/vmbus/hyperv.c \
 	$(SRCDIR)/hyperv/vmbus/vmbus.c \
@@ -99,6 +100,8 @@ SRCS-kernel.img= \
 	$(SRCDIR)/hyperv/netvsc/hv_net_vsc.c \
 	$(SRCDIR)/hyperv/netvsc/hv_rndis_filter.c \
 	$(SRCDIR)/hyperv/storvsc/storvsc.c \
+	$(SRCDIR)/hyperv/utilities/vmbus_ic.c \
+	$(SRCDIR)/hyperv/utilities/vmbus_shutdown.c \
 	$(SRCDIR)/x86_64/ap.s \
 	$(SRCDIR)/x86_64/apic.c \
 	$(SRCDIR)/x86_64/breakpoint.c \
