@@ -32,8 +32,7 @@ typedef struct qbuf {
     buffer b;
 } *qbuf;
 
-/* return true if sendq empty */
-static void direct_conn_send_internal(direct_conn dc)
+static void direct_conn_send_internal(direct_conn dc, qbuf q)
 {
     direct_debug("dc %p\n", dc);
     list next;
@@ -43,6 +42,8 @@ static void direct_conn_send_internal(direct_conn dc)
        tcp_write or tcp_output, this will need to be revised to avoid
        deadlock. */
     spin_lock(&dc->send_lock);
+    if (q)
+        list_insert_before(&dc->sendq_head, &q->l);
     while ((next = list_get_next(&dc->sendq_head))) {
         qbuf q = struct_from_list(next, qbuf, l);
         if (!q->b) {
@@ -89,7 +90,7 @@ static void direct_conn_send_internal(direct_conn dc)
 static err_t direct_conn_sent(void *arg, struct tcp_pcb *pcb, u16 len)
 {
     assert(arg);
-    direct_conn_send_internal((direct_conn)arg);
+    direct_conn_send_internal((direct_conn)arg, 0);
     return ERR_OK;
 }
 
@@ -108,10 +109,7 @@ closure_function(1, 1, status, direct_conn_send,
     } else {
         /* queue even if b == 0 (acts as close connection command) */
         q->b = b;
-        u64 flags = irq_disable_save();
-        list_insert_before(&dc->sendq_head, &q->l); /* really need CAS version */
-        irq_restore(flags);
-        direct_conn_send_internal(dc);
+        direct_conn_send_internal(dc, q);
     }
     return s;
 }
