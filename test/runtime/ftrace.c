@@ -69,7 +69,7 @@ open_and_write(const char * fname, const char * str)
     ssize_t bytes;
     int fd;
 
-    fd = open(fname, O_RDONLY);
+    fd = open(fname, O_RDWR);
     if (fd < 0) {
         fprintf(stderr, "Failed to open %s: %s\n", fname, strerror(errno));
         exit(EXIT_FAILURE);
