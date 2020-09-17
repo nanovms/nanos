@@ -1021,6 +1021,15 @@ vmbus_chan_msgproc(vmbus_dev sc, const struct vmbus_message *msg)
         msg_proc(sc, msg);
 }
 
+void
+vmbus_chan_set_readbatch(struct vmbus_channel *chan, bool on)
+{
+    if (!on)
+        chan->ch_flags &= ~VMBUS_CHAN_FLAG_BATCHREAD;
+    else
+        chan->ch_flags |= VMBUS_CHAN_FLAG_BATCHREAD;
+}
+
 int
 vmbus_chan_prplist_nelem(int br_size, int prpcnt_max, int dlen_max)
 {

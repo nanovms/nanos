@@ -298,6 +298,7 @@ init_vmbus(kernel_heaps kh)
 
     init_netvsc(kh);
     init_storvsc(kh);
+    init_vmbus_shutdown(kh);
 }
 
 status
