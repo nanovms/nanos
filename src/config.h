@@ -44,3 +44,6 @@
 /* mm stuff */
 #define PAGECACHE_DRAIN_CUTOFF (64 * MB)
 #define PAGECACHE_SCAN_PERIOD_SECONDS 5
+
+/* direct net for service */
+#define DIRECT_CONN_SEND_INTERVAL milliseconds(200)

@@ -18,7 +18,7 @@ typedef struct direct {
 
 typedef struct direct_conn {
     direct d;
-    boolean running;            /* background processing started */
+    timer send_timer;
     struct list l;              /* direct list */
     struct tcp_pcb *p;
     struct list sendq_head;
@@ -87,16 +87,18 @@ static boolean direct_conn_send_internal(direct_conn dc)
     return true;
 }
 
-closure_function(1, 0, void, direct_conn_send_bh,
-                 direct_conn, dc)
+closure_function(1, 1, void, direct_conn_send_timer,
+                 direct_conn, dc,
+                 u64, overruns)
 {
+    assert(bound(dc)->send_timer);
     if (direct_conn_send_internal(bound(dc))) {
         direct_debug("finished\n");
-        bound(dc)->running = false;
+        remove_timer(bound(dc)->send_timer, 0);
+        bound(dc)->send_timer = 0;
         closure_finish();
     } else {
-        direct_debug("re-enqueue\n");
-        enqueue(runqueue, closure_self());
+        direct_debug("continue\n");
     }
 }
 
@@ -118,12 +120,12 @@ closure_function(1, 1, status, direct_conn_send,
         u64 flags = irq_disable_save();
         list_insert_before(&dc->sendq_head, &q->l); /* really need CAS version */
         irq_restore(flags);
-        if (!direct_conn_send_internal(dc)) {
-            if (!dc->running) {
-                thunk t = closure(dc->d->h, direct_conn_send_bh, dc);
-                dc->running = true;
-                assert(enqueue(runqueue, t));
-            }
+        if (!dc->send_timer && !direct_conn_send_internal(dc)) {
+            timer_handler th = closure(dc->d->h, direct_conn_send_timer, dc);
+            assert(th != INVALID_ADDRESS);
+            dc->send_timer = register_timer(runloop_timers, CLOCK_ID_MONOTONIC, DIRECT_CONN_SEND_INTERVAL,
+                                            false, true, th);
+            assert(dc->send_timer != INVALID_ADDRESS);
         }
     }
     return s;
@@ -186,7 +188,7 @@ static err_t direct_accept(void *z, struct tcp_pcb *pcb, err_t b)
     if (dc == INVALID_ADDRESS)
         goto fail;
     dc->d = d;
-    dc->running = false;
+    dc->send_timer = 0;
     dc->p = pcb;
     list_init(&dc->sendq_head);
     buffer_handler bh = apply(d->new, closure(d->h, direct_conn_send, dc));
