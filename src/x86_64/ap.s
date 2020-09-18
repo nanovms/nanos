@@ -41,7 +41,7 @@ apinit:
         mov cr4, ebx
 
         ;; load from relocated copy of gdt pointer
-        o32 lgdt [AP_BOOT_PAGE + ap_gdt_pointer - apinit]
+        o32 lgdt [AP_BOOT_PAGE + ap_gdt.Pointer - apinit]
         ; get this value out of the cs register and do an indirect jump
         jmp CODE_SEG:(AP_BOOT_PAGE + LongMode - apinit)
 bits 64
@@ -65,13 +65,34 @@ spin:   lock xchg [ap_lock], rbx
         mov rax, ap_start
         jmp rax   ; avoid relative jump as this code is repositioned
 
+%include "segment.inc"
+
+;; Temporary GDT (64-bit)
+align 16
+ap_gdt:
+        .Null: equ $ - ap_gdt
+        dd 0
+        dd 0
+        .Code: equ $ - ap_gdt
+        dd 0
+        dd KERN_CODE_SEG_DESC
+        .Data: equ $ - ap_gdt
+        dd 0
+        dd KERN_DATA_SEG_DESC
+        .UserCode: equ $ - ap_gdt
+        dd 0
+        dd 0
+        .UserData: equ $ - ap_gdt
+        dd 0
+        dd USER_DATA_SEG_DESC
+        .UserCode64: equ $ - ap_gdt
+        dd 0
+        dd USER_CODE_SEG_DESC
+        .Pointer:
+        dw $ - ap_gdt - 1                   ; Limit.
+        dq (AP_BOOT_PAGE + ap_gdt - apinit) ; 64 bit Base.
+
 ;; These are relocated, but only after being filled in by start_cpu
-global ap_gdt_pointer        
-ap_gdt_pointer:
-        dw 0      ; 16-bit Size (Limit) of GDT.
-        dd 0      ; 32-bit Base Address of GDT. (CPU will zero extend to 64-bit)
-        dd 0      ; spill for 64 bit gdt write
-        
 global ap_pagetable
 ap_pagetable:
         dq 0

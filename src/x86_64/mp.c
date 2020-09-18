@@ -6,7 +6,7 @@
 
 static void *apboot = INVALID_ADDRESS;
 extern u8 apinit, apinit_end;
-extern void *ap_pagetable, *ap_gdt_pointer, *ap_idt_pointer, *ap_stack;
+extern void *ap_pagetable, *ap_idt_pointer, *ap_stack;
 void *ap_stack;
 u64 ap_lock;
 
@@ -58,7 +58,6 @@ void start_cpu(heap h, heap stackheap, int index, void (*ap_entry)()) {
         apboot = pointer_from_u64(AP_BOOT_START);
         map((u64)apboot, (u64)apboot, PAGESIZE, PAGE_WRITABLE);
 
-        asm("sgdt %0": "=m"(ap_gdt_pointer));
         asm("sidt %0": "=m"(ap_idt_pointer));
         mov_from_cr("cr3", ap_pagetable);
         // just one function call

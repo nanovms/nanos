@@ -82,34 +82,18 @@ static u32 maps_events(file f)
     return EPOLLIN;
 }
 
-static sysreturn text_read(const char *text, bytes text_len, file f, void *dest, u64 length, u64 offset)
-{
-    if (text_len <= offset)
-        return 0;
-
-    u64 nr = MIN(text_len - offset, length);
-    runtime_memcpy(dest, text + offset, nr);
-    return nr;
-}
-
-static u32 text_events(const char *text, bytes text_len, file f)
-{
-    u32 events = EPOLLOUT;
-    if (f->offset < text_len)
-        events |= EPOLLIN;
-    return events;
-}
-
-static const char cpu_online[] = "0-0\n";
-
 static sysreturn cpu_online_read(file f, void *dest, u64 length, u64 offset)
 {
-    return text_read(cpu_online, sizeof(cpu_online) - 1, f, dest, length, offset);
+    buffer b = little_stack_buffer(16);
+    bprintf(b, "0-%d\n", total_processors - 1);
+    length = MIN(length, buffer_length(b) - offset);
+    runtime_memcpy(dest, buffer_ref(b, offset), length);
+    return length;
 }
 
 static u32 cpu_online_events(file f)
 {
-    return text_events(cpu_online, sizeof(cpu_online) - 1, f);
+    return (EPOLLIN | EPOLLOUT);
 }
 
 static special_file special_files[] = {
