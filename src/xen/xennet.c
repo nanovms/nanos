@@ -91,7 +91,7 @@ struct xennet_dev {
     vector rxbufs;
     struct list rx_free;
 
-    thunk rx_service;           /* for bhqueue processing */
+    thunk rx_service;           /* for runqueue processing */
     queue rx_servicequeue;
 
     struct spinlock tx_fill_lock;
@@ -99,7 +99,7 @@ struct xennet_dev {
     struct list tx_pending;     /* awaiting ring queueing (head may be partial) */
     struct list tx_free;
 
-    thunk tx_service;           /* for bhqueue processing */
+    thunk tx_service;           /* for runqueue processing */
     queue tx_servicequeue;
 };
 
@@ -290,7 +290,7 @@ static void xennet_service_tx_ring(xennet_dev xd)
             /* trick: remove (local) head and queue first element */
             list_delete(&q);
             assert(enqueue(xd->tx_servicequeue, l));
-            enqueue(bhqueue, xd->tx_service);
+            enqueue(runqueue, xd->tx_service);
         }
         RING_FINAL_CHECK_FOR_RESPONSES(&xd->tx_ring, more);
     } while (more);
@@ -616,7 +616,7 @@ static void xennet_service_rx_ring(xennet_dev xd)
             list_delete(&q);
             assert(l->prev);
             assert(enqueue(xd->rx_servicequeue, l));
-            enqueue(bhqueue, xd->rx_service);
+            enqueue(runqueue, xd->rx_service);
         }
         RING_FINAL_CHECK_FOR_RESPONSES(&xd->rx_ring, more);
     } while (more);

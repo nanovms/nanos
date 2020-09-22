@@ -369,7 +369,7 @@ define_closure_function(2, 2, void, iov_op_each_complete,
     } else {
         if (p->file_offset != infinity)
             p->file_offset += rv;
-        enqueue(bhqueue, &p->bh);
+        enqueue(runqueue, &p->bh);
     }
     return;
   out_complete:

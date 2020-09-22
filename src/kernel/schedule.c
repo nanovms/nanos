@@ -115,8 +115,6 @@ NOTRACE void __attribute__((noreturn)) kernel_sleep(void)
     sched_debug("sleep\n");
     ci->state = cpu_idle;
     atomic_set_bit(&idle_cpu_mask, ci->id);
-    if (ci->have_kernel_lock)
-        kern_unlock();
 
     /* loop to absorb spurious wakeups from hlt - happens on some platforms (e.g. xen) */
     while (1)
@@ -141,6 +139,9 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
                 queue_length(bhqueue), queue_length(runqueue), queue_length(thread_queue),
                 idle_cpu_mask, ci->have_kernel_lock);
     ci->state = cpu_kernel;
+
+    /* bhqueue is for operations outside the realm of the kernel lock,
+       e.g. storage I/O completions */
     while ((t = dequeue(bhqueue)) != INVALID_ADDRESS)
         run_thunk(t, cpu_kernel);
 

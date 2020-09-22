@@ -179,7 +179,7 @@ static void virtio_blk_attach(heap general, storage_attach a, vtdev v)
     s->capacity = (vtdev_cfg_read_4(v, VIRTIO_BLK_R_CAPACITY_LOW) |
 		   ((u64) vtdev_cfg_read_4(v, VIRTIO_BLK_R_CAPACITY_HIGH) << 32)) * s->block_size;
     virtio_blk_debug("%s: capacity 0x%lx, block size 0x%x\n", __func__, s->capacity, s->block_size);
-    virtio_alloc_virtqueue(v, "virtio blk", 0, &s->command);
+    virtio_alloc_virtqueue(v, "virtio blk", 0, bhqueue, &s->command);
     // initialization complete
     vtdev_set_status(v, VIRTIO_CONFIG_STATUS_DRIVER_OK);
 
