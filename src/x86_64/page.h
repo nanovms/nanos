@@ -51,6 +51,7 @@ void map(u64 virtual, physical p, u64 length, u64 flags);
 void unmap(u64 virtual, u64 length);
 void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh);
 void unmap_and_free_phys(u64 virtual, u64 length);
+void deallocate_phys_page_from_traversal(u64 phys, u64 size);
 
 static inline void unmap_pages(u64 virtual, u64 length)
 {

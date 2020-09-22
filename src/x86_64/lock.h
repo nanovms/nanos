@@ -20,9 +20,31 @@ static inline void spin_unlock(spinlock l) {
     *(volatile u64 *)&l->w = 0;
 }
 #else
+#ifdef SPIN_LOCK_DEBUG_NOSMP
+static inline boolean spin_try(spinlock l)
+{
+    if (l->w)
+        return false;
+    l->w = 1;
+    return true;
+}
+
+static inline void spin_lock(spinlock l)
+{
+    assert(l->w == 0);
+    l->w = 1;
+}
+
+static inline void spin_unlock(spinlock l)
+{
+    assert(l->w == 1);
+    l->w = 0;
+}
+#else
 #define spin_try(x) (true)
 #define spin_lock(x) ((void)x)
 #define spin_unlock(x) ((void)x)
+#endif
 #endif
 
 static inline u64 spin_lock_irq(spinlock l)
@@ -41,5 +63,5 @@ static inline void spin_unlock_irq(spinlock l, u64 flags)
 
 static inline void spin_lock_init(spinlock l)
 {
-    *&l->w = 0;
+    l->w = 0;
 }

@@ -598,6 +598,12 @@ void unmap_and_free_phys(u64 virtual, u64 length)
     unmap_pages_with_handler(virtual, length, stack_closure(dealloc_phys_page));
 }
 
+/* backdoor dealloc to call from pt traversals (which hold the lock) */
+void deallocate_phys_page_from_traversal(u64 phys, u64 size)
+{
+    deallocate_u64((heap)phys_internal, phys, size);
+}
+
 /* these methods would hook into free page list / epoch stuff... */
 static u64 wrap_alloc(heap h, bytes b)
 {
