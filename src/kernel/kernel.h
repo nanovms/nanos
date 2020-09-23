@@ -107,7 +107,7 @@ static inline void *stack_from_kernel_context(kernel_context c)
 
 void runloop_internal() __attribute__((noreturn));
 
-static inline __attribute__((noreturn)) void runloop(void)
+NOTRACE static inline __attribute__((noreturn)) void runloop(void)
 {
     set_running_frame(current_cpu()->kernel_context->frame);
     switch_stack(stack_from_kernel_context(current_cpu()->kernel_context),
