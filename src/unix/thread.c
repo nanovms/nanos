@@ -177,7 +177,6 @@ define_closure_function(1, 0, void, run_thread,
                         thread, t)
 {
     thread t = bound(t);
-    current_cpu()->current_thread = (nanos_thread)t;
     dispatch_signals(t);
     run_thread_frame(t);
 }
