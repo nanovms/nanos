@@ -340,7 +340,6 @@ extern boolean shutting_down;
 void kernel_shutdown(int status)
 {
     shutting_down = true;
-    apic_ipi(TARGET_EXCLUSIVE_BROADCAST, 0, shutdown_vector);
     if (root_fs) {
         storage_sync(closure(heap_general(&heaps), sync_complete, status));
         runloop();
@@ -351,7 +350,6 @@ void kernel_shutdown(int status)
 void kernel_shutdown_ex(status_handler completion)
 {
     shutting_down = true;
-    apic_ipi(TARGET_EXCLUSIVE_BROADCAST, 0, shutdown_vector);
     if (root_fs) {
         storage_sync(completion);
         runloop();
