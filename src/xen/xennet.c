@@ -379,7 +379,7 @@ static void xennet_populate_tx_ring(xennet_dev xd)
 */
 static void xennet_tx_buf_add_pages(xennet_dev xd, xennet_tx_buf txb, struct pbuf *p)
 {
-    xennet_tx_page txp;
+    xennet_tx_page txp = 0;
     for (struct pbuf *q = p; q != 0; q = q->next) {
         u64 va = u64_from_pointer(q->payload);
         u64 remain = q->len;
@@ -404,7 +404,8 @@ static void xennet_tx_buf_add_pages(xennet_dev xd, xennet_tx_buf txb, struct pbu
             len = MIN(PAGESIZE, remain);
         } while (remain > 0);
     }
-    txp->end = true;
+    if (txp)
+        txp->end = true;
 }
 
 /* enqueue tx buffer for subsequent ring processing */
