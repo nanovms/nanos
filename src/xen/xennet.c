@@ -379,6 +379,7 @@ static void xennet_populate_tx_ring(xennet_dev xd)
 */
 static void xennet_tx_buf_add_pages(xennet_dev xd, xennet_tx_buf txb, struct pbuf *p)
 {
+    xennet_tx_page txp = 0;
     for (struct pbuf *q = p; q != 0; q = q->next) {
         u64 va = u64_from_pointer(q->payload);
         u64 remain = q->len;
@@ -386,7 +387,6 @@ static void xennet_tx_buf_add_pages(xennet_dev xd, xennet_tx_buf txb, struct pbu
         u64 offset = va & PAGEMASK;
         u64 len = MIN(PAGESIZE - offset, remain);
 
-        xennet_tx_page txp;
         do {
             assert((vpage & (PAGESIZE - 1)) == 0); // XXX temp
             extend_total(txb->pages, sizeof(struct xennet_tx_page) * (txb->npages + 1));
@@ -395,7 +395,7 @@ static void xennet_tx_buf_add_pages(xennet_dev xd, xennet_tx_buf txb, struct pbu
             assert(txp->paddr != INVALID_PHYSICAL);
             txp->gntref = xen_grant_page_access(xd->dev.backend_id, txp->paddr, true);
             txp->offset = offset;
-            txp->len = len;
+            txp->len = txb->npages == 0 ? q->tot_len : len;     // first descriptor must have packet total length
             txp->end = false;
             txb->npages++;
             vpage += PAGESIZE;
@@ -403,8 +403,9 @@ static void xennet_tx_buf_add_pages(xennet_dev xd, xennet_tx_buf txb, struct pbu
             remain -= len;
             len = MIN(PAGESIZE, remain);
         } while (remain > 0);
-        txp->end = true;
     }
+    if (txp)
+        txp->end = true;
 }
 
 /* enqueue tx buffer for subsequent ring processing */
