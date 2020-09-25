@@ -53,6 +53,7 @@ struct vmbus_channel {
 
 	vmbus_chan_callback_t		ch_cb;
 	void				*ch_cbarg;
+	queue				sched_queue;
 
 	/*
 	 * TX bufring; at the beginning of ch_bufring.

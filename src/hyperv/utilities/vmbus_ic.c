@@ -189,7 +189,7 @@ vmbus_ic_attach(struct vmbus_ic_softc *sc, vmbus_chan_callback_t cb)
      */
     vmbus_chan_set_readbatch(chan, false);
 
-    vmbus_chan_open(chan, VMBUS_IC_BRSIZE, VMBUS_IC_BRSIZE, 0, 0, cb, sc);
+    vmbus_chan_open(chan, VMBUS_IC_BRSIZE, VMBUS_IC_BRSIZE, 0, 0, cb, sc, runqueue);
 }
 
 int

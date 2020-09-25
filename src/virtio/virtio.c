@@ -45,14 +45,14 @@ void vtdev_set_status(vtdev dev, u8 status)
     }
 }
 
-status virtio_alloc_virtqueue(vtdev dev, const char *name, int idx,
-                             struct virtqueue **result)
+status virtio_alloc_virtqueue(vtdev dev, const char *name, int idx, queue sched_queue,
+                              struct virtqueue **result)
 {
     switch (dev->transport) {
     case VTIO_TRANSPORT_MMIO:
-        return vtmmio_alloc_virtqueue((vtmmio)dev, name, idx, result);
+        return vtmmio_alloc_virtqueue((vtmmio)dev, name, idx, sched_queue, result);
     case VTIO_TRANSPORT_PCI:
-        return vtpci_alloc_virtqueue((vtpci)dev, name, idx, result);
+        return vtpci_alloc_virtqueue((vtpci)dev, name, idx, sched_queue, result);
     default:
         return timm("status", "unknown transport %d", dev->transport);
     }

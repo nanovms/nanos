@@ -635,7 +635,7 @@ hv_nv_on_device_add(struct hv_device *device, void *additional_info)
      */
     vmbus_chan_open(device->channel,
         NETVSC_DEVICE_RING_BUFFER_SIZE, NETVSC_DEVICE_RING_BUFFER_SIZE,
-        NULL, 0, hv_nv_on_channel_callback, device);
+        NULL, 0, hv_nv_on_channel_callback, device, runqueue);
     /*
      * Connect with the NetVsp
      */

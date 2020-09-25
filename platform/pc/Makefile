@@ -178,6 +178,7 @@ SRCS-kernel.img+= \
 	$(ARCHDIR)/ftrace.s
 endif
 
+CFLAGS+=	-DSPIN_LOCK_DEBUG_NOSMP
 #CFLAGS+=	-DLWIPDIR_DEBUG -DEPOLL_DEBUG -DNETSYSCALL_DEBUG -DKERNEL_DEBUG
 AFLAGS+=	-felf64 -I$(OBJDIR)/
 LDFLAGS+=	$(KERNLDFLAGS) --undefined=_start -T linker_script

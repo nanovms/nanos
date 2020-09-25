@@ -124,7 +124,7 @@ vmbus_chan_ins_list(vmbus_dev sc, struct vmbus_channel *chan)
 
 void
 vmbus_chan_open(struct vmbus_channel *chan, int txbr_size, int rxbr_size,
-    const void *udata, int udlen, vmbus_chan_callback_t cb, void *cbarg)
+                const void *udata, int udlen, vmbus_chan_callback_t cb, void *cbarg, queue sched_queue)
 {
     struct vmbus_chan_br cbr;
 
@@ -143,7 +143,7 @@ vmbus_chan_open(struct vmbus_channel *chan, int txbr_size, int rxbr_size,
     cbr.cbr_txsz = txbr_size;
     cbr.cbr_rxsz = rxbr_size;
 
-    vmbus_chan_open_br(chan, &cbr, udata, udlen, cb, cbarg);
+    vmbus_chan_open_br(chan, &cbr, udata, udlen, cb, cbarg, sched_queue);
 }
 
 closure_function(1, 0, void, vmbus_chan_closure,
@@ -155,7 +155,7 @@ closure_function(1, 0, void, vmbus_chan_closure,
 
 int
 vmbus_chan_open_br(struct vmbus_channel *chan, const struct vmbus_chan_br *cbr,
-    const void *udata, int udlen, vmbus_chan_callback_t cb, void *cbarg)
+                   const void *udata, int udlen, vmbus_chan_callback_t cb, void *cbarg, queue sched_queue)
 {
     vmbus_dev vmbus = chan->ch_vmbus;
 
@@ -180,6 +180,7 @@ vmbus_chan_open_br(struct vmbus_channel *chan, const struct vmbus_chan_br *cbr,
 
     chan->ch_cb = cb;
     chan->ch_cbarg = cbarg;
+    chan->sched_queue = sched_queue;
     vmbus_chan_debug("OPEN_BR, cbarg = %x", chan->ch_cbarg);
 
     vmbus_chan_update_evtflagcnt(vmbus, chan);
@@ -714,7 +715,7 @@ vmbus_event_flags_proc(vmbus_dev sc, volatile u64 *event_flags,
             if (chan->ch_flags & VMBUS_CHAN_FLAG_BATCHREAD)
                 vmbus_rxbr_intr_mask(&chan->ch_rxbr);
             if (!sc->poll_mode) {
-                enqueue(bhqueue, chan->ch_tq);
+                enqueue(chan->sched_queue, chan->ch_tq);
             } else {
                 apply(chan->ch_tq);
             }

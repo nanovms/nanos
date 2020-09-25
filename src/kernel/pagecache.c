@@ -1,5 +1,5 @@
 /* TODO:
-   - reinstate free list, keep refault counts
+   - keep refault stats
    - interface to physical free page list / shootdown epochs
 
    - would be nice to propagate a priority alone with requests to
@@ -1133,9 +1133,14 @@ closure_function(3, 3, boolean, pagecache_unmap_page_nodelocked,
             assert(pp->refcount.c >= 1);
             refcount_release(&pp->refcount);
         } else {
-            /* private copy */
-            pagecache pc = bound(pn)->pv->pc;
-            deallocate_u64(pc->physical, phys, cache_pagesize(pc));
+            /* private copy: free physical page
+
+               It's gross to go around the wrapped physical heap
+               specified to pagecache init, but this is really a
+               short-term fix; the physical heap parameter needs to be
+               replaced with the free page / tlb shootdown interface.
+            */
+            deallocate_phys_page_from_traversal(phys, cache_pagesize(bound(pn)->pv->pc));
         }
     }
     return true;
