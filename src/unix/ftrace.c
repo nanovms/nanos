@@ -3,8 +3,14 @@
 #include <symtab.h>
 #include <http.h>
 
+#define FTRACE_DEBUG
+#ifdef FTRACE_DEBUG
+#define ft_debug(x, ...) do {rprintf("FTRACE: " x, ##__VA_ARGS__);} while(0)
+#else
+#define ft_debug(x, ...)
+#endif
 /* 64MB default size for the user's trace array */
-#define DEFAULT_TRACE_ARRAY_SIZE        (64ULL << 20)
+#define DEFAULT_TRACE_ARRAY_SIZE        (256ULL << 20)
 #define DEFAULT_TRACE_ARRAY_SIZE_KB     (DEFAULT_TRACE_ARRAY_SIZE >> 10)
 
 #define TRACE_TASK_WIDTH    15
@@ -480,6 +486,8 @@ __rbuf_acquire_write_entry(struct rbuf * rbuf, struct rbuf_entry ** acquired)
     rbuf->write_idx = rbuf_next_write_idx(rbuf);
     rbuf->count++;
     rbuf->total_written++;
+    if (rbuf->count == rbuf->size - 1)
+        ft_debug("FTRACE: buffer full\n");
 
     return true;
 }
@@ -791,7 +799,10 @@ function_graph_print_entry(struct ftrace_printer * p,
      */
     if (graph->duration == 0) {
         /* function graph */
-        assert(graph->has_child);
+        //assert(graph->has_child);
+        if (graph->has_child == 0) {
+            ft_debug("FTRACE: child expected for %s with 0 duration\n", function_name(graph->ip));
+        }
         printer_write(p, "%s() {", function_name(graph->ip));
     } else {
         /* either a close of a function that called something, or
@@ -1869,18 +1880,19 @@ ftrace_thread_switch(thread out, thread in)
 
     rbuf_disable(&global_rbuf);
 
-    /* generate a ctx switch event */
-    if (out != in)
-        function_graph_trace_switch(out, in);
-
-    /* complete any outstanding function calls for incoming thread */
-    while (in->graph_idx > 0) {
+    /* complete any outstanding function calls for outgoing thread */
+    timestamp t = now(CLOCK_ID_MONOTONIC);
+    while (out->graph_idx > 0) {
         struct ftrace_graph_entry * stack_ent =
-                &(in->graph_stack[--in->graph_idx]);
-        stack_ent->return_ts = now(CLOCK_ID_MONOTONIC);
+                &(out->graph_stack[--out->graph_idx]);
+        stack_ent->return_ts = t;
+        if (out->graph_idx == 0)
         stack_ent->flush = (out != in); /* just controls a printing option */
         function_graph_trace_return(stack_ent);
     }
+    /* generate a ctx switch event */
+    if (out != in)
+        function_graph_trace_switch(out, in);
 
     rbuf_enable(&global_rbuf);
 }
