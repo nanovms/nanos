@@ -207,6 +207,8 @@ void thread_sleep_interruptible(void)
     disable_interrupts();
     assert(current->blocked_on);
     thread_log(current, "sleep interruptible (on \"%s\")", blockq_name(current->blocked_on));
+    ftrace_thread_switch(current, dummy_thread);
+    current_cpu()->current_thread = (nanos_thread)dummy_thread;
     runloop();
 }
 
@@ -216,6 +218,8 @@ void thread_sleep_uninterruptible(void)
     assert(!current->blocked_on);
     current->blocked_on = INVALID_ADDRESS;
     thread_log(current, "sleep uninterruptible");
+    ftrace_thread_switch(current, dummy_thread);
+    current_cpu()->current_thread = (nanos_thread)dummy_thread;
     runloop();
 }
 
