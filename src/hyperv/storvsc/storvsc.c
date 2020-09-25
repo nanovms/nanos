@@ -471,7 +471,7 @@ static void hv_storvsc_connect_vsp(struct storvsc_softc *sc)
         sc->hs_drv_props->drv_ringbuffer_size,
         (void *)&props,
         sizeof(struct vmstor_chan_props),
-        hv_storvsc_on_channel_callback, sc);
+        hv_storvsc_on_channel_callback, sc, bhqueue);
 
     hv_storvsc_channel_init(sc);
 }

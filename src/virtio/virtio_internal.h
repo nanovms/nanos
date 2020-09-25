@@ -84,17 +84,18 @@ static inline void virtio_attach(heap h, heap page_allocator,
     d->transport = transport;
 }
 
-status virtio_alloc_virtqueue(vtdev dev, const char *name, int idx,
+status virtio_alloc_virtqueue(vtdev dev, const char *name, int idx, queue sched_queue,
                               struct virtqueue **result);
 
 status virtqueue_alloc(vtdev dev,
                        const char *name,
-                       u16 queue,
+                       u16 queue_index,
                        u16 size,
                        bytes notify_offset,
                        int align,
                        struct virtqueue **vqp,
-                       thunk *t);
+                       thunk *t,
+                       queue sched_queue);
 
 void virtqueue_set_max_queued(virtqueue, int);
 

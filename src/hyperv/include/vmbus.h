@@ -141,11 +141,11 @@ typedef void	(*vmbus_chan_callback_t)(struct vmbus_channel *, void *);
  *			memory passed through 'br'.
  */
 void		vmbus_chan_open(struct vmbus_channel *chan,
-		    int txbr_size, int rxbr_size, const void *udata, int udlen,
-		    vmbus_chan_callback_t cb, void *cbarg);
+                                int txbr_size, int rxbr_size, const void *udata, int udlen,
+                                vmbus_chan_callback_t cb, void *cbarg, queue sched_queue);
 int		vmbus_chan_open_br(struct vmbus_channel *chan,
-		    const struct vmbus_chan_br *cbr, const void *udata,
-		    int udlen, vmbus_chan_callback_t cb, void *cbarg);
+                                   const struct vmbus_chan_br *cbr, const void *udata,
+                                   int udlen, vmbus_chan_callback_t cb, void *cbarg, queue sched_queue);
 void		vmbus_chan_gpadl_connect(struct vmbus_channel *chan,
 		    bus_addr_t paddr, int size, uint32_t *gpadl);
 void		vmbus_chan_gpadl_disconnect(struct vmbus_channel *chan,
