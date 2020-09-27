@@ -52,9 +52,6 @@ typedef struct cpuinfo {
 
     /* Stack for interrupts */
     void *int_stack;
-
-    /* pointer to nanos_thread (and target OS dependent stuff) */
-    nanos_thread current_thread;
 } *cpuinfo;
 
 #define cpu_not_present 0
@@ -98,6 +95,18 @@ static inline context get_running_frame(void)
 static inline void set_running_frame(context f)
 {
     current_cpu()->running_frame = f;
+}
+
+static inline nanos_thread get_current_thread()
+{
+    context f = current_cpu()->kernel_context->frame;
+    return pointer_from_u64(f[FRAME_THREAD]);
+}
+
+static inline void set_current_thread(nanos_thread t)
+{
+    context f = current_cpu()->kernel_context->frame;
+    f[FRAME_THREAD] = u64_from_pointer(t);
 }
 
 static inline void *stack_from_kernel_context(kernel_context c)

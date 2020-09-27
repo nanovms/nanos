@@ -132,6 +132,7 @@ static void blockq_apply_bi_locked(blockq bq, blockq_item bi, u64 flags)
                  (flags & BLOCKQ_ACTION_NULLIFY) ? "nullify " : "",
                  (flags & BLOCKQ_ACTION_TIMEDOUT) ? "timedout" : "");
 
+    thread_resume(bi->t);
     rv = apply(bi->a, flags);
     blockq_debug("   - returned %ld\n", rv);
 

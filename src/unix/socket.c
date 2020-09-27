@@ -617,6 +617,7 @@ closure_function(3, 2, void, recvmsg_complete,
                  sg_list, sg, struct iovec *, iov, int, iovlen,
                  thread, t, sysreturn, rv)
 {
+    thread_resume(t);
     sg_list sg = bound(sg);
     sg_to_iov(sg, bound(iov), bound(iovlen));
     deallocate_sg_list(sg);

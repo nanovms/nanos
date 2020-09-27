@@ -429,20 +429,19 @@ typedef struct sigaction *sigaction;
 #define SIGACT_SIGNALFD 0x00000002 /* TODO */
 
 extern thread dummy_thread;
-// seems like we could extract this from the frame or remove the thread entry in the frame
 #ifdef CURRENT_DEBUG
 #define current _current(__func__)
 static inline thread _current(const char *caller) {
-    if (current_cpu()->current_thread == INVALID_ADDRESS &&
+    if (get_current_thread() == 0 &&
       runtime_strcmp("run_thread_frame", caller) != 0 &&
       runtime_strcmp("thread_wakeup", caller) != 0) {
         log_printf("CURRENT", "invalid address returned to caller '%s'\n", caller);
         print_stack_from_here();
     }
-    return (thread)(current_cpu()->current_thread);
+    return (thread)get_current_thread();
 }
 #else
-#define current ((thread)(current_cpu()->current_thread))
+#define current ((thread)get_current_thread())
 #endif
 
 
@@ -685,7 +684,7 @@ void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *n
 #define register_syscall(m, n, f) _register_syscall(m, SYS_##n, f, #n)
 
 void configure_syscalls(process p);
-boolean syscall_notrace(int syscall);
+boolean syscall_notrace(process p, int syscall);
 
 void register_file_syscalls(struct syscall *);
 void register_net_syscalls(struct syscall *);
@@ -714,7 +713,7 @@ void truncate_file_maps(process p, fsfile f, u64 new_length);
 const char *string_from_mmap_type(int type);
 
 void thread_log_internal(thread t, const char *desc, ...);
-#define thread_log(__t, __desc, ...) do {if (__t == INVALID_ADDRESS) break; thread_log_internal(__t, __desc, ##__VA_ARGS__);} while (0)
+#define thread_log(__t, __desc, ...) do {if (!__t ) break; thread_log_internal(__t, __desc, ##__VA_ARGS__);} while (0)
 
 void thread_sleep_interruptible(void) __attribute__((noreturn));
 void thread_sleep_uninterruptible(void) __attribute__((noreturn));
