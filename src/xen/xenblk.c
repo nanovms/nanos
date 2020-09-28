@@ -86,13 +86,12 @@ static xenblk_req xenblk_get_req(xenblk_dev xbd)
     return req;
 }
 
+/* Called with mutex locked */
 static xenblk_ring_req xenblk_get_rreq(xenblk_dev xbd)
 {
-    u64 irqflags = spin_lock_irq(&xbd->lock);
     list l = list_get_next(&xbd->free_rreqs);
     if (l) {
         list_delete(l);
-        spin_unlock_irq(&xbd->lock, irqflags);
         return struct_from_list(l, xenblk_ring_req, l);
     }
     xenblk_debug("new ring request allocation");
@@ -103,7 +102,7 @@ static xenblk_ring_req xenblk_get_rreq(xenblk_dev xbd)
     } else {
         req = 0;
     }
-    spin_unlock_irq(&xbd->lock, irqflags);
+
     return req;
 }
 
