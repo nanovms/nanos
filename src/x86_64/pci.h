@@ -1,6 +1,7 @@
 /* PCI config register */
 #define PCIR_VENDOR     0x00
 #define PCIR_DEVICE     0x02
+#define PCIR_REVID      0x08
 #define PCIR_SUBCLASS   0x0a
 #define PCIR_CLASS      0x0b
 #define PCIR_HDRTYPE    0x0e
@@ -80,6 +81,11 @@ static inline u8 pci_get_hdrtype(pci_dev dev)
     return pci_cfgread(dev, PCIR_HDRTYPE, 1);
 }
 
+static inline u8 pci_get_revid(pci_dev dev)
+{
+    return pci_cfgread(dev, PCIR_REVID, 1);
+}
+
 #define PCI_BAR_MEMORY 0
 #define PCI_BAR_IOPORT 1
 
@@ -126,8 +132,10 @@ u32 pci_find_next_cap(pci_dev dev, u8 cap, u32 cp);
 
 void pci_discover();
 void pci_set_bus_master(pci_dev dev);
-void pci_enable_msix(pci_dev dev);
-void pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name);
+int pci_enable_msix(pci_dev dev);
+void pci_disable_msix(pci_dev dev);
+int pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name);
+void pci_deallocate_msix(pci_dev dev, int msi_slot, int int_vector);
 
 /* PCI config header registers for all devices */
 #define PCIR_COMMAND 0x04

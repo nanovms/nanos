@@ -80,6 +80,8 @@ static void run_thunk(thunk t, int cpustate)
     //    halt("handler returned %d", cpustate);
 }
 
+extern volatile boolean timer_intr_received;
+
 /* called with kernel lock held */
 static inline boolean update_timer(void)
 {

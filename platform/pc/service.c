@@ -19,6 +19,7 @@
 #include <kvm_platform.h>
 #include <xen_platform.h>
 #include <hyperv_platform.h>
+#include <aws_platform.h>
 
 #define BOOT_PARAM_OFFSET_E820_ENTRIES  0x01E8
 #define BOOT_PARAM_OFFSET_BOOT_FLAG     0x01FE
@@ -486,6 +487,7 @@ static void __attribute__((noinline)) init_service_new_stack()
         status s = xen_probe_devices();
         if (!is_ok(s))
             rprintf("xen probe failed: %v\n", s);
+        init_aws_ena(kh);
     } else if (hyperv_detected()) {
         init_debug("probing for Hyper-V PV network...");
         init_vmbus(kh);
@@ -497,6 +499,7 @@ static void __attribute__((noinline)) init_service_new_stack()
         /* qemu virtio */
         init_virtio_network(kh);
         init_vmxnet3_network(kh);
+        init_aws_ena(kh);
     }
 
     init_storage(kh, sa, !xen_detected() && !hyperv_storvsc_attached);

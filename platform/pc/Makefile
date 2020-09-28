@@ -10,6 +10,11 @@ SRCS-kernel.img= \
 	$(SRCDIR)/drivers/console.c \
 	$(SRCDIR)/drivers/storage.c \
 	$(SRCDIR)/drivers/vga.c \
+	$(SRCDIR)/aws/ena/ena.c \
+	$(SRCDIR)/aws/ena/ena_datapath.c \
+	$(SRCDIR)/aws/ena/buf_ring.c \
+	$(SRCDIR)/aws/ena/ena-com/ena_com.c \
+	$(SRCDIR)/aws/ena/ena-com/ena_eth_com.c \
 	$(SRCDIR)/gdb/gdbstub.c \
 	$(SRCDIR)/gdb/gdbtcp.c \
 	$(SRCDIR)/gdb/gdbutil.c \

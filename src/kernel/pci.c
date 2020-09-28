@@ -217,11 +217,11 @@ u32 pci_find_next_cap(pci_dev dev, u8 cap, u32 cp)
     return _pci_find_cap(dev, cap, pci_cfgread(dev, cp + PCICAP_NEXTPTR, 1));
 }
 
-void pci_enable_msix(pci_dev dev)
+int pci_enable_msix(pci_dev dev)
 {
     u32 cp = pci_find_cap(dev, PCIY_MSIX);
     if (cp == 0)
-        return;
+        return 0;
 
     // map MSI-X table
     u32 msix_table = pci_cfgread(dev, cp + 4, 4);
@@ -233,10 +233,23 @@ void pci_enable_msix(pci_dev dev)
     // enable MSI-X
     u16 ctrl = pci_cfgread(dev, cp + 2, 2);
     ctrl |= 0x8000;
-#ifdef PCI_DEBUG
     int num_entries = (ctrl & 0x7ff) + 1;
-#endif
     pci_debug("%s: ctrl 0x%x, num entries %d\n", __func__, ctrl, num_entries);
+    pci_cfgwrite(dev, cp + 2, 2, ctrl);
+    return num_entries;
+}
+
+void pci_disable_msix(pci_dev dev)
+{
+    u32 cp = pci_find_cap(dev, PCIY_MSIX);
+    if (cp == 0)
+        return;
+
+    // TODO: check that all interrupts were freed
+
+    // disable  MSI-X
+    u16 ctrl = pci_cfgread(dev, cp + 2, 2);
+    ctrl &= ~0x8000;
     pci_cfgwrite(dev, cp + 2, 2, ctrl);
 }
 
@@ -253,7 +266,7 @@ void msi_format(u32 *address, u32 *data, int vector)
     *data = (trigger << 15) | (level << 14) | (mode << 8) | vector;
 }
 
-void pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name)
+int pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name)
 {
     int v = allocate_interrupt();
     register_interrupt(v, h, name);
@@ -262,6 +275,23 @@ void pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name)
     u32 a, d;
     u32 vector_control = 0;
     msi_format(&a, &d, v);
+
+    dev->msix_table[msi_slot*4] = a;
+    dev->msix_table[msi_slot*4 + 1] = 0;
+    dev->msix_table[msi_slot*4 + 2] = d;
+    dev->msix_table[msi_slot*4 + 3] = vector_control;
+    return v;
+}
+
+void pci_deallocate_msix(pci_dev dev, int msi_slot, int int_vector)
+{
+    pci_debug("%s: msix_table %p, msi %d: int %d\n", __func__, dev->msix_table, msi_slot, int_vector);
+    unregister_interrupt(int_vector);
+
+    /* TODO: how we should update msix table? */
+    u32 a, d;
+    u32 vector_control = 0;
+    msi_format(&a, &d, 0);
 
     dev->msix_table[msi_slot*4] = a;
     dev->msix_table[msi_slot*4 + 1] = 0;

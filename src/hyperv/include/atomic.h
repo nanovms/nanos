@@ -174,7 +174,19 @@ atomic_load_acq##SIZE(volatile u##SIZE *p)              \
     return (res);                                       \
 }                                                       \
 
+#define ATOMIC_STORE(SIZE)                              \
+static __inline void                                    \
+atomic_store_rel##SIZE(volatile u##SIZE *p, u##SIZE v)  \
+{                                                       \
+    compiler_barrier();                                 \
+    *p = v;                                             \
+}                                                       \
+
+
 ATOMIC_LOAD(32);
+ATOMIC_STORE(32);
+ATOMIC_LOAD(64);
+ATOMIC_STORE(64);
 
 static __inline void
 atomic_thread_fence_acq(void)
