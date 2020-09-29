@@ -14,6 +14,8 @@
 closure_function(1, 0, void, kernel_frame_return,
                  kernel_context, kc)
 {
+    /* kernel lock always held on a valid page fault */
+    current_cpu()->have_kernel_lock = true;
     resume_kernel_context(bound(kc));
 }
 
@@ -121,6 +123,7 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
                of a syscall (under the kernel lock). As such, we are free to set up an asynchronous page
                fill, allocate memory, etc. */
             assert(!faulting_kernel_context);
+            assert(this_cpu_has_kernel_lock());
             kernel_demand_page_completed = false;
             pagecache_map_page(vm->cache_node, node_offset, page_addr, flags,
                                (status_handler)&do_kernel_demand_pf_complete);
@@ -129,6 +132,7 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
                 return true;
             }
             faulting_kernel_context = suspend_kernel_context();
+            current_cpu()->have_kernel_lock = false;
         } else {
             /* A user fault can happen outside of the kernel lock. We can try to touch an existing
                page, but we can't allocate anything, fill a page or start a storage operation. */

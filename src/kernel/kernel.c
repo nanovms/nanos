@@ -64,9 +64,11 @@ void deallocate_kernel_context(kernel_context c)
 
 kernel_context suspend_kernel_context(void)
 {
+    cpuinfo ci = current_cpu();
     assert(spare_kernel_context);
-    kernel_context saved = current_cpu()->kernel_context;
-    current_cpu()->kernel_context = spare_kernel_context;
+    kernel_context saved = ci->kernel_context;
+    ci->kernel_context = spare_kernel_context;
+    ci->have_kernel_lock = false;
     spare_kernel_context = 0;
     return saved;
 }

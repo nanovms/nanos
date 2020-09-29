@@ -439,6 +439,7 @@ static void check_syscall_restart(thread t, sigaction sa)
         if (sa->sa_flags & SA_RESTART) {
             sig_debug("restarting syscall\n");
             enqueue(runqueue, &t->deferred_syscall);
+            kern_unlock();
             runloop();
         } else {
             sig_debug("interrupted syscall\n");
@@ -483,6 +484,7 @@ sysreturn rt_sigreturn(void)
               f, f[FRAME_RIP], f[FRAME_RAX]);
 
     schedule_frame(f);
+    kern_unlock();
     runloop();
 }
 

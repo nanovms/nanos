@@ -2205,6 +2205,7 @@ sysreturn sched_yield()
 void exit(int code)
 {
     exit_thread(current);
+    kern_unlock();
     runloop();
 }
 
@@ -2445,7 +2446,7 @@ void syscall_debug(context f)
     if (call >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0])) {
         schedule_frame(f);
         thread_log(t, "invalid syscall %d", call);
-        runloop();
+        goto out;
     }
     t->syscall = call;
     // should we cache this for performance?
@@ -2476,6 +2477,8 @@ void syscall_debug(context f)
     // i dont know that we actually want to defer the syscall return...its just easier for the moment to hew
     // to the general model and make exceptions later
     schedule_frame(f);
+  out:
+    kern_unlock();
     runloop();
 }
 

@@ -205,7 +205,7 @@ static void pagecache_page_queue_completions_locked(pagecache pc, pagecache_page
         pp->completions = 0;
         if (!pc->service_enqueued) {
             pc->service_enqueued = true;
-            assert(enqueue(runqueue, pc->service_completions));
+            assert(enqueue(bhqueue, pc->service_completions));
         }
     }
 }

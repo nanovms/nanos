@@ -49,8 +49,6 @@ boolean kern_try_lock()
 {
     cpuinfo ci = current_cpu();
     assert(ci->state != cpu_interrupt);
-    if (ci->have_kernel_lock)
-        return true;
     if (!spin_try(&kernel_lock))
         return false;
     ci->have_kernel_lock = true;
@@ -136,9 +134,9 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
 
     sched_thread_pause();
     disable_interrupts();
-    sched_debug("runloop from %s b:%d r:%d t:%d i:%x lock:%d\n", state_strings[ci->state],
+    sched_debug("runloop from %s b:%d r:%d t:%d i:%x%s\n", state_strings[ci->state],
                 queue_length(bhqueue), queue_length(runqueue), queue_length(thread_queue),
-                idle_cpu_mask, ci->have_kernel_lock);
+                idle_cpu_mask, ci->have_kernel_lock ? " locked" : "");
     ci->state = cpu_kernel;
 
     /* bhqueue is for operations outside the realm of the kernel lock,
