@@ -194,7 +194,7 @@ closure_function(5, 1, void, mbr_read,
         u8 uuid[UUID_LEN];
         char label[VOLUME_LABEL_MAX_LEN];
         if (filesystem_probe(mbr, uuid, label))
-            volume_add(uuid, bound(r), bound(w), bound(length));
+            volume_add(uuid, label, bound(r), bound(w), bound(length));
         else
             init_debug("unformatted storage device, ignoring");
         deallocate(h, mbr, SECTOR_SIZE);

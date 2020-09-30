@@ -287,7 +287,7 @@ static inline boolean buffer_compare_with_cstring(buffer b, const char *x)
 {
     int len = buffer_length(b);
     for (int i = 0; i < len; i++) {
-        if (byte(b, i) != x[i])
+        if (byte(b, i) != (u8)x[i])
             return false;
         if (x[i] == '\0')       /* must terminate */
             return i == len - 1;
