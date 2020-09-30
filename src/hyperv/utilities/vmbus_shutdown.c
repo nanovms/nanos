@@ -30,7 +30,7 @@
 #include "vmbus_icvar.h"
 #include "vmbus_icreg.h"
 #include "vmbus.h"
-#include "io.h"
+#include "inout.h"
 #include "hyperv_platform.h"
 
 #define VMBUS_SHUTDOWN_FWVER_MAJOR  3

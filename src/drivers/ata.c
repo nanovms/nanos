@@ -1,5 +1,5 @@
 #include <kernel.h>
-#include <x86_64/io.h>
+#include <x86_64/inout.h>
 #include "ata.h"
 
 /*

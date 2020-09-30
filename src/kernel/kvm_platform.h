@@ -1,4 +1,4 @@
-#include <io.h>
+#include <inout.h>
 
 #define VM_EXIT_GDB 0x7d
 #define VM_EXIT_FAULT 0x7e

@@ -1,5 +1,5 @@
 #include <kernel.h>
-#include <io.h>
+#include <inout.h>
 
 #include "mktime.h"
 

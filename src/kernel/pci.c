@@ -1,7 +1,7 @@
 #include <kernel.h>
 #include <pci.h>
 #include <page.h>
-#include <io.h>
+#include <inout.h>
 
 #ifdef PCI_DEBUG
 # define pci_debug rprintf

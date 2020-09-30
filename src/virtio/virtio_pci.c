@@ -32,7 +32,7 @@
 #include "virtio_internal.h"
 #include "virtio_pci.h"
 
-#include <io.h>
+#include <inout.h>
 
 #ifdef VIRTIO_PCI_DEBUG
 # define virtio_pci_debug rprintf
