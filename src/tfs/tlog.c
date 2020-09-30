@@ -1,5 +1,4 @@
 #include <tfs_internal.h>
-#include <storage.h>
 
 #ifdef BOOT // XXX move
 #define TLOG_READ_ONLY
@@ -631,7 +630,8 @@ static inline void log_tuple_produce(log tl, buffer b, u64 length)
     tl->tuple_bytes_remain -= length;
 }
 
-static status log_hdr_parse(buffer b, boolean first_ext, u64 *length, u8 *uuid)
+static status log_hdr_parse(buffer b, boolean first_ext, u64 *length, u8 *uuid,
+                            char *label)
 {
     if (runtime_memcmp(buffer_ref(b, 0), tfs_magic, TFS_MAGIC_BYTES))
         return timm("result", "tfs magic mismatch");
@@ -641,8 +641,11 @@ static status log_hdr_parse(buffer b, boolean first_ext, u64 *length, u8 *uuid)
         return timm("result", "tfs version mismatch (read %ld, build %ld)",
             version, TFS_VERSION);
     *length = pop_varint(b);
-    if (first_ext)
+    if (first_ext) {
         buffer_read(b, uuid, UUID_LEN);
+        if (!read_cstring(b, label, VOLUME_LABEL_MAX_LEN))
+            return timm("result", "invalid label");
+    }
     return STATUS_OK;
 }
 
@@ -675,7 +678,8 @@ closure_function(4, 1, void, log_read_complete,
     tlog_debug("-> new log extension, checking magic and version\n");
     if (!ext->open) {
         length = 0;
-        s = log_hdr_parse(b, ext->sectors.start == 0, &length, tl->fs->uuid);
+        s = log_hdr_parse(b, ext->sectors.start == 0, &length, tl->fs->uuid,
+            tl->fs->label);
         if (!is_ok(s))
             goto out_apply_status;
         /* XXX the length is really for validation...so hook it up */
@@ -830,11 +834,11 @@ static void log_read(log tl, status_handler sh)
     apply(ext->read, sg, r, tlc);
 }
 
-boolean filesystem_probe(u8 *first_sector, u8 *uuid)
+boolean filesystem_probe(u8 *first_sector, u8 *uuid, char *label)
 {
     u64 len;
     status s = log_hdr_parse(alloca_wrap_buffer(first_sector, SECTOR_SIZE),
-        true, &len, uuid);
+        true, &len, uuid, label);
     boolean success = is_ok(s);
     timm_dealloc(s);
     return success;
@@ -862,6 +866,8 @@ log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
         buffer uuid = alloca_wrap_buffer(fs->uuid, UUID_LEN);
         random_buffer(uuid);
         push_buffer(init_ext->staging, uuid);
+        buffer_write_cstring(init_ext->staging, fs->label);
+        push_u8(init_ext->staging, '\0');   /* label string terminator */
         log_ext new_ext = log_ext_new(tl);
         assert(new_ext != INVALID_ADDRESS);
         log_extension_init(new_ext);

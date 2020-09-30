@@ -136,6 +136,21 @@ static inline character pop_character(buffer b)
     return c;
 }
 
+static inline boolean read_cstring(buffer b, char *dest, bytes maxlen)
+{
+    bytes count = 0;
+    u8 c;
+    do {
+        if (buffer_length(b) == 0)
+            return false;
+        c = *(u8 *)buffer_ref(b, 0);
+        bytes len = utf8_length(c);
+        if ((len > maxlen - count) || !buffer_read(b, dest + count, len))
+            return false;
+        count += len;
+    } while (c);
+    return true;
+}
 
 // status
 static inline boolean parse_int(buffer b, u32 base, u64 *result)

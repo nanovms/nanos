@@ -19,6 +19,8 @@ enum partition {
 #define HEADS 255
 #define MAX_CYL 1023
 
+#define VOLUME_LABEL_MAX_LEN    32  /* null-terminated string */
+
 #define partition_get(mbr, index)    ({ \
     u16 *mbr_sig = (u16 *)((u64)(mbr) + SECTOR_SIZE - sizeof(*mbr_sig));  \
     struct partition_entry *e;  \

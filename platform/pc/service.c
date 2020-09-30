@@ -192,7 +192,8 @@ closure_function(5, 1, void, mbr_read,
     struct partition_entry *rootfs_part = partition_get(mbr, PARTITION_ROOTFS);
     if (!rootfs_part) {
         u8 uuid[UUID_LEN];
-        if (filesystem_probe(mbr, uuid))
+        char label[VOLUME_LABEL_MAX_LEN];
+        if (filesystem_probe(mbr, uuid, label))
             volume_add(uuid, bound(r), bound(w), bound(length));
         else
             init_debug("unformatted storage device, ignoring");
