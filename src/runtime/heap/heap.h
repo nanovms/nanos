@@ -1,3 +1,7 @@
+#ifndef __MINGW64__
+typedef unsigned long uintptr_t;
+#endif
+
 // should consider a drain function
 struct heap {
     struct table metadata;
@@ -31,8 +35,8 @@ heap allocate_mcache(heap meta, heap parent, int min_order, int max_order, bytes
 
 static inline void *page_of(void *x, bytes pagesize)
 {
-    return((void *)((unsigned long)x &
-                    (~((unsigned long)pagesize-1))));
+    return((void *)((uintptr_t)x &
+                    (~((uintptr_t)pagesize-1))));
 }
 
 static inline int subdivide(int quantum, int per, int s, int o)

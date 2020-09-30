@@ -40,46 +40,46 @@ void runtime_memcpy(void *a, const void *b, bytes len)
 {
     unsigned int src_cnt, dest_cnt;
     bytes long_len, end_len;
-    unsigned long *p_long_src;
-    unsigned long *p_long_dest;
-    unsigned long long_word1;
-    unsigned long long_word2;
+    uintptr_t *p_long_src;
+    uintptr_t *p_long_dest;
+    uintptr_t long_word1;
+    uintptr_t long_word2;
 
-    if ((unsigned long)a < (unsigned long)b) {
-        if (len < sizeof(long)) {
+    if ((uintptr_t)a < (uintptr_t)b) {
+        if (len < sizeof(uintptr_t)) {
             memcpyf_8(a, b, len);
             return;
         }
-        src_cnt = sizeof(long) - ((unsigned long)b & (sizeof(long) - 1));
-        if (src_cnt == sizeof(long)) {
+        src_cnt = sizeof(uintptr_t) - ((uintptr_t)b & (sizeof(uintptr_t) - 1));
+        if (src_cnt == sizeof(uintptr_t)) {
             src_cnt = 0;
         }
-        dest_cnt = sizeof(long) - ((unsigned long)a & (sizeof(long) - 1));
-        if (dest_cnt == sizeof(long)) {
+        dest_cnt = sizeof(uintptr_t) - ((uintptr_t)a & (sizeof(uintptr_t) - 1));
+        if (dest_cnt == sizeof(uintptr_t)) {
             dest_cnt = 0;
         }
         else {
             memcpyf_8(a, b, dest_cnt);
         }
-        long_len = (len - dest_cnt) / sizeof(long);
-        end_len = (len - dest_cnt) & (sizeof(long) - 1);
-        p_long_src = (unsigned long *)((u8 *)b + src_cnt);
+        long_len = (len - dest_cnt) / sizeof(uintptr_t);
+        end_len = (len - dest_cnt) & (sizeof(uintptr_t) - 1);
+        p_long_src = (uintptr_t *)((u8 *)b + src_cnt);
         if (src_cnt > dest_cnt) {
             p_long_src--;
         }
-        p_long_dest = (unsigned long *)((u8 *)a + dest_cnt);
+        p_long_dest = (uintptr_t *)((u8 *)a + dest_cnt);
         if (src_cnt == dest_cnt) {
             while (long_len-- > 0) {
                 *p_long_dest++ = *p_long_src++;
             }
         }
         else {
-            unsigned int alignment = (src_cnt - dest_cnt) & (sizeof(long) - 1);
+            unsigned int alignment = (src_cnt - dest_cnt) & (sizeof(uintptr_t) - 1);
             long_word1 = *p_long_src++;
             while (long_len-- > 0) {
                 long_word2 = *p_long_src++;
                 *p_long_dest++ =
-                        (long_word1 >> (8 * (sizeof(long) - alignment))) |
+                        (long_word1 >> (8 * (sizeof(uintptr_t) - alignment))) |
                         (long_word2 << (8 * alignment));
                 long_word1 = long_word2;
             }
@@ -87,19 +87,19 @@ void runtime_memcpy(void *a, const void *b, bytes len)
         memcpyf_8(p_long_dest, b + len - end_len, end_len);
     }
     else {
-        if (len < sizeof(long)) {
+        if (len < sizeof(uintptr_t)) {
             memcpyb_8(a, b, len);
             return;
         }
-        src_cnt = (unsigned long)((u8 *)b + len) & (sizeof(long) - 1);
-        dest_cnt = (unsigned long)((u8 *)a + len) & (sizeof(long) - 1);
-        p_long_src = (unsigned long *)((u8 *)b + len - dest_cnt);
-        p_long_dest = (unsigned long *)((u8 *)a + len - dest_cnt);
+        src_cnt = (uintptr_t)((u8 *)b + len) & (sizeof(uintptr_t) - 1);
+        dest_cnt = (uintptr_t)((u8 *)a + len) & (sizeof(uintptr_t) - 1);
+        p_long_src = (uintptr_t *)((u8 *)b + len - dest_cnt);
+        p_long_dest = (uintptr_t *)((u8 *)a + len - dest_cnt);
         memcpyb_8(p_long_dest, p_long_src, dest_cnt);
-        p_long_src = (unsigned long *)((u8 *)b + len - src_cnt);
+        p_long_src = (uintptr_t *)((u8 *)b + len - src_cnt);
         len -= dest_cnt;
-        long_len = len / sizeof(long);
-        end_len = len & (sizeof(long) - 1);
+        long_len = len / sizeof(uintptr_t);
+        end_len = len & (sizeof(uintptr_t) - 1);
         if (src_cnt <= dest_cnt) {
             p_long_src--;
         }
@@ -110,12 +110,12 @@ void runtime_memcpy(void *a, const void *b, bytes len)
             }
         }
         else {
-            unsigned int alignment = (src_cnt - dest_cnt) & (sizeof(long) - 1);
+            unsigned int alignment = (src_cnt - dest_cnt) & (sizeof(uintptr_t) - 1);
             long_word1 = *p_long_src--;
             while (long_len-- > 0) {
                 long_word2 = *p_long_src--;
                 *p_long_dest-- =
-                        (long_word1 << (8 * (sizeof(long) - alignment))) |
+                        (long_word1 << (8 * (sizeof(uintptr_t) - alignment))) |
                         (long_word2 >> (8 * alignment));
                 long_word1 = long_word2;
             }
@@ -126,25 +126,25 @@ void runtime_memcpy(void *a, const void *b, bytes len)
 
 void runtime_memset(u8 *a, u8 b, bytes len)
 {
-    if (len < sizeof(long)) {
+    if (len < sizeof(uintptr_t)) {
         memset_8(a, b, len);
         return;
     }
-    unsigned int cnt = sizeof(long) - ((unsigned long)a & (sizeof(long) - 1));
-    if (cnt == sizeof(long)) {
+    unsigned int cnt = sizeof(uintptr_t) - ((uintptr_t)a & (sizeof(uintptr_t) - 1));
+    if (cnt == sizeof(uintptr_t)) {
         cnt = 0;
     }
     else {
         memset_8(a, b, cnt);
         len -= cnt;
     }
-    unsigned long *dest = (unsigned long *)((u8 *)a + cnt);
-    unsigned long word = 0;
+    uintptr_t *dest = (uintptr_t *)((u8 *)a + cnt);
+    uintptr_t word = 0;
     for (int i = 0; i < sizeof(word); i++) {
         word = (word << 8) | b;
     }
-    bytes long_len = len / sizeof(long);
-    bytes end_len = len & (sizeof(long) - 1);
+    bytes long_len = len / sizeof(uintptr_t);
+    bytes end_len = len & (sizeof(uintptr_t) - 1);
     while (long_len-- > 0) {
         *dest++ = word;
     }
@@ -153,17 +153,17 @@ void runtime_memset(u8 *a, u8 b, bytes len)
 
 int runtime_memcmp(const void *a, const void *b, bytes len)
 {
-    unsigned long res;
+    uintptr_t res;
 
-    if (len < sizeof(long)) {
+    if (len < sizeof(uintptr_t)) {
         return memcmp_8(a, b, len);
     }
-    unsigned int a_cnt = sizeof(long) - ((unsigned long)a & (sizeof(long) - 1));
-    if (a_cnt == sizeof(long)) {
+    unsigned int a_cnt = sizeof(uintptr_t) - ((uintptr_t)a & (sizeof(uintptr_t) - 1));
+    if (a_cnt == sizeof(uintptr_t)) {
         a_cnt = 0;
     }
-    unsigned int b_cnt = sizeof(long) - ((unsigned long)b & (sizeof(long) - 1));
-    if (b_cnt == sizeof(long)) {
+    unsigned int b_cnt = sizeof(uintptr_t) - ((uintptr_t)b & (sizeof(uintptr_t) - 1));
+    if (b_cnt == sizeof(uintptr_t)) {
         b_cnt = 0;
     }
     else {
@@ -172,13 +172,13 @@ int runtime_memcmp(const void *a, const void *b, bytes len)
             return res;
         }
     }
-    bytes long_len = (len - b_cnt) / sizeof(long);
-    bytes end_len = (len - b_cnt) & (sizeof(long) - 1);
-    unsigned long *p_long_a = (unsigned long *)((u8 *)a + a_cnt);
+    bytes long_len = (len - b_cnt) / sizeof(uintptr_t);
+    bytes end_len = (len - b_cnt) & (sizeof(uintptr_t) - 1);
+    uintptr_t *p_long_a = (uintptr_t *)((u8 *)a + a_cnt);
     if (a_cnt > b_cnt) {
         p_long_a--;
     }
-    unsigned long *p_long_b = (unsigned long *)((u8 *)b + b_cnt);
+    uintptr_t *p_long_b = (uintptr_t *)((u8 *)b + b_cnt);
     if (a_cnt == b_cnt) {
         while (long_len-- > 0) {
             res = *p_long_a++ - *p_long_b++;
@@ -188,12 +188,12 @@ int runtime_memcmp(const void *a, const void *b, bytes len)
         }
     }
     else {
-        unsigned int alignment = (a_cnt - b_cnt) & (sizeof(long) - 1);
-        unsigned long long_word1, long_word2;
+        unsigned int alignment = (a_cnt - b_cnt) & (sizeof(uintptr_t) - 1);
+        uintptr_t long_word1, long_word2;
         long_word1 = *p_long_a++;
         while (long_len-- > 0) {
             long_word2 = *p_long_a++;
-            res = ((long_word1 >> (8 * (sizeof(long) - alignment))) |
+            res = ((long_word1 >> (8 * (sizeof(uintptr_t) - alignment))) |
                     (long_word2 << (8 * alignment))) - *p_long_b++;
             if (res) {
                 return 1;
