@@ -57,7 +57,8 @@ define_closure_function(5, 0, void, thread_demand_file_page,
     vmap vm = bound(vm);
     pagecache_node pn = vm->cache_node;
     pagecache_map_page(pn, bound(node_offset), bound(page_addr), bound(flags),
-                       (status_handler)&bound(t)->demand_file_page_complete);
+                       (status_handler)&bound(t)->demand_file_page_complete,
+                       false /* complete on runqueue */);
     range ra = irange(bound(node_offset) + PAGESIZE,
         vm->node_offset + range_span(vm->node.r));
     if (range_valid(ra)) {
@@ -126,7 +127,8 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
             assert(this_cpu_has_kernel_lock());
             kernel_demand_page_completed = false;
             pagecache_map_page(vm->cache_node, node_offset, page_addr, flags,
-                               (status_handler)&do_kernel_demand_pf_complete);
+                               (status_handler)&do_kernel_demand_pf_complete,
+                               true /* complete on bhqueue */);
             if (kernel_demand_page_completed) {
                 pf_debug("   immediate completion\n");
                 return true;

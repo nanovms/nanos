@@ -7,12 +7,33 @@ declare_closure_struct(1, 1, void, pagecache_scan_timer,
                        struct pagecache *, pc,
                        u64, overruns /* ignored */);
 
+struct pagecache_completion_queue;
+
+declare_closure_struct(2, 0, void, pagecache_service_completions,
+                       struct pagecache *, pc, struct pagecache_completion_queue *, cq);
+
+typedef struct page_completion {
+    struct list l;
+    union {
+        status_handler sh;
+        status s;               /* queued list head has status to apply */
+    };
+} *page_completion;
+
+typedef struct pagecache_completion_queue {
+    queue q;
+    boolean scheduled;
+    closure_struct(pagecache_service_completions, service);
+} *pagecache_completion_queue;
+
 typedef struct pagecache {
     word total_pages;
     int page_order;
     heap h;
     heap contiguous;
     heap physical;
+    heap completions;
+
     void *zero_page;            /* for zero-fill dma */
 
     /* state_lock covers list access, page state changes and
@@ -28,10 +49,9 @@ typedef struct pagecache {
     struct list volumes;
     struct list shared_maps;
 
-    /* not under lock */
-    queue completion_vecs;
-    thunk service_completions;
-    boolean service_enqueued;
+    struct pagecache_completion_queue bh_completions;
+    struct pagecache_completion_queue rq_completions;
+
     boolean scan_in_progress;
     timer scan_timer;
     closure_struct(pagecache_scan_timer, do_scan_timer);
@@ -74,7 +94,7 @@ typedef struct pagecache_shared_map {
 
 #define PAGECACHE_PAGESTATE_SHIFT   61
 
-#define PAGECACHE_PAGESTATE_FREE    0 /* unused, yet may remain in search tree and retain usage stats */
+#define PAGECACHE_PAGESTATE_FREE    0 /* evicted, yet remains in search tree and retains refault data */
 #define PAGECACHE_PAGESTATE_EVICTED 1 /* evicted, awaiting release by user (not on list) */
 #define PAGECACHE_PAGESTATE_ALLOC   2 /* allocated, request not issued (not on list) */
 #define PAGECACHE_PAGESTATE_READING 3 /* block reads issued (not on list) */
@@ -100,7 +120,9 @@ struct pagecache_page {
     pagecache_node node;
     struct list l;
     u64 phys;                   /* physical address */
-    vector completions;         /* status_handlers */
+    struct list bh_completions; /* default for non-kernel use */
+    struct list rq_completions; /* kernel only */
+
     closure_struct(pagecache_page_free, free);
     boolean evicted;
 };

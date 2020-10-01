@@ -354,6 +354,7 @@ void kernel_shutdown_ex(status_handler completion)
     shutting_down = true;
     if (root_fs) {
         storage_sync(completion);
+        kern_unlock();
         runloop();
     }
     apply(completion, 0);
