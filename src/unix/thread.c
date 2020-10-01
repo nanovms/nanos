@@ -101,17 +101,15 @@ void register_thread_syscalls(struct syscall *map)
 
 void thread_log_internal(thread t, const char *desc, ...)
 {
-    if (t == INVALID_ADDRESS)
-        return;
     if (table_find(t->p->process_root, sym(trace))) {
-        if (syscall_notrace(t->syscall))
+        if (syscall_notrace(t->p, t->syscall))
             return;
         vlist ap;
         vstart (ap, desc);        
         buffer b = allocate_buffer(transient, 100);
         bprintf(b, "%n%d ", (int) ((MAX(MIN(t->tid, 20), 1) - 1) * 4), t->tid);
-        if (current->name[0] != '\0')
-            bprintf(b, "[%s] ", current->name);
+        if (t->name[0] != '\0')
+            bprintf(b, "[%s] ", t->name);
         buffer f = alloca_wrap_buffer(desc, runtime_strlen(desc));
         vbprintf(b, f, &ap);
         push_u8(b, '\n');
@@ -153,7 +151,7 @@ static inline void run_thread_frame(thread t)
     check_stop_conditions(t);
     kern_lock(); // xx - make thread entry a separate exclusion region for performance
     thread old = current;
-    current_cpu()->current_thread = (nanos_thread)t;
+    set_current_thread((nanos_thread)t);
     ftrace_thread_switch(old, current);    /* ftrace needs to know about the switch event */
     thread_enter_user(t);
 
@@ -268,7 +266,6 @@ define_closure_function(1, 0, void, free_thread,
 
 define_closure_function(1, 0, void, resume_syscall, thread, t)
 {
-    current_cpu()->current_thread = (nanos_thread)bound(t);
     thread_resume(bound(t));
     syscall_debug(thread_frame(bound(t)));
 }
@@ -388,7 +385,7 @@ void exit_thread(thread t)
     ftrace_thread_deinit(t, dummy_thread);
 
     /* replace references to thread with placeholder */
-    current_cpu()->current_thread = (nanos_thread)dummy_thread;
+    set_current_thread((nanos_thread)dummy_thread);
     set_running_frame(dummy_thread->default_frame);
     refcount_release(&t->refcount);
 }

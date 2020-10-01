@@ -357,11 +357,14 @@ void thread_enter_system(thread t)
         t->utime += diff;
         t->start_time = here;
         t->sysctx = true;
+        set_current_thread(&t->thrd);
     }
 }
 
 void thread_pause(thread t)
 {
+    if (get_current_thread() != &t->thrd)
+        return;
     process p = t->p;
     timestamp diff = now(CLOCK_ID_MONOTONIC) - t->start_time;
     if (t->sysctx) {
@@ -372,11 +375,15 @@ void thread_pause(thread t)
         fetch_and_add_64(&p->utime, diff);
         t->utime += diff;
     }
+    set_current_thread(0);
 }
 
 void thread_resume(thread t)
 {
+    if (get_current_thread() == &t->thrd)
+        return;
     t->start_time = now(CLOCK_ID_MONOTONIC);
+    set_current_thread(&t->thrd);
 }
 
 static timestamp utime_updated(thread t)
@@ -459,8 +466,10 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     runtime_memcpy(dummy_thread->name, "dummy_thread",
         sizeof(dummy_thread->name));
 
-    for (int i = 0; i < MAX_CPUS; i++)
-        cpuinfo_from_id(i)->current_thread = (nanos_thread)dummy_thread;
+    for (int i = 0; i < MAX_CPUS; i++) {
+        context f = cpuinfo_from_id(i)->kernel_context->frame;
+        f[FRAME_THREAD] = u64_from_pointer(dummy_thread);
+    }
 
     /* XXX remove once we have http PUT support */
     ftrace_enable();

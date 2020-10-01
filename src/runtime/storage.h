@@ -19,6 +19,8 @@ enum partition {
 #define HEADS 255
 #define MAX_CYL 1023
 
+#define VOLUME_LABEL_MAX_LEN    32  /* null-terminated string */
+
 #define partition_get(mbr, index)    ({ \
     u16 *mbr_sig = (u16 *)((u64)(mbr) + SECTOR_SIZE - sizeof(*mbr_sig));  \
     struct partition_entry *e;  \
@@ -62,7 +64,7 @@ struct filesystem;
 void init_volumes(heap h);
 void storage_set_root_fs(struct filesystem *root_fs);
 void storage_set_mountpoints(tuple mounts);
-boolean volume_add(u8 *uuid, block_io r, block_io w, u64 size);
+boolean volume_add(u8 *uuid, char *label, block_io r, block_io w, u64 size);
 void storage_when_ready(thunk complete);
 void storage_sync(status_handler sh);
 

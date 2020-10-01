@@ -121,6 +121,7 @@ closure_function(3, 2, void, fsc,
     filesystem_get_uuid(fs, uuid);
     tuple root = filesystem_getroot(fs);
     buffer rb = allocate_buffer(h, PAGESIZE);
+    bprintf(rb, "Label: %s\n", filesystem_get_label(fs));
     bprintf(rb, "UUID: ");
     print_uuid(rb, uuid);
     bprintf(rb, "\nmetadata ");

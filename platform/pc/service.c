@@ -192,8 +192,9 @@ closure_function(5, 1, void, mbr_read,
     struct partition_entry *rootfs_part = partition_get(mbr, PARTITION_ROOTFS);
     if (!rootfs_part) {
         u8 uuid[UUID_LEN];
-        if (filesystem_probe(mbr, uuid))
-            volume_add(uuid, bound(r), bound(w), bound(length));
+        char label[VOLUME_LABEL_MAX_LEN];
+        if (filesystem_probe(mbr, uuid, label))
+            volume_add(uuid, label, bound(r), bound(w), bound(length));
         else
             init_debug("unformatted storage device, ignoring");
         deallocate(h, mbr, SECTOR_SIZE);
@@ -340,7 +341,6 @@ extern boolean shutting_down;
 void kernel_shutdown(int status)
 {
     shutting_down = true;
-    apic_ipi(TARGET_EXCLUSIVE_BROADCAST, 0, shutdown_vector);
     if (root_fs) {
         storage_sync(closure(heap_general(&heaps), sync_complete, status));
         runloop();
@@ -351,7 +351,6 @@ void kernel_shutdown(int status)
 void kernel_shutdown_ex(status_handler completion)
 {
     shutting_down = true;
-    apic_ipi(TARGET_EXCLUSIVE_BROADCAST, 0, shutdown_vector);
     if (root_fs) {
         storage_sync(completion);
         runloop();

@@ -7,6 +7,7 @@
 typedef struct volume {
     struct list l;
     u8 uuid[UUID_LEN];
+    char label[VOLUME_LABEL_MAX_LEN];
     block_io r, w;
     u64 size;
     boolean mounting;
@@ -72,6 +73,8 @@ static boolean volume_match(symbol s, volume v)
 {
     /* UUID format in symbol string: 00112233-4455-6677-8899-aabbccddeeff */
     buffer vol = symbol_string(s);
+    if (buffer_compare_with_cstring(vol, v->label))
+        return true;
     if (buffer_length(vol) != 2 * UUID_LEN + 4)
         return false;
     const char *b = buffer_ref(vol, 0);
@@ -160,13 +163,14 @@ void storage_set_mountpoints(tuple mounts)
     storage_unlock();
 }
 
-boolean volume_add(u8 *uuid, block_io r, block_io w, u64 size)
+boolean volume_add(u8 *uuid, char *label, block_io r, block_io w, u64 size)
 {
     storage_debug("new volume (%ld bytes)", size);
     volume v = allocate(storage.h, sizeof(*v));
     if (v == INVALID_ADDRESS)
         return false;
     runtime_memcpy(v->uuid, uuid, UUID_LEN);
+    runtime_memcpy(v->label, label, VOLUME_LABEL_MAX_LEN);
     v->r = r;
     v->w = w;
     v->size = size;

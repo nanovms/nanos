@@ -1137,6 +1137,11 @@ closure_function(2, 1, void, log_complete,
 closure_function(0, 2, void, ignore_io,
                  status, s, bytes, length) {}
 
+const char *filesystem_get_label(filesystem fs)
+{
+    return fs->label;
+}
+
 void filesystem_get_uuid(filesystem fs, u8 *uuid)
 {
     runtime_memcpy(uuid, fs->uuid, UUID_LEN);
@@ -1147,7 +1152,7 @@ void create_filesystem(heap h,
                        u64 size,
                        block_io read,
                        block_io write,
-                       boolean initialize,
+                       const char *label,
                        filesystem_complete complete)
 {
     tfs_debug("%s\n", __func__);
@@ -1176,7 +1181,14 @@ void create_filesystem(heap h,
     fs->w = 0;
     fs->storage = 0;
 #endif
-    fs->tl = log_create(h, fs, initialize, closure(h, log_complete, complete, fs));
+    if (label) {
+        int label_len = runtime_strlen(label);
+        if (label_len >= sizeof(fs->label))
+            label_len = sizeof(fs->label) - 1;
+        runtime_memcpy(fs->label, label, label_len);
+        fs->label[label_len] = '\0';
+    }
+    fs->tl = log_create(h, fs, label != 0, closure(h, log_complete, complete, fs));
 }
 
 #ifndef BOOT

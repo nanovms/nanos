@@ -107,6 +107,13 @@ static inline void update_timer(void)
     runloop_timer(timeout);
 }
 
+static inline void sched_thread_pause(void)
+{
+    nanos_thread nt = get_current_thread();
+    if (nt)
+        apply(nt->pause);
+}
+
 NOTRACE void __attribute__((noreturn)) kernel_sleep(void)
 {
     // we're going to cover up this race by checking the state in the interrupt
@@ -127,13 +134,7 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
     cpuinfo ci = current_cpu();
     thunk t;
 
-    if (ci->current_thread != INVALID_ADDRESS) {
-        nanos_thread nt = (nanos_thread)ci->current_thread;
-        if (nt->pause != INVALID_ADDRESS)
-            apply(nt->pause);
-        /* XXX disable until we have a better solution for deferred processing */
-        //ci->current_thread = INVALID_ADDRESS;
-    }
+    sched_thread_pause();
     disable_interrupts();
     sched_debug("runloop from %s b:%d r:%d t:%d i:%x lock:%d\n", state_strings[ci->state],
                 queue_length(bhqueue), queue_length(runqueue), queue_length(thread_queue),
@@ -163,6 +164,7 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
     if (!shutting_down && (t = dequeue(thread_queue)) != INVALID_ADDRESS)
         run_thunk(t, cpu_user);
 
+    sched_thread_pause();
     kernel_sleep();
 }    
 

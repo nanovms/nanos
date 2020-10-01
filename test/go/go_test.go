@@ -71,9 +71,9 @@ func TestArgsAndEnv(t *testing.T) {
 		t.Fatal("ReadAll failed")
 	}
 
-	if sortString(string(body)) !=
-		sortString("USER=bobbyPWD=password") {
-		t.Error("unexpected response" + string(body))
+	bodyStr := string(body)
+	if !strings.Contains(bodyStr, "USER=bobby") || !strings.Contains(bodyStr, "PWD=password") {
+		t.Error("unexpected response " + bodyStr)
 	}
 }
 

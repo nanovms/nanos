@@ -1072,6 +1072,7 @@ static void setup_sigframe(thread t, int signum, struct siginfo *si)
     assert(sizeof(struct siginfo) == 128);
 
     sig_debug("sa->sa_flags 0x%lx\n", sa->sa_flags);
+    thread_resume(t);
 
     /* copy only what we really need */
     t->sighandler_frame[FRAME_FSBASE] = t->default_frame[FRAME_FSBASE];

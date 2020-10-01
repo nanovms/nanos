@@ -303,6 +303,7 @@ static void usage(const char *program_name)
            "Options:\n"
            "-b boot-image	- specify boot image to prepend\n"
            "-k kern-image	- specify kernel image\n"
+           "-l label	- specify filesystem label\n"
            "-r target-root	- specify target root\n"
            "-s image-size	- specify minimum image file size; can be expressed"
            " in bytes, KB (with k or K suffix), MB (with m or M suffix), and GB"
@@ -344,11 +345,12 @@ int main(int argc, char **argv)
     int c;
     const char *bootimg_path = NULL;
     const char *kernelimg_path = NULL;
+    const char *label = "";
     const char *target_root = NULL;
     long long img_size = 0;
     boolean empty_fs = false;
 
-    while ((c = getopt(argc, argv, "eb:k:r:s:")) != EOF) {
+    while ((c = getopt(argc, argv, "eb:k:l:r:s:")) != EOF) {
         switch (c) {
         case 'e':
             empty_fs = true;
@@ -358,6 +360,13 @@ int main(int argc, char **argv)
             break;
         case 'k':
             kernelimg_path = optarg;
+            break;
+        case 'l':
+            if (strlen(optarg) >= VOLUME_LABEL_MAX_LEN) {
+                printf("label '%s' too long\n", optarg);
+                exit(1);
+            }
+            label = optarg;
             break;
         case 'r':
             target_root = optarg;
@@ -469,7 +478,7 @@ int main(int argc, char **argv)
         if (boot) {
             create_filesystem(h, SECTOR_SIZE, BOOTFS_SIZE, 0,
                               closure(h, bwrite, out, offset),
-                              true, closure(h, fsc, h, out, boot, target_root));
+                              "", closure(h, fsc, h, out, boot, target_root));
             offset += BOOTFS_SIZE;
 
             /* Remove tuple from root, so it doesn't end up in the root FS. */
@@ -484,7 +493,7 @@ int main(int argc, char **argv)
                       infinity,
                       0, /* no read -> new fs */
                       closure(h, bwrite, out, offset),
-                      true,
+                      label,
                       closure(h, fsc, h, out, root, target_root));
 
     off_t current_size = lseek(out, 0, SEEK_END);

@@ -315,6 +315,7 @@ static void iov_op_each(struct iov_progress *p, thread t)
     thread_log(t, "   op: curr %d, offset %ld, @ %p, len %ld, blocking %d",
                p->curr, p->curr_offset, iov[p->curr].iov_base + p->curr_offset,
                iov[p->curr].iov_len - p->curr_offset, blocking);
+    thread_resume(t);
     apply(op, iov[p->curr].iov_base + p->curr_offset,
           iov[p->curr].iov_len - p->curr_offset, p->file_offset, t, !blocking,
           (io_completion)&p->each_complete);
@@ -340,6 +341,8 @@ define_closure_function(2, 2, void, iov_op_each_complete,
     if (rv < 0) {
         goto out_complete;
     }
+
+    thread_resume(t);
 
     /* Increment offset and total by io op retval, advancing to next
        (non-zero-len) buffer if needed. */
@@ -392,6 +395,7 @@ closure_function(4, 2, void, iov_read_complete,
     io_completion completion = bound(completion);
     thread_log(t, "%s: sg %p, completion %F, rv %ld", __func__, sg, completion,
                rv);
+    thread_resume(t);
     if (rv > 0) {
         sg_to_iov(sg, bound(iov), bound(iovcnt));
     }
@@ -580,6 +584,7 @@ closure_function(9, 2, void, sendfile_bh,
         }
         goto out_complete;
     }
+    thread_resume(t);
 
     /* !bh means read complete (rv == bytes read) */
     if (!bound(bh)) {
@@ -670,7 +675,7 @@ closure_function(7, 1, void, file_read_complete,
                  status, s)
 {
     thread_log(bound(t), "%s: status %v", __func__, s);
-    current_cpu()->current_thread = (nanos_thread)bound(t);
+    thread_resume(bound(t));
     sysreturn rv;
     if (is_ok(s)) {
         file f = bound(f);
@@ -2474,11 +2479,11 @@ void syscall_debug(context f)
     runloop();
 }
 
-boolean syscall_notrace(int syscall)
+boolean syscall_notrace(process p, int syscall)
 {
     if (syscall < 0 || syscall >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0]))
         return false;
-    struct syscall *s = current->p->syscalls + syscall;
+    struct syscall *s = p->syscalls + syscall;
     return (s->flags & SYSCALL_F_NOTRACE) != 0;
 }
 
