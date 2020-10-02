@@ -2513,8 +2513,8 @@ static void syscall_schedule(context f, u64 call)
         current_cpu()->state = cpu_kernel;
         syscall_debug(f);
     } else {
-        thread_pause(current);
         enqueue(runqueue, &current->deferred_syscall);
+        thread_pause(current);
         runloop();
     }
 }
