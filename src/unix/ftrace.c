@@ -69,6 +69,7 @@ struct rbuf_entry_function_graph {
     unsigned short cpu;
     unsigned char has_child;
     unsigned char flush;
+    unsigned long tid;
 };
 
 struct rbuf_entry_switch {
@@ -163,6 +164,7 @@ struct ftrace_graph_entry {
     unsigned char flush; /* expicitly flushed during reschedule event */
     //unsigned long overrun; /* XXX do we use? */
     //unsigned long * retp; /* address of where retaddr sits on the stack */
+    unsigned long tid;
 };
 
 extern void ftrace_stub(unsigned long, unsigned long);
@@ -653,16 +655,16 @@ function_graph_trace_switch(thread out, thread in)
     sw = &(entry->sw);
     sw->depth = TRACE_GRAPH_SWITCH_DEPTH;
     sw->cpu = 0;
-    sw->tid_in = in->tid;
-    sw->tid_out = out->tid;
+    sw->tid_in = in ? in->tid : 0;
+    sw->tid_out = out ? out->tid : 0;
 
-    if (in->name[0] != '\0') {
+    if (in && in->name[0] != '\0') {
         struct buffer b = stack_buffer_name(in->name);
         sw->sym_name_in = intern(&b);
     } else
         sw->sym_name_in = 0;
 
-    if (out->name[0] != '\0') {
+    if (out && out->name[0] != '\0') {
         struct buffer b = stack_buffer_name(out->name);
         sw->sym_name_out = intern(&b);
     } else
@@ -694,6 +696,7 @@ function_graph_trace_entry(struct ftrace_graph_entry * stack_entry)
     graph->cpu = 0;
     graph->depth = stack_entry->depth;
     graph->has_child = 1;
+    graph->tid = stack_entry->tid;
 
     rbuf_unlock(&global_rbuf);
     return;
@@ -721,7 +724,8 @@ function_graph_trace_return(struct ftrace_graph_entry * stack_entry)
     graph->duration = (stack_entry->return_ts - stack_entry->entry_ts);
     graph->cpu = 0;
     graph->has_child = stack_entry->has_child;
-    graph->flush = stack_entry->flush;
+    graph->flush = graph->has_child; //stack_entry->flush;
+    graph->tid = stack_entry->tid;
 
     rbuf_unlock(&global_rbuf);
     return;
@@ -745,6 +749,7 @@ function_graph_toggle(boolean enable)
 static void
 print_switch_event(struct ftrace_printer * p, struct rbuf_entry_switch * sw)
 {
+    return;
     char * name_in, * name_out;
     buffer b = little_stack_buffer(16);
 
@@ -776,7 +781,7 @@ function_graph_print_entry(struct ftrace_printer * p,
         return;
     }
 
-    printer_write(p, " %d) ", graph->cpu);
+    printer_write(p, " %d) ", graph->tid);
 
     /* duration */
     if (graph->duration)
@@ -794,15 +799,11 @@ function_graph_print_entry(struct ftrace_printer * p,
         }
     }
 
-    /* if return_ts is 0, this is an graph of a function
-     * with children
+    /* if duration is 0, this is an graph of a function
+     * that may have children
      */
-    if (graph->duration == 0) {
+    if (graph->duration == 0 && graph->has_child) {
         /* function graph */
-        //assert(graph->has_child);
-        if (graph->has_child == 0) {
-            ft_debug("FTRACE: child expected for %s with 0 duration\n", function_name(graph->ip));
-        }
         printer_write(p, "%s() {", function_name(graph->ip));
     } else {
         /* either a close of a function that called something, or
@@ -860,7 +861,7 @@ function_graph_print_header(struct ftrace_printer * p, struct rbuf * rbuf)
 {
     printer_write(p, "# tracer: function_graph\n");
     printer_write(p, "#\n");
-    printer_write(p, "# CPU  DURATION                  FUNCTION CALLS\n");
+    printer_write(p, "# THD  DURATION                  FUNCTION CALLS\n");
     printer_write(p, "# |     |   |                     |   |   |   |\n");
 }
 
@@ -1818,7 +1819,11 @@ ftrace_init(unix_heaps uh, filesystem fs)
 
     /* nop tracer */
     current_tracer = &(tracer_list[0]);
-
+   for (int i = 0; i < MAX_CPUS; i++) {
+        cpuinfo ci = cpuinfo_from_id(i);
+        if (ftrace_cpu_init(ci) != 0)
+            return -1;
+    }
     return 0;
 }
 
@@ -1829,17 +1834,17 @@ ftrace_deinit(void)
 }
 
 int
-ftrace_thread_init(thread t)
+ftrace_cpu_init(cpuinfo ci)
 {
-    t->graph_stack = allocate(ftrace_heap,
+    ci->graph_stack = allocate(ftrace_heap,
         sizeof(struct ftrace_graph_entry) * FTRACE_RETFUNC_DEPTH
     );
-    if (t->graph_stack == INVALID_ADDRESS) {
+    if (ci->graph_stack == INVALID_ADDRESS) {
         msg_err("failed to allocare ftrace return stack array\n");
         return -ENOMEM;
     }
 
-    t->graph_idx = 0;
+    ci->graph_idx = 0;
     return 0;
 }
 
@@ -1854,12 +1859,12 @@ ftrace_thread_deinit(thread out, thread in)
 
     rbuf_disable(&global_rbuf);
 
-    deallocate(ftrace_heap, out->graph_stack,
-        sizeof(struct ftrace_graph_entry) * FTRACE_RETFUNC_DEPTH
-    );
+    // deallocate(ftrace_heap, out->graph_stack,
+    //     sizeof(struct ftrace_graph_entry) * FTRACE_RETFUNC_DEPTH
+    // );
 
-    out->graph_idx = FTRACE_THREAD_DISABLE_IDX;
-    out->graph_stack = 0;
+    // out->graph_idx = FTRACE_THREAD_DISABLE_IDX;
+    // out->graph_stack = 0;
 
     rbuf_enable(&global_rbuf);
 }
@@ -1874,7 +1879,8 @@ ftrace_thread_switch(thread out, thread in)
     if (!rbuf_enabled(&global_rbuf) ||
         (current_tracer != &tracer_list[FTRACE_FUNCTION_GRAPH_IDX]))
     {
-        in->graph_idx = 0;
+        if (in)
+            in->graph_idx = 0;
         return;
     }
 
@@ -1882,12 +1888,13 @@ ftrace_thread_switch(thread out, thread in)
 
     /* complete any outstanding function calls for outgoing thread */
     timestamp t = now(CLOCK_ID_MONOTONIC);
-    while (out->graph_idx > 0) {
+    cpuinfo ci = current_cpu();
+    while (ci->graph_idx > 0) {
         struct ftrace_graph_entry * stack_ent =
-                &(out->graph_stack[--out->graph_idx]);
+                &(ci->graph_stack[--ci->graph_idx]);
         stack_ent->return_ts = t;
-        if (out->graph_idx == 0)
-        stack_ent->flush = (out != in); /* just controls a printing option */
+        if (ci->graph_idx == 0)
+        stack_ent->flush = 1; //(out != in); /* just controls a printing option */
         function_graph_trace_return(stack_ent);
     }
     /* generate a ctx switch event */
@@ -1930,14 +1937,15 @@ prepare_ftrace_return(unsigned long self, unsigned long * parent,
     struct ftrace_graph_entry * stack_ent;
     unsigned long old;
     int depth;
+    cpuinfo ci = current_cpu();
 
     if (!rbuf_enabled(&global_rbuf) ||
-        (current->graph_idx == FTRACE_THREAD_DISABLE_IDX))
+        (ci->graph_idx == FTRACE_THREAD_DISABLE_IDX))
         return;
 
     rbuf_disable(&global_rbuf);
 
-    if (current->graph_idx == FTRACE_RETFUNC_DEPTH) {
+    if (ci->graph_idx == FTRACE_RETFUNC_DEPTH) {
         /* We could just drop it, but let's yell because a call stack this long
          * in kernel code is asking for a stack overflow
          */
@@ -1951,8 +1959,8 @@ prepare_ftrace_return(unsigned long self, unsigned long * parent,
     *parent = (unsigned long)&return_to_handler;
 
     /* save and increment depth */
-    depth = current->graph_idx++;
-    stack_ent = &(current->graph_stack[depth]);
+    depth = ci->graph_idx++;
+    stack_ent = &(ci->graph_stack[depth]);
     stack_ent->retaddr = old;
     stack_ent->func = self;
     stack_ent->entry_ts = now(CLOCK_ID_MONOTONIC);
@@ -1960,11 +1968,12 @@ prepare_ftrace_return(unsigned long self, unsigned long * parent,
     stack_ent->depth = depth;
     stack_ent->has_child = 0;
     //stack_ent->retp = parent;
+    stack_ent->tid = current ? current->tid : 0;
 
     /* whatever called us has a child */
     if (depth > 0) {
         struct ftrace_graph_entry * parent_ent =
-                &(current->graph_stack[depth - 1]);
+                &(ci->graph_stack[depth - 1]);
 
         /* push parent onto rbuf if this is the first function it's called */
         if (parent_ent->has_child == 0) {
@@ -1990,11 +1999,12 @@ ftrace_return_to_handler(unsigned long frame_pointer)
 {
     struct ftrace_graph_entry * stack_ent;
     unsigned long retaddr;
+    cpuinfo ci = current_cpu();
 
     rbuf_disable(&global_rbuf);
 
     /* restore and decrement depth */
-    stack_ent = &(current->graph_stack[--current->graph_idx]);
+    stack_ent = &(ci->graph_stack[--ci->graph_idx]);
 
     /* sanity check frame pointer */
     if (stack_ent->fp != frame_pointer)

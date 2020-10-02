@@ -21,6 +21,10 @@ typedef struct nanos_thread {
     thunk pause;
 } *nanos_thread;
 
+#ifdef CONFIG_FTRACE
+struct ftrace_graph_entry;
+#endif
+
 typedef struct cpuinfo {
     /*** Fields accessed by low-level entry points. ***/
     /* Don't move these without updating gs-relative accesses in crt0.s ***/
@@ -52,6 +56,11 @@ typedef struct cpuinfo {
 
     /* Stack for interrupts */
     void *int_stack;
+
+#ifdef CONFIG_FTRACE
+    int graph_idx;
+    struct ftrace_graph_entry * graph_stack;
+#endif
 } *cpuinfo;
 
 #define cpu_not_present 0
