@@ -166,8 +166,10 @@ static boolean xen_grant_init(kernel_heaps kh)
 
     /* Allocate grant entry allocator. */
     heap h = heap_general(kh);
+
+    /* XXX locked now, but needs to draw from locked parent heap */
     gt->entry_heap = (heap)create_id_heap(h, h, GTAB_RESERVED_ENTRIES + 1,
-                                          gt->n_entries - GTAB_RESERVED_ENTRIES, 1);
+                                          gt->n_entries - GTAB_RESERVED_ENTRIES, 1, true);
     if (gt->entry_heap == INVALID_ADDRESS) {
         msg_err("failed to allocate grant table occupancy heap\n");
         goto fail_dealloc_table;

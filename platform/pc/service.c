@@ -50,7 +50,7 @@ static heap allocate_tagged_region(kernel_heaps kh, u64 tag)
     assert(tag < U64_FROM_BIT(VA_TAG_WIDTH));
     u64 tag_base = KMEM_BASE | (tag << VA_TAG_OFFSET);
     u64 tag_length = U64_FROM_BIT(VA_TAG_OFFSET);
-    heap v = (heap)create_id_heap(h, heap_backed(kh), tag_base, tag_length, p->pagesize);
+    heap v = (heap)create_id_heap(h, heap_backed(kh), tag_base, tag_length, p->pagesize, false);
     assert(v != INVALID_ADDRESS);
     heap backed = physically_backed(h, v, p, p->pagesize);
     if (backed == INVALID_ADDRESS)
@@ -534,7 +534,8 @@ static range find_initial_pages(void)
 
 static id_heap init_physical_id_heap(heap h)
 {
-    id_heap physical = allocate_id_heap(h, h, PAGESIZE);
+    /* XXX change to locking after removing wrapper in page.c */
+    id_heap physical = allocate_id_heap(h, h, PAGESIZE, false);
     boolean found = false;
     init_debug("physical memory:");
     for_regions(e) {
@@ -573,10 +574,10 @@ static void init_kernel_heaps()
     bootstrap.dealloc = leak;
 
     heaps.virtual_huge = create_id_heap(&bootstrap, &bootstrap, KMEM_BASE,
-                                        KMEM_LIMIT - KMEM_BASE, HUGE_PAGESIZE);
+                                        KMEM_LIMIT - KMEM_BASE, HUGE_PAGESIZE, true);
     assert(heaps.virtual_huge != INVALID_ADDRESS);
 
-    heaps.virtual_page = create_id_heap_backed(&bootstrap, &bootstrap, (heap)heaps.virtual_huge, PAGESIZE);
+    heaps.virtual_page = create_id_heap_backed(&bootstrap, &bootstrap, (heap)heaps.virtual_huge, PAGESIZE, true);
     assert(heaps.virtual_page != INVALID_ADDRESS);
 
     heaps.physical = init_page_tables(&bootstrap, init_physical_id_heap(&bootstrap), find_initial_pages());

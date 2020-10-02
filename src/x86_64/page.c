@@ -743,7 +743,7 @@ id_heap init_page_tables(heap h, id_heap physical, range initial_phys)
     pt_2m->pagesize = PAGESIZE_2M;
 
     /* 4k page heap */
-    pageheap = (heap)create_id_heap_backed(h, /* XXX */ h, pt_2m, PAGESIZE);
+    pageheap = (heap)create_id_heap_backed(h, /* XXX */ h, pt_2m, PAGESIZE, true);
     assert(pageheap != INVALID_ADDRESS);
     return i;
 }

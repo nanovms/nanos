@@ -1,4 +1,8 @@
+#ifdef KERNEL
+#include <kernel.h>
+#else
 #include <runtime.h>
+#endif
 
 //#define ID_HEAP_DEBUG
 #ifdef ID_HEAP_DEBUG
@@ -126,7 +130,7 @@ static u64 id_alloc_from_range(id_heap i, id_range r, u64 pages, range subrange)
     return result;
 }
 
-static u64 id_alloc(heap h, bytes count)
+static inline u64 id_alloc(heap h, bytes count)
 {
     id_heap i = (id_heap)h;
     if (count == 0)
@@ -173,7 +177,7 @@ closure_function(2, 1, void, dealloc_from_range,
     i->allocated -= deallocated;
 }
 
-static void id_dealloc(heap h, u64 a, bytes count)
+static inline void id_dealloc(heap h, u64 a, bytes count)
 {
     id_heap i = (id_heap)h;
 
@@ -235,7 +239,7 @@ static u64 id_total(heap h)
     return ((id_heap)h)->total;
 }
 
-static boolean set_area(id_heap i, u64 base, u64 length, boolean validate, boolean allocate)
+static inline boolean set_area(id_heap i, u64 base, u64 length, boolean validate, boolean allocate)
 {
     base &= ~page_mask(i);
     length = pad(length, page_size(i));
@@ -247,12 +251,12 @@ static boolean set_area(id_heap i, u64 base, u64 length, boolean validate, boole
     return result && !fail;
 }
 
-static void set_randomize(id_heap i, boolean randomize)
+static inline void set_randomize(id_heap i, boolean randomize)
 {
     i->flags = randomize ? i->flags | ID_HEAP_FLAG_RANDOMIZE : i->flags & ~ID_HEAP_FLAG_RANDOMIZE;
 }
 
-static u64 alloc_subrange(id_heap i, bytes count, u64 start, u64 end)
+static inline u64 alloc_subrange(id_heap i, bytes count, u64 start, u64 end)
 {
     /* convert to pages */
     range subrange = irange(pad(start, page_size(i)) >> page_order(i),
@@ -278,23 +282,108 @@ static u64 alloc_subrange(id_heap i, bytes count, u64 start, u64 end)
     return INVALID_PHYSICAL;
 }
 
-id_heap allocate_id_heap(heap meta, heap map, bytes pagesize)
+/* Provides a hint as to what id should be allocated next. */
+static inline void set_next(id_heap i, u64 next)
+{
+    rangemap_foreach(i->ranges, n) {
+        id_range r = (id_range)n;
+        if (point_in_range(r->n.r, next))
+            r->next_bit = next;
+        else if (r->n.r.start > next)
+            r->next_bit = 0;
+    }
+}
+
+#ifdef KERNEL
+/* locking variants */
+
+static u64 id_alloc_locking(heap h, bytes count)
+{
+    u64 flags = spin_lock_irq(&((id_heap)h)->lock);
+    u64 a = id_alloc(h, count);
+    spin_unlock_irq(&((id_heap)h)->lock, flags);
+    return a;
+}
+
+static void id_dealloc_locking(heap h, u64 a, bytes count)
+{
+    u64 flags = spin_lock_irq(&((id_heap)h)->lock);
+    id_dealloc(h, a, count);
+    spin_unlock_irq(&((id_heap)h)->lock, flags);
+}
+
+static boolean add_range_locking(id_heap i, u64 base, u64 length)
+{
+    u64 flags = spin_lock_irq(&i->lock);
+    boolean r = add_range(i, base, length);
+    spin_unlock_irq(&i->lock, flags);
+    return r;
+}
+
+static boolean set_area_locking(id_heap i, u64 base, u64 length, boolean validate, boolean allocate)
+{
+    u64 flags = spin_lock_irq(&i->lock);
+    boolean r = set_area(i, base, length, validate, allocate);
+    spin_unlock_irq(&i->lock, flags);
+    return r;
+}
+
+static void set_randomize_locking(id_heap i, boolean randomize)
+{
+    u64 flags = spin_lock_irq(&i->lock);
+    set_randomize(i, randomize);
+    spin_unlock_irq(&i->lock, flags);
+}
+
+static u64 alloc_subrange_locking(id_heap i, bytes count, u64 start, u64 end)
+{
+    u64 flags = spin_lock_irq(&i->lock);
+    u64 a = alloc_subrange(i, count, start, end);
+    spin_unlock_irq(&i->lock, flags);
+    return a;
+}
+
+static void set_next_locking(id_heap i, u64 next)
+{
+    u64 flags = spin_lock_irq(&i->lock);
+    set_next(i, next);
+    spin_unlock_irq(&i->lock, flags);
+}
+#endif
+
+id_heap allocate_id_heap(heap meta, heap map, bytes pagesize, boolean locking)
 {
     assert((pagesize & (pagesize-1)) == 0); /* pagesize is power of 2 */
 
     id_heap i = allocate(meta, sizeof(struct id_heap));
     if (i == INVALID_ADDRESS)
 	return INVALID_ADDRESS;
-    i->h.alloc = id_alloc;
-    i->h.dealloc = id_dealloc;
     i->h.pagesize = pagesize;
     i->h.destroy = id_destroy;
     i->h.allocated = id_allocated;
     i->h.total = id_total;
-    i->add_range = add_range;
-    i->set_area = set_area;
-    i->set_randomize = set_randomize;
-    i->alloc_subrange = alloc_subrange;
+
+#ifdef KERNEL
+    if (locking) {
+        spin_lock_init(&i->lock);
+        i->h.alloc = id_alloc_locking;
+        i->h.dealloc = id_dealloc_locking;
+        i->add_range = add_range_locking;
+        i->set_area = set_area_locking;
+        i->set_randomize = set_randomize_locking;
+        i->alloc_subrange = alloc_subrange_locking;
+        i->set_next = set_next_locking;
+    } else
+#endif
+    {
+        i->h.alloc = id_alloc;
+        i->h.dealloc = id_dealloc;
+        i->add_range = add_range;
+        i->set_area = set_area;
+        i->set_randomize = set_randomize;
+        i->alloc_subrange = alloc_subrange;
+        i->set_next = set_next;
+    }
     i->page_order = msb(pagesize);
     i->allocated = 0;
     i->total = 0;
@@ -310,9 +399,9 @@ id_heap allocate_id_heap(heap meta, heap map, bytes pagesize)
     return i;
 }
 
-id_heap create_id_heap(heap meta, heap map, u64 base, u64 length, bytes pagesize)
+id_heap create_id_heap(heap meta, heap map, u64 base, u64 length, bytes pagesize, boolean locking)
 {
-    id_heap i = allocate_id_heap(meta, map, pagesize);
+    id_heap i = allocate_id_heap(meta, map, pagesize, locking);
     if (i == INVALID_ADDRESS)
 	return INVALID_ADDRESS;
 
@@ -325,9 +414,9 @@ id_heap create_id_heap(heap meta, heap map, u64 base, u64 length, bytes pagesize
     return i;
 }
 
-id_heap create_id_heap_backed(heap meta, heap map, heap parent, bytes pagesize)
+id_heap create_id_heap_backed(heap meta, heap map, heap parent, bytes pagesize, boolean locking)
 {
-    id_heap i = allocate_id_heap(meta, map, pagesize);
+    id_heap i = allocate_id_heap(meta, map, pagesize, locking);
     if (i == INVALID_ADDRESS)
 	return INVALID_ADDRESS;
     i->parent = parent;
@@ -340,15 +429,4 @@ id_heap create_id_heap_backed(heap meta, heap map, heap parent, bytes pagesize)
 	return INVALID_ADDRESS;
     }
     return i;
-}
-
-void id_heap_set_next(id_heap h, u64 next)
-{
-    rangemap_foreach(h->ranges, n) {
-        id_range r = (id_range)n;
-        if (point_in_range(r->n.r, next))
-            r->next_bit = next;
-        else if (r->n.r.start > next)
-            r->next_bit = 0;
-    }
 }
