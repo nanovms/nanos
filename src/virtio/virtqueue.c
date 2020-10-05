@@ -202,7 +202,7 @@ closure_function(1, 0, void, vq_interrupt,
         assert(l);
         list_delete(&q);
         assert(enqueue(vq->service_queue, l));
-        enqueue(bhqueue, vq->service);
+        enqueue(vq->sched_queue, vq->service);
     }
 
     virtqueue_fill(vq);

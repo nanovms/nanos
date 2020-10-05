@@ -14,6 +14,8 @@
 closure_function(1, 0, void, kernel_frame_return,
                  kernel_context, kc)
 {
+    /* kernel lock always held on a valid page fault */
+    current_cpu()->have_kernel_lock = true;
     resume_kernel_context(bound(kc));
 }
 
@@ -55,7 +57,8 @@ define_closure_function(5, 0, void, thread_demand_file_page,
     vmap vm = bound(vm);
     pagecache_node pn = vm->cache_node;
     pagecache_map_page(pn, bound(node_offset), bound(page_addr), bound(flags),
-                       (status_handler)&bound(t)->demand_file_page_complete);
+                       (status_handler)&bound(t)->demand_file_page_complete,
+                       false /* complete on runqueue */);
     range ra = irange(bound(node_offset) + PAGESIZE,
         vm->node_offset + range_span(vm->node.r));
     if (range_valid(ra)) {
@@ -121,14 +124,17 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
                of a syscall (under the kernel lock). As such, we are free to set up an asynchronous page
                fill, allocate memory, etc. */
             assert(!faulting_kernel_context);
+            assert(this_cpu_has_kernel_lock());
             kernel_demand_page_completed = false;
             pagecache_map_page(vm->cache_node, node_offset, page_addr, flags,
-                               (status_handler)&do_kernel_demand_pf_complete);
+                               (status_handler)&do_kernel_demand_pf_complete,
+                               true /* complete on bhqueue */);
             if (kernel_demand_page_completed) {
                 pf_debug("   immediate completion\n");
                 return true;
             }
             faulting_kernel_context = suspend_kernel_context();
+            current_cpu()->have_kernel_lock = false;
         } else {
             /* A user fault can happen outside of the kernel lock. We can try to touch an existing
                page, but we can't allocate anything, fill a page or start a storage operation. */
