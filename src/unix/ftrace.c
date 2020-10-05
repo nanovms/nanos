@@ -784,7 +784,7 @@ function_graph_print_entry(struct ftrace_printer * p,
     printer_write(p, " %d) ", graph->tid);
 
     /* duration */
-    if (graph->duration)
+    if (!graph->has_child || graph->duration)
         printer_print_duration_usec(p, graph->duration, 11);
     else
         printer_write(p, "             ");
@@ -1879,8 +1879,7 @@ ftrace_thread_switch(thread out, thread in)
     if (!rbuf_enabled(&global_rbuf) ||
         (current_tracer != &tracer_list[FTRACE_FUNCTION_GRAPH_IDX]))
     {
-        if (in)
-            in->graph_idx = 0;
+        current_cpu()->graph_idx = 0;
         return;
     }
 
