@@ -68,7 +68,6 @@ kernel_context suspend_kernel_context(void)
     assert(spare_kernel_context);
     kernel_context saved = ci->kernel_context;
     ci->kernel_context = spare_kernel_context;
-    ci->have_kernel_lock = false;
     spare_kernel_context = 0;
     return saved;
 }
