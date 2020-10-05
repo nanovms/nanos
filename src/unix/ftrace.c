@@ -165,6 +165,7 @@ struct ftrace_graph_entry {
     //unsigned long overrun; /* XXX do we use? */
     //unsigned long * retp; /* address of where retaddr sits on the stack */
     unsigned long tid;
+    unsigned short cpu;
 };
 
 extern void ftrace_stub(unsigned long, unsigned long);
@@ -547,7 +548,7 @@ function_trace(unsigned long ip, unsigned long parent_ip)
         goto drop;
 
     func = &(entry->func);
-    func->cpu = 0;
+    func->cpu = current_cpu()->id;
     func->tid = current->tid;
     func->ip = ip;
     func->parent_ip = parent_ip;
@@ -654,7 +655,7 @@ function_graph_trace_switch(thread out, thread in)
 
     sw = &(entry->sw);
     sw->depth = TRACE_GRAPH_SWITCH_DEPTH;
-    sw->cpu = 0;
+    sw->cpu = current_cpu()->id;
     sw->tid_in = in ? in->tid : 0;
     sw->tid_out = out ? out->tid : 0;
 
@@ -693,7 +694,7 @@ function_graph_trace_entry(struct ftrace_graph_entry * stack_entry)
     graph = &(entry->graph);
     graph->ip = stack_entry->func;
     graph->duration = 0;
-    graph->cpu = 0;
+    graph->cpu = stack_entry->cpu;
     graph->depth = stack_entry->depth;
     graph->has_child = 1;
     graph->tid = stack_entry->tid;
@@ -722,7 +723,7 @@ function_graph_trace_return(struct ftrace_graph_entry * stack_entry)
     graph->depth = stack_entry->depth;
     graph->ip = stack_entry->func;
     graph->duration = (stack_entry->return_ts - stack_entry->entry_ts);
-    graph->cpu = 0;
+    graph->cpu = stack_entry->cpu;
     graph->has_child = stack_entry->has_child;
     graph->flush = graph->has_child; //stack_entry->flush;
     graph->tid = stack_entry->tid;
@@ -781,7 +782,7 @@ function_graph_print_entry(struct ftrace_printer * p,
         return;
     }
 
-    printer_write(p, " %d) ", graph->tid);
+    printer_write(p, " %d) ", graph->cpu);
 
     /* duration */
     if (!graph->has_child || graph->duration)
@@ -861,7 +862,7 @@ function_graph_print_header(struct ftrace_printer * p, struct rbuf * rbuf)
 {
     printer_write(p, "# tracer: function_graph\n");
     printer_write(p, "#\n");
-    printer_write(p, "# THD  DURATION                  FUNCTION CALLS\n");
+    printer_write(p, "# CPU  DURATION                  FUNCTION CALLS\n");
     printer_write(p, "# |     |   |                     |   |   |   |\n");
 }
 
@@ -1968,6 +1969,7 @@ prepare_ftrace_return(unsigned long self, unsigned long * parent,
     stack_ent->has_child = 0;
     //stack_ent->retp = parent;
     stack_ent->tid = current ? current->tid : 0;
+    stack_ent->cpu = ci->id;
 
     /* whatever called us has a child */
     if (depth > 0) {
