@@ -27,6 +27,10 @@ boolean objcache_validate(heap h);
 heap objcache_from_object(u64 obj, bytes parent_pagesize);
 heap allocate_mcache(heap meta, heap parent, int min_order, int max_order, bytes pagesize);
 
+#ifdef KERNEL
+heap locking_heap_wrapper(heap meta, heap parent, bytes size);
+#endif
+
 // really internals
 
 static inline void *page_of(void *x, bytes pagesize)

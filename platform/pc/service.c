@@ -583,10 +583,13 @@ static void init_kernel_heaps()
     heaps.physical = init_page_tables(&bootstrap, init_physical_id_heap(&bootstrap), find_initial_pages());
     assert(heaps.physical != INVALID_ADDRESS);
 
-    heaps.backed = physically_backed(&bootstrap, (heap)heaps.virtual_page, (heap)heaps.physical, PAGESIZE);
+    heaps.backed = locking_heap_wrapper(&bootstrap, physically_backed(&bootstrap, (heap)heaps.virtual_page, (heap)heaps.physical, PAGESIZE), PAGESIZE);
     assert(heaps.backed != INVALID_ADDRESS);
 
     heaps.general = allocate_mcache(&bootstrap, heaps.backed, 5, 20, PAGESIZE_2M);
+    assert(heaps.general != INVALID_ADDRESS);
+
+    heaps.locked = locking_heap_wrapper(&bootstrap, allocate_mcache(&bootstrap, heaps.backed, 5, 20, PAGESIZE_2M), 1);
     assert(heaps.general != INVALID_ADDRESS);
 }
 
