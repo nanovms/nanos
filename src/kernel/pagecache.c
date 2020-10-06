@@ -519,20 +519,22 @@ closure_function(6, 1, void, pagecache_write_sg_finish,
             pn->pv->write_error = s;
         }
 
-        do {
-            assert(pp != INVALID_ADDRESS && page_offset(pp) == pi);
-            pagecache_lock_state(pc);
-            assert(pp->write_count > 0);
-            if (pp->write_count-- == 1) {
-                if (page_state(pp) != PAGECACHE_PAGESTATE_DIRTY)
-                    change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_NEW);
-                pagecache_page_queue_completions_locked(pc, pp, s);
-            }
-            pagecache_unlock_state(pc);
-            refcount_release(&pp->refcount);
-            pi++;
-            pp = (pagecache_page)rbnode_get_next((rbnode)pp);
-        } while (pi < end);
+        if (bound(complete)) {
+            do {
+                assert(pp != INVALID_ADDRESS && page_offset(pp) == pi);
+                pagecache_lock_state(pc);
+                assert(pp->write_count > 0);
+                if (pp->write_count-- == 1) {
+                    if (page_state(pp) != PAGECACHE_PAGESTATE_DIRTY)
+                        change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_NEW);
+                    pagecache_page_queue_completions_locked(pc, pp, s);
+                }
+                pagecache_unlock_state(pc);
+                refcount_release(&pp->refcount);
+                pi++;
+                pp = (pagecache_page)rbnode_get_next((rbnode)pp);
+            } while (pi < end);
+        }
         pagecache_unlock_node(pn);
         closure_finish();
         return;

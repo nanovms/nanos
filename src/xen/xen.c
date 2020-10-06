@@ -165,9 +165,7 @@ static boolean xen_grant_init(kernel_heaps kh)
     xen_debug("%s: table v 0x%lx, p 0x%lx", __func__, gt->table, physical_from_virtual(gt->table));
 
     /* Allocate grant entry allocator. */
-    heap h = heap_general(kh);
-
-    /* XXX locked now, but needs to draw from locked parent heap */
+    heap h = heap_locked(kh);
     gt->entry_heap = (heap)create_id_heap(h, h, GTAB_RESERVED_ENTRIES + 1,
                                           gt->n_entries - GTAB_RESERVED_ENTRIES, 1, true);
     if (gt->entry_heap == INVALID_ADDRESS) {
@@ -255,7 +253,7 @@ boolean xen_detect(kernel_heaps kh)
 {
     u32 v[4];
     xen_info.initialized = false;
-    xen_info.h = heap_general(kh);
+    xen_info.h = heap_locked(kh);
     xen_debug("checking for xen cpuid leaves");
     cpuid(XEN_CPUID_FIRST_LEAF, 0, v);
     if (!(v[1] == XEN_CPUID_SIGNATURE_EBX &&

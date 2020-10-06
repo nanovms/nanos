@@ -233,7 +233,7 @@ closure_function(5, 1, void, mbr_read,
 closure_function(0, 3, void, attach_storage,
                  block_io, r, block_io, w, u64, length)
 {
-    heap h = heap_general(&heaps);
+    heap h = heap_locked(&heaps); /* to create fs under locked heap */
 
     /* Look for partition table */
     u8 *mbr = allocate(h, SECTOR_SIZE);
@@ -407,16 +407,17 @@ static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = &heaps;
     heap misc = heap_general(kh);
+    heap locked = heap_locked(kh);
     heap backed = heap_backed(kh);
 
     /* runtime and console init */
     init_debug("in init_service_new_stack");
     init_debug("runtime");    
-    init_runtime(misc);
+    init_runtime(misc, locked);
     init_tuples(allocate_tagged_region(kh, tag_tuple));
     init_symbols(allocate_tagged_region(kh, tag_symbol), misc);
-    init_sg(misc);
-    init_pagecache(misc, misc, (heap)heap_physical(kh), PAGESIZE);
+    init_sg(locked);
+    init_pagecache(locked, locked, (heap)heap_physical(kh), PAGESIZE);
     unmap(0, PAGESIZE);         /* unmap zero page */
     reclaim_regions();          /* unmap and reclaim stage2 stack */
     init_extra_prints();
@@ -474,7 +475,7 @@ static void __attribute__((noinline)) init_service_new_stack()
     init_net(kh);
 
     init_debug("probe fs, register storage drivers");
-    init_volumes(misc);
+    init_volumes(locked);
     storage_attach sa = closure(misc, attach_storage);
 
     boolean hyperv_storvsc_attached = false;

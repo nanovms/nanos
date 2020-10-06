@@ -165,7 +165,7 @@ heap init_process_runtime()
     heap h = malloc_allocator();
     platform_monotonic_now = closure(h, unix_now);
     init_random();
-    init_runtime(h);
+    init_runtime(h, h);
     init_tuples(allocate_tagged_region(h, tag_tuple));
     init_symbols(allocate_tagged_region(h, tag_symbol), h);
     init_sg(h);

@@ -15,6 +15,7 @@ SRCS-kernel.img= \
 	$(SRCDIR)/gdb/gdbutil.c \
 	$(SRCDIR)/http/http.c \
 	$(SRCDIR)/kernel/backed_heap.c \
+	$(SRCDIR)/kernel/locking_heap.c \
 	$(SRCDIR)/kernel/elf.c \
 	$(SRCDIR)/kernel/kernel.c \
 	$(SRCDIR)/kernel/klib.c \
@@ -158,7 +159,8 @@ SRCS-kernel.img+= \
 	$(ARCHDIR)/ftrace.s
 endif
 
-CFLAGS+=	-DSPIN_LOCK_DEBUG_NOSMP
+#CFLAGS+=	-DSPIN_LOCK_DEBUG_NOSMP
+CFLAGS+=	-DSMP_ENABLE
 #CFLAGS+=	-DLWIPDIR_DEBUG -DEPOLL_DEBUG -DNETSYSCALL_DEBUG -DKERNEL_DEBUG
 AFLAGS+=	-felf64 -I$(OBJDIR)/
 LDFLAGS+=	$(KERNLDFLAGS) --undefined=_start -T linker_script
@@ -339,7 +341,7 @@ QEMU_NET=	-device $(NETWORK)$(NETWORK_BUS),mac=7e:b8:7e:87:4a:ea,netdev=n0 $(QEM
 QEMU_USERNET=	-device $(NETWORK)$(NETWORK_BUS),netdev=n0 -netdev user,id=n0,hostfwd=tcp::8080-:8080,hostfwd=tcp::9090-:9090,hostfwd=udp::5309-:5309
 #QEMU_USERNET+=	-object filter-dump,id=filter0,netdev=n0,file=/tmp/nanos.pcap
 QEMU_FLAGS=
-#QEMU_FLAGS+=	-smp 4
+QEMU_FLAGS+=	-smp 4
 #QEMU_FLAGS+=	-d int -D int.log
 #QEMU_FLAGS+=	-s -S
 
