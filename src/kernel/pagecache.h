@@ -27,7 +27,7 @@ sg_io pagecache_node_get_reader(pagecache_node pn);
 sg_io pagecache_node_get_writer(pagecache_node pn);
 
 void pagecache_map_page(pagecache_node pn, u64 node_offset, u64 vaddr, u64 flags,
-                        status_handler complete);
+                        status_handler complete, boolean bh);
 
 boolean pagecache_map_page_if_filled(pagecache_node pn, u64 node_offset, u64 vaddr, u64 flags);
 

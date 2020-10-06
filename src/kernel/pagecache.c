@@ -178,81 +178,74 @@ static inline void change_page_state_locked(pagecache pc, pagecache_page pp, int
         ((u64)state << PAGECACHE_PAGESTATE_SHIFT);
 }
 
-#ifdef STAGE3
-closure_function(1, 0, void, pagecache_service_completions,
-                 pagecache, pc)
+#ifdef KERNEL
+define_closure_function(2, 0, void, pagecache_service_completions,
+                        pagecache, pc, pagecache_completion_queue, cq)
 {
     /* we don't need the pagecache lock here; flag reset is atomic and dequeue is safe */
-    assert(bound(pc)->service_enqueued);
-    bound(pc)->service_enqueued = false;
-    vector v;
-    while ((v = dequeue(bound(pc)->completion_vecs)) != INVALID_ADDRESS) {
-        status_handler sh;
-        status s = vector_pop(v);
-        vector_foreach(v, sh) {
-            assert(sh);
-            apply(sh, s);
+    pagecache_completion_queue cq = bound(cq);
+    assert(cq->scheduled);
+    cq->scheduled = false;
+    page_completion head;
+    while ((head = dequeue(cq->q)) != INVALID_ADDRESS) {
+        list_foreach(&head->l, l) {
+            page_completion c = struct_from_list(l, page_completion, l);
+            assert(c->sh != INVALID_ADDRESS && c->sh != 0);
+            apply(c->sh, head->s);
+            list_delete(l);
+            deallocate(bound(pc)->completions, c, sizeof(*c));
         }
-        deallocate_vector(v);
+        deallocate(bound(pc)->completions, head, sizeof(*head));
+    }
+}
+
+static inline void queue_completions_locked_internal(pagecache pc, list head,
+                                                     pagecache_completion_queue cq,
+                                                     queue sched_queue, status s)
+{
+    if (list_empty(head))
+        return;
+    page_completion qhead = allocate(pc->completions, sizeof(*qhead));
+    assert(qhead != INVALID_ADDRESS);
+    qhead->s = s;
+    list_move(&qhead->l, head);
+    assert(enqueue(cq->q, qhead));
+    if (!cq->scheduled) {
+        cq->scheduled = true;
+        assert(enqueue(sched_queue, &cq->service));
     }
 }
 
 static void pagecache_page_queue_completions_locked(pagecache pc, pagecache_page pp, status s)
 {
-    if (pp->completions && vector_length(pp->completions) > 0) {
-        vector_push(pp->completions, s);
-        assert(enqueue(pc->completion_vecs, pp->completions));
-        pp->completions = 0;
-        if (!pc->service_enqueued) {
-            pc->service_enqueued = true;
-            assert(enqueue(runqueue, pc->service_completions));
-        }
-    }
+    queue_completions_locked_internal(pc, &pp->bh_completions, &pc->bh_completions, bhqueue, s);
+    queue_completions_locked_internal(pc, &pp->rq_completions, &pc->rq_completions, runqueue, s);
 }
 #else
 static void pagecache_page_queue_completions_locked(pagecache pc, pagecache_page pp, status s)
 {
-    if (pp->completions && vector_length(pp->completions) > 0) {
-        vector v = pp->completions;
-        pp->completions = 0;
-        status_handler sh;
-        vector_foreach(v, sh) {
-            assert(sh);
-            apply(sh, s);
-        }
-        deallocate_vector(v);
+    list_foreach(&pp->bh_completions, l) {
+        page_completion c = struct_from_list(l, page_completion, l);
+        assert(c->sh != INVALID_ADDRESS && c->sh != 0);
+        apply(c->sh, s);
+        list_delete(l);
+        deallocate(pc->h, c, sizeof(*c));
     }
 }
 #endif
 
-closure_function(3, 1, void, pagecache_read_page_complete,
-                 pagecache, pc, pagecache_page, pp, sg_list, sg,
-                 status, s)
+static void enqueue_page_completion_statelocked(pagecache pc, pagecache_page pp, status_handler sh, boolean bh)
 {
-    pagecache pc = bound(pc);
-    pagecache_page pp = bound(pp);
-    pagecache_debug("%s: pc %p, pp %p, status %v\n", __func__, pc, bound(pp), s);
-    assert(page_state(pp) == PAGECACHE_PAGESTATE_READING);
+    page_completion c = allocate(pc->completions, sizeof(*c));
+    assert(c != INVALID_ADDRESS);
 
-    if (!is_ok(s)) {
-        /* TODO need policy for capturing/reporting I/O errors... */
-        msg_err("error reading page 0x%lx: %v\n", page_offset(pp) << pc->page_order, s);
-    }
-    pagecache_lock_state(pc);
-    change_page_state_locked(bound(pc), pp, PAGECACHE_PAGESTATE_NEW);
-    pagecache_page_queue_completions_locked(pc, pp, s);
-    pagecache_unlock_state(pc);
-    sg_list_release(bound(sg));
-    deallocate_sg_list(bound(sg));
-    closure_finish();
-}
-
-static void enqueue_page_completion_statelocked(pagecache pc, pagecache_page pp, status_handler sh)
-{
-    /* completions may have been consumed on service */
-    if (!pp->completions)
-        pp->completions = allocate_vector(pc->h, 4);
-    vector_push(pp->completions, sh);
+    c->sh = sh;
+#ifdef KERNEL
+    list l = bh ? &pp->bh_completions : &pp->rq_completions;
+#else
+    list l = &pp->bh_completions;
+#endif
+    list_push_back(l, &c->l);
 }
 
 static boolean realloc_pagelocked(pagecache pc, pagecache_page pp)
@@ -274,7 +267,28 @@ static boolean realloc_pagelocked(pagecache pc, pagecache_page pp)
     return true;
 }
 
-static boolean touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page pp, merge m)
+closure_function(3, 1, void, pagecache_read_page_complete,
+                 pagecache, pc, pagecache_page, pp, sg_list, sg,
+                 status, s)
+{
+    pagecache pc = bound(pc);
+    pagecache_page pp = bound(pp);
+    assert(page_state(pp) == PAGECACHE_PAGESTATE_READING);
+
+    if (!is_ok(s)) {
+        /* TODO need policy for capturing/reporting I/O errors... */
+        msg_err("error reading page 0x%lx: %v\n", page_offset(pp) << pc->page_order, s);
+    }
+    pagecache_lock_state(pc);
+    change_page_state_locked(bound(pc), pp, PAGECACHE_PAGESTATE_NEW);
+    pagecache_page_queue_completions_locked(pc, pp, s);
+    pagecache_unlock_state(pc);
+    sg_list_release(bound(sg));
+    deallocate_sg_list(bound(sg));
+    closure_finish();
+}
+
+static boolean touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page pp, merge m, boolean bh)
 {
     pagecache_volume pv = pn->pv;
     pagecache pc = pv->pc;
@@ -284,7 +298,7 @@ static boolean touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page p
     switch (page_state(pp)) {
     case PAGECACHE_PAGESTATE_READING:
         if (m) {
-            enqueue_page_completion_statelocked(pc, pp, apply_merge(m));
+            enqueue_page_completion_statelocked(pc, pp, apply_merge(m), bh);
         }
         refcount_reserve(&pp->refcount);
         pagecache_unlock_state(pc);
@@ -295,7 +309,7 @@ static boolean touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page p
         /* fall through */
     case PAGECACHE_PAGESTATE_ALLOC:
         if (m) {
-            enqueue_page_completion_statelocked(pc, pp, apply_merge(m));
+            enqueue_page_completion_statelocked(pc, pp, apply_merge(m), bh);
             change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_READING);
         }
         refcount_reserve(&pp->refcount);
@@ -381,7 +395,8 @@ static pagecache_page allocate_page_nodelocked(pagecache_node pn, u64 offset)
 #ifdef KERNEL
     pp->phys = physical_from_virtual(p);
 #endif
-    pp->completions = 0;
+    list_init(&pp->bh_completions);
+    list_init(&pp->rq_completions);
     assert(rbtree_insert_node(&pn->pages, &pp->rbnode));
     fetch_and_add(&pc->total_pages, 1); /* decrement happens without cache lock */
     return pp;
@@ -454,13 +469,13 @@ static pagecache_page page_lookup_or_alloc_nodelocked(pagecache_node pn, u64 n)
     return pp;
 }
 
-static void touch_or_fill_page_by_num_nodelocked(pagecache_node pn, u64 n, merge m)
+static void touch_or_fill_page_by_num_nodelocked(pagecache_node pn, u64 n, merge m, boolean bh)
 {
     pagecache_page pp = page_lookup_or_alloc_nodelocked(pn, n);
     if (pp == INVALID_ADDRESS)
         apply(apply_merge(m), timm("result", "failed to allocate pagecache_page"));
     else
-        touch_or_fill_page_nodelocked(pn, pp, m);
+        touch_or_fill_page_nodelocked(pn, pp, m, bh);
 }
 
 closure_function(6, 1, void, pagecache_write_sg_finish,
@@ -610,13 +625,13 @@ closure_function(1, 3, void, pagecache_write_sg,
     range r = range_rshift(q, pc->page_order);
     pagecache_lock_node(pn);
     if (start_offset != 0) {
-        touch_or_fill_page_by_num_nodelocked(pn, q.start >> pc->page_order, m);
+        touch_or_fill_page_by_num_nodelocked(pn, q.start >> pc->page_order, m, false);
         r.start++;
     }
     if (end_offset != 0 && (q.end < pn->length) && /* tail rmw */
         !((q.start & ~MASK(pc->page_order)) ==
           (q.end & ~MASK(pc->page_order)) && start_offset != 0) /* no double fill */) {
-        touch_or_fill_page_by_num_nodelocked(pn, q.end >> pc->page_order, m);
+        touch_or_fill_page_by_num_nodelocked(pn, q.end >> pc->page_order, m, false);
     }
 
     /* prepare whole pages, blocking for any pending reads */
@@ -649,7 +664,7 @@ closure_function(1, 3, void, pagecache_write_sg,
             realloc_pagelocked(pc, pp);
         refcount_reserve(&pp->refcount);
         if (page_state(pp) == PAGECACHE_PAGESTATE_READING)
-            enqueue_page_completion_statelocked(pc, pp, apply_merge(m));
+            enqueue_page_completion_statelocked(pc, pp, apply_merge(m), true /* complete on bhqueue */);
         pagecache_unlock_state(pc);
     }
     pagecache_unlock_node(pn);
@@ -711,7 +726,7 @@ static void pagecache_finish_pending_writes(pagecache pc, pagecache_volume pv, p
     list_foreach_reverse(&pc->writing.l, l) {
         pp = struct_from_list(l, pagecache_page, l);
         if ((!pn || pp->node == pn) && (!pv || pp->node->pv == pv)) {
-            enqueue_page_completion_statelocked(pc, pp, complete);
+            enqueue_page_completion_statelocked(pc, pp, complete, false /* complete on runqueue */);
             pagecache_unlock_state(pc);
             return;
         }
@@ -790,7 +805,7 @@ closure_function(1, 3, void, pagecache_read_sg,
         sgb->offset = 0;
         sgb->refcount = &pp->refcount;
 
-        touch_or_fill_page_nodelocked(pn, pp, m);
+        touch_or_fill_page_nodelocked(pn, pp, m, false /* complete on runqueue */);
         pp = (pagecache_page)rbnode_get_next((rbnode)pp);
     }
     pagecache_unlock_node(pn);
@@ -1053,7 +1068,7 @@ void pagecache_node_fetch_pages(pagecache_node pn, range r)
                 break;
             }
         }
-        touch_or_fill_page_nodelocked(pn, pp, m);
+        touch_or_fill_page_nodelocked(pn, pp, m, false /* ignored */);
         pp = (pagecache_page)rbnode_get_next((rbnode)pp);
     }
     pagecache_unlock_node(pn);
@@ -1078,7 +1093,7 @@ closure_function(5, 1, void, map_page_finish,
 }
 
 void pagecache_map_page(pagecache_node pn, u64 node_offset, u64 vaddr, u64 flags,
-                        status_handler complete)
+                        status_handler complete, boolean bh)
 {
     pagecache pc = pn->pv->pc;
     pagecache_lock_node(pn);
@@ -1094,7 +1109,7 @@ void pagecache_map_page(pagecache_node pn, u64 node_offset, u64 vaddr, u64 flags
     merge m = allocate_merge(pc->h, closure(pc->h, map_page_finish,
                                             pc, pp, vaddr, flags, complete));
     status_handler k = apply_merge(m);
-    touch_or_fill_page_nodelocked(pn, pp, m);
+    touch_or_fill_page_nodelocked(pn, pp, m, bh);
     pagecache_unlock_node(pn);
     apply(k, STATUS_OK);
 }
@@ -1109,7 +1124,7 @@ boolean pagecache_map_page_if_filled(pagecache_node pn, u64 node_offset, u64 vad
                     __func__, pn, node_offset, vaddr, flags, pp);
     if (pp == INVALID_ADDRESS)
         goto out;
-    if (touch_or_fill_page_nodelocked(pn, pp, 0)) {
+    if (touch_or_fill_page_nodelocked(pn, pp, 0, false /* N/A */)) {
         mapped = true;
         map_page(pn->pv->pc, pp, vaddr, flags);
     }
@@ -1280,6 +1295,16 @@ static inline void page_list_init(struct pagelist *pl)
     pl->pages = 0;
 }
 
+#ifdef KERNEL
+static void init_pagecache_completion_queue(pagecache pc, struct pagecache_completion_queue *cq)
+{
+    cq->q = allocate_queue(pc->h, MAX_PAGE_COMPLETION_VECS);
+    assert(cq->q != INVALID_ADDRESS);
+    init_closure(&cq->service, pagecache_service_completions, pc, cq);
+    cq->scheduled = false;
+}
+#endif
+
 void init_pagecache(heap general, heap contiguous, heap physical, u64 pagesize)
 {
     pagecache pc = allocate(general, sizeof(struct pagecache));
@@ -1292,12 +1317,16 @@ void init_pagecache(heap general, heap contiguous, heap physical, u64 pagesize)
     pc->contiguous = contiguous;
     pc->physical = physical;
     pc->zero_page = allocate_zero(contiguous, pagesize);
-    if (pc->zero_page == INVALID_ADDRESS) {
-        halt("failed to allocate zero page\n");
-    }
+    assert(pc->zero_page != INVALID_ADDRESS);
 
 #ifdef KERNEL
+    /* XXX lock, and move to locked general when ready */
+    pc->completions = allocate_objcache(general, contiguous,
+                                        sizeof(struct page_completion), PAGESIZE);
+    assert(pc->completions != INVALID_ADDRESS);
     spin_lock_init(&pc->state_lock);
+#else
+    pc->completions = general;
 #endif
     page_list_init(&pc->free);
     page_list_init(&pc->new);
@@ -1307,11 +1336,10 @@ void init_pagecache(heap general, heap contiguous, heap physical, u64 pagesize)
     list_init(&pc->volumes);
     list_init(&pc->shared_maps);
 
-#ifdef STAGE3
-    pc->completion_vecs = allocate_queue(general, MAX_PAGE_COMPLETION_VECS);
-    assert(pc->completion_vecs != INVALID_ADDRESS);
-    pc->service_completions = closure(general, pagecache_service_completions, pc);
-    pc->service_enqueued = false;
+#ifdef KERNEL
+    init_pagecache_completion_queue(pc, &pc->bh_completions);
+    init_pagecache_completion_queue(pc, &pc->rq_completions);
+
     pc->scan_in_progress = false;
     pc->scan_timer = 0;
     init_closure(&pc->do_scan_timer, pagecache_scan_timer, pc);

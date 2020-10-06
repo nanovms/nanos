@@ -165,8 +165,7 @@ static inline void run_thread_frame(thread t)
     thread_log(t, "run %s, cpu %d, frame %p, rip 0x%lx, rsp 0x%lx, rdi 0x%lx, rax 0x%lx, rflags 0x%lx, cs 0x%lx, %s",
                f == t->sighandler_frame ? "sig handler" : "thread", current_cpu()->id, f, f[FRAME_RIP], f[FRAME_RSP],
                f[FRAME_RDI], f[FRAME_RAX], f[FRAME_FLAGS], f[FRAME_CS], f[FRAME_IS_SYSCALL] ? "sysret" : "iret");
-    if (current_cpu()->have_kernel_lock)
-        kern_unlock();
+    kern_unlock();
     current_cpu()->frcount++;
     frame_return(f);
 }
@@ -207,6 +206,7 @@ void thread_sleep_interruptible(void)
     thread_log(current, "sleep interruptible (on \"%s\")", blockq_name(current->blocked_on));
     ftrace_thread_switch(current, 0);
     set_current_thread(0);
+    kern_unlock();
     runloop();
 }
 
@@ -218,6 +218,7 @@ void thread_sleep_uninterruptible(void)
     thread_log(current, "sleep uninterruptible");
     ftrace_thread_switch(current, 0);
     set_current_thread(0);
+    kern_unlock();
     runloop();
 }
 
@@ -229,6 +230,7 @@ void thread_yield(void)
     current->syscall = -1;
     set_syscall_return(current, 0);
     schedule_frame(thread_frame(current));
+    kern_unlock();
     runloop();
 }
 

@@ -343,6 +343,7 @@ void kernel_shutdown(int status)
     shutting_down = true;
     if (root_fs) {
         storage_sync(closure(heap_general(&heaps), sync_complete, status));
+        kern_unlock();
         runloop();
     }
     vm_exit(status);
@@ -353,6 +354,7 @@ void kernel_shutdown_ex(status_handler completion)
     shutting_down = true;
     if (root_fs) {
         storage_sync(completion);
+        kern_unlock();
         runloop();
     }
     apply(completion, 0);
