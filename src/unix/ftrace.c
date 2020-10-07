@@ -223,7 +223,7 @@ write_to_user_offset(buffer b, void * buf, u64 length, u64 buffer_offset)
 #define printer_length(p)           (u64)buffer_length(printer_buffer(p))
 #define printer_size(p)             (p)->max_size
 
-static inline void
+static inline __attribute__((always_inline)) void
 printer_set_size(struct ftrace_printer * p, u64 size)
 {
     if (size > TRACE_PRINTER_MAX_SIZE)
@@ -323,7 +323,7 @@ printer_flush_user(struct ftrace_printer * p, void * buf, u64 len, u64 offset)
 /* right-adjust the str within a width of 'width' characters and
  * print to buffer
  */
-static inline void
+static inline __attribute__((always_inline)) void
 printer_print_right_adjusted(struct ftrace_printer * p, char * str,
                              u16 width)
 {
@@ -342,14 +342,14 @@ printer_print_right_adjusted(struct ftrace_printer * p, char * str,
     printer_write(p, str);
 }
 
-static inline char *
+static inline __attribute__((always_inline)) char *
 function_name(unsigned long ip)
 {
     u64 offset, len;
     return find_elf_sym(ip, &offset, &len);
 }
 
-static inline void
+static inline __attribute__((always_inline)) void
 printer_print_sym(struct ftrace_printer * p, unsigned long ip)
 {
     char * name = function_name(ip);
@@ -366,7 +366,7 @@ printer_print_sym(struct ftrace_printer * p, unsigned long ip)
  * accomplished either by truncating the usec/remainder, or padding
  * blank spaces after the us
  */
-static inline void
+static inline __attribute__((always_inline)) void
 printer_print_duration_usec(struct ftrace_printer * p, timestamp num, u16 width)
 {
     buffer b = little_stack_buffer(64);
@@ -418,9 +418,9 @@ printer_print_duration_usec(struct ftrace_printer * p, timestamp num, u16 width)
 /* these are nops for now, as interrupts are always disabled when
  * we're in kernel
  */
-static inline void
+static inline __attribute__((always_inline)) void
 rbuf_lock(struct rbuf * rbuf) {}
-static inline void
+static inline __attribute__((always_inline)) void
 rbuf_unlock(struct rbuf * rbuf) {}
 
 static void
@@ -454,7 +454,7 @@ rbuf_init(struct rbuf * rbuf, unsigned long buffer_size_kb)
     return 0;
 }
 
-static inline void
+static inline __attribute__((always_inline)) void
 rbuf_disable(struct rbuf * rbuf)
 {
     /* disable mcount on first disable */
@@ -462,7 +462,7 @@ rbuf_disable(struct rbuf * rbuf)
         current_tracer->mcount_toggle(false);
 }
 
-static inline void
+static inline __attribute__((always_inline)) void
 rbuf_enable(struct rbuf * rbuf)
 {
     /* enable mcount on last enable */
@@ -471,14 +471,14 @@ rbuf_enable(struct rbuf * rbuf)
         current_tracer->mcount_toggle(true);
 }
 
-static inline boolean
+static inline __attribute__((always_inline)) boolean
 rbuf_enabled(struct rbuf * rbuf)
 {
     return (rbuf->disable_cnt == 0);
 }
 
 /* must be locked before calling */
-static inline boolean
+static inline __attribute__((always_inline)) boolean
 __rbuf_acquire_write_entry(struct rbuf * rbuf, struct rbuf_entry ** acquired)
 {
     if (rbuf->count == rbuf->size - 1)
@@ -496,7 +496,7 @@ __rbuf_acquire_write_entry(struct rbuf * rbuf, struct rbuf_entry ** acquired)
 }
 
 /* must be locked before calling */
-static inline boolean
+static inline __attribute__((always_inline)) boolean
 __rbuf_acquire_read_entry(struct rbuf * rbuf, struct rbuf_entry ** acquired)
 {
     if (rbuf->count == 0)
