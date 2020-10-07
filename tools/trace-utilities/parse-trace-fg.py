@@ -11,10 +11,17 @@ thread_stacks = {}
 # stack time track
 stack_times = {}
 
+def update_parent(child_time, tid):
+    if len(thread_stacks[tid]) == 0:
+        return
+
+    thread_stacks[tid][-1]["child_duration"] += child_time
+
 def parse_entry(match, tid):
     function = match.group(1)
     thread_stacks[tid].append({
         "function" : function,
+        "child_duration" : 0
     })
     return tid
 
@@ -35,19 +42,24 @@ def parse_return(match, tid):
         return tid
 
     function = dat["function"]
+    child_time = dat["child_duration"]
+
     stk = ""
     for f in thread_stacks[tid]:
         stk += f["function"]
         if f["function"] != function:
             stk += ";"
     del thread_stacks[tid][-1]
-    record_stack_time(stk, time)
+    update_parent(time, tid)
+    record_stack_time(stk, time - child_time)
 
     return tid
 
 def parse_leaf(match, tid):
     time = float(match.group(1))
     function = match.group(2)
+
+    update_parent(time, tid)
 
     stk = ""
     for f in thread_stacks[tid]:
@@ -108,7 +120,7 @@ def parse_trace(trace):
 
     with open('tracefg.out', 'w') as f:
         for s in sorted(stack_times.iterkeys()):
-            f.write('{0} {1:0f}\n'.format(s, stack_times[s]))
+            f.write('{0} {1}\n'.format(s, int(stack_times[s])))
 
 def main(argv):
     argc = len(argv)
