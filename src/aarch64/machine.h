@@ -105,8 +105,8 @@ __bswap64(u64 _x)
 #endif
 
 #define USER_LIMIT  0x0008000000000000ull
-#define KMEM_BASE   0xffff000000000000ull
-#define KMEM_LIMIT  0xffffffff00000000ull
+#define KMEM_BASE   0x00ff000000000000ull
+#define KMEM_LIMIT  0x00ffffff00000000ull
 
 #ifdef KERNEL
 #define VA_TAG_BASE   KMEM_BASE
@@ -184,3 +184,27 @@ static inline void kern_pause(void)
 {
     asm volatile("dsb sy; wfe" ::: "memory");
 }
+
+/* XXX make names generic */
+#if defined(KERNEL) || defined(BUILD_VDSO)
+static inline u64
+rdtsc(void)
+{
+    // XXX
+    return 0;
+}
+
+static inline u64
+rdtsc_ordered(void)
+{
+    // XXX
+    return 0;
+}
+
+static inline u64
+rdtsc_precise(void)
+{
+    // XXX
+    return 0;
+}
+#endif

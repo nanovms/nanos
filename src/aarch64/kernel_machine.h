@@ -19,6 +19,8 @@
 
 #define STACK_ALIGNMENT     16
 
+#define VIRTUAL_ADDRESS_BITS 48
+
 #define SCTLR_EL1_UCI     U64_FROM_BIT(26) /* trap cache instructions in EL0 */
 #define SCTLR_EL1_EE      U64_FROM_BIT(25) /* endianness for EL1 data / pt table */
 #define SCTLR_EL1_E0E     U64_FROM_BIT(24) /* endianness for EL0 data */

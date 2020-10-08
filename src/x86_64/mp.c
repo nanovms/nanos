@@ -51,7 +51,7 @@ static void __attribute__((noinline)) ap_new_stack()
     install_gdt64_and_tss(id);
     mp_debug(", enable apic");
     apic_enable();
-    set_syscall_handler(syscall_enter);
+    init_syscall_handler();
     mp_debug(", clear ap lock, enable ints, start_callback\n");
     memory_barrier();
     ap_lock = 0;

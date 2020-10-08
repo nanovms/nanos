@@ -5,64 +5,90 @@ PROGRAMS=	kernel.elf
 WITHOUT_SSP=	1
 
 SRCS-kernel.elf= \
-$(OBJDIR)/gitversion.c \
-$(SRCDIR)/aarch64/clock.c \
-$(SRCDIR)/aarch64/crt0.S \
-$(SRCDIR)/aarch64/gic.c \
-$(SRCDIR)/aarch64/interrupt.c \
-$(SRCDIR)/aarch64/page.c \
-$(SRCDIR)/aarch64/serial.c \
-$(SRCDIR)/drivers/console.c \
-$(SRCDIR)/drivers/storage.c \
-$(SRCDIR)/kernel/backed_heap.c \
-$(SRCDIR)/kernel/elf.c \
-$(SRCDIR)/kernel/init.c \
-$(SRCDIR)/kernel/kernel.c \
-$(SRCDIR)/kernel/pci.c \
-$(SRCDIR)/kernel/pagecache.c \
-$(SRCDIR)/kernel/physheap.c \
-$(SRCDIR)/kernel/schedule.c \
-$(SRCDIR)/kernel/stage3.c \
-$(SRCDIR)/kernel/symtab.c \
-$(SRCDIR)/tfs/tfs.c \
-$(SRCDIR)/tfs/tlog.c \
-$(SRCDIR)/net/direct.c \
-$(SRCDIR)/net/net.c \
-$(SRCDIR)/net/netsyscall.c \
-$(SRCDIR)/runtime/bitmap.c \
-$(SRCDIR)/runtime/buffer.c \
-$(SRCDIR)/runtime/extra_prints.c \
-$(SRCDIR)/runtime/format.c \
-$(SRCDIR)/runtime/heap/freelist.c \
-$(SRCDIR)/runtime/heap/id.c \
-$(SRCDIR)/runtime/heap/mcache.c \
-$(SRCDIR)/runtime/heap/objcache.c \
-$(SRCDIR)/runtime/memops.c \
-$(SRCDIR)/runtime/merge.c \
-$(SRCDIR)/runtime/pqueue.c \
-$(SRCDIR)/runtime/queue.c \
-$(SRCDIR)/runtime/random.c \
-$(SRCDIR)/runtime/range.c \
-$(SRCDIR)/runtime/rbtree.c \
-$(SRCDIR)/runtime/runtime_init.c \
-$(SRCDIR)/runtime/sg.c \
-$(SRCDIR)/runtime/sha256.c \
-$(SRCDIR)/runtime/symbol.c \
-$(SRCDIR)/runtime/table.c \
-$(SRCDIR)/runtime/timer.c \
-$(SRCDIR)/runtime/tuple.c \
-$(SRCDIR)/runtime/string.c \
-$(SRCDIR)/runtime/crypto/chacha.c \
-$(SRCDIR)/virtio/virtio.c \
-$(SRCDIR)/virtio/virtio_storage.c \
-$(SRCDIR)/virtio/virtio_scsi.c \
-$(SRCDIR)/virtio/virtio_net.c \
-$(SRCDIR)/virtio/virtio_mmio.c \
-$(SRCDIR)/virtio/virtio_pci.c \
-$(SRCDIR)/virtio/virtqueue.c \
-$(SRCDIR)/virtio/scsi.c \
-$(CURDIR)/start.c \
-$(SRCS-lwip)
+	$(OBJDIR)/gitversion.c \
+	$(SRCDIR)/aarch64/clock.c \
+	$(SRCDIR)/aarch64/crt0.S \
+	$(SRCDIR)/aarch64/gic.c \
+	$(SRCDIR)/aarch64/interrupt.c \
+	$(SRCDIR)/aarch64/page.c \
+	$(SRCDIR)/aarch64/serial.c \
+	$(SRCDIR)/aarch64/unix_machine.c \
+	$(SRCDIR)/drivers/console.c \
+	$(SRCDIR)/drivers/storage.c \
+	$(SRCDIR)/kernel/backed_heap.c \
+	$(SRCDIR)/kernel/elf.c \
+	$(SRCDIR)/kernel/init.c \
+	$(SRCDIR)/kernel/kernel.c \
+	$(SRCDIR)/kernel/pci.c \
+	$(SRCDIR)/kernel/pagecache.c \
+	$(SRCDIR)/kernel/physheap.c \
+	$(SRCDIR)/kernel/schedule.c \
+	$(SRCDIR)/kernel/stage3.c \
+	$(SRCDIR)/kernel/storage.c \
+	$(SRCDIR)/kernel/symtab.c \
+	$(SRCDIR)/net/direct.c \
+	$(SRCDIR)/net/net.c \
+	$(SRCDIR)/net/netsyscall.c \
+	$(SRCDIR)/runtime/bitmap.c \
+	$(SRCDIR)/runtime/buffer.c \
+	$(SRCDIR)/runtime/extra_prints.c \
+	$(SRCDIR)/runtime/format.c \
+	$(SRCDIR)/runtime/heap/freelist.c \
+	$(SRCDIR)/runtime/heap/id.c \
+	$(SRCDIR)/runtime/heap/mcache.c \
+	$(SRCDIR)/runtime/heap/objcache.c \
+	$(SRCDIR)/runtime/memops.c \
+	$(SRCDIR)/runtime/merge.c \
+	$(SRCDIR)/runtime/pqueue.c \
+	$(SRCDIR)/runtime/queue.c \
+	$(SRCDIR)/runtime/random.c \
+	$(SRCDIR)/runtime/range.c \
+	$(SRCDIR)/runtime/rbtree.c \
+	$(SRCDIR)/runtime/runtime_init.c \
+	$(SRCDIR)/runtime/sg.c \
+	$(SRCDIR)/runtime/sha256.c \
+	$(SRCDIR)/runtime/symbol.c \
+	$(SRCDIR)/runtime/table.c \
+	$(SRCDIR)/runtime/timer.c \
+	$(SRCDIR)/runtime/tuple.c \
+	$(SRCDIR)/runtime/string.c \
+	$(SRCDIR)/runtime/crypto/chacha.c \
+	$(SRCDIR)/tfs/tfs.c \
+	$(SRCDIR)/tfs/tlog.c \
+	$(SRCDIR)/unix/aio.c \
+	$(SRCDIR)/unix/blockq.c \
+	$(SRCDIR)/unix/exec.c \
+	$(SRCDIR)/unix/eventfd.c \
+	$(SRCDIR)/unix/filesystem.c \
+	$(SRCDIR)/unix/futex.c \
+	$(SRCDIR)/unix/io_uring.c \
+	$(SRCDIR)/unix/mktime.c \
+	$(SRCDIR)/unix/mmap.c \
+	$(SRCDIR)/unix/notify.c \
+	$(SRCDIR)/unix/poll.c \
+	$(SRCDIR)/unix/signal.c \
+	$(SRCDIR)/unix/socket.c \
+	$(SRCDIR)/unix/special.c \
+	$(SRCDIR)/unix/syscall.c \
+	$(SRCDIR)/unix/thread.c \
+	$(SRCDIR)/unix/timer.c \
+	$(SRCDIR)/unix/unix_clock.c \
+	$(SRCDIR)/unix/unix.c \
+	$(SRCDIR)/unix/pipe.c \
+	$(SRCDIR)/unix/vdso.c \
+	$(SRCDIR)/kernel/vdso-now.c \
+	$(SRCDIR)/virtio/virtio.c \
+	$(SRCDIR)/virtio/virtio_storage.c \
+	$(SRCDIR)/virtio/virtio_scsi.c \
+	$(SRCDIR)/virtio/virtio_net.c \
+	$(SRCDIR)/virtio/virtio_mmio.c \
+	$(SRCDIR)/virtio/virtio_pci.c \
+	$(SRCDIR)/virtio/virtqueue.c \
+	$(SRCDIR)/virtio/scsi.c \
+	$(VDSO_OBJDIR)/vdso-image.c \
+	$(CURDIR)/start.c \
+	$(SRCS-lwip)
+
 
 # SRCS-kernel.elf= \
 # 	$(SRCDIR)/drivers/ata.c \
@@ -75,48 +101,12 @@ $(SRCS-lwip)
 # 	$(SRCDIR)/kernel/kvm_platform.c \
 # 	$(SRCDIR)/kernel/pvclock.c \
 # 	$(SRCDIR)/kernel/service.c \
-# 	$(SRCDIR)/kernel/vdso-now.c \
-# 	$(SRCDIR)/unix/aio.c \
-# 	$(SRCDIR)/unix/blockq.c \
-# 	$(SRCDIR)/unix/exec.c \
-# 	$(SRCDIR)/unix/eventfd.c \
-# 	$(SRCDIR)/unix/filesystem.c \
-# 	$(SRCDIR)/unix/futex.c \
-# 	$(SRCDIR)/unix/io_uring.c \
-# 	$(SRCDIR)/unix/mktime.c \
-# 	$(SRCDIR)/unix/mmap.c \
-# 	$(SRCDIR)/unix/notify.c \
-# 	$(SRCDIR)/unix/poll.c \
-# 	$(SRCDIR)/unix/signal.c \
-# 	$(SRCDIR)/unix/socket.c \
-# 	$(SRCDIR)/unix/special.c \
-# 	$(SRCDIR)/unix/syscall.c \
-# 	$(SRCDIR)/unix/thread.c \
-# 	$(SRCDIR)/unix/timer.c \
-# 	$(SRCDIR)/unix/unix_clock.c \
-# 	$(SRCDIR)/unix/unix.c \
-# 	$(SRCDIR)/unix/vdso.c \
-# 	$(SRCDIR)/unix/pipe.c \
+
 # 	$(SRCDIR)/vmware/vmxnet3_net.c \
 # 	$(SRCDIR)/vmware/vmxnet3_queue.c \
 # 	$(SRCDIR)/vmware/pvscsi.c \
 # 	$(SRCDIR)/xen/xen.c \
 # 	$(SRCDIR)/xen/xennet.c \
-# 	$(SRCDIR)/aarch64/ap.s \
-# 	$(SRCDIR)/aarch64/apic.c \
-# 	$(SRCDIR)/aarch64/breakpoint.c \
-# 	$(SRCDIR)/aarch64/clock.c \
-# 	$(SRCDIR)/aarch64/flush.c \
-# 	$(SRCDIR)/aarch64/hpet.c \
-# 	$(SRCDIR)/aarch64/interrupt.c \
-# 	$(SRCDIR)/aarch64/mp.c \
-# 	$(SRCDIR)/aarch64/page.c \
-# 	$(SRCDIR)/aarch64/rtc.c \
-# 	$(SRCDIR)/aarch64/serial.c \
-# 	$(SRCDIR)/aarch64/synth.c \
-# 	$(SRCDIR)/aarch64/x2apic.c \
-# 	$(SRCDIR)/aarch64/xapic.c \
-# 	$(VDSO_OBJDIR)/vdso-image.c \
 
 
 SRCS-lwip= \

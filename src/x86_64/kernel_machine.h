@@ -158,9 +158,9 @@ static inline cpuinfo current_cpu(void)
     return (cpuinfo)pointer_from_u64(addr);
 }
 
-static inline void set_syscall_handler(void *syscall_entry)
+static inline void init_syscall_handler(void)
 {
-    write_msr(LSTAR_MSR, u64_from_pointer(syscall_entry));
+    write_msr(LSTAR_MSR, u64_from_pointer(syscall_enter));
     u32 selectors = ((USER_CODE32_SELECTOR | 0x3) << 16) | KERNEL_CODE_SELECTOR;
     write_msr(STAR_MSR, (u64)selectors << 32);
     write_msr(SFMASK_MSR, U64_FROM_BIT(FLAG_INTERRUPT));
@@ -173,26 +173,6 @@ static inline void set_page_write_protect(boolean enable)
     mov_from_cr("cr0", cr0);
     cr0 = enable ? (cr0 | C0_WP) : (cr0 & ~C0_WP);
     mov_to_cr("cr0", cr0);
-}
-
-static inline boolean is_protection_fault(context f)
-{
-    return (f[FRAME_ERROR_CODE] & FRAME_ERROR_PF_P) != 0;
-}
-
-static inline boolean is_usermode_fault(context f)
-{
-    return (f[FRAME_ERROR_CODE] & FRAME_ERROR_PF_US) != 0;
-}
-
-static inline boolean is_write_fault(context f)
-{
-    return (f[FRAME_ERROR_CODE] & FRAME_ERROR_PF_RW) != 0;
-}
-
-static inline boolean is_instruction_fault(context f)
-{
-    return (f[FRAME_ERROR_CODE] & FRAME_ERROR_PF_ID) != 0;
 }
 
 /* page table integrity check? open to interpretation for other archs... */

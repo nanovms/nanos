@@ -98,3 +98,50 @@ static inline __attribute__((always_inline)) void kern_pause(void)
 {
     asm volatile("pause");
 }
+
+#if defined(KERNEL) || defined(BUILD_VDSO)
+static inline u64
+_rdtscp(void)
+{
+    u32 a, d;
+    asm volatile("rdtscp" : "=a" (a), "=d" (d) :: "%rcx");
+    return (((u64)a) | (((u64)d) << 32));
+}
+
+static inline u64
+_rdtsc(void)
+{
+    u32 a, d;
+    asm volatile("rdtsc" : "=a" (a), "=d" (d));
+    return (((u64)a) | (((u64)d) << 32));
+}
+
+static inline u64
+rdtsc(void)
+{
+    if (__vdso_dat->platform_has_rdtscp)
+        return _rdtscp();
+    return _rdtsc();
+}
+
+static inline u64
+rdtsc_ordered(void)
+{
+    if (__vdso_dat->platform_has_rdtscp)
+        return _rdtscp();
+
+    /* Now both AMD and Intel has lfence  */
+    __asm __volatile("lfence" : : : "memory");
+    return _rdtsc();
+}
+
+static inline u64
+rdtsc_precise(void)
+{
+    if (__vdso_dat->platform_has_rdtscp)
+        return _rdtscp();
+
+    asm volatile("cpuid" ::: "%rax", "%rbx", "%rcx", "%rdx"); /* serialize execution */
+    return _rdtsc();
+}
+#endif

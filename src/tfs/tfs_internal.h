@@ -1,4 +1,4 @@
-#ifdef STAGE3
+#ifdef KERNEL
 #include <kernel.h>
 #else
 #include <runtime.h>

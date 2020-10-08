@@ -104,6 +104,7 @@ SRCS-kernel.img= \
 	$(SRCDIR)/x86_64/rtc.c \
 	$(SRCDIR)/x86_64/serial.c \
 	$(SRCDIR)/x86_64/synth.c \
+	$(SRCDIR)/x86_64/unix_machine.c \
 	$(SRCDIR)/x86_64/x2apic.c \
 	$(SRCDIR)/x86_64/xapic.c \
 	$(VDSO_OBJDIR)/vdso-image.c \

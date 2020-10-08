@@ -27,54 +27,9 @@ typedef enum {
 typedef closure_type(clock_now, timestamp);
 extern clock_now platform_monotonic_now;
 
-#if defined(STAGE3) || defined(BUILD_VDSO)
+#if defined(KERNEL) || defined(BUILD_VDSO)
 #include <vdso.h>
 #define __vdso_dat (&(VVAR_REF(vdso_dat)))
-
-static inline u64
-_rdtscp(void)
-{
-    u32 a, d;
-    asm volatile("rdtscp" : "=a" (a), "=d" (d) :: "%rcx");
-    return (((u64)a) | (((u64)d) << 32));
-}
-
-static inline u64
-_rdtsc(void)
-{
-    u32 a, d;
-    asm volatile("rdtsc" : "=a" (a), "=d" (d));
-    return (((u64)a) | (((u64)d) << 32));
-}
-
-static inline u64
-rdtsc(void)
-{
-    if (__vdso_dat->platform_has_rdtscp)
-        return _rdtscp();
-    return _rdtsc();
-}
-
-static inline u64
-rdtsc_ordered(void)
-{
-    if (__vdso_dat->platform_has_rdtscp)
-        return _rdtscp();
-
-    /* Now both AMD and Intel has lfence  */
-    __asm __volatile("lfence" : : : "memory");
-    return _rdtsc();
-}
-
-static inline u64
-rdtsc_precise(void)
-{
-    if (__vdso_dat->platform_has_rdtscp)
-        return _rdtscp();
-
-    asm volatile("cpuid" ::: "%rax", "%rbx", "%rcx", "%rdx"); /* serialize execution */
-    return _rdtsc();
-}
 
 static inline s64 clock_calculate_drift(timestamp interval, s64 cal)
 {
@@ -115,9 +70,7 @@ static inline s64 clock_update_drift(timestamp raw)
 /* This is all kernel-only below here */
 static inline timestamp now(clock_id id)
 {
-    timestamp t = apply(platform_monotonic_now);
-
-#if defined(STAGE3) || defined(BUILD_VDSO)
+#if defined(KERNEL) || defined(BUILD_VDSO)
     if (id == CLOCK_ID_MONOTONIC_RAW)
         return t;
     t += clock_update_drift(t);
@@ -145,7 +98,7 @@ void rtc_settimeofday(u64 seconds);
 static inline void register_platform_clock_now(clock_now cn, vdso_clock_id id)
 {
     platform_monotonic_now = cn;
-#if defined(STAGE3) || defined(BUILD_VDSO)
+#if defined(KERNEL) || defined(BUILD_VDSO)
     __vdso_dat->clock_src = id;
     __vdso_dat->rtc_offset = (rtc_gettimeofday() << 32) - apply(cn);
     __vdso_dat->temp_cal = __vdso_dat->cal = 0;
@@ -157,5 +110,8 @@ static inline void register_platform_clock_now(clock_now cn, vdso_clock_id id)
 void clock_adjust(timestamp wallclock_now, s64 temp_cal, timestamp sync_complete, s64 cal);
 
 #if defined(STAGE3) || defined(BUILD_VDSO)
+=======
+}
+>>>>>>> tease out machine-dependent unix stuff, syscall list; update page defines
 #undef __vdso_dat
 #endif

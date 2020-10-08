@@ -21,7 +21,15 @@ fallback_gettimeofday(struct timeval * tv, void * tz)
 static sysreturn
 fallback_time(time_t * t)
 {
+#ifdef __x86_64__
     return do_syscall(SYS_time, t, 0);
+#else
+    struct timeval tv;
+    time_t rv = do_syscall(SYS_gettimeofday, &tv, 0) ? -1ull : tv.tv_sec;
+    if (t)
+        *t = rv;
+    return rv;
+#endif
 }
 
 static sysreturn
