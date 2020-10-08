@@ -5,6 +5,7 @@ https://developer.arm.com/support/arm-security-updates/speculative-processor-vul
 https://developer.arm.com/cache-speculation-vulnerability-firmware-specification
 */
 
+/* don't change the order of these without updating frame save/return double word accesses */
 #define FRAME_X0       0
 #define FRAME_X1       1
 #define FRAME_X2       2
@@ -37,10 +38,11 @@ https://developer.arm.com/cache-speculation-vulnerability-firmware-specification
 #define FRAME_X29      29       /* frame */
 #define FRAME_X30      30       /* LR */
 #define FRAME_SP       31
-#define FRAME_SPSR_ESR 32
+#define FRAME_N_GPREG  32
+
+#define FRAME_ESR_SPSR 32
 #define FRAME_ELR      33
 
-#define FRAME_N_GPREG  32
 
 /* SSBD? */
 
@@ -54,4 +56,4 @@ https://developer.arm.com/cache-speculation-vulnerability-firmware-specification
 #define FRAME_THREAD        41
 #define FRAME_HEAP          42
 #define FRAME_MAX           43
-
+#define FRAME_EXTENDED_SAVE 64

@@ -1,4 +1,3 @@
-typedef u64 timestamp;
 typedef struct timer *timer;
 typedef closure_type(timer_handler, void, u64);
 
@@ -40,7 +39,7 @@ static inline void runloop_timer(timestamp duration)
 // XXX - maybe timerheap per clocktype, or separate for proc/thread timers
 timer register_timer(timerheap th, clock_id id, timestamp val, boolean absolute, timestamp interval, timer_handler n);
 
-#if defined(STAGE3) || defined(BUILD_VDSO)
+#if defined(KERNEL) || defined(BUILD_VDSO)
 #define __rtc_offset (&(VVAR_REF(vdso_dat)))->rtc_offset
 #else
 #define __rtc_offset 0

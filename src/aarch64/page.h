@@ -44,6 +44,9 @@
 #define PAGE_ATTR_ATTRINDX_SHIFT 2
 #define PAGE_ATTR_ATTRINDX_BITS  3
 
+#define PAGE_ATTR_AP_2_1_RO 2
+#define PAGE_ATTR_AP_2_1_E0 1
+
 #define PAGE_ATTR_AP_2_1_RW_NO_E0 0
 #define PAGE_ATTR_AP_2_1_RW_ALL_E 1
 #define PAGE_ATTR_AP_2_1_RO_NO_E0 2
@@ -144,8 +147,62 @@
 #define PAGE_BACKED_FLAGS 0
 #define PAGE_DEV_FLAGS 0
 #define PAGE_NO_EXEC 0
-#define PAGE_WRITABLE 0
+#define PAGE_WRITABLE 0  /* XXX need to update semantics / use helper */
+#define PAGE_READ_ONLY u64_from_field(PAGE_ATTR_AP_2_1, PAGE_ATTR_AP_2_1_RO)
+#define PAGE_USER u64_from_field(PAGE_ATTR_AP_2_1, PAGE_ATTR_AP_2_1_E0)
 
+static inline boolean pt_entry_is_present(u64 entry)
+{
+    return (entry & PAGE_L0_3_DESC_VALID) != 0;
+}
+
+static inline boolean pt_entry_is_2M(int level, u64 entry)
+{
+    return level == 2 && (entry & PAGE_L0_2_DESC_TABLE) == 0;
+}
+
+static inline boolean pt_entry_is_pte(int level, u64 entry)
+{
+    return ((level == 1 || level == 2) && (entry & PAGE_L0_2_DESC_TABLE) == 0) ||
+        level == 3;
+}
+
+static inline boolean pt_entry_is_dirty(u64 entry)
+{
+//    return (entry & PAGE_DIRTY) != 0;
+    return false;
+}
+
+static inline void pt_pte_clean(u64 *pte)
+{
+    // XXX TODO
+}
+
+static inline u64 page_from_pte(u64 pte)
+{
+    return pte & PAGE_4K_NEXT_TABLE_OR_PAGE_OUT_MASK;
+}
+
+#define table_from_pte page_from_pte
+
+typedef closure_type(entry_handler, boolean /* success */, int /* level */,
+        u64 /* vaddr */, u64 * /* entry */);
+
+/* XXX kernel_machine */
 void page_init_mmu(range init_pt, u64 vtarget);
 void map(u64 virtual, physical p, u64 length, u64 flags);
 void unmap(u64 virtual, u64 length);
+void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh);
+void unmap_and_free_phys(u64 virtual, u64 length);
+
+static inline void unmap_pages(u64 virtual, u64 length)
+{
+    unmap_pages_with_handler(virtual, length, 0);
+}
+
+void update_map_flags(u64 vaddr, u64 length, u64 flags);
+void zero_mapped_pages(u64 vaddr, u64 length);
+void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length);
+boolean traverse_ptes(u64 vaddr, u64 length, entry_handler eh);
+void page_invalidate(u64 p, thunk completion);
+void dump_ptes(void *vaddr);

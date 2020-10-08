@@ -1,5 +1,4 @@
 #include <kernel.h>
-#include <vdso.h>
 
 #define __vdso_dat (&(VVAR_REF(vdso_dat)))
 

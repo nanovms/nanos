@@ -184,7 +184,7 @@ static inline void change_page_state_locked(pagecache pc, pagecache_page pp, int
         ((u64)state << PAGECACHE_PAGESTATE_SHIFT);
 }
 
-#ifdef STAGE3
+#ifdef KERNEL
 closure_function(1, 0, void, pagecache_service_completions,
                  pagecache, pc)
 {
@@ -683,7 +683,7 @@ static void pagecache_finish_pending_writes(pagecache pc, pagecache_volume pv, p
     apply(complete, STATUS_OK);
 }
 
-#ifdef STAGE3
+#ifdef KERNEL
 static void pagecache_scan(pagecache pc);
 static void pagecache_scan_node(pagecache_node pn);
 #else
@@ -759,7 +759,7 @@ closure_function(1, 3, void, pagecache_read_sg,
 }
 
 
-#ifdef STAGE3
+#ifdef KERNEL
 /* x86 */
 closure_function(2, 3, boolean, pagecache_check_dirty_page,
                  pagecache, pc, pagecache_shared_map, sm,
@@ -773,7 +773,9 @@ closure_function(2, 3, boolean, pagecache_check_dirty_page,
         pt_entry_is_dirty(old_entry)) {
         u64 pi = (sm->node_offset + (vaddr - sm->n.r.start)) >> PAGELOG;
         pagecache_debug("   dirty: vaddr 0x%lx, pi 0x%lx\n", vaddr, pi);
-        *entry = old_entry & ~PAGE_DIRTY;
+
+        // XXX arm - need to clean all levels?
+        pt_pte_clean(entry);
         page_invalidate(vaddr, ignore);
         pagecache_page pp = page_lookup_nodelocked(sm->pn, pi);
         assert(pp != INVALID_ADDRESS);
@@ -1226,7 +1228,7 @@ void init_pagecache(heap general, heap contiguous, heap physical, u64 pagesize)
     list_init(&pc->volumes);
     list_init(&pc->shared_maps);
 
-#ifdef STAGE3
+#ifdef KERNEL
     pc->completion_vecs = allocate_queue(general, MAX_PAGE_COMPLETION_VECS);
     assert(pc->completion_vecs != INVALID_ADDRESS);
     pc->service_completions = closure(general, pagecache_service_completions, pc);
