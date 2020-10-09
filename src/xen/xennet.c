@@ -655,9 +655,6 @@ closure_function(1, 0, void, xennet_event_handler,
     xennet_populate_tx_ring(xd);
     xennet_service_rx_ring(xd);
     xennet_populate_rx_ring(xd);
-    int rv = xen_unmask_evtchn(xd->evtchn);
-    if (rv != 0)
-        halt("%s: failed to unmask evtchn %d, rv %d\n", xd->evtchn, rv);
 }
 
 static status xennet_enable(xennet_dev xd)
