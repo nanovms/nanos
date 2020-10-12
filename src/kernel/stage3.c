@@ -9,7 +9,6 @@
 #include <symtab.h>
 #include <virtio/virtio.h>
 
-#if 0
 closure_function(2, 0, void, program_start,
                  buffer, elf, process, kp)
 {
@@ -52,6 +51,7 @@ closure_function(0, 1, void, read_program_fail,
 /* XXX Note: temporarily putting these connection tests here until we
    get tracing hooked up... */
 
+#if 0
 /* limited to 1M on general heap at the moment... */
 #define BULK_TEST_BUFSIZ (1ull << 20)
 static buffer bulk_test_buffer(heap h)
@@ -148,8 +148,6 @@ closure_function(1, 3, void, each_test_request,
 }
 #endif
 
-// TODO unix
-#if 0
 closure_function(3, 0, void, startup,
                  kernel_heaps, kh, tuple, root, filesystem, fs)
 {

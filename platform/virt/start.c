@@ -1,6 +1,9 @@
 /* just a test */
 #include <kernel.h>
 #include <page.h>
+#include <pagecache.h>
+#include <tfs.h>
+#include <storage.h>
 #include "serial.h"
 #include <drivers/console.h> // XXX
 
@@ -23,6 +26,9 @@
 #endif
 
 boolean runtime_initialized = false;
+
+static struct kernel_heaps heaps;
+static filesystem root_fs;
 
 static char *hex_digits="0123456789abcdef";
 
@@ -95,7 +101,7 @@ static void tag_dealloc(heap h, u64 a, bytes s)
 {
     struct tagheap *th = (struct tagheap *)h;
     tag_debug("%s: tag %d, a 0x%lx, s 0x%lx\n", __func__, th->vtag >> VA_TAG_OFFSET, a, s);
-    deallocate_u64(th->mh, a & MASK(48), s);
+    deallocate_u64(th->mh, a & MASK(VA_TAG_OFFSET), s);
 }
 
 static u64 tag_alloc(heap h, bytes s)
@@ -105,7 +111,7 @@ static u64 tag_alloc(heap h, bytes s)
     if (p == INVALID_ADDRESS)
         return INVALID_PHYSICAL;
     u64 a = u64_from_pointer(p);
-    assert((a >> VA_TAG_OFFSET) == 0xff);
+    assert((a >> VA_TAG_OFFSET) == 0);
     a |= th->vtag;
     tag_debug("%s: tag %d, s 0x%lx, a 0x%lx\n", __func__, th->vtag >> VA_TAG_OFFSET, s, a);
     return a;
@@ -130,8 +136,6 @@ static heap allocate_tagged_region(kernel_heaps kh, u64 tag)
     tag_debug("%s: tag %d, bits 0x%lx, heap %p\n", __func__, tag, th->vtag, th);
     return &th->h;
 }
-
-static struct kernel_heaps heaps;
 
 #define BOOTSTRAP_REGION_SIZE (2 << 20)
 static u8 bootstrap_region[BOOTSTRAP_REGION_SIZE];
@@ -179,6 +183,58 @@ static id_heap init_physical_id_heap(heap h)
 }
 
 id_heap init_phys_heap(heap h, id_heap physical);
+
+void vm_exit(u8 code)
+{
+#ifdef SMP_DUMP_FRAME_RETURN_COUNT
+    rprintf("cpu\tframe returns\n");
+    for (int i = 0; i < MAX_CPUS; i++) {
+        cpuinfo ci = cpuinfo_from_id(i);
+        if (ci->frcount)
+            rprintf("%d\t%ld\n", i, ci->frcount);
+    }
+#endif
+
+#ifdef DUMP_MEM_STATS
+    buffer b = allocate_buffer(heap_general(&heaps), 512);
+    if (b != INVALID_ADDRESS) {
+        dump_mem_stats(b);
+        buffer_print(b);
+    }
+#endif
+
+#if 0
+    /* TODO MP: coordinate via IPIs */
+    tuple root = root_fs ? filesystem_getroot(root_fs) : 0;
+    if (root && table_find(root, sym(reboot_on_exit))) {
+        triple_fault();
+    } else {
+        QEMU_HALT(code);
+    }
+#endif
+    while (1);
+}
+
+closure_function(1, 1, void, sync_complete,
+                 u8, code,
+                 status, s)
+{
+    vm_exit(bound(code));
+}
+
+extern boolean shutting_down;
+void kernel_shutdown(int status)
+{
+    shutting_down = true;
+//    apic_ipi(TARGET_EXCLUSIVE_BROADCAST, 0, shutdown_vector);
+    if (root_fs) {
+        storage_sync(closure(heap_general(&heaps), sync_complete, status));
+        runloop();
+    }
+    vm_exit(status);
+}
+
+u64 total_processors = 1;
 
 static void init_kernel_heaps(void)
 {

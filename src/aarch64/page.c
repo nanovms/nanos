@@ -19,6 +19,15 @@
 #define page_debug(x, ...)
 #endif
 
+#ifdef KERNEL
+static struct spinlock pt_lock;
+#define pagetable_lock() u64 _savedflags = spin_lock_irq(&pt_lock)
+#define pagetable_unlock() spin_unlock_irq(&pt_lock, _savedflags)
+#else
+#define pagetable_lock()
+#define pagetable_unlock()
+#endif
+
 /* unallocated portion of initial page table map */
 //static range init_pt_map;
 //static range pt_initial_phys;
@@ -61,6 +70,11 @@ static inline u64 pteaddr_from_pointer(u64 *p)
 }
 #endif
 
+void dump_ptes(void *vaddr)
+{
+    // XXX TODO
+}
+
 static boolean map_area(range v, u64 p, u64 flags);
 
 /* pt_lock should already be held here */
@@ -90,7 +104,7 @@ static boolean get_table_page(u64 **table_ptr, u64 *phys)
     *phys = pt_phys_next;
     pt_virt_remain.start += PAGESIZE;
     pt_phys_next += PAGESIZE;
-    page_init_debug("doofus\n");
+    page_init_debug("pt_virt_remain.start ");
     page_init_debug_u64(pt_virt_remain.start);
     page_init_debug(", ");
     page_init_debug_u64(pt_virt_remain.end);
@@ -120,16 +134,17 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 p, u64 flags)
 {
     int shift = level_shifts_4K[level];
     u64 mask = MASK(shift);
+    u64 vlbase = level > 1 ? v.start & ~MASK(level_shifts_4K[level - 1]) : 0;
     int first_index = (v.start >> shift) & LEVEL_MASK_4K;
     int last_index = ((v.end - 1) >> shift) & LEVEL_MASK_4K;
 
-    page_init_debug("\nmap_level: ");
+    page_init_debug("\nmap_level: table_ptr ");
     page_init_debug_u64(u64_from_pointer(table_ptr));
     page_init_debug(", level ");
     page_init_debug_u64(level);
     page_init_debug(", shift ");
     page_init_debug_u64(shift);
-    page_init_debug(", v ");
+    page_init_debug("\n   v ");
     page_init_debug_u64(v.start);
     page_init_debug(" - ");
     page_init_debug_u64(v.end);
@@ -140,6 +155,7 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 p, u64 flags)
     page_init_debug(" last ");
     page_init_debug_u64(last_index);
     page_init_debug("\n");
+    assert(first_index <= last_index);
 
     page_debug("%s: level %d, v %R, p 0x%lx, flags 0x%lx, table_ptr %p\n",
                __func__, level, v, p, flags, table_ptr);
@@ -147,7 +163,7 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 p, u64 flags)
 
     for (int i = first_index; i <= last_index;
          i++, next_addr(v.start, mask), next_addr(p, mask)) {
-        page_init_debug("index ");
+        page_init_debug("   index ");
         page_init_debug_u64(i);
         page_init_debug(", v.start ");
         page_init_debug_u64(v.start);
@@ -157,24 +173,22 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 p, u64 flags)
         u64 pte = table_ptr[i];
         if ((pte & PAGE_L0_3_DESC_VALID) == 0) {
             if (level == 3) {
-                /* page */
-                page_init_debug(" -page- ");
+                page_init_debug("   -page- ");
                 pte = flags | (p & PAGE_4K_NEXT_TABLE_OR_PAGE_OUT_MASK) |
                     PAGE_L3_DESC_PAGE | PAGE_ATTR_AF | PAGE_L0_3_DESC_VALID;
             } else if (level > 0 && (v.start & mask) == 0 &&
                        range_span(v) >= U64_FROM_BIT(shift)) {
-                page_init_debug(" -block- ");
+                page_init_debug("   -block- ");
                 page_init_debug_u64(v.start);
                 page_init_debug(" span ");
                 page_init_debug_u64(range_span(v));
                 page_init_debug(" p ");
                 page_init_debug_u64(p);
                 page_init_debug("\n");
-                /* block */
                 pte = flags | (p & PAGE_4K_NEXT_TABLE_OR_PAGE_OUT_MASK) |
                     PAGE_ATTR_AF | PAGE_L0_3_DESC_VALID;
             } else {
-                page_init_debug(" -new level- ");
+                page_init_debug("   -new level- ");
                 u64 *newtable_ptr;
                 u64 newtable;
                 if (!get_table_page(&newtable_ptr, &newtable)) {
@@ -183,12 +197,12 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 p, u64 flags)
                 }
                 assert((newtable & ~PAGE_4K_NEXT_TABLE_OR_PAGE_OUT_MASK) == 0);
                 pte = newtable | PAGE_ATTR_AF | PAGE_L0_2_DESC_TABLE | PAGE_L0_3_DESC_VALID;
-                page_init_debug("xxx ");
-                u64 end = ((u64)(i + 1)) << shift;
-                page_init_debug_u64(end);
+                u64 end = vlbase | (((u64)(i + 1)) << shift);
                 /* length instead of end to avoid overflow at end of space */
                 u64 len = MIN(range_span(v), end - v.start);
-                page_init_debug("len ");
+                page_init_debug("   end ");
+                page_init_debug_u64(end);
+                page_init_debug(", len ");
                 page_init_debug_u64(len);
                 page_init_debug("\n");
                 /* XXX install mapping here */
@@ -196,7 +210,7 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 p, u64 flags)
                                p, flags))
                     return false;
             }
-            page_init_debug("installing pte, level ");
+            page_init_debug("   installing pte, level ");
             page_init_debug_u64(level);
             page_init_debug(" @ ");
             page_init_debug_u64(u64_from_pointer(&table_ptr[i]));
@@ -207,17 +221,19 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 p, u64 flags)
             // XXX INVALIDATES
             // asm volatile("tlbi ...
         } else {
+#if 1
             /* fail if page or block already installed */
             if (level == 3 || (pte & PAGE_L0_2_DESC_TABLE) == 0) {
-                 msg_err("would overwrite entry: level %d, v %R, pa 0x%lx, "
+                msg_err("would overwrite entry: level %d, v %R, pa 0x%lx, "
                         "flags 0x%lx, index %d, entry 0x%lx\n", level, v, p,
                         flags, i, pte);
                 return false;
             }
-            u64 nexttable = pte & PAGE_4K_NEXT_TABLE_OR_PAGE_OUT_MASK;
+#endif
+            u64 nexttable = page_from_pte(pte);
             u64 *nexttable_ptr = pointer_from_pteaddr(nexttable);
             u64 len = MIN(range_span(v), ((i + 1) << shift) - v.start);
-            page_init_debug("len 2 ");
+            page_init_debug("   len 2 ");
             page_init_debug_u64(len);
             page_init_debug("\n");
             if (!map_level(nexttable_ptr, level + 1, irangel(v.start, len), p, flags))
@@ -226,14 +242,19 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 p, u64 flags)
     }
     return true;
 }
-        
+
+static inline u64 *table_from_vaddr(u64 vaddr)
+{
+    return (vaddr & U64_FROM_BIT(55)) ? kernel_tablebase : user_tablebase;
+}
+
 static boolean map_area(range v, u64 p, u64 flags)
 {
     assert((v.start & PAGEMASK) == 0);
     assert((p & PAGEMASK) == 0);
     v.end = pad(v.end, PAGESIZE);
 
-    page_init_debug("map_area ");
+    page_init_debug("map_area, v ");
     page_init_debug_u64(v.start);
     page_init_debug(", len ");
     page_init_debug_u64(range_span(v));
@@ -244,7 +265,7 @@ static boolean map_area(range v, u64 p, u64 flags)
     page_init_debug("\n");
     
     /* select table based on v[55] */
-    u64 *table_ptr = (v.start & U64_FROM_BIT(55)) ? kernel_tablebase : user_tablebase;
+    u64 *table_ptr = table_from_vaddr(v.start);
 //    rprintf("table 0x%lx, p %p\n", table, pointer_from_pteaddr(table));
     page_init_debug_u64(u64_from_pointer(table_ptr));
     page_init_debug("\n");
@@ -255,21 +276,254 @@ static boolean map_area(range v, u64 p, u64 flags)
 
 void map(u64 v, physical p, u64 length, u64 flags)
 {
-    if (!map_area(irangel(v, length), p, flags | PAGE_ATTR_AF))
+//    rprintf("map: v 0x%lx, p 0x%lx, length 0x%lx, flags 0x%lx\n",
+//            v, p, length, flags);
+#if 0
+    console("map: v ");
+    print_u64(v);
+    console(", p ");
+    print_u64(p);
+    console(", length ");
+    print_u64(length);
+    console(", flags ");
+    print_u64(flags);
+    console("\n");
+#endif
+    page_init_debug("map_area from ");
+    page_init_debug_u64(u64_from_pointer(__builtin_return_address(0)));
+
+    if (!map_area(irangel(v, length), p, flags | PAGE_ATTR_AF)) {
+        rprintf("ra %p\n", __builtin_return_address(0));
         halt("map failed for v 0x%lx, p 0x%lx, len 0x%lx, flags 0x%lx\n",
              v, p, length, flags);
+    }
+}
+
+/* called with lock held */
+closure_function(1, 3, boolean, unmap_page,
+                 range_handler, rh,
+                 int, level, u64, vaddr, u64 *, entry)
+{
+    range_handler rh = bound(rh);
+    u64 old_entry = *entry;
+    if (pt_entry_is_present(old_entry) && pt_entry_is_pte(level, old_entry)) {
+#ifdef PAGE_UPDATE_DEBUG
+        page_debug("rh %p, level %d, vaddr 0x%lx, entry %p, *entry 0x%lx\n",
+                   rh, level, vaddr, entry, *entry);
+#endif
+        *entry = 0;
+        page_invalidate(vaddr, ignore);
+        if (rh) {
+            halt("fixme\n");
+            apply(rh, irangel(page_from_pte(old_entry),
+                              (pt_entry_is_2M(level, old_entry) ?
+                               PAGESIZE_2M : PAGESIZE)));
+        }
+    }
+    return true;
+}
+
+void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh)
+{
+    assert(!((virtual & PAGEMASK) || (length & PAGEMASK)));
+    traverse_ptes(virtual, length, stack_closure(unmap_page, rh));
 }
 
 void unmap(u64 virtual, u64 length)
 {
-    // XXX TODO
+#ifdef PAGE_DEBUG
+    console("unmap v: ");
+    print_u64(virtual);
+    console(", length: ");
+    print_u64(length);
+    console("\n");
+#endif
+    unmap_pages(virtual, length);
+}
+
+void unmap_and_free_phys(u64 virtual, u64 length)
+{
+//    unmap_pages_with_handler(virtual, length, stack_closure(dealloc_phys_page));
 }
 
 // XXX
 extern void *START, *END;
 extern void *LOAD_OFFSET;
 
-#define VA_BITS 48 // XXX verify
+//#define TRAVERSE_PTES_DEBUG
+
+#if 0
+#define PTE_ENTRIES U64_FROM_BIT(9)
+static boolean recurse_ptes(u64 pbase, int level, u64 vstart, u64 len, u64 laddr, entry_handler ph)
+{
+    int shift = level_shift[level];
+    u64 lsize = U64_FROM_BIT(shift);
+    u64 start_idx = vstart > laddr ? ((vstart - laddr) >> shift) : 0;
+    u64 x = vstart + len - laddr;
+    u64 end_idx = MIN(pad(x, lsize) >> shift, PTE_ENTRIES);
+    u64 offset = start_idx << shift;
+
+#ifdef TRAVERSE_PTES_DEBUG
+    rprintf("   pbase 0x%lx, level %d, shift %d, lsize 0x%lx, laddr 0x%lx,\n"
+            "      start_idx %ld, end_idx %ld, offset 0x%lx\n",
+            pbase, level, shift, lsize, laddr, start_idx, end_idx, offset);
+#endif
+
+    assert(start_idx <= PTE_ENTRIES);
+    assert(end_idx <= PTE_ENTRIES);
+
+    for (u64 i = start_idx; i < end_idx; i++, offset += lsize) {
+        u64 addr = laddr + (i << shift);
+        if (addr & U64_FROM_BIT(47))
+            addr |= 0xffff000000000000; /* make canonical */
+        u64 pteaddr = pbase + (i * sizeof(u64));
+        u64 *pte = pointer_from_pteaddr(pteaddr);
+#ifdef TRAVERSE_PTES_DEBUG
+        rprintf("   idx %d, offset 0x%lx, addr 0x%lx, pteaddr 0x%lx, *pte %p\n",
+                i, offset, addr, pteaddr, *pte);
+#endif
+        if (!apply(ph, level, addr, pte))
+            return false;
+        if (!pt_entry_is_present(*pte))
+            continue;
+        if (level == 3 && (*pte & PAGE_2M_SIZE) != 0)
+            continue;
+        if (level < 4) {
+            if (!recurse_ptes(page_from_pte(*pte), level + 1, vstart, len,
+                              laddr + offset, ph))
+                return false;
+        }
+    }
+    return true;
+}
+#endif
+
+#define PTE_ENTRIES U64_FROM_BIT(9)
+static boolean recurse_ptes(u64 *table_ptr, int level, u64 vstart, u64 len, u64 laddr, entry_handler ph)
+{
+    int shift = level_shifts_4K[level];
+    u64 lsize = U64_FROM_BIT(shift);
+    u64 start_idx = vstart > laddr ? ((vstart - laddr) >> shift) : 0;
+    u64 x = vstart + len - laddr;
+    u64 end_idx = MIN(pad(x, lsize) >> shift, PTE_ENTRIES);
+    u64 offset = start_idx << shift;
+
+#ifdef TRAVERSE_PTES_DEBUG
+    rprintf("   pbase 0x%lx, level %d, shift %d, lsize 0x%lx, laddr 0x%lx,\n"
+            "      start_idx %ld, end_idx %ld, offset 0x%lx\n",
+            pbase, level, shift, lsize, laddr, start_idx, end_idx, offset);
+#endif
+
+    assert(start_idx <= PTE_ENTRIES);
+    assert(end_idx <= PTE_ENTRIES);
+
+    for (u64 i = start_idx; i < end_idx; i++, offset += lsize) {
+        u64 addr = laddr + (i << shift);
+//        u64 pteaddr = pbase + (i * sizeof(u64));
+//        u64 *pte = pointer_from_pteaddr(pteaddr);
+        u64 *pte = table_ptr + i;
+#ifdef TRAVERSE_PTES_DEBUG
+        rprintf("   idx %d, offset 0x%lx, addr 0x%lx, pteaddr 0x%lx, *pte %p\n",
+                i, offset, addr, pteaddr, *pte);
+#endif
+        if (!apply(ph, level, addr, pte))
+            return false;
+        if (!pt_entry_is_present(*pte))
+            continue;
+        if ((level == 1 || level == 2) && (*pte & PAGE_L0_2_DESC_TABLE) == 0)
+            continue;
+        if (level < 3) {
+            u64 *nexttable_ptr = pointer_from_pteaddr(table_from_pte(*pte));
+            if (!recurse_ptes(nexttable_ptr, level + 1, vstart, len,
+                              laddr + offset, ph))
+                return false;
+        }
+    }
+    return true;
+}
+
+boolean traverse_ptes(u64 vaddr, u64 length, entry_handler ph)
+{
+#ifdef TRAVERSE_PTES_DEBUG
+    rprintf("traverse_ptes vaddr 0x%lx, length 0x%lx\n", vaddr, length);
+#endif
+    pagetable_lock();
+    boolean result = recurse_ptes(table_from_vaddr(vaddr), 0,
+                                  vaddr & MASK(VIRTUAL_ADDRESS_BITS),
+                                  length, 0, ph);
+    if (!result)
+        rprintf("fail\n");
+    pagetable_unlock();
+    return result;
+}
+
+void page_invalidate(u64 address, thunk completion)
+{
+    // XXX
+    // flush_tlb();
+    apply(completion);
+}
+
+/* Update access protection flags for any pages mapped within a given area */
+void update_map_flags(u64 vaddr, u64 length, u64 flags)
+{
+#if 0
+    flags &= ~PAGE_NO_FAT;
+    page_debug("vaddr 0x%lx, length 0x%lx, flags 0x%lx\n", vaddr, length, flags);
+    traverse_ptes(vaddr, length, stack_closure(update_pte_flags, flags));
+#endif
+}
+
+#if 0
+/* called with lock held */
+closure_function(2, 3, boolean, remap_entry,
+                 u64, new, u64, old,
+                 int, level, u64, curr, u64 *, entry)
+{
+    u64 offset = curr - bound(old);
+    u64 oldentry = *entry;
+    u64 new_curr = bound(new) + offset;
+    u64 phys = page_from_pte(oldentry);
+    u64 flags = flags_from_pte(oldentry);
+#ifdef PAGE_UPDATE_DEBUG
+    page_debug("level %d, old curr 0x%lx, phys 0x%lx, new curr 0x%lx, entry 0x%lx, *entry 0x%lx, flags 0x%lx\n",
+               level, curr, phys, new_curr, entry, *entry, flags);
+#endif
+
+    /* only look at ptes at this point */
+    if (!pt_entry_is_present(oldentry) || !pt_entry_is_pte(level, oldentry))
+        return true;
+
+    /* transpose mapped page */
+    map_page(pagebase, new_curr, phys, pt_entry_is_fat(level, oldentry), flags, 0);
+
+    /* reset old entry */
+    *entry = 0;
+
+    /* invalidate old mapping (map_page takes care of new)  */
+    page_invalidate(curr, ignore);
+    return true;
+}
+#endif
+
+/* We're just going to do forward traversal, for we don't yet need to
+   support overlapping moves. Should the latter become necessary
+   (e.g. to support MREMAP_FIXED in mremap(2) without depending on
+   MREMAP_MAYMOVE), write a "traverse_ptes_reverse" to walk pages
+   from high address to low (like memcpy).
+*/
+void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length)
+{
+#if 0
+    page_debug("vaddr_new 0x%lx, vaddr_old 0x%lx, length 0x%lx\n", vaddr_new, vaddr_old, length);
+    if (vaddr_new == vaddr_old)
+        return;
+    assert(range_empty(range_intersection(irange(vaddr_new, vaddr_new + length),
+                                          irange(vaddr_old, vaddr_old + length))));
+    traverse_ptes(vaddr_old, length, stack_closure(remap_entry, vaddr_new, vaddr_old));
+#endif
+}
+
 
 /* TODO
 
@@ -323,13 +577,13 @@ void page_init_mmu(range init_pt, u64 vtarget)
     u64 tcr_el1 =
         /* for TTBR1_EL1 (kernel) */
         TCR_EL1_TBI1 | TCR_EL1_TBI0 | /* enable user and kernel tags */
-        u64_from_field(TCR_EL1_T1SZ, 64 - VA_BITS) |
+        u64_from_field(TCR_EL1_T1SZ, 64 - VIRTUAL_ADDRESS_BITS) |
         u64_from_field(TCR_EL1_TG1, TCR_EL1_TG1_4KB) |
         u64_from_field(TCR_EL1_ORGN1, TCR_EL1_xRGN_WB) | /* XXX verify */
         u64_from_field(TCR_EL1_IRGN1, TCR_EL1_xRGN_WB) | /* XXX verify */
 
         /* for TTBR0_EL1 (user) */
-        u64_from_field(TCR_EL1_T0SZ, 64 - VA_BITS) |
+        u64_from_field(TCR_EL1_T0SZ, 64 - VIRTUAL_ADDRESS_BITS) |
         u64_from_field(TCR_EL1_TG0, TCR_EL1_TG0_4KB) |
         u64_from_field(TCR_EL1_ORGN0, TCR_EL1_xRGN_WB) | /* XXX verify */
         u64_from_field(TCR_EL1_IRGN0, TCR_EL1_xRGN_WB);  /* XXX verify */

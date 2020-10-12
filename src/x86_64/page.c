@@ -12,7 +12,7 @@
 #define page_debug(x, ...)
 #endif
 
-#ifdef STAGE3
+#ifdef KERNEL
 static struct spinlock pt_lock;
 #define pagetable_lock() u64 _savedflags = spin_lock_irq(&pt_lock)
 #define pagetable_unlock() spin_unlock_irq(&pt_lock, _savedflags)
@@ -235,7 +235,7 @@ static boolean force_entry(u64 b, u64 v, physical p, int level,
 	return true;
     } else {
 	if (*pointer_from_pteaddr(pte_phys) & PAGE_PRESENT) {
-            if (pt_entry_is_fat(level, *pointer_from_pteaddr(pte_phys))) {
+            if (pt_entry_is_2M(level, *pointer_from_pteaddr(pte_phys))) {
                 console("\nforce_entry fail: attempting to map a 4K page over an "
                         "existing 2M mapping\n");
                 return false;
@@ -414,7 +414,7 @@ closure_function(2, 3, boolean, remap_entry,
         return true;
 
     /* transpose mapped page */
-    map_page(pagebase, new_curr, phys, pt_entry_is_fat(level, oldentry), flags, 0);
+    map_page(pagebase, new_curr, phys, pt_entry_is_2M(level, oldentry), flags, 0);
 
     /* reset old entry */
     *entry = 0;
@@ -447,7 +447,7 @@ closure_function(0, 3, boolean, zero_page,
 {
     u64 e = *entry;
     if (pt_entry_is_present(e) && pt_entry_is_pte(level, e)) {
-        u64 size = pt_entry_is_fat(level, e) ? PAGESIZE_2M : PAGESIZE;
+        u64 size = pt_entry_is_2M(level, e) ? PAGESIZE_2M : PAGESIZE;
 #ifdef PAGE_UPDATE_DEBUG
         page_debug("addr 0x%lx, size 0x%lx\n", addr, size);
 #endif
@@ -477,7 +477,7 @@ closure_function(1, 3, boolean, unmap_page,
         page_invalidate(vaddr, ignore);
         if (rh) {
             apply(rh, irangel(page_from_pte(old_entry),
-                              (pt_entry_is_fat(level, old_entry) ?
+                              (pt_entry_is_2M(level, old_entry) ?
                                PAGESIZE_2M : PAGESIZE)));
         }
     }
@@ -577,13 +577,13 @@ void *bootstrap_page_tables(heap initial)
     pagebase = u64_from_pointer(pgdir);
     pointer_from_pteaddr = boot_pointer_from_pteaddr;
     pteaddr_from_pointer = boot_pteaddr_from_pointer;
-#ifdef STAGE3
+#ifdef KERNEL
     spin_lock_init(&pt_lock);
 #endif
     return pgdir;
 }
 
-#ifdef STAGE3
+#ifdef KERNEL
 static id_heap phys_internal;
 
 closure_function(0, 1, void, dealloc_phys_page,
