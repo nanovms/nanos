@@ -151,7 +151,7 @@ extern void (*syscall)(context f);
 NOTRACE
 void synchronous_handler(void)
 {
-    early_debug("\ncaught exception:\n\n");
+//    early_debug("\ncaught exception:\n\n");
     cpuinfo ci = current_cpu();
     context f = ci->running_frame;
 

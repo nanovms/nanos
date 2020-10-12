@@ -1,5 +1,5 @@
 #include <unix_internal.h>
-#include <synth.h>
+// #include <synth.h>
 #include <pvclock.h>
 
 #define VSYSCALL_OFFSET_VGETTIMEOFDAY   0x000
@@ -26,7 +26,15 @@ vsyscall_gettimeofday(struct timeval * tv, void * tz)
 VSYSCALL sysreturn
 vsyscall_time(time_t * t)
 {
+#ifdef __x86_64__
     return do_syscall(SYS_time, t, 0);
+#else
+    struct timeval tv;
+    time_t rv = do_syscall(SYS_gettimeofday, &tv, 0) ? -1ull : tv.tv_sec;
+    if (t)
+        *t = rv;
+    return rv;
+#endif
 }
 
 VSYSCALL sysreturn
@@ -50,16 +58,16 @@ void init_vsyscall(heap phys)
     map(VSYSCALL_BASE, p, PAGESIZE, PAGE_USER);
     buffer b = alloca_wrap_buffer(pointer_from_u64(VSYSCALL_BASE), PAGESIZE);
     b->end = VSYSCALL_OFFSET_VGETTIMEOFDAY;
-    mov_64_imm(b, 0, u64_from_pointer(vsyscall_gettimeofday));
-    jump_indirect(b, 0);
+//    mov_64_imm(b, 0, u64_from_pointer(vsyscall_gettimeofday));
+//    jump_indirect(b, 0);
 
     b->end = VSYSCALL_OFFSET_VTIME;
-    mov_64_imm(b, 0, u64_from_pointer(vsyscall_time));
-    jump_indirect(b, 0);
+//    mov_64_imm(b, 0, u64_from_pointer(vsyscall_time));
+//    jump_indirect(b, 0);
 
     b->end = VSYSCALL_OFFSET_VGETCPU;
-    mov_64_imm(b, 0, u64_from_pointer(vsyscall_getcpu));
-    jump_indirect(b, 0);
+//    mov_64_imm(b, 0, u64_from_pointer(vsyscall_getcpu));
+//    jump_indirect(b, 0);
 
     /* allow user execution for vsyscall pages */
     u64 vs = u64_from_pointer(&vsyscall_start);
@@ -105,7 +113,8 @@ void init_vdso(process p)
     {
         vaddr = vaddr + size;
         size = PAGESIZE;
-        paddr = pvclock_get_physaddr();
+//        paddr = pvclock_get_physaddr();
+        paddr = INVALID_PHYSICAL; // XXX
         if (paddr != INVALID_PHYSICAL) {
             __vdso_dat->pvclock_offset = paddr & PAGEMASK;
             map(vaddr, paddr & ~PAGEMASK, size, PAGE_USER | PAGE_NO_EXEC);

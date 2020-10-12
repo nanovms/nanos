@@ -4,7 +4,9 @@
               hws:(contents:(host:output/test/runtime/bin/hws)))
     # filesystem path to elf for kernel to run
     program:/hws
-    fault:t
+#    trace:t
+#    debugsyscalls:t
+#    fault:t
     arguments:[webg poppy]
     environment:(USER:bobby PWD:/)
 )

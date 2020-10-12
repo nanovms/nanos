@@ -126,7 +126,7 @@ NOTRACE void __attribute__((noreturn)) kernel_sleep(void)
         kern_unlock();
 
     while (1) {
-        rprintf("...wfi...\n");
+//        rprintf("...wfi...\n");
         wait_for_interrupt();
     }
 }

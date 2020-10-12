@@ -658,6 +658,7 @@ sysreturn setitimer(int which, const struct itimerval *new_value,
     return setitimer_internal(ut, clockid, new_value, old_value);
 }
 
+#ifdef __x86_64__
 sysreturn alarm(unsigned int seconds)
 {
     struct itimerval new, old;
@@ -675,9 +676,13 @@ sysreturn alarm(unsigned int seconds)
         return 1;               /* 0 for disarmed timer only, so round up */
     return old.it_value.tv_sec;
 }
+#endif
 
 void register_timer_syscalls(struct syscall *map)
 {
+#ifdef __x86_64__
+    register_syscall(map, alarm, alarm);
+#endif
     register_syscall(map, timerfd_create, timerfd_create);
     register_syscall(map, timerfd_gettime, timerfd_gettime);
     register_syscall(map, timerfd_settime, timerfd_settime);
@@ -688,7 +693,6 @@ void register_timer_syscalls(struct syscall *map)
     register_syscall(map, timer_delete, timer_delete);
     register_syscall(map, getitimer, getitimer);
     register_syscall(map, setitimer, setitimer);
-    register_syscall(map, alarm, alarm);
 }
 
 boolean unix_timers_init(unix_heaps uh)
