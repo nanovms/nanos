@@ -81,12 +81,14 @@ sysreturn clock_nanosleep(clockid_t _clock_id, int flags, const struct timespec 
                                 id, treq, (flags & TIMER_ABSTIME) != 0);
 }
 
+#ifdef __x86_64__
 sysreturn sys_time(time_t *tloc)
 {
     if (tloc && !validate_user_memory(tloc, sizeof(time_t), true))
         return -EFAULT;
     return rtime(tloc);
 }
+#endif
 
 sysreturn times(struct tms *buf)
 {
@@ -133,11 +135,13 @@ sysreturn clock_gettime(clockid_t clk_id, struct timespec *tp)
 
 void register_clock_syscalls(struct syscall *map)
 {
+#ifdef __x86_64__
+    register_syscall(map, time, sys_time);
+#endif
     register_syscall(map, clock_gettime, clock_gettime);
     register_syscall(map, clock_getres, syscall_ignore);
     register_syscall(map, clock_nanosleep, clock_nanosleep);
     register_syscall(map, gettimeofday, gettimeofday);
     register_syscall(map, nanosleep, nanosleep);
-    register_syscall(map, time, sys_time);
     register_syscall(map, times, times);
 }

@@ -18,7 +18,7 @@
 #define start_dump(p, len)
 #endif
 
-#define TAG_HEAP_DEBUG
+//#define TAG_HEAP_DEBUG
 #ifdef TAG_HEAP_DEBUG
 #define tag_debug(x, ...) do {rprintf("%s: " x, __func__, ##__VA_ARGS__);} while(0)
 #else

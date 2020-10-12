@@ -207,8 +207,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, fchmodat, syscall_ignore);
     register_syscall(map, faccessat, 0);
     register_syscall(map, unshare, 0);
-    register_syscall(map, set_robust_list, 0);
-    register_syscall(map, get_robust_list, 0);
     register_syscall(map, splice, 0);
     register_syscall(map, tee, 0);
     register_syscall(map, sync_file_range, 0);
@@ -226,7 +224,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, open_by_handle_at, 0);
     register_syscall(map, clock_adjtime, 0);
     register_syscall(map, setns, 0);
-    register_syscall(map, getcpu, 0);
     register_syscall(map, process_vm_readv, 0);
     register_syscall(map, process_vm_writev, 0);
     register_syscall(map, kcmp, 0);

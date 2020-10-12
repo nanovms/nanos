@@ -103,7 +103,7 @@ static boolean handle_protection_fault(context frame, u64 vaddr, vmap vm)
             pf_debug("copy-on-write for private map: vaddr 0x%lx, node %p, node_offset 0x%lx\n",
                      vaddr, vm->cache_node, node_offset);
             if (!pagecache_node_do_page_cow(vm->cache_node, node_offset, vaddr_aligned,
-                                            page_map_flags(vm->flags))) {
+                                            page_flags_from_vmflags(vm->flags))) {
                 msg_err("cannot get physical page; OOM\n");
                 return false;
             }
@@ -164,7 +164,7 @@ define_closure_function(1, 1, context, default_fault_handler,
         vmap vm = vmap_from_vaddr(p, vaddr);
         if (vm == INVALID_ADDRESS) {
             if (user) {
-                pf_debug("no vmap found for addr 0x%lx, rip 0x%lx", vaddr, frame[FRAME_RIP]);
+                pf_debug("no vmap found for addr 0x%lx, rip 0x%lx", vaddr, frame[SYSCALL_FRAME_PC]);
                 deliver_fault_signal(SIGSEGV, current_thread, vaddr, SEGV_MAPERR);
 
                 /* schedule this thread to either run signal handler or terminate */
@@ -204,7 +204,7 @@ define_closure_function(1, 1, context, default_fault_handler,
         }
     } else if (frame[FRAME_VECTOR] == 13) {
         if (current_cpu()->state == cpu_user) {
-            pf_debug("general protection fault in user mode, rip 0x%lx", frame[FRAME_RIP]);
+            pf_debug("general protection fault in user mode, rip 0x%lx", frame[SYSCALL_FRAME_PC]);
             deliver_fault_signal(SIGSEGV, current_thread, 0, SI_KERNEL);
             schedule_frame(frame);
             return 0;
@@ -220,7 +220,7 @@ define_closure_function(1, 1, context, default_fault_handler,
 
     if (p && table_find(p->process_root, sym(fault))) {
         rputs("starting gdb\n");
-        init_tcp_gdb(heap_general(get_kernel_heaps()), p, 9090);
+//        init_tcp_gdb(heap_general(get_kernel_heaps()), p, 9090);
         thread_sleep_uninterruptible();
     } else {
         halt("halt\n");
@@ -484,6 +484,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
         goto alloc_fail;
 #endif
 
+    init_syscall_handler();
     process kernel_process = create_process(uh, root, fs);
     dummy_thread = create_thread(kernel_process);
     runtime_memcpy(dummy_thread->name, "dummy_thread",

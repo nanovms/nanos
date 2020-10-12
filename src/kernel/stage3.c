@@ -163,12 +163,12 @@ closure_function(3, 0, void, startup,
     heap general = heap_general(kh);
     buffer_handler pg = closure(general, read_program_complete, general, kp, root);
 
+#if 0
     if (table_find(root, sym(telnet))) {
         listen_port(general, 9090, closure(general, each_telnet_connection, general));
         rprintf("Debug telnet server started on port 9090\n");
     }
 
-#if 0
     http_listener hl = allocate_http_listener(general, 9090);
     assert(hl != INVALID_ADDRESS);
     http_register_uri_handler(hl, "test", closure(general, each_test_request, general));
@@ -189,14 +189,6 @@ closure_function(3, 0, void, startup,
     filesystem_read_entire(fs, pro, heap_backed(kh), pg, closure(general, read_program_fail));
     closure_finish();
 }
-#else
-closure_function(3, 0, void, startup,
-                 kernel_heaps, kh, tuple, root, filesystem, fs)
-{
-    rprintf("IN STARTUP\n");
-    closure_finish();
-}
-#endif
 
 thunk create_init(kernel_heaps kh, tuple root, filesystem fs)
 {

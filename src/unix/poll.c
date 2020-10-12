@@ -784,12 +784,14 @@ sysreturn pselect(int nfds,
     return select_internal(nfds, readfds, writefds, exceptfds, timeout ? time_from_timespec(timeout) : infinity, sigmask);
 }
 
+#ifdef __x86_64__
 sysreturn select(int nfds,
 		 u64 *readfds, u64 *writefds, u64 *exceptfds,
 		 struct timeval *timeout)
 {
     return select_internal(nfds, readfds, writefds, exceptfds, timeout ? time_from_timeval(timeout) : infinity, 0);
 }
+#endif
 
 closure_function(1, 2, void, poll_notify,
                  epollfd, efd,
@@ -949,21 +951,25 @@ sysreturn ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *tmo_p, c
     return poll_internal(fds, nfds, tmo_p ? time_from_timespec(tmo_p) : infinity, sigmask);
 }
 
+#ifdef __x86_64__
 sysreturn poll(struct pollfd *fds, nfds_t nfds, int timeout)
 {
     return poll_internal(fds, nfds, timeout >= 0 ? milliseconds(timeout) : infinity, 0);
 }
+#endif
 
 void register_poll_syscalls(struct syscall *map)
 {
+#ifdef __x86_64__
     register_syscall(map, epoll_create, epoll_create);
+    register_syscall(map, epoll_wait, epoll_wait);
+    register_syscall(map, poll, poll);
+    register_syscall(map, select, select);
+#endif
     register_syscall(map, epoll_create1, epoll_create);
     register_syscall(map, epoll_ctl, epoll_ctl);
-    register_syscall(map, poll, poll);
     register_syscall(map, ppoll, ppoll);
-    register_syscall(map, select, select);
     register_syscall(map, pselect6, pselect);
-    register_syscall(map, epoll_wait, epoll_wait);
     register_syscall(map, epoll_pwait, epoll_wait); /* sigmask unused right now */
 }
 

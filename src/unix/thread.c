@@ -17,6 +17,7 @@ sysreturn set_tid_address(int *a)
     return current->tid;
 }
 
+#ifdef __x86_64__
 sysreturn arch_prctl(int code, unsigned long addr)
 {    
     thread_log(current, "arch_prctl: code 0x%x, addr 0x%lx", code, addr);
@@ -47,6 +48,7 @@ sysreturn arch_prctl(int code, unsigned long addr)
     }
     return 0;
 }
+#endif
 
 sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, unsigned long newtls)
 {
@@ -70,15 +72,17 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, un
 
     thread t = create_thread(current->p);
     /* clone thread context up to FRAME_VECTOR */
-    runtime_memcpy(t->default_frame, current->default_frame, sizeof(u64) * FRAME_ERROR_CODE);
+    runtime_memcpy(t->default_frame, current->default_frame, sizeof(u64) * (FRAME_VECTOR + 1));
     runtime_memcpy(t->default_frame + FRAME_EXTENDED_SAVE, current->default_frame + FRAME_EXTENDED_SAVE,
                    xsave_frame_size());
     thread_clone_sigmask(t, current);
 
     /* clone behaves like fork at the syscall level, returning 0 to the child */
     set_syscall_return(t, 0);
-    t->default_frame[FRAME_RSP] = u64_from_pointer(child_stack);
+    t->default_frame[SYSCALL_FRAME_SP] = u64_from_pointer(child_stack);
+#ifdef __x86_64__
     t->default_frame[FRAME_FSBASE] = newtls;
+#endif
     if (flags & CLONE_PARENT_SETTID)
         *ptid = t->tid;
     if (flags & CLONE_CHILD_CLEARTID)
@@ -96,7 +100,9 @@ void register_thread_syscalls(struct syscall *map)
     register_syscall(map, set_robust_list, set_robust_list);
     register_syscall(map, get_robust_list, get_robust_list);
     register_syscall(map, clone, clone);
+#ifdef __x86_64__
     register_syscall(map, arch_prctl, arch_prctl);
+#endif
     register_syscall(map, set_tid_address, set_tid_address);
     register_syscall(map, gettid, gettid);
 }
@@ -160,7 +166,13 @@ static inline void run_thread_frame(thread t)
     if (do_syscall_stats && t->last_syscall == SYS_sched_yield)
         count_syscall(t, 0);
     context f = thread_frame(t);
+    // XXX - arch prep frame
+#ifdef __x86_64__
     f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
+#endif
+#ifdef __aarch64__
+    f[FRAME_ESR_SPSR] = SPSR_I; /* EL0 */
+#endif
     cpuinfo ci = current_cpu();
     f[FRAME_QUEUE] = u64_from_pointer(ci->thread_queue);
 
@@ -169,6 +181,7 @@ static inline void run_thread_frame(thread t)
                f[FRAME_RDI], f[FRAME_RAX], f[FRAME_FLAGS], f[FRAME_CS], f[FRAME_IS_SYSCALL] ? "sysret" : "iret");
     ci->frcount++;
     frame_return(f);
+    halt("ut oh\n");
 }
 
 define_closure_function(1, 0, void, run_thread,
@@ -196,7 +209,9 @@ static void setup_thread_frame(heap h, context frame, thread t)
     frame[FRAME_FAULT_HANDLER] = u64_from_pointer(&t->fault_handler);
     frame[FRAME_QUEUE] = u64_from_pointer(current_cpu()->thread_queue);
     frame[FRAME_IS_SYSCALL] = 1;
+#ifdef __x86_64__
     frame[FRAME_CS] = 0x2b; // where is this defined?
+#endif
     frame[FRAME_THREAD] = u64_from_pointer(t);
 }
 
@@ -226,7 +241,7 @@ void thread_sleep_uninterruptible(void)
 void thread_yield(void)
 {
     disable_interrupts();
-    thread_log(current, "yield %d, RIP=0x%lx", current->tid, thread_frame(current)[FRAME_RIP]);
+    thread_log(current, "yield %d, RIP=0x%lx", current->tid, thread_frame(current)[SYSCALL_FRAME_PC]);
     assert(!current->blocked_on);
     current->syscall = -1;
     set_syscall_return(current, 0);
@@ -239,7 +254,7 @@ void thread_wakeup(thread t)
 {
     thread_log(current, "%s: %ld->%ld blocked_on %s, RIP=0x%lx", __func__, current->tid, t->tid,
             t->blocked_on ? (t->blocked_on != INVALID_ADDRESS ? blockq_name(t->blocked_on) : "uninterruptible") :
-            "(null)", thread_frame(t)[FRAME_RIP]);
+            "(null)", thread_frame(t)[SYSCALL_FRAME_PC]);
     assert(t->blocked_on);
     t->blocked_on = 0;
     t->syscall = -1;

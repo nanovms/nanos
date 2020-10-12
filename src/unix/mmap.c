@@ -91,13 +91,13 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
         }
 
         u64 vaddr_aligned = vaddr & ~MASK(PAGELOG);
-        map(vaddr_aligned, paddr, PAGESIZE, page_map_flags(vm->flags));
+        map(vaddr_aligned, paddr, PAGESIZE, page_flags_from_vmflags(vm->flags));
         zero(pointer_from_u64(vaddr_aligned), PAGESIZE);
     } else if (mmap_type == VMAP_MMAP_TYPE_FILEBACKED) {
         u64 page_addr = vaddr & ~PAGEMASK;
         u64 node_offset = vm->node_offset + (page_addr - vm->node.r.start);
         boolean shared = (vm->flags & VMAP_FLAG_SHARED) != 0;
-        u64 flags = page_map_flags(vm->flags);
+        u64 flags = page_flags_from_vmflags(vm->flags);
         if (!shared)
             flags &= ~PAGE_WRITABLE; /* cow */
         pf_debug("   node %p (start 0x%lx), offset 0x%lx\n",
@@ -356,7 +356,7 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
     remap_pages(vnew, old_addr, old_size);
 
     /* map new portion and zero */
-    u64 mapflags = page_map_flags(vmflags);
+    u64 mapflags = page_flags_from_vmflags(vmflags);
     thread_log(current, "   mapping and zeroing new portion at 0x%lx, page flags 0x%lx",
                vnew + old_size, mapflags);
     map(vnew + old_size, dphys, dlen, mapflags);
@@ -380,7 +380,7 @@ closure_function(3, 3, boolean, mincore_fill_vec,
             pgoff = 0;
         else
             pgoff = ((addr - bound(base)) >> PAGELOG);
-        if (pt_entry_is_fat(level, e)) {
+        if (pt_entry_is_2M(level, e)) {
             u64 foff = pgoff ? 0 : (addr & PAGEMASK_2M) >> PAGELOG;
             for (i = 0; (i < 512 - foff) && (pgoff + i < bound(nr_pgs)); i++)
                 bound(vec)[pgoff + i] = 1;
@@ -553,7 +553,7 @@ static sysreturn vmap_update_protections(heap h, rangemap pvmap, range q, u32 ne
     rmnode_handler nh = stack_closure(vmap_update_protections_intersection, h, pvmap, q, newflags);
     rangemap_range_lookup(pvmap, q, nh);
 
-    update_map_flags(q.start, range_span(q), page_map_flags(newflags));
+    update_map_flags(q.start, range_span(q), page_flags_from_vmflags(newflags));
     return 0;
 }
 
@@ -731,7 +731,7 @@ static void vmap_paint(heap h, process p, u64 where, u64 len, u32 vmflags,
                                                      ivmap(vmflags, allowed_flags,
                                                            node_offset, cache_node)));
 
-    update_map_flags(q.start, range_span(q), page_map_flags(vmflags));
+    update_map_flags(q.start, range_span(q), page_flags_from_vmflags(vmflags));
     vmap_unlock(p);
 }
 
@@ -934,7 +934,7 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
             ret = -ENOMEM;
         else {
             vmflags |= VMAP_FLAG_PREALLOC;
-            ret = io_uring_mmap(desc, len, page_map_flags(vmflags), offset);
+            ret = io_uring_mmap(desc, len, page_flags_from_vmflags(vmflags), offset);
             thread_log(current, "   io_uring_mmap returned 0x%lx", ret);
             if (ret > 0)
                vmap_paint(h, p, (u64)ret, len, vmflags, allowed_flags, 0, 0);
@@ -1002,12 +1002,15 @@ void mmap_process_init(process p)
     /* allow (tracked) reservations in p->virtual */
     add_varea(p, PROCESS_VIRTUAL_HEAP_START, PROCESS_VIRTUAL_HEAP_LIMIT, p->virtual_page, true);
 
+    /* XXX todo: tagged addresses logically above kernel area - handle in mmap? */
+#if 0
     /* reserve end of p->virtual to user tag region */
     u64 user_va_tag_start = U64_FROM_BIT(USER_VA_TAG_OFFSET);
     u64 user_va_tag_end = user_va_tag_start * tag_max;
 
     /* allow untracked mmaps in user va tag area */
     add_varea(p, user_va_tag_start, user_va_tag_end, 0, true);
+#endif
 
     /* reserve kernel memory and non-canonical addresses */
     add_varea(p, USER_LIMIT, -1ull, 0, false);

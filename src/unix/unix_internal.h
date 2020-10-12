@@ -2,15 +2,44 @@
 
 #include <kernel.h>
 //#include <apic.h>
-#include <syscalls.h>
-#include <system_structs.h>
+#include <unix_syscalls.h>
 #include <pagecache.h>
 #include <page.h>
 #include <tfs.h>
 #include <unix.h>
 
+#define VMAP_FLAG_PROT_MASK 0x000f
+#define VMAP_FLAG_EXEC     0x0001
+#define VMAP_FLAG_WRITABLE 0x0002
+#define VMAP_FLAG_READABLE 0x0004
+
+#define VMAP_FLAG_MMAP     0x0010
+#define VMAP_FLAG_SHARED   0x0020 /* vs private; same semantics as unix */
+#define VMAP_FLAG_PREALLOC 0x0040
+
+#define VMAP_MMAP_TYPE_MASK       0x0f00
+#define VMAP_MMAP_TYPE_ANONYMOUS  0x0100
+#define VMAP_MMAP_TYPE_FILEBACKED 0x0200
+#define VMAP_MMAP_TYPE_IORING     0x0400
+
+#define ACCESS_PERM_READ    VMAP_FLAG_READABLE
+#define ACCESS_PERM_WRITE   VMAP_FLAG_WRITABLE
+#define ACCESS_PERM_EXEC    VMAP_FLAG_EXEC
+#define ACCESS_PERM_ALL     \
+    (ACCESS_PERM_READ | ACCESS_PERM_WRITE | ACCESS_PERM_EXEC)
+
+/* arch dependent bits */
+#include <unix_machine.h>
+
+#include <system_structs.h>
+
 #define PROCESS_VIRTUAL_HEAP_START  0x000100000000ull
+#ifdef __x86_64__
 #define PROCESS_VIRTUAL_HEAP_LIMIT  U64_FROM_BIT(USER_VA_TAG_OFFSET)
+#endif
+#ifdef __aarch64__
+#define PROCESS_VIRTUAL_HEAP_LIMIT  USER_LIMIT
+#endif
 #define PROCESS_VIRTUAL_HEAP_LENGTH (PROCESS_VIRTUAL_HEAP_LIMIT - PROCESS_VIRTUAL_HEAP_START)
 
 #define PROCESS_STACK_SIZE          (2 * MB)
@@ -334,26 +363,6 @@ sysreturn ioctl_generic(fdesc f, unsigned long request, vlist ap);
 
 void epoll_finish(epoll e);
 
-#define VMAP_FLAG_PROT_MASK 0x000f
-#define VMAP_FLAG_EXEC     0x0001
-#define VMAP_FLAG_WRITABLE 0x0002
-#define VMAP_FLAG_READABLE 0x0004
-
-#define VMAP_FLAG_MMAP     0x0010
-#define VMAP_FLAG_SHARED   0x0020 /* vs private; same semantics as unix */
-#define VMAP_FLAG_PREALLOC 0x0040
-
-#define VMAP_MMAP_TYPE_MASK       0x0f00
-#define VMAP_MMAP_TYPE_ANONYMOUS  0x0100
-#define VMAP_MMAP_TYPE_FILEBACKED 0x0200
-#define VMAP_MMAP_TYPE_IORING     0x0400
-
-#define ACCESS_PERM_READ    VMAP_FLAG_READABLE
-#define ACCESS_PERM_WRITE   VMAP_FLAG_WRITABLE
-#define ACCESS_PERM_EXEC    VMAP_FLAG_EXEC
-#define ACCESS_PERM_ALL     \
-    (ACCESS_PERM_READ | ACCESS_PERM_WRITE | ACCESS_PERM_EXEC)
-
 typedef struct vmap {
     struct rmnode node;
     u32 flags;
@@ -376,73 +385,22 @@ typedef struct varea {
 }
 typedef closure_type(vmap_handler, void, vmap);
 
-#ifdef __x86_64__
-/* XXX maybe a per-arch unix header...? */
-static inline u64 page_map_flags(u64 vmflags)
-{
-    u64 flags = PAGE_NO_FAT | PAGE_USER;
-    if ((vmflags & VMAP_FLAG_EXEC) == 0)
-        flags |= PAGE_NO_EXEC;
-    if ((vmflags & VMAP_FLAG_WRITABLE))
-        flags |= PAGE_WRITABLE;
-    return flags;
-}
-
 static inline sysreturn set_syscall_return(thread t, sysreturn val)
 {
-    thread_frame(t)[FRAME_RAX] = val;
+    thread_frame(t)[SYSCALL_FRAME_RETVAL1] = val;
     return val;
 }
 
 static inline sysreturn get_syscall_return(thread t)
 {
-    return thread_frame(t)[FRAME_RAX];
+    return thread_frame(t)[SYSCALL_FRAME_RETVAL1];
 }
 
 static inline sysreturn set_syscall_error(thread t, s32 val)
 {
-    thread_frame(t)[FRAME_RAX] = (sysreturn)-val;
+    thread_frame(t)[SYSCALL_FRAME_RETVAL1] = (sysreturn)-val;
     return (sysreturn)-val;
 }
-
-static inline sysreturn sysreturn_value(thread t)
-{
-    return (sysreturn)thread_frame(t)[FRAME_RAX];
-}
-
-#endif
-
-#ifdef __aarch64__
-static inline u64 page_map_flags(u64 vmflags)
-{
-    // XXX stub
-    return 0;
-}
-
-static inline sysreturn set_syscall_return(thread t, sysreturn val)
-{
-    // XXX
-    return val;
-}
-
-static inline sysreturn get_syscall_return(thread t)
-{
-    // XXX
-    return 0;
-}
-
-static inline sysreturn set_syscall_error(thread t, s32 val)
-{
-    // XXX
-    return (sysreturn)-val;
-}
-
-static inline sysreturn sysreturn_value(thread t)
-{
-    // XXX
-    return 0;
-}
-#endif
 
 vmap allocate_vmap(rangemap rm, range r, struct vmap q);
 boolean adjust_process_heap(process p, range new);
@@ -744,6 +702,11 @@ void deliver_signal_to_process(process p, struct siginfo *);
 void deliver_fault_signal(u32 signo, thread t, u64 vaddr, s32 si_code);
 
 void threads_to_vector(process p, vector v);
+
+/* machine-specific signal dispatch */
+void setup_ucontext(struct ucontext * uctx, struct sigaction * sa,
+                    struct siginfo * si, context f);
+void restore_ucontext(struct ucontext * uctx, context f);
 
 void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *name);
 
