@@ -20,7 +20,6 @@
 extern void init_net(kernel_heaps kh);
 extern void init_interrupts(kernel_heaps kh);
 
-static tuple root;
 static filesystem root_fs;
 
 //#define MAX_BLOCK_IO_SIZE PAGE_SIZE
@@ -146,7 +145,7 @@ closure_function(2, 3, void, attach_storage,
     rprintf("%s\n", __func__);
     heap h = heap_general(bound(kh));
     u64 offset = bound(fs_offset);
-    if (0 && offset == 0) {
+    if (offset == 0) {
         /* Read partition table from disk */
         u8 *mbr = allocate(h, SECTOR_SIZE);
         assert(mbr != INVALID_ADDRESS);
@@ -229,9 +228,10 @@ void kernel_runtime_init(kernel_heaps kh)
     init_net(kh);
 
     init_debug("probe fs, register storage drivers");
+    init_volumes(misc);
+#if 0
     root = allocate_tuple();
  
-#if 0
     init_debug("...partition get:");
     struct partition_entry *rootfs_part = partition_get(MBR_ADDRESS,
                                                         PARTITION_ROOTFS);
@@ -243,7 +243,8 @@ void kernel_runtime_init(kernel_heaps kh)
         fs_offset = rootfs_part->lba_start * SECTOR_SIZE;
     init_debug("...");
 #endif
-    storage_attach sa = closure(misc, attach_storage, kh, 0);
+    /* XXX fixed offset...need to add partition despite no boot fs */
+    storage_attach sa = closure(misc, attach_storage, kh, 0x800000);
 
     init_virtio_network(kh);
 

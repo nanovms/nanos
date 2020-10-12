@@ -49,7 +49,7 @@
 
         // yet frame return doesn't exceed rel range?
         add	x17, x17, #256
-        stp     w0, w1, [x17, #((FRAME_SPSR_ESR - 32) * 8)]
+        stp     w0, w1, [x17, #((FRAME_ESR_SPSR - 32) * 8)]
         str     x2, [x17, #((FRAME_ELR - 32) * 8)]
         .endm
 
@@ -61,10 +61,6 @@ _start:
         mrs     x0, cpacr_el1
         orr     x0, x0, #0x300000
         msr     cpacr_el1, x0
-
-        // set vector table base
-//        ldr     x1, =exception_vectors
-//        msr     vbar_el1, x1
 
         // temporary stack
         mov     x0, #0x41000000
@@ -107,16 +103,23 @@ entry_invalid_el1:
 // universal frame return
 .globl frame_return
 frame_return:
+        msr	daifset, #2	// disable irqs (necessary?)
         str     x0, [x18]       // set running_frame
         // XXX clear FRAME_FULL
 
-        msr     daifset, #2     // disable irqs
-
-        ldp     x2, x3, [x0, #(FRAME_SPSR_ESR * 8)]
+        ldp     x2, x3, [x0, #(FRAME_ESR_SPSR * 8)]
         mov     w2, w2          // mask off esr
         msr     spsr_el1, x2
         msr     elr_el1, x3
-        ldp     x2, x3, [x0, #(FRAME_X2 * 8)]
+        ldp     x30, x1, [x0, #(FRAME_X30 * 8)]
+        tbnz    x2, #2, 1f
+
+        /* user return: restore x18 and place stack */
+        ldr     x18, [x0, #(FRAME_X18 * 8)]
+        msr	sp_el0, x1
+        b	2f
+1:      mov	sp, x1
+2:      ldp     x2, x3, [x0, #(FRAME_X2 * 8)]
         ldp     x4, x5, [x0, #(FRAME_X4 * 8)]
         ldp     x6, x7, [x0, #(FRAME_X6 * 8)]
         ldp     x8, x9, [x0, #(FRAME_X8 * 8)]
@@ -124,16 +127,12 @@ frame_return:
         ldp     x12, x13, [x0, #(FRAME_X12 * 8)]
         ldp     x14, x15, [x0, #(FRAME_X14 * 8)]
         ldp     x16, x17, [x0, #(FRAME_X16 * 8)]
-        tbnz    x2, #4, 1f      // only restore x18 for user return
-        ldr     x18, [x0, #(FRAME_X18 * 8)]
-1:      ldr     x19, [x0, #(FRAME_X19 * 8)]
+        ldr     x19, [x0, #(FRAME_X19 * 8)]
         ldp     x20, x21, [x0, #(FRAME_X20 * 8)]
         ldp     x22, x23, [x0, #(FRAME_X22 * 8)]
         ldp     x24, x25, [x0, #(FRAME_X24 * 8)]
         ldp     x26, x27, [x0, #(FRAME_X26 * 8)]
         ldp     x28, x29, [x0, #(FRAME_X28 * 8)]
-        ldp     x30, x1, [x0, #(FRAME_X30 * 8)]
-        mov     sp, x1
         ldp     x0, x1, [x0, #(FRAME_X0 * 8)]
         eret
 

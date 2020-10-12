@@ -28,6 +28,14 @@ static char* textoreg[FRAME_N_GPREG] = {
     " x16", " x17", " x18", " x19", " x20", " x21", " x22", " x23",
     " x24", " x25", " x26", " x27", " x28", " x29", " x30", "  sp" };
 
+void install_fallback_fault_handler(fault_handler h)
+{
+    // XXX reconstruct
+    for (int i = 0; i < MAX_CPUS; i++) {
+        cpuinfo_from_id(i)->kernel_context->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
+    }
+}
+
 #if 0
 NOTRACE
 void common_handler()
@@ -46,6 +54,16 @@ void common_handler()
 }
 #endif
 
+static void print_far_if_valid(u32 iss)
+{
+    if ((iss & ESR_ISS_DATA_ABRT_FnV) == 0) {
+        register u64 far;
+        asm("mrs %0, FAR_EL1" : "=r"(far));
+        console("\n       far: ");
+        print_u64_with_sym(far);
+    }
+}
+
 void print_frame(context f)
 {
     u64 v = f[FRAME_VECTOR];
@@ -59,12 +77,13 @@ void print_frame(context f)
     console("\n     frame: ");
     print_u64_with_sym(u64_from_pointer(f));
     console("\n      spsr: ");
-    print_u64(f[FRAME_SPSR_ESR] & MASK(32));
+    print_u64(f[FRAME_ESR_SPSR] & MASK(32));
     console("\n       esr: ");
-    u32 esr = f[FRAME_SPSR_ESR] >> 32;
+    u32 esr = f[FRAME_ESR_SPSR] >> 32;
     print_u64(esr);
 
     int esr_ec = field_from_u64(esr, ESR_EC);
+    u32 iss = field_from_u64(esr, ESR_ISS);
     switch (esr_ec) {
     case ESR_EC_UNKNOWN:
         console(" unknown");
@@ -76,6 +95,7 @@ void print_frame(context f)
     case ESR_EC_INST_ABRT:
         console(" instruction abort in ");
         console(esr_ec == ESR_EC_INST_ABRT_LEL ? "el0" : "el1");
+        print_far_if_valid(iss);
         /* ... */
         break;
     case ESR_EC_PC_ALIGN_FAULT:
@@ -85,18 +105,10 @@ void print_frame(context f)
     case ESR_EC_DATA_ABRT:
         console(" data abort in ");
         console(esr_ec == ESR_EC_DATA_ABRT_LEL ? "el0" : "el1");
-
-        u32 iss = field_from_u64(esr, ESR_ISS);
         console(iss & ESR_ISS_DATA_ABRT_WnR ? " write" : " read");
         if (iss & ESR_ISS_DATA_ABRT_CM)
             console(" cache");
-
-        if ((iss & ESR_ISS_DATA_ABRT_FnV) == 0) {
-            register u64 far;
-            asm("mrs %0, FAR_EL1" : "=r"(far));
-            console("\n       far: ");
-            print_u64_with_sym(far);
-        }
+        print_far_if_valid(iss);
         break;
     case ESR_EC_SP_ALIGN_FAULT:
         console(" sp alignment");
@@ -105,7 +117,7 @@ void print_frame(context f)
         console(" serror interrupt");
         break;
     }
-    
+
     console("\n       elr: ");
     print_u64_with_sym(f[FRAME_ELR]);
     console("\n\n");
@@ -134,6 +146,8 @@ void print_stack(context c)
     console("\n");
 }
 
+extern void (*syscall)(context f);
+
 NOTRACE
 void synchronous_handler(void)
 {
@@ -141,6 +155,15 @@ void synchronous_handler(void)
     cpuinfo ci = current_cpu();
     context f = ci->running_frame;
 
+    u32 esr = f[FRAME_ESR_SPSR] >> 32;
+
+    if (field_from_u64(esr, ESR_EC) == ESR_EC_SVC_AARCH64 && (esr & ESR_IL) &&
+        field_from_u64(esr, ESR_ISS_IMM16) == 0) {
+        f[FRAME_VECTOR] = f[FRAME_X8];
+        syscall(f);
+    }
+
+    rprintf("error: return from syscall()\n");
     print_frame(f);
     print_stack(f);
     while(1);
@@ -158,7 +181,7 @@ void irq_handler(void)
 
     int_debug("[%2d] # %d (%s), state %s, frame %p, elr 0x%lx, spsr_esr 0x%lx\n",
               ci->id, i, interrupt_names[i], state_strings[ci->state],
-              f, f[FRAME_ELR], f[FRAME_SPSR_ESR]);
+              f, f[FRAME_ELR], f[FRAME_ESR_SPSR]);
 
     if (handlers[i]) {
         int_debug("   invoking handler %F\n", handlers[i]);

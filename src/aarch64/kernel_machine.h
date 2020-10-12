@@ -42,8 +42,9 @@
 #define ESR_EC_BITS   6
 #define ESR_EC_SHIFT  26
 
-#define ESR_EC_UNKNOWN 0x00
-#define ESR_EC_ILL_EXEC 0x0e
+#define ESR_EC_UNKNOWN        0x00
+#define ESR_EC_ILL_EXEC       0x0e
+#define ESR_EC_SVC_AARCH64    0x15
 #define ESR_EC_INST_ABRT_LEL  0x20
 #define ESR_EC_INST_ABRT      0x21
 #define ESR_EC_PC_ALIGN_FAULT 0x22
@@ -55,6 +56,9 @@
 #define ESR_IL        U64_FROM_BIT(25)
 #define ESR_ISS_BITS  25
 #define ESR_ISS_SHIFT 0
+
+#define ESR_ISS_IMM16_BITS  16
+#define ESR_ISS_IMM16_SHIFT 0
 
 #define ESR_ISS_INST_ABRT_SET_BITS   2
 #define ESR_ISS_INST_ABRT_SET_SHIFT  11
@@ -78,6 +82,8 @@
 #define ESR_ISS_DATA_ABRT_WnR        U64_FROM_BIT(6) /* write not read */
 #define ESR_ISS_DATA_ABRT_DFSC_BITS  6 /* data fault status code */
 #define ESR_ISS_DATA_ABRT_DFSC_SHIFT 0
+
+#define SPSR_I U64_FROM_BIT(7)
 
 #define switch_stack(s, target) ({ \
             register u64 __s = u64_from_pointer(s);                     \
@@ -189,6 +195,8 @@ static inline cpuinfo current_cpu(void)
     return (cpuinfo)pointer_from_u64(r);
 }
 
+#define init_syscall_handler()   /* stub */
+
 static inline u64 total_frame_size(void)
 {
     // TODO extended save
@@ -202,3 +210,66 @@ static inline void wait_for_interrupt(void)
     enable_interrupts();
 }
 
+static inline boolean is_pte_error(context f)
+{
+    // arm equivalent?
+    return false;
+}
+
+static inline u64 frame_return_address(context f)
+{
+    return f[FRAME_X30];
+}
+
+static inline void frame_set_sp(context f, u64 sp)
+{
+    f[FRAME_SP] = sp;
+    rprintf("%s: loc %p, sp 0x%lx\n", __func__, &f[FRAME_SP], sp);
+}
+
+static inline u64 fault_address(context f)
+{
+    // store in frame?
+    register u64 far;
+    asm("mrs %0, FAR_EL1" : "=r"(far));
+    return far;
+}
+
+/* for vdso */
+#define do_syscall(sysnr, arg0, arg1) ({                                \
+            sysreturn rv;                                               \
+            register u64 _v asm ("x8") = sysnr;                         \
+            register u64 _x0 asm ("x0") = (u64)arg0;                    \
+            register u64 _x1 asm ("x1") = (u64)arg1;                    \
+            asm ("svc 0" : "=r" (_x0) : "r" (_v),                       \
+                "r" (_x0), "r" (_x1) : "memory");                       \
+            rv = _x0;                                                   \
+            rv;                                                         \
+        })
+
+// XXX make generic
+static inline u64 xsave_frame_size(void)
+{
+    return 512;
+}
+
+// XXX
+static inline boolean is_protection_fault(context f)
+{
+    return false;
+}
+
+static inline boolean is_usermode_fault(context f)
+{
+    return false;
+}
+
+static inline boolean is_write_fault(context f)
+{
+    return false;
+}
+
+static inline boolean is_instruction_fault(context f)
+{
+    return false;
+}

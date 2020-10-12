@@ -23,14 +23,14 @@ static inline boolean pt_entry_is_present(u64 entry)
     return (entry & PAGE_PRESENT) != 0;
 }
 
-static inline boolean pt_entry_is_fat(int level, u64 entry)
+static inline boolean pt_entry_is_2M(int level, u64 entry)
 {
     return level == 3 && (entry & PAGE_2M_SIZE) != 0;
 }
 
 static inline boolean pt_entry_is_pte(int level, u64 entry)
 {
-    return level == 4 || pt_entry_is_fat(level, entry);
+    return level == 4 || pt_entry_is_2M(level, entry);
 }
 
 static inline boolean pt_entry_is_dirty(u64 entry)
@@ -42,6 +42,11 @@ static inline u64 page_from_pte(u64 pte)
 {
     /* page directory pointer base address [51:12] */
     return pte & (MASK(52) & ~PAGEMASK);
+}
+
+static inline void pt_pte_clean(u64 *pte)
+{
+    *pte = pte & ~PAGE_DIRTY;
 }
 
 #ifndef physical_from_virtual
@@ -76,7 +81,7 @@ void page_invalidate_flush();
 void flush_tlb();
 void init_flush(heap);
 void *bootstrap_page_tables(heap initial);
-#ifdef STAGE3
+#ifdef KERNEL
 void map_setup_2mbpages(u64 v, physical p, int pages, u64 flags,
                         u64 *pdpt, u64 *pdt);
 void init_page_tables(heap h, id_heap physical, range initial_map);
