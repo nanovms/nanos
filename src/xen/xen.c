@@ -115,7 +115,7 @@ closure_function(0, 0, void, xen_interrupt)
                 } else {
                     /* XXX we have an issue with seemingly spurious interrupts at evtchn >= 2048... */
                     xenint_debug("  evtchn %d: spurious interrupt", i2);
-                    si->evtchn_mask[bit1] |= 1ULL<<bit2;
+                    si->evtchn_mask[bit1] |= U64_FROM_BIT(bit2);
                 }
             }
         }
