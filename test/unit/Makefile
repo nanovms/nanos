@@ -17,27 +17,6 @@ PROGRAMS= \
 	vector_test
 SKIP_TEST=	network_test udp_test
 
-RUNTIME = \
-	$(SRCDIR)/runtime/bitmap.c \
-	$(SRCDIR)/runtime/buffer.c \
-	$(SRCDIR)/runtime/extra_prints.c \
-	$(SRCDIR)/runtime/format.c \
-	$(SRCDIR)/runtime/heap/id.c \
-	$(SRCDIR)/runtime/memops.c \
-	$(SRCDIR)/runtime/merge.c \
-	$(SRCDIR)/runtime/pqueue.c \
-	$(SRCDIR)/runtime/random.c \
-	$(SRCDIR)/runtime/range.c \
-	$(SRCDIR)/runtime/rbtree.c \
-	$(SRCDIR)/runtime/runtime_init.c \
-	$(SRCDIR)/runtime/sg.c \
-	$(SRCDIR)/runtime/symbol.c \
-	$(SRCDIR)/runtime/table.c \
-	$(SRCDIR)/runtime/timer.c \
-	$(SRCDIR)/runtime/tuple.c \
-	$(SRCDIR)/runtime/string.c \
-	$(SRCDIR)/runtime/crypto/chacha.c 
-
 SRCS-buffer_test= \
 	$(CURDIR)/buffer_test.c \
 	$(RUNTIME)\
