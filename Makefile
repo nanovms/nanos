@@ -32,16 +32,16 @@ MKFS=		$(TOOLDIR)/mkfs
 BOOTIMG=	$(PLATFORMOBJDIR)/boot/boot.img
 KERNEL=		$(PLATFORMOBJDIR)/bin/kernel.img
 
-all: image tools
+all: image
 
 .PHONY: image release target tools distclean
 
 include rules.mk
 
-image: $(LWIPDIR)/.vendored mkfs
+image: $(LWIPDIR)/.vendored tools
 	$(Q) $(MAKE) -C $(PLATFORMDIR) image TARGET=$(TARGET)
 
-release: mkfs
+release: $(LWIPDIR)/.vendored mkfs
 	$(Q) $(MAKE) -C $(PLATFORMDIR) boot
 	$(Q) $(MAKE) -C $(PLATFORMDIR) kernel
 	$(Q) $(RM) -r release
@@ -71,7 +71,7 @@ contgen mkfs:
 test-all: contgen
 	$(Q) $(MAKE) -C test
 
-test test-noaccel: mkfs image
+test test-noaccel: image
 	$(Q) $(MAKE) -C test test
 	$(Q) $(MAKE) runtime-tests$(subst test,,$@)
 
@@ -79,7 +79,7 @@ RUNTIME_TESTS=	aio creat dup epoll eventfd fadvise fallocate fcntl fst getdents 
 
 .PHONY: runtime-tests runtime-tests-noaccel
 
-runtime-tests runtime-tests-noaccel: mkfs image
+runtime-tests runtime-tests-noaccel: image
 	$(foreach t,$(RUNTIME_TESTS),$(call execute_command,$(Q) $(MAKE) run$(subst runtime-tests,,$@) TARGET=$t))
 
 run: contgen image
