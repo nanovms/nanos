@@ -292,8 +292,7 @@ vtpci attach_vtpci(heap h, heap page_allocator, pci_dev d, u64 feature_mask)
     if (is_modern)
         feature_mask |= VIRTIO_F_VERSION_1;
 
-    dev->_dev = *d;
-    dev->dev = &dev->_dev;
+    dev->dev = d;
     if (feature_mask & VIRTIO_F_VERSION_1) {
         vtpci_modern_alloc_resources(dev);
     } else {

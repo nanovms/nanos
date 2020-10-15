@@ -348,8 +348,7 @@ static void vmxnet3_net_attach(heap general, heap page_allocator, pci_dev d)
     struct vmxnet3_pci *dev = allocate(general, sizeof(struct vmxnet3_pci));
     assert(dev != INVALID_ADDRESS);
 
-    dev->_dev = *d;
-    dev->dev = &dev->_dev;
+    dev->dev = d;
 
     pci_bar_init(dev->dev, &dev->bar0, 0, 0, -1);
     pci_bar_init(dev->dev, &dev->bar1, 1, 0, -1);
