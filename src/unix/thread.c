@@ -151,9 +151,8 @@ static inline void run_thread_frame(thread t)
     check_stop_conditions(t);
     kern_lock(); // xx - make thread entry a separate exclusion region for performance
     thread old = current;
-    set_current_thread((nanos_thread)t);
-    ftrace_thread_switch(old, current);    /* ftrace needs to know about the switch event */
     thread_enter_user(t);
+    ftrace_thread_switch(old, t);    /* ftrace needs to know about the switch event */
 
     /* cover wake-before-sleep situations (e.g. sched yield, fs ops that don't go to disk, etc.) */
     t->blocked_on = 0;

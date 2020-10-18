@@ -160,11 +160,6 @@ static inline word fetch_and_add(word *target, word num)
     return __sync_fetch_and_add(target, num);
 }
 
-static inline u64 fetch_and_add_64(u64 *target, u64 num)
-{
-    return __sync_fetch_and_add(target, num);
-}
-
 static inline void kern_pause(void)
 {
   // XXX
