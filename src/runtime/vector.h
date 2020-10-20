@@ -2,22 +2,19 @@ typedef buffer vector;
 
 static inline void *vector_get(vector v, int offset)
 {
-    void *res;
     bytes base = v->start + offset * sizeof(void *);
     if ((offset < 0) || ((base + sizeof(void *)) > v->end))
         // should be INVALID_VIRTUAL (? )
         return 0;
-    
-    runtime_memcpy(&res, v->contents + base, sizeof(void *));
-    return res;
+
+    return ((void **)(v->contents + v->start))[offset];
 }
 
 static inline boolean vector_set(vector v, int offset, void *value)
 {
-    bytes base = v->start + offset * sizeof(void *);
     if (!extend_total(v, (offset + 1) * sizeof(void *)))
         return false;
-    runtime_memcpy(v->contents + base, &value, sizeof(void *));
+    ((void **)(v->contents + v->start))[offset] = value;
     return true;
 }
 
@@ -62,7 +59,7 @@ static inline void deallocate_vector(vector v)
 static inline void vector_push(vector v, void *i)
 {
     buffer_extend(v, sizeof(void *));
-    runtime_memcpy(v->contents + v->end, &i, sizeof(void *));
+    *((void **)(v->contents + v->end)) = i;
     v->end += sizeof(void *);
 }
 
@@ -77,11 +74,9 @@ static inline void *vector_pop(vector v)
 {
     if ((v->end - v->start) < sizeof(void *))
         return 0;
-    
-    void *res;
+
     v->end -= sizeof(void *);
-    runtime_memcpy(&res, v->contents + v->end, sizeof(void *));
-    return res;
+    return *((void **)(v->contents + v->end));
 }
 
 static inline vector split(heap h, buffer source, char divider)
