@@ -210,14 +210,15 @@ static void test_cputime(void)
         thread_delta = delta_nsec(&thread_ts, &tmp_ts);
         if (thread_delta < 0)
             fail_error("%s: thread_delta %lld\n", __func__, thread_delta);
+        thread_ts = tmp_ts;
         if (clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &tmp_ts) < 0)
             fail_perror("clock_gettime(CLOCK_PROCESS_CPUTIME_ID)");
         proc_delta = delta_nsec(&proc_ts, &tmp_ts);
         if (proc_delta < 0)
             fail_error("%s: proc_delta %lld\n", __func__, proc_delta);
-        if (proc_delta < thread_delta)
-            fail_error("%s: proc_delta %lld: thread_delta %lld\n", __func__,
-                       proc_delta, thread_delta);
+        proc_ts = tmp_ts;
+        if (delta_nsec(&thread_ts, &proc_ts) < 0)
+            fail_error("%s: process CPU time < thread CPU time\n", __func__);
     } while ((thread_delta == 0) || (proc_delta == 0));
 }
 

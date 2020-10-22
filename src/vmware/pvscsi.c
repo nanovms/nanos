@@ -37,7 +37,6 @@ struct pvscsi_hcb {
 };
 
 typedef struct pvscsi {
-    struct pci_dev _dev;
     pci_dev dev;
 
     struct pci_bar bar;
@@ -454,8 +453,7 @@ closure_function(1, 0, void, pvscsi_rx_service_bh, pvscsi, dev)
 static void pvscsi_attach(heap general, storage_attach a, heap page_allocator, pci_dev d)
 {
     struct pvscsi *dev = allocate(general, sizeof(struct pvscsi));
-    dev->_dev = *d;
-    dev->dev = &dev->_dev;
+    dev->dev = d;
 
     dev->general = general;
     dev->contiguous = page_allocator;
