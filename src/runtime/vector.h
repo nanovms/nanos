@@ -2,12 +2,11 @@ typedef buffer vector;
 
 static inline void *vector_get(vector v, int offset)
 {
-    bytes base = v->start + offset * sizeof(void *);
-    if ((offset < 0) || ((base + sizeof(void *)) > v->end))
-        // should be INVALID_VIRTUAL (? )
+    bytes boffset = offset * sizeof(void *);
+    if (offset < 0 || boffset + sizeof(void *) > buffer_length(v))
         return 0;
 
-    return ((void **)(v->contents + v->start))[offset];
+    return *(void **)buffer_ref(v, boffset);
 }
 
 static inline boolean vector_set(vector v, int offset, void *value)
