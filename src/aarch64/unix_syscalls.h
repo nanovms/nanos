@@ -77,7 +77,7 @@
 #define SYS_splice                       76
 #define SYS_tee                          77
 #define SYS_readlinkat                   78
-#define SYS_fstatat                      79
+#define SYS_newfstatat                   79
 #define SYS_fstat                        80
 #define SYS_sync                         81
 #define SYS_fsync                        82

@@ -71,6 +71,8 @@ void *load_elf(buffer elf, u64 load_offset, elf_map_handler mapper)
     foreach_phdr(e, p) {
         ELF_CHECK_PTR(p, Elf64_Phdr);
         if (p->p_type == PT_LOAD) {
+            rprintf("PT_LOAD vaddr 0x%lx, offset 0x%lx, ssize 0x%lx\n",
+                    p->p_vaddr, p->p_offset, p->p_filesz);
             // unaligned segment? doesn't seem useful
             u64 aligned = p->p_vaddr & (~MASK(PAGELOG));
             u64 trim_offset = p->p_vaddr & MASK(PAGELOG);
@@ -88,6 +90,7 @@ void *load_elf(buffer elf, u64 load_offset, elf_map_handler mapper)
 
             // always zero up to the next aligned page start
             s64 bss_size = p->p_memsz - p->p_filesz;
+            rprintf("bss_size 0x%lx\n", bss_size);
 
             if (bss_size < 0)
                 halt("load_elf with p->p_memsz (%ld) < p->p_filesz (%ld)\n",
@@ -96,14 +99,18 @@ void *load_elf(buffer elf, u64 load_offset, elf_map_handler mapper)
                 continue;
 
             u64 bss_start = p->p_vaddr + load_offset + p->p_filesz;
-            u64 initial_len = MIN(bss_size, pad(bss_start, PAGESIZE) - bss_start);
+
+            /* Zero bss up to a page boundary. ld-linux may use the unused
+               part of the page after bss and expects it to be zeroed. */
+            u64 initial_len_padded = pad(bss_start, PAGESIZE) - bss_start;
+            rprintf("bss_start 0x%lx, initial_len 0x%lx\n", bss_start, initial_len_padded);
 
             /* vpzero does the right thing whether stage2 or 3... */
-            vpzero(pointer_from_u64(bss_start), phy + p->p_filesz, initial_len);
+            vpzero(pointer_from_u64(bss_start), phy + p->p_filesz, initial_len_padded);
 
-            if (bss_size > initial_len) {
-                u64 pstart = bss_start + initial_len;
-                u64 psize = pad((bss_size - initial_len), PAGESIZE);
+            if (bss_size > initial_len_padded) {
+                u64 pstart = bss_start + initial_len_padded;
+                u64 psize = pad((bss_size - initial_len_padded), PAGESIZE);
                 apply(mapper, pstart, INVALID_PHYSICAL, psize, flags);
             }
         }

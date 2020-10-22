@@ -9,11 +9,8 @@
         mrs     x18, tpidr_el1
         .endif
 
-//        str	x17, [sp, #-8]
+        str	x17, [sp, #-8]
         mrs     x18, tpidr_el1  // XXX temp
-        nop
-        nop
-        nop
         ldr     x17, [x18]      // running_frame
         stp     x0, x1, [x17, #(FRAME_X0 * 8)]
         stp     x2, x3, [x17, #(FRAME_X2 * 8)]
@@ -41,7 +38,9 @@
         .else
         mov     x1, sp
         .endif
+        mov	x0, #\el
         stp     x30, x1, [x17, #(FRAME_X30 * 8)]
+        str	x0, [x17, #(FRAME_EL * 8)]
 
         mrs     x0, spsr_el1
         mrs     x1, esr_el1
@@ -105,7 +104,8 @@ entry_invalid_el1:
 frame_return:
         msr	daifset, #2	// disable irqs (necessary?)
         str     x0, [x18]       // set running_frame
-        // XXX clear FRAME_FULL
+        mov	x1, #0x0        // clear frame full condition
+        str	x1, [x0, #(FRAME_FULL * 8)]
 
         ldp     x2, x3, [x0, #(FRAME_ESR_SPSR * 8)]
         mov     w2, w2          // mask off esr

@@ -2,7 +2,7 @@
 #include <ftrace.h>
 #include <gdb.h>
 
-//#define PF_DEBUG
+#define PF_DEBUG
 #ifdef PF_DEBUG
 #define pf_debug(x, ...) do {log_printf("FAULT", "[%2d] tid %2d " x "\n", current_cpu()->id, \
                                         current->tid, ##__VA_ARGS__);} while(0)
@@ -134,8 +134,10 @@ define_closure_function(1, 1, context, default_fault_handler,
        resuming deferred processing. */
     process p = current->p;
 
+    // XXX entry should store in frame
     u64 vaddr = fault_address(frame);
-    if (frame[FRAME_VECTOR] == 0) {
+
+    if (is_div_by_zero(frame)) {
         if (current_cpu()->state == cpu_user) {
             deliver_fault_signal(SIGFPE, current, vaddr, FPE_INTDIV);
             schedule_frame(frame);
@@ -144,7 +146,7 @@ define_closure_function(1, 1, context, default_fault_handler,
             rprintf("\nDivide by zero occurs in kernel mode\n");
             goto bug;
         }
-    } else if (frame[FRAME_VECTOR] == 14) {
+    } else if (is_page_fault(frame)) {
         vmap vm = vmap_from_vaddr(p, vaddr);
         if (vm == INVALID_ADDRESS) {
             if (user) {
