@@ -50,7 +50,7 @@ https://developer.arm.com/cache-speculation-vulnerability-firmware-specification
 #define FRAME_FAULT_HANDLER 35
 #define FRAME_STACK_TOP     36
 #define FRAME_RUN           37  /*dont like this construction */
-#define FRAME_IS_SYSCALL    38
+#define FRAME_EL            38
 #define FRAME_QUEUE         39
 #define FRAME_FULL          40
 #define FRAME_THREAD        41

@@ -65,7 +65,6 @@
 #define ESR_ISS_INST_ABRT_SET_UER    0 /* recoverable */
 #define ESR_ISS_INST_ABRT_SET_UC     2 /* uncontainable */
 #define ESR_ISS_INST_ABRT_SET_UEO_CE 0 /* restartable / corrected */
-/* XXX ... */
 
 #define ESR_ISS_DATA_ABRT_ISV       U64_FROM_BIT(24) /* [23:14] valid */
 #define ESR_ISS_DATA_ABRT_SAS_BITS  2 /* access size */
@@ -75,13 +74,41 @@
 #define ESR_ISS_DATA_ABRT_SRT_SHIFT 16
 #define ESR_ISS_DATA_ABRT_SF        U64_FROM_BIT(15) /* 64-bit register */
 
-/* ... */
 
 #define ESR_ISS_DATA_ABRT_FnV        U64_FROM_BIT(10) /* FAR not valid */
 #define ESR_ISS_DATA_ABRT_CM         U64_FROM_BIT(8) /* cache maintenance */
 #define ESR_ISS_DATA_ABRT_WnR        U64_FROM_BIT(6) /* write not read */
-#define ESR_ISS_DATA_ABRT_DFSC_BITS  6 /* data fault status code */
-#define ESR_ISS_DATA_ABRT_DFSC_SHIFT 0
+
+/* fault status code - most of these line up for both instruction and
+   data faults... */
+#define ESR_ISS_ID_ABRT_FSC_BITS  6
+#define ESR_ISS_ID_ABRT_FSC_SHIFT 0
+
+#define ESR_ISS_ID_ABRT_FSC_ADDRSIZE_L0        0x00
+#define ESR_ISS_ID_ABRT_FSC_ADDRSIZE_L1        0x01
+#define ESR_ISS_ID_ABRT_FSC_ADDRSIZE_L2        0x02
+#define ESR_ISS_ID_ABRT_FSC_ADDRSIZE_L3        0x03
+#define ESR_ISS_ID_ABRT_FSC_TRANSLATION_L0     0x04
+#define ESR_ISS_ID_ABRT_FSC_TRANSLATION_L1     0x05
+#define ESR_ISS_ID_ABRT_FSC_TRANSLATION_L2     0x06
+#define ESR_ISS_ID_ABRT_FSC_TRANSLATION_L3     0x07
+#define ESR_ISS_ID_ABRT_FSC_ACCESS_FLAG_L1     0x09
+#define ESR_ISS_ID_ABRT_FSC_ACCESS_FLAG_L2     0x0a
+#define ESR_ISS_ID_ABRT_FSC_ACCESS_FLAG_L3     0x0b
+#define ESR_ISS_ID_ABRT_FSC_PERMISSION_L1      0x0d
+#define ESR_ISS_ID_ABRT_FSC_PERMISSION_L2      0x0e
+#define ESR_ISS_ID_ABRT_FSC_PERMISSION_L3      0x0f
+#define ESR_ISS_ID_ABRT_FSC_SYNC_EXT_ABRT_NT   0x10
+#define ESR_ISS_ID_ABRT_FSC_SYNC_EXT_ABRT_L0   0x14
+#define ESR_ISS_ID_ABRT_FSC_SYNC_EXT_ABRT_L1   0x15
+#define ESR_ISS_ID_ABRT_FSC_SYNC_EXT_ABRT_L2   0x16
+#define ESR_ISS_ID_ABRT_FSC_SYNC_EXT_ABRT_L3   0x17
+#define ESR_ISS_ID_ABRT_FSC_SYNC_PARITY_ECC_NT 0x18
+#define ESR_ISS_ID_ABRT_FSC_SYNC_PARITY_ECC_L0 0x1c
+#define ESR_ISS_ID_ABRT_FSC_SYNC_PARITY_ECC_L1 0x1d
+#define ESR_ISS_ID_ABRT_FSC_SYNC_PARITY_ECC_L2 0x1e
+#define ESR_ISS_ID_ABRT_FSC_SYNC_PARITY_ECC_L3 0x1f
+#define ESR_ISS_ID_ABRT_FSC_TLB_CONFLICT_ABORT 0x30
 
 #define SPSR_I U64_FROM_BIT(7)
 
@@ -254,22 +281,61 @@ static inline u64 xsave_frame_size(void)
 }
 
 // XXX
+#define esr_from_frame(frame) (frame[FRAME_ESR_SPSR] >> 32)
+
+/* Maybe shift decoding to entry and encode in frame as flags? */
+static inline u8 fsc_from_frame(context f)
+{
+    u64 esr = esr_from_frame(f);
+    u32 ec = field_from_u64(esr, ESR_EC);
+    if (ec != ESR_EC_DATA_ABRT && ec != ESR_EC_DATA_ABRT_LEL &&
+        ec != ESR_EC_INST_ABRT && ec != ESR_EC_INST_ABRT_LEL)
+        return 0xff;
+    return field_from_u64(field_from_u64(esr, ESR_ISS), ESR_ISS_ID_ABRT_FSC);
+}
+
 static inline boolean is_protection_fault(context f)
 {
-    return false;
+    u8 fsc = fsc_from_frame(f);
+    return (fsc != 0xff && fsc >= ESR_ISS_ID_ABRT_FSC_PERMISSION_L1 &&
+            fsc <= ESR_ISS_ID_ABRT_FSC_PERMISSION_L3);
+}
+
+static inline boolean is_page_fault(context f)
+{
+    u8 fsc = fsc_from_frame(f);
+    return (fsc != 0xff && fsc >= ESR_ISS_ID_ABRT_FSC_TRANSLATION_L0 &&
+            fsc <= ESR_ISS_ID_ABRT_FSC_TRANSLATION_L3);
 }
 
 static inline boolean is_usermode_fault(context f)
 {
-    return false;
-}
-
-static inline boolean is_write_fault(context f)
-{
-    return false;
+    return f[FRAME_EL] == 0;
 }
 
 static inline boolean is_instruction_fault(context f)
 {
-    return false;
+    u32 ec = field_from_u64(esr_from_frame(f), ESR_EC);
+    return (ec == ESR_EC_INST_ABRT || ec == ESR_EC_INST_ABRT_LEL);
+}
+
+static inline boolean is_data_fault(context f)
+{
+    u32 ec = field_from_u64(esr_from_frame(f), ESR_EC);
+    return (ec == ESR_EC_DATA_ABRT || ec == ESR_EC_DATA_ABRT_LEL);
+}
+
+static inline boolean is_write_fault(context f)
+{
+    u64 esr = esr_from_frame(f);
+    u32 ec = field_from_u64(esr, ESR_EC);
+    u32 iss = field_from_u64(esr, ESR_ISS);
+
+    return (ec == ESR_EC_DATA_ABRT || ec == ESR_EC_DATA_ABRT_LEL) &&
+        (iss & ESR_ISS_DATA_ABRT_WnR);
+}
+
+static inline boolean is_div_by_zero(context f)
+{
+    return false; // XXX not on arm / fp only?
 }

@@ -1,6 +1,6 @@
 #include <unix_internal.h>
 
-//#define PF_DEBUG
+#define PF_DEBUG
 #ifdef PF_DEBUG
 #define pf_debug(x, ...) do {log_printf("FAULT", "[%02d] " x, current_cpu()->id, ##__VA_ARGS__);} while(0)
 #else

@@ -151,22 +151,41 @@ extern void (*syscall)(context f);
 NOTRACE
 void synchronous_handler(void)
 {
-//    early_debug("\ncaught exception:\n\n");
     cpuinfo ci = current_cpu();
     context f = ci->running_frame;
 
-    u32 esr = f[FRAME_ESR_SPSR] >> 32;
+#if 0
+    early_debug("\ncaught exception, el ");
+    early_debug_u64(f[FRAME_EL]);
+    early_debug("\n\n");
+    print_frame(f);
+    print_stack(f);
+#endif
+
+    u32 esr = esr_from_frame(f);
 
     if (field_from_u64(esr, ESR_EC) == ESR_EC_SVC_AARCH64 && (esr & ESR_IL) &&
         field_from_u64(esr, ESR_ISS_IMM16) == 0) {
         f[FRAME_VECTOR] = f[FRAME_X8];
         syscall(f);
+        halt("%s: syscall returned\n", __func__);
     }
 
-    rprintf("error: return from syscall()\n");
-    print_frame(f);
-    print_stack(f);
-    while(1);
+    /* fault handlers likely act on cpu state, so don't change it */
+    fault_handler fh = pointer_from_u64(f[FRAME_FAULT_HANDLER]);
+    if (fh) {
+        context retframe = apply(fh, f);
+        if (retframe)
+            frame_return(retframe);
+        if (is_current_kernel_context(f))
+            f[FRAME_FULL] = false;      /* no longer saving frame for anything */
+        runloop();
+    } else {
+        console("\nno fault handler for frame ");
+        print_frame(f);
+        print_stack(f);
+        while(1);
+    }
 }
 
 NOTRACE
@@ -179,8 +198,8 @@ void irq_handler(void)
     cpuinfo ci = current_cpu();
     context f = ci->running_frame;
 
-    int_debug("[%2d] # %d (%s), state %s, frame %p, elr 0x%lx, spsr_esr 0x%lx\n",
-              ci->id, i, interrupt_names[i], state_strings[ci->state],
+    int_debug("[%2d] # %d (%s), state %s, el %d, frame %p, elr 0x%lx, spsr_esr 0x%lx\n",
+              ci->id, i, interrupt_names[i], state_strings[ci->state], f[FRAME_EL],
               f, f[FRAME_ELR], f[FRAME_ESR_SPSR]);
 
     if (handlers[i]) {

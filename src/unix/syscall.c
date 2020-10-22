@@ -1425,6 +1425,19 @@ static sysreturn fstat(int fd, struct stat *s)
 }
 
 #ifdef __x86_64__
+static sysreturn stat(const char *name, struct stat *buf)
+{
+    thread_log(current, "stat: \"%s\", buf %p", name, buf);
+    return stat_internal(current->p->cwd_fs, current->p->cwd, name, true, buf);
+}
+
+static sysreturn lstat(const char *name, struct stat *buf)
+{
+    thread_log(current, "lstat: \"%s\", buf %p", name, buf);
+    return stat_internal(current->p->cwd_fs, current->p->cwd, name, false, buf);
+}
+#endif
+
 static sysreturn stat_internal(filesystem fs, tuple cwd, const char *name, boolean follow,
         struct stat *buf)
 {
@@ -1448,18 +1461,6 @@ static sysreturn stat_internal(filesystem fs, tuple cwd, const char *name, boole
     return 0;
 }
 
-static sysreturn stat(const char *name, struct stat *buf)
-{
-    thread_log(current, "stat: \"%s\", buf %p", name, buf);
-    return stat_internal(current->p->cwd_fs, current->p->cwd, name, true, buf);
-}
-
-static sysreturn lstat(const char *name, struct stat *buf)
-{
-    thread_log(current, "lstat: \"%s\", buf %p", name, buf);
-    return stat_internal(current->p->cwd_fs, current->p->cwd, name, false, buf);
-}
-
 static sysreturn newfstatat(int dfd, const char *name, struct stat *s, int flags)
 {
     if (!validate_user_string(name) ||
@@ -1475,7 +1476,6 @@ static sysreturn newfstatat(int dfd, const char *name, struct stat *s, int flags
     tuple n = resolve_dir(fs, dfd, name);
     return stat_internal(fs, n, name, !(flags & AT_SYMLINK_NOFOLLOW), s);
 }
-#endif
 
 sysreturn lseek(int fd, s64 offset, int whence)
 {
@@ -2208,7 +2208,6 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, creat, creat);
     register_syscall(map, utime, utime);
     register_syscall(map, utimes, utimes);
-    register_syscall(map, newfstatat, newfstatat);
     register_syscall(map, chown, syscall_ignore);
     register_syscall(map, symlink, symlink);
 #endif
@@ -2218,6 +2217,7 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, fallocate, fallocate);
     register_syscall(map, fadvise64, fadvise64);
     register_syscall(map, fstat, fstat);
+    register_syscall(map, newfstatat, newfstatat);
     register_syscall(map, readv, readv);
     register_syscall(map, writev, writev);
     register_syscall(map, sendfile, sendfile);

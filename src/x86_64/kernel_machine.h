@@ -250,3 +250,14 @@ typedef struct cpuinfo {
     struct ftrace_graph_entry * graph_stack;
 #endif
 } *cpuinfo;
+
+static inline boolean is_page_fault(context f)
+{
+    return f[FRAME_VECTOR] == 14; // XXX defined somewhere?
+}
+
+static inline boolean is_div_by_zero(context f)
+{
+    return f[FRAME_VECTOR] == 0; // XXX defined somewhere?
+}
+
