@@ -23,6 +23,9 @@
 /* XXX just for initial mp bringup... */
 #define MAX_CPUS 16
 
+/* length of thread scheduling queue */
+#define MAX_THREADS 8192
+
 /* could probably find progammatically via cpuid... */
 #define DEFAULT_CACHELINE_SIZE 64
 

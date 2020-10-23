@@ -8,6 +8,11 @@ typedef unsigned long long word;
 #define true 1
 #define false 0
 
+#define NNUMS 2048
+#define NTHREADS 32
+
+static int nthreads = NTHREADS;
+
 static word pipe_exit = (word)-1;
 
 typedef int boolean;
@@ -23,7 +28,7 @@ typedef struct pipelock {
 pipelock create_pipelock(int readers)
 {
     pipelock p = malloc(sizeof(struct pipelock));
-    pthread_mutex_init(&p->m, 0);    
+    pthread_mutex_init(&p->m, 0);
     pthread_cond_init(&p->c, 0);
     p->readers = readers;
     p->full = false;
@@ -79,6 +84,12 @@ void halt(char *message)
     exit(-1);
 }
 
+word expected_sum(word n, word nt) {
+    word tsum = (nt) * (0 + (nt - 1)) / 2;
+    n -= 1;
+    return n * (n + 1) * (2 * n + 1) / 6 + tsum * n;
+}
+
 void *terminus(void *k)
 {
     word x = 0, v;
@@ -86,13 +97,12 @@ void *terminus(void *k)
     while ((v = pipelock_read(p)) != pipe_exit) {
         x += v;
     }
-    // make a derivable function
-    if (x == 2862230032) {
+    if (x == expected_sum(NNUMS, nthreads)) {
         printf("passed\n");
-        exit(0);        
+        exit(0);
     }
     printf("%lld\n", x);
-    exit(-1);            
+    exit(-1);
 
 }
 
@@ -100,13 +110,15 @@ void *terminus(void *k)
 // reader and shutdown
 int main(int argc, char **argv)
 {
-    int nthreads = 32;
+    if (argc >= 2 && atoi(argv[1]) > 0)
+        nthreads = atoi(argv[1]);
+    printf("nthreads=%d\n", nthreads);
     int npipes = nthreads+1 ;
     pipelock *locks = malloc(sizeof(pipelock *)*npipes);
     pthread_t *threads = malloc(sizeof(pthread_t)*nthreads);
     pthread_t term;
 
-    for (int i = 0; i < npipes; i++) 
+    for (int i = 0; i < npipes; i++)
         locks[i] = create_pipelock(1);
     pthread_create(&term , 0, terminus, locks[npipes-1]);
     for (int i = 0; i < nthreads; i ++)  {
@@ -119,9 +131,9 @@ int main(int argc, char **argv)
         }
     }
 
-    for (int i = 1; i < 2048; i ++)
+    for (int i = 1; i < NNUMS; i ++)
         pipelock_write(locks[0], i*i);
-    
+
     pipelock_write(locks[0], pipe_exit);
     pause();
 }
