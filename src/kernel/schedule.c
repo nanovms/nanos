@@ -184,7 +184,7 @@ void init_scheduler(heap h)
     /* scheduling queues init */
     runqueue = allocate_queue(h, 64);
     bhqueue = allocate_queue(h, 2048);
-    thread_queue = allocate_queue(h, 1024);
+    thread_queue = allocate_queue(h, MAX_THREADS);
     runloop_timers = allocate_timerheap(h, "runloop");
     assert(runloop_timers != INVALID_ADDRESS);
     shutting_down = false;
