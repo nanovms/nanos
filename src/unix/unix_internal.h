@@ -409,7 +409,6 @@ typedef struct process {
     rangemap          vmaps;    /* process mappings */
     vmap              stack_map;
     vmap              heap_map;
-    timestamp         utime, stime;
     struct sigstate   signals;
     struct sigaction  sigactions[NSIG];
     id_heap           posix_timer_ids;

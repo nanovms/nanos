@@ -50,8 +50,7 @@ static inline __attribute__((always_inline)) void memory_barrier(void)
 
 static inline __attribute__((always_inline)) word fetch_and_add(word *variable, word value)
 {
-    asm volatile("lock; xadd %0, %1" : "+r" (value), "+m" (*variable) :: "memory", "cc");
-    return value;
+    return __sync_fetch_and_add(variable, value);
 }
 
 static inline __attribute__((always_inline)) void atomic_set_bit(u64 *target, u64 bit)
