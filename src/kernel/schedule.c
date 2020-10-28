@@ -98,10 +98,10 @@ static inline void update_timer(void)
     timestamp next = timer_check(runloop_timers);
     if (last_timer_update && next == last_timer_update)
         return;
-    last_timer_update = next;
     s64 delta = next - now(CLOCK_ID_MONOTONIC);
-    timestamp timeout = delta > (s64)runloop_timer_min ? MAX(delta, runloop_timer_max) : runloop_timer_min;
+    timestamp timeout = delta > (s64)runloop_timer_min ? MIN(delta, runloop_timer_max) : runloop_timer_min;
     sched_debug("set platform timer: delta %lx, timeout %lx\n", delta, timeout);
+    last_timer_update = next + timeout - delta;
     runloop_timer(timeout);
 }
 
