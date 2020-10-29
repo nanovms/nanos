@@ -97,6 +97,7 @@ static void init_cpuinfos(heap backed)
         ci->id = i;
         ci->state = cpu_not_present;
         ci->have_kernel_lock = false;
+        ci->thread_queue = allocate_queue(backed, MAX_THREADS);
         ci->frcount = 0;
         /* frame and stacks */
         ci->kernel_context = allocate_kernel_context(backed);
