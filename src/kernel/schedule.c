@@ -74,16 +74,17 @@ static void run_thunk(thunk t, int cpustate)
 }
 
 /* called with kernel lock held */
-static inline void update_timer(void)
+static inline boolean update_timer(void)
 {
     timestamp next = timer_check(runloop_timers);
     if (last_timer_update && next == last_timer_update)
-        return;
+        return false;
     s64 delta = next - now(CLOCK_ID_MONOTONIC);
     timestamp timeout = delta > (s64)runloop_timer_min ? MIN(delta, runloop_timer_max) : runloop_timer_min;
     sched_debug("set platform timer: delta %lx, timeout %lx\n", delta, timeout);
-    last_timer_update = next + timeout - delta;
+    last_timer_update = current_cpu()->last_timer_update = next + timeout - delta;
     runloop_timer(timeout);
+    return true;
 }
 
 static inline void sched_thread_pause(void)
@@ -154,6 +155,7 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
 {
     cpuinfo ci = current_cpu();
     thunk t;
+    boolean timer_updated = false;
 
     sched_thread_pause();
     disable_interrupts();
@@ -177,7 +179,7 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
 
         /* should be a list of per-runloop checks - also low-pri background */
         mm_service();
-        update_timer();
+        timer_updated = update_timer();
 
         kern_unlock();
     }
@@ -216,8 +218,18 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
             migrate_from_self(ci, idle_cpu_mask & ~MASK(ci->id + 1));
             migrate_from_self(ci, idle_cpu_mask & MASK(ci->id));
         }
-        if (t != INVALID_ADDRESS)
+        if (t != INVALID_ADDRESS) {
+            if (!timer_updated && (total_processors > 1)) {
+                timestamp here = now(CLOCK_ID_MONOTONIC);
+                s64 timeout = ci->last_timer_update - here;
+                if ((timeout < 0) || (timeout > runloop_timer_max)) {
+                    sched_debug("setting CPU scheduler timer\n");
+                    runloop_timer(runloop_timer_max);
+                    ci->last_timer_update = here + runloop_timer_max;
+                }
+            }
             run_thunk(t, cpu_user);
+        }
     }
 
     sched_thread_pause();

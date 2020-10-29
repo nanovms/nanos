@@ -44,6 +44,7 @@ typedef struct cpuinfo {
     int state;
     boolean have_kernel_lock;
     queue thread_queue;
+    timestamp last_timer_update;
     u64 frcount;
 
     /* The following fields are used rarely or only on initialization. */
