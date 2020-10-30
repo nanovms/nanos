@@ -20,8 +20,17 @@ typedef struct http_parser {
 
 static void each_header(buffer dest, symbol n, value v)
 {
-    if (n != sym(url))
-        bprintf(dest, "%v: %v\r\n", n, v);
+    if (n != sym(url)) {
+        switch(tagof(v)) {
+        case tag_tuple:
+        case tag_symbol:
+            bprintf(dest, "%v: %v\r\n", n, v);
+            break;
+        default:
+            bprintf(dest, "%v: %b\r\n", n, (buffer)v);
+            break;
+        }
+    }
 }
 
 static void http_header(buffer dest, tuple t)
