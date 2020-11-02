@@ -14,7 +14,6 @@ typedef struct virtio_blk_req {
     u32 type;
     u32 reserved;
     u64 sector;
-    u64 data; // phys? spec had u8 data[][512]
     u8 status;
 } __attribute__((packed)) *virtio_blk_req;
 
@@ -145,7 +144,7 @@ static inline void storage_rw_internal(storage st, boolean write, void * buf,
     assert(m != INVALID_ADDRESS);
     vqmsg_push(vq, m, req, VIRTIO_BLK_REQ_HEADER_SIZE, false);
     vqmsg_push(vq, m, buf, nsectors * st->block_size, !write);
-    void * statusp = ((void *)req) + VIRTIO_BLK_REQ_HEADER_SIZE;
+    void *statusp = &req->status;
     vqmsg_push(vq, m, statusp, VIRTIO_BLK_REQ_STATUS_SIZE, true);
     vqfinish c = closure(st->v->general, complete, st, sh, statusp, req);
     vqmsg_commit(vq, m, c);
