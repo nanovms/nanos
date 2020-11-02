@@ -146,6 +146,31 @@ closure_function(1, 3, void, each_test_request,
 }
 #endif
 
+/* this should move to hypothetical in-kernel test / diag area */
+closure_function(0, 2, void, klib_test_loaded,
+                 klib, kl, status, s)
+{
+    rprintf("%s: klib %s\n", __func__, kl->name);
+    if (!is_ok(s))
+        halt("   failed; status %v\n", s);
+    if (klib_sym(kl, sym(bob)) != INVALID_ADDRESS)
+        halt("%s: lookup of sym \"bob\" should have failed.\n", __func__);
+
+    int (*foo)(int x) = klib_sym(kl, sym(foo));
+    if (foo == INVALID_ADDRESS)
+        halt("%s: sym \"foo\" not found\n", __func__);
+    int r = foo(1);
+    if (r != 124)
+        halt("%s: foo call failed\n", __func__);
+    if (klib_sym(kl, sym(bar)) != 0)
+        halt("%s: sym \"bar\" should have 0 value\n", __func__);
+
+    unload_klib(kl);
+    rprintf("klib test passed\n");
+    closure_finish();
+    return;
+}
+
 closure_function(3, 0, void, startup,
                  kernel_heaps, kh, tuple, root, filesystem, fs)
 {
@@ -178,6 +203,7 @@ closure_function(3, 0, void, startup,
         rprintf("Debug http server started on port 9090\n");
     }
 #endif
+
     value p = table_find(root, sym(program));
     assert(p);
     tuple pro = resolve_path(root, split(general, p, '/'));
@@ -193,30 +219,38 @@ thunk create_init(kernel_heaps kh, tuple root, filesystem fs)
     return closure(heap_general(kh), startup, kh, root, fs);
 }
 
-closure_function(1, 1, status, kernel_read_complete,
-                 filesystem, fs,
+closure_function(2, 1, status, kernel_read_complete,
+                 filesystem, fs, boolean, destroy_fs,
                  buffer, b)
 {
     add_elf_syms(b);
     deallocate_buffer(b);
-    destroy_filesystem(bound(fs));
+    if (bound(destroy_fs))
+        destroy_filesystem(bound(fs));
     closure_finish();
     return STATUS_OK;
 }
 
-closure_function(1, 2, void, bootfs_complete,
-                 kernel_heaps, kh,
+closure_function(3, 2, void, bootfs_complete,
+                 kernel_heaps, kh, tuple, root, boolean, klibs,
                  filesystem, fs, status, s)
 {
-    tuple root = filesystem_getroot(fs);
-    tuple c = children(root);
+    tuple boot_root = filesystem_getroot(fs);
+    tuple c = children(boot_root);
     assert(c);
+    if (bound(klibs)) {
+        init_klib(bound(kh), fs, boot_root);
+        if (table_find(bound(root), sym(klib_test))) {
+            load_klib("/klib/test", closure(heap_general(bound(kh)), klib_test_loaded));
+        }
+    }
+
     table_foreach(c, k, v) {
         if (!buffer_strcmp(symbol_string(k), "kernel")) {
             kernel_heaps kh = bound(kh);
             filesystem_read_entire(fs, v, heap_backed(kh),
                                    closure(heap_general(kh),
-                                   kernel_read_complete, fs),
+                                   kernel_read_complete, fs, !bound(klibs)),
                                    ignore_status);
             break;
         }
@@ -224,7 +258,7 @@ closure_function(1, 2, void, bootfs_complete,
     closure_finish();
 }
 
-filesystem_complete bootfs_handler(kernel_heaps kh)
+filesystem_complete bootfs_handler(kernel_heaps kh, tuple root, boolean klibs)
 {
-    return closure(heap_general(kh), bootfs_complete, kh);
+    return closure(heap_general(kh), bootfs_complete, kh, root, klibs);
 }

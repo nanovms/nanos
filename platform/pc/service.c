@@ -107,7 +107,7 @@ closure_function(2, 3, void, offset_block_io,
 /* XXX some header reorg in order */
 void init_extra_prints(); 
 thunk create_init(kernel_heaps kh, tuple root, filesystem fs);
-filesystem_complete bootfs_handler(kernel_heaps kh);
+filesystem_complete bootfs_handler(kernel_heaps kh, tuple root, boolean klibs);
 
 closure_function(4, 2, void, fsstarted,
                  heap, h, u8 *, mbr, block_io, r, block_io, w,
@@ -125,20 +125,27 @@ closure_function(4, 2, void, fsstarted,
     tuple mounts = table_find(root, sym(mounts));
     if (mounts && (tagof(mounts) == tag_tuple))
         storage_set_mountpoints(mounts);
+    value klibs = table_find(root, sym(klibs));
+    boolean klibs_in_bootfs = klibs && tagof(klibs) != tag_tuple &&
+        buffer_compare_with_cstring(klibs, "bootfs");
+
     if (mbr) {
         struct partition_entry *bootfs_part;
-        if (table_find(root, sym(ingest_kernel_symbols)) &&
-                (bootfs_part = partition_get(mbr, PARTITION_BOOTFS))) {
-            init_debug("loading boot filesystem");
+        if ((table_find(root, sym(ingest_kernel_symbols)) || klibs_in_bootfs) &&
+            (bootfs_part = partition_get(mbr, PARTITION_BOOTFS))) {
             create_filesystem(h, SECTOR_SIZE,
                               bootfs_part->nsectors * SECTOR_SIZE,
                               closure(h, offset_block_io,
                               bootfs_part->lba_start * SECTOR_SIZE, bound(r)),
                               0, false,
-                              bootfs_handler(&heaps));
+                              bootfs_handler(&heaps, root, klibs_in_bootfs));
         }
         deallocate(h, mbr, SECTOR_SIZE);
     }
+
+    if (klibs && !klibs_in_bootfs)
+        init_klib(&heaps, fs, root);
+
     root_fs = fs;
     enqueue(runqueue, create_init(&heaps, root, fs));
     closure_finish();

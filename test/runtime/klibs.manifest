@@ -1,0 +1,25 @@
+(
+    boot:(
+          children:(
+                    kernel:(contents:(host:output/platform/pc/bin/kernel.img))
+                    klib:(children:(test:(contents:(host:output/klib/bin/test))))
+                    )
+          )
+    children:(
+              #user program
+	      klibs:(contents:(host:output/test/runtime/bin/klibs))
+	      etc:(children:(ld.so.cache:(contents:(host:/etc/ld.so.cache))))
+	      lib:(children:(x86_64-linux-gnu:(children:(libc.so.6:(contents:(host:/lib/x86_64-linux-gnu/libc.so.6))))))
+	      lib64:(children:(ld-linux-x86-64.so.2:(contents:(host:/lib64/ld-linux-x86-64.so.2))))
+	      )
+    # filesystem path to elf for kernel to run
+    program:/klibs
+#    trace:t
+#    debugsyscalls:t
+#    futex_trace:t    
+    fault:t
+    klibs:bootfs
+    klib_test:t
+    arguments:[klibs poppy]
+    environment:(USER:bobby PWD:/)
+)

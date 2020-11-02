@@ -7,6 +7,8 @@
 // currently maps to the linux gdb frame layout for convenience
 #include "frame.h"
 
+#include "klib.h"
+
 #define HUGE_PAGESIZE 0x100000000ull
 
 typedef u64 *context;
