@@ -8,6 +8,7 @@
 #include <storage.h>
 #include <symtab.h>
 #include <virtio/virtio.h>
+#include <x86_64/io.h>
 
 closure_function(2, 1, void, program_start,
                  buffer, elf, process, kp,
@@ -27,7 +28,9 @@ closure_function(2, 1, void, program_start,
                      &bss_ro_after_init_end - &bss_ro_after_init_start,
                      pageflags_memory());
 
+    out8(0xf4, 100);
     exec_elf(bound(elf), bound(kp));
+    out8(0xf4, 101);
     closure_finish();
 }
 
@@ -35,6 +38,7 @@ closure_function(5, 1, status, read_program_complete,
                  heap, h, tuple, root, merge, m, status_handler, start, status_handler, completion,
                  buffer, b)
 {
+    out8(0xf4, 80);
     tuple root = bound(root);
     if (get(root, sym(trace))) {
         rprintf("read program complete: %p ", root);
@@ -131,6 +135,7 @@ closure_function(6, 0, void, startup,
     tuple root = bound(root);
     filesystem fs = bound(fs);
 
+    out8(0xf4, 60);
 #ifdef CONFIG_TRACELOG
     init_tracelog_config(root);
 #endif
@@ -140,6 +145,8 @@ closure_function(6, 0, void, startup,
     if (kp == INVALID_ADDRESS) {
 	halt("unable to initialize unix instance; halt\n");
     }
+    out8(0xf4, 61);
+
     status_handler start = bound(start);
     closure_member(program_start, start, kp) = kp;
     heap general = heap_locked(kh);
@@ -167,6 +174,7 @@ closure_function(6, 0, void, startup,
     if (get(root, sym(exec_protection)))
         set(pro, sym(exec), null_value);  /* set executable flag */
     init_network_iface(root);
+    out8(0xf4, 64);
     filesystem_read_entire(fs, pro, (heap)heap_page_backed(kh), pg, closure(general, read_program_fail));
     closure_finish();
 }

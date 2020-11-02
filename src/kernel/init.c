@@ -8,6 +8,7 @@
 #include <symtab.h>
 #include <drivers/console.h>
 #include <serial.h>
+#include <x86_64/io.h>
 
 //#define INIT_DEBUG
 #ifdef INIT_DEBUG
@@ -115,6 +116,7 @@ closure_function(2, 2, void, fsstarted,
                  u8 *, mbr, storage_req_handler, req_handler,
                  filesystem, fs, status, s)
 {
+    out8(0xf4, 54);
     init_debug("%s\n", __func__);
     heap h = heap_locked(init_heaps);
     if (!is_ok(s)) {
@@ -137,13 +139,16 @@ closure_function(2, 2, void, fsstarted,
     // XXX use wrapped_root after root fs is separate
     tuple root = filesystem_getroot(root_fs);
     tuple mounts = get_tuple(root, sym(mounts));
+    out8(0xf4, 55);
     if (mounts)
         storage_set_mountpoints(mounts);
     value klibs = get_string(root, sym(klibs));
     boolean klibs_in_bootfs = klibs && buffer_compare_with_cstring(klibs, "bootfs");
 
     merge m;
+    out8(0xf4, 56);
     enqueue(runqueue, create_init(init_heaps, root, fs, &m));
+    out8(0xf4, 57);
     boolean opening_bootfs = false;
     if (mbr) {
         heap bh = (heap)heap_linear_backed(init_heaps);
@@ -152,6 +157,7 @@ closure_function(2, 2, void, fsstarted,
         struct partition_entry *bootfs_part;
         if ((ingest_kernel_syms || klibs_in_bootfs) &&
             (bootfs_part = partition_get(mbr, PARTITION_BOOTFS))) {
+            out8(0xf4, 58);
             create_filesystem(h, SECTOR_SIZE,
                               bootfs_part->nsectors * SECTOR_SIZE,
                               closure(h, offset_req_handler,
@@ -172,6 +178,7 @@ closure_function(2, 2, void, fsstarted,
     if (!get(root, booted))
         filesystem_write_eav(fs, root, booted, null_value);
     config_console(root);
+    out8(0xf4, 59);
 }
 
 /* This is very simplistic and uses a fixed drain threshold. This
@@ -250,6 +257,7 @@ static void rootfs_init(u8 *mbr, u64 offset, storage_req_handler req_handler, u6
     init_debug("%s", __func__);
     length -= offset;
     heap h = heap_locked(init_heaps);
+    out8(0xf4, 53);
     create_filesystem(h,
                       SECTOR_SIZE,
                       length,
@@ -263,6 +271,7 @@ closure_function(4, 1, void, mbr_read,
                  u8 *, mbr, storage_req_handler, req_handler, u64, length, int, attach_id,
                  status, s)
 {
+    out8(0xf4, 52);
     init_debug("%s", __func__);
     if (!is_ok(s)) {
         msg_err("unable to read partitions: %v\n", s);
@@ -292,6 +301,7 @@ closure_function(4, 1, void, mbr_read,
 closure_function(0, 3, void, attach_storage,
                  storage_req_handler, req_handler, u64, length, int, attach_id)
 {
+    out8(0xf4, 50);
     heap h = heap_locked(init_heaps);
     heap bh = (heap)heap_linear_backed(init_heaps);
     /* Read partition table from disk, use backed heap for guaranteed alignment */
@@ -312,6 +322,7 @@ closure_function(0, 3, void, attach_storage,
         .data = mbr,
         .completion = sh,
     };
+    out8(0xf4, 51);
     apply(req_handler, &req);
 }
 
@@ -330,11 +341,15 @@ void kernel_runtime_init(kernel_heaps kh)
     init_pagecache(locked, (heap)heap_linear_backed(kh), (heap)heap_physical(kh), PAGESIZE);
     unmap(0, PAGESIZE);         /* unmap zero page */
     init_extra_prints();
+    out8(0xf4, 35);
     init_pci(kh);
     init_console(kh);
+    out8(0xf4, 36);
     init_platform_devices(kh);
+    out8(0xf4, 37);
     init_symtab(kh);
     read_kernel_syms();
+    out8(0xf4, 38);
     reclaim_regions();          /* for pc: no accessing regions after this point */
     shutdown_completions = allocate_vector(locked, SHUTDOWN_COMPLETIONS_SIZE);
 
@@ -345,7 +360,9 @@ void kernel_runtime_init(kernel_heaps kh)
     init_interrupts(kh);
 
     init_debug("clock");
+    out8(0xf4, 39);
     init_clock();
+    out8(0xf4, 40);
 
     init_debug("init_scheduler");
     init_scheduler(locked);
@@ -354,6 +371,7 @@ void kernel_runtime_init(kernel_heaps kh)
     init_debug("probing for hypervisor platform");
     detect_hypervisor(kh);
 
+    out8(0xf4, 42);
     /* RNG, stack canaries */
     init_debug("RNG");
     init_random();
@@ -373,19 +391,24 @@ void kernel_runtime_init(kernel_heaps kh)
     init_tracelog(locked);
 #endif
 
+    out8(0xf4, 44);
     init_debug("probe fs, register storage drivers");
     init_volumes(locked);
 
     storage_attach sa = closure(misc, attach_storage);
 
     init_debug("detect_devices");
+    out8(0xf4, 46);
     detect_devices(kh, sa);
 
     init_debug("pci_discover (for other devices)");
+    out8(0xf4, 47);
     pci_discover();
+    out8(0xf4, 48);
     init_debug("discover done");
 
     init_debug("starting runloop");
+    out8(0xf4, 49);
     runloop();
 }
 

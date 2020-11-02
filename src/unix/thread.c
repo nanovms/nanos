@@ -1,6 +1,7 @@
 #include <unix_internal.h>
 #include <ftrace.h>
 #include <gdb.h>
+#include <x86_64/io.h>
 
 BSS_RO_AFTER_INIT thread dummy_thread;
 
@@ -164,6 +165,12 @@ static inline void check_stop_conditions(thread t)
 
 static void thread_pause(context ctx)
 {
+    static boolean initialized = false;
+
+    if (!initialized) {
+        out8(0xf4, 200);
+        initialized = true;
+    }
     if (shutting_down)
         return;
     thread t = (thread)ctx;

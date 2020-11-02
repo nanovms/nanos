@@ -399,6 +399,7 @@ extern void *READONLY_END;
 // init linker set
 void init_service(u64 rdi, u64 rsi)
 {
+    out8(0xf4, 30);
     u8 *params = pointer_from_u64(rsi);
     const char *cmdline = 0;
     u32 cmdline_size;
@@ -485,19 +486,23 @@ void init_service(u64 rdi, u64 rsi)
         bootstrapping = false;
     }
 
+    out8(0xf4, 31);
     serial_init();
     early_init_debug("init_service");
 
     find_initial_pages();
     init_mmu();
     init_page_initial_map(pointer_from_u64(PAGES_BASE), initial_pages);
+    out8(0xf4, 32);
     init_kernel_heaps();
+    out8(0xf4, 33);
     if (cmdline)
         cmdline_parse(cmdline);
     u64 stack_size = 32*PAGESIZE;
     u64 stack_location = allocate_u64((heap)heap_page_backed(get_kernel_heaps()), stack_size);
     stack_location += stack_size - STACK_ALIGNMENT;
     *(u64 *)stack_location = 0;
+    out8(0xf4, 34);
     switch_stack(stack_location, init_service_new_stack);
 }
 

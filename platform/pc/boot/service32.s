@@ -84,6 +84,8 @@ _start:
 	; load 32-bit GDT
 	lgdt [gdt32.desc]
 
+        mov al, 11
+        out 0xf4, al
 	ENTER_PROTECTED
         jmp centry
 
