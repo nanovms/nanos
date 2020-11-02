@@ -2,6 +2,8 @@
 #include <page.h>
 
 //#define PAGE_INIT_DEBUG
+//#define TRAVERSE_PTES_DEBUG
+
 #ifdef PAGE_INIT_DEBUG
 #define page_init_debug(x) early_debug(x)
 #define page_init_debug_u64(x) early_debug_u64(x)
@@ -61,14 +63,6 @@ static inline u64 *pointer_from_pteaddr(u64 pa)
     assert(v);
     return pointer_from_u64(v + offset);
 }
-
-#if 0
-static physical physical_from_virtual_locked(void *x);
-static inline u64 pteaddr_from_pointer(u64 *p)
-{
-    return physical_from_virtual_locked(p);
-}
-#endif
 
 void dump_ptes(void *vaddr)
 {
@@ -218,8 +212,6 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 p, u64 flags)
             page_init_debug_u64(pte);
             page_init_debug("\n");
             table_ptr[i] = pte;
-            // XXX INVALIDATES
-            // asm volatile("tlbi ...
         } else {
 #if 1
             /* fail if page or block already installed */
@@ -299,6 +291,27 @@ void map(u64 v, physical p, u64 length, u64 flags)
     }
 }
 
+static inline void leaf_invalidate(u64 address)
+{
+    /* no final sync here; need "dsb ish" at end of operation */
+    register u64 a = (address >> PAGELOG) & MASK(55 - PAGELOG); /* no asid */
+    asm volatile("dsb ishst;"
+                 "tlbi vale1is, %0" :: "r"(a) : "memory");
+}
+
+static inline void post_sync(void)
+{
+    asm volatile("dsb ish" ::: "memory");
+}
+
+void page_invalidate(u64 address, thunk completion)
+{
+    leaf_invalidate(address);
+    post_sync();
+    if (completion)
+        apply(completion);
+}
+
 /* called with lock held */
 closure_function(1, 3, boolean, unmap_page,
                  range_handler, rh,
@@ -311,8 +324,9 @@ closure_function(1, 3, boolean, unmap_page,
         page_debug("rh %p, level %d, vaddr 0x%lx, entry %p, *entry 0x%lx\n",
                    rh, level, vaddr, entry, *entry);
 #endif
+        /* break before make */
         *entry = 0;
-        page_invalidate(vaddr, ignore);
+        leaf_invalidate(vaddr);
         if (rh) {
             halt("fixme\n");
             apply(rh, irangel(page_from_pte(old_entry),
@@ -327,6 +341,7 @@ void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh)
 {
     assert(!((virtual & PAGEMASK) || (length & PAGEMASK)));
     traverse_ptes(virtual, length, stack_closure(unmap_page, rh));
+    post_sync();
 }
 
 void unmap(u64 virtual, u64 length)
@@ -350,53 +365,6 @@ void unmap_and_free_phys(u64 virtual, u64 length)
 extern void *START, *END;
 extern void *LOAD_OFFSET;
 
-//#define TRAVERSE_PTES_DEBUG
-
-#if 0
-#define PTE_ENTRIES U64_FROM_BIT(9)
-static boolean recurse_ptes(u64 pbase, int level, u64 vstart, u64 len, u64 laddr, entry_handler ph)
-{
-    int shift = level_shift[level];
-    u64 lsize = U64_FROM_BIT(shift);
-    u64 start_idx = vstart > laddr ? ((vstart - laddr) >> shift) : 0;
-    u64 x = vstart + len - laddr;
-    u64 end_idx = MIN(pad(x, lsize) >> shift, PTE_ENTRIES);
-    u64 offset = start_idx << shift;
-
-#ifdef TRAVERSE_PTES_DEBUG
-    rprintf("   pbase 0x%lx, level %d, shift %d, lsize 0x%lx, laddr 0x%lx,\n"
-            "      start_idx %ld, end_idx %ld, offset 0x%lx\n",
-            pbase, level, shift, lsize, laddr, start_idx, end_idx, offset);
-#endif
-
-    assert(start_idx <= PTE_ENTRIES);
-    assert(end_idx <= PTE_ENTRIES);
-
-    for (u64 i = start_idx; i < end_idx; i++, offset += lsize) {
-        u64 addr = laddr + (i << shift);
-        if (addr & U64_FROM_BIT(47))
-            addr |= 0xffff000000000000; /* make canonical */
-        u64 pteaddr = pbase + (i * sizeof(u64));
-        u64 *pte = pointer_from_pteaddr(pteaddr);
-#ifdef TRAVERSE_PTES_DEBUG
-        rprintf("   idx %d, offset 0x%lx, addr 0x%lx, pteaddr 0x%lx, *pte %p\n",
-                i, offset, addr, pteaddr, *pte);
-#endif
-        if (!apply(ph, level, addr, pte))
-            return false;
-        if (!pt_entry_is_present(*pte))
-            continue;
-        if (level == 3 && (*pte & PAGE_2M_SIZE) != 0)
-            continue;
-        if (level < 4) {
-            if (!recurse_ptes(page_from_pte(*pte), level + 1, vstart, len,
-                              laddr + offset, ph))
-                return false;
-        }
-    }
-    return true;
-}
-#endif
 
 #define PTE_ENTRIES U64_FROM_BIT(9)
 static boolean recurse_ptes(u64 *table_ptr, int level, u64 vstart, u64 len, u64 laddr, entry_handler ph)
@@ -457,13 +425,6 @@ boolean traverse_ptes(u64 vaddr, u64 length, entry_handler ph)
     return result;
 }
 
-void page_invalidate(u64 address, thunk completion)
-{
-    // XXX
-    // flush_tlb();
-    apply(completion);
-}
-
 /* Update access protection flags for any pages mapped within a given area */
 void update_map_flags(u64 vaddr, u64 length, u64 flags)
 {
@@ -501,7 +462,7 @@ closure_function(2, 3, boolean, remap_entry,
     *entry = 0;
 
     /* invalidate old mapping (map_page takes care of new)  */
-    page_invalidate(curr, ignore);
+    leaf_invalidate(curr);
     return true;
 }
 #endif
@@ -521,6 +482,7 @@ void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length)
     assert(range_empty(range_intersection(irange(vaddr_new, vaddr_new + length),
                                           irange(vaddr_old, vaddr_old + length))));
     traverse_ptes(vaddr_old, length, stack_closure(remap_entry, vaddr_new, vaddr_old));
+    post_sync();
 #endif
 }
 
