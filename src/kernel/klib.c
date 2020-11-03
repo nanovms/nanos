@@ -3,6 +3,7 @@
 #include <pagecache.h>
 #include <tfs.h>
 #include <page.h>
+#include <symtab.h>
 
 //#define KLIB_DEBUG
 #ifdef KLIB_DEBUG
@@ -14,6 +15,12 @@
 static kernel_heaps klib_kh;
 static filesystem klib_fs;
 static tuple klib_root;
+static id_heap klib_heap;
+
+static void add_sym(void *syms, const char *s, void *p)
+{
+    table_set((tuple)syms, sym_this(s), p ? p : INVALID_ADDRESS); /* allow zero value */
+}
 
 closure_function(1, 4, void, klib_elf_map,
                  klib, kl,
@@ -41,11 +48,6 @@ closure_function(1, 4, void, klib_elf_map,
         zero(pointer_from_u64(vaddr), size);
 }
 
-static void add_sym(void *syms, const char *s, void *p)
-{
-    table_set((tuple)syms, sym_this(s), p ? p : INVALID_ADDRESS); /* allow zero value */
-}
-
 closure_function(2, 1, status, load_klib_complete,
                  const char *, name, klib_handler, complete,
                  buffer, b)
@@ -55,7 +57,6 @@ closure_function(2, 1, status, load_klib_complete,
     klib kl = allocate(h, sizeof(struct klib));
     assert(kl != INVALID_ADDRESS);
 
-    /* rangemap is kind of overkill...this would be a good use for variable stride vec */
     kl->mappings = allocate_rangemap(h);
     if (kl->mappings == INVALID_ADDRESS) {
         deallocate(h, kl, sizeof(struct klib));
@@ -68,19 +69,23 @@ closure_function(2, 1, status, load_klib_complete,
     kl->elf = b;
 
     klib_debug("%s: klib %p, read length %ld\n", __func__, kl, buffer_length(b));
-    u64 where = allocate_u64((heap)heap_virtual_huge(klib_kh), HUGE_PAGESIZE);
+    u64 where = allocate_u64((heap)klib_heap, PAGESIZE);
     assert(where != INVALID_PHYSICAL);
 
     klib_debug("   loading elf file at 0x%lx\n", where);
     void *entry = load_elf(b, where, stack_closure(klib_elf_map, kl));
 
-    klib_debug("   entry @ %p, first word 0x%lx\n", entry, *(u64*)entry);
+    klib_debug("   ingesting elf symbols for debug\n");
+    add_elf_syms(b, where);
+
+    klib_debug("   init entry @ %p, first word 0x%lx\n", entry, *(u64*)entry);
     klib_init ki = (klib_init)entry;
     int rv = ki(kl->syms, add_sym);
     status s = rv == KLIB_INIT_OK ? STATUS_OK :
         timm("result", "module initialization failed with %d", rv);
-    closure_finish();
+    klib_debug("   init status %v, applying completion\n", s);
     apply(complete, kl, s);
+    closure_finish();
     return STATUS_OK;
 }
 
@@ -96,7 +101,6 @@ closure_function(1, 1, void, load_klib_failed,
 
 void load_klib(const char *name, klib_handler complete)
 {
-    // wouldn't it make more sense to just pass a buffer and status handler?
     klib_debug("%s: \"%s\", complete %p (%F)\n", __func__, name, complete, complete);
     if (!klib_root || !klib_fs) {
         apply(complete, INVALID_ADDRESS, timm("result", "klib not initialized"));
@@ -121,16 +125,30 @@ void unload_klib(klib kl)
         klib_mapping km = (klib_mapping)n;
         klib_debug("   v %R, p 0x%lx, flags 0x%lx\n", km->n.r, km->phys, km->flags);
         unmap(km->n.r.start, range_span(km->n.r));
+        rangemap_remove_node(kl->mappings, n);
         deallocate(h, km, sizeof(struct klib_mapping));
     }
     deallocate_buffer(kl->elf);
     deallocate_tuple(kl->syms);
     deallocate(h, kl, sizeof(struct klib));
+    klib_debug("   unload complete\n");
 }
 
 void init_klib(kernel_heaps kh, void *fs, tuple root)
 {
+    klib_debug("%s: kh %p, fs %p, root %p\n", __func__, fs, root);
+    assert(fs);
+    assert(root);
+    heap h = heap_general(kh);
     klib_kh = kh;
     klib_fs = (filesystem)fs;
     klib_root = root;
+
+    extern u8 END;
+    u64 klib_heap_start = pad(u64_from_pointer(&END), PAGESIZE_2M);
+    u64 klib_heap_size = KERNEL_LIMIT - klib_heap_start;
+    klib_debug("%s: creating klib heap @ 0x%lx, size 0x%lx\n", __func__,
+               klib_heap_start, klib_heap_size);
+    klib_heap = create_id_heap(h, h, klib_heap_start, klib_heap_size, PAGESIZE);
+    assert(klib_heap != INVALID_ADDRESS);
 }

@@ -250,7 +250,7 @@ static void read_kernel_syms()
 	    rprintf("kernel ELF image at 0x%lx, length %ld, mapped at 0x%lx\n",
 		    kern_base, kern_length, v);
 #endif
-	    add_elf_syms(alloca_wrap_buffer(v, kern_length));
+	    add_elf_syms(alloca_wrap_buffer(v, kern_length), 0);
             unmap(v, kern_length);
 	    break;
 	}

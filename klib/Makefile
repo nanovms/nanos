@@ -4,10 +4,11 @@ SRCS-test= \
 	$(CURDIR)/test.c
 
 CFLAGS+=	$(KERNCFLAGS) -I$(CURDIR) -fPIC
+LDFLAGS+=	-pie -nostdlib -DKLIB -T$(ARCHDIR)/klib.lds
 
-# should prob grab from platform dir
-# verify flags, borrowed from vdso build
-LDFLAGS+=	-n -pie -nostdlib -shared -DKLIB -T$(ARCHDIR)/klib.lds
+ifeq ($(ARCH),x86_64)
+CFLAGS+=	-mcmodel=kernel
+endif
 
 all: $(PROGRAMS)
 

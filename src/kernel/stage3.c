@@ -166,7 +166,7 @@ closure_function(0, 2, void, klib_test_loaded,
         halt("%s: sym \"bar\" should have 0 value\n", __func__);
 
     unload_klib(kl);
-    rprintf("klib test passed\n");
+    rprintf("   klib test passed\n");
     closure_finish();
     return;
 }
@@ -203,7 +203,6 @@ closure_function(3, 0, void, startup,
         rprintf("Debug http server started on port 9090\n");
     }
 #endif
-
     value p = table_find(root, sym(program));
     assert(p);
     tuple pro = resolve_path(root, split(general, p, '/'));
@@ -223,7 +222,7 @@ closure_function(2, 1, status, kernel_read_complete,
                  filesystem, fs, boolean, destroy_fs,
                  buffer, b)
 {
-    add_elf_syms(b);
+    add_elf_syms(b, 0);
     deallocate_buffer(b);
     if (bound(destroy_fs))
         destroy_filesystem(bound(fs));

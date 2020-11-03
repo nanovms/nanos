@@ -8,6 +8,8 @@ SECTIONS
         .text : { *(.text)}
         .rodata : { *(.rodata)}
 
-        .data ALIGN(4096) : { *(.data) }
-        .bss ALIGN(32): { *(.bss) }
+        .data ALIGN(4096) : { *(.data) *(.data.*) }
+        .bss ALIGN(32): { *(.bss) *(.bss.*) }
+
+        /DISCARD/ : { *(.interp) }
 }

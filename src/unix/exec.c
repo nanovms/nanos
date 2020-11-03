@@ -261,7 +261,7 @@ process exec_elf(buffer ex, process kp)
 
     if (table_find(proc->process_root, sym(ingest_program_symbols))) {
         exec_debug("ingesting symbols...\n");
-        add_elf_syms(ex);
+        add_elf_syms(ex, load_offset);
         exec_debug("...done\n");
     }
 
