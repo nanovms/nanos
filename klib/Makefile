@@ -3,13 +3,18 @@ PROGRAMS=	test
 SRCS-test= \
 	$(CURDIR)/test.c
 
-CFLAGS+=	$(KERNCFLAGS) -I$(CURDIR) -fPIC
-LDFLAGS+=	-pie -nostdlib -DKLIB -T$(ARCHDIR)/klib.lds
-
-ifeq ($(ARCH),x86_64)
-CFLAGS+=	-mcmodel=kernel
-endif
-
 all: $(PROGRAMS)
 
 include ../rules.mk
+
+ifeq ($(UNAME_s),Darwin)
+ELF_TARGET=     -target x86_64-elf
+CFLAGS+=        $(ELF_TARGET)
+LD=             x86_64-elf-ld
+OBJDUMP=        x86_64-elf-objdump
+else
+LD=             $(CROSS_COMPILE)ld
+endif
+
+CFLAGS+=	$(KERNCFLAGS) -I$(CURDIR) -fPIC -DKLIB
+LDFLAGS+=	-pie -nostdlib -T$(ARCHDIR)/klib.lds

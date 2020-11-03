@@ -144,7 +144,7 @@ INCLUDES=\
 
 AFLAGS+=-I$(ARCHDIR)/
 
-CFLAGS+=$(KERNCFLAGS) -DSTAGE3 -DKERNEL -mcmodel=kernel
+CFLAGS+=$(KERNCFLAGS) -DSTAGE3 -DKERNEL -fno-pic -mcmodel=kernel
 CFLAGS+=-Wno-address # lwIP build sadness
 CFLAGS+=$(INCLUDES)
 
