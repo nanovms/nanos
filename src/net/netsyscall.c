@@ -260,11 +260,11 @@ static inline void ip6addr_to_sockaddr(ip_addr_t *ip_addr,
         sizeof(addr->sin6_addr.s6_addr));
 }
 
-static sysreturn sockaddr_to_addrport(int af, struct sockaddr *addr,
+static sysreturn sockaddr_to_addrport(netsock s, struct sockaddr *addr,
                                       socklen_t addrlen,
                                       ip_addr_t *ip_addr, u16 *port)
 {
-    if (af == AF_INET) {
+    if (s->sock.domain == AF_INET) {
         if (addrlen < sizeof(struct sockaddr_in))
             return -EINVAL;
         struct sockaddr_in *sin = (struct sockaddr_in *)addr;
@@ -279,7 +279,7 @@ static sysreturn sockaddr_to_addrport(int af, struct sockaddr *addr,
            is dual-stack, so convert the address to IPv4 to encourage
            LwIP to use that transport
         */
-        if (ip6_addr_isipv4mappedipv6(ip_2_ip6(ip_addr))) {
+        if (!s->ipv6only && ip6_addr_isipv4mappedipv6(ip_2_ip6(ip_addr))) {
             unmap_ipv4_mapped_ipv6(ip_2_ip4(ip_addr), ip_2_ip6(ip_addr));
             IP_SET_TYPE_VAL(*ip_addr, IPADDR_TYPE_V4);
         }
@@ -633,7 +633,7 @@ static sysreturn socket_write_udp(netsock s, void *source, u64 length,
     ip_addr_t ipaddr;
     u16 port;
     if (dest_addr) {
-        sysreturn ret = sockaddr_to_addrport(s->sock.domain, dest_addr, addrlen,
+        sysreturn ret = sockaddr_to_addrport(s, dest_addr, addrlen,
             &ipaddr, &port);
         if (ret)
             return ret;
@@ -1108,7 +1108,7 @@ static sysreturn netsock_bind(struct sock *sock, struct sockaddr *addr,
     netsock s = (netsock) sock;
     ip_addr_t ipaddr;
     u16 port;
-    sysreturn ret = sockaddr_to_addrport(s->sock.domain, addr, addrlen, &ipaddr,
+    sysreturn ret = sockaddr_to_addrport(s, addr, addrlen, &ipaddr,
         &port);
     if (ret)
         return ret;
@@ -1264,7 +1264,7 @@ static sysreturn netsock_connect(struct sock *sock, struct sockaddr *addr,
     netsock s = (netsock) sock;
     ip_addr_t ipaddr;
     u16 port;
-    sysreturn ret = sockaddr_to_addrport(s->sock.domain, addr, addrlen, &ipaddr,
+    sysreturn ret = sockaddr_to_addrport(s, addr, addrlen, &ipaddr,
         &port);
     if (ret)
         return ret;
