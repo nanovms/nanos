@@ -275,6 +275,14 @@ static sysreturn sockaddr_to_addrport(int af, struct sockaddr *addr,
             return -EINVAL;
         struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)addr;
         sockaddr_to_ip6addr(sin6, ip_addr);
+        /* If this is an an IPv4 mapped address then this socket
+           is dual-stack, so convert the address to IPv4 to encourage
+           LwIP to use that transport
+        */
+        if (ip6_addr_isipv4mappedipv6(ip_2_ip6(ip_addr))) {
+            unmap_ipv4_mapped_ipv6(ip_2_ip4(ip_addr), ip_2_ip6(ip_addr));
+            IP_SET_TYPE_VAL(*ip_addr, IPADDR_TYPE_V4);
+        }
         *port = ntohs(sin6->port);
     }
     return 0;
