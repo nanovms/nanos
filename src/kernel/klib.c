@@ -19,7 +19,7 @@ static id_heap klib_heap;
 
 static void add_sym(void *syms, const char *s, void *p)
 {
-    table_set((tuple)syms, sym_this(s), p ? p : INVALID_ADDRESS); /* allow zero value */
+    table_set((table)syms, sym_this(s), p ? p : INVALID_ADDRESS); /* allow zero value */
 }
 
 closure_function(1, 4, void, klib_elf_map,
@@ -58,14 +58,12 @@ closure_function(2, 1, status, load_klib_complete,
     assert(kl != INVALID_ADDRESS);
 
     kl->mappings = allocate_rangemap(h);
-    if (kl->mappings == INVALID_ADDRESS) {
-        deallocate(h, kl, sizeof(struct klib));
-        return INVALID_ADDRESS;
-    }
+    assert(kl->mappings != INVALID_ADDRESS);
 
     runtime_memcpy(kl->name, bound(name), MIN(runtime_strlen(bound(name)), KLIB_MAX_NAME - 1));
     kl->name[KLIB_MAX_NAME - 1] = '\0';
-    kl->syms = allocate_tuple();
+    kl->syms = allocate_table(h, key_from_symbol, pointer_equal);
+    assert(kl->syms != INVALID_ADDRESS);
     kl->elf = b;
 
     klib_debug("%s: klib %p, read length %ld\n", __func__, kl, buffer_length(b));
@@ -74,6 +72,7 @@ closure_function(2, 1, status, load_klib_complete,
 
     klib_debug("   loading elf file at 0x%lx\n", where);
     void *entry = load_elf(b, where, stack_closure(klib_elf_map, kl));
+    assert(entry != INVALID_ADDRESS);
 
     klib_debug("   ingesting elf symbols for debug\n");
     add_elf_syms(b, where);
@@ -117,26 +116,30 @@ void load_klib(const char *name, klib_handler complete)
     }
 }
 
+closure_function(1, 1, void, destruct_mapping,
+                 klib, kl,
+                 rmnode, n)
+{
+    klib_mapping km = (klib_mapping)n;
+    klib_debug("   v %R, p 0x%lx, flags 0x%lx\n", km->n.r, km->phys, km->flags);
+    unmap(km->n.r.start, range_span(km->n.r));
+    deallocate(heap_general(klib_kh), km, sizeof(struct klib_mapping));
+}
+
 void unload_klib(klib kl)
 {
     klib_debug("%s: kl %s\n", __func__, kl->name);
     heap h = heap_general(klib_kh);
-    rangemap_foreach(kl->mappings, n) {
-        klib_mapping km = (klib_mapping)n;
-        klib_debug("   v %R, p 0x%lx, flags 0x%lx\n", km->n.r, km->phys, km->flags);
-        unmap(km->n.r.start, range_span(km->n.r));
-        rangemap_remove_node(kl->mappings, n);
-        deallocate(h, km, sizeof(struct klib_mapping));
-    }
+    deallocate_rangemap(kl->mappings, stack_closure(destruct_mapping, kl));
     deallocate_buffer(kl->elf);
-    deallocate_tuple(kl->syms);
+    deallocate_table(kl->syms);
     deallocate(h, kl, sizeof(struct klib));
     klib_debug("   unload complete\n");
 }
 
 void init_klib(kernel_heaps kh, void *fs, tuple root)
 {
-    klib_debug("%s: kh %p, fs %p, root %p\n", __func__, fs, root);
+    klib_debug("%s: fs %p, root %p\n", __func__, fs, root);
     assert(fs);
     assert(root);
     heap h = heap_general(kh);

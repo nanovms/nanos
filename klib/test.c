@@ -1,7 +1,5 @@
 #include <klib.h>
 
-#define INVALID_ADDRESS ((void*)-1ull)
-
 #define Z_LEN 1024
 
 int y = 123;

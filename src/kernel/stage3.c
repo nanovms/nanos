@@ -230,34 +230,39 @@ closure_function(2, 1, status, kernel_read_complete,
     return STATUS_OK;
 }
 
-closure_function(3, 2, void, bootfs_complete,
-                 kernel_heaps, kh, tuple, root, boolean, klibs,
+closure_function(4, 2, void, bootfs_complete,
+                 kernel_heaps, kh, tuple, root, boolean, klibs_in_bootfs, boolean, ingest_kernel_syms,
                  filesystem, fs, status, s)
 {
     tuple boot_root = filesystem_getroot(fs);
     tuple c = children(boot_root);
     assert(c);
-    if (bound(klibs)) {
+    if (bound(klibs_in_bootfs)) {
         init_klib(bound(kh), fs, boot_root);
         if (table_find(bound(root), sym(klib_test))) {
             load_klib("/klib/test", closure(heap_general(bound(kh)), klib_test_loaded));
         }
     }
 
-    table_foreach(c, k, v) {
-        if (!buffer_strcmp(symbol_string(k), "kernel")) {
-            kernel_heaps kh = bound(kh);
-            filesystem_read_entire(fs, v, heap_backed(kh),
-                                   closure(heap_general(kh),
-                                   kernel_read_complete, fs, !bound(klibs)),
-                                   ignore_status);
-            break;
+    if (bound(ingest_kernel_syms)) {
+        table_foreach(c, k, v) {
+            if (!buffer_strcmp(symbol_string(k), "kernel")) {
+                kernel_heaps kh = bound(kh);
+                filesystem_read_entire(fs, v, heap_backed(kh),
+                                       closure(heap_general(kh),
+                                               kernel_read_complete, fs, !bound(klibs_in_bootfs)),
+                                       ignore_status);
+                break;
+            }
         }
     }
     closure_finish();
 }
 
-filesystem_complete bootfs_handler(kernel_heaps kh, tuple root, boolean klibs)
+filesystem_complete bootfs_handler(kernel_heaps kh, tuple root,
+                                   boolean klibs_in_bootfs,
+                                   boolean ingest_kernel_syms)
 {
-    return closure(heap_general(kh), bootfs_complete, kh, root, klibs);
+    return closure(heap_general(kh), bootfs_complete,
+                   kh, root, klibs_in_bootfs, ingest_kernel_syms);
 }

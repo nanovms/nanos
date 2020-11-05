@@ -107,7 +107,9 @@ closure_function(2, 3, void, offset_block_io,
 /* XXX some header reorg in order */
 void init_extra_prints(); 
 thunk create_init(kernel_heaps kh, tuple root, filesystem fs);
-filesystem_complete bootfs_handler(kernel_heaps kh, tuple root, boolean klibs);
+filesystem_complete bootfs_handler(kernel_heaps kh, tuple root,
+                                   boolean klibs_in_bootfs,
+                                   boolean ingest_kernel_syms);
 
 closure_function(4, 2, void, fsstarted,
                  heap, h, u8 *, mbr, block_io, r, block_io, w,
@@ -130,15 +132,17 @@ closure_function(4, 2, void, fsstarted,
         buffer_compare_with_cstring(klibs, "bootfs");
 
     if (mbr) {
+        boolean ingest_kernel_syms = table_find(root, sym(ingest_kernel_symbols)) != 0;
         struct partition_entry *bootfs_part;
-        if ((table_find(root, sym(ingest_kernel_symbols)) || klibs_in_bootfs) &&
+        if ((ingest_kernel_syms || klibs_in_bootfs) &&
             (bootfs_part = partition_get(mbr, PARTITION_BOOTFS))) {
             create_filesystem(h, SECTOR_SIZE,
                               bootfs_part->nsectors * SECTOR_SIZE,
                               closure(h, offset_block_io,
                               bootfs_part->lba_start * SECTOR_SIZE, bound(r)),
                               0, false,
-                              bootfs_handler(&heaps, root, klibs_in_bootfs));
+                              bootfs_handler(&heaps, root, klibs_in_bootfs,
+                                             ingest_kernel_syms));
         }
         deallocate(h, mbr, SECTOR_SIZE);
     }

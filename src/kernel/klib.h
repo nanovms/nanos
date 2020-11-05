@@ -10,7 +10,7 @@ typedef struct klib_mapping {
 
 typedef struct klib {
     char name[KLIB_MAX_NAME];
-    tuple syms;
+    table syms;
     rangemap mappings;
     buffer elf;
 } *klib;
