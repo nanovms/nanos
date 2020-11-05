@@ -170,6 +170,7 @@ static virtio_scsi_request virtio_scsi_alloc_request(virtio_scsi s, u16 target, 
 
     virtio_scsi_request r = allocate(s->v->virtio_dev.contiguous,
         sizeof(*r) + alloc_len);
+    assert(r != INVALID_ADDRESS);
     zero((void *) &r->req, sizeof(r->req));
     r->req.cdb[0] = cmd;
     r->req.lun[0] = 1;
@@ -430,6 +431,7 @@ static void virtio_scsi_report_luns(virtio_scsi s, storage_attach a, u16 target)
 static void virtio_scsi_attach(heap general, storage_attach a, heap page_allocator, pci_dev _dev)
 {
     virtio_scsi s = allocate(general, sizeof(struct virtio_scsi));
+    assert(s != INVALID_ADDRESS);
     s->v = attach_vtpci(general, page_allocator, _dev, 0);
 
     virtio_scsi_debug("features 0x%lx\n", s->v->features);

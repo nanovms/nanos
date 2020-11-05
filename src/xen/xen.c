@@ -124,7 +124,7 @@ closure_function(0, 0, void, xen_interrupt)
 
 void xen_register_evtchn_handler(evtchn_port_t evtchn, thunk handler)
 {
-    vector_set(xen_info.evtchn_handlers, evtchn, handler);
+    assert(vector_set(xen_info.evtchn_handlers, evtchn, handler));
 }
 
 int xen_unmask_evtchn(evtchn_port_t evtchn)

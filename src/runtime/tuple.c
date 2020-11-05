@@ -86,7 +86,8 @@ static void push_header(buffer b, boolean imm, u8 type, u64 length)
     // (imm type ext) 
     if (bits > 5)
         words = ((bits - 5) + (7 - 1)) / 7;
-    buffer_extend(b, words + 1);
+    assert(buffer_extend(b, words + 1));
+
     tuple_debug("push header: %s %s decimal length:0x%lx bits:%d words:%d\n",
                 imm ? "immediate" : "reference",
                 type ? "tuple" : "buffer",

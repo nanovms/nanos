@@ -136,7 +136,7 @@ buffer allocate_buffer(heap h, bytes length);
 
 static inline void buffer_write(buffer b, const void *source, bytes length)
 {
-    buffer_extend(b, length);
+    assert(buffer_extend(b, length));
     runtime_memcpy(buffer_ref(b, buffer_length(b)), source, length);
     buffer_produce(b, length);
 }
@@ -186,6 +186,7 @@ static inline buffer buffer_cstring(heap h, const char *x)
     {                                                           \
         u64 k = (x);                                            \
         int len = bits>>3;                                      \
+        // err check?
         buffer_extend((b), len);                                \
         u8 *n = buffer_ref((b), (b)->end);                      \
         for (int i = len-1; i >= 0; i--) {                      \
@@ -217,7 +218,7 @@ READ_BE(16)
 
 static inline void buffer_write_le64(buffer b, u64 v)
 {
-    buffer_extend(b, sizeof(u64));
+    assert(buffer_extend(b, sizeof(u64)));
     *(u64 *)(b->contents + b->end) = v;
     b->end += sizeof(u64);
 }
@@ -233,7 +234,7 @@ static inline u64 buffer_read_byte(buffer b)
 
 static inline void buffer_write_byte(buffer b, u8 x)
 {
-    buffer_extend(b, 1);                                  
+    assert(buffer_extend(b, 1));                                  
     *(u8 *)buffer_ref(b, buffer_length(b)) = x;
     b->end += 1;
 }
@@ -365,7 +366,7 @@ static inline u8 pop_u8(buffer b)
 
 static inline void push_u8(buffer b, u8 x)
 {
-    buffer_extend(b, 1);
+    assert(buffer_extend(b, 1));
     *(u8 *)buffer_ref(b, buffer_length(b)) = x;
     b->end++;
 }
@@ -380,7 +381,7 @@ static inline u32 buffer_read_le32(buffer b)
 
 static inline void buffer_write_le32(buffer b, u32 x)
 {
-    buffer_extend(b, sizeof(u32));
+    assert(buffer_extend(b, sizeof(u32)));
     *(u32 *)buffer_ref(b, buffer_length(b)) = x;
     b->end+=sizeof(u32);
 }

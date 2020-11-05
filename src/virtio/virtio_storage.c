@@ -92,6 +92,7 @@ typedef struct storage {
 static virtio_blk_req allocate_virtio_blk_req(storage st, u32 type, u64 sector)
 {
     virtio_blk_req req = allocate(st->v->contiguous, sizeof(struct virtio_blk_req));
+    assert(req != INVALID_ADDRESS);
     req->type = type;
     req->reserved = 0;
     req->sector = sector;
@@ -172,6 +173,7 @@ closure_function(1, 3, void, storage_read,
 static void virtio_blk_attach(heap general, storage_attach a, vtdev v)
 {
     storage s = allocate(general, sizeof(struct storage));
+    assert(s != INVALID_ADDRESS);
     s->v = v;
 
     s->block_size = (v->features & VIRTIO_BLK_F_BLK_SIZE) ?

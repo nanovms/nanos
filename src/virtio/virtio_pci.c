@@ -286,6 +286,7 @@ define_closure_function(1, 2, void, vtpci_notify,
 vtpci attach_vtpci(heap h, heap page_allocator, pci_dev d, u64 feature_mask)
 {
     struct vtpci *dev = allocate(h, sizeof(struct vtpci));
+    assert(dev != INVALID_ADDRESS);
     vtdev virtio_dev = &dev->virtio_dev;
 
     boolean is_modern = pci_get_device(d) >= VIRTIO_PCI_DEVICEID_MODERN_MIN;

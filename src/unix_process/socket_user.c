@@ -59,11 +59,16 @@ static boolean select_register(notifier n, descriptor f, u32 events, thunk a)
 #endif
     select_notifier s = (select_notifier)n;
     registration new = allocate(n->h, sizeof(struct registration));
+    if (new == INVALID_ADDRESS) {
+        return false;
+    }
     new->fd = f;
     new->events = events;
     new->a = a;
     new->next = vector_get(s->registrations, f);
-    vector_set(s->registrations, f, new);
+    if (!vector_set(s->registrations, f, new)) { 
+        return false;
+    }
     if (f >= s->nfds)
 	s->nfds = f + 1;
 
@@ -98,7 +103,7 @@ static void select_reset_fd(notifier n, descriptor f)
 	deallocate(n->h, r, sizeof(struct registration));
 	r = next;
     } while(r);
-    vector_set(s->registrations, f, 0);
+    assert(vector_set(s->registrations, f, 0));
 }
 
 static void select_spin(notifier n)
@@ -167,6 +172,7 @@ static void select_spin(notifier n)
 notifier create_select_notifier(heap h)
 {
     select_notifier s = allocate(h, sizeof(struct select_notifier));
+    assert(s != INVALID_ADDRESS);
     s->n.h = h;
     s->n._register = select_register;
     s->n.reset_fd = select_reset_fd;
@@ -193,11 +199,16 @@ static boolean poll_register(notifier n, descriptor f, u32 events, thunk a)
 #endif
     poll_notifier p = (poll_notifier)n;
     registration new = allocate(n->h, sizeof(struct registration));
+    if (new == INVALID_ADDRESS) {
+        return false;
+    }
     new->fd = f;
     new->events = events;
     new->a = a;
     new->next = vector_get(p->registrations, f);
-    vector_set(p->registrations, f, new);
+    if (!vector_set(p->registrations, f, new)) { 
+        return false
+    }
 
     extend_total(p->poll_fds, (f+1) * sizeof(struct pollfd));
     struct pollfd *fds = buffer_ref(p->poll_fds, 0);
@@ -228,7 +239,7 @@ static void poll_reset_fd(notifier n, descriptor f)
         deallocate(n->h, r, sizeof(struct registration));
         r = next;
     } while(r);
-    vector_set(p->registrations, f, 0);
+    assert(vector_set(p->registrations, f, 0));
 }
 
 static void poll_spin(notifier n)
@@ -288,6 +299,7 @@ static void poll_spin(notifier n)
 notifier create_poll_notifier(heap h)
 {
     poll_notifier p = allocate(h, sizeof(struct select_notifier));
+    assert(p != INVALID_ADDRESS);
     p->n.h = h;
     p->n._register = poll_register;
     p->n.reset_fd = poll_reset_fd;
@@ -318,10 +330,15 @@ static boolean epoll_register(notifier n, descriptor f, u32 events, thunk a)
 #endif
     epoll_notifier e = (epoll_notifier)n;
     registration new = allocate(n->h, sizeof(struct registration));
+    if (new != INVALID_ADDRESS) {
+        return false;
+    }
     new->fd = f;
     new->a = a;
     new->next = vector_get(e->registrations, f);
-    vector_set(e->registrations, f, new);
+    if (!vector_set(e->registrations, f, new)) { 
+        return false
+    }
 
     struct epoll_event ev;
     ev.events = events;
@@ -348,7 +365,7 @@ static void epoll_reset_fd(notifier n, descriptor f)
 	deallocate(n->h, r, sizeof(struct registration));
 	r = next;
     } while(r);
-    vector_set(e->registrations, f, 0);
+    assert(vector_set(e->registrations, f, 0));
 }
 
 static void epoll_spin(notifier n)
@@ -387,6 +404,7 @@ notifier create_epoll_notifier(heap h)
 	return 0;
     }
     epoll_notifier e = allocate(h, sizeof(struct epoll_notifier));
+    assert(e != INVALID_ADDRESS);
     e->n.h = h;
     e->n._register = epoll_register;
     e->n.reset_fd = epoll_reset_fd;
@@ -416,6 +434,7 @@ static void fill_v4_sockaddr(struct sockaddr_in *in, u32 address, u16 port)
 static void register_descriptor_write(heap h, notifier n, descriptor f, thunk each)
 {
     registration r = allocate(h, sizeof(struct registration));
+    assert(r != INVALID_ADDRESS);
     r->fd = f;
     r->a = each;
     notifier_register(n, f, EPOLLOUT, each);
@@ -424,6 +443,7 @@ static void register_descriptor_write(heap h, notifier n, descriptor f, thunk ea
 static void register_descriptor(heap h, notifier n, descriptor f, thunk each)
 {
     registration r = allocate(h, sizeof(struct registration));
+    assert(r != INVALID_ADDRESS);
     r->fd = f;
     r->a = each;
     notifier_register(n, f, EPOLLIN|EPOLLHUP, each);

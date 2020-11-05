@@ -200,7 +200,7 @@ heap allocate_mcache(heap meta, heap parent, int min_order, int max_order, bytes
 	    destroy_mcache((heap)m);
 	    return INVALID_ADDRESS;
 	}
-	vector_set(m->caches, i, h);
+	assert(vector_set(m->caches, i, h));
     }
     return (heap)m;
 }

@@ -22,6 +22,6 @@ void buffer_append(buffer b,
                      const void *body,
                      bytes length)
 {
-    buffer_extend(b, length);
+    assert(buffer_extend(b, length));
     buffer_write(b, body, length);
 }

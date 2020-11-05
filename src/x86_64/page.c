@@ -574,6 +574,7 @@ void *bootstrap_page_tables(heap initial)
     /* page table setup */
     pageheap = initial;
     void *pgdir = allocate_zero(initial, PAGESIZE);
+    ASSERT(pgdir != INVALID_ADDRESS);
     pagebase = u64_from_pointer(pgdir);
     pointer_from_pteaddr = boot_pointer_from_pteaddr;
     pteaddr_from_pointer = boot_pteaddr_from_pointer;
@@ -609,6 +610,7 @@ static u64 wrap_alloc(heap h, bytes b)
 {
     pagetable_lock();
     u64 r = allocate_u64((heap)phys_internal, b);
+    assert(r != INVALID_PHYSICAL);
     pagetable_unlock();
     return r;
 }

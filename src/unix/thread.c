@@ -324,7 +324,7 @@ thread create_thread(process p)
     t->start_time = now(CLOCK_ID_MONOTONIC);
 
     // XXX sigframe
-    vector_set(p->threads, t->tid, t);
+    assert(vector_set(p->threads, t->tid, t)); 
     return t;
   fail_sfds:
     deallocate_blockq(t->thread_bq);
@@ -341,7 +341,7 @@ void exit_thread(thread t)
     thread_log(current, "exit_thread");
 
     assert(vector_length(t->p->threads) > t->tid);
-    vector_set(t->p->threads, t->tid, 0);
+    assert(vector_set(t->p->threads, t->tid, 0));
 
     /* We might be exiting from the signal handler while dispatching a
        signal on behalf of the process sigstate, so reset masks as if

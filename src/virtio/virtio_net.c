@@ -216,6 +216,7 @@ closure_function(1, 1, void, input,
 static void post_receive(vnet vn)
 {
     xpbuf x = allocate(vn->rxbuffers, sizeof(struct xpbuf) + vn->rxbuflen);
+    assert(x != INVALID_ADDRESS);
     x->vn = vn;
     x->p.custom_free_function = receive_buffer_release;
     pbuf_alloced_custom(PBUF_RAW,
@@ -278,7 +279,9 @@ static void virtio_net_attach(vtdev dev)
     heap h = dev->general;
     heap contiguous = dev->contiguous;
     vnet vn = allocate(h, sizeof(struct vnet));
+    assert(vn != INVALID_ADDRESS);
     vn->n = allocate(h, sizeof(struct netif));
+    assert(vn->n != INVALID_ADDRESS);
     vn->net_header_len = (dev->features & VIRTIO_F_VERSION_1) ||
         (dev->features & VIRTIO_NET_F_MRG_RXBUF) != 0 ?
         sizeof(struct virtio_net_hdr_mrg_rxbuf) : sizeof(struct virtio_net_hdr);
@@ -293,6 +296,7 @@ static void virtio_net_attach(vtdev dev)
     virtio_alloc_virtqueue(dev, "virtio net rx", 0, runqueue, &vn->rxq);
     // just need vn->net_header_len contig bytes really
     vn->empty = allocate(contiguous, contiguous->pagesize);
+    assert(vn->empty != INVALID_ADDRESS);
     for (int i = 0; i < vn->net_header_len; i++)  ((u8 *)vn->empty)[i] = 0;
     vn->n->state = vn;
     // initialization complete

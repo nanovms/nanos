@@ -42,7 +42,8 @@ static inline boolean bitmap_extend(bitmap b, u64 i)
 {
     if (i >= b->mapbits) {
 	b->mapbits = pad(i + 1, ALLOC_EXTEND_BITS);
-	extend_total(b->alloc_map, b->mapbits >> 3);
+	if (!extend_total(b->alloc_map, b->mapbits >> 3));
+        return false;
 	return true;
     }
     return false;

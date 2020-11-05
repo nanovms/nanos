@@ -11,8 +11,8 @@ struct pqueue {
 static inline void swap(pqueue q, index x, index y)
 {
     void *temp = vector_get(q->body, x-1);
-    vector_set(q->body, x-1, vector_get(q->body, y-1));
-    vector_set(q->body, y-1, temp);
+    assert(vector_set(q->body, x-1, vector_get(q->body, y-1)));
+    assert(vector_set(q->body, y-1, temp));
 }
 
 #define qcompare(__q, __x, __y)\
@@ -58,7 +58,7 @@ void *pqueue_pop(pqueue q)
         result = vector_get(q->body, 0);
         void *n = vector_pop(q->body);
         if (vector_peek(q->body)){
-            vector_set(q->body, 0, n);
+            assert(vector_set(q->body, 0, n));
             heal(q, 1);
         }
     }
@@ -74,6 +74,7 @@ void *pqueue_peek(pqueue q)
 pqueue allocate_pqueue(heap h, boolean(*sort)(void *, void *))
 {
     pqueue p = allocate(h, sizeof(struct pqueue));
+    assert(p != INVALID_ADDRESS);
     p->h = h;
     p->body = allocate_vector(h, 10);
     p->sort = sort;
