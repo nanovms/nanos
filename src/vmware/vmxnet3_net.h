@@ -69,7 +69,6 @@ typedef struct vmxnet3_pci *vmxnet3_pci;
 #define VMXNET3_CMD_GET_INTRCFG	0xF00D0008	/* Get interrupt config */
 
 typedef struct vmxnet3_pci {
-    struct pci_dev _dev;
     pci_dev dev;
 
     struct pci_bar bar0;

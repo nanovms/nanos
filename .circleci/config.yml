@@ -50,7 +50,7 @@ jobs:
    
   build-mac:
     macos:
-        xcode: "9.0" 
+        xcode: "12.2.0"
     steps:
       - checkout
       - run: CI=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install.sh)"
@@ -70,7 +70,7 @@ jobs:
   
   nightly-build-mac:
     macos:
-        xcode: "9.0" 
+        xcode: "12.2.0"
     steps:
       - checkout
       - run: CI=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install.sh)"

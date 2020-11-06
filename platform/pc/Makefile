@@ -29,30 +29,7 @@ SRCS-kernel.img= \
 	$(SRCDIR)/net/direct.c \
 	$(SRCDIR)/net/net.c \
 	$(SRCDIR)/net/netsyscall.c \
-	$(SRCDIR)/runtime/bitmap.c \
-	$(SRCDIR)/runtime/buffer.c \
-	$(SRCDIR)/runtime/extra_prints.c \
-	$(SRCDIR)/runtime/format.c \
-	$(SRCDIR)/runtime/heap/freelist.c \
-	$(SRCDIR)/runtime/heap/id.c \
-	$(SRCDIR)/runtime/heap/mcache.c \
-	$(SRCDIR)/runtime/heap/objcache.c \
-	$(SRCDIR)/runtime/memops.c \
-	$(SRCDIR)/runtime/merge.c \
-	$(SRCDIR)/runtime/pqueue.c \
-	$(SRCDIR)/runtime/queue.c \
-	$(SRCDIR)/runtime/random.c \
-	$(SRCDIR)/runtime/range.c \
-	$(SRCDIR)/runtime/rbtree.c \
-	$(SRCDIR)/runtime/runtime_init.c \
-	$(SRCDIR)/runtime/sg.c \
-	$(SRCDIR)/runtime/sha256.c \
-	$(SRCDIR)/runtime/symbol.c \
-	$(SRCDIR)/runtime/table.c \
-	$(SRCDIR)/runtime/timer.c \
-	$(SRCDIR)/runtime/tuple.c \
-	$(SRCDIR)/runtime/string.c \
-	$(SRCDIR)/runtime/crypto/chacha.c \
+	$(RUNTIME) \
 	$(SRCDIR)/tfs/tfs.c \
 	$(SRCDIR)/tfs/tlog.c \
 	$(SRCDIR)/unix/aio.c \

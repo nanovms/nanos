@@ -106,7 +106,7 @@ void thread_log_internal(thread t, const char *desc, ...)
             return;
         vlist ap;
         vstart (ap, desc);        
-        buffer b = allocate_buffer(transient, 100);
+        buffer b = little_stack_buffer(512);
         bprintf(b, "%n%d ", (int) ((MAX(MIN(t->tid, 20), 1) - 1) * 4), t->tid);
         if (t->name[0] != '\0')
             bprintf(b, "[%s] ", t->name);
@@ -149,11 +149,9 @@ static inline void check_stop_conditions(thread t)
 static inline void run_thread_frame(thread t)
 {
     check_stop_conditions(t);
-    kern_lock(); // xx - make thread entry a separate exclusion region for performance
     thread old = current;
-    set_current_thread((nanos_thread)t);
-    ftrace_thread_switch(old, current);    /* ftrace needs to know about the switch event */
     thread_enter_user(t);
+    ftrace_thread_switch(old, t);    /* ftrace needs to know about the switch event */
 
     /* cover wake-before-sleep situations (e.g. sched yield, fs ops that don't go to disk, etc.) */
     t->blocked_on = 0;
@@ -165,7 +163,6 @@ static inline void run_thread_frame(thread t)
     thread_log(t, "run %s, cpu %d, frame %p, rip 0x%lx, rsp 0x%lx, rdi 0x%lx, rax 0x%lx, rflags 0x%lx, cs 0x%lx, %s",
                f == t->sighandler_frame ? "sig handler" : "thread", current_cpu()->id, f, f[FRAME_RIP], f[FRAME_RSP],
                f[FRAME_RDI], f[FRAME_RAX], f[FRAME_FLAGS], f[FRAME_CS], f[FRAME_IS_SYSCALL] ? "sysret" : "iret");
-    kern_unlock();
     current_cpu()->frcount++;
     frame_return(f);
 }

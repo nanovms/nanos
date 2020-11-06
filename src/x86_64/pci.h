@@ -33,10 +33,17 @@
 
 typedef struct pci_dev *pci_dev;
 
+typedef closure_type(pci_probe, boolean, pci_dev); // bus slot func
+
+typedef struct pci_driver {
+    pci_probe probe;
+} *pci_driver;
+
 struct pci_dev {
     int bus;
     int slot;
     int function;
+    pci_driver driver;
     u32 *msix_table;
 };
 
@@ -128,7 +135,5 @@ void pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name);
 #define PCIM_CMD_BUSMASTEREN    0x0004
 
 void init_pci(kernel_heaps kh);
-
-typedef closure_type(pci_probe, boolean, pci_dev); // bus slot func
 
 void register_pci_driver(pci_probe p);
