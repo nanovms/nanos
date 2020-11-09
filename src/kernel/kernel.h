@@ -43,6 +43,8 @@ typedef struct cpuinfo {
     u32 id;
     int state;
     boolean have_kernel_lock;
+    queue thread_queue;
+    timestamp last_timer_update;
     u64 frcount;
 
     /* The following fields are used rarely or only on initialization. */
@@ -172,7 +174,6 @@ static inline void set_page_write_protect(boolean enable)
 typedef struct queue *queue;
 extern queue bhqueue;
 extern queue runqueue;
-extern queue thread_queue;
 extern timerheap runloop_timers;
 
 static inline void bhqueue_enqueue_irqsafe(thunk t)
@@ -228,7 +229,7 @@ extern void interrupt_exit(void);
 extern char **state_strings;
 
 // static inline void schedule_frame(context f) stupid header deps
-#define schedule_frame(__f)  do { assert((__f)[FRAME_QUEUE] != INVALID_PHYSICAL); enqueue((queue)pointer_from_u64((__f)[FRAME_QUEUE]), pointer_from_u64((__f)[FRAME_RUN])); } while(0)
+#define schedule_frame(__f)  do { assert((__f)[FRAME_QUEUE] != INVALID_PHYSICAL); assert(enqueue((queue)pointer_from_u64((__f)[FRAME_QUEUE]), pointer_from_u64((__f)[FRAME_RUN]))); } while(0)
 
 void kernel_unlock();
 

@@ -53,7 +53,6 @@ declare_closure_struct(1, 2, void, vtpci_notify,
 
 struct vtpci {
     struct vtdev virtio_dev; /* must be first */
-    struct pci_dev _dev;
     pci_dev dev;
     int regs[VTPCI_REG_MAX];
     bytes notify_offset_multiplier;

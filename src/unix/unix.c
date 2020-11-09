@@ -335,7 +335,6 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     create_stdfiles(uh, p);
     init_threads(p);
     p->syscalls = linux_syscalls;
-    p->utime = p->stime = 0;
     init_sigstate(&p->signals);
     zero(p->sigactions, sizeof(p->sigactions));
     p->posix_timer_ids = create_id_heap(h, h, 0, U32_MAX, 1);
@@ -357,7 +356,6 @@ void thread_enter_system(thread t)
     if (!t->sysctx) {
         timestamp here = now(CLOCK_ID_MONOTONIC);
         timestamp diff = here - t->start_time;
-        fetch_and_add_64(&t->p->utime, diff);
         t->utime += diff;
         t->start_time = here;
         t->sysctx = true;
@@ -369,14 +367,11 @@ void thread_pause(thread t)
 {
     if (get_current_thread() != &t->thrd)
         return;
-    process p = t->p;
     timestamp diff = now(CLOCK_ID_MONOTONIC) - t->start_time;
     if (t->sysctx) {
-        fetch_and_add_64(&p->stime, diff);
         t->stime += diff;
     }
     else {
-        fetch_and_add_64(&p->utime, diff);
         t->utime += diff;
     }
     set_current_thread(0);
@@ -408,7 +403,7 @@ static timestamp stime_updated(thread t)
 
 timestamp proc_utime(process p)
 {
-    timestamp utime = p->utime;
+    timestamp utime = 0;
     thread t;
     vector_foreach(p->threads, t)
         if (t)
@@ -418,7 +413,7 @@ timestamp proc_utime(process p)
 
 timestamp proc_stime(process p)
 {
-    timestamp stime = p->stime;
+    timestamp stime = 0;
     thread t;
     vector_foreach(p->threads, t)
         if (t)

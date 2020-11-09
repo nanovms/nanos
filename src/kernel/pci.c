@@ -41,13 +41,9 @@
 #define PCICAP_NEXTPTR  0x1
 
 // use the global nodespace
+static vector devices;
 static vector drivers;
 static heap virtual_page;
-
-struct pci_driver {
-    pci_probe probe;
-    boolean attached;
-};
 
 /* enable configuration space accesses and return data port address */
 static int pci_cfgenable(pci_dev dev, int reg, int bytes)
@@ -279,8 +275,17 @@ void register_pci_driver(pci_probe probe)
     struct pci_driver *d = allocate(drivers->h, sizeof(struct pci_driver));
     assert(d != INVALID_ADDRESS); 
     d->probe = probe;
-    d->attached = false;
     vector_push(drivers, d);
+}
+
+static int pci_dev_find(pci_dev dev)
+{
+    for (int i = 0; i < vector_length(devices); i++) {
+        pci_dev d = vector_get(devices, i);
+        if ((d->bus == dev->bus) && (d->slot == dev->slot) && (d->function == dev->function))
+            return i;
+    }
+    return -1;
 }
 
 static void pci_probe_bus(int bus);
@@ -292,6 +297,23 @@ static void pci_probe_device(pci_dev dev)
         return;
     pci_debug("%s: %02x:%02x:%x: %04x:%04x\n",
         __func__, dev->bus, dev->slot, dev->function, vendor, pci_get_device(dev));
+    pci_dev pcid;
+    int dev_index = pci_dev_find(dev);
+    if (dev_index < 0) {
+        pci_dev new_dev = allocate(devices->h, sizeof(*new_dev));
+        if (new_dev == INVALID_ADDRESS) {
+            msg_err("cannot allocate memory for PCI device\n");
+            return;
+        }
+        *new_dev = *dev;
+        new_dev->driver = 0;
+        vector_push(devices, new_dev);
+        pcid = new_dev;
+    } else {
+        pcid = vector_get(devices, dev_index);
+        if (pcid->driver)
+            return;
+    }
 
     // PCI-PCI bridge
     u8 class = pci_get_class(dev);
@@ -308,8 +330,9 @@ static void pci_probe_device(pci_dev dev)
     // probe drivers
     struct pci_driver *d;
     vector_foreach(drivers, d) {
-        if (!d->attached && apply(d->probe, dev)) {
-            d->attached = true;
+        if (apply(d->probe, pcid)) {
+            pcid->driver = d;
+            break;
         }
     }
 }
@@ -362,5 +385,6 @@ void init_pci(kernel_heaps kh)
 {
     // should use the global node space
     virtual_page = (heap)heap_virtual_page(kh);
+    devices = allocate_vector(heap_general(kh), 8);
     drivers = allocate_vector(heap_general(kh), 8);
 }

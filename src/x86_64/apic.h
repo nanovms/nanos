@@ -76,15 +76,3 @@ static inline u8 apic_id(void)
     assert(apic_if);
     return apic_if->legacy_id(apic_if);
 }
-
-static inline int this_cpu(void)
-{
-    // for now, assume legacy apic id == cpu num
-    return apic_id();
-}
-
-static inline cpuinfo get_cpuinfo(void)
-{
-    int cpu = this_cpu();
-    return &cpuinfos[cpu];
-}

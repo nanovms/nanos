@@ -241,7 +241,6 @@ define_closure_function(1, 0, void, xenblk_event_handler,
     if (done_empty && !list_empty(&xbd->done))
         enqueue(bhqueue, &xbd->bh_service);
     spin_unlock(&xbd->lock);
-    assert(xen_unmask_evtchn(xbd->evtchn) == 0);
 }
 
 define_closure_function(1, 0, void, xenblk_bh_service,

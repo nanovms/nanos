@@ -15,6 +15,8 @@ PLATFORMDIR=	$(ROOTDIR)/platform/$(PLATFORM)
 PLATFORMOBJDIR=	$(subst $(ROOTDIR),$(OUTDIR),$(PLATFORMDIR))
 IMAGE=		$(OUTDIR)/image/disk.raw
 
+include $(SRCDIR)/runtime/files.mk
+
 # To reveal verbose build messages, override Q= in command line.
 Q=		@
 
