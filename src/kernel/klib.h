@@ -16,7 +16,7 @@ typedef struct klib {
 } *klib;
 
 typedef closure_type(klib_handler, void, klib, status);
-typedef int (*klib_init)(void *md, klib_add_sym add_sym);
+typedef int (*klib_init)(void *md, klib_get_sym get_sym, klib_add_sym add_sym);
 
 static inline void *klib_sym(klib kl, symbol s)
 {
@@ -34,4 +34,4 @@ void load_klib(const char *name, klib_handler complete);
 /* The caller must assure no references to klib remain before unloading. */
 void unload_klib(klib kl);
 
-void init_klib(kernel_heaps kh, void *fs, tuple root);
+void init_klib(kernel_heaps kh, void *fs, tuple root, tuple klib_md);

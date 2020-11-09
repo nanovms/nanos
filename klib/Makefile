@@ -17,4 +17,7 @@ LD=             $(CROSS_COMPILE)ld
 endif
 
 CFLAGS+=	$(KERNCFLAGS) -I$(CURDIR) -fPIC -DKLIB
+
+# TODO should add stack protection to klibs...
+CFLAGS+=	-fno-stack-protector
 LDFLAGS+=	-pie -nostdlib -T$(ARCHDIR)/klib.lds

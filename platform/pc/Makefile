@@ -85,6 +85,7 @@ SRCS-kernel.img= \
 	$(SRCDIR)/x86_64/breakpoint.c \
 	$(SRCDIR)/x86_64/clock.c \
 	$(SRCDIR)/x86_64/crt0.s \
+	$(SRCDIR)/x86_64/elf64.c \
 	$(SRCDIR)/x86_64/flush.c \
 	$(SRCDIR)/x86_64/hpet.c \
 	$(SRCDIR)/x86_64/interrupt.c \

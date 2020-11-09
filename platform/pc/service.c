@@ -148,7 +148,7 @@ closure_function(4, 2, void, fsstarted,
     }
 
     if (klibs && !klibs_in_bootfs)
-        init_klib(&heaps, fs, root);
+        init_klib(&heaps, fs, root, root);
 
     root_fs = fs;
     enqueue(runqueue, create_init(&heaps, root, fs));

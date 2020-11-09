@@ -146,31 +146,6 @@ closure_function(1, 3, void, each_test_request,
 }
 #endif
 
-/* this should move to hypothetical in-kernel test / diag area */
-closure_function(0, 2, void, klib_test_loaded,
-                 klib, kl, status, s)
-{
-    rprintf("%s: klib %s\n", __func__, kl->name);
-    if (!is_ok(s))
-        halt("   failed; status %v\n", s);
-    if (klib_sym(kl, sym(bob)) != INVALID_ADDRESS)
-        halt("%s: lookup of sym \"bob\" should have failed.\n", __func__);
-
-    int (*foo)(int x) = klib_sym(kl, sym(foo));
-    if (foo == INVALID_ADDRESS)
-        halt("%s: sym \"foo\" not found\n", __func__);
-    int r = foo(1);
-    if (r != 124)
-        halt("%s: foo call failed\n", __func__);
-    if (klib_sym(kl, sym(bar)) != 0)
-        halt("%s: sym \"bar\" should have 0 value\n", __func__);
-
-    unload_klib(kl);
-    rprintf("   klib test passed\n");
-    closure_finish();
-    return;
-}
-
 closure_function(3, 0, void, startup,
                  kernel_heaps, kh, tuple, root, filesystem, fs)
 {
@@ -237,12 +212,8 @@ closure_function(4, 2, void, bootfs_complete,
     tuple boot_root = filesystem_getroot(fs);
     tuple c = children(boot_root);
     assert(c);
-    if (bound(klibs_in_bootfs)) {
-        init_klib(bound(kh), fs, boot_root);
-        if (table_find(bound(root), sym(klib_test))) {
-            load_klib("/klib/test", closure(heap_general(bound(kh)), klib_test_loaded));
-        }
-    }
+    if (bound(klibs_in_bootfs))
+        init_klib(bound(kh), fs, bound(root), boot_root);
 
     if (bound(ingest_kernel_syms)) {
         table_foreach(c, k, v) {

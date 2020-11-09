@@ -15,11 +15,17 @@
 static kernel_heaps klib_kh;
 static filesystem klib_fs;
 static tuple klib_root;
+static table export_syms;
 static id_heap klib_heap;
 
 static void add_sym(void *syms, const char *s, void *p)
 {
     table_set((table)syms, sym_this(s), p ? p : INVALID_ADDRESS); /* allow zero value */
+}
+
+static void *get_sym(const char *name)
+{
+    return table_find(export_syms, sym_this(name));
 }
 
 closure_function(1, 4, void, klib_elf_map,
@@ -60,8 +66,9 @@ closure_function(2, 1, status, load_klib_complete,
     kl->mappings = allocate_rangemap(h);
     assert(kl->mappings != INVALID_ADDRESS);
 
-    runtime_memcpy(kl->name, bound(name), MIN(runtime_strlen(bound(name)), KLIB_MAX_NAME - 1));
-    kl->name[KLIB_MAX_NAME - 1] = '\0';
+    int namelen = MIN(runtime_strlen(bound(name)), KLIB_MAX_NAME - 1);
+    runtime_memcpy(kl->name, bound(name), namelen);
+    kl->name[namelen] = '\0';
     kl->syms = allocate_table(h, key_from_symbol, pointer_equal);
     assert(kl->syms != INVALID_ADDRESS);
     kl->elf = b;
@@ -70,7 +77,10 @@ closure_function(2, 1, status, load_klib_complete,
     u64 where = allocate_u64((heap)klib_heap, PAGESIZE);
     assert(where != INVALID_PHYSICAL);
 
-    klib_debug("   loading elf file at 0x%lx\n", where);
+    klib_debug("   loading klib @ 0x%lx, resolving relocations\n", where);
+    elf_apply_relocs(b, where);
+
+    klib_debug("   loading elf file\n");
     void *entry = load_elf(b, where, stack_closure(klib_elf_map, kl));
     assert(entry != INVALID_ADDRESS);
 
@@ -79,7 +89,7 @@ closure_function(2, 1, status, load_klib_complete,
 
     klib_debug("   init entry @ %p, first word 0x%lx\n", entry, *(u64*)entry);
     klib_init ki = (klib_init)entry;
-    int rv = ki(kl->syms, add_sym);
+    int rv = ki(kl->syms, get_sym, add_sym);
     status s = rv == KLIB_INIT_OK ? STATUS_OK :
         timm("result", "module initialization failed with %d", rv);
     klib_debug("   init status %v, applying completion\n", s);
@@ -137,16 +147,65 @@ void unload_klib(klib kl)
     klib_debug("   unload complete\n");
 }
 
-void init_klib(kernel_heaps kh, void *fs, tuple root)
+/* this should move to hypothetical in-kernel test / diag area */
+closure_function(0, 2, void, klib_test_loaded,
+                 klib, kl, status, s)
 {
-    klib_debug("%s: fs %p, root %p\n", __func__, fs, root);
+    if (!is_ok(s))
+        halt("klib test load failed: %v\n", s);
+
+    rprintf("%s: klib %s\n", __func__, kl->name);
+    if (!is_ok(s))
+        halt("   failed; status %v\n", s);
+    if (klib_sym(kl, sym(bob)) != INVALID_ADDRESS)
+        halt("%s: lookup of sym \"bob\" should have failed.\n", __func__);
+
+    int (*foo)(int x) = klib_sym(kl, sym(foo));
+    if (foo == INVALID_ADDRESS)
+        halt("%s: sym \"foo\" not found\n", __func__);
+    int r = foo(1);
+    if (r != 124)
+        halt("%s: foo call failed\n", __func__);
+    if (klib_sym(kl, sym(bar)) != 0)
+        halt("%s: sym \"bar\" should have 0 value\n", __func__);
+
+    unload_klib(kl);
+    rprintf("   klib test passed\n");
+    closure_finish();
+    return;
+}
+
+/* XXX temporary; move to export symbol macro / section... */
+struct export_sym {
+    const char *name;
+    void *v;
+};
+
+static struct export_sym export_symtab[] = {
+    { "runtime_memset", runtime_memset },
+    { "runtime_memcpy", runtime_memcpy },
+    { "runtime_memcmp", runtime_memcmp },
+    { 0, 0 }
+};
+
+void init_klib(kernel_heaps kh, void *fs, tuple config_root, tuple klib_md)
+{
+    klib_debug("%s: fs %p, config_root %p, klib_root %p\n",
+               __func__, fs, config_root, klib_root);
     assert(fs);
-    assert(root);
+    assert(config_root);
+    assert(klib_md);
     heap h = heap_general(kh);
     klib_kh = kh;
     klib_fs = (filesystem)fs;
-    klib_root = root;
+    klib_root = klib_md;
+    export_syms = allocate_table(h, key_from_symbol, pointer_equal);
+    assert(export_syms != INVALID_ADDRESS);
 
+    for (int i = 0; export_symtab[i].name; i++) {
+        klib_debug("   export \"%s\", v %p\n", export_symtab[i].name, export_symtab[i].v);
+        table_set(export_syms, sym_this(export_symtab[i].name), export_symtab[i].v);
+    }
     extern u8 END;
     u64 klib_heap_start = pad(u64_from_pointer(&END), PAGESIZE_2M);
     u64 klib_heap_size = KERNEL_LIMIT - klib_heap_start;
@@ -154,4 +213,8 @@ void init_klib(kernel_heaps kh, void *fs, tuple root)
                klib_heap_start, klib_heap_size);
     klib_heap = create_id_heap(h, h, klib_heap_start, klib_heap_size, PAGESIZE);
     assert(klib_heap != INVALID_ADDRESS);
+    if (table_find(config_root, sym(klib_test))) {
+        klib_debug("   loading klib test\n");
+        load_klib("/klib/test", closure(h, klib_test_loaded));
+    }
 }

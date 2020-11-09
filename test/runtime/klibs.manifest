@@ -1,7 +1,6 @@
 (
     boot:(
           children:(
-                    kernel:(contents:(host:output/platform/pc/bin/kernel.img))
                     klib:(children:(test:(contents:(host:output/klib/bin/test))))
                     )
           )

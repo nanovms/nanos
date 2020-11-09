@@ -11,7 +11,9 @@ static int foo(int x)
     return z[0] + y; /* test data */
 }
 
-int init(void *md, klib_add_sym add_sym)
+void (*memset)(void *a, unsigned char b, unsigned long len);
+
+int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
 {
     /* test that bss is clear */
     for (int i = 0; i < Z_LEN; i++)
@@ -20,5 +22,12 @@ int init(void *md, klib_add_sym add_sym)
 
     add_sym(md, "foo", foo);
     add_sym(md, "bar", (void*)0);
-    return KLIB_INIT_OK;
+
+    memset = get_sym("runtime_memset");
+    if (!memset)
+        return KLIB_INIT_FAILED;
+
+    unsigned long a = -1ull;
+    memset(&a, 0, sizeof(unsigned long));
+    return a == 0 ? KLIB_INIT_OK : KLIB_INIT_FAILED;
 }
