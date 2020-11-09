@@ -186,7 +186,6 @@ static inline buffer buffer_cstring(heap h, const char *x)
     {                                                           \
         u64 k = (x);                                            \
         int len = bits>>3;                                      \
-        // err check?
         buffer_extend((b), len);                                \
         u8 *n = buffer_ref((b), (b)->end);                      \
         for (int i = len-1; i >= 0; i--) {                      \
