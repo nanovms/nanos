@@ -260,11 +260,11 @@ static inline void ip6addr_to_sockaddr(ip_addr_t *ip_addr,
         sizeof(addr->sin6_addr.s6_addr));
 }
 
-static sysreturn sockaddr_to_addrport(netsock s, struct sockaddr *addr,
+static sysreturn sockaddr_to_addrport(int af, struct sockaddr *addr,
                                       socklen_t addrlen,
                                       ip_addr_t *ip_addr, u16 *port)
 {
-    if (s->sock.domain == AF_INET) {
+    if (af == AF_INET) {
         if (addrlen < sizeof(struct sockaddr_in))
             return -EINVAL;
         struct sockaddr_in *sin = (struct sockaddr_in *)addr;
@@ -275,14 +275,6 @@ static sysreturn sockaddr_to_addrport(netsock s, struct sockaddr *addr,
             return -EINVAL;
         struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)addr;
         sockaddr_to_ip6addr(sin6, ip_addr);
-        /* If this is an an IPv4 mapped address then this socket
-           is dual-stack, so convert the address to IPv4 to encourage
-           LwIP to use that transport
-        */
-        if (!s->ipv6only && ip6_addr_isipv4mappedipv6(ip_2_ip6(ip_addr))) {
-            unmap_ipv4_mapped_ipv6(ip_2_ip4(ip_addr), ip_2_ip6(ip_addr));
-            IP_SET_TYPE_VAL(*ip_addr, IPADDR_TYPE_V4);
-        }
         *port = ntohs(sin6->port);
     }
     return 0;
@@ -633,10 +625,19 @@ static sysreturn socket_write_udp(netsock s, void *source, u64 length,
     ip_addr_t ipaddr;
     u16 port;
     if (dest_addr) {
-        sysreturn ret = sockaddr_to_addrport(s, dest_addr, addrlen,
+        sysreturn ret = sockaddr_to_addrport(s->sock.domain, dest_addr, addrlen,
             &ipaddr, &port);
         if (ret)
             return ret;
+        /* If this is an an IPv4 mapped address then this socket
+           is dual-stack, so convert the address to IPv4 to encourage
+           LwIP to use that transport
+        */
+        if (s->sock.domain == AF_INET6 && !s->ipv6only &&
+                ip6_addr_isipv4mappedipv6(ip_2_ip6(&ipaddr))) {
+            unmap_ipv4_mapped_ipv6(ip_2_ip4(&ipaddr), ip_2_ip6(&ipaddr));
+            IP_SET_TYPE_VAL(ipaddr, IPADDR_TYPE_V4);
+        }
     }
     err_t err = ERR_OK;
 
@@ -1108,7 +1109,7 @@ static sysreturn netsock_bind(struct sock *sock, struct sockaddr *addr,
     netsock s = (netsock) sock;
     ip_addr_t ipaddr;
     u16 port;
-    sysreturn ret = sockaddr_to_addrport(s, addr, addrlen, &ipaddr,
+    sysreturn ret = sockaddr_to_addrport(s->sock.domain, addr, addrlen, &ipaddr,
         &port);
     if (ret)
         return ret;
@@ -1264,7 +1265,7 @@ static sysreturn netsock_connect(struct sock *sock, struct sockaddr *addr,
     netsock s = (netsock) sock;
     ip_addr_t ipaddr;
     u16 port;
-    sysreturn ret = sockaddr_to_addrport(s, addr, addrlen, &ipaddr,
+    sysreturn ret = sockaddr_to_addrport(s->sock.domain, addr, addrlen, &ipaddr,
         &port);
     if (ret)
         return ret;
