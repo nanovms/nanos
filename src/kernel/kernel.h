@@ -47,6 +47,8 @@ typedef struct cpuinfo {
     u32 id;
     int state;
     boolean have_kernel_lock;
+    queue thread_queue;
+    timestamp last_timer_update;
     u64 frcount;
 
     /* The following fields are used rarely or only on initialization. */
@@ -181,7 +183,6 @@ static inline void set_page_write_protect(boolean enable)
 typedef struct queue *queue;
 extern queue bhqueue;
 extern queue runqueue;
-extern queue thread_queue;
 extern timerheap runloop_timers;
 
 static inline void bhqueue_enqueue_irqsafe(thunk t)

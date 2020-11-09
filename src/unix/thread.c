@@ -159,11 +159,13 @@ static inline void run_thread_frame(thread t)
 
     context f = thread_frame(t);
     f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
+    cpuinfo ci = current_cpu();
+    f[FRAME_QUEUE] = u64_from_pointer(ci->thread_queue);
 
     thread_log(t, "run %s, cpu %d, frame %p, rip 0x%lx, rsp 0x%lx, rdi 0x%lx, rax 0x%lx, rflags 0x%lx, cs 0x%lx, %s",
-               f == t->sighandler_frame ? "sig handler" : "thread", current_cpu()->id, f, f[FRAME_RIP], f[FRAME_RSP],
+               f == t->sighandler_frame ? "sig handler" : "thread", ci->id, f, f[FRAME_RIP], f[FRAME_RSP],
                f[FRAME_RDI], f[FRAME_RAX], f[FRAME_FLAGS], f[FRAME_CS], f[FRAME_IS_SYSCALL] ? "sysret" : "iret");
-    current_cpu()->frcount++;
+    ci->frcount++;
     frame_return(f);
 }
 
@@ -190,7 +192,7 @@ define_closure_function(1, 0, void, run_sighandler,
 static void setup_thread_frame(heap h, context frame, thread t)
 {
     frame[FRAME_FAULT_HANDLER] = u64_from_pointer(&t->fault_handler);
-    frame[FRAME_QUEUE] = u64_from_pointer(thread_queue);
+    frame[FRAME_QUEUE] = u64_from_pointer(current_cpu()->thread_queue);
     frame[FRAME_IS_SYSCALL] = 1;
     frame[FRAME_CS] = 0x2b; // where is this defined?
     frame[FRAME_THREAD] = u64_from_pointer(t);
