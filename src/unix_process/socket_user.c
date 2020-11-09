@@ -207,7 +207,7 @@ static boolean poll_register(notifier n, descriptor f, u32 events, thunk a)
     new->a = a;
     new->next = vector_get(p->registrations, f);
     if (!vector_set(p->registrations, f, new)) { 
-        return false
+        return false;
     }
 
     extend_total(p->poll_fds, (f+1) * sizeof(struct pollfd));
@@ -330,7 +330,7 @@ static boolean epoll_register(notifier n, descriptor f, u32 events, thunk a)
 #endif
     epoll_notifier e = (epoll_notifier)n;
     registration new = allocate(n->h, sizeof(struct registration));
-    if (new != INVALID_ADDRESS) {
+    if (new == INVALID_ADDRESS) {
         return false;
     }
     new->fd = f;
