@@ -123,6 +123,7 @@ void runtime_memcpy(void *a, const void *b, bytes len)
         memcpyb_8(a, b, end_len);
     }
 }
+KLIB_EXPORT(runtime_memcpy);
 
 void runtime_memset(u8 *a, u8 b, bytes len)
 {
@@ -150,6 +151,8 @@ void runtime_memset(u8 *a, u8 b, bytes len)
     }
     memset_8(dest, b, end_len);
 }
+KLIB_EXPORT(runtime_memset);
+
 
 int runtime_memcmp(const void *a, const void *b, bytes len)
 {
@@ -203,3 +206,4 @@ int runtime_memcmp(const void *a, const void *b, bytes len)
     }
     return memcmp_8(a + len - end_len, p_long_b, end_len);
 }
+KLIB_EXPORT(runtime_memcmp);

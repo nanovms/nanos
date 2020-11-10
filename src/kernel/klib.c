@@ -18,6 +18,10 @@ static tuple klib_root;
 static table export_syms;
 static id_heap klib_heap;
 
+/* from linker script */
+extern void *klib_syms_start;
+extern void *klib_syms_end;
+
 static void add_sym(void *syms, const char *s, void *p)
 {
     table_set((table)syms, sym_this(s), p ? p : INVALID_ADDRESS); /* allow zero value */
@@ -175,23 +179,10 @@ closure_function(0, 2, void, klib_test_loaded,
     return;
 }
 
-/* XXX temporary; move to export symbol macro / section... */
-struct export_sym {
-    const char *name;
-    void *v;
-};
-
-static struct export_sym export_symtab[] = {
-    { "runtime_memset", runtime_memset },
-    { "runtime_memcpy", runtime_memcpy },
-    { "runtime_memcmp", runtime_memcmp },
-    { 0, 0 }
-};
-
 void init_klib(kernel_heaps kh, void *fs, tuple config_root, tuple klib_md)
 {
-    klib_debug("%s: fs %p, config_root %p, klib_root %p\n",
-               __func__, fs, config_root, klib_root);
+    klib_debug("%s: fs %p, config_root %p, klib_md %p\n",
+               __func__, fs, config_root, klib_md);
     assert(fs);
     assert(config_root);
     assert(klib_md);
@@ -202,10 +193,12 @@ void init_klib(kernel_heaps kh, void *fs, tuple config_root, tuple klib_md)
     export_syms = allocate_table(h, key_from_symbol, pointer_equal);
     assert(export_syms != INVALID_ADDRESS);
 
-    for (int i = 0; export_symtab[i].name; i++) {
-        klib_debug("   export \"%s\", v %p\n", export_symtab[i].name, export_symtab[i].v);
-        table_set(export_syms, sym_this(export_symtab[i].name), export_symtab[i].v);
+    /* add exported symbols to table */
+    for (export_sym s = (export_sym)&klib_syms_start; s < (export_sym)&klib_syms_end; s++) {
+        klib_debug("   export \"%s\", v %p\n", s->name, s->v);
+        table_set(export_syms, sym_this(s->name), s->v);
     }
+
     extern u8 END;
     u64 klib_heap_start = pad(u64_from_pointer(&END), PAGESIZE_2M);
     u64 klib_heap_size = KERNEL_LIMIT - klib_heap_start;
