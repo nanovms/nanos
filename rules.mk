@@ -240,8 +240,7 @@ ifeq ($(WITHOUT_SSP),)
 CFLAGS+=	-fstack-protector-strong
 ifneq ($(CC),clang)
 ifneq ($(UNAME_s),Darwin)
-KERNCFLAGS+=	-mstack-protector-guard=global \
-		-fno-pic
+KERNCFLAGS+=	-mstack-protector-guard=global
 endif
 endif
 endif

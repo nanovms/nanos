@@ -22,7 +22,8 @@ static inline elfsym allocate_elfsym(range r, char * name)
     return es;
 }
 
-closure_function(0, 4, void, elf_symtable_add,
+closure_function(1, 4, void, elf_symtable_add,
+                 u64, load_offset,
                  char *, name, u64, a, u64, len, u8, info)
 {
     int type = ELF64_ST_TYPE(info);
@@ -34,7 +35,7 @@ closure_function(0, 4, void, elf_symtable_add,
 
     assert(elf_symtable);
 
-    range r = irange(a, a + len);
+    range r = irangel(a + bound(load_offset), len);
     boolean match = rangemap_range_intersects(elf_symtable, r);
     if (match) {
 #ifdef ELF_SYMTAB_DEBUG
@@ -70,10 +71,10 @@ char * find_elf_sym(u64 a, u64 *offset, u64 *len)
     return es->name;
 }
 
-void add_elf_syms(buffer b)
+void add_elf_syms(buffer b, u64 load_offset)
 {
     if (elf_symtable)
-	elf_symbols(b, stack_closure(elf_symtable_add));
+	elf_symbols(b, stack_closure(elf_symtable_add, load_offset));
     else
 	console("can't add ELF symbols; symtab not initialized\n");
 }

@@ -107,7 +107,9 @@ closure_function(2, 3, void, offset_block_io,
 /* XXX some header reorg in order */
 void init_extra_prints(); 
 thunk create_init(kernel_heaps kh, tuple root, filesystem fs);
-filesystem_complete bootfs_handler(kernel_heaps kh);
+filesystem_complete bootfs_handler(kernel_heaps kh, tuple root,
+                                   boolean klibs_in_bootfs,
+                                   boolean ingest_kernel_syms);
 
 closure_function(4, 2, void, fsstarted,
                  heap, h, u8 *, mbr, block_io, r, block_io, w,
@@ -125,20 +127,29 @@ closure_function(4, 2, void, fsstarted,
     tuple mounts = table_find(root, sym(mounts));
     if (mounts && (tagof(mounts) == tag_tuple))
         storage_set_mountpoints(mounts);
+    value klibs = table_find(root, sym(klibs));
+    boolean klibs_in_bootfs = klibs && tagof(klibs) != tag_tuple &&
+        buffer_compare_with_cstring(klibs, "bootfs");
+
     if (mbr) {
+        boolean ingest_kernel_syms = table_find(root, sym(ingest_kernel_symbols)) != 0;
         struct partition_entry *bootfs_part;
-        if (table_find(root, sym(ingest_kernel_symbols)) &&
-                (bootfs_part = partition_get(mbr, PARTITION_BOOTFS))) {
-            init_debug("loading boot filesystem");
+        if ((ingest_kernel_syms || klibs_in_bootfs) &&
+            (bootfs_part = partition_get(mbr, PARTITION_BOOTFS))) {
             create_filesystem(h, SECTOR_SIZE,
                               bootfs_part->nsectors * SECTOR_SIZE,
                               closure(h, offset_block_io,
                               bootfs_part->lba_start * SECTOR_SIZE, bound(r)),
                               0, false,
-                              bootfs_handler(&heaps));
+                              bootfs_handler(&heaps, root, klibs_in_bootfs,
+                                             ingest_kernel_syms));
         }
         deallocate(h, mbr, SECTOR_SIZE);
     }
+
+    if (klibs && !klibs_in_bootfs)
+        init_klib(&heaps, fs, root, root);
+
     root_fs = fs;
     enqueue(runqueue, create_init(&heaps, root, fs));
     closure_finish();
@@ -243,7 +254,7 @@ static void read_kernel_syms()
 	    rprintf("kernel ELF image at 0x%lx, length %ld, mapped at 0x%lx\n",
 		    kern_base, kern_length, v);
 #endif
-	    add_elf_syms(alloca_wrap_buffer(v, kern_length));
+	    add_elf_syms(alloca_wrap_buffer(v, kern_length), 0);
             unmap(v, kern_length);
 	    break;
 	}

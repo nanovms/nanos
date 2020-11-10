@@ -227,3 +227,18 @@ status_handler apply_merge(merge m);
 void __stack_chk_guard_init();
 
 #define _countof(a) (sizeof(a) / sizeof(*(a)))
+
+#ifdef KERNEL
+typedef struct export_sym {
+    const char *name;
+    void *v;
+} *export_sym;
+
+#define KLIB_EXPORT(sym)                                                \
+    static const char * __attribute__((section(".klib_symtab.strs")))   \
+        __attribute__((used)) _klib_sym_str_ ##sym = #sym;              \
+    static struct export_sym __attribute__((section(".klib_symtab.syms"))) \
+        __attribute__((used)) _klib_export_sym_ ##sym = (struct export_sym){#sym, (sym)};
+#else
+#define KLIB_EXPORT(x)
+#endif

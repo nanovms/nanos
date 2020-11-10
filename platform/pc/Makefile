@@ -17,6 +17,7 @@ SRCS-kernel.img= \
 	$(SRCDIR)/kernel/backed_heap.c \
 	$(SRCDIR)/kernel/elf.c \
 	$(SRCDIR)/kernel/kernel.c \
+	$(SRCDIR)/kernel/klib.c \
 	$(SRCDIR)/kernel/kvm_platform.c \
 	$(SRCDIR)/kernel/pagecache.c \
 	$(SRCDIR)/kernel/pci.c \
@@ -84,6 +85,7 @@ SRCS-kernel.img= \
 	$(SRCDIR)/x86_64/breakpoint.c \
 	$(SRCDIR)/x86_64/clock.c \
 	$(SRCDIR)/x86_64/crt0.s \
+	$(SRCDIR)/x86_64/elf64.c \
 	$(SRCDIR)/x86_64/flush.c \
 	$(SRCDIR)/x86_64/hpet.c \
 	$(SRCDIR)/x86_64/interrupt.c \
@@ -143,7 +145,7 @@ INCLUDES=\
 
 AFLAGS+=-I$(ARCHDIR)/
 
-CFLAGS+=$(KERNCFLAGS) -DSTAGE3 -DKERNEL -mcmodel=kernel
+CFLAGS+=$(KERNCFLAGS) -DSTAGE3 -DKERNEL -fno-pic -mcmodel=kernel
 CFLAGS+=-Wno-address # lwIP build sadness
 CFLAGS+=$(INCLUDES)
 
