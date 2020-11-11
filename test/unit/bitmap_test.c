@@ -49,6 +49,14 @@ u64 test_alloc(id_heap i, id_range r, u64 pages, range subrange) {
     return bit;
 }
 
+/**
+ *  Tests the cloning functionality of bitmaps. 
+ */
+boolean test_clone(bitmap b) {
+    u64 b_cpy = bitmap_clone(b);
+    return (b_cpy == b);
+}
+
 boolean basic_test(heap h)
 {
     // from id_alloc in id.c
@@ -58,6 +66,13 @@ boolean basic_test(heap h)
     u64 b = test_alloc(i, r, pages, WHOLE_RANGE);
     if (bit == INVALID_PHYSICAL)
         //TODO: error check
+
+    // tests bitmap cloning
+    if (!test_clone(b)) {
+        msg_err("cloning bitmap failed.");
+        return false;
+    }
+
 
 }
 
