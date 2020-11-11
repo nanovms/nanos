@@ -127,18 +127,30 @@ define_closure_function(1, 1, context, default_fault_handler,
                         thread, t,
                         context, frame)
 {
+    process p = 0;
+    u64 vaddr = fault_address(frame);
+    if (vaddr >= USER_LIMIT) {
+        rprintf("\nPage fault on non-user memory (vaddr 0x%lx)\n", vaddr);
+        goto bug;
+    }
+
+    thread current_thread = current;
+    if (!current_thread) {
+        rprintf("\nPage fault outside of thread context\n");
+        goto bug;
+    }
+
     boolean user = is_usermode_fault(frame);
 
     /* Really this should be the enclosed thread, but that won't fly
        for kernel page faults on user pages. If we were ever to
        support multiple processes, we may need to install current when
        resuming deferred processing. */
-    process p = current->p;
+    p = current_thread->p;
 
-    u64 vaddr = fault_address(frame);
     if (frame[FRAME_VECTOR] == 0) {
         if (current_cpu()->state == cpu_user) {
-            deliver_fault_signal(SIGFPE, current, vaddr, FPE_INTDIV);
+            deliver_fault_signal(SIGFPE, current_thread, vaddr, FPE_INTDIV);
             schedule_frame(frame);
             return 0;
         } else {
@@ -150,7 +162,7 @@ define_closure_function(1, 1, context, default_fault_handler,
         if (vm == INVALID_ADDRESS) {
             if (user) {
                 pf_debug("no vmap found for addr 0x%lx, rip 0x%lx", vaddr, frame[FRAME_RIP]);
-                deliver_fault_signal(SIGSEGV, current, vaddr, SEGV_MAPERR);
+                deliver_fault_signal(SIGSEGV, current_thread, vaddr, SEGV_MAPERR);
 
                 /* schedule this thread to either run signal handler or terminate */
                 schedule_frame(frame);
@@ -190,7 +202,7 @@ define_closure_function(1, 1, context, default_fault_handler,
     } else if (frame[FRAME_VECTOR] == 13) {
         if (current_cpu()->state == cpu_user) {
             pf_debug("general protection fault in user mode, rip 0x%lx", frame[FRAME_RIP]);
-            deliver_fault_signal(SIGSEGV, current, 0, SI_KERNEL);
+            deliver_fault_signal(SIGSEGV, current_thread, 0, SI_KERNEL);
             schedule_frame(frame);
             return 0;
         }
@@ -201,8 +213,9 @@ define_closure_function(1, 1, context, default_fault_handler,
     rprintf("cpu: %d\n", current_cpu()->id);
     print_frame(frame);
     print_stack(frame);
+    frame[FRAME_FULL] = 0;
 
-    if (table_find(p->process_root, sym(fault))) {
+    if (p && table_find(p->process_root, sym(fault))) {
         console("starting gdb\n");
         init_tcp_gdb(heap_general(get_kernel_heaps()), p, 9090);
         thread_sleep_uninterruptible();

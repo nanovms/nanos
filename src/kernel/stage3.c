@@ -193,38 +193,47 @@ thunk create_init(kernel_heaps kh, tuple root, filesystem fs)
     return closure(heap_general(kh), startup, kh, root, fs);
 }
 
-closure_function(1, 1, status, kernel_read_complete,
-                 filesystem, fs,
+closure_function(2, 1, status, kernel_read_complete,
+                 filesystem, fs, boolean, destroy_fs,
                  buffer, b)
 {
-    add_elf_syms(b);
+    add_elf_syms(b, 0);
     deallocate_buffer(b);
-    destroy_filesystem(bound(fs));
+    if (bound(destroy_fs))
+        destroy_filesystem(bound(fs));
     closure_finish();
     return STATUS_OK;
 }
 
-closure_function(1, 2, void, bootfs_complete,
-                 kernel_heaps, kh,
+closure_function(4, 2, void, bootfs_complete,
+                 kernel_heaps, kh, tuple, root, boolean, klibs_in_bootfs, boolean, ingest_kernel_syms,
                  filesystem, fs, status, s)
 {
-    tuple root = filesystem_getroot(fs);
-    tuple c = children(root);
+    tuple boot_root = filesystem_getroot(fs);
+    tuple c = children(boot_root);
     assert(c);
-    table_foreach(c, k, v) {
-        if (!buffer_strcmp(symbol_string(k), "kernel")) {
-            kernel_heaps kh = bound(kh);
-            filesystem_read_entire(fs, v, heap_backed(kh),
-                                   closure(heap_general(kh),
-                                   kernel_read_complete, fs),
-                                   ignore_status);
-            break;
+    if (bound(klibs_in_bootfs))
+        init_klib(bound(kh), fs, bound(root), boot_root);
+
+    if (bound(ingest_kernel_syms)) {
+        table_foreach(c, k, v) {
+            if (!buffer_strcmp(symbol_string(k), "kernel")) {
+                kernel_heaps kh = bound(kh);
+                filesystem_read_entire(fs, v, heap_backed(kh),
+                                       closure(heap_general(kh),
+                                               kernel_read_complete, fs, !bound(klibs_in_bootfs)),
+                                       ignore_status);
+                break;
+            }
         }
     }
     closure_finish();
 }
 
-filesystem_complete bootfs_handler(kernel_heaps kh)
+filesystem_complete bootfs_handler(kernel_heaps kh, tuple root,
+                                   boolean klibs_in_bootfs,
+                                   boolean ingest_kernel_syms)
 {
-    return closure(heap_general(kh), bootfs_complete, kh);
+    return closure(heap_general(kh), bootfs_complete,
+                   kh, root, klibs_in_bootfs, ingest_kernel_syms);
 }

@@ -164,16 +164,44 @@ typedef struct {
 /* Macro for accessing the fields of st_other. */
 #define ELF64_ST_VISIBILITY(oth) ((oth) & 0x3)
 
+typedef struct {
+    Elf64_Addr r_offset;
+    Elf64_Xword r_info;
+    Elf64_Sxword r_addend;
+} Elf64_Rela;
+
+/* Macros for accessing r_info. */
+#define ELF64_R_SYM(i)  ((i) >> 32)
+#define ELF64_R_TYPE(i) ((i) & 0xffffffff)
+
 #define SHT_SYMTAB 2/* symbol table section */
 #define SHT_STRTAB 3/* string table section */
+#define SHT_RELA   4
 
 #define foreach_phdr(__e, __p)\
     for (int __i = 0; __i< __e->e_phnum; __i++)\
         for (Elf64_Phdr *__p = (void *)__e + __e->e_phoff + (__i * __e->e_phentsize); __p ; __p = 0) \
 
+#define foreach_shdr(__e, __s) \
+    for (int __i = 0; __i< __e->e_shnum; __i++) \
+        for (Elf64_Shdr *__s = (void *)__e + __e->e_shoff + (__i * __e->e_shentsize); __s ; __s = 0) \
+
 typedef closure_type(elf_map_handler, void, u64 /* vaddr */, u64 /* paddr, -1ull if bss */, u64 /* size */, u64 /* flags */);
 typedef closure_type(elf_sym_handler, void, char *, u64, u64, u8);
 void elf_symbols(buffer elf, elf_sym_handler each);
 void *load_elf(buffer elf, u64 load_offset, elf_map_handler mapper);
+
+/* Architecture-specific */
+void elf_apply_relocate_add(buffer elf, Elf64_Shdr *s, u64 offset);
+
+static inline void elf_apply_relocs(buffer elf, u64 offset)
+{
+    Elf64_Ehdr *e = (Elf64_Ehdr *)buffer_ref(elf, 0);
+
+    foreach_shdr(e, s) {
+        if (s->sh_type == SHT_RELA)
+            elf_apply_relocate_add(elf, s, offset);
+    }
+}
 
 #endif /* !_SYS_ELF64_H_ */

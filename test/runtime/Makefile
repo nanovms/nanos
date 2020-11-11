@@ -14,6 +14,7 @@ PROGRAMS= \
 	getrandom \
 	hw \
 	hws \
+	klibs \
 	io_uring \
 	mkdir \
 	mmap \
@@ -105,6 +106,9 @@ SRCS-io_uring= \
 	$(CURDIR)/io_uring.c \
 	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-io_uring=	-static
+
+SRCS-klibs=		$(CURDIR)/klibs.c
+LDFLAGS-klibs=		-static
 
 SRCS-mmap= \
 	$(CURDIR)/mmap.c \
