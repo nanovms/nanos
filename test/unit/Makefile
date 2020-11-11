@@ -14,7 +14,8 @@ PROGRAMS= \
 	table_test \
 	tuple_test \
 	udp_test \
-	vector_test
+	vector_test \
+	bitmap_test
 SKIP_TEST=	network_test udp_test
 
 SRCS-buffer_test= \
@@ -108,6 +109,11 @@ SRCS-udp_test= \
 
 SRCS-vector_test= \
 	$(CURDIR)/vector_test.c \
+	$(RUNTIME)\
+	$(SRCDIR)/unix_process/unix_process_runtime.c
+
+SRCS-bitmap_test= \
+	$(CURDIR)/bitmap_test.c \
 	$(RUNTIME)\
 	$(SRCDIR)/unix_process/unix_process_runtime.c
 
