@@ -10,7 +10,7 @@
 #define ft_debug(x, ...)
 #endif
 /* 64MB default size for the user's trace array */
-#define DEFAULT_TRACE_ARRAY_SIZE        (256ULL << 20)
+#define DEFAULT_TRACE_ARRAY_SIZE        (512ULL << 20)
 #define DEFAULT_TRACE_ARRAY_SIZE_KB     (DEFAULT_TRACE_ARRAY_SIZE >> 10)
 
 #define TRACE_TASK_WIDTH    15
@@ -91,6 +91,7 @@ struct rbuf_entry {
 
 struct rbuf {
     struct rbuf_entry * trace_array;
+    struct spinlock rb_lock;
     unsigned long count; /* current number of unconsumed items */
     unsigned long total_written; /* total items ever written */
     unsigned long size;
@@ -419,9 +420,13 @@ printer_print_duration_usec(struct ftrace_printer * p, timestamp num, u16 width)
  * we're in kernel
  */
 static inline __attribute__((always_inline)) void
-rbuf_lock(struct rbuf * rbuf) {}
+rbuf_lock(struct rbuf * rbuf) {
+    spin_lock(&rbuf->rb_lock);
+}
 static inline __attribute__((always_inline)) void
-rbuf_unlock(struct rbuf * rbuf) {}
+rbuf_unlock(struct rbuf * rbuf) {
+    spin_unlock(&rbuf->rb_lock);
+}
 
 static void
 rbuf_reset(struct rbuf * rbuf)
@@ -445,7 +450,7 @@ rbuf_init(struct rbuf * rbuf, unsigned long buffer_size_kb)
         msg_err("failed to allocate ftrace trace array\n");
         return -ENOMEM;
     }
-
+    spin_lock_init(&rbuf->rb_lock);
     rbuf_reset(rbuf);
 
     /* start out disabled */
@@ -544,8 +549,10 @@ function_trace(unsigned long ip, unsigned long parent_ip)
     rbuf_disable(&global_rbuf);
 
     rbuf_lock(&global_rbuf);
-    if (!__rbuf_acquire_write_entry(&global_rbuf, &entry))
+    if (!__rbuf_acquire_write_entry(&global_rbuf, &entry)) {
+        rbuf_unlock(&global_rbuf);
         goto drop;
+    }
 
     func = &(entry->func);
     func->cpu = current_cpu()->id;
@@ -626,8 +633,7 @@ function_print_entry(struct ftrace_printer * p, struct rbuf_entry * entry)
     }
 
     /* CPU number */
-    assert(func->cpu == 0);
-    printer_write(p, " [000] ");
+    printer_write(p, " [%03d] ", func->cpu);
 
     /* timestamp */
     printer_write(p, " %ld: ", func->ts);
@@ -650,8 +656,10 @@ function_graph_trace_switch(thread out, thread in)
     struct rbuf_entry_switch * sw;
 
     rbuf_lock(&global_rbuf);
-    if (!__rbuf_acquire_write_entry(&global_rbuf, &entry))
+    if (!__rbuf_acquire_write_entry(&global_rbuf, &entry)) {
+        rbuf_unlock(&global_rbuf);
         goto drop;
+    }
 
     sw = &(entry->sw);
     sw->depth = TRACE_GRAPH_SWITCH_DEPTH;
@@ -688,8 +696,10 @@ function_graph_trace_entry(struct ftrace_graph_entry * stack_entry)
     struct rbuf_entry_function_graph * graph;
 
     rbuf_lock(&global_rbuf);
-    if (!__rbuf_acquire_write_entry(&global_rbuf, &entry))
+    if (!__rbuf_acquire_write_entry(&global_rbuf, &entry)) {
+        rbuf_unlock(&global_rbuf);
         goto drop;
+    }
 
     graph = &(entry->graph);
     graph->ip = stack_entry->func;
@@ -716,8 +726,10 @@ function_graph_trace_return(struct ftrace_graph_entry * stack_entry)
     struct rbuf_entry_function_graph * graph;
 
     rbuf_lock(&global_rbuf);
-    if (!__rbuf_acquire_write_entry(&global_rbuf, &entry))
+    if (!__rbuf_acquire_write_entry(&global_rbuf, &entry)) {
+        rbuf_unlock(&global_rbuf);
         goto drop;
+    }
 
     graph = &(entry->graph);
     graph->depth = stack_entry->depth;
