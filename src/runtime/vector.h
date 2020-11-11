@@ -11,7 +11,7 @@ static inline void *vector_get(vector v, int offset)
 
 static inline boolean vector_set(vector v, int offset, void *value)
 {
-    if (!extend_total(v, (offset + 1) * sizeof(void *)))
+    if (!extend_total(v, (offset + 1) * sizeof(void *))) 
         return false;
     ((void **)(v->contents + v->start))[offset] = value;
     return true;

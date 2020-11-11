@@ -95,7 +95,7 @@ static inline boolean buffer_extend(buffer b, bytes len)
 static inline boolean extend_total(buffer b, int offset)
 {
     if (offset > b->end) {
-        if (!buffer_extend(b, offset - b->end))
+        if (!buffer_extend(b, offset - b->end)) 
             return false;
         // shouldn't need to in all cases - this is to preserve
         // the idea of the vector as a mapping - we need a reliable

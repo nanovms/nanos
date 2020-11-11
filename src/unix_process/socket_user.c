@@ -66,9 +66,8 @@ static boolean select_register(notifier n, descriptor f, u32 events, thunk a)
     new->events = events;
     new->a = a;
     new->next = vector_get(s->registrations, f);
-    if (!vector_set(s->registrations, f, new)) { 
+    if (!vector_set(s->registrations, f, new))
         return false;
-    }
     if (f >= s->nfds)
 	s->nfds = f + 1;
 
@@ -206,9 +205,8 @@ static boolean poll_register(notifier n, descriptor f, u32 events, thunk a)
     new->events = events;
     new->a = a;
     new->next = vector_get(p->registrations, f);
-    if (!vector_set(p->registrations, f, new)) { 
+    if (!vector_set(p->registrations, f, new))
         return false;
-    }
 
     extend_total(p->poll_fds, (f+1) * sizeof(struct pollfd));
     struct pollfd *fds = buffer_ref(p->poll_fds, 0);
@@ -336,9 +334,8 @@ static boolean epoll_register(notifier n, descriptor f, u32 events, thunk a)
     new->fd = f;
     new->a = a;
     new->next = vector_get(e->registrations, f);
-    if (!vector_set(e->registrations, f, new)) { 
-        return false
-    }
+    if (!vector_set(e->registrations, f, new)) 
+        return false;
 
     struct epoll_event ev;
     ev.events = events;
