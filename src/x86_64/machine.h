@@ -63,6 +63,20 @@ static inline void atomic_clear_bit(u64 *target, u64 bit)
     asm volatile("lock btrq %1, %0": "+m"(*target):"r"(bit) : "memory");
 }
 
+static inline int atomic_test_and_set_bit(u64 *target, u64 bit)
+{
+    int oldbit;
+    asm volatile("lock btsq %2, %0" : "+m"(*target), "=@ccc"(oldbit) : "r"(bit) : "memory");
+    return oldbit;
+}
+
+static inline int atomic_test_and_clear_bit(u64 *target, u64 bit)
+{
+    int oldbit;
+    asm volatile("lock btrq %2, %0" : "+m"(*target), "=@ccc"(oldbit) : "r"(bit) : "memory");
+    return oldbit;
+}
+
 static inline void kern_pause(void)
 {
     asm volatile("pause");

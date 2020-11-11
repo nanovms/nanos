@@ -7,6 +7,8 @@
 // currently maps to the linux gdb frame layout for convenience
 #include "frame.h"
 
+#include "klib.h"
+
 #define HUGE_PAGESIZE 0x100000000ull
 
 typedef u64 *context;
@@ -43,6 +45,8 @@ typedef struct cpuinfo {
     u32 id;
     int state;
     boolean have_kernel_lock;
+    queue thread_queue;
+    timestamp last_timer_update;
     u64 frcount;
 
     /* The following fields are used rarely or only on initialization. */
@@ -172,7 +176,6 @@ static inline void set_page_write_protect(boolean enable)
 typedef struct queue *queue;
 extern queue bhqueue;
 extern queue runqueue;
-extern queue thread_queue;
 extern timerheap runloop_timers;
 
 static inline void bhqueue_enqueue_irqsafe(thunk t)

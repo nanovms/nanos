@@ -1,4 +1,4 @@
-SUBDIR=		$(PLATFORMDIR) test tools
+SUBDIR=		$(PLATFORMDIR) klib test tools
 
 # runtime tests / ready-to-use targets
 TARGET=		webg
@@ -34,11 +34,12 @@ KERNEL=		$(PLATFORMOBJDIR)/bin/kernel.img
 
 all: image
 
-.PHONY: image release target tools distclean
+.PHONY: distclean image release target tools
 
 include rules.mk
 
 image: $(LWIPDIR)/.vendored tools
+	$(Q) $(MAKE) -C klib
 	$(Q) $(MAKE) -C $(PLATFORMDIR) image TARGET=$(TARGET)
 
 release: $(LWIPDIR)/.vendored mkfs
@@ -54,7 +55,7 @@ release: $(LWIPDIR)/.vendored mkfs
 target: contgen
 	$(Q) $(MAKE) -C test/runtime $(TARGET)
 
-tools:
+tools: contgen
 	$(Q) $(MAKE) -C $@
 
 distclean: clean
@@ -75,7 +76,7 @@ test test-noaccel: image
 	$(Q) $(MAKE) -C test test
 	$(Q) $(MAKE) runtime-tests$(subst test,,$@)
 
-RUNTIME_TESTS=	aio creat dup epoll eventfd fadvise fallocate fcntl fst getdents getrandom hw hws io_uring mkdir mmap netsock pipe readv rename sendfile signal socketpair time unlink thread_test vsyscall write writev
+RUNTIME_TESTS=	aio creat dup epoll eventfd fadvise fallocate fcntl fst getdents getrandom hw hws io_uring klibs mkdir mmap netsock pipe readv rename sendfile signal socketpair time unlink thread_test vsyscall write writev
 
 .PHONY: runtime-tests runtime-tests-noaccel
 

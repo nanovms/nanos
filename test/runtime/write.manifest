@@ -11,5 +11,5 @@
 #    arguments:[write -p]
     environment:(USER:bobby PWD:/)
     exec_protection:t
-    imagesize:30M
+    imagesize:64M
 )
