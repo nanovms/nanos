@@ -182,6 +182,7 @@ typedef struct sigstate {
     u64         saved;          /* original mask saved on rt_sigsuspend or handler dispatch */
     u64         ignored;        /* mask of signals set to SIG_IGN */
     u64         interest;       /* signals of interest, regardless of mask or ignored */
+    struct spinlock   ss_lock;
     struct list heads[NSIG];
 } *sigstate;
 
