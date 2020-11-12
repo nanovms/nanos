@@ -184,6 +184,16 @@ static id_heap init_physical_id_heap(heap h)
 
 id_heap init_phys_heap(heap h, id_heap physical);
 
+
+extern void arm_hvc(u64 x0, u64 x1, u64 x2, u64 x3);
+
+static inline void virt_shutdown(void)
+{
+    /* hackish shortcut to psci shutdown */
+    u32 psci_fn = 0x84000000 /* fn base */ + 0x8 /* system off */;
+    arm_hvc(psci_fn, 0, 0, 0);
+}
+
 void vm_exit(u8 code)
 {
 #ifdef SMP_DUMP_FRAME_RETURN_COUNT
@@ -212,6 +222,7 @@ void vm_exit(u8 code)
         QEMU_HALT(code);
     }
 #endif
+    virt_shutdown();
     while (1);
 }
 
