@@ -1843,6 +1843,10 @@ ftrace_init(unix_heaps uh, filesystem fs)
 void
 ftrace_deinit(void)
 {
+    for (int i = 0; i < MAX_CPUS; i++) {
+        cpuinfo ci = cpuinfo_from_id(i);
+        ftrace_cpu_deinit(ci);
+    }
     deallocate_http_listener(ftrace_heap, ftrace_hl);
 }
 
@@ -1862,22 +1866,25 @@ ftrace_cpu_init(cpuinfo ci)
 }
 
 NOTRACE void
-ftrace_thread_deinit(thread out, thread in)
+ftrace_cpu_deinit(cpuinfo ci)
 {
-    /* complete the current call stack */
-    ftrace_thread_noreturn(out);
-
-    /* generate a switch event */
-    ftrace_thread_switch(out, in);
-
     rbuf_disable(&global_rbuf);
+    timestamp t = now(CLOCK_ID_MONOTONIC);
+    while (ci->graph_idx > 0) {
+        struct ftrace_graph_entry * stack_ent =
+                &(ci->graph_stack[--ci->graph_idx]);
+        stack_ent->return_ts = t;
+        if (ci->graph_idx == 0)
+        stack_ent->flush = 1;
+        function_graph_trace_return(stack_ent);
+    }
 
-    // deallocate(ftrace_heap, out->graph_stack,
-    //     sizeof(struct ftrace_graph_entry) * FTRACE_RETFUNC_DEPTH
-    // );
+    deallocate(ftrace_heap, ci->graph_stack,
+        sizeof(struct ftrace_graph_entry) * FTRACE_RETFUNC_DEPTH
+    );
 
-    // out->graph_idx = FTRACE_THREAD_DISABLE_IDX;
-    // out->graph_stack = 0;
+    ci->graph_idx = FTRACE_THREAD_DISABLE_IDX;
+    ci->graph_stack = 0;
 
     rbuf_enable(&global_rbuf);
 }

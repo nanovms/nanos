@@ -377,8 +377,6 @@ void exit_thread(thread t)
     deallocate_frame(t->default_frame);
     deallocate_frame(t->sighandler_frame);
 
-    ftrace_thread_deinit(t, dummy_thread);
-
     /* replace references to thread with placeholder */
     set_current_thread((nanos_thread)dummy_thread);
     set_running_frame(dummy_thread->default_frame);

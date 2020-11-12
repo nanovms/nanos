@@ -76,7 +76,7 @@ FTRACE_SPECIAL_PROTOTYPES(tracing_on);
 int ftrace_init(unix_heaps uh, filesystem fs);
 void ftrace_deinit(void);
 int ftrace_cpu_init(cpuinfo ci);
-void ftrace_thread_deinit(thread out, thread in);
+void ftrace_cpu_deinit(cpuinfo ci);
 void ftrace_thread_switch(thread out, thread in);
 
 #define ftrace_thread_noreturn(t) ftrace_thread_switch(t, t)
