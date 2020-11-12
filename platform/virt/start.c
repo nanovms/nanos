@@ -7,7 +7,7 @@
 #include "serial.h"
 #include <drivers/console.h> // XXX
 
-#define START_DEBUG
+//#define START_DEBUG
 #ifdef START_DEBUG
 #define start_debug early_debug
 #define start_debug_u64 early_debug_u64

@@ -117,8 +117,7 @@ NOTRACE void __attribute__((noreturn)) kernel_sleep(void)
 {
     // we're going to cover up this race by checking the state in the interrupt
     // handler...we shouldn't return here if we do get interrupted
-//    cpuinfo ci = get_cpuinfo();
-    cpuinfo ci = &cpuinfos[0];
+    cpuinfo ci = current_cpu();
     sched_debug("sleep\n");
     ci->state = cpu_idle;
     atomic_set_bit(&idle_cpu_mask, ci->id);
@@ -126,7 +125,6 @@ NOTRACE void __attribute__((noreturn)) kernel_sleep(void)
         kern_unlock();
 
     while (1) {
-//        rprintf("...wfi...\n");
         wait_for_interrupt();
     }
 }

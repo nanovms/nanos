@@ -2,6 +2,13 @@
 #include <elf64.h>
 #include <page.h>
 
+//#define ELF_DEBUG
+#ifdef ELF_DEBUG
+#define elf_debug(x, ...) do {rprintf("ELF: " x, ##__VA_ARGS__);} while(0)
+#else
+#define elf_debug(x, ...)
+#endif
+
 static char *elf_string(buffer elf, Elf64_Shdr *string_section, u64 offset)
 {
     char * str = buffer_ref(elf, string_section->sh_offset + offset);
@@ -65,14 +72,16 @@ void elf_symbols(buffer elf, elf_sym_handler each)
 
 void *load_elf(buffer elf, u64 load_offset, elf_map_handler mapper)
 {
-    void * elf_end = buffer_ref(elf, buffer_length(elf));
+    void *elf_end = buffer_ref(elf, buffer_length(elf));
     Elf64_Ehdr *e = buffer_ref(elf, 0);
+    elf_debug("%s: buffer %p, load_offset 0x%lx, mapper %p (%F), buf [%p, %p)\n",
+              __func__, elf, load_offset, mapper, mapper, e, elf_end);
     ELF_CHECK_PTR(e, Elf64_Ehdr);
     foreach_phdr(e, p) {
         ELF_CHECK_PTR(p, Elf64_Phdr);
         if (p->p_type == PT_LOAD) {
-            rprintf("PT_LOAD vaddr 0x%lx, offset 0x%lx, ssize 0x%lx\n",
-                    p->p_vaddr, p->p_offset, p->p_filesz);
+            elf_debug("   PT_LOAD vaddr 0x%lx, offset 0x%lx, ssize 0x%lx\n",
+                      p->p_vaddr, p->p_offset, p->p_filesz);
             // unaligned segment? doesn't seem useful
             u64 aligned = p->p_vaddr & (~MASK(PAGELOG));
             u64 trim_offset = p->p_vaddr & MASK(PAGELOG);
@@ -90,7 +99,7 @@ void *load_elf(buffer elf, u64 load_offset, elf_map_handler mapper)
 
             // always zero up to the next aligned page start
             s64 bss_size = p->p_memsz - p->p_filesz;
-            rprintf("bss_size 0x%lx\n", bss_size);
+            elf_debug("   bss_size 0x%lx\n", bss_size);
 
             if (bss_size < 0)
                 halt("load_elf with p->p_memsz (%ld) < p->p_filesz (%ld)\n",
@@ -103,7 +112,7 @@ void *load_elf(buffer elf, u64 load_offset, elf_map_handler mapper)
             /* Zero bss up to a page boundary. ld-linux may use the unused
                part of the page after bss and expects it to be zeroed. */
             u64 initial_len_padded = pad(bss_start, PAGESIZE) - bss_start;
-            rprintf("bss_start 0x%lx, initial_len 0x%lx\n", bss_start, initial_len_padded);
+            elf_debug("   bss_start 0x%lx, initial_len 0x%lx\n", bss_start, initial_len_padded);
 
             /* vpzero does the right thing whether stage2 or 3... */
             vpzero(pointer_from_u64(bss_start), phy + p->p_filesz, initial_len_padded);
@@ -116,6 +125,7 @@ void *load_elf(buffer elf, u64 load_offset, elf_map_handler mapper)
         }
     }
     u64 entry = e->e_entry + load_offset;
+    elf_debug("   done; entry 0x%lx\n", entry);
     return pointer_from_u64(entry);
   out_elf_fail:
     msg_err("failed to parse elf file, len %d; check file image consistency\n", buffer_length(elf));

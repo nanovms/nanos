@@ -338,9 +338,10 @@ QEMU_TAP=	-netdev tap,id=n0,ifname=tap0,script=no,downscript=no
 QEMU_NET=	-device $(NETWORK)$(NETWORK_BUS),mac=7e:b8:7e:87:4a:ea,netdev=n0 $(QEMU_TAP)
 QEMU_USERNET=	-device $(NETWORK)$(NETWORK_BUS),netdev=n0 -netdev user,id=n0,hostfwd=tcp::8080-:8080,hostfwd=tcp::9090-:9090,hostfwd=udp::5309-:5309 -object filter-dump,id=filter0,netdev=n0,file=/tmp/nanos.pcap
 QEMU_FLAGS=	-machine highmem=off
+#QEMU_FLAGS+=   -machine dumpdtb=virt.dtb
 #QEMU_FLAGS+=	-d in_asm -D $(ROOTDIR)/asm.out
 #QEMU_FLAGS+=	-smp 4
-QEMU_FLAGS+=	-d int -D int
+#QEMU_FLAGS+=	-d int -D int
 #QEMU_FLAGS+=	-s -S
 
 QEMU_COMMON=	$(QEMU_MACHINE) $(QEMU_MEMORY) $(QEMU_KERNEL) $(QEMU_DISPLAY) $(QEMU_PCI) $(QEMU_SERIAL) $(QEMU_STORAGE) -no-reboot $(QEMU_FLAGS)
