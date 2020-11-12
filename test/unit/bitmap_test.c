@@ -7,13 +7,24 @@
 
 
 /**
- * Inspired by id_alloc_from_range in id.c
- * Returns a bitmap to further test on.
+ *  Tests allocation of bitmap using allocate_bitmap 
+ *  function.
  */
-u64 test_alloc(heap meta, heap map, u64 length) {
+bitmap test_alloc(heap meta, heap map, u64 length) {
     bitmap b = allocate_bitmap(meta, map, length);
-    if (b == INVALID_ADDRESS) {
-        msg_err("!!! allocation failed for bitmap");
+    if (b == INVALID_ADDRESS) 
+        msg_err("!!! allocation failed for bitmap\n");
+    return b;
+}
+
+/**
+ *  Tests cloning of bitmap using bitmap_clone 
+ *  function.
+ */  
+boolean test_clone(bitmap b) {
+    bitmap b_cpy = bitmap_clone(b);
+    if (b_cpy == INVALID_ADDRESS) {
+        msg_err("!!! cloning failed for bitmap\n");
         return false;
     }
     return true;
@@ -21,8 +32,15 @@ u64 test_alloc(heap meta, heap map, u64 length) {
 
 boolean basic_test(heap h)
 {
-    if(!test_alloc(h, h, infinity))
-        return false;
+    // tests bitmap allocate
+    bitmap b = test_alloc(h, h, infinity);
+    if (b == INVALID_ADDRESS) return false;
+    
+    // tests bitmap clone
+    if (!test_clone(b)) return false;
+    
+    // deallocates bitmap
+    deallocate_bitmap(b);
     return true;
 }
 
