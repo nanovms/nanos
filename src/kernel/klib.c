@@ -212,6 +212,14 @@ closure_function(0, 2, void, klib_test_loaded,
     return;
 }
 
+closure_function(0, 2, void, radar_loaded,
+                 klib, kl, status, s)
+{
+    if (!is_ok(s))
+        halt("Radar klib load failed: %v\n", s);
+    closure_finish();
+}
+
 void init_klib(kernel_heaps kh, void *fs, tuple config_root, tuple klib_md)
 {
     klib_debug("%s: fs %p, config_root %p, klib_md %p\n",
@@ -243,4 +251,6 @@ void init_klib(kernel_heaps kh, void *fs, tuple config_root, tuple klib_md)
         klib_debug("   loading klib test\n");
         load_klib("/klib/test", closure(h, klib_test_loaded));
     }
+    if (table_find(get_environment(), sym(RADAR_KEY)))
+        load_klib("/klib/radar", closure(h, radar_loaded));
 }
