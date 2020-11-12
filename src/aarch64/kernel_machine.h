@@ -226,8 +226,7 @@ static inline cpuinfo current_cpu(void)
 
 static inline u64 total_frame_size(void)
 {
-    // TODO extended save
-    return FRAME_MAX * sizeof(u64);
+    return FRAME_EXTENDED_SAVE * sizeof(u64);
 }
 
 static inline void wait_for_interrupt(void)
@@ -251,7 +250,6 @@ static inline u64 frame_return_address(context f)
 static inline void frame_set_sp(context f, u64 sp)
 {
     f[FRAME_SP] = sp;
-    rprintf("%s: loc %p, sp 0x%lx\n", __func__, &f[FRAME_SP], sp);
 }
 
 static inline u64 fault_address(context f)
@@ -338,4 +336,14 @@ static inline boolean is_write_fault(context f)
 static inline boolean is_div_by_zero(context f)
 {
     return false; // XXX not on arm / fp only?
+}
+
+static inline void frame_save_tls(context f)
+{
+    f[FRAME_TPIDR_EL0] = read_psr(TPIDR_EL0);
+}
+
+static inline void frame_restore_tls(context f)
+{
+    write_psr(TPIDR_EL0, f[FRAME_TPIDR_EL0]);
 }
