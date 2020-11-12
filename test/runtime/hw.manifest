@@ -2,8 +2,8 @@
     children:(
               #user program
 	      hw:(contents:(host:output/test/runtime/bin/hw))
-	      etc:(children:(ld.so.cache:(contents:(host:/home/wjhun/pi4-ld.so.cache))))
-	      lib:(children:(ld-linux-aarch64.so.1:(contents:(host:/hd0/src/glibc-2.28/aarch64-build/elf/ld-linux-aarch64.so.1)) aarch64-linux-gnu:(children:(libc.so.6:(contents:(host:/hd0/src/glibc-2.28/aarch64-build/libc.so.6))))))
+	      etc:(children:(ld.so.cache:(contents:(host:/etc/ld.so.cache))))
+	      lib:(children:(ld-linux-aarch64.so.1:(contents:(host:/lib/ld-linux-aarch64.so.1)) aarch64-linux-gnu:(children:(libc.so.6:(contents:(host:/usr/lib/aarch64-linux-gnu/libc.so.6))))))
 	      )
     # filesystem path to elf for kernel to run
     program:/hw
@@ -12,6 +12,6 @@
 #    futex_trace:t    
     fault:t
     noaslr:t
-    arguments:[webg poppy]
-    environment:(USER:bobby PWD:/ LD_DEBUG:all)
+    arguments:[hw poppy]
+    environment:(USER:bobby PWD:/)
 )

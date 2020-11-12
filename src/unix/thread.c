@@ -170,11 +170,13 @@ static inline void run_thread_frame(thread t)
     context f = thread_frame(t);
 
     // XXX - arch prep frame
+    frame_save_tls(thread_frame(old));
+    frame_restore_tls(f);
 #ifdef __x86_64__
     f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
 #endif
 #ifdef __aarch64__
-    f[FRAME_ESR_SPSR] = SPSR_I; /* EL0 */
+    f[FRAME_ESR_SPSR] |= SPSR_I; /* EL0 */
 #endif
 
 //    thread_log(t, "run %s, cpu %d, frame %p, rip 0x%lx, rsp 0x%lx, rdi 0x%lx, rax 0x%lx, rflags 0x%lx, cs 0x%lx, %s",
