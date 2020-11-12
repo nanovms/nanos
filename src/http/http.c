@@ -60,6 +60,7 @@ status http_request(heap h, buffer_handler bh, http_method method, tuple headers
         s = apply(bh, body);
     return s;
 }
+KLIB_EXPORT(http_request);
 
 static status send_http_headers(buffer_handler out, tuple t)
 {

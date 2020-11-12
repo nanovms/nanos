@@ -42,3 +42,36 @@ int mktime(struct tm *tm) {
 
     return ((days * 24 + tm->tm_hour) * 60 + tm->tm_min) * 60 + tm->tm_sec;
 }
+
+struct tm *gmtime_r(u64 *timep, struct tm *result) {
+    u64 seconds = *timep;
+    int days = seconds / (24 * 60 * 60);
+    seconds -= days * (24 * 60 * 60);
+    result->tm_year = 70;   /* 1970 (Epoch) */
+    while (true) {
+        int days_in_year = (is_leap_year(1900 + result->tm_year)) ? 366 : 365;
+        if (days >= days_in_year) {
+            result->tm_year++;
+            days -= days_in_year;
+        } else {
+            break;
+        }
+    }
+    result->tm_mon = 0;
+    while (true) {
+        int d = days_in_month(result->tm_mon + 1);
+        if (days >= d) {
+            result->tm_mon++;
+            days -= d;
+        } else {
+            break;
+        }
+    }
+    result->tm_mday = 1 + days;
+    result->tm_hour = seconds / (60 * 60);
+    seconds -= result->tm_hour * (60 * 60);
+    result->tm_min = seconds / 60;
+    result->tm_sec = seconds - result->tm_min * 60;
+    return result;
+}
+KLIB_EXPORT(gmtime_r);

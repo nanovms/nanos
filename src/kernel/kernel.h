@@ -227,6 +227,10 @@ void kern_unlock(void);
 void init_scheduler(heap);
 void mm_service(void);
 
+kernel_heaps get_kernel_heaps(void);
+
+tuple get_environment(void);
+
 extern void interrupt_exit(void);
 extern char **state_strings;
 

@@ -148,6 +148,19 @@ void load_klib(const char *name, klib_handler complete)
                                closure(h, load_klib_failed, complete));
     }
 }
+KLIB_EXPORT(load_klib);
+
+void *klib_sym(klib kl, symbol s)
+{
+    void *p = table_find(kl->syms, s);
+    if (p == 0)
+        return INVALID_ADDRESS;
+    else if (p == INVALID_ADDRESS)
+        return 0;
+    else
+        return p;
+}
+KLIB_EXPORT(klib_sym);
 
 closure_function(1, 1, void, destruct_mapping,
                  klib, kl,

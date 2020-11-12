@@ -15,6 +15,27 @@ runtime_strchr (const char *string, int _c)
 }
     
 char *
+runtime_strstr(const char *haystack, const char *needle)
+{
+    const char *haystack_p = haystack;
+    const char *needle_p = needle;
+    while (*haystack_p && *needle_p) {
+        if (*needle_p == *haystack_p) {
+            needle_p++;
+            haystack_p++;
+        } else {
+            needle_p = needle;
+            haystack_p = ++haystack;
+        }
+    }
+    if (!*needle_p)
+        return (char *)haystack;
+    else
+        return 0;
+}
+KLIB_EXPORT(runtime_strstr);
+
+char *
 runtime_strtok_r (char *s, const char *delimiters, char **save_ptr)
 {
     char *token;
@@ -54,3 +75,4 @@ runtime_strcmp (const char *string1, const char *string2)
 
     return *(const unsigned char *)string1 - *(const unsigned char *)string2;
 }
+KLIB_EXPORT(runtime_strcmp);

@@ -8,3 +8,4 @@ struct tm {
 };
 
 extern int mktime(struct tm *tm);
+extern struct tm *gmtime_r(u64 *timep, struct tm *result);

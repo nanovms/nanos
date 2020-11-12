@@ -19,16 +19,7 @@ typedef struct klib {
 typedef closure_type(klib_handler, void, klib, status);
 typedef int (*klib_init)(void *md, klib_get_sym get_sym, klib_add_sym add_sym);
 
-static inline void *klib_sym(klib kl, symbol s)
-{
-    void *p = table_find(kl->syms, s);
-    if (p == 0)
-        return INVALID_ADDRESS;
-    else if (p == INVALID_ADDRESS)
-        return 0;
-    else
-        return p;
-}
+void *klib_sym(klib kl, symbol s);
 
 void load_klib(const char *name, klib_handler complete);
 
