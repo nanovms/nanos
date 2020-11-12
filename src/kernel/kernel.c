@@ -125,10 +125,6 @@ static void init_cpuinfos(heap backed)
     cpu_setgs(0);
 #elif defined(__aarch64__)
     register u64 a = u64_from_pointer(ci);
-    rprintf("%s: a 0x%lx\n", __func__, a);
-    rprintf("%s: rf %p = %p\n", __func__, &ci->running_frame, ci->running_frame);
-    rprintf(" .. 0x%lx\n", ci->running_frame[0]);
-    ci->running_frame[0] = 0xbeefcafe;
     asm volatile("mov x18, %0; msr tpidr_el1, %0" ::"r"(a));
 #endif
 }

@@ -3,7 +3,7 @@
 #include <gdb.h>
 #include <log.h>
 
-#define PF_DEBUG
+//#define PF_DEBUG
 #ifdef PF_DEBUG
 #define pf_debug(x, ...) do {log_printf("FAULT", "[%02d] tid %02d " x "\n", current_cpu()->id, \
                                         current->tid, ##__VA_ARGS__);} while(0)
@@ -164,6 +164,7 @@ define_closure_function(1, 1, context, default_fault_handler,
             goto bug;
         }
     } else if (is_page_fault(frame)) {
+        pf_debug("page fault, vaddr 0x%lx\n", vaddr);
         vmap vm = vmap_from_vaddr(p, vaddr);
         if (vm == INVALID_ADDRESS) {
             if (user) {

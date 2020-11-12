@@ -9,7 +9,7 @@
 #include <drivers/console.h>
 #include <drivers/storage.h>
 
-#define INIT_DEBUG
+//#define INIT_DEBUG
 #ifdef INIT_DEBUG
 #define init_debug(x, ...) do {rprintf("INIT: " x "\n", ##__VA_ARGS__);} while(0)
 #else
@@ -57,7 +57,6 @@ closure_function(4, 2, void, fsstarted,
                  kernel_heaps, kh, u8 *, mbr, block_io, r, block_io, w,
                  filesystem, fs, status, s)
 {
-    rprintf("%s\n", __func__);
     if (!is_ok(s))
         halt("unable to open filesystem: %v\n", s);
 
@@ -142,7 +141,6 @@ closure_function(2, 3, void, attach_storage,
                  kernel_heaps, kh, u64, fs_offset,
                  block_io, r, block_io, w, u64, length)
 {
-    rprintf("%s\n", __func__);
     heap h = heap_general(bound(kh));
     u64 offset = bound(fs_offset);
     if (offset == 0) {

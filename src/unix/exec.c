@@ -3,7 +3,7 @@
 #include <gdb.h>
 #include <symtab.h>
 
-#define EXEC_DEBUG
+//#define EXEC_DEBUG
 #ifdef EXEC_DEBUG
 #define exec_debug(x, ...) do {log_printf("EXEC", x, ##__VA_ARGS__);} while(0)
 #else

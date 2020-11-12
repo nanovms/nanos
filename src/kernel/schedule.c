@@ -117,7 +117,6 @@ NOTRACE void __attribute__((noreturn)) kernel_sleep(void)
     atomic_set_bit(&idle_cpu_mask, ci->id);
 
     while (1) {
-//        rprintf("...wfi...\n");
         wait_for_interrupt();
     }
 }

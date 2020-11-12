@@ -169,6 +169,8 @@ frame_return:
         ; before iret back to userspace, restore fs and gs base and swapgs
         cmp qword [rsp + 8], 0x08
         je .skip
+
+        ;; XXX should be lazy?
         load_seg_base FRAME_FSBASE
         load_seg_base FRAME_GSBASE
         swapgs
@@ -259,6 +261,7 @@ syscall_enter:
 
 ;; must follow syscall_enter
 syscall_return:
+        ;; XXX lazy?
         load_seg_base FRAME_FSBASE
         load_seg_base FRAME_GSBASE
         load_extended_registers rdi

@@ -9,6 +9,11 @@
 #include "virtio_pci.h"
 
 //#define VIRTIO_BLK_DEBUG
+#ifdef VIRTIO_BLK_DEBUG
+#define virtio_blk_debug(x, ...) do {rprintf("VTBLK: " x, ##__VA_ARGS__);} while(0)
+#else
+#define virtio_blk_debug(x, ...)
+#endif
 
 // this is not really a struct...fix the general encoding problem
 typedef struct virtio_blk_req {
@@ -75,12 +80,6 @@ struct virtio_blk_config {
 #define VIRTIO_BLK_S_OK         0
 #define VIRTIO_BLK_S_IOERR      1
 #define VIRTIO_BLK_S_UNSUPP     2
-
-#ifdef VIRTIO_BLK_DEBUG
-# define virtio_blk_debug rprintf
-#else
-# define virtio_blk_debug(...) do { } while(0)
-#endif /* defined(VIRTIO_BLK_DEBUG) */
 
 typedef struct storage {
     vtdev v;
@@ -195,11 +194,11 @@ closure_function(3, 1, boolean, vtpci_blk_probe,
                  heap, general, storage_attach, a, backed_heap, page_allocator,
                  pci_dev, d)
 {
-    rprintf("%s\n", __func__);
+    virtio_blk_debug("%s\n", __func__);
     if (!vtpci_probe(d, VIRTIO_ID_BLOCK))
         return false;
 
-    rprintf("%s: attaching\n", __func__);
+    virtio_blk_debug("   attaching\n");
     heap general = bound(general);
     vtdev v = (vtdev)attach_vtpci(general, bound(page_allocator), d,
         VIRTIO_BLK_F_BLK_SIZE);
@@ -211,12 +210,12 @@ closure_function(3, 1, void, vtmmio_blk_probe,
                  heap, general, storage_attach, a, backed_heap, page_allocator,
                  vtmmio, d)
 {
-    rprintf("%s\n", __func__);
+    virtio_blk_debug("%s\n", __func__);
     if ((vtmmio_get_u32(d, VTMMIO_OFFSET_DEVID) != VIRTIO_ID_BLOCK) ||
             (d->memsize < VTMMIO_OFFSET_CONFIG +
             sizeof(struct virtio_blk_config)))
         return;
-    rprintf("%s: attaching\n", __func__);
+    virtio_blk_debug("   attaching\n");
     heap general = bound(general);
     if (attach_vtmmio(general, bound(page_allocator), d, VIRTIO_BLK_F_BLK_SIZE))
         virtio_blk_attach(general, bound(a), (vtdev)d);
@@ -224,7 +223,7 @@ closure_function(3, 1, void, vtmmio_blk_probe,
 
 void virtio_register_blk(kernel_heaps kh, storage_attach a)
 {
-    rprintf("%s\n", __func__);
+    virtio_blk_debug("%s\n", __func__);
     heap h = heap_locked(kh);
     backed_heap page_allocator = kh->backed;
     register_pci_driver(closure(h, vtpci_blk_probe, h, a, page_allocator));

@@ -285,7 +285,5 @@ void init_interrupts(kernel_heaps kh)
     asm volatile("dsb sy; msr vbar_el1, %0" :: "r"(v));
 
     /* initialize interrupt controller */
-    rprintf("initialize gic\n");
     init_gic();
-    rprintf("done\n");
 }
