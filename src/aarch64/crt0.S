@@ -136,6 +136,12 @@ frame_return:
         ldp     x0, x1, [x0, #(FRAME_X0 * 8)]
         eret
 
+        .globl arm_hvc
+arm_hvc:
+        // incomplete, just enough to issue power off
+        hvc     #0
+        ret
+
 .macro  vector  path
         .align 7
         b entry_\path
