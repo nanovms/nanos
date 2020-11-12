@@ -11,6 +11,7 @@ typedef struct klib_mapping {
 typedef struct klib {
     char name[KLIB_MAX_NAME];
     table syms;
+    range load_range;
     rangemap mappings;
     buffer elf;
 } *klib;

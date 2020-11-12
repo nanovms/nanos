@@ -32,6 +32,22 @@ static void *get_sym(const char *name)
     return table_find(export_syms, sym_this(name));
 }
 
+closure_function(1, 1, void, klib_elf_walk,
+                 klib, kl,
+                 range, r)
+{
+    klib kl = bound(kl);
+    if (range_empty(kl->load_range)) {
+        kl->load_range = r;
+    } else {
+        if (r.start < kl->load_range.start)
+            kl->load_range.start = r.start;
+        else if (r.end > kl->load_range.end)
+            kl->load_range.end = r.end;
+    }
+    klib_debug("%s: kl %s, r %R, load_range %R\n", __func__, kl->name, r, kl->load_range);
+}
+
 closure_function(1, 4, void, klib_elf_map,
                  klib, kl,
                  u64, vaddr, u64, paddr, u64, size, u64, flags)
@@ -78,10 +94,13 @@ closure_function(2, 1, status, load_klib_complete,
     kl->elf = b;
 
     klib_debug("%s: klib %p, read length %ld\n", __func__, kl, buffer_length(b));
-    u64 where = allocate_u64((heap)klib_heap, PAGESIZE);
+    kl->load_range = irange(0, 0);
+    walk_elf(b, stack_closure(klib_elf_walk, kl));
+    u64 where = allocate_u64((heap)klib_heap, range_span(kl->load_range));
     assert(where != INVALID_PHYSICAL);
+    kl->load_range = range_add(kl->load_range, where);
 
-    klib_debug("   loading klib @ 0x%lx, resolving relocations\n", where);
+    klib_debug("   loading klib @ %R, resolving relocations\n", kl->load_range);
     elf_apply_relocs(b, where);
 
     klib_debug("   loading elf file\n");
@@ -145,6 +164,7 @@ void unload_klib(klib kl)
     klib_debug("%s: kl %s\n", __func__, kl->name);
     heap h = heap_general(klib_kh);
     deallocate_rangemap(kl->mappings, stack_closure(destruct_mapping, kl));
+    deallocate_u64((heap)klib_heap, kl->load_range.start, range_span(kl->load_range));
     deallocate_buffer(kl->elf);
     deallocate_table(kl->syms);
     deallocate(h, kl, sizeof(struct klib));
