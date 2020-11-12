@@ -10,8 +10,9 @@
  *  Tests allocation of bitmap using allocate_bitmap 
  *  function.
  */
-bitmap test_alloc(heap meta, heap map, u64 length) {
-    bitmap b = allocate_bitmap(meta, map, length);
+bitmap test_alloc() {
+    heap h = init_process_runtime();
+    bitmap b = allocate_bitmap(h, h, infinity);
     if (b == INVALID_ADDRESS) 
         msg_err("!!! allocation failed for bitmap\n");
     return b;
@@ -30,14 +31,32 @@ boolean test_clone(bitmap b) {
     return true;
 }
 
-boolean basic_test(heap h)
+/**
+ *  Tests copying of bitmap using bitmap_copy
+ *  function.
+ */ 
+boolean test_copy(bitmap b) {
+    heap h = init_process_runtime();
+    bitmap b_cpy = allocate_bitmap(h, h, infinity);
+    bitmap_copy(b, b_cpy);
+    if (b_cpy == NULL) { // TODO
+        msg_err("!!! copying failed for bitmap\n");
+        return false;
+    }
+    return true;
+}
+
+boolean basic_test()
 {
     // tests bitmap allocate
-    bitmap b = test_alloc(h, h, infinity);
+    bitmap b = test_alloc();
     if (b == INVALID_ADDRESS) return false;
     
     // tests bitmap clone
     if (!test_clone(b)) return false;
+
+    // tests bitmap copy
+    if (!test_copy(b)) return false;
     
     // deallocates bitmap
     deallocate_bitmap(b);
@@ -46,8 +65,7 @@ boolean basic_test(heap h)
 
 int main(int argc, char **argv)
 {
-    heap h = init_process_runtime();
-    if (!basic_test(h)) 
+    if (!basic_test()) 
         goto fail;
 
     rprintf("tests passing so far\n");
