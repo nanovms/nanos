@@ -204,7 +204,6 @@ void thread_sleep_interruptible(void)
     assert(current->blocked_on);
     thread_log(current, "sleep interruptible (on \"%s\")", blockq_name(current->blocked_on));
     ftrace_thread_switch(current, 0);
-    set_current_thread(0);
     kern_unlock();
     runloop();
 }
@@ -216,7 +215,6 @@ void thread_sleep_uninterruptible(void)
     current->blocked_on = INVALID_ADDRESS;
     thread_log(current, "sleep uninterruptible");
     ftrace_thread_switch(current, 0);
-    set_current_thread(0);
     kern_unlock();
     runloop();
 }
