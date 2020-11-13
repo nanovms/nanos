@@ -147,7 +147,9 @@ static queued_signal dequeue_signal(thread t, u64 sigmask, boolean save_and_mask
 
     u64 mask = mask_from_sig(signum);
     sigstate ss = (sigstate_get_pending(&t->signals) & mask) ? &t->signals : &t->p->signals;
+    spin_lock(&ss->ss_lock);
     queued_signal qs = sigstate_dequeue_signal(ss, signum);
+    spin_unlock(&ss->ss_lock);
     assert(qs != INVALID_ADDRESS);
 
     sig_debug("-> selected sig %d, dequeued from %s\n",
@@ -162,7 +164,7 @@ static queued_signal dequeue_signal(thread t, u64 sigmask, boolean save_and_mask
         sig_debug("-> saved 0x%lx, mask 0x%lx\n", ss->saved, ss->mask);
         t->dispatch_sigstate = ss;
     }
-    
+
     return qs;
 }
 
@@ -174,11 +176,13 @@ static inline void free_queued_signal(queued_signal qs)
 void sigstate_flush_queue(sigstate ss)
 {
     sig_debug("sigstate %p\n", ss);
+    spin_lock(&ss->ss_lock);
     for (int signum = 1; signum <= NSIG; signum++) {
         list_foreach(sigstate_get_sighead(ss, signum), l) {
             free_queued_signal(struct_from_list(l, queued_signal, l));
         }
     }
+    spin_unlock(&ss->ss_lock);
 }
 
 void init_sigstate(sigstate ss)
@@ -189,6 +193,7 @@ void init_sigstate(sigstate ss)
     ss->ignored = mask_from_sig(SIGCHLD) | mask_from_sig(SIGURG) | mask_from_sig(SIGWINCH);
     ss->interest = 0;
 
+    spin_lock_init(&ss->ss_lock);
     for(int i = 0; i < NSIG; i++)
         list_init(&ss->heads[i]);
 }
@@ -204,6 +209,7 @@ static void deliver_signal(sigstate ss, struct siginfo *info)
     int sig = info->si_signo;
 
     /* Special handling for pending signals */
+    spin_lock(&ss->ss_lock);    
     if (sigstate_is_pending(ss, sig)) {
         /* If this is a timer event, attempt to find a queued info for
            this timer and update the info (overrun) instead of
@@ -230,23 +236,28 @@ static void deliver_signal(sigstate ss, struct siginfo *info)
                     sig_debug("timer update id %d, overrun %d\n",
                               qs->si.sifields.timer.tid,
                               qs->si.sifields.timer.overrun);
+                    spin_unlock(&ss->ss_lock);
                     return;
                 }
             }
         }
 
         if (sig < RT_SIG_START) {
+            spin_unlock(&ss->ss_lock);
             /* Not queueable and no info update; ignore */
             sig_debug("already posted; ignore\n");
             return;
         }
     }
+    spin_unlock(&ss->ss_lock);
 
-    sigstate_set_pending(ss, sig);
     queued_signal qs = allocate(h, sizeof(struct queued_signal));
     assert(qs != INVALID_ADDRESS);
     runtime_memcpy(&qs->si, info, sizeof(struct siginfo));
+    spin_lock(&ss->ss_lock);
+    sigstate_set_pending(ss, sig);
     list_insert_before(sigstate_get_sighead(ss, info->si_signo), &qs->l);
+    spin_unlock(&ss->ss_lock);
     sig_debug("queued_signal %p, signo %d, errno %d, code %d\n",
               qs, qs->si.si_signo, qs->si.si_errno, qs->si.si_code);
     sig_debug("prev %p, next %p\n", qs->l.prev, qs->l.next);
