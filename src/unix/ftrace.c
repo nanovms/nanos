@@ -9,8 +9,7 @@
 #else
 #define ft_debug(x, ...)
 #endif
-/* 64MB default size for the user's trace array */
-#define DEFAULT_TRACE_ARRAY_SIZE        (512ULL << 20)
+
 #define DEFAULT_TRACE_ARRAY_SIZE_KB     (DEFAULT_TRACE_ARRAY_SIZE >> 10)
 
 #define TRACE_TASK_WIDTH    15
@@ -762,7 +761,8 @@ function_graph_toggle(boolean enable)
 static void
 print_switch_event(struct ftrace_printer * p, struct rbuf_entry_switch * sw)
 {
-    return;
+    /* XXX thread switches are wrong right now so don't print them out yet */
+    #if 0
     char * name_in, * name_out;
     buffer b = little_stack_buffer(16);
 
@@ -780,6 +780,7 @@ print_switch_event(struct ftrace_printer * p, struct rbuf_entry_switch * sw)
         sw->tid_in
     );
     printer_write(p, "------------------------------------------\n");
+    #endif
 }
 
 static void

@@ -91,10 +91,6 @@ ftrace_init(unix_heaps uh, filesystem fs)
     return 0;
 }
 
-static inline void
-ftrace_deinit(void)
-{}
-
 static inline int
 ftrace_cpu_init(cpuinfo ci)
 {
@@ -102,7 +98,7 @@ ftrace_cpu_init(cpuinfo ci)
 }
 
 static inline void
-ftrace_thread_deinit(thread out, thread in)
+ftrace_cpu_deinit(cpuinfo ci)
 {}
 
 static inline void
