@@ -377,7 +377,6 @@ u64 total_processors = 1;
 #ifdef SMP_ENABLE
 static void new_cpu()
 {
-    fetch_and_add(&total_processors, 1);
     if (platform_timer_percpu_init)
         apply(platform_timer_percpu_init);
 
