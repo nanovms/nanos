@@ -5,6 +5,7 @@
 #include <page.h>
 
 static void *apboot = INVALID_ADDRESS;
+extern int apic_id_map[MAX_CPUS];
 extern u8 apinit, apinit_end;
 extern void *ap_pagetable, *ap_idt_pointer, *ap_stack;
 void *ap_stack;
@@ -29,7 +30,9 @@ static void __attribute__((noinline)) ap_new_stack()
 
     u64 id = apic_id();
     mp_debug_u64(id);
-    cpu_setgs(id);
+    int cid = fetch_and_add(&total_processors, 1);
+    apic_id_map[cid] = id;
+    cpu_setgs(cid);
     cpuinfo ci = current_cpu();
 
     set_ist(id, IST_EXCEPTION, u64_from_pointer(ci->exception_stack));
@@ -49,7 +52,14 @@ static void __attribute__((noinline)) ap_new_stack()
 void ap_start()
 {
     apic_per_cpu_init();
-    switch_stack(stack_from_kernel_context(cpuinfo_from_id(apic_id())->kernel_context), ap_new_stack);
+    int id = 0;
+    for (int i = 0, aid = apic_id(); i < MAX_CPUS; i++) {
+        if (aid == apic_id_map[i]) {
+            id = i;
+            break;
+        }
+    }
+    switch_stack(stack_from_kernel_context(cpuinfo_from_id(id)->kernel_context), ap_new_stack);
 }
 
 void start_cpu(heap h, heap stackheap, int index, void (*ap_entry)()) {
