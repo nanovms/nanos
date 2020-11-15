@@ -80,6 +80,7 @@ SRCS-kernel.img= \
 	$(SRCDIR)/hyperv/storvsc/storvsc.c \
 	$(SRCDIR)/hyperv/utilities/vmbus_ic.c \
 	$(SRCDIR)/hyperv/utilities/vmbus_shutdown.c \
+	$(SRCDIR)/x86_64/acpi.c \
 	$(SRCDIR)/x86_64/ap.s \
 	$(SRCDIR)/x86_64/apic.c \
 	$(SRCDIR)/x86_64/breakpoint.c \
