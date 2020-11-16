@@ -185,26 +185,34 @@ static inline void kern_pause(void)
     asm volatile("dsb sy; wfe" ::: "memory");
 }
 
+
 /* XXX make names generic */
 #if defined(KERNEL) || defined(BUILD_VDSO)
 static inline u64
 rdtsc(void)
 {
-    // XXX
-    return 0;
+    // XXX vdso
+    u64 vct;
+    asm volatile("mrs %0, CNTVCT_EL0" : "=r"(vct));
+    return vct;
 }
 
+// XXX adhere to ordering semantics
 static inline u64
 rdtsc_ordered(void)
 {
-    // XXX
-    return 0;
+    // XXX vdso
+    u64 vct;
+    asm volatile("mrs %0, CNTVCTSS_EL0" : "=r"(vct));
+    return vct;
 }
 
 static inline u64
 rdtsc_precise(void)
 {
-    // XXX
-    return 0;
+    // XXX vdso
+    u64 vct;
+    asm volatile("mrs %0, CNTVCTSS_EL0" : "=r"(vct));
+    return vct;
 }
 #endif

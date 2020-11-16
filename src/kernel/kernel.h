@@ -149,7 +149,7 @@ void configure_timer(timestamp rate, thunk t);
 void kernel_sleep();
 void kernel_delay(timestamp delta);
 
-void init_clock(void);
+void init_clock(heap h);
 boolean init_hpet(kernel_heaps kh);
 
 void process_bhqueue();

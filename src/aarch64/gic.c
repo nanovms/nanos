@@ -14,24 +14,29 @@ static boolean gic_intid_24bit;
 
 void gic_disable_int(int irq)
 {
-    gic_debug("irq %d\n", irq);
-    GICD_ICENABLER(irq / GICD_INTS_PER_IENABLE_REG) =
-        U32_FROM_BIT(irq & (GICD_INTS_PER_IENABLE_REG - 1));
+    int w = irq / GICD_INTS_PER_IENABLE_REG;
+    volatile u32 *p = w ? &GICD_ICENABLER(w) : &GICR_ICENABLER;
+    u32 x = U32_FROM_BIT(irq & (GICD_INTS_PER_IENABLE_REG - 1)); /* same as redist */
+    gic_debug("irq %d, p %p, x 0x%x, before 0x%x\n", irq, p, x, *p);
+    *p = x;
 }
 
 void gic_enable_int(int irq)
 {
-    gic_debug("irq %d\n", irq);
-    GICD_ISENABLER(irq / GICD_INTS_PER_IENABLE_REG) =
-        U32_FROM_BIT(irq & (GICD_INTS_PER_IENABLE_REG - 1));
+    int w = irq / GICD_INTS_PER_IENABLE_REG;
+    volatile u32 *p = w ? &GICD_ISENABLER(w) : &GICR_ISENABLER;
+    u32 x = U32_FROM_BIT(irq & (GICD_INTS_PER_IENABLE_REG - 1));
+    gic_debug("irq %d, p %p, x 0x%x, before 0x%x\n", irq, p, x, *p);
+    *p = x;
 }
 
 void gic_clear_pending_int(int irq)
 {
-    gic_debug("irq %d\n", irq);
-    u32 v = U32_FROM_BIT(irq & (GICD_INTS_PER_IPEND_REG - 1));
-    gic_debug("   v 0x%x, %p\n", v, & GICD_ICPENDR(irq / GICD_INTS_PER_IPEND_REG));
-    GICD_ICPENDR(irq / GICD_INTS_PER_IPEND_REG) = v;
+    int w = irq / GICD_INTS_PER_IPEND_REG;
+    volatile u32 *p = w ? &GICD_ICPENDR(w) : &GICR_ICPENDR;
+    u32 x = U32_FROM_BIT(irq & (GICD_INTS_PER_IPEND_REG - 1));
+    gic_debug("irq %d, p %p, x 0x%x, before 0x%x\n", irq, p, x, *p);
+    *p = x;
 }
 
 #define GIC_SET_INTFIELD(name, type)                                    \
@@ -39,10 +44,13 @@ void gic_clear_pending_int(int irq)
     {                                                                   \
         int w = 32 / GICD_INTS_PER_ ## type ## _REG;                    \
         int r = irq / GICD_INTS_PER_ ## type ## _REG;                   \
-        u32 i = GICD_ ## type ## R(r);                                  \
+        u32 i = r ? GICD_ ## type ## R(r) : GICR_ ## type ## R;         \
         int s = (irq % GICD_INTS_PER_ ## type ## _REG) * w;             \
         u32 n = (i & ~(MASK32(w) << s)) | (v << s);                     \
-        GICD_ ## type ## R(r) = n;                                      \
+        if (r)                                                          \
+            GICD_ ## type ## R(r) = n;                                  \
+        else                                                            \
+            GICR_ ## type ## R = n;                                     \
         gic_debug("irq %d, v %d, reg was 0x%x, now 0x%x\n", irq, v, i, n); \
     }
 
@@ -52,8 +60,9 @@ GIC_SET_INTFIELD(target, ITARGETS)
 
 boolean gic_int_is_pending(int irq)
 {
-    boolean pending = (GICD_ISPENDR(irq / GICD_INTS_PER_IPEND_REG) &
-                       U32_FROM_BIT(irq & (GICD_INTS_PER_IPEND_REG - 1))) != 0;
+    int w = irq / GICD_INTS_PER_IPEND_REG;
+    volatile u32 *p = w ? &GICD_ISPENDR(w) : &GICR_ISPENDR;
+    boolean pending = (*p & U32_FROM_BIT(irq & (GICD_INTS_PER_IPEND_REG - 1))) != 0;
     gic_debug("irq %d, pending %d\n", irq, pending);
     return pending;
 }
@@ -72,9 +81,6 @@ void gic_eoi(int irq)
     gic_clear_pending_int(irq);
 }
 
-// TODO
-// set target cpu (mask)
-
 static void init_gicd(void)
 {
     GICD_CTLR = GICD_CTLR_DISABLE;
@@ -91,6 +97,7 @@ static void init_gicd(void)
         GICD_IPRIORITYR(i) = MASK(32); /* low priority */
 
     /* set all to group 1, non-secure */
+    GICR_IGROUPR = MASK(32);
     for (int i = GIC_SPI_INTS_START / GICD_INTS_PER_IGROUP_REG;
          i < GIC_SPI_INTS_END / GICD_INTS_PER_IGROUP_REG; i++)
         GICD_IGROUPR(i) = MASK(32);

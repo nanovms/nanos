@@ -155,27 +155,6 @@ closure_function(2, 3, void, attach_storage,
     closure_finish();
 }
 
-closure_function(0, 0, timestamp, dummy_clock_now)
-{
-    return 0;
-}
-
-closure_function(0, 1, void, dummy_deadline_timer,
-                 timestamp, interval)
-{
-}
-
-closure_function(0, 0, void, dummy_timer_percpu_init)
-{
-}
-
-// XXX stub
-void init_platform_clock(heap h)
-{
-    register_platform_clock_now(closure(h, dummy_clock_now), VDSO_CLOCK_PVCLOCK);
-    register_platform_clock_timer(closure(h, dummy_deadline_timer), closure(h, dummy_timer_percpu_init));
-}
-
 void kernel_runtime_init(kernel_heaps kh)
 {
     heap misc = heap_general(kh);
@@ -205,8 +184,7 @@ void kernel_runtime_init(kernel_heaps kh)
 
     init_debug("init_scheduler");
     init_scheduler(misc);
-    init_clock();
-    init_platform_clock(misc);
+    init_clock(misc);
 
     /* platform detection and early init */
 //    init_debug("probing for KVM");

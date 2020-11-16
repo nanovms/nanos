@@ -253,20 +253,21 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
     kernel_sleep();
 }    
 
-closure_function(0, 0, void, global_shutdown)
-{
+//closure_function(0, 0, void, global_shutdown)
+//{
 //    __asm__("cli; hlt");
-}
+//}
 
 void init_scheduler(heap h)
 {
     spin_lock_init(&kernel_lock);
     runloop_timer_min = microseconds(RUNLOOP_TIMER_MIN_PERIOD_US);
     runloop_timer_max = microseconds(RUNLOOP_TIMER_MAX_PERIOD_US);
-    wakeup_vector = allocate_interrupt();
-    register_interrupt(wakeup_vector, ignore, "wakeup ipi");
-    shutdown_vector = allocate_interrupt();    
-    register_interrupt(shutdown_vector, closure(h, global_shutdown), "shutdown ipi");    
+//    wakeup_vector = allocate_interrupt();
+
+//    register_interrupt(wakeup_vector, ignore, "wakeup ipi");
+//    shutdown_vector = allocate_interrupt();
+//    register_interrupt(shutdown_vector, closure(h, global_shutdown), "shutdown ipi");
     assert(wakeup_vector != INVALID_PHYSICAL);
     /* scheduling queues init */
     runqueue = allocate_queue(h, 2048);

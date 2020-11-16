@@ -191,23 +191,24 @@ void synchronous_handler(void)
 NOTRACE
 void irq_handler(void)
 {
-    int_debug("%s: enter\n", __func__);
-    u64 i = gic_dispatch_int();
-    if (i == INTID_NO_PENDING)
-        return;
     cpuinfo ci = current_cpu();
     context f = ci->running_frame;
+    u64 i;
 
-    int_debug("[%2d] # %d (%s), state %s, el %d, frame %p, elr 0x%lx, spsr_esr 0x%lx\n",
-              ci->id, i, interrupt_names[i], state_strings[ci->state], f[FRAME_EL],
-              f, f[FRAME_ELR], f[FRAME_ESR_SPSR]);
+    int_debug("%s: enter\n", __func__);
 
-    if (handlers[i]) {
-        int_debug("   invoking handler %F\n", handlers[i]);
-        ci->state = cpu_interrupt;
-        apply(handlers[i]);
-        int_debug("   eoi %d\n", i);
-        gic_eoi(i);
+    while ((i = gic_dispatch_int()) != INTID_NO_PENDING) {
+        int_debug("[%2d] # %d (%s), state %s, el %d, frame %p, elr 0x%lx, spsr_esr 0x%lx\n",
+                  ci->id, i, interrupt_names[i], state_strings[ci->state], f[FRAME_EL],
+                  f, f[FRAME_ELR], f[FRAME_ESR_SPSR]);
+
+        if (handlers[i]) {
+            int_debug("   invoking handler %F\n", handlers[i]);
+            ci->state = cpu_interrupt;
+            apply(handlers[i]);
+            int_debug("   eoi %d\n", i);
+            gic_eoi(i);
+        }
     }
 
     if (is_current_kernel_context(f))

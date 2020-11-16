@@ -67,9 +67,10 @@ static inline s64 clock_update_drift(timestamp raw)
 }
 #endif
 
-/* This is all kernel-only below here */
 static inline timestamp now(clock_id id)
 {
+    timestamp t = apply(platform_monotonic_now);
+
 #if defined(KERNEL) || defined(BUILD_VDSO)
     if (id == CLOCK_ID_MONOTONIC_RAW)
         return t;
@@ -110,8 +111,5 @@ static inline void register_platform_clock_now(clock_now cn, vdso_clock_id id)
 void clock_adjust(timestamp wallclock_now, s64 temp_cal, timestamp sync_complete, s64 cal);
 
 #if defined(STAGE3) || defined(BUILD_VDSO)
-=======
-}
->>>>>>> tease out machine-dependent unix stuff, syscall list; update page defines
 #undef __vdso_dat
 #endif
