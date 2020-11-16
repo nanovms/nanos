@@ -37,6 +37,8 @@ static inline timestamp now(clock_id id)
 #else
     u64 rtc_offset = 0;
 #endif
+    if (!platform_monotonic_now)
+        return 0;
 
     switch (id) {
     case CLOCK_ID_MONOTONIC:

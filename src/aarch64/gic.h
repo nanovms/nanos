@@ -74,11 +74,32 @@
 
 #define GICD_ICFGR_LEVEL 0
 #define GICD_ICFGR_EDGE  2
-#define GICD_IGRPMODR(n)   (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0d00 + 4 * (n)))
-#define GICD_NSACR(n)      (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0e00 + 4 * (n)))
+#define GICD_IGRPMODR(n)   (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0d00))
+#define GICD_NSACR(n)      (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0e00))
 #define GICD_SGIR          (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0f00))
-#define GICD_CPENDSGIR(n)  (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0f10 + 4 * (n)))
-#define GICD_SPENDSGIR(n)  (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0f20 + 4 * (n)))
+#define GICD_CPENDSGIR(n)  (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0f10))
+#define GICD_SPENDSGIR(n)  (*(volatile u32 *)(dev_base_pointer(GIC_DIST) + 0x0f20))
+
+#define _GICR_OFFSET (dev_base_pointer(GIC_REDIST) + 0x10000)
+#define GICR_IGROUPR       (*(volatile u32 *)(_GICR_OFFSET + 0x0080))
+#define GICR_INTS_PER_IGROUP_REG 32
+#define GICR_ISENABLER     (*(volatile u32 *)(_GICR_OFFSET + 0x0100))
+#define GICR_ICENABLER     (*(volatile u32 *)(_GICR_OFFSET + 0x0180))
+#define GICR_INTS_PER_IENABLE_REG 32
+#define GICR_ISPENDR       (*(volatile u32 *)(_GICR_OFFSET + 0x0200))
+#define GICR_ICPENDR       (*(volatile u32 *)(_GICR_OFFSET + 0x0280))
+#define GICR_INTS_PER_IPEND_REG 32
+#define GICR_ISACTIVER     (*(volatile u32 *)(_GICR_OFFSET + 0x0300))
+#define GICR_ICACTIVER     (*(volatile u32 *)(_GICR_OFFSET + 0x0380))
+#define GICR_IPRIORITYR    (*(volatile u32 *)(_GICR_OFFSET + 0x0400))
+#define GICR_INTS_PER_IPRIORITY_REG 4
+#define GICR_ITARGETSR     (*(volatile u32 *)(_GICR_OFFSET + 0x0800))
+#define GICR_INTS_PER_ITARGETS_REG 4
+#define GICR_ICFGR         (*(volatile u32 *)(_GICR_OFFSET + 0x0c00))
+#define GICR_INTS_PER_ICFG_REG 16
+
+#define GICR_ICFGR_LEVEL 0
+#define GICR_ICFGR_EDGE  2
 
 void gic_disable_int(int irq);
 void gic_enable_int(int irq);
@@ -89,3 +110,9 @@ boolean gic_int_is_pending(int irq);
 u64 gic_dispatch_int(void);
 void gic_eoi(int irq);
 void init_gic(void);
+
+#define _GIC_SET_INTFIELD(name, type) void gic_set_int_##name(int irq, u32 v);
+_GIC_SET_INTFIELD(priority, IPRIORITY)
+_GIC_SET_INTFIELD(config, ICFG)
+_GIC_SET_INTFIELD(target, ITARGETS)
+#undef _GIC_SET_INTFIELD

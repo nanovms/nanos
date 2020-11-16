@@ -21,16 +21,9 @@
 
 #define VIRTUAL_ADDRESS_BITS 48
 
-#define SCTLR_EL1_UCI     U64_FROM_BIT(26) /* trap cache instructions in EL0 */
-#define SCTLR_EL1_EE      U64_FROM_BIT(25) /* endianness for EL1 data / pt table */
-#define SCTLR_EL1_E0E     U64_FROM_BIT(24) /* endianness for EL0 data */
-#define SCTLR_EL1_WXN     U64_FROM_BIT(19) /* write implies execute never */
-#define SCTLR_EL1_I       U64_FROM_BIT(12) /* instruction cacheability (no effect) */
-#define SCTLR_EL1_SA0     U64_FROM_BIT(4) /* SP alignment fault enable for EL0 */
-#define SCTLR_EL1_SA      U64_FROM_BIT(3) /* SP alignment fault enable */
-#define SCTLR_EL1_C       U64_FROM_BIT(2) /* cacheability (no effect) */
-#define SCTLR_EL1_A       U64_FROM_BIT(1) /* alignment fault check enable */
-#define SCTLR_EL1_M       U64_FROM_BIT(0) /* MMU enable */
+#define CNTV_CTL_EL0_ISTATUS 4
+#define CNTV_CTL_EL0_MASK    2
+#define CNTV_CTL_EL0_ENABLE  1
 
 #define CPACR_EL1_TTA            U64_FROM_BIT(28)
 #define CPACR_EL1_FPEN_BITS      2
@@ -109,6 +102,17 @@
 #define ESR_ISS_ID_ABRT_FSC_SYNC_PARITY_ECC_L2 0x1e
 #define ESR_ISS_ID_ABRT_FSC_SYNC_PARITY_ECC_L3 0x1f
 #define ESR_ISS_ID_ABRT_FSC_TLB_CONFLICT_ABORT 0x30
+
+#define SCTLR_EL1_UCI     U64_FROM_BIT(26) /* trap cache instructions in EL0 */
+#define SCTLR_EL1_EE      U64_FROM_BIT(25) /* endianness for EL1 data / pt table */
+#define SCTLR_EL1_E0E     U64_FROM_BIT(24) /* endianness for EL0 data */
+#define SCTLR_EL1_WXN     U64_FROM_BIT(19) /* write implies execute never */
+#define SCTLR_EL1_I       U64_FROM_BIT(12) /* instruction cacheability (no effect) */
+#define SCTLR_EL1_SA0     U64_FROM_BIT(4) /* SP alignment fault enable for EL0 */
+#define SCTLR_EL1_SA      U64_FROM_BIT(3) /* SP alignment fault enable */
+#define SCTLR_EL1_C       U64_FROM_BIT(2) /* cacheability (no effect) */
+#define SCTLR_EL1_A       U64_FROM_BIT(1) /* alignment fault check enable */
+#define SCTLR_EL1_M       U64_FROM_BIT(0) /* MMU enable */
 
 #define SPSR_I U64_FROM_BIT(7)
 

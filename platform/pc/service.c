@@ -405,7 +405,7 @@ static void __attribute__((noinline)) init_service_new_stack()
     // ipi..i guess this is safe because they are disabled?
     init_debug("init_scheduler");    
     init_scheduler(misc);
-    init_clock();               /* must precede platform init */
+    init_clock(misc);               /* must precede platform init */
 
     /* platform detection and early init */
     init_debug("probing for KVM");
