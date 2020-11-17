@@ -36,24 +36,6 @@ void install_fallback_fault_handler(fault_handler h)
     }
 }
 
-#if 0
-NOTRACE
-void common_handler()
-{
-    cpuinfo ci = current_cpu();
-    context f = ci->running_frame;
-    int i = f[FRAME_VECTOR];
-
-    if (i >= n_interrupt_vectors) {
-        console("\nexception for invalid interrupt vector\n");
-        goto exit_fault;
-    }
-    return;
-  exit_fault:
-    halt("terminate on common handler fault\n");
-}
-#endif
-
 static void print_far_if_valid(u32 iss)
 {
     if ((iss & ESR_ISS_DATA_ABRT_FnV) == 0) {
@@ -167,7 +149,8 @@ void synchronous_handler(void)
     if (field_from_u64(esr, ESR_EC) == ESR_EC_SVC_AARCH64 && (esr & ESR_IL) &&
         field_from_u64(esr, ESR_ISS_IMM16) == 0) {
         f[FRAME_VECTOR] = f[FRAME_X8];
-        syscall(f);
+        ci->running_frame = ci->kernel_context->frame;
+        switch_stack_1(ci->running_frame, syscall, f); /* frame is top of stack */
         halt("%s: syscall returned\n", __func__);
     }
 

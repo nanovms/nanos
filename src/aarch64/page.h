@@ -145,20 +145,52 @@
 
 /* XXX TODO revisit */
 #define PAGE_BACKED_FLAGS 0
-#define PAGE_DEV_FLAGS 0
-#define PAGE_NO_EXEC 0
-#define PAGE_WRITABLE 0  /* XXX need to update semantics / use helper */
-#define PAGE_READ_ONLY u64_from_field(PAGE_ATTR_AP_2_1, PAGE_ATTR_AP_2_1_RO)
-#define PAGE_USER u64_from_field(PAGE_ATTR_AP_2_1, PAGE_ATTR_AP_2_1_E0)
+#define PAGE_DEV_FLAGS    0
+#define PAGE_NO_EXEC      0
+#define PAGE_WRITABLE     0     /* XXX need to update semantics / use helper */
+#define PAGE_READ_ONLY    u64_from_field(PAGE_ATTR_AP_2_1, PAGE_ATTR_AP_2_1_RO)
+#define PAGE_USER         u64_from_field(PAGE_ATTR_AP_2_1, PAGE_ATTR_AP_2_1_E0)
+#define PAGE_FLAGS_MASK   0xfffc000000000fffull
+
+#define PAGE_ATTRS (PAGE_ATTR_UXN_XN | PAGE_ATTR_PXN) /* AP[2:1] == 0 */
+#define PAGE_NLEVELS 4
+#define LEVEL_MASK_4K MASK(9)   /* would be array for certain granule sizes? */
+
+// XXX kernel addr, also should return INVALID_PHYSICAL if PAR_EL1.F is set
+#define physical_from_virtual(v) ({                                     \
+            register u64 __r;                                           \
+            register u64 __x = u64_from_pointer(v);                     \
+            asm volatile("at S1E1R, %1; mrs %0, PAR_EL1" : "=r"(__r) : "r"(__x)); \
+            (__r & (MASK(47) & ~MASK(12))) | (__x & MASK(12));})
+
+extern const int page_level_shifts_4K[PAGE_NLEVELS];
+
+static inline u64 flags_from_pte(u64 pte)
+{
+    return pte & PAGE_FLAGS_MASK;
+}
+
+extern const int page_level_shifts_4K[PAGE_NLEVELS];
 
 static inline boolean pt_entry_is_present(u64 entry)
 {
     return (entry & PAGE_L0_3_DESC_VALID) != 0;
 }
 
-static inline boolean pt_entry_is_2M(int level, u64 entry)
+/* log of mapping size (block or page) if valid leaf, else 0 */
+static inline int pt_entry_order(unsigned int level, u64 entry)
 {
-    return level == 2 && (entry & PAGE_L0_2_DESC_TABLE) == 0;
+    assert(level < PAGE_NLEVELS);
+    if (level == 0 || !pt_entry_is_present(entry) ||
+        (level != 3 && (entry & PAGE_L0_2_DESC_TABLE)))
+        return 0;
+    return page_level_shifts_4K[level];
+}
+
+static inline u64 pt_entry_size(int level, u64 entry)
+{
+    int order = pt_entry_order(level, entry);
+    return order ? U64_FROM_BIT(order) : order;
 }
 
 static inline boolean pt_entry_is_pte(int level, u64 entry)
@@ -193,7 +225,7 @@ void page_init_mmu(range init_pt, u64 vtarget);
 void map(u64 virtual, physical p, u64 length, u64 flags);
 void unmap(u64 virtual, u64 length);
 void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh);
-void unmap_and_free_phys(u64 virtual, u64 length);
+void unmap_and_free_phys(id_heap physical, u64 virtual, u64 length);
 
 static inline void unmap_pages(u64 virtual, u64 length)
 {

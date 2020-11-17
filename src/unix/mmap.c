@@ -342,19 +342,16 @@ closure_function(3, 3, boolean, mincore_fill_vec,
                  int, level, u64, addr, u64 *, entry)
 {
     u64 e = *entry;
-    u64 pgoff, i;
+    u64 pgoff, i, size;
 
-    if (pt_entry_is_present(e)) {
+    if ((size = pt_entry_size(level, e))) {
         pgoff = (addr - bound(base)) >> PAGELOG;
 
-        if (pt_entry_is_2M(level, e)) {
-            /* whole level is mapped */
-            for (i = 0; (i < 512) && (pgoff + i < bound(nr_pgs)); i++) {
-                bound(vec)[pgoff + i] = 1;
-	    }
-        } else if (pt_entry_is_pte(level, e)) {
-            bound(vec)[pgoff] = 1;
-        }
+        assert(size >= PAGESIZE);
+        size >>= PAGELOG;
+
+        for (i = 0; (i < size) && (pgoff + i < bound(nr_pgs)); i++)
+            bound(vec)[pgoff + i] = 1;
     }
 
     return true;
@@ -626,7 +623,7 @@ static void vmap_unmap_page_range(process p, vmap k)
     u64 len = range_span(r);
     switch (type) {
     case VMAP_MMAP_TYPE_ANONYMOUS:
-        unmap_and_free_phys(r.start, len);
+        unmap_and_free_phys(heap_physical(get_kernel_heaps()), r.start, len);
         break;
     case VMAP_MMAP_TYPE_FILEBACKED:
         pagecache_node_unmap_pages(k->cache_node, r, k->node_offset);

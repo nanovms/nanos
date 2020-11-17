@@ -45,13 +45,7 @@ static u64 pt_phys_next;
 static u64 *kernel_tablebase;
 static u64 *user_tablebase;
 
-#define PAGE_ATTRS (PAGE_ATTR_UXN_XN | PAGE_ATTR_PXN) /* AP[2:1] == 0 */
-#define NLEVELS 4
-#define LEVEL_MASK_4K MASK(9)   /* would be array for certain granule sizes? */
-static const int level_shifts_4K[NLEVELS] = { 39, 30, 21, 12 };
-//static const u64 block_masks_4K[NLEVELS - 1] = { 0, MASK(48) & ~MASK(30), MASK(48) & ~MASK(21) };
-
-static id_heap phys_internal;
+const int page_level_shifts_4K[PAGE_NLEVELS] = { 39, 30, 21, 12 };
 
 static inline u64 *pointer_from_pteaddr(u64 pa)
 {
@@ -82,6 +76,7 @@ static boolean get_table_page(u64 **table_ptr, u64 *phys)
         page_init_debug_u64(range_span(pt_virt_remain));
         assert(range_span(pt_virt_remain) > 0);
         assert(0); // XXX not yet
+#if 0
         pt_virt_remain.end += PAGESIZE_2M;
         u64 pa = allocate_u64((heap)phys_internal, PAGESIZE_2M);
         if (pa == INVALID_PHYSICAL) {
@@ -92,6 +87,7 @@ static boolean get_table_page(u64 **table_ptr, u64 *phys)
         map_area(pt_virt_remain, pa, PAGE_ATTRS);
         table_set(pt_p2v, (void *)pa, (void *)pt_virt_remain.start);
         pt_phys_next = pa;
+#endif
     }
 
     *table_ptr = pointer_from_u64(pt_virt_remain.start);
@@ -126,9 +122,9 @@ static void put_table_page(u64 v, u64 p)
 #define next_addr(a, mask) (a = (a + (mask) + 1) & ~(mask))
 static boolean map_level(u64 *table_ptr, int level, range v, u64 p, u64 flags)
 {
-    int shift = level_shifts_4K[level];
+    int shift = page_level_shifts_4K[level];
     u64 mask = MASK(shift);
-    u64 vlbase = level > 1 ? v.start & ~MASK(level_shifts_4K[level - 1]) : 0;
+    u64 vlbase = level > 1 ? v.start & ~MASK(page_level_shifts_4K[level - 1]) : 0;
     int first_index = (v.start >> shift) & LEVEL_MASK_4K;
     int last_index = ((v.end - 1) >> shift) & LEVEL_MASK_4K;
 
@@ -328,10 +324,9 @@ closure_function(1, 3, boolean, unmap_page,
         *entry = 0;
         leaf_invalidate(vaddr);
         if (rh) {
-            halt("fixme\n");
-            apply(rh, irangel(page_from_pte(old_entry),
-                              (pt_entry_is_2M(level, old_entry) ?
-                               PAGESIZE_2M : PAGESIZE)));
+            u64 size = pt_entry_size(level, old_entry);
+            assert(size);
+            apply(rh, irangel(page_from_pte(old_entry), size));
         }
     }
     return true;
@@ -356,9 +351,16 @@ void unmap(u64 virtual, u64 length)
     unmap_pages(virtual, length);
 }
 
-void unmap_and_free_phys(u64 virtual, u64 length)
+closure_function(1, 1, void, dealloc_phys_page,
+                 id_heap, phys, range, r)
 {
-//    unmap_pages_with_handler(virtual, length, stack_closure(dealloc_phys_page));
+    if (!id_heap_set_area(bound(phys), r.start, range_span(r), true, false))
+        msg_err("some of physical range %R not allocated in heap\n", r);
+}
+
+void unmap_and_free_phys(id_heap physical, u64 virtual, u64 length)
+{
+    unmap_pages_with_handler(virtual, length, stack_closure(dealloc_phys_page, physical));
 }
 
 // XXX
@@ -369,7 +371,7 @@ extern void *LOAD_OFFSET;
 #define PTE_ENTRIES U64_FROM_BIT(9)
 static boolean recurse_ptes(u64 *table_ptr, int level, u64 vstart, u64 len, u64 laddr, entry_handler ph)
 {
-    int shift = level_shifts_4K[level];
+    int shift = page_level_shifts_4K[level];
     u64 lsize = U64_FROM_BIT(shift);
     u64 start_idx = vstart > laddr ? ((vstart - laddr) >> shift) : 0;
     u64 x = vstart + len - laddr;
@@ -435,7 +437,6 @@ void update_map_flags(u64 vaddr, u64 length, u64 flags)
 #endif
 }
 
-#if 0
 /* called with lock held */
 closure_function(2, 3, boolean, remap_entry,
                  u64, new, u64, old,
@@ -447,25 +448,27 @@ closure_function(2, 3, boolean, remap_entry,
     u64 phys = page_from_pte(oldentry);
     u64 flags = flags_from_pte(oldentry);
 #ifdef PAGE_UPDATE_DEBUG
-    page_debug("level %d, old curr 0x%lx, phys 0x%lx, new curr 0x%lx, entry 0x%lx, *entry 0x%lx, flags 0x%lx\n",
+    page_debug("%s: level %d, old curr 0x%lx, phys 0x%lx, new curr 0x%lx\n"
+               "   entry 0x%lx, *entry 0x%lx, flags 0x%lx\n",
                level, curr, phys, new_curr, entry, *entry, flags);
 #endif
 
-    /* only look at ptes at this point */
-    if (!pt_entry_is_present(oldentry) || !pt_entry_is_pte(level, oldentry))
+    int map_order = pt_entry_order(level, oldentry);
+
+    /* valid leaves only */
+    if (map_order == 0)
         return true;
 
     /* transpose mapped page */
-    map_page(pagebase, new_curr, phys, pt_entry_is_fat(level, oldentry), flags, 0);
+    assert(map_area(irangel(new_curr, U64_FROM_BIT(map_order)), phys, flags));
 
     /* reset old entry */
     *entry = 0;
 
-    /* invalidate old mapping (map_page takes care of new)  */
+    /* invalidate old mapping */
     leaf_invalidate(curr);
     return true;
 }
-#endif
 
 /* We're just going to do forward traversal, for we don't yet need to
    support overlapping moves. Should the latter become necessary
@@ -475,15 +478,13 @@ closure_function(2, 3, boolean, remap_entry,
 */
 void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length)
 {
-#if 0
     page_debug("vaddr_new 0x%lx, vaddr_old 0x%lx, length 0x%lx\n", vaddr_new, vaddr_old, length);
     if (vaddr_new == vaddr_old)
         return;
-    assert(range_empty(range_intersection(irange(vaddr_new, vaddr_new + length),
-                                          irange(vaddr_old, vaddr_old + length))));
+    assert(range_empty(range_intersection(irangel(vaddr_new, length),
+                                          irangel(vaddr_old, length))));
     traverse_ptes(vaddr_old, length, stack_closure(remap_entry, vaddr_new, vaddr_old));
     post_sync();
-#endif
 }
 
 
