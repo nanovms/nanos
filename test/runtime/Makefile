@@ -1,5 +1,6 @@
 # these are built for the target platform (Linux x86_64)
 PROGRAMS= \
+	futex_test \
 	aio \
 	dup \
 	creat \
@@ -39,6 +40,11 @@ PROGRAMS= \
 	webs \
 	write \
 	writev
+
+SRCS-futex_test= \
+	$(CURDIR)/futex_test.c \
+	$(SRCDIR)/unix_process/ssp.c
+LDFLAGS-futex_test=	-static
 
 SRCS-aio= \
 	$(CURDIR)/aio.c \
