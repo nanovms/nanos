@@ -177,6 +177,18 @@ void mm_service(void)
     }
 }
 
+kernel_heaps get_kernel_heaps(void)
+{
+    return &heaps;
+}
+KLIB_EXPORT(get_kernel_heaps);
+
+tuple get_environment(void)
+{
+    return table_find(filesystem_getroot(root_fs), sym(environment));
+}
+KLIB_EXPORT(get_environment);
+
 static void rootfs_init(heap h, u8 *mbr, u64 offset,
                         block_io r, block_io w, u64 length)
 {
@@ -377,7 +389,6 @@ u64 total_processors = 1;
 #ifdef SMP_ENABLE
 static void new_cpu()
 {
-    fetch_and_add(&total_processors, 1);
     if (platform_timer_percpu_init)
         apply(platform_timer_percpu_init);
 

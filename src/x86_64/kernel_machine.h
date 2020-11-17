@@ -1,4 +1,4 @@
-#if !(defined(KERNEL) || defined(BOOT))
+#if !(defined(KERNEL) || defined(BOOT) || defined(KLIB))
 #error must be in kernel or bootloader build
 #endif
 

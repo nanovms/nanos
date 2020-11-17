@@ -20,8 +20,17 @@ typedef struct http_parser {
 
 static void each_header(buffer dest, symbol n, value v)
 {
-    if (n != sym(url))
-        bprintf(dest, "%v: %v\r\n", n, v);
+    if (n != sym(url)) {
+        switch(tagof(v)) {
+        case tag_tuple:
+        case tag_symbol:
+            bprintf(dest, "%v: %v\r\n", n, v);
+            break;
+        default:
+            bprintf(dest, "%v: %b\r\n", n, (buffer)v);
+            break;
+        }
+    }
 }
 
 static void http_header(buffer dest, tuple t)
@@ -31,19 +40,27 @@ static void http_header(buffer dest, tuple t)
     bprintf(dest, "\r\n");    
 }
 
-status http_request(heap h, buffer_handler bh, tuple headers)
+status http_request(heap h, buffer_handler bh, http_method method, tuple headers, buffer body)
 {
     buffer b = allocate_buffer(h, 100);
     buffer url = table_find(headers, sym(url));
-    bprintf(b, "GET %b HTTP/1.1\r\n", url);
+    bprintf(b, "%s %b HTTP/1.1\r\n", http_request_methods[method], url);
+    if (body) {
+        buffer content_len = little_stack_buffer(16);
+        bprintf(content_len, "%ld", buffer_length(body));
+        table_set(headers, sym(Content-Length), content_len);
+    }
     http_header(b, headers);
     status s = apply(bh, b);
     if (!is_ok(s)) {
         deallocate_buffer(b);
         return timm_up(s, "result", "%s failed to send", __func__);
     }
-    return STATUS_OK;
+    if (body)
+        s = apply(bh, body);
+    return s;
 }
+KLIB_EXPORT(http_request);
 
 static status send_http_headers(buffer_handler out, tuple t)
 {

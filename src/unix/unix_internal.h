@@ -182,6 +182,7 @@ typedef struct sigstate {
     u64         saved;          /* original mask saved on rt_sigsuspend or handler dispatch */
     u64         ignored;        /* mask of signals set to SIG_IGN */
     u64         interest;       /* signals of interest, regardless of mask or ignored */
+    struct spinlock   ss_lock;
     struct list heads[NSIG];
 } *sigstate;
 
@@ -516,11 +517,6 @@ static inline void thread_release(thread t)
 }
 
 unix_heaps get_unix_heaps();
-
-static inline kernel_heaps get_kernel_heaps()
-{
-    return (kernel_heaps)get_unix_heaps();
-}
 
 #define unix_cache_alloc(uh, c) ({ heap __c = uh->c ## _cache; allocate(__c, __c->pagesize); })
 #define unix_cache_free(uh, c, p) ({ heap __c = uh->c ## _cache; deallocate(__c, p, __c->pagesize); })

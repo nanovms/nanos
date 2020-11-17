@@ -100,3 +100,12 @@ timerheap allocate_timerheap(heap h, const char *name)
     th->name = name;
     return th;
 }
+
+s64 rtime(s64 *result)
+{
+    s64 t = (s64)(sec_from_timestamp(now(CLOCK_ID_REALTIME)));
+    if (result)
+        *result = t;
+    return t;
+}
+KLIB_EXPORT(rtime);
