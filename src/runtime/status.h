@@ -34,11 +34,7 @@ static inline tuple timm_internal(tuple t, char *first, ...)
     return t;
 }
 
-static inline void timm_dealloc(tuple t)
-{
-    if (t != STATUS_OK)
-        destruct_tuple(t, true);
-}
+void timm_dealloc(tuple t);
 
 // fix for zero argument case
 #define timm(first, ...)  timm_internal(STATUS_OK, first, __VA_ARGS__, INVALID_ADDRESS)

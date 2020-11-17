@@ -111,7 +111,8 @@ static inline buffer wrap_buffer(heap h,
                                  bytes length)
 {
     buffer new = allocate(h, sizeof(struct buffer));
-    assert(new != INVALID_ADDRESS);
+    if (new == INVALID_ADDRESS)
+        return new;
     new->contents = body;
     new->start = 0;
     new->h = h;

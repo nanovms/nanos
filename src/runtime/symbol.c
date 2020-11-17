@@ -37,6 +37,7 @@ symbol intern(string name)
   alloc_fail:
     halt("intern: alloc fail\n");
 }
+KLIB_EXPORT(intern);
 
 string symbol_string(symbol s)
 {

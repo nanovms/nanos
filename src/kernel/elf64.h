@@ -189,6 +189,7 @@ typedef struct {
 typedef closure_type(elf_map_handler, void, u64 /* vaddr */, u64 /* paddr, -1ull if bss */, u64 /* size */, u64 /* flags */);
 typedef closure_type(elf_sym_handler, void, char *, u64, u64, u8);
 void elf_symbols(buffer elf, elf_sym_handler each);
+void walk_elf(buffer elf, range_handler rh);
 void *load_elf(buffer elf, u64 load_offset, elf_map_handler mapper);
 
 /* Architecture-specific */

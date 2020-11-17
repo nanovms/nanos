@@ -14,7 +14,7 @@ typedef struct stats {
 static void send_request(heap h, stats s, buffer_handler out, tuple t)
 {
     s->requests++;
-    http_request(h, out, t);
+    http_request(h, out, HTTP_REQUEST_METHOD_POST, t, 0);
 }
 
 u64 requests_per_connection;
