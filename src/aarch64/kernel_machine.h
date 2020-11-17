@@ -116,10 +116,17 @@
 
 #define SPSR_I U64_FROM_BIT(7)
 
-#define switch_stack(s, target) ({ \
+#define switch_stack(s, target) ({                                      \
             register u64 __s = u64_from_pointer(s);                     \
             register u64 __t = u64_from_pointer(target);                \
-            asm volatile("mov sp, %0; br %1" :: "r"(__s), "r"(__t)); })
+            asm volatile("mov sp, %0; br %1" :: "r"(__s), "r"(__t) : "memory"); })
+
+#define switch_stack_1(s, target, a0) ({                                \
+            register u64 __s = u64_from_pointer(s);                     \
+            register u64 __t = u64_from_pointer(target);                \
+            register u64 __x0 asm("x0") = (u64)(a0);                    \
+            asm volatile("mov sp, %0; br %1" ::                         \
+                         "r"(__s), "r"(__t), "r"(__x0) : "memory"); })
 
 static inline void enable_interrupts(void)
 {
@@ -153,13 +160,6 @@ static inline void irq_restore(u64 flags)
 /* ridiculous */
 #define read_psr_s(rstr) ({ register u64 r; asm volatile("mrs %0, " rstr : "=r"(r)); r;})
 #define write_psr_s(rstr, v) do { asm volatile("msr " rstr ", %0" : : "r"(v)); } while (0)
-
-// XXX kernel addr, also should return INVALID_PHYSICAL if PAR_EL1.F is set
-#define physical_from_virtual(v) ({                                     \
-            register u64 __r;                                           \
-            register u64 __x = u64_from_pointer(v);                     \
-            asm volatile("at S1E1R, %1; mrs %0, PAR_EL1" : "=r"(__r) : "r"(__x)); \
-            (__r & (MASK(47) & ~MASK(12))) | (__x & MASK(12));})
 
 /* per-cpu info, saved contexts and stacks */
 typedef u64 *context;
