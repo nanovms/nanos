@@ -58,6 +58,25 @@ boolean test_copy(heap h, bitmap b) {
     return true;
 }
 
+boolean test_set_and_get(bitmap b) {
+    u64 i = rand();
+    bitmap_set(b, i, 1);
+    if (!bitmap_get(b, i)) {
+        msg_err("!!! set and get failed for bitmap\n");
+        return false;
+    }
+    return true;
+}
+
+boolean test_deallocate(bitmap b) {
+    deallocate_bitmap(b);
+    if (!b) {
+        msg_err("!!! deallocating failed for bitmap\n");
+        return false;
+    }
+    return true;
+}
+
 boolean basic_test()
 {
     heap h = init_process_runtime();
@@ -70,9 +89,12 @@ boolean basic_test()
 
     // tests bitmap copy
     if (!test_copy(h, b)) return false;
+
+    // tests bitmap set then get
+    if (!test_set_and_get(b)) return false;
     
-    // deallocates bitmap
-    deallocate_bitmap(b);
+    // tests bitmap deallocate
+    if (!test_deallocate(b)) return false;
     return true;
 }
 
