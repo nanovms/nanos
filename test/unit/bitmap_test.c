@@ -13,9 +13,9 @@
 bitmap test_alloc(heap h) {
     bitmap b = allocate_bitmap(h, h, infinity);
     bitmap_foreach_set(b, i) {
-        if (i != 0) { // TODO: figure out appropriate way to check bit is set
+        if (i) {
             msg_err("!!! allocation failed for bitmap\n");
-            return NULL; // TODO: figure out better return val
+            return NULL; 
         }
     }
     return b;
@@ -25,11 +25,15 @@ bitmap test_alloc(heap h) {
  *  Tests cloning of bitmap using bitmap_clone 
  *  function.
  */  
-boolean test_clone(bitmap b) { // TODO: fix per PR comments
+boolean test_clone(bitmap b) { 
+    for (int i = 0; i < 20; i++) 
+        bitmap_set(b, rand(), 1);
     bitmap b_cpy = bitmap_clone(b);
-    if (b_cpy == INVALID_ADDRESS) {
-        msg_err("!!! cloning failed for bitmap\n");
-        return false;
+    bitmap_foreach_set(b, j) {
+        if (bitmap_get(b, j) != bitmap_get(b_cpy, j)) {
+            msg_err("!!! cloning failed for bitmap\n");
+            return false;
+        }
     }
     return true;
 }
@@ -38,12 +42,18 @@ boolean test_clone(bitmap b) { // TODO: fix per PR comments
  *  Tests copying of bitmap using bitmap_copy
  *  function.
  */ 
-boolean test_copy(heap h, bitmap b) { // TODO: fix per PR comments
+boolean test_copy(heap h, bitmap b) { 
     bitmap b_cpy = allocate_bitmap(h, h, infinity);
+    for (int i = 0; i < 20; i++) {
+        bitmap_set(b_cpy, rand(), 1);
+        bitmap_set(b, rand(), 1);
+    }
     bitmap_copy(b, b_cpy);
-    if (b_cpy == NULL) { // TODO
-        msg_err("!!! copying failed for bitmap\n");
-        return false;
+    bitmap_foreach_set(b, j) {
+        if (bitmap_get(b, j) != bitmap_get(b_cpy, j)) {
+            msg_err("!!! copying failed for bitmap\n");
+            return false;
+        }
     }
     return true;
 }
