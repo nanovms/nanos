@@ -62,6 +62,13 @@ void kern_unlock()
     spin_unlock(&kernel_lock);
 }
 
+timer kern_register_timer(clock_id id, timestamp val, boolean absolute,
+            timestamp interval, timer_handler n)
+{
+    return register_timer(runloop_timers, id, val, absolute, interval, n);
+}
+KLIB_EXPORT(kern_register_timer);
+
 static void run_thunk(thunk t, int cpustate)
 {
     cpuinfo ci = current_cpu();

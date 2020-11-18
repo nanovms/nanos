@@ -13,6 +13,7 @@
 #include <unix.h>
 #include <virtio/virtio.h>
 #include <vmware/vmxnet3.h>
+#include <drivers/acpi.h>
 #include <drivers/storage.h>
 #include <drivers/console.h>
 #include <kvm_platform.h>
@@ -176,6 +177,18 @@ void mm_service(void)
             mm_debug("   drained %ld / %ld requested...\n", drained, drain_bytes);
     }
 }
+
+kernel_heaps get_kernel_heaps(void)
+{
+    return &heaps;
+}
+KLIB_EXPORT(get_kernel_heaps);
+
+tuple get_environment(void)
+{
+    return table_find(filesystem_getroot(root_fs), sym(environment));
+}
+KLIB_EXPORT(get_environment);
 
 static void rootfs_init(heap h, u8 *mbr, u64 offset,
                         block_io r, block_io w, u64 length)
@@ -487,6 +500,7 @@ static void __attribute__((noinline)) init_service_new_stack()
     }
 
     init_storage(kh, sa, !xen_detected() && !hyperv_storvsc_attached);
+    init_acpi(kh);
 
     init_debug("pci_discover (for virtio & ata)");
     pci_discover(); // do PCI discover again for other devices

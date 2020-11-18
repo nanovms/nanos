@@ -9,3 +9,5 @@
 #include <lwip/ip4_frag.h>
 #include <lwip/etharp.h>
 #include <lwip/dhcp.h>
+
+status direct_connect(heap h, ip_addr_t *addr, u16 port, connection_handler ch);

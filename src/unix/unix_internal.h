@@ -514,11 +514,6 @@ static inline void thread_release(thread t)
 
 unix_heaps get_unix_heaps();
 
-static inline kernel_heaps get_kernel_heaps()
-{
-    return (kernel_heaps)get_unix_heaps();
-}
-
 #define unix_cache_alloc(uh, c) ({ heap __c = uh->c ## _cache; allocate(__c, __c->pagesize); })
 #define unix_cache_free(uh, c, p) ({ heap __c = uh->c ## _cache; deallocate(__c, p, __c->pagesize); })
 

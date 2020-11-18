@@ -7,7 +7,7 @@ CLEANFILES+=	$(IMAGE)
 CLEANDIRS+=	$(OUTDIR)/image $(OUTDIR)/platform/$(PLATFORM) $(OUTDIR)/platform
 
 LWIPDIR=	$(VENDORDIR)/lwip
-GITFLAGS+=	--depth 1  https://github.com/nanovms/lwip.git -b STABLE-2_1_2_RELEASE
+MBEDTLS_DIR=	$(VENDORDIR)/mbedtls
 
 # VMware
 QEMU_IMG=	qemu-img
@@ -38,11 +38,16 @@ all: image
 
 include rules.mk
 
-image: $(LWIPDIR)/.vendored tools
+THIRD_PARTY= $(LWIPDIR)/.vendored $(MBEDTLS_DIR)/.vendored
+
+$(LWIPDIR)/.vendored: GITFLAGS= --depth 1  https://github.com/nanovms/lwip.git -b STABLE-2_1_2_RELEASE
+$(MBEDTLS_DIR)/.vendored: GITFLAGS= --depth 1 https://github.com/nanovms/mbedtls.git
+
+image: $(THIRD_PARTY) tools
 	$(Q) $(MAKE) -C klib
 	$(Q) $(MAKE) -C $(PLATFORMDIR) image TARGET=$(TARGET)
 
-release: $(LWIPDIR)/.vendored mkfs
+release: $(THIRD_PARTY) mkfs
 	$(Q) $(MAKE) -C $(PLATFORMDIR) boot
 	$(Q) $(MAKE) -C $(PLATFORMDIR) kernel
 	$(Q) $(RM) -r release
