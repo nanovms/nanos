@@ -10,27 +10,49 @@
 #define FUTEX_WAIT 0
 #define FUTEX_WAKE 1
 
-static void * basic_test_thread(void *arg) {
-    return (void *)EXIT_SUCCESS;
+int futex_address;
+
+static void * futex_wake_test_thread(void *arg) {
+    /* set value of futex_address to 0 within this thread */
+    futex_address = 0;
+    
+    /* call wait with the address of futex_address and
+    a value of 0 - block while value at futex_address is 0 */
+    int wait_val = 0;
+    syscall(SYS_futex, (int*)(&futex_address), FUTEX_WAIT, wait_val, 0, NULL, 0);
+    return NULL;
 }
 
 static int futex_wake_test() {
     pthread_t pt;
     int ret;
-    if (pthread_create(&pt, NULL, basic_test_thread, NULL)) {
+
+    /* create one new thread */
+    if (pthread_create(&pt, NULL, futex_wake_test_thread, NULL)) {
         printf("unable to create thread\n");
         ret = -1;
     }
     else {
-        ret = syscall(SYS_futex, (int*)(&pt), FUTEX_WAKE, pt, 0, (int*)(&pt), 0);
+        /* put the main thread to sleep */
+        sleep(1); 
+
+        /* after main thread is done sleeping, call wake on the one
+        thread that is waiting on &futex_address */
+        int num_to_wake_up = 1;
+        ret = syscall(SYS_futex, (int*)(&futex_address), FUTEX_WAKE, num_to_wake_up, 0, NULL, 0);
+        
+        /* check that one thread has been woken up */
+        if (ret == num_to_wake_up)
+            ret = 0;
     }
-    return ret;
+    return ret; /* 0 on success */
 }
 
+/* method to run all tests */
 boolean basic_test() {
-    if (futex_wake_test() != 0) {
+    int ret = futex_wake_test();
+    if (ret != 0) 
         return false;
-    }
 
     return true;
 }
