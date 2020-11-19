@@ -30,6 +30,7 @@
 /* special disable idx */
 #define FTRACE_THREAD_DISABLE_IDX (int)-1
 
+#define UNTIMED (-1ULL)
 /* helper to create a buffer on the stack with a pointer to
  * contents that exist elsewhere
  */
@@ -702,7 +703,7 @@ function_graph_trace_entry(struct ftrace_graph_entry * stack_entry)
 
     graph = &(entry->graph);
     graph->ip = stack_entry->func;
-    graph->duration = 0;
+    graph->duration = UNTIMED;
     graph->cpu = stack_entry->cpu;
     graph->depth = stack_entry->depth;
     graph->has_child = 1;
@@ -798,9 +799,10 @@ function_graph_print_entry(struct ftrace_printer * p,
     printer_write(p, " %d) ", graph->cpu);
 
     /* duration */
-    if (!graph->has_child || graph->duration)
+    if (!graph->has_child || graph->duration != UNTIMED) {
+        assert(graph->duration != UNTIMED);
         printer_print_duration_usec(p, graph->duration, 11);
-    else
+    } else
         printer_write(p, "             ");
 
     printer_write(p, " |  ");
@@ -813,10 +815,11 @@ function_graph_print_entry(struct ftrace_printer * p,
         }
     }
 
-    /* if duration is 0, this is an graph of a function
-     * that may have children
+    /* if duration is UNTIMED, this is a graph of a function
+     * that has children
      */
-    if (graph->duration == 0 && graph->has_child) {
+    if (graph->duration == UNTIMED) {
+        assert(graph->has_child);
         /* function graph */
         printer_write(p, "%s() {", function_name(graph->ip));
     } else {
