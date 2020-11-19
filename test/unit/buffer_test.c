@@ -123,7 +123,7 @@ boolean concat_tests(heap h)
     // append small chucks of source buffer to test buffer and validate buffer_length()
     test_assert(buffer_append(b, buffer_ref(seed_buffer,0), 4));
     test_assert(buffer_length(b) == 4);
-    test_assert(buffer_append(b, buffer_ref(seed_buffer,4), 4);
+    test_assert(buffer_append(b, buffer_ref(seed_buffer,4), 4));
     test_assert(buffer_length(b) == 8);
 
     // validate sub_buffer functionality by creating a sub-buffer of the small portion
