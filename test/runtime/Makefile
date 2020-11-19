@@ -43,8 +43,9 @@ PROGRAMS= \
 
 SRCS-futex_test= \
 	$(CURDIR)/futex_test.c \
-	$(SRCDIR)/unix_process/ssp.c
+	$(SRCDIR)/unix_process/ssp.c \
 LDFLAGS-futex_test=	-static
+LIBS-futex_test=	-lpthread
 
 SRCS-aio= \
 	$(CURDIR)/aio.c \
