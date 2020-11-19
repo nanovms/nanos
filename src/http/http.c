@@ -244,7 +244,8 @@ closure_function(1, 1, status, http_recv,
 buffer_handler allocate_http_parser(heap h, value_handler each)
 {
     http_parser p = allocate(h, sizeof(struct http_parser));
-    assert(p != INVALID_ADDRESS); 
+    if (p == INVALID_ADDRESS)
+        return INVALID_ADDRESS;
     p->h = h;
     p->each = each;
     reset_parser(p);
