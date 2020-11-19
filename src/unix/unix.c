@@ -206,7 +206,10 @@ define_closure_function(1, 1, context, default_fault_handler,
             schedule_frame(frame);
             return 0;
         }
-    } else if (frame[FRAME_VECTOR] == 13) {
+    }
+    /* XXX arch dep */
+#ifdef __x86_64__
+    else if (frame[FRAME_VECTOR] == 13) {
         if (current_cpu()->state == cpu_user) {
             pf_debug("general protection fault in user mode, rip 0x%lx", frame[SYSCALL_FRAME_PC]);
             deliver_fault_signal(SIGSEGV, current_thread, 0, SI_KERNEL);
@@ -214,6 +217,7 @@ define_closure_function(1, 1, context, default_fault_handler,
             return 0;
         }
     }
+#endif
 
   bug:
     // panic handling in a more central location?

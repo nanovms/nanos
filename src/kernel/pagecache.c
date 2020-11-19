@@ -1046,11 +1046,11 @@ boolean pagecache_node_do_page_cow(pagecache_node pn, u64 node_offset, u64 vaddr
     pagecache_lock_node(pn);
     pagecache_page pp = page_lookup_nodelocked(pn, node_offset >> pc->page_order);
     assert(pp != INVALID_ADDRESS);
-    /* just overwrite old pte */
-    assert(flags & PAGE_WRITABLE);
+    assert(page_flags_is_writeable(flags));
     assert(page_state(pp) != PAGECACHE_PAGESTATE_FREE);
     assert(pp->kvirt != INVALID_ADDRESS);
     assert(pp->refcount.c != 0);
+    unmap(vaddr, cache_pagesize(pc));
     map(vaddr, paddr, cache_pagesize(pc), flags);
     runtime_memcpy(pointer_from_u64(vaddr), pp->kvirt, cache_pagesize(pc));
     pagecache_unlock_node(pn);

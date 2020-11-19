@@ -328,7 +328,7 @@ boolean xen_detect(kernel_heaps kh)
     xen_debug("xenstore page at phys 0x%lx; allocating virtual page and mapping", xen_info.xenstore_paddr);
     xen_info.xenstore_interface = allocate((heap)heap_virtual_page(kh), PAGESIZE);
     assert(xen_info.xenstore_interface != INVALID_ADDRESS);
-    map(u64_from_pointer(xen_info.xenstore_interface), xen_info.xenstore_paddr, PAGESIZE, 0);
+    map(u64_from_pointer(xen_info.xenstore_interface), xen_info.xenstore_paddr, PAGESIZE, PAGE_WRITABLE);
     xen_debug("xenstore page mapped at %p", xen_info.xenstore_interface);
 
     xen_debug("retrieving store event channel");

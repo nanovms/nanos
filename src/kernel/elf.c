@@ -114,8 +114,7 @@ void *load_elf(buffer elf, u64 load_offset, elf_map_handler mapper)
             u64 flags = 0;
             if ((p->p_flags & PF_X) == 0)
                 flags |= PAGE_NO_EXEC;
-            if ((p->p_flags & PF_W))
-                flags |= PAGE_WRITABLE;
+            flags |= (p->p_flags & PF_W) ? PAGE_WRITABLE : PAGE_READONLY;
             apply(mapper, aligned + load_offset, phy, ssize, flags);
 
             // always zero up to the next aligned page start

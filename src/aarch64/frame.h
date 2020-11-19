@@ -44,6 +44,7 @@ https://developer.arm.com/cache-speculation-vulnerability-firmware-specification
 #define FRAME_ESR_SPSR  32
 #define FRAME_ELR       33
 #define FRAME_TPIDR_EL0 34      /* tls, lazy */
+#define FRAME_N_PSTATE  35
 
 /* SSBD? */
 
@@ -57,4 +58,5 @@ https://developer.arm.com/cache-speculation-vulnerability-firmware-specification
 #define FRAME_THREAD        42
 #define FRAME_HEAP          43
 #define FRAME_MAX           44
-#define FRAME_EXTENDED_SAVE 64
+
+#define FRAME_EXTENDED_SAVE 48

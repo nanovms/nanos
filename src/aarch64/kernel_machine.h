@@ -307,7 +307,7 @@ static inline boolean is_page_fault(context f)
 {
     u8 fsc = fsc_from_frame(f);
     return (fsc != 0xff && fsc >= ESR_ISS_ID_ABRT_FSC_TRANSLATION_L0 &&
-            fsc <= ESR_ISS_ID_ABRT_FSC_TRANSLATION_L3);
+            fsc <= ESR_ISS_ID_ABRT_FSC_PERMISSION_L3);
 }
 
 static inline boolean is_usermode_fault(context f)
