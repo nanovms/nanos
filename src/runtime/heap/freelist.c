@@ -49,9 +49,7 @@ static u64 freelist_allocate(heap h, bytes size)
     if (!f->free) {
         //        console("freelist spill\n");
         f->total += size;
-        u64 res = allocate_u64(f->parent, size);
-        assert(res != INVALID_PHYSICAL);
-        return res;
+        return allocate_u64(f->parent, size);
     }
     //    console("freelist cached\n");
     void *result = f->free;

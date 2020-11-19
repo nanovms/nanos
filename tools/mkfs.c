@@ -45,10 +45,10 @@ buffer lookup_file(heap h, const char *target_root, buffer name, struct stat *st
         while (1) {
             // compose target_name
             buffer_clear(target_name);
-            buffer_write(target_name, target_root, strlen(target_root));
+            assert(buffer_write(target_name, target_root, strlen(target_root)));
             if (n[0] != '/')
                 buffer_write_byte(target_name, '/');
-            buffer_write(target_name, n, len);
+            assert(buffer_write(target_name, n, len));
 
             if (lstat(cstring(target_name, tmpbuf), st) < 0) {
                 if (errno != ENOENT)

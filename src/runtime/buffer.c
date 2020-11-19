@@ -18,10 +18,11 @@ buffer allocate_buffer(heap h, bytes s)
     return b;
 }
 
-void buffer_append(buffer b,
+boolean buffer_append(buffer b,
                      const void *body,
                      bytes length)
 {
-    assert(buffer_extend(b, length));
-    buffer_write(b, body, length);
+    if (!buffer_extend(b, length))
+        return false;
+    return buffer_write(b, body, length);
 }

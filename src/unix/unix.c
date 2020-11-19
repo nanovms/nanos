@@ -38,8 +38,10 @@ u64 allocate_fd_gte(process p, u64 min, void *f)
         msg_err("failed\n");
     }
     else {
-        if (!vector_set(p->files, fd, f)) 
+        if (!vector_set(p->files, fd, f)) {
+            deallocate_u64((heap)p->fdallocator, fd, 1);
             fd = INVALID_PHYSICAL;
+        }
     }
     return fd;
 }

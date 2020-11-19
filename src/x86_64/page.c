@@ -610,7 +610,6 @@ static u64 wrap_alloc(heap h, bytes b)
 {
     pagetable_lock();
     u64 r = allocate_u64((heap)phys_internal, b);
-    assert(r != INVALID_PHYSICAL);
     pagetable_unlock();
     return r;
 }

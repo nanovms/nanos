@@ -72,7 +72,7 @@ static void format_cstring(buffer dest, struct formatter_state *s, vlist *a)
     char *c = varg(*a, char *);
     if (!c) c = (char *)"(null)";
     int len = runtime_strlen(c);
-    buffer_write(dest, c, len);
+    assert(buffer_write(dest, c, len));
 }
 
 static void format_spaces(buffer dest, struct formatter_state *s, vlist *a)

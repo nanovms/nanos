@@ -166,7 +166,7 @@ value decode_value(heap h, tuple dictionary, buffer source, u64 *total,
         if (imm == immediate) {
             // doesn't seem like we should always need to take a copy in all cases
             b = allocate_buffer(h, len);
-            buffer_write(b, buffer_ref(source, 0), len);
+            assert(buffer_write(b, buffer_ref(source, 0), len));
             source->start += len;
         } else {
             b = table_find(dictionary, pointer_from_u64(len));

@@ -527,7 +527,7 @@ static s64 xenstore_read_internal(buffer b, s64 length)
         if (nread == 0)
             continue;
         read_barrier();
-        buffer_write(b, (void*)(xsdi->rsp + offset), nread);
+        assert(buffer_write(b, (void*)(xsdi->rsp + offset), nread));
         length -= nread;
         write_barrier();
         xsdi->rsp_cons += nread;
@@ -656,7 +656,7 @@ status xenstore_sync_printf(u32 tx_id, buffer path, const char *node, const char
     buffer request = allocate_buffer(xen_info.h, PAGESIZE);
     push_buffer(request, path);
     push_u8(request, '/');
-    buffer_write(request, node, runtime_strlen(node));
+    assert(buffer_write(request, node, runtime_strlen(node)));
     push_u8(request, 0);
     vlist a;
     vstart(a, format);
@@ -676,7 +676,7 @@ status xenstore_read_u64(u32 tx_id, buffer path, const char *node, u64 *result)
     buffer request = allocate_buffer(xen_info.h, 64);
     push_buffer(request, path);
     push_u8(request, '/');
-    buffer_write(request, node, runtime_strlen(node));
+    assert(buffer_write(request, node, runtime_strlen(node)));
     push_u8(request, 0);
 
     buffer response = allocate_buffer(xen_info.h, 16);
@@ -764,14 +764,14 @@ static status traverse_directory_internal(heap h, buffer path, tuple *parent)
     *parent = allocate_tuple();
 
     buffer splice = allocate_buffer(h, buffer_length(path) + 16);
-    buffer_write(splice, buffer_ref(path, 0), buffer_length(path) - 1);
+    assert(buffer_write(splice, buffer_ref(path, 0), buffer_length(path) - 1));
     push_u8(splice, '/');
     bytes splice_saved_end = splice->end;    /* XXX violation; amend buffer interface */
 
     do {
         char * child = buffer_ref(response, 0);
         int child_len = runtime_strlen(child) + 1;
-        buffer_write(splice, child, child_len);
+        assert(buffer_write(splice, child, child_len));
 
         value child_node = 0;
         s = traverse_directory_internal(h, splice, (tuple *)&child_node);

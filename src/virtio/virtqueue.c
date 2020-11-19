@@ -117,7 +117,8 @@ vqmsg allocate_vqmsg(virtqueue vq)
 {
     heap h = vq->dev->general;
     vqmsg m = allocate(h, sizeof(struct vqmsg));
-    assert(m != INVALID_ADDRESS);
+    if (m == INVALID_ADDRESS)
+        return INVALID_ADDRESS;
     list_init(&m->l);
     m->count = 0;
     m->descv = allocate_buffer(h, sizeof(struct vring_desc) * VQMSG_DEFAULT_SIZE);

@@ -95,7 +95,7 @@ static inline boolean buffer_extend(buffer b, bytes len)
 static inline boolean extend_total(buffer b, int offset)
 {
     if (offset > b->end) {
-        if (!buffer_extend(b, offset - b->end)) 
+        if (!buffer_extend(b, offset - b->end))
             return false;
         // shouldn't need to in all cases - this is to preserve
         // the idea of the vector as a mapping - we need a reliable
@@ -134,16 +134,18 @@ static inline buffer wrap_buffer_cstring(heap h, char *x)
 buffer allocate_buffer(heap h, bytes length);
 
 
-static inline void buffer_write(buffer b, const void *source, bytes length)
+static inline boolean buffer_write(buffer b, const void *source, bytes length)
 {
-    assert(buffer_extend(b, length));
+    if (!buffer_extend(b, length))
+        return false;
     runtime_memcpy(buffer_ref(b, buffer_length(b)), source, length);
     buffer_produce(b, length);
+    return true;
 }
 
 static inline void buffer_write_cstring(buffer b, const char *x)
 {
-    return buffer_write(b, x, runtime_strlen(x));
+    assert(buffer_write(b, x, runtime_strlen(x))); //esther propogate up?
 }
 
 static inline boolean buffer_read(buffer b, void *dest, bytes length)
@@ -156,7 +158,7 @@ static inline boolean buffer_read(buffer b, void *dest, bytes length)
 
 static inline void push_buffer(buffer d, buffer s)
 {
-    buffer_write(d, buffer_ref(s, 0), buffer_length(s));
+    assert(buffer_write(d, buffer_ref(s, 0), buffer_length(s)));
 }
 
 static inline buffer clone_buffer(heap h, buffer b)
@@ -168,7 +170,7 @@ static inline buffer clone_buffer(heap h, buffer b)
     return new;
 }
 
-void buffer_append(buffer b,
+boolean buffer_append(buffer b,
                    const void *body,
                    bytes length);
 
@@ -176,23 +178,25 @@ static inline buffer buffer_cstring(heap h, const char *x)
 {
     int len = runtime_strlen(x);
     buffer b = allocate_buffer(h, len);
-    buffer_append(b, x, len);
+    assert(buffer_append(b, x, len));
     return b;
 }
 
 // little endian variants
 #define WRITE_BE(bits)                                          \
-    static inline void buffer_write_be##bits(buffer b, u64 x)   \
+    static inline boolean buffer_write_be##bits(buffer b, u64 x)   \
     {                                                           \
         u64 k = (x);                                            \
         int len = bits>>3;                                      \
-        buffer_extend((b), len);                                \
+        if (!buffer_extend((b), len))                           \
+            return false;                                       \
         u8 *n = buffer_ref((b), (b)->end);                      \
         for (int i = len-1; i >= 0; i--) {                      \
             n[i] = k & 0xff;                                    \
             k >>= 8;                                            \
         }                                                       \
         b->end += len;                                          \
+        return true;                                            \
     }
 
 #define READ_BE(bits)                                   \

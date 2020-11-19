@@ -10,10 +10,10 @@ static u64 debug_alloc(heap h, bytes size)
 {
     dheap d = (dheap)h;
     u64 result = allocate_u64(d->parent, size);
-    assert(result != INVALID_PHYSICAL);
-    rprintf("alloc %p %p -> %p %p (%p)\n",  d->parent, size, result,
-            physical_from_virtual(pointer_from_u64(result)),
-            d->parent->alloc); 
+    if (result != INVALID_PHYSICAL)
+        rprintf("alloc %p %p -> %p %p (%p)\n",  d->parent, size, result,
+                physical_from_virtual(pointer_from_u64(result)),
+                d->parent->alloc); 
     return result;
 }
 
