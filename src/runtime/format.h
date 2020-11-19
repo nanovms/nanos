@@ -18,4 +18,5 @@ void register_format(character c, formatter f, int accepts_long);
 buffer aprintf(heap h, const char *fmt, ...);
 void bbprintf(buffer b, buffer fmt, ...);
 void bprintf(buffer b, const char *fmt, ...);
+int rsnprintf(char *str, u64 size, const char *fmt, ...);
 void rprintf(const char *format, ...);

@@ -121,7 +121,33 @@ void bprintf(buffer b, const char *fmt, ...)
     vbprintf(b, f, &ap);
     vend(ap);
 }
+KLIB_EXPORT(bprintf);
 
+int rsnprintf(char *str, u64 size, const char *fmt, ...)
+{
+    buffer b = allocate_buffer(transient, size);
+    if (b == INVALID_ADDRESS) {
+        msg_err("buffer allocation failed\n");
+        if (size > 0)
+            str[0] = '\0';
+        return 0;
+    }
+    vlist ap;
+    vstart(ap, fmt);
+    buffer f = alloca_wrap_buffer(fmt, runtime_strlen(fmt));
+    vbprintf(b, f, &ap);
+    vend(ap);
+    int n;
+    if (size > 0) {
+        n = MIN(buffer_length(b), size - 1);
+        runtime_memcpy(str, buffer_ref(b, 0), n);
+        str[n] = '\0';
+    }
+    n = buffer_length(b);
+    deallocate_buffer(b);
+    return n;
+}
+KLIB_EXPORT(rsnprintf);
 
 void rprintf(const char *format, ...)
 {
@@ -133,3 +159,4 @@ void rprintf(const char *format, ...)
     vbprintf(b, f, &a);
     buffer_print(b);
 }
+KLIB_EXPORT(rprintf);

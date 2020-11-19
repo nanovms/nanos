@@ -203,6 +203,7 @@ void thread_sleep_interruptible(void)
     disable_interrupts();
     assert(current->blocked_on);
     thread_log(current, "sleep interruptible (on \"%s\")", blockq_name(current->blocked_on));
+    ftrace_thread_switch(current, 0);
     kern_unlock();
     runloop();
 }
@@ -213,6 +214,7 @@ void thread_sleep_uninterruptible(void)
     assert(!current->blocked_on);
     current->blocked_on = INVALID_ADDRESS;
     thread_log(current, "sleep uninterruptible");
+    ftrace_thread_switch(current, 0);
     kern_unlock();
     runloop();
 }
@@ -312,12 +314,6 @@ thread create_thread(process p)
     t->dispatch_sigstate = 0;
     t->active_signo = 0;
     init_closure(&t->deferred_syscall, resume_syscall, t);
-    if (ftrace_thread_init(t)) {
-        msg_err("failed to init ftrace state for thread\n");
-        deallocate_blockq(t->thread_bq);
-        deallocate(h, t, sizeof(struct thread));
-        return INVALID_ADDRESS;
-    }
     t->sysctx = false;
     t->utime = t->stime = 0;
     t->start_time = now(CLOCK_ID_MONOTONIC);
@@ -378,8 +374,6 @@ void exit_thread(thread t)
     t->default_frame[FRAME_FAULT_HANDLER] = INVALID_PHYSICAL;
     deallocate_frame(t->default_frame);
     deallocate_frame(t->sighandler_frame);
-
-    ftrace_thread_deinit(t, dummy_thread);
 
     /* replace references to thread with placeholder */
     set_current_thread((nanos_thread)dummy_thread);

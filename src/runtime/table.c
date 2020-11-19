@@ -62,6 +62,7 @@ void deallocate_table(table t)
     deallocate(t->h, t->entries, t->buckets * sizeof(void *));
     deallocate(t->h, t, sizeof(struct table));
 }
+KLIB_EXPORT(deallocate_table);
 
 static inline key position(int buckets, key x)
 {
@@ -101,6 +102,7 @@ void *table_find(table z, void *c)
     }
     return EMPTY;
 }
+KLIB_EXPORT(table_find);
 
 void table_set(table z, void *c, void *v)
 {
@@ -143,6 +145,7 @@ void table_set(table z, void *c, void *v)
         }
     }
 }
+KLIB_EXPORT(table_set);
 
 int table_elements(table z)
 {

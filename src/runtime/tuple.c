@@ -36,6 +36,7 @@ tuple allocate_tuple()
 {
     return tag(allocate_table(theap, key_from_symbol, pointer_equal), tag_tuple);
 }
+KLIB_EXPORT(allocate_tuple);
 
 void destruct_tuple(tuple t, boolean recursive)
 {
@@ -51,6 +52,26 @@ void destruct_tuple(tuple t, boolean recursive)
     }
     deallocate_tuple(t);
 }
+
+/* Compared to timm(), kern_timm() supports one key-value pair only. */
+tuple kern_timm(char *name, ...)
+{
+    tuple s = allocate_tuple();
+    assert(s != INVALID_ADDRESS);
+    vlist ap;
+    vstart(ap, name);
+    timm_term(s, name, &ap);
+    vend(ap);
+    return s;
+}
+KLIB_EXPORT_RENAME(kern_timm, timm);
+
+void timm_dealloc(tuple t)
+{
+    if (t != STATUS_OK)
+        destruct_tuple(t, true);
+}
+KLIB_EXPORT(timm_dealloc);
 
 // header: immediate(1)
 //         type(1)
