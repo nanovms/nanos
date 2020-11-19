@@ -238,7 +238,7 @@ static void read_kernel_syms()
 	    kern_length = e->length;
 
 	    u64 v = allocate_u64((heap)heap_virtual_huge(&heaps), kern_length);
-	    map(v, kern_base, kern_length, 0);
+	    map(v, kern_base, kern_length, PAGE_READONLY);
 #ifdef ELF_SYMTAB_DEBUG
 	    rprintf("kernel ELF image at 0x%lx, length %ld, mapped at 0x%lx\n",
 		    kern_base, kern_length, v);
@@ -664,7 +664,7 @@ void init_service(u64 rdi, u64 rsi)
         void *pgdir = bootstrap_page_tables(pageheap);
         map(0, 0, INITIAL_MAP_SIZE, PAGE_WRITABLE);
         map(PAGES_BASE, initial_pages_base, INITIAL_PAGES_SIZE, PAGE_WRITABLE);
-        map(KERNEL_BASE, KERNEL_BASE_PHYS, pad(kernel_size, PAGESIZE), 0);
+        map(KERNEL_BASE, KERNEL_BASE_PHYS, pad(kernel_size, PAGESIZE), PAGE_READONLY);
         initial_pages_region->length = INITIAL_PAGES_SIZE;
         mov_to_cr("cr3", pgdir);
     }

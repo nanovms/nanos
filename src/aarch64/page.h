@@ -148,7 +148,7 @@
 #define PAGE_DEV_FLAGS    0
 #define PAGE_NO_EXEC      0
 #define PAGE_WRITABLE     0     /* XXX need to update semantics / use helper */
-#define PAGE_READ_ONLY    u64_from_field(PAGE_ATTR_AP_2_1, PAGE_ATTR_AP_2_1_RO)
+#define PAGE_READONLY     u64_from_field(PAGE_ATTR_AP_2_1, PAGE_ATTR_AP_2_1_RO)
 #define PAGE_USER         u64_from_field(PAGE_ATTR_AP_2_1, PAGE_ATTR_AP_2_1_E0)
 #define PAGE_FLAGS_MASK   0xfffc000000000fffull
 
@@ -168,6 +168,26 @@ extern const int page_level_shifts_4K[PAGE_NLEVELS];
 static inline u64 flags_from_pte(u64 pte)
 {
     return pte & PAGE_FLAGS_MASK;
+}
+
+static inline u64 page_flags_writeable(u64 flags)
+{
+    return flags & ~PAGE_READONLY;
+}
+
+static inline u64 page_flags_readonly(u64 flags)
+{
+    return flags | PAGE_READONLY;
+}
+
+static inline boolean page_flags_is_writeable(u64 flags)
+{
+    return (flags & PAGE_READONLY) == 0;
+}
+
+static inline boolean page_flags_is_readonly(u64 flags)
+{
+    return !page_flags_is_writeable(flags);
 }
 
 extern const int page_level_shifts_4K[PAGE_NLEVELS];

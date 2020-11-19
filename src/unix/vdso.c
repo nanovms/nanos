@@ -55,7 +55,7 @@ void init_vsyscall(heap phys)
     /* build vsyscall vectors */
     u64 p = allocate_u64(phys, PAGESIZE);
     assert(p != INVALID_PHYSICAL);
-    map(VSYSCALL_BASE, p, PAGESIZE, PAGE_USER);
+    map(VSYSCALL_BASE, p, PAGESIZE, PAGE_USER | PAGE_READONLY);
     buffer b = alloca_wrap_buffer(pointer_from_u64(VSYSCALL_BASE), PAGESIZE);
     b->end = VSYSCALL_OFFSET_VGETTIMEOFDAY;
 //    mov_64_imm(b, 0, u64_from_pointer(vsyscall_gettimeofday));
@@ -73,7 +73,7 @@ void init_vsyscall(heap phys)
     u64 vs = u64_from_pointer(&vsyscall_start);
     u64 ve = u64_from_pointer(&vsyscall_end);
     u64 len = pad(ve - vs, PAGESIZE);
-    update_map_flags(vs, len, PAGE_USER);
+    update_map_flags(vs, len, PAGE_USER | PAGE_READONLY);
 }
 
 #define __vdso_dat (&(VVAR_REF(vdso_dat)))
@@ -97,7 +97,7 @@ void init_vdso(process p)
         size = vdso_raw_length;
         paddr = physical_from_virtual(vdso_raw);
         assert(paddr != INVALID_PHYSICAL);
-        map(vaddr, paddr, size, PAGE_USER);
+        map(vaddr, paddr, size, PAGE_USER | PAGE_READONLY);
     }
 
     /* map first vvar page, which contains various kernel data */
@@ -106,7 +106,7 @@ void init_vdso(process p)
         size = PAGESIZE;
         paddr = physical_from_virtual((void *)&vvar_page);
         assert(paddr != INVALID_PHYSICAL);
-        map(vaddr, paddr, size, PAGE_USER | PAGE_NO_EXEC);
+        map(vaddr, paddr, size, PAGE_USER | PAGE_NO_EXEC | PAGE_READONLY);
     }
 
     /* map pvclock page */
@@ -117,7 +117,7 @@ void init_vdso(process p)
         paddr = INVALID_PHYSICAL; // XXX
         if (paddr != INVALID_PHYSICAL) {
             __vdso_dat->pvclock_offset = paddr & PAGEMASK;
-            map(vaddr, paddr & ~PAGEMASK, size, PAGE_USER | PAGE_NO_EXEC);
+            map(vaddr, paddr & ~PAGEMASK, size, PAGE_USER | PAGE_NO_EXEC | PAGE_READONLY);
         }
     }
 

@@ -25,7 +25,6 @@ static inline u64 page_flags_from_vmflags(u64 vmflags)
     u64 flags = PAGE_USER;
     if ((vmflags & VMAP_FLAG_EXEC) == 0)
         flags |= PAGE_NO_EXEC;
-    if ((vmflags & VMAP_FLAG_WRITABLE))
-        flags |= PAGE_WRITABLE;
+    flags |= (vmflags & VMAP_FLAG_WRITABLE) ? PAGE_WRITABLE : PAGE_READONLY;
     return flags;
 }
