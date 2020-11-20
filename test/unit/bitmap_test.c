@@ -106,6 +106,16 @@ boolean test_wrap(heap h) {
     return true;
 }
 
+boolean test_bitmap_alloc(bitmap b, u64 start, u64 end) {
+    u64 nbits = rand();
+    u64 first = bitmap_alloc_within_range(b, nbits, start, end);
+    if (first != INVALID_PHYSICAL && !bitmap_dealloc(b, first, nbits)) {
+        msg_err("!!! alloc range failed for bitmap\n");
+        return false;
+    }
+    return true;
+}
+
 boolean basic_test()
 {
     heap h = init_process_runtime();
@@ -124,6 +134,12 @@ boolean basic_test()
 
     // tests bitmap wrap then unwrap
     if (!test_wrap(h)) return false;
+
+    // tests bitmap alloc then bitmap alloc within range
+    if (!test_bitmap_alloc(b, 0, infinity)) return false;
+    u64 start = rand();
+    u64 end = rand() % (infinity + 1 - start) + start;
+    if(!test_bitmap_alloc(b, start, end)) return false;
 
     // deallocate bitmap
     deallocate_bitmap(b);
