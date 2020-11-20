@@ -23,6 +23,10 @@ typedef struct nanos_thread {
     thunk pause;
 } *nanos_thread;
 
+#ifdef CONFIG_FTRACE
+struct ftrace_graph_entry;
+#endif
+
 typedef struct cpuinfo {
     /*** Fields accessed by low-level entry points. ***/
     /* Don't move these without updating gs-relative accesses in crt0.s ***/
@@ -56,6 +60,11 @@ typedef struct cpuinfo {
 
     /* Stack for interrupts */
     void *int_stack;
+
+#ifdef CONFIG_FTRACE
+    int graph_idx;
+    struct ftrace_graph_entry * graph_stack;
+#endif
 } *cpuinfo;
 
 #define cpu_not_present 0
@@ -66,54 +75,54 @@ typedef struct cpuinfo {
 
 extern struct cpuinfo cpuinfos[];
 
-static inline cpuinfo cpuinfo_from_id(int cpu)
+static inline __attribute__((always_inline)) cpuinfo cpuinfo_from_id(int cpu)
 {
     assert(cpu >= 0 && cpu < MAX_CPUS);
     return &cpuinfos[cpu];
 }
 
-static inline void cpu_setgs(int cpu)
+static inline __attribute__((always_inline)) void cpu_setgs(int cpu)
 {
     u64 addr = u64_from_pointer(cpuinfo_from_id(cpu));
     write_msr(KERNEL_GS_MSR, 0); /* clear user GS */
     write_msr(GS_MSR, addr);
 }
 
-static inline cpuinfo current_cpu(void)
+static inline __attribute__((always_inline)) cpuinfo current_cpu(void)
 {
     u64 addr;
     asm volatile("movq %%gs:0, %0":"=r"(addr));
     return (cpuinfo)pointer_from_u64(addr);
 }
 
-static inline boolean is_current_kernel_context(context f)
+static inline __attribute__((always_inline)) boolean is_current_kernel_context(context f)
 {
     return f == current_cpu()->kernel_context->frame;
 }
 
-static inline context get_running_frame(void)
+static inline __attribute__((always_inline)) context get_running_frame(void)
 {
     return current_cpu()->running_frame;
 }
 
-static inline void set_running_frame(context f)
+static inline __attribute__((always_inline)) void set_running_frame(context f)
 {
     current_cpu()->running_frame = f;
 }
 
-static inline nanos_thread get_current_thread()
+static inline __attribute__((always_inline)) nanos_thread get_current_thread()
 {
     context f = current_cpu()->kernel_context->frame;
     return pointer_from_u64(f[FRAME_THREAD]);
 }
 
-static inline void set_current_thread(nanos_thread t)
+static inline __attribute__((always_inline)) void set_current_thread(nanos_thread t)
 {
     context f = current_cpu()->kernel_context->frame;
     f[FRAME_THREAD] = u64_from_pointer(t);
 }
 
-static inline void *stack_from_kernel_context(kernel_context c)
+static inline __attribute__((always_inline)) void *stack_from_kernel_context(kernel_context c)
 {
     return ((void*)c->stackbase) + KERNEL_STACK_SIZE - STACK_ALIGNMENT;
 }
@@ -125,7 +134,7 @@ static inline boolean this_cpu_has_kernel_lock(void)
     return current_cpu()->have_kernel_lock;
 }
 
-NOTRACE static inline __attribute__((noreturn)) void runloop(void)
+NOTRACE static inline __attribute__((always_inline)) __attribute__((noreturn)) void runloop(void)
 {
     set_running_frame(current_cpu()->kernel_context->frame);
     switch_stack(stack_from_kernel_context(current_cpu()->kernel_context),

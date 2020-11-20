@@ -268,10 +268,6 @@ typedef struct thread {
     void *signal_stack;
     u64 signal_stack_length;
 
-#ifdef CONFIG_FTRACE
-    int graph_idx;
-    struct ftrace_graph_entry * graph_stack;
-#endif
     closure_struct(resume_syscall, deferred_syscall);
     cpu_set_t affinity;    
 } *thread;
