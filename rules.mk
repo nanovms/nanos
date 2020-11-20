@@ -15,6 +15,8 @@ PLATFORMDIR=	$(ROOTDIR)/platform/$(PLATFORM)
 PLATFORMOBJDIR=	$(subst $(ROOTDIR),$(OUTDIR),$(PLATFORMDIR))
 IMAGE=		$(OUTDIR)/image/disk.raw
 
+include $(SRCDIR)/runtime/files.mk
+
 # To reveal verbose build messages, override Q= in command line.
 Q=		@
 
@@ -238,8 +240,7 @@ ifeq ($(WITHOUT_SSP),)
 CFLAGS+=	-fstack-protector-strong
 ifneq ($(CC),clang)
 ifneq ($(UNAME_s),Darwin)
-KERNCFLAGS+=	-mstack-protector-guard=global \
-		-fno-pic
+KERNCFLAGS+=	-mstack-protector-guard=global
 endif
 endif
 endif

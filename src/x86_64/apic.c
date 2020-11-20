@@ -28,6 +28,7 @@
 
 static heap apic_heap;
 apic_iface apic_if;
+int apic_id_map[MAX_CPUS];
 
 static inline void apic_write(int reg, u32 val)
 {
@@ -41,6 +42,8 @@ static inline u32 apic_read(int reg)
 
 void apic_ipi(u32 target, u64 flags, u8 vector)
 {
+    if (target != TARGET_EXCLUSIVE_BROADCAST)
+        target = apic_id_map[target];
     apic_if->ipi(apic_if, target, flags, vector);
 }
 

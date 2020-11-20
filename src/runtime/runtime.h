@@ -2,7 +2,7 @@
 #include <config.h>
 #include <machine.h>
 #include <attributes.h>
-#if !defined(BOOT) && !defined(STAGE3)
+#if !defined(BOOT) && !defined(STAGE3) && !defined(KLIB)
 #include <unix_process_runtime.h>
 #endif
 
@@ -227,3 +227,20 @@ status_handler apply_merge(merge m);
 void __stack_chk_guard_init();
 
 #define _countof(a) (sizeof(a) / sizeof(*(a)))
+
+#ifdef KERNEL
+typedef struct export_sym {
+    const char *name;
+    void *v;
+} *export_sym;
+
+#define KLIB_EXPORT_RENAME(sym, name)                                      \
+    static const char * __attribute__((section(".klib_symtab.strs")))      \
+        __attribute__((used)) _klib_sym_str_ ##sym = #name;                \
+    static struct export_sym __attribute__((section(".klib_symtab.syms"))) \
+        __attribute__((used)) _klib_export_sym_ ##sym = (struct export_sym){#name, (sym)};
+#define KLIB_EXPORT(sym)    KLIB_EXPORT_RENAME(sym, sym)
+#else
+#define KLIB_EXPORT(x)
+#define KLIB_EXPORT_RENAME(x, y)
+#endif

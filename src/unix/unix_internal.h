@@ -182,6 +182,7 @@ typedef struct sigstate {
     u64         saved;          /* original mask saved on rt_sigsuspend or handler dispatch */
     u64         ignored;        /* mask of signals set to SIG_IGN */
     u64         interest;       /* signals of interest, regardless of mask or ignored */
+    struct spinlock   ss_lock;
     struct list heads[NSIG];
 } *sigstate;
 
@@ -267,10 +268,6 @@ typedef struct thread {
     void *signal_stack;
     u64 signal_stack_length;
 
-#ifdef CONFIG_FTRACE
-    int graph_idx;
-    struct ftrace_graph_entry * graph_stack;
-#endif
     closure_struct(resume_syscall, deferred_syscall);
     cpu_set_t affinity;    
 } *thread;
@@ -413,7 +410,6 @@ typedef struct process {
     rangemap          vmaps;    /* process mappings */
     vmap              stack_map;
     vmap              heap_map;
-    timestamp         utime, stime;
     struct sigstate   signals;
     struct sigaction  sigactions[NSIG];
     id_heap           posix_timer_ids;
@@ -517,11 +513,6 @@ static inline void thread_release(thread t)
 }
 
 unix_heaps get_unix_heaps();
-
-static inline kernel_heaps get_kernel_heaps()
-{
-    return (kernel_heaps)get_unix_heaps();
-}
 
 #define unix_cache_alloc(uh, c) ({ heap __c = uh->c ## _cache; allocate(__c, __c->pagesize); })
 #define unix_cache_free(uh, c, p) ({ heap __c = uh->c ## _cache; deallocate(__c, p, __c->pagesize); })

@@ -63,6 +63,25 @@ void elf_symbols(buffer elf, elf_sym_handler each)
     msg_err("failed to parse elf file, len %d; check file image consistency\n", buffer_length(elf));
 }
 
+void walk_elf(buffer elf, range_handler rh)
+{
+    void * elf_end = buffer_ref(elf, buffer_length(elf));
+    Elf64_Ehdr *e = buffer_ref(elf, 0);
+    ELF_CHECK_PTR(e, Elf64_Ehdr);
+    foreach_phdr(e, p) {
+        ELF_CHECK_PTR(p, Elf64_Phdr);
+        if (p->p_type == PT_LOAD) {
+            range r = irangel(p->p_vaddr & (~MASK(PAGELOG)),
+                pad(p->p_filesz + (p->p_vaddr & MASK(PAGELOG)), PAGESIZE));
+            apply(rh, r);
+            if (p->p_memsz > range_span(r))
+                apply(rh, irangel(r.end, pad(p->p_memsz - range_span(r), PAGESIZE)));
+        }
+    }
+  out_elf_fail:
+    return;
+}
+
 void *load_elf(buffer elf, u64 load_offset, elf_map_handler mapper)
 {
     void * elf_end = buffer_ref(elf, buffer_length(elf));

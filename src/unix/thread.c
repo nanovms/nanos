@@ -106,7 +106,7 @@ void thread_log_internal(thread t, const char *desc, ...)
             return;
         vlist ap;
         vstart (ap, desc);        
-        buffer b = allocate_buffer(transient, 100);
+        buffer b = little_stack_buffer(512);
         bprintf(b, "%n%d ", (int) ((MAX(MIN(t->tid, 20), 1) - 1) * 4), t->tid);
         if (t->name[0] != '\0')
             bprintf(b, "[%s] ", t->name);
@@ -149,11 +149,9 @@ static inline void check_stop_conditions(thread t)
 static inline void run_thread_frame(thread t)
 {
     check_stop_conditions(t);
-    kern_lock(); // xx - make thread entry a separate exclusion region for performance
     thread old = current;
-    set_current_thread((nanos_thread)t);
-    ftrace_thread_switch(old, current);    /* ftrace needs to know about the switch event */
     thread_enter_user(t);
+    ftrace_thread_switch(old, t);    /* ftrace needs to know about the switch event */
 
     /* cover wake-before-sleep situations (e.g. sched yield, fs ops that don't go to disk, etc.) */
     t->blocked_on = 0;
@@ -161,12 +159,13 @@ static inline void run_thread_frame(thread t)
 
     context f = thread_frame(t);
     f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
+    cpuinfo ci = current_cpu();
+    f[FRAME_QUEUE] = u64_from_pointer(ci->thread_queue);
 
     thread_log(t, "run %s, cpu %d, frame %p, rip 0x%lx, rsp 0x%lx, rdi 0x%lx, rax 0x%lx, rflags 0x%lx, cs 0x%lx, %s",
-               f == t->sighandler_frame ? "sig handler" : "thread", current_cpu()->id, f, f[FRAME_RIP], f[FRAME_RSP],
+               f == t->sighandler_frame ? "sig handler" : "thread", ci->id, f, f[FRAME_RIP], f[FRAME_RSP],
                f[FRAME_RDI], f[FRAME_RAX], f[FRAME_FLAGS], f[FRAME_CS], f[FRAME_IS_SYSCALL] ? "sysret" : "iret");
-    kern_unlock();
-    current_cpu()->frcount++;
+    ci->frcount++;
     frame_return(f);
 }
 
@@ -193,7 +192,7 @@ define_closure_function(1, 0, void, run_sighandler,
 static void setup_thread_frame(heap h, context frame, thread t)
 {
     frame[FRAME_FAULT_HANDLER] = u64_from_pointer(&t->fault_handler);
-    frame[FRAME_QUEUE] = u64_from_pointer(thread_queue);
+    frame[FRAME_QUEUE] = u64_from_pointer(current_cpu()->thread_queue);
     frame[FRAME_IS_SYSCALL] = 1;
     frame[FRAME_CS] = 0x2b; // where is this defined?
     frame[FRAME_THREAD] = u64_from_pointer(t);
@@ -204,6 +203,7 @@ void thread_sleep_interruptible(void)
     disable_interrupts();
     assert(current->blocked_on);
     thread_log(current, "sleep interruptible (on \"%s\")", blockq_name(current->blocked_on));
+    ftrace_thread_switch(current, 0);
     kern_unlock();
     runloop();
 }
@@ -214,6 +214,7 @@ void thread_sleep_uninterruptible(void)
     assert(!current->blocked_on);
     current->blocked_on = INVALID_ADDRESS;
     thread_log(current, "sleep uninterruptible");
+    ftrace_thread_switch(current, 0);
     kern_unlock();
     runloop();
 }
@@ -313,12 +314,6 @@ thread create_thread(process p)
     t->dispatch_sigstate = 0;
     t->active_signo = 0;
     init_closure(&t->deferred_syscall, resume_syscall, t);
-    if (ftrace_thread_init(t)) {
-        msg_err("failed to init ftrace state for thread\n");
-        deallocate_blockq(t->thread_bq);
-        deallocate(h, t, sizeof(struct thread));
-        return INVALID_ADDRESS;
-    }
     t->sysctx = false;
     t->utime = t->stime = 0;
     t->start_time = now(CLOCK_ID_MONOTONIC);
@@ -379,8 +374,6 @@ void exit_thread(thread t)
     t->default_frame[FRAME_FAULT_HANDLER] = INVALID_PHYSICAL;
     deallocate_frame(t->default_frame);
     deallocate_frame(t->sighandler_frame);
-
-    ftrace_thread_deinit(t, dummy_thread);
 
     /* replace references to thread with placeholder */
     set_current_thread((nanos_thread)dummy_thread);

@@ -1,4 +1,4 @@
-SUBDIR=		$(PLATFORMDIR) test tools
+SUBDIR=		$(PLATFORMDIR) klib test tools
 
 # runtime tests / ready-to-use targets
 TARGET=		webg
@@ -7,7 +7,7 @@ CLEANFILES+=	$(IMAGE)
 CLEANDIRS+=	$(OUTDIR)/image $(OUTDIR)/platform/$(PLATFORM) $(OUTDIR)/platform
 
 LWIPDIR=	$(VENDORDIR)/lwip
-GITFLAGS+=	--depth 1  https://github.com/nanovms/lwip.git -b STABLE-2_1_2_RELEASE
+MBEDTLS_DIR=	$(VENDORDIR)/mbedtls
 
 # VMware
 QEMU_IMG=	qemu-img
@@ -32,16 +32,22 @@ MKFS=		$(TOOLDIR)/mkfs
 BOOTIMG=	$(PLATFORMOBJDIR)/boot/boot.img
 KERNEL=		$(PLATFORMOBJDIR)/bin/kernel.img
 
-all: image tools
+all: image
 
-.PHONY: image release target tools distclean
+.PHONY: distclean image release target tools
 
 include rules.mk
 
-image: $(LWIPDIR)/.vendored mkfs
+THIRD_PARTY= $(LWIPDIR)/.vendored $(MBEDTLS_DIR)/.vendored
+
+$(LWIPDIR)/.vendored: GITFLAGS= --depth 1  https://github.com/nanovms/lwip.git -b STABLE-2_1_2_RELEASE
+$(MBEDTLS_DIR)/.vendored: GITFLAGS= --depth 1 https://github.com/nanovms/mbedtls.git
+
+image: $(THIRD_PARTY) tools
+	$(Q) $(MAKE) -C klib
 	$(Q) $(MAKE) -C $(PLATFORMDIR) image TARGET=$(TARGET)
 
-release: mkfs
+release: $(THIRD_PARTY) mkfs
 	$(Q) $(MAKE) -C $(PLATFORMDIR) boot
 	$(Q) $(MAKE) -C $(PLATFORMDIR) kernel
 	$(Q) $(RM) -r release
@@ -54,7 +60,7 @@ release: mkfs
 target: contgen
 	$(Q) $(MAKE) -C test/runtime $(TARGET)
 
-tools:
+tools: contgen
 	$(Q) $(MAKE) -C $@
 
 distclean: clean
@@ -71,15 +77,15 @@ contgen mkfs:
 test-all: contgen
 	$(Q) $(MAKE) -C test
 
-test test-noaccel: mkfs image
+test test-noaccel: image
 	$(Q) $(MAKE) -C test test
 	$(Q) $(MAKE) runtime-tests$(subst test,,$@)
 
-RUNTIME_TESTS=	aio creat dup epoll eventfd fadvise fallocate fcntl fst getdents getrandom hw hws io_uring mkdir mmap netsock pipe readv rename sendfile signal socketpair time unlink thread_test vsyscall write writev
+RUNTIME_TESTS=	aio creat dup epoll eventfd fadvise fallocate fcntl fst getdents getrandom hw hws io_uring klibs mkdir mmap netsock pipe readv rename sendfile signal socketpair time unlink thread_test vsyscall write writev
 
 .PHONY: runtime-tests runtime-tests-noaccel
 
-runtime-tests runtime-tests-noaccel: mkfs image
+runtime-tests runtime-tests-noaccel: image
 	$(foreach t,$(RUNTIME_TESTS),$(call execute_command,$(Q) $(MAKE) run$(subst runtime-tests,,$@) TARGET=$t))
 
 run: contgen image
