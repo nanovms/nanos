@@ -10,6 +10,7 @@
 #define FUTEX_WAIT 0
 #define FUTEX_WAKE 1
 #define NUM_WAKE_TESTS 2
+#define NUM_WAIT_TESTS 1
 
 /* A FUTEX_WAKE testcase */
 struct wake_testcase {
@@ -18,7 +19,7 @@ struct wake_testcase {
 	int expected_result; /* Expected return for FUTEX_WAKE */
 };
 
-int futex;
+int wake_futex;
 int empty_futex; /* Value is never set */
 
 /* Array of FUTEX_WAKE testcases */
@@ -30,13 +31,43 @@ struct wake_testcase wake_testcases [] = {
 
     /* Test case 2: 50 threads wait on "futex"
     so 50 threads should be woken up */
-    {(int*)(&futex), 50, 50}
+    {(int*)(&wake_futex), 50, 50}
 };
+
+int wait_futex = 0;
+
+/* A FUTEX_WAIT testcase */
+struct wait_testcase {
+    int *uaddr;
+	int val;
+    int expected_result;
+};
+
+/* Array of FUTEX_WAIT testcases */
+struct wait_testcase wait_testcases [] = {
+
+    /* Test case 1: value of wait_futex
+    matches val (0), expected success */
+    // {(int*)(&wait_futex), 0, 0},
+
+    /* Test case 2: value of wait_futex
+    is not 20, expected failure */
+    {(int*)(&wait_futex), 20, -1}
+};
+
+/* FUTEX_WAIT test with passed-in struct */
+static int futex_wait_test(struct wait_testcase test) {
+    int ret = syscall(SYS_futex, test.uaddr, FUTEX_WAIT, test.val, 0, NULL, 0);
+    if (ret == test.expected_result)
+        ret = 0;
+    return ret;
+}
+
 
 /* Thread function called from futex_wake_test */
 static void * futex_wake_test_thread(void *arg) {
     /* Set value of "futex" within this thread */
-    futex = 1;
+    wake_futex = 1;
 
     /* Call wait with the address of "futex" and
     a value of 1 - block while value of "futex" is 1 */
@@ -79,7 +110,9 @@ static int futex_wake_test(struct wake_testcase test) {
 boolean basic_test() {
 
     int num_failed = 0;
-    for (int i = 0; i < NUM_WAKE_TESTS; i++) {
+    int i;
+    printf("---FUTEX_WAKE TESTS--- \n");
+    for (i = 0; i < NUM_WAKE_TESTS; i++) {
         int ret = futex_wake_test(wake_testcases[i]);
         if (ret != 0) {
             printf("Wake test %d: failed\n", i);
@@ -87,6 +120,18 @@ boolean basic_test() {
         }
         else {
             printf("Wake test %d: passed\n", i);
+        }
+    }
+
+    printf("---FUTEX_WAIT TESTS--- \n");
+    for (i = 0; i < NUM_WAIT_TESTS; i++) {
+        int ret = futex_wait_test(wait_testcases[i]);
+        if (ret != 0) {
+            printf("Wait test %d: failed\n", i);
+            num_failed++;
+        }
+        else {
+            printf("Wait test %d: passed\n", i);
         }
     }
 
