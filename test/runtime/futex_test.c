@@ -15,8 +15,8 @@
 /* A FUTEX_WAKE testcase */
 struct wake_testcase {
     int *uaddr;
-	int num_to_wake;  /* Number of threads to wake up */
-	int expected_result; /* Expected return for FUTEX_WAKE */
+    int num_to_wake;  /* Number of threads to wake up */
+    int expected_result; /* Expected return for FUTEX_WAKE */
 };
 
 int wake_futex;
@@ -25,11 +25,11 @@ int empty_futex; /* Value is never set */
 /* Array of FUTEX_WAKE testcases */
 struct wake_testcase wake_testcases [] = {
 
-    /* Test case 1: no threads wait on "empty_futex"
+    /* Test case 1: no threads wait on empty_futex
     so 0 threads should be woken up */
     {(int*)(&empty_futex), 50, 0},
 
-    /* Test case 2: 50 threads wait on "futex"
+    /* Test case 2: 50 threads wait on wake_futex
     so 50 threads should be woken up */
     {(int*)(&wake_futex), 50, 50}
 };
@@ -39,7 +39,7 @@ int wait_futex = 0;
 /* A FUTEX_WAIT testcase */
 struct wait_testcase {
     int *uaddr;
-	int val;
+    int val;
     int expected_result;
 };
 
@@ -63,14 +63,13 @@ static int futex_wait_test(struct wait_testcase test) {
     return ret;
 }
 
-
 /* Thread function called from futex_wake_test */
 static void * futex_wake_test_thread(void *arg) {
-    /* Set value of "futex" within this thread */
+    /* Set value of wake_futex within this thread */
     wake_futex = 1;
 
-    /* Call wait with the address of "futex" and
-    a value of 1 - block while value of "futex" is 1 */
+    /* Call wait - block while value of address
+    passed in is 1 */
     int wait_val = 1;
     syscall(SYS_futex, (int*)(arg), FUTEX_WAIT, wait_val, 0, NULL, 0);
     return NULL;
