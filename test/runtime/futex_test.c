@@ -45,7 +45,7 @@ static int futex_wake_test() {
         /* check that 50 threads have been woken up */
         if (ret == num_to_wake_up)
             ret = 0;
-    }
+
     return ret; /* 0 on success */
 }
 
