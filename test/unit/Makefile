@@ -15,7 +15,7 @@ PROGRAMS= \
 	table_test \
 	tuple_test \
 	udp_test \
-	vector_test 
+	vector_test
 SKIP_TEST=	network_test udp_test
 
 SRCS-bitmap_test= \

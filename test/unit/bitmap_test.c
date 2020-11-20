@@ -3,8 +3,6 @@
 #define EXIT_FAILURE 1
 #define EXIT_SUCCESS 0
 
-#define WHOLE_RANGE irange(0, infinity)
-
 
 /**
  *  Tests allocation of bitmap using allocate_bitmap 
@@ -30,11 +28,20 @@ boolean test_clone(bitmap b) {
         bitmap_set(b, rand(), 1);
     bitmap b_cpy = bitmap_clone(b);
     bitmap_foreach_set(b, j) {
-        if (bitmap_get(b, j) != bitmap_get(b_cpy, j)) {
+        // implicit test for bitmap_foreach_set
+        if (!bitmap_get(b, j)) {
+            msg_err("!!! foreach_set failed for bitmap\n");
+            deallocate_bitmap(b_cpy);
+            return false;
+        }
+        if ((bitmap_base(b)[j >> 6] & (1ull << (j & 63))) != 
+            (bitmap_base(b_cpy)[j >> 6] & (1ull << (j & 63)))) {
             msg_err("!!! cloning failed for bitmap\n");
+            deallocate_bitmap(b_cpy);
             return false;
         }
     }
+    deallocate_bitmap(b_cpy);
     return true;
 }
 
@@ -50,11 +57,20 @@ boolean test_copy(heap h, bitmap b) {
     }
     bitmap_copy(b, b_cpy);
     bitmap_foreach_set(b, j) {
-        if (bitmap_get(b, j) != bitmap_get(b_cpy, j)) {
+        // implicit test for bitmap_foreach_set
+        if (!bitmap_get(b, j)) {
+            msg_err("!!! foreach_set failed for bitmap\n");
+            deallocate_bitmap(b_cpy);
+            return false;
+        }
+        if ((bitmap_base(b)[j >> 6] & (1ull << (j & 63))) != 
+            (bitmap_base(b_cpy)[j >> 6] & (1ull << (j & 63)))) {
             msg_err("!!! copying failed for bitmap\n");
+            deallocate_bitmap(b_cpy);
             return false;
         }
     }
+    deallocate_bitmap(b_cpy);
     return true;
 }
 
@@ -63,15 +79,6 @@ boolean test_set_and_get(bitmap b) {
     bitmap_set(b, i, 1);
     if (!bitmap_get(b, i)) {
         msg_err("!!! set and get failed for bitmap\n");
-        return false;
-    }
-    return true;
-}
-
-boolean test_deallocate(bitmap b) {
-    deallocate_bitmap(b);
-    if (!b) {
-        msg_err("!!! deallocating failed for bitmap\n");
         return false;
     }
     return true;
@@ -92,9 +99,9 @@ boolean basic_test()
 
     // tests bitmap set then get
     if (!test_set_and_get(b)) return false;
-    
-    // tests bitmap deallocate
-    if (!test_deallocate(b)) return false;
+
+    // deallocate bitmap
+    deallocate_bitmap(b);
     return true;
 }
 
@@ -103,7 +110,6 @@ int main(int argc, char **argv)
     if (!basic_test()) 
         goto fail;
 
-    rprintf("tests passing so far\n");
     msg_debug("test passed\n");
     exit(EXIT_SUCCESS);
   fail:
