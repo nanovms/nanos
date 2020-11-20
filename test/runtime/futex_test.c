@@ -24,24 +24,25 @@ static void * futex_wake_test_thread(void *arg) {
 }
 
 static int futex_wake_test() {
-    pthread_t pt;
+    pthread_t threads[50];
     int ret;
 
-    /* create one new thread */
-    if (pthread_create(&pt, NULL, futex_wake_test_thread, NULL)) {
-        printf("unable to create thread\n");
-        ret = -1;
+    /* create new threads */
+    for (int index = 0; index < 50; index++) {
+        if (pthread_create(&(threads[index]), NULL, futex_wake_test_thread, NULL)) {
+            printf("unable to create thread\n");
+            return -1;
+        }
     }
-    else {
         /* put the main thread to sleep */
         sleep(1); 
 
-        /* after main thread is done sleeping, call wake on the one
-        thread that is waiting on &futex_address */
-        int num_to_wake_up = 1;
+        /* after main thread is done sleeping, call wake on the 50
+        threads that are waiting on &futex_address */
+        int num_to_wake_up = 50;
         ret = syscall(SYS_futex, (int*)(&futex_address), FUTEX_WAKE, num_to_wake_up, 0, NULL, 0);
         
-        /* check that one thread has been woken up */
+        /* check that 50 threads have been woken up */
         if (ret == num_to_wake_up)
             ret = 0;
     }
