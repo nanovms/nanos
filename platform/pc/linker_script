@@ -52,9 +52,8 @@ SECTIONS
         *(.rodata.*)
     }
 
-    .klib_symtab ALIGN(8): AT(ADDR(.klib_symtab) - LOAD_OFFSET)
+    .klib_symtab ALIGN(16): AT(ADDR(.klib_symtab) - LOAD_OFFSET)
     {
-        . = ALIGN(8);
         klib_syms_start = .;
         KEEP(*(.klib_symtab.syms))
         klib_syms_end = .;
