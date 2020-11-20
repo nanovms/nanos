@@ -13,6 +13,7 @@
 #include <unix.h>
 #include <virtio/virtio.h>
 #include <vmware/vmxnet3.h>
+#include <drivers/acpi.h>
 #include <drivers/storage.h>
 #include <drivers/console.h>
 #include <kvm_platform.h>
@@ -499,6 +500,7 @@ static void __attribute__((noinline)) init_service_new_stack()
     }
 
     init_storage(kh, sa, !xen_detected() && !hyperv_storvsc_attached);
+    init_acpi(kh);
 
     init_debug("pci_discover (for virtio & ata)");
     pci_discover(); // do PCI discover again for other devices

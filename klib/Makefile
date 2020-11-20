@@ -130,3 +130,5 @@ CFLAGS+=	$(KERNCFLAGS) $(INCLUDES) -fPIC $(DEFINES)
 # TODO should add stack protection to klibs...
 CFLAGS+=	-fno-stack-protector
 LDFLAGS+=	-pie -nostdlib -T$(ARCHDIR)/klib.lds
+
+CLEANDIRS+=	$(OUTDIR)/klib/vendor $(OUTDIR)/klib/vendor/mbedtls
