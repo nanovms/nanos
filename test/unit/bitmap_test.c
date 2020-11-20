@@ -22,6 +22,7 @@ bitmap test_alloc(heap h) {
 /**
  *  Tests cloning of bitmap using bitmap_clone 
  *  function.
+ *  Also implicity tests bitmap_foreach_set
  */  
 boolean test_clone(bitmap b) { 
     for (int i = 0; i < 20; i++) 
@@ -48,6 +49,7 @@ boolean test_clone(bitmap b) {
 /**
  *  Tests copying of bitmap using bitmap_copy
  *  function.
+ *  Also implicity tests bitmap_foreach_set
  */ 
 boolean test_copy(heap h, bitmap b) { 
     bitmap b_cpy = allocate_bitmap(h, h, infinity);
@@ -74,6 +76,10 @@ boolean test_copy(heap h, bitmap b) {
     return true;
 }
 
+/**
+ *  Tests getting and setting bits of a bitmap using 
+ *  bitmap_get and bitmap_set functions.
+ */ 
 boolean test_set_and_get(bitmap b) {
     u64 i = rand();
     bitmap_set(b, i, 1);
@@ -81,6 +87,22 @@ boolean test_set_and_get(bitmap b) {
         msg_err("!!! set and get failed for bitmap\n");
         return false;
     }
+    return true;
+}
+
+/**
+ *  Tests wrapping and unwrapping of bitmap using 
+ *  bitmap_wrap and bitmap_unwrap functions.
+ */ 
+boolean test_wrap(heap h) {
+    u64 map = rand();
+    bitmap b = bitmap_wrap(h, &map, infinity);
+    if (b->alloc_map->contents != &map) {
+        msg_err("!!! wrap failed for bitmap\n");
+        bitmap_unwrap(b);
+        return false;
+    }
+    bitmap_unwrap(b);
     return true;
 }
 
@@ -99,6 +121,9 @@ boolean basic_test()
 
     // tests bitmap set then get
     if (!test_set_and_get(b)) return false;
+
+    // tests bitmap wrap then unwrap
+    if (!test_wrap(h)) return false;
 
     // deallocate bitmap
     deallocate_bitmap(b);
