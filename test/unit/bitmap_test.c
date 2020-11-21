@@ -9,7 +9,7 @@
  *  function.
  */
 bitmap test_alloc(heap h) {
-    bitmap b = allocate_bitmap(h, h, infinity);
+    bitmap b = allocate_bitmap(h, h, 4096);
     bitmap_foreach_set(b, i) {
         if (i) {
             msg_err("!!! allocation failed for bitmap\n");
@@ -28,6 +28,7 @@ boolean test_clone(bitmap b) {
     for (int i = 0; i < 20; i++) 
         bitmap_set(b, rand(), 1);
     bitmap b_cpy = bitmap_clone(b);
+    // tests bits match in original bitmap
     bitmap_foreach_set(b, j) {
         // implicit test for bitmap_foreach_set
         if (!bitmap_get(b, j)) {
@@ -35,8 +36,21 @@ boolean test_clone(bitmap b) {
             deallocate_bitmap(b_cpy);
             return false;
         }
-        if ((bitmap_base(b)[j >> 6] & (1ull << (j & 63))) != 
-            (bitmap_base(b_cpy)[j >> 6] & (1ull << (j & 63)))) {
+        if (!bitmap_get(b_cpy, j)) {
+            msg_err("!!! cloning failed for bitmap\n");
+            deallocate_bitmap(b_cpy);
+            return false;
+        }
+    }
+    // tests bits match in clone of bitmap
+    bitmap_foreach_set(b_cpy, j) {
+        // implicit test for bitmap_foreach_set
+        if (!bitmap_get(b_cpy, j)) {
+            msg_err("!!! foreach_set failed for bitmap\n");
+            deallocate_bitmap(b_cpy);
+            return false;
+        }
+        if (!bitmap_get(b, j)) {
             msg_err("!!! cloning failed for bitmap\n");
             deallocate_bitmap(b_cpy);
             return false;
@@ -52,12 +66,13 @@ boolean test_clone(bitmap b) {
  *  Also implicity tests bitmap_foreach_set
  */ 
 boolean test_copy(heap h, bitmap b) { 
-    bitmap b_cpy = allocate_bitmap(h, h, infinity);
+    bitmap b_cpy = allocate_bitmap(h, h, 4096);
     for (int i = 0; i < 20; i++) {
         bitmap_set(b_cpy, rand(), 1);
         bitmap_set(b, rand(), 1);
     }
     bitmap_copy(b, b_cpy);
+    // tests bits match in original bitmap
     bitmap_foreach_set(b, j) {
         // implicit test for bitmap_foreach_set
         if (!bitmap_get(b, j)) {
@@ -65,9 +80,22 @@ boolean test_copy(heap h, bitmap b) {
             deallocate_bitmap(b_cpy);
             return false;
         }
-        if ((bitmap_base(b)[j >> 6] & (1ull << (j & 63))) != 
-            (bitmap_base(b_cpy)[j >> 6] & (1ull << (j & 63)))) {
-            msg_err("!!! copying failed for bitmap\n");
+        if (!bitmap_get(b_cpy, j)) {
+            msg_err("!!! cloning failed for bitmap\n");
+            deallocate_bitmap(b_cpy);
+            return false;
+        }
+    }
+    // tests bits match in copy of bitmap
+    bitmap_foreach_set(b_cpy, j) {
+        // implicit test for bitmap_foreach_set
+        if (!bitmap_get(b_cpy, j)) {
+            msg_err("!!! foreach_set failed for bitmap\n");
+            deallocate_bitmap(b_cpy);
+            return false;
+        }
+        if (!bitmap_get(b, j)) {
+            msg_err("!!! cloning failed for bitmap\n");
             deallocate_bitmap(b_cpy);
             return false;
         }
@@ -94,22 +122,27 @@ boolean test_set_and_get(bitmap b) {
  *  Tests wrapping and unwrapping of bitmap using 
  *  bitmap_wrap and bitmap_unwrap functions.
  */ 
-boolean test_wrap(heap h) {
-    u64 map = rand();
-    bitmap b = bitmap_wrap(h, &map, infinity);
-    if (b->alloc_map->contents != &map) {
-        msg_err("!!! wrap failed for bitmap\n");
-        bitmap_unwrap(b);
-        return false;
+boolean test_wrap(heap h) { 
+    u64 map = rand(); // how to generate random 64 bit 
+    bitmap b = bitmap_wrap(h, &map, 32);
+    for (int i = 0; i < 32; i++) {
+        if (((map & (1 << i)) && !bitmap_get(b, i)) || (!(map & (1 << i)) && bitmap_get(b, i))) {
+            msg_err("!!! wrap failed for bitmap at %d : %d %d\n", i, (map & (1 << i)), bitmap_get(b, i));
+            bitmap_unwrap(b);
+            return false;
+        }
     }
     bitmap_unwrap(b);
     return true;
 }
 
-boolean test_bitmap_alloc(bitmap b, u64 start, u64 end) {
-    u64 nbits = rand();
+/**
+ *  Tests bitmap alloc and dealloc of bitmap using 
+ *  bitmap_alloc_within_range and bitmap_dealloc functions.
+ */ 
+boolean test_bitmap_alloc(bitmap b, u64 start, u64 end, u64 nbits) {
     u64 first = bitmap_alloc_within_range(b, nbits, start, end);
-    if (first != INVALID_PHYSICAL && !bitmap_dealloc(b, first, nbits)) {
+    if ((first == INVALID_PHYSICAL) || !bitmap_dealloc(b, first, nbits)) {
         msg_err("!!! alloc range failed for bitmap\n");
         return false;
     }
@@ -136,10 +169,12 @@ boolean basic_test()
     if (!test_wrap(h)) return false;
 
     // tests bitmap alloc then bitmap alloc within range
-    if (!test_bitmap_alloc(b, 0, infinity)) return false;
+    u64 nbits = rand() % (4096 + 1);
+    if (!test_bitmap_alloc(b, 0, 4096, nbits)) return false; // bitmap_dealloc error: bitmap 0x----------------, bit 0, order 12: not allocated in map; leaking
     u64 start = rand();
-    u64 end = rand() % (infinity + 1 - start) + start;
-    if(!test_bitmap_alloc(b, start, end)) return false;
+    u64 end = rand() % (4096 + 1 - start) + start;
+    nbits = rand() % ((end - start) + 1);
+    if(!test_bitmap_alloc(b, start, end, nbits)) return false; // bitmap_dealloc error: bitmap 0x----------------, bit -1 is not aligned to order 25
 
     // deallocate bitmap
     deallocate_bitmap(b);
