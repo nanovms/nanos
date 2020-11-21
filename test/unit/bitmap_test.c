@@ -140,7 +140,19 @@ boolean test_wrap(heap h) {
  *  Tests bitmap alloc and dealloc of bitmap using 
  *  bitmap_alloc_within_range and bitmap_dealloc functions.
  */ 
-boolean test_bitmap_alloc(bitmap b, u64 start, u64 end, u64 nbits) {
+boolean test_bitmap_alloc(bitmap b, u64 start, u64 end) {
+    // attempt at finding nbits that satisfies bitmap_alloc
+    // u64 nbits, stride, bit;
+    // int order;
+    // do {
+    //     nbits = rand() % (end + 1 - start) + start;
+    //     order = find_order(nbits);
+    //     stride = U64_FROM_BIT(order);
+    //     end = MIN(end, b->maxbits);
+    //     bit = pad(start, stride);
+    // } while (bit + nbits > end);
+
+    u64 nbits = rand() % (end + 1 - start) + start;
     u64 first = bitmap_alloc_within_range(b, nbits, start, end);
     if ((first == INVALID_PHYSICAL) || !bitmap_dealloc(b, first, nbits)) {
         msg_err("!!! alloc range failed for bitmap\n");
@@ -169,12 +181,10 @@ boolean basic_test()
     if (!test_wrap(h)) return false;
 
     // tests bitmap alloc then bitmap alloc within range
-    u64 nbits = rand() % (4096 + 1);
-    // if (!test_bitmap_alloc(b, 0, 4096, nbits)) return false; 
-    u64 start = rand();
-    u64 end = rand() % (4096 + 1 - start) + start;
-    nbits = rand() % ((end - start) + 1);
-    if(!test_bitmap_alloc(b, start, end, nbits)) return false; // bitmap_dealloc error: bitmap 0x----------------, bit -1 is not aligned to order 25
+    if (!test_bitmap_alloc(b, 0, 4096)) return false;
+    u64 start = rand() % (4096 + 1);
+    u64 end = rand() % (4096 + 1 - start) + start; 
+    if(!test_bitmap_alloc(b, start, end)) return false; // bitmap_dealloc error: bitmap 0x----------------, bit -1 is not aligned to order 25
 
     // deallocate bitmap
     deallocate_bitmap(b);
