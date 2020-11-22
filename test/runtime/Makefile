@@ -30,6 +30,7 @@ PROGRAMS= \
 	symlink \
 	thread_test \
 	time \
+	tlbshootdown \
 	udploop \
 	unixsocket \
 	unlink \
@@ -180,6 +181,13 @@ SRCS-time= \
 	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-time=		-static
 LIBS-time=		-lrt -lpthread
+
+SRCS-tlbshootdown= \
+	$(CURDIR)/tlbshootdown.c \
+	$(SRCDIR)/unix_process/unix_process_runtime.c \
+	$(RUNTIME)
+LDFLAGS-tlbshootdown=		-static
+LIBS-tlbshootdown=	-lpthread
 
 SRCS-udploop= \
 	$(CURDIR)/udploop.c \
