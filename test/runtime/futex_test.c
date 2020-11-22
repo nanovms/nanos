@@ -9,130 +9,100 @@
 #define EXIT_SUCCESS 0
 #define FUTEX_WAIT 0
 #define FUTEX_WAKE 1
-#define NUM_WAKE_TESTS 2
-#define NUM_WAIT_TESTS 1
 
-/* A FUTEX_WAKE testcase */
-struct wake_testcase {
-    int *uaddr;
-    int num_to_wake;  /* Number of threads to wake up */
-    int expected_result; /* Expected return for FUTEX_WAKE */
-};
+/* Test Global Variables */
+int wake_test_futex;
+int empty_futex;
+int wait_test_futex = 0;
 
-int wake_futex;
-int empty_futex; /* Value is never set */
+/* Helper Function Declarations */
+static void * futex_wake_test_thread(void *arg);
 
-/* Array of FUTEX_WAKE testcases */
-struct wake_testcase wake_testcases [] = {
+/* FUTEX_WAKE test, creates num_to_wake threads which wait
+on uaddr and then wakes up all the threads */
+static boolean futex_wake_test(int* uaddr, int num_to_wake, int expected_result) {
+    pthread_t threads[num_to_wake];
 
-    /* Test case 1: no threads wait on empty_futex
-    so 0 threads should be woken up */
-    {(int*)(&empty_futex), 50, 0},
-
-    /* Test case 2: 50 threads wait on wake_futex
-    so 50 threads should be woken up */
-    {(int*)(&wake_futex), 50, 50}
-};
-
-int wait_futex = 0;
-
-/* A FUTEX_WAIT testcase */
-struct wait_testcase {
-    int *uaddr;
-    int val;
-    int expected_result;
-};
-
-/* Array of FUTEX_WAIT testcases */
-struct wait_testcase wait_testcases [] = {
-
-    /* Test case 1: value of wait_futex
-    matches val (0), expected success */
-    // {(int*)(&wait_futex), 0, 0},
-
-    /* Test case 2: value of wait_futex
-    is not 20, expected failure */
-    {(int*)(&wait_futex), 20, -1}
-};
-
-/* FUTEX_WAIT test with passed-in struct */
-static int futex_wait_test(struct wait_testcase test) {
-    int ret = syscall(SYS_futex, test.uaddr, FUTEX_WAIT, test.val, 0, NULL, 0);
-    if (ret == test.expected_result)
-        ret = 0;
-    return ret;
-}
-
-/* Thread function called from futex_wake_test */
-static void * futex_wake_test_thread(void *arg) {
-    /* Set value of wake_futex within this thread */
-    wake_futex = 1;
-
-    /* Call wait - block while value of address
-    passed in is 1 */
-    int wait_val = 1;
-    syscall(SYS_futex, (int*)(arg), FUTEX_WAIT, wait_val, 0, NULL, 0);
-    return NULL;
-}
-
-/* Runs a FUTEX_WAKE test on the provided testcase */
-static int futex_wake_test(struct wake_testcase test) {
-    pthread_t threads[test.num_to_wake];
-    int ret;
-    int index;
-
-    /* Create multiple threads */
-    for (index = 0; index < test.num_to_wake; index++) {
-        if (pthread_create(&(threads[index]), NULL, futex_wake_test_thread, (void*)(test.uaddr))) {
+    for (int index = 0; index < num_to_wake; index++) {
+        if (pthread_create(&(threads[index]), NULL, futex_wake_test_thread, (void*)(uaddr))) {
             printf("Unable to create thread\n");
-            return -1;
+            return false;
         }
     }
     
-    /* Put the main thread to sleep */
-    sleep(1); 
-
-    /* Wake up the threads waiting on test.uaddr */
-    ret = syscall(SYS_futex, test.uaddr, FUTEX_WAKE, test.num_to_wake, 0, NULL, 0);
-        
-
-    /* Check that correct number of threads are woken up. */
-    if (ret == test.expected_result)
-        ret = 0; /* success */
+    sleep(1); /* for main thread */
+    int ret = syscall(SYS_futex, uaddr, FUTEX_WAKE, num_to_wake, 0, NULL, 0);
+    if (ret == expected_result)
+        return true; /* success */
     else
-        ret = -1; /* error */
+        return false; /* error */
 
     return ret;
+}
+
+/* Thread function called from futex_wake_test
+which sets wake_test_futex's value to 1 and blocks */
+static void * futex_wake_test_thread(void *arg) {
+    int val = 1;
+    wake_test_futex = val;
+    syscall(SYS_futex, (int*)(arg), FUTEX_WAIT, val, 0, NULL, 0);
+    return NULL;
+}
+
+/* FUTEX_WAIT test 1: waits on uaddr with value of val
+and compares the result, used to check error case where ret=-1 */
+static boolean futex_wait_test(int* uaddr, int val, int expected_result) {
+    int ret = syscall(SYS_futex, uaddr, FUTEX_WAIT, val, 0, NULL, 0);
+    if (ret == expected_result)
+        return true;
+    return false;
 }
 
 /* Method to run all tests */
 boolean basic_test() {
-
+    
     int num_failed = 0;
-    int i;
     printf("---FUTEX_WAKE TESTS--- \n");
-    for (i = 0; i < NUM_WAKE_TESTS; i++) {
-        int ret = futex_wake_test(wake_testcases[i]);
-        if (ret != 0) {
-            printf("Wake test %d: failed\n", i);
-            num_failed++;
-        }
-        else {
-            printf("Wake test %d: passed\n", i);
-        }
+
+    /* Wake test 1: empty_futex is not being
+    waited on by the threads made in the 
+    futex_wake_test method so no threads 
+    should be woken up */
+    int* uaddr = (int*)(&empty_futex);
+    int num_to_wake = 50;
+    int expected_result = 0;
+    if (!futex_wake_test(uaddr, num_to_wake, expected_result)) {
+        num_failed++;
+        printf("Wake test 1: failed\n");
     }
+    else
+        printf("Wake test 1: passed\n");
+
+    /* Wake test 2: wake_test_futex is being waited on
+    by all the threads made in futex_wake_test() so
+    all 50 threads should be woken up */
+    uaddr = (int*)(&wake_test_futex);
+    num_to_wake = 50;
+    expected_result = 50;
+    if (!futex_wake_test(uaddr, num_to_wake, expected_result)){
+        num_failed++;
+        printf("Wake test 2: failed\n");
+    }
+    else
+        printf("Wake test 2: passed\n");
 
     printf("---FUTEX_WAIT TESTS--- \n");
-    for (i = 0; i < NUM_WAIT_TESTS; i++) {
-        int ret = futex_wait_test(wait_testcases[i]);
-        if (ret != 0) {
-            printf("Wait test %d: failed\n", i);
-            num_failed++;
-        }
-        else {
-            printf("Wait test %d: passed\n", i);
-        }
+
+    /* Wait test: val and the value 
+    in wait_test_futex (0) do not match 
+    so return error */
+    uaddr = (int*)(&wait_test_futex);
+    int val = 20;
+    expected_result = -1;
+    if (!futex_wait_test(uaddr, val, expected_result)) {
+        return false;
     }
+    printf("Wait test 1: passed\n");
 
     if (num_failed > 0)
         return false;
