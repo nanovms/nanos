@@ -212,7 +212,7 @@ static inline void queue_completions_locked_internal(pagecache pc, list head,
     assert(enqueue(cq->q, qhead));
     if (!cq->scheduled) {
         cq->scheduled = true;
-        assert(enqueue(sched_queue, &cq->service));
+        assert(enqueue_irqsafe(sched_queue, &cq->service));
     }
 }
 

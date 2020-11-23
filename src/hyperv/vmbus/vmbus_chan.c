@@ -715,7 +715,7 @@ vmbus_event_flags_proc(vmbus_dev sc, volatile u64 *event_flags,
             if (chan->ch_flags & VMBUS_CHAN_FLAG_BATCHREAD)
                 vmbus_rxbr_intr_mask(&chan->ch_rxbr);
             if (!sc->poll_mode) {
-                enqueue(chan->sched_queue, chan->ch_tq);
+                enqueue_irqsafe(chan->sched_queue, chan->ch_tq);
             } else {
                 apply(chan->ch_tq);
             }
