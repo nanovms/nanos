@@ -585,6 +585,7 @@ void *bootstrap_page_tables(heap initial)
 
 #ifdef STAGE3
 static id_heap phys_internal;
+static u64 pt_2m_next;
 
 closure_function(0, 1, void, dealloc_phys_page,
                  range, r)
@@ -597,72 +598,6 @@ void unmap_and_free_phys(u64 virtual, u64 length)
 {
     unmap_pages_with_handler(virtual, length, stack_closure(dealloc_phys_page));
 }
-
-/* backdoor dealloc to call from pt traversals (which hold the lock) */
-void deallocate_phys_page_from_traversal(u64 phys, u64 size)
-{
-    deallocate_u64((heap)phys_internal, phys, size);
-}
-
-/* these methods would hook into free page list / epoch stuff... */
-static u64 wrap_alloc(heap h, bytes b)
-{
-    pagetable_lock();
-    u64 r = allocate_u64((heap)phys_internal, b);
-    pagetable_unlock();
-    return r;
-}
-
-static void wrap_dealloc(heap h, u64 a, bytes b)
-{
-    pagetable_lock();
-    deallocate_u64((heap)phys_internal, a, b);
-    pagetable_unlock();
-}
-
-static boolean wrap_add_range(id_heap i, u64 base, u64 length)
-{
-    pagetable_lock();
-    boolean r = id_heap_add_range(phys_internal, base, length);
-    pagetable_unlock();
-    return r;
-}
-
-static boolean wrap_set_area(id_heap i, u64 base, u64 length, boolean validate, boolean allocate)
-{
-    pagetable_lock();
-    boolean r = id_heap_set_area(phys_internal, base, length, validate, allocate);
-    pagetable_unlock();
-    return r;
-}
-
-static void wrap_set_randomize(id_heap i, boolean randomize)
-{
-    pagetable_lock();
-    id_heap_set_randomize(phys_internal, randomize);
-    pagetable_unlock();
-}
-
-static u64 wrap_alloc_subrange(id_heap i, bytes count, u64 start, u64 end)
-{
-    pagetable_lock();
-    u64 r = id_heap_alloc_subrange(phys_internal, count, start, end);
-    pagetable_unlock();
-    return r;
-}
-
-/* don't need lock for these */
-static u64 wrap_total(heap h)
-{
-    return phys_internal->total;
-}
-
-static u64 wrap_allocated(heap h)
-{
-    return phys_internal->allocated;
-}
-
-static u64 pt_2m_next;
 
 /* pt_lock should already be held here */
 static u64 pt_2m_alloc(heap h, bytes size)
@@ -706,7 +641,7 @@ void map_setup_2mbpages(u64 v, physical p, int pages, u64 flags,
 }
 
 /* this happens even before moving to the new stack, so ... be cool */
-id_heap init_page_tables(heap h, id_heap physical, range initial_phys)
+void init_page_tables(heap h, id_heap physical, range initial_phys)
 {
     write_msr(EFER_MSR, read_msr(EFER_MSR) | EFER_NXE);
     mov_from_cr("cr3", pagebase);
@@ -714,19 +649,6 @@ id_heap init_page_tables(heap h, id_heap physical, range initial_phys)
     pteaddr_from_pointer = kern_pteaddr_from_pointer;
     spin_lock_init(&pt_lock);
     phys_internal = physical;
-    id_heap i = allocate(h, sizeof(struct id_heap));
-    if (i == INVALID_ADDRESS)
-	return INVALID_ADDRESS;
-    i->h.alloc = wrap_alloc;
-    i->h.dealloc = wrap_dealloc;
-    i->h.destroy = 0;
-    i->h.allocated = wrap_allocated;
-    i->h.total = wrap_total;
-    i->h.pagesize = physical->h.pagesize;
-    i->add_range = wrap_add_range;
-    i->set_area = wrap_set_area;
-    i->set_randomize = wrap_set_randomize;
-    i->alloc_subrange = wrap_alloc_subrange;
 
     pt_p2v = allocate_table(h, identity_key, pointer_equal);
     assert(pt_p2v != INVALID_ADDRESS);
@@ -745,7 +667,6 @@ id_heap init_page_tables(heap h, id_heap physical, range initial_phys)
     /* 4k page heap */
     pageheap = (heap)create_id_heap_backed(h, /* XXX */ h, pt_2m, PAGESIZE, true);
     assert(pageheap != INVALID_ADDRESS);
-    return i;
 }
 #else
 /* stage2 */

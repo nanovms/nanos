@@ -54,7 +54,7 @@ static bytes heaplock_total(heap h)
 }
 
 /* meta only used on creation */
-heap locking_heap_wrapper(heap meta, heap parent, bytes size)
+heap locking_heap_wrapper(heap meta, heap parent)
 {
     heaplock hl = allocate(meta, sizeof(*hl));
     if (hl == INVALID_ADDRESS)
@@ -64,8 +64,9 @@ heap locking_heap_wrapper(heap meta, heap parent, bytes size)
     hl->h.destroy = heaplock_destroy;
     hl->h.allocated = heaplock_allocated;
     hl->h.total = heaplock_total;
-    hl->h.pagesize = size;
+    hl->h.pagesize = parent->pagesize;
     hl->parent = parent;
+    hl->meta = meta;
     spin_lock_init(&hl->lock);
     return (heap)hl;
 }

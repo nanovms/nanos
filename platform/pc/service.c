@@ -91,8 +91,7 @@ closure_function(2, 3, void, offset_block_io,
     blocks.end += ds;
 
     // split I/O to storage driver to PAGESIZE requests
-    heap h = heap_general(&heaps);
-    merge m = allocate_merge(h, sh);
+    merge m = allocate_merge(heap_locked(&heaps), sh);
     status_handler k = apply_merge(m);
     while (blocks.start < blocks.end) {
         u64 span = MIN(range_span(blocks), MAX_BLOCK_IO_SIZE >> SECTOR_OFFSET);
@@ -535,8 +534,7 @@ static range find_initial_pages(void)
 
 static id_heap init_physical_id_heap(heap h)
 {
-    /* XXX change to locking after removing wrapper in page.c */
-    id_heap physical = allocate_id_heap(h, h, PAGESIZE, false);
+    id_heap physical = allocate_id_heap(h, h, PAGESIZE, true);
     boolean found = false;
     init_debug("physical memory:");
     for_regions(e) {
@@ -581,17 +579,19 @@ static void init_kernel_heaps()
     heaps.virtual_page = create_id_heap_backed(&bootstrap, &bootstrap, (heap)heaps.virtual_huge, PAGESIZE, true);
     assert(heaps.virtual_page != INVALID_ADDRESS);
 
-    heaps.physical = init_page_tables(&bootstrap, init_physical_id_heap(&bootstrap), find_initial_pages());
+    heaps.physical = init_physical_id_heap(&bootstrap);
     assert(heaps.physical != INVALID_ADDRESS);
 
-    heaps.backed = locking_heap_wrapper(&bootstrap, physically_backed(&bootstrap, (heap)heaps.virtual_page, (heap)heaps.physical, PAGESIZE), PAGESIZE);
+    init_page_tables(&bootstrap, heaps.physical, find_initial_pages());
+
+    heaps.backed = locking_heap_wrapper(&bootstrap, physically_backed(&bootstrap, (heap)heaps.virtual_page, (heap)heaps.physical, PAGESIZE));
     assert(heaps.backed != INVALID_ADDRESS);
 
     heaps.general = allocate_mcache(&bootstrap, heaps.backed, 5, 20, PAGESIZE_2M);
     assert(heaps.general != INVALID_ADDRESS);
 
-    heaps.locked = locking_heap_wrapper(&bootstrap, allocate_mcache(&bootstrap, heaps.backed, 5, 20, PAGESIZE_2M), 1);
-    assert(heaps.general != INVALID_ADDRESS);
+    heaps.locked = locking_heap_wrapper(&bootstrap, allocate_mcache(&bootstrap, heaps.backed, 5, 20, PAGESIZE_2M));
+    assert(heaps.locked != INVALID_ADDRESS);
 }
 
 static void jump_to_virtual(u64 kernel_size, u64 *pdpt, u64 *pdt) {

@@ -222,7 +222,7 @@ extern timerheap runloop_timers;
 
 heap physically_backed(heap meta, heap virtual, heap physical, u64 pagesize);
 void physically_backed_dealloc_virtual(heap h, u64 x, bytes length);
-heap locking_heap_wrapper(heap meta, heap parent, bytes size);
+heap locking_heap_wrapper(heap meta, heap parent);
 
 void print_stack(context c);
 void print_frame(context f);
