@@ -123,11 +123,12 @@ boolean test_set_and_get(bitmap b) {
  *  bitmap_wrap and bitmap_unwrap functions.
  */ 
 boolean test_wrap(heap h) { 
-    u64 map = rand(); // how to generate random 64 bit 
-    bitmap b = bitmap_wrap(h, &map, 32);
-    for (int i = 0; i < 32; i++) {
+    u64 map = rand(); 
+    map = (map << 32) | rand();
+    bitmap b = bitmap_wrap(h, &map, 64);
+    for (int i = 0; i < 64; i++) {
         if (((map & (1 << i)) && !bitmap_get(b, i)) || (!(map & (1 << i)) && bitmap_get(b, i))) {
-            msg_err("!!! wrap failed for bitmap at %d : %d %d\n", i, (map & (1 << i)), bitmap_get(b, i));
+            msg_err("!!! wrap failed for bitmap at bit %d | map: %d bitmap: %d\n", i, (map & (1 << i)), bitmap_get(b, i));
             bitmap_unwrap(b);
             return false;
         }
@@ -141,18 +142,8 @@ boolean test_wrap(heap h) {
  *  bitmap_alloc_within_range and bitmap_dealloc functions.
  */ 
 boolean test_bitmap_alloc(bitmap b, u64 start, u64 end) {
-    // attempt at finding nbits that satisfies bitmap_alloc
-    // u64 nbits, stride, bit;
-    // int order;
-    // do {
-    //     nbits = rand() % (end + 1 - start) + start;
-    //     order = find_order(nbits);
-    //     stride = U64_FROM_BIT(order);
-    //     end = MIN(end, b->maxbits);
-    //     bit = pad(start, stride);
-    // } while (bit + nbits > end);
-
-    u64 nbits = rand() % (end + 1 - start) + start;
+    // generate random number between 0 and (end-start)
+    u64 nbits = rand() % (end - start + 1);
     u64 first = bitmap_alloc_within_range(b, nbits, start, end);
     if ((first == INVALID_PHYSICAL) || !bitmap_dealloc(b, first, nbits)) {
         msg_err("!!! alloc range failed for bitmap\n");
@@ -182,9 +173,10 @@ boolean basic_test()
 
     // tests bitmap alloc then bitmap alloc within range
     if (!test_bitmap_alloc(b, 0, 4096)) return false;
-    u64 start = rand() % (4096 + 1);
-    u64 end = rand() % (4096 + 1 - start) + start; 
-    if(!test_bitmap_alloc(b, start, end)) return false; // bitmap_dealloc error: bitmap 0x----------------, bit -1 is not aligned to order 25
+    // generate random number between 0 and 4096
+    u64 start = rand() % (4096);
+    u64 end = rand() % (4096 - start) + start; 
+    if(!test_bitmap_alloc(b, start, end)) return false; 
 
     // deallocate bitmap
     deallocate_bitmap(b);
