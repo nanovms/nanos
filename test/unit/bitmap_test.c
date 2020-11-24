@@ -152,6 +152,26 @@ boolean test_bitmap_alloc(bitmap b, u64 start, u64 end) {
     return true;
 }
 
+/**
+ *  Tests bitmap range check and set of bitmap using
+ *  bitmap_range_check_and_set
+ */
+boolean test_range_check_set(bitmap b) {
+    u64 start = rand() % 4096;
+    u64 nbits = rand() % (4097 - start);
+    boolean validate = rand() & 1;
+    boolean set = rand() & 1;
+    bitmap_range_check_and_set(b, start, nbits, validate, set);
+    // check that specified range is set properly
+    for (int i = start; i < start + nbits; i++) {
+        if (bitmap_get(b, i) != set) {
+            msg_err("!!! range check and set failed for bitmap at bit %d | expected: %d actual: %d\n", i, set, bitmap_get(b, i));
+            return false;
+        }
+    }
+    return true;
+}
+
 boolean basic_test()
 {
     heap h = init_process_runtime();
@@ -177,6 +197,9 @@ boolean basic_test()
     u64 start = rand() % (4096);
     u64 end = rand() % (4096 - start) + start; 
     if(!test_bitmap_alloc(b, start, end)) return false; 
+
+    // tests bitmap range check and set
+    if(!test_range_check_set(b)) return false;
 
     // deallocate bitmap
     deallocate_bitmap(b);
