@@ -1,6 +1,4 @@
-typedef struct spinlock {
-    word w;
-} *spinlock;
+/* struct spinlock defined in machine.h */
 
 #if defined(KERNEL) && defined(SMP_ENABLE)
 static inline boolean spin_try(spinlock l) {

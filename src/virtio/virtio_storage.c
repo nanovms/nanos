@@ -217,7 +217,7 @@ closure_function(3, 1, void, vtmmio_blk_probe,
 
 void virtio_register_blk(kernel_heaps kh, storage_attach a)
 {
-    heap h = heap_general(kh);
+    heap h = heap_locked(kh);
     heap page_allocator = heap_backed(kh);
     register_pci_driver(closure(h, vtpci_blk_probe, h, a, page_allocator));
     vtmmio_probe_devs(stack_closure(vtmmio_blk_probe, h, a, page_allocator));
