@@ -32,7 +32,7 @@ closure_function(0, 1, void, kernel_demand_pf_complete,
     if (faulting_kernel_context) {
         init_closure(&do_kernel_frame_return, kernel_frame_return, faulting_kernel_context);
         faulting_kernel_context = 0;
-        bhqueue_enqueue_irqsafe((thunk)&do_kernel_frame_return);
+        enqueue_irqsafe(bhqueue, (thunk)&do_kernel_frame_return);
     }
     kernel_demand_page_completed = true;
 }
