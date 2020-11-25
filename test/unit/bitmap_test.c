@@ -127,8 +127,10 @@ boolean test_wrap(heap h) {
     map = (map << 32) | rand();
     bitmap b = bitmap_wrap(h, &map, 64);
     for (int i = 0; i < 64; i++) {
-        if (((map & (1 << i)) && !bitmap_get(b, i)) || (!(map & (1 << i)) && bitmap_get(b, i))) {
-            msg_err("!!! wrap failed for bitmap at bit %d | map: %d bitmap: %d\n", i, (map & (1 << i)), bitmap_get(b, i));
+        if (((map & (1ULL << i)) && !bitmap_get(b, i)) || 
+            (!(map & (1ULL << i)) && bitmap_get(b, i))) {
+            msg_err("!!! wrap failed for bitmap at bit %d | map: %ld bitmap: %ld\n", 
+                i, (map & (1ULL << i)), bitmap_get(b, i));
             bitmap_unwrap(b);
             return false;
         }
@@ -143,11 +145,14 @@ boolean test_wrap(heap h) {
  */ 
 boolean test_bitmap_alloc(bitmap b, u64 start, u64 end) {
     // generate random number between 0 and (end-start)
-    u64 nbits = rand() % (end - start + 1);
-    u64 first = bitmap_alloc_within_range(b, nbits, start, end);
-    if ((first == INVALID_PHYSICAL) || !bitmap_dealloc(b, first, nbits)) {
-        msg_err("!!! alloc range failed for bitmap\n");
-        return false;
+    u64 nbits = rand();
+    u64 first;
+    while (true) {
+        first = bitmap_alloc_within_range(b, nbits, start, end);
+        if (first != INVALID_PHYSICAL)
+            break;
+        else
+            nbits >>= 1;
     }
     return true;
 }
@@ -158,14 +163,14 @@ boolean test_bitmap_alloc(bitmap b, u64 start, u64 end) {
  */
 boolean test_range_check_set(bitmap b) {
     u64 start = rand() % 4096;
-    u64 nbits = rand() % (4097 - start);
-    boolean validate = rand() & 1;
+    u64 nbits = rand() % (4096 - start);
     boolean set = rand() & 1;
-    bitmap_range_check_and_set(b, start, nbits, validate, set);
+    bitmap_range_check_and_set(b, start, nbits, false, set);
     // check that specified range is set properly
     for (int i = start; i < start + nbits; i++) {
         if (bitmap_get(b, i) != set) {
-            msg_err("!!! range check and set failed for bitmap at bit %d | expected: %d actual: %d\n", i, set, bitmap_get(b, i));
+            msg_err("!!! range check and set failed for bitmap at bit %d | expected: %d actual: %d\n", 
+                i, set, bitmap_get(b, i));
             return false;
         }
     }
