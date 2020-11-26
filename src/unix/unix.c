@@ -126,18 +126,30 @@ define_closure_function(1, 1, context, default_fault_handler,
                         thread, t,
                         context, frame)
 {
+    process p = 0;
+    u64 vaddr = fault_address(frame);
+    if (vaddr >= USER_LIMIT) {
+        rprintf("\nPage fault on non-user memory (vaddr 0x%lx)\n", vaddr);
+        goto bug;
+    }
+
+    thread current_thread = current;
+    if (!current_thread) {
+        rprintf("\nPage fault outside of thread context\n");
+        goto bug;
+    }
+
     boolean user = is_usermode_fault(frame);
 
     /* Really this should be the enclosed thread, but that won't fly
        for kernel page faults on user pages. If we were ever to
        support multiple processes, we may need to install current when
        resuming deferred processing. */
-    process p = current->p;
+    p = current_thread->p;
 
-    u64 vaddr = fault_address(frame);
     if (frame[FRAME_VECTOR] == 0) {
         if (current_cpu()->state == cpu_user) {
-            deliver_fault_signal(SIGFPE, current, vaddr, FPE_INTDIV);
+            deliver_fault_signal(SIGFPE, current_thread, vaddr, FPE_INTDIV);
             schedule_frame(frame);
             return 0;
         } else {
@@ -149,7 +161,7 @@ define_closure_function(1, 1, context, default_fault_handler,
         if (vm == INVALID_ADDRESS) {
             if (user) {
                 pf_debug("no vmap found for addr 0x%lx, rip 0x%lx", vaddr, frame[FRAME_RIP]);
-                deliver_fault_signal(SIGSEGV, current, vaddr, SEGV_MAPERR);
+                deliver_fault_signal(SIGSEGV, current_thread, vaddr, SEGV_MAPERR);
 
                 /* schedule this thread to either run signal handler or terminate */
                 schedule_frame(frame);
@@ -189,7 +201,7 @@ define_closure_function(1, 1, context, default_fault_handler,
     } else if (frame[FRAME_VECTOR] == 13) {
         if (current_cpu()->state == cpu_user) {
             pf_debug("general protection fault in user mode, rip 0x%lx", frame[FRAME_RIP]);
-            deliver_fault_signal(SIGSEGV, current, 0, SI_KERNEL);
+            deliver_fault_signal(SIGSEGV, current_thread, 0, SI_KERNEL);
             schedule_frame(frame);
             return 0;
         }
@@ -200,8 +212,9 @@ define_closure_function(1, 1, context, default_fault_handler,
     rprintf("cpu: %d\n", current_cpu()->id);
     print_frame(frame);
     print_stack(frame);
+    frame[FRAME_FULL] = 0;
 
-    if (table_find(p->process_root, sym(fault))) {
+    if (p && table_find(p->process_root, sym(fault))) {
         console("starting gdb\n");
         init_tcp_gdb(heap_general(get_kernel_heaps()), p, 9090);
         thread_sleep_uninterruptible();
@@ -301,10 +314,10 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     if (p->pid > 1) {
         /* start huge virtual at zero so that parent allocations abide
            by alignment, but reserve lowest huge page for virtual32 */
-        p->virtual = create_id_heap(h, h, 0, PROCESS_VIRTUAL_HEAP_LIMIT, HUGE_PAGESIZE);
+        p->virtual = create_id_heap(h, h, 0, PROCESS_VIRTUAL_HEAP_LIMIT, HUGE_PAGESIZE, false);
         assert(p->virtual != INVALID_ADDRESS);
         assert(id_heap_set_area(p->virtual, 0, HUGE_PAGESIZE, true, true));
-        p->virtual_page = create_id_heap_backed(h, heap_backed(kh), (heap)p->virtual, PAGESIZE);
+        p->virtual_page = create_id_heap_backed(h, heap_backed(kh), (heap)p->virtual, PAGESIZE, false);
         assert(p->virtual_page != INVALID_ADDRESS);
         if (aslr)
             id_heap_set_randomize(p->virtual_page, true);
@@ -312,7 +325,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
         /* This heap is used to track the lowest 32 bits of process
            address space. Allocations are presently only made from the
            top half for MAP_32BIT mappings. */
-        p->virtual32 = create_id_heap(h, h, 0, 0x100000000, PAGESIZE);
+        p->virtual32 = create_id_heap(h, h, 0, 0x100000000, PAGESIZE, false);
         assert(p->virtual32 != INVALID_ADDRESS);
         if (aslr)
             id_heap_set_randomize(p->virtual32, true);
@@ -325,19 +338,18 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->root_fs = p->cwd_fs = fs;
     p->cwd = root;
     p->process_root = root;
-    p->fdallocator = create_id_heap(h, h, 0, infinity, 1);
+    p->fdallocator = create_id_heap(h, h, 0, infinity, 1, false);
     p->files = allocate_vector(h, 64);
     zero(p->files, sizeof(p->files));
     create_stdfiles(uh, p);
     init_threads(p);
     p->syscalls = linux_syscalls;
-    p->utime = p->stime = 0;
     init_sigstate(&p->signals);
     zero(p->sigactions, sizeof(p->sigactions));
-    p->posix_timer_ids = create_id_heap(h, h, 0, U32_MAX, 1);
+    p->posix_timer_ids = create_id_heap(h, h, 0, U32_MAX, 1, false);
     p->posix_timers = allocate_vector(h, 8);
     p->itimers = allocate_vector(h, 3);
-    p->aio_ids = create_id_heap(h, h, 0, S32_MAX, 1);
+    p->aio_ids = create_id_heap(h, h, 0, S32_MAX, 1, false);
     p->aio = allocate_vector(h, 8);
     return p;
 }
@@ -353,7 +365,6 @@ void thread_enter_system(thread t)
     if (!t->sysctx) {
         timestamp here = now(CLOCK_ID_MONOTONIC);
         timestamp diff = here - t->start_time;
-        fetch_and_add_64(&t->p->utime, diff);
         t->utime += diff;
         t->start_time = here;
         t->sysctx = true;
@@ -365,14 +376,11 @@ void thread_pause(thread t)
 {
     if (get_current_thread() != &t->thrd)
         return;
-    process p = t->p;
     timestamp diff = now(CLOCK_ID_MONOTONIC) - t->start_time;
     if (t->sysctx) {
-        fetch_and_add_64(&p->stime, diff);
         t->stime += diff;
     }
     else {
-        fetch_and_add_64(&p->utime, diff);
         t->utime += diff;
     }
     set_current_thread(0);
@@ -404,7 +412,7 @@ static timestamp stime_updated(thread t)
 
 timestamp proc_utime(process p)
 {
-    timestamp utime = p->utime;
+    timestamp utime = 0;
     thread t;
     vector_foreach(p->threads, t)
         if (t)
@@ -414,7 +422,7 @@ timestamp proc_utime(process p)
 
 timestamp proc_stime(process p)
 {
-    timestamp stime = p->stime;
+    timestamp stime = 0;
     thread t;
     vector_foreach(p->threads, t)
         if (t)
@@ -443,7 +451,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
 
     u_heap = uh;
     uh->kh = *kh;
-    uh->processes = create_id_heap(h, h, 1, 65535, 1);
+    uh->processes = create_id_heap(h, h, 1, 65535, 1, false);
     uh->file_cache = allocate_objcache(h, heap_backed(kh), sizeof(struct file), PAGESIZE);
     if (uh->file_cache == INVALID_ADDRESS)
 	goto alloc_fail;

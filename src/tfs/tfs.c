@@ -1174,7 +1174,7 @@ void create_filesystem(heap h,
     assert(fs->pv != INVALID_ADDRESS);
 #ifndef TFS_READ_ONLY
     fs->w = write;
-    fs->storage = create_id_heap(h, h, 0, size >> fs->blocksize_order, 1);
+    fs->storage = create_id_heap(h, h, 0, size >> fs->blocksize_order, 1, false);
     assert(fs->storage != INVALID_ADDRESS);
     fs->temp_log = 0;
 #else

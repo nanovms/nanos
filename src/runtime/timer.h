@@ -161,3 +161,5 @@ static inline u64 usec_from_timestamp(timestamp t)
     return (sec * MILLION) +
         ((truncate_seconds(t) * MILLION) / TIMESTAMP_SECOND);
 }
+
+s64 rtime(s64 *result);

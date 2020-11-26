@@ -350,7 +350,7 @@ void centry()
     working_p = u64_from_pointer(early_working);
     working_end = working_p + EARLY_WORKING_SIZE;
     kh.general = &working_heap;
-    init_runtime(&working_heap);
+    init_runtime(&working_heap, &working_heap);
     init_tuples(allocate_tagged_region(&working_heap, tag_tuple));
     init_symbols(allocate_tagged_region(&working_heap, tag_symbol), &working_heap);
     init_sg(&working_heap);

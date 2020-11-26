@@ -85,11 +85,7 @@ sysreturn sys_time(time_t *tloc)
 {
     if (tloc && !validate_user_memory(tloc, sizeof(time_t), true))
         return -EFAULT;
-    time_t t = time_t_from_time(now(CLOCK_ID_REALTIME));
-
-    if (tloc)
-        *tloc = t;
-    return t;
+    return rtime(tloc);
 }
 
 sysreturn times(struct tms *buf)

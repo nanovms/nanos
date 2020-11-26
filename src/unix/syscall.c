@@ -372,7 +372,7 @@ define_closure_function(2, 2, void, iov_op_each_complete,
     } else {
         if (p->file_offset != infinity)
             p->file_offset += rv;
-        enqueue(runqueue, &p->bh);
+        enqueue_irqsafe(runqueue, &p->bh);
     }
     return;
   out_complete:
@@ -2435,8 +2435,6 @@ struct syscall {
 static struct syscall _linux_syscalls[SYS_MAX];
 struct syscall *linux_syscalls = _linux_syscalls;
 
-extern u64 kernel_lock;
-
 void syscall_debug(context f)
 {
     u64 call = f[FRAME_VECTOR];
@@ -2505,18 +2503,21 @@ closure_function(0, 2, void, io_complete_ignore,
 {
 }
 
+static boolean syscall_defer;
+
 // some validation can be moved up here
 static void syscall_schedule(context f, u64 call)
 {
     /* kernel context set on syscall entry */
-    if (kern_try_lock()) {
-        current_cpu()->state = cpu_kernel;
-        syscall_debug(f);
-    } else {
-        enqueue(runqueue, &current->deferred_syscall);
+    if (!syscall_defer)
+        kern_lock();
+    else if (!kern_try_lock()) {
+        enqueue_irqsafe(runqueue, &current->deferred_syscall);
         thread_pause(current);
         runloop();
     }
+    current_cpu()->state = cpu_kernel;
+    syscall_debug(f);
 }
 
 void init_syscalls()
@@ -2538,6 +2539,7 @@ void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *n
 
 void configure_syscalls(process p)
 {
+    syscall_defer = !!table_find(p->process_root, sym(syscall_defer));
     void *notrace = table_find(p->process_root, sym(notrace));
     if (notrace) {
         table_foreach(notrace, k, v) {

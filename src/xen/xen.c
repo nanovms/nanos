@@ -93,6 +93,7 @@ closure_function(0, 0, void, xen_interrupt)
 
     xenint_debug("xen_interrupt enter");
     while (vci->evtchn_upcall_pending) {
+        vci->evtchn_upcall_mask = 1;
         vci->evtchn_upcall_pending = 0;
         u64 l1_pending = __sync_lock_test_and_set(&vci->evtchn_pending_sel, 0); /* XXX check asm */
         /* this may not process in the right order, or it might not matter - care later */
@@ -102,7 +103,6 @@ closure_function(0, 0, void, xen_interrupt)
             u64 l2_pending = si->evtchn_pending[bit1] & ~si->evtchn_mask[bit1];
             xenint_debug("pending 0x%lx, mask 0x%lx, masked 0x%lx",
                          si->evtchn_pending[bit1], si->evtchn_mask[bit1], l2_pending);
-            __sync_or_and_fetch(&si->evtchn_mask[bit1], l2_pending);
             __sync_and_and_fetch(&si->evtchn_pending[bit1], ~l2_pending);
             u64 l2_offset = bit1 << 6;
             bitmap_word_foreach_set(l2_pending, bit2, i2, l2_offset) {
@@ -115,9 +115,11 @@ closure_function(0, 0, void, xen_interrupt)
                 } else {
                     /* XXX we have an issue with seemingly spurious interrupts at evtchn >= 2048... */
                     xenint_debug("  evtchn %d: spurious interrupt", i2);
+                    si->evtchn_mask[bit1] |= U64_FROM_BIT(bit2);
                 }
             }
         }
+        vci->evtchn_upcall_mask = 0;
     }
     xenint_debug("xen_interrupt exit");
 }
@@ -163,9 +165,9 @@ static boolean xen_grant_init(kernel_heaps kh)
     xen_debug("%s: table v 0x%lx, p 0x%lx", __func__, gt->table, physical_from_virtual(gt->table));
 
     /* Allocate grant entry allocator. */
-    heap h = heap_general(kh);
+    heap h = heap_locked(kh);
     gt->entry_heap = (heap)create_id_heap(h, h, GTAB_RESERVED_ENTRIES + 1,
-                                          gt->n_entries - GTAB_RESERVED_ENTRIES, 1);
+                                          gt->n_entries - GTAB_RESERVED_ENTRIES, 1, true);
     if (gt->entry_heap == INVALID_ADDRESS) {
         msg_err("failed to allocate grant table occupancy heap\n");
         goto fail_dealloc_table;
@@ -245,14 +247,13 @@ closure_function(0, 1, void, xen_runloop_timer,
 closure_function(0, 0, void, xen_runloop_timer_handler)
 {
     xen_debug("%s: now %T", __func__, nanoseconds(pvclock_now_ns()));
-    assert(xen_unmask_evtchn(xen_info.timer_evtchn) == 0);
 }
 
 boolean xen_detect(kernel_heaps kh)
 {
     u32 v[4];
     xen_info.initialized = false;
-    xen_info.h = heap_general(kh);
+    xen_info.h = heap_locked(kh);
     xen_debug("checking for xen cpuid leaves");
     cpuid(XEN_CPUID_FIRST_LEAF, 0, v);
     if (!(v[1] == XEN_CPUID_SIGNATURE_EBX &&

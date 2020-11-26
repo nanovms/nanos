@@ -23,6 +23,9 @@
 /* XXX just for initial mp bringup... */
 #define MAX_CPUS 16
 
+/* length of thread scheduling queue */
+#define MAX_THREADS 8192
+
 /* could probably find progammatically via cpuid... */
 #define DEFAULT_CACHELINE_SIZE 64
 
@@ -44,3 +47,6 @@
 /* mm stuff */
 #define PAGECACHE_DRAIN_CUTOFF (64 * MB)
 #define PAGECACHE_SCAN_PERIOD_SECONDS 5
+
+/* ftrace buffer size */
+#define DEFAULT_TRACE_ARRAY_SIZE        (512ULL << 20)

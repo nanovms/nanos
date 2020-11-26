@@ -169,7 +169,7 @@ static void netsock_check_loop(void)
      * enqueued more than once. */
     if (!net_loop_poll_queued) {
         net_loop_poll_queued = true;
-        enqueue(runqueue, net_loop_poll);
+        enqueue_irqsafe(runqueue, net_loop_poll);
     }
 }
 
@@ -629,6 +629,15 @@ static sysreturn socket_write_udp(netsock s, void *source, u64 length,
             &ipaddr, &port);
         if (ret)
             return ret;
+        /* If this is an an IPv4 mapped address then this socket
+           is dual-stack, so convert the address to IPv4 to encourage
+           LwIP to use that transport
+        */
+        if (s->sock.domain == AF_INET6 && !s->ipv6only &&
+                ip6_addr_isipv4mappedipv6(ip_2_ip6(&ipaddr))) {
+            unmap_ipv4_mapped_ipv6(ip_2_ip4(&ipaddr), ip_2_ip6(&ipaddr));
+            IP_SET_TYPE_VAL(ipaddr, IPADDR_TYPE_V4);
+        }
     }
     err_t err = ERR_OK;
 

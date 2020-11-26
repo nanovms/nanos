@@ -7,6 +7,8 @@
 // currently maps to the linux gdb frame layout for convenience
 #include "frame.h"
 
+#include "klib.h"
+
 #define HUGE_PAGESIZE 0x100000000ull
 
 typedef u64 *context;
@@ -20,6 +22,10 @@ typedef struct kernel_context {
 typedef struct nanos_thread {
     thunk pause;
 } *nanos_thread;
+
+#ifdef CONFIG_FTRACE
+struct ftrace_graph_entry;
+#endif
 
 typedef struct cpuinfo {
     /*** Fields accessed by low-level entry points. ***/
@@ -43,6 +49,8 @@ typedef struct cpuinfo {
     u32 id;
     int state;
     boolean have_kernel_lock;
+    queue thread_queue;
+    timestamp last_timer_update;
     u64 frcount;
 
     /* The following fields are used rarely or only on initialization. */
@@ -52,6 +60,11 @@ typedef struct cpuinfo {
 
     /* Stack for interrupts */
     void *int_stack;
+
+#ifdef CONFIG_FTRACE
+    int graph_idx;
+    struct ftrace_graph_entry * graph_stack;
+#endif
 } *cpuinfo;
 
 #define cpu_not_present 0
@@ -62,54 +75,54 @@ typedef struct cpuinfo {
 
 extern struct cpuinfo cpuinfos[];
 
-static inline cpuinfo cpuinfo_from_id(int cpu)
+static inline __attribute__((always_inline)) cpuinfo cpuinfo_from_id(int cpu)
 {
     assert(cpu >= 0 && cpu < MAX_CPUS);
     return &cpuinfos[cpu];
 }
 
-static inline void cpu_setgs(int cpu)
+static inline __attribute__((always_inline)) void cpu_setgs(int cpu)
 {
     u64 addr = u64_from_pointer(cpuinfo_from_id(cpu));
     write_msr(KERNEL_GS_MSR, 0); /* clear user GS */
     write_msr(GS_MSR, addr);
 }
 
-static inline cpuinfo current_cpu(void)
+static inline __attribute__((always_inline)) cpuinfo current_cpu(void)
 {
     u64 addr;
     asm volatile("movq %%gs:0, %0":"=r"(addr));
     return (cpuinfo)pointer_from_u64(addr);
 }
 
-static inline boolean is_current_kernel_context(context f)
+static inline __attribute__((always_inline)) boolean is_current_kernel_context(context f)
 {
     return f == current_cpu()->kernel_context->frame;
 }
 
-static inline context get_running_frame(void)
+static inline __attribute__((always_inline)) context get_running_frame(void)
 {
     return current_cpu()->running_frame;
 }
 
-static inline void set_running_frame(context f)
+static inline __attribute__((always_inline)) void set_running_frame(context f)
 {
     current_cpu()->running_frame = f;
 }
 
-static inline nanos_thread get_current_thread()
+static inline __attribute__((always_inline)) nanos_thread get_current_thread()
 {
     context f = current_cpu()->kernel_context->frame;
     return pointer_from_u64(f[FRAME_THREAD]);
 }
 
-static inline void set_current_thread(nanos_thread t)
+static inline __attribute__((always_inline)) void set_current_thread(nanos_thread t)
 {
     context f = current_cpu()->kernel_context->frame;
     f[FRAME_THREAD] = u64_from_pointer(t);
 }
 
-static inline void *stack_from_kernel_context(kernel_context c)
+static inline __attribute__((always_inline)) void *stack_from_kernel_context(kernel_context c)
 {
     return ((void*)c->stackbase) + KERNEL_STACK_SIZE - STACK_ALIGNMENT;
 }
@@ -121,7 +134,7 @@ static inline boolean this_cpu_has_kernel_lock(void)
     return current_cpu()->have_kernel_lock;
 }
 
-NOTRACE static inline __attribute__((noreturn)) void runloop(void)
+NOTRACE static inline __attribute__((always_inline)) __attribute__((noreturn)) void runloop(void)
 {
     set_running_frame(current_cpu()->kernel_context->frame);
     switch_stack(stack_from_kernel_context(current_cpu()->kernel_context),
@@ -169,23 +182,48 @@ static inline void set_page_write_protect(boolean enable)
     mov_to_cr("cr0", cr0);
 }
 
-typedef struct queue *queue;
+#ifdef KERNEL
+#define _IRQSAFE_1(rtype, name, t0)              \
+    static inline rtype name ## _irqsafe (t0 a0) \
+    {                                            \
+        u64 flags = irq_disable_save();          \
+        rtype r = name(a0);                      \
+        irq_restore(flags);                      \
+        return r;                                \
+    }
+
+#define _IRQSAFE_2(rtype, name, t0, t1)                 \
+    static inline rtype name ## _irqsafe (t0 a0, t1 a1) \
+    {                                                   \
+        u64 flags = irq_disable_save();                 \
+        rtype r = name(a0, a1);                         \
+        irq_restore(flags);                             \
+        return r;                                       \
+    }
+
+_IRQSAFE_2(boolean, enqueue, queue, void *);
+_IRQSAFE_2(boolean, enqueue_single, queue, void *);
+
+_IRQSAFE_1(void *, dequeue, queue);
+_IRQSAFE_1(void *, dequeue_single, queue);
+
+/* may not need irqsafe variants of these ... but it doesn't hurt to add */
+_IRQSAFE_1(u64, queue_length, queue);
+_IRQSAFE_1(boolean, queue_empty, queue);
+_IRQSAFE_1(boolean, queue_full, queue);
+_IRQSAFE_1(void *, queue_peek, queue);
+#undef _IRQSAFE_1
+#undef _IRQSAFE_2
+#endif
+
 extern queue bhqueue;
 extern queue runqueue;
-extern queue thread_queue;
 extern timerheap runloop_timers;
-
-static inline void bhqueue_enqueue_irqsafe(thunk t)
-{
-    /* an interrupted enqueue and competing enqueue from int handler could cause a
-       deadlock; disable ints for safe enqueue from any context */
-    u64 flags = irq_disable_save();
-    enqueue(bhqueue, t);
-    irq_restore(flags);
-}
 
 heap physically_backed(heap meta, heap virtual, heap physical, u64 pagesize);
 void physically_backed_dealloc_virtual(heap h, u64 x, bytes length);
+heap locking_heap_wrapper(heap meta, heap parent);
+
 void print_stack(context c);
 void print_frame(context f);
 
@@ -224,11 +262,15 @@ void kern_unlock(void);
 void init_scheduler(heap);
 void mm_service(void);
 
+kernel_heaps get_kernel_heaps(void);
+
+tuple get_environment(void);
+
 extern void interrupt_exit(void);
 extern char **state_strings;
 
 // static inline void schedule_frame(context f) stupid header deps
-#define schedule_frame(__f)  do { assert((__f)[FRAME_QUEUE] != INVALID_PHYSICAL); enqueue((queue)pointer_from_u64((__f)[FRAME_QUEUE]), pointer_from_u64((__f)[FRAME_RUN])); } while(0)
+#define schedule_frame(__f)  do { assert((__f)[FRAME_QUEUE] != INVALID_PHYSICAL); assert(enqueue((queue)pointer_from_u64((__f)[FRAME_QUEUE]), pointer_from_u64((__f)[FRAME_RUN]))); } while(0)
 
 void kernel_unlock();
 

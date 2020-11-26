@@ -1,12 +1,13 @@
-#if !(defined(KERNEL) || defined(BOOT))
+#if !(defined(KERNEL) || defined(BOOT) || defined(KLIB))
 #error must be in kernel or bootloader build
 #endif
 
 #define MBR_ADDRESS 0x7c00
 
-#define KERNEL_BASE 0xffffffff80000000ull
-#define KMEM_LIMIT  0xffffffff00000000ull
-#define PAGES_BASE  0xffffffffc0000000ull
+#define KERNEL_BASE  0xffffffff80000000ull
+#define KERNEL_LIMIT 0xfffffffffffff000ull
+#define KMEM_LIMIT   0xffffffff00000000ull
+#define PAGES_BASE   0xffffffffc0000000ull
 
 #define KERNEL_BASE_PHYS 0x00200000ul
 #define STACK_ALIGNMENT     16
@@ -97,7 +98,9 @@ static inline void irq_restore(u64 flags)
         enable_interrupts();
 }
 
+#ifdef KERNEL
 #include <lock.h>
+#endif
 
 extern u64 read_msr(u64);
 extern void write_msr(u64, u64);

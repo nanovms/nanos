@@ -89,7 +89,7 @@ class Parser(object):
         return self.parse(match, tid)
 
 def parse_trace(trace):
-    preamble = r'^ 0\) [@*#!+ ] '
+    preamble = r'^ [0-9]\) [@*#!+ ] '
     time = r'([0-9]+.?[0-9]*) us'
     no_time = r'[ ]*'
     bar = r'[ ]+\|[ ]+'

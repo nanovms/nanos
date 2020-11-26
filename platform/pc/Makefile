@@ -15,8 +15,10 @@ SRCS-kernel.img= \
 	$(SRCDIR)/gdb/gdbutil.c \
 	$(SRCDIR)/http/http.c \
 	$(SRCDIR)/kernel/backed_heap.c \
+	$(SRCDIR)/kernel/locking_heap.c \
 	$(SRCDIR)/kernel/elf.c \
 	$(SRCDIR)/kernel/kernel.c \
+	$(SRCDIR)/kernel/klib.c \
 	$(SRCDIR)/kernel/kvm_platform.c \
 	$(SRCDIR)/kernel/pagecache.c \
 	$(SRCDIR)/kernel/pci.c \
@@ -29,30 +31,7 @@ SRCS-kernel.img= \
 	$(SRCDIR)/net/direct.c \
 	$(SRCDIR)/net/net.c \
 	$(SRCDIR)/net/netsyscall.c \
-	$(SRCDIR)/runtime/bitmap.c \
-	$(SRCDIR)/runtime/buffer.c \
-	$(SRCDIR)/runtime/extra_prints.c \
-	$(SRCDIR)/runtime/format.c \
-	$(SRCDIR)/runtime/heap/freelist.c \
-	$(SRCDIR)/runtime/heap/id.c \
-	$(SRCDIR)/runtime/heap/mcache.c \
-	$(SRCDIR)/runtime/heap/objcache.c \
-	$(SRCDIR)/runtime/memops.c \
-	$(SRCDIR)/runtime/merge.c \
-	$(SRCDIR)/runtime/pqueue.c \
-	$(SRCDIR)/runtime/queue.c \
-	$(SRCDIR)/runtime/random.c \
-	$(SRCDIR)/runtime/range.c \
-	$(SRCDIR)/runtime/rbtree.c \
-	$(SRCDIR)/runtime/runtime_init.c \
-	$(SRCDIR)/runtime/sg.c \
-	$(SRCDIR)/runtime/sha256.c \
-	$(SRCDIR)/runtime/symbol.c \
-	$(SRCDIR)/runtime/table.c \
-	$(SRCDIR)/runtime/timer.c \
-	$(SRCDIR)/runtime/tuple.c \
-	$(SRCDIR)/runtime/string.c \
-	$(SRCDIR)/runtime/crypto/chacha.c \
+	$(RUNTIME) \
 	$(SRCDIR)/tfs/tfs.c \
 	$(SRCDIR)/tfs/tlog.c \
 	$(SRCDIR)/unix/aio.c \
@@ -102,11 +81,13 @@ SRCS-kernel.img= \
 	$(SRCDIR)/hyperv/storvsc/storvsc.c \
 	$(SRCDIR)/hyperv/utilities/vmbus_ic.c \
 	$(SRCDIR)/hyperv/utilities/vmbus_shutdown.c \
+	$(SRCDIR)/x86_64/acpi.c \
 	$(SRCDIR)/x86_64/ap.s \
 	$(SRCDIR)/x86_64/apic.c \
 	$(SRCDIR)/x86_64/breakpoint.c \
 	$(SRCDIR)/x86_64/clock.c \
 	$(SRCDIR)/x86_64/crt0.s \
+	$(SRCDIR)/x86_64/elf64.c \
 	$(SRCDIR)/x86_64/flush.c \
 	$(SRCDIR)/x86_64/hpet.c \
 	$(SRCDIR)/x86_64/interrupt.c \
@@ -166,7 +147,7 @@ INCLUDES=\
 
 AFLAGS+=-I$(ARCHDIR)/
 
-CFLAGS+=$(KERNCFLAGS) -DSTAGE3 -DKERNEL -mcmodel=kernel
+CFLAGS+=$(KERNCFLAGS) -DSTAGE3 -DKERNEL -fno-pic -mcmodel=kernel
 CFLAGS+=-Wno-address # lwIP build sadness
 CFLAGS+=$(INCLUDES)
 
@@ -179,6 +160,7 @@ SRCS-kernel.img+= \
 endif
 
 CFLAGS+=	-DSPIN_LOCK_DEBUG_NOSMP
+#CFLAGS+=	-DSMP_ENABLE
 #CFLAGS+=	-DLWIPDIR_DEBUG -DEPOLL_DEBUG -DNETSYSCALL_DEBUG -DKERNEL_DEBUG
 AFLAGS+=	-felf64 -I$(OBJDIR)/
 LDFLAGS+=	$(KERNLDFLAGS) --undefined=_start -T linker_script

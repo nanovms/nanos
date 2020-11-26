@@ -241,7 +241,6 @@ define_closure_function(1, 0, void, xenblk_event_handler,
     if (done_empty && !list_empty(&xbd->done))
         enqueue(bhqueue, &xbd->bh_service);
     spin_unlock(&xbd->lock);
-    assert(xen_unmask_evtchn(xbd->evtchn) == 0);
 }
 
 define_closure_function(1, 0, void, xenblk_bh_service,
@@ -400,7 +399,7 @@ closure_function(2, 3, boolean, xenblk_probe,
 {
     xenblk_debug("probe for id %d, frontend %b, meta %v", id, frontend, meta);
     kernel_heaps kh = bound(kh);
-    heap h = heap_general(kh);
+    heap h = heap_locked(kh);
     xenblk_dev xbd = allocate(h, sizeof(*xbd));
     if (xbd == INVALID_ADDRESS) {
         msg_err("%s: cannot allocate device structure\n", __func__);
@@ -444,5 +443,5 @@ closure_function(2, 3, boolean, xenblk_probe,
 
 void init_xenblk(kernel_heaps kh, storage_attach sa)
 {
-    register_xen_driver("vbd", closure(heap_general(kh), xenblk_probe, kh, sa));
+    register_xen_driver("vbd", closure(heap_locked(kh), xenblk_probe, kh, sa));
 }

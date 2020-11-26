@@ -39,21 +39,20 @@ table allocate_table(heap h, u64 (*key_function)(void *x), boolean (*equals_func
 {
     table new = allocate(h, sizeof(struct table));
     if (new == INVALID_ADDRESS)
-        goto alloc_fail;
+        return new;
 
     table t = tablev(new);
     t->h = h;
     t->count = 0;
     t->buckets = 4;
     t->entries = allocate_zero(h, t->buckets * sizeof(void *));
-    if (t->entries == INVALID_ADDRESS)
-        goto alloc_fail;
+    if (t->entries == INVALID_ADDRESS) {
+        deallocate(h, new, sizeof(struct table));
+        return INVALID_ADDRESS;
+    }
     t->key_function = key_function;
     t->equals_function = equals_function;
     return new;
-
-  alloc_fail:
-    halt("allocation failure in allocate_table\n");
 }
 
 void deallocate_table(table t)
@@ -63,6 +62,7 @@ void deallocate_table(table t)
     deallocate(t->h, t->entries, t->buckets * sizeof(void *));
     deallocate(t->h, t, sizeof(struct table));
 }
+KLIB_EXPORT(deallocate_table);
 
 static inline key position(int buckets, key x)
 {
@@ -102,6 +102,7 @@ void *table_find(table z, void *c)
     }
     return EMPTY;
 }
+KLIB_EXPORT(table_find);
 
 void table_set(table z, void *c, void *v)
 {
@@ -144,6 +145,7 @@ void table_set(table z, void *c, void *v)
         }
     }
 }
+KLIB_EXPORT(table_set);
 
 int table_elements(table z)
 {
