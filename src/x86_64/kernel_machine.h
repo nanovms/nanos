@@ -98,7 +98,9 @@ static inline void irq_restore(u64 flags)
         enable_interrupts();
 }
 
+#ifdef KERNEL
 #include <lock.h>
+#endif
 
 extern u64 read_msr(u64);
 extern void write_msr(u64, u64);

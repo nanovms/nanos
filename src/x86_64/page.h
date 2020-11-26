@@ -74,7 +74,7 @@ void *bootstrap_page_tables(heap initial);
 #ifdef STAGE3
 void map_setup_2mbpages(u64 v, physical p, int pages, u64 flags,
                         u64 *pdpt, u64 *pdt);
-id_heap init_page_tables(heap h, id_heap physical, range initial_map);
+void init_page_tables(heap h, id_heap physical, range initial_map);
 #else
 void init_page_tables(heap initial);
 #endif

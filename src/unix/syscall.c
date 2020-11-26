@@ -372,7 +372,7 @@ define_closure_function(2, 2, void, iov_op_each_complete,
     } else {
         if (p->file_offset != infinity)
             p->file_offset += rv;
-        enqueue(runqueue, &p->bh);
+        enqueue_irqsafe(runqueue, &p->bh);
     }
     return;
   out_complete:
@@ -2512,7 +2512,7 @@ static void syscall_schedule(context f, u64 call)
     if (!syscall_defer)
         kern_lock();
     else if (!kern_try_lock()) {
-        enqueue(runqueue, &current->deferred_syscall);
+        enqueue_irqsafe(runqueue, &current->deferred_syscall);
         thread_pause(current);
         runloop();
     }
