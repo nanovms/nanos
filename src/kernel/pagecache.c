@@ -519,20 +519,22 @@ closure_function(6, 1, void, pagecache_write_sg_finish,
             pn->pv->write_error = s;
         }
 
-        do {
-            assert(pp != INVALID_ADDRESS && page_offset(pp) == pi);
-            pagecache_lock_state(pc);
-            assert(pp->write_count > 0);
-            if (pp->write_count-- == 1) {
-                if (page_state(pp) != PAGECACHE_PAGESTATE_DIRTY)
-                    change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_NEW);
-                pagecache_page_queue_completions_locked(pc, pp, s);
-            }
-            pagecache_unlock_state(pc);
-            refcount_release(&pp->refcount);
-            pi++;
-            pp = (pagecache_page)rbnode_get_next((rbnode)pp);
-        } while (pi < end);
+        if (bound(complete)) {
+            do {
+                assert(pp != INVALID_ADDRESS && page_offset(pp) == pi);
+                pagecache_lock_state(pc);
+                assert(pp->write_count > 0);
+                if (pp->write_count-- == 1) {
+                    if (page_state(pp) != PAGECACHE_PAGESTATE_DIRTY)
+                        change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_NEW);
+                    pagecache_page_queue_completions_locked(pc, pp, s);
+                }
+                pagecache_unlock_state(pc);
+                refcount_release(&pp->refcount);
+                pi++;
+                pp = (pagecache_page)rbnode_get_next((rbnode)pp);
+            } while (pi < end);
+        }
         pagecache_unlock_node(pn);
         closure_finish();
         return;
@@ -1153,14 +1155,9 @@ closure_function(3, 3, boolean, pagecache_unmap_page_nodelocked,
             assert(pp->refcount.c >= 1);
             refcount_release(&pp->refcount);
         } else {
-            /* private copy: free physical page
-
-               It's gross to go around the wrapped physical heap
-               specified to pagecache init, but this is really a
-               short-term fix; the physical heap parameter needs to be
-               replaced with the free page / tlb shootdown interface.
-            */
-            deallocate_phys_page_from_traversal(phys, cache_pagesize(bound(pn)->pv->pc));
+            /* private copy: free physical page */
+            pagecache pc = bound(pn)->pv->pc;
+            deallocate_u64(pc->physical, phys, cache_pagesize(pc));
         }
     }
     return true;
@@ -1320,9 +1317,10 @@ void init_pagecache(heap general, heap contiguous, heap physical, u64 pagesize)
     assert(pc->zero_page != INVALID_ADDRESS);
 
 #ifdef KERNEL
-    /* XXX lock, and move to locked general when ready */
-    pc->completions = allocate_objcache(general, contiguous,
-                                        sizeof(struct page_completion), PAGESIZE);
+    pc->completions =
+        locking_heap_wrapper(general, allocate_objcache(general, contiguous,
+                                                        sizeof(struct page_completion),
+                                                        PAGESIZE));
     assert(pc->completions != INVALID_ADDRESS);
     spin_lock_init(&pc->state_lock);
 #else

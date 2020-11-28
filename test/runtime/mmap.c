@@ -165,6 +165,9 @@ static void do_munmap(void * addr, unsigned long len)
         __munmap(addr, len);
 }
 
+/*
+ * mmap and munmap a new file with appropriate permissions
+ */
 static void mmap_newfile_test(void)
 {
     int fd;
@@ -185,6 +188,27 @@ static void mmap_newfile_test(void)
         perror("new file  munmap");
         exit(EXIT_FAILURE);
     }
+    if (close(fd) < 0) {
+        perror("new file close");
+        exit(EXIT_FAILURE);
+    }
+}
+
+/*
+ * Try to mmap a non-executable file with exec access
+ * Checks that mmap fails and sets errno to EACCES
+ */
+static void check_exec_perm_test(void)
+{
+    int fd;
+    const size_t maplen = 1;
+    void *addr;
+
+    fd = open("new_file_noexec", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+    if (fd < 0) {
+        perror("new file open");
+        exit(EXIT_FAILURE);
+    }
     addr = mmap(NULL, maplen, PROT_EXEC, MAP_PRIVATE, fd, 0);
     if (addr != MAP_FAILED) {
         fprintf(stderr, "%s: could mmap non-executable file with exec access\n",
@@ -197,6 +221,34 @@ static void mmap_newfile_test(void)
         perror("new file close");
         exit(EXIT_FAILURE);
     }
+}
+
+/* This used to be 32GB, which would not pass under Linux... */
+#define LARGE_MMAP_SIZE (4ull << 30)
+
+static void large_mmap_test(void)
+{
+    void * map_addr = mmap(NULL, LARGE_MMAP_SIZE, PROT_READ|PROT_WRITE,
+                           MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (map_addr == MAP_FAILED) {
+        perror("mmap failed");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("  and unmap...\n");
+    if (munmap(map_addr, LARGE_MMAP_SIZE)) {
+        perror("munmap failed");
+        exit(EXIT_FAILURE);
+    }
+
+    map_addr = mmap(NULL, LARGE_MMAP_SIZE, PROT_EXEC,
+        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (map_addr != MAP_FAILED) {
+        fprintf(stderr, "%s: could set up anonymous mapping with exec access\n",
+            __func__);
+        exit(EXIT_FAILURE);
+    }
+
 }
 
 /*
@@ -368,47 +420,12 @@ static void mmap_flags_to_str(char * str, unsigned long str_len,
     }
 }
 
-/* This used to be 32GB, which would not pass under Linux... */
-#define LARGE_MMAP_SIZE (4ull << 30)
-
-static void mmap_test(void)
+/*
+ * Iterate through tests array and run mmap_flags_test
+ */
+static void all_mmap_flags_tests(void)
 {
-    int seed, i;
-
-    printf("** starting mmap tests\n");
-
-    mmap_newfile_test();
-
-    printf("  performing large mmap...\n");
-    void * map_addr = mmap(NULL, LARGE_MMAP_SIZE, PROT_READ|PROT_WRITE,
-                           MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (map_addr == MAP_FAILED) {
-        perror("mmap failed");
-        exit(EXIT_FAILURE);
-    }
-
-    printf("  and unmap...\n");
-    if (munmap(map_addr, LARGE_MMAP_SIZE)) {
-        perror("munmap failed");
-        exit(EXIT_FAILURE);
-    }
-
-    map_addr = mmap(NULL, LARGE_MMAP_SIZE, PROT_EXEC,
-        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (map_addr != MAP_FAILED) {
-        fprintf(stderr, "%s: could set up anonymous mapping with exec access\n",
-            __func__);
-        exit(EXIT_FAILURE);
-    }
-
-    srand(1);
-    printf("  performing sparse_anon_mmap_test with seed=1...\n");
-    sparse_anon_mmap_test();
-
-    seed = time(NULL);
-    srand(seed);
-    printf("  performing sparse_anon_mmap_test with seed=%d...\n", seed);
-    sparse_anon_mmap_test();
+    int i;
 
     for (i = 0; i < NR_MMAP_TESTS; i++) {
         char str[64];
@@ -429,22 +446,49 @@ static void mmap_test(void)
         printf("  performing mmap_flag_test(%s)...\n", str);
         mmap_flags_test(tests[i].filename, mmap_addr, size, tests[i].flags);
     }
+}
+
+static void munmap_test(void)
+{
+    void * mmap_addr;
+
+    mmap_addr = mmap(NULL, PAGESIZE, PROT_READ, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+    if (mmap_addr == MAP_FAILED) {
+        perror("mmap failed");
+        exit(EXIT_FAILURE);
+    }
+    
+    if (munmap(mmap_addr, PAGESIZE)) {
+        perror("munmap failed");
+        exit(EXIT_FAILURE);
+    }
+}
+
+static void mmap_test(void)
+{
+    int seed;
+
+    printf("** starting mmap tests\n");
+
+    mmap_newfile_test();
+    check_exec_perm_test();
+
+    printf("  performing large mmap...\n");
+    large_mmap_test();
+
+    srand(1);
+    printf("  performing sparse_anon_mmap_test with seed=1...\n");
+    sparse_anon_mmap_test();
+
+    seed = time(NULL);
+    srand(seed);
+    printf("  performing sparse_anon_mmap_test with seed=%d...\n", seed);
+    sparse_anon_mmap_test();
+
+    all_mmap_flags_tests();
 
     printf("  performing munmap test...\n");
-    {
-        void * mmap_addr;
-
-        mmap_addr = mmap(NULL, PAGESIZE, PROT_READ, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
-        if (mmap_addr == MAP_FAILED) {
-            perror("mmap failed");
-            exit(EXIT_FAILURE);
-        }
-        
-        if (munmap(mmap_addr, PAGESIZE)) {
-            perror("munmap failed");
-            exit(EXIT_FAILURE);
-        }
-    }
+    munmap_test();
 
     printf("** all mmap tests passed\n");
 

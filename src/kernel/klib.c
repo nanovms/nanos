@@ -245,7 +245,7 @@ void init_klib(kernel_heaps kh, void *fs, tuple config_root, tuple klib_md)
     u64 klib_heap_size = KERNEL_LIMIT - klib_heap_start;
     klib_debug("%s: creating klib heap @ 0x%lx, size 0x%lx\n", __func__,
                klib_heap_start, klib_heap_size);
-    klib_heap = create_id_heap(h, h, klib_heap_start, klib_heap_size, PAGESIZE);
+    klib_heap = create_id_heap(h, h, klib_heap_start, klib_heap_size, PAGESIZE, false);
     assert(klib_heap != INVALID_ADDRESS);
     if (table_find(config_root, sym(klib_test))) {
         klib_debug("   loading klib test\n");

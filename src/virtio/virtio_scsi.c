@@ -496,6 +496,6 @@ closure_function(3, 1, boolean, virtio_scsi_probe,
 
 void virtio_register_scsi(kernel_heaps kh, storage_attach a)
 {
-    heap h = heap_general(kh);
+    heap h = heap_locked(kh);
     register_pci_driver(closure(h, virtio_scsi_probe, h, a, heap_backed(kh)));
 }
