@@ -59,7 +59,7 @@ static inline boolean bitmap_get(bitmap b, u64 i)
 static inline void bitmap_set(bitmap b, u64 i, int val)
 {
     if (i >= b->mapbits)
-	assert(bitmap_extend(b, i)); //esther change this method to boolean
+	assert(bitmap_extend(b, i));
     u64 mask = 1ull << (i & 63);
     u64 * p = bitmap_base(b) + (i >> 6);
     if (val)

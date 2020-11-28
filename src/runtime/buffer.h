@@ -146,7 +146,7 @@ static inline boolean buffer_write(buffer b, const void *source, bytes length)
 
 static inline void buffer_write_cstring(buffer b, const char *x)
 {
-    assert(buffer_write(b, x, runtime_strlen(x))); //esther propogate up?
+    assert(buffer_write(b, x, runtime_strlen(x)));
 }
 
 static inline boolean buffer_read(buffer b, void *dest, bytes length)

@@ -19,7 +19,7 @@ buffer allocate_buffer(heap h, bytes s)
 }
 KLIB_EXPORT(allocate_buffer);
 
-void kern_buffer_write(buffer b, const void *source, bytes length)
+boolean kern_buffer_write(buffer b, const void *source, bytes length)
 {
     return buffer_write(b, source, length);
 }
