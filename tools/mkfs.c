@@ -421,10 +421,10 @@ int main(int argc, char **argv)
         }
     }
 
-    if (offset >= (1 << 16)) {
-        halt("boot image size (%d) exceeds 64KB; either trim stage2 or "
-             "update readsectors in stage1\n", offset);
-    }
+    /* if (offset >= (1 << 16)) { */
+    /*     halt("boot image size (%d) exceeds 64KB; either trim stage2 or " */
+    /*          "update readsectors in stage1\n", offset); */
+    /* } */
 
     if (empty_fs) {
         root = allocate_tuple();
