@@ -301,7 +301,7 @@ closure_function(3, 2, void, virtio_scsi_read_capacity_done,
     virtio_scsi_debug("%s: target %d, lun %d, block size 0x%lx, capacity 0x%lx\n",
         __func__, target, lun, d->block_size, d->capacity);
 
-    enqueue(runqueue, closure(s->v->virtio_dev.general, virtio_scsi_init_done,
+    enqueue_irqsafe(runqueue, closure(s->v->virtio_dev.general, virtio_scsi_init_done,
         d, bound(a)));
   out:
     closure_finish();
@@ -496,6 +496,6 @@ closure_function(3, 1, boolean, virtio_scsi_probe,
 
 void virtio_register_scsi(kernel_heaps kh, storage_attach a)
 {
-    heap h = heap_general(kh);
+    heap h = heap_locked(kh);
     register_pci_driver(closure(h, virtio_scsi_probe, h, a, heap_backed(kh)));
 }

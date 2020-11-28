@@ -87,10 +87,10 @@ heap transient;
 
 // init linker sets would clean up the platform dependency, if you link
 // with it, it gets initialized
-void init_runtime(heap h)
+void init_runtime(heap general, heap safe)
 {
     // environment specific
-    transient = h;
+    transient = general;
     register_format('p', format_pointer, 0);
     register_format('x', format_number, 1);
     register_format('d', format_number, 1);
@@ -98,10 +98,10 @@ void init_runtime(heap h)
     register_format('b', format_buffer, 0);
     register_format('n', format_spaces, 0);
     register_format('c', format_character, 0);
-    ignore = closure(h, ignore_body);
+    ignore = closure(general, ignore_body);
     ignore_status = (void*)ignore;
-    errheap = h;
-    null_value = wrap_buffer_cstring(h, "");
+    errheap = safe;
+    null_value = wrap_buffer_cstring(general, "");
 }
 
 #define STACK_CHK_GUARD 0x595e9fbd94fda766

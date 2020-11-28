@@ -889,7 +889,7 @@ static void storvsc_report_luns(struct storvsc_softc *sc, storage_attach a, u16 
  */
 static status storvsc_attach(kernel_heaps kh, hv_device* device, storage_attach a)
 {
-    heap h = heap_general(kh);
+    heap h = heap_locked(kh);
 
     struct storvsc_softc *sc = allocate_zero(h, sizeof(struct storvsc_softc));
     assert(sc != INVALID_ADDRESS);
@@ -1258,6 +1258,6 @@ closure_function(1, 3, boolean, storvsc_probe,
 
 void init_storvsc(kernel_heaps kh)
 {
-    register_vmbus_driver(&gStorVscDeviceType, closure(heap_general(kh), storvsc_probe, kh));
-    register_vmbus_driver(&gBlkVscDeviceType, closure(heap_general(kh), storvsc_probe, kh));
+    register_vmbus_driver(&gStorVscDeviceType, closure(heap_locked(kh), storvsc_probe, kh));
+    register_vmbus_driver(&gBlkVscDeviceType, closure(heap_locked(kh), storvsc_probe, kh));
 }

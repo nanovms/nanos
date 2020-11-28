@@ -16,7 +16,7 @@ static boolean basic_test(heap h)
     for (int page_order=0; page_order <= MAX_PAGE_ORDER; page_order++) {
 	u64 pagesize = U64_FROM_BIT(page_order);
 	u64 pages = length / pagesize;
-	heap id = (heap)create_id_heap(h, h, base, length, pagesize);
+	heap id = (heap)create_id_heap(h, h, base, length, pagesize, false);
 
 	msg_debug("*** allocated id heap %p at length %ld (%ld pages), pagesize %ld\n",
 		  id, pagesize * pages, pages, pagesize);
@@ -73,7 +73,7 @@ static boolean random_test(heap h, heap rh, u64 page_order, int churn)
 
     zero(alloc_result_vec, VEC_LEN * sizeof(u64));
 
-    heap id = (heap)create_id_heap_backed(h, h, rh, pagesize);
+    heap id = (heap)create_id_heap_backed(h, h, rh, pagesize, false);
     msg_debug("*** allocated id heap %p, parent heap %p, pagesize %ld\n",
 	      id, rh, pagesize);
 
@@ -170,7 +170,7 @@ heap allocate_rangeheap(heap meta, bytes pagesize)
 
 static boolean alloc_gte_test(heap h)
 {
-    id_heap idh = create_id_heap(h, h, 0, GTE_TEST_MAX, 1);
+    id_heap idh = create_id_heap(h, h, 0, GTE_TEST_MAX, 1, false);
     if (idh == INVALID_ADDRESS) {
         msg_err("cannot create heap\n");
         return false;
@@ -247,7 +247,7 @@ static boolean alloc_subrange_test(heap h)
 {
     build_assert((SUBRANGE_TEST_LENGTH % 4) == 0);
 
-    id_heap id = create_id_heap(h, h, SUBRANGE_TEST_MIN, SUBRANGE_TEST_LENGTH, PAGESIZE);
+    id_heap id = create_id_heap(h, h, SUBRANGE_TEST_MIN, SUBRANGE_TEST_LENGTH, PAGESIZE, false);
     if (id == INVALID_ADDRESS) {
         msg_err("cannot create heap\n");
         return false;
