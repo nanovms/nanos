@@ -144,15 +144,32 @@ boolean test_wrap(heap h) {
  *  bitmap_alloc_within_range and bitmap_dealloc functions.
  */ 
 boolean test_bitmap_alloc(bitmap b, u64 start, u64 end) {
-    // generate random number between 0 and (end-start)
     u64 nbits = rand();
     u64 first;
     while (true) {
         first = bitmap_alloc_within_range(b, nbits, start, end);
-        if (first != INVALID_PHYSICAL)
+        if (first != INVALID_PHYSICAL) {
+            if (nbits > (end-start))
+                msg_err("!!! invalid value for nbits: %ld end-start: %ld\n", nbits, (end-start));
             break;
+        }
         else
             nbits >>= 1;
+    }
+    // check that specified range is set properly
+    for (int i = first; i < first + nbits; i++) {
+        if (bitmap_get(b, i) != 1) {
+            msg_err("!!! bitmap_alloc failed for bitmap at bit %d | expected: %d actual: %d\n", 
+                i, 1, bitmap_get(b, i));
+            if (!bitmap_dealloc(b, first, nbits))
+                msg_err("!!! bitmap_dealloc failed for bitmap");
+            return false;
+        }
+    }
+    // check that dealloc is successful
+    if (!bitmap_dealloc(b, first, nbits)) {
+        msg_err("!!! bitmap_dealloc failed for bitmap");
+        return false;
     }
     return true;
 }
