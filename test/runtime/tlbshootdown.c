@@ -40,7 +40,7 @@ void *cpu_thread(void *v)
 {
     int i, id;
 
-    id = (int)v;
+    id = (int)((uintptr_t)v);
     wait_for_sync();
 
     if (sigsetjmp(jbs[id], 1)) {
