@@ -40,7 +40,7 @@ void *cpu_thread(void *v)
 {
     int i, id;
 
-    id = (pthread_t *)v - threads;
+    id = (int)v;
     wait_for_sync();
 
     if (sigsetjmp(jbs[id], 1)) {
@@ -120,7 +120,7 @@ int main(int argc, char **argv)
     np = get_nprocs();
     printf("There are %d processors available\n", np);
 
-    for (loops = 0; loops < 100; loops++) {
+    for (loops = 0; loops < 1000; loops++) {
         stage = 0;
         m = mmap(NULL, PAGESIZE * np, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, 0, 0);
         if (m == (void *)-1) {
@@ -128,8 +128,8 @@ int main(int argc, char **argv)
             exit(EXIT_FAILURE);
         }
         memset((void *)m, 0, PAGESIZE * np);
-        for (int i = 0; i < np; i++) {
-            pthread_create(&threads[i], NULL, cpu_thread, &threads[i]);
+        for (long i = 0; i < np; i++) {
+            pthread_create(&threads[i], NULL, cpu_thread, (void *)i);
         }
         wait_for_children();
         wake_children();    /* trigger children to check for good memory access */
