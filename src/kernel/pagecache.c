@@ -832,7 +832,7 @@ closure_function(2, 3, boolean, pagecache_check_dirty_page,
         u64 pi = (sm->node_offset + (vaddr - sm->n.r.start)) >> PAGELOG;
         pagecache_debug("   dirty: vaddr 0x%lx, pi 0x%lx\n", vaddr, pi);
         *entry = old_entry & ~PAGE_DIRTY;
-        page_invalidate(vaddr, ignore);
+        page_invalidate(vaddr);
         pagecache_page pp = page_lookup_nodelocked(sm->pn, pi);
         assert(pp != INVALID_ADDRESS);
         pagecache_lock_state(pc);
@@ -847,6 +847,7 @@ static void pagecache_scan_shared_map(pagecache pc, pagecache_shared_map sm)
 {
     traverse_ptes(sm->n.r.start, range_span(sm->n.r),
                   stack_closure(pagecache_check_dirty_page, pc, sm));
+    page_invalidate_sync(ignore);
 }
 
 static void pagecache_scan_shared_mappings(pagecache pc)
@@ -1146,7 +1147,7 @@ closure_function(3, 3, boolean, pagecache_unmap_page_nodelocked,
         u64 pi = (bound(node_offset) + (vaddr - bound(vaddr_base))) >> PAGELOG;
         pagecache_debug("   vaddr 0x%lx, pi 0x%lx\n", vaddr, pi);
         *entry = 0;
-        page_invalidate(vaddr, ignore);
+        page_invalidate(vaddr);
         pagecache_page pp = page_lookup_nodelocked(bound(pn), pi);
         assert(pp != INVALID_ADDRESS);
         u64 phys = page_from_pte(old_entry);
@@ -1170,6 +1171,7 @@ void pagecache_node_unmap_pages(pagecache_node pn, range v /* bytes */, u64 node
     pagecache_lock_node(pn);
     traverse_ptes(v.start, range_span(v), stack_closure(pagecache_unmap_page_nodelocked, pn,
                                                         v.start, node_offset));
+    page_invalidate_sync(ignore);
     pagecache_unlock_node(pn);
 }
 #endif

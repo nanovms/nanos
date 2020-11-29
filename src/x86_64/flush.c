@@ -2,51 +2,62 @@
 #include <page.h>
 #include <apic.h>
 
-// in order to keep SMP_TEST conditionalized
 static boolean initialized = false;
-static queue flush_queue;
 static int flush_ipi;
 static heap flush_heap;
 
-typedef struct flush_entry {
-    struct refcount r;
-    u64 page; // or INVALID_ADDRESS for a full flush
-} *flush_entry;
 
 static void invalidate (u64 page)
 {
-    asm volatile("invlpg (%0)" :: "r" (page) : "memory");            
+    asm volatile("invlpg (%0)" :: "r" (page) : "memory");
+}
+
+static void _flush_handler(void)
+{
+    cpuinfo ci = current_cpu();
+    void *p;
+    while ((p = dequeue(ci->inval_queue)) != INVALID_ADDRESS) {
+        invalidate((u64)p);
+    }
 }
 
 closure_function(0, 0, void, flush_handler)
 {
-    flush_entry f = queue_peek(flush_queue);
-    if (f->page == INVALID_PHYSICAL) {
-        flush_tlb();
-    } else {
-        invalidate(f->page);
-    }
-    if (refcount_release(&f->r))
-        deallocate(flush_heap, dequeue(flush_queue), sizeof(struct flush_entry));
+    _flush_handler();
 }
 
-void page_invalidate(u64 p, thunk completion)
+
+void page_invalidate(u64 p)
 {
     if (initialized) {
-        flush_entry f = allocate(flush_heap, sizeof(struct flush_entry));
-        init_refcount(&f->r, total_processors, completion);
-        enqueue(flush_queue, f);
-        // we can choose to delay/amortize this
-        apic_ipi(TARGET_EXCLUSIVE_BROADCAST, 0, flush_ipi);        
+        for (int i = 0; i < total_processors; i++) {
+            while (!enqueue(cpuinfos[i].inval_queue, (void *)p))
+                page_invalidate_sync(ignore);
+        }
     } else {
         invalidate(p);
-        apply(completion);
     }
 }
+
+void page_invalidate_sync(thunk completion)
+{
+    if (initialized) {
+        u64 flags = irq_disable_save();
+        int id = current_cpu()->id;
+        for (int i = 0; i < total_processors; i++) {
+            if (i != id)
+                apic_ipi(i, 0, flush_ipi);
+        }
+        _flush_handler();
+        irq_restore(flags);
+    }
+
+    if (completion)
+        apply(completion);
+    }
 
 void init_flush(heap h)
 {
-    flush_queue = allocate_queue(h, 128);
     flush_ipi = allocate_interrupt();
     register_interrupt(flush_ipi, closure(h, flush_handler), "flush ipi");
     flush_heap = h; // xxx - not really

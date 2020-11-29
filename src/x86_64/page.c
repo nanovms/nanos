@@ -137,9 +137,13 @@ void flush_tlb()
 }
 
 #ifdef BOOT
-void page_invalidate(u64 address, thunk completion)
+void page_invalidate(u64 address)
 {
     flush_tlb();
+}
+
+void page_invalidate_sync(thunk completion)
+{
     apply(completion);
 }
 #endif
@@ -287,7 +291,7 @@ static inline boolean map_page(u64 base, u64 v, physical p,
 	return false;
     if (invalidate_entry) {
         // move this up to construct ranges?
-        page_invalidate(v, ignore);
+        page_invalidate(v);
         if (invalidate)
             *invalidate = true;
     }
@@ -382,7 +386,7 @@ closure_function(1, 3, boolean, update_pte_flags,
 #ifdef PAGE_UPDATE_DEBUG
     page_debug("update 0x%lx: pte @ 0x%lx, 0x%lx -> 0x%lx\n", addr, entry, old, *entry);
 #endif
-    page_invalidate(addr, ignore);
+    page_invalidate(addr);
     return true;
 }
 
@@ -420,7 +424,7 @@ closure_function(2, 3, boolean, remap_entry,
     *entry = 0;
 
     /* invalidate old mapping (map_page takes care of new)  */
-    page_invalidate(curr, ignore);
+    page_invalidate(curr);
 
     return true;
 }
@@ -439,6 +443,7 @@ void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length)
     assert(range_empty(range_intersection(irange(vaddr_new, vaddr_new + length),
                                           irange(vaddr_old, vaddr_old + length))));
     traverse_ptes(vaddr_old, length, stack_closure(remap_entry, vaddr_new, vaddr_old));
+    page_invalidate_sync(ignore);
 }
 
 /* called with lock held */
@@ -474,7 +479,7 @@ closure_function(1, 3, boolean, unmap_page,
                    rh, level, vaddr, entry, *entry);
 #endif
         *entry = 0;
-        page_invalidate(vaddr, ignore);
+        page_invalidate(vaddr);
         if (rh) {
             apply(rh, irangel(page_from_pte(old_entry),
                               (pt_entry_is_fat(level, old_entry) ?
@@ -490,6 +495,7 @@ void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh)
 {
     assert(!((virtual & PAGEMASK) || (length & PAGEMASK)));
     traverse_ptes(virtual, length, stack_closure(unmap_page, rh));
+    page_invalidate_sync(ignore);
 }
 
 // error processing
@@ -543,6 +549,7 @@ static void map_range(u64 virtual, physical p, u64 length, u64 flags)
         po += off;
         i += off;
     }
+    page_invalidate_sync(ignore);
 #ifdef PAGE_DEBUG
     if (invalidate && p)        /* don't care about invalidate on unmap */
         console("   - part of map caused invalidate\n");
@@ -619,6 +626,7 @@ static u64 pt_2m_alloc(heap h, bytes size)
         map_page(pagebase, i, p, true, PAGE_WRITABLE | PAGE_PRESENT, 0);
         table_set(pt_p2v, (void *)p, (void *)i);
     }
+    page_invalidate_sync(ignore);
     return v;
 }
 

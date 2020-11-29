@@ -67,9 +67,10 @@ void dump_ptes(void *x);
 typedef closure_type(entry_handler, boolean /* success */, int /* level */,
         u64 /* vaddr */, u64 * /* entry */);
 boolean traverse_ptes(u64 vaddr, u64 length, entry_handler eh);
-void page_invalidate(u64 p, thunk completion);
+void page_invalidate(u64 p);
+void page_invalidate_sync(thunk completion);
 void flush_tlb();
-void init_flush();
+void init_flush(heap);
 void *bootstrap_page_tables(heap initial);
 #ifdef STAGE3
 void map_setup_2mbpages(u64 v, physical p, int pages, u64 flags,
