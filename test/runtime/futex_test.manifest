@@ -1,9 +1,0 @@
-(
-    children:(
-        futex_test:(contents:(host:output/test/runtime/bin/futex_test))
-    )
-    # filesystem path to elf for kernel to run
-    program:/futex_test
-    arguments:[/futex_test]
-    environment:(USER:bobby PWD:/)
-)

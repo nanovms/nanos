@@ -1,6 +1,5 @@
 # these are built for the target platform (Linux x86_64)
 PROGRAMS= \
-	futex_test \
 	aio \
 	dup \
 	creat \
@@ -11,6 +10,7 @@ PROGRAMS= \
 	fcntl \
 	fst \
 	ftrace \
+	futex \
 	getdents \
 	getrandom \
 	hw \
@@ -40,12 +40,6 @@ PROGRAMS= \
 	webs \
 	write \
 	writev
-
-SRCS-futex_test= \
-	$(CURDIR)/futex_test.c \
-	$(SRCDIR)/unix_process/ssp.c \
-LDFLAGS-futex_test=	-static
-LIBS-futex_test=	-lpthread
 
 SRCS-aio= \
 	$(CURDIR)/aio.c \
@@ -96,6 +90,12 @@ SRCS-ftrace= \
 	$(SRCDIR)/unix_process/ssp.c
 
 LDFLAGS-ftrace=	-static
+
+SRCS-futex= \
+	$(CURDIR)/futex.c \
+	$(SRCDIR)/unix_process/ssp.c
+LDFLAGS-futex=	-static
+LIBS-futex=	-lpthread
 
 SRCS-getdents=		$(CURDIR)/getdents.c
 LDFLAGS-getdents=	-static

@@ -4,12 +4,10 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <runtime.h>
+#include <linux/futex.h>
 
 #define EXIT_FAILURE 1
 #define EXIT_SUCCESS 0
-#define FUTEX_WAIT 0
-#define FUTEX_WAKE 1
-#define FUTEX_WAIT_BITSET 9
 #define FUTEX_INITIALIZER 0
 
 /* Test Global Variables */
@@ -19,15 +17,18 @@ int wait_test_futex = FUTEX_INITIALIZER;
 int wait_bitset_test_futex = FUTEX_INITIALIZER;
 
 /* Helper Function Declarations */
-static void * futex_wake_test_thread(void *arg);
+static void *futex_wake_test_thread(void *arg);
 
 /* FUTEX_WAKE test, creates num_to_wake threads which wait
 on uaddr and then wakes up all the threads */
-static boolean futex_wake_test(int* uaddr, int num_to_wake, int expected_result) {
+static boolean futex_wake_test(int *uaddr, int num_to_wake, int expected_result) 
+{
     pthread_t threads[num_to_wake];
 
-    for (int index = 0; index < num_to_wake; index++) {
-        if (pthread_create(&(threads[index]), NULL, futex_wake_test_thread, (void*)(uaddr))) {
+    for (int index = 0; index < num_to_wake; index++) 
+    {
+        if (pthread_create(&(threads[index]), NULL, futex_wake_test_thread, (void*)(uaddr))) 
+        {
             printf("Unable to create thread\n");
             return false;
         }
@@ -43,7 +44,8 @@ static boolean futex_wake_test(int* uaddr, int num_to_wake, int expected_result)
 
 /* Thread function called from futex_wake_test
 which sets wake_test_futex's value to 1 and blocks */
-static void * futex_wake_test_thread(void *arg) {
+static void *futex_wake_test_thread(void *arg) 
+{
     int val = 1;
     wake_test_futex = val;
     syscall(SYS_futex, (int*)(arg), FUTEX_WAIT, val, 0, NULL, 0);
@@ -52,7 +54,8 @@ static void * futex_wake_test_thread(void *arg) {
 
 /* FUTEX_WAIT test: waits on uaddr with value of val
 and compares the result, used to check error case where ret=-1 */
-static boolean futex_wait_test(int* uaddr, int val, int expected_result) {
+static boolean futex_wait_test(int *uaddr, int val, int expected_result) 
+{
     int ret = syscall(SYS_futex, uaddr, FUTEX_WAIT, val, 0, NULL, 0);
     if (ret == expected_result)
         return true;
@@ -61,7 +64,8 @@ static boolean futex_wait_test(int* uaddr, int val, int expected_result) {
 
 /* FUTEX_WAIT_BITSET test: waits on uaddr with value of val
 and compares the result, provides bitset as a mask to kernel */
-static boolean futex_wait_bitset_test(int* uaddr, int val, int bitset, int expected_result) {
+static boolean futex_wait_bitset_test(int *uaddr, int val, int bitset, int expected_result) 
+{
     int ret = syscall(SYS_futex, uaddr, FUTEX_WAIT_BITSET, val, 0, NULL, bitset);
     if (ret == expected_result)
         return true;
@@ -69,8 +73,8 @@ static boolean futex_wait_bitset_test(int* uaddr, int val, int bitset, int expec
 }
 
 /* Method to run all tests */
-boolean basic_test() {
-    
+boolean basic_test() 
+{
     int num_failed = 0;
     printf("---FUTEX_WAKE TESTS--- \n");
 
@@ -78,10 +82,11 @@ boolean basic_test() {
     waited on by the threads made in the 
     futex_wake_test() so no threads 
     should be woken up */
-    int* uaddr = (int*)(&empty_futex);
+    int *uaddr = (int*)(&empty_futex);
     int num_to_wake = 50;
     int expected_result = 0;
-    if (!futex_wake_test(uaddr, num_to_wake, expected_result)) {
+    if (!futex_wake_test(uaddr, num_to_wake, expected_result)) 
+    {
         num_failed++;
         printf("Wake test 1: failed\n");
     }
@@ -94,7 +99,8 @@ boolean basic_test() {
     uaddr = (int*)(&wake_test_futex);
     num_to_wake = 50;
     expected_result = 50;
-    if (!futex_wake_test(uaddr, num_to_wake, expected_result)){
+    if (!futex_wake_test(uaddr, num_to_wake, expected_result))
+    {
         num_failed++;
         printf("Wake test 2: failed\n");
     }
@@ -109,7 +115,8 @@ boolean basic_test() {
     uaddr = (int*)(&wait_test_futex);
     int val = 20;
     expected_result = -1;
-    if (!futex_wait_test(uaddr, val, expected_result)) {
+    if (!futex_wait_test(uaddr, val, expected_result)) 
+    {
         num_failed++;
         printf("Wait test 1: failed\n");
     }
@@ -126,7 +133,8 @@ boolean basic_test() {
     val = 20;
     int bitset = 0xffffffff;
     expected_result = -1; 
-    if (!futex_wait_bitset_test(uaddr, val, bitset, expected_result)) {
+    if (!futex_wait_bitset_test(uaddr, val, bitset, expected_result)) 
+    {
         num_failed++;
         printf("Wait_bitset test 1: failed\n");
     }
@@ -138,12 +146,13 @@ boolean basic_test() {
     return true;
 }
 
-int main (int argc, char* argv[]) {
-    if (basic_test()) {
+int main (int argc, char **argv) 
+{
+    if (basic_test()) 
+    {
         printf("All futex tests passed\n");
         exit(EXIT_SUCCESS);
     }
-    else {
+    else
         exit(EXIT_FAILURE);
-    }
 }
