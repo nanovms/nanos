@@ -15,6 +15,7 @@ SRCS-kernel.img= \
 	$(SRCDIR)/gdb/gdbutil.c \
 	$(SRCDIR)/http/http.c \
 	$(SRCDIR)/kernel/backed_heap.c \
+	$(SRCDIR)/kernel/locking_heap.c \
 	$(SRCDIR)/kernel/elf.c \
 	$(SRCDIR)/kernel/kernel.c \
 	$(SRCDIR)/kernel/klib.c \
@@ -159,6 +160,7 @@ SRCS-kernel.img+= \
 endif
 
 CFLAGS+=	-DSPIN_LOCK_DEBUG_NOSMP
+#CFLAGS+=	-DSMP_ENABLE
 #CFLAGS+=	-DLWIPDIR_DEBUG -DEPOLL_DEBUG -DNETSYSCALL_DEBUG -DKERNEL_DEBUG
 AFLAGS+=	-felf64 -I$(OBJDIR)/
 LDFLAGS+=	$(KERNLDFLAGS) --undefined=_start -T linker_script

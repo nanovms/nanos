@@ -182,22 +182,48 @@ static inline void set_page_write_protect(boolean enable)
     mov_to_cr("cr0", cr0);
 }
 
-typedef struct queue *queue;
+#ifdef KERNEL
+#define _IRQSAFE_1(rtype, name, t0)              \
+    static inline rtype name ## _irqsafe (t0 a0) \
+    {                                            \
+        u64 flags = irq_disable_save();          \
+        rtype r = name(a0);                      \
+        irq_restore(flags);                      \
+        return r;                                \
+    }
+
+#define _IRQSAFE_2(rtype, name, t0, t1)                 \
+    static inline rtype name ## _irqsafe (t0 a0, t1 a1) \
+    {                                                   \
+        u64 flags = irq_disable_save();                 \
+        rtype r = name(a0, a1);                         \
+        irq_restore(flags);                             \
+        return r;                                       \
+    }
+
+_IRQSAFE_2(boolean, enqueue, queue, void *);
+_IRQSAFE_2(boolean, enqueue_single, queue, void *);
+
+_IRQSAFE_1(void *, dequeue, queue);
+_IRQSAFE_1(void *, dequeue_single, queue);
+
+/* may not need irqsafe variants of these ... but it doesn't hurt to add */
+_IRQSAFE_1(u64, queue_length, queue);
+_IRQSAFE_1(boolean, queue_empty, queue);
+_IRQSAFE_1(boolean, queue_full, queue);
+_IRQSAFE_1(void *, queue_peek, queue);
+#undef _IRQSAFE_1
+#undef _IRQSAFE_2
+#endif
+
 extern queue bhqueue;
 extern queue runqueue;
 extern timerheap runloop_timers;
 
-static inline void bhqueue_enqueue_irqsafe(thunk t)
-{
-    /* an interrupted enqueue and competing enqueue from int handler could cause a
-       deadlock; disable ints for safe enqueue from any context */
-    u64 flags = irq_disable_save();
-    enqueue(bhqueue, t);
-    irq_restore(flags);
-}
-
 heap physically_backed(heap meta, heap virtual, heap physical, u64 pagesize);
 void physically_backed_dealloc_virtual(heap h, u64 x, bytes length);
+heap locking_heap_wrapper(heap meta, heap parent);
+
 void print_stack(context c);
 void print_frame(context f);
 
