@@ -149,8 +149,10 @@ boolean test_bitmap_alloc(bitmap b, u64 start, u64 end) {
     while (true) {
         first = bitmap_alloc_within_range(b, nbits, start, end);
         if (first != INVALID_PHYSICAL) {
-            if (nbits > (end-start))
+            if (nbits > (end-start)) {
                 msg_err("!!! invalid value for nbits: %ld end-start: %ld\n", nbits, (end-start));
+                return false;
+            }
             break;
         }
         else
@@ -162,13 +164,13 @@ boolean test_bitmap_alloc(bitmap b, u64 start, u64 end) {
             msg_err("!!! bitmap_alloc failed for bitmap at bit %d | expected: %d actual: %d\n", 
                 i, 1, bitmap_get(b, i));
             if (!bitmap_dealloc(b, first, nbits))
-                msg_err("!!! bitmap_dealloc failed for bitmap");
+                msg_err("!!! bitmap_dealloc failed for bitmap\n");
             return false;
         }
     }
     // check that dealloc is successful
     if (!bitmap_dealloc(b, first, nbits)) {
-        msg_err("!!! bitmap_dealloc failed for bitmap");
+        msg_err("!!! bitmap_dealloc failed for bitmap\n");
         return false;
     }
     return true;
