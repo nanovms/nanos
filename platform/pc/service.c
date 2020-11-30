@@ -509,7 +509,7 @@ static void __attribute__((noinline)) init_service_new_stack()
     init_debug("install GDT64 and TSS");
     install_gdt64_and_tss(0);
     unmap(PAGESIZE, INITIAL_MAP_SIZE - PAGESIZE);
-
+    set_syscall_handler(syscall_enter);
 #ifdef SMP_ENABLE
     init_debug("starting APs");
     start_cpu(misc, heap_backed(kh), TARGET_EXCLUSIVE_BROADCAST, new_cpu);
