@@ -177,7 +177,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, open_by_handle_at, 0);
     register_syscall(map, clock_adjtime, 0);
     register_syscall(map, setns, 0);
-    register_syscall(map, getcpu, 0);
     register_syscall(map, process_vm_readv, 0);
     register_syscall(map, process_vm_writev, 0);
     register_syscall(map, kcmp, 0);
@@ -2333,6 +2332,17 @@ sysreturn umask(int mask)
     return mask;
 }
 
+sysreturn getcpu(unsigned int *cpu, unsigned int *node, void *tcache)
+{
+    cpuinfo ci = current_cpu();
+    if (cpu)
+        *cpu = ci->id;
+    /* XXX to do */
+    if (node)
+        *node = 0;
+    return 0;
+}
+
 void register_file_syscalls(struct syscall *map)
 {
     register_syscall(map, read, read);
@@ -2422,6 +2432,7 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, io_uring_setup, io_uring_setup);
     register_syscall(map, io_uring_enter, io_uring_enter);
     register_syscall(map, io_uring_register, io_uring_register);
+    register_syscall(map, getcpu, getcpu);
 }
 
 #define SYSCALL_F_NOTRACE 0x1
