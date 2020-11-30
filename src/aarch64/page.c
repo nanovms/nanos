@@ -47,6 +47,19 @@ static u64 *user_tablebase;
 
 const int page_level_shifts_4K[PAGE_NLEVELS] = { 39, 30, 21, 12 };
 
+static inline void leaf_invalidate(u64 address)
+{
+    /* no final sync here; need "dsb ish" at end of operation */
+    register u64 a = (address >> PAGELOG) & MASK(55 - PAGELOG); /* no asid */
+    asm volatile("dsb ishst;"
+                 "tlbi vale1is, %0" :: "r"(a) : "memory");
+}
+
+static inline void post_sync(void)
+{
+    asm volatile("dsb ish" ::: "memory");
+}
+
 static inline u64 *pointer_from_pteaddr(u64 pa)
 {
     if (!pt_p2v)
@@ -195,7 +208,7 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 p, u64 flags)
                 page_init_debug(", len ");
                 page_init_debug_u64(len);
                 page_init_debug("\n");
-                /* XXX install mapping here */
+                /* XXX install mapping here - ??? */
                 if (!map_level(newtable_ptr, level + 1, irangel(v.start, len),
                                p, flags))
                     return false;
@@ -208,6 +221,9 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 p, u64 flags)
             page_init_debug_u64(pte);
             page_init_debug("\n");
             table_ptr[i] = pte;
+
+            /* XXX for debug - may not be necessary */
+            leaf_invalidate(v.start);
         } else {
 #if 1
             /* fail if page or block already installed */
@@ -259,7 +275,9 @@ static boolean map_area(range v, u64 p, u64 flags)
     page_init_debug("\n");
     page_init_debug_u64(v.start & U64_FROM_BIT(55));
     page_init_debug("\n");
-    return map_level(table_ptr, 0, v, p, flags);
+    boolean r = map_level(table_ptr, 0, v, p, flags);
+    post_sync();
+    return r;
 }
 
 void map(u64 v, physical p, u64 length, u64 flags)
@@ -285,19 +303,6 @@ void map(u64 v, physical p, u64 length, u64 flags)
         halt("map failed for v 0x%lx, p 0x%lx, len 0x%lx, flags 0x%lx\n",
              v, p, length, flags);
     }
-}
-
-static inline void leaf_invalidate(u64 address)
-{
-    /* no final sync here; need "dsb ish" at end of operation */
-    register u64 a = (address >> PAGELOG) & MASK(55 - PAGELOG); /* no asid */
-    asm volatile("dsb ishst;"
-                 "tlbi vale1is, %0" :: "r"(a) : "memory");
-}
-
-static inline void post_sync(void)
-{
-    asm volatile("dsb ish" ::: "memory");
 }
 
 void page_invalidate(u64 address, thunk completion)

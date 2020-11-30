@@ -68,8 +68,16 @@ static inline void unmap_pages(u64 virtual, u64 length)
 void update_map_flags(u64 vaddr, u64 length, u64 flags);
 void zero_mapped_pages(u64 vaddr, u64 length);
 void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length);
-
 void dump_ptes(void *x);
+
+static inline void map_and_zero(u64 v, physical p, u64 length, u64 flags)
+{
+    /* proc configured to trap on not writeable only when in cpl 3 */
+    assert((v & MASK(PAGELOG)) == 0);
+    assert((p & MASK(PAGELOG)) == 0);
+    map(vaddr_aligned, paddr, PAGESIZE, flags);
+    zero(pointer_from_u64(vaddr_aligned), PAGESIZE);
+}
 
 typedef closure_type(entry_handler, boolean /* success */, int /* level */,
         u64 /* vaddr */, u64 * /* entry */);

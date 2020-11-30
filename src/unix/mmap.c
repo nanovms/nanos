@@ -90,19 +90,7 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
             return false;
         }
 
-        /* another mach dep thing - x86_64 is configured to trap only
-           on user write violation, but arm must write and then set RO */
-        u64 vaddr_aligned = vaddr & ~MASK(PAGELOG);
-        u64 flags = page_flags_from_vmflags(vm->flags);
-#ifdef __aarch64__
-        flags = page_flags_writeable(flags);
-#endif
-        map(vaddr_aligned, paddr, PAGESIZE, flags);
-        zero(pointer_from_u64(vaddr_aligned), PAGESIZE);
-#ifdef __aarch64__
-        flags = page_flags_readonly(flags);
-        update_map_flags(vaddr_aligned, PAGESIZE, flags);
-#endif
+        map_and_zero(vaddr & ~MASK(PAGELOG), paddr, PAGESIZE, page_flags_from_vmflags(vm->flags));
     } else if (mmap_type == VMAP_MMAP_TYPE_FILEBACKED) {
         u64 page_addr = vaddr & ~PAGEMASK;
         u64 node_offset = vm->node_offset + (page_addr - vm->node.r.start);
