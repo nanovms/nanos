@@ -71,7 +71,7 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, un
         return set_syscall_error(current, EFAULT);
 
     thread t = create_thread(current->p);
-    /* clone thread context up to FRAME_VECTOR */
+    /* clone frame processor state */
     runtime_memcpy(t->default_frame, current->default_frame, sizeof(u64) * (FRAME_N_PSTATE + 1));
     runtime_memcpy(t->default_frame + FRAME_EXTENDED_SAVE, current->default_frame + FRAME_EXTENDED_SAVE,
                    xsave_frame_size());

@@ -258,3 +258,18 @@ void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length);
 boolean traverse_ptes(u64 vaddr, u64 length, entry_handler eh);
 void page_invalidate(u64 p, thunk completion);
 void dump_ptes(void *vaddr);
+
+static inline void map_and_zero(u64 v, physical p, u64 length, u64 flags)
+{
+    assert((v & MASK(PAGELOG)) == 0);
+    assert((p & MASK(PAGELOG)) == 0);
+    if (page_flags_is_readonly(flags)) {
+        /* is there an easier way on arm? */
+        map(v, p, length, page_flags_writeable(flags));
+        zero(pointer_from_u64(v), length);
+        update_map_flags(v, length, flags);
+    } else {
+        map(v, p, length, flags);
+        zero(pointer_from_u64(v), length);
+    }
+}
