@@ -50,11 +50,14 @@ image: $(THIRD_PARTY) tools
 release: $(THIRD_PARTY) mkfs
 	$(Q) $(MAKE) -C $(PLATFORMDIR) boot
 	$(Q) $(MAKE) -C $(PLATFORMDIR) kernel
+	$(Q) $(MAKE) -C klib
 	$(Q) $(RM) -r release
 	$(Q) $(MKDIR) release
 	$(CP) $(MKFS) release
 	$(CP) $(BOOTIMG) release
 	$(CP) $(KERNEL) release
+	$(Q) $(MKDIR) release/klibs
+	$(CP) $(OUTDIR)/klib/bin/* release/klibs
 	cd release && $(TAR) -czvf nanos-release-$(REL_OS)-${version}.tar.gz *
 
 target: contgen
