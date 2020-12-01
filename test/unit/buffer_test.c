@@ -49,6 +49,7 @@ boolean basic_tests(heap h)
     test_assert(buffer_length(b) == 0);
     test_assert(buffer_memcmp(b, test_str, 0) == 0);
     test_assert(buffer_strchr(b, '0') < 0);
+    test_assert(buffer_strstr(b, test_str) == -1);
 
     /* Buffer capacity */
     buffer_write_cstring(b, test_str);
@@ -61,6 +62,12 @@ boolean basic_tests(heap h)
     test_assert(buffer_memcmp(b, test_str, sizeof(test_str)) < 0);
     test_assert(buffer_strchr(b, 't') == 10);
     test_assert(buffer_strchr(b, 'u') < 0);
+    test_assert(buffer_strstr(b, "") == 0);
+    test_assert(buffer_strstr(b, test_str) == 0);
+    test_assert(buffer_strstr(b, "This") == 0);
+    test_assert(buffer_strstr(b, "is") == 2);
+    test_assert(buffer_strstr(b, "g") == 20);
+    test_assert(buffer_strstr(b, "TT") == -1);
 
     /* Create and then deallocate a wrapped buffer. */
     deallocate_buffer(wrap_buffer_cstring(h, test_str));

@@ -266,6 +266,8 @@ kernel_heaps get_kernel_heaps(void);
 
 tuple get_environment(void);
 
+boolean first_boot(void);
+
 extern void interrupt_exit(void);
 extern char **state_strings;
 

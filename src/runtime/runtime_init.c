@@ -101,7 +101,7 @@ void init_runtime(heap general, heap safe)
     ignore = closure(general, ignore_body);
     ignore_status = (void*)ignore;
     errheap = safe;
-    null_value = wrap_buffer_cstring(general, "");
+    null_value = wrap_buffer(general, "", 1);
 }
 
 #define STACK_CHK_GUARD 0x595e9fbd94fda766
