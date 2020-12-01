@@ -2335,8 +2335,8 @@ sysreturn umask(int mask)
 sysreturn getcpu(unsigned int *cpu, unsigned int *node, void *tcache)
 {
     cpuinfo ci = current_cpu();
-    if (!validate_user_memory(cpu, sizeof *cpu, true) ||
-            !validate_user_memory(node, sizeof *node, true))
+    if ((cpu != 0 && !validate_user_memory(cpu, sizeof *cpu, true)) ||
+            (node != 0 && !validate_user_memory(node, sizeof *node, true)))
         return -EFAULT;
     if (cpu)
         *cpu = ci->id;
