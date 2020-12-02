@@ -179,6 +179,7 @@ static inline buffer buffer_cstring(heap h, const char *x)
 {
     int len = runtime_strlen(x);
     buffer b = allocate_buffer(h, len);
+    assert(b != INVALID_ADDRESS);
     assert(buffer_append(b, x, len));
     return b;
 }
