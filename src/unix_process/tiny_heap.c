@@ -15,7 +15,7 @@ static u64 alloc(heap h, u64 size)
     if ((t->offset +size) > t->parent->pagesize) {
         void *new = allocate(t->parent, t->parent->pagesize);
         if (new == INVALID_ADDRESS)
-            return INVALID_ADDRESS;
+            return (u64)INVALID_ADDRESS;
         t->base = new;
         t->offset = sizeof(void *);
         return alloc(h, size);
