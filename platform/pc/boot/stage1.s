@@ -95,16 +95,16 @@ loop:
 %ifdef DEBUG
         jc sector_read_error
 %endif
-        sub eax, [dap.sector_count]
-        cmp eax, 0
+        sub ax, [dap.sector_count]
+        cmp ax, 0
         jle done 
-        mov ecx, [dap.sector_count]
+        mov cx, [dap.sector_count]
         imul ecx, sectorsize
-        add [dap.offset], ecx
-        mov ecx, 0x80
-        cmp eax, ecx
-        cmovl ecx, eax 
-        mov [dap.sector_count], ecx
+        add [dap.offset], cx
+        mov cx, 0x80
+        cmp ax, cx
+        cmovl cx, ax 
+        mov [dap.sector_count], cx
         jmp loop
 %ifdef DEBUG
 sector_read_error:
