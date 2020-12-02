@@ -220,6 +220,16 @@ closure_function(0, 2, void, radar_loaded,
     closure_finish();
 }
 
+closure_function(0, 2, void, klib_optional_loaded,
+                 klib, kl, status, s)
+{
+    if (is_ok(s))
+        klib_debug("%s loaded\n", kl->name);
+    else
+        timm_dealloc(s);
+    closure_finish();
+}
+
 void init_klib(kernel_heaps kh, void *fs, tuple config_root, tuple klib_md)
 {
     klib_debug("%s: fs %p, config_root %p, klib_md %p\n",
@@ -253,4 +263,5 @@ void init_klib(kernel_heaps kh, void *fs, tuple config_root, tuple klib_md)
     }
     if (table_find(get_environment(), sym(RADAR_KEY)))
         load_klib("/klib/radar", closure(h, radar_loaded));
+    load_klib("/klib/cloud_init", closure(h, klib_optional_loaded));
 }
