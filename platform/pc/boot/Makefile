@@ -39,7 +39,7 @@ LDFLAGS+=	$(KERNLDFLAGS) -T linker_script
 AFLAGS+=	-I$(SRCDIR)/x86_64 -felf
 
 NASMFLAGS	= -l $@.lst -dSTAGE2SIZE=$(shell $(SIZE_CMD) $(OBJDIR)/stage2.pad)
-DDFLAGS		= bs=64KB conv=sync
+DDFLAGS		= bs=512 conv=sync
 OBJCOPYFLAGS	= -S -O binary
 
 msg_cat=	CAT	$@

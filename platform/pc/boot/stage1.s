@@ -76,10 +76,26 @@ dap:
 
 
 readsectors:
+        mov eax, [dap.sector_count]
+        cmp eax, 0x80
+        jle loop
+        mov ecx, 0x80
+        mov [dap.sector_count], ecx
+    loop:
         mov si, dap
         mov ah, 0x42
         mov dl, 0x80
         int 0x13
+        sub eax, [dap.sector_count]
+        cmp eax, 0
+        jle done 
+        mov ecx, [dap.sector_count]
+        imul ecx, sectorsize
+        add [dap.offset], ecx
+        mov ecx, 0x80
+        mov [dap.sector_count], ecx
+        jmp loop
+    done:
         ret
 
 

@@ -1,0 +1,31 @@
+platform/pc/service.c
+    crt0.s alls init_service which "inits linker set"
+
+platform/pc/boot
+    service32.s has mbr
+
+    stage1.s:
+        init-
+            sets up data segments
+            seta20?
+                sets up extended memory
+            disable 8259?
+            readsectors
+                movs stuff then calls int 0x13
+            call e820 (init regions)
+                loops over ".each"
+                int 0x15
+
+            then jmp to stage2
+
+            dap?
+
+    stage2.c:
+        rdtsc?
+
+
+
+src/aarch64
+    crt0.s
+        adrp?
+        bl main
