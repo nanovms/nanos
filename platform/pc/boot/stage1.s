@@ -102,6 +102,8 @@ loop:
         imul ecx, sectorsize
         add [dap.offset], ecx
         mov ecx, 0x80
+        cmp eax, ecx
+        cmovl ecx, eax 
         mov [dap.sector_count], ecx
         jmp loop
 %ifdef DEBUG
