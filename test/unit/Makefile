@@ -1,4 +1,5 @@
 PROGRAMS= \
+	bitmap_test \
 	buffer_test \
 	closure_test \
 	id_heap_test \
@@ -17,6 +18,11 @@ PROGRAMS= \
 	vector_test
 SKIP_TEST=	network_test udp_test
 
+SRCS-bitmap_test= \
+	$(CURDIR)/bitmap_test.c \
+	$(RUNTIME)\
+	$(SRCDIR)/unix_process/unix_process_runtime.c
+	
 SRCS-buffer_test= \
 	$(CURDIR)/buffer_test.c \
 	$(RUNTIME)\

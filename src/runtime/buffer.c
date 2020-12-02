@@ -38,3 +38,13 @@ void buffer_append(buffer b,
     buffer_extend(b, length);
     buffer_write(b, body, length);
 }
+
+int buffer_strstr(buffer b, const char *str) {
+    int len = runtime_strlen(str);
+    for (int i = 0; b->start + i + len <= b->end; i++) {
+        if (!runtime_memcmp(buffer_ref(b, i), str, len))
+            return i;
+    }
+    return -1;
+}
+KLIB_EXPORT(buffer_strstr);
