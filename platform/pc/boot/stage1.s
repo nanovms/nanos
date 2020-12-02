@@ -75,17 +75,26 @@ dap:
         .lba          dq 1
 
 
+%ifdef DEBUG
+bits 16
+%include "debug.inc"
+bits 32
+%endif
+
 readsectors:
         mov eax, [dap.sector_count]
         cmp eax, 0x80
         jle loop
         mov ecx, 0x80
         mov [dap.sector_count], ecx
-    loop:
+loop:
         mov si, dap
         mov ah, 0x42
         mov dl, 0x80
         int 0x13
+%ifdef DEBUG
+        jc sector_read_error
+%endif
         sub eax, [dap.sector_count]
         cmp eax, 0
         jle done 
@@ -95,7 +104,11 @@ readsectors:
         mov ecx, 0x80
         mov [dap.sector_count], ecx
         jmp loop
-    done:
+%ifdef DEBUG
+sector_read_error:
+        PUTSTRING 'ERROR READING STAGE2 SECTORS\n' 
+%endif
+done:
         ret
 
 
