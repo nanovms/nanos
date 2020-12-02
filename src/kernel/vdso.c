@@ -49,8 +49,9 @@ do_vdso_gettimeofday(struct timeval * tv, void * tz)
 static sysreturn
 do_vdso_getcpu(unsigned * cpu, unsigned * node, void * tcache)
 {
+    cpuinfo ci = current_cpu();
     if (cpu)
-        *cpu = 0;
+        *cpu = ci->id;
     if (node)
         *node = 0;
     return 0;
