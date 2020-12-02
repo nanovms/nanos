@@ -25,7 +25,7 @@ enum partition {
     u16 *mbr_sig = (u16 *)((u64)(mbr) + SECTOR_SIZE - sizeof(*mbr_sig));  \
     struct partition_entry *e;  \
     if (*mbr_sig == 0xaa55) \
-        e = (struct partition_entry *)((u64_from_pointer(mbr_sig)) -    \
+        e = (struct partition_entry *)(((void *)mbr_sig) -  \
                 (4 - (index)) * sizeof(struct partition_entry));    \
     else    \
         e = 0;  \
