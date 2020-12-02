@@ -12,6 +12,7 @@
 #include <sys/time.h>
 #include <sys/eventfd.h>
 #include <sys/stat.h>
+#include <unix/syscalls.h>
 
 //#define WRITETEST_DEBUG
 #ifdef WRITETEST_DEBUG
@@ -617,8 +618,61 @@ static void usage(const char *program_name)
            p);
 }
 
+static void fs_stress_test() 
+{
+    int num_files = 1000;
+    int fds[num_files];
+
+    /* Creating and writing to new files */
+    int i;
+    for (i = 0; i < num_files; i++) {
+        char buf[BUFLEN];
+        ssize_t rv;
+        printf("fs_stress before open\n");
+        int fd = open("fs_stress_"+i, O_RDWR);
+        printf("fs_stress after open\n");
+        fds[i] = fd;
+        if (fd < 0) {
+            printf("open error\n");
+            perror("open");
+            exit(EXIT_FAILURE);
+        }
+        printf("outside of if statement\n");
+
+        _READ(buf, BUFLEN);
+
+        if (rv == 0)
+            writetest_debug("empty source file\n");
+
+        if (rv >= BUFLEN)
+            rv = BUFLEN - 1;
+        buf[rv] = '\0';
+        writetest_debug("original: \"%s\"\n", buf);
+
+        _LSEEK(0, SEEK_SET);
+
+        ssize_t len = strlen(str);
+        _WRITE(str, len);
+    }
+
+    syscall(SYS_sync); /* sync the filesystem */
+
+    /* Deleting all files we just created */
+    for (i = 0; i < num_files; i++) {
+        close(fds[i]);
+    }
+
+    syscall(SYS_sync); /* sync the filesystem again */
+
+    out_fail:
+        for (int index = 0; index <= i; index++)
+            close(fds[index]);
+        exit(EXIT_FAILURE);
+}
+
 int main(int argc, char **argv)
 {
+    printf("came to main\n");
     int c, op = WRITE_OP_ALL;
     long long size = DEFAULT_BULK_SIZE;
     char *endptr;
@@ -687,6 +741,8 @@ int main(int argc, char **argv)
     if (op == WRITE_OP_PERSISTENCE_ONLY) {
         persistence_write_test();
     }
+
+    fs_stress_test();
 
     printf("write test passed\n");
     return EXIT_SUCCESS;
