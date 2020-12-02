@@ -50,7 +50,7 @@ static heap allocate_tagged_region(kernel_heaps kh, u64 tag)
     assert(tag < U64_FROM_BIT(VA_TAG_WIDTH));
     u64 tag_base = KMEM_BASE | (tag << VA_TAG_OFFSET);
     u64 tag_length = U64_FROM_BIT(VA_TAG_OFFSET);
-    heap v = (heap)create_id_heap(h, heap_backed(kh), tag_base, tag_length, p->pagesize);
+    heap v = (heap)create_id_heap(h, heap_backed(kh), tag_base, tag_length, p->pagesize, false);
     assert(v != INVALID_ADDRESS);
     heap backed = physically_backed(h, v, p, p->pagesize);
     if (backed == INVALID_ADDRESS)
@@ -91,8 +91,7 @@ closure_function(2, 3, void, offset_block_io,
     blocks.end += ds;
 
     // split I/O to storage driver to PAGESIZE requests
-    heap h = heap_general(&heaps);
-    merge m = allocate_merge(h, sh);
+    merge m = allocate_merge(heap_locked(&heaps), sh);
     status_handler k = apply_merge(m);
     while (blocks.start < blocks.end) {
         u64 span = MIN(range_span(blocks), MAX_BLOCK_IO_SIZE >> SECTOR_OFFSET);
@@ -154,6 +153,9 @@ closure_function(4, 2, void, fsstarted,
     root_fs = fs;
     enqueue(runqueue, create_init(&heaps, root, fs));
     closure_finish();
+    symbol booted = sym(booted);
+    if (!table_find(root, booted))
+        filesystem_write_eav(fs, root, booted, null_value);
 }
 
 /* This is very simplistic and uses a fixed drain threshold. This
@@ -189,6 +191,12 @@ tuple get_environment(void)
     return table_find(filesystem_getroot(root_fs), sym(environment));
 }
 KLIB_EXPORT(get_environment);
+
+boolean first_boot(void)
+{
+    return !table_find(filesystem_getroot(root_fs), sym(booted));
+}
+KLIB_EXPORT(first_boot);
 
 static void rootfs_init(heap h, u8 *mbr, u64 offset,
                         block_io r, block_io w, u64 length)
@@ -233,7 +241,7 @@ closure_function(5, 1, void, mbr_read,
 closure_function(0, 3, void, attach_storage,
                  block_io, r, block_io, w, u64, length)
 {
-    heap h = heap_general(&heaps);
+    heap h = heap_locked(&heaps); /* to create fs under locked heap */
 
     /* Look for partition table */
     u8 *mbr = allocate(h, SECTOR_SIZE);
@@ -407,16 +415,17 @@ static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = &heaps;
     heap misc = heap_general(kh);
+    heap locked = heap_locked(kh);
     heap backed = heap_backed(kh);
 
     /* runtime and console init */
     init_debug("in init_service_new_stack");
     init_debug("runtime");    
-    init_runtime(misc);
+    init_runtime(misc, locked);
     init_tuples(allocate_tagged_region(kh, tag_tuple));
     init_symbols(allocate_tagged_region(kh, tag_symbol), misc);
-    init_sg(misc);
-    init_pagecache(misc, misc, (heap)heap_physical(kh), PAGESIZE);
+    init_sg(locked);
+    init_pagecache(locked, locked, (heap)heap_physical(kh), PAGESIZE);
     unmap(0, PAGESIZE);         /* unmap zero page */
     reclaim_regions();          /* unmap and reclaim stage2 stack */
     init_extra_prints();
@@ -474,7 +483,7 @@ static void __attribute__((noinline)) init_service_new_stack()
     init_net(kh);
 
     init_debug("probe fs, register storage drivers");
-    init_volumes(misc);
+    init_volumes(locked);
     storage_attach sa = closure(misc, attach_storage);
 
     boolean hyperv_storvsc_attached = false;
@@ -509,7 +518,7 @@ static void __attribute__((noinline)) init_service_new_stack()
     init_debug("install GDT64 and TSS");
     install_gdt64_and_tss(0);
     unmap(PAGESIZE, INITIAL_MAP_SIZE - PAGESIZE);
-
+    set_syscall_handler(syscall_enter);
 #ifdef SMP_ENABLE
     init_debug("starting APs");
     start_cpu(misc, heap_backed(kh), TARGET_EXCLUSIVE_BROADCAST, new_cpu);
@@ -534,7 +543,7 @@ static range find_initial_pages(void)
 
 static id_heap init_physical_id_heap(heap h)
 {
-    id_heap physical = allocate_id_heap(h, h, PAGESIZE);
+    id_heap physical = allocate_id_heap(h, h, PAGESIZE, true);
     boolean found = false;
     init_debug("physical memory:");
     for_regions(e) {
@@ -573,20 +582,25 @@ static void init_kernel_heaps()
     bootstrap.dealloc = leak;
 
     heaps.virtual_huge = create_id_heap(&bootstrap, &bootstrap, KMEM_BASE,
-                                        KMEM_LIMIT - KMEM_BASE, HUGE_PAGESIZE);
+                                        KMEM_LIMIT - KMEM_BASE, HUGE_PAGESIZE, true);
     assert(heaps.virtual_huge != INVALID_ADDRESS);
 
-    heaps.virtual_page = create_id_heap_backed(&bootstrap, &bootstrap, (heap)heaps.virtual_huge, PAGESIZE);
+    heaps.virtual_page = create_id_heap_backed(&bootstrap, &bootstrap, (heap)heaps.virtual_huge, PAGESIZE, true);
     assert(heaps.virtual_page != INVALID_ADDRESS);
 
-    heaps.physical = init_page_tables(&bootstrap, init_physical_id_heap(&bootstrap), find_initial_pages());
+    heaps.physical = init_physical_id_heap(&bootstrap);
     assert(heaps.physical != INVALID_ADDRESS);
 
-    heaps.backed = physically_backed(&bootstrap, (heap)heaps.virtual_page, (heap)heaps.physical, PAGESIZE);
+    init_page_tables(&bootstrap, heaps.physical, find_initial_pages());
+
+    heaps.backed = locking_heap_wrapper(&bootstrap, physically_backed(&bootstrap, (heap)heaps.virtual_page, (heap)heaps.physical, PAGESIZE));
     assert(heaps.backed != INVALID_ADDRESS);
 
     heaps.general = allocate_mcache(&bootstrap, heaps.backed, 5, 20, PAGESIZE_2M);
     assert(heaps.general != INVALID_ADDRESS);
+
+    heaps.locked = locking_heap_wrapper(&bootstrap, allocate_mcache(&bootstrap, heaps.backed, 5, 20, PAGESIZE_2M));
+    assert(heaps.locked != INVALID_ADDRESS);
 }
 
 static void jump_to_virtual(u64 kernel_size, u64 *pdpt, u64 *pdt) {

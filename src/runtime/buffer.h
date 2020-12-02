@@ -331,6 +331,8 @@ static inline int buffer_strchr(buffer b, int c)
     return -1;
 }
 
+int buffer_strstr(buffer b, const char *str);
+
 // the ascii subset..utf8 me
 #define foreach_character(__i, __c, __s)                                \
     for (u32 __i = 0, __c, __limit = buffer_length(__s);                \

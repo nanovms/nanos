@@ -107,7 +107,7 @@ typedef struct virtqueue {
     queue service_queue;
     thunk service;
     queue sched_queue;
-    struct spinlock fill_lock;  /* XXX - tmp hack for smp */
+    struct spinlock lock;
     vqmsg msgs[0];
 } *virtqueue;
 
@@ -152,9 +152,10 @@ static void virtqueue_fill(virtqueue vq);
 void vqmsg_commit(virtqueue vq, vqmsg m, vqfinish completion)
 {
     m->completion = completion;
-    /* XXX noirq */
+    u64 irqflags = spin_lock_irq(&vq->lock);
     list_push_back(&vq->msg_queue, &m->l);
     virtqueue_fill(vq);
+    spin_unlock_irq(&vq->lock, irqflags);
 }
 
 closure_function(1, 0, void, vq_interrupt,
@@ -169,7 +170,7 @@ closure_function(1, 0, void, vq_interrupt,
     int processed = 0;
     struct list q;
     list_init(&q);
-    spin_lock(&vq->fill_lock);
+    spin_lock(&vq->lock);
     while (vq->last_used_idx != vq->used->idx) {
         volatile struct vring_used_elem *uep = vq->used->ring + (vq->last_used_idx & (vq->entries - 1));
         virtqueue_debug_verbose("%s: vq %s: last_used_idx %d, id %d, len %d\n",
@@ -196,7 +197,10 @@ closure_function(1, 0, void, vq_interrupt,
         virtqueue_debug("add msg %p\n", m);
         list_insert_before(&q, &m->l);
     }
-    spin_unlock(&vq->fill_lock);
+    virtqueue_fill(vq);
+    virtqueue_debug("%s: EXIT: vq %s: processed %d, last_used_idx %d, desc_idx %d\n",
+        __func__, vq->name, processed, vq->last_used_idx, vq->desc_idx);
+    spin_unlock(&vq->lock);
 
     if (processed > 0) {
         /* a little trick ... collapse the list head for queueing */
@@ -206,10 +210,6 @@ closure_function(1, 0, void, vq_interrupt,
         assert(enqueue(vq->service_queue, l));
         enqueue(vq->sched_queue, vq->service);
     }
-
-    virtqueue_fill(vq);
-    virtqueue_debug("%s: EXIT: vq %s: processed %d, last_used_idx %d, desc_idx %d\n",
-        __func__, vq->name, processed, vq->last_used_idx, vq->desc_idx);
 }
 
 closure_function(1, 0, void, virtqueue_service_vqmsgs,
@@ -265,7 +265,7 @@ status virtqueue_alloc(vtdev dev,
     assert(vq->service_queue != INVALID_ADDRESS);
     vq->service = closure(dev->general, virtqueue_service_vqmsgs, vq);
     vq->sched_queue = sched_queue;
-    spin_lock_init(&vq->fill_lock);
+    spin_lock_init(&vq->lock);
 
     if ((vq->ring_mem = allocate_zero(dev->contiguous, alloc)) == INVALID_ADDRESS) {
         deallocate(dev->general, vq, vq_alloc_size);
@@ -325,14 +325,12 @@ static int virtqueue_notify(virtqueue vq)
     return should_notify;
 }
 
-/* called from interrupt level or with ints disabled */
+/* called with lock held */
 static void virtqueue_fill(virtqueue vq)
 {
     virtqueue_debug("%s: ENTRY: vq %s: entries %d, desc_idx %d, avail->idx %d, avail->flags 0x%x\n",
         __func__, vq->name, vq->entries, vq->desc_idx, vq->avail->idx, vq->avail->flags);
 
-    /* irqs already disabled */
-    spin_lock(&vq->fill_lock);
     list n = list_get_next(&vq->msg_queue);
     u16 added = 0;
     while (n && n != &vq->msg_queue) {
@@ -387,7 +385,6 @@ static void virtqueue_fill(virtqueue vq)
     if (added > 0)
         notified = virtqueue_notify(vq);
     (void) notified;
-    spin_unlock(&vq->fill_lock);
     virtqueue_debug_verbose("%s: EXIT: vq %s: added %d, notified %d, desc_idx %d\n",
         __func__, vq->name, added, notified, vq->desc_idx);
 }

@@ -268,6 +268,7 @@ buffer_handler allocate_http_parser(heap h, value_handler each)
     reset_parser(p);
     return closure(h, http_recv, p);
 }
+KLIB_EXPORT(allocate_http_parser);
 
 const char *http_request_methods[] = {
     [HTTP_REQUEST_METHOD_GET] = "GET",

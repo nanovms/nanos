@@ -207,7 +207,7 @@ typedef struct signature {
     u64 s[4];
 } *signature;
 
-void init_runtime(heap h);
+void init_runtime(heap general, heap safe);
 
 extern thunk ignore;
 extern status_handler ignore_status;
@@ -216,8 +216,6 @@ extern value null_value;
 #include <metadata.h>
 
 #define cstring(b, t) ({buffer_clear(t); push_buffer((t), (b)); push_u8((t), 0); (char*)(t)->contents;})
-
-extern heap transient;
 
 typedef struct merge *merge;
 

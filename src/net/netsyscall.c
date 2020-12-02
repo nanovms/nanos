@@ -169,7 +169,7 @@ static void netsock_check_loop(void)
      * enqueued more than once. */
     if (!net_loop_poll_queued) {
         net_loop_poll_queued = true;
-        enqueue(runqueue, net_loop_poll);
+        enqueue_irqsafe(runqueue, net_loop_poll);
     }
 }
 
