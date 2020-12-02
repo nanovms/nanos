@@ -69,17 +69,29 @@ seta20:
 dap:
         db 0x10
         db 0
-        .sector_count dw STAGE2SIZE/sectorsize
+        .sector_count dw 0x80
         .offset       dw stage2
         .segment      dw 0
         .lba          dq 1
 
 
 readsectors:
+        mov eax, STAGE2SIZE/sectorsize
+    loop:
         mov si, dap
         mov ah, 0x42
         mov dl, 0x80
         int 0x13
+        sub eax, [dap.sector_count]
+        cmp eax, 0
+        jle done 
+        mov ecx, [dap.sector_count]
+        imul ecx, sectorsize
+        add [dap.offset], ecx
+        mov ecx, 0x80
+        mov [dap.sector_count], ecx
+        jmp loop
+    done:
         ret
 
 
