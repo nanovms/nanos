@@ -2,9 +2,14 @@ LWIPDIR=		$(VENDORDIR)/lwip
 MBEDTLS_DIR=	$(VENDORDIR)/mbedtls
 
 PROGRAMS= \
+	cloud_init \
 	radar \
 	test \
 	tls \
+
+SRCS-cloud_init= \
+	$(CURDIR)/cloud_azure.c \
+	$(CURDIR)/cloud_init.c \
 
 SRCS-radar= \
 	$(CURDIR)/radar.c \

@@ -153,6 +153,9 @@ closure_function(4, 2, void, fsstarted,
     root_fs = fs;
     enqueue(runqueue, create_init(&heaps, root, fs));
     closure_finish();
+    symbol booted = sym(booted);
+    if (!table_find(root, booted))
+        filesystem_write_eav(fs, root, booted, null_value);
 }
 
 /* This is very simplistic and uses a fixed drain threshold. This
@@ -188,6 +191,12 @@ tuple get_environment(void)
     return table_find(filesystem_getroot(root_fs), sym(environment));
 }
 KLIB_EXPORT(get_environment);
+
+boolean first_boot(void)
+{
+    return !table_find(filesystem_getroot(root_fs), sym(booted));
+}
+KLIB_EXPORT(first_boot);
 
 static void rootfs_init(heap h, u8 *mbr, u64 offset,
                         block_io r, block_io w, u64 length)
@@ -509,7 +518,7 @@ static void __attribute__((noinline)) init_service_new_stack()
     init_debug("install GDT64 and TSS");
     install_gdt64_and_tss(0);
     unmap(PAGESIZE, INITIAL_MAP_SIZE - PAGESIZE);
-
+    set_syscall_handler(syscall_enter);
 #ifdef SMP_ENABLE
     init_debug("starting APs");
     start_cpu(misc, heap_backed(kh), TARGET_EXCLUSIVE_BROADCAST, new_cpu);
