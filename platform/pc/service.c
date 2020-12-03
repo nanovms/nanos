@@ -367,30 +367,37 @@ closure_function(1, 1, void, sync_complete,
                  status, s)
 {
     vm_exit(bound(code));
+    closure_finish();
+}
+
+closure_function(1, 0, void, do_storage_sync,
+                 status_handler, completion)
+{
+    storage_sync(bound(completion));
+    closure_finish();
 }
 
 extern boolean shutting_down;
-void kernel_shutdown(int status)
-{
-    shutting_down = true;
-    if (root_fs) {
-        storage_sync(closure(heap_general(&heaps), sync_complete, status));
-        kern_unlock();
-        runloop();
-    }
-    vm_exit(status);
-}
-
 void kernel_shutdown_ex(status_handler completion)
 {
     shutting_down = true;
     if (root_fs) {
-        storage_sync(completion);
-        kern_unlock();
+        if (this_cpu_has_kernel_lock()) {
+            storage_sync(completion);
+            kern_unlock();
+        } else {
+            enqueue_irqsafe(runqueue, closure(heap_locked(&heaps),
+                                              do_storage_sync, completion));
+        }
         runloop();
     }
-    apply(completion, 0);
+    apply(completion, STATUS_OK);
     while(1);
+}
+
+void kernel_shutdown(int status)
+{
+    kernel_shutdown_ex(closure(heap_locked(&heaps), sync_complete, status));
 }
 
 u64 total_processors = 1;
