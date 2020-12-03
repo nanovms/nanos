@@ -100,7 +100,7 @@ loop:
         jle done 
         mov cx, [dap.sector_count]
         imul ecx, sectorsize
-        add [dap.offset], cx
+        add [dap.offset], ecx
         mov cx, 0x80
         cmp ax, cx
         cmovl cx, ax 
