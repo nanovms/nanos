@@ -643,7 +643,9 @@ closure_function(1, 3, void, pagecache_write_sg,
             pp = allocate_page_nodelocked(pn, pi);
             if (pp == INVALID_ADDRESS) {
                 pagecache_unlock_node(pn);
-                apply(completion, timm("result", "failed to allocate pagecache_page"));
+                const char *err = "failed to allocate pagecache_page";
+                apply(sh, timm("result", err)); /* close out merge, record write error */
+                apply(completion, timm("result", err));
                 return;
             }
 
@@ -666,7 +668,7 @@ closure_function(1, 3, void, pagecache_write_sg,
             realloc_pagelocked(pc, pp);
         refcount_reserve(&pp->refcount);
         if (page_state(pp) == PAGECACHE_PAGESTATE_READING)
-            enqueue_page_completion_statelocked(pc, pp, apply_merge(m), true /* complete on bhqueue */);
+            enqueue_page_completion_statelocked(pc, pp, apply_merge(m), false);
         pagecache_unlock_state(pc);
     }
     pagecache_unlock_node(pn);
