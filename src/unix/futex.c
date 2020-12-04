@@ -294,3 +294,94 @@ init_futices(process p)
         halt("failed to allocate futex table\n");
 
 }
+
+/* robust mutex handling */
+
+#define FUTEX_OWNER_DIED	0x40000000
+#define FUTEX_KEY_ADDR(x, o)    ((u32 *)((u8 *)(x) + (o)))
+
+typedef struct robust_list {
+    struct robust_list *next;
+} *robust_list;
+
+typedef struct robust_list_head {
+    robust_list list;
+    long futex_offset;
+    void *list_op_pending;
+} *robust_list_head;
+
+void wake_robust_list(process p, void *head)
+{
+    struct futex * f;
+    struct robust_list_head *h = head;
+    struct robust_list *l;
+    u32 *uaddr;
+
+    if (!h)
+        return;
+    /* XXX could keep a list of futexes and wake them at the end
+     * to let threads acquire multiple locks without blocking */
+    if (h->list_op_pending) {
+        uaddr = FUTEX_KEY_ADDR(h->list_op_pending, h->futex_offset);
+        if ((f = table_find(p->futices, uaddr))) {
+            *uaddr |= FUTEX_OWNER_DIED;
+            futex_wake_many(f, 1);
+        } else {
+            thread_log(current, "list_op_pending futex not found for key %p", uaddr);
+        }
+    }
+
+    for (l = h->list; (void *)l != (void *)h; l = l->next) {
+        uaddr = FUTEX_KEY_ADDR(l, h->futex_offset);
+        if ((f = table_find(p->futices, uaddr))) {
+            *uaddr |= FUTEX_OWNER_DIED;
+            futex_wake_many(f, 1);
+        } else {
+            rprintf("%s: list futex not found for key %p, aborting iteration\n",
+                __func__, uaddr);
+            break;
+        }
+    }
+}
+
+sysreturn get_robust_list(int pid, void *head, u64 *len)
+{
+    struct robust_list_head **hp = head;
+    if (!validate_user_memory(hp, sizeof *hp, true))
+        return set_syscall_error(current, EFAULT);
+    if (!validate_user_memory(len, sizeof *len, true))
+        return set_syscall_error(current, EFAULT);
+
+    thread_log(current, "get_robust_list syscall for pid %d\n", pid);
+
+    thread t = 0;
+    if (pid == 0)
+        t = current;
+    else {
+        process p = current->p;
+        thread tt;
+        vector_foreach(p->threads, tt) {
+            if (tt->tid == pid) {
+                t = tt;
+                break;
+            }
+        }
+    }
+    if (t == 0)
+        return set_syscall_error(current, ESRCH);
+    *hp = t->robust_list;
+    *len = sizeof **hp;
+    return set_syscall_return(current, 0);
+}
+
+sysreturn set_robust_list(void *head, u64 len)
+{
+    thread_log(current, "set_robust_list syscall with head %p", head);
+    if (len != sizeof(struct robust_list_head))
+        return set_syscall_error(current, EINVAL);
+    if (!validate_user_memory(head, len, true))
+        return set_syscall_error(current, EFAULT);
+    current->robust_list = head;
+
+    return set_syscall_return(current, 0);
+}

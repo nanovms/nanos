@@ -247,6 +247,9 @@ typedef struct thread {
     int *clear_tid;
     int tid;
 
+    /* set by set_robust_list syscall */
+    void *robust_list;
+
     /* blockq thread is waiting on, INVALID_ADDRESS for uninterruptible */
     blockq blocked_on;
 
@@ -790,6 +793,9 @@ void init_threads(process p);
 void init_futices(process p);
 
 sysreturn futex(int *uaddr, int futex_op, int val, u64 val2, int *uaddr2, int val3);
+sysreturn get_robust_list(int pid, void *head, u64 *len);
+sysreturn set_robust_list(void *head, u64 len);
+void wake_robust_list(process p, void *head);
 boolean futex_wake_many_by_uaddr(process p, int *uaddr, int val);
 
 static inline boolean futex_wake_one_by_uaddr(process p, int *uaddr)
