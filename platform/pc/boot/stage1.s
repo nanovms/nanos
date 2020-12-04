@@ -75,41 +75,34 @@ dap:
         .lba          dq 1
 
 
-%ifdef DEBUG
-bits 16
 %include "debug.inc"
-bits 32
-%endif
 
 readsectors:
-        mov eax, [dap.sector_count]
-        cmp eax, 0x80
+        mov ax, [dap.sector_count]
+        cmp ax, 0x0080
         jle loop
-        mov ecx, 0x80
-        mov [dap.sector_count], ecx
+        mov cx, 0x80
+        mov [dap.sector_count], cx
 loop:
         mov si, dap
         mov ah, 0x42
         mov dl, 0x80
         int 0x13
-%ifdef DEBUG
         jc sector_read_error
-%endif
         sub ax, [dap.sector_count]
         cmp ax, 0
-        jle done 
+        je done 
         mov cx, [dap.sector_count]
         imul ecx, sectorsize
-        add [dap.offset], ecx
-        mov cx, 0x80
+        add [dap.offset], cx
+        mov cx, 0x0080
         cmp ax, cx
-        cmovl cx, ax 
+        cmovb cx, ax 
         mov [dap.sector_count], cx
         jmp loop
-%ifdef DEBUG
 sector_read_error:
-        PUTSTRING 'ERROR READING STAGE2 SECTORS\n' 
-%endif
+        PUTSTRING 'ERROR READING STAGE2 SECTORS' 
+	    PUTCHAR `\n`
 done:
         ret
 
