@@ -133,7 +133,7 @@ static void put_table_page(u64 v, u64 p)
 #endif
 
 #define next_addr(a, mask) (a = (a + (mask) + 1) & ~(mask))
-static boolean map_level(u64 *table_ptr, int level, range v, u64 p, u64 flags)
+static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags)
 {
     int shift = page_level_shifts_4K[level];
     u64 mask = MASK(shift);
@@ -152,7 +152,7 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 p, u64 flags)
     page_init_debug(" - ");
     page_init_debug_u64(v.end);
     page_init_debug(", p ");
-    page_init_debug_u64(p);
+    page_init_debug_u64(*p);
     page_init_debug(" first ");
     page_init_debug_u64(first_index);
     page_init_debug(" last ");
@@ -161,35 +161,38 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 p, u64 flags)
     assert(first_index <= last_index);
 
     page_debug("%s: level %d, v %R, p 0x%lx, flags 0x%lx, table_ptr %p\n",
-               __func__, level, v, p, flags, table_ptr);
+               __func__, level, v, *p, flags, table_ptr);
     assert(table_ptr && table_ptr != INVALID_ADDRESS);
 
-    for (int i = first_index; i <= last_index;
-         i++, next_addr(v.start, mask), next_addr(p, mask)) {
+    for (int i = first_index; i <= last_index; i++, next_addr(v.start, mask)) {
         page_init_debug("   index ");
         page_init_debug_u64(i);
         page_init_debug(", v.start ");
         page_init_debug_u64(v.start);
         page_init_debug(", p ");
-        page_init_debug_u64(p);
+        page_init_debug_u64(*p);
         page_init_debug("\n");
         u64 pte = table_ptr[i];
         if ((pte & PAGE_L0_3_DESC_VALID) == 0) {
             if (level == 3) {
                 page_init_debug("   -page- ");
-                pte = flags | (p & PAGE_4K_NEXT_TABLE_OR_PAGE_OUT_MASK) |
+                pte = flags | (*p & PAGE_4K_NEXT_TABLE_OR_PAGE_OUT_MASK) |
                     PAGE_L3_DESC_PAGE | PAGE_ATTR_AF | PAGE_L0_3_DESC_VALID;
-            } else if (level > 0 && (v.start & mask) == 0 &&
+                next_addr(*p, mask);
+            } else if (level > 0 &&
+                       (v.start & mask) == 0 &&
+                       (*p & mask) == 0 &&
                        range_span(v) >= U64_FROM_BIT(shift)) {
                 page_init_debug("   -block- ");
                 page_init_debug_u64(v.start);
                 page_init_debug(" span ");
                 page_init_debug_u64(range_span(v));
                 page_init_debug(" p ");
-                page_init_debug_u64(p);
+                page_init_debug_u64(*p);
                 page_init_debug("\n");
-                pte = flags | (p & PAGE_4K_NEXT_TABLE_OR_PAGE_OUT_MASK) |
+                pte = flags | (*p & PAGE_4K_NEXT_TABLE_OR_PAGE_OUT_MASK) |
                     PAGE_ATTR_AF | PAGE_L0_3_DESC_VALID;
+                next_addr(*p, mask);
             } else {
                 page_init_debug("   -new level- ");
                 u64 *newtable_ptr;
@@ -229,7 +232,7 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 p, u64 flags)
             /* fail if page or block already installed */
             if (level == 3 || (pte & PAGE_L0_2_DESC_TABLE) == 0) {
                 msg_err("would overwrite entry: level %d, v %R, pa 0x%lx, "
-                        "flags 0x%lx, index %d, entry 0x%lx\n", level, v, p,
+                        "flags 0x%lx, index %d, entry 0x%lx\n", level, v, *p,
                         flags, i, pte);
                 return false;
             }
@@ -275,7 +278,7 @@ static boolean map_area(range v, u64 p, u64 flags)
     page_init_debug("\n");
     page_init_debug_u64(v.start & U64_FROM_BIT(55));
     page_init_debug("\n");
-    boolean r = map_level(table_ptr, 0, v, p, flags);
+    boolean r = map_level(table_ptr, 0, v, &p, flags);
     post_sync();
     return r;
 }
