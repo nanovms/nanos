@@ -103,6 +103,7 @@ SRCS-kernel.img= \
 	$(SRCS-lwip)
 SRCS-lwip= \
 	$(LWIPDIR)/src/core/def.c \
+	$(LWIPDIR)/src/core/dns.c \
 	$(LWIPDIR)/src/core/inet_chksum.c \
 	$(LWIPDIR)/src/core/init.c \
 	$(LWIPDIR)/src/core/ip.c \

@@ -3,12 +3,6 @@
 #include <lwip.h>
 
 #define RADAR_HOSTNAME  "radar.relayered.net"
-
-#define RADAR_IP_1  34
-#define RADAR_IP_2  94
-#define RADAR_IP_3  88
-#define RADAR_IP_4  162
-
 #define RADAR_PORT      443
 
 #define RADAR_CA_CERT   "-----BEGIN CERTIFICATE-----\n\
@@ -50,6 +44,7 @@ static struct telemetry {
     s64 boot_id;
     timestamp boot_backoff;
     closure_struct(boot_timer_func, boot_func);
+    void (*rprintf)(const char *format, ...);
     tuple (*allocate_tuple)(void);
     void (*table_set)(table z, void *c, void *v);
     void *(*table_find)(table z, void *c);
@@ -62,6 +57,8 @@ static struct telemetry {
     void (*bprintf)(buffer b, const char *fmt, ...);
     timer (*register_timer)(clock_id id, timestamp val, boolean absolute,
             timestamp interval, timer_handler n);
+    err_t (*dns_gethostbyname)(const char *hostname, ip_addr_t *addr,
+            dns_found_callback found, void *callback_arg);
     status (*http_request)(heap h, buffer_handler bh, http_method method,
             tuple headers, buffer body);
     int (*tls_connect)(ip_addr_t *addr, u16 port, connection_handler ch);
@@ -76,6 +73,20 @@ static struct telemetry {
 #define buffer_write_cstring(b, s)  kfunc(buffer_write)(b, s, sizeof(s) - 1)
 
 static void telemetry_boot(void);
+
+static void telemetry_dns_cb(const char *name, const ip_addr_t *ipaddr, void *callback_arg)
+{
+    connection_handler ch = (connection_handler)callback_arg;
+    if (ipaddr) {
+        if (telemetry.tls_connect((ip_addr_t *)ipaddr, RADAR_PORT, ch) == 0)
+            return;
+        else
+            kfunc(rprintf)("Radar: failed to connect to server\n");
+    } else {
+        kfunc(rprintf)("Radar: failed to look up server hostname\n");
+    }
+    deallocate_closure(ch);
+}
 
 static boolean telemetry_req(const char *url, buffer data, buffer_handler bh)
 {
@@ -131,8 +142,18 @@ boolean telemetry_send(const char *url, buffer data)
     connection_handler ch = closure(telemetry.h, telemetry_ch, url, data);
     if (ch == INVALID_ADDRESS)
         return false;
-    ip_addr_t radar_addr = IPADDR4_INIT_BYTES(RADAR_IP_1, RADAR_IP_2, RADAR_IP_3, RADAR_IP_4);
-    return (telemetry.tls_connect(&radar_addr, RADAR_PORT, ch) == 0);
+    ip_addr_t radar_addr;
+    err_t err = kfunc(dns_gethostbyname)(RADAR_HOSTNAME, &radar_addr, telemetry_dns_cb, ch);
+    switch (err) {
+    case ERR_OK:
+        if (telemetry.tls_connect(&radar_addr, RADAR_PORT, ch) == 0)
+            return true;
+        break;
+    case ERR_INPROGRESS:
+        return true;
+    }
+    deallocate_closure(ch);
+    return false;
 }
 
 define_closure_function(0, 1, void, boot_timer_func,
@@ -183,6 +204,9 @@ closure_function(0, 2, void, tls_loaded,
 
 int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
 {
+    telemetry.rprintf = get_sym("rprintf");
+    if (!telemetry.rprintf)
+        return KLIB_INIT_FAILED;
     void *(*get_kernel_heaps)(void) = get_sym("get_kernel_heaps");
     void *(*get_environment)(void) = get_sym("get_environment");
     u64 (*random_u64)(void) = get_sym("random_u64");
@@ -199,8 +223,11 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
             !(telemetry.buffer_write = get_sym("buffer_write")) ||
             !(telemetry.bprintf = get_sym("bprintf")) ||
             !(telemetry.register_timer = get_sym("kern_register_timer")) ||
-            !(telemetry.http_request = get_sym("http_request")))
+            !(telemetry.dns_gethostbyname = get_sym("dns_gethostbyname")) ||
+            !(telemetry.http_request = get_sym("http_request"))) {
+        kfunc(rprintf)("Radar: kernel symbols not found\n");
         return KLIB_INIT_FAILED;
+    }
     telemetry.h = heap_general(get_kernel_heaps());
     telemetry.auth_header = kfunc(allocate_buffer)(telemetry.h, 256);
     if (telemetry.auth_header == INVALID_ADDRESS)
