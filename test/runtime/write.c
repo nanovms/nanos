@@ -628,16 +628,17 @@ static void fs_stress_test()
     for (i = 0; i < num_files; i++) {
         char buf[BUFLEN];
         ssize_t rv;
-        printf("fs_stress before open\n");
-        int fd = open("fs_stress_"+i, O_RDWR);
-        printf("fs_stress after open\n");
+        char name[25];
+        sprintf(name, "fs_stress_test_%d", i);
+        printf("name in STRESS: %s\n", name);
+        int fd = open(name, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+        printf("fd in stress: %d\n", fd);
         fds[i] = fd;
         if (fd < 0) {
             printf("open error\n");
             perror("open");
             exit(EXIT_FAILURE);
         }
-        printf("outside of if statement\n");
 
         _READ(buf, BUFLEN);
 
@@ -655,19 +656,21 @@ static void fs_stress_test()
         _WRITE(str, len);
     }
 
-    syscall(SYS_sync); /* sync the filesystem */
+    /* sync the filesystem */
+    syscall(SYS_sync); 
 
     /* Deleting all files we just created */
-    for (i = 0; i < num_files; i++) {
+    for (i = 0; i < num_files; i++) 
         close(fds[i]);
-    }
 
-    syscall(SYS_sync); /* sync the filesystem again */
+    /* sync the filesystem again */
+    syscall(SYS_sync); 
+    return;
 
-    out_fail:
-        for (int index = 0; index <= i; index++)
-            close(fds[index]);
-        exit(EXIT_FAILURE);
+  out_fail:
+    for (int index = 0; index <= i; index++)
+        close(fds[index]);
+    exit(EXIT_FAILURE);
 }
 
 int main(int argc, char **argv)
