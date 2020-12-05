@@ -223,7 +223,7 @@ READ_BE(16)
 
 static inline boolean buffer_write_le64(buffer b, u64 v)
 {
-    if (buffer_extend(b, sizeof(u64)))
+    if (!buffer_extend(b, sizeof(u64)))
         return false;
     *(u64 *)(b->contents + b->end) = v;
     b->end += sizeof(u64);
