@@ -144,9 +144,9 @@ static inline boolean buffer_write(buffer b, const void *source, bytes length)
     return true;
 }
 
-static inline void buffer_write_cstring(buffer b, const char *x)
+static inline boolean buffer_write_cstring(buffer b, const char *x)
 {
-    assert(buffer_write(b, x, runtime_strlen(x)));
+    return buffer_write(b, x, runtime_strlen(x));
 }
 
 static inline boolean buffer_read(buffer b, void *dest, bytes length)
@@ -157,9 +157,9 @@ static inline boolean buffer_read(buffer b, void *dest, bytes length)
     return(true);
 }
 
-static inline void push_buffer(buffer d, buffer s)
+static inline boolean push_buffer(buffer d, buffer s)
 {
-    assert(buffer_write(d, buffer_ref(s, 0), buffer_length(s)));
+    return buffer_write(d, buffer_ref(s, 0), buffer_length(s));
 }
 
 static inline buffer clone_buffer(heap h, buffer b)
@@ -167,7 +167,7 @@ static inline buffer clone_buffer(heap h, buffer b)
     buffer new = allocate_buffer(h, buffer_length(b));
     if (new == INVALID_ADDRESS)
         return new;
-    push_buffer(new, b);
+    assert(push_buffer(new, b));
     return new;
 }
 
@@ -221,11 +221,13 @@ READ_BE(64)
 READ_BE(32)
 READ_BE(16)
 
-static inline void buffer_write_le64(buffer b, u64 v)
+static inline boolean buffer_write_le64(buffer b, u64 v)
 {
-    assert(buffer_extend(b, sizeof(u64)));
+    if (buffer_extend(b, sizeof(u64)))
+        return false;
     *(u64 *)(b->contents + b->end) = v;
     b->end += sizeof(u64);
+    return true;
 }
 
 // end of buffer?
@@ -237,11 +239,13 @@ static inline u64 buffer_read_byte(buffer b)
     return(r);
 }
 
-static inline void buffer_write_byte(buffer b, u8 x)
+static inline boolean buffer_write_byte(buffer b, u8 x)
 {
-    assert(buffer_extend(b, 1));                                  
+    if (!buffer_extend(b, 1))
+        return false;
     *(u8 *)buffer_ref(b, buffer_length(b)) = x;
     b->end += 1;
+    return true;
 }
 
 static inline buffer sub_buffer(heap h, 
@@ -384,11 +388,13 @@ static inline u32 buffer_read_le32(buffer b)
     return (x);
 }
 
-static inline void buffer_write_le32(buffer b, u32 x)
+static inline boolean buffer_write_le32(buffer b, u32 x)
 {
-    assert(buffer_extend(b, sizeof(u32)));
+    if (!buffer_extend(b, sizeof(u32)))
+        return false;
     *(u32 *)buffer_ref(b, buffer_length(b)) = x;
     b->end+=sizeof(u32);
+    return true;
 }
 
 static inline void push_varint(buffer b, u64 x)

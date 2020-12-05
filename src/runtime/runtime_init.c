@@ -58,7 +58,7 @@ static void format_number(buffer dest, struct formatter_state *s, vlist *a)
 
 static void format_buffer(buffer dest, struct formatter_state *s, vlist *ap)
 {
-    push_buffer(dest, varg(*ap, buffer));
+    assert(push_buffer(dest, varg(*ap, buffer)));
 }
 
 static void format_character(buffer dest, struct formatter_state *s, vlist *a)

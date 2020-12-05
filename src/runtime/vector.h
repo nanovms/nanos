@@ -99,7 +99,7 @@ static inline buffer join(heap h, vector source, char between)
     buffer out = allocate_buffer(h, 100);
     for (int i = 0; i < vector_length(source); i++){
         if (i) push_character(out, between);
-        push_buffer(out, vector_get(source, i));
+        assert(push_buffer(out, vector_get(source, i)));
     }
     return out;
 }

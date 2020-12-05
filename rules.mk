@@ -65,7 +65,7 @@ LCOV=		lcov
 GENHTML=	genhtml
 
 CFLAGS+=	-std=gnu11 -O3 -g
-CFLAGS+=	-Wall -Werror -Wno-char-subscripts
+CFLAGS+=	-Wno-char-subscripts
 CFLAGS+=	-I$(OBJDIR)
 
 DEPFLAGS=	-MD -MP -MT $@

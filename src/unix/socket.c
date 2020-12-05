@@ -418,7 +418,7 @@ static sysreturn unixsock_bind(struct sock *sock, struct sockaddr *addr,
             return ret;
         }
     }
-    buffer_write_le64(b, u64_from_pointer(s));
+    assert(buffer_write_le64(b, u64_from_pointer(s)));
 
     runtime_memcpy(&s->local_addr, addr, addrlen);
     return ret;

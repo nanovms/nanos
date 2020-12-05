@@ -654,7 +654,7 @@ status xenstore_transaction_end(u32 tx_id, boolean abort)
 status xenstore_sync_printf(u32 tx_id, buffer path, const char *node, const char *format, ...)
 {
     buffer request = allocate_buffer(xen_info.h, PAGESIZE);
-    push_buffer(request, path);
+    assert(push_buffer(request, path));
     push_u8(request, '/');
     assert(buffer_write(request, node, runtime_strlen(node)));
     push_u8(request, 0);
@@ -674,7 +674,7 @@ status xenstore_sync_printf(u32 tx_id, buffer path, const char *node, const char
 status xenstore_read_u64(u32 tx_id, buffer path, const char *node, u64 *result)
 {
     buffer request = allocate_buffer(xen_info.h, 64);
-    push_buffer(request, path);
+    assert(push_buffer(request, path));
     push_u8(request, '/');
     assert(buffer_write(request, node, runtime_strlen(node)));
     push_u8(request, 0);

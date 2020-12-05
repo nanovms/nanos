@@ -207,7 +207,7 @@ void encode_symbol(buffer dest, table dictionary, symbol s)
     } else {
         buffer sb = symbol_string(s);
         push_header(dest, immediate, type_buffer, buffer_length(sb));
-        push_buffer(dest, sb);
+        assert(push_buffer(dest, sb));
         srecord(dictionary, s);
     }
 }
@@ -222,7 +222,7 @@ void encode_value(buffer dest, table dictionary, value v, u64 *total)
         encode_tuple(dest, dictionary, (tuple)v, total);
     } else {
         push_header(dest, immediate, type_buffer, buffer_length((buffer)v));
-        push_buffer(dest, (buffer)v);
+        assert(push_buffer(dest, (buffer)v));
     }
 }
 

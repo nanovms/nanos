@@ -52,12 +52,12 @@ closure_function(1, 1, void, maps_handler,
 
     /* File path is unknown; only stack and heap pseudo-paths are known. */
     if (map == current->p->stack_map) {
-        buffer_write_cstring(b, "\t[stack]");
+        assert(buffer_write_cstring(b, "\t[stack]"));
     } else if (map == current->p->heap_map) {
-        buffer_write_cstring(b, "\t[heap]");
+        assert(buffer_write_cstring(b, "\t[heap]"));
     }
 
-    buffer_write_cstring(b, "\n");
+    assert(buffer_write_cstring(b, "\n"));
 }
 
 static sysreturn maps_read(file f, void *dest, u64 length, u64 offset)
@@ -120,7 +120,7 @@ void register_special_files(process p)
         assert(program);
         buffer b = clone_buffer(h, program);
         assert(b != INVALID_ADDRESS);
-        buffer_write_byte(b, '\0'); /* append string terminator character */
+        assert(buffer_write_byte(b, '\0')); /* append string terminator character */
         filesystem_symlink(p->root_fs, proc_self, "exe", buffer_ref(b, 0));
         deallocate_buffer(b);
     }
