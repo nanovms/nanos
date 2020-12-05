@@ -220,6 +220,16 @@ closure_function(0, 2, void, radar_loaded,
     closure_finish();
 }
 
+closure_function(0, 2, void, klib_optional_loaded,
+                 klib, kl, status, s)
+{
+    if (is_ok(s))
+        klib_debug("%s loaded\n", kl->name);
+    else
+        timm_dealloc(s);
+    closure_finish();
+}
+
 void init_klib(kernel_heaps kh, void *fs, tuple config_root, tuple klib_md)
 {
     klib_debug("%s: fs %p, config_root %p, klib_md %p\n",
@@ -245,7 +255,7 @@ void init_klib(kernel_heaps kh, void *fs, tuple config_root, tuple klib_md)
     u64 klib_heap_size = KERNEL_LIMIT - klib_heap_start;
     klib_debug("%s: creating klib heap @ 0x%lx, size 0x%lx\n", __func__,
                klib_heap_start, klib_heap_size);
-    klib_heap = create_id_heap(h, h, klib_heap_start, klib_heap_size, PAGESIZE);
+    klib_heap = create_id_heap(h, h, klib_heap_start, klib_heap_size, PAGESIZE, false);
     assert(klib_heap != INVALID_ADDRESS);
     if (table_find(config_root, sym(klib_test))) {
         klib_debug("   loading klib test\n");
@@ -253,4 +263,5 @@ void init_klib(kernel_heaps kh, void *fs, tuple config_root, tuple klib_md)
     }
     if (table_find(get_environment(), sym(RADAR_KEY)))
         load_klib("/klib/radar", closure(h, radar_loaded));
+    load_klib("/klib/cloud_init", closure(h, klib_optional_loaded));
 }

@@ -26,7 +26,11 @@ static inline __attribute__((always_inline)) u16 tagof(void* v) {
 }
 
 #define valueof(__x) (__x)
-#endif /* !BOOT */
+
+typedef struct spinlock {
+    word w;
+} *spinlock;
+#endif
 
 static inline __attribute__((always_inline)) void compiler_barrier(void)
 {

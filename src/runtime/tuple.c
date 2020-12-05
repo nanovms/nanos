@@ -52,6 +52,7 @@ void destruct_tuple(tuple t, boolean recursive)
     }
     deallocate_tuple(t);
 }
+KLIB_EXPORT(destruct_tuple);
 
 /* Compared to timm(), kern_timm() supports one key-value pair only. */
 tuple kern_timm(char *name, ...)

@@ -16,8 +16,8 @@ void physically_backed_dealloc_virtual(heap h, u64 x, bytes length)
 	return;
     }
 
-    deallocate(b->virtual, pointer_from_u64(x), padlen);
     unmap(x, padlen);
+    deallocate(b->virtual, pointer_from_u64(x), padlen);
 }
 
 static void physically_backed_dealloc(heap h, u64 x, bytes length)
@@ -31,9 +31,9 @@ static void physically_backed_dealloc(heap h, u64 x, bytes length)
 
     u64 phys = physical_from_virtual(pointer_from_u64(x));
     assert(phys != INVALID_PHYSICAL);
+    unmap(x, padlen);
     deallocate(b->physical, phys, padlen);
     deallocate(b->virtual, pointer_from_u64(x), padlen);
-    unmap(x, padlen);
 }
 
 static u64 physically_backed_alloc(heap h, bytes length)

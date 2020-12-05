@@ -319,10 +319,10 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     if (p->pid > 1) {
         /* start huge virtual at zero so that parent allocations abide
            by alignment, but reserve lowest huge page for virtual32 */
-        p->virtual = create_id_heap(h, h, 0, PROCESS_VIRTUAL_HEAP_LIMIT, HUGE_PAGESIZE);
+        p->virtual = create_id_heap(h, h, 0, PROCESS_VIRTUAL_HEAP_LIMIT, HUGE_PAGESIZE, false);
         assert(p->virtual != INVALID_ADDRESS);
         assert(id_heap_set_area(p->virtual, 0, HUGE_PAGESIZE, true, true));
-        p->virtual_page = create_id_heap_backed(h, heap_backed(kh), (heap)p->virtual, PAGESIZE);
+        p->virtual_page = create_id_heap_backed(h, heap_backed(kh), (heap)p->virtual, PAGESIZE, false);
         assert(p->virtual_page != INVALID_ADDRESS);
         if (aslr)
             id_heap_set_randomize(p->virtual_page, true);
@@ -330,7 +330,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
         /* This heap is used to track the lowest 32 bits of process
            address space. Allocations are presently only made from the
            top half for MAP_32BIT mappings. */
-        p->virtual32 = create_id_heap(h, h, 0, 0x100000000, PAGESIZE);
+        p->virtual32 = create_id_heap(h, h, 0, 0x100000000, PAGESIZE, false);
         assert(p->virtual32 != INVALID_ADDRESS);
         if (aslr)
             id_heap_set_randomize(p->virtual32, true);
@@ -343,7 +343,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->root_fs = p->cwd_fs = fs;
     p->cwd = root;
     p->process_root = root;
-    p->fdallocator = create_id_heap(h, h, 0, infinity, 1);
+    p->fdallocator = create_id_heap(h, h, 0, infinity, 1, false);
     p->files = allocate_vector(h, 64);
     zero(p->files, sizeof(p->files));
     create_stdfiles(uh, p);
@@ -351,10 +351,10 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->syscalls = linux_syscalls;
     init_sigstate(&p->signals);
     zero(p->sigactions, sizeof(p->sigactions));
-    p->posix_timer_ids = create_id_heap(h, h, 0, U32_MAX, 1);
+    p->posix_timer_ids = create_id_heap(h, h, 0, U32_MAX, 1, false);
     p->posix_timers = allocate_vector(h, 8);
     p->itimers = allocate_vector(h, 3);
-    p->aio_ids = create_id_heap(h, h, 0, S32_MAX, 1);
+    p->aio_ids = create_id_heap(h, h, 0, S32_MAX, 1, false);
     p->aio = allocate_vector(h, 8);
     return p;
 }
@@ -456,7 +456,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
 
     u_heap = uh;
     uh->kh = *kh;
-    uh->processes = create_id_heap(h, h, 1, 65535, 1);
+    uh->processes = create_id_heap(h, h, 1, 65535, 1, false);
     uh->file_cache = allocate_objcache(h, heap_backed(kh), sizeof(struct file), PAGESIZE);
     if (uh->file_cache == INVALID_ADDRESS)
 	goto alloc_fail;
@@ -473,7 +473,6 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
         goto alloc_fail;
 #endif
 
-    set_syscall_handler(syscall_enter);
     process kernel_process = create_process(uh, root, fs);
     dummy_thread = create_thread(kernel_process);
     runtime_memcpy(dummy_thread->name, "dummy_thread",

@@ -449,7 +449,7 @@ static void check_syscall_restart(thread t, sigaction sa)
     if (rv == -ERESTARTSYS) {
         if (sa->sa_flags & SA_RESTART) {
             sig_debug("restarting syscall\n");
-            enqueue(runqueue, &t->deferred_syscall);
+            enqueue_irqsafe(runqueue, &t->deferred_syscall);
             kern_unlock();
             runloop();
         } else {

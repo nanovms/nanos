@@ -658,15 +658,15 @@ static void pvscsi_process_cmp_ring(pvscsi dev)
 
     list l = list_get_next(&q);
     if (l) {
-        /* trick: remove (local) head and queue first element */
-        list_delete(&q);
-        assert(enqueue(dev->rx_servicequeue, l));
-        enqueue(bhqueue, dev->rx_service);
+        /* only called from int handler, but use irqsafe in case this changes */
+        list_delete(&q); /* trick: remove (local) head and queue first element */
+        assert(enqueue_irqsafe(dev->rx_servicequeue, l));
+        enqueue_irqsafe(bhqueue, dev->rx_service);
     }
 }
 
 void pvscsi_register(kernel_heaps kh, storage_attach a)
 {
-    heap h = heap_general(kh);
+    heap h = heap_locked(kh);
     register_pci_driver(closure(h, pvscsi_probe, h, a, heap_backed(kh)));
 }
