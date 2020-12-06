@@ -6,34 +6,39 @@
 #include <stdint.h>
 #include <errno.h>
 
-pthread_mutex_t mut;
+pthread_mutex_t mut, mut2;
 uint32_t val;
 
 #define INCS 1000
 #define BADLUCK 765
 #define MAX_THREADS 4
 
+static void
+acquire_mutex(pthread_mutex_t *m)
+{
+    int err = pthread_mutex_lock(m);
+    switch (err) {
+    case 0:
+        break;
+    case EOWNERDEAD:
+        pthread_mutex_consistent(m);
+        break;
+    default:
+        printf("got unexpected value from mutex: %d\n", err);
+        exit(EXIT_FAILURE);
+    }
+}
+
 void *
 worker(void *v)
 {
     int myincs = 0;
     int done = 0;
-    int err;
     unsigned int seed = time(NULL);
     void *self = (void *)pthread_self();
     for (;;) {
         usleep(rand_r(&seed) % 1000);
-        err = pthread_mutex_lock(&mut);
-        switch (err) {
-        case 0:
-            break;
-        case EOWNERDEAD:
-            pthread_mutex_consistent(&mut);
-            break;
-        default:
-            printf("got unexpected value from mutex: %d\n", err);
-            exit(EXIT_FAILURE);
-        }
+        acquire_mutex(&mut);
         usleep(rand_r(&seed) % 1000);
         if (val == BADLUCK) {
             val++;
@@ -60,20 +65,12 @@ worker2(void *v)
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
     int sleepus = *(int *)v;
     printf("worker2 (%d) start\n", sleepus);
-    int err = pthread_mutex_lock(&mut);
-    switch (err) {
-    case 0:
-        break;
-    case EOWNERDEAD:
-        pthread_mutex_consistent(&mut);
-        break;
-    default:
-        printf("got unexpected value from mutex: %d\n", err);
-        exit(EXIT_FAILURE);
-    }
-    printf("worker2 (%d) acquired lock\n", sleepus);
+    acquire_mutex(&mut);
+    acquire_mutex(&mut2);
+    printf("worker2 (%d) acquired locks\n", sleepus);
     usleep(sleepus);
     printf("worker2 (%d) complete\n", sleepus);
+    pthread_mutex_unlock(&mut2);
     pthread_mutex_unlock(&mut);
     return NULL;
 }
@@ -88,11 +85,12 @@ main(int argc, char **argv)
     pthread_mutexattr_init(&attr); /* initialize the attributes object */
     pthread_mutexattr_setrobust(&attr, PTHREAD_MUTEX_ROBUST); /* set robustness */
     pthread_mutex_init(&mut, &attr);
+    pthread_mutex_init(&mut2, &attr);
 
     /* alarm to fail test if things get stuck */
     alarm(10);
 
-    printf("*** test clean exit with mutex held ***\n");
+    printf("*** test: clean exit with mutex held ***\n");
     for (int i = 0; i < MAX_THREADS; i++) {
         pthread_create(&threads[i], NULL, worker, NULL);
     }
@@ -101,7 +99,7 @@ main(int argc, char **argv)
     }
 
     for (int i = 0; i < 2; i++) {
-        printf("\n*** test %d aborted exit with mutex held ***\n", i);
+        printf("\n*** test %d: aborted exit with mutex held ***\n", i);
         int sleepus = 1000000;
         pthread_create(&threads[0], NULL, worker2, &sleepus);
         usleep(10000);
