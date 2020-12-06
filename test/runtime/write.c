@@ -630,9 +630,9 @@ static void fs_stress_test()
         ssize_t rv;
         char name[25];
         sprintf(name, "fs_stress_test_%d", i);
-        printf("name in STRESS: %s\n", name);
+        // for debugging: printf("file created: %s\n", name);
         int fd = open(name, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
-        printf("fd in stress: %d\n", fd);
+        // for debugging: printf("fd: %d\n", fd);
         fds[i] = fd;
         if (fd < 0) {
             printf("open error\n");
@@ -675,7 +675,6 @@ static void fs_stress_test()
 
 int main(int argc, char **argv)
 {
-    printf("came to main\n");
     int c, op = WRITE_OP_ALL;
     long long size = DEFAULT_BULK_SIZE;
     char *endptr;
