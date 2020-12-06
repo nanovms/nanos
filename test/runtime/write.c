@@ -630,9 +630,7 @@ static void fs_stress_test()
         ssize_t rv;
         char name[25];
         sprintf(name, "fs_stress_test_%d", i);
-        // for debugging: printf("file created: %s\n", name);
         int fd = open(name, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
-        // for debugging: printf("fd: %d\n", fd);
         fds[i] = fd;
         if (fd < 0) {
             printf("open error\n");
