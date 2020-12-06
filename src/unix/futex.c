@@ -310,6 +310,18 @@ typedef struct robust_list_head {
     void *list_op_pending;
 } *robust_list_head;
 
+static boolean valid_user_address(process p, void *a, int len)
+{
+    u64 pg = u64_from_pointer(a) & ~PAGEMASK;
+    u64 end = (pg + len) & ~PAGEMASK;
+
+    for (; pg <= end; pg += PAGESIZE) {
+        if (vmap_from_vaddr(p, pg) == INVALID_ADDRESS)
+                return false;
+    }
+    return true;
+}
+
 void wake_robust_list(process p, void *head)
 {
     struct futex * f;
@@ -317,30 +329,30 @@ void wake_robust_list(process p, void *head)
     struct robust_list *l;
     u32 *uaddr;
 
-    if (!h)
+    /* must be very careful accessing the head as well as the list */
+    if (!valid_user_address(p, h, sizeof *h))
         return;
+
     /* XXX could keep a list of futexes and wake them at the end
      * to let threads acquire multiple locks without blocking */
     if (h->list_op_pending) {
         uaddr = FUTEX_KEY_ADDR(h->list_op_pending, h->futex_offset);
-        if ((f = table_find(p->futices, uaddr))) {
+        if (valid_user_address(p, uaddr, sizeof *uaddr)) {
             *uaddr |= FUTEX_OWNER_DIED;
-            futex_wake_many(f, 1);
-        } else {
-            thread_log(current, "list_op_pending futex not found for key %p", uaddr);
+            if ((f = table_find(p->futices, uaddr)))
+                futex_wake_many(f, 1);
         }
     }
 
     for (l = h->list; (void *)l != (void *)h; l = l->next) {
         uaddr = FUTEX_KEY_ADDR(l, h->futex_offset);
-        if ((f = table_find(p->futices, uaddr))) {
-            *uaddr |= FUTEX_OWNER_DIED;
-            futex_wake_many(f, 1);
-        } else {
-            rprintf("%s: list futex not found for key %p, aborting iteration\n",
-                __func__, uaddr);
+        if (!valid_user_address(p, l, sizeof *l))
             break;
-        }
+        if (!valid_user_address(p, uaddr, sizeof *uaddr))
+            break;
+        *uaddr |= FUTEX_OWNER_DIED;
+        if ((f = table_find(p->futices, uaddr)))
+            futex_wake_many(f, 1);
     }
 }
 
