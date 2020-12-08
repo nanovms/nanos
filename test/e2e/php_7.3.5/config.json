@@ -1,7 +1,7 @@
 {
     "Args": ["b.php"],
     "RunConfig": {
-        "Ports": [9501]
+        "Ports": ["9501"]
     },
     "Boot": "../../../output/test/e2e/boot.img",
     "Kernel": "../../../output/test/e2e/kernel.img",

@@ -1142,94 +1142,118 @@ static void setup_sigframe(thread t, int signum, struct siginfo *si)
               t->sighandler_frame[FRAME_RDX], t->sighandler_frame[FRAME_R8]);
 }
 
+static void dump_sig_info(thread t, queued_signal qs)
+{
+    siginfo_t *si = &qs->si;
+    rprintf("signal %d received by tid %d, errno %d, code %d\n",
+            si->si_signo, t->tid, si->si_errno, si->si_code);
+    if (si->si_signo == SIGSEGV || si->si_signo == SIGBUS || si->si_signo == SIGFPE)
+        rprintf("   fault address 0x%lx\n", si->sifields.sigfault.addr);
+
+    /* can add more siginfo interpretation here... */
+}
+
+static void default_signal_action(thread t, queued_signal qs)
+{
+    char *fate;
+    int signum = qs->si.si_signo;
+
+    switch (signum) {
+    case SIGHUP:
+    case SIGINT:
+    case SIGKILL:
+    case SIGPIPE:
+    case SIGALRM:
+    case SIGTERM:
+    case SIGUSR1:
+    case SIGUSR2:
+    case SIGPROF:
+    case SIGVTALRM:
+    case SIGSTKFLT:
+    case SIGIO:
+    case SIGPWR:
+        /* terminate */
+        fate = "   terminate\n";
+        break;
+
+    case SIGQUIT:
+    case SIGILL:
+    case SIGABRT:
+    case SIGFPE:
+    case SIGSEGV:
+    case SIGBUS:
+    case SIGSYS:
+    case SIGTRAP:
+    case SIGXCPU:
+    case SIGXFSZ:
+        /* TODO add core dump action here */
+        fate = "   core dump (unimplemented)\n";
+        break;
+
+    case SIGSTOP:
+    case SIGTSTP:
+    case SIGTTIN:
+    case SIGTTOU:
+        /* stop */
+        fate = "   stop\n";
+        break;
+    default:
+        /* ignore */
+        return;
+    }
+    dump_sig_info(t, qs);
+    thread_log(t, fate);
+    halt(fate);
+}
+
 /* return true if t->sighandler_frame should be scheduled to run */
 boolean dispatch_signals(thread t)
 {
     if (t->dispatch_sigstate)
-        goto no_sig; /* sorry, no nested handling */
+        return false; /* sorry, no nested handling */
 
     /* dequeue (and thus reset) a pending signal, masking temporarily */
     queued_signal qs = dequeue_signal(t, sigstate_get_mask(&t->signals), true);
     if (qs == INVALID_ADDRESS)
-        goto no_sig;
+        return false;
 
     /* act on signal disposition */
-    int signum = qs->si.si_signo;
+    struct siginfo *si = &qs->si;
+    int signum = si->si_signo;
     sigaction sa = sigaction_from_sig(t, signum);
-    void * handler = sa->sa_handler;
+    void *handler = sa->sa_handler;
 
     sig_debug("dispatching signal %d; sigaction handler %p, sa_mask 0x%lx, sa_flags 0x%lx\n",
               signum, handler, sa->sa_mask.sig[0], sa->sa_flags);
+    thread_log(t, "signal %d received, errno %d, code %d\n",
+               si->si_signo, si->si_errno, si->si_code);
+    if (si->si_signo == SIGSEGV || si->si_signo == SIGBUS || si->si_signo == SIGFPE)
+        thread_log(t, "   fault address 0x%lx\n", si->sifields.sigfault.addr);
 
-    if (handler == SIG_IGN) {
-        sig_debug("sigact == SIG_IGN\n");
-        goto ignore;
-    } else if (handler == SIG_DFL) {
-        switch (signum) {
-        /* terminate */
-        case SIGHUP:
-        case SIGINT:
-        case SIGKILL:
-        case SIGPIPE:
-        case SIGALRM:
-        case SIGTERM:
-        case SIGUSR1:
-        case SIGUSR2:
-        case SIGPROF:
-        case SIGVTALRM:
-        case SIGSTKFLT:
-        case SIGIO:
-        case SIGPWR:
-            msg_err("signal %d resulting in thread termination\n", signum);
-            halt("unimplemented signal\n");
-            // exit_thread(t);
-            break;
+    if (handler == SIG_DFL) {
+        const char *s = "   default action\n";
+        sig_debug(s);
+        thread_log(t, s);
+        default_signal_action(t, qs);
+        /* ignore if returned */
+    }
 
-        /* core dump */
-        case SIGQUIT:
-        case SIGILL:
-        case SIGABRT:
-        case SIGFPE:
-        case SIGSEGV:
-        case SIGBUS:
-        case SIGSYS:
-        case SIGTRAP:
-        case SIGXCPU:
-        case SIGXFSZ:
-            msg_err("signal %d resulting in core dump\n", signum);
-            halt("unimplemented signal\n");
-            // core_dump(t);
-            break;
-
-        /* stop */
-        case SIGSTOP:
-        case SIGTSTP:
-        case SIGTTIN:
-        case SIGTTOU:
-            msg_err("signal %d resulting in thread stop\n", signum);
-            halt("unimplemented signal\n");
-            // thread_stop(t);
-            break;
-
-        /* ignore the rest */
-        default:
-            goto ignore;
-        }
+    if (handler == SIG_DFL || handler == SIG_IGN) {
+        const char *s = "   ignored\n";
+        sig_debug(s);
+        thread_log(t, s);
+        sigstate_thread_restore(t);
+        return false;
     }
 
     /* set up and switch to the signal context */
     sig_debug("switching to sigframe: tid %d, sig %d, sigaction %p\n", t->tid, signum, sa);
-    setup_sigframe(t, signum, &qs->si);
+    setup_sigframe(t, signum, si);
 
     /* clean up and proceed to handler */
     free_queued_signal(qs);
     set_thread_frame(t, t->sighandler_frame);
     return true;
-  ignore:
-    sig_debug("ignoring signal %d\n", signum);
-    sigstate_thread_restore(t);
-  no_sig:
-    return false;
 }
 
 void register_signal_syscalls(struct syscall *map)

@@ -34,24 +34,22 @@ static u64 freelist_allocate(heap h, bytes size)
 {
     freelist f = (freelist)h;
     if (size != f->size) {
-        console("bad unsized allocator ");
+        rputs("bad unsized allocator ");
         print_u64(size);
-        console(" ");
+        rputs(" ");
         print_u64(f->size);
-        console(" ");
+        rputs(" ");
         print_u64(u64_from_pointer(__builtin_return_address(0)));        
-        console("\n");
+        rputs("\n");
 	return INVALID_PHYSICAL;
     }
 
     size = MAX(size, sizeof(void *));
     f->count += size;
     if (!f->free) {
-        //        console("freelist spill\n");
         f->total += size;
         return allocate_u64(f->parent, size);
     }
-    //    console("freelist cached\n");
     void *result = f->free;
     f->free = *(void **)f->free;
     return u64_from_pointer(result);
