@@ -649,21 +649,6 @@ typedef struct {
 
 #define MINSIGSTKSZ     2048
 
-struct ucontext {
-    unsigned long uc_flags;
-    struct ucontext * uc_link;
-    stack_t uc_stack;
-    struct sigcontext uc_mcontext;
-    sigset_t uc_sigmask;
-};
-
-struct rt_sigframe {
-    char *pretcode;
-    struct ucontext uc;
-    struct siginfo info;
-    /* fp state follows here */
-};
-
 #define CLOCKS_PER_SEC  100
 
 typedef s64 clock_t;

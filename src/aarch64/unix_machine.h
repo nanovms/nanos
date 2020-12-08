@@ -18,6 +18,20 @@ struct sigcontext {
     u8 reserved[4096] __attribute__((__aligned__(16)));
 };
 
+struct ucontext {
+    unsigned long uc_flags;
+    struct ucontext * uc_link;
+    stack_t uc_stack;
+    sigset_t uc_sigmask;
+    u8 pad[1024 / 8 - sizeof(sigset_t)];
+    struct sigcontext uc_mcontext;
+};
+
+struct rt_sigframe {
+    struct siginfo info;
+    struct ucontext uc;
+};
+
 // XXX
 static inline u64 page_flags_from_vmflags(u64 vmflags)
 {

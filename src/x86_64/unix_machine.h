@@ -123,6 +123,20 @@ struct sigcontext {
     u64 reserved1[8];
 };
 
+struct rt_sigframe {
+    char *pretcode;
+    struct ucontext uc;
+    struct siginfo info;
+};
+
+struct ucontext {
+    unsigned long uc_flags;
+    struct ucontext * uc_link;
+    stack_t uc_stack;
+    struct sigcontext uc_mcontext;
+    sigset_t uc_sigmask;
+};
+
 static inline u64 page_flags_from_vmflags(u64 vmflags)
 {
     u64 flags = PAGE_NO_FAT | PAGE_USER;

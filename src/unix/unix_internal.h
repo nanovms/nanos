@@ -28,10 +28,10 @@
 #define ACCESS_PERM_ALL     \
     (ACCESS_PERM_READ | ACCESS_PERM_WRITE | ACCESS_PERM_EXEC)
 
+#include <system_structs.h>
+
 /* arch dependent bits */
 #include <unix_machine.h>
-
-#include <system_structs.h>
 
 #define PROCESS_VIRTUAL_HEAP_START  0x000100000000ull
 #ifdef __x86_64__
@@ -704,6 +704,8 @@ void deliver_fault_signal(u32 signo, thread t, u64 vaddr, s32 si_code);
 void threads_to_vector(process p, vector v);
 
 /* machine-specific signal dispatch */
+struct rt_sigframe *get_rt_sigframe(thread t);
+void setup_sigframe(thread t, int signum, struct siginfo *si);
 void setup_ucontext(struct ucontext * uctx, struct sigaction * sa,
                     struct siginfo * si, context f);
 void restore_ucontext(struct ucontext * uctx, context f);

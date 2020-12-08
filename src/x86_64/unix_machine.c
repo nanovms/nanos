@@ -1,5 +1,73 @@
 #include <unix_internal.h>
 
+struct rt_sigframe *get_rt_sigframe(thread t)
+{
+    /* sigframe sits at %rsp minus the return address word (pretcode) */
+    return (struct rt_sigframe *)(t->sighandler_frame[FRAME_RSP] - sizeof(u64));
+}
+
+void setup_sigframe(thread t, int signum, struct siginfo *si)
+{
+    sigaction sa = sigaction_from_sig(t, signum);
+
+    assert(sizeof(struct siginfo) == 128);
+    thread_resume(t);
+
+    /* copy only what we really need */
+    t->sighandler_frame[FRAME_FSBASE] = t->default_frame[FRAME_FSBASE];
+    t->sighandler_frame[FRAME_GSBASE] = t->default_frame[FRAME_GSBASE];
+
+    if ((sa->sa_flags & SA_ONSTACK) && t->signal_stack) {
+        t->sighandler_frame[FRAME_RSP] = u64_from_pointer(t->signal_stack + t->signal_stack_length);
+    } else {
+        t->sighandler_frame[FRAME_RSP] = t->default_frame[FRAME_RSP];
+    }
+
+    /* avoid redzone and align rsp
+
+       Note: We are actually aligning to 8 but not 16 bytes; the ABI
+       requires that stacks are aligned to 16 before a call, but the
+       sigframe return into the function takes the place of a call,
+       which would have pushed a return address. The function prologue
+       typically pushes the frame pointer on the stack, thus
+       re-aligning to 16 before executing the function body.
+    */
+    t->sighandler_frame[FRAME_RSP] = ((t->sighandler_frame[FRAME_RSP] & ~15)
+                                      - 128 /* redzone */
+                                      - 8 /* same effect as call pushing ra */);
+
+    /* create space for rt_sigframe */
+    t->sighandler_frame[FRAME_RSP] -= pad(sizeof(struct rt_sigframe), 16);
+
+    /* setup sigframe for user sig trampoline */
+    struct rt_sigframe *frame = (struct rt_sigframe *)t->sighandler_frame[FRAME_RSP];
+    frame->pretcode = sa->sa_restorer;
+
+    if (sa->sa_flags & SA_SIGINFO) {
+        runtime_memcpy(&frame->info, si, sizeof(struct siginfo));
+        setup_ucontext(&frame->uc, sa, si, t->default_frame);
+        t->sighandler_frame[FRAME_RSI] = u64_from_pointer(&frame->info);
+        t->sighandler_frame[FRAME_RDX] = u64_from_pointer(&frame->uc);
+    } else {
+        t->sighandler_frame[FRAME_RSI] = 0;
+        t->sighandler_frame[FRAME_RDX] = 0;
+    }
+
+    /* setup regs for signal handler */
+    t->sighandler_frame[FRAME_RIP] = u64_from_pointer(sa->sa_handler);
+    t->sighandler_frame[FRAME_RDI] = signum;
+    t->sighandler_frame[FRAME_IS_SYSCALL] = 1;
+
+    /* save signo for safer sigreturn */
+    t->active_signo = signum;
+
+    sig_debug("sigframe tid %d, sig %d, rip 0x%lx, rsp 0x%lx, "
+              "rdi 0x%lx, rsi 0x%lx, rdx 0x%lx, r8 0x%lx\n", t->tid, signum,
+              t->sighandler_frame[FRAME_RIP], t->sighandler_frame[FRAME_RSP],
+              t->sighandler_frame[FRAME_RDI], t->sighandler_frame[FRAME_RSI],
+              t->sighandler_frame[FRAME_RDX], t->sighandler_frame[FRAME_R8]);
+}
+
 /*
  * Copy the context in frame 'f' to the ucontext *uctx
  */
