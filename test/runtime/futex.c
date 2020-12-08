@@ -7,6 +7,7 @@
 #include <linux/futex.h>
 #include <limits.h>
 #include <time.h>
+#include <errno.h>
 
 #define EXIT_FAILURE 1
 #define EXIT_SUCCESS 0
@@ -92,18 +93,16 @@ uaddr matches val. Check that the call waits for
 the given amount of time and then times out */
 static boolean futex_wait_test_2() 
 {
-    struct timespec timeout = {.tv_sec = 10, .tv_nsec = 0};
     int *uaddr = (int*)(&wait_test_futex);
     int val = FUTEX_INITIALIZER; /* value at uaddr */
     int expected_result = -1;
 
-    /* Time how long the call waits before timing out */
-    time_t start, end;
-    time(&start);
+    /* timeout of 0.3 sec */
+    struct timespec timeout = {.tv_sec = 0, .tv_nsec = 300000000};
     int ret = syscall(SYS_futex, uaddr, FUTEX_WAIT, val, &timeout, NULL, 0);
-    time(&end);
-    time_t total_time = end-start;
-    if ((total_time == timeout.tv_sec) && (ret == expected_result)) {
+    
+    /* Check timeout by checking value of errno */
+    if ((errno == ETIMEDOUT) && (ret == expected_result)) {
         printf("wait test 2: passed\n");
         return true;
     }
@@ -140,18 +139,12 @@ static boolean futex_wait_bitset_test_2()
     int bitset = 0xffffffff;
     int expected_result = -1; 
 
-    /* Calculate total amount of time taken by the call
-    before timing out, and check if that matches time_given */
-    struct timespec start;
-    struct timespec end;
-    time_t time_given = 10;
-    clock_gettime(CLOCK_MONOTONIC, &start);
-    struct timespec timeout = {.tv_sec = time_given+start.tv_sec, .tv_nsec = 0};
+    /* timeout of 0.3 seconds */
+    struct timespec timeout = {.tv_sec = 0, .tv_nsec = 300000000};
     int ret = syscall(SYS_futex, uaddr, FUTEX_WAIT_BITSET, val, &timeout, NULL, bitset);
-    clock_gettime(CLOCK_MONOTONIC, &end);
-    time_t total_time = end.tv_sec - start.tv_sec;
 
-    if ((total_time == time_given) && (ret == expected_result)) {
+    /* Check timeout by checking value of errno */
+    if ((errno == ETIMEDOUT) && (ret == expected_result)) {
         printf("wait_bitset test 2: passed\n");
         return true;
     }
