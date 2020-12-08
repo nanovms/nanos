@@ -75,6 +75,10 @@ void console_write(const char *s, bytes count)
     }
 }
 
+void klog_write(const char *s, bytes count)
+{
+}
+
 closure_function(1, 3, void, stage2_bios_read,
                  u64, offset,
                  void *, dest, range, blocks, status_handler, completion)
@@ -294,7 +298,8 @@ closure_function(3, 2, void, filesystem_initialized,
 void newstack()
 {
     stage2_debug("%s\n", __func__);
-    u32 fs_offset = SECTOR_SIZE + fsregion()->length; // MBR + stage2
+    struct partition_entry *bootfs_part = partition_get(MBR_ADDRESS, PARTITION_BOOTFS);
+    u32 fs_offset = bootfs_part->lba_start * SECTOR_SIZE;
     heap h = heap_general(&kh);
     buffer_handler bh = closure(h, kernel_read_complete);
 

@@ -21,6 +21,7 @@ SRCS-kernel.img= \
 	$(SRCDIR)/kernel/kernel.c \
 	$(SRCDIR)/kernel/klib.c \
 	$(SRCDIR)/kernel/kvm_platform.c \
+	$(SRCDIR)/kernel/log.c \
 	$(SRCDIR)/kernel/pagecache.c \
 	$(SRCDIR)/kernel/pci.c \
 	$(SRCDIR)/kernel/pvclock.c \
@@ -103,6 +104,7 @@ SRCS-kernel.img= \
 	$(SRCS-lwip)
 SRCS-lwip= \
 	$(LWIPDIR)/src/core/def.c \
+	$(LWIPDIR)/src/core/dns.c \
 	$(LWIPDIR)/src/core/inet_chksum.c \
 	$(LWIPDIR)/src/core/init.c \
 	$(LWIPDIR)/src/core/ip.c \

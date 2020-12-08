@@ -64,6 +64,8 @@ static inline int runtime_strlen(const char *a)
     return i;
 }
 
+void rputs(const char *s);
+
 static inline void console(const char *s)
 {
     console_write(s, runtime_strlen(s));

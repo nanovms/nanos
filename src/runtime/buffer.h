@@ -425,8 +425,4 @@ static inline key fnv64(void *z)
     return hash;
 }
 
-static inline void buffer_print(buffer b)
-{
-    // should probably use foreach_character() once it supports UTF-8 properly
-    console_write(buffer_ref(b, 0), buffer_length(b));
-}
+void buffer_print(buffer b);
