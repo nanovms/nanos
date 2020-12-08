@@ -86,8 +86,8 @@ readsectors:
         mov edx, 0x10000
         sub edx, [dap.offset]
         shr dx, 0x9
-        cmp edx, ecx
-        cmovb ecx, edx      ; cx = min(cx, 0x10000 - dap.offset)
+        cmp dx, cx
+        cmovb cx, dx      ; cx = min(cx, (0x10000 - dap.offset) >> 0x9)
         mov [dap.sector_count], cx
 loop:
         mov si, dap
@@ -101,7 +101,8 @@ loop:
         mov dx, [dap.segment]
         inc dx
         mov [dap.segment], dx
-        mov WORD [dap.offset], 0x0
+        mov dx, 0x0
+        mov [dap.offset], dx
         mov cx, 0x0080
         cmp ax, cx
         cmovb cx, ax 
