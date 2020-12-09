@@ -298,7 +298,7 @@ init_futices(process p)
 /* robust mutex handling */
 
 #define FUTEX_OWNER_DIED	0x40000000
-#define FUTEX_KEY_ADDR(x, o)    ((u32 *)((u8 *)(x) + (o)))
+#define FUTEX_KEY_ADDR(x, o)    ((int *)((u8 *)(x) + (o)))
 
 typedef struct robust_list {
     struct robust_list *next;
@@ -313,7 +313,7 @@ typedef struct robust_list_head {
 static boolean valid_user_address(process p, void *a, int len)
 {
     u64 pg = u64_from_pointer(a) & ~PAGEMASK;
-    u64 end = (pg + len) & ~PAGEMASK;
+    u64 end = (u64_from_pointer(a) + len) & ~PAGEMASK;
 
     for (; pg <= end; pg += PAGESIZE) {
         if (vmap_from_vaddr(p, pg) == INVALID_ADDRESS)
@@ -324,10 +324,9 @@ static boolean valid_user_address(process p, void *a, int len)
 
 void wake_robust_list(process p, void *head)
 {
-    struct futex * f;
     struct robust_list_head *h = head;
     struct robust_list *l;
-    u32 *uaddr;
+    int *uaddr;
 
     /* must be very careful accessing the head as well as the list */
     if (!valid_user_address(p, h, sizeof *h))
@@ -339,8 +338,7 @@ void wake_robust_list(process p, void *head)
         uaddr = FUTEX_KEY_ADDR(h->list_op_pending, h->futex_offset);
         if (valid_user_address(p, uaddr, sizeof *uaddr)) {
             *uaddr |= FUTEX_OWNER_DIED;
-            if ((f = table_find(p->futices, uaddr)))
-                futex_wake_many(f, 1);
+            futex_wake_many_by_uaddr(p, uaddr, 1);
         }
     }
 
@@ -351,8 +349,7 @@ void wake_robust_list(process p, void *head)
         if (!valid_user_address(p, uaddr, sizeof *uaddr))
             break;
         *uaddr |= FUTEX_OWNER_DIED;
-        if ((f = table_find(p->futices, uaddr)))
-            futex_wake_many(f, 1);
+        futex_wake_many_by_uaddr(p, uaddr, 1);
     }
 }
 
@@ -360,9 +357,9 @@ sysreturn get_robust_list(int pid, void *head, u64 *len)
 {
     struct robust_list_head **hp = head;
     if (!validate_user_memory(hp, sizeof *hp, true))
-        return set_syscall_error(current, EFAULT);
+        return -EFAULT;
     if (!validate_user_memory(len, sizeof *len, true))
-        return set_syscall_error(current, EFAULT);
+        return -EFAULT;
 
     thread_log(current, "get_robust_list syscall for pid %d\n", pid);
 
@@ -380,20 +377,20 @@ sysreturn get_robust_list(int pid, void *head, u64 *len)
         }
     }
     if (t == 0)
-        return set_syscall_error(current, ESRCH);
+        return -ESRCH;
     *hp = t->robust_list;
     *len = sizeof **hp;
-    return set_syscall_return(current, 0);
+    return 0;
 }
 
 sysreturn set_robust_list(void *head, u64 len)
 {
     thread_log(current, "set_robust_list syscall with head %p", head);
     if (len != sizeof(struct robust_list_head))
-        return set_syscall_error(current, EINVAL);
+        return -EINVAL;
     if (!validate_user_memory(head, len, true))
-        return set_syscall_error(current, EFAULT);
+        return -EFAULT;
     current->robust_list = head;
 
-    return set_syscall_return(current, 0);
+    return 0;
 }
