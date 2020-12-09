@@ -6,7 +6,7 @@
 
 //#define KVM_DEBUG
 #ifdef KVM_DEBUG
-#define kvm_debug(x) do {console(" KVM: " x "\n");} while(0)
+#define kvm_debug(x) do {rputs(" KVM: " x "\n");} while(0)
 #else
 #define kvm_debug(x)
 #endif

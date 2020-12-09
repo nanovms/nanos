@@ -119,13 +119,13 @@ void print_u64_with_sym(u64 a)
 
     name = find_elf_sym(a, &offset, &len);
     if (name) {
-	console("\t(");
-	console(name);
-	console(" + ");
-	print_u64(offset);
-        console("/");
+        rputs("\t(");
+        rputs(name);
+        rputs(" + ");
+        print_u64(offset);
+        rputs("/");
         print_u64(len);
-	console(")");
+        rputs(")");
     }
 }
 
@@ -146,7 +146,7 @@ void __print_stack_with_rbp(u64 *rbp)
             break;
         rbp = (u64 *) rbp[0];
         print_u64_with_sym(rip);
-        console("\n");
+        rputs("\n");
     }
 }
 
@@ -160,51 +160,51 @@ void print_stack_from_here(void)
 #define STACK_TRACE_DEPTH       24
 void print_stack(context c)
 {
-    console("\nframe trace:\n");
+    rputs("\nframe trace:\n");
     __print_stack_with_rbp(pointer_from_u64(c[FRAME_RBP]));
 
-    console("\nstack trace:\n");
+    rputs("\nstack trace:\n");
     u64 *x = pointer_from_u64(c[FRAME_RSP]);
     for (u64 i = 0; i < STACK_TRACE_DEPTH; i++) {
         print_u64_with_sym(*(x+i));
-        console("\n");
+        rputs("\n");
     }
-    console("\n");
+    rputs("\n");
 }
 
 void print_frame(context f)
 {
     u64 v = f[FRAME_VECTOR];
-    console(" interrupt: ");
+    rputs(" interrupt: ");
     print_u64(v);
     if (v < INTERRUPT_VECTOR_START) {
-        console(" (");
-        console((char *)interrupt_names[v]);
-        console(")");
+        rputs(" (");
+        rputs((char *)interrupt_names[v]);
+        rputs(")");
     }
-    console("\n     frame: ");
+    rputs("\n     frame: ");
     print_u64_with_sym(u64_from_pointer(f));
-    console("\n");    
+    rputs("\n");
 
     if (v == 13 || v == 14) {
-	console("error code: ");
+	rputs("error code: ");
 	print_u64(f[FRAME_ERROR_CODE]);
-	console("\n");
+	rputs("\n");
     }
 
     // page fault
     if (v == 14)  {
-        console("   address: ");
+        rputs("   address: ");
         print_u64_with_sym(f[FRAME_CR2]);
-        console("\n");
+        rputs("\n");
     }
     
-    console("\n");
+    rputs("\n");
     for (int j = 0; j < 24; j++) {
-        console(register_name(j));
-        console(": ");
+        rputs(register_name(j));
+        rputs(": ");
         print_u64_with_sym(f[j]);
-        console("\n");        
+        rputs("\n");
     }
 }
 

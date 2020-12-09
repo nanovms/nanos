@@ -179,6 +179,10 @@ void console_write(const char *s, bytes count)
     igr(write(1, s, count));
 }
 
+void klog_write(const char *s, bytes count)
+{
+}
+
 u64 physical_from_virtual(void *__x)
 {
     return u64_from_pointer(__x);

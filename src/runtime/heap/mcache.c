@@ -24,23 +24,23 @@ u64 mcache_alloc(heap h, bytes b)
     mcache m = (mcache)h;
     heap o;
 #ifdef MCACHE_DEBUG
-    console("mcache_alloc:   heap ");
+    rputs("mcache_alloc:   heap ");
     print_u64(u64_from_pointer(h));
-    console(", size ");
+    rputs(", size ");
     print_u64(b);
-    console(": ");
+    rputs(": ");
 #endif
     /* Could become a binary search if search set is large... */
     vector_foreach(m->caches, o) {
 	if (o && b <= o->pagesize) {
 #ifdef MCACHE_DEBUG
-	    console("match cache ");
+	    rputs("match cache ");
 	    print_u64(u64_from_pointer(o));
-	    console(" obj size ");
+	    rputs(" obj size ");
 	    print_u64(o->pagesize);
-	    console(", pre validate...");
+	    rputs(", pre validate...");
 	    if (objcache_validate((heap)o))
-		console("pass, alloc ");
+		rputs("pass, alloc ");
 	    else
 		halt("failed!\n");
 #endif
@@ -49,9 +49,9 @@ u64 mcache_alloc(heap h, bytes b)
 		m->allocated += o->pagesize;
 #ifdef MCACHE_DEBUG
 	    print_u64(a);
-	    console(", post validate...");
+	    rputs(", post validate...");
 	    if (objcache_validate((heap)o))
-		console("pass\n");
+		rputs("pass\n");
 	    else
 		halt("failed!\n");
 #endif
@@ -59,7 +59,7 @@ u64 mcache_alloc(heap h, bytes b)
 	}
     }
 #ifdef MCACHE_DEBUG
-    console("no matching cache; fail\n");
+    rputs("no matching cache; fail\n");
 #endif
     return INVALID_PHYSICAL;
 }
@@ -67,44 +67,44 @@ u64 mcache_alloc(heap h, bytes b)
 void mcache_dealloc(heap h, u64 a, bytes b)
 {
 #ifdef MCACHE_DEBUG
-    console("mcache_dealloc: heap ");
+    rputs("mcache_dealloc: heap ");
     print_u64(u64_from_pointer(h));
-    console(", addr ");
+    rputs(", addr ");
     print_u64(a);
-    console(", size ");
+    rputs(", size ");
     print_u64(b);
 #endif
 
     mcache m = (mcache)h;
     heap o = objcache_from_object(a, m->pagesize);
     if (o == INVALID_ADDRESS) {
-	console("mcache ");
+	rputs("mcache ");
 	print_u64(u64_from_pointer(m));
-	console(": can't find cache for object ");
+	rputs(": can't find cache for object ");
 	print_u64(u64_from_pointer(a));
-	console(", size ");
+	rputs(", size ");
 	print_u64(b);
-	console("; leaking\n");
+	rputs("; leaking\n");
 	return;
     }
 
     /* We don't really need the size, but if we're given a valid one,
        make some attempt to verify it. */
     if (b != -1ull && b > o->pagesize) {
-	console("mcache ");
+	rputs("mcache ");
 	print_u64(u64_from_pointer(m));
-	console(": dealloc size (");
+	rputs(": dealloc size (");
 	print_u64(b);
-	console(") exceeds found cache size (");
+	rputs(") exceeds found cache size (");
 	print_u64(o->pagesize);
-	console("); leaking\n");
+	rputs("); leaking\n");
 	return;
     }
 
 #ifdef MCACHE_DEBUG
-    console(", pre validate...");
+    rputs(", pre validate...");
     if (objcache_validate((heap)o))
-	console("pass");
+	rputs("pass");
     else
 	halt("fail!\n");
 #endif
@@ -113,9 +113,9 @@ void mcache_dealloc(heap h, u64 a, bytes b)
     m->allocated -= o->pagesize;
     deallocate(o, a, o->pagesize);
 #ifdef MCACHE_DEBUG
-    console(", post validate...");
+    rputs(", post validate...");
     if (objcache_validate((heap)o))
-	console("pass\n");
+	rputs("pass\n");
     else
 	halt("fail!\n");
 #endif
@@ -124,9 +124,9 @@ void mcache_dealloc(heap h, u64 a, bytes b)
 void destroy_mcache(heap h)
 {
 #ifdef MCACHE_DEBUG
-    console("destroy_mcache: heap at ");
+    rputs("destroy_mcache: heap at ");
     print_u64(u64_from_pointer(h));
-    console("\n");
+    rputs("\n");
 #endif
     mcache m = (mcache)h;
     heap o;
@@ -166,9 +166,9 @@ heap allocate_mcache(heap meta, heap parent, int min_order, int max_order, bytes
 	return INVALID_ADDRESS;
 
 #ifdef MCACHE_DEBUG
-    console("allocate_mcache: heap at ");
+    rputs("allocate_mcache: heap at ");
     print_u64(u64_from_pointer(m));
-    console("\n");
+    rputs("\n");
 #endif
 
     m->h.alloc = mcache_alloc;
@@ -187,16 +187,16 @@ heap allocate_mcache(heap meta, heap parent, int min_order, int max_order, bytes
 	u64 obj_size = U64_FROM_BIT(order);
 	heap h = allocate_objcache(meta, parent, obj_size, pagesize);
 #ifdef MCACHE_DEBUG
-	console(" - cache size ");
+	rputs(" - cache size ");
 	print_u64(obj_size);
-	console(": ");
+	rputs(": ");
 	print_u64(u64_from_pointer(h));
-	console("\n");
+	rputs("\n");
 #endif
 	if (h == INVALID_ADDRESS) {
-	    console("allocate_mcache: failed to allocate objcache of size ");
+	    rputs("allocate_mcache: failed to allocate objcache of size ");
 	    print_u64(obj_size);
-	    console("\n");
+	    rputs("\n");
 	    destroy_mcache((heap)m);
 	    return INVALID_ADDRESS;
 	}

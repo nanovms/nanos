@@ -76,7 +76,7 @@ void add_elf_syms(buffer b, u64 load_offset)
     if (elf_symtable)
 	elf_symbols(b, stack_closure(elf_symtable_add, load_offset));
     else
-	console("can't add ELF symbols; symtab not initialized\n");
+	rputs("can't add ELF symbols; symtab not initialized\n");
 }
 
 void init_symtab(kernel_heaps kh)

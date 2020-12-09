@@ -137,7 +137,7 @@ void start_process(thread t, void *start)
 closure_function(0, 1, void, load_interp_fail,
                  status, s)
 {
-    console("interp fail\n");
+    rputs("interp fail\n");
     closure_finish();
     halt("read interp failed %v\n", s);
 }

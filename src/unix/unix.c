@@ -1,6 +1,7 @@
 #include <unix_internal.h>
 #include <ftrace.h>
 #include <gdb.h>
+#include <log.h>
 
 //#define PF_DEBUG
 #ifdef PF_DEBUG
@@ -218,7 +219,7 @@ define_closure_function(1, 1, context, default_fault_handler,
     frame[FRAME_FULL] = 0;
 
     if (p && table_find(p->process_root, sym(fault))) {
-        console("starting gdb\n");
+        rputs("starting gdb\n");
         init_tcp_gdb(heap_general(get_kernel_heaps()), p, 9090);
         thread_sleep_uninterruptible();
     } else {
@@ -253,6 +254,7 @@ closure_function(0, 6, sysreturn, stdout,
                  void*, d, u64, length, u64, offset, thread, t, boolean, bh, io_completion, completion)
 {
     console_write(d, length);
+    klog_write(d, length);
     if (completion)
         apply(completion, t, length);
     return length;

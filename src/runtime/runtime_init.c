@@ -1,4 +1,5 @@
 #include <runtime.h>
+#include <log.h>
 
 void initialize_buffer();
 
@@ -102,6 +103,13 @@ void init_runtime(heap general, heap safe)
     ignore_status = (void*)ignore;
     errheap = safe;
     null_value = wrap_buffer(general, "", 1);
+}
+
+void rputs(const char *s)
+{
+    int len = runtime_strlen(s);
+    console_write(s, len);
+    klog_write(s, len);
 }
 
 #define STACK_CHK_GUARD 0x595e9fbd94fda766

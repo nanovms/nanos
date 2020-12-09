@@ -174,32 +174,32 @@ static void write_pte(u64 target, physical to, u64 flags, boolean * invalidate)
     u64 new = to | flags;
     u64 *pteptr = pointer_from_pteaddr(target);
 #ifdef PTE_DEBUG
-    console(", write_pte: ");
+    rputs(", write_pte: ");
     print_u64(u64_from_pointer(target));
-    console(" = ");
+    rputs(" = ");
     print_u64(new);
 #endif
     assert((new & PAGE_NO_FAT) == 0);
     if (*pteptr == new) {
 #ifdef PTE_DEBUG
-	console(", pte same; no op");
+	rputs(", pte same; no op");
 #endif
 	return;
     }
     /* invalidate when changing any pte that was marked as present */
     if (*pteptr & PAGE_PRESENT) {
 #ifdef PTE_DEBUG
-        console("   invalidate, old ");
+        rputs("   invalidate, old ");
         print_u64(*pteptr);
-        console(", new ");
+        rputs(", new ");
         print_u64(new);
-        console("\n");
+        rputs("\n");
 #endif
 	*invalidate = true;
     }
     *pteptr = new;
 #ifdef PTE_DEBUG
-    console("\n");
+    rputs("\n");
 #endif
 }
 
@@ -224,9 +224,9 @@ static boolean force_entry(u64 b, u64 v, physical p, int level,
 
     if (level == (fat ? 3 : 4)) {
 #ifdef PTE_DEBUG
-	console("! ");
+	rputs("! ");
 	print_level(level);
-	console(", phys ");
+	rputs(", phys ");
 	print_u64(pte_phys);
 #endif
 	if (fat)
@@ -236,7 +236,7 @@ static boolean force_entry(u64 b, u64 v, physical p, int level,
     } else {
 	if (*pointer_from_pteaddr(pte_phys) & PAGE_PRESENT) {
             if (pt_entry_is_fat(level, *pointer_from_pteaddr(pte_phys))) {
-                console("\nforce_entry fail: attempting to map a 4K page over an "
+                rputs("\nforce_entry fail: attempting to map a 4K page over an "
                         "existing 2M mapping\n");
                 return false;
             }
@@ -261,9 +261,9 @@ static boolean force_entry(u64 b, u64 v, physical p, int level,
                 return false;
 #ifdef PTE_DEBUG
             // XXX update debugs
-	    console("- ");
+	    rputs("- ");
 	    print_level(level);
-	    console(", phys ");
+	    rputs(", phys ");
 	    print_u64(pte_phys);
 #endif
             /* user and writable are AND of flags from all levels */
@@ -507,26 +507,26 @@ static void map_range(u64 virtual, physical p, u64 length, u64 flags)
 
     if ((virtual & PAGEMASK) || (p & PAGEMASK) || (length & PAGEMASK)) {
 	if (flags == 0)
-	    console("un");
-	console("map() called with unaligned paramters!\n v: ");
+	    rputs("un");
+	rputs("map() called with unaligned paramters!\n v: ");
 	print_u64(virtual);
-	console(", p: ");
+	rputs(", p: ");
 	print_u64(p);
-	console(", length: ");
+	rputs(", length: ");
 	print_u64(length);
 	halt("\n");
     }
 
 #ifdef PAGE_DEBUG
-    console("map_range v: ");
+    rputs("map_range v: ");
     print_u64(virtual);
-    console(", p: ");
+    rputs(", p: ");
     print_u64(p);
-    console(", length: ");
+    rputs(", length: ");
     print_u64(length);
-    console(", flags: ");
+    rputs(", flags: ");
     print_u64(flags);
-    console("\n");
+    rputs("\n");
 #endif
 
     boolean invalidate = false;
@@ -545,7 +545,7 @@ static void map_range(u64 virtual, physical p, u64 length, u64 flags)
     }
 #ifdef PAGE_DEBUG
     if (invalidate && p)        /* don't care about invalidate on unmap */
-        console("   - part of map caused invalidate\n");
+        rputs("   - part of map caused invalidate\n");
 #endif
 
     memory_barrier();
@@ -560,11 +560,11 @@ void map(u64 virtual, physical p, u64 length, u64 flags)
 void unmap(u64 virtual, u64 length)
 {
 #ifdef PAGE_DEBUG
-    console("unmap v: ");
+    rputs("unmap v: ");
     print_u64(virtual);
-    console(", length: ");
+    rputs(", length: ");
     print_u64(length);
-    console("\n");
+    rputs("\n");
 #endif
     unmap_pages(virtual, length);
 }

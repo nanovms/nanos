@@ -66,7 +66,7 @@ static void xapic_ipi(apic_iface i, u32 target, u64 flags, u8 vector)
             return;
         kern_pause();
     }
-    console("ipi timed out\n");
+    rputs("ipi timed out\n");
 }
 
 static boolean detect(apic_iface i, kernel_heaps kh)
