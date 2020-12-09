@@ -1,7 +1,7 @@
 {
     "Args": ["main"],
     "RunConfig": {
-        "Ports": [8080]
+        "Ports": ["8080"]
     },
     "Boot": "../../../output/test/e2e/boot.img",
     "Kernel": "../../../output/test/e2e/kernel.img",

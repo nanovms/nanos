@@ -1,7 +1,7 @@
 {
     "Args": ["hi.js"],
     "RunConfig": {
-        "Ports": [8083]
+        "Ports": ["8083"]
     },
     "Boot": "../../../output/test/e2e/boot.img",
     "Kernel": "../../../output/test/e2e/kernel.img",
