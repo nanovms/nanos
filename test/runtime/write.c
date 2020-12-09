@@ -12,7 +12,6 @@
 #include <sys/time.h>
 #include <sys/eventfd.h>
 #include <sys/stat.h>
-#include <unix/syscalls.h>
 
 //#define WRITETEST_DEBUG
 #ifdef WRITETEST_DEBUG
@@ -622,6 +621,7 @@ static void fs_stress_test()
 {
     int num_files = 1000;
     int fds[num_files];
+    char *fd_names[num_files];
 
     /* Creating and writing to new files */
     int i;
@@ -632,21 +632,17 @@ static void fs_stress_test()
         sprintf(name, "fs_stress_test_%d", i);
         int fd = open(name, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
         fds[i] = fd;
+        fd_names[i] = name;
         if (fd < 0) {
-            printf("open error\n");
             perror("open");
             exit(EXIT_FAILURE);
         }
 
         _READ(buf, BUFLEN);
 
-        if (rv == 0)
-            writetest_debug("empty source file\n");
-
         if (rv >= BUFLEN)
             rv = BUFLEN - 1;
         buf[rv] = '\0';
-        writetest_debug("original: \"%s\"\n", buf);
 
         _LSEEK(0, SEEK_SET);
 
@@ -655,14 +651,25 @@ static void fs_stress_test()
     }
 
     /* sync the filesystem */
-    syscall(SYS_sync); 
+    sync(); 
 
     /* Deleting all files we just created */
-    for (i = 0; i < num_files; i++) 
+    for (i = 0; i < num_files; i++) {
         close(fds[i]);
+        char path[50];
+        sprintf(path, "./%s", fd_names[i]);
+        remove(path);
+
+        /* Confirms file is deleted */
+        int deleted_fd = open(fd_names[i], O_RDONLY, 0);
+        if (deleted_fd >= 0) {
+            perror("shouldn't be open");
+            exit(EXIT_FAILURE);
+        }
+    }
 
     /* sync the filesystem again */
-    syscall(SYS_sync); 
+    sync(); 
     return;
 
   out_fail:
