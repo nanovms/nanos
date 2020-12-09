@@ -139,8 +139,11 @@ static boolean futex_wait_bitset_test_2()
     int bitset = 0xffffffff;
     int expected_result = -1; 
 
-    /* timeout of 0.3 seconds */
-    struct timespec timeout = {.tv_sec = 0, .tv_nsec = 300000000};
+    /* Set timeout of 0.3 seconds */
+    long timeout_length = 300000000; /* in nanoseconds */
+    struct timespec start;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    struct timespec timeout = {.tv_sec = start.tv_sec, .tv_nsec = start.tv_nsec+timeout_length};
     int ret = syscall(SYS_futex, uaddr, FUTEX_WAIT_BITSET, val, &timeout, NULL, bitset);
 
     /* Check timeout by checking value of errno */
