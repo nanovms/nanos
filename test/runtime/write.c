@@ -621,18 +621,23 @@ static void fs_stress_test()
 {
     int num_files = 1000;
     int fds[num_files];
-    char *fd_names[num_files];
+    char fd_names[num_files][50];
+    int i = 0;
+
+    struct timespec start;
+    if (clock_gettime(CLOCK_MONOTONIC, &start) < 0) {
+        perror("bulk_write_test: clock_gettime");
+        goto out_fail;
+    }
 
     /* Creating and writing to new files */
-    int i;
-    for (i = 0; i < num_files; i++) {
+    for (; i < num_files; i++) {
         char buf[BUFLEN];
         ssize_t rv;
-        char name[25];
-        sprintf(name, "fs_stress_test_%d", i);
-        int fd = open(name, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+        sprintf(fd_names[i], "fs_stress_test_%d", i);
+        int fd = open(fd_names[i], O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
         fds[i] = fd;
-        fd_names[i] = name;
+
         if (fd < 0) {
             perror("open");
             exit(EXIT_FAILURE);
@@ -640,15 +645,20 @@ static void fs_stress_test()
 
         _READ(buf, BUFLEN);
 
-        if (rv >= BUFLEN)
-            rv = BUFLEN - 1;
-        buf[rv] = '\0';
-
         _LSEEK(0, SEEK_SET);
 
         ssize_t len = strlen(str);
         _WRITE(str, len);
     }
+
+    /* Time up to first sync() call */
+    struct timespec postwrite;
+    if (clock_gettime(CLOCK_MONOTONIC, &postwrite) < 0) {
+        perror("fs_stress_test: clock_gettime");
+        goto out_fail;
+    }
+    printf("fs stress test\n");
+    print_op_stats("write", &start, &postwrite, 0);
 
     /* sync the filesystem */
     sync(); 
@@ -658,18 +668,26 @@ static void fs_stress_test()
         close(fds[i]);
         char path[50];
         sprintf(path, "./%s", fd_names[i]);
-        remove(path);
 
         /* Confirms file is deleted */
-        int deleted_fd = open(fd_names[i], O_RDONLY, 0);
-        if (deleted_fd >= 0) {
-            perror("shouldn't be open");
+        if (remove(path) != 0) {
+            perror("file remove unsucessful");
             exit(EXIT_FAILURE);
         }
     }
 
     /* sync the filesystem again */
     sync(); 
+
+    /* Time of remaining and total time*/
+    struct timespec postsync;
+    if (clock_gettime(CLOCK_MONOTONIC, &postsync) < 0) {
+        perror("fs_stress_test: clock_gettime");
+        goto out_fail;
+    }
+    print_op_stats("syncs and delete", &postwrite, &postsync, 0);
+    print_op_stats("total", &start, &postsync, 0);
+
     return;
 
   out_fail:
