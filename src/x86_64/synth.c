@@ -25,7 +25,7 @@ void mov_64_imm(buffer b, reg r, u64 imm)
 {
     rex(b, true, false, false, false);
     push_u8(b, 0xb8 + r);
-    assert(buffer_write_le64(b, imm)); // assert fails
+    assert(buffer_write_le64(b, imm));
 }
 
 void mov_32_imm(buffer b, reg r, u32 imm)

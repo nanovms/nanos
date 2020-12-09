@@ -52,12 +52,12 @@ closure_function(1, 1, void, maps_handler,
 
     /* File path is unknown; only stack and heap pseudo-paths are known. */
     if (map == current->p->stack_map) {
-        assert(buffer_write_cstring(b, "\t[stack]"));
+        buffer_write_cstring(b, "\t[stack]");
     } else if (map == current->p->heap_map) {
-        assert(buffer_write_cstring(b, "\t[heap]"));
+        buffer_write_cstring(b, "\t[heap]");
     }
 
-    assert(buffer_write_cstring(b, "\n"));
+    buffer_write_cstring(b, "\n");
 }
 
 static sysreturn maps_read(file f, void *dest, u64 length, u64 offset)
