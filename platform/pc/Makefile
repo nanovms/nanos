@@ -5,6 +5,10 @@ PROGRAMS=	kernel.img
 SRCS-kernel.img= \
 	$(CURDIR)/service.c \
 	$(OBJDIR)/gitversion.c \
+	$(SRCDIR)/aws/ena/ena.c \
+	$(SRCDIR)/aws/ena/ena_com/ena_com.c \
+	$(SRCDIR)/aws/ena/ena_com/ena_eth_com.c \
+	$(SRCDIR)/aws/ena/ena_datapath.c \
 	$(SRCDIR)/drivers/ata.c \
 	$(SRCDIR)/drivers/ata-pci.c \
 	$(SRCDIR)/drivers/console.c \

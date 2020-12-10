@@ -1,6 +1,7 @@
 /* PCI config register */
 #define PCIR_VENDOR     0x00
 #define PCIR_DEVICE     0x02
+#define PCIR_REVID      0x08
 #define PCIR_PROG_IF    0x09
 #define PCIR_SUBCLASS   0x0a
 #define PCIR_CLASS      0x0b
@@ -78,6 +79,11 @@ static inline u16 pci_get_subdevice(pci_dev dev)
     return pci_cfgread(dev, PCIR_SUBDEV_0, 2);
 }
 
+static inline u8 pci_get_revid(pci_dev dev)
+{
+    return pci_cfgread(dev, PCIR_REVID, 1);
+}
+
 static inline u8 pci_get_class(pci_dev dev)
 {
     return pci_cfgread(dev, PCIR_CLASS, 1);
@@ -139,6 +145,7 @@ u32 pci_find_next_cap(pci_dev dev, u8 cap, u32 cp);
 
 void pci_discover();
 void pci_set_bus_master(pci_dev dev);
+int pci_get_msix_count(pci_dev dev);
 int pci_enable_msix(pci_dev dev);
 void pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name);
 void pci_teardown_msix(pci_dev dev, int msi_slot);

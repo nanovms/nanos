@@ -240,6 +240,15 @@ u32 pci_find_next_cap(pci_dev dev, u8 cap, u32 cp)
     return _pci_find_cap(dev, cap, pci_cfgread(dev, cp + PCICAP_NEXTPTR, 1));
 }
 
+int pci_get_msix_count(pci_dev dev)
+{
+    u32 cp = pci_find_cap(dev, PCIY_MSIX);
+    if (cp == 0)
+        return 0;
+    u16 ctrl = pci_cfgread(dev, cp + 2, 2);
+    return (ctrl & 0x7ff) + 1;
+}
+
 int pci_enable_msix(pci_dev dev)
 {
     u32 cp = pci_find_cap(dev, PCIY_MSIX);
