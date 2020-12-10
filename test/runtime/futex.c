@@ -140,14 +140,13 @@ static boolean futex_wait_bitset_test_2()
     int bitset = 0xffffffff;
     int expected_result = -1; 
 
-    /* Set timeout of 0.3 seconds */
     struct timespec start;
     clock_gettime(CLOCK_MONOTONIC, &start);
 
     /* Ensure that timeout.tv_nsec is in the range 0 to 999999999
     and transfer the remainder to tv_sec field */
     struct timespec timeout = {.tv_sec = start.tv_sec, .tv_nsec = 0};
-    long timeout_nsec = 300000000; /* timeout in nanoseconds */
+    long timeout_nsec = 300000000; /* timeout of 0.3 seconds */
     long total_nsec = start.tv_nsec + timeout_nsec; 
     long max_nsec = 1000000000;
     if (total_nsec >= max_nsec) {
