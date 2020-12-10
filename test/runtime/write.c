@@ -685,7 +685,7 @@ static void fs_stress_test()
         perror("fs_stress_test: clock_gettime");
         goto out_fail;
     }
-    print_op_stats("syncs and delete", &postwrite, &postsync, 0);
+    print_op_stats("sync & delete", &postwrite, &postsync, 0);
     print_op_stats("total", &start, &postsync, 0);
 
     return;
