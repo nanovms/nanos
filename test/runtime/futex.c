@@ -8,6 +8,7 @@
 #include <limits.h>
 #include <time.h>
 #include <errno.h>
+#include <math.h>
 
 #define EXIT_FAILURE 1
 #define EXIT_SUCCESS 0
@@ -140,10 +141,22 @@ static boolean futex_wait_bitset_test_2()
     int expected_result = -1; 
 
     /* Set timeout of 0.3 seconds */
-    long timeout_length = 300000000; /* in nanoseconds */
     struct timespec start;
     clock_gettime(CLOCK_MONOTONIC, &start);
-    struct timespec timeout = {.tv_sec = start.tv_sec, .tv_nsec = start.tv_nsec+timeout_length};
+
+    /* Ensure that timeout.tv_nsec is in the range 0 to 999999999
+    and transfer the remainder to tv_sec field */
+    struct timespec timeout = {.tv_sec = start.tv_sec, .tv_nsec = 0};
+    long timeout_nsec = 300000000; /* timeout in nanoseconds */
+    long total_nsec = start.tv_nsec + timeout_nsec; 
+    long max_nsec = 1000000000;
+    if (total_nsec >= max_nsec) {
+        timeout.tv_nsec += (total_nsec % max_nsec);
+        timeout.tv_sec += floor(total_nsec/max_nsec);
+    }
+    else
+        timeout.tv_nsec = total_nsec;
+
     int ret = syscall(SYS_futex, uaddr, FUTEX_WAIT_BITSET, val, &timeout, NULL, bitset);
 
     /* Check timeout by checking value of errno */
