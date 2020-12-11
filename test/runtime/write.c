@@ -622,15 +622,15 @@ static void fs_stress_test()
     int num_files = 1000;
     int fds[num_files];
     char fd_names[num_files][50];
-    int i = 0;
 
     struct timespec start;
     if (clock_gettime(CLOCK_MONOTONIC, &start) < 0) {
-        perror("bulk_write_test: clock_gettime");
-        goto out_fail;
+        perror("fs_stress_test: clock_gettime");
+        exit(EXIT_FAILURE);
     }
 
     /* Creating and writing to new files */
+    int i = 0;
     for (; i < num_files; i++) {
         char buf[BUFLEN];
         ssize_t rv;
@@ -651,7 +651,10 @@ static void fs_stress_test()
         _WRITE(str, len);
     }
 
-    /* Time up to first sync() call */
+    /* sync the filesystem */
+    sync(); 
+
+    /* Time through the first sync() call */
     struct timespec postwrite;
     if (clock_gettime(CLOCK_MONOTONIC, &postwrite) < 0) {
         perror("fs_stress_test: clock_gettime");
@@ -660,17 +663,12 @@ static void fs_stress_test()
     printf("fs stress test\n");
     print_op_stats("write", &start, &postwrite, 0);
 
-    /* sync the filesystem */
-    sync(); 
-
     /* Deleting all files we just created */
     for (i = 0; i < num_files; i++) {
         close(fds[i]);
-        char path[50];
-        sprintf(path, "./%s", fd_names[i]);
 
         /* Confirms file is deleted */
-        if (remove(path) != 0) {
+        if (remove(fd_names[i]) != 0) {
             perror("file remove unsucessful");
             exit(EXIT_FAILURE);
         }
@@ -679,13 +677,13 @@ static void fs_stress_test()
     /* sync the filesystem again */
     sync(); 
 
-    /* Time of remaining and total time*/
+    /* Time of deletion and total time*/
     struct timespec postsync;
     if (clock_gettime(CLOCK_MONOTONIC, &postsync) < 0) {
         perror("fs_stress_test: clock_gettime");
-        goto out_fail;
+        exit(EXIT_FAILURE);
     }
-    print_op_stats("sync & delete", &postwrite, &postsync, 0);
+    print_op_stats("delete", &postwrite, &postsync, 0);
     print_op_stats("total", &start, &postsync, 0);
 
     return;
@@ -757,6 +755,7 @@ int main(int argc, char **argv)
         append_write_test();
         truncate_test(argv[0]);
         write_exec_test(argv[0]);
+        fs_stress_test();
     }
 
     if (op == WRITE_OP_ALL || op == WRITE_OP_BULK_ONLY) {
@@ -766,8 +765,6 @@ int main(int argc, char **argv)
     if (op == WRITE_OP_PERSISTENCE_ONLY) {
         persistence_write_test();
     }
-
-    fs_stress_test();
 
     printf("write test passed\n");
     return EXIT_SUCCESS;
