@@ -17,7 +17,7 @@ u64 ap_lock;
 static void (*start_callback)();
 
 #ifdef MP_DEBUG
-#define mp_debug(x) console(x)
+#define mp_debug(x) rputs(x)
 #define mp_debug_u64(x) print_u64(x)
 #else
 #define mp_debug(x)

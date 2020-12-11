@@ -83,10 +83,10 @@ static inline void print_regions()
 {
     for_regions(e){    
          print_u64(e->type);
-         console(" ");
+         rputs(" ");
          print_u64(e->base);
-         console(" ");
+         rputs(" ");
          print_u64(e->length);
-         console("\n");
+         rputs("\n");
     }
 }

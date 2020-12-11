@@ -5,7 +5,7 @@
         "GEM_HOME": ".ruby"
     },
     "RunConfig": {
-        "Ports": [4567]
+        "Ports": ["4567"]
     },
     "Boot": "../../../output/test/e2e/boot.img",
     "Kernel": "../../../output/test/e2e/kernel.img",
