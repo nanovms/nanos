@@ -1032,6 +1032,7 @@ void mmap_process_init(process p)
     /* Track vsyscall page */
     assert(allocate_vmap(p->vmaps, irangel(VSYSCALL_BASE, PAGESIZE),
                          ivmap(VMAP_FLAG_EXEC, 0, 0, 0)) != INVALID_ADDRESS);
+    /* XXX x86 only? */
 
     init_closure(&do_kernel_demand_pf_complete, kernel_demand_pf_complete);
 }

@@ -50,7 +50,11 @@ sysreturn arch_prctl(int code, unsigned long addr)
 }
 #endif
 
+#ifdef __x86_64__
 sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, unsigned long newtls)
+#elif defined(__aarch64__)
+sysreturn clone(unsigned long flags, void *child_stack, int *ptid, unsigned long newtls, int *ctid)
+#endif
 {
     thread_log(current, "clone: flags %lx, child_stack %p, ptid %p, ctid %p, newtls %lx",
         flags, child_stack, ptid, ctid, newtls);
