@@ -153,7 +153,7 @@ static void timer_config(int timer, timestamp rate, thunk t, boolean periodic)
 
     if (periodic) {
         if ((hpet->timers[timer].config & TCONF(PER_INT_CAP)) == 0) {
-	    console("HPET timer not capable of periodic interrupts.\n");
+	    rputs("HPET timer not capable of periodic interrupts.\n");
 	    return;
 	}
         tim->config |= TCONF(VAL_SET_CNF) | TCONF(TYPE_CNF);

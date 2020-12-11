@@ -2,7 +2,7 @@
   "Files": ["index.html"],
   "Dirs": ["usr"],
   "RunConfig": {
-    "Ports": [8084]
+    "Ports": ["8084"]
   },
   "Boot": "../../../output/test/e2e/boot.img",
   "Kernel": "../../../output/test/e2e/kernel.img",

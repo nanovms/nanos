@@ -1,4 +1,5 @@
 #include <runtime.h>
+#include <log.h>
 
 buffer allocate_buffer(heap h, bytes s)
 {
@@ -48,3 +49,9 @@ int buffer_strstr(buffer b, const char *str) {
     return -1;
 }
 KLIB_EXPORT(buffer_strstr);
+
+void buffer_print(buffer b)
+{
+    console_write(buffer_ref(b, 0), buffer_length(b));
+    klog_write(buffer_ref(b, 0), buffer_length(b));
+}

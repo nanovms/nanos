@@ -52,3 +52,6 @@
 
 /* ftrace buffer size */
 #define DEFAULT_TRACE_ARRAY_SIZE        (512ULL << 20)
+
+/* on-disk log dump section */
+#define KLOG_DUMP_SIZE  (4 * KB)

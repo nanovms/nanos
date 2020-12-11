@@ -74,6 +74,11 @@ void lwip_status_callback(struct netif *netif)
     rprintf("assigned: %d.%d.%d.%d\n", n[0], n[1], n[2], n[3]);
 }
 
+u32_t lwip_rand(void)
+{
+    return random_u64();
+}
+
 /* unsigned only ... don't imagine we'd have negative interface numbers! */
 int lwip_atoi(const char *p)
 {
@@ -103,6 +108,11 @@ int lwip_memcmp(const void *x, const void *y, unsigned long len)
     return runtime_memcmp(x, y, len);
 }
 
+int lwip_strcmp(const char *x, const char *y)
+{
+    return runtime_strcmp(x, y);
+}
+
 int lwip_strncmp(const char *x, const char *y, unsigned long len)
 {
     for (int i = 0; i < len; i++) {
@@ -111,6 +121,8 @@ int lwip_strncmp(const char *x, const char *y, unsigned long len)
     }
     return 0;
 }
+
+KLIB_EXPORT(dns_gethostbyname);
 
 #define MAX_ADDR_LEN 20
 static boolean get_config_addr(tuple root, symbol s, ip4_addr_t *addr)
