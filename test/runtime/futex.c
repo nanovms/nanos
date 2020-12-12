@@ -8,7 +8,6 @@
 #include <limits.h>
 #include <time.h>
 #include <errno.h>
-#include <math.h>
 
 #define EXIT_FAILURE 1
 #define EXIT_SUCCESS 0
@@ -151,7 +150,7 @@ static boolean futex_wait_bitset_test_2()
     long max_nsec = 1000000000;
     if (total_nsec >= max_nsec) {
         timeout.tv_nsec += (total_nsec % max_nsec);
-        timeout.tv_sec += floor(total_nsec/max_nsec);
+        timeout.tv_sec += (total_nsec/max_nsec);
     }
     else
         timeout.tv_nsec = total_nsec;
