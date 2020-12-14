@@ -29,6 +29,7 @@ static inline __attribute__((always_inline)) u16 tagof(void* v) {
 
 typedef struct spinlock {
     word w;
+    u64 readers;
 } *spinlock;
 #endif
 
