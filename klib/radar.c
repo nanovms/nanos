@@ -35,17 +35,27 @@ GIo/ikGQI31bS/6kA1ibRrLDYGCD+H1QQc7CoZDDu+8CL9IVVO5EFdkKrqeKM+2x\
 LXY2JtwE65/3YR8V3Idv7kaWKK2hJn0KCacuBKONvPi8BDAB\
 -----END CERTIFICATE-----"
 
+#define RADAR_STATS_INTERVAL    seconds(60)
+#define RADAR_STATS_BATCH_SIZE  5
+
 declare_closure_struct(0, 1, void, retry_timer_func,
+    u64, overruns);
+declare_closure_struct(0, 1, void, telemetry_stats,
     u64, overruns);
 
 static struct telemetry {
     heap h;
+    heap phys;
     tuple env;
     buffer auth_header;
     klog_dump dump;
     u64 boot_id;
+    boolean running;
     timestamp retry_backoff;
     closure_struct(retry_timer_func, retry_func);
+    closure_struct(telemetry_stats, stats_func);
+    u64 stats_mem_used[RADAR_STATS_BATCH_SIZE];
+    int stats_count;
     void (*rprintf)(const char *format, ...);
     tuple (*allocate_tuple)(void);
     void (*table_set)(table z, void *c, void *v);
@@ -141,6 +151,12 @@ closure_function(2, 1, status, telemetry_recv,
             deallocate(telemetry.h, telemetry.dump, sizeof(*telemetry.dump));
             telemetry.dump = 0;
             telemetry_boot();
+        } else if (!telemetry.running) {
+            /* The boot event has been sent: start collecting usage metrics. */
+            telemetry.stats_count = 0;
+            kfunc(register_timer)(CLOCK_ID_MONOTONIC, RADAR_STATS_INTERVAL, false,
+                    RADAR_STATS_INTERVAL, (timer_handler)&telemetry.stats_func);
+            telemetry.running = true;
         }
     }
     return STATUS_OK;
@@ -311,6 +327,29 @@ static void telemetry_boot(void)
     telemetry_retry();
 }
 
+define_closure_function(0, 1, void, telemetry_stats,
+                        u64, overruns)
+{
+    telemetry.stats_mem_used[telemetry.stats_count++] = heap_allocated(telemetry.phys);
+    if (telemetry.stats_count == RADAR_STATS_BATCH_SIZE) {
+        telemetry.stats_count = 0;
+        buffer b = kfunc(allocate_buffer)(telemetry.h, 128);
+        if (b == INVALID_ADDRESS) {
+            kfunc(rprintf)("%s: failed to allocate buffer\n", __func__);
+            return;
+        }
+        kfunc(bprintf)(b, "{\"bootID\":%ld,\"memUsed\":[", telemetry.boot_id);
+        for (int i = 0; i < RADAR_STATS_BATCH_SIZE; i++)
+            kfunc(bprintf)(b, "%ld%s", telemetry.stats_mem_used[i],
+                    (i < RADAR_STATS_BATCH_SIZE - 1) ? "," : "");
+        buffer_write_cstring(b, "]}\r\n");
+        if (!telemetry_send("/machine-stats", b, 0)) {
+            kfunc(rprintf)("%s: failed to send stats\n", __func__);
+            deallocate_buffer(b);
+        }
+    }
+}
+
 closure_function(0, 1, void, klog_dump_loaded,
                  status, s)
 {
@@ -381,7 +420,9 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
         kfunc(rprintf)("Radar: kernel symbols not found\n");
         return KLIB_INIT_FAILED;
     }
-    telemetry.h = heap_general(get_kernel_heaps());
+    kernel_heaps kh = get_kernel_heaps();
+    telemetry.h = heap_general(kh);
+    telemetry.phys = (heap)heap_physical(kh);
     klib_handler tls_handler = closure(telemetry.h, tls_loaded);
     if (tls_handler == INVALID_ADDRESS) {
         return KLIB_INIT_FAILED;
@@ -389,6 +430,8 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
     telemetry.env = get_environment();
     telemetry.auth_header = kfunc(table_find)(telemetry.env, sym(RADAR_KEY));
     telemetry.retry_backoff = seconds(1);
+    telemetry.running = false;
+    init_closure(&telemetry.stats_func, telemetry_stats);
     load_klib("/klib/tls", tls_handler);
     return KLIB_INIT_OK;
 }
