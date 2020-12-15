@@ -80,11 +80,8 @@ void init_vsyscall(heap phys)
 
 void init_vdso(process p)
 {
-    kernel_heaps kh;
     physical paddr;
     u64 vaddr, size;
-
-    kh = &(p->uh->kh);
 
     /* sanity checks */
     assert(((unsigned long)&vvar_page & MASK(PAGELOG)) == 0);
@@ -121,6 +118,8 @@ void init_vdso(process p)
         }
     }
 
+#ifdef __x86_64__
     /* init legacy vsyscall mappings */
-    init_vsyscall((heap)heap_physical(kh));
+    init_vsyscall((heap)heap_physical(&p->uh->kh));
+#endif
 }

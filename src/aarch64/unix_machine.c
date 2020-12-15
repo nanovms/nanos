@@ -1,4 +1,5 @@
 #include <unix_internal.h>
+#include <vdso-offset.h>
 
 struct rt_sigframe *get_rt_sigframe(thread t)
 {
@@ -47,11 +48,12 @@ void setup_sigframe(thread t, int signum, struct siginfo *si)
     }
 
     /* setup regs for signal handler */
+    t->sighandler_frame[FRAME_EL] = 0;
     t->sighandler_frame[FRAME_ELR] = u64_from_pointer(sa->sa_handler);
     t->sighandler_frame[FRAME_X0] = signum;
     t->sighandler_frame[FRAME_X29] = u64_from_pointer(&rec->fp);
-    t->sighandler_frame[FRAME_EL] = 0;
-    t->sighandler_frame[FRAME_X30] = u64_from_pointer(sa->sa_restorer);
+    t->sighandler_frame[FRAME_X30] = (sa->sa_flags & SA_RESTORER) ?
+        u64_from_pointer(sa->sa_restorer) : t->p->vdso_base + VDSO_OFFSET_RT_SIGRETURN;
 
     /* TODO address BTI if supported */
 

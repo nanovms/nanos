@@ -131,3 +131,12 @@ time(time_t * t)
 {
     return do_vdso_time(t);
 }
+
+#ifdef __aarch64__
+sysreturn __vdso_rt_sigreturn(void)
+{
+    /* these two instructions cannot change - libgcc and others look
+       for these when unwinding signal handlers */
+    asm volatile ("mov x8, #139; svc #0"); // SYS_rt_sigreturn
+}
+#endif

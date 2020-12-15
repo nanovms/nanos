@@ -152,7 +152,8 @@ INCLUDES=\
 	-I$(SRCDIR)/unix \
 	-I$(SRCDIR)/unix_process \
 	-I$(SRCDIR)/xen/public \
-	-I$(LWIPDIR)/src/include
+	-I$(LWIPDIR)/src/include \
+	-I$(VDSO_OBJDIR)
 
 AFLAGS+=-I$(ARCHDIR)
 
@@ -273,7 +274,10 @@ $(VDSO_OBJDIR)/vdso.so: $(VDSO_OBJS)
 $(VDSO_OBJDIR)/vdso-image.c: contgen $(VDSOGEN) $(VDSO_OBJDIR)/vdso.so
 	$(call cmd,vdsogen)
 
-$(PROG-kernel.elf): linker_script # $(VDSO_OBJDIR)/vdso-image.c
+$(VDSO_OBJDIR)/vdso-offset.h: $(VDSO_OBJDIR)/vdso.so
+	$(OBJDUMP) -t $(VDSO_OBJDIR)/vdso.so | grep __vdso_rt_sigreturn | sed "s/^\([[:xdigit:]]*\) .*/#define VDSO_OFFSET_RT_SIGRETURN 0x\1/" > $@
+
+$(PROG-kernel.elf): linker_script $(VDSO_OBJDIR)/vdso-image.c $(VDSO_OBJDIR)/vdso-offset.h
 
 $(KERNEL): $(PROG-kernel.elf)
 	$(call cmd,objcopy)
