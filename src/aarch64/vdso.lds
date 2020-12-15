@@ -44,10 +44,12 @@ VERSION
 {
     LINUX_2.6 {
         global:
-            clock_gettime;
-            __vdso_clock_gettime;
+            rt_sigreturn;
+            __vdso_rt_sigreturn;
             gettimeofday;
             __vdso_gettimeofday;
+            clock_gettime;
+            __vdso_clock_gettime;
             getcpu;
             __vdso_getcpu;
             time;
@@ -56,3 +58,5 @@ VERSION
             *;
     };
 }
+
+VDSO_sigtramp = __vdso_rt_sigreturn;
