@@ -104,7 +104,6 @@ static void init_cpuinfos(heap backed)
         ci->kernel_context = allocate_kernel_context(backed);
         ci->exception_stack = allocate_stack(backed, EXCEPT_STACK_SIZE);
         ci->int_stack = allocate_stack(backed, INT_STACK_SIZE);
-        ci->inval_queue = allocate_queue(backed, PAGE_INVAL_QUEUE_LENGTH);
 #ifdef SMP_DEBUG
         rprintf("cpu %2d: kernel_frame %p, kernel_stack %p", i, ci->kernel_frame, ci->kernel_stack);
         rprintf("        fault_stack  %p, int_stack    %p", ci->fault_stack, ci->int_stack);

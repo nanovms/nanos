@@ -61,8 +61,8 @@ typedef struct cpuinfo {
     /* Stack for interrupts */
     void *int_stack;
 
-    /* queue of pages to invalidate */
-    queue inval_queue;
+    /* Generation number for invalidates */
+    word inval_gen;
 
 #ifdef CONFIG_FTRACE
     int graph_idx;

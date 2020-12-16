@@ -37,7 +37,7 @@ void pagecache_node_fetch_pages(pagecache_node pn, range r /* bytes */);
 
 void pagecache_node_scan_and_commit_shared_pages(pagecache_node pn, range q /* bytes */);
 
-void pagecache_node_close_shared_pages(pagecache_node pn, range q /* bytes */);
+void pagecache_node_close_shared_pages(pagecache_node pn, range q /* bytes */, flush_entry fe);
 
 void pagecache_node_unmap_pages(pagecache_node pn, range v /* bytes */, u64 node_offset);
 

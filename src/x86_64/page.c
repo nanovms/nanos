@@ -127,24 +127,33 @@ physical physical_from_virtual(void *x)
 }
 #endif
 
+/* assumes page table is consistent when called */
 void flush_tlb()
 {
-    pagetable_lock();
     u64 *base;
     mov_from_cr("cr3", base);
     mov_to_cr("cr3", base);
-    pagetable_unlock();
 }
 
 #ifdef BOOT
-void page_invalidate(u64 address)
+void page_invalidate(flush_entry f, u64 address)
 {
     flush_tlb();
 }
 
-void page_invalidate_sync(thunk completion)
+void page_invalidate_sync(flush_entry f, thunk completion)
 {
     apply(completion);
+}
+
+void page_invalidate_flush()
+{
+
+}
+
+flush_entry get_page_flush_entry()
+{
+    return 0;
 }
 #endif
 
@@ -279,7 +288,7 @@ static boolean force_entry(u64 b, u64 v, physical p, int level,
 
 /* called with lock held */
 static inline boolean map_page(u64 base, u64 v, physical p,
-                               boolean fat, u64 flags, boolean * invalidate)
+                               boolean fat, u64 flags, boolean * invalidate, flush_entry fe)
 {
     boolean invalidate_entry = false;
 #ifdef PAGE_UPDATE_DEBUG
@@ -291,7 +300,7 @@ static inline boolean map_page(u64 base, u64 v, physical p,
 	return false;
     if (invalidate_entry) {
         // move this up to construct ranges?
-        page_invalidate(v);
+        page_invalidate(fe, v);
         if (invalidate)
             *invalidate = true;
     }
@@ -373,8 +382,8 @@ boolean validate_virtual(void * base, u64 length)
 }
 
 /* called with lock held */
-closure_function(1, 3, boolean, update_pte_flags,
-                 u64, flags,
+closure_function(2, 3, boolean, update_pte_flags,
+                 u64, flags, flush_entry, fe,
                  int, level, u64, addr, u64 *, entry)
 {
     /* we only care about present ptes */
@@ -386,7 +395,7 @@ closure_function(1, 3, boolean, update_pte_flags,
 #ifdef PAGE_UPDATE_DEBUG
     page_debug("update 0x%lx: pte @ 0x%lx, 0x%lx -> 0x%lx\n", addr, entry, old, *entry);
 #endif
-    page_invalidate(addr);
+    page_invalidate(bound(fe), addr);
     return true;
 }
 
@@ -395,12 +404,14 @@ void update_map_flags(u64 vaddr, u64 length, u64 flags)
 {
     flags &= ~PAGE_NO_FAT;
     page_debug("vaddr 0x%lx, length 0x%lx, flags 0x%lx\n", vaddr, length, flags);
-    traverse_ptes(vaddr, length, stack_closure(update_pte_flags, flags));
+    flush_entry fe = get_page_flush_entry();
+    traverse_ptes(vaddr, length, stack_closure(update_pte_flags, flags, fe));
+    page_invalidate_sync(fe, ignore);
 }
 
 /* called with lock held */
-closure_function(2, 3, boolean, remap_entry,
-                 u64, new, u64, old,
+closure_function(3, 3, boolean, remap_entry,
+                 u64, new, u64, old, flush_entry, fe,
                  int, level, u64, curr, u64 *, entry)
 {
     u64 offset = curr - bound(old);
@@ -418,13 +429,13 @@ closure_function(2, 3, boolean, remap_entry,
         return true;
 
     /* transpose mapped page */
-    map_page(pagebase, new_curr, phys, pt_entry_is_fat(level, oldentry), flags, 0);
+    map_page(pagebase, new_curr, phys, pt_entry_is_fat(level, oldentry), flags, 0, bound(fe));
 
     /* reset old entry */
     *entry = 0;
 
     /* invalidate old mapping (map_page takes care of new)  */
-    page_invalidate(curr);
+    page_invalidate(bound(fe), curr);
 
     return true;
 }
@@ -442,8 +453,9 @@ void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length)
         return;
     assert(range_empty(range_intersection(irange(vaddr_new, vaddr_new + length),
                                           irange(vaddr_old, vaddr_old + length))));
-    traverse_ptes(vaddr_old, length, stack_closure(remap_entry, vaddr_new, vaddr_old));
-    page_invalidate_sync(ignore);
+    flush_entry fe = get_page_flush_entry();
+    traverse_ptes(vaddr_old, length, stack_closure(remap_entry, vaddr_new, vaddr_old, fe));
+    page_invalidate_sync(fe, ignore);
 }
 
 /* called with lock held */
@@ -467,8 +479,8 @@ void zero_mapped_pages(u64 vaddr, u64 length)
 }
 
 /* called with lock held */
-closure_function(1, 3, boolean, unmap_page,
-                 range_handler, rh,
+closure_function(2, 3, boolean, unmap_page,
+                 range_handler, rh, flush_entry, fe,
                  int, level, u64, vaddr, u64 *, entry)
 {
     range_handler rh = bound(rh);
@@ -479,7 +491,7 @@ closure_function(1, 3, boolean, unmap_page,
                    rh, level, vaddr, entry, *entry);
 #endif
         *entry = 0;
-        page_invalidate(vaddr);
+        page_invalidate(bound(fe), vaddr);
         if (rh) {
             apply(rh, irangel(page_from_pte(old_entry),
                               (pt_entry_is_fat(level, old_entry) ?
@@ -494,8 +506,9 @@ closure_function(1, 3, boolean, unmap_page,
 void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh)
 {
     assert(!((virtual & PAGEMASK) || (length & PAGEMASK)));
-    traverse_ptes(virtual, length, stack_closure(unmap_page, rh));
-    page_invalidate_sync(ignore);
+    flush_entry fe = get_page_flush_entry();
+    traverse_ptes(virtual, length, stack_closure(unmap_page, rh, fe));
+    page_invalidate_sync(fe, ignore);
 }
 
 // error processing
@@ -536,20 +549,20 @@ static void map_range(u64 virtual, physical p, u64 length, u64 flags)
 #endif
 
     boolean invalidate = false;
+    flush_entry fe = get_page_flush_entry();
     for (int i = 0; i < len;) {
-	boolean fat = ((flags & PAGE_NO_FAT) == 0) && !(vo & MASK(PT3)) &&
+        boolean fat = ((flags & PAGE_NO_FAT) == 0) && !(vo & MASK(PT3)) &&
             !(po & MASK(PT3)) && ((len - i) >= (1ull<<PT3));
-	if (!map_page(pb, vo, po, fat, flags & ~PAGE_NO_FAT, &invalidate)) {
+        if (!map_page(pb, vo, po, fat, flags & ~PAGE_NO_FAT, &invalidate, fe)) {
             /* may fail if flags == 0 and no mapping, but that's not a problem */
             if (flags)
-		halt("map: ran out of page table memory\n");
-	}
+                halt("map: ran out of page table memory\n");
+        }
         int off = 1ull << (fat ? PT3 : PT4);
         vo += off;
         po += off;
         i += off;
     }
-    page_invalidate_sync(ignore);
 #ifdef PAGE_DEBUG
     if (invalidate && p)        /* don't care about invalidate on unmap */
         rputs("   - part of map caused invalidate\n");
@@ -557,6 +570,7 @@ static void map_range(u64 virtual, physical p, u64 length, u64 flags)
 
     memory_barrier();
     pagetable_unlock();
+    page_invalidate_sync(fe, ignore);
 }
 
 void map(u64 virtual, physical p, u64 length, u64 flags)
@@ -618,15 +632,16 @@ static u64 pt_2m_alloc(heap h, bytes size)
     pt_2m_next += len;
     assert(pt_2m_next >= PAGES_BASE);
 
+    flush_entry fe = get_page_flush_entry();
     for (u64 i = v; i < v + size; i += PAGESIZE_2M) {
         u64 p = allocate_u64((heap)phys_internal, PAGESIZE_2M);
         if (p == INVALID_PHYSICAL)
             halt("%s: failed to allocate 2M physical page\n", __func__);
         /* we depend the pmd already being installed to avoid an alloc here */
-        map_page(pagebase, i, p, true, PAGE_WRITABLE | PAGE_PRESENT, 0);
+        map_page(pagebase, i, p, true, PAGE_WRITABLE | PAGE_PRESENT, 0, fe);
         table_set(pt_p2v, (void *)p, (void *)i);
     }
-    page_invalidate_sync(ignore);
+    page_invalidate_sync(fe, ignore);
     return v;
 }
 
