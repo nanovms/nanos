@@ -10,6 +10,7 @@ PROGRAMS= \
 	fcntl \
 	fst \
 	ftrace \
+	futex \
 	getdents \
 	getrandom \
 	hw \
@@ -90,6 +91,12 @@ SRCS-ftrace= \
 	$(SRCDIR)/unix_process/ssp.c
 
 LDFLAGS-ftrace=	-static
+
+SRCS-futex= \
+	$(CURDIR)/futex.c \
+	$(SRCDIR)/unix_process/ssp.c
+LDFLAGS-futex=	-static
+LIBS-futex=	-lpthread
 
 SRCS-getdents=		$(CURDIR)/getdents.c
 LDFLAGS-getdents=	-static
