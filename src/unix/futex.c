@@ -329,14 +329,14 @@ void wake_robust_list(process p, void *head)
     int *uaddr;
 
     /* must be very careful accessing the head as well as the list */
-    if (!valid_user_address(p, h, sizeof *h))
+    if (!valid_user_address(p, h, sizeof(*h)))
         return;
 
     /* XXX could keep a list of futexes and wake them at the end
      * to let threads acquire multiple locks without blocking */
     if (h->list_op_pending) {
         uaddr = FUTEX_KEY_ADDR(h->list_op_pending, h->futex_offset);
-        if (valid_user_address(p, uaddr, sizeof *uaddr)) {
+        if (valid_user_address(p, uaddr, sizeof(*uaddr))) {
             *uaddr |= FUTEX_OWNER_DIED;
             futex_wake_many_by_uaddr(p, uaddr, 1);
         }
@@ -344,9 +344,9 @@ void wake_robust_list(process p, void *head)
 
     for (l = h->list; (void *)l != (void *)h; l = l->next) {
         uaddr = FUTEX_KEY_ADDR(l, h->futex_offset);
-        if (!valid_user_address(p, l, sizeof *l))
+        if (!valid_user_address(p, l, sizeof(*l)))
             break;
-        if (!valid_user_address(p, uaddr, sizeof *uaddr))
+        if (!valid_user_address(p, uaddr, sizeof(*uaddr)))
             break;
         *uaddr |= FUTEX_OWNER_DIED;
         futex_wake_many_by_uaddr(p, uaddr, 1);
@@ -356,9 +356,9 @@ void wake_robust_list(process p, void *head)
 sysreturn get_robust_list(int pid, void *head, u64 *len)
 {
     struct robust_list_head **hp = head;
-    if (!validate_user_memory(hp, sizeof *hp, true))
+    if (!validate_user_memory(hp, sizeof(*hp), true))
         return -EFAULT;
-    if (!validate_user_memory(len, sizeof *len, true))
+    if (!validate_user_memory(len, sizeof(*len), true))
         return -EFAULT;
 
     thread_log(current, "get_robust_list syscall for pid %d\n", pid);
@@ -366,20 +366,12 @@ sysreturn get_robust_list(int pid, void *head, u64 *len)
     thread t = 0;
     if (pid == 0)
         t = current;
-    else {
-        process p = current->p;
-        thread tt;
-        vector_foreach(p->threads, tt) {
-            if (tt->tid == pid) {
-                t = tt;
-                break;
-            }
-        }
-    }
+    else
+        t = vector_get(current->p->threads, pid);
     if (t == 0)
         return -ESRCH;
     *hp = t->robust_list;
-    *len = sizeof **hp;
+    *len = sizeof(**hp);
     return 0;
 }
 
