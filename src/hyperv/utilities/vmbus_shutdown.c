@@ -46,7 +46,8 @@ static const struct hyperv_guid vmbus_shutdown_device_type = {
        0x81, 0x8b, 0x38, 0xd9, 0x0c, 0xed, 0x39, 0xdb }
 };
 
-closure_function(0, 1, void, hv_sync_complete, status, s) {
+closure_function(0, 1, void, hv_sync_complete,
+                 int, status) {
     HV_SHUTDOWN();
 }
 
@@ -115,7 +116,7 @@ static void vmbus_shutdown_cb(struct vmbus_channel *chan, void *xsc)
    vmbus_ic_sendresp(sc, chan, data, dlen, xactid);
 
    if (do_shutdown)
-       kernel_shutdown_ex(closure(sc->general, hv_sync_complete));
+       kernel_shutdown(0);
 }
 
 
@@ -130,6 +131,7 @@ static status vmbus_shutdown_attach(kernel_heaps kh, hv_device* device)
     sc->hs_dev = device;
 
     vmbus_ic_attach(sc, vmbus_shutdown_cb);
+    vm_halt = closure(sc->general, hv_sync_complete);
 
     return STATUS_OK;
 }
