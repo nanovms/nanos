@@ -703,6 +703,7 @@ extern sysreturn syscall_ignore();
 boolean do_demand_page(u64 vaddr, vmap vm, context frame);
 vmap vmap_from_vaddr(process p, u64 vaddr);
 void vmap_iterator(process p, vmap_handler vmh);
+boolean vmap_validate_range(process p, range q);
 void truncate_file_maps(process p, fsfile f, u64 new_length);
 const char *string_from_mmap_type(int type);
 
@@ -714,6 +715,14 @@ void thread_sleep_uninterruptible(void) __attribute__((noreturn));
 void thread_yield(void) __attribute__((noreturn));
 void thread_wakeup(thread);
 boolean thread_attempt_interrupt(thread t);
+
+/* XXX This should eventually be rolled into validate_user_memory */
+static inline boolean validate_process_memory(process p, const void *a, bytes length, boolean write)
+{
+    u64 v = u64_from_pointer(a);
+
+    return vmap_validate_range(p, irange(v, v + length));
+}
 
 static inline boolean thread_in_interruptible_sleep(thread t)
 {
