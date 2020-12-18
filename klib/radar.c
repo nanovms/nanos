@@ -101,7 +101,7 @@ static boolean telemetry_req(const char *url, buffer data, buffer_handler bh)
         return false;
     kfunc(table_set)(req, sym(url), alloca_wrap_cstring(url));
     kfunc(table_set)(req, sym(Host), alloca_wrap_cstring(RADAR_HOSTNAME));
-    kfunc(table_set)(req, sym(Authorization), telemetry.auth_header);
+    kfunc(table_set)(req, sym(RADAR-KEY), telemetry.auth_header);
     kfunc(table_set)(req, sym(Content-Type), alloca_wrap_cstring("application/json"));
     status s = kfunc(http_request)(telemetry.h, bh, HTTP_REQUEST_METHOD_POST, req, data);
     kfunc(deallocate_table)(req);
@@ -334,17 +334,12 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
         return KLIB_INIT_FAILED;
     }
     telemetry.h = heap_general(get_kernel_heaps());
-    telemetry.auth_header = kfunc(allocate_buffer)(telemetry.h, 256);
-    if (telemetry.auth_header == INVALID_ADDRESS)
-        return KLIB_INIT_FAILED;
     klib_handler tls_handler = closure(telemetry.h, tls_loaded);
     if (tls_handler == INVALID_ADDRESS) {
-        deallocate_buffer(telemetry.auth_header);
         return KLIB_INIT_FAILED;
     }
     telemetry.env = get_environment();
-    kfunc(bprintf)(telemetry.auth_header, "Bearer %b",
-            kfunc(table_find)(telemetry.env, sym(RADAR_KEY)));
+    telemetry.auth_header = kfunc(table_find)(telemetry.env, sym(RADAR_KEY));
     telemetry.boot_id = (s64)random_u64();
     telemetry.retry_backoff = seconds(1);
     load_klib("/klib/tls", tls_handler);
