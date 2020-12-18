@@ -9,6 +9,8 @@
 #define SYSCALL_FRAME_SP      FRAME_SP
 #define SYSCALL_FRAME_PC      FRAME_ELR
 
+#define MINSIGSTKSZ 5120
+
 struct sigcontext {
     u64 fault_address;
     u64 regs[31];
@@ -32,10 +34,8 @@ struct rt_sigframe {
     struct ucontext uc;
 };
 
-// XXX
 static inline u64 page_flags_from_vmflags(u64 vmflags)
 {
-//    u64 flags = PAGE_NO_FAT | PAGE_USER;
     u64 flags = PAGE_USER;
     if ((vmflags & VMAP_FLAG_EXEC) == 0)
         flags |= PAGE_NO_EXEC;
