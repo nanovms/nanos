@@ -39,14 +39,17 @@ u64 allocate_fd_gte(process p, u64 min, void *f)
         msg_err("failed\n");
     }
     else {
-        vector_set(p->files, fd, f);
+        if (!vector_set(p->files, fd, f)) {
+            deallocate_u64((heap)p->fdallocator, fd, 1);
+            fd = INVALID_PHYSICAL;
+        }
     }
     return fd;
 }
 
 void deallocate_fd(process p, int fd)
 {
-    vector_set(p->files, fd, 0);
+    assert(vector_set(p->files, fd, 0)); 
     deallocate_u64((heap)p->fdallocator, fd, 1);
 }
 
@@ -306,11 +309,13 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     kernel_heaps kh = (kernel_heaps)uh;
     heap h = heap_general(kh);
     process p = allocate(h, sizeof(struct process));
+    assert(p != INVALID_ADDRESS); 
     boolean aslr = table_find(root, sym(noaslr)) == 0;
 
     p->uh = uh;
     p->brk = 0;
     p->pid = allocate_u64((heap)uh->processes, 1);
+    assert(p->pid != INVALID_PHYSICAL);
 
     /* don't need these for kernel process */
     if (p->pid > 1) {

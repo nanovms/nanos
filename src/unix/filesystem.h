@@ -88,7 +88,8 @@ static inline boolean dirname_from_path(buffer dest, const char *path)
     }
     if (len >= dest->length)
         return false;
-    buffer_write(dest, dirname, len);
+    if (!buffer_write(dest, dirname, len))
+        return false;
     push_u8(dest, '\0');
     return true;
 }

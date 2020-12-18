@@ -123,6 +123,7 @@ void pci_bar_init(pci_dev dev, struct pci_bar *b, int bar, bytes offset, bytes l
         assert(offset + length <= b->size);
         bytes len = pad(length, PAGESIZE);
         b->vaddr = allocate(virtual_page, len);
+        assert(b->vaddr != INVALID_ADDRESS);
         pci_debug("%s: %p[0x%x] -> 0x%lx[0x%lx]+0x%x\n", __func__, b->vaddr, len, b->addr, b->size, offset);
         u64 pa = b->addr + offset;
         map(u64_from_pointer(b->vaddr), pa & ~PAGEMASK, len, PAGE_DEV_FLAGS);
@@ -272,6 +273,7 @@ void pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name)
 void register_pci_driver(pci_probe probe)
 {
     struct pci_driver *d = allocate(drivers->h, sizeof(struct pci_driver));
+    assert(d != INVALID_ADDRESS); 
     d->probe = probe;
     vector_push(drivers, d);
 }

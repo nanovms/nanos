@@ -22,7 +22,7 @@ static void invalid_format(buffer d, buffer fmt, int start_idx, int idx)
 {
     static char header[] = "[invalid format ";
 
-    buffer_write(d, header, sizeof(header) - 1);
+    assert(buffer_write(d, header, sizeof(header) - 1));
     for (int i = 0; i < idx - start_idx + 1; i++)
         push_u8(d, byte(fmt, start_idx + i));
     push_u8(d, ']');

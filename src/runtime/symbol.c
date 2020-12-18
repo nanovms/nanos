@@ -24,7 +24,7 @@ symbol intern(string name)
         buffer b = allocate_buffer(iheap, buffer_length(name));
         if (b == INVALID_ADDRESS)
             goto alloc_fail;
-        push_buffer(b, name);
+        assert(push_buffer(b, name));
         s = allocate(sheap, sizeof(struct symbol));
         if (s == INVALID_ADDRESS)
             goto alloc_fail;

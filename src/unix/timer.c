@@ -435,7 +435,7 @@ sysreturn timer_delete(u32 timerid) {
     process p = current->p;
     remove_unix_timer(ut);
     deallocate_u64((heap)p->posix_timer_ids, ut->info.posix.id, 1);
-    vector_set(p->posix_timers, ut->info.posix.id, 0);
+    assert(vector_set(p->posix_timers, ut->info.posix.id, 0));
     deallocate_unix_timer(ut);
     return 0;
 }
@@ -505,7 +505,7 @@ sysreturn timer_create(int clockid, struct sigevent *sevp, u32 *timerid)
 
     ut->info.posix.id = id;
     *timerid = id;
-    vector_set(p->posix_timers, id, ut);
+    assert(vector_set(p->posix_timers, id, ut));
     ut->info.posix.sevp = *sevp;
     ut->info.posix.recipient = recipient;
     if (recipient != INVALID_ADDRESS)
@@ -610,7 +610,7 @@ static unix_timer unix_timer_from_itimer_index(process p, int which, clock_id cl
             break;
         }
         si->si_code = SI_KERNEL;
-        vector_set(p->itimers, which, ut);
+        assert(vector_set(p->itimers, which, ut));
     }
     return ut;
 }

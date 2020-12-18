@@ -303,7 +303,7 @@ static log_ext log_ext_new(log tl)
 static void log_extension_init(log_ext ext)
 {
     assert(!ext->open);
-    push_buffer(ext->staging, alloca_wrap_buffer(tfs_magic, TFS_MAGIC_BYTES));
+    assert(push_buffer(ext->staging, alloca_wrap_buffer(tfs_magic, TFS_MAGIC_BYTES)));
     push_varint(ext->staging, TFS_VERSION);
     push_varint(ext->staging, range_span(ext->sectors));
 }
@@ -400,7 +400,8 @@ static inline boolean log_write_internal(log tl, merge m)
                 push_u8(ext->staging, TUPLE_EXTENDED);
             }
             push_varint(ext->staging, length);
-            buffer_write(ext->staging, buffer_ref(tl->tuple_staging, 0), length);
+            if (!buffer_write(ext->staging, buffer_ref(tl->tuple_staging, 0), length))
+                return false;
             buffer_consume(tl->tuple_staging, length);
             remaining -= length;
             written += length;
@@ -625,7 +626,7 @@ static boolean log_parse_tuple(log tl, buffer b)
 
 static inline void log_tuple_produce(log tl, buffer b, u64 length)
 {
-    buffer_write(tl->tuple_staging, buffer_ref(b, 0), length);
+    assert(buffer_write(tl->tuple_staging, buffer_ref(b, 0), length));
     buffer_consume(b, length);
     tl->tuple_bytes_remain -= length;
 }
@@ -865,8 +866,8 @@ log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
         log_extension_init(init_ext);
         buffer uuid = alloca_wrap_buffer(fs->uuid, UUID_LEN);
         random_buffer(uuid);
-        push_buffer(init_ext->staging, uuid);
-        buffer_write_cstring(init_ext->staging, fs->label);
+        assert(push_buffer(init_ext->staging, uuid));
+        assert(buffer_write_cstring(init_ext->staging, fs->label));
         push_u8(init_ext->staging, '\0');   /* label string terminator */
         log_ext new_ext = log_ext_new(tl);
         assert(new_ext != INVALID_ADDRESS);

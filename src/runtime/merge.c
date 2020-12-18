@@ -37,6 +37,7 @@ closure_function(2, 0, status_handler, merge_add,
 merge allocate_merge(heap h, status_handler completion)
 {
     merge m = allocate_zero(h, sizeof(struct merge));
+    assert(m != INVALID_ADDRESS);
     m->h = h;
     status_handler sh = closure(h, merge_join, m);
     m->apply = closure(h, merge_add, m, sh);

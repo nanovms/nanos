@@ -108,7 +108,8 @@ static void push_header(buffer b, boolean imm, u8 type, u64 length)
     // (imm type ext) 
     if (bits > 5)
         words = ((bits - 5) + (7 - 1)) / 7;
-    buffer_extend(b, words + 1);
+    assert(buffer_extend(b, words + 1));
+
     tuple_debug("push header: %s %s decimal length:0x%lx bits:%d words:%d\n",
                 imm ? "immediate" : "reference",
                 type ? "tuple" : "buffer",
@@ -187,7 +188,7 @@ value decode_value(heap h, tuple dictionary, buffer source, u64 *total,
         if (imm == immediate) {
             // doesn't seem like we should always need to take a copy in all cases
             b = allocate_buffer(h, len);
-            buffer_write(b, buffer_ref(source, 0), len);
+            assert(buffer_write(b, buffer_ref(source, 0), len));
             source->start += len;
         } else {
             b = table_find(dictionary, pointer_from_u64(len));
@@ -207,7 +208,7 @@ void encode_symbol(buffer dest, table dictionary, symbol s)
     } else {
         buffer sb = symbol_string(s);
         push_header(dest, immediate, type_buffer, buffer_length(sb));
-        push_buffer(dest, sb);
+        assert(push_buffer(dest, sb));
         srecord(dictionary, s);
     }
 }
@@ -222,7 +223,7 @@ void encode_value(buffer dest, table dictionary, value v, u64 *total)
         encode_tuple(dest, dictionary, (tuple)v, total);
     } else {
         push_header(dest, immediate, type_buffer, buffer_length((buffer)v));
-        push_buffer(dest, (buffer)v);
+        assert(push_buffer(dest, (buffer)v));
     }
 }
 

@@ -14,6 +14,8 @@ static u64 alloc(heap h, u64 size)
 
     if ((t->offset +size) > t->parent->pagesize) {
         void *new = allocate(t->parent, t->parent->pagesize);
+        if (new == INVALID_ADDRESS)
+            return INVALID_PHYSICAL;
         t->base = new;
         t->offset = sizeof(void *);
         return alloc(h, size);
@@ -39,6 +41,7 @@ static void destroy(heap h)
 heap make_tiny_heap(heap parent)
 {
     void *x = allocate(parent, parent->pagesize);
+    assert(x != INVALID_ADDRESS);
     tiny t = (tiny)x;
     t->h.alloc = alloc;
     t->h.dealloc = leak;

@@ -27,9 +27,9 @@ static struct futex * soft_create_futex(process p, u64 key)
         return f;
 
     f = allocate(h, sizeof(struct futex));
-    if (!f) {
+    if (f == INVALID_ADDRESS) {
         msg_err("failed to allocate futex\n");
-        return INVALID_ADDRESS;
+        return f;
     }
 
     f->h = h;

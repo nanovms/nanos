@@ -1107,7 +1107,7 @@ sysreturn dup2(int oldfd, int newfd)
     if (newfd != oldfd) {
         fdesc newf = fdesc_get(current->p, newfd);
         if (newf) {
-            vector_set(current->p->files, newfd, f);
+            assert(vector_set(current->p->files, newfd, f));
             if (fetch_and_add(&newf->refcnt, -2) == 2)
                 apply(newf->close, current, io_completion_ignore);
         } else {

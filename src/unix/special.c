@@ -120,7 +120,7 @@ void register_special_files(process p)
         assert(program);
         buffer b = clone_buffer(h, program);
         assert(b != INVALID_ADDRESS);
-        buffer_write_byte(b, '\0'); /* append string terminator character */
+        assert(buffer_write_byte(b, '\0')); /* append string terminator character */
         filesystem_symlink(p->root_fs, proc_self, "exe", buffer_ref(b, 0));
         deallocate_buffer(b);
     }
