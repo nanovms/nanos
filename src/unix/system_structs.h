@@ -685,10 +685,17 @@ struct tms {
 #define CLONE_NEWNET		0x40000000	/* New network namespace */
 #define CLONE_IO		0x80000000	/* Clone io context */
 
+#ifdef __x86_64__
+#define __packed __attribute__((packed))
+#else
+#define __packed
+#endif
+
 struct epoll_event {
     u32     events;      /* Epoll events */
     u64 data;
-}  __attribute__((packed));
+} __packed;
+#undef __packed
 
 #define	EPOLL_CTL_ADD 0x1
 #define	EPOLL_CTL_DEL 0x2
