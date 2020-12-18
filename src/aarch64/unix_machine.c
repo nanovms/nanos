@@ -21,14 +21,13 @@ void setup_sigframe(thread t, int signum, struct siginfo *si)
     /* copy only what we really need */
     t->sighandler_frame[FRAME_X18] = t->default_frame[FRAME_X18];
 
-    if ((sa->sa_flags & SA_ONSTACK) && t->signal_stack) {
-        t->sighandler_frame[FRAME_SP] = u64_from_pointer(t->signal_stack + t->signal_stack_length);
-    } else {
-        t->sighandler_frame[FRAME_SP] = t->default_frame[FRAME_SP];
-    }
+    t->sighandler_frame[FRAME_SP] = (sa->sa_flags & SA_ONSTACK) && t->signal_stack ?
+        u64_from_pointer(t->signal_stack + t->signal_stack_length) :
+        t->default_frame[FRAME_SP];
 
     /* align sp */
-    t->sighandler_frame[FRAME_SP] = (t->sighandler_frame[FRAME_SP] - sizeof(struct frame_record)) & ~15;
+    t->sighandler_frame[FRAME_SP] = (t->sighandler_frame[FRAME_SP] -
+                                     sizeof(struct frame_record)) & ~15;
     struct frame_record *rec = pointer_from_u64(t->sighandler_frame[FRAME_SP]);
 
     /* create space for rt_sigframe */

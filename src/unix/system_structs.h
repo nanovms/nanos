@@ -647,8 +647,6 @@ typedef struct {
 #define SS_ONSTACK      1
 #define SS_DISABLE      2
 
-#define MINSIGSTKSZ     2048
-
 #define CLOCKS_PER_SEC  100
 
 typedef s64 clock_t;

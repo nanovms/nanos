@@ -20,14 +20,14 @@
 
 //#define SIGNALTEST_DEBUG
 #ifdef SIGNALTEST_DEBUG
-#define sigtest_debug(x, ...) do {printf("%s: " x, __func__, ##__VA_ARGS__);} while(0)
+#define sigtest_debug(x, ...) do {printf("SIGTEST %s: " x, __func__, ##__VA_ARGS__);} while(0)
 #else
 #define sigtest_debug(x, ...)
 #endif
 
-#define sigtest_err(x, ...) do {printf("%s: " x, __func__, ##__VA_ARGS__);} while(0)
+#define sigtest_err(x, ...) do {printf("sigtest failed, %s: " x, __func__, ##__VA_ARGS__);} while(0)
 
-#define fail_perror(msg, ...) do { sigtest_err(msg ": %s (%d)\n", ##__VA_ARGS__, strerror(errno), errno); \
+#define fail_perror(msg, ...) do { sigtest_err("sigtest failed: " msg ": %s (%d)\n", ##__VA_ARGS__, strerror(errno), errno);      \
         exit(EXIT_FAILURE); } while(0)
 
 #define fail_error(msg, ...) do { sigtest_err(msg, ##__VA_ARGS__); exit(EXIT_FAILURE); } while(0)
@@ -47,7 +47,11 @@ static void * tgkill_test_pause(void * arg)
 {
     child_tid = syscall(SYS_gettid);
     sigtest_debug("child enter, tid %d\n", child_tid);
+#ifdef __x86_64__
     int rv = syscall(SYS_pause);
+#else
+    int rv = syscall(SYS_ppoll, 0, 0, 0, 0);
+#endif
     if (rv < 0) {
         if (errno == EINTR) {
             sigtest_debug("child received signal\n");
@@ -417,9 +421,10 @@ void test_rt_sigsuspend(void)
 }
 
 #define BAD_LOAD 0xBADF0000
-#define BAD_RIP  0x1000BADF
+#define BAD_PC   0x1000BADF
 
 #ifdef SIGNALTEST_DEBUG
+#ifdef __x86_64__
 static inline void
 print_ucontext(void * ucontext)
 {
@@ -474,11 +479,61 @@ print_ucontext(void * ucontext)
 }
 #endif
 
+#ifdef __aarch64__
+static inline void
+print_ucontext(void * ucontext)
+{
+    ucontext_t * context = ucontext;
+    printf("ucontext:\n");
+    for (int i = 0; i < 31; i++)
+        printf("    X%d:\t0x%llx\n", i, context->uc_mcontext.regs[i]);
+    printf("    SP:\t0x%llx\n", context->uc_mcontext.sp);
+    printf("    PC:\t0x%llx\n", context->uc_mcontext.pc);
+    printf("    PSTATE:\t0x%llx\n", context->uc_mcontext.pstate);
+    printf("    FLTADR:\t0x%llx\n", context->uc_mcontext.fault_address);
+}
+#endif
+
+#endif
+
+#ifdef __x86_64__
+static inline unsigned long get_fault_address(ucontext_t *context)
+{
+    return context->uc_mcontext.gregs[REG_CR2];
+}
+
+static inline unsigned long get_pc(ucontext_t *context)
+{
+    return context->uc_mcontext.gregs[REG_RIP];
+}
+
+static inline void set_pc(ucontext_t *context, unsigned long pc)
+{
+    context->uc_mcontext.gregs[REG_RIP] = pc;
+}
+#endif
+
+#ifdef __aarch64__
+static inline unsigned long get_fault_address(ucontext_t *context)
+{
+    return context->uc_mcontext.fault_address;
+}
+
+static inline unsigned long get_pc(ucontext_t *context)
+{
+    return context->uc_mcontext.pc;
+}
+
+static inline void set_pc(ucontext_t *context, unsigned long pc)
+{
+    context->uc_mcontext.pc = pc;
+}
+#endif
+
 static bool
 child_should_die(void * ucontext)
 {
-    ucontext_t * context = ucontext;
-    return (context->uc_mcontext.gregs[REG_CR2] == BAD_RIP);
+    return get_fault_address((ucontext_t *)ucontext) == BAD_PC;
 }
 
 static void
@@ -499,8 +554,8 @@ sigsegv_sigaction(int signo, siginfo_t * info, void * ucontext)
     print_ucontext(ucontext);
 #endif
 
-    if (iter == 1 && (unsigned long)info->si_addr != ((ucontext_t *)ucontext)->uc_mcontext.gregs[REG_CR2])
-        fail_perror("  childtid: info-si_addr != CR2\n");
+    if (iter == 1 && (unsigned long)info->si_addr != get_fault_address((ucontext_t *)ucontext))
+        fail_perror("  childtid: fault address not info-si_addr\n");
 
     iter++;
 
@@ -508,7 +563,7 @@ sigsegv_sigaction(int signo, siginfo_t * info, void * ucontext)
         syscall(SYS_exit, 0);
  
     /* update the RIP to something invalid */
-    ((ucontext_t *)ucontext)->uc_mcontext.gregs[REG_RIP] = BAD_RIP;
+    set_pc((ucontext_t *)ucontext, BAD_PC);
 }
 
 static void
@@ -531,7 +586,12 @@ sigsegv_thread(void * arg)
         *v = 1;
     } else {
         /* should cause sigsegv as a result of general protection fault */
+#ifdef __x86_64__
         asm volatile("hlt");
+#endif
+#ifdef __aarch64__
+        asm volatile("wfi");
+#endif
     }
     return NULL;
 }
@@ -558,8 +618,10 @@ test_sigsegv(void)
         sigtest_debug("yielding until child tid reported...\n");
         yield_for(&child_tid);
 
+        sigtest_debug("calling pthread_join...\n");
         if (pthread_join(pt, &retval))
             fail_perror("blocking test pthread_join");
+        sigtest_debug("done\n");
     }
 
     /* test SA_INFO, illegal instruction / GP fault and bad RIP in ucontext */
@@ -578,8 +640,10 @@ test_sigsegv(void)
         sigtest_debug("yielding until child tid reported...\n");
         yield_for(&child_tid);
 
+        sigtest_debug("calling pthread_join...\n");
         if (pthread_join(pt, &retval))
             fail_perror("blocking test pthread_join");
+        sigtest_debug("done\n");
     }
 
     memset(&sa, 0, sizeof(struct sigaction));
@@ -590,6 +654,8 @@ test_sigsegv(void)
         fail_perror("siggaction for SIGSEGV failed");
 }
 
+/* XXX sort out arm counterpart - possibly don't even have integer div by zero exception - but have fp? */
+#ifdef __x86_64__
 static void sigfpe_handler(int signo)
 {
     if (signo != SIGFPE)
@@ -641,6 +707,7 @@ static void test_sigfpe(void)
     if (sigaction(SIGFPE, &sa, NULL))
         fail_perror("sigaction for SIGFPE failed");
 }
+#endif
 
 static int test_rt_sigtimedwait_handler_reached = 0;
 
@@ -947,7 +1014,8 @@ void test_signalfd(void)
         fail_error("child failed\n");
 }
 
-static uint8_t altstack[2048];
+#define MAX_MINSIGSTKSZ 5120 /* aarch64 */
+static uint8_t altstack[MAX_MINSIGSTKSZ];
 
 static void test_sigaltstack_handler(int sig)
 {
@@ -1128,7 +1196,9 @@ int main(int argc, char * argv[])
 {
     setbuf(stdout, NULL);
 
+#ifdef __x86_64__
     test_sigfpe();
+#endif
 
     test_sigsegv();
 

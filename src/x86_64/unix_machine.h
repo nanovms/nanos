@@ -12,6 +12,8 @@
 #define UC_SIGCONTEXT_SS        0x2
 #define UC_STRICT_RESTORE_SS    0x4
 
+#define MINSIGSTKSZ 2048
+
 /*
  * Bytes 464..511 in the current 512-byte layout of the FXSAVE/FXRSTOR frame
  * are reserved for SW usage. On CPUs supporting XSAVE/XRSTOR, these bytes are

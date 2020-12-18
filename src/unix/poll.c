@@ -946,8 +946,13 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
                                 CLOCK_ID_MONOTONIC, timeout != infinity ? timeout : 0, false);
 }
 
+/* archs like aarch64 don't have pause; glibc calls ppoll() with all null arguments to simulate... */
+extern sysreturn pause(void);
+
 sysreturn ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *tmo_p, const sigset_t *sigmask)
 {
+    if (nfds == 0 && !tmo_p)
+        return pause();
     return poll_internal(fds, nfds, tmo_p ? time_from_timespec(tmo_p) : infinity, sigmask);
 }
 

@@ -718,7 +718,6 @@ sysreturn tkill(int tid, int sig)
     return tgkill(1, tid, sig);
 }
 
-#ifdef __x86_64__
 closure_function(1, 1, sysreturn, pause_bh,
                  thread, t,
                  u64, flags)
@@ -735,6 +734,7 @@ closure_function(1, 1, sysreturn, pause_bh,
     return BLOCKQ_BLOCK_REQUIRED;
 }
 
+/* aarch64: may be invoked directly from ppoll(2) */
 sysreturn pause(void)
 {
     sig_debug("tid %d\n", current->tid);
@@ -742,7 +742,6 @@ sysreturn pause(void)
     blockq_action ba = closure(h, pause_bh, current);
     return blockq_check(current->thread_bq, current, ba, false);
 }
-#endif
 
 closure_function(4, 1, sysreturn, rt_sigtimedwait_bh,
                  thread, t, u64, interest, siginfo_t *, info, const struct timespec *, timeout,
