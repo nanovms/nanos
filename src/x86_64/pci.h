@@ -1,6 +1,7 @@
 /* PCI config register */
 #define PCIR_VENDOR     0x00
 #define PCIR_DEVICE     0x02
+#define PCIR_PROG_IF    0x09
 #define PCIR_SUBCLASS   0x0a
 #define PCIR_CLASS      0x0b
 #define PCIR_HDRTYPE    0x0e
@@ -25,6 +26,8 @@
 /* PCI device class */
 #define PCIC_STORAGE 0x01
 #define PCIS_STORAGE_IDE 0x01
+#define PCIS_STORAGE_NVM 0x08
+#define PCIPI_STORAGE_NVME  0x02
 
 #define PCIC_DISPLAY 0x03
 
@@ -75,6 +78,11 @@ static inline u8 pci_get_subclass(pci_dev dev)
     return pci_cfgread(dev, PCIR_SUBCLASS, 1);
 }
 
+static inline u8 pci_get_prog_if(pci_dev dev)
+{
+    return pci_cfgread(dev, PCIR_PROG_IF, 1);
+}
+
 static inline u8 pci_get_hdrtype(pci_dev dev)
 {
     return pci_cfgread(dev, PCIR_HDRTYPE, 1);
@@ -116,6 +124,9 @@ void pci_bar_write_2(struct pci_bar *b, u64 offset, u16 val);
 
 u32 pci_bar_read_4(struct pci_bar *b, u64 offset);
 void pci_bar_write_4(struct pci_bar *b, u64 offset, u32 val);
+
+u64 pci_bar_read_8(struct pci_bar *b, u64 offset);
+void pci_bar_write_8(struct pci_bar *b, u64 offset, u64 val);
 
 /* Capability Identification Numbers */
 #define PCIY_VENDOR 0x09

@@ -9,6 +9,7 @@ SRCS-kernel.img= \
 	$(SRCDIR)/drivers/ata-pci.c \
 	$(SRCDIR)/drivers/console.c \
 	$(SRCDIR)/drivers/dmi.c \
+	$(SRCDIR)/drivers/nvme.c \
 	$(SRCDIR)/drivers/storage.c \
 	$(SRCDIR)/drivers/vga.c \
 	$(SRCDIR)/gdb/gdbstub.c \

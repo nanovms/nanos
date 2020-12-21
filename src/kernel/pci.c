@@ -170,6 +170,19 @@ void pci_bar_write_4(struct pci_bar *b, u64 offset, u32 val)
         out32(b->addr + offset, val);
 }
 
+u64 pci_bar_read_8(struct pci_bar *b, u64 offset)
+{
+    return b->type == PCI_BAR_MEMORY ? *(u64 *) (b->vaddr + offset) : in64(b->addr + offset);
+}
+
+void pci_bar_write_8(struct pci_bar *b, u64 offset, u64 val)
+{
+    if (b->type == PCI_BAR_MEMORY)
+        *(u64 *) (b->vaddr + offset) = val;
+    else
+        out64(b->addr + offset, val);
+}
+
 void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
 {
     int port;
