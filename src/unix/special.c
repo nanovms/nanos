@@ -118,8 +118,14 @@ void register_special_files(process p)
         assert(proc_self);
         value program = table_find(p->process_root, sym(program));
         assert(program);
-        buffer b = clone_buffer(h, program);
+        buffer b;
+        /* glibc expects exe path to be absolute */
+        if (peek_char(program) != '/')
+            b = buffer_cstring(h, "/");
+        else
+            b = allocate_buffer(h, 1);
         assert(b != INVALID_ADDRESS);
+        assert(push_buffer(b, program));
         assert(buffer_write_byte(b, '\0')); /* append string terminator character */
         filesystem_symlink(p->root_fs, proc_self, "exe", buffer_ref(b, 0));
         deallocate_buffer(b);
