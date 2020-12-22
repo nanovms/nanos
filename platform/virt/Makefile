@@ -184,7 +184,7 @@ VDSO_DEPS=      $(patsubst %.o,%.d,$(VDSO_OBJS))
 OBJDUMPFLAGS=	-d -S
 
 DEPFILES+=      $(VDSO_DEPS)
-CLEANFILES+=    $(foreach f,gitversion.c frame.inc kernel.dis kernel.elf bin/kernel.img src/unix/ftrace.* $(ARCHDIR)/ftrace.*,$(OBJDIR)/$f) $(VDSO_OBJDIR)/vdso.so $(VDSO_OBJDIR)/vdso-image.c $(VDSO_OBJS) $(VDSO_DEPS)
+CLEANFILES+=    $(foreach f,gitversion.c frame.inc kernel.dis kernel.elf bin/kernel.img src/unix/ftrace.* $(ARCHDIR)/ftrace.*,$(OBJDIR)/$f) $(VDSO_OBJDIR)/vdso.so $(VDSO_OBJDIR)/vdso-image.c $(VDSO_OBJDIR)/vdso-offset.h $(VDSO_OBJS) $(VDSO_DEPS)
 CLEANDIRS+=     $(foreach d,output/platform output src vdso/src/$(ARCH) vdso/src vdso vendor vendor/lwip vendor/lwip/src platform,$(OBJDIR)/$d)
 
 OBJCOPYFLAGS	= -S -O binary
@@ -277,7 +277,9 @@ $(VDSO_OBJDIR)/vdso-image.c: contgen $(VDSOGEN) $(VDSO_OBJDIR)/vdso.so
 $(VDSO_OBJDIR)/vdso-offset.h: $(VDSO_OBJDIR)/vdso.so
 	$(OBJDUMP) -t $(VDSO_OBJDIR)/vdso.so | grep __vdso_rt_sigreturn | sed "s/^\([[:xdigit:]]*\) .*/#define VDSO_OFFSET_RT_SIGRETURN 0x\1/" > $@
 
-$(PROG-kernel.elf): linker_script $(VDSO_OBJDIR)/vdso-image.c $(VDSO_OBJDIR)/vdso-offset.h
+$(OBJDIR)/src/$(ARCH)/unix_machine.o: $(VDSO_OBJDIR)/vdso-offset.h
+
+$(PROG-kernel.elf): linker_script $(VDSO_OBJDIR)/vdso-image.c
 
 $(KERNEL): $(PROG-kernel.elf)
 	$(call cmd,objcopy)
