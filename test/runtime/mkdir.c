@@ -19,11 +19,12 @@
 #define handle_error(msg) \
        do { perror(msg); exit(EXIT_FAILURE); } while (0)
 
-struct linux_dirent {
-   long           d_ino;
-   off_t          d_off;
-   unsigned short d_reclen;
-   char           d_name[];
+struct linux_dirent64 {
+    unsigned long  d_ino;
+    unsigned long  d_off;
+    unsigned short d_reclen;
+    unsigned char  d_type;
+    char           d_name[];
 };
 
 #define BUF_SIZE 64
@@ -33,7 +34,7 @@ listdir(const char *label, const char *dir)
 {
     int fd, nread;
     char buf[BUF_SIZE];
-    struct linux_dirent *d;
+    struct linux_dirent64 *d;
     int bpos;
     char d_type;
  
@@ -42,15 +43,15 @@ listdir(const char *label, const char *dir)
         handle_error("open");
  
     for ( ; ; ) {
-        nread = syscall(SYS_getdents, fd, buf, BUF_SIZE);
+        nread = syscall(SYS_getdents64, fd, buf, BUF_SIZE);
         if (nread == -1)
-            handle_error("getdents");
+            handle_error("getdents64");
  
         if (nread == 0)
             break;
  
         for (bpos = 0; bpos < nread;) {
-            d = (struct linux_dirent *) (buf + bpos);
+            d = (struct linux_dirent64 *) (buf + bpos);
             d_type = *(buf + bpos + d->d_reclen - 1);
             printf("(%s) - (%s) %-10s ", label, dir, (d_type == DT_REG) ?  "regular" :
                              (d_type == DT_DIR) ?  "directory" :

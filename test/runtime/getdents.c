@@ -76,9 +76,11 @@ main(int argc, char *argv[])
     int fd;
     char *dirname = (argc > 1 ? argv[1] : ".");
 
+#ifdef __x86_64__
     OPEN_DIR(dirname);
     DO_GETDENTS(SYS_getdents, linux_dirent, (*(buf + bpos + d->d_reclen - 1)));
     close(fd);
+#endif
     OPEN_DIR(dirname);
     DO_GETDENTS(SYS_getdents64, linux_dirent64, d->d_type);
     close(fd);

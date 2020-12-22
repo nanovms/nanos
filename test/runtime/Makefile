@@ -13,6 +13,7 @@ PROGRAMS= \
 	getdents \
 	getrandom \
 	hw \
+	hwg \
 	hws \
 	io_uring \
 	mkdir \

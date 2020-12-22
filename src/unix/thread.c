@@ -78,7 +78,7 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, unsigned long
     /* clone frame processor state */
     runtime_memcpy(t->default_frame, current->default_frame, sizeof(u64) * (FRAME_N_PSTATE + 1));
     runtime_memcpy(t->default_frame + FRAME_EXTENDED_SAVE, current->default_frame + FRAME_EXTENDED_SAVE,
-                   xsave_frame_size());
+                   extended_frame_size());
     thread_clone_sigmask(t, current);
 
     /* clone behaves like fork at the syscall level, returning 0 to the child */
