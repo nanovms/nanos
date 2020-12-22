@@ -1,6 +1,7 @@
 #include <unix_internal.h>
 #include <ftrace.h>
 #include <gdb.h>
+#include <log.h>
 
 //#define PF_DEBUG
 #ifdef PF_DEBUG
@@ -38,14 +39,17 @@ u64 allocate_fd_gte(process p, u64 min, void *f)
         msg_err("failed\n");
     }
     else {
-        vector_set(p->files, fd, f);
+        if (!vector_set(p->files, fd, f)) {
+            deallocate_u64((heap)p->fdallocator, fd, 1);
+            fd = INVALID_PHYSICAL;
+        }
     }
     return fd;
 }
 
 void deallocate_fd(process p, int fd)
 {
-    vector_set(p->files, fd, 0);
+    assert(vector_set(p->files, fd, 0)); 
     deallocate_u64((heap)p->fdallocator, fd, 1);
 }
 
@@ -215,7 +219,7 @@ define_closure_function(1, 1, context, default_fault_handler,
     frame[FRAME_FULL] = 0;
 
     if (p && table_find(p->process_root, sym(fault))) {
-        console("starting gdb\n");
+        rputs("starting gdb\n");
         init_tcp_gdb(heap_general(get_kernel_heaps()), p, 9090);
         thread_sleep_uninterruptible();
     } else {
@@ -250,6 +254,7 @@ closure_function(0, 6, sysreturn, stdout,
                  void*, d, u64, length, u64, offset, thread, t, boolean, bh, io_completion, completion)
 {
     console_write(d, length);
+    klog_write(d, length);
     if (completion)
         apply(completion, t, length);
     return length;
@@ -304,11 +309,13 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     kernel_heaps kh = (kernel_heaps)uh;
     heap h = heap_general(kh);
     process p = allocate(h, sizeof(struct process));
+    assert(p != INVALID_ADDRESS); 
     boolean aslr = table_find(root, sym(noaslr)) == 0;
 
     p->uh = uh;
     p->brk = 0;
     p->pid = allocate_u64((heap)uh->processes, 1);
+    assert(p->pid != INVALID_PHYSICAL);
 
     /* don't need these for kernel process */
     if (p->pid > 1) {

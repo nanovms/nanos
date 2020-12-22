@@ -164,7 +164,7 @@ void sha256_final(sha256_ctx *ctx, u8 hash[])
 
 void sha256(buffer dest, buffer source)
 {
-    buffer_extend(dest, 32);
+    assert(buffer_extend(dest, 32));
     sha256_ctx c;
     sha256_init(&c);
     sha256_update (&c, buffer_ref(source, 0), buffer_length(source));

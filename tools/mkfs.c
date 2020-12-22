@@ -45,10 +45,10 @@ buffer lookup_file(heap h, const char *target_root, buffer name, struct stat *st
         while (1) {
             // compose target_name
             buffer_clear(target_name);
-            buffer_write(target_name, target_root, strlen(target_root));
+            assert(buffer_write(target_name, target_root, strlen(target_root)));
             if (n[0] != '/')
                 buffer_write_byte(target_name, '/');
-            buffer_write(target_name, n, len);
+            assert(buffer_write(target_name, n, len));
 
             if (lstat(cstring(target_name, tmpbuf), st) < 0) {
                 if (errno != ENOENT)
@@ -275,7 +275,7 @@ static void write_mbr(descriptor f)
     region r = (region) ((char *) e - sizeof(*r));
     if (r->type != REGION_FILESYSTEM)
         halt("invalid boot record (missing filesystem region) \n");
-    u64 fs_offset = SECTOR_SIZE + r->length;
+    u64 fs_offset = SECTOR_SIZE + r->length + KLOG_DUMP_SIZE;
     assert(fs_offset % SECTOR_SIZE == 0);
     u64 fs_size = BOOTFS_SIZE;
     partition_write(&e[PARTITION_BOOTFS], true, 0x83, fs_offset, fs_size);
@@ -471,6 +471,9 @@ int main(int argc, char **argv)
             }
         }
         if (boot) {
+            /* The boot FS partition is immediately after the on-disk kernel log dump section. */
+            offset += KLOG_DUMP_SIZE;
+
             create_filesystem(h, SECTOR_SIZE, BOOTFS_SIZE, 0,
                               closure(h, bwrite, out, offset),
                               "", closure(h, fsc, h, out, boot, target_root));

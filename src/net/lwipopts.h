@@ -71,6 +71,7 @@ typedef unsigned long size_t;
 #define LWIP_TIMERS 1
 #define LWIP_TIMERS_CUSTOM 1
 #define LWIP_DHCP_BOOTP_FILE 1
+#define LWIP_DNS 1
 
 #define LWIP_IPV6   1
 
@@ -119,6 +120,9 @@ extern void lwip_debug(char * format, ...);
 
 #define MEM_LIBC_MALLOC 1
 
+extern u32_t lwip_rand(void);
+#define LWIP_RAND   lwip_rand
+
 extern void net_debug(char *format, ...);
 extern void *lwip_allocate(unsigned long long size);
 extern void lwip_deallocate(void *z);
@@ -141,6 +145,7 @@ void lwip_memcpy(void *a, const void *b, unsigned long len);
 int lwip_strlen(char *a);
 void lwip_memset(void *x, unsigned char v, unsigned long len);
 int lwip_memcmp(const void *x, const void *y, unsigned long len);
+int lwip_strcmp(const char *x, const char *y);
 int lwip_strncmp(const char *x, const char *y, unsigned long len);
 
 #define memcpy(__a, __b, __c) lwip_memcpy(__a, __b, __c)
@@ -149,6 +154,7 @@ int lwip_strncmp(const char *x, const char *y, unsigned long len);
 #define memmove(__a, __b, __c) lwip_memcpy(__a, __b, __c)
 #define strlen(__a) lwip_strlen((void *)__a)
 #define strncmp(__a, __b, __c) lwip_strncmp(__a, __b, __c)
+#define strcmp(__a, __b) lwip_strcmp(__a, __b)
 #define atoi(__a) lwip_atoi(__a)
 
 static inline void *calloc(size_t n, size_t s)

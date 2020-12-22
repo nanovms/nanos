@@ -6,7 +6,7 @@
 
 //#define KVM_DEBUG
 #ifdef KVM_DEBUG
-#define kvm_debug(x) do {console(" KVM: " x "\n");} while(0)
+#define kvm_debug(x) do {rputs(" KVM: " x "\n");} while(0)
 #else
 #define kvm_debug(x)
 #endif
@@ -46,6 +46,7 @@ static boolean probe_kvm_pvclock(kernel_heaps kh)
     }
     kvm_debug("pvclock detected");
     struct pvclock_vcpu_time_info * vc = allocate(backed, backed->pagesize);
+    assert(vc != INVALID_ADDRESS);
     zero(vc, sizeof(struct pvclock_vcpu_time_info));
     kvm_debug("before write msr");
     write_msr(KVM_MSR_SYSTEM_TIME, physical_from_virtual(vc) | /* enable */ 1);

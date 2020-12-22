@@ -43,6 +43,7 @@ static err_t gdb_accept(void *z, struct tcp_pcb *pcb, err_t b)
 void init_tcp_gdb(heap h, process p, u16 port)
 {
     tcpgdb g = (tcpgdb) allocate(h, sizeof(struct tcpgdb));
+    assert(g != INVALID_ADDRESS);
     g->p = tcp_new_ip_type(IPADDR_TYPE_ANY); 
     g->input = init_gdb(h, p, closure(h, gdb_send, g));
     tcp_bind(g->p, IP_ANY_TYPE, port);

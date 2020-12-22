@@ -453,6 +453,7 @@ closure_function(1, 0, void, pvscsi_rx_service_bh, pvscsi, dev)
 static void pvscsi_attach(heap general, storage_attach a, heap page_allocator, pci_dev d)
 {
     struct pvscsi *dev = allocate(general, sizeof(struct pvscsi));
+    assert(dev != INVALID_ADDRESS); 
     dev->dev = d;
 
     dev->general = general;

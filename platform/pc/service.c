@@ -17,6 +17,7 @@
 #include <drivers/storage.h>
 #include <drivers/console.h>
 #include <kvm_platform.h>
+#include <log.h>
 #include <xen_platform.h>
 #include <hyperv_platform.h>
 
@@ -71,7 +72,7 @@ static u64 bootstrap_alloc(heap h, bytes length)
 {
     u64 result = bootstrap_base;
     if ((result + length) >=  (u64_from_pointer(bootstrap_region) + sizeof(bootstrap_region))) {
-	console("*** bootstrap heap overflow! ***\n");
+        rputs("*** bootstrap heap overflow! ***\n");
         return INVALID_PHYSICAL;
     }
     bootstrap_base += length;
@@ -231,9 +232,14 @@ closure_function(5, 1, void, mbr_read,
             init_debug("unformatted storage device, ignoring");
         deallocate(h, mbr, SECTOR_SIZE);
     }
-    else
+    else {
+        /* The on-disk kernel log dump section is immediately before the boot FS partition. */
+        struct partition_entry *bootfs_part = partition_get(mbr, PARTITION_BOOTFS);
+        klog_disk_setup(bootfs_part->lba_start * SECTOR_SIZE - KLOG_DUMP_SIZE, bound(r), bound(w));
+
         rootfs_init(h, mbr, rootfs_part->lba_start * SECTOR_SIZE,
             bound(r), bound(w), bound(length));
+    }
   out:
     closure_finish();
 }
@@ -334,6 +340,8 @@ static void reclaim_regions(void)
     }
 }
 
+halt_handler vm_halt;
+
 void vm_exit(u8 code)
 {
 #ifdef SMP_DUMP_FRAME_RETURN_COUNT
@@ -357,6 +365,9 @@ void vm_exit(u8 code)
     tuple root = root_fs ? filesystem_getroot(root_fs) : 0;
     if (root && table_find(root, sym(reboot_on_exit))) {
         triple_fault();
+    } else if (vm_halt) {
+        apply(vm_halt, code);
+        while (1);  /* to honor noreturn attribute */
     } else {
         QEMU_HALT(code);
     }
@@ -370,34 +381,43 @@ closure_function(1, 1, void, sync_complete,
     closure_finish();
 }
 
-closure_function(1, 0, void, do_storage_sync,
-                 status_handler, completion)
+static void storage_shutdown(int status, status_handler completion)
 {
-    storage_sync(bound(completion));
+    if ((status == 0) || !table_find(get_environment(), sym(RADAR_KEY))) {
+        storage_sync(completion);
+    } else {
+        merge m = allocate_merge(heap_locked(&heaps), completion);
+        status_handler sh = apply_merge(m);
+        klog_save(status, apply_merge(m));
+        storage_sync(apply_merge(m));
+        apply(sh, STATUS_OK);
+    }
+}
+
+closure_function(2, 0, void, do_storage_shutdown,
+                 int, status, status_handler, completion)
+{
+    storage_shutdown(bound(status), bound(completion));
     closure_finish();
 }
 
 extern boolean shutting_down;
-void kernel_shutdown_ex(status_handler completion)
+void __attribute__((noreturn)) kernel_shutdown(int status)
 {
+    status_handler completion = closure(heap_locked(&heaps), sync_complete, status);
     shutting_down = true;
     if (root_fs) {
         if (this_cpu_has_kernel_lock()) {
-            storage_sync(completion);
+            storage_shutdown(status, completion);
             kern_unlock();
         } else {
             enqueue_irqsafe(runqueue, closure(heap_locked(&heaps),
-                                              do_storage_sync, completion));
+                                              do_storage_shutdown, status, completion));
         }
         runloop();
     }
     apply(completion, STATUS_OK);
     while(1);
-}
-
-void kernel_shutdown(int status)
-{
-    kernel_shutdown_ex(closure(heap_locked(&heaps), sync_complete, status));
 }
 
 u64 total_processors = 1;
@@ -565,11 +585,11 @@ static id_heap init_physical_id_heap(heap h)
 		continue;
 	    u64 length = end - base;
 #ifdef STAGE3_INIT_DEBUG
-	    console("INIT:  [");
+	    rputs("INIT:  [");
 	    print_u64(base);
-	    console(", ");
+	    rputs(", ");
 	    print_u64(base + length);
-	    console(")\n");
+	    rputs(")\n");
 #endif
 	    if (!id_heap_add_range(physical, base, length))
 		halt("    - id_heap_add_range failed\n");

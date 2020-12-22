@@ -64,6 +64,8 @@ static inline int runtime_strlen(const char *a)
     return i;
 }
 
+void rputs(const char *s);
+
 static inline void console(const char *s)
 {
     console_write(s, runtime_strlen(s));
@@ -179,8 +181,6 @@ typedef closure_type(thunk, void);
 /* clocksource and timer facilities */
 #include <clock.h>
 #include <timer.h>
-
-void kernel_shutdown_ex(status_handler completion) __attribute__((noreturn));
 
 typedef closure_type(buffer_handler, status, buffer);
 typedef closure_type(connection_handler, buffer_handler, buffer_handler);

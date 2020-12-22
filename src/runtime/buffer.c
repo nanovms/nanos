@@ -1,4 +1,5 @@
 #include <runtime.h>
+#include <log.h>
 
 buffer allocate_buffer(heap h, bytes s)
 {
@@ -19,7 +20,7 @@ buffer allocate_buffer(heap h, bytes s)
 }
 KLIB_EXPORT(allocate_buffer);
 
-void kern_buffer_write(buffer b, const void *source, bytes length)
+boolean kern_buffer_write(buffer b, const void *source, bytes length)
 {
     return buffer_write(b, source, length);
 }
@@ -31,12 +32,13 @@ boolean kern_buffer_read(buffer b, void *dest, bytes length)
 }
 KLIB_EXPORT_RENAME(kern_buffer_read, buffer_read);
 
-void buffer_append(buffer b,
+boolean buffer_append(buffer b,
                      const void *body,
                      bytes length)
 {
-    buffer_extend(b, length);
-    buffer_write(b, body, length);
+    if (!buffer_extend(b, length))
+        return false;
+    return buffer_write(b, body, length);
 }
 
 int buffer_strstr(buffer b, const char *str) {
@@ -48,3 +50,9 @@ int buffer_strstr(buffer b, const char *str) {
     return -1;
 }
 KLIB_EXPORT(buffer_strstr);
+
+void buffer_print(buffer b)
+{
+    console_write(buffer_ref(b, 0), buffer_length(b));
+    klog_write(buffer_ref(b, 0), buffer_length(b));
+}
