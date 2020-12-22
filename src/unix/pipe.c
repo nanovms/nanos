@@ -221,7 +221,7 @@ closure_function(5, 1, sysreturn, pipe_write_bh,
     }
 
     u64 real_length = MIN(length, avail);
-    buffer_write(b, bound(dest), real_length);
+    assert(buffer_write(b, bound(dest), real_length));
     if (avail == length)
         notify_dispatch(pf->f.ns, 0); /* for edge trigger */
 

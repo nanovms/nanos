@@ -164,6 +164,7 @@ closure_function(3, 1, parser, parse_value,
         break;
     case '[':
         i= allocate(h, sizeof(u64));
+        assert(i != INVALID_ADDRESS);
         *i = 0;
         p = ignore_whitespace(h, (parser)closure(h, is_end_of_vector, h, c, allocate_tuple(), err, i));
         break;
@@ -230,6 +231,7 @@ static parser is_end_of_tuple(struct _closure_is_end_of_tuple *__self, character
     }
 
     parser *p = allocate(h, sizeof(parser));
+    assert(p != INVALID_ADDRESS);
     parser cew = ignore_whitespace(h, (parser)closure_self());
     completion nc = closure(h, name_complete, h, bound(t), cew, bound(e));
     *p = ignore_whitespace(h, (parser)closure(h, parse_name, h, nc, allocate_buffer(h, 100)));
@@ -299,6 +301,7 @@ parser tuple_parser(heap h, parse_finish c, parse_error err)
 {
     init_parser(h);
     parser *p = allocate(h, sizeof(parser));
+    assert(p != INVALID_ADDRESS);
     err_internal k = closure(h, bridge_err, h, err);
     completion bc = closure(h, bridge_completion, c, k, p);
     return (*p = ignore_whitespace(h, (parser)closure(h, parse_tuple, h, bc, k)));
@@ -308,6 +311,7 @@ parser value_parser(heap h, parse_finish c, parse_error err)
 {
     init_parser(h);
     parser *p = allocate(h, sizeof(parser));
+    assert(p != INVALID_ADDRESS);
     err_internal k = closure(h, bridge_err, h, err);
     completion bc = closure(h, bridge_completion, c, k, p);
     return (*p = ignore_whitespace(h, (parser)closure(h, parse_value, h, bc, k)));

@@ -213,7 +213,7 @@ static sysreturn unixsock_write_to(void *src, sg_list sg, u64 length,
             break;
         }
         if (src) {
-            buffer_write(shb->b, src, xfer);
+            assert(buffer_write(shb->b, src, xfer));
             src = (u8 *) src + xfer;
         } else {
             u64 len = sg_copy_to_buf(buffer_ref(shb->b, 0), sg, xfer);
@@ -418,7 +418,7 @@ static sysreturn unixsock_bind(struct sock *sock, struct sockaddr *addr,
             return ret;
         }
     }
-    buffer_write_le64(b, u64_from_pointer(s));
+    assert(buffer_write_le64(b, u64_from_pointer(s)));
 
     runtime_memcpy(&s->local_addr, addr, addrlen);
     return ret;

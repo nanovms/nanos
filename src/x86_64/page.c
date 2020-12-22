@@ -574,6 +574,7 @@ void *bootstrap_page_tables(heap initial)
     /* page table setup */
     pageheap = initial;
     void *pgdir = allocate_zero(initial, PAGESIZE);
+    assert(pgdir != INVALID_ADDRESS);
     pagebase = u64_from_pointer(pgdir);
     pointer_from_pteaddr = boot_pointer_from_pteaddr;
     pteaddr_from_pointer = boot_pteaddr_from_pointer;

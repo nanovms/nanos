@@ -319,7 +319,9 @@ static heap interrupt_vector_heap;
 
 u64 allocate_interrupt(void)
 {
-    return allocate_u64(interrupt_vector_heap, 1);
+    u64 res = allocate_u64(interrupt_vector_heap, 1);
+    assert(res != INVALID_PHYSICAL);
+    return res;
 }
 
 void deallocate_interrupt(u64 irq)
@@ -380,6 +382,7 @@ void init_interrupts(kernel_heaps kh)
 
     /* IDT setup */
     idt = allocate(heap_backed(kh), heap_backed(kh)->pagesize);
+    assert(idt != INVALID_ADDRESS);
 
     /* Rely on ISTs in lieu of TSS stack switch. */
     u64 vector_base = u64_from_pointer(&interrupt_vectors);

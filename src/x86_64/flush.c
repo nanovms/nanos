@@ -34,6 +34,7 @@ void page_invalidate(u64 p, thunk completion)
 {
     if (initialized) {
         flush_entry f = allocate(flush_heap, sizeof(struct flush_entry));
+        assert(f != INVALID_ADDRESS);
         init_refcount(&f->r, total_processors, completion);
         enqueue(flush_queue, f);
         // we can choose to delay/amortize this

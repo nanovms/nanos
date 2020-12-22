@@ -55,6 +55,8 @@ static u64 physically_backed_alloc(heap h, bytes length)
 heap physically_backed(heap meta, heap virtual, heap physical, u64 pagesize)
 {
     backed b = allocate(meta, sizeof(struct backed));
+    if (b == INVALID_ADDRESS)
+        return INVALID_ADDRESS;
     b->h.alloc = physically_backed_alloc;
     b->h.dealloc = physically_backed_dealloc;
     b->physical = physical;

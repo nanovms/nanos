@@ -48,7 +48,7 @@ void klog_disk_setup(u64 disk_offset, block_io disk_read, block_io disk_write)
     klog.disk_write = disk_write;
 }
 
-void klog_set_boot_id(s64 id)
+void klog_set_boot_id(u64 id)
 {
     klog.dump.boot_id = id;
 }

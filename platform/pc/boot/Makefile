@@ -38,7 +38,7 @@ CFLAGS+= \
 LDFLAGS+=	$(KERNLDFLAGS) -T linker_script
 AFLAGS+=	-I$(SRCDIR)/x86_64 -felf
 
-NASMFLAGS	= -l $@.lst -dSTAGE2SIZE=$(shell $(SIZE_CMD) $(OBJDIR)/stage2.pad)
+NASMFLAGS	= -l $@.lst -I $(SRCDIR)/x86_64/ -dSTAGE2SIZE=$(shell $(SIZE_CMD) $(OBJDIR)/stage2.pad)
 DDFLAGS		= bs=512 conv=sync
 OBJCOPYFLAGS	= -S -O binary
 

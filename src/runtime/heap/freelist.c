@@ -58,6 +58,7 @@ static u64 freelist_allocate(heap h, bytes size)
 heap wrap_freelist(heap meta, heap parent, bytes size)
 {
     freelist f = allocate(meta, sizeof(struct freelist));
+    assert(f != INVALID_ADDRESS);
     f->h.alloc = freelist_allocate;
     f->h.dealloc = freelist_deallocate;
     f->h.destroy = 0;
