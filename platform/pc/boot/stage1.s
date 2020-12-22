@@ -75,11 +75,42 @@ dap:
         .lba          dq 1
 
 
+%include "debug.inc"
+
 readsectors:
+        mov cx, [dap.sector_count]
+        mov ax, cx
+        mov dx, 0x0080
+        cmp cx, 0x0080
+        cmovnb cx, dx       ; cx = min(dap.sector_count, 0x80)
+        mov edx, 0x10000
+        sub edx, [dap.offset]
+        shr dx, 0x9
+        cmp dx, cx
+        cmovb cx, dx      ; cx = min(cx, (0x10000 - dap.offset) >> 0x9)
+        mov [dap.sector_count], cx
+loop:
         mov si, dap
         mov ah, 0x42
         mov dl, 0x80
         int 0x13
+        jc sector_read_error
+        sub ax, [dap.sector_count]
+        cmp ax, 0
+        je done
+        add [dap.lba], cx
+        mov cx, 0x1000
+        add [dap.segment], cx
+        mov dx, 0x0
+        mov [dap.offset], dx
+        mov cx, 0x0080
+        cmp ax, cx
+        cmovb cx, ax 
+        mov [dap.sector_count], cx
+        jmp loop
+sector_read_error:
+        PUTSTRING 'ERROR READING STAGE2 SECTORS' 
+done:
         ret
 
 
