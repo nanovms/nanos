@@ -378,7 +378,7 @@ closure_function(1, 1, void, sync_complete,
 
 static void storage_shutdown(int status, status_handler completion)
 {
-    if ((status == 0) || !table_find(get_environment(), sym(RADAR_KEY))) {
+    if (status == 0) {
         storage_sync(completion);
     } else {
         merge m = allocate_merge(heap_locked(&heaps), completion);
