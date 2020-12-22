@@ -59,7 +59,7 @@ static void format_number(buffer dest, struct formatter_state *s, vlist *a)
 
 static void format_buffer(buffer dest, struct formatter_state *s, vlist *ap)
 {
-    push_buffer(dest, varg(*ap, buffer));
+    assert(push_buffer(dest, varg(*ap, buffer)));
 }
 
 static void format_character(buffer dest, struct formatter_state *s, vlist *a)
@@ -73,7 +73,7 @@ static void format_cstring(buffer dest, struct formatter_state *s, vlist *a)
     char *c = varg(*a, char *);
     if (!c) c = (char *)"(null)";
     int len = runtime_strlen(c);
-    buffer_write(dest, c, len);
+    assert(buffer_write(dest, c, len));
 }
 
 static void format_spaces(buffer dest, struct formatter_state *s, vlist *a)

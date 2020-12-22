@@ -1058,7 +1058,7 @@ FTRACE_FN(current_tracer, write)(file f, void * buf, u64 length, u64 offset)
     if (printer_init(&p, TRACE_FLAG_FILE))
         return -ENOMEM;
 
-    buffer_write(printer_buffer(&p), buf, length);
+    assert(buffer_write(printer_buffer(&p), buf, length));
     ret = FTRACE_FN(current_tracer, put)(&p);
     printer_deinit(&p);
 
@@ -1447,7 +1447,7 @@ FTRACE_FN(tracing_on, write)(file f, void * buf, u64 length, u64 offset)
     if (printer_init(&p, TRACE_FLAG_FILE))
         return -ENOMEM;
 
-    buffer_write(printer_buffer(&p), buf, length);
+    assert(buffer_write(printer_buffer(&p), buf, length));
     ret = FTRACE_FN(tracing_on, put)(&p);
     printer_deinit(&p);
 

@@ -117,6 +117,8 @@ vqmsg allocate_vqmsg(virtqueue vq)
 {
     heap h = vq->dev->general;
     vqmsg m = allocate(h, sizeof(struct vqmsg));
+    if (m == INVALID_ADDRESS)
+        return INVALID_ADDRESS;
     list_init(&m->l);
     m->count = 0;
     m->descv = allocate_buffer(h, sizeof(struct vring_desc) * VQMSG_DEFAULT_SIZE);
@@ -136,7 +138,7 @@ void deallocate_vqmsg(virtqueue vq, vqmsg m)
 
 void vqmsg_push(virtqueue vq, vqmsg m, void * addr, u32 len, boolean write)
 {
-    buffer_extend(m->descv, (m->count + 1) * sizeof(struct vring_desc));
+    assert(buffer_extend(m->descv, (m->count + 1) * sizeof(struct vring_desc)));
     struct vring_desc * d = buffer_ref(m->descv, m->count * sizeof(struct vring_desc));
     d->busaddr = physical_from_virtual(addr);
     d->len = len;

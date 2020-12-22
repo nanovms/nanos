@@ -45,7 +45,7 @@ static struct aio *aio_alloc(process p, kernel_heaps kh, unsigned int *id)
         deallocate(heap_general(kh), aio, sizeof(*aio));
         return 0;
     }
-    vector_set(p->aio, aio_id, aio);
+    assert(vector_set(p->aio, aio_id, aio));
     *id = (unsigned int) aio_id;
     aio->kh = kh;
     return aio;
@@ -53,7 +53,7 @@ static struct aio *aio_alloc(process p, kernel_heaps kh, unsigned int *id)
 
 static void aio_dealloc(process p, struct aio *aio, unsigned int id)
 {
-    vector_set(p->aio, id, 0);
+    assert(vector_set(p->aio, id, 0));
     deallocate_u64((heap) p->aio_ids, id, 1);
     deallocate(heap_general(aio->kh), aio, sizeof(*aio));
 }
@@ -145,6 +145,7 @@ closure_function(4, 2, void, aio_complete,
         if (res && res->write && fdesc_is_writable(res)) {
             heap h = heap_general(aio->kh);
             u64 *efd_val = allocate(h, sizeof(*efd_val));
+            assert(efd_val != INVALID_ADDRESS); 
             *efd_val = 1;
             io_completion completion = closure(h, aio_eventfd_complete, h,
                     efd_val);

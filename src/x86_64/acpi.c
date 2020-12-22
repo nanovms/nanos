@@ -32,7 +32,7 @@ declare_closure_struct(1, 0, void, piix4acpi_irq,
                        struct piix4acpi *, dev);
 declare_closure_struct(1, 1, void, piix4acpi_powerdown,
                        struct piix4acpi *, dev,
-                       status, s);
+                       int, status);
 
 typedef struct piix4acpi {
     pci_dev d;
@@ -43,7 +43,7 @@ typedef struct piix4acpi {
 
 define_closure_function(1, 1, void, piix4acpi_powerdown,
                         piix4acpi, dev,
-                        status, s)
+                        int, status)
 {
     acpi_debug("%s", __func__);
     piix4acpi dev = bound(dev);
@@ -59,7 +59,7 @@ define_closure_function(1, 0, void, piix4acpi_irq,
     acpi_debug("%s: sts 0x%04x", __func__, sts);
     pci_bar_write_2(&dev->pm_bar, ACPI_PM1_STS, sts);   /* clear status bits */
     if (sts & ACPI_PM1_PWRBTN_STS)
-        kernel_shutdown_ex(init_closure(&dev->powerdown_handler, piix4acpi_powerdown, dev));
+        kernel_shutdown(0);
 }
 
 closure_function(1, 1, boolean, piix4acpi_probe,
@@ -81,6 +81,7 @@ closure_function(1, 1, boolean, piix4acpi_probe,
     pci_cfgwrite(dev->d, PIIX4ACPI_PMREGMISC_R, 1, PIIX4ACPI_PMIOSE);
     pci_bar_write_2(&dev->pm_bar, ACPI_PM1_EN, ACPI_PM1_PWRBTN_EN);
     pci_bar_write_2(&dev->pm_bar, ACPI_PM1_CNT, ACPI_PM1_SCI_EN);
+    vm_halt = init_closure(&dev->powerdown_handler, piix4acpi_powerdown, dev);
     return true;
 }
 
