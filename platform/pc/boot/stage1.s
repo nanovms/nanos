@@ -97,10 +97,10 @@ loop:
         jc sector_read_error
         sub ax, [dap.sector_count]
         cmp ax, 0
-        je done 
-        mov dx, [dap.segment]
-        inc dx
-        mov [dap.segment], dx
+        je done
+        add [dap.lba], cx
+        mov cx, 0x1000
+        add [dap.segment], cx
         mov dx, 0x0
         mov [dap.offset], dx
         mov cx, 0x0080
