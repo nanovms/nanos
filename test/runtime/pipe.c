@@ -18,7 +18,7 @@ table parse_arguments(heap h, int argc, char **argv);
 
 int __pipe(int fildes[2])
 {
-    return syscall(SYS_pipe, fildes);
+    return syscall(SYS_pipe2, fildes, 0);
 }
 
 void basic_test(heap h, int * fds)

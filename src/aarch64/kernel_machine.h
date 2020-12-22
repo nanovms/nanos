@@ -228,9 +228,14 @@ static inline cpuinfo current_cpu(void)
 
 #define init_syscall_handler()   /* stub */
 
+static inline u64 extended_frame_size(void)
+{
+    return 512; // XXX revisit, arch or depends on config?
+}
+
 static inline u64 total_frame_size(void)
 {
-    return FRAME_EXTENDED_SAVE * sizeof(u64);
+    return FRAME_EXTENDED_SAVE * sizeof(u64) + extended_frame_size();
 }
 
 static inline void wait_for_interrupt(void)
@@ -275,12 +280,6 @@ static inline u64 fault_address(context f)
             rv = _x0;                                                   \
             rv;                                                         \
         })
-
-// XXX make generic
-static inline u64 xsave_frame_size(void)
-{
-    return 512;
-}
 
 // XXX
 #define esr_from_frame(frame) (frame[FRAME_ESR_SPSR] >> 32)

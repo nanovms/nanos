@@ -133,17 +133,6 @@ extern void write_xmsr(u64, u64);
     rv;\
 })
 
-static inline u64 xsave_frame_size(void)
-{
-#if 0
-    u32 v[4];
-    cpuid(0xd, 0, v);
-    return v[1];
-#else
-    return 512;                 /* XXX fx only right now */
-#endif
-}
-
 static inline void cpu_setgs(int cpu)
 {
     u64 addr = u64_from_pointer(cpuinfo_from_id(cpu));
@@ -190,6 +179,17 @@ static inline u64 frame_return_address(context f)
 static inline u64 fault_address(context f)
 {
     return f[FRAME_CR2];
+}
+
+static inline u64 extended_frame_size(void)
+{
+#if 0
+    u32 v[4];
+    cpuid(0xd, 0, v);
+    return v[1];
+#else
+    return 512;                 /* XXX fx only right now */
+#endif
 }
 
 static inline u64 total_frame_size(void)
