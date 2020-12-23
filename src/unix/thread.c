@@ -93,6 +93,8 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, un
 void register_thread_syscalls(struct syscall *map)
 {
     register_syscall(map, futex, futex);
+    register_syscall(map, set_robust_list, set_robust_list);
+    register_syscall(map, get_robust_list, get_robust_list);
     register_syscall(map, clone, clone);
     register_syscall(map, arch_prctl, arch_prctl);
     register_syscall(map, set_tid_address, set_tid_address);
@@ -361,7 +363,8 @@ void exit_thread(thread t)
     if (t->select_epoll)
         epoll_finish(t->select_epoll);
 
-    /* XXX futex robust list needs implementing - wake up robust futexes here */
+    wake_robust_list(t->p, t->robust_list);
+    t->robust_list = 0;
 
     blockq_flush(t->thread_bq);
     deallocate_blockq(t->thread_bq);

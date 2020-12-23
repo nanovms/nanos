@@ -1,0 +1,14 @@
+(
+    children:(
+              #user program
+	      futexrobust:(contents:(host:output/test/runtime/bin/futexrobust))
+	      )
+    # filesystem path to elf for kernel to run
+    program:/futexrobust
+#    trace:t
+#    debugsyscalls:t
+#    futex_trace:t
+    fault:t
+    arguments:[futexrobust]
+    environment:()
+)
