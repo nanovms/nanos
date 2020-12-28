@@ -66,8 +66,6 @@ static void _flush_handler(void)
                 continue;
             if (f->gen > ci->inval_gen)
                 break;
-            if ((f->cpu_mask & U64_FROM_BIT(ci->id)) == 0)
-                continue;
             if (!full_flush) {
                 if (f->flush)
                     full_flush = true;
@@ -149,6 +147,10 @@ static void queue_flush_service()
     }
 }
 
+/* N.B. It is possible for the completion to be run with flush_lock held in
+ * low flush resource situations, so it must not invoke operations that
+ * could call page_invalidate_sync again or else face deadlock.
+ */
 void page_invalidate_sync(flush_entry f, thunk completion)
 {
     if (initialized) {
@@ -187,25 +189,25 @@ void page_invalidate_sync(flush_entry f, thunk completion)
 
 flush_entry get_page_flush_entry()
 {
-    if (initialized) {
-        flush_entry fe;
+    flush_entry fe;
 
-        u64 flags = irq_disable_save();
-        /* Do the flush work here if this cpu gets too far behind which
-         * can happen with large mapping operations */
-        if (inval_gen - current_cpu()->inval_gen > FLUSH_THRESHOLD)
-            _flush_handler();
-        irq_restore(flags);
+    if (!initialized)
+        return 0;
 
-        /* This spins because it must succeed */
-        while ((fe = dequeue(free_flush_entries)) == INVALID_ADDRESS)
-            kern_pause();
+    u64 flags = irq_disable_save();
+    /* Do the flush work here if this cpu gets too far behind which
+        * can happen with large mapping operations */
+    if (inval_gen - current_cpu()->inval_gen > FLUSH_THRESHOLD)
+        _flush_handler();
+    irq_restore(flags);
 
-        assert(fe != INVALID_ADDRESS);
-        runtime_memset((void *)fe, 0, sizeof(*fe));
-        return fe;
-    }
-    return 0;
+    /* This spins because it must succeed */
+    while ((fe = dequeue(free_flush_entries)) == INVALID_ADDRESS)
+        kern_pause();
+
+    assert(fe != INVALID_ADDRESS);
+    runtime_memset((void *)fe, 0, sizeof(*fe));
+    return fe;
 }
 
 void init_flush(heap h)
