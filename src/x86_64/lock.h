@@ -18,7 +18,7 @@ static inline void spin_unlock(spinlock l) {
     *(volatile u64 *)&l->w = 0;
 }
 
-static inline void spin_rlock(spinlock l) {
+static inline void spin_rlock(rw_spinlock l) {
     while (1) {
         fetch_and_add(&l->readers, 1);
         if (!l->w)
@@ -28,18 +28,18 @@ static inline void spin_rlock(spinlock l) {
     }
 }
 
-static inline void spin_runlock(spinlock l) {
+static inline void spin_runlock(rw_spinlock l) {
     fetch_and_add(&l->readers, -1);
 }
 
-static inline void spin_wlock(spinlock l) {
-    spin_lock(l);
+static inline void spin_wlock(rw_spinlock l) {
+    spin_lock(&l->l);
     while (l->readers)
         kern_pause();
 }
 
-static inline void spin_wunlock(spinlock l) {
-    spin_unlock(l);
+static inline void spin_wunlock(rw_spinlock l) {
+    spin_unlock(&l->l);
 }
 
 #else
@@ -64,26 +64,26 @@ static inline void spin_unlock(spinlock l)
     l->w = 0;
 }
 
-static inline void spin_rlock(spinlock l) {
-        assert(l->w == 0);
-        assert(l->readers == 0);
-        l->readers++;
+static inline void spin_rlock(rw_spinlock l) {
+    assert(l->l.w == 0);
+    assert(l->readers == 0);
+    l->readers++;
 }
 
-static inline void spin_runlock(spinlock l) {
+static inline void spin_runlock(rw_spinlock l) {
     assert(l->readers == 1);
-    assert(l->w == 0);
+    assert(l->l.w == 0);
     l->readers--;
 }
 
-static inline void spin_wlock(spinlock l) {
+static inline void spin_wlock(rw_spinlock l) {
     assert(l->readers == 0);
-    spin_lock(l);
+    spin_lock(&l->l);
 }
 
-static inline void spin_wunlock(spinlock l) {
+static inline void spin_wunlock(rw_spinlock l) {
     assert(l->readers == 0);
-    spin_unlock(l);
+    spin_unlock(&l->l);
 }
 #else
 #define spin_try(x) (true)
@@ -110,7 +110,7 @@ static inline void spin_unlock_irq(spinlock l, u64 flags)
     irq_restore(flags);
 }
 
-static inline u64 spin_wlock_irq(spinlock l)
+static inline u64 spin_wlock_irq(rw_spinlock l)
 {
     u64 flags = read_flags();
     disable_interrupts();
@@ -118,13 +118,13 @@ static inline u64 spin_wlock_irq(spinlock l)
     return flags;
 }
 
-static inline void spin_wunlock_irq(spinlock l, u64 flags)
+static inline void spin_wunlock_irq(rw_spinlock l, u64 flags)
 {
     spin_wunlock(l);
     irq_restore(flags);
 }
 
-static inline u64 spin_rlock_irq(spinlock l)
+static inline u64 spin_rlock_irq(rw_spinlock l)
 {
     u64 flags = read_flags();
     disable_interrupts();
@@ -132,7 +132,7 @@ static inline u64 spin_rlock_irq(spinlock l)
     return flags;
 }
 
-static inline void spin_runlock_irq(spinlock l, u64 flags)
+static inline void spin_runlock_irq(rw_spinlock l, u64 flags)
 {
     spin_runlock(l);
     irq_restore(flags);
@@ -141,5 +141,10 @@ static inline void spin_runlock_irq(spinlock l, u64 flags)
 static inline void spin_lock_init(spinlock l)
 {
     l->w = 0;
+}
+
+static inline void spin_rw_lock_init(rw_spinlock l)
+{
+    spin_lock_init(&l->l);
     l->readers = 0;
 }

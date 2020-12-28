@@ -17,7 +17,7 @@ static int entries_count;
 static volatile boolean service_scheduled;
 static thunk flush_service;
 static queue flush_completion_queue;
-static struct spinlock flush_lock;
+static struct rw_spinlock flush_lock;
 
 static void queue_flush_service();
 
