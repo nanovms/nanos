@@ -57,7 +57,7 @@ static inline void deallocate_vector(vector v)
 
 static inline void vector_push(vector v, void *i)
 {
-    buffer_extend(v, sizeof(void *));
+    assert(buffer_extend(v, sizeof(void *)));
     *((void **)(v->contents + v->end)) = i;
     v->end += sizeof(void *);
 }
@@ -99,7 +99,7 @@ static inline buffer join(heap h, vector source, char between)
     buffer out = allocate_buffer(h, 100);
     for (int i = 0; i < vector_length(source); i++){
         if (i) push_character(out, between);
-        push_buffer(out, vector_get(source, i));
+        assert(push_buffer(out, vector_get(source, i)));
     }
     return out;
 }
@@ -108,7 +108,7 @@ static inline buffer join(heap h, vector source, char between)
 
 static inline void bitvector_set(buffer b, int position)
 {
-    extend_total(b, pad(position, 8)>>3);
+    assert(extend_total(b, pad(position, 8)>>3));
     ((u8 *)b->contents)[position>>3] |= (1<<(position & 7));
 }
 

@@ -135,7 +135,7 @@ static epollfd alloc_epollfd(epoll e, int fd, u32 eventmask, u64 data)
     init_refcount(&efd->refcount, 1, init_closure(&efd->free, epollfd_free, efd));
     efd->registered = false;
     efd->zombie = false;
-    vector_set(e->events, fd, efd);
+    assert(vector_set(e->events, fd, efd));
     bitmap_set(e->fds, fd, 1);
     if (fd >= e->nfds)
 	e->nfds = fd + 1;
@@ -160,7 +160,7 @@ static void release_epollfd(epollfd efd)
     int fd = efd->fd;
     epoll_debug("e %p, fd %d\n", e, fd);
     assert(vector_get(e->events, fd) == efd);
-    vector_set(e->events, fd, 0);
+    assert(vector_set(e->events, fd, 0));
     bitmap_set(e->fds, fd, 0);
     efd->zombie = true;
     if (efd->registered)

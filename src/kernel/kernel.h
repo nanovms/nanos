@@ -328,3 +328,6 @@ static inline u64 total_frame_size(void)
 extern void xsave(context f);
 
 extern int shutdown_vector;
+
+typedef closure_type(halt_handler, void, int);
+extern halt_handler vm_halt;

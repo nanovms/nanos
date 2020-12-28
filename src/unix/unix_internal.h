@@ -247,6 +247,9 @@ typedef struct thread {
     int *clear_tid;
     int tid;
 
+    /* set by set_robust_list syscall */
+    void *robust_list;
+
     /* blockq thread is waiting on, INVALID_ADDRESS for uninterruptible */
     blockq blocked_on;
 
@@ -700,6 +703,7 @@ extern sysreturn syscall_ignore();
 boolean do_demand_page(u64 vaddr, vmap vm, context frame);
 vmap vmap_from_vaddr(process p, u64 vaddr);
 void vmap_iterator(process p, vmap_handler vmh);
+boolean vmap_validate_range(process p, range q);
 void truncate_file_maps(process p, fsfile f, u64 new_length);
 const char *string_from_mmap_type(int type);
 
@@ -711,6 +715,14 @@ void thread_sleep_uninterruptible(void) __attribute__((noreturn));
 void thread_yield(void) __attribute__((noreturn));
 void thread_wakeup(thread);
 boolean thread_attempt_interrupt(thread t);
+
+/* XXX This should eventually be rolled into validate_user_memory */
+static inline boolean validate_process_memory(process p, const void *a, bytes length, boolean write)
+{
+    u64 v = u64_from_pointer(a);
+
+    return vmap_validate_range(p, irange(v, v + length));
+}
 
 static inline boolean thread_in_interruptible_sleep(thread t)
 {
@@ -790,6 +802,9 @@ void init_threads(process p);
 void init_futices(process p);
 
 sysreturn futex(int *uaddr, int futex_op, int val, u64 val2, int *uaddr2, int val3);
+sysreturn get_robust_list(int pid, void *head, u64 *len);
+sysreturn set_robust_list(void *head, u64 len);
+void wake_robust_list(process p, void *head);
 boolean futex_wake_many_by_uaddr(process p, int *uaddr, int val);
 
 static inline boolean futex_wake_one_by_uaddr(process p, int *uaddr)

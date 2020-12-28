@@ -158,8 +158,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, fchmodat, syscall_ignore);
     register_syscall(map, faccessat, 0);
     register_syscall(map, unshare, 0);
-    register_syscall(map, set_robust_list, 0);
-    register_syscall(map, get_robust_list, 0);
     register_syscall(map, splice, 0);
     register_syscall(map, tee, 0);
     register_syscall(map, sync_file_range, 0);
@@ -1107,7 +1105,7 @@ sysreturn dup2(int oldfd, int newfd)
     if (newfd != oldfd) {
         fdesc newf = fdesc_get(current->p, newfd);
         if (newf) {
-            vector_set(current->p->files, newfd, f);
+            assert(vector_set(current->p->files, newfd, f));
             if (fetch_and_add(&newf->refcnt, -2) == 2)
                 apply(newf->close, current, io_completion_ignore);
         } else {

@@ -340,6 +340,8 @@ static void reclaim_regions(void)
     }
 }
 
+halt_handler vm_halt;
+
 void vm_exit(u8 code)
 {
 #ifdef SMP_DUMP_FRAME_RETURN_COUNT
@@ -363,6 +365,9 @@ void vm_exit(u8 code)
     tuple root = root_fs ? filesystem_getroot(root_fs) : 0;
     if (root && table_find(root, sym(reboot_on_exit))) {
         triple_fault();
+    } else if (vm_halt) {
+        apply(vm_halt, code);
+        while (1);  /* to honor noreturn attribute */
     } else {
         QEMU_HALT(code);
     }
@@ -397,9 +402,9 @@ closure_function(2, 0, void, do_storage_shutdown,
 }
 
 extern boolean shutting_down;
-static void __attribute__((noreturn)) kernel_shutdown_internal(int status,
-    status_handler completion)
+void __attribute__((noreturn)) kernel_shutdown(int status)
 {
+    status_handler completion = closure(heap_locked(&heaps), sync_complete, status);
     shutting_down = true;
     if (root_fs) {
         if (this_cpu_has_kernel_lock()) {
@@ -413,16 +418,6 @@ static void __attribute__((noreturn)) kernel_shutdown_internal(int status,
     }
     apply(completion, STATUS_OK);
     while(1);
-}
-
-void kernel_shutdown_ex(status_handler completion)
-{
-    kernel_shutdown_internal(0, completion);
-}
-
-void kernel_shutdown(int status)
-{
-    kernel_shutdown_internal(status, closure(heap_locked(&heaps), sync_complete, status));
 }
 
 u64 total_processors = 1;

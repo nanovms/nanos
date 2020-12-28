@@ -308,6 +308,7 @@ block_io create_ata_io(heap h, void * dev, int cmd)
 struct ata *ata_alloc(heap general)
 {
     struct ata *dev = allocate(general, sizeof(*dev));
+    assert(dev != INVALID_ADDRESS);
     dev->general = general;
     dev->unit = 0; // always master for now
     return dev;

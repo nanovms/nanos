@@ -431,6 +431,7 @@ heap allocate_objcache(heap meta, heap parent, bytes objsize, bytes pagesize)
     }
     
     objcache o = allocate(meta, sizeof(struct objcache));
+    assert(o != INVALID_ADDRESS);
     o->h.alloc = objcache_allocate;
     o->h.dealloc = objcache_deallocate;
     o->h.destroy = objcache_destroy;

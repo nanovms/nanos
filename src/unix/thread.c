@@ -93,6 +93,8 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, un
 void register_thread_syscalls(struct syscall *map)
 {
     register_syscall(map, futex, futex);
+    register_syscall(map, set_robust_list, set_robust_list);
+    register_syscall(map, get_robust_list, get_robust_list);
     register_syscall(map, clone, clone);
     register_syscall(map, arch_prctl, arch_prctl);
     register_syscall(map, set_tid_address, set_tid_address);
@@ -319,7 +321,7 @@ thread create_thread(process p)
     t->start_time = now(CLOCK_ID_MONOTONIC);
 
     // XXX sigframe
-    vector_set(p->threads, t->tid, t);
+    assert(vector_set(p->threads, t->tid, t)); 
     return t;
   fail_sfds:
     deallocate_blockq(t->thread_bq);
@@ -336,7 +338,7 @@ void exit_thread(thread t)
     thread_log(current, "exit_thread");
 
     assert(vector_length(t->p->threads) > t->tid);
-    vector_set(t->p->threads, t->tid, 0);
+    assert(vector_set(t->p->threads, t->tid, 0));
 
     /* We might be exiting from the signal handler while dispatching a
        signal on behalf of the process sigstate, so reset masks as if
@@ -361,7 +363,8 @@ void exit_thread(thread t)
     if (t->select_epoll)
         epoll_finish(t->select_epoll);
 
-    /* XXX futex robust list needs implementing - wake up robust futexes here */
+    wake_robust_list(t->p, t->robust_list);
+    t->robust_list = 0;
 
     blockq_flush(t->thread_bq);
     deallocate_blockq(t->thread_bq);
