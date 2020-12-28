@@ -173,6 +173,16 @@ void page_invalidate_sync(flush_entry f, thunk completion)
          * running out of flush resources, so proactively service the list */
         if (entries_count > ENTRIES_SERVICE_THRESHOLD)
             service_list(true);
+
+        /* Set flush true on all previous entries to avoid wasted
+         * invalidations if this entry causes a flush */
+        if (f->flush) {
+            list_foreach(&entries, l) {
+                flush_entry ff = struct_from_list(l, flush_entry, l);
+                if (!ff->flush)
+                    ff->flush = true;
+            }
+        }
         list_push_back(&entries, &f->l);
         entries_count++;
         f->gen = fetch_and_add((word *)&inval_gen, 1) + 1;
