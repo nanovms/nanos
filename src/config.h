@@ -13,6 +13,8 @@
 #define BH_STACK_SIZE      (32 * KB)
 #define SYSCALL_STACK_SIZE (32 * KB)
 
+#define PAGE_INVAL_QUEUE_LENGTH  4096
+
 /* maximum buckets that can fit within a PAGESIZE_2M mcache */
 #define TABLE_MAX_BUCKETS 131072
 
