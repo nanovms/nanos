@@ -217,11 +217,10 @@ void init_flush(heap h)
     flush_service = closure(flush_heap, do_flush_service);
     free_flush_entries = allocate_queue(flush_heap, MAX_FLUSH_ENTRIES + 1);
     flush_completion_queue = allocate_queue(flush_heap, COMP_QUEUE_SIZE);
-    for (int i = 0; i < MAX_FLUSH_ENTRIES; i++) {
-        flush_entry f = allocate(flush_heap, sizeof(struct flush_entry));
-        assert(f);
+    flush_entry fa = allocate(flush_heap, sizeof(struct flush_entry) * MAX_FLUSH_ENTRIES);
+    assert(fa);
+    for (flush_entry f = fa; f < fa + MAX_FLUSH_ENTRIES; f++)
         assert(enqueue(free_flush_entries, f));
-    }
     initialized = true;
 }
 
