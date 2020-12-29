@@ -34,6 +34,8 @@ static void reset_formatter_state(struct formatter_state *s)
     s->format = 0;
     s->modifier = 0;
     s->width = 0;
+    s->align = 0;
+    s->fill = 0;
 }
 
 void vbprintf(buffer d, buffer fmt, vlist *ap)
@@ -44,32 +46,53 @@ void vbprintf(buffer d, buffer fmt, vlist *ap)
     reset_formatter_state(&s);
     foreach_character(idx, c, fmt) {
         if (s.state == 1)  {
-	    if ((c >= 48) && (c <= 57)) {
-		s.width = s.width * 10 + c - 48;
-	    } else if (c == 'l') {
+            int pos = idx - start_idx;
+            switch (pos) {
+            case 1:
+            case 2:
+                switch (c) {
+                case '0':
+                case ' ':
+                    if (pos == 1 || (pos == 2 && s.align && c == ' ')) {
+                        s.fill = c;
+                        continue;
+                    }
+                    break;
+                case '-':
+                    if (pos == 1) {
+                        s.align = '-';
+                        continue;
+                    }
+                    break;
+                }
+                break;
+            }
+            if ((c >= '0') && (c <= '9')) {
+                s.width = s.width * 10 + c - '0';
+            } else if (c == 'l') {
                 if (s.modifier != 0)
                     invalid_format(d, fmt, start_idx, idx);
                 else
                     s.modifier = c;
-        } else if (c == '%') {
-            push_character(d, c);
-            s.state = 0;
+            } else if (c == '%') {
+                push_character(d, c);
+                s.state = 0;
             } else {
-		if ((c > 32) && (c < 128) &&
+                if ((c > 32) && (c < 128) &&
                     FORMATTER(c).f &&
                     (s.modifier != 'l' || FORMATTER(c).accepts_long)) {
                     s.format = c;
-		    FORMATTER(c).f(d, &s, ap);
-		} else {
+                    FORMATTER(c).f(d, &s, ap);
+                } else {
                     invalid_format(d, fmt, start_idx, idx);
                 }
 
                 reset_formatter_state(&s);
             }
-        } else {           
+        } else {
             if ((s.state == 0) && (c == '%')) {
                 s.state = 1;
-		start_idx = idx;
+                start_idx = idx;
             } else {
                 push_character(d, c);
             }
