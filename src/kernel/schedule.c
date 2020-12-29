@@ -7,7 +7,7 @@
    don't create too much of a mess. */
 //#define SCHED_DEBUG
 #ifdef SCHED_DEBUG
-#define sched_debug(x, ...) do {log_printf("SCHED", "[%2d] " x, current_cpu()->id, ##__VA_ARGS__);} while(0)
+#define sched_debug(x, ...) do {log_printf("SCHED", "[%02d] " x, current_cpu()->id, ##__VA_ARGS__);} while(0)
 #else
 #define sched_debug(x, ...)
 #endif

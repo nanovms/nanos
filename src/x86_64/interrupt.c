@@ -237,7 +237,7 @@ void common_handler()
     // if we were idle, we are no longer
     atomic_clear_bit(&idle_cpu_mask, ci->id);
 
-    int_debug("[%2d] # %d (%s), state %s, frame %p, rip 0x%lx, cr2 0x%lx\n",
+    int_debug("[%02d] # %d (%s), state %s, frame %p, rip 0x%lx, cr2 0x%lx\n",
               ci->id, i, interrupt_names[i], state_strings[ci->state],
               f, f[FRAME_RIP], f[FRAME_CR2]);
 

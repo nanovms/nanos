@@ -5,7 +5,7 @@
 
 //#define PF_DEBUG
 #ifdef PF_DEBUG
-#define pf_debug(x, ...) do {log_printf("FAULT", "[%2d] tid %2d " x "\n", current_cpu()->id, \
+#define pf_debug(x, ...) do {log_printf("FAULT", "[%02d] tid %02d " x "\n", current_cpu()->id, \
                                         current->tid, ##__VA_ARGS__);} while(0)
 #else
 #define pf_debug(x, ...) thread_log(current, x, ##__VA_ARGS__);
