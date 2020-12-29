@@ -36,6 +36,7 @@ static void reset_formatter_state(struct formatter_state *s)
     s->width = 0;
     s->align = 0;
     s->fill = 0;
+    s->precision = -1;
 }
 
 void vbprintf(buffer d, buffer fmt, vlist *ap)
@@ -46,29 +47,20 @@ void vbprintf(buffer d, buffer fmt, vlist *ap)
     reset_formatter_state(&s);
     foreach_character(idx, c, fmt) {
         if (s.state == 1)  {
-            int pos = idx - start_idx;
-            switch (pos) {
-            case 1:
-            case 2:
-                switch (c) {
-                case '0':
-                case ' ':
-                    if (pos == 1 || (pos == 2 && s.align && c == ' ')) {
-                        s.fill = c;
-                        continue;
-                    }
-                    break;
-                case '-':
-                    if (pos == 1) {
-                        s.align = '-';
-                        continue;
-                    }
-                    break;
-                }
-                break;
+            if (idx - start_idx == 1 && (c == '0' || c == '-')) {
+                if (c == '0')
+                    s.fill = '0';
+                else if (c == '-')
+                    s.align = '-';
+                continue;
             }
             if ((c >= '0') && (c <= '9')) {
-                s.width = s.width * 10 + c - '0';
+                if (s.precision == -1) {
+                    if (!s.fill)
+                        s.fill = ' ';
+                    s.width = s.width * 10 + c - '0';
+                } else
+                    s.precision = s.precision * 10 + c - '0';
             } else if (c == 'l') {
                 if (s.modifier != 0)
                     invalid_format(d, fmt, start_idx, idx);
@@ -77,6 +69,11 @@ void vbprintf(buffer d, buffer fmt, vlist *ap)
             } else if (c == '%') {
                 push_character(d, c);
                 s.state = 0;
+            } else if (c == '.') {
+                if (s.precision != -1)
+                    invalid_format(d, fmt, start_idx, idx);
+                else
+                    s.precision = 0;
             } else {
                 if ((c > 32) && (c < 128) &&
                     FORMATTER(c).f &&

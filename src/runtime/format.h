@@ -10,6 +10,7 @@ struct formatter_state {
     int width;     // format width
     int align;     // format align ('-')
     int fill;      // format fill
+    int precision; // format precision
 };
 
 // make sure its safe to read more than one format char ala %02x

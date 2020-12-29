@@ -41,7 +41,7 @@ static void format_number(buffer dest, struct formatter_state *s, vlist *a)
 
     s64 x;
     int sign = 0;
-    char buf[32];
+    char buf[64];
     buffer tmp = alloca_wrap_buffer(buf, sizeof(buf));
 
     buffer_clear(tmp);
@@ -58,10 +58,10 @@ static void format_number(buffer dest, struct formatter_state *s, vlist *a)
         sign = 1;
         x = -x;
     }
-    print_number(tmp, x, base, 0);
+    print_number(tmp, x, base, s->precision);
     int len = buffer_length(tmp) + sign;
-    if (!s->fill)
-        s->fill = '0';
+    if (s->precision == 0 && x == 0)
+        len = 0;
     if (len < s->width && s->align == 0) {
         if (sign && s->fill == '0')
             push_u8(dest, '-');
@@ -69,7 +69,8 @@ static void format_number(buffer dest, struct formatter_state *s, vlist *a)
         if (sign && s->fill != '0')
             push_u8(dest, '-');
     }
-    push_buffer(dest, tmp);
+    if (!(s->precision == 0 && x == 0))
+        push_buffer(dest, tmp);
     if (len < s->width && s->align == '-')
         for (int i = 0; i < s->width - len; i++) push_u8(dest, ' ');
 }
@@ -90,6 +91,8 @@ static void format_cstring(buffer dest, struct formatter_state *s, vlist *a)
     char *c = varg(*a, char *);
     if (!c) c = (char *)"(null)";
     int len = runtime_strlen(c);
+    if (s->precision > 0)
+        len = s->precision;
     if (len < s->width && s->align == 0)
         for (int i = 0; i < s->width - len; i++) push_u8(dest, ' ');
     assert(buffer_write(dest, c, len));
