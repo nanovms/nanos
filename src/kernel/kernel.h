@@ -327,6 +327,10 @@ static inline u64 total_frame_size(void)
 
 extern void xsave(context f);
 
+#define SHUTDOWN_COMPLETIONS_SIZE    8
+extern vector shutdown_completions;
+typedef closure_type(shutdown_handler, void, merge);
+
 extern int shutdown_vector;
 
 typedef closure_type(halt_handler, void, int);
