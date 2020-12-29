@@ -514,6 +514,9 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     register_timer_syscalls(linux_syscalls);
     register_other_syscalls(linux_syscalls);
     configure_syscalls(kernel_process);
+    do_syscall_stats = table_find(kernel_process->process_root, sym(syscall_summary)) != 0;
+    if (do_syscall_stats)
+        vector_push(shutdown_completions, print_syscall_stats);
     return kernel_process;
   alloc_fail:
     msg_err("failed to allocate kernel objects\n");

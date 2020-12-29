@@ -13,10 +13,20 @@
 #define DT_SOCK		12
 #define DT_WHT		14
 
+typedef struct syscall_stat {
+    u64 calls;
+    u64 errors;
+    u64 usecs;
+} *syscall_stat;
+
+static struct syscall_stat stats[SYS_MAX];
+boolean do_syscall_stats;
+
 sysreturn close(int fd);
 
 io_completion syscall_io_complete;
 io_completion io_completion_ignore;
+shutdown_handler print_syscall_stats;
 
 void register_other_syscalls(struct syscall *map)
 {
@@ -2447,6 +2457,17 @@ struct syscall {
 static struct syscall _linux_syscalls[SYS_MAX];
 struct syscall *linux_syscalls = _linux_syscalls;
 
+void count_syscall(thread t, int rv)
+{
+    assert(t->last_syscall >= 0);
+    syscall_stat ss = &stats[t->last_syscall];
+    t->last_syscall = -1;
+    fetch_and_add(&ss->calls, 1);
+    if (rv < 0 && rv >= -255)
+        fetch_and_add(&ss->errors, 1);
+    fetch_and_add(&ss->usecs, usec_from_timestamp(now(CLOCK_ID_MONOTONIC) - t->syscall_enter_ts));
+}
+
 void syscall_debug(context f)
 {
     u64 call = f[FRAME_VECTOR];
@@ -2459,6 +2480,10 @@ void syscall_debug(context f)
         goto out;
     }
     t->syscall = call;
+    if (do_syscall_stats) {
+        t->last_syscall = call;
+        t->syscall_enter_ts = now(CLOCK_ID_MONOTONIC);
+    }
     // should we cache this for performance?
     void *debugsyscalls = table_find(t->p->process_root, sym(debugsyscalls));
     struct syscall *s = t->p->syscalls + call;
@@ -2475,6 +2500,8 @@ void syscall_debug(context f)
         t->syscall_complete = false;
         sysreturn rv = h(f[FRAME_RDI], f[FRAME_RSI], f[FRAME_RDX], f[FRAME_R10], f[FRAME_R8], f[FRAME_R9]);
         set_syscall_return(t, rv);
+        if (do_syscall_stats)
+            count_syscall(t, rv);
         if (debugsyscalls)
             thread_log(t, "direct return: %ld, rsp 0x%lx", rv, f[FRAME_RSP]);
     } else if (debugsyscalls) {
@@ -2515,6 +2542,68 @@ closure_function(0, 2, void, io_complete_ignore,
 {
 }
 
+static boolean stat_compare(void *za, void *zb)
+{
+    syscall_stat sa = za;
+    syscall_stat sb = zb;
+    return sb->usecs > sa->usecs;
+}
+
+static inline char *print_ts(buffer b, u64 x)
+{
+    buffer_clear(b);
+    print_timestamp(b, microseconds(x));
+    buffer_write_byte(b, 0);
+    return buffer_ref(b, 0);
+}
+
+static inline char *print_pct(buffer b, u64 x, u64 y)
+{
+    buffer_clear(b);
+    x *= 100;
+    bprintf(b, "%d.%02d", x / y, (x * 100 / y) % 100);
+    buffer_write_byte(b, 0);
+    return buffer_ref(b, 0);
+}
+
+#define LINE "------"
+#define LINE2 LINE LINE
+#define LINE3 LINE LINE LINE
+#define SEPARATOR LINE " " LINE2 " " LINE2 " " LINE2 " " LINE2 " " LINE3 "\n"
+#define HDR_FMT "%6s %12s %12s %12s %12s %-18s\n"
+#define DATA_FMT "%6s %12s %12.0d %12d %12.0d %-18s\n"
+
+#define ROUNDED_IDIV(x, y) (((x)* 10 / (y) + 5) / 10)
+
+closure_function(0, 1, void, print_syscall_stats_cfn,
+                 merge, m)
+{
+    u64 tot_usecs = 0;
+    u64 tot_calls = 0;
+    u64 tot_errs = 0;
+    buffer tbuf = little_stack_buffer(24);
+    buffer pbuf = little_stack_buffer(24);
+    pqueue pq = allocate_pqueue(heap_general(get_kernel_heaps()), stat_compare);
+    syscall_stat ss;
+
+    rprintf("\n" HDR_FMT SEPARATOR, "% time", "seconds", "usecs/call", "calls", "errors", "syscall");
+    for (int i = 0; i < SYS_MAX; i++) {
+        ss = &stats[i];
+        if (ss->calls == 0)
+            continue;
+        tot_usecs += ss->usecs;
+        pqueue_insert(pq, ss);
+    }
+    while ((ss = pqueue_pop(pq)) != INVALID_ADDRESS) {
+        tot_calls += ss->calls;
+        tot_errs += ss->errors;
+        rprintf(DATA_FMT, print_pct(pbuf, ss->usecs, tot_usecs), print_ts(tbuf, ss->usecs),
+            ROUNDED_IDIV(ss->usecs, ss->calls), ss->calls, ss->errors, _linux_syscalls[ss - stats].name);
+    }
+    rprintf(SEPARATOR DATA_FMT, "100.00", print_ts(tbuf, tot_usecs), 0, tot_calls, tot_errs, "total");
+    deallocate_pqueue(pq);
+}
+
 static boolean syscall_defer;
 
 // some validation can be moved up here
@@ -2540,6 +2629,7 @@ void init_syscalls()
     syscall = syscall_schedule;
     syscall_io_complete = closure(h, syscall_io_complete_cfn);
     io_completion_ignore = closure(h, io_complete_ignore);
+    print_syscall_stats = closure(h, print_syscall_stats_cfn);
 }
 
 void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *name)

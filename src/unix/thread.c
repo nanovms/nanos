@@ -159,6 +159,8 @@ static inline void run_thread_frame(thread t)
     t->blocked_on = 0;
     t->syscall = -1;
 
+    if (do_syscall_stats && t->last_syscall == SYS_sched_yield)
+        count_syscall(t, 0);
     context f = thread_frame(t);
     f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
     cpuinfo ci = current_cpu();

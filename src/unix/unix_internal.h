@@ -262,6 +262,8 @@ typedef struct thread {
     boolean sysctx;
     timestamp utime, stime;
     timestamp start_time;
+    int last_syscall;
+    timestamp syscall_enter_ts;
 
     /* signals pending and saved state */
     struct sigstate signals;
@@ -680,6 +682,10 @@ void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *n
 void configure_syscalls(process p);
 boolean syscall_notrace(process p, int syscall);
 
+void count_syscall(thread t, int rv);
+shutdown_handler print_syscall_stats;
+extern boolean do_syscall_stats;
+
 void register_file_syscalls(struct syscall *);
 void register_net_syscalls(struct syscall *);
 void register_signal_syscalls(struct syscall *);
@@ -777,8 +783,11 @@ static inline sysreturn syscall_return(thread t, sysreturn val)
     set_syscall_return(t, val);
     u64 flags = irq_disable_save(); /* XXX mutex / spinlock */
     t->syscall_complete = true;
-    if (t->blocked_on)
+    if (t->blocked_on) {
+        if (do_syscall_stats)
+            count_syscall(t, val);
         thread_wakeup(t);
+    }
     irq_restore(flags);
     return val;
 }
