@@ -2549,10 +2549,10 @@ static boolean stat_compare(void *za, void *zb)
     return sb->usecs > sa->usecs;
 }
 
-static inline char *print_ts(buffer b, u64 x)
+static inline char *print_usecs(buffer b, u64 x)
 {
     buffer_clear(b);
-    print_timestamp(b, microseconds(x));
+    bprintf(b, "%d.%06d", x / MILLION, x % MILLION);
     buffer_write_byte(b, 0);
     return buffer_ref(b, 0);
 }
@@ -2571,7 +2571,8 @@ static inline char *print_pct(buffer b, u64 x, u64 y)
 #define LINE3 LINE LINE LINE
 #define SEPARATOR LINE " " LINE2 " " LINE2 " " LINE2 " " LINE2 " " LINE3 "\n"
 #define HDR_FMT "%6s %12s %12s %12s %12s %-18s\n"
-#define DATA_FMT "%6s %12s %12.0d %12d %12.0d %-18s\n"
+#define DATA_FMT "%6s %12s %12d %12d %12.0d %-18s\n"
+#define SUM_FMT "%6s %12s %12.0d %12d %12.0d %-18s\n"
 
 #define ROUNDED_IDIV(x, y) (((x)* 10 / (y) + 5) / 10)
 
@@ -2597,10 +2598,10 @@ closure_function(0, 1, void, print_syscall_stats_cfn,
     while ((ss = pqueue_pop(pq)) != INVALID_ADDRESS) {
         tot_calls += ss->calls;
         tot_errs += ss->errors;
-        rprintf(DATA_FMT, print_pct(pbuf, ss->usecs, tot_usecs), print_ts(tbuf, ss->usecs),
+        rprintf(DATA_FMT, print_pct(pbuf, ss->usecs, tot_usecs), print_usecs(tbuf, ss->usecs),
             ROUNDED_IDIV(ss->usecs, ss->calls), ss->calls, ss->errors, _linux_syscalls[ss - stats].name);
     }
-    rprintf(SEPARATOR DATA_FMT, "100.00", print_ts(tbuf, tot_usecs), 0, tot_calls, tot_errs, "total");
+    rprintf(SEPARATOR SUM_FMT, "100.00", print_usecs(tbuf, tot_usecs), 0, tot_calls, tot_errs, "total");
     deallocate_pqueue(pq);
 }
 
