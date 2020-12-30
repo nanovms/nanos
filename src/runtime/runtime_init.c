@@ -62,13 +62,12 @@ static void format_number(buffer dest, struct formatter_state *s, vlist *a)
     int len = buffer_length(tmp) + sign;
     if (s->precision == 0 && x == 0)
         len = 0;
-    if (len < s->width && s->align == 0) {
-        if (sign && s->fill == '0')
-            push_u8(dest, '-');
+    if (sign && s->fill == '0')
+        push_u8(dest, '-');
+    if (len < s->width && s->align == 0)
         for (int i = 0; i < s->width - len; i++) push_u8(dest, s->fill);
-        if (sign && s->fill != '0')
-            push_u8(dest, '-');
-    }
+    if (sign && s->fill != '0')
+        push_u8(dest, '-');
     if (!(s->precision == 0 && x == 0))
         push_buffer(dest, tmp);
     if (len < s->width && s->align == '-')
