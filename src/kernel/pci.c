@@ -121,12 +121,12 @@ void pci_bar_init(pci_dev dev, struct pci_bar *b, int bar, bytes offset, bytes l
         if (length == -1)
             length = b->size - offset;
         assert(offset + length <= b->size);
-        bytes len = pad(length, PAGESIZE);
-        b->vaddr = allocate(virtual_page, len);
-        assert(b->vaddr != INVALID_ADDRESS);
-        pci_debug("%s: %p[0x%x] -> 0x%lx[0x%lx]+0x%x\n", __func__, b->vaddr, len, b->addr, b->size, offset);
+        b->vlen = pad(length, PAGESIZE);
+        b->vaddr = allocate(virtual_page, b->vlen);
+        pci_debug("%s: %p[0x%x] -> 0x%lx[0x%lx]+0x%x\n", __func__, b->vaddr,
+                  b->vlen, b->addr, b->size, offset);
         u64 pa = b->addr + offset;
-        map(u64_from_pointer(b->vaddr), pa & ~PAGEMASK, len, PAGE_DEV_FLAGS);
+        map(u64_from_pointer(b->vaddr), pa & ~PAGEMASK, b->vlen, PAGE_DEV_FLAGS);
         b->vaddr += pa & PAGEMASK;
     }
 }
@@ -183,6 +183,15 @@ void pci_bar_write_8(struct pci_bar *b, u64 offset, u64 val)
         out64(b->addr + offset, val);
 }
 
+void pci_bar_deinit(struct pci_bar *b)
+{
+    if (b->type == PCI_BAR_MEMORY) {
+        u64 vaddr_aligned = u64_from_pointer(b->vaddr) & ~PAGEMASK;
+        unmap(vaddr_aligned, b->vlen);
+        deallocate(virtual_page, vaddr_aligned, b->vlen);
+    }
+}
+
 void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
 {
     int port;
@@ -231,27 +240,25 @@ u32 pci_find_next_cap(pci_dev dev, u8 cap, u32 cp)
     return _pci_find_cap(dev, cap, pci_cfgread(dev, cp + PCICAP_NEXTPTR, 1));
 }
 
-void pci_enable_msix(pci_dev dev)
+int pci_enable_msix(pci_dev dev)
 {
     u32 cp = pci_find_cap(dev, PCIY_MSIX);
     if (cp == 0)
-        return;
+        return 0;
 
     // map MSI-X table
     u32 msix_table = pci_cfgread(dev, cp + 4, 4);
-    struct pci_bar b;
-    pci_bar_init(dev, &b, msix_table & 0x7, msix_table & ~0x7, -1);
-    dev->msix_table = (u32 *)b.vaddr;
-    pci_debug("%s: msix_config.msix_table 0x%x, msix_table %p\n", __func__, msix_table, dev->msix_table);
+    pci_bar_init(dev, &dev->msix_bar, msix_table & 0x7, msix_table & ~0x7, -1);
+    pci_debug("%s: msix_config.msix_table 0x%x, msix_table %p\n", __func__,
+              msix_table, dev->msix_bar.vaddr);
 
     // enable MSI-X
     u16 ctrl = pci_cfgread(dev, cp + 2, 2);
     ctrl |= 0x8000;
-#ifdef PCI_DEBUG
     int num_entries = (ctrl & 0x7ff) + 1;
-#endif
     pci_debug("%s: ctrl 0x%x, num entries %d\n", __func__, ctrl, num_entries);
     pci_cfgwrite(dev, cp + 2, 2, ctrl);
+    return num_entries;
 }
 
 void msi_format(u32 *address, u32 *data, int vector)
@@ -271,16 +278,36 @@ void pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name)
 {
     int v = allocate_interrupt();
     register_interrupt(v, h, name);
-    pci_debug("%s: msix_table %p, msi %d: int %d, %s\n", __func__, dev->msix_table, msi_slot, v, name);
+    u32 *msix_table = pci_msix_table(dev);
+    pci_debug("%s: msix_table %p, msi %d: int %d, %s\n", __func__, msix_table, msi_slot, v, name);
 
     u32 a, d;
     u32 vector_control = 0;
     msi_format(&a, &d, v);
 
-    dev->msix_table[msi_slot*4] = a;
-    dev->msix_table[msi_slot*4 + 1] = 0;
-    dev->msix_table[msi_slot*4 + 2] = d;
-    dev->msix_table[msi_slot*4 + 3] = vector_control;
+    msix_table[msi_slot*4] = a;
+    msix_table[msi_slot*4 + 1] = 0;
+    msix_table[msi_slot*4 + 2] = d;
+    msix_table[msi_slot*4 + 3] = vector_control;
+}
+
+void pci_teardown_msix(pci_dev dev, int msi_slot)
+{
+    u32 *msix_table = pci_msix_table(dev);
+    int v = msix_table[msi_slot*4 + 2] & 0xFF;
+    pci_debug("%s: msix_table %p, msi %d: int %d\n", __func__, msix_table, msi_slot, v);
+    msix_table[msi_slot*4 + 3] = 0x1;  /* set Masked bit to 1 */
+    unregister_interrupt(v);
+    deallocate_interrupt(v);
+}
+
+void pci_disable_msix(pci_dev dev)
+{
+    u32 cp = pci_find_cap(dev, PCIY_MSIX);
+    u16 ctrl = pci_cfgread(dev, cp + 2, 2);
+    ctrl &= ~0x8000;
+    pci_cfgwrite(dev, cp + 2, 2, ctrl);
+    pci_bar_deinit(&dev->msix_bar);
 }
 
 void register_pci_driver(pci_probe probe)
