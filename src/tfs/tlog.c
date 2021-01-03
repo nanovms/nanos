@@ -550,6 +550,11 @@ static void log_set_dirty(log tl)
 /* mkfs: flush on close */
 static void log_set_dirty(log tl)
 {
+    if (buffer_length(tl->tuple_staging) >=
+            bytes_from_sectors(tl->fs, range_span(tl->current->sectors))) {
+        log_flush(tl, 0);
+        return;
+    }
     tl->dirty = true;
 }
 #endif
