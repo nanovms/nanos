@@ -17,7 +17,7 @@ static inline void report_sha256(buffer b)
 {
     buffer sha = little_stack_buffer(32);
     sha256(sha, b);
-    rprintf("   SHA256: %16lx%16lx%16lx%16lx\n",
+    rprintf("   SHA256: %016lx%016lx%016lx%016lx\n",
             be64toh(*(u64*)buffer_ref(sha, 0)),
             be64toh(*(u64*)buffer_ref(sha, 8)),
             be64toh(*(u64*)buffer_ref(sha, 16)),

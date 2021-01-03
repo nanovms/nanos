@@ -77,7 +77,7 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
         return false;
     }
 
-    pf_debug("%s: %s, %s, vaddr 0x%16lx, vm flags 0x%2lx,\n", __func__,
+    pf_debug("%s: %s, %s, vaddr %p, vm flags 0x%02lx,\n", __func__,
              in_kernel ? "kern" : "user", string_from_mmap_type(vm->flags & VMAP_MMAP_TYPE_MASK),
              vaddr, vm->flags);
     pf_debug("   vmap %p, frame %p\n", vm, frame);

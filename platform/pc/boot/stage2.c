@@ -240,7 +240,7 @@ closure_function(0, 1, status, kernel_read_complete,
 
     /* reset initial pages length */
     initial_pages_region->length = INITIAL_PAGES_SIZE;
-    stage2_debug("%s: run64, start address 0xffffffff%8lx\n", __func__, u64_from_pointer(k));
+    stage2_debug("%s: run64, start address 0xffffffff%08lx\n", __func__, u64_from_pointer(k));
     run64(u64_from_pointer(k));
     halt("failed to start long mode\n");
 }
