@@ -2581,8 +2581,8 @@ static inline char *print_pct(buffer b, u64 x, u64 y)
 
 #define ROUNDED_IDIV(x, y) (((x)* 10 / (y) + 5) / 10)
 
-closure_function(0, 1, void, print_syscall_stats_cfn,
-                 merge, m)
+closure_function(0, 2, void, print_syscall_stats_cfn,
+                 int, status, merge, m)
 {
     u64 tot_usecs = 0;
     u64 tot_calls = 0;
@@ -2592,6 +2592,8 @@ closure_function(0, 1, void, print_syscall_stats_cfn,
     pqueue pq = allocate_pqueue(heap_general(get_kernel_heaps()), stat_compare);
     syscall_stat ss;
 
+    if (status != 0)
+        return;
     rprintf("\n" HDR_FMT SEPARATOR, "% time", "seconds", "usecs/call", "calls", "errors", "syscall");
     for (int i = 0; i < SYS_MAX; i++) {
         ss = &stats[i];

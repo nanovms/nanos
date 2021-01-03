@@ -382,28 +382,18 @@ closure_function(1, 1, void, sync_complete,
     closure_finish();
 }
 
-static void storage_shutdown(int status, merge m)
+closure_function(0, 2, void, storage_shutdown, int, status, merge, m)
 {
-    if ((status == 0) || !table_find(get_environment(), sym(RADAR_KEY))) {
-        storage_sync(apply_merge(m));
-    } else {
+    if (status != 0)
         klog_save(status, apply_merge(m));
-        storage_sync(apply_merge(m));
-    }
+    storage_sync(apply_merge(m));
 }
 
-closure_function(1, 1, void, do_storage_shutdown,
-                 int, status,
-                 merge, m)
-{
-    storage_shutdown(bound(status), m);
-    closure_finish();
-}
 
-closure_function(2, 0, void, do_shutdown_handler,
-                 shutdown_handler, h, merge, m)
+closure_function(3, 0, void, do_shutdown_handler,
+                 shutdown_handler, h, int, status, merge, m)
 {
-    apply(bound(h), bound(m));
+    apply(bound(h), bound(status), bound(m));
     closure_finish();
 }
 
@@ -426,12 +416,12 @@ void __attribute__((noreturn)) kernel_shutdown(int status)
 
     if (root_fs)
         vector_push(shutdown_completions, closure(heap_locked(&heaps),
-                                                  do_storage_shutdown, status));
+                                                  storage_shutdown));
 
     if (vector_length(shutdown_completions) > 0) {
         if (this_cpu_has_kernel_lock()) {
             vector_foreach(shutdown_completions, h)
-                apply(h, m);
+                apply(h, status, m);
             apply(sh, STATUS_OK);
             kern_unlock();
         } else {
@@ -439,7 +429,7 @@ void __attribute__((noreturn)) kernel_shutdown(int status)
                                                     do_status_handler, sh));
             vector_foreach(shutdown_completions, h)
                 enqueue_irqsafe(runqueue, closure(heap_locked(&heaps),
-                                                do_shutdown_handler, h, m));
+                                                  do_shutdown_handler, h, status, m));
         }
         runloop();
     }

@@ -329,7 +329,7 @@ extern void xsave(context f);
 
 #define SHUTDOWN_COMPLETIONS_SIZE    8
 extern vector shutdown_completions;
-typedef closure_type(shutdown_handler, void, merge);
+typedef closure_type(shutdown_handler, void, int, merge);
 
 extern int shutdown_vector;
 
