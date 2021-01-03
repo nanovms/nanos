@@ -2457,15 +2457,17 @@ struct syscall {
 static struct syscall _linux_syscalls[SYS_MAX];
 struct syscall *linux_syscalls = _linux_syscalls;
 
-void count_syscall(thread t, int rv)
+void count_syscall(thread t, sysreturn rv)
 {
-    assert(t->last_syscall >= 0);
+    if (t->last_syscall == -1)
+        return;
     syscall_stat ss = &stats[t->last_syscall];
     t->last_syscall = -1;
     fetch_and_add(&ss->calls, 1);
     if (rv < 0 && rv >= -255)
         fetch_and_add(&ss->errors, 1);
-    fetch_and_add(&ss->usecs, usec_from_timestamp(now(CLOCK_ID_MONOTONIC) - t->syscall_enter_ts));
+    fetch_and_add(&ss->usecs, usec_from_timestamp(now(CLOCK_ID_MONOTONIC) - t->syscall_enter_ts) + t->syscall_time);
+    t->syscall_time = 0;
 }
 
 void syscall_debug(context f)
@@ -2481,6 +2483,7 @@ void syscall_debug(context f)
     }
     t->syscall = call;
     if (do_syscall_stats) {
+        assert(t->last_syscall == -1);
         t->last_syscall = call;
         t->syscall_enter_ts = now(CLOCK_ID_MONOTONIC);
     }
@@ -2510,6 +2513,8 @@ void syscall_debug(context f)
         else
             thread_log(t, "nosyscall %d", call);
     }
+    if (do_syscall_stats)
+        count_syscall(t, 0);
     t->syscall = -1;
     // i dont know that we actually want to defer the syscall return...its just easier for the moment to hew
     // to the general model and make exceptions later

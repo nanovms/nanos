@@ -395,6 +395,7 @@ void thread_pause(thread t)
 
 void thread_resume(thread t)
 {
+    count_syscall_resume(t);
     if (get_current_thread() == &t->thrd)
         return;
     t->start_time = now(CLOCK_ID_MONOTONIC);

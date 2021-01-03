@@ -484,7 +484,7 @@ sysreturn rt_sigreturn(void)
 
     /* ftrace needs to know that this call stack does not return */
     ftrace_thread_noreturn(t);
-
+    count_syscall_noreturn(t);
     /* see if we have more handlers to invoke */
     if (!dispatch_signals(t))
         set_thread_frame(t, t->default_frame);

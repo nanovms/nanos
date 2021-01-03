@@ -208,6 +208,7 @@ void thread_sleep_interruptible(void)
     assert(current->blocked_on);
     thread_log(current, "sleep interruptible (on \"%s\")", blockq_name(current->blocked_on));
     ftrace_thread_switch(current, 0);
+    count_syscall_save(current);
     kern_unlock();
     runloop();
 }
@@ -219,6 +220,7 @@ void thread_sleep_uninterruptible(void)
     current->blocked_on = INVALID_ADDRESS;
     thread_log(current, "sleep uninterruptible");
     ftrace_thread_switch(current, 0);
+    count_syscall_save(current);
     kern_unlock();
     runloop();
 }
@@ -321,6 +323,7 @@ thread create_thread(process p)
     t->sysctx = false;
     t->utime = t->stime = 0;
     t->start_time = now(CLOCK_ID_MONOTONIC);
+    t->last_syscall = -1;
 
     // XXX sigframe
     assert(vector_set(p->threads, t->tid, t)); 
