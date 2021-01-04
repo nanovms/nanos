@@ -2466,7 +2466,12 @@ void count_syscall(thread t, sysreturn rv)
     fetch_and_add(&ss->calls, 1);
     if (rv < 0 && rv >= -255)
         fetch_and_add(&ss->errors, 1);
-    fetch_and_add(&ss->usecs, usec_from_timestamp(now(CLOCK_ID_MONOTONIC) - t->syscall_enter_ts) + t->syscall_time);
+    u64 us;
+    if (t->syscall_enter_ts)
+        us = usec_from_timestamp(now(CLOCK_ID_MONOTONIC) - t->syscall_enter_ts) + t->syscall_time;
+    else
+        us = t->syscall_time;
+    fetch_and_add(&ss->usecs, us);
     t->syscall_time = 0;
 }
 
