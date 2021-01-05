@@ -11,6 +11,7 @@
 #include <errno.h>
 #include <string.h>
 #include <limits.h>
+#include <log.h>
 
 #define DUMP_OPT_TREE  (1U << 0)
 
@@ -141,7 +142,7 @@ closure_function(3, 2, void, fsc,
     closure_finish();
 }
 
-static u64 get_fs_offset(descriptor fd)
+static u64 get_fs_offset(descriptor fd, int part)
 {
     char buf[512];
 
@@ -151,7 +152,7 @@ static u64 get_fs_offset(descriptor fd)
 	exit(EXIT_FAILURE);
     }
 
-    struct partition_entry *rootfs_part = partition_get(buf, PARTITION_ROOTFS);
+    struct partition_entry *rootfs_part = partition_get(buf, part);
 
     if (!rootfs_part || rootfs_part->lba_start == 0 ||
             rootfs_part->nsectors == 0) {
@@ -160,8 +161,46 @@ static u64 get_fs_offset(descriptor fd)
     }
 
     u64 fs_offset = rootfs_part->lba_start * SECTOR_SIZE;
-    rprintf("detected filesystem at 0x%lx\n", fs_offset);
+    printf("detected filesystem at 0x%llx\n", fs_offset);
     return fs_offset;
+}
+
+static void dump_klog(int fd)
+{
+    u64 i, off;
+
+    off = get_fs_offset(fd, PARTITION_BOOTFS);
+    if (off == 0) {
+        fprintf(stderr, "no boot filesystem found\n");
+        exit(EXIT_FAILURE);
+    }
+    /* The klog ends at the bootfs offset, but has a configurable size,
+     * so work backwards from the end to find the start magic
+     */
+    for (i = off - SECTOR_SIZE; i > 0; i -= SECTOR_SIZE) {
+        u8 hdr[16];
+        if (pread(fd, hdr, sizeof(hdr), i) != sizeof(hdr)) {
+            fprintf(stderr, "error reading offset %llu\n", i);
+            exit(EXIT_FAILURE);
+        }
+        if (memcmp(hdr, "KLOG", 4) == 0)
+            break;
+    }
+    if (i <= 0) {
+        fprintf(stderr, "no crash log found on image\n");
+        exit(EXIT_SUCCESS);
+    }
+    int klog_size = off - i;
+    printf("klog offset: 0x%llx\nklog size: %d bytes\n", i, klog_size);
+    u8 *buf = malloc(klog_size);
+    if (pread(fd, buf, klog_size, i) != klog_size) {
+        fprintf(stderr, "error reading klog\n");
+        exit(EXIT_FAILURE);
+    }
+    klog_dump klog = (klog_dump)buf;
+    printf("boot id: %llx\nexit code: %d\n\n", klog->boot_id, klog->exit_code);
+    printf("%.*s\n", klog_size - 16, klog->msgs);
+    exit(EXIT_SUCCESS);
 }
 
 static void usage(const char *prog)
@@ -173,6 +212,7 @@ static void usage(const char *prog)
     fprintf(stderr, "  -d <target dir>\tCopy filesystem contents from "
             "<fs image> into <target dir>\n");
     fprintf(stderr, "  -t\t\t\tDisplay filesystem from <fs image> as a tree\n");
+    fprintf(stderr, "  -l\t\t\tDisplay contents of crash log\n");
     exit(EXIT_FAILURE);
 }
 
@@ -181,14 +221,18 @@ int main(int argc, char **argv)
     buffer target_dir = NULL;
     int c;
     unsigned int options = 0;
+    boolean print_klog = false;
 
-    while ((c = getopt(argc, argv, "d:t")) != EOF) {
+    while ((c = getopt(argc, argv, "d:tl")) != EOF) {
         switch (c) {
         case 'd':
             target_dir = alloca_wrap_buffer(optarg, runtime_strlen(optarg));
             break;
         case 't':
             options |= DUMP_OPT_TREE;
+            break;
+        case 'l':
+            print_klog = true;
             break;
         default:
             usage(argv[0]);
@@ -203,13 +247,15 @@ int main(int argc, char **argv)
             strerror(errno));
         exit(EXIT_FAILURE);
     }
+    if (print_klog)
+        dump_klog(fd);
 
     heap h = init_process_runtime();
     init_pagecache(h, h, 0, PAGESIZE);
     create_filesystem(h,
                       SECTOR_SIZE,
                       infinity,
-                      closure(h, bread, fd, get_fs_offset(fd)),
+                      closure(h, bread, fd, get_fs_offset(fd, PARTITION_ROOTFS)),
                       0, /* no write */
                       false,
                       closure(h, fsc, h, target_dir, options));
