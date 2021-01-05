@@ -35,6 +35,11 @@ static void format_pointer(buffer dest, struct formatter_state *s, vlist *a)
     print_number(dest, x, 16, pad);
 }
 
+static inline void fill(buffer b, int len, u8 c)
+{
+    for (int i = 0; i < len; i++) push_u8(b, c);
+}
+
 static void format_number(buffer dest, struct formatter_state *s, vlist *a)
 {
     int base = s->format == 'x' ? 16 : 10;
@@ -65,13 +70,13 @@ static void format_number(buffer dest, struct formatter_state *s, vlist *a)
     if (sign && s->fill == '0')
         push_u8(dest, '-');
     if (len < s->width && s->align == 0)
-        for (int i = 0; i < s->width - len; i++) push_u8(dest, s->fill);
+        fill(dest, s->width - len, s->fill);
     if (sign && s->fill != '0')
         push_u8(dest, '-');
     if (!(s->precision == 0 && x == 0))
         push_buffer(dest, tmp);
     if (len < s->width && s->align == '-')
-        for (int i = 0; i < s->width - len; i++) push_u8(dest, ' ');
+        fill(dest, s->width - len, ' ');
 }
 
 static void format_buffer(buffer dest, struct formatter_state *s, vlist *ap)
@@ -93,16 +98,16 @@ static void format_cstring(buffer dest, struct formatter_state *s, vlist *a)
     if (s->precision > 0)
         len = s->precision;
     if (len < s->width && s->align == 0)
-        for (int i = 0; i < s->width - len; i++) push_u8(dest, ' ');
+        fill(dest, s->width - len, ' ');
     assert(buffer_write(dest, c, len));
     if (len < s->width && s->align == '-')
-        for (int i = 0; i < s->width - len; i++) push_u8(dest, ' ');
+        fill(dest, s->width - len, ' ');
 }
 
 static void format_spaces(buffer dest, struct formatter_state *s, vlist *a)
 {
     int n = varg(*a, int);
-    for (int i = 0; i < n; i++) push_u8(dest, ' ');
+    fill(dest, n, ' ');
 }
 
 // maybe the same?
