@@ -116,18 +116,7 @@
 
 #define SPSR_I U64_FROM_BIT(7)
 
-#define switch_stack(s, target) ({                                      \
-            register u64 __s = u64_from_pointer(s);                     \
-            register u64 __t = u64_from_pointer(target);                \
-            asm volatile("mov sp, %0; br %1" :: "r"(__s), "r"(__t) : "memory"); })
-
-#define switch_stack_1(s, target, a0) ({                                \
-            register u64 __s = u64_from_pointer(s);                     \
-            register u64 __t = u64_from_pointer(target);                \
-            register u64 __x0 asm("x0") = (u64)(a0);                    \
-            asm volatile("mov sp, %0; br %1" ::                         \
-                         "r"(__s), "r"(__t), "r"(__x0) : "memory"); })
-
+/* interrupt control */
 static inline void enable_interrupts(void)
 {
     asm volatile("msr daifclr, #2");
@@ -150,14 +139,19 @@ static inline void irq_restore(u64 flags)
     asm volatile("msr daif, %0" :: "r"(flags));
 }
 
-#define vpzero(__v, __p, __y) zero(pointer_from_u64(__v), __y)
+static inline void wait_for_interrupt(void)
+{
+    disable_interrupts();
+    asm volatile("dsb sy; wfi" ::: "memory");
+    enable_interrupts();
+}
 
+/* locking constructs */
 #include <lock.h>
 
+/* special register access */
 #define read_psr(reg) ({ register u64 r; asm volatile("mrs %0, " #reg : "=r"(r)); r;})
 #define write_psr(reg, v) do { asm volatile("msr " #reg ", %0" : : "r"(v)); } while (0)
-
-/* ridiculous */
 #define read_psr_s(rstr) ({ register u64 r; asm volatile("mrs %0, " rstr : "=r"(r)); r;})
 #define write_psr_s(rstr, v) do { asm volatile("msr " rstr ", %0" : : "r"(v)); } while (0)
 
@@ -210,7 +204,6 @@ typedef struct cpuinfo {
 #endif
 } *cpuinfo;
 
-//extern struct cpuinfo base_cpuinfo;
 extern struct cpuinfo cpuinfos[];
 
 static inline cpuinfo cpuinfo_from_id(int cpu)
@@ -226,8 +219,6 @@ static inline cpuinfo current_cpu(void)
     return (cpuinfo)pointer_from_u64(r);
 }
 
-#define init_syscall_handler()   /* stub */
-
 static inline u64 extended_frame_size(void)
 {
     return 512; // XXX revisit, arch or depends on config?
@@ -236,13 +227,6 @@ static inline u64 extended_frame_size(void)
 static inline u64 total_frame_size(void)
 {
     return FRAME_EXTENDED_SAVE * sizeof(u64) + extended_frame_size();
-}
-
-static inline void wait_for_interrupt(void)
-{
-    disable_interrupts();
-    asm volatile("dsb sy; wfi" ::: "memory");
-    enable_interrupts();
 }
 
 static inline boolean is_pte_error(context f)
@@ -256,11 +240,6 @@ static inline u64 frame_return_address(context f)
     return f[FRAME_X30];
 }
 
-static inline void frame_set_sp(context f, u64 sp)
-{
-    f[FRAME_SP] = sp;
-}
-
 static inline u64 fault_address(context f)
 {
     // store in frame?
@@ -268,18 +247,6 @@ static inline u64 fault_address(context f)
     asm("mrs %0, FAR_EL1" : "=r"(far));
     return far;
 }
-
-/* for vdso */
-#define do_syscall(sysnr, arg0, arg1) ({                                \
-            sysreturn rv;                                               \
-            register u64 _v asm ("x8") = sysnr;                         \
-            register u64 _x0 asm ("x0") = (u64)arg0;                    \
-            register u64 _x1 asm ("x1") = (u64)arg1;                    \
-            asm ("svc 0" : "=r" (_x0) : "r" (_v),                       \
-                "r" (_x0), "r" (_x1) : "memory");                       \
-            rv = _x0;                                                   \
-            rv;                                                         \
-        })
 
 // XXX
 #define esr_from_frame(frame) (frame[FRAME_ESR_SPSR] >> 32)
@@ -350,3 +317,40 @@ static inline void frame_restore_tls(context f)
 {
     write_psr(TPIDR_EL0, f[FRAME_TPIDR_EL0]);
 }
+
+static inline void frame_set_sp(context f, u64 sp)
+{
+    f[FRAME_SP] = sp;
+}
+
+#define switch_stack(s, target) ({                                      \
+            register u64 __s = u64_from_pointer(s);                     \
+            register u64 __t = u64_from_pointer(target);                \
+            asm volatile("mov sp, %0; br %1" :: "r"(__s), "r"(__t) : "memory"); })
+
+#define switch_stack_1(s, target, a0) ({                                \
+            register u64 __s = u64_from_pointer(s);                     \
+            register u64 __t = u64_from_pointer(target);                \
+            register u64 __x0 asm("x0") = (u64)(a0);                    \
+            asm volatile("mov sp, %0; br %1" ::                         \
+                         "r"(__s), "r"(__t), "r"(__x0) : "memory"); })
+
+/* syscall entry */
+#define init_syscall_handler()   /* stub */
+
+/* for vdso */
+#define do_syscall(sysnr, arg0, arg1) ({                                \
+            sysreturn rv;                                               \
+            register u64 _v asm ("x8") = sysnr;                         \
+            register u64 _x0 asm ("x0") = (u64)arg0;                    \
+            register u64 _x1 asm ("x1") = (u64)arg1;                    \
+            asm ("svc 0" : "=r" (_x0) : "r" (_v),                       \
+                "r" (_x0), "r" (_x1) : "memory");                       \
+            rv = _x0;                                                   \
+            rv;                                                         \
+        })
+
+/* XXX move clocksource here */
+
+/* vestige from pc land */
+#define vpzero(__v, __p, __y) zero(pointer_from_u64(__v), __y)

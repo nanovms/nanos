@@ -8,6 +8,12 @@
 #include <symtab.h>
 #include <drivers/console.h>
 #include <drivers/storage.h>
+#ifdef __x86_64__
+#include <kvm_platform.h>
+#include <xen_platform.h>
+#include <hyperv_platform.h>
+#include <vmware/vmxnet3.h>
+#endif
 
 //#define INIT_DEBUG
 #ifdef INIT_DEBUG
@@ -35,7 +41,7 @@ closure_function(3, 3, void, offset_block_io,
     blocks.end += ds;
 
     // split I/O to storage driver to PAGESIZE requests
-    merge m = allocate_merge(heap_general(bound(kh)), sh);
+    merge m = allocate_merge(heap_locked(kh), sh);
     status_handler k = apply_merge(m);
     while (blocks.start < blocks.end) {
         u64 span = MIN(range_span(blocks), MAX_BLOCK_IO_SIZE >> SECTOR_OFFSET);
@@ -59,26 +65,47 @@ closure_function(4, 2, void, fsstarted,
 {
     if (!is_ok(s))
         halt("unable to open filesystem: %v\n", s);
+    if (root_fs)
+        halt("multiple root filesystems found\n");
 
-    heap h = heap_general(bound(kh));
+    kernel_heaps kh = bound(kh);
+    heap h = heap_locked(kh);
     u8 *mbr = bound(mbr);
     tuple root = filesystem_getroot(fs);
+    storage_set_root_fs(fs);
+    tuple mounts = table_find(root, sym(mounts));
+    if (mounts && (tagof(mounts) == tag_tuple))
+        storage_set_mountpoints(mounts);
+    value klibs = table_find(root, sym(klibs));
+    boolean klibs_in_bootfs = klibs && tagof(klibs) != tag_tuple &&
+        buffer_compare_with_cstring(klibs, "bootfs");
+
     if (mbr) {
+        boolean ingest_kernel_syms = table_find(root, sym(ingest_kernel_symbols)) != 0;
         struct partition_entry *bootfs_part;
-        if (table_find(root, sym(ingest_kernel_symbols)) &&
-                (bootfs_part = partition_get(mbr, PARTITION_BOOTFS))) {
-            init_debug("loading boot filesystem");
+        if ((ingest_kernel_syms || klibs_in_bootfs) &&
+            (bootfs_part = partition_get(mbr, PARTITION_BOOTFS))) {
             create_filesystem(h, SECTOR_SIZE,
                               bootfs_part->nsectors * SECTOR_SIZE,
                               closure(h, offset_block_io,
-                                      bound(kh), bootfs_part->lba_start * SECTOR_SIZE, bound(r)),
-                              0, false, bootfs_handler(bound(kh)));
+                                      kh, bootfs_part->lba_start * SECTOR_SIZE, bound(r)),
+                              0, false,
+                              bootfs_handler(kh, root, klibs_in_bootfs,
+                                             ingest_kernel_syms));
         }
         deallocate(h, mbr, SECTOR_SIZE);
     }
+
+    if (klibs && !klibs_in_bootfs)
+        init_klib(&heaps, fs, root, root);
+
     root_fs = fs;
-    enqueue(runqueue, create_init(bound(kh), root, fs));
+    enqueue(runqueue, create_init(&heaps, root, fs));
     closure_finish();
+    symbol booted = sym(booted);
+    if (!table_find(root, booted))
+        filesystem_write_eav(fs, root, booted, null_value);
+    config_console(root);
 }
 
 #if 0
@@ -106,10 +133,23 @@ void mm_service(heap phys)
 }
 #endif
 
+tuple get_environment(void)
+{
+    return table_find(filesystem_getroot(root_fs), sym(environment));
+}
+KLIB_EXPORT(get_environment);
+
+boolean first_boot(void)
+{
+    return !table_find(filesystem_getroot(root_fs), sym(booted));
+}
+KLIB_EXPORT(first_boot);
+
 static void rootfs_init(kernel_heaps kh, u8 *mbr, u64 offset,
                         block_io r, block_io w, u64 length)
 {
-    heap h = heap_general(kh);
+    init_debug("%s", __func__);
+    heap h = heap_locked(kh);
     length -= offset;
     create_filesystem(h,
                       SECTOR_SIZE,
@@ -124,15 +164,31 @@ closure_function(5, 1, void, mbr_read,
                  kernel_heaps, kh, u8 *, mbr, block_io, r, block_io, w, u64, length,
                  status, s)
 {
-    if (!is_ok(s))
-        halt("unable to read partitions: %v\n", s);
+    init_debug("%s", __func__);
+    if (!is_ok(s)) {
+        msg_err("unable to read partitions: %v\n", s);
+        goto out;
+    }
+    heap h = heap_locked(bound(kh));
     u8 *mbr = bound(mbr);
     struct partition_entry *rootfs_part = partition_get(mbr, PARTITION_ROOTFS);
-    if (!rootfs_part)
-        halt("filesystem partition not found\n");
-    else
+    if (!rootfs_part) {
+        u8 uuid[UUID_LEN];
+        char label[VOLUME_LABEL_MAX_LEN];
+        if (filesystem_probe(mbr, uuid, label))
+            volume_add(uuid, label, bound(r), bound(w), bound(length));
+        else
+            init_debug("unformatted storage device, ignoring");
+        deallocate(h, mbr, SECTOR_SIZE);
+    } else {
+        /* The on-disk kernel log dump section is immediately before the boot FS partition. */
+        struct partition_entry *bootfs_part = partition_get(mbr, PARTITION_BOOTFS);
+        klog_disk_setup(bootfs_part->lba_start * SECTOR_SIZE - KLOG_DUMP_SIZE, bound(r), bound(w));
+
         rootfs_init(bound(kh), mbr, rootfs_part->lba_start * SECTOR_SIZE,
                     bound(r), bound(w), bound(length));
+    }
+  out:
     closure_finish();
 }
 
@@ -141,14 +197,22 @@ closure_function(2, 3, void, attach_storage,
                  kernel_heaps, kh, u64, fs_offset,
                  block_io, r, block_io, w, u64, length)
 {
-    heap h = heap_general(bound(kh));
+    heap h = heap_locked(bound(kh));
     u64 offset = bound(fs_offset);
     if (offset == 0) {
         /* Read partition table from disk */
         u8 *mbr = allocate(h, SECTOR_SIZE);
-        assert(mbr != INVALID_ADDRESS);
-        apply(r, mbr, irange(0, SECTOR_SIZE),
-              closure(h, mbr_read, bound(kh), mbr, r, w, length));
+        if (mbr == INVALID_ADDRESS) {
+            msg_err("cannot allocate memory for MBR sector\n");
+            return;
+        }
+        status_handler sh = closure(h, mbr_read, bound(kh), mbr, r, w, length);
+        if (sh == INVALID_ADDRESS) {
+            msg_err("cannot allocate MBR read closure\n");
+            deallocate(h, mbr, SECTOR_SIZE);
+            return;
+        }
+        apply(r, mbr, irange(0, 1), sh);
     } else {
         rootfs_init(bound(kh), 0, offset, r, w, length);
     }
@@ -158,74 +222,132 @@ closure_function(2, 3, void, attach_storage,
 void kernel_runtime_init(kernel_heaps kh)
 {
     heap misc = heap_general(kh);
+    heap locked = heap_locked(kh);
+    heap backed = heap_backed(kh);
 
     /* runtime and console init */
-    init_debug("in init_service_new_stack");
-    init_debug("runtime");
-    init_runtime(misc);
-    init_sg(misc);
-    init_pagecache(misc, misc, (heap)heap_physical(kh), PAGESIZE);
+    init_debug("kernel_runtime_init");
+    init_runtime(misc, locked);
+    init_sg(locked);
+    init_pagecache(locked, locked, (heap)heap_physical(kh), PAGESIZE);
     unmap(0, PAGESIZE);         /* unmap zero page */
-//    reclaim_regions();          /* unmap and reclaim stage2 stack */
+    reclaim_regions();
     init_extra_prints();
     init_pci(kh);
     init_console(kh);
     init_symtab(kh);
-//    read_kernel_syms();
+    read_kernel_syms();
+    shutdown_completions = allocate_vector(misc, SHUTDOWN_COMPLETIONS_SIZE);
     init_debug("pci_discover (for VGA)");
     pci_discover(); // early PCI discover to configure VGA console
+    init_clock();
     init_kernel_contexts(heap_backed(kh));
+
+    /* interrupts */
+    init_debug("init_interrupts");
     init_interrupts(kh);
 
     init_debug("init_scheduler");
-    init_scheduler(misc);
-    init_clock(misc);
+    init_scheduler(locked);
 
     /* platform detection and early init */
-//    init_debug("probing for KVM");
+    init_debug("probing for KVM");
 
-    /* if (!kvm_detect(kh)) { */
-    /*     halt("no kvm\n"); */
-    /* } */
+    /* XXX aarch64 */
+#ifdef __x86_64__
+    if (!kvm_detect(kh)) {
+        init_debug("probing for Xen hypervisor");
+        if (!xen_detect(kh)) {
+            if (!hyperv_detect(kh)) {
+                init_debug("no hypervisor detected; assuming qemu full emulation");
+                if (!init_hpet(kh)) {
+                    halt("HPET initialization failed; no timer source\n");
+                }
+            } else {
+                init_debug("hyper-v hypervisor detected");
+            }
+        } else {
+            init_debug("xen hypervisor detected");
+        }
+    } else {
+        init_debug("KVM detected");
+    }
+#endif
 
     /* RNG, stack canaries */
-    /* init_debug("RNG"); */
-    /* init_hwrand(); */
-    /* init_random(); */
-    /* __stack_chk_guard_init(); */
+    init_debug("RNG");
+    init_random();
+    __stack_chk_guard_init();
 
     /* networking */
     init_debug("LWIP init");
     init_net(kh);
 
     init_debug("probe fs, register storage drivers");
-    init_volumes(misc);
-#if 0
-    root = allocate_tuple();
- 
-    init_debug("...partition get:");
-    struct partition_entry *rootfs_part = partition_get(MBR_ADDRESS,
-                                                        PARTITION_ROOTFS);
-    init_debug("...");
-    u64 fs_offset;
-    if (!rootfs_part)
-        fs_offset = 0;
-    else
-        fs_offset = rootfs_part->lba_start * SECTOR_SIZE;
-    init_debug("...");
-#endif
-    /* XXX fixed offset...need to add partition despite no boot fs */
-    storage_attach sa = closure(misc, attach_storage, kh, 0x800000);
+    init_volumes(locked);
 
+    storage_attach sa;
+
+    /* XXX need to sort out arch / hv relationship... */
+
+    boolean enable_ata = false;
+#ifdef __aarch64__
+    /* XXX fixed offset...need to add partition despite no boot fs */
+    sa = closure(misc, attach_storage, kh, 0x800000);
     init_virtio_network(kh);
+#else
+    sa = closure(misc, attach_storage, kh, 0);
+
+    boolean hyperv_storvsc_attached = false;
+    /* Probe for PV devices */
+    if (xen_detected()) {
+        init_debug("probing for Xen PV network...");
+        init_xennet(kh);
+        init_xenblk(kh, sa);
+        status s = xen_probe_devices();
+        if (!is_ok(s))
+            rprintf("xen probe failed: %v\n", s);
+    } else if (hyperv_detected()) {
+        init_debug("probing for Hyper-V PV network...");
+        init_vmbus(kh);
+        status s = hyperv_probe_devices(sa, &hyperv_storvsc_attached);
+        if (!is_ok(s))
+            rprintf("Hyper-V probe failed: %v\n", s);
+    } else {
+        enable_ata = true;
+        init_debug("probing for virtio PV network...");
+        /* qemu virtio */
+        init_virtio_network(kh);
+        init_vmxnet3_network(kh);
+        init_aws_ena(kh);
+    }
+#endif
 
     init_debug("init_storage");
-    init_storage(kh, sa, false);
+    init_storage(kh, sa, enable_ata);
+    init_acpi(kh);
 
     init_debug("pci_discover (for virtio & ata)");
     pci_discover(); // do PCI discover again for other devices
     init_debug("discover done");
 
+#ifdef __x86_64__
+    /* Switch to stage3 GDT64, enable TSS and free up initial map */
+    init_debug("install GDT64 and TSS");
+    install_gdt64_and_tss(0);
+    unmap(PAGESIZE, INITIAL_MAP_SIZE - PAGESIZE);
+
+#ifdef SMP_ENABLE
+    init_mxcsr(); // XXX tmp merge
+    init_debug("starting APs");
+    start_cpu(misc, heap_backed(kh), TARGET_EXCLUSIVE_BROADCAST, new_cpu);
+    kernel_delay(milliseconds(200));   /* temp, til we check tables to know what we have */
+    init_debug("total CPUs %d\n", total_processors);
+    init_flush(heap_general(kh));
+#endif
+#endif
+
+    init_debug("starting runloop");
     runloop();
 }
 

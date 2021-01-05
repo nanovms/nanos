@@ -182,9 +182,9 @@ static inline void run_thread_frame(thread t)
     cpuinfo ci = current_cpu();
     f[FRAME_QUEUE] = u64_from_pointer(ci->thread_queue);
 
-    thread_log(t, "run %s, cpu %d, frame %p, rip 0x%lx, rsp 0x%lx, rdi 0x%lx, rax 0x%lx, rflags 0x%lx, cs 0x%lx, %s",
-               f == t->sighandler_frame ? "sig handler" : "thread", ci->id, f, f[FRAME_RIP], f[FRAME_RSP],
-               f[FRAME_RDI], f[FRAME_RAX], f[FRAME_FLAGS], f[FRAME_CS], f[FRAME_IS_SYSCALL] ? "sysret" : "iret");
+//    thread_log(t, "run %s, cpu %d, frame %p, rip 0x%lx, rsp 0x%lx, rdi 0x%lx, rax 0x%lx, rflags 0x%lx, cs 0x%lx, %s",
+//               f == t->sighandler_frame ? "sig handler" : "thread", current_cpu()->id, f, f[FRAME_RIP], f[FRAME_RSP],
+//               f[FRAME_RDI], f[FRAME_RAX], f[FRAME_FLAGS], f[FRAME_CS], f[FRAME_IS_SYSCALL] ? "sysret" : "iret");
     ci->frcount++;
     frame_return(f);
     halt("ut oh\n");

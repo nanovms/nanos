@@ -79,11 +79,6 @@ static inline u64 kern_pteaddr_from_pointer(u64 *p)
 }
 #endif
 
-static inline u64 flags_from_pte(u64 pte)
-{
-    return pte & PAGE_FLAGS_MASK;
-}
-
 static inline u64 pte_lookup_phys(u64 table, u64 vaddr, int offset)
 {
     return table + (((vaddr >> offset) & MASK(9)) << 3);
@@ -617,8 +612,9 @@ closure_function(0, 1, void, dealloc_phys_page,
         msg_err("some of physical range %R not allocated in heap\n", r);
 }
 
-void unmap_and_free_phys(u64 virtual, u64 length)
+void unmap_and_free_phys(id_heap physical, u64 virtual, u64 length)
 {
+    /* XXX: ignore physical until merge... */
     unmap_pages_with_handler(virtual, length, stack_closure(dealloc_phys_page));
 }
 

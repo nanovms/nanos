@@ -271,11 +271,13 @@ static void vtpci_legacy_alloc_resources(vtpci dev)
     dev->regs[VTPCI_REG_QUEUE_MSIX_VECTOR] = VIRTIO_MSI_QUEUE_VECTOR;
     dev->regs[VTPCI_REG_ISR_STATUS] = VIRTIO_PCI_ISR;
 
+#ifdef __aarch64__
     /* XXX this needs to be a platform method */
     // XXX arbitrary, check field widths
     u64 base = 0x1000 + ((dev->dev->bus << 12) | (dev->dev->slot << 8) | (dev->dev->function << 6));
     virtio_pci_debug("%s: dev %d:%d:%d, base 0x%x\n", __func__, dev->dev->bus, dev->dev->slot, dev->dev->function, base);
     pci_cfgwrite(dev->dev, PCIR_BAR(0), 4, base);
+#endif
     pci_bar_init(dev->dev, &dev->common_config, 0, 0, -1);
     runtime_memcpy(&dev->notify_config, &dev->common_config, sizeof(dev->notify_config));
     pci_bar_init(dev->dev, &dev->device_config, 0,
@@ -328,11 +330,10 @@ static void vtpci_modern_alloc_resources(vtpci dev)
     dev->regs[VTPCI_REG_QUEUE_SELECT] = VTPCI_R_QUEUE_SELECT;
     dev->regs[VTPCI_REG_QUEUE_SIZE] = VTPCI_R_QUEUE_SIZE;
     dev->regs[VTPCI_REG_QUEUE_MSIX_VECTOR] = VTPCI_R_QUEUE_MSIX_VECTOR;
-//    dev->regs[VTPCI_REG_ISR_STATUS] = VIRTIO_PCI_ISR;
-    assert(0); // XXX fix non-msi modern devs
+    dev->regs[VTPCI_REG_ISR_STATUS] = VIRTIO_PCI_ISR;
 
     // scan PCI capabilities
-//    vtpci_modern_bar_init(dev);
+    //vtpci_modern_bar_init(dev);
     vtpci_modern_find_cap(dev, VIRTIO_PCI_CAP_COMMON_CFG, &dev->common_config);
     u32 cp = vtpci_modern_find_cap(dev, VIRTIO_PCI_CAP_NOTIFY_CFG, &dev->notify_config);
     if (cp) {

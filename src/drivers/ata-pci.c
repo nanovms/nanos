@@ -2,7 +2,7 @@
 #include <page.h>
 #include <storage.h>
 #include <x86_64/apic.h>
-#include <x86_64/pci.h>
+#include <pci.h>
 #include "ata-pci.h"
 #include "ata.h"
 

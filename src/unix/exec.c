@@ -152,7 +152,7 @@ closure_function(2, 4, void, exec_elf_map,
     u64 vmflags = 0;
     if ((flags & PAGE_NO_EXEC) == 0)
         vmflags |= VMAP_FLAG_EXEC;
-    if (page_flags_is_writeable(flags))
+    if (page_flags_is_writable(flags))
         vmflags |= VMAP_FLAG_WRITABLE;
 
     range r = irange(target, target + size);

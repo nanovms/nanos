@@ -1,5 +1,4 @@
-/* TODO: this file has become a garbage dump ... reorganize */
-
+// XXX trim headers after move to init.c
 #include <kernel.h>
 #include <pci.h>
 #include <pagecache.h>
@@ -46,6 +45,36 @@ static struct kernel_heaps heaps;
 static filesystem root_fs;
 vector shutdown_completions;
 
+kernel_heaps get_kernel_heaps(void)
+{
+    return &heaps;
+}
+KLIB_EXPORT(get_kernel_heaps);
+
+kernel_heaps get_kernel_heaps(void)
+{
+    return &heaps;
+}
+KLIB_EXPORT(get_kernel_heaps);
+
+tuple get_root_tuple(void)
+{
+    return filesystem_getroot(root_fs);
+}
+KLIB_EXPORT(get_root_tuple);
+
+tuple get_environment(void)
+{
+    return table_find(filesystem_getroot(root_fs), sym(environment));
+}
+KLIB_EXPORT(get_environment);
+
+boolean first_boot(void)
+{
+    return !table_find(filesystem_getroot(root_fs), sym(booted));
+}
+KLIB_EXPORT(first_boot);
+
 // XXX arch, not platform specific
 static heap allocate_tagged_region(kernel_heaps kh, u64 tag)
 {
@@ -80,86 +109,12 @@ static u64 bootstrap_alloc(heap h, bytes length)
     return result;
 }
 
-//#define MAX_BLOCK_IO_SIZE PAGE_SIZE
-#define MAX_BLOCK_IO_SIZE (64 * 1024)
-
-closure_function(2, 3, void, offset_block_io,
-                 u64, offset, block_io, io,
-                 void *, dest, range, blocks, status_handler, sh)
-{
-    assert((bound(offset) & (SECTOR_SIZE - 1)) == 0);
-    u64 ds = bound(offset) >> SECTOR_OFFSET;
-    blocks.start += ds;
-    blocks.end += ds;
-
-    // split I/O to storage driver to PAGESIZE requests
-    merge m = allocate_merge(heap_locked(&heaps), sh);
-    status_handler k = apply_merge(m);
-    while (blocks.start < blocks.end) {
-        u64 span = MIN(range_span(blocks), MAX_BLOCK_IO_SIZE >> SECTOR_OFFSET);
-        apply(bound(io), dest, irange(blocks.start, blocks.start + span), apply_merge(m));
-
-        // next block
-        blocks.start += span;
-        dest = (char *) dest + (span << SECTOR_OFFSET);
-    }
-    apply(k, STATUS_OK);
-}
-
 /* XXX some header reorg in order */
 void init_extra_prints(); 
 thunk create_init(kernel_heaps kh, tuple root, filesystem fs);
 filesystem_complete bootfs_handler(kernel_heaps kh, tuple root,
                                    boolean klibs_in_bootfs,
                                    boolean ingest_kernel_syms);
-
-closure_function(4, 2, void, fsstarted,
-                 heap, h, u8 *, mbr, block_io, r, block_io, w,
-                 filesystem, fs, status, s)
-{
-    if (!is_ok(s))
-        halt("unable to open filesystem: %v\n", s);
-    if (root_fs)
-        halt("multiple root filesystems found\n");
-
-    heap h = bound(h);
-    u8 *mbr = bound(mbr);
-    tuple root = filesystem_getroot(fs);
-    storage_set_root_fs(fs);
-    tuple mounts = table_find(root, sym(mounts));
-    if (mounts && (tagof(mounts) == tag_tuple))
-        storage_set_mountpoints(mounts);
-    value klibs = table_find(root, sym(klibs));
-    boolean klibs_in_bootfs = klibs && tagof(klibs) != tag_tuple &&
-        buffer_compare_with_cstring(klibs, "bootfs");
-
-    if (mbr) {
-        boolean ingest_kernel_syms = table_find(root, sym(ingest_kernel_symbols)) != 0;
-        struct partition_entry *bootfs_part;
-        if ((ingest_kernel_syms || klibs_in_bootfs) &&
-            (bootfs_part = partition_get(mbr, PARTITION_BOOTFS))) {
-            create_filesystem(h, SECTOR_SIZE,
-                              bootfs_part->nsectors * SECTOR_SIZE,
-                              closure(h, offset_block_io,
-                              bootfs_part->lba_start * SECTOR_SIZE, bound(r)),
-                              0, false,
-                              bootfs_handler(&heaps, root, klibs_in_bootfs,
-                                             ingest_kernel_syms));
-        }
-        deallocate(h, mbr, SECTOR_SIZE);
-    }
-
-    if (klibs && !klibs_in_bootfs)
-        init_klib(&heaps, fs, root, root);
-
-    root_fs = fs;
-    enqueue(runqueue, create_init(&heaps, root, fs));
-    closure_finish();
-    symbol booted = sym(booted);
-    if (!table_find(root, booted))
-        filesystem_write_eav(fs, root, booted, null_value);
-    config_console(root);
-}
 
 /* This is very simplistic and uses a fixed drain threshold. This
    should also take all cached data in system into account. For now we
@@ -183,96 +138,7 @@ void mm_service(void)
     }
 }
 
-kernel_heaps get_kernel_heaps(void)
-{
-    return &heaps;
-}
-KLIB_EXPORT(get_kernel_heaps);
-
-tuple get_root_tuple(void)
-{
-    return filesystem_getroot(root_fs);
-}
-KLIB_EXPORT(get_root_tuple);
-
-tuple get_environment(void)
-{
-    return table_find(filesystem_getroot(root_fs), sym(environment));
-}
-KLIB_EXPORT(get_environment);
-
-boolean first_boot(void)
-{
-    return !table_find(filesystem_getroot(root_fs), sym(booted));
-}
-KLIB_EXPORT(first_boot);
-
-static void rootfs_init(heap h, u8 *mbr, u64 offset,
-                        block_io r, block_io w, u64 length)
-{
-    length -= offset;
-    create_filesystem(h,
-                      SECTOR_SIZE,
-                      length,
-                      closure(h, offset_block_io, offset, r),
-                      closure(h, offset_block_io, offset, w),
-                      false,
-                      closure(h, fsstarted, h, mbr, r, w));
-}
-
-closure_function(5, 1, void, mbr_read,
-                 heap, h, u8 *, mbr, block_io, r, block_io, w, u64, length,
-                 status, s)
-{
-    if (!is_ok(s)) {
-        msg_err("unable to read partitions: %v\n", s);
-        goto out;
-    }
-    heap h = bound(h);
-    u8 *mbr = bound(mbr);
-    struct partition_entry *rootfs_part = partition_get(mbr, PARTITION_ROOTFS);
-    if (!rootfs_part) {
-        u8 uuid[UUID_LEN];
-        char label[VOLUME_LABEL_MAX_LEN];
-        if (filesystem_probe(mbr, uuid, label))
-            volume_add(uuid, label, bound(r), bound(w), bound(length));
-        else
-            init_debug("unformatted storage device, ignoring");
-        deallocate(h, mbr, SECTOR_SIZE);
-    }
-    else {
-        /* The on-disk kernel log dump section is immediately before the boot FS partition. */
-        struct partition_entry *bootfs_part = partition_get(mbr, PARTITION_BOOTFS);
-        klog_disk_setup(bootfs_part->lba_start * SECTOR_SIZE - KLOG_DUMP_SIZE, bound(r), bound(w));
-
-        rootfs_init(h, mbr, rootfs_part->lba_start * SECTOR_SIZE,
-            bound(r), bound(w), bound(length));
-    }
-  out:
-    closure_finish();
-}
-
-closure_function(0, 3, void, attach_storage,
-                 block_io, r, block_io, w, u64, length)
-{
-    heap h = heap_locked(&heaps); /* to create fs under locked heap */
-
-    /* Look for partition table */
-    u8 *mbr = allocate(h, SECTOR_SIZE);
-    if (mbr == INVALID_ADDRESS) {
-        msg_err("cannot allocate memory for MBR sector\n");
-        return;
-    }
-    status_handler sh = closure(h, mbr_read, h, mbr, r, w, length);
-    if (sh == INVALID_ADDRESS) {
-        msg_err("cannot allocate MBR read closure\n");
-        deallocate(h, mbr, SECTOR_SIZE);
-        return;
-    }
-    apply(r, mbr, irange(0, 1), sh);
-}
-
-static void read_kernel_syms()
+void read_kernel_syms(void)
 {
     u64 kern_base = INVALID_PHYSICAL;
     u64 kern_length;
@@ -336,7 +202,7 @@ static void init_hwrand(void)
         have_rdrand = true;
 }
 
-static void reclaim_regions(void)
+void reclaim_regions(void)
 {
     for_regions(e) {
         if (e->type == REGION_RECLAIM) {
@@ -474,118 +340,16 @@ u64 xsave_features();
 static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = &heaps;
-    heap misc = heap_general(kh);
-    heap locked = heap_locked(kh);
-    heap backed = heap_backed(kh);
-
-    /* runtime and console init */
     init_debug("in init_service_new_stack");
-    init_debug("runtime");
-    init_runtime(misc, locked);
     init_tuples(allocate_tagged_region(kh, tag_tuple));
-    init_symbols(allocate_tagged_region(kh, tag_symbol), misc);
-    init_sg(locked);
-    init_pagecache(locked, locked, (heap)heap_physical(kh), PAGESIZE);
-    unmap(0, PAGESIZE);         /* unmap zero page */
-    reclaim_regions();          /* unmap and reclaim stage2 stack */
-    init_extra_prints();
-    init_pci(kh);
-    init_console(kh);
-    init_symtab(kh);
-    read_kernel_syms();
-    shutdown_completions = allocate_vector(heap_general(kh), SHUTDOWN_COMPLETIONS_SIZE);
-    init_debug("pci_discover (for VGA)");
-    pci_discover(); // early PCI discover to configure VGA console
-    init_clock();
-    init_kernel_contexts(backed);
+    init_symbols(allocate_tagged_region(kh, tag_symbol), heap_general(&heaps));
 
-    /* interrupts */
-    init_debug("init_interrupts");
-    init_interrupts(kh);
-    // xxx - we depend on interrupts being initialized in order to allocate the
-    // ipi..i guess this is safe because they are disabled?
-    init_debug("init_scheduler");    
-    init_scheduler(misc);
-
-    /* platform detection and early init */
-    init_debug("probing for KVM");
-
-    if (!kvm_detect(kh)) {
-        init_debug("probing for Xen hypervisor");
-        if (!xen_detect(kh)) {
-            if (!hyperv_detect(kh)) {
-                init_debug("no hypervisor detected; assuming qemu full emulation");
-                if (!init_hpet(kh)) {
-                    halt("HPET initialization failed; no timer source\n");
-                }
-            } else {
-                init_debug("hyper-v hypervisor detected");
-            }
-        } else {
-            init_debug("xen hypervisor detected");
-        }
-    } else {
-        init_debug("KVM detected");
-    }
-
-    /* RNG, stack canaries */
-    init_debug("RNG");
+    init_debug("init_hwrand");
     init_hwrand();
-    init_random();
-    __stack_chk_guard_init();
 
-    /* networking */
-    init_debug("LWIP init");
-    init_net(kh);
-
-    init_debug("probe fs, register storage drivers");
-    init_volumes(locked);
-    storage_attach sa = closure(misc, attach_storage);
-
-    boolean hyperv_storvsc_attached = false;
-    /* Probe for PV devices */
-    if (xen_detected()) {
-        init_debug("probing for Xen PV network...");
-        init_xennet(kh);
-        init_xenblk(kh, sa);
-        status s = xen_probe_devices();
-        if (!is_ok(s))
-            rprintf("xen probe failed: %v\n", s);
-    } else if (hyperv_detected()) {
-        init_debug("probing for Hyper-V PV network...");
-        init_vmbus(kh);
-        status s = hyperv_probe_devices(sa, &hyperv_storvsc_attached);
-        if (!is_ok(s))
-            rprintf("Hyper-V probe failed: %v\n", s);
-    } else {
-        init_debug("probing for virtio PV network...");
-        /* qemu virtio */
-        init_virtio_network(kh);
-        init_vmxnet3_network(kh);
-        init_aws_ena(kh);
-    }
-
-    init_storage(kh, sa, !xen_detected() && !hyperv_storvsc_attached);
-    init_acpi(kh);
-
-    init_debug("pci_discover (for virtio & ata)");
-    pci_discover(); // do PCI discover again for other devices
-
-    /* Switch to stage3 GDT64, enable TSS and free up initial map */
-    init_debug("install GDT64 and TSS");
-    install_gdt64_and_tss(0);
-    unmap(PAGESIZE, INITIAL_MAP_SIZE - PAGESIZE);
-    set_syscall_handler(syscall_enter);
-#ifdef SMP_ENABLE
-    init_mxcsr();
-    init_debug("starting APs");
-    start_cpu(misc, heap_backed(kh), TARGET_EXCLUSIVE_BROADCAST, new_cpu);
-    kernel_delay(milliseconds(200));   /* temp, til we check tables to know what we have */
-    init_debug("total CPUs %d\n", total_processors);
-    init_flush(heap_general(kh));
-#endif
-    init_debug("starting runloop");
-    runloop();
+    init_debug("calling kernel_runtime_init");
+    kernel_runtime_init(kh);
+    while(1);
 }
 
 static range find_initial_pages(void)

@@ -8,6 +8,7 @@
 #define PAGE_CACHE_DISABLE 0x0010
 #define PAGE_WRITETHROUGH  0x0008
 #define PAGE_USER          0x0004
+#define PAGE_READONLY      0
 #define PAGE_WRITABLE      0x0002
 #define PAGE_PRESENT       0x0001
 
@@ -18,6 +19,31 @@
 #define PAGE_DEV_FLAGS     (PAGE_WRITABLE | PAGE_CACHE_DISABLE | PAGE_NO_EXEC)
 #define PAGE_BACKED_FLAGS  (PAGE_WRITABLE | PAGE_NO_EXEC)
 
+static inline u64 flags_from_pte(u64 pte)
+{
+    return pte & PAGE_FLAGS_MASK;
+}
+
+static inline u64 page_flags_writable(u64 flags)
+{
+    return flags | PAGE_WRITABLE;
+}
+
+static inline u64 page_flags_readonly(u64 flags)
+{
+    return flags & ~PAGE_WRITABLE;
+}
+
+static inline boolean page_flags_is_writable(u64 flags)
+{
+    return (flags & PAGE_WRITABLE) != 0;
+}
+
+static inline boolean page_flags_is_readonly(u64 flags)
+{
+    return !page_flags_is_writable(flags);
+}
+
 static inline boolean pt_entry_is_present(u64 entry)
 {
     return (entry & PAGE_PRESENT) != 0;
@@ -26,6 +52,14 @@ static inline boolean pt_entry_is_present(u64 entry)
 static inline boolean pt_entry_is_2M(int level, u64 entry)
 {
     return level == 3 && (entry & PAGE_2M_SIZE) != 0;
+}
+
+static inline u64 pt_entry_size(int level, u64 entry)
+{
+    if (pt_entry_is_2M(level, entry))
+        return PAGESIZE_2M;
+    else
+        return level == 4 ? PAGESIZE : INVALID_PHYSICAL;
 }
 
 static inline boolean pt_entry_is_pte(int level, u64 entry)
@@ -46,7 +80,7 @@ static inline u64 page_from_pte(u64 pte)
 
 static inline void pt_pte_clean(u64 *pte)
 {
-    *pte = pte & ~PAGE_DIRTY;
+    *pte &= ~PAGE_DIRTY;
 }
 
 #ifndef physical_from_virtual
@@ -58,7 +92,6 @@ void map(u64 virtual, physical p, u64 length, u64 flags);
 void unmap(u64 virtual, u64 length);
 void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh);
 void unmap_and_free_phys(u64 virtual, u64 length);
-void deallocate_phys_page_from_traversal(u64 phys, u64 size);
 
 static inline void unmap_pages(u64 virtual, u64 length)
 {
@@ -75,8 +108,8 @@ static inline void map_and_zero(u64 v, physical p, u64 length, u64 flags)
     /* proc configured to trap on not writeable only when in cpl 3 */
     assert((v & MASK(PAGELOG)) == 0);
     assert((p & MASK(PAGELOG)) == 0);
-    map(vaddr_aligned, paddr, PAGESIZE, flags);
-    zero(pointer_from_u64(vaddr_aligned), PAGESIZE);
+    map(v, p, length, flags);
+    zero(pointer_from_u64(v), length);
 }
 
 typedef closure_type(entry_handler, boolean /* success */, int /* level */,

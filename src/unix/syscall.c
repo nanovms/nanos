@@ -1424,20 +1424,6 @@ static sysreturn fstat(int fd, struct stat *s)
     return 0;
 }
 
-#ifdef __x86_64__
-static sysreturn stat(const char *name, struct stat *buf)
-{
-    thread_log(current, "stat: \"%s\", buf %p", name, buf);
-    return stat_internal(current->p->cwd_fs, current->p->cwd, name, true, buf);
-}
-
-static sysreturn lstat(const char *name, struct stat *buf)
-{
-    thread_log(current, "lstat: \"%s\", buf %p", name, buf);
-    return stat_internal(current->p->cwd_fs, current->p->cwd, name, false, buf);
-}
-#endif
-
 static sysreturn stat_internal(filesystem fs, tuple cwd, const char *name, boolean follow,
         struct stat *buf)
 {
@@ -1460,6 +1446,20 @@ static sysreturn stat_internal(filesystem fs, tuple cwd, const char *name, boole
     fill_stat(file_type_from_tuple(n), fs, n, buf);
     return 0;
 }
+
+#ifdef __x86_64__
+static sysreturn stat(const char *name, struct stat *buf)
+{
+    thread_log(current, "stat: \"%s\", buf %p", name, buf);
+    return stat_internal(current->p->cwd_fs, current->p->cwd, name, true, buf);
+}
+
+static sysreturn lstat(const char *name, struct stat *buf)
+{
+    thread_log(current, "lstat: \"%s\", buf %p", name, buf);
+    return stat_internal(current->p->cwd_fs, current->p->cwd, name, false, buf);
+}
+#endif
 
 static sysreturn newfstatat(int dfd, const char *name, struct stat *s, int flags)
 {

@@ -4,6 +4,7 @@ PROGRAMS=	kernel.img
 
 SRCS-kernel.img= \
 	$(CURDIR)/service.c \
+	$(CURDIR)/pci.c \
 	$(OBJDIR)/gitversion.c \
 	$(SRCDIR)/aws/ena/ena.c \
 	$(SRCDIR)/aws/ena/ena_com/ena_com.c \
@@ -24,6 +25,7 @@ SRCS-kernel.img= \
 	$(SRCDIR)/kernel/backed_heap.c \
 	$(SRCDIR)/kernel/locking_heap.c \
 	$(SRCDIR)/kernel/elf.c \
+	$(SRCDIR)/kernel/init.c \
 	$(SRCDIR)/kernel/kernel.c \
 	$(SRCDIR)/kernel/klib.c \
 	$(SRCDIR)/kernel/kvm_platform.c \

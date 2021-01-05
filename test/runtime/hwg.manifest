@@ -1,0 +1,17 @@
+(
+    children:(
+              #user program
+	      hwg:(contents:(host:output/test/runtime/bin/hwg))
+	      etc:(children:(ld.so.cache:(contents:(host:/etc/ld.so.cache))))
+	      lib:(children:(ld-linux-aarch64.so.1:(contents:(host:/lib/ld-linux-aarch64.so.1)) aarch64-linux-gnu:(children:(libc.so.6:(contents:(host:/usr/lib/aarch64-linux-gnu/libc.so.6))))))
+	      )
+    # filesystem path to elf for kernel to run
+    program:/hwg
+#    trace:t
+#    debugsyscalls:t
+#    futex_trace:t
+    fault:t
+    noaslr:t
+    arguments:[hwg poppy]
+    environment:(USER:bobby PWD:/)
+)

@@ -1,7 +1,7 @@
 #include <kernel.h>
 #include <x86_64/io.h>
-#include <x86_64/pci.h>
 #include <x86_64/page.h>
+#include <pci.h>
 #include "console.h"
 #include "vga.h"
 

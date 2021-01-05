@@ -66,6 +66,8 @@ NOTRACE static inline __attribute__((always_inline)) __attribute__((noreturn)) v
 #define BREAKPOINT_READ_WRITE 11
 
 void kernel_runtime_init(kernel_heaps kh);
+void read_kernel_syms(void);
+void reclaim_regions(void);
 
 boolean breakpoint_insert(u64 a, u8 type, u8 length);
 boolean breakpoint_remove(u32 a);

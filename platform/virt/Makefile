@@ -5,6 +5,8 @@ PROGRAMS=	kernel.elf
 WITHOUT_SSP=	1
 
 SRCS-kernel.elf= \
+	$(CURDIR)/start.c \
+	$(CURDIR)/pci.c \
 	$(OBJDIR)/gitversion.c \
 	$(SRCDIR)/aarch64/clock.c \
 	$(SRCDIR)/aarch64/crt0.S \
@@ -14,13 +16,14 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/aarch64/serial.c \
 	$(SRCDIR)/aarch64/unix_machine.c \
 	$(SRCDIR)/drivers/console.c \
+	$(SRCDIR)/drivers/netconsole.c \
 	$(SRCDIR)/drivers/storage.c \
 	$(SRCDIR)/kernel/backed_heap.c \
 	$(SRCDIR)/kernel/elf.c \
 	$(SRCDIR)/kernel/init.c \
 	$(SRCDIR)/kernel/kernel.c \
-	$(SRCDIR)/kernel/pci.c \
 	$(SRCDIR)/kernel/pagecache.c \
+	$(SRCDIR)/kernel/pci.c \
 	$(SRCDIR)/kernel/physheap.c \
 	$(SRCDIR)/kernel/schedule.c \
 	$(SRCDIR)/kernel/stage3.c \
@@ -86,7 +89,6 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/virtio/virtqueue.c \
 	$(SRCDIR)/virtio/scsi.c \
 	$(VDSO_OBJDIR)/vdso-image.c \
-	$(CURDIR)/start.c \
 	$(SRCS-lwip)
 
 

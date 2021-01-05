@@ -1046,7 +1046,7 @@ boolean pagecache_node_do_page_cow(pagecache_node pn, u64 node_offset, u64 vaddr
     pagecache_lock_node(pn);
     pagecache_page pp = page_lookup_nodelocked(pn, node_offset >> pc->page_order);
     assert(pp != INVALID_ADDRESS);
-    assert(page_flags_is_writeable(flags));
+    assert(page_flags_is_writable(flags));
     assert(page_state(pp) != PAGECACHE_PAGESTATE_FREE);
     assert(pp->kvirt != INVALID_ADDRESS);
     assert(pp->refcount.c != 0);

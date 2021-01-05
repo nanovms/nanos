@@ -3,164 +3,17 @@
 #include <page.h>
 #include <io.h>
 
+//#define PCI_DEBUG
 #ifdef PCI_DEBUG
 # define pci_debug rprintf
 #else
 # define pci_debug(...) do { } while(0)
 #endif // PCI_DEBUG
 
-#define CONF1_ADDR_PORT    0x0cf8
-#define CONF1_DATA_PORT    0x0cfc
-
-#define CONF1_ENABLE       0x80000000ul
-#define CONF1_ENABLE_CHK   0x80000000ul
-#define CONF1_ENABLE_MSK   0x7f000000ul
-#define CONF1_ENABLE_CHK1  0xff000001ul
-#define CONF1_ENABLE_MSK1  0x80000001ul
-#define CONF1_ENABLE_RES1  0x80000000ul
-
-#define CONF2_ENABLE_PORT  0x0cf8
-#define CONF2_FORWARD_PORT 0x0cfa
-
-#define CONF2_ENABLE_CHK   0x0e
-#define CONF2_ENABLE_RES   0x0e
-
-/* some PCI bus constants */
-#define	PCI_DOMAINMAX	65535	/* highest supported domain number */
-#define	PCI_BUSMAX	255	/* highest supported bus number */
-#define	PCI_SLOTMAX	31	/* highest supported slot number */
-#define	PCI_FUNCMAX	7	/* highest supported function number */
-#define	PCI_REGMAX	255	/* highest supported config register addr. */
-#define	PCIE_REGMAX	4095	/* highest supported config register addr. */
-#define	PCI_MAXHDRTYPE	2
-
-#define PCIR_CAPABILITIES_POINTER   0x34
-
-/* Capability Register Offsets */
-#define PCICAP_ID       0x0
-#define PCICAP_NEXTPTR  0x1
-
 // use the global nodespace
 static vector devices;
 static vector drivers;
 static heap virtual_page;
-
-#if 0
-
-/* enable configuration space accesses and return data port address */
-static int pci_cfgenable(pci_dev dev, int reg, int bytes)
-{
-    int dataport = 0;
-
-    if (dev->bus <= PCI_BUSMAX && dev->slot <= PCI_SLOTMAX && dev->function <= PCI_FUNCMAX &&
-        (unsigned)reg <= PCI_REGMAX && bytes != 3 &&
-        (unsigned)bytes <= 4 && (reg & (bytes - 1)) == 0) {
-        u32 v = (1U << 31) | (dev->bus << 16) | (dev->slot << 11)
-            | (dev->function << 8) | (reg & ~0x03);
-        *(u32*)dev_base_pointer(PCIE_PIO) = v;
-        dataport = reg & 0x03;
-    }
-    return (dataport);
-}
-
-u32 pci_cfgread(pci_dev dev, int reg, int bytes)
-{
-    u32 data = -1;
-    int port;
-
-    port = pci_cfgenable(dev, reg, bytes);
-    if (port != 0) {
-        switch (bytes) {
-        case 1:
-            data = in8(port);
-            break;
-        case 2:
-            data = in16(port);
-            break;
-        case 4:
-            data = in32(port);
-            break;
-        }
-    }
-    return (data);
-}
-
-void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
-{
-    int port;
-
-    port = pci_cfgenable(dev, reg, bytes);
-    if (port != 0) {
-        switch (bytes) {
-        case 1:
-            out8(port, source);
-            break;
-        case 2:
-            out16(port, source);
-            break;
-        case 4:
-            out32(port, source);
-            break;
-        }
-    }
-}
-#else
-
-/* ECAM */
-u32 pci_cfgread(pci_dev dev, int reg, int bytes)
-{
-    u32 data = -1;
-    void *base = dev_base_pointer(PCIE_ECAM)
-        + (dev->bus << 20) + (dev->slot << 15) + (dev->function << 12) + reg;
-    pci_debug("%s: dev %p, bus %d, reg %d, bytes %d, base 0x%lx\n", __func__,
-              dev, dev->bus, reg, bytes, base);
-    switch (bytes) {
-    case 1:
-        data = *(u8*)base;
-        break;
-    case 2:
-        data = *(u16*)base;
-        break;
-    case 4:
-        data = *(u32*)base;
-        break;
-    }
-    pci_debug("...data = 0x%x\n", data);
-    return data;
-}
-
-void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
-{
-    void *base = dev_base_pointer(PCIE_ECAM)
-        + (dev->bus << 20) + (dev->slot << 15) + (dev->function << 12) + reg;
-    pci_debug("%s: dev %p, bus %d, reg %d, bytes %d, base 0x%lx, source 0x%x\n", __func__,
-              dev, dev->bus, reg, bytes, base, source);
-    switch (bytes) {
-    case 1:
-        *(u8*)base = source;
-        break;
-    case 2:
-        *(u16*)base = source;
-        break;
-    case 4:
-        *(u32*)base = source;
-        break;
-    }
-    pci_debug("...done\n");
-}
-
-
-#endif
-
-/* mux on arch */
-//#define PIO_DATA (dev_base_pointer(PCIE_PIO) + sizeof(u32))
-#define PIO_DATA (dev_base_pointer(PCIE_PIO))
-#define in8(port) (*(u8*)(PIO_DATA + port))
-#define in16(port) (*(u16*)(PIO_DATA + port))
-#define in32(port) (*(u32*)(PIO_DATA + port))
-#define out8(port, source) (*(u8*)(PIO_DATA + port) = (source))
-#define out16(port, source) (*(u16*)(PIO_DATA + port) = (source))
-#define out32(port, source) (*(u32*)(PIO_DATA + port) = (source))
 
 static u32 pci_bar_len(pci_dev dev, int bar)
 {
@@ -215,84 +68,12 @@ void pci_bar_init(pci_dev dev, struct pci_bar *b, int bar, bytes offset, bytes l
     }
 }
 
-u8 pci_bar_read_1(struct pci_bar *b, u64 offset)
-{
-    return b->type == PCI_BAR_MEMORY ? *(u8 *) (b->vaddr + offset) : in8(b->addr + offset);
-}
-
-void pci_bar_write_1(struct pci_bar *b, u64 offset, u8 val)
-{
-    if (b->type == PCI_BAR_MEMORY)
-        *(u8 *) (b->vaddr + offset) = val;
-    else
-        out8(b->addr + offset, val);
-}
-
-u16 pci_bar_read_2(struct pci_bar *b, u64 offset)
-{
-    return b->type == PCI_BAR_MEMORY ? *(u16 *) (b->vaddr + offset) : in16(b->addr + offset);
-}
-
-void pci_bar_write_2(struct pci_bar *b, u64 offset, u16 val)
-{
-    if (b->type == PCI_BAR_MEMORY)
-        *(u16 *) (b->vaddr + offset) = val;
-    else
-        out16(b->addr + offset, val);
-}
-
-u32 pci_bar_read_4(struct pci_bar *b, u64 offset)
-{
-    return b->type == PCI_BAR_MEMORY ? *(u32 *) (b->vaddr + offset) : in32(b->addr + offset);
-}
-
-void pci_bar_write_4(struct pci_bar *b, u64 offset, u32 val)
-{
-    if (b->type == PCI_BAR_MEMORY)
-        *(u32 *) (b->vaddr + offset) = val;
-    else
-        out32(b->addr + offset, val);
-}
-
-u64 pci_bar_read_8(struct pci_bar *b, u64 offset)
-{
-    return b->type == PCI_BAR_MEMORY ? *(u64 *) (b->vaddr + offset) : in64(b->addr + offset);
-}
-
-void pci_bar_write_8(struct pci_bar *b, u64 offset, u64 val)
-{
-    if (b->type == PCI_BAR_MEMORY)
-        *(u64 *) (b->vaddr + offset) = val;
-    else
-        out64(b->addr + offset, val);
-}
-
 void pci_bar_deinit(struct pci_bar *b)
 {
     if (b->type == PCI_BAR_MEMORY) {
         u64 vaddr_aligned = u64_from_pointer(b->vaddr) & ~PAGEMASK;
         unmap(vaddr_aligned, b->vlen);
         deallocate(virtual_page, vaddr_aligned, b->vlen);
-    }
-}
-
-void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
-{
-    int port;
-
-    port = pci_cfgenable(dev, reg, bytes);
-    if (port != 0) {
-        switch (bytes) {
-        case 1:
-            out8(port, source);
-            break;
-        case 2:
-            out16(port, source);
-            break;
-        case 4:
-            out32(port, source);
-            break;
-        }
     }
 }
 
@@ -397,7 +178,8 @@ void pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name)
     u32 *msix_table = pci_msix_table(dev);
     pci_debug("%s: msix_table %p, msi %d: int %d, %s\n", __func__, msix_table, msi_slot, v, name);
 
-#if 0
+    // XXX hack
+#ifdef __x86_64__
     u32 a, d;
     u32 vector_control = 0;
     msi_format(&a, &d, v);
@@ -481,9 +263,8 @@ static void pci_probe_device(pci_dev dev)
         pci_debug("%s: %02x:%02x:%x: %04x:%04x: class %02x:%02x: secondary bus %02x\n",
             __func__, dev->bus, dev->slot, dev->function, vendor, pci_get_device(dev),
             class, subclass, secbus);
-        (void)secbus;
-        // XXX, reading secbus 0
-        // pci_probe_bus(secbus);
+        // XXX skip for arm?
+        pci_probe_bus(secbus);
         return;
     }
 
