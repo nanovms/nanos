@@ -26,7 +26,6 @@ sysreturn close(int fd);
 
 io_completion syscall_io_complete;
 io_completion io_completion_ignore;
-shutdown_handler print_syscall_stats;
 
 void register_other_syscalls(struct syscall *map)
 {
