@@ -54,6 +54,15 @@ static inline timestamp now(clock_id id)
     }
 }
 
+static inline boolean platform_has_precise_clocksource(void)
+{
+#if defined(KERNEL) || defined(BUILD_VDSO)
+    return __vdso_dat->platform_has_rdtscp;
+#else
+    return false;
+#endif
+}
+
 static inline timestamp uptime(void)
 {
     return now(CLOCK_ID_BOOTTIME);

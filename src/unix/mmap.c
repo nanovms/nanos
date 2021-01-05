@@ -343,7 +343,8 @@ closure_function(3, 3, boolean, mincore_fill_vec,
     u64 e = *entry;
     u64 pgoff, i, size;
 
-    if ((size = pt_entry_size(level, e))) {
+    if (pt_entry_is_present(e) &&
+        (size = pt_entry_size(level, e)) != INVALID_PHYSICAL) {
         pgoff = (addr - bound(base)) >> PAGELOG;
 
         assert(size >= PAGESIZE);

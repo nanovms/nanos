@@ -3,6 +3,7 @@
 #include <page.h>
 #include <region.h>
 #include <apic.h>
+#include <symtab.h>
 
 //#define INT_DEBUG
 #ifdef INT_DEBUG
@@ -294,16 +295,21 @@ void common_handler()
     vm_exit(VM_EXIT_FAULT);
 }
 
-static heap interrupt_vector_heap;
+static id_heap interrupt_vector_heap;
 
 u64 allocate_interrupt(void)
 {
-    return allocate_u64(interrupt_vector_heap, 1);
+    return allocate_u64((heap)interrupt_vector_heap, 1);
 }
 
 void deallocate_interrupt(u64 irq)
 {
-    deallocate_u64(interrupt_vector_heap, irq, 1);
+    deallocate_u64((heap)interrupt_vector_heap, irq, 1);
+}
+
+boolean reserve_interrupt(u64 irq)
+{
+    return id_heap_set_area(interrupt_vector_heap, irq, 1, true, true);
 }
 
 void register_interrupt(int vector, thunk t, const char *name)
@@ -346,8 +352,8 @@ void init_interrupts(kernel_heaps kh)
     /* Exception handlers */
     handlers = allocate_zero(general, n_interrupt_vectors * sizeof(thunk));
     assert(handlers != INVALID_ADDRESS);
-    interrupt_vector_heap = (heap)create_id_heap(general, general, INTERRUPT_VECTOR_START,
-                                                 n_interrupt_vectors - INTERRUPT_VECTOR_START, 1);
+    interrupt_vector_heap = create_id_heap(general, general, INTERRUPT_VECTOR_START,
+                                           n_interrupt_vectors - INTERRUPT_VECTOR_START, 1);
     assert(interrupt_vector_heap != INVALID_ADDRESS);
 
     /* Separate stack to keep exceptions in interrupt handlers from

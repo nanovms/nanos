@@ -170,7 +170,7 @@ static inline u64 flags_from_pte(u64 pte)
     return pte & PAGE_FLAGS_MASK;
 }
 
-static inline u64 page_flags_writeable(u64 flags)
+static inline u64 page_flags_writable(u64 flags)
 {
     return flags & ~PAGE_READONLY;
 }
@@ -180,14 +180,14 @@ static inline u64 page_flags_readonly(u64 flags)
     return flags | PAGE_READONLY;
 }
 
-static inline boolean page_flags_is_writeable(u64 flags)
+static inline boolean page_flags_is_writable(u64 flags)
 {
     return (flags & PAGE_READONLY) == 0;
 }
 
 static inline boolean page_flags_is_readonly(u64 flags)
 {
-    return !page_flags_is_writeable(flags);
+    return !page_flags_is_writable(flags);
 }
 
 extern const int page_level_shifts_4K[PAGE_NLEVELS];
@@ -265,7 +265,7 @@ static inline void map_and_zero(u64 v, physical p, u64 length, u64 flags)
     assert((p & MASK(PAGELOG)) == 0);
     if (page_flags_is_readonly(flags)) {
         /* is there an easier way on arm? */
-        map(v, p, length, page_flags_writeable(flags));
+        map(v, p, length, page_flags_writable(flags));
         zero(pointer_from_u64(v), length);
         update_map_flags(v, length, flags);
     } else {

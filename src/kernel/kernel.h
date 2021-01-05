@@ -49,6 +49,8 @@ static inline __attribute__((noreturn)) void runloop(void)
 #define BREAKPOINT_READ_WRITE 11
 
 void kernel_runtime_init(kernel_heaps kh);
+void read_kernel_syms(void);
+void reclaim_regions(void);
 
 boolean breakpoint_insert(u64 a, u8 type, u8 length);
 boolean breakpoint_remove(u32 a);
@@ -65,8 +67,6 @@ void resume_kernel_context(kernel_context c);
 void frame_return(context frame) __attribute__((noreturn));
 
 void msi_map_vector(int slot, int msislot, int vector);
-
-void syscall_enter(void);
 
 typedef struct queue *queue;
 extern queue bhqueue;

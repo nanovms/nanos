@@ -12,8 +12,6 @@ void setup_sigframe(thread t, int signum, struct siginfo *si)
 
     assert(sizeof(struct siginfo) == 128);
 
-    sig_debug("sa->sa_flags 0x%lx\n", sa->sa_flags);
-
     /* copy only what we really need */
     t->sighandler_frame[FRAME_FSBASE] = t->default_frame[FRAME_FSBASE];
     t->sighandler_frame[FRAME_GSBASE] = t->default_frame[FRAME_GSBASE];
@@ -62,11 +60,13 @@ void setup_sigframe(thread t, int signum, struct siginfo *si)
     /* save signo for safer sigreturn */
     t->active_signo = signum;
 
-    sig_debug("sigframe tid %d, sig %d, rip 0x%lx, rsp 0x%lx, "
-              "rdi 0x%lx, rsi 0x%lx, rdx 0x%lx, r8 0x%lx\n", t->tid, signum,
-              t->sighandler_frame[FRAME_RIP], t->sighandler_frame[FRAME_RSP],
-              t->sighandler_frame[FRAME_RDI], t->sighandler_frame[FRAME_RSI],
-              t->sighandler_frame[FRAME_RDX], t->sighandler_frame[FRAME_R8]);
+#if 0
+    rprintf("sigframe tid %d, sig %d, rip 0x%lx, rsp 0x%lx, "
+            "rdi 0x%lx, rsi 0x%lx, rdx 0x%lx, r8 0x%lx\n", t->tid, signum,
+            t->sighandler_frame[FRAME_RIP], t->sighandler_frame[FRAME_RSP],
+            t->sighandler_frame[FRAME_RDI], t->sighandler_frame[FRAME_RSI],
+            t->sighandler_frame[FRAME_RDX], t->sighandler_frame[FRAME_R8]);
+#endif
 }
 
 /*

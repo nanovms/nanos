@@ -182,8 +182,17 @@ static id_heap init_physical_id_heap(heap h)
     return physical;
 }
 
-id_heap init_phys_heap(heap h, id_heap physical);
+void read_kernel_syms(void)
+{
+    // XXX TODO
+}
 
+void reclaim_regions(void)
+{
+    // XXX - free identity map here?
+}
+
+id_heap init_phys_heap(heap h, id_heap physical);
 
 extern void arm_hvc(u64 x0, u64 x1, u64 x2, u64 x3);
 
@@ -275,14 +284,6 @@ static void __attribute__((noinline)) init_service_new_stack(void)
     start_debug("in init_service_new_stack\n");
     init_tuples(allocate_tagged_region(&heaps, tag_tuple));
     init_symbols(allocate_tagged_region(&heaps, tag_symbol), heap_general(&heaps));
-
-//    start_debug("foo...\n");
-//    void *mmio = dev_base_pointer(PCIE_MMIO) + 4;
-//    start_debug_u64(u64_from_pointer(mmio));
-//    start_debug("...\n");
-//    start_debug_u64(*(u32*)mmio);
-//    start_debug("done...\n");
-
     kernel_runtime_init(&heaps);
     while(1);
 }

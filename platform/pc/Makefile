@@ -4,6 +4,7 @@ PROGRAMS=	kernel.img
 
 SRCS-kernel.img= \
 	$(CURDIR)/service.c \
+	$(CURDIR)/pci.c \
 	$(OBJDIR)/gitversion.c \
 	$(SRCDIR)/drivers/ata.c \
 	$(SRCDIR)/drivers/ata-pci.c \
@@ -16,6 +17,7 @@ SRCS-kernel.img= \
 	$(SRCDIR)/http/http.c \
 	$(SRCDIR)/kernel/backed_heap.c \
 	$(SRCDIR)/kernel/elf.c \
+	$(SRCDIR)/kernel/init.c \
 	$(SRCDIR)/kernel/kernel.c \
 	$(SRCDIR)/kernel/kvm_platform.c \
 	$(SRCDIR)/kernel/pagecache.c \

@@ -189,7 +189,7 @@ static inline void run_thread_frame(thread t)
     if (current_cpu()->have_kernel_lock)
         kern_unlock();
     current_cpu()->frcount++;
-//    rprintf("frame return ... pc 0x%lx, sp 0x%lx, x0 0x%lx\n", f[SYSCALL_FRAME_PC], f[SYSCALL_FRAME_SP], f[FRAME_X0]);
+//    rprintf("frame return ... pc 0x%lx, sp 0x%lx, x0 0x%lx\n", f[SYSCALL_FRAME_PC], f[SYSCALL_FRAME_SP], f[SYSCALL_FRAME_RETVAL1]);
     frame_return(f);
     halt("ut oh\n");
 }

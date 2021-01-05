@@ -7,6 +7,7 @@
 #define SYSCALL_FRAME_RETVAL1 FRAME_RAX
 #define SYSCALL_FRAME_RETVAL2 FRAME_RDX
 #define SYSCALL_FRAME_SP      FRAME_RSP
+#define SYSCALL_FRAME_PC      FRAME_RIP
 
 #define UC_FP_XSTATE            0x1
 #define UC_SIGCONTEXT_SS        0x2
@@ -125,18 +126,18 @@ struct sigcontext {
     u64 reserved1[8];
 };
 
-struct rt_sigframe {
-    char *pretcode;
-    struct ucontext uc;
-    struct siginfo info;
-};
-
 struct ucontext {
     unsigned long uc_flags;
     struct ucontext * uc_link;
     stack_t uc_stack;
     struct sigcontext uc_mcontext;
     sigset_t uc_sigmask;
+};
+
+struct rt_sigframe {
+    char *pretcode;
+    struct ucontext uc;
+    struct siginfo info;
 };
 
 static inline u64 page_flags_from_vmflags(u64 vmflags)
