@@ -707,7 +707,7 @@ static inline void count_syscall_noreturn(thread t)
     t->syscall_time = 0;
     t->last_syscall = -1;
 }
-shutdown_handler print_syscall_stats;
+extern shutdown_handler print_syscall_stats;
 extern boolean do_syscall_stats;
 
 void register_file_syscalls(struct syscall *);
