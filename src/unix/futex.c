@@ -294,3 +294,83 @@ init_futices(process p)
         halt("failed to allocate futex table\n");
 
 }
+
+/* robust mutex handling */
+
+#define FUTEX_OWNER_DIED	0x40000000
+#define FUTEX_KEY_ADDR(x, o)    ((int *)((u8 *)(x) + (o)))
+
+typedef struct robust_list {
+    struct robust_list *next;
+} *robust_list;
+
+typedef struct robust_list_head {
+    robust_list list;
+    long futex_offset;
+    void *list_op_pending;
+} *robust_list_head;
+
+void wake_robust_list(process p, void *head)
+{
+    struct robust_list_head *h = head;
+    struct robust_list *l;
+    int *uaddr;
+
+    /* must be very careful accessing the head as well as the list */
+    if (!validate_process_memory(p, h, sizeof(*h), false))
+        return;
+
+    /* XXX could keep a list of futexes and wake them at the end
+     * to let threads acquire multiple locks without blocking */
+    if (h->list_op_pending) {
+        uaddr = FUTEX_KEY_ADDR(h->list_op_pending, h->futex_offset);
+        if (validate_process_memory(p, uaddr, sizeof(*uaddr), true)) {
+            *uaddr |= FUTEX_OWNER_DIED;
+            futex_wake_many_by_uaddr(p, uaddr, 1);
+        }
+    }
+
+    for (l = h->list; (void *)l != (void *)h; l = l->next) {
+        uaddr = FUTEX_KEY_ADDR(l, h->futex_offset);
+        if (!validate_process_memory(p, l, sizeof(*l), false))
+            break;
+        if (!validate_process_memory(p, uaddr, sizeof(*uaddr), true))
+            break;
+        *uaddr |= FUTEX_OWNER_DIED;
+        futex_wake_many_by_uaddr(p, uaddr, 1);
+    }
+}
+
+sysreturn get_robust_list(int pid, void *head, u64 *len)
+{
+    struct robust_list_head **hp = head;
+    if (!validate_process_memory(current->p, hp, sizeof(*hp), true))
+        return -EFAULT;
+    if (!validate_process_memory(current->p, len, sizeof(*len), true))
+        return -EFAULT;
+
+    thread_log(current, "get_robust_list syscall for pid %d\n", pid);
+
+    thread t = 0;
+    if (pid == 0)
+        t = current;
+    else
+        t = vector_get(current->p->threads, pid);
+    if (t == 0)
+        return -ESRCH;
+    *hp = t->robust_list;
+    *len = sizeof(**hp);
+    return 0;
+}
+
+sysreturn set_robust_list(void *head, u64 len)
+{
+    thread_log(current, "set_robust_list syscall with head %p", head);
+    if (len != sizeof(struct robust_list_head))
+        return -EINVAL;
+    if (!validate_process_memory(current->p, head, len, false))
+        return -EFAULT;
+    current->robust_list = head;
+
+    return 0;
+}

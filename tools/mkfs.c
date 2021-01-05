@@ -421,11 +421,6 @@ int main(int argc, char **argv)
         }
     }
 
-    if (offset >= (1 << 16)) {
-        halt("boot image size (%d) exceeds 64KB; either trim stage2 or "
-             "update readsectors in stage1\n", offset);
-    }
-
     if (empty_fs) {
         root = allocate_tuple();
         table_set(root, sym(children), allocate_tuple());
@@ -505,7 +500,7 @@ int main(int argc, char **argv)
     }
     if (!img_size)
         img_size = current_size;
-    img_size = pad(img_size, TFS_LOG_DEFAULT_EXTENSION_SIZE);
+    img_size = pad(img_size - offset, TFS_LOG_DEFAULT_EXTENSION_SIZE) + offset;
     if (current_size < img_size) {
         if (ftruncate(out, img_size)) {
             halt("could not set image size: %s\n", strerror(errno));

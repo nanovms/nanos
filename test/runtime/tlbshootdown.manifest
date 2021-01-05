@@ -1,0 +1,15 @@
+(
+    children:(
+        tlbshootdown:(contents:(host:output/test/runtime/bin/tlbshootdown))
+    )
+    # filesystem path to elf for kernel to run
+    program:/tlbshootdown
+#    trace:t
+#    debugsyscalls:t
+#    futex_trace:t
+    fault:t
+    arguments:[tlbshootdown]
+    environment:(USER:bobby PWD:/)
+    exec_protection:t
+    imagesize:30M
+)

@@ -1,5 +1,6 @@
 #include <kernel.h>
 #include <apic.h>
+#include <page.h>
 
 
 /* Try to keep these within the confines of the runloop lock so we
@@ -235,6 +236,9 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
                     ci->last_timer_update = here + runloop_timer_max;
                 }
             }
+           /* Make sure TLB entries are appropriately flushed before
+             * returning to userspace */
+            page_invalidate_flush();
             run_thunk(t, cpu_user);
         }
     }
@@ -259,7 +263,7 @@ void init_scheduler(heap h)
     register_interrupt(shutdown_vector, closure(h, global_shutdown), "shutdown ipi");    
     assert(wakeup_vector != INVALID_PHYSICAL);
     /* scheduling queues init */
-    runqueue = allocate_queue(h, 64);
+    runqueue = allocate_queue(h, 2048);
     bhqueue = allocate_queue(h, 2048);
     runloop_timers = allocate_timerheap(h, "runloop");
     assert(runloop_timers != INVALID_ADDRESS);

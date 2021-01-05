@@ -30,6 +30,11 @@ static inline __attribute__((always_inline)) u16 tagof(void* v) {
 typedef struct spinlock {
     word w;
 } *spinlock;
+
+typedef struct rw_spinlock {
+    struct spinlock l;
+    u64 readers;
+} *rw_spinlock;
 #endif
 
 static inline __attribute__((always_inline)) void compiler_barrier(void)

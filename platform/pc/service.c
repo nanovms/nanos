@@ -551,6 +551,7 @@ static void __attribute__((noinline)) init_service_new_stack()
     start_cpu(misc, heap_backed(kh), TARGET_EXCLUSIVE_BROADCAST, new_cpu);
     kernel_delay(milliseconds(200));   /* temp, til we check tables to know what we have */
     init_debug("total CPUs %d\n", total_processors);
+    init_flush(heap_general(kh));
 #endif
     init_debug("starting runloop");
     runloop();

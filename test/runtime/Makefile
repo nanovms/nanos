@@ -11,6 +11,7 @@ PROGRAMS= \
 	fst \
 	ftrace \
 	futex \
+	futexrobust \
 	getdents \
 	getrandom \
 	hw \
@@ -31,6 +32,7 @@ PROGRAMS= \
 	symlink \
 	thread_test \
 	time \
+	tlbshootdown \
 	udploop \
 	unixsocket \
 	unlink \
@@ -90,6 +92,12 @@ SRCS-ftrace= \
 	$(SRCDIR)/unix_process/ssp.c
 
 LDFLAGS-ftrace=	-static
+
+SRCS-futexrobust= \
+	$(CURDIR)/futexrobust.c \
+	$(SRCDIR)/unix_process/ssp.c
+LDFLAGS-futexrobust=		-static
+LIBS-futexrobust=			-lpthread
 
 SRCS-futex= \
 	$(CURDIR)/futex.c \
@@ -187,6 +195,13 @@ SRCS-time= \
 	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-time=		-static
 LIBS-time=		-lrt -lpthread
+
+SRCS-tlbshootdown= \
+	$(CURDIR)/tlbshootdown.c \
+	$(SRCDIR)/unix_process/unix_process_runtime.c \
+	$(RUNTIME)
+LDFLAGS-tlbshootdown=		-static
+LIBS-tlbshootdown=	-lpthread
 
 SRCS-udploop= \
 	$(CURDIR)/udploop.c \

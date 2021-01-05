@@ -186,6 +186,22 @@ void vmap_iterator(process p, vmap_handler vmh)
     vmap_unlock(p);
 }
 
+closure_function(0, 1, void, vmap_validate_range_gap,
+                 range, q)
+{
+
+}
+
+boolean vmap_validate_range(process p, range q)
+{
+    boolean valid;
+    vmap_lock(p);
+    valid = !rangemap_range_find_gaps(p->vmaps, q,
+                             stack_closure(vmap_validate_range_gap));
+    vmap_unlock(p);
+    return valid;
+}
+
 closure_function(0, 1, void, vmap_dump_node,
                  rmnode, n)
 {

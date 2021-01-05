@@ -122,6 +122,8 @@ typedef struct buffer *buffer;
 
 void print_number(buffer s, u64 x, int base, int pad);
 
+typedef struct flush_entry *flush_entry;
+
 #include <text.h>
 #include <vector.h>
 #include <format.h>

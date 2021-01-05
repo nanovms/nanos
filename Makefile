@@ -29,6 +29,7 @@ AWS_S3_BUCKET=	nanos-test
 AWS_AMI_IMAGE=	nanos-$(TARGET)
 
 MKFS=		$(TOOLDIR)/mkfs
+DUMP=		$(TOOLDIR)/dump
 BOOTIMG=	$(PLATFORMOBJDIR)/boot/boot.img
 KERNEL=		$(PLATFORMOBJDIR)/bin/kernel.img
 
@@ -47,13 +48,14 @@ image: $(THIRD_PARTY) tools
 	$(Q) $(MAKE) -C klib
 	$(Q) $(MAKE) -C $(PLATFORMDIR) image TARGET=$(TARGET)
 
-release: $(THIRD_PARTY) mkfs
+release: $(THIRD_PARTY) tools
 	$(Q) $(MAKE) -C $(PLATFORMDIR) boot
 	$(Q) $(MAKE) -C $(PLATFORMDIR) kernel
 	$(Q) $(MAKE) -C klib
 	$(Q) $(RM) -r release
 	$(Q) $(MKDIR) release
 	$(CP) $(MKFS) release
+	$(CP) $(DUMP) release
 	$(CP) $(BOOTIMG) release
 	$(CP) $(KERNEL) release
 	$(Q) $(MKDIR) release/klibs
@@ -84,7 +86,7 @@ test test-noaccel: image
 	$(Q) $(MAKE) -C test test
 	$(Q) $(MAKE) runtime-tests$(subst test,,$@)
 
-RUNTIME_TESTS=	aio creat dup epoll eventfd fadvise fallocate fcntl fst futex getdents getrandom hw hws io_uring klibs mkdir mmap netsock pipe readv rename sendfile signal socketpair time unlink thread_test vsyscall write writev
+RUNTIME_TESTS=	aio creat dup epoll eventfd fadvise fallocate fcntl fst futex futexrobust getdents getrandom hw hws io_uring klibs mkdir mmap netsock pipe readv rename sendfile signal socketpair time unlink thread_test tlbshootdown vsyscall write writev
 
 .PHONY: runtime-tests runtime-tests-noaccel
 
