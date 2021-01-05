@@ -782,7 +782,7 @@ static status xennet_attach(kernel_heaps kh, int id, buffer frontend, tuple meta
             pop_u8((buffer)v);
     }
 
-    xennet_debug("MAC address %2x:%2x:%2x:%2x:%2x:%2x",
+    xennet_debug("MAC address %02x:%02x:%02x:%02x:%02x:%02x",
                  xd->mac[0], xd->mac[1], xd->mac[2],
                  xd->mac[3], xd->mac[4], xd->mac[5]);
 

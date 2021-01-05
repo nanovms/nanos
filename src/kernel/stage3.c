@@ -57,7 +57,7 @@ static buffer bulk_test_buffer(heap h)
 {
     buffer b = allocate_buffer(h, BULK_TEST_BUFSIZ);
     for (int i = 0; i < (BULK_TEST_BUFSIZ / 10); i += 8) {
-        bprintf(b, "%8d %8d %8d %8d %8d %8d %8d %8d\r\n",
+        bprintf(b, "%08d %08d %08d %08d %08d %08d %08d %08d\r\n",
                 i, i + 1, i + 2, i + 3, i + 4, i + 5, i + 6, i + 7);
     }
     return b;

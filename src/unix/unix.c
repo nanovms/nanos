@@ -5,7 +5,7 @@
 
 //#define PF_DEBUG
 #ifdef PF_DEBUG
-#define pf_debug(x, ...) do {log_printf("FAULT", "[%2d] tid %2d " x "\n", current_cpu()->id, \
+#define pf_debug(x, ...) do {log_printf("FAULT", "[%02d] tid %02d " x "\n", current_cpu()->id, \
                                         current->tid, ##__VA_ARGS__);} while(0)
 #else
 #define pf_debug(x, ...) thread_log(current, x, ##__VA_ARGS__);
@@ -395,6 +395,7 @@ void thread_pause(thread t)
 
 void thread_resume(thread t)
 {
+    count_syscall_resume(t);
     if (get_current_thread() == &t->thrd)
         return;
     t->start_time = now(CLOCK_ID_MONOTONIC);
@@ -514,6 +515,9 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     register_timer_syscalls(linux_syscalls);
     register_other_syscalls(linux_syscalls);
     configure_syscalls(kernel_process);
+    do_syscall_stats = table_find(kernel_process->process_root, sym(syscall_summary)) != 0;
+    if (do_syscall_stats)
+        vector_push(shutdown_completions, print_syscall_stats);
     return kernel_process;
   alloc_fail:
     msg_err("failed to allocate kernel objects\n");

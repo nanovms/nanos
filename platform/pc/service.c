@@ -43,6 +43,7 @@ extern void init_interrupts(kernel_heaps kh);
 
 static struct kernel_heaps heaps;
 static filesystem root_fs;
+vector shutdown_completions;
 
 static heap allocate_tagged_region(kernel_heaps kh, u64 tag)
 {
@@ -381,23 +382,25 @@ closure_function(1, 1, void, sync_complete,
     closure_finish();
 }
 
-static void storage_shutdown(int status, status_handler completion)
+closure_function(0, 2, void, storage_shutdown, int, status, merge, m)
 {
-    if (status == 0) {
-        storage_sync(completion);
-    } else {
-        merge m = allocate_merge(heap_locked(&heaps), completion);
-        status_handler sh = apply_merge(m);
+    if (status != 0)
         klog_save(status, apply_merge(m));
-        storage_sync(apply_merge(m));
-        apply(sh, STATUS_OK);
-    }
+    storage_sync(apply_merge(m));
 }
 
-closure_function(2, 0, void, do_storage_shutdown,
-                 int, status, status_handler, completion)
+
+closure_function(3, 0, void, do_shutdown_handler,
+                 shutdown_handler, h, int, status, merge, m)
 {
-    storage_shutdown(bound(status), bound(completion));
+    apply(bound(h), bound(status), bound(m));
+    closure_finish();
+}
+
+closure_function(1, 0, void, do_status_handler,
+                 status_handler, sh)
+{
+    apply(bound(sh), STATUS_OK);
     closure_finish();
 }
 
@@ -405,18 +408,32 @@ extern boolean shutting_down;
 void __attribute__((noreturn)) kernel_shutdown(int status)
 {
     status_handler completion = closure(heap_locked(&heaps), sync_complete, status);
+    merge m = allocate_merge(heap_locked(&heaps), completion);
+    status_handler sh = apply_merge(m);
+    shutdown_handler h;
+
     shutting_down = true;
-    if (root_fs) {
+
+    if (root_fs)
+        vector_push(shutdown_completions, closure(heap_locked(&heaps),
+                                                  storage_shutdown));
+
+    if (vector_length(shutdown_completions) > 0) {
         if (this_cpu_has_kernel_lock()) {
-            storage_shutdown(status, completion);
+            vector_foreach(shutdown_completions, h)
+                apply(h, status, m);
+            apply(sh, STATUS_OK);
             kern_unlock();
         } else {
-            enqueue_irqsafe(runqueue, closure(heap_locked(&heaps),
-                                              do_storage_shutdown, status, completion));
+            vector_push(shutdown_completions, closure(heap_locked(&heaps),
+                                                    do_status_handler, sh));
+            vector_foreach(shutdown_completions, h)
+                enqueue_irqsafe(runqueue, closure(heap_locked(&heaps),
+                                                  do_shutdown_handler, h, status, m));
         }
         runloop();
     }
-    apply(completion, STATUS_OK);
+    apply(sh, STATUS_OK);
     while(1);
 }
 
@@ -465,6 +482,7 @@ static void __attribute__((noinline)) init_service_new_stack()
     init_console(kh);
     init_symtab(kh);
     read_kernel_syms();
+    shutdown_completions = allocate_vector(heap_general(kh), SHUTDOWN_COMPLETIONS_SIZE);
     init_debug("pci_discover (for VGA)");
     pci_discover(); // early PCI discover to configure VGA console
     init_kernel_contexts(backed);

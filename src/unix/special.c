@@ -46,7 +46,7 @@ closure_function(1, 1, void, maps_handler,
 
     /* All mappings are assumed to be readable and private; offset, device and
      * inode are unknown. */
-    bprintf(b, "%16lx-%16lx r%c%cp 00000000 00:00 0", map->node.r.start,
+    bprintf(b, "%016lx-%016lx r%c%cp 00000000 00:00 0", map->node.r.start,
             map->node.r.end, (map->flags & VMAP_FLAG_WRITABLE) ? 'w' : '-',
             (map->flags & VMAP_FLAG_EXEC) ? 'x' : '-');
 

@@ -262,6 +262,9 @@ typedef struct thread {
     boolean sysctx;
     timestamp utime, stime;
     timestamp start_time;
+    int last_syscall;
+    timestamp syscall_enter_ts;
+    u64 syscall_time;
 
     /* signals pending and saved state */
     struct sigstate signals;
@@ -680,6 +683,33 @@ void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *n
 void configure_syscalls(process p);
 boolean syscall_notrace(process p, int syscall);
 
+void count_syscall(thread t, sysreturn rv);
+
+extern boolean do_syscall_stats;
+static inline void count_syscall_save(thread t)
+{
+    if (do_syscall_stats && !t->syscall_complete) {
+        t->syscall_time += usec_from_timestamp(now(CLOCK_ID_MONOTONIC) - t->syscall_enter_ts);
+        t->syscall_enter_ts = 0;
+    }
+}
+
+static inline void count_syscall_resume(thread t)
+{
+    if (do_syscall_stats && !t->syscall_complete && t->syscall_enter_ts == 0)
+        t->syscall_enter_ts = now(CLOCK_ID_MONOTONIC);
+}
+
+static inline void count_syscall_noreturn(thread t)
+{
+    if (!do_syscall_stats)
+        return;
+    t->syscall_time = 0;
+    t->last_syscall = -1;
+}
+shutdown_handler print_syscall_stats;
+extern boolean do_syscall_stats;
+
 void register_file_syscalls(struct syscall *);
 void register_net_syscalls(struct syscall *);
 void register_signal_syscalls(struct syscall *);
@@ -777,6 +807,8 @@ static inline sysreturn syscall_return(thread t, sysreturn val)
     set_syscall_return(t, val);
     u64 flags = irq_disable_save(); /* XXX mutex / spinlock */
     t->syscall_complete = true;
+    if (do_syscall_stats)
+        count_syscall(t, val);
     if (t->blocked_on)
         thread_wakeup(t);
     irq_restore(flags);
