@@ -49,12 +49,11 @@ do_vdso_gettimeofday(struct timeval * tv, void * tz)
 static sysreturn
 do_vdso_getcpu(unsigned * cpu, unsigned * node, void * tcache)
 {
-    cpuinfo ci = current_cpu();
-    if (cpu)
-        *cpu = ci->id;
-    if (node)
-        *node = 0;
-    return 0;
+    sysreturn rv = vdso_getcpu(cpu, node);
+    if (rv < 0)
+        return do_syscall(SYS_getcpu, cpu, node);
+    else
+        return rv;
 }
 
 static sysreturn

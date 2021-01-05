@@ -84,12 +84,7 @@ static inline __attribute__((always_inline)) cpuinfo cpuinfo_from_id(int cpu)
     return &cpuinfos[cpu];
 }
 
-static inline __attribute__((always_inline)) void cpu_setgs(int cpu)
-{
-    u64 addr = u64_from_pointer(cpuinfo_from_id(cpu));
-    write_msr(KERNEL_GS_MSR, 0); /* clear user GS */
-    write_msr(GS_MSR, addr);
-}
+void cpu_init(int cpu);
 
 static inline __attribute__((always_inline)) cpuinfo current_cpu(void)
 {

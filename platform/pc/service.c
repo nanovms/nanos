@@ -485,6 +485,7 @@ static void __attribute__((noinline)) init_service_new_stack()
     shutdown_completions = allocate_vector(heap_general(kh), SHUTDOWN_COMPLETIONS_SIZE);
     init_debug("pci_discover (for VGA)");
     pci_discover(); // early PCI discover to configure VGA console
+    init_clock();
     init_kernel_contexts(backed);
 
     /* interrupts */
@@ -494,7 +495,6 @@ static void __attribute__((noinline)) init_service_new_stack()
     // ipi..i guess this is safe because they are disabled?
     init_debug("init_scheduler");    
     init_scheduler(misc);
-    init_clock();               /* must precede platform init */
 
     /* platform detection and early init */
     init_debug("probing for KVM");

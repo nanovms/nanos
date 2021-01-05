@@ -21,3 +21,4 @@ VVAR_DECL(struct vdso_dat_struct, vdso_dat);
 struct pvclock_vcpu_time_info;
 VDSO u64 vdso_pvclock_now_ns(volatile struct pvclock_vcpu_time_info *);
 VDSO timestamp vdso_now(clock_id id);
+VDSO int vdso_getcpu(unsigned *cpu, unsigned *node);

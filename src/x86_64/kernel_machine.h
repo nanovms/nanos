@@ -35,6 +35,7 @@
 #define FS_MSR           0xc0000100
 #define GS_MSR           0xc0000101
 #define KERNEL_GS_MSR    0xc0000102
+#define TSC_AUX_MSR      0xc0000103
 
 #define C0_MP   0x00000002
 #define C0_EM   0x00000004

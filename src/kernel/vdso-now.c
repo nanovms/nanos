@@ -106,3 +106,17 @@ vdso_now(clock_id id)
 
     return _now + _off;
 }
+
+VDSO int
+vdso_getcpu(unsigned *cpu, unsigned *node)
+{
+    if (__vdso_dat->platform_has_rdtscp) {
+        if (cpu)
+            asm volatile("rdtscp" : "=c" (*cpu) :: "eax", "edx");
+        if (node)
+            *node = 0;
+        return 0;
+    } else {
+        return -1;
+    }
+}

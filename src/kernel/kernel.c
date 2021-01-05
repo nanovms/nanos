@@ -110,7 +110,7 @@ static void init_cpuinfos(heap backed)
 #endif
     }
 
-    cpu_setgs(0);
+    cpu_init(0);
 }
 
 void init_kernel_contexts(heap backed)

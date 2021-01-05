@@ -24,6 +24,15 @@ static void (*start_callback)();
 #define mp_debug_u64(x)
 #endif
 
+void cpu_init(int cpu)
+{
+    u64 addr = u64_from_pointer(cpuinfo_from_id(cpu));
+    write_msr(KERNEL_GS_MSR, 0); /* clear user GS */
+    write_msr(GS_MSR, addr);
+    if (VVAR_REF(vdso_dat).platform_has_rdtscp)
+        write_msr(TSC_AUX_MSR, cpu);    /* used by vdso_getcpu() */
+}
+
 static void __attribute__((noinline)) ap_new_stack()
 {
     mp_debug("ap_new_stack for cpu ");
@@ -32,7 +41,7 @@ static void __attribute__((noinline)) ap_new_stack()
     mp_debug_u64(id);
     int cid = fetch_and_add(&total_processors, 1);
     apic_id_map[cid] = id;
-    cpu_setgs(cid);
+    cpu_init(cid);
     cpuinfo ci = current_cpu();
 
     set_ist(id, IST_EXCEPTION, u64_from_pointer(ci->exception_stack));
