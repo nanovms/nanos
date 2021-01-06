@@ -1,5 +1,4 @@
 #include <kernel.h>
-#include <io.h>
 #include "serial.h"
 
 volatile u32 *UART0_DR = (volatile u32 *)DEV_BASE_UART;

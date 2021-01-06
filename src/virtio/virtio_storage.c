@@ -1,6 +1,5 @@
 #include <kernel.h>
 #include <drivers/storage.h>
-#include <io.h>
 #include <storage.h>
 
 #include "virtio_internal.h"

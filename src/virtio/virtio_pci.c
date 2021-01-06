@@ -32,8 +32,6 @@
 #include "virtio_internal.h"
 #include "virtio_pci.h"
 
-#include <io.h>
-
 #ifdef VIRTIO_PCI_DEBUG
 # define virtio_pci_debug rprintf
 #else
