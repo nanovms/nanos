@@ -85,6 +85,7 @@ static inline void bhqueue_enqueue_irqsafe(thunk t)
 
 extern boolean runtime_initialized;
 
+heap allocate_tagged_region(kernel_heaps kh, u64 tag);
 heap physically_backed(heap meta, heap virtual, heap physical, u64 pagesize);
 void physically_backed_dealloc_virtual(heap h, u64 x, bytes length);
 void print_stack(context c);
