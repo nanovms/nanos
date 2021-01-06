@@ -12,6 +12,7 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/aarch64/crt0.S \
 	$(SRCDIR)/aarch64/gic.c \
 	$(SRCDIR)/aarch64/interrupt.c \
+	$(SRCDIR)/aarch64/kernel_machine.c \
 	$(SRCDIR)/aarch64/page.c \
 	$(SRCDIR)/aarch64/serial.c \
 	$(SRCDIR)/aarch64/unix_machine.c \

@@ -101,6 +101,7 @@ SRCS-kernel.img= \
 	$(SRCDIR)/x86_64/flush.c \
 	$(SRCDIR)/x86_64/hpet.c \
 	$(SRCDIR)/x86_64/interrupt.c \
+	$(SRCDIR)/x86_64/kernel_machine.c \
 	$(SRCDIR)/x86_64/mp.c \
 	$(SRCDIR)/x86_64/page.c \
 	$(SRCDIR)/x86_64/rtc.c \

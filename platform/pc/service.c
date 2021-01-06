@@ -51,50 +51,6 @@ kernel_heaps get_kernel_heaps(void)
 }
 KLIB_EXPORT(get_kernel_heaps);
 
-kernel_heaps get_kernel_heaps(void)
-{
-    return &heaps;
-}
-KLIB_EXPORT(get_kernel_heaps);
-
-tuple get_root_tuple(void)
-{
-    return filesystem_getroot(root_fs);
-}
-KLIB_EXPORT(get_root_tuple);
-
-tuple get_environment(void)
-{
-    return table_find(filesystem_getroot(root_fs), sym(environment));
-}
-KLIB_EXPORT(get_environment);
-
-boolean first_boot(void)
-{
-    return !table_find(filesystem_getroot(root_fs), sym(booted));
-}
-KLIB_EXPORT(first_boot);
-
-// XXX arch, not platform specific
-static heap allocate_tagged_region(kernel_heaps kh, u64 tag)
-{
-    heap h = heap_general(kh);
-    heap p = (heap)heap_physical(kh);
-    assert(tag < U64_FROM_BIT(VA_TAG_WIDTH));
-    u64 tag_base = KMEM_BASE | (tag << VA_TAG_OFFSET);
-    u64 tag_length = U64_FROM_BIT(VA_TAG_OFFSET);
-    heap v = (heap)create_id_heap(h, heap_backed(kh), tag_base, tag_length, p->pagesize, false);
-    assert(v != INVALID_ADDRESS);
-    heap backed = (heap)physically_backed(h, v, p, p->pagesize, false);
-    if (backed == INVALID_ADDRESS)
-        return backed;
-
-    /* reserve area in virtual_huge */
-    assert(id_heap_set_area(heap_virtual_huge(kh), tag_base, tag_length, true, true));
-    build_assert(TABLE_MAX_BUCKETS * sizeof(void *) <= 1 << 20);
-    return allocate_mcache(h, backed, 5, MAX_MCACHE_ORDER, PAGESIZE_2M);
-}
-
 #define BOOTSTRAP_REGION_SIZE_KB	2048
 static u8 bootstrap_region[BOOTSTRAP_REGION_SIZE_KB << 10];
 static u64 bootstrap_base = (unsigned long long)bootstrap_region;
