@@ -1675,7 +1675,6 @@ static sysreturn netsock_listen(struct sock *sock, int backlog)
     set_lwip_error(s, ERR_OK);
     tcp_arg(lw, s);
     tcp_accept(lw, accept_tcp_from_lwip);
-    tcp_err(lw, lwip_tcp_conn_err);
     return 0;    
 }
 
