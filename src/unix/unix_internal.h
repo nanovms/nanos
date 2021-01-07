@@ -52,9 +52,6 @@
 #define PROCESS_HEAP_ASLR_RANGE     (4 * MB)
 #define PROCESS_STACK_ASLR_RANGE    (4 * MB)
 
-/* fixed address per deprecated API */
-#define VSYSCALL_BASE               0xffffffffff600000ull
-
 /* This will change if we add support for more clocktypes */
 #define VVAR_NR_PAGES               2
 

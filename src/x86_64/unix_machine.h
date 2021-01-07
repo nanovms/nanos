@@ -140,6 +140,11 @@ struct rt_sigframe {
     struct siginfo info;
 };
 
+/* fixed address per deprecated API */
+#define VSYSCALL_BASE               0xffffffffff600000ull
+
+void init_vsyscall(heap phys);
+
 static inline u64 page_flags_from_vmflags(u64 vmflags)
 {
     u64 flags = PAGE_NO_FAT | PAGE_USER;

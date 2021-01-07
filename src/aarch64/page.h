@@ -210,7 +210,7 @@ static inline int pt_entry_order(unsigned int level, u64 entry)
 static inline u64 pt_entry_size(int level, u64 entry)
 {
     int order = pt_entry_order(level, entry);
-    return order ? U64_FROM_BIT(order) : order;
+    return order ? U64_FROM_BIT(order) : INVALID_PHYSICAL;
 }
 
 static inline boolean pt_entry_is_pte(int level, u64 entry)

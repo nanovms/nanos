@@ -1,7 +1,7 @@
 {
   "Args":["-m", "http.server"],
   "RunConfig": {
-        "Ports": [8000]
+        "Ports": ["8000"]
   },
   "Boot": "../../../output/test/e2e/boot.img",
   "Kernel": "../../../output/test/e2e/kernel.img",
