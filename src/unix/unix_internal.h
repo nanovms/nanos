@@ -246,6 +246,7 @@ typedef struct thread {
     epoll select_epoll;
     int *clear_tid;
     int tid;
+    struct rbnode n;
 
     /* set by set_robust_list syscall */
     void *robust_list;
@@ -408,7 +409,8 @@ typedef struct process {
     tuple             cwd;
     table             futices;
     fault_handler     handler;
-    vector            threads;
+    rbtree            threads;
+    struct spinlock   threads_lock;
     struct syscall   *syscalls;
     vector            files;
     rangemap          vareas;   /* available address space */
@@ -504,8 +506,14 @@ static inline u32 file_perms(process p, file f)
 
 static inline thread thread_from_tid(process p, int tid)
 {
-    thread t = vector_get(p->threads, tid);
-    return t ? t : INVALID_ADDRESS;
+    struct thread tk;
+    tk.tid = tid;
+    spin_lock(&p->threads_lock);
+    rbnode n = rbtree_lookup(p->threads, &tk.n);
+    spin_unlock(&p->threads_lock);
+    if (n == INVALID_ADDRESS)
+        return INVALID_ADDRESS;
+    return struct_from_field(n, thread, n);
 }
 
 static inline void thread_reserve(thread t)
@@ -675,6 +683,8 @@ boolean dispatch_signals(thread t);
 void deliver_signal_to_thread(thread t, struct siginfo *);
 void deliver_signal_to_process(process p, struct siginfo *);
 void deliver_fault_signal(u32 signo, thread t, u64 vaddr, s32 si_code);
+
+void threads_to_vector(process p, vector v);
 
 void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *name);
 

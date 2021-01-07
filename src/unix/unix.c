@@ -418,23 +418,30 @@ static timestamp stime_updated(thread t)
     return ts;
 }
 
+closure_function(2, 1, boolean, count_thread_time,
+                 timestamp *, ts, boolean, is_utime,
+                 rbnode, n)
+{
+    thread t = struct_from_field(n, thread, n);
+    *bound(ts) += bound(is_utime) ? utime_updated(t) : stime_updated(t);
+    return true;
+}
+
 timestamp proc_utime(process p)
 {
     timestamp utime = 0;
-    thread t;
-    vector_foreach(p->threads, t)
-        if (t)
-            utime += utime_updated(t);
+    spin_lock(&p->threads_lock);
+    rbtree_traverse(p->threads, RB_INORDER, stack_closure(count_thread_time, &utime, true));
+    spin_unlock(&p->threads_lock);
     return utime;
 }
 
 timestamp proc_stime(process p)
 {
     timestamp stime = 0;
-    thread t;
-    vector_foreach(p->threads, t)
-        if (t)
-            stime += stime_updated(t);
+    spin_lock(&p->threads_lock);
+    rbtree_traverse(p->threads, RB_INORDER, stack_closure(count_thread_time, &stime, false));
+    spin_unlock(&p->threads_lock);
     return stime;
 }
 

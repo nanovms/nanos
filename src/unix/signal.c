@@ -318,7 +318,11 @@ void deliver_signal_to_process(process p, struct siginfo *info)
 
     /* If a thread is set as runnable and can handle this signal, just return. */
     thread t, can_wake = 0;
-    vector_foreach(p->threads, t) {
+    vector v = allocate_vector(heap_general(get_kernel_heaps()), 8);
+    spin_lock(&p->threads_lock);
+    threads_to_vector(p, v);
+    spin_unlock(&p->threads_lock);
+    vector_foreach(v, t) {
         if (!t)
             continue;
         if (thread_is_runnable(t)) {
@@ -331,7 +335,7 @@ void deliver_signal_to_process(process p, struct siginfo *info)
                 /* thread scheduled to run or running; no explicit wakeup */
                 sig_debug("thread %d running and sig %d unmasked; return\n",
                           t->tid, sig);
-                return;
+                goto out;
             }
         } else if (thread_in_interruptible_sleep(t) &&
                    (sigword & get_effective_sigmask(t)) == 0) {
@@ -343,7 +347,7 @@ void deliver_signal_to_process(process p, struct siginfo *info)
                wake up a thread that has any pending signals. */
             signalfd_dispatch(t, sigword);
             if (thread_is_runnable(t))
-                return;
+                goto out;
 
             /* Otherwise, it's a candidate for interrupting. */
             can_wake = t;
@@ -357,6 +361,8 @@ void deliver_signal_to_process(process p, struct siginfo *info)
         if (!thread_attempt_interrupt(can_wake))
             sig_debug("failed to interrupt\n");
     }
+out:
+    deallocate_vector(v);
 }
 
 sysreturn rt_sigpending(u64 *set, u64 sigsetsize)

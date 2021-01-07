@@ -375,7 +375,9 @@ buffer_handler init_gdb(heap h,
     g->out = allocate_buffer(h, 256); 
     g->in = allocate_buffer(h, 256);
     g->h = h;
-    g->t = vector_get(p->threads, 0);
+    spin_lock(&p->threads_lock);
+    g->t = struct_from_field(rbtree_find_first(p->threads), thread, n);
+    spin_unlock(&p->threads_lock);
     thread_frame(g->t)[FRAME_FAULT_HANDLER] = u64_from_pointer(closure(h, gdb_handle_exception, g));
     reset_parser(g);
     return closure(h, gdbserver_input, g);

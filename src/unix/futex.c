@@ -355,8 +355,8 @@ sysreturn get_robust_list(int pid, void *head, u64 *len)
     if (pid == 0)
         t = current;
     else
-        t = vector_get(current->p->threads, pid);
-    if (t == 0)
+        t = thread_from_tid(current->p, pid);
+    if (t == INVALID_ADDRESS)
         return -ESRCH;
     *hp = t->robust_list;
     *len = sizeof(**hp);

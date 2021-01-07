@@ -297,7 +297,14 @@ thread create_thread(process p)
     t->uh = *p->uh;
     init_refcount(&t->refcount, 1, init_closure(&t->free, free_thread, t));
     t->select_epoll = 0;
-    t->tid = tidcount++;
+    runtime_memset((void *)&t->n, 0, sizeof(struct rbnode));
+    spin_lock(&p->threads_lock);
+    do {
+        if (tidcount < 0)
+            tidcount = 1;
+        t->tid = tidcount++;
+    } while (rbtree_lookup(p->threads, &t->n) != INVALID_ADDRESS);
+    spin_unlock(&p->threads_lock);
     t->clear_tid = 0;
     t->name[0] = '\0';
 
@@ -326,7 +333,9 @@ thread create_thread(process p)
     t->last_syscall = -1;
 
     // XXX sigframe
-    assert(vector_set(p->threads, t->tid, t)); 
+    spin_lock(&p->threads_lock);
+    rbtree_insert_node(p->threads, &t->n);
+    spin_unlock(&p->threads_lock);
     return t;
   fail_sfds:
     deallocate_blockq(t->thread_bq);
@@ -342,8 +351,9 @@ void exit_thread(thread t)
 {
     thread_log(current, "exit_thread");
 
-    assert(vector_length(t->p->threads) > t->tid);
-    assert(vector_set(t->p->threads, t->tid, 0));
+    spin_lock(&t->p->threads_lock);
+    rbtree_remove_by_key(t->p->threads, &t->n);
+    spin_unlock(&t->p->threads_lock);
 
     /* We might be exiting from the signal handler while dispatching a
        signal on behalf of the process sigstate, so reset masks as if
@@ -389,9 +399,39 @@ void exit_thread(thread t)
     refcount_release(&t->refcount);
 }
 
+closure_function(0, 1, boolean, tid_print_key,
+                 rbnode, n)
+{
+    rprintf(" %d", struct_from_field(n, thread, n)->tid);
+    return true;
+}
+
+closure_function(0, 2, int, thread_tid_compare,
+                 rbnode, a, rbnode, b)
+{
+    thread ta = struct_from_field(a, thread, n);
+    thread tb = struct_from_field(b, thread, n);
+    return ta->tid == tb->tid ? 0 : (ta->tid < tb->tid ? -1 : 1);
+}
+
+closure_function(1, 1, boolean, vector_from_tree_handler,
+                 vector, v,
+                 rbnode, n)
+{
+    thread t = struct_from_field(n, thread, n);
+    vector_push(bound(v), t);
+    return true;
+}
+
+void threads_to_vector(process p, vector v)
+{
+    rbtree_traverse(p->threads, RB_INORDER, stack_closure(vector_from_tree_handler, v));
+}
+
 void init_threads(process p)
 {
     heap h = heap_general((kernel_heaps)p->uh);
-    p->threads = allocate_vector(h, 5);
+    p->threads = allocate_rbtree(h, closure(h, thread_tid_compare), closure(h, tid_print_key));
+    spin_lock_init(&p->threads_lock);
     init_futices(p);
 }
