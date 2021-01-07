@@ -1004,7 +1004,7 @@ void mmap_process_init(process p)
     add_varea(p, PROCESS_VIRTUAL_HEAP_START, PROCESS_VIRTUAL_HEAP_LIMIT, p->virtual_page, true);
 
     /* XXX todo: tagged addresses logically above kernel area - handle in mmap? */
-#if 0
+#ifdef __x86_64__
     /* reserve end of p->virtual to user tag region */
     u64 user_va_tag_start = U64_FROM_BIT(USER_VA_TAG_OFFSET);
     u64 user_va_tag_end = user_va_tag_start * tag_max;
@@ -1030,10 +1030,11 @@ void mmap_process_init(process p)
     assert(allocate_vmap(p->vmaps, irangel(p->vdso_base + vdso_size, vvar_size),
                          ivmap(0, 0, 0, 0)) != INVALID_ADDRESS);
 
+#ifdef __x86_64__
     /* Track vsyscall page */
     assert(allocate_vmap(p->vmaps, irangel(VSYSCALL_BASE, PAGESIZE),
                          ivmap(VMAP_FLAG_EXEC, 0, 0, 0)) != INVALID_ADDRESS);
-    /* XXX x86 only? */
+#endif
 
     init_closure(&do_kernel_demand_pf_complete, kernel_demand_pf_complete);
 }

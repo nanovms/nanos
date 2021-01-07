@@ -2,9 +2,6 @@
 #error must be in kernel build
 #endif
 
-/* XXX - carry over from pc */
-#define MBR_ADDRESS 0x7c00
-
 #include "frame.h"
 
 #define DEVICE_BASE 0xffffffff00000000ull

@@ -247,7 +247,13 @@ ifeq ($(WITHOUT_SSP),)
 CFLAGS+=	-fstack-protector-strong
 ifneq ($(CC),clang)
 ifneq ($(UNAME_s),Darwin)
-KERNCFLAGS+=	-mstack-protector-guard=global
+ifeq ($(ARCH),aarch64)
+# XXX SSP on arm not working yet; check flags
+KERNCFLAGS+=	-fstack-protector-all
+else
+KERNCFLAGS+=	-mstack-protector-guard=global \
+		-fno-pic
+endif
 endif
 endif
 endif

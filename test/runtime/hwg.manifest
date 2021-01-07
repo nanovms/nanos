@@ -3,8 +3,8 @@
               #user program
 	      hwg:(contents:(host:output/test/runtime/bin/hwg))
 	      etc:(children:(ld.so.cache:(contents:(host:/etc/ld.so.cache))))
-	      lib:(children:(ld-linux-aarch64.so.1:(contents:(host:/lib/ld-linux-aarch64.so.1)) aarch64-linux-gnu:(children:(libc.so.6:(contents:(host:/usr/lib/aarch64-linux-gnu/libc.so.6))))))
-	      )
+	      lib:(children:(x86_64-linux-gnu:(children:(libc.so.6:(contents:(host:/lib/x86_64-linux-gnu/libc.so.6)) libpthread.so.0:(contents:(host:/lib/x86_64-linux-gnu/libpthread.so.0))))))
+	      lib64:(children:(ld-linux-x86-64.so.2:(contents:(host:/lib64/ld-linux-x86-64.so.2)))))
     # filesystem path to elf for kernel to run
     program:/hwg
 #    trace:t
