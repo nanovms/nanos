@@ -10,6 +10,7 @@ SRCS-kernel.elf= \
 	$(OBJDIR)/gitversion.c \
 	$(SRCDIR)/aarch64/clock.c \
 	$(SRCDIR)/aarch64/crt0.S \
+	$(SRCDIR)/aarch64/elf64.c \
 	$(SRCDIR)/aarch64/gic.c \
 	$(SRCDIR)/aarch64/interrupt.c \
 	$(SRCDIR)/aarch64/kernel_machine.c \
@@ -72,27 +73,9 @@ SRCS-kernel.elf= \
 	$(SRCS-lwip)
 
 
-# SRCS-kernel.elf= \
-# 	$(SRCDIR)/drivers/ata.c \
-# 	$(SRCDIR)/drivers/ata-pci.c \
-# 	$(SRCDIR)/drivers/vga.c \
-# 	$(SRCDIR)/gdb/gdbstub.c \
-# 	$(SRCDIR)/gdb/gdbtcp.c \
-# 	$(SRCDIR)/gdb/gdbutil.c \
-# 	$(SRCDIR)/http/http.c \
-# 	$(SRCDIR)/kernel/kvm_platform.c \
-# 	$(SRCDIR)/kernel/pvclock.c \
-# 	$(SRCDIR)/kernel/service.c \
-
-# 	$(SRCDIR)/vmware/vmxnet3_net.c \
-# 	$(SRCDIR)/vmware/vmxnet3_queue.c \
-# 	$(SRCDIR)/vmware/pvscsi.c \
-# 	$(SRCDIR)/xen/xen.c \
-# 	$(SRCDIR)/xen/xennet.c \
-
-
 SRCS-lwip= \
 	$(LWIPDIR)/src/core/def.c \
+	$(LWIPDIR)/src/core/dns.c \
 	$(LWIPDIR)/src/core/inet_chksum.c \
 	$(LWIPDIR)/src/core/init.c \
 	$(LWIPDIR)/src/core/ip.c \

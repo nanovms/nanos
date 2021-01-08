@@ -84,6 +84,7 @@ kernel_context suspend_kernel_context(void);
 void resume_kernel_context(kernel_context c);
 void frame_return(context frame) __attribute__((noreturn));
 
+void init_interrupts(kernel_heaps kh);
 void msi_map_vector(int slot, int msislot, int vector);
 
 void syscall_enter(void);
@@ -191,6 +192,8 @@ void kernel_unlock();
 extern u64 idle_cpu_mask;
 extern u64 total_processors;
 extern void xsave(context f);
+
+void cpu_init(int cpu);
 
 #define SHUTDOWN_COMPLETIONS_SIZE    8
 extern vector shutdown_completions;

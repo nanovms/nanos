@@ -21,7 +21,12 @@
 boolean runtime_initialized = false;
 
 static struct kernel_heaps heaps;
-static filesystem root_fs;
+
+kernel_heaps get_kernel_heaps(void)
+{
+    return &heaps;
+}
+KLIB_EXPORT(get_kernel_heaps);
 
 static char *hex_digits="0123456789abcdef";
 
@@ -148,6 +153,8 @@ static inline void virt_shutdown(void)
     arm_hvc(psci_fn, 0, 0, 0);
 }
 
+extern filesystem root_fs;
+
 void vm_exit(u8 code)
 {
 #ifdef SMP_DUMP_FRAME_RETURN_COUNT
@@ -178,25 +185,6 @@ void vm_exit(u8 code)
 #endif
     virt_shutdown();
     while (1);
-}
-
-closure_function(1, 1, void, sync_complete,
-                 u8, code,
-                 status, s)
-{
-    vm_exit(bound(code));
-}
-
-extern boolean shutting_down;
-void kernel_shutdown(int status)
-{
-    shutting_down = true;
-//    apic_ipi(TARGET_EXCLUSIVE_BROADCAST, 0, shutdown_vector);
-    if (root_fs) {
-        storage_sync(closure(heap_general(&heaps), sync_complete, status));
-        runloop();
-    }
-    vm_exit(status);
 }
 
 u64 total_processors = 1;
@@ -232,6 +220,7 @@ static void __attribute__((noinline)) init_service_new_stack(void)
     start_debug("in init_service_new_stack\n");
     init_tuples(allocate_tagged_region(&heaps, tag_tuple));
     init_symbols(allocate_tagged_region(&heaps, tag_symbol), heap_general(&heaps));
+    start_debug("calling runtime init\n");
     kernel_runtime_init(&heaps);
     while(1);
 }

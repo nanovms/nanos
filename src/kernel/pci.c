@@ -270,7 +270,7 @@ static void pci_probe_device(pci_dev dev)
     // probe drivers
     struct pci_driver *d;
     vector_foreach(drivers, d) {
-        pci_debug(" driver %p / %F, attached %d\n", d, d->probe, d->attached);
+        pci_debug(" driver %p / %F\n", d, d->probe);
         if (apply(d->probe, pcid)) {
             pci_debug("  dev %02x:%02x:%x: attached to %F\n", dev->bus, dev->slot, dev->function,
                       d->probe);

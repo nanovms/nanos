@@ -46,6 +46,12 @@
         mrs     x1, esr_el1
         mrs     x2, elr_el1
 
+        // make lazy? does it matter?
+        .if \el == 0
+        mrs     x3, tpidr_el0
+        str     x3, [x17, #(FRAME_TPIDR_EL0 * 8)]
+        .endif
+
         // yet frame return doesn't exceed rel range?
         add	x17, x17, #256
         stp     w0, w1, [x17, #((FRAME_ESR_SPSR - 32) * 8)]

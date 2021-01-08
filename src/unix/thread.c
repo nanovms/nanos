@@ -170,8 +170,6 @@ static inline void run_thread_frame(thread t)
     if (do_syscall_stats && t->last_syscall == SYS_sched_yield)
         count_syscall(t, 0);
     context f = thread_frame(t);
-    // XXX - arch prep frame
-    frame_save_tls(thread_frame(old));
     frame_restore_tls(f);
 #ifdef __x86_64__
     f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
@@ -316,7 +314,7 @@ thread create_thread(process p)
 
     t->p = p;
     t->syscall = -1;
-    t->uh = *p->uh;
+    runtime_memcpy(&t->uh, p->uh, sizeof(*p->uh));
     init_refcount(&t->refcount, 1, init_closure(&t->free, free_thread, t));
     t->select_epoll = 0;
     runtime_memset((void *)&t->n, 0, sizeof(struct rbnode));

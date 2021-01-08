@@ -4,9 +4,10 @@
 
 #include "frame.h"
 
-#define DEVICE_BASE 0xffffffff00000000ull
-#define PAGES_BASE  0xffffffffc0000000ull
-#define KERNEL_BASE 0xffffffff80000000ull
+#define DEVICE_BASE  0xffffffff00000000ull
+#define KERNEL_BASE  0xffffffff80000000ull
+#define PAGES_BASE   0xffffffffc0000000ull
+#define KERNEL_LIMIT PAGES_BASE
 
 #define KERNEL_PHYS 0x0000000040400000ull /* must match linker script - XXX extern? */
 
@@ -351,3 +352,11 @@ static inline void frame_set_sp(context f, u64 sp)
 
 /* vestige from pc land */
 #define vpzero(__v, __p, __y) zero(pointer_from_u64(__v), __y)
+
+/* IPI */
+static inline void machine_halt(void)
+{
+    __asm__("hlt #0"); /* XXX */
+}
+
+#define send_ipi(cpu, vector)

@@ -116,17 +116,9 @@ static void init_cpuinfos(heap backed)
 #endif
     }
 
-// XXX fix after merge
-//    cpu_init(0);
-    /* XXX arch dep */
     cpuinfo ci = cpuinfo_from_id(0);
     ci->running_frame = ci->kernel_context->frame;
-#ifdef __x86_64__
-    cpu_setgs(0);
-#elif defined(__aarch64__)
-    register u64 a = u64_from_pointer(ci);
-    asm volatile("mov x18, %0; msr tpidr_el1, %0" ::"r"(a));
-#endif
+    cpu_init(0);
 }
 
 void init_kernel_contexts(heap backed)

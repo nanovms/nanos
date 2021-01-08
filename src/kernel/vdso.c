@@ -57,11 +57,12 @@ do_vdso_gettimeofday(struct timeval * tv, void * tz)
 static sysreturn
 do_vdso_getcpu(unsigned * cpu, unsigned * node, void * tcache)
 {
+#ifdef __x86_64__
     sysreturn rv = vdso_getcpu(cpu, node);
-    if (rv < 0)
-        return do_syscall(SYS_getcpu, cpu, node);
-    else
+    if (rv >= 0)
         return rv;
+#endif
+    return do_syscall(SYS_getcpu, cpu, node);
 }
 
 static sysreturn

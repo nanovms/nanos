@@ -255,6 +255,14 @@ void unregister_interrupt(int vector)
 
 extern void *exception_vectors;
 
+closure_function(0, 0, void, arm_timer)
+{
+    assert(read_psr(CNTV_CTL_EL0) & CNTV_CTL_EL0_ISTATUS);
+    write_psr(CNTV_CTL_EL0, 0);
+}
+
+closure_struct(arm_timer, _timer);
+
 void init_interrupts(kernel_heaps kh)
 {
     heap general = heap_general(kh);
@@ -270,4 +278,10 @@ void init_interrupts(kernel_heaps kh)
 
     /* initialize interrupt controller */
     init_gic();
+
+    /* timer init is minimal, stash irq bits here */
+    gic_set_int_config(GIC_TIMER_IRQ, GICD_ICFGR_LEVEL);
+    gic_set_int_priority(GIC_TIMER_IRQ, 0);
+    gic_set_int_target(GIC_TIMER_IRQ, 1);
+    register_interrupt(GIC_TIMER_IRQ, init_closure(&_timer, arm_timer), "arm timer");
 }

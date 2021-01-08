@@ -43,7 +43,6 @@ extern void init_interrupts(kernel_heaps kh);
 
 static struct kernel_heaps heaps;
 static filesystem root_fs;
-vector shutdown_completions;
 
 kernel_heaps get_kernel_heaps(void)
 {
@@ -71,28 +70,6 @@ thunk create_init(kernel_heaps kh, tuple root, filesystem fs);
 filesystem_complete bootfs_handler(kernel_heaps kh, tuple root,
                                    boolean klibs_in_bootfs,
                                    boolean ingest_kernel_syms);
-
-/* This is very simplistic and uses a fixed drain threshold. This
-   should also take all cached data in system into account. For now we
-   just pick on the single pagecache... */
-
-#ifdef MM_DEBUG
-#define mm_debug(x, ...) do {rprintf("MM:   " x, ##__VA_ARGS__);} while(0)
-#else
-#define mm_debug(x, ...) do { } while(0)
-#endif
-void mm_service(void)
-{
-    heap p = (heap)heap_physical(&heaps);
-    u64 free = heap_total(p) - heap_allocated(p);
-    mm_debug("%s: total %ld, alloc %ld, free %ld\n", __func__, heap_total(p), heap_allocated(p), free);
-    if (free < PAGECACHE_DRAIN_CUTOFF) {
-        u64 drain_bytes = PAGECACHE_DRAIN_CUTOFF - free;
-        u64 drained = pagecache_drain(drain_bytes);
-        if (drained > 0)
-            mm_debug("   drained %ld / %ld requested...\n", drained, drain_bytes);
-    }
-}
 
 void read_kernel_syms(void)
 {
@@ -201,69 +178,6 @@ void vm_exit(u8 code)
     } else {
         QEMU_HALT(code);
     }
-}
-
-closure_function(1, 1, void, sync_complete,
-                 u8, code,
-                 status, s)
-{
-    vm_exit(bound(code));
-    closure_finish();
-}
-
-closure_function(0, 2, void, storage_shutdown, int, status, merge, m)
-{
-    if (status != 0)
-        klog_save(status, apply_merge(m));
-    storage_sync(apply_merge(m));
-}
-
-
-closure_function(3, 0, void, do_shutdown_handler,
-                 shutdown_handler, h, int, status, merge, m)
-{
-    apply(bound(h), bound(status), bound(m));
-    closure_finish();
-}
-
-closure_function(1, 0, void, do_status_handler,
-                 status_handler, sh)
-{
-    apply(bound(sh), STATUS_OK);
-    closure_finish();
-}
-
-extern boolean shutting_down;
-void __attribute__((noreturn)) kernel_shutdown(int status)
-{
-    status_handler completion = closure(heap_locked(&heaps), sync_complete, status);
-    merge m = allocate_merge(heap_locked(&heaps), completion);
-    status_handler sh = apply_merge(m);
-    shutdown_handler h;
-
-    shutting_down = true;
-
-    if (root_fs)
-        vector_push(shutdown_completions, closure(heap_locked(&heaps),
-                                                  storage_shutdown));
-
-    if (vector_length(shutdown_completions) > 0) {
-        if (this_cpu_has_kernel_lock()) {
-            vector_foreach(shutdown_completions, h)
-                apply(h, status, m);
-            apply(sh, STATUS_OK);
-            kern_unlock();
-        } else {
-            vector_push(shutdown_completions, closure(heap_locked(&heaps),
-                                                    do_status_handler, sh));
-            vector_foreach(shutdown_completions, h)
-                enqueue_irqsafe(runqueue, closure(heap_locked(&heaps),
-                                                  do_shutdown_handler, h, status, m));
-        }
-        runloop();
-    }
-    apply(sh, STATUS_OK);
-    while(1);
 }
 
 u64 total_processors = 1;

@@ -309,12 +309,25 @@ void map(u64 v, physical p, u64 length, u64 flags)
     }
 }
 
-void page_invalidate(u64 address, thunk completion)
+flush_entry get_page_flush_entry(void)
 {
-    leaf_invalidate(address);
+    return 0;
+}
+
+void page_invalidate_flush(void)
+{
+}
+
+void page_invalidate_sync(flush_entry f, thunk completion)
+{
     post_sync();
     if (completion)
         apply(completion);
+}
+
+void page_invalidate(flush_entry f, u64 address)
+{
+    leaf_invalidate(address);
 }
 
 /* called with lock held */

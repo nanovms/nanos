@@ -51,3 +51,11 @@ heap allocate_tagged_region(kernel_heaps kh, u64 tag)
     tag_debug("%s: tag %d, bits 0x%lx, heap %p\n", __func__, tag, th->vtag, th);
     return &th->h;
 }
+
+void cpu_init(int cpu)
+{
+    cpuinfo ci = cpuinfo_from_id(cpu);
+    register u64 a = u64_from_pointer(ci);
+    asm volatile("mov x18, %0; msr tpidr_el1, %0" ::"r"(a));
+}
+

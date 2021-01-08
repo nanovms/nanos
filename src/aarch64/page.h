@@ -257,7 +257,15 @@ void update_map_flags(u64 vaddr, u64 length, u64 flags);
 void zero_mapped_pages(u64 vaddr, u64 length);
 void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length);
 boolean traverse_ptes(u64 vaddr, u64 length, entry_handler eh);
-void page_invalidate(u64 p, thunk completion);
+
+/* XXX TODO - smp
+   Seems the arch will take care of shootdowns, but not clear at the moment...
+ */
+flush_entry get_page_flush_entry(void);
+void page_invalidate_sync(flush_entry f, thunk completion);
+void page_invalidate(flush_entry f, u64 address);
+void page_invalidate_flush(void);
+
 void dump_ptes(void *vaddr);
 
 static inline void map_and_zero(u64 v, physical p, u64 length, u64 flags)

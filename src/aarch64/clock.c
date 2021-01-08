@@ -37,16 +37,9 @@ closure_function(0, 0, void, arm_timer_percpu_init)
 {
 }
 
-closure_function(0, 0, void, arm_timer)
-{
-    assert(read_psr(CNTV_CTL_EL0) & CNTV_CTL_EL0_ISTATUS);
-    write_psr(CNTV_CTL_EL0, 0);
-}
-
 closure_struct(arm_clock_now, _clock_now);
 closure_struct(arm_deadline_timer, _deadline_timer);
 closure_struct(arm_timer_percpu_init, _timer_percpu_init);
-closure_struct(arm_timer, _timer);
 
 void init_clock(void)
 {
@@ -55,11 +48,6 @@ void init_clock(void)
 //    __vdso_dat->rtc_offset = rtc_gettimeofday() << 32;
     __vdso_dat->rtc_offset = 0;
 
-    gic_set_int_config(GIC_TIMER_IRQ, GICD_ICFGR_LEVEL);
-    gic_set_int_priority(GIC_TIMER_IRQ, 0);
-    gic_set_int_target(GIC_TIMER_IRQ, 1);
-
-    register_interrupt(GIC_TIMER_IRQ, init_closure(&_timer, arm_timer), "arm timer");
     register_platform_clock_now(init_closure(&_clock_now, arm_clock_now), VDSO_CLOCK_PVCLOCK);
     register_platform_clock_timer(init_closure(&_deadline_timer, arm_deadline_timer),
                                   init_closure(&_timer_percpu_init, arm_timer_percpu_init));

@@ -4,6 +4,7 @@
 #include <storage.h>
 #include <tfs.h>
 #include <log.h>
+#include <net.h>
 #include <virtio/virtio.h>
 #include <page.h> // maps should be in machdep
 #include <symtab.h>
@@ -24,17 +25,14 @@
 #define init_debug(x, ...)
 #endif
 
-// XXX move to kernel.h or init.h
-extern void init_net(kernel_heaps kh);
-extern void init_interrupts(kernel_heaps kh);
-
-static filesystem root_fs;
+filesystem root_fs;
+static kernel_heaps init_heaps;
 
 //#define MAX_BLOCK_IO_SIZE PAGE_SIZE
 #define MAX_BLOCK_IO_SIZE (64 * 1024)
 
-closure_function(3, 3, void, offset_block_io,
-                 kernel_heaps, kh, u64, offset, block_io, io,
+closure_function(2, 3, void, offset_block_io,
+                 u64, offset, block_io, io,
                  void *, dest, range, blocks, status_handler, sh)
 {
     assert((bound(offset) & (SECTOR_SIZE - 1)) == 0);
@@ -43,7 +41,7 @@ closure_function(3, 3, void, offset_block_io,
     blocks.end += ds;
 
     // split I/O to storage driver to PAGESIZE requests
-    merge m = allocate_merge(heap_locked(bound(kh)), sh);
+    merge m = allocate_merge(heap_locked(init_heaps), sh);
     status_handler k = apply_merge(m);
     while (blocks.start < blocks.end) {
         u64 span = MIN(range_span(blocks), MAX_BLOCK_IO_SIZE >> SECTOR_OFFSET);
@@ -63,17 +61,22 @@ filesystem_complete bootfs_handler(kernel_heaps kh, tuple root,
                                    boolean klibs_in_bootfs,
                                    boolean ingest_kernel_syms);
 
-closure_function(4, 2, void, fsstarted,
-                 kernel_heaps, kh, u8 *, mbr, block_io, r, block_io, w,
+closure_function(3, 2, void, fsstarted,
+                 u8 *, mbr, block_io, r, block_io, w,
                  filesystem, fs, status, s)
 {
-    if (!is_ok(s))
-        halt("unable to open filesystem: %v\n", s);
+    heap h = heap_locked(init_heaps);
+    if (!is_ok(s)) {
+        buffer b = allocate_buffer(h, 128);
+        bprintf(b, "unable to open filesystem: ");
+        print_tuple(b, s);
+        buffer_print(b);
+        halt("\n");
+    }
+
     if (root_fs)
         halt("multiple root filesystems found\n");
 
-    kernel_heaps kh = bound(kh);
-    heap h = heap_locked(kh);
     u8 *mbr = bound(mbr);
     tuple root = filesystem_getroot(fs);
     storage_set_root_fs(fs);
@@ -92,19 +95,19 @@ closure_function(4, 2, void, fsstarted,
             create_filesystem(h, SECTOR_SIZE,
                               bootfs_part->nsectors * SECTOR_SIZE,
                               closure(h, offset_block_io,
-                                      kh, bootfs_part->lba_start * SECTOR_SIZE, bound(r)),
+                                      bootfs_part->lba_start * SECTOR_SIZE, bound(r)),
                               0, false,
-                              bootfs_handler(kh, root, klibs_in_bootfs,
+                              bootfs_handler(init_heaps, root, klibs_in_bootfs,
                                              ingest_kernel_syms));
         }
         deallocate(h, mbr, SECTOR_SIZE);
     }
 
     if (klibs && !klibs_in_bootfs)
-        init_klib(kh, fs, root, root);
+        init_klib(init_heaps, fs, root, root);
 
     root_fs = fs;
-    enqueue(runqueue, create_init(kh, root, fs));
+    enqueue(runqueue, create_init(init_heaps, root, fs));
     closure_finish();
     symbol booted = sym(booted);
     if (!table_find(root, booted))
@@ -112,7 +115,6 @@ closure_function(4, 2, void, fsstarted,
     config_console(root);
 }
 
-#if 0
 /* This is very simplistic and uses a fixed drain threshold. This
    should also take all cached data in system into account. For now we
    just pick on the single pagecache... */
@@ -122,20 +124,20 @@ closure_function(4, 2, void, fsstarted,
 #else
 #define mm_debug(x, ...) do { } while(0)
 #endif
-void mm_service(heap phys)
+
+void mm_service(void)
 {
-    if (!global_pagecache)
-        return;
+    heap phys = (heap)heap_physical(init_heaps);
     u64 free = heap_total(phys) - heap_allocated(phys);
-    mm_debug("%s: total %ld, alloc %ld, free %ld\n", __func__, heap_total(phys), heap_allocated(phys), free);
+    mm_debug("%s: total %ld, alloc %ld, free %ld\n", __func__,
+             heap_total(phys), heap_allocated(phys), free);
     if (free < PAGECACHE_DRAIN_CUTOFF) {
         u64 drain_bytes = PAGECACHE_DRAIN_CUTOFF - free;
-        u64 drained = pagecache_drain(global_pagecache, drain_bytes);
+        u64 drained = pagecache_drain(drain_bytes);
         if (drained > 0)
             mm_debug("   drained %ld / %ld requested...\n", drained, drain_bytes);
     }
 }
-#endif
 
 tuple get_environment(void)
 {
@@ -149,23 +151,23 @@ boolean first_boot(void)
 }
 KLIB_EXPORT(first_boot);
 
-static void rootfs_init(kernel_heaps kh, u8 *mbr, u64 offset,
+static void rootfs_init(u8 *mbr, u64 offset,
                         block_io r, block_io w, u64 length)
 {
     init_debug("%s", __func__);
-    heap h = heap_locked(kh);
     length -= offset;
+    heap h = heap_locked(init_heaps);
     create_filesystem(h,
                       SECTOR_SIZE,
                       length,
-                      closure(h, offset_block_io, kh, offset, r),
-                      closure(h, offset_block_io, kh, offset, w),
+                      closure(h, offset_block_io, offset, r),
+                      closure(h, offset_block_io, offset, w),
                       false,
-                      closure(h, fsstarted, kh, mbr, r, w));
+                      closure(h, fsstarted, mbr, r, w));
 }
 
-closure_function(5, 1, void, mbr_read,
-                 kernel_heaps, kh, u8 *, mbr, block_io, r, block_io, w, u64, length,
+closure_function(4, 1, void, mbr_read,
+                 u8 *, mbr, block_io, r, block_io, w, u64, length,
                  status, s)
 {
     init_debug("%s", __func__);
@@ -173,7 +175,6 @@ closure_function(5, 1, void, mbr_read,
         msg_err("unable to read partitions: %v\n", s);
         goto out;
     }
-    heap h = heap_locked(bound(kh));
     u8 *mbr = bound(mbr);
     struct partition_entry *rootfs_part = partition_get(mbr, PARTITION_ROOTFS);
     if (!rootfs_part) {
@@ -183,25 +184,24 @@ closure_function(5, 1, void, mbr_read,
             volume_add(uuid, label, bound(r), bound(w), bound(length));
         else
             init_debug("unformatted storage device, ignoring");
-        deallocate(h, mbr, SECTOR_SIZE);
+        deallocate(heap_locked(init_heaps), mbr, SECTOR_SIZE);
     } else {
         /* The on-disk kernel log dump section is immediately before the boot FS partition. */
         struct partition_entry *bootfs_part = partition_get(mbr, PARTITION_BOOTFS);
         klog_disk_setup(bootfs_part->lba_start * SECTOR_SIZE - KLOG_DUMP_SIZE, bound(r), bound(w));
 
-        rootfs_init(bound(kh), mbr, rootfs_part->lba_start * SECTOR_SIZE,
+        rootfs_init(mbr, rootfs_part->lba_start * SECTOR_SIZE,
                     bound(r), bound(w), bound(length));
     }
   out:
     closure_finish();
 }
 
-/* XXX can nuke fs_offset */
-closure_function(2, 3, void, attach_storage,
-                 kernel_heaps, kh, u64, fs_offset,
+closure_function(1, 3, void, attach_storage,
+                 u64, fs_offset,
                  block_io, r, block_io, w, u64, length)
 {
-    heap h = heap_locked(bound(kh));
+    heap h = heap_locked(init_heaps);
     u64 offset = bound(fs_offset);
     if (offset == 0) {
         /* Read partition table from disk */
@@ -210,7 +210,7 @@ closure_function(2, 3, void, attach_storage,
             msg_err("cannot allocate memory for MBR sector\n");
             return;
         }
-        status_handler sh = closure(h, mbr_read, bound(kh), mbr, r, w, length);
+        status_handler sh = closure(h, mbr_read, mbr, r, w, length);
         if (sh == INVALID_ADDRESS) {
             msg_err("cannot allocate MBR read closure\n");
             deallocate(h, mbr, SECTOR_SIZE);
@@ -218,7 +218,7 @@ closure_function(2, 3, void, attach_storage,
         }
         apply(r, mbr, irange(0, 1), sh);
     } else {
-        rootfs_init(bound(kh), 0, offset, r, w, length);
+        rootfs_init(0, offset, r, w, length);
     }
     closure_finish();
 }
@@ -226,8 +226,9 @@ closure_function(2, 3, void, attach_storage,
 void kernel_runtime_init(kernel_heaps kh)
 {
     heap misc = heap_general(kh);
-    heap locked = heap_locked(kh);
     heap backed = heap_backed(kh);
+    heap locked = heap_locked(kh);
+    init_heaps = kh;
 
     /* runtime and console init */
     init_debug("kernel_runtime_init");
@@ -244,7 +245,9 @@ void kernel_runtime_init(kernel_heaps kh)
     shutdown_completions = allocate_vector(misc, SHUTDOWN_COMPLETIONS_SIZE);
     init_debug("pci_discover (for VGA)");
     pci_discover(); // early PCI discover to configure VGA console
+    init_debug("clock");
     init_clock();
+    init_debug("init_kernel_contexts");
     init_kernel_contexts(backed);
 
     /* interrupts */
@@ -297,10 +300,10 @@ void kernel_runtime_init(kernel_heaps kh)
     boolean enable_ata = false;
 #ifdef __aarch64__
     /* XXX fixed offset...need to add partition despite no boot fs */
-    sa = closure(misc, attach_storage, kh, 0x800000);
+    sa = closure(misc, attach_storage, 0xc01000);
     init_virtio_network(kh);
 #else
-    sa = closure(misc, attach_storage, kh, 0);
+    sa = closure(misc, attach_storage, 0);
 
     boolean hyperv_storvsc_attached = false;
     /* Probe for PV devices */
@@ -357,3 +360,68 @@ void kernel_runtime_init(kernel_heaps kh)
     runloop();
 }
 
+vector shutdown_completions;
+
+closure_function(1, 1, void, sync_complete,
+                 u8, code,
+                 status, s)
+{
+    vm_exit(bound(code));
+    closure_finish();
+}
+
+closure_function(0, 2, void, storage_shutdown, int, status, merge, m)
+{
+    if (status != 0)
+        klog_save(status, apply_merge(m));
+    storage_sync(apply_merge(m));
+}
+
+
+closure_function(3, 0, void, do_shutdown_handler,
+                 shutdown_handler, h, int, status, merge, m)
+{
+    apply(bound(h), bound(status), bound(m));
+    closure_finish();
+}
+
+closure_function(1, 0, void, do_status_handler,
+                 status_handler, sh)
+{
+    apply(bound(sh), STATUS_OK);
+    closure_finish();
+}
+
+extern boolean shutting_down;
+void __attribute__((noreturn)) kernel_shutdown(int status)
+{
+    heap locked = heap_locked(init_heaps);
+    status_handler completion = closure(locked, sync_complete, status);
+    merge m = allocate_merge(locked, completion);
+    status_handler sh = apply_merge(m);
+    shutdown_handler h;
+
+    shutting_down = true;
+
+    if (root_fs)
+        vector_push(shutdown_completions,
+                    closure(locked, storage_shutdown));
+
+    if (vector_length(shutdown_completions) > 0) {
+        if (this_cpu_has_kernel_lock()) {
+            vector_foreach(shutdown_completions, h)
+                apply(h, status, m);
+            apply(sh, STATUS_OK);
+            kern_unlock();
+        } else {
+            vector_push(shutdown_completions,
+                        closure(locked, do_status_handler, sh));
+            vector_foreach(shutdown_completions, h)
+                enqueue_irqsafe(runqueue,
+                                closure(locked, do_shutdown_handler, h, status, m));
+        }
+        runloop();
+    }
+    apply(sh, STATUS_OK);
+    while(1);
+}

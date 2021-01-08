@@ -381,3 +381,11 @@ rdtsc_precise(void)
     asm volatile("cpuid" ::: "%rax", "%rbx", "%rcx", "%rdx"); /* serialize execution */
     return _rdtsc();
 }
+
+/* IPI */
+static inline void machine_halt(void)
+{
+    __asm__("cli; hlt");
+}
+
+void send_ipi(u64 cpu, u8 vector);

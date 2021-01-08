@@ -1,4 +1,11 @@
 #include <kernel.h>
+#include <apic.h>
+
+/* stub placeholder, short of a real generic interface */
+void send_ipi(u64 cpu, u8 vector)
+{
+    apic_ipi(cpu, 0, vector);
+}
 
 heap allocate_tagged_region(kernel_heaps kh, u64 tag)
 {

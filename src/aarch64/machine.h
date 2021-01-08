@@ -47,19 +47,19 @@ typedef u64 bytes;
 #endif
   
 /* These are defined as functions to avoid multiple evaluation of x. */
-static inline u16
+static inline __attribute__((always_inline)) u16
 __bswap16(u16 _x)
 {
     return (u16)(_x << 8 | _x >> 8);
 }
 
-static inline u32
+static inline __attribute__((always_inline)) u32
 __bswap32(u32 _x)
 {
     return ((u32)__bswap16(_x & 0xffff) << 16) | __bswap16(_x >> 16);
 }
 
-static inline u64
+static inline __attribute__((always_inline)) u64
 __bswap64(u64 _x)
 {
     return ((u64)__bswap32(_x & 0xffffffff) << 32) | __bswap32(_x >> 32);
@@ -118,78 +118,101 @@ __bswap64(u64 _x)
 #define VA_TAG_WIDTH  USER_VA_TAG_WIDTH
 #endif
 
-static inline void *tag(void* v, u64 tval) {
+static inline __attribute__((always_inline)) void *tag(void* v, u64 tval) {
     return pointer_from_u64(VA_TAG_BASE | (tval << VA_TAG_OFFSET) | u64_from_pointer(v));
 }
 
-static inline u16 tagof(void* v) {
+static inline __attribute__((always_inline)) u16 tagof(void* v) {
     return (u64_from_pointer(v) >> VA_TAG_OFFSET) & ((1ull << VA_TAG_WIDTH) - 1);
 }
 
 #define valueof(__x) (__x)
 /* returns -1 if x == 0, caller must check */
-static inline u64 msb(u64 x)
+static inline __attribute__((always_inline)) u64 msb(u64 x)
 {
     return x ? 63 - __builtin_clzll(x) : -1ull;
 }
 
-static inline u64 lsb(u64 x)
+static inline __attribute__((always_inline)) u64 lsb(u64 x)
 {
     return ((s64)__builtin_ffsll(x)) - 1;
 }
 
 
-static inline void compiler_barrier(void)
+static inline __attribute__((always_inline)) void compiler_barrier(void)
 {
     asm volatile("" ::: "memory");
 }
 
-static inline void write_barrier(void)
+static inline __attribute__((always_inline)) void write_barrier(void)
 {
     asm volatile("dmb st" ::: "memory");
 }
 
-static inline void read_barrier(void)
+static inline __attribute__((always_inline)) void read_barrier(void)
 {
     asm volatile("dmb ld" ::: "memory");
 }
 
-static inline void memory_barrier(void)
+static inline __attribute__((always_inline)) void memory_barrier(void)
 {
     asm volatile("dmb sy" ::: "memory");
 }
 
-static inline void atomic_set_bit(u64 *target, u64 bit)
+/* XXX something b0rked with ldset here...ordering, or asm constraints? */
+static inline __attribute__((always_inline)) int atomic_test_and_set_bit(u64 *target, u64 bit)
 {
+#if 0
     register u64 a = u64_from_pointer(target);
     register u64 tmp, v = 1ull << bit;
-    // XXX verify ordering
     asm volatile("ldset %0, %2, [%1]" : "=&r"(tmp) : "r"(a), "r"(v) : "memory");
+    return tmp >> bit;
+#else
+    u64 mask = 1ull << bit;
+    u64 w = *target;
+    *target = w | mask;
+    return (w & mask) != 0;
+#endif
 }
 
-static inline void atomic_clear_bit(u64 *target, u64 bit)
+static inline __attribute__((always_inline)) int atomic_test_and_clear_bit(u64 *target, u64 bit)
 {
+#if 0
     register u64 a = u64_from_pointer(target);
     register u64 tmp, v = 1ull << bit;
-    // XXX verify ordering
     asm volatile("ldclr %0, %2, [%1]" : "=&r"(tmp) : "r"(a), "r"(v) : "memory");
+    return tmp >> bit;
+#else
+    u64 mask = 1ull << bit;
+    u64 w = *target;
+    *target = w & ~mask;
+    return (w & mask) != 0;
+#endif
 }
 
-static inline word fetch_and_add(word *target, word num)
+static inline __attribute__((always_inline)) void atomic_set_bit(u64 *target, u64 bit)
+{
+    atomic_test_and_set_bit(target, bit);
+}
+
+static inline __attribute__((always_inline)) void atomic_clear_bit(u64 *target, u64 bit)
+{
+    atomic_test_and_clear_bit(target, bit);
+}
+
+static inline __attribute__((always_inline)) word fetch_and_add(word *target, word num)
 {
     return __sync_fetch_and_add(target, num);
 }
 
-static inline void kern_pause(void)
+static inline __attribute__((always_inline)) void kern_pause(void)
 {
     asm volatile("dsb sy; wfe" ::: "memory");
 }
 
-
 /* XXX make names generic */
 #if defined(KERNEL) || defined(BUILD_VDSO)
-static inline u64
-rdtsc(void)
+static inline __attribute__((always_inline)) u64 rdtsc(void)
 {
     // XXX vdso
     u64 vct;
@@ -198,8 +221,7 @@ rdtsc(void)
 }
 
 // XXX adhere to ordering semantics
-static inline u64
-rdtsc_ordered(void)
+static inline __attribute__((always_inline)) u64 rdtsc_ordered(void)
 {
     // XXX vdso
     u64 vct;
@@ -207,8 +229,7 @@ rdtsc_ordered(void)
     return vct;
 }
 
-static inline u64
-rdtsc_precise(void)
+static inline __attribute__((always_inline)) u64 rdtsc_precise(void)
 {
     // XXX vdso
     u64 vct;

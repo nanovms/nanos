@@ -1,9 +1,4 @@
 #include <kernel.h>
-
-// XXX make interface for ipi stuff
-#ifdef __x86_64__
-#include <apic.h>
-#endif
 #include <page.h>
 
 /* Try to keep these within the confines of the runloop lock so we
@@ -125,7 +120,7 @@ static void wakeup_cpu(u64 cpu)
 {
     if (atomic_test_and_clear_bit(&idle_cpu_mask, cpu)) {
         sched_debug("waking up CPU %d\n", cpu);
-        apic_ipi(cpu, 0, wakeup_vector);
+        send_ipi(cpu, wakeup_vector);
     }
 }
 
@@ -191,7 +186,7 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
             run_thunk(t, cpu_kernel);
 
         /* should be a list of per-runloop checks - also low-pri background */
-//        mm_service();
+        mm_service();
         timer_updated = update_timer();
         update_timer();
 
@@ -253,21 +248,21 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
     kernel_sleep();
 }    
 
-//closure_function(0, 0, void, global_shutdown)
-//{
-//    __asm__("cli; hlt");
-//}
+closure_function(0, 0, void, global_shutdown)
+{
+    machine_halt();
+}
 
 void init_scheduler(heap h)
 {
     spin_lock_init(&kernel_lock);
     runloop_timer_min = microseconds(RUNLOOP_TIMER_MIN_PERIOD_US);
     runloop_timer_max = microseconds(RUNLOOP_TIMER_MAX_PERIOD_US);
-//    wakeup_vector = allocate_interrupt();
+    wakeup_vector = allocate_interrupt();
 
-//    register_interrupt(wakeup_vector, ignore, "wakeup ipi");
-//    shutdown_vector = allocate_interrupt();
-//    register_interrupt(shutdown_vector, closure(h, global_shutdown), "shutdown ipi");
+    register_interrupt(wakeup_vector, ignore, "wakeup ipi");
+    shutdown_vector = allocate_interrupt();
+    register_interrupt(shutdown_vector, closure(h, global_shutdown), "shutdown ipi");
     assert(wakeup_vector != INVALID_PHYSICAL);
     /* scheduling queues init */
     runqueue = allocate_queue(h, 2048);

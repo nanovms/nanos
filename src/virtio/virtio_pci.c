@@ -200,8 +200,10 @@ closure_function(3, 0, void, vtpci_non_msix_interrupt,
     u8 isr_status = vtpci_get_isr_status(bound(dev));
     virtio_pci_debug("   isr status 0x%x\n", isr_status);
 
-    if (isr_status & VIRTIO_PCI_ISR_INTR)
+    if (isr_status & VIRTIO_PCI_ISR_INTR) {
+        virtio_pci_debug("   applying handler %p (%F)\n", bound(handler), bound(handler));
         apply(bound(handler));
+    }
 
     if (isr_status & VIRTIO_PCI_ISR_CONFIG)
         rprintf("%s: config change interrupt; unhandled\n", __func__);
