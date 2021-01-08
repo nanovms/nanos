@@ -204,11 +204,20 @@ closure_function(1, 1, void, destruct_id_range,
     deallocate(bound(i)->meta, r, sizeof(struct id_range));
 }
 
+static inline bytes id_size(void)
+{
+    return sizeof(struct id_heap)
+#ifdef KERNEL
+        + sizeof(struct spinlock)
+#endif
+        ;
+}
+
 static void id_destroy(heap h)
 {
     id_heap i = (id_heap)h;
     deallocate_rangemap(i->ranges, stack_closure(destruct_id_range, i));
-    deallocate(i->meta, i, sizeof(struct id_heap));
+    deallocate(i->meta, i, id_size());
 }
 
 /* external version */
@@ -297,57 +306,60 @@ static inline void set_next(id_heap i, u64 next)
 #ifdef KERNEL
 /* locking variants */
 
+/* spinlock lies just after invariants */
+#define id_lock(h) ((spinlock)(((id_heap)h) + 1))
+
 static u64 id_alloc_locking(heap h, bytes count)
 {
-    u64 flags = spin_lock_irq(&((id_heap)h)->lock);
+    u64 flags = spin_lock_irq(id_lock(h));
     u64 a = id_alloc(h, count);
-    spin_unlock_irq(&((id_heap)h)->lock, flags);
+    spin_unlock_irq(id_lock(h), flags);
     return a;
 }
 
 static void id_dealloc_locking(heap h, u64 a, bytes count)
 {
-    u64 flags = spin_lock_irq(&((id_heap)h)->lock);
+    u64 flags = spin_lock_irq(id_lock(h));
     id_dealloc(h, a, count);
-    spin_unlock_irq(&((id_heap)h)->lock, flags);
+    spin_unlock_irq(id_lock(h), flags);
 }
 
 static boolean add_range_locking(id_heap i, u64 base, u64 length)
 {
-    u64 flags = spin_lock_irq(&i->lock);
+    u64 flags = spin_lock_irq(id_lock(i));
     boolean r = add_range(i, base, length);
-    spin_unlock_irq(&i->lock, flags);
+    spin_unlock_irq(id_lock(i), flags);
     return r;
 }
 
 static boolean set_area_locking(id_heap i, u64 base, u64 length, boolean validate, boolean allocate)
 {
-    u64 flags = spin_lock_irq(&i->lock);
+    u64 flags = spin_lock_irq(id_lock(i));
     boolean r = set_area(i, base, length, validate, allocate);
-    spin_unlock_irq(&i->lock, flags);
+    spin_unlock_irq(id_lock(i), flags);
     return r;
 }
 
 static void set_randomize_locking(id_heap i, boolean randomize)
 {
-    u64 flags = spin_lock_irq(&i->lock);
+    u64 flags = spin_lock_irq(id_lock(i));
     set_randomize(i, randomize);
-    spin_unlock_irq(&i->lock, flags);
+    spin_unlock_irq(id_lock(i), flags);
 }
 
 static u64 alloc_subrange_locking(id_heap i, bytes count, u64 start, u64 end)
 {
-    u64 flags = spin_lock_irq(&i->lock);
+    u64 flags = spin_lock_irq(id_lock(i));
     u64 a = alloc_subrange(i, count, start, end);
-    spin_unlock_irq(&i->lock, flags);
+    spin_unlock_irq(id_lock(i), flags);
     return a;
 }
 
 static void set_next_locking(id_heap i, u64 next)
 {
-    u64 flags = spin_lock_irq(&i->lock);
+    u64 flags = spin_lock_irq(id_lock(i));
     set_next(i, next);
-    spin_unlock_irq(&i->lock, flags);
+    spin_unlock_irq(id_lock(i), flags);
 }
 #endif
 
@@ -355,7 +367,7 @@ id_heap allocate_id_heap(heap meta, heap map, bytes pagesize, boolean locking)
 {
     assert((pagesize & (pagesize-1)) == 0); /* pagesize is power of 2 */
 
-    id_heap i = allocate(meta, sizeof(struct id_heap));
+    id_heap i = allocate(meta, id_size());
     if (i == INVALID_ADDRESS)
 	return INVALID_ADDRESS;
     i->h.pagesize = pagesize;
@@ -365,7 +377,7 @@ id_heap allocate_id_heap(heap meta, heap map, bytes pagesize, boolean locking)
 
 #ifdef KERNEL
     if (locking) {
-        spin_lock_init(&i->lock);
+        spin_lock_init(id_lock(i));
         i->h.alloc = id_alloc_locking;
         i->h.dealloc = id_dealloc_locking;
         i->add_range = add_range_locking;

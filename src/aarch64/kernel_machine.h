@@ -1,4 +1,4 @@
-#if !(defined(KERNEL))
+#if !(defined(KERNEL) || defined(KLIB))
 #error must be in kernel build
 #endif
 

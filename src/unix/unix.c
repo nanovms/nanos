@@ -151,9 +151,6 @@ define_closure_function(1, 1, context, default_fault_handler,
        resuming deferred processing. */
     p = current_thread->p;
 
-    // XXX entry should store in frame
-    u64 vaddr = fault_address(frame);
-
     if (is_div_by_zero(frame)) {
         if (current_cpu()->state == cpu_user) {
             deliver_fault_signal(SIGFPE, current_thread, vaddr, FPE_INTDIV);

@@ -107,7 +107,7 @@ static u64 bootstrap_alloc(heap h, bytes length)
 extern void *START, *END;
 static id_heap init_physical_id_heap(heap h)
 {
-    id_heap physical = allocate_id_heap(h, h, PAGESIZE);
+    id_heap physical = allocate_id_heap(h, h, PAGESIZE, true);
     start_debug("init_physical_id_heap\n");
     u64 kernel_size = pad(u64_from_pointer(&END) -
                           u64_from_pointer(&START), PAGESIZE);
@@ -138,8 +138,6 @@ void reclaim_regions(void)
 {
     // XXX - free identity map here?
 }
-
-id_heap init_phys_heap(heap h, id_heap physical);
 
 extern void arm_hvc(u64 x0, u64 x1, u64 x2, u64 x3);
 
@@ -210,20 +208,23 @@ static void init_kernel_heaps(void)
     bootstrap.dealloc = leak;
 
     heaps.virtual_huge = create_id_heap(&bootstrap, &bootstrap, KMEM_BASE,
-                                        KMEM_LIMIT - KMEM_BASE, HUGE_PAGESIZE);
+                                        KMEM_LIMIT - KMEM_BASE, HUGE_PAGESIZE, true);
     assert(heaps.virtual_huge != INVALID_ADDRESS);
 
-    heaps.virtual_page = create_id_heap_backed(&bootstrap, &bootstrap, (heap)heaps.virtual_huge, PAGESIZE);
+    heaps.virtual_page = create_id_heap_backed(&bootstrap, &bootstrap, (heap)heaps.virtual_huge, PAGESIZE, true);
     assert(heaps.virtual_page != INVALID_ADDRESS);
 
-    heaps.physical = init_phys_heap(&bootstrap, init_physical_id_heap(&bootstrap));
+    heaps.physical = init_physical_id_heap(&bootstrap);
     assert(heaps.physical != INVALID_ADDRESS);
 
-    heaps.backed = physically_backed(&bootstrap, (heap)heaps.virtual_page, (heap)heaps.physical, PAGESIZE);
+    heaps.backed = locking_heap_wrapper(&bootstrap, physically_backed(&bootstrap, (heap)heaps.virtual_page, (heap)heaps.physical, PAGESIZE));
     assert(heaps.backed != INVALID_ADDRESS);
 
     heaps.general = allocate_mcache(&bootstrap, heaps.backed, 5, 20, PAGESIZE_2M);
     assert(heaps.general != INVALID_ADDRESS);
+
+    heaps.locked = locking_heap_wrapper(&bootstrap, allocate_mcache(&bootstrap, heaps.backed, 5, 20, PAGESIZE_2M));
+    assert(heaps.locked != INVALID_ADDRESS);
 }
 
 static void __attribute__((noinline)) init_service_new_stack(void)
@@ -240,6 +241,7 @@ void init_setup_stack(void)
     serial_set_devbase(DEVICE_BASE);
     start_debug("in init_setup_stack, calling init_kernel_heaps\n");
     init_kernel_heaps();
+    page_heap_init(heap_locked(&heaps), heap_physical(&heaps));
     start_debug("allocating stack\n");
     u64 stack_size = 32 * PAGESIZE;
     void *stack_base = allocate(heap_backed(&heaps), stack_size);

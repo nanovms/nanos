@@ -2,6 +2,7 @@
 #include <runtime.h>
 #include <kernel_heaps.h>
 #include <kernel_machine.h>
+#include "klib.h"
 
 typedef struct nanos_thread {
     thunk pause;
@@ -152,7 +153,7 @@ void configure_timer(timestamp rate, thunk t);
 void kernel_sleep();
 void kernel_delay(timestamp delta);
 
-void init_clock(heap h);
+void init_clock(void);
 boolean init_hpet(kernel_heaps kh);
 
 void process_bhqueue();

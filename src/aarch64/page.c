@@ -38,6 +38,7 @@ static range init_identity;
 static table pt_p2v;
 static range pt_virt_remain;
 static u64 pt_phys_next;
+static id_heap physheap;
 
 //static heap pageheap;
 //static u64 pt_2m_next;
@@ -359,16 +360,16 @@ void unmap(u64 virtual, u64 length)
     unmap_pages(virtual, length);
 }
 
-closure_function(1, 1, void, dealloc_phys_page,
-                 id_heap, phys, range, r)
+closure_function(0, 1, void, dealloc_phys_page,
+                 range, r)
 {
-    if (!id_heap_set_area(bound(phys), r.start, range_span(r), true, false))
+    if (!id_heap_set_area(physheap, r.start, range_span(r), true, false))
         msg_err("some of physical range %R not allocated in heap\n", r);
 }
 
-void unmap_and_free_phys(id_heap physical, u64 virtual, u64 length)
+void unmap_and_free_phys(u64 virtual, u64 length)
 {
-    unmap_pages_with_handler(virtual, length, stack_closure(dealloc_phys_page, physical));
+    unmap_pages_with_handler(virtual, length, stack_closure(dealloc_phys_page));
 }
 
 // XXX
@@ -602,8 +603,11 @@ void page_init_mmu(range init_pt, u64 vtarget)
                   "br %1" :: "r" (sctlr), "r" (vtarget));
 }
 
-void page_heap_init(heap h, heap physical)
+void page_heap_init(heap locked, id_heap physical)
 {
+    physheap = physical;
+    /* XXX clear up with identity */
+#if 0
     pt_p2v = allocate_table(h, identity_key, pointer_equal);
     assert(pt_p2v != INVALID_ADDRESS);
 
@@ -611,4 +615,5 @@ void page_heap_init(heap h, heap physical)
     pt_virt_remain = irangel(PAGES_BASE, PAGESIZE_2M);
     map_area(pt_virt_remain, init_identity.start, PAGE_ATTRS);
     table_set(pt_p2v, (void *)init_identity.start, (void *)PAGES_BASE);
+#endif
 }

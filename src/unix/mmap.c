@@ -659,7 +659,7 @@ static void vmap_unmap_page_range(process p, vmap k)
     u64 len = range_span(r);
     switch (type) {
     case VMAP_MMAP_TYPE_ANONYMOUS:
-        unmap_and_free_phys(heap_physical(get_kernel_heaps()), r.start, len);
+        unmap_and_free_phys(r.start, len);
         break;
     case VMAP_MMAP_TYPE_FILEBACKED:
         pagecache_node_unmap_pages(k->cache_node, r, k->node_offset);

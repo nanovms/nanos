@@ -43,7 +43,12 @@ closure_function(0, 0, void, arm_timer)
     write_psr(CNTV_CTL_EL0, 0);
 }
 
-void init_clock(heap h)
+closure_struct(arm_clock_now, _clock_now);
+closure_struct(arm_deadline_timer, _deadline_timer);
+closure_struct(arm_timer_percpu_init, _timer_percpu_init);
+closure_struct(arm_timer, _timer);
+
+void init_clock(void)
 {
     __vdso_dat->clock_src = VDSO_CLOCK_SYSCALL;
     __vdso_dat->platform_has_rdtscp = 0;
@@ -54,7 +59,8 @@ void init_clock(heap h)
     gic_set_int_priority(GIC_TIMER_IRQ, 0);
     gic_set_int_target(GIC_TIMER_IRQ, 1);
 
-    register_interrupt(GIC_TIMER_IRQ, closure(h, arm_timer), "arm timer");
-    register_platform_clock_now(closure(h, arm_clock_now), VDSO_CLOCK_PVCLOCK);
-    register_platform_clock_timer(closure(h, arm_deadline_timer), closure(h, arm_timer_percpu_init));
+    register_interrupt(GIC_TIMER_IRQ, init_closure(&_timer, arm_timer), "arm timer");
+    register_platform_clock_now(init_closure(&_clock_now, arm_clock_now), VDSO_CLOCK_PVCLOCK);
+    register_platform_clock_timer(init_closure(&_deadline_timer, arm_deadline_timer),
+                                  init_closure(&_timer_percpu_init, arm_timer_percpu_init));
 }

@@ -800,12 +800,7 @@ static inline boolean thread_is_runnable(thread t)
     return t->blocked_on == 0;
 }
 
-static inline void file_op_begin(thread t)
-{
-    t->file_op_is_complete = false;
-}
-
-static inline sysreturn file_op_maybe_sleep(thread t)
+static inline sysreturn thread_maybe_sleep_uninterruptible(thread t)
 {
     u64 flags = irq_disable_save(); /* XXX mutex / spinlock */
     if (!t->syscall_complete) {

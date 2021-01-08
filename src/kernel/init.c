@@ -3,6 +3,7 @@
 #include <pagecache.h>
 #include <storage.h>
 #include <tfs.h>
+#include <log.h>
 #include <virtio/virtio.h>
 #include <page.h> // maps should be in machdep
 #include <symtab.h>
@@ -13,6 +14,7 @@
 #include <xen_platform.h>
 #include <hyperv_platform.h>
 #include <vmware/vmxnet3.h>
+#include <drivers/acpi.h>
 #endif
 
 //#define INIT_DEBUG
@@ -41,7 +43,7 @@ closure_function(3, 3, void, offset_block_io,
     blocks.end += ds;
 
     // split I/O to storage driver to PAGESIZE requests
-    merge m = allocate_merge(heap_locked(kh), sh);
+    merge m = allocate_merge(heap_locked(bound(kh)), sh);
     status_handler k = apply_merge(m);
     while (blocks.start < blocks.end) {
         u64 span = MIN(range_span(blocks), MAX_BLOCK_IO_SIZE >> SECTOR_OFFSET);
@@ -57,7 +59,9 @@ closure_function(3, 3, void, offset_block_io,
 /* XXX some header reorg in order */
 void init_extra_prints();
 thunk create_init(kernel_heaps kh, tuple root, filesystem fs);
-filesystem_complete bootfs_handler(kernel_heaps kh);
+filesystem_complete bootfs_handler(kernel_heaps kh, tuple root,
+                                   boolean klibs_in_bootfs,
+                                   boolean ingest_kernel_syms);
 
 closure_function(4, 2, void, fsstarted,
                  kernel_heaps, kh, u8 *, mbr, block_io, r, block_io, w,
@@ -97,10 +101,10 @@ closure_function(4, 2, void, fsstarted,
     }
 
     if (klibs && !klibs_in_bootfs)
-        init_klib(&heaps, fs, root, root);
+        init_klib(kh, fs, root, root);
 
     root_fs = fs;
-    enqueue(runqueue, create_init(&heaps, root, fs));
+    enqueue(runqueue, create_init(kh, root, fs));
     closure_finish();
     symbol booted = sym(booted);
     if (!table_find(root, booted))
@@ -241,7 +245,7 @@ void kernel_runtime_init(kernel_heaps kh)
     init_debug("pci_discover (for VGA)");
     pci_discover(); // early PCI discover to configure VGA console
     init_clock();
-    init_kernel_contexts(heap_backed(kh));
+    init_kernel_contexts(backed);
 
     /* interrupts */
     init_debug("init_interrupts");
@@ -325,7 +329,9 @@ void kernel_runtime_init(kernel_heaps kh)
 
     init_debug("init_storage");
     init_storage(kh, sa, enable_ata);
+#ifdef __x86_64__
     init_acpi(kh);
+#endif
 
     init_debug("pci_discover (for virtio & ata)");
     pci_discover(); // do PCI discover again for other devices
@@ -340,7 +346,7 @@ void kernel_runtime_init(kernel_heaps kh)
 #ifdef SMP_ENABLE
     init_mxcsr(); // XXX tmp merge
     init_debug("starting APs");
-    start_cpu(misc, heap_backed(kh), TARGET_EXCLUSIVE_BROADCAST, new_cpu);
+    start_cpu(misc, backed, TARGET_EXCLUSIVE_BROADCAST, new_cpu);
     kernel_delay(milliseconds(200));   /* temp, til we check tables to know what we have */
     init_debug("total CPUs %d\n", total_processors);
     init_flush(heap_general(kh));

@@ -6,9 +6,6 @@ typedef struct id_heap {
     u64 (*alloc_subrange)(struct id_heap *i, bytes count, u64 start, u64 end);
     void (*set_next)(struct id_heap *i, u64 next);
     /* private */
-#ifdef KERNEL
-    struct spinlock lock;
-#endif
     u64 page_order;
     u64 allocated;
     u64 total;
@@ -17,6 +14,7 @@ typedef struct id_heap {
     heap map;
     heap parent;
     rangemap ranges;
+    /* additional private data may extend past this definition */
 } *id_heap;
 
 id_heap create_id_heap(heap meta, heap map, u64 base, u64 length, bytes pagesize, boolean locking);

@@ -13,7 +13,7 @@ void kernel_delay(timestamp delta)
         kern_pause();
 }
 
-void init_clock(heap h)
+void init_clock(void)
 {
     /* detect rdtscp */
     u32 regs[4];

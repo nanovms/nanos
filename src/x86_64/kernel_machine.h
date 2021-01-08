@@ -114,8 +114,10 @@ void install_idt(void);
 void set_ist(int cpu, int i, u64 sp);
 void install_gdt64_and_tss(u64 cpu);
 
+#ifdef KERNEL
 /* locking constructs */
 #include <lock.h>
+#endif
 
 /* special register access */
 extern u64 read_msr(u64);

@@ -612,9 +612,8 @@ closure_function(0, 1, void, dealloc_phys_page,
         msg_err("some of physical range %R not allocated in heap\n", r);
 }
 
-void unmap_and_free_phys(id_heap physical, u64 virtual, u64 length)
+void unmap_and_free_phys(u64 virtual, u64 length)
 {
-    /* XXX: ignore physical until merge... */
     unmap_pages_with_handler(virtual, length, stack_closure(dealloc_phys_page));
 }
 
