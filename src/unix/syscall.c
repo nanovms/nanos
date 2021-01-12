@@ -2219,10 +2219,16 @@ void exit(int code)
 sysreturn exit_group(int status)
 {
     thread t;
-    vector_foreach(current->p->threads, t) {
-        if (t)
+    process p = current->p;
+
+    vector v = allocate_vector(heap_general(get_kernel_heaps()), 8);
+    spin_lock(&p->threads_lock);
+    threads_to_vector(current->p, v);
+    spin_unlock(&p->threads_lock);
+
+    vector_foreach(v, t)
             exit_thread(t);
-    }
+    deallocate_vector(v);
     kernel_shutdown(status);
 }
 
