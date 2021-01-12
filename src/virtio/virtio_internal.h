@@ -62,7 +62,7 @@ typedef struct vtdev {
     u64 dev_features;              // device features
     u64 features;                  // negotiated features
 
-    heap contiguous;
+    backed_heap contiguous;
     heap general;
 
     enum vtio_transport {
@@ -76,7 +76,7 @@ u32 vtdev_cfg_read_4(vtdev dev, u64 offset);
 void vtdev_cfg_read_mem(vtdev dev, void *dest, bytes len);
 void vtdev_set_status(vtdev dev, u8 status);
 
-static inline void virtio_attach(heap h, heap page_allocator,
+static inline void virtio_attach(heap h, backed_heap page_allocator,
                                  enum vtio_transport transport, vtdev d)
 {
     d->general = h;
@@ -117,5 +117,5 @@ typedef struct vqmsg *vqmsg;
 
 vqmsg allocate_vqmsg(virtqueue vq);
 void deallocate_vqmsg(virtqueue vq, vqmsg m);
-void vqmsg_push(virtqueue vq, vqmsg m, void * addr, u32 len, boolean write);
+void vqmsg_push(virtqueue vq, vqmsg m, u64 phys_addr, u32 len, boolean write);
 void vqmsg_commit(virtqueue vq, vqmsg m, vqfinish completion);

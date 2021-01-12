@@ -283,7 +283,7 @@ define_closure_function(1, 2, void, vtpci_notify,
     pci_bar_write_2(&bound(dev)->notify_config, notify_offset, queue_index);
 }
 
-vtpci attach_vtpci(heap h, heap page_allocator, pci_dev d, u64 feature_mask)
+vtpci attach_vtpci(heap h, backed_heap page_allocator, pci_dev d, u64 feature_mask)
 {
     struct vtpci *dev = allocate(h, sizeof(struct vtpci));
     assert(dev != INVALID_ADDRESS);

@@ -136,11 +136,11 @@ void deallocate_vqmsg(virtqueue vq, vqmsg m)
     deallocate(vq->dev->general, m, sizeof(struct vqmsg));
 }
 
-void vqmsg_push(virtqueue vq, vqmsg m, void * addr, u32 len, boolean write)
+void vqmsg_push(virtqueue vq, vqmsg m, u64 phys_addr, u32 len, boolean write)
 {
     assert(buffer_extend(m->descv, (m->count + 1) * sizeof(struct vring_desc)));
     struct vring_desc * d = buffer_ref(m->descv, m->count * sizeof(struct vring_desc));
-    d->busaddr = physical_from_virtual(addr);
+    d->busaddr = phys_addr;
     d->len = len;
     d->flags = write ? VRING_DESC_F_WRITE : 0;
     d->next = 0;
@@ -267,7 +267,7 @@ status virtqueue_alloc(vtdev dev,
     vq->sched_queue = sched_queue;
     spin_lock_init(&vq->lock);
 
-    if ((vq->ring_mem = allocate_zero(dev->contiguous, alloc)) == INVALID_ADDRESS) {
+    if ((vq->ring_mem = allocate_zero(&dev->contiguous->h, alloc)) == INVALID_ADDRESS) {
         deallocate(dev->general, vq, vq_alloc_size);
         return(timm("status", "cannot allocate memory for virtqueue ring"));
     }

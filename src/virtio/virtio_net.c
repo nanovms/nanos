@@ -31,6 +31,7 @@
  */
 
 #include <kernel.h>
+#include <page.h>
 #include "lwip/opt.h"
 #include "lwip/def.h"
 #include "lwip/mem.h"
@@ -65,6 +66,7 @@ typedef struct vnet {
     struct virtqueue *txq;
     struct virtqueue *rxq;
     struct virtqueue *ctl;
+    u64 empty_phys;
     void *empty; // just a mac..fix, from pre-heap days
 } *vnet;
 
@@ -93,12 +95,12 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
 
     vqmsg m = allocate_vqmsg(vn->txq);
     assert(m != INVALID_ADDRESS);
-    vqmsg_push(vn->txq, m, vn->empty, vn->net_header_len, false);
+    vqmsg_push(vn->txq, m, vn->empty_phys, vn->net_header_len, false);
 
     pbuf_ref(p);
 
     for (struct pbuf * q = p; q != NULL; q = q->next)
-        vqmsg_push(vn->txq, m, q->payload, q->len, false);
+        vqmsg_push(vn->txq, m, physical_from_virtual(q->payload), q->len, false);
 
     vqmsg_commit(vn->txq, m, closure(vn->dev->general, tx_complete, p));
     
@@ -228,7 +230,7 @@ static void post_receive(vnet vn)
 
     vqmsg m = allocate_vqmsg(vn->rxq);
     assert(m != INVALID_ADDRESS);
-    vqmsg_push(vn->rxq, m, x+1, vn->rxbuflen, true);
+    vqmsg_push(vn->rxq, m, physical_from_virtual(x+1), vn->rxbuflen, true);
     vqmsg_commit(vn->rxq, m, closure(vn->dev->general, input, x));
 }
 
@@ -277,7 +279,7 @@ static void virtio_net_attach(vtdev dev)
     //    VIRTIO_NET_F_GUEST_UFO | VIRTIO_NET_F_CTRL_VLAN | VIRTIO_NET_F_MQ;
 
     heap h = dev->general;
-    heap contiguous = dev->contiguous;
+    backed_heap contiguous = dev->contiguous;
     vnet vn = allocate(h, sizeof(struct vnet));
     assert(vn != INVALID_ADDRESS);
     vn->n = allocate(h, sizeof(struct netif));
@@ -287,7 +289,7 @@ static void virtio_net_attach(vtdev dev)
         sizeof(struct virtio_net_hdr_mrg_rxbuf) : sizeof(struct virtio_net_hdr);
     vn->rxbuflen = vn->net_header_len + sizeof(struct eth_hdr) + sizeof(struct eth_vlan_hdr) + 1500;
     virtio_net_debug("%s: net_header_len %d, rxbuflen %d\n", __func__, vn->net_header_len, vn->rxbuflen);
-    vn->rxbuffers = allocate_objcache(h, contiguous,
+    vn->rxbuffers = allocate_objcache(h, (heap)contiguous,
 				      vn->rxbuflen + sizeof(struct xpbuf), PAGESIZE_2M);
     /* rx = 0, tx = 1, ctl = 2 by 
        page 53 of http://docs.oasis-open.org/virtio/virtio/v1.0/cs01/virtio-v1.0-cs01.pdf */
@@ -295,7 +297,7 @@ static void virtio_net_attach(vtdev dev)
     virtio_alloc_virtqueue(dev, "virtio net tx", 1, runqueue, &vn->txq);
     virtio_alloc_virtqueue(dev, "virtio net rx", 0, runqueue, &vn->rxq);
     // just need vn->net_header_len contig bytes really
-    vn->empty = allocate(contiguous, contiguous->pagesize);
+    vn->empty = alloc_map(contiguous, contiguous->h.pagesize, &vn->empty_phys);
     assert(vn->empty != INVALID_ADDRESS);
     for (int i = 0; i < vn->net_header_len; i++)  ((u8 *)vn->empty)[i] = 0;
     vn->n->state = vn;
@@ -310,7 +312,7 @@ static void virtio_net_attach(vtdev dev)
 }
 
 closure_function(2, 1, boolean, vtpci_net_probe,
-                 heap, general, heap, page_allocator,
+                 heap, general, backed_heap, page_allocator,
                  pci_dev, d)
 {
     if (!vtpci_probe(d, VIRTIO_ID_NETWORK))
@@ -322,7 +324,7 @@ closure_function(2, 1, boolean, vtpci_net_probe,
 }
 
 closure_function(2, 1, void, vtmmio_net_probe,
-                 heap, general, heap, page_allocator,
+                 heap, general, backed_heap, page_allocator,
                  vtmmio, d)
 {
     if ((vtmmio_get_u32(d, VTMMIO_OFFSET_DEVID) != VIRTIO_ID_NETWORK) ||
@@ -337,7 +339,7 @@ closure_function(2, 1, void, vtmmio_net_probe,
 void init_virtio_network(kernel_heaps kh)
 {
     heap h = heap_locked(kh);
-    heap page_allocator = heap_backed(kh);
+    backed_heap page_allocator = kh->backed;
     register_pci_driver(closure(h, vtpci_net_probe, h, page_allocator));
     vtmmio_probe_devs(stack_closure(vtmmio_net_probe, h, page_allocator));
 }

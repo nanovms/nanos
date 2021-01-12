@@ -130,7 +130,7 @@ define_closure_function(1, 2, void, vtmmio_notify,
     vtmmio_set_u32(bound(dev), notify_offset, queue_index);
 }
 
-boolean attach_vtmmio(heap h, heap page_allocator, vtmmio d, u64 feature_mask)
+boolean attach_vtmmio(heap h, backed_heap page_allocator, vtmmio d, u64 feature_mask)
 {
     virtio_mmio_debug("attaching device at 0x%lx, irq %d", d->membase, d->irq);
     vtmmio_set_status(d, VIRTIO_CONFIG_STATUS_DRIVER);

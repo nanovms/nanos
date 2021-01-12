@@ -2,6 +2,7 @@
 #include <drivers/storage.h>
 #include <virtio/scsi.h>
 #include <io.h>
+#include <page.h>
 
 #include "virtio_internal.h"
 #include "virtio_pci.h"
@@ -141,7 +142,7 @@ static void virtio_scsi_enqueue_event(virtio_scsi s, virtio_scsi_event e)
     virtqueue vq = s->eventq;
     vqmsg m = allocate_vqmsg(vq);
     assert(m != INVALID_ADDRESS);
-    vqmsg_push(vq, m, e, sizeof(*e), true);
+    vqmsg_push(vq, m, physical_from_virtual(e), sizeof(*e), true);
     vqmsg_commit(vq, m, c);
 }
 
@@ -151,25 +152,27 @@ static void virtio_scsi_enqueue_event(virtio_scsi s, virtio_scsi_event e)
 
 typedef closure_type(vsr_complete, void, virtio_scsi, virtio_scsi_request);
 
-closure_function(3, 1, void, virtio_scsi_request_complete,
-                 vsr_complete, c, virtio_scsi, s, virtio_scsi_request, r,
+closure_function(4, 1, void, virtio_scsi_request_complete,
+                 vsr_complete, c, virtio_scsi, s, virtio_scsi_request, r, u64, r_phys,
                  u64, len)
 {
     virtio_scsi s = bound(s);
     virtio_scsi_request r = bound(r);
     apply(bound(c), s, r);
-    heap contiguous = s->v->virtio_dev.contiguous;
-    deallocate(contiguous, r, pad(sizeof(*r) + r->alloc_len, contiguous->pagesize));
+    backed_heap contiguous = s->v->virtio_dev.contiguous;
+    dealloc_unmap(contiguous, r, bound(r_phys),
+                  pad(sizeof(*r) + r->alloc_len, contiguous->h.pagesize));
     closure_finish();
 }
 
-static virtio_scsi_request virtio_scsi_alloc_request(virtio_scsi s, u16 target, u16 lun, u8 cmd)
+static virtio_scsi_request virtio_scsi_alloc_request(virtio_scsi s, u16 target, u16 lun, u8 cmd,
+                                                     u64 *r_phys)
 {
     int alloc_len = scsi_data_len(cmd);
     virtio_scsi_debug("%s: cmd 0x%x, data len %d\n", __func__, cmd, alloc_len);
 
-    virtio_scsi_request r = allocate(s->v->virtio_dev.contiguous,
-        sizeof(*r) + alloc_len);
+    virtio_scsi_request r = alloc_map(s->v->virtio_dev.contiguous,
+        sizeof(*r) + alloc_len, r_phys);
     assert(r != INVALID_ADDRESS);
     zero((void *) &r->req, sizeof(r->req));
     r->req.cdb[0] = cmd;
@@ -182,23 +185,26 @@ static virtio_scsi_request virtio_scsi_alloc_request(virtio_scsi s, u16 target, 
     return r;
 }
 
-static void virtio_scsi_enqueue_request(virtio_scsi s, virtio_scsi_request r, void *buf, u64 length, vsr_complete c)
+static void virtio_scsi_enqueue_request(virtio_scsi s, virtio_scsi_request r,
+                                        u64 r_phys, void *buf, u64 length, vsr_complete c)
 {
     vqfinish f = closure(s->v->virtio_dev.general, virtio_scsi_request_complete,
-        c, s, r);
+        c, s, r, r_phys);
     virtqueue vq = s->requestq;
     vqmsg m = allocate_vqmsg(vq);
     assert(m != INVALID_ADDRESS);
 
-    vqmsg_push(vq, m, &r->req, sizeof(r->req), false);
+    vqmsg_push(vq, m, r_phys + offsetof(virtio_scsi_request, req), sizeof(r->req), false);
     if (r->req.cdb[0] == SCSI_CMD_WRITE_16) {
         if (length > 0)
-            vqmsg_push(vq, m, buf, length, false);          // dataout
-        vqmsg_push(vq, m, &r->resp, sizeof(r->resp), true); // response
+            vqmsg_push(vq, m, physical_from_virtual(buf), length, false);   // dataout
+        vqmsg_push(vq, m, r_phys + offsetof(virtio_scsi_request, resp), sizeof(r->resp),
+                   true);   // response
     } else {
-        vqmsg_push(vq, m, &r->resp, sizeof(r->resp), true); // response
+        vqmsg_push(vq, m, r_phys + offsetof(virtio_scsi_request, resp), sizeof(r->resp),
+                   true);   // response
         if (length > 0)
-            vqmsg_push(vq, m, buf, length, true);           // datain
+            vqmsg_push(vq, m, physical_from_virtual(buf), length, true);    // datain
     }
 
     vqmsg_commit(vq, m, f);
@@ -233,14 +239,15 @@ static void virtio_scsi_io(virtio_scsi_disk d, u8 cmd, void *buf, range blocks,
                            status_handler sh)
 {
     virtio_scsi s = d->scsi;
-    virtio_scsi_request r = virtio_scsi_alloc_request(s, d->target, d->lun, cmd);
+    u64 r_phys;
+    virtio_scsi_request r = virtio_scsi_alloc_request(s, d->target, d->lun, cmd, &r_phys);
     struct scsi_cdb_readwrite_16 *cdb = (struct scsi_cdb_readwrite_16 *) r->req.cdb;
     u32 nblocks = range_span(blocks);
     cdb->addr = htobe64(blocks.start);
     cdb->length = htobe32(nblocks);
     virtio_scsi_debug("%s: cmd %d, blocks %R, addr 0x%016lx, length 0x%08x\n",
         __func__, cmd, blocks, cdb->addr, cdb->length);
-    virtio_scsi_enqueue_request(s, r, buf, nblocks * d->block_size,
+    virtio_scsi_enqueue_request(s, r, r_phys, buf, nblocks * d->block_size,
         closure(s->v->virtio_dev.general, virtio_scsi_io_done, sh, buf,
             nblocks * d->block_size));
 }
@@ -325,10 +332,11 @@ closure_function(4, 2, void, virtio_scsi_test_unit_ready_done,
     }
 
     heap h = s->v->virtio_dev.general;
+    u64 r_phys;
     if (resp->status != SCSI_STATUS_OK) {
         if (retry_count < 3) {
-            r = virtio_scsi_alloc_request(s, target, lun, SCSI_CMD_TEST_UNIT_READY);
-            virtio_scsi_enqueue_request(s, r, r->data, r->alloc_len,
+            r = virtio_scsi_alloc_request(s, target, lun, SCSI_CMD_TEST_UNIT_READY, &r_phys);
+            virtio_scsi_enqueue_request(s, r, r_phys, r->data, r->alloc_len,
                 closure(h, virtio_scsi_test_unit_ready_done, a, target, lun, retry_count + 1));
         } else {
             scsi_dump_sense(resp->sense, sizeof(resp->sense));
@@ -337,11 +345,11 @@ closure_function(4, 2, void, virtio_scsi_test_unit_ready_done,
     }
 
     // read capacity
-    r = virtio_scsi_alloc_request(s, target, lun, SCSI_CMD_SERVICE_ACTION);
+    r = virtio_scsi_alloc_request(s, target, lun, SCSI_CMD_SERVICE_ACTION, &r_phys);
     struct scsi_cdb_read_capacity_16 *cdb = (struct scsi_cdb_read_capacity_16 *) r->req.cdb;
     cdb->service_action = SRC16_SERVICE_ACTION;
     cdb->alloc_len = htobe32(r->alloc_len);
-    virtio_scsi_enqueue_request(s, r, r->data, r->alloc_len,
+    virtio_scsi_enqueue_request(s, r, r_phys, r->data, r->alloc_len,
         closure(h, virtio_scsi_read_capacity_done, a, target, lun));
   out:
     closure_finish();
@@ -378,8 +386,9 @@ closure_function(3, 2, void, virtio_scsi_inquiry_done,
     }
 
     // test unit ready
-    r = virtio_scsi_alloc_request(s, target, lun, SCSI_CMD_TEST_UNIT_READY);
-    virtio_scsi_enqueue_request(s, r, r->data, r->alloc_len,
+    u64 r_phys;
+    r = virtio_scsi_alloc_request(s, target, lun, SCSI_CMD_TEST_UNIT_READY, &r_phys);
+    virtio_scsi_enqueue_request(s, r, r_phys, r->data, r->alloc_len,
                                 closure(s->v->virtio_dev.general,
                                 virtio_scsi_test_unit_ready_done, bound(a), target, lun, 0));
     closure_finish();
@@ -408,10 +417,12 @@ closure_function(2, 2, void, virtio_scsi_report_luns_done,
         virtio_scsi_debug("%s: got lun %d (lundata 0x%08lx)\n", __func__, lun, res->lundata[i]);
 
         // inquiry
-        virtio_scsi_request r = virtio_scsi_alloc_request(s, target, lun, SCSI_CMD_INQUIRY);
+        u64 r_phys;
+        virtio_scsi_request r = virtio_scsi_alloc_request(s, target, lun, SCSI_CMD_INQUIRY,
+            &r_phys);
         struct scsi_cdb_inquiry *cdb = (struct scsi_cdb_inquiry *) r->req.cdb;
         cdb->length = htobe16(r->alloc_len);
-        virtio_scsi_enqueue_request(s, r, r->data, r->alloc_len,
+        virtio_scsi_enqueue_request(s, r, r_phys, r->data, r->alloc_len,
                                     closure(s->v->virtio_dev.general,
                                     virtio_scsi_inquiry_done, bound(a), target, lun));
     }
@@ -420,15 +431,17 @@ closure_function(2, 2, void, virtio_scsi_report_luns_done,
 
 static void virtio_scsi_report_luns(virtio_scsi s, storage_attach a, u16 target)
 {
-    virtio_scsi_request r = virtio_scsi_alloc_request(s, target, 0, SCSI_CMD_REPORT_LUNS);
+    u64 r_phys;
+    virtio_scsi_request r = virtio_scsi_alloc_request(s, target, 0, SCSI_CMD_REPORT_LUNS, &r_phys);
     struct scsi_cdb_report_luns *cdb = (struct scsi_cdb_report_luns *) r->req.cdb;
     cdb->select_report = RPL_REPORT_DEFAULT;
     cdb->length = htobe32(r->alloc_len);
-    virtio_scsi_enqueue_request(s, r, r->data, r->alloc_len,
+    virtio_scsi_enqueue_request(s, r, r_phys, r->data, r->alloc_len,
         closure(s->v->virtio_dev.general, virtio_scsi_report_luns_done, a, target));
 }
 
-static void virtio_scsi_attach(heap general, storage_attach a, heap page_allocator, pci_dev _dev)
+static void virtio_scsi_attach(heap general, storage_attach a, backed_heap page_allocator,
+                               pci_dev _dev)
 {
     virtio_scsi s = allocate(general, sizeof(struct virtio_scsi));
     assert(s != INVALID_ADDRESS);
@@ -486,7 +499,7 @@ static void virtio_scsi_attach(heap general, storage_attach a, heap page_allocat
 }
 
 closure_function(3, 1, boolean, virtio_scsi_probe,
-                 heap, general, storage_attach, a, heap, page_allocator,
+                 heap, general, storage_attach, a, backed_heap, page_allocator,
                  pci_dev, d)
 {
     if (!vtpci_probe(d, VIRTIO_ID_SCSI))
@@ -499,5 +512,5 @@ closure_function(3, 1, boolean, virtio_scsi_probe,
 void virtio_register_scsi(kernel_heaps kh, storage_attach a)
 {
     heap h = heap_locked(kh);
-    register_pci_driver(closure(h, virtio_scsi_probe, h, a, heap_backed(kh)));
+    register_pci_driver(closure(h, virtio_scsi_probe, h, a, kh->backed));
 }

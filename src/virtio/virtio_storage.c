@@ -1,6 +1,7 @@
 #include <kernel.h>
 #include <drivers/storage.h>
 #include <io.h>
+#include <page.h>
 #include <storage.h>
 
 #include "virtio_internal.h"
@@ -14,7 +15,6 @@ typedef struct virtio_blk_req {
     u32 type;
     u32 reserved;
     u64 sector;
-    u64 data; // phys? spec had u8 data[][512]
     u8 status;
 } __attribute__((packed)) *virtio_blk_req;
 
@@ -89,9 +89,9 @@ typedef struct storage {
     u64 block_size;
 } *storage;
 
-static virtio_blk_req allocate_virtio_blk_req(storage st, u32 type, u64 sector)
+static virtio_blk_req allocate_virtio_blk_req(storage st, u32 type, u64 sector, u64 *phys)
 {
-    virtio_blk_req req = allocate(st->v->contiguous, sizeof(struct virtio_blk_req));
+    virtio_blk_req req = alloc_map(st->v->contiguous, sizeof(struct virtio_blk_req), phys);
     assert(req != INVALID_ADDRESS);
     req->type = type;
     req->reserved = 0;
@@ -100,21 +100,21 @@ static virtio_blk_req allocate_virtio_blk_req(storage st, u32 type, u64 sector)
     return req;
 }
 
-static void deallocate_virtio_blk_req(storage st, virtio_blk_req req)
+static void deallocate_virtio_blk_req(storage st, virtio_blk_req req, u64 phys)
 {
-    deallocate(st->v->contiguous, req,
-               pad(sizeof(struct virtio_blk_req), st->v->contiguous->pagesize));
+    dealloc_unmap(st->v->contiguous, req, phys,
+                  pad(sizeof(struct virtio_blk_req), st->v->contiguous->h.pagesize));
 }
 
 closure_function(4, 1, void, complete,
-                 storage, s, status_handler, f, u8 *, result, virtio_blk_req, req,
+                 storage, s, status_handler, f, virtio_blk_req, req, u64, phys,
                  u64, len)
 {
     status st = 0;
     // 1 is io error, 2 is unsupported operation
-    if (*bound(result)) st = timm("result", "%d", *bound(result));
+    if (bound(req)->status) st = timm("result", "%d", bound(req)->status);
     apply(bound(f), st);
-    deallocate_virtio_blk_req(bound(s), bound(req));
+    deallocate_virtio_blk_req(bound(s), bound(req), bound(phys));
     // s->command->avail->flags &= ~VRING_AVAIL_F_NO_INTERRUPT;
     closure_finish();
 }
@@ -139,16 +139,17 @@ static inline void storage_rw_internal(storage st, boolean write, void * buf,
         goto out_inval;
     }
 
+    u64 req_phys;
     virtio_blk_req req = allocate_virtio_blk_req(st, write ? VIRTIO_BLK_T_OUT : VIRTIO_BLK_T_IN,
-                                                 start_sector);
+                                                 start_sector, &req_phys);
     virtqueue vq = st->command;
     vqmsg m = allocate_vqmsg(vq);
     assert(m != INVALID_ADDRESS);
-    vqmsg_push(vq, m, req, VIRTIO_BLK_REQ_HEADER_SIZE, false);
-    vqmsg_push(vq, m, buf, nsectors * st->block_size, !write);
-    void * statusp = ((void *)req) + VIRTIO_BLK_REQ_HEADER_SIZE;
+    vqmsg_push(vq, m, req_phys, VIRTIO_BLK_REQ_HEADER_SIZE, false);
+    vqmsg_push(vq, m, physical_from_virtual(buf), nsectors * st->block_size, !write);
+    u64 statusp = req_phys + VIRTIO_BLK_REQ_HEADER_SIZE;
     vqmsg_push(vq, m, statusp, VIRTIO_BLK_REQ_STATUS_SIZE, true);
-    vqfinish c = closure(st->v->general, complete, st, sh, statusp, req);
+    vqfinish c = closure(st->v->general, complete, st, sh, req, req_phys);
     vqmsg_commit(vq, m, c);
     return;
   out_inval:
@@ -191,7 +192,7 @@ static void virtio_blk_attach(heap general, storage_attach a, vtdev v)
 }
 
 closure_function(3, 1, boolean, vtpci_blk_probe,
-                 heap, general, storage_attach, a, heap, page_allocator,
+                 heap, general, storage_attach, a, backed_heap, page_allocator,
                  pci_dev, d)
 {
     if (!vtpci_probe(d, VIRTIO_ID_BLOCK))
@@ -205,7 +206,7 @@ closure_function(3, 1, boolean, vtpci_blk_probe,
 }
 
 closure_function(3, 1, void, vtmmio_blk_probe,
-                 heap, general, storage_attach, a, heap, page_allocator,
+                 heap, general, storage_attach, a, backed_heap, page_allocator,
                  vtmmio, d)
 {
     if ((vtmmio_get_u32(d, VTMMIO_OFFSET_DEVID) != VIRTIO_ID_BLOCK) ||
@@ -220,7 +221,7 @@ closure_function(3, 1, void, vtmmio_blk_probe,
 void virtio_register_blk(kernel_heaps kh, storage_attach a)
 {
     heap h = heap_locked(kh);
-    heap page_allocator = heap_backed(kh);
+    backed_heap page_allocator = kh->backed;
     register_pci_driver(closure(h, vtpci_blk_probe, h, a, page_allocator));
     vtmmio_probe_devs(stack_closure(vtmmio_blk_probe, h, a, page_allocator));
 }
