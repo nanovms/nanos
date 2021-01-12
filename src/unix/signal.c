@@ -302,6 +302,38 @@ void deliver_signal_to_thread(thread t, struct siginfo *info)
         sig_debug("failed to interrupt\n");
 }
 
+closure_function(2, 1, boolean, deliver_signal_handler,
+                 thread *, can_wake, u64, sigword,
+                 rbnode, n)
+{
+    u64 sigword = bound(sigword);
+    thread *can_wake = bound(can_wake);
+    thread t = struct_from_field(n, thread, n);
+    if (thread_is_runnable(t)) {
+        /* Note that we're only considering unmasked signals
+            (handlers) here, nothing in the interest masks. The
+            thread is runnable, so it can't be blocked on
+            rt_sigtimedwait or a signalfd (poll wait or blocking
+            read). */
+        if ((sigword & sigstate_get_mask(&t->signals)) == 0) {
+            /* thread scheduled to run or running; no explicit wakeup */
+            sig_debug("thread %d running and sig %d unmasked; return\n",
+                        t->tid, sig);
+            *can_wake = 0;
+            return false;
+        }
+    } else if (thread_in_interruptible_sleep(t) &&
+                (sigword & get_effective_sigmask(t)) == 0) {
+        /*  Note that we check only for this signal, not
+            all pending signals as with thread delivery.
+            That is because our task is to wake up a thread
+            on behalf of this signal delivery, not just
+            wake up a thread that has any pending signals. */
+        *can_wake = t;
+    }
+    return true;
+}
+
 void deliver_signal_to_process(process p, struct siginfo *info)
 {
     int sig = info->si_signo;
@@ -316,53 +348,24 @@ void deliver_signal_to_process(process p, struct siginfo *info)
     deliver_signal(&p->signals, info);
     sig_debug("... pending now 0x%lx\n", sigstate_get_pending(&p->signals));
 
-    /* If a thread is set as runnable and can handle this signal, just return. */
-    thread t, can_wake = 0;
-    vector v = allocate_vector(heap_general(get_kernel_heaps()), 8);
+    /* Search for a runnable thread or one that can be woken up */
+    thread can_wake = 0;
     spin_lock(&p->threads_lock);
-    threads_to_vector(p, v);
+    rbtree_traverse(p->threads, RB_INORDER, stack_closure(deliver_signal_handler, &can_wake, sigword));
     spin_unlock(&p->threads_lock);
-    vector_foreach(v, t) {
-        if (!t)
-            continue;
-        if (thread_is_runnable(t)) {
-            /* Note that we're only considering unmasked signals
-               (handlers) here, nothing in the interest masks. The
-               thread is runnable, so it can't be blocked on
-               rt_sigtimedwait or a signalfd (poll wait or blocking
-               read). */
-            if ((sigword & sigstate_get_mask(&t->signals)) == 0) {
-                /* thread scheduled to run or running; no explicit wakeup */
-                sig_debug("thread %d running and sig %d unmasked; return\n",
-                          t->tid, sig);
-                goto out;
-            }
-        } else if (thread_in_interruptible_sleep(t) &&
-                   (sigword & get_effective_sigmask(t)) == 0) {
-            /* First attempt to deliver via signalfd notify. If the
-               thread becomes runnable, we're done. Note that we check
-               only for this signal, not all pending signals as with
-               thread delivery. That is because our task is to wake up
-               a thread on behalf of this signal delivery, not just
-               wake up a thread that has any pending signals. */
-            signalfd_dispatch(t, sigword);
-            if (thread_is_runnable(t))
-                goto out;
-
-            /* Otherwise, it's a candidate for interrupting. */
-            can_wake = t;
-        }
-    }
 
     /* There's a chance a different thread could handle the pending process
        signal first, so this could cause a spurious wakeup (EINTR) ... care? */
     if (can_wake) {
+        /*  Attempt to deliver via signalfd notify. If the
+            thread becomes runnable, we're done.  */
+        signalfd_dispatch(can_wake, sigword);
+        if (thread_is_runnable(can_wake))
+            return;
         sig_debug("attempting to interrupt thread %d\n", can_wake->tid);
         if (!thread_attempt_interrupt(can_wake))
             sig_debug("failed to interrupt\n");
     }
-out:
-    deallocate_vector(v);
 }
 
 sysreturn rt_sigpending(u64 *set, u64 sigsetsize)
