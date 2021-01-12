@@ -218,8 +218,9 @@ extern queue bhqueue;
 extern queue runqueue;
 extern timerheap runloop_timers;
 
-heap physically_backed(heap meta, heap virtual, heap physical, u64 pagesize);
-void physically_backed_dealloc_virtual(heap h, u64 x, bytes length);
+backed_heap physically_backed(heap meta, heap virtual, heap physical, u64 pagesize,
+                              boolean locking);
+void physically_backed_dealloc_virtual(backed_heap bh, u64 x, bytes length);
 heap locking_heap_wrapper(heap meta, heap parent);
 
 void print_stack(context c);

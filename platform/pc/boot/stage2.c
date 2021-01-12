@@ -40,7 +40,7 @@ extern void run64(u32 entry);
 #define BOOT_BASE            0x7c00
 #define SCRATCH_LEN          (BOOT_BASE - REAL_MODE_STACK_SIZE)
 
-static struct kernel_heaps kh;
+static heap general, backed;
 static u64 stack_base;
 static u64 initial_pages_base;
 
@@ -120,7 +120,7 @@ closure_function(2, 3, void, stage2_ata_read,
     blocks.end += ds;
 
     // split I/O to MAX_BLOCK_IO_SIZE requests
-    heap h = heap_general(&kh);
+    heap h = general;
     merge m = allocate_merge(h, completion);
     status_handler k = apply_merge(m);
     while (blocks.start < blocks.end) {
@@ -193,7 +193,7 @@ static void setup_page_tables()
     stage2_debug("initial page tables at [0x%lx,  0x%lx)\n", initial_pages_base,
                  initial_pages_base + INITIAL_PAGES_SIZE);
     initial_pages_region = create_region(initial_pages_base, INITIAL_PAGES_SIZE, REGION_INITIAL_PAGES);
-    init_page_tables(region_allocator(heap_general(&kh), PAGESIZE, REGION_INITIAL_PAGES));
+    init_page_tables(region_allocator(general, PAGESIZE, REGION_INITIAL_PAGES));
 
     /* initial map, page tables and stack */
     map(0, 0, INITIAL_MAP_SIZE, PAGE_WRITABLE | PAGE_PRESENT);
@@ -211,7 +211,7 @@ closure_function(0, 4, void, kernel_elf_map,
 
     if (paddr == INVALID_PHYSICAL) {
         /* bss */
-        paddr = allocate_u64(heap_backed(&kh), size);
+        paddr = allocate_u64(backed, size);
         assert(paddr != INVALID_PHYSICAL);
         zero(pointer_from_u64(paddr), size);
     }
@@ -300,7 +300,7 @@ void newstack()
     stage2_debug("%s\n", __func__);
     struct partition_entry *bootfs_part = partition_get(MBR_ADDRESS, PARTITION_BOOTFS);
     u32 fs_offset = bootfs_part->lba_start * SECTOR_SIZE;
-    heap h = heap_general(&kh);
+    heap h = general;
     buffer_handler bh = closure(h, kernel_read_complete);
 
     setup_page_tables();
@@ -312,7 +312,7 @@ void newstack()
                       get_stage2_disk_read(h, fs_offset),
                       closure(h, stage2_empty_write),
                       false,
-                      closure(h, filesystem_initialized, h, heap_backed(&kh), bh));
+                      closure(h, filesystem_initialized, h, backed, bh));
     
     halt("kernel failed to execute\n");
 }
@@ -354,7 +354,7 @@ void centry()
     working_heap.dealloc = leak;
     working_p = u64_from_pointer(early_working);
     working_end = working_p + EARLY_WORKING_SIZE;
-    kh.general = &working_heap;
+    general = &working_heap;
     init_runtime(&working_heap, &working_heap);
     init_tuples(allocate_tagged_region(&working_heap, tag_tuple));
     init_symbols(allocate_tagged_region(&working_heap, tag_symbol), &working_heap);
@@ -387,20 +387,20 @@ void centry()
         }
     }
 
-    kh.backed = region_allocator(&working_heap, PAGESIZE, REGION_PHYSICAL);
-    assert(kh.backed != INVALID_ADDRESS);
+    backed = region_allocator(&working_heap, PAGESIZE, REGION_PHYSICAL);
+    assert(backed != INVALID_ADDRESS);
 
     /* allocate identity region for page tables */
-    initial_pages_base = allocate_u64(kh.backed, INITIAL_PAGES_SIZE);
+    initial_pages_base = allocate_u64(backed, INITIAL_PAGES_SIZE);
     assert(initial_pages_base != INVALID_PHYSICAL);
 
     /* allocate stage2 (and early stage3) stack */
-    stack_base = allocate_u64(kh.backed, STAGE2_STACK_SIZE);
+    stack_base = allocate_u64(backed, STAGE2_STACK_SIZE);
     assert(stack_base != INVALID_PHYSICAL);
     create_region(stack_base, STAGE2_STACK_SIZE, REGION_RECLAIM);
 
     /* allocate larger space for stage2 working (to accomodate tfs meta, etc.) */
-    working_p = allocate_u64(kh.backed, STAGE2_WORKING_HEAP_SIZE);
+    working_p = allocate_u64(backed, STAGE2_WORKING_HEAP_SIZE);
     assert(working_p != INVALID_PHYSICAL);
     working_saved_base = working_p;
     working_end = working_p + STAGE2_WORKING_HEAP_SIZE;

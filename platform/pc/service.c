@@ -55,7 +55,7 @@ static heap allocate_tagged_region(kernel_heaps kh, u64 tag)
     u64 tag_length = U64_FROM_BIT(VA_TAG_OFFSET);
     heap v = (heap)create_id_heap(h, heap_backed(kh), tag_base, tag_length, p->pagesize, false);
     assert(v != INVALID_ADDRESS);
-    heap backed = physically_backed(h, v, p, p->pagesize);
+    heap backed = (heap)physically_backed(h, v, p, p->pagesize, false);
     if (backed == INVALID_ADDRESS)
         return backed;
 
@@ -641,13 +641,14 @@ static void init_kernel_heaps()
 
     init_page_tables(&bootstrap, heaps.physical, find_initial_pages());
 
-    heaps.backed = locking_heap_wrapper(&bootstrap, physically_backed(&bootstrap, (heap)heaps.virtual_page, (heap)heaps.physical, PAGESIZE));
+    heaps.backed = physically_backed(&bootstrap, (heap)heaps.virtual_page, (heap)heaps.physical, PAGESIZE, true);
     assert(heaps.backed != INVALID_ADDRESS);
 
-    heaps.general = allocate_mcache(&bootstrap, heaps.backed, 5, 20, PAGESIZE_2M);
+    heaps.general = allocate_mcache(&bootstrap, (heap)heaps.backed, 5, 20, PAGESIZE_2M);
     assert(heaps.general != INVALID_ADDRESS);
 
-    heaps.locked = locking_heap_wrapper(&bootstrap, allocate_mcache(&bootstrap, heaps.backed, 5, 20, PAGESIZE_2M));
+    heaps.locked = locking_heap_wrapper(&bootstrap,
+        allocate_mcache(&bootstrap, (heap)heaps.backed, 5, 20, PAGESIZE_2M));
     assert(heaps.locked != INVALID_ADDRESS);
 }
 
