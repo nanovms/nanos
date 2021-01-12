@@ -425,6 +425,7 @@ typedef struct process {
     vector            itimers;      /* unix_timer by ITIMER_ type */
     id_heap           aio_ids;
     vector            aio;
+    boolean           trace;
 } *process;
 
 typedef struct sigaction *sigaction;
@@ -748,7 +749,7 @@ void truncate_file_maps(process p, fsfile f, u64 new_length);
 const char *string_from_mmap_type(int type);
 
 void thread_log_internal(thread t, const char *desc, ...);
-#define thread_log(__t, __desc, ...) do {if (!__t ) break; thread_log_internal(__t, __desc, ##__VA_ARGS__);} while (0)
+#define thread_log(__t, __desc, ...) do {if (!__t || !__t->p->trace) break; thread_log_internal(__t, __desc, ##__VA_ARGS__);} while (0)
 
 void thread_sleep_interruptible(void) __attribute__((noreturn));
 void thread_sleep_uninterruptible(void) __attribute__((noreturn));

@@ -103,20 +103,18 @@ void register_thread_syscalls(struct syscall *map)
 
 void thread_log_internal(thread t, const char *desc, ...)
 {
-    if (table_find(t->p->process_root, sym(trace))) {
-        if (syscall_notrace(t->p, t->syscall))
-            return;
-        vlist ap;
-        vstart (ap, desc);        
-        buffer b = little_stack_buffer(512);
-        bprintf(b, "%n%d ", (int) ((MAX(MIN(t->tid, 20), 1) - 1) * 4), t->tid);
-        if (t->name[0] != '\0')
-            bprintf(b, "[%s] ", t->name);
-        buffer f = alloca_wrap_buffer(desc, runtime_strlen(desc));
-        vbprintf(b, f, &ap);
-        push_u8(b, '\n');
-        buffer_print(b);
-    }
+    if (syscall_notrace(t->p, t->syscall))
+        return;
+    vlist ap;
+    vstart (ap, desc);
+    buffer b = little_stack_buffer(512);
+    bprintf(b, "%n%d ", (int) ((MAX(MIN(t->tid, 20), 1) - 1) * 4), t->tid);
+    if (t->name[0] != '\0')
+        bprintf(b, "[%s] ", t->name);
+    buffer f = alloca_wrap_buffer(desc, runtime_strlen(desc));
+    vbprintf(b, f, &ap);
+    push_u8(b, '\n');
+    buffer_print(b);
 }
 
 static inline void check_stop_conditions(thread t)

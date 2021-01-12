@@ -2481,6 +2481,8 @@ void count_syscall(thread t, sysreturn rv)
     t->syscall_time = 0;
 }
 
+static boolean debugsyscalls;
+
 void syscall_debug(context f)
 {
     u64 call = f[FRAME_VECTOR];
@@ -2498,8 +2500,6 @@ void syscall_debug(context f)
         t->last_syscall = call;
         t->syscall_enter_ts = now(CLOCK_ID_MONOTONIC);
     }
-    // should we cache this for performance?
-    void *debugsyscalls = table_find(t->p->process_root, sym(debugsyscalls));
     struct syscall *s = t->p->syscalls + call;
     if (debugsyscalls) {
         if (s->name)
@@ -2660,6 +2660,7 @@ void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *n
 
 void configure_syscalls(process p)
 {
+    debugsyscalls = !!table_find(p->process_root, sym(debugsyscalls));
     syscall_defer = !!table_find(p->process_root, sym(syscall_defer));
     void *notrace = table_find(p->process_root, sym(notrace));
     if (notrace) {
