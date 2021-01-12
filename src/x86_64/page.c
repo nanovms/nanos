@@ -247,8 +247,9 @@ static boolean force_entry(u64 b, u64 v, physical p, int level,
 	write_pte(pte_phys, p, flags, invalidate);
 	return true;
     } else {
-	if (*pointer_from_pteaddr(pte_phys) & PAGE_PRESENT) {
-            if (pt_entry_is_fat(level, *pointer_from_pteaddr(pte_phys))) {
+        u64 pte = *pointer_from_pteaddr(pte_phys);
+        if (pte & PAGE_PRESENT) {
+            if (pt_entry_is_fat(level, pte)) {
                 rputs("\nforce_entry fail: attempting to map a 4K page over an "
                         "existing 2M mapping\n");
                 return false;
@@ -258,7 +259,7 @@ static boolean force_entry(u64 b, u64 v, physical p, int level,
                remove and free them when possible. This will avoid the
                occasional invalidate caused by lingering mid
                directories without entries */
-	    return force_entry(page_from_pte(*pointer_from_pteaddr(pte_phys)), v, p, level + 1,
+	    return force_entry(page_from_pte(pte), v, p, level + 1,
                                fat, flags, invalidate);
 	} else {
 	    if (flags == 0)	/* only lookup for unmap */
