@@ -11,6 +11,7 @@
 #include <storage.h>
 #include <symtab.h>
 #include <unix.h>
+#include <aws/aws.h>
 #include <virtio/virtio.h>
 #include <vmware/vmxnet3.h>
 #include <drivers/acpi.h>
@@ -551,6 +552,7 @@ static void __attribute__((noinline)) init_service_new_stack()
         /* qemu virtio */
         init_virtio_network(kh);
         init_vmxnet3_network(kh);
+        init_aws_ena(kh);
     }
 
     init_storage(kh, sa, !xen_detected() && !hyperv_storvsc_attached);

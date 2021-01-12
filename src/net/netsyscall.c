@@ -377,18 +377,18 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
     assert(length > 0);
     assert(s->sock.type == SOCK_STREAM || s->sock.type == SOCK_DGRAM);
 
-    if (flags & BLOCKQ_ACTION_NULLIFY) {
-        rv = -ERESTARTSYS;
-        goto out;
-    }
-
     if (s->sock.type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN) {
-        rv = -ENOTCONN;         /* XXX or 0? */
+        rv = 0;
         goto out;
     }
 
     if (err != ERR_OK) {
         rv = lwip_to_errno(err);
+        goto out;
+    }
+
+    if (flags & BLOCKQ_ACTION_NULLIFY) {
+        rv = -ERESTARTSYS;
         goto out;
     }
 
@@ -518,7 +518,8 @@ closure_function(1, 6, sysreturn, socket_read,
     net_debug("sock %d, type %d, thread %ld, dest %p, length %ld, offset %ld\n",
 	      s->sock.fd, s->sock.type, t->tid, dest, length, offset);
     if (s->sock.type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN)
-        return io_complete(completion, t, -ENOTCONN);
+        return io_complete(completion, t,
+            (s->info.tcp.state == TCP_SOCK_UNDEFINED) ? 0 : -ENOTCONN);
 
     blockq_action ba = closure(s->sock.h, sock_read_bh, s, t, dest, length, 0,
             0, completion);
@@ -534,11 +535,6 @@ static sysreturn socket_write_tcp_bh_internal(netsock s, thread t, void * buf,
               s->sock.fd, t->tid, buf, remain, flags, err);
     assert(remain > 0);
 
-    if (flags & BLOCKQ_ACTION_NULLIFY) {
-        rv = -ERESTARTSYS;
-        goto out;
-    }
-
     if (err != ERR_OK) {
         rv = lwip_to_errno(err);
         goto out;
@@ -546,6 +542,11 @@ static sysreturn socket_write_tcp_bh_internal(netsock s, thread t, void * buf,
 
     if (s->sock.type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN) {
         rv = -ENOTCONN;
+        goto out;
+    }
+
+    if (flags & BLOCKQ_ACTION_NULLIFY) {
+        rv = -ERESTARTSYS;
         goto out;
     }
 
@@ -904,6 +905,7 @@ static sysreturn netsock_shutdown(struct sock *sock, int how)
             /* Shutting down both TX and RX is equivalent to calling
              * tcp_close(), so the pcb should not be referenced anymore. */
             s->info.tcp.lw = 0;
+            s->info.tcp.state = TCP_SOCK_UNDEFINED;
         }
         netsock_check_loop();
         break;
@@ -1097,6 +1099,7 @@ static err_t tcp_input_lower(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t
         }
         wakeup_sock(s, WAKEUP_SOCK_RX);
     } else {
+        s->info.tcp.state = TCP_SOCK_UNDEFINED;
         wakeup_sock(s, WAKEUP_SOCK_EXCEPT);
     }
 
@@ -1556,7 +1559,7 @@ static sysreturn netsock_recvfrom(struct sock *sock, void *buf, u64 len,
 {
     netsock s = (netsock) sock;
     if (sock->type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN)
-        return set_syscall_error(current, ENOTCONN);
+        return set_syscall_error(current, (s->info.tcp.state == TCP_SOCK_UNDEFINED) ? 0 : ENOTCONN);
 
     if (len == 0)
         return 0;
@@ -1591,7 +1594,7 @@ static sysreturn netsock_recvmsg(struct sock *sock, struct msghdr *msg,
     netsock s = (netsock) sock;
 
     if ((sock->type == SOCK_STREAM) && (s->info.tcp.state != TCP_SOCK_OPEN)) {
-        return set_syscall_error(current, ENOTCONN);
+        return set_syscall_error(current, (s->info.tcp.state == TCP_SOCK_UNDEFINED) ? 0 : ENOTCONN);
     }
     total_len = 0;
     for (int i = 0; i < msg->msg_iovlen; i++) {
@@ -1675,7 +1678,6 @@ static sysreturn netsock_listen(struct sock *sock, int backlog)
     set_lwip_error(s, ERR_OK);
     tcp_arg(lw, s);
     tcp_accept(lw, accept_tcp_from_lwip);
-    tcp_err(lw, lwip_tcp_conn_err);
     return 0;    
 }
 
@@ -1697,17 +1699,17 @@ closure_function(5, 1, sysreturn, accept_bh,
     thread t = bound(t);
     sysreturn rv = 0;
 
-    if (bqflags & BLOCKQ_ACTION_NULLIFY) {
-        rv = -ERESTARTSYS;
-        goto out;
-    }
-
     err_t err = get_lwip_error(s);
     net_debug("sock %d, target thread %ld, lwip err %d\n", s->sock.fd, t->tid,
             err);
 
     if (err != ERR_OK) {
         rv = lwip_to_errno(err);
+        goto out;
+    }
+
+    if (bqflags & BLOCKQ_ACTION_NULLIFY) {
+        rv = -ERESTARTSYS;
         goto out;
     }
 
