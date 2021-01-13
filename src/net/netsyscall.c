@@ -1097,11 +1097,8 @@ static err_t tcp_input_lower(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t
 	    msg_err("incoming queue full\n");
             return ERR_BUF;     /* XXX verify */
         }
-        wakeup_sock(s, WAKEUP_SOCK_RX);
-    } else {
-        s->info.tcp.state = TCP_SOCK_UNDEFINED;
-        wakeup_sock(s, WAKEUP_SOCK_EXCEPT);
     }
+    wakeup_sock(s, WAKEUP_SOCK_RX);
 
     return ERR_OK;
 }
