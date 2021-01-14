@@ -185,7 +185,7 @@ OBJDUMPFLAGS=	-d -S -M intel-mnemonic
 
 DEPFILES+=      $(VDSO_DEPS)
 CLEANFILES+=    $(foreach f,gitversion.c frame.inc kernel.dis kernel.img src/unix/ftrace.* $(ARCHDIR)/ftrace.*,$(OBJDIR)/$f) $(VDSO_OBJDIR)/vdso.so $(VDSO_OBJDIR)/vdso-image.c $(VDSO_OBJS) $(VDSO_DEPS)
-CLEANDIRS+=     $(foreach d,output/platform output src src/hyperv vdso/src/$(ARCH) vdso/src vdso vendor vendor/lwip vendor/lwip/src platform,$(OBJDIR)/$d)
+CLEANDIRS+=     $(foreach d,output/platform output src src/aws src/hyperv vdso/src/$(ARCH) vdso/src vdso vendor vendor/lwip vendor/lwip/src platform,$(OBJDIR)/$d)
 
 msg_vdsogen=    VDSOGEN	$@
 cmd_vdsogen=    $(VDSOGEN) $(VDSO_OBJDIR)/vdso.so $@
