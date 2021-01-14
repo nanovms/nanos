@@ -68,7 +68,7 @@ _start:
         msr     cpacr_el1, x0
 
         // temporary stack
-        mov     x0, #0x41000000
+        mov     x0, #0x40600000
 	mov	sp, x0
 	b	start
 

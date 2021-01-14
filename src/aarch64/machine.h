@@ -104,18 +104,16 @@ __bswap64(u64 _x)
 #define le64toh(x) (x)
 #endif
 
-#define USER_LIMIT  0x0008000000000000ull
-#define KMEM_BASE   0x00ff000000000000ull
-#define KMEM_LIMIT  0x00ffffff00000000ull
-
-#ifdef KERNEL
-#define VA_TAG_BASE   KMEM_BASE
-#define VA_TAG_OFFSET 56
-#define VA_TAG_WIDTH  8
+#if !defined(KERNEL) && !defined(KLIB)
+#define VA_TAG_BASE      0
+#define VA_TAG_OFFSET    USER_VA_TAG_OFFSET
+#define VA_TAG_WIDTH     USER_VA_TAG_WIDTH
 #else
-#define VA_TAG_BASE   0
-#define VA_TAG_OFFSET USER_VA_TAG_OFFSET
-#define VA_TAG_WIDTH  USER_VA_TAG_WIDTH
+#define KMEM_BASE        0x00ff000000000000ull
+#define USER_LIMIT       KMEM_BASE
+#define VA_TAG_BASE      KMEM_BASE
+#define VA_TAG_OFFSET    56
+#define VA_TAG_WIDTH     8
 #endif
 
 static inline __attribute__((always_inline)) void *tag(void* v, u64 tval) {

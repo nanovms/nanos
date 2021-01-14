@@ -4,10 +4,14 @@
 
 #include "frame.h"
 
-#define DEVICE_BASE  0xffffffff00000000ull
-#define KERNEL_BASE  0xffffffff80000000ull
-#define PAGES_BASE   0xffffffffc0000000ull
-#define KERNEL_LIMIT PAGES_BASE
+#define KERNEL_LIMIT     0x00fffffffffff000ull
+#define KERNEL_BASE      0x00ffffff80000000ull
+#define DEVICE_BASE      0x00ffffff00000000ull
+#define DIRECT_MAP_LIMIT DEVICE_BASE
+#define DIRECT_MAP_BASE  0x00ffff0000000000ull
+#define KMEM_LIMIT       DIRECT_MAP_BASE
+
+#define DIRECT_MAP_PAGELOG 32
 
 #define KERNEL_PHYS 0x0000000040400000ull /* must match linker script - XXX extern? */
 

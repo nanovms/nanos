@@ -146,11 +146,12 @@
 /* XXX TODO revisit */
 #define PAGE_BACKED_FLAGS 0
 #define PAGE_DEV_FLAGS    0
-#define PAGE_NO_EXEC      0
-#define PAGE_WRITABLE     0     /* XXX need to update semantics / use helper */
+#define PAGE_NO_EXEC      PAGE_ATTR_UXN_XN
+#define PAGE_WRITABLE     0
 #define PAGE_READONLY     u64_from_field(PAGE_ATTR_AP_2_1, PAGE_ATTR_AP_2_1_RO)
 #define PAGE_USER         u64_from_field(PAGE_ATTR_AP_2_1, PAGE_ATTR_AP_2_1_E0)
 #define PAGE_FLAGS_MASK   0xfffc000000000fffull
+#define PAGE_PROT_FLAGS   (PAGE_NO_EXEC | PAGE_USER | PAGE_READONLY)
 
 #define PAGE_ATTRS (PAGE_ATTR_UXN_XN | PAGE_ATTR_PXN) /* AP[2:1] == 0 */
 #define PAGE_NLEVELS 4

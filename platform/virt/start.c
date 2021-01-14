@@ -218,6 +218,7 @@ static void init_kernel_heaps(void)
 static void __attribute__((noinline)) init_service_new_stack(void)
 {
     start_debug("in init_service_new_stack\n");
+    page_heap_init(heap_locked(&heaps), heap_physical(&heaps));
     init_tuples(allocate_tagged_region(&heaps, tag_tuple));
     init_symbols(allocate_tagged_region(&heaps, tag_symbol), heap_general(&heaps));
     start_debug("calling runtime init\n");
@@ -230,7 +231,6 @@ void init_setup_stack(void)
     serial_set_devbase(DEVICE_BASE);
     start_debug("in init_setup_stack, calling init_kernel_heaps\n");
     init_kernel_heaps();
-    page_heap_init(heap_locked(&heaps), heap_physical(&heaps));
     start_debug("allocating stack\n");
     u64 stack_size = 32 * PAGESIZE;
     void *stack_base = allocate(heap_backed(&heaps), stack_size);
