@@ -478,6 +478,18 @@ static void touch_or_fill_page_by_num_nodelocked(pagecache_node pn, u64 n, merge
         touch_or_fill_page_nodelocked(pn, pp, m, bh);
 }
 
+static void pagecache_write_complete(pagecache pc, pagecache_page pp, status s)
+{
+    pagecache_lock_state(pc);
+    assert(pp->write_count > 0);
+    if (pp->write_count-- == 1) {
+        if (page_state(pp) != PAGECACHE_PAGESTATE_DIRTY)
+            change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_NEW);
+        pagecache_page_queue_completions_locked(pc, pp, s);
+    }
+    pagecache_unlock_state(pc);
+}
+
 closure_function(6, 1, void, pagecache_write_sg_finish,
                  nanos_thread, t, pagecache_node, pn, range, q, sg_list, sg, status_handler, completion, boolean, complete,
                  status, s)
@@ -522,14 +534,7 @@ closure_function(6, 1, void, pagecache_write_sg_finish,
         if (bound(complete)) {
             do {
                 assert(pp != INVALID_ADDRESS && page_offset(pp) == pi);
-                pagecache_lock_state(pc);
-                assert(pp->write_count > 0);
-                if (pp->write_count-- == 1) {
-                    if (page_state(pp) != PAGECACHE_PAGESTATE_DIRTY)
-                        change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_NEW);
-                    pagecache_page_queue_completions_locked(pc, pp, s);
-                }
-                pagecache_unlock_state(pc);
+                pagecache_write_complete(pc, pp, s);
                 refcount_release(&pp->refcount);
                 pi++;
                 pp = (pagecache_page)rbnode_get_next((rbnode)pp);
@@ -718,9 +723,6 @@ u64 pagecache_drain(u64 drain_bytes)
     return evicted << pc->page_order;
 }
 
-/* TODO could encode completion to indicate completion on transition
-   to new rather than writing - otherwise we're completing on storage
-   request issuance, not completion - just for sync use */
 static void pagecache_finish_pending_writes(pagecache pc, pagecache_volume pv, pagecache_node pn,
                                             status_handler complete)
 {
@@ -741,10 +743,11 @@ static void pagecache_finish_pending_writes(pagecache pc, pagecache_volume pv, p
 
 #ifdef STAGE3
 static void pagecache_scan(pagecache pc);
-static void pagecache_scan_node(pagecache_node pn);
+void pagecache_scan_node(pagecache_node pn);
 #else
 static void pagecache_scan(pagecache pc) {}
-static void pagecache_scan_node(pagecache_node pn) {}
+void pagecache_scan_node(pagecache_node pn) {}
+void pagecache_scan_volume(pagecache_volume pn) {}
 #endif
 
 void pagecache_sync_volume(pagecache_volume pv, status_handler complete)
@@ -863,7 +866,7 @@ static void pagecache_scan_shared_mappings(pagecache pc)
     page_invalidate_sync(fe, ignore);
 }
 
-static void pagecache_scan_node(pagecache_node pn)
+void pagecache_scan_node(pagecache_node pn)
 {
     pagecache_debug("%s\n", __func__);
     flush_entry fe = get_page_flush_entry();
@@ -886,14 +889,7 @@ closure_function(2, 1, void, pagecache_commit_complete,
         pagecache_debug("%s: write_error now %v\n", __func__, s);
         pp->node->pv->write_error = s;
     }
-    pagecache_lock_state(pc);
-    assert(pp->write_count > 0);
-    if (pp->write_count-- == 1) {
-        if (page_state(pp) != PAGECACHE_PAGESTATE_DIRTY)
-            change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_NEW);
-        pagecache_page_queue_completions_locked(pc, pp, s);
-    }
-    pagecache_unlock_state(pc);
+    pagecache_write_complete(pc, pp, s);
     closure_finish();
 }
 
@@ -929,11 +925,14 @@ void pagecache_commit_dirty_pages(pagecache pc)
 
 static void pagecache_scan(pagecache pc)
 {
-    if (pc->scan_in_progress)   /* unnecessary? */
-        return;
-    pc->scan_in_progress = true;
     pagecache_scan_shared_mappings(pc);
     pagecache_commit_dirty_pages(pc);
+}
+
+/* not really per-volume, but pagecache type is internal */
+void pagecache_scan_volume(pagecache_volume pv)
+{
+    pagecache_scan(pv->pc);
 }
 
 define_closure_function(1, 1, void, pagecache_scan_timer,
@@ -1348,7 +1347,6 @@ void init_pagecache(heap general, heap contiguous, heap physical, u64 pagesize)
     init_pagecache_completion_queue(pc, &pc->bh_completions);
     init_pagecache_completion_queue(pc, &pc->rq_completions);
 
-    pc->scan_in_progress = false;
     pc->scan_timer = 0;
     init_closure(&pc->do_scan_timer, pagecache_scan_timer, pc);
 #endif

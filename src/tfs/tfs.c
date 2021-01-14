@@ -749,6 +749,59 @@ void filesystem_flush(filesystem fs, status_handler completion)
     log_flush(fs->tl, closure(fs->h, log_flush_completed, fs, completion, false));
 }
 
+/* XXX verify before purging this - filesystem_flush should take care of our syncing needs... */
+#if 0
+closure_function(4, 1, void, fs_sync_complete,
+                 filesystem, fs, pagecache_node, pn, status_handler, sh, boolean, fs_flushed,
+                 status, s)
+{
+    if (is_ok(s) && !bound(fs_flushed)) {
+        bound(fs_flushed) = true;
+        if (bound(pn))
+            pagecache_sync_node(bound(pn), (status_handler)closure_self());
+        else
+            pagecache_sync_volume(filesystem_get_pagecache_volume(bound(fs)),
+                (status_handler)closure_self());
+        return;
+    }
+    apply(bound(sh), s);
+    closure_finish();
+}
+#endif
+
+static void filesystem_sync_internal(filesystem fs, pagecache_node pn,
+                                     status_handler sh)
+{
+    /* XXX nuke before merge */
+#if 0
+    status_handler sync_complete = closure(heap_general(get_kernel_heaps()),
+        fs_sync_complete, fs, pn, sh, false);
+    if (sync_complete == INVALID_ADDRESS) {
+        apply(sh, timm("result", "cannot allocate closure"));
+        return;
+    }
+#endif
+
+    /* commit dirty pages to tfs */
+    if (pn)
+        pagecache_scan_node(pn);
+    else
+        pagecache_scan_volume(fs->pv);
+
+    /* flush tfs log */
+    filesystem_flush(fs, sh);
+}
+
+void filesystem_sync(filesystem fs, status_handler sh)
+{
+    filesystem_sync_internal(fs, 0, sh);
+}
+
+void filesystem_sync_node(filesystem fs, pagecache_node pn, status_handler sh)
+{
+    filesystem_sync_internal(fs, pn, sh);
+}
+
 closure_function(2, 1, void, filesystem_op_complete,
                  fsfile, f, fs_status_handler, sh,
                  status, s)

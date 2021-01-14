@@ -45,6 +45,9 @@ void filesystem_write_linear(fsfile f, void *src, range q, io_status_handler com
 
 void filesystem_flush(filesystem fs, status_handler completion);
 
+void filesystem_sync(filesystem fs, status_handler sh);
+void filesystem_sync_node(filesystem fs, pagecache_node pn, status_handler sh);
+
 timestamp filesystem_get_atime(filesystem fs, tuple t);
 timestamp filesystem_get_mtime(filesystem fs, tuple t);
 void filesystem_set_atime(filesystem fs, tuple t, timestamp tim);

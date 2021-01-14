@@ -52,7 +52,6 @@ typedef struct pagecache {
     struct pagecache_completion_queue bh_completions;
     struct pagecache_completion_queue rq_completions;
 
-    boolean scan_in_progress;
     timer scan_timer;
     closure_struct(pagecache_scan_timer, do_scan_timer);
 } *pagecache;

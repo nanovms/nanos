@@ -10,9 +10,6 @@ process exec_elf(buffer ex, process kernel_process);
 
 void dump_mem_stats(buffer b);
 
-void filesystem_sync(filesystem fs, status_handler sh);
-void filesystem_sync_node(filesystem fs, pagecache_node pn, status_handler sh);
-
 void thread_enter_user(thread in);
 void thread_enter_system(thread t);
 void thread_pause(thread t);
