@@ -322,7 +322,13 @@ closure_function(3, 1, void, log_extend_link,
     tlog_debug("linking old extension to new and flushing\n");
 
     /* add link to close out old extension and commit */
-    buffer b = bound(old_ext)->staging;
+    log_ext old_ext = bound(old_ext);
+    buffer b = old_ext->staging;
+    if (old_ext->sectors.start == 0) {
+        assert(buffer_write(b, old_ext->tl->fs->uuid, UUID_LEN));
+        assert(buffer_write_cstring(b, old_ext->tl->fs->label));
+        push_u8(b, '\0');   /* label string terminator */
+    }
     push_u8(b, LOG_EXTENSION_LINK);
     push_varint(b, bound(sectors).start);
     push_varint(b, range_span(bound(sectors)));
@@ -870,9 +876,6 @@ log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
         log_extension_init(init_ext);
         buffer uuid = alloca_wrap_buffer(fs->uuid, UUID_LEN);
         random_buffer(uuid);
-        assert(push_buffer(init_ext->staging, uuid));
-        assert(buffer_write_cstring(init_ext->staging, fs->label));
-        push_u8(init_ext->staging, '\0');   /* label string terminator */
         log_ext new_ext = log_ext_new(tl);
         assert(new_ext != INVALID_ADDRESS);
         log_extension_init(new_ext);
