@@ -417,7 +417,7 @@ static inline boolean log_write_internal(log tl, merge m)
     return true;
 }
 
-static void run_flush_completions(log tl)
+static void run_flush_completions(log tl, status s)
 {
     if (tl->flush_completions) {
         status_handler sh;
@@ -433,7 +433,7 @@ closure_function(1, 1, void, log_flush_complete,
 {
     /* would need to move these to runqueue if a flush is ever invoked from a tfs op */
     bound(tl)->dirty = false;
-    run_flush_completions(bound(tl));
+    run_flush_completions(bound(tl), s);
     bound(tl)->flushing = false;
     closure_finish();
 }
@@ -469,7 +469,7 @@ closure_function(2, 1, void, log_switch_complete,
         deallocate_u64((heap)fs->storage, ext->r.start, range_span(ext->r));
     }
 
-    run_flush_completions(old_tl);
+    run_flush_completions(old_tl, s);
 
     refcount_release(&to_be_destroyed->refcount);
     timm_dealloc(s);
