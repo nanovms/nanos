@@ -97,6 +97,8 @@ static inline boolean update_timer(void)
 
 static inline void sched_thread_pause(void)
 {
+    if (shutting_down)
+        return;
     nanos_thread nt = get_current_thread();
     if (nt)
         apply(nt->pause);
