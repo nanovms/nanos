@@ -1,7 +1,3 @@
-typedef struct spinlock {
-    word w;
-} *spinlock;
-
 #define spin_try(x) (true)
 #define spin_lock(x) ((void)x)
 #define spin_unlock(x) ((void)x)

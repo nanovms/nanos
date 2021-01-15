@@ -145,7 +145,7 @@ static inline void storage_rw_internal(storage st, boolean write, void * buf,
     assert(m != INVALID_ADDRESS);
     vqmsg_push(vq, m, req_phys, VIRTIO_BLK_REQ_HEADER_SIZE, false);
     vqmsg_push(vq, m, physical_from_virtual(buf), nsectors * st->block_size, !write);
-    void *statusp = &req->status;
+    u64 statusp = req_phys + VIRTIO_BLK_REQ_HEADER_SIZE;
     vqmsg_push(vq, m, statusp, VIRTIO_BLK_REQ_STATUS_SIZE, true);
     vqfinish c = closure(st->v->general, complete, st, sh, req, req_phys);
     vqmsg_commit(vq, m, c);

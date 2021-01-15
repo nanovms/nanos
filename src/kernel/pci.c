@@ -133,13 +133,6 @@ int pci_enable_msix(pci_dev dev)
     pci_bar_init(dev, &dev->msix_bar, msix_table & 0x7, msix_table & ~0x7, -1);
     pci_debug("%s: msix_config.msix_table 0x%x, msix_table %p\n", __func__,
               msix_table, dev->msix_bar.vaddr);
-#if 0 // XXX merge
-    struct pci_bar b;
-    b.vaddr = 0; // XXX warning
-    pci_bar_init(dev, &b, msix_table & 0x7, msix_table & ~0x7, -1);
-    dev->msix_table = (u32 *)b.vaddr;
-    pci_debug("%s: msix_config.msix_table 0x%x, msix_table %p\n", __func__, msix_table, dev->msix_table);
-#endif
 
     // enable MSI-X
     u16 ctrl = pci_cfgread(dev, cp + 2, 2);
@@ -178,6 +171,7 @@ void pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name)
     pci_debug("%s: msix_table %p, msi %d: int %d, %s\n", __func__, msix_table, msi_slot, v, name);
 
     // XXX hack
+    (void)msix_table;
 #ifdef __x86_64__
     u32 a, d;
     u32 vector_control = 0;

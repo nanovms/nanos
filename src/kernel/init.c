@@ -16,6 +16,7 @@
 #include <hyperv_platform.h>
 #include <vmware/vmxnet3.h>
 #include <drivers/acpi.h>
+#include <aws/aws.h>
 #endif
 
 //#define INIT_DEBUG

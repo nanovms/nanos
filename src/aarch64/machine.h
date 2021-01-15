@@ -125,6 +125,11 @@ static inline __attribute__((always_inline)) u16 tagof(void* v) {
 }
 
 #define valueof(__x) (__x)
+
+typedef struct spinlock {
+    word w;
+} *spinlock;
+
 /* returns -1 if x == 0, caller must check */
 static inline __attribute__((always_inline)) u64 msb(u64 x)
 {

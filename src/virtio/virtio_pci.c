@@ -370,7 +370,7 @@ vtpci attach_vtpci(heap h, backed_heap page_allocator, pci_dev d, u64 feature_ma
         vtpci_legacy_alloc_resources(dev);
     }
     pci_set_bus_master(dev->dev);
-    dev->msix_enabled = pci_detect_and_enable_msix(dev->dev);
+    dev->msix_enabled = pci_enable_msix(dev->dev) > 0;
     pci_enable_io_and_memory(dev->dev);
 
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_RESET);

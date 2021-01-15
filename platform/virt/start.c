@@ -205,13 +205,13 @@ static void init_kernel_heaps(void)
     heaps.physical = init_physical_id_heap(&bootstrap);
     assert(heaps.physical != INVALID_ADDRESS);
 
-    heaps.backed = locking_heap_wrapper(&bootstrap, physically_backed(&bootstrap, (heap)heaps.virtual_page, (heap)heaps.physical, PAGESIZE));
+    heaps.backed = physically_backed(&bootstrap, (heap)heaps.virtual_page, (heap)heaps.physical, PAGESIZE, true);
     assert(heaps.backed != INVALID_ADDRESS);
 
-    heaps.general = allocate_mcache(&bootstrap, heaps.backed, 5, 20, PAGESIZE_2M);
+    heaps.general = allocate_mcache(&bootstrap, (heap)heaps.backed, 5, 20, PAGESIZE_2M);
     assert(heaps.general != INVALID_ADDRESS);
 
-    heaps.locked = locking_heap_wrapper(&bootstrap, allocate_mcache(&bootstrap, heaps.backed, 5, 20, PAGESIZE_2M));
+    heaps.locked = locking_heap_wrapper(&bootstrap, allocate_mcache(&bootstrap, (heap)heaps.backed, 5, 20, PAGESIZE_2M));
     assert(heaps.locked != INVALID_ADDRESS);
 }
 
