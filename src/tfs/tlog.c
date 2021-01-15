@@ -417,18 +417,23 @@ static inline boolean log_write_internal(log tl, merge m)
     return true;
 }
 
+static void run_flush_completions(log tl)
+{
+    if (tl->flush_completions) {
+        status_handler sh;
+        vector_foreach(tl->flush_completions, sh)
+            apply(sh, s);
+        vector_clear(tl->flush_completions);
+    }
+}
+
 closure_function(1, 1, void, log_flush_complete,
                  log, tl,
                  status, s)
 {
     /* would need to move these to runqueue if a flush is ever invoked from a tfs op */
     bound(tl)->dirty = false;
-    if (bound(tl)->flush_completions) {
-        status_handler sh;
-        vector_foreach(bound(tl)->flush_completions, sh)
-            apply(sh, s);
-        vector_clear(bound(tl)->flush_completions);
-    }
+    run_flush_completions(bound(tl));
     bound(tl)->flushing = false;
     closure_finish();
 }
@@ -463,6 +468,9 @@ closure_function(2, 1, void, log_switch_complete,
         tlog_debug("  deallocating extension at %R\n", __func__, ext->r);
         deallocate_u64((heap)fs->storage, ext->r.start, range_span(ext->r));
     }
+
+    run_flush_completions(old_tl);
+
     refcount_release(&to_be_destroyed->refcount);
     timm_dealloc(s);
     closure_finish();
@@ -471,14 +479,14 @@ closure_function(2, 1, void, log_switch_complete,
 void log_flush(log tl, status_handler completion)
 {
     tlog_debug("%s: log %p, completion %p, dirty %d\n", __func__, tl, completion, tl->dirty);
-    if (!tl->dirty) {
+    if (!tl->dirty && !tl->compacting) {
         if (completion)
             apply(completion, STATUS_OK);
         return;
     }
     if (completion)
         vector_push(tl->flush_completions, completion);
-    if (tl->flushing)
+    if (tl->flushing || tl->compacting)
         return;
     if (tl->flush_timer) {
         remove_timer(tl->flush_timer, 0);
