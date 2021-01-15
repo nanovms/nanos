@@ -306,6 +306,11 @@ static void log_extension_init(log_ext ext)
     assert(push_buffer(ext->staging, alloca_wrap_buffer(tfs_magic, TFS_MAGIC_BYTES)));
     push_varint(ext->staging, TFS_VERSION);
     push_varint(ext->staging, range_span(ext->sectors));
+    if (ext->sectors.start == 0) {
+        assert(buffer_write(ext->staging, ext->tl->fs->uuid, UUID_LEN));
+        assert(buffer_write_cstring(ext->staging, ext->tl->fs->label));
+        push_u8(ext->staging, '\0');   /* label string terminator */
+    }
 }
 
 /* complete linkage in (now disembodied - thus long arg list) previous extension */
@@ -322,7 +327,8 @@ closure_function(3, 1, void, log_extend_link,
     tlog_debug("linking old extension to new and flushing\n");
 
     /* add link to close out old extension and commit */
-    buffer b = bound(old_ext)->staging;
+    log_ext old_ext = bound(old_ext);
+    buffer b = old_ext->staging;
     push_u8(b, LOG_EXTENSION_LINK);
     push_varint(b, bound(sectors).start);
     push_varint(b, range_span(bound(sectors)));
@@ -866,13 +872,10 @@ log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
         halt("no tlog write support\n");
 #else
         fs->root = allocate_tuple();
-        log_ext init_ext = tl->current;
-        log_extension_init(init_ext);
         buffer uuid = alloca_wrap_buffer(fs->uuid, UUID_LEN);
         random_buffer(uuid);
-        assert(push_buffer(init_ext->staging, uuid));
-        assert(buffer_write_cstring(init_ext->staging, fs->label));
-        push_u8(init_ext->staging, '\0');   /* label string terminator */
+        log_ext init_ext = tl->current;
+        log_extension_init(init_ext);
         log_ext new_ext = log_ext_new(tl);
         assert(new_ext != INVALID_ADDRESS);
         log_extension_init(new_ext);
