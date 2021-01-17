@@ -45,7 +45,7 @@ static inline int subdivide(int quantum, int per, int s, int o)
 static inline void *allocate_align(heap h, bytes size, int order)
 {
     assert(order > 1);
-    int msize = sizeof(u64 *) * 2;
+    int msize = sizeof(u64) * 2;
     u64 tsize = size + (1<<order) + msize;
     u64 v = h->alloc(h, tsize);
     if (v == INVALID_PHYSICAL)
