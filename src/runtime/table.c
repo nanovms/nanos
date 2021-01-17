@@ -63,7 +63,7 @@ table allocate_table(heap h, u64 (*key_function)(void *x), boolean (*equals_func
     }
     runtime_memset((void *)t->initial_entries, 0, sizeof(struct cv_pair) * INITIAL_SIZE);
     if (key_function == identity_key && equals_function == pointer_equal)
-        t->use_initial = false;
+        t->use_initial = true;
     else
         t->use_initial = false;
     return new;
