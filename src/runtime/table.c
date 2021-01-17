@@ -5,6 +5,7 @@
 //#define TABLE_PARANOIA
 
 #define EMPTY ((void *)0)
+#define INITIAL_SIZE 4
 
 boolean pointer_equal(void *a, void *b)
 {
@@ -52,6 +53,19 @@ table allocate_table(heap h, u64 (*key_function)(void *x), boolean (*equals_func
     }
     t->key_function = key_function;
     t->equals_function = equals_function;
+
+    /* 64-byte align for cacheline */
+    t->initial_entries = allocate_align(h, sizeof(struct cv_pair) * INITIAL_SIZE, 6);
+    if (t->initial_entries == INVALID_ADDRESS) {
+        deallocate(h, t->entries, t->buckets * sizeof(void *));
+        deallocate(h, new, sizeof(struct table));
+        return INVALID_ADDRESS;
+    }
+    runtime_memset((void *)t->initial_entries, 0, sizeof(struct cv_pair) * INITIAL_SIZE);
+    if (key_function == identity_key && equals_function == pointer_equal)
+        t->use_initial = false;
+    else
+        t->use_initial = false;
     return new;
 }
 
@@ -60,6 +74,7 @@ void deallocate_table(table t)
     table_paranoia(t, "deallocate");
     table_clear(t);
     deallocate(t->h, t->entries, t->buckets * sizeof(void *));
+    deallocate_align(t->h, t->initial_entries);
     deallocate(t->h, t, sizeof(struct table));
 }
 KLIB_EXPORT(deallocate_table);
@@ -88,6 +103,7 @@ static void resize_table(table z, int buckets)
     deallocate(t->h, t->entries, t->buckets * sizeof(void *));
     t->entries = nentries;
     t->buckets = buckets;
+    t->use_initial = false;
     table_paranoia(t, "resize");
 }
 
@@ -95,6 +111,14 @@ void *table_find(table z, void *c)
 {
     table t = valueof(z);
     assert(t);
+    if (t->use_initial) {
+        cv_pair p, pe;
+        for (p = t->initial_entries, pe = p + t->count; p < pe; p++) {
+            if (p->c == u64_from_pointer(c))
+                return pointer_from_u64(p->v);
+        }
+        return EMPTY;
+    }
     key k = t->key_function(c);
     for (entry i = t->entries[position(t->buckets, k)]; i; i = i->next){
         if ((i->k == k) && t->equals_function(i->c, c))
@@ -107,6 +131,13 @@ KLIB_EXPORT(table_find);
 void table_set(table z, void *c, void *v)
 {
     table t = valueof(z);
+    if (t->use_initial) {
+        if (v == EMPTY || t->count >= INITIAL_SIZE)
+            t->use_initial = false;
+        else
+            t->initial_entries[t->count] =
+                (struct cv_pair){u64_from_pointer(c), u64_from_pointer(v)};
+    }
     key k = t->key_function(c);
     key p = position(t->buckets, k);
     entry *e = t->entries + p;
@@ -167,4 +198,5 @@ void table_clear(table t)
         t->entries[i] = 0;
     }
     t->count = 0;
+    t->use_initial = false;
 }

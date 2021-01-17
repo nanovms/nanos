@@ -9,13 +9,19 @@ typedef struct entry {
     struct entry *next;        
 } *entry;
 
+typedef struct cv_pair {
+    u64 c;
+    u64 v;
+} *cv_pair;
 struct table {
     heap h;
     int buckets;
     int count;
     entry *entries;
+    struct cv_pair *initial_entries;
     key (*key_function)(void *x);
     boolean (*equals_function)(void *x, void *y);
+    boolean use_initial;
 };
 
 table allocate_table(heap h, key (*key_function)(void *x), boolean (*equal_function)(void *x, void *y));
