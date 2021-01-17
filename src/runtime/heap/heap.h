@@ -42,6 +42,33 @@ static inline int subdivide(int quantum, int per, int s, int o)
     return (pad(o + base, quantum));
 }
 
+static inline void *allocate_align(heap h, bytes size, int order)
+{
+    assert(order > 1);
+    int msize = sizeof(u64 *) * 2;
+    u64 tsize = size + (1<<order) + msize;
+    u64 v = h->alloc(h, tsize);
+    if (v == INVALID_PHYSICAL)
+        return pointer_from_u64(v);
+    u64 *p = pointer_from_u64((v + (1<<order) + msize) & ~MASK(order));
+    assert(u64_from_pointer(p) + size <= v + tsize);
+    assert(u64_from_pointer(p) - v >= msize);
+    p[-1] = v;
+    p[-2] = tsize;
+    return (void *)p;
+}
+
+static inline void deallocate_align(heap h, void *a)
+{
+    u64 *p = a;
+    u64 v = p[-1];
+    u64 tsize = p[-2];
+    assert(v != 0);
+    assert(v != INVALID_PHYSICAL);
+    assert(tsize > 0);
+    h->dealloc(h, v, tsize);
+}
+
 #define allocate_u64(__h, __b) ((__h)->alloc(__h, __b))
 #define allocate(__h, __b) pointer_from_u64(allocate_u64(__h, __b))
 
