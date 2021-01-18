@@ -180,9 +180,10 @@ closure_function(2, 1, boolean, vga_pci_probe,
         return false;
 
     vga_debug("%s: VGA PCI\n", __func__);
-    struct vga_console_driver *d = allocate(bound(general), sizeof(*d));
+    struct vga_console_driver *d = allocate_zero(bound(general), sizeof(*d));
     assert(d != INVALID_ADDRESS);
     d->c.write = vga_console_write;
+    d->c.name = "vga";
     d->crtc_addr = 0x3d4;
     d->buffer = pointer_from_u64(VGA_BUF_BASE);
     d->buffer_size = VGA_BUF_SIZE / sizeof(*d->buffer);

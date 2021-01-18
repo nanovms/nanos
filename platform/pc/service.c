@@ -159,6 +159,7 @@ closure_function(4, 2, void, fsstarted,
     symbol booted = sym(booted);
     if (!table_find(root, booted))
         filesystem_write_eav(fs, root, booted, null_value);
+    config_console(filesystem_getroot(root_fs));
 }
 
 /* This is very simplistic and uses a fixed drain threshold. This
