@@ -156,13 +156,6 @@ void msi_format(u32 *address, u32 *data, int vector)
     *data = (trigger << 15) | (level << 14) | (mode << 8) | vector;
 }
 
-void pci_setup_fixed_irq(pci_dev dev, int v, thunk h, const char *name)
-{
-    pci_debug("%s: dev %p, int %d, handler %F, name %s\n", __func__, dev, v, h, name);
-    assert(reserve_interrupt(v));
-    register_interrupt(v, h, name);
-}
-
 void pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name)
 {
     int v = allocate_interrupt();
@@ -170,9 +163,6 @@ void pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name)
     u32 *msix_table = pci_msix_table(dev);
     pci_debug("%s: msix_table %p, msi %d: int %d, %s\n", __func__, msix_table, msi_slot, v, name);
 
-    // XXX hack
-    (void)msix_table;
-#ifdef __x86_64__
     u32 a, d;
     u32 vector_control = 0;
     msi_format(&a, &d, v);
@@ -181,7 +171,6 @@ void pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name)
     msix_table[msi_slot*4 + 1] = 0;
     msix_table[msi_slot*4 + 2] = d;
     msix_table[msi_slot*4 + 3] = vector_control;
-#endif
 }
 
 void pci_teardown_msix(pci_dev dev, int msi_slot)
@@ -256,7 +245,6 @@ static void pci_probe_device(pci_dev dev)
         pci_debug("%s: %02x:%02x:%x: %04x:%04x: class %02x:%02x: secondary bus %02x\n",
             __func__, dev->bus, dev->slot, dev->function, vendor, pci_get_device(dev),
             class, subclass, secbus);
-        // XXX skip for arm?
         pci_probe_bus(secbus);
         return;
     }

@@ -146,3 +146,13 @@ void pci_bar_write_8(struct pci_bar *b, u64 offset, u64 val)
     else
         out64(b->addr + offset, val);
 }
+
+void pci_setup_non_msi_irq(pci_dev dev, int idx, thunk h, const char *name)
+{
+    halt("%s: need platform pci irq mappings\n", __func__);
+}
+
+void pci_platform_init_bar(pci_dev dev)
+{
+    /* bars configured before boot, nop */
+}

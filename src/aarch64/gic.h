@@ -1,3 +1,13 @@
+#define GIC_SGI_INTS_START 0
+#define GIC_SGI_INTS_END   16
+#define GIC_PPI_INTS_START 16
+#define GIC_PPI_INTS_END   32
+#define GIC_SPI_INTS_START 32
+#define GIC_SPI_INTS_END   64
+#define GIC_MAX_INT        GIC_SPI_INTS_END
+#define GIC_MAX_PRIO       16
+#define GIC_TIMER_IRQ      27
+
 #define ICC_PMR_EL1     "S3_0_C4_C6_0"
 #define ICC_IAR0_EL1    "S3_0_C12_C8_0"
 #define ICC_EOIR0_EL1   "S3_0_C12_C8_1"

@@ -26,15 +26,7 @@
 #define DEV_BASE_PCIE_PIO     0x3eff0000
 #define DEV_BASE_PCIE_ECAM    0x3f000000
 
-#define GIC_SGI_INTS_START 0
-#define GIC_SGI_INTS_END   16
-#define GIC_PPI_INTS_START 16
-#define GIC_PPI_INTS_END   32
-#define GIC_SPI_INTS_START 32
-#define GIC_SPI_INTS_END   64
-#define GIC_MAX_INT        GIC_SPI_INTS_END
-#define GIC_MAX_PRIO       16
-#define GIC_TIMER_IRQ      27
+#define VIRT_PCIE_IRQ_BASE 3
 
 #define dev_base_pointer(x) (pointer_from_u64(DEVICE_BASE + DEV_BASE_ ##x))
 

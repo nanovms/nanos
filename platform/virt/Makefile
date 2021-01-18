@@ -321,7 +321,7 @@ run: image
 	$(QEMU) $(QEMU_COMMON) $(QEMU_USERNET) $(QEMU_ACCEL) || exit $$(($$?>>1))
 
 run-bridge: image
-	$(QEMU) $(QEMU_COMMON) $(QEMU_NET) $(QEMU_ACCEL) || exit $$(($$?>>1))
+	$(QEMU) $(QEMU_COMMON) $(QEMU_NET) $(QEMU_CPU) || exit $$(($$?>>1))
 
 run-noaccel: image
 	$(QEMU) $(QEMU_COMMON) $(QEMU_USERNET) $(QEMU_CPU) || exit $$(($$?>>1))

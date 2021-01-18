@@ -1,6 +1,7 @@
 #include <kernel.h>
 #include <pci.h>
 #include <page.h>
+#include <gic.h>
 
 //#define PCI_PLATFORM_DEBUG
 #ifdef PCI_PLATFORM_DEBUG
@@ -99,3 +100,20 @@ void pci_bar_write_4(struct pci_bar *b, u64 offset, u32 val)
         pio_out32(b->addr + offset, val);
 }
 
+void pci_setup_non_msi_irq(pci_dev dev, int idx, thunk h, const char *name)
+{
+    /* queue index ignored; virtio ints are shared */
+    u64 v = GIC_SPI_INTS_START + VIRT_PCIE_IRQ_BASE + (dev->slot % 4);
+    pci_plat_debug("%s: dev %p, idx %d, irq %d, handler %F, name %s\n",
+                   __func__, dev, idx, v, h, name);
+    reserve_interrupt(v); /* failure ok if shared int */
+    register_interrupt(v, h, name);
+}
+
+void pci_platform_init_bar(pci_dev dev)
+{
+    /* XXX consts */
+    u64 base = 0x1000 + ((dev->bus << 12) | (dev->slot << 8) | (dev->function << 6));
+    pci_plat_debug("%s: dev %d:%d:%d, base 0x%x\n", __func__, dev->bus, dev->slot, dev->function, base);
+    pci_cfgwrite(dev, PCIR_BAR(0), 4, base);
+}

@@ -189,21 +189,21 @@ static void vtpci_modern_write_8(struct pci_bar *b, bytes offset, u64 val)
 
 static u8 vtpci_get_isr_status(vtpci dev)
 {
-    /* XXX TODO should fix non-msi for modern device as well */
     return pci_bar_read_1(&dev->common_config, dev->regs[VTPCI_REG_ISR_STATUS]);
 }
 
 closure_function(3, 0, void, vtpci_non_msix_interrupt,
                  vtpci, dev, const char *, name, thunk, handler)
 {
-    virtio_pci_debug("%s: dev %p, name %s, handler %p (%F)\n", __func__, bound(dev), bound(name), bound(handler), bound(handler));
-    u8 isr_status = vtpci_get_isr_status(bound(dev));
-    virtio_pci_debug("   isr status 0x%x\n", isr_status);
+    virtio_pci_debug("%s: dev %p, name %s, handler %p (%F)\n", __func__, bound(dev),
+                     bound(name), bound(handler), bound(handler));
 
-    if (isr_status & VIRTIO_PCI_ISR_INTR) {
-        virtio_pci_debug("   applying handler %p (%F)\n", bound(handler), bound(handler));
-        apply(bound(handler));
-    }
+    /* clear pending; ignore INTR flag here as it may have been
+       cleared by another (shared) handler... */
+    u8 isr_status = vtpci_get_isr_status(bound(dev));
+    virtio_pci_debug("   isr status 0x%x applying handler %p (%F)\n", isr_status,
+                     bound(handler), bound(handler));
+    apply(bound(handler));
 
     if (isr_status & VIRTIO_PCI_ISR_CONFIG)
         rprintf("%s: config change interrupt; unhandled\n", __func__);
@@ -241,10 +241,7 @@ status vtpci_alloc_virtqueue(vtpci dev,
     } else {
         thunk t = closure(dev->virtio_dev.general, vtpci_non_msix_interrupt, dev, name, handler);
         assert(t != INVALID_ADDRESS);
-
-        // XXX platform specific
-        u64 v = 32 /* SPI base */ + 3 /* PCIE start for virt */ + ((idx + dev->dev->slot) % 4);
-        pci_setup_fixed_irq(dev->dev, v, t, name);
+        pci_setup_non_msi_irq(dev->dev, idx, t, name);
     }
 
     // queue ring
@@ -271,13 +268,7 @@ static void vtpci_legacy_alloc_resources(vtpci dev)
     dev->regs[VTPCI_REG_QUEUE_MSIX_VECTOR] = VIRTIO_MSI_QUEUE_VECTOR;
     dev->regs[VTPCI_REG_ISR_STATUS] = VIRTIO_PCI_ISR;
 
-#ifdef __aarch64__
-    /* XXX this needs to be a platform method */
-    // XXX arbitrary, check field widths
-    u64 base = 0x1000 + ((dev->dev->bus << 12) | (dev->dev->slot << 8) | (dev->dev->function << 6));
-    virtio_pci_debug("%s: dev %d:%d:%d, base 0x%x\n", __func__, dev->dev->bus, dev->dev->slot, dev->dev->function, base);
-    pci_cfgwrite(dev->dev, PCIR_BAR(0), 4, base);
-#endif
+    pci_platform_init_bar(dev->dev);
     pci_bar_init(dev->dev, &dev->common_config, 0, 0, -1);
     runtime_memcpy(&dev->notify_config, &dev->common_config, sizeof(dev->notify_config));
     pci_bar_init(dev->dev, &dev->device_config, 0,
@@ -287,11 +278,8 @@ static void vtpci_legacy_alloc_resources(vtpci dev)
 
 static u32 vtpci_modern_find_cap(vtpci dev, u8 cfg_type, struct pci_bar *b)
 {
-    virtio_pci_debug("%s: cfg_type 0x%x\n", __func__, cfg_type);
     for (u32 cp = pci_find_cap(dev->dev, PCIY_VENDOR); cp != 0; cp = pci_find_next_cap(dev->dev, PCIY_VENDOR, cp)) {
-        virtio_pci_debug("   cp 0x%x\n", cp);
         u8 c = pci_cfgread(dev->dev, cp + VTPCI_CAP_R_TYPE, 1);
-        virtio_pci_debug("   c %d\n", c);
         if (c != cfg_type)
             continue;
 
@@ -302,7 +290,6 @@ static u32 vtpci_modern_find_cap(vtpci dev, u8 cfg_type, struct pci_bar *b)
             virtio_pci_debug("%s: cp 0x%x, cfg_type %d: cap_len %d\n", __func__, cp, cfg_type, cap_len);
             u32 offset = pci_cfgread(dev->dev, cp + VTPCI_CAP_R_OFFSET, 4);
             u32 length = pci_cfgread(dev->dev, cp + VTPCI_CAP_R_LENGTH, 4);
-            virtio_pci_debug("   calling pci_bar_init, bar %d, offset 0x%x, length 0x%x\n", bar, offset, length);
             pci_bar_init(dev->dev, b, bar, offset, length);
         }
         return cp;
@@ -310,19 +297,6 @@ static u32 vtpci_modern_find_cap(vtpci dev, u8 cfg_type, struct pci_bar *b)
 
     return 0;
 }
-
-#if 0
-/* XXX needs to go with other platform setup */
-static void vtpci_modern_bar_init(vtpci dev)
-{
-    int bar = 4;
-    u32 flags = pci_cfgread(dev->dev, PCIR_BAR(bar), 4) & PCI_BAR_B_TYPE_MASK;
-    u64 v = (0x10000000ull + (bar << 24)) | flags;
-    virtio_pci_debug("%s: v 0x%lx, flags 0x%x\n", __func__, v, flags);
-    pci_cfgwrite(dev->dev, PCIR_BAR(bar), 4, (v & MASK(32)));
-    pci_cfgwrite(dev->dev, PCIR_BAR(bar + 1), 4, v >> 32);
-}
-#endif
 
 static void vtpci_modern_alloc_resources(vtpci dev)
 {
@@ -333,11 +307,11 @@ static void vtpci_modern_alloc_resources(vtpci dev)
     dev->regs[VTPCI_REG_ISR_STATUS] = VIRTIO_PCI_ISR;
 
     // scan PCI capabilities
-    //vtpci_modern_bar_init(dev);
     vtpci_modern_find_cap(dev, VIRTIO_PCI_CAP_COMMON_CFG, &dev->common_config);
     u32 cp = vtpci_modern_find_cap(dev, VIRTIO_PCI_CAP_NOTIFY_CFG, &dev->notify_config);
     if (cp) {
         dev->notify_offset_multiplier = pci_cfgread(dev->dev, cp + VTPCI_NOTIFY_CAP_R_OFFSET_MULTIPLIER, 4);
+        virtio_pci_debug("%s: notify_offset_multiplier 0x%x\n", __func__, dev->notify_offset_multiplier);
     }
     vtpci_modern_find_cap(dev, VIRTIO_PCI_CAP_DEVICE_CFG, &dev->device_config);
 }
@@ -359,7 +333,6 @@ vtpci attach_vtpci(heap h, backed_heap page_allocator, pci_dev d, u64 feature_ma
 
     virtio_pci_debug("%s: dev %x\n", __func__, pci_get_device(d));
     boolean is_modern = pci_get_device(d) >= VIRTIO_PCI_DEVICEID_MODERN_MIN;
-
     if (is_modern)
         feature_mask |= VIRTIO_F_VERSION_1;
 

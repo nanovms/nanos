@@ -10,7 +10,6 @@
         .endif
 
         str	x17, [sp, #-8]
-        mrs     x18, tpidr_el1  // XXX temp
         ldr     x17, [x18]      // running_frame
         stp     x0, x1, [x17, #(FRAME_X0 * 8)]
         stp     x2, x3, [x17, #(FRAME_X2 * 8)]
@@ -69,8 +68,8 @@ _start:
 
         // temporary stack
         mov     x0, #0x40600000
-	mov	sp, x0
-	b	start
+        mov	sp, x0
+        b	start
 
 // exception entries
 entry_sync_el1h:
@@ -108,10 +107,10 @@ entry_invalid_el1:
 // universal frame return
 .globl frame_return
 frame_return:
-        msr	daifset, #2	// disable irqs (necessary?)
+        msr     daifset, #2	// disable irqs (necessary?)
         str     x0, [x18]       // set running_frame
-        mov	x1, #0x0        // clear frame full condition
-        str	x1, [x0, #(FRAME_FULL * 8)]
+        mov     x1, #0x0        // clear frame full condition
+        str     x1, [x0, #(FRAME_FULL * 8)]
 
         ldp     x2, x3, [x0, #(FRAME_ESR_SPSR * 8)]
         mov     w2, w2          // mask off esr
@@ -122,9 +121,9 @@ frame_return:
 
         /* user return: restore x18 and place stack */
         ldr     x18, [x0, #(FRAME_X18 * 8)]
-        msr	sp_el0, x1
-        b	2f
-1:      mov	sp, x1
+        msr     sp_el0, x1
+        b       2f
+1:      mov     sp, x1
 2:      ldp     x2, x3, [x0, #(FRAME_X2 * 8)]
         ldp     x4, x5, [x0, #(FRAME_X4 * 8)]
         ldp     x6, x7, [x0, #(FRAME_X6 * 8)]
