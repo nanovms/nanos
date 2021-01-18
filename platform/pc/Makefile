@@ -14,6 +14,7 @@ SRCS-kernel.img= \
 	$(SRCDIR)/drivers/console.c \
 	$(SRCDIR)/drivers/dmi.c \
 	$(SRCDIR)/drivers/nvme.c \
+	$(SRCDIR)/drivers/netconsole.c \
 	$(SRCDIR)/drivers/storage.c \
 	$(SRCDIR)/drivers/vga.c \
 	$(SRCDIR)/gdb/gdbstub.c \
