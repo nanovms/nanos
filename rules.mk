@@ -8,11 +8,31 @@ OBJDIR=		$(subst $(ROOTDIR),$(OUTDIR),$(CURDIR))
 VENDORDIR=	$(ROOTDIR)/vendor
 TOOLDIR=	$(OUTDIR)/tools/bin
 UNAME_s=	$(shell uname -s)
+
+# If no platform is specified, try to guess it from the host architecture.
+ifeq ($(PLATFORM),)
 ARCH?=		$(shell uname -m)
-ARCHDIR=	$(SRCDIR)/$(ARCH)
+ifeq ($(ARCH),aarch64)
+PLATFORM?=	virt
+endif
+ifeq ($(ARCH),x86_64)
 PLATFORM?=	pc
+endif
+else
+# Otherwise, assume we're cross-compiling, and derive the arch from the platform.
+ifeq ($(PLATFORM),virt)
+ARCH?=		aarch64
+endif
+ifeq ($(PLATFORM),pc)
+ARCH?=		x86_64
+endif
+CROSS_COMPILE?=	$(ARCH)-linux-gnu-
+endif
+
 PLATFORMDIR=	$(ROOTDIR)/platform/$(PLATFORM)
 PLATFORMOBJDIR=	$(subst $(ROOTDIR),$(OUTDIR),$(PLATFORMDIR))
+ARCHDIR=	$(SRCDIR)/$(ARCH)
+
 IMAGE=		$(OUTDIR)/image/disk.raw
 
 include $(SRCDIR)/runtime/files.mk
