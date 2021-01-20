@@ -79,7 +79,7 @@ dap:
 
 readsectors:
         mov cx, [dap.sector_count]
-        mov ax, cx
+        mov bx, cx
         mov dx, 0x0080
         cmp cx, 0x0080
         cmovnb cx, dx       ; cx = min(dap.sector_count, 0x80)
@@ -95,8 +95,8 @@ loop:
         mov dl, 0x80
         int 0x13
         jc sector_read_error
-        sub ax, [dap.sector_count]
-        cmp ax, 0
+        sub bx, [dap.sector_count]
+        cmp bx, 0
         je done
         add [dap.lba], cx
         mov cx, 0x1000
@@ -104,8 +104,8 @@ loop:
         mov dx, 0x0
         mov [dap.offset], dx
         mov cx, 0x0080
-        cmp ax, cx
-        cmovb cx, ax 
+        cmp bx, cx
+        cmovb cx, bx 
         mov [dap.sector_count], cx
         jmp loop
 sector_read_error:
