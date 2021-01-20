@@ -1,3 +1,45 @@
+/* arch-specific syscall definitions */
+struct stat {
+    /* 0 - 3 */
+    u64 st_dev;
+    u64 st_ino;
+    u32 st_mode;
+    u32 st_nlink;
+    u32 st_uid;
+    u32 st_gid;
+
+    /* 4 - 7 */
+    u64 st_rdev;
+    u64 pad1;
+    s64 st_size;
+    s32 st_blksize;
+    s32 pad2;
+
+    /* 8 - 11 */
+    s64 st_blocks;
+    s64 st_atime;
+    u64 st_atime_nsec;
+    s64 st_mtime;
+
+    /* 12 - 15 */
+    u64 st_mtime_nsec;
+    s64 st_ctime;
+    u64 st_ctime_nsec;
+    s32 unused[2];
+} __attribute__((packed));
+
+#define O_DIRECTORY     00040000
+#define O_NOFOLLOW      00100000
+#define O_DIRECT        00200000
+#define O_LARGEFILE     00400000
+
+struct epoll_event {
+    u32 events;                 /* Epoll events */
+    u64 data;
+};
+
+/* kernel stuff */
+
 #define SYSCALL_FRAME_ARG0    FRAME_X0
 #define SYSCALL_FRAME_ARG1    FRAME_X1
 #define SYSCALL_FRAME_ARG2    FRAME_X2

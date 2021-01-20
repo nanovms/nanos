@@ -1,7 +1,6 @@
 /* main header for unix-specific kernel objects */
 
 #include <kernel.h>
-//#include <apic.h>
 #include <unix_syscalls.h>
 #include <pagecache.h>
 #include <page.h>
@@ -414,7 +413,9 @@ typedef struct process {
     u64               vdso_base;
     id_heap           virtual;  /* huge virtual, parent of virtual_page */
     id_heap           virtual_page; /* pagesized, default for mmaps */
+#ifdef __x86_64__
     id_heap           virtual32; /* for tracking low 32-bit space and MAP_32BIT maps */
+#endif
     id_heap           fdallocator;
     filesystem        root_fs;
     filesystem        cwd_fs;

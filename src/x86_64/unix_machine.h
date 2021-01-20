@@ -1,3 +1,49 @@
+/* arch-specific syscall definitions */
+struct stat {
+    /* 0 - 3 */
+    u64 st_dev;
+    u64 st_ino;
+    u64 st_nlink;
+    u32 st_mode;
+    u32 st_uid;
+
+    /* 4 - 7 */
+    u32 st_gid;
+    u32 pad0;
+    u64 st_rdev;
+    s64 st_size;
+    s64 st_blksize;
+
+    /* 8 - 11 */
+    s64 st_blocks;
+    u64 st_atime;
+    u64 st_atime_nsec;
+    u64 st_mtime;
+
+    /* 12 - 17 */
+    u64 st_mtime_nsec;
+    u64 st_ctime;
+    u64 st_ctime_nsec;
+    u64 unused[3];
+} __attribute__((packed));
+
+#define O_DIRECT        00040000
+#define O_NOFOLLOW      00400000
+
+#define MAP_32BIT           0x40
+
+#define ARCH_SET_GS 0x1001
+#define ARCH_SET_FS 0x1002
+#define ARCH_GET_FS 0x1003
+#define ARCH_GET_GS 0x1004
+
+struct epoll_event {
+    u32 events;                 /* Epoll events */
+    u64 data;
+} __attribute__((packed));
+
+/* kernel stuff */
+
 #define SYSCALL_FRAME_ARG0    FRAME_RDI
 #define SYSCALL_FRAME_ARG1    FRAME_RSI
 #define SYSCALL_FRAME_ARG2    FRAME_RDX

@@ -1309,16 +1309,20 @@ sysreturn fdatasync(int fd)
     return fsync(fd);
 }
 
-sysreturn access(const char *name, int mode)
+static sysreturn access_internal(tuple cwd, const char *pathname, int mode, int flags)
 {
-    if (!validate_user_string(name))
-        return -EFAULT;
-    thread_log(current, "access: \"%s\", mode %d", name, mode);
-    tuple m;
-    int ret = resolve_cstring_follow(0, current->p->cwd, name, &m, 0);
-    if (ret) {
-        return set_syscall_return(current, ret);
+    tuple m = 0;
+    int ret;
+    if (flags & AT_SYMLINK_NOFOLLOW) {
+        ret = resolve_cstring(0, cwd, pathname, &m, 0);
+        if (!ret && is_symlink(m))
+            ret = -ELOOP;
+    } else {
+        ret = resolve_cstring_follow(0, cwd, pathname, &m, 0);
     }
+
+    if (ret)
+        return set_syscall_return(current, ret);
     if (mode == F_OK)
         return 0;
     u32 perms = file_meta_perms(current->p, m);
@@ -1327,6 +1331,24 @@ sysreturn access(const char *name, int mode)
             ((mode & X_OK) && !(perms & ACCESS_PERM_EXEC)))
         return -EACCES;
     return 0;
+}
+
+sysreturn access(const char *pathname, int mode)
+{
+    thread_log(current, "access: \"%s\", mode %d", pathname, mode);
+    if (!validate_user_string(pathname))
+        return -EFAULT;
+    return access_internal(current->p->cwd, pathname, mode, 0);
+}
+
+sysreturn faccessat(int dirfd, const char *pathname, int mode, int flags)
+{
+    thread_log(current, "faccessat: dirfd %d, \"%s\", mode %d, flags %d", dirfd, pathname, mode, flags);
+    if (!validate_user_string(pathname))
+        return -EFAULT;
+    filesystem fs;              /* dummy */
+    tuple cwd = resolve_dir(fs, dirfd, pathname);
+    return access_internal(cwd, pathname, mode, flags);
 }
 
 /*
@@ -2215,6 +2237,7 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, dup, dup);
     register_syscall(map, dup3, dup3);
     register_syscall(map, fallocate, fallocate);
+    register_syscall(map, faccessat, faccessat);
     register_syscall(map, fadvise64, fadvise64);
     register_syscall(map, fstat, fstat);
     register_syscall(map, newfstatat, newfstatat);

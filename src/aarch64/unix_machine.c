@@ -229,7 +229,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, fchownat, syscall_ignore);
     register_syscall(map, linkat, 0);
     register_syscall(map, fchmodat, syscall_ignore);
-    register_syscall(map, faccessat, 0);
     register_syscall(map, unshare, 0);
     register_syscall(map, splice, 0);
     register_syscall(map, tee, 0);

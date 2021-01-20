@@ -32,7 +32,13 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
         stack_start = (stack_start - PROCESS_STACK_ASLR_RANGE) +
             get_aslr_offset(PROCESS_STACK_ASLR_RANGE);
 
-    assert(id_heap_set_area(p->virtual32, stack_start, PROCESS_STACK_SIZE, true, true));
+    assert(id_heap_set_area(
+#ifdef __x86_64__
+               p->virtual32
+#else
+               p->virtual_page
+#endif
+               , stack_start, PROCESS_STACK_SIZE, true, true));
     p->stack_map = allocate_vmap(p->vmaps, irangel(stack_start, PROCESS_STACK_SIZE),
                                  ivmap(VMAP_FLAG_WRITABLE, 0, 0, 0));
     assert(p->stack_map != INVALID_ADDRESS);

@@ -1,72 +1,11 @@
-// structs that live on the user-kernel boundary
+/* architecture-independent syscall types and definitions -
+   arch-specific bits live in corresponding unix_machine.h */
 
 /* limits */
 #define NAME_MAX 255
 #define PATH_MAX 4096
 
-#ifdef __x86_64__
-/* fields from linux asm/stat.h - 64-bit only */
-struct stat {
-    /* 0 - 3 */
-    u64 st_dev;
-    u64 st_ino;
-    u64 st_nlink;
-    u32 st_mode;
-    u32 st_uid;
-
-    /* 4 - 7 */
-    u32 st_gid;
-    u32 pad0;
-    u64 st_rdev;
-    s64 st_size;
-    s64 st_blksize;
-
-    /* 8 - 11 */
-    s64 st_blocks;
-    u64 st_atime;
-    u64 st_atime_nsec;
-    u64 st_mtime;
-
-    /* 12 - 17 */
-    u64 st_mtime_nsec;
-    u64 st_ctime;
-    u64 st_ctime_nsec;
-    u64 unused[3];
-} __attribute__((packed));
-#else
-struct stat {
-    /* 0 - 3 */
-    u64 st_dev;
-    u64 st_ino;
-    u32 st_mode;
-    u32 st_nlink;
-    u32 st_uid;
-    u32 st_gid;
-
-    /* 4 - 7 */
-    u64 st_rdev;
-    u64 pad1;
-    s64 st_size;
-    s32 st_blksize;
-    s32 pad2;
-
-    /* 8 - 11 */
-    s64 st_blocks;
-    s64 st_atime;
-    u64 st_atime_nsec;
-    s64 st_mtime;
-
-    /* 12 - 15 */
-    u64 st_mtime_nsec;
-    s64 st_ctime;
-    u64 st_ctime_nsec;
-    s32 unused[2];
-} __attribute__((packed));
-#endif
-
-// better to just do this by offset
-
-#define S_IFMT  00170000
+#define S_IFMT   00170000
 #define S_IFSOCK 0140000
 #define S_IFLNK	 0120000
 #define S_IFREG  0100000
@@ -153,8 +92,6 @@ typedef struct iovec {
 #define O_TRUNC		00001000
 #define O_APPEND	00002000
 #define O_NONBLOCK	00004000
-#define O_DIRECT        00040000
-#define O_NOFOLLOW      00400000
 #define O_NOATIME       01000000
 #define O_CLOEXEC       02000000
 #define O_PATH         010000000
@@ -232,7 +169,6 @@ struct flock {
 #define MREMAP_MAYMOVE      1
 #define MREMAP_FIXED        2
 #define MAP_STACK           0x20000
-#define MAP_32BIT           0x40
 
 #define PROT_READ       0x1
 #define PROT_WRITE      0x2
@@ -242,12 +178,6 @@ struct flock {
 #define MS_ASYNC      1
 #define MS_INVALIDATE 2
 #define MS_SYNC       4
-
-// straight from linux
-#define ARCH_SET_GS 0x1001
-#define ARCH_SET_FS 0x1002
-#define ARCH_GET_FS 0x1003
-#define ARCH_GET_GS 0x1004
 
 typedef int clockid_t;
 
@@ -329,6 +259,8 @@ struct utimbuf {
 #define SEEK_SET 0
 #define SEEK_CUR 1
 #define SEEK_END 2
+#define SEEK_DATA 3
+#define SEEK_HOLE 4
 
 struct rlimit {
     u64 rlim_cur;  /* Soft limit */
@@ -355,6 +287,7 @@ struct rlimit {
 
 #define RUSAGE_SELF     0
 #define RUSAGE_CHILDREN (-1)
+#define RUSAGE_BOTH     (-2)
 #define RUSAGE_THREAD   1
 
 struct rusage {
@@ -683,18 +616,6 @@ struct tms {
 #define CLONE_NEWNET		0x40000000	/* New network namespace */
 #define CLONE_IO		0x80000000	/* Clone io context */
 
-#ifdef __x86_64__
-#define __packed __attribute__((packed))
-#else
-#define __packed
-#endif
-
-struct epoll_event {
-    u32     events;      /* Epoll events */
-    u64 data;
-} __packed;
-#undef __packed
-
 #define	EPOLL_CTL_ADD 0x1
 #define	EPOLL_CTL_DEL 0x2
 #define	EPOLL_CTL_MOD 0x3
@@ -819,8 +740,8 @@ struct io_uring_params {
 #define IPV6_V6ONLY     26
 
 /* eventfd flags */
-#define EFD_CLOEXEC     02000000
-#define EFD_NONBLOCK    00004000
+#define EFD_CLOEXEC     O_CLOEXEC
+#define EFD_NONBLOCK    O_NONBLOCK
 #define EFD_SEMAPHORE   00000001
 
 /* timerfd flags */

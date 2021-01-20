@@ -911,13 +911,16 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
 
     if (!fixed && (vmap_mmap_type == VMAP_MMAP_TYPE_ANONYMOUS ||
                    vmap_mmap_type == VMAP_MMAP_TYPE_FILEBACKED)) {
+#ifdef __x86_64__
         boolean is_32bit = (flags & MAP_32BIT) != 0; /* allocate from 32-bit address space */
         where = is_32bit ? id_heap_alloc_subrange(p->virtual32, len, 0x80000000, 0x100000000) :
             allocate_u64((heap)p->virtual_page, len);
+#else
+        where = allocate_u64((heap)p->virtual_page, len);
+#endif
         if (where == (u64)INVALID_ADDRESS) {
             /* We'll always want to know about low memory conditions, so just bark. */
-            msg_err("failed to allocate %svirtual memory, size 0x%lx\n",
-                    is_32bit ? "32-bit " : "", len);
+            msg_err("failed to allocate virtual memory, flags 0x%x, size 0x%lx\n", flags, len);
             return -ENOMEM;
         }
         thread_log(current, "   alloc: 0x%lx\n", where);
@@ -998,7 +1001,13 @@ void mmap_process_init(process p)
     assert(p->vareas != INVALID_ADDRESS && p->vmaps != INVALID_ADDRESS);
 
     /* zero page is off-limits */
-    add_varea(p, 0, PAGESIZE, p->virtual32, false);
+    add_varea(p, 0, PAGESIZE,
+#ifdef __x86_64__
+              p->virtual32,
+#else
+              p->virtual_page,
+#endif
+              false);
 
     /* allow (tracked) reservations in p->virtual */
     add_varea(p, PROCESS_VIRTUAL_HEAP_START, PROCESS_VIRTUAL_HEAP_LIMIT, p->virtual_page, true);
