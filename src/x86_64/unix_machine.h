@@ -154,3 +154,6 @@ static inline u64 page_flags_from_vmflags(u64 vmflags)
         flags |= PAGE_WRITABLE;
     return flags;
 }
+
+#define syscall_entry_arch_fixup(t)
+#define syscall_restart_arch_fixup(t)

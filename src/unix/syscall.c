@@ -2315,6 +2315,7 @@ void syscall_debug(context f)
     u64 call = f[FRAME_VECTOR];
     thread t = pointer_from_u64(f[FRAME_THREAD]);
     u64 arg0 = f[SYSCALL_FRAME_ARG0]; /* aliases retval on arm; cache arg */
+    syscall_entry_arch_fixup(t);
     set_syscall_return(t, -ENOSYS);
 
     if (call >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0])) {

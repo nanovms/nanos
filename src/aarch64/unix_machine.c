@@ -6,6 +6,16 @@ struct rt_sigframe *get_rt_sigframe(thread t)
     return pointer_from_u64(t->sighandler_frame[SYSCALL_FRAME_SP]);
 }
 
+void syscall_entry_arch_fixup(thread t)
+{
+    t->active_frame[FRAME_SAVED_ARG0] = t->active_frame[FRAME_X0];
+}
+
+void syscall_restart_arch_fixup(thread t)
+{
+    t->active_frame[FRAME_X0] = t->active_frame[FRAME_SAVED_ARG0];
+}
+
 struct frame_record {
     u64 fp;
     u64 lr;
@@ -20,7 +30,7 @@ void setup_sigframe(thread t, int signum, struct siginfo *si)
 
     /* copy only what we really need */
     t->sighandler_frame[FRAME_X18] = t->default_frame[FRAME_X18];
-
+    t->sighandler_frame[FRAME_TPIDR_EL0] = t->default_frame[FRAME_TPIDR_EL0];
     t->sighandler_frame[FRAME_SP] = (sa->sa_flags & SA_ONSTACK) && t->signal_stack ?
         u64_from_pointer(t->signal_stack + t->signal_stack_length) :
         t->default_frame[FRAME_SP];

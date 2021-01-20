@@ -185,7 +185,7 @@ static inline void run_thread_frame(thread t)
 //               f[FRAME_RDI], f[FRAME_RAX], f[FRAME_FLAGS], f[FRAME_CS], f[FRAME_IS_SYSCALL] ? "sysret" : "iret");
     ci->frcount++;
     frame_return(f);
-    halt("ut oh\n");
+    halt("return from frame_return!\n");
 }
 
 define_closure_function(1, 0, void, run_thread,

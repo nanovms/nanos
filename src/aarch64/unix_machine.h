@@ -42,3 +42,6 @@ static inline u64 page_flags_from_vmflags(u64 vmflags)
     flags |= (vmflags & VMAP_FLAG_WRITABLE) ? PAGE_WRITABLE : PAGE_READONLY;
     return flags;
 }
+
+void syscall_entry_arch_fixup(thread t);
+void syscall_restart_arch_fixup(thread t);

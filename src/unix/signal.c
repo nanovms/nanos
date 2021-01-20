@@ -311,24 +311,24 @@ closure_function(2, 1, boolean, deliver_signal_handler,
     thread t = struct_from_field(n, thread, n);
     if (thread_is_runnable(t)) {
         /* Note that we're only considering unmasked signals
-            (handlers) here, nothing in the interest masks. The
-            thread is runnable, so it can't be blocked on
-            rt_sigtimedwait or a signalfd (poll wait or blocking
-            read). */
+           (handlers) here, nothing in the interest masks. The
+           thread is runnable, so it can't be blocked on
+           rt_sigtimedwait or a signalfd (poll wait or blocking
+           read). */
         if ((sigword & sigstate_get_mask(&t->signals)) == 0) {
             /* thread scheduled to run or running; no explicit wakeup */
-            sig_debug("thread %d running and sig %d unmasked; return\n",
-                        t->tid, sig);
+            sig_debug("thread %d running and sig unmasked; return\n",
+                      t->tid);
             *can_wake = 0;
             return false;
         }
     } else if (thread_in_interruptible_sleep(t) &&
                 (sigword & get_effective_sigmask(t)) == 0) {
-        /*  Note that we check only for this signal, not
-            all pending signals as with thread delivery.
-            That is because our task is to wake up a thread
-            on behalf of this signal delivery, not just
-            wake up a thread that has any pending signals. */
+        /* Note that we check only for this signal, not
+           all pending signals as with thread delivery.
+           That is because our task is to wake up a thread
+           on behalf of this signal delivery, not just
+           wake up a thread that has any pending signals. */
         *can_wake = t;
     }
     return true;
@@ -391,6 +391,7 @@ static void check_syscall_restart(thread t, sigaction sa)
     if (rv == -ERESTARTSYS) {
         if (sa->sa_flags & SA_RESTART) {
             sig_debug("restarting syscall\n");
+            syscall_restart_arch_fixup(t);
             enqueue_irqsafe(runqueue, &t->deferred_syscall);
             kern_unlock();
             runloop();
@@ -1114,7 +1115,7 @@ boolean dispatch_signals(thread t)
 
     if (handler == SIG_DFL) {
         const char *s = "   default action\n";
-        sig_debug(s);
+        sig_debug("%s", s);
         thread_log(t, s);
         default_signal_action(t, qs);
         /* ignore if returned */
@@ -1122,7 +1123,7 @@ boolean dispatch_signals(thread t)
 
     if (handler == SIG_DFL || handler == SIG_IGN) {
         const char *s = "   ignored\n";
-        sig_debug(s);
+        sig_debug("%s", s);
         thread_log(t, s);
         sigstate_thread_restore(t);
         return false;
