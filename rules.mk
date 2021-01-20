@@ -26,7 +26,9 @@ endif
 ifeq ($(PLATFORM),pc)
 ARCH?=		x86_64
 endif
+ifneq ($(ARCH),$(shell uname -m))
 CROSS_COMPILE?=	$(ARCH)-linux-gnu-
+endif
 endif
 
 PLATFORMDIR=	$(ROOTDIR)/platform/$(PLATFORM)

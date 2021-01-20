@@ -186,6 +186,9 @@ void irq_handler(void)
                   ci->id, i, state_strings[ci->state], f[FRAME_EL],
                   f, f[FRAME_ELR], f[FRAME_ESR_SPSR]);
 
+        if (i >= MAX_INTERRUPT_VECTORS)
+            halt("dispatched interrupt %d exceeds MAX_INTERRUPT_VECTORS\n", i);
+
         if (list_empty(&handlers[i]))
             halt("no handler for interrupt %d\n", i);
 

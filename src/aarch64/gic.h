@@ -111,6 +111,36 @@
 #define GICR_ICFGR_LEVEL 0
 #define GICR_ICFGR_EDGE  2
 
+/* Legacy (<v3) GICC interface */
+#define GIC_CPU_REG(offset)  (*(volatile u32 *)(dev_base_pointer(GIC_CPU + (offset))))
+#define GICC_CTLR            GIC_CPU_REG(0x0000)
+#define GICC_CTLR_EOImode    0x100
+#define GICC_CTLR_AckCtl     0x004
+#define GICC_CTLR_EnableGrp1 0x002
+#define GICC_CTLR_EnableGrp0 0x001
+#define GICC_PMR             GIC_CPU_REG(0x0004)
+#define GICC_BPR             GIC_CPU_REG(0x0008)
+#define GICC_IAR             GIC_CPU_REG(0x000c)
+#define GICC_EOIR            GIC_CPU_REG(0x0010)
+#define GICC_RPR             GIC_CPU_REG(0x0014)
+#define GICC_HPPIR           GIC_CPU_REG(0x0018)
+#define GICC_ABPR            GIC_CPU_REG(0x001c)
+#define GICC_AIAR            GIC_CPU_REG(0x0020)
+#define GICC_AEOIR           GIC_CPU_REG(0x0024)
+#define GICC_AHPPIR          GIC_CPU_REG(0x0028)
+#define GICC_APR(n)          GIC_CPU_REG(0x00d0 + 4 * (n))
+#define GICC_NSAPR(n)        GIC_CPU_REG(0x00e0 + 4 * (n))
+#define GICC_IIDR            GIC_CPU_REG(0x00fc)
+#define GICC_IIDR_ProductID_BITS             12
+#define GICC_IIDR_ProductID_SHIFT            20
+#define GICC_IIDR_Architecture_version_BITS  4
+#define GICC_IIDR_Architecture_version_SHIFT 16
+#define GICC_IIDR_Revision_BITS              4
+#define GICC_IIDR_Revision_SHIFT             12
+#define GICC_IIDR_Implementer_BITS           12
+#define GICC_IIDR_Implementer_SHIFT          0
+#define GICC_DIR             GIC_CPU_REG(0x1000)
+
 void gic_disable_int(int irq);
 void gic_enable_int(int irq);
 void gic_clear_pending_int(int irq);
