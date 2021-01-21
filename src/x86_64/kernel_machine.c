@@ -27,3 +27,9 @@ heap allocate_tagged_region(kernel_heaps kh, u64 tag)
     build_assert(TABLE_MAX_BUCKETS * sizeof(void *) <= 1 << 20);
     return allocate_mcache(h, backed, 5, 20, PAGESIZE_2M);
 }
+
+void clone_context_pstate(context dest, context src)
+{
+    runtime_memcpy(dest, src, sizeof(u64) * (FRAME_N_PSTATE + 1));
+    runtime_memcpy(dest + FRAME_EXTENDED_SAVE, src + FRAME_EXTENDED_SAVE, extended_frame_size());
+}

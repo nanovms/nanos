@@ -85,5 +85,10 @@ static inline u64 page_flags_from_vmflags(u64 vmflags)
     return flags;
 }
 
+static inline void set_tls(context f, u64 tls)
+{
+    f[FRAME_TPIDR_EL0] = tls;
+}
+
 void syscall_entry_arch_fixup(thread t);
 void syscall_restart_arch_fixup(thread t);

@@ -382,6 +382,7 @@ void map(u64 v, physical p, u64 length, u64 flags)
 
     if (!map_area(irangel(v, length), p, flags | PAGE_ATTR_AF)) {
         rprintf("ra %p\n", __builtin_return_address(0));
+        print_stack_from_here();
         halt("map failed for v 0x%lx, p 0x%lx, len 0x%lx, flags 0x%lx\n",
              v, p, length, flags);
     }
@@ -519,6 +520,20 @@ boolean traverse_ptes(u64 vaddr, u64 length, entry_handler ph)
         rprintf("fail\n");
     pagetable_unlock();
     return result;
+}
+
+/* called with lock held */
+closure_function(0, 3, boolean, validate_entry,
+                 int, level, u64, vaddr, u64 *, entry)
+{
+    return pt_entry_is_present(*entry);
+}
+
+/* validate that all pages in vaddr range [base, base + length) are present */
+boolean validate_virtual(void * base, u64 length)
+{
+    page_debug("base %p, length 0x%lx\n", base, length);
+    return traverse_ptes(u64_from_pointer(base), length, stack_closure(validate_entry));
 }
 
 /* called with lock held */

@@ -45,12 +45,6 @@
         mrs     x1, esr_el1
         mrs     x2, elr_el1
 
-        // make lazy? does it matter?
-        .if \el == 0
-        mrs     x3, tpidr_el0
-        str     x3, [x17, #(FRAME_TPIDR_EL0 * 8)]
-        .endif
-
         // yet frame return doesn't exceed rel range?
         add	x17, x17, #256
         stp     w0, w1, [x17, #((FRAME_ESR_SPSR - 32) * 8)]
@@ -180,3 +174,61 @@ exception_vectors:
         vector  invalid_el0
         vector  invalid_el0
         
+/* fp / simd */
+
+.globl frame_save_fpsimd
+frame_save_fpsimd:
+        add     x0, x0, #(FRAME_Q0 * 8)
+        stp     q0, q1, [x0, #(0 * 16)]
+        stp     q2, q3, [x0, #(2 * 16)]
+        stp     q4, q5, [x0, #(4 * 16)]
+        stp     q6, q7, [x0, #(6 * 16)]
+        stp     q8, q9, [x0, #(8 * 16)]
+        stp     q10, q11, [x0, #(10 * 16)]
+        stp     q12, q13, [x0, #(12 * 16)]
+        stp     q14, q15, [x0, #(14 * 16)]
+        stp     q16, q17, [x0, #(16 * 16)]
+        stp     q18, q19, [x0, #(18 * 16)]
+        stp     q20, q21, [x0, #(20 * 16)]
+        stp     q22, q23, [x0, #(22 * 16)]
+        stp     q24, q25, [x0, #(24 * 16)]
+        stp     q26, q27, [x0, #(26 * 16)]
+        stp     q28, q29, [x0, #(28 * 16)]
+        stp     q30, q31, [x0, #(30 * 16)]
+        mrs     x1, fpsr
+        mrs     x2, fpcr
+        add     x0, x0, #(32 * 16)
+        stp     x1, x2, [x0]
+        ret
+
+.globl frame_restore_fpsimd
+frame_restore_fpsimd:
+        add     x0, x0, #(FRAME_Q0 * 8)
+        ldp     q0, q1, [x0, #(0 * 16)]
+        ldp     q2, q3, [x0, #(2 * 16)]
+        ldp     q4, q5, [x0, #(4 * 16)]
+        ldp     q6, q7, [x0, #(6 * 16)]
+        ldp     q8, q9, [x0, #(8 * 16)]
+        ldp     q10, q11, [x0, #(10 * 16)]
+        ldp     q12, q13, [x0, #(12 * 16)]
+        ldp     q14, q15, [x0, #(14 * 16)]
+        ldp     q16, q17, [x0, #(16 * 16)]
+        ldp     q18, q19, [x0, #(18 * 16)]
+        ldp     q20, q21, [x0, #(20 * 16)]
+        ldp     q22, q23, [x0, #(22 * 16)]
+        ldp     q24, q25, [x0, #(24 * 16)]
+        ldp     q26, q27, [x0, #(26 * 16)]
+        ldp     q28, q29, [x0, #(28 * 16)]
+        ldp     q30, q31, [x0, #(30 * 16)]
+        add     x0, x0, #(32 * 16)
+        ldr     x1, [x0]
+        msr     fpsr, x1
+
+        /* first check if fpcr changed to avoid context synchronization */
+        mrs     x2, fpcr
+        ldr     x1, [x0, #8]
+        cmp     x1, x2
+        b.eq    1f
+        msr     fpcr, x1
+1:
+        ret

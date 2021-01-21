@@ -201,5 +201,10 @@ static inline u64 page_flags_from_vmflags(u64 vmflags)
     return flags;
 }
 
+static inline void set_tls(context f, u64 tls)
+{
+    f[FRAME_FSBASE] = tls;
+}
+
 #define syscall_entry_arch_fixup(t)
 #define syscall_restart_arch_fixup(t)

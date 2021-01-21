@@ -105,6 +105,10 @@
 #define ESR_ISS_ID_ABRT_FSC_SYNC_PARITY_ECC_L3 0x1f
 #define ESR_ISS_ID_ABRT_FSC_TLB_CONFLICT_ABORT 0x30
 
+#define ID_AA64ISAR0_EL1_RNDR_BITS        4
+#define ID_AA64ISAR0_EL1_RNDR_SHIFT       60
+#define ID_AA64ISAR0_EL1_RNDR_IMPLEMENTED 1 /* RNDR, RNDRRS MSRs */
+
 #define SCTLR_EL1_UCI     U64_FROM_BIT(26) /* trap cache instructions in EL0 */
 #define SCTLR_EL1_EE      U64_FROM_BIT(25) /* endianness for EL1 data / pt table */
 #define SCTLR_EL1_E0E     U64_FROM_BIT(24) /* endianness for EL0 data */
@@ -221,15 +225,12 @@ static inline cpuinfo current_cpu(void)
     return (cpuinfo)pointer_from_u64(r);
 }
 
-static inline u64 extended_frame_size(void)
-{
-    return 512; // XXX revisit, arch or depends on config?
-}
-
 static inline u64 total_frame_size(void)
 {
-    return FRAME_EXTENDED_SAVE * sizeof(u64) + extended_frame_size();
+    return FRAME_EXTENDED_MAX * sizeof(u64);
 }
+
+extern void clone_context_pstate(context dest, context src);
 
 static inline boolean is_pte_error(context f)
 {
@@ -319,6 +320,9 @@ static inline void frame_restore_tls(context f)
 {
     write_psr(TPIDR_EL0, f[FRAME_TPIDR_EL0]);
 }
+
+extern void frame_save_fpsimd(context f);
+extern void frame_restore_fpsimd(context f);
 
 static inline void frame_set_sp(context f, u64 sp)
 {

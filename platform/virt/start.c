@@ -68,25 +68,20 @@ void early_dump(void *p, unsigned long length)
     early_debug("\n");
 }
 
-void halt(char *format, ...)
-{
-    early_debug(format);
-    while(1);
-}
-
-// XXX TODO stubs...
-void print_stack_from_here(void)
-{
-    
-}
-
 void vga_pci_register(kernel_heaps kh, console_attach a)
 {
 }
     
 u64 random_seed(void)
 {
-    return 1;
+#if 0 // gcc not taking +rng feature modifier...encode manually?
+    if (field_from_u64(read_psr(ID_AA64ISAR0_EL1), ID_AA64ISAR0_EL1_RNDR)
+        == ID_AA64ISAR0_EL1_RNDR_IMPLEMENTED) {
+        return read_psr(RNDRRS);
+    }
+#endif
+    /* likely not a good fallback - look for another */
+    return rdtsc();
 }
 
 #define BOOTSTRAP_REGION_SIZE (2 << 20)
@@ -185,6 +180,21 @@ void vm_exit(u8 code)
 #endif
     virt_shutdown();
     while (1);
+}
+
+void halt(char *format, ...)
+{
+    vlist a;
+    buffer b = little_stack_buffer(512);
+    struct buffer f;
+    f.start = 0;
+    f.contents = format;
+    f.end = runtime_strlen(format);
+
+    vstart(a, format);
+    vbprintf(b, &f, &a);
+    buffer_print(b);
+    kernel_shutdown(0);
 }
 
 u64 total_processors = 1;

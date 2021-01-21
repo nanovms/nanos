@@ -247,7 +247,12 @@ static inline u64 total_frame_size(void)
     return FRAME_EXTENDED_SAVE * sizeof(u64) + extended_frame_size();
 }
 
+/* stubs, for intel sdm recommends using xsave* over manual lazy save/restore */
+#define frame_save_fpsimd(f)
+#define frame_restore_fpsimd(f)
+
 extern void xsave(context f);
+extern void clone_context_pstate(context dest, context src);
 
 static inline boolean is_protection_fault(context f)
 {

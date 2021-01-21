@@ -119,6 +119,33 @@ void print_frame(context f)
     }
 }
 
+void frame_trace(u64 *fp)
+{
+    for (unsigned int frame = 0; frame < 16; frame ++) {
+        if (u64_from_pointer(fp) < 4096ULL)
+            break;
+
+        if (!validate_virtual(fp, sizeof(u64)) ||
+            !validate_virtual(fp + 1, sizeof(u64)))
+            break;
+
+        u64 n = fp[1];
+        if (n == 0)
+            break;
+        fp = pointer_from_u64(fp[0]);
+        print_u64_with_sym(n);
+        rputs("\n");
+    }
+}
+
+void print_stack_from_here(void)
+{
+    rprintf("frame trace: \n");
+    u64 fp;
+    asm("mov %0, x29" : "=r" (fp));
+    frame_trace(pointer_from_u64(fp));
+}
+
 #define STACK_TRACE_DEPTH       128
 void print_stack(context c)
 {

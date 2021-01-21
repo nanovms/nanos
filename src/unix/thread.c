@@ -76,17 +76,14 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, unsigned long
 
     thread t = create_thread(current->p);
     /* clone frame processor state */
-    runtime_memcpy(t->default_frame, current->default_frame, sizeof(u64) * (FRAME_N_PSTATE + 1));
-    runtime_memcpy(t->default_frame + FRAME_EXTENDED_SAVE, current->default_frame + FRAME_EXTENDED_SAVE,
-                   extended_frame_size());
+    clone_context_pstate(t->default_frame, current->default_frame);
     thread_clone_sigmask(t, current);
 
     /* clone behaves like fork at the syscall level, returning 0 to the child */
     set_syscall_return(t, 0);
     t->default_frame[SYSCALL_FRAME_SP] = u64_from_pointer(child_stack);
-#ifdef __x86_64__
-    t->default_frame[FRAME_FSBASE] = newtls;
-#endif
+    if (flags & CLONE_SETTLS)
+        set_tls(t->default_frame, newtls);
     if (flags & CLONE_PARENT_SETTID)
         *ptid = t->tid;
     if (flags & CLONE_CHILD_CLEARTID)
@@ -170,7 +167,6 @@ static inline void run_thread_frame(thread t)
     if (do_syscall_stats && t->last_syscall == SYS_sched_yield)
         count_syscall(t, 0);
     context f = thread_frame(t);
-    frame_restore_tls(f);
 #ifdef __x86_64__
     f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
 #endif

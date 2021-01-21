@@ -327,10 +327,9 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
         /* start huge virtual at zero so that parent allocations abide by alignment */
         p->virtual = create_id_heap(h, h, 0, PROCESS_VIRTUAL_HEAP_LIMIT, HUGE_PAGESIZE, false);
         assert(p->virtual != INVALID_ADDRESS);
-#ifdef __x86_64__
-        /* reserve lowest huge page for virtual32 */
+
+        /* reserve the lowest huge page for program, heap and stack (and virtual32 on x86_64) */
         assert(id_heap_set_area(p->virtual, 0, HUGE_PAGESIZE, true, true));
-#endif
         p->virtual_page = create_id_heap_backed(h, heap_backed(kh), (heap)p->virtual, PAGESIZE, false);
         assert(p->virtual_page != INVALID_ADDRESS);
         if (aslr)
@@ -403,6 +402,9 @@ void thread_pause(thread t)
     else {
         t->utime += diff;
     }
+    context f = thread_frame(t);
+    frame_save_fpsimd(f);
+    frame_save_tls(f);
     set_current_thread(0);
 }
 
@@ -412,6 +414,9 @@ void thread_resume(thread t)
     if (get_current_thread() == &t->thrd)
         return;
     t->start_time = now(CLOCK_ID_MONOTONIC_RAW);
+    context f = thread_frame(t);
+    frame_restore_tls(f);
+    frame_restore_fpsimd(f);
     set_current_thread(&t->thrd);
 }
 
