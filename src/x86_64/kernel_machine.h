@@ -251,6 +251,11 @@ static inline u64 total_frame_size(void)
 #define frame_save_fpsimd(f)
 #define frame_restore_fpsimd(f)
 
+static inline void frame_enable_interrupts(context f)
+{
+    f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
+}
+
 extern void xsave(context f);
 extern void clone_context_pstate(context dest, context src);
 

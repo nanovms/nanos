@@ -321,6 +321,11 @@ static inline void frame_restore_tls(context f)
     write_psr(TPIDR_EL0, f[FRAME_TPIDR_EL0]);
 }
 
+static inline void frame_enable_interrupts(context f)
+{
+    f[FRAME_ESR_SPSR] |= SPSR_I; /* EL0 */
+}
+
 extern void frame_save_fpsimd(context f);
 extern void frame_restore_fpsimd(context f);
 

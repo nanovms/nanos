@@ -69,14 +69,19 @@ define_closure_function(2, 1, void, klog_load_sh,
 
 void klog_load(klog_dump dest, status_handler sh)
 {
-    apply(klog.disk_read, dest,
-        irangel(klog.disk_offset >> SECTOR_OFFSET, KLOG_DUMP_SIZE >> SECTOR_OFFSET),
-        init_closure(&klog.load_sh, klog_load_sh, dest, sh));
+    if (klog.disk_read)
+        apply(klog.disk_read, dest,
+              irangel(klog.disk_offset >> SECTOR_OFFSET, KLOG_DUMP_SIZE >> SECTOR_OFFSET),
+              init_closure(&klog.load_sh, klog_load_sh, dest, sh));
 }
 KLIB_EXPORT(klog_load);
 
 void klog_save(int exit_code, status_handler sh)
 {
+    if (!klog.disk_write) {
+        apply(sh, STATUS_OK);
+        return;
+    }
     bytes msg_len = 0;
     if (klog.count > 0) {
         klog_lock();

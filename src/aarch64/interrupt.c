@@ -25,11 +25,18 @@ extern u32 n_interrupt_vectors;
 extern u32 interrupt_vector_size;
 extern void * interrupt_vectors;
 
-static char* textoreg[FRAME_N_GPREG] = {
+static char* gpreg_names[FRAME_N_GPREG] = {
     "  x0", "  x1", "  x2", "  x3", "  x4", "  x5", "  x6", "  x7",
     "  x8", "  x9", " x10", " x11", " x12", " x13", " x14", " x15",
     " x16", " x17", " x18", " x19", " x20", " x21", " x22", " x23",
     " x24", " x25", " x26", " x27", " x28", " x29", " x30", "  sp" };
+
+static char* fpsimd_names[35] = {
+    "  q0", "  q1", "  q2", "  q3", "  q4", "  q5", "  q6", "  q7",
+    "  q8", "  q9", " q10", " q11", " q12", " q13", " q14", " q15",
+    " q16", " q17", " q18", " q19", " q20", " q21", " q22", " q23",
+    " q24", " q25", " q26", " q27", " q28", " q29", " q30", " q31",
+    "fpsr", "fpcr"};
 
 void install_fallback_fault_handler(fault_handler h)
 {
@@ -112,10 +119,27 @@ void print_frame(context f)
 
     for (int j = 0; j < FRAME_N_GPREG; j++) {
         console("      ");
-        console(textoreg[j]);
+        console(gpreg_names[j]);
         console(": ");
         print_u64_with_sym(f[j]);
+        int qidx = FRAME_Q0 + (2 * j);
+        if (f[qidx] || f[qidx + 1]) {
+            console(fpsimd_names[j]);
+            console(": ");
+            print_u64(f[qidx + 1]);
+            print_u64(f[qidx]);
+        }
         console("\n");        
+    }
+    for (int j = 0; j < 2; j++) {
+        u64 v = f[FRAME_FPSR + j];
+        if (!v)
+            continue;
+        console("      ");
+        console(fpsimd_names[32 + j]);
+        console(": ");
+        print_u64(v);
+        console("\n");
     }
 }
 

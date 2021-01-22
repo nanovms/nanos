@@ -98,8 +98,10 @@ static inline void sched_thread_pause(void)
     if (shutting_down)
         return;
     nanos_thread nt = get_current_thread();
-    if (nt)
+    if (nt) {
+        sched_debug("sched_thread_pause, nt %p\n", nt);
         apply(nt->pause);
+    }
 }
 
 NOTRACE void __attribute__((noreturn)) kernel_sleep(void)

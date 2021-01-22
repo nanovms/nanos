@@ -167,18 +167,15 @@ static inline void run_thread_frame(thread t)
     if (do_syscall_stats && t->last_syscall == SYS_sched_yield)
         count_syscall(t, 0);
     context f = thread_frame(t);
-#ifdef __x86_64__
-    f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
-#endif
-#ifdef __aarch64__
-    f[FRAME_ESR_SPSR] |= SPSR_I; /* EL0 */
-#endif
     cpuinfo ci = current_cpu();
+    frame_restore_tls(f);
+    frame_restore_fpsimd(f);
+    frame_enable_interrupts(f);
     f[FRAME_QUEUE] = u64_from_pointer(ci->thread_queue);
 
-//    thread_log(t, "run %s, cpu %d, frame %p, rip 0x%lx, rsp 0x%lx, rdi 0x%lx, rax 0x%lx, rflags 0x%lx, cs 0x%lx, %s",
-//               f == t->sighandler_frame ? "sig handler" : "thread", current_cpu()->id, f, f[FRAME_RIP], f[FRAME_RSP],
-//               f[FRAME_RDI], f[FRAME_RAX], f[FRAME_FLAGS], f[FRAME_CS], f[FRAME_IS_SYSCALL] ? "sysret" : "iret");
+    thread_log(t, "run %s, cpu %d, frame %p, pc 0x%lx, sp 0x%lx, rv 0x%lx",
+               f == t->sighandler_frame ? "sig handler" : "thread",
+               current_cpu()->id, f, f[SYSCALL_FRAME_PC], f[SYSCALL_FRAME_SP], f[SYSCALL_FRAME_RETVAL1]);
     ci->frcount++;
     frame_return(f);
     halt("return from frame_return!\n");
