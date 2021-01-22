@@ -49,8 +49,9 @@ closure_function(0, 1, void, attach_console,
 void init_console(kernel_heaps kh)
 {
     heap h = heap_general(kh);
-    vga_pci_register(kh, closure(h, attach_console));
-    netconsole_register(kh, closure(h, attach_console));
+    console_attach a = closure(h, attach_console);
+    vga_pci_register(kh, a);
+    netconsole_register(kh, a);
 }
 
 void config_console(tuple root)
@@ -82,6 +83,6 @@ void config_console(tuple root)
     }
     return;
 error:
-    rprintf("%s: error parsing consoles from manifest\n", __FUNCTION__);
+    msg_err("error parsing consoles from manifest\n");
     return;
 }

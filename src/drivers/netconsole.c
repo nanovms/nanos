@@ -23,7 +23,7 @@ static void netconsole_write(void *_d, const char *s, bytes count)
         return;
     bytes off = 0;
     while (count > 0) {
-        bytes len = count < MAX_PAYLOAD ? count : MAX_PAYLOAD;
+        bytes len = MIN(count, MAX_PAYLOAD);
         struct pbuf *pb = pbuf_alloc(PBUF_TRANSPORT, len, PBUF_RAM);
         if (pb == 0)
             return;
@@ -40,7 +40,7 @@ static void netconsole_config(void *_d, tuple r)
     netconsole_driver nd = _d;
 
     if ((nd->pcb = udp_new()) == 0) {
-        rprintf("%s: failed to allocate pcb\n", __FUNCTION__);
+        msg_err("failed to allocate pcb\n");
         return;
     }
 
@@ -49,7 +49,7 @@ static void netconsole_config(void *_d, tuple r)
     bytes len = dst_ip ? buffer_length(dst_ip) : runtime_strlen(DEFAULT_IP);
 
     if (len > IPADDR_STRLEN_MAX) {
-        rprintf("%s: ip address too long\n", __FUNCTION__);
+        msg_err("%s: ip address too long\n");
         return;
     }
 
@@ -57,18 +57,18 @@ static void netconsole_config(void *_d, tuple r)
     runtime_memcpy(b, s, len);
     s[len] = 0;
     if (!ipaddr_aton(s, &nd->dst_ip)) {
-        rprintf("%s: failed to translate ip address\n", __FUNCTION__);
+        msg_err("%s: failed to translate ip address\n");
         return;
     }
 
     buffer dst_port = table_find(r, sym(netconsole_port));
     u64 port = DEFAULT_PORT;
     if (dst_port && !parse_int(dst_port, 10, &port)) {
-        rprintf("%s: failed to parse port\n", __FUNCTION__);
+        msg_err("%s: failed to parse port\n");
         return;
     }
     if (port >= U64_FROM_BIT(16)) {
-        rprintf("%s: port out of range\n", __FUNCTION__);
+        msg_err("%s: port out of range\n");
         return;
     }
     nd->port = (u16)port;
