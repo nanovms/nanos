@@ -70,8 +70,8 @@ dap:
         db 0x10
         db 0
         .sector_count dw STAGE2SIZE/sectorsize
-        .offset       dw stage2
-        .segment      dw 0
+        .offset       dw 0
+        .segment      dw (stage2 >> 4)
         .lba          dq 1
 
 
@@ -83,11 +83,6 @@ readsectors:
         mov dx, 0x0080
         cmp cx, 0x0080
         cmovnb cx, dx       ; cx = min(dap.sector_count, 0x80)
-        mov edx, 0x10000
-        sub edx, [dap.offset]
-        shr dx, 0x9
-        cmp dx, cx
-        cmovb cx, dx      ; cx = min(cx, (0x10000 - dap.offset) >> 0x9)
         mov [dap.sector_count], cx
 loop:
         mov si, dap
@@ -101,8 +96,6 @@ loop:
         add [dap.lba], cx
         mov cx, 0x1000
         add [dap.segment], cx
-        mov dx, 0x0
-        mov [dap.offset], dx
         mov cx, 0x0080
         cmp bx, cx
         cmovb cx, bx 
