@@ -12,15 +12,6 @@
 
 static kernel_context spare_kernel_context;
 
-static void init_frame(context f)
-{
-    assert((u64_from_pointer(f) & 63) == 0);
-    // XXX arch shit
-#ifdef __x86_64__
-    xsave(f);
-#endif
-}
-
 context allocate_frame(heap h)
 {
     context f = allocate_zero(h, total_frame_size());

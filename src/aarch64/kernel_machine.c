@@ -59,7 +59,7 @@ void cpu_init(int cpu)
     asm volatile("mov x18, %0; msr tpidr_el1, %0" ::"r"(a));
 }
 
-void clone_context_pstate(context dest, context src)
+void clone_frame_pstate(context dest, context src)
 {
     runtime_memcpy(dest, src, sizeof(u64) * FRAME_N_PSTATE);
 }

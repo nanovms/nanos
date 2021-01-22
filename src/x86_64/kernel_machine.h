@@ -257,7 +257,8 @@ static inline void frame_enable_interrupts(context f)
 }
 
 extern void xsave(context f);
-extern void clone_context_pstate(context dest, context src);
+extern void clone_frame_pstate(context dest, context src);
+extern void init_frame(context f);
 
 static inline boolean is_protection_fault(context f)
 {

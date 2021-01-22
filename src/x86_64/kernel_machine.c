@@ -28,8 +28,14 @@ heap allocate_tagged_region(kernel_heaps kh, u64 tag)
     return allocate_mcache(h, backed, 5, 20, PAGESIZE_2M);
 }
 
-void clone_context_pstate(context dest, context src)
+void clone_frame_pstate(context dest, context src)
 {
     runtime_memcpy(dest, src, sizeof(u64) * (FRAME_N_PSTATE + 1));
     runtime_memcpy(dest + FRAME_EXTENDED_SAVE, src + FRAME_EXTENDED_SAVE, extended_frame_size());
+}
+
+void init_frame(context f)
+{
+    assert((u64_from_pointer(f) & 63) == 0);
+    xsave(f);
 }

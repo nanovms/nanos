@@ -5,7 +5,7 @@ PROGRAMS=	kernel.elf
 WITHOUT_SSP=	1
 
 SRCS-kernel.elf= \
-	$(CURDIR)/start.c \
+	$(CURDIR)/service.c \
 	$(CURDIR)/pci.c \
 	$(OBJDIR)/gitversion.c \
 	$(SRCDIR)/aarch64/clock.c \

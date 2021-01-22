@@ -632,8 +632,12 @@ void page_init_mmu(range init_pt, u64 vtarget)
     assert((init_pt.start & MASK(PAGELOG_2M)) == 0);
 
     /* check capabilities */
-    if (field_from_u64(read_psr(ID_AA64MMFR0_EL1),
-                       ID_AA64MMFR0_EL1_TGran4) != 0)
+    u64 mmfr0 = read_psr(ID_AA64MMFR0_EL1);
+    page_init_debug("MMFR0 ");
+    page_init_debug_u64(mmfr0);
+    page_init_debug("\n");
+
+    if (field_from_u64(mmfr0, ID_AA64MMFR0_EL1_TGran4) != 0)
         halt("%s: 4KB granule not supported\n", __func__);
 
     current_pt_phys = init_pt;

@@ -230,7 +230,8 @@ static inline u64 total_frame_size(void)
     return FRAME_EXTENDED_MAX * sizeof(u64);
 }
 
-extern void clone_context_pstate(context dest, context src);
+extern void clone_frame_pstate(context dest, context src);
+#define init_frame(f)
 
 static inline boolean is_pte_error(context f)
 {

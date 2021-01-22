@@ -1,24 +1,11 @@
-// XXX trim headers after move to init.c
 #include <kernel.h>
-#include <pci.h>
 #include <pagecache.h>
 #include <tfs.h>
-#include <apic.h>
 #include <region.h>
 #include <page.h>
-#include <storage.h>
 #include <symtab.h>
-#include <unix.h>
-#include <aws/aws.h>
 #include <virtio/virtio.h>
-#include <vmware/vmxnet3.h>
-#include <drivers/acpi.h>
-#include <drivers/storage.h>
-#include <drivers/console.h>
 #include <kvm_platform.h>
-#include <log.h>
-#include <xen_platform.h>
-#include <hyperv_platform.h>
 #include "serial.h"
 
 #define BOOT_PARAM_OFFSET_E820_ENTRIES  0x01E8
@@ -64,7 +51,6 @@ static u64 bootstrap_alloc(heap h, bytes length)
     return result;
 }
 
-/* XXX some header reorg in order */
 void init_extra_prints(); 
 thunk create_init(kernel_heaps kh, tuple root, filesystem fs);
 filesystem_complete bootfs_handler(kernel_heaps kh, tuple root,

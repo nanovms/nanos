@@ -76,7 +76,7 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, unsigned long
 
     thread t = create_thread(current->p);
     /* clone frame processor state */
-    clone_context_pstate(t->default_frame, current->default_frame);
+    clone_frame_pstate(t->default_frame, current->default_frame);
     thread_clone_sigmask(t, current);
 
     /* clone behaves like fork at the syscall level, returning 0 to the child */
