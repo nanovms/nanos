@@ -12,7 +12,7 @@ typedef struct netconsole_driver {
     boolean setup;
 } *netconsole_driver;
 
-#define MAX_PAYLOAD 1472
+#define MAX_PAYLOAD 512
 #define DEFAULT_IP "10.0.2.2"
 #define DEFAULT_PORT 4444
 
