@@ -1,4 +1,3 @@
-/* just a test */
 #include <kernel.h>
 #include <page.h>
 #include <pagecache.h>
@@ -139,16 +138,26 @@ void reclaim_regions(void)
     // XXX - free identity map here?
 }
 
-extern void arm_hvc(u64 x0, u64 x1, u64 x2, u64 x3);
+extern filesystem root_fs;
 
-static inline void virt_shutdown(void)
+extern void arm_hvc(u64 x0, u64 x1, u64 x2, u64 x3);
+extern void angel_shutdown(u64 x0);
+
+static void psci_shutdown(void)
 {
-    /* hackish shortcut to psci shutdown */
     u32 psci_fn = 0x84000000 /* fn base */ + 0x8 /* system off */;
     arm_hvc(psci_fn, 0, 0, 0);
 }
 
-extern filesystem root_fs;
+static inline void virt_shutdown(u64 code)
+{
+    if (!root_fs) {
+        tuple root = filesystem_getroot(root_fs);
+        if (root && table_find(root, sym(psci)))
+            psci_shutdown();
+    }
+    angel_shutdown(code);
+}
 
 void vm_exit(u8 code)
 {
@@ -178,7 +187,7 @@ void vm_exit(u8 code)
         QEMU_HALT(code);
     }
 #endif
-    virt_shutdown();
+    virt_shutdown(code);
     while (1);
 }
 

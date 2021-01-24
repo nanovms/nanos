@@ -237,3 +237,13 @@ frame_restore_fpsimd:
         msr     fpcr, x1
 1:
         ret
+
+        .globl angel_shutdown
+angel_shutdown:
+        str     x0, [sp, #8]
+        mov     x1, #0x26         /* 0x20026 ADP_Stopped_ApplicationExit */
+        movk    x1, #0x2, lsl #16
+        str     x1, [sp, #0]
+        mov     x1, sp
+        mov     w0, #0x18
+        hlt     0xf000

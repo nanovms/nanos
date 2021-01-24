@@ -2366,7 +2366,6 @@ void syscall_debug(context f)
         t->syscall_complete = false;
         sysreturn rv = h(arg0, f[SYSCALL_FRAME_ARG1], f[SYSCALL_FRAME_ARG2],
                          f[SYSCALL_FRAME_ARG3], f[SYSCALL_FRAME_ARG4], f[SYSCALL_FRAME_ARG5]);
-//        rprintf("rv = 0x%lx\n", rv);
         set_syscall_return(t, rv);
         if (do_syscall_stats)
             count_syscall(t, rv);
