@@ -2,6 +2,8 @@
 #include <apic.h>
 #include <drivers/acpi.h>
 #include <pci.h>
+#include <region.h>
+#include <page.h>
 
 #define INTEL_PCI_VENDORID  0x8086
 
@@ -27,6 +29,9 @@
 #else
 #define acpi_debug(x, ...)
 #endif
+
+static acpi_rsdt rsdt;
+static table acpi_tables;
 
 declare_closure_struct(1, 0, void, piix4acpi_irq,
                        struct piix4acpi *, dev);
@@ -85,8 +90,52 @@ closure_function(1, 1, boolean, piix4acpi_probe,
     return true;
 }
 
+static void *map_acpi_table(kernel_heaps kh, u64 paddr, u64 plen)
+{
+    u64 off, base, len, v;
+    heap vh = (heap)heap_virtual_page(kh);
+
+    off = paddr & PAGEMASK;
+    base = paddr & ~PAGEMASK;
+again:
+    len = pad(paddr + plen - base, PAGESIZE);
+    v = allocate_u64(vh, len);
+    map(v, base, len, 0);
+    u32 *t = pointer_from_u64(v + off);
+    u32 tlen = *(t + 1);
+
+    /* The table actual length may be longer than requested length,
+     * so repeat the mapping process if necessary */
+    if (v + len - off < tlen) {
+        unmap(v, len);
+        deallocate_u64(vh, v, len);
+        plen = tlen;
+        goto again;
+    }
+    return pointer_from_u64(v + off);
+}
+
 void init_acpi(kernel_heaps kh)
 {
     heap h = heap_general(kh);
     register_pci_driver(closure(h, piix4acpi_probe, h));
+    acpi_tables = allocate_table(h, identity_key, pointer_equal);
+    for_regions(e) {
+        if (e->type != REGION_ACPI_RSDT)
+            continue;
+        rsdt = map_acpi_table(kh, e->base, e->length);
+        break;
+    }
+    u32 *t, *te;
+    t = (u32 *)(rsdt + 1);
+    te = pointer_from_u64(u64_from_pointer(rsdt) + rsdt->h.length);
+    for (; t < te; t++) {
+        u32 *tp = map_acpi_table(kh, *t, PAGESIZE);
+        table_set(acpi_tables, pointer_from_u64((u64)*tp), tp);
+    }
+}
+
+void *acpi_get_table(u32 sig)
+{
+    return table_find(acpi_tables, pointer_from_u64((u64)sig));
 }

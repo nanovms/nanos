@@ -10,6 +10,7 @@
 #include <serial.h>
 #include <drivers/ata.h>
 #include <storage.h>
+#include <drivers/acpi.h>
 
 //#define STAGE2_DEBUG
 //#define DEBUG_STAGE2_ALLOC
@@ -348,6 +349,36 @@ static u64 stage2_allocator(heap h, bytes b)
     return result;
 }
 
+static void acpi_find_rsdt()
+{
+    range ranges[2] = {{0xe0000, 0xfffff}, {0, 0}};
+    /* set second range to 1K of EDBA, segment found at 40:0Eh */
+    ranges[1].start = (*(u16 *)(0x40e))<<4;
+    ranges[1].end = ranges[0].start + 1024;
+    for (range *r = ranges; r < ranges + _countof(ranges); r++) {
+        for (u64 i = r->start; i < r->end; i += 16) {
+            acpi_rsdp rsdp = (void *)i;
+            if (runtime_memcmp(&rsdp->sig, "RSD PTR ", sizeof(rsdp->sig)) != 0)
+                continue;
+            if (!acpi_checksum(rsdp, 20)) {
+                stage2_debug("%s: rsdp at %p failed checksum\n", __func__, rsdp);
+                continue;
+            }
+            acpi_rsdt rsdt = (void *)rsdp->rsdt_addr;
+            if (runtime_memcmp(&rsdt->h.sig, "RSDT", sizeof(rsdt->h.sig)) != 0) {
+                stage2_debug("%s: rsdt has bad signature\n", __func__);
+                continue;
+            }
+            if (!acpi_checksum(rsdt, rsdt->h.length)) {
+                stage2_debug("%s: rsdt has failed checksum\n", __func__);
+                continue;
+            }
+            create_region(u64_from_pointer(rsdt), rsdt->h.length, REGION_ACPI_RSDT);
+            return;
+        }
+    }
+}
+
 void centry()
 {
     working_heap.alloc = stage2_allocator;
@@ -404,6 +435,9 @@ void centry()
     assert(working_p != INVALID_PHYSICAL);
     working_saved_base = working_p;
     working_end = working_p + STAGE2_WORKING_HEAP_SIZE;
+
+    /* save ACPI root table for stage3 */
+    acpi_find_rsdt();
 
     u32 stacktop = stack_base + STAGE2_STACK_SIZE - 4;
     asm("mov %0, %%esp": :"g"(stacktop));
