@@ -36,8 +36,8 @@ u64 rtc_gettimeofday(void) {
     tm.tm_min = bcd2bin(rtc_read(RTC_MINUTES));
     tm.tm_hour = bcd2bin(rtc_read(RTC_HOURS));
     tm.tm_mday = bcd2bin(rtc_read(RTC_DAY_OF_MONTH));
-    tm.tm_mon = bcd2bin(rtc_read(RTC_MONTH));
-    tm.tm_year = bcd2bin(rtc_read(RTC_YEAR)) + 2000;
+    tm.tm_mon = bcd2bin(rtc_read(RTC_MONTH)) - 1;
+    tm.tm_year = bcd2bin(rtc_read(RTC_YEAR)) + 100; /* assume we are in the 21st century */
 
 
     return mktime(&tm);

@@ -22,20 +22,20 @@ static int is_leap_year(int year) {
 }
 
 int mktime(struct tm *tm) {
-    int days = 365 * (tm->tm_year - 1970);
+    int days = 365 * (tm->tm_year - 70);
 
-    for (int i = 1970; i < tm->tm_year; i++) {
-        if (is_leap_year(i)) {
+    for (int i = 70; i < tm->tm_year; i++) {
+        if (is_leap_year(1900 + i)) {
             days++;
         }
     }
 
-    if (is_leap_year(tm->tm_year) && tm->tm_mon > 2) {
+    if (is_leap_year(1900 + tm->tm_year) && tm->tm_mon >= 2) {
         days++;
     }
 
-    for (int i = 1; i < tm->tm_mon; i++) {
-        days += days_in_month(i);
+    for (int i = 0; i < tm->tm_mon; i++) {
+        days += days_in_month(i + 1);
     }
 
     days += (tm->tm_mday - 1);
@@ -60,6 +60,8 @@ struct tm *gmtime_r(u64 *timep, struct tm *result) {
     result->tm_mon = 0;
     while (true) {
         int d = days_in_month(result->tm_mon + 1);
+        if ((result->tm_mon == 1) && is_leap_year(1900 + result->tm_year))
+            d++;
         if (days >= d) {
             result->tm_mon++;
             days -= d;
