@@ -4,6 +4,10 @@
 #define EXIT_FAILURE 1
 #define EXIT_SUCCESS 0
 
+struct pqueue_test_elem {
+    int val;
+};
+
 boolean basic_sort(void * a, void * b)
 {
     return (u64)a < (u64)b;
@@ -165,6 +169,50 @@ boolean random_test(heap h, int n, int passes)
     return false;
 }
 
+static boolean reorder_sort(void *a, void *b)
+{
+    return (((struct pqueue_test_elem *)a)->val < ((struct pqueue_test_elem *)b)->val);
+}
+
+static boolean reorder_test(heap h, int passes)
+{
+    const int max_elems = 512;
+    struct pqueue_test_elem elems[max_elems];
+    int num_elems;
+    int val;
+    char *err_msg = NULL;
+
+    pqueue q = allocate_pqueue(h, reorder_sort);
+    for (int pass = 0; pass < passes; pass++) {
+        num_elems = (rand() % max_elems) + 1;
+        for (int i = 0; i < num_elems; i++)
+            pqueue_insert(q, &elems[i]);
+        for (int i = 0; i < num_elems; i++)
+            elems[i].val = rand();
+        pqueue_reorder(q);
+        val = RAND_MAX;
+        for (int i = 0; i < num_elems; i++) {
+            struct pqueue_test_elem *elem = pqueue_pop(q);
+
+            if (elem->val > val) {
+                err_msg = "pop out of order";
+                goto done;
+            }
+            val = elem->val;
+        }
+        if (pqueue_pop(q) != INVALID_ADDRESS) {
+            err_msg = "popped one too many elements";
+            goto done;
+        }
+    }
+  done:
+    deallocate_pqueue(q);
+    if (!err_msg)
+        return true;
+    msg_err("%s\n", err_msg);
+    return false;
+}
+
 int main(int argc, char **argv)
 {
     heap h = init_process_runtime();
@@ -173,6 +221,9 @@ int main(int argc, char **argv)
 	goto fail;
 
     if (!random_test(h, 100, 1000))
+        goto fail;
+
+    if (!reorder_test(h, 1000))
         goto fail;
 
     msg_debug("pqueue test passed\n");

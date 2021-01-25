@@ -71,6 +71,13 @@ void *pqueue_peek(pqueue q)
     return INVALID_ADDRESS;
 }
 
+void pqueue_reorder(pqueue q)
+{
+    /* Floyd's heap construction algorithm */
+    for (index i = vector_length(q->body) / 2; i > 0; i--)
+        heal(q, i);
+}
+
 pqueue allocate_pqueue(heap h, boolean(*sort)(void *, void *))
 {
     pqueue p = allocate(h, sizeof(struct pqueue));

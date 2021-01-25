@@ -4,3 +4,4 @@ void deallocate_pqueue(pqueue q);
 void pqueue_insert(pqueue q, void *v);
 void *pqueue_peek(pqueue q);
 void *pqueue_pop(pqueue q);
+void pqueue_reorder(pqueue q);
