@@ -371,7 +371,7 @@ void thread_enter_user(thread in)
 void thread_enter_system(thread t)
 {
     if (!t->sysctx) {
-        timestamp here = now(CLOCK_ID_MONOTONIC);
+        timestamp here = now(CLOCK_ID_MONOTONIC_RAW);
         timestamp diff = here - t->start_time;
         t->utime += diff;
         t->start_time = here;
@@ -384,7 +384,7 @@ void thread_pause(thread t)
 {
     if (get_current_thread() != &t->thrd)
         return;
-    timestamp diff = now(CLOCK_ID_MONOTONIC) - t->start_time;
+    timestamp diff = now(CLOCK_ID_MONOTONIC_RAW) - t->start_time;
     if (t->sysctx) {
         t->stime += diff;
     }
@@ -399,7 +399,7 @@ void thread_resume(thread t)
     count_syscall_resume(t);
     if (get_current_thread() == &t->thrd)
         return;
-    t->start_time = now(CLOCK_ID_MONOTONIC);
+    t->start_time = now(CLOCK_ID_MONOTONIC_RAW);
     set_current_thread(&t->thrd);
 }
 
@@ -407,7 +407,7 @@ static timestamp utime_updated(thread t)
 {
     timestamp ts = t->utime;
     if (!t->sysctx)
-        ts += now(CLOCK_ID_MONOTONIC) - t->start_time;
+        ts += now(CLOCK_ID_MONOTONIC_RAW) - t->start_time;
     return ts;
 }
 
@@ -415,7 +415,7 @@ static timestamp stime_updated(thread t)
 {
     timestamp ts = t->stime;
     if (t->sysctx)
-        ts += now(CLOCK_ID_MONOTONIC) - t->start_time;
+        ts += now(CLOCK_ID_MONOTONIC_RAW) - t->start_time;
     return ts;
 }
 

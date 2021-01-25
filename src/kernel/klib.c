@@ -264,4 +264,5 @@ void init_klib(kernel_heaps kh, void *fs, tuple config_root, tuple klib_md)
     if (table_find(get_environment(), sym(RADAR_KEY)))
         load_klib("/klib/radar", closure(h, radar_loaded));
     load_klib("/klib/cloud_init", closure(h, klib_optional_loaded));
+    load_klib("/klib/ntp", closure(h, klib_optional_loaded));
 }

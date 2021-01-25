@@ -41,7 +41,7 @@ void sys_timeouts_init(void)
     for (int i = 0; i < n; i++) {
         struct net_lwip_timer * t = (struct net_lwip_timer *)&net_lwip_timers[i];
         timestamp interval = milliseconds(t->interval_ms);
-        register_timer(runloop_timers, CLOCK_ID_MONOTONIC, interval, false, interval,
+        register_timer(runloop_timers, CLOCK_ID_MONOTONIC_RAW, interval, false, interval,
                        closure(lwip_heap, dispatch_lwip_timer, t->handler, t->name));
 #ifdef LWIP_DEBUG
         lwip_debug("registered %s timer with period of %ld ms\n", t->name, t->interval_ms);
@@ -126,6 +126,11 @@ int lwip_strncmp(const char *x, const char *y, unsigned long len)
 }
 
 KLIB_EXPORT(dns_gethostbyname);
+KLIB_EXPORT(pbuf_alloc);
+KLIB_EXPORT(pbuf_free);
+KLIB_EXPORT(udp_new);
+KLIB_EXPORT(udp_sendto);
+KLIB_EXPORT(udp_recv);
 
 #define MAX_ADDR_LEN 20
 static boolean get_config_addr(tuple root, symbol s, ip4_addr_t *addr)

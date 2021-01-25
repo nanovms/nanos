@@ -1873,7 +1873,7 @@ NOTRACE void
 ftrace_cpu_deinit(cpuinfo ci)
 {
     rbuf_disable(&global_rbuf);
-    timestamp t = now(CLOCK_ID_MONOTONIC);
+    timestamp t = now(CLOCK_ID_MONOTONIC_RAW);
     while (ci->graph_idx > 0) {
         struct ftrace_graph_entry * stack_ent =
                 &(ci->graph_stack[--ci->graph_idx]);
@@ -1910,7 +1910,7 @@ ftrace_thread_switch(thread out, thread in)
     rbuf_disable(&global_rbuf);
 
     /* complete any outstanding function calls for outgoing thread */
-    timestamp t = now(CLOCK_ID_MONOTONIC);
+    timestamp t = now(CLOCK_ID_MONOTONIC_RAW);
     cpuinfo ci = current_cpu();
     while (ci->graph_idx > 0) {
         struct ftrace_graph_entry * stack_ent =
@@ -1986,7 +1986,7 @@ prepare_ftrace_return(unsigned long self, unsigned long * parent,
     stack_ent = &(ci->graph_stack[depth]);
     stack_ent->retaddr = old;
     stack_ent->func = self;
-    stack_ent->entry_ts = now(CLOCK_ID_MONOTONIC);
+    stack_ent->entry_ts = now(CLOCK_ID_MONOTONIC_RAW);
     stack_ent->fp = frame_pointer;
     stack_ent->depth = depth;
     stack_ent->has_child = 0;
@@ -2034,7 +2034,7 @@ ftrace_return_to_handler(unsigned long frame_pointer)
     if (stack_ent->fp != frame_pointer)
         frame_halt(stack_ent, frame_pointer);
 
-    stack_ent->return_ts = now(CLOCK_ID_MONOTONIC);
+    stack_ent->return_ts = now(CLOCK_ID_MONOTONIC_RAW);
     stack_ent->flush = 0;
     retaddr = stack_ent->retaddr;
 

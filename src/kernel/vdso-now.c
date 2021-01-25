@@ -104,7 +104,7 @@ vdso_now(clock_id id)
     if (_now == VDSO_NO_NOW)
         return VDSO_NO_NOW;
 
-    return _now + _off;
+    return _now + clock_get_drift(_now) + _off;
 }
 
 VDSO int

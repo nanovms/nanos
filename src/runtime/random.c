@@ -79,7 +79,7 @@ static struct chacha20_s chacha20inst;
 void init_random()
 {
     assert(CHACHA20_KEYBYTES*8 >= CHACHA_MINKEYLEN);
-    chacha20_randomstir(&chacha20inst, now(CLOCK_ID_MONOTONIC));
+    chacha20_randomstir(&chacha20inst, now(CLOCK_ID_MONOTONIC_RAW));
 }
 
 void
@@ -89,7 +89,7 @@ arc4rand(void *ptr, bytes len)
     bytes length;
     u8 *p;
 
-    timestamp t = now(CLOCK_ID_MONOTONIC);
+    timestamp t = now(CLOCK_ID_MONOTONIC_RAW);
     u64 now_sec = sec_from_timestamp(t);
     if ((chacha20->numbytes > CHACHA20_RESEED_BYTES) || (now_sec > chacha20->t_reseed))
         chacha20_randomstir(chacha20, t);

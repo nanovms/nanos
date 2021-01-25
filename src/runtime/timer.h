@@ -41,29 +41,35 @@ static inline void runloop_timer(timestamp duration)
 timer register_timer(timerheap th, clock_id id, timestamp val, boolean absolute, timestamp interval, timer_handler n);
 
 #if defined(STAGE3) || defined(BUILD_VDSO)
-#define __rtc_offset (&(VVAR_REF(vdso_dat)))->rtc_offset
-#else
-#define __rtc_offset 0
+#define __vdso_dat (&(VVAR_REF(vdso_dat)))
 #endif
 
-/* Convert to monotonic. Not clear yet how to map process and thread
+/* Convert to monotonic raw. Not clear yet how to map process and thread
    times to monotonic scale. Should the process have its own timer heap? */
 static inline timestamp timer_expiry(timer t)
 {
+    timestamp expiry = t->expiry;
+
+#if defined(STAGE3) || defined(BUILD_VDSO)
     switch (t->id) {
-    case CLOCK_ID_MONOTONIC:
     case CLOCK_ID_MONOTONIC_RAW:
-    case CLOCK_ID_MONOTONIC_COARSE:
-    case CLOCK_ID_BOOTTIME:
-        return t->expiry;
+        return expiry;
     case CLOCK_ID_REALTIME:
     case CLOCK_ID_REALTIME_COARSE:
-        return t->expiry - __rtc_offset;
+        expiry -= __vdso_dat->rtc_offset;
+        break;
     default:
-        halt("expiry: clock id %d unsupported\n", t->id); /* XXX hmm */
+        break;
     }
+
+    /* Not entirely correct, because clock_get_drift() takes a raw timestamp as
+     * argument, but should be a reasonable approximation. */
+    expiry -= clock_get_drift(expiry - __vdso_dat->last_drift);
+
+#endif
+
+    return expiry;
 }
-#undef __rtc_offset
 
 static inline void timer_get_remaining(timer t, timestamp *remain, timestamp *interval)
 {
@@ -78,7 +84,7 @@ static inline void remove_timer(timer t, timestamp *remain)
     assert(!t->disabled);
     t->disabled = true;
     if (remain) {
-        timestamp x = timer_expiry(t);
+        timestamp x = t->expiry;
         timestamp n = now(t->id);
         *remain = x > n ? x - n : 0;
     }
@@ -98,6 +104,7 @@ static inline timestamp timer_check(timerheap th)
 
 timerheap allocate_timerheap(heap h, const char *name);
 void timer_service(timerheap th, timestamp here);
+void timer_reorder(timerheap th);
 void print_timestamp(buffer, timestamp);
 
 #define THOUSAND         (1000ull)

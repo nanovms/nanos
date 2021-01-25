@@ -20,9 +20,19 @@ static unsigned int bcd2bin(unsigned int bcd) {
     return ((bcd >> 4) & 0x0f) * 10 + (bcd & 0x0f);
 }
 
+static unsigned int bin2bcd(unsigned int bin) {
+    unsigned int tens = bin / 10;
+    return ((tens << 4) | (bin - tens * 10));
+}
+
 static u8 rtc_read(u8 reg) {
     out8(RTC_COMMAND, reg | RTC_NMI_DISABLE);
     return in8(RTC_DATA);
+}
+
+static void rtc_write(u8 reg, u8 val) {
+    out8(RTC_COMMAND, reg | RTC_NMI_DISABLE);
+    out8(RTC_DATA, val);
 }
 
 u64 rtc_gettimeofday(void) {
@@ -43,3 +53,17 @@ u64 rtc_gettimeofday(void) {
     return mktime(&tm);
 }
 
+void rtc_settimeofday(u64 seconds) {
+    /* Fix any possible inconsistencies due to RTC register concurrent updates by looping until the
+     * timestamp read from the RTC equals the timestamp being written. */
+    while (rtc_gettimeofday() != seconds) {
+        struct tm tm;
+        gmtime_r(&seconds, &tm);
+        rtc_write(RTC_SECONDS, bin2bcd(tm.tm_sec));
+        rtc_write(RTC_MINUTES, bin2bcd(tm.tm_min));
+        rtc_write(RTC_HOURS, bin2bcd(tm.tm_hour));
+        rtc_write(RTC_DAY_OF_MONTH, bin2bcd(tm.tm_mday));
+        rtc_write(RTC_MONTH, bin2bcd(tm.tm_mon + 1));
+        rtc_write(RTC_YEAR, bin2bcd(tm.tm_year - 100));
+    }
+}

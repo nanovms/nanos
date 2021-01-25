@@ -328,9 +328,10 @@ int blockq_transfer_waiters(blockq dest, blockq src, int n)
         if (bi->timeout) {
             timestamp remain;
             timer_handler t = bi->timeout->t;
+            clock_id id = bi->timeout->id;
             remove_timer(bi->timeout, &remain);
             bi->timeout = remain == 0 ? 0 :
-                register_timer(runloop_timers, CLOCK_ID_MONOTONIC, remain, false, 0,
+                register_timer(runloop_timers, id, remain, false, 0,
                     init_closure(&bi->timeout_func, blockq_item_timeout, dest,
                         bi));
             assert(t);

@@ -327,7 +327,7 @@ thread create_thread(process p)
     init_closure(&t->deferred_syscall, resume_syscall, t);
     t->sysctx = false;
     t->utime = t->stime = 0;
-    t->start_time = now(CLOCK_ID_MONOTONIC);
+    t->start_time = now(CLOCK_ID_MONOTONIC_RAW);
     t->last_syscall = -1;
 
     // XXX sigframe

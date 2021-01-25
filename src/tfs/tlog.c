@@ -556,7 +556,7 @@ static void log_set_dirty(log tl)
     }
     tl->dirty = true;
     assert(!tl->flush_timer);
-    tl->flush_timer = register_timer(runloop_timers, CLOCK_ID_MONOTONIC,
+    tl->flush_timer = register_timer(runloop_timers, CLOCK_ID_MONOTONIC_RAW,
                                      seconds(TFS_LOG_FLUSH_DELAY_SECONDS), false, 0,
                                      closure(tl->h, log_flush_timer_expired, tl));
 }

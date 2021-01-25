@@ -2474,7 +2474,7 @@ void count_syscall(thread t, sysreturn rv)
         fetch_and_add(&ss->errors, 1);
     u64 us;
     if (t->syscall_enter_ts)
-        us = usec_from_timestamp(now(CLOCK_ID_MONOTONIC) - t->syscall_enter_ts) + t->syscall_time;
+        us = usec_from_timestamp(now(CLOCK_ID_MONOTONIC_RAW) - t->syscall_enter_ts) + t->syscall_time;
     else
         us = t->syscall_time;
     fetch_and_add(&ss->usecs, us);
@@ -2498,7 +2498,7 @@ void syscall_debug(context f)
     if (do_syscall_stats) {
         assert(t->last_syscall == -1);
         t->last_syscall = call;
-        t->syscall_enter_ts = now(CLOCK_ID_MONOTONIC);
+        t->syscall_enter_ts = now(CLOCK_ID_MONOTONIC_RAW);
     }
     struct syscall *s = t->p->syscalls + call;
     if (debugsyscalls) {

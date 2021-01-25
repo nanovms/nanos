@@ -68,6 +68,11 @@ void timer_service(timerheap th, timestamp here)
     }
 }
 
+void timer_reorder(timerheap th)
+{
+    pqueue_reorder(th->pq);
+}
+
 void print_timestamp(string b, timestamp t)
 {
     u32 s= t>>32;

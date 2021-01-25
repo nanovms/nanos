@@ -263,6 +263,7 @@ void mm_service(void);
 
 kernel_heaps get_kernel_heaps(void);
 
+tuple get_root_tuple(void);
 tuple get_environment(void);
 
 boolean first_boot(void);

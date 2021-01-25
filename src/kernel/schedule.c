@@ -87,7 +87,7 @@ static inline boolean update_timer(void)
     timestamp next = timer_check(runloop_timers);
     if (last_timer_update && next == last_timer_update)
         return false;
-    s64 delta = next - now(CLOCK_ID_MONOTONIC);
+    s64 delta = next - now(CLOCK_ID_MONOTONIC_RAW);
     timestamp timeout = delta > (s64)runloop_timer_min ? MIN(delta, runloop_timer_max) : runloop_timer_min;
     sched_debug("set platform timer: delta %lx, timeout %lx\n", delta, timeout);
     last_timer_update = current_cpu()->last_timer_update = next + timeout - delta;
@@ -182,7 +182,7 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
     if (kern_try_lock()) {
         /* invoke expired timer callbacks */
         ci->state = cpu_kernel;
-        timer_service(runloop_timers, now(CLOCK_ID_MONOTONIC));
+        timer_service(runloop_timers, now(CLOCK_ID_MONOTONIC_RAW));
 
         while ((t = dequeue(runqueue)) != INVALID_ADDRESS)
             run_thunk(t, cpu_kernel);
@@ -230,7 +230,7 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
         }
         if (t != INVALID_ADDRESS) {
             if (!timer_updated && (total_processors > 1)) {
-                timestamp here = now(CLOCK_ID_MONOTONIC);
+                timestamp here = now(CLOCK_ID_MONOTONIC_RAW);
                 s64 timeout = ci->last_timer_update - here;
                 if ((timeout < 0) || (timeout > runloop_timer_max)) {
                     sched_debug("setting CPU scheduler timer\n");

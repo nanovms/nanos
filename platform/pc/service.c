@@ -188,6 +188,12 @@ kernel_heaps get_kernel_heaps(void)
 }
 KLIB_EXPORT(get_kernel_heaps);
 
+tuple get_root_tuple(void)
+{
+    return filesystem_getroot(root_fs);
+}
+KLIB_EXPORT(get_root_tuple);
+
 tuple get_environment(void)
 {
     return table_find(filesystem_getroot(root_fs), sym(environment));
@@ -315,7 +321,7 @@ u64 random_seed(void)
         return seed;
     if (have_rdrand && hw_seed(&seed, false))
         return seed;
-    return (u64)now(CLOCK_ID_MONOTONIC);
+    return (u64)now(CLOCK_ID_MONOTONIC_RAW);
 }
 
 static void init_hwrand(void)

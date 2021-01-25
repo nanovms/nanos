@@ -3,6 +3,7 @@ MBEDTLS_DIR=	$(VENDORDIR)/mbedtls
 
 PROGRAMS= \
 	cloud_init \
+	ntp \
 	radar \
 	test \
 	tls \
@@ -10,6 +11,9 @@ PROGRAMS= \
 SRCS-cloud_init= \
 	$(CURDIR)/cloud_azure.c \
 	$(CURDIR)/cloud_init.c \
+
+SRCS-ntp= \
+	$(CURDIR)/ntp.c \
 
 SRCS-radar= \
 	$(CURDIR)/radar.c \
