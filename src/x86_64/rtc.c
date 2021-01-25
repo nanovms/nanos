@@ -5,7 +5,7 @@
 
 #define RTC_COMMAND 0x70
 #define RTC_DATA 0x71
-#define RTC_NMI_DISABLE (1 << 8)
+#define RTC_NMI_DISABLE (1 << 7)
 #define RTC_NMI_ENABLE 0
 #define RTC_SECONDS 0x00
 #define RTC_MINUTES 0x02
