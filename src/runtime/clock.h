@@ -102,16 +102,17 @@ static inline timestamp uptime(void)
     return now(CLOCK_ID_BOOTTIME);
 }
 
+u64 rtc_gettimeofday(void);
+
 static inline void register_platform_clock_now(clock_now cn, vdso_clock_id id)
 {
     platform_monotonic_now = cn;
 #if defined(STAGE3) || defined(BUILD_VDSO)
     __vdso_dat->clock_src = id;
+    __vdso_dat->rtc_offset = (rtc_gettimeofday() << 32) - apply(cn);
 #endif
 }
 
 #if defined(STAGE3) || defined(BUILD_VDSO)
 #undef __vdso_dat
 #endif
-
-u64 rtc_gettimeofday(void);
