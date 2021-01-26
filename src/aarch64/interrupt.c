@@ -1,5 +1,4 @@
 #include <kernel.h>
-#include <page.h>
 #include <symtab.h>
 #include <gic.h>
 

@@ -1,7 +1,6 @@
 #include <kernel.h>
 #include <drivers/storage.h>
 #include <virtio/scsi.h>
-#include <page.h>
 
 #include "virtio_internal.h"
 #include "virtio_pci.h"

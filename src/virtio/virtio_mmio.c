@@ -3,7 +3,6 @@
  * section 4.2 "Virtio Over MMIO". */
 
 #include <kernel.h>
-#include <page.h>
 
 #ifdef __x86_64__
 #include <apic.h>
@@ -65,7 +64,7 @@ void virtio_mmio_parse(kernel_heaps kh, const char *str, int len)
         dev->irq = irq;
         dev->vbase = allocate((heap)heap_virtual_huge(kh), memsize);
         assert(dev->vbase != INVALID_ADDRESS);
-        map(u64_from_pointer(dev->vbase), membase, memsize, PAGE_DEV_FLAGS);
+        map(u64_from_pointer(dev->vbase), membase, memsize, pageflags_writable(pageflags_device()));
         dev->irq_vector = 0;
         dev->vq_handlers = allocate_vector(h, 2);
         assert(dev->vq_handlers != INVALID_ADDRESS);

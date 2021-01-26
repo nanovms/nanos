@@ -3,8 +3,8 @@
 #include <kernel_heaps.h>
 #include <pagecache.h>
 #include <tfs.h>
-#include <elf64.h>
 #include <page.h>
+#include <elf64.h>
 #include <region.h>
 #include <kvm_platform.h>
 #include <serial.h>
@@ -196,15 +196,16 @@ static void setup_page_tables()
     init_page_tables(region_allocator(general, PAGESIZE, REGION_INITIAL_PAGES));
 
     /* initial map, page tables and stack */
-    map(0, 0, INITIAL_MAP_SIZE, PAGE_WRITABLE | PAGE_PRESENT);
-    map(PAGES_BASE, initial_pages_base, INITIAL_PAGES_SIZE, PAGE_WRITABLE | PAGE_PRESENT);
-    map(stack_base, stack_base, (u64)STAGE2_STACK_SIZE, PAGE_WRITABLE);
+    pageflags flags = pageflags_writable(pageflags_exec(pageflags_memory()));
+    map(0, 0, INITIAL_MAP_SIZE, flags);
+    map(PAGES_BASE, initial_pages_base, INITIAL_PAGES_SIZE, flags);
+    map(stack_base, stack_base, (u64)STAGE2_STACK_SIZE, flags);
 }
 
 static u64 working_saved_base;
 
 closure_function(0, 4, void, kernel_elf_map,
-                 u64, vaddr, u64, paddr, u64, size, u64, flags)
+                 u64, vaddr, u64, paddr, u64, size, pageflags, flags)
 {
     stage2_debug("%s: vaddr 0x%lx, paddr 0x%lx, size 0x%lx, flags 0x%lx\n",
                  __func__, vaddr, paddr, size, flags);

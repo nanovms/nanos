@@ -191,13 +191,13 @@ struct rt_sigframe {
 
 void init_vsyscall(heap phys);
 
-static inline u64 page_flags_from_vmflags(u64 vmflags)
+static inline pageflags pageflags_from_vmflags(u64 vmflags)
 {
-    u64 flags = PAGE_NO_FAT | PAGE_USER;
-    if ((vmflags & VMAP_FLAG_EXEC) == 0)
-        flags |= PAGE_NO_EXEC;
-    if ((vmflags & VMAP_FLAG_WRITABLE))
-        flags |= PAGE_WRITABLE;
+    pageflags flags = pageflags_user(pageflags_memory());
+    if (vmflags & VMAP_FLAG_EXEC)
+        flags = pageflags_exec(flags);
+    if (vmflags & VMAP_FLAG_WRITABLE)
+        flags = pageflags_writable(flags);
     return flags;
 }
 

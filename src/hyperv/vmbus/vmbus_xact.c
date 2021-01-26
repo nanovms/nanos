@@ -24,7 +24,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 #include <kernel.h>
-#include <page.h>
 #include <hyperv_internal.h>
 #include <hyperv_busdma.h>
 #include <vmbus_xact.h>

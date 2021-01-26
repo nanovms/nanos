@@ -1,5 +1,4 @@
 #include <kernel.h>
-#include <page.h>
 
 //#define PAGE_DEBUG
 //#define PAGE_INIT_DEBUG
@@ -44,6 +43,11 @@ typedef struct direct_map {
 
 #define DIRECT_MAP_IDX_LIMIT ((DIRECT_MAP_LIMIT - DIRECT_MAP_BASE) >> DIRECT_MAP_PAGELOG)
 
+static inline u64 flags_from_pte(u64 pte)
+{
+    return pte & _PAGE_FLAGS_MASK;
+}
+
 static inline int direct_get_index(direct_map dm, u64 paddr)
 {
     return (paddr >> DIRECT_MAP_PAGELOG) - dm->map_offset;
@@ -63,7 +67,7 @@ static inline u64 direct_map_add_physical(direct_map dm, u64 p)
     u64 vbase = direct_base_from_index(dm, index);
     u64 pbase = p & ~MASK(DIRECT_MAP_PAGELOG);
     if (!mapped) {
-        map(vbase, pbase, U64_FROM_BIT(DIRECT_MAP_PAGELOG), PAGE_BACKED_FLAGS);
+        map(vbase, pbase, U64_FROM_BIT(DIRECT_MAP_PAGELOG), pageflags_writable(pageflags_memory()));
         bitmap_set(dm->mapped, index, 1);
     }
     return vbase + offset;
@@ -149,7 +153,7 @@ static id_heap physheap;
 static u64 kernel_tablebase;
 static u64 user_tablebase;
 
-const int page_level_shifts_4K[PAGE_NLEVELS] = { 39, 30, 21, 12 };
+const int page_level_shifts_4K[_PAGE_NLEVELS] = { 39, 30, 21, 12 };
 
 static inline void leaf_invalidate(u64 address)
 {
@@ -180,13 +184,10 @@ static boolean map_area(range v, u64 p, u64 flags);
 static boolean get_table_page(u64 *phys)
 {
     if (range_span(current_pt_phys) == 0) {
-        page_init_debug_u64(current_pt_phys.start);
-        page_init_debug(", \n");
-        page_init_debug_u64(current_pt_phys.end);
-        page_init_debug(", \n");
-        page_init_debug_u64(range_span(current_pt_phys));
-
+        page_init_debug("new table page at ");
         u64 va = allocate_u64((heap)pageheap, PAGESIZE_2M);
+        page_init_debug_u64(va);
+        page_init_debug("\n");
         if (va == INVALID_PHYSICAL) {
             msg_err("failed to allocate 2M table page\n");
             return false;
@@ -220,8 +221,8 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags)
     int shift = page_level_shifts_4K[level];
     u64 mask = MASK(shift);
     u64 vlbase = level > 1 ? v.start & ~MASK(page_level_shifts_4K[level - 1]) : 0;
-    int first_index = (v.start >> shift) & LEVEL_MASK_4K;
-    int last_index = ((v.end - 1) >> shift) & LEVEL_MASK_4K;
+    int first_index = (v.start >> shift) & _LEVEL_MASK_4K;
+    int last_index = ((v.end - 1) >> shift) & _LEVEL_MASK_4K;
 
     page_init_debug("\nmap_level: table_ptr ");
     page_init_debug_u64(u64_from_pointer(table_ptr));
@@ -362,29 +363,28 @@ static boolean map_area(range v, u64 p, u64 flags)
     return r;
 }
 
-void map(u64 v, physical p, u64 length, u64 flags)
+void map(u64 v, physical p, u64 length, pageflags flags)
 {
-//    rprintf("map: v 0x%lx, p 0x%lx, length 0x%lx, flags 0x%lx\n",
-//            v, p, length, flags);
 #if 0
-    console("map: v ");
-    print_u64(v);
-    console(", p ");
-    print_u64(p);
-    console(", length ");
-    print_u64(length);
-    console(", flags ");
-    print_u64(flags);
-    console("\n");
+    early_debug("map: v ");
+    early_debug_u64(v);
+    early_debug(", p ");
+    early_debug_u64(p);
+    early_debug(", length ");
+    early_debug_u64(length);
+    early_debug(", flags ");
+    early_debug_u64(flags.w);
+    early_debug("\n");
 #endif
-    page_init_debug("map_area from ");
+    page_init_debug("map called from ");
     page_init_debug_u64(u64_from_pointer(__builtin_return_address(0)));
+    page_init_debug("\n");
 
-    if (!map_area(irangel(v, length), p, flags | PAGE_ATTR_AF)) {
+    if (!map_area(irangel(v, length), p, flags.w | PAGE_ATTR_AF)) {
         rprintf("ra %p\n", __builtin_return_address(0));
         print_stack_from_here();
         halt("map failed for v 0x%lx, p 0x%lx, len 0x%lx, flags 0x%lx\n",
-             v, p, length, flags);
+             v, p, length, flags.w);
     }
 }
 
@@ -412,11 +412,11 @@ void page_invalidate(flush_entry f, u64 address)
 /* called with lock held */
 closure_function(1, 3, boolean, unmap_page,
                  range_handler, rh,
-                 int, level, u64, vaddr, u64 *, entry)
+                 int, level, u64, vaddr, pteptr, entry)
 {
     range_handler rh = bound(rh);
-    u64 old_entry = *entry;
-    if (pt_entry_is_present(old_entry) && pt_entry_is_pte(level, old_entry)) {
+    pte old_entry = pte_from_pteptr(entry);
+    if (pte_is_present(old_entry) && pte_is_mapping(level, old_entry)) {
 #ifdef PAGE_UPDATE_DEBUG
         page_debug("rh %p, level %d, vaddr 0x%lx, entry %p, *entry 0x%lx\n",
                    rh, level, vaddr, entry, *entry);
@@ -425,7 +425,7 @@ closure_function(1, 3, boolean, unmap_page,
         *entry = 0;
         leaf_invalidate(vaddr);
         if (rh) {
-            u64 size = pt_entry_size(level, old_entry);
+            u64 size = pte_map_size(level, old_entry);
             assert(size);
             apply(rh, irangel(page_from_pte(old_entry), size));
         }
@@ -486,19 +486,20 @@ static boolean recurse_ptes(u64 *table_ptr, int level, u64 vstart, u64 len, u64 
 
     for (u64 i = start_idx; i < end_idx; i++, offset += lsize) {
         u64 addr = laddr + (i << shift);
-        u64 *pte = table_ptr + i;
+        pteptr pp = table_ptr + i;
 #ifdef TRAVERSE_PTES_DEBUG
         rprintf("   idx %d, offset 0x%lx, addr 0x%lx, pteaddr 0x%lx, *pte %p\n",
-                i, offset, addr, pteaddr, *pte);
+                i, offset, addr, pp, pte_from_pteptr(pp));
 #endif
-        if (!apply(ph, level, addr, pte))
+        if (!apply(ph, level, addr, pp))
             return false;
-        if (!pt_entry_is_present(*pte))
+        pte p = pte_from_pteptr(pp);
+        if (!pte_is_present(p))
             continue;
-        if ((level == 1 || level == 2) && (*pte & PAGE_L0_2_DESC_TABLE) == 0)
+        if ((level == 1 || level == 2) && (p & PAGE_L0_2_DESC_TABLE) == 0)
             continue;
         if (level < 3) {
-            u64 *nexttable_ptr = pointer_from_pteaddr(table_from_pte(*pte));
+            u64 *nexttable_ptr = pointer_from_pteaddr(table_from_pte(p));
             if (!recurse_ptes(nexttable_ptr, level + 1, vstart, len,
                               laddr + offset, ph))
                 return false;
@@ -524,9 +525,9 @@ boolean traverse_ptes(u64 vaddr, u64 length, entry_handler ph)
 
 /* called with lock held */
 closure_function(0, 3, boolean, validate_entry,
-                 int, level, u64, vaddr, u64 *, entry)
+                 int, level, u64, vaddr, pteptr, entry)
 {
-    return pt_entry_is_present(*entry);
+    return pte_is_present(pte_from_pteptr(entry));
 }
 
 /* validate that all pages in vaddr range [base, base + length) are present */
@@ -538,26 +539,26 @@ boolean validate_virtual(void * base, u64 length)
 
 /* called with lock held */
 closure_function(2, 3, boolean, update_pte_flags,
-                 u64, flags, flush_entry, fe,
-                 int, level, u64, addr, u64 *, entry)
+                 pageflags, flags, flush_entry, fe,
+                 int, level, u64, addr, pteptr, entry)
 {
     /* we only care about present ptes */
-    u64 old = *entry;
-    if (!pt_entry_is_present(old) || !pt_entry_is_pte(level, old))
+    pte orig_pte = pte_from_pteptr(entry);
+    if (!pte_is_present(orig_pte) || !pte_is_mapping(level, orig_pte))
         return true;
 
-    *entry = (old & ~PAGE_PROT_FLAGS) | bound(flags);
+    pte_set(entry, (orig_pte & ~_PAGE_PROT_FLAGS) | bound(flags).w);
 #ifdef PAGE_UPDATE_DEBUG
-    page_debug("update 0x%lx: pte @ 0x%lx, 0x%lx -> 0x%lx\n", addr, entry, old, *entry);
+    page_debug("update 0x%lx: pte @ 0x%lx, 0x%lx -> 0x%lx\n", addr, entry, old, pte_from_pteptr(entry).w);
 #endif
     page_invalidate(bound(fe), addr);
     return true;
 }
 
 /* Update access protection flags for any pages mapped within a given area */
-void update_map_flags(u64 vaddr, u64 length, u64 flags)
+void update_map_flags(u64 vaddr, u64 length, pageflags flags)
 {
-    page_debug("vaddr 0x%lx, length 0x%lx, flags 0x%lx\n", vaddr, length, flags);
+    page_debug("vaddr 0x%lx, length 0x%lx, flags 0x%lx\n", vaddr, length, flags.w);
     flush_entry fe = get_page_flush_entry();
     traverse_ptes(vaddr, length, stack_closure(update_pte_flags, flags, fe));
     page_invalidate_sync(fe, ignore);
@@ -566,20 +567,20 @@ void update_map_flags(u64 vaddr, u64 length, u64 flags)
 /* called with lock held */
 closure_function(2, 3, boolean, remap_entry,
                  u64, new, u64, old,
-                 int, level, u64, curr, u64 *, entry)
+                 int, level, u64, curr, pteptr, entry)
 {
     u64 offset = curr - bound(old);
-    u64 oldentry = *entry;
+    pte oldentry = pte_from_pteptr(entry);
     u64 new_curr = bound(new) + offset;
     u64 phys = page_from_pte(oldentry);
     u64 flags = flags_from_pte(oldentry);
 #ifdef PAGE_UPDATE_DEBUG
     page_debug("%s: level %d, old curr 0x%lx, phys 0x%lx, new curr 0x%lx\n"
                "   entry 0x%lx, *entry 0x%lx, flags 0x%lx\n",
-               level, curr, phys, new_curr, entry, *entry, flags);
+               level, curr, phys, new_curr, entry, oldentry, flags.w);
 #endif
 
-    int map_order = pt_entry_order(level, oldentry);
+    int map_order = pte_order(level, oldentry);
 
     /* valid leaves only */
     if (map_order == 0)
@@ -589,7 +590,7 @@ closure_function(2, 3, boolean, remap_entry,
     assert(map_area(irangel(new_curr, U64_FROM_BIT(map_order)), phys, flags));
 
     /* reset old entry */
-    *entry = 0;
+    pte_set(entry, 0);
 
     /* invalidate old mapping */
     leaf_invalidate(curr);
@@ -613,7 +614,7 @@ void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length)
     post_sync();
 }
 
-extern void *START, *END;
+extern void *START, *READONLY_END, *END;
 extern void *LOAD_OFFSET;
 
 /* init_pt is a 2M block to use for inital ptes */
@@ -656,14 +657,14 @@ void page_init_mmu(range init_pt, u64 vtarget)
         TCR_EL1_TBI1 | TCR_EL1_TBI0 | /* enable user and kernel tags */
         u64_from_field(TCR_EL1_T1SZ, 64 - VIRTUAL_ADDRESS_BITS) |
         u64_from_field(TCR_EL1_TG1, TCR_EL1_TG1_4KB) |
-        u64_from_field(TCR_EL1_ORGN1, TCR_EL1_xRGN_WB) | /* XXX verify */
-        u64_from_field(TCR_EL1_IRGN1, TCR_EL1_xRGN_WB) | /* XXX verify */
+        u64_from_field(TCR_EL1_ORGN1, TCR_EL1_xRGN_WB) |
+        u64_from_field(TCR_EL1_IRGN1, TCR_EL1_xRGN_WB) |
 
         /* for TTBR0_EL1 (user) */
         u64_from_field(TCR_EL1_T0SZ, 64 - VIRTUAL_ADDRESS_BITS) |
         u64_from_field(TCR_EL1_TG0, TCR_EL1_TG0_4KB) |
-        u64_from_field(TCR_EL1_ORGN0, TCR_EL1_xRGN_WB) | /* XXX verify */
-        u64_from_field(TCR_EL1_IRGN0, TCR_EL1_xRGN_WB);  /* XXX verify */
+        u64_from_field(TCR_EL1_ORGN0, TCR_EL1_xRGN_WB) |
+        u64_from_field(TCR_EL1_IRGN0, TCR_EL1_xRGN_WB);
 
     page_init_debug("tcr_el1: ");
     page_init_debug_u64(tcr_el1);
@@ -672,18 +673,40 @@ void page_init_mmu(range init_pt, u64 vtarget)
     write_psr(TCR_EL1, tcr_el1);
     write_psr(MDSCR_EL1, 0);
 
-    u64 kernel_size = pad(u64_from_pointer(&END) -
-                          u64_from_pointer(&START), PAGESIZE);
+#if 0
+    /* XXX: something about splitting the mapping into two pieces
+       causes some accesses to go off the rails ... even if both are made writable */
+    pageflags ro_flags = pageflags_exec(pageflags_memory());
+    u64 start = u64_from_pointer(&START);
+    u64 readonly_end = u64_from_pointer(&READONLY_END);
+    u64 end = u64_from_pointer(&END);
+    assert((start & PAGEMASK) == 0);
+    assert((readonly_end & PAGEMASK) == 0);
+    assert((end & PAGEMASK) == 0);
+
+    u64 ro_size = readonly_end - start;
+    u64 rw_size = end - readonly_end;
+    page_init_debug("ro_size ");
+    page_init_debug_u64(ro_size);
+    page_init_debug("\nrw_size ");
+    page_init_debug_u64(rw_size);
+    page_init_debug("\n");
+    map(KERNEL_BASE, KERNEL_PHYS, ro_size, ro_flags);
+    map(KERNEL_BASE + ro_size, KERNEL_PHYS + ro_size, rw_size, pageflags_writable(ro_flags));
+#else
+    /* XXX: kernel is writable here, replace with ro/rw mapping above when fixed */
+    u64 kernel_size = pad(u64_from_pointer(&END) - u64_from_pointer(&START), PAGESIZE);
     page_init_debug("kernel_size ");
     page_init_debug_u64(kernel_size);
     page_init_debug("\n");
-    map(KERNEL_BASE, KERNEL_PHYS, kernel_size, 0);
+    map(KERNEL_BASE, KERNEL_PHYS, kernel_size, pageflags_writable(pageflags_exec(pageflags_memory())));
+#endif
 
     page_init_debug("map devices\n");
-    map(DEVICE_BASE, 0, DEV_MAP_SIZE, 0);
+    map(DEVICE_BASE, 0, DEV_MAP_SIZE, pageflags_writable(pageflags_device()));
 
     page_init_debug("map temporary identity mapping\n");
-    map(0x40000000, 0x40000000, INIT_IDENTITY_SIZE, 0);
+    map(PHYSMEM_BASE, PHYSMEM_BASE, INIT_IDENTITY_SIZE, pageflags_writable(pageflags_memory()));
 
     page_init_debug("SCTLR_EL1: ");
     u64 sctlr = read_psr(SCTLR_EL1);
@@ -715,5 +738,5 @@ void page_heap_init(heap locked, id_heap physical)
     pageheap = dm;
 
     /* unmap temporary identity map */
-    unmap(0x40000000, INIT_IDENTITY_SIZE);
+    unmap(PHYSMEM_BASE, INIT_IDENTITY_SIZE);
 }

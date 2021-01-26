@@ -1,6 +1,5 @@
 #include <kernel.h>
 #include <drivers/storage.h>
-#include <page.h>
 #include <pci.h>
 #include <storage.h>
 

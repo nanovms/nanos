@@ -252,7 +252,6 @@ static inline u64 fault_address(context f)
     return far;
 }
 
-// XXX
 #define esr_from_frame(frame) (frame[FRAME_ESR_SPSR] >> 32)
 
 /* Maybe shift decoding to entry and encode in frame as flags? */

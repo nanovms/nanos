@@ -1,5 +1,4 @@
 #include <kernel.h>
-#include <page.h>
 #include <pci.h>
 #include "pvscsi.h"
 #include "storage.h"

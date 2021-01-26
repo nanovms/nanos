@@ -1,6 +1,5 @@
 #include <kernel.h>
 #include <pci.h>
-#include <page.h>
 #include <io.h>
 
 //#define PCI_PLATFORM_DEBUG

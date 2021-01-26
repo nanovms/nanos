@@ -2,7 +2,6 @@
 #include <pagecache.h>
 #include <tfs.h>
 #include <region.h>
-#include <page.h>
 #include <symtab.h>
 #include <virtio/virtio.h>
 #include <kvm_platform.h>
@@ -69,7 +68,8 @@ void read_kernel_syms(void)
 	    kern_length = e->length;
 
 	    u64 v = allocate_u64((heap)heap_virtual_huge(&heaps), kern_length);
-	    map(v, kern_base, kern_length, PAGE_READONLY);
+            pageflags flags = pageflags_noexec(pageflags_readonly(pageflags_memory()));
+	    map(v, kern_base, kern_length, flags);
 #ifdef ELF_SYMTAB_DEBUG
 	    rprintf("kernel ELF image at 0x%lx, length %ld, mapped at 0x%lx\n",
 		    kern_base, kern_length, v);
@@ -292,7 +292,7 @@ static void jump_to_virtual(u64 kernel_size, u64 *pdpt, u64 *pdt) {
     assert(pdt);
     map_setup_2mbpages(KERNEL_BASE, KERNEL_BASE_PHYS,
                        pad(kernel_size, PAGESIZE_2M) >> PAGELOG_2M,
-                       PAGE_WRITABLE, pdpt, pdt);
+                       pageflags_writable(pageflags_exec(pageflags_memory())), pdpt, pdt);
 
     /* Jump to virtual address */
     asm("movq $1f, %rdi \n\
@@ -393,9 +393,11 @@ void init_service(u64 rdi, u64 rsi)
             INITIAL_PAGES_SIZE, REGION_INITIAL_PAGES);
         heap pageheap = region_allocator(&rh.h, PAGESIZE, REGION_INITIAL_PAGES);
         void *pgdir = bootstrap_page_tables(pageheap);
-        map(0, 0, INITIAL_MAP_SIZE, PAGE_WRITABLE);
-        map(PAGES_BASE, initial_pages_base, INITIAL_PAGES_SIZE, PAGE_WRITABLE);
-        map(KERNEL_BASE, KERNEL_BASE_PHYS, pad(kernel_size, PAGESIZE), PAGE_READONLY);
+        pageflags flags = pageflags_writable(pageflags_memory());
+        map(0, 0, INITIAL_MAP_SIZE, flags);
+        map(PAGES_BASE, initial_pages_base, INITIAL_PAGES_SIZE, flags);
+        map(KERNEL_BASE, KERNEL_BASE_PHYS, pad(kernel_size, PAGESIZE),
+            pageflags_readonly(pageflags_memory()));
         initial_pages_region->length = INITIAL_PAGES_SIZE;
         mov_to_cr("cr3", pgdir);
     }

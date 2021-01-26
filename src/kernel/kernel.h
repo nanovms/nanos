@@ -2,6 +2,7 @@
 #include <runtime.h>
 #include <kernel_heaps.h>
 #include <kernel_machine.h>
+#include <page.h>
 #include "klib.h"
 
 typedef struct nanos_thread {

@@ -1,6 +1,5 @@
 #include <kernel.h>
-#include <x86_64/io.h>
-#include <x86_64/page.h>
+#include <io.h>
 #include <pci.h>
 #include "console.h"
 #include "vga.h"
@@ -187,7 +186,8 @@ closure_function(2, 1, boolean, vga_pci_probe,
     d->crtc_addr = 0x3d4;
     d->buffer = pointer_from_u64(VGA_BUF_BASE);
     d->buffer_size = VGA_BUF_SIZE / sizeof(*d->buffer);
-    map(u64_from_pointer(d->buffer), VGA_BUF_BASE, VGA_BUF_SIZE, PAGE_DEV_FLAGS);
+    map(u64_from_pointer(d->buffer), VGA_BUF_BASE, VGA_BUF_SIZE,
+        pageflags_writable(pageflags_device()));
     // assume VGA mode 3 upon initialization
     d->width = 80;
     d->height = 25;

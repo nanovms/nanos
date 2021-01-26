@@ -1,5 +1,4 @@
 #include <kernel.h>
-#include <page.h>
 #include <storage.h>
 #include <x86_64/apic.h>
 #include <pci.h>

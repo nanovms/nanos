@@ -1665,7 +1665,8 @@ static sysreturn brk(void *x)
             if (phys == INVALID_PHYSICAL)
                 goto fail;
             /* XXX no exec configurable? */
-            map(u64_from_pointer(p->brk), phys, alloc, PAGE_WRITABLE | PAGE_NO_EXEC | PAGE_USER);
+            pageflags flags = pageflags_writable(pageflags_noexec(pageflags_user(pageflags_memory())));
+            map(u64_from_pointer(p->brk), phys, alloc, flags);
             // people shouldn't depend on this
             zero(p->brk, alloc);
             p->brk += alloc;         

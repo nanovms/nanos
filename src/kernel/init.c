@@ -6,7 +6,6 @@
 #include <log.h>
 #include <net.h>
 #include <virtio/virtio.h>
-#include <page.h> // maps should be in machdep
 #include <symtab.h>
 #include <drivers/console.h>
 #include <drivers/storage.h>

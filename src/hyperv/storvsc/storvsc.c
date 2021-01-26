@@ -35,7 +35,6 @@
  */
 
 #include <kernel.h>
-#include <page.h>
 #include <hyperv_internal.h>
 #include <hyperv.h>
 #include <vmbus.h>

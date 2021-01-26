@@ -2,7 +2,6 @@
 
 #include <kernel.h>
 #include <apic.h>
-#include <page.h>
 
 static void *apboot = INVALID_ADDRESS;
 extern int apic_id_map[MAX_CPUS];
@@ -75,7 +74,8 @@ void start_cpu(heap h, heap stackheap, int index, void (*ap_entry)()) {
     if (apboot == INVALID_ADDRESS) {
         start_callback = ap_entry;
         apboot = pointer_from_u64(AP_BOOT_START);
-        map((u64)apboot, (u64)apboot, PAGESIZE, PAGE_WRITABLE);
+        map((u64)apboot, (u64)apboot, PAGESIZE,
+            pageflags_writable(pageflags_exec(pageflags_memory())));
 
         asm("sidt %0": "=m"(ap_idt_pointer));
         mov_from_cr("cr3", ap_pagetable);

@@ -1,5 +1,4 @@
 #include <kernel.h>
-#include <page.h>
 #include <apic.h>
 
 /* In theory, the MMIO base address of I/O APIC(s) should be retrieved from the
@@ -141,7 +140,8 @@ static void ioapic_init(kernel_heaps kh, u64 membase)
 {
     ioapic_vbase = allocate((heap)heap_virtual_page(kh), PAGESIZE);
     assert(ioapic_vbase != INVALID_ADDRESS);
-    map(u64_from_pointer(ioapic_vbase), membase, PAGESIZE, PAGE_DEV_FLAGS);
+    map(u64_from_pointer(ioapic_vbase), membase, PAGESIZE,
+        pageflags_writable(pageflags_device()));
 }
 
 static u32 ioapic_read(int reg)

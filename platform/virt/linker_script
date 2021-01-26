@@ -54,6 +54,9 @@ SECTIONS
                 KEEP(*(.klib_symtab.strs))
         }
 
+        . = ALIGN(4096);
+        READONLY_END = .;
+
         .data ALIGN(4096): AT(ADDR(.data) - LOAD_OFFSET)
         {
             *(.data)
@@ -67,10 +70,10 @@ SECTIONS
             *(.bss.*)
             *(COMMON)
         }
-        . = ALIGN(32);
+        . = ALIGN(4096);
         PROVIDE(bss_end = .);
         END = .;
 
-	. = 0x40600000;      /* XXX temp stack, for test */
+	. = 0x40600000; /* for early init stack */
 	stack_top = .;
 }

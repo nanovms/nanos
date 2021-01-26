@@ -32,7 +32,6 @@
 #include <lwip.h>
 #include <lwip/prot/tcp.h>
 #include <netif/ethernet.h>
-#include <page.h>
 #include <pci.h>
 
 #include "../aws.h"

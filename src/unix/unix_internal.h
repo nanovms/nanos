@@ -3,7 +3,6 @@
 #include <kernel.h>
 #include <unix_syscalls.h>
 #include <pagecache.h>
-#include <page.h>
 #include <tfs.h>
 #include <unix.h>
 
@@ -230,7 +229,7 @@ declare_closure_struct(1, 1, context, default_fault_handler,
                        thread, t,
                        context, frame);
 declare_closure_struct(5, 0, void, thread_demand_file_page,
-                       thread, t, struct vmap *, vm, u64, node_offset, u64, page_addr, u64, flags);
+                       thread, t, struct vmap *, vm, u64, node_offset, u64, page_addr, pageflags, flags);
 declare_closure_struct(3, 1, void, thread_demand_file_page_complete,
                        thread, t, context, frame, u64, vaddr,
                        status, s);
@@ -861,7 +860,7 @@ sysreturn io_getevents(aio_context_t ctx_id, long min_nr, long nr,
 sysreturn io_destroy(aio_context_t ctx_id);
 
 sysreturn io_uring_setup(unsigned int entries, struct io_uring_params *params);
-sysreturn io_uring_mmap(fdesc desc, u64 len, u64 mapflags, u64 offset);
+sysreturn io_uring_mmap(fdesc desc, u64 len, pageflags mapflags, u64 offset);
 sysreturn io_uring_enter(int fd, unsigned int to_submit,
                          unsigned int min_complete, unsigned int flags,
                          sigset_t *sig);

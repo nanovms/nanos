@@ -1,5 +1,4 @@
 #include <kernel.h>
-#include <page.h>
 #include <apic.h>
 #include <hyperv_internal.h>
 #include <hyperv.h>

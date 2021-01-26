@@ -27,8 +27,6 @@
  */
 
 #include <kernel.h>
-#include <page.h>
-
 #include "virtio_internal.h"
 
 //#define VIRTQUEUE_DEBUG

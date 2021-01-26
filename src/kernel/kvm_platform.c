@@ -1,5 +1,4 @@
 #include <kernel.h>
-#include <page.h>
 #include <pvclock.h>
 #include <kvm_platform.h>
 #include <apic.h>

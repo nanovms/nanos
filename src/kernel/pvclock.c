@@ -1,6 +1,5 @@
 #include <kernel.h>
 #include <pvclock.h>
-#include <page.h>
 #include <apic.h>
 
 static heap pvclock_heap;

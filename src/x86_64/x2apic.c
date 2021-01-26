@@ -1,5 +1,4 @@
 #include <kernel.h>
-#include <page.h>
 #include <apic.h>
 
 //#define X2APIC_DEBUG

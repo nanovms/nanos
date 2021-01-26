@@ -1,6 +1,5 @@
 #include <kernel.h>
 #include <elf64.h>
-#include <page.h>
 
 //#define ELF_DEBUG
 #ifdef ELF_DEBUG
@@ -74,8 +73,8 @@ void walk_elf(buffer elf, range_handler rh)
 {
     void *elf_end = buffer_ref(elf, buffer_length(elf));
     Elf64_Ehdr *e = buffer_ref(elf, 0);
-    elf_debug("%s: buffer %p, load_offset 0x%lx, mapper %p (%F), buf [%p, %p)\n",
-              __func__, elf, load_offset, mapper, mapper, e, elf_end);
+    elf_debug("%s: buffer %p, handler %p (%F), buf [%p, %p)\n",
+              __func__, elf, rh, rh, e, elf_end);
     ELF_CHECK_PTR(e, Elf64_Ehdr);
     foreach_phdr(e, p) {
         ELF_CHECK_PTR(p, Elf64_Phdr);
@@ -111,10 +110,11 @@ void *load_elf(buffer elf, u64 load_offset, elf_map_handler mapper)
             int ssize = pad(p->p_filesz + trim_offset, PAGESIZE);
 
             /* determine access permissions */
-            u64 flags = 0;
-            if ((p->p_flags & PF_X) == 0)
-                flags |= PAGE_NO_EXEC;
-            flags |= (p->p_flags & PF_W) ? PAGE_WRITABLE : PAGE_READONLY;
+            pageflags flags = pageflags_memory();
+            if (p->p_flags & PF_X)
+                flags = pageflags_exec(flags);
+            if (p->p_flags & PF_W)
+                flags = pageflags_writable(flags);
             apply(mapper, aligned + load_offset, phy, ssize, flags);
 
             // always zero up to the next aligned page start

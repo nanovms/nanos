@@ -52,7 +52,7 @@ define_closure_function(3, 1, void, thread_demand_file_page_complete,
 }
 
 define_closure_function(5, 0, void, thread_demand_file_page,
-                        thread, t, vmap, vm, u64, node_offset, u64, page_addr, u64, flags)
+                        thread, t, vmap, vm, u64, node_offset, u64, page_addr, pageflags, flags)
 {
     vmap vm = bound(vm);
     pagecache_node pn = vm->cache_node;
@@ -90,14 +90,14 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
             return false;
         }
 
-        map_and_zero(vaddr & ~MASK(PAGELOG), paddr, PAGESIZE, page_flags_from_vmflags(vm->flags));
+        map_and_zero(vaddr & ~MASK(PAGELOG), paddr, PAGESIZE, pageflags_from_vmflags(vm->flags));
     } else if (mmap_type == VMAP_MMAP_TYPE_FILEBACKED) {
         u64 page_addr = vaddr & ~PAGEMASK;
         u64 node_offset = vm->node_offset + (page_addr - vm->node.r.start);
         boolean shared = (vm->flags & VMAP_FLAG_SHARED) != 0;
-        u64 flags = page_flags_from_vmflags(vm->flags);
+        pageflags flags = pageflags_from_vmflags(vm->flags);
         if (!shared)
-            flags = page_flags_readonly(flags); /* cow */
+            flags = pageflags_readonly(flags); /* cow */
 
         pf_debug("   node %p (start 0x%lx), offset 0x%lx\n",
                  vm->cache_node, vm->node.r.start, node_offset);
@@ -355,9 +355,9 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
     remap_pages(vnew, old_addr, old_size);
 
     /* map new portion and zero */
-    u64 mapflags = page_flags_from_vmflags(vmflags);
+    pageflags mapflags = pageflags_from_vmflags(vmflags);
     thread_log(current, "   mapping and zeroing new portion at 0x%lx, page flags 0x%lx",
-               vnew + old_size, mapflags);
+               vnew + old_size, mapflags.w);
     map(vnew + old_size, dphys, dlen, mapflags);
     zero(pointer_from_u64(vnew + old_size), dlen);
     vmap_unlock(p);
@@ -369,13 +369,13 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
 
 closure_function(3, 3, boolean, mincore_fill_vec,
                  u64, base, u64, nr_pgs, u8 *, vec,
-                 int, level, u64, addr, u64 *, entry)
+                 int, level, u64, addr, pteptr, entry)
 {
-    u64 e = *entry;
+    pte e = pte_from_pteptr(entry);
     u64 pgoff, i, size;
 
-    if (pt_entry_is_present(e) &&
-        (size = pt_entry_size(level, e)) != INVALID_PHYSICAL) {
+    if (pte_is_present(e) &&
+        (size = pte_map_size(level, e)) != INVALID_PHYSICAL) {
         if (addr <= bound(base))
             pgoff = 0;
         else
@@ -554,7 +554,7 @@ static sysreturn vmap_update_protections(heap h, rangemap pvmap, range q, u32 ne
     rmnode_handler nh = stack_closure(vmap_update_protections_intersection, h, pvmap, q, newflags);
     rangemap_range_lookup(pvmap, q, nh);
 
-    update_map_flags(q.start, range_span(q), page_flags_from_vmflags(newflags));
+    update_map_flags(q.start, range_span(q), pageflags_from_vmflags(newflags));
     return 0;
 }
 
@@ -732,7 +732,7 @@ static void vmap_paint(heap h, process p, u64 where, u64 len, u32 vmflags,
                                                      ivmap(vmflags, allowed_flags,
                                                            node_offset, cache_node)));
 
-    update_map_flags(q.start, range_span(q), page_flags_from_vmflags(vmflags));
+    update_map_flags(q.start, range_span(q), pageflags_from_vmflags(vmflags));
     vmap_unlock(p);
 }
 
@@ -923,7 +923,7 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
             msg_err("failed to allocate virtual memory, flags 0x%x, size 0x%lx\n", flags, len);
             return -ENOMEM;
         }
-        thread_log(current, "   alloc: 0x%lx\n", where);
+        thread_log(current, "   alloc: 0x%lx", where);
     }
 
     sysreturn ret = where;
@@ -938,7 +938,7 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
             ret = -ENOMEM;
         else {
             vmflags |= VMAP_FLAG_PREALLOC;
-            ret = io_uring_mmap(desc, len, page_flags_from_vmflags(vmflags), offset);
+            ret = io_uring_mmap(desc, len, pageflags_from_vmflags(vmflags), offset);
             thread_log(current, "   io_uring_mmap returned 0x%lx", ret);
             if (ret > 0)
                vmap_paint(h, p, (u64)ret, len, vmflags, allowed_flags, 0, 0);

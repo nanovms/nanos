@@ -1,5 +1,4 @@
 #include <runtime.h>
-#include <page.h>
 
 typedef struct dheap {
     struct heap h;

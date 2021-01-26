@@ -1,5 +1,4 @@
 #include <kernel.h>
-#include <page.h>
 
 /* Try to keep these within the confines of the runloop lock so we
    don't create too much of a mess. */

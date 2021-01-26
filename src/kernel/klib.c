@@ -2,7 +2,6 @@
 #include <elf64.h>
 #include <pagecache.h>
 #include <tfs.h>
-#include <page.h>
 #include <symtab.h>
 
 //#define KLIB_DEBUG
@@ -50,7 +49,7 @@ closure_function(1, 1, void, klib_elf_walk,
 
 closure_function(1, 4, void, klib_elf_map,
                  klib, kl,
-                 u64, vaddr, u64, paddr, u64, size, u64, flags)
+                 u64, vaddr, u64, paddr, u64, size, pageflags, flags)
 {
     klib kl = bound(kl);
     boolean is_bss = paddr == INVALID_PHYSICAL;
@@ -66,7 +65,7 @@ closure_function(1, 4, void, klib_elf_map,
     km->flags = flags;
 
     klib_debug("%s: kl %s, vaddr 0x%lx, paddr 0x%lx%s, size 0x%lx, flags 0x%lx\n",
-               __func__, kl->name, vaddr, paddr, is_bss ? " (bss)" : "", size, flags);
+               __func__, kl->name, vaddr, paddr, is_bss ? " (bss)" : "", size, flags.w);
 
     assert(rangemap_insert(kl->mappings, &km->n));
     map(vaddr, paddr, size, flags);
@@ -167,7 +166,7 @@ closure_function(1, 1, void, destruct_mapping,
                  rmnode, n)
 {
     klib_mapping km = (klib_mapping)n;
-    klib_debug("   v %R, p 0x%lx, flags 0x%lx\n", km->n.r, km->phys, km->flags);
+    klib_debug("   v %R, p 0x%lx, flags 0x%lx\n", km->n.r, km->phys, km->flags.w);
     unmap(km->n.r.start, range_span(km->n.r));
     deallocate(heap_general(klib_kh), km, sizeof(struct klib_mapping));
 }

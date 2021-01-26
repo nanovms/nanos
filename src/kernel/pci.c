@@ -1,6 +1,5 @@
 #include <kernel.h>
 #include <pci.h>
-#include <page.h>
 
 //#define PCI_DEBUG
 #ifdef PCI_DEBUG
@@ -62,7 +61,7 @@ void pci_bar_init(pci_dev dev, struct pci_bar *b, int bar, bytes offset, bytes l
         pci_debug("%s: %p[0x%x] -> 0x%lx[0x%lx]+0x%x\n", __func__, b->vaddr,
                   b->vlen, b->addr, b->size, offset);
         u64 pa = b->addr + offset;
-        map(u64_from_pointer(b->vaddr), pa & ~PAGEMASK, b->vlen, PAGE_DEV_FLAGS);
+        map(u64_from_pointer(b->vaddr), pa & ~PAGEMASK, b->vlen, pageflags_writable(pageflags_device()));
         b->vaddr += pa & PAGEMASK;
     }
 }

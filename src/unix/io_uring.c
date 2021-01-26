@@ -440,9 +440,9 @@ err1:
     return ret;
 }
 
-sysreturn io_uring_mmap(fdesc desc, u64 len, u64 mapflags, u64 offset)
+sysreturn io_uring_mmap(fdesc desc, u64 len, pageflags mapflags, u64 offset)
 {
-    iour_debug("len %ld, flags 0x%x, offset 0x%x", len, mapflags, offset);
+    iour_debug("len %ld, flags 0x%x, offset 0x%x", len, mapflags.w, offset);
     io_uring iour = (io_uring)desc;
     u64 region_offset;
     switch (offset) {

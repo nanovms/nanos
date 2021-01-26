@@ -10,7 +10,6 @@
 
 #include <kernel.h>
 #include <pvclock.h>
-#include <page.h>
 
 #ifndef BUILD_VDSO
 VVAR_DEF(struct vdso_dat_struct, vdso_dat) = {

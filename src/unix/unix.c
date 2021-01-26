@@ -103,7 +103,7 @@ static boolean handle_protection_fault(context frame, u64 vaddr, vmap vm)
             pf_debug("copy-on-write for private map: vaddr 0x%lx, node %p, node_offset 0x%lx\n",
                      vaddr, vm->cache_node, node_offset);
             if (!pagecache_node_do_page_cow(vm->cache_node, node_offset, vaddr_aligned,
-                                            page_flags_from_vmflags(vm->flags))) {
+                                            pageflags_from_vmflags(vm->flags))) {
                 msg_err("cannot get physical page; OOM\n");
                 return false;
             }

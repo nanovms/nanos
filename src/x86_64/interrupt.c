@@ -1,6 +1,5 @@
 #include <kernel.h>
 #include <kvm_platform.h>
-#include <page.h>
 #include <region.h>
 #include <apic.h>
 #include <symtab.h>

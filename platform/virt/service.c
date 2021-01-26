@@ -1,5 +1,4 @@
 #include <kernel.h>
-#include <page.h>
 #include <pagecache.h>
 #include <tfs.h>
 #include <storage.h>
@@ -135,7 +134,6 @@ void read_kernel_syms(void)
 
 void reclaim_regions(void)
 {
-    // XXX - free identity map here?
 }
 
 extern filesystem root_fs;

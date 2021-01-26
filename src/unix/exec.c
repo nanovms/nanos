@@ -44,7 +44,8 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
     assert(sphys != INVALID_PHYSICAL);
 
     exec_debug("stack allocated at %p, size 0x%lx, phys 0x%lx\n", s, PROCESS_STACK_SIZE, sphys);
-    map(u64_from_pointer(s), sphys, PROCESS_STACK_SIZE, PAGE_WRITABLE | PAGE_NO_EXEC | PAGE_USER);
+    map(u64_from_pointer(s), sphys, PROCESS_STACK_SIZE,
+        pageflags_writable(pageflags_user(pageflags_noexec(pageflags_memory()))));
 
     s += PROCESS_STACK_SIZE >> 3;
 
@@ -147,14 +148,14 @@ closure_function(0, 1, void, load_interp_fail,
 
 closure_function(2, 4, void, exec_elf_map,
                  process, p, kernel_heaps, kh,
-                 u64, vaddr, u64, paddr, u64, size, u64, flags)
+                 u64, vaddr, u64, paddr, u64, size, pageflags, flags)
 {
     kernel_heaps kh = bound(kh);
     u64 target = vaddr;
     u64 vmflags = 0;
-    if ((flags & PAGE_NO_EXEC) == 0)
+    if (pageflags_is_exec(flags))
         vmflags |= VMAP_FLAG_EXEC;
-    if (page_flags_is_writable(flags))
+    if (pageflags_is_writable(flags))
         vmflags |= VMAP_FLAG_WRITABLE;
 
     range r = irange(target, target + size);
@@ -167,7 +168,7 @@ closure_function(2, 4, void, exec_elf_map,
         paddr = allocate_u64((heap)heap_physical(kh), size);
         assert(paddr != INVALID_PHYSICAL);
     }
-    map(target, paddr, size, flags | PAGE_USER);
+    map(target, paddr, size, pageflags_user(flags));
     if (is_bss) {
         zero(pointer_from_u64(target), size);
     }
