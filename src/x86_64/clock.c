@@ -6,13 +6,6 @@ clock_now platform_monotonic_now;
 clock_timer platform_timer;
 thunk platform_timer_percpu_init;
 
-void kernel_delay(timestamp delta)
-{
-    timestamp end = now(CLOCK_ID_MONOTONIC) + delta;
-    while (now(CLOCK_ID_MONOTONIC) < end)
-        kern_pause();
-}
-
 void init_clock(void)
 {
     /* detect rdtscp */

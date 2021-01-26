@@ -16,16 +16,6 @@
 #define start_dump(p, len)
 #endif
 
-boolean runtime_initialized = false;
-
-static struct kernel_heaps heaps;
-
-kernel_heaps get_kernel_heaps(void)
-{
-    return &heaps;
-}
-KLIB_EXPORT(get_kernel_heaps);
-
 static char *hex_digits="0123456789abcdef";
 
 /* TODO make generic / serial.h */
@@ -59,7 +49,7 @@ void early_dump(void *p, unsigned long length)
         early_debug("| ");
         for (int j = 0; j < 16; j++) {
             char c = *((u8 *)p + j);
-            serial_putchar((c >= ' ' && c < '~') ? *((u8 *)p + j) : '.');
+            serial_putchar((c >= ' ' && c < '~') ? c : '.');
         }
         early_debug(" |\n");
     }
@@ -90,11 +80,11 @@ static u64 bootstrap_alloc(heap h, bytes length)
 {
     u64 result = bootstrap_base;
     if ((result + length) >= bootstrap_end) {
-	console("*** bootstrap heap overflow! ***\n");
+	rputs("*** bootstrap heap overflow! ***\n");
         print_u64(result + length);
-        console("\n");
+        rputs("\n");
         print_u64(bootstrap_end);
-        console("\n");
+        rputs("\n");
         
         return INVALID_PHYSICAL;
     }
@@ -149,7 +139,7 @@ static void psci_shutdown(void)
 
 static inline void virt_shutdown(u64 code)
 {
-    if (!root_fs) {
+    if (root_fs) {
         tuple root = filesystem_getroot(root_fs);
         if (root && table_find(root, sym(psci)))
             psci_shutdown();
@@ -169,7 +159,7 @@ void vm_exit(u8 code)
 #endif
 
 #ifdef DUMP_MEM_STATS
-    buffer b = allocate_buffer(heap_general(&heaps), 512);
+    buffer b = allocate_buffer(heap_general(get_kernel_heaps()), 512);
     if (b != INVALID_ADDRESS) {
         dump_mem_stats(b);
         buffer_print(b);
@@ -201,7 +191,7 @@ void halt(char *format, ...)
     vstart(a, format);
     vbprintf(b, &f, &a);
     buffer_print(b);
-    kernel_shutdown(0);
+    kernel_shutdown(VM_EXIT_HALT);
 }
 
 u64 total_processors = 1;
@@ -212,34 +202,37 @@ static void init_kernel_heaps(void)
     bootstrap.alloc = bootstrap_alloc;
     bootstrap.dealloc = leak;
 
-    heaps.virtual_huge = create_id_heap(&bootstrap, &bootstrap, KMEM_BASE,
-                                        KMEM_LIMIT - KMEM_BASE, HUGE_PAGESIZE, true);
-    assert(heaps.virtual_huge != INVALID_ADDRESS);
+    kernel_heaps kh = get_kernel_heaps();
+    kh->virtual_huge = create_id_heap(&bootstrap, &bootstrap, KMEM_BASE,
+                                      KMEM_LIMIT - KMEM_BASE, HUGE_PAGESIZE, true);
+    assert(kh->virtual_huge != INVALID_ADDRESS);
 
-    heaps.virtual_page = create_id_heap_backed(&bootstrap, &bootstrap, (heap)heaps.virtual_huge, PAGESIZE, true);
-    assert(heaps.virtual_page != INVALID_ADDRESS);
+    kh->virtual_page = create_id_heap_backed(&bootstrap, &bootstrap, (heap)kh->virtual_huge, PAGESIZE, true);
+    assert(kh->virtual_page != INVALID_ADDRESS);
 
-    heaps.physical = init_physical_id_heap(&bootstrap);
-    assert(heaps.physical != INVALID_ADDRESS);
+    kh->physical = init_physical_id_heap(&bootstrap);
+    assert(kh->physical != INVALID_ADDRESS);
 
-    heaps.backed = physically_backed(&bootstrap, (heap)heaps.virtual_page, (heap)heaps.physical, PAGESIZE, true);
-    assert(heaps.backed != INVALID_ADDRESS);
+    kh->backed = physically_backed(&bootstrap, (heap)kh->virtual_page, (heap)kh->physical, PAGESIZE, true);
+    assert(kh->backed != INVALID_ADDRESS);
 
-    heaps.general = allocate_mcache(&bootstrap, (heap)heaps.backed, 5, 20, PAGESIZE_2M);
-    assert(heaps.general != INVALID_ADDRESS);
+    kh->general = allocate_mcache(&bootstrap, (heap)kh->backed, 5, 20, PAGESIZE_2M);
+    assert(kh->general != INVALID_ADDRESS);
 
-    heaps.locked = locking_heap_wrapper(&bootstrap, allocate_mcache(&bootstrap, (heap)heaps.backed, 5, 20, PAGESIZE_2M));
-    assert(heaps.locked != INVALID_ADDRESS);
+    kh->locked = locking_heap_wrapper(&bootstrap,
+        allocate_mcache(&bootstrap, (heap)kh->backed, 5, 20, PAGESIZE_2M));
+    assert(kh->locked != INVALID_ADDRESS);
 }
 
 static void __attribute__((noinline)) init_service_new_stack(void)
 {
     start_debug("in init_service_new_stack\n");
-    page_heap_init(heap_locked(&heaps), heap_physical(&heaps));
-    init_tuples(allocate_tagged_region(&heaps, tag_tuple));
-    init_symbols(allocate_tagged_region(&heaps, tag_symbol), heap_general(&heaps));
+    kernel_heaps kh = get_kernel_heaps();
+    page_heap_init(heap_locked(kh), heap_physical(kh));
+    init_tuples(allocate_tagged_region(kh, tag_tuple));
+    init_symbols(allocate_tagged_region(kh, tag_symbol), heap_general(kh));
     start_debug("calling runtime init\n");
-    kernel_runtime_init(&heaps);
+    kernel_runtime_init(kh);
     while(1);
 }
 
@@ -250,7 +243,7 @@ void init_setup_stack(void)
     init_kernel_heaps();
     start_debug("allocating stack\n");
     u64 stack_size = 32 * PAGESIZE;
-    void *stack_base = allocate(heap_backed(&heaps), stack_size);
+    void *stack_base = allocate(heap_backed(get_kernel_heaps()), stack_size);
     assert(stack_base != INVALID_ADDRESS);
     start_debug("stack base at ");
     start_debug_u64(u64_from_pointer(stack_base));

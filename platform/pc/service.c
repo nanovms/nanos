@@ -24,17 +24,7 @@
 #define init_debug(x, ...)
 #endif
 
-extern void init_net(kernel_heaps kh);
-extern void init_interrupts(kernel_heaps kh);
-
-static struct kernel_heaps heaps;
 static filesystem root_fs;
-
-kernel_heaps get_kernel_heaps(void)
-{
-    return &heaps;
-}
-KLIB_EXPORT(get_kernel_heaps);
 
 #define BOOTSTRAP_REGION_SIZE_KB	2048
 static u8 bootstrap_region[BOOTSTRAP_REGION_SIZE_KB << 10];
@@ -50,12 +40,6 @@ static u64 bootstrap_alloc(heap h, bytes length)
     return result;
 }
 
-void init_extra_prints(); 
-thunk create_init(kernel_heaps kh, tuple root, filesystem fs);
-filesystem_complete bootfs_handler(kernel_heaps kh, tuple root,
-                                   boolean klibs_in_bootfs,
-                                   boolean ingest_kernel_syms);
-
 void read_kernel_syms(void)
 {
     u64 kern_base = INVALID_PHYSICAL;
@@ -67,7 +51,7 @@ void read_kernel_syms(void)
 	    kern_base = e->base;
 	    kern_length = e->length;
 
-	    u64 v = allocate_u64((heap)heap_virtual_huge(&heaps), kern_length);
+	    u64 v = allocate_u64((heap)heap_virtual_huge(get_kernel_heaps()), kern_length);
             pageflags flags = pageflags_noexec(pageflags_readonly(pageflags_memory()));
 	    map(v, kern_base, kern_length, flags);
 #ifdef ELF_SYMTAB_DEBUG
@@ -126,7 +110,7 @@ void reclaim_regions(void)
     for_regions(e) {
         if (e->type == REGION_RECLAIM) {
             unmap(e->base, e->length);
-            if (!id_heap_add_range(heap_physical(&heaps), e->base, e->length))
+            if (!id_heap_add_range(heap_physical(get_kernel_heaps()), e->base, e->length))
                 halt("%s: add range for physical heap failed (%R)\n",
                      __func__, irange(e->base, e->base + e->length));
         }
@@ -147,7 +131,7 @@ void vm_exit(u8 code)
 #endif
 
 #ifdef DUMP_MEM_STATS
-    buffer b = allocate_buffer(heap_general(&heaps), 512);
+    buffer b = allocate_buffer(heap_general(get_kernel_heaps()), 512);
     if (b != INVALID_ADDRESS) {
         dump_mem_stats(b);
         buffer_print(b);
@@ -195,10 +179,10 @@ u64 xsave_features();
 
 static void __attribute__((noinline)) init_service_new_stack()
 {
-    kernel_heaps kh = &heaps;
+    kernel_heaps kh = get_kernel_heaps();
     init_debug("in init_service_new_stack");
     init_tuples(allocate_tagged_region(kh, tag_tuple));
-    init_symbols(allocate_tagged_region(kh, tag_symbol), heap_general(&heaps));
+    init_symbols(allocate_tagged_region(kh, tag_symbol), heap_general(kh));
 
     init_debug("init_hwrand");
     init_hwrand();
@@ -254,26 +238,29 @@ static id_heap init_physical_id_heap(heap h)
     return physical;
 }
 
-static void init_kernel_heaps()
+static void init_kernel_heaps(void)
 {
     static struct heap bootstrap;
     bootstrap.alloc = bootstrap_alloc;
     bootstrap.dealloc = leak;
 
-    heaps.virtual_huge = create_id_heap(&bootstrap, &bootstrap, KMEM_BASE,
-                                        KMEM_LIMIT - KMEM_BASE, HUGE_PAGESIZE, true);
-    assert(heaps.virtual_huge != INVALID_ADDRESS);
+    kernel_heaps kh = get_kernel_heaps();
+    kh->virtual_huge = create_id_heap(&bootstrap, &bootstrap, KMEM_BASE,
+                                      KMEM_LIMIT - KMEM_BASE, HUGE_PAGESIZE, true);
+    assert(kh->virtual_huge != INVALID_ADDRESS);
 
-    heaps.virtual_page = create_id_heap_backed(&bootstrap, &bootstrap, (heap)heaps.virtual_huge, PAGESIZE, true);
-    assert(heaps.virtual_page != INVALID_ADDRESS);
+    kh->virtual_page = create_id_heap_backed(&bootstrap, &bootstrap,
+                                             (heap)kh->virtual_huge, PAGESIZE, true);
+    assert(kh->virtual_page != INVALID_ADDRESS);
 
-    heaps.physical = init_physical_id_heap(&bootstrap);
-    assert(heaps.physical != INVALID_ADDRESS);
+    kh->physical = init_physical_id_heap(&bootstrap);
+    assert(kh->physical != INVALID_ADDRESS);
 
-    init_page_tables(&bootstrap, heaps.physical, find_initial_pages());
+    init_page_tables(&bootstrap, kh->physical, find_initial_pages());
 
-    heaps.backed = physically_backed(&bootstrap, (heap)heaps.virtual_page, (heap)heaps.physical, PAGESIZE, true);
-    assert(heaps.backed != INVALID_ADDRESS);
+    kh->backed = physically_backed(&bootstrap, (heap)kh->virtual_page,
+                                   (heap)kh->physical, PAGESIZE, true);
+    assert(kh->backed != INVALID_ADDRESS);
 
     heaps.general = allocate_mcache(&bootstrap, (heap)heaps.backed, 5, MAX_MCACHE_ORDER, PAGESIZE_2M);
     assert(heaps.general != INVALID_ADDRESS);
@@ -313,7 +300,7 @@ static void cmdline_parse(const char *cmdline)
             int prefix_len = prefix_end - cmdline;
             if ((prefix_len == sizeof("virtio_mmio") - 1) &&
                     !runtime_memcmp(cmdline, "virtio_mmio", prefix_len))
-                virtio_mmio_parse(&heaps, prefix_end + 1,
+                virtio_mmio_parse(get_kernel_heaps(), prefix_end + 1,
                     opt_end - (prefix_end + 1));
         }
         cmdline = opt_end + 1;
@@ -405,7 +392,7 @@ void init_service(u64 rdi, u64 rsi)
     if (cmdline)
         cmdline_parse(cmdline);
     u64 stack_size = 32*PAGESIZE;
-    u64 stack_location = allocate_u64(heap_backed(&heaps), stack_size);
+    u64 stack_location = allocate_u64(heap_backed(get_kernel_heaps()), stack_size);
     stack_location += stack_size - STACK_ALIGNMENT;
     *(u64 *)stack_location = 0;
     switch_stack(stack_location, init_service_new_stack);

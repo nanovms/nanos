@@ -189,8 +189,6 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
         /* should be a list of per-runloop checks - also low-pri background */
         mm_service();
         timer_updated = update_timer();
-        update_timer();
-
         kern_unlock();
     }
 

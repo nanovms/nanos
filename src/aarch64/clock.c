@@ -7,13 +7,6 @@ clock_now platform_monotonic_now;
 clock_timer platform_timer;
 thunk platform_timer_percpu_init;
 
-void kernel_delay(timestamp delta)
-{
-    timestamp end = now(CLOCK_ID_MONOTONIC) + delta;
-    while (now(CLOCK_ID_MONOTONIC) < end)
-        kern_pause();
-}
-
 static inline u64 cntfrq(void)
 {
     return read_psr(CNTFRQ_EL0);

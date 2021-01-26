@@ -1309,18 +1309,10 @@ sysreturn fdatasync(int fd)
     return fsync(fd);
 }
 
-static sysreturn access_internal(tuple cwd, const char *pathname, int mode, int flags)
+static sysreturn access_internal(tuple cwd, const char *pathname, int mode)
 {
     tuple m = 0;
-    int ret;
-    if (flags & AT_SYMLINK_NOFOLLOW) {
-        ret = resolve_cstring(0, cwd, pathname, &m, 0);
-        if (!ret && is_symlink(m))
-            ret = -ELOOP;
-    } else {
-        ret = resolve_cstring_follow(0, cwd, pathname, &m, 0);
-    }
-
+    int ret = resolve_cstring_follow(0, cwd, pathname, &m, 0);
     if (ret)
         return set_syscall_return(current, ret);
     if (mode == F_OK)
@@ -1338,17 +1330,17 @@ sysreturn access(const char *pathname, int mode)
     thread_log(current, "access: \"%s\", mode %d", pathname, mode);
     if (!validate_user_string(pathname))
         return -EFAULT;
-    return access_internal(current->p->cwd, pathname, mode, 0);
+    return access_internal(current->p->cwd, pathname, mode);
 }
 
-sysreturn faccessat(int dirfd, const char *pathname, int mode, int flags)
+sysreturn faccessat(int dirfd, const char *pathname, int mode)
 {
-    thread_log(current, "faccessat: dirfd %d, \"%s\", mode %d, flags %d", dirfd, pathname, mode, flags);
+    thread_log(current, "faccessat: dirfd %d, \"%s\", mode %d", dirfd, pathname, mode);
     if (!validate_user_string(pathname))
         return -EFAULT;
     filesystem fs;              /* dummy */
     tuple cwd = resolve_dir(fs, dirfd, pathname);
-    return access_internal(cwd, pathname, mode, flags);
+    return access_internal(cwd, pathname, mode);
 }
 
 /*

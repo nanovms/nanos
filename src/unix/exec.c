@@ -131,7 +131,7 @@ void start_process(thread t, void *start)
 {
     t->default_frame[SYSCALL_FRAME_PC] = u64_from_pointer(start);
     if (table_find(t->p->process_root, sym(gdb))) {
-        console ("gdb!\n");
+        rputs("TODO: in-kernel gdb needs revisiting\n");
 //        init_tcp_gdb(heap_general(get_kernel_heaps()), t->p, 9090);
     } else {
         schedule_frame(t->default_frame);

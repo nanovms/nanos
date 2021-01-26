@@ -125,7 +125,7 @@ u64 gic_dispatch_int(void)
 
 void gic_eoi(int irq)
 {
-    gic_debug("irq\n", irq);
+    gic_debug("irq %d\n", irq);
     gicc_write(EOIR1, irq);
     gic_clear_pending_int(irq);
 }

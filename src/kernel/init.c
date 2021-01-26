@@ -31,6 +31,14 @@ static kernel_heaps init_heaps;
 //#define MAX_BLOCK_IO_SIZE PAGE_SIZE
 #define MAX_BLOCK_IO_SIZE (64 * 1024)
 
+static struct kernel_heaps heaps;
+
+kernel_heaps get_kernel_heaps(void)
+{
+    return &heaps;
+}
+KLIB_EXPORT(get_kernel_heaps);
+
 closure_function(2, 3, void, offset_block_io,
                  u64, offset, block_io, io,
                  void *, dest, range, blocks, status_handler, sh)
@@ -54,12 +62,11 @@ closure_function(2, 3, void, offset_block_io,
     apply(k, STATUS_OK);
 }
 
-/* XXX some header reorg in order */
-void init_extra_prints();
-thunk create_init(kernel_heaps kh, tuple root, filesystem fs);
-filesystem_complete bootfs_handler(kernel_heaps kh, tuple root,
-                                   boolean klibs_in_bootfs,
-                                   boolean ingest_kernel_syms);
+/* stage3 */
+extern thunk create_init(kernel_heaps kh, tuple root, filesystem fs);
+extern filesystem_complete bootfs_handler(kernel_heaps kh, tuple root,
+                                          boolean klibs_in_bootfs,
+                                          boolean ingest_kernel_syms);
 
 closure_function(3, 2, void, fsstarted,
                  u8 *, mbr, block_io, r, block_io, w,

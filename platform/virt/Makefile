@@ -23,6 +23,7 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/kernel/backed_heap.c \
 	$(SRCDIR)/kernel/locking_heap.c \
 	$(SRCDIR)/kernel/elf.c \
+	$(SRCDIR)/kernel/clock.c \
 	$(SRCDIR)/kernel/init.c \
 	$(SRCDIR)/kernel/kernel.c \
 	$(SRCDIR)/kernel/klib.c \

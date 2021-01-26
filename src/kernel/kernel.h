@@ -141,7 +141,6 @@ static inline void bhqueue_enqueue_irqsafe(thunk t)
     irq_restore(flags);
 }
 
-extern boolean runtime_initialized; // XXX suspect
 heap allocate_tagged_region(kernel_heaps kh, u64 tag);
 heap locking_heap_wrapper(heap meta, heap parent);
 

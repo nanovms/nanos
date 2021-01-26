@@ -1,6 +1,5 @@
 #include <kernel.h>
 
-//#define PAGE_DEBUG
 //#define PAGE_INIT_DEBUG
 //#define TRAVERSE_PTES_DEBUG
 
@@ -12,13 +11,6 @@
 #define page_init_debug(x)
 #define page_init_debug_u64(x)
 #define page_init_dump(p, len)
-#endif
-
-#ifdef PAGE_DEBUG
-#define page_debug(x, ...) do { if (runtime_initialized) \
-            log_printf("PAGE", "%s: " x, __func__, ##__VA_ARGS__); } while(0)
-#else
-#define page_debug(x, ...)
 #endif
 
 #ifdef KERNEL
@@ -242,9 +234,6 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags)
     page_init_debug_u64(last_index);
     page_init_debug("\n");
     assert(first_index <= last_index);
-
-    page_debug("%s: level %d, v %R, p 0x%lx, flags 0x%lx, table_ptr %p\n",
-               __func__, level, v, *p, flags, table_ptr);
     assert(table_ptr && table_ptr != INVALID_ADDRESS);
 
     for (int i = first_index; i <= last_index; i++, next_addr(v.start, mask)) {
@@ -353,7 +342,6 @@ static boolean map_area(range v, u64 p, u64 flags)
     
     /* select table based on v[55] */
     u64 *table_ptr = table_from_vaddr(v.start);
-//    rprintf("table 0x%lx, p %p\n", table, pointer_from_pteaddr(table));
     page_init_debug_u64(u64_from_pointer(table_ptr));
     page_init_debug("\n");
     page_init_debug_u64(v.start & U64_FROM_BIT(55));
@@ -365,18 +353,15 @@ static boolean map_area(range v, u64 p, u64 flags)
 
 void map(u64 v, physical p, u64 length, pageflags flags)
 {
-#if 0
-    early_debug("map: v ");
-    early_debug_u64(v);
-    early_debug(", p ");
-    early_debug_u64(p);
-    early_debug(", length ");
-    early_debug_u64(length);
-    early_debug(", flags ");
-    early_debug_u64(flags.w);
-    early_debug("\n");
-#endif
-    page_init_debug("map called from ");
+    page_init_debug("map: v ");
+    page_init_debug_u64(v);
+    page_init_debug(", p ");
+    page_init_debug_u64(p);
+    page_init_debug(", length ");
+    page_init_debug_u64(length);
+    page_init_debug(", flags ");
+    page_init_debug_u64(flags.w);
+    page_init_debug(", called from ");
     page_init_debug_u64(u64_from_pointer(__builtin_return_address(0)));
     page_init_debug("\n");
 
@@ -417,10 +402,6 @@ closure_function(1, 3, boolean, unmap_page,
     range_handler rh = bound(rh);
     pte old_entry = pte_from_pteptr(entry);
     if (pte_is_present(old_entry) && pte_is_mapping(level, old_entry)) {
-#ifdef PAGE_UPDATE_DEBUG
-        page_debug("rh %p, level %d, vaddr 0x%lx, entry %p, *entry 0x%lx\n",
-                   rh, level, vaddr, entry, *entry);
-#endif
         /* break before make */
         *entry = 0;
         leaf_invalidate(vaddr);
@@ -442,13 +423,11 @@ void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh)
 
 void unmap(u64 virtual, u64 length)
 {
-#ifdef PAGE_DEBUG
-    console("unmap v: ");
-    print_u64(virtual);
-    console(", length: ");
-    print_u64(length);
-    console("\n");
-#endif
+    page_init_debug("unmap v: ");
+    page_init_debug_u64(virtual);
+    page_init_debug(", length: ");
+    page_init_debug_u64(length);
+    page_init_debug("\n");
     unmap_pages(virtual, length);
 }
 
@@ -476,9 +455,9 @@ static boolean recurse_ptes(u64 *table_ptr, int level, u64 vstart, u64 len, u64 
     u64 offset = start_idx << shift;
 
 #ifdef TRAVERSE_PTES_DEBUG
-    rprintf("   pbase 0x%lx, level %d, shift %d, lsize 0x%lx, laddr 0x%lx,\n"
+    rprintf("   table_ptr %p, level %d, shift %d, lsize 0x%lx, laddr 0x%lx,\n"
             "      start_idx %ld, end_idx %ld, offset 0x%lx\n",
-            pbase, level, shift, lsize, laddr, start_idx, end_idx, offset);
+            table_ptr, level, shift, lsize, laddr, start_idx, end_idx, offset);
 #endif
 
     assert(start_idx <= PTE_ENTRIES);
@@ -533,7 +512,6 @@ closure_function(0, 3, boolean, validate_entry,
 /* validate that all pages in vaddr range [base, base + length) are present */
 boolean validate_virtual(void * base, u64 length)
 {
-    page_debug("base %p, length 0x%lx\n", base, length);
     return traverse_ptes(u64_from_pointer(base), length, stack_closure(validate_entry));
 }
 
@@ -548,9 +526,6 @@ closure_function(2, 3, boolean, update_pte_flags,
         return true;
 
     pte_set(entry, (orig_pte & ~_PAGE_PROT_FLAGS) | bound(flags).w);
-#ifdef PAGE_UPDATE_DEBUG
-    page_debug("update 0x%lx: pte @ 0x%lx, 0x%lx -> 0x%lx\n", addr, entry, old, pte_from_pteptr(entry).w);
-#endif
     page_invalidate(bound(fe), addr);
     return true;
 }
@@ -558,7 +533,14 @@ closure_function(2, 3, boolean, update_pte_flags,
 /* Update access protection flags for any pages mapped within a given area */
 void update_map_flags(u64 vaddr, u64 length, pageflags flags)
 {
-    page_debug("vaddr 0x%lx, length 0x%lx, flags 0x%lx\n", vaddr, length, flags.w);
+    page_init_debug("update_map_flags: vaddr ");
+    page_init_debug_u64(vaddr);
+    page_init_debug(", length ");
+    page_init_debug_u64(length);
+    page_init_debug(", flags ");
+    page_init_debug_u64(flags.w);
+    page_init_debug("\n");
+
     flush_entry fe = get_page_flush_entry();
     traverse_ptes(vaddr, length, stack_closure(update_pte_flags, flags, fe));
     page_invalidate_sync(fe, ignore);
@@ -574,12 +556,6 @@ closure_function(2, 3, boolean, remap_entry,
     u64 new_curr = bound(new) + offset;
     u64 phys = page_from_pte(oldentry);
     u64 flags = flags_from_pte(oldentry);
-#ifdef PAGE_UPDATE_DEBUG
-    page_debug("%s: level %d, old curr 0x%lx, phys 0x%lx, new curr 0x%lx\n"
-               "   entry 0x%lx, *entry 0x%lx, flags 0x%lx\n",
-               level, curr, phys, new_curr, entry, oldentry, flags.w);
-#endif
-
     int map_order = pte_order(level, oldentry);
 
     /* valid leaves only */
@@ -605,7 +581,14 @@ closure_function(2, 3, boolean, remap_entry,
 */
 void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length)
 {
-    page_debug("vaddr_new 0x%lx, vaddr_old 0x%lx, length 0x%lx\n", vaddr_new, vaddr_old, length);
+    page_init_debug("remap_pages: vaddr_new ");
+    page_init_debug_u64(vaddr_new);
+    page_init_debug(", vaddr_old ");
+    page_init_debug_u64(vaddr_old);
+    page_init_debug(", length ");
+    page_init_debug_u64(length);
+    page_init_debug("\n");
+
     if (vaddr_new == vaddr_old)
         return;
     assert(range_empty(range_intersection(irangel(vaddr_new, length),

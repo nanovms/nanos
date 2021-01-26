@@ -1,9 +1,5 @@
 #include <io.h>
 
-#define VM_EXIT_GDB 0x7d
-#define VM_EXIT_FAULT 0x7e
-#define VM_EXIT_HALT 0x7f
-
 static inline void QEMU_HALT(u8 code) __attribute__((noreturn));
 
 static inline void QEMU_HALT(u8 code)

@@ -50,7 +50,7 @@ static void print_far_if_valid(u32 iss)
     if ((iss & ESR_ISS_DATA_ABRT_FnV) == 0) {
         register u64 far;
         asm("mrs %0, FAR_EL1" : "=r"(far));
-        console("\n       far: ");
+        rputs("\n       far: ");
         print_u64_with_sym(far);
     }
 }
@@ -58,21 +58,21 @@ static void print_far_if_valid(u32 iss)
 void print_frame(context f)
 {
     u64 v = f[FRAME_VECTOR];
-    console(" interrupt: ");
+    rputs(" interrupt: ");
     print_u64(v);
     if (v < INTERRUPT_VECTOR_START) {
         list_foreach(&handlers[v], l) {
             inthandler h = struct_from_list(l, inthandler, l);
-            console(" (");
-            console((char *)h->name);
-            console(")");
+            rputs(" (");
+            rputs((char *)h->name);
+            rputs(")");
         }
     }
-    console("\n     frame: ");
+    rputs("\n     frame: ");
     print_u64_with_sym(u64_from_pointer(f));
-    console("\n      spsr: ");
+    rputs("\n      spsr: ");
     print_u64(f[FRAME_ESR_SPSR] & MASK(32));
-    console("\n       esr: ");
+    rputs("\n       esr: ");
     u32 esr = f[FRAME_ESR_SPSR] >> 32;
     print_u64(esr);
 
@@ -80,65 +80,65 @@ void print_frame(context f)
     u32 iss = field_from_u64(esr, ESR_ISS);
     switch (esr_ec) {
     case ESR_EC_UNKNOWN:
-        console(" unknown");
+        rputs(" unknown");
         break;
     case ESR_EC_ILL_EXEC:
-        console(" illegal execution");
+        rputs(" illegal execution");
         break;
     case ESR_EC_INST_ABRT_LEL:
     case ESR_EC_INST_ABRT:
-        console(" instruction abort in ");
-        console(esr_ec == ESR_EC_INST_ABRT_LEL ? "el0" : "el1");
+        rputs(" instruction abort in ");
+        rputs(esr_ec == ESR_EC_INST_ABRT_LEL ? "el0" : "el1");
         print_far_if_valid(iss);
         /* ... */
         break;
     case ESR_EC_PC_ALIGN_FAULT:
-        console(" pc alignment");
+        rputs(" pc alignment");
         break;
     case ESR_EC_DATA_ABRT_LEL:
     case ESR_EC_DATA_ABRT:
-        console(" data abort in ");
-        console(esr_ec == ESR_EC_DATA_ABRT_LEL ? "el0" : "el1");
-        console(iss & ESR_ISS_DATA_ABRT_WnR ? " write" : " read");
+        rputs(" data abort in ");
+        rputs(esr_ec == ESR_EC_DATA_ABRT_LEL ? "el0" : "el1");
+        rputs(iss & ESR_ISS_DATA_ABRT_WnR ? " write" : " read");
         if (iss & ESR_ISS_DATA_ABRT_CM)
-            console(" cache");
+            rputs(" cache");
         print_far_if_valid(iss);
         break;
     case ESR_EC_SP_ALIGN_FAULT:
-        console(" sp alignment");
+        rputs(" sp alignment");
         break;
     case ESR_EC_SERROR_INT:
-        console(" serror interrupt");
+        rputs(" serror interrupt");
         break;
     }
 
-    console("\n       elr: ");
+    rputs("\n       elr: ");
     print_u64_with_sym(f[FRAME_ELR]);
-    console("\n\n");
+    rputs("\n\n");
 
     for (int j = 0; j < FRAME_N_GPREG; j++) {
-        console("      ");
-        console(gpreg_names[j]);
-        console(": ");
+        rputs("      ");
+        rputs(gpreg_names[j]);
+        rputs(": ");
         print_u64_with_sym(f[j]);
         int qidx = FRAME_Q0 + (2 * j);
         if (f[qidx] || f[qidx + 1]) {
-            console(fpsimd_names[j]);
-            console(": ");
+            rputs(fpsimd_names[j]);
+            rputs(": ");
             print_u64(f[qidx + 1]);
             print_u64(f[qidx]);
         }
-        console("\n");        
+        rputs("\n");
     }
     for (int j = 0; j < 2; j++) {
         u64 v = f[FRAME_FPSR + j];
         if (!v)
             continue;
-        console("      ");
-        console(fpsimd_names[32 + j]);
-        console(": ");
+        rputs("      ");
+        rputs(fpsimd_names[32 + j]);
+        rputs(": ");
         print_u64(v);
-        console("\n");
+        rputs("\n");
     }
 }
 
@@ -172,18 +172,18 @@ void print_stack_from_here(void)
 #define STACK_TRACE_DEPTH       128
 void print_stack(context c)
 {
-    console("\nstack trace:\n");
+    rputs("\nstack trace:\n");
     u64 *x = pointer_from_u64(c[FRAME_SP]);
 
     /* XXX fixme */
     for (u64 i = 0; i < STACK_TRACE_DEPTH && ((void*)x) <
              pointer_from_u64(0xffff000000020000ull); i++) {
         print_u64(u64_from_pointer(x));
-        console(":   ");
+        rputs(":   ");
         print_u64_with_sym(*x++);
-        console("\n");
+        rputs("\n");
     }
-    console("\n");
+    rputs("\n");
 }
 
 extern void (*syscall)(context f);
@@ -218,7 +218,7 @@ void synchronous_handler(void)
         console("\nno fault handler for frame ");
         print_frame(f);
         print_stack(f);
-        while(1);
+        vm_exit(VM_EXIT_FAULT);
     }
 }
 

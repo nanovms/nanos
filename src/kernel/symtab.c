@@ -88,13 +88,13 @@ void print_u64_with_sym(u64 a)
 
     name = find_elf_sym(a, &offset, &len);
     if (name) {
-	console("\t(");
-	console(name);
-	console(" + ");
+	rputs("\t(");
+	rputs(name);
+	rputs(" + ");
 	print_u64(offset);
-        console("/");
+        rputs("/");
         print_u64(len);
-	console(")");
+	rputs(")");
     }
 }
 

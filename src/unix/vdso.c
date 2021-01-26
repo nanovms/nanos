@@ -15,7 +15,7 @@ void init_vdso(process p)
 {
     physical paddr;
     u64 vaddr, size;
-    pageflags flags = pageflags_readonly(pageflags_exec(pageflags_user(pageflags_memory())));
+    pageflags flags = pageflags_readonly(pageflags_user(pageflags_memory()));
 
     /* sanity checks */
     assert(((unsigned long)&vvar_page & MASK(PAGELOG)) == 0);
@@ -28,7 +28,7 @@ void init_vdso(process p)
         size = vdso_raw_length;
         paddr = physical_from_virtual(vdso_raw);
         assert(paddr != INVALID_PHYSICAL);
-        map(vaddr, paddr, size, flags);
+        map(vaddr, paddr, size, pageflags_exec(flags));
     }
 
     /* map first vvar page, which contains various kernel data */
@@ -37,7 +37,7 @@ void init_vdso(process p)
         size = PAGESIZE;
         paddr = physical_from_virtual((void *)&vvar_page);
         assert(paddr != INVALID_PHYSICAL);
-        map(vaddr, paddr, size, flags);
+        map(vaddr, paddr, size, pageflags_noexec(flags));
     }
 
     /* map pvclock page */
@@ -51,7 +51,7 @@ void init_vdso(process p)
 #endif
         if (paddr != INVALID_PHYSICAL) {
             __vdso_dat->pvclock_offset = paddr & PAGEMASK;
-            map(vaddr, paddr & ~PAGEMASK, size, flags);
+            map(vaddr, paddr & ~PAGEMASK, size, pageflags_noexec(flags));
         }
     }
 

@@ -45,7 +45,7 @@ void pci_bar_init(pci_dev dev, struct pci_bar *b, int bar, bytes offset, bytes l
     } else {
         b->flags = 0;
         b->addr = (base & ~PCI_BAR_B_IOPORT_MASK) + offset;
-        pci_debug("   i/o: addr 0x%x\n", __func__, b->addr);
+        pci_debug("   i/o: addr 0x%x\n", b->addr);
     }
     b->size = pci_bar_size(dev, b, bar);
     pci_debug("%s: bar %d: type %d, addr 0x%lx, size 0x%lx, flags 0x%x\n",

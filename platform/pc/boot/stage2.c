@@ -175,8 +175,6 @@ closure_function(0, 3, void, stage2_empty_write,
 {
 }
 
-extern void init_extra_prints();
-
 closure_function(0, 1, void, fail,
                  status, s)
 {
