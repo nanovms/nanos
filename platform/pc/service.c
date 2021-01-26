@@ -349,7 +349,7 @@ void vm_exit(u8 code)
 {
 #ifdef SMP_DUMP_FRAME_RETURN_COUNT
     rprintf("cpu\tframe returns\n");
-    for (int i = 0; i < MAX_CPUS; i++) {
+    for (int i = 0; i < present_processors; i++) {
         cpuinfo ci = cpuinfo_from_id(i);
         if (ci->frcount)
             rprintf("%d\t%ld\n", i, ci->frcount);
@@ -440,6 +440,7 @@ void __attribute__((noreturn)) kernel_shutdown(int status)
 }
 
 u64 total_processors = 1;
+u64 present_processors;
 
 #ifdef SMP_ENABLE
 static void new_cpu()
@@ -456,6 +457,39 @@ static void new_cpu()
 
 u64 xsave_features();
 u64 xsave_frame_size();
+
+closure_function(0, 2, void, count_processors_handler,
+                 u8, type, void *, p)
+{
+    acpi_lapic la;
+    acpi_lapic_x2 lax2;
+    switch (type) {
+    case ACPI_MADT_LAPIC:
+        la = p;
+        if (la->flags & MADT_LAPIC_ENABLED)
+            present_processors++;
+        break;
+    case ACPI_MADT_LAPICx2:
+        lax2 = p;
+        if (lax2->flags & MADT_LAPIC_ENABLED)
+            present_processors++;
+        break;
+    }
+}
+
+static void count_processors()
+{
+    acpi_madt madt = acpi_get_table('CIPA');
+    if (madt) {
+        acpi_walk_madt(madt, stack_closure(count_processors_handler));
+        init_debug("ACPI reports %d processors", present_processors);
+    } else {
+        present_processors = 1;
+        init_debug("ACPI MADT not found, default to 1 processor");
+    }
+    /* config override */
+    present_processors = MIN(present_processors, MAX_CPUS);
+}
 
 static void __attribute__((noinline)) init_service_new_stack()
 {
@@ -488,6 +522,8 @@ static void __attribute__((noinline)) init_service_new_stack()
     init_debug("pci_discover (for VGA)");
     pci_discover(); // early PCI discover to configure VGA console
     init_clock();
+    init_acpi(kh);
+    count_processors();
     init_kernel_contexts(backed);
 
     /* interrupts */
@@ -557,7 +593,6 @@ static void __attribute__((noinline)) init_service_new_stack()
     }
 
     init_storage(kh, sa, !xen_detected() && !hyperv_storvsc_attached);
-    init_acpi(kh);
 
     init_debug("pci_discover (for virtio & ata)");
     pci_discover(); // do PCI discover again for other devices
@@ -569,8 +604,10 @@ static void __attribute__((noinline)) init_service_new_stack()
     set_syscall_handler(syscall_enter);
 #ifdef SMP_ENABLE
     init_debug("starting APs");
-    start_cpu(misc, heap_backed(kh), TARGET_EXCLUSIVE_BROADCAST, new_cpu);
-    kernel_delay(milliseconds(200));   /* temp, til we check tables to know what we have */
+    for (int i = 1; i < present_processors; i++)
+        start_cpu(misc, heap_backed(kh), i, new_cpu);
+    while (total_processors < present_processors)
+        kernel_delay(milliseconds(5));
     init_debug("total CPUs %d\n", total_processors);
     init_flush(heap_general(kh));
 #endif

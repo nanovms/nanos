@@ -79,16 +79,18 @@ void resume_kernel_context(kernel_context c)
     frame_return(c->frame);
 }
 
-struct cpuinfo cpuinfos[MAX_CPUS];
+cpuinfo cpuinfos;
 
 static void init_cpuinfos(heap backed)
 {
     /* We're stuck with a hard limit of 64 for now due to bitmask... */
     build_assert(MAX_CPUS <= 64);
 
+    cpuinfos = allocate(backed, present_processors * sizeof(struct cpuinfo));
+    assert(cpuinfos != INVALID_ADDRESS);
     /* We'd like the aps to allocate for themselves, but we don't have
        per-cpu heaps just yet. */
-    for (int i = 0; i < MAX_CPUS; i++) {
+    for (int i = 0; i < present_processors; i++) {
         cpuinfo ci = cpuinfo_from_id(i);
         ci->self = ci;
 

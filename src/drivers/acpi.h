@@ -92,5 +92,8 @@ static inline boolean acpi_checksum(void *a, u8 len)
     return sum == 0;
 }
 
+typedef closure_type(madt_handler, void, u8, void *);
+
 void init_acpi(kernel_heaps kh);
 void *acpi_get_table(u32 sig);
+void acpi_walk_madt(acpi_madt madt, madt_handler mh);

@@ -115,6 +115,14 @@ again:
     return pointer_from_u64(v + off);
 }
 
+void acpi_walk_madt(acpi_madt madt, madt_handler mh)
+{
+    u8 *p = (u8 *)(madt + 1);
+    u8 *pe = (u8 *)madt + madt->h.length;
+    for (; p < pe; p += p[1])
+        apply(mh, p[0], p);
+}
+
 void init_acpi(kernel_heaps kh)
 {
     heap h = heap_general(kh);

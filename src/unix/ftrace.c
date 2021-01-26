@@ -1836,7 +1836,7 @@ ftrace_init(unix_heaps uh, filesystem fs)
 
     /* nop tracer */
     current_tracer = &(tracer_list[0]);
-   for (int i = 0; i < MAX_CPUS; i++) {
+   for (int i = 0; i < present_processors; i++) {
         cpuinfo ci = cpuinfo_from_id(i);
         if (ftrace_cpu_init(ci) != 0)
             return -1;
@@ -1847,7 +1847,7 @@ ftrace_init(unix_heaps uh, filesystem fs)
 void
 ftrace_deinit(void)
 {
-    for (int i = 0; i < MAX_CPUS; i++) {
+    for (int i = 0; i < present_processors; i++) {
         cpuinfo ci = cpuinfo_from_id(i);
         ftrace_cpu_deinit(ci);
     }

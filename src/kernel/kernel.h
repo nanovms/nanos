@@ -76,11 +76,15 @@ typedef struct cpuinfo {
 #define cpu_interrupt 3
 #define cpu_user 4
 
-extern struct cpuinfo cpuinfos[];
+extern cpuinfo cpuinfos;
+
+extern u64 idle_cpu_mask;
+extern u64 total_processors;
+extern u64 present_processors;
 
 static inline __attribute__((always_inline)) cpuinfo cpuinfo_from_id(int cpu)
 {
-    assert(cpu >= 0 && cpu < MAX_CPUS);
+    assert(cpu >= 0 && cpu < present_processors);
     return &cpuinfos[cpu];
 }
 
@@ -274,9 +278,6 @@ extern char **state_strings;
 #define schedule_frame(__f)  do { assert((__f)[FRAME_QUEUE] != INVALID_PHYSICAL); assert(enqueue((queue)pointer_from_u64((__f)[FRAME_QUEUE]), pointer_from_u64((__f)[FRAME_RUN]))); } while(0)
 
 void kernel_unlock();
-
-extern u64 idle_cpu_mask;
-extern u64 total_processors;
 
 static inline boolean is_protection_fault(context f)
 {

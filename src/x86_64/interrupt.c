@@ -211,7 +211,7 @@ void print_frame(context f)
 void install_fallback_fault_handler(fault_handler h)
 {
     // XXX reconstruct
-    for (int i = 0; i < MAX_CPUS; i++) {
+    for (int i = 0; i < present_processors; i++) {
         cpuinfo_from_id(i)->kernel_context->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
     }
 }

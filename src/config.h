@@ -22,8 +22,7 @@
 #define RUNLOOP_TIMER_MAX_PERIOD_US     100000
 #define RUNLOOP_TIMER_MIN_PERIOD_US     1000
 
-/* XXX just for initial mp bringup... */
-#define MAX_CPUS 16
+#define MAX_CPUS 64
 
 /* length of thread scheduling queue */
 #define MAX_THREADS 8192
