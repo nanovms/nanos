@@ -58,6 +58,9 @@ void lwip_debug(char * format, ...)
 
 void *lwip_allocate(u64 size)
 {
+    /* To maintain the malloc/free interface with mcache, allocations must stay
+       within the range of objcaches and not fall back to parent allocs. */
+    assert(size <= U64_FROM_BIT(MAX_LWIP_ALLOC_ORDER));
     void *p = allocate_zero(lwip_heap, size);
     return ((p != INVALID_ADDRESS) ? p : 0);
 }
@@ -195,6 +198,6 @@ void init_net(kernel_heaps kh)
 {
     heap h = heap_general(kh);
     heap backed = heap_backed(kh);
-    lwip_heap = allocate_mcache(h, backed, 5, 11, PAGESIZE);
+    lwip_heap = allocate_mcache(h, backed, 5, MAX_LWIP_ALLOC_ORDER, PAGESIZE_2M);
     lwip_init();
 }

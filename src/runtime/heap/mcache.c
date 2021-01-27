@@ -1,9 +1,16 @@
 /* multi-cache heap
 
-   This is essentially a wrapper heap for a set of caches of varying
-   object sizes. Object sizes are specified on heap creation. Allocations
-   are made from the cache of the smallest object size equal to or greater
-   than the alloc size.
+   This heap multiplexes allocations across a set of objcaches of
+   varying sizes. Allocations are made from the cache of the smallest
+   size greater than or equal to the alloc size. Allocations of sizes
+   greater than the largest cache size are served from the parent heap.
+
+   To facilitate vendor code in the kernel that requires a malloc /
+   free interface, deallocations may be made with a size of -1ull,
+   provided that allocations are *only* served from one of the cache
+   child heaps and not the parent. malloc/calloc functions exposed to
+   such code should assert that the requested size does not exceed the
+   maximum size passed to allocate_mcache (1ull << max_order).
 */
 
 //#define MCACHE_DEBUG
@@ -17,6 +24,7 @@ typedef struct mcache {
     vector caches;
     u64 pagesize;
     u64 allocated;
+    u64 parent_threshold;
 } *mcache;
 
 u64 mcache_alloc(heap h, bytes b)
@@ -30,6 +38,22 @@ u64 mcache_alloc(heap h, bytes b)
     print_u64(b);
     rputs(": ");
 #endif
+    if (b > m->parent_threshold) {
+        u64 size = pad(b, m->parent->pagesize);
+        u64 a = allocate_u64(m->parent, size);
+        if (a != INVALID_PHYSICAL) {
+            m->allocated += size;
+#ifdef MCACHE_DEBUG
+            rputs("fallback to parent, size ");
+            print_u64(size);
+            rputs(", addr ");
+            print_u64(a);
+            rputs("\n");
+#endif
+            return a;
+        }
+    }
+
     /* Could become a binary search if search set is large... */
     vector_foreach(m->caches, o) {
 	if (o && b <= o->pagesize) {
@@ -76,9 +100,27 @@ void mcache_dealloc(heap h, u64 a, bytes b)
 #endif
 
     mcache m = (mcache)h;
+
+    if (b != -1ull && b > m->parent_threshold) {
+        u64 size = pad(b, m->parent->pagesize);
+#ifdef MCACHE_DEBUG
+        rputs("dealloc size ");
+        print_u64(b);
+        rputs(", pagesize ");
+        print_u64(m->parent->pagesize);
+        rputs(", parent alloc, padded size ");
+        print_u64(size);
+        rputs("\n");
+#endif
+        assert(m->allocated >= size);
+        m->allocated -= size;
+        deallocate_u64(m->parent, a, size);
+        return;
+    }
+
     heap o = objcache_from_object(a, m->pagesize);
     if (o == INVALID_ADDRESS) {
-	rputs("mcache ");
+	rputs(", mcache ");
 	print_u64(u64_from_pointer(m));
 	rputs(": can't find cache for object ");
 	print_u64(u64_from_pointer(a));
@@ -182,8 +224,9 @@ heap allocate_mcache(heap meta, heap parent, int min_order, int max_order, bytes
     m->caches = allocate_vector(meta, 1);
     m->pagesize = pagesize;
     m->allocated = 0;
+    m->parent_threshold = U64_FROM_BIT(max_order);
 
-    for(int i=0, order = min_order; order <= max_order; i++, order++) {
+    for(int i = 0, order = min_order; order <= max_order; i++, order++) {
 	u64 obj_size = U64_FROM_BIT(order);
 	heap h = allocate_objcache(meta, parent, obj_size, pagesize);
 #ifdef MCACHE_DEBUG

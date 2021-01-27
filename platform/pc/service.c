@@ -61,10 +61,8 @@ static heap allocate_tagged_region(kernel_heaps kh, u64 tag)
 
     /* reserve area in virtual_huge */
     assert(id_heap_set_area(heap_virtual_huge(kh), tag_base, tag_length, true, true));
-
-    /* tagged mcache range of 32 to 1M bytes (131072 table buckets) */
     build_assert(TABLE_MAX_BUCKETS * sizeof(void *) <= 1 << 20);
-    return allocate_mcache(h, backed, 5, 20, PAGESIZE_2M);
+    return allocate_mcache(h, backed, 5, MAX_MCACHE_ORDER, PAGESIZE_2M);
 }
 
 #define BOOTSTRAP_REGION_SIZE_KB	2048
@@ -645,11 +643,11 @@ static void init_kernel_heaps()
     heaps.backed = physically_backed(&bootstrap, (heap)heaps.virtual_page, (heap)heaps.physical, PAGESIZE, true);
     assert(heaps.backed != INVALID_ADDRESS);
 
-    heaps.general = allocate_mcache(&bootstrap, (heap)heaps.backed, 5, 20, PAGESIZE_2M);
+    heaps.general = allocate_mcache(&bootstrap, (heap)heaps.backed, 5, MAX_MCACHE_ORDER, PAGESIZE_2M);
     assert(heaps.general != INVALID_ADDRESS);
 
     heaps.locked = locking_heap_wrapper(&bootstrap,
-        allocate_mcache(&bootstrap, (heap)heaps.backed, 5, 20, PAGESIZE_2M));
+        allocate_mcache(&bootstrap, (heap)heaps.backed, 5, MAX_MCACHE_ORDER, PAGESIZE_2M));
     assert(heaps.locked != INVALID_ADDRESS);
 }
 

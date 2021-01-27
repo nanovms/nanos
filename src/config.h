@@ -50,6 +50,9 @@
 #define PAGECACHE_DRAIN_CUTOFF (64 * MB)
 #define PAGECACHE_SCAN_PERIOD_SECONDS 5
 
+/* must be large enough for vendor code that use malloc/free interface */
+#define MAX_MCACHE_ORDER 16
+
 /* ftrace buffer size */
 #define DEFAULT_TRACE_ARRAY_SIZE        (512ULL << 20)
 
