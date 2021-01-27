@@ -15,6 +15,9 @@
 
 #define ACPI_SCI_IRQ    9
 
+/* ACPI table signatures */
+#define ACPI_SIG_MADT   0x43495041  // "APIC"
+
 /* MADT controller types */
 #define ACPI_MADT_LAPIC     0
 #define ACPI_MADT_IOAPIC    1

@@ -356,7 +356,7 @@ static void acpi_find_rsdt()
     ranges[1].start = (*(u16 *)(0x40e))<<4;
     ranges[1].end = ranges[0].start + 1024;
     for (range *r = ranges; r < ranges + _countof(ranges); r++) {
-        for (u64 i = r->start; i < r->end; i += 16) {
+        for (u32 i = (u32)r->start; i < r->end; i += 16) {
             acpi_rsdp rsdp = (void *)i;
             if (runtime_memcmp(&rsdp->sig, "RSD PTR ", sizeof(rsdp->sig)) != 0)
                 continue;

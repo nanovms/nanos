@@ -233,7 +233,7 @@ void init_apic(kernel_heaps kh)
     apic_heap = heap_general(kh);
     apic_id_map = allocate_zero(apic_heap, sizeof(apic_id_map[0]) * present_processors);
     assert(apic_id_map != INVALID_ADDRESS);
-    acpi_madt madt = acpi_get_table('CIPA');
+    acpi_madt madt = acpi_get_table(ACPI_SIG_MADT);
     if (madt) {
         apic_debug("walking MADT table...\n");
         u8 pcnt = 0;
