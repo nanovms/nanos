@@ -178,10 +178,6 @@ exception_vectors:
 
 .globl frame_save_fpsimd
 frame_save_fpsimd:
-        ldr     x1, [x0, #(FRAME_FPSIMD_STORED * 8)]
-        cbnz    x1, 1f
-        mov     x1, #1
-        str     x1, [x0, #(FRAME_FPSIMD_STORED * 8)]
         add     x0, x0, #(FRAME_Q0 * 8)
         stp     q0, q1, [x0, #(0 * 16)]
         stp     q2, q3, [x0, #(2 * 16)]
@@ -207,7 +203,7 @@ frame_save_fpsimd:
 
 .globl frame_restore_fpsimd
 frame_restore_fpsimd:
-        str     xzr, [x0, #(FRAME_FPSIMD_STORED * 8)]
+        str     xzr, [x0, #(FRAME_TXCTX_FULL * 8)]
         add     x0, x0, #(FRAME_Q0 * 8)
         ldp     q0, q1, [x0, #(0 * 16)]
         ldp     q2, q3, [x0, #(2 * 16)]

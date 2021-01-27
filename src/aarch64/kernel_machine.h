@@ -326,6 +326,16 @@ static inline void frame_enable_interrupts(context f)
     f[FRAME_ESR_SPSR] |= SPSR_I; /* EL0 */
 }
 
+static inline void frame_thread_ext_context_fill(context f)
+{
+    f[FRAME_TXCTX_FULL] = true;
+}
+
+static inline boolean frame_thread_ext_context_full(context f)
+{
+    return f[FRAME_TXCTX_FULL];
+}
+
 extern void frame_save_fpsimd(context f);
 extern void frame_restore_fpsimd(context f);
 
