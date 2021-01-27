@@ -655,6 +655,7 @@ static sysreturn socket_write_udp(netsock s, void *source, u64 length,
         err = udp_sendto(s->info.udp.lw, pbuf, &ipaddr, port);
     else
         err = udp_send(s->info.udp.lw, pbuf);
+    pbuf_free(pbuf);
     if (err != ERR_OK) {
         net_debug("lwip error %d\n", err);
         return lwip_to_errno(err);
