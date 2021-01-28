@@ -38,7 +38,7 @@ jobs:
 
       - run: echo $GCLOUD_SERVICE_KEY | gcloud auth activate-service-account --key-file=-
       - run: sudo gcloud config set project ${GOOGLE_PROJECT_ID}
-      - run: gcloud --quiet config set compute/zone ${GOOGLE_COMPUTE_ZONE}
+      - run: sudo gcloud --quiet config set compute/zone ${GOOGLE_COMPUTE_ZONE}
 
       - run: mkdir temp && cp output/platform/pc/bin/kernel.img temp/ && cp output/platform/pc/boot/boot.img temp/ && cp output/tools/bin/mkfs temp/ && cp output/tools/bin/dump temp/ && mkdir temp/klibs && cp output/klib/bin/* temp/klibs
       - run: cd temp && tar cvzf nanos-nightly-linux.tar.gz * && gsutil cp nanos-nightly-linux.tar.gz gs://nanos/release/nightly
@@ -47,7 +47,7 @@ jobs:
       - run: echo $(date +"%m%d%Y") > nanos-nightly-linux.timestamp
       - run: gsutil cp nanos-nightly-linux.timestamp gs://nanos/release/nightly
       - run: gsutil acl ch -u AllUsers:R gs://nanos/release/nightly/nanos-nightly-linux.timestamp
-   
+
   build-mac:
     macos:
         xcode: "12.2.0"
@@ -59,7 +59,7 @@ jobs:
       - run: brew install x86_64-elf-binutils
       - run: mkdir target-root && cd target-root && wget https://storage.googleapis.com/testmisc/target-root.tar.gz && tar xfvz target-root.tar.gz
       - run: curl https://ops.city/get.sh -sSfL | sh
-      - run: 
+      - run:
           name: macbuild
           environment:
             NANOS_TARGET_ROOT: ~/project/target-root
@@ -67,7 +67,7 @@ jobs:
             OPS_DIR=$HOME/.ops
             PATH=$HOME/.ops/bin:$PATH
             make test-noaccel
-  
+
   nightly-build-mac:
     macos:
         xcode: "12.2.0"
@@ -78,7 +78,7 @@ jobs:
       - run: brew tap nanovms/homebrew-x86_64-elf
       - run: brew install x86_64-elf-binutils
       - run: mkdir target-root && cd target-root && wget https://storage.googleapis.com/testmisc/target-root.tar.gz && tar xzf target-root.tar.gz
-      - run: 
+      - run:
           name: macbuild
           environment:
             NANOS_TARGET_ROOT: ~/project/target-root
