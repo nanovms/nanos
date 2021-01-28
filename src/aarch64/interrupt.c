@@ -231,6 +231,12 @@ void irq_handler(void)
 
     int_debug("%s: enter\n", __func__);
 
+    /* re-enqueue interrupted user thread */
+    if (ci->state == cpu_user) {
+        int_debug("int sched %F\n", f[FRAME_RUN]);
+        schedule_frame(f);
+    }
+
     while ((i = gic_dispatch_int()) != INTID_NO_PENDING) {
         int_debug("[%2d] # %d, state %s, EL%d, frame %p, elr 0x%lx, spsr_esr 0x%lx\n",
                   ci->id, i, state_strings[ci->state], f[FRAME_EL],

@@ -323,7 +323,7 @@ static inline void frame_restore_tls(context f)
 
 static inline void frame_enable_interrupts(context f)
 {
-    f[FRAME_ESR_SPSR] |= SPSR_I; /* EL0 */
+    f[FRAME_ESR_SPSR] &= ~SPSR_I; /* EL0 */
 }
 
 static inline void frame_thread_ext_context_fill(context f)
