@@ -11,4 +11,6 @@
 #include <lwip/dhcp.h>
 #include <lwip/dns.h>
 
+#define MAX_LWIP_ALLOC_ORDER 16
+
 status direct_connect(heap h, ip_addr_t *addr, u16 port, connection_handler ch);
