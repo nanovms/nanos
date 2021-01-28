@@ -125,6 +125,13 @@ int lwip_strncmp(const char *x, const char *y, unsigned long len)
     return 0;
 }
 
+struct netif *netif_get_default(void)
+{
+    return netif_default;
+}
+KLIB_EXPORT(netif_get_default);
+
+KLIB_EXPORT(ipaddr_ntoa);
 KLIB_EXPORT(dns_gethostbyname);
 KLIB_EXPORT(pbuf_alloc);
 KLIB_EXPORT(pbuf_free);

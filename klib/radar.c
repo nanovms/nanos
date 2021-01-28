@@ -74,6 +74,8 @@ static struct telemetry {
     void (*bprintf)(buffer b, const char *fmt, ...);
     timer (*register_timer)(clock_id id, timestamp val, boolean absolute,
             timestamp interval, timer_handler n);
+    struct netif *(*netif_get_default)(void);
+    char *(*ipaddr_ntoa)(const ip_addr_t *addr);
     err_t (*dns_gethostbyname)(const char *hostname, ip_addr_t *addr,
             dns_found_callback found, void *callback_arg);
     buffer_handler (*allocate_http_parser)(heap h, value_handler each);
@@ -217,18 +219,28 @@ static void telemetry_retry(void)
         telemetry.retry_backoff <<= 1;
 }
 
-static void telemetry_crash_report(void)
+static void telemetry_print_env(buffer b)
 {
-    buffer b = kfunc(allocate_buffer)(telemetry.h, PAGESIZE);
-    if (b == INVALID_ADDRESS)
-        goto error;
-    kfunc(bprintf)(b, "{\"bootID\":%ld", telemetry.dump->boot_id);
+    /* Assumes that the buffer already contains at least one JSON attribute
+     * (hence the initial comma in the strings below). */
     buffer nanos_ver = kfunc(table_find)(telemetry.env, sym(NANOS_VERSION));
     if (nanos_ver)
         kfunc(bprintf)(b, ",\"nanosVersion\":\"%b\"", nanos_ver);
     buffer ops_ver = kfunc(table_find)(telemetry.env, sym(OPS_VERSION));
     if (ops_ver)
         kfunc(bprintf)(b, ",\"opsVersion\":\"%b\"", ops_ver);
+    buffer image_name = kfunc(table_find)(telemetry.env, sym(RADAR_IMAGE_NAME));
+    if (image_name)
+        kfunc(bprintf)(b, ",\"imageName\":\"%b\"", image_name);
+}
+
+static void telemetry_crash_report(void)
+{
+    buffer b = kfunc(allocate_buffer)(telemetry.h, PAGESIZE);
+    if (b == INVALID_ADDRESS)
+        goto error;
+    kfunc(bprintf)(b, "{\"bootID\":%ld", telemetry.dump->boot_id);
+    telemetry_print_env(b);
     buffer_write_cstring(b, ",\"dump\":\"");
     for (int i = 0; (i < sizeof(telemetry.dump->msgs)) && telemetry.dump->msgs[i]; i++) {
         /* Escape JSON special characters. */
@@ -301,6 +313,9 @@ closure_function(0, 1, void, telemetry_boot_recv,
 
 static void telemetry_boot(void)
 {
+    struct netif *netif = kfunc(netif_get_default)();
+    if (!netif)
+        goto error;
     buffer b = kfunc(allocate_buffer)(telemetry.h, 64);
     if (b == INVALID_ADDRESS)
         goto error;
@@ -308,13 +323,8 @@ static void telemetry_boot(void)
     if (vh == INVALID_ADDRESS) {
         goto err_free_buf;
     }
-    buffer_write_cstring(b, "{");
-    buffer nanos_ver = kfunc(table_find)(telemetry.env, sym(NANOS_VERSION));
-    if (nanos_ver)
-        kfunc(bprintf)(b, "\"nanosVersion\":\"%b\"", nanos_ver);
-    buffer ops_ver = kfunc(table_find)(telemetry.env, sym(OPS_VERSION));
-    if (ops_ver)
-        kfunc(bprintf)(b, ",\"opsVersion\":\"%b\"", ops_ver);
+    kfunc(bprintf)(b, "{\"privateIP\":\"%s\"", kfunc(ipaddr_ntoa)(&netif->ip_addr));
+    telemetry_print_env(b);
     buffer_write_cstring(b, "}\r\n");
     if (!telemetry_send("/api/v1/boots", b, vh)) {
         deallocate_closure(vh);
@@ -414,6 +424,8 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
             !(telemetry.buffer_strstr = get_sym("buffer_strstr")) ||
             !(telemetry.bprintf = get_sym("bprintf")) ||
             !(telemetry.register_timer = get_sym("kern_register_timer")) ||
+            !(telemetry.netif_get_default = get_sym("netif_get_default")) ||
+            !(telemetry.ipaddr_ntoa = get_sym("ipaddr_ntoa")) ||
             !(telemetry.dns_gethostbyname = get_sym("dns_gethostbyname")) ||
             !(telemetry.allocate_http_parser = get_sym("allocate_http_parser")) ||
             !(telemetry.http_request = get_sym("http_request"))) {
