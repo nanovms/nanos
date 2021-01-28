@@ -34,6 +34,13 @@ void clone_frame_pstate(context dest, context src)
     runtime_memcpy(dest + FRAME_EXTENDED_SAVE, src + FRAME_EXTENDED_SAVE, extended_frame_size());
 }
 
+void init_cpuinfo_machine(cpuinfo ci, heap backed)
+{
+    ci->m.self = &ci->m;
+    ci->m.exception_stack = allocate_stack(backed, EXCEPT_STACK_SIZE);
+    ci->m.int_stack = allocate_stack(backed, INT_STACK_SIZE);
+}
+
 void init_frame(context f)
 {
     assert((u64_from_pointer(f) & 63) == 0);

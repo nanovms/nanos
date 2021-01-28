@@ -187,14 +187,6 @@ void print_frame(context f)
     }
 }
 
-void install_fallback_fault_handler(fault_handler h)
-{
-    // XXX reconstruct
-    for (int i = 0; i < MAX_CPUS; i++) {
-        cpuinfo_from_id(i)->kernel_context->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
-    }
-}
-
 extern u32 n_interrupt_vectors;
 extern u32 interrupt_vector_size;
 extern void * interrupt_vectors;
@@ -205,7 +197,7 @@ void common_handler()
     /* XXX yes, this will be a problem on a machine check or other
        fault while in an int handler...need to fix in interrupt_common */
     cpuinfo ci = current_cpu();
-    context f = ci->running_frame;
+    context f = get_running_frame(ci);
     int i = f[FRAME_VECTOR];
 
     if (i >= n_interrupt_vectors) {
@@ -358,10 +350,10 @@ void init_interrupts(kernel_heaps kh)
 
     /* Separate stack to keep exceptions in interrupt handlers from
        trashing the interrupt stack */
-    set_ist(0, IST_EXCEPTION, u64_from_pointer(ci->exception_stack));
+    set_ist(0, IST_EXCEPTION, u64_from_pointer(ci->m.exception_stack));
 
     /* External interrupts (> 31) */
-    set_ist(0, IST_INTERRUPT, u64_from_pointer(ci->int_stack));
+    set_ist(0, IST_INTERRUPT, u64_from_pointer(ci->m.int_stack));
 
     /* IDT setup */
     idt = allocate(heap_backed(kh), heap_backed(kh)->pagesize);

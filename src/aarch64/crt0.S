@@ -45,8 +45,7 @@
         mrs     x1, esr_el1
         mrs     x2, elr_el1
 
-        // yet frame return doesn't exceed rel range?
-        add	x17, x17, #256
+        add     x17, x17, #256
         stp     w0, w1, [x17, #((FRAME_ESR_SPSR - 32) * 8)]
         str     x2, [x17, #((FRAME_ELR - 32) * 8)]
         .endm

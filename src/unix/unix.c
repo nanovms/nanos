@@ -514,7 +514,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
         sizeof(dummy_thread->name));
 
     for (int i = 0; i < MAX_CPUS; i++) {
-        context f = cpuinfo_from_id(i)->kernel_context->frame;
+        context f = frame_from_kernel_context(get_kernel_context(cpuinfo_from_id(i)));
         f[FRAME_THREAD] = u64_from_pointer(dummy_thread);
     }
 

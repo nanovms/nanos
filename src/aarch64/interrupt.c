@@ -37,14 +37,6 @@ static char* fpsimd_names[35] = {
     " q24", " q25", " q26", " q27", " q28", " q29", " q30", " q31",
     "fpsr", "fpcr"};
 
-void install_fallback_fault_handler(fault_handler h)
-{
-    // XXX reconstruct
-    for (int i = 0; i < MAX_CPUS; i++) {
-        cpuinfo_from_id(i)->kernel_context->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
-    }
-}
-
 static void print_far_if_valid(u32 iss)
 {
     if ((iss & ESR_ISS_DATA_ABRT_FnV) == 0) {
@@ -192,7 +184,7 @@ NOTRACE
 void synchronous_handler(void)
 {
     cpuinfo ci = current_cpu();
-    context f = ci->running_frame;
+    context f = get_running_frame(ci);
     u32 esr = esr_from_frame(f);
 
     int_debug("caught exception, EL%d, esr 0x%x\n", f[FRAME_EL], esr);
@@ -200,8 +192,8 @@ void synchronous_handler(void)
     if (field_from_u64(esr, ESR_EC) == ESR_EC_SVC_AARCH64 && (esr & ESR_IL) &&
         field_from_u64(esr, ESR_ISS_IMM16) == 0) {
         f[FRAME_VECTOR] = f[FRAME_X8];
-        ci->running_frame = ci->kernel_context->frame;
-        switch_stack_1(ci->running_frame, syscall, f); /* frame is top of stack */
+        set_running_frame(ci, frame_from_kernel_context(get_kernel_context(ci)));
+        switch_stack_1(get_running_frame(ci), syscall, f); /* frame is top of stack */
         halt("%s: syscall returned\n", __func__);
     }
 
@@ -226,7 +218,7 @@ NOTRACE
 void irq_handler(void)
 {
     cpuinfo ci = current_cpu();
-    context f = ci->running_frame;
+    context f = get_running_frame(ci);
     u64 i;
 
     int_debug("%s: enter\n", __func__);

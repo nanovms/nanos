@@ -1,6 +1,7 @@
 #include <kernel.h>
 #include <pci.h>
 #include <gic.h>
+#include <drivers/console.h>
 
 //#define PCI_PLATFORM_DEBUG
 #ifdef PCI_PLATFORM_DEBUG
@@ -16,6 +17,11 @@
 #define pio_out8(port, source) (*(u8*)(PIO_DATA + port) = (source))
 #define pio_out16(port, source) (*(u16*)(PIO_DATA + port) = (source))
 #define pio_out32(port, source) (*(u32*)(PIO_DATA + port) = (source))
+
+/* stub ... really shouldn't be hardwired into console.c */
+void vga_pci_register(kernel_heaps kh, console_attach a)
+{
+}
 
 /* ECAM */
 u32 pci_cfgread(pci_dev dev, int reg, int bytes)

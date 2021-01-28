@@ -16,9 +16,9 @@
 
 //#define SMP_DUMP_FRAME_RETURN_COUNT
 
-//#define STAGE3_INIT_DEBUG
+//#define INIT_DEBUG
 //#define MM_DEBUG
-#ifdef STAGE3_INIT_DEBUG
+#ifdef INIT_DEBUG
 #define init_debug(x, ...) do {rprintf("INIT: " x "\n", ##__VA_ARGS__);} while(0)
 #else
 #define init_debug(x, ...)
@@ -220,7 +220,7 @@ static id_heap init_physical_id_heap(heap h)
 	    if (base >= end)
 		continue;
 	    u64 length = end - base;
-#ifdef STAGE3_INIT_DEBUG
+#ifdef INIT_DEBUG
 	    rputs("INIT:  [");
 	    print_u64(base);
 	    rputs(", ");

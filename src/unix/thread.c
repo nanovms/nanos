@@ -408,7 +408,7 @@ void exit_thread(thread t)
 
     /* replace references to thread with placeholder */
     set_current_thread((nanos_thread)dummy_thread);
-    set_running_frame(dummy_thread->default_frame);
+    set_running_frame(current_cpu(), dummy_thread->default_frame);
     refcount_release(&t->refcount);
 }
 

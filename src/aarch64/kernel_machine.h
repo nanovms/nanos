@@ -170,53 +170,21 @@ typedef struct kernel_context {
     u64 frame[0];
 } *kernel_context;
 
-typedef struct cpuinfo {
+struct cpuinfo_machine {
     /*** Fields accessed by low-level entry points. ***/
     /* Don't move these without updating x18-relative accesses in crt0.s ***/
 
     /* This points to the frame of the current, running context. +0 */
     context running_frame;
 
+    /*** End of fields touched by kernel entries ***/
+
     /* Default frame and stack installed at kernel entry points (init,
        syscall) and calls to runloop. +8 */
     kernel_context kernel_context;
+};
 
-    /* One temporary for syscall enter to use so that we don't need to touch the user stack. +16 */
-    u64 tmp;
-
-    /*** End of fields touched by kernel entries ***/
-
-    u32 id;
-    int state;
-    boolean have_kernel_lock;
-    queue thread_queue;
-    timestamp last_timer_update;
-    u64 frcount;
-
-    /* The following fields are used rarely or only on initialization. */
-
-    /* Stack for exceptions (which may occur in interrupt handlers) */
-    void *exception_stack; // XXX vestige?
-
-    /* Stack for interrupts */
-    void *int_stack;
-
-    /* Generation number for invalidates */
-    word inval_gen;
-
-#ifdef CONFIG_FTRACE
-    int graph_idx;
-    struct ftrace_graph_entry * graph_stack;
-#endif
-} *cpuinfo;
-
-extern struct cpuinfo cpuinfos[];
-
-static inline cpuinfo cpuinfo_from_id(int cpu)
-{
-    assert(cpu >= 0 && cpu < MAX_CPUS);
-    return &cpuinfos[cpu];
-}
+typedef struct cpuinfo *cpuinfo;
 
 static inline cpuinfo current_cpu(void)
 {

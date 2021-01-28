@@ -226,7 +226,7 @@ extern syscall
 global_func syscall_enter
 syscall_enter:
         swapgs
-        mov [gs:24], rdi        ; save rdi
+        mov [gs:24], rdi        ; save rdi in tmp
         mov rdi, [gs:8]         ; running_frame
         mov [rdi+FRAME_VECTOR*8], rax
         mov [rdi+FRAME_RBX*8], rbx

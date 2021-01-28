@@ -3,17 +3,16 @@
 #include <tfs.h>
 #include <storage.h>
 #include "serial.h"
-#include <drivers/console.h> // XXX
 
-//#define START_DEBUG
-#ifdef START_DEBUG
-#define start_debug early_debug
-#define start_debug_u64 early_debug_u64
-#define start_dump early_dump
+//#define INIT_DEBUG
+#ifdef INIT_DEBUG
+#define init_debug early_debug
+#define init_debug_u64 early_debug_u64
+#define init_dump early_dump
 #else
-#define start_debug(s)
-#define start_debug_u64(n)
-#define start_dump(p, len)
+#define init_debug(s)
+#define init_debug_u64(n)
+#define init_dump(p, len)
 #endif
 
 static char *hex_digits="0123456789abcdef";
@@ -56,10 +55,6 @@ void early_dump(void *p, unsigned long length)
     early_debug("\n");
 }
 
-void vga_pci_register(kernel_heaps kh, console_attach a)
-{
-}
-    
 u64 random_seed(void)
 {
 #if 0 // gcc not taking +rng feature modifier...encode manually?
@@ -96,20 +91,20 @@ extern void *START, *END;
 static id_heap init_physical_id_heap(heap h)
 {
     id_heap physical = allocate_id_heap(h, h, PAGESIZE, true);
-    start_debug("init_physical_id_heap\n");
+    init_debug("init_physical_id_heap\n");
     u64 kernel_size = pad(u64_from_pointer(&END) -
                           u64_from_pointer(&START), PAGESIZE);
     
-    start_debug("init_setup_stack: kernel size ");
-    start_debug_u64(kernel_size);
+    init_debug("init_setup_stack: kernel size ");
+    init_debug_u64(kernel_size);
 
     u64 base = pad(KERNEL_PHYS + kernel_size, PAGESIZE_2M);
     u64 end = 0x80000000; // XXX 1G fixed til we can parse tree
-    start_debug("\nfree base ");
-    start_debug_u64(base);
-    start_debug("\nend ");
-    start_debug_u64(end);
-    start_debug("\n");
+    init_debug("\nfree base ");
+    init_debug_u64(base);
+    init_debug("\nend ");
+    init_debug_u64(end);
+    init_debug("\n");
     if (!id_heap_add_range(physical, base, end - base)) {
         halt("init_physical_id_heap: failed to add range %R\n",
              irange(base, end));
@@ -226,12 +221,12 @@ static void init_kernel_heaps(void)
 
 static void __attribute__((noinline)) init_service_new_stack(void)
 {
-    start_debug("in init_service_new_stack\n");
+    init_debug("in init_service_new_stack\n");
     kernel_heaps kh = get_kernel_heaps();
     page_heap_init(heap_locked(kh), heap_physical(kh));
     init_tuples(allocate_tagged_region(kh, tag_tuple));
     init_symbols(allocate_tagged_region(kh, tag_symbol), heap_general(kh));
-    start_debug("calling runtime init\n");
+    init_debug("calling runtime init\n");
     kernel_runtime_init(kh);
     while(1);
 }
@@ -239,21 +234,21 @@ static void __attribute__((noinline)) init_service_new_stack(void)
 void init_setup_stack(void)
 {
     serial_set_devbase(DEVICE_BASE);
-    start_debug("in init_setup_stack, calling init_kernel_heaps\n");
+    init_debug("in init_setup_stack, calling init_kernel_heaps\n");
     init_kernel_heaps();
-    start_debug("allocating stack\n");
+    init_debug("allocating stack\n");
     u64 stack_size = 32 * PAGESIZE;
     void *stack_base = allocate(heap_backed(get_kernel_heaps()), stack_size);
     assert(stack_base != INVALID_ADDRESS);
-    start_debug("stack base at ");
-    start_debug_u64(u64_from_pointer(stack_base));
-    start_debug("\n");
+    init_debug("stack base at ");
+    init_debug_u64(u64_from_pointer(stack_base));
+    init_debug("\n");
     void *stack_top = stack_base + stack_size - STACK_ALIGNMENT;
-    start_debug("stack top at ");
-    start_debug_u64(u64_from_pointer(stack_top));
-    start_debug("\n");
+    init_debug("stack top at ");
+    init_debug_u64(u64_from_pointer(stack_top));
+    init_debug("\n");
     *(u64 *)stack_top = 0;
-    start_debug("wrote\n");
+    init_debug("wrote\n");
     switch_stack(stack_top, init_service_new_stack);
 }
 
@@ -277,29 +272,29 @@ int start(void)
         p += 4;
     } while (p < end);
 
-    start_debug("start\n\n");
+    init_debug("start\n\n");
 #if 1
-    start_debug("TCR_EL1: ");
-    start_debug_u64(read_psr(TCR_EL1));
-    start_debug("\nTTBR0_EL1: ");
-    start_debug_u64(read_psr(TTBR0_EL1));
-    start_debug("\nID_AA64MMFR0_EL1: ");
-    start_debug_u64(read_psr(ID_AA64MMFR0_EL1));
-    start_debug("\nCPACR_EL1: ");
-    start_debug_u64(read_psr(CPACR_EL1));
-    start_debug("\n");
+    init_debug("TCR_EL1: ");
+    init_debug_u64(read_psr(TCR_EL1));
+    init_debug("\nTTBR0_EL1: ");
+    init_debug_u64(read_psr(TTBR0_EL1));
+    init_debug("\nID_AA64MMFR0_EL1: ");
+    init_debug_u64(read_psr(ID_AA64MMFR0_EL1));
+    init_debug("\nCPACR_EL1: ");
+    init_debug_u64(read_psr(CPACR_EL1));
+    init_debug("\n");
 #endif
 //    write_psr(CPACR_EL1, mask_and_set_field(read_psr(CPACR_EL1), CPACR_EL1_FPEN,
 //                                            CPACR_EL1_FPEN_NO_TRAP));
 #if 0
-    start_debug("dtb:\n");
-    start_dump(pointer_from_u64(0x40000000), 0x100);
+    init_debug("dtb:\n");
+    init_dump(pointer_from_u64(0x40000000), 0x100);
 #endif
 
 //    u64 vtarget = u64_from_pointer(init_mmu_target) + u64_from_pointer(&LOAD_OFFSET);
-    start_debug("calling page_init_mmu with target ");
-    start_debug_u64(u64_from_pointer(init_mmu_target));
-    start_debug("\n");
+    init_debug("calling page_init_mmu with target ");
+    init_debug_u64(u64_from_pointer(init_mmu_target));
+    init_debug("\n");
     page_init_mmu(irangel(0x40200000, PAGESIZE_2M), u64_from_pointer(init_mmu_target));
 
     while (1) ;

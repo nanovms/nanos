@@ -133,6 +133,8 @@ static inline void cpuid(u32 fn, u32 ecx, u32 * v)
     asm volatile("cpuid" : "=a" (v[0]), "=b" (v[1]), "=c" (v[2]), "=d" (v[3]) : "0" (fn), "2" (ecx));
 }
 
+/* syscall entry */
+
 static inline void set_syscall_handler(void *syscall_entry)
 {
     write_msr(LSTAR_MSR, u64_from_pointer(syscall_entry));
@@ -166,7 +168,7 @@ typedef struct kernel_context {
     u64 frame[0];
 } *kernel_context;
 
-typedef struct cpuinfo {
+struct cpuinfo_machine {
     /*** Fields accessed by low-level entry points. ***/
     /* Don't move these without updating gs-relative accesses in crt0.s ***/
 
@@ -185,44 +187,14 @@ typedef struct cpuinfo {
 
     /*** End of fields touched by kernel entries ***/
 
-    u32 id;
-    int state;
-    boolean have_kernel_lock;
-    queue thread_queue;
-    timestamp last_timer_update;
-    u64 frcount;
-
-    /* The following fields are used rarely or only on initialization. */
-
     /* Stack for exceptions (which may occur in interrupt handlers) */
     void *exception_stack;
 
     /* Stack for interrupts */
     void *int_stack;
+};
 
-    /* Generation number for invalidates */
-    word inval_gen;
-
-#ifdef CONFIG_FTRACE
-    int graph_idx;
-    struct ftrace_graph_entry * graph_stack;
-#endif
-} *cpuinfo;
-
-extern struct cpuinfo cpuinfos[];
-
-static inline cpuinfo cpuinfo_from_id(int cpu)
-{
-    assert(cpu >= 0 && cpu < MAX_CPUS);
-    return &cpuinfos[cpu];
-}
-
-static inline void cpu_setgs(int cpu)
-{
-    u64 addr = u64_from_pointer(cpuinfo_from_id(cpu));
-    write_msr(KERNEL_GS_MSR, 0); /* clear user GS */
-    write_msr(GS_MSR, addr);
-}
+typedef struct cpuinfo *cpuinfo;
 
 static inline cpuinfo current_cpu(void)
 {
@@ -333,8 +305,6 @@ static inline void frame_set_sp(context f, u64 sp)
         asm volatile("mov %%rdx, %%rsp"::);                     \
         asm volatile("jmp *%%rax"::);                           \
     }
-
-/* syscall entry */
 
 /* for vdso */
 #define do_syscall(sysnr, rdi, rsi) ({\

@@ -15,31 +15,71 @@ typedef struct nanos_thread {
 #define cpu_interrupt 3
 #define cpu_user 4
 
+/* per-cpu, architecture-independent invariants */
+typedef struct cpuinfo {
+    struct cpuinfo_machine m;
+    u32 id;
+    int state;
+    boolean have_kernel_lock;
+    queue thread_queue;
+    timestamp last_timer_update;
+    u64 frcount;
+    u64 inval_gen; /* Generation number for invalidates */
+
+#ifdef CONFIG_FTRACE
+    int graph_idx;
+    struct ftrace_graph_entry * graph_stack;
+#endif
+} *cpuinfo;
+
+extern struct cpuinfo cpuinfos[];
+
+static inline cpuinfo cpuinfo_from_id(int cpu)
+{
+    assert(cpu >= 0 && cpu < MAX_CPUS);
+    return &cpuinfos[cpu];
+}
+
 static inline boolean is_current_kernel_context(context f)
 {
-    return f == current_cpu()->kernel_context->frame;
+    return f == current_cpu()->m.kernel_context->frame;
 }
 
-static inline __attribute__((always_inline)) context get_running_frame(void)
+static inline __attribute__((always_inline)) context get_running_frame(cpuinfo ci)
 {
-    return current_cpu()->running_frame;
+    return ci->m.running_frame;
 }
 
-static inline __attribute__((always_inline)) void set_running_frame(context f)
+static inline __attribute__((always_inline)) void set_running_frame(cpuinfo ci, context f)
 {
-    current_cpu()->running_frame = f;
+    ci->m.running_frame = f;
+}
+
+static inline __attribute__((always_inline)) kernel_context get_kernel_context(cpuinfo ci)
+{
+    return ci->m.kernel_context;
+}
+
+static inline __attribute__((always_inline)) void set_kernel_context(cpuinfo ci, kernel_context kc)
+{
+    ci->m.kernel_context = kc;
 }
 
 static inline __attribute__((always_inline)) nanos_thread get_current_thread()
 {
-    context f = current_cpu()->kernel_context->frame;
+    context f = current_cpu()->m.kernel_context->frame;
     return pointer_from_u64(f[FRAME_THREAD]);
 }
 
 static inline __attribute__((always_inline)) void set_current_thread(nanos_thread t)
 {
-    context f = current_cpu()->kernel_context->frame;
+    context f = current_cpu()->m.kernel_context->frame;
     f[FRAME_THREAD] = u64_from_pointer(t);
+}
+
+static inline __attribute__((always_inline)) context frame_from_kernel_context(kernel_context c)
+{
+    return c->frame;
 }
 
 static inline __attribute__((always_inline)) void *stack_from_kernel_context(kernel_context c)
@@ -56,9 +96,10 @@ static inline boolean this_cpu_has_kernel_lock(void)
 
 NOTRACE static inline __attribute__((always_inline)) __attribute__((noreturn)) void runloop(void)
 {
-    set_running_frame(current_cpu()->kernel_context->frame);
-    switch_stack(stack_from_kernel_context(current_cpu()->kernel_context),
-                 runloop_internal);
+    cpuinfo ci = current_cpu();
+    kernel_context kc = get_kernel_context(ci);
+    set_running_frame(ci, frame_from_kernel_context(kc));
+    switch_stack(stack_from_kernel_context(kc), runloop_internal);
     while(1);                   /* kill warning */
 }
 
@@ -67,6 +108,7 @@ NOTRACE static inline __attribute__((always_inline)) __attribute__((noreturn)) v
 #define BREAKPOINT_IO 10
 #define BREAKPOINT_READ_WRITE 11
 
+void init_cpuinfo_machine(cpuinfo ci, heap backed);
 void kernel_runtime_init(kernel_heaps kh);
 void read_kernel_syms(void);
 void reclaim_regions(void);

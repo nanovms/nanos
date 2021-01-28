@@ -70,6 +70,7 @@ define_closure_function(5, 0, void, thread_demand_file_page,
 
 boolean do_demand_page(u64 vaddr, vmap vm, context frame)
 {
+    cpuinfo ci = current_cpu();
     boolean in_kernel = is_current_kernel_context(frame);
     if ((vm->flags & VMAP_FLAG_MMAP) == 0) {
         msg_err("vaddr 0x%lx matched vmap with invalid flags (0x%x)\n",
@@ -133,7 +134,7 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
                 return true;
             }
             faulting_kernel_context = suspend_kernel_context();
-            current_cpu()->have_kernel_lock = false;
+            ci->have_kernel_lock = false;
         } else {
             /* A user fault can happen outside of the kernel lock. We can try to touch an existing
                page, but we can't allocate anything, fill a page or start a storage operation. */
@@ -152,7 +153,8 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
         }
 
         /* suspending */
-        current_cpu()->kernel_context->frame[FRAME_FULL] = false;
+        context f = frame_from_kernel_context(get_kernel_context(ci));
+        f[FRAME_FULL] = false;
         runloop();
     } else {
         halt("%s: invalid vmap type %d, flags 0x%lx\n", __func__, mmap_type, vm->flags);
