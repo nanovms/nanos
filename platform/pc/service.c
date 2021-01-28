@@ -29,6 +29,8 @@
 #define BOOT_PARAM_OFFSET_CMDLINE_SIZE  0x0238
 #define BOOT_PARAM_OFFSET_E820_TABLE    0x02D0
 
+#define AP_STARTUP_WAIT_MS    200
+
 //#define SMP_DUMP_FRAME_RETURN_COUNT
 
 //#define STAGE3_INIT_DEBUG
@@ -606,8 +608,16 @@ static void __attribute__((noinline)) init_service_new_stack()
     init_debug("starting APs");
     for (int i = 1; i < present_processors; i++)
         start_cpu(misc, heap_backed(kh), i, new_cpu);
-    while (total_processors < present_processors)
+    int waitms;
+    for (waitms = 0; total_processors < present_processors && waitms < AP_STARTUP_WAIT_MS; waitms += 5)
         kernel_delay(milliseconds(5));
+    /* XXX reset to 1 proc if all AP don't come up until we are ready to handle
+     * arbitrary cpus being unavailable */
+    if (waitms >= AP_STARTUP_WAIT_MS && total_processors < present_processors) {
+        rprintf("SMP: only %d of %d expected processors came up; resetting cpu count to 1\n",
+                total_processors, present_processors);
+        total_processors = 1;
+    }
     init_debug("total CPUs %d\n", total_processors);
     init_flush(heap_general(kh));
 #endif
