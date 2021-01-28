@@ -12,33 +12,16 @@
         extern ap_lock
 global apinit
 
-        %define CR4_PAE (1<<5)
-        %define CR4_PGE (1<<7)
-        %define CR4_OSFXSR (1<<9)
-        %define CR4_OSXMMEXCPT (1<<10)        
-        %define CR4_OSXSAVE (1<<18)                
-        
+        %include "../../platform/pc/boot/longmode.inc"
+
 apinit:
         mov ax, cs
         mov ds, ax
-        mov eax, CR4_PAE | CR4_PGE | CR4_OSXSAVE 
-        mov cr4, eax
+        PREPARE_LONG_MODE eax
         mov edx, [ap_pagetable-apinit]
         mov cr3, edx        ; page table (relocated copy)
-        mov ecx, 0xC0000080 ; Read from the EFER MSR.
-        rdmsr
-        or eax, 0x00000900  ; Set the LME bit and nxe
-        wrmsr
 
-        ;; XXX this should be unified with stage2 centry
-        mov ebx, cr0        ; Activate long mode -
-        or ebx,0x80000001   ; - by enabling paging and protection simultaneously.
-        and ebx, ~0x4       ; clear EM
-        or ebx, 0x2         ; set MP
-        mov cr0, ebx
-        mov ebx, cr4
-        or ebx, CR4_OSFXSR | CR4_OSXMMEXCPT
-        mov cr4, ebx
+        ENTER_LONG_MODE ebx
 
         ;; load from relocated copy of gdt pointer
         o32 lgdt [AP_BOOT_PAGE + ap_gdt.Pointer - apinit]

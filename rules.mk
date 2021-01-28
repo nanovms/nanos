@@ -120,7 +120,7 @@ msg_cc=		CC	$@
 cmd_cc=		$(CC) $(DEPFLAGS) $(CFLAGS) $(CFLAGS-$(<F)) -c $< -o $@
 
 msg_as=		AS	$@
-cmd_as=		$(AS) $(AFLAGS) $(AFLAGS-$(<F)) $< -o $@
+cmd_as=		$(AS) $(DEPFLAGS) $(AFLAGS) $(AFLAGS-$(<F)) $< -o $@
 
 msg_go=		GO	$@
 cmd_go=		$(GO_ENV) $(GO) build $(GOFLAGS) -o $@ $^
@@ -205,7 +205,7 @@ cleandepend:
 
 .SUFFIXES:
 
-$(OBJDIR)/%.o: $(ROOTDIR)/%.s
+$(OBJDIR)/%.o: $(ROOTDIR)/%.s $(OBJDIR)/%.d
 	@$(MKDIR) $(dir $@)
 	$(call cmd,as)
 

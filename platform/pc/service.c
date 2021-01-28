@@ -803,14 +803,6 @@ void init_service(u64 rdi, u64 rsi)
         initial_pages_region->length = INITIAL_PAGES_SIZE;
         mov_to_cr("cr3", pgdir);
     }
-    u64 cr;
-    mov_from_cr("cr0", cr);
-    cr |= C0_MP;
-    cr &= ~C0_EM;
-    mov_to_cr("cr0", cr);
-    mov_from_cr("cr4", cr);
-    cr |= CR4_OSFXSR | CR4_OSXMMEXCPT /* | CR4_OSXSAVE */;
-    mov_to_cr("cr4", cr);
     init_kernel_heaps();
     if (cmdline)
         cmdline_parse(cmdline);
