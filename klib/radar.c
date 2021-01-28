@@ -263,7 +263,7 @@ static void telemetry_crash_report(void)
         }
     }
     buffer_write_cstring(b, "\"}\r\n");
-    if (!telemetry_send("/crashes", b, 0)) {
+    if (!telemetry_send("/api/v1/crashes", b, 0)) {
         deallocate_buffer(b);
         goto error;
     }
@@ -316,7 +316,7 @@ static void telemetry_boot(void)
     if (ops_ver)
         kfunc(bprintf)(b, ",\"opsVersion\":\"%b\"", ops_ver);
     buffer_write_cstring(b, "}\r\n");
-    if (!telemetry_send("/boots", b, vh)) {
+    if (!telemetry_send("/api/v1/boots", b, vh)) {
         deallocate_closure(vh);
         goto err_free_buf;
     }
@@ -343,7 +343,7 @@ define_closure_function(0, 1, void, telemetry_stats,
             kfunc(bprintf)(b, "%ld%s", telemetry.stats_mem_used[i],
                     (i < RADAR_STATS_BATCH_SIZE - 1) ? "," : "");
         buffer_write_cstring(b, "]}\r\n");
-        if (!telemetry_send("/machine-stats", b, 0)) {
+        if (!telemetry_send("/api/v1/machine-stats", b, 0)) {
             kfunc(rprintf)("%s: failed to send stats\n", __func__);
             deallocate_buffer(b);
         }
