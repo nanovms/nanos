@@ -197,7 +197,6 @@ void kernel_sleep();
 void kernel_delay(timestamp delta);
 
 void init_clock(void);
-boolean init_hpet(kernel_heaps kh);
 
 void process_bhqueue();
 void install_fallback_fault_handler(fault_handler h);
@@ -236,6 +235,9 @@ extern u64 total_processors;
 extern void xsave(context f);
 
 void cpu_init(int cpu);
+void start_secondary_cores(kernel_heaps kh);
+void detect_hypervisor(kernel_heaps kh);
+void detect_devices(kernel_heaps kh, storage_attach sa);
 
 #define SHUTDOWN_COMPLETIONS_SIZE    8
 extern vector shutdown_completions;

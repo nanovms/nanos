@@ -19,7 +19,6 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/aarch64/unix_machine.c \
 	$(SRCDIR)/drivers/console.c \
 	$(SRCDIR)/drivers/netconsole.c \
-	$(SRCDIR)/drivers/storage.c \
 	$(SRCDIR)/kernel/backed_heap.c \
 	$(SRCDIR)/kernel/locking_heap.c \
 	$(SRCDIR)/kernel/elf.c \

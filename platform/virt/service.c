@@ -1,7 +1,7 @@
 #include <kernel.h>
 #include <pagecache.h>
 #include <tfs.h>
-#include <storage.h>
+#include <virtio/virtio.h>
 #include "serial.h"
 
 //#define INIT_DEBUG
@@ -191,6 +191,10 @@ void halt(char *format, ...)
 
 u64 total_processors = 1;
 
+void start_secondary_cores(kernel_heaps kh)
+{
+}
+
 static void init_kernel_heaps(void)
 {
     static struct heap bootstrap;
@@ -299,4 +303,16 @@ int start(void)
 
     while (1) ;
     return 0;
+}
+
+void detect_hypervisor(kernel_heaps kh)
+{
+}
+
+void detect_devices(kernel_heaps kh, storage_attach sa)
+{
+    /* virtio only at the moment */
+    init_virtio_network(kh);
+    init_virtio_blk(kh, sa);
+    init_virtio_scsi(kh, sa);
 }

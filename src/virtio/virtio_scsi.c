@@ -1,5 +1,4 @@
 #include <kernel.h>
-#include <drivers/storage.h>
 #include <virtio/scsi.h>
 
 #include "virtio_internal.h"
@@ -507,7 +506,7 @@ closure_function(3, 1, boolean, virtio_scsi_probe,
     return true;
 }
 
-void virtio_register_scsi(kernel_heaps kh, storage_attach a)
+void init_virtio_scsi(kernel_heaps kh, storage_attach a)
 {
     heap h = heap_locked(kh);
     register_pci_driver(closure(h, virtio_scsi_probe, h, a, kh->backed));

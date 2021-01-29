@@ -70,7 +70,7 @@ void ap_start()
     switch_stack(stack_from_kernel_context(get_kernel_context(cpuinfo_from_id(id))), ap_new_stack);
 }
 
-void start_cpu(heap h, heap stackheap, int index, void (*ap_entry)()) {
+void start_cpu(heap stackheap, int index, void (*ap_entry)()) {
     if (apboot == INVALID_ADDRESS) {
         start_callback = ap_entry;
         apboot = pointer_from_u64(AP_BOOT_START);

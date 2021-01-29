@@ -1,5 +1,4 @@
 #include <kernel.h>
-#include <drivers/storage.h>
 #include <pci.h>
 #include <storage.h>
 
@@ -881,7 +880,7 @@ closure_function(3, 1, boolean, nvme_probe,
     return false;
 }
 
-void nvme_register(kernel_heaps kh, storage_attach a)
+void init_nvme(kernel_heaps kh, storage_attach a)
 {
     heap h = heap_locked(kh);
     register_pci_driver(closure(h, nvme_probe, h, a, heap_backed(kh)));

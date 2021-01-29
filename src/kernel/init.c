@@ -5,18 +5,8 @@
 #include <tfs.h>
 #include <log.h>
 #include <net.h>
-#include <virtio/virtio.h>
 #include <symtab.h>
 #include <drivers/console.h>
-#include <drivers/storage.h>
-#ifdef __x86_64__
-#include <kvm_platform.h>
-#include <xen_platform.h>
-#include <hyperv_platform.h>
-#include <vmware/vmxnet3.h>
-#include <drivers/acpi.h>
-#include <aws/aws.h>
-#endif
 
 //#define INIT_DEBUG
 #ifdef INIT_DEBUG
@@ -243,12 +233,12 @@ void kernel_runtime_init(kernel_heaps kh)
     init_sg(locked);
     init_pagecache(locked, locked, (heap)heap_physical(kh), PAGESIZE);
     unmap(0, PAGESIZE);         /* unmap zero page */
-    reclaim_regions();
     init_extra_prints();
     init_pci(kh);
     init_console(kh);
     init_symtab(kh);
     read_kernel_syms();
+    reclaim_regions();          /* for pc: no accessing regions after this point */
     shutdown_completions = allocate_vector(misc, SHUTDOWN_COMPLETIONS_SIZE);
     init_debug("pci_discover (for VGA)");
     pci_discover(); // early PCI discover to configure VGA console
@@ -265,28 +255,8 @@ void kernel_runtime_init(kernel_heaps kh)
     init_scheduler(locked);
 
     /* platform detection and early init */
-    init_debug("probing for KVM");
-
-    /* XXX aarch64 */
-#ifdef __x86_64__
-    if (!kvm_detect(kh)) {
-        init_debug("probing for Xen hypervisor");
-        if (!xen_detect(kh)) {
-            if (!hyperv_detect(kh)) {
-                init_debug("no hypervisor detected; assuming qemu full emulation");
-                if (!init_hpet(kh)) {
-                    halt("HPET initialization failed; no timer source\n");
-                }
-            } else {
-                init_debug("hyper-v hypervisor detected");
-            }
-        } else {
-            init_debug("xen hypervisor detected");
-        }
-    } else {
-        init_debug("KVM detected");
-    }
-#endif
+    init_debug("probing for hypervisor platform");
+    detect_hypervisor(kh);
 
     /* RNG, stack canaries */
     init_debug("RNG");
@@ -301,67 +271,22 @@ void kernel_runtime_init(kernel_heaps kh)
     init_volumes(locked);
 
     storage_attach sa;
-
-    /* XXX need to sort out arch / hv relationship... */
-
-    boolean enable_ata = false;
 #ifdef __aarch64__
-    /* XXX fixed offset...need to add partition despite no boot fs */
+    /* XXX fixed offset kludge...need to add partition despite no boot fs */
     sa = closure(misc, attach_storage, 0xc01000);
-    init_virtio_network(kh);
 #else
     sa = closure(misc, attach_storage, 0);
-
-    boolean hyperv_storvsc_attached = false;
-    /* Probe for PV devices */
-    if (xen_detected()) {
-        init_debug("probing for Xen PV network...");
-        init_xennet(kh);
-        init_xenblk(kh, sa);
-        status s = xen_probe_devices();
-        if (!is_ok(s))
-            rprintf("xen probe failed: %v\n", s);
-    } else if (hyperv_detected()) {
-        init_debug("probing for Hyper-V PV network...");
-        init_vmbus(kh);
-        status s = hyperv_probe_devices(sa, &hyperv_storvsc_attached);
-        if (!is_ok(s))
-            rprintf("Hyper-V probe failed: %v\n", s);
-    } else {
-        enable_ata = true;
-        init_debug("probing for virtio PV network...");
-        /* qemu virtio */
-        init_virtio_network(kh);
-        init_vmxnet3_network(kh);
-        init_aws_ena(kh);
-    }
 #endif
 
-    init_debug("init_storage");
-    init_storage(kh, sa, enable_ata);
-#ifdef __x86_64__
-    init_acpi(kh);
-#endif
+    init_debug("detect_devices");
+    detect_devices(kh, sa);
 
-    init_debug("pci_discover (for virtio & ata)");
-    pci_discover(); // do PCI discover again for other devices
+    init_debug("pci_discover (for other devices)");
+    pci_discover();
     init_debug("discover done");
 
-#ifdef __x86_64__
-    /* Switch to stage3 GDT64, enable TSS and free up initial map */
-    init_debug("install GDT64 and TSS");
-    install_gdt64_and_tss(0);
-    unmap(PAGESIZE, INITIAL_MAP_SIZE - PAGESIZE);
-
-#ifdef SMP_ENABLE
-    init_mxcsr(); // XXX tmp merge
-    init_debug("starting APs");
-    start_cpu(misc, backed, TARGET_EXCLUSIVE_BROADCAST, new_cpu);
-    kernel_delay(milliseconds(200));   /* temp, til we check tables to know what we have */
-    init_debug("total CPUs %d\n", total_processors);
-    init_flush(heap_general(kh));
-#endif
-#endif
+    init_debug("start_secondary_cores");
+    start_secondary_cores(kh);
 
     init_debug("starting runloop");
     runloop();

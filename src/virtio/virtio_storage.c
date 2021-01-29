@@ -1,5 +1,4 @@
 #include <kernel.h>
-#include <drivers/storage.h>
 #include <storage.h>
 
 #include "virtio_internal.h"
@@ -219,7 +218,7 @@ closure_function(3, 1, void, vtmmio_blk_probe,
         virtio_blk_attach(general, bound(a), (vtdev)d);
 }
 
-void virtio_register_blk(kernel_heaps kh, storage_attach a)
+void init_virtio_blk(kernel_heaps kh, storage_attach a)
 {
     virtio_blk_debug("%s\n", __func__);
     heap h = heap_locked(kh);

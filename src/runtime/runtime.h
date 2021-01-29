@@ -196,6 +196,7 @@ typedef closure_type(buffer_handler, status, buffer);
 typedef closure_type(connection_handler, buffer_handler, buffer_handler);
 typedef closure_type(io_status_handler, void, status, bytes);
 typedef closure_type(block_io, void, void *, range, status_handler);
+typedef closure_type(storage_attach, void, block_io, block_io, u64);
 
 #include <sg.h>
 

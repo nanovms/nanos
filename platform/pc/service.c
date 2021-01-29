@@ -1,10 +1,19 @@
 #include <kernel.h>
-#include <pagecache.h>
-#include <tfs.h>
 #include <region.h>
 #include <symtab.h>
-#include <virtio/virtio.h>
+#include <pagecache.h>
+#include <tfs.h>
+#include <apic.h>
+#include <aws/aws.h>
+#include <drivers/acpi.h>
+#include <drivers/ata-pci.h>
+#include <drivers/nvme.h>
+#include <hyperv_platform.h>
 #include <kvm_platform.h>
+#include <xen_platform.h>
+#include <virtio/virtio.h>
+#include <vmware/storage.h>
+#include <vmware/vmxnet3.h>
 #include "serial.h"
 
 #define BOOT_PARAM_OFFSET_E820_ENTRIES  0x01E8
@@ -105,6 +114,7 @@ static void init_hwrand(void)
         have_rdrand = true;
 }
 
+/* called from init to reclaim physical memory used in stage2 */
 void reclaim_regions(void)
 {
     for_regions(e) {
@@ -115,6 +125,9 @@ void reclaim_regions(void)
                      __func__, irange(e->base, e->base + e->length));
         }
     }
+    /* we're done with looking at e820 (and our custom) regions, so
+       release the initial map here */
+    unmap(PAGESIZE, INITIAL_MAP_SIZE - PAGESIZE);
 }
 
 halt_handler vm_halt;
@@ -173,6 +186,20 @@ static void new_cpu()
     while (1)
         kernel_sleep();
 }
+
+void start_secondary_cores(kernel_heaps kh)
+{
+    memory_barrier();
+    init_debug("starting APs");
+    start_cpu(heap_backed(kh), TARGET_EXCLUSIVE_BROADCAST, new_cpu);
+    kernel_delay(milliseconds(200));   /* temp, til we check tables to know what we have */
+    init_debug("total CPUs %d\n", total_processors);
+    init_flush(heap_locked(kh));
+}
+#else
+void start_secondary_cores(kernel_heaps kh)
+{
+}
 #endif
 
 u64 xsave_features();
@@ -186,6 +213,9 @@ static void __attribute__((noinline)) init_service_new_stack()
 
     init_debug("init_hwrand");
     init_hwrand();
+
+    init_debug("init_mxcsr");
+    init_mxcsr();
 
     init_debug("calling kernel_runtime_init");
     kernel_runtime_init(kh);
@@ -396,4 +426,66 @@ void init_service(u64 rdi, u64 rsi)
     stack_location += stack_size - STACK_ALIGNMENT;
     *(u64 *)stack_location = 0;
     switch_stack(stack_location, init_service_new_stack);
+}
+
+extern boolean init_hpet(kernel_heaps kh);
+
+void detect_hypervisor(kernel_heaps kh)
+{
+    if (!kvm_detect(kh)) {
+        init_debug("probing for Xen hypervisor");
+        if (!xen_detect(kh)) {
+            if (!hyperv_detect(kh)) {
+                init_debug("no hypervisor detected; assuming qemu full emulation");
+                if (!init_hpet(kh)) {
+                    halt("HPET initialization failed; no timer source\n");
+                }
+            } else {
+                init_debug("hyper-v hypervisor detected");
+            }
+        } else {
+            init_debug("xen hypervisor detected");
+        }
+    } else {
+        init_debug("KVM detected");
+    }
+}
+
+void detect_devices(kernel_heaps kh, storage_attach sa)
+{
+    /* Probe for PV devices */
+    if (xen_detected()) {
+        init_debug("probing for Xen PV network...");
+        init_xennet(kh);
+        init_xenblk(kh, sa);
+        status s = xen_probe_devices();
+        if (!is_ok(s))
+            halt("xen probe failed: %v\n", s);
+    } else if (hyperv_detected()) {
+        boolean hyperv_storvsc_attached = false;
+        init_debug("probing for Hyper-V PV network...");
+        init_vmbus(kh);
+        status s = hyperv_probe_devices(sa, &hyperv_storvsc_attached);
+        if (!is_ok(s))
+            halt("Hyper-V probe failed: %v\n", s);
+        if (!hyperv_storvsc_attached)
+            init_ata_pci(kh, sa); /* hvm ata fallback */
+    } else {
+        init_debug("hypervisor undetected or HVM platform; registering all PCI drivers...");
+
+        /* net */
+        init_virtio_network(kh);
+        init_vmxnet3_network(kh);
+        init_aws_ena(kh);
+
+        /* storage */
+        init_virtio_blk(kh, sa);
+        init_virtio_scsi(kh, sa);
+        init_pvscsi(kh, sa);
+        init_nvme(kh, sa);
+        init_ata_pci(kh, sa);
+    }
+
+    /* misc / platform */
+    init_acpi(kh);
 }

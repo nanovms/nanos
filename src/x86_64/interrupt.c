@@ -378,6 +378,9 @@ void init_interrupts(kernel_heaps kh)
 
     /* APIC initialization */
     init_apic(kh);
+
+    /* GDT64 and TSS for boot cpu */
+    install_gdt64_and_tss(0);
 }
 
 void triple_fault(void)
