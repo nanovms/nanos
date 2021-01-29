@@ -36,8 +36,7 @@ jobs:
       - run: curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
       - run: sudo apt-get update && sudo apt-get install google-cloud-sdk
 
-      - run: echo ${GCLOUD_SERVICE_KEY} | tr -d " \t\n\r" > ${HOME}/gcloud-credentials.json
-      - run: gcloud auth activate-service-account 811983860050-compute@developer.gserviceaccount.com --key-file=${HOME}/gcloud-credentials.json
+      - run: echo $GCLOUD_SERVICE_KEY | gcloud auth activate-service-account --key-file=-
       - run: gcloud config set project ${GOOGLE_PROJECT_ID}
       - run: gcloud --quiet config set compute/zone ${GOOGLE_COMPUTE_ZONE}
 
@@ -89,8 +88,7 @@ jobs:
       - run: tar xzf google-cloud-sdk*.tar.gz
       - run: ./google-cloud-sdk/install.sh -q
       - run: source $HOME/project/google-cloud-sdk/path.bash.inc && echo export PATH=$PATH > $BASH_ENV
-      - run: echo ${GCLOUD_SERVICE_KEY} > ${HOME}/gcloud-credentials.json
-      - run: gcloud auth activate-service-account 811983860050-compute@developer.gserviceaccount.com --key-file=${HOME}/gcloud-credentials.json
+      - run: echo $GCLOUD_SERVICE_KEY | gcloud auth activate-service-account --key-file=-
       - run: gcloud config set project ${GOOGLE_PROJECT_ID}
       - run: gcloud --quiet config set compute/zone ${GOOGLE_COMPUTE_ZONE}
 
