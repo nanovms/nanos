@@ -446,9 +446,11 @@ void __attribute__((noreturn)) kernel_shutdown(int status)
 u64 total_processors = 1;
 
 #ifdef SMP_ENABLE
+/* Value comes from LDMXCSR instruction reference in Intel Architectures SDM */
+#define MXCSR_DEFAULT   0x1f80
 /* hvm does not always properly initialize mxcsr register */
 static void init_mxcsr() {
-    u32 m = 0x1f80;
+    u32 m = MXCSR_DEFAULT;
     asm("ldmxcsr %0":: "m"(m));
 }
 
