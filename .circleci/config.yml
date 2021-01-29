@@ -37,8 +37,8 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install google-cloud-sdk
 
       - run: echo $GCLOUD_SERVICE_KEY | gcloud auth activate-service-account --key-file=-
-      - run: sudo gcloud config set project ${GOOGLE_PROJECT_ID}
-      - run: sudo gcloud --quiet config set compute/zone ${GOOGLE_COMPUTE_ZONE}
+      - run: gcloud config set project ${GOOGLE_PROJECT_ID}
+      - run: gcloud --quiet config set compute/zone ${GOOGLE_COMPUTE_ZONE}
 
       - run: mkdir temp && cp output/platform/pc/bin/kernel.img temp/ && cp output/platform/pc/boot/boot.img temp/ && cp output/tools/bin/mkfs temp/ && cp output/tools/bin/dump temp/ && mkdir temp/klibs && cp output/klib/bin/* temp/klibs
       - run: cd temp && tar cvzf nanos-nightly-linux.tar.gz * && gsutil cp nanos-nightly-linux.tar.gz gs://nanos/release/nightly
@@ -89,7 +89,7 @@ jobs:
       - run: ./google-cloud-sdk/install.sh -q
       - run: source $HOME/project/google-cloud-sdk/path.bash.inc && echo export PATH=$PATH > $BASH_ENV
       - run: echo $GCLOUD_SERVICE_KEY | gcloud auth activate-service-account --key-file=-
-      - run: sudo gcloud config set project ${GOOGLE_PROJECT_ID}
+      - run: gcloud config set project ${GOOGLE_PROJECT_ID}
       - run: gcloud --quiet config set compute/zone ${GOOGLE_COMPUTE_ZONE}
 
       - run: mkdir temp && cp output/platform/pc/bin/kernel.img temp/ && cp output/platform/pc/boot/boot.img temp/ && cp output/tools/bin/mkfs temp/ && cp output/tools/bin/dump temp/ && mkdir temp/klibs && cp output/klib/bin/* temp/klibs
