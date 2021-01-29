@@ -121,7 +121,7 @@ static void ntp_query(const ip_addr_t *server_addr)
     ntp.runtime_memset(p->payload, 0, sizeof(*pkt));
     pkt->vn = 3;    /* NTP version number */
     pkt->mode = 3;  /* client mode */
-    timestamp_to_ntptime(ntp.now(CLOCK_ID_REALTIME), &pkt->transmit_ts);
+    timestamp_to_ntptime(ntp.now(CLOCK_ID_REALTIME), (void *)&pkt->transmit_ts);
     err_t err = ntp.udp_sendto(ntp.pcb, p, server_addr, ntp.server_port);
     if (err != ERR_OK) {
         ntp.rprintf("%s: failed to send request: %d\n", __func__, err);
@@ -146,10 +146,11 @@ static void ntp_input(void *z, struct udp_pcb *pcb, struct pbuf *p,
         goto done;
     }
     timestamp wallclock_now = ntp.now(CLOCK_ID_REALTIME);
-    timestamp origin = ntptime_to_timestamp(&pkt->originate_ts);
+    timestamp origin = ntptime_to_timestamp((void *)&pkt->originate_ts);
     /* round trip delay */
-    timestamp rtd = wallclock_now - origin - ntptime_diff(&pkt->transmit_ts, &pkt->receive_ts);
-    s64 offset = ntptime_to_timestamp(&pkt->transmit_ts) - wallclock_now + rtd / 2;
+    timestamp rtd = wallclock_now - origin -
+            ntptime_diff((void *)&pkt->transmit_ts, (void *)&pkt->receive_ts);
+    s64 offset = ntptime_to_timestamp((void *)&pkt->transmit_ts) - wallclock_now + rtd / 2;
     u128 offset_calibr = ((u128)((offset >= 0) ? offset : -offset)) << CLOCK_CALIBR_BITS;
     s64 temp_cal, cal;
     timestamp raw = ntp.now(CLOCK_ID_MONOTONIC_RAW);
