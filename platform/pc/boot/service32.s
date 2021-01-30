@@ -330,24 +330,11 @@ bios_tty_write:
 	pop ebp
 	ret
 
+%include "longmode.inc"
 
-        %define CR4_PAE (1<<5)
-        %define CR4_PGE (1<<7)
-        %define CR4_OSFXSR (1<<9)
-        %define CR4_OSXMMEXCPT (1<<10)        
-        %define CR4_OSXSAVE (1<<18)                
-        
-global run64        
+global run64      
 run64:
-        mov eax, cr4     
-        or eax, CR4_PAE
-        mov cr4, eax  
-
-        mov ecx, 0xC0000080 ; EFER MSR.
-        
-        rdmsr      
-        or eax, 1 << 8      ; Set the LM-bit which is the 9th bit (bit 8).
-        wrmsr
+		PREPARE_LONG_MODE eax
 
         pop edx                 ; return
         pop edx                 ; entry
@@ -355,10 +342,7 @@ run64:
         push eax
         push eax
 
-        mov eax, cr0    
-        or eax, 1 << 31 | 1 ; Set the PG-bit and the PM bit 
-        mov cr0, eax
-        
+		ENTER_LONG_MODE eax
         ;; 64 bit compatibility into the proper long mode
         lgdt [GDT64.Pointer]    ; Load the 64-bit global descriptor table.
         jmp GDT64.Code:setup64

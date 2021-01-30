@@ -446,10 +446,20 @@ void __attribute__((noreturn)) kernel_shutdown(int status)
 u64 total_processors = 1;
 
 #ifdef SMP_ENABLE
+/* Value comes from LDMXCSR instruction reference in Intel Architectures SDM */
+#define MXCSR_DEFAULT   0x1f80
+/* hvm does not always properly initialize mxcsr register */
+static void init_mxcsr() {
+    u32 m = MXCSR_DEFAULT;
+    asm("ldmxcsr %0":: "m"(m));
+}
+
 static void new_cpu()
 {
     if (platform_timer_percpu_init)
         apply(platform_timer_percpu_init);
+
+    init_mxcsr();
 
     /* For some reason, we get a spurious wakeup from hlt on linux/kvm
        after AP start. Spin here to cover it (before moving on to runloop). */
@@ -572,6 +582,7 @@ static void __attribute__((noinline)) init_service_new_stack()
     unmap(PAGESIZE, INITIAL_MAP_SIZE - PAGESIZE);
     set_syscall_handler(syscall_enter);
 #ifdef SMP_ENABLE
+    init_mxcsr();
     init_debug("starting APs");
     start_cpu(misc, heap_backed(kh), TARGET_EXCLUSIVE_BROADCAST, new_cpu);
     kernel_delay(milliseconds(200));   /* temp, til we check tables to know what we have */
@@ -770,14 +781,6 @@ void init_service(u64 rdi, u64 rsi)
         initial_pages_region->length = INITIAL_PAGES_SIZE;
         mov_to_cr("cr3", pgdir);
     }
-    u64 cr;
-    mov_from_cr("cr0", cr);
-    cr |= C0_MP;
-    cr &= ~C0_EM;
-    mov_to_cr("cr0", cr);
-    mov_from_cr("cr4", cr);
-    cr |= CR4_OSFXSR | CR4_OSXMMEXCPT /* | CR4_OSXSAVE */;
-    mov_to_cr("cr4", cr);
     init_kernel_heaps();
     if (cmdline)
         cmdline_parse(cmdline);
