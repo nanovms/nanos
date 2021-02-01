@@ -206,5 +206,13 @@ static inline void set_tls(context f, u64 tls)
     f[FRAME_FSBASE] = tls;
 }
 
-#define syscall_entry_arch_fixup(t)
-#define syscall_restart_arch_fixup(t)
+#define syscall_entry_arch_fixup(t) ((void)t)
+#define syscall_restart_arch_fixup(t) ((void)t)
+
+/* stubs, for intel sdm recommends using xsave* over manual lazy save/restore */
+#define thread_frame_save_fpsimd(f) ((void)f)
+#define thread_frame_restore_fpsimd(f) ((void)f)
+
+/* ignore these unless moving fs/gs save out of entry */
+#define thread_frame_save_tls(f) ((void)f)
+#define thread_frame_restore_tls(f) ((void)f)

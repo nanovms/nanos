@@ -219,20 +219,6 @@ static inline u64 total_frame_size(void)
     return FRAME_EXTENDED_SAVE * sizeof(u64) + extended_frame_size();
 }
 
-/* stubs, for intel sdm recommends using xsave* over manual lazy save/restore */
-#define frame_save_fpsimd(f)
-#define frame_restore_fpsimd(f)
-
-/* ignore these unless moving fs/gs save out of entry */
-#define frame_save_tls(f)
-#define frame_restore_tls(f)
-
-#define frame_thread_ext_context_fill(f)
-static inline boolean frame_thread_ext_context_full(context f)
-{
-    return true;                /* don't bother trying to save */
-}
-
 static inline void frame_enable_interrupts(context f)
 {
     f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);

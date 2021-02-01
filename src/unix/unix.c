@@ -403,11 +403,8 @@ void thread_pause(thread t)
         t->utime += diff;
     }
     context f = thread_frame(t);
-    if (!frame_thread_ext_context_full(f)) {
-        frame_save_fpsimd(f);
-        frame_save_tls(f);
-        frame_thread_ext_context_fill(f);
-    }
+    thread_frame_save_fpsimd(f);
+    thread_frame_save_tls(f);
     set_current_thread(0);
 }
 

@@ -86,9 +86,51 @@ static inline pageflags pageflags_from_vmflags(u64 vmflags)
     return flags;
 }
 
+static inline u64 get_tls(context f)
+{
+    assert(f[FRAME_TXCTX_FLAGS] & FRAME_TXCTX_TPIDR_EL0_SAVED);
+    return f[FRAME_TPIDR_EL0];
+}
+
 static inline void set_tls(context f, u64 tls)
 {
     f[FRAME_TPIDR_EL0] = tls;
+    f[FRAME_TXCTX_FLAGS] |= FRAME_TXCTX_TPIDR_EL0_SAVED;
+}
+
+void frame_save_fpsimd(context f);
+void frame_restore_fpsimd(context f);
+
+static inline void thread_frame_save_fpsimd(context f)
+{
+    if ((f[FRAME_TXCTX_FLAGS] & FRAME_TXCTX_FPSIMD_SAVED) == 0) {
+        f[FRAME_TXCTX_FLAGS] |= FRAME_TXCTX_FPSIMD_SAVED;
+        frame_save_fpsimd(f);
+    }
+}
+
+static inline void thread_frame_restore_fpsimd(context f)
+{
+    if (f[FRAME_TXCTX_FLAGS] & FRAME_TXCTX_FPSIMD_SAVED) {
+        f[FRAME_TXCTX_FLAGS] &= ~FRAME_TXCTX_FPSIMD_SAVED;
+        frame_restore_fpsimd(f);
+    }
+}
+
+static inline void thread_frame_save_tls(context f)
+{
+    if ((f[FRAME_TXCTX_FLAGS] & FRAME_TXCTX_TPIDR_EL0_SAVED) == 0) {
+        f[FRAME_TXCTX_FLAGS] |= FRAME_TXCTX_TPIDR_EL0_SAVED;
+        f[FRAME_TPIDR_EL0] = read_psr(TPIDR_EL0);
+    }
+}
+
+static inline void thread_frame_restore_tls(context f)
+{
+    if (f[FRAME_TXCTX_FLAGS] & FRAME_TXCTX_TPIDR_EL0_SAVED) {
+        f[FRAME_TXCTX_FLAGS] &= ~FRAME_TXCTX_TPIDR_EL0_SAVED;
+        write_psr(TPIDR_EL0, f[FRAME_TPIDR_EL0]);
+    }
 }
 
 void syscall_entry_arch_fixup(thread t);

@@ -168,8 +168,8 @@ static inline void run_thread_frame(thread t)
         count_syscall(t, 0);
     context f = thread_frame(t);
     cpuinfo ci = current_cpu();
-    frame_restore_tls(f);
-    frame_restore_fpsimd(f);
+    thread_frame_restore_tls(f);
+    thread_frame_restore_fpsimd(f);
     frame_enable_interrupts(f);
     f[FRAME_QUEUE] = u64_from_pointer(ci->thread_queue);
 

@@ -30,7 +30,7 @@ void setup_sigframe(thread t, int signum, struct siginfo *si)
 
     /* copy only what we really need */
     t->sighandler_frame[FRAME_X18] = t->default_frame[FRAME_X18];
-    t->sighandler_frame[FRAME_TPIDR_EL0] = t->default_frame[FRAME_TPIDR_EL0];
+    set_tls(t->sighandler_frame, get_tls(t->default_frame));
     t->sighandler_frame[FRAME_SP] = (sa->sa_flags & SA_ONSTACK) && t->signal_stack ?
         u64_from_pointer(t->signal_stack + t->signal_stack_length) :
         t->default_frame[FRAME_SP];

@@ -279,33 +279,10 @@ static inline boolean is_div_by_zero(context f)
     return false; // XXX not on arm / fp only?
 }
 
-static inline void frame_save_tls(context f)
-{
-    f[FRAME_TPIDR_EL0] = read_psr(TPIDR_EL0);
-}
-
-static inline void frame_restore_tls(context f)
-{
-    write_psr(TPIDR_EL0, f[FRAME_TPIDR_EL0]);
-}
-
 static inline void frame_enable_interrupts(context f)
 {
     f[FRAME_ESR_SPSR] &= ~SPSR_I; /* EL0 */
 }
-
-static inline void frame_thread_ext_context_fill(context f)
-{
-    f[FRAME_TXCTX_FULL] = true;
-}
-
-static inline boolean frame_thread_ext_context_full(context f)
-{
-    return f[FRAME_TXCTX_FULL];
-}
-
-extern void frame_save_fpsimd(context f);
-extern void frame_restore_fpsimd(context f);
 
 static inline void frame_set_sp(context f, u64 sp)
 {
