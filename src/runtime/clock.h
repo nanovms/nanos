@@ -110,7 +110,8 @@ static inline void register_platform_clock_now(clock_now cn, vdso_clock_id id)
     platform_monotonic_now = cn;
 #if defined(KERNEL) || defined(BUILD_VDSO)
     __vdso_dat->clock_src = id;
-    __vdso_dat->rtc_offset = (rtc_gettimeofday() << 32) - apply(cn);
+    u64 rt = rtc_gettimeofday();
+    __vdso_dat->rtc_offset = rt ? (rt << 32) - apply(cn) : 0;
     __vdso_dat->temp_cal = __vdso_dat->cal = 0;
     __vdso_dat->sync_complete = 0;
     __vdso_dat->last_raw = __vdso_dat->last_drift = 0;

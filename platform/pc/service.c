@@ -165,7 +165,6 @@ void vm_exit(u8 code)
 
 u64 total_processors = 1;
 
-#ifdef SMP_ENABLE
 /* Value comes from LDMXCSR instruction reference in Intel Architectures SDM */
 #define MXCSR_DEFAULT   0x1f80
 /* hvm does not always properly initialize mxcsr register */
@@ -174,6 +173,7 @@ static void init_mxcsr() {
     asm("ldmxcsr %0":: "m"(m));
 }
 
+#ifdef SMP_ENABLE
 static void new_cpu()
 {
     if (platform_timer_percpu_init)
@@ -292,12 +292,12 @@ static void init_kernel_heaps(void)
                                    (heap)kh->physical, PAGESIZE, true);
     assert(kh->backed != INVALID_ADDRESS);
 
-    heaps.general = allocate_mcache(&bootstrap, (heap)heaps.backed, 5, MAX_MCACHE_ORDER, PAGESIZE_2M);
-    assert(heaps.general != INVALID_ADDRESS);
+    kh->general = allocate_mcache(&bootstrap, (heap)kh->backed, 5, MAX_MCACHE_ORDER, PAGESIZE_2M);
+    assert(kh->general != INVALID_ADDRESS);
 
-    heaps.locked = locking_heap_wrapper(&bootstrap,
-        allocate_mcache(&bootstrap, (heap)heaps.backed, 5, MAX_MCACHE_ORDER, PAGESIZE_2M));
-    assert(heaps.locked != INVALID_ADDRESS);
+    kh->locked = locking_heap_wrapper(&bootstrap,
+        allocate_mcache(&bootstrap, (heap)kh->backed, 5, MAX_MCACHE_ORDER, PAGESIZE_2M));
+    assert(kh->locked != INVALID_ADDRESS);
 }
 
 static void jump_to_virtual(u64 kernel_size, u64 *pdpt, u64 *pdt) {

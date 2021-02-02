@@ -417,9 +417,6 @@ void thread_resume(thread t)
     if (get_current_thread() == &t->thrd)
         return;
     t->start_time = now(CLOCK_ID_MONOTONIC_RAW);
-    context f = thread_frame(t);
-    frame_restore_tls(f);
-    frame_restore_fpsimd(f);
     set_current_thread(&t->thrd);
 }
 
