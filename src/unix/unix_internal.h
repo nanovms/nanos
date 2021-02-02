@@ -454,7 +454,7 @@ static inline thread _current(const char *caller) {
       runtime_strcmp("run_thread_frame", caller) != 0 &&
       runtime_strcmp("thread_wakeup", caller) != 0) {
         log_printf("CURRENT", "invalid address returned to caller '%s'\n", caller);
-        print_stack_from_here();
+        print_frame_trace_from_here();
     }
     return (thread)get_current_thread();
 }

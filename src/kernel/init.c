@@ -23,12 +23,6 @@ static kernel_heaps init_heaps;
 
 static struct kernel_heaps heaps;
 
-kernel_heaps get_kernel_heaps(void)
-{
-    return &heaps;
-}
-KLIB_EXPORT(get_kernel_heaps);
-
 closure_function(2, 3, void, offset_block_io,
                  u64, offset, block_io, io,
                  void *, dest, range, blocks, status_handler, sh)
@@ -76,6 +70,7 @@ closure_function(3, 2, void, fsstarted,
 
     u8 *mbr = bound(mbr);
     tuple root = filesystem_getroot(fs);
+    root_fs = fs;
     storage_set_root_fs(fs);
     tuple mounts = table_find(root, sym(mounts));
     if (mounts && (tagof(mounts) == tag_tuple))
@@ -103,7 +98,6 @@ closure_function(3, 2, void, fsstarted,
     if (klibs && !klibs_in_bootfs)
         init_klib(init_heaps, fs, root, root);
 
-    root_fs = fs;
     enqueue(runqueue, create_init(init_heaps, root, fs));
     closure_finish();
     symbol booted = sym(booted);
@@ -135,6 +129,18 @@ void mm_service(void)
             mm_debug("   drained %ld / %ld requested...\n", drained, drain_bytes);
     }
 }
+
+kernel_heaps get_kernel_heaps(void)
+{
+    return &heaps;
+}
+KLIB_EXPORT(get_kernel_heaps);
+
+tuple get_root_tuple(void)
+{
+    return filesystem_getroot(root_fs);
+}
+KLIB_EXPORT(get_root_tuple);
 
 tuple get_environment(void)
 {

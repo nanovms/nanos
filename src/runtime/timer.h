@@ -39,7 +39,7 @@ static inline void runloop_timer(timestamp duration)
 // XXX - maybe timerheap per clocktype, or separate for proc/thread timers
 timer register_timer(timerheap th, clock_id id, timestamp val, boolean absolute, timestamp interval, timer_handler n);
 
-#if defined(STAGE3) || defined(BUILD_VDSO)
+#if defined(KERNEL) || defined(BUILD_VDSO)
 #define __vdso_dat (&(VVAR_REF(vdso_dat)))
 #endif
 
@@ -49,7 +49,7 @@ static inline timestamp timer_expiry(timer t)
 {
     timestamp expiry = t->expiry;
 
-#if defined(STAGE3) || defined(BUILD_VDSO)
+#if defined(KERNEL) || defined(BUILD_VDSO)
     switch (t->id) {
     case CLOCK_ID_MONOTONIC_RAW:
         return expiry;

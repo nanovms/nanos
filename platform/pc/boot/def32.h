@@ -73,7 +73,7 @@ static inline u64 msb(u64 x)
     }
 }
 
-static inline void print_stack_from_here()
+static inline void print_frame_trace_from_here()
 {
     // empty for now
 }

@@ -361,8 +361,6 @@ boolean traverse_ptes(u64 vaddr, u64 length, entry_handler ph)
     pagetable_lock();
     boolean result = recurse_ptes(pagebase, 1, vaddr & MASK(VIRTUAL_ADDRESS_BITS),
                                   length, 0, ph);
-    if (!result)
-        rprintf("fail\n");
     pagetable_unlock();
     return result;
 }

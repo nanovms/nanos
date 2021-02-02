@@ -120,6 +120,6 @@ static inline void register_platform_clock_now(clock_now cn, vdso_clock_id id)
 
 void clock_adjust(timestamp wallclock_now, s64 temp_cal, timestamp sync_complete, s64 cal);
 
-#if defined(STAGE3) || defined(BUILD_VDSO)
+#if defined(KERNEL) || defined(BUILD_VDSO)
 #undef __vdso_dat
 #endif

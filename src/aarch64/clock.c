@@ -38,8 +38,6 @@ void init_clock(void)
 {
     __vdso_dat->clock_src = VDSO_CLOCK_SYSCALL;
     __vdso_dat->platform_has_rdtscp = 0;
-//    __vdso_dat->rtc_offset = rtc_gettimeofday() << 32;
-    __vdso_dat->rtc_offset = 0;
 
     register_platform_clock_now(init_closure(&_clock_now, arm_clock_now), VDSO_CLOCK_PVCLOCK);
     register_platform_clock_timer(init_closure(&_deadline_timer, arm_deadline_timer),

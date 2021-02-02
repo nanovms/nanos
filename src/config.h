@@ -58,3 +58,7 @@
 
 /* on-disk log dump section */
 #define KLOG_DUMP_SIZE  (4 * KB)
+
+/* debug parameters */
+#define FRAME_TRACE_DEPTH 32
+#define STACK_TRACE_DEPTH 32

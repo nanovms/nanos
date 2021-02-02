@@ -110,42 +110,43 @@ u32 spurious_int_vector;
 
 extern void *text_start;
 extern void *text_end;
-void __print_stack_with_rbp(u64 *rbp)
+void frame_trace(u64 *fp)
 {
-    for (unsigned int frame = 0; frame < 16; frame ++) {
-        if ((u64) rbp < 4096ULL)
+    for (unsigned int frame = 0; frame < FRAME_TRACE_DEPTH; frame++) {
+        if (!validate_virtual(fp, sizeof(u64)) ||
+            !validate_virtual(fp + 1, sizeof(u64)))
             break;
 
-        if (!validate_virtual(rbp, sizeof(u64)) ||
-            !validate_virtual(rbp + 1, sizeof(u64)))
+        u64 n = fp[1];
+        if (n == 0)
             break;
-
-        u64 rip = rbp[1];
-        if (rip == 0)
-            break;
-        rbp = (u64 *) rbp[0];
-        print_u64_with_sym(rip);
+        print_u64(u64_from_pointer(fp + 1));
+        rputs(":   ");
+        fp = pointer_from_u64(fp[0]);
+        print_u64_with_sym(n);
         rputs("\n");
     }
 }
 
-void print_stack_from_here(void)
+void print_frame_trace_from_here(void)
 {
     u64 rbp;
     asm("movq %%rbp, %0" : "=r" (rbp));
-    __print_stack_with_rbp((u64 *)rbp);
+    frame_trace(pointer_from_u64(rbp));
 }
 
-#define STACK_TRACE_DEPTH       24
 void print_stack(context c)
 {
     rputs("\nframe trace:\n");
-    __print_stack_with_rbp(pointer_from_u64(c[FRAME_RBP]));
+    frame_trace(pointer_from_u64(c[FRAME_RBP]));
 
     rputs("\nstack trace:\n");
-    u64 *x = pointer_from_u64(c[FRAME_RSP]);
-    for (u64 i = 0; i < STACK_TRACE_DEPTH; i++) {
-        print_u64_with_sym(*(x+i));
+    u64 *sp = pointer_from_u64(c[FRAME_RSP]);
+    for (u64 *x = sp; x < (sp + STACK_TRACE_DEPTH) &&
+             validate_virtual(x, sizeof(u64)); x++) {
+        print_u64(u64_from_pointer(x));
+        rputs(":   ");
+        print_u64_with_sym(*x++);
         rputs("\n");
     }
     rputs("\n");

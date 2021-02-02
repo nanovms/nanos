@@ -367,7 +367,7 @@ void map(u64 v, physical p, u64 length, pageflags flags)
 
     if (!map_area(irangel(v, length), p, flags.w | PAGE_ATTR_AF)) {
         rprintf("ra %p\n", __builtin_return_address(0));
-        print_stack_from_here();
+        print_frame_trace_from_here();
         halt("map failed for v 0x%lx, p 0x%lx, len 0x%lx, flags 0x%lx\n",
              v, p, length, flags.w);
     }
@@ -496,8 +496,6 @@ boolean traverse_ptes(u64 vaddr, u64 length, entry_handler ph)
     boolean result = recurse_ptes(table_from_vaddr(vaddr), 0,
                                   vaddr & MASK(VIRTUAL_ADDRESS_BITS),
                                   length, 0, ph);
-    if (!result)
-        rprintf("fail\n");
     pagetable_unlock();
     return result;
 }

@@ -28,7 +28,7 @@ void table_validate(table t, char *n)
     for(int i = 0; i < t->buckets; i++) {
         for (entry j = t->entries[i]; last = j, j; j = j->next) {
             if (j == INVALID_ADDRESS) {
-                print_stack_from_here();
+                print_frame_trace_from_here();
                 halt("table_validate fail on %s: table %p, last %p\n", n, t, last);
             }
         }

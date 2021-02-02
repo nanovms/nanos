@@ -120,9 +120,7 @@ static void test_clock_nanosleep(clockid_t clock_id, unsigned long long nsec)
     if (clock_gettime(clock_id, &end) < 0)
         fail_perror("clock_gettime");
 
-    /* given the skew between sampling start and starting the timer,
-       we can't really validate the interval - validate that end > req instead */
-    delta = validate_interval(&req, &end, 1, 0);
+    delta = validate_interval(&start, &end, 1, nsec);
     if (delta < 0)
         fail_error("interval validation failed\n");
     timetest_msg("absolute test passed, delta %lld nsec\n", delta);
