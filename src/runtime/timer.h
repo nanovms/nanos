@@ -62,10 +62,14 @@ static inline timestamp timer_expiry(timer t)
         break;
     }
 
-    /* Not entirely correct, because clock_get_drift() takes a raw timestamp as
-     * argument, but should be a reasonable approximation. */
-    expiry -= clock_get_drift(expiry - __vdso_dat->last_drift);
-
+    s64 drift;
+    if (expiry > __vdso_dat->last_raw + __vdso_dat->last_drift)
+        /* Not entirely correct, because clock_get_drift() takes a raw timestamp as
+         * argument, but should be a reasonable approximation. */
+        drift = clock_get_drift(expiry - __vdso_dat->last_drift);
+    else
+        drift = __vdso_dat->last_drift;
+    expiry -= drift;
 #endif
 
     return expiry;
