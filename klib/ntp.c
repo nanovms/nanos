@@ -6,10 +6,12 @@
 
 #define NTP_EPOCH_DELTA 2208988800ul    /* Number of seconds between 1900 and 1970 */
 
-#define NTP_QUERY_INTERVAL_DEFAULT  (10 * seconds(60))
-#define NTP_QUERY_INTERVAL_MAX      (5120 * seconds(60))
+#define NTP_QUERY_INTERVAL_MIN  4   /* 16 seconds */
+#define NTP_QUERY_INTERVAL_MAX  17  /* 36.4 hours */
 
 #define NTP_QUERY_ATTEMPTS  8
+
+#define NTP_JIGGLE_THRESHOLD    30
 
 #define NTP_MAX_SLEW_RATE   ((1ll << CLOCK_CALIBR_BITS) / 2000) /* 500 PPM */
 
@@ -44,9 +46,15 @@ static struct {
     timer query_timer;
     closure_struct(ntp_query_func, query_func);
     boolean query_ongoing;
-    timestamp query_interval;
+
+    /* interval values expressed as bit order of number of seconds */
+    int pollmin, pollmax;
+    int query_interval;
+
     int query_errors;
     timestamp last_raw;
+    u64 last_offset;
+    int jiggle_counter;
     void (*rprintf)(const char *format, ...);
     timer (*register_timer)(clock_id id, timestamp val, boolean absolute, timestamp interval,
             timer_handler n);
@@ -81,6 +89,13 @@ static u64 div128_64(u128 dividend, u64 divisor)
     return (div << shift);
 }
 
+static void ntp_schedule_query(void)
+{
+    if (ntp.query_timer == INVALID_ADDRESS)
+        ntp.query_timer = ntp.register_timer(CLOCK_ID_MONOTONIC_RAW,
+            seconds(U64_FROM_BIT(ntp.query_interval)), false, 0, (timer_handler)&ntp.query_func);
+}
+
 static void timestamp_to_ntptime(timestamp t, struct ntp_ts *ntptime)
 {
     ntptime->seconds = PP_HTONL(NTP_EPOCH_DELTA + sec_from_timestamp(t));
@@ -102,14 +117,11 @@ static void ntp_query_complete(boolean success)
 {
     if (success) {
         ntp.query_errors = 0;
-        ntp.query_interval = NTP_QUERY_INTERVAL_DEFAULT;
     } else  if ((++ntp.query_errors > NTP_QUERY_ATTEMPTS) &&
-            (ntp.query_interval < NTP_QUERY_INTERVAL_MAX)) {
-        ntp.query_interval *= 2;
+            (ntp.query_interval < ntp.pollmax)) {
+        ntp.query_interval++;
     }
-    if (ntp.query_timer == INVALID_ADDRESS)
-        ntp.query_timer = ntp.register_timer(CLOCK_ID_MONOTONIC_RAW, ntp.query_interval, false, 0,
-            (timer_handler)&ntp.query_func);
+    ntp_schedule_query();
 }
 
 static void ntp_query(const ip_addr_t *server_addr)
@@ -129,9 +141,7 @@ static void ntp_query(const ip_addr_t *server_addr)
     }
     ntp.pbuf_free(p);
     ntp.query_ongoing = true;
-    if (ntp.query_timer == INVALID_ADDRESS)
-        ntp.query_timer = ntp.register_timer(CLOCK_ID_MONOTONIC_RAW, ntp.query_interval, false, 0,
-            (timer_handler)&ntp.query_func);
+    ntp_schedule_query();
 }
 
 static void ntp_input(void *z, struct udp_pcb *pcb, struct pbuf *p,
@@ -151,7 +161,7 @@ static void ntp_input(void *z, struct udp_pcb *pcb, struct pbuf *p,
     timestamp rtd = wallclock_now - origin -
             ntptime_diff((void *)&pkt->transmit_ts, (void *)&pkt->receive_ts);
     s64 offset = ntptime_to_timestamp((void *)&pkt->transmit_ts) - wallclock_now + rtd / 2;
-    u128 offset_calibr = ((u128)((offset >= 0) ? offset : -offset)) << CLOCK_CALIBR_BITS;
+    u128 offset_calibr = ((u128)ABS(offset)) << CLOCK_CALIBR_BITS;
     s64 temp_cal, cal;
     timestamp raw = ntp.now(CLOCK_ID_MONOTONIC_RAW);
 
@@ -174,7 +184,8 @@ static void ntp_input(void *z, struct udp_pcb *pcb, struct pbuf *p,
     }
 
     /* If at least 2 samples have been received from the NTP server, calculate a calibration value
-     * to be applied after the local time is synchronized with the NTP time. */
+     * to be applied after the local time is synchronized with the NTP time, and possibly adjust the
+     * query interval based on the clock jitter. */
     raw -= rtd / 2;
     if ((ntp.last_raw != 0) && (raw > ntp.last_raw)) {
         cal = (s64)div128_64(offset_calibr, raw - ntp.last_raw);
@@ -182,10 +193,25 @@ static void ntp_input(void *z, struct udp_pcb *pcb, struct pbuf *p,
             cal = NTP_MAX_SLEW_RATE;
         if (offset < 0)
             cal = -cal;
+        s64 jitter = offset - ntp.last_offset;
+        if (ABS(offset) < ABS(jitter) * 4) {
+            ntp.jiggle_counter += ntp.query_interval;
+            if ((ntp.jiggle_counter > NTP_JIGGLE_THRESHOLD) && (ntp.query_interval < ntp.pollmax)) {
+                ntp.query_interval++;
+                ntp.jiggle_counter = 0;
+            }
+        } else {
+            ntp.jiggle_counter -= 2 * ntp.query_interval;
+            if ((ntp.jiggle_counter < -NTP_JIGGLE_THRESHOLD) && (ntp.query_interval > ntp.pollmin)) {
+                ntp.query_interval--;
+                ntp.jiggle_counter = 0;
+            }
+        }
     } else {
         cal = 0;
     }
     ntp.last_raw = raw;
+    ntp.last_offset = offset;
 
     ntp.clock_adjust(wallclock_now + offset, temp_cal, sync_complete, cal);
     success = true;
@@ -271,6 +297,37 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
     } else {
         ntp.server_port = NTP_PORT_DEFAULT;
     }
+    ntp.pollmin = 6;
+    ntp.pollmax = 10;
+    value pollmin = table_find(root, sym_intern(ntp_poll_min, intern));
+    if (pollmin) {
+        u64 interval;
+        if (!u64_from_value(pollmin, &interval) || (interval < NTP_QUERY_INTERVAL_MIN) ||
+                (interval > NTP_QUERY_INTERVAL_MAX)) {
+            ntp.rprintf("NTP: invalid minimum poll interval\n");
+            return KLIB_INIT_FAILED;
+        }
+        ntp.pollmin = interval;
+        if (interval > ntp.pollmax)
+            ntp.pollmax = interval;
+    }
+    value pollmax = table_find(root, sym_intern(ntp_poll_max, intern));
+    if (pollmax) {
+        u64 interval;
+        if (!u64_from_value(pollmax, &interval) || (interval < NTP_QUERY_INTERVAL_MIN) ||
+                (interval > NTP_QUERY_INTERVAL_MAX)) {
+            ntp.rprintf("NTP: invalid maximum poll interval\n");
+            return KLIB_INIT_FAILED;
+        }
+        ntp.pollmax = interval;
+        if (interval < ntp.pollmin) {
+            if (pollmin) {
+                ntp.rprintf("NTP: maximum poll interval smaller than minimum poll interval\n");
+                return KLIB_INIT_FAILED;
+            }
+            ntp.pollmin = interval;
+        }
+    }
     ntp.pcb = udp_new();
     if (!ntp.pcb) {
         ntp.rprintf("NTP: failed to create PCB\n");
@@ -278,7 +335,8 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
     }
     udp_recv(ntp.pcb, ntp_input, 0);
     init_closure(&ntp.query_func, ntp_query_func);
-    ntp.query_interval = NTP_QUERY_INTERVAL_DEFAULT;
+    ntp.query_interval = ntp.pollmin;
+    ntp.jiggle_counter = 0;
     ntp.query_timer = ntp.register_timer(CLOCK_ID_MONOTONIC_RAW, seconds(5), false, 0,
         (timer_handler)&ntp.query_func);
     return KLIB_INIT_OK;

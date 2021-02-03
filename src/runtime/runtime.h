@@ -83,6 +83,8 @@ static inline void console(const char *s)
 #define MIN(x, y) __compare((x), (y), <)
 #define MAX(x, y) __compare((x), (y), >)
 
+#define ABS(x) (((x) >= 0) ? (x) : -(x))
+
 #define offsetof(__t, __e) u64_from_pointer(&((__t)0)->__e)
 
 #define check_flags_and_clear(x, f) ({boolean match = ((x) & (f)) != 0; (x) &= ~(f); match;})
