@@ -75,6 +75,7 @@ endif
 
 LD=		$(CC)
 LN=		ln
+AWK=		awk
 SED=		sed
 STRIP=		$(CROSS_COMPILE)strip
 TAR=		tar

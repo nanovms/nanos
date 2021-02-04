@@ -7,10 +7,7 @@
     children:(
               #user program
 	      klibs:(contents:(host:output/test/runtime/bin/klibs))
-	      etc:(children:(ld.so.cache:(contents:(host:/etc/ld.so.cache))))
-	      lib:(children:(x86_64-linux-gnu:(children:(libc.so.6:(contents:(host:/lib/x86_64-linux-gnu/libc.so.6))))))
-	      lib64:(children:(ld-linux-x86-64.so.2:(contents:(host:/lib64/ld-linux-x86-64.so.2))))
-	      )
+	      etc:(children:(ld.so.cache:(contents:(host:/etc/ld.so.cache)))))
     # filesystem path to elf for kernel to run
     program:/klibs
 #    trace:t
