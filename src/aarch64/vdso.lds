@@ -13,7 +13,24 @@ SECTIONS
     .gnu.version_d : { *(.gnu.version_d) } : text
     .gnu.version_r : { *(.gnu.version_r) } : text
 
-    .eh_frame_hdr : { *(.eh_frame_hdr) } : eh_frame_hdr : text
+    /* The presence of eh_frame_hdr in vdso - and presumably incomplete CFI
+       directives - was leading libgcc to spin endlessly when unwinding after
+       a sigcancel_handler. The nuances of this process are murky (see the
+       link below), but by eliminating the eh_frame_hdr in vdso we can force
+       libgcc to use a fallback path that detects the signal frame and
+       restores registers from the sigcontext. According to the comments
+       referenced below, debuggers typically also contain methods to unwind
+       out of signal handlers.
+
+       If the lack of CFI is ever an issue, this header may be restored - but
+       only if the necessary CFI directives are enclosed to allow proper
+       unwinding out of the signal trampoline.
+
+       ref: https://github.com/torvalds/linux/commit/87676cfca14171fc4c99d96ae2f3e87780488ac4
+
+       .eh_frame_hdr : { *(.eh_frame_hdr) } : eh_frame_hdr : text
+     */
+
     .eh_frame : { *(.eh_frame) } : text
     .text : { *(.text*) } : text
 
@@ -36,7 +53,7 @@ PHDRS
     text PT_LOAD FILEHDR PHDRS FLAGS(5); /*rd+exec*/
     dynamic PT_DYNAMIC FLAGS(4); /*rdonly*/
     /*note PT_NOTE FLAGS(4);*/
-    eh_frame_hdr PT_GNU_EH_FRAME FLAGS(4);
+    /* eh_frame_hdr PT_GNU_EH_FRAME FLAGS(4); [see comment in SECTIONS above] */
 }
 
 /* Pretend like we are Linux 2.6 */
