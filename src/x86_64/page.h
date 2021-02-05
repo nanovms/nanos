@@ -38,42 +38,42 @@ typedef struct pageflags {
 
 static inline pageflags pageflags_memory(void)
 {
-    return (pageflags){w: _PAGE_DEFAULT_PERMISSIONS};
+    return (pageflags){.w = _PAGE_DEFAULT_PERMISSIONS};
 }
 
 static inline pageflags pageflags_memory_writethrough(void)
 {
-    return (pageflags){w: _PAGE_DEFAULT_PERMISSIONS | _PAGE_WRITETHROUGH};
+    return (pageflags){.w = _PAGE_DEFAULT_PERMISSIONS | _PAGE_WRITETHROUGH};
 }
 
 static inline pageflags pageflags_device(void)
 {
-    return (pageflags){w: _PAGE_DEFAULT_PERMISSIONS | _PAGE_CACHE_DISABLE};
+    return (pageflags){.w = _PAGE_DEFAULT_PERMISSIONS | _PAGE_CACHE_DISABLE};
 }
 
 static inline pageflags pageflags_writable(pageflags flags)
 {
-    return (pageflags){w: flags.w | _PAGE_WRITABLE};
+    return (pageflags){.w = flags.w | _PAGE_WRITABLE};
 }
 
 static inline pageflags pageflags_readonly(pageflags flags)
 {
-    return (pageflags){w: flags.w & ~_PAGE_WRITABLE};
+    return (pageflags){.w = flags.w & ~_PAGE_WRITABLE};
 }
 
 static inline pageflags pageflags_user(pageflags flags)
 {
-    return (pageflags){w: flags.w | _PAGE_USER};
+    return (pageflags){.w = flags.w | _PAGE_USER};
 }
 
 static inline pageflags pageflags_noexec(pageflags flags)
 {
-    return (pageflags){w: flags.w | _PAGE_NO_EXEC};
+    return (pageflags){.w = flags.w | _PAGE_NO_EXEC};
 }
 
 static inline pageflags pageflags_exec(pageflags flags)
 {
-    return (pageflags){w: flags.w & ~_PAGE_NO_EXEC};
+    return (pageflags){.w = flags.w & ~_PAGE_NO_EXEC};
 }
 
 static inline boolean pageflags_is_writable(pageflags flags)

@@ -196,45 +196,45 @@ extern const int page_level_shifts_4K[_PAGE_NLEVELS];
 
 static inline pageflags pageflags_memory(void)
 {
-    return (pageflags){w: u64_from_field(_PAGE_MEMATTR, _PAGE_MEMATTR_NORM)
+    return (pageflags){.w = u64_from_field(_PAGE_MEMATTR, _PAGE_MEMATTR_NORM)
             | _PAGE_DEFAULT_PERMISSIONS};
 }
 
 static inline pageflags pageflags_memory_writethrough(void)
 {
-    return (pageflags){w: u64_from_field(_PAGE_MEMATTR, _PAGE_MEMATTR_NORM_WT)
+    return (pageflags){.w = u64_from_field(_PAGE_MEMATTR, _PAGE_MEMATTR_NORM_WT)
             | _PAGE_DEFAULT_PERMISSIONS};
 }
 
 static inline pageflags pageflags_device(void)
 {
-    return (pageflags){w: u64_from_field(_PAGE_MEMATTR, _PAGE_MEMATTR_DEV_nGnRnE)
+    return (pageflags){.w = u64_from_field(_PAGE_MEMATTR, _PAGE_MEMATTR_DEV_nGnRnE)
             | _PAGE_DEFAULT_PERMISSIONS};
 }
 
 static inline pageflags pageflags_writable(pageflags flags)
 {
-    return (pageflags){w: flags.w & ~_PAGE_READONLY};
+    return (pageflags){.w = flags.w & ~_PAGE_READONLY};
 }
 
 static inline pageflags pageflags_readonly(pageflags flags)
 {
-    return (pageflags){w: flags.w | _PAGE_READONLY};
+    return (pageflags){.w = flags.w | _PAGE_READONLY};
 }
 
 static inline pageflags pageflags_user(pageflags flags)
 {
-    return (pageflags){w: flags.w | _PAGE_USER};
+    return (pageflags){.w = flags.w | _PAGE_USER};
 }
 
 static inline pageflags pageflags_noexec(pageflags flags)
 {
-    return (pageflags){w: flags.w | PAGE_ATTR_UXN_XN};
+    return (pageflags){.w = flags.w | PAGE_ATTR_UXN_XN};
 }
 
 static inline pageflags pageflags_exec(pageflags flags)
 {
-    return (pageflags){w: flags.w & ~PAGE_ATTR_UXN_XN};
+    return (pageflags){.w = flags.w & ~PAGE_ATTR_UXN_XN};
 }
 
 static inline boolean pageflags_is_writable(pageflags flags)
@@ -329,7 +329,7 @@ typedef closure_type(entry_handler, boolean /* success */, int /* level */,
 
 static inline pageflags pageflags_from_pteptr(pteptr pp)
 {
-    return (pageflags){w: _PAGE_FLAGS_MASK & *pp};
+    return (pageflags){.w = _PAGE_FLAGS_MASK & *pp};
 }
 
 /* XXX kernel_machine */
