@@ -165,6 +165,7 @@ void vm_exit(u8 code)
 
 u64 total_processors = 1;
 
+#ifdef SMP_ENABLE
 /* Value comes from LDMXCSR instruction reference in Intel Architectures SDM */
 #define MXCSR_DEFAULT   0x1f80
 /* hvm does not always properly initialize mxcsr register */
@@ -173,7 +174,6 @@ static void init_mxcsr() {
     asm("ldmxcsr %0":: "m"(m));
 }
 
-#ifdef SMP_ENABLE
 static void new_cpu()
 {
     if (platform_timer_percpu_init)
@@ -190,6 +190,8 @@ static void new_cpu()
 void start_secondary_cores(kernel_heaps kh)
 {
     memory_barrier();
+    init_debug("init_mxcsr");
+    init_mxcsr();
     init_debug("starting APs");
     start_cpu(heap_backed(kh), TARGET_EXCLUSIVE_BROADCAST, new_cpu);
     kernel_delay(milliseconds(200));   /* temp, til we check tables to know what we have */
@@ -213,9 +215,6 @@ static void __attribute__((noinline)) init_service_new_stack()
 
     init_debug("init_hwrand");
     init_hwrand();
-
-    init_debug("init_mxcsr");
-    init_mxcsr();
 
     init_debug("calling kernel_runtime_init");
     kernel_runtime_init(kh);
@@ -410,11 +409,11 @@ void init_service(u64 rdi, u64 rsi)
             INITIAL_PAGES_SIZE, REGION_INITIAL_PAGES);
         heap pageheap = region_allocator(&rh.h, PAGESIZE, REGION_INITIAL_PAGES);
         void *pgdir = bootstrap_page_tables(pageheap);
-        pageflags flags = pageflags_writable(pageflags_memory());
+        pageflags flags = pageflags_exec(pageflags_writable(pageflags_memory()));
         map(0, 0, INITIAL_MAP_SIZE, flags);
         map(PAGES_BASE, initial_pages_base, INITIAL_PAGES_SIZE, flags);
         map(KERNEL_BASE, KERNEL_BASE_PHYS, pad(kernel_size, PAGESIZE),
-            pageflags_readonly(pageflags_memory()));
+            pageflags_exec(pageflags_readonly(pageflags_memory())));
         initial_pages_region->length = INITIAL_PAGES_SIZE;
         mov_to_cr("cr3", pgdir);
     }

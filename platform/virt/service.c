@@ -36,7 +36,7 @@ void early_dump(void *p, unsigned long length)
     for (; p < end; p += 16) {
         early_debug_u64((unsigned long)p);
         early_debug(": ");
-      
+
         for (int j = 0; j < 16; j++) {
             u8 b = *((u8 *)p + j);
             serial_putchar(hex_digits[(b >> 4) & 0xf]);
@@ -44,7 +44,7 @@ void early_dump(void *p, unsigned long length)
             serial_putchar(b);
             serial_putchar(' ');
         }
-      
+
         early_debug("| ");
         for (int j = 0; j < 16; j++) {
             char c = *((u8 *)p + j);
@@ -75,12 +75,12 @@ static u64 bootstrap_alloc(heap h, bytes length)
 {
     u64 result = bootstrap_base;
     if ((result + length) >= bootstrap_end) {
-	rputs("*** bootstrap heap overflow! ***\n");
+        rputs("*** bootstrap heap overflow! ***\n");
         print_u64(result + length);
         rputs("\n");
         print_u64(bootstrap_end);
         rputs("\n");
-        
+
         return INVALID_PHYSICAL;
     }
     bootstrap_base += length;
@@ -94,7 +94,7 @@ static id_heap init_physical_id_heap(heap h)
     init_debug("init_physical_id_heap\n");
     u64 kernel_size = pad(u64_from_pointer(&END) -
                           u64_from_pointer(&START), PAGESIZE);
-    
+
     init_debug("init_setup_stack: kernel size ");
     init_debug_u64(kernel_size);
 
@@ -263,7 +263,7 @@ extern void *bss_start;
 extern void *bss_end;
 extern void *LOAD_OFFSET;
 
-int start(void)
+void __attribute__((noreturn)) start(void)
 {
     /* clear bss */
     u64 *p = pointer_from_u64((void *)&bss_start - (void *)&LOAD_OFFSET);
@@ -277,32 +277,17 @@ int start(void)
     } while (p < end);
 
     init_debug("start\n\n");
-#if 1
-    init_debug("TCR_EL1: ");
-    init_debug_u64(read_psr(TCR_EL1));
-    init_debug("\nTTBR0_EL1: ");
-    init_debug_u64(read_psr(TTBR0_EL1));
-    init_debug("\nID_AA64MMFR0_EL1: ");
-    init_debug_u64(read_psr(ID_AA64MMFR0_EL1));
-    init_debug("\nCPACR_EL1: ");
-    init_debug_u64(read_psr(CPACR_EL1));
-    init_debug("\n");
-#endif
-//    write_psr(CPACR_EL1, mask_and_set_field(read_psr(CPACR_EL1), CPACR_EL1_FPEN,
-//                                            CPACR_EL1_FPEN_NO_TRAP));
 #if 0
     init_debug("dtb:\n");
     init_dump(pointer_from_u64(0x40000000), 0x100);
 #endif
 
-//    u64 vtarget = u64_from_pointer(init_mmu_target) + u64_from_pointer(&LOAD_OFFSET);
     init_debug("calling page_init_mmu with target ");
     init_debug_u64(u64_from_pointer(init_mmu_target));
     init_debug("\n");
     page_init_mmu(irangel(0x40200000, PAGESIZE_2M), u64_from_pointer(init_mmu_target));
 
-    while (1) ;
-    return 0;
+    while (1);
 }
 
 void detect_hypervisor(kernel_heaps kh)

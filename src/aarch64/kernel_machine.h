@@ -122,6 +122,7 @@
 
 #define SPSR_I U64_FROM_BIT(7)
 
+#ifndef __ASSEMBLY__
 /* interrupt control */
 static inline void enable_interrupts(void)
 {
@@ -316,8 +317,6 @@ static inline void frame_set_sp(context f, u64 sp)
             rv;                                                         \
         })
 
-/* XXX move clocksource here */
-
 /* vestige from pc land */
 #define vpzero(__v, __p, __y) zero(pointer_from_u64(__v), __y)
 
@@ -328,3 +327,4 @@ static inline void machine_halt(void)
 }
 
 #define send_ipi(cpu, vector)
+#endif /* __ASSEMBLY__ */

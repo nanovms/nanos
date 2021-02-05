@@ -308,7 +308,7 @@ static inline boolean pte_is_mapping(int level, pte entry)
 
 static inline boolean pte_is_dirty(pte entry)
 {
-//    return (entry & PAGE_DIRTY) != 0;
+    // XXX TODO
     return false;
 }
 
@@ -332,7 +332,6 @@ static inline pageflags pageflags_from_pteptr(pteptr pp)
     return (pageflags){.w = _PAGE_FLAGS_MASK & *pp};
 }
 
-/* XXX kernel_machine */
 void page_init_mmu(range init_pt, u64 vtarget);
 void page_heap_init(heap locked, id_heap physical);
 void map(u64 virtual, physical p, u64 length, pageflags flags);
@@ -350,9 +349,6 @@ void zero_mapped_pages(u64 vaddr, u64 length);
 void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length);
 boolean traverse_ptes(u64 vaddr, u64 length, entry_handler eh);
 
-/* XXX TODO - smp
-   Seems the arch will take care of shootdowns, but not clear at the moment...
- */
 flush_entry get_page_flush_entry(void);
 void page_invalidate_sync(flush_entry f, thunk completion);
 void page_invalidate(flush_entry f, u64 address);
@@ -365,7 +361,6 @@ static inline void map_and_zero(u64 v, physical p, u64 length, pageflags flags)
     assert((v & MASK(PAGELOG)) == 0);
     assert((p & MASK(PAGELOG)) == 0);
     if (pageflags_is_readonly(flags)) {
-        /* is there an easier way on arm? */
         map(v, p, length, pageflags_writable(flags));
         zero(pointer_from_u64(v), length);
         update_map_flags(v, length, flags);

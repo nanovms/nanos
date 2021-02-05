@@ -1,5 +1,6 @@
-/* qemu virt/aarch64 */
+#define __ASSEMBLY__
 #include <frame.h>
+#include <kernel_machine.h>
         
 .macro  frame_save el
         /* In the kernel, x18 always points to cpuinfo. */
@@ -9,7 +10,7 @@
         mrs     x18, tpidr_el1
         .endif
 
-        str	x17, [sp, #-8]
+        str     x17, [sp, #-8]
         ldr     x17, [x18]      // running_frame
         stp     x0, x1, [x17, #(FRAME_X0 * 8)]
         stp     x2, x3, [x17, #(FRAME_X2 * 8)]
@@ -37,9 +38,9 @@
         .else
         mov     x1, sp
         .endif
-        mov	x0, #\el
+        mov     x0, #\el
         stp     x30, x1, [x17, #(FRAME_X30 * 8)]
-        str	x0, [x17, #(FRAME_EL * 8)]
+        str     x0, [x17, #(FRAME_EL * 8)]
 
         mrs     x0, spsr_el1
         mrs     x1, esr_el1
@@ -56,46 +57,46 @@
 _start:
         // no trap on simd       
         mrs     x0, cpacr_el1
-        orr     x0, x0, #0x300000
+        orr     x0, x0, (CPACR_EL1_FPEN_NO_TRAP << CPACR_EL1_FPEN_SHIFT)
         msr     cpacr_el1, x0
 
         // temporary stack
-        mov     x0, #0x40600000
-        mov	sp, x0
-        b	start
+        mov     x0, (PHYSMEM_BASE + INIT_IDENTITY_SIZE)
+        mov     sp, x0
+        b       start
 
 // exception entries
 entry_sync_el1h:
         frame_save 1
-        b synchronous_handler
+        b       synchronous_handler
 
 entry_irq_el1h:
         frame_save 1
-        b irq_handler
+        b       irq_handler
 
 entry_serror_el1h:
         frame_save 1
-        b serror_handler
+        b       serror_handler
         
 entry_sync_el0: 
         frame_save 0
-        b synchronous_handler
+        b       synchronous_handler
 
 entry_irq_el0:
         frame_save 0
-        b irq_handler
+        b       irq_handler
 
 entry_serror_el0:
         frame_save 0
-        b serror_handler
+        b       serror_handler
 
 entry_invalid_el0:
         frame_save 0
-        b invalid_handler
+        b       invalid_handler
 
 entry_invalid_el1:
         frame_save 1
-        b invalid_handler
+        b       invalid_handler
 
 // universal frame return
 .globl frame_return

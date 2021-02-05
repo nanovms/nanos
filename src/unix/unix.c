@@ -224,12 +224,11 @@ define_closure_function(1, 1, context, default_fault_handler,
     frame[FRAME_FULL] = 0;
 
     if (p && table_find(p->process_root, sym(fault))) {
-        rputs("starting gdb\n");
+        rputs("TODO: in-kernel gdb needs revisiting\n");
 //        init_tcp_gdb(heap_general(get_kernel_heaps()), p, 9090);
-        thread_sleep_uninterruptible();
-    } else {
-        halt("halt\n");
+//        thread_sleep_uninterruptible();
     }
+    halt("halt\n");
 }
 
 void init_thread_fault_handler(thread t)
