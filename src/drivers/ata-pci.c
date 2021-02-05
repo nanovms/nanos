@@ -1,8 +1,7 @@
 #include <kernel.h>
-#include <page.h>
 #include <storage.h>
 #include <x86_64/apic.h>
-#include <x86_64/pci.h>
+#include <pci.h>
 #include "ata-pci.h"
 #include "ata.h"
 
@@ -334,7 +333,7 @@ closure_function(3, 1, boolean, ata_pci_probe,
     return true;
 }
 
-void ata_pci_register(kernel_heaps kh, storage_attach a)
+void init_ata_pci(kernel_heaps kh, storage_attach a)
 {
     heap h = heap_locked(kh);
     register_pci_driver(closure(h, ata_pci_probe, h, heap_backed(kh), a));

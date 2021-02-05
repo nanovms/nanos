@@ -1,5 +1,4 @@
 #include <kernel.h>
-#include <page.h>
 
 #define backed_heap_lock(bh)    u64 _flags = spin_lock_irq(&(bh)->lock)
 #define backed_heap_unlock(bh)  spin_unlock_irq(&(bh)->lock, _flags)
@@ -24,7 +23,7 @@ static inline void *backed_alloc_map(backed_heap bh, bytes len, u64 *phys)
     if (p != INVALID_PHYSICAL) {
         virt = allocate(bh->virtual, len);
         if (virt != INVALID_ADDRESS) {
-            map(u64_from_pointer(virt), p, len, PAGE_WRITABLE | PAGE_NO_EXEC);
+            map(u64_from_pointer(virt), p, len, pageflags_writable(pageflags_memory()));
             if (phys)
                 *phys = p;
         } else {

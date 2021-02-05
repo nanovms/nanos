@@ -328,3 +328,15 @@ struct tm *mbedtls_platform_gmtime_r(const mbedtls_time_t *tt, struct tm *tm_buf
 {
     return tls.gmtime_r(tt, tm_buf);
 }
+
+/* gcc will sometimes generate a call to mem* functions. On an aarch64
+   build with gcc 8.3.0, mbedtls_sha256_clone generates a call to
+   memcpy. There doesn't appear to be some universal flag to disable
+   this behavior, so use a wrapper... */
+
+#undef memcpy /* lwIP */
+void *memcpy(void *dst, const void *src, u64 n)
+{
+    kern_funcs.memcopy(dst, src, n);
+    return dst;
+}

@@ -1,86 +1,17 @@
 #include <kernel.h>
 #include <pci.h>
-#include <page.h>
-#include <io.h>
 
+//#define PCI_DEBUG
 #ifdef PCI_DEBUG
 # define pci_debug rprintf
 #else
 # define pci_debug(...) do { } while(0)
 #endif // PCI_DEBUG
 
-#define CONF1_ADDR_PORT    0x0cf8
-#define CONF1_DATA_PORT    0x0cfc
-
-#define CONF1_ENABLE       0x80000000ul
-#define CONF1_ENABLE_CHK   0x80000000ul
-#define CONF1_ENABLE_MSK   0x7f000000ul
-#define CONF1_ENABLE_CHK1  0xff000001ul
-#define CONF1_ENABLE_MSK1  0x80000001ul
-#define CONF1_ENABLE_RES1  0x80000000ul
-
-#define CONF2_ENABLE_PORT  0x0cf8
-#define CONF2_FORWARD_PORT 0x0cfa
-
-#define CONF2_ENABLE_CHK   0x0e
-#define CONF2_ENABLE_RES   0x0e
-
-/* some PCI bus constants */
-#define	PCI_DOMAINMAX	65535	/* highest supported domain number */
-#define	PCI_BUSMAX	255	/* highest supported bus number */
-#define	PCI_SLOTMAX	31	/* highest supported slot number */
-#define	PCI_FUNCMAX	7	/* highest supported function number */
-#define	PCI_REGMAX	255	/* highest supported config register addr. */
-#define	PCIE_REGMAX	4095	/* highest supported config register addr. */
-#define	PCI_MAXHDRTYPE	2
-
-#define PCIR_CAPABILITIES_POINTER   0x34
-
-/* Capability Register Offsets */
-#define PCICAP_ID       0x0
-#define PCICAP_NEXTPTR  0x1
-
 // use the global nodespace
 static vector devices;
 static vector drivers;
 static heap virtual_page;
-
-/* enable configuration space accesses and return data port address */
-static int pci_cfgenable(pci_dev dev, int reg, int bytes)
-{
-    int dataport = 0;
-
-    if (dev->bus <= PCI_BUSMAX && dev->slot <= PCI_SLOTMAX && dev->function <= PCI_FUNCMAX &&
-        (unsigned)reg <= PCI_REGMAX && bytes != 3 &&
-        (unsigned)bytes <= 4 && (reg & (bytes - 1)) == 0) {
-        out32(CONF1_ADDR_PORT, (1U << 31) | (dev->bus << 16) | (dev->slot << 11)
-              | (dev->function << 8) | (reg & ~0x03));
-        dataport = CONF1_DATA_PORT + (reg & 0x03);
-    }
-    return (dataport);
-}
-
-u32 pci_cfgread(pci_dev dev, int reg, int bytes)
-{
-    u32 data = -1;
-    int port;
-
-    port = pci_cfgenable(dev, reg, bytes);
-    if (port != 0) {
-        switch (bytes) {
-        case 1:
-            data = in8(port);
-            break;
-        case 2:
-            data = in16(port);
-            break;
-        case 4:
-            data = in32(port);
-            break;
-        }
-    }
-    return (data);
-}
 
 static u32 pci_bar_len(pci_dev dev, int bar)
 {
@@ -102,19 +33,23 @@ u64 pci_bar_size(pci_dev dev, struct pci_bar *b, int bar)
 void pci_bar_init(pci_dev dev, struct pci_bar *b, int bar, bytes offset, bytes length)
 {
     u32 base = pci_cfgread(dev, PCIR_BAR(bar), 4);
+    pci_debug("%s: bus %d, slot %d, function %d, bar %d, base 0x%x\n", __func__,
+              dev->bus, dev->slot, dev->function, bar, base);
     b->type = base & PCI_BAR_B_TYPE_MASK;
 
     if (b->type == PCI_BAR_MEMORY) {
         b->flags = base & PCI_BAR_B_MEMORY_MASK;
         u32 addr_hi = (b->flags & PCI_BAR_F_64BIT) ? pci_cfgread(dev, PCIR_BAR(bar + 1), 4) : 0;
         b->addr = ((u64) addr_hi << 32) | (base & ~PCI_BAR_B_MEMORY_MASK);
+        pci_debug("   mem: b->addr 0x%lx, flags 0x%lx\n", b->addr, b->flags);
     } else {
         b->flags = 0;
         b->addr = (base & ~PCI_BAR_B_IOPORT_MASK) + offset;
+        pci_debug("   i/o: addr 0x%x\n", b->addr);
     }
     b->size = pci_bar_size(dev, b, bar);
     pci_debug("%s: bar %d: type %d, addr 0x%lx, size 0x%lx, flags 0x%x\n",
-        __func__, bar, b->type, b->addr, b->size, b->flags);
+              __func__, bar, b->type, b->addr, b->size, b->flags);
 
     if (b->type == PCI_BAR_MEMORY) {
         // map memory
@@ -126,61 +61,9 @@ void pci_bar_init(pci_dev dev, struct pci_bar *b, int bar, bytes offset, bytes l
         pci_debug("%s: %p[0x%x] -> 0x%lx[0x%lx]+0x%x\n", __func__, b->vaddr,
                   b->vlen, b->addr, b->size, offset);
         u64 pa = b->addr + offset;
-        map(u64_from_pointer(b->vaddr), pa & ~PAGEMASK, b->vlen, PAGE_DEV_FLAGS);
+        map(u64_from_pointer(b->vaddr), pa & ~PAGEMASK, b->vlen, pageflags_writable(pageflags_device()));
         b->vaddr += pa & PAGEMASK;
     }
-}
-
-u8 pci_bar_read_1(struct pci_bar *b, u64 offset)
-{
-    return b->type == PCI_BAR_MEMORY ? *(u8 *) (b->vaddr + offset) : in8(b->addr + offset);
-}
-
-void pci_bar_write_1(struct pci_bar *b, u64 offset, u8 val)
-{
-    if (b->type == PCI_BAR_MEMORY)
-        *(u8 *) (b->vaddr + offset) = val;
-    else
-        out8(b->addr + offset, val);
-}
-
-u16 pci_bar_read_2(struct pci_bar *b, u64 offset)
-{
-    return b->type == PCI_BAR_MEMORY ? *(u16 *) (b->vaddr + offset) : in16(b->addr + offset);
-}
-
-void pci_bar_write_2(struct pci_bar *b, u64 offset, u16 val)
-{
-    if (b->type == PCI_BAR_MEMORY)
-        *(u16 *) (b->vaddr + offset) = val;
-    else
-        out16(b->addr + offset, val);
-}
-
-u32 pci_bar_read_4(struct pci_bar *b, u64 offset)
-{
-    return b->type == PCI_BAR_MEMORY ? *(u32 *) (b->vaddr + offset) : in32(b->addr + offset);
-}
-
-void pci_bar_write_4(struct pci_bar *b, u64 offset, u32 val)
-{
-    if (b->type == PCI_BAR_MEMORY)
-        *(u32 *) (b->vaddr + offset) = val;
-    else
-        out32(b->addr + offset, val);
-}
-
-u64 pci_bar_read_8(struct pci_bar *b, u64 offset)
-{
-    return b->type == PCI_BAR_MEMORY ? *(u64 *) (b->vaddr + offset) : in64(b->addr + offset);
-}
-
-void pci_bar_write_8(struct pci_bar *b, u64 offset, u64 val)
-{
-    if (b->type == PCI_BAR_MEMORY)
-        *(u64 *) (b->vaddr + offset) = val;
-    else
-        out64(b->addr + offset, val);
 }
 
 void pci_bar_deinit(struct pci_bar *b)
@@ -192,30 +75,19 @@ void pci_bar_deinit(struct pci_bar *b)
     }
 }
 
-void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
-{
-    int port;
-
-    port = pci_cfgenable(dev, reg, bytes);
-    if (port != 0) {
-        switch (bytes) {
-        case 1:
-            out8(port, source);
-            break;
-        case 2:
-            out16(port, source);
-            break;
-        case 4:
-            out32(port, source);
-            break;
-        }
-    }
-}
-
 void pci_set_bus_master(pci_dev dev)
 {
+    pci_debug("%s\n", __func__);
     u16 command = pci_cfgread(dev, PCIR_COMMAND, 2);
     command |= PCIM_CMD_BUSMASTEREN;
+    pci_cfgwrite(dev, PCIR_COMMAND, 2, command);
+}
+
+void pci_enable_io_and_memory(pci_dev dev)
+{
+    pci_debug("%s\n", __func__);
+    u16 command = pci_cfgread(dev, PCIR_COMMAND, 2);
+    command |= PCIM_CMD_IOEN | PCIM_CMD_MEMORYEN;
     pci_cfgwrite(dev, PCIR_COMMAND, 2, command);
 }
 
@@ -379,7 +251,10 @@ static void pci_probe_device(pci_dev dev)
     // probe drivers
     struct pci_driver *d;
     vector_foreach(drivers, d) {
+        pci_debug(" driver %p / %F\n", d, d->probe);
         if (apply(d->probe, pcid)) {
+            pci_debug("  dev %02x:%02x:%x: attached to %F\n", dev->bus, dev->slot, dev->function,
+                      d->probe);
             pcid->driver = d;
             break;
         }
@@ -394,12 +269,14 @@ pci_probe_bus(int bus)
         struct pci_dev _dev = { .bus = bus, .slot = i, .function = 0 };
         pci_dev dev = &_dev;
 
+        pci_debug("%s: begin probe for slot %d\n", __func__, i);
         pci_probe_device(dev);
 
         // check multifunction devices
         if (pci_get_hdrtype(dev) & PCIM_MFDEV) {
             for (int f = 1; f <= PCI_FUNCMAX; f++) {
                 dev->function = f;
+                pci_debug("%s:    begin probe for fn %d\n", __func__, f);
                 pci_probe_device(dev);
             }
         }
@@ -415,6 +292,7 @@ void pci_discover()
     pci_dev dev = &_dev;
 
     if ((pci_get_hdrtype(dev) & PCIM_MFDEV) == 0) {
+        pci_debug("%s: single\n", __func__);
         // single PCI host controller
         pci_probe_bus(0);
     } else {

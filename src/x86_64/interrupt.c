@@ -1,8 +1,8 @@
 #include <kernel.h>
 #include <kvm_platform.h>
-#include <page.h>
 #include <region.h>
 #include <apic.h>
+#include <symtab.h>
 
 //#define INT_DEBUG
 #ifdef INT_DEBUG
@@ -108,65 +108,45 @@ static void __attribute__((noinline)) write_idt(int interrupt, u64 offset, u64 i
 static thunk *handlers;
 u32 spurious_int_vector;
 
-char * find_elf_sym(u64 a, u64 *offset, u64 *len);
-
-void print_u64_with_sym(u64 a)
-{
-    char * name;
-    u64 offset, len;
-
-    print_u64(a);
-
-    name = find_elf_sym(a, &offset, &len);
-    if (name) {
-        rputs("\t(");
-        rputs(name);
-        rputs(" + ");
-        print_u64(offset);
-        rputs("/");
-        print_u64(len);
-        rputs(")");
-    }
-}
-
 extern void *text_start;
 extern void *text_end;
-void __print_stack_with_rbp(u64 *rbp)
+void frame_trace(u64 *fp)
 {
-    for (unsigned int frame = 0; frame < 16; frame ++) {
-        if ((u64) rbp < 4096ULL)
+    for (unsigned int frame = 0; frame < FRAME_TRACE_DEPTH; frame++) {
+        if (!validate_virtual(fp, sizeof(u64)) ||
+            !validate_virtual(fp + 1, sizeof(u64)))
             break;
 
-        if (!validate_virtual(rbp, sizeof(u64)) ||
-            !validate_virtual(rbp + 1, sizeof(u64)))
+        u64 n = fp[1];
+        if (n == 0)
             break;
-
-        u64 rip = rbp[1];
-        if (rip == 0)
-            break;
-        rbp = (u64 *) rbp[0];
-        print_u64_with_sym(rip);
+        print_u64(u64_from_pointer(fp + 1));
+        rputs(":   ");
+        fp = pointer_from_u64(fp[0]);
+        print_u64_with_sym(n);
         rputs("\n");
     }
 }
 
-void print_stack_from_here(void)
+void print_frame_trace_from_here(void)
 {
     u64 rbp;
     asm("movq %%rbp, %0" : "=r" (rbp));
-    __print_stack_with_rbp((u64 *)rbp);
+    frame_trace(pointer_from_u64(rbp));
 }
 
-#define STACK_TRACE_DEPTH       24
 void print_stack(context c)
 {
     rputs("\nframe trace:\n");
-    __print_stack_with_rbp(pointer_from_u64(c[FRAME_RBP]));
+    frame_trace(pointer_from_u64(c[FRAME_RBP]));
 
     rputs("\nstack trace:\n");
-    u64 *x = pointer_from_u64(c[FRAME_RSP]);
-    for (u64 i = 0; i < STACK_TRACE_DEPTH; i++) {
-        print_u64_with_sym(*(x+i));
+    u64 *sp = pointer_from_u64(c[FRAME_RSP]);
+    for (u64 *x = sp; x < (sp + STACK_TRACE_DEPTH) &&
+             validate_virtual(x, sizeof(u64)); x++) {
+        print_u64(u64_from_pointer(x));
+        rputs(":   ");
+        print_u64_with_sym(*x++);
         rputs("\n");
     }
     rputs("\n");
@@ -208,14 +188,6 @@ void print_frame(context f)
     }
 }
 
-void install_fallback_fault_handler(fault_handler h)
-{
-    // XXX reconstruct
-    for (int i = 0; i < MAX_CPUS; i++) {
-        cpuinfo_from_id(i)->kernel_context->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
-    }
-}
-
 extern u32 n_interrupt_vectors;
 extern u32 interrupt_vector_size;
 extern void * interrupt_vectors;
@@ -226,7 +198,7 @@ void common_handler()
     /* XXX yes, this will be a problem on a machine check or other
        fault while in an int handler...need to fix in interrupt_common */
     cpuinfo ci = current_cpu();
-    context f = ci->running_frame;
+    context f = get_running_frame(ci);
     int i = f[FRAME_VECTOR];
 
     if (i >= n_interrupt_vectors) {
@@ -242,10 +214,9 @@ void common_handler()
               f, f[FRAME_RIP], f[FRAME_CR2]);
 
     /* enqueue an interrupted user thread, unless the page fault handler should take care of it */
-    // what about bh?
     if (ci->state == cpu_user && i >= INTERRUPT_VECTOR_START) {
         int_debug("int sched %F\n", f[FRAME_RUN]);
-        schedule_frame(f);        // racy enqueue from interrupt level? we weren't interrupting the kernel...
+        schedule_frame(f);
     }
 
     if (i == spurious_int_vector)
@@ -315,18 +286,23 @@ void common_handler()
     vm_exit(VM_EXIT_FAULT);
 }
 
-static heap interrupt_vector_heap;
+static id_heap interrupt_vector_heap;
 
 u64 allocate_interrupt(void)
 {
-    u64 res = allocate_u64(interrupt_vector_heap, 1);
+    u64 res = allocate_u64((heap)interrupt_vector_heap, 1);
     assert(res != INVALID_PHYSICAL);
     return res;
 }
 
 void deallocate_interrupt(u64 irq)
 {
-    deallocate_u64(interrupt_vector_heap, irq, 1);
+    deallocate_u64((heap)interrupt_vector_heap, irq, 1);
+}
+
+boolean reserve_interrupt(u64 irq)
+{
+    return id_heap_set_area(interrupt_vector_heap, irq, 1, true, true);
 }
 
 void register_interrupt(int vector, thunk t, const char *name)
@@ -369,16 +345,16 @@ void init_interrupts(kernel_heaps kh)
     /* Exception handlers */
     handlers = allocate_zero(general, n_interrupt_vectors * sizeof(thunk));
     assert(handlers != INVALID_ADDRESS);
-    interrupt_vector_heap = (heap)create_id_heap(general, general, INTERRUPT_VECTOR_START,
-                                                 n_interrupt_vectors - INTERRUPT_VECTOR_START, 1, false);
+    interrupt_vector_heap = create_id_heap(general, general, INTERRUPT_VECTOR_START,
+                                           n_interrupt_vectors - INTERRUPT_VECTOR_START, 1, false);
     assert(interrupt_vector_heap != INVALID_ADDRESS);
 
     /* Separate stack to keep exceptions in interrupt handlers from
        trashing the interrupt stack */
-    set_ist(0, IST_EXCEPTION, u64_from_pointer(ci->exception_stack));
+    set_ist(0, IST_EXCEPTION, u64_from_pointer(ci->m.exception_stack));
 
     /* External interrupts (> 31) */
-    set_ist(0, IST_INTERRUPT, u64_from_pointer(ci->int_stack));
+    set_ist(0, IST_INTERRUPT, u64_from_pointer(ci->m.int_stack));
 
     /* IDT setup */
     idt = allocate(heap_backed(kh), heap_backed(kh)->pagesize);
@@ -403,6 +379,9 @@ void init_interrupts(kernel_heaps kh)
 
     /* APIC initialization */
     init_apic(kh);
+
+    /* GDT64 and TSS for boot cpu */
+    install_gdt64_and_tss(0);
 }
 
 void triple_fault(void)

@@ -8,11 +8,33 @@ OBJDIR=		$(subst $(ROOTDIR),$(OUTDIR),$(CURDIR))
 VENDORDIR=	$(ROOTDIR)/vendor
 TOOLDIR=	$(OUTDIR)/tools/bin
 UNAME_s=	$(shell uname -s)
+
+# If no platform is specified, try to guess it from the host architecture.
+ifeq ($(PLATFORM),)
 ARCH?=		$(shell uname -m)
-ARCHDIR=	$(SRCDIR)/$(ARCH)
+ifeq ($(ARCH),aarch64)
+PLATFORM?=	virt
+endif
+ifeq ($(ARCH),x86_64)
 PLATFORM?=	pc
+endif
+else
+# Otherwise, assume we're cross-compiling, and derive the arch from the platform.
+ifeq ($(PLATFORM),virt)
+ARCH?=		aarch64
+endif
+ifeq ($(PLATFORM),pc)
+ARCH?=		x86_64
+endif
+ifneq ($(ARCH),$(shell uname -m))
+CROSS_COMPILE?=	$(ARCH)-linux-gnu-
+endif
+endif
+
 PLATFORMDIR=	$(ROOTDIR)/platform/$(PLATFORM)
 PLATFORMOBJDIR=	$(subst $(ROOTDIR),$(OUTDIR),$(PLATFORMDIR))
+ARCHDIR=	$(SRCDIR)/$(ARCH)
+
 IMAGE=		$(OUTDIR)/image/disk.raw
 
 include $(SRCDIR)/runtime/files.mk
@@ -53,6 +75,7 @@ endif
 
 LD=		$(CC)
 LN=		ln
+AWK=		awk
 SED=		sed
 STRIP=		$(CROSS_COMPILE)strip
 TAR=		tar
@@ -141,7 +164,7 @@ cmd_vendor=	$(RM) -r $(@D) && $(GIT) clone $(GITFLAGS) $(@D) && $(TOUCH) $@
 
 define build_program
 PROG-$1=	$(OBJDIR)/bin/$1
-OBJS-$1=	$$(foreach s,$$(filter %.c %.s,$$(SRCS-$1)),$$(call objfile,.o,$$s))
+OBJS-$1=	$$(foreach s,$$(filter %.c %.s %.S,$$(SRCS-$1)),$$(call objfile,.o,$$s))
 OBJDIRS-$1=	$$(sort $$(dir $$(OBJS-$1)))
 GENHEADERS-$1=	$(OBJDIR)/closure_templates.h
 DEPS-$1=	$$(patsubst %.o,%.d,$$(OBJS-$1))
@@ -211,6 +234,11 @@ $(OBJDIR)/%.o: $(ROOTDIR)/%.s $(OBJDIR)/%.d
 	@$(MKDIR) $(dir $@)
 	$(call cmd,as)
 
+# run .S files through gcc for preprocessing
+$(OBJDIR)/%.o: $(ROOTDIR)/%.S $(OBJDIR)/%.d | $(sort $(GENHEADERS))
+	@$(MKDIR) $(dir $@)
+	$(call cmd,cc)
+
 $(OBJDIR)/%.o: $(ROOTDIR)/%.c $(OBJDIR)/%.d | $(sort $(GENHEADERS))
 	@$(MKDIR) $(dir $@)
 	$(call cmd,cc)
@@ -242,7 +270,13 @@ ifeq ($(WITHOUT_SSP),)
 CFLAGS+=	-fstack-protector-strong
 ifneq ($(CC),clang)
 ifneq ($(UNAME_s),Darwin)
-KERNCFLAGS+=	-mstack-protector-guard=global
+ifeq ($(ARCH),aarch64)
+# XXX SSP on arm not working yet; check flags
+KERNCFLAGS+=	-fstack-protector-all
+else
+KERNCFLAGS+=	-mstack-protector-guard=global \
+		-fno-pic
+endif
 endif
 endif
 endif

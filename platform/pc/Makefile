@@ -4,6 +4,7 @@ PROGRAMS=	kernel.img
 
 SRCS-kernel.img= \
 	$(CURDIR)/service.c \
+	$(CURDIR)/pci.c \
 	$(OBJDIR)/gitversion.c \
 	$(SRCDIR)/aws/ena/ena.c \
 	$(SRCDIR)/aws/ena/ena_com/ena_com.c \
@@ -15,7 +16,6 @@ SRCS-kernel.img= \
 	$(SRCDIR)/drivers/dmi.c \
 	$(SRCDIR)/drivers/nvme.c \
 	$(SRCDIR)/drivers/netconsole.c \
-	$(SRCDIR)/drivers/storage.c \
 	$(SRCDIR)/drivers/vga.c \
 	$(SRCDIR)/gdb/gdbstub.c \
 	$(SRCDIR)/gdb/gdbtcp.c \
@@ -24,6 +24,8 @@ SRCS-kernel.img= \
 	$(SRCDIR)/kernel/backed_heap.c \
 	$(SRCDIR)/kernel/locking_heap.c \
 	$(SRCDIR)/kernel/elf.c \
+	$(SRCDIR)/kernel/clock.c \
+	$(SRCDIR)/kernel/init.c \
 	$(SRCDIR)/kernel/kernel.c \
 	$(SRCDIR)/kernel/klib.c \
 	$(SRCDIR)/kernel/kvm_platform.c \
@@ -99,11 +101,13 @@ SRCS-kernel.img= \
 	$(SRCDIR)/x86_64/flush.c \
 	$(SRCDIR)/x86_64/hpet.c \
 	$(SRCDIR)/x86_64/interrupt.c \
+	$(SRCDIR)/x86_64/kernel_machine.c \
 	$(SRCDIR)/x86_64/mp.c \
 	$(SRCDIR)/x86_64/page.c \
 	$(SRCDIR)/x86_64/rtc.c \
 	$(SRCDIR)/x86_64/serial.c \
 	$(SRCDIR)/x86_64/synth.c \
+	$(SRCDIR)/x86_64/unix_machine.c \
 	$(SRCDIR)/x86_64/x2apic.c \
 	$(SRCDIR)/x86_64/xapic.c \
 	$(VDSO_OBJDIR)/vdso-image.c \
@@ -156,7 +160,7 @@ INCLUDES=\
 
 AFLAGS+=-I$(ARCHDIR)/
 
-CFLAGS+=$(KERNCFLAGS) -DSTAGE3 -DKERNEL -fno-pic -mcmodel=kernel
+CFLAGS+=$(KERNCFLAGS) -DKERNEL -fno-pic -mcmodel=kernel
 CFLAGS+=-Wno-address # lwIP build sadness
 CFLAGS+=$(INCLUDES)
 
@@ -244,7 +248,7 @@ ifeq ($(IMAGE),)
 endif
 	@ echo "MKFS	$@"
 	@ $(MKDIR) $(dir $(IMAGE))
-	$(Q) cd $(ROOTDIR); $(MKFS) $(TARGET_ROOT_OPT) -b $(BOOTIMG) -k $(KERNEL) $(IMAGE) < $(ROOTDIR)/test/runtime/$(TARGET).manifest
+	$(Q) cd $(ROOTDIR); $(AWK) 'BEGIN{getline l < "$(PLATFORMDIR)/test-libs"}/TEST-LIBS/{gsub("TEST-LIBS",l)}1' $(ROOTDIR)/test/runtime/$(TARGET).manifest | $(MKFS) $(TARGET_ROOT_OPT) -b $(BOOTIMG) -k $(KERNEL) $(IMAGE)
 
 release: mkfs boot kernel
 	$(Q) $(RM) -r release

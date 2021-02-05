@@ -186,7 +186,7 @@ typedef struct {
     for (int __i = 0; __i< __e->e_shnum; __i++) \
         for (Elf64_Shdr *__s = (void *)__e + __e->e_shoff + (__i * __e->e_shentsize); __s ; __s = 0) \
 
-typedef closure_type(elf_map_handler, void, u64 /* vaddr */, u64 /* paddr, -1ull if bss */, u64 /* size */, u64 /* flags */);
+typedef closure_type(elf_map_handler, void, u64 /* vaddr */, u64 /* paddr, -1ull if bss */, u64 /* size */, pageflags /* flags */);
 typedef closure_type(elf_sym_handler, void, char *, u64, u64, u8);
 void elf_symbols(buffer elf, elf_sym_handler each);
 void walk_elf(buffer elf, range_handler rh);

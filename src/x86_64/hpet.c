@@ -1,6 +1,5 @@
 #include <kernel.h>
 #include <pci.h>
-#include <page.h>
 
 #include "apic.h"
 
@@ -192,7 +191,8 @@ boolean init_hpet(kernel_heaps kh) {
         return false;
     }
 
-    map(u64_from_pointer(hpet_page), HPET_TABLE_ADDRESS, PAGESIZE, PAGE_DEV_FLAGS);
+    map(u64_from_pointer(hpet_page), HPET_TABLE_ADDRESS, PAGESIZE,
+        pageflags_writable(pageflags_device()));
     hpet = (struct HPETMemoryMap*)hpet_page;
 
     u64 femtoperiod = field_from_u64(hpet->capid, HPET_CAPID_COUNTER_CLOCK_PERIOD);

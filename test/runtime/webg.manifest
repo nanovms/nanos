@@ -3,8 +3,7 @@
 	      #user program
 	      webg:(contents:(host:output/test/runtime/bin/webg))
 	      etc:(children:(ld.so.cache:(contents:(host:/etc/ld.so.cache)) resolv.conf:(contents:(host:test/runtime/resolv.conf))))
-	      lib:(children:(x86_64-linux-gnu:(children:(libc.so.6:(contents:(host:/lib/x86_64-linux-gnu/libc.so.6)) libpthread.so.0:(contents:(host:/lib/x86_64-linux-gnu/libpthread.so.0))))))
-	      lib64:(children:(ld-linux-x86-64.so.2:(contents:(host:/lib64/ld-linux-x86-64.so.2)))))
+              TEST-LIBS)
     # filesystem path to elf for kernel to run
     program:/webg
     # put all the tracing arguments in subtree

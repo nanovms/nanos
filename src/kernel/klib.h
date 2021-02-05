@@ -5,7 +5,7 @@
 typedef struct klib_mapping {
     struct rmnode n; /* virtual */
     u64 phys;
-    u64 flags;
+    pageflags flags;
 } *klib_mapping;
 
 typedef struct klib {

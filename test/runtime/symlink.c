@@ -44,9 +44,21 @@ int main(int argc, char **argv)
     test_assert(fd >= 0);
     close(fd);
 
+    test_assert((faccessat(AT_FDCWD, "link", F_OK, AT_SYMLINK_NOFOLLOW) == 0));
+    test_assert((faccessat(AT_FDCWD, "link", R_OK|W_OK, AT_SYMLINK_NOFOLLOW) == 0));
+    test_assert((faccessat(AT_FDCWD, "link", X_OK, AT_SYMLINK_NOFOLLOW) == -1 && (errno == EACCES)));
+    test_assert((faccessat(AT_FDCWD, "link", F_OK, 0) == -1) && (errno == ENOENT));
+
     fd = open("target", O_RDWR | O_CREAT, S_IRWXU);
     test_assert(fd >= 0);
     close(fd);
+
+    test_assert((faccessat(AT_FDCWD, "link", F_OK, 0) == 0));
+    test_assert((faccessat(AT_FDCWD, "link", X_OK, AT_SYMLINK_NOFOLLOW) == -1 && (errno == EACCES)));
+    test_assert((faccessat(AT_FDCWD, "link", X_OK|R_OK|W_OK, 0) == 0));
+    test_assert((access("link", F_OK) == 0));
+    test_assert((access("link", X_OK|R_OK|W_OK) == 0));
+
     test_assert(readlink("target", buf, sizeof(buf)) == -1);
     test_assert(errno == EINVAL);
     test_assert((lstat("link", &s) == 0) && ((s.st_mode & S_IFMT) == S_IFLNK));

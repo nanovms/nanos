@@ -33,7 +33,6 @@
 
 
 #include <kernel.h>
-#include <page.h>
 #include <lwip/netif.h>
 #include <hyperv_internal.h>
 #include <hyperv.h>

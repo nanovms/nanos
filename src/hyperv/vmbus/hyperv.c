@@ -1,8 +1,8 @@
 #include <kernel.h>
-#include <page.h>
 #include <apic.h>
 #include <hyperv_internal.h>
 #include <hyperv.h>
+#include <io.h>
 #include "vmbus_reg.h"
 #include "vmbus_var.h"
 #include "hyperv_var.h"
@@ -36,6 +36,9 @@
      MSR_HV_GUESTID_OSTYPE_FREEBSD)
 
 #define CPUID_SSE2  0x04000000
+#define PM1a_CNT 0x00000404
+#define SLP_TYPa 0x0
+#define SLP_EN  1<<13
 
 struct hypercall_ctx {
     void            *hc_addr;
@@ -320,4 +323,10 @@ hyperv_probe_devices(storage_attach a, boolean *storvsc_attached)
     }
     vmbus_set_poll_mode(hyperv_info.vmbus, false);
     return s;
+}
+
+void HV_SHUTDOWN(void)
+{
+    out16((unsigned int)PM1a_CNT, SLP_TYPa | SLP_EN);
+    while(1);
 }

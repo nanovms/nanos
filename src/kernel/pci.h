@@ -1,3 +1,18 @@
+/* some PCI bus constants */
+#define	PCI_DOMAINMAX	65535	/* highest supported domain number */
+#define	PCI_BUSMAX	255	/* highest supported bus number */
+#define	PCI_SLOTMAX	31	/* highest supported slot number */
+#define	PCI_FUNCMAX	7	/* highest supported function number */
+#define	PCI_REGMAX	255	/* highest supported config register addr. */
+#define	PCIE_REGMAX	4095	/* highest supported config register addr. */
+#define	PCI_MAXHDRTYPE	2
+
+#define PCIR_CAPABILITIES_POINTER   0x34
+
+/* Capability Register Offsets */
+#define PCICAP_ID       0x0
+#define PCICAP_NEXTPTR  0x1
+
 /* PCI config register */
 #define PCIR_VENDOR     0x00
 #define PCIR_DEVICE     0x02
@@ -119,10 +134,11 @@ static inline u8 pci_get_hdrtype(pci_dev dev)
 #define PCI_BAR_B_MEMORY_MASK    0xf
 
 /*
- * PCI BAR
+ * PCI BAR (TODO name? really segment thereof)
  */
 
 void pci_bar_init(pci_dev dev, struct pci_bar *b, int bar, bytes offset, bytes length);
+void pci_platform_init_bar(pci_dev dev);
 
 u8 pci_bar_read_1(struct pci_bar *b, u64 offset);
 void pci_bar_write_1(struct pci_bar *b, u64 offset, u8 val);
@@ -147,18 +163,24 @@ void pci_discover();
 void pci_set_bus_master(pci_dev dev);
 int pci_get_msix_count(pci_dev dev);
 int pci_enable_msix(pci_dev dev);
+void pci_enable_io_and_memory(pci_dev dev);
 void pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name);
 void pci_teardown_msix(pci_dev dev, int msi_slot);
 void pci_disable_msix(pci_dev dev);
+void pci_setup_non_msi_irq(pci_dev dev, int idx, thunk h, const char *name);
 
 static inline u32 *pci_msix_table(pci_dev dev)
 {
     return (u32 *)dev->msix_bar.vaddr;
 }
 
+void pci_setup_fixed_irq(pci_dev dev, int v, thunk h, const char *name);
+
 /* PCI config header registers for all devices */
 #define PCIR_COMMAND 0x04
 
+#define PCIM_CMD_IOEN           0x0001
+#define PCIM_CMD_MEMORYEN       0x0002
 #define PCIM_CMD_BUSMASTEREN    0x0004
 
 void init_pci(kernel_heaps kh);

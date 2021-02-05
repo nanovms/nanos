@@ -311,24 +311,24 @@ closure_function(2, 1, boolean, deliver_signal_handler,
     thread t = struct_from_field(n, thread, n);
     if (thread_is_runnable(t)) {
         /* Note that we're only considering unmasked signals
-            (handlers) here, nothing in the interest masks. The
-            thread is runnable, so it can't be blocked on
-            rt_sigtimedwait or a signalfd (poll wait or blocking
-            read). */
+           (handlers) here, nothing in the interest masks. The
+           thread is runnable, so it can't be blocked on
+           rt_sigtimedwait or a signalfd (poll wait or blocking
+           read). */
         if ((sigword & sigstate_get_mask(&t->signals)) == 0) {
             /* thread scheduled to run or running; no explicit wakeup */
-            sig_debug("thread %d running and sig %d unmasked; return\n",
-                        t->tid, sig);
+            sig_debug("thread %d running and sig unmasked; return\n",
+                      t->tid);
             *can_wake = 0;
             return false;
         }
     } else if (thread_in_interruptible_sleep(t) &&
                 (sigword & get_effective_sigmask(t)) == 0) {
-        /*  Note that we check only for this signal, not
-            all pending signals as with thread delivery.
-            That is because our task is to wake up a thread
-            on behalf of this signal delivery, not just
-            wake up a thread that has any pending signals. */
+        /* Note that we check only for this signal, not
+           all pending signals as with thread delivery.
+           That is because our task is to wake up a thread
+           on behalf of this signal delivery, not just
+           wake up a thread that has any pending signals. */
         *can_wake = t;
     }
     return true;
@@ -384,73 +384,6 @@ sysreturn rt_sigpending(u64 *set, u64 sigsetsize)
     return 0;
 }
 
-/*
- * Copy the context in frame 'f' to the ucontext *uctx
- */
-static void setup_ucontext(struct ucontext * uctx, struct sigaction * sa, 
-            struct siginfo * si, context f)
-{
-    struct sigcontext * mcontext = &(uctx->uc_mcontext);
-
-    /* XXX for now we ignore everything but mcontext, incluing FP state ... */
-
-    runtime_memset((void *)uctx, 0, sizeof(struct ucontext));
-    mcontext->r8 = f[FRAME_R8];
-    mcontext->r9 = f[FRAME_R9];
-    mcontext->r10 = f[FRAME_R10];
-    mcontext->r11 = f[FRAME_R11];
-    mcontext->r12 = f[FRAME_R12];
-    mcontext->r13 = f[FRAME_R13];
-    mcontext->r14 = f[FRAME_R14];
-    mcontext->r15 = f[FRAME_R15];
-    mcontext->rdi = f[FRAME_RDI];
-    mcontext->rsi = f[FRAME_RSI];
-    mcontext->rbp = f[FRAME_RBP];
-    mcontext->rbx = f[FRAME_RBX];
-    mcontext->rdx = f[FRAME_RDX];
-    mcontext->rax = f[FRAME_RAX];
-    mcontext->rcx = f[FRAME_RCX];
-    mcontext->rsp = f[FRAME_RSP];
-    mcontext->rip = f[FRAME_RIP];
-    mcontext->eflags = f[FRAME_FLAGS];
-    mcontext->cs = f[FRAME_CS];
-    mcontext->fs = 0;
-    mcontext->gs = 0;
-    mcontext->ss = 0; /* FRAME[SS] if UC_SIGCONTEXT SS */
-    mcontext->err = f[FRAME_ERROR_CODE];
-    mcontext->trapno = f[FRAME_VECTOR];
-    mcontext->oldmask = sa->sa_mask.sig[0];
-    mcontext->cr2 = f[FRAME_CR2];
-}
-
-/*
- * Copy the context from *uctx to the context in frame f
- */
-static void restore_ucontext(struct ucontext * uctx, context f)
-{
-    struct sigcontext * mcontext = &(uctx->uc_mcontext);
-
-    f[FRAME_R8] = mcontext->r8;
-    f[FRAME_R9] = mcontext->r9;
-    f[FRAME_R10] = mcontext->r10;
-    f[FRAME_R11] = mcontext->r11;
-    f[FRAME_R12] = mcontext->r12;
-    f[FRAME_R13] = mcontext->r13;
-    f[FRAME_R14] = mcontext->r14;
-    f[FRAME_R15] = mcontext->r15;
-    f[FRAME_RDI] = mcontext->rdi;
-    f[FRAME_RSI] = mcontext->rsi;
-    f[FRAME_RBP] = mcontext->rbp;
-    f[FRAME_RBX] = mcontext->rbx;
-    f[FRAME_RDX] = mcontext->rdx;
-    f[FRAME_RAX] = mcontext->rax;
-    f[FRAME_RCX] = mcontext->rcx;
-    f[FRAME_RSP] = mcontext->rsp;
-    f[FRAME_RIP] = mcontext->rip;
-    f[FRAME_FLAGS] = mcontext->eflags;
-    f[FRAME_CS] = mcontext->cs;
-}
-
 /* Does not return if a syscall is being restarted. */
 static void check_syscall_restart(thread t, sigaction sa)
 {
@@ -458,6 +391,7 @@ static void check_syscall_restart(thread t, sigaction sa)
     if (rv == -ERESTARTSYS) {
         if (sa->sa_flags & SA_RESTART) {
             sig_debug("restarting syscall\n");
+            syscall_restart_arch_fixup(t);
             enqueue_irqsafe(runqueue, &t->deferred_syscall);
             kern_unlock();
             runloop();
@@ -476,8 +410,7 @@ sysreturn rt_sigreturn(void)
 
     assert(t->dispatch_sigstate);
 
-    /* sigframe sits at %rsp minus the return address word (pretcode) */
-    frame = (struct rt_sigframe *)(t->sighandler_frame[FRAME_RSP] - sizeof(u64));
+    frame = get_rt_sigframe(t);
     sig_debug("rt_sigreturn: frame:0x%lx\n", (unsigned long)frame);
 
     /* safer to query via thread variable */
@@ -501,7 +434,7 @@ sysreturn rt_sigreturn(void)
     check_syscall_restart(t, sa);
     context f = thread_frame(t);
     sig_debug("switching to thread frame %p, rip 0x%lx, rax 0x%lx\n",
-              f, f[FRAME_RIP], f[FRAME_RAX]);
+              f, f[SYSCALL_FRAME_PC], f[SYSCALL_FRAME_RETVAL1]);
 
     schedule_frame(f);
     kern_unlock();
@@ -549,11 +482,13 @@ sysreturn rt_sigaction(int signum,
     if (act->sa_flags & SA_RESETHAND)
         msg_warn("Warning: SA_RESETHAND unsupported.\n");
 
+#ifdef __x86_64__
     /* libc should always set this on x64 ... */
     if (!(act->sa_flags & SA_RESTORER)) {
         msg_err("sigaction without SA_RESTORER not supported.\n");
         return -EINVAL;
     }
+#endif
 
     /* update ignored mask */
     sigstate ss = &current->p->signals;
@@ -639,7 +574,7 @@ static boolean thread_is_on_altsigstack(thread t)
     return (t->active_signo &&
             point_in_range(irange(u64_from_pointer(t->signal_stack),
             u64_from_pointer(t->signal_stack + t->signal_stack_length)),
-            t->sighandler_frame[FRAME_RSP]));
+            t->sighandler_frame[SYSCALL_FRAME_SP]));
 }
 
 sysreturn sigaltstack(const stack_t *ss, stack_t *oss)
@@ -800,6 +735,7 @@ closure_function(1, 1, sysreturn, pause_bh,
     return BLOCKQ_BLOCK_REQUIRED;
 }
 
+/* aarch64: may be invoked directly from ppoll(2) */
 sysreturn pause(void)
 {
     sig_debug("tid %d\n", current->tid);
@@ -1082,74 +1018,12 @@ sysreturn signalfd4(int fd, const u64 *mask, u64 sigsetsize, int flags)
     return fd;
 }
 
+#ifdef __x86_64__
 sysreturn signalfd(int fd, const u64 *mask, u64 sigsetsize)
 {
     return signalfd4(fd, mask, sigsetsize, 0);
 }
-
-static void setup_sigframe(thread t, int signum, struct siginfo *si)
-{
-    sigaction sa = sigaction_from_sig(t, signum);
-
-    assert(sizeof(struct siginfo) == 128);
-
-    sig_debug("sa->sa_flags 0x%lx\n", sa->sa_flags);
-    thread_resume(t);
-
-    /* copy only what we really need */
-    t->sighandler_frame[FRAME_FSBASE] = t->default_frame[FRAME_FSBASE];
-    t->sighandler_frame[FRAME_GSBASE] = t->default_frame[FRAME_GSBASE];
-
-    if (sa->sa_flags & SA_ONSTACK && t->signal_stack) {
-        t->sighandler_frame[FRAME_RSP] = u64_from_pointer(t->signal_stack + t->signal_stack_length);
-    } else {
-        t->sighandler_frame[FRAME_RSP] = t->default_frame[FRAME_RSP];
-    }
-
-    /* avoid redzone and align rsp
-
-       Note: We are actually aligning to 8 but not 16 bytes; the ABI
-       requires that stacks are aligned to 16 before a call, but the
-       sigframe return into the function takes the place of a call,
-       which would have pushed a return address. The function prologue
-       typically pushes the frame pointer on the stack, thus
-       re-aligning to 16 before executing the function body.
-    */
-    t->sighandler_frame[FRAME_RSP] = ((t->sighandler_frame[FRAME_RSP] & ~15)
-                                      - 128 /* redzone */
-                                      - 8 /* same effect as call pushing ra */);
-
-    /* create space for rt_sigframe */
-    t->sighandler_frame[FRAME_RSP] -= pad(sizeof(struct rt_sigframe), 16);
-
-    /* setup sigframe for user sig trampoline */
-    struct rt_sigframe *frame = (struct rt_sigframe *)t->sighandler_frame[FRAME_RSP];
-    frame->pretcode = sa->sa_restorer;
-
-    if (sa->sa_flags & SA_SIGINFO) {
-        runtime_memcpy(&frame->info, si, sizeof(struct siginfo));
-        setup_ucontext(&frame->uc, sa, si, t->default_frame);
-        t->sighandler_frame[FRAME_RSI] = u64_from_pointer(&frame->info);
-        t->sighandler_frame[FRAME_RDX] = u64_from_pointer(&frame->uc);
-    } else {
-        t->sighandler_frame[FRAME_RSI] = 0;
-        t->sighandler_frame[FRAME_RDX] = 0;
-    }
-
-    /* setup regs for signal handler */
-    t->sighandler_frame[FRAME_RIP] = u64_from_pointer(sa->sa_handler);
-    t->sighandler_frame[FRAME_RDI] = signum;
-    t->sighandler_frame[FRAME_IS_SYSCALL] = 1;
-
-    /* save signo for safer sigreturn */
-    t->active_signo = signum;
-
-    sig_debug("sigframe tid %d, sig %d, rip 0x%lx, rsp 0x%lx, "
-              "rdi 0x%lx, rsi 0x%lx, rdx 0x%lx, r8 0x%lx\n", t->tid, signum,
-              t->sighandler_frame[FRAME_RIP], t->sighandler_frame[FRAME_RSP],
-              t->sighandler_frame[FRAME_RDI], t->sighandler_frame[FRAME_RSI],
-              t->sighandler_frame[FRAME_RDX], t->sighandler_frame[FRAME_R8]);
-}
+#endif
 
 static void dump_sig_info(thread t, queued_signal qs)
 {
@@ -1241,7 +1115,7 @@ boolean dispatch_signals(thread t)
 
     if (handler == SIG_DFL) {
         const char *s = "   default action\n";
-        sig_debug(s);
+        sig_debug("%s", s);
         thread_log(t, s);
         default_signal_action(t, qs);
         /* ignore if returned */
@@ -1249,7 +1123,7 @@ boolean dispatch_signals(thread t)
 
     if (handler == SIG_DFL || handler == SIG_IGN) {
         const char *s = "   ignored\n";
-        sig_debug(s);
+        sig_debug("%s", s);
         thread_log(t, s);
         sigstate_thread_restore(t);
         return false;
@@ -1267,8 +1141,11 @@ boolean dispatch_signals(thread t)
 
 void register_signal_syscalls(struct syscall *map)
 {
-    register_syscall(map, kill, kill);
+#ifdef __x86_64__
     register_syscall(map, pause, pause);
+    register_syscall(map, signalfd, signalfd);
+#endif
+    register_syscall(map, kill, kill);
     register_syscall(map, rt_sigaction, rt_sigaction);
     register_syscall(map, rt_sigpending, rt_sigpending);
     register_syscall(map, rt_sigprocmask, rt_sigprocmask);
@@ -1278,7 +1155,6 @@ void register_signal_syscalls(struct syscall *map)
     register_syscall(map, rt_sigsuspend, rt_sigsuspend);
     register_syscall(map, rt_sigtimedwait, rt_sigtimedwait);
     register_syscall(map, sigaltstack, sigaltstack);
-    register_syscall(map, signalfd, signalfd);
     register_syscall(map, signalfd4, signalfd4);
     register_syscall(map, tgkill, tgkill);
     register_syscall(map, tkill, tkill);

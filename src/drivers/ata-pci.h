@@ -1,3 +1,1 @@
-#include <drivers/storage.h>
-
-void ata_pci_register(kernel_heaps kh, storage_attach a);
+void init_ata_pci(kernel_heaps kh, storage_attach a);

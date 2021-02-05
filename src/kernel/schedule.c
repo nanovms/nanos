@@ -1,7 +1,4 @@
 #include <kernel.h>
-#include <apic.h>
-#include <page.h>
-
 
 /* Try to keep these within the confines of the runloop lock so we
    don't create too much of a mess. */
@@ -100,8 +97,10 @@ static inline void sched_thread_pause(void)
     if (shutting_down)
         return;
     nanos_thread nt = get_current_thread();
-    if (nt)
+    if (nt) {
+        sched_debug("sched_thread_pause, nt %p\n", nt);
         apply(nt->pause);
+    }
 }
 
 NOTRACE void __attribute__((noreturn)) kernel_sleep(void)
@@ -113,16 +112,16 @@ NOTRACE void __attribute__((noreturn)) kernel_sleep(void)
     ci->state = cpu_idle;
     atomic_set_bit(&idle_cpu_mask, ci->id);
 
-    /* loop to absorb spurious wakeups from hlt - happens on some platforms (e.g. xen) */
-    while (1)
-        asm volatile("sti; hlt" ::: "memory");
+    while (1) {
+        wait_for_interrupt();
+    }
 }
 
 static void wakeup_cpu(u64 cpu)
 {
     if (atomic_test_and_clear_bit(&idle_cpu_mask, cpu)) {
         sched_debug("waking up CPU %d\n", cpu);
-        apic_ipi(cpu, 0, wakeup_vector);
+        send_ipi(cpu, wakeup_vector);
     }
 }
 
@@ -190,7 +189,6 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
         /* should be a list of per-runloop checks - also low-pri background */
         mm_service();
         timer_updated = update_timer();
-
         kern_unlock();
     }
 
@@ -251,7 +249,7 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
 
 closure_function(0, 0, void, global_shutdown)
 {
-    __asm__("cli; hlt");
+    machine_halt();
 }
 
 void init_scheduler(heap h)
@@ -260,9 +258,10 @@ void init_scheduler(heap h)
     runloop_timer_min = microseconds(RUNLOOP_TIMER_MIN_PERIOD_US);
     runloop_timer_max = microseconds(RUNLOOP_TIMER_MAX_PERIOD_US);
     wakeup_vector = allocate_interrupt();
+
     register_interrupt(wakeup_vector, ignore, "wakeup ipi");
-    shutdown_vector = allocate_interrupt();    
-    register_interrupt(shutdown_vector, closure(h, global_shutdown), "shutdown ipi");    
+    shutdown_vector = allocate_interrupt();
+    register_interrupt(shutdown_vector, closure(h, global_shutdown), "shutdown ipi");
     assert(wakeup_vector != INVALID_PHYSICAL);
     /* scheduling queues init */
     runqueue = allocate_queue(h, 2048);

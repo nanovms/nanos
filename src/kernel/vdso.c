@@ -21,7 +21,15 @@ fallback_gettimeofday(struct timeval * tv, void * tz)
 static sysreturn
 fallback_time(time_t * t)
 {
+#ifdef __x86_64__
     return do_syscall(SYS_time, t, 0);
+#else
+    struct timeval tv;
+    time_t rv = do_syscall(SYS_gettimeofday, &tv, 0) ? -1ull : tv.tv_sec;
+    if (t)
+        *t = rv;
+    return rv;
+#endif
 }
 
 static sysreturn
@@ -49,11 +57,12 @@ do_vdso_gettimeofday(struct timeval * tv, void * tz)
 static sysreturn
 do_vdso_getcpu(unsigned * cpu, unsigned * node, void * tcache)
 {
+#ifdef __x86_64__
     sysreturn rv = vdso_getcpu(cpu, node);
-    if (rv < 0)
-        return do_syscall(SYS_getcpu, cpu, node);
-    else
+    if (rv >= 0)
         return rv;
+#endif
+    return do_syscall(SYS_getcpu, cpu, node);
 }
 
 static sysreturn
@@ -123,3 +132,12 @@ time(time_t * t)
 {
     return do_vdso_time(t);
 }
+
+#ifdef __aarch64__
+sysreturn __vdso_rt_sigreturn(void)
+{
+    /* these two instructions cannot change - libgcc and others look
+       for these when unwinding signal handlers */
+    asm volatile ("mov x8, #139; svc #0"); // SYS_rt_sigreturn
+}
+#endif

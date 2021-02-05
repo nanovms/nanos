@@ -1,5 +1,4 @@
 #include <kernel.h>
-#include <page.h>
 #include <apic.h>
 
 #define FLUSH_THRESHOLD 32

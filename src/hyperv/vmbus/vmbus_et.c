@@ -25,7 +25,6 @@
  */
 
 #include <kernel.h>
-#include <page.h>
 #include <hyperv_internal.h>
 #include "hyperv_reg.h"
 #include "hyperv_var.h"

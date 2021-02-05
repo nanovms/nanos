@@ -27,7 +27,6 @@
  */
 
 #include <kernel.h>
-#include <page.h>
 #include <hyperv_internal.h>
 #include "vmbus_reg.h"
 #include "vmbus_brvar.h"

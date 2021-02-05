@@ -2,7 +2,7 @@
 #include <config.h>
 #include <machine.h>
 #include <attributes.h>
-#if !defined(BOOT) && !defined(STAGE3) && !defined(KLIB)
+#if !defined(BOOT) && !defined(KERNEL) && !defined(KLIB)
 #include <unix_process_runtime.h>
 #endif
 
@@ -31,10 +31,14 @@ void console_write(const char *s, bytes count);
 
 void print_u64(u64 s);
 
+#define VM_EXIT_GDB 0x7d
+#define VM_EXIT_FAULT 0x7e
+#define VM_EXIT_HALT 0x7f
+
 void halt(char *format, ...) __attribute__((noreturn));
 void kernel_shutdown(int status) __attribute__((noreturn));
 void vm_exit(u8 code) __attribute__((noreturn));
-void print_stack_from_here();
+void print_frame_trace_from_here();
 
 // make into no-op for production
 #ifdef NO_ASSERT
@@ -43,7 +47,7 @@ void print_stack_from_here();
 #define assert(x)                                   \
     do {                                            \
         if (!(x)) {                                 \
-            print_stack_from_here();                \
+            print_frame_trace_from_here();          \
             halt("assertion " #x " failed in " __FILE__ ": %s() on line %d; halt\n", __func__, __LINE__); \
         }                                           \
     } while(0)
@@ -75,7 +79,9 @@ static inline void console(const char *s)
 
 #define find_order(x) ((x) > 1 ? msb((x) - 1) + 1 : 0)
 
+#define U32_FROM_BIT(x) (1ul<<(x))
 #define U64_FROM_BIT(x) (1ull<<(x))
+#define MASK32(x) (U32_FROM_BIT(x)-1)
 #define MASK(x) (U64_FROM_BIT(x)-1)
 
 #define __compare(x, y, op) ({ typeof(x) __x = (x); typeof(y) __y = (y); (__x op __y ? __x : __y);})
@@ -190,6 +196,7 @@ typedef closure_type(buffer_handler, status, buffer);
 typedef closure_type(connection_handler, buffer_handler, buffer_handler);
 typedef closure_type(io_status_handler, void, status, bytes);
 typedef closure_type(block_io, void, void *, range, status_handler);
+typedef closure_type(storage_attach, void, block_io, block_io, u64);
 
 #include <sg.h>
 

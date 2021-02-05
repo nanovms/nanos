@@ -10,7 +10,6 @@
 /* don't care for this ... but we're used in both kernel and other contexts ... maybe split up */
 #ifdef KERNEL
 #include <kernel.h>
-#include <page.h>
 #else
 #include <runtime.h>
 typedef void *nanos_thread;
@@ -739,7 +738,7 @@ static void pagecache_finish_pending_writes(pagecache pc, pagecache_volume pv, p
     apply(complete, STATUS_OK);
 }
 
-#ifdef STAGE3
+#ifdef KERNEL
 static void pagecache_scan(pagecache pc);
 static void pagecache_scan_node(pagecache_node pn);
 #else
@@ -819,21 +818,20 @@ closure_function(1, 3, void, pagecache_read_sg,
 }
 
 
-#ifdef STAGE3
-/* x86 */
+#ifdef KERNEL
 closure_function(3, 3, boolean, pagecache_check_dirty_page,
                  pagecache, pc, pagecache_shared_map, sm, flush_entry, fe,
-                 int, level, u64, vaddr, u64 *, entry)
+                 int, level, u64, vaddr, pteptr, entry)
 {
     pagecache pc = bound(pc);
     pagecache_shared_map sm = bound(sm);
-    u64 old_entry = *entry;
-    if (pt_entry_is_present(old_entry) &&
-        pt_entry_is_pte(level, old_entry) &&
-        pt_entry_is_dirty(old_entry)) {
+    pte old_entry = pte_from_pteptr(entry);
+    if (pte_is_present(old_entry) &&
+        pte_is_mapping(level, old_entry) &&
+        pte_is_dirty(old_entry)) {
         u64 pi = (sm->node_offset + (vaddr - sm->n.r.start)) >> PAGELOG;
         pagecache_debug("   dirty: vaddr 0x%lx, pi 0x%lx\n", vaddr, pi);
-        *entry = old_entry & ~PAGE_DIRTY;
+        pt_pte_clean(entry);
         page_invalidate(bound(fe), vaddr);
         pagecache_page pp = page_lookup_nodelocked(sm->pn, pi);
         assert(pp != INVALID_ADDRESS);
@@ -897,7 +895,7 @@ closure_function(2, 1, void, pagecache_commit_complete,
     closure_finish();
 }
 
-void pagecache_commit_dirty_pages(pagecache pc)
+static void pagecache_commit_dirty_pages(pagecache pc)
 {
     pagecache_debug("%s\n", __func__);
     pagecache_lock_state(pc);
@@ -1033,10 +1031,10 @@ void pagecache_node_scan_and_commit_shared_pages(pagecache_node pn, range q /* b
     page_invalidate_sync(fe, ignore);
 }
 
-boolean pagecache_node_do_page_cow(pagecache_node pn, u64 node_offset, u64 vaddr, u64 flags)
+boolean pagecache_node_do_page_cow(pagecache_node pn, u64 node_offset, u64 vaddr, pageflags flags)
 {
     pagecache_debug("%s: node %p, node_offset 0x%lx, vaddr 0x%lx, flags 0x%lx\n",
-                    __func__, pn, node_offset, vaddr, flags);
+                    __func__, pn, node_offset, vaddr, flags.w);
     pagecache pc = pn->pv->pc;
     u64 paddr = allocate_u64(pc->physical, PAGESIZE);
     if (paddr == INVALID_PHYSICAL)
@@ -1044,11 +1042,11 @@ boolean pagecache_node_do_page_cow(pagecache_node pn, u64 node_offset, u64 vaddr
     pagecache_lock_node(pn);
     pagecache_page pp = page_lookup_nodelocked(pn, node_offset >> pc->page_order);
     assert(pp != INVALID_ADDRESS);
-    /* just overwrite old pte */
-    assert(flags & PAGE_WRITABLE);
+    assert(pageflags_is_writable(flags));
     assert(page_state(pp) != PAGECACHE_PAGESTATE_FREE);
     assert(pp->kvirt != INVALID_ADDRESS);
     assert(pp->refcount.c != 0);
+    unmap(vaddr, cache_pagesize(pc));
     map(vaddr, paddr, cache_pagesize(pc), flags);
     runtime_memcpy(pointer_from_u64(vaddr), pp->kvirt, cache_pagesize(pc));
     pagecache_unlock_node(pn);
@@ -1085,7 +1083,7 @@ void pagecache_node_fetch_pages(pagecache_node pn, range r)
     apply(sh, STATUS_OK);
 }
 
-static void map_page(pagecache pc, pagecache_page pp, u64 vaddr, u64 flags)
+static void map_page(pagecache pc, pagecache_page pp, u64 vaddr, pageflags flags)
 {
     assert(pp->refcount.c != 0);
     assert(pp->kvirt != INVALID_ADDRESS);
@@ -1093,7 +1091,7 @@ static void map_page(pagecache pc, pagecache_page pp, u64 vaddr, u64 flags)
 }
 
 closure_function(5, 1, void, map_page_finish,
-                 pagecache, pc, pagecache_page, pp, u64, vaddr, u64, flags, status_handler, complete,
+                 pagecache, pc, pagecache_page, pp, u64, vaddr, pageflags, flags, status_handler, complete,
                  status, s)
 {
     if (is_ok(s))
@@ -1102,7 +1100,7 @@ closure_function(5, 1, void, map_page_finish,
     closure_finish();
 }
 
-void pagecache_map_page(pagecache_node pn, u64 node_offset, u64 vaddr, u64 flags,
+void pagecache_map_page(pagecache_node pn, u64 node_offset, u64 vaddr, pageflags flags,
                         status_handler complete, boolean bh)
 {
     pagecache pc = pn->pv->pc;
@@ -1125,13 +1123,13 @@ void pagecache_map_page(pagecache_node pn, u64 node_offset, u64 vaddr, u64 flags
 }
 
 /* no-alloc / no-fill path, meant to be safe outside of kernel lock */
-boolean pagecache_map_page_if_filled(pagecache_node pn, u64 node_offset, u64 vaddr, u64 flags)
+boolean pagecache_map_page_if_filled(pagecache_node pn, u64 node_offset, u64 vaddr, pageflags flags)
 {
     boolean mapped = false;
     pagecache_lock_node(pn);
     pagecache_page pp = page_lookup_nodelocked(pn, node_offset >> pn->pv->pc->page_order);
     pagecache_debug("%s: pn %p, node_offset 0x%lx, vaddr 0x%lx, flags 0x%lx, pp %p\n",
-                    __func__, pn, node_offset, vaddr, flags, pp);
+                    __func__, pn, node_offset, vaddr, flags.w, pp);
     if (pp == INVALID_ADDRESS)
         goto out;
     if (touch_or_fill_page_nodelocked(pn, pp, 0, false /* N/A */)) {
@@ -1143,17 +1141,16 @@ boolean pagecache_map_page_if_filled(pagecache_node pn, u64 node_offset, u64 vad
     return mapped;
 }
 
-/* need to move these to x86-specific pc routines */
 closure_function(4, 3, boolean, pagecache_unmap_page_nodelocked,
                  pagecache_node, pn, u64, vaddr_base, u64, node_offset, flush_entry, fe,
-                 int, level, u64, vaddr, u64 *, entry)
+                 int, level, u64, vaddr, pteptr, entry)
 {
-    u64 old_entry = *entry;
-    if (pt_entry_is_present(old_entry) &&
-        pt_entry_is_pte(level, old_entry)) {
+    pte old_entry = pte_from_pteptr(entry);
+    if (pte_is_present(old_entry) &&
+        pte_is_mapping(level, old_entry)) {
         u64 pi = (bound(node_offset) + (vaddr - bound(vaddr_base))) >> PAGELOG;
         pagecache_debug("   vaddr 0x%lx, pi 0x%lx\n", vaddr, pi);
-        *entry = 0;
+        pte_set(entry, 0);
         page_invalidate(bound(fe), vaddr);
         pagecache_page pp = page_lookup_nodelocked(bound(pn), pi);
         assert(pp != INVALID_ADDRESS);

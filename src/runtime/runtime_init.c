@@ -142,7 +142,7 @@ void rputs(const char *s)
 
 #define STACK_CHK_GUARD 0x595e9fbd94fda766
 
-u64 __stack_chk_guard = STACK_CHK_GUARD;
+u64 __attribute__((weak)) __stack_chk_guard = STACK_CHK_GUARD;
 
 void __stack_chk_guard_init()
 {

@@ -51,6 +51,7 @@ closure_function(0, 1, void, read_program_fail,
 /* XXX Note: temporarily putting these connection tests here until we
    get tracing hooked up... */
 
+#if 0
 /* limited to 1M on general heap at the moment... */
 #define BULK_TEST_BUFSIZ (1ull << 20)
 static buffer bulk_test_buffer(heap h)
@@ -101,6 +102,7 @@ closure_function(1, 1, buffer_handler, each_telnet_connection,
     apply(out, response);
     return closure(h, test_recv, h, out);
 }
+#endif
 
 /* http debug test */
 #if 0
@@ -161,12 +163,12 @@ closure_function(3, 0, void, startup,
     heap general = heap_general(kh);
     buffer_handler pg = closure(general, read_program_complete, general, kp, root);
 
+#if 0
     if (table_find(root, sym(telnet))) {
         listen_port(general, 9090, closure(general, each_telnet_connection, general));
         rprintf("Debug telnet server started on port 9090\n");
     }
 
-#if 0
     http_listener hl = allocate_http_listener(general, 9090);
     assert(hl != INVALID_ADDRESS);
     http_register_uri_handler(hl, "test", closure(general, each_test_request, general));

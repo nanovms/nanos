@@ -61,6 +61,8 @@ void timer_service(timerheap th, timestamp here)
                     continue;
                 }
             } else {
+                timer_debug("timer expiry %T, delta %T, apply %p (%F)\n",
+                            timer_expiry(t), delta, t, t->t);
                 apply(t->t, 1);
             }
         }

@@ -29,7 +29,6 @@
 #define NULL 0
 
 #include <kernel.h>
-#include <page.h>
 #include <hyperv_internal.h>
 #include <hyperv.h>
 #include <lwip/netif.h>

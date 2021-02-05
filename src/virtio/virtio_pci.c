@@ -32,8 +32,6 @@
 #include "virtio_internal.h"
 #include "virtio_pci.h"
 
-#include <io.h>
-
 #ifdef VIRTIO_PCI_DEBUG
 # define virtio_pci_debug rprintf
 #else
@@ -52,9 +50,10 @@
 #define VIRTIO_PCI_STATUS            18 /* device status register (8, RW) */
 #define VIRTIO_PCI_ISR               19 /* interrupt status register, reading
 				         * also clears the register (8, RO) */
+#define VIRTIO_NON_MSI_DEVICE_CONFIG 20 /* device config start without msi */
 #define VIRTIO_MSI_CONFIG_VECTOR     20 /* configuration change vector (16, RW) */
 #define VIRTIO_MSI_QUEUE_VECTOR      22 /* vector for selected VQ notifications (16, RW) */
-#define VIRTIO_MSI_DEVICE_CONFIG     24 /* device config start */
+#define VIRTIO_MSI_DEVICE_CONFIG     24 /* device config start with msi */
 
 /*
  * Modern device PCI capabilities
@@ -137,12 +136,16 @@ struct vtpci_common_config {
 
 boolean vtpci_probe(pci_dev d, int virtio_dev_id)
 {
-    if (pci_get_vendor(d) != VIRTIO_PCI_VENDORID)
+    virtio_pci_debug("%s: vendor is 0x%x\n", __func__, pci_get_vendor(d));
+    if (pci_get_vendor(d) != VIRTIO_PCI_VENDORID) {
         return false;
+    }
 
     u16 device = pci_get_device(d);
-    if (device < VIRTIO_PCI_DEVICEID_MIN || device > VIRTIO_PCI_DEVICEID_MAX)
+    virtio_pci_debug("   device is 0x%x\n", device);
+    if (device < VIRTIO_PCI_DEVICEID_MIN || device > VIRTIO_PCI_DEVICEID_MAX) {
         return false;
+    }
 
     if (device >= VIRTIO_PCI_DEVICEID_MODERN_MIN) {
         // modern device
@@ -150,6 +153,7 @@ boolean vtpci_probe(pci_dev d, int virtio_dev_id)
     }
 
     // legacy device
+    virtio_pci_debug("subdev %d, virtio_dev_id %d\n", pci_get_subdevice(d), virtio_dev_id);
     return pci_get_subdevice(d) == virtio_dev_id;
 }
 
@@ -183,6 +187,28 @@ static void vtpci_modern_write_8(struct pci_bar *b, bytes offset, u64 val)
     pci_bar_write_4(b, offset + 4, val >> 32);
 }
 
+static u8 vtpci_get_isr_status(vtpci dev)
+{
+    return pci_bar_read_1(&dev->common_config, dev->regs[VTPCI_REG_ISR_STATUS]);
+}
+
+closure_function(3, 0, void, vtpci_non_msix_interrupt,
+                 vtpci, dev, const char *, name, thunk, handler)
+{
+    virtio_pci_debug("%s: dev %p, name %s, handler %p (%F)\n", __func__, bound(dev),
+                     bound(name), bound(handler), bound(handler));
+
+    /* clear pending; ignore INTR flag here as it may have been
+       cleared by another (shared) handler... */
+    u8 isr_status = vtpci_get_isr_status(bound(dev));
+    virtio_pci_debug("   isr status 0x%x applying handler %p (%F)\n", isr_status,
+                     bound(handler), bound(handler));
+    apply(bound(handler));
+
+    if (isr_status & VIRTIO_PCI_ISR_CONFIG)
+        rprintf("%s: config change interrupt; unhandled\n", __func__);
+}
+
 status vtpci_alloc_virtqueue(vtpci dev,
                              const char *name,
                              int idx,
@@ -193,24 +219,35 @@ status vtpci_alloc_virtqueue(vtpci dev,
     struct virtqueue *vq;
     pci_bar_write_2(&dev->common_config, dev->regs[VTPCI_REG_QUEUE_SELECT], idx);
     u16 size = pci_bar_read_2(&dev->common_config, dev->regs[VTPCI_REG_QUEUE_SIZE]);
+    assert(size > 0);
     thunk handler;
     bytes notify_offset = vtpci_is_modern(dev) ?
         pci_bar_read_2(&dev->common_config, VTPCI_R_QUEUE_NOTIFY_OFF) * dev->notify_offset_multiplier :
         VIRTIO_PCI_QUEUE_NOTIFY;
+
+    virtio_pci_debug("%s: name %s, notify_offset 0x%lx\n", __func__, name, notify_offset);
     status s = virtqueue_alloc(&dev->virtio_dev, name, idx, size, notify_offset,
                                VIRTIO_PCI_VRING_ALIGN, &vq, &handler, sched_queue);
     if (!is_ok(s))
         return s;
 
-    // setup virtqueue MSI-X interrupt
-    pci_setup_msix(dev->dev, idx, handler, name);
-    pci_bar_write_2(&dev->common_config, dev->regs[VTPCI_REG_QUEUE_MSIX_VECTOR], idx);
-    int check_idx = pci_bar_read_2(&dev->common_config, dev->regs[VTPCI_REG_QUEUE_MSIX_VECTOR]);
-    if (check_idx != idx)
-        return timm("status", "cannot configure virtqueue MSI-X vector");
+    if (dev->msix_enabled) {
+        // setup virtqueue MSI-X interrupt
+        pci_setup_msix(dev->dev, idx, handler, name);
+        pci_bar_write_2(&dev->common_config, dev->regs[VTPCI_REG_QUEUE_MSIX_VECTOR], idx);
+        int check_idx = pci_bar_read_2(&dev->common_config, dev->regs[VTPCI_REG_QUEUE_MSIX_VECTOR]);
+        if (check_idx != idx)
+            return timm("status", "cannot configure virtqueue MSI-X vector");
+    } else {
+        thunk t = closure(dev->virtio_dev.general, vtpci_non_msix_interrupt, dev, name, handler);
+        assert(t != INVALID_ADDRESS);
+        pci_setup_non_msi_irq(dev->dev, idx, t, name);
+    }
 
     // queue ring
     if (vtpci_is_modern(dev)) {
+        virtio_pci_debug("%s: desc 0x%lx, avail 0x%lx, used 0x%lx\n", __func__,
+                virtqueue_desc_paddr(vq), virtqueue_avail_paddr(vq), virtqueue_used_paddr(vq));
         vtpci_modern_write_8(&dev->common_config, VTPCI_R_QUEUE_DESC, virtqueue_desc_paddr(vq));
         vtpci_modern_write_8(&dev->common_config, VTPCI_R_QUEUE_AVAIL, virtqueue_avail_paddr(vq));
         vtpci_modern_write_8(&dev->common_config, VTPCI_R_QUEUE_USED, virtqueue_used_paddr(vq));
@@ -229,10 +266,14 @@ static void vtpci_legacy_alloc_resources(vtpci dev)
     dev->regs[VTPCI_REG_QUEUE_SELECT] = VIRTIO_PCI_QUEUE_SEL;
     dev->regs[VTPCI_REG_QUEUE_SIZE] = VIRTIO_PCI_QUEUE_NUM;
     dev->regs[VTPCI_REG_QUEUE_MSIX_VECTOR] = VIRTIO_MSI_QUEUE_VECTOR;
+    dev->regs[VTPCI_REG_ISR_STATUS] = VIRTIO_PCI_ISR;
 
+    pci_platform_init_bar(dev->dev);
     pci_bar_init(dev->dev, &dev->common_config, 0, 0, -1);
     runtime_memcpy(&dev->notify_config, &dev->common_config, sizeof(dev->notify_config));
-    pci_bar_init(dev->dev, &dev->device_config, 0, VIRTIO_MSI_DEVICE_CONFIG, -1);
+    pci_bar_init(dev->dev, &dev->device_config, 0,
+                 dev->msix_enabled ? VIRTIO_MSI_DEVICE_CONFIG :
+                 VIRTIO_NON_MSI_DEVICE_CONFIG, -1);
 }
 
 static u32 vtpci_modern_find_cap(vtpci dev, u8 cfg_type, struct pci_bar *b)
@@ -263,6 +304,7 @@ static void vtpci_modern_alloc_resources(vtpci dev)
     dev->regs[VTPCI_REG_QUEUE_SELECT] = VTPCI_R_QUEUE_SELECT;
     dev->regs[VTPCI_REG_QUEUE_SIZE] = VTPCI_R_QUEUE_SIZE;
     dev->regs[VTPCI_REG_QUEUE_MSIX_VECTOR] = VTPCI_R_QUEUE_MSIX_VECTOR;
+    dev->regs[VTPCI_REG_ISR_STATUS] = VIRTIO_PCI_ISR;
 
     // scan PCI capabilities
     vtpci_modern_find_cap(dev, VIRTIO_PCI_CAP_COMMON_CFG, &dev->common_config);
@@ -289,6 +331,7 @@ vtpci attach_vtpci(heap h, backed_heap page_allocator, pci_dev d, u64 feature_ma
     assert(dev != INVALID_ADDRESS);
     vtdev virtio_dev = &dev->virtio_dev;
 
+    virtio_pci_debug("%s: dev %x\n", __func__, pci_get_device(d));
     boolean is_modern = pci_get_device(d) >= VIRTIO_PCI_DEVICEID_MODERN_MIN;
     if (is_modern)
         feature_mask |= VIRTIO_F_VERSION_1;
@@ -300,7 +343,8 @@ vtpci attach_vtpci(heap h, backed_heap page_allocator, pci_dev d, u64 feature_ma
         vtpci_legacy_alloc_resources(dev);
     }
     pci_set_bus_master(dev->dev);
-    pci_enable_msix(dev->dev);
+    dev->msix_enabled = pci_enable_msix(dev->dev) > 0;
+    pci_enable_io_and_memory(dev->dev);
 
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_RESET);
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_ACK);
@@ -330,7 +374,7 @@ vtpci attach_vtpci(heap h, backed_heap page_allocator, pci_dev d, u64 feature_ma
         pci_bar_write_4(&dev->common_config, VIRTIO_PCI_GUEST_FEATURES, virtio_dev->features & feature_mask);
     }
     virtio_pci_debug("%s: device features 0x%lx, negotiated features 0x%lx\n",
-        __func__, dev->dev_features, dev->features);
+        __func__, virtio_dev->dev_features, virtio_dev->features);
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_FEATURE);
 
     init_closure(&dev->notify, vtpci_notify, dev);

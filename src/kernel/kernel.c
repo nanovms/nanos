@@ -12,12 +12,6 @@
 
 static kernel_context spare_kernel_context;
 
-static void init_frame(context f)
-{
-    assert((u64_from_pointer(f) & 63) == 0);
-    xsave(f);
-}
-
 context allocate_frame(heap h)
 {
     context f = allocate_zero(h, total_frame_size());
@@ -53,6 +47,7 @@ kernel_context allocate_kernel_context(heap h)
     if (c == INVALID_ADDRESS)
         return c;
     init_frame(c->frame);
+    // XXX set stack top here?
     c->frame[FRAME_HEAP] = u64_from_pointer(h);
     return c;
 }
@@ -66,16 +61,17 @@ kernel_context suspend_kernel_context(void)
 {
     cpuinfo ci = current_cpu();
     assert(spare_kernel_context);
-    kernel_context saved = ci->kernel_context;
-    ci->kernel_context = spare_kernel_context;
+    kernel_context saved = get_kernel_context(ci);
+    set_kernel_context(ci, spare_kernel_context);
     spare_kernel_context = 0;
     return saved;
 }
 
 void resume_kernel_context(kernel_context c)
 {
-    spare_kernel_context = current_cpu()->kernel_context;
-    current_cpu()->kernel_context = c;
+    cpuinfo ci = current_cpu();
+    spare_kernel_context = get_kernel_context(ci);
+    set_kernel_context(ci, c);
     frame_return(c->frame);
 }
 
@@ -90,26 +86,23 @@ static void init_cpuinfos(heap backed)
        per-cpu heaps just yet. */
     for (int i = 0; i < MAX_CPUS; i++) {
         cpuinfo ci = cpuinfo_from_id(i);
-        ci->self = ci;
-
         /* state */
-        ci->running_frame = 0;
+        set_running_frame(ci, 0);
         ci->id = i;
         ci->state = cpu_not_present;
         ci->have_kernel_lock = false;
         ci->thread_queue = allocate_queue(backed, MAX_THREADS);
         ci->last_timer_update = 0;
         ci->frcount = 0;
+
+        init_cpuinfo_machine(ci, backed);
+
         /* frame and stacks */
-        ci->kernel_context = allocate_kernel_context(backed);
-        ci->exception_stack = allocate_stack(backed, EXCEPT_STACK_SIZE);
-        ci->int_stack = allocate_stack(backed, INT_STACK_SIZE);
-#ifdef SMP_DEBUG
-        rprintf("cpu %02d: kernel_frame %p, kernel_stack %p", i, ci->kernel_frame, ci->kernel_stack);
-        rprintf("        fault_stack  %p, int_stack    %p", ci->fault_stack, ci->int_stack);
-#endif
+        set_kernel_context(ci, allocate_kernel_context(backed));
     }
 
+    cpuinfo ci = cpuinfo_from_id(0);
+    set_running_frame(ci, frame_from_kernel_context(get_kernel_context(ci)));
     cpu_init(0);
 }
 
@@ -119,4 +112,12 @@ void init_kernel_contexts(heap backed)
     assert(spare_kernel_context != INVALID_ADDRESS);
     init_cpuinfos(backed);
     current_cpu()->state = cpu_kernel;
+}
+
+void install_fallback_fault_handler(fault_handler h)
+{
+    for (int i = 0; i < MAX_CPUS; i++) {
+        context f = frame_from_kernel_context(get_kernel_context(cpuinfo_from_id(i)));
+        f[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
+    }
 }

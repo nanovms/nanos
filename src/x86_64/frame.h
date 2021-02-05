@@ -24,6 +24,8 @@
 #define FRAME_FSBASE 22
 #define FRAME_GSBASE 23
 
+#define FRAME_N_PSTATE  24
+
 #define FRAME_VECTOR 24
 
 #define FRAME_ERROR_PF_P   0x01    /* prot violation */

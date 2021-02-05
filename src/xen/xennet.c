@@ -1,5 +1,4 @@
 #include <kernel.h>
-#include <page.h>
 
 //#define XENNET_DEBUG
 //#define XENNET_DEBUG_DATA

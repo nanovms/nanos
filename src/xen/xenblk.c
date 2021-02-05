@@ -1,6 +1,4 @@
 #include <kernel.h>
-#include <drivers/storage.h>
-#include <page.h>
 #include <storage.h>
 
 #include "xen_internal.h"

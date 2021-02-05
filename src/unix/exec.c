@@ -32,7 +32,9 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
         stack_start = (stack_start - PROCESS_STACK_ASLR_RANGE) +
             get_aslr_offset(PROCESS_STACK_ASLR_RANGE);
 
+#ifdef __x86_64__
     assert(id_heap_set_area(p->virtual32, stack_start, PROCESS_STACK_SIZE, true, true));
+#endif
     p->stack_map = allocate_vmap(p->vmaps, irangel(stack_start, PROCESS_STACK_SIZE),
                                  ivmap(VMAP_FLAG_WRITABLE, 0, 0, 0));
     assert(p->stack_map != INVALID_ADDRESS);
@@ -42,7 +44,8 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
     assert(sphys != INVALID_PHYSICAL);
 
     exec_debug("stack allocated at %p, size 0x%lx, phys 0x%lx\n", s, PROCESS_STACK_SIZE, sphys);
-    map(u64_from_pointer(s), sphys, PROCESS_STACK_SIZE, PAGE_WRITABLE | PAGE_NO_EXEC | PAGE_USER);
+    map(u64_from_pointer(s), sphys, PROCESS_STACK_SIZE,
+        pageflags_writable(pageflags_user(pageflags_noexec(pageflags_memory()))));
 
     s += PROCESS_STACK_SIZE >> 3;
 
@@ -120,15 +123,16 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
 
     // stack should be 16-byte aligned
     assert(pad(u64_from_pointer(s), STACK_ALIGNMENT) == u64_from_pointer(s));
-    t->default_frame[FRAME_RSP] = u64_from_pointer(s);
+
+    frame_set_sp(t->default_frame, u64_from_pointer(s));
 }
 
 void start_process(thread t, void *start)
 {
-    t->default_frame[FRAME_RIP] = u64_from_pointer(start);
+    t->default_frame[SYSCALL_FRAME_PC] = u64_from_pointer(start);
     if (table_find(t->p->process_root, sym(gdb))) {
-        console ("gdb!\n");
-        init_tcp_gdb(heap_general(get_kernel_heaps()), t->p, 9090);
+        rputs("TODO: in-kernel gdb needs revisiting\n");
+//        init_tcp_gdb(heap_general(get_kernel_heaps()), t->p, 9090);
     } else {
         schedule_frame(t->default_frame);
     }
@@ -144,14 +148,14 @@ closure_function(0, 1, void, load_interp_fail,
 
 closure_function(2, 4, void, exec_elf_map,
                  process, p, kernel_heaps, kh,
-                 u64, vaddr, u64, paddr, u64, size, u64, flags)
+                 u64, vaddr, u64, paddr, u64, size, pageflags, flags)
 {
     kernel_heaps kh = bound(kh);
     u64 target = vaddr;
     u64 vmflags = 0;
-    if ((flags & PAGE_NO_EXEC) == 0)
+    if (pageflags_is_exec(flags))
         vmflags |= VMAP_FLAG_EXEC;
-    if (flags & PAGE_WRITABLE)
+    if (pageflags_is_writable(flags))
         vmflags |= VMAP_FLAG_WRITABLE;
 
     range r = irange(target, target + size);
@@ -164,7 +168,7 @@ closure_function(2, 4, void, exec_elf_map,
         paddr = allocate_u64((heap)heap_physical(kh), size);
         assert(paddr != INVALID_PHYSICAL);
     }
-    map(target, paddr, size, flags | PAGE_USER);
+    map(target, paddr, size, pageflags_user(flags));
     if (is_bss) {
         zero(pointer_from_u64(target), size);
     }

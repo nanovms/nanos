@@ -169,6 +169,8 @@ frame_return:
         ; before iret back to userspace, restore fs and gs base and swapgs
         cmp qword [rsp + 8], 0x08
         je .skip
+
+        ;; XXX should be lazy?
         load_seg_base FRAME_FSBASE
         load_seg_base FRAME_GSBASE
         swapgs
@@ -224,7 +226,7 @@ extern syscall
 global_func syscall_enter
 syscall_enter:
         swapgs
-        mov [gs:24], rdi        ; save rdi
+        mov [gs:24], rdi        ; save rdi in tmp
         mov rdi, [gs:8]         ; running_frame
         mov [rdi+FRAME_VECTOR*8], rax
         mov [rdi+FRAME_RBX*8], rbx
@@ -259,6 +261,7 @@ syscall_enter:
 
 ;; must follow syscall_enter
 syscall_return:
+        ;; XXX lazy?
         load_seg_base FRAME_FSBASE
         load_seg_base FRAME_GSBASE
         load_extended_registers rdi

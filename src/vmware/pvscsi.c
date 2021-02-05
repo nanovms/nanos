@@ -1,5 +1,4 @@
 #include <kernel.h>
-#include <page.h>
 #include <pci.h>
 #include "pvscsi.h"
 #include "storage.h"
@@ -665,7 +664,7 @@ static void pvscsi_process_cmp_ring(pvscsi dev)
     }
 }
 
-void pvscsi_register(kernel_heaps kh, storage_attach a)
+void init_pvscsi(kernel_heaps kh, storage_attach a)
 {
     heap h = heap_locked(kh);
     register_pci_driver(closure(h, pvscsi_probe, h, a, heap_backed(kh)));

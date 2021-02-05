@@ -1,16 +1,43 @@
 /* main header for unix-specific kernel objects */
 
 #include <kernel.h>
-#include <apic.h>
-#include <syscalls.h>
-#include <system_structs.h>
+#include <unix_syscalls.h>
 #include <pagecache.h>
-#include <page.h>
 #include <tfs.h>
 #include <unix.h>
 
+#define VMAP_FLAG_PROT_MASK 0x000f
+#define VMAP_FLAG_EXEC     0x0001
+#define VMAP_FLAG_WRITABLE 0x0002
+#define VMAP_FLAG_READABLE 0x0004
+
+#define VMAP_FLAG_MMAP     0x0010
+#define VMAP_FLAG_SHARED   0x0020 /* vs private; same semantics as unix */
+#define VMAP_FLAG_PREALLOC 0x0040
+
+#define VMAP_MMAP_TYPE_MASK       0x0f00
+#define VMAP_MMAP_TYPE_ANONYMOUS  0x0100
+#define VMAP_MMAP_TYPE_FILEBACKED 0x0200
+#define VMAP_MMAP_TYPE_IORING     0x0400
+
+#define ACCESS_PERM_READ    VMAP_FLAG_READABLE
+#define ACCESS_PERM_WRITE   VMAP_FLAG_WRITABLE
+#define ACCESS_PERM_EXEC    VMAP_FLAG_EXEC
+#define ACCESS_PERM_ALL     \
+    (ACCESS_PERM_READ | ACCESS_PERM_WRITE | ACCESS_PERM_EXEC)
+
+#include <system_structs.h>
+
+/* arch dependent bits */
+#include <unix_machine.h>
+
 #define PROCESS_VIRTUAL_HEAP_START  0x000100000000ull
+#ifdef __x86_64__
 #define PROCESS_VIRTUAL_HEAP_LIMIT  U64_FROM_BIT(USER_VA_TAG_OFFSET)
+#endif
+#ifdef __aarch64__
+#define PROCESS_VIRTUAL_HEAP_LIMIT  USER_LIMIT
+#endif
 #define PROCESS_VIRTUAL_HEAP_LENGTH (PROCESS_VIRTUAL_HEAP_LIMIT - PROCESS_VIRTUAL_HEAP_START)
 
 #define PROCESS_STACK_SIZE          (2 * MB)
@@ -22,9 +49,6 @@
 #define PROCESS_PIE_LOAD_ASLR_RANGE (4 * MB)
 #define PROCESS_HEAP_ASLR_RANGE     (4 * MB)
 #define PROCESS_STACK_ASLR_RANGE    (4 * MB)
-
-/* fixed address per deprecated API */
-#define VSYSCALL_BASE               0xffffffffff600000ull
 
 /* This will change if we add support for more clocktypes */
 #define VVAR_NR_PAGES               2
@@ -205,7 +229,7 @@ declare_closure_struct(1, 1, context, default_fault_handler,
                        thread, t,
                        context, frame);
 declare_closure_struct(5, 0, void, thread_demand_file_page,
-                       thread, t, struct vmap *, vm, u64, node_offset, u64, page_addr, u64, flags);
+                       thread, t, struct vmap *, vm, u64, node_offset, u64, page_addr, pageflags, flags);
 declare_closure_struct(3, 1, void, thread_demand_file_page_complete,
                        thread, t, context, frame, u64, vaddr,
                        status, s);
@@ -334,26 +358,6 @@ sysreturn ioctl_generic(fdesc f, unsigned long request, vlist ap);
 
 void epoll_finish(epoll e);
 
-#define VMAP_FLAG_PROT_MASK 0x000f
-#define VMAP_FLAG_EXEC     0x0001
-#define VMAP_FLAG_WRITABLE 0x0002
-#define VMAP_FLAG_READABLE 0x0004
-
-#define VMAP_FLAG_MMAP     0x0010
-#define VMAP_FLAG_SHARED   0x0020 /* vs private; same semantics as unix */
-#define VMAP_FLAG_PREALLOC 0x0040
-
-#define VMAP_MMAP_TYPE_MASK       0x0f00
-#define VMAP_MMAP_TYPE_ANONYMOUS  0x0100
-#define VMAP_MMAP_TYPE_FILEBACKED 0x0200
-#define VMAP_MMAP_TYPE_IORING     0x0400
-
-#define ACCESS_PERM_READ    VMAP_FLAG_READABLE
-#define ACCESS_PERM_WRITE   VMAP_FLAG_WRITABLE
-#define ACCESS_PERM_EXEC    VMAP_FLAG_EXEC
-#define ACCESS_PERM_ALL     \
-    (ACCESS_PERM_READ | ACCESS_PERM_WRITE | ACCESS_PERM_EXEC)
-
 typedef struct vmap {
     struct rmnode node;
     u32 flags;
@@ -376,14 +380,21 @@ typedef struct varea {
 }
 typedef closure_type(vmap_handler, void, vmap);
 
-static inline u64 page_map_flags(u64 vmflags)
+static inline sysreturn set_syscall_return(thread t, sysreturn val)
 {
-    u64 flags = PAGE_NO_FAT | PAGE_USER;
-    if ((vmflags & VMAP_FLAG_EXEC) == 0)
-        flags |= PAGE_NO_EXEC;
-    if ((vmflags & VMAP_FLAG_WRITABLE))
-        flags |= PAGE_WRITABLE;
-    return flags;
+    thread_frame(t)[SYSCALL_FRAME_RETVAL1] = val;
+    return val;
+}
+
+static inline sysreturn get_syscall_return(thread t)
+{
+    return thread_frame(t)[SYSCALL_FRAME_RETVAL1];
+}
+
+static inline sysreturn set_syscall_error(thread t, s32 val)
+{
+    thread_frame(t)[SYSCALL_FRAME_RETVAL1] = (sysreturn)-val;
+    return (sysreturn)-val;
 }
 
 vmap allocate_vmap(rangemap rm, range r, struct vmap q);
@@ -401,7 +412,9 @@ typedef struct process {
     u64               vdso_base;
     id_heap           virtual;  /* huge virtual, parent of virtual_page */
     id_heap           virtual_page; /* pagesized, default for mmaps */
+#ifdef __x86_64__
     id_heap           virtual32; /* for tracking low 32-bit space and MAP_32BIT maps */
+#endif
     id_heap           fdallocator;
     filesystem        root_fs;
     filesystem        cwd_fs;
@@ -441,7 +454,7 @@ static inline thread _current(const char *caller) {
       runtime_strcmp("run_thread_frame", caller) != 0 &&
       runtime_strcmp("thread_wakeup", caller) != 0) {
         log_printf("CURRENT", "invalid address returned to caller '%s'\n", caller);
-        print_stack_from_here();
+        print_frame_trace_from_here();
     }
     return (thread)get_current_thread();
 }
@@ -687,6 +700,13 @@ void deliver_fault_signal(u32 signo, thread t, u64 vaddr, s32 si_code);
 
 void threads_to_vector(process p, vector v);
 
+/* machine-specific signal dispatch */
+struct rt_sigframe *get_rt_sigframe(thread t);
+void setup_sigframe(thread t, int signum, struct siginfo *si);
+void setup_ucontext(struct ucontext * uctx, struct sigaction * sa,
+                    struct siginfo * si, context f);
+void restore_ucontext(struct ucontext * uctx, context f);
+
 void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *name);
 
 #define register_syscall(m, n, f) _register_syscall(m, SYS_##n, f, #n)
@@ -780,28 +800,6 @@ static inline boolean thread_is_runnable(thread t)
     return t->blocked_on == 0;
 }
 
-static inline sysreturn set_syscall_return(thread t, sysreturn val)
-{
-    thread_frame(t)[FRAME_RAX] = val;
-    return val;
-}
-
-static inline sysreturn get_syscall_return(thread t)
-{
-    return thread_frame(t)[FRAME_RAX];
-}
-
-static inline sysreturn set_syscall_error(thread t, s32 val)
-{
-    thread_frame(t)[FRAME_RAX] = (sysreturn)-val;
-    return (sysreturn)-val;
-}
-
-static inline sysreturn sysreturn_value(thread t)
-{
-    return (sysreturn)thread_frame(t)[FRAME_RAX];
-}
-
 static inline sysreturn thread_maybe_sleep_uninterruptible(thread t)
 {
     u64 flags = irq_disable_save(); /* XXX mutex / spinlock */
@@ -862,7 +860,7 @@ sysreturn io_getevents(aio_context_t ctx_id, long min_nr, long nr,
 sysreturn io_destroy(aio_context_t ctx_id);
 
 sysreturn io_uring_setup(unsigned int entries, struct io_uring_params *params);
-sysreturn io_uring_mmap(fdesc desc, u64 len, u64 mapflags, u64 offset);
+sysreturn io_uring_mmap(fdesc desc, u64 len, pageflags mapflags, u64 offset);
 sysreturn io_uring_enter(int fd, unsigned int to_submit,
                          unsigned int min_complete, unsigned int flags,
                          sigset_t *sig);

@@ -30,7 +30,6 @@
 
 #include <kernel.h>
 #include <lwip.h>
-#include <page.h>
 #include <pci.h>
 
 #include "ena.h"

@@ -1,6 +1,6 @@
 version: 2
 jobs:
-  build:
+  build-pc:
     docker:
       # specify the version
       - image: circleci/golang:1.14
@@ -100,11 +100,60 @@ jobs:
       - run: gsutil cp nanos-nightly-darwin.timestamp gs://nanos/release/nightly
       - run: gsutil acl ch -u AllUsers:R gs://nanos/release/nightly/nanos-nightly-darwin.timestamp
 
+  build-virt:
+    docker:
+      - image: circleci/golang:1.14
+    steps:
+      - checkout
+      - run: sudo apt-get update
+      - run: sudo apt-get install gcc-aarch64-linux-gnu qemu-system-arm ent
+      - run: mkdir target-root && cd target-root && wget https://storage.googleapis.com/testmisc/arm64-target-root.tar.gz && sudo tar --exclude=dev/* -xzf arm64-target-root.tar.gz
+      # runtime tests for now - can add go tests when aarch64 support is added to ops
+      - run:
+          name: aarch64-build
+          environment:
+            NANOS_TARGET_ROOT: ~/project/target-root
+          command: |
+            make PLATFORM=virt runtime-tests-noaccel
+
+  nightly-build-virt:
+    docker:
+      - image: circleci/golang:1.14
+    steps:
+      - checkout
+      - run: sudo apt-get update
+      - run: sudo apt-get install gcc-aarch64-linux-gnu qemu-system-arm ent
+      - run: mkdir target-root && cd target-root && wget https://storage.googleapis.com/testmisc/arm64-target-root.tar.gz && sudo tar --exclude=dev/* -xzf arm64-target-root.tar.gz
+      # runtime tests for now - can add go tests when aarch64 support is added to ops
+      - run:
+          name: aarch64-build
+          environment:
+            NANOS_TARGET_ROOT: ~/project/target-root
+          command: |
+            make PLATFORM=virt runtime-tests-noaccel
+
+      - run: echo "deb http://packages.cloud.google.com/apt cloud-sdk-jessie main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
+      - run: curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
+      - run: sudo apt-get update && sudo apt-get install google-cloud-sdk
+
+      - run: echo $GCLOUD_SERVICE_KEY | gcloud auth activate-service-account --key-file=-
+      - run: gcloud config set project ${GOOGLE_PROJECT_ID}
+      - run: gcloud --quiet config set compute/zone ${GOOGLE_COMPUTE_ZONE}
+
+      - run: mkdir temp && cp output/platform/virt/bin/kernel.img temp/ && cp output/tools/bin/mkfs temp/ && cp output/tools/bin/dump temp/ && mkdir temp/klibs && cp output/klib/bin/* temp/klibs
+      - run: cd temp && tar cvzf nanos-nightly-linux-virt.tar.gz * && gsutil cp nanos-nightly-linux-virt.tar.gz gs://nanos/release/nightly
+      - run: gsutil acl ch -u AllUsers:R gs://nanos/release/nightly/nanos-nightly-linux-virt.tar.gz
+      - run: rm -r temp
+      - run: echo $(date +"%m%d%Y") > nanos-nightly-linux-virt.timestamp
+      - run: gsutil cp nanos-nightly-linux-virt.timestamp gs://nanos/release/nightly
+      - run: gsutil acl ch -u AllUsers:R gs://nanos/release/nightly/nanos-nightly-linux-virt.timestamp
+
 workflows:
   version: 2
   commit-workflow:
     jobs:
-      - build
+      - build-pc
+      - build-virt
   nightly:
     triggers:
       - schedule:
@@ -116,3 +165,4 @@ workflows:
     jobs:
       - nightly-build
       - nightly-build-mac
+      - nightly-build-virt

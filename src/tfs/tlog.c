@@ -536,7 +536,7 @@ void log_flush(log tl, status_handler completion)
     }
 }
 
-#ifdef STAGE3
+#ifdef KERNEL
 closure_function(1, 1, void, log_flush_timer_expired,
                  log, tl,
                  u64, overruns /* ignored */)

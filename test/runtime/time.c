@@ -72,6 +72,7 @@ static inline long long delta_nsec(struct timespec *start, struct timespec *fini
 static long long validate_interval(struct timespec * start, struct timespec * finish,
                                    unsigned long long intervals, unsigned long long nsec)
 {
+    timetest_debug("%s: intervals %lld, nsec %lld\n", __func__, intervals, nsec);
     long long duration = delta_nsec(start, finish);
     if (duration < 0) {
         timetest_msg("failed; negative duration: start ");

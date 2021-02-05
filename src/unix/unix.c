@@ -103,7 +103,7 @@ static boolean handle_protection_fault(context frame, u64 vaddr, vmap vm)
             pf_debug("copy-on-write for private map: vaddr 0x%lx, node %p, node_offset 0x%lx\n",
                      vaddr, vm->cache_node, node_offset);
             if (!pagecache_node_do_page_cow(vm->cache_node, node_offset, vaddr_aligned,
-                                            page_map_flags(vm->flags))) {
+                                            pageflags_from_vmflags(vm->flags))) {
                 msg_err("cannot get physical page; OOM\n");
                 return false;
             }
@@ -151,7 +151,7 @@ define_closure_function(1, 1, context, default_fault_handler,
        resuming deferred processing. */
     p = current_thread->p;
 
-    if (frame[FRAME_VECTOR] == 0) {
+    if (is_div_by_zero(frame)) {
         if (current_cpu()->state == cpu_user) {
             deliver_fault_signal(SIGFPE, current_thread, vaddr, FPE_INTDIV);
             schedule_frame(frame);
@@ -160,11 +160,12 @@ define_closure_function(1, 1, context, default_fault_handler,
             rprintf("\nDivide by zero occurs in kernel mode\n");
             goto bug;
         }
-    } else if (frame[FRAME_VECTOR] == 14) {
+    } else if (is_page_fault(frame)) {
+        pf_debug("page fault, vaddr 0x%lx\n", vaddr);
         vmap vm = vmap_from_vaddr(p, vaddr);
         if (vm == INVALID_ADDRESS) {
             if (user) {
-                pf_debug("no vmap found for addr 0x%lx, rip 0x%lx", vaddr, frame[FRAME_RIP]);
+                pf_debug("no vmap found for addr 0x%lx, rip 0x%lx", vaddr, frame[SYSCALL_FRAME_PC]);
                 deliver_fault_signal(SIGSEGV, current_thread, vaddr, SEGV_MAPERR);
 
                 /* schedule this thread to either run signal handler or terminate */
@@ -202,14 +203,18 @@ define_closure_function(1, 1, context, default_fault_handler,
             schedule_frame(frame);
             return 0;
         }
-    } else if (frame[FRAME_VECTOR] == 13) {
+    }
+    /* XXX arch dep */
+#ifdef __x86_64__
+    else if (frame[FRAME_VECTOR] == 13) {
         if (current_cpu()->state == cpu_user) {
-            pf_debug("general protection fault in user mode, rip 0x%lx", frame[FRAME_RIP]);
+            pf_debug("general protection fault in user mode, rip 0x%lx", frame[SYSCALL_FRAME_PC]);
             deliver_fault_signal(SIGSEGV, current_thread, 0, SI_KERNEL);
             schedule_frame(frame);
             return 0;
         }
     }
+#endif
 
   bug:
     // panic handling in a more central location?
@@ -219,12 +224,11 @@ define_closure_function(1, 1, context, default_fault_handler,
     frame[FRAME_FULL] = 0;
 
     if (p && table_find(p->process_root, sym(fault))) {
-        rputs("starting gdb\n");
-        init_tcp_gdb(heap_general(get_kernel_heaps()), p, 9090);
-        thread_sleep_uninterruptible();
-    } else {
-        halt("halt\n");
+        rputs("TODO: in-kernel gdb needs revisiting\n");
+//        init_tcp_gdb(heap_general(get_kernel_heaps()), p, 9090);
+//        thread_sleep_uninterruptible();
     }
+    halt("halt\n");
 }
 
 void init_thread_fault_handler(thread t)
@@ -319,16 +323,18 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
 
     /* don't need these for kernel process */
     if (p->pid > 1) {
-        /* start huge virtual at zero so that parent allocations abide
-           by alignment, but reserve lowest huge page for virtual32 */
+        /* start huge virtual at zero so that parent allocations abide by alignment */
         p->virtual = create_id_heap(h, h, 0, PROCESS_VIRTUAL_HEAP_LIMIT, HUGE_PAGESIZE, false);
         assert(p->virtual != INVALID_ADDRESS);
+
+        /* reserve the lowest huge page for program, heap and stack (and virtual32 on x86_64) */
         assert(id_heap_set_area(p->virtual, 0, HUGE_PAGESIZE, true, true));
         p->virtual_page = create_id_heap_backed(h, heap_backed(kh), (heap)p->virtual, PAGESIZE, false);
         assert(p->virtual_page != INVALID_ADDRESS);
         if (aslr)
             id_heap_set_randomize(p->virtual_page, true);
 
+#ifdef __x86_64__
         /* This heap is used to track the lowest 32 bits of process
            address space. Allocations are presently only made from the
            top half for MAP_32BIT mappings. */
@@ -336,10 +342,14 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
         assert(p->virtual32 != INVALID_ADDRESS);
         if (aslr)
             id_heap_set_randomize(p->virtual32, true);
+#endif
         mmap_process_init(p);
         init_vdso(p);
     } else {
-        p->virtual = p->virtual_page = p->virtual32 = 0;
+#ifdef __x86_64__
+        p->virtual32 = 0;
+#endif
+        p->virtual = p->virtual_page = 0;
         p->vareas = p->vmaps = INVALID_ADDRESS;
     }
     p->root_fs = p->cwd_fs = fs;
@@ -391,11 +401,17 @@ void thread_pause(thread t)
     else {
         t->utime += diff;
     }
+    context f = thread_frame(t);
+    thread_frame_save_fpsimd(f);
+    thread_frame_save_tls(f);
     set_current_thread(0);
 }
 
 void thread_resume(thread t)
 {
+    nanos_thread old = get_current_thread();
+    if (old && old != &t->thrd)
+        apply(old->pause);
     count_syscall_resume(t);
     if (get_current_thread() == &t->thrd)
         return;
@@ -484,13 +500,14 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
         goto alloc_fail;
 #endif
 
+    init_syscall_handler();
     process kernel_process = create_process(uh, root, fs);
     dummy_thread = create_thread(kernel_process);
     runtime_memcpy(dummy_thread->name, "dummy_thread",
         sizeof(dummy_thread->name));
 
     for (int i = 0; i < MAX_CPUS; i++) {
-        context f = cpuinfo_from_id(i)->kernel_context->frame;
+        context f = frame_from_kernel_context(get_kernel_context(cpuinfo_from_id(i)));
         f[FRAME_THREAD] = u64_from_pointer(dummy_thread);
     }
 

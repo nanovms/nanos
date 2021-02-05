@@ -15,6 +15,7 @@ PROGRAMS= \
 	getdents \
 	getrandom \
 	hw \
+	hwg \
 	hws \
 	klibs \
 	io_uring \

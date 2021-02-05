@@ -1,7 +1,6 @@
 #ifndef _HYPERV_INTERNAL_H_
 #define _HYPERV_INTERNAL_H_
 
-#include <drivers/storage.h>
 #include "ctassert.h"
 #include "atomic.h"
 

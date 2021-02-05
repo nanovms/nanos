@@ -10,7 +10,6 @@
 
 #include <kernel.h>
 #include <pvclock.h>
-#include <page.h>
 
 #ifndef BUILD_VDSO
 VVAR_DEF(struct vdso_dat_struct, vdso_dat) = {
@@ -107,6 +106,7 @@ vdso_now(clock_id id)
     return _now + clock_get_drift(_now) + _off;
 }
 
+#ifdef __x86_64__
 VDSO int
 vdso_getcpu(unsigned *cpu, unsigned *node)
 {
@@ -116,7 +116,7 @@ vdso_getcpu(unsigned *cpu, unsigned *node)
         if (node)
             *node = 0;
         return 0;
-    } else {
-        return -1;
     }
+    return -1;
 }
+#endif

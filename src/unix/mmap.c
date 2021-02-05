@@ -52,7 +52,7 @@ define_closure_function(3, 1, void, thread_demand_file_page_complete,
 }
 
 define_closure_function(5, 0, void, thread_demand_file_page,
-                        thread, t, vmap, vm, u64, node_offset, u64, page_addr, u64, flags)
+                        thread, t, vmap, vm, u64, node_offset, u64, page_addr, pageflags, flags)
 {
     vmap vm = bound(vm);
     pagecache_node pn = vm->cache_node;
@@ -70,6 +70,7 @@ define_closure_function(5, 0, void, thread_demand_file_page,
 
 boolean do_demand_page(u64 vaddr, vmap vm, context frame)
 {
+    cpuinfo ci = current_cpu();
     boolean in_kernel = is_current_kernel_context(frame);
     if ((vm->flags & VMAP_FLAG_MMAP) == 0) {
         msg_err("vaddr 0x%lx matched vmap with invalid flags (0x%x)\n",
@@ -90,16 +91,15 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
             return false;
         }
 
-        u64 vaddr_aligned = vaddr & ~MASK(PAGELOG);
-        map(vaddr_aligned, paddr, PAGESIZE, page_map_flags(vm->flags));
-        zero(pointer_from_u64(vaddr_aligned), PAGESIZE);
+        map_and_zero(vaddr & ~MASK(PAGELOG), paddr, PAGESIZE, pageflags_from_vmflags(vm->flags));
     } else if (mmap_type == VMAP_MMAP_TYPE_FILEBACKED) {
         u64 page_addr = vaddr & ~PAGEMASK;
         u64 node_offset = vm->node_offset + (page_addr - vm->node.r.start);
         boolean shared = (vm->flags & VMAP_FLAG_SHARED) != 0;
-        u64 flags = page_map_flags(vm->flags);
+        pageflags flags = pageflags_from_vmflags(vm->flags);
         if (!shared)
-            flags &= ~PAGE_WRITABLE; /* cow */
+            flags = pageflags_readonly(flags); /* cow */
+
         pf_debug("   node %p (start 0x%lx), offset 0x%lx\n",
                  vm->cache_node, vm->node.r.start, node_offset);
 
@@ -134,7 +134,7 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
                 return true;
             }
             faulting_kernel_context = suspend_kernel_context();
-            current_cpu()->have_kernel_lock = false;
+            ci->have_kernel_lock = false;
         } else {
             /* A user fault can happen outside of the kernel lock. We can try to touch an existing
                page, but we can't allocate anything, fill a page or start a storage operation. */
@@ -153,7 +153,8 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
         }
 
         /* suspending */
-        current_cpu()->kernel_context->frame[FRAME_FULL] = false;
+        context f = frame_from_kernel_context(get_kernel_context(ci));
+        f[FRAME_FULL] = false;
         runloop();
     } else {
         halt("%s: invalid vmap type %d, flags 0x%lx\n", __func__, mmap_type, vm->flags);
@@ -356,9 +357,9 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
     remap_pages(vnew, old_addr, old_size);
 
     /* map new portion and zero */
-    u64 mapflags = page_map_flags(vmflags);
+    pageflags mapflags = pageflags_from_vmflags(vmflags);
     thread_log(current, "   mapping and zeroing new portion at 0x%lx, page flags 0x%lx",
-               vnew + old_size, mapflags);
+               vnew + old_size, mapflags.w);
     map(vnew + old_size, dphys, dlen, mapflags);
     zero(pointer_from_u64(vnew + old_size), dlen);
     vmap_unlock(p);
@@ -370,23 +371,25 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
 
 closure_function(3, 3, boolean, mincore_fill_vec,
                  u64, base, u64, nr_pgs, u8 *, vec,
-                 int, level, u64, addr, u64 *, entry)
+                 int, level, u64, addr, pteptr, entry)
 {
-    u64 e = *entry;
-    u64 pgoff, i;
+    pte e = pte_from_pteptr(entry);
+    u64 pgoff, i, size;
 
-    if (pt_entry_is_present(e)) {
+    if (pte_is_present(e) &&
+        (size = pte_map_size(level, e)) != INVALID_PHYSICAL) {
         if (addr <= bound(base))
             pgoff = 0;
         else
             pgoff = ((addr - bound(base)) >> PAGELOG);
-        if (pt_entry_is_fat(level, e)) {
-            u64 foff = pgoff ? 0 : (addr & PAGEMASK_2M) >> PAGELOG;
-            for (i = 0; (i < 512 - foff) && (pgoff + i < bound(nr_pgs)); i++)
-                bound(vec)[pgoff + i] = 1;
-        } else if (pt_entry_is_pte(level, e)) {
-            bound(vec)[pgoff] = 1;
-        }
+
+        assert(size >= PAGESIZE);
+        assert((size & (size - 1)) == 0);
+        size >>= PAGELOG;
+        u64 foff = pgoff ? 0 : (addr & (size - 1)) >> PAGELOG;
+
+        for (i = 0; (i < size - foff) && (pgoff + i < bound(nr_pgs)); i++)
+            bound(vec)[pgoff + i] = 1;
     }
 
     return true;
@@ -553,7 +556,7 @@ static sysreturn vmap_update_protections(heap h, rangemap pvmap, range q, u32 ne
     rmnode_handler nh = stack_closure(vmap_update_protections_intersection, h, pvmap, q, newflags);
     rangemap_range_lookup(pvmap, q, nh);
 
-    update_map_flags(q.start, range_span(q), page_map_flags(newflags));
+    update_map_flags(q.start, range_span(q), pageflags_from_vmflags(newflags));
     return 0;
 }
 
@@ -731,7 +734,7 @@ static void vmap_paint(heap h, process p, u64 where, u64 len, u32 vmflags,
                                                      ivmap(vmflags, allowed_flags,
                                                            node_offset, cache_node)));
 
-    update_map_flags(q.start, range_span(q), page_map_flags(vmflags));
+    update_map_flags(q.start, range_span(q), pageflags_from_vmflags(vmflags));
     vmap_unlock(p);
 }
 
@@ -910,16 +913,19 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
 
     if (!fixed && (vmap_mmap_type == VMAP_MMAP_TYPE_ANONYMOUS ||
                    vmap_mmap_type == VMAP_MMAP_TYPE_FILEBACKED)) {
+#ifdef __x86_64__
         boolean is_32bit = (flags & MAP_32BIT) != 0; /* allocate from 32-bit address space */
         where = is_32bit ? id_heap_alloc_subrange(p->virtual32, len, 0x80000000, 0x100000000) :
             allocate_u64((heap)p->virtual_page, len);
+#else
+        where = allocate_u64((heap)p->virtual_page, len);
+#endif
         if (where == (u64)INVALID_ADDRESS) {
             /* We'll always want to know about low memory conditions, so just bark. */
-            msg_err("failed to allocate %svirtual memory, size 0x%lx\n",
-                    is_32bit ? "32-bit " : "", len);
+            msg_err("failed to allocate virtual memory, flags 0x%x, size 0x%lx\n", flags, len);
             return -ENOMEM;
         }
-        thread_log(current, "   alloc: 0x%lx\n", where);
+        thread_log(current, "   alloc: 0x%lx", where);
     }
 
     sysreturn ret = where;
@@ -934,7 +940,7 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
             ret = -ENOMEM;
         else {
             vmflags |= VMAP_FLAG_PREALLOC;
-            ret = io_uring_mmap(desc, len, page_map_flags(vmflags), offset);
+            ret = io_uring_mmap(desc, len, pageflags_from_vmflags(vmflags), offset);
             thread_log(current, "   io_uring_mmap returned 0x%lx", ret);
             if (ret > 0)
                vmap_paint(h, p, (u64)ret, len, vmflags, allowed_flags, 0, 0);
@@ -997,17 +1003,26 @@ void mmap_process_init(process p)
     assert(p->vareas != INVALID_ADDRESS && p->vmaps != INVALID_ADDRESS);
 
     /* zero page is off-limits */
-    add_varea(p, 0, PAGESIZE, p->virtual32, false);
+    add_varea(p, 0, PAGESIZE,
+#ifdef __x86_64__
+              p->virtual32,
+#else
+              p->virtual_page,
+#endif
+              false);
 
     /* allow (tracked) reservations in p->virtual */
     add_varea(p, PROCESS_VIRTUAL_HEAP_START, PROCESS_VIRTUAL_HEAP_LIMIT, p->virtual_page, true);
 
+    /* XXX todo: tagged addresses logically above kernel area - handle in mmap? */
+#ifdef __x86_64__
     /* reserve end of p->virtual to user tag region */
     u64 user_va_tag_start = U64_FROM_BIT(USER_VA_TAG_OFFSET);
     u64 user_va_tag_end = user_va_tag_start * tag_max;
 
     /* allow untracked mmaps in user va tag area */
     add_varea(p, user_va_tag_start, user_va_tag_end, 0, true);
+#endif
 
     /* reserve kernel memory and non-canonical addresses */
     add_varea(p, USER_LIMIT, -1ull, 0, false);
@@ -1026,9 +1041,11 @@ void mmap_process_init(process p)
     assert(allocate_vmap(p->vmaps, irangel(p->vdso_base + vdso_size, vvar_size),
                          ivmap(0, 0, 0, 0)) != INVALID_ADDRESS);
 
+#ifdef __x86_64__
     /* Track vsyscall page */
     assert(allocate_vmap(p->vmaps, irangel(VSYSCALL_BASE, PAGESIZE),
                          ivmap(VMAP_FLAG_EXEC, 0, 0, 0)) != INVALID_ADDRESS);
+#endif
 
     init_closure(&do_kernel_demand_pf_complete, kernel_demand_pf_complete);
 }

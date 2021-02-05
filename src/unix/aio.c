@@ -88,8 +88,8 @@ sysreturn io_setup(unsigned int nr_events, aio_context_t *ctx_idp)
         deallocate(vh, ctx, alloc_size);
         return -ENOMEM;
     }
-    map(u64_from_pointer(ctx), phys, alloc_size,
-        PAGE_WRITABLE | PAGE_NO_EXEC | PAGE_USER);
+    pageflags flags = pageflags_writable(pageflags_noexec(pageflags_user(pageflags_memory())));
+    map(u64_from_pointer(ctx), phys, alloc_size, flags);
 
     struct aio *aio = aio_alloc(current->p, kh, &ctx->id);
     assert(aio);

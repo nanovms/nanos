@@ -1,0 +1,15 @@
+(
+    children:(
+              #user program
+	      hwg:(contents:(host:output/test/runtime/bin/hwg))
+	      etc:(children:(ld.so.cache:(contents:(host:/etc/ld.so.cache))))
+              TEST-LIBS)
+    # filesystem path to elf for kernel to run
+    program:/hwg
+#    trace:t
+#    debugsyscalls:t
+#    futex_trace:t
+    fault:t
+    arguments:[hwg poppy]
+    environment:(USER:bobby PWD:/)
+)

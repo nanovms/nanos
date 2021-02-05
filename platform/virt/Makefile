@@ -5,112 +5,78 @@ PROGRAMS=	kernel.elf
 WITHOUT_SSP=	1
 
 SRCS-kernel.elf= \
-	$(SRCDIR)/aarch64/crt0.s \
-	$(CURDIR)/hello.c
+	$(CURDIR)/service.c \
+	$(CURDIR)/pci.c \
+	$(OBJDIR)/gitversion.c \
+	$(SRCDIR)/aarch64/clock.c \
+	$(SRCDIR)/aarch64/crt0.S \
+	$(SRCDIR)/aarch64/elf64.c \
+	$(SRCDIR)/aarch64/gic.c \
+	$(SRCDIR)/aarch64/interrupt.c \
+	$(SRCDIR)/aarch64/kernel_machine.c \
+	$(SRCDIR)/aarch64/page.c \
+	$(SRCDIR)/aarch64/rtc.c \
+	$(SRCDIR)/aarch64/serial.c \
+	$(SRCDIR)/aarch64/unix_machine.c \
+	$(SRCDIR)/drivers/console.c \
+	$(SRCDIR)/drivers/netconsole.c \
+	$(SRCDIR)/kernel/backed_heap.c \
+	$(SRCDIR)/kernel/locking_heap.c \
+	$(SRCDIR)/kernel/elf.c \
+	$(SRCDIR)/kernel/clock.c \
+	$(SRCDIR)/kernel/init.c \
+	$(SRCDIR)/kernel/kernel.c \
+	$(SRCDIR)/kernel/klib.c \
+	$(SRCDIR)/kernel/log.c \
+	$(SRCDIR)/kernel/pagecache.c \
+	$(SRCDIR)/kernel/pci.c \
+	$(SRCDIR)/kernel/schedule.c \
+	$(SRCDIR)/kernel/stage3.c \
+	$(SRCDIR)/kernel/storage.c \
+	$(SRCDIR)/kernel/symtab.c \
+	$(SRCDIR)/kernel/vdso-now.c \
+	$(SRCDIR)/net/direct.c \
+	$(SRCDIR)/net/net.c \
+	$(SRCDIR)/net/netsyscall.c \
+	$(RUNTIME) \
+	$(SRCDIR)/tfs/tfs.c \
+	$(SRCDIR)/tfs/tlog.c \
+	$(SRCDIR)/unix/aio.c \
+	$(SRCDIR)/unix/blockq.c \
+	$(SRCDIR)/unix/exec.c \
+	$(SRCDIR)/unix/eventfd.c \
+	$(SRCDIR)/unix/filesystem.c \
+	$(SRCDIR)/unix/futex.c \
+	$(SRCDIR)/unix/io_uring.c \
+	$(SRCDIR)/unix/mktime.c \
+	$(SRCDIR)/unix/mmap.c \
+	$(SRCDIR)/unix/notify.c \
+	$(SRCDIR)/unix/poll.c \
+	$(SRCDIR)/unix/signal.c \
+	$(SRCDIR)/unix/socket.c \
+	$(SRCDIR)/unix/special.c \
+	$(SRCDIR)/unix/syscall.c \
+	$(SRCDIR)/unix/thread.c \
+	$(SRCDIR)/unix/timer.c \
+	$(SRCDIR)/unix/unix_clock.c \
+	$(SRCDIR)/unix/unix.c \
+	$(SRCDIR)/unix/pipe.c \
+	$(SRCDIR)/unix/vdso.c \
+	$(SRCDIR)/virtio/virtio.c \
+	$(SRCDIR)/virtio/virtio_storage.c \
+	$(SRCDIR)/virtio/virtio_scsi.c \
+	$(SRCDIR)/virtio/virtio_net.c \
+	$(SRCDIR)/virtio/virtio_mmio.c \
+	$(SRCDIR)/virtio/virtio_pci.c \
+	$(SRCDIR)/virtio/virtqueue.c \
+	$(SRCDIR)/virtio/scsi.c \
+	$(VDSO_OBJDIR)/vdso-image.c \
+	$(SRCS-lwip)
 
-# SRCS-kernel.elf= \
-# 	$(CURDIR)/stage3.c \
-# 	$(OBJDIR)/gitversion.c \
-# 	$(SRCDIR)/drivers/ata.c \
-# 	$(SRCDIR)/drivers/ata-pci.c \
-# 	$(SRCDIR)/drivers/console.c \
-# 	$(SRCDIR)/drivers/storage.c \
-# 	$(SRCDIR)/drivers/vga.c \
-# 	$(SRCDIR)/gdb/gdbstub.c \
-# 	$(SRCDIR)/gdb/gdbtcp.c \
-# 	$(SRCDIR)/gdb/gdbutil.c \
-# 	$(SRCDIR)/http/http.c \
-# 	$(SRCDIR)/kernel/backed_heap.c \
-# 	$(SRCDIR)/kernel/elf.c \
-# 	$(SRCDIR)/kernel/kernel.c \
-# 	$(SRCDIR)/kernel/kvm_platform.c \
-# 	$(SRCDIR)/kernel/pagecache.c \
-# 	$(SRCDIR)/kernel/pci.c \
-# 	$(SRCDIR)/kernel/pvclock.c \
-# 	$(SRCDIR)/kernel/schedule.c \
-# 	$(SRCDIR)/kernel/service.c \
-# 	$(SRCDIR)/kernel/symtab.c \
-# 	$(SRCDIR)/kernel/vdso-now.c \
-# 	$(SRCDIR)/net/direct.c \
-# 	$(SRCDIR)/net/net.c \
-# 	$(SRCDIR)/net/netsyscall.c \
-# 	$(SRCDIR)/runtime/bitmap.c \
-# 	$(SRCDIR)/runtime/buffer.c \
-# 	$(SRCDIR)/runtime/extra_prints.c \
-# 	$(SRCDIR)/runtime/format.c \
-# 	$(SRCDIR)/runtime/heap/freelist.c \
-# 	$(SRCDIR)/runtime/heap/id.c \
-# 	$(SRCDIR)/runtime/heap/mcache.c \
-# 	$(SRCDIR)/runtime/heap/objcache.c \
-# 	$(SRCDIR)/runtime/memops.c \
-# 	$(SRCDIR)/runtime/merge.c \
-# 	$(SRCDIR)/runtime/pqueue.c \
-# 	$(SRCDIR)/runtime/queue.c \
-# 	$(SRCDIR)/runtime/random.c \
-# 	$(SRCDIR)/runtime/range.c \
-# 	$(SRCDIR)/runtime/rbtree.c \
-# 	$(SRCDIR)/runtime/runtime_init.c \
-# 	$(SRCDIR)/runtime/sg.c \
-# 	$(SRCDIR)/runtime/sha256.c \
-# 	$(SRCDIR)/runtime/symbol.c \
-# 	$(SRCDIR)/runtime/table.c \
-# 	$(SRCDIR)/runtime/timer.c \
-# 	$(SRCDIR)/runtime/tuple.c \
-# 	$(SRCDIR)/runtime/string.c \
-# 	$(SRCDIR)/runtime/crypto/chacha.c \
-# 	$(SRCDIR)/tfs/tfs.c \
-# 	$(SRCDIR)/tfs/tlog.c \
-# 	$(SRCDIR)/unix/aio.c \
-# 	$(SRCDIR)/unix/blockq.c \
-# 	$(SRCDIR)/unix/exec.c \
-# 	$(SRCDIR)/unix/eventfd.c \
-# 	$(SRCDIR)/unix/filesystem.c \
-# 	$(SRCDIR)/unix/futex.c \
-# 	$(SRCDIR)/unix/io_uring.c \
-# 	$(SRCDIR)/unix/mktime.c \
-# 	$(SRCDIR)/unix/mmap.c \
-# 	$(SRCDIR)/unix/notify.c \
-# 	$(SRCDIR)/unix/poll.c \
-# 	$(SRCDIR)/unix/signal.c \
-# 	$(SRCDIR)/unix/socket.c \
-# 	$(SRCDIR)/unix/special.c \
-# 	$(SRCDIR)/unix/syscall.c \
-# 	$(SRCDIR)/unix/thread.c \
-# 	$(SRCDIR)/unix/timer.c \
-# 	$(SRCDIR)/unix/unix_clock.c \
-# 	$(SRCDIR)/unix/unix.c \
-# 	$(SRCDIR)/unix/vdso.c \
-# 	$(SRCDIR)/unix/pipe.c \
-# 	$(SRCDIR)/virtio/virtio_net.c \
-# 	$(SRCDIR)/virtio/virtio_pci.c \
-# 	$(SRCDIR)/virtio/virtio_storage.c \
-# 	$(SRCDIR)/virtio/virtio_scsi.c \
-# 	$(SRCDIR)/virtio/virtqueue.c \
-# 	$(SRCDIR)/virtio/scsi.c \
-# 	$(SRCDIR)/vmware/vmxnet3_net.c \
-# 	$(SRCDIR)/vmware/vmxnet3_queue.c \
-# 	$(SRCDIR)/vmware/pvscsi.c \
-# 	$(SRCDIR)/xen/xen.c \
-# 	$(SRCDIR)/xen/xennet.c \
-# 	$(SRCDIR)/aarch64/ap.s \
-# 	$(SRCDIR)/aarch64/apic.c \
-# 	$(SRCDIR)/aarch64/breakpoint.c \
-# 	$(SRCDIR)/aarch64/clock.c \
-# 	$(SRCDIR)/aarch64/flush.c \
-# 	$(SRCDIR)/aarch64/hpet.c \
-# 	$(SRCDIR)/aarch64/interrupt.c \
-# 	$(SRCDIR)/aarch64/mp.c \
-# 	$(SRCDIR)/aarch64/page.c \
-# 	$(SRCDIR)/aarch64/rtc.c \
-# 	$(SRCDIR)/aarch64/serial.c \
-# 	$(SRCDIR)/aarch64/synth.c \
-# 	$(SRCDIR)/aarch64/x2apic.c \
-# 	$(SRCDIR)/aarch64/xapic.c \
-# 	$(VDSO_OBJDIR)/vdso-image.c \
-# 	$(SRCS-lwip)
 
 SRCS-lwip= \
 	$(LWIPDIR)/src/core/def.c \
+	$(LWIPDIR)/src/core/dns.c \
 	$(LWIPDIR)/src/core/inet_chksum.c \
 	$(LWIPDIR)/src/core/init.c \
 	$(LWIPDIR)/src/core/ip.c \
@@ -142,6 +108,7 @@ SRCS-lwip= \
 INCLUDES=\
 	-I$(SRCDIR) \
 	-I$(ARCHDIR) \
+	-I$(CURDIR) \
 	-I$(SRCDIR)/gdb \
 	-I$(SRCDIR)/http \
 	-I$(SRCDIR)/kernel \
@@ -151,11 +118,12 @@ INCLUDES=\
 	-I$(SRCDIR)/unix \
 	-I$(SRCDIR)/unix_process \
 	-I$(SRCDIR)/xen/public \
-	-I$(LWIPDIR)/src/include
+	-I$(LWIPDIR)/src/include \
+	-I$(VDSO_OBJDIR)
 
 AFLAGS+=-I$(ARCHDIR)
 
-CFLAGS+=$(KERNCFLAGS) -DKERNEL -mcpu=cortex-a57
+CFLAGS+=$(KERNCFLAGS) -DKERNEL -march=armv8.1-a+nofp -ffixed-x18
 CFLAGS+=-Wno-address # lwIP build sadness
 CFLAGS+=$(INCLUDES)
 
@@ -169,7 +137,7 @@ endif
 
 #CFLAGS+=	-DLWIPDIR_DEBUG -DEPOLL_DEBUG -DNETSYSCALL_DEBUG -DKERNEL_DEBUG
 AFLAGS+=	-I$(OBJDIR)/
-LDFLAGS+=	$(KERNLDFLAGS) -T linker_script
+LDFLAGS+=	$(KERNLDFLAGS) --undefined=_start -T linker_script
 
 VDSOGEN=	$(TOOLDIR)/vdsogen
 VDSO_SRCDIR=    $(SRCDIR)/kernel
@@ -182,7 +150,7 @@ VDSO_DEPS=      $(patsubst %.o,%.d,$(VDSO_OBJS))
 OBJDUMPFLAGS=	-d -S
 
 DEPFILES+=      $(VDSO_DEPS)
-CLEANFILES+=    $(foreach f,gitversion.c frame.inc kernel.dis kernel.elf bin/kernel.img src/unix/ftrace.* $(ARCHDIR)/ftrace.*,$(OBJDIR)/$f) $(VDSO_OBJDIR)/vdso.so $(VDSO_OBJDIR)/vdso-image.c $(VDSO_OBJS) $(VDSO_DEPS)
+CLEANFILES+=    $(foreach f,gitversion.c frame.inc kernel.dis kernel.elf bin/kernel.img src/unix/ftrace.* $(ARCHDIR)/ftrace.*,$(OBJDIR)/$f) $(VDSO_OBJDIR)/vdso.so $(VDSO_OBJDIR)/vdso-image.c $(VDSO_OBJDIR)/vdso-offset.h $(VDSO_OBJS) $(VDSO_DEPS)
 CLEANDIRS+=     $(foreach d,output/platform output src vdso/src/$(ARCH) vdso/src vdso vendor vendor/lwip vendor/lwip/src platform,$(OBJDIR)/$d)
 
 OBJCOPYFLAGS	= -S -O binary
@@ -245,7 +213,7 @@ ifeq ($(IMAGE),)
 endif
 	@ echo "MKFS	$@"
 	@ $(MKDIR) $(dir $(IMAGE))
-	$(Q) cd $(ROOTDIR); $(MKFS) $(TARGET_ROOT_OPT) -k $(KERNEL) $(IMAGE) < $(ROOTDIR)/test/runtime/$(TARGET).manifest
+	$(Q) cd $(ROOTDIR); $(AWK) 'BEGIN{getline l < "$(PLATFORMDIR)/test-libs"}/TEST-LIBS/{gsub("TEST-LIBS",l)}1' $(ROOTDIR)/test/runtime/$(TARGET).manifest | $(MKFS) $(TARGET_ROOT_OPT) -k $(KERNEL) $(IMAGE)
 
 release: mkfs kernel
 	$(Q) $(RM) -r release
@@ -269,10 +237,15 @@ $(VDSO_OBJDIR)/%.o: $(VDSO_SRCDIR)/%.c
 $(VDSO_OBJDIR)/vdso.so: $(VDSO_OBJS)
 	$(call cmd,vdso_ld)
 
-$(VDSO_OBJDIR)/vdso-image.c: contgen $(VDSOGEN) $(VDSO_OBJDIR)/vdso.so
+$(VDSO_OBJDIR)/vdso-image.c: $(VDSOGEN) $(VDSO_OBJDIR)/vdso.so
 	$(call cmd,vdsogen)
 
-$(PROG-kernel.elf): linker_script # $(VDSO_OBJDIR)/vdso-image.c
+$(VDSO_OBJDIR)/vdso-offset.h: $(VDSO_OBJDIR)/vdso.so
+	$(Q) $(OBJDUMP) -t $(VDSO_OBJDIR)/vdso.so | grep __vdso_rt_sigreturn | sed "s/^\([[:xdigit:]]*\) .*/#define VDSO_OFFSET_RT_SIGRETURN 0x\1/" > $@
+
+$(OBJDIR)/src/$(ARCH)/unix_machine.o: $(VDSO_OBJDIR)/vdso-offset.h
+
+$(PROG-kernel.elf): linker_script $(VDSO_OBJDIR)/vdso-image.c
 
 $(KERNEL): $(PROG-kernel.elf)
 	$(call cmd,objcopy)
@@ -280,10 +253,10 @@ $(KERNEL): $(PROG-kernel.elf)
 $(OBJDIR)/gitversion.c: $(ROOTDIR)/.git/index $(ROOTDIR)/.git/HEAD
 	$(call cmd,version)
 
-# $(OBJDIR)/src/$(ARCH)/crt0.o: $(OBJDIR)/frame.inc
+#$(OBJDIR)/src/$(ARCH)/crt0.o: $(OBJDIR)/frame.inc
 
-$(OBJDIR)/frame.inc: $(ARCHDIR)/frame.h
-	$(call cmd,sed)
+#$(OBJDIR)/frame.inc: $(ARCHDIR)/frame.h
+#	$(call cmd,sed)
 
 #ifeq ($(UNAME_s),Darwin)
 #ELF_TARGET=     -target aarch64-littleelf
@@ -311,17 +284,12 @@ QEMU=		qemu-system-aarch64
 MACHINE_TYPE=	virt
 QEMU_CPU=	-cpu max
 DISPLAY=	none
-STORAGE=	virtio-scsi
-#STORAGE_BUS=	,bus=pci.2,addr=0x0
+STORAGE=	virtio-blk
 NETWORK=	virtio-net
-#NETWORK_BUS=	,bus=pci.3,addr=0x0
 
-QEMU_MACHINE=	-machine $(MACHINE_TYPE)
+QEMU_MACHINE=	-machine $(MACHINE_TYPE) -machine gic-version=3 -machine highmem=off
 QEMU_MEMORY=	-m 1G
-#QEMU_PCI=	-device pcie-root-port,port=0x10,chassis=1,id=pci.1,bus=$(PCI_BUS),multifunction=on,addr=0x3 \
-#		-device pcie-root-port,port=0x11,chassis=2,id=pci.2,bus=$(PCI_BUS),addr=0x3.0x1 \
-#		-device pcie-root-port,port=0x12,chassis=3,id=pci.3,bus=$(PCI_BUS),addr=0x3.0x2
-#QEMU_KERNEL=	-kernel $(KERNEL)
+PCI_BUS=	pcie.0
 QEMU_KERNEL=	-kernel $(PROG-kernel.elf)
 
 QEMU_DISPLAY=	-display none
@@ -334,28 +302,31 @@ else ifeq ($(STORAGE),pvscsi)
 QEMU_STORAGE+=	-device pvscsi$(STORAGE_BUS),id=scsi0 -device scsi-hd,bus=scsi0.0,drive=hd0
 else ifeq ($(STORAGE),virtio-blk)
 QEMU_STORAGE+=	-device virtio-blk-pci$(STORAGE_BUS),drive=hd0
-else ifeq ($(STORAGE),ide)
-MACHINE_TYPE=	pc # no AHCI support yet
-QEMU_STORAGE+=	-device ide-hd,bus=ide.0,drive=hd0
 else
 $(error Unsupported STORAGE=$(STORAGE))
 endif
 QEMU_TAP=	-netdev tap,id=n0,ifname=tap0,script=no,downscript=no
+#QEMU_NET=	-device $(NETWORK)$(NETWORK_BUS),mac=7e:b8:7e:87:4a:ea,netdev=n0,modern-pio-notify $(QEMU_TAP)
 QEMU_NET=	-device $(NETWORK)$(NETWORK_BUS),mac=7e:b8:7e:87:4a:ea,netdev=n0 $(QEMU_TAP)
 QEMU_USERNET=	-device $(NETWORK)$(NETWORK_BUS),netdev=n0 -netdev user,id=n0,hostfwd=tcp::8080-:8080,hostfwd=tcp::9090-:9090,hostfwd=udp::5309-:5309 -object filter-dump,id=filter0,netdev=n0,file=/tmp/nanos.pcap
-QEMU_FLAGS=	-d in_asm -D $(ROOTDIR)/asm.out
-#QEMU_FLAGS+=	-smp 4
-#QEMU_FLAGS+=	-d int -D int.log
-#QEMU_FLAGS+=	-s -S
 
-QEMU_COMMON=	$(QEMU_MACHINE) $(QEMU_MEMORY) $(QEMU_KERNEL) $(QEMU_DISPLAY) $(QEMU_SERIAL) -no-reboot $(QEMU_FLAGS)
+# for enabling the ARM Angel interface and passing exit codes from the program
+QEMU_FLAGS+=	-semihosting
+
+# various combinations of flags that are usefull when debugging
+#QEMU_FLAGS+=   -machine dumpdtb=virt.dtb
+#QEMU_FLAGS+=	-d in_asm,cpu -D $(ROOTDIR)/asm.out
+#QEMU_FLAGS+=	-d int -D int
+#QEMU_FLAGS+=	-s -S
+#QEMU_FLAGS+=	-monitor telnet:127.0.0.1:9999,server,nowait
+
+QEMU_COMMON=	$(QEMU_MACHINE) $(QEMU_MEMORY) $(QEMU_KERNEL) $(QEMU_DISPLAY) $(QEMU_PCI) $(QEMU_SERIAL) $(QEMU_STORAGE) -no-reboot $(QEMU_FLAGS)
 
 run: image
-	$(QEMU) $(QEMU_COMMON) $(QEMU_USERNET) $(QEMU_ACCEL) || exit $$(($$?>>1))
+	$(QEMU) $(QEMU_COMMON) $(QEMU_USERNET) $(QEMU_ACCEL)
 
 run-bridge: image
-	$(QEMU) $(QEMU_COMMON) $(QEMU_NET) $(QEMU_ACCEL) || exit $$(($$?>>1))
+	$(QEMU) $(QEMU_COMMON) $(QEMU_NET) $(QEMU_CPU)
 
-#	$(QEMU) $(QEMU_COMMON) $(QEMU_USERNET) $(QEMU_CPU) || exit $$(($$?>>1))
 run-noaccel: image
-	$(QEMU) $(QEMU_COMMON) $(QEMU_CPU) || exit $$(($$?>>1))
+	$(QEMU) $(QEMU_COMMON) $(QEMU_USERNET) $(QEMU_CPU)

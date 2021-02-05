@@ -2,7 +2,6 @@
 
 #include <kernel.h>
 #include <apic.h>
-#include <page.h>
 
 static void *apboot = INVALID_ADDRESS;
 extern int apic_id_map[MAX_CPUS];
@@ -44,14 +43,14 @@ static void __attribute__((noinline)) ap_new_stack()
     cpu_init(cid);
     cpuinfo ci = current_cpu();
 
-    set_ist(id, IST_EXCEPTION, u64_from_pointer(ci->exception_stack));
-    set_ist(id, IST_INTERRUPT, u64_from_pointer(ci->int_stack));
-    set_running_frame(ci->kernel_context->frame);
+    set_ist(id, IST_EXCEPTION, u64_from_pointer(ci->m.exception_stack));
+    set_ist(id, IST_INTERRUPT, u64_from_pointer(ci->m.int_stack));
+    set_running_frame(ci, frame_from_kernel_context(get_kernel_context(ci)));
     mp_debug(", install gdt");
     install_gdt64_and_tss(id);
     mp_debug(", enable apic");
     apic_enable();
-    set_syscall_handler(syscall_enter);
+    init_syscall_handler();
     mp_debug(", clear ap lock, enable ints, start_callback\n");
     memory_barrier();
     ap_lock = 0;
@@ -68,14 +67,15 @@ void ap_start()
             break;
         }
     }
-    switch_stack(stack_from_kernel_context(cpuinfo_from_id(id)->kernel_context), ap_new_stack);
+    switch_stack(stack_from_kernel_context(get_kernel_context(cpuinfo_from_id(id))), ap_new_stack);
 }
 
-void start_cpu(heap h, heap stackheap, int index, void (*ap_entry)()) {
+void start_cpu(heap stackheap, int index, void (*ap_entry)()) {
     if (apboot == INVALID_ADDRESS) {
         start_callback = ap_entry;
         apboot = pointer_from_u64(AP_BOOT_START);
-        map((u64)apboot, (u64)apboot, PAGESIZE, PAGE_WRITABLE);
+        map((u64)apboot, (u64)apboot, PAGESIZE,
+            pageflags_writable(pageflags_exec(pageflags_memory())));
 
         asm("sidt %0": "=m"(ap_idt_pointer));
         mov_from_cr("cr3", ap_pagetable);

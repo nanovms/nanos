@@ -1,5 +1,4 @@
 #include <kernel.h>
-#include <page.h>
 #include <hyperv_internal.h>
 #include <vmbus_xact.h>
 #include "hyperv_var.h"

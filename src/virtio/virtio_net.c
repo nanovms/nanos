@@ -31,7 +31,6 @@
  */
 
 #include <kernel.h>
-#include <page.h>
 #include "lwip/opt.h"
 #include "lwip/def.h"
 #include "lwip/mem.h"
@@ -47,8 +46,6 @@
 #include "virtio_mmio.h"
 #include "virtio_net.h"
 #include "virtio_pci.h"
-
-#include <io.h>
 
 #ifdef VIRTIO_NET_DEBUG
 # define virtio_net_debug rprintf

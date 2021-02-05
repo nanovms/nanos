@@ -1,5 +1,4 @@
 #include <kernel.h>
-#include <page.h>
 #include "dmi.h"
 
 #define SMBIOS_SCAN_START   0xF0000
@@ -33,7 +32,8 @@ static void dmi_map(void)
     u8 *smbios = allocate(h, SMBIOS_SCAN_SIZE);
     if (smbios == INVALID_ADDRESS)
         return;
-    map(u64_from_pointer(smbios), SMBIOS_SCAN_START, SMBIOS_SCAN_SIZE, PAGE_DEV_FLAGS);
+    map(u64_from_pointer(smbios), SMBIOS_SCAN_START, SMBIOS_SCAN_SIZE,
+        pageflags_writable(pageflags_device()));
     for (u8 *p = smbios; p < smbios + SMBIOS_SCAN_SIZE; p += 16) {
         if (!runtime_memcmp(p, "_DMI_", 5)) {
             u8 buf[16];
@@ -51,7 +51,8 @@ static void dmi_map(void)
             }
             u64 map_end = pad(phys_base + dmi_len, PAGESIZE);
             map(u64_from_pointer(dmi_base), phys_base & ~PAGEMASK,
-                map_end - (phys_base & ~PAGEMASK), PAGE_DEV_FLAGS);
+                map_end - (phys_base & ~PAGEMASK),
+                pageflags_writable(pageflags_device()));
             dmi_base += phys_base & PAGEMASK;
             return;
         }

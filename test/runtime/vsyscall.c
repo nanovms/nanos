@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <string.h>
 
+#ifdef __x86_64__
 #define VSYSCALL_BASE                 0xffffffffff600000ull
 #define VSYSCALL_OFFSET_VGETTIMEOFDAY 0x000
 #define VSYSCALL_OFFSET_VTIME         0x400
@@ -62,3 +63,10 @@ int main(int argc, char * argv[])
 
     return EXIT_SUCCESS;
 }
+#else
+int main(int argc, char *argv[])
+{
+    fprintf(stderr, "vsyscall test for x86_64 architecture only\n");
+    return EXIT_SUCCESS;
+}
+#endif
