@@ -46,6 +46,7 @@
 #define C0_WP   0x00010000
 
 #define CR4_PAE         (1 << 5)
+#define CR4_PGE         (1 << 7)
 #define CR4_OSFXSR      (1 << 9)
 #define CR4_OSXMMEXCPT  (1 << 10)
 #define CR4_OSXSAVE     (1 << 18)

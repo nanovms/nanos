@@ -14,7 +14,7 @@
     %define EFER_NXE (1<<11)
 
     %macro PREPARE_LONG_MODE 1
-    mov %1, CR4_PAE | CR4_PGE | CR4_OSFXSR | CR4_OSXMMEXCPT ;| CR4_OSXSAVE
+    mov %1, CR4_PAE
     mov cr4, %1
 
     mov ecx, MSR_EFER ; Read from the EFER MSR.
@@ -26,8 +26,6 @@
     %macro ENTER_LONG_MODE 1
     mov %1, cr0        ; Activate long mode -
     or %1, CR0_PG | CR0_PE  ; - by enabling paging and protection simultaneously.
-    and %1, ~CR0_EM       ; clear EM
-    or %1, CR0_MP         ; set MP
     mov cr0, %1
     %endmacro
 

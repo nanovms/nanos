@@ -25,6 +25,14 @@ static void (*start_callback)();
 
 void cpu_init(int cpu)
 {
+    u64 cr;
+    mov_from_cr("cr4", cr);
+    cr |= CR4_PGE | CR4_OSFXSR | CR4_OSXMMEXCPT;
+    mov_to_cr("cr4", cr);
+    mov_from_cr("cr0", cr);
+    cr |= C0_MP;
+    cr &= ~C0_EM;
+    mov_to_cr("cr0", cr);
     u64 addr = u64_from_pointer(cpuinfo_from_id(cpu));
     write_msr(KERNEL_GS_MSR, 0); /* clear user GS */
     write_msr(GS_MSR, addr);
