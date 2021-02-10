@@ -500,7 +500,6 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
         goto alloc_fail;
 #endif
 
-    init_syscall_handler();
     process kernel_process = create_process(uh, root, fs);
     dummy_thread = create_thread(kernel_process);
     runtime_memcpy(dummy_thread->name, "dummy_thread",
