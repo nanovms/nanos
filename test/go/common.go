@@ -18,7 +18,6 @@ func defaultConfig() lepton.Config {
 
 	c.Boot = "../../output/test/go/boot.img"
 	c.Kernel = "../../output/test/go/kernel.img"
-	c.Mkfs = "../../output/tools/bin/mkfs"
 	c.NameServer = "8.8.8.8"
 
 	c.Env = make(map[string]string)
