@@ -2380,7 +2380,7 @@ void syscall_debug(context f)
     t->syscall = -1;
     // i dont know that we actually want to defer the syscall return...its just easier for the moment to hew
     // to the general model and make exceptions later
-        schedule_frame(f);
+    schedule_frame(f);
   out:
     kern_unlock();
     runloop();
