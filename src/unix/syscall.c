@@ -2066,9 +2066,6 @@ sysreturn exit_group(int status)
     threads_to_vector(current->p, v);
     spin_unlock(&p->threads_lock);
 
-    /* Set shutting_down to prevent other cpus from doing user work
-     * while threads are exiting */
-    shutting_down = true;
     vector_foreach(v, t)
             exit_thread(t);
     deallocate_vector(v);
@@ -2331,8 +2328,6 @@ static boolean debugsyscalls;
 
 void syscall_debug(context f)
 {
-    if (shutting_down || invalid_frame(f))
-        goto out;
     u64 call = f[FRAME_VECTOR];
     thread t = pointer_from_u64(f[FRAME_THREAD]);
     u64 arg0 = f[SYSCALL_FRAME_ARG0]; /* aliases retval on arm; cache arg */
@@ -2479,8 +2474,6 @@ static boolean syscall_defer;
 // some validation can be moved up here
 static void syscall_schedule(context f)
 {
-    if (shutting_down || invalid_frame(f))
-        runloop();
     /* kernel context set on syscall entry */
     if (!syscall_defer)
         kern_lock();

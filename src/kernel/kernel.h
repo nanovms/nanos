@@ -226,8 +226,7 @@ extern void interrupt_exit(void);
 extern char **state_strings;
 
 // static inline void schedule_frame(context f) stupid header deps
-#define invalid_frame(__f) ((__f) == INVALID_ADDRESS || (__f)[FRAME_RUN] == INVALID_PHYSICAL || (__f)[FRAME_QUEUE] == INVALID_PHYSICAL)
-#define schedule_frame(__f)  do { if (invalid_frame(__f)) break; assert((__f)[FRAME_QUEUE] != INVALID_PHYSICAL); assert(enqueue_irqsafe((queue)pointer_from_u64((__f)[FRAME_QUEUE]), pointer_from_u64((__f)[FRAME_RUN]))); } while(0)
+#define schedule_frame(__f)  do { assert((__f)[FRAME_QUEUE] != INVALID_PHYSICAL); assert(enqueue_irqsafe((queue)pointer_from_u64((__f)[FRAME_QUEUE]), pointer_from_u64((__f)[FRAME_RUN]))); } while(0)
 
 void kernel_unlock();
 
@@ -244,7 +243,6 @@ void detect_devices(kernel_heaps kh, storage_attach sa);
 extern vector shutdown_completions;
 typedef closure_type(shutdown_handler, void, int, merge);
 extern int shutdown_vector;
-extern boolean shutting_down;
 
 typedef closure_type(halt_handler, void, int);
 extern halt_handler vm_halt;
