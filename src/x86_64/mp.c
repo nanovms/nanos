@@ -38,6 +38,7 @@ void cpu_init(int cpu)
     write_msr(GS_MSR, addr);
     if (VVAR_REF(vdso_dat).platform_has_rdtscp)
         write_msr(TSC_AUX_MSR, cpu);    /* used by vdso_getcpu() */
+    init_syscall_handler();
 }
 
 static void __attribute__((noinline)) ap_new_stack()
@@ -58,7 +59,6 @@ static void __attribute__((noinline)) ap_new_stack()
     install_gdt64_and_tss(id);
     mp_debug(", enable apic");
     apic_enable();
-    init_syscall_handler();
     mp_debug(", clear ap lock, enable ints, start_callback\n");
     memory_barrier();
     ap_lock = 0;
