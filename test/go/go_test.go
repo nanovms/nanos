@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nanovms/ops/config"
 	"github.com/nanovms/ops/lepton"
 )
 
