@@ -7,14 +7,15 @@ import (
 	"os"
 	"sort"
 	"strings"
-	"time"
 	"testing"
+	"time"
 
-	"github.com/nanovms/ops/lepton"
+	"github.com/nanovms/ops/config"
+	"github.com/nanovms/ops/qemu"
 )
 
-func defaultConfig() lepton.Config {
-	var c lepton.Config
+func defaultConfig() config.Config {
+	var c config.Config
 
 	c.Boot = "../../output/test/go/boot.img"
 	c.Kernel = "../../output/test/go/kernel.img"
@@ -46,8 +47,8 @@ func sortString(s string) string {
 
 const START_WAIT_TIMEOUT = time.Second * 30
 
-func runAndWaitForString(rconfig *lepton.RunConfig, timeout time.Duration, text string, t *testing.T) lepton.Hypervisor {
-	hypervisor := lepton.HypervisorInstance()
+func runAndWaitForString(rconfig *config.RunConfig, timeout time.Duration, text string, t *testing.T) qemu.Hypervisor {
+	hypervisor := qemu.HypervisorInstance()
 	if hypervisor == nil {
 		t.Fatal("No hypervisor found on $PATH")
 	}
