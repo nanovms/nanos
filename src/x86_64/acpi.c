@@ -88,26 +88,27 @@ closure_function(1, 1, boolean, piix4acpi_probe,
     return true;
 }
 
-static void *map_acpi_table(kernel_heaps kh, u64 paddr, u64 plen)
+static void *map_acpi_table(kernel_heaps kh, u64 paddr)
 {
-    u64 off, base, len, v;
+    u64 off, base, alen, v;
     heap vh = (heap)heap_virtual_page(kh);
 
     off = paddr & PAGEMASK;
     base = paddr & ~PAGEMASK;
+    /* Allocate enough to guarantee reading of signature and table size (8 bytes) */
+    alen = pad(off + 8, PAGESIZE);
 again:
-    len = pad(paddr + plen - base, PAGESIZE);
-    v = allocate_u64(vh, len);
-    map(v, base, len, pageflags_memory());
+    v = allocate_u64(vh, alen);
+    map(v, base, alen, pageflags_memory());
     u32 *t = pointer_from_u64(v + off);
     u32 tlen = t[1]; /* length of table stored in the second u32 */
 
-    /* The table actual length may be longer than requested length,
+    /* The table actual length may be longer than allocated length,
      * so repeat the mapping process if necessary */
-    if (len - off < tlen) {
-        unmap(v, len);
-        deallocate_u64(vh, v, len);
-        plen = tlen;
+    if (alen - off < tlen) {
+        unmap(v, alen);
+        deallocate_u64(vh, v, alen);
+        alen = pad(off + tlen, PAGESIZE);
         goto again;
     }
     return pointer_from_u64(v + off);
@@ -162,7 +163,7 @@ static boolean find_rsdt(kernel_heaps kh)
     if (rsdt_pa == INVALID_PHYSICAL)
         goto out;
 found:
-    rsdt = map_acpi_table(kh, rsdt_pa, PAGESIZE);
+    rsdt = map_acpi_table(kh, rsdt_pa);
     if (runtime_memcmp(rsdt->h.sig, "RSDT", 4) != 0) {
         acpi_debug("%s: RSDT has invalid signature\n", __func__);
         rsdt = 0;
@@ -206,7 +207,7 @@ void init_acpi_tables(kernel_heaps kh)
         t = (u32 *)(rsdt + 1);
         te = pointer_from_u64(u64_from_pointer(rsdt) + rsdt->h.length);
         for (; t < te; t++) {
-            u32 *tp = map_acpi_table(kh, *t, PAGESIZE);
+            u32 *tp = map_acpi_table(kh, *t);
             table_set(acpi_tables, pointer_from_u64((u64)*tp), tp);
             acpi_debug("%s: mapped acpi table %.4s at %p", __func__, tp, tp);
         }
