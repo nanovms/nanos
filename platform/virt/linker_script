@@ -35,6 +35,7 @@ SECTIONS
         {
             vvar_page = .;
             __vdso_vdso_dat = vvar_page + 128;
+            . += 4096; /* reserve a page since the linker seems to discard this section */
         }
 
         .rodata ALIGN(4096): AT(ADDR(.rodata) - LOAD_OFFSET)

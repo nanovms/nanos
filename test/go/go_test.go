@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nanovms/ops/config"
 	"github.com/nanovms/ops/lepton"
 )
 
@@ -46,7 +47,7 @@ func prepareTestImage(finalImage string) {
 func TestArgsAndEnv(t *testing.T) {
 	const finalImage = "image"
 	prepareTestImage(finalImage)
-	rconfig := lepton.RuntimeConfig(finalImage, []string{"8080"}, true)
+	rconfig := config.RuntimeConfig(finalImage, []string{"8080"}, true)
 	hypervisor := runAndWaitForString(&rconfig, START_WAIT_TIMEOUT, "Server started", t)
 	defer hypervisor.Stop()
 
@@ -81,7 +82,7 @@ func TestArgsAndEnv(t *testing.T) {
 func TestFileSystem(t *testing.T) {
 	const finalImage = "image"
 	prepareTestImage(finalImage)
-	rconfig := lepton.RuntimeConfig(finalImage, []string{"8080"}, true)
+	rconfig := config.RuntimeConfig(finalImage, []string{"8080"}, true)
 	hypervisor := runAndWaitForString(&rconfig, START_WAIT_TIMEOUT, "Server started", t)
 	defer hypervisor.Stop()
 
@@ -100,7 +101,7 @@ func TestFileSystem(t *testing.T) {
 }
 
 func validateResponse(t *testing.T, finalImage string, expected string) {
-	rconfig := lepton.RuntimeConfig(finalImage, []string{"8080"}, true)
+	rconfig := config.RuntimeConfig(finalImage, []string{"8080"}, true)
 	hypervisor := runAndWaitForString(&rconfig, START_WAIT_TIMEOUT, "Server started", t)
 	defer hypervisor.Stop()
 
@@ -129,7 +130,7 @@ func TestInstancePersistence(t *testing.T) {
 func TestHTTP(t *testing.T) {
 	const finalImage = "image"
 	prepareTestImage(finalImage)
-	rconfig := lepton.RuntimeConfig(finalImage, []string{"8080"}, true)
+	rconfig := config.RuntimeConfig(finalImage, []string{"8080"}, true)
 	hypervisor := runAndWaitForString(&rconfig, START_WAIT_TIMEOUT, "Server started", t)
 	defer hypervisor.Stop()
 
