@@ -197,10 +197,9 @@ void *acpi_get_table(u32 sig)
     return table_find(acpi_tables, pointer_from_u64((u64)sig));
 }
 
-void init_acpi(kernel_heaps kh)
+void init_acpi_tables(kernel_heaps kh)
 {
     heap h = heap_general(kh);
-    register_pci_driver(closure(h, piix4acpi_probe, h));
     acpi_tables = allocate_table(h, identity_key, pointer_equal);
     if (find_rsdt(kh)) {
         u32 *t, *te;
@@ -212,4 +211,10 @@ void init_acpi(kernel_heaps kh)
             acpi_debug("%s: mapped acpi table %.4s at %p", __func__, tp, tp);
         }
     }
+}
+
+void init_acpi(kernel_heaps kh)
+{
+    heap h = heap_general(kh);
+    register_pci_driver(closure(h, piix4acpi_probe, h));
 }

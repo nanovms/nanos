@@ -1,9 +1,8 @@
 #include <kernel.h>
 #include <apic.h>
+#include <drivers/acpi.h>
 
-/* In theory, the MMIO base address of I/O APIC(s) should be retrieved from the
- * ACPI MADT, but in practice the first I/O APIC is usually at the address
- * below. */
+/* Fallback address for first I/O APIC if MADT is not found */
 #define IOAPIC_MEMBASE  0xFEC00000ull
 
 #define IOAPIC_IOREGSEL 0x00
@@ -26,6 +25,7 @@
 #endif
 
 static heap apic_heap;
+static u64 ioapic_membase;
 apic_iface apic_if;
 int apic_id_map[MAX_CPUS];
 
@@ -175,24 +175,85 @@ boolean ioapic_int_is_free(unsigned int gsi)
     return !!(ioapic_read(IOAPIC_REG_REDIR + 2 * gsi) & (1 << IOAPIC_INT_MASK));
 }
 
+int cpuid_from_apicid(u8 aid)
+{
+    for (int i = 0; i < present_processors; i++) {
+        if (aid == apic_id_map[i])
+            return i;
+    }
+    assert(0);
+}
+
+closure_function(2, 2, void, apic_madt_handler,
+                 kernel_heaps, kh, u8 *, pcnt,
+                 u8, type, void *, p)
+{
+    u8 *pcnt = bound(pcnt);
+
+    switch (type) {
+    case ACPI_MADT_LAPIC:
+        apic_debug("found xAPIC LAPIC entry\n");
+        acpi_lapic l = p;
+        /* XXX should eventually deal with online capable */
+        if (!(l->flags & MADT_LAPIC_ENABLED))
+            break;
+        apic_id_map[(*pcnt)++] = l->id;
+        if (apic_if)
+            break;
+        apic_debug("using xAPIC interface\n");
+        apic_if = &xapic_if;
+        /* This is to initialize, not detect */
+        xapic_if.detect(&xapic_if, bound(kh));
+        break;
+    case ACPI_MADT_LAPICx2:
+        apic_debug("found x2APIC LAPIC entry\n");
+        acpi_lapic_x2 lx2 = p;
+        /* XXX should eventually deal with online capable */
+        if (!(lx2->flags & MADT_LAPIC_ENABLED))
+            break;
+        apic_id_map[(*pcnt)++] = lx2->id & 0xff;
+        if (apic_if)
+            break;
+        apic_debug("using x2APIC interface\n");
+        apic_if = &x2apic_if;
+        break;
+    case ACPI_MADT_IOAPIC:
+        apic_debug("found IOAPIC entry\n");
+        acpi_ioapic io = p;
+        if (ioapic_membase)
+            break;
+        apic_debug("ioapic membase set to %lx\n", io->addr);
+        ioapic_membase = (u64)io->addr;
+        break;
+    }
+}
 void init_apic(kernel_heaps kh)
 {
     apic_heap = heap_general(kh);
-    apic_debug("detecting apic interface...\n");
-    if (x2apic_if.detect(&x2apic_if, kh)) {
-        apic_debug("using x2APIC interface\n");
-        apic_if = &x2apic_if;
-    } else if (xapic_if.detect(&xapic_if, kh)) {
-        apic_debug("using xAPIC interface\n");
-        apic_if = &xapic_if;
+    acpi_madt  madt = acpi_get_table(ACPI_SIG_MADT);
+    if (madt) {
+        apic_debug("walking MADT table...\n");
+        u8 pcnt = 0;
+        acpi_walk_madt(madt, stack_closure(apic_madt_handler, kh, &pcnt));
     } else {
-        halt("unable to initialize xapic interface, giving up\n");
+        apic_debug("MADT not found, detecting apic interface...\n");
+        if (x2apic_if.detect(&x2apic_if, kh)) {
+            apic_debug("using x2APIC interface\n");
+            apic_if = &x2apic_if;
+        } else if (xapic_if.detect(&xapic_if, kh)) {
+            apic_debug("using xAPIC interface\n");
+            apic_if = &xapic_if;
+        } else {
+            halt("unable to initialize xapic interface, giving up\n");
+        }
     }
+    if (!ioapic_membase)
+        ioapic_membase = IOAPIC_MEMBASE;
 
     lvt_err_irq = allocate_interrupt();
     assert(lvt_err_irq != INVALID_PHYSICAL);
 
     apic_per_cpu_init();
     apic_enable();
-    ioapic_init(kh, IOAPIC_MEMBASE);
+    ioapic_init(kh, ioapic_membase);
 }

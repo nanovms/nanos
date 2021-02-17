@@ -106,7 +106,9 @@ static inline void wait_for_interrupt(void)
 }
 
 void triple_fault(void) __attribute__((noreturn));
-void start_cpu(heap stackheap, int index, void (*ap_entry)());
+void start_cpu(int index);
+void allocate_apboot(heap stackheap, void (*ap_entry)());
+void deallocate_apboot(heap stackheap);
 void install_idt(void);
 
 #define IST_EXCEPTION 1

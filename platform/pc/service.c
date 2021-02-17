@@ -164,6 +164,7 @@ void vm_exit(u8 code)
 }
 
 u64 total_processors = 1;
+u64 present_processors = 1;
 
 #ifdef SMP_ENABLE
 /* Value comes from LDMXCSR instruction reference in Intel Architectures SDM */
@@ -187,16 +188,49 @@ static void new_cpu()
         kernel_sleep();
 }
 
+closure_function(0, 2, void, count_processors_handler,
+                 u8, type, void *, p)
+{
+    switch (type) {
+    case ACPI_MADT_LAPIC:
+        if (((acpi_lapic)p)->flags & MADT_LAPIC_ENABLED)
+            present_processors++;
+        break;
+    case ACPI_MADT_LAPICx2:
+        if (((acpi_lapic_x2)p)->flags & MADT_LAPIC_ENABLED)
+            present_processors++;
+        break;
+    }
+}
+
+static void count_processors()
+{
+    acpi_madt madt = acpi_get_table(ACPI_SIG_MADT);
+    if (madt) {
+        present_processors = 0;
+        acpi_walk_madt(madt, stack_closure(count_processors_handler));
+        init_debug("ACPI reports %d processors", present_processors);
+    } else {
+        present_processors = 1;
+        init_debug("ACPI MADT not found, default to 1 processor");
+    }
+    /* config override */
+    present_processors = MIN(present_processors, MAX_CPUS);
+}
+
 void start_secondary_cores(kernel_heaps kh)
 {
     memory_barrier();
+    count_processors();
     init_debug("init_mxcsr");
     init_mxcsr();
     init_debug("starting APs");
-    start_cpu(heap_backed(kh), TARGET_EXCLUSIVE_BROADCAST, new_cpu);
-    kernel_delay(milliseconds(200));   /* temp, til we check tables to know what we have */
-    init_debug("total CPUs %d\n", total_processors);
+    allocate_apboot(heap_backed(kh), new_cpu);
+    for (int i = 1; i < present_processors; i++)
+        start_cpu(i);
+    deallocate_apboot(heap_backed(kh));
     init_flush(heap_locked(kh));
+    init_debug("started %d total processors", total_processors);
 }
 #else
 void start_secondary_cores(kernel_heaps kh)

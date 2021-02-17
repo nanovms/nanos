@@ -3,6 +3,7 @@
 #include <region.h>
 #include <apic.h>
 #include <symtab.h>
+#include <drivers/acpi.h>
 
 //#define INT_DEBUG
 #ifdef INT_DEBUG
@@ -341,6 +342,9 @@ void init_interrupts(kernel_heaps kh)
 {
     heap general = heap_general(kh);
     cpuinfo ci = current_cpu();
+
+    /* Read ACPI tables for MADT access */
+    init_acpi_tables(kh);
 
     /* Exception handlers */
     handlers = allocate_zero(general, n_interrupt_vectors * sizeof(thunk));
