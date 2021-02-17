@@ -156,9 +156,10 @@ static boolean find_rsdt(kernel_heaps kh)
     edba_pa = (*(u16 *)(va + 0x40e))<<4;
     unmap(va, PAGESIZE);
     u64 edba_pa_map = edba_pa & ~PAGEMASK;
-    u64 edba_map_len = pad((edba_pa - edba_pa_map) + EDBA_SEARCH_LENGTH, PAGESIZE);
+    u64 edba_off = edba_pa & PAGEMASK;
+    u64 edba_map_len = pad(edba_off + EDBA_SEARCH_LENGTH, PAGESIZE);
     map(va, edba_pa_map, edba_map_len, pageflags_memory());
-    rsdt_pa = find_rsdt_addr(va + (edba_pa - edba_pa_map), EDBA_SEARCH_LENGTH);
+    rsdt_pa = find_rsdt_addr(va + edba_off, EDBA_SEARCH_LENGTH);
     unmap(va, edba_map_len);
     if (rsdt_pa == INVALID_PHYSICAL)
         goto out;
