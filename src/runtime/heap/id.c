@@ -305,7 +305,7 @@ static inline void set_next(id_heap i, u64 next)
     rangemap_foreach(i->ranges, n) {
         id_range r = (id_range)n;
         if (point_in_range(r->n.r, next))
-            r->next_bit = next;
+            r->next_bit = next - r->n.r.start;
         else if (r->n.r.start > next)
             r->next_bit = 0;
     }

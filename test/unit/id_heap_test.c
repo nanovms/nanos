@@ -235,6 +235,20 @@ static boolean alloc_gte_test(heap h)
         return false;
     }
     destroy_heap((heap)idh);
+
+    idh = create_id_heap(h, h, 1, 2, 1, false);
+    if (idh == INVALID_ADDRESS) {
+        msg_err("cannot create heap\n");
+        return false;
+    }
+    u64 id = id_heap_alloc_gte(idh, 1, 1);
+    if (id != 1) {
+        msg_err("allocation returned %ld, expecting 1\n", id);
+        return false;
+    }
+    deallocate_u64((heap)idh, id, 1);
+    destroy_heap((heap)idh);
+
     return true;
 }
 
