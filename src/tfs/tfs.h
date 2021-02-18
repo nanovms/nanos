@@ -105,6 +105,7 @@ tuple filesystem_getroot(filesystem fs);
 
 u64 fs_blocksize(filesystem fs);
 u64 fs_totalblocks(filesystem fs);
+u64 fs_usedblocks(filesystem fs);
 u64 fs_freeblocks(filesystem fs);
 
 extern const char *gitversion;
