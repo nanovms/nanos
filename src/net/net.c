@@ -71,10 +71,14 @@ void lwip_deallocate(void *x)
     deallocate(lwip_heap, x, -1ull);
 }
 
-void lwip_status_callback(struct netif *netif)
+static void lwip_ext_callback(struct netif* netif, netif_nsc_reason_t reason,
+                              const netif_ext_callback_args_t* args)
 {
-    u8 *n = (u8 *)&netif->ip_addr;
-    rprintf("assigned: %d.%d.%d.%d\n", n[0], n[1], n[2], n[3]);
+    if (reason & LWIP_NSC_IPV4_ADDRESS_CHANGED) {
+        u8 *n = (u8 *)&netif->ip_addr;
+        rprintf("%c%c%d: assigned %d.%d.%d.%d\n", netif->name[0], netif->name[1], netif->num,
+                n[0], n[1], n[2], n[3]);
+    }
 }
 
 u32_t lwip_rand(void)
@@ -212,4 +216,6 @@ void init_net(kernel_heaps kh)
     heap backed = heap_backed(kh);
     lwip_heap = allocate_mcache(h, backed, 5, MAX_LWIP_ALLOC_ORDER, PAGESIZE_2M);
     lwip_init();
+    NETIF_DECLARE_EXT_CALLBACK(netif_callback);
+    netif_add_ext_callback(&netif_callback, lwip_ext_callback);
 }

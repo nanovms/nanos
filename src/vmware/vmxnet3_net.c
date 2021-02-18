@@ -198,8 +198,6 @@ static void vmxnet3_check_version(vmxnet3_pci dev)
     pci_bar_write_4(&dev->bar1, VMXNET3_BAR1_UVRS, VMXNET3_UPT_VERSION);
 }
 
-void lwip_status_callback(struct netif *netif);
-
 static err_t vmxif_init(struct netif *netif)
 {
     vmxnet3 vn = netif->state;
@@ -210,7 +208,6 @@ static err_t vmxif_init(struct netif *netif)
     netif->output = etharp_output;
     netif->linkoutput = low_level_output;
     netif->hwaddr_len = ETHARP_HWADDR_LEN;
-    netif->status_callback = lwip_status_callback;
     vmxnet3_get_mac(vn);
     vmxnet3_net_debug("%s: hwaddr %02x:%02x:%02x:%02x:%02x:%02x\n",
         __func__,

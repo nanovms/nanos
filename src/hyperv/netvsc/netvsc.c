@@ -222,8 +222,6 @@ retry_send:
     return ERR_OK;
 }
 
-void lwip_status_callback(struct netif *netif);
-
 static err_t
 vmxif_init(struct netif *netif)
 {
@@ -234,7 +232,6 @@ vmxif_init(struct netif *netif)
     netif->output = etharp_output;
     netif->linkoutput = low_level_output;
     netif->hwaddr_len = ETHARP_HWADDR_LEN;
-    netif->status_callback = lwip_status_callback;
     netif->mtu = 1500;
 
     /* device capabilities */

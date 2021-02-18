@@ -1398,7 +1398,6 @@ error:
 
 static err_t ena_init(struct netif *netif)
 {
-    extern void lwip_status_callback(struct netif *netif);
     struct ena_adapter *adapter = netif->state;
 
     netif = &adapter->ifp;
@@ -1409,7 +1408,6 @@ static err_t ena_init(struct netif *netif)
     netif->output = etharp_output;
     netif->linkoutput = ena_linkoutput;
     netif->hwaddr_len = ETHARP_HWADDR_LEN;
-    netif->status_callback = lwip_status_callback;
     netif->mtu = sizeof(struct ip_hdr) + sizeof(struct tcp_hdr) + TCP_MSS;
     return ERR_OK;
 }

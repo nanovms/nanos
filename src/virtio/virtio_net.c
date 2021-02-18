@@ -231,8 +231,6 @@ static void post_receive(vnet vn)
     vqmsg_commit(vn->rxq, m, closure(vn->dev->general, input, x));
 }
 
-void lwip_status_callback(struct netif *netif);
-
 static err_t virtioif_init(struct netif *netif)
 {
     vnet vn = netif->state;
@@ -243,7 +241,6 @@ static err_t virtioif_init(struct netif *netif)
     netif->output = etharp_output;
     netif->linkoutput = low_level_output;
     netif->hwaddr_len = ETHARP_HWADDR_LEN;
-    netif->status_callback = lwip_status_callback;
     vtdev_cfg_read_mem(vn->dev, netif->hwaddr, ETHER_ADDR_LEN);
     virtio_net_debug("%s: hwaddr %02x:%02x:%02x:%02x:%02x:%02x\n",
         __func__,

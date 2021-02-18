@@ -68,7 +68,7 @@
 #define LWIP_NETIF_HOSTNAME 1
 #define MEMP_MEM_MALLOC 1
 typedef unsigned long size_t;
-#define LWIP_NETIF_STATUS_CALLBACK 1
+#define LWIP_NETIF_EXT_STATUS_CALLBACK  1
 #define LWIP_TIMERS 1
 #define LWIP_TIMERS_CUSTOM 1
 #define LWIP_DHCP_BOOTP_FILE 1
