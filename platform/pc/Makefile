@@ -53,6 +53,7 @@ SRCS-kernel.img= \
 	$(SRCDIR)/unix/io_uring.c \
 	$(SRCDIR)/unix/mktime.c \
 	$(SRCDIR)/unix/mmap.c \
+	$(SRCDIR)/unix/netlink.c \
 	$(SRCDIR)/unix/notify.c \
 	$(SRCDIR)/unix/poll.c \
 	$(SRCDIR)/unix/signal.c \

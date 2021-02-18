@@ -1,0 +1,7 @@
+(
+    children:(
+        netlink:(contents:(host:output/test/runtime/bin/netlink))
+    )
+    program:/netlink
+    environment:()
+)

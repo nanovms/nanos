@@ -1,0 +1,305 @@
+#include <errno.h>
+#include <ifaddrs.h>
+#include <linux/netlink.h>
+#include <linux/rtnetlink.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+#define test_assert(expr) do { \
+    if (!(expr)) { \
+        printf("Error: %s -- failed at %s:%d\n", #expr, __FILE__, __LINE__); \
+        exit(EXIT_FAILURE); \
+    } \
+} while (0)
+
+static int netlink_open(struct sockaddr_nl *nladdr, unsigned int pid)
+{
+    int fd;
+    socklen_t addr_len;
+
+    fd = socket(PF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
+    test_assert(fd >= 0);
+    memset(nladdr, '\0', sizeof(*nladdr));
+    nladdr->nl_pid = pid;
+    nladdr->nl_family = AF_NETLINK;
+    test_assert(bind(fd, (struct sockaddr *)nladdr, sizeof(*nladdr)) == 0);
+    addr_len = sizeof(*nladdr);
+    test_assert(getsockname(fd, (struct sockaddr *)nladdr, &addr_len) == 0);
+    test_assert(addr_len == sizeof(*nladdr));
+    return fd;
+}
+
+static void assert_resp(struct nlmsghdr *resp_hdr, unsigned int len, unsigned int type,
+                        unsigned int flags)
+{
+    test_assert(resp_hdr->nlmsg_len >= NLMSG_LENGTH(len));
+    test_assert(resp_hdr->nlmsg_type == type);
+    test_assert(resp_hdr->nlmsg_flags == flags);
+}
+
+static void recv_resp(int fd, struct msghdr *resp, unsigned int len, unsigned int type,
+                      unsigned int flags)
+{
+    int ret;
+    struct sockaddr_nl *addr = (struct sockaddr_nl *)resp->msg_name;
+
+    ret = recvmsg(fd, resp, 0);
+    test_assert(ret >= NLMSG_LENGTH(len));
+    test_assert(resp->msg_namelen == sizeof(*addr));
+    test_assert((addr->nl_family == AF_NETLINK) && (addr->nl_pid == 0));
+    assert_resp((struct nlmsghdr *)resp->msg_iov[0].iov_base, len, type, flags);
+}
+
+static void recv_resp_error(int fd, struct msghdr *resp, int err_number)
+{
+    int ret;
+    struct nlmsghdr *resp_hdr;
+    struct nlmsgerr *err;
+
+    ret = recvmsg(fd, resp, 0);
+    test_assert(ret >= NLMSG_LENGTH(sizeof(struct nlmsgerr)));
+    resp_hdr = (struct nlmsghdr *)resp->msg_iov[0].iov_base;
+    test_assert(resp_hdr->nlmsg_len >= NLMSG_LENGTH(sizeof(struct nlmsgerr)));
+    test_assert(resp_hdr->nlmsg_type == NLMSG_ERROR);
+    err = (struct nlmsgerr *)NLMSG_DATA(resp_hdr);
+    test_assert(err->error == -err_number);
+}
+
+static void test_basic(void)
+{
+    int fd;
+    struct ifaddrs *ifaddr, *ifa;
+    int inet_addrs = 0;
+
+    /* invalid socket type */
+    fd = socket(PF_NETLINK, SOCK_STREAM, NETLINK_ROUTE);
+    test_assert((fd == -1) && (errno == ESOCKTNOSUPPORT));
+
+    /* invalid protocol */
+    fd = socket(PF_NETLINK, SOCK_DGRAM, -1);
+    test_assert((fd == -1) && (errno == EPROTONOSUPPORT));
+
+    test_assert(getifaddrs(&ifaddr) == 0);
+    for (ifa = ifaddr; ifa; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr == NULL)
+            continue;
+        if (ifa->ifa_addr->sa_family == AF_INET)
+            inet_addrs++;
+    }
+    /* Expect at least an ethernet-like interface, plus the loopback interface. */
+    test_assert(inet_addrs >= 2);
+    freeifaddrs(ifaddr);
+}
+
+static void test_bind(void)
+{
+    int fd, fd1;
+    struct sockaddr_nl nladdr;
+    socklen_t addr_len;
+    int ret;
+
+    fd = socket(PF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
+    test_assert(fd >= 0);
+    memset(&nladdr, '\0', sizeof(nladdr));
+    ret = bind(fd, (struct sockaddr *)&nladdr, sizeof(nladdr)); /* invalid address family */
+    test_assert((ret == -1) && (errno == EINVAL));
+    nladdr.nl_family = AF_NETLINK;
+    ret = bind(fd, (struct sockaddr *)&nladdr, sizeof(nladdr) - 1); /* invalid address length */
+    test_assert((ret == -1) && (errno == EINVAL));
+    test_assert(bind(fd, (struct sockaddr *)&nladdr, sizeof(nladdr)) == 0);
+    addr_len = sizeof(nladdr);
+    test_assert(getsockname(fd, (struct sockaddr *)&nladdr, &addr_len) == 0);
+    test_assert(addr_len == sizeof(nladdr));
+
+    /* Try to bind to another address. */
+    nladdr.nl_pid++;
+    ret = bind(fd, (struct sockaddr *)&nladdr, sizeof(nladdr));
+    test_assert((ret == -1) && (errno == EINVAL));
+
+    /* Re-bind to the already bound address (no-op). */
+    nladdr.nl_pid--;
+    test_assert(bind(fd, (struct sockaddr *)&nladdr, sizeof(nladdr)) == 0);
+
+    /* Try to bind another socket to the same address. */
+    fd1 = socket(PF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
+    test_assert(fd1 >= 0);
+    ret = bind(fd1, (struct sockaddr *)&nladdr, sizeof(nladdr));
+    test_assert((ret == -1) && (errno == EADDRINUSE));
+    test_assert(close(fd1) == 0);
+
+    test_assert(close(fd) == 0);
+}
+
+static void test_getlink(void)
+{
+    int fd;
+    struct sockaddr_nl nladdr;
+    struct req {
+        struct nlmsghdr nlh;
+        struct ifinfomsg ifi;
+    } req;
+    uint8_t buf[4096];
+    struct iovec iov;
+    struct msghdr resp;
+    struct ifinfomsg *ifi;
+    int ret;
+
+    fd = netlink_open(&nladdr, 0);
+    memset(&req, '\0', sizeof(req));
+    req.nlh.nlmsg_type = RTM_GETLINK;
+    req.nlh.nlmsg_flags = NLM_F_REQUEST;
+    req.nlh.nlmsg_pid = nladdr.nl_pid;
+    req.nlh.nlmsg_seq = 1;
+    iov.iov_base = buf;
+    iov.iov_len = sizeof(buf);
+    resp.msg_name = &nladdr;
+    resp.msg_namelen =  sizeof(nladdr);
+    resp.msg_iov = &iov;
+    resp.msg_iovlen = 1;
+    resp.msg_control = NULL;
+    resp.msg_controllen = 0;
+    resp.msg_flags = 0;
+
+    /* non-allowed destination PID */
+    ret = sendto(fd, &req, sizeof(req), 0, (struct sockaddr *)&nladdr, sizeof(nladdr));
+    test_assert((ret == -1) && (errno == EPERM));
+    ret = sendmsg(fd, &resp, 0);
+    test_assert((ret == -1) && (errno == EPERM));
+
+    /* invalid address size */
+    nladdr.nl_pid = 0;
+    ret = sendto(fd, &req, sizeof(req), 0, (struct sockaddr *)&nladdr, sizeof(nladdr) - 1);
+    test_assert((ret == -1) && (errno == EINVAL));
+
+    /* invalid length in request header */
+    req.nlh.nlmsg_len = sizeof(req) - 1;
+    req.ifi.ifi_index = 1;
+    ret = sendto(fd, &req, sizeof(req), 0, (struct sockaddr *)&nladdr, sizeof(nladdr));
+    test_assert(ret == sizeof(req));
+    recv_resp_error(fd, &resp, EINVAL);
+
+    /* invalid interface index */
+    req.nlh.nlmsg_len = sizeof(req);
+    req.ifi.ifi_index = 0;
+    ret = sendto(fd, &req, sizeof(req), 0, (struct sockaddr *)&nladdr, sizeof(nladdr));
+    test_assert(ret == sizeof(req));
+    recv_resp_error(fd, &resp, EINVAL);
+
+    /* valid request */
+    req.ifi.ifi_index = 1;
+    ret = sendto(fd, &req, sizeof(req), 0, (struct sockaddr *)&nladdr, sizeof(nladdr));
+    test_assert(ret == sizeof(req));
+    recv_resp(fd, &resp, sizeof(struct ifinfomsg), RTM_NEWLINK, 0);
+    ifi = (struct ifinfomsg *)NLMSG_DATA(buf);
+    test_assert(ifi->ifi_index == req.ifi.ifi_index);
+
+    test_assert(close(fd) == 0);
+}
+
+static void test_getaddr(void)
+{
+    int fd;
+    struct sockaddr_nl nladdr;
+    struct req {
+        struct nlmsghdr nlh;
+        struct rtgenmsg msg;
+    } req;
+    uint8_t buf[4096];
+    struct iovec iov;
+    struct msghdr msg;
+    socklen_t addr_len;
+    struct ifaddrmsg *ifa;
+    int ret;
+
+    fd = netlink_open(&nladdr, 0);
+    nladdr.nl_pid = 0;
+    memset(&req, '\0', sizeof(req));
+    req.nlh.nlmsg_len = sizeof(req);
+    req.nlh.nlmsg_type = RTM_GETADDR;
+    req.nlh.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
+    req.nlh.nlmsg_pid = nladdr.nl_pid;
+    req.nlh.nlmsg_seq = 2;
+    iov.iov_base = buf;
+    msg.msg_name = &nladdr;
+    msg.msg_namelen =  sizeof(nladdr);
+    msg.msg_iov = &iov;
+    msg.msg_iovlen = 1;
+    msg.msg_control = NULL;
+    msg.msg_controllen = 0;
+    msg.msg_flags = 0;
+
+    req.msg.rtgen_family = AF_INET;
+    memcpy(iov.iov_base, &req, sizeof(req));
+    iov.iov_len = sizeof(req);
+    ret = sendmsg(fd, &msg, 0);
+    test_assert(ret == sizeof(req));
+    iov.iov_len = sizeof(buf);
+    recv_resp(fd, &msg, sizeof(struct ifaddrmsg), RTM_NEWADDR, NLM_F_MULTI);
+    ifa = (struct ifaddrmsg *)NLMSG_DATA(buf);
+    test_assert(ifa->ifa_family == AF_INET);
+
+    test_assert(close(fd) == 0);
+
+    fd = netlink_open(&nladdr, 0);
+    ret = send(fd, &req, sizeof(req), 0);
+    test_assert(ret == sizeof(req));
+    iov.iov_len = sizeof(struct nlmsghdr);  /* truncated response */
+    ret = recvmsg(fd, &msg, 0);
+    test_assert((ret == iov.iov_len) && (msg.msg_flags & MSG_TRUNC));
+    test_assert(close(fd) == 0);
+
+    fd = netlink_open(&nladdr, 0);
+    ret = send(fd, &req, sizeof(req), 0);
+    test_assert(ret == sizeof(req));
+    msg.msg_flags = 0;
+    ret = recvmsg(fd, &msg, MSG_TRUNC);    /* return non-truncated message length */
+    test_assert((ret > iov.iov_len) && (msg.msg_flags & MSG_TRUNC));
+    test_assert(close(fd) == 0);
+
+    fd = netlink_open(&nladdr, getpid());
+    ret = write(fd, &req, sizeof(req));
+    test_assert(ret == sizeof(req));
+    addr_len = 0;   /* Should be adjusted by recvfrom() to the actual address size. */
+    ret = recvfrom(fd, buf, sizeof(buf), 0, (struct sockaddr *)&nladdr, &addr_len);
+    test_assert(addr_len == sizeof(nladdr));
+    assert_resp((struct nlmsghdr *)buf, sizeof(struct ifaddrmsg), RTM_NEWADDR, NLM_F_MULTI);
+    test_assert(close(fd) == 0);
+
+    fd = netlink_open(&nladdr, getpid());
+    ret = write(fd, &req, sizeof(req));
+    test_assert(ret == sizeof(req));
+    memset(buf, 0, sizeof(buf));
+    ret = recvfrom(fd, buf, sizeof(buf), 0, (struct sockaddr *)&nladdr, &addr_len);
+    test_assert(ret >= NLMSG_LENGTH(sizeof(struct ifaddrmsg)));
+    test_assert(addr_len == sizeof(nladdr));
+    test_assert((nladdr.nl_family == AF_NETLINK) && (nladdr.nl_pid == 0));
+    assert_resp((struct nlmsghdr *)buf, sizeof(struct ifaddrmsg), RTM_NEWADDR, NLM_F_MULTI);
+    test_assert(close(fd) == 0);
+}
+
+static void test_nonblocking(void)
+{
+    int fd;
+    uint8_t buf[4096];
+    int ret;
+
+    fd = socket(PF_NETLINK, SOCK_RAW | SOCK_NONBLOCK, NETLINK_ROUTE);
+    test_assert(fd >= 0);
+    ret = read(fd, buf, sizeof(buf));
+    test_assert((ret == -1) && (errno == EAGAIN));
+    test_assert(close(fd) == 0);
+}
+
+int main(int argc, char *argv[])
+{
+    test_basic();
+    test_bind();
+    test_getlink();
+    test_getaddr();
+    test_nonblocking();
+    return 0;
+}

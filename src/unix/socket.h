@@ -112,3 +112,6 @@ static inline boolean validate_msghdr(const struct msghdr *mh, boolean write)
 }
 
 sysreturn unixsock_open(int type, int protocol);
+
+void netlink_init(void);
+sysreturn netlink_open(int type, int family);

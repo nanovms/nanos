@@ -1,4 +1,5 @@
 #define	ENOTSOCK	88	/* Socket operation on non-socket */
+#define	EPROTONOSUPPORT 93	/* Protocol not supported */
 #define	ESOCKTNOSUPPORT 94	/* Socket type not supported */
 #define	EPFNOSUPPORT	96	/* Protocol family not supported */
 #define	EAFNOSUPPORT	97	/* Address family not supported by protocol */
@@ -25,9 +26,15 @@ enum protocol_type {
 #define SOCK_TYPE_MASK	0xf
 #define __SOCK_SIZE__	16		/* sizeof(struct sockaddr)	*/
 
+#define AF_UNSPEC   0
 #define AF_UNIX 1
 #define AF_INET 2
 #define AF_INET6    10
+#define AF_NETLINK  16
+
+/* ARP protocol HARDWARE identifiers */
+#define ARPHRD_ETHER    1
+#define ARPHRD_LOOPBACK 772
 
 #define MSG_OOB         0x00000001
 #define MSG_DONTROUTE   0x00000004

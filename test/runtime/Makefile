@@ -21,6 +21,7 @@ PROGRAMS= \
 	io_uring \
 	mkdir \
 	mmap \
+	netlink \
 	netsock \
 	nullpage \
 	paging \
@@ -136,6 +137,11 @@ SRCS-mkdir= \
 	$(CURDIR)/mkdir.c \
 	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-mkdir=		-static
+
+SRCS-netlink= \
+	$(CURDIR)/netlink.c \
+	$(SRCDIR)/unix_process/ssp.c
+LDFLAGS-netlink=	-static
 
 SRCS-netsock= \
 	$(CURDIR)/netsock.c \
