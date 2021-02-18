@@ -257,6 +257,14 @@ static inline boolean set_area(id_heap i, u64 base, u64 length, boolean validate
     boolean fail = false;
     rmnode_handler nh = stack_closure(set_intersection, q, &fail, validate, allocate);
     boolean result = rangemap_range_lookup(i->ranges, q, nh);
+    if (validate && !fail) {
+        if (allocate) {
+            i->allocated += length;
+        } else {
+            assert(i->allocated >= length);
+            i->allocated -= length;
+        }
+    }
     return result && !fail;
 }
 
