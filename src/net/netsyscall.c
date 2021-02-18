@@ -23,13 +23,6 @@
 #define SIOCGIFADDR 0x8915
 #define SIOCGIFNETMASK  0x891B
 
-#define IFF_UP          (1 << 0)
-#define IFF_BROADCAST   (1 << 1)
-#define IFF_LOOPBACK    (1 << 3)
-#define IFF_RUNNING     (1 << 6)
-#define IFF_NOARP       (1 << 7)
-#define IFF_MULTICAST   (1 << 12)
-
 #define IFNAMSIZ    16
 
 #define resolve_socket(__p, __fd) ({fdesc f = resolve_fd(__p, __fd); \
@@ -146,6 +139,7 @@ static sysreturn netsock_connect(struct sock *sock, struct sockaddr *addr,
         socklen_t addrlen);
 static sysreturn netsock_accept4(struct sock *sock, struct sockaddr *addr,
         socklen_t *addrlen, int flags);
+static sysreturn netsock_getsockname(struct sock *sock, struct sockaddr *addr, socklen_t *addrlen);
 static sysreturn netsock_sendto(struct sock *sock, void *buf, u64 len,
         int flags, struct sockaddr *dest_addr, socklen_t addrlen);
 static sysreturn netsock_recvfrom(struct sock *sock, void *buf, u64 len,
@@ -736,12 +730,7 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
                     netif = netif->next) {
                 if (netif_is_up(netif) && netif_is_link_up(netif) &&
                         !ip4_addr_isany(netif_ip4_addr(netif))) {
-                    runtime_memcpy(ifconf->ifc.ifc_req[iface].ifr_name,
-                            netif->name, sizeof(netif->name));
-                    ifconf->ifc.ifc_req[iface].ifr_name[sizeof(netif->name)] =
-                            '0' + netif->num;
-                    ifconf->ifc.ifc_req[iface].ifr_name[sizeof(netif->name) + 1]
-                             = '\0';
+                    netif_name_cpy(ifconf->ifc.ifc_req[iface].ifr_name, netif);
                     struct sockaddr_in *addr = (struct sockaddr_in *)
                             &ifconf->ifc.ifc_req[iface].ifr.ifr_addr;
                     addr->family = AF_INET;
@@ -763,19 +752,7 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
         if (!netif) {
             return -ENODEV;
         }
-        ifreq->ifr.ifr_flags = 0;
-        if (netif_is_up(netif))
-            ifreq->ifr.ifr_flags |= IFF_UP;
-        if (netif->flags & NETIF_FLAG_BROADCAST)
-            ifreq->ifr.ifr_flags |= IFF_BROADCAST;
-        if ((ifreq->ifr_name[0] == 'l') && (ifreq->ifr_name[1] == 'o'))
-            ifreq->ifr.ifr_flags |= IFF_LOOPBACK;
-        if (netif_is_link_up(netif))
-            ifreq->ifr.ifr_flags |= IFF_RUNNING;
-        if (!(netif->flags & NETIF_FLAG_ETHARP))
-            ifreq->ifr.ifr_flags |= IFF_NOARP;
-        if (netif->flags & NETIF_FLAG_IGMP)
-            ifreq->ifr.ifr_flags |= IFF_MULTICAST;
+        ifreq->ifr.ifr_flags = ifflags_from_netif(netif);
         return 0;
     }
     case SIOCGIFADDR: {
@@ -986,6 +963,7 @@ static int allocate_sock(process p, int af, int type, u32 flags, netsock *rs)
     s->sock.listen = netsock_listen;
     s->sock.connect = netsock_connect;
     s->sock.accept4 = netsock_accept4;
+    s->sock.getsockname = netsock_getsockname;
     s->sock.sendto = netsock_sendto;
     s->sock.recvfrom = netsock_recvfrom;
     s->sock.sendmsg = netsock_sendmsg;
@@ -1302,16 +1280,6 @@ sysreturn connect(int sockfd, struct sockaddr *addr, socklen_t addrlen)
     }
     return sock->connect(sock, addr, addrlen);
 }
-
-#define MSG_OOB         0x00000001
-#define MSG_DONTROUTE   0x00000004
-#define MSG_PROBE       0x00000010
-#define MSG_TRUNC       0x00000020
-#define MSG_DONTWAIT    0x00000040
-#define MSG_EOR         0x00000080
-#define MSG_CONFIRM     0x00000800
-#define MSG_NOSIGNAL    0x00004000
-#define MSG_MORE        0x00008000
 
 static sysreturn sendto_prepare(struct sock *sock, int flags)
 {
@@ -1784,16 +1752,9 @@ sysreturn accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
     return accept4(sockfd, addr, addrlen, 0);
 }
 
-sysreturn getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
+static sysreturn netsock_getsockname(struct sock *sock, struct sockaddr *addr, socklen_t *addrlen)
 {
-    net_debug("sock %d, addr %p, addrlen %p\n", sockfd, addr, addrlen);
-    if (!validate_user_memory(addrlen, sizeof(socklen_t), true) ||
-        !validate_user_memory(addr, *addrlen, true))
-        return -EFAULT;
-    struct sock *sock = resolve_socket(current->p, sockfd);
     netsock s = get_netsock(sock);
-    if (!s)
-        return -EOPNOTSUPP;
     ip_addr_t *ip_addr;
     u16_t port;
     if (s->sock.type == SOCK_STREAM) {
@@ -1808,6 +1769,18 @@ sysreturn getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
     }
     addrport_to_sockaddr(s->sock.domain, ip_addr, port, addr, addrlen);
     return 0;
+}
+
+sysreturn getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
+{
+    net_debug("sock %d, addr %p, addrlen %p\n", sockfd, addr, addrlen);
+    if (!validate_user_memory(addrlen, sizeof(socklen_t), true) ||
+        !validate_user_memory(addr, *addrlen, true))
+        return -EFAULT;
+    struct sock *sock = resolve_socket(current->p, sockfd);
+    if (!sock->getsockname)
+        return -EOPNOTSUPP;
+    return sock->getsockname(sock, addr, addrlen);
 }
 
 sysreturn getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen)

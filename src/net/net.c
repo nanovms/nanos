@@ -2,6 +2,14 @@
 #include <lwip.h>
 #include <lwip/priv/tcp_priv.h>
 
+/* Network interface flags */
+#define IFF_UP          (1 << 0)
+#define IFF_BROADCAST   (1 << 1)
+#define IFF_LOOPBACK    (1 << 3)
+#define IFF_RUNNING     (1 << 6)
+#define IFF_NOARP       (1 << 7)
+#define IFF_MULTICAST   (1 << 12)
+
 static heap lwip_heap;
 
 /* Pretty silly. LWIP offers lwip_cyclic_timers for use elsewhere, but
@@ -134,6 +142,31 @@ struct netif *netif_get_default(void)
     return netif_default;
 }
 KLIB_EXPORT(netif_get_default);
+
+u16 ifflags_from_netif(struct netif *netif)
+{
+    u16 flags = 0;
+    if (netif_is_up(netif))
+        flags |= IFF_UP;
+    if (netif->flags & NETIF_FLAG_BROADCAST)
+        flags |= IFF_BROADCAST;
+    if (netif_is_loopback(netif))
+        flags |= IFF_LOOPBACK;
+    if (netif_is_link_up(netif))
+        flags |= IFF_RUNNING;
+    if (!(netif->flags & NETIF_FLAG_ETHARP))
+        flags |= IFF_NOARP;
+    if (netif->flags & NETIF_FLAG_IGMP)
+        flags |= IFF_MULTICAST;
+    return flags;
+}
+
+void netif_name_cpy(char *dest, struct netif *netif)
+{
+    runtime_memcpy(dest, netif->name, sizeof(netif->name));
+    dest[sizeof(netif->name)] = '0' + netif->num;
+    dest[sizeof(netif->name) + 1] = '\0';
+}
 
 KLIB_EXPORT(ipaddr_ntoa);
 KLIB_EXPORT(dns_gethostbyname);

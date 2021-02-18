@@ -29,6 +29,15 @@ enum protocol_type {
 #define AF_INET 2
 #define AF_INET6    10
 
+#define MSG_OOB         0x00000001
+#define MSG_DONTROUTE   0x00000004
+#define MSG_PROBE       0x00000010
+#define MSG_TRUNC       0x00000020
+#define MSG_DONTWAIT    0x00000040
+#define MSG_EOR         0x00000080
+#define MSG_CONFIRM     0x00000800
+#define MSG_NOSIGNAL    0x00004000
+#define MSG_MORE        0x00008000
 
 // tuplify
 #define SOCK_NONBLOCK 00004000
