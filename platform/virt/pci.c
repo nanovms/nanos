@@ -29,7 +29,7 @@ u32 pci_cfgread(pci_dev dev, int reg, int bytes)
     u32 data = -1;
     void *base = dev_base_pointer(PCIE_ECAM)
         + (dev->bus << 20) + (dev->slot << 15) + (dev->function << 12) + reg;
-    pci_plat_debug("%s: dev %p, bus %d, reg %d, bytes %d, base 0x%lx\n", __func__,
+    pci_plat_debug("%s:  dev %p, bus %d, reg 0x%02x, bytes %d, base 0x%lx: ", __func__,
               dev, dev->bus, reg, bytes, base);
     switch (bytes) {
     case 1:
@@ -42,7 +42,7 @@ u32 pci_cfgread(pci_dev dev, int reg, int bytes)
         data = *(u32*)base;
         break;
     }
-    pci_plat_debug("...data = 0x%x\n", data);
+    pci_plat_debug("0x%x\n", data);
     return data;
 }
 
@@ -50,8 +50,8 @@ void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
 {
     void *base = dev_base_pointer(PCIE_ECAM)
         + (dev->bus << 20) + (dev->slot << 15) + (dev->function << 12) + reg;
-    pci_plat_debug("%s: dev %p, bus %d, reg %d, bytes %d, base 0x%lx, source 0x%x\n", __func__,
-              dev, dev->bus, reg, bytes, base, source);
+    pci_plat_debug("%s: dev %p, bus %d, reg 0x%02x, bytes %d, base 0x%lx= 0x%x\n",
+                   __func__, dev, dev->bus, reg, bytes, base, source);
     switch (bytes) {
     case 1:
         *(u8*)base = source;
@@ -63,47 +63,39 @@ void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
         *(u32*)base = source;
         break;
     }
-    pci_plat_debug("...done\n");
 }
 
-u8 pci_bar_read_1(struct pci_bar *b, u64 offset)
-{
-    return b->type == PCI_BAR_MEMORY ? *(u8 *) (b->vaddr + offset) : pio_in8(b->addr + offset);
-}
+#define MK_PCI_BAR_READ(N, SIZE)                                        \
+    u##SIZE pci_bar_read_##N(struct pci_bar *b, u64 offset)             \
+    {                                                                   \
+        pci_plat_debug("%s:  bar %p, %s + offset 0x%lx: ", __func__, b, \
+                       b->type == PCI_BAR_MEMORY ? "memory, vaddr" : "ioport, port addr", \
+                       (b->type == PCI_BAR_MEMORY ? u64_from_pointer(b->vaddr) : b->addr) + offset); \
+        u##SIZE rv = b->type == PCI_BAR_MEMORY ? *(u##SIZE *) (b->vaddr + offset) : \
+            pio_in##SIZE(b->addr + offset);                             \
+        pci_plat_debug("0x%x\n", rv);                                   \
+        return rv;                                                      \
+    }
 
-void pci_bar_write_1(struct pci_bar *b, u64 offset, u8 val)
-{
-    if (b->type == PCI_BAR_MEMORY)
-        *(u8 *) (b->vaddr + offset) = val;
-    else
-        pio_out8(b->addr + offset, val);
-}
+#define MK_PCI_BAR_WRITE(N, SIZE)                                       \
+    void pci_bar_write_##N(struct pci_bar *b, u64 offset, u##SIZE val)  \
+    {                                                                   \
+        pci_plat_debug("%s: bar %p, %s + offset 0x%lx= 0x%x\n", __func__, b, \
+                       b->type == PCI_BAR_MEMORY ? "memory, vaddr" : "ioport, port addr", \
+                       (b->type == PCI_BAR_MEMORY ? u64_from_pointer(b->vaddr) : b->addr) + offset, val); \
+        if (b->type == PCI_BAR_MEMORY)                                  \
+            *(u##SIZE *)(b->vaddr + offset) = val;                      \
+        else                                                            \
+            pio_out##SIZE(b->addr + offset, val);                       \
+    }
 
-u16 pci_bar_read_2(struct pci_bar *b, u64 offset)
-{
-    return b->type == PCI_BAR_MEMORY ? *(u16 *) (b->vaddr + offset) : pio_in16(b->addr + offset);
-}
+MK_PCI_BAR_READ(1, 8)
+MK_PCI_BAR_READ(2, 16)
+MK_PCI_BAR_READ(4, 32)
 
-void pci_bar_write_2(struct pci_bar *b, u64 offset, u16 val)
-{
-    if (b->type == PCI_BAR_MEMORY)
-        *(u16 *) (b->vaddr + offset) = val;
-    else
-        pio_out16(b->addr + offset, val);
-}
-
-u32 pci_bar_read_4(struct pci_bar *b, u64 offset)
-{
-    return b->type == PCI_BAR_MEMORY ? *(u32 *) (b->vaddr + offset) : pio_in32(b->addr + offset);
-}
-
-void pci_bar_write_4(struct pci_bar *b, u64 offset, u32 val)
-{
-    if (b->type == PCI_BAR_MEMORY)
-        *(u32 *) (b->vaddr + offset) = val;
-    else
-        pio_out32(b->addr + offset, val);
-}
+MK_PCI_BAR_WRITE(1, 8)
+MK_PCI_BAR_WRITE(2, 16)
+MK_PCI_BAR_WRITE(4, 32)
 
 void pci_setup_non_msi_irq(pci_dev dev, int idx, thunk h, const char *name)
 {

@@ -157,6 +157,7 @@ closure_function(1, 3, void, storage_write,
                  storage, st,
                  void *, source, range, blocks, status_handler, s)
 {
+    virtio_blk_debug("%s: source %p, range %R, handler %p (%F)\n", __func__, source, blocks, s, s);
     storage_rw_internal(bound(st), true, source, blocks, s);
 }
 
@@ -164,6 +165,7 @@ closure_function(1, 3, void, storage_read,
                  storage, st,
                  void *, target, range, blocks, status_handler, s)
 {
+    virtio_blk_debug("%s: target %p, range %R, handler %p (%F)\n", __func__, target, blocks, s, s);
     storage_rw_internal(bound(st), false, target, blocks, s);
 }
 

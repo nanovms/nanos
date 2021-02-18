@@ -167,7 +167,7 @@ void init_gic(void)
     gic_debug("%s: iidr 0x%x (version %d)\n", __func__, iidr, version);
     gicc_v3_iface = version >= 3;
 #endif
-    gicc_v3_iface = true;
+    gicc_v3_iface = false;
     if (gicc_v3_iface) {
         u64 icc_ctlr = read_psr_s(ICC_CTLR_EL1);
         gic_intid_mask = (field_from_u64(icc_ctlr, ICC_CTLR_EL1_IDbits) ==

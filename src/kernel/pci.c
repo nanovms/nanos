@@ -1,5 +1,6 @@
 #include <kernel.h>
 #include <pci.h>
+#include <gic.h> // XXX tmp
 
 //#define PCI_DEBUG
 #ifdef PCI_DEBUG
@@ -123,13 +124,18 @@ int pci_get_msix_count(pci_dev dev)
 
 int pci_enable_msix(pci_dev dev)
 {
+    pci_debug("%s: dev %p\n", __func__, dev);
     u32 cp = pci_find_cap(dev, PCIY_MSIX);
     if (cp == 0)
         return 0;
+    pci_debug("MSIX cap found at 0x%x\n", cp);
 
     // map MSI-X table
     u32 msix_table = pci_cfgread(dev, cp + 4, 4);
-    pci_bar_init(dev, &dev->msix_bar, msix_table & 0x7, msix_table & ~0x7, -1);
+    int bar = msix_table & 0x7;
+    bytes offset = msix_table & ~0x7;
+    pci_cfgwrite(dev, PCIR_BAR(bar), 4, 0x10040000 + (dev->slot << 12));
+    pci_bar_init(dev, &dev->msix_bar, bar, offset, -1);
     pci_debug("%s: msix_config.msix_table 0x%x, msix_table %p\n", __func__,
               msix_table, dev->msix_bar.vaddr);
 
@@ -144,15 +150,22 @@ int pci_enable_msix(pci_dev dev)
 
 void msi_format(u32 *address, u32 *data, int vector)
 {
-    u32 dm = 0;             // destination mode: ignored if rh == 0
-    u32 rh = 0;             // redirection hint: 0 - disabled
-    u32 destination = 0;    // destination APIC
-    *address = (0xfee << 20) | (destination << 12) | (rh << 3) | (dm << 2);
+#if 0 // XXX test, need another plat init
+    u64 typer = *(u32*)(dev_base_pointer(GIC_V2M) + GIC_V2M_MSI_TYPER);
+    u16 base = field_from_u64(typer, GIC_V2M_MSI_TYPER_BASE);
+    rprintf("%s: typer 0x%lx, base %d\n", __func__, typer, base);
+#endif
+//    u32 dm = 0;             // destination mode: ignored if rh == 0
+//    u32 rh = 0;             // redirection hint: 0 - disabled
+//    u32 destination = 0;    // destination APIC
+//    *address = (0xfee << 20) | (destination << 12) | (rh << 3) | (dm << 2);
+    *address = 0x08020040; // v2m + V2M_MSI_SETSPI_NS
 
-    u32 mode = 0;           // delivery mode: 000 fixed, 001 lowest, 010 smi, 100 nmi, 101 init, 111 extint
-    u32 level = 0;          // trigger level: 0 - deassert, 1 - assert
-    u32 trigger = 0;        // trigger mode: 0 - edge, 1 - level
-    *data = (trigger << 15) | (level << 14) | (mode << 8) | vector;
+//    u32 mode = 0;           // delivery mode: 000 fixed, 001 lowest, 010 smi, 100 nmi, 101 init, 111 extint
+//    u32 level = 0;          // trigger level: 0 - deassert, 1 - assert
+//    u32 trigger = 0;        // trigger mode: 0 - edge, 1 - level
+//    *data = (trigger << 15) | (level << 14) | (mode << 8) | vector;
+    *data = vector; // XXX
 }
 
 void pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name)
@@ -162,14 +175,15 @@ void pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name)
     u32 *msix_table = pci_msix_table(dev);
     pci_debug("%s: msix_table %p, msi %d: int %d, %s\n", __func__, msix_table, msi_slot, v, name);
 
+    // XXX store num_entries
+
     u32 a, d;
-    u32 vector_control = 0;
     msi_format(&a, &d, v);
 
     msix_table[msi_slot*4] = a;
     msix_table[msi_slot*4 + 1] = 0;
     msix_table[msi_slot*4 + 2] = d;
-    msix_table[msi_slot*4 + 3] = vector_control;
+    msix_table[msi_slot*4 + 3] = 0; /* vector control */
 }
 
 void pci_teardown_msix(pci_dev dev, int msi_slot)
@@ -268,15 +282,12 @@ pci_probe_bus(int bus)
     for (int i = 0; i <= PCI_SLOTMAX; i++) {
         struct pci_dev _dev = { .bus = bus, .slot = i, .function = 0 };
         pci_dev dev = &_dev;
-
-        pci_debug("%s: begin probe for slot %d\n", __func__, i);
         pci_probe_device(dev);
 
         // check multifunction devices
         if (pci_get_hdrtype(dev) & PCIM_MFDEV) {
             for (int f = 1; f <= PCI_FUNCMAX; f++) {
                 dev->function = f;
-                pci_debug("%s:    begin probe for fn %d\n", __func__, f);
                 pci_probe_device(dev);
             }
         }

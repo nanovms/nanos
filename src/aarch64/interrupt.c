@@ -9,7 +9,6 @@
 #define int_debug(x, ...)
 #endif
 
-#define INTERRUPT_VECTOR_START 32 /* end of exceptions; defined by architecture */
 #define MAX_INTERRUPT_VECTORS  256 /* as defined by architecture; we may have less */
 
 typedef struct inthandler {
@@ -52,7 +51,7 @@ void print_frame(context f)
     u64 v = f[FRAME_VECTOR];
     rputs(" interrupt: ");
     print_u64(v);
-    if (v < INTERRUPT_VECTOR_START) {
+    if (v < GIC_SPI_INTS_START) {
         list_foreach(&handlers[v], l) {
             inthandler h = struct_from_list(l, inthandler, l);
             rputs(" (");
@@ -233,8 +232,8 @@ void irq_handler(void)
                   ci->id, i, state_strings[ci->state], f[FRAME_EL],
                   f, f[FRAME_ELR], f[FRAME_ESR_SPSR]);
 
-        if (i >= MAX_INTERRUPT_VECTORS)
-            halt("dispatched interrupt %d exceeds MAX_INTERRUPT_VECTORS\n", i);
+        if (i >= GIC_MAX_INT)
+            halt("dispatched interrupt %d exceeds GIC_MAX_INT\n", i);
 
         if (list_empty(&handlers[i]))
             halt("no handler for interrupt %d\n", i);
@@ -271,7 +270,6 @@ void invalid_handler(void)
 static id_heap interrupt_vector_heap;
 static heap int_general;
 
-/* XXX TODO: no-op on non-MSI platform? */
 u64 allocate_interrupt(void)
 {
     return allocate_u64((heap)interrupt_vector_heap, 1);
@@ -287,6 +285,12 @@ boolean reserve_interrupt(u64 irq)
     return id_heap_set_area(interrupt_vector_heap, irq, 1, true, true);
 }
 
+/* XXX interface rework in order here:
+   - gic-specific setup should go through platform code
+   - we're beginning to have to deal with different classes of vectors,
+     e.g. MSI, PPI vs SPI etc.
+     - maybe fine to assume that allocating an interrupt
+   */
 void register_interrupt(int vector, thunk t, const char *name)
 {
     boolean initialized = !list_empty(&handlers[vector]);
@@ -301,6 +305,8 @@ void register_interrupt(int vector, thunk t, const char *name)
 
     if (!initialized) {
         gic_set_int_priority(vector, 0);
+        if (vector > 80) // XXX plat
+            gic_set_int_config(vector, GICD_ICFGR_EDGE);
         gic_clear_pending_int(vector);
         gic_enable_int(vector);
     }
@@ -333,13 +339,14 @@ closure_struct(arm_timer, _timer);
 void init_interrupts(kernel_heaps kh)
 {
     int_general = heap_locked(kh);
-    handlers = allocate_zero(int_general, MAX_INTERRUPT_VECTORS * sizeof(handlers[0]));
+    handlers = allocate_zero(int_general, GIC_MAX_INT * sizeof(handlers[0]));
     assert(handlers != INVALID_ADDRESS);
-    for (int i = 0; i < MAX_INTERRUPT_VECTORS; i++)
+    for (int i = 0; i < GIC_MAX_INT; i++)
         list_init(&handlers[i]);
 
-    interrupt_vector_heap = create_id_heap(int_general, int_general, INTERRUPT_VECTOR_START,
-                                           MAX_INTERRUPT_VECTORS - INTERRUPT_VECTOR_START, 1, false);
+    interrupt_vector_heap = create_id_heap(int_general, int_general, //GIC_SPI_INTS_START,
+                                           80, // XXX plat - source from v2m TYPER
+                                           GIC_SPI_INTS_END - GIC_SPI_INTS_START, 1, false);
     assert(interrupt_vector_heap != INVALID_ADDRESS);
 
     /* set exception vector table base */
